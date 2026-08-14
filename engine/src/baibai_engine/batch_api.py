@@ -42,18 +42,29 @@ from baibai_engine.macro.indicators.service import (
     LATEST_FETCH_LOOKBACK_DAYS,
 )
 from baibai_engine.market.lake.keys import (
-    current_l1_pointer_key as lake_current_l1_pointer_key,
+    current_calibration_bundle_pointer_key as lake_current_calibration_bundle_pointer_key,
 )
 from baibai_engine.market.lake.keys import (
-    current_l2_pointer_key as lake_current_l2_pointer_key,
+    current_l1_pointer_key as lake_current_l1_pointer_key,
 )
 from baibai_engine.market.lake.keys import dataset_manifest_key as lake_dataset_manifest_key
 from baibai_engine.market.lake.keys import release_manifest_key as lake_release_manifest_key
+from baibai_engine.market.lake.models import (
+    CalibrationBundleManifest,
+    CalibrationBundlePointer,
+    CalibrationBundleRef,
+    CalibrationInputManifest,
+    CalibrationInputSourceRef,
+    load_lake_model_json,
+)
 from baibai_engine.market.lake.models import DatasetManifest as LakeDatasetManifest
+from baibai_engine.market.lake.models import RawArchiveMetadata as LakeRawArchiveMetadata
+from baibai_engine.market.lake.models import RawIngestSourceRef as LakeRawIngestSourceRef
 from baibai_engine.market.lake.models import ReleaseManifest as LakeReleaseManifest
-from baibai_engine.market.lake.raw import RawArchiveMetadata as LakeRawArchiveMetadata
+from baibai_engine.market.lake.models import SQLiteSnapshotSourceRef as LakeSQLiteSnapshotSourceRef
+from baibai_engine.market.lake.models import validate_release_policy as validate_lake_release_policy
 from baibai_engine.market.lake.release import L1ReleasePointer, canonical_json_bytes
-from baibai_engine.market.lake.retention import L2DatasetPointer as LakeL2DatasetPointer
+from baibai_engine.market.lake.sources import resolve_source_ref as resolve_lake_source_ref
 from baibai_engine.market.sqlite import open_connection as open_market_store
 from baibai_engine.market.sqlite.schema import (
     EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
@@ -67,6 +78,10 @@ from baibai_engine.market.sqlite.schema import (
 )
 from baibai_engine.market.sqlite.schema import (
     validate_current_schema as validate_market_schema,
+)
+from baibai_engine.market.sqlite.snapshot import create_snapshot as create_market_snapshot
+from baibai_engine.screening.calibration.lake import (
+    canonical_manifest_bytes,
 )
 from baibai_engine.screening.run_store.migrations import RUN_STORE_SCHEMA_VERSION
 
@@ -87,31 +102,42 @@ __all__ = [
     "RUNS_DB_PATH",
     "RUN_STORE_SCHEMA_VERSION",
     "STORE_LAYOUT_MAPPINGS",
+    "CalibrationBundleManifest",
+    "CalibrationBundlePointer",
+    "CalibrationBundleRef",
+    "CalibrationInputManifest",
+    "CalibrationInputSourceRef",
     "IndicatorDefinitions",
     "IndicatorsSchemaError",
     "L1ReleasePointer",
     "LakeDatasetManifest",
-    "LakeL2DatasetPointer",
     "LakeRawArchiveMetadata",
+    "LakeRawIngestSourceRef",
     "LakeReleaseManifest",
+    "LakeSQLiteSnapshotSourceRef",
     "LegacyStorePathError",
     "MacroContextDocument",
     "MarketSchemaError",
     "canonical_json_bytes",
+    "canonical_manifest_bytes",
     "cited_series_ids",
     "connect_read_only",
+    "create_market_snapshot",
     "database_path",
+    "lake_current_calibration_bundle_pointer_key",
     "lake_current_l1_pointer_key",
-    "lake_current_l2_pointer_key",
     "lake_dataset_manifest_key",
     "lake_release_manifest_key",
     "load_definitions",
+    "load_lake_model_json",
     "monitoring_condition_series_ids",
     "open_macro_store",
     "open_market_store",
     "parse_refresh_failure_count",
     "reject_legacy_store_paths",
+    "resolve_lake_source_ref",
     "scorecard_series_ids",
+    "validate_lake_release_policy",
     "validate_macro_schema",
     "validate_market_schema",
 ]

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
-from datetime import date
+import sqlite3
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -10,63 +12,124 @@ import yaml
 from pydantic import ValidationError
 
 from baibai_engine.cli import DOMAINS
+from baibai_engine.market.lake import models as lake_models
 from baibai_engine.market.lake.cli import main as lake_main
 from baibai_engine.market.lake.inventory import inventory
 from baibai_engine.market.lake.keys import (
     canonical_object_key,
     current_l1_pointer_key,
     dataset_manifest_key,
+    raw_metadata_object_key,
     raw_object_key,
     release_manifest_key,
+    sqlite_snapshot_object_key,
 )
 from baibai_engine.market.lake.models import (
+    MAX_LAKE_JSON_BYTES,
     DatasetManifest,
+    L1ReleaseSourceRef,
+    RawArchiveMetadata,
+    RawIngestSourceRef,
     ReleaseManifest,
+    SQLiteSnapshotSourceRef,
+    canonical_lake_model_bytes,
+    load_lake_model_json,
     load_manifest_json,
+    validate_release_policy,
 )
+from baibai_engine.market.lake.sources import resolve_source_ref
 
 
-def _dataset_payload() -> dict[str, object]:
-    digest = "a" * 64
+def _raw_source_payload(*, dataset: str, ingest_id: str) -> dict[str, object]:
+    key = raw_object_key(
+        provider="jquants",
+        dataset=dataset,
+        ingest_date=date(2026, 8, 12),
+        ingest_id=ingest_id,
+        suffix=".json.gz",
+    )
+    metadata = RawArchiveMetadata(
+        metadata_version=1,
+        provider="jquants",
+        dataset=dataset,
+        ingest_id=ingest_id,
+        retrieved_at=datetime(2026, 8, 12, 12, tzinfo=UTC),
+        retention_class="buffer",
+        suffix=".json.gz",
+        endpoint="https://api.jquants.com/v2/markets",
+        request_start=date(2026, 8, 1),
+        request_end=date(2026, 8, 12),
+        object_key=key,
+        content_sha256="f" * 64,
+        bytes=3,
+    )
+    metadata_bytes = canonical_lake_model_bytes(metadata)
+    return {
+        "kind": "raw_ingest",
+        "source_id": ingest_id,
+        "key": key,
+        "sha256": "f" * 64,
+        "metadata_version": 1,
+        "metadata_key": raw_metadata_object_key(raw_key=key),
+        "metadata_sha256": hashlib.sha256(metadata_bytes).hexdigest(),
+    }
+
+
+def _dataset_payload(
+    *,
+    dataset: str = "jquants.daily_bars",
+    raw_dataset: str = "daily_bars",
+    data_as_of: str = "2026-08-12",
+    digest: str = "a" * 64,
+    coverage_start: str = "2026-08-01",
+    population_count: int = 100,
+    rows: int = 456,
+) -> dict[str, object]:
     key = canonical_object_key(
         layer="l1_canonical",
-        dataset="jquants.daily_bars",
+        dataset=dataset,
         contract_version=1,
         partition_values={"month": 8, "year": 2026},
         content_sha256=digest,
     )
     return {
         "manifest_version": 1,
-        "dataset": "jquants.daily_bars",
+        "dataset": dataset,
         "layer": "l1_canonical",
         "contract_version": 1,
         "build_id": "20260812T123456Z-58d3057a-build",
-        "source_ingest_ids": ["20260812T120000Z-ingest"],
-        "source_release_ids": [],
+        "sources": [],
         "producer_git_commit": "b" * 40,
         "transform_fingerprint": f"sha256:{'c' * 64}",
         "created_at": "2026-08-12T12:34:56Z",
-        "data_as_of": "2026-08-12",
+        "coverage_start": coverage_start,
+        "data_as_of": data_as_of,
+        "population_count": population_count,
+        "coverage_status": "complete",
         "partition_by": ["year", "month"],
         "partitions": [
             {
                 "values": {"year": 2026, "month": 8},
-                "source_ingest_ids": ["20260812T120000Z-ingest"],
+                "sources": [
+                    _raw_source_payload(
+                        dataset=raw_dataset,
+                        ingest_id="20260812T120000Z-ingest",
+                    )
+                ],
                 "source_state_sha256": "b" * 64,
                 "objects": [
                     {
                         "key": key,
-                        "etag": '"etag"',
                         "sha256": digest,
                         "bytes": 123,
-                        "rows": 456,
+                        "rows": rows,
                         "min_key": ["2026-08-01", "1301"],
                         "max_key": ["2026-08-12", "9999"],
                     }
                 ],
             }
         ],
-        "totals": {"objects": 1, "bytes": 123, "rows": 456},
+        "totals": {"objects": 1, "bytes": 123, "rows": rows},
     }
 
 
@@ -78,9 +141,10 @@ def _load_dataset(payload: dict[str, object]) -> DatasetManifest:
 
 def test_dataset_manifest_is_strict_and_round_trips() -> None:
     payload = _dataset_payload()
+    payload["cohort_inventory"] = {}
     manifest = _load_dataset(payload)
 
-    reparsed = DatasetManifest.model_validate_json(manifest.model_dump_json())
+    reparsed = load_lake_model_json(manifest.model_dump_json(), DatasetManifest)
 
     assert reparsed == manifest
     assert manifest.model_dump(mode="json") == payload
@@ -90,6 +154,7 @@ def _release_payload() -> dict[str, object]:
     return {
         "manifest_version": 1,
         "release_id": "20260812T130000Z-release",
+        "profile": "pilot",
         "created_at": "2026-08-12T13:00:00Z",
         "data_as_of": "2026-08-12",
         "datasets": {
@@ -97,6 +162,9 @@ def _release_payload() -> dict[str, object]:
                 "build_id": "20260812T123456Z-58d3057a-build",
                 "contract_version": 1,
                 "manifest_sha256": "d" * 64,
+                "data_as_of": "2026-08-12",
+                "coverage_status": "complete",
+                "totals": {"objects": 1, "bytes": 123, "rows": 456},
             }
         },
     }
@@ -108,7 +176,7 @@ def test_release_manifest_is_strict_and_round_trips() -> None:
     manifest = load_manifest_json(json.dumps(payload))
 
     assert isinstance(manifest, ReleaseManifest)
-    assert ReleaseManifest.model_validate_json(manifest.model_dump_json()) == manifest
+    assert load_lake_model_json(manifest.model_dump_json(), ReleaseManifest) == manifest
 
 
 @pytest.mark.parametrize(
@@ -139,7 +207,10 @@ def test_release_dataset_requires_a_well_formed_manifest_digest(field: str, valu
     ("path", "value"),
     [
         (("contract_version",), 0),
-        (("source_ingest_ids",), None),
+        (("coverage_start",), None),
+        (("population_count",), 0),
+        (("population_count",), 457),
+        (("sources",), None),
         (("partition_by",), ["year", "date"]),
         (("totals", "rows"), 455),
         (("partitions", 0, "values", "month"), 0),
@@ -167,7 +238,16 @@ def test_dataset_manifest_rejects_unknown_nested_fields() -> None:
     assert isinstance(objects, list)
     objects[0]["secret"] = "must-not-be-accepted"
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValueError, match="extra_forbidden"):
+        _load_dataset(payload)
+
+
+@pytest.mark.parametrize("field", ["coverage_start", "population_count"])
+def test_dataset_manifest_requires_coverage_evidence(field: str) -> None:
+    payload = _dataset_payload()
+    del payload[field]
+
+    with pytest.raises((ValidationError, ValueError)):
         _load_dataset(payload)
 
 
@@ -207,6 +287,354 @@ def test_manifest_loader_rejects_duplicate_json_fields() -> None:
         load_manifest_json(duplicate)
 
 
+def test_manifest_loader_rejects_oversized_wire_payload_before_parsing() -> None:
+    payload = b"{" + (b" " * MAX_LAKE_JSON_BYTES) + b"}"
+
+    with pytest.raises(ValueError, match="wire size limit"):
+        load_manifest_json(payload)
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        '"values": {"year": 2026, "year": 2026, "month": 8}',
+        '"sources": [{"kind": "raw_ingest", "kind": "raw_ingest"',
+    ],
+)
+def test_manifest_loader_rejects_duplicate_nested_json_fields(replacement: str) -> None:
+    raw = json.dumps(_dataset_payload())
+    if replacement.startswith('"values"'):
+        duplicate = raw.replace('"values": {"year": 2026, "month": 8}', replacement)
+    else:
+        duplicate = raw.replace(
+            '"sources": [{"kind": "raw_ingest"',
+            replacement,
+        )
+
+    with pytest.raises(ValueError, match="duplicate JSON field"):
+        load_manifest_json(duplicate)
+
+
+def test_manifest_nested_mappings_are_immutable() -> None:
+    manifest = _load_dataset(_dataset_payload())
+
+    with pytest.raises(TypeError):
+        manifest.partitions[0].values["month"] = 9  # type: ignore[index]
+
+    release_payload = {
+        "manifest_version": 1,
+        "release_id": "release-1",
+        "profile": "pilot",
+        "created_at": "2026-08-12T13:00:00Z",
+        "data_as_of": "2026-08-12",
+        "datasets": {
+            "jquants.daily_bars": {
+                "build_id": "build-1",
+                "contract_version": 1,
+                "manifest_sha256": "d" * 64,
+                "data_as_of": "2026-08-12",
+                "coverage_status": "complete",
+                "totals": {"objects": 1, "bytes": 123, "rows": 456},
+            }
+        },
+    }
+    release = load_lake_model_json(json.dumps(release_payload), ReleaseManifest)
+
+    with pytest.raises(TypeError):
+        release.datasets["other.dataset"] = release.datasets["jquants.daily_bars"]  # type: ignore[index]
+
+
+def test_lake_parser_redacts_invalid_values() -> None:
+    payload = _dataset_payload()
+    payload["credential"] = "super-secret-value"
+
+    with pytest.raises(ValueError, match="extra_forbidden") as captured:
+        load_lake_model_json(json.dumps(payload), DatasetManifest)
+
+    assert "extra_forbidden" in str(captured.value)
+    assert "super-secret-value" not in str(captured.value)
+
+
+def test_source_ref_rejects_unknown_kind_and_prefix_identity() -> None:
+    payload = _dataset_payload()
+    partitions = payload["partitions"]
+    assert isinstance(partitions, list)
+    sources = partitions[0]["sources"]
+    assert isinstance(sources, list)
+    sources[0]["kind"] = "legacy-magic-prefix"
+    with pytest.raises(ValueError, match="union_tag_invalid"):
+        _load_dataset(payload)
+
+    prefixed = _raw_source_payload(dataset="daily_bars", ingest_id="ingest.variant")
+    prefixed["source_id"] = "ingest"
+    with pytest.raises(ValueError, match="key does not match source_id"):
+        RawIngestSourceRef.model_validate(prefixed)
+
+
+def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    datasets = tuple(
+        item.model_copy(
+            update={
+                "coverage_start_on_or_before": date(2026, 8, 1),
+                "minimum_rows": 1,
+                "minimum_population_count": 1,
+            }
+        )
+        for item in lake_models.PILOT_RELEASE_POLICY.datasets
+    )
+    monkeypatch.setattr(
+        lake_models,
+        "PILOT_RELEASE_POLICY",
+        lake_models.PILOT_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
+    )
+    manifest = _load_dataset(_dataset_payload())
+    short_sale = _load_dataset(
+        _dataset_payload(
+            dataset="jquants.short_sale_reports",
+            raw_dataset="short_sale_reports",
+            data_as_of="2026-08-11",
+            digest="e" * 64,
+        )
+    )
+    manifests = {manifest.dataset: manifest, short_sale.dataset: short_sale}
+    release_payload = {
+        "manifest_version": 1,
+        "release_id": "release-1",
+        "profile": "pilot",
+        "created_at": "2026-08-13T00:00:00Z",
+        "data_as_of": "2026-08-11",
+        "datasets": {
+            item.dataset: {
+                "build_id": item.build_id,
+                "contract_version": item.contract_version,
+                "manifest_sha256": hashlib.sha256(canonical_lake_model_bytes(item)).hexdigest(),
+                "data_as_of": item.data_as_of.isoformat(),
+                "coverage_status": item.coverage_status,
+                "totals": item.totals.model_dump(mode="json"),
+            }
+            for item in manifests.values()
+        },
+    }
+    release = load_lake_model_json(json.dumps(release_payload), ReleaseManifest)
+
+    evaluated_at = datetime(2026, 8, 13, tzinfo=UTC)
+    validate_release_policy(release, manifests, evaluated_at=evaluated_at)
+
+    incomplete = manifest.model_copy(update={"coverage_status": "partial"})
+    with pytest.raises(ValueError, match="digest does not match"):
+        validate_release_policy(
+            release,
+            {manifest.dataset: incomplete, short_sale.dataset: short_sale},
+            evaluated_at=evaluated_at,
+        )
+    incomplete_release_dataset = release.datasets[manifest.dataset].model_copy(
+        update={
+            "coverage_status": "partial",
+            "manifest_sha256": hashlib.sha256(canonical_lake_model_bytes(incomplete)).hexdigest(),
+        }
+    )
+    with pytest.raises(ValueError, match="requires complete dataset coverage"):
+        validate_release_policy(
+            release.model_copy(
+                update={
+                    "datasets": {
+                        **release.datasets,
+                        manifest.dataset: incomplete_release_dataset,
+                    }
+                }
+            ),
+            {manifest.dataset: incomplete, short_sale.dataset: short_sale},
+            evaluated_at=evaluated_at,
+        )
+    with pytest.raises(ValueError, match="freshness window"):
+        validate_release_policy(
+            release,
+            manifests,
+            evaluated_at=datetime(2026, 10, 1, tzinfo=UTC),
+        )
+    with pytest.raises(ValueError, match="missing a required dataset"):
+        validate_release_policy(
+            release.model_copy(
+                update={"datasets": {manifest.dataset: release.datasets[manifest.dataset]}}
+            ),
+            {manifest.dataset: manifest},
+            evaluated_at=evaluated_at,
+        )
+    with pytest.raises(ValueError, match="production release policy is not configured"):
+        validate_release_policy(
+            release.model_copy(update={"profile": "production"}),
+            manifests,
+            evaluated_at=evaluated_at,
+        )
+    with pytest.raises(ValueError, match="cannot be after its evaluation time"):
+        validate_release_policy(
+            release.model_copy(update={"created_at": datetime(2026, 8, 14, tzinfo=UTC)}),
+            manifests,
+            evaluated_at=evaluated_at,
+        )
+
+
+def test_pilot_policy_rejects_a_fresh_one_day_population() -> None:
+    daily = _load_dataset(
+        _dataset_payload(
+            coverage_start="2026-08-12",
+            population_count=1,
+            rows=1,
+        )
+    )
+    short_sale = _load_dataset(
+        _dataset_payload(
+            dataset="jquants.short_sale_reports",
+            raw_dataset="short_sale_reports",
+            coverage_start="2026-08-12",
+            population_count=1,
+            rows=1,
+            digest="e" * 64,
+        )
+    )
+    manifests = {item.dataset: item for item in (daily, short_sale)}
+    release = ReleaseManifest.model_validate(
+        {
+            "manifest_version": 1,
+            "release_id": "one-day-release",
+            "profile": "pilot",
+            "created_at": datetime(2026, 8, 13, tzinfo=UTC),
+            "data_as_of": date(2026, 8, 12),
+            "datasets": {
+                item.dataset: {
+                    "build_id": item.build_id,
+                    "contract_version": item.contract_version,
+                    "manifest_sha256": hashlib.sha256(canonical_lake_model_bytes(item)).hexdigest(),
+                    "data_as_of": item.data_as_of,
+                    "coverage_status": item.coverage_status,
+                    "totals": item.totals,
+                }
+                for item in manifests.values()
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match="history boundary"):
+        validate_release_policy(
+            release,
+            manifests,
+            evaluated_at=datetime(2026, 8, 13, tzinfo=UTC),
+        )
+
+
+def test_typed_source_refs_resolve_and_validate_digest_and_version(tmp_path: Path) -> None:
+    raw_key = raw_object_key(
+        provider="jquants",
+        dataset="daily_bars",
+        ingest_date=date(2026, 8, 12),
+        ingest_id="ingest-1",
+        suffix=".json.gz",
+    )
+    raw_path = tmp_path / raw_key
+    raw_path.parent.mkdir(parents=True)
+    raw_path.write_bytes(b"raw")
+    raw_metadata = RawArchiveMetadata(
+        metadata_version=1,
+        provider="jquants",
+        dataset="daily_bars",
+        ingest_id="ingest-1",
+        retrieved_at=datetime(2026, 8, 12, 12, tzinfo=UTC),
+        retention_class="buffer",
+        suffix=".json.gz",
+        endpoint="https://api.jquants.com/v2/markets",
+        request_start=date(2026, 8, 1),
+        request_end=date(2026, 8, 12),
+        object_key=raw_key,
+        content_sha256=hashlib.sha256(b"raw").hexdigest(),
+        bytes=3,
+    )
+    metadata_key = raw_metadata_object_key(raw_key=raw_key)
+    metadata_path = tmp_path / metadata_key
+    metadata_bytes = canonical_lake_model_bytes(raw_metadata)
+    metadata_path.write_bytes(metadata_bytes)
+    raw = RawIngestSourceRef(
+        kind="raw_ingest",
+        source_id="ingest-1",
+        key=raw_key,
+        sha256=hashlib.sha256(b"raw").hexdigest(),
+        metadata_version=1,
+        metadata_key=metadata_key,
+        metadata_sha256=hashlib.sha256(metadata_bytes).hexdigest(),
+    )
+    assert resolve_source_ref(tmp_path, raw) == raw_path
+
+    with pytest.raises(ValueError, match="digest does not match"):
+        resolve_source_ref(tmp_path, raw.model_copy(update={"sha256": "0" * 64}))
+    with pytest.raises(ValueError, match="metadata identity does not match"):
+        resolve_source_ref(tmp_path, raw.model_copy(update={"metadata_version": 2}))
+    with pytest.raises(ValueError, match="metadata reference digest does not match"):
+        resolve_source_ref(tmp_path, raw.model_copy(update={"metadata_sha256": "0" * 64}))
+
+    metadata_path.unlink()
+    with pytest.raises(ValueError, match="metadata reference does not resolve"):
+        resolve_source_ref(tmp_path, raw)
+
+    sqlite_seed = tmp_path / "sqlite-seed.tmp"
+    with sqlite3.connect(sqlite_seed) as connection:
+        connection.execute("PRAGMA user_version = 22")
+    sqlite_digest = hashlib.sha256(sqlite_seed.read_bytes()).hexdigest()
+    sqlite_key = sqlite_snapshot_object_key(
+        snapshot_id="snapshot-1",
+        schema_version=22,
+        content_sha256=sqlite_digest,
+    )
+    sqlite_path = tmp_path / sqlite_key
+    sqlite_path.parent.mkdir(parents=True)
+    sqlite_seed.replace(sqlite_path)
+    sqlite_ref = SQLiteSnapshotSourceRef(
+        kind="sqlite_snapshot",
+        source_id="snapshot-1",
+        key=sqlite_key,
+        sha256=sqlite_digest,
+        schema_version=22,
+    )
+    assert resolve_source_ref(tmp_path, sqlite_ref) == sqlite_path
+    with pytest.raises(ValueError, match="schema version does not match"):
+        resolve_source_ref(tmp_path, sqlite_ref.model_copy(update={"schema_version": 21}))
+
+    release = load_lake_model_json(
+        json.dumps(
+            {
+                "manifest_version": 1,
+                "release_id": "release-1",
+                "profile": "pilot",
+                "created_at": "2026-08-12T13:00:00Z",
+                "data_as_of": "2026-08-12",
+                "datasets": {
+                    "jquants.daily_bars": {
+                        "build_id": "build-1",
+                        "contract_version": 1,
+                        "manifest_sha256": "d" * 64,
+                        "data_as_of": "2026-08-12",
+                        "coverage_status": "complete",
+                        "totals": {"objects": 1, "bytes": 123, "rows": 456},
+                    }
+                },
+            }
+        ),
+        ReleaseManifest,
+    )
+    release_key = release_manifest_key(release_id=release.release_id)
+    release_path = tmp_path / release_key
+    release_path.parent.mkdir(parents=True)
+    release_path.write_bytes(canonical_lake_model_bytes(release))
+    release_ref = L1ReleaseSourceRef(
+        kind="l1_release",
+        source_id=release.release_id,
+        key=release_key,
+        sha256=hashlib.sha256(release_path.read_bytes()).hexdigest(),
+        manifest_version=1,
+    )
+    assert resolve_source_ref(tmp_path, release_ref) == release_path
+
+
 def test_key_builders_are_deterministic_and_traversal_safe() -> None:
     digest = "d" * 64
     assert canonical_object_key(
@@ -236,6 +664,11 @@ def test_key_builders_are_deterministic_and_traversal_safe() -> None:
         release_manifest_key(release_id="release-1") == "lake/manifests/releases/l1/release-1.json"
     )
     assert current_l1_pointer_key() == "lake/pointers/l1/current.json"
+    assert sqlite_snapshot_object_key(
+        snapshot_id="snapshot-1",
+        schema_version=22,
+        content_sha256=digest,
+    ) == (f"lake/l1/raw/legacy_sqlite/market/schema=v22/snapshot-1/snapshot-{digest}.sqlite")
 
     with pytest.raises(ValueError, match="path-safe"):
         dataset_manifest_key(dataset="../secret", build_id="build-1")
@@ -274,6 +707,64 @@ def test_inventory_reads_metadata_only_and_groups_valid_keys(tmp_path: Path) -> 
         }
     ]
     assert result["invalid_keys"] == ["outside.txt"]
+
+
+def test_inventory_reports_raw_retention_class_bytes_and_budget(tmp_path: Path) -> None:
+    raw = b"raw-bytes"
+    digest = hashlib.sha256(raw).hexdigest()
+    key = raw_object_key(
+        provider="jquants",
+        dataset="jquants.daily_bars",
+        ingest_date=date(2026, 8, 12),
+        ingest_id="inventory-buffer",
+        suffix=".json.gz",
+    )
+    object_path = tmp_path / key
+    object_path.parent.mkdir(parents=True)
+    object_path.write_bytes(raw)
+    metadata = RawArchiveMetadata(
+        metadata_version=1,
+        provider="jquants",
+        dataset="jquants.daily_bars",
+        ingest_id="inventory-buffer",
+        retrieved_at=datetime(2026, 8, 12, 12, tzinfo=UTC),
+        retention_class="buffer",
+        suffix=".json.gz",
+        object_key=key,
+        content_sha256=digest,
+        bytes=len(raw),
+    )
+    metadata_path = tmp_path / raw_metadata_object_key(raw_key=key)
+    metadata_path.write_bytes(canonical_lake_model_bytes(metadata))
+
+    result = inventory(tmp_path)
+
+    by_class = {item["class"]: item for item in result["raw_retention"]}
+    assert by_class["buffer"]["objects"] == 1
+    assert by_class["buffer"]["bytes"] == len(raw)
+    assert by_class["buffer"]["budget_exceeded"] is False
+    assert result["raw_inventory_errors"] == []
+    assert result["raw_unclassified"] == {"objects": 0, "bytes": 0}
+
+
+def test_inventory_reports_a_raw_payload_without_its_metadata(tmp_path: Path) -> None:
+    key = raw_object_key(
+        provider="jquants",
+        dataset="jquants.daily_bars",
+        ingest_date=date(2026, 8, 12),
+        ingest_id="orphan-payload",
+        suffix=".json.gz",
+    )
+    path = tmp_path / key
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"orphan")
+
+    result = inventory(tmp_path)
+
+    assert result["raw_unclassified"] == {"objects": 1, "bytes": 6}
+    assert result["raw_inventory_errors"] == [
+        {"key": key, "error": "Raw object has no metadata sidecar"}
+    ]
 
 
 def test_validate_cli_is_read_only_and_redacts_rejected_values(

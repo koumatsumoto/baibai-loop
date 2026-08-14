@@ -93,6 +93,8 @@ _DIAGNOSTICS_REQUIRED: Mapping[str, Any] = {
     "population_per_trailing_exact": 0,
 }
 
+_TEST_PRODUCER_COMMIT = "a" * 40
+
 
 def _coerce(value: Any, annotation: Any) -> Any:
     """Read a fixture's loose value as the field's declared type.
@@ -189,6 +191,7 @@ def publish_panel(
         date.fromisoformat(asof),
         tuple(_panel(asof, row) for row in rows),
         diagnostics,
+        producer_commit=_TEST_PRODUCER_COMMIT,
     )
 
 
@@ -201,4 +204,5 @@ def publish_forward(
         directory,
         date.fromisoformat(asof),
         [_forward(asof, row) for row in rows],
+        producer_commit=_TEST_PRODUCER_COMMIT,
     )

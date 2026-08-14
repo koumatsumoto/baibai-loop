@@ -1,9 +1,9 @@
-"""The calibration cohort store: immutable typed L2 builds under a moving pointer.
+"""The calibration cohort store: immutable typed L2 builds under one bundle pointer.
 
-A cohort is written by publishing a new immutable build and advancing the dataset
-pointer to it. Objects are content addressed, so a cohort that did not change costs
-nothing to carry into the next build, and a build that was superseded remains
-addressable until retention decides otherwise.
+A cohort update prepares panel, diagnostics, and forward dataset builds, then exposes
+all three through one calibration bundle pointer. Objects are content addressed, so a
+cohort that did not change costs nothing to carry into the next bundle, and a bundle
+that was superseded remains addressable until retention decides otherwise.
 
 Storage is typed Parquet whose schema is derived from ``PanelRow``,
 ``PanelDiagnostics``, and ``ForwardReturnRow``. Nothing here migrates a published
@@ -18,24 +18,43 @@ different measurement rules is rejected rather than read.
 
 from __future__ import annotations
 
-import subprocess  # nosec B404
+import uuid
 from collections.abc import Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import UTC, date, datetime
 from hashlib import sha256
 from math import isfinite
 from pathlib import Path
+from types import MappingProxyType
 from typing import cast
 
 import yaml
 
+from baibai_engine.foundation.filesystem import write_bytes_atomic, write_text_atomic
 from baibai_engine.foundation.repository_layout import CALIBRATION_DIR
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.market.lake.models import DatasetManifest, PartitionManifest
-from baibai_engine.market.lake.objects import sha256_bytes
+from baibai_engine.market.lake.identity import verified_git_commit
+from baibai_engine.market.lake.immutable import install_immutable_file
+from baibai_engine.market.lake.keys import (
+    calibration_bundle_manifest_key,
+    current_calibration_bundle_pointer_key,
+    dataset_manifest_key,
+)
+from baibai_engine.market.lake.models import (
+    CalibrationInputManifest,
+    CalibrationInputSourceRef,
+    CohortInventoryEntry,
+    CohortStatus,
+    DatasetManifest,
+    PartitionManifest,
+    SourceRef,
+    load_lake_model_json,
+)
+from baibai_engine.market.lake.objects import sha256_bytes, sha256_file
 from baibai_engine.market.lake.retention import (
     LakeRetentionError,
     advance_l2_pointer,
+    lake_writer_lock,
     read_l2_pointer,
 )
 
@@ -52,15 +71,26 @@ from .lake import (
     CALIBRATION_DIAGNOSTICS,
     CALIBRATION_FORWARD,
     CALIBRATION_PANEL,
+    L2_DATASETS,
+    CalibrationBundleManifest,
+    CalibrationBundlePointer,
+    CalibrationBundleRef,
+    CalibrationCohortInventory,
+    CalibrationDatasetRef,
     CalibrationLakeError,
+    FixedCalibrationBundle,
     L2BuildInputs,
     L2Dataset,
+    _require_object,
+    _write_immutable,
     asof_month,
     build_identifier,
+    canonical_manifest_bytes,
     load_manifest,
     publish_l2_build,
     read_l2_partition,
     require_build_inputs,
+    require_l2_dataset,
     require_manifest_contract,
     transform_fingerprint,
     write_l2_partition,
@@ -140,9 +170,9 @@ def cache_meta_path(root: Path) -> Path:
 
 def _write_cache_meta(root: Path) -> None:
     root.mkdir(parents=True, exist_ok=True)
-    cache_meta_path(root).write_text(
+    write_text_atomic(
+        cache_meta_path(root),
         yaml.safe_dump({"cache_schema_version": CACHE_SCHEMA_VERSION}, sort_keys=False),
-        encoding="utf-8",
     )
 
 
@@ -165,21 +195,12 @@ def _require_current_cache(root: Path) -> None:
         )
 
 
-def producer_git_commit() -> str:
-    try:
-        result = subprocess.run(  # nosec B603
-            ("git", "rev-parse", "HEAD"),
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except (OSError, subprocess.CalledProcessError):
-        return "0" * 40
-    commit = result.stdout.strip()
-    return commit if len(commit) == 40 else "0" * 40
-
-
-def _inputs() -> L2BuildInputs:
+def _inputs(
+    root: Path,
+    source: SourceRef | None = None,
+    *,
+    producer_commit: str | None = None,
+) -> L2BuildInputs:
     """What this build declares, and nothing it does not have.
 
     No L1 release is bound while calibration's inputs are still read from the legacy
@@ -187,9 +208,28 @@ def _inputs() -> L2BuildInputs:
     that would imply a provenance the build did not have.
     """
 
+    if source is None:
+        input_id = LEGACY_ONLY_RELEASE_ID
+        manifest = CalibrationInputManifest(
+            manifest_version=1,
+            input_id=input_id,
+            input_type="local_operation",
+            files={},
+        )
+        key = f"lake/manifests/calibration-inputs/{input_id}.json"
+        path = root / key
+        _write_immutable(path, canonical_manifest_bytes(manifest))
+        source = CalibrationInputSourceRef(
+            kind="calibration_input",
+            source_id=input_id,
+            key=key,
+            sha256=sha256_file(path),
+            input_type="local_operation",
+            manifest_version=1,
+        )
     return L2BuildInputs(
-        source_release_id=LEGACY_ONLY_RELEASE_ID,
-        producer_git_commit=producer_git_commit(),
+        sources=(source,),
+        producer_git_commit=producer_commit or verified_git_commit(),
         cache_schema_version=CACHE_SCHEMA_VERSION,
     )
 
@@ -204,7 +244,7 @@ def _require_partition_objects(
             raise CalibrationLakeError(f"{dataset.name}: published object is missing: {item.key}")
 
 
-def _current_manifest(root: Path, dataset: L2Dataset) -> DatasetManifest | None:
+def _writer_manifest(root: Path, dataset: L2Dataset) -> DatasetManifest | None:
     """The build the pointer names, or ``None`` when the dataset has no head yet.
 
     The pointer's digest is checked here. A manifest key is derived from
@@ -229,12 +269,192 @@ def _current_manifest(root: Path, dataset: L2Dataset) -> DatasetManifest | None:
     return manifest
 
 
+def _fixed_bundle(root: Path) -> FixedCalibrationBundle | None:
+    """Resolve the public generation once and close every manifest edge by digest."""
+
+    pointer_path = root / current_calibration_bundle_pointer_key()
+    if not pointer_path.is_file():
+        return None
+    try:
+        pointer = load_lake_model_json(pointer_path.read_bytes(), CalibrationBundlePointer)
+        payload = (root / pointer.current.manifest_key).read_bytes()
+    except (OSError, ValueError) as exc:
+        raise CalibrationLakeError("calibration bundle pointer is unreadable") from exc
+    if sha256_bytes(payload) != pointer.current.manifest_sha256:
+        raise CalibrationLakeError("calibration bundle manifest digest differs from its pointer")
+    try:
+        bundle = load_lake_model_json(payload, CalibrationBundleManifest)
+    except ValueError as exc:
+        raise CalibrationLakeError("calibration bundle manifest is invalid") from exc
+    if bundle.bundle_id != pointer.current.bundle_id:
+        raise CalibrationLakeError("calibration bundle identity differs from its pointer")
+    manifests: dict[str, DatasetManifest] = {}
+    for name, reference in bundle.datasets.items():
+        try:
+            manifest_payload = (root / reference.manifest_key).read_bytes()
+        except OSError as exc:
+            raise CalibrationLakeError(f"calibration bundle dataset is unreadable: {name}") from exc
+        if sha256_bytes(manifest_payload) != reference.manifest_sha256:
+            raise CalibrationLakeError(f"calibration bundle dataset digest differs: {name}")
+        manifest = load_manifest(root / reference.manifest_key)
+        require_manifest_contract(require_l2_dataset(name), manifest)
+        if manifest.build_id != reference.build_id or manifest.totals.rows != reference.rows:
+            raise CalibrationLakeError(f"calibration bundle dataset identity differs: {name}")
+        manifests[name] = manifest
+    for asof, cohort in bundle.cohorts.items():
+        expected = {
+            CALIBRATION_PANEL.name: cohort.panel,
+            CALIBRATION_DIAGNOSTICS.name: cohort.diagnostics,
+            CALIBRATION_FORWARD.name: cohort.forward,
+        }
+        for name, entry in expected.items():
+            if manifests[name].cohort_inventory.get(asof) != entry:
+                raise CalibrationLakeError(f"calibration bundle cohort inventory differs: {asof}")
+    return FixedCalibrationBundle(
+        ref=pointer.current,
+        manifest=bundle,
+        datasets=MappingProxyType(manifests),
+    )
+
+
+def _current_manifest(root: Path, dataset: L2Dataset) -> DatasetManifest | None:
+    bundle = _fixed_bundle(root)
+    return None if bundle is None else bundle.datasets[dataset.name]
+
+
+def _publish_bundle(root: Path) -> CalibrationBundleRef:
+    manifests: dict[str, DatasetManifest] = {}
+    references: dict[str, CalibrationDatasetRef] = {}
+    for name, dataset in L2_DATASETS.items():
+        manifest = _writer_manifest(root, dataset)
+        if manifest is None:
+            raise CalibrationLakeError(f"bundle dataset has no published build: {name}")
+        path = root / dataset_manifest_key(dataset=name, build_id=manifest.build_id)
+        digest = sha256_bytes(path.read_bytes())
+        manifests[name] = manifest
+        require_build_inputs(
+            manifest,
+            dataset=dataset,
+            cache_schema_version=CACHE_SCHEMA_VERSION,
+        )
+        references[name] = CalibrationDatasetRef(
+            dataset=name,
+            build_id=manifest.build_id,
+            manifest_key=path.relative_to(root).as_posix(),
+            manifest_sha256=digest,
+            rows=manifest.totals.rows,
+        )
+    cohort_keys = set(manifests[CALIBRATION_PANEL.name].cohort_inventory)
+    if set(manifests[CALIBRATION_DIAGNOSTICS.name].cohort_inventory) != cohort_keys:
+        raise CalibrationLakeError("panel and diagnostics cohort inventory differ")
+    if set(manifests[CALIBRATION_FORWARD.name].cohort_inventory) != cohort_keys:
+        raise CalibrationLakeError("panel and forward cohort inventory differ")
+    source_sets = {
+        tuple((item.kind, item.source_id, item.key, item.sha256) for item in manifest.sources)
+        for manifest in manifests.values()
+    }
+    if len(source_sets) != 1:
+        raise CalibrationLakeError("calibration bundle datasets have different input generations")
+    producer_commits = {manifest.producer_git_commit for manifest in manifests.values()}
+    if len(producer_commits) != 1:
+        raise CalibrationLakeError("calibration bundle datasets have different producers")
+    cohorts = {
+        asof: CalibrationCohortInventory(
+            panel=manifests[CALIBRATION_PANEL.name].cohort_inventory[asof],
+            diagnostics=manifests[CALIBRATION_DIAGNOSTICS.name].cohort_inventory[asof],
+            forward=manifests[CALIBRATION_FORWARD.name].cohort_inventory[asof],
+        )
+        for asof in sorted(cohort_keys)
+    }
+    now = datetime.now(UTC)
+    bundle_id = f"{now:%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex}"
+    bundle_manifest = CalibrationBundleManifest(
+        bundle_id=bundle_id,
+        created_at=now,
+        producer_git_commit=producer_commits.pop(),
+        cache_schema_version=CACHE_SCHEMA_VERSION,
+        datasets=references,
+        cohorts=cohorts,
+    )
+    key = calibration_bundle_manifest_key(bundle_id=bundle_id)
+    path = root / key
+    _write_immutable(path, canonical_manifest_bytes(bundle_manifest))
+    reference = CalibrationBundleRef(
+        bundle_id=bundle_id,
+        manifest_key=key,
+        manifest_sha256=sha256_bytes(path.read_bytes()),
+    )
+    pointer_path = root / current_calibration_bundle_pointer_key()
+    previous = None
+    if pointer_path.is_file():
+        previous = load_lake_model_json(pointer_path.read_bytes(), CalibrationBundlePointer).current
+    write_bytes_atomic(
+        pointer_path,
+        canonical_manifest_bytes(CalibrationBundlePointer(current=reference, previous=previous)),
+    )
+    return reference
+
+
+def current_bundle_ref(root: Path) -> CalibrationBundleRef | None:
+    fixed = _fixed_bundle(root)
+    return None if fixed is None else fixed.ref
+
+
+def resolve_calibration_bundle(root: Path) -> FixedCalibrationBundle:
+    fixed = _fixed_bundle(root)
+    if fixed is None:
+        raise CalibrationCacheError("calibration bundle is absent")
+    return fixed
+
+
+def adopt_bundle_generation(
+    root: Path,
+    generated_root: Path,
+    *,
+    expected_current: CalibrationBundleRef | None,
+) -> CalibrationBundleRef:
+    """Install a verified force build and atomically expose only its bundle pointer."""
+
+    fixed = _fixed_bundle(generated_root)
+    if fixed is None:
+        raise CalibrationLakeError("generated calibration bundle is missing")
+    for name, manifest in fixed.datasets.items():
+        dataset = require_l2_dataset(name)
+        for partition in manifest.partitions:
+            for item in partition.objects:
+                _require_object(generated_root / item.key, dataset=dataset, item=item)
+
+    pointer_path = root / current_calibration_bundle_pointer_key()
+    actual = current_bundle_ref(root)
+    if actual != expected_current:
+        raise CalibrationLakeError("calibration bundle moved while force build was in flight")
+
+    for source in sorted((generated_root / "lake").rglob("*")):
+        if not source.is_file():
+            continue
+        key = source.relative_to(generated_root).as_posix()
+        if key.startswith(("lake/pointers/", "lake/staging/", "lake/audit/", "lake/retention/")):
+            continue
+        target = root / key
+        install_immutable_file(target, source, expected_sha256=sha256_file(source))
+
+    _write_cache_meta(root)
+    write_bytes_atomic(
+        pointer_path,
+        canonical_manifest_bytes(CalibrationBundlePointer(current=fixed.ref, previous=actual)),
+    )
+    return fixed.ref
+
+
 def _publish_cohort(
     root: Path,
     *,
     dataset: L2Dataset,
     asof: date,
     rows: Sequence[object],
+    status: CohortStatus | None = None,
+    source: SourceRef | None = None,
+    producer_commit: str | None = None,
 ) -> None:
     """Publish a build that carries every cohort already published plus this one.
 
@@ -247,6 +467,7 @@ def _publish_cohort(
     root.mkdir(parents=True, exist_ok=True)
     month = (asof.year, asof.month)
     manifest = _current_manifest(root, dataset)
+    writer_pointer = read_l2_pointer(root, dataset.name)
     if manifest is not None:
         # Carrying a partition from a build made under other measurement rules would
         # publish it under this build's fingerprint, which is exactly the mixing the
@@ -254,9 +475,20 @@ def _publish_cohort(
         # this passes, so a refused build leaves the store describing itself truthfully.
         require_build_inputs(manifest, dataset=dataset, cache_schema_version=CACHE_SCHEMA_VERSION)
     _write_cache_meta(root)
-    inputs = _inputs()
+    inputs = _inputs(root, source, producer_commit=producer_commit)
+    if manifest is not None:
+        by_identity = {
+            (item.kind, item.source_id, item.key, item.sha256): item
+            for item in (*manifest.sources, *inputs.sources)
+        }
+        inputs = L2BuildInputs(
+            sources=tuple(by_identity[key] for key in sorted(by_identity)),
+            producer_git_commit=inputs.producer_git_commit,
+            cache_schema_version=inputs.cache_schema_version,
+        )
 
     carried: list[PartitionManifest] = []
+    inventory = {} if manifest is None else dict(manifest.cohort_inventory)
     same_month: list[object] = []
     data_as_of = asof
     if manifest is not None:
@@ -281,6 +513,8 @@ def _publish_cohort(
     )
     if replacement is not None:
         carried.append(replacement)
+    cohort_status: CohortStatus = status or ("complete" if rows else "empty")
+    inventory[asof.isoformat()] = CohortInventoryEntry(status=cohort_status, rows=len(rows))
 
     fingerprint = transform_fingerprint(dataset, cache_schema_version=CACHE_SCHEMA_VERSION)
     now = datetime.now(UTC)
@@ -291,6 +525,7 @@ def _publish_cohort(
         inputs=inputs,
         build_id=build_identifier(dataset=dataset, fingerprint=fingerprint, now=now),
         data_as_of=data_as_of,
+        cohort_inventory=inventory,
         created_at=now,
     )
     advance_l2_pointer(
@@ -298,7 +533,7 @@ def _publish_cohort(
         dataset=dataset.name,
         build_id=report.build_id,
         manifest_path=report.manifest_path,
-        expected_current_build_id=None if manifest is None else manifest.build_id,
+        expected_current_build_id=(None if writer_pointer is None else writer_pointer.build_id),
     )
 
 
@@ -315,19 +550,63 @@ def write_panel(
     asof: date,
     rows: tuple[PanelRow, ...],
     diagnostics: PanelDiagnostics,
+    *,
+    source: SourceRef | None = None,
+    producer_commit: str | None = None,
+    lock_held: bool = False,
 ) -> None:
-    with _store_errors():
-        _publish_cohort(root, dataset=CALIBRATION_PANEL, asof=asof, rows=rows)
-        _publish_cohort(root, dataset=CALIBRATION_DIAGNOSTICS, asof=asof, rows=(diagnostics,))
+    publication = nullcontext() if lock_held else lake_writer_lock(root)
+    with _store_errors(), publication:
+        _publish_cohort(
+            root,
+            dataset=CALIBRATION_PANEL,
+            asof=asof,
+            rows=rows,
+            source=source,
+            producer_commit=producer_commit,
+        )
+        _publish_cohort(
+            root,
+            dataset=CALIBRATION_DIAGNOSTICS,
+            asof=asof,
+            rows=(diagnostics,),
+            source=source,
+            producer_commit=producer_commit,
+        )
+        forward = _writer_manifest(root, CALIBRATION_FORWARD)
+        if forward is None or asof.isoformat() not in forward.cohort_inventory:
+            _publish_cohort(
+                root,
+                dataset=CALIBRATION_FORWARD,
+                asof=asof,
+                rows=(),
+                status="not_computed",
+                source=source,
+                producer_commit=producer_commit,
+            )
+        _publish_bundle(root)
 
 
 def write_forward(
     root: Path,
     asof: date,
     rows: list[ForwardReturnRow],
+    *,
+    source: SourceRef | None = None,
+    producer_commit: str | None = None,
+    lock_held: bool = False,
 ) -> None:
-    with _store_errors():
-        _publish_cohort(root, dataset=CALIBRATION_FORWARD, asof=asof, rows=rows)
+    publication = nullcontext() if lock_held else lake_writer_lock(root)
+    with _store_errors(), publication:
+        _publish_cohort(
+            root,
+            dataset=CALIBRATION_FORWARD,
+            asof=asof,
+            rows=rows,
+            source=source,
+            producer_commit=producer_commit,
+        )
+        _publish_bundle(root)
 
 
 @contextmanager
@@ -354,12 +633,20 @@ def has_cohort(root: Path, asof: date) -> bool:
     """
 
     try:
+        bundle = _fixed_bundle(root)
+        if bundle is None:
+            return False
+        entry = bundle.manifest.cohorts.get(asof.isoformat())
+        if entry is None or entry.panel.status not in {"complete", "empty"}:
+            return False
+        if entry.panel.status == "empty":
+            return True
         return bool(_cohort_payloads(root, CALIBRATION_PANEL, asof))
     except (CalibrationLakeError, LakeRetentionError) as exc:
         raise CalibrationCacheError(str(exc)) from exc
 
 
-def published_cohorts(root: Path) -> list[date]:
+def published_cohorts(root: Path, *, bundle: FixedCalibrationBundle | None = None) -> list[date]:
     """Every as-of the current panel build holds, in order.
 
     The build manifest is the inventory: a cohort exists because the current build
@@ -367,20 +654,16 @@ def published_cohorts(root: Path) -> list[date]:
     """
 
     try:
-        manifest = _current_manifest(root, CALIBRATION_PANEL)
-        if manifest is None:
+        fixed = bundle or _fixed_bundle(root)
+        if fixed is None:
             return []
-        asofs: set[date] = set()
-        for partition in manifest.partitions:
-            month = (int(partition.values["year"]), int(partition.values["month"]))
-            for payload in read_l2_partition(
-                dataset=CALIBRATION_PANEL,
-                manifest=manifest,
-                mirror_root=root,
-                month=month,
-                columns=["asof"],
-            ):
-                asofs.add(date.fromisoformat(str(payload["asof"])))
+        for partition in fixed.datasets[CALIBRATION_PANEL.name].partitions:
+            _require_partition_objects(root, CALIBRATION_PANEL, partition)
+        asofs = {
+            date.fromisoformat(asof)
+            for asof, entry in fixed.manifest.cohorts.items()
+            if entry.panel.status in {"complete", "empty"}
+        }
     except (CalibrationLakeError, LakeRetentionError) as exc:
         # An unreadable build is not an empty store. Reporting it as "no cohorts"
         # would make evaluate say the store holds nothing when it holds 81 cohorts.
@@ -388,23 +671,51 @@ def published_cohorts(root: Path) -> list[date]:
     return sorted(asofs)
 
 
-def _cohort_payloads(root: Path, dataset: L2Dataset, asof: date) -> list[Mapping[str, object]]:
-    manifest = _current_manifest(root, dataset)
-    if manifest is None:
+def _cohort_payloads(
+    root: Path,
+    dataset: L2Dataset,
+    asof: date,
+    *,
+    bundle: FixedCalibrationBundle | None = None,
+) -> list[Mapping[str, object]]:
+    fixed = bundle or _fixed_bundle(root)
+    if fixed is None:
         return []
+    manifest = fixed.datasets[dataset.name]
+    cohort = fixed.manifest.cohorts.get(asof.isoformat())
+    if cohort is None:
+        return []
+    entry = {
+        CALIBRATION_PANEL.name: cohort.panel,
+        CALIBRATION_DIAGNOSTICS.name: cohort.diagnostics,
+        CALIBRATION_FORWARD.name: cohort.forward,
+    }[dataset.name]
+    if entry.status in {"partial", "not_computed"}:
+        raise CalibrationLakeError(f"{dataset.name}: cohort is {entry.status}")
     require_build_inputs(manifest, dataset=dataset, cache_schema_version=CACHE_SCHEMA_VERSION)
     payloads = read_l2_partition(
         dataset=dataset, manifest=manifest, mirror_root=root, month=asof_month(asof.isoformat())
     )
-    return [item for item in payloads if str(item["asof"]) == asof.isoformat()]
+    selected: list[Mapping[str, object]] = [
+        item for item in payloads if str(item["asof"]) == asof.isoformat()
+    ]
+    if len(selected) != entry.rows:
+        raise CalibrationLakeError(f"{dataset.name}: cohort row count differs from inventory")
+    return selected
 
 
-def read_panel(root: Path, asof: date) -> list[PanelRow]:
+def read_panel(
+    root: Path, asof: date, *, bundle: FixedCalibrationBundle | None = None
+) -> list[PanelRow]:
     _require_current_cache(root)
     try:
-        payloads = _cohort_payloads(root, CALIBRATION_PANEL, asof)
+        fixed = bundle or _fixed_bundle(root)
+        payloads = _cohort_payloads(root, CALIBRATION_PANEL, asof, bundle=fixed)
     except (CalibrationLakeError, LakeRetentionError) as exc:
         raise CalibrationCacheError(f"calibration panel cache is invalid: {exc}") from exc
+    entry = None if fixed is None else fixed.manifest.cohorts.get(asof.isoformat())
+    if entry is not None and entry.panel.status == "empty":
+        return []
     if not payloads:
         raise CalibrationCacheError("calibration cache is partial; run calibration-build --force")
     try:
@@ -415,10 +726,12 @@ def read_panel(root: Path, asof: date) -> list[PanelRow]:
         ) from exc
 
 
-def read_panel_meta(root: Path, asof: date) -> dict[str, object]:
+def read_panel_meta(
+    root: Path, asof: date, *, bundle: FixedCalibrationBundle | None = None
+) -> dict[str, object]:
     _require_current_cache(root)
     try:
-        payloads = _cohort_payloads(root, CALIBRATION_DIAGNOSTICS, asof)
+        payloads = _cohort_payloads(root, CALIBRATION_DIAGNOSTICS, asof, bundle=bundle)
     except (CalibrationLakeError, LakeRetentionError) as exc:
         raise CalibrationCacheError(f"calibration cache metadata is invalid: {exc}") from exc
     if not payloads:
@@ -435,24 +748,25 @@ def read_panel_meta(root: Path, asof: date) -> dict[str, object]:
     return payload
 
 
-def read_forward(root: Path, asof: date) -> list[ForwardReturnRow]:
+def read_forward(
+    root: Path, asof: date, *, bundle: FixedCalibrationBundle | None = None
+) -> list[ForwardReturnRow]:
     _require_current_cache(root)
     try:
-        manifest = _current_manifest(root, CALIBRATION_FORWARD)
-        if manifest is None:
+        fixed = bundle or _fixed_bundle(root)
+        if fixed is None:
+            raise CalibrationCacheError(
+                "calibration cache is partial; run calibration-build --force"
+            )
+        manifest = fixed.datasets[CALIBRATION_FORWARD.name]
+        cohort = fixed.manifest.cohorts.get(asof.isoformat())
+        if cohort is None or cohort.forward.status in {"partial", "not_computed"}:
             raise CalibrationCacheError(
                 "calibration cache is partial; run calibration-build --force"
             )
         require_build_inputs(
             manifest, dataset=CALIBRATION_FORWARD, cache_schema_version=CACHE_SCHEMA_VERSION
         )
-        if asof > manifest.data_as_of:
-            # The build has not reached this cohort. Returning an empty list would
-            # send an uncomputed cohort into evaluation as "observed, nothing
-            # resolved", which is the one reading the rows cannot support.
-            raise CalibrationCacheError(
-                "calibration cache is partial; run calibration-build --force"
-            )
         payloads = [
             item
             for item in read_l2_partition(
@@ -463,6 +777,8 @@ def read_forward(root: Path, asof: date) -> list[ForwardReturnRow]:
             )
             if str(item["asof"]) == asof.isoformat()
         ]
+        if len(payloads) != cohort.forward.rows:
+            raise CalibrationLakeError("calibration.forward: cohort row count differs")
     except (CalibrationLakeError, LakeRetentionError) as exc:
         raise CalibrationCacheError(f"calibration forward cache is invalid: {exc}") from exc
     try:

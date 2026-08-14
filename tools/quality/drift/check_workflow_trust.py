@@ -40,6 +40,11 @@ _R2 = {
     # This is a GitHub expression, not a credential value.
     "R2_SECRET_ACCESS_KEY": "${{ secrets.R2_SECRET_ACCESS_KEY }}",  # nosec B105
 }
+_R2_ACCEPTANCE = {
+    "R2_ACCOUNT_ID": "${{ vars.R2_ACCOUNT_ID }}",
+    "R2_ACCESS_KEY_ID": "${{ secrets.R2_LAKE_ACCEPTANCE_ACCESS_KEY_ID }}",
+    "R2_SECRET_ACCESS_KEY": "${{ secrets.R2_LAKE_ACCEPTANCE_SECRET_ACCESS_KEY }}",  # nosec B105
+}
 _PROVIDERS = {
     "JQUANTS_API_KEY": "${{ secrets.JQUANTS_API_KEY }}",
     "ESTAT_APP_ID": "${{ secrets.ESTAT_APP_ID }}",
@@ -72,6 +77,11 @@ _EXPECTED_STEP_CREDENTIALS: dict[tuple[str, str, str], dict[str, str]] = {
         "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",  # nosec B105
         "CLOUDFLARE_ACCOUNT_ID": "${{ vars.R2_ACCOUNT_ID }}",
     },
+    (
+        "lake-acceptance.yml",
+        "actual-r2",
+        "Run actual R2 CAS and rollback acceptance",
+    ): _R2_ACCEPTANCE,
 }
 _EXPECTED_INPUT_ENV: dict[tuple[str, str, str], dict[str, str]] = {
     ("cloud-daily-batch.yml", "daily", "Validate dispatch input"): {
@@ -84,6 +94,9 @@ _EXPECTED_INPUT_ENV: dict[tuple[str, str, str], dict[str, str]] = {
         "BACKFILL_START": "${{ inputs.start }}",
         "BACKFILL_END": "${{ inputs.end }}",
         "MASTER_MONTH_END_FROM": "${{ inputs.master_month_end_from }}",
+    },
+    ("lake-acceptance.yml", "actual-r2", "Validate exact head without credentials"): {
+        "EXPECTED_SHA": "${{ inputs.expected_sha }}"
     },
 }
 _EXPECTED_VALIDATED_OUTPUT_ENV: dict[tuple[str, str, str], dict[str, str]] = {
@@ -126,6 +139,13 @@ _EXPECTED_VALIDATION_SCRIPTS = {
         echo "start=$BACKFILL_START" >> "$GITHUB_OUTPUT"
         echo "end=$BACKFILL_END" >> "$GITHUB_OUTPUT"
         echo "master_month_end_from=$MASTER_MONTH_END_FROM" >> "$GITHUB_OUTPUT"
+    """,
+    ("lake-acceptance.yml", "actual-r2", "Validate exact head without credentials"): """
+        if [[ ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "expected_sha must be a full lowercase commit SHA" >&2
+          exit 2
+        fi
+        test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
     """,
 }
 # Each digest covers the full reviewed step mapping (run script, env, condition,
@@ -171,6 +191,11 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
     ("web.yml", "quality", "Deploy Worker and UI assets"): (
         "885b888768015c2ca9aaa48d92aa47c941566db9a28c0909209499bae6418763"
     ),
+    (
+        "lake-acceptance.yml",
+        "actual-r2",
+        "Run actual R2 CAS and rollback acceptance",
+    ): "070dda77b44d7c39974ca2994cf5289d6d58294fcefa07f36525a34b037ce5eb",
 }
 _RESTRICTED_ENV_NAMES = frozenset(
     name for credentials in _EXPECTED_STEP_CREDENTIALS.values() for name in credentials

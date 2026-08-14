@@ -78,6 +78,12 @@ jobs:
         id: sync
         run: uv sync --locked
 
+      # Install executable extension code before credentials are present. Runtime
+      # lake sessions disable extension downloads and only LOAD this exact-version copy.
+      - name: Provision DuckDB httpfs extension
+        id: duckdb-httpfs
+        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
+
       # The spglobal_pmi / nikkei providers fall back to a headless Chromium for
       # WAF-gated fetches. Cache the browser keyed on the pinned Playwright
       # version so the ~114MB binary is downloaded only when that version

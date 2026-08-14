@@ -17,8 +17,12 @@ from baibai_engine.screening.calibration.cli import (
     calibration_evaluate_command,
 )
 from baibai_engine.screening.calibration.grid import days_with_bars, month_end_asof_grid
+from baibai_engine.screening.calibration.legacy_csv import migrate_legacy_calibration
 from baibai_engine.screening.calibration.panel import PANEL_BUILD_POLICIES, PanelVariant
-from baibai_engine.screening.calibration.store import DEFAULT_CALIBRATION_DIR
+from baibai_engine.screening.calibration.store import (
+    DEFAULT_CALIBRATION_DIR,
+    CalibrationCacheError,
+)
 from baibai_engine.screening.config import (
     DEFAULT_SQLITE_CACHE_DIR,
     ConfigError,
@@ -457,6 +461,16 @@ def build_parser() -> argparse.ArgumentParser:
     calibration_build_parser.add_argument(
         "--start", required=True, help="grid start date (YYYY-MM-DD)"
     )
+
+    calibration_migrate_parser = subparsers.add_parser(
+        "calibration-migrate-legacy",
+        help="archive legacy calibration CSV bytes and migrate compatible cohorts to L2",
+    )
+    calibration_migrate_parser.add_argument("--legacy-dir", type=Path, required=True)
+    calibration_migrate_parser.add_argument(
+        "--calibration-dir", type=Path, default=DEFAULT_CALIBRATION_DIR
+    )
+    calibration_migrate_parser.add_argument("--report", type=Path, required=True)
     calibration_build_parser.add_argument("--end", required=True, help="grid end date (YYYY-MM-DD)")
     calibration_build_parser.add_argument(
         "--sqlite-path",
@@ -690,6 +704,20 @@ def main(argv: list[str] | None = None) -> int:
             panel_variant=cast(PanelVariant, args.panel_variant),
             use_control_event_exits=not args.without_control_event_exits,
         )
+
+    if args.command == "calibration-migrate-legacy":
+        try:
+            report = migrate_legacy_calibration(
+                args.legacy_dir,
+                args.calibration_dir,
+                report_path=args.report,
+            )
+        except (CalibrationCacheError, OSError, ValueError) as error:
+            print(f"calibration legacy migration: {error}", file=sys.stderr)
+            return 1
+        cohorts = cast(list[str], report["cohorts"])
+        print(f"calibration legacy migration: {report['status']} ({len(cohorts)} cohorts)")
+        return 0
 
     if args.command == "calibration-evaluate":
         return calibration_evaluate_command(

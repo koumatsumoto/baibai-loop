@@ -1307,8 +1307,19 @@ class MarginSizeNormalizationTest(unittest.TestCase):
 
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            write_panel(root, date(2025, 6, 30), tuple(panel), _panel_diagnostics())
-            write_forward(root, date(2025, 6, 30), forwards)
+            write_panel(
+                root,
+                date(2025, 6, 30),
+                tuple(panel),
+                _panel_diagnostics(),
+                producer_commit="a" * 40,
+            )
+            write_forward(
+                root,
+                date(2025, 6, 30),
+                forwards,
+                producer_commit="a" * 40,
+            )
             output_path = root / "evaluation.yaml"
 
             exit_code = calibration_evaluate_command(
@@ -1387,8 +1398,14 @@ class MarginSizeNormalizationTest(unittest.TestCase):
                     master_snapshot_status="exact_date",
                     priced_master_without_universe_count=priced_master_without_universe_count,
                 ),
+                producer_commit="a" * 40,
             )
-            write_forward(root, date(2025, 6, 30), forwards)
+            write_forward(
+                root,
+                date(2025, 6, 30),
+                forwards,
+                producer_commit="a" * 40,
+            )
             output_path = root / "evaluation.yaml"
             exit_code = calibration_evaluate_command(
                 calibration_dir=root,

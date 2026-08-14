@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import uuid
 from dataclasses import asdict
 from datetime import date
 from pathlib import Path
@@ -12,6 +13,9 @@ from typing import TextIO, cast
 import yaml
 
 from baibai_engine.foundation.filesystem import write_text_atomic
+from baibai_engine.market.lake.identity import verified_git_commit
+from baibai_engine.market.lake.retention import lake_writer_lock
+from baibai_engine.market.lake.writer import LakeBuildError, capture_legacy_sqlite_snapshot
 
 from ..estimates import EXPECTED_RETURN_MODEL_VERSION
 from ..rule_config import ScreeningRules
@@ -33,6 +37,7 @@ from .forward import (
     read_control_event_exits,
 )
 from .grid import month_end_asof_grid
+from .lake import CalibrationBundleRef
 from .panel import (
     PANEL_BUILD_POLICIES,
     PRODUCTION_PANEL_POLICY,
@@ -46,11 +51,14 @@ from .store import (
     CACHE_SCHEMA_VERSION,
     DEFAULT_CALIBRATION_DIR,
     CalibrationCacheError,
+    adopt_bundle_generation,
+    current_bundle_ref,
     has_cohort,
     published_cohorts,
     read_forward,
     read_panel,
     read_panel_meta,
+    resolve_calibration_bundle,
     write_forward,
     write_panel,
 )
@@ -68,11 +76,59 @@ def calibration_build_command(
     use_control_event_exits: bool = True,
     stdout: TextIO | None = None,
 ) -> int:
-    out = stdout if stdout is not None else sys.stdout
     unreadable = unreadable_store_reason(sqlite_path)
     if unreadable is not None:
         print(f"calibration build: {unreadable}", file=sys.stderr)
         return 1
+    publication = lake_writer_lock(calibration_dir)
+    with publication:
+        try:
+            producer_commit = verified_git_commit()
+        except (OSError, RuntimeError) as exc:
+            print(f"calibration build: {exc}", file=sys.stderr)
+            return 1
+        expected_current = current_bundle_ref(calibration_dir) if force else None
+        work_dir = (
+            calibration_dir.with_name(f".{calibration_dir.name}.generation.{uuid.uuid4().hex}")
+            if force
+            else calibration_dir
+        )
+        try:
+            return _calibration_build_command(
+                sqlite_path=sqlite_path,
+                calibration_dir=calibration_dir,
+                work_dir=work_dir,
+                expected_current=expected_current,
+                producer_commit=producer_commit,
+                rules=rules,
+                start=start,
+                end=end,
+                force=force,
+                panel_variant=panel_variant,
+                use_control_event_exits=use_control_event_exits,
+                stdout=stdout,
+            )
+        finally:
+            if force and work_dir.exists():
+                rmtree(work_dir)
+
+
+def _calibration_build_command(
+    *,
+    sqlite_path: Path,
+    calibration_dir: Path,
+    work_dir: Path,
+    expected_current: CalibrationBundleRef | None,
+    producer_commit: str,
+    rules: ScreeningRules,
+    start: date,
+    end: date,
+    force: bool = False,
+    panel_variant: PanelVariant = "production",
+    use_control_event_exits: bool = True,
+    stdout: TextIO | None = None,
+) -> int:
+    out = stdout if stdout is not None else sys.stdout
     policy = PANEL_BUILD_POLICIES[panel_variant]
     if (
         not policy.production_authority
@@ -83,15 +139,19 @@ def calibration_build_command(
             file=sys.stderr,
         )
         return 1
-    asofs = month_end_asof_grid(sqlite_path, start=start, end=end)
+    try:
+        snapshot = capture_legacy_sqlite_snapshot(
+            sqlite_path=sqlite_path,
+            mirror_root=work_dir,
+        )
+    except LakeBuildError as exc:
+        print(f"calibration build: {exc}", file=sys.stderr)
+        return 1
+    fixed_sqlite = snapshot.path
+    asofs = month_end_asof_grid(fixed_sqlite, start=start, end=end)
     if not asofs:
         print("no month-end trading days found in the requested window", file=sys.stderr)
         return 1
-    work_dir = calibration_dir
-    if force:
-        work_dir = calibration_dir.with_name(f".{calibration_dir.name}.rebuild")
-        if work_dir.exists():
-            rmtree(work_dir)
     tickers_by_asof: dict[date, set[str]] = {}
     built = 0
     expected_rules_hash = rules_content_hash(rules, policy)
@@ -112,18 +172,26 @@ def calibration_build_command(
                     )
                 tickers_by_asof[asof] = {row.ticker for row in read_panel(work_dir, asof)}
                 continue
-            result = build_panel(asof, sqlite_path=sqlite_path, rules=rules, policy=policy)
-            write_panel(work_dir, asof, result.rows, result.diagnostics)
+            result = build_panel(asof, sqlite_path=fixed_sqlite, rules=rules, policy=policy)
+            write_panel(
+                work_dir,
+                asof,
+                result.rows,
+                result.diagnostics,
+                source=snapshot.ref,
+                producer_commit=producer_commit,
+                lock_held=True,
+            )
         except (CalibrationError, CalibrationCacheError) as exc:
             print(f"calibration build: {asof.isoformat()} failed: {exc}", file=sys.stderr)
             return 1
         tickers_by_asof[asof] = {row.ticker for row in result.rows}
         built += 1
-    control_event_exits = read_control_event_exits(sqlite_path) if use_control_event_exits else {}
+    control_event_exits = read_control_event_exits(fixed_sqlite) if use_control_event_exits else {}
     by_asof: dict[str, list[ForwardReturnRow]] = {}
     for asof in asofs:
         for row in compute_forward_returns(
-            sqlite_path,
+            fixed_sqlite,
             asofs=(asof,),
             tickers=tickers_by_asof[asof],
             control_event_exits=control_event_exits,
@@ -131,7 +199,14 @@ def calibration_build_command(
             by_asof.setdefault(row.asof, []).append(row)
     for asof in asofs:
         try:
-            write_forward(work_dir, asof, by_asof.get(asof.isoformat(), []))
+            write_forward(
+                work_dir,
+                asof,
+                by_asof.get(asof.isoformat(), []),
+                source=snapshot.ref,
+                producer_commit=producer_commit,
+                lock_held=True,
+            )
         except CalibrationCacheError as exc:
             print(f"calibration build: {asof.isoformat()} failed: {exc}", file=sys.stderr)
             return 1
@@ -139,19 +214,11 @@ def calibration_build_command(
     resolved = sum(row.resolved for row in rows)
     control_event = sum(row.status == CONTROL_EVENT_EXIT_STATUS for row in rows)
     if force:
-        backup_dir = calibration_dir.with_name(f".{calibration_dir.name}.backup")
-        if backup_dir.exists():
-            rmtree(backup_dir)
-        if calibration_dir.exists():
-            calibration_dir.replace(backup_dir)
-        try:
-            work_dir.replace(calibration_dir)
-        except OSError:
-            if backup_dir.exists():
-                backup_dir.replace(calibration_dir)
-            raise
-        if backup_dir.exists():
-            rmtree(backup_dir)
+        adopt_bundle_generation(
+            calibration_dir,
+            work_dir,
+            expected_current=expected_current,
+        )
     print(
         f"calibration build: done (panels built={built}, forward rows={len(rows)}, "
         f"resolved={resolved}, control event exits={control_event})",
@@ -237,7 +304,12 @@ def calibration_evaluate_command(
                 file=sys.stderr,
             )
             return 1
-    all_asofs = published_cohorts(calibration_dir)
+    try:
+        bundle = resolve_calibration_bundle(calibration_dir)
+    except CalibrationCacheError as exc:
+        print(f"calibration evaluate: {exc}", file=sys.stderr)
+        return 1
+    all_asofs = published_cohorts(calibration_dir, bundle=bundle)
     asofs = sorted(
         asof
         for asof in all_asofs
@@ -247,12 +319,14 @@ def calibration_evaluate_command(
         print(f"no panels found under {calibration_dir}", file=sys.stderr)
         return 1
     try:
-        metas = [read_panel_meta(calibration_dir, asof) for asof in asofs]
+        metas = [read_panel_meta(calibration_dir, asof, bundle=bundle) for asof in asofs]
         if len({meta.get("rules_hash") for meta in metas}) != 1:
             raise CalibrationCacheError(
                 "panel store mixes rules provenance; run calibration-build --force"
             )
-        panels = {asof.isoformat(): read_panel(calibration_dir, asof) for asof in asofs}
+        panels = {
+            asof.isoformat(): read_panel(calibration_dir, asof, bundle=bundle) for asof in asofs
+        }
         if run_purpose == "production_decision" and not _is_production_panel_contract(
             metas, panels
         ):
@@ -261,7 +335,9 @@ def calibration_evaluate_command(
                 file=sys.stderr,
             )
             return 1
-        forwards = {asof.isoformat(): read_forward(calibration_dir, asof) for asof in asofs}
+        forwards = {
+            asof.isoformat(): read_forward(calibration_dir, asof, bundle=bundle) for asof in asofs
+        }
     except CalibrationCacheError as exc:
         print(f"calibration evaluate: {exc}", file=sys.stderr)
         return 1

@@ -12,9 +12,15 @@ from pydantic import JsonValue, ValidationError
 
 from .duck import LakeCredentialError
 from .inventory import inventory
-from .models import DatasetManifest, load_manifest_json
+from .models import DatasetManifest, L1ReleaseSourceRef, load_lake_model_json, load_manifest_json
 from .objects import LakeObjectError, open_lake
-from .reader import LakeReadError, resolve_current_release, resolve_release
+from .reader import (
+    LakeReadError,
+    resolve_current_release,
+    resolve_previous_release,
+    resolve_release,
+    resolve_release_ref,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -23,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     inventory_parser = subparsers.add_parser(
         "inventory",
-        help="list object and byte totals in a local mirror without reading object contents",
+        help="list object/byte totals and Raw sidecar retention classes in a local mirror",
     )
     inventory_parser.add_argument(
         "--root",
@@ -48,8 +54,16 @@ def build_parser() -> argparse.ArgumentParser:
     resolve_parser.add_argument(
         "--bucket", help="read manifests from this R2 bucket instead of the local mirror"
     )
-    resolve_parser.add_argument(
+    target = resolve_parser.add_mutually_exclusive_group()
+    target.add_argument(
         "--release", help="resolve this release instead of reading the current pointer"
+    )
+    target.add_argument(
+        "--previous", action="store_true", help="resolve current's rollback release"
+    )
+    target.add_argument("--release-ref", type=Path, help="resolve a typed pinned release reference")
+    resolve_parser.add_argument(
+        "--manifest-sha256", help="required digest when --release names a release"
     )
     resolve_parser.add_argument("--format", choices=("yaml", "json"), default="yaml")
     return parser
@@ -66,11 +80,26 @@ def _resolved_release(args: argparse.Namespace) -> dict[str, JsonValue]:
     """Freeze one release and describe it, without dereferencing any data object."""
 
     with open_lake(mirror=args.mirror, bucket=args.bucket) as (_session, cache):
-        release = (
-            resolve_release(cache.source, args.release)
-            if args.release is not None
-            else resolve_current_release(cache.source)
-        )
+        if args.release is not None:
+            if args.manifest_sha256 is None:
+                raise LakeReadError("--release requires --manifest-sha256")
+            release = resolve_release(
+                cache.source,
+                args.release,
+                manifest_sha256=args.manifest_sha256,
+            )
+        elif args.manifest_sha256 is not None:
+            raise LakeReadError("--manifest-sha256 is valid only with --release")
+        elif args.previous:
+            release = resolve_previous_release(cache.source)
+        elif args.release_ref is not None:
+            reference = load_lake_model_json(
+                args.release_ref.read_bytes(),
+                L1ReleaseSourceRef,
+            )
+            release = resolve_release_ref(cache.source, reference)
+        else:
+            release = resolve_current_release(cache.source)
     return {
         "schema_version": 1,
         "kind": "lake_release",
@@ -79,6 +108,7 @@ def _resolved_release(args: argparse.Namespace) -> dict[str, JsonValue]:
         "manifest_key": release.manifest_key,
         "manifest_sha256": release.manifest_sha256,
         "previous_release_id": release.previous_release_id,
+        "previous_manifest_sha256": release.previous_manifest_sha256,
         "data_as_of": release.data_as_of.isoformat(),
         "datasets": [
             {

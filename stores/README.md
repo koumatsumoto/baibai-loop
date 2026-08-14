@@ -25,12 +25,12 @@ current pointerを1度だけ解決し、`lake projection build`はその固定re
 | `application/baibai.sqlite` | local canonical、cloud replica | engine application service | `baibai-engine db backup`。自動 rebuild 禁止 | `batch/scripts/publish.sh` |
 | `market/market.sqlite` | `sqlite_authority`の唯一のcanonical/runtime L1 | provider + controlled merge | screening cache command で再取得可能 | no-loss merge 後のみ push |
 | R2 `lake/l1/` | `sqlite_authority`ではnon-authoritative shadow、`lake_authority`ではcanonical L1 | lake publisher | source再取得またはlegacy SQLite seedからimmutable rebuild | content object + manifest + CAS pointer |
-| R2 `lake/l2/` | dataset cutover前はnon-authoritative shadow、cutover後はrebuildable analytical authority | analytical build | fixed L1 releaseからimmutable rebuild | dataset pointer |
+| R2 `lake/l2/` | dataset cutover前はnon-authoritative shadow、cutover後はrebuildable analytical authority | analytical build | fixed input generationからimmutable rebuild | calibrationはatomic bundle pointer |
 | `lake/` | disposable local R2 mirror / staging / content-addressed object cache | lake build | R2 manifestから再取得可能 | authorityにしない |
 | `market/projection.sqlite` | disposable projection of one fixed L1 release | lake projection build | 削除して固定releaseから再構築 | uploadしない |
 | `macro/macro.sqlite` | cloud rolling + local full history | macro indicator service + controlled merge | provider series から再取得可能 | no-loss merge 後のみ push |
 | `screening/runs.sqlite` | cloud canonical | daily batch screening service | screening run から再生成可能 | local から push 禁止 |
-| `screening/calibration/` | rebuildable L2（typed Parquet build + dataset pointer） | engine calibration command | market/ledger evidence から再生成可能 | L2 manifest と object を publish |
+| `screening/calibration/` | rebuildable L2（typed Parquet + atomic calibration bundle pointer） | engine calibration command | market/ledger evidence またはdigest固定したlegacy archiveから再生成可能 | 3 dataset manifestをbundleとしてpublish |
 
 ## Allowed / Forbidden dependencies
 
@@ -44,6 +44,8 @@ comparison artifactで、`lake_authority`のSQLiteはfixed releaseから再構�
 production rules は [method](../method/README.md)、historical evidence は
 [reports](../reports/README.md)。R2 object keyは`lake/`以下のpath-safe segmentだけで構成し、
 dataset / release manifestがobject inventory、checksum、rows、coverage、producerを固定する。
+manifestのlogical identityはcontent SHA-256で固定し、R2 ETagはpointer CAS等のtransport stateに
+限定する。sourceはtyped `SourceRef`、release completenessは明示profileのpolicyで検証する。
 repository path migration とR2 key semanticsを結合しない。
 
 ## Tests

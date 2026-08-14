@@ -4,22 +4,31 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess  # nosec B404
 import sys
 from datetime import date
 from pathlib import Path
 
 from .datasets import PILOT_DATASETS
 from .duck import LakeCredentialError
+from .identity import source_repo_root, verified_git_commit
+from .models import DatasetManifest, L1ReleaseSourceRef, load_lake_model_json
 from .objects import LakeObjectError, open_lake
 from .projection import ProjectionError, build_projection
-from .raw import RawRetentionClass, archive_raw_file
-from .reader import LakeReadError, resolve_current_release, resolve_release
+from .raw import RawRetentionClass, archive_raw_file, raw_source_ref
+from .reader import (
+    LakeReadError,
+    resolve_current_release,
+    resolve_previous_release,
+    resolve_release,
+    resolve_release_ref,
+)
 from .release import create_l1_release
 from .retention import LakeRetentionError, apply_gc, create_pin, plan_gc, remove_pin
-from .writer import export_legacy_sqlite, validate_legacy_parity
+from .writer import export_legacy_sqlite, export_pilot_legacy
 
-WRITE_COMMANDS = frozenset({"archive-raw", "export-legacy", "gc", "pin", "projection", "release"})
+WRITE_COMMANDS = frozenset(
+    {"archive-raw", "export-legacy", "export-pilot", "gc", "pin", "projection", "release"}
+)
 
 
 def main(argv: list[str]) -> int:
@@ -47,9 +56,15 @@ def main(argv: list[str]) -> int:
     export.add_argument("--from", dest="start", type=date.fromisoformat)
     export.add_argument("--to", dest="end", type=date.fromisoformat)
     export.add_argument("--base-manifest", type=Path)
-    export.add_argument("--source-ingest", action="append", default=[])
+    export.add_argument("--raw-metadata", type=Path, action="append", default=[])
     export.add_argument("--build-id")
-    export.add_argument("--producer-git-commit", default=None)
+
+    pilot = commands.add_parser(
+        "export-pilot", help="export both pilot datasets from one sealed SQLite snapshot"
+    )
+    pilot.add_argument("--sqlite", type=Path, required=True)
+    pilot.add_argument("--mirror", type=Path, required=True)
+    pilot.add_argument("--base-manifest", type=Path, action="append", default=[])
 
     release = commands.add_parser("release", help="create an immutable L1 release")
     release_commands = release.add_subparsers(dest="release_command", required=True)
@@ -69,13 +84,20 @@ def main(argv: list[str]) -> int:
         "--bucket",
         help="fetch missing objects from this R2 bucket; omit to build from the mirror alone",
     )
-    build.add_argument(
+    release_target = build.add_mutually_exclusive_group()
+    release_target.add_argument(
         "--release",
         help="build this release instead of the one the current pointer names",
     )
+    release_target.add_argument(
+        "--previous", action="store_true", help="build current's digest-pinned rollback release"
+    )
+    release_target.add_argument(
+        "--release-ref", type=Path, help="build a typed digest-pinned release reference"
+    )
+    build.add_argument("--manifest-sha256", help="required digest when --release is used")
     build.add_argument("--dataset", action="append", default=[], choices=sorted(PILOT_DATASETS))
     build.add_argument("--force", action="store_true")
-    build.add_argument("--producer-git-commit", default=None)
 
     pin = commands.add_parser("pin", help="keep one release or build reachable indefinitely")
     pin_commands = pin.add_subparsers(dest="pin_command", required=True)
@@ -83,8 +105,7 @@ def main(argv: list[str]) -> int:
     pin_create.add_argument("--mirror", type=Path, required=True)
     pin_create.add_argument("--pin-id", required=True)
     pin_create.add_argument("--release", help="L1 release id to pin")
-    pin_create.add_argument("--build", help="L2 build id to pin (requires --dataset)")
-    pin_create.add_argument("--dataset")
+    pin_create.add_argument("--bundle", help="calibration bundle id to pin")
     pin_create.add_argument("--reason", required=True)
     pin_create.add_argument("--owner", required=True)
     pin_remove = pin_commands.add_parser("remove")
@@ -136,31 +157,17 @@ def main(argv: list[str]) -> int:
         )
         return 0
     if args.command == "export-legacy":
+        verified_commit = _git_commit()
         report = export_legacy_sqlite(
             dataset_name=args.dataset,
             sqlite_path=args.sqlite,
             mirror_root=args.mirror,
-            producer_git_commit=args.producer_git_commit or _git_commit(),
+            producer_git_commit=verified_commit,
             start=args.start,
             end=args.end,
             base_manifest_path=args.base_manifest,
-            source_ingest_ids=args.source_ingest,
+            raw_source_refs=tuple(raw_source_ref(path) for path in args.raw_metadata),
             build_id=args.build_id,
-        )
-        selected = None
-        if args.start is not None and args.end is not None:
-            selected = {
-                (year, month)
-                for year in range(args.start.year, args.end.year + 1)
-                for month in range(1, 13)
-                if (year, month) >= (args.start.year, args.start.month)
-                and (year, month) <= (args.end.year, args.end.month)
-            }
-        validate_legacy_parity(
-            sqlite_path=args.sqlite,
-            mirror_root=args.mirror,
-            manifest=report.manifest,
-            months=selected,
         )
         print(
             json.dumps(
@@ -171,6 +178,33 @@ def main(argv: list[str]) -> int:
                     "manifest": str(report.manifest_path),
                     "reused_partitions": report.reused_partitions,
                     "rows": report.manifest.totals.rows,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+    if args.command == "export-pilot":
+        bases: dict[str, Path] = {}
+        for path in args.base_manifest:
+            manifest = load_lake_model_json(path.read_bytes(), DatasetManifest)
+            if manifest.dataset in bases:
+                raise RuntimeError(f"duplicate base manifest: {manifest.dataset}")
+            bases[manifest.dataset] = path
+        pilot_report = export_pilot_legacy(
+            sqlite_path=args.sqlite,
+            mirror_root=args.mirror,
+            producer_git_commit=_git_commit(),
+            base_manifest_paths=bases,
+        )
+        print(
+            json.dumps(
+                {
+                    "manifests": {
+                        name: str(item.manifest_path)
+                        for name, item in pilot_report.datasets.items()
+                    },
+                    "snapshot": str(pilot_report.snapshot.path),
+                    "snapshot_sha256": pilot_report.snapshot.ref.sha256,
                 },
                 sort_keys=True,
             )
@@ -204,14 +238,29 @@ def _projection_build(args: argparse.Namespace) -> int:
     """Resolve one release, then materialize it into a disposable SQLite projection."""
 
     datasets = tuple(dict.fromkeys(args.dataset)) or tuple(sorted(PILOT_DATASETS))
-    commit = args.producer_git_commit or _git_commit()
+    commit = _git_commit()
     try:
         with open_lake(mirror=args.mirror, bucket=args.bucket) as (session, cache):
-            release = (
-                resolve_release(cache.source, args.release)
-                if args.release is not None
-                else resolve_current_release(cache.source)
-            )
+            if args.release is not None:
+                if args.manifest_sha256 is None:
+                    raise LakeReadError("--release requires --manifest-sha256")
+                release = resolve_release(
+                    cache.source,
+                    args.release,
+                    manifest_sha256=args.manifest_sha256,
+                )
+            elif args.manifest_sha256 is not None:
+                raise LakeReadError("--manifest-sha256 is valid only with --release")
+            elif args.previous:
+                release = resolve_previous_release(cache.source)
+            elif args.release_ref is not None:
+                reference = load_lake_model_json(
+                    args.release_ref.read_bytes(),
+                    L1ReleaseSourceRef,
+                )
+                release = resolve_release_ref(cache.source, reference)
+            else:
+                release = resolve_current_release(cache.source)
             report = build_projection(
                 session,
                 release=release,
@@ -257,15 +306,14 @@ def _pin(args: argparse.Namespace) -> int:
             removed = remove_pin(args.mirror, pin_id=args.pin_id)
             print(json.dumps({"pin_id": args.pin_id, "removed": removed}, sort_keys=True))
             return 0 if removed else 1
-        if bool(args.release) == bool(args.build):
-            print("error: pin exactly one of --release or --build", file=sys.stderr)
+        if bool(args.release) == bool(args.bundle):
+            print("error: pin exactly one of --release or --bundle", file=sys.stderr)
             return 1
         path = create_pin(
             args.mirror,
             pin_id=args.pin_id,
-            target_kind="l1_release" if args.release else "l2_build",
-            target_id=args.release or args.build,
-            dataset=args.dataset if args.build else None,
+            target_kind="l1_release" if args.release else "calibration_bundle",
+            target_id=args.release or args.bundle,
             reason=args.reason,
             owner=args.owner,
         )
@@ -307,9 +355,10 @@ commands:
   resolve            resolve one fixed release and print its immutable identity
   archive-raw        archive original provider bytes append-only
   export-legacy      export affected SQLite months as canonical Parquet
+  export-pilot       export both pilot datasets from one sealed SQLite snapshot
   release create     create an immutable L1 release manifest
   projection build   materialize a local SQLite projection of one fixed release
-  pin create         keep one release or build reachable indefinitely
+  pin create         keep one release or calibration bundle reachable indefinitely
   pin remove         drop one explicit retention root
   gc                 plan (default) or apply deletion of unreachable objects
 """
@@ -317,10 +366,8 @@ commands:
 
 
 def _git_commit() -> str:
-    result = subprocess.run(
-        ("git", "rev-parse", "HEAD"),
-        check=True,
-        capture_output=True,
-        text=True,
-    )  # nosec B603
-    return result.stdout.strip()
+    return verified_git_commit()
+
+
+def _source_repo_root() -> Path:
+    return source_repo_root()

@@ -61,7 +61,7 @@ engine は web / batch / tools に依存しない。Web が engine へ触れる�
 | `stores/application/baibai.sqlite` | canonical application DB | task、macro context、shortlist、thesis revision、holding review、proposal、ledger event / price / meta、outcome、operation session | `baibai-engine` application service |
 | `stores/market/market.sqlite` | rebuildable L1 | J-Quants / EDINET / JPX の price、calendar、financial input と、資本配分・支配権イベントの typed fact | market / screening provider |
 | `stores/screening/runs.sqlite` | rebuildable L2 run store | 最新数世代を保持するprunable screening run / machine selection cache | screening service |
-| `stores/screening/calibration/` | rebuildable L2 analytical build | typed Parquet の calibration panel / diagnostics / forward outcome と、その dataset manifest・pointer・pin | screening calibration service |
+| `stores/screening/calibration/` | rebuildable L2 analytical bundle | typed Parquet の calibration panel / diagnostics / forward outcome と、3 datasetを原子的に束ねるbundle manifest・pointer・pin | screening calibration service |
 | `stores/macro/macro.sqlite` | rebuildable L1 | provider 別 macro indicator series。manual 観測は git seed から同期 | macro indicator service |
 
 application DB の default path は `stores/application/baibai.sqlite` で、`BAIBAI_DB` または各 CLI の `--db` で差し替えられる。手動 backup は `baibai-engine db backup` を使う。自動 backup、世代管理、監査 table、transition history は持たない。
@@ -80,17 +80,31 @@ materialized read model だけを読む。
 | --- | --- | --- | --- |
 | L1 Raw | canonical Raw archiveなし | R2 immutable object | provider original と request range / retrieved-at / content hash。credential と認証 header は保存しない |
 | L1 Canonical | `market.sqlite` | Parquet object + dataset / release manifest | typed source fact、source identity、publication / effective / retrieved time、revision semantics |
-| L2 Analytical | dataset別の既存rebuildable cache | Parquet object + dataset manifest + dataset pointer | 再生成可能な panel、feature、forward outcome |
+| L2 Analytical | dataset別の既存rebuildable cache | Parquet object + dataset manifest + atomic bundle pointer | 再生成可能な panel、feature、forward outcome |
 | L2 Operational / L3 | SQLite | SQLite | run metadata、selection、thesis、proposal、ledger、operation 等の transaction / point lookup state |
 
 R2 key は `lake/` 以下だけを使い、segment allowlist で path traversal を拒否する。time-series
 partition は `year/month`、file は ZSTD Parquet、object name は content SHA-256 とする。dataset
 manifest は全 partition object と totals を列挙し、L1 release manifest は互換な dataset build の
-組を一つの `release_id` へ固定する。
+組を一つの `release_id` へ固定する。logical object identity は key・SHA-256・bytes・rows・schema
+で決まり、object-store固有のETagはpublish/CASのtransport stateにだけ置く。lineageは
+`raw_ingest`・`sqlite_snapshot`・`l1_release`・`calibration_input`を区別するtyped `SourceRef`で表し、解決先key、
+SHA-256、source側versionを検証する。Raw refはmetadata sidecarのkeyとSHA-256も固定し、sidecarの
+ingest ID・object key・content digest・metadata versionを照合する。文字列prefixや実在しない
+release IDでsource種別を表さない。
+
+manifest、pointer、pinを含むlake JSONは、duplicate key拒否とredacted validation errorを持つ
+共通parserだけを通し、wire size上限をparse前に検査する。partition valuesとrelease dataset
+inventoryはparse後に変更できない。
+releaseは`pilot`または`production` profileを宣言し、profileごとのrequired dataset、accepted
+contract、coverage、検証時刻基準のfreshness/skew、manifest size/object budgetを満たす場合だけ
+current候補になる。
+pilot profileは移行中の限定datasetを表し、production completenessを代替しない。
 
 version 語彙は `contract_version`（schema・PK・型・partition・意味の互換境界）、`build_id`
-（immutable build）、`source_release_id`（exact L1 input）、`producer_git_commit`（code identity）
-の4つに限定する。同じ contract 内の logic / config は `transform_fingerprint` で識別する。
+（immutable build）、typed `SourceRef`内のsource側version、`producer_git_commit`（code identity）
+に限定する。同じ contract 内の logic / config / 明示したtransform source codeは
+`transform_fingerprint`で識別する。
 production reader は期待する contract 一つだけを受け入れ、schema change は in-place migration
 や `union_by_name` fallback ではなく、新しい contract の immutable rebuild と pointer switch で
 扱う。

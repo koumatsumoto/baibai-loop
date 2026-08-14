@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import sys
 import tempfile
@@ -29,6 +30,8 @@ from baibai_engine.screening.calibration.forward import (
 )
 from baibai_engine.screening.calibration.identity import rules_contract_hash
 from baibai_engine.screening.calibration.lake import (
+    CALIBRATION_DIAGNOSTICS,
+    CALIBRATION_FORWARD,
     CALIBRATION_PANEL,
     CalibrationLakeError,
     load_manifest,
@@ -204,6 +207,20 @@ def _current_panel_manifest(root):  # type: ignore[no-untyped-def]
 
 
 class CalibrationPanelTest(unittest.TestCase):
+    def setUp(self) -> None:
+        identity = patch(
+            "baibai_engine.screening.calibration.cli.verified_git_commit",
+            return_value="a" * 40,
+        )
+        identity.start()
+        self.addCleanup(identity.stop)
+        store_identity = patch(
+            "baibai_engine.screening.calibration.store.verified_git_commit",
+            return_value="a" * 40,
+        )
+        store_identity.start()
+        self.addCleanup(store_identity.stop)
+
     def test_a_filing_older_than_the_coverage_does_not_take_the_cohort_down(self) -> None:
         """The history floor follows what the store may serve, not its oldest row.
 
@@ -1045,6 +1062,84 @@ class CalibrationPanelTest(unittest.TestCase):
 
             self.assertEqual(code, 1)
             self.assertIn("contract differs", errors.getvalue())
+
+    def test_failed_force_build_removes_its_unique_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            store_dir = Path(tmp) / "calibration"
+
+            def fail_after_staging(root: Path, *_args: object, **_kwargs: object) -> None:
+                root.mkdir(parents=True, exist_ok=True)
+                (root / "partial").write_bytes(b"partial")
+                raise CalibrationCacheError("injected write failure")
+
+            with (
+                patch(
+                    "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                    return_value=[ASOF],
+                ),
+                patch(
+                    "baibai_engine.screening.calibration.cli.write_panel",
+                    side_effect=fail_after_staging,
+                ),
+            ):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    force=True,
+                )
+
+            self.assertEqual(code, 1)
+            self.assertEqual(list(Path(tmp).glob(".calibration.generation.*")), [])
+
+    def test_build_closes_every_dataset_over_one_sqlite_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sqlite_path = root / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            store_dir = root / "calibration"
+            with patch(
+                "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                return_value=[ASOF],
+            ):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                )
+
+            self.assertEqual(code, 0)
+            manifests = []
+            for dataset in (
+                CALIBRATION_PANEL,
+                CALIBRATION_DIAGNOSTICS,
+                CALIBRATION_FORWARD,
+            ):
+                pointer = read_l2_pointer(store_dir, dataset.name)
+                self.assertIsNotNone(pointer)
+                assert pointer is not None
+                manifests.append(load_manifest(store_dir / pointer.manifest_key))
+            source_sets = {manifest.sources for manifest in manifests}
+            self.assertEqual(len(source_sets), 1)
+            sources = next(iter(source_sets))
+            self.assertEqual(len(sources), 1)
+            snapshot = sources[0]
+            self.assertEqual(snapshot.kind, "sqlite_snapshot")
+            snapshot_path = store_dir / snapshot.key
+            self.assertTrue(snapshot_path.is_file())
+            self.assertEqual(
+                hashlib.sha256(snapshot_path.read_bytes()).hexdigest(), snapshot.sha256
+            )
+            self.assertEqual(
+                {manifest.producer_git_commit for manifest in manifests},
+                {"a" * 40},
+            )
 
     def test_missing_master_snapshot_becomes_unresolved_panel(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

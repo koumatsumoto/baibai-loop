@@ -1,0 +1,55 @@
+name: lake-acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Exact 40-character commit SHA under acceptance"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lake-acceptance
+  cancel-in-progress: false
+
+jobs:
+  actual-r2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate exact head without credentials
+        id: validate-input
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          if [[ ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "expected_sha must be a full lowercase commit SHA" >&2
+            exit 2
+          fi
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Sync locked environment
+        run: uv sync --locked
+
+      - name: Run actual R2 CAS and rollback acceptance
+        env:
+          BAIBAI_R2_ACCEPTANCE: "1"
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_LAKE_ACCEPTANCE_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_LAKE_ACCEPTANCE_SECRET_ACCESS_KEY }}
+          R2_LAKE_ACCEPTANCE_BUCKET: ${{ vars.R2_LAKE_ACCEPTANCE_BUCKET }}
+          PYTHONPATH: engine/src:batch/src:web/backend/src
+        run: uv run pytest -q -n 0 tests/integration/test_lake_r2_acceptance.py

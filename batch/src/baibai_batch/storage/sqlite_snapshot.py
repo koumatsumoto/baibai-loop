@@ -6,6 +6,8 @@ import argparse
 import sqlite3
 from pathlib import Path
 
+from baibai_engine.batch_api import create_market_snapshot
+
 
 def validate_database(path: Path) -> None:
     """Fail unless ``path`` is a readable, internally consistent SQLite database."""
@@ -33,16 +35,9 @@ def database_schema_version(path: Path) -> int:
 
 def create_snapshot(source: Path, output: Path) -> None:
     """Copy ``source`` through SQLite's backup API, including uncheckpointed WAL rows."""
-
-    if not source.is_file():
-        raise FileNotFoundError(f"SQLite source does not exist: {source}")
-    output.parent.mkdir(parents=True, exist_ok=True)
     if output.exists():
         output.unlink()
-    source_uri = f"file:{source.resolve().as_posix()}?mode=ro"
-    with sqlite3.connect(source_uri, uri=True) as source_db, sqlite3.connect(output) as target_db:
-        source_db.backup(target_db)
-    validate_database(output)
+    create_market_snapshot(source, output)
 
 
 def build_parser() -> argparse.ArgumentParser:

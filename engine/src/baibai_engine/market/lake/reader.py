@@ -20,6 +20,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from types import MappingProxyType
 
 import duckdb
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
@@ -32,7 +33,14 @@ from .keys import (
     release_manifest_key,
     validate_identifier,
 )
-from .models import DatasetManifest, LakeObject, PartitionManifest, ReleaseManifest
+from .models import (
+    DatasetManifest,
+    L1ReleaseSourceRef,
+    LakeObject,
+    PartitionManifest,
+    ReleaseManifest,
+    load_lake_model_json,
+)
 from .objects import LakeObjectCache, LakeObjectSource, sha256_bytes
 from .release import L1ReleasePointer
 
@@ -56,10 +64,23 @@ class FixedRelease:
     manifest_key: str
     manifest_sha256: str
     previous_release_id: str | None
+    previous_manifest_sha256: str | None
     data_as_of: date
     manifest: ReleaseManifest
     dataset_manifests: Mapping[str, DatasetManifest]
     dataset_manifest_sha256: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "dataset_manifests",
+            MappingProxyType(dict(self.dataset_manifests)),
+        )
+        object.__setattr__(
+            self,
+            "dataset_manifest_sha256",
+            MappingProxyType(dict(self.dataset_manifest_sha256)),
+        )
 
     def dataset_names(self) -> tuple[str, ...]:
         return tuple(sorted(self.dataset_manifests))
@@ -78,23 +99,49 @@ class FixedRelease:
 def resolve_current_release(source: LakeObjectSource) -> FixedRelease:
     """Read the mutable pointer once and freeze what it names."""
 
-    payload = source.read_bytes(current_l1_pointer_key())
-    try:
-        pointer = L1ReleasePointer.model_validate_json(payload)
-    except ValueError as exc:
-        raise LakeReadError(f"L1 current pointer is invalid: {exc}") from exc
-    expected_key = release_manifest_key(release_id=pointer.release_id)
-    if pointer.manifest_key != expected_key:
-        raise LakeReadError("L1 current pointer manifest key does not match its release id")
+    pointer = _read_current_pointer(source)
     return _load_release(
         source,
         release_id=pointer.release_id,
         expected_manifest_sha256=pointer.manifest_sha256,
         previous_release_id=pointer.previous_release_id,
+        previous_manifest_sha256=pointer.previous_manifest_sha256,
     )
 
 
-def resolve_release(source: LakeObjectSource, release_id: str) -> FixedRelease:
+def resolve_previous_release(source: LakeObjectSource) -> FixedRelease:
+    """Resolve the rollback generation through the digest stored on current."""
+
+    pointer = _read_current_pointer(source)
+    if pointer.previous_release_id is None or pointer.previous_manifest_sha256 is None:
+        raise LakeReadError("L1 current pointer does not name a previous release")
+    return _load_release(
+        source,
+        release_id=pointer.previous_release_id,
+        expected_manifest_sha256=pointer.previous_manifest_sha256,
+        previous_release_id=None,
+        previous_manifest_sha256=None,
+    )
+
+
+def _read_current_pointer(source: LakeObjectSource) -> L1ReleasePointer:
+    payload = source.read_bytes(current_l1_pointer_key())
+    try:
+        pointer = load_lake_model_json(payload, L1ReleasePointer)
+    except ValueError:
+        raise LakeReadError("L1 current pointer is invalid") from None
+    expected_key = release_manifest_key(release_id=pointer.release_id)
+    if pointer.manifest_key != expected_key:
+        raise LakeReadError("L1 current pointer manifest key does not match its release id")
+    return pointer
+
+
+def resolve_release(
+    source: LakeObjectSource,
+    release_id: str,
+    *,
+    manifest_sha256: str,
+) -> FixedRelease:
     """Resolve one named release without reading the pointer at all.
 
     This is how a rollback or a pinned study reads: the release is chosen by the
@@ -105,8 +152,19 @@ def resolve_release(source: LakeObjectSource, release_id: str) -> FixedRelease:
     return _load_release(
         source,
         release_id=release_id,
-        expected_manifest_sha256=None,
+        expected_manifest_sha256=manifest_sha256,
         previous_release_id=None,
+        previous_manifest_sha256=None,
+    )
+
+
+def resolve_release_ref(source: LakeObjectSource, reference: L1ReleaseSourceRef) -> FixedRelease:
+    """Resolve a persisted pin whose typed identity includes the manifest digest."""
+
+    return resolve_release(
+        source,
+        reference.source_id,
+        manifest_sha256=reference.sha256,
     )
 
 
@@ -114,18 +172,19 @@ def _load_release(
     source: LakeObjectSource,
     *,
     release_id: str,
-    expected_manifest_sha256: str | None,
+    expected_manifest_sha256: str,
     previous_release_id: str | None,
+    previous_manifest_sha256: str | None,
 ) -> FixedRelease:
     manifest_key = release_manifest_key(release_id=release_id)
     payload = source.read_bytes(manifest_key)
     digest = sha256_bytes(payload)
-    if expected_manifest_sha256 is not None and digest != expected_manifest_sha256:
-        raise LakeReadError("L1 release manifest digest does not match the current pointer")
+    if digest != expected_manifest_sha256:
+        raise LakeReadError("L1 release manifest digest does not match its expected identity")
     try:
-        release = ReleaseManifest.model_validate_json(payload)
-    except ValueError as exc:
-        raise LakeReadError(f"L1 release manifest is invalid: {exc}") from exc
+        release = load_lake_model_json(payload, ReleaseManifest)
+    except ValueError:
+        raise LakeReadError("L1 release manifest is invalid") from None
     if release.release_id != release_id:
         raise LakeReadError("L1 release manifest identifies a different release")
 
@@ -138,9 +197,9 @@ def _load_release(
         if dataset_digest != entry.manifest_sha256:
             raise LakeReadError(f"dataset manifest digest does not match the release: {name}")
         try:
-            manifest = DatasetManifest.model_validate_json(dataset_payload)
-        except ValueError as exc:
-            raise LakeReadError(f"dataset manifest is invalid: {name}: {exc}") from exc
+            manifest = load_lake_model_json(dataset_payload, DatasetManifest)
+        except ValueError:
+            raise LakeReadError(f"dataset manifest is invalid: {name}") from None
         if (
             manifest.dataset != name
             or manifest.build_id != entry.build_id
@@ -156,6 +215,7 @@ def _load_release(
         manifest_key=manifest_key,
         manifest_sha256=digest,
         previous_release_id=previous_release_id,
+        previous_manifest_sha256=previous_manifest_sha256,
         data_as_of=release.data_as_of,
         manifest=release,
         dataset_manifests=manifests,

@@ -116,6 +116,26 @@ def raw_object_key(
     )
 
 
+def raw_metadata_object_key(*, raw_key: str) -> str:
+    """Return the sidecar key that binds Raw bytes to retrieval metadata."""
+    key = validate_lake_object_key(raw_key)
+    if key.startswith("lake/l1/raw/legacy_sqlite/") or not key.endswith(tuple(_RAW_SUFFIXES)):
+        raise ValueError("Raw metadata requires an L1 Raw object key")
+    return validate_lake_object_key(f"{key}.metadata.json")
+
+
+def sqlite_snapshot_object_key(
+    *, snapshot_id: str, schema_version: int, content_sha256: str
+) -> str:
+    """Return the content-bound key for a legacy SQLite seed snapshot."""
+    validate_identifier(snapshot_id, label="snapshot_id")
+    version = _positive_version(schema_version)
+    digest = validate_sha256(content_sha256)
+    return validate_lake_object_key(
+        f"lake/l1/raw/legacy_sqlite/market/schema=v{version}/{snapshot_id}/snapshot-{digest}.sqlite"
+    )
+
+
 def canonical_object_key(
     *,
     layer: LakeLayer,
@@ -158,6 +178,15 @@ def current_l1_pointer_key() -> str:
 def current_l2_pointer_key(*, dataset: str) -> str:
     validate_dataset_name(dataset)
     return validate_lake_object_key(f"lake/pointers/l2/{dataset}/current.json")
+
+
+def calibration_bundle_manifest_key(*, bundle_id: str) -> str:
+    validate_identifier(bundle_id, label="bundle_id")
+    return validate_lake_object_key(f"lake/manifests/calibration-bundles/{bundle_id}.json")
+
+
+def current_calibration_bundle_pointer_key() -> str:
+    return "lake/pointers/calibration/current.json"
 
 
 def pin_key(*, pin_id: str) -> str:

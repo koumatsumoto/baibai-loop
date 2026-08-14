@@ -48,10 +48,17 @@ J-Quants / EDINET から取得したデータは、個人利用・非公開 repo
 | local projection | `market.sqlite`がcanonicalを兼ねる | fixed L1 releaseから再構築するSQLite | R2 authorityにしない |
 | disposable byproduct | `.cache/` | `.cache/` | canonical verification後に削除でき、入力証跡として扱わない |
 
+Canonical manifestのsourceはtyped `SourceRef`で記録する。provider Raw、legacy SQLite snapshot、
+fixed L1 release、calibration input archiveは別kindであり、各refは実在するkey、SHA-256、
+source側schema/manifest versionへ束縛する。provider Rawはmetadata sidecarもkeyとSHA-256で固定し、ingest ID・object key・content
+digest・metadata versionを同時に照合する。logical manifestへR2 ETagを保存せず、release profileの
+required dataset・coverage・freshness gateを通らないgenerationをproduction currentとして扱わない。
+
 Raw retention は、再取得が高価または不可能な Premium CSV・EDINET XBRL・JPX 原本を
-`preserve`、routine API response を `buffer` とする。`buffer` は canonical build が検証済みで、
-current / previous / pin のいずれからも必要とされず、90日を超えた場合だけ GC 候補になる。
-容量 10GB は soft budget であり、重要 ingest を停止する hard cap にはしない。
+`preserve`、routine API response を `buffer` とする。inventoryのsoft budgetはpreserve 500 GiB、
+buffer 50 GiBで、重要ingestを停止するhard capではない。bufferの自動削除は未実装であり、通常GCの
+候補にしない。専用plannerはcanonical verification、current/previous/pin closure、minimum age、
+metadata/object digest、cloud lockをすべて満たしてから導入する。
 
 lifecycle stateは`sqlite_authority`と`lake_authority`の二つだけである。`sqlite_authority`では
 `stores/market/market.sqlite`だけがscreening L1のcanonical/runtime authorityで、lake buildは

@@ -55,6 +55,14 @@ SHORTLIST_ID = "shortlist-20260708-cli-seam"
 NEXT_MONTH_END = date(2026, 7, 31)
 
 
+@pytest.fixture(autouse=True)
+def _verified_calibration_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "baibai_engine.screening.calibration.cli.verified_git_commit",
+        lambda: "a" * 40,
+    )
+
+
 def _narrative() -> dict[str, str]:
     return {
         "ploss": "中低",

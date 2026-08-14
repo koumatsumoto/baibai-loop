@@ -8,13 +8,13 @@ from pathlib import Path
 import pytest
 from tests.tools.test_measure_signal_cohorts import _liquid, _store, _write_forward, _write_panel
 from tools.experiments.measure_buyback_authorization import (
-    BuybackAuthorizationMeasurementError,
     DiagnosticRow,
     _complete_cohort_count,
     build_measurement,
 )
 
 from baibai_engine.market.sqlite import open_connection
+from baibai_engine.screening.calibration.store import CalibrationCacheError
 
 
 def _buyback_zip(*, purpose: str | None = None) -> bytes:
@@ -244,40 +244,27 @@ def test_complete_cohort_requires_every_identity_not_only_resolved_survivors() -
 def test_duplicate_panel_identity_is_rejected_before_counting_groups(tmp_path: Path) -> None:
     calibration = _store(tmp_path)
     asof = "2026-08-31"
-    _write_panel(calibration, asof, [_liquid("1111", asof), _liquid("1111", asof)])
 
-    with pytest.raises(BuybackAuthorizationMeasurementError, match="duplicate panel identity"):
-        build_measurement(
-            calibration_dir=calibration,
-            market_sqlite=tmp_path / "market.sqlite",
-            edinet_zip_dir=tmp_path / "zips",
-            horizons=("3y",),
-        )
+    with pytest.raises(CalibrationCacheError, match="duplicate primary key"):
+        _write_panel(calibration, asof, [_liquid("1111", asof), _liquid("1111", asof)])
 
 
 def test_duplicate_forward_identity_is_rejected_instead_of_overwritten(tmp_path: Path) -> None:
     calibration = _store(tmp_path)
     asof = "2026-08-31"
     _write_panel(calibration, asof, [_liquid("1111", asof)])
-    _write_forward(
-        calibration,
-        asof,
-        [
-            {
-                "asof": asof,
-                "ticker": "1111",
-                "horizon": "3y",
-                "price_return": value,
-                "status": "resolved",
-            }
-            for value in ("0.2", "0.3")
-        ],
-    )
-
-    with pytest.raises(BuybackAuthorizationMeasurementError, match="duplicate forward identity"):
-        build_measurement(
-            calibration_dir=calibration,
-            market_sqlite=tmp_path / "market.sqlite",
-            edinet_zip_dir=tmp_path / "zips",
-            horizons=("3y",),
+    with pytest.raises(CalibrationCacheError, match="duplicate primary key"):
+        _write_forward(
+            calibration,
+            asof,
+            [
+                {
+                    "asof": asof,
+                    "ticker": "1111",
+                    "horizon": "3y",
+                    "price_return": value,
+                    "status": "resolved",
+                }
+                for value in ("0.2", "0.3")
+            ],
         )

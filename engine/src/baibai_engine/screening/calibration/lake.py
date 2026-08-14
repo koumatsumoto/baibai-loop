@@ -27,28 +27,49 @@ import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass
 from datetime import UTC, date, datetime
+from itertools import pairwise
 from pathlib import Path
 from typing import Any, Literal, get_args, get_origin
 
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
+from pydantic import (
+    BaseModel,
+)
 
+from baibai_engine.market.lake.immutable import ImmutableInstallError, install_immutable_bytes
 from baibai_engine.market.lake.keys import (
     canonical_object_key,
     dataset_manifest_key,
     validate_identifier,
 )
 from baibai_engine.market.lake.models import (
+    CalibrationBundleManifest,
+    CalibrationBundlePointer,
+    CalibrationBundleRef,
+    CalibrationCohortInventory,
+    CalibrationDatasetRef,
+    CohortInventoryEntry,
     DatasetManifest,
     LakeObject,
     ManifestTotals,
     PartitionManifest,
+    SourceRef,
+    load_lake_model_json,
 )
 from baibai_engine.market.lake.objects import sha256_bytes, sha256_file
 from baibai_engine.market.lake.reader import schema_matches
 
 from .forward import ForwardReturnRow
 from .panel import PanelDiagnostics, PanelRow
+
+__all__ = [
+    "CalibrationBundleManifest",
+    "CalibrationBundlePointer",
+    "CalibrationBundleRef",
+    "CalibrationCohortInventory",
+    "CalibrationDatasetRef",
+]
 
 L2_CONTRACT_VERSION = 1
 _ROW_GROUP_SIZE = 65_536
@@ -76,6 +97,8 @@ class L2Dataset:
     row_type: type
     contract_version: int = L2_CONTRACT_VERSION
     partition_by: tuple[str, ...] = ("year", "month")
+    primary_key: tuple[str, ...] = ("asof", "ticker")
+    asof_field: str = "asof"
 
     @property
     def field_names(self) -> tuple[str, ...]:
@@ -139,13 +162,26 @@ def _arrow_schema(dataset: L2Dataset) -> Any:
 
 
 CALIBRATION_PANEL = L2Dataset(name=PANEL_DATASET, row_type=PanelRow)
-CALIBRATION_DIAGNOSTICS = L2Dataset(name=DIAGNOSTICS_DATASET, row_type=PanelDiagnostics)
-CALIBRATION_FORWARD = L2Dataset(name=FORWARD_DATASET, row_type=ForwardReturnRow)
+CALIBRATION_DIAGNOSTICS = L2Dataset(
+    name=DIAGNOSTICS_DATASET, row_type=PanelDiagnostics, primary_key=("asof",)
+)
+CALIBRATION_FORWARD = L2Dataset(
+    name=FORWARD_DATASET,
+    row_type=ForwardReturnRow,
+    primary_key=("asof", "ticker", "horizon"),
+)
 
 L2_DATASETS: Mapping[str, L2Dataset] = {
     dataset.name: dataset
     for dataset in (CALIBRATION_PANEL, CALIBRATION_DIAGNOSTICS, CALIBRATION_FORWARD)
 }
+
+
+@dataclass(frozen=True, slots=True)
+class FixedCalibrationBundle:
+    ref: CalibrationBundleRef
+    manifest: CalibrationBundleManifest
+    datasets: Mapping[str, DatasetManifest]
 
 
 def require_l2_dataset(name: str) -> L2Dataset:
@@ -192,9 +228,14 @@ class L2BuildInputs:
     the build was never bound to.
     """
 
-    source_release_id: str
+    sources: tuple[SourceRef, ...]
     producer_git_commit: str
     cache_schema_version: str
+
+    @property
+    def source_release_id(self) -> str:
+        """Compatibility name for the fixed input generation identity."""
+        return self.sources[0].source_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,8 +275,25 @@ def write_l2_partition(
         return None
     # Sort before writing so a partition's bytes depend on its rows, not on the order
     # the cohorts that share the month happened to be published in.
-    ordering = tuple(name for name in _IDENTITY_COLUMNS if name in names)
-    payloads.sort(key=lambda payload: tuple(str(payload[name]) for name in ordering))
+    ordering = dataset.primary_key
+    if any(name not in names for name in ordering) or dataset.asof_field not in names:
+        raise CalibrationLakeError(f"{dataset.name}: row identity is outside the row contract")
+    identities: list[tuple[str, ...]] = []
+    for payload in payloads:
+        if any(payload[name] is None for name in ordering):
+            raise CalibrationLakeError(f"{dataset.name}: primary key cannot contain null")
+        try:
+            row_month = asof_month(str(payload[dataset.asof_field]))
+        except ValueError as exc:
+            raise CalibrationLakeError(f"{dataset.name}: row as-of is invalid") from exc
+        if row_month != month:
+            raise CalibrationLakeError(f"{dataset.name}: row escapes its year/month partition")
+        identities.append(tuple(str(payload[name]) for name in ordering))
+    paired = sorted(zip(identities, payloads, strict=True), key=lambda item: item[0])
+    if any(left[0] == right[0] for left, right in pairwise(paired)):
+        raise CalibrationLakeError(f"{dataset.name}: duplicate primary key")
+    identities = [item[0] for item in paired]
+    payloads = [item[1] for item in paired]
     table = pa.Table.from_pylist(payloads, schema=dataset.arrow_schema)
     digest, size, _path = _write_object(
         table, dataset=dataset, month=month, mirror_root=mirror_root
@@ -248,28 +306,33 @@ def write_l2_partition(
         partition_by=dataset.partition_by,
         content_sha256=digest,
     )
-    keys = sorted(str(payload[names[0]]) for payload in payloads)
     return PartitionManifest(
         values={"year": month[0], "month": month[1]},
         objects=(
             LakeObject(
                 key=key,
-                etag=digest[:32],
                 sha256=digest,
                 bytes=size,
                 rows=len(payloads),
-                min_key=(keys[0],),
-                max_key=(keys[-1],),
+                min_key=identities[0],
+                max_key=identities[-1],
             ),
         ),
-        source_ingest_ids=(),
+        sources=(),
         # The state this partition was produced from is the set of cohorts it holds
         # under one input generation. A constant here would make two partitions built
         # from different inputs indistinguishable in the manifest.
         source_state_sha256=sha256_bytes(
             json.dumps(
                 {
-                    "release": inputs.source_release_id,
+                    "sources": [
+                        {
+                            "kind": source.kind,
+                            "source_id": source.source_id,
+                            "sha256": source.sha256,
+                        }
+                        for source in inputs.sources
+                    ],
                     "asofs": sorted({str(payload["asof"]) for payload in payloads}),
                     "rows": len(payloads),
                     "content": digest,
@@ -289,6 +352,7 @@ def publish_l2_build(
     inputs: L2BuildInputs,
     build_id: str,
     data_as_of: date,
+    cohort_inventory: Mapping[str, CohortInventoryEntry],
     created_at: datetime | None = None,
 ) -> L2BuildReport:
     """Fix a set of published partitions as one immutable build."""
@@ -304,15 +368,24 @@ def publish_l2_build(
         layer="l2_analytical",
         contract_version=dataset.contract_version,
         build_id=build_id,
-        source_ingest_ids=(),
-        source_release_ids=(inputs.source_release_id,),
+        sources=inputs.sources,
         producer_git_commit=inputs.producer_git_commit,
         transform_fingerprint=transform_fingerprint(
             dataset, cache_schema_version=inputs.cache_schema_version
         ),
         created_at=now,
+        coverage_start=min(
+            (date.fromisoformat(value) for value in cohort_inventory), default=data_as_of
+        ),
         data_as_of=data_as_of,
+        population_count=sum(item.rows for item in cohort_inventory.values()),
+        coverage_status=(
+            "partial"
+            if any(item.status in {"partial", "not_computed"} for item in cohort_inventory.values())
+            else "complete"
+        ),
         partition_by=dataset.partition_by,
+        cohort_inventory=cohort_inventory,
         partitions=ordered,
         totals=ManifestTotals(
             objects=sum(len(item.objects) for item in ordered),
@@ -341,7 +414,7 @@ def _write_object(
 
     staging = mirror_root / "lake" / "staging" / dataset.name
     staging.mkdir(parents=True, exist_ok=True)
-    provisional = staging / f"{month[0]:04d}-{month[1]:02d}.parquet"
+    provisional = staging / (f"{month[0]:04d}-{month[1]:02d}.{uuid.uuid4().hex}.parquet")
     pq.write_table(
         table,
         provisional,
@@ -399,11 +472,35 @@ def read_l2_partition(
         if (int(partition.values["year"]), int(partition.values["month"])) != month:
             continue
         rows: list[dict[str, object]] = []
+        previous_key: tuple[str, ...] | None = None
         for item in partition.objects:
             path = mirror_root / item.key
             _require_object(path, dataset=dataset, item=item)
             table = pq.read_table(path, columns=selected)
-            rows.extend(table.to_pylist(maps_as_pydicts="strict"))
+            decoded = table.to_pylist(maps_as_pydicts="strict")
+            if selected is None or set(dataset.primary_key).issubset(selected):
+                identities = [
+                    tuple(str(payload[name]) for name in dataset.primary_key) for payload in decoded
+                ]
+                if identities and (identities[0] != item.min_key or identities[-1] != item.max_key):
+                    raise CalibrationLakeError(
+                        f"{dataset.name}: object primary-key range differs: {item.key}"
+                    )
+                if identities != sorted(identities) or len(identities) != len(set(identities)):
+                    raise CalibrationLakeError(
+                        f"{dataset.name}: object primary keys are not unique and ordered: "
+                        f"{item.key}"
+                    )
+                if previous_key is not None and identities and previous_key >= identities[0]:
+                    raise CalibrationLakeError(f"{dataset.name}: object primary-key ranges overlap")
+                if identities:
+                    previous_key = identities[-1]
+                for payload in decoded:
+                    if asof_month(str(payload[dataset.asof_field])) != month:
+                        raise CalibrationLakeError(
+                            f"{dataset.name}: row escapes its manifest partition"
+                        )
+            rows.extend(decoded)
         return rows
     return []
 
@@ -437,9 +534,11 @@ def require_build_inputs(
             f"{dataset.name}: build {manifest.build_id} was produced by a different transform; "
             "rebuild it"
         )
-    if not manifest.source_release_ids:
-        raise CalibrationLakeError(f"{dataset.name}: build {manifest.build_id} names no L1 release")
-    if source_release_id is not None and source_release_id not in manifest.source_release_ids:
+    if not manifest.sources:
+        raise CalibrationLakeError(f"{dataset.name}: build {manifest.build_id} names no input")
+    if source_release_id is not None and source_release_id not in {
+        source.source_id for source in manifest.sources
+    }:
         raise CalibrationLakeError(
             f"{dataset.name}: build {manifest.build_id} was not built from {source_release_id}"
         )
@@ -461,7 +560,7 @@ def _require_object(path: Path, *, dataset: L2Dataset, item: LakeObject) -> None
         raise CalibrationLakeError(f"{dataset.name}: object row count differs: {item.key}")
 
 
-def canonical_manifest_bytes(manifest: DatasetManifest) -> bytes:
+def canonical_manifest_bytes(manifest: BaseModel) -> bytes:
     return (
         json.dumps(
             manifest.model_dump(mode="json"),
@@ -475,19 +574,16 @@ def canonical_manifest_bytes(manifest: DatasetManifest) -> bytes:
 
 def load_manifest(path: Path) -> DatasetManifest:
     try:
-        return DatasetManifest.model_validate_json(path.read_bytes())
+        return load_lake_model_json(path.read_bytes(), DatasetManifest)
     except (OSError, ValueError) as exc:
         raise CalibrationLakeError(f"L2 dataset manifest is unreadable: {path}") from exc
 
 
 def _write_immutable(path: Path, payload: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with path.open("xb") as target:
-            target.write(payload)
-    except FileExistsError:
-        if path.read_bytes() != payload:
-            raise CalibrationLakeError(f"immutable manifest key already differs: {path}") from None
+        install_immutable_bytes(path, payload)
+    except ImmutableInstallError as exc:
+        raise CalibrationLakeError(f"immutable manifest key already differs: {path}") from exc
 
 
 def build_identifier(*, dataset: L2Dataset, fingerprint: str, now: datetime) -> str:

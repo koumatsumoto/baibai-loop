@@ -20,26 +20,41 @@ table と legacy 由来の table を必ず両方列挙する。
 
 初回 seed は全期間を export する。現行 provider / Premium backfill は coverage を SQLite に
 commit し、lake export はその SQLite を `legacy_sqlite_import` として月 partition へ変換する。
-provider 取得と Parquet writer の二重 canonical write は行わない。
+provider 取得と Parquet writer の二重 canonical write は行わない。contract v1はfixed legacy
+SQLite snapshotからauthorityを移すcompatibility boundaryであり、Rawだけにあるfield、decimal
+precision、publication / effective / retrieved time、revision/cancellation semanticsを完全には表さない。
+これらのmappingを確定しRaw→canonical semantic parityを満たした時点をv2 rebuild triggerとする。
+
+`export-pilot`は開始時にSQLite backup APIでWALを含むsealed snapshotを1回作り、snapshot digest・
+schema version・`quick_check`を確定してから、両datasetのexport、source-state、parityを同じsnapshot
+から導出する。release作成時にも全partitionが両datasetでexactに1 snapshot generationへ閉じることを
+検証する。
 
 ```bash
-uv run baibai-engine lake export-legacy \
-  --dataset jquants.daily_bars \
+uv run baibai-engine lake export-pilot \
   --sqlite stores/market/market.sqlite \
   --mirror <local-mirror>
 ```
 
 中断した Premium CSV / API backfill は既存 `source_coverage` から再開する。直前 manifest を
 渡すと SQLite facts + coverage の state hash を比較し、commit 済みの追加・訂正月だけを
-export して未変更月を再利用する。transform fingerprint が違う base は再利用せず拒否する。
+export して未変更月を再利用する。transform fingerprintはschema/configに加えてwriter・dataset
+contract sourceのdigestを含む。CLIは実装sourceが属するrepositoryを固定し、tracked worktreeがdirty、
+git identityが取得不能、unknown zero commitの場合にbuildを開始しない。
 
 ```bash
-uv run baibai-engine lake export-legacy \
-  --dataset jquants.short_sale_reports \
+uv run baibai-engine lake export-pilot \
   --sqlite stores/market/market.sqlite \
   --mirror <local-mirror> \
-  --base-manifest <previous-dataset-manifest>
+  --base-manifest <previous-daily-bars-manifest> \
+  --base-manifest <previous-short-sale-manifest>
 ```
+
+`coverage_status`は固定値ではない。daily barsは保存行のdate coverage、short sale reportsは
+`source_coverage`の連続した`ok` windowをauthorityとしてsealed snapshotから判定する。pilot policyは
+[Phase 0 baseline](../../reports/studies/2026-08-12-market-lake-baseline/report.md)のhistory startを必須
+境界とし、観測rows・ticker populationの95%をregression floorにする。新鮮でも1日・1rowだけのstore、
+leading history欠損、大幅なpopulation縮小はcurrent候補にならない。
 
 Raw は取得直後の bytes を変換せず archive する。Premium CSV と長期 backfill response は
 `preserve`、再取得可能な routine response は `buffer` を指定する。endpoint の query と
@@ -67,8 +82,12 @@ uv run baibai-engine lake release create \
 ## R2 publish
 
 publish は immutable object、dataset manifest、release manifest の順に `If-None-Match: *` で
-転送し、最後に `lake/pointers/l1/current.json` を ETag `If-Match` で切り替える。CAS conflict
-は retry せず fail-close し、current release を再解決して build をやり直す。
+転送する。各sourceをsealed copyへ固定してR2が検証する`Content-MD5`付きPUTを行い、logical
+SHA-256、transport marker、size、content typeを同じimmutable PUTのmetadataへ固定する。PUT/reuse後、
+さらにpointer直前にreleaseから到達可能な全objectのHEAD closureを再検証する。bulk objectを毎回
+GETしてmemoryへ展開せず、最後に`lake/pointers/l1/current.json`をETag `If-Match`で切り替える。
+small pointerだけをGET read-backしてexact digestを検証する。409/412のCAS conflictはretryせず
+fail-closeし、current releaseを再解決する。
 
 Raw object と metadata は release publication より前に個別 publish する。
 
@@ -98,10 +117,14 @@ immutable object key だけを読む。実行途中に pointer が切り替わ�
 
 ```bash
 uv run baibai-engine lake resolve --mirror <local-mirror>
-uv run baibai-engine lake resolve --mirror <local-mirror> --release <release-id>
+uv run baibai-engine lake resolve --mirror <local-mirror> \
+  --release <release-id> --manifest-sha256 <release-manifest-sha256>
 ```
 
-`--release` を渡すと pointer を一切読まない。rollback と pin 済み study はこの経路で読む。
+`--release` を渡すとpointerを一切読まないが、同じpinに記録した`--manifest-sha256`を必須とする。
+`--previous`はcurrent pointerに対で保存されたprevious release ID / manifest digestを使う。永続pinは
+typed `L1ReleaseSourceRef`（ID・key・SHA-256）として保存し、`--release-ref`で解決する。IDだけのnamed /
+rollback / study pinは同じkeyの差し替えを検出できないため受理しない。
 
 identity は各辺を digest で閉じる。pointer が release manifest の SHA-256 を、release manifest が
 各 dataset manifest の SHA-256 を、dataset manifest が各 object の SHA-256 を持つ。dataset
@@ -121,9 +144,13 @@ fail-close する条件は次のとおりで、いずれも degrade しない。
 reader は明示された object key の列だけを `read_parquet` へ渡す。bucket の glob、prefix listing、
 「最新 object を探し直す」処理、`union_by_name` による schema 吸収はどれも使わない。DuckDB は
 渡された path を glob として展開するので、mirror root に glob metacharacter が含まれる場合も
-拒否する。extension の autoload / autoinstall は切ってあり、HTTP へ出られるのは credential を
-渡したときの明示 `INSTALL httpfs` 経由だけである。credential は非 persistent secret として bind
-parameter で渡し、SQL 文・例外・metadata に残さない。
+拒否する。extension の autoload / autoinstall は切ってあり、runtimeは`LOAD httpfs`だけを行う。
+deployment image / host environmentは、networkを許可したprovisioning stepで同じDuckDB versionの
+`uv run python -m tools.diagnostics.provision_duckdb_httpfs`を一度実行する。このcommandはinstall後に
+autoload / autoinstallを無効にした別connectionで`LOAD httpfs`までsmoke-checkする。
+runtimeがextensionをdownloadするfallbackは持たず、未installなら
+R2 sessionをfail-closeする。credentialは非 persistent secretとしてbind parameterで渡し、SQL文・
+例外・metadataに残さない。
 
 row は bounded batch で読む。dataset は 10 年分の日足であり、全 row を一度に Python object へ
 変換すると build が終わる前に memory を使い切る。partition（1 か月）ごとに object を取得・検証し、
@@ -140,15 +167,55 @@ uv run baibai-engine lake projection build \
   --projection stores/market/projection.sqlite
 ```
 
+current以外は`--previous`、または`--release <id> --manifest-sha256 <sha256>`、または
+typed pin fileを渡す`--release-ref <path>`で固定する。IDだけのprojection buildは受理しない。
+
 `--bucket baibai-stores` を足すと、mirror に無い object だけを R2 から取得して mirror へ
 content-addressed に格納する。object key は content hash なので、変わらなかった partition は
 既に手元にあり転送量に乗らない。出力の `fetched_bytes` / `reused_bytes` がその内訳になる。
 
 再利用は完全一致でだけ起きる。`release_id`、release manifest digest、全 dataset manifest digest、
 全 object digest、projection contract fingerprint、producer commit のいずれかが違えば再構築する。
+identity一致後もtable schema、PK、secondary index、row count、PK順の全row content digest、SQLite
+`quick_check`を再計算する。同じrow数のvalue mutation、column/indexの追加・削除、identity tableだけを
+残した改変は再利用しない。
 `built_at` は identity に含めない（同じ入力の 2 回の build で必ず違い、含めると再利用契約が
 成立しないため）。build は一意な一時 file へ書いて 1 回の rename で公開するので、途中状態が
 読まれることはなく、失敗しても直前の projection は壊れない。
+
+production scaleではsecondary indexをbulk insert後に作る。開始前にpublished object bytesの5倍
+（最低64 MiB）の同一filesystem空き容量を要求し、10,136,873 daily-bar rowsと1,412,135 short-sale
+rowsのbaselineをbounded 20,000-row batchで処理し、index作成後に`ANALYZE`する。受入は次を実行し、
+reportの`status: passed`をrelease ID / manifest digestと一緒に保存する。
+
+```bash
+uv run python -m tools.diagnostics.benchmark_lake_projection \
+  --mirror <local-mirror> --projection <temporary-projection> \
+  --release <release-id> --manifest-sha256 <release-manifest-sha256> \
+  --report <acceptance-report.json>
+```
+
+budgetはcold build 1,800秒、unchanged reuse検証300秒、peak RSS 4 GiB、build中の残空き2 GiB、
+代表index queryのp95 100 ms、3年後を現在row/output/timeの1.5倍とする線形stressでoutput 8 GiB・
+cold/reuseを同じ時間上限以内とする。11,549,008 row未満のfixtureはproduction-scale証拠として受理しない。
+reportはoutput bytes、`quick_check`、table rows、`sqlite_stat1`、query planも記録する。
+
+contract v2のreference acceptanceはLinux/WSL2、DuckDB 1.5.5、SQLite 3.50.4で、release
+`pr944-scale-acceptance` / manifest SHA-256
+`aa8d2a8b0a8f5528c0cf1e76d7684de30abe1820f37bef5fb6148d9a4bb6ce53`の11,554,322 rowsを用いる。
+cold 77.49秒、reuse 46.53秒、peak RSS 436 MiB、output 1.34 GiB、代表query p95最大0.061 msで、
+全budget、`quick_check`、4件の`sqlite_stat1`を満たす。projection fingerprintは
+`sha256:ecd5e281e94704c2f6d10f7fef8773c5657aef5f3a393c4041b6a3c0756e1844`、generatorとlake codeの
+implementation SHA-256は`838963d0313fe67a4e4d994c458273ad943a78bf7ff79963c0225d27a00ac787`である。
+これはproduction storeをSQLite `mode=ro`でsealed snapshotへ複製し、一時directoryだけにmirror /
+projectionを作った結果である。
+
+projectionのatomic publicationが対応するfilesystemは、case-sensitiveでhard link、同一directory内の
+`os.replace`、file fsync、directory fsyncを提供するLinux / WSL上のlocal POSIX filesystem
+（CIのext4/overlayfsを含む）である。buildは小さなprobe fileでこれらをload開始前に検査する。temporaryと
+destinationは必ず同じdirectoryに置く。NFS/CIFS、FUSE/DrvFS、directory fsyncを提供しないfilesystem、
+Windows native pathは未対応であり、projection destinationに使わない。replace失敗時はtemporaryを
+除去して直前projectionを保持する。
 
 <a id="l2-calibration"></a>
 
@@ -158,58 +225,85 @@ calibration の cohort（panel・panel diagnostics・forward outcome）は typed
 として publish する。Arrow schema は `PanelRow` / `PanelDiagnostics` / `ForwardReturnRow` から
 導くので、行の契約と保存列がずれない。partition は cohort の as-of の `year/month`。
 
-cohort を 1 つ書くと immutable な新 build を publish し、dataset pointer を CAS で進める。
-書き換わるのはその cohort の月の partition だけで、他の月は publish 済み object をそのまま
-引き継ぐ。`calibration-build` は cohort ごとにこの経路を通るので、再構築の単位は partition に
-なる。
+cohort を 1 つ書くと3 datasetのimmutable buildを先に完成させ、dataset manifestの
+`cohort_inventory`へ`complete / empty / partial / not_computed`とrow数を固定する。最後に3 manifestを
+`CalibrationBundleManifest`へ束ね、`lake/pointers/calibration/current.json`を1回だけ切り替える。
+consumerはdataset pointerを読まないため、途中失敗したpanelと旧diagnostics/forwardが混ざらない。
+書き換わるのは対象cohortの月partitionだけで、他の月はcontent-addressed objectを引き継ぐ。
 
-build が記録する identity は `source_release_id`、`producer_git_commit`、`transform_fingerprint`、
-`contract_version`、partition と object の hash である。calibration の入力がまだ legacy store から
-読まれる間、`source_release_id` は L1 release ではなくそれを明示する固定値になる（束縛していない
-release の id を書くと、build が持っていない provenance を主張することになる）。読み取りは transform fingerprint 不一致、
-source release 不在、schema 不一致、object digest 不一致をすべて fail-close する。contract を
-変える場合は published object を書き換えず、新しい `contract_version` の immutable build を作る。
+build identityはtyped `SourceRef`、`producer_git_commit`、`transform_fingerprint`、
+`contract_version`、full primary key、partition/object hashである。panelは`(asof,ticker)`、diagnosticsは
+`(asof)`、forwardは`(asof,ticker,horizon)`を一意にし、全rowのyear/month所属をwrite/read両側で
+検査する。readerはbundle pointerを開始時に1回だけ固定し、explicit `empty`の0 rowsだけを`[]`として
+返す。inventoryに無いcohortと`partial / not_computed`はfail-closeする。
 
 retention の root は 3 種類で、そこから到達できる object は齢によらず残す。
 
-- 各 L2 dataset の current build と previous build
+- calibration bundle の current と previous（各3 datasetの完全closure）
 - L1 の current release と previous release
 - 明示 pin
 
 ```bash
 uv run baibai-engine lake pin create \
   --mirror <local-mirror> --pin-id <id> \
-  --build <build-id> --dataset calibration.panel \
+  --bundle <bundle-id> \
   --reason "adopted as calibration evidence" --owner <owner>
 
 uv run baibai-engine lake gc --mirror <local-mirror>
 uv run baibai-engine lake gc --mirror <local-mirror> --apply --plan-hash <hash>
 ```
 
-L2 の root は `lake/pointers/l2/` を列挙して store から導くので、dataset 名を挙げる必要はない。
-`--l2-dataset` はその dataset に current pointer が在ることを要求する追加の assertion で、
-無ければ root 未解決として扱う。
+calibrationのrootはbundle pointerだけである。pinはbundle manifest keyとSHA-256を固定し、作成時に
+target closureを検証する。create/removeは`lake/audit/pins/`へappend-only eventを残す。
 
-`gc` は既定が dry-run で、root closure と削除候補と plan hash を出す。`--apply` はその plan hash
-を要求するので、別の状態で作った計画は適用できない。root が 1 つでも解決できない場合は削除を
-拒否する（読めない pointer や、object は在るのに pointer が無い状態を「root が無い」と扱うと、
-それが守っていたものが未参照に見える）。
+`gc` は既定がdry-runで、pointer/pin exact bytes、全root manifest/object digest、candidate identityを
+plan hashへ閉じる。`--apply`はpublisher/pinと共通のlocal writer lock取得後に再planする。初回applyは
+candidateをmarkするだけで、7日後のsecond sweepが同じidentityを再検証してから削除する。rootが
+未解決、object不足、pointer/pin更新、candidate差替えのいずれでも削除を拒否する。
 
-Raw archive はこの sweep の対象外である。保持の判断が manifest 到達性ではなく retention class と
-齢で決まるので、到達性の sweep が候補に挙げてはならない。
+Raw archiveと`calibration-legacy` exact archiveはこのsweepの対象外である。`lake inventory`は
+`preserve / buffer`別のobject数、bytes、oldest retrieval、soft budget（500 GiB / 50 GiB）超過を出す。
+metadata sidecarを持たないRaw payloadは`raw_unclassified`と`raw_inventory_errors`へ分離し、正常な
+retention classの容量へ混ぜない。buffer自動回収はsource closure、minimum age、cloud lockを同時に
+扱う専用plannerまで行わず、本変更では追加しない。
 
-R2 への publish は L1 と同じ順序で、object と manifest を `If-None-Match: *` で immutable に
-転送してから `lake/pointers/l2/<dataset>/current.json` を `If-Match` で切り替える。
+R2へのpublishは3 datasetのobject/source/manifestとbundle manifestを`If-None-Match: *`で転送し、
+最後にbundle pointerだけをETag `If-Match`で切り替える。
 
 ```bash
 uv run python -m baibai_batch.storage.lake_publish \
   --mirror <local-mirror> \
-  --l2-manifest <dataset-manifest>
+  --calibration-bundle <bundle-manifest>
 ```
 
-L2 契約より前に書かれた CSV cache は `calibration.legacy_csv` の read-only adapter で読める。
-adapter は書き込まず、そこから build も作らないので、cohort の正本は publish 済み build だけで
-ある。
+current bundleに問題がある場合は、remote pointer bytes/ETagとpreviousの完全closureを検証し、
+current graphが壊れていてもcurrentとpreviousを1回のCASで交換して退避できる。退避した壊れた
+generationはpreviousとしてidentityだけを保持し、再度currentへ戻す前には完全closureを要求する。
+
+```bash
+uv run python -m baibai_batch.storage.lake_publish \
+  --rollback-calibration \
+  --bucket <r2-bucket>
+```
+
+旧CSVは通常readerのfallbackにしない。`screening calibration-migrate-legacy`がpanel/meta/forwardの
+全cohortを列挙し、元bytesをcontent-addressed archiveへ保存してtyped `calibration_input` SourceRefへ
+全digestを固定する。現cache contractと互換な履歴だけをfield単位でL2へ変換し、全cohort parity後に
+bundle pointerを1回切り替える。非互換履歴は`archived_incompatible`としてarchive/reportだけを残し、
+現在手法での再計算と同一視しない。
+
+R2 credentialはroleを分ける。readerはGet/Headだけ、publisherはGet/Head/Putだけ（Deleteなし）、
+retention finalizerだけがDeleteを持つ。Bucket Locksはimmutable object/manifest/archive prefixへ適用し、
+mutableな`lake/pointers/`、`lake/staging/`、retention markは対象外にする。pinはapplication reachabilityを
+表し、Bucket Locksのrule上限・prefix粒度をpin代替に使わない。
+
+merge gateは各stack headの通常CIに加え、`.github/workflows/lake-acceptance.yml`をexact 40文字SHAで
+manual dispatchする。workflowは`acceptance`を名前に含む専用bucket以外を拒否し、bundle graphの
+実PUT、pointer read-back、current→previousへの実CAS rollback、rollback先bundle read-back、stale ETagの
+412/409 fail-closeを検査する。
+credentialはvalidation/setupへ渡さず、actual R2 stepだけが専用publisher tokenを持つ。production-size
+export/projectionは上記reference acceptance report、legacy migrationは元bytesをread-onlyで扱う
+archive/parity reportをhead SHAと一緒に保存する。production bucketとcanonical storeをacceptanceに使わない。
 
 ## Shadow parity
 
