@@ -296,7 +296,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       lookalike host・query・fragmentを拒否し、抽出値を妥当域で検証し、矛盾する複数候補を
       hard errorにするか。manifest が公表カレンダーに追いつかない状態を無音にせず
       取得側だけを失敗させるか（読み取りは既存rowを返す）
-- [ ] GitHub Actions のtrust gateは`.yml` / `.yaml`の両方を走査し、dispatch inputの`run:`直接展開とvalidation step外の参照、step env外のsecret context、未承認・tag/branch参照の外部Actionを拒否するか。日付の形式・順序、bracket形式のexpression、inline `uses:`、欠落したrelease commentをnegative fixtureで固定したか
+- [ ] GitHub Actions のtrust gateは`.yml` / `.yaml`の両方を走査し、dispatch inputの`run:`直接展開とvalidation step外の参照、step env外のsecret context、未承認・tag/branch参照の外部Actionを拒否するか。secretを使うpre-merge acceptanceはrepository ownerが付ける固定label、same-repository PR、event-bound exact head SHA、checkout credential非保持、credential-bearing final stepとworkflow/jobの継承execution contextを一体で固定し、owner判定・head repository・SHA source・credential保持・custom shell・container・runnerを緩めるnegative fixtureを持つか。日付の形式・順序、bracket形式のexpression、inline `uses:`、欠落したrelease commentをnegative fixtureで固定したか
 - [ ] indicator の取得値は store 書き込み前に非有限値（NaN / ±inf）を拒否し、1 series の失敗が
       同一 pass の他 series を止めず、失敗を `provider_runs` と非0 exit の両方に残すか
 - [ ] indicator registry の `plausible_min` / `plausible_max` は有限かつ順序が正しく、標準の全系列で

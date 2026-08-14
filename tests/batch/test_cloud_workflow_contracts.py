@@ -92,6 +92,48 @@ def test_cloud_writers_share_one_non_cancelling_fifo_queue(workflow_name: str) -
     }
 
 
+def test_lake_acceptance_premerge_trigger_is_owner_approved_and_event_bound() -> None:
+    workflow = _workflow("lake-acceptance.yml")
+    triggers = workflow["on"]
+    assert triggers == {
+        "pull_request": {"types": ["labeled"]},
+        "workflow_dispatch": {
+            "inputs": {
+                "expected_sha": {
+                    "description": "Exact 40-character commit SHA under acceptance",
+                    "required": "true",
+                    "type": "string",
+                }
+            }
+        },
+    }
+    jobs = workflow["jobs"]
+    assert isinstance(jobs, dict)
+    assert set(jobs) == {"actual-r2"}
+    job = jobs["actual-r2"]
+    assert isinstance(job, dict)
+    condition = str(job["if"])
+    for required in (
+        "github.event_name == 'workflow_dispatch'",
+        "github.event_name == 'pull_request'",
+        "github.event.action == 'labeled'",
+        "github.event.label.name == 'lake-acceptance-approved'",
+        "github.actor == github.repository_owner",
+        "github.event.pull_request.head.repo.full_name == github.repository",
+    ):
+        assert required in condition
+    steps = _steps(workflow, "actual-r2")
+    checkout = steps[0]
+    assert checkout["with"] == {"fetch-depth": "2", "persist-credentials": "false"}
+    validation = steps[1]
+    assert validation["env"] == {
+        "EXPECTED_DISPATCH_SHA": "${{ inputs.expected_sha }}",
+        "EXPECTED_PR_SHA": "${{ github.event.pull_request.head.sha }}",
+    }
+    assert steps[-1]["name"] == "Run actual R2 CAS and rollback acceptance"
+    assert not any("secrets." in str(step) for step in steps[:-1])
+
+
 def test_history_workflow_delegates_partial_failure_publication_to_tested_tool() -> None:
     steps = _steps(_workflow("cloud-history-backfill.yml"), "backfill")
     backfill = next(

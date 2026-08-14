@@ -300,8 +300,11 @@ retention finalizerだけがDeleteを持つ。Bucket Locksはimmutable object/ma
 mutableな`lake/pointers/`、`lake/staging/`、retention markは対象外にする。pinはapplication reachabilityを
 表し、Bucket Locksのrule上限・prefix粒度をpin代替に使わない。
 
-merge gateは各stack headの通常CIに加え、`.github/workflows/lake-acceptance.yml`をexact 40文字SHAで
-manual dispatchする。workflowは`acceptance`を名前に含む専用bucket以外を拒否し、bundle graphの
+merge gateは各stack headの通常CIに加え、`.github/workflows/lake-acceptance.yml`を実行する。
+workflowがdefault branchへ入る前はrepository ownerがsame-repository PRへ
+`lake-acceptance-approved` labelを付け、eventのexact head SHAをcheckoutして検証する。default branchへ
+入った後の再検証はexact 40文字SHAでmanual dispatchする。workflowは`acceptance`を名前に含む
+専用bucket以外を拒否し、bundle graphの
 実PUT、pointer read-back、current→previousへの実CAS rollback、rollback先bundle read-back、stale ETagの
 412/409 fail-closeを検査する。
 credentialはvalidation/setupへ渡さず、actual R2 stepだけが専用publisher tokenを持つ。production-size

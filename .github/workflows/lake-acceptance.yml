@@ -1,6 +1,8 @@
 name: lake-acceptance
 
 on:
+  pull_request:
+    types: [labeled]
   workflow_dispatch:
     inputs:
       expected_sha:
@@ -17,21 +19,46 @@ concurrency:
 
 jobs:
   actual-r2:
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'pull_request' &&
+         github.event.action == 'labeled' &&
+         github.event.label.name == 'lake-acceptance-approved' &&
+         github.actor == github.repository_owner &&
+         github.event.pull_request.head.repo.full_name == github.repository)
+      }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
 
       - name: Validate exact head without credentials
         id: validate-input
         env:
-          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          EXPECTED_DISPATCH_SHA: ${{ inputs.expected_sha }}
+          EXPECTED_PR_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            EXPECTED_SHA="$EXPECTED_DISPATCH_SHA"
+          elif [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            EXPECTED_SHA="$EXPECTED_PR_SHA"
+          else
+            echo "lake acceptance does not support this event" >&2
+            exit 2
+          fi
           if [[ ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "expected_sha must be a full lowercase commit SHA" >&2
             exit 2
           fi
+          if [[ "$(git rev-parse HEAD)" != "$EXPECTED_SHA" ]]; then
+            git checkout --detach "$EXPECTED_SHA"
+          fi
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          echo "expected_sha=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
