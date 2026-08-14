@@ -35,7 +35,11 @@ from baibai_engine.market.lake.release import (
     canonical_json_bytes,
     create_l1_release,
 )
-from baibai_engine.market.lake.writer import capture_legacy_sqlite_snapshot, export_legacy_sqlite
+from baibai_engine.market.lake.writer import (
+    capture_legacy_sqlite_snapshot,
+    export_legacy_sqlite,
+    export_pilot_legacy,
+)
 from baibai_engine.market.sqlite import open_connection
 from baibai_engine.screening.calibration.lake import CalibrationBundlePointer
 
@@ -1090,3 +1094,94 @@ def test_operation_timeout_covers_the_object_it_transfers() -> None:
     assert lake_publish_module._operation_timeout(None) == 120
     assert lake_publish_module._operation_timeout(0) == 120
     assert lake_publish_module._operation_timeout(two_gigabytes) > measured_upload_seconds
+
+
+def _two_month_release(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, Path]]:
+    """A store whose history spans two months, published as one release."""
+
+    sqlite_path = tmp_path / "market.sqlite"
+    connection = open_connection(sqlite_path)
+    connection.executemany(
+        "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
+        [("1301", "2026-01-28", 1.0), ("1301", "2026-02-04", 2.0)],
+    )
+    connection.executemany(
+        """INSERT INTO jquants_short_sale_reports(
+             disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name,
+             discretionary_investment_contractor_name, investment_fund_name, is_cancellation
+           ) VALUES (?, 0, ?, '7203', 'Fund', '', '', 0)""",
+        [("2026-01-29", "2026-01-28"), ("2026-02-05", "2026-02-04")],
+    )
+    connection.execute(
+        """INSERT INTO source_coverage(
+             source, coverage_key, coverage_start, coverage_end,
+             fetched_at_utc, record_count, status, error
+           ) VALUES ('jquants_short_sale_reports', 'test:pilot', '2026-01-01',
+                     '2026-02-28', '2026-03-01T00:00:00+00:00', 2, 'ok', NULL)"""
+    )
+    connection.commit()
+    connection.close()
+    mirror = tmp_path / "mirror"
+    build = export_pilot_legacy(
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit="a" * 40,
+        created_at=datetime(2026, 3, 1, tzinfo=UTC),
+    )
+    bases = {name: item.manifest_path for name, item in build.datasets.items()}
+    release_path, _ = create_l1_release(
+        dataset_manifest_paths=sorted(bases.values()),
+        mirror_root=mirror,
+        release_id="two-month-1",
+        created_at=datetime(2026, 3, 1, tzinfo=UTC),
+    )
+    return sqlite_path, mirror, release_path, bases
+
+
+def test_a_one_month_correction_moves_only_that_month(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The differential claim, end to end: one changed month, one month of transfer."""
+
+    monkeypatch.setattr(lake_publish_module, "_utc_now", lambda: datetime(2026, 3, 2, tzinfo=UTC))
+    sqlite_path, mirror, release_path, bases = _two_month_release(tmp_path)
+    store = _MemoryStore()
+    first = publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+    closure_bytes = sum(
+        len(value.body)
+        for key, value in store.values.items()
+        if not key.startswith("lake/pointers/")
+    )
+
+    connection = open_connection(sqlite_path)
+    connection.execute("UPDATE jquants_daily_bars SET close = 9.0 WHERE traded_at = '2026-02-04'")
+    connection.commit()
+    connection.close()
+    corrected = export_pilot_legacy(
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit="a" * 40,
+        base_manifest_paths=bases,
+        created_at=datetime(2026, 3, 2, tzinfo=UTC),
+    )
+    successor_path, _ = create_l1_release(
+        dataset_manifest_paths=sorted(item.manifest_path for item in corrected.datasets.values()),
+        mirror_root=mirror,
+        release_id="two-month-2",
+        created_at=datetime(2026, 3, 2, tzinfo=UTC),
+    )
+
+    before = len(store.get_keys)
+    second = publish_l1_release(
+        mirror_root=mirror, release_manifest_path=successor_path, store=store
+    )
+
+    assert corrected.datasets["jquants.daily_bars"].changed_partitions == ("2026-02",)
+    # One rewritten Parquet object plus the manifests that name it — not the history.
+    assert second.transfers.uploaded_objects == 4
+    assert second.transfers.uploaded_bytes < first.transfers.uploaded_bytes
+    # Only the month this run rewrote is streamed back. The history's Parquet objects
+    # are proved from the identity their immutable write bound to them.
+    read_back = [key for key in store.get_keys[before:] if key.endswith(".parquet")]
+    assert len(read_back) == 1
+    assert second.transfers.downloaded_bytes < closure_bytes
