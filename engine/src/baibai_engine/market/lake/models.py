@@ -132,9 +132,18 @@ class _SourceRefBase(BaseModel):
 
 class RawIngestSourceRef(_SourceRefBase):
     kind: Literal["raw_ingest"]
+    provider: str
+    dataset: str
+    request_start: date
+    request_end: date
     metadata_version: int = Field(ge=1)
     metadata_key: str
     metadata_sha256: str
+
+    @field_validator("provider", "dataset")
+    @classmethod
+    def validate_source_segment(cls, value: str) -> str:
+        return validate_dataset_name(value)
 
     @field_validator("key")
     @classmethod
@@ -158,6 +167,8 @@ class RawIngestSourceRef(_SourceRefBase):
 
     @model_validator(mode="after")
     def validate_identity(self) -> RawIngestSourceRef:
+        if self.request_start > self.request_end:
+            raise ValueError("raw_ingest request_start must not be after request_end")
         if PurePosixPath(self.key).name not in {
             f"{self.source_id}.csv.gz",
             f"{self.source_id}.json.gz",
@@ -171,7 +182,16 @@ class RawIngestSourceRef(_SourceRefBase):
 
 class SQLiteSnapshotSourceRef(_SourceRefBase):
     kind: Literal["sqlite_snapshot"]
+    role: Literal["local_build_input"]
     schema_version: int = Field(ge=1)
+    captured_at: datetime
+
+    @field_validator("captured_at")
+    @classmethod
+    def validate_captured_at(cls, value: datetime) -> datetime:
+        if value.utcoffset() != timedelta(0):
+            raise ValueError("captured_at must be UTC")
+        return value
 
     @field_validator("key")
     @classmethod
