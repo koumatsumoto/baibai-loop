@@ -203,10 +203,13 @@ reportはoutput bytes、`quick_check`、table rows、`sqlite_stat1`、query plan
 contract v2のreference acceptanceはLinux/WSL2、DuckDB 1.5.5、SQLite 3.50.4で、release
 `pr944-scale-acceptance` / manifest SHA-256
 `aa8d2a8b0a8f5528c0cf1e76d7684de30abe1820f37bef5fb6148d9a4bb6ce53`の11,554,322 rowsを用いる。
-cold 77.49秒、reuse 46.53秒、peak RSS 436 MiB、output 1.34 GiB、代表query p95最大0.061 msで、
+cold 77.48秒、reuse 46.52秒、peak RSS 436 MiB、output 1.33 GiB、代表query p95最大0.061 msで、
 全budget、`quick_check`、4件の`sqlite_stat1`を満たす。projection fingerprintは
 `sha256:ecd5e281e94704c2f6d10f7fef8773c5657aef5f3a393c4041b6a3c0756e1844`、generatorとlake codeの
 implementation SHA-256は`838963d0313fe67a4e4d994c458273ad943a78bf7ff79963c0225d27a00ac787`である。
+<!-- AP-02: cold=77.48110374299722、reuse=46.52158455800236、
+peak RSS=457134080 / 1048576 = 435.95703125 MiB、
+output=1430007808 / 1073741824 = 1.3317985534667969 GiB、query p95最大=0.060705999203491956 ms。 -->
 これはproduction storeをSQLite `mode=ro`でsealed snapshotへ複製し、一時directoryだけにmirror /
 projectionを作った結果である。
 
