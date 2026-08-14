@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
 import re
 import subprocess  # nosec B404
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -18,15 +21,20 @@ from baibai_engine.batch_api import (
     L1ReleasePointer,
     LakeDatasetManifest,
     LakeRawArchiveMetadata,
+    LakeRawIngestSourceRef,
     LakeReleaseManifest,
+    LakeSQLiteSnapshotSourceRef,
     canonical_json_bytes,
     lake_current_l1_pointer_key,
     lake_dataset_manifest_key,
     lake_release_manifest_key,
+    load_lake_model_json,
+    resolve_lake_source_ref,
+    validate_lake_release_policy,
 )
 
 _R2_ACCOUNT_ID = re.compile(r"^[0-9a-f]{32}$")
-_LEGACY_SOURCE_PREFIX = "legacy-sqlite-v"
+_MAX_POINTER_BYTES = 64 * 1024
 
 
 class LakePublishError(RuntimeError):
@@ -42,6 +50,7 @@ class RemoteObject:
     etag: str
     size: int
     metadata: Mapping[str, str]
+    content_type: str
 
 
 class ObjectStore(Protocol):
@@ -55,6 +64,7 @@ class ObjectStore(Protocol):
         path: Path,
         *,
         sha256: str,
+        content_md5: str,
         content_type: str,
         if_match: str | None = None,
         if_none_match: bool = False,
@@ -82,23 +92,47 @@ def publish_raw_archive(
     metadata_path: Path,
     store: ObjectStore,
 ) -> RawPublishReport:
-    metadata = LakeRawArchiveMetadata.model_validate_json(metadata_path.read_bytes())
+    root = mirror_root.resolve()
+    resolved_metadata_path = metadata_path.resolve()
+    if not resolved_metadata_path.is_relative_to(root):
+        raise LakePublishError("Raw metadata path escapes mirror root")
+    metadata = load_lake_model_json(resolved_metadata_path.read_bytes(), LakeRawArchiveMetadata)
     object_path = _mirror_path(mirror_root, metadata.object_key)
     expected_metadata_path = Path(f"{object_path}.metadata.json")
-    if metadata_path != expected_metadata_path:
+    if resolved_metadata_path != expected_metadata_path:
         raise LakePublishError("Raw metadata path does not match its object_key")
     if _sha256(object_path) != metadata.content_sha256:
         raise LakePublishError("Raw object checksum does not match its metadata")
     if object_path.stat().st_size != metadata.bytes:
         raise LakePublishError("Raw object size does not match its metadata")
+    metadata_payload = resolved_metadata_path.read_bytes()
     uploads = (
-        (metadata.object_key, object_path, "application/octet-stream"),
-        (f"{metadata.object_key}.metadata.json", metadata_path, "application/json"),
+        (
+            metadata.object_key,
+            object_path,
+            "application/octet-stream",
+            metadata.content_sha256,
+            metadata.bytes,
+        ),
+        (
+            f"{metadata.object_key}.metadata.json",
+            resolved_metadata_path,
+            "application/json",
+            hashlib.sha256(metadata_payload).hexdigest(),
+            len(metadata_payload),
+        ),
     )
     uploaded = 0
     reused = 0
-    for key, path, content_type in uploads:
-        if _ensure_immutable(store, key=key, path=path, content_type=content_type):
+    for key, path, content_type, expected_sha256, expected_size in uploads:
+        if _ensure_immutable(
+            store,
+            key=key,
+            path=path,
+            content_type=content_type,
+            expected_sha256=expected_sha256,
+            expected_size=expected_size,
+        ):
             uploaded += 1
         else:
             reused += 1
@@ -116,70 +150,171 @@ def publish_l1_release(
     store: ObjectStore,
 ) -> PublishReport:
     """Upload immutable graph nodes, then atomically switch the one mutable pointer."""
-    release = LakeReleaseManifest.model_validate_json(release_manifest_path.read_bytes())
+    root = mirror_root.resolve()
+    resolved_release_path = release_manifest_path.resolve()
+    if not resolved_release_path.is_relative_to(root):
+        raise LakePublishError("release manifest path escapes mirror root")
+    release_payload = resolved_release_path.read_bytes()
+    release = load_lake_model_json(release_payload, LakeReleaseManifest)
     expected_release_key = lake_release_manifest_key(release_id=release.release_id)
-    if release_manifest_path != mirror_root / expected_release_key:
+    expected_release_path = _mirror_path(mirror_root, expected_release_key)
+    if resolved_release_path != expected_release_path:
         raise LakePublishError("release manifest path does not match its release_id")
 
-    uploads: list[tuple[str, Path, str]] = []
-    referenced_ingests: dict[tuple[str, str], tuple[Path, LakeRawArchiveMetadata]] = {}
+    uploads: list[tuple[str, Path, str, str, int]] = []
+    manifests: dict[str, LakeDatasetManifest] = {}
+    referenced_sources: dict[
+        tuple[str, str, str], LakeRawIngestSourceRef | LakeSQLiteSnapshotSourceRef
+    ] = {}
     for dataset_name, release_dataset in sorted(release.datasets.items()):
         manifest_key = lake_dataset_manifest_key(
             dataset=dataset_name,
             build_id=release_dataset.build_id,
         )
-        manifest_path = mirror_root / manifest_key
-        manifest = LakeDatasetManifest.model_validate_json(manifest_path.read_bytes())
+        manifest_path = _mirror_path(mirror_root, manifest_key)
+        manifest_payload = manifest_path.read_bytes()
+        manifest = load_lake_model_json(manifest_payload, LakeDatasetManifest)
         if (
             manifest.dataset != dataset_name
             or manifest.build_id != release_dataset.build_id
             or manifest.contract_version != release_dataset.contract_version
+            or hashlib.sha256(manifest_payload).hexdigest() != release_dataset.manifest_sha256
         ):
             raise LakePublishError(f"release and dataset manifest disagree: {dataset_name}")
-        for source_id in manifest.source_ingest_ids:
-            if source_id.startswith(_LEGACY_SOURCE_PREFIX):
-                continue
-            identity = (dataset_name, source_id)
-            if identity not in referenced_ingests:
-                referenced_ingests[identity] = _find_raw_metadata(
-                    mirror_root,
-                    ingest_id=source_id,
-                    dataset=dataset_name,
-                )
+        manifests[dataset_name] = manifest
         for partition in manifest.partitions:
+            for source in partition.sources:
+                if not isinstance(
+                    source,
+                    (LakeRawIngestSourceRef, LakeSQLiteSnapshotSourceRef),
+                ):
+                    raise LakePublishError("L1 graph contains an unsupported source reference")
+                resolve_lake_source_ref(mirror_root, source)
+                referenced_sources[(source.kind, source.key, source.sha256)] = source
             for item in partition.objects:
-                object_path = mirror_root / item.key
+                object_path = _mirror_path(mirror_root, item.key)
                 if _sha256(object_path) != item.sha256 or object_path.stat().st_size != item.bytes:
                     raise LakePublishError(f"local object does not match manifest: {item.key}")
-                uploads.append((item.key, object_path, "application/vnd.apache.parquet"))
-        uploads.append((manifest_key, manifest_path, "application/json"))
-    uploads.append((expected_release_key, release_manifest_path, "application/json"))
-
-    for metadata_path, metadata in referenced_ingests.values():
-        object_path = _mirror_path(mirror_root, metadata.object_key)
-        if _sha256(object_path) != metadata.content_sha256:
-            raise LakePublishError(f"referenced Raw object checksum mismatch: {metadata.ingest_id}")
-        uploads.extend(
+                uploads.append(
+                    (
+                        item.key,
+                        object_path,
+                        "application/vnd.apache.parquet",
+                        item.sha256,
+                        item.bytes,
+                    )
+                )
+        uploads.append(
             (
-                (metadata.object_key, object_path, "application/octet-stream"),
-                (f"{metadata.object_key}.metadata.json", metadata_path, "application/json"),
+                manifest_key,
+                manifest_path,
+                "application/json",
+                release_dataset.manifest_sha256,
+                len(manifest_payload),
             )
         )
+    uploads.append(
+        (
+            expected_release_key,
+            resolved_release_path,
+            "application/json",
+            hashlib.sha256(release_payload).hexdigest(),
+            len(release_payload),
+        )
+    )
+
+    validate_lake_release_policy(
+        release,
+        manifests,
+        evaluated_at=_utc_now(),
+    )
+    for source in referenced_sources.values():
+        if isinstance(source, LakeRawIngestSourceRef):
+            uploads.extend(
+                (
+                    (
+                        source.key,
+                        _mirror_path(mirror_root, source.key),
+                        "application/octet-stream",
+                        source.sha256,
+                        _mirror_path(mirror_root, source.key).stat().st_size,
+                    ),
+                    (
+                        source.metadata_key,
+                        _mirror_path(mirror_root, source.metadata_key),
+                        "application/json",
+                        source.metadata_sha256,
+                        _mirror_path(mirror_root, source.metadata_key).stat().st_size,
+                    ),
+                )
+            )
+        elif isinstance(source, LakeSQLiteSnapshotSourceRef):
+            uploads.append(
+                (
+                    source.key,
+                    _mirror_path(mirror_root, source.key),
+                    "application/vnd.sqlite3",
+                    source.sha256,
+                    _mirror_path(mirror_root, source.key).stat().st_size,
+                )
+            )
+        else:
+            raise LakePublishError("L1 graph contains an unsupported source reference")
 
     uploaded = 0
     reused = 0
-    for key, path, content_type in uploads:
-        if _ensure_immutable(store, key=key, path=path, content_type=content_type):
+    for key, path, content_type, expected_sha256, expected_size in uploads:
+        if _ensure_immutable(
+            store,
+            key=key,
+            path=path,
+            content_type=content_type,
+            expected_sha256=expected_sha256,
+            expected_size=expected_size,
+        ):
             uploaded += 1
         else:
             reused += 1
+
+    inventory: dict[str, tuple[str, int, str]] = {}
+    for key, _, content_type, expected_sha256, expected_size in uploads:
+        expected = (expected_sha256, expected_size, content_type)
+        previous_expected = inventory.setdefault(key, expected)
+        if previous_expected != expected:
+            raise LakePublishError(f"remote graph has conflicting identities: {key}")
+    # This is the pointer precondition, not merely a per-upload postcondition.
+    # Content bytes were bound to these identities by Content-MD5 on immutable PUT;
+    # the closure pass proves every reachable node still has that identity now.
+    for key, (expected_sha256, expected_size, content_type) in sorted(inventory.items()):
+        _verify_remote_identity(
+            store,
+            key=key,
+            expected_sha256=expected_sha256,
+            expected_size=expected_size,
+            content_type=content_type,
+        )
 
     pointer_key = lake_current_l1_pointer_key()
     current = store.head(pointer_key)
     previous_release_id = None
     if current is not None:
-        previous = L1ReleasePointer.model_validate_json(store.get_bytes(pointer_key))
+        if current.size > _MAX_POINTER_BYTES:
+            raise LakePublishError("L1 current pointer exceeds its size limit")
+        current_payload = store.get_bytes(pointer_key)
+        _verify_remote_small_object(
+            store,
+            key=pointer_key,
+            expected_sha256=hashlib.sha256(current_payload).hexdigest(),
+            expected_size=len(current_payload),
+            content_type="application/json",
+        )
+        previous = load_lake_model_json(current_payload, L1ReleasePointer)
         if previous.release_id == release.release_id:
+            if (
+                previous.manifest_key != expected_release_key
+                or previous.manifest_sha256 != hashlib.sha256(release_payload).hexdigest()
+            ):
+                raise LakePublishError("current pointer reuses release ID with different identity")
             return PublishReport(
                 release_id=release.release_id,
                 uploaded_objects=uploaded,
@@ -187,7 +322,7 @@ def publish_l1_release(
                 pointer_etag=current.etag,
             )
         previous_release_id = previous.release_id
-    release_sha256 = _sha256(release_manifest_path)
+    release_sha256 = hashlib.sha256(release_payload).hexdigest()
     pointer = L1ReleasePointer(
         release_id=release.release_id,
         manifest_key=expected_release_key,
@@ -197,11 +332,13 @@ def publish_l1_release(
     with tempfile.NamedTemporaryFile(prefix="baibai-l1-pointer-", suffix=".json") as temporary:
         temporary.write(canonical_json_bytes(pointer))
         temporary.flush()
+        pointer_payload = Path(temporary.name).read_bytes()
         try:
             result = store.put_file(
                 pointer_key,
                 Path(temporary.name),
-                sha256=_sha256(Path(temporary.name)),
+                sha256=hashlib.sha256(pointer_payload).hexdigest(),
+                content_md5=_content_md5(Path(temporary.name)),
                 content_type="application/json",
                 if_match=current.etag if current is not None else None,
                 if_none_match=current is None,
@@ -210,6 +347,13 @@ def publish_l1_release(
             raise
         except Exception as exc:
             raise LakePublishError("L1 current pointer switch failed") from exc
+    _verify_remote_small_object(
+        store,
+        key=pointer_key,
+        expected_sha256=hashlib.sha256(pointer_payload).hexdigest(),
+        expected_size=len(pointer_payload),
+        content_type="application/json",
+    )
     return PublishReport(
         release_id=release.release_id,
         uploaded_objects=uploaded,
@@ -224,31 +368,48 @@ def _ensure_immutable(
     key: str,
     path: Path,
     content_type: str,
+    expected_sha256: str,
+    expected_size: int,
 ) -> bool:
-    digest = _sha256(path)
     existing = store.head(key)
     if existing is not None:
-        if existing.metadata.get("sha256") != digest or existing.size != path.stat().st_size:
-            raise LakePublishError(f"immutable R2 key already differs: {key}")
-        return False
-    try:
-        store.put_file(
-            key,
-            path,
-            sha256=digest,
+        _verify_remote_identity(
+            store,
+            key=key,
+            expected_sha256=expected_sha256,
+            expected_size=expected_size,
             content_type=content_type,
-            if_none_match=True,
         )
-    except LakeCASConflict:
-        raced = store.head(key)
-        if (
-            raced is None
-            or raced.metadata.get("sha256") != digest
-            or raced.size != path.stat().st_size
-        ):
-            raise
         return False
-    return True
+    with _sealed_upload(path) as (sealed, digest, content_md5, size):
+        if digest != expected_sha256 or size != expected_size:
+            raise LakePublishError(f"local upload source differs from graph identity: {key}")
+        try:
+            store.put_file(
+                key,
+                sealed,
+                sha256=digest,
+                content_md5=content_md5,
+                content_type=content_type,
+                if_none_match=True,
+            )
+        except LakeCASConflict:
+            _verify_remote_identity(
+                store,
+                key=key,
+                expected_sha256=digest,
+                expected_size=size,
+                content_type=content_type,
+            )
+            return False
+        _verify_remote_identity(
+            store,
+            key=key,
+            expected_sha256=digest,
+            expected_size=size,
+            content_type=content_type,
+        )
+        return True
 
 
 class AwsCliR2Store:
@@ -280,6 +441,7 @@ class AwsCliR2Store:
             etag=str(value["ETag"]).strip('"'),
             size=int(value["ContentLength"]),
             metadata={str(k): str(v) for k, v in value.get("Metadata", {}).items()},
+            content_type=str(value.get("ContentType", "application/octet-stream")),
         )
 
     def get_bytes(self, key: str) -> bytes:
@@ -294,6 +456,7 @@ class AwsCliR2Store:
         path: Path,
         *,
         sha256: str,
+        content_md5: str,
         content_type: str,
         if_match: str | None = None,
         if_none_match: bool = False,
@@ -307,7 +470,16 @@ class AwsCliR2Store:
             "--content-type",
             content_type,
             "--metadata",
-            f"sha256={sha256}",
+            json.dumps(
+                {
+                    "sha256": sha256,
+                    "content-md5": content_md5,
+                    "integrity": "content-md5-v1",
+                },
+                separators=(",", ":"),
+            ),
+            "--content-md5",
+            content_md5,
         ]
         if if_match is not None:
             arguments.extend(("--if-match", if_match))
@@ -341,19 +513,28 @@ class AwsCliR2Store:
             "json",
             "--no-cli-pager",
         )
-        result = subprocess.run(  # nosec B603
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            env=self.env,
-        )
+        try:
+            result = subprocess.run(  # nosec B603
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                env=self.env,
+                timeout=120,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise LakePublishError(f"R2 {operation} timed out") from exc
         if result.returncode == 0:
             return result
         error = result.stderr
         if allow_missing and ("Not Found" in error or "404" in error or "NoSuchKey" in error):
             return None
-        if "PreconditionFailed" in error or "412" in error:
+        if (
+            "PreconditionFailed" in error
+            or "ConditionalRequestConflict" in error
+            or "412" in error
+            or "409" in error
+        ):
             raise LakeCASConflict(f"R2 conditional write conflict: {operation}")
         raise LakePublishError(f"R2 {operation} failed with exit code {result.returncode}")
 
@@ -396,6 +577,10 @@ def _required(env: Mapping[str, str], name: str) -> str:
     return value
 
 
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
 def _mirror_path(mirror_root: Path, key: str) -> Path:
     root = mirror_root.resolve()
     path = (root / key).resolve()
@@ -406,24 +591,83 @@ def _mirror_path(mirror_root: Path, key: str) -> Path:
     return path
 
 
-def _find_raw_metadata(
-    mirror_root: Path,
-    *,
-    ingest_id: str,
-    dataset: str,
-) -> tuple[Path, LakeRawArchiveMetadata]:
-    matches: list[tuple[Path, LakeRawArchiveMetadata]] = []
-    raw_root = mirror_root / "lake" / "l1" / "raw" / "jquants" / dataset
-    for path in raw_root.glob("ingest_date=*/*.metadata.json"):
-        metadata = LakeRawArchiveMetadata.model_validate_json(path.read_bytes())
-        if metadata.ingest_id == ingest_id and metadata.dataset == dataset:
-            matches.append((path, metadata))
-    if len(matches) != 1:
-        raise LakePublishError(
-            f"expected exactly one Raw metadata object for {dataset}/{ingest_id}; "
-            f"found {len(matches)}"
+@contextmanager
+def _sealed_upload(path: Path) -> Iterator[tuple[Path, str, str, int]]:
+    """Capture one stable local byte sequence for hash, upload, and verification."""
+    digest = hashlib.sha256()
+    transport_digest = hashlib.md5(usedforsecurity=False)  # nosec B324
+    size = 0
+    temporary_path: Path | None = None
+    try:
+        with path.open("rb") as source:
+            before = os.fstat(source.fileno())
+            with tempfile.NamedTemporaryFile(prefix="baibai-lake-upload-", delete=False) as target:
+                temporary_path = Path(target.name)
+                while chunk := source.read(8 * 1024 * 1024):
+                    target.write(chunk)
+                    digest.update(chunk)
+                    transport_digest.update(chunk)
+                    size += len(chunk)
+                target.flush()
+                os.fsync(target.fileno())
+            after = os.fstat(source.fileno())
+        if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+        ) or size != after.st_size:
+            raise LakePublishError(f"local upload source changed while sealing: {path}")
+        assert temporary_path is not None
+        yield (
+            temporary_path,
+            digest.hexdigest(),
+            base64.b64encode(transport_digest.digest()).decode(),
+            size,
         )
-    return matches[0]
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+def _verify_remote_identity(
+    store: ObjectStore,
+    *,
+    key: str,
+    expected_sha256: str,
+    expected_size: int,
+    content_type: str,
+) -> None:
+    remote = store.head(key)
+    if (
+        remote is None
+        or remote.size != expected_size
+        or remote.metadata.get("sha256") != expected_sha256
+        or remote.metadata.get("integrity") != "content-md5-v1"
+        or not remote.metadata.get("content-md5")
+        or remote.content_type != content_type
+    ):
+        raise LakePublishError(f"remote object metadata postcondition failed: {key}")
+
+
+def _verify_remote_small_object(
+    store: ObjectStore,
+    *,
+    key: str,
+    expected_sha256: str,
+    expected_size: int,
+    content_type: str,
+) -> None:
+    _verify_remote_identity(
+        store,
+        key=key,
+        expected_sha256=expected_sha256,
+        expected_size=expected_size,
+        content_type=content_type,
+    )
+    payload = store.get_bytes(key)
+    if len(payload) != expected_size or hashlib.sha256(payload).hexdigest() != expected_sha256:
+        raise LakePublishError(f"remote object bytes postcondition failed: {key}")
 
 
 def _sha256(path: Path) -> str:
@@ -432,6 +676,15 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: source.read(8 * 1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _content_md5(path: Path) -> str:
+    """Return base64 Content-MD5 for R2 transport validation, not logical identity."""
+    digest = hashlib.md5(usedforsecurity=False)  # nosec B324 - transport checksum only.
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return base64.b64encode(digest.digest()).decode()
 
 
 if __name__ == "__main__":

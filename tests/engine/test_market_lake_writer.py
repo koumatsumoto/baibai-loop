@@ -2,22 +2,53 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import subprocess
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
 
-from baibai_engine.market.lake.raw import RawArchiveError, RawRetentionClass, archive_raw_file
+from baibai_engine.market.lake import models as lake_models
+from baibai_engine.market.lake import write_cli as write_cli_module
+from baibai_engine.market.lake import writer as writer_module
+from baibai_engine.market.lake.immutable import install_immutable_bytes
+from baibai_engine.market.lake.raw import (
+    RawArchiveError,
+    RawRetentionClass,
+    archive_raw_file,
+    raw_source_ref,
+)
 from baibai_engine.market.lake.release import create_l1_release
 from baibai_engine.market.lake.writer import (
     LakeBuildError,
+    capture_legacy_sqlite_snapshot,
     export_legacy_sqlite,
+    export_pilot_legacy,
     plan_affected_months,
     validate_legacy_parity,
 )
 from baibai_engine.market.sqlite import open_connection
 
 _COMMIT = "a" * 40
+
+
+@pytest.fixture(autouse=True)
+def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
+    datasets = tuple(
+        item.model_copy(
+            update={
+                "coverage_start_on_or_before": date.max,
+                "minimum_rows": 1,
+                "minimum_population_count": 1,
+            }
+        )
+        for item in lake_models.PILOT_RELEASE_POLICY.datasets
+    )
+    monkeypatch.setattr(
+        lake_models,
+        "PILOT_RELEASE_POLICY",
+        lake_models.PILOT_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
+    )
 
 
 def _market_store(path: Path) -> Path:
@@ -27,6 +58,7 @@ def _market_store(path: Path) -> Path:
         [
             ("1301", "2026-01-05", 100.0, 1000.0),
             ("7203", "2026-01-05", 200.0, 2000.0),
+            ("1301", "2026-01-20", 105.0, 1100.0),
             ("1301", "2026-02-02", 110.0, 1200.0),
         ],
     )
@@ -40,6 +72,13 @@ def _market_store(path: Path) -> Path:
             ("2026-01-06", 0, "2026-01-05", "7203", "Fund A", 0.006, 600, 6, 0),
             ("2026-02-03", 0, "2026-02-02", "6758", "Fund B", None, None, None, 1),
         ],
+    )
+    connection.execute(
+        """INSERT INTO source_coverage(
+             source, coverage_key, coverage_start, coverage_end,
+             fetched_at_utc, record_count, status, error
+           ) VALUES ('jquants_short_sale_reports', 'test:pilot', '2026-01-01',
+                     '2026-02-28', '2026-03-01T00:00:00+00:00', 2, 'ok', NULL)"""
     )
     connection.commit()
     connection.close()
@@ -177,36 +216,62 @@ def test_incremental_export_preserves_partition_lineage(tmp_path) -> None:
             "VALUES ('7203', '2026-02-02', 222.0)"
         )
     mirror = tmp_path / "mirror"
+    raw_a = tmp_path / "raw-a.json.gz"
+    raw_a.write_bytes(b"raw-a")
+    _, metadata_a, _ = archive_raw_file(
+        source_path=raw_a,
+        mirror_root=mirror,
+        provider="jquants",
+        dataset="jquants.daily_bars",
+        ingest_id="ingest-a",
+        suffix=".json.gz",
+        retention_class=RawRetentionClass.BUFFER,
+        retrieved_at=datetime(2026, 2, 4, tzinfo=UTC),
+    )
     first = export_legacy_sqlite(
         dataset_name="jquants.daily_bars",
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit=_COMMIT,
-        source_ingest_ids=("ingest-a",),
+        raw_source_refs=(raw_source_ref(metadata_a),),
         build_id="lineage-base",
     )
     with sqlite3.connect(sqlite_path) as connection:
         connection.execute(
             "UPDATE jquants_daily_bars SET close = 111.0 WHERE traded_at = '2026-02-02'"
         )
+    raw_b = tmp_path / "raw-b.json.gz"
+    raw_b.write_bytes(b"raw-b")
+    _, metadata_b, _ = archive_raw_file(
+        source_path=raw_b,
+        mirror_root=mirror,
+        provider="jquants",
+        dataset="jquants.daily_bars",
+        ingest_id="ingest-b",
+        suffix=".json.gz",
+        retention_class=RawRetentionClass.BUFFER,
+        retrieved_at=datetime(2026, 2, 5, tzinfo=UTC),
+    )
     second = export_legacy_sqlite(
         dataset_name="jquants.daily_bars",
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit=_COMMIT,
-        source_ingest_ids=("ingest-b",),
+        raw_source_refs=(raw_source_ref(metadata_b),),
         base_manifest_path=first.manifest_path,
         build_id="lineage-next",
     )
     lineage = {
-        (int(item.values["year"]), int(item.values["month"])): item.source_ingest_ids
+        (int(item.values["year"]), int(item.values["month"])): tuple(
+            source.source_id for source in item.sources if source.kind == "raw_ingest"
+        )
         for item in second.manifest.partitions
     }
     assert lineage == {
         (2026, 1): ("ingest-a",),
-        (2026, 2): ("ingest-a", "ingest-b"),
+        (2026, 2): ("ingest-b",),
     }
-    assert second.manifest.source_ingest_ids == ("ingest-a", "ingest-b")
+    assert second.manifest.sources == ()
 
 
 def test_incremental_export_rejects_a_different_transform(tmp_path) -> None:
@@ -289,13 +354,20 @@ def test_raw_archive_is_append_only_and_strips_endpoint_query(tmp_path) -> None:
 def test_release_manifest_composes_exact_dataset_builds(tmp_path) -> None:
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
+    snapshot = capture_legacy_sqlite_snapshot(
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        snapshot_id="release-generation",
+    )
     manifests = [
         export_legacy_sqlite(
             dataset_name=name,
             sqlite_path=sqlite_path,
             mirror_root=mirror,
             producer_git_commit=_COMMIT,
+            source_snapshot_ref=snapshot.ref,
             build_id=f"build-{index}",
+            created_at=datetime(2026, 2, 4, tzinfo=UTC),
         ).manifest_path
         for index, name in enumerate(("jquants.daily_bars", "jquants.short_sale_reports"), start=1)
     ]
@@ -303,9 +375,280 @@ def test_release_manifest_composes_exact_dataset_builds(tmp_path) -> None:
         dataset_manifest_paths=manifests,
         mirror_root=mirror,
         release_id="release-1",
+        created_at=datetime(2026, 2, 4, tzinfo=UTC),
     )
     assert path.is_file()
     assert set(release.datasets) == {
         "jquants.daily_bars",
         "jquants.short_sale_reports",
     }
+
+
+def test_release_rejects_mixed_sqlite_snapshot_generations(tmp_path: Path) -> None:
+    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    mirror = tmp_path / "mirror"
+    manifests = [
+        export_legacy_sqlite(
+            dataset_name=name,
+            sqlite_path=sqlite_path,
+            mirror_root=mirror,
+            producer_git_commit=_COMMIT,
+            build_id=f"mixed-{index}",
+        ).manifest_path
+        for index, name in enumerate(("jquants.daily_bars", "jquants.short_sale_reports"), start=1)
+    ]
+
+    with pytest.raises(ValueError, match="share one SQLite snapshot generation"):
+        create_l1_release(
+            dataset_manifest_paths=manifests,
+            mirror_root=mirror,
+            release_id="mixed-release",
+            created_at=datetime(2026, 2, 4, tzinfo=UTC),
+        )
+
+
+def test_short_sale_unknown_coverage_is_not_publishable(tmp_path: Path) -> None:
+    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    with sqlite3.connect(sqlite_path) as connection:
+        connection.execute(
+            "DELETE FROM source_coverage WHERE source = ?", ("jquants_short_sale_reports",)
+        )
+    report = export_legacy_sqlite(
+        dataset_name="jquants.short_sale_reports",
+        sqlite_path=sqlite_path,
+        mirror_root=tmp_path / "mirror",
+        producer_git_commit=_COMMIT,
+        build_id="unknown-coverage",
+    )
+
+    assert report.manifest.coverage_status == "partial"
+
+
+def test_wal_snapshot_is_one_generation_for_both_pilot_datasets(tmp_path: Path) -> None:
+    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    live = sqlite3.connect(sqlite_path)
+    live.execute("PRAGMA journal_mode = WAL")
+    live.execute("PRAGMA wal_autocheckpoint = 0")
+    live.execute(
+        "INSERT INTO jquants_daily_bars(ticker, traded_at, close) "
+        "VALUES ('9984', '2026-02-03', 333.0)"
+    )
+    live.commit()
+    mirror = tmp_path / "mirror"
+
+    snapshot = capture_legacy_sqlite_snapshot(
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        snapshot_id="wal-generation",
+    )
+    reports = [
+        export_legacy_sqlite(
+            dataset_name=name,
+            sqlite_path=sqlite_path,
+            mirror_root=mirror,
+            producer_git_commit=_COMMIT,
+            source_snapshot_ref=snapshot.ref,
+            build_id=f"wal-{index}",
+        )
+        for index, name in enumerate(("jquants.daily_bars", "jquants.short_sale_reports"), start=1)
+    ]
+    live.close()
+
+    assert reports[0].manifest.totals.rows == 5
+    assert {
+        source.sha256
+        for report in reports
+        for partition in report.manifest.partitions
+        for source in partition.sources
+        if source.kind == "sqlite_snapshot"
+    } == {snapshot.ref.sha256}
+
+
+def test_pilot_orchestration_exports_one_release_generation(tmp_path: Path) -> None:
+    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    mirror = tmp_path / "mirror"
+
+    report = export_pilot_legacy(
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit=_COMMIT,
+        created_at=datetime(2026, 2, 4, tzinfo=UTC),
+    )
+    manifests = [item.manifest_path for item in report.datasets.values()]
+    _, release = create_l1_release(
+        dataset_manifest_paths=manifests,
+        mirror_root=mirror,
+        release_id="pilot-orchestration",
+        created_at=datetime(2026, 2, 4, tzinfo=UTC),
+    )
+
+    assert set(release.datasets) == set(report.datasets)
+    assert {
+        source.sha256
+        for item in report.datasets.values()
+        for partition in item.manifest.partitions
+        for source in partition.sources
+        if source.kind == "sqlite_snapshot"
+    } == {report.snapshot.ref.sha256}
+
+
+def test_commit_after_snapshot_does_not_change_export_generation(tmp_path: Path) -> None:
+    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    mirror = tmp_path / "mirror"
+    snapshot = capture_legacy_sqlite_snapshot(
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        snapshot_id="before-later-commit",
+    )
+    with sqlite3.connect(sqlite_path) as connection:
+        connection.execute(
+            "INSERT INTO jquants_daily_bars(ticker, traded_at, close) "
+            "VALUES ('9984', '2026-02-03', 333.0)"
+        )
+
+    report = export_legacy_sqlite(
+        dataset_name="jquants.daily_bars",
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit=_COMMIT,
+        source_snapshot_ref=snapshot.ref,
+        build_id="fixed-before-commit",
+    )
+
+    assert report.manifest.totals.rows == 4
+    validate_legacy_parity(
+        sqlite_path=snapshot.path,
+        mirror_root=mirror,
+        manifest=report.manifest,
+    )
+
+
+def test_parity_rejects_a_missing_source_month(tmp_path: Path) -> None:
+    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    mirror = tmp_path / "mirror"
+    report = export_legacy_sqlite(
+        dataset_name="jquants.daily_bars",
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit=_COMMIT,
+        build_id="complete-months",
+    )
+    incomplete = report.manifest.model_copy(update={"partitions": report.manifest.partitions[:-1]})
+
+    with pytest.raises(LakeBuildError, match="month inventories differ"):
+        validate_legacy_parity(
+            sqlite_path=next(
+                tmp_path / "mirror" / source.key
+                for source in report.manifest.partitions[0].sources
+                if source.kind == "sqlite_snapshot"
+            ),
+            mirror_root=mirror,
+            manifest=incomplete,
+        )
+
+
+def test_invalid_build_id_has_no_filesystem_side_effect(tmp_path: Path) -> None:
+    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    mirror = tmp_path / "mirror"
+
+    with pytest.raises(ValueError, match="path-safe"):
+        export_legacy_sqlite(
+            dataset_name="jquants.daily_bars",
+            sqlite_path=sqlite_path,
+            mirror_root=mirror,
+            producer_git_commit=_COMMIT,
+            build_id="../escape",
+        )
+
+    assert not mirror.exists()
+    assert not (tmp_path / "escape").exists()
+
+
+def test_transform_source_digest_change_rejects_partition_reuse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    mirror = tmp_path / "mirror"
+    base = export_legacy_sqlite(
+        dataset_name="jquants.daily_bars",
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit=_COMMIT,
+        build_id="code-base",
+    )
+    original = writer_module.sha256_file
+
+    def changed_digest(path: Path) -> str:
+        if path.name == "writer.py":
+            return "f" * 64
+        return original(path)
+
+    monkeypatch.setattr(writer_module, "sha256_file", changed_digest)
+    with pytest.raises(LakeBuildError, match="full rebuild"):
+        export_legacy_sqlite(
+            dataset_name="jquants.daily_bars",
+            sqlite_path=sqlite_path,
+            mirror_root=mirror,
+            producer_git_commit=_COMMIT,
+            base_manifest_path=base.manifest_path,
+            build_id="code-next",
+        )
+
+
+def test_immutable_metadata_link_failure_leaves_final_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "manifest.json"
+
+    def fail_link(source: Path, destination: Path) -> None:
+        del source, destination
+        raise OSError("injected link failure")
+
+    monkeypatch.setattr("baibai_engine.market.lake.immutable.os.link", fail_link)
+    with pytest.raises(OSError, match="injected"):
+        install_immutable_bytes(target, b"{}\n")
+
+    assert not target.exists()
+    assert list(tmp_path.glob(".*.tmp")) == []
+
+
+def test_git_identity_rejects_dirty_or_unknown_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dirty = subprocess.CompletedProcess(
+        args=("git", "status"),
+        returncode=0,
+        stdout=" M writer.py\n",
+        stderr="",
+    )
+    top_level = subprocess.CompletedProcess(
+        args=("git", "rev-parse"),
+        returncode=0,
+        stdout=f"{write_cli_module._source_repo_root()}\n",
+        stderr="",
+    )
+    dirty_responses = iter((top_level, dirty))
+    monkeypatch.setattr(
+        write_cli_module.subprocess,
+        "run",
+        lambda *args, **kwargs: next(dirty_responses),
+    )
+    with pytest.raises(RuntimeError, match="clean tracked worktree"):
+        write_cli_module._git_commit()
+
+    responses = iter(
+        (
+            top_level,
+            subprocess.CompletedProcess(args=("git", "status"), returncode=0, stdout="", stderr=""),
+            subprocess.CompletedProcess(
+                args=("git", "rev-parse"), returncode=0, stdout=f"{'0' * 40}\n", stderr=""
+            ),
+        )
+    )
+    monkeypatch.setattr(
+        write_cli_module.subprocess,
+        "run",
+        lambda *args, **kwargs: next(responses),
+    )
+    with pytest.raises(RuntimeError, match="verifiable git commit"):
+        write_cli_module._git_commit()

@@ -9,11 +9,12 @@ from datetime import date
 from pathlib import Path
 
 from .datasets import PILOT_DATASETS
-from .raw import RawRetentionClass, archive_raw_file
+from .models import DatasetManifest, load_lake_model_json
+from .raw import RawRetentionClass, archive_raw_file, raw_source_ref
 from .release import create_l1_release
-from .writer import export_legacy_sqlite, validate_legacy_parity
+from .writer import export_legacy_sqlite, export_pilot_legacy
 
-WRITE_COMMANDS = frozenset({"archive-raw", "export-legacy", "release"})
+WRITE_COMMANDS = frozenset({"archive-raw", "export-legacy", "export-pilot", "release"})
 
 
 def main(argv: list[str]) -> int:
@@ -41,9 +42,15 @@ def main(argv: list[str]) -> int:
     export.add_argument("--from", dest="start", type=date.fromisoformat)
     export.add_argument("--to", dest="end", type=date.fromisoformat)
     export.add_argument("--base-manifest", type=Path)
-    export.add_argument("--source-ingest", action="append", default=[])
+    export.add_argument("--raw-metadata", type=Path, action="append", default=[])
     export.add_argument("--build-id")
-    export.add_argument("--producer-git-commit", default=None)
+
+    pilot = commands.add_parser(
+        "export-pilot", help="export both pilot datasets from one sealed SQLite snapshot"
+    )
+    pilot.add_argument("--sqlite", type=Path, required=True)
+    pilot.add_argument("--mirror", type=Path, required=True)
+    pilot.add_argument("--base-manifest", type=Path, action="append", default=[])
 
     release = commands.add_parser("release", help="create an immutable L1 release")
     release_commands = release.add_subparsers(dest="release_command", required=True)
@@ -79,31 +86,17 @@ def main(argv: list[str]) -> int:
         )
         return 0
     if args.command == "export-legacy":
+        verified_commit = _git_commit()
         report = export_legacy_sqlite(
             dataset_name=args.dataset,
             sqlite_path=args.sqlite,
             mirror_root=args.mirror,
-            producer_git_commit=args.producer_git_commit or _git_commit(),
+            producer_git_commit=verified_commit,
             start=args.start,
             end=args.end,
             base_manifest_path=args.base_manifest,
-            source_ingest_ids=args.source_ingest,
+            raw_source_refs=tuple(raw_source_ref(path) for path in args.raw_metadata),
             build_id=args.build_id,
-        )
-        selected = None
-        if args.start is not None and args.end is not None:
-            selected = {
-                (year, month)
-                for year in range(args.start.year, args.end.year + 1)
-                for month in range(1, 13)
-                if (year, month) >= (args.start.year, args.start.month)
-                and (year, month) <= (args.end.year, args.end.month)
-            }
-        validate_legacy_parity(
-            sqlite_path=args.sqlite,
-            mirror_root=args.mirror,
-            manifest=report.manifest,
-            months=selected,
         )
         print(
             json.dumps(
@@ -114,6 +107,33 @@ def main(argv: list[str]) -> int:
                     "manifest": str(report.manifest_path),
                     "reused_partitions": report.reused_partitions,
                     "rows": report.manifest.totals.rows,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+    if args.command == "export-pilot":
+        bases: dict[str, Path] = {}
+        for path in args.base_manifest:
+            manifest = load_lake_model_json(path.read_bytes(), DatasetManifest)
+            if manifest.dataset in bases:
+                raise RuntimeError(f"duplicate base manifest: {manifest.dataset}")
+            bases[manifest.dataset] = path
+        pilot_report = export_pilot_legacy(
+            sqlite_path=args.sqlite,
+            mirror_root=args.mirror,
+            producer_git_commit=_git_commit(),
+            base_manifest_paths=bases,
+        )
+        print(
+            json.dumps(
+                {
+                    "manifests": {
+                        name: str(item.manifest_path)
+                        for name, item in pilot_report.datasets.items()
+                    },
+                    "snapshot": str(pilot_report.snapshot.path),
+                    "snapshot_sha256": pilot_report.snapshot.ref.sha256,
                 },
                 sort_keys=True,
             )
@@ -146,16 +166,47 @@ commands:
   validate        validate one manifest contract without changing objects
   archive-raw     archive original provider bytes append-only
   export-legacy   export affected SQLite months as canonical Parquet
+  export-pilot    export both pilot datasets from one sealed SQLite snapshot
   release create  create an immutable L1 release manifest
 """
     )
 
 
 def _git_commit() -> str:
+    repo_root = _source_repo_root()
+    top_level = subprocess.run(
+        ("git", "rev-parse", "--show-toplevel"),
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+    )  # nosec B603
+    if Path(top_level.stdout.strip()).resolve() != repo_root:
+        raise RuntimeError("lake publication source repository identity is ambiguous")
+    status = subprocess.run(
+        ("git", "status", "--porcelain", "--untracked-files=no"),
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+    )  # nosec B603
+    if status.stdout.strip():
+        raise RuntimeError("lake publication requires a clean tracked worktree")
     result = subprocess.run(
         ("git", "rev-parse", "HEAD"),
         check=True,
         capture_output=True,
         text=True,
+        cwd=repo_root,
     )  # nosec B603
-    return result.stdout.strip()
+    commit = result.stdout.strip()
+    if len(commit) != 40 or commit == "0" * 40:
+        raise RuntimeError("lake publication requires a verifiable git commit")
+    return commit
+
+
+def _source_repo_root() -> Path:
+    for candidate in Path(__file__).resolve().parents:
+        if (candidate / "pyproject.toml").is_file() and (candidate / ".git").exists():
+            return candidate
+    raise RuntimeError("lake publication requires a source Git checkout")
