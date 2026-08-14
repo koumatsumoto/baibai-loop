@@ -223,7 +223,7 @@ ${{
    github.event.pull_request.head.repo.full_name == github.repository)
 }}"""
 _LAKE_ACCEPTANCE_WORKFLOW_DIGEST = (
-    "8fff79a6f473660f0dcde25591c7b16ad271fa536494dc6aedeed9f7a1f28ecd"
+    "ebd06dee07e61de7741cc5059ed9c154a4087b44ecbf14f85ad194dc67a91c4f"
 )
 
 PathPart = str | int
