@@ -118,8 +118,11 @@ def _query_evidence(path: Path) -> dict[str, object]:
         quick_check = connection.execute("PRAGMA quick_check").fetchone()
         rows = {
             name: int(
-                connection.execute(f"SELECT COUNT(*) FROM {dataset.sqlite_table}").fetchone()[0]
-            )  # nosec B608
+                # The table name comes from the fixed PILOT_DATASETS contract.
+                connection.execute(
+                    f"SELECT COUNT(*) FROM {dataset.sqlite_table}"  # nosec B608
+                ).fetchone()[0]
+            )
             for name, dataset in sorted(PILOT_DATASETS.items())
         }
         stats = int(connection.execute("SELECT COUNT(*) FROM sqlite_stat1").fetchone()[0])
