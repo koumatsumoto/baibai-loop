@@ -154,7 +154,7 @@ def frozen_lake(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             cache=cache,
             destination=root / "projection.sqlite",
             dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
-            producer_git_commit=_COMMIT,
+            builder_git_commit=_COMMIT,
             built_at=_CREATED_AT,
         )
     try:

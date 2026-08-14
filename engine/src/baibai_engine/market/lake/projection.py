@@ -31,7 +31,7 @@ from pathlib import Path
 from .datasets import PILOT_DATASETS, LakeDataset
 from .duck import LakeSession
 from .models import PartitionManifest
-from .objects import LakeObjectCache, TransferAccounting
+from .objects import LakeObjectCache, TransferAccounting, sha256_file
 from .reader import (
     FixedRelease,
     LakeReadError,
@@ -41,6 +41,7 @@ from .reader import (
     partition_objects,
     selected_partitions,
 )
+from .retention import exclusive_lock
 
 PROJECTION_CONTRACT_VERSION = 2
 
@@ -51,7 +52,7 @@ CREATE TABLE projection_meta(
   projection_fingerprint TEXT NOT NULL,
   source_release_id TEXT NOT NULL,
   source_release_manifest_sha256 TEXT NOT NULL,
-  producer_git_commit TEXT NOT NULL,
+  builder_git_commit TEXT NOT NULL,
   built_at TEXT NOT NULL,
   data_as_of TEXT NOT NULL
 );
@@ -110,13 +111,19 @@ class ProjectionIdentity:
     ``built_at`` is deliberately absent: it records when the bytes were produced and
     differs between two builds of the same inputs, so including it would force a
     rebuild on every run and make the reuse contract meaningless.
+
+    The building commit is absent for the same reason. It is recorded beside the
+    projection as audit, but a repository commit changes for documentation, for the
+    web app, for anything at all, and none of that moves a byte of a projection whose
+    release, objects, and contract are unchanged. What does move those bytes — the
+    published objects and the code that maps them into tables — is inside
+    ``projection_fingerprint``.
     """
 
     projection_contract_version: int
     projection_fingerprint: str
     source_release_id: str
     source_release_manifest_sha256: str
-    producer_git_commit: str
     data_as_of: date
     datasets: tuple[ProjectionDataset, ...]
     objects: tuple[ProjectionObject, ...]
@@ -133,10 +140,14 @@ class ProjectionBuildReport:
 
 
 def projection_fingerprint(datasets: Sequence[LakeDataset]) -> str:
-    """Hash the shape this projection materializes, not the data it holds."""
+    """Hash the shape this projection materializes and the code that materializes it."""
 
     contract = {
         "projection_contract_version": PROJECTION_CONTRACT_VERSION,
+        "implementation_sha256": {
+            name: sha256_file(Path(__file__).with_name(name))
+            for name in ("datasets.py", "projection.py", "reader.py")
+        },
         "datasets": [
             {
                 "name": dataset.name,
@@ -167,7 +178,6 @@ def plan_identity(
     release: FixedRelease,
     *,
     dataset_names: Sequence[str],
-    producer_git_commit: str,
 ) -> tuple[ProjectionIdentity, dict[str, tuple[PartitionManifest, ...]]]:
     """Resolve the exact objects a build would read, before reading any of them."""
 
@@ -208,7 +218,6 @@ def plan_identity(
         projection_fingerprint=projection_fingerprint(datasets),
         source_release_id=release.release_id,
         source_release_manifest_sha256=release.manifest_sha256,
-        producer_git_commit=producer_git_commit,
         data_as_of=release.data_as_of,
         datasets=tuple(sorted(entries, key=lambda item: item.dataset)),
         objects=tuple(sorted(objects, key=lambda item: (item.dataset, item.object_key))),
@@ -223,17 +232,46 @@ def build_projection(
     cache: LakeObjectCache,
     destination: Path,
     dataset_names: Sequence[str],
-    producer_git_commit: str,
+    builder_git_commit: str,
     force: bool = False,
     built_at: datetime | None = None,
 ) -> ProjectionBuildReport:
-    """Reuse an identical projection, or rebuild one atomically from the release."""
+    """Reuse an identical projection, or rebuild one atomically from the release.
 
-    identity, partitions = plan_identity(
-        release,
-        dataset_names=dataset_names,
-        producer_git_commit=producer_git_commit,
-    )
+    One destination has one writer at a time. Without that, a build that started on an
+    older release can finish last and replace a newer projection, publishing a
+    generation the pointer has already moved past — last writer wins, oldest release
+    published.
+    """
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with exclusive_lock(
+        destination.with_name(f".{destination.name}.lock"), subject="projection destination"
+    ):
+        return _build_projection(
+            session,
+            release=release,
+            cache=cache,
+            destination=destination,
+            dataset_names=dataset_names,
+            builder_git_commit=builder_git_commit,
+            force=force,
+            built_at=built_at,
+        )
+
+
+def _build_projection(
+    session: LakeSession,
+    *,
+    release: FixedRelease,
+    cache: LakeObjectCache,
+    destination: Path,
+    dataset_names: Sequence[str],
+    builder_git_commit: str,
+    force: bool,
+    built_at: datetime | None,
+) -> ProjectionBuildReport:
+    identity, partitions = plan_identity(release, dataset_names=dataset_names)
     _require_replaceable(destination)
     expected_rows = _expected_rows(identity)
     if not force:
@@ -285,6 +323,7 @@ def build_projection(
             _write_identity(
                 connection,
                 identity=identity,
+                builder_git_commit=builder_git_commit,
                 built_at=now,
                 integrity=integrity,
             )
@@ -321,7 +360,7 @@ def read_projection_identity(path: Path) -> ProjectionIdentity | None:
         with _open_read_only(path) as connection:
             meta = connection.execute(
                 "SELECT projection_contract_version, projection_fingerprint, source_release_id, "
-                "source_release_manifest_sha256, producer_git_commit, data_as_of "
+                "source_release_manifest_sha256, data_as_of "
                 "FROM projection_meta WHERE single_row = 1"
             ).fetchone()
             if meta is None:
@@ -345,8 +384,7 @@ def read_projection_identity(path: Path) -> ProjectionIdentity | None:
                 projection_fingerprint=str(meta[1]),
                 source_release_id=str(meta[2]),
                 source_release_manifest_sha256=str(meta[3]),
-                producer_git_commit=str(meta[4]),
-                data_as_of=date.fromisoformat(str(meta[5])),
+                data_as_of=date.fromisoformat(str(meta[4])),
                 datasets=datasets,
                 objects=objects,
             )
@@ -670,19 +708,20 @@ def _write_identity(
     connection: sqlite3.Connection,
     *,
     identity: ProjectionIdentity,
+    builder_git_commit: str,
     built_at: datetime,
     integrity: Mapping[str, str],
 ) -> None:
     connection.execute(
         "INSERT INTO projection_meta(single_row, projection_contract_version, "
         "projection_fingerprint, source_release_id, source_release_manifest_sha256, "
-        "producer_git_commit, built_at, data_as_of) VALUES (1, ?, ?, ?, ?, ?, ?, ?)",
+        "builder_git_commit, built_at, data_as_of) VALUES (1, ?, ?, ?, ?, ?, ?, ?)",
         (
             identity.projection_contract_version,
             identity.projection_fingerprint,
             identity.source_release_id,
             identity.source_release_manifest_sha256,
-            identity.producer_git_commit,
+            builder_git_commit,
             built_at.isoformat(),
             identity.data_as_of.isoformat(),
         ),

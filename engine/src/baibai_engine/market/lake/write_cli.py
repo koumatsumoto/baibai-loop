@@ -267,7 +267,7 @@ def _projection_build(args: argparse.Namespace) -> int:
                 cache=cache,
                 destination=args.projection,
                 dataset_names=datasets,
-                producer_git_commit=commit,
+                builder_git_commit=commit,
                 force=args.force,
             )
     except (

@@ -20,6 +20,7 @@ from typing import Any
 import duckdb
 
 from baibai_engine.market.lake.datasets import PILOT_DATASETS
+from baibai_engine.market.lake.identity import verified_git_commit
 from baibai_engine.market.lake.objects import open_lake
 from baibai_engine.market.lake.projection import ProjectionError, build_projection
 from baibai_engine.market.lake.reader import LakeReadError, resolve_release
@@ -187,17 +188,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args.projection.parent.mkdir(parents=True, exist_ok=True)
         with open_lake(mirror=args.mirror, bucket=args.bucket) as (session, cache):
+            builder_git_commit = verified_git_commit()
             release = resolve_release(
                 cache.source,
                 args.release,
                 manifest_sha256=args.manifest_sha256,
             )
-            commits = {
-                manifest.producer_git_commit for manifest in release.dataset_manifests.values()
-            }
-            if len(commits) != 1:
-                raise RuntimeError("release datasets do not share one producer git commit")
-            producer_git_commit = next(iter(commits))
             cold, cold_seconds, cold_resources = _timed(
                 lambda: build_projection(
                     session,
@@ -205,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
                     cache=cache,
                     destination=args.projection,
                     dataset_names=tuple(sorted(PILOT_DATASETS)),
-                    producer_git_commit=producer_git_commit,
+                    builder_git_commit=builder_git_commit,
                     force=True,
                 ),
                 parent=args.projection.parent,
@@ -217,7 +213,7 @@ def main(argv: list[str] | None = None) -> int:
                     cache=cache,
                     destination=args.projection,
                     dataset_names=tuple(sorted(PILOT_DATASETS)),
-                    producer_git_commit=producer_git_commit,
+                    builder_git_commit=builder_git_commit,
                 ),
                 parent=args.projection.parent,
             )
@@ -229,7 +225,6 @@ def main(argv: list[str] | None = None) -> int:
             "kind": "lake_projection_scale_acceptance",
             "source_release_id": cold.identity.source_release_id,
             "source_release_manifest_sha256": cold.identity.source_release_manifest_sha256,
-            "source_producer_git_commit": cold.identity.producer_git_commit,
             "projection_contract_version": cold.identity.projection_contract_version,
             "projection_fingerprint": cold.identity.projection_fingerprint,
             "benchmark_implementation_sha256": _implementation_sha256(),

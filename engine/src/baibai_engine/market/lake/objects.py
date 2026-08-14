@@ -166,8 +166,7 @@ class LakeObjectCache:
 
     def materialize(self, lake_object: LakeObject) -> Path:
         path = mirror_path(self.root, lake_object.key)
-        if path.is_file():
-            self._require_identity(path, lake_object)
+        if path.is_file() and self._cached_identity_holds(path, lake_object):
             self.transfers.reused_objects += 1
             self.transfers.reused_bytes += lake_object.bytes
             return path
@@ -178,12 +177,31 @@ class LakeObjectCache:
         self.transfers.fetched_bytes += lake_object.bytes
         return path
 
-    def _require_identity(self, path: Path, lake_object: LakeObject) -> None:
-        size = path.stat().st_size
-        if size != lake_object.bytes:
-            raise LakeObjectError(f"cached lake object size differs: {lake_object.key}")
-        if sha256_file(path) != lake_object.sha256:
-            raise LakeObjectError(f"cached lake object digest differs: {lake_object.key}")
+    def _cached_identity_holds(self, path: Path, lake_object: LakeObject) -> bool:
+        """Whether the cached copy is usable, discarding it when a refetch can heal it.
+
+        The cache is derived, not authoritative, so a copy that no longer matches its
+        manifest is a local fault rather than data loss. When the objects can be read
+        from somewhere other than this directory, the damaged copy is dropped and the
+        exact key is fetched again; a refetched copy that still differs stops the read,
+        because that is corruption at the source. When the cache *is* the only source,
+        refetching would read the same bytes back, so the read fails closed instead of
+        looping.
+        """
+
+        if path.stat().st_size == lake_object.bytes and sha256_file(path) == lake_object.sha256:
+            return True
+        if isinstance(self.source, LocalMirrorSource) and mirror_root(
+            self.source.root
+        ) == mirror_root(self.root):
+            raise LakeObjectError(f"cached lake object differs: {lake_object.key}")
+        try:
+            path.unlink()
+        except OSError as exc:
+            raise LakeObjectError(
+                f"cached lake object differs and cannot be replaced: {lake_object.key}"
+            ) from exc
+        return False
 
 
 def _require_payload_identity(payload: bytes, lake_object: LakeObject) -> None:

@@ -17,6 +17,7 @@ import pytest
 
 from baibai_engine.market.lake import duck as duck_module
 from baibai_engine.market.lake import models as lake_models
+from baibai_engine.market.lake import projection as projection_module
 from baibai_engine.market.lake.datasets import JQUANTS_DAILY_BARS, JQUANTS_SHORT_SALE_REPORTS
 from baibai_engine.market.lake.duck import (
     LakeCredentialError,
@@ -62,6 +63,7 @@ from baibai_engine.market.lake.release import (
     canonical_json_bytes,
     create_l1_release,
 )
+from baibai_engine.market.lake.retention import LakeRetentionError, exclusive_lock
 from baibai_engine.market.lake.writer import capture_legacy_sqlite_snapshot, export_legacy_sqlite
 from baibai_engine.market.sqlite import open_connection
 
@@ -286,7 +288,7 @@ def _build(
         cache=used,
         destination=destination,
         dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
-        producer_git_commit=commit,
+        builder_git_commit=commit,
         force=force,
         built_at=_BUILT_AT,
     )
@@ -311,7 +313,7 @@ class TestFixedRelease:
             cache=cache,
             destination=tmp_path / "projection.sqlite",
             dataset_names=("jquants.daily_bars",),
-            producer_git_commit=_COMMIT,
+            builder_git_commit=_COMMIT,
             built_at=_BUILT_AT,
         )
 
@@ -635,8 +637,10 @@ class TestObjectIntegrity:
         target.write_bytes(target.read_bytes() + b"tamper")
         cache = LakeObjectCache(root=lake.mirror, source=LocalMirrorSource(lake.mirror))
 
-        with pytest.raises(LakeObjectError, match="size differs"):
+        with pytest.raises(LakeObjectError, match="cached lake object differs"):
             cache.materialize(manifest.partitions[0].objects[0])
+
+        assert target.is_file()
 
     def test_missing_object_fails_closed(self, lake: Lake) -> None:
         release = resolve_current_release(LocalMirrorSource(lake.mirror))
@@ -728,7 +732,7 @@ class TestObjectIntegrity:
             cache=cache,
             destination=tmp_path / "projection.sqlite",
             dataset_names=("jquants.daily_bars",),
-            producer_git_commit=_COMMIT,
+            builder_git_commit=_COMMIT,
             built_at=_BUILT_AT,
         )
         second_cache = LakeObjectCache(root=empty_cache_root, source=LocalMirrorSource(remote))
@@ -738,7 +742,7 @@ class TestObjectIntegrity:
             cache=second_cache,
             destination=tmp_path / "projection-2.sqlite",
             dataset_names=("jquants.daily_bars",),
-            producer_git_commit=_COMMIT,
+            builder_git_commit=_COMMIT,
             built_at=_BUILT_AT,
         )
 
@@ -819,16 +823,28 @@ class TestProjection:
         assert second.identity == first.identity
         assert destination.stat().st_mtime_ns == stamp
 
-    def test_a_different_producer_commit_rebuilds(
+    def test_a_commit_that_changes_no_projection_input_reuses(
         self, session: LakeSession, lake: Lake, tmp_path: Path
     ) -> None:
         destination = tmp_path / "projection.sqlite"
-        _build(session, lake, destination=destination)
+        first = _build(session, lake, destination=destination)
 
         second = _build(session, lake, destination=destination, commit=_OTHER_COMMIT)
 
+        assert second.reused is True
+        assert second.identity == first.identity
+
+    def test_a_changed_projection_implementation_rebuilds(
+        self, session: LakeSession, lake: Lake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        destination = tmp_path / "projection.sqlite"
+        first = _build(session, lake, destination=destination)
+
+        monkeypatch.setattr(projection_module, "PROJECTION_CONTRACT_VERSION", 99)
+        second = _build(session, lake, destination=destination)
+
         assert second.reused is False
-        assert second.identity.producer_git_commit == _OTHER_COMMIT
+        assert second.identity.projection_fingerprint != first.identity.projection_fingerprint
 
     def test_a_different_release_rebuilds(
         self, session: LakeSession, lake: Lake, tmp_path: Path
@@ -849,7 +865,7 @@ class TestProjection:
             cache=cache,
             destination=destination,
             dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
-            producer_git_commit=_COMMIT,
+            builder_git_commit=_COMMIT,
             built_at=_BUILT_AT,
         )
 
@@ -901,7 +917,8 @@ class TestProjection:
                 cache=_cache(lake),
                 destination=destination,
                 dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
-                producer_git_commit=_OTHER_COMMIT,
+                builder_git_commit=_OTHER_COMMIT,
+                force=True,
                 built_at=_BUILT_AT,
             )
 
@@ -1339,3 +1356,59 @@ def _build_lake_second_release(lake: Lake) -> str:
     )
     _publish_pointer(lake.mirror, release_id, manifest_path)
     return release_id
+
+
+class TestProjectionConcurrency:
+    def test_a_second_builder_cannot_publish_the_same_destination_concurrently(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        """Serialising the destination is what keeps an older release from landing last."""
+
+        destination = tmp_path / "projection.sqlite"
+        with (
+            exclusive_lock(
+                destination.with_name(f".{destination.name}.lock"), subject="projection destination"
+            ),
+            pytest.raises(LakeRetentionError, match="projection destination"),
+        ):
+            _build(session, lake, destination=destination)
+
+        assert not destination.exists()
+        assert _build(session, lake, destination=destination).reused is False
+
+
+class TestCacheResilience:
+    def test_a_damaged_cached_object_is_refetched_from_the_remote_source(
+        self, lake: Lake, tmp_path: Path
+    ) -> None:
+        remote = tmp_path / "remote"
+        for path in sorted(lake.mirror.rglob("*")):
+            if path.is_file():
+                target = remote / path.relative_to(lake.mirror)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(path.read_bytes())
+        release = resolve_current_release(LocalMirrorSource(remote))
+        lake_object = release.dataset_manifest("jquants.daily_bars").partitions[0].objects[0]
+        cache_root = tmp_path / "cache"
+        cache = LakeObjectCache(root=cache_root, source=LocalMirrorSource(remote))
+        cache.materialize(lake_object)
+        cached = cache_root / lake_object.key
+        cached.write_bytes(b"rot")
+
+        path = cache.materialize(lake_object)
+
+        assert path.read_bytes() == (remote / lake_object.key).read_bytes()
+        assert cache.transfers.fetched_objects == 2
+
+    def test_a_cache_that_is_its_own_source_fails_closed_instead_of_looping(
+        self, lake: Lake
+    ) -> None:
+        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        lake_object = release.dataset_manifest("jquants.daily_bars").partitions[0].objects[0]
+        (lake.mirror / lake_object.key).write_bytes(b"rot")
+        cache = LakeObjectCache(root=lake.mirror, source=LocalMirrorSource(lake.mirror))
+
+        with pytest.raises(LakeObjectError, match="cached lake object differs"):
+            cache.materialize(lake_object)
+
+        assert (lake.mirror / lake_object.key).read_bytes() == b"rot"
