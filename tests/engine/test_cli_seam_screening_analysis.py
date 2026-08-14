@@ -25,7 +25,6 @@ from tests.engine.test_calibration_panel import ASOF as PANEL_ASOF
 from tests.engine.test_calibration_panel import _build_fixture_sqlite
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
-from baibai_engine.market.lake.retention import read_l2_pointer
 from baibai_engine.read_api import list_shortlist_payloads
 from baibai_engine.screening.calibration.lake import (
     CALIBRATION_DIAGNOSTICS,
@@ -37,6 +36,7 @@ from baibai_engine.screening.calibration.store import (
     read_forward,
     read_panel,
     read_panel_meta,
+    resolve_calibration_bundle,
 )
 from baibai_engine.screening.cli import main as screening_main
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
@@ -373,10 +373,14 @@ def test_calibration_build_cli_writes_the_panel_and_forward_store(
     assert read_panel_meta(calibration_dir, PANEL_ASOF)["panel_variant"] == "production"
     assert read_forward(calibration_dir, PANEL_ASOF) != []
     assert "panels built=1" in captured.out
-    # Every dataset the build publishes has a current pointer, and the pointer is
-    # what a reader resolves — a file sitting in the tree is not a published build.
-    for dataset in (CALIBRATION_PANEL, CALIBRATION_DIAGNOSTICS, CALIBRATION_FORWARD):
-        assert read_l2_pointer(calibration_dir, dataset.name) is not None
+    # The public bundle resolves all three datasets through one generation. A file
+    # sitting in the tree without that bundle membership is not a published build.
+    bundle = resolve_calibration_bundle(calibration_dir)
+    assert set(bundle.datasets) == {
+        CALIBRATION_PANEL.name,
+        CALIBRATION_DIAGNOSTICS.name,
+        CALIBRATION_FORWARD.name,
+    }
 
 
 def test_calibration_evaluate_cli_writes_the_evaluation_yaml(
