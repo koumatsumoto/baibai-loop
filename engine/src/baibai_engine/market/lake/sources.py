@@ -18,7 +18,7 @@ from .models import (
     load_lake_model_json,
 )
 
-_VERIFIED: ContextVar[dict[tuple[str, str, str, str], Path] | None] = ContextVar(
+_VERIFIED: ContextVar[dict[tuple[str, str], Path] | None] = ContextVar(
     "lake_verified_sources", default=None
 )
 
@@ -33,10 +33,10 @@ def verified_source_scope() -> Iterator[None]:
     cohorts over a 500 MB archive is hundreds of gigabytes of hashing for one migration.
 
     What makes memoizing safe is what makes the reference worth verifying at all — the
-    bytes are immutable and content addressed, and the operation holds the writer lock,
-    so a source that verified at the start of the operation is the same source at the
-    end. Two references that claim the same identity but resolve differently are still
-    caught: the entry is keyed by the identity the caller asserted.
+    bytes are immutable and content addressed, so a source that verified at the start of
+    the operation is the same source at the end. Two references that differ in any field
+    are still verified separately: the entry is keyed by the whole reference the caller
+    asserted, so a memo hit means this exact question was already answered.
     """
 
     token = _VERIFIED.set({})
@@ -55,7 +55,12 @@ def resolve_source_ref(mirror_root: Path, source: RetainedSourceRef) -> Path:
     """
 
     memo = _VERIFIED.get()
-    identity = (str(mirror_root.resolve()), source.kind, source.source_id, source.sha256)
+    # The whole reference, not the part of it that names a generation. Two references
+    # can agree on kind, id, and digest and still ask different questions: a Raw ingest
+    # is addressed by provider, dataset, and key as well, so an empty payload reused
+    # under two dataset namespaces would let one verified reference stand for another
+    # whose object or metadata is not there at all.
+    identity = (str(mirror_root.resolve()), source.model_dump_json())
     if memo is not None and identity in memo:
         return memo[identity]
     path = _resolve_source_ref(mirror_root, source)

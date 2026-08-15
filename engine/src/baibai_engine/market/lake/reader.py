@@ -210,10 +210,18 @@ def _load_release(
             manifest = load_lake_model_json(dataset_payload, DatasetManifest)
         except ValueError:
             raise LakeReadError(f"dataset manifest is invalid: {name}") from None
+        # Everything the release entry restates about the manifest, not only what
+        # addresses it. Freshness is rightly exempted on a historical read — a pinned
+        # study is old on purpose — but the watermark, coverage, and totals a release
+        # states are what a reader reports about the generation, and an entry that
+        # disagrees with the manifest it names describes data that is not there.
         if (
             manifest.dataset != name
             or manifest.build_id != entry.build_id
             or manifest.contract_version != entry.contract_version
+            or manifest.data_as_of != entry.data_as_of
+            or manifest.coverage_status != entry.coverage_status
+            or manifest.totals != entry.totals
         ):
             raise LakeReadError(f"release and dataset manifest disagree: {name}")
         if manifest.layer != "l1_canonical":

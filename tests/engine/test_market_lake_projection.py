@@ -5,11 +5,12 @@ import json
 import os
 import shutil
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -350,6 +351,41 @@ class TestFixedRelease:
                 LocalMirrorSource(lake.mirror),
                 lake.release_id,
                 manifest_sha256="0" * 64,
+            )
+
+    @pytest.mark.parametrize(
+        "restate",
+        [
+            lambda entry: entry.update(coverage_status="partial"),
+            lambda entry: entry["totals"].update(rows=entry["totals"]["rows"] + 1),
+            lambda entry: entry["totals"].update(objects=entry["totals"]["objects"] + 1),
+        ],
+        ids=["coverage_status", "rows", "objects"],
+    )
+    def test_a_named_release_that_restates_its_manifest_wrongly_is_refused(
+        self, lake: Lake, restate: Callable[[dict[str, Any]], None]
+    ) -> None:
+        """Exempting freshness on a historical read is not exempting inventory.
+
+        A pinned study reads a release the pointer left behind, so the age check has to
+        go. What the release *says* about the datasets it names — the watermark, the
+        coverage, the totals — is time-independent, and it is what a reader reports about
+        the generation. An entry that disagrees with the manifest it addresses describes
+        data that is not there.
+        """
+
+        path = lake.mirror / release_manifest_key(release_id=lake.release_id)
+        payload = json.loads(path.read_bytes())
+        entry = payload["datasets"]["jquants.daily_bars"]
+        restate(entry)
+        tampered = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+        path.write_bytes(tampered)
+
+        with pytest.raises(LakeReadError, match="disagree"):
+            resolve_release(
+                LocalMirrorSource(lake.mirror),
+                lake.release_id,
+                manifest_sha256=hashlib.sha256(tampered).hexdigest(),
             )
 
     def test_typed_release_ref_resolves_the_digest_bound_release(self, lake: Lake) -> None:
@@ -855,6 +891,30 @@ class TestProjection:
             "sha256_file",
             lambda path: "0" * 64 if path == target else real(path),
         )
+
+        second = _build(session, lake, destination=destination)
+
+        assert second.reused is False
+        assert second.identity.projection_fingerprint != first.identity.projection_fingerprint
+
+    def test_an_upgraded_decoder_rebuilds(
+        self,
+        session: LakeSession,
+        lake: Lake,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A projection is Parquet decoded by DuckDB and written through SQLite.
+
+        A release, its manifests, and this repository's code are all byte-identical
+        across a dependency upgrade, so a fingerprint made only of those says the stored
+        projection is still current — exactly when a corrected type conversion means it
+        is not, and exactly when nothing else would notice.
+        """
+
+        destination = tmp_path / "projection.sqlite"
+        first = _build(session, lake, destination=destination)
+        monkeypatch.setattr(projection_module.duckdb, "__version__", "0.0.0-upgraded")
 
         second = _build(session, lake, destination=destination)
 

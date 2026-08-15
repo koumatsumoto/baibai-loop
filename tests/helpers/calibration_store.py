@@ -13,7 +13,14 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, get_args, get_type_hints
 
-from baibai_engine.market.lake.models import SQLiteSnapshotSourceRef
+from baibai_engine.market.lake.models import (
+    CalibrationInputFile,
+    CalibrationInputManifest,
+    CalibrationInputSourceRef,
+    CohortSourceRef,
+    SQLiteSnapshotSourceRef,
+    canonical_lake_model_bytes,
+)
 from baibai_engine.market.lake.objects import sha256_bytes
 from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 from baibai_engine.screening.calibration.forward import (
@@ -126,6 +133,44 @@ def synthetic_calibration_source(
     )
 
 
+def archived_calibration_source(
+    root: Path, *, label: str = "default"
+) -> tuple[Path, CalibrationInputSourceRef]:
+    """A cohort source whose bytes the lake keeps, and the archived file it names.
+
+    This is the shape a legacy CSV migration produces: the previous producer's output,
+    archived byte for byte. It is what tells ``result_archive`` apart from a source a
+    corrected producer could be run against.
+    """
+
+    payload = f"retired calibration cache: {label}\n".encode()
+    digest = sha256_bytes(payload)
+    input_id = f"retired-{digest[:24]}"
+    file_key = f"lake/l2/calibration-legacy/{input_id}/panel.csv"
+    archived = root / file_key
+    archived.parent.mkdir(parents=True, exist_ok=True)
+    archived.write_bytes(payload)
+    manifest = CalibrationInputManifest(
+        manifest_version=1,
+        input_id=input_id,
+        input_type="legacy_csv_archive",
+        files={"panel.csv": CalibrationInputFile(key=file_key, sha256=digest, bytes=len(payload))},
+    )
+    manifest_key = f"lake/manifests/calibration-inputs/{input_id}.json"
+    manifest_payload = canonical_lake_model_bytes(manifest)
+    manifest_path = root / manifest_key
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_bytes(manifest_payload)
+    return archived, CalibrationInputSourceRef(
+        kind="calibration_input",
+        source_id=input_id,
+        key=manifest_key,
+        sha256=sha256_bytes(manifest_payload),
+        input_type="legacy_csv_archive",
+        manifest_version=1,
+    )
+
+
 def _coerce(value: Any, annotation: Any) -> Any:
     """Read a fixture's loose value as the field's declared type.
 
@@ -210,6 +255,7 @@ def publish_panel(
     rules_hash: str = "abc123",
     exclusion_counts: Mapping[str, int] | None = None,
     source_label: str = "default",
+    source: CohortSourceRef | None = None,
     producer_commit: str = _TEST_PRODUCER_COMMIT,
     forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> None:
@@ -224,9 +270,8 @@ def publish_panel(
         date.fromisoformat(asof),
         tuple(_panel(asof, row) for row in rows),
         diagnostics,
-        source=synthetic_calibration_source(
-            label=source_label, captured_on=date.fromisoformat(asof)
-        ),
+        source=source
+        or synthetic_calibration_source(label=source_label, captured_on=date.fromisoformat(asof)),
         input_cutoff=date.fromisoformat(asof),
         producer_commit=producer_commit,
         forward_policy=forward_policy,
@@ -239,6 +284,7 @@ def publish_forward(
     rows: Sequence[Mapping[str, Any]],
     *,
     source_label: str = "default",
+    source: CohortSourceRef | None = None,
     input_cutoff: date | None = None,
     producer_commit: str = _TEST_PRODUCER_COMMIT,
     forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
@@ -248,7 +294,7 @@ def publish_forward(
         directory,
         date.fromisoformat(asof),
         [_forward(asof, row) for row in rows],
-        source=synthetic_calibration_source(label=source_label, captured_on=cutoff),
+        source=source or synthetic_calibration_source(label=source_label, captured_on=cutoff),
         input_cutoff=cutoff,
         producer_commit=producer_commit,
         forward_policy=forward_policy,

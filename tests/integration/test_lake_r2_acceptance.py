@@ -196,8 +196,8 @@ def test_actual_r2_bundle_cas_and_rollback_identity(tmp_path: Path) -> None:
     assert rollback_report.bundle_id == second_report.bundle_id
     assert rolled_back.current == second.current
     assert rolled_back.previous == fourth.current
-    first_bundle = store.get_bytes(rolled_back.current.manifest_key)
-    assert hashlib.sha256(first_bundle).hexdigest() == rolled_back.current.manifest_sha256
+    served_bundle = store.get_bytes(rolled_back.current.manifest_key)
+    assert hashlib.sha256(served_bundle).hexdigest() == rolled_back.current.manifest_sha256
 
     stale_payload = (
         json.dumps(
@@ -218,11 +218,13 @@ def test_actual_r2_bundle_cas_and_rollback_identity(tmp_path: Path) -> None:
                 content_type="application/json",
                 if_match=first_remote.etag,
             )
+    # A refused conditional write leaves what the rollback put there, which is the
+    # second generation — not the one whose ETag the stale writer presented.
     assert (
         CalibrationBundlePointer.model_validate_json(
             store.get_bytes(current_calibration_bundle_pointer_key())
         ).current.bundle_id
-        == first_report.bundle_id
+        == second_report.bundle_id
     )
 
 

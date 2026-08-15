@@ -28,6 +28,8 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+import duckdb
+
 from .datasets import PILOT_DATASETS, LakeDataset
 from .duck import LakeSession
 from .models import PartitionManifest
@@ -140,13 +142,25 @@ class ProjectionBuildReport:
 
 
 def projection_fingerprint(datasets: Sequence[LakeDataset]) -> str:
-    """Hash the shape this projection materializes and the code that materializes it."""
+    """Hash the shape this projection materializes and everything that materializes it.
+
+    The runtimes are part of "everything". A projection is Parquet decoded by DuckDB and
+    written through Python's SQLite, so a bug fix in either — a corrected type
+    conversion, a changed coercion — changes the values a rebuild would produce while
+    this repository's own code and the release manifest stay byte-identical. Without
+    them in the identity, the upgrade that fixes the values is exactly the event that
+    leaves the old ones in place.
+    """
 
     contract = {
         "projection_contract_version": PROJECTION_CONTRACT_VERSION,
         "implementation_sha256": {
             name: sha256_file(Path(__file__).with_name(name))
             for name in ("datasets.py", "projection.py", "reader.py")
+        },
+        "runtime": {
+            "duckdb": duckdb.__version__,
+            "sqlite": sqlite3.sqlite_version,
         },
         "datasets": [
             {

@@ -33,6 +33,7 @@ from baibai_engine.market.lake.models import (
     CohortInventoryEntry,
     DatasetManifest,
     MeasurementPolicyRef,
+    RawArchiveMetadata,
     RawIngestSourceRef,
     canonical_lake_model_bytes,
     load_lake_model_json,
@@ -785,6 +786,90 @@ class TestRebuild:
 
             with pytest.raises(ValueError, match="does not resolve"):
                 sources_module.resolve_source_ref(other, source)
+
+    def test_two_references_agreeing_only_on_the_generation_are_verified_separately(
+        self, tmp_path: Path
+    ) -> None:
+        """A memo hit has to mean this exact question was already answered.
+
+        Raw is addressed by provider, dataset, key, and metadata as well as by ingest id
+        and digest, so the same empty payload ingested under two dataset namespaces gives
+        two references that agree on generation and disagree on everything that says
+        where the bytes are. Keying the memo on the generation alone would let the first
+        one stand for the second, and reachability would then add a key nothing checked.
+        """
+
+        first = _raw_ingest_source()
+        second = first.model_copy(
+            update={
+                "dataset": "daily_quotes",
+                "key": first.key.replace("/daily_bars/", "/daily_quotes/"),
+                "metadata_key": first.metadata_key.replace("/daily_bars/", "/daily_quotes/"),
+            }
+        )
+        payload = b"raw ingest payload\n"
+        stored = tmp_path / first.key
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        stored.write_bytes(payload)
+        metadata = RawArchiveMetadata(
+            metadata_version=1,
+            provider=first.provider,
+            dataset=first.dataset,
+            request_start=first.request_start,
+            request_end=first.request_end,
+            ingest_id=first.source_id,
+            object_key=first.key,
+            content_sha256=hashlib.sha256(payload).hexdigest(),
+            retrieved_at=datetime(2026, 1, 30, tzinfo=UTC),
+            retention_class="preserve",
+            suffix=".json.gz",
+            bytes=len(payload),
+        )
+        metadata_payload = canonical_lake_model_bytes(metadata)
+        (tmp_path / first.metadata_key).write_bytes(metadata_payload)
+        present = first.model_copy(
+            update={
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "metadata_sha256": hashlib.sha256(metadata_payload).hexdigest(),
+            }
+        )
+        absent = second.model_copy(
+            update={
+                "sha256": present.sha256,
+                "metadata_sha256": present.metadata_sha256,
+            }
+        )
+
+        with sources_module.verified_source_scope():
+            assert sources_module.resolve_source_ref(tmp_path, present) == stored
+            with pytest.raises(ValueError, match="does not resolve"):
+                sources_module.resolve_source_ref(tmp_path, absent)
+
+    def test_planning_verifies_each_archive_once_rather_than_once_per_cohort(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The read-only plan is the form of the command an operator runs often.
+
+        Reachability reaches the same archive from every cohort of every dataset, so
+        without a scope a dry run over 81 cohorts and one 500 MB archive reads more than
+        100 GB — and the operator stops running it, which is how a retention policy
+        becomes a document rather than a practice.
+        """
+
+        archived, source = _retained_calibration_source(tmp_path)
+        for asof in (_JANUARY, _FEBRUARY):
+            publish_panel(tmp_path, asof, _cohort(asof), source=source)
+        hashed: list[str] = []
+        real = sources_module.sha256_file
+        monkeypatch.setattr(
+            sources_module,
+            "sha256_file",
+            lambda path: (hashed.append(path.name), real(path))[1],
+        )
+
+        plan_gc(tmp_path)
+
+        assert hashed.count(archived.name) == 1
 
     def test_adoption_refuses_a_generation_whose_cohort_source_is_gone(
         self, tmp_path: Path

@@ -2,9 +2,15 @@
 
 Retention is decided by reachability, never by age alone. Three kinds of root make
 an object reachable: the current L1 release and the one before it, the current
-calibration bundle and the one before it, non-calibration L2 dataset heads, and
-explicit pins. Everything the closure of those roots does not reach is a deletion
-candidate; everything it reaches is kept regardless of how old it is.
+calibration bundle and the one before it, and explicit pins. Everything the closure of
+those roots does not reach is a deletion candidate; everything it reaches is kept
+regardless of how old it is.
+
+There is deliberately no per-dataset L2 head among them. An L2 dataset is published as
+part of a bundle and reached through it, so a second pointer naming the same builds
+would be a second mutable statement of what the store serves, and only one of the two
+can be carried into the next generation. An L2 dataset that is not part of the
+calibration bundle needs its own authority designed before it can be a root.
 
 Pins exist because a published study or an adopted calibration cohort has to remain
 reproducible after the pointer has moved on twice. Pinning every daily generation
@@ -355,8 +361,21 @@ def plan_gc(
     unreferenced, which is the one way a reachability GC can delete live data. The
     same reasoning is why a store that holds calibration builds but no bundle pointer
     leaves the plan unappliable rather than treating those builds as unreferenced.
+
+    Planning opens its own source verification scope. Reachability walks the same
+    archive once per cohort that names it — 81 cohorts over three datasets against one
+    500 MB archive is over 100 GB of hashing — and a dry run is the form of this command
+    an operator is expected to run often. The scope makes the cost proportional to the
+    distinct sources in the closure. It is opened here rather than left to the caller
+    because the read-only plan is reached without the writer lock, which is where every
+    other scope in the lake comes from; nesting inside that lock is harmless.
     """
 
+    with verified_source_scope():
+        return _plan_gc(mirror_root, now=now)
+
+
+def _plan_gc(mirror_root: Path, *, now: datetime | None) -> GcPlan:
     moment = (now or datetime.now(UTC)).astimezone(UTC)
     roots: list[str] = []
     reachable: set[str] = set()
