@@ -289,16 +289,16 @@ cold/reuseを同じ時間上限以内とする。11,549,008 row未満のfixture�
 reportはoutput bytes、`quick_check`、table rows、`sqlite_stat1`、query planも記録する。
 
 contract v2のreference acceptanceはLinux/WSL2、DuckDB 1.5.5、SQLite 3.50.4で、release
-`pr946-scale-acceptance` / manifest SHA-256
-`e77f5b0d6cf031913061969f8a2a092d9044afb89714f5c3d276f2af49e95ab8`の11,554,322 rowsを用いる。
-cold 81.98秒、reuse 50.27秒、peak RSS 430 MiB、output 1.33 GiB、代表query p95最大0.065 msで、
+`pr946-r5-acceptance` / manifest SHA-256
+`e960473ac41235caa5e927e3e031bd621eed86c5527d61ac079bc6b40e5dd0d5`の11,554,322 rowsを用いる。
+cold 78.55秒、reuse 47.07秒、peak RSS 433 MiB、output 1.33 GiB、代表query p95最大0.065 msで、
 全budget、`quick_check`、4件の`sqlite_stat1`を満たす。projection fingerprintは
-`sha256:dc46b22ffb3fa654d50f796888ad03ad4f1e78937e66a21c9134b5704fe8d6f0`、generatorとlake codeの
-implementation SHA-256は`ea4ce94911dca44345e333db4522593bdadc4f0c43e22f62a0c2ba0ea3f46e6c`である。
-<!-- AP-02: cold=81.97515426500468、reuse=50.27278014700278、
-peak RSS=450834432 / 1048576 = 429.9453125 MiB、
-output=1430007808 / 1073741824 = 1.3317985534667969 GiB、query p95最大=0.06491201929748058 ms。 -->
-これはproduction storeをSQLite `mode=ro`でsealed snapshotへ複製し、一時directoryだけにmirror /
+`sha256:e53ee0ea9deb62adcb222cb63fefcc623ae8739e64c5d77d9f601f659cfe4e37`、benchmarkの
+implementation SHA-256は`6b583b2af13fd7920e01efab10ce6e7409f6b40fd4f28e6f03de533f061db6a1`である。
+<!-- AP-02: cold=78.55443349899724、reuse=47.06548080200446、
+peak RSS=453734400 / 1048576 = 432.71484375 MiB、
+output=1430007808 / 1073741824 = 1.3317985534667969 GiB、query p95最大=0.0654769828543067 ms。 -->
+これはproduction storeをsealed snapshotへ複製し、一時directoryだけにmirror /
 projectionを作った結果である。
 
 projectionのatomic publicationが対応するfilesystemは、case-sensitiveでhard link、同一directory内の
