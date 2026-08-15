@@ -34,7 +34,6 @@ from baibai_engine.market.lake.keys import (
 )
 from baibai_engine.market.lake.models import (
     ReleaseManifest,
-    canonical_lake_model_bytes,
     load_lake_model_json,
 )
 from baibai_engine.market.lake.objects import open_lake, sha256_file
@@ -143,20 +142,12 @@ def test_actual_r2_bundle_cas_and_rollback_identity(tmp_path: Path) -> None:
     store = _store()
     mirror = tmp_path / "mirror"
 
+    # No alignment of the local rollback identity to whatever the acceptance bucket
+    # currently serves: the point of the exercise is that a store which has moved on
+    # independently can still publish. Rewriting the pointer here would test only the
+    # one-generation-apart case that a failed publication is guaranteed to leave behind.
     publish_panel(mirror, "2026-01-30", [])
     first = _pointer(mirror)
-    existing = store.head(current_calibration_bundle_pointer_key())
-    if existing is not None:
-        existing_pointer = CalibrationBundlePointer.model_validate_json(
-            store.get_bytes(current_calibration_bundle_pointer_key())
-        )
-        first = CalibrationBundlePointer(
-            current=first.current,
-            previous=existing_pointer.current,
-        )
-        (mirror / current_calibration_bundle_pointer_key()).write_bytes(
-            canonical_lake_model_bytes(first)
-        )
     first_report = publish_calibration_bundle(
         mirror_root=mirror,
         bundle_manifest_path=mirror / first.current.manifest_key,
@@ -179,13 +170,32 @@ def test_actual_r2_bundle_cas_and_rollback_identity(tmp_path: Path) -> None:
     assert remote_pointer.previous is not None
     assert remote_pointer.previous.bundle_id == first_report.bundle_id
 
+    # A local store that skipped a generation — the state a failed publication leaves —
+    # must still converge without anyone editing a pointer.
+    publish_panel(mirror, "2026-03-31", [])
+    publish_panel(mirror, "2026-04-30", [])
+    fourth = _pointer(mirror)
+    assert fourth.previous is not None
+    assert fourth.previous.bundle_id != second_report.bundle_id
+    fourth_report = publish_calibration_bundle(
+        mirror_root=mirror,
+        bundle_manifest_path=mirror / fourth.current.manifest_key,
+        store=store,
+    )
+    after_skip = CalibrationBundlePointer.model_validate_json(
+        store.get_bytes(current_calibration_bundle_pointer_key())
+    )
+    assert after_skip.current.bundle_id == fourth_report.bundle_id
+    assert after_skip.previous is not None
+    assert after_skip.previous.bundle_id == second_report.bundle_id
+
     rollback_report = rollback_calibration_bundle(store=store)
     rolled_back = CalibrationBundlePointer.model_validate_json(
         store.get_bytes(current_calibration_bundle_pointer_key())
     )
-    assert rollback_report.bundle_id == first_report.bundle_id
-    assert rolled_back.current == first.current
-    assert rolled_back.previous == second.current
+    assert rollback_report.bundle_id == second_report.bundle_id
+    assert rolled_back.current == second.current
+    assert rolled_back.previous == fourth.current
     first_bundle = store.get_bytes(rolled_back.current.manifest_key)
     assert hashlib.sha256(first_bundle).hexdigest() == rolled_back.current.manifest_sha256
 
