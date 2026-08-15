@@ -367,7 +367,10 @@ importした時点で遅れる — 行の値は変わったのにfingerprintが�
 entryから辿るので、outcomeの観測を変えてもpanelの月は無効化しない（唯一の共有だったentry lagは
 horizon契約が持つ）。
 
-write APIはsource refのclosureを先に解決し、source省略を受け入れない。cohort書き込みは生成中の
+write APIはsource refのclosureを先に解決し、source省略を受け入れない。同じ source を何度
+名指しても検証は operation ごとに 1 回で、writer lock を持つ間は immutable な source が
+動かないことがそれを許す。retired CSV archive のように 1 つの source を全 cohort が指す場合、
+参照ごとに払うと 500MB × 81 cohort が 1 回の migration で数百 GB の hash になる。cohort書き込みは生成中の
 generationに対して行い、canonical currentへ進むのはgeneration adoptionの1経路だけである。
 
 adoptionはbundleが閉じているものだけを歩く。bundle manifest → dataset manifest → partition object

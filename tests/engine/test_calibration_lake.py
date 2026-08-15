@@ -18,6 +18,7 @@ from tests.helpers.calibration_store import (
     publish_panel,
 )
 
+from baibai_engine.market.lake import sources as sources_module
 from baibai_engine.market.lake.keys import (
     current_calibration_bundle_pointer_key,
     pin_key,
@@ -668,6 +669,46 @@ class TestRebuild:
         assert report.installed_bytes < report.hashed_bytes
         assert read_panel(current, date.fromisoformat(_APRIL))
         assert read_panel(current, date.fromisoformat(_JANUARY))
+
+    def test_one_source_is_verified_once_however_many_cohorts_name_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verification cost must follow how much source there is, not how often it is named.
+
+        A retired CSV archive is one source that every migrated cohort points at. Paying
+        per reference turns a 500 MB archive and 81 cohorts into hundreds of gigabytes of
+        hashing for a single migration, and every retry pays it again.
+        """
+
+        archived, source = _retained_calibration_source(tmp_path)
+        hashed: list[str] = []
+        real = sources_module.sha256_file
+        monkeypatch.setattr(
+            sources_module,
+            "sha256_file",
+            lambda path: (hashed.append(path.name), real(path))[1],
+        )
+
+        with sources_module.verified_source_scope():
+            for _ in range(5):
+                sources_module.resolve_source_ref(tmp_path, source)
+
+        assert hashed.count(archived.name) == 1
+
+    def test_a_second_reference_claiming_the_same_identity_is_still_resolved(
+        self, tmp_path: Path
+    ) -> None:
+        """Memoizing keys on the identity the caller asserted, not on the file it found."""
+
+        _, source = _retained_calibration_source(tmp_path)
+        other = tmp_path / "other-mirror"
+        other.mkdir()
+
+        with sources_module.verified_source_scope():
+            sources_module.resolve_source_ref(tmp_path, source)
+
+            with pytest.raises(ValueError, match="does not resolve"):
+                sources_module.resolve_source_ref(other, source)
 
     def test_adoption_refuses_a_generation_whose_cohort_source_is_gone(
         self, tmp_path: Path

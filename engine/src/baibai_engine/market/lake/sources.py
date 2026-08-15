@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from .models import (
@@ -15,6 +18,33 @@ from .models import (
     load_lake_model_json,
 )
 
+_VERIFIED: ContextVar[dict[tuple[str, str, str, str], Path] | None] = ContextVar(
+    "lake_verified_sources", default=None
+)
+
+
+@contextmanager
+def verified_source_scope() -> Iterator[None]:
+    """Verify each immutable source once for the length of one operation.
+
+    A source is named by every cohort built from it, and one legacy archive can be named
+    by every cohort in the store. Verifying per reference makes the work scale with how
+    many times a generation is mentioned rather than with how much of it there is: 81
+    cohorts over a 500 MB archive is hundreds of gigabytes of hashing for one migration.
+
+    What makes memoizing safe is what makes the reference worth verifying at all — the
+    bytes are immutable and content addressed, and the operation holds the writer lock,
+    so a source that verified at the start of the operation is the same source at the
+    end. Two references that claim the same identity but resolve differently are still
+    caught: the entry is keyed by the identity the caller asserted.
+    """
+
+    token = _VERIFIED.set({})
+    try:
+        yield
+    finally:
+        _VERIFIED.reset(token)
+
 
 def resolve_source_ref(mirror_root: Path, source: RetainedSourceRef) -> Path:
     """Resolve one retained source inside the mirror and verify its immutable identity.
@@ -24,6 +54,17 @@ def resolve_source_ref(mirror_root: Path, source: RetainedSourceRef) -> Path:
     runtime branch that would otherwise have to decide what a missing file means.
     """
 
+    memo = _VERIFIED.get()
+    identity = (str(mirror_root.resolve()), source.kind, source.source_id, source.sha256)
+    if memo is not None and identity in memo:
+        return memo[identity]
+    path = _resolve_source_ref(mirror_root, source)
+    if memo is not None:
+        memo[identity] = path
+    return path
+
+
+def _resolve_source_ref(mirror_root: Path, source: RetainedSourceRef) -> Path:
     root = mirror_root.resolve()
     path = (mirror_root / source.key).resolve()
     if not path.is_relative_to(root) or not path.is_file():

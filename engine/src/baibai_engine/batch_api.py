@@ -66,6 +66,7 @@ from baibai_engine.market.lake.models import retained_sources as lake_retained_s
 from baibai_engine.market.lake.models import validate_release_policy as validate_lake_release_policy
 from baibai_engine.market.lake.release import L1ReleasePointer, canonical_json_bytes
 from baibai_engine.market.lake.sources import resolve_source_ref as resolve_lake_source_ref
+from baibai_engine.market.lake.sources import verified_source_scope as lake_verified_source_scope
 from baibai_engine.market.sqlite import open_connection as open_market_store
 from baibai_engine.market.sqlite.schema import (
     EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
@@ -130,6 +131,7 @@ __all__ = [
     "lake_dataset_manifest_key",
     "lake_release_manifest_key",
     "lake_retained_sources",
+    "lake_verified_source_scope",
     "load_definitions",
     "load_lake_model_json",
     "monitoring_condition_series_ids",

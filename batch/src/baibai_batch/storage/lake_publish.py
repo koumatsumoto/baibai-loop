@@ -37,6 +37,7 @@ from baibai_engine.batch_api import (
     lake_dataset_manifest_key,
     lake_release_manifest_key,
     lake_retained_sources,
+    lake_verified_source_scope,
     load_lake_model_json,
     resolve_lake_source_ref,
     validate_lake_release_policy,
@@ -725,6 +726,22 @@ def publish_calibration_bundle(
 ) -> CalibrationBundlePublishReport:
     """Publish a complete three-dataset graph, then switch one bundle pointer by CAS."""
 
+    with lake_verified_source_scope():
+        return _publish_calibration_bundle(
+            mirror_root=mirror_root,
+            bundle_manifest_path=bundle_manifest_path,
+            store=store,
+            verify_bytes=verify_bytes,
+        )
+
+
+def _publish_calibration_bundle(
+    *,
+    mirror_root: Path,
+    bundle_manifest_path: Path,
+    store: ObjectStore,
+    verify_bytes: bool,
+) -> CalibrationBundlePublishReport:
     publication = _RemotePublication(store=store, verify_bytes=verify_bytes)
     root = mirror_root.resolve()
     resolved_bundle_path = bundle_manifest_path.resolve()

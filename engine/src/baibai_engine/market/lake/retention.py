@@ -65,7 +65,7 @@ from .models import (
 )
 from .objects import mirror_path, sha256_bytes
 from .release import L1ReleasePointer, canonical_json_bytes
-from .sources import resolve_source_ref, sha256_file
+from .sources import resolve_source_ref, sha256_file, verified_source_scope
 
 _GRACE_DAYS = 30
 _STAGING_GRACE_DAYS = 7
@@ -105,10 +105,18 @@ def exclusive_lock(lock_path: Path, *, subject: str) -> Iterator[None]:
 
 @contextmanager
 def lake_writer_lock(mirror_root: Path) -> Iterator[None]:
-    """Serialize local publication, pin mutation, and retention finalization."""
+    """Serialize local publication, pin mutation, and retention finalization.
+
+    Holding the lock is also what bounds the source verification scope: no other writer
+    can change an immutable source while it is held, so one verification of a given
+    identity stands for the whole operation instead of once per reference to it.
+    """
 
     mirror_root.mkdir(parents=True, exist_ok=True)
-    with exclusive_lock(mirror_root / ".lake-writer.lock", subject="lake publication"):
+    with (
+        exclusive_lock(mirror_root / ".lake-writer.lock", subject="lake publication"),
+        verified_source_scope(),
+    ):
         yield
 
 
