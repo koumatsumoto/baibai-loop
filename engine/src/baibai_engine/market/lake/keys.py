@@ -163,11 +163,6 @@ def current_l1_pointer_key() -> str:
     return "lake/pointers/l1/current.json"
 
 
-def current_l2_pointer_key(*, dataset: str) -> str:
-    validate_dataset_name(dataset)
-    return validate_lake_object_key(f"lake/pointers/l2/{dataset}/current.json")
-
-
 def calibration_bundle_manifest_key(*, bundle_id: str) -> str:
     validate_identifier(bundle_id, label="bundle_id")
     return validate_lake_object_key(f"lake/manifests/calibration-bundles/{bundle_id}.json")

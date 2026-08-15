@@ -51,12 +51,7 @@ from baibai_engine.market.lake.models import (
     retained_sources,
 )
 from baibai_engine.market.lake.objects import sha256_bytes, sha256_file
-from baibai_engine.market.lake.retention import (
-    LakeRetentionError,
-    advance_l2_pointer,
-    lake_writer_lock,
-    read_l2_pointer,
-)
+from baibai_engine.market.lake.retention import LakeRetentionError, lake_writer_lock
 from baibai_engine.market.lake.sources import resolve_source_ref
 
 from ..metrics import VALUATION_CALCULATION_REVISION
@@ -233,31 +228,6 @@ def _require_partition_objects(
             raise CalibrationLakeError(f"{dataset.name}: published object differs: {item.key}")
 
 
-def _writer_manifest(root: Path, dataset: L2Dataset) -> DatasetManifest | None:
-    """The build the pointer names, or ``None`` when the dataset has no head yet.
-
-    The pointer's digest is checked here. A manifest key is derived from
-    ``(dataset, build_id)``, so without it the same pointer could be made to resolve
-    to a different set of objects by replacing that key — and every check below it
-    would pass, because the object digests it compares against would come from the
-    replacement.
-    """
-
-    pointer = read_l2_pointer(root, dataset.name)
-    if pointer is None:
-        return None
-    path = root / pointer.manifest_key
-    try:
-        payload = path.read_bytes()
-    except OSError as exc:
-        raise CalibrationLakeError(f"L2 dataset manifest is unreadable: {path}") from exc
-    if sha256_bytes(payload) != pointer.manifest_sha256:
-        raise CalibrationLakeError(f"{dataset.name}: manifest digest does not match the pointer")
-    manifest = load_manifest(path)
-    require_manifest_contract(dataset, manifest)
-    return manifest
-
-
 def _fixed_bundle(root: Path) -> FixedCalibrationBundle | None:
     """Resolve the public generation once and close every manifest edge by digest."""
 
@@ -311,34 +281,64 @@ def _current_manifest(root: Path, dataset: L2Dataset) -> DatasetManifest | None:
     return None if bundle is None else bundle.datasets[dataset.name]
 
 
+@dataclass(frozen=True, slots=True)
+class _PublishedBuild:
+    """A dataset build that exists but is not yet named by any published pointer."""
+
+    reference: CalibrationDatasetRef
+    manifest: DatasetManifest
+
+
+def _published_build(root: Path, dataset: str, manifest: DatasetManifest) -> _PublishedBuild:
+    path = root / dataset_manifest_key(dataset=dataset, build_id=manifest.build_id)
+    return _PublishedBuild(
+        reference=CalibrationDatasetRef(
+            dataset=dataset,
+            build_id=manifest.build_id,
+            manifest_key=path.relative_to(root).as_posix(),
+            manifest_sha256=sha256_bytes(path.read_bytes()),
+            rows=manifest.totals.rows,
+        ),
+        manifest=manifest,
+    )
+
+
 def _publish_bundle(
     root: Path,
     *,
+    updated: Mapping[str, _PublishedBuild],
     assembled_by: str | None = None,
     forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> CalibrationBundleRef:
+    """Expose one generation made of the builds just written plus the ones carried.
+
+    The builds this operation produced arrive as values. A dataset it did not touch is
+    taken from the bundle the pointer currently names — which is the whole of what a
+    store carries forward. Reading a separate per-dataset pointer instead would make the
+    published generation and the writer's continuation two different states, and only
+    one of them survives being copied into the next work generation.
+    """
+
+    carried = _fixed_bundle(root)
     manifests: dict[str, DatasetManifest] = {}
     references: dict[str, CalibrationDatasetRef] = {}
     for name, dataset in L2_DATASETS.items():
-        manifest = _writer_manifest(root, dataset)
-        if manifest is None:
-            raise CalibrationLakeError(f"bundle dataset has no published build: {name}")
-        path = root / dataset_manifest_key(dataset=name, build_id=manifest.build_id)
-        digest = sha256_bytes(path.read_bytes())
-        manifests[name] = manifest
+        build = updated.get(name)
+        if build is None:
+            if carried is None:
+                raise CalibrationLakeError(f"bundle dataset has no published build: {name}")
+            build = _PublishedBuild(
+                reference=carried.manifest.datasets[name],
+                manifest=carried.datasets[name],
+            )
+        manifests[name] = build.manifest
         require_build_inputs(
-            manifest,
+            build.manifest,
             dataset=dataset,
             cache_schema_version=CACHE_SCHEMA_VERSION,
             forward_policy=forward_policy,
         )
-        references[name] = CalibrationDatasetRef(
-            dataset=name,
-            build_id=manifest.build_id,
-            manifest_key=path.relative_to(root).as_posix(),
-            manifest_sha256=digest,
-            rows=manifest.totals.rows,
-        )
+        references[name] = build.reference
     cohort_keys = set(manifests[CALIBRATION_PANEL.name].cohort_inventory)
     if set(manifests[CALIBRATION_DIAGNOSTICS.name].cohort_inventory) != cohort_keys:
         raise CalibrationLakeError("panel and diagnostics cohort inventory differ")
@@ -569,7 +569,7 @@ def _publish_cohort(
     measurement_policy: MeasurementPolicyRef,
     producer_commit: str | None = None,
     forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
-) -> None:
+) -> _PublishedBuild:
     """Publish a build that carries every cohort already published plus this one.
 
     A month can hold more than one cohort, so the partition being replaced is
@@ -581,7 +581,6 @@ def _publish_cohort(
     root.mkdir(parents=True, exist_ok=True)
     month = (asof.year, asof.month)
     manifest = _current_manifest(root, dataset)
-    writer_pointer = read_l2_pointer(root, dataset.name)
     if manifest is not None:
         # Carrying a partition from a build made under other measurement rules would
         # publish it under this build's fingerprint, which is exactly the mixing the
@@ -665,13 +664,7 @@ def _publish_cohort(
         cohort_inventory=inventory,
         created_at=now,
     )
-    advance_l2_pointer(
-        root,
-        dataset=dataset.name,
-        build_id=report.build_id,
-        manifest_path=report.manifest_path,
-        expected_current_build_id=(None if writer_pointer is None else writer_pointer.build_id),
-    )
+    return _published_build(root, dataset.name, report.manifest)
 
 
 def _materialize(dataset: L2Dataset, payload: Mapping[str, object]) -> object:
@@ -706,31 +699,33 @@ def write_panel(
     measurement_policy = measurement_policy_of(diagnostics)
     publication = nullcontext() if lock_held else lake_writer_lock(root)
     with _store_errors(), publication:
-        _publish_cohort(
-            root,
-            dataset=CALIBRATION_PANEL,
-            asof=asof,
-            rows=rows,
-            source=source,
-            input_cutoff=input_cutoff,
-            measurement_policy=measurement_policy,
-            producer_commit=producer_commit,
-            forward_policy=forward_policy,
-        )
-        _publish_cohort(
-            root,
-            dataset=CALIBRATION_DIAGNOSTICS,
-            asof=asof,
-            rows=(diagnostics,),
-            source=source,
-            input_cutoff=input_cutoff,
-            measurement_policy=measurement_policy,
-            producer_commit=producer_commit,
-            forward_policy=forward_policy,
-        )
-        forward = _writer_manifest(root, CALIBRATION_FORWARD)
+        updated = {
+            CALIBRATION_PANEL.name: _publish_cohort(
+                root,
+                dataset=CALIBRATION_PANEL,
+                asof=asof,
+                rows=rows,
+                source=source,
+                input_cutoff=input_cutoff,
+                measurement_policy=measurement_policy,
+                producer_commit=producer_commit,
+                forward_policy=forward_policy,
+            ),
+            CALIBRATION_DIAGNOSTICS.name: _publish_cohort(
+                root,
+                dataset=CALIBRATION_DIAGNOSTICS,
+                asof=asof,
+                rows=(diagnostics,),
+                source=source,
+                input_cutoff=input_cutoff,
+                measurement_policy=measurement_policy,
+                producer_commit=producer_commit,
+                forward_policy=forward_policy,
+            ),
+        }
+        forward = _current_manifest(root, CALIBRATION_FORWARD)
         if forward is None or asof.isoformat() not in forward.cohort_inventory:
-            _publish_cohort(
+            updated[CALIBRATION_FORWARD.name] = _publish_cohort(
                 root,
                 dataset=CALIBRATION_FORWARD,
                 asof=asof,
@@ -742,7 +737,12 @@ def write_panel(
                 producer_commit=producer_commit,
                 forward_policy=forward_policy,
             )
-        _publish_bundle(root, assembled_by=producer_commit, forward_policy=forward_policy)
+        _publish_bundle(
+            root,
+            updated=updated,
+            assembled_by=producer_commit,
+            forward_policy=forward_policy,
+        )
 
 
 def write_forward(
@@ -761,7 +761,7 @@ def write_forward(
         # The outcome inherits the panel's rules identity rather than restating it: the
         # rows it observes are the names that panel selected, so a forward cohort that
         # claimed different rules would be describing a cross-section it did not use.
-        _publish_cohort(
+        build = _publish_cohort(
             root,
             dataset=CALIBRATION_FORWARD,
             asof=asof,
@@ -772,11 +772,16 @@ def write_forward(
             producer_commit=producer_commit,
             forward_policy=forward_policy,
         )
-        _publish_bundle(root, assembled_by=producer_commit, forward_policy=forward_policy)
+        _publish_bundle(
+            root,
+            updated={CALIBRATION_FORWARD.name: build},
+            assembled_by=producer_commit,
+            forward_policy=forward_policy,
+        )
 
 
 def _panel_measurement_policy(root: Path, asof: date) -> MeasurementPolicyRef:
-    manifest = _writer_manifest(root, CALIBRATION_PANEL)
+    manifest = _current_manifest(root, CALIBRATION_PANEL)
     entry = None if manifest is None else manifest.cohort_inventory.get(asof.isoformat())
     if entry is None:
         raise CalibrationLakeError(

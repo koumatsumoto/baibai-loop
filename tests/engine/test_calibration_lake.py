@@ -20,10 +20,10 @@ from tests.helpers.calibration_store import (
 
 from baibai_engine.market.lake.keys import (
     current_calibration_bundle_pointer_key,
-    current_l2_pointer_key,
     pin_key,
 )
 from baibai_engine.market.lake.models import (
+    CalibrationDatasetRef,
     CalibrationInputFile,
     CalibrationInputManifest,
     CalibrationInputSourceRef,
@@ -33,14 +33,11 @@ from baibai_engine.market.lake.models import (
     canonical_lake_model_bytes,
 )
 from baibai_engine.market.lake.retention import (
-    L2DatasetPointer,
     LakeRetentionError,
-    advance_l2_pointer,
     apply_gc,
     create_pin,
     lake_writer_lock,
     plan_gc,
-    read_l2_pointer,
     read_pins,
     remove_pin,
 )
@@ -111,9 +108,11 @@ def _forward_rows(asof: str) -> list[dict[str, object]]:
 
 
 def _manifest(root: Path, dataset_name: str) -> DatasetManifest:
-    pointer = read_l2_pointer(root, dataset_name)
-    assert pointer is not None
-    return load_manifest(root / pointer.manifest_key)
+    return store.resolve_calibration_bundle(root).datasets[dataset_name]
+
+
+def _dataset_ref(root: Path, dataset_name: str) -> CalibrationDatasetRef:
+    return store.resolve_calibration_bundle(root).manifest.datasets[dataset_name]
 
 
 def _bundle_pointer(root: Path) -> CalibrationBundlePointer:
@@ -270,11 +269,10 @@ class TestImmutableBuilds:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
 
         for dataset in (CALIBRATION_PANEL, CALIBRATION_DIAGNOSTICS):
-            pointer = read_l2_pointer(tmp_path, dataset.name)
-            assert pointer is not None
-            manifest = load_manifest(tmp_path / pointer.manifest_key)
+            reference = _dataset_ref(tmp_path, dataset.name)
+            manifest = load_manifest(tmp_path / reference.manifest_key)
             assert manifest.layer == "l2_analytical"
-            assert manifest.build_id == pointer.build_id
+            assert manifest.build_id == reference.build_id
             assert manifest.sources == ()
             assert {
                 source.kind
@@ -330,9 +328,7 @@ class TestImmutableBuilds:
         self, tmp_path: Path
     ) -> None:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
-        pointer = read_l2_pointer(tmp_path, CALIBRATION_PANEL.name)
-        assert pointer is not None
-        path = tmp_path / pointer.manifest_key
+        path = tmp_path / _dataset_ref(tmp_path, CALIBRATION_PANEL.name).manifest_key
         secret = "credential-must-not-appear"
         raw = path.read_bytes().replace(
             b'"manifest_version":1',
@@ -382,42 +378,68 @@ class TestImmutableBuilds:
             "1301"
         ]
 
-    def test_the_previous_build_stays_addressable_after_the_pointer_moves(
+    def test_the_previous_build_stays_addressable_after_the_generation_moves(
         self, tmp_path: Path
     ) -> None:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
-        first = read_l2_pointer(tmp_path, CALIBRATION_PANEL.name)
-        assert first is not None
+        first = _dataset_ref(tmp_path, CALIBRATION_PANEL.name)
 
         publish_panel(tmp_path, _FEBRUARY, _cohort(_FEBRUARY))
-        second = read_l2_pointer(tmp_path, CALIBRATION_PANEL.name)
+        second = _dataset_ref(tmp_path, CALIBRATION_PANEL.name)
 
-        assert second is not None
-        assert second.previous_build_id == first.build_id
+        assert second.build_id != first.build_id
+        assert _bundle_pointer(tmp_path).previous is not None
         assert (tmp_path / first.manifest_key).is_file()
 
-    def test_the_pointer_refuses_a_head_that_moved_under_the_writer(self, tmp_path: Path) -> None:
-        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
-        pointer = read_l2_pointer(tmp_path, CALIBRATION_PANEL.name)
-        assert pointer is not None
+    def test_a_second_run_over_the_same_cohorts_matures_forward_only(self, tmp_path: Path) -> None:
+        """The published bundle is the whole of what the next run continues from.
 
-        with pytest.raises(LakeRetentionError, match="moved to"):
-            advance_l2_pointer(
-                tmp_path,
-                dataset=CALIBRATION_PANEL.name,
-                build_id="build-that-lost-the-race",
-                manifest_path=tmp_path / pointer.manifest_key,
-                expected_current_build_id="a-build-that-was-never-current",
-            )
+        A generation is built by hard-linking the store into a work directory, so any
+        writer state the store does not publish is simply not there next time. Splitting
+        the published pointer from the writer's continuation makes the second run of the
+        same range — which is how forward outcomes mature — fail on state nobody kept.
+        """
 
-    def test_l2_pointer_rejects_a_manifest_key_from_another_build(self) -> None:
-        with pytest.raises(ValueError, match="manifest key does not match"):
-            L2DatasetPointer(
-                dataset=CALIBRATION_PANEL.name,
-                build_id="build-one",
-                manifest_key=(f"lake/manifests/datasets/{CALIBRATION_PANEL.name}/other-build.json"),
-                manifest_sha256="a" * 64,
-            )
+        source = tmp_path / "store"
+        publish_panel(source, _JANUARY, _cohort(_JANUARY))
+        publish_forward(source, _JANUARY, _forward_rows(_JANUARY))
+        root = tmp_path / "adopted"
+        adopt_bundle_generation(root, source, expected_current=None)
+        first = store.resolve_calibration_bundle(root).manifest
+
+        second_generation = tmp_path / "second"
+        copytree(root, second_generation, copy_function=link)
+        publish_forward(
+            second_generation,
+            _JANUARY,
+            [{"ticker": "1301", "horizon": "1y", "price_return": 0.3, "status": "resolved"}],
+        )
+        adopt_bundle_generation(
+            root, second_generation, expected_current=store.current_bundle_ref(root)
+        )
+        second = store.resolve_calibration_bundle(root).manifest
+
+        assert second.datasets[CALIBRATION_PANEL.name] == first.datasets[CALIBRATION_PANEL.name]
+        assert (
+            second.datasets[CALIBRATION_DIAGNOSTICS.name]
+            == first.datasets[CALIBRATION_DIAGNOSTICS.name]
+        )
+        assert second.datasets[CALIBRATION_FORWARD.name] != first.datasets[CALIBRATION_FORWARD.name]
+        assert read_forward(root, date.fromisoformat(_JANUARY))[0].price_return == 0.3
+
+    def test_a_store_holds_no_writer_state_outside_its_bundle_pointer(self, tmp_path: Path) -> None:
+        source = tmp_path / "store"
+        publish_panel(source, _JANUARY, _cohort(_JANUARY))
+        root = tmp_path / "adopted"
+        adopt_bundle_generation(root, source, expected_current=None)
+
+        pointers = sorted(
+            path.relative_to(root).as_posix()
+            for path in (root / "lake" / "pointers").rglob("*")
+            if path.is_file()
+        )
+
+        assert pointers == ["lake/pointers/calibration/current.json"]
 
     def test_a_cohort_with_no_row_is_a_published_state_not_an_absent_one(
         self, tmp_path: Path
@@ -425,7 +447,7 @@ class TestImmutableBuilds:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
         publish_forward(tmp_path, _JANUARY, [])
 
-        assert read_l2_pointer(tmp_path, CALIBRATION_FORWARD.name) is not None
+        assert _dataset_ref(tmp_path, CALIBRATION_FORWARD.name).rows == 0
         assert read_forward(tmp_path, date.fromisoformat(_JANUARY)) == []
 
     def test_an_empty_panel_is_computed_and_reads_as_empty(self, tmp_path: Path) -> None:
@@ -532,13 +554,13 @@ class TestFailClose:
 
     def test_an_invalid_pointer_is_refused_rather_than_read_as_absent(self, tmp_path: Path) -> None:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
-        pointer_path = tmp_path / current_l2_pointer_key(dataset=CALIBRATION_PANEL.name)
+        pointer_path = tmp_path / current_calibration_bundle_pointer_key()
         payload = json.loads(pointer_path.read_text(encoding="utf-8"))
-        del payload["manifest_sha256"]
+        del payload["current"]["manifest_sha256"]
         pointer_path.write_text(json.dumps(payload), encoding="utf-8")
 
-        with pytest.raises(LakeRetentionError, match="L2 pointer is invalid"):
-            read_l2_pointer(tmp_path, CALIBRATION_PANEL.name)
+        with pytest.raises(CalibrationCacheError, match="pointer is unreadable"):
+            read_panel(tmp_path, date.fromisoformat(_JANUARY))
 
     def test_duplicate_panel_primary_key_is_refused(self, tmp_path: Path) -> None:
         with pytest.raises(CalibrationCacheError, match="duplicate primary key"):
@@ -696,93 +718,50 @@ class TestRebuild:
 class TestRetention:
     def test_the_current_and_previous_build_are_never_candidates(self, tmp_path: Path) -> None:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
+        first = _dataset_ref(tmp_path, CALIBRATION_PANEL.name)
         publish_panel(tmp_path, _FEBRUARY, _cohort(_FEBRUARY))
-
-        plan = plan_gc(
-            tmp_path,
-            l2_datasets=(CALIBRATION_PANEL.name, CALIBRATION_DIAGNOSTICS.name),
-            now=datetime.now(UTC) + timedelta(days=400),
-        )
-
-        pointer = read_l2_pointer(tmp_path, CALIBRATION_PANEL.name)
-        assert pointer is not None
-        assert pointer.previous_build_id is not None
-        assert pointer.manifest_key in plan.reachable
-        previous_key = (
-            f"lake/manifests/datasets/{CALIBRATION_PANEL.name}/{pointer.previous_build_id}.json"
-        )
-        assert previous_key in plan.reachable
-        assert previous_key not in {item.key for item in plan.candidates}
-
-    def test_previous_l2_manifest_digest_is_part_of_the_gc_root(self, tmp_path: Path) -> None:
-        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
-        base = _manifest(tmp_path, CALIBRATION_PANEL.name)
-        dataset = "review.synthetic"
-        paths: list[Path] = []
-        previous_build: str | None = None
-        for build_id in ("synthetic-one", "synthetic-two"):
-            manifest = base.model_copy(
-                update={
-                    "dataset": dataset,
-                    "build_id": build_id,
-                    "population_count": 0,
-                    "cohort_inventory": {
-                        _JANUARY: base.cohort_inventory[_JANUARY].model_copy(
-                            update={"status": "empty", "rows": 0}
-                        )
-                    },
-                    "partitions": (),
-                    "totals": base.totals.model_copy(update={"objects": 0, "bytes": 0, "rows": 0}),
-                }
-            )
-            path = tmp_path / f"lake/manifests/datasets/{dataset}/{build_id}.json"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(canonical_lake_model_bytes(manifest))
-            advance_l2_pointer(
-                tmp_path,
-                dataset=dataset,
-                build_id=build_id,
-                manifest_path=path,
-                expected_current_build_id=previous_build,
-            )
-            paths.append(path)
-            previous_build = build_id
-        pointer = read_l2_pointer(tmp_path, dataset)
-        assert pointer is not None
-        damaged = pointer.model_copy(update={"previous_manifest_sha256": "0" * 64})
-        (tmp_path / current_l2_pointer_key(dataset=dataset)).write_bytes(
-            canonical_lake_model_bytes(damaged)
-        )
+        second = _dataset_ref(tmp_path, CALIBRATION_PANEL.name)
 
         plan = plan_gc(tmp_path, now=datetime.now(UTC) + timedelta(days=400))
 
-        assert paths[0].relative_to(tmp_path).as_posix() in plan.unresolved_roots
-        assert paths[0].relative_to(tmp_path).as_posix() not in plan.reachable
+        assert first.build_id != second.build_id
+        assert second.manifest_key in plan.reachable
+        assert first.manifest_key in plan.reachable
+        assert first.manifest_key not in {item.key for item in plan.candidates}
+
+    def test_calibration_builds_without_a_bundle_pointer_stop_the_sweep(
+        self, tmp_path: Path
+    ) -> None:
+        """A missing root over published builds is a loss, not an empty store.
+
+        Reading it as "nothing is published" would make every build it protects look
+        unreferenced, which is the one way a reachability sweep deletes live data.
+        """
+
+        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
+        (tmp_path / current_calibration_bundle_pointer_key()).unlink()
+
+        plan = plan_gc(tmp_path, now=datetime.now(UTC) + timedelta(days=400))
+
+        assert current_calibration_bundle_pointer_key() in plan.unresolved_roots
+        with pytest.raises(LakeRetentionError, match="root is unresolved"):
+            apply_gc(tmp_path, plan, plan_hash=plan.plan_hash)
 
     def test_a_build_older_than_current_and_previous_becomes_a_candidate(
         self, tmp_path: Path
     ) -> None:
         for asof in (_JANUARY, _FEBRUARY, "2026-03-31"):
             publish_panel(tmp_path, asof, _cohort(asof))
-        pointer = read_l2_pointer(tmp_path, CALIBRATION_PANEL.name)
-        assert pointer is not None
+        current = _dataset_ref(tmp_path, CALIBRATION_PANEL.name)
 
-        plan = plan_gc(
-            tmp_path,
-            l2_datasets=(CALIBRATION_PANEL.name, CALIBRATION_DIAGNOSTICS.name),
-            now=datetime.now(UTC) + timedelta(days=400),
-        )
+        plan = plan_gc(tmp_path, now=datetime.now(UTC) + timedelta(days=400))
 
         candidates = {item.key for item in plan.candidates}
         assert candidates  # the first build is neither current nor previous
-        assert pointer.manifest_key not in candidates
+        assert current.manifest_key not in candidates
         assert (
             plan.plan_hash
-            == plan_gc(
-                tmp_path,
-                l2_datasets=(CALIBRATION_PANEL.name, CALIBRATION_DIAGNOSTICS.name),
-                now=datetime.now(UTC) + timedelta(days=400),
-            ).plan_hash
+            == plan_gc(tmp_path, now=datetime.now(UTC) + timedelta(days=400)).plan_hash
         )
 
     def test_a_pinned_build_survives_the_sweep(self, tmp_path: Path) -> None:
@@ -801,7 +780,6 @@ class TestRetention:
 
         plan = plan_gc(
             tmp_path,
-            l2_datasets=(CALIBRATION_PANEL.name, CALIBRATION_DIAGNOSTICS.name),
             now=datetime.now(UTC) + timedelta(days=400),
         )
 
@@ -836,7 +814,6 @@ class TestRetention:
         assert audit_actions == {"create", "remove_requested", "remove"}
         plan = plan_gc(
             tmp_path,
-            l2_datasets=(CALIBRATION_PANEL.name, CALIBRATION_DIAGNOSTICS.name),
             now=datetime.now(UTC) + timedelta(days=400),
         )
         assert first.manifest_key in {item.key for item in plan.candidates}
@@ -872,7 +849,6 @@ class TestRetention:
             publish_panel(tmp_path, asof, _cohort(asof))
         plan = plan_gc(
             tmp_path,
-            l2_datasets=(CALIBRATION_PANEL.name, CALIBRATION_DIAGNOSTICS.name),
             now=datetime.now(UTC) + timedelta(days=400),
         )
 
@@ -882,7 +858,6 @@ class TestRetention:
         assert apply_gc(tmp_path, plan, plan_hash=plan.plan_hash) == ()
         second = plan_gc(
             tmp_path,
-            l2_datasets=(CALIBRATION_PANEL.name, CALIBRATION_DIAGNOSTICS.name),
             now=plan.evaluated_at + timedelta(days=8),
         )
         deleted = apply_gc(tmp_path, second, plan_hash=second.plan_hash)
@@ -892,11 +867,10 @@ class TestRetention:
 
     def test_a_sweep_refuses_to_delete_while_a_root_is_unresolved(self, tmp_path: Path) -> None:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
-        pointer = read_l2_pointer(tmp_path, CALIBRATION_PANEL.name)
-        assert pointer is not None
-        (tmp_path / pointer.manifest_key).unlink()
+        reference = _dataset_ref(tmp_path, CALIBRATION_PANEL.name)
+        (tmp_path / reference.manifest_key).unlink()
 
-        plan = plan_gc(tmp_path, l2_datasets=(CALIBRATION_PANEL.name,))
+        plan = plan_gc(tmp_path)
 
         assert plan.unresolved_roots
         with pytest.raises(LakeRetentionError, match="root is unresolved"):
@@ -1207,7 +1181,12 @@ class TestReviewRegressions:
     def test_a_dataset_the_caller_did_not_name_is_still_a_retention_root(
         self, tmp_path: Path
     ) -> None:
-        """Roots come from the store, so forgetting a name cannot delete live data."""
+        """The store's own bundle pointer is the root, so no caller can forget one.
+
+        Naming datasets used to be how a caller asserted roots, which made a forgotten
+        name look like an unreferenced build — the same failure as an unreadable pointer,
+        arriving from the other side. There is now one root and nothing to name.
+        """
 
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
         publish_forward(
@@ -1226,11 +1205,11 @@ class TestReviewRegressions:
             for item in partition.objects
         }
 
-        for named in ((), (CALIBRATION_PANEL.name,)):
-            plan = plan_gc(tmp_path, l2_datasets=named, now=datetime.now(UTC) + timedelta(days=400))
-            candidates = {item.key for item in plan.candidates}
-            assert not (live & candidates), f"live objects proposed for deletion with {named}"
-            assert plan.roots == (current_calibration_bundle_pointer_key(),)
+        plan = plan_gc(tmp_path, now=datetime.now(UTC) + timedelta(days=400))
+
+        candidates = {item.key for item in plan.candidates}
+        assert not (live & candidates)
+        assert plan.roots == (current_calibration_bundle_pointer_key(),)
 
     def test_canonical_objects_with_no_pointer_leave_the_plan_unappliable(
         self, tmp_path: Path
@@ -1287,11 +1266,11 @@ class TestReviewRegressions:
 
     def test_a_manifest_replaced_under_the_pointer_is_refused(self, tmp_path: Path) -> None:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
-        pointer = read_l2_pointer(tmp_path, CALIBRATION_PANEL.name)
-        assert pointer is not None
-        payload = json.loads((tmp_path / pointer.manifest_key).read_text(encoding="utf-8"))
+        reference = _dataset_ref(tmp_path, CALIBRATION_PANEL.name)
+        path = tmp_path / reference.manifest_key
+        payload = json.loads(path.read_text(encoding="utf-8"))
         payload["producer_git_commit"] = "f" * 40
-        (tmp_path / pointer.manifest_key).write_text(json.dumps(payload), encoding="utf-8")
+        path.write_text(json.dumps(payload), encoding="utf-8")
 
         with pytest.raises(CalibrationCacheError, match="bundle dataset digest differs"):
             read_panel(tmp_path, date.fromisoformat(_JANUARY))

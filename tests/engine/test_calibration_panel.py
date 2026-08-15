@@ -19,7 +19,6 @@ if str(SRC) not in sys.path:
 from tests.helpers.calibration_store import synthetic_calibration_source
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
-from baibai_engine.market.lake.retention import read_l2_pointer
 from baibai_engine.screening.calibration.cli import (
     calibration_build_command,
     calibration_evaluate_command,
@@ -33,7 +32,6 @@ from baibai_engine.screening.calibration.identity import rules_contract_hash
 from baibai_engine.screening.calibration.lake import (
     CALIBRATION_PANEL,
     CalibrationLakeError,
-    load_manifest,
     require_build_inputs,
 )
 from baibai_engine.screening.calibration.panel import (
@@ -227,9 +225,7 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
 
 
 def _current_panel_manifest(root):  # type: ignore[no-untyped-def]
-    pointer = read_l2_pointer(root, CALIBRATION_PANEL.name)
-    assert pointer is not None
-    return load_manifest(root / pointer.manifest_key)
+    return resolve_calibration_bundle(root).datasets[CALIBRATION_PANEL.name]
 
 
 class CalibrationPanelTest(unittest.TestCase):

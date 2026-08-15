@@ -116,15 +116,6 @@ def main(argv: list[str]) -> int:
     gc = commands.add_parser("gc", help="plan or apply deletion of unreachable objects")
     gc.add_argument("--mirror", type=Path, required=True)
     gc.add_argument(
-        "--l2-dataset",
-        action="append",
-        default=[],
-        help=(
-            "require this L2 dataset to have a current pointer; roots are read from "
-            "the store, so naming datasets is an assertion rather than the root list"
-        ),
-    )
-    gc.add_argument(
         "--apply",
         action="store_true",
         help="delete the planned keys; requires the plan hash the dry run printed",
@@ -341,7 +332,7 @@ def _gc(args: argparse.Namespace) -> int:
     """Plan deletion from the root closure; delete only against that same plan."""
 
     try:
-        plan = plan_gc(args.mirror, l2_datasets=tuple(args.l2_dataset))
+        plan = plan_gc(args.mirror)
         if args.apply:
             if not args.plan_hash:
                 print("error: --apply requires --plan-hash from the dry run", file=sys.stderr)

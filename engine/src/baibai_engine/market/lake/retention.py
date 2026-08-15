@@ -28,7 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from baibai_engine.foundation.filesystem import write_bytes_atomic
 
@@ -37,11 +37,9 @@ from .keys import (
     calibration_bundle_manifest_key,
     current_calibration_bundle_pointer_key,
     current_l1_pointer_key,
-    current_l2_pointer_key,
     dataset_manifest_key,
     pin_key,
     release_manifest_key,
-    validate_dataset_name,
     validate_identifier,
     validate_lake_object_key,
 )
@@ -114,49 +112,6 @@ def lake_writer_lock(mirror_root: Path) -> Iterator[None]:
         yield
 
 
-class L2DatasetPointer(BaseModel):
-    """The mutable head of one L2 dataset, keeping its predecessor addressable."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    pointer_version: Literal[1] = 1
-    dataset: str
-    build_id: str
-    manifest_key: str
-    manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    previous_build_id: str | None = None
-    previous_manifest_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-
-    @field_validator("dataset")
-    @classmethod
-    def validate_dataset(cls, value: str) -> str:
-        return validate_dataset_name(value)
-
-    @field_validator("build_id", "previous_build_id")
-    @classmethod
-    def validate_build(cls, value: str | None) -> str | None:
-        return None if value is None else validate_identifier(value, label="build_id")
-
-    @field_validator("manifest_key")
-    @classmethod
-    def require_dataset_manifest_key(cls, value: str) -> str:
-        key = validate_lake_object_key(value)
-        if not key.startswith("lake/manifests/datasets/"):
-            raise ValueError("L2 pointer must reference a dataset manifest")
-        return key
-
-    @model_validator(mode="after")
-    def require_previous_digest(self) -> L2DatasetPointer:
-        if self.manifest_key != dataset_manifest_key(
-            dataset=self.dataset,
-            build_id=self.build_id,
-        ):
-            raise ValueError("L2 pointer manifest key does not match its identity")
-        if (self.previous_build_id is None) != (self.previous_manifest_sha256 is None):
-            raise ValueError("L2 pointer previous build requires its manifest digest")
-        return self
-
-
 class LakePin(BaseModel):
     """An explicit reason to keep one release or build reachable indefinitely."""
 
@@ -186,56 +141,6 @@ class LakePin(BaseModel):
         if self.manifest_key != expected:
             raise ValueError("pin manifest key does not match its target identity")
         return self
-
-
-def read_l2_pointer(mirror_root: Path, dataset: str) -> L2DatasetPointer | None:
-    path = mirror_path(mirror_root, current_l2_pointer_key(dataset=dataset))
-    if not path.is_file():
-        return None
-    try:
-        return load_lake_model_json(path.read_bytes(), L2DatasetPointer)
-    except ValueError as exc:
-        raise LakeRetentionError(f"L2 pointer is invalid: {dataset}: {exc}") from exc
-
-
-def advance_l2_pointer(
-    mirror_root: Path,
-    *,
-    dataset: str,
-    build_id: str,
-    manifest_path: Path,
-    expected_current_build_id: str | None,
-) -> L2DatasetPointer:
-    """Move one dataset head, refusing to write over a head someone else moved.
-
-    The expected current build is passed in by the caller that read it, so a second
-    writer that published in between is detected instead of silently overwritten.
-    This is the local form of the conditional write the R2 publisher performs.
-    """
-
-    current = read_l2_pointer(mirror_root, dataset)
-    actual = None if current is None else current.build_id
-    if actual != expected_current_build_id:
-        raise LakeRetentionError(
-            f"L2 pointer for {dataset} moved to {actual!r} while this build was in flight"
-        )
-    if current is not None and current.build_id == build_id:
-        return current
-    pointer = L2DatasetPointer(
-        dataset=dataset,
-        build_id=build_id,
-        manifest_key=dataset_manifest_key(dataset=dataset, build_id=build_id),
-        manifest_sha256=sha256_bytes(manifest_path.read_bytes()),
-        previous_build_id=actual,
-        previous_manifest_sha256=None if current is None else current.manifest_sha256,
-    )
-    path = mirror_path(mirror_root, current_l2_pointer_key(dataset=dataset))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # The one mutable byte string in the lake. Everything else is immutable or
-    # content addressed and self-heals on a retry; a half-written pointer does not,
-    # so it is written beside its target and renamed into place.
-    write_bytes_atomic(path, canonical_json_bytes(pointer))
-    return pointer
 
 
 def create_pin(
@@ -388,7 +293,6 @@ class GcPlan:
     reachable: tuple[str, ...]
     candidates: tuple[GcCandidate, ...]
     evaluated_at: datetime
-    asserted_l2_datasets: tuple[str, ...] = field(default_factory=tuple)
     unresolved_roots: tuple[str, ...] = field(default_factory=tuple)
 
     @property
@@ -414,35 +318,26 @@ class GcPlan:
             ],
             "candidate_bytes": self.candidate_bytes,
             "unresolved_roots": list(self.unresolved_roots),
-            "asserted_l2_datasets": list(self.asserted_l2_datasets),
         }
 
 
-def published_l2_datasets(mirror_root: Path) -> tuple[str, ...]:
-    """Every L2 dataset the store has a current pointer for.
+def _has_calibration_builds(mirror_root: Path) -> bool:
+    """Whether the store holds calibration dataset manifests at all.
 
-    Roots are read from the store rather than declared by the caller. A dataset the
-    caller forgot to name would otherwise have no root at all, which makes its live
-    build look unreferenced — the same failure as an unreadable pointer, arriving
-    from the other side.
+    Used only to decide whether a missing bundle pointer is "nothing published yet" or
+    "the one root that protects published builds is gone". Treating the second as the
+    first is the single way a reachability sweep deletes live data.
     """
 
-    root = mirror_path(mirror_root, "lake/pointers/l2/placeholder/current.json").parent.parent
-    if not root.is_dir():
-        return ()
-    return tuple(
-        sorted(
-            child.name
-            for child in root.iterdir()
-            if child.is_dir() and (child / "current.json").is_file()
-        )
+    return any(
+        _has_objects_under(mirror_root, f"lake/manifests/datasets/{dataset}")
+        for dataset in sorted(_CALIBRATION_DATASETS)
     )
 
 
 def plan_gc(
     mirror_root: Path,
     *,
-    l2_datasets: Sequence[str] = (),
     now: datetime | None = None,
 ) -> GcPlan:
     """Compute what is reachable from every root, then what is not.
@@ -450,8 +345,8 @@ def plan_gc(
     A root that cannot be resolved is reported rather than skipped. Treating an
     unreadable pointer as "no root" would make everything it protects look
     unreferenced, which is the one way a reachability GC can delete live data. The
-    same reasoning is why the L2 roots come from the store's own pointer prefix and
-    why canonical objects with no pointer at all leave the plan unappliable.
+    same reasoning is why a store that holds calibration builds but no bundle pointer
+    leaves the plan unappliable rather than treating those builds as unreferenced.
     """
 
     moment = (now or datetime.now(UTC)).astimezone(UTC)
@@ -498,40 +393,7 @@ def plan_gc(
         _reach_bundle(mirror_root, bundle_pointer.current, reachable, unresolved)
         if bundle_pointer.previous is not None:
             _reach_bundle(mirror_root, bundle_pointer.previous, reachable, unresolved)
-    elif any(dataset in _CALIBRATION_DATASETS for dataset in published_l2_datasets(mirror_root)):
-        unresolved.append(current_calibration_bundle_pointer_key())
-
-    asserted = set(l2_datasets)
-    for dataset in sorted(
-        (set(published_l2_datasets(mirror_root)) | asserted) - _CALIBRATION_DATASETS
-    ):
-        pointer_key = current_l2_pointer_key(dataset=dataset)
-        l2_pointer = read_l2_pointer(mirror_root, dataset)
-        if l2_pointer is None:
-            if dataset in asserted:
-                unresolved.append(pointer_key)
-            continue
-        roots.append(pointer_key)
-        reachable.add(pointer_key)
-        _reach_dataset(
-            mirror_root,
-            dataset,
-            l2_pointer.build_id,
-            reachable,
-            unresolved,
-            expected_manifest_sha256=l2_pointer.manifest_sha256,
-        )
-        if l2_pointer.previous_build_id is not None:
-            _reach_dataset(
-                mirror_root,
-                dataset,
-                l2_pointer.previous_build_id,
-                reachable,
-                unresolved,
-                expected_manifest_sha256=l2_pointer.previous_manifest_sha256,
-            )
-
-    if asserted & _CALIBRATION_DATASETS and not bundle_pointer_path.is_file():
+    elif _has_calibration_builds(mirror_root):
         unresolved.append(current_calibration_bundle_pointer_key())
 
     for pin in read_pins(mirror_root):
@@ -570,7 +432,6 @@ def plan_gc(
                     for item in sorted(candidates, key=lambda x: x.key)
                 ],
                 "unresolved": sorted(unresolved),
-                "asserted_l2_datasets": sorted(asserted),
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -582,7 +443,6 @@ def plan_gc(
         reachable=tuple(sorted(reachable)),
         candidates=candidates,
         evaluated_at=moment,
-        asserted_l2_datasets=tuple(sorted(asserted)),
         unresolved_roots=tuple(sorted(unresolved)),
     )
 
@@ -828,7 +688,6 @@ def apply_gc(mirror_root: Path, plan: GcPlan, *, plan_hash: str) -> tuple[str, .
     with lake_writer_lock(mirror_root):
         fresh = plan_gc(
             mirror_root,
-            l2_datasets=plan.asserted_l2_datasets,
             now=plan.evaluated_at,
         )
         if fresh.plan_hash != plan.plan_hash:
