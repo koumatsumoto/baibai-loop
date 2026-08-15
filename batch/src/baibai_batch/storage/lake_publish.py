@@ -248,9 +248,10 @@ class _RemotePublication:
             content_type=content_type,
         ):
             return
+        if remote is None:
+            raise LakePublishError(f"remote object is missing: {key}")
         if (
-            remote is None
-            or remote.size != expected_size
+            remote.size != expected_size
             or remote.metadata.get("sha256") != expected_sha256
             or remote.metadata.get("integrity") != "content-md5-v1"
             or not remote.metadata.get("content-md5")

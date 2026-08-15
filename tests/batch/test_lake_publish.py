@@ -824,7 +824,7 @@ def test_success_response_with_missing_remote_object_stops_before_pointer(
             return result
 
     store = DroppingStore()
-    with pytest.raises(LakePublishError, match="metadata postcondition"):
+    with pytest.raises(LakePublishError, match="remote object is missing"):
         publish_l1_release(
             mirror_root=mirror,
             release_manifest_path=release_path,
