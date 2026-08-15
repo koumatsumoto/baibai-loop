@@ -11,9 +11,12 @@ object: a contract change produces a new build, which is what keeps a cohort
 measured under one set of rules from ever merging with a cohort measured under
 another.
 
-``CACHE_SCHEMA_VERSION`` remains the compatibility statement for the cohort, and it
-is folded into the transform fingerprint of every build, so a store written under
-different measurement rules is rejected rather than read.
+Compatibility is stated per dataset. ``CACHE_SCHEMA_VERSIONS`` is folded into the
+transform fingerprint of each build, so a build written under different measurement
+rules is rejected rather than read, and a contract change to one dataset leaves the
+other two readable. ``CACHE_SCHEMA_VERSION`` is the store-wide summary of those three:
+it describes a generation and decides whether a legacy CSV store is migratable, and it
+is not what any read is gated on.
 """
 
 from __future__ import annotations
@@ -172,36 +175,67 @@ class CalibrationCacheError(RuntimeError):
     """The local store cannot prove that it uses the current contract."""
 
 
-def _require_current_cache(root: Path) -> ForwardObservationPolicy:
-    """Prove the current generation states this contract, and return its observation rules.
-
-    The contract is read from the bundle manifest the pointer names, so the answer can
-    never describe a generation other than the one being served. The stated policy only
-    selects which forward identity to expect: the build's own fingerprint is what proves
-    the rows were produced under it, so a rewritten statement can cause a refusal but
-    never an acceptance.
-    """
+def _published_generation(root: Path) -> FixedCalibrationBundle:
+    """The generation the pointer serves, resolved once with every edge closed."""
 
     try:
         bundle = _fixed_bundle(root)
     except (CalibrationLakeError, LakeRetentionError) as exc:
         raise CalibrationCacheError(str(exc)) from exc
     if bundle is None:
-        raise CalibrationCacheError(
-            "calibration cache version is missing; run calibration-build --force"
-        )
-    if bundle.manifest.cache_schema_version != CACHE_SCHEMA_VERSION:
-        raise CalibrationCacheError(
-            "calibration cache version is incompatible; run calibration-build --force"
-        )
+        raise CalibrationCacheError("calibration cache is missing; run calibration-build --force")
+    return bundle
+
+
+def _published_policy(root: Path) -> ForwardObservationPolicy:
+    """Fix the served generation and return the observation rules it states.
+
+    The contract is read from the bundle manifest the pointer names, so the answer can
+    never describe a generation other than the one being served. The stated policy only
+    selects which forward identity to expect: the build's own fingerprint is what proves
+    the rows were produced under it, so a rewritten statement can cause a refusal but
+    never an acceptance.
+
+    Compatibility is not decided here. It is a per-dataset question — that is the whole
+    point of deriving a contract version per dataset — and each read already asks it of
+    the dataset it is about to read, through the transform fingerprint on that dataset's
+    manifest. Asking the bundle-wide question first would undo the split: a change to the
+    forward contract alone moves the aggregate, and every panel read in the store would
+    refuse until all 81 panel cohorts were rebuilt for a contract that did not move.
+    """
+
+    return _policy_of(_published_generation(root))
+
+
+def _policy_of(bundle: FixedCalibrationBundle) -> ForwardObservationPolicy:
     return ForwardObservationPolicy(
         use_control_event_exits=bundle.manifest.forward_observation_policy.use_control_event_exits
     )
 
 
+def _require_current_contract(root: Path) -> None:
+    """Refuse a whole generation this build cannot serve, dataset by dataset.
+
+    Adoption is the one act that has to ask the bundle-wide question: it makes a
+    generation canonical for every reader, so all three datasets must be ones this build
+    can produce and read. It asks it as three per-dataset questions rather than as one
+    aggregate, so the answer names the dataset that has to be rebuilt.
+    """
+
+    bundle = _published_generation(root)
+    policy = _policy_of(bundle)
+    for name, manifest in bundle.datasets.items():
+        require_build_inputs(
+            manifest,
+            dataset=require_l2_dataset(name),
+            cache_schema_version=CACHE_SCHEMA_VERSIONS[name],
+            forward_policy=policy,
+        )
+
+
 def store_forward_policy(root: Path) -> ForwardObservationPolicy:
     """The observation rules this store's forward builds must be identified by."""
-    return _require_current_cache(root)
+    return _published_policy(root)
 
 
 def _inputs(
@@ -276,6 +310,16 @@ def _fixed_bundle(root: Path) -> FixedCalibrationBundle | None:
         if manifest.build_id != reference.build_id or manifest.totals.rows != reference.rows:
             raise CalibrationLakeError(f"calibration bundle dataset identity differs: {name}")
         manifests[name] = manifest
+    # Both directions. Checking only that each cohort the bundle lists is present in the
+    # manifests would accept a dataset holding cohorts the bundle does not publish, so
+    # the same build would mean one set of as-ofs on its surface and another inside, and
+    # the extra objects would be reachable through the bundle while described by nothing
+    # in it. The assembler cannot produce that, but the wire format has to refuse it.
+    for name, manifest in manifests.items():
+        if set(manifest.cohort_inventory) != set(bundle.cohorts):
+            raise CalibrationLakeError(
+                f"calibration bundle dataset publishes other cohorts than the bundle: {name}"
+            )
     for asof, cohort in bundle.cohorts.items():
         expected = {
             CALIBRATION_PANEL.name: cohort.panel,
@@ -504,6 +548,7 @@ def adopt_bundle_generation(
     generated_root: Path,
     *,
     expected_current: CalibrationBundleRef | None,
+    lock_held: bool = False,
 ) -> BundleAdoptionReport:
     """Install a verified generation's closure and expose only its bundle pointer.
 
@@ -512,15 +557,33 @@ def adopt_bundle_generation(
     a carried object arrives already sharing an inode with the one in the store: those
     need no install and no comparison, because they are the same bytes in the literal
     sense. What remains to install is what this build actually produced.
+
+    This is the only call that moves the canonical pointer, so it takes the writer lock
+    itself rather than trusting its callers to, on the same terms as ``write_panel``.
+    The compare-and-set against ``expected_current`` is a check followed by an install
+    followed by a write: two callers that read the same current would both pass the
+    check, both install, and the later write would win while the earlier one reported
+    success. ``lock_held`` is for callers already inside a publication.
     """
 
+    publication = nullcontext() if lock_held else lake_writer_lock(root)
+    with publication:
+        return _adopt_bundle_generation(root, generated_root, expected_current=expected_current)
+
+
+def _adopt_bundle_generation(
+    root: Path,
+    generated_root: Path,
+    *,
+    expected_current: CalibrationBundleRef | None,
+) -> BundleAdoptionReport:
     fixed = _fixed_bundle(generated_root)
     if fixed is None:
         raise CalibrationLakeError("generated calibration bundle is missing")
     # The generation carries the rules its forward rows were observed under inside the
     # manifest that is about to become current, so adoption does not restate them; it
     # only refuses a generation whose contract this build cannot serve.
-    _require_current_cache(generated_root)
+    _require_current_contract(generated_root)
     _require_bundle_closure(generated_root, fixed)
     hashed_bytes = 0
     for name, manifest in fixed.datasets.items():
@@ -740,20 +803,26 @@ def write_panel(
                 forward_policy=forward_policy,
             ),
         }
-        forward = _current_manifest(root, CALIBRATION_FORWARD)
-        if forward is None or asof.isoformat() not in forward.cohort_inventory:
-            updated[CALIBRATION_FORWARD.name] = _publish_cohort(
-                root,
-                dataset=CALIBRATION_FORWARD,
-                asof=asof,
-                rows=(),
-                status="not_computed",
-                source=source,
-                input_cutoff=input_cutoff,
-                measurement_policy=measurement_policy,
-                producer_commit=producer_commit,
-                forward_policy=forward_policy,
-            )
+        # Writing a panel always resets its outcome half, including when one is already
+        # published. A forward cohort observes the names that panel selected, so a panel
+        # rewritten for the same as-of — a corrected ticker set, a changed rank — leaves
+        # the stored outcomes describing a cross-section that is no longer there. Rules
+        # identity does not catch it, because the same rules over corrected inputs select
+        # a different set. The producer that rewrites the panel is what recomputes the
+        # forward; until it does, the cohort reads as `not_computed` rather than as an
+        # outcome someone else measured.
+        updated[CALIBRATION_FORWARD.name] = _publish_cohort(
+            root,
+            dataset=CALIBRATION_FORWARD,
+            asof=asof,
+            rows=(),
+            status="not_computed",
+            source=source,
+            input_cutoff=input_cutoff,
+            measurement_policy=measurement_policy,
+            producer_commit=producer_commit,
+            forward_policy=forward_policy,
+        )
         _publish_bundle(
             root,
             updated=updated,
@@ -907,7 +976,7 @@ def _cohort_payloads(
 def read_panel(
     root: Path, asof: date, *, bundle: FixedCalibrationBundle | None = None
 ) -> list[PanelRow]:
-    _require_current_cache(root)
+    _published_policy(root)
     try:
         fixed = bundle or _fixed_bundle(root)
         payloads = _cohort_payloads(root, CALIBRATION_PANEL, asof, bundle=fixed)
@@ -929,7 +998,7 @@ def read_panel(
 def read_panel_meta(
     root: Path, asof: date, *, bundle: FixedCalibrationBundle | None = None
 ) -> dict[str, object]:
-    _require_current_cache(root)
+    _published_policy(root)
     try:
         payloads = _cohort_payloads(root, CALIBRATION_DIAGNOSTICS, asof, bundle=bundle)
     except (CalibrationLakeError, LakeRetentionError) as exc:
@@ -951,7 +1020,7 @@ def read_panel_meta(
 def read_forward(
     root: Path, asof: date, *, bundle: FixedCalibrationBundle | None = None
 ) -> list[ForwardReturnRow]:
-    forward_policy = _require_current_cache(root)
+    forward_policy = _published_policy(root)
     try:
         fixed = bundle or _fixed_bundle(root)
         if fixed is None:

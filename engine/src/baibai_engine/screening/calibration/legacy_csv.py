@@ -264,7 +264,7 @@ def migrate_legacy_calibration(
                 raise CalibrationCacheError("legacy calibration store mixes rules provenance")
             if not all(parity.values()):
                 raise CalibrationCacheError("legacy calibration migration parity differs")
-            adopt_bundle_generation(destination, work, expected_current=None)
+            adopt_bundle_generation(destination, work, expected_current=None, lock_held=True)
             status = "migrated"
         else:
             for source in sorted((work / "lake").rglob("*")):

@@ -275,6 +275,21 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       再plan、root/object digest再検証、mark後のsecond sweep、candidate identity不一致で削除を拒否する
       negative testがあるか。Raw bufferはpreserveと分離し、90日minimum age・source closure・
       metadata/object pairを同じ二段階delete gateで検証するか
+- [ ] 入力保証を根拠にproduction変更を許可するgateを追加・変更する場合、保証水準の名前が「何を再実行できるか」を
+      一意に指すか（前のproducerの出力archiveを上流入力と同じ語で呼ばない）。結論を構成する全role（panel /
+      diagnostics / forward）の最弱から導くか。manifestの記述だけでなくsource closureの現存とdigestを同一実行内で
+      確認するか。開示値は全run purposeで実測し、未計測を「欠けなし」に見える既定値で埋めないか。purpose限定の
+      blockerが他のpurposeへ漏れていないか。retained panel + trace-only forward、archiveのみ、archive削除・改変、
+      diagnosticでの非block、空sourceをそれぞれnegative testで固定したか
+- [ ] 壊れたrootのrecovery操作を追加・変更する場合、対象root以外（pin・previous・健全なmanifest）のidentityと
+      closureが操作前後で完全一致することをtestで固定したか。復旧のためにdirectory単位でmanifestを退避すると、
+      無関係なpinがunresolvedになりGCが恒久停止する
+- [ ] bundle等の合成generationをreaderやremote closureで検証する場合、包含ではなく両方向のset equalityを要求するか。
+      bundleが列挙しないcohortを内部datasetが保持する状態をnegative testで拒否したか
+- [ ] wireのschema契約をdrift gateで固定する場合、readerが実際に比較する要素（Arrow metadataのdataset /
+      contract version / row type stamp等）を署名へ入れたか。列を変えずrow型名だけを変えるmutationでgateが赤くなるか
+- [ ] 再利用identityを持つ成果物（projection等）は、値を決めるruntime（DuckDB / SQLite等）のversionを
+      fingerprintへ入れたか。dependency upgradeが旧結果を再利用させないことをtestで固定したか
 - [ ] market lakeのcomplete coverageはtable自身の`MIN..MAX`だけで自己充足させず、profileが固定する
       history boundary・row floor・population floorをrelease時に再検証するか。新鮮な1日1row、
       leading history欠損、大幅なrow/population regressionをcurrent候補にしないnegative testがあるか

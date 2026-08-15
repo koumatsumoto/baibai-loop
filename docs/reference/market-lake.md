@@ -391,12 +391,25 @@ cohortごとのcarry検査がpresence/sizeで止まるのはこのためで、�
 書き込み回数の二乗に比例する。readerはbundle pointerを開始時に1回だけ固定し、explicit `empty`の
 0 rowsだけを`[]`として返す。inventoryに無いcohortと`partial / not_computed`はfail-closeする。
 
-cohortのsourceには2つの保証水準があり、`source_assurance`として区別する。**retained**は入力bytesを
-lakeが保持していて再計算できる。**trace_only**は読んだstore世代を名指せるだけで、再計算はできない。
-「保存した結果をもう一度読む」と「入力から計算し直す」は別の能力で、後者は判断のaudit — 計算logicの
-誤りが後で見つかったときの訂正 — に要る。`--run-purpose production_decision`はretainedのcohortだけを
-許可し、trace_onlyには`source_not_retained`をblocking reasonとして立てる。routine diagnosticには
-この制約を課さない。
+cohortのsourceには3つの保証水準があり、`source_assurance`として区別する。**rebuildable_input**は
+producerが読んだ上流入力をlakeが保持していて、producer側の誤りを直してから再導出できる。
+**result_archive**は前のproducerが出した結果bytesを保持していて、値の読み直しと評価の再実行はできるが、
+直したproducerへ与える入力が無い（legacy CSV archiveがこれ）。**trace_only**は読んだstore世代を
+名指せるだけで、どちらもできない。判断のaudit — 計算logicの誤りが後で見つかったときの訂正 — に要るのは
+最初の水準だけなので、`--run-purpose production_decision`はrebuildable_inputのcohortだけを許可し、
+それ以外には`source_not_rebuildable`をblocking reasonとして立てる。
+
+水準はcohortの3 role（panel / diagnostics / forward）が名指すsourceの最弱で決まる。結論はこの3つで
+構成されるので、panelだけがarchive由来でforwardが未保持のstore世代由来なら、cohort全体はtrace_onlyである。
+
+`rebuildable_input`は現在形の主張なので、evaluateはcohort closureのretained sourceを1回ずつ解決して
+digestを検証し、結果を`source_closure_available`としてcoverageへ出す。同じarchiveを81 cohortが参照しても
+hashは1回になる（verification scope）。検証はrun purposeによらず必ず行う——見ていない実行が
+「available」と出せば、欠落が無いという読みになる。blockerを立てるのはproduction_decisionだけで、
+そこでは`source_unavailable`になる。
+
+L1 releaseがcohort sourceとして採れるようになるまで（Issue #917）、rebuildable_inputに到達するcohortは
+存在しない。`production_decision`はその間fail-closeする。
 
 cohortのinput cutoffとsealed snapshot identityが保証するのは**どのstore世代を読んだか名指せること**
 であって、その値が当時同じ形で入手できたことではない。J-Quantsのadjusted price、master、JPX flagは
@@ -472,7 +485,8 @@ bytesがなく、通常のcalibration-buildが作ったbundleはそのままremo
 **引き換えに失うもの**: 過去cohortをbyte単位でrebuildする「保証」は、この段階では持たない。同じ
 digestのmarket store世代があれば再現でき、digestで照合もできるが、その世代がまだ入手できることは
 lakeが保証しない。保証が戻るのは、cohortが必要とするtableがL1 releaseとして公開され、keyを持つ
-retained sourceになった時点である（Issue #917）。
+`rebuildable_input`になった時点である（Issue #917）。legacy CSV archiveはこの保証を与えない——
+保持しているのは前のproducerの出力であって、直したproducerへ与える入力ではない（`result_archive`）。
 
 ```bash
 uv run python -m baibai_batch.storage.lake_publish \

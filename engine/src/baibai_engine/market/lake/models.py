@@ -214,7 +214,7 @@ class SQLiteSnapshotSourceRef(_SourceRefBase):
     against this digest before it is believed. What it does not promise: that such a
     generation is still obtainable. Rebuild-from-lineage returns as a guarantee when
     the tables a cohort needs are published as L1 releases (Issue #917), which is a
-    retained source with a key.
+    rebuildable input the lake keeps by key.
     """
 
     kind: Literal["sqlite_snapshot"]
@@ -339,22 +339,33 @@ def retained_sources(sources: Iterable[SourceRef]) -> tuple[RetainedSourceRef, .
     return tuple(source for source in sources if not isinstance(source, SQLiteSnapshotSourceRef))
 
 
-SourceAssurance = Literal["retained", "trace_only"]
+SourceAssurance = Literal["rebuildable_input", "result_archive", "trace_only"]
 
 
 def source_assurance(sources: Iterable[SourceRef]) -> SourceAssurance:
-    """Whether a cohort can be recomputed from inputs the lake keeps, or only identified.
+    """What a cohort's lineage lets someone do with it, named by the weakest source.
 
-    Two different questions hide under "reproducible". Reading the same stored result
-    again needs nothing but the output objects. Recomputing it — which is what auditing
-    a decision, or correcting one after a logic error, actually requires — needs the
-    input. A cohort whose only lineage is an identity-only reference can be read back
-    forever and can never be recomputed, and nothing tells the two apart unless the
-    distinction has a name.
+    Three capabilities hide under "reproducible", and only the strongest supports a
+    change to the production method. **rebuildable_input** keeps the upstream data the
+    producer read, so a cohort can be re-derived after a logic error is found in the
+    producer itself. **result_archive** keeps the bytes a previous producer emitted:
+    the numbers can be read and their evaluation replayed forever, but a corrected
+    producer has nothing to run against, because the archive is that producer's output
+    rather than its input. **trace_only** names the store generation a build read
+    without keeping it, so neither is possible.
+
+    The value is the weakest of the sources stated, which is also why a caller can pass
+    the sources of several cohort roles at once and get the assurance of the whole.
+    Stating no source at all is the weakest claim of the three rather than the absence
+    of a claim.
     """
 
     stated = tuple(sources)
-    return "retained" if len(retained_sources(stated)) == len(stated) else "trace_only"
+    if not stated or len(retained_sources(stated)) != len(stated):
+        return "trace_only"
+    if any(isinstance(source, CalibrationInputSourceRef) for source in stated):
+        return "result_archive"
+    return "rebuildable_input"
 
 
 class CalibrationInputFile(BaseModel):

@@ -190,18 +190,30 @@ CALIBRATION_FORWARD = L2Dataset(
 # column sets addressed by the same `contract=v1` prefix — readable by this repository's
 # strict reader, and misread by anything that trusts the version.
 _RECORDED_SCHEMA_SIGNATURES: Mapping[tuple[str, int], str] = {
-    (PANEL_DATASET, 1): "a44be90858f545b92ae18857f44b1a137fb85eee3006d2b11fc8715575cba78d",
-    (DIAGNOSTICS_DATASET, 1): "6192513d252a24e267ab1a2bfad6f833f98584fa7e9b7153d9d4504a83810d58",
-    (FORWARD_DATASET, 1): "2466e89116af80958908708bc230f20a1f28875d1772a80c71bce09fe2186898",
+    (PANEL_DATASET, 1): "63f2bdd83d17198372f4ed482cf6d08aee63046433efcad2ed4cf9ac9deb86a7",
+    (DIAGNOSTICS_DATASET, 1): "925417b9cec5ee5946707a0be815820f99a10b07aed06a1910b7947c5e7bb362",
+    (FORWARD_DATASET, 1): "377bd76a691e3f2c40a0ad60cde177f0d011bab4bd5408a36e7fa1878db7cc80",
 }
 
 
 def schema_signature(dataset: L2Dataset) -> str:
-    """A digest of the columns and key this contract version publishes."""
+    """A digest of everything about this contract version a reader can observe.
+
+    The stamped ``baibai.*`` metadata is part of that, because the reader compares it
+    exactly: an object whose ``baibai.row_type`` says something else is refused even
+    when every column matches. Leaving the metadata out of the signature would let a row
+    dataclass be renamed with the column set untouched — the gate stays green, the
+    version stays at ``v1``, and objects written before and after it become mutually
+    unreadable under one contract version.
+    """
+
     schema = dataset.arrow_schema
     payload = json.dumps(
         {
             "columns": [f"{field.name}:{field.type}:{field.nullable}" for field in schema],
+            "metadata": {
+                key.decode(): value.decode() for key, value in (schema.metadata or {}).items()
+            },
             "partition_by": list(dataset.partition_by),
             "primary_key": list(dataset.primary_key),
         },
@@ -705,9 +717,13 @@ def require_build_inputs(
         forward_policy=forward_policy,
     )
     if manifest.transform_fingerprint != expected:
+        # Naming the dataset is what the per-dataset contract version buys the operator:
+        # the refusal says which of the three has to be rebuilt, not that the store is
+        # incompatible. The command is still the whole-store one, so it is stated here
+        # rather than left for the caller to guess.
         raise CalibrationLakeError(
             f"{dataset.name}: build {manifest.build_id} was produced by a different transform; "
-            "rebuild it"
+            "run calibration-build --force"
         )
     cohort_sources = tuple(
         source for cohort in manifest.cohort_inventory.values() for source in cohort.sources

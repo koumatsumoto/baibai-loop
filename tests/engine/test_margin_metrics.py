@@ -153,18 +153,23 @@ class CalibrationCacheVersionTest(unittest.TestCase):
         # missing-column error on one cohort instead of as "rebuild the cache".
         from tests.helpers.calibration_store import publish_panel
 
+        from baibai_engine.screening.calibration.lake import CALIBRATION_PANEL
+
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             publish_panel(root, "2020-01-31", [{"ticker": "7203"}])
             read_panel(root, date(2020, 1, 31))
 
             with (
-                mock.patch.object(calibration_store, "CACHE_SCHEMA_VERSION", "0" * 16),
+                mock.patch.dict(
+                    calibration_store.CACHE_SCHEMA_VERSIONS,
+                    {CALIBRATION_PANEL.name: "0" * 16},
+                ),
                 self.assertRaises(CalibrationCacheError) as caught,
             ):
                 read_panel(root, date(2020, 1, 31))
 
-            self.assertIn("cache version is incompatible", str(caught.exception))
+            self.assertIn("different transform", str(caught.exception))
 
 
 class PublishedWeekReadabilityTest(unittest.TestCase):

@@ -2,22 +2,28 @@ from __future__ import annotations
 
 import sys
 import unittest
+from collections.abc import Mapping
 from contextlib import redirect_stderr
 from dataclasses import replace
 from datetime import date, datetime
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import cast
 from zoneinfo import ZoneInfo
 
 import yaml
-from tests.helpers.calibration_store import synthetic_calibration_source
+from tests.helpers.calibration_store import (
+    archived_calibration_source,
+    synthetic_calibration_source,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from baibai_engine.market.lake.models import CohortSourceRef
 from baibai_engine.screening.calibration.authority import (
     KNOWN_METRICS,
     PRODUCTION_REQUIRED_METRICS,
@@ -1620,6 +1626,65 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertNotIn("priced_master_without_universe_return_unresolved", counts)
         self.assertNotIn("priced_master_without_universe_flips_direction", counts)
 
+    @staticmethod
+    def _evaluate(root: Path, *, run_purpose: str, asof: date) -> tuple[int, Mapping[str, object]]:
+        output_path = root / f"evaluation-{run_purpose}.yaml"
+        exit_code = calibration_evaluate_command(
+            calibration_dir=root,
+            horizons=["3y"],
+            run_purpose=run_purpose,
+            required_asofs=[asof.isoformat()] if run_purpose == "production_decision" else None,
+            required_metrics=(
+                list(PRODUCTION_REQUIRED_METRICS) if run_purpose == "production_decision" else None
+            ),
+            output_path=output_path,
+            stdout=StringIO(),
+        )
+        payload = yaml.safe_load(output_path.read_text(encoding="utf-8"))
+        assert isinstance(payload, dict)
+        return exit_code, payload
+
+    @staticmethod
+    def _coverage(payload: Mapping[str, object]) -> Mapping[str, object]:
+        results = payload["results"]
+        assert isinstance(results, dict)
+        horizon = results["3y"]
+        assert isinstance(horizon, dict)
+        cohorts = horizon["cohorts"]
+        assert isinstance(cohorts, list)
+        coverage = cohorts[0]["coverage"]
+        assert isinstance(coverage, dict)
+        return coverage
+
+    @staticmethod
+    def _reasons(payload: Mapping[str, object]) -> Mapping[str, int]:
+        coverage = payload["authority_coverage"]
+        assert isinstance(coverage, dict)
+        reasons = coverage["reason_counts"]
+        assert isinstance(reasons, dict)
+        return reasons
+
+    def _publish_cohort(
+        self, root: Path, asof: date, *, panel_source: object, forward_source: object
+    ) -> None:
+        _write_panel(
+            root,
+            asof,
+            (_panel_row("7203", per_trailing=12.0),),
+            _panel_diagnostics(),
+            source=cast(CohortSourceRef, panel_source),
+            input_cutoff=asof,
+            producer_commit="a" * 40,
+        )
+        _write_forward(
+            root,
+            asof,
+            [_forward_row("7203", 0.1, horizon="3y")],
+            source=cast(CohortSourceRef, forward_source),
+            input_cutoff=asof,
+            producer_commit="a" * 40,
+        )
+
     def test_a_cohort_whose_input_is_not_kept_cannot_carry_a_production_decision(
         self,
     ) -> None:
@@ -1644,29 +1709,135 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             write_forward(
                 root, asof, [_forward_row("7203", 0.1, horizon="3y")], producer_commit="a" * 40
             )
-            output_path = root / "evaluation.yaml"
 
-            diagnostic = calibration_evaluate_command(
-                calibration_dir=root,
-                horizons=["3y"],
-                output_path=output_path,
-                stdout=StringIO(),
-            )
-            payload = yaml.safe_load(output_path.read_text(encoding="utf-8"))
-            assert isinstance(payload, dict)
-
-            self.assertEqual(diagnostic, 0)
-            reasons = payload["authority_coverage"]["reason_counts"]
-            assert isinstance(reasons, dict)
-            self.assertIn("source_not_retained", reasons)
-            results = payload["results"]
-            assert isinstance(results, dict)
-            horizon = results["3y"]
-            assert isinstance(horizon, dict)
-            cohorts = horizon["cohorts"]
-            assert isinstance(cohorts, list)
-            self.assertEqual(cohorts[0]["coverage"]["source_assurance"], "trace_only")
+            exit_code, payload = self._evaluate(root, run_purpose="production_decision", asof=asof)
+            self.assertEqual(exit_code, 0)
+            self.assertIn("source_not_rebuildable", self._reasons(payload))
+            self.assertEqual(self._coverage(payload)["source_assurance"], "trace_only")
             self.assertFalse(payload["production_decision"]["production_change_allowed"])
+
+    def test_a_diagnostic_run_discloses_the_assurance_without_blocking_on_it(self) -> None:
+        # The other integrity blockers describe the cohort, so they hold whoever reads
+        # it. This one describes what may be changed on the strength of the cohort,
+        # which a diagnostic run is not asking, and counting it there makes a routine
+        # investigation read as a broken cohort.
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            asof = date(2025, 6, 30)
+            write_panel(
+                root,
+                asof,
+                (_panel_row("7203", per_trailing=12.0),),
+                _panel_diagnostics(),
+                producer_commit="a" * 40,
+            )
+            write_forward(
+                root, asof, [_forward_row("7203", 0.1, horizon="3y")], producer_commit="a" * 40
+            )
+
+            exit_code, payload = self._evaluate(root, run_purpose="diagnostic", asof=asof)
+            self.assertEqual(exit_code, 0)
+            coverage = self._coverage(payload)
+            self.assertEqual(coverage["source_assurance"], "trace_only")
+            self.assertTrue(coverage["source_closure_available"])
+            reasons = self._reasons(payload)
+            self.assertNotIn("source_not_rebuildable", reasons)
+            self.assertNotIn("source_unavailable", reasons)
+
+    def test_an_archived_previous_result_is_not_an_input_a_correction_can_run_on(
+        self,
+    ) -> None:
+        # The legacy migration keeps the retired cache byte for byte, so every source a
+        # cohort names resolves and nothing is missing. What it keeps is the previous
+        # producer's *output*: a corrected producer has nothing to be run against, so
+        # this is a weaker claim than a kept upstream input and states its own name.
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            asof = date(2025, 6, 30)
+            _archived, archive_source = archived_calibration_source(root)
+            self._publish_cohort(
+                root, asof, panel_source=archive_source, forward_source=archive_source
+            )
+
+            _exit_code, payload = self._evaluate(root, run_purpose="production_decision", asof=asof)
+            coverage = self._coverage(payload)
+            self.assertEqual(coverage["source_assurance"], "result_archive")
+            self.assertTrue(coverage["source_closure_available"])
+            self.assertIn("source_not_rebuildable", self._reasons(payload))
+
+    def test_the_assurance_is_the_weakest_of_the_roles_that_make_the_conclusion(
+        self,
+    ) -> None:
+        # A conclusion is a cross-section and its outcomes. Migrating the panel from an
+        # archive while the outcomes keep maturing from sealed store generations is the
+        # ordinary shape of a store mid-migration, and reading the panel's sources alone
+        # would report the whole cohort at the panel's level.
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            asof = date(2025, 6, 30)
+            _archived, archive_source = archived_calibration_source(root)
+            self._publish_cohort(
+                root,
+                asof,
+                panel_source=archive_source,
+                forward_source=synthetic_calibration_source(captured_on=asof),
+            )
+
+            _exit_code, payload = self._evaluate(root, run_purpose="production_decision", asof=asof)
+            self.assertEqual(self._coverage(payload)["source_assurance"], "trace_only")
+            self.assertIn("source_not_rebuildable", self._reasons(payload))
+
+    def test_a_source_the_store_no_longer_holds_blocks_the_decision_that_names_it(
+        self,
+    ) -> None:
+        # The assurance is read from a manifest, and a manifest keeps saying what it was
+        # written with after the bytes it names are gone. Publication, adoption, and
+        # pinning each proved the closure when they ran; none of them proves it now.
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            asof = date(2025, 6, 30)
+            archived, archive_source = archived_calibration_source(root)
+            self._publish_cohort(
+                root, asof, panel_source=archive_source, forward_source=archive_source
+            )
+            archived.unlink()
+
+            _exit_code, payload = self._evaluate(root, run_purpose="production_decision", asof=asof)
+            coverage = self._coverage(payload)
+            self.assertEqual(coverage["source_assurance"], "result_archive")
+            self.assertFalse(coverage["source_closure_available"])
+            self.assertIn("source_unavailable", self._reasons(payload))
+
+    def test_a_diagnostic_run_measures_the_closure_it_reports_on(self) -> None:
+        # The blocker is production-only; the measurement is not. Skipping the check on
+        # diagnostic runs would leave the field saying "available" on every run that
+        # never looked, which is the reading an operator would take as "nothing missing".
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            asof = date(2025, 6, 30)
+            archived, archive_source = archived_calibration_source(root)
+            self._publish_cohort(
+                root, asof, panel_source=archive_source, forward_source=archive_source
+            )
+            archived.unlink()
+
+            _exit_code, payload = self._evaluate(root, run_purpose="diagnostic", asof=asof)
+            self.assertFalse(self._coverage(payload)["source_closure_available"])
+            self.assertNotIn("source_unavailable", self._reasons(payload))
+
+    def test_a_corrupted_source_blocks_the_decision_that_names_it(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            asof = date(2025, 6, 30)
+            archived, archive_source = archived_calibration_source(root)
+            self._publish_cohort(
+                root, asof, panel_source=archive_source, forward_source=archive_source
+            )
+            archived.write_bytes(b"different bytes, same size\n")
+
+            _exit_code, payload = self._evaluate(root, run_purpose="production_decision", asof=asof)
+            self.assertFalse(self._coverage(payload)["source_closure_available"])
+            self.assertIn("source_unavailable", self._reasons(payload))
 
     def test_production_decision_requires_explicit_core_scope(self) -> None:
         with TemporaryDirectory() as temp_dir:

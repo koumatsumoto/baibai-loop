@@ -15,8 +15,9 @@ import yaml
 
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.market.lake.identity import verified_git_commit
-from baibai_engine.market.lake.models import source_assurance
+from baibai_engine.market.lake.models import retained_sources, source_assurance
 from baibai_engine.market.lake.retention import lake_writer_lock
+from baibai_engine.market.lake.sources import resolve_source_ref, verified_source_scope
 from baibai_engine.market.lake.writer import (
     LakeBuildError,
     LegacySQLiteSnapshot,
@@ -45,7 +46,7 @@ from .forward import (
     read_control_event_exits,
 )
 from .grid import month_end_asof_grid
-from .lake import CalibrationBundleRef, CalibrationLakeError
+from .lake import CalibrationBundleRef, CalibrationLakeError, FixedCalibrationBundle
 from .panel import (
     PANEL_BUILD_POLICIES,
     PRODUCTION_PANEL_POLICY,
@@ -150,20 +151,27 @@ _GENERATION_PREFIX = ".generation."
 
 
 def _quarantine_broken_root(calibration_dir: Path) -> Path:
-    """Move an unreadable pointer and its bundle manifests aside, keeping the evidence.
+    """Move the unreadable pointer aside, keeping the evidence and every other root.
 
-    Deleting them would remove the only description of what went wrong, and leaving them
-    would make every later run fail the same way with no path forward.
+    Only the pointer is a root. Deleting it would remove the description of what went
+    wrong, and leaving it would make every later run fail the same way with no path
+    forward, so it is copied aside and then removed from the canonical key.
+
+    The bundle manifests it named stay where they are. A pin is an independent root that
+    resolves a bundle manifest by its canonical key, so moving the manifest directory
+    would take a pinned study, and the store's own previous generation, out of reach of
+    retention, rollback, and every reader — as a side effect of repairing an unrelated
+    pointer. Once a rebuild publishes a new pointer, whatever the broken generation left
+    behind is unreachable in the ordinary way and the collector takes it on the usual
+    grace, while the pinned bundles stay reachable because their pins still resolve.
     """
 
     quarantine = calibration_dir / "lake" / "quarantine" / f"root-{uuid.uuid4().hex}"
     quarantine.mkdir(parents=True)
-    for relative in ("lake/pointers/calibration", "lake/manifests/calibration-bundles"):
-        source = calibration_dir / relative
-        if source.exists():
-            target = quarantine / Path(relative).name
-            copytree(source, target)
-            rmtree(source)
+    source = calibration_dir / "lake/pointers/calibration"
+    if source.exists():
+        copytree(source, quarantine / source.name)
+        rmtree(source)
     return quarantine
 
 
@@ -315,6 +323,7 @@ def _calibration_build_command(
         calibration_dir,
         work_dir,
         expected_current=expected_current,
+        lock_held=True,
     )
     print(
         f"calibration build: done (panels built={built}, forward rows={len(rows)}, "
@@ -363,6 +372,36 @@ def _required_metric_statuses(
         )
         for metric in required_metrics
     }
+
+
+def _cohorts_missing_sources(
+    calibration_dir: Path, bundle: FixedCalibrationBundle
+) -> frozenset[str]:
+    """Which cohorts state a kept source that the store can no longer produce.
+
+    Adoption, pinning, and publication each prove the closure at the moment they run,
+    and nothing between them proves it again. A file removed by hand or lost to disk
+    corruption afterwards leaves the output objects intact, so evaluation completes and
+    every manifest still states the assurance it was written with.
+
+    Every run asks, including a diagnostic one, so the answer in the output is always
+    something that was measured. Reporting an unmeasured closure as available would make
+    the field read as "nothing missing" on the runs that never looked. The verification
+    scope is what keeps that affordable: one archive is named by every cohort in the
+    store, and the scope hashes each distinct source once for the whole command instead
+    of once per reference to it.
+    """
+
+    missing: set[str] = set()
+    with verified_source_scope():
+        for asof, cohort in bundle.manifest.cohorts.items():
+            for role in (cohort.panel, cohort.diagnostics, cohort.forward):
+                for source in retained_sources(role.sources):
+                    try:
+                        resolve_source_ref(calibration_dir, source)
+                    except (OSError, ValueError):
+                        missing.add(asof)
+    return frozenset(missing)
 
 
 def calibration_evaluate_command(
@@ -448,10 +487,17 @@ def calibration_evaluate_command(
     except CalibrationCacheError as exc:
         print(f"calibration evaluate: {exc}", file=sys.stderr)
         return 1
+    # The conclusion is made of all three roles, so the cohort's assurance is the
+    # weakest of them. Reading the panel alone would let a cohort whose outcomes came
+    # from an unkept store generation be reported as rebuildable because its
+    # cross-section happened to be migrated from an archive.
     cohort_assurance = {
-        asof: source_assurance(entry.panel.sources)
+        asof: source_assurance(
+            (*entry.panel.sources, *entry.diagnostics.sources, *entry.forward.sources)
+        )
         for asof, entry in bundle.manifest.cohorts.items()
     }
+    unavailable_sources = _cohorts_missing_sources(calibration_dir, bundle)
     results = evaluate_cohorts(panels, forwards, horizons=horizons)
     scope = EvaluationScope(
         run_purpose=run_purpose,
@@ -520,13 +566,27 @@ def calibration_evaluate_command(
                 }
             )
             coverage["source_assurance"] = cohort_assurance.get(str(cohort["asof"]), "trace_only")
+            coverage["source_closure_available"] = str(cohort["asof"]) not in unavailable_sources
             if horizon in {"3y", "5y"}:
                 # Reading a stored result again and recomputing it from its input are
                 # different capabilities. A decision that changes the production method
                 # has to survive being re-derived — after a logic error, after a rules
-                # revision — and a cohort whose input the lake does not keep cannot be.
-                if coverage["source_assurance"] != "retained":
-                    blockers.append("source_not_retained")
+                # revision — and only a cohort whose upstream input the lake keeps can
+                # be. The archive of a previous producer's output is not that input, so
+                # it states its own level rather than passing as one.
+                #
+                # This is the only blocker a diagnostic run does not take. The others
+                # describe the cohort itself and hold whoever is reading it; this one
+                # describes what may be changed on the strength of the cohort, which is
+                # a question a diagnostic run is not asking.
+                if run_purpose == "production_decision":
+                    if coverage["source_assurance"] != "rebuildable_input":
+                        blockers.append("source_not_rebuildable")
+                    # `rebuildable_input` is a present-tense claim: the assurance is
+                    # read from the manifest, and a manifest keeps saying it long after
+                    # the bytes it names were deleted or corrupted underneath it.
+                    if not coverage["source_closure_available"]:
+                        blockers.append("source_unavailable")
                 # One blocker per independent observation. A verdict derived from
                 # another observation would count the same gap twice and make the
                 # reason histogram unreadable.

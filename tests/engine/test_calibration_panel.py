@@ -20,6 +20,7 @@ from tests.helpers.calibration_store import synthetic_calibration_source
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
 from baibai_engine.market.lake.keys import current_calibration_bundle_pointer_key
+from baibai_engine.market.lake.retention import create_pin, plan_gc
 from baibai_engine.screening.calibration.cli import (
     calibration_build_command,
     calibration_evaluate_command,
@@ -31,6 +32,7 @@ from baibai_engine.screening.calibration.forward import (
 )
 from baibai_engine.screening.calibration.identity import rules_contract_hash
 from baibai_engine.screening.calibration.lake import (
+    CALIBRATION_FORWARD,
     CALIBRATION_PANEL,
     CalibrationLakeError,
     require_build_inputs,
@@ -48,6 +50,7 @@ from baibai_engine.screening.calibration.store import (
     panel_row_from_mapping,
     read_forward,
     read_panel,
+    read_panel_meta,
     resolve_calibration_bundle,
 )
 from baibai_engine.screening.calibration.store import (
@@ -955,24 +958,56 @@ class CalibrationPanelTest(unittest.TestCase):
             with self.assertRaisesRegex(CalibrationCacheError, "calibration-build --force"):
                 read_panel(store_dir, ASOF)
 
-    def test_store_rejects_previous_schema_version(self) -> None:
+    def test_store_rejects_a_panel_written_under_another_panel_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             _build_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
             write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-            # The contract a store was written under travels in the bundle manifest the
-            # pointer names, so a code change that moves the contract is what makes the
-            # store incompatible — there is no separate statement to rewrite.
+            # The contract a build was written under travels in its own transform
+            # fingerprint, so a code change that moves the panel contract is what makes
+            # the panel unreadable — there is no separate statement to rewrite.
             from baibai_engine.screening.calibration import store as calibration_store
 
-            patcher = patch.object(calibration_store, "CACHE_SCHEMA_VERSION", "0" * 16)
+            patcher = patch.dict(
+                calibration_store.CACHE_SCHEMA_VERSIONS,
+                {CALIBRATION_PANEL.name: "0" * 16},
+            )
             patcher.start()
             self.addCleanup(patcher.stop)
 
-            with self.assertRaisesRegex(CalibrationCacheError, "calibration-build --force"):
+            with self.assertRaisesRegex(CalibrationCacheError, "different transform"):
                 read_panel(store_dir, ASOF)
+
+    def test_a_forward_contract_change_leaves_the_panel_readable(self) -> None:
+        # The reason the contract version is derived per dataset. A column added to the
+        # forward rows says nothing about whether a stored panel is still the contract,
+        # and a store-wide compatibility gate would answer that it is not — turning a
+        # change to one dataset into a rebuild of all three.
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            store_dir = Path(tmp) / "calibration"
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            write_forward(store_dir, ASOF, [])
+            from baibai_engine.screening.calibration import store as calibration_store
+
+            patcher = patch.dict(
+                calibration_store.CACHE_SCHEMA_VERSIONS,
+                {CALIBRATION_FORWARD.name: "0" * 16},
+            )
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+            self.assertEqual(
+                {row.ticker for row in read_panel(store_dir, ASOF)},
+                {row.ticker for row in result.rows},
+            )
+            self.assertIsInstance(read_panel_meta(store_dir, ASOF), dict)
+            with self.assertRaisesRegex(CalibrationCacheError, "different transform"):
+                read_forward(store_dir, ASOF)
 
     def test_store_rejects_partial_versioned_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1378,6 +1413,19 @@ class CalibrationPanelTest(unittest.TestCase):
                     ),
                     0,
                 )
+            # A pin is an independent root. Repairing the current pointer must not take
+            # the study it protects with it, so the recovery is exercised with one in
+            # place rather than against a store that has nothing else to lose.
+            pinned = resolve_calibration_bundle(store_dir).ref
+            create_pin(
+                store_dir,
+                pin_id="pinned-study",
+                target_kind="calibration_bundle",
+                target_id=pinned.bundle_id,
+                reason="an adopted study reads this generation",
+                owner="tests",
+            )
+
             pointer = store_dir / current_calibration_bundle_pointer_key()
             pointer.write_bytes(b"{ not json")
 
@@ -1420,6 +1468,13 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertIn("quarantined unreadable calibration root", output.getvalue())
             self.assertTrue(list((store_dir / "lake" / "quarantine").glob("root-*")))
             self.assertTrue(resolve_calibration_bundle(store_dir).manifest.cohorts)
+
+            # The pinned generation is still where its pin says it is, and retention can
+            # still resolve every root it walks. Quarantining the bundle manifests along
+            # with the pointer would leave the pin naming a key that no longer exists,
+            # which stops the collector on an unresolved root indefinitely.
+            self.assertTrue((store_dir / pinned.manifest_key).is_file())
+            self.assertEqual(plan_gc(store_dir).unresolved_roots, ())
 
     def test_a_generation_a_killed_build_left_behind_is_discarded_and_reported(self) -> None:
         """A work generation is a sibling of the store, so nothing else would find it.

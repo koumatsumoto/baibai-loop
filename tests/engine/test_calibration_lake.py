@@ -5,6 +5,7 @@ import hashlib
 import json
 import threading
 from dataclasses import fields as dc_fields
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from os import link
 from pathlib import Path
@@ -19,8 +20,10 @@ from tests.helpers.calibration_store import (
     synthetic_calibration_source,
 )
 
+from baibai_engine.market.lake import models as lake_models
 from baibai_engine.market.lake import sources as sources_module
 from baibai_engine.market.lake.keys import (
+    calibration_bundle_manifest_key,
     current_calibration_bundle_pointer_key,
     pin_key,
 )
@@ -37,6 +40,7 @@ from baibai_engine.market.lake.models import (
     RawIngestSourceRef,
     canonical_lake_model_bytes,
     load_lake_model_json,
+    source_assurance,
 )
 from baibai_engine.market.lake.retention import (
     LakeRetentionError,
@@ -123,6 +127,33 @@ def _dataset_ref(root: Path, dataset_name: str) -> CalibrationDatasetRef:
 def _bundle_pointer(root: Path) -> CalibrationBundlePointer:
     return CalibrationBundlePointer.model_validate_json(
         (root / current_calibration_bundle_pointer_key()).read_bytes()
+    )
+
+
+def _repoint_bundle(root: Path, payload: dict[str, object]) -> None:
+    """Serve a bundle manifest an alternate writer could have produced.
+
+    Every digest edge is closed, so nothing about the store is malformed on its own
+    terms — which is the point: what the reader has to refuse is a graph that is
+    internally consistent and still says two different things.
+    """
+
+    manifest_payload = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+    key = calibration_bundle_manifest_key(bundle_id=str(payload["bundle_id"]))
+    path = root / key
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(manifest_payload)
+    pointer = CalibrationBundlePointer(
+        current=lake_models.CalibrationBundleRef(
+            bundle_id=str(payload["bundle_id"]),
+            manifest_key=key,
+            manifest_sha256=hashlib.sha256(manifest_payload).hexdigest(),
+        ),
+        previous=None,
+    )
+    (root / current_calibration_bundle_pointer_key()).write_bytes(
+        json.dumps(pointer.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode()
+        + b"\n"
     )
 
 
@@ -256,6 +287,53 @@ class TestImmutableBuilds:
             CalibrationBundleManifest.model_validate_json(json.dumps(payload))
         with pytest.raises(ValueError, match="at cohorts"):
             load_lake_model_json(json.dumps(payload).encode(), CalibrationBundleManifest)
+
+    def test_a_bundle_that_hides_a_cohort_its_datasets_hold_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        """What the bundle publishes and what its datasets hold have to be one set.
+
+        Checking only that every listed cohort is present leaves the other direction
+        open: a generation can then serve January while its three datasets hold January
+        and February, so the February objects are reachable through the bundle, counted
+        against it by retention, and described by nothing in it.
+        """
+
+        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
+        publish_panel(tmp_path, _FEBRUARY, _cohort(_FEBRUARY))
+        payload = json.loads(
+            (tmp_path / _bundle_pointer(tmp_path).current.manifest_key).read_bytes()
+        )
+        del payload["cohorts"][_FEBRUARY]
+        payload["bundle_id"] = "20260227T000000Z-alternatewriter"
+        _repoint_bundle(tmp_path, payload)
+
+        with pytest.raises(CalibrationLakeError, match="other cohorts than the bundle"):
+            resolve_calibration_bundle(tmp_path)
+
+    def test_a_rewritten_panel_does_not_keep_the_outcomes_of_the_one_it_replaced(
+        self, tmp_path: Path
+    ) -> None:
+        """A forward cohort observes the names its panel selected, and only those.
+
+        The rules identity does not catch a replacement: the same rules over corrected
+        inputs select a different cross-section. Carrying the stored outcomes across
+        would publish a readable generation whose two halves describe different sets of
+        names, and nothing before evaluation would look at it.
+        """
+
+        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY, ("1301", "7203")))
+        publish_forward(tmp_path, _JANUARY, _forward_rows(_JANUARY))
+        assert read_forward(tmp_path, date.fromisoformat(_JANUARY))
+
+        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY, ("1301",)))
+
+        assert (
+            resolve_calibration_bundle(tmp_path).manifest.cohorts[_JANUARY].forward.status
+            == "not_computed"
+        )
+        with pytest.raises(CalibrationCacheError, match="partial"):
+            read_forward(tmp_path, date.fromisoformat(_JANUARY))
 
     def test_a_pointer_cannot_name_the_current_generation_as_its_rollback(
         self, tmp_path: Path
@@ -591,6 +669,70 @@ class TestImmutableBuilds:
         assert len(errors) == 1
         assert "publication lock" in str(errors[0])
         assert not (tmp_path / current_calibration_bundle_pointer_key()).exists()
+
+    def test_adopting_a_generation_serializes_on_the_same_lock(self, tmp_path: Path) -> None:
+        """Adoption is the compare-and-set, so it cannot depend on its caller taking it.
+
+        It reads the current pointer, installs a closure, and writes the pointer last.
+        Two callers that read the same current would both pass the comparison, both
+        install, and the later write would win — with the earlier caller told it
+        succeeded and its generation never served.
+        """
+
+        current = tmp_path / "current"
+        generated = tmp_path / "generated"
+        publish_panel(generated, _JANUARY, _cohort(_JANUARY))
+        errors: list[BaseException] = []
+
+        def contender() -> None:
+            try:
+                adopt_bundle_generation(current, generated, expected_current=None)
+            except BaseException as exc:
+                errors.append(exc)
+
+        with lake_writer_lock(current):
+            thread = threading.Thread(target=contender)
+            thread.start()
+            thread.join(timeout=5)
+        assert not thread.is_alive()
+        assert len(errors) == 1
+        assert "publication lock" in str(errors[0])
+        assert not (current / current_calibration_bundle_pointer_key()).exists()
+
+        adopt_bundle_generation(current, generated, expected_current=None)
+        assert resolve_calibration_bundle(current).manifest.cohorts
+
+
+class TestSourceAssurance:
+    """What each lineage kind lets someone do, which is what authority is decided on."""
+
+    def test_an_upstream_input_the_lake_keeps_is_the_rebuildable_level(
+        self, tmp_path: Path
+    ) -> None:
+        # The level production authority requires. Nothing a cohort may name reaches it
+        # yet — `CohortSourceRef` admits only sealed snapshots and legacy archives — so
+        # the positive case is stated here rather than left to be discovered when L1
+        # releases join the union and the gate turns out never to have had a pass.
+        assert source_assurance((_raw_ingest_source(),)) == "rebuildable_input"
+
+    def test_a_previous_producers_output_is_its_own_level(self, tmp_path: Path) -> None:
+        _, archive = _retained_calibration_source(tmp_path)
+
+        assert source_assurance((archive,)) == "result_archive"
+
+    def test_a_generation_the_lake_did_not_keep_is_trace_only(self) -> None:
+        assert source_assurance((synthetic_calibration_source(),)) == "trace_only"
+
+    def test_the_weakest_source_names_the_whole(self, tmp_path: Path) -> None:
+        _, archive = _retained_calibration_source(tmp_path)
+
+        assert source_assurance((_raw_ingest_source(), archive)) == "result_archive"
+        assert source_assurance((archive, synthetic_calibration_source())) == "trace_only"
+
+    def test_naming_no_source_is_the_weakest_claim_rather_than_no_claim(self) -> None:
+        # An empty tuple satisfies "every source is retained" vacuously, which would make
+        # a cohort that states no lineage at all the strongest one in the store.
+        assert source_assurance(()) == "trace_only"
 
 
 class TestFailClose:
@@ -1704,6 +1846,24 @@ class TestSemanticIdentity:
         drifted = lake_module.verify_l2_schema_signatures()
 
         assert [message.split(":")[0] for message in drifted] == [CALIBRATION_FORWARD.name]
+
+    def test_renaming_a_row_type_moves_the_signature_though_no_column_moves(self) -> None:
+        """The stamped identity is wire-observable, so the gate has to sign it.
+
+        The reader compares ``baibai.row_type`` exactly and refuses an object that says
+        anything else. A rename therefore splits ``contract=v1`` into two mutually
+        unreadable halves while leaving every column, key, and partition untouched — the
+        change a column-only signature is blind to by construction.
+        """
+
+        before = lake_module.schema_signature(CALIBRATION_FORWARD)
+        renamed = replace(
+            CALIBRATION_FORWARD,
+            row_type=type("RenamedForwardRow", (ForwardReturnRow,), {}),
+        )
+
+        assert renamed.arrow_schema.equals(CALIBRATION_FORWARD.arrow_schema, check_metadata=False)
+        assert lake_module.schema_signature(renamed) != before
 
     def test_a_dependency_a_producer_starts_importing_joins_the_closure(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

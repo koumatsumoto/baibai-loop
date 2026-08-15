@@ -1045,6 +1045,15 @@ def _require_remote_calibration_closure(
                     expected_size=lake_object.bytes,
                     content_type="application/vnd.apache.parquet",
                 )
+    # Set equality in both directions, matching the local reader: a dataset manifest
+    # holding cohorts the bundle does not publish makes the generation mean one thing on
+    # its surface and another inside, and remote is where an alternate writer's store
+    # would arrive.
+    for name, manifest in manifests.items():
+        if set(manifest.cohort_inventory) != set(bundle.cohorts):
+            raise LakePublishError(
+                f"remote calibration dataset publishes other cohorts than the bundle: {name}"
+            )
     for asof, cohort in bundle.cohorts.items():
         expected = {
             "calibration.panel": cohort.panel,
