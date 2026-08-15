@@ -834,13 +834,28 @@ class TestProjection:
         assert second.reused is True
         assert second.identity == first.identity
 
+    @pytest.mark.parametrize("module_name", ["projection.py", "reader.py", "datasets.py"])
     def test_a_changed_projection_implementation_rebuilds(
-        self, session: LakeSession, lake: Lake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        session: LakeSession,
+        lake: Lake,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        module_name: str,
     ) -> None:
+        """The code that turns objects into tables decides the projection's bytes."""
+
         destination = tmp_path / "projection.sqlite"
         first = _build(session, lake, destination=destination)
+        target = Path(projection_module.__file__).resolve().with_name(module_name)
+        assert target.is_file()
+        real = projection_module.sha256_file
+        monkeypatch.setattr(
+            projection_module,
+            "sha256_file",
+            lambda path: "0" * 64 if path == target else real(path),
+        )
 
-        monkeypatch.setattr(projection_module, "PROJECTION_CONTRACT_VERSION", 99)
         second = _build(session, lake, destination=destination)
 
         assert second.reused is False
