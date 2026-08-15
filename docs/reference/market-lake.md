@@ -102,23 +102,23 @@ short sale 1,413,013）を Linux/WSL2 の一時 directory で実測した結果�
 
 | 局面 | wall time | 生成 object | 生成 bytes |
 | --- | --- | --- | --- |
-| full export（121 か月 × 2 dataset） | 367.6 秒 | 242 | 252,387,406 |
-| 1 か月訂正の再 export | 262.2 秒 | 1 | 848,197 |
+| full export（121 か月 × 2 dataset） | 367.0 秒 | 242 | 252,387,406 |
+| 1 か月訂正の再 export | 251.5 秒 | 1 | 848,197 |
 
-peak RSS は 1,013,817,344 bytes（967 MiB）。**1 か月の訂正で書き換わるのは 0.85 MB だが、
-local 側は 262 秒かかる。** その大半は 2 GB の sealed snapshot 作成と、carry する 120 か月分を
+peak RSS は 993,619,968 bytes（948 MiB）。**1 か月の訂正で書き換わるのは 0.85 MB だが、
+local 側は 252 秒かかる。** その大半は 2 GB の sealed snapshot 作成と、carry する 120 か月分を
 含む full parity 検証である。これは correctness gate を測定前に弱めない選択の代価であり、
 daily pipeline の予算はこの実測値を前提に置く。fast path と scheduled full audit の分離は、
 この時間が daily の制約になった時点で検討する。
 
-この計測は commit ではなく実装 digest（`4f0dc6be…`: writer / models / immutable / snapshot /
+この計測は commit ではなく実装 digest（`fa237713…`: writer / models / immutable / snapshot /
 benchmark tool）へ結ぶ。それらに触れない変更では証跡は有効なままで、触れた変更は再計測になる。
 
-<!-- AP-02: full=367.56988125501084 秒、incremental=262.16346760702436 秒、
-peak RSS=1013817344 / 1048576 = 966.85546875 MiB、
+<!-- AP-02: full=367.0256703949999 秒、incremental=251.45569620199967 秒、
+peak RSS=993619968 / 1048576 = 947.6015625 MiB、
 source sha256=703e3fab403489726708fc83c07fe1975e9f0ddad5ba492834ad2f1ec33144ce、
-implementation sha256=4f0dc6bee8dacafdc70c0958a0a5ed4d4ed43ebe3e996a35ab8d4479cdf62895、
-producer commit=b87e61fba32448766fb2d9cd7d2114e2d1ad6a56。 -->
+implementation sha256=fa2377139ec3d9ab09f0d2a9fa011677b157072b6a569bbdcd02415c13b8fcb8、
+producer commit=bffb199a3119b1f02123626a2096a955185dd1d1。 -->
 
 ## R2 publish
 
