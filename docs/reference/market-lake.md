@@ -224,9 +224,11 @@ reader は明示された object key の列だけを `read_parquet` へ渡す。
 「最新 object を探し直す」処理、`union_by_name` による schema 吸収はどれも使わない。DuckDB は
 渡された path を glob として展開するので、mirror root に glob metacharacter が含まれる場合も
 拒否する。extension の autoload / autoinstall は切ってあり、runtimeは`LOAD httpfs`だけを行う。
-deployment image / host environmentは、networkを許可したprovisioning stepで同じDuckDB versionの
+remote lakeを開くhost environmentは、networkを許可したprovisioning stepで同じDuckDB versionの
 `uv run python -m tools.diagnostics.provision_duckdb_httpfs`を一度実行する。このcommandはinstall後に
 autoload / autoinstallを無効にした別connectionで`LOAD httpfs`までsmoke-checkする。
+provisioningを実行するのは実際にremote lakeを読むjobだけとする。lake pathを通らないjobへ入れると、
+extension repositoryの一時障害がそのjobの成功条件になり、lakeの価値を受け取っていない処理を止める。
 runtimeがextensionをdownloadするfallbackは持たず、未installなら
 R2 sessionをfail-closeする。credentialは非 persistent secretとしてbind parameterで渡し、SQL文・
 例外・metadataに残さない。

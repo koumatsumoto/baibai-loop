@@ -33,7 +33,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 2
+          # A dispatched acceptance run names an exact SHA that need not be the event
+          # ref, and a shallow clone can simply not contain it. Fetching every ref of
+          # this repository is what makes "check out the SHA the evidence is attributed
+          # to" reliable, and it also proves the SHA belongs here rather than to a fork.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Validate exact head without credentials
@@ -54,6 +58,10 @@ jobs:
             echo "expected_sha must be a full lowercase commit SHA" >&2
             exit 2
           fi
+          if ! git cat-file -e "$EXPECTED_SHA^{commit}" 2>/dev/null; then
+            echo "expected_sha is not a commit in this repository" >&2
+            exit 2
+          fi
           if [[ "$(git rev-parse HEAD)" != "$EXPECTED_SHA" ]]; then
             git checkout --detach "$EXPECTED_SHA"
           fi
@@ -70,6 +78,13 @@ jobs:
 
       - name: Sync locked environment
         run: uv sync --locked
+
+      # Only the jobs that read the lake over HTTP install the extension, and they
+      # install it before credentials are present. Runtime sessions disable extension
+      # downloads and load this exact-version copy, so a job that never opens a remote
+      # lake must not inherit the extension repository as a failure dependency.
+      - name: Provision DuckDB httpfs extension
+        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
 
       - name: Run actual R2 CAS and rollback acceptance
         env:
