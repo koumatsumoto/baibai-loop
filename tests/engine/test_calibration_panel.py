@@ -1550,6 +1550,51 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertTrue((store_dir / pinned.manifest_key).is_file())
             self.assertEqual(plan_gc(store_dir).unresolved_roots, ())
 
+    def test_repairing_a_broken_pointer_still_refuses_to_narrow_the_store(self) -> None:
+        """The repair takes away the inventory the drop check reads, not the rule.
+
+        ``--replace-broken-current`` implies ``--force`` and moves the pointer aside, so
+        a run that also happens to state a short window would rebuild the store down to
+        it with nothing left saying what was lost. The manifests the broken pointer named
+        are still on disk and each states its cohorts, so the check has something to
+        compare against even when nothing resolves.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sqlite_path = root / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            store_dir = root / "calibration"
+            earlier = "2026-05-29"
+            publish_panel(store_dir, earlier, [{"ticker": "7203"}])
+            publish_panel(store_dir, ASOF.isoformat(), [{"ticker": "7203"}])
+
+            (store_dir / current_calibration_bundle_pointer_key()).write_bytes(b"{ not json")
+
+            errors = io.StringIO()
+            with (
+                patch(
+                    "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                    return_value=[ASOF],
+                ),
+                contextlib.redirect_stderr(errors),
+            ):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    replace_broken_current=True,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(code, 1)
+            self.assertIn(earlier, errors.getvalue())
+            # Refused before adoption: the repair left no current pointer at all rather
+            # than installing one that publishes half the history.
+            self.assertFalse((store_dir / current_calibration_bundle_pointer_key()).exists())
+
     def test_a_generation_a_killed_build_left_behind_is_discarded_and_reported(self) -> None:
         """A work generation is a sibling of the store, so nothing else would find it.
 

@@ -362,7 +362,10 @@ buildは拒否される。storeが名乗るpolicyはbundle manifestの中にあ�
 列を得たときに同じ`contract=v1`が2つの列構成を指すと、versionだけで判断する外部readerが違う形を
 読む。drift gate `check_l2_contract_versions`が記録済みschema signatureと実際のschemaを突き合わせ、
 bumpせずにrow型を変えた変更を落とす。signatureは列・key・partitionに加えreaderが実際に比較する
-`baibai.*` metadataも署名するので、列を変えずrow型名だけを変えた場合も落ちる。cache identityも
+`baibai.*` metadataも署名するので、列を変えずrow型名だけを変えた場合も落ちる。**gateが赤いときの
+修復は`contract_version`を上げて新しい版として記録することであり、記録済みsignatureの上書きではない。**
+上書きはgateを緑にしたまま同じ版に2つの列構成を持たせる — 版だけで判断する外部readerが違う形を読む、
+まさにこのgateが防いでいる状態である。failure messageはその修復を名指す。cache identityも
 datasetごとに導く — forwardへ列を1つ足してpanelの81 cohortが再構築になるのは、値を動かせない変更に
 数時間と数百MBを払ううえ、「再構築が要る」という信号の意味を薄める。screening閾値と評価式の意味は
 panel / diagnosticsの値を決めるが、forwardの観測 (entry / exit / 配当) は決めない。
@@ -395,6 +398,14 @@ write APIはsource refのclosureを先に解決し、source省略を受け入れ
 動かないことがそれを許す。retired CSV archive のように 1 つの source を全 cohort が指す場合、
 参照ごとに払うと 500MB × 81 cohort が 1 回の migration で数百 GB の hash になる。cohort書き込みは生成中の
 generationに対して行い、canonical currentへ進むのはgeneration adoptionの1経路だけである。
+
+**部分範囲の再計算は、範囲外の既存cohortを黙って落とさない。** `--force`はstoreをhard linkで
+引き継がずgenerationを空から始めるので、1年を直すつもりの実行がその1年だけを持つcurrent bundleを
+公開しうる。adoptionの直前に「今serveしている集合」と「これからserveする集合」を比較し、落ちるものが
+あれば名指して拒否する。壊れたpointerを退避する復旧（`--replace-broken-current`）は`--force`を含み、
+かつ比較対象そのものを奪う操作なので、pointerが解決しない場合はdiskに残るbundle manifestが述べる
+cohortの和をserve済みの下限として使う。世代をまたぐ和は意図的な縮小まで拒否しうるが、復旧中に
+倒れるならその向きであり、拒否messageは別`--calibration-dir`へ組み直す逃げ道を名指す。
 
 adoptionはbundleが閉じているものだけを歩く。bundle manifest → dataset manifest → partition object
 → 保持するcohort sourceとそのfileであり、directory treeではない（treeには追い越された世代も居る）。

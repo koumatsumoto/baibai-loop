@@ -286,7 +286,9 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       current pointerを別世代へ動かした後、および pointer を削除した後に同じ結果が読めることをtestで固定したか
 - [ ] 部分範囲を再計算する操作（`--force`等）は、範囲外の既存生成物を黙って落とさないか。公開直前に
       「今serveしている集合」と「これからserveする集合」を比較し、差分があれば名指してfail closeするか。
-      範囲がstoreを包含する場合は通ることも併せてtestしたか（否定側だけのtestは経路の全滅を隠す）
+      範囲がstoreを包含する場合は通ることも併せてtestしたか（否定側だけのtestは経路の全滅を隠す）。
+      「今serveしている集合」が読めない状態（壊れたpointerの退避直後など）で比較を諦めていないか。
+      退避はその比較対象を奪う操作なので、最も検査が要る実行が最も検査されない側へ落ちる
 - [ ] 合成generationの解決を変更する場合、構造（digest edge）と契約版のどちらを問うているか区別したか。
       解決時に契約版を問うと1 datasetの版上げが全datasetをunresolveにする。契約版はrowをdecodeする側と
       canonical化するadoptionだけが問い、非変更datasetが読めることをtestで固定したか
@@ -300,7 +302,9 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] bundle等の合成generationをreaderやremote closureで検証する場合、包含ではなく両方向のset equalityを要求するか。
       bundleが列挙しないcohortを内部datasetが保持する状態をnegative testで拒否したか
 - [ ] wireのschema契約をdrift gateで固定する場合、readerが実際に比較する要素（Arrow metadataのdataset /
-      contract version / row type stamp等）を署名へ入れたか。列を変えずrow型名だけを変えるmutationでgateが赤くなるか
+      contract version / row type stamp等）を署名へ入れたか。列を変えずrow型名だけを変えるmutationでgateが赤くなるか。
+      失敗メッセージが実測値をそのまま出して「記録値を上書きすれば緑になる」と読める形になっていないか
+      （記録は版ごとの意味なので、上書きは同じ版に2つの形を持たせる。正しい修復は版を上げて追記する側である）
 - [ ] 再利用identityを持つ成果物（projection等）は、値を決めるruntime（DuckDB / SQLite等）のversionを
       fingerprintへ入れたか。dependency upgradeが旧結果を再利用させないことをtestで固定したか
 - [ ] market lakeのcomplete coverageはtable自身の`MIN..MAX`だけで自己充足させず、profileが固定する

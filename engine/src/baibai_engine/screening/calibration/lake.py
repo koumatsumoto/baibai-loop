@@ -224,7 +224,15 @@ def schema_signature(dataset: L2Dataset) -> str:
 
 
 def verify_l2_schema_signatures() -> list[str]:
-    """Names every dataset whose schema no longer matches its recorded contract version."""
+    """Names every dataset whose schema no longer matches its recorded contract version.
+
+    The failure states the repair because the obvious one is wrong: overwriting the
+    recorded digest makes the gate pass while leaving two column sets addressed by the
+    same ``contract=v1`` prefix, which is the exact condition the registry exists to
+    prevent. Objects already written under the old shape then fail to read here — loudly,
+    so nothing in this repository is silently misread — but anything outside it that
+    trusts the version has no way to tell the two apart.
+    """
     drifted: list[str] = []
     for dataset in L2_DATASETS.values():
         recorded = _RECORDED_SCHEMA_SIGNATURES.get((dataset.name, dataset.contract_version))
@@ -232,7 +240,10 @@ def verify_l2_schema_signatures() -> list[str]:
         if recorded != actual:
             drifted.append(
                 f"{dataset.name}: contract v{dataset.contract_version} records "
-                f"{recorded} but the row type now signs as {actual}"
+                f"{recorded} but the row type now signs as {actual}; raise "
+                f"{dataset.name}'s contract_version and record {actual} under the new "
+                "version rather than overwriting what v"
+                f"{dataset.contract_version} already means"
             )
     return drifted
 

@@ -64,6 +64,7 @@ from .store import (
     adopt_bundle_generation,
     current_bundle_ref,
     has_cohort,
+    orphaned_cohorts,
     published_cohorts,
     read_forward,
     read_panel,
@@ -324,7 +325,7 @@ def _calibration_build_command(
     if dropped:
         print(
             "calibration build: this run would publish a generation without "
-            f"{len(dropped)} cohort(s) the store currently serves: "
+            f"{len(dropped)} cohort(s) the store holds: "
             f"{', '.join(item.isoformat() for item in dropped[:5])}"
             f"{' …' if len(dropped) > 5 else ''}. "
             "Widen --start/--end to cover them, or rebuild into a separate "
@@ -369,9 +370,14 @@ def _cohorts_this_build_would_drop(
     leave the served inventory without anything saying so.
 
     The check is on the built generation rather than on the requested grid: what matters
-    is what is about to become current, whatever produced it. A store with no readable
-    pointer has no inventory to compare against, and the operator has already been told
-    the root is being replaced.
+    is what is about to become current, whatever produced it.
+
+    ``--replace-broken-current`` sets ``force`` and takes the pointer away, so the run
+    that reaches here with no readable inventory is exactly the one this check exists
+    for. A store whose pointer was just quarantined resolves to nothing, and so does a
+    store that never existed; the bundle manifests left on disk tell them apart, and
+    consulting them keeps the repair under the same rule as every other forced build
+    instead of exempting it.
     """
 
     if not force:
@@ -379,7 +385,9 @@ def _cohorts_this_build_would_drop(
     try:
         served = set(published_cohorts(calibration_dir))
     except CalibrationCacheError:
-        return []
+        served = set()
+    if not served:
+        served = set(orphaned_cohorts(calibration_dir))
     return sorted(served - set(published_cohorts(work_dir)))
 
 

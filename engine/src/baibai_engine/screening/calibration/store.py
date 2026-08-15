@@ -956,6 +956,39 @@ def published_cohorts(root: Path, *, bundle: FixedCalibrationBundle | None = Non
     return sorted(asofs)
 
 
+def orphaned_cohorts(root: Path) -> list[date]:
+    """As-ofs the store served, read from bundle manifests when no pointer resolves.
+
+    A repair that moves an unreadable pointer aside removes the only description of what
+    is being served, so the store that most needs its inventory compared against a
+    rebuild is the one that can no longer state it. The manifests the broken pointer
+    named are still on disk and each states its own cohort set, so the union of the
+    readable ones is a lower bound on what was published.
+
+    A union over generations can name a cohort that a later generation dropped on
+    purpose, so this can refuse a narrowing that was already intended. That is the
+    direction to err in while repairing: the alternative silently takes the store down
+    to whatever window the operator happened to type, and rebuilding into a separate
+    directory is an escape the refusal names.
+    """
+
+    directory = (root / calibration_bundle_manifest_key(bundle_id="probe")).parent
+    asofs: set[date] = set()
+    for path in sorted(directory.glob("*.json")):
+        try:
+            manifest = load_lake_model_json(path.read_bytes(), CalibrationBundleManifest)
+            asofs.update(
+                date.fromisoformat(asof)
+                for asof, entry in manifest.cohorts.items()
+                if entry.panel.status in {"complete", "empty"}
+            )
+        except (OSError, ValueError):
+            # A manifest this code cannot decode says nothing about the inventory, and a
+            # repair must not be blocked by the leftovers of a failed publication.
+            continue
+    return sorted(asofs)
+
+
 def _cohort_payloads(
     root: Path,
     dataset: L2Dataset,
