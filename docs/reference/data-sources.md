@@ -48,12 +48,13 @@ J-Quants / EDINET から取得したデータは、個人利用・非公開 repo
 | local projection | `market.sqlite`がcanonicalを兼ねる | fixed L1 releaseから再構築するSQLite | R2 authorityにしない |
 | disposable byproduct | `.cache/` | `.cache/` | canonical verification後に削除でき、入力証跡として扱わない |
 
-Canonical manifestのsourceはtyped `SourceRef`で記録する。provider Raw、legacy SQLite snapshot、
-fixed L1 release、calibration input archiveは別kindであり、各refは実在するkey、SHA-256、
-source側schema/manifest versionへ束縛する。provider Rawはprovider・dataset・request rangeとmetadata sidecarのkey・SHA-256を固定し、
+Canonical manifestのsourceはtyped `SourceRef`で記録する。bytesを保持するkind（provider Raw、
+calibration input archive）は実在するkey、SHA-256、source側schema/manifest versionへ束縛する。
+provider Rawはprovider・dataset・request rangeとmetadata sidecarのkey・SHA-256を固定し、
 ingest ID・object key・content digest・metadata versionを同時に照合する。legacy SQLite snapshotは
-remote retention対象ではない`local_build_input`であり、canonical buildとshadow parityを同じsealed
-generationへ束縛する。logical manifestへR2 ETagを保存せず、release profileの
+identityだけを持つkindで、keyを名乗らない — sealed copyはbuild中にstoreが動かないようにする
+ためのもので、bytesはoperationの終わりで回収する。残るschema version・content digest・capture
+時刻が、canonical buildとshadow parityが同じstore世代を見ていることを照合可能にする。logical manifestへR2 ETagを保存せず、release profileの
 required dataset・coverage・freshness gateを通らないgenerationをproduction currentとして扱わない。
 
 Raw retention は、再取得が高価または不可能な Premium CSV・EDINET XBRL・JPX 原本を

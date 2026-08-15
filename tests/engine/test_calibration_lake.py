@@ -241,9 +241,7 @@ class TestImmutableBuilds:
         assert cohort.forward.measurement_policy == cohort.panel.measurement_policy
         assert cohort.diagnostics.measurement_policy == cohort.panel.measurement_policy
 
-    def test_a_forward_cohort_without_a_panel_has_no_rules_to_inherit(
-        self, tmp_path: Path
-    ) -> None:
+    def test_a_forward_cohort_without_a_panel_has_no_rules_to_inherit(self, tmp_path: Path) -> None:
         with pytest.raises(CalibrationCacheError, match="no panel to inherit rules from"):
             publish_forward(
                 tmp_path,
