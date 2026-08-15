@@ -401,16 +401,11 @@ def _require_one_measurement_policy(
     it can still be declined.
     """
 
-    policies = {
-        (asof, dataset): entry.measurement_policy
-        for asof, cohort in cohorts.items()
-        for dataset, entry in (
-            ("panel", cohort.panel),
-            ("diagnostics", cohort.diagnostics),
-            ("forward", cohort.forward),
-        )
+    distinct = {
+        entry.measurement_policy
+        for cohort in cohorts.values()
+        for entry in (cohort.panel, cohort.diagnostics, cohort.forward)
     }
-    distinct = set(policies.values())
     if len(distinct) > 1:
         stated = ", ".join(
             sorted(f"{policy.panel_variant}/{policy.rules_hash}" for policy in distinct)
@@ -442,15 +437,14 @@ class BundleAdoptionReport:
     reused_objects: int
 
 
-def bundle_closure_keys(root: Path, bundle: FixedCalibrationBundle) -> tuple[str, ...]:
-    """Every stored key one bundle depends on, in order, resolved through its manifests.
+def _bundle_closure_keys(root: Path, bundle: FixedCalibrationBundle) -> tuple[str, ...]:
+    """Every stored key one bundle depends on, resolved through its manifests.
 
     A bundle is not the files that happen to sit under a directory. It is the manifest
     the pointer names, the dataset manifests that manifest names, the partition objects
-    those enumerate, and the retained sources their cohorts were built from. Deriving
-    the set here means adoption, publication, and collection can each ask the same
-    question and get the same answer, instead of one of them walking a directory tree
-    that also holds superseded builds.
+    those enumerate, and the retained sources their cohorts were built from. A directory
+    also holds builds this bundle has already passed, so installing a tree installs
+    history; installing this set installs the generation.
     """
 
     keys: list[str] = [bundle.ref.manifest_key]
@@ -528,7 +522,7 @@ def adopt_bundle_generation(
     installed_objects = 0
     installed_bytes = 0
     reused_objects = 0
-    closure = bundle_closure_keys(generated_root, fixed)
+    closure = _bundle_closure_keys(generated_root, fixed)
     for key in closure:
         source = generated_root / key
         target = root / key
