@@ -1620,6 +1620,54 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertNotIn("priced_master_without_universe_return_unresolved", counts)
         self.assertNotIn("priced_master_without_universe_flips_direction", counts)
 
+    def test_a_cohort_whose_input_is_not_kept_cannot_carry_a_production_decision(
+        self,
+    ) -> None:
+        """A decision that changes the method has to survive being re-derived.
+
+        The sealed store a routine build reads is discarded when the build ends, so the
+        cohort can be read back forever and never recomputed. Reading and recomputing are
+        different capabilities, and only the second supports correcting a decision after
+        a logic error is found in the code that produced it.
+        """
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            asof = date(2025, 6, 30)
+            write_panel(
+                root,
+                asof,
+                (_panel_row("7203", per_trailing=12.0),),
+                _panel_diagnostics(),
+                producer_commit="a" * 40,
+            )
+            write_forward(
+                root, asof, [_forward_row("7203", 0.1, horizon="3y")], producer_commit="a" * 40
+            )
+            output_path = root / "evaluation.yaml"
+
+            diagnostic = calibration_evaluate_command(
+                calibration_dir=root,
+                horizons=["3y"],
+                output_path=output_path,
+                stdout=StringIO(),
+            )
+            payload = yaml.safe_load(output_path.read_text(encoding="utf-8"))
+            assert isinstance(payload, dict)
+
+            self.assertEqual(diagnostic, 0)
+            reasons = payload["authority_coverage"]["reason_counts"]
+            assert isinstance(reasons, dict)
+            self.assertIn("source_not_retained", reasons)
+            results = payload["results"]
+            assert isinstance(results, dict)
+            horizon = results["3y"]
+            assert isinstance(horizon, dict)
+            cohorts = horizon["cohorts"]
+            assert isinstance(cohorts, list)
+            self.assertEqual(cohorts[0]["coverage"]["source_assurance"], "trace_only")
+            self.assertFalse(payload["production_decision"]["production_change_allowed"])
+
     def test_production_decision_requires_explicit_core_scope(self) -> None:
         with TemporaryDirectory() as temp_dir:
             exit_code = calibration_evaluate_command(

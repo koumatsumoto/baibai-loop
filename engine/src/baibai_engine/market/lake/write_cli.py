@@ -234,7 +234,7 @@ def _projection_build(args: argparse.Namespace) -> int:
     commit = _git_commit()
     try:
         with open_lake(mirror=args.mirror, bucket=args.bucket) as (session, cache):
-            still_current: Callable[[], str] | None = None
+            still_current: Callable[[], tuple[str, str]] | None = None
             if args.release is not None:
                 if args.manifest_sha256 is None:
                     raise LakeReadError("--release requires --manifest-sha256")
@@ -259,10 +259,11 @@ def _projection_build(args: argparse.Namespace) -> int:
                 # This resolution happens before the destination lock is taken, so the
                 # build re-resolves under it: another build may have published a newer
                 # release while this one waited, and finishing last must not undo it.
-                def still_current(source: LakeObjectSource = cache.source) -> str:
-                    return resolve_current_release(
-                        source, evaluated_at=datetime.now(UTC)
-                    ).release_id
+                def still_current(
+                    source: LakeObjectSource = cache.source,
+                ) -> tuple[str, str]:
+                    resolved = resolve_current_release(source, evaluated_at=datetime.now(UTC))
+                    return (resolved.release_id, resolved.manifest_sha256)
 
             report = build_projection(
                 session,

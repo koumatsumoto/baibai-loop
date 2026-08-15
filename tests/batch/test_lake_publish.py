@@ -876,6 +876,23 @@ def test_same_release_id_requires_exact_pointer_identity(tmp_path: Path) -> None
         )
 
 
+def test_the_transfer_report_counts_every_request_the_run_made(tmp_path: Path) -> None:
+    """The report exists to demonstrate differential cost, so it must not undercount.
+
+    The adapter reads each object back after writing it, to prove the write landed. That
+    read is a request this publication made; leaving it out of the figure that is used to
+    judge request cost makes the figure argue for its own conclusion.
+    """
+
+    mirror, release_path = _release(tmp_path)
+    store = _MemoryStore()
+
+    report = publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+
+    assert report.transfers.head_requests == len(store.head_keys)
+    assert report.transfers.get_requests == len(store.get_keys)
+
+
 def test_success_response_with_missing_remote_object_stops_before_pointer(
     tmp_path: Path,
 ) -> None:

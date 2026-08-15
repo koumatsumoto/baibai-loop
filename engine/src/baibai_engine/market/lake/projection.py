@@ -233,7 +233,7 @@ def build_projection(
     destination: Path,
     dataset_names: Sequence[str],
     builder_git_commit: str,
-    still_current: Callable[[], str] | None = None,
+    still_current: Callable[[], tuple[str, str]] | None = None,
     force: bool = False,
     built_at: datetime | None = None,
 ) -> ProjectionBuildReport:
@@ -274,7 +274,7 @@ def _build_projection(
     destination: Path,
     dataset_names: Sequence[str],
     builder_git_commit: str,
-    still_current: Callable[[], str] | None,
+    still_current: Callable[[], tuple[str, str]] | None,
     force: bool,
     built_at: datetime | None,
 ) -> ProjectionBuildReport:
@@ -356,14 +356,24 @@ def _build_projection(
     )
 
 
-def _require_still_current(still_current: Callable[[], str] | None, release: FixedRelease) -> None:
+def _require_still_current(
+    still_current: Callable[[], tuple[str, str]] | None, release: FixedRelease
+) -> None:
+    """The full identity, not the name: an ID can be reused for different bytes.
+
+    A recovery tool that republishes a manifest under an existing release ID would pass
+    a name comparison while pointing at a different graph, and the projection built from
+    the old bytes would take the current destination.
+    """
+
     if still_current is None:
         return
     actual = still_current()
-    if actual != release.release_id:
+    expected = (release.release_id, release.manifest_sha256)
+    if actual != expected:
         raise ProjectionError(
             f"the current release moved while this projection was building: "
-            f"{release.release_id} is no longer current ({actual} is)"
+            f"{expected[0]} is no longer current ({actual[0]} is)"
         )
 
 

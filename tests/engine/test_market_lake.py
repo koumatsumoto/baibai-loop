@@ -817,7 +817,17 @@ def test_inventory_reports_every_class_against_its_own_budget(tmp_path: Path) ->
     staged.parent.mkdir(parents=True)
     staged.write_bytes(b"sealed snapshot")
 
-    capacity = {item["class"]: item for item in inventory(tmp_path)["capacity"]}
+    (tmp_path / ".lake-writer.lock").write_bytes(b"")
+
+    report = inventory(tmp_path)
+    capacity = {item["class"]: item for item in report["capacity"]}
+
+    # The writer lock is an operational file beside the namespace, not an object in it.
+    # Counting it makes the totals disagree with the prefix breakdown, and reporting it
+    # as an invalid key makes a healthy store look corrupt.
+    assert report["invalid_keys"] == []
+    assert report["control_files"] == {"objects": 1, "bytes": 0}
+    assert report["objects"] == 3
 
     assert set(capacity) == {"published", "raw_buffer", "raw_preserve", "workspace"}
     assert capacity["published"]["bytes"] == 7

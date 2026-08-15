@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from tests.helpers.calibration_store import (
     publish_forward,
     publish_panel,
+    synthetic_calibration_source,
 )
 
 from baibai_engine.market.lake import sources as sources_module
@@ -24,14 +25,17 @@ from baibai_engine.market.lake.keys import (
     pin_key,
 )
 from baibai_engine.market.lake.models import (
+    CalibrationBundleManifest,
     CalibrationDatasetRef,
     CalibrationInputFile,
     CalibrationInputManifest,
     CalibrationInputSourceRef,
     CohortInventoryEntry,
     DatasetManifest,
+    MeasurementPolicyRef,
     RawIngestSourceRef,
     canonical_lake_model_bytes,
+    load_lake_model_json,
 )
 from baibai_engine.market.lake.retention import (
     LakeRetentionError,
@@ -214,6 +218,55 @@ def _raw_ingest_source() -> RawIngestSourceRef:
 
 
 class TestImmutableBuilds:
+    def test_a_bundle_that_mixes_measurement_policies_cannot_be_parsed(
+        self, tmp_path: Path
+    ) -> None:
+        """The invariant belongs to the wire format, not to whichever writer assembled it.
+
+        The standard assembler refuses the mixture, but a migration tool or an alternate
+        producer writing the same JSON would not — and the reader on the other side has
+        no way to notice, because every field it checks agrees.
+        """
+
+        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY), rules_hash="rules-one")
+        publish_panel(tmp_path, _FEBRUARY, _cohort(_FEBRUARY), rules_hash="rules-one")
+        bundle_path = tmp_path / _bundle_pointer(tmp_path).current.manifest_key
+        payload = json.loads(bundle_path.read_bytes())
+        february = payload["cohorts"][_FEBRUARY]
+        for role in ("panel", "diagnostics", "forward"):
+            february[role]["measurement_policy"]["rules_hash"] = "rules-two"
+
+        # The strict wire parser redacts the reason, so the reason is asserted against the
+        # model and the refusal against the parser that actually guards the store.
+        with pytest.raises(ValidationError, match="mix measurement policies"):
+            CalibrationBundleManifest.model_validate_json(json.dumps(payload))
+        with pytest.raises(ValueError, match="at cohorts"):
+            load_lake_model_json(json.dumps(payload).encode(), CalibrationBundleManifest)
+
+    def test_a_cohort_whose_roles_disagree_about_the_rules_cannot_be_parsed(
+        self, tmp_path: Path
+    ) -> None:
+        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY), rules_hash="rules-one")
+        bundle_path = tmp_path / _bundle_pointer(tmp_path).current.manifest_key
+        payload = json.loads(bundle_path.read_bytes())
+        payload["cohorts"][_JANUARY]["forward"]["measurement_policy"]["rules_hash"] = "rules-two"
+
+        with pytest.raises(ValidationError, match="disagree about the rules"):
+            CalibrationBundleManifest.model_validate_json(json.dumps(payload))
+        with pytest.raises(ValueError, match="at cohorts"):
+            load_lake_model_json(json.dumps(payload).encode(), CalibrationBundleManifest)
+
+    def test_a_pointer_cannot_name_the_current_generation_as_its_rollback(
+        self, tmp_path: Path
+    ) -> None:
+        """Saying a rollback exists when it is the same generation is worse than saying none."""
+
+        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
+        current = _bundle_pointer(tmp_path).current
+
+        with pytest.raises(ValueError, match="another generation"):
+            CalibrationBundlePointer(current=current, previous=current)
+
     def test_the_manifest_states_which_rules_each_cohort_was_measured_under(
         self, tmp_path: Path
     ) -> None:
@@ -260,13 +313,36 @@ class TestImmutableBuilds:
         """
 
         del tmp_path
-        with pytest.raises(ValidationError):
+        policy = MeasurementPolicyRef(
+            rules_hash="abc123", panel_variant="production", production_authority=True
+        )
+        # A complete entry apart from the source kind, so the rejection can only be the
+        # discriminator. Leaving another required field out would let the test pass while
+        # the kind was accepted.
+        CohortInventoryEntry(
+            status="empty",
+            rows=0,
+            sources=(synthetic_calibration_source(captured_on=date.fromisoformat(_JANUARY)),),
+            input_cutoff=date.fromisoformat(_JANUARY),
+            measurement_policy=policy,
+        )
+
+        with pytest.raises(ValidationError) as caught:
             CohortInventoryEntry(
                 status="empty",
                 rows=0,
                 sources=(_raw_ingest_source(),),  # type: ignore[arg-type]
                 input_cutoff=date.fromisoformat(_JANUARY),
+                measurement_policy=policy,
             )
+
+        # The rejection has to be the discriminator itself, not some other field the
+        # test forgot to supply — otherwise the guard could be gone and the test green.
+        assert [
+            (error["loc"], error["type"])
+            for error in caught.value.errors()
+            if error["type"] == "union_tag_invalid"
+        ] == [(("sources", 0), "union_tag_invalid")]
 
     def test_a_cohort_is_published_as_a_build_the_pointer_names(self, tmp_path: Path) -> None:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))

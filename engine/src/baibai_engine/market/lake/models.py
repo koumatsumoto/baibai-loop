@@ -339,6 +339,24 @@ def retained_sources(sources: Iterable[SourceRef]) -> tuple[RetainedSourceRef, .
     return tuple(source for source in sources if not isinstance(source, SQLiteSnapshotSourceRef))
 
 
+SourceAssurance = Literal["retained", "trace_only"]
+
+
+def source_assurance(sources: Iterable[SourceRef]) -> SourceAssurance:
+    """Whether a cohort can be recomputed from inputs the lake keeps, or only identified.
+
+    Two different questions hide under "reproducible". Reading the same stored result
+    again needs nothing but the output objects. Recomputing it — which is what auditing
+    a decision, or correcting one after a logic error, actually requires — needs the
+    input. A cohort whose only lineage is an identity-only reference can be read back
+    forever and can never be recomputed, and nothing tells the two apart unless the
+    distinction has a name.
+    """
+
+    stated = tuple(sources)
+    return "retained" if len(retained_sources(stated)) == len(stated) else "trace_only"
+
+
 class CalibrationInputFile(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -567,6 +585,16 @@ class CalibrationCohortInventory(BaseModel):
             or self.panel.input_cutoff != self.diagnostics.input_cutoff
         ):
             raise ValueError("panel and diagnostics must use the same cohort input")
+        # The rules decide which names are in the cohort and what each row's status is,
+        # so the outcome half and the cross-section half have to have been measured the
+        # same way. Leaving this to whichever writer assembled the bundle means an
+        # alternate producer can state the inconsistency in the wire format itself.
+        if not (
+            self.panel.measurement_policy
+            == self.diagnostics.measurement_policy
+            == self.forward.measurement_policy
+        ):
+            raise ValueError("cohort roles disagree about the rules they were measured under")
         return self
 
 
@@ -647,6 +675,12 @@ class CalibrationBundleManifest(BaseModel):
                 raise ValueError("panel input cutoff must equal its cohort as-of")
             if cohort.forward.input_cutoff < cohort_asof:
                 raise ValueError("forward input cutoff cannot precede its cohort as-of")
+        # One published generation is one series. Cohorts screened under different rules
+        # answer different questions, so aggregating them reports a change in the rules
+        # as a change in the market — and the aggregate is what a decision reads.
+        policies = {cohort.panel.measurement_policy for cohort in values.values()}
+        if len(policies) > 1:
+            raise ValueError("bundle cohorts mix measurement policies")
         return MappingProxyType(dict(values))
 
     @field_serializer("cohorts")
@@ -676,6 +710,14 @@ class CalibrationBundlePointer(BaseModel):
     pointer_version: Literal[1] = 1
     current: CalibrationBundleRef
     previous: CalibrationBundleRef | None = None
+
+    @model_validator(mode="after")
+    def validate_rollback_target(self) -> CalibrationBundlePointer:
+        # Naming the current generation as its own rollback target states that a rollback
+        # is available when none is. Nothing reading the pointer could tell the two apart.
+        if self.previous is not None and self.previous == self.current:
+            raise ValueError("calibration bundle rollback target must be another generation")
+        return self
 
 
 class DatasetManifest(BaseModel):

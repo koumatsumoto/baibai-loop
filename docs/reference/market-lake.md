@@ -387,6 +387,13 @@ cohortごとのcarry検査がpresence/sizeで止まるのはこのためで、�
 書き込み回数の二乗に比例する。readerはbundle pointerを開始時に1回だけ固定し、explicit `empty`の
 0 rowsだけを`[]`として返す。inventoryに無いcohortと`partial / not_computed`はfail-closeする。
 
+cohortのsourceには2つの保証水準があり、`source_assurance`として区別する。**retained**は入力bytesを
+lakeが保持していて再計算できる。**trace_only**は読んだstore世代を名指せるだけで、再計算はできない。
+「保存した結果をもう一度読む」と「入力から計算し直す」は別の能力で、後者は判断のaudit — 計算logicの
+誤りが後で見つかったときの訂正 — に要る。`--run-purpose production_decision`はretainedのcohortだけを
+許可し、trace_onlyには`source_not_retained`をblocking reasonとして立てる。routine diagnosticには
+この制約を課さない。
+
 cohortのinput cutoffとsealed snapshot identityが保証するのは**どのstore世代を読んだか名指せること**
 であって、その値が当時同じ形で入手できたことではない。J-Quantsのadjusted price、master、JPX flagは
 revisionを含み、完全なvintageではない（[`data-sources.md`](./data-sources.md)）。較正結果を

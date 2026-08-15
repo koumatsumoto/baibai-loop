@@ -15,6 +15,7 @@ import yaml
 
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.market.lake.identity import verified_git_commit
+from baibai_engine.market.lake.models import source_assurance
 from baibai_engine.market.lake.retention import lake_writer_lock
 from baibai_engine.market.lake.writer import (
     LakeBuildError,
@@ -44,7 +45,7 @@ from .forward import (
     read_control_event_exits,
 )
 from .grid import month_end_asof_grid
-from .lake import CalibrationBundleRef
+from .lake import CalibrationBundleRef, CalibrationLakeError
 from .panel import (
     PANEL_BUILD_POLICIES,
     PRODUCTION_PANEL_POLICY,
@@ -81,6 +82,7 @@ def calibration_build_command(
     force: bool = False,
     panel_variant: PanelVariant = "production",
     use_control_event_exits: bool = True,
+    replace_broken_current: bool = False,
     stdout: TextIO | None = None,
 ) -> int:
     unreadable = unreadable_store_reason(sqlite_path)
@@ -94,7 +96,26 @@ def calibration_build_command(
         except (OSError, RuntimeError) as exc:
             print(f"calibration build: {exc}", file=sys.stderr)
             return 1
-        expected_current = current_bundle_ref(calibration_dir)
+        try:
+            expected_current = current_bundle_ref(calibration_dir)
+        except (CalibrationCacheError, CalibrationLakeError) as exc:
+            if not replace_broken_current:
+                # Reading a broken root as "no store" would let a rebuild publish over
+                # live data it could not see. Recovery is possible but it is an operator
+                # decision, made once, with the old root kept as evidence.
+                print(
+                    f"calibration build: {exc}; rerun with --replace-broken-current "
+                    "to quarantine the unreadable root and rebuild",
+                    file=sys.stderr,
+                )
+                return 1
+            quarantined = _quarantine_broken_root(calibration_dir)
+            print(
+                f"calibration build: quarantined unreadable calibration root to {quarantined.name}",
+                file=stdout if stdout is not None else sys.stdout,
+            )
+            expected_current = None
+            force = True
         discard_abandoned_generations(calibration_dir, stdout=stdout)
         work_dir = calibration_dir.with_name(
             f"{_GENERATION_PREFIX}{calibration_dir.name}.{uuid.uuid4().hex}"
@@ -128,6 +149,24 @@ def calibration_build_command(
 _GENERATION_PREFIX = ".generation."
 
 
+def _quarantine_broken_root(calibration_dir: Path) -> Path:
+    """Move an unreadable pointer and its bundle manifests aside, keeping the evidence.
+
+    Deleting them would remove the only description of what went wrong, and leaving them
+    would make every later run fail the same way with no path forward.
+    """
+
+    quarantine = calibration_dir / "lake" / "quarantine" / f"root-{uuid.uuid4().hex}"
+    quarantine.mkdir(parents=True)
+    for relative in ("lake/pointers/calibration", "lake/manifests/calibration-bundles"):
+        source = calibration_dir / relative
+        if source.exists():
+            target = quarantine / Path(relative).name
+            copytree(source, target)
+            rmtree(source)
+    return quarantine
+
+
 def discard_abandoned_generations(calibration_dir: Path, *, stdout: TextIO | None = None) -> None:
     """Remove work generations a killed build left beside the store.
 
@@ -147,11 +186,22 @@ def discard_abandoned_generations(calibration_dir: Path, *, stdout: TextIO | Non
     for path in sorted(parent.iterdir()):
         if not path.name.startswith(prefix) or not path.is_dir():
             continue
-        reclaimed = sum(item.stat().st_size for item in path.rglob("*") if item.is_file())
+        # A generation is a hard-link tree, so its apparent size counts bytes the store
+        # still holds; what this reclaims is the tree, not necessarily the blocks. Report
+        # both honestly, and report failure rather than assume the removal happened.
+        linked_bytes = sum(item.stat().st_size for item in path.rglob("*") if item.is_file())
         rmtree(path, ignore_errors=True)
+        out = stdout if stdout is not None else sys.stdout
+        if path.exists():
+            print(
+                f"calibration build: could not discard abandoned generation {path.name}",
+                file=sys.stderr,
+            )
+            continue
         print(
-            f"calibration build: discarded abandoned generation {path.name} ({reclaimed} bytes)",
-            file=stdout if stdout is not None else sys.stdout,
+            f"calibration build: discarded abandoned generation {path.name} "
+            f"({linked_bytes} linked bytes)",
+            file=out,
         )
 
 
@@ -398,6 +448,10 @@ def calibration_evaluate_command(
     except CalibrationCacheError as exc:
         print(f"calibration evaluate: {exc}", file=sys.stderr)
         return 1
+    cohort_assurance = {
+        asof: source_assurance(entry.panel.sources)
+        for asof, entry in bundle.manifest.cohorts.items()
+    }
     results = evaluate_cohorts(panels, forwards, horizons=horizons)
     scope = EvaluationScope(
         run_purpose=run_purpose,
@@ -465,7 +519,14 @@ def calibration_evaluate_command(
                     ),
                 }
             )
+            coverage["source_assurance"] = cohort_assurance.get(str(cohort["asof"]), "trace_only")
             if horizon in {"3y", "5y"}:
+                # Reading a stored result again and recomputing it from its input are
+                # different capabilities. A decision that changes the production method
+                # has to survive being re-derived — after a logic error, after a rules
+                # revision — and a cohort whose input the lake does not keep cannot be.
+                if coverage["source_assurance"] != "retained":
+                    blockers.append("source_not_retained")
                 # One blocker per independent observation. A verdict derived from
                 # another observation would count the same gap twice and make the
                 # reason histogram unreadable.

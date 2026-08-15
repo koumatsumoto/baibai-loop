@@ -19,6 +19,7 @@ if str(SRC) not in sys.path:
 from tests.helpers.calibration_store import synthetic_calibration_source
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
+from baibai_engine.market.lake.keys import current_calibration_bundle_pointer_key
 from baibai_engine.screening.calibration.cli import (
     calibration_build_command,
     calibration_evaluate_command,
@@ -1348,6 +1349,78 @@ class CalibrationPanelTest(unittest.TestCase):
             stored = sum(path.stat().st_size for path in store_dir.rglob("*") if path.is_file())
             self.assertLess(stored, sqlite_path.stat().st_size)
 
+    def test_an_unreadable_current_root_stops_the_build_until_it_is_replaced(self) -> None:
+        """A broken root is a loss, and recovering from it is an operator decision.
+
+        Treating it as "no store yet" would let a rebuild publish over live data it could
+        not read. Leaving no way forward would mean every later run fails identically and
+        the only fix is deleting files by hand, which loses the evidence and the rollback
+        identity together.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sqlite_path = root / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            store_dir = root / "calibration"
+            with patch(
+                "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                return_value=[ASOF],
+            ):
+                self.assertEqual(
+                    calibration_build_command(
+                        sqlite_path=sqlite_path,
+                        calibration_dir=store_dir,
+                        rules=load_screening_rules(),
+                        start=ASOF,
+                        end=ASOF,
+                        stdout=io.StringIO(),
+                    ),
+                    0,
+                )
+            pointer = store_dir / current_calibration_bundle_pointer_key()
+            pointer.write_bytes(b"{ not json")
+
+            errors = io.StringIO()
+            with (
+                patch(
+                    "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                    return_value=[ASOF],
+                ),
+                contextlib.redirect_stderr(errors),
+            ):
+                blocked = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(blocked, 1)
+            self.assertIn("--replace-broken-current", errors.getvalue())
+
+            output = io.StringIO()
+            with patch(
+                "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                return_value=[ASOF],
+            ):
+                repaired = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    replace_broken_current=True,
+                    stdout=output,
+                )
+
+            self.assertEqual(repaired, 0)
+            self.assertIn("quarantined unreadable calibration root", output.getvalue())
+            self.assertTrue(list((store_dir / "lake" / "quarantine").glob("root-*")))
+            self.assertTrue(resolve_calibration_bundle(store_dir).manifest.cohorts)
+
     def test_a_generation_a_killed_build_left_behind_is_discarded_and_reported(self) -> None:
         """A work generation is a sibling of the store, so nothing else would find it.
 
@@ -1383,7 +1456,7 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertFalse(abandoned.exists())
             self.assertIn("discarded abandoned generation", output.getvalue())
-            self.assertIn("20 bytes", output.getvalue())
+            self.assertIn("20 linked bytes", output.getvalue())
 
     def test_build_closes_every_dataset_over_one_sqlite_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

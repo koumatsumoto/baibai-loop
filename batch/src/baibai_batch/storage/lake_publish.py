@@ -275,6 +275,36 @@ class _RemotePublication:
             raise LakePublishError(f"remote graph has conflicting identities: {key}")
         return True
 
+    def put(
+        self,
+        key: str,
+        path: Path,
+        *,
+        sha256: str,
+        content_md5: str,
+        content_type: str,
+        if_match: str | None = None,
+        if_none_match: bool = False,
+    ) -> RemoteObject:
+        """Write one object and record the request the adapter makes to prove it landed.
+
+        Every remote request this publication causes is counted in one place. Letting the
+        adapter make an uncounted one leaves the transfer report arguing for differential
+        cost with a figure smaller than the cost.
+        """
+
+        result = self.store.put_file(
+            key,
+            path,
+            sha256=sha256,
+            content_md5=content_md5,
+            content_type=content_type,
+            if_match=if_match,
+            if_none_match=if_none_match,
+        )
+        self.head_requests += 1
+        return result
+
     def require_small_object(self, *, key: str, expected_sha256: str, content_type: str) -> bytes:
         """Read one manifest-sized object once, proving its identity from its bytes.
 
@@ -591,7 +621,7 @@ def publish_l1_release(
         temporary.flush()
         pointer_payload = Path(temporary.name).read_bytes()
         try:
-            result = store.put_file(
+            result = publication.put(
                 pointer_key,
                 Path(temporary.name),
                 sha256=hashlib.sha256(pointer_payload).hexdigest(),
@@ -642,7 +672,7 @@ def rollback_l1_release(*, store: ObjectStore) -> PublishReport:
         temporary.write(rollback_payload)
         temporary.flush()
         try:
-            result = store.put_file(
+            result = publication.put(
                 pointer_key,
                 Path(temporary.name),
                 sha256=hashlib.sha256(rollback_payload).hexdigest(),
@@ -897,7 +927,7 @@ def _publish_calibration_bundle(
         temporary.write(pointer_payload)
         temporary.flush()
         try:
-            result = store.put_file(
+            result = publication.put(
                 pointer_key,
                 Path(temporary.name),
                 sha256=hashlib.sha256(pointer_payload).hexdigest(),
@@ -940,7 +970,7 @@ def rollback_calibration_bundle(*, store: ObjectStore) -> CalibrationBundlePubli
         temporary.write(rollback_payload)
         temporary.flush()
         try:
-            result = store.put_file(
+            result = publication.put(
                 pointer_key,
                 Path(temporary.name),
                 sha256=hashlib.sha256(rollback_payload).hexdigest(),
@@ -1075,7 +1105,7 @@ def _ensure_immutable(
             raise LakePublishError(f"local upload source differs from graph identity: {key}")
         uploaded = True
         try:
-            publication.store.put_file(
+            publication.put(
                 key,
                 sealed,
                 sha256=digest,

@@ -1416,7 +1416,38 @@ class TestProjectionConcurrency:
                 destination=destination,
                 dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
                 builder_git_commit=_COMMIT,
-                still_current=lambda: resolve_current_release(cache.source).release_id,
+                still_current=lambda: (
+                    resolve_current_release(cache.source).release_id,
+                    resolve_current_release(cache.source).manifest_sha256,
+                ),
+                built_at=_BUILT_AT,
+            )
+
+        assert not destination.exists()
+
+    def test_a_release_id_reused_for_other_bytes_does_not_pass_the_currency_check(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        """A name is not an identity: recovery tools are exactly what reuse an ID.
+
+        Comparing only the release id lets a manifest republished under an existing name
+        satisfy the check while pointing at a different graph, and the projection built
+        from the old bytes takes the current destination.
+        """
+
+        destination = tmp_path / "projection.sqlite"
+        cache = _cache(lake)
+        release = resolve_current_release(cache.source)
+
+        with pytest.raises(ProjectionError, match="no longer current"):
+            build_projection(
+                session,
+                release=release,
+                cache=cache,
+                destination=destination,
+                dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
+                builder_git_commit=_COMMIT,
+                still_current=lambda: (release.release_id, "0" * 64),
                 built_at=_BUILT_AT,
             )
 

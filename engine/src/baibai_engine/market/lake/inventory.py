@@ -32,6 +32,10 @@ SOFT_BUDGET_BYTES = {
 }
 
 
+# Files the operation writes beside the lake namespace, not objects the lake publishes.
+_CONTROL_FILES = frozenset({".lake-writer.lock"})
+
+
 def _capacity_class(key: str) -> str | None:
     """The budget a stored key counts against, or ``None`` when another class holds it."""
     if key.startswith("lake/l1/raw/"):
@@ -73,6 +77,7 @@ def inventory(root: Path) -> dict[str, JsonValue]:
             "raw_retention": [],
             "raw_inventory_errors": [],
             "raw_unclassified": {"objects": 0, "bytes": 0},
+            "control_files": {"objects": 0, "bytes": 0},
             "invalid_keys": [],
         }
     if not root.is_dir():
@@ -88,11 +93,20 @@ def inventory(root: Path) -> dict[str, JsonValue]:
     raw_payloads: dict[str, int] = {}
     raw_metadata_objects: set[str] = set()
     capacity: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
+    control_files = 0
+    control_bytes = 0
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
         key = path.relative_to(root).as_posix()
         size = path.stat().st_size
+        # Operational control files live beside the namespace rather than in it. Counting
+        # them as lake objects makes the totals disagree with the prefix breakdown, and
+        # reporting them as invalid keys makes a healthy store look corrupt.
+        if key in _CONTROL_FILES:
+            control_files += 1
+            control_bytes += size
+            continue
         objects += 1
         total_bytes += size
         try:
@@ -175,5 +189,6 @@ def inventory(root: Path) -> dict[str, JsonValue]:
             "objects": len(orphan_payloads),
             "bytes": sum(raw_payloads[key] for key in orphan_payloads),
         },
+        "control_files": {"objects": control_files, "bytes": control_bytes},
         "invalid_keys": invalid_keys,
     }
