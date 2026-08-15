@@ -29,10 +29,6 @@ SOFT_BUDGET_BYTES = {
     # what current, previous, and pins can still be rebuilt from.
     "build_inputs": 10 * 1024**3,
 }
-RAW_SOFT_BUDGET_BYTES = {
-    "preserve": SOFT_BUDGET_BYTES["raw_preserve"],
-    "buffer": SOFT_BUDGET_BYTES["raw_buffer"],
-}
 
 
 def _capacity_class(key: str) -> str | None:
@@ -160,8 +156,6 @@ def inventory(root: Path) -> dict[str, JsonValue]:
                 "oldest_retrieved_at": (
                     raw_oldest[name].astimezone(UTC).isoformat() if name in raw_oldest else None
                 ),
-                "soft_budget_bytes": RAW_SOFT_BUDGET_BYTES[name],
-                "budget_exceeded": raw_totals[name][1] > RAW_SOFT_BUDGET_BYTES[name],
             }
             for name in ("preserve", "buffer")
         ],

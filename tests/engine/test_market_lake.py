@@ -728,7 +728,7 @@ def test_inventory_reads_metadata_only_and_groups_valid_keys(tmp_path: Path) -> 
     assert result["invalid_keys"] == ["outside.txt"]
 
 
-def test_inventory_reports_raw_retention_class_bytes_and_budget(tmp_path: Path) -> None:
+def test_inventory_reports_raw_retention_class_bytes_and_age(tmp_path: Path) -> None:
     raw = b"raw-bytes"
     digest = hashlib.sha256(raw).hexdigest()
     key = raw_object_key(
@@ -761,7 +761,10 @@ def test_inventory_reports_raw_retention_class_bytes_and_budget(tmp_path: Path) 
     by_class = {item["class"]: item for item in result["raw_retention"]}
     assert by_class["buffer"]["objects"] == 1
     assert by_class["buffer"]["bytes"] == len(raw)
-    assert by_class["buffer"]["budget_exceeded"] is False
+    assert by_class["buffer"]["oldest_retrieved_at"] is not None
+    capacity = {item["class"]: item for item in result["capacity"]}
+    assert capacity["raw_buffer"]["bytes"] == len(raw)
+    assert capacity["raw_buffer"]["budget_exceeded"] is False
     assert result["raw_inventory_errors"] == []
     assert result["raw_unclassified"] == {"objects": 0, "bytes": 0}
 
