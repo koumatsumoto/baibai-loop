@@ -114,7 +114,7 @@ daily pipeline の予算はこの実測値を前提に置く。fast path と sch
 この計測は commit ではなく実装 digest（writer / models / immutable / snapshot / benchmark tool）へ
 結ぶ。それらに触れない変更では証跡は有効なままで、触れた変更は再計測になる。
 
-**現在の状態: 参考値（digest 不一致）。** 計測時の digest は `fa237713…`、現在は `fb47cb72…` で、
+**現在の状態: 参考値（digest 不一致）。** 計測時の digest は `fa237713…`、現在は `441ea529…` で、
 動いたのは `models.py`（cohort source の語彙）だけである。export path 本体 — writer / immutable /
 snapshot / benchmark tool — は計測時から差分ゼロなので数値は同程度と考えるが、digest 一致を根拠には
 できない。この表を current head の acceptance evidence として読まないこと。cutover 前に再計測する。
@@ -301,7 +301,7 @@ cold 78.55秒、reuse 47.07秒、peak RSS 433 MiB、output 1.33 GiB、代表quer
 `sha256:e53ee0ea9deb62adcb222cb63fefcc623ae8739e64c5d77d9f601f659cfe4e37`、benchmarkの
 implementation SHA-256は`6b583b2af13fd7920e01efab10ce6e7409f6b40fd4f28e6f03de533f061db6a1`である。
 
-**現在の状態: stale。** 現 head の projection fingerprint は `sha256:efdcf38e…` で、記録値とは別の
+**現在の状態: stale。** 現 head の projection fingerprint は `sha256:849830e5…` で、記録値とは別の
 identity である（currency check の full identity 化と、reuse identity への DuckDB / SQLite version
 追加による）。数値の桁は変わらないと見ているが、この head の証跡ではない。再計測が必要。
 <!-- AP-02: cold=78.55443349899724、reuse=47.06548080200446、
