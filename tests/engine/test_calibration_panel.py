@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -1297,6 +1298,61 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertEqual(resolve_calibration_bundle(store_dir).ref, before)
             self.assertEqual(list(root.glob(".calibration.generation.*")), [])
+
+    def test_repeated_builds_do_not_accumulate_sealed_stores(self) -> None:
+        """Storage must follow what the store publishes, not how many times it was built.
+
+        Each build seals the whole legacy store to read it consistently. Keeping one per
+        build would put roughly 2 GB of production data into the store every month while
+        the cohorts themselves are a few hundred megabytes in total — the lake would
+        cross its entire capacity objective in a handful of generations, and reachability
+        would protect every copy, so collection could reclaim none of it.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sqlite_path = root / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            store_dir = root / "calibration"
+            identities: set[str] = set()
+
+            for run in range(3):
+                with sqlite3.connect(sqlite_path) as connection:
+                    connection.execute(
+                        "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?,?,?)",
+                        (f"90{run}0", "2026-06-29", 100.0 + run),
+                    )
+                with patch(
+                    "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                    return_value=[ASOF],
+                ):
+                    code = calibration_build_command(
+                        sqlite_path=sqlite_path,
+                        calibration_dir=store_dir,
+                        rules=load_screening_rules(),
+                        start=ASOF,
+                        end=ASOF,
+                        force=True,
+                        stdout=io.StringIO(),
+                    )
+                self.assertEqual(code, 0)
+                bundle = resolve_calibration_bundle(store_dir)
+                identities.update(
+                    source.source_id
+                    for entry in bundle.manifest.cohorts.values()
+                    for source in entry.panel.sources
+                )
+
+            # Three distinct generations were read and each was named in a manifest,
+            # and none of them left bytes behind: the store stays smaller than one copy
+            # of the legacy database rather than growing by one per build.
+            self.assertEqual(len(identities), 3)
+            self.assertEqual(list(store_dir.rglob("*.sqlite")), [])
+            self.assertEqual(list(root.glob(".generation.*")), [])
+            stored = sum(
+                path.stat().st_size for path in store_dir.rglob("*") if path.is_file()
+            )
+            self.assertLess(stored, sqlite_path.stat().st_size)
 
     def test_a_generation_a_killed_build_left_behind_is_discarded_and_reported(self) -> None:
         """A work generation is a sibling of the store, so nothing else would find it.
