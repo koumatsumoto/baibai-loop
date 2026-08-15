@@ -7,11 +7,13 @@ from immutable objects.
 
 Reuse is decided by exact identity, never by age or by a version counter: the
 release, the release manifest digest, every dataset manifest digest, every object
-digest, the projection contract fingerprint, and the producing commit must all
-match. Anything else — a differing field, a missing metadata table, an interrupted
-build — rebuilds. A build writes to a unique temporary file and is promoted with a
-single rename, so a reader never observes a half-built projection and a failed
-build leaves the previous one intact.
+digest, and the projection contract fingerprint must all match. Anything else — a
+differing field, a missing metadata table, an interrupted build — rebuilds. The
+building commit is recorded beside the projection as audit and is deliberately not
+part of that identity, because a commit moves for documentation or for the web app
+without moving a byte of the projection. A build writes to a unique temporary file
+and is promoted with a single rename, so a reader never observes a half-built
+projection and a failed build leaves the previous one intact.
 """
 
 from __future__ import annotations

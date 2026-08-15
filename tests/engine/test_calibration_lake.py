@@ -288,6 +288,72 @@ class TestImmutableBuilds:
         with pytest.raises(ValueError, match="at cohorts"):
             load_lake_model_json(json.dumps(payload).encode(), CalibrationBundleManifest)
 
+    def test_a_run_given_a_fixed_generation_never_consults_the_pointer_again(
+        self, tmp_path: Path
+    ) -> None:
+        """Fixing a generation has to fix everything the run reads, or it fixes nothing.
+
+        An evaluation resolves the bundle once and hands it to every reader. If a reader
+        re-resolves current for any part of its answer, the run's inputs depend on when
+        it ran relative to somebody else's publication: the same fixed bundle reads on
+        one attempt and fails on the next. Deleting the pointer is the sharpest form of
+        the question — a pinned study has to survive it.
+        """
+
+        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
+        publish_forward(tmp_path, _JANUARY, _forward_rows(_JANUARY))
+        first = resolve_calibration_bundle(tmp_path)
+        january = date.fromisoformat(_JANUARY)
+        expected_panel = read_panel(tmp_path, january, bundle=first)
+        expected_forward = read_forward(tmp_path, january, bundle=first)
+
+        # current moves on, and then stops existing at all.
+        publish_panel(tmp_path, _FEBRUARY, _cohort(_FEBRUARY))
+        assert read_panel(tmp_path, january, bundle=first) == expected_panel
+        (tmp_path / current_calibration_bundle_pointer_key()).unlink()
+
+        assert read_panel(tmp_path, january, bundle=first) == expected_panel
+        assert read_forward(tmp_path, january, bundle=first) == expected_forward
+        assert read_panel_meta(tmp_path, january, bundle=first)["rules_hash"]
+
+    def test_one_datasets_contract_move_does_not_unresolve_the_others(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Resolving a generation is structural; the version belongs to whoever decodes.
+
+        This is the reason the contract version is per dataset. A forward contract bump
+        must not make the panel — whose columns did not move and whose objects this code
+        decodes perfectly — unreadable, because that turns every dataset's evolution into
+        a rebuild of all three.
+        """
+
+        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
+        publish_forward(tmp_path, _JANUARY, _forward_rows(_JANUARY))
+        january = date.fromisoformat(_JANUARY)
+        expected_panel = read_panel(tmp_path, january)
+
+        upgraded = replace(CALIBRATION_FORWARD, contract_version=2)
+        monkeypatch.setitem(lake_module.L2_DATASETS, CALIBRATION_FORWARD.name, upgraded)
+        monkeypatch.setattr(store, "CALIBRATION_FORWARD", upgraded)
+
+        assert read_panel(tmp_path, january) == expected_panel
+        assert read_panel_meta(tmp_path, january)["rules_hash"]
+        with pytest.raises(CalibrationCacheError, match="accepts only v2"):
+            read_forward(tmp_path, january)
+
+    def test_a_bundle_cannot_restate_a_store_wide_compatibility_value(self, tmp_path: Path) -> None:
+        # The field was removed rather than verified: nothing derived it from the
+        # dataset manifests, so an alternate writer could record any value and no reader
+        # would be wrong. The wire has to refuse it rather than carry it unread.
+        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
+        payload = json.loads(
+            (tmp_path / _bundle_pointer(tmp_path).current.manifest_key).read_bytes()
+        )
+        payload["cache_schema_version"] = "0" * 16
+
+        with pytest.raises(ValidationError, match="cache_schema_version"):
+            CalibrationBundleManifest.model_validate_json(json.dumps(payload))
+
     def test_a_bundle_that_hides_a_cohort_its_datasets_hold_is_refused(
         self, tmp_path: Path
     ) -> None:

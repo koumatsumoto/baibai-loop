@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import sys
 import uuid
+from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import date
 from os import link
 from pathlib import Path
 from shutil import copytree, rmtree
-from typing import TextIO, cast
+from typing import Literal, TextIO, cast
 
 import yaml
 
@@ -319,6 +320,18 @@ def _calibration_build_command(
     rows = [row for cohort_rows in by_asof.values() for row in cohort_rows]
     resolved = sum(row.resolved for row in rows)
     control_event = sum(row.status == CONTROL_EVENT_EXIT_STATUS for row in rows)
+    dropped = _cohorts_this_build_would_drop(calibration_dir, work_dir, force=force)
+    if dropped:
+        print(
+            "calibration build: this run would publish a generation without "
+            f"{len(dropped)} cohort(s) the store currently serves: "
+            f"{', '.join(item.isoformat() for item in dropped[:5])}"
+            f"{' …' if len(dropped) > 5 else ''}. "
+            "Widen --start/--end to cover them, or rebuild into a separate "
+            "--calibration-dir if a shorter history is what you want.",
+            file=sys.stderr,
+        )
+        return 1
     adoption = adopt_bundle_generation(
         calibration_dir,
         work_dir,
@@ -341,6 +354,33 @@ def _calibration_build_command(
         file=out,
     )
     return 0
+
+
+def _cohorts_this_build_would_drop(
+    calibration_dir: Path, work_dir: Path, *, force: bool
+) -> list[date]:
+    """Cohorts the store serves now that the generation about to be adopted omits.
+
+    A build states the window it recomputes, not the history it intends to keep. Without
+    ``--force`` the store is hard-linked into the work generation, so everything outside
+    the window is carried and this is empty by construction. With it the generation
+    starts empty and holds exactly the requested as-ofs — so a run meant to correct one
+    year would publish a current bundle holding only that year, and the other six would
+    leave the served inventory without anything saying so.
+
+    The check is on the built generation rather than on the requested grid: what matters
+    is what is about to become current, whatever produced it. A store with no readable
+    pointer has no inventory to compare against, and the operator has already been told
+    the root is being replaced.
+    """
+
+    if not force:
+        return []
+    try:
+        served = set(published_cohorts(calibration_dir))
+    except CalibrationCacheError:
+        return []
+    return sorted(served - set(published_cohorts(work_dir)))
 
 
 def _optional_count(value: object) -> int | None:
@@ -374,34 +414,52 @@ def _required_metric_statuses(
     }
 
 
-def _cohorts_missing_sources(
-    calibration_dir: Path, bundle: FixedCalibrationBundle
-) -> frozenset[str]:
-    """Which cohorts state a kept source that the store can no longer produce.
+SourceClosureStatus = Literal["not_applicable", "available", "unavailable"]
+
+
+def _source_closure_status(
+    calibration_dir: Path, bundle: FixedCalibrationBundle, asofs: Sequence[date]
+) -> dict[str, SourceClosureStatus]:
+    """Whether each evaluated cohort's kept sources are still where it says they are.
 
     Adoption, pinning, and publication each prove the closure at the moment they run,
     and nothing between them proves it again. A file removed by hand or lost to disk
     corruption afterwards leaves the output objects intact, so evaluation completes and
     every manifest still states the assurance it was written with.
 
-    Every run asks, including a diagnostic one, so the answer in the output is always
-    something that was measured. Reporting an unmeasured closure as available would make
-    the field read as "nothing missing" on the runs that never looked. The verification
-    scope is what keeps that affordable: one archive is named by every cohort in the
-    store, and the scope hashes each distinct source once for the whole command instead
-    of once per reference to it.
+    Three answers, not two. A cohort built from a store generation the lake never kept
+    has no closure to check, and calling that "available" would report the cohort with
+    the weakest lineage in the store as the one whose bytes are most certainly there.
+    ``not_applicable`` says the question does not arise; the assurance beside it says
+    why.
+
+    Only the cohorts this run evaluates are checked. Hashing every archive in the store
+    to report on a two-month window makes the cost of asking about a cohort depend on
+    how many other cohorts exist. The scope keeps even that proportional to distinct
+    sources rather than to references.
     """
 
-    missing: set[str] = set()
+    wanted = {asof.isoformat() for asof in asofs}
+    status: dict[str, SourceClosureStatus] = {}
     with verified_source_scope():
         for asof, cohort in bundle.manifest.cohorts.items():
-            for role in (cohort.panel, cohort.diagnostics, cohort.forward):
-                for source in retained_sources(role.sources):
-                    try:
-                        resolve_source_ref(calibration_dir, source)
-                    except (OSError, ValueError):
-                        missing.add(asof)
-    return frozenset(missing)
+            if asof not in wanted:
+                continue
+            sources = [
+                source
+                for role in (cohort.panel, cohort.diagnostics, cohort.forward)
+                for source in retained_sources(role.sources)
+            ]
+            if not sources:
+                status[asof] = "not_applicable"
+                continue
+            status[asof] = "available"
+            for source in sources:
+                try:
+                    resolve_source_ref(calibration_dir, source)
+                except (OSError, ValueError):
+                    status[asof] = "unavailable"
+    return status
 
 
 def calibration_evaluate_command(
@@ -497,7 +555,7 @@ def calibration_evaluate_command(
         )
         for asof, entry in bundle.manifest.cohorts.items()
     }
-    unavailable_sources = _cohorts_missing_sources(calibration_dir, bundle)
+    closure_status = _source_closure_status(calibration_dir, bundle, asofs)
     results = evaluate_cohorts(panels, forwards, horizons=horizons)
     scope = EvaluationScope(
         run_purpose=run_purpose,
@@ -566,7 +624,9 @@ def calibration_evaluate_command(
                 }
             )
             coverage["source_assurance"] = cohort_assurance.get(str(cohort["asof"]), "trace_only")
-            coverage["source_closure_available"] = str(cohort["asof"]) not in unavailable_sources
+            coverage["source_closure_status"] = closure_status.get(
+                str(cohort["asof"]), "not_applicable"
+            )
             if horizon in {"3y", "5y"}:
                 # Reading a stored result again and recomputing it from its input are
                 # different capabilities. A decision that changes the production method
@@ -585,7 +645,7 @@ def calibration_evaluate_command(
                     # `rebuildable_input` is a present-tense claim: the assurance is
                     # read from the manifest, and a manifest keeps saying it long after
                     # the bytes it names were deleted or corrupted underneath it.
-                    if not coverage["source_closure_available"]:
+                    if coverage["source_closure_status"] == "unavailable":
                         blockers.append("source_unavailable")
                 # One blocker per independent observation. A verdict derived from
                 # another observation would count the same gap twice and make the

@@ -11,12 +11,13 @@ object: a contract change produces a new build, which is what keeps a cohort
 measured under one set of rules from ever merging with a cohort measured under
 another.
 
-Compatibility is stated per dataset. ``CACHE_SCHEMA_VERSIONS`` is folded into the
-transform fingerprint of each build, so a build written under different measurement
-rules is rejected rather than read, and a contract change to one dataset leaves the
-other two readable. ``CACHE_SCHEMA_VERSION`` is the store-wide summary of those three:
-it describes a generation and decides whether a legacy CSV store is migratable, and it
-is not what any read is gated on.
+Compatibility is stated per dataset and nowhere else. ``CACHE_SCHEMA_VERSIONS`` is
+folded into the transform fingerprint of each build, so a build written under different
+measurement rules is rejected rather than read, and a contract change to one dataset
+leaves the other two readable. ``CACHE_SCHEMA_VERSION`` is a store-wide summary of the
+three used to decide whether a *legacy CSV* store is migratable; no published generation
+records it, because a summary nothing derives or verifies is a second statement of a
+fact the dataset manifests already carry.
 """
 
 from __future__ import annotations
@@ -93,6 +94,7 @@ from .lake import (
     require_build_inputs,
     require_l2_dataset,
     require_manifest_contract,
+    require_manifest_layout,
     transform_fingerprint,
     write_l2_partition,
 )
@@ -187,6 +189,20 @@ def _published_generation(root: Path) -> FixedCalibrationBundle:
     return bundle
 
 
+def _read_generation(root: Path, bundle: FixedCalibrationBundle | None) -> FixedCalibrationBundle:
+    """The generation a read acts on: the one it was handed, or the one served.
+
+    A caller that already fixed a generation must not have the current pointer consulted
+    again on its behalf, for anything — not for rows, and not for the observation policy
+    the rows are validated against. Re-reading it makes the run's inputs depend on when
+    it ran relative to somebody else's publication: the same fixed bundle would read on
+    one attempt and fail on the next because current moved, and a run started against a
+    pinned generation would fail if current were deleted underneath it.
+    """
+
+    return bundle if bundle is not None else _published_generation(root)
+
+
 def _published_policy(root: Path) -> ForwardObservationPolicy:
     """Fix the served generation and return the observation rules it states.
 
@@ -219,15 +235,18 @@ def _require_current_contract(root: Path) -> None:
     Adoption is the one act that has to ask the bundle-wide question: it makes a
     generation canonical for every reader, so all three datasets must be ones this build
     can produce and read. It asks it as three per-dataset questions rather than as one
-    aggregate, so the answer names the dataset that has to be rebuilt.
+    aggregate, so the answer names the dataset that has to be rebuilt — and it asks both
+    halves, contract version and transform, because resolution asks neither.
     """
 
     bundle = _published_generation(root)
     policy = _policy_of(bundle)
     for name, manifest in bundle.datasets.items():
+        dataset = require_l2_dataset(name)
+        require_manifest_contract(dataset, manifest)
         require_build_inputs(
             manifest,
-            dataset=require_l2_dataset(name),
+            dataset=dataset,
             cache_schema_version=CACHE_SCHEMA_VERSIONS[name],
             forward_policy=policy,
         )
@@ -306,7 +325,7 @@ def _fixed_bundle(root: Path) -> FixedCalibrationBundle | None:
         if sha256_bytes(manifest_payload) != reference.manifest_sha256:
             raise CalibrationLakeError(f"calibration bundle dataset digest differs: {name}")
         manifest = load_manifest(root / reference.manifest_key)
-        require_manifest_contract(require_l2_dataset(name), manifest)
+        require_manifest_layout(require_l2_dataset(name), manifest)
         if manifest.build_id != reference.build_id or manifest.totals.rows != reference.rows:
             raise CalibrationLakeError(f"calibration bundle dataset identity differs: {name}")
         manifests[name] = manifest
@@ -423,7 +442,6 @@ def _publish_bundle(
         bundle_id=bundle_id,
         created_at=now,
         assembled_by_git_commit=assembled_by or verified_git_commit(),
-        cache_schema_version=CACHE_SCHEMA_VERSION,
         forward_observation_policy=ForwardObservationPolicyRef(
             use_control_event_exits=forward_policy.use_control_event_exits
         ),
@@ -959,6 +977,11 @@ def _cohort_payloads(
     }[dataset.name]
     if entry.status in {"partial", "not_computed"}:
         raise CalibrationLakeError(f"{dataset.name}: cohort is {entry.status}")
+    # Both halves of "can this code decode these rows", asked about this dataset only:
+    # the published contract version, and the transform that produced the values under
+    # it. Resolution deliberately asks neither, so this is where a generation whose other
+    # dataset moved on stops being anyone else's problem.
+    require_manifest_contract(dataset, manifest)
     require_build_inputs(
         manifest, dataset=dataset, cache_schema_version=CACHE_SCHEMA_VERSIONS[dataset.name]
     )
@@ -976,13 +999,12 @@ def _cohort_payloads(
 def read_panel(
     root: Path, asof: date, *, bundle: FixedCalibrationBundle | None = None
 ) -> list[PanelRow]:
-    _published_policy(root)
     try:
-        fixed = bundle or _fixed_bundle(root)
+        fixed = _read_generation(root, bundle)
         payloads = _cohort_payloads(root, CALIBRATION_PANEL, asof, bundle=fixed)
     except (CalibrationLakeError, LakeRetentionError) as exc:
         raise CalibrationCacheError(f"calibration panel cache is invalid: {exc}") from exc
-    entry = None if fixed is None else fixed.manifest.cohorts.get(asof.isoformat())
+    entry = fixed.manifest.cohorts.get(asof.isoformat())
     if entry is not None and entry.panel.status == "empty":
         return []
     if not payloads:
@@ -998,9 +1020,9 @@ def read_panel(
 def read_panel_meta(
     root: Path, asof: date, *, bundle: FixedCalibrationBundle | None = None
 ) -> dict[str, object]:
-    _published_policy(root)
     try:
-        payloads = _cohort_payloads(root, CALIBRATION_DIAGNOSTICS, asof, bundle=bundle)
+        fixed = _read_generation(root, bundle)
+        payloads = _cohort_payloads(root, CALIBRATION_DIAGNOSTICS, asof, bundle=fixed)
     except (CalibrationLakeError, LakeRetentionError) as exc:
         raise CalibrationCacheError(f"calibration cache metadata is invalid: {exc}") from exc
     if not payloads:
@@ -1020,19 +1042,19 @@ def read_panel_meta(
 def read_forward(
     root: Path, asof: date, *, bundle: FixedCalibrationBundle | None = None
 ) -> list[ForwardReturnRow]:
-    forward_policy = _published_policy(root)
     try:
-        fixed = bundle or _fixed_bundle(root)
-        if fixed is None:
-            raise CalibrationCacheError(
-                "calibration cache is partial; run calibration-build --force"
-            )
+        fixed = _read_generation(root, bundle)
+        # The observation rules come from the generation being read, not from whatever
+        # the pointer names now. Taking them from current would validate this bundle's
+        # forward build against another generation's policy.
+        forward_policy = _policy_of(fixed)
         manifest = fixed.datasets[CALIBRATION_FORWARD.name]
         cohort = fixed.manifest.cohorts.get(asof.isoformat())
         if cohort is None or cohort.forward.status in {"partial", "not_computed"}:
             raise CalibrationCacheError(
                 "calibration cache is partial; run calibration-build --force"
             )
+        require_manifest_contract(CALIBRATION_FORWARD, manifest)
         require_build_inputs(
             manifest,
             dataset=CALIBRATION_FORWARD,

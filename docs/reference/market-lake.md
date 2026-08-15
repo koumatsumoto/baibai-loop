@@ -111,8 +111,13 @@ local 側は 252 秒かかる。** その大半は 2 GB の sealed snapshot 作�
 daily pipeline の予算はこの実測値を前提に置く。fast path と scheduled full audit の分離は、
 この時間が daily の制約になった時点で検討する。
 
-この計測は commit ではなく実装 digest（`fa237713…`: writer / models / immutable / snapshot /
-benchmark tool）へ結ぶ。それらに触れない変更では証跡は有効なままで、触れた変更は再計測になる。
+この計測は commit ではなく実装 digest（writer / models / immutable / snapshot / benchmark tool）へ
+結ぶ。それらに触れない変更では証跡は有効なままで、触れた変更は再計測になる。
+
+**現在の状態: 参考値（digest 不一致）。** 計測時の digest は `fa237713…`、現在は `fb47cb72…` で、
+動いたのは `models.py`（cohort source の語彙）だけである。export path 本体 — writer / immutable /
+snapshot / benchmark tool — は計測時から差分ゼロなので数値は同程度と考えるが、digest 一致を根拠には
+できない。この表を current head の acceptance evidence として読まないこと。cutover 前に再計測する。
 
 <!-- AP-02: full=367.0256703949999 秒、incremental=251.45569620199967 秒、
 peak RSS=993619968 / 1048576 = 947.6015625 MiB、
@@ -295,6 +300,10 @@ cold 78.55秒、reuse 47.07秒、peak RSS 433 MiB、output 1.33 GiB、代表quer
 全budget、`quick_check`、4件の`sqlite_stat1`を満たす。projection fingerprintは
 `sha256:e53ee0ea9deb62adcb222cb63fefcc623ae8739e64c5d77d9f601f659cfe4e37`、benchmarkの
 implementation SHA-256は`6b583b2af13fd7920e01efab10ce6e7409f6b40fd4f28e6f03de533f061db6a1`である。
+
+**現在の状態: stale。** 現 head の projection fingerprint は `sha256:efdcf38e…` で、記録値とは別の
+identity である（currency check の full identity 化と、reuse identity への DuckDB / SQLite version
+追加による）。数値の桁は変わらないと見ているが、この head の証跡ではない。再計測が必要。
 <!-- AP-02: cold=78.55443349899724、reuse=47.06548080200446、
 peak RSS=453734400 / 1048576 = 432.71484375 MiB、
 output=1430007808 / 1073741824 = 1.3317985534667969 GiB、query p95最大=0.0654769828543067 ms。 -->
@@ -352,10 +361,20 @@ buildは拒否される。storeが名乗るpolicyはbundle manifestの中にあ�
 `contract_version`はdatasetごとに持つ。object keyへ入る唯一の互換性表示なので、片方のrow型が
 列を得たときに同じ`contract=v1`が2つの列構成を指すと、versionだけで判断する外部readerが違う形を
 読む。drift gate `check_l2_contract_versions`が記録済みschema signatureと実際のschemaを突き合わせ、
-bumpせずにrow型を変えた変更を落とす。cache identityもdatasetごとに導く — forwardへ列を1つ足して
-panelの81 cohortが再構築になるのは、値を動かせない変更に数時間と数百MBを払ううえ、「再構築が要る」
-という信号の意味を薄める。screening閾値と評価式の意味はpanel / diagnosticsの値を決めるが、forwardの
-観測 (entry / exit / 配当) は決めない。
+bumpせずにrow型を変えた変更を落とす。signatureは列・key・partitionに加えreaderが実際に比較する
+`baibai.*` metadataも署名するので、列を変えずrow型名だけを変えた場合も落ちる。cache identityも
+datasetごとに導く — forwardへ列を1つ足してpanelの81 cohortが再構築になるのは、値を動かせない変更に
+数時間と数百MBを払ううえ、「再構築が要る」という信号の意味を薄める。screening閾値と評価式の意味は
+panel / diagnosticsの値を決めるが、forwardの観測 (entry / exit / 配当) は決めない。
+
+**契約版を問う場所はrowをdecodeする側だけである。** bundleの解決はdigest edgeを閉じる構造的な行為で、
+forwardがv2へ動いた世代もpanelについては真の記述なので、解決時にversionを問うと1 datasetの契約変更が
+bundle全体をunresolveにし、完全にdecodeできるpanelが要求される前に拒否される。generationをcanonicalに
+するadoptionだけが3 dataset全ての契約版を問う。
+
+到達している範囲は**読み取り側**である。契約が動いたdataset自身はbuild全体を作り直す必要が残る
+（`_publish_cohort`が旧契約のpartitionをcarryできず、bundleは3 datasetのcohort集合一致を要求するため、
+build途中で1 datasetだけを作り直せない）。段階的なdataset単位upgradeは別phaseとする。
 
 build identityはcohort別typed `SourceRef`、その dataset を最後に作った`producer_git_commit`、
 semantic dependency closureのSHA-256とforward observation policyを含む`transform_fingerprint`、
@@ -403,9 +422,12 @@ producerが読んだ上流入力をlakeが保持していて、producer側の誤
 構成されるので、panelだけがarchive由来でforwardが未保持のstore世代由来なら、cohort全体はtrace_onlyである。
 
 `rebuildable_input`は現在形の主張なので、evaluateはcohort closureのretained sourceを1回ずつ解決して
-digestを検証し、結果を`source_closure_available`としてcoverageへ出す。同じarchiveを81 cohortが参照しても
-hashは1回になる（verification scope）。検証はrun purposeによらず必ず行う——見ていない実行が
-「available」と出せば、欠落が無いという読みになる。blockerを立てるのはproduction_decisionだけで、
+digestを検証し、結果を`source_closure_status`としてcoverageへ出す。値は
+`not_applicable` / `available` / `unavailable`の3つで、保持するsourceを持たないcohortは
+`not_applicable`である——検証対象が無いことを`available`と書けば、store中で最も素性の弱いcohortが
+最も確かなbytesを持つように読める。検証はrun purposeによらず行うが、**その実行が評価するcohortだけ**を
+対象にする（狭い窓の診断がstore全体のarchiveを読む理由はない）。同じarchiveを複数cohortが参照しても
+hashは1回になる（verification scope）。blockerを立てるのはproduction_decisionだけで、
 そこでは`source_unavailable`になる。
 
 L1 releaseがcohort sourceとして採れるようになるまで（Issue #917）、rebuildable_inputに到達するcohortは

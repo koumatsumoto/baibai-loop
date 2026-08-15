@@ -16,7 +16,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from tests.helpers.calibration_store import synthetic_calibration_source
+from tests.helpers.calibration_store import publish_panel, synthetic_calibration_source
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
 from baibai_engine.market.lake.keys import current_calibration_bundle_pointer_key
@@ -48,6 +48,7 @@ from baibai_engine.screening.calibration.store import (
     CalibrationCacheError,
     forward_row_from_mapping,
     panel_row_from_mapping,
+    published_cohorts,
     read_forward,
     read_panel,
     read_panel_meta,
@@ -1383,6 +1384,79 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(list(root.glob(".generation.*")), [])
             stored = sum(path.stat().st_size for path in store_dir.rglob("*") if path.is_file())
             self.assertLess(stored, sqlite_path.stat().st_size)
+
+    def test_a_forced_build_refuses_to_drop_cohorts_outside_its_range(self) -> None:
+        """A build states the window it recomputes, not the history it means to keep.
+
+        Without ``--force`` the store is hard-linked into the work generation, so
+        everything outside the window is carried. With it the generation starts empty,
+        so a run meant to correct one month would publish a current bundle holding only
+        that month — and the years it dropped would leave the served inventory with
+        nothing saying so.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sqlite_path = root / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            store_dir = root / "calibration"
+            earlier = "2026-05-29"
+            publish_panel(store_dir, earlier, [{"ticker": "7203"}])
+            publish_panel(store_dir, ASOF.isoformat(), [{"ticker": "7203"}])
+            before = resolve_calibration_bundle(store_dir).ref.bundle_id
+
+            errors = io.StringIO()
+            with (
+                contextlib.redirect_stderr(errors),
+                patch(
+                    "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                    return_value=[ASOF],
+                ),
+            ):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    force=True,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(code, 1)
+            self.assertIn(earlier, errors.getvalue())
+            # Refused before adoption, so the served generation is untouched.
+            self.assertEqual(resolve_calibration_bundle(store_dir).ref.bundle_id, before)
+            self.assertEqual(published_cohorts(store_dir), [date.fromisoformat(earlier), ASOF])
+
+    def test_a_forced_build_covering_the_whole_store_is_allowed(self) -> None:
+        # The check is on what is about to become current, not on the flag: a forced
+        # rebuild whose window covers the served inventory drops nothing and proceeds.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sqlite_path = root / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            store_dir = root / "calibration"
+            publish_panel(store_dir, ASOF.isoformat(), [{"ticker": "7203"}])
+            before = resolve_calibration_bundle(store_dir).ref.bundle_id
+
+            with patch(
+                "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                return_value=[ASOF],
+            ):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    force=True,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(code, 0)
+            self.assertNotEqual(resolve_calibration_bundle(store_dir).ref.bundle_id, before)
+            self.assertEqual(published_cohorts(store_dir), [ASOF])
 
     def test_an_unreadable_current_root_stops_the_build_until_it_is_replaced(self) -> None:
         """A broken root is a loss, and recovering from it is an operator decision.

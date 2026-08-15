@@ -281,6 +281,19 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       確認するか。開示値は全run purposeで実測し、未計測を「欠けなし」に見える既定値で埋めないか。purpose限定の
       blockerが他のpurposeへ漏れていないか。retained panel + trace-only forward、archiveのみ、archive削除・改変、
       diagnosticでの非block、空sourceをそれぞれnegative testで固定したか
+- [ ] 固定した世代（fixed release / fixed bundle）を渡して読ませるAPIを追加・変更する場合、渡された世代だけで
+      答えを閉じるか。rowだけでなく、rowの検証に使う policy / contract / identity も渡された世代から取るか。
+      current pointerを別世代へ動かした後、および pointer を削除した後に同じ結果が読めることをtestで固定したか
+- [ ] 部分範囲を再計算する操作（`--force`等）は、範囲外の既存生成物を黙って落とさないか。公開直前に
+      「今serveしている集合」と「これからserveする集合」を比較し、差分があれば名指してfail closeするか。
+      範囲がstoreを包含する場合は通ることも併せてtestしたか（否定側だけのtestは経路の全滅を隠す）
+- [ ] 合成generationの解決を変更する場合、構造（digest edge）と契約版のどちらを問うているか区別したか。
+      解決時に契約版を問うと1 datasetの版上げが全datasetをunresolveにする。契約版はrowをdecodeする側と
+      canonical化するadoptionだけが問い、非変更datasetが読めることをtestで固定したか
+- [ ] wireへ出す集約値は、参照先から導出して検証するか、出さないか。writeされるだけで誰も読まない
+      summary fieldは、alternate writerが任意の値を名乗れて誰も誤りと言えないので削除する
+- [ ] 可用性・充足性の観測値は「非該当」「充足」「不足」を区別するか。検証対象が無い場合を「充足」と
+      書くと、最も素性の弱い対象が最も確かに見える。検証I/Oはその実行が扱う対象へ限定したか
 - [ ] 壊れたrootのrecovery操作を追加・変更する場合、対象root以外（pin・previous・健全なmanifest）のidentityと
       closureが操作前後で完全一致することをtestで固定したか。復旧のためにdirectory単位でmanifestを退避すると、
       無関係なpinがunresolvedになりGCが恒久停止する

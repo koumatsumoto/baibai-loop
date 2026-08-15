@@ -687,18 +687,39 @@ def read_l2_partition(
     return []
 
 
-def require_manifest_contract(dataset: L2Dataset, manifest: DatasetManifest) -> None:
+def require_manifest_layout(dataset: L2Dataset, manifest: DatasetManifest) -> None:
+    """What has to hold for a manifest to be this dataset's at all, whatever its version.
+
+    Deliberately not the contract version. Resolving a generation is a structural act —
+    it closes digest edges and says which builds the pointer names — and a generation
+    whose forward dataset moved to v2 is still a truthful description of its panel. Asking
+    the version here would make one dataset's contract change unresolve the whole bundle,
+    so the panel a reader can decode perfectly would be refused before it is asked for.
+    """
+
     if manifest.dataset != dataset.name:
         raise CalibrationLakeError(f"manifest is for {manifest.dataset}, not {dataset.name}")
     if manifest.layer != "l2_analytical":
         raise CalibrationLakeError(f"{dataset.name}: manifest is not an L2 analytical build")
+    if tuple(manifest.partition_by) != dataset.partition_by:
+        raise CalibrationLakeError(f"{dataset.name}: manifest partition layout is unexpected")
+
+
+def require_manifest_contract(dataset: L2Dataset, manifest: DatasetManifest) -> None:
+    """The version check, asked where rows are actually decoded.
+
+    A contract version is a promise about the columns a reader will find, so it is owed
+    to whoever is about to read them and to nobody else. Every path that decodes rows —
+    and adoption, which makes a generation canonical for every future reader — asks it;
+    resolving the graph does not.
+    """
+
+    require_manifest_layout(dataset, manifest)
     if manifest.contract_version != dataset.contract_version:
         raise CalibrationLakeError(
             f"{dataset.name} publishes contract v{manifest.contract_version}; "
             f"this reader accepts only v{dataset.contract_version}"
         )
-    if tuple(manifest.partition_by) != dataset.partition_by:
-        raise CalibrationLakeError(f"{dataset.name}: manifest partition layout is unexpected")
 
 
 def require_build_inputs(

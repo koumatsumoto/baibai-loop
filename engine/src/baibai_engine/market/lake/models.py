@@ -626,6 +626,13 @@ class CalibrationBundleManifest(BaseModel):
     panels built earlier states both facts instead of restating one as the other.
     Compatibility between the datasets is decided by their transform fingerprints,
     cohort sources, and cutoffs — not by a shared commit.
+
+    There is deliberately no bundle-level compatibility field. Compatibility is a
+    per-dataset question and every answer lives in the dataset manifest the bundle
+    already names, so a summary here would be a second statement of the same fact that
+    nothing derives, verifies, or reads: an alternate writer could record any value and
+    every reader would still be right. A generation says what it is by naming its three
+    builds.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
@@ -634,7 +641,6 @@ class CalibrationBundleManifest(BaseModel):
     bundle_id: str
     created_at: datetime
     assembled_by_git_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
-    cache_schema_version: str
     # The contract a reader has to know before it can decide whether this generation is
     # the one it wants. It rides in the manifest the pointer names so that switching
     # generations is one atomic act: a separate file stating the contract could land
