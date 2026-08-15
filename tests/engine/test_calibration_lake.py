@@ -1342,6 +1342,13 @@ class TestSemanticIdentity:
             "screening/sqlite_reader.py",
             "screening/universe.py",
             "market/store.py",
+            # Reached only through other modules. A hand-written list of dependencies is
+            # exactly where these go missing: nothing in the panel names them, and each
+            # one decides what a stored value is.
+            "foundation/coerce.py",
+            "screening/metric_quality.py",
+            "screening/capital_control.py",
+            "market/sqlite/convert.py",
         ],
     )
     def test_a_panel_dependency_change_changes_the_panel_fingerprint(
@@ -1382,6 +1389,66 @@ class TestSemanticIdentity:
         )
 
         assert changed == baseline
+
+    def test_the_two_datasets_do_not_invalidate_each_other(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """How an outcome is observed and how a panel is screened are separate closures.
+
+        They share the entry-lag contract and nothing else, so a change to either
+        producer leaves the other's published months carryable.
+        """
+
+        panel_baseline = transform_fingerprint(CALIBRATION_PANEL, cache_schema_version="contract")
+        forward_baseline = transform_fingerprint(
+            CALIBRATION_FORWARD, cache_schema_version="contract"
+        )
+
+        panel_after_forward_change = self._fingerprint_with_changed_file(
+            monkeypatch,
+            dataset=CALIBRATION_PANEL,
+            relative_path="screening/calibration/forward.py",
+        )
+        monkeypatch.undo()
+        forward_after_panel_change = self._fingerprint_with_changed_file(
+            monkeypatch,
+            dataset=CALIBRATION_FORWARD,
+            relative_path="screening/calibration/panel.py",
+        )
+
+        assert panel_after_forward_change == panel_baseline
+        assert forward_after_panel_change == forward_baseline
+
+    def test_a_dependency_a_producer_starts_importing_joins_the_closure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A new import must change the identity without anyone maintaining a list.
+
+        This is the failure a named list cannot prevent: a listed module starts
+        importing a helper, rows change, and the fingerprint says nothing did.
+        """
+
+        engine_root = self._ENGINE_ROOT
+        entry = tmp_path / "producer.py"
+        helper = tmp_path / "helper.py"
+        helper.write_text("VALUE = 1\n", encoding="utf-8")
+        entry.write_text("VALUE = 0\n", encoding="utf-8")
+        monkeypatch.setattr(lake_module, "_ENGINE_ROOT", tmp_path)
+        monkeypatch.setitem(
+            lake_module._DATASET_ENTRY_MODULES, lake_module.PANEL_DATASET, "producer.py"
+        )
+        monkeypatch.setattr(lake_module, "_WRITER_MODULES", ())
+        lake_module._semantic_closure.cache_clear()
+        before = set(lake_module._semantic_implementation_digests(CALIBRATION_PANEL))
+
+        entry.write_text("from baibai_engine.helper import VALUE\n", encoding="utf-8")
+        lake_module._semantic_closure.cache_clear()
+        after = set(lake_module._semantic_implementation_digests(CALIBRATION_PANEL))
+        lake_module._semantic_closure.cache_clear()
+
+        assert before == {"producer.py"}
+        assert after == {"producer.py", "helper.py"}
+        assert engine_root.is_dir()
 
     def test_the_forward_observation_policy_is_part_of_the_forward_identity(self) -> None:
         baseline = transform_fingerprint(CALIBRATION_FORWARD, cache_schema_version="contract")

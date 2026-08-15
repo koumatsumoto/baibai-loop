@@ -19,6 +19,7 @@ absent" for a cohort that never measured it at all.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import types
@@ -27,6 +28,7 @@ import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass
 from datetime import UTC, date, datetime
+from functools import cache
 from itertools import pairwise
 from pathlib import Path
 from typing import Any, Literal, get_args, get_origin
@@ -235,61 +237,115 @@ def transform_fingerprint(
     return f"sha256:{hashlib.sha256(payload).hexdigest()}"
 
 
-# The modules a row's value, status, or membership is actually decided by, named
-# relative to the engine package. A build carries a month forward only when this
-# closure is byte-identical, so a change in how a candidate is built, how the market
-# store is read, or how a horizon is resolved cannot leave old rows sitting beside
-# new ones under one fingerprint. The list is explicit rather than derived from the
-# import graph: an import-closure would fold in unrelated helpers and rebuild every
-# cohort for a change that cannot move a row.
-_COMMON_SEMANTIC_DEPENDENCIES = (
+# What a row's value, status, and membership are decided by is whatever the build
+# imports, transitively. Naming those modules by hand is how the set falls behind: a
+# helper that a listed module starts importing changes rows while the fingerprint says
+# nothing changed, and nothing in the repository notices. So the closure is derived
+# from the import graph of the module that produces the dataset, and a new dependency
+# joins it by being imported.
+#
+# The two dataset entry points are separate, so a change to how a forward outcome is
+# observed does not invalidate published panel months — panel reaches ``forward`` only
+# for the one constant it borrows, and ``forward`` does not reach panel at all.
+_DATASET_ENTRY_MODULES = {
+    PANEL_DATASET: "screening/calibration/panel.py",
+    DIAGNOSTICS_DATASET: "screening/calibration/panel.py",
+    FORWARD_DATASET: "screening/calibration/forward.py",
+}
+
+# The writer decides the physical shape a row is stored in rather than its value, and
+# it imports both dataset modules for their types. Following its imports would tie the
+# two datasets together through a dependency that cannot move a number, so these two
+# are hashed as files and their imports are not followed.
+_WRITER_MODULES = (
     "screening/calibration/lake.py",
     "screening/calibration/store.py",
 )
-_PANEL_SEMANTIC_DEPENDENCIES = (
-    "market/store.py",
-    "screening/calibration/forward.py",
-    "screening/calibration/identity.py",
-    "screening/calibration/panel.py",
-    "screening/candidate_build.py",
-    "screening/estimates.py",
-    "screening/metrics.py",
-    "screening/render.py",
-    "screening/rule_config.py",
-    "screening/rules.py",
-    "screening/schema.py",
-    "screening/selection",
-    "screening/sqlite_reader.py",
-    "screening/universe.py",
-)
-_FORWARD_SEMANTIC_DEPENDENCIES = (
-    "market/bars.py",
-    "market/benchmark.py",
-    "screening/calibration/forward.py",
-    "screening/calibration/horizons.py",
-    "screening/metrics.py",
-    "screening/providers/jquants.py",
-)
+
+_ENGINE_ROOT = Path(__file__).resolve().parents[2]
+_ENGINE_PACKAGE = "baibai_engine"
+
+
+def _module_path(name: str) -> Path | None:
+    """The file a dotted engine module names, or ``None`` when it is outside the package."""
+    parts = name.split(".")
+    if parts[0] != _ENGINE_PACKAGE:
+        return None
+    candidate = _ENGINE_ROOT.joinpath(*parts[1:])
+    module = candidate.with_suffix(".py")
+    if module.is_file():
+        return module
+    package = candidate / "__init__.py"
+    return package if package.is_file() else None
+
+
+def _module_name(path: Path) -> str:
+    parts = list(path.relative_to(_ENGINE_ROOT).with_suffix("").parts)
+    if parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join([_ENGINE_PACKAGE, *parts])
+
+
+def _imported_modules(path: Path) -> set[str]:
+    """Every engine module this file could bind, absolute and relative forms alike.
+
+    ``from x import y`` is recorded as both ``x`` and ``x.y`` because the name may be a
+    submodule or a symbol inside one, and only the filesystem can tell which.
+    """
+
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError) as exc:
+        raise CalibrationLakeError(f"semantic dependency is unreadable: {path}") from exc
+    package = _module_name(path)
+    if path.name != "__init__.py":
+        package = package.rsplit(".", 1)[0]
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                base = package.split(".")
+                anchor = base[: len(base) - node.level + 1]
+                module = ".".join([*anchor, *([node.module] if node.module else [])])
+            else:
+                module = node.module or ""
+            names.add(module)
+            names.update(f"{module}.{alias.name}" for alias in node.names)
+    return names
+
+
+@cache
+def _semantic_closure(entry: str) -> tuple[Path, ...]:
+    """Every engine module reachable by import from one dataset's producer."""
+
+    start = _ENGINE_ROOT / entry
+    if not start.is_file():
+        raise CalibrationLakeError(f"semantic entry module is missing: {entry}")
+    reached: set[Path] = set()
+    pending = [start]
+    while pending:
+        path = pending.pop()
+        if path in reached:
+            continue
+        reached.add(path)
+        pending.extend(
+            resolved
+            for name in _imported_modules(path)
+            if (resolved := _module_path(name)) is not None
+        )
+    return tuple(sorted(reached))
 
 
 def _semantic_implementation_digests(dataset: L2Dataset) -> dict[str, str]:
-    names = (
-        _PANEL_SEMANTIC_DEPENDENCIES
-        if dataset.name in {PANEL_DATASET, DIAGNOSTICS_DATASET}
-        else _FORWARD_SEMANTIC_DEPENDENCIES
-    )
-    engine_root = Path(__file__).resolve().parents[2]
-    digests: dict[str, str] = {}
-    for name in sorted({*_COMMON_SEMANTIC_DEPENDENCIES, *names}):
-        target = engine_root / name
-        if target.is_dir():
-            for path in sorted(target.rglob("*.py")):
-                digests[path.relative_to(engine_root).as_posix()] = sha256_file(path)
-        elif target.is_file():
-            digests[name] = sha256_file(target)
-        else:
+    paths = set(_semantic_closure(_DATASET_ENTRY_MODULES[dataset.name]))
+    for name in _WRITER_MODULES:
+        writer = _ENGINE_ROOT / name
+        if not writer.is_file():
             raise CalibrationLakeError(f"semantic dependency is missing: {name}")
-    return digests
+        paths.add(writer)
+    return {path.relative_to(_ENGINE_ROOT).as_posix(): sha256_file(path) for path in sorted(paths)}
 
 
 @dataclass(frozen=True, slots=True)

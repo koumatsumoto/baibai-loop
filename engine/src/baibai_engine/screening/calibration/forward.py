@@ -13,7 +13,7 @@ from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, asof_basis_c
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
 from ..providers.jquants import JQuantsDailyBar
-from .horizons import HORIZONS, HorizonSpec, require_horizon
+from .horizons import HORIZONS, STALE_PRICE_MAX_LAG_DAYS, HorizonSpec, require_horizon
 
 __all__ = (
     "DEFAULT_FORWARD_OBSERVATION_POLICY",
@@ -84,7 +84,6 @@ def _shift_months(value: date, months: int) -> date:
     return date(year, month + 1, min(value.day, 28))
 
 
-STALE_PRICE_MAX_LAG_DAYS = 15
 BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY,)
 
 # A window that ended in a completed cash tender offer is resolved by the price that

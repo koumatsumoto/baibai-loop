@@ -1298,6 +1298,43 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(resolve_calibration_bundle(store_dir).ref, before)
             self.assertEqual(list(root.glob(".calibration.generation.*")), [])
 
+    def test_a_generation_a_killed_build_left_behind_is_discarded_and_reported(self) -> None:
+        """A work generation is a sibling of the store, so nothing else would find it.
+
+        It is built by hard-linking the store into it, which puts it outside every
+        prefix the lake inventory and the collector walk. A build killed mid-run leaves
+        one behind, and only the next build — which holds the writer lock, so no live
+        generation can exist — is in a position to reclaim it.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sqlite_path = root / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            store_dir = root / "calibration"
+            abandoned = root / f".generation.{store_dir.name}.deadbeef"
+            (abandoned / "lake").mkdir(parents=True)
+            (abandoned / "lake" / "leftover.parquet").write_bytes(b"abandoned generation")
+            output = io.StringIO()
+
+            with patch(
+                "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                return_value=[ASOF],
+            ):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    stdout=output,
+                )
+
+            self.assertEqual(code, 0)
+            self.assertFalse(abandoned.exists())
+            self.assertIn("discarded abandoned generation", output.getvalue())
+            self.assertIn("20 bytes", output.getvalue())
+
     def test_build_closes_every_dataset_over_one_sqlite_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

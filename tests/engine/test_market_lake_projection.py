@@ -1390,6 +1390,60 @@ class TestProjectionConcurrency:
         assert not destination.exists()
         assert _build(session, lake, destination=destination).reused is False
 
+    def test_a_build_that_resolved_an_older_release_does_not_replace_a_newer_one(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        """Serialising is not enough: the loser of the race can hold the older release.
+
+        A build resolves the pointer before it queues for the destination, so the
+        release it holds may be superseded while it waits. Publishing it anyway would
+        move the current projection backwards to a generation the pointer has already
+        left, and the projection would be internally valid the whole time — nothing
+        downstream could tell it apart from the newer one except by its release id.
+        """
+
+        destination = tmp_path / "projection.sqlite"
+        cache = _cache(lake)
+        stale = resolve_current_release(cache.source)
+        newer = _build_lake_second_release(lake)
+        assert newer != stale.release_id
+
+        with pytest.raises(ProjectionError, match="no longer current"):
+            build_projection(
+                session,
+                release=stale,
+                cache=cache,
+                destination=destination,
+                dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
+                builder_git_commit=_COMMIT,
+                still_current=lambda: resolve_current_release(cache.source).release_id,
+                built_at=_BUILT_AT,
+            )
+
+        assert not destination.exists()
+
+    def test_an_explicitly_named_release_is_built_without_a_currency_check(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        """Asking for one named generation is a statement, not a race to be arbitrated."""
+
+        destination = tmp_path / "historical.sqlite"
+        cache = _cache(lake)
+        named = resolve_current_release(cache.source)
+        _build_lake_second_release(lake)
+
+        report = build_projection(
+            session,
+            release=named,
+            cache=cache,
+            destination=destination,
+            dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
+            builder_git_commit=_COMMIT,
+            built_at=_BUILT_AT,
+        )
+
+        assert report.identity.source_release_id == named.release_id
+
 
 class TestCacheResilience:
     def test_a_damaged_cached_object_is_refetched_from_the_remote_source(

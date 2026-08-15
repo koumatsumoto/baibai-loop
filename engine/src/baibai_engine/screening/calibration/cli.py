@@ -261,7 +261,7 @@ def _calibration_build_command(
     rows = [row for cohort_rows in by_asof.values() for row in cohort_rows]
     resolved = sum(row.resolved for row in rows)
     control_event = sum(row.status == CONTROL_EVENT_EXIT_STATUS for row in rows)
-    adopt_bundle_generation(
+    adoption = adopt_bundle_generation(
         calibration_dir,
         work_dir,
         expected_current=expected_current,
@@ -269,6 +269,16 @@ def _calibration_build_command(
     print(
         f"calibration build: done (panels built={built}, forward rows={len(rows)}, "
         f"resolved={resolved}, control event exits={control_event})",
+        file=out,
+    )
+    # What making the generation current cost. Printing it is how a run that starts
+    # reinstalling the whole store instead of the month it changed becomes visible
+    # before the wall time does.
+    print(
+        f"calibration build: adopted {adoption.bundle_id} "
+        f"(closure objects={adoption.closure_objects}, hashed bytes={adoption.hashed_bytes}, "
+        f"installed objects={adoption.installed_objects}, "
+        f"installed bytes={adoption.installed_bytes}, reused objects={adoption.reused_objects})",
         file=out,
     )
     return 0

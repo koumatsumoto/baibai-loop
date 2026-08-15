@@ -58,7 +58,7 @@ from ..universe import (
     build_universe,
     liquid_median_population,
 )
-from .forward import STALE_PRICE_MAX_LAG_DAYS
+from .horizons import STALE_PRICE_MAX_LAG_DAYS
 from .identity import rules_contract_hash
 
 # select リプレイで記録する production-diversity 推奨順位の深さ。
