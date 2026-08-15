@@ -24,10 +24,11 @@ import yaml
 
 from baibai_engine.screening.calibration.panel import PanelRow as StoredPanelRow
 from baibai_engine.screening.calibration.store import (
+    CalibrationCacheError,
     published_cohorts,
     read_forward,
     read_panel,
-    read_panel_meta,
+    resolve_calibration_bundle,
 )
 
 DEFAULT_CALIBRATION_DIR = Path("stores/screening/calibration")
@@ -123,28 +124,27 @@ def _load_forward_returns(
 
 
 def require_single_rules_hash(calibration_dir: Path) -> str:
-    """全 panel が同じ screening rules で作られているか。
+    """この世代が名乗る screening rules の identity。
 
     rules を動かした後に一部だけ再構築すると、別の母集団定義で作られた月が混ざる。混ぜて
-    平均しても値は出てしまい、しかも権威ありげな percentile として報告へ載る。
+    平均しても値は出てしまい、しかも権威ありげな percentile として報告へ載る。混在の拒否は
+    bundle の組み立てが持つので、ここは manifest が名乗る identity をそのまま読む — 各 cohort
+    の行を開き直して数え直すと、authority ではない側で同じ判断をやり直すことになる。
     """
 
-    hashes: dict[str, list[str]] = {}
-    asofs = published_cohorts(calibration_dir)
-    if not asofs:
+    try:
+        bundle = resolve_calibration_bundle(calibration_dir)
+    except CalibrationCacheError as exc:
+        raise SignalCohortMeasurementError(str(exc)) from exc
+    hashes = {
+        entry.panel.measurement_policy.rules_hash for entry in bundle.manifest.cohorts.values()
+    }
+    if not hashes:
         raise SignalCohortMeasurementError(f"no panel metadata under {calibration_dir}")
-    for asof in asofs:
-        value = read_panel_meta(calibration_dir, asof).get("rules_hash")
-        if not isinstance(value, str) or not value:
-            raise SignalCohortMeasurementError(
-                f"panel metadata carries no rules_hash: {asof.isoformat()}"
-            )
-        hashes.setdefault(value, []).append(asof.isoformat())
     if len(hashes) > 1:
-        summary = ", ".join(
-            f"{value}={len(names)} panel(s)" for value, names in sorted(hashes.items())
+        raise SignalCohortMeasurementError(
+            f"panels mix screening rules revisions: {', '.join(sorted(hashes))}"
         )
-        raise SignalCohortMeasurementError(f"panels mix screening rules revisions: {summary}")
     return next(iter(hashes))
 
 

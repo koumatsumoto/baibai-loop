@@ -8,8 +8,9 @@ from typing import Any
 import pytest
 import yaml
 from tests.helpers.calibration_store import publish_panel
-from tools.experiments.measure_signal_cohorts import SignalCohortMeasurementError
 from tools.experiments.measure_supply_context import SupplyContextError, build_supply_context, main
+
+from baibai_engine.screening.calibration.store import CalibrationCacheError
 
 PANEL_COLUMNS = (
     "asof",
@@ -348,22 +349,26 @@ def test_a_lone_panel_cannot_place_its_own_count_in_history(tmp_path: Path) -> N
         )
 
 
-def test_panels_built_with_different_screening_rules_are_refused(tmp_path: Path) -> None:
+def test_panels_built_with_different_screening_rules_cannot_be_published(
+    tmp_path: Path,
+) -> None:
+    """A mixture is declined where it would be created, not where it would be read.
+
+    Cohorts screened under different rules answer different questions, so averaging
+    them reports a change in the rules as a change in the market. Leaving that to the
+    consumer means the store holds a mixture until someone happens to look.
+    """
+
     calibration = tmp_path / "calibration"
     calibration.mkdir()
     _history(calibration, levels=[0.05, 0.06])
-    _panel(
-        calibration,
-        "2024-03-28",
-        [_liquid(f"{1000 + slot}", "2024-03-28", er=0.05, rank=slot + 1) for slot in range(5)],
-        rules_hash="different",
-    )
-    runs = tmp_path / "runs.sqlite"
-    _runs_db(runs, estimates=[0.05] * 5)
 
-    with pytest.raises(SignalCohortMeasurementError, match="mix screening rules"):
-        build_supply_context(
-            calibration_dir=calibration, runs_db=runs, selection_id=None, hurdle=0.085
+    with pytest.raises(CalibrationCacheError, match="mixes measurement policies"):
+        _panel(
+            calibration,
+            "2024-03-28",
+            [_liquid(f"{1000 + slot}", "2024-03-28", er=0.05, rank=slot + 1) for slot in range(5)],
+            rules_hash="different",
         )
 
 

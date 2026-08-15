@@ -472,6 +472,30 @@ class ManifestTotals(BaseModel):
     rows: int = Field(ge=0)
 
 
+class MeasurementPolicyRef(BaseModel):
+    """Under which screening rules and panel contract a cohort was measured.
+
+    The rules a cohort was screened under decide which names are in it and what each
+    row's status is, so two cohorts measured under different rules are not one series
+    even though their columns line up. That fact lived only inside a diagnostics row,
+    which means a consumer had to read Parquet to learn it and a bundle could be
+    assembled from a mixture without anything in the manifest disagreeing.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    rules_hash: str
+    panel_variant: str
+    production_authority: bool
+
+    @field_validator("rules_hash", "panel_variant")
+    @classmethod
+    def validate_identifier_field(cls, value: str) -> str:
+        if not value:
+            raise ValueError("measurement policy fields cannot be empty")
+        return value
+
+
 class CohortInventoryEntry(BaseModel):
     """Manifest-only proof that one analytical cohort was evaluated."""
 
@@ -481,6 +505,7 @@ class CohortInventoryEntry(BaseModel):
     rows: int = Field(ge=0)
     sources: tuple[CohortSourceRef, ...] = Field(min_length=1)
     input_cutoff: date
+    measurement_policy: MeasurementPolicyRef
 
     @field_validator("sources")
     @classmethod

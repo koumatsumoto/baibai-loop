@@ -45,6 +45,7 @@ from baibai_engine.market.lake.models import (
     CohortStatus,
     DatasetManifest,
     ForwardObservationPolicyRef,
+    MeasurementPolicyRef,
     PartitionManifest,
     load_lake_model_json,
     retained_sources,
@@ -351,6 +352,7 @@ def _publish_bundle(
         )
         for asof in sorted(cohort_keys)
     }
+    _require_one_measurement_policy(cohorts)
     now = datetime.now(UTC)
     bundle_id = f"{now:%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex}"
     # Assembling a bundle is a different act from producing a dataset, so it carries a
@@ -385,6 +387,35 @@ def _publish_bundle(
         canonical_manifest_bytes(CalibrationBundlePointer(current=reference, previous=previous)),
     )
     return reference
+
+
+def _require_one_measurement_policy(
+    cohorts: Mapping[str, CalibrationCohortInventory],
+) -> None:
+    """One published generation is one series, measured one way throughout.
+
+    Cohorts screened under different rules answer different questions, so aggregating
+    them reports a difference in the rules as a difference in the market. The consumer
+    side already refuses to evaluate a mixture, but that leaves the mixture publishable
+    and only caught by whoever reads it next — the generation that creates it is where
+    it can still be declined.
+    """
+
+    policies = {
+        (asof, dataset): entry.measurement_policy
+        for asof, cohort in cohorts.items()
+        for dataset, entry in (
+            ("panel", cohort.panel),
+            ("diagnostics", cohort.diagnostics),
+            ("forward", cohort.forward),
+        )
+    }
+    distinct = set(policies.values())
+    if len(distinct) > 1:
+        stated = ", ".join(
+            sorted(f"{policy.panel_variant}/{policy.rules_hash}" for policy in distinct)
+        )
+        raise CalibrationLakeError(f"calibration bundle mixes measurement policies: {stated}")
 
 
 def current_bundle_ref(root: Path) -> CalibrationBundleRef | None:
@@ -541,6 +572,7 @@ def _publish_cohort(
     status: CohortStatus | None = None,
     source: CohortSourceRef,
     input_cutoff: date,
+    measurement_policy: MeasurementPolicyRef,
     producer_commit: str | None = None,
     forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> None:
@@ -597,6 +629,7 @@ def _publish_cohort(
         rows=len(rows),
         sources=inputs.sources,
         input_cutoff=input_cutoff,
+        measurement_policy=measurement_policy,
     )
     replacement_asofs = {
         str(cast(PanelRow | PanelDiagnostics | ForwardReturnRow, payload).asof)
@@ -655,6 +688,15 @@ def _materialize(dataset: L2Dataset, payload: Mapping[str, object]) -> object:
     return forward_row_from_mapping(payload)
 
 
+def measurement_policy_of(diagnostics: PanelDiagnostics) -> MeasurementPolicyRef:
+    """The rules identity a cohort's manifest entry states, taken from its own panel."""
+    return MeasurementPolicyRef(
+        rules_hash=diagnostics.rules_hash,
+        panel_variant=diagnostics.panel_variant,
+        production_authority=diagnostics.production_authority,
+    )
+
+
 def write_panel(
     root: Path,
     asof: date,
@@ -667,6 +709,7 @@ def write_panel(
     lock_held: bool = False,
     forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> None:
+    measurement_policy = measurement_policy_of(diagnostics)
     publication = nullcontext() if lock_held else lake_writer_lock(root)
     with _store_errors(), publication:
         _publish_cohort(
@@ -676,6 +719,7 @@ def write_panel(
             rows=rows,
             source=source,
             input_cutoff=input_cutoff,
+            measurement_policy=measurement_policy,
             producer_commit=producer_commit,
             forward_policy=forward_policy,
         )
@@ -686,6 +730,7 @@ def write_panel(
             rows=(diagnostics,),
             source=source,
             input_cutoff=input_cutoff,
+            measurement_policy=measurement_policy,
             producer_commit=producer_commit,
             forward_policy=forward_policy,
         )
@@ -699,6 +744,7 @@ def write_panel(
                 status="not_computed",
                 source=source,
                 input_cutoff=input_cutoff,
+                measurement_policy=measurement_policy,
                 producer_commit=producer_commit,
                 forward_policy=forward_policy,
             )
@@ -718,6 +764,9 @@ def write_forward(
 ) -> None:
     publication = nullcontext() if lock_held else lake_writer_lock(root)
     with _store_errors(), publication:
+        # The outcome inherits the panel's rules identity rather than restating it: the
+        # rows it observes are the names that panel selected, so a forward cohort that
+        # claimed different rules would be describing a cross-section it did not use.
         _publish_cohort(
             root,
             dataset=CALIBRATION_FORWARD,
@@ -725,10 +774,21 @@ def write_forward(
             rows=rows,
             source=source,
             input_cutoff=input_cutoff,
+            measurement_policy=_panel_measurement_policy(root, asof),
             producer_commit=producer_commit,
             forward_policy=forward_policy,
         )
         _publish_bundle(root, assembled_by=producer_commit, forward_policy=forward_policy)
+
+
+def _panel_measurement_policy(root: Path, asof: date) -> MeasurementPolicyRef:
+    manifest = _writer_manifest(root, CALIBRATION_PANEL)
+    entry = None if manifest is None else manifest.cohort_inventory.get(asof.isoformat())
+    if entry is None:
+        raise CalibrationLakeError(
+            f"calibration.forward: cohort {asof.isoformat()} has no panel to inherit rules from"
+        )
+    return entry.measurement_policy
 
 
 @contextmanager

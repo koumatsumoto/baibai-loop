@@ -212,6 +212,45 @@ def _raw_ingest_source() -> RawIngestSourceRef:
 
 
 class TestImmutableBuilds:
+    def test_the_manifest_states_which_rules_each_cohort_was_measured_under(
+        self, tmp_path: Path
+    ) -> None:
+        """A consumer must not have to open Parquet to learn which rules produced a row.
+
+        The rules decide membership and status, so two cohorts under different rules are
+        not one series. Leaving that only inside a diagnostics row means the manifest
+        cannot say what the generation is, and a mixture is assemblable without anything
+        in it disagreeing.
+        """
+
+        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY), rules_hash="rules-one")
+        publish_forward(
+            tmp_path,
+            _JANUARY,
+            [{"ticker": "1301", "horizon": "1y", "price_return": 0.2, "status": "resolved"}],
+        )
+
+        bundle = store.resolve_calibration_bundle(tmp_path)
+        cohort = bundle.manifest.cohorts[_JANUARY]
+
+        assert cohort.panel.measurement_policy.rules_hash == "rules-one"
+        assert cohort.panel.measurement_policy.panel_variant == "production"
+        assert cohort.panel.measurement_policy.production_authority is True
+        # The outcome inherits the panel's identity: it observed the names that panel
+        # selected, so claiming other rules would describe a cross-section it never used.
+        assert cohort.forward.measurement_policy == cohort.panel.measurement_policy
+        assert cohort.diagnostics.measurement_policy == cohort.panel.measurement_policy
+
+    def test_a_forward_cohort_without_a_panel_has_no_rules_to_inherit(
+        self, tmp_path: Path
+    ) -> None:
+        with pytest.raises(CalibrationCacheError, match="no panel to inherit rules from"):
+            publish_forward(
+                tmp_path,
+                _JANUARY,
+                [{"ticker": "1301", "horizon": "1y", "price_return": 0.2, "status": "resolved"}],
+            )
+
     def test_a_cohort_cannot_name_provider_raw_as_its_source(self, tmp_path: Path) -> None:
         """An analytical cohort is built from a fixed generation, never a request range.
 

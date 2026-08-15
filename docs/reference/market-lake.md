@@ -318,7 +318,13 @@ calibration の cohort（panel・panel diagnostics・forward outcome）は typed
 
 cohort を 1 つ書くと3 datasetのimmutable buildを先に完成させ、dataset manifestの
 `cohort_inventory`へ`complete / empty / partial / not_computed`、row数、typed source digest、
-入力cutoffをcohort・role別に固定する。panel/diagnosticsのcutoffはcohort as-ofと一致し、forwardは
+入力cutoff、そしてmeasurement policy（rules hash・panel variant・production authority）を
+cohort・role別に固定する。measurement policyがmanifestに居るのは、どのrulesで測ったかが
+membershipとstatusを決めるからで、これがdiagnostics rowの中にしか無いとconsumerはParquetを
+開かないと世代の正体を知れず、混在したbundleを組み立てても何も反対しない。forwardはpanelの
+policyを継承する — 観測している銘柄はそのpanelが選んだ集合なので、別のrulesを名乗ると使って
+いないcross-sectionを説明することになる。**bundleは1つのpolicyしか持てず、混在は組み立てで
+拒否する。** consumer側で気づく設計だと、誰かが読むまでstoreが混在を抱えたままになる。panel/diagnosticsのcutoffはcohort as-ofと一致し、forwardは
 実際に観測したmarket data cutoffを持つ。古いpanelを保持したままforwardだけ後日のsnapshotで更新でき、
 dataset全体へ過去の全source世代を累積しない。最後に3 manifestを
 `CalibrationBundleManifest`へ束ね、`lake/pointers/calibration/current.json`を1回だけ切り替える。
