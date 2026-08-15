@@ -87,13 +87,26 @@ R2 key は `lake/` 以下だけを使い、segment allowlist で path traversal 
 partition は `year/month`、file は ZSTD Parquet、object name は content SHA-256 とする。dataset
 manifest は全 partition object と totals を列挙し、L1 release manifest は互換な dataset build の
 組を一つの `release_id` へ固定する。logical object identity は key・SHA-256・bytes・rows・schema
-で決まり、object-store固有のETagはpublish/CASのtransport stateにだけ置く。lineageは
-`raw_ingest`・`sqlite_snapshot`・`l1_release`・`calibration_input`を区別するtyped `SourceRef`で表し、解決先key、
-SHA-256、source側versionを検証する。Raw refはprovider・dataset・request rangeとmetadata
-sidecarのkey・SHA-256を固定する。SQLite snapshot refはremote retention objectではない
-`local_build_input`として、同一buildを作ったsealed inputのdigest・schema・capture時刻を固定する。
-文字列prefixや実在しない
-release IDでsource種別を表さない。
+で決まり、object-store固有のETagはpublish/CASのtransport stateにだけ置く。lineageは`raw_ingest`・`sqlite_snapshot`・`calibration_input`を区別するtyped `SourceRef`で表す。
+kindは**bytesを保持するかどうか**の2族に分かれ、それが型の違いになる。
+
+- **retained**（`raw_ingest`・`calibration_input`）はlake内のkeyを名乗る。keyを名乗ることは
+  「そのbytesが到達可能で、collectionから守られ、そのbuildを運ぶpublicationが一緒に運ぶ」という
+  約束であり、その大きさをlakeが世代の寿命だけ保持する意思のあるsourceだけが名乗れる。resolverは
+  key・SHA-256・source側versionを検証する。
+- **identity only**（`sqlite_snapshot`）はkeyを持たない。sealed snapshotはbuild中にstoreが動かない
+  ようにするためのもので、その役目はbuildの終わりで終わる。bytesはlegacy store全体（約2GB）なので、
+  buildごとに1つ保持すればlakeはpublishした量ではなくrun回数に比例して育つ。よってschema version・
+  content digest・capture時刻だけを残し、bytesはoperationの終わりで回収する。
+  同じ`source_id`を名乗る2つのbuildは同一入力を読んでおり、rebuildへ差し出されたstore世代はこの
+  digestで照合できる。**保証しないのは、その世代がまだ入手できること**である。lineageからのrebuild
+  保証は、cohortが必要とするtableがL1 releaseとして公開された時点（Issue #917）で、keyを持つ
+  retained sourceとして戻る。
+
+L1 releaseはこのunionに入れない。lineage sourceはそれを再生する完全なobject graphへ解決できねばならず、
+release manifestはそのrootにすぎない。dataset manifest・Parquet object・Raw archiveまでを列挙・検証・
+retentionから保護するclosure resolverと、それを使うpublisher・pin・retention・auditが揃うまでkindを
+戻さない。文字列prefixや実在しないrelease IDでsource種別を表さない。
 
 manifest、pointer、pinを含むlake JSONは、duplicate key拒否とredacted validation errorを持つ
 共通parserだけを通し、wire size上限をparse前に検査する。partition valuesとrelease dataset

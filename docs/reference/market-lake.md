@@ -28,8 +28,11 @@ precision、publication / effective / retrieved time、revision/cancellation sem
 `export-pilot`は開始時にSQLite backup APIでWALを含むsealed snapshotを1回作り、snapshot digest・
 schema version・`quick_check`を確定してから、両datasetのexport、source-state、parityを同じsnapshot
 から導出する。release作成時にも全partitionが両datasetでexactに1 snapshot generationへ閉じることを
-検証する。snapshotはcontent-addressedな`local_build_input`であり、daily releaseのremote closureには
-含めない。`sqlite_authority`期間のrestore checkpointは既存のcloud `market.sqlite`を正本とし、lake
+検証する。snapshotはoperationの一時入力であり、bytesはlakeにもremote closureにも残さない。manifest
+が残すのはschema version・content digest・capture時刻という素性だけで、同じstore世代を持っているか
+どうかはre-sealして digest を突き合わせれば答えられる（unchangedなstoreに対してsealはbyte決定的）。
+
+`sqlite_authority`期間のrestore checkpointは既存のcloud `market.sqlite`を正本とし、lake
 authority cutover前に別retention classのinitial checkpointを一度検証する。日次buildごとにfull
 SQLiteをR2へ再送しない。
 
@@ -131,7 +134,7 @@ SHA-256、transport marker、size、content typeを同じimmutable PUTのmetadat
 report は `uploaded_bytes` / `downloaded_bytes` / `head_requests` / `get_requests` を出すので、
 「差分転送になっている」は主張ではなく観測になる。
 
-SQLite `local_build_input`はdigest・schema・capture時刻をmanifestへ記録するがuploadしないため、
+sealed SQLiteはdigest・schema・capture時刻をmanifestへ記録するだけでbytesを持たないため、
 日次remote bytesはchanged Parquet/Raw/manifestへ比例する。最後に`lake/pointers/l1/current.json`を
 ETag `If-Match`で切り替え、pointer bytesだけをGETで読み戻す。409/412のCAS conflictはretryせず
 fail-closeし、current releaseを再解決する。subprocessのdeadlineはobject sizeから導く（base 120秒 +
@@ -329,26 +332,46 @@ commitが一致することは要求しない — 既存panelを再計算せずm
 
 forwardの観測規則（control-event exitを使うかなど）は`ForwardObservationPolicy`としてforwardの
 `transform_fingerprint`へ入る。1つのstoreは1つのpolicyしか持てず、別policyで作られた月をcarryする
-buildは拒否される。storeが名乗るpolicyは`calibration.meta.yaml`にあり、readerがどのidentityを期待するか
+buildは拒否される。storeが名乗るpolicyはbundle manifestの中にあり、readerがどのidentityを期待するか
 だけを決める（rowsがそのpolicyで作られた証明はbuild自身のfingerprintが持つので、書き換えは拒否を
-生んでも受理を生まない）。比較用baselineの`--without-control-event-exits`はdefault storeでは拒否し、
+生んでも受理を生まない）。pointerが名乗るmanifestの中に置くのは、世代の切替を1つのatomicな行為に
+するためである — 契約を別fileに置くと、pointerが動かないままそのfileだけが新しくなり、serveして
+いない世代を名乗りながらserveしている世代を読めないstoreができる。比較用baselineの`--without-control-event-exits`はdefault storeでは拒否し、
 別`--calibration-dir`を要求する。
 
 build identityはcohort別typed `SourceRef`、その dataset を最後に作った`producer_git_commit`、
-row値・status・membershipを決めるsemantic dependency closure（`panel.py`だけでなくcandidate build、
-selection、estimates、rules、universe、SQLite reader、market storeなど。forwardはbars、benchmark、
-horizon）のSHA-256とforward observation policyを含む`transform_fingerprint`、
+semantic dependency closureのSHA-256とforward observation policyを含む`transform_fingerprint`、
 `contract_version`、full primary key、partition/object hashである。panelは`(asof,ticker)`、diagnosticsは
 `(asof)`、forwardは`(asof,ticker,horizon)`を一意にし、全rowのyear/month所属をwrite/read両側で
-検査する。write APIはsource refのclosureを先に解決し、source省略を受け入れない。`local_operation`
-sourceは明示したtest-only gateだけで使う。cohort書き込みは生成中のgenerationに対して行い、
-canonical currentへ進むのはgeneration adoptionの1経路だけである。adoptionは全partitionの
-digest・size・schema・row countをpointerの前に検証する。cohortごとのcarry検査がpresence/sizeで
-止まるのはこのためで、月を1つ触るたびにdataset全体をhashすると書き込み回数の二乗に比例する。readerはbundle pointerを開始時に1回だけ固定し、explicit `empty`の0 rowsだけを`[]`として
-返す。inventoryに無いcohortと`partial / not_computed`はfail-closeする。
+検査する。
 
-cohortのinput cutoffとsealed snapshotが保証するのは**同じ結果を後日再生できること**であって、
-その値が当時同じ形で入手できたことではない。J-Quantsのadjusted price、master、JPX flagは
+semantic dependency closureは手で並べず、その dataset を作る module（panel / forward）から
+importで到達するengine moduleを辿って求める。手で並べたlistは、載っているmoduleが新しいhelperを
+importした時点で遅れる — 行の値は変わったのにfingerprintが黙るので、旧cohortが新しい意味の行と
+同じidentityで並ぶ。この経路で入ってくるのは`foundation/coerce.py`や`screening/metric_quality.py`の
+ような、どのcalibration moduleも名指していないが値を決めているhelperである。2つのdatasetは別々の
+entryから辿るので、outcomeの観測を変えてもpanelの月は無効化しない（唯一の共有だったentry lagは
+horizon契約が持つ）。
+
+write APIはsource refのclosureを先に解決し、source省略を受け入れない。cohort書き込みは生成中の
+generationに対して行い、canonical currentへ進むのはgeneration adoptionの1経路だけである。
+
+adoptionはbundleが閉じているものだけを歩く。bundle manifest → dataset manifest → partition object
+→ 保持するcohort sourceとそのfileであり、directory treeではない（treeには追い越された世代も居る）。
+全partition objectのdigest・size・schema・row countをpointerの前に検証し、加えて各cohortの保持
+sourceが解決することを確かめる。後者は失われても読み取りでは気づけない — rowsは完全に読めるので、
+損失はreproduce / pin / publishしようとした時に初めて出てくる。だからpointer切替が拒否できる最後の
+機会になる。generationはstoreをhard linkで複製して作るので、carryされたobjectは最初からstore側と
+同じinodeを共有している。同一inodeにinstallもcompareも不要であり、残るのはこのbuildが実際に作った
+ものだけになる。CLIはclosure object数、hashしたbytes、installしたobject数とbytes、再利用した
+object数を出力するので、更新1回のI/Oがstore全体へ広がったことはwall timeより先に見える。
+
+cohortごとのcarry検査がpresence/sizeで止まるのはこのためで、月を1つ触るたびにdataset全体をhashすると
+書き込み回数の二乗に比例する。readerはbundle pointerを開始時に1回だけ固定し、explicit `empty`の
+0 rowsだけを`[]`として返す。inventoryに無いcohortと`partial / not_computed`はfail-closeする。
+
+cohortのinput cutoffとsealed snapshot identityが保証するのは**どのstore世代を読んだか名指せること**
+であって、その値が当時同じ形で入手できたことではない。J-Quantsのadjusted price、master、JPX flagは
 revisionを含み、完全なvintageではない（[`data-sources.md`](./data-sources.md)）。較正結果を
 live deploy可能なhistorical alphaとして読まず、PIT不完全なfieldに依存するmetricはその前提込みで
 保守的に解釈する。
@@ -377,10 +400,15 @@ plan hashへ閉じる。`--apply`はpublisher/pinと共通のlocal writer lock�
 candidateをmarkするだけで、7日後のsecond sweepが同じidentityを再検証してから削除する。rootが
 未解決、object不足、pointer/pin更新、candidate差替えのいずれでも削除を拒否する。
 
-`lake/build-inputs/`のsealed SQLite snapshotも通常GCの対象domainである。1 buildにつきlegacy store
-全体と同じ大きさのsnapshotを1つ作るので、prefixを対象外にするとlocal storageがrun数に比例して
-増える。current / previous / pinのcohort sourceから到達できる限り残り、到達しなくなってから
-30日 + 7日のsecond sweepで回収する。
+`lake/staging/`と`lake/quarantine/`もGCの対象domainである。前者はin-flightのstagingとsealed
+snapshotが置かれる場所で、killされたoperationは自分の後片付けを実行できないため、7日 + 7日の
+second sweepで回収する。後者は失敗したbuildのstagingを退避した先で、何が起きたかの唯一の記録
+なので90日保持し、その後同じsweepを通す。どちらもmanifestから到達しないので、age以外に回収の
+根拠がない。
+
+calibration storeのwork generationはstoreのsiblingとして作られる（storeをhard linkで複製して
+作るため）。これはlakeのどのprefixにも入らないので、次のbuildが — writer lockを持っている以上、
+live generationは存在しえない — 起動時に破棄し、回収したbytesを出力する。
 
 `calibration-legacy` exact archiveはこのsweepの対象外である。
 
@@ -392,12 +420,12 @@ candidateをmarkするだけで、7日後のsecond sweepが同じidentityを再�
 | `published` | canonical / analytical Parquet、manifest、pointer。R2が日常的に持つ graph | 10 GiB |
 | `raw_preserve` | 再取得できない provider 原本 (Premium CSV、長期 backfill) | 500 GiB |
 | `raw_buffer` | 再取得で再現できる routine response | 50 GiB |
-| `build_inputs` | sealed legacy snapshot。local のみで upload しない | 10 GiB |
+| `workspace` | in-flight staging と失敗 build の quarantine。どのmanifestにも属さない | 20 GiB |
 
 Issue #917 が置いた「R2 は原則 10 GB 前後」は `published` classの目標である。再取得できない原本を
 同じ数字に押し込むと保存自体を諦めることになるので、`raw_preserve`は別に承認した budget として持つ。
 単一の数字で報告すると、大きい方の budget が小さい方の超過を隠す — 500 GiB の枠の下では、
-published graph が目標を超えても、cohort ごとに 2 GB の snapshot が積まれても、何も警告しない。
+published graph が目標を超えても、失敗した build の quarantine に 2 GB が積まれても、何も警告しない。
 
 `lake inventory`は加えて`preserve / buffer`別のobject数、bytes、oldest retrievalを出す。
 metadata sidecarを持たないRaw payloadは`raw_unclassified`と`raw_inventory_errors`へ分離し、正常な
@@ -409,12 +437,14 @@ retention classの容量へ混ぜない。`preserve`はGC候補にせず、`buff
 R2へのpublishは3 datasetのobject/source/manifestとbundle manifestを`If-None-Match: *`で転送し、
 最後にbundle pointerだけをETag `If-Match`で切り替える。
 
-**remote calibration lineageはcompactな`calibration_input` packageだけを受け付ける。** sealed full
-SQLite snapshotはbuildを1つの一貫した読みへ固定するためのlocal build inputであり、durableな
-remote sourceにはしない。cohort generationごとに約2 GBのobjectが増えるので、数世代でこのlakeの
-容量目標そのものを使い切る一方、cohortが実際に必要とする行はそのごく一部である。production
-calibrationのremote publishは、必要なtableがcompact input packageまたはL1 releaseへ移るまで
-fail-closeする。
+cohort sourceのうちbytesを保持するもの（`calibration_input`）はそのbundleと一緒にuploadされ、
+durable remote inventoryはcohortが実際に保持する分だけ増える。sealed SQLiteは素性だけなので運ぶ
+bytesがなく、通常のcalibration-buildが作ったbundleはそのままremoteへ公開できる。
+
+**引き換えに失うもの**: 過去cohortをbyte単位でrebuildする「保証」は、この段階では持たない。同じ
+digestのmarket store世代があれば再現でき、digestで照合もできるが、その世代がまだ入手できることは
+lakeが保証しない。保証が戻るのは、cohortが必要とするtableがL1 releaseとして公開され、keyを持つ
+retained sourceになった時点である（Issue #917）。
 
 ```bash
 uv run python -m baibai_batch.storage.lake_publish \
@@ -468,14 +498,16 @@ selection を突き合わせる。差分があれば非ゼロ終了する。lega
 uv run python -m tools.diagnostics.verify_lake_release_parity \
   --asof <YYYY-MM-DD> \
   --projection stores/market/projection.sqlite \
-  --mirror <local-mirror>
+  --mirror <local-mirror> \
+  --sqlite stores/market/market.sqlite
 ```
 
 両側は同じ as-of、同じ rules、同じ時刻、同じ application DB で走り、provider は cache-only に
-固定する。legacy sideはlive `market.sqlite`を読み直さず、projection identityが固定したreleaseから
-`SQLiteSnapshotSourceRef`を解決し、lake buildと同じsealed generationを使う。reportはsnapshotの
-key/digest/schema/capture時刻とrelease manifest digestを必須出力する。snapshot digest不一致は
-screeningを始める前に拒否する。fetch できる provider が 1 つでもあると、release に欠けた行が裏で補われて「一致」が
+固定する。legacy sideは`--sqlite`で渡したstoreをsealし、そのdigestがprojection identityの固定した
+releaseが名乗るsnapshot generationと一致することを要求する。sealはunchangedなstoreに対してbyte
+決定的なので、この一致は「両側が同じ世代を見ている」ことの証明になる。releaseを作った世代を
+もう持っていない場合は、比較を始める前に拒否する。reportはsnapshotのdigest/schema/capture時刻と
+release manifest digestを必須出力する。fetch できる provider が 1 つでもあると、release に欠けた行が裏で補われて「一致」が
 間違った理由で成立するので、release 側に穴があれば実行そのものを失敗させる。
 
 値が違ってよいのは publication ごとに新しく発行される識別子（`run_revision_id`、`selection_id`、
