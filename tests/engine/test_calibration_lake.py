@@ -53,7 +53,6 @@ from baibai_engine.screening.calibration.lake import (
     CALIBRATION_DIAGNOSTICS,
     CALIBRATION_FORWARD,
     CALIBRATION_PANEL,
-    L2_CONTRACT_VERSION,
     CalibrationBundlePointer,
     CalibrationLakeError,
     load_manifest,
@@ -127,7 +126,10 @@ class TestTypedContract:
 
         assert [field.name for field in schema] == list(CALIBRATION_PANEL.field_names)
         assert schema.metadata[b"baibai.dataset"] == CALIBRATION_PANEL.name.encode()
-        assert schema.metadata[b"baibai.contract_version"] == str(L2_CONTRACT_VERSION).encode()
+        assert (
+            schema.metadata[b"baibai.contract_version"]
+            == str(CALIBRATION_PANEL.contract_version).encode()
+        )
         # A field the row declares as optional has to be storable as null; one it
         # declares as required must not be.
         by_name = {field.name: field for field in schema}
@@ -531,7 +533,7 @@ class TestFailClose:
             require_build_inputs(
                 _manifest(tmp_path, CALIBRATION_PANEL.name),
                 dataset=CALIBRATION_PANEL,
-                cache_schema_version=CACHE_SCHEMA_VERSION,
+                cache_schema_version=store.CACHE_SCHEMA_VERSIONS[CALIBRATION_PANEL.name],
                 source_release_id="release-that-was-not-used",
             )
 
@@ -1245,7 +1247,7 @@ class TestReviewRegressions:
         """Measurement rules changed, so the old cohorts must not be re-stamped."""
 
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
-        monkeypatch.setattr(store, "CACHE_SCHEMA_VERSION", "0" * 16)
+        monkeypatch.setitem(store.CACHE_SCHEMA_VERSIONS, CALIBRATION_PANEL.name, "0" * 16)
 
         with pytest.raises(CalibrationCacheError, match="different transform"):
             publish_panel(tmp_path, _FEBRUARY, _cohort(_FEBRUARY))
@@ -1434,6 +1436,72 @@ class TestSemanticIdentity:
 
         assert panel_after_forward_change == panel_baseline
         assert forward_after_panel_change == forward_baseline
+
+    def test_a_forward_column_does_not_invalidate_published_panel_months(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Adding a forward column must not force 81 panel cohorts to be rebuilt.
+
+        A rebuild costs hours and hundreds of megabytes; spending them on a change that
+        cannot move a panel value also dilutes what "this needs rebuilding" means. The
+        screening thresholds and the valuation revision decide panel and diagnostics
+        values; they do not decide when a position was entered or what it paid.
+        """
+
+        panel_before = transform_fingerprint(
+            CALIBRATION_PANEL,
+            cache_schema_version=store.CACHE_SCHEMA_VERSIONS[CALIBRATION_PANEL.name],
+        )
+        forward_before = transform_fingerprint(
+            CALIBRATION_FORWARD,
+            cache_schema_version=store.CACHE_SCHEMA_VERSIONS[CALIBRATION_FORWARD.name],
+        )
+        monkeypatch.setattr(
+            store, "FORWARD_FIELD_NAMES", (*store.FORWARD_FIELD_NAMES, "an_added_column")
+        )
+        versions = store._derive_cache_schema_version()
+
+        assert (
+            versions[CALIBRATION_PANEL.name] == store.CACHE_SCHEMA_VERSIONS[CALIBRATION_PANEL.name]
+        )
+        assert (
+            versions[CALIBRATION_FORWARD.name]
+            != store.CACHE_SCHEMA_VERSIONS[CALIBRATION_FORWARD.name]
+        )
+        assert (
+            transform_fingerprint(
+                CALIBRATION_PANEL, cache_schema_version=versions[CALIBRATION_PANEL.name]
+            )
+            == panel_before
+        )
+        assert (
+            transform_fingerprint(
+                CALIBRATION_FORWARD, cache_schema_version=versions[CALIBRATION_FORWARD.name]
+            )
+            != forward_before
+        )
+
+    def test_a_changed_row_type_without_a_contract_bump_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The contract version in the object key is what an outside reader can trust.
+
+        Leaving it at v1 while the columns change means the same prefix addresses two
+        shapes. This repository's reader still refuses the mismatch because it compares
+        the whole Arrow schema, but nothing outside it would.
+        """
+
+        assert lake_module.verify_l2_schema_signatures() == []
+
+        monkeypatch.setitem(
+            lake_module._RECORDED_SCHEMA_SIGNATURES,
+            (CALIBRATION_FORWARD.name, CALIBRATION_FORWARD.contract_version),
+            "0" * 64,
+        )
+
+        drifted = lake_module.verify_l2_schema_signatures()
+
+        assert [message.split(":")[0] for message in drifted] == [CALIBRATION_FORWARD.name]
 
     def test_a_dependency_a_producer_starts_importing_joins_the_closure(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

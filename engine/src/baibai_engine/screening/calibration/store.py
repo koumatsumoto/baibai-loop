@@ -106,7 +106,7 @@ RELAXED = _RELAXED_TABLE
 DEFAULT_CALIBRATION_DIR = CALIBRATION_DIR
 
 
-def _derive_cache_schema_version() -> str:
+def _derive_cache_schema_version() -> dict[str, str]:
     """cohort が互換かどうかを、互換性を決める入力そのものから導く。
 
     手で進める版は、進める判断を人がするから忘れる。実際 2026-08 には列の形を変えずに
@@ -122,12 +122,14 @@ def _derive_cache_schema_version() -> str:
     評価時にだけ読む軸の一覧 (`GATE_BASE_AXES` / `SECTOR_MEDIAN_AXES`) はここに入れない。
     どれも既存の panel 列を指すので、軸を足し引きしても cache の中身は 1 バイトも変わらず、
     版へ入れると 81 cohort・503MB の再構築を互換性上は不要な変更のたびに要求する。
+
+    版は dataset ごとに導く。forward へ列を 1 つ足したときに panel の 81 cohort まで
+    再構築になるのは、無関係な変更で数時間の運用と数百 MB を使うということで、しかも
+    「再構築が要る」という信号の意味を薄める。screening 側の閾値と評価式の意味は panel と
+    diagnostics の値を決めるが、forward の観測 (entry / exit / 配当) は決めない。
     """
-    contract = "|".join(
+    measurement = "|".join(
         (
-            ",".join(PANEL_FIELD_NAMES),
-            ",".join(DIAGNOSTIC_FIELD_NAMES),
-            ",".join(FORWARD_FIELD_NAMES),
             # 閾値名だけでなく緩和値も入れる。同じ閾値を別の値で測った cohort は互換でない。
             ",".join(
                 sorted(
@@ -141,10 +143,23 @@ def _derive_cache_schema_version() -> str:
             VALUATION_CALCULATION_REVISION,
         )
     )
-    return sha256(contract.encode("utf-8")).hexdigest()[:16]
+    return {
+        CALIBRATION_PANEL.name: _digest(",".join(PANEL_FIELD_NAMES), measurement),
+        CALIBRATION_DIAGNOSTICS.name: _digest(",".join(DIAGNOSTIC_FIELD_NAMES), measurement),
+        CALIBRATION_FORWARD.name: _digest(",".join(FORWARD_FIELD_NAMES)),
+    }
 
 
-CACHE_SCHEMA_VERSION = _derive_cache_schema_version()
+def _digest(*parts: str) -> str:
+    return sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
+CACHE_SCHEMA_VERSIONS = _derive_cache_schema_version()
+# The store-level statement: one value that moves when any dataset's contract moves, so a
+# store can still say in one field which contract it was written under.
+CACHE_SCHEMA_VERSION = _digest(
+    *(CACHE_SCHEMA_VERSIONS[name] for name in sorted(CACHE_SCHEMA_VERSIONS))
+)
 
 _POPULATION_COVERAGE_STATUSES = {
     "evaluated",
@@ -191,6 +206,7 @@ def store_forward_policy(root: Path) -> ForwardObservationPolicy:
 
 def _inputs(
     root: Path,
+    dataset: L2Dataset,
     source: CohortSourceRef,
     *,
     producer_commit: str | None = None,
@@ -203,7 +219,7 @@ def _inputs(
     return L2BuildInputs(
         sources=(source,),
         producer_git_commit=producer_commit or verified_git_commit(),
-        cache_schema_version=CACHE_SCHEMA_VERSION,
+        cache_schema_version=CACHE_SCHEMA_VERSIONS[dataset.name],
         forward_policy=forward_policy,
     )
 
@@ -335,7 +351,7 @@ def _publish_bundle(
         require_build_inputs(
             build.manifest,
             dataset=dataset,
-            cache_schema_version=CACHE_SCHEMA_VERSION,
+            cache_schema_version=CACHE_SCHEMA_VERSIONS[name],
             forward_policy=forward_policy,
         )
         references[name] = build.reference
@@ -589,11 +605,12 @@ def _publish_cohort(
         require_build_inputs(
             manifest,
             dataset=dataset,
-            cache_schema_version=CACHE_SCHEMA_VERSION,
+            cache_schema_version=CACHE_SCHEMA_VERSIONS[dataset.name],
             forward_policy=forward_policy,
         )
     inputs = _inputs(
         root,
+        dataset,
         source,
         producer_commit=producer_commit,
         forward_policy=forward_policy,
@@ -650,7 +667,7 @@ def _publish_cohort(
         carried.append(replacement)
     fingerprint = transform_fingerprint(
         dataset,
-        cache_schema_version=CACHE_SCHEMA_VERSION,
+        cache_schema_version=CACHE_SCHEMA_VERSIONS[dataset.name],
         forward_policy=forward_policy,
     )
     now = datetime.now(UTC)
@@ -873,7 +890,9 @@ def _cohort_payloads(
     }[dataset.name]
     if entry.status in {"partial", "not_computed"}:
         raise CalibrationLakeError(f"{dataset.name}: cohort is {entry.status}")
-    require_build_inputs(manifest, dataset=dataset, cache_schema_version=CACHE_SCHEMA_VERSION)
+    require_build_inputs(
+        manifest, dataset=dataset, cache_schema_version=CACHE_SCHEMA_VERSIONS[dataset.name]
+    )
     payloads = read_l2_partition(
         dataset=dataset, manifest=manifest, mirror_root=root, month=asof_month(asof.isoformat())
     )
@@ -948,7 +967,7 @@ def read_forward(
         require_build_inputs(
             manifest,
             dataset=CALIBRATION_FORWARD,
-            cache_schema_version=CACHE_SCHEMA_VERSION,
+            cache_schema_version=CACHE_SCHEMA_VERSIONS[CALIBRATION_FORWARD.name],
             forward_policy=forward_policy,
         )
         payloads = [

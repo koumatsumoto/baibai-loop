@@ -848,10 +848,7 @@ def publish_calibration_bundle(
             publication.read_pointer(pointer_key, current), CalibrationBundlePointer
         )
         if old_pointer.current.bundle_id == bundle.bundle_id:
-            if (
-                old_pointer.current != bundle_reference
-                or old_pointer.previous != local_pointer.previous
-            ):
+            if old_pointer.current != bundle_reference:
                 raise LakePublishError(
                     "bundle ID is already current with different rollback identity"
                 )
@@ -863,9 +860,14 @@ def publish_calibration_bundle(
                 transfers=publication.report(),
                 pointer_etag=current.etag,
             )
+        # The rollback identity is the generation this publication is actually replacing,
+        # which is whatever remote currently serves — not whatever the local store
+        # happens to name as its own previous. Requiring those to agree would make the
+        # remote reachable only from the local generation immediately after it: one
+        # failed publication, and every later local generation is refused while the one
+        # remote wants can no longer be produced, with no way back except editing a
+        # pointer by hand.
         previous = old_pointer.current
-        if local_pointer.previous != previous:
-            raise LakePublishError("remote current is not the local rollback identity")
         _require_remote_calibration_closure(publication, previous)
     remote_pointer = CalibrationBundlePointer(
         current=bundle_reference,

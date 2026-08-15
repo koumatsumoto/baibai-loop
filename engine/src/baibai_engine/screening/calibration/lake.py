@@ -77,7 +77,6 @@ __all__ = [
     "CalibrationDatasetRef",
 ]
 
-L2_CONTRACT_VERSION = 1
 _ROW_GROUP_SIZE = 65_536
 _PARQUET_VERSION = "2.6"
 _COMPRESSION = "zstd"
@@ -101,7 +100,7 @@ class L2Dataset:
 
     name: str
     row_type: type
-    contract_version: int = L2_CONTRACT_VERSION
+    contract_version: int
     partition_by: tuple[str, ...] = ("year", "month")
     primary_key: tuple[str, ...] = ("asof", "ticker")
     asof_field: str = "asof"
@@ -167,15 +166,64 @@ def _arrow_schema(dataset: L2Dataset) -> Any:
     return pa.schema(columns, metadata=metadata)
 
 
-CALIBRATION_PANEL = L2Dataset(name=PANEL_DATASET, row_type=PanelRow)
+# Each dataset carries its own contract version because each has its own schema. One
+# shared number would make the same `contract=v1` prefix mean two different column sets
+# after either dataset gains a field, which is the one thing an external reader is
+# entitled to use the version for. `verify_l2_schema_signatures` is what keeps the
+# number honest: change a row type without bumping it and the gate fails.
+CALIBRATION_PANEL = L2Dataset(name=PANEL_DATASET, row_type=PanelRow, contract_version=1)
 CALIBRATION_DIAGNOSTICS = L2Dataset(
-    name=DIAGNOSTICS_DATASET, row_type=PanelDiagnostics, primary_key=("asof",)
+    name=DIAGNOSTICS_DATASET,
+    row_type=PanelDiagnostics,
+    contract_version=1,
+    primary_key=("asof",),
 )
 CALIBRATION_FORWARD = L2Dataset(
     name=FORWARD_DATASET,
     row_type=ForwardReturnRow,
+    contract_version=1,
     primary_key=("asof", "ticker", "horizon"),
 )
+
+# The schema each contract version currently means. A row type is a public wire shape
+# once it is published, so changing one without moving the version leaves two different
+# column sets addressed by the same `contract=v1` prefix — readable by this repository's
+# strict reader, and misread by anything that trusts the version.
+_RECORDED_SCHEMA_SIGNATURES: Mapping[tuple[str, int], str] = {
+    (PANEL_DATASET, 1): "a44be90858f545b92ae18857f44b1a137fb85eee3006d2b11fc8715575cba78d",
+    (DIAGNOSTICS_DATASET, 1): "6192513d252a24e267ab1a2bfad6f833f98584fa7e9b7153d9d4504a83810d58",
+    (FORWARD_DATASET, 1): "2466e89116af80958908708bc230f20a1f28875d1772a80c71bce09fe2186898",
+}
+
+
+def schema_signature(dataset: L2Dataset) -> str:
+    """A digest of the columns and key this contract version publishes."""
+    schema = dataset.arrow_schema
+    payload = json.dumps(
+        {
+            "columns": [f"{field.name}:{field.type}:{field.nullable}" for field in schema],
+            "partition_by": list(dataset.partition_by),
+            "primary_key": list(dataset.primary_key),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def verify_l2_schema_signatures() -> list[str]:
+    """Names every dataset whose schema no longer matches its recorded contract version."""
+    drifted: list[str] = []
+    for dataset in L2_DATASETS.values():
+        recorded = _RECORDED_SCHEMA_SIGNATURES.get((dataset.name, dataset.contract_version))
+        actual = schema_signature(dataset)
+        if recorded != actual:
+            drifted.append(
+                f"{dataset.name}: contract v{dataset.contract_version} records "
+                f"{recorded} but the row type now signs as {actual}"
+            )
+    return drifted
+
 
 L2_DATASETS: Mapping[str, L2Dataset] = {
     dataset.name: dataset

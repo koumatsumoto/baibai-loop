@@ -345,6 +345,14 @@ buildは拒否される。storeが名乗るpolicyはbundle manifestの中にあ�
 いない世代を名乗りながらserveしている世代を読めないstoreができる。比較用baselineの`--without-control-event-exits`はdefault storeでは拒否し、
 別`--calibration-dir`を要求する。
 
+`contract_version`はdatasetごとに持つ。object keyへ入る唯一の互換性表示なので、片方のrow型が
+列を得たときに同じ`contract=v1`が2つの列構成を指すと、versionだけで判断する外部readerが違う形を
+読む。drift gate `check_l2_contract_versions`が記録済みschema signatureと実際のschemaを突き合わせ、
+bumpせずにrow型を変えた変更を落とす。cache identityもdatasetごとに導く — forwardへ列を1つ足して
+panelの81 cohortが再構築になるのは、値を動かせない変更に数時間と数百MBを払ううえ、「再構築が要る」
+という信号の意味を薄める。screening閾値と評価式の意味はpanel / diagnosticsの値を決めるが、forwardの
+観測 (entry / exit / 配当) は決めない。
+
 build identityはcohort別typed `SourceRef`、その dataset を最後に作った`producer_git_commit`、
 semantic dependency closureのSHA-256とforward observation policyを含む`transform_fingerprint`、
 `contract_version`、full primary key、partition/object hashである。panelは`(asof,ticker)`、diagnosticsは

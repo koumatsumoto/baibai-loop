@@ -40,7 +40,7 @@ from baibai_engine.screening.calibration.panel import (
     rules_content_hash,
 )
 from baibai_engine.screening.calibration.store import (
-    CACHE_SCHEMA_VERSION,
+    CACHE_SCHEMA_VERSIONS,
     DEFAULT_CALIBRATION_DIR,
     CalibrationCacheError,
     forward_row_from_mapping,
@@ -942,7 +942,7 @@ class CalibrationPanelTest(unittest.TestCase):
                 require_build_inputs(
                     _current_panel_manifest(store_dir),
                     dataset=CALIBRATION_PANEL,
-                    cache_schema_version=CACHE_SCHEMA_VERSION,
+                    cache_schema_version=CACHE_SCHEMA_VERSIONS[CALIBRATION_PANEL.name],
                     source_release_id="release-that-was-not-used",
                 )
 

@@ -174,36 +174,93 @@ def test_calibration_bundle_cas_conflict_leaves_the_previous_pointer(
     assert current_calibration_bundle_pointer_key() not in remote.values
 
 
-def test_calibration_bundle_retry_rejects_a_different_remote_rollback(
-    tmp_path: Path,
-) -> None:
+def test_a_local_store_two_generations_ahead_still_converges(tmp_path: Path) -> None:
+    """One failed publication must not make every later generation unpublishable.
+
+    The rollback identity is the generation being replaced, which is whatever remote
+    serves. Requiring it to equal the local store's own previous would make remote
+    reachable only from the generation immediately after it: skip one, and the local
+    store can never publish again while the generation remote wants no longer exists.
+    """
+
     mirror = tmp_path / "mirror"
     remote = _MemoryStore()
     publish_panel(mirror, "2026-01-30", [])
-    first = CalibrationBundlePointer.model_validate_json(
-        (mirror / current_calibration_bundle_pointer_key()).read_bytes()
-    )
+    first = _local_bundle(mirror)
     publish_calibration_bundle(
         mirror_root=mirror,
         bundle_manifest_path=mirror / first.current.manifest_key,
         store=remote,
     )
+    # The publication of the second generation never happens — a network failure, a
+    # cancelled run — and the store moves on to a third.
     publish_panel(mirror, "2026-02-27", [])
-    second = CalibrationBundlePointer.model_validate_json(
-        (mirror / current_calibration_bundle_pointer_key()).read_bytes()
-    )
+    publish_panel(mirror, "2026-03-31", [])
+    third = _local_bundle(mirror)
+    assert third.previous is not None
+    assert third.previous != first.current
+
     publish_calibration_bundle(
         mirror_root=mirror,
-        bundle_manifest_path=mirror / second.current.manifest_key,
+        bundle_manifest_path=mirror / third.current.manifest_key,
+        store=remote,
+    )
+
+    published = CalibrationBundlePointer.model_validate_json(
+        remote.values[current_calibration_bundle_pointer_key()].body
+    )
+    assert published.current == third.current
+    assert published.previous == first.current
+
+
+def test_republishing_the_bundle_remote_already_serves_changes_nothing(tmp_path: Path) -> None:
+    mirror = tmp_path / "mirror"
+    remote = _MemoryStore()
+    publish_panel(mirror, "2026-01-30", [])
+    current = _local_bundle(mirror)
+    publish_calibration_bundle(
+        mirror_root=mirror,
+        bundle_manifest_path=mirror / current.current.manifest_key,
+        store=remote,
+    )
+    before = dict(remote.values)
+
+    report = publish_calibration_bundle(
+        mirror_root=mirror,
+        bundle_manifest_path=mirror / current.current.manifest_key,
+        store=remote,
+    )
+
+    assert report.transfers.uploaded_objects == 0
+    assert {key: value.body for key, value in remote.values.items()} == {
+        key: value.body for key, value in before.items()
+    }
+
+
+def test_a_remote_pointer_naming_this_bundle_with_another_identity_is_refused(
+    tmp_path: Path,
+) -> None:
+    mirror = tmp_path / "mirror"
+    remote = _MemoryStore()
+    publish_panel(mirror, "2026-01-30", [])
+    current = _local_bundle(mirror)
+    publish_calibration_bundle(
+        mirror_root=mirror,
+        bundle_manifest_path=mirror / current.current.manifest_key,
         store=remote,
     )
     key = current_calibration_bundle_pointer_key()
-    damaged = canonical_json_bytes(CalibrationBundlePointer(current=second.current, previous=None))
+    forged = canonical_json_bytes(
+        CalibrationBundlePointer(
+            current=current.current.model_copy(update={"manifest_sha256": "0" * 64}),
+            previous=None,
+        )
+    )
     remote.values[key] = _Value(
-        body=damaged,
-        etag=hashlib.md5(damaged, usedforsecurity=False).hexdigest(),  # nosec B324
+        body=forged,
+        etag=hashlib.md5(forged, usedforsecurity=False).hexdigest(),  # nosec B324
         metadata={
-            "sha256": hashlib.sha256(damaged).hexdigest(),
+            "sha256": hashlib.sha256(forged).hexdigest(),
             "content-md5": "present",
             "integrity": "content-md5-v1",
         },
@@ -213,9 +270,15 @@ def test_calibration_bundle_retry_rejects_a_different_remote_rollback(
     with pytest.raises(LakePublishError, match="different rollback identity"):
         publish_calibration_bundle(
             mirror_root=mirror,
-            bundle_manifest_path=mirror / second.current.manifest_key,
+            bundle_manifest_path=mirror / current.current.manifest_key,
             store=remote,
         )
+
+
+def _local_bundle(mirror: Path) -> CalibrationBundlePointer:
+    return CalibrationBundlePointer.model_validate_json(
+        (mirror / current_calibration_bundle_pointer_key()).read_bytes()
+    )
 
 
 def test_calibration_bundle_rollback_exchanges_current_and_previous(tmp_path: Path) -> None:
