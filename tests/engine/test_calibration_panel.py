@@ -1349,9 +1349,7 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(len(identities), 3)
             self.assertEqual(list(store_dir.rglob("*.sqlite")), [])
             self.assertEqual(list(root.glob(".generation.*")), [])
-            stored = sum(
-                path.stat().st_size for path in store_dir.rglob("*") if path.is_file()
-            )
+            stored = sum(path.stat().st_size for path in store_dir.rglob("*") if path.is_file())
             self.assertLess(stored, sqlite_path.stat().st_size)
 
     def test_a_generation_a_killed_build_left_behind_is_discarded_and_reported(self) -> None:
