@@ -84,6 +84,39 @@ uv run baibai-engine lake release create \
   --dataset-manifest <short-sale-manifest>
 ```
 
+### local pipeline の実測
+
+remote への転送が差分でも、local 側は毎 run sealed snapshot を作り、affected month を
+判定し、全 history の SQLite ↔ Parquet parity を検証する。その時間は主張ではなく計測で持つ。
+
+```bash
+uv run python -m tools.diagnostics.benchmark_l1_export \
+  --sqlite stores/market/market.sqlite --report <report.json>
+```
+
+production store（2,013,155,328 bytes、schema v23、11,554,322 rows = daily bars 10,141,309 +
+short sale 1,413,013）を Linux/WSL2 の一時 directory で実測した結果は次のとおり。
+
+| 局面 | wall time | 生成 object | 生成 bytes |
+| --- | --- | --- | --- |
+| full export（121 か月 × 2 dataset） | 367.6 秒 | 242 | 252,387,406 |
+| 1 か月訂正の再 export | 262.2 秒 | 1 | 848,197 |
+
+peak RSS は 1,013,817,344 bytes（967 MiB）。**1 か月の訂正で書き換わるのは 0.85 MB だが、
+local 側は 262 秒かかる。** その大半は 2 GB の sealed snapshot 作成と、carry する 120 か月分を
+含む full parity 検証である。これは correctness gate を測定前に弱めない選択の代価であり、
+daily pipeline の予算はこの実測値を前提に置く。fast path と scheduled full audit の分離は、
+この時間が daily の制約になった時点で検討する。
+
+この計測は commit ではなく実装 digest（`4f0dc6be…`: writer / models / immutable / snapshot /
+benchmark tool）へ結ぶ。それらに触れない変更では証跡は有効なままで、触れた変更は再計測になる。
+
+<!-- AP-02: full=367.56988125501084 秒、incremental=262.16346760702436 秒、
+peak RSS=1013817344 / 1048576 = 966.85546875 MiB、
+source sha256=703e3fab403489726708fc83c07fe1975e9f0ddad5ba492834ad2f1ec33144ce、
+implementation sha256=4f0dc6bee8dacafdc70c0958a0a5ed4d4ed43ebe3e996a35ab8d4479cdf62895、
+producer commit=b87e61fba32448766fb2d9cd7d2114e2d1ad6a56。 -->
+
 ## R2 publish
 
 publish は immutable object、dataset manifest、release manifest の順に `If-None-Match: *` で
