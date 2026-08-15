@@ -328,7 +328,11 @@ policyを継承する — 観測している銘柄はそのpanelが選んだ集�
 実際に観測したmarket data cutoffを持つ。古いpanelを保持したままforwardだけ後日のsnapshotで更新でき、
 dataset全体へ過去の全source世代を累積しない。最後に3 manifestを
 `CalibrationBundleManifest`へ束ね、`lake/pointers/calibration/current.json`を1回だけ切り替える。
-consumerはdataset pointerを読まないため、途中失敗したpanelと旧diagnostics/forwardが混ざらない。
+**mutableなstateはこのbundle pointer 1つだけである。** cohort writeは新しいdataset manifestの
+refを値として返し、触っていないdatasetは現行bundleから引き継ぐ。dataset別のpointerを別に持つと、
+公開したgenerationとwriterの継続状態が2つの別々のstateになり、次のwork generationへ運ばれるのは
+片方だけになる。同じas-of範囲を2回目に走らせてforwardだけ成熟させる経路は、まさにその引き継がれ
+なかった側を読む。
 書き換わるのは対象cohortの月partitionだけで、他の月はcontent-addressed objectを引き継ぐ。
 
 bundleは組み立てのtransaction identityとして`assembled_by_git_commit`を持つ。3 datasetのproducer
