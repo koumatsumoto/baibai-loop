@@ -476,6 +476,14 @@ bundle pointerを1回切り替える。非互換履歴は`archived_incompatible`
 `completion: committed_with_warnings`として成功済みgenerationを返し、同じinput digestのretryは
 `already_migrated`として冪等に完了する。
 
+出力へ何を出さないかは、その出力が誰の手に渡るかで決まる。**共有される成果物** — remote publish
+report、Discord通知、CI artifact、そこへ載るerror — にはcredential、account ID、bucket URL、
+そしてlocal filesystem pathを出さない。publish reportがrelease ID・pointer ETag・転送counterだけで
+できているのはこのためである。**operator-local CLI**（`inventory`、`release`、`projection`、
+`archive-raw`、`pin`、immutable installのerror）はlocal pathを出す。operatorが次に触るのはその
+pathそのものであり、隠すとdebug可能性を失うだけで誰も守らない。共有される場所へこれらのoutputを
+そのまま貼る運用にしない。
+
 R2 credentialはroleを分ける。readerはGet/Headだけ、publisherはGet/Head/Putだけ（Deleteなし）、
 retention finalizerだけがDeleteを持つ。Bucket Locksはimmutable object/manifest/archive prefixへ適用し、
 mutableな`lake/pointers/`、`lake/staging/`、retention markは対象外にする。pinはapplication reachabilityを
