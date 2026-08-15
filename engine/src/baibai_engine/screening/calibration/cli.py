@@ -65,6 +65,7 @@ from .store import (
     current_bundle_ref,
     has_cohort,
     orphaned_cohorts,
+    pointed_cohorts,
     published_cohorts,
     read_forward,
     read_panel,
@@ -99,6 +100,7 @@ def calibration_build_command(
         except (OSError, RuntimeError) as exc:
             print(f"calibration build: {exc}", file=sys.stderr)
             return 1
+        baseline: list[date] | None = None
         try:
             expected_current = current_bundle_ref(calibration_dir)
         except (CalibrationCacheError, CalibrationLakeError) as exc:
@@ -112,6 +114,12 @@ def calibration_build_command(
                     file=sys.stderr,
                 )
                 return 1
+            # Read what the pointer still names before taking it away. The generation
+            # does not resolve, which is why this branch runs, but the pointer and the
+            # bundle manifest it names usually survive whatever broke below them — and
+            # those two state the served inventory exactly, so the drop guard does not
+            # have to infer it from what happens to be on disk.
+            baseline = pointed_cohorts(calibration_dir)
             quarantined = _quarantine_broken_root(calibration_dir)
             print(
                 f"calibration build: quarantined unreadable calibration root to {quarantined.name}",
@@ -132,6 +140,7 @@ def calibration_build_command(
                     calibration_dir=calibration_dir,
                     work_dir=work_dir,
                     expected_current=expected_current,
+                    baseline=baseline,
                     producer_commit=producer_commit,
                     rules=rules,
                     start=start,
@@ -221,6 +230,7 @@ def _calibration_build_command(
     calibration_dir: Path,
     work_dir: Path,
     expected_current: CalibrationBundleRef | None,
+    baseline: Sequence[date] | None,
     producer_commit: str,
     rules: ScreeningRules,
     start: date,
@@ -321,7 +331,9 @@ def _calibration_build_command(
     rows = [row for cohort_rows in by_asof.values() for row in cohort_rows]
     resolved = sum(row.resolved for row in rows)
     control_event = sum(row.status == CONTROL_EVENT_EXIT_STATUS for row in rows)
-    dropped = _cohorts_this_build_would_drop(calibration_dir, work_dir, force=force)
+    dropped = _cohorts_this_build_would_drop(
+        calibration_dir, work_dir, force=force, baseline=baseline
+    )
     if dropped:
         print(
             "calibration build: this run would publish a generation without "
@@ -358,7 +370,11 @@ def _calibration_build_command(
 
 
 def _cohorts_this_build_would_drop(
-    calibration_dir: Path, work_dir: Path, *, force: bool
+    calibration_dir: Path,
+    work_dir: Path,
+    *,
+    force: bool,
+    baseline: Sequence[date] | None = None,
 ) -> list[date]:
     """Cohorts the store serves now that the generation about to be adopted omits.
 
@@ -373,22 +389,35 @@ def _cohorts_this_build_would_drop(
     is what is about to become current, whatever produced it.
 
     ``--replace-broken-current`` sets ``force`` and takes the pointer away, so the run
-    that reaches here with no readable inventory is exactly the one this check exists
-    for. A store whose pointer was just quarantined resolves to nothing, and so does a
-    store that never existed; the bundle manifests left on disk tell them apart, and
-    consulting them keeps the repair under the same rule as every other forced build
-    instead of exempting it.
+    that reaches here is the one this check exists for and the one whose store can no
+    longer answer. ``baseline`` is what the pointer said before it was moved, so the
+    repair is held to the same rule as every other forced build rather than exempted
+    from it.
     """
 
     if not force:
         return []
+    served = _cohorts_the_store_serves(calibration_dir, baseline)
+    return sorted(served - set(published_cohorts(work_dir)))
+
+
+def _cohorts_the_store_serves(calibration_dir: Path, baseline: Sequence[date] | None) -> set[date]:
+    """What the store is serving, for a build that is about to replace all of it.
+
+    ``baseline`` is the exact answer, read from the pointer before a repair moved it,
+    and is used whenever the pointer could still state one. Otherwise the store speaks
+    for itself — and a store that resolves to nothing is asked a second time, because a
+    store whose pointer an earlier repair quarantined and a store that never existed
+    give the same answer and only one of them may be rebuilt into freely.
+    """
+
+    if baseline is not None:
+        return set(baseline)
     try:
         served = set(published_cohorts(calibration_dir))
     except CalibrationCacheError:
         served = set()
-    if not served:
-        served = set(orphaned_cohorts(calibration_dir))
-    return sorted(served - set(published_cohorts(work_dir)))
+    return served or set(orphaned_cohorts(calibration_dir))
 
 
 def _optional_count(value: object) -> int | None:

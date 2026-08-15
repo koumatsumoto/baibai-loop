@@ -288,7 +288,11 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       「今serveしている集合」と「これからserveする集合」を比較し、差分があれば名指してfail closeするか。
       範囲がstoreを包含する場合は通ることも併せてtestしたか（否定側だけのtestは経路の全滅を隠す）。
       「今serveしている集合」が読めない状態（壊れたpointerの退避直後など）で比較を諦めていないか。
-      退避はその比較対象を奪う操作なので、最も検査が要る実行が最も検査されない側へ落ちる
+      退避はその比較対象を奪う操作なので、最も検査が要る実行が最も検査されない側へ落ちる。
+      比較対象は退避前のpointerが名乗る集合から取り、directory走査の和を権威にしていないか
+      （走査は追い越された世代と未公開の残骸を含む）。**拒否された復旧の直後にflag無しで
+      再実行するのが通常のoperator行動である**ことを前提に、retry・別command・process再起動の
+      全経路で同じ拒否が再現することをtestしたか
 - [ ] 合成generationの解決を変更する場合、構造（digest edge）と契約版のどちらを問うているか区別したか。
       解決時に契約版を問うと1 datasetの版上げが全datasetをunresolveにする。契約版はrowをdecodeする側と
       canonical化するadoptionだけが問い、非変更datasetが読めることをtestで固定したか
@@ -298,7 +302,9 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       書くと、最も素性の弱い対象が最も確かに見える。検証I/Oはその実行が扱う対象へ限定したか
 - [ ] 壊れたrootのrecovery操作を追加・変更する場合、対象root以外（pin・previous・健全なmanifest）のidentityと
       closureが操作前後で完全一致することをtestで固定したか。復旧のためにdirectory単位でmanifestを退避すると、
-      無関係なpinがunresolvedになりGCが恒久停止する
+      無関係なpinがunresolvedになりGCが恒久停止する。**rootを退避したstoreが「未公開のstore」と同じ姿に
+      なっていないか** — 両者が同じ答えを返すなら、次の通常実行はそれを空のstoreと読んで書き潰す。
+      publish済みの痕跡（manifest等）が残る限りfail closeし、退避が失敗しても壊れたままへ収束するか
 - [ ] bundle等の合成generationをreaderやremote closureで検証する場合、包含ではなく両方向のset equalityを要求するか。
       bundleが列挙しないcohortを内部datasetが保持する状態をnegative testで拒否したか
 - [ ] wireのschema契約をdrift gateで固定する場合、readerが実際に比較する要素（Arrow metadataのdataset /

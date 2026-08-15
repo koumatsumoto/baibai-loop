@@ -305,6 +305,12 @@ def _build_projection(
             and existing == identity
             and _projection_is_intact(destination, identity, expected_rows)
         ):
+            # The integrity scan reads the whole projection — 47 seconds on the
+            # production store — so current can move under it exactly as it can under a
+            # rebuild. Reporting a reuse without asking again would answer "this is the
+            # current projection" about a release that stopped being current while the
+            # answer was being computed.
+            _require_still_current(still_current, release)
             return ProjectionBuildReport(
                 path=destination,
                 identity=identity,

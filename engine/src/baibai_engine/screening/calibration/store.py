@@ -297,11 +297,59 @@ def _require_partition_objects(
             raise CalibrationLakeError(f"{dataset.name}: published object differs: {item.key}")
 
 
+def _pointer_ref(root: Path) -> CalibrationBundleRef | None:
+    """The reference the pointer names, without resolving the generation behind it.
+
+    A compare-and-set asks whether the pointer moved, which is a question about the
+    pointer. Resolving the generation to answer it makes replacing an unreadable one
+    impossible: the repair that exists to install a working pointer would have to
+    resolve the broken one first. What the closure of the incoming generation must
+    prove is proved separately, and against the generation being installed.
+    """
+
+    pointer_path = root / current_calibration_bundle_pointer_key()
+    if not pointer_path.is_file():
+        return None
+    try:
+        return load_lake_model_json(pointer_path.read_bytes(), CalibrationBundlePointer).current
+    except ValueError as exc:
+        raise CalibrationLakeError("calibration bundle pointer is unreadable") from exc
+
+
+def _bundle_manifest_dir(root: Path) -> Path:
+    """Where published bundle manifests live, taken from the canonical key itself."""
+    return (root / calibration_bundle_manifest_key(bundle_id="probe")).parent
+
+
+def _has_published_generation(root: Path) -> bool:
+    """Whether this store ever published a generation, its pointer aside.
+
+    An absent pointer means "nothing published yet" only when nothing was published.
+    Recovery is what makes the difference matter: moving an unreadable pointer aside
+    turns a broken store into one that looks new, and the next ordinary build then has
+    no inventory to be measured against and republishes a fraction of the history as the
+    whole of it. Retention already refuses to sweep on exactly this distinction; a store
+    that answers "empty" to the reader while answering "broken" to the collector is the
+    disagreement, not the rule.
+
+    Bundle manifests are the evidence rather than dataset manifests, because a
+    generation writes its dataset manifests before the bundle that names them and this
+    is read in between: a store mid-publication has not lost anything.
+    """
+
+    return any(_bundle_manifest_dir(root).glob("*.json"))
+
+
 def _fixed_bundle(root: Path) -> FixedCalibrationBundle | None:
     """Resolve the public generation once and close every manifest edge by digest."""
 
     pointer_path = root / current_calibration_bundle_pointer_key()
     if not pointer_path.is_file():
+        if _has_published_generation(root):
+            raise CalibrationLakeError(
+                "calibration bundle pointer is missing from a store that has already "
+                "published generations"
+            )
         return None
     try:
         pointer = load_lake_model_json(pointer_path.read_bytes(), CalibrationBundlePointer)
@@ -457,9 +505,7 @@ def _publish_bundle(
         manifest_sha256=sha256_bytes(path.read_bytes()),
     )
     pointer_path = root / current_calibration_bundle_pointer_key()
-    previous = None
-    if pointer_path.is_file():
-        previous = load_lake_model_json(pointer_path.read_bytes(), CalibrationBundlePointer).current
+    previous = _pointer_ref(root)
     write_bytes_atomic(
         pointer_path,
         canonical_manifest_bytes(CalibrationBundlePointer(current=reference, previous=previous)),
@@ -612,7 +658,7 @@ def _adopt_bundle_generation(
                 hashed_bytes += item.bytes
 
     pointer_path = root / current_calibration_bundle_pointer_key()
-    actual = current_bundle_ref(root)
+    actual = _pointer_ref(root)
     if actual != expected_current:
         raise CalibrationLakeError("calibration bundle moved while force build was in flight")
 
@@ -926,7 +972,9 @@ def has_cohort(root: Path, asof: date) -> bool:
             return False
         if entry.panel.status == "empty":
             return True
-        return bool(_cohort_payloads(root, CALIBRATION_PANEL, asof))
+        # The generation whose inventory answered is the one whose rows are read: this
+        # is one question, so it may only see one bundle.
+        return bool(_cohort_payloads(root, CALIBRATION_PANEL, asof, bundle=bundle))
     except (CalibrationLakeError, LakeRetentionError) as exc:
         raise CalibrationCacheError(str(exc)) from exc
 
@@ -956,25 +1004,54 @@ def published_cohorts(root: Path, *, bundle: FixedCalibrationBundle | None = Non
     return sorted(asofs)
 
 
-def orphaned_cohorts(root: Path) -> list[date]:
-    """As-ofs the store served, read from bundle manifests when no pointer resolves.
+def pointed_cohorts(root: Path) -> list[date] | None:
+    """The cohorts the current pointer names, without closing the rest of the graph.
 
-    A repair that moves an unreadable pointer aside removes the only description of what
-    is being served, so the store that most needs its inventory compared against a
-    rebuild is the one that can no longer state it. The manifests the broken pointer
-    named are still on disk and each states its own cohort set, so the union of the
-    readable ones is a lower bound on what was published.
+    A repair runs because the generation the pointer names does not resolve, which is
+    exactly when a build about to replace it needs to know what was being served. Most
+    of the ways a generation stops resolving — a dataset manifest whose digest moved, an
+    object that disappeared, an inventory that disagrees with the bundle — leave the
+    pointer and the bundle manifest it names intact, and those two state the served
+    inventory exactly, digest-pinned, with no discovery involved.
 
-    A union over generations can name a cohort that a later generation dropped on
-    purpose, so this can refuse a narrowing that was already intended. That is the
-    direction to err in while repairing: the alternative silently takes the store down
-    to whatever window the operator happened to type, and rebuilding into a separate
-    directory is an escape the refusal names.
+    ``None`` means the store cannot state it: the pointer bytes or the manifest they
+    name are themselves unreadable. Only then does the answer have to be inferred.
     """
 
-    directory = (root / calibration_bundle_manifest_key(bundle_id="probe")).parent
+    pointer_path = root / current_calibration_bundle_pointer_key()
+    try:
+        pointer = load_lake_model_json(pointer_path.read_bytes(), CalibrationBundlePointer)
+        payload = (root / pointer.current.manifest_key).read_bytes()
+        if sha256_bytes(payload) != pointer.current.manifest_sha256:
+            return None
+        manifest = load_lake_model_json(payload, CalibrationBundleManifest)
+    except (OSError, ValueError):
+        return None
+    return sorted(
+        date.fromisoformat(asof)
+        for asof, entry in manifest.cohorts.items()
+        if entry.panel.status in {"complete", "empty"}
+    )
+
+
+def orphaned_cohorts(root: Path) -> list[date]:
+    """As-ofs the store may have served, inferred from bundle manifests on disk.
+
+    This is the answer of last resort, for a store whose pointer states nothing and
+    whose manifests are all that is left — a second repair attempt, or a pointer whose
+    own bytes are corrupt. Each manifest states its own cohort set, so the union of the
+    readable ones covers what any generation published.
+
+    It is an inference, not the inventory. A union over generations names cohorts a
+    later generation may have dropped on purpose, and a manifest this code cannot decode
+    contributes nothing at all. Both errors are tolerable only for the use it has: as a
+    floor a destructive rebuild must clear. Over-refusing sends the operator to a
+    separate directory, which the refusal names; under-refusing needs the current
+    manifest itself to be gone, which is loss the pointer already told them about.
+    """
+
     asofs: set[date] = set()
-    for path in sorted(directory.glob("*.json")):
+    for path in sorted(_bundle_manifest_dir(root).glob("*.json")):
         try:
             manifest = load_lake_model_json(path.read_bytes(), CalibrationBundleManifest)
             asofs.update(

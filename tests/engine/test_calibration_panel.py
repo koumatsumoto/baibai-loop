@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import sqlite3
 import sys
 import tempfile
@@ -1594,6 +1595,94 @@ class CalibrationPanelTest(unittest.TestCase):
             # Refused before adoption: the repair left no current pointer at all rather
             # than installing one that publishes half the history.
             self.assertFalse((store_dir / current_calibration_bundle_pointer_key()).exists())
+
+            # The refusal moved the pointer aside, so the store now describes itself the
+            # way a brand new one does. An ordinary build — no flags, no operator
+            # intent to replace anything — must not read that as an empty store and
+            # publish the same narrowed generation the refusal just declined.
+            retry = io.StringIO()
+            with (
+                patch(
+                    "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                    return_value=[ASOF],
+                ),
+                contextlib.redirect_stderr(retry),
+            ):
+                again = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(again, 1)
+            self.assertIn("--replace-broken-current", retry.getvalue())
+            self.assertFalse((store_dir / current_calibration_bundle_pointer_key()).exists())
+
+    def test_a_repair_measures_itself_against_the_pointer_not_against_the_directory(self) -> None:
+        """Most generations stop resolving with the pointer still able to name them.
+
+        The bundle manifest a readable pointer names states the served inventory exactly,
+        so a repair does not have to infer it from the manifests that happen to be on
+        disk. Those include generations that were superseded and generations that were
+        never published at all, and holding a rebuild to their union means refusing it
+        over cohorts nothing was serving.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sqlite_path = root / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            store_dir = root / "calibration"
+            earlier = "2026-05-29"
+            publish_panel(store_dir, earlier, [{"ticker": "7203"}])
+            publish_panel(store_dir, ASOF.isoformat(), [{"ticker": "7203"}])
+
+            manifests = store_dir / "lake/manifests/calibration-bundles"
+            served = json.loads(
+                (store_dir / resolve_calibration_bundle(store_dir).ref.manifest_key).read_bytes()
+            )
+            # What an interrupted publication leaves behind: a well-formed bundle manifest
+            # naming a cohort no pointer ever pointed at.
+            phantom = dict(served)
+            phantom["bundle_id"] = "never-published"
+            entry = json.loads(json.dumps(next(iter(served["cohorts"].values()))))
+            for role in entry.values():
+                role["input_cutoff"] = "2026-04-30"
+            phantom["cohorts"] = {"2026-04-30": entry}
+            (manifests / "never-published.json").write_bytes(json.dumps(phantom).encode() + b"\n")
+
+            # Break the generation below the pointer: the pointer and the bundle manifest
+            # it names still decode, which is what the repair reads them for.
+            bundle = resolve_calibration_bundle(store_dir)
+            dataset_manifest = (
+                store_dir / bundle.manifest.datasets[CALIBRATION_PANEL.name].manifest_key
+            )
+            dataset_manifest.write_bytes(dataset_manifest.read_bytes() + b" ")
+
+            errors = io.StringIO()
+            with (
+                patch(
+                    "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                    return_value=[ASOF],
+                ),
+                contextlib.redirect_stderr(errors),
+            ):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    replace_broken_current=True,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(code, 1)
+            self.assertIn(earlier, errors.getvalue())
+            self.assertNotIn("2026-04-30", errors.getvalue())
 
     def test_a_generation_a_killed_build_left_behind_is_discarded_and_reported(self) -> None:
         """A work generation is a sibling of the store, so nothing else would find it.

@@ -1513,6 +1513,40 @@ class TestProjectionConcurrency:
 
         assert not destination.exists()
 
+    def test_a_reuse_is_not_reported_as_current_when_the_pointer_moved_during_the_scan(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        """Reuse is not free of the race just because it writes nothing.
+
+        Deciding to reuse means reading the whole projection back — 47 seconds on the
+        production store — and reporting success afterwards says "this is the current
+        projection". A pointer that moved while that was being computed makes the
+        statement false, on the same terms that make it false for a rebuild.
+        """
+
+        destination = tmp_path / "projection.sqlite"
+        cache = _cache(lake)
+        release = resolve_current_release(cache.source)
+        assert _build(session, lake, destination=destination, cache=cache).reused is False
+
+        answers = iter(
+            [
+                (release.release_id, release.manifest_sha256),
+                (release.release_id, "0" * 64),
+            ]
+        )
+        with pytest.raises(ProjectionError, match="no longer current"):
+            build_projection(
+                session,
+                release=release,
+                cache=cache,
+                destination=destination,
+                dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
+                builder_git_commit=_COMMIT,
+                still_current=lambda: next(answers),
+                built_at=_BUILT_AT,
+            )
+
     def test_an_explicitly_named_release_is_built_without_a_currency_check(
         self, session: LakeSession, lake: Lake, tmp_path: Path
     ) -> None:

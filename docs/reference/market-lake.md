@@ -276,6 +276,11 @@ bytes と無関係な理由で起きる。commit は `builder_git_commit` とし
 CLIとbenchmarkは同じidentityを使うので、benchmarkのwarm reuseは実運用の挙動を表す。build は一意な一時 file へ書いて 1 回の rename で公開するので、途中状態が
 読まれることはなく、失敗しても直前の projection は壊れない。
 
+current modeでは、再利用と再構築の**どちらも**成功を返す直前にcurrent pointerのfull identityを
+問い直す。再利用は何も書かないが、決めるためにprojection全体を読み返す（production storeで47秒）
+ので、その間にpointerが動く窓は再構築と同じだけある。成功の報告は「これがcurrentのprojectionだ」
+という主張なので、計算中にcurrentでなくなった releaseについてそれを言わない。
+
 production scaleではsecondary indexをbulk insert後に作る。開始前にpublished object bytesの5倍
 （最低64 MiB）の同一filesystem空き容量を要求し、10,136,873 daily-bar rowsと1,412,135 short-sale
 rowsのbaselineをbounded 20,000-row batchで処理し、index作成後に`ANALYZE`する。受入は次を実行し、
@@ -402,10 +407,22 @@ generationに対して行い、canonical currentへ進むのはgeneration adopti
 **部分範囲の再計算は、範囲外の既存cohortを黙って落とさない。** `--force`はstoreをhard linkで
 引き継がずgenerationを空から始めるので、1年を直すつもりの実行がその1年だけを持つcurrent bundleを
 公開しうる。adoptionの直前に「今serveしている集合」と「これからserveする集合」を比較し、落ちるものが
-あれば名指して拒否する。壊れたpointerを退避する復旧（`--replace-broken-current`）は`--force`を含み、
-かつ比較対象そのものを奪う操作なので、pointerが解決しない場合はdiskに残るbundle manifestが述べる
-cohortの和をserve済みの下限として使う。世代をまたぐ和は意図的な縮小まで拒否しうるが、復旧中に
-倒れるならその向きであり、拒否messageは別`--calibration-dir`へ組み直す逃げ道を名指す。
+あれば名指して拒否する。
+
+壊れたpointerを退避する復旧（`--replace-broken-current`）は`--force`を含み、かつこの比較対象そのものを
+奪う操作である。**pointerを退避する前にpointerが名乗るbundle manifestを読み、そのcohort集合を比較の
+baselineにする。** 世代が解決しなくなる原因の大半 — dataset manifestのdigestずれ、objectの欠落、
+inventoryの不一致 — はpointerとbundle manifestを無傷で残すので、serve済みの集合はdigestで固定された
+まま正確に分かる。pointer自体が読めない場合だけ、diskに残るbundle manifestが述べるcohortの和を
+下限として使う。これは推定であって在庫ではない（追い越された世代と未公開の残骸を含み、decodeできない
+manifestは寄与しない）が、破壊的な再構築が超えるべき床としてなら成り立つ。過剰拒否は別
+`--calibration-dir`へ逃がせ、拒否messageがそれを名指す。
+
+**pointerを失ったstoreは空のstoreではない。** publishした痕跡が残る限り解決はfail closeする。
+両者を同じ「まだ何も無い」として扱うと、拒否された復旧の直後にflag無しで再実行する — operatorの
+通常行動 — だけで、storeは新規扱いとなり同じ縮小generationがcurrentになる。1度目の拒否が安全に
+見えるぶん2度目の迂回は見つかりにくい。retentionは既にこの区別でsweepを止めており、readerだけが
+「空」と答える状態が食い違いである。
 
 adoptionはbundleが閉じているものだけを歩く。bundle manifest → dataset manifest → partition object
 → 保持するcohort sourceとそのfileであり、directory treeではない（treeには追い越された世代も居る）。

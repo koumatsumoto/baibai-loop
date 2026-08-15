@@ -65,6 +65,7 @@ from baibai_engine.screening.calibration.lake import (
     CALIBRATION_PANEL,
     CalibrationBundlePointer,
     CalibrationLakeError,
+    FixedCalibrationBundle,
     load_manifest,
     require_build_inputs,
     require_l2_dataset,
@@ -315,6 +316,34 @@ class TestImmutableBuilds:
         assert read_panel(tmp_path, january, bundle=first) == expected_panel
         assert read_forward(tmp_path, january, bundle=first) == expected_forward
         assert read_panel_meta(tmp_path, january, bundle=first)["rules_hash"]
+
+    def test_asking_whether_a_cohort_exists_reads_one_generation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The inventory that answers and the rows that confirm it are one generation.
+
+        ``has_cohort`` checks the entry and then reads the payload to tell a published
+        cohort from a claim about one. Resolving current a second time for the payload
+        makes the two halves of one question describe two different generations, and a
+        publication landing in between turns "yes" into a false or into an error.
+        """
+
+        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
+        january = date.fromisoformat(_JANUARY)
+        assert has_cohort(tmp_path, january) is True
+
+        resolve = store._fixed_bundle
+        resolved = 0
+
+        def once(root: Path) -> FixedCalibrationBundle | None:
+            nonlocal resolved
+            resolved += 1
+            if resolved > 1:
+                raise AssertionError("current was resolved twice to answer one question")
+            return resolve(root)
+
+        monkeypatch.setattr(store, "_fixed_bundle", once)
+        assert has_cohort(tmp_path, january) is True
 
     def test_one_datasets_contract_move_does_not_unresolve_the_others(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
