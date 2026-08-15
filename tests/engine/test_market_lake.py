@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-import sqlite3
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -22,7 +21,6 @@ from baibai_engine.market.lake.keys import (
     raw_metadata_object_key,
     raw_object_key,
     release_manifest_key,
-    sqlite_snapshot_object_key,
 )
 from baibai_engine.market.lake.models import (
     MAX_LAKE_JSON_BYTES,
@@ -31,7 +29,6 @@ from baibai_engine.market.lake.models import (
     RawArchiveMetadata,
     RawIngestSourceRef,
     ReleaseManifest,
-    SQLiteSnapshotSourceRef,
     canonical_lake_model_bytes,
     load_lake_model_json,
     load_manifest_json,
@@ -79,6 +76,17 @@ def _raw_source_payload(*, dataset: str, ingest_id: str) -> dict[str, object]:
     }
 
 
+def _snapshot_source_payload(digest: str = "9" * 64, schema_version: int = 22) -> dict[str, object]:
+    """The sealed store generation a pilot manifest was exported from, identity only."""
+    return {
+        "kind": "sqlite_snapshot",
+        "source_id": f"market-v{schema_version}-{digest[:24]}",
+        "sha256": digest,
+        "schema_version": schema_version,
+        "captured_at": "2026-08-12T12:00:00Z",
+    }
+
+
 def _dataset_payload(
     *,
     dataset: str = "jquants.daily_bars",
@@ -118,7 +126,8 @@ def _dataset_payload(
                     _raw_source_payload(
                         dataset=raw_dataset,
                         ingest_id="20260812T120000Z-ingest",
-                    )
+                    ),
+                    _snapshot_source_payload(),
                 ],
                 "source_state_sha256": "b" * 64,
                 "objects": [
@@ -603,31 +612,6 @@ def test_typed_source_refs_resolve_and_validate_digest_and_version(tmp_path: Pat
     with pytest.raises(ValueError, match="metadata reference does not resolve"):
         resolve_source_ref(tmp_path, raw)
 
-    sqlite_seed = tmp_path / "sqlite-seed.tmp"
-    with sqlite3.connect(sqlite_seed) as connection:
-        connection.execute("PRAGMA user_version = 22")
-    sqlite_digest = hashlib.sha256(sqlite_seed.read_bytes()).hexdigest()
-    sqlite_key = sqlite_snapshot_object_key(
-        snapshot_id="snapshot-1",
-        schema_version=22,
-        content_sha256=sqlite_digest,
-    )
-    sqlite_path = tmp_path / sqlite_key
-    sqlite_path.parent.mkdir(parents=True)
-    sqlite_seed.replace(sqlite_path)
-    sqlite_ref = SQLiteSnapshotSourceRef(
-        kind="sqlite_snapshot",
-        source_id=f"market-v22-{sqlite_digest[:24]}",
-        role="local_build_input",
-        key=sqlite_key,
-        sha256=sqlite_digest,
-        schema_version=22,
-        captured_at=datetime(2026, 8, 12, 12, tzinfo=UTC),
-    )
-    assert resolve_source_ref(tmp_path, sqlite_ref) == sqlite_path
-    with pytest.raises(ValueError, match="schema version does not match"):
-        resolve_source_ref(tmp_path, sqlite_ref.model_copy(update={"schema_version": 21}))
-
     # An L1 release is a read reference, not a lineage source: reproducing it needs its
     # dataset manifests, objects, and Raw archives kept whole, and nothing here walks
     # that closure yet. A partition that claimed it would name a lineage no publisher,
@@ -683,11 +667,6 @@ def test_key_builders_are_deterministic_and_traversal_safe() -> None:
         release_manifest_key(release_id="release-1") == "lake/manifests/releases/l1/release-1.json"
     )
     assert current_l1_pointer_key() == "lake/pointers/l1/current.json"
-    assert sqlite_snapshot_object_key(
-        snapshot_id="snapshot-1",
-        schema_version=22,
-        content_sha256=digest,
-    ) == (f"lake/build-inputs/sqlite/market/schema=v22/snapshot-{digest}.sqlite")
 
     with pytest.raises(ValueError, match="path-safe"):
         dataset_manifest_key(dataset="../secret", build_id="build-1")
@@ -819,8 +798,10 @@ def test_inventory_reports_every_class_against_its_own_budget(tmp_path: Path) ->
     """A class that grows for a design reason has to be visible against its objective.
 
     Reporting only the Raw budget would let the published graph pass the objective it
-    was sized against without anything saying so, and would hide a sealed build input
-    the size of the whole legacy store behind a figure fifty times larger.
+    was sized against without anything saying so, and would hide a workspace holding a
+    sealed store the size of the whole legacy database behind a figure fifty times
+    larger. Workspace bytes are under no manifest, so nothing else in this report grows
+    when they do.
     """
 
     published = tmp_path / (
@@ -829,16 +810,17 @@ def test_inventory_reports_every_class_against_its_own_budget(tmp_path: Path) ->
     )
     published.parent.mkdir(parents=True)
     published.write_bytes(b"parquet")
-    build_input = tmp_path / (
-        f"lake/build-inputs/sqlite/market/schema=v23/snapshot-{'b' * 64}.sqlite"
-    )
-    build_input.parent.mkdir(parents=True)
-    build_input.write_bytes(b"sealed snapshot")
+    quarantined = tmp_path / "lake/quarantine/failed-build/part.parquet"
+    quarantined.parent.mkdir(parents=True)
+    quarantined.write_bytes(b"quarantined")
+    staged = tmp_path / "lake/staging/snapshot-1/snapshot.sqlite"
+    staged.parent.mkdir(parents=True)
+    staged.write_bytes(b"sealed snapshot")
 
     capacity = {item["class"]: item for item in inventory(tmp_path)["capacity"]}
 
-    assert set(capacity) == {"build_inputs", "published", "raw_buffer", "raw_preserve"}
+    assert set(capacity) == {"published", "raw_buffer", "raw_preserve", "workspace"}
     assert capacity["published"]["bytes"] == 7
-    assert capacity["build_inputs"]["bytes"] == 15
+    assert capacity["workspace"]["bytes"] == 26
     assert capacity["published"]["soft_budget_bytes"] == 10 * 1024**3
     assert not any(item["budget_exceeded"] for item in capacity.values())

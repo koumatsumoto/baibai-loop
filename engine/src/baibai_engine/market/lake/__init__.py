@@ -9,7 +9,6 @@ from .keys import (
     raw_metadata_object_key,
     raw_object_key,
     release_manifest_key,
-    sqlite_snapshot_object_key,
     validate_lake_object_key,
 )
 from .models import (
@@ -75,7 +74,6 @@ __all__ = [
     "release_manifest_key",
     "release_policy_for_profile",
     "resolve_source_ref",
-    "sqlite_snapshot_object_key",
     "validate_lake_object_key",
     "validate_release_policy",
 ]

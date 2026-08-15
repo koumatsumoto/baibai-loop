@@ -6,14 +6,16 @@ import json
 import threading
 from dataclasses import fields as dc_fields
 from datetime import UTC, date, datetime, timedelta
+from os import link
 from pathlib import Path
+from shutil import copytree
 
 import pytest
 import yaml
+from pydantic import ValidationError
 from tests.helpers.calibration_store import (
     publish_forward,
     publish_panel,
-    synthetic_calibration_source,
 )
 
 from baibai_engine.market.lake.keys import (
@@ -21,7 +23,15 @@ from baibai_engine.market.lake.keys import (
     current_l2_pointer_key,
     pin_key,
 )
-from baibai_engine.market.lake.models import DatasetManifest, canonical_lake_model_bytes
+from baibai_engine.market.lake.models import (
+    CalibrationInputFile,
+    CalibrationInputManifest,
+    CalibrationInputSourceRef,
+    CohortInventoryEntry,
+    DatasetManifest,
+    RawIngestSourceRef,
+    canonical_lake_model_bytes,
+)
 from baibai_engine.market.lake.retention import (
     L2DatasetPointer,
     LakeRetentionError,
@@ -61,7 +71,7 @@ from baibai_engine.screening.calibration.legacy_csv import (
     read_legacy_panel,
     read_legacy_panel_meta,
 )
-from baibai_engine.screening.calibration.panel import PanelRow
+from baibai_engine.screening.calibration.panel import PanelDiagnostics, PanelRow
 from baibai_engine.screening.calibration.store import (
     CACHE_SCHEMA_VERSION,
     CalibrationCacheError,
@@ -77,6 +87,8 @@ from baibai_engine.screening.calibration.store import (
 
 _JANUARY = "2026-01-30"
 _FEBRUARY = "2026-02-27"
+_MARCH = "2026-03-31"
+_APRIL = "2026-04-30"
 
 
 def _cohort(asof: str, tickers: tuple[str, ...] = ("1301", "7203")) -> list[dict[str, object]]:
@@ -148,18 +160,73 @@ class TestTypedContract:
         )
 
 
-class TestImmutableBuilds:
-    def test_local_operation_source_requires_the_explicit_test_gate(self, tmp_path: Path) -> None:
-        source = synthetic_calibration_source(tmp_path)
+def _retained_calibration_source(root: Path) -> tuple[Path, CalibrationInputSourceRef]:
+    """A cohort source whose bytes the lake keeps, and the archived file it names."""
 
-        with pytest.raises(CalibrationCacheError, match="test-only"):
-            store.write_forward(
-                tmp_path,
-                date.fromisoformat(_JANUARY),
-                [],
-                source=source,
+    payload = b"retired calibration cache\n"
+    digest = hashlib.sha256(payload).hexdigest()
+    input_id = f"retired-{digest[:24]}"
+    file_key = f"lake/l2/calibration-legacy/{input_id}/panel.csv"
+    archived = root / file_key
+    archived.parent.mkdir(parents=True, exist_ok=True)
+    archived.write_bytes(payload)
+    manifest = CalibrationInputManifest(
+        manifest_version=1,
+        input_id=input_id,
+        input_type="legacy_csv_archive",
+        files={"panel.csv": CalibrationInputFile(key=file_key, sha256=digest, bytes=len(payload))},
+    )
+    manifest_key = f"lake/manifests/calibration-inputs/{input_id}.json"
+    manifest_payload = canonical_lake_model_bytes(manifest)
+    manifest_path = root / manifest_key
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_bytes(manifest_payload)
+    return archived, CalibrationInputSourceRef(
+        kind="calibration_input",
+        source_id=input_id,
+        key=manifest_key,
+        sha256=hashlib.sha256(manifest_payload).hexdigest(),
+        input_type="legacy_csv_archive",
+        manifest_version=1,
+    )
+
+
+def _raw_ingest_source() -> RawIngestSourceRef:
+    digest = "b" * 64
+    return RawIngestSourceRef(
+        kind="raw_ingest",
+        source_id="20260130T000000Z-ingest",
+        key="lake/l1/raw/jquants/daily_bars/ingest_date=2026-01-30/20260130T000000Z-ingest.json.gz",
+        sha256=digest,
+        provider="jquants",
+        dataset="daily_bars",
+        request_start=date(2026, 1, 1),
+        request_end=date(2026, 1, 30),
+        metadata_version=1,
+        metadata_key=(
+            "lake/l1/raw/jquants/daily_bars/ingest_date=2026-01-30/"
+            "20260130T000000Z-ingest.json.gz.metadata.json"
+        ),
+        metadata_sha256="c" * 64,
+    )
+
+
+class TestImmutableBuilds:
+    def test_a_cohort_cannot_name_provider_raw_as_its_source(self, tmp_path: Path) -> None:
+        """An analytical cohort is built from a fixed generation, never a request range.
+
+        Raw is addressed by provider and date range and can be fetched again, so a
+        cohort naming it would be pinned to nothing. The kind is outside the cohort
+        source union, which makes the claim unrepresentable rather than merely refused.
+        """
+
+        del tmp_path
+        with pytest.raises(ValidationError):
+            CohortInventoryEntry(
+                status="empty",
+                rows=0,
+                sources=(_raw_ingest_source(),),  # type: ignore[arg-type]
                 input_cutoff=date.fromisoformat(_JANUARY),
-                producer_commit="a" * 40,
             )
 
     def test_a_cohort_is_published_as_a_build_the_pointer_names(self, tmp_path: Path) -> None:
@@ -176,7 +243,7 @@ class TestImmutableBuilds:
                 source.kind
                 for cohort in manifest.cohort_inventory.values()
                 for source in cohort.sources
-            } == {"calibration_input"}
+            } == {"sqlite_snapshot"}
         assert published_cohorts(tmp_path) == [date.fromisoformat(_JANUARY)]
 
     def test_a_second_cohort_reuses_the_first_month_object(self, tmp_path: Path) -> None:
@@ -467,7 +534,6 @@ class TestRebuild:
         before_meta = read_panel_meta(tmp_path, date.fromisoformat(_JANUARY))
 
         shutil.rmtree(tmp_path / "lake")
-        (tmp_path / "calibration.meta.yaml").unlink()
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
         publish_forward(
             tmp_path,
@@ -511,9 +577,83 @@ class TestRebuild:
         adopted = adopt_bundle_generation(current, generated, expected_current=previous)
 
         pointer = _bundle_pointer(current)
-        assert pointer.current == adopted
+        assert pointer.current.bundle_id == adopted.bundle_id
         assert pointer.previous == previous
         assert read_panel(current, date.fromisoformat(_FEBRUARY))
+
+    def test_adoption_installs_the_change_and_reuses_what_the_store_already_holds(
+        self, tmp_path: Path
+    ) -> None:
+        """Adoption I/O follows the generation's closure, not the store's whole history.
+
+        A generation is built by hard-linking the store into it, so a carried object
+        arrives already sharing an inode with the one in the store. Installing it again,
+        or hashing it to discover it is the same, would make every update cost the size
+        of everything ever published.
+        """
+
+        current = tmp_path / "current"
+        for month in (_JANUARY, _FEBRUARY, _MARCH):
+            publish_panel(current, month, _cohort(month))
+        generated = tmp_path / "generated"
+        copytree(current, generated, copy_function=link)
+        publish_panel(generated, _APRIL, _cohort(_APRIL))
+        previous = current_bundle_ref(current)
+
+        report = adopt_bundle_generation(current, generated, expected_current=previous)
+
+        assert report.reused_objects > 0
+        assert report.installed_objects < report.closure_objects
+        assert report.installed_bytes < report.hashed_bytes
+        assert read_panel(current, date.fromisoformat(_APRIL))
+        assert read_panel(current, date.fromisoformat(_JANUARY))
+
+    def test_adoption_refuses_a_generation_whose_cohort_source_is_gone(
+        self, tmp_path: Path
+    ) -> None:
+        """Losing the input a cohort was built from is invisible on the read path.
+
+        Its rows read back perfectly; the loss only surfaces later, when someone tries
+        to reproduce, pin, or publish the cohort. So the pointer switch is the last
+        place that can still refuse it.
+        """
+
+        current = tmp_path / "current"
+        generated = tmp_path / "generated"
+        publish_panel(current, _JANUARY, _cohort(_JANUARY))
+        archived, source = _retained_calibration_source(generated)
+        store.write_panel(
+            generated,
+            date.fromisoformat(_FEBRUARY),
+            (),
+            PanelDiagnostics(
+                asof=_FEBRUARY,
+                rules_hash="abc123",
+                universe_size=0,
+                population_size=0,
+                candidates=0,
+                evidence_candidates=0,
+                bars_tickers_not_in_master=0,
+                effective_bars_start="2020-01-01",
+                effective_fin_start="2020-01-01",
+                bars_window_clamped=False,
+                fin_window_clamped=False,
+                population_per_trailing_nonnull=0,
+                population_pbr_nonnull=0,
+                population_ocf_yield_nonnull=0,
+                population_per_trailing_exact=0,
+            ),
+            source=source,
+            input_cutoff=date.fromisoformat(_FEBRUARY),
+            producer_commit="a" * 40,
+        )
+        expected = current_bundle_ref(current)
+        archived.unlink()
+
+        with pytest.raises(CalibrationLakeError, match="source does not resolve"):
+            adopt_bundle_generation(current, generated, expected_current=expected)
+
+        assert current_bundle_ref(current) == expected
 
 
 class TestRetention:

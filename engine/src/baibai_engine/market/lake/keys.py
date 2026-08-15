@@ -124,18 +124,6 @@ def raw_metadata_object_key(*, raw_key: str) -> str:
     return validate_lake_object_key(f"{key}.metadata.json")
 
 
-def sqlite_snapshot_object_key(
-    *, snapshot_id: str, schema_version: int, content_sha256: str
-) -> str:
-    """Return the deduplicated local key for a sealed SQLite build input."""
-    validate_identifier(snapshot_id, label="snapshot_id")
-    version = _positive_version(schema_version)
-    digest = validate_sha256(content_sha256)
-    return validate_lake_object_key(
-        f"lake/build-inputs/sqlite/market/schema=v{version}/snapshot-{digest}.sqlite"
-    )
-
-
 def canonical_object_key(
     *,
     layer: LakeLayer,

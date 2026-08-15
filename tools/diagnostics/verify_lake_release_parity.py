@@ -35,7 +35,7 @@ from baibai_engine.market.lake.models import SQLiteSnapshotSourceRef
 from baibai_engine.market.lake.objects import LocalMirrorSource
 from baibai_engine.market.lake.projection import ProjectionError, read_projection_identity
 from baibai_engine.market.lake.reader import LakeReadError, resolve_release
-from baibai_engine.market.lake.sources import resolve_source_ref
+from baibai_engine.market.lake.writer import LakeBuildError, sealed_sqlite_snapshot
 from baibai_engine.screening.config import (
     ConfigError,
     ScreeningConfig,
@@ -53,6 +53,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--projection", required=True, help="local SQLite projection of one fixed L1 release"
     )
     parser.add_argument("--mirror", required=True, help="local mirror containing the fixed release")
+    parser.add_argument(
+        "--sqlite",
+        required=True,
+        help="legacy market store the release was exported from; its sealed digest must "
+        "equal the generation the release names",
+    )
     parser.add_argument(
         "--workspace",
         help="directory for the two throwaway stores (default: a temporary directory)",
@@ -104,10 +110,22 @@ def main(argv: list[str] | None = None) -> int:
                     "release does not identify exactly one SQLite source snapshot"
                 )
             snapshot_ref = snapshots.pop()
-            snapshot_path = resolve_source_ref(mirror, snapshot_ref)
+            # The seal is not kept: it is the whole legacy store, and one is taken per
+            # build. Re-sealing the store the operator names reproduces it byte for
+            # byte while that store is unchanged, so the digest comparison below is
+            # what proves both sides are looking at the generation the release names.
+            sealed = stack.enter_context(
+                sealed_sqlite_snapshot(sqlite_path=Path(args.sqlite), mirror_root=workspace)
+            )
+            if sealed.ref.sha256 != snapshot_ref.sha256:
+                raise LakeShadowError(
+                    "the named legacy store is not the generation this release was "
+                    f"exported from (release {snapshot_ref.source_id}, "
+                    f"store {sealed.ref.source_id})"
+                )
             report = run_lake_shadow_parity(
                 asof=date.fromisoformat(args.asof),
-                source_snapshot=snapshot_path,
+                source_snapshot=sealed.path,
                 source_snapshot_ref=snapshot_ref,
                 release_manifest_sha256=release.manifest_sha256,
                 projection=Path(args.projection),
@@ -120,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
                 stdout=sys.stdout,
             )
         except (
+            LakeBuildError,
             LakeReadError,
             LakeShadowError,
             ProjectionError,

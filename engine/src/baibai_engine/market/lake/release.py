@@ -106,7 +106,6 @@ def create_l1_release(
     }
     if len(datasets) != len(manifests):
         raise ValueError("L1 release contains duplicate datasets")
-    _validate_shared_snapshot_generation(manifests)
     now = (created_at or datetime.now(UTC)).astimezone(UTC)
     inventory = hashlib.sha256(
         b"".join(payload for _, payload in sorted(zip(datasets, manifest_payloads, strict=True)))
@@ -148,24 +147,6 @@ def _contained_path(root: Path, path: Path) -> Path:
     if not resolved.is_relative_to(root):
         raise ValueError("dataset manifest escapes mirror root")
     return resolved
-
-
-def _validate_shared_snapshot_generation(manifests: list[DatasetManifest]) -> None:
-    identities: set[tuple[str, str, str, int]] = set()
-    for manifest in manifests:
-        manifest_identities = {
-            (source.source_id, source.key, source.sha256, source.schema_version)
-            for partition in manifest.partitions
-            for source in partition.sources
-            if source.kind == "sqlite_snapshot"
-        }
-        if len(manifest_identities) != 1:
-            raise ValueError(
-                f"{manifest.dataset} must reference exactly one SQLite snapshot generation"
-            )
-        identities.update(manifest_identities)
-    if len(identities) != 1:
-        raise ValueError("L1 release datasets must share one SQLite snapshot generation")
 
 
 def canonical_json_bytes(model: BaseModel) -> bytes:

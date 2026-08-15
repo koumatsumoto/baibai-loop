@@ -24,7 +24,6 @@ from baibai_engine.batch_api import (
     CalibrationBundlePointer,
     CalibrationBundleRef,
     CalibrationInputManifest,
-    CalibrationInputSourceRef,
     L1ReleasePointer,
     LakeDatasetManifest,
     LakeRawArchiveMetadata,
@@ -37,6 +36,7 @@ from baibai_engine.batch_api import (
     lake_current_l1_pointer_key,
     lake_dataset_manifest_key,
     lake_release_manifest_key,
+    lake_retained_sources,
     load_lake_model_json,
     resolve_lake_source_ref,
     validate_lake_release_policy,
@@ -466,8 +466,8 @@ def publish_l1_release(
                     (LakeRawIngestSourceRef, LakeSQLiteSnapshotSourceRef),
                 ):
                     raise LakePublishError("L1 graph contains an unsupported source reference")
-                resolve_lake_source_ref(mirror_root, source)
                 if isinstance(source, LakeRawIngestSourceRef):
+                    resolve_lake_source_ref(mirror_root, source)
                     referenced_sources[(source.kind, source.key, source.sha256)] = source
             for item in partition.objects:
                 object_path = _mirror_path(mirror_root, item.key)
@@ -763,12 +763,11 @@ def publish_calibration_bundle(
             raise LakePublishError(f"calibration bundle dataset identity differs: {name}")
         dataset_manifests[name] = manifest
         cohort_sources = {
-            (source.kind, source.source_id, source.key, source.sha256): source
+            (source.source_id, source.sha256): source
             for cohort in manifest.cohort_inventory.values()
-            for source in cohort.sources
+            for source in lake_retained_sources(cohort.sources)
         }
         for source in cohort_sources.values():
-            _require_publishable_calibration_source(source)
             source_path = resolve_lake_source_ref(mirror_root, source)
             uploads[source.key] = (
                 source_path,
@@ -942,31 +941,6 @@ def rollback_calibration_bundle(*, store: ObjectStore) -> CalibrationBundlePubli
     )
 
 
-def _require_publishable_calibration_source(
-    source: CalibrationInputSourceRef | LakeSQLiteSnapshotSourceRef | LakeRawIngestSourceRef,
-) -> None:
-    """Only sources this publisher can keep whole may become durable remote lineage.
-
-    A sealed full SQLite snapshot is a local build input: it fixes one consistent read
-    for the machine that builds a cohort, and it is named ``local_build_input`` for
-    that reason. Uploading it would make the durable source inventory grow by the
-    whole legacy store on every cohort generation — 2 GB each, past this lake's entire
-    capacity objective within a handful of generations — while the rows a cohort
-    actually needs are a small fraction of it. Remote calibration lineage is therefore
-    restricted to a compact, enumerable input package until the required tables are
-    published as L1 releases.
-    """
-
-    if isinstance(source, CalibrationInputSourceRef):
-        return
-    if isinstance(source, LakeSQLiteSnapshotSourceRef):
-        raise LakePublishError(
-            "calibration cohort source is a local SQLite build input; remote publication "
-            "requires a compact calibration input package"
-        )
-    raise LakePublishError("calibration cohort source kind cannot be published remotely")
-
-
 def _require_remote_calibration_closure(
     publication: _RemotePublication, reference: CalibrationBundleRef
 ) -> None:
@@ -994,12 +968,11 @@ def _require_remote_calibration_closure(
             raise LakePublishError(f"remote calibration dataset identity differs: {name}")
         manifests[name] = manifest
         cohort_sources = {
-            (source.kind, source.source_id, source.key, source.sha256): source
+            (source.source_id, source.sha256): source
             for cohort in manifest.cohort_inventory.values()
-            for source in cohort.sources
+            for source in lake_retained_sources(cohort.sources)
         }
         for source in cohort_sources.values():
-            _require_publishable_calibration_source(source)
             input_manifest = _remote_json_model(
                 publication,
                 key=source.key,

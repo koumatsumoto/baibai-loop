@@ -153,6 +153,10 @@ _EXPECTED_VALIDATION_SCRIPTS = {
           echo "expected_sha must be a full lowercase commit SHA" >&2
           exit 2
         fi
+        if ! git cat-file -e "$EXPECTED_SHA^{commit}" 2>/dev/null; then
+          echo "expected_sha is not a commit in this repository" >&2
+          exit 2
+        fi
         if [[ "$(git rev-parse HEAD)" != "$EXPECTED_SHA" ]]; then
           git checkout --detach "$EXPECTED_SHA"
         fi
@@ -223,7 +227,7 @@ ${{
    github.event.pull_request.head.repo.full_name == github.repository)
 }}"""
 _LAKE_ACCEPTANCE_WORKFLOW_DIGEST = (
-    "ebd06dee07e61de7741cc5059ed9c154a4087b44ecbf14f85ad194dc67a91c4f"
+    "1246deb52b559b1fbf41e1ad5446c6c7b3ec24a18eea4807ad92f224277b3aec"
 )
 
 PathPart = str | int
@@ -593,11 +597,12 @@ def _lake_acceptance_errors(path: Path, workflow: Mapping[object, object]) -> li
         step for step in mapped_steps if str(step.get("uses", "")).startswith("actions/checkout@")
     ]
     if len(checkout) != 1 or _json_value(checkout[0].get("with")) != {
-        "fetch-depth": "2",
+        "fetch-depth": "0",
         "persist-credentials": "false",
     }:
         errors.append(
-            f"{path.name}: checkout must fetch the PR head parent without persisting credentials"
+            f"{path.name}: checkout must fetch every ref of this repository without persisting "
+            "credentials"
         )
     validation = [
         step

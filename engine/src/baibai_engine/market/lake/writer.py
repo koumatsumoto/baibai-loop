@@ -7,7 +7,8 @@ import json
 import shutil
 import sqlite3
 import uuid
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -22,12 +23,7 @@ from baibai_engine.market.sqlite.snapshot import create_snapshot, validate_snaps
 from ..sqlite.coverage import daily_bars_covered_by_data, range_covered
 from .datasets import PILOT_DATASETS, LakeDataset, require_pilot_dataset
 from .immutable import ImmutableInstallError, install_immutable_bytes, install_immutable_file
-from .keys import (
-    canonical_object_key,
-    dataset_manifest_key,
-    sqlite_snapshot_object_key,
-    validate_identifier,
-)
+from .keys import canonical_object_key, dataset_manifest_key, validate_identifier
 from .models import (
     CoverageStatus,
     DatasetManifest,
@@ -40,7 +36,7 @@ from .models import (
     canonical_lake_model_bytes,
     load_lake_model_json,
 )
-from .sources import resolve_source_ref, sha256_file
+from .sources import resolve_source_ref, sha256_file, validate_sqlite_snapshot
 
 _ROW_GROUP_SIZE = 65_536
 _PARQUET_VERSION = "2.6"
@@ -69,12 +65,14 @@ class LakeBuildPlan:
 
 @dataclass(frozen=True)
 class LakePilotBuildReport:
-    snapshot: LegacySQLiteSnapshot
+    snapshot: SQLiteSnapshotSourceRef
     datasets: Mapping[str, LakeBuildReport]
 
 
 @dataclass(frozen=True)
 class LegacySQLiteSnapshot:
+    """A sealed read of the legacy store, valid only inside the operation that took it."""
+
     path: Path
     ref: SQLiteSnapshotSourceRef
 
@@ -86,52 +84,56 @@ class _BuiltPartition:
     manifest: PartitionManifest
 
 
-def capture_legacy_sqlite_snapshot(
+@contextmanager
+def sealed_sqlite_snapshot(
     *,
     sqlite_path: Path,
     mirror_root: Path,
     snapshot_id: str | None = None,
-) -> LegacySQLiteSnapshot:
-    """Capture committed main/WAL state once and install a content-addressed seed."""
+) -> Iterator[LegacySQLiteSnapshot]:
+    """Give one operation a fixed read of the legacy store, then take it back.
+
+    The sealed copy is the size of the whole store. It exists to stop the store from
+    moving underneath a build that reads it for minutes, which is a property of the
+    operation and not of anything the operation publishes — so it is scoped to the
+    operation. What outlives it is the identity in the reference, which is what lets a
+    later reader ask whether a store generation it holds is the one a cohort read. The
+    seal is byte-deterministic for an unchanged store, so that question is answerable by
+    re-sealing the store and comparing digests.
+    """
+
     captured_at = datetime.now(UTC)
     actual_id = snapshot_id or f"snapshot-{uuid.uuid4().hex}"
     validate_identifier(actual_id, label="snapshot_id")
-    workspace = _workspace_path(mirror_root, "snapshot", actual_id)
+    workspace = _workspace_path(mirror_root, "staging", actual_id)
     if workspace.exists():
         raise LakeBuildError(f"snapshot workspace already exists: {actual_id}")
     workspace.mkdir(parents=True)
-    temporary = workspace / "snapshot.sqlite"
+    sealed = workspace / "snapshot.sqlite"
     try:
         required = max(sqlite_path.stat().st_size * 2, 64 * 1024 * 1024)
         if shutil.disk_usage(workspace).free < required:
             raise LakeBuildError("insufficient disk space for a sealed SQLite snapshot")
-        create_snapshot(sqlite_path, temporary)
-        schema_version = validate_snapshot(temporary)
+        create_snapshot(sqlite_path, sealed)
+        schema_version = validate_snapshot(sealed)
         if schema_version != SQLITE_SCHEMA_VERSION:
             raise LakeBuildError(
                 f"legacy SQLite schema is {schema_version}; expected {SQLITE_SCHEMA_VERSION}"
             )
-        digest = sha256_file(temporary)
-        key = sqlite_snapshot_object_key(
-            snapshot_id=actual_id,
-            schema_version=schema_version,
-            content_sha256=digest,
-        )
-        target = _mirror_path(mirror_root, key)
-        install_immutable_file(target, temporary, expected_sha256=digest)
+        digest = sha256_file(sealed)
+        validate_sqlite_snapshot(sealed, expected_schema_version=schema_version)
         ref = SQLiteSnapshotSourceRef(
             kind="sqlite_snapshot",
             source_id=f"market-v{schema_version}-{digest[:24]}",
-            role="local_build_input",
-            key=key,
             sha256=digest,
             schema_version=schema_version,
             captured_at=captured_at,
         )
-        resolve_source_ref(mirror_root, ref)
-        return LegacySQLiteSnapshot(path=target, ref=ref)
-    except (OSError, sqlite3.Error, ImmutableInstallError) as exc:
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        shutil.rmtree(workspace, ignore_errors=True)
         raise LakeBuildError(f"SQLite snapshot capture failed: {exc}") from exc
+    try:
+        yield LegacySQLiteSnapshot(path=sealed, ref=ref)
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
 
@@ -139,18 +141,22 @@ def capture_legacy_sqlite_snapshot(
 def export_legacy_sqlite(
     *,
     dataset_name: str,
-    sqlite_path: Path,
     mirror_root: Path,
     producer_git_commit: str,
     start: date | None = None,
     end: date | None = None,
     base_manifest_path: Path | None = None,
     raw_source_refs: Sequence[RawIngestSourceRef] = (),
-    source_snapshot_ref: SQLiteSnapshotSourceRef | None = None,
+    source_snapshot: LegacySQLiteSnapshot,
     build_id: str | None = None,
     created_at: datetime | None = None,
 ) -> LakeBuildReport:
-    """Build whole affected months and reuse all unaffected base-manifest objects."""
+    """Build whole affected months and reuse all unaffected base-manifest objects.
+
+    The sealed snapshot is passed in rather than captured here: it belongs to the
+    operation, and a pilot export writes two datasets from one seal.
+    """
+
     if (start is None) != (end is None):
         raise LakeBuildError("start and end must be supplied together")
     if start is not None and end is not None and start > end:
@@ -166,14 +172,7 @@ def export_legacy_sqlite(
     quarantine_root = _workspace_path(mirror_root, "quarantine", actual_build_id)
     if staging_root.exists() or quarantine_root.exists():
         raise LakeBuildError(f"build workspace already exists: {actual_build_id}")
-    snapshot = (
-        capture_legacy_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root)
-        if source_snapshot_ref is None
-        else LegacySQLiteSnapshot(
-            path=resolve_source_ref(mirror_root, source_snapshot_ref),
-            ref=source_snapshot_ref,
-        )
-    )
+    snapshot = source_snapshot
     for source in raw_source_refs:
         resolve_source_ref(mirror_root, source)
         _validate_raw_source_dataset(source, dataset)
@@ -316,23 +315,19 @@ def export_pilot_legacy(
     unknown = set(bases) - set(PILOT_DATASETS)
     if unknown:
         raise LakeBuildError(f"unsupported base manifest datasets: {sorted(unknown)}")
-    snapshot = capture_legacy_sqlite_snapshot(
-        sqlite_path=sqlite_path,
-        mirror_root=mirror_root,
-    )
-    reports = {
-        dataset_name: export_legacy_sqlite(
-            dataset_name=dataset_name,
-            sqlite_path=sqlite_path,
-            mirror_root=mirror_root,
-            producer_git_commit=producer_git_commit,
-            base_manifest_path=bases.get(dataset_name),
-            source_snapshot_ref=snapshot.ref,
-            created_at=created_at,
-        )
-        for dataset_name in sorted(PILOT_DATASETS)
-    }
-    return LakePilotBuildReport(snapshot=snapshot, datasets=MappingProxyType(reports))
+    with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
+        reports = {
+            dataset_name: export_legacy_sqlite(
+                dataset_name=dataset_name,
+                mirror_root=mirror_root,
+                producer_git_commit=producer_git_commit,
+                base_manifest_path=bases.get(dataset_name),
+                source_snapshot=snapshot,
+                created_at=created_at,
+            )
+            for dataset_name in sorted(PILOT_DATASETS)
+        }
+        return LakePilotBuildReport(snapshot=snapshot.ref, datasets=MappingProxyType(reports))
 
 
 def validate_legacy_parity(

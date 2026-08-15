@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from .datasets import PILOT_DATASETS
 from .duck import LakeCredentialError
 from .identity import source_repo_root, verified_git_commit
 from .models import DatasetManifest, L1ReleaseSourceRef, load_lake_model_json
-from .objects import LakeObjectError, open_lake
+from .objects import LakeObjectError, LakeObjectSource, open_lake
 from .projection import ProjectionError, build_projection
 from .raw import RawRetentionClass, archive_raw_file, raw_source_ref
 from .reader import (
@@ -24,7 +25,7 @@ from .reader import (
 )
 from .release import create_l1_release
 from .retention import LakeRetentionError, apply_gc, create_pin, plan_gc, remove_pin
-from .writer import export_legacy_sqlite, export_pilot_legacy
+from .writer import export_legacy_sqlite, export_pilot_legacy, sealed_sqlite_snapshot
 
 WRITE_COMMANDS = frozenset(
     {"archive-raw", "export-legacy", "export-pilot", "gc", "pin", "projection", "release"}
@@ -158,17 +159,18 @@ def main(argv: list[str]) -> int:
         return 0
     if args.command == "export-legacy":
         verified_commit = _git_commit()
-        report = export_legacy_sqlite(
-            dataset_name=args.dataset,
-            sqlite_path=args.sqlite,
-            mirror_root=args.mirror,
-            producer_git_commit=verified_commit,
-            start=args.start,
-            end=args.end,
-            base_manifest_path=args.base_manifest,
-            raw_source_refs=tuple(raw_source_ref(path) for path in args.raw_metadata),
-            build_id=args.build_id,
-        )
+        with sealed_sqlite_snapshot(sqlite_path=args.sqlite, mirror_root=args.mirror) as snapshot:
+            report = export_legacy_sqlite(
+                dataset_name=args.dataset,
+                mirror_root=args.mirror,
+                producer_git_commit=verified_commit,
+                start=args.start,
+                end=args.end,
+                base_manifest_path=args.base_manifest,
+                raw_source_refs=tuple(raw_source_ref(path) for path in args.raw_metadata),
+                source_snapshot=snapshot,
+                build_id=args.build_id,
+            )
         print(
             json.dumps(
                 {
@@ -203,8 +205,8 @@ def main(argv: list[str]) -> int:
                         name: str(item.manifest_path)
                         for name, item in pilot_report.datasets.items()
                     },
-                    "snapshot": str(pilot_report.snapshot.path),
-                    "snapshot_sha256": pilot_report.snapshot.ref.sha256,
+                    "snapshot_source_id": pilot_report.snapshot.source_id,
+                    "snapshot_sha256": pilot_report.snapshot.sha256,
                 },
                 sort_keys=True,
             )
@@ -241,6 +243,7 @@ def _projection_build(args: argparse.Namespace) -> int:
     commit = _git_commit()
     try:
         with open_lake(mirror=args.mirror, bucket=args.bucket) as (session, cache):
+            still_current: Callable[[], str] | None = None
             if args.release is not None:
                 if args.manifest_sha256 is None:
                     raise LakeReadError("--release requires --manifest-sha256")
@@ -261,6 +264,15 @@ def _projection_build(args: argparse.Namespace) -> int:
                 release = resolve_release_ref(cache.source, reference)
             else:
                 release = resolve_current_release(cache.source, evaluated_at=datetime.now(UTC))
+
+                # This resolution happens before the destination lock is taken, so the
+                # build re-resolves under it: another build may have published a newer
+                # release while this one waited, and finishing last must not undo it.
+                def still_current(source: LakeObjectSource = cache.source) -> str:
+                    return resolve_current_release(
+                        source, evaluated_at=datetime.now(UTC)
+                    ).release_id
+
             report = build_projection(
                 session,
                 release=release,
@@ -268,6 +280,7 @@ def _projection_build(args: argparse.Namespace) -> int:
                 destination=args.projection,
                 dataset_names=datasets,
                 builder_git_commit=commit,
+                still_current=still_current,
                 force=args.force,
             )
     except (

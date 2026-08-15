@@ -11,14 +11,19 @@ from .models import (
     CalibrationInputSourceRef,
     RawArchiveMetadata,
     RawIngestSourceRef,
-    SourceRef,
-    SQLiteSnapshotSourceRef,
+    RetainedSourceRef,
     load_lake_model_json,
 )
 
 
-def resolve_source_ref(mirror_root: Path, source: SourceRef) -> Path:
-    """Resolve one source inside the mirror and verify its immutable identity."""
+def resolve_source_ref(mirror_root: Path, source: RetainedSourceRef) -> Path:
+    """Resolve one retained source inside the mirror and verify its immutable identity.
+
+    Only sources the lake stores can be resolved. An identity-only reference such as a
+    sealed SQLite generation names no key, so it is excluded by type rather than by a
+    runtime branch that would otherwise have to decide what a missing file means.
+    """
+
     root = mirror_root.resolve()
     path = (mirror_root / source.key).resolve()
     if not path.is_relative_to(root) or not path.is_file():
@@ -27,13 +32,10 @@ def resolve_source_ref(mirror_root: Path, source: SourceRef) -> Path:
         raise ValueError("source reference digest does not match")
     if isinstance(source, RawIngestSourceRef):
         _validate_raw_metadata(mirror_root, source)
-    elif isinstance(source, SQLiteSnapshotSourceRef):
-        _validate_sqlite_snapshot(path, expected_schema_version=source.schema_version)
     elif isinstance(source, CalibrationInputSourceRef):
         input_manifest = load_lake_model_json(path.read_bytes(), CalibrationInputManifest)
         if (
             input_manifest.input_id != source.source_id
-            or input_manifest.input_type != source.input_type
             or input_manifest.manifest_version != source.manifest_version
         ):
             raise ValueError("calibration input source identity does not match")
@@ -79,7 +81,7 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _validate_sqlite_snapshot(path: Path, *, expected_schema_version: int) -> None:
+def validate_sqlite_snapshot(path: Path, *, expected_schema_version: int) -> None:
     uri = f"{path.resolve().as_uri()}?mode=ro&immutable=1"
     with sqlite3.connect(uri, uri=True) as connection:
         row = connection.execute("PRAGMA quick_check").fetchone()

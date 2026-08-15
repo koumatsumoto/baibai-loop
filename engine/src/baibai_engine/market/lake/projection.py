@@ -22,7 +22,7 @@ import os
 import shutil
 import sqlite3
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -233,15 +233,20 @@ def build_projection(
     destination: Path,
     dataset_names: Sequence[str],
     builder_git_commit: str,
+    still_current: Callable[[], str] | None = None,
     force: bool = False,
     built_at: datetime | None = None,
 ) -> ProjectionBuildReport:
     """Reuse an identical projection, or rebuild one atomically from the release.
 
-    One destination has one writer at a time. Without that, a build that started on an
-    older release can finish last and replace a newer projection, publishing a
-    generation the pointer has already moved past — last writer wins, oldest release
-    published.
+    Two writers are kept apart by two different mechanisms, because serializing them is
+    not enough. The lock gives one destination one writer at a time, so two builds
+    cannot interleave their replaces. ``still_current`` covers what the lock cannot: a
+    build resolves the pointer before it queues, so the release it holds may have been
+    superseded while it waited, and finishing last would publish a generation the
+    pointer has already moved past. A caller that asked for "the current release"
+    supplies it and the build refuses rather than going backwards; a caller that asked
+    for a named or previous release means what it said, and supplies nothing.
     """
 
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -255,6 +260,7 @@ def build_projection(
             destination=destination,
             dataset_names=dataset_names,
             builder_git_commit=builder_git_commit,
+            still_current=still_current,
             force=force,
             built_at=built_at,
         )
@@ -268,10 +274,12 @@ def _build_projection(
     destination: Path,
     dataset_names: Sequence[str],
     builder_git_commit: str,
+    still_current: Callable[[], str] | None,
     force: bool,
     built_at: datetime | None,
 ) -> ProjectionBuildReport:
     identity, partitions = plan_identity(release, dataset_names=dataset_names)
+    _require_still_current(still_current, release)
     _require_replaceable(destination)
     expected_rows = _expected_rows(identity)
     if not force:
@@ -333,6 +341,7 @@ def _build_projection(
         finally:
             connection.close()
         _require_row_totals(rows, identity)
+        _require_still_current(still_current, release)
         _durable_replace(temporary, destination)
     except BaseException:
         temporary.unlink(missing_ok=True)
@@ -345,6 +354,17 @@ def _build_projection(
         rows=rows,
         transfers=cache.transfers.since(before),
     )
+
+
+def _require_still_current(still_current: Callable[[], str] | None, release: FixedRelease) -> None:
+    if still_current is None:
+        return
+    actual = still_current()
+    if actual != release.release_id:
+        raise ProjectionError(
+            f"the current release moved while this projection was building: "
+            f"{release.release_id} is no longer current ({actual} is)"
+        )
 
 
 def read_projection_identity(path: Path) -> ProjectionIdentity | None:

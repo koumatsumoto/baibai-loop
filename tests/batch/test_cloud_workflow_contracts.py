@@ -124,7 +124,7 @@ def test_lake_acceptance_premerge_trigger_is_owner_approved_and_event_bound() ->
         assert required in condition
     steps = _steps(workflow, "actual-r2")
     checkout = steps[0]
-    assert checkout["with"] == {"fetch-depth": "2", "persist-credentials": "false"}
+    assert checkout["with"] == {"fetch-depth": "0", "persist-credentials": "false"}
     validation = steps[1]
     assert validation["env"] == {
         "EXPECTED_DISPATCH_SHA": "${{ inputs.expected_sha }}",

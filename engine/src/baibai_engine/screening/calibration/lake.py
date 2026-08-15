@@ -50,11 +50,11 @@ from baibai_engine.market.lake.models import (
     CalibrationCohortInventory,
     CalibrationDatasetRef,
     CohortInventoryEntry,
+    CohortSourceRef,
     DatasetManifest,
     LakeObject,
     ManifestTotals,
     PartitionManifest,
-    SourceRef,
     load_lake_model_json,
 )
 from baibai_engine.market.lake.objects import sha256_bytes, sha256_file
@@ -296,7 +296,7 @@ def _semantic_implementation_digests(dataset: L2Dataset) -> dict[str, str]:
 class L2BuildInputs:
     """The exact source generation and implementation identity for one cohort write."""
 
-    sources: tuple[SourceRef, ...]
+    sources: tuple[CohortSourceRef, ...]
     producer_git_commit: str
     cache_schema_version: str
     forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY

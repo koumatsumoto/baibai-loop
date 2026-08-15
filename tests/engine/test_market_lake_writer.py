@@ -28,10 +28,11 @@ from baibai_engine.market.lake.release import L1ReleasePointer, create_l1_releas
 from baibai_engine.market.lake.retention import apply_gc, plan_gc
 from baibai_engine.market.lake.writer import (
     LakeBuildError,
-    capture_legacy_sqlite_snapshot,
+    LakeBuildReport,
     export_legacy_sqlite,
     export_pilot_legacy,
     plan_affected_months,
+    sealed_sqlite_snapshot,
     validate_legacy_parity,
 )
 from baibai_engine.market.sqlite import open_connection
@@ -92,10 +93,20 @@ def _market_store(path: Path) -> Path:
     return path
 
 
+def _export(*, sqlite_path: Path, mirror_root: Path, **kwargs: object) -> LakeBuildReport:
+    """One whole export operation: seal the store, export from it, release the seal."""
+    with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
+        return export_legacy_sqlite(
+            mirror_root=mirror_root,
+            source_snapshot=snapshot,
+            **kwargs,  # type: ignore[arg-type]
+        )
+
+
 def test_legacy_export_is_byte_deterministic_and_reuses_unchanged_objects(tmp_path) -> None:
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
-    first = export_legacy_sqlite(
+    first = _export(
         dataset_name="jquants.daily_bars",
         sqlite_path=sqlite_path,
         mirror_root=mirror,
@@ -103,7 +114,7 @@ def test_legacy_export_is_byte_deterministic_and_reuses_unchanged_objects(tmp_pa
         build_id="build-first",
         created_at=datetime(2026, 2, 4, tzinfo=UTC),
     )
-    second = export_legacy_sqlite(
+    second = _export(
         dataset_name="jquants.daily_bars",
         sqlite_path=sqlite_path,
         mirror_root=mirror,
@@ -129,7 +140,7 @@ def test_legacy_export_is_byte_deterministic_and_reuses_unchanged_objects(tmp_pa
 def test_incremental_export_replaces_only_the_affected_month(tmp_path) -> None:
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
-    first = export_legacy_sqlite(
+    first = _export(
         dataset_name="jquants.daily_bars",
         sqlite_path=sqlite_path,
         mirror_root=mirror,
@@ -140,7 +151,7 @@ def test_incremental_export_replaces_only_the_affected_month(tmp_path) -> None:
         connection.execute(
             "UPDATE jquants_daily_bars SET close = 111.0 WHERE traded_at = '2026-02-02'"
         )
-    second = export_legacy_sqlite(
+    second = _export(
         dataset_name="jquants.daily_bars",
         sqlite_path=sqlite_path,
         mirror_root=mirror,
@@ -173,7 +184,7 @@ def test_incremental_export_replaces_only_the_affected_month(tmp_path) -> None:
 def test_automatic_plan_detects_fact_and_coverage_changes(tmp_path) -> None:
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
-    first = export_legacy_sqlite(
+    first = _export(
         dataset_name="jquants.daily_bars",
         sqlite_path=sqlite_path,
         mirror_root=mirror,
@@ -237,7 +248,7 @@ def test_incremental_export_preserves_partition_lineage(tmp_path) -> None:
         request_start=date(2026, 1, 1),
         request_end=date(2026, 2, 28),
     )
-    first = export_legacy_sqlite(
+    first = _export(
         dataset_name="jquants.daily_bars",
         sqlite_path=sqlite_path,
         mirror_root=mirror,
@@ -263,7 +274,7 @@ def test_incremental_export_preserves_partition_lineage(tmp_path) -> None:
         request_start=date(2026, 2, 1),
         request_end=date(2026, 2, 28),
     )
-    second = export_legacy_sqlite(
+    second = _export(
         dataset_name="jquants.daily_bars",
         sqlite_path=sqlite_path,
         mirror_root=mirror,
@@ -303,7 +314,7 @@ def test_export_rejects_raw_lineage_outside_target_dataset_or_partition(tmp_path
         request_end=date(2026, 2, 28),
     )
     with pytest.raises(LakeBuildError, match="does not match target dataset"):
-        export_legacy_sqlite(
+        _export(
             dataset_name="jquants.daily_bars",
             sqlite_path=sqlite_path,
             mirror_root=mirror,
@@ -325,7 +336,7 @@ def test_export_rejects_raw_lineage_outside_target_dataset_or_partition(tmp_path
         request_end=date(2025, 12, 31),
     )
     with pytest.raises(LakeBuildError, match="does not cover any rebuilt partition"):
-        export_legacy_sqlite(
+        _export(
             dataset_name="jquants.daily_bars",
             sqlite_path=sqlite_path,
             mirror_root=mirror,
@@ -336,7 +347,7 @@ def test_export_rejects_raw_lineage_outside_target_dataset_or_partition(tmp_path
 
     valid = raw_source_ref(wrong_range_metadata).model_copy(update={"provider": "other"})
     with pytest.raises(ValueError, match="metadata identity does not match"):
-        export_legacy_sqlite(
+        _export(
             dataset_name="jquants.daily_bars",
             sqlite_path=sqlite_path,
             mirror_root=mirror,
@@ -349,7 +360,7 @@ def test_export_rejects_raw_lineage_outside_target_dataset_or_partition(tmp_path
 def test_incremental_export_rejects_a_different_transform(tmp_path) -> None:
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
-    first = export_legacy_sqlite(
+    first = _export(
         dataset_name="jquants.daily_bars",
         sqlite_path=sqlite_path,
         mirror_root=mirror,
@@ -362,7 +373,7 @@ def test_incremental_export_rejects_a_different_transform(tmp_path) -> None:
     changed.write_text(json.dumps(payload))
 
     with pytest.raises(LakeBuildError, match="full rebuild"):
-        export_legacy_sqlite(
+        _export(
             dataset_name="jquants.daily_bars",
             sqlite_path=sqlite_path,
             mirror_root=mirror,
@@ -375,7 +386,7 @@ def test_incremental_export_rejects_a_different_transform(tmp_path) -> None:
 def test_short_sale_export_preserves_pk_values_and_cancellation(tmp_path) -> None:
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
-    result = export_legacy_sqlite(
+    result = _export(
         dataset_name="jquants.short_sale_reports",
         sqlite_path=sqlite_path,
         mirror_root=mirror,
@@ -426,23 +437,22 @@ def test_raw_archive_is_append_only_and_strips_endpoint_query(tmp_path) -> None:
 def test_release_manifest_composes_exact_dataset_builds(tmp_path) -> None:
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
-    snapshot = capture_legacy_sqlite_snapshot(
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        snapshot_id="release-generation",
-    )
-    manifests = [
-        export_legacy_sqlite(
-            dataset_name=name,
-            sqlite_path=sqlite_path,
-            mirror_root=mirror,
-            producer_git_commit=_COMMIT,
-            source_snapshot_ref=snapshot.ref,
-            build_id=f"build-{index}",
-            created_at=datetime(2026, 2, 4, tzinfo=UTC),
-        ).manifest_path
-        for index, name in enumerate(("jquants.daily_bars", "jquants.short_sale_reports"), start=1)
-    ]
+    with sealed_sqlite_snapshot(
+        sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id="release-generation"
+    ) as snapshot:
+        manifests = [
+            export_legacy_sqlite(
+                dataset_name=name,
+                mirror_root=mirror,
+                producer_git_commit=_COMMIT,
+                source_snapshot=snapshot,
+                build_id=f"build-{index}",
+                created_at=datetime(2026, 2, 4, tzinfo=UTC),
+            ).manifest_path
+            for index, name in enumerate(
+                ("jquants.daily_bars", "jquants.short_sale_reports"), start=1
+            )
+        ]
     path, release = create_l1_release(
         dataset_manifest_paths=manifests,
         mirror_root=mirror,
@@ -460,7 +470,7 @@ def test_release_rejects_mixed_sqlite_snapshot_generations(tmp_path: Path) -> No
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     created_at = datetime(2026, 8, 14, tzinfo=UTC)
-    daily = export_legacy_sqlite(
+    daily = _export(
         dataset_name="jquants.daily_bars",
         sqlite_path=sqlite_path,
         mirror_root=mirror,
@@ -473,7 +483,7 @@ def test_release_rejects_mixed_sqlite_snapshot_generations(tmp_path: Path) -> No
             "INSERT INTO jquants_daily_bars(ticker, traded_at, close) "
             "VALUES ('9984', '2026-02-03', 333.0)"
         )
-    short_sale = export_legacy_sqlite(
+    short_sale = _export(
         dataset_name="jquants.short_sale_reports",
         sqlite_path=sqlite_path,
         mirror_root=mirror,
@@ -497,7 +507,7 @@ def test_short_sale_unknown_coverage_is_not_publishable(tmp_path: Path) -> None:
         connection.execute(
             "DELETE FROM source_coverage WHERE source = ?", ("jquants_short_sale_reports",)
         )
-    report = export_legacy_sqlite(
+    report = _export(
         dataset_name="jquants.short_sale_reports",
         sqlite_path=sqlite_path,
         mirror_root=tmp_path / "mirror",
@@ -520,22 +530,21 @@ def test_wal_snapshot_is_one_generation_for_both_pilot_datasets(tmp_path: Path) 
     live.commit()
     mirror = tmp_path / "mirror"
 
-    snapshot = capture_legacy_sqlite_snapshot(
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        snapshot_id="wal-generation",
-    )
-    reports = [
-        export_legacy_sqlite(
-            dataset_name=name,
-            sqlite_path=sqlite_path,
-            mirror_root=mirror,
-            producer_git_commit=_COMMIT,
-            source_snapshot_ref=snapshot.ref,
-            build_id=f"wal-{index}",
-        )
-        for index, name in enumerate(("jquants.daily_bars", "jquants.short_sale_reports"), start=1)
-    ]
+    with sealed_sqlite_snapshot(
+        sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id="wal-generation"
+    ) as snapshot:
+        reports = [
+            export_legacy_sqlite(
+                dataset_name=name,
+                mirror_root=mirror,
+                producer_git_commit=_COMMIT,
+                source_snapshot=snapshot,
+                build_id=f"wal-{index}",
+            )
+            for index, name in enumerate(
+                ("jquants.daily_bars", "jquants.short_sale_reports"), start=1
+            )
+        ]
     live.close()
 
     assert reports[0].manifest.totals.rows == 5
@@ -573,62 +582,58 @@ def test_pilot_orchestration_exports_one_release_generation(tmp_path: Path) -> N
         for partition in item.manifest.partitions
         for source in partition.sources
         if source.kind == "sqlite_snapshot"
-    } == {report.snapshot.ref.sha256}
+    } == {report.snapshot.sha256}
 
 
 def test_commit_after_snapshot_does_not_change_export_generation(tmp_path: Path) -> None:
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
-    snapshot = capture_legacy_sqlite_snapshot(
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        snapshot_id="before-later-commit",
-    )
-    with sqlite3.connect(sqlite_path) as connection:
-        connection.execute(
-            "INSERT INTO jquants_daily_bars(ticker, traded_at, close) "
-            "VALUES ('9984', '2026-02-03', 333.0)"
+    with sealed_sqlite_snapshot(
+        sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id="before-later-commit"
+    ) as snapshot:
+        with sqlite3.connect(sqlite_path) as connection:
+            connection.execute(
+                "INSERT INTO jquants_daily_bars(ticker, traded_at, close) "
+                "VALUES ('9984', '2026-02-03', 333.0)"
+            )
+
+        report = export_legacy_sqlite(
+            dataset_name="jquants.daily_bars",
+            mirror_root=mirror,
+            producer_git_commit=_COMMIT,
+            source_snapshot=snapshot,
+            build_id="fixed-before-commit",
         )
 
-    report = export_legacy_sqlite(
-        dataset_name="jquants.daily_bars",
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        producer_git_commit=_COMMIT,
-        source_snapshot_ref=snapshot.ref,
-        build_id="fixed-before-commit",
-    )
-
-    assert report.manifest.totals.rows == 4
-    validate_legacy_parity(
-        sqlite_path=snapshot.path,
-        mirror_root=mirror,
-        manifest=report.manifest,
-    )
+        assert report.manifest.totals.rows == 4
+        validate_legacy_parity(
+            sqlite_path=snapshot.path,
+            mirror_root=mirror,
+            manifest=report.manifest,
+        )
 
 
 def test_parity_rejects_a_missing_source_month(tmp_path: Path) -> None:
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
-    report = export_legacy_sqlite(
-        dataset_name="jquants.daily_bars",
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        producer_git_commit=_COMMIT,
-        build_id="complete-months",
-    )
-    incomplete = report.manifest.model_copy(update={"partitions": report.manifest.partitions[:-1]})
-
-    with pytest.raises(LakeBuildError, match="month inventories differ"):
-        validate_legacy_parity(
-            sqlite_path=next(
-                tmp_path / "mirror" / source.key
-                for source in report.manifest.partitions[0].sources
-                if source.kind == "sqlite_snapshot"
-            ),
+    with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror) as snapshot:
+        report = export_legacy_sqlite(
+            dataset_name="jquants.daily_bars",
             mirror_root=mirror,
-            manifest=incomplete,
+            producer_git_commit=_COMMIT,
+            source_snapshot=snapshot,
+            build_id="complete-months",
         )
+        incomplete = report.manifest.model_copy(
+            update={"partitions": report.manifest.partitions[:-1]}
+        )
+
+        with pytest.raises(LakeBuildError, match="month inventories differ"):
+            validate_legacy_parity(
+                sqlite_path=snapshot.path,
+                mirror_root=mirror,
+                manifest=incomplete,
+            )
 
 
 def test_invalid_build_id_has_no_filesystem_side_effect(tmp_path: Path) -> None:
@@ -636,7 +641,7 @@ def test_invalid_build_id_has_no_filesystem_side_effect(tmp_path: Path) -> None:
     mirror = tmp_path / "mirror"
 
     with pytest.raises(ValueError, match="path-safe"):
-        export_legacy_sqlite(
+        _export(
             dataset_name="jquants.daily_bars",
             sqlite_path=sqlite_path,
             mirror_root=mirror,
@@ -644,7 +649,7 @@ def test_invalid_build_id_has_no_filesystem_side_effect(tmp_path: Path) -> None:
             build_id="../escape",
         )
 
-    assert not mirror.exists()
+    assert not [path for path in mirror.rglob("*") if path.is_file()]
     assert not (tmp_path / "escape").exists()
 
 
@@ -653,7 +658,7 @@ def test_transform_source_digest_change_rejects_partition_reuse(
 ) -> None:
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
-    base = export_legacy_sqlite(
+    base = _export(
         dataset_name="jquants.daily_bars",
         sqlite_path=sqlite_path,
         mirror_root=mirror,
@@ -669,7 +674,7 @@ def test_transform_source_digest_change_rejects_partition_reuse(
 
     monkeypatch.setattr(writer_module, "sha256_file", changed_digest)
     with pytest.raises(LakeBuildError, match="full rebuild"):
-        export_legacy_sqlite(
+        _export(
             dataset_name="jquants.daily_bars",
             sqlite_path=sqlite_path,
             mirror_root=mirror,
@@ -878,34 +883,61 @@ class TestTransformIdentity:
         assert writer_module._transform_fingerprint(dataset) != baseline
 
 
-def test_a_sealed_sqlite_build_input_is_collected_once_nothing_reaches_it(
-    tmp_path: Path,
-) -> None:
-    """One sealed snapshot the size of the whole legacy store is captured per build.
+def test_the_sealed_store_is_gone_when_the_export_operation_ends(tmp_path: Path) -> None:
+    """A seal is the size of the whole legacy store and one is taken per operation.
 
-    Leaving the prefix outside the candidate domain would make local storage grow with
-    the number of runs rather than with what current and previous can be rebuilt from.
+    Keeping it would make the lake grow with the number of runs rather than with what it
+    publishes, so the operation that took it is what ends it — and the manifests still
+    state which generation they read.
     """
 
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
-    snapshot = capture_legacy_sqlite_snapshot(
+
+    report = export_pilot_legacy(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
-        snapshot_id="orphan-build-input",
+        producer_git_commit=_COMMIT,
+        created_at=datetime(2026, 2, 4, tzinfo=UTC),
     )
-    key = snapshot.path.relative_to(mirror).as_posix()
 
-    first = plan_gc(mirror, now=datetime.now(UTC) + timedelta(days=31))
+    assert not list((mirror / "lake" / "staging").rglob("*.sqlite"))
+    assert not any(path.name.endswith(".sqlite") for path in mirror.rglob("*") if path.is_file())
+    assert {
+        source.source_id
+        for item in report.datasets.values()
+        for partition in item.manifest.partitions
+        for source in partition.sources
+        if source.kind == "sqlite_snapshot"
+    } == {report.snapshot.source_id}
+
+
+def test_a_seal_a_killed_operation_left_behind_is_collected(tmp_path: Path) -> None:
+    """A process killed mid-export cannot run its own cleanup, so collection must.
+
+    Nothing reaches into the staging prefix from a manifest, so the only thing that can
+    reclaim it is age — and without that the leftover is the whole legacy store sitting
+    where no capacity figure derived from manifests would ever account for it.
+    """
+
+    mirror = tmp_path / "mirror"
+    abandoned = mirror / "lake" / "staging" / "killed-operation" / "snapshot.sqlite"
+    abandoned.parent.mkdir(parents=True)
+    abandoned.write_bytes(b"sealed legacy store")
+    key = abandoned.relative_to(mirror).as_posix()
+
+    first = plan_gc(mirror, now=datetime.now(UTC) + timedelta(days=8))
 
     assert {item.key for item in first.candidates} == {key}
     assert apply_gc(mirror, first, plan_hash=first.plan_hash) == ()
     second = plan_gc(mirror, now=first.evaluated_at + timedelta(days=8))
     assert apply_gc(mirror, second, plan_hash=second.plan_hash) == (key,)
-    assert not snapshot.path.exists()
+    assert not abandoned.exists()
 
 
-def test_a_build_input_a_release_still_names_is_never_collected(tmp_path: Path) -> None:
+def test_a_release_stays_resolvable_with_no_sealed_store_to_reach(tmp_path: Path) -> None:
+    """The sealed generation is named, not kept, so nothing reports it as a lost root."""
+
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     report = export_pilot_legacy(
@@ -935,5 +967,4 @@ def test_a_build_input_a_release_still_names_is_never_collected(tmp_path: Path) 
     plan = plan_gc(mirror, now=datetime(2027, 2, 4, tzinfo=UTC))
 
     assert plan.unresolved_roots == ()
-    assert report.snapshot.ref.key in plan.reachable
-    assert report.snapshot.ref.key not in {item.key for item in plan.candidates}
+    assert plan.candidates == ()

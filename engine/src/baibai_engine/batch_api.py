@@ -62,6 +62,7 @@ from baibai_engine.market.lake.models import RawArchiveMetadata as LakeRawArchiv
 from baibai_engine.market.lake.models import RawIngestSourceRef as LakeRawIngestSourceRef
 from baibai_engine.market.lake.models import ReleaseManifest as LakeReleaseManifest
 from baibai_engine.market.lake.models import SQLiteSnapshotSourceRef as LakeSQLiteSnapshotSourceRef
+from baibai_engine.market.lake.models import retained_sources as lake_retained_sources
 from baibai_engine.market.lake.models import validate_release_policy as validate_lake_release_policy
 from baibai_engine.market.lake.release import L1ReleasePointer, canonical_json_bytes
 from baibai_engine.market.lake.sources import resolve_source_ref as resolve_lake_source_ref
@@ -128,6 +129,7 @@ __all__ = [
     "lake_current_l1_pointer_key",
     "lake_dataset_manifest_key",
     "lake_release_manifest_key",
+    "lake_retained_sources",
     "load_definitions",
     "load_lake_model_json",
     "monitoring_condition_series_ids",

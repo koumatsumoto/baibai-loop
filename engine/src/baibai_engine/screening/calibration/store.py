@@ -21,6 +21,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager, nullcontext
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from hashlib import sha256
 from math import isfinite
@@ -28,11 +29,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import cast
 
-import yaml
-
-from baibai_engine.foundation.filesystem import write_bytes_atomic, write_text_atomic
+from baibai_engine.foundation.filesystem import write_bytes_atomic
 from baibai_engine.foundation.repository_layout import CALIBRATION_DIR
-from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.lake.identity import verified_git_commit
 from baibai_engine.market.lake.immutable import install_immutable_file
 from baibai_engine.market.lake.keys import (
@@ -41,13 +39,15 @@ from baibai_engine.market.lake.keys import (
     dataset_manifest_key,
 )
 from baibai_engine.market.lake.models import (
-    CalibrationInputSourceRef,
+    CalibrationInputManifest,
     CohortInventoryEntry,
+    CohortSourceRef,
     CohortStatus,
     DatasetManifest,
+    ForwardObservationPolicyRef,
     PartitionManifest,
-    SourceRef,
     load_lake_model_json,
+    retained_sources,
 )
 from baibai_engine.market.lake.objects import sha256_bytes, sha256_file
 from baibai_engine.market.lake.retention import (
@@ -161,56 +161,31 @@ class CalibrationCacheError(RuntimeError):
     """The local store cannot prove that it uses the current contract."""
 
 
-def cache_meta_path(root: Path) -> Path:
-    return root / "calibration.meta.yaml"
-
-
-def _write_cache_meta(root: Path, *, forward_policy: ForwardObservationPolicy) -> None:
-    root.mkdir(parents=True, exist_ok=True)
-    write_text_atomic(
-        cache_meta_path(root),
-        yaml.safe_dump(
-            {
-                "cache_schema_version": CACHE_SCHEMA_VERSION,
-                "forward_observation_policy": {
-                    "use_control_event_exits": forward_policy.use_control_event_exits
-                },
-            },
-            sort_keys=False,
-        ),
-    )
-
-
 def _require_current_cache(root: Path) -> ForwardObservationPolicy:
-    """Prove the store states this contract, and return the rules it was observed under.
+    """Prove the current generation states this contract, and return its observation rules.
 
-    The stated policy only selects which forward identity to expect. The build's own
-    fingerprint is what proves the rows were produced under it, so a rewritten
-    statement can cause a refusal but never an acceptance.
+    The contract is read from the bundle manifest the pointer names, so the answer can
+    never describe a generation other than the one being served. The stated policy only
+    selects which forward identity to expect: the build's own fingerprint is what proves
+    the rows were produced under it, so a rewritten statement can cause a refusal but
+    never an acceptance.
     """
 
-    path = cache_meta_path(root)
-    if not path.exists():
+    try:
+        bundle = _fixed_bundle(root)
+    except (CalibrationLakeError, LakeRetentionError) as exc:
+        raise CalibrationCacheError(str(exc)) from exc
+    if bundle is None:
         raise CalibrationCacheError(
             "calibration cache version is missing; run calibration-build --force"
         )
-    try:
-        payload = safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
-        raise CalibrationCacheError(
-            "calibration cache version is invalid; run calibration-build --force"
-        ) from exc
-    version = payload.get("cache_schema_version") if isinstance(payload, dict) else None
-    if version != CACHE_SCHEMA_VERSION:
+    if bundle.manifest.cache_schema_version != CACHE_SCHEMA_VERSION:
         raise CalibrationCacheError(
             "calibration cache version is incompatible; run calibration-build --force"
         )
-    stated = payload.get("forward_observation_policy") if isinstance(payload, dict) else None
-    if not isinstance(stated, dict) or not isinstance(stated.get("use_control_event_exits"), bool):
-        raise CalibrationCacheError(
-            "calibration forward observation policy is missing; run calibration-build --force"
-        )
-    return ForwardObservationPolicy(use_control_event_exits=stated["use_control_event_exits"])
+    return ForwardObservationPolicy(
+        use_control_event_exits=bundle.manifest.forward_observation_policy.use_control_event_exits
+    )
 
 
 def store_forward_policy(root: Path) -> ForwardObservationPolicy:
@@ -220,21 +195,15 @@ def store_forward_policy(root: Path) -> ForwardObservationPolicy:
 
 def _inputs(
     root: Path,
-    source: SourceRef,
+    source: CohortSourceRef,
     *,
     producer_commit: str | None = None,
-    test_only: bool = False,
     forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> L2BuildInputs:
     """Resolve and fix the exact source generation used by one cohort write."""
 
-    resolve_source_ref(root, source)
-    if (
-        isinstance(source, CalibrationInputSourceRef)
-        and source.input_type == "local_operation"
-        and not test_only
-    ):
-        raise CalibrationLakeError("local_operation calibration input is test-only")
+    for retained in retained_sources((source,)):
+        resolve_source_ref(root, retained)
     return L2BuildInputs(
         sources=(source,),
         producer_git_commit=producer_commit or verified_git_commit(),
@@ -393,6 +362,9 @@ def _publish_bundle(
         created_at=now,
         assembled_by_git_commit=assembled_by or verified_git_commit(),
         cache_schema_version=CACHE_SCHEMA_VERSION,
+        forward_observation_policy=ForwardObservationPolicyRef(
+            use_control_event_exits=forward_policy.use_control_event_exits
+        ),
         datasets=references,
         cohorts=cohorts,
     )
@@ -427,47 +399,137 @@ def resolve_calibration_bundle(root: Path) -> FixedCalibrationBundle:
     return fixed
 
 
+@dataclass(frozen=True, slots=True)
+class BundleAdoptionReport:
+    """What making a generation current actually cost, in bytes and in files."""
+
+    bundle_id: str
+    closure_objects: int
+    hashed_bytes: int
+    installed_objects: int
+    installed_bytes: int
+    reused_objects: int
+
+
+def bundle_closure_keys(root: Path, bundle: FixedCalibrationBundle) -> tuple[str, ...]:
+    """Every stored key one bundle depends on, in order, resolved through its manifests.
+
+    A bundle is not the files that happen to sit under a directory. It is the manifest
+    the pointer names, the dataset manifests that manifest names, the partition objects
+    those enumerate, and the retained sources their cohorts were built from. Deriving
+    the set here means adoption, publication, and collection can each ask the same
+    question and get the same answer, instead of one of them walking a directory tree
+    that also holds superseded builds.
+    """
+
+    keys: list[str] = [bundle.ref.manifest_key]
+    for name, reference in sorted(bundle.manifest.datasets.items()):
+        keys.append(reference.manifest_key)
+        manifest = bundle.datasets[name]
+        keys.extend(item.key for partition in manifest.partitions for item in partition.objects)
+        for cohort in manifest.cohort_inventory.values():
+            for source in retained_sources(cohort.sources):
+                keys.append(source.key)
+                input_manifest = load_lake_model_json(
+                    (root / source.key).read_bytes(), CalibrationInputManifest
+                )
+                keys.extend(item.key for item in input_manifest.files.values())
+    return tuple(dict.fromkeys(keys))
+
+
+def _require_bundle_closure(root: Path, bundle: FixedCalibrationBundle) -> None:
+    """Every source a cohort states must still resolve, with its declared contents.
+
+    Output objects are checked against their manifests elsewhere; this is about the
+    other half of the graph. A cohort that has lost the input it was built from still
+    reads back perfectly, so nothing on the read path would notice — the loss surfaces
+    only when someone tries to reproduce, pin, or publish it, long after the generation
+    that dropped it became current.
+    """
+
+    for name, manifest in sorted(bundle.datasets.items()):
+        for asof, cohort in sorted(manifest.cohort_inventory.items()):
+            for source in retained_sources(cohort.sources):
+                try:
+                    resolve_source_ref(root, source)
+                except (OSError, ValueError) as exc:
+                    raise CalibrationLakeError(
+                        f"{name}: cohort {asof} source does not resolve: {exc}"
+                    ) from exc
+
+
 def adopt_bundle_generation(
     root: Path,
     generated_root: Path,
     *,
     expected_current: CalibrationBundleRef | None,
-) -> CalibrationBundleRef:
-    """Install a verified force build and atomically expose only its bundle pointer."""
+) -> BundleAdoptionReport:
+    """Install a verified generation's closure and expose only its bundle pointer.
+
+    Work is proportional to what the generation closes over rather than to what the
+    store has ever held. The generation is built by hard-linking the store into it, so
+    a carried object arrives already sharing an inode with the one in the store: those
+    need no install and no comparison, because they are the same bytes in the literal
+    sense. What remains to install is what this build actually produced.
+    """
 
     fixed = _fixed_bundle(generated_root)
     if fixed is None:
         raise CalibrationLakeError("generated calibration bundle is missing")
-    # The generation states the rules its forward rows were observed under, and that
-    # statement is what the adopted store must publish. Restating the module default
-    # would let a comparison generation land in the store as if it were the default.
-    generated_policy = _require_current_cache(generated_root)
+    # The generation carries the rules its forward rows were observed under inside the
+    # manifest that is about to become current, so adoption does not restate them; it
+    # only refuses a generation whose contract this build cannot serve.
+    _require_current_cache(generated_root)
+    _require_bundle_closure(generated_root, fixed)
+    hashed_bytes = 0
     for name, manifest in fixed.datasets.items():
         dataset = require_l2_dataset(name)
         for partition in manifest.partitions:
             for item in partition.objects:
                 _require_object(generated_root / item.key, dataset=dataset, item=item)
+                hashed_bytes += item.bytes
 
     pointer_path = root / current_calibration_bundle_pointer_key()
     actual = current_bundle_ref(root)
     if actual != expected_current:
         raise CalibrationLakeError("calibration bundle moved while force build was in flight")
 
-    for source in sorted((generated_root / "lake").rglob("*")):
-        if not source.is_file():
-            continue
-        key = source.relative_to(generated_root).as_posix()
-        if key.startswith(("lake/pointers/", "lake/staging/", "lake/audit/", "lake/retention/")):
-            continue
+    installed_objects = 0
+    installed_bytes = 0
+    reused_objects = 0
+    closure = bundle_closure_keys(generated_root, fixed)
+    for key in closure:
+        source = generated_root / key
         target = root / key
+        if _is_same_file(source, target):
+            reused_objects += 1
+            continue
         install_immutable_file(target, source, expected_sha256=sha256_file(source))
+        installed_objects += 1
+        installed_bytes += source.stat().st_size
 
-    _write_cache_meta(root, forward_policy=generated_policy)
     write_bytes_atomic(
         pointer_path,
         canonical_manifest_bytes(CalibrationBundlePointer(current=fixed.ref, previous=actual)),
     )
-    return fixed.ref
+    return BundleAdoptionReport(
+        bundle_id=fixed.ref.bundle_id,
+        closure_objects=len(closure),
+        hashed_bytes=hashed_bytes,
+        installed_objects=installed_objects,
+        installed_bytes=installed_bytes,
+        reused_objects=reused_objects,
+    )
+
+
+def _is_same_file(source: Path, target: Path) -> bool:
+    """Whether both names already refer to one inode, so there is nothing to install."""
+    try:
+        return source.stat().st_ino == target.stat().st_ino and (
+            source.stat().st_dev == target.stat().st_dev
+        )
+    except OSError:
+        return False
 
 
 def _publish_cohort(
@@ -477,9 +539,8 @@ def _publish_cohort(
     asof: date,
     rows: Sequence[object],
     status: CohortStatus | None = None,
-    source: SourceRef,
+    source: CohortSourceRef,
     input_cutoff: date,
-    test_only: bool = False,
     producer_commit: str | None = None,
     forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> None:
@@ -506,12 +567,10 @@ def _publish_cohort(
             cache_schema_version=CACHE_SCHEMA_VERSION,
             forward_policy=forward_policy,
         )
-    _write_cache_meta(root, forward_policy=forward_policy)
     inputs = _inputs(
         root,
         source,
         producer_commit=producer_commit,
-        test_only=test_only,
         forward_policy=forward_policy,
     )
 
@@ -544,7 +603,7 @@ def _publish_cohort(
         for payload in [*same_month, *rows]
     }
     replacement_sources = {
-        (item.kind, item.source_id, item.key, item.sha256): item
+        (item.kind, item.source_id, item.sha256): item
         for cohort_asof in replacement_asofs
         for item in inventory[cohort_asof].sources
     }
@@ -602,11 +661,10 @@ def write_panel(
     rows: tuple[PanelRow, ...],
     diagnostics: PanelDiagnostics,
     *,
-    source: SourceRef,
+    source: CohortSourceRef,
     input_cutoff: date,
     producer_commit: str | None = None,
     lock_held: bool = False,
-    test_only: bool = False,
     forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> None:
     publication = nullcontext() if lock_held else lake_writer_lock(root)
@@ -618,7 +676,6 @@ def write_panel(
             rows=rows,
             source=source,
             input_cutoff=input_cutoff,
-            test_only=test_only,
             producer_commit=producer_commit,
             forward_policy=forward_policy,
         )
@@ -629,7 +686,6 @@ def write_panel(
             rows=(diagnostics,),
             source=source,
             input_cutoff=input_cutoff,
-            test_only=test_only,
             producer_commit=producer_commit,
             forward_policy=forward_policy,
         )
@@ -643,7 +699,6 @@ def write_panel(
                 status="not_computed",
                 source=source,
                 input_cutoff=input_cutoff,
-                test_only=test_only,
                 producer_commit=producer_commit,
                 forward_policy=forward_policy,
             )
@@ -655,11 +710,10 @@ def write_forward(
     asof: date,
     rows: list[ForwardReturnRow],
     *,
-    source: SourceRef,
+    source: CohortSourceRef,
     input_cutoff: date,
     producer_commit: str | None = None,
     lock_held: bool = False,
-    test_only: bool = False,
     forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> None:
     publication = nullcontext() if lock_held else lake_writer_lock(root)
@@ -671,7 +725,6 @@ def write_forward(
             rows=rows,
             source=source,
             input_cutoff=input_cutoff,
-            test_only=test_only,
             producer_commit=producer_commit,
             forward_policy=forward_policy,
         )

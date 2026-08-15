@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import io
 import sys
 import tempfile
@@ -76,9 +75,8 @@ def write_panel(root: Path, asof: date, *args: object, **kwargs: object) -> None
         root,
         asof,
         *args,
-        source=synthetic_calibration_source(root),
+        source=synthetic_calibration_source(captured_on=asof),
         input_cutoff=asof,
-        test_only=True,
         **kwargs,
     )
 
@@ -88,9 +86,8 @@ def write_forward(root: Path, asof: date, *args: object, **kwargs: object) -> No
         root,
         asof,
         *args,
-        source=synthetic_calibration_source(root),
+        source=synthetic_calibration_source(captured_on=asof),
         input_cutoff=asof,
-        test_only=True,
         **kwargs,
     )
 
@@ -967,9 +964,14 @@ class CalibrationPanelTest(unittest.TestCase):
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
             write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-            (store_dir / "calibration.meta.yaml").write_text(
-                "cache_schema_version: 0000000000000000\n", encoding="utf-8"
-            )
+            # The contract a store was written under travels in the bundle manifest the
+            # pointer names, so a code change that moves the contract is what makes the
+            # store incompatible — there is no separate statement to rewrite.
+            from baibai_engine.screening.calibration import store as calibration_store
+
+            patcher = patch.object(calibration_store, "CACHE_SCHEMA_VERSION", "0" * 16)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
             with self.assertRaisesRegex(CalibrationCacheError, "calibration-build --force"):
                 read_panel(store_dir, ASOF)
@@ -1327,11 +1329,14 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(len(sources), 1)
             snapshot = sources[0]
             self.assertEqual(snapshot.kind, "sqlite_snapshot")
-            snapshot_path = store_dir / snapshot.key
-            self.assertTrue(snapshot_path.is_file())
+            # The seal is the whole legacy store and belongs to the operation that took
+            # it, so what survives is the identity: the store the cohorts were built
+            # from can be recognised, and no copy of it is kept per generation.
             self.assertEqual(
-                hashlib.sha256(snapshot_path.read_bytes()).hexdigest(), snapshot.sha256
+                snapshot.source_id,
+                f"market-v{snapshot.schema_version}-{snapshot.sha256[:24]}",
             )
+            self.assertEqual(list(store_dir.rglob("*.sqlite")), [])
             self.assertEqual(
                 {manifest.producer_git_commit for manifest in manifests},
                 {"a" * 40},

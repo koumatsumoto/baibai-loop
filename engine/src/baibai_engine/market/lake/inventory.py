@@ -25,9 +25,10 @@ SOFT_BUDGET_BYTES = {
     "raw_preserve": 500 * 1024**3,
     # Provider responses a re-fetch can reproduce.
     "raw_buffer": 50 * 1024**3,
-    # Sealed legacy snapshots. Local only — these are never uploaded — and bounded by
-    # what current, previous, and pins can still be rebuilt from.
-    "build_inputs": 10 * 1024**3,
+    # In-flight staging and the quarantine a failed build was moved to. Neither is under
+    # any manifest, so nothing else in this report grows when they do — and both hold
+    # whole sealed stores, so a repeated large failure is otherwise an invisible leak.
+    "workspace": 20 * 1024**3,
 }
 
 
@@ -35,8 +36,8 @@ def _capacity_class(key: str) -> str | None:
     """The budget a stored key counts against, or ``None`` when another class holds it."""
     if key.startswith("lake/l1/raw/"):
         return None  # Counted by retention class from its metadata sidecar.
-    if key.startswith("lake/build-inputs/"):
-        return "build_inputs"
+    if key.startswith(("lake/staging/", "lake/quarantine/")):
+        return "workspace"
     if key.startswith(("lake/l1/", "lake/l2/", "lake/manifests/", "lake/pointers/")):
         return "published"
     return None

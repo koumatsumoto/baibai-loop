@@ -9,24 +9,19 @@ fixture states only what its assertion depends on.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, get_args, get_type_hints
 
-from baibai_engine.foundation.filesystem import write_bytes_atomic
-from baibai_engine.market.lake.models import (
-    CalibrationInputFile,
-    CalibrationInputManifest,
-    CalibrationInputSourceRef,
-)
+from baibai_engine.market.lake.models import SQLiteSnapshotSourceRef
 from baibai_engine.market.lake.objects import sha256_bytes
+from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 from baibai_engine.screening.calibration.forward import (
     DEFAULT_FORWARD_OBSERVATION_POLICY,
     RESOLVED_STATUSES,
     ForwardObservationPolicy,
     ForwardReturnRow,
 )
-from baibai_engine.screening.calibration.lake import canonical_manifest_bytes
 from baibai_engine.screening.calibration.panel import PanelDiagnostics, PanelRow
 from baibai_engine.screening.calibration.store import write_forward, write_panel
 
@@ -110,37 +105,24 @@ _TEST_PRODUCER_COMMIT = "a" * 40
 
 
 def synthetic_calibration_source(
-    directory: Path, *, label: str = "default"
-) -> CalibrationInputSourceRef:
-    """Create an explicit, closed input generation for store-level tests."""
+    *, label: str = "default", captured_on: date | None = None
+) -> SQLiteSnapshotSourceRef:
+    """Stand in for the sealed store generation a cohort would have been built from.
 
-    payload = f"synthetic calibration test input: {label}\n".encode()
-    digest = sha256_bytes(payload)
-    input_id = f"synthetic-test-{digest[:24]}"
-    file_key = f"lake/l2/calibration-legacy/{input_id}/input.txt"
-    write_bytes_atomic(directory / file_key, payload)
-    manifest = CalibrationInputManifest(
-        manifest_version=1,
-        input_id=input_id,
-        input_type="local_operation",
-        files={
-            "input.txt": CalibrationInputFile(
-                key=file_key,
-                sha256=digest,
-                bytes=len(payload),
-            )
-        },
-    )
-    manifest_key = f"lake/manifests/calibration-inputs/{input_id}.json"
-    manifest_payload = canonical_manifest_bytes(manifest)
-    write_bytes_atomic(directory / manifest_key, manifest_payload)
-    return CalibrationInputSourceRef(
-        kind="calibration_input",
-        source_id=input_id,
-        key=manifest_key,
-        sha256=sha256_bytes(manifest_payload),
-        input_type="local_operation",
-        manifest_version=1,
+    Real builds seal the legacy store, read it, and discard the seal, keeping only this
+    identity. A fixture has no store to seal, so it states an identity directly; two
+    labels give two distinguishable generations. ``captured_on`` follows the cohort's
+    cutoff because a cohort cannot have observed data the seal predates.
+    """
+
+    digest = sha256_bytes(f"synthetic calibration test input: {label}\n".encode())
+    capture_date = captured_on or date(2026, 1, 1)
+    return SQLiteSnapshotSourceRef(
+        kind="sqlite_snapshot",
+        source_id=f"market-v{SQLITE_SCHEMA_VERSION}-{digest[:24]}",
+        sha256=digest,
+        schema_version=SQLITE_SCHEMA_VERSION,
+        captured_at=datetime(capture_date.year, capture_date.month, capture_date.day, tzinfo=UTC),
     )
 
 
@@ -242,10 +224,11 @@ def publish_panel(
         date.fromisoformat(asof),
         tuple(_panel(asof, row) for row in rows),
         diagnostics,
-        source=synthetic_calibration_source(directory, label=source_label),
+        source=synthetic_calibration_source(
+            label=source_label, captured_on=date.fromisoformat(asof)
+        ),
         input_cutoff=date.fromisoformat(asof),
         producer_commit=producer_commit,
-        test_only=True,
         forward_policy=forward_policy,
     )
 
@@ -260,13 +243,13 @@ def publish_forward(
     producer_commit: str = _TEST_PRODUCER_COMMIT,
     forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> None:
+    cutoff = input_cutoff or date.fromisoformat(asof)
     write_forward(
         directory,
         date.fromisoformat(asof),
         [_forward(asof, row) for row in rows],
-        source=synthetic_calibration_source(directory, label=source_label),
-        input_cutoff=input_cutoff or date.fromisoformat(asof),
+        source=synthetic_calibration_source(label=source_label, captured_on=cutoff),
+        input_cutoff=cutoff,
         producer_commit=producer_commit,
-        test_only=True,
         forward_policy=forward_policy,
     )

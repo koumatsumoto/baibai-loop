@@ -16,7 +16,11 @@ import yaml
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.market.lake.identity import verified_git_commit
 from baibai_engine.market.lake.retention import lake_writer_lock
-from baibai_engine.market.lake.writer import LakeBuildError, capture_legacy_sqlite_snapshot
+from baibai_engine.market.lake.writer import (
+    LakeBuildError,
+    LegacySQLiteSnapshot,
+    sealed_sqlite_snapshot,
+)
 
 from ..estimates import EXPECTED_RETURN_MODEL_VERSION
 from ..rule_config import ScreeningRules
@@ -91,34 +95,69 @@ def calibration_build_command(
             print(f"calibration build: {exc}", file=sys.stderr)
             return 1
         expected_current = current_bundle_ref(calibration_dir)
+        discard_abandoned_generations(calibration_dir, stdout=stdout)
         work_dir = calibration_dir.with_name(
-            f".{calibration_dir.name}.generation.{uuid.uuid4().hex}"
+            f"{_GENERATION_PREFIX}{calibration_dir.name}.{uuid.uuid4().hex}"
         )
         if not force and calibration_dir.exists():
             copytree(calibration_dir, work_dir, copy_function=link)
         try:
-            return _calibration_build_command(
-                sqlite_path=sqlite_path,
-                calibration_dir=calibration_dir,
-                work_dir=work_dir,
-                expected_current=expected_current,
-                producer_commit=producer_commit,
-                rules=rules,
-                start=start,
-                end=end,
-                force=force,
-                panel_variant=panel_variant,
-                use_control_event_exits=use_control_event_exits,
-                stdout=stdout,
-            )
+            with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=work_dir) as snapshot:
+                return _calibration_build_command(
+                    snapshot=snapshot,
+                    calibration_dir=calibration_dir,
+                    work_dir=work_dir,
+                    expected_current=expected_current,
+                    producer_commit=producer_commit,
+                    rules=rules,
+                    start=start,
+                    end=end,
+                    force=force,
+                    panel_variant=panel_variant,
+                    use_control_event_exits=use_control_event_exits,
+                    stdout=stdout,
+                )
+        except LakeBuildError as exc:
+            print(f"calibration build: {exc}", file=sys.stderr)
+            return 1
         finally:
             if work_dir.exists():
                 rmtree(work_dir)
 
 
+_GENERATION_PREFIX = ".generation."
+
+
+def discard_abandoned_generations(calibration_dir: Path, *, stdout: TextIO | None = None) -> None:
+    """Remove work generations a killed build left beside the store.
+
+    A generation directory is a sibling of the store rather than a child of it, because
+    it is built by hard-linking the store into it. That places it outside every prefix
+    the lake inventory and the collector walk, so a build killed mid-run leaves several
+    hundred megabytes that no capacity figure accounts for and nothing ever reclaims.
+
+    The writer lock is what makes this safe to do unconditionally: a generation can only
+    be live while its build holds that lock, and this runs holding it.
+    """
+
+    parent = calibration_dir.parent
+    if not parent.is_dir():
+        return
+    prefix = f"{_GENERATION_PREFIX}{calibration_dir.name}."
+    for path in sorted(parent.iterdir()):
+        if not path.name.startswith(prefix) or not path.is_dir():
+            continue
+        reclaimed = sum(item.stat().st_size for item in path.rglob("*") if item.is_file())
+        rmtree(path, ignore_errors=True)
+        print(
+            f"calibration build: discarded abandoned generation {path.name} ({reclaimed} bytes)",
+            file=stdout if stdout is not None else sys.stdout,
+        )
+
+
 def _calibration_build_command(
     *,
-    sqlite_path: Path,
+    snapshot: LegacySQLiteSnapshot,
     calibration_dir: Path,
     work_dir: Path,
     expected_current: CalibrationBundleRef | None,
@@ -147,14 +186,6 @@ def _calibration_build_command(
             "and requires a separate --calibration-dir",
             file=sys.stderr,
         )
-        return 1
-    try:
-        snapshot = capture_legacy_sqlite_snapshot(
-            sqlite_path=sqlite_path,
-            mirror_root=work_dir,
-        )
-    except LakeBuildError as exc:
-        print(f"calibration build: {exc}", file=sys.stderr)
         return 1
     fixed_sqlite = snapshot.path
     asofs = month_end_asof_grid(fixed_sqlite, start=start, end=end)

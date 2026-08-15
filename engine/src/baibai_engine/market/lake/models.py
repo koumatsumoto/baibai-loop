@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta
 from hashlib import sha256
 from pathlib import PurePosixPath
 from types import MappingProxyType
-from typing import Annotated, Literal
+from typing import Annotated, Literal, overload
 from urllib.parse import urlsplit
 
 from pydantic import (
@@ -119,10 +119,11 @@ class RawArchiveMetadata(BaseModel):
 
 
 class _SourceRefBase(BaseModel):
+    """What every lineage reference states: which generation, and its exact bytes."""
+
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     source_id: str
-    key: str
     sha256: str
 
     @field_validator("source_id")
@@ -136,7 +137,19 @@ class _SourceRefBase(BaseModel):
         return validate_sha256(value)
 
 
-class RawIngestSourceRef(_SourceRefBase):
+class _RetainedSourceRefBase(_SourceRefBase):
+    """A source the lake keeps: it resolves to a stored object and roots retention.
+
+    ``key`` is the whole difference between the two families. A reference that names
+    a key is a promise that those bytes are reachable, protected from collection, and
+    carried by any publication that carries the build — so only sources whose size the
+    lake is willing to hold for the life of the generation may name one.
+    """
+
+    key: str
+
+
+class RawIngestSourceRef(_RetainedSourceRefBase):
     kind: Literal["raw_ingest"]
     provider: str
     dataset: str
@@ -187,8 +200,24 @@ class RawIngestSourceRef(_SourceRefBase):
 
 
 class SQLiteSnapshotSourceRef(_SourceRefBase):
+    """Which sealed generation of the legacy store a build read, without keeping it.
+
+    The snapshot exists to give one build a single consistent read of a store that
+    changes under it. That job ends when the build ends, and the bytes are the whole
+    legacy store — roughly 2 GB — so keeping one per build would make the lake grow
+    with the number of runs rather than with what it publishes. This reference is
+    therefore identity only: it names the schema version, the content digest, and the
+    capture time, and it names no key, because nothing keeps those bytes.
+
+    What it still proves: two builds that state the same ``source_id`` read identical
+    input, and a store generation offered as the input to a rebuild can be checked
+    against this digest before it is believed. What it does not promise: that such a
+    generation is still obtainable. Rebuild-from-lineage returns as a guarantee when
+    the tables a cohort needs are published as L1 releases (Issue #917), which is a
+    retained source with a key.
+    """
+
     kind: Literal["sqlite_snapshot"]
-    role: Literal["local_build_input"]
     schema_version: int = Field(ge=1)
     captured_at: datetime
 
@@ -199,28 +228,14 @@ class SQLiteSnapshotSourceRef(_SourceRefBase):
             raise ValueError("captured_at must be UTC")
         return value
 
-    @field_validator("key")
-    @classmethod
-    def validate_key(cls, value: str) -> str:
-        key = validate_lake_object_key(value)
-        if not key.startswith("lake/build-inputs/sqlite/market/") or not key.endswith(".sqlite"):
-            raise ValueError("sqlite_snapshot must reference a local SQLite build input")
-        return key
-
     @model_validator(mode="after")
     def validate_identity(self) -> SQLiteSnapshotSourceRef:
-        path = PurePosixPath(self.key)
-        expected_source_id = f"market-v{self.schema_version}-{self.sha256[:24]}"
-        if (
-            self.source_id != expected_source_id
-            or path.parent.name != f"schema=v{self.schema_version}"
-            or path.name != f"snapshot-{self.sha256}.sqlite"
-        ):
-            raise ValueError("sqlite_snapshot key does not match source identity")
+        if self.source_id != f"market-v{self.schema_version}-{self.sha256[:24]}":
+            raise ValueError("sqlite_snapshot source_id does not match its schema and digest")
         return self
 
 
-class L1ReleaseSourceRef(_SourceRefBase):
+class L1ReleaseSourceRef(_RetainedSourceRefBase):
     """A digest-pinned reference to one L1 release, used to read a fixed generation.
 
     This is deliberately outside ``SourceRef``. A lineage source has to resolve to the
@@ -249,9 +264,9 @@ class L1ReleaseSourceRef(_SourceRefBase):
         return self
 
 
-class CalibrationInputSourceRef(_SourceRefBase):
+class CalibrationInputSourceRef(_RetainedSourceRefBase):
     kind: Literal["calibration_input"]
-    input_type: Literal["legacy_csv_archive", "sqlite_snapshot", "local_operation"]
+    input_type: Literal["legacy_csv_archive"]
     manifest_version: Literal[1]
 
     @field_validator("key")
@@ -273,6 +288,55 @@ type SourceRef = Annotated[
     RawIngestSourceRef | SQLiteSnapshotSourceRef | CalibrationInputSourceRef,
     Field(discriminator="kind"),
 ]
+
+type RetainedSourceRef = Annotated[
+    RawIngestSourceRef | CalibrationInputSourceRef,
+    Field(discriminator="kind"),
+]
+
+# What an analytical cohort may be built from. Provider Raw is outside it by
+# construction rather than by a check: Raw is addressed by request range and can be
+# fetched again, so a cohort naming it would not be pinned to one generation of
+# anything. Excluding the kind from the union is what makes that unrepresentable
+# instead of merely rejected.
+type CohortSourceRef = Annotated[
+    SQLiteSnapshotSourceRef | CalibrationInputSourceRef,
+    Field(discriminator="kind"),
+]
+
+type RetainedCohortSourceRef = CalibrationInputSourceRef
+
+
+def _source_identity(source: SourceRef) -> tuple[str, str, str]:
+    """What makes two lineage references the same generation.
+
+    The key is not part of it. A key is derived from the identity where one exists, so
+    including it would let a reference without one look like a different shape of value
+    rather than the same question answered with fewer fields.
+    """
+
+    return (source.kind, source.source_id, source.sha256)
+
+
+@overload
+def retained_sources(
+    sources: Iterable[CohortSourceRef],
+) -> tuple[RetainedCohortSourceRef, ...]: ...
+
+
+@overload
+def retained_sources(sources: Iterable[SourceRef]) -> tuple[RetainedSourceRef, ...]: ...
+
+
+def retained_sources(sources: Iterable[SourceRef]) -> tuple[RetainedSourceRef, ...]:
+    """The subset whose bytes the lake stores, in the order they were declared.
+
+    Resolution, reachability, and publication all act on exactly this subset, and each
+    of them derives it here rather than by testing kinds locally, so a new source kind
+    joins or stays out of all three at once.
+    """
+
+    return tuple(source for source in sources if not isinstance(source, SQLiteSnapshotSourceRef))
 
 
 class CalibrationInputFile(BaseModel):
@@ -297,11 +361,25 @@ class CalibrationInputFile(BaseModel):
 
 
 class CalibrationInputManifest(BaseModel):
+    """The exact byte inventory of a retired CSV calibration cache.
+
+    This contract describes an archive: a fixed set of files, each closed by digest and
+    size, whose meaning is "these are the bytes that existed". That is the whole of what
+    a legacy archive has to state, because nothing recomputes from it — it is kept so an
+    incompatible cache remains recoverable.
+
+    It is deliberately not a general "calibration input" contract. A source that a
+    cohort is *rebuilt* from has to state its schema, table and column inventory, key
+    columns, row counts, and the date window it covers, or a package missing a table
+    would resolve exactly as cleanly as a complete one. Such a source needs its own
+    model; widening ``input_type`` here would reuse a file list as a completeness claim.
+    """
+
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     manifest_version: Literal[1]
     input_id: str
-    input_type: Literal["legacy_csv_archive", "sqlite_snapshot", "local_operation"]
+    input_type: Literal["legacy_csv_archive"]
     files: Mapping[str, CalibrationInputFile] = Field(min_length=1)
 
     @field_validator("input_id")
@@ -375,7 +453,7 @@ class PartitionManifest(BaseModel):
     @field_validator("sources")
     @classmethod
     def validate_sources(cls, values: tuple[SourceRef, ...]) -> tuple[SourceRef, ...]:
-        identities = {(item.kind, item.source_id, item.key, item.sha256) for item in values}
+        identities = {_source_identity(item) for item in values}
         if len(identities) != len(values):
             raise ValueError("partition sources cannot contain duplicates")
         return values
@@ -401,17 +479,15 @@ class CohortInventoryEntry(BaseModel):
 
     status: CohortStatus
     rows: int = Field(ge=0)
-    sources: tuple[SourceRef, ...] = Field(min_length=1)
+    sources: tuple[CohortSourceRef, ...] = Field(min_length=1)
     input_cutoff: date
 
     @field_validator("sources")
     @classmethod
-    def validate_sources(cls, values: tuple[SourceRef, ...]) -> tuple[SourceRef, ...]:
-        identities = {(item.kind, item.source_id, item.key, item.sha256) for item in values}
+    def validate_sources(cls, values: tuple[CohortSourceRef, ...]) -> tuple[CohortSourceRef, ...]:
+        identities = {_source_identity(item) for item in values}
         if len(identities) != len(values):
             raise ValueError("cohort sources cannot contain duplicates")
-        if any(item.kind == "raw_ingest" for item in values):
-            raise ValueError("analytical cohorts require fixed-generation sources")
         return values
 
     @model_validator(mode="after")
@@ -469,6 +545,14 @@ class CalibrationCohortInventory(BaseModel):
         return self
 
 
+class ForwardObservationPolicyRef(BaseModel):
+    """The runtime observation rules a bundle's forward cohorts were measured under."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    use_control_event_exits: bool
+
+
 class CalibrationBundleManifest(BaseModel):
     """One externally visible calibration generation across all three datasets.
 
@@ -487,6 +571,12 @@ class CalibrationBundleManifest(BaseModel):
     created_at: datetime
     assembled_by_git_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
     cache_schema_version: str
+    # The contract a reader has to know before it can decide whether this generation is
+    # the one it wants. It rides in the manifest the pointer names so that switching
+    # generations is one atomic act: a separate file stating the contract could land
+    # while the pointer did not, leaving a store that describes a generation it is not
+    # serving and refuses to read the one it is.
+    forward_observation_policy: ForwardObservationPolicyRef
     datasets: Mapping[str, CalibrationDatasetRef]
     cohorts: Mapping[str, CalibrationCohortInventory] = Field(min_length=1)
 
@@ -608,7 +698,7 @@ class DatasetManifest(BaseModel):
     @field_validator("sources")
     @classmethod
     def validate_sources(cls, values: tuple[SourceRef, ...]) -> tuple[SourceRef, ...]:
-        identities = {(item.kind, item.source_id, item.key, item.sha256) for item in values}
+        identities = {_source_identity(item) for item in values}
         if len(identities) != len(values):
             raise ValueError("dataset sources cannot contain duplicates")
         return values
@@ -826,6 +916,12 @@ class ReleasePolicy(BaseModel):
     require_complete_coverage: bool
     max_manifest_bytes: int = Field(gt=0)
     max_objects: int = Field(gt=0)
+    # Whether every dataset in the release must have been exported from one and the same
+    # sealed SQLite generation. That is a property of how a profile's datasets are
+    # produced, not of what a release is: a dataset built from provider Raw has no
+    # SQLite generation to share, and a rule stated here lets such a dataset join a
+    # release under its own profile instead of requiring the constructor to change.
+    require_shared_snapshot_generation: bool
 
     @model_validator(mode="after")
     def validate_dataset_inventory(self) -> ReleasePolicy:
@@ -863,6 +959,7 @@ PILOT_RELEASE_POLICY = ReleasePolicy(
     require_complete_coverage=True,
     max_manifest_bytes=16 * 1024 * 1024,
     max_objects=10_000,
+    require_shared_snapshot_generation=True,
 )
 
 
@@ -967,6 +1064,10 @@ def validate_release_policy(
         raise ValueError("release is missing a required dataset")
     if set(manifests) != set(release.datasets):
         raise ValueError("release validation requires every referenced dataset manifest")
+    # Structural first: whether these datasets are one picture of the store at all comes
+    # before whether that picture is fresh enough to publish.
+    if policy.require_shared_snapshot_generation:
+        _require_shared_snapshot_generation(manifests.values())
 
     total_manifest_bytes = len(canonical_lake_model_bytes(release))
     total_objects = 0
@@ -1012,3 +1113,27 @@ def validate_release_policy(
         raise ValueError("release manifest graph exceeds the profile byte budget")
     if total_objects > policy.max_objects:
         raise ValueError("release object inventory exceeds the profile budget")
+
+
+def _require_shared_snapshot_generation(manifests: Iterable[DatasetManifest]) -> None:
+    """Every dataset was exported from one sealed read of the legacy store.
+
+    Two datasets exported from different seals describe the store at two different
+    moments, and a release presents them as one consistent picture of it.
+    """
+
+    identities: set[tuple[str, str, int]] = set()
+    for manifest in manifests:
+        manifest_identities = {
+            (source.source_id, source.sha256, source.schema_version)
+            for partition in manifest.partitions
+            for source in partition.sources
+            if isinstance(source, SQLiteSnapshotSourceRef)
+        }
+        if len(manifest_identities) != 1:
+            raise ValueError(
+                f"{manifest.dataset} must reference exactly one SQLite snapshot generation"
+            )
+        identities.update(manifest_identities)
+    if len(identities) != 1:
+        raise ValueError("L1 release datasets must share one SQLite snapshot generation")

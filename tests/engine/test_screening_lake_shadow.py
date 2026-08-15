@@ -31,7 +31,11 @@ from baibai_engine.market.lake.release import (
     canonical_json_bytes,
     create_l1_release,
 )
-from baibai_engine.market.lake.writer import capture_legacy_sqlite_snapshot, export_legacy_sqlite
+from baibai_engine.market.lake.writer import (
+    LegacySQLiteSnapshot,
+    export_legacy_sqlite,
+    sealed_sqlite_snapshot,
+)
 from baibai_engine.screening.config import ScreeningConfig
 from baibai_engine.screening.lake_shadow import (
     LakeShadowError,
@@ -52,12 +56,15 @@ _SNAPSHOT_DIGEST = "a" * 64
 _REPORT_SNAPSHOT = SQLiteSnapshotSourceRef(
     kind="sqlite_snapshot",
     source_id=f"market-v22-{_SNAPSHOT_DIGEST[:24]}",
-    role="local_build_input",
-    key=f"lake/build-inputs/sqlite/market/schema=v22/snapshot-{_SNAPSHOT_DIGEST}.sqlite",
     sha256=_SNAPSHOT_DIGEST,
     schema_version=22,
     captured_at=_CREATED_AT,
 )
+
+# The seal a fixture took, kept alive for as long as the fixture that built the lake.
+# A seal belongs to one operation and is removed when it ends, so a module of tests that
+# all compare against the same frozen generation shares the one the fixture holds open.
+_SEALED_STORES: dict[Path, LegacySQLiteSnapshot] = {}
 
 
 def resolve_current_release(source: object):
@@ -81,8 +88,10 @@ def _shadow_source(root: Path) -> dict[str, object]:
     }
     assert len(refs) == 1
     ref = refs.pop()
+    sealed = _SEALED_STORES[root]
+    assert sealed.ref == ref
     return {
-        "source_snapshot": root / "mirror" / ref.key,
+        "source_snapshot": sealed.path,
         "source_snapshot_ref": ref,
         "release_manifest_sha256": release.manifest_sha256,
     }
@@ -112,18 +121,17 @@ def frozen_lake(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     root = tmp_path_factory.mktemp("shadow")
     sqlite_path = build_screening_market_store(root / "market.sqlite")
     mirror = root / "mirror"
-    snapshot = capture_legacy_sqlite_snapshot(
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        snapshot_id="snapshot-shadow",
+    sealed = sealed_sqlite_snapshot(
+        sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id="snapshot-shadow"
     )
+    snapshot = sealed.__enter__()
+    _SEALED_STORES[root] = snapshot
     manifests = [
         export_legacy_sqlite(
             dataset_name=name,
-            sqlite_path=sqlite_path,
             mirror_root=mirror,
             producer_git_commit=_COMMIT,
-            source_snapshot_ref=snapshot.ref,
+            source_snapshot=snapshot,
             build_id=f"build-{name.replace('.', '-')}",
             created_at=_CREATED_AT,
         ).manifest_path
@@ -160,6 +168,8 @@ def frozen_lake(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     try:
         yield root
     finally:
+        _SEALED_STORES.pop(root, None)
+        sealed.__exit__(None, None, None)
         patcher.undo()
 
 

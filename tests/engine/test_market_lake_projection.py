@@ -64,7 +64,7 @@ from baibai_engine.market.lake.release import (
     create_l1_release,
 )
 from baibai_engine.market.lake.retention import LakeRetentionError, exclusive_lock
-from baibai_engine.market.lake.writer import capture_legacy_sqlite_snapshot, export_legacy_sqlite
+from baibai_engine.market.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
 from baibai_engine.market.sqlite import open_connection
 
 _COMMIT = "b" * 40
@@ -178,23 +178,20 @@ def _release_digest(mirror: Path, release_id: str) -> str:
 def _build_lake(root: Path, *, release_id: str = "release-one") -> Lake:
     sqlite_path = _market_store(root / "market.sqlite")
     mirror = root / "mirror"
-    snapshot = capture_legacy_sqlite_snapshot(
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        snapshot_id=f"snapshot-{release_id}",
-    )
-    manifests = [
-        export_legacy_sqlite(
-            dataset_name=name,
-            sqlite_path=sqlite_path,
-            mirror_root=mirror,
-            producer_git_commit=_COMMIT,
-            source_snapshot_ref=snapshot.ref,
-            build_id=f"build-{name.replace('.', '-')}-{release_id}",
-            created_at=_BUILT_AT,
-        ).manifest_path
-        for name in ("jquants.daily_bars", "jquants.short_sale_reports")
-    ]
+    with sealed_sqlite_snapshot(
+        sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id=f"snapshot-{release_id}"
+    ) as snapshot:
+        manifests = [
+            export_legacy_sqlite(
+                dataset_name=name,
+                mirror_root=mirror,
+                producer_git_commit=_COMMIT,
+                source_snapshot=snapshot,
+                build_id=f"build-{name.replace('.', '-')}-{release_id}",
+                created_at=_BUILT_AT,
+            ).manifest_path
+            for name in ("jquants.daily_bars", "jquants.short_sale_reports")
+        ]
     manifest_path, _release = create_l1_release(
         dataset_manifest_paths=manifests,
         mirror_root=mirror,
@@ -581,14 +578,17 @@ class TestFixedRelease:
         key = f"lake/manifests/datasets/jquants.daily_bars/{build_id}.json"
         with sqlite3.connect(lake.sqlite_path) as connection:
             connection.execute("UPDATE jquants_daily_bars SET close = 999.0")
-        replacement = export_legacy_sqlite(
-            dataset_name="jquants.daily_bars",
-            sqlite_path=lake.sqlite_path,
-            mirror_root=tmp_path / "second-mirror",
-            producer_git_commit=_COMMIT,
-            build_id=build_id,
-            created_at=_BUILT_AT,
-        )
+        with sealed_sqlite_snapshot(
+            sqlite_path=lake.sqlite_path, mirror_root=tmp_path / "second-mirror"
+        ) as snapshot:
+            replacement = export_legacy_sqlite(
+                dataset_name="jquants.daily_bars",
+                mirror_root=tmp_path / "second-mirror",
+                producer_git_commit=_COMMIT,
+                source_snapshot=snapshot,
+                build_id=build_id,
+                created_at=_BUILT_AT,
+            )
         (lake.mirror / key).write_bytes(replacement.manifest_path.read_bytes())
 
         with pytest.raises(LakeReadError, match="dataset manifest digest"):
@@ -1346,23 +1346,22 @@ def _build_lake_second_release(lake: Lake) -> str:
     """Publish a second release over the same mirror and switch the pointer to it."""
 
     release_id = "release-two"
-    snapshot = capture_legacy_sqlite_snapshot(
+    with sealed_sqlite_snapshot(
         sqlite_path=lake.sqlite_path,
         mirror_root=lake.mirror,
         snapshot_id=f"snapshot-{release_id}",
-    )
-    manifests = [
-        export_legacy_sqlite(
-            dataset_name=name,
-            sqlite_path=lake.sqlite_path,
-            mirror_root=lake.mirror,
-            producer_git_commit=_COMMIT,
-            source_snapshot_ref=snapshot.ref,
-            build_id=f"build-{name.replace('.', '-')}-{release_id}",
-            created_at=_BUILT_AT,
-        ).manifest_path
-        for name in ("jquants.daily_bars", "jquants.short_sale_reports")
-    ]
+    ) as snapshot:
+        manifests = [
+            export_legacy_sqlite(
+                dataset_name=name,
+                mirror_root=lake.mirror,
+                producer_git_commit=_COMMIT,
+                source_snapshot=snapshot,
+                build_id=f"build-{name.replace('.', '-')}-{release_id}",
+                created_at=_BUILT_AT,
+            ).manifest_path
+            for name in ("jquants.daily_bars", "jquants.short_sale_reports")
+        ]
     manifest_path, _release = create_l1_release(
         dataset_manifest_paths=manifests,
         mirror_root=lake.mirror,

@@ -63,6 +63,7 @@ from .models import (
     ReleaseManifest,
     SourceRef,
     load_lake_model_json,
+    retained_sources,
 )
 from .objects import mirror_path, sha256_bytes
 from .release import L1ReleasePointer, canonical_json_bytes
@@ -70,7 +71,15 @@ from .sources import resolve_source_ref, sha256_file
 
 _GRACE_DAYS = 30
 _STAGING_GRACE_DAYS = 7
+# Quarantined staging is the only record of what a failed build produced, so it is kept
+# long enough to be investigated after the fact, and finite so a repeated large failure
+# cannot fill the disk while every manifest-derived figure stays inside its budget.
+_QUARANTINE_GRACE_DAYS = 90
 _SECOND_SWEEP_GRACE_DAYS = 7
+_CANDIDATE_GRACE_DAYS = {
+    "abandoned_staging": _STAGING_GRACE_DAYS,
+    "expired_quarantine": _QUARANTINE_GRACE_DAYS,
+}
 _CALIBRATION_DATASETS = frozenset(
     {"calibration.panel", "calibration.panel_diagnostics", "calibration.forward"}
 )
@@ -688,7 +697,7 @@ def _reach_sources(
     reachable: set[str],
     unresolved: list[str],
 ) -> None:
-    for source in sources:
+    for source in retained_sources(sources):
         try:
             path = resolve_source_ref(mirror_root, source)
         except (OSError, ValueError):
@@ -762,7 +771,7 @@ def _unreachable(
             )
             // 86_400
         )
-        grace = _STAGING_GRACE_DAYS if reason == "abandoned_staging" else _GRACE_DAYS
+        grace = _CANDIDATE_GRACE_DAYS.get(reason, _GRACE_DAYS)
         if age_days < grace:
             continue
         candidates.append(
@@ -785,6 +794,8 @@ def _has_objects_under(mirror_root: Path, prefix: str) -> bool:
 def _candidate_reason(key: str) -> str | None:
     if key.startswith("lake/staging/"):
         return "abandoned_staging"
+    if key.startswith("lake/quarantine/"):
+        return "expired_quarantine"
     if key.startswith("lake/l1/canonical/"):
         return "unreferenced_l1_object"
     if key.startswith("lake/l2/calibration-legacy/"):
@@ -793,12 +804,6 @@ def _candidate_reason(key: str) -> str | None:
         return None
     if key.startswith("lake/l2/"):
         return "unreferenced_l2_object"
-    if key.startswith("lake/build-inputs/"):
-        # A sealed SQLite build input is the size of the whole legacy store, and one is
-        # captured per build. Leaving the prefix outside the candidate domain would let
-        # local storage grow with the number of runs rather than with what the current
-        # and previous generations can still be reproduced from.
-        return "unreferenced_build_input"
     if key.startswith("lake/manifests/datasets/"):
         return "unreferenced_dataset_manifest"
     if key.startswith("lake/manifests/releases/"):

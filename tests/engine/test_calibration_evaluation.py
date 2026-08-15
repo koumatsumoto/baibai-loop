@@ -55,9 +55,8 @@ def write_panel(root: Path, asof: date, *args: object, **kwargs: object) -> None
         root,
         asof,
         *args,
-        source=synthetic_calibration_source(root),
+        source=synthetic_calibration_source(captured_on=asof),
         input_cutoff=asof,
-        test_only=True,
         **kwargs,
     )
 
@@ -67,9 +66,8 @@ def write_forward(root: Path, asof: date, *args: object, **kwargs: object) -> No
         root,
         asof,
         *args,
-        source=synthetic_calibration_source(root),
+        source=synthetic_calibration_source(captured_on=asof),
         input_cutoff=asof,
-        test_only=True,
         **kwargs,
     )
 

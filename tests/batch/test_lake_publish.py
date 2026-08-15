@@ -9,7 +9,11 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from tests.helpers.calibration_store import publish_forward, publish_panel
+from tests.helpers.calibration_store import (
+    publish_forward,
+    publish_panel,
+    synthetic_calibration_source,
+)
 
 from baibai_batch.storage import lake_publish as lake_publish_module
 from baibai_batch.storage.lake_publish import (
@@ -36,9 +40,9 @@ from baibai_engine.market.lake.release import (
     create_l1_release,
 )
 from baibai_engine.market.lake.writer import (
-    capture_legacy_sqlite_snapshot,
     export_legacy_sqlite,
     export_pilot_legacy,
+    sealed_sqlite_snapshot,
 )
 from baibai_engine.market.sqlite import open_connection
 from baibai_engine.screening.calibration.lake import CalibrationBundlePointer
@@ -406,23 +410,22 @@ def _release(tmp_path: Path) -> tuple[Path, Path]:
     connection.commit()
     connection.close()
     mirror = tmp_path / "mirror"
-    snapshot = capture_legacy_sqlite_snapshot(
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        snapshot_id="release-snapshot",
-    )
-    datasets = [
-        export_legacy_sqlite(
-            dataset_name=name,
-            sqlite_path=sqlite_path,
-            mirror_root=mirror,
-            producer_git_commit="a" * 40,
-            source_snapshot_ref=snapshot.ref,
-            build_id=f"build-{index}",
-            created_at=datetime(2026, 1, 7, tzinfo=UTC),
-        ).manifest_path
-        for index, name in enumerate(("jquants.daily_bars", "jquants.short_sale_reports"), start=1)
-    ]
+    with sealed_sqlite_snapshot(
+        sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id="release-snapshot"
+    ) as snapshot:
+        datasets = [
+            export_legacy_sqlite(
+                dataset_name=name,
+                mirror_root=mirror,
+                producer_git_commit="a" * 40,
+                source_snapshot=snapshot,
+                build_id=f"build-{index}",
+                created_at=datetime(2026, 1, 7, tzinfo=UTC),
+            ).manifest_path
+            for index, name in enumerate(
+                ("jquants.daily_bars", "jquants.short_sale_reports"), start=1
+            )
+        ]
     release_path, _ = create_l1_release(
         dataset_manifest_paths=datasets,
         mirror_root=mirror,
@@ -641,24 +644,23 @@ def test_release_publish_closes_referenced_raw_graph(tmp_path) -> None:
         request_start=date(2026, 1, 1),
         request_end=date(2026, 1, 31),
     )
-    snapshot = capture_legacy_sqlite_snapshot(
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        snapshot_id="raw-release-snapshot",
-    )
-    datasets = [
-        export_legacy_sqlite(
-            dataset_name=name,
-            sqlite_path=sqlite_path,
-            mirror_root=mirror,
-            producer_git_commit="a" * 40,
-            raw_source_refs=(raw_source_ref(metadata_path),) if index == 1 else (),
-            source_snapshot_ref=snapshot.ref,
-            build_id=f"raw-build-{index}",
-            created_at=datetime(2026, 1, 7, tzinfo=UTC),
-        ).manifest_path
-        for index, name in enumerate(("jquants.daily_bars", "jquants.short_sale_reports"), start=1)
-    ]
+    with sealed_sqlite_snapshot(
+        sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id="raw-release-snapshot"
+    ) as snapshot:
+        datasets = [
+            export_legacy_sqlite(
+                dataset_name=name,
+                mirror_root=mirror,
+                producer_git_commit="a" * 40,
+                raw_source_refs=(raw_source_ref(metadata_path),) if index == 1 else (),
+                source_snapshot=snapshot,
+                build_id=f"raw-build-{index}",
+                created_at=datetime(2026, 1, 7, tzinfo=UTC),
+            ).manifest_path
+            for index, name in enumerate(
+                ("jquants.daily_bars", "jquants.short_sale_reports"), start=1
+            )
+        ]
     release_path, _ = create_l1_release(
         dataset_manifest_paths=datasets,
         mirror_root=mirror,
@@ -692,39 +694,38 @@ def test_release_allows_the_same_ingest_id_in_two_dataset_namespaces(tmp_path) -
     connection.commit()
     connection.close()
     mirror = tmp_path / "mirror"
-    snapshot = capture_legacy_sqlite_snapshot(
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        snapshot_id="shared-release-snapshot",
-    )
     manifests: list[Path] = []
-    for index, dataset in enumerate(("jquants.daily_bars", "jquants.short_sale_reports"), start=1):
-        source = tmp_path / f"response-{index}.json.gz"
-        source.write_bytes(f"provider-original-{index}".encode())
-        _, metadata_path, _ = archive_raw_file(
-            source_path=source,
-            mirror_root=mirror,
-            provider="jquants",
-            dataset=dataset,
-            ingest_id="shared-run",
-            suffix=".json.gz",
-            retention_class=RawRetentionClass.PRESERVE,
-            retrieved_at=datetime(2026, 1, 6, tzinfo=UTC),
-            request_start=date(2026, 1, 1),
-            request_end=date(2026, 1, 31),
-        )
-        manifests.append(
-            export_legacy_sqlite(
-                dataset_name=dataset,
-                sqlite_path=sqlite_path,
+    with sealed_sqlite_snapshot(
+        sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id="shared-release-snapshot"
+    ) as snapshot:
+        for index, dataset in enumerate(
+            ("jquants.daily_bars", "jquants.short_sale_reports"), start=1
+        ):
+            source = tmp_path / f"response-{index}.json.gz"
+            source.write_bytes(f"provider-original-{index}".encode())
+            _, metadata_path, _ = archive_raw_file(
+                source_path=source,
                 mirror_root=mirror,
-                producer_git_commit="a" * 40,
-                raw_source_refs=(raw_source_ref(metadata_path),),
-                source_snapshot_ref=snapshot.ref,
-                build_id=f"shared-build-{index}",
-                created_at=datetime(2026, 1, 7, tzinfo=UTC),
-            ).manifest_path
-        )
+                provider="jquants",
+                dataset=dataset,
+                ingest_id="shared-run",
+                suffix=".json.gz",
+                retention_class=RawRetentionClass.PRESERVE,
+                retrieved_at=datetime(2026, 1, 6, tzinfo=UTC),
+                request_start=date(2026, 1, 1),
+                request_end=date(2026, 1, 31),
+            )
+            manifests.append(
+                export_legacy_sqlite(
+                    dataset_name=dataset,
+                    mirror_root=mirror,
+                    producer_git_commit="a" * 40,
+                    raw_source_refs=(raw_source_ref(metadata_path),),
+                    source_snapshot=snapshot,
+                    build_id=f"shared-build-{index}",
+                    created_at=datetime(2026, 1, 7, tzinfo=UTC),
+                ).manifest_path
+            )
     release_path, _ = create_l1_release(
         dataset_manifest_paths=manifests,
         mirror_root=mirror,
@@ -912,22 +913,17 @@ def test_r2_adapter_classifies_409_and_timeout(
         store._run("put-object", "--key", "test")
 
 
-def test_calibration_publication_refuses_a_local_sqlite_build_input(tmp_path: Path) -> None:
-    """A sealed legacy store is a build input, not durable remote lineage.
+def test_a_cohort_built_from_a_sealed_store_publishes_its_identity_and_no_bytes(
+    tmp_path: Path,
+) -> None:
+    """The path a normal build produces reaches the remote current pointer.
 
-    Publishing it would grow the durable source inventory by the whole legacy store on
-    every cohort generation, past this lake's entire capacity objective within a few
-    of them.
+    A cohort's sealed-store reference carries identity only, so publication has nothing
+    to upload for it: the remote graph states which store generation the rows came from
+    without the durable inventory growing by the whole legacy store per generation.
     """
 
-    sqlite_path = tmp_path / "market.sqlite"
-    open_connection(sqlite_path).close()
     mirror = tmp_path / "mirror"
-    snapshot = capture_legacy_sqlite_snapshot(
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        snapshot_id="calibration-snapshot",
-    )
     publish_panel(
         mirror,
         "2026-01-30",
@@ -942,45 +938,27 @@ def test_calibration_publication_refuses_a_local_sqlite_build_input(tmp_path: Pa
         (mirror / current_calibration_bundle_pointer_key()).read_bytes()
     )
     bundle_path = mirror / local_pointer.current.manifest_key
-    _replace_cohort_source(mirror, bundle_path, snapshot.ref)
     remote = _MemoryStore()
 
-    with pytest.raises(LakePublishError, match="local SQLite build input"):
-        publish_calibration_bundle(
-            mirror_root=mirror,
-            bundle_manifest_path=bundle_path,
-            store=remote,
-        )
+    report = publish_calibration_bundle(
+        mirror_root=mirror,
+        bundle_manifest_path=bundle_path,
+        store=remote,
+    )
 
-    assert snapshot.ref.key not in remote.values
-    assert current_calibration_bundle_pointer_key() not in remote.values
-
-
-def _replace_cohort_source(mirror: Path, bundle_path: Path, source: object) -> None:
-    """Rewrite the published graph so its cohorts name ``source`` as their input."""
-
-    payload = json.loads(bundle_path.read_bytes())
-    wire = source.model_dump(mode="json")  # type: ignore[attr-defined]
-    for dataset in payload["datasets"].values():
-        manifest_path = mirror / dataset["manifest_key"]
-        manifest = json.loads(manifest_path.read_bytes())
-        for cohort in manifest["cohort_inventory"].values():
-            cohort["sources"] = [wire]
-        manifest_bytes = (
-            json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode() + b"\n"
-        )
-        manifest_path.write_bytes(manifest_bytes)
-        dataset["manifest_sha256"] = hashlib.sha256(manifest_bytes).hexdigest()
-    for cohort in payload["cohorts"].values():
-        for entry in cohort.values():
-            entry["sources"] = [wire]
-    bundle_bytes = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode() + b"\n"
-    bundle_path.write_bytes(bundle_bytes)
-    pointer_path = mirror / current_calibration_bundle_pointer_key()
-    pointer = json.loads(pointer_path.read_bytes())
-    pointer["current"]["manifest_sha256"] = hashlib.sha256(bundle_bytes).hexdigest()
-    pointer_path.write_bytes(
-        json.dumps(pointer, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+    assert current_calibration_bundle_pointer_key() in remote.values
+    assert report.transfers.uploaded_bytes > 0
+    bundle = json.loads(remote.values[bundle_path.relative_to(mirror).as_posix()].body)
+    cohort_sources = {
+        source["source_id"]
+        for dataset in bundle["datasets"].values()
+        for manifest in [json.loads(remote.values[dataset["manifest_key"]].body)]
+        for cohort in manifest["cohort_inventory"].values()
+        for source in cohort["sources"]
+    }
+    assert cohort_sources == {synthetic_calibration_source().source_id}
+    assert all(
+        key.startswith(("lake/l2/", "lake/manifests/", "lake/pointers/")) for key in remote.values
     )
 
 
