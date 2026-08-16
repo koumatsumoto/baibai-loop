@@ -550,19 +550,11 @@ uv run python -m baibai_batch.storage.lake_publish \
 current bundleに問題がある場合も、直すのは前へ publish することである。local storeで作り直した
 generationを publish すれば pointer は 1 回のCASでそれを指す。
 
-```bash
-uv run python -m baibai_batch.storage.lake_publish \
-  --rollback-calibration \
-  --bucket <r2-bucket>
-```
-
-旧CSVは通常readerのfallbackにしない。`screening calibration-migrate-legacy`がpanel/meta/forwardの
-全cohortを列挙し、元bytesをcontent-addressed archiveへ保存してtyped `calibration_input` SourceRefへ
-全digestを固定する。現cache contractと互換な履歴だけをfield単位でL2へ変換し、全cohort parity後に
-bundle pointerを1回切り替える。非互換履歴は`archived_incompatible`としてarchive/reportだけを残し、
-現在手法での再計算と同一視しない。pointer切替後のreport/cleanup失敗は
-`completion: committed_with_warnings`として成功済みgenerationを返し、同じinput digestのretryは
-`already_migrated`として冪等に完了する。
+旧CSV storeからの移行機構は持たない。**旧 store を捨てて全 cohort を再構築する。** 実測では、
+rulesがその間に動いているため旧storeのcohortは1件もそのまま使えず、移行を作っても達成するのは
+「現行codeが読めないbytesを新store内に保存する」ことだけだった。読み返せず・混ぜられず・
+再計算もできないbytesは、定義上ゼロ価値である。旧rulesで測った過去の計測値は失われるが、
+それは設計自身が「旧rulesのcohortを現行集計に混ぜない」ために拒否していたものである。
 
 出力へ何を出さないかは、その出力が誰の手に渡るかで決まる。**共有される成果物** — remote publish
 report、Discord通知、CI artifact、そこへ載るerror — にはcredential、account ID、bucket URL、
@@ -581,13 +573,12 @@ workflowがdefault branchへ入る前はrepository ownerがsame-repository PRへ
 `lake-acceptance-approved` labelを付け、eventのexact head SHAをcheckoutして検証する。default branchへ
 入った後の再検証はexact 40文字SHAでmanual dispatchする。workflowは`acceptance`を名前に含む
 専用bucket以外を拒否し、bundle graphの
-実PUT、pointer read-back、current→previousへの実CAS rollback、rollback先bundle read-back、stale ETagの
+実PUT、pointer read-back、前へのre-publishによる実CAS pointer switch、stale ETagの
 412/409 fail-closeに加え、tiny L1 publish→remote closure download→reader→projection、2 GiB objectの
 PUT/read-back時間、同じsize/偽SHA metadataを持つtampered bytesの拒否、wrong credential errorのredactionを
 検査する。
 credentialはvalidation/setupへ渡さず、actual R2 stepだけが専用publisher tokenを持つ。production-size
-export/projectionは上記reference acceptance report、legacy migrationは元bytesをread-onlyで扱う
-archive/parity reportをhead SHAと一緒に保存する。production bucketとcanonical storeをacceptanceに使わない。
+export/projectionは上記reference acceptance reportをhead SHAと一緒に保存する。production bucketとcanonical storeをacceptanceに使わない。
 
 ## Shadow parity
 
