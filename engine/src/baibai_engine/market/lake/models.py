@@ -21,6 +21,7 @@ from pydantic import (
     model_validator,
 )
 
+from .datasets import LAKE_DATASETS
 from .keys import (
     PartitionValue,
     calibration_bundle_manifest_key,
@@ -39,9 +40,8 @@ from .keys import (
 ManifestLayer = Literal["l1_canonical", "l2_analytical"]
 CoverageStatus = Literal["complete", "partial"]
 CohortStatus = Literal["complete", "empty", "partial", "not_computed"]
-ReleaseProfile = Literal["pilot", "production"]
+ReleaseProfile = Literal["shadow", "production"]
 MAX_LAKE_JSON_BYTES = 16 * 1024 * 1024
-_PILOT_YEAR_MONTH_DATASETS = frozenset({"jquants.daily_bars", "jquants.short_sale_reports"})
 CALIBRATION_DATASETS = frozenset(
     {"calibration.panel", "calibration.panel_diagnostics", "calibration.forward"}
 )
@@ -673,7 +673,14 @@ class DatasetManifest(BaseModel):
     created_at: datetime
     coverage_start: date
     data_as_of: date
-    population_count: int = Field(ge=0)
+    population_count: int | None = Field(default=None, ge=0)
+    """How many distinct subjects the dataset covers, where that is a meaningful count.
+
+    A per-issue fact table answers "how much of the market is in here", which is what a
+    release policy checks before serving it. A calendar or a filing index has no such
+    subject: every row is about a day or a document. Reporting zero there would claim an
+    empty population instead of an inapplicable question, so the absence is `None`.
+    """
     coverage_status: CoverageStatus
     partition_by: tuple[str, ...] = Field(min_length=1)
     cohort_inventory: Mapping[str, CohortInventoryEntry] = Field(default_factory=dict)
@@ -741,10 +748,10 @@ class DatasetManifest(BaseModel):
     def validate_semantics(self) -> DatasetManifest:
         if self.coverage_start > self.data_as_of:
             raise ValueError("coverage_start cannot be after data_as_of")
-        if self.population_count > self.totals.rows:
+        if self.population_count is not None and self.population_count > self.totals.rows:
             raise ValueError("population_count cannot exceed total rows")
         if self.layer == "l1_canonical":
-            if self.population_count == 0:
+            if self.population_count is not None and self.population_count == 0:
                 raise ValueError("l1_canonical population_count must be positive")
             if self.cohort_inventory:
                 raise ValueError("l1_canonical cannot contain analytical cohort inventory")
@@ -769,12 +776,17 @@ class DatasetManifest(BaseModel):
                 raise ValueError("each L2 cohort requires a fixed input generation source")
             if any(partition.sources for partition in self.partitions):
                 raise ValueError("L2 lineage belongs to each cohort, not each partition")
+        # A contract version pins the layout it was written under. Readers resolve
+        # partitions by the layout the manifest declares, so a build that changed grain
+        # under an unchanged version would be read with the old expectation and silently
+        # mean something else. Changing the grain is a contract bump.
+        contract = LAKE_DATASETS.get(self.dataset)
         if (
-            self.dataset in _PILOT_YEAR_MONTH_DATASETS
-            and self.contract_version == 1
-            and self.partition_by != ("year", "month")
+            contract is not None
+            and self.contract_version == contract.contract_version
+            and tuple(self.partition_by) != contract.partition_by
         ):
-            raise ValueError("pilot time-series contract v1 requires year/month partitioning")
+            raise ValueError("dataset contract version pins its partition layout")
 
         partition_identities: set[tuple[tuple[str, PartitionValue], ...]] = set()
         object_keys: set[str] = set()
@@ -894,7 +906,31 @@ class ReleaseDatasetPolicy(BaseModel):
     accepted_contract_versions: tuple[int, ...] = Field(min_length=1)
     coverage_start_on_or_before: date
     minimum_rows: int = Field(gt=0)
-    minimum_population_count: int = Field(gt=0)
+    minimum_population_count: int | None = Field(default=None, gt=0)
+    """Absent for datasets whose rows have no per-subject population to count."""
+    max_age_days: int = Field(ge=0)
+    """How stale this dataset's watermark may be against the evaluation date.
+
+    Cadence belongs to the dataset, not to the profile. A weekly balance published with
+    a reporting lag and a daily bar are both current at watermarks two weeks apart, so
+    one shared limit has to be loose enough for the slowest and stops saying anything
+    about the fastest.
+    """
+    require_complete_coverage: bool = True
+    """Whether this dataset must prove complete coverage to enter a release.
+
+    A source with no fetch record cannot prove it, and refusing it would mean the lake
+    can never carry it. Serving what it holds while saying so is the honest state; the
+    flag is per dataset because completeness is a property of what records the source,
+    not of the release the dataset happens to join.
+    """
+    max_lead_days: int = Field(default=0, ge=0)
+    """How far ahead of the evaluation date this dataset legitimately publishes.
+
+    A market calendar names business days that have not happened yet, and an earnings
+    calendar names announcements that have not been made. Their watermarks are supposed
+    to be in the future; treating that as staleness inverted would refuse the release.
+    """
 
     @field_validator("dataset")
     @classmethod
@@ -917,9 +953,6 @@ class ReleasePolicy(BaseModel):
     policy_version: Literal[1]
     profile: ReleaseProfile
     datasets: tuple[ReleaseDatasetPolicy, ...] = Field(min_length=1)
-    max_dataset_age_days: int = Field(ge=0)
-    max_dataset_skew_days: int = Field(ge=0)
-    require_complete_coverage: bool
     max_manifest_bytes: int = Field(gt=0)
     max_objects: int = Field(gt=0)
     # Whether every dataset in the release must have been exported from one and the same
@@ -939,30 +972,158 @@ class ReleasePolicy(BaseModel):
         return self
 
 
-PILOT_RELEASE_POLICY = ReleasePolicy(
+SHADOW_RELEASE_POLICY = ReleasePolicy(
     policy_version=1,
-    profile="pilot",
+    profile="shadow",
     datasets=(
         ReleaseDatasetPolicy(
             dataset="jquants.daily_bars",
             required=True,
             accepted_contract_versions=(1,),
             coverage_start_on_or_before=date(2016, 8, 1),
-            minimum_rows=9_630_029,
-            minimum_population_count=5_098,
+            minimum_rows=9_634_243,
+            minimum_population_count=5_097,
+            require_complete_coverage=True,
+            max_age_days=31,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.short_sale_reports",
             required=True,
             accepted_contract_versions=(1,),
             coverage_start_on_or_before=date(2016, 8, 10),
-            minimum_rows=1_341_528,
+            minimum_rows=1_342_362,
             minimum_population_count=3_907,
+            require_complete_coverage=True,
+            max_age_days=31,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="jquants.weekly_margin",
+            required=True,
+            accepted_contract_versions=(1,),
+            coverage_start_on_or_before=date(2016, 8, 5),
+            minimum_rows=1_960_849,
+            minimum_population_count=4_866,
+            require_complete_coverage=False,
+            max_age_days=45,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="jquants.master_snapshots",
+            required=True,
+            accepted_contract_versions=(1,),
+            coverage_start_on_or_before=date(2016, 9, 30),
+            minimum_rows=548_341,
+            minimum_population_count=5_073,
+            require_complete_coverage=False,
+            max_age_days=31,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="jquants.fin_summaries",
+            required=True,
+            accepted_contract_versions=(1,),
+            coverage_start_on_or_before=date(2016, 8, 1),
+            minimum_rows=173_198,
+            minimum_population_count=4_425,
+            require_complete_coverage=True,
+            max_age_days=31,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="jquants.market_calendar",
+            required=True,
+            accepted_contract_versions=(1,),
+            coverage_start_on_or_before=date(2016, 8, 1),
+            minimum_rows=3_524,
+            require_complete_coverage=True,
+            max_age_days=31,
+            max_lead_days=400,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="jquants.earnings_calendar",
+            required=True,
+            accepted_contract_versions=(1,),
+            coverage_start_on_or_before=date(2026, 6, 19),
+            minimum_rows=3_232,
+            minimum_population_count=3_232,
+            require_complete_coverage=True,
+            max_age_days=31,
+            max_lead_days=120,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="jquants.margin_alerts",
+            required=True,
+            accepted_contract_versions=(1,),
+            coverage_start_on_or_before=date(2026, 8, 3),
+            minimum_rows=1_657,
+            minimum_population_count=214,
+            require_complete_coverage=True,
+            max_age_days=31,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="jquants.all_issues_daily_margin",
+            required=False,
+            accepted_contract_versions=(1,),
+            coverage_start_on_or_before=date(2026, 9, 25),
+            minimum_rows=1,
+            require_complete_coverage=False,
+            max_age_days=31,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="edinet.documents",
+            required=True,
+            accepted_contract_versions=(1,),
+            coverage_start_on_or_before=date(2024, 7, 31),
+            minimum_rows=160_990,
+            require_complete_coverage=True,
+            max_age_days=31,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="edinet.metrics",
+            required=True,
+            accepted_contract_versions=(1,),
+            coverage_start_on_or_before=date(2026, 5, 8),
+            minimum_rows=131_909,
+            minimum_population_count=3_788,
+            require_complete_coverage=False,
+            max_age_days=31,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="edinet.document_lists",
+            required=True,
+            accepted_contract_versions=(1,),
+            coverage_start_on_or_before=date(2024, 7, 31),
+            minimum_rows=706,
+            require_complete_coverage=False,
+            max_age_days=31,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="edinet.buyback_reports",
+            required=True,
+            accepted_contract_versions=(1,),
+            coverage_start_on_or_before=date(2024, 6, 30),
+            minimum_rows=5_871,
+            minimum_population_count=1_159,
+            require_complete_coverage=False,
+            max_age_days=62,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="jpx.regulation_flags",
+            required=True,
+            accepted_contract_versions=(1,),
+            coverage_start_on_or_before=date(2026, 5, 8),
+            minimum_rows=4_534,
+            minimum_population_count=141,
+            require_complete_coverage=False,
+            max_age_days=31,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="jpx.regulation_sources",
+            required=True,
+            accepted_contract_versions=(1,),
+            coverage_start_on_or_before=date(2026, 5, 8),
+            minimum_rows=133,
+            require_complete_coverage=False,
+            max_age_days=31,
         ),
     ),
-    max_dataset_age_days=31,
-    max_dataset_skew_days=31,
-    require_complete_coverage=True,
     max_manifest_bytes=16 * 1024 * 1024,
     max_objects=10_000,
     require_shared_snapshot_generation=True,
@@ -971,8 +1132,8 @@ PILOT_RELEASE_POLICY = ReleasePolicy(
 
 def release_policy_for_profile(profile: ReleaseProfile) -> ReleasePolicy:
     """Return the registered release policy; unconfigured authority profiles fail closed."""
-    if profile == "pilot":
-        return PILOT_RELEASE_POLICY
+    if profile == "shadow":
+        return SHADOW_RELEASE_POLICY
     raise ValueError("production release policy is not configured")
 
 
@@ -1077,7 +1238,6 @@ def validate_release_policy(
 
     total_manifest_bytes = len(canonical_lake_model_bytes(release))
     total_objects = 0
-    watermarks: list[date] = []
     for dataset, release_dataset in release.datasets.items():
         manifest = manifests[dataset]
         dataset_policy = policy_by_dataset[dataset]
@@ -1098,23 +1258,27 @@ def validate_release_policy(
             or release_dataset.totals != manifest.totals
         ):
             raise ValueError("release dataset inventory does not match its manifest")
-        if policy.require_complete_coverage and manifest.coverage_status != "complete":
-            raise ValueError("release profile requires complete dataset coverage")
+        if dataset_policy.require_complete_coverage and manifest.coverage_status != "complete":
+            raise ValueError("release dataset does not prove the coverage its profile requires")
         if manifest.coverage_start > dataset_policy.coverage_start_on_or_before:
             raise ValueError("release dataset does not reach the profile history boundary")
         if manifest.totals.rows < dataset_policy.minimum_rows:
             raise ValueError("release dataset is below the profile row floor")
-        if manifest.population_count < dataset_policy.minimum_population_count:
-            raise ValueError("release dataset is below the profile population floor")
-        age = evaluated_at.date() - manifest.data_as_of
-        if age.days < 0 or age.days > policy.max_dataset_age_days:
-            raise ValueError("release dataset is outside the profile freshness window")
+        if dataset_policy.minimum_population_count is not None:
+            if manifest.population_count is None:
+                raise ValueError("release dataset does not report the population it is floored on")
+            if manifest.population_count < dataset_policy.minimum_population_count:
+                raise ValueError("release dataset is below the profile population floor")
+        age = (evaluated_at.date() - manifest.data_as_of).days
+        if age > dataset_policy.max_age_days or -age > dataset_policy.max_lead_days:
+            raise ValueError("release dataset is outside its freshness window")
         total_manifest_bytes += len(manifest_bytes)
         total_objects += manifest.totals.objects
-        watermarks.append(manifest.data_as_of)
 
-    if (max(watermarks) - min(watermarks)).days > policy.max_dataset_skew_days:
-        raise ValueError("release dataset watermarks exceed the profile skew limit")
+    # No separate skew limit: every watermark was just measured against its own dataset's
+    # window around the same evaluation date, so a dataset that stopped updating is
+    # already refused by its own bound. Comparing watermarks to each other instead would
+    # ask a daily bar and a monthly filing index to agree on a date they never share.
     if total_manifest_bytes > policy.max_manifest_bytes:
         raise ValueError("release manifest graph exceeds the profile byte budget")
     if total_objects > policy.max_objects:

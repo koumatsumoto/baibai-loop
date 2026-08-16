@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 from pydantic import ValidationError
+from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.cli import DOMAINS
 from baibai_engine.market.lake import models as lake_models
@@ -167,7 +168,7 @@ def _release_payload() -> dict[str, object]:
     return {
         "manifest_version": 1,
         "release_id": "20260812T130000Z-release",
-        "profile": "pilot",
+        "profile": "shadow",
         "created_at": "2026-08-12T13:00:00Z",
         "data_as_of": "2026-08-12",
         "datasets": {
@@ -183,7 +184,8 @@ def _release_payload() -> dict[str, object]:
     }
 
 
-def test_release_manifest_is_strict_and_round_trips() -> None:
+def test_release_manifest_is_strict_and_round_trips(monkeypatch: pytest.MonkeyPatch) -> None:
+    narrow_release_policy(monkeypatch)
     payload = _release_payload()
 
     manifest = load_manifest_json(json.dumps(payload))
@@ -255,7 +257,7 @@ def test_dataset_manifest_rejects_unknown_nested_fields() -> None:
         _load_dataset(payload)
 
 
-@pytest.mark.parametrize("field", ["coverage_start", "population_count"])
+@pytest.mark.parametrize("field", ["coverage_start"])
 def test_dataset_manifest_requires_coverage_evidence(field: str) -> None:
     payload = _dataset_payload()
     del payload[field]
@@ -328,7 +330,8 @@ def test_manifest_loader_rejects_duplicate_nested_json_fields(replacement: str) 
         load_manifest_json(duplicate)
 
 
-def test_manifest_nested_mappings_are_immutable() -> None:
+def test_manifest_nested_mappings_are_immutable(monkeypatch: pytest.MonkeyPatch) -> None:
+    narrow_release_policy(monkeypatch)
     manifest = _load_dataset(_dataset_payload())
 
     with pytest.raises(TypeError):
@@ -337,7 +340,7 @@ def test_manifest_nested_mappings_are_immutable() -> None:
     release_payload = {
         "manifest_version": 1,
         "release_id": "release-1",
-        "profile": "pilot",
+        "profile": "shadow",
         "created_at": "2026-08-12T13:00:00Z",
         "data_as_of": "2026-08-12",
         "datasets": {
@@ -397,12 +400,13 @@ def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
                 "minimum_population_count": 1,
             }
         )
-        for item in lake_models.PILOT_RELEASE_POLICY.datasets
+        for item in lake_models.SHADOW_RELEASE_POLICY.datasets
+        if item.dataset in {"jquants.daily_bars", "jquants.short_sale_reports"}
     )
     monkeypatch.setattr(
         lake_models,
-        "PILOT_RELEASE_POLICY",
-        lake_models.PILOT_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
+        "SHADOW_RELEASE_POLICY",
+        lake_models.SHADOW_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
     )
     manifest = _load_dataset(_dataset_payload())
     short_sale = _load_dataset(
@@ -417,7 +421,7 @@ def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
     release_payload = {
         "manifest_version": 1,
         "release_id": "release-1",
-        "profile": "pilot",
+        "profile": "shadow",
         "created_at": "2026-08-13T00:00:00Z",
         "data_as_of": "2026-08-11",
         "datasets": {
@@ -437,6 +441,32 @@ def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
     evaluated_at = datetime(2026, 8, 13, tzinfo=UTC)
     validate_release_policy(release, manifests, evaluated_at=evaluated_at)
 
+    # A dataset with no population to count reports none, and the model accepts that
+    # because it cannot tell "inapplicable" from "omitted". The floor is what refuses
+    # it: a profile that measures a population against a dataset that does not report
+    # one has to stop rather than skip the check it was configured to make.
+    unpopulated = manifest.model_copy(update={"population_count": None})
+    unpopulated_release = release.model_copy(
+        update={
+            "datasets": {
+                **release.datasets,
+                manifest.dataset: release.datasets[manifest.dataset].model_copy(
+                    update={
+                        "manifest_sha256": hashlib.sha256(
+                            canonical_lake_model_bytes(unpopulated)
+                        ).hexdigest()
+                    }
+                ),
+            }
+        }
+    )
+    with pytest.raises(ValueError, match="does not report the population"):
+        validate_release_policy(
+            unpopulated_release,
+            {manifest.dataset: unpopulated, short_sale.dataset: short_sale},
+            evaluated_at=evaluated_at,
+        )
+
     incomplete = manifest.model_copy(update={"coverage_status": "partial"})
     with pytest.raises(ValueError, match="digest does not match"):
         validate_release_policy(
@@ -450,7 +480,7 @@ def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
             "manifest_sha256": hashlib.sha256(canonical_lake_model_bytes(incomplete)).hexdigest(),
         }
     )
-    with pytest.raises(ValueError, match="requires complete dataset coverage"):
+    with pytest.raises(ValueError, match="does not prove the coverage"):
         validate_release_policy(
             release.model_copy(
                 update={
@@ -491,7 +521,8 @@ def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
         )
 
 
-def test_pilot_policy_rejects_a_fresh_one_day_population() -> None:
+def test_pilot_policy_rejects_a_fresh_one_day_population(monkeypatch: pytest.MonkeyPatch) -> None:
+    narrow_release_policy(monkeypatch, relax_floors=False)
     daily = _load_dataset(
         _dataset_payload(
             coverage_start="2026-08-12",
@@ -514,7 +545,7 @@ def test_pilot_policy_rejects_a_fresh_one_day_population() -> None:
         {
             "manifest_version": 1,
             "release_id": "one-day-release",
-            "profile": "pilot",
+            "profile": "shadow",
             "created_at": datetime(2026, 8, 13, tzinfo=UTC),
             "data_as_of": date(2026, 8, 12),
             "datasets": {

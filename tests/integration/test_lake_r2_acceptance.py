@@ -22,7 +22,7 @@ from baibai_batch.storage.lake_publish import (
     publish_l1_release,
 )
 from baibai_engine.market.lake import models as lake_models
-from baibai_engine.market.lake.datasets import PILOT_DATASETS
+from baibai_engine.market.lake.datasets import LAKE_DATASETS
 from baibai_engine.market.lake.keys import (
     current_l1_pointer_key,
     dataset_manifest_key,
@@ -35,7 +35,7 @@ from baibai_engine.market.lake.objects import open_lake, sha256_file
 from baibai_engine.market.lake.projection import build_projection
 from baibai_engine.market.lake.reader import resolve_current_release
 from baibai_engine.market.lake.release import L1ReleasePointer, create_l1_release
-from baibai_engine.market.lake.writer import export_pilot_legacy
+from baibai_engine.market.lake.writer import export_lake_legacy
 from baibai_engine.market.sqlite import open_connection
 
 pytestmark = pytest.mark.skipif(
@@ -60,10 +60,10 @@ def _store() -> AwsCliR2Store:
 
 
 def _allow_tiny_pilot(monkeypatch: pytest.MonkeyPatch) -> None:
-    policy = lake_models.PILOT_RELEASE_POLICY
+    policy = lake_models.SHADOW_RELEASE_POLICY
     monkeypatch.setattr(
         lake_models,
-        "PILOT_RELEASE_POLICY",
+        "SHADOW_RELEASE_POLICY",
         policy.model_copy(
             update={
                 "datasets": tuple(
@@ -72,12 +72,13 @@ def _allow_tiny_pilot(monkeypatch: pytest.MonkeyPatch) -> None:
                             "coverage_start_on_or_before": date.max,
                             "minimum_rows": 1,
                             "minimum_population_count": 1,
+                            "max_age_days": 10_000,
+                            "max_lead_days": 10_000,
                         }
                     )
                     for item in policy.datasets
+                    if item.dataset in {"jquants.daily_bars", "jquants.short_sale_reports"}
                 ),
-                "max_dataset_age_days": 10_000,
-                "max_dataset_skew_days": 10_000,
             }
         ),
     )
@@ -182,7 +183,7 @@ def test_actual_r2_l1_publish_read_and_projection(
     store = _store()
     mirror = tmp_path / "publisher"
     sqlite_path = _tiny_market(tmp_path / "market.sqlite")
-    build = export_pilot_legacy(
+    build = export_lake_legacy(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit="a" * 40,
@@ -205,7 +206,7 @@ def test_actual_r2_l1_publish_read_and_projection(
             release=fixed,
             cache=cache,
             destination=tmp_path / "projection.sqlite",
-            dataset_names=tuple(sorted(PILOT_DATASETS)),
+            dataset_names=tuple(sorted(LAKE_DATASETS)),
             builder_git_commit="a" * 40,
         )
     assert projection.identity.source_release_id == fixed.release_id
@@ -225,7 +226,7 @@ def test_actual_r2_l1_publish_read_and_projection(
             release=direct,
             cache=cache,
             destination=tmp_path / "direct-projection.sqlite",
-            dataset_names=tuple(sorted(PILOT_DATASETS)),
+            dataset_names=tuple(sorted(LAKE_DATASETS)),
             builder_git_commit="a" * 40,
         )
     assert direct_projection.identity == projection.identity

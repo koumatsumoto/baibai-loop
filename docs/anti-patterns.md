@@ -272,9 +272,17 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       calibration sourceはdataset全体へ世代を累積せずcohort・role別のdigest/cutoffを持ち、panel as-ofと
       forward observation horizonを区別するか。transform fingerprintは値を決める実装digestを含むか。
       current / previous / digest付きpinから到達できるobjectがGC候補にならず、共通writer lock下の
-      再plan、root/object digest再検証、mark後のsecond sweep、candidate identity不一致で削除を拒否する
+      再plan、root/object digest再検証、candidate identity不一致で削除を拒否する
       negative testがあるか。Raw bufferはpreserveと分離し、90日minimum age・source closure・
-      metadata/object pairを同じ二段階delete gateで検証するか
+      metadata/object pairを同じdelete gateで検証するか
+- [ ] dataset registryへdatasetを足す、または dataset ごとの契約項目を増やす場合、契約値が
+      「行数などデータの現状」から導出されていないか（reader が manifest の layout を契約と
+      突き合わせるので、データ由来の契約は table が育った日に無言で変わり release を拒否し始める）。
+      contract version据え置きでpartition layoutが変わる manifest を拒否するか。coverage完全性を
+      「行の存在」から推定していないか（取得しなかった記録と存在しない記録は同じ不在を残す）。
+      population・coverage floorなど「持たない dataset がある」項目は、欠測をskipせずfail closeするか。
+      cadenceや先取り公表の差をprofile単位の単一閾値で潰していないか。行を持たないdatasetを
+      build失敗と区別するか。既存datasetのobject key / digestが不変であることを実exportで確認したか
 - [ ] 入力保証を根拠にproduction変更を許可するgateを追加・変更する場合、保証水準の名前が「何を再実行できるか」を
       一意に指すか（前のproducerの出力archiveを上流入力と同じ語で呼ばない）。結論を構成する全role（panel /
       diagnostics / forward）の最弱から導くか。manifestの記述だけでなくsource closureの現存とdigestを同一実行内で

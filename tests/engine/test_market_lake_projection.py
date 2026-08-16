@@ -82,22 +82,27 @@ def resolve_current_release(source: object):
 
 @pytest.fixture(autouse=True)
 def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These fixtures build the two datasets the projection tests exercise, so the
+    # profile is narrowed to them: a policy that still required the other thirteen would
+    # refuse every fixture release for being incomplete, which is a fact about the
+    # fixture rather than about the code under test.
     datasets = tuple(
         item.model_copy(
             update={
                 "coverage_start_on_or_before": date.max,
                 "minimum_rows": 1,
                 "minimum_population_count": 1,
+                "max_age_days": 366,
+                "max_lead_days": 366,
             }
         )
-        for item in lake_models.PILOT_RELEASE_POLICY.datasets
+        for item in lake_models.SHADOW_RELEASE_POLICY.datasets
+        if item.dataset in {"jquants.daily_bars", "jquants.short_sale_reports"}
     )
     monkeypatch.setattr(
         lake_models,
-        "PILOT_RELEASE_POLICY",
-        lake_models.PILOT_RELEASE_POLICY.model_copy(
-            update={"datasets": datasets, "max_dataset_age_days": 366}
-        ),
+        "SHADOW_RELEASE_POLICY",
+        lake_models.SHADOW_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
     )
 
 
@@ -644,7 +649,35 @@ class TestFixedRelease:
         release = resolve_current_release(LocalMirrorSource(lake.mirror))
 
         with pytest.raises(LakeReadError, match="2026-09"):
-            selected_partitions(release, "jquants.daily_bars", months=[(2026, 9)])
+            selected_partitions(release, "jquants.daily_bars", periods=[(2026, 9)])
+
+    def test_a_yearly_dataset_is_selected_through_its_own_layout(self, lake: Lake) -> None:
+        """A reader that assumed year/month read every yearly dataset as a KeyError.
+
+        The fixtures are month-grained, so the yearly path reached the reader for the
+        first time against the real store rather than here. Restating one manifest under
+        the layout a yearly dataset publishes puts that path back under test without
+        making every fixture carry a second dataset.
+        """
+
+        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        monthly = release.dataset_manifest("jquants.daily_bars")
+        yearly = monthly.model_copy(
+            update={
+                "partition_by": ("year",),
+                "partitions": tuple(
+                    partition.model_copy(update={"values": {"year": partition.values["year"]}})
+                    for partition in monthly.partitions[:1]
+                ),
+            }
+        )
+        fixed = replace(release, dataset_manifests={"jquants.daily_bars": yearly})
+
+        selected = selected_partitions(fixed, "jquants.daily_bars", periods=[(2026,)])
+        assert [item.values for item in selected] == [{"year": 2026}]
+
+        with pytest.raises(LakeReadError, match="2025"):
+            selected_partitions(fixed, "jquants.daily_bars", periods=[(2025,)])
 
 
 class TestObjectIntegrity:

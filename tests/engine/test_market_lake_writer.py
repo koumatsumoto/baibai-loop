@@ -8,13 +8,14 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
+from tests.helpers.lake_policy import narrow_release_policy
 from tools.diagnostics.benchmark_l1_export import benchmark
 
 from baibai_engine.market.lake import identity as identity_module
 from baibai_engine.market.lake import models as lake_models
 from baibai_engine.market.lake import write_cli as write_cli_module
 from baibai_engine.market.lake import writer as writer_module
-from baibai_engine.market.lake.datasets import require_pilot_dataset
+from baibai_engine.market.lake.datasets import require_lake_dataset
 from baibai_engine.market.lake.immutable import install_immutable_bytes
 from baibai_engine.market.lake.keys import current_l1_pointer_key
 from baibai_engine.market.lake.models import canonical_lake_model_bytes
@@ -30,9 +31,9 @@ from baibai_engine.market.lake.retention import apply_gc, plan_gc
 from baibai_engine.market.lake.writer import (
     LakeBuildError,
     LakeBuildReport,
+    export_lake_legacy,
     export_legacy_sqlite,
-    export_pilot_legacy,
-    plan_affected_months,
+    plan_affected_periods,
     sealed_sqlite_snapshot,
     validate_legacy_parity,
 )
@@ -51,12 +52,12 @@ def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
                 "minimum_population_count": 1,
             }
         )
-        for item in lake_models.PILOT_RELEASE_POLICY.datasets
+        for item in lake_models.SHADOW_RELEASE_POLICY.datasets
     )
     monkeypatch.setattr(
         lake_models,
-        "PILOT_RELEASE_POLICY",
-        lake_models.PILOT_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
+        "SHADOW_RELEASE_POLICY",
+        lake_models.SHADOW_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
     )
 
 
@@ -193,11 +194,11 @@ def test_automatic_plan_detects_fact_and_coverage_changes(tmp_path) -> None:
         build_id="plan-base",
     )
     assert (
-        plan_affected_months(
+        plan_affected_periods(
             dataset_name="jquants.daily_bars",
             sqlite_path=sqlite_path,
             base_manifest_path=first.manifest_path,
-        ).affected_months
+        ).affected_periods
         == ()
     )
 
@@ -220,11 +221,11 @@ def test_automatic_plan_detects_fact_and_coverage_changes(tmp_path) -> None:
             ),
         )
 
-    assert plan_affected_months(
+    assert plan_affected_periods(
         dataset_name="jquants.daily_bars",
         sqlite_path=sqlite_path,
         base_manifest_path=first.manifest_path,
-    ).affected_months == ((2026, 1), (2026, 2))
+    ).affected_periods == ((2026, 1), (2026, 2))
 
 
 def test_incremental_export_preserves_partition_lineage(tmp_path) -> None:
@@ -435,7 +436,10 @@ def test_raw_archive_is_append_only_and_strips_endpoint_query(tmp_path) -> None:
         )
 
 
-def test_release_manifest_composes_exact_dataset_builds(tmp_path) -> None:
+def test_release_manifest_composes_exact_dataset_builds(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    narrow_release_policy(monkeypatch)
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(
@@ -467,7 +471,10 @@ def test_release_manifest_composes_exact_dataset_builds(tmp_path) -> None:
     }
 
 
-def test_release_rejects_mixed_sqlite_snapshot_generations(tmp_path: Path) -> None:
+def test_release_rejects_mixed_sqlite_snapshot_generations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    narrow_release_policy(monkeypatch)
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     created_at = datetime(2026, 8, 14, tzinfo=UTC)
@@ -558,11 +565,14 @@ def test_wal_snapshot_is_one_generation_for_both_pilot_datasets(tmp_path: Path) 
     } == {snapshot.ref.sha256}
 
 
-def test_pilot_orchestration_exports_one_release_generation(tmp_path: Path) -> None:
+def test_pilot_orchestration_exports_one_release_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    narrow_release_policy(monkeypatch)
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
 
-    report = export_pilot_legacy(
+    report = export_lake_legacy(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit=_COMMIT,
@@ -629,7 +639,7 @@ def test_parity_rejects_a_missing_source_month(tmp_path: Path) -> None:
             update={"partitions": report.manifest.partitions[:-1]}
         )
 
-        with pytest.raises(LakeBuildError, match="month inventories differ"):
+        with pytest.raises(LakeBuildError, match="partition inventories differ"):
             validate_legacy_parity(
                 sqlite_path=snapshot.path,
                 mirror_root=mirror,
@@ -809,10 +819,13 @@ def test_git_identity_rejects_dirty_or_unknown_source(
         write_cli_module._git_commit()
 
 
-def test_l1_manifest_digest_is_part_of_the_gc_root(tmp_path: Path) -> None:
+def test_l1_manifest_digest_is_part_of_the_gc_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    narrow_release_policy(monkeypatch)
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
-    report = export_pilot_legacy(
+    report = export_lake_legacy(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit=_COMMIT,
@@ -921,7 +934,7 @@ class TestTransformIdentity:
         complete, so a build made under other coverage rules is not the same transform
         even when every Parquet byte matches."""
 
-        dataset = require_pilot_dataset("jquants.daily_bars")
+        dataset = require_lake_dataset("jquants.daily_bars")
         baseline = writer_module._transform_fingerprint(dataset)
         target = Path(writer_module.__file__).resolve().parents[1] / "sqlite" / "coverage.py"
         assert target.is_file()
@@ -946,7 +959,7 @@ def test_the_sealed_store_is_gone_when_the_export_operation_ends(tmp_path: Path)
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
 
-    report = export_pilot_legacy(
+    report = export_lake_legacy(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit=_COMMIT,
@@ -985,12 +998,15 @@ def test_a_seal_a_killed_operation_left_behind_is_collected(tmp_path: Path) -> N
     assert not abandoned.exists()
 
 
-def test_a_release_stays_resolvable_with_no_sealed_store_to_reach(tmp_path: Path) -> None:
+def test_a_release_stays_resolvable_with_no_sealed_store_to_reach(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    narrow_release_policy(monkeypatch)
     """The sealed generation is named, not kept, so nothing reports it as a lost root."""
 
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
-    report = export_pilot_legacy(
+    report = export_lake_legacy(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit=_COMMIT,

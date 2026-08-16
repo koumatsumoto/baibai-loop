@@ -10,11 +10,30 @@ status: active
 authority、manifest、version 語彙は [`../architecture.md`](../architecture.md#market-lake-publication-contract)
 を正本とする。この文書は publish と read の実操作を持つ。
 
-対象 dataset は `jquants.daily_bars` と `jquants.short_sale_reports` の 2 つで、production
-screening が読む他の table はまだ L1 化されていない。screening / web の cutover はこの 2 dataset
-だけでは成立しないので、**不足 dataset を legacy store で暗黙に埋めない**。比較は
+L1 は `market.sqlite` の fetch 由来 table 15 本を持つ。残る 4 本は L1 に入らない — `jpx_delistings`・
+`tender_offer_exit_values`・`tse_capital_policy_snapshots` は operator が導出したもので fetch の
+蓄積ではなく、key merge すると撤回した行が復活する。`source_coverage` は取得範囲の帳簿であって
+fact ではない。**不足 dataset を legacy store で暗黙に埋めない**。比較は
 [Shadow parity](#shadow-parity) の統制された shadow 実行だけで行い、その report が release 由来の
 table と legacy 由来の table を必ず両方列挙する。
+
+partition の粒度は dataset 契約が宣言する。行数から導出しない — reader は manifest の layout を
+契約と突き合わせるので、行数由来だと table が育った日に layout が無言で変わり reader が release を
+拒否し始める。行数は粒度を選ぶ根拠であって機構ではない。
+
+| grain | dataset | 月あたり行数 |
+| --- | --- | ---: |
+| month | `jquants.daily_bars` | 84k |
+| month | `edinet.metrics` | 46k |
+| month | `jquants.weekly_margin` | 17k |
+| month | `jquants.short_sale_reports` | 11.7k |
+| month | `edinet.documents` | 6.8k（古い行の lifecycle 更新で書き直しが起きるため細かく） |
+| month | `jquants.all_issues_daily_margin` | 2026-09-28 から全銘柄日次 |
+| year | `jquants.master_snapshots` / `jquants.fin_summaries` / `edinet.buyback_reports` / `edinet.document_lists` / `jquants.market_calendar` / `jquants.earnings_calendar` / `jquants.margin_alerts` / `jpx.regulation_flags` / `jpx.regulation_sources` | 30〜4.8k |
+
+行を持たない dataset は export が飛ばす。`jquants.all_issues_daily_margin` は JPX の公表制度変更
+（2026-09-28、初回は 9/25 残高）を待っているので今は 0 行で、canonical build に partition が無いと
+release 入力にならない。飛ばすことで「まだ始まっていない」と「build が失敗した」を分ける。
 
 ## Build
 
@@ -25,7 +44,7 @@ SQLite snapshotからauthorityを移すcompatibility boundaryであり、Rawだ�
 precision、publication / effective / retrieved time、revision/cancellation semanticsを完全には表さない。
 これらのmappingを確定しRaw→canonical semantic parityを満たした時点をv2 rebuild triggerとする。
 
-`export-pilot`は開始時にSQLite backup APIでWALを含むsealed snapshotを1回作り、snapshot digest・
+`export-all`は開始時にSQLite backup APIでWALを含むsealed snapshotを1回作り、snapshot digest・
 schema version・`quick_check`を確定してから、両datasetのexport、source-state、parityを同じsnapshot
 から導出する。release作成時にも全partitionが両datasetでexactに1 snapshot generationへ閉じることを
 検証する。snapshotはoperationの一時入力であり、bytesはlakeにもremote closureにも残さない。manifest
@@ -37,7 +56,7 @@ authority cutover前に別retention classのinitial checkpointを一度検証す
 SQLiteをR2へ再送しない。
 
 ```bash
-uv run baibai-engine lake export-pilot \
+uv run baibai-engine lake export-all \
   --sqlite stores/market/market.sqlite \
   --mirror <local-mirror>
 ```
@@ -49,18 +68,29 @@ contract sourceのdigestを含む。CLIは実装sourceが属するrepositoryを�
 git identityが取得不能、unknown zero commitの場合にbuildを開始しない。
 
 ```bash
-uv run baibai-engine lake export-pilot \
+uv run baibai-engine lake export-all \
   --sqlite stores/market/market.sqlite \
   --mirror <local-mirror> \
   --base-manifest <previous-daily-bars-manifest> \
   --base-manifest <previous-short-sale-manifest>
 ```
 
-`coverage_status`は固定値ではない。daily barsは保存行のdate coverage、short sale reportsは
-`source_coverage`の連続した`ok` windowをauthorityとしてsealed snapshotから判定する。pilot policyは
-[Phase 0 baseline](../../reports/studies/2026-08-12-market-lake-baseline/report.md)のhistory startを必須
-境界とし、観測rows・ticker populationの95%をregression floorにする。新鮮でも1日・1rowだけのstore、
-leading history欠損、大幅なpopulation縮小はcurrent候補にならない。
+`coverage_status`は固定値ではない。完全性は多くのsourceで行から導けない — 提出されなかった書類と
+取得しなかった書類は同じ不在を残すので、取得記録が答える。daily barsだけが例外で、全営業日が全市場分の
+行を負うため行自体が答える。どちらも持たないsourceは`unproven`として、持っているものは言えるが全部
+持っているとは言えない状態を表す。dataset契約が`coverage_authority`でこれを宣言する。
+
+release policyはdatasetごとに、必須性・history境界・rows / population floor・完全性要求・鮮度窓を
+持つ。cadenceはdatasetの性質であってprofileの性質ではない — 週次残高と日次barは watermark が2週間
+離れていても両方currentで、profile単一の上限は最も遅いdatasetに合わせるしかなく、その時点で最も速い
+datasetについて何も言わなくなる。`max_lead_days`は先取り公表を表す（market calendarは未到来の営業日を、
+earnings calendarは未発表の announcement を名乗る）。watermark同士のskew上限は持たない — 各watermarkを
+同じ評価日に対して自分の窓で測っているので、更新の止まったdatasetは自分の窓が既に拒否する。
+
+floorは観測rows・populationの95%をregression floorにする。新鮮でも1日・1rowだけのstore、
+leading history欠損、大幅なpopulation縮小はcurrent候補にならない。population floorを持つdatasetが
+populationを報告しなければ、checkをskipせず停止する。日や書類を行とするdatasetにpopulationの問いは
+無いので、そこでは floor も報告も持たない。
 
 Raw は取得直後の bytes を変換せず archive する。Premium CSV と長期 backfill response は
 `preserve`、再取得可能な routine response は `buffer` を指定する。endpoint の query と
