@@ -566,7 +566,10 @@ def render_message(summary: WorkflowRunSummary) -> str:
     if summary.lake is not None:
         lake = summary.lake
         lines.append(
-            f"lake: {lake.release_id} as-of {lake.data_as_of} | "
+            # The release as-of is the floor across its datasets, not the newest one:
+            # a weekly balance with a publication lag sets it while the bars are current.
+            # Printing it as "as-of" beside the run's own as-of reads as a stale lake.
+            f"lake: {lake.release_id} min as-of {lake.data_as_of} | "
             f"changed {lake.changed_partitions} partition(s) | "
             f"uploaded {lake.uploaded_objects} object(s), {lake.uploaded_bytes} bytes"
         )
