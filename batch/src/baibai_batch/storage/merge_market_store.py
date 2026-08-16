@@ -17,6 +17,13 @@ provable where the rows are — in a hydrated store, never in the emptied copy t
 travels. So the source's counts are taken as claims, and this target's are only ever
 lifted to the rows it holds, never lowered to them.
 
+Only the financial-summary windows are lifted and proved. Daily-bar windows carry their
+claim verbatim, and that is the safer half of the asymmetry rather than an omission: the
+wedge above comes from writing a *smaller* number, and nothing here writes one. A bar
+window that outruns this store is left standing, `verify-cache-coverage` refuses the
+operator's own screening run until they fill from the serving release, and the fill makes
+the two agree.
+
 The ledger is not append-only. A failed re-fetch cuts its range out of the overlapping
 ``ok`` windows and rewrites the survivors under new keys, so that the gap is visible
 where the fetch failed. A union by key can therefore reinstate a wide window a later

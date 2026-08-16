@@ -104,6 +104,7 @@ batch/scripts/r2_transfer.sh push-market
 
 - **calibration panel**: `uv run baibai-engine screening calibration-build --start 2022-09-01 --end <直近の完全月末>`（増分。rules 改訂後は `--force` 再構築）→ `calibration-evaluate`。契約は [`estimate-calibration.md`](../../../docs/reference/estimate-calibration.md)。
 - **PMI manifest**: `uv run python -m baibai_engine.macro.indicators.pmi_manifest --dry-run` → 本実行 → `macro refresh` で該当月を取得し公表値と照合してから commit。月が飛ぶ追記は拒否される（先に穴を埋める）。
+- **lake の全 history 照合**: 週次で lake export の `--audit` を回す（正確な command は [`market-lake.md`](../../../docs/reference/market-lake.md#local-pipeline-の実測)）。日次の publish は「その build が書いた月」しか SQLite ↔ Parquet parity を見ないので、日次 window の外側で store を訂正した月は次の `--audit` まで lake に映らない。これが release と SQLite が全期間で一致することを問う唯一の操作である。実測は全量 436 秒。
 - **資本配分・支配権イベント**: 東証の開示企業一覧は毎月 15 日前後に更新される。`uv run baibai-engine screening refresh-capital-control --asof <ASOF>` → `uv run baibai-engine screening build-control-event-exits --asof <ASOF>`。前者は東証一覧と JPX 上場廃止を読み直し、後者は成立した公開買付けの実現 exit 値を導出する。どちらも繰り返し実行して同じ結果になる。出力の `tse_sheets` は取り込めた月次シート数で、前月から増えていなければ東証側がまだ更新していない（減っていたら最古シートが落ちたということなので、既存の月は store に残る）。`build-control-event-exits` の rejection 内訳は「一次資料が案件を一意に決められなかった件数」であり、0 になる性質のものではない。実行後は `push-market` で R2 正本へ同期する（この 2 つが書く 3 table は lake 所有ではないので `publish-lake` は要らないが、`push-market` は hydrate 済みの store を要求する — 先に `hydrate-market` を通す）。契約は [`screening-runtime.md`](../../../docs/reference/screening-runtime.md#資本配分支配権イベントの-typed-fact)。
 
 ## 運用 task の規約
