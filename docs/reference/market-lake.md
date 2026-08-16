@@ -155,21 +155,20 @@ ETag `If-Match`で切り替え、pointer bytesだけをGETで読み戻す。409/
 fail-closeし、current releaseを再解決する。subprocessのdeadlineはobject sizeから導く（base 120秒 +
 実測を下回る4 MiB/秒での転送時間）ので、大きなobjectがtimeoutで曖昧な結果になることを避ける。
 
-current を previous へ降格する前に、その release graph（release manifest → dataset manifest →
-object → Raw closure）をremoteで解決して検証する。検証できないcurrentはpublishを止める。previous
-への切り戻しは`--rollback-l1`が`If-Match`で行い、対象closureを検証してからpointerを交換する。
-pointer が previous を名乗るなら、それは復元できるという主張であり、必要になった日に初めて確かめる
-ものではない。previous の closure が欠けている間は publish が止まる。error は欠けた key を名指す
-ので、その release を local mirror から `--release-manifest` で publish し直して closure を戻してから
-新しい release を publish する。
+**pointerはcurrentだけを名乗る。rollbackは無い。** 修理は前へ publish することであり、store が
+serve をやめた世代へ戻ることではない。pointer が「この世代は復元できる」と名乗れば、それは publish の
+たびに検証し続けなければならない約束になり、実際そうしていた。local mirror が graph 全体を持ち、
+writer が 1 つしかないこの構成では、悪い release を publish したときの復旧は良い release を publish
+することである。同じ release ID の再 publish だけは中断した publication の retry として受け付け、
+identity が違えば拒否する。
 
 production authority化ではmutable pointer prefixを除くimmutable prefixへ
 [R2 Bucket Lock](https://developers.cloudflare.com/r2/buckets/bucket-locks/)を設定し、lock期間を
-previous/restoreの最長保持期間以上にする。R2の
+restoreの最長保持期間以上にする。R2の
 [S3互換checksum](https://developers.cloudflare.com/r2/api/s3/api/#checksum-types)はfull-object SHA-256を
 提供しないため、existing objectの再利用はcontent-addressed key、immutable PUT metadata、Bucket Lock、
 readerのSHA-256検証、そして`--verify-bytes`監査の組合せで閉じる。Bucket Lock設定確認と
-tamper→reader拒否→previous rollback drillはcutover acceptanceの必須項目である。
+tamper→reader拒否→前へのre-publish drillはcutover acceptanceの必須項目である。
 
 Raw object と metadata は release publication より前に個別 publish する。
 
@@ -185,17 +184,13 @@ uv run python -m baibai_batch.storage.lake_publish \
   --release-manifest <release-manifest>
 ```
 
-remote bytesのtamperを探す監査と、previousへの切り戻しは別実行として持つ。
+remote bytesのtamperを探す監査は別実行として持つ。
 
 ```bash
 uv run python -m baibai_batch.storage.lake_publish \
   --mirror <local-mirror> \
   --release-manifest <release-manifest> \
   --verify-bytes
-```
-
-```bash
-uv run python -m baibai_batch.storage.lake_publish --rollback-l1
 ```
 
 必要な環境変数は既存 transfer と同じ `R2_ACCOUNT_ID`、`R2_ACCESS_KEY_ID`、
@@ -209,7 +204,7 @@ uv run python -m baibai_batch.storage.lake_publish --rollback-l1
 読み取りは実行の最初に current pointer を 1 度だけ解決し、以後は固定した `release_id` と
 immutable object key だけを読む。実行途中に pointer が切り替わっても、その実行の入力 release は
 変わらない。current operational readは解決時刻に対してprofileのfreshness/skew/coverage policyを
-再評価し、staleならscreening開始前にfail-closeする。named/previousのhistorical readは現在
+再評価し、staleならscreening開始前にfail-closeする。named releaseのhistorical readは現在
 時刻のfreshnessを要求せず、固定されたidentity chainだけを検証する。
 
 ```bash
@@ -218,8 +213,7 @@ uv run baibai-engine lake resolve --mirror <local-mirror> \
   --release <release-id> --manifest-sha256 <release-manifest-sha256>
 ```
 
-`--release` を渡すとpointerを一切読まないが、`--manifest-sha256`を必須とする。`--previous`は
-current pointerに対で保存されたprevious release ID / manifest digestを使う。手元のrelease参照は
+`--release` を渡すとpointerを一切読まないが、`--manifest-sha256`を必須とする。手元のrelease参照は
 typed `L1ReleaseSourceRef`（ID・key・SHA-256）として保存し、`--release-ref`で解決する。IDだけの
 named readは同じkeyの差し替えを検出できないため受理しない。
 
@@ -266,7 +260,7 @@ uv run baibai-engine lake projection build \
   --projection stores/market/projection.sqlite
 ```
 
-current以外は`--previous`、または`--release <id> --manifest-sha256 <sha256>`、または
+current以外は`--release <id> --manifest-sha256 <sha256>`、または
 typed release ref fileを渡す`--release-ref <path>`で固定する。IDだけのprojection buildは受理しない。
 publishしていないlocal mirrorにはcurrent pointerが無いので、初回のprojectionは必ずこのどれかで
 releaseを名指す。
@@ -482,8 +476,8 @@ live deploy可能なhistorical alphaとして読まず、PIT不完全なfieldに
 
 retention の root は 2 種類で、そこから到達できる object は齢によらず残す。
 
-- calibration bundle の current と previous（各3 datasetの完全closure）
-- L1 の current release と previous release
+- calibration bundle の current（3 datasetの完全closure）
+- L1 の current release
 
 ```bash
 uv run baibai-engine lake gc --mirror <local-mirror>
@@ -531,7 +525,7 @@ published graph が目標を超えても、失敗した build の quarantine に
 
 `lake inventory`は加えて`preserve / buffer`別のobject数、bytes、oldest retrievalを出す。
 metadata sidecarを持たないRaw payloadは`raw_unclassified`と`raw_inventory_errors`へ分離し、正常な
-retention classの容量へ混ぜない。`preserve`はGC候補にせず、`buffer`はcurrent/previous closureから
+retention classの容量へ混ぜない。`preserve`はGC候補にせず、`buffer`はcurrent closureから
 未到達かつretrieved-atから90日以上の場合だけ通常GCの候補にする。object/metadata pairを同じplan hashへ
 固定し、他のcandidateと同じsweepでlocal mirrorから削除する。R2側の削除はBucket Lock
 満了後にDelete専用retention finalizerが同じcandidate identityを検証する運用境界とする。
@@ -554,9 +548,8 @@ uv run python -m baibai_batch.storage.lake_publish \
   --calibration-bundle <bundle-manifest>
 ```
 
-current bundleに問題がある場合は、remote pointer bytes/ETagとpreviousの完全closureを検証し、
-current graphが壊れていてもcurrentとpreviousを1回のCASで交換して退避できる。退避した壊れた
-generationはpreviousとしてidentityだけを保持し、再度currentへ戻す前には完全closureを要求する。
+current bundleに問題がある場合も、直すのは前へ publish することである。local storeで作り直した
+generationを publish すれば pointer は 1 回のCASでそれを指す。
 
 ```bash
 uv run python -m baibai_batch.storage.lake_publish \

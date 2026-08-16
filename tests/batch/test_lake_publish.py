@@ -24,7 +24,6 @@ from baibai_batch.storage.lake_publish import (
     publish_calibration_bundle,
     publish_l1_release,
     publish_raw_archive,
-    rollback_calibration_bundle,
 )
 from baibai_engine.market.lake import models as lake_models
 from baibai_engine.market.lake.keys import current_calibration_bundle_pointer_key
@@ -150,7 +149,6 @@ def test_calibration_bundle_switches_one_pointer_after_the_complete_graph(
         remote.values[current_calibration_bundle_pointer_key()].body
     )
     assert remote_pointer.current == local_pointer.current
-    assert remote_pointer.previous is None
 
 
 def test_calibration_bundle_cas_conflict_leaves_the_previous_pointer(
@@ -177,10 +175,10 @@ def test_calibration_bundle_cas_conflict_leaves_the_previous_pointer(
 def test_a_local_store_two_generations_ahead_still_converges(tmp_path: Path) -> None:
     """One failed publication must not make every later generation unpublishable.
 
-    The rollback identity is the generation being replaced, which is whatever remote
-    serves. Requiring it to equal the local store's own previous would make remote
-    reachable only from the generation immediately after it: skip one, and the local
-    store can never publish again while the generation remote wants no longer exists.
+    What remote serves and what the local store published last are independent facts.
+    A publisher that required them to agree would make remote reachable only from the
+    generation immediately after it: skip one, and the local store can never publish
+    again while the generation remote wants no longer exists.
     """
 
     mirror = tmp_path / "mirror"
@@ -197,8 +195,6 @@ def test_a_local_store_two_generations_ahead_still_converges(tmp_path: Path) -> 
     publish_panel(mirror, "2026-02-27", [])
     publish_panel(mirror, "2026-03-31", [])
     third = _local_bundle(mirror)
-    assert third.previous is not None
-    assert third.previous != first.current
 
     publish_calibration_bundle(
         mirror_root=mirror,
@@ -210,7 +206,6 @@ def test_a_local_store_two_generations_ahead_still_converges(tmp_path: Path) -> 
         remote.values[current_calibration_bundle_pointer_key()].body
     )
     assert published.current == third.current
-    assert published.previous == first.current
 
 
 def test_republishing_the_bundle_remote_already_serves_changes_nothing(tmp_path: Path) -> None:
@@ -253,7 +248,6 @@ def test_a_remote_pointer_naming_this_bundle_with_another_identity_is_refused(
     forged = canonical_json_bytes(
         CalibrationBundlePointer(
             current=current.current.model_copy(update={"manifest_sha256": "0" * 64}),
-            previous=None,
         )
     )
     remote.values[key] = _Value(
@@ -267,7 +261,7 @@ def test_a_remote_pointer_naming_this_bundle_with_another_identity_is_refused(
         content_type="application/json",
     )
 
-    with pytest.raises(LakePublishError, match="different rollback identity"):
+    with pytest.raises(LakePublishError, match="different identity"):
         publish_calibration_bundle(
             mirror_root=mirror,
             bundle_manifest_path=mirror / current.current.manifest_key,
@@ -279,110 +273,6 @@ def _local_bundle(mirror: Path) -> CalibrationBundlePointer:
     return CalibrationBundlePointer.model_validate_json(
         (mirror / current_calibration_bundle_pointer_key()).read_bytes()
     )
-
-
-def test_calibration_bundle_rollback_exchanges_current_and_previous(tmp_path: Path) -> None:
-    mirror = tmp_path / "mirror"
-    remote = _MemoryStore()
-    publish_panel(mirror, "2026-01-30", [])
-    first = CalibrationBundlePointer.model_validate_json(
-        (mirror / current_calibration_bundle_pointer_key()).read_bytes()
-    )
-    publish_calibration_bundle(
-        mirror_root=mirror,
-        bundle_manifest_path=mirror / first.current.manifest_key,
-        store=remote,
-    )
-    publish_panel(mirror, "2026-02-27", [])
-    second = CalibrationBundlePointer.model_validate_json(
-        (mirror / current_calibration_bundle_pointer_key()).read_bytes()
-    )
-    publish_calibration_bundle(
-        mirror_root=mirror,
-        bundle_manifest_path=mirror / second.current.manifest_key,
-        store=remote,
-    )
-
-    report = rollback_calibration_bundle(store=remote)
-
-    rolled_back = CalibrationBundlePointer.model_validate_json(
-        remote.get_bytes(current_calibration_bundle_pointer_key())
-    )
-    assert report.bundle_id == first.current.bundle_id
-    assert rolled_back.current == first.current
-    assert rolled_back.previous == second.current
-
-
-def test_calibration_bundle_rollback_refuses_an_incomplete_previous_graph(
-    tmp_path: Path,
-) -> None:
-    mirror = tmp_path / "mirror"
-    remote = _MemoryStore()
-    publish_panel(mirror, "2026-01-30", [])
-    first = CalibrationBundlePointer.model_validate_json(
-        (mirror / current_calibration_bundle_pointer_key()).read_bytes()
-    )
-    publish_calibration_bundle(
-        mirror_root=mirror,
-        bundle_manifest_path=mirror / first.current.manifest_key,
-        store=remote,
-    )
-    publish_panel(mirror, "2026-02-27", [])
-    second = CalibrationBundlePointer.model_validate_json(
-        (mirror / current_calibration_bundle_pointer_key()).read_bytes()
-    )
-    publish_calibration_bundle(
-        mirror_root=mirror,
-        bundle_manifest_path=mirror / second.current.manifest_key,
-        store=remote,
-    )
-    first_bundle = load_lake_model_json(
-        remote.get_bytes(first.current.manifest_key), lake_models.CalibrationBundleManifest
-    )
-    first_dataset = first_bundle.datasets["calibration.panel_diagnostics"]
-    first_manifest = load_lake_model_json(
-        remote.get_bytes(first_dataset.manifest_key), lake_models.DatasetManifest
-    )
-    missing = first_manifest.partitions[0].objects[0].key
-    remote.values.pop(missing)
-    before = remote.get_bytes(current_calibration_bundle_pointer_key())
-
-    with pytest.raises(LakePublishError, match="remote object"):
-        rollback_calibration_bundle(store=remote)
-
-    assert remote.get_bytes(current_calibration_bundle_pointer_key()) == before
-
-
-def test_calibration_bundle_rollback_can_escape_a_broken_current_graph(tmp_path: Path) -> None:
-    mirror = tmp_path / "mirror"
-    remote = _MemoryStore()
-    publish_panel(mirror, "2026-01-30", [])
-    first = CalibrationBundlePointer.model_validate_json(
-        (mirror / current_calibration_bundle_pointer_key()).read_bytes()
-    )
-    publish_calibration_bundle(
-        mirror_root=mirror,
-        bundle_manifest_path=mirror / first.current.manifest_key,
-        store=remote,
-    )
-    publish_panel(mirror, "2026-02-27", [])
-    second = CalibrationBundlePointer.model_validate_json(
-        (mirror / current_calibration_bundle_pointer_key()).read_bytes()
-    )
-    publish_calibration_bundle(
-        mirror_root=mirror,
-        bundle_manifest_path=mirror / second.current.manifest_key,
-        store=remote,
-    )
-    remote.values.pop(second.current.manifest_key)
-
-    rollback_calibration_bundle(store=remote)
-
-    rolled_back = CalibrationBundlePointer.model_validate_json(
-        remote.get_bytes(current_calibration_bundle_pointer_key())
-    )
-    assert rolled_back.current == first.current
-    assert rolled_back.previous == second.current
 
 
 def test_calibration_acceptance_can_republish_from_a_fresh_local_mirror(
@@ -405,7 +295,7 @@ def test_calibration_acceptance_can_republish_from_a_fresh_local_mirror(
     fresh = CalibrationBundlePointer.model_validate_json(
         (fresh_mirror / current_calibration_bundle_pointer_key()).read_bytes()
     )
-    aligned = CalibrationBundlePointer(current=fresh.current, previous=first.current)
+    aligned = CalibrationBundlePointer(current=fresh.current)
     (fresh_mirror / current_calibration_bundle_pointer_key()).write_bytes(
         lake_models.canonical_lake_model_bytes(aligned)
     )
@@ -420,7 +310,6 @@ def test_calibration_acceptance_can_republish_from_a_fresh_local_mirror(
         remote.get_bytes(current_calibration_bundle_pointer_key())
     )
     assert current.current == fresh.current
-    assert current.previous == first.current
 
 
 @pytest.fixture(autouse=True)
@@ -1070,77 +959,6 @@ def test_calibration_bundle_accepts_datasets_built_at_different_commits(tmp_path
     )
 
     assert report.bundle_id == local_pointer.current.bundle_id
-
-
-def test_l1_previous_promotion_requires_a_verifiable_current(tmp_path: Path) -> None:
-    mirror, release_path = _release(tmp_path)
-    store = _MemoryStore()
-    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
-    pointer = store.values["lake/pointers/l1/current.json"].body
-    # Only the superseded release names this manifest, so the new publication cannot
-    # restore it on the way past.
-    store.values.pop("lake/manifests/releases/l1/release-1.json")
-    successor_path, _ = create_l1_release(
-        dataset_manifest_paths=sorted((mirror / "lake/manifests/datasets").glob("*/*.json")),
-        mirror_root=mirror,
-        release_id="release-2",
-        created_at=datetime(2026, 1, 7, tzinfo=UTC),
-    )
-
-    with pytest.raises(LakePublishError, match="remote object"):
-        publish_l1_release(
-            mirror_root=mirror,
-            release_manifest_path=successor_path,
-            store=store,
-        )
-
-    assert store.values["lake/pointers/l1/current.json"].body == pointer
-
-
-def test_l1_rollback_exchanges_current_and_previous(tmp_path: Path) -> None:
-    mirror, release_path = _release(tmp_path)
-    store = _MemoryStore()
-    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
-    successor_path, _ = create_l1_release(
-        dataset_manifest_paths=sorted((mirror / "lake/manifests/datasets").glob("*/*.json")),
-        mirror_root=mirror,
-        release_id="release-2",
-        created_at=datetime(2026, 1, 7, tzinfo=UTC),
-    )
-    publish_l1_release(mirror_root=mirror, release_manifest_path=successor_path, store=store)
-
-    rolled_back = lake_publish_module.rollback_l1_release(store=store)
-
-    pointer = load_lake_model_json(
-        store.values["lake/pointers/l1/current.json"].body, L1ReleasePointer
-    )
-    assert rolled_back.release_id == "release-1"
-    assert pointer.release_id == "release-1"
-    assert pointer.previous_release_id == "release-2"
-
-    forward_again = lake_publish_module.rollback_l1_release(store=store)
-
-    assert forward_again.release_id == "release-2"
-
-
-def test_l1_rollback_refuses_an_unresolvable_target(tmp_path: Path) -> None:
-    mirror, release_path = _release(tmp_path)
-    store = _MemoryStore()
-    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
-    successor_path, _ = create_l1_release(
-        dataset_manifest_paths=sorted((mirror / "lake/manifests/datasets").glob("*/*.json")),
-        mirror_root=mirror,
-        release_id="release-2",
-        created_at=datetime(2026, 1, 7, tzinfo=UTC),
-    )
-    publish_l1_release(mirror_root=mirror, release_manifest_path=successor_path, store=store)
-    pointer = store.values["lake/pointers/l1/current.json"].body
-    store.values.pop("lake/manifests/releases/l1/release-1.json")
-
-    with pytest.raises(LakePublishError, match="remote object is missing"):
-        lake_publish_module.rollback_l1_release(store=store)
-
-    assert store.values["lake/pointers/l1/current.json"].body == pointer
 
 
 def test_operation_timeout_covers_the_object_it_transfers() -> None:

@@ -5,25 +5,19 @@ import hashlib
 import json
 import os
 import sqlite3
-import tempfile
 import time
 import uuid
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from tests.helpers.calibration_store import publish_panel
 
 from baibai_batch.storage.lake_publish import (
     AwsCliR2Store,
-    LakeCASConflict,
     LakePublishError,
     _ensure_immutable,
     _RemotePublication,
-    publish_calibration_bundle,
     publish_l1_release,
-    rollback_calibration_bundle,
-    rollback_l1_release,
 )
 from baibai_engine.market.lake import models as lake_models
 from baibai_engine.market.lake.datasets import PILOT_DATASETS
@@ -138,96 +132,6 @@ def _download_l1_closure(store: AwsCliR2Store, mirror: Path) -> None:
                 download(item.key)
 
 
-def test_actual_r2_bundle_cas_and_rollback_identity(tmp_path: Path) -> None:
-    store = _store()
-    mirror = tmp_path / "mirror"
-
-    # No alignment of the local rollback identity to whatever the acceptance bucket
-    # currently serves: the point of the exercise is that a store which has moved on
-    # independently can still publish. Rewriting the pointer here would test only the
-    # one-generation-apart case that a failed publication is guaranteed to leave behind.
-    publish_panel(mirror, "2026-01-30", [])
-    first = _pointer(mirror)
-    first_report = publish_calibration_bundle(
-        mirror_root=mirror,
-        bundle_manifest_path=mirror / first.current.manifest_key,
-        store=store,
-    )
-    first_remote = store.head(current_calibration_bundle_pointer_key())
-    assert first_remote is not None
-
-    publish_panel(mirror, "2026-02-27", [])
-    second = _pointer(mirror)
-    second_report = publish_calibration_bundle(
-        mirror_root=mirror,
-        bundle_manifest_path=mirror / second.current.manifest_key,
-        store=store,
-    )
-    remote_pointer = CalibrationBundlePointer.model_validate_json(
-        store.get_bytes(current_calibration_bundle_pointer_key())
-    )
-    assert remote_pointer.current.bundle_id == second_report.bundle_id
-    assert remote_pointer.previous is not None
-    assert remote_pointer.previous.bundle_id == first_report.bundle_id
-
-    # A local store that skipped a generation — the state a failed publication leaves —
-    # must still converge without anyone editing a pointer.
-    publish_panel(mirror, "2026-03-31", [])
-    publish_panel(mirror, "2026-04-30", [])
-    fourth = _pointer(mirror)
-    assert fourth.previous is not None
-    assert fourth.previous.bundle_id != second_report.bundle_id
-    fourth_report = publish_calibration_bundle(
-        mirror_root=mirror,
-        bundle_manifest_path=mirror / fourth.current.manifest_key,
-        store=store,
-    )
-    after_skip = CalibrationBundlePointer.model_validate_json(
-        store.get_bytes(current_calibration_bundle_pointer_key())
-    )
-    assert after_skip.current.bundle_id == fourth_report.bundle_id
-    assert after_skip.previous is not None
-    assert after_skip.previous.bundle_id == second_report.bundle_id
-
-    rollback_report = rollback_calibration_bundle(store=store)
-    rolled_back = CalibrationBundlePointer.model_validate_json(
-        store.get_bytes(current_calibration_bundle_pointer_key())
-    )
-    assert rollback_report.bundle_id == second_report.bundle_id
-    assert rolled_back.current == second.current
-    assert rolled_back.previous == fourth.current
-    served_bundle = store.get_bytes(rolled_back.current.manifest_key)
-    assert hashlib.sha256(served_bundle).hexdigest() == rolled_back.current.manifest_sha256
-
-    stale_payload = (
-        json.dumps(
-            rolled_back.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
-        ).encode()
-        + b"\n"
-    )
-    with tempfile.NamedTemporaryFile() as temporary:
-        Path(temporary.name).write_bytes(stale_payload)
-        with pytest.raises(LakeCASConflict):
-            store.put_file(
-                current_calibration_bundle_pointer_key(),
-                Path(temporary.name),
-                sha256=hashlib.sha256(stale_payload).hexdigest(),
-                content_md5=base64.b64encode(
-                    hashlib.md5(stale_payload, usedforsecurity=False).digest()  # nosec B324
-                ).decode(),
-                content_type="application/json",
-                if_match=first_remote.etag,
-            )
-    # A refused conditional write leaves what the rollback put there, which is the
-    # second generation — not the one whose ETag the stale writer presented.
-    assert (
-        CalibrationBundlePointer.model_validate_json(
-            store.get_bytes(current_calibration_bundle_pointer_key())
-        ).current.bundle_id
-        == second_report.bundle_id
-    )
-
-
 def test_actual_r2_l1_publish_read_and_projection(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -290,17 +194,19 @@ def test_actual_r2_l1_publish_read_and_projection(
     assert unchanged.transfers.uploaded_bytes == 0
     assert unchanged.transfers.downloaded_bytes < first.transfers.uploaded_bytes
 
+    # Publishing forward moves current and nothing else: the pointer names exactly the
+    # generation just published, and repair is another publication rather than a step
+    # backwards.
+    successor_id = f"acceptance-{uuid.uuid4().hex}"
     successor_path, _successor = create_l1_release(
         dataset_manifest_paths=[item.manifest_path for item in build.datasets.values()],
         mirror_root=mirror,
-        release_id=f"acceptance-{uuid.uuid4().hex}",
+        release_id=successor_id,
         created_at=datetime.now(UTC),
     )
     publish_l1_release(mirror_root=mirror, release_manifest_path=successor_path, store=store)
-    rolled_back = rollback_l1_release(store=store)
-    assert rolled_back.release_id == projection.identity.source_release_id
-    restored = load_lake_model_json(store.get_bytes(current_l1_pointer_key()), L1ReleasePointer)
-    assert restored.release_id == projection.identity.source_release_id
+    serving = load_lake_model_json(store.get_bytes(current_l1_pointer_key()), L1ReleasePointer)
+    assert serving.release_id == successor_id
 
 
 def test_actual_r2_large_reuse_reads_bytes_and_rejects_forged_metadata(tmp_path: Path) -> None:

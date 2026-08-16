@@ -18,7 +18,6 @@ from .objects import LakeObjectError, open_lake
 from .reader import (
     LakeReadError,
     resolve_current_release,
-    resolve_previous_release,
     resolve_release,
     resolve_release_ref,
 )
@@ -60,9 +59,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--release", help="resolve this release instead of reading the current pointer"
     )
     target.add_argument(
-        "--previous", action="store_true", help="resolve current's rollback release"
+        "--release-ref", type=Path, help="resolve a typed digest-pinned release reference"
     )
-    target.add_argument("--release-ref", type=Path, help="resolve a typed pinned release reference")
     resolve_parser.add_argument(
         "--manifest-sha256", help="required digest when --release names a release"
     )
@@ -91,8 +89,6 @@ def _resolved_release(args: argparse.Namespace) -> dict[str, JsonValue]:
             )
         elif args.manifest_sha256 is not None:
             raise LakeReadError("--manifest-sha256 is valid only with --release")
-        elif args.previous:
-            release = resolve_previous_release(cache.source)
         elif args.release_ref is not None:
             reference = load_lake_model_json(
                 args.release_ref.read_bytes(),
@@ -108,8 +104,6 @@ def _resolved_release(args: argparse.Namespace) -> dict[str, JsonValue]:
         "release_id": release.release_id,
         "manifest_key": release.manifest_key,
         "manifest_sha256": release.manifest_sha256,
-        "previous_release_id": release.previous_release_id,
-        "previous_manifest_sha256": release.previous_manifest_sha256,
         "data_as_of": release.data_as_of.isoformat(),
         "datasets": [
             {

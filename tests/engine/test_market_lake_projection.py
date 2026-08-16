@@ -50,7 +50,6 @@ from baibai_engine.market.lake.reader import (
     LakeReadError,
     accepted_dataset,
     iter_partition_rows,
-    resolve_previous_release,
     resolve_release,
     resolve_release_ref,
     selected_partitions,
@@ -157,15 +156,10 @@ def _market_store(path: Path) -> Path:
 
 def _publish_pointer(mirror: Path, release_id: str, manifest_path: Path) -> None:
     target = mirror / current_l1_pointer_key()
-    previous = (
-        L1ReleasePointer.model_validate_json(target.read_bytes()) if target.is_file() else None
-    )
     pointer = L1ReleasePointer(
         release_id=release_id,
         manifest_key=manifest_path.relative_to(mirror).as_posix(),
         manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
-        previous_release_id=None if previous is None else previous.release_id,
-        previous_manifest_sha256=None if previous is None else previous.manifest_sha256,
     )
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(canonical_json_bytes(pointer))
@@ -402,20 +396,6 @@ class TestFixedRelease:
 
         assert release.release_id == lake.release_id
         assert release.manifest_sha256 == digest
-
-    def test_previous_release_uses_the_digest_paired_on_current(self, lake: Lake) -> None:
-        first_digest = _release_digest(lake.mirror, lake.release_id)
-        _build_lake_second_release(lake)
-
-        previous = resolve_previous_release(LocalMirrorSource(lake.mirror))
-
-        assert previous.release_id == lake.release_id
-        assert previous.manifest_sha256 == first_digest
-
-        first_manifest = lake.mirror / release_manifest_key(release_id=lake.release_id)
-        first_manifest.write_bytes(first_manifest.read_bytes() + b"\n")
-        with pytest.raises(LakeReadError, match="expected identity"):
-            resolve_previous_release(LocalMirrorSource(lake.mirror))
 
     def test_operational_current_rechecks_freshness_but_named_release_is_historical(
         self, lake: Lake

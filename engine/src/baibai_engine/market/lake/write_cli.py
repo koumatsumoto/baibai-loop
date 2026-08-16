@@ -19,7 +19,6 @@ from .raw import RawRetentionClass, archive_raw_file, raw_source_ref
 from .reader import (
     LakeReadError,
     resolve_current_release,
-    resolve_previous_release,
     resolve_release,
     resolve_release_ref,
 )
@@ -104,9 +103,6 @@ def main(argv: list[str]) -> int:
     release_target.add_argument(
         "--release",
         help="build this release instead of the one the current pointer names",
-    )
-    release_target.add_argument(
-        "--previous", action="store_true", help="build current's digest-pinned rollback release"
     )
     release_target.add_argument(
         "--release-ref", type=Path, help="build a typed digest-pinned release reference"
@@ -247,8 +243,6 @@ def _projection_build(args: argparse.Namespace) -> int:
                 )
             elif args.manifest_sha256 is not None:
                 raise LakeReadError("--manifest-sha256 is valid only with --release")
-            elif args.previous:
-                release = resolve_previous_release(cache.source)
             elif args.release_ref is not None:
                 reference = load_lake_model_json(
                     args.release_ref.read_bytes(),

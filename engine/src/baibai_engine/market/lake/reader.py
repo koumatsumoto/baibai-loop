@@ -64,8 +64,6 @@ class FixedRelease:
     release_id: str
     manifest_key: str
     manifest_sha256: str
-    previous_release_id: str | None
-    previous_manifest_sha256: str | None
     data_as_of: date
     manifest: ReleaseManifest
     dataset_manifests: Mapping[str, DatasetManifest]
@@ -105,8 +103,6 @@ def resolve_current_release(source: LakeObjectSource, *, evaluated_at: datetime)
         source,
         release_id=pointer.release_id,
         expected_manifest_sha256=pointer.manifest_sha256,
-        previous_release_id=pointer.previous_release_id,
-        previous_manifest_sha256=pointer.previous_manifest_sha256,
     )
     try:
         validate_release_policy(
@@ -117,21 +113,6 @@ def resolve_current_release(source: LakeObjectSource, *, evaluated_at: datetime)
     except ValueError as exc:
         raise LakeReadError(f"L1 current release fails operational policy: {exc}") from None
     return release
-
-
-def resolve_previous_release(source: LakeObjectSource) -> FixedRelease:
-    """Resolve the rollback generation through the digest stored on current."""
-
-    pointer = _read_current_pointer(source)
-    if pointer.previous_release_id is None or pointer.previous_manifest_sha256 is None:
-        raise LakeReadError("L1 current pointer does not name a previous release")
-    return _load_release(
-        source,
-        release_id=pointer.previous_release_id,
-        expected_manifest_sha256=pointer.previous_manifest_sha256,
-        previous_release_id=None,
-        previous_manifest_sha256=None,
-    )
 
 
 def _read_current_pointer(source: LakeObjectSource) -> L1ReleasePointer:
@@ -163,8 +144,6 @@ def resolve_release(
         source,
         release_id=release_id,
         expected_manifest_sha256=manifest_sha256,
-        previous_release_id=None,
-        previous_manifest_sha256=None,
     )
 
 
@@ -183,8 +162,6 @@ def _load_release(
     *,
     release_id: str,
     expected_manifest_sha256: str,
-    previous_release_id: str | None,
-    previous_manifest_sha256: str | None,
 ) -> FixedRelease:
     manifest_key = release_manifest_key(release_id=release_id)
     payload = source.read_bytes(manifest_key)
@@ -232,8 +209,6 @@ def _load_release(
         release_id=release_id,
         manifest_key=manifest_key,
         manifest_sha256=digest,
-        previous_release_id=previous_release_id,
-        previous_manifest_sha256=previous_manifest_sha256,
         data_as_of=release.data_as_of,
         manifest=release,
         dataset_manifests=manifests,

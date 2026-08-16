@@ -1,9 +1,14 @@
 """What the lake keeps and what it may delete.
 
 Retention is decided by reachability, never by age alone. The roots are the current L1
-release and the one before it, and the current calibration bundle and the one before
-it. Everything the closure of those roots does not reach is a deletion candidate;
-everything it reaches is kept regardless of how old it is.
+release and the current calibration bundle. Everything the closure of those roots does
+not reach is a deletion candidate; everything it reaches is kept regardless of how old
+it is.
+
+There is no rollback root. Repair here means publishing forward from a local mirror that
+holds the whole graph, not stepping backwards to a generation the store was asked to
+stop serving — and a pointer that names a generation as restorable is a promise someone
+has to keep verifying on every publication.
 
 There is deliberately no per-dataset L2 head among them. An L2 dataset is published as
 part of a bundle and reached through it, so a second pointer naming the same builds
@@ -219,14 +224,6 @@ def _plan_gc(mirror_root: Path, *, now: datetime | None) -> GcPlan:
             unresolved,
             expected_manifest_sha256=pointer.manifest_sha256,
         )
-        if pointer.previous_release_id is not None:
-            _reach_release(
-                mirror_root,
-                pointer.previous_release_id,
-                reachable,
-                unresolved,
-                expected_manifest_sha256=pointer.previous_manifest_sha256,
-            )
     elif _has_objects_under(mirror_root, "lake/l1/canonical/"):
         # Canonical L1 objects exist but nothing points at them. Every one of them
         # would be unreferenced by construction, so the plan is not safe to apply.
@@ -241,8 +238,6 @@ def _plan_gc(mirror_root: Path, *, now: datetime | None) -> GcPlan:
         except ValueError as exc:
             raise LakeRetentionError(f"calibration bundle pointer is invalid: {exc}") from exc
         _reach_bundle(mirror_root, bundle_pointer.current, reachable, unresolved)
-        if bundle_pointer.previous is not None:
-            _reach_bundle(mirror_root, bundle_pointer.previous, reachable, unresolved)
     elif _has_calibration_builds(mirror_root):
         unresolved.append(current_calibration_bundle_pointer_key())
 

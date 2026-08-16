@@ -14,8 +14,6 @@ from .immutable import ImmutableInstallError, install_immutable_bytes
 from .keys import (
     release_manifest_key,
     validate_identifier,
-    validate_lake_object_key,
-    validate_sha256,
 )
 from .models import (
     DatasetManifest,
@@ -35,45 +33,16 @@ class L1ReleasePointer(BaseModel):
     release_id: str
     manifest_key: str
     manifest_sha256: str
-    previous_release_id: str | None = None
-    previous_manifest_sha256: str | None = None
 
     @field_validator("release_id")
     @classmethod
     def validate_release_id(cls, value: str) -> str:
         return validate_identifier(value, label="release_id")
 
-    @field_validator("previous_release_id")
-    @classmethod
-    def validate_previous_release_id(cls, value: str | None) -> str | None:
-        return None if value is None else validate_identifier(value, label="previous_release_id")
-
-    @field_validator("manifest_key")
-    @classmethod
-    def require_release_manifest_key(cls, value: str) -> str:
-        key = validate_lake_object_key(value)
-        if not key.startswith("lake/manifests/releases/l1/"):
-            raise ValueError("L1 pointer must reference an L1 release manifest")
-        return key
-
-    @field_validator("manifest_sha256")
-    @classmethod
-    def validate_manifest_digest(cls, value: str) -> str:
-        return validate_sha256(value)
-
-    @field_validator("previous_manifest_sha256")
-    @classmethod
-    def validate_previous_manifest_digest(cls, value: str | None) -> str | None:
-        return None if value is None else validate_sha256(value)
-
     @model_validator(mode="after")
     def validate_identity(self) -> L1ReleasePointer:
         if self.manifest_key != release_manifest_key(release_id=self.release_id):
             raise ValueError("L1 pointer key does not match release_id")
-        if self.previous_release_id == self.release_id:
-            raise ValueError("L1 pointer previous release must differ from current")
-        if (self.previous_release_id is None) != (self.previous_manifest_sha256 is None):
-            raise ValueError("L1 pointer previous release requires its manifest digest")
         return self
 
 

@@ -130,7 +130,7 @@ production reader は期待する contract 一つだけを受け入れ、schema 
 lifecycle state は `sqlite_authority` と `lake_authority` の二つだけで、一つの dataset が同時に
 二つの canonical writer を持たない。`sqlite_authority` では `market.sqlite` だけが canonical /
 runtime authority で、lake buildはnon-authoritative shadow comparison artifactである。parityと
-rollback条件を満たしたpointer switchで `lake_authority` へ移り、R2 releaseがcanonical authorityに
+cutover条件を満たしたpointer switchで `lake_authority` へ移り、R2 releaseがcanonical authorityに
 なる。その後のSQLiteはfixed releaseから削除・再構築できるprojectionであり、R2 canonical key
 としてfull-file publishしない。
 

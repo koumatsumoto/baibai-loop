@@ -66,7 +66,7 @@ Bucket Lock満了後のDelete専用retention finalizerへ分離する。
 
 lifecycle stateは`sqlite_authority`と`lake_authority`の二つだけである。`sqlite_authority`では
 `stores/market/market.sqlite`だけがscreening L1のcanonical/runtime authorityで、lake buildは
-non-authoritative shadow comparison artifactである。parityとrollback条件を満たしたpointer
+non-authoritative shadow comparison artifactである。parityとcutover条件を満たしたpointer
 switch後の`lake_authority`でだけR2 releaseをcanonical authorityとして読む。dual canonical
 writeを行わない。run storeは`stores/screening/runs.sqlite`を継続する。SQLite layout の正本は
 [`./screening-runtime.md`](./screening-runtime.md)、lake manifest・version・authorityは

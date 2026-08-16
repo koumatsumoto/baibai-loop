@@ -657,15 +657,6 @@ class CalibrationBundlePointer(BaseModel):
 
     pointer_version: Literal[1] = 1
     current: CalibrationBundleRef
-    previous: CalibrationBundleRef | None = None
-
-    @model_validator(mode="after")
-    def validate_rollback_target(self) -> CalibrationBundlePointer:
-        # Naming the current generation as its own rollback target states that a rollback
-        # is available when none is. Nothing reading the pointer could tell the two apart.
-        if self.previous is not None and self.previous == self.current:
-            raise ValueError("calibration bundle rollback target must be another generation")
-        return self
 
 
 class DatasetManifest(BaseModel):

@@ -579,16 +579,16 @@ def publish_l1_release(
 
     pointer_key = lake_current_l1_pointer_key()
     current = publication.head(pointer_key)
-    previous_release_id = None
-    previous_manifest_sha256 = None
     if current is not None:
-        previous = load_lake_model_json(
+        serving = load_lake_model_json(
             publication.read_pointer(pointer_key, current), L1ReleasePointer
         )
-        if previous.release_id == release.release_id:
+        # Republishing the same release is the retry of an interrupted publication, and
+        # it has to be exactly the same release rather than the same name.
+        if serving.release_id == release.release_id:
             if (
-                previous.manifest_key != expected_release_key
-                or previous.manifest_sha256 != hashlib.sha256(release_payload).hexdigest()
+                serving.manifest_key != expected_release_key
+                or serving.manifest_sha256 != hashlib.sha256(release_payload).hexdigest()
             ):
                 raise LakePublishError("current pointer reuses release ID with different identity")
             return PublishReport(
@@ -596,24 +596,11 @@ def publish_l1_release(
                 transfers=publication.report(),
                 pointer_etag=current.etag,
             )
-        # A pointer that names a rollback generation is a promise that the generation
-        # can be restored. Publishing over an unverifiable current would turn that
-        # promise into a claim nobody checked until the day it is needed.
-        _require_remote_l1_closure(
-            publication,
-            release_id=previous.release_id,
-            manifest_key=previous.manifest_key,
-            manifest_sha256=previous.manifest_sha256,
-        )
-        previous_release_id = previous.release_id
-        previous_manifest_sha256 = previous.manifest_sha256
     release_sha256 = hashlib.sha256(release_payload).hexdigest()
     pointer = L1ReleasePointer(
         release_id=release.release_id,
         manifest_key=expected_release_key,
         manifest_sha256=release_sha256,
-        previous_release_id=previous_release_id,
-        previous_manifest_sha256=previous_manifest_sha256,
     )
     with tempfile.NamedTemporaryFile(prefix="baibai-l1-pointer-", suffix=".json") as temporary:
         temporary.write(canonical_json_bytes(pointer))
@@ -636,56 +623,6 @@ def publish_l1_release(
     publication.require_pointer_bytes(key=pointer_key, expected=pointer_payload)
     return PublishReport(
         release_id=release.release_id,
-        transfers=publication.report(),
-        pointer_etag=result.etag,
-    )
-
-
-def rollback_l1_release(*, store: ObjectStore) -> PublishReport:
-    """Atomically exchange L1 current and previous after proving the target's closure."""
-
-    publication = _RemotePublication(store=store)
-    pointer_key = lake_current_l1_pointer_key()
-    remote = publication.head(pointer_key)
-    if remote is None:
-        raise LakePublishError("L1 current pointer is absent")
-    pointer = load_lake_model_json(publication.read_pointer(pointer_key, remote), L1ReleasePointer)
-    if pointer.previous_release_id is None or pointer.previous_manifest_sha256 is None:
-        raise LakePublishError("L1 current pointer has no rollback generation")
-    target_key = lake_release_manifest_key(release_id=pointer.previous_release_id)
-    _require_remote_l1_closure(
-        publication,
-        release_id=pointer.previous_release_id,
-        manifest_key=target_key,
-        manifest_sha256=pointer.previous_manifest_sha256,
-    )
-    rolled_back = L1ReleasePointer(
-        release_id=pointer.previous_release_id,
-        manifest_key=target_key,
-        manifest_sha256=pointer.previous_manifest_sha256,
-        previous_release_id=pointer.release_id,
-        previous_manifest_sha256=pointer.manifest_sha256,
-    )
-    rollback_payload = canonical_json_bytes(rolled_back)
-    with tempfile.NamedTemporaryFile(prefix="baibai-l1-rollback-", suffix=".json") as temporary:
-        temporary.write(rollback_payload)
-        temporary.flush()
-        try:
-            result = publication.put(
-                pointer_key,
-                Path(temporary.name),
-                sha256=hashlib.sha256(rollback_payload).hexdigest(),
-                content_md5=_content_md5(Path(temporary.name)),
-                content_type="application/json",
-                if_match=remote.etag,
-            )
-        except LakeCASConflict:
-            raise
-        except Exception as exc:
-            raise LakePublishError("L1 current pointer rollback failed") from exc
-    publication.require_pointer_bytes(key=pointer_key, expected=rollback_payload)
-    return PublishReport(
-        release_id=rolled_back.release_id,
         transfers=publication.report(),
         pointer_etag=result.etag,
     )
@@ -857,37 +794,23 @@ def _publish_calibration_bundle(
 
     pointer_key = lake_current_calibration_bundle_pointer_key()
     current = publication.head(pointer_key)
-    previous = None
     if current is not None:
         old_pointer = load_lake_model_json(
             publication.read_pointer(pointer_key, current), CalibrationBundlePointer
         )
+        # Republishing the generation remote already serves is the retry of an
+        # interrupted publication, and it has to be exactly the same generation rather
+        # than the same name.
         if old_pointer.current.bundle_id == bundle.bundle_id:
             if old_pointer.current != bundle_reference:
-                raise LakePublishError(
-                    "bundle ID is already current with different rollback identity"
-                )
+                raise LakePublishError("bundle ID is already current with a different identity")
             _require_remote_calibration_closure(publication, old_pointer.current)
-            if old_pointer.previous is not None:
-                _require_remote_calibration_closure(publication, old_pointer.previous)
             return CalibrationBundlePublishReport(
                 bundle_id=bundle.bundle_id,
                 transfers=publication.report(),
                 pointer_etag=current.etag,
             )
-        # The rollback identity is the generation this publication is actually replacing,
-        # which is whatever remote currently serves — not whatever the local store
-        # happens to name as its own previous. Requiring those to agree would make the
-        # remote reachable only from the local generation immediately after it: one
-        # failed publication, and every later local generation is refused while the one
-        # remote wants can no longer be produced, with no way back except editing a
-        # pointer by hand.
-        previous = old_pointer.current
-        _require_remote_calibration_closure(publication, previous)
-    remote_pointer = CalibrationBundlePointer(
-        current=bundle_reference,
-        previous=previous,
-    )
+    remote_pointer = CalibrationBundlePointer(current=bundle_reference)
     pointer_payload = canonical_manifest_bytes(remote_pointer)
     with tempfile.NamedTemporaryFile(
         prefix="baibai-calibration-pointer-", suffix=".json"
@@ -911,48 +834,6 @@ def _publish_calibration_bundle(
     publication.require_pointer_bytes(key=pointer_key, expected=pointer_payload)
     return CalibrationBundlePublishReport(
         bundle_id=bundle.bundle_id,
-        transfers=publication.report(),
-        pointer_etag=result.etag,
-    )
-
-
-def rollback_calibration_bundle(*, store: ObjectStore) -> CalibrationBundlePublishReport:
-    """Atomically exchange calibration current and previous after proving closure."""
-
-    publication = _RemotePublication(store=store)
-    pointer_key = lake_current_calibration_bundle_pointer_key()
-    remote = publication.head(pointer_key)
-    if remote is None:
-        raise LakePublishError("calibration current pointer is absent")
-    pointer = load_lake_model_json(
-        publication.read_pointer(pointer_key, remote), CalibrationBundlePointer
-    )
-    if pointer.previous is None:
-        raise LakePublishError("calibration current pointer has no rollback generation")
-    _require_remote_calibration_closure(publication, pointer.previous)
-    rolled_back = CalibrationBundlePointer(current=pointer.previous, previous=pointer.current)
-    rollback_payload = canonical_manifest_bytes(rolled_back)
-    with tempfile.NamedTemporaryFile(
-        prefix="baibai-calibration-rollback-", suffix=".json"
-    ) as temporary:
-        temporary.write(rollback_payload)
-        temporary.flush()
-        try:
-            result = publication.put(
-                pointer_key,
-                Path(temporary.name),
-                sha256=hashlib.sha256(rollback_payload).hexdigest(),
-                content_md5=_content_md5(Path(temporary.name)),
-                content_type="application/json",
-                if_match=remote.etag,
-            )
-        except LakeCASConflict:
-            raise
-        except Exception as exc:
-            raise LakePublishError("calibration bundle rollback failed") from exc
-    publication.require_pointer_bytes(key=pointer_key, expected=rollback_payload)
-    return CalibrationBundlePublishReport(
-        bundle_id=rolled_back.current.bundle_id,
         transfers=publication.report(),
         pointer_etag=result.etag,
     )
@@ -1212,8 +1093,6 @@ def build_parser() -> argparse.ArgumentParser:
     target.add_argument("--release-manifest", type=Path)
     target.add_argument("--raw-metadata", type=Path)
     target.add_argument("--calibration-bundle", type=Path)
-    target.add_argument("--rollback-calibration", action="store_true")
-    target.add_argument("--rollback-l1", action="store_true")
     parser.add_argument("--bucket", default="baibai-stores")
     parser.add_argument(
         "--verify-bytes",
@@ -1230,14 +1109,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     store = AwsCliR2Store(bucket=args.bucket)
-    if args.rollback_calibration:
-        rollback_report = rollback_calibration_bundle(store=store)
-        print(json.dumps(rollback_report.as_dict(), sort_keys=True))
-        return 0
-    if args.rollback_l1:
-        l1_rollback_report = rollback_l1_release(store=store)
-        print(json.dumps(l1_rollback_report.as_dict(), sort_keys=True))
-        return 0
     if args.mirror is None:
         parser.error("--mirror is required for publication")
     if args.raw_metadata is not None:

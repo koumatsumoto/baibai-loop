@@ -429,17 +429,6 @@ class TestImmutableBuilds:
         with pytest.raises(CalibrationCacheError, match="partial"):
             read_forward(tmp_path, date.fromisoformat(_JANUARY))
 
-    def test_a_pointer_cannot_name_the_current_generation_as_its_rollback(
-        self, tmp_path: Path
-    ) -> None:
-        """Saying a rollback exists when it is the same generation is worse than saying none."""
-
-        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
-        current = _bundle_pointer(tmp_path).current
-
-        with pytest.raises(ValueError, match="another generation"):
-            CalibrationBundlePointer(current=current, previous=current)
-
     def test_the_manifest_states_which_rules_each_cohort_was_measured_under(
         self, tmp_path: Path
     ) -> None:
@@ -633,9 +622,9 @@ class TestImmutableBuilds:
             "1301"
         ]
 
-    def test_the_previous_build_stays_addressable_after_the_generation_moves(
-        self, tmp_path: Path
-    ) -> None:
+    def test_a_superseded_build_manifest_is_left_where_it_was(self, tmp_path: Path) -> None:
+        """Publishing does not delete: what a generation replaces is left for the collector."""
+
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
         first = _dataset_ref(tmp_path, CALIBRATION_PANEL.name)
 
@@ -643,7 +632,6 @@ class TestImmutableBuilds:
         second = _dataset_ref(tmp_path, CALIBRATION_PANEL.name)
 
         assert second.build_id != first.build_id
-        assert _bundle_pointer(tmp_path).previous is not None
         assert (tmp_path / first.manifest_key).is_file()
 
     def test_a_second_run_over_the_same_cohorts_matures_forward_only(self, tmp_path: Path) -> None:
@@ -935,20 +923,6 @@ class TestRebuild:
         assert current_bundle_ref(current) == expected
         assert read_panel(current, date.fromisoformat(_JANUARY))
 
-    def test_force_adoption_keeps_the_previous_bundle_as_rollback(self, tmp_path: Path) -> None:
-        current = tmp_path / "current"
-        generated = tmp_path / "generated"
-        publish_panel(current, _JANUARY, _cohort(_JANUARY))
-        publish_panel(generated, _FEBRUARY, _cohort(_FEBRUARY))
-        previous = current_bundle_ref(current)
-
-        adopted = adopt_bundle_generation(current, generated, expected_current=previous)
-
-        pointer = _bundle_pointer(current)
-        assert pointer.current.bundle_id == adopted.bundle_id
-        assert pointer.previous == previous
-        assert read_panel(current, date.fromisoformat(_FEBRUARY))
-
     def test_adoption_installs_the_change_and_reuses_what_the_store_already_holds(
         self, tmp_path: Path
     ) -> None:
@@ -1076,7 +1050,13 @@ class TestRebuild:
 
 
 class TestRetention:
-    def test_the_current_and_previous_build_are_never_candidates(self, tmp_path: Path) -> None:
+    def test_the_current_build_is_kept_and_the_one_it_replaced_is_not(self, tmp_path: Path) -> None:
+        """The store keeps what it serves. What it used to serve is not a second answer.
+
+        Objects the current generation still carries stay reachable through it, so a
+        superseded manifest becoming a candidate does not take the rows with it.
+        """
+
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
         first = _dataset_ref(tmp_path, CALIBRATION_PANEL.name)
         publish_panel(tmp_path, _FEBRUARY, _cohort(_FEBRUARY))
@@ -1086,8 +1066,8 @@ class TestRetention:
 
         assert first.build_id != second.build_id
         assert second.manifest_key in plan.reachable
-        assert first.manifest_key in plan.reachable
-        assert first.manifest_key not in {item.key for item in plan.candidates}
+        assert first.manifest_key in {item.key for item in plan.candidates}
+        assert read_panel(tmp_path, date.fromisoformat(_JANUARY))
 
     def test_calibration_builds_without_a_bundle_pointer_stop_the_sweep(
         self, tmp_path: Path

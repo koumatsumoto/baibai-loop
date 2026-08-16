@@ -487,10 +487,9 @@ def _publish_bundle(
         manifest_sha256=sha256_bytes(path.read_bytes()),
     )
     pointer_path = root / current_calibration_bundle_pointer_key()
-    previous = _pointer_ref(root)
     write_bytes_atomic(
         pointer_path,
-        canonical_manifest_bytes(CalibrationBundlePointer(current=reference, previous=previous)),
+        canonical_manifest_bytes(CalibrationBundlePointer(current=reference)),
     )
     return reference
 
@@ -607,7 +606,7 @@ def _adopt_bundle_generation(
 
     write_bytes_atomic(
         pointer_path,
-        canonical_manifest_bytes(CalibrationBundlePointer(current=fixed.ref, previous=actual)),
+        canonical_manifest_bytes(CalibrationBundlePointer(current=fixed.ref)),
     )
     return BundleAdoptionReport(
         bundle_id=fixed.ref.bundle_id,
