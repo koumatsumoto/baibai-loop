@@ -110,6 +110,15 @@ jobs:
           content=fetcher.fetch_html('data:text/html,<p>baibai-browser-smoke</p>');
           fetcher.close(); assert 'baibai-browser-smoke' in content"
 
+      # The lake reads Parquet over R2 through DuckDB's httpfs extension, and runtime
+      # sessions disable extension downloads outright — a read path that could fetch
+      # executable code on demand is not one that fails closed. The install happens here,
+      # before credentials are present, so a missing extension is a setup failure with
+      # nothing published rather than a data failure part-way through a run.
+      - name: Provision DuckDB httpfs extension
+        id: duckdb-httpfs
+        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
+
       - name: Pull stores
         id: pull
         env:
