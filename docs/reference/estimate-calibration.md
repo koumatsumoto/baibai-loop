@@ -151,6 +151,25 @@ uv run baibai-engine screening calibration-evaluate \
   --horizon 1y --horizon 3y --out /tmp/calibration-pre2019.yaml
 ```
 
+## legacy CSV store からの移行
+
+`calibration-migrate-legacy` は legacy CSV の bytes をそのまま archive し、cohort が**現行の
+measurement 契約で書かれている場合にだけ** L2 へ publish する。store が名乗る
+`cache_schema_version` と現行値が違えば `archived_incompatible` で終わり、bytes は保持したまま
+cohort は 1 つも publish しない。移行 chain を持たないのは設計であり、別の rules で測った月を
+現行の集計へ混ぜないためである。
+
+**実測（2026-08-16、production store 507MB / 81 cohort）: `archived_incompatible`、publish 0 件、
+3.8 秒。** store の `294f56eda4b30f50` に対し現行は `ebdfc3d91dae7397` で、rules がその間に動いて
+いる。したがって lake への移行は「archive + 全 cohort 再構築」であり、cohort 1 件あたり約 50 秒
+（2026-07-31 で panel 3,712 行 / forward 18,565 行 / object 7 件 / 1.17MB）から 81 cohort で
+おおよそ 70 分を見込む。
+
+再構築した cohort の source は sealed SQLite snapshot であり、bytes を lake に残さないので
+`source_assurance` は `trace_only` になる。`--run-purpose production_decision` は
+`source_not_rebuildable` で block されたままで、これは L1 release が cohort source になるまで
+解けない。**store を作り直しても production 判断は開かない。**
+
 ## Commands
 
 ```bash
