@@ -116,8 +116,3 @@ def _contained_path(root: Path, path: Path) -> Path:
     if not resolved.is_relative_to(root):
         raise ValueError("dataset manifest escapes mirror root")
     return resolved
-
-
-def canonical_json_bytes(model: BaseModel) -> bytes:
-    """Compatibility name for canonical lake wire serialization."""
-    return canonical_lake_model_bytes(model)

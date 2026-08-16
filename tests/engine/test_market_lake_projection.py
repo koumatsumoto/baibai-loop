@@ -31,7 +31,12 @@ from baibai_engine.market.lake.keys import (
     current_l1_pointer_key,
     release_manifest_key,
 )
-from baibai_engine.market.lake.models import DatasetManifest, L1ReleaseSourceRef, LakeObject
+from baibai_engine.market.lake.models import (
+    DatasetManifest,
+    L1ReleaseSourceRef,
+    LakeObject,
+    canonical_lake_model_bytes,
+)
 from baibai_engine.market.lake.objects import (
     LakeObjectCache,
     LakeObjectError,
@@ -60,7 +65,6 @@ from baibai_engine.market.lake.reader import (
 )
 from baibai_engine.market.lake.release import (
     L1ReleasePointer,
-    canonical_json_bytes,
     create_l1_release,
 )
 from baibai_engine.market.lake.retention import LakeRetentionError, exclusive_lock
@@ -162,7 +166,7 @@ def _publish_pointer(mirror: Path, release_id: str, manifest_path: Path) -> None
         manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
     )
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(canonical_json_bytes(pointer))
+    target.write_bytes(canonical_lake_model_bytes(pointer))
 
 
 def _release_digest(mirror: Path, release_id: str) -> str:

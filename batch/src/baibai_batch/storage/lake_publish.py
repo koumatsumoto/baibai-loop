@@ -29,7 +29,7 @@ from baibai_engine.batch_api import (
     LakeRawIngestSourceRef,
     LakeReleaseManifest,
     LakeSQLiteSnapshotSourceRef,
-    canonical_json_bytes,
+    canonical_lake_model_bytes,
     canonical_manifest_bytes,
     lake_current_calibration_bundle_pointer_key,
     lake_current_l1_pointer_key,
@@ -603,7 +603,7 @@ def publish_l1_release(
         manifest_sha256=release_sha256,
     )
     with tempfile.NamedTemporaryFile(prefix="baibai-l1-pointer-", suffix=".json") as temporary:
-        temporary.write(canonical_json_bytes(pointer))
+        temporary.write(canonical_lake_model_bytes(pointer))
         temporary.flush()
         pointer_payload = Path(temporary.name).read_bytes()
         try:

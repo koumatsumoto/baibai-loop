@@ -35,7 +35,7 @@ from baibai_engine.market.lake.raw import (
 )
 from baibai_engine.market.lake.release import (
     L1ReleasePointer,
-    canonical_json_bytes,
+    canonical_lake_model_bytes,
     create_l1_release,
 )
 from baibai_engine.market.lake.writer import (
@@ -245,7 +245,7 @@ def test_a_remote_pointer_naming_this_bundle_with_another_identity_is_refused(
         store=remote,
     )
     key = current_calibration_bundle_pointer_key()
-    forged = canonical_json_bytes(
+    forged = canonical_lake_model_bytes(
         CalibrationBundlePointer(
             current=current.current.model_copy(update={"manifest_sha256": "0" * 64}),
         )
@@ -739,7 +739,7 @@ def test_same_release_id_requires_exact_pointer_identity(tmp_path: Path) -> None
         store=store,
     )
     key = "lake/pointers/l1/current.json"
-    wrong = canonical_json_bytes(
+    wrong = canonical_lake_model_bytes(
         L1ReleasePointer(
             release_id="release-1",
             manifest_key="lake/manifests/releases/l1/release-1.json",

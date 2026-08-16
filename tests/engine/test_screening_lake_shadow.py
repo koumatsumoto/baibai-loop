@@ -28,7 +28,7 @@ from baibai_engine.market.lake.reader import (
 )
 from baibai_engine.market.lake.release import (
     L1ReleasePointer,
-    canonical_json_bytes,
+    canonical_lake_model_bytes,
     create_l1_release,
 )
 from baibai_engine.market.lake.writer import (
@@ -152,7 +152,7 @@ def frozen_lake(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     )
     pointer_path = mirror / current_l1_pointer_key()
     pointer_path.parent.mkdir(parents=True, exist_ok=True)
-    pointer_path.write_bytes(canonical_json_bytes(pointer))
+    pointer_path.write_bytes(canonical_lake_model_bytes(pointer))
 
     cache = LakeObjectCache(root=mirror, source=LocalMirrorSource(mirror))
     with lake_session() as session:

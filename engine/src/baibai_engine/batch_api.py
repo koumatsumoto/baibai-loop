@@ -53,6 +53,7 @@ from baibai_engine.market.lake.models import (
     CalibrationBundleManifest,
     CalibrationBundlePointer,
     CalibrationBundleRef,
+    canonical_lake_model_bytes,
     load_lake_model_json,
     require_calibration_generation,
 )
@@ -63,7 +64,7 @@ from baibai_engine.market.lake.models import ReleaseManifest as LakeReleaseManif
 from baibai_engine.market.lake.models import SQLiteSnapshotSourceRef as LakeSQLiteSnapshotSourceRef
 from baibai_engine.market.lake.models import retained_sources as lake_retained_sources
 from baibai_engine.market.lake.models import validate_release_policy as validate_lake_release_policy
-from baibai_engine.market.lake.release import L1ReleasePointer, canonical_json_bytes
+from baibai_engine.market.lake.release import L1ReleasePointer
 from baibai_engine.market.lake.sources import resolve_source_ref as resolve_lake_source_ref
 from baibai_engine.market.lake.sources import verified_source_scope as lake_verified_source_scope
 from baibai_engine.market.sqlite import open_connection as open_market_store
@@ -117,7 +118,7 @@ __all__ = [
     "LegacyStorePathError",
     "MacroContextDocument",
     "MarketSchemaError",
-    "canonical_json_bytes",
+    "canonical_lake_model_bytes",
     "canonical_manifest_bytes",
     "cited_series_ids",
     "connect_read_only",
