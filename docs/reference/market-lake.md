@@ -118,7 +118,8 @@ derive し直すのは、この build ではなく前の build を証明する�
 
 月の inventory 比較（SQLite の月集合 == manifest の月集合）は常に全体で行う。全 history の再導出は
 `--audit` で明示的に求める — store 全体がまだ SQLite と一致するかを問う操作であり、日次の書き込み
-経路が毎回背負うものではない。
+経路が毎回背負うものではない。日次 window の外側で SQLite を訂正した月は次の `--audit` まで lake に
+映らないので、週次と cutover 直前に `--audit` を実行する。
 
 この計測は commit ではなく実装 digest（writer / models / immutable / snapshot / benchmark tool）へ
 結ぶ。それらに触れない変更では証跡は有効なままで、触れた変更は再計測になる。
@@ -496,7 +497,8 @@ plan hashへ閉じる。`--apply`はpublisherと共通のlocal writer lock取得
 何も足さない — 競合は既に排除されており、planner自体の誤りは2回目も同じ答えを計算する。単独運用で
 収集を終えるのに2回の実行が要るだけで、それはretention policyが実行されなくなる道筋である。待つ
 場所はcandidateになるまでの30日grace側にある。rootが未解決、object不足、pointer更新、candidate
-差替えのいずれでも削除を拒否する。
+差替えのいずれでも削除を拒否する。publish直後の`--apply`は、前世代を固定して読んでいる実行中の
+runからその世代を外し得る — 結果はfail-closeの一時errorで、再実行すれば新しいcurrentを読む。
 
 `lake/staging/`もGCの対象domainである。in-flightのstagingとsealed snapshotが置かれる場所で、
 killされたoperationも失敗したbuildも自分の後片付けを実行できないため、7日のgrace後に回収する。

@@ -130,7 +130,7 @@ def test_lake_acceptance_premerge_trigger_is_owner_approved_and_event_bound() ->
         "EXPECTED_DISPATCH_SHA": "${{ inputs.expected_sha }}",
         "EXPECTED_PR_SHA": "${{ github.event.pull_request.head.sha }}",
     }
-    assert steps[-1]["name"] == "Run actual R2 CAS and rollback acceptance"
+    assert steps[-1]["name"] == "Run actual R2 acceptance"
     assert not any("secrets." in str(step) for step in steps[:-1])
 
 

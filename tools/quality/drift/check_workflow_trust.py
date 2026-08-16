@@ -80,7 +80,7 @@ _EXPECTED_STEP_CREDENTIALS: dict[tuple[str, str, str], dict[str, str]] = {
     (
         "lake-acceptance.yml",
         "actual-r2",
-        "Run actual R2 CAS and rollback acceptance",
+        "Run actual R2 acceptance",
     ): _R2_ACCEPTANCE,
 }
 _EXPECTED_INPUT_ENV: dict[tuple[str, str, str], dict[str, str]] = {
@@ -210,8 +210,8 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
     (
         "lake-acceptance.yml",
         "actual-r2",
-        "Run actual R2 CAS and rollback acceptance",
-    ): "070dda77b44d7c39974ca2994cf5289d6d58294fcefa07f36525a34b037ce5eb",
+        "Run actual R2 acceptance",
+    ): "203fcedaa220abab7cb0f7b0ebbe46c89e01f3e81b737a421e1de24c29f31eb3",
 }
 _RESTRICTED_ENV_NAMES = frozenset(
     name for credentials in _EXPECTED_STEP_CREDENTIALS.values() for name in credentials
@@ -227,7 +227,7 @@ ${{
    github.event.pull_request.head.repo.full_name == github.repository)
 }}"""
 _LAKE_ACCEPTANCE_WORKFLOW_DIGEST = (
-    "1246deb52b559b1fbf41e1ad5446c6c7b3ec24a18eea4807ad92f224277b3aec"
+    "4aa1d2556e29006e0195f7840b301344404baf20e2c596d63ef4d2940d6b416e"
 )
 
 PathPart = str | int
@@ -617,7 +617,7 @@ def _lake_acceptance_errors(path: Path, workflow: Mapping[object, object]) -> li
     credential_indexes = [
         index
         for index, step in enumerate(mapped_steps)
-        if step.get("name") == "Run actual R2 CAS and rollback acceptance"
+        if step.get("name") == "Run actual R2 acceptance"
     ]
     if credential_indexes != [len(mapped_steps) - 1]:
         errors.append(f"{path.name}: credential-bearing acceptance must be the final step")

@@ -86,7 +86,7 @@ jobs:
       - name: Provision DuckDB httpfs extension
         run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
 
-      - name: Run actual R2 CAS and rollback acceptance
+      - name: Run actual R2 acceptance
         env:
           BAIBAI_R2_ACCEPTANCE: "1"
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
