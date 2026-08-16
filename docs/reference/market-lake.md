@@ -410,20 +410,19 @@ generationに対して行い、canonical currentへ進むのはgeneration adopti
 公開しうる。adoptionの直前に「今serveしている集合」と「これからserveする集合」を比較し、落ちるものが
 あれば名指して拒否する。
 
-壊れたpointerを退避する復旧（`--replace-broken-current`）は`--force`を含み、かつこの比較対象そのものを
-奪う操作である。**pointerを退避する前にpointerが名乗るbundle manifestを読み、そのcohort集合を比較の
-baselineにする。** 世代が解決しなくなる原因の大半 — dataset manifestのdigestずれ、objectの欠落、
-inventoryの不一致 — はpointerとbundle manifestを無傷で残すので、serve済みの集合はdigestで固定された
-まま正確に分かる。pointer自体が読めない場合だけ、diskに残るbundle manifestが述べるcohortの和を
-下限として使う。これは推定であって在庫ではない（追い越された世代と未公開の残骸を含み、decodeできない
-manifestは寄与しない）が、破壊的な再構築が超えるべき床としてなら成り立つ。過剰拒否は別
-`--calibration-dir`へ逃がせ、拒否messageがそれを名指す。
+**壊れたstoreは、その場では直さない。** 解決できないstoreへのbuildは`--force`の有無にかかわらず
+拒否し、pointerもmanifestも1バイトも動かさない。復旧は別の`--calibration-dir`へfull buildし、読める
+ことを確認してからdirectoryを入れ替える。in-placeで直すには「今serveしている集合」が要るが、それは
+まさに壊れて読めないものであり、推定で埋めれば破壊的な再構築が推定の上で走る。別directoryなら
+入れ替える前に読めるし、旧directoryはそのまま残るのでrollbackもできる。
 
-**pointerを失ったstoreは空のstoreではない。** publishした痕跡が残る限り解決はfail closeする。
-両者を同じ「まだ何も無い」として扱うと、拒否された復旧の直後にflag無しで再実行する — operatorの
-通常行動 — だけで、storeは新規扱いとなり同じ縮小generationがcurrentになる。1度目の拒否が安全に
-見えるぶん2度目の迂回は見つかりにくい。retentionは既にこの区別でsweepを止めており、readerだけが
-「空」と答える状態が食い違いである。
+これはstate数の判断でもある。in-place復旧を持つと、通常buildは「読めるstoreへのbuild」と「壊れた
+storeへのbuild」の2つの意味を持ち、`--force`の意味・drop guardの比較対象・retryの扱いがその分岐ごとに
+変わる。1人運用でめったに起きない障害のために、毎日の経路が常時その分岐を抱えることになる。
+
+**pointerを失ったstoreは空のstoreではない。** publishした痕跡（bundle manifest）が残る限り解決は
+fail closeする。両者を同じ「まだ何も無い」として扱うと、次のbuildがstoreを新規扱いして書き潰す。
+retentionは既にこの区別でsweepを止めており、readerだけが「空」と答える状態が食い違いである。
 
 adoptionはbundleが閉じているものだけを歩く。bundle manifest → dataset manifest → partition object
 → 保持するcohort sourceとそのfileであり、directory treeではない（treeには追い越された世代も居る）。

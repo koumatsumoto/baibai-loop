@@ -64,8 +64,6 @@ from .store import (
     adopt_bundle_generation,
     current_bundle_ref,
     has_cohort,
-    orphaned_cohorts,
-    pointed_cohorts,
     published_cohorts,
     read_forward,
     read_panel,
@@ -86,7 +84,6 @@ def calibration_build_command(
     force: bool = False,
     panel_variant: PanelVariant = "production",
     use_control_event_exits: bool = True,
-    replace_broken_current: bool = False,
     stdout: TextIO | None = None,
 ) -> int:
     unreadable = unreadable_store_reason(sqlite_path)
@@ -100,33 +97,20 @@ def calibration_build_command(
         except (OSError, RuntimeError) as exc:
             print(f"calibration build: {exc}", file=sys.stderr)
             return 1
-        baseline: list[date] | None = None
         try:
             expected_current = current_bundle_ref(calibration_dir)
         except (CalibrationCacheError, CalibrationLakeError) as exc:
-            if not replace_broken_current:
-                # Reading a broken root as "no store" would let a rebuild publish over
-                # live data it could not see. Recovery is possible but it is an operator
-                # decision, made once, with the old root kept as evidence.
-                print(
-                    f"calibration build: {exc}; rerun with --replace-broken-current "
-                    "to quarantine the unreadable root and rebuild",
-                    file=sys.stderr,
-                )
-                return 1
-            # Read what the pointer still names before taking it away. The generation
-            # does not resolve, which is why this branch runs, but the pointer and the
-            # bundle manifest it names usually survive whatever broke below them — and
-            # those two state the served inventory exactly, so the drop guard does not
-            # have to infer it from what happens to be on disk.
-            baseline = pointed_cohorts(calibration_dir)
-            quarantined = _quarantine_broken_root(calibration_dir)
+            # A store that cannot describe what it serves is not a store to write into.
+            # Repairing it in place would mean rebuilding over live data from an
+            # inventory nothing can state, so the store stays exactly as it is and the
+            # rebuild goes somewhere else, where it can be read before it replaces
+            # anything.
             print(
-                f"calibration build: quarantined unreadable calibration root to {quarantined.name}",
-                file=stdout if stdout is not None else sys.stdout,
+                f"calibration build: {exc}; rebuild into a separate --calibration-dir "
+                "and swap the directories once the new one reads",
+                file=sys.stderr,
             )
-            expected_current = None
-            force = True
+            return 1
         discard_abandoned_generations(calibration_dir, stdout=stdout)
         work_dir = calibration_dir.with_name(
             f"{_GENERATION_PREFIX}{calibration_dir.name}.{uuid.uuid4().hex}"
@@ -140,7 +124,6 @@ def calibration_build_command(
                     calibration_dir=calibration_dir,
                     work_dir=work_dir,
                     expected_current=expected_current,
-                    baseline=baseline,
                     producer_commit=producer_commit,
                     rules=rules,
                     start=start,
@@ -159,31 +142,6 @@ def calibration_build_command(
 
 
 _GENERATION_PREFIX = ".generation."
-
-
-def _quarantine_broken_root(calibration_dir: Path) -> Path:
-    """Move the unreadable pointer aside, keeping the evidence and every other root.
-
-    Only the pointer is a root. Deleting it would remove the description of what went
-    wrong, and leaving it would make every later run fail the same way with no path
-    forward, so it is copied aside and then removed from the canonical key.
-
-    The bundle manifests it named stay where they are. A pin is an independent root that
-    resolves a bundle manifest by its canonical key, so moving the manifest directory
-    would take a pinned study, and the store's own previous generation, out of reach of
-    retention, rollback, and every reader — as a side effect of repairing an unrelated
-    pointer. Once a rebuild publishes a new pointer, whatever the broken generation left
-    behind is unreachable in the ordinary way and the collector takes it on the usual
-    grace, while the pinned bundles stay reachable because their pins still resolve.
-    """
-
-    quarantine = calibration_dir / "lake" / "quarantine" / f"root-{uuid.uuid4().hex}"
-    quarantine.mkdir(parents=True)
-    source = calibration_dir / "lake/pointers/calibration"
-    if source.exists():
-        copytree(source, quarantine / source.name)
-        rmtree(source)
-    return quarantine
 
 
 def discard_abandoned_generations(calibration_dir: Path, *, stdout: TextIO | None = None) -> None:
@@ -230,7 +188,6 @@ def _calibration_build_command(
     calibration_dir: Path,
     work_dir: Path,
     expected_current: CalibrationBundleRef | None,
-    baseline: Sequence[date] | None,
     producer_commit: str,
     rules: ScreeningRules,
     start: date,
@@ -331,9 +288,7 @@ def _calibration_build_command(
     rows = [row for cohort_rows in by_asof.values() for row in cohort_rows]
     resolved = sum(row.resolved for row in rows)
     control_event = sum(row.status == CONTROL_EVENT_EXIT_STATUS for row in rows)
-    dropped = _cohorts_this_build_would_drop(
-        calibration_dir, work_dir, force=force, baseline=baseline
-    )
+    dropped = _cohorts_this_build_would_drop(calibration_dir, work_dir, force=force)
     if dropped:
         print(
             "calibration build: this run would publish a generation without "
@@ -370,11 +325,7 @@ def _calibration_build_command(
 
 
 def _cohorts_this_build_would_drop(
-    calibration_dir: Path,
-    work_dir: Path,
-    *,
-    force: bool,
-    baseline: Sequence[date] | None = None,
+    calibration_dir: Path, work_dir: Path, *, force: bool
 ) -> list[date]:
     """Cohorts the store serves now that the generation about to be adopted omits.
 
@@ -388,36 +339,13 @@ def _cohorts_this_build_would_drop(
     The check is on the built generation rather than on the requested grid: what matters
     is what is about to become current, whatever produced it.
 
-    ``--replace-broken-current`` sets ``force`` and takes the pointer away, so the run
-    that reaches here is the one this check exists for and the one whose store can no
-    longer answer. ``baseline`` is what the pointer said before it was moved, so the
-    repair is held to the same rule as every other forced build rather than exempted
-    from it.
+    The store this runs against always resolves: a build that could not read what it
+    was about to replace stopped before it started.
     """
 
     if not force:
         return []
-    served = _cohorts_the_store_serves(calibration_dir, baseline)
-    return sorted(served - set(published_cohorts(work_dir)))
-
-
-def _cohorts_the_store_serves(calibration_dir: Path, baseline: Sequence[date] | None) -> set[date]:
-    """What the store is serving, for a build that is about to replace all of it.
-
-    ``baseline`` is the exact answer, read from the pointer before a repair moved it,
-    and is used whenever the pointer could still state one. Otherwise the store speaks
-    for itself — and a store that resolves to nothing is asked a second time, because a
-    store whose pointer an earlier repair quarantined and a store that never existed
-    give the same answer and only one of them may be rebuilt into freely.
-    """
-
-    if baseline is not None:
-        return set(baseline)
-    try:
-        served = set(published_cohorts(calibration_dir))
-    except CalibrationCacheError:
-        served = set()
-    return served or set(orphaned_cohorts(calibration_dir))
+    return sorted(set(published_cohorts(calibration_dir)) - set(published_cohorts(work_dir)))
 
 
 def _optional_count(value: object) -> int | None:

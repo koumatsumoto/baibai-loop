@@ -324,14 +324,20 @@ _DATASET_ENTRY_MODULES = {
     FORWARD_DATASET: "screening/calibration/forward.py",
 }
 
-# The writer decides the physical shape a row is stored in rather than its value, and
-# it imports both dataset modules for their types. Following its imports would tie the
-# two datasets together through a dependency that cannot move a number, so these two
-# are hashed as files and their imports are not followed.
-_WRITER_MODULES = (
-    "screening/calibration/lake.py",
-    "screening/calibration/store.py",
-)
+# The writer decides the physical shape a row is stored in rather than its value, and it
+# imports both dataset modules for their types. Following its imports would tie the two
+# datasets together through a dependency that cannot move a number, so it is hashed as a
+# file and its imports are not followed.
+#
+# Only the module that turns rows into bytes belongs here. `store.py` orchestrates —
+# manifests, pointers, locks, reads, error translation — and `write_l2_partition` builds
+# every payload itself from the row type's own field names, under a schema, compression,
+# row group size and parquet version this contract already states outright. Hashing it
+# made every edit to a 1,343 line operational module rewrite the identity of all three
+# datasets, so a fix to a read path or a lock invalidated 81 published cohorts and asked
+# for hours of rebuild to produce identical bytes. An identity that moves for reasons the
+# bytes do not is not a weaker signal, it is a different one.
+_WRITER_MODULES = ("screening/calibration/lake.py",)
 
 _ENGINE_ROOT = Path(__file__).resolve().parents[2]
 _ENGINE_PACKAGE = "baibai_engine"

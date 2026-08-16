@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import io
-import json
 import sqlite3
 import sys
 import tempfile
@@ -21,7 +20,6 @@ from tests.helpers.calibration_store import publish_panel, synthetic_calibration
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
 from baibai_engine.market.lake.keys import current_calibration_bundle_pointer_key
-from baibai_engine.market.lake.retention import create_pin, plan_gc
 from baibai_engine.screening.calibration.cli import (
     calibration_build_command,
     calibration_evaluate_command,
@@ -1459,13 +1457,13 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertNotEqual(resolve_calibration_bundle(store_dir).ref.bundle_id, before)
             self.assertEqual(published_cohorts(store_dir), [ASOF])
 
-    def test_an_unreadable_current_root_stops_the_build_until_it_is_replaced(self) -> None:
-        """A broken root is a loss, and recovering from it is an operator decision.
+    def test_an_unreadable_current_stops_every_build_into_that_store(self) -> None:
+        """A store that cannot say what it serves is not a store to write into.
 
-        Treating it as "no store yet" would let a rebuild publish over live data it could
-        not read. Leaving no way forward would mean every later run fails identically and
-        the only fix is deleting files by hand, which loses the evidence and the rollback
-        identity together.
+        Repairing it in place would mean rebuilding over live data from an inventory
+        nothing can state. Every attempt refuses identically, including the one that
+        follows a refusal, so the state a maintainer has to reason about is the one the
+        store is actually in rather than one an earlier repair left behind.
         """
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -1473,216 +1471,56 @@ class CalibrationPanelTest(unittest.TestCase):
             sqlite_path = root / "market.sqlite"
             _build_fixture_sqlite(sqlite_path)
             store_dir = root / "calibration"
-            with patch(
-                "baibai_engine.screening.calibration.cli.month_end_asof_grid",
-                return_value=[ASOF],
-            ):
-                self.assertEqual(
-                    calibration_build_command(
+            earlier = "2026-05-29"
+            publish_panel(store_dir, earlier, [{"ticker": "7203"}])
+            publish_panel(store_dir, ASOF.isoformat(), [{"ticker": "7203"}])
+            pointer = store_dir / current_calibration_bundle_pointer_key()
+            broken = b"{ not json"
+            pointer.write_bytes(broken)
+
+            for force in (False, True):
+                errors = io.StringIO()
+                with (
+                    patch(
+                        "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                        return_value=[ASOF],
+                    ),
+                    contextlib.redirect_stderr(errors),
+                ):
+                    code = calibration_build_command(
                         sqlite_path=sqlite_path,
                         calibration_dir=store_dir,
                         rules=load_screening_rules(),
                         start=ASOF,
                         end=ASOF,
+                        force=force,
                         stdout=io.StringIO(),
-                    ),
-                    0,
-                )
-            # A pin is an independent root. Repairing the current pointer must not take
-            # the study it protects with it, so the recovery is exercised with one in
-            # place rather than against a store that has nothing else to lose.
-            pinned = resolve_calibration_bundle(store_dir).ref
-            create_pin(
-                store_dir,
-                pin_id="pinned-study",
-                target_kind="calibration_bundle",
-                target_id=pinned.bundle_id,
-                reason="an adopted study reads this generation",
-                owner="tests",
-            )
+                    )
+                self.assertEqual(code, 1)
+                self.assertIn("separate --calibration-dir", errors.getvalue())
 
-            pointer = store_dir / current_calibration_bundle_pointer_key()
-            pointer.write_bytes(b"{ not json")
+            # Nothing was moved, quarantined or written: the broken store is exactly as
+            # the operator left it, which is what makes the directory swap reversible.
+            self.assertEqual(pointer.read_bytes(), broken)
 
-            errors = io.StringIO()
-            with (
-                patch(
-                    "baibai_engine.screening.calibration.cli.month_end_asof_grid",
-                    return_value=[ASOF],
-                ),
-                contextlib.redirect_stderr(errors),
-            ):
-                blocked = calibration_build_command(
-                    sqlite_path=sqlite_path,
-                    calibration_dir=store_dir,
-                    rules=load_screening_rules(),
-                    start=ASOF,
-                    end=ASOF,
-                    stdout=io.StringIO(),
-                )
-
-            self.assertEqual(blocked, 1)
-            self.assertIn("--replace-broken-current", errors.getvalue())
-
-            output = io.StringIO()
+            # The way forward is a store of its own, which reads before it replaces
+            # anything.
+            replacement = root / "calibration-rebuild"
             with patch(
                 "baibai_engine.screening.calibration.cli.month_end_asof_grid",
                 return_value=[ASOF],
             ):
-                repaired = calibration_build_command(
+                rebuilt = calibration_build_command(
                     sqlite_path=sqlite_path,
-                    calibration_dir=store_dir,
-                    rules=load_screening_rules(),
-                    start=ASOF,
-                    end=ASOF,
-                    replace_broken_current=True,
-                    stdout=output,
-                )
-
-            self.assertEqual(repaired, 0)
-            self.assertIn("quarantined unreadable calibration root", output.getvalue())
-            self.assertTrue(list((store_dir / "lake" / "quarantine").glob("root-*")))
-            self.assertTrue(resolve_calibration_bundle(store_dir).manifest.cohorts)
-
-            # The pinned generation is still where its pin says it is, and retention can
-            # still resolve every root it walks. Quarantining the bundle manifests along
-            # with the pointer would leave the pin naming a key that no longer exists,
-            # which stops the collector on an unresolved root indefinitely.
-            self.assertTrue((store_dir / pinned.manifest_key).is_file())
-            self.assertEqual(plan_gc(store_dir).unresolved_roots, ())
-
-    def test_repairing_a_broken_pointer_still_refuses_to_narrow_the_store(self) -> None:
-        """The repair takes away the inventory the drop check reads, not the rule.
-
-        ``--replace-broken-current`` implies ``--force`` and moves the pointer aside, so
-        a run that also happens to state a short window would rebuild the store down to
-        it with nothing left saying what was lost. The manifests the broken pointer named
-        are still on disk and each states its cohorts, so the check has something to
-        compare against even when nothing resolves.
-        """
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            sqlite_path = root / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
-            store_dir = root / "calibration"
-            earlier = "2026-05-29"
-            publish_panel(store_dir, earlier, [{"ticker": "7203"}])
-            publish_panel(store_dir, ASOF.isoformat(), [{"ticker": "7203"}])
-
-            (store_dir / current_calibration_bundle_pointer_key()).write_bytes(b"{ not json")
-
-            errors = io.StringIO()
-            with (
-                patch(
-                    "baibai_engine.screening.calibration.cli.month_end_asof_grid",
-                    return_value=[ASOF],
-                ),
-                contextlib.redirect_stderr(errors),
-            ):
-                code = calibration_build_command(
-                    sqlite_path=sqlite_path,
-                    calibration_dir=store_dir,
-                    rules=load_screening_rules(),
-                    start=ASOF,
-                    end=ASOF,
-                    replace_broken_current=True,
-                    stdout=io.StringIO(),
-                )
-
-            self.assertEqual(code, 1)
-            self.assertIn(earlier, errors.getvalue())
-            # Refused before adoption: the repair left no current pointer at all rather
-            # than installing one that publishes half the history.
-            self.assertFalse((store_dir / current_calibration_bundle_pointer_key()).exists())
-
-            # The refusal moved the pointer aside, so the store now describes itself the
-            # way a brand new one does. An ordinary build — no flags, no operator
-            # intent to replace anything — must not read that as an empty store and
-            # publish the same narrowed generation the refusal just declined.
-            retry = io.StringIO()
-            with (
-                patch(
-                    "baibai_engine.screening.calibration.cli.month_end_asof_grid",
-                    return_value=[ASOF],
-                ),
-                contextlib.redirect_stderr(retry),
-            ):
-                again = calibration_build_command(
-                    sqlite_path=sqlite_path,
-                    calibration_dir=store_dir,
+                    calibration_dir=replacement,
                     rules=load_screening_rules(),
                     start=ASOF,
                     end=ASOF,
                     stdout=io.StringIO(),
                 )
 
-            self.assertEqual(again, 1)
-            self.assertIn("--replace-broken-current", retry.getvalue())
-            self.assertFalse((store_dir / current_calibration_bundle_pointer_key()).exists())
-
-    def test_a_repair_measures_itself_against_the_pointer_not_against_the_directory(self) -> None:
-        """Most generations stop resolving with the pointer still able to name them.
-
-        The bundle manifest a readable pointer names states the served inventory exactly,
-        so a repair does not have to infer it from the manifests that happen to be on
-        disk. Those include generations that were superseded and generations that were
-        never published at all, and holding a rebuild to their union means refusing it
-        over cohorts nothing was serving.
-        """
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            sqlite_path = root / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
-            store_dir = root / "calibration"
-            earlier = "2026-05-29"
-            publish_panel(store_dir, earlier, [{"ticker": "7203"}])
-            publish_panel(store_dir, ASOF.isoformat(), [{"ticker": "7203"}])
-
-            manifests = store_dir / "lake/manifests/calibration-bundles"
-            served = json.loads(
-                (store_dir / resolve_calibration_bundle(store_dir).ref.manifest_key).read_bytes()
-            )
-            # What an interrupted publication leaves behind: a well-formed bundle manifest
-            # naming a cohort no pointer ever pointed at.
-            phantom = dict(served)
-            phantom["bundle_id"] = "never-published"
-            entry = json.loads(json.dumps(next(iter(served["cohorts"].values()))))
-            for role in entry.values():
-                role["input_cutoff"] = "2026-04-30"
-            phantom["cohorts"] = {"2026-04-30": entry}
-            (manifests / "never-published.json").write_bytes(json.dumps(phantom).encode() + b"\n")
-
-            # Break the generation below the pointer: the pointer and the bundle manifest
-            # it names still decode, which is what the repair reads them for.
-            bundle = resolve_calibration_bundle(store_dir)
-            dataset_manifest = (
-                store_dir / bundle.manifest.datasets[CALIBRATION_PANEL.name].manifest_key
-            )
-            dataset_manifest.write_bytes(dataset_manifest.read_bytes() + b" ")
-
-            errors = io.StringIO()
-            with (
-                patch(
-                    "baibai_engine.screening.calibration.cli.month_end_asof_grid",
-                    return_value=[ASOF],
-                ),
-                contextlib.redirect_stderr(errors),
-            ):
-                code = calibration_build_command(
-                    sqlite_path=sqlite_path,
-                    calibration_dir=store_dir,
-                    rules=load_screening_rules(),
-                    start=ASOF,
-                    end=ASOF,
-                    replace_broken_current=True,
-                    stdout=io.StringIO(),
-                )
-
-            self.assertEqual(code, 1)
-            self.assertIn(earlier, errors.getvalue())
-            self.assertNotIn("2026-04-30", errors.getvalue())
+            self.assertEqual(rebuilt, 0)
+            self.assertEqual(published_cohorts(replacement), [ASOF])
 
     def test_a_generation_a_killed_build_left_behind_is_discarded_and_reported(self) -> None:
         """A work generation is a sibling of the store, so nothing else would find it.

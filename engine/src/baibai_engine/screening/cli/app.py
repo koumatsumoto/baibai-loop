@@ -499,14 +499,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="panel input contract (non-production variants are diagnostic-only)",
     )
     calibration_build_parser.add_argument(
-        "--replace-broken-current",
-        action="store_true",
-        help=(
-            "quarantine an unreadable calibration root and rebuild from empty; without "
-            "this, an unreadable root stops the build rather than being overwritten"
-        ),
-    )
-    calibration_build_parser.add_argument(
         "--without-control-event-exits",
         action="store_true",
         help=(
@@ -711,7 +703,6 @@ def main(argv: list[str] | None = None) -> int:
             force=args.force,
             panel_variant=cast(PanelVariant, args.panel_variant),
             use_control_event_exits=not args.without_control_event_exits,
-            replace_broken_current=args.replace_broken_current,
         )
 
     if args.command == "calibration-migrate-legacy":

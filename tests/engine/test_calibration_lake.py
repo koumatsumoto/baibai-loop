@@ -1847,6 +1847,39 @@ class TestSemanticIdentity:
 
         assert changed == baseline
 
+    @pytest.mark.parametrize("dataset", [CALIBRATION_PANEL, CALIBRATION_FORWARD])
+    def test_the_store_that_orchestrates_a_build_is_not_part_of_its_identity(
+        self, monkeypatch: pytest.MonkeyPatch, dataset: object
+    ) -> None:
+        """The fingerprint answers what produced these bytes, not what published them.
+
+        ``store.py`` holds manifests, pointers, locks, reads and error translation, and
+        it hands rows to a writer that builds every payload itself from the row type's
+        own field names. Including it made a fix to a read path rewrite the identity of
+        all three datasets, which asks for hours of rebuild to produce bytes that were
+        already correct — and then makes the next real change indistinguishable from it.
+        """
+
+        baseline = transform_fingerprint(dataset, cache_schema_version="contract")  # type: ignore[arg-type]
+
+        changed = self._fingerprint_with_changed_file(
+            monkeypatch, dataset=dataset, relative_path="screening/calibration/store.py"
+        )
+
+        assert changed == baseline
+
+    @pytest.mark.parametrize("dataset", [CALIBRATION_PANEL, CALIBRATION_FORWARD])
+    def test_the_writer_that_turns_rows_into_bytes_stays_part_of_the_identity(
+        self, monkeypatch: pytest.MonkeyPatch, dataset: object
+    ) -> None:
+        baseline = transform_fingerprint(dataset, cache_schema_version="contract")  # type: ignore[arg-type]
+
+        changed = self._fingerprint_with_changed_file(
+            monkeypatch, dataset=dataset, relative_path="screening/calibration/lake.py"
+        )
+
+        assert changed != baseline
+
     def test_the_two_datasets_do_not_invalidate_each_other(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
