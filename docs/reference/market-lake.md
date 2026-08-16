@@ -128,24 +128,21 @@ uv run python -m tools.diagnostics.benchmark_l1_export \
   --sqlite stores/market/market.sqlite --report <report.json>
 ```
 
-production store（2,013,155,328 bytes、schema v23、11,554,322 rows = daily bars 10,141,309 +
-short sale 1,413,013）を Linux/WSL2 の一時 directory で実測した結果は次のとおり。
+production store（2,013,155,328 bytes、schema v23、snapshot digest `100b1257…`、14,722,121 rows）
+を Linux/WSL2 の一時 directory で実測した結果は次のとおり。
 
 | 局面 | wall time | 生成 object | 生成 bytes |
 | --- | --- | --- | --- |
-| full export（121 か月 × 2 dataset） | 367.0 秒 | 242 | 252,387,406 |
-| 1 か月訂正の再 export | 251.5 秒 | 1 | 848,197 |
+| full export（14 dataset・全 partition） | 436.1 秒 | 435 | 299,949,710 |
+| 1 か月訂正の再 export | 122.5 秒 | 1 | 948,040 |
 
-peak RSS は 993,619,968 bytes（948 MiB）。
+peak RSS は 1,061,478,400 bytes（1,012 MiB）。`jquants.all_issues_daily_margin` は JPX の公表制度
+移行まで行を持たないので、export は 15 dataset のうち 14 を書く。
 
 **parity は build が書いた月だけを見る。** carried object は自分の bytes の digest で addressing
 されているので、「変わっていない」ことは検証対象ではなく恒等式である。全 history を SQLite から
-derive し直すのは、この build ではなく前の build を証明する作業になる。同一機・同一 store での A/B:
-
-| 増分 export（変更なし） | wall time |
-| --- | --- |
-| 既定（書いた月のみ検証） | **132 秒** |
-| `--audit`（全 history 再導出） | **309 秒** |
+derive し直すのは、この build ではなく前の build を証明する作業になる。上表の 2 行がその差で、
+1 か月の訂正は全量の 3.6 分の 1 で済み、生成 object は 435 分の 1 になる。
 
 月の inventory 比較（SQLite の月集合 == manifest の月集合）は常に全体で行う。全 history の再導出は
 `--audit` で明示的に求める — store 全体がまだ SQLite と一致するかを問う操作であり、日次の書き込み
@@ -155,17 +152,11 @@ derive し直すのは、この build ではなく前の build を証明する�
 この計測は commit ではなく実装 digest（writer / models / immutable / snapshot / benchmark tool）へ
 結ぶ。それらに触れない変更では証跡は有効なままで、触れた変更は再計測になる。
 
-**現在の状態: 参考値。** 上表は `a2005b74` の実測で、現 head では実装が動いている。同じ store
-（snapshot digest `703e3fab…`、11,554,322 rows）を現 head で測り直すと full export は 456 秒、
-projection は cold 104 秒 / reuse 61 秒で、いずれも記録値より 20〜30% 遅い。入力・行数・出力 bytes は
-完全に一致するので差は測定機の負荷であり、**記録値は楽観側に約 25% ずれている**と読むこと。増分
-export の A/B（上表）は現 head・同一機での実測である。
-
-<!-- AP-02: full=367.0256703949999 秒、incremental=251.45569620199967 秒、
-peak RSS=993619968 / 1048576 = 947.6015625 MiB、
-source sha256=703e3fab403489726708fc83c07fe1975e9f0ddad5ba492834ad2f1ec33144ce、
-implementation sha256=fa2377139ec3d9ab09f0d2a9fa011677b157072b6a569bbdcd02415c13b8fcb8、
-producer commit=bffb199a3119b1f02123626a2096a955185dd1d1。 -->
+<!-- AP-02: full=436.0613511959673 秒、incremental=122.4990771220182 秒、
+peak RSS=1061478400 / 1048576 = 1012.30 MiB、
+source sha256=100b125717183a9d82915fed88cf6b1839506159a3989111dab2838191d933ef、
+implementation sha256=ff126483d3f6240bc537262da5733caa4c338d039bd83ada59d8eef5c0a032a1、
+producer commit=4a17e41afd04b6da230bdef10ed61d16e5e0d203、recorded=2026-08-16T14:53:07Z。 -->
 
 ## R2 publish
 
