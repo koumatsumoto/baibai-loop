@@ -14,12 +14,8 @@ from pathlib import Path
 from typing import Any, get_args, get_type_hints
 
 from baibai_engine.market.lake.models import (
-    CalibrationInputFile,
-    CalibrationInputManifest,
-    CalibrationInputSourceRef,
     CohortSourceRef,
     SQLiteSnapshotSourceRef,
-    canonical_lake_model_bytes,
 )
 from baibai_engine.market.lake.objects import sha256_bytes
 from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
@@ -130,44 +126,6 @@ def synthetic_calibration_source(
         sha256=digest,
         schema_version=SQLITE_SCHEMA_VERSION,
         captured_at=datetime(capture_date.year, capture_date.month, capture_date.day, tzinfo=UTC),
-    )
-
-
-def archived_calibration_source(
-    root: Path, *, label: str = "default"
-) -> tuple[Path, CalibrationInputSourceRef]:
-    """A cohort source whose bytes the lake keeps, and the archived file it names.
-
-    This is the shape a legacy CSV migration produces: the previous producer's output,
-    archived byte for byte. It is what tells ``result_archive`` apart from a source a
-    corrected producer could be run against.
-    """
-
-    payload = f"retired calibration cache: {label}\n".encode()
-    digest = sha256_bytes(payload)
-    input_id = f"retired-{digest[:24]}"
-    file_key = f"lake/l2/calibration-legacy/{input_id}/panel.csv"
-    archived = root / file_key
-    archived.parent.mkdir(parents=True, exist_ok=True)
-    archived.write_bytes(payload)
-    manifest = CalibrationInputManifest(
-        manifest_version=1,
-        input_id=input_id,
-        input_type="legacy_csv_archive",
-        files={"panel.csv": CalibrationInputFile(key=file_key, sha256=digest, bytes=len(payload))},
-    )
-    manifest_key = f"lake/manifests/calibration-inputs/{input_id}.json"
-    manifest_payload = canonical_lake_model_bytes(manifest)
-    manifest_path = root / manifest_key
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_bytes(manifest_payload)
-    return archived, CalibrationInputSourceRef(
-        kind="calibration_input",
-        source_id=input_id,
-        key=manifest_key,
-        sha256=sha256_bytes(manifest_payload),
-        input_type="legacy_csv_archive",
-        manifest_version=1,
     )
 
 

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import csv
 import hashlib
 import json
 import threading
-from dataclasses import fields as dc_fields
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from os import link
@@ -12,8 +10,7 @@ from pathlib import Path
 from shutil import copytree
 
 import pytest
-import yaml
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from tests.helpers.calibration_store import (
     publish_forward,
     publish_panel,
@@ -30,14 +27,12 @@ from baibai_engine.market.lake.keys import (
 from baibai_engine.market.lake.models import (
     CalibrationBundleManifest,
     CalibrationDatasetRef,
-    CalibrationInputFile,
-    CalibrationInputManifest,
-    CalibrationInputSourceRef,
     CohortInventoryEntry,
     DatasetManifest,
     MeasurementPolicyRef,
     RawArchiveMetadata,
     RawIngestSourceRef,
+    SourceRef,
     canonical_lake_model_bytes,
     load_lake_model_json,
     source_assurance,
@@ -52,7 +47,6 @@ from baibai_engine.market.lake.retention import (
     remove_pin,
 )
 from baibai_engine.screening.calibration import lake as lake_module
-from baibai_engine.screening.calibration import legacy_csv as legacy_csv_module
 from baibai_engine.screening.calibration import store
 from baibai_engine.screening.calibration.forward import (
     DEFAULT_FORWARD_OBSERVATION_POLICY,
@@ -71,14 +65,6 @@ from baibai_engine.screening.calibration.lake import (
     require_l2_dataset,
     transform_fingerprint,
 )
-from baibai_engine.screening.calibration.legacy_csv import (
-    legacy_cohorts,
-    migrate_legacy_calibration,
-    read_legacy_forward,
-    read_legacy_panel,
-    read_legacy_panel_meta,
-)
-from baibai_engine.screening.calibration.panel import PanelDiagnostics, PanelRow
 from baibai_engine.screening.calibration.store import (
     CACHE_SCHEMA_VERSION,
     CalibrationCacheError,
@@ -199,34 +185,35 @@ class TestTypedContract:
         )
 
 
-def _retained_calibration_source(root: Path) -> tuple[Path, CalibrationInputSourceRef]:
-    """A cohort source whose bytes the lake keeps, and the archived file it names."""
+def _stored_raw_source(root: Path) -> tuple[Path, RawIngestSourceRef]:
+    """A retained source whose bytes are on disk, and the archived file it names."""
 
-    payload = b"retired calibration cache\n"
-    digest = hashlib.sha256(payload).hexdigest()
-    input_id = f"retired-{digest[:24]}"
-    file_key = f"lake/l2/calibration-legacy/{input_id}/panel.csv"
-    archived = root / file_key
-    archived.parent.mkdir(parents=True, exist_ok=True)
-    archived.write_bytes(payload)
-    manifest = CalibrationInputManifest(
-        manifest_version=1,
-        input_id=input_id,
-        input_type="legacy_csv_archive",
-        files={"panel.csv": CalibrationInputFile(key=file_key, sha256=digest, bytes=len(payload))},
+    reference = _raw_ingest_source()
+    payload = b"raw ingest payload\n"
+    stored = root / reference.key
+    stored.parent.mkdir(parents=True, exist_ok=True)
+    stored.write_bytes(payload)
+    metadata = RawArchiveMetadata(
+        metadata_version=1,
+        provider=reference.provider,
+        dataset=reference.dataset,
+        request_start=reference.request_start,
+        request_end=reference.request_end,
+        ingest_id=reference.source_id,
+        object_key=reference.key,
+        content_sha256=hashlib.sha256(payload).hexdigest(),
+        retrieved_at=datetime(2026, 1, 30, tzinfo=UTC),
+        retention_class="preserve",
+        suffix=".json.gz",
+        bytes=len(payload),
     )
-    manifest_key = f"lake/manifests/calibration-inputs/{input_id}.json"
-    manifest_payload = canonical_lake_model_bytes(manifest)
-    manifest_path = root / manifest_key
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_bytes(manifest_payload)
-    return archived, CalibrationInputSourceRef(
-        kind="calibration_input",
-        source_id=input_id,
-        key=manifest_key,
-        sha256=hashlib.sha256(manifest_payload).hexdigest(),
-        input_type="legacy_csv_archive",
-        manifest_version=1,
+    metadata_payload = canonical_lake_model_bytes(metadata)
+    (root / reference.metadata_key).write_bytes(metadata_payload)
+    return stored, reference.model_copy(
+        update={
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "metadata_sha256": hashlib.sha256(metadata_payload).hexdigest(),
+        }
     )
 
 
@@ -490,6 +477,7 @@ class TestImmutableBuilds:
         policy = MeasurementPolicyRef(
             rules_hash="abc123", panel_variant="production", production_authority=True
         )
+        raw = _raw_ingest_source()
         # A complete entry apart from the source kind, so the rejection can only be the
         # discriminator. Leaving another required field out would let the test pass while
         # the kind was accepted.
@@ -505,18 +493,20 @@ class TestImmutableBuilds:
             CohortInventoryEntry(
                 status="empty",
                 rows=0,
-                sources=(_raw_ingest_source(),),  # type: ignore[arg-type]
+                sources=(raw,),  # type: ignore[arg-type]
                 input_cutoff=date.fromisoformat(_JANUARY),
                 measurement_policy=policy,
             )
 
-        # The rejection has to be the discriminator itself, not some other field the
+        # The rejection has to be about the source itself, not some other field the
         # test forgot to supply — otherwise the guard could be gone and the test green.
-        assert [
-            (error["loc"], error["type"])
-            for error in caught.value.errors()
-            if error["type"] == "union_tag_invalid"
-        ] == [(("sources", 0), "union_tag_invalid")]
+        assert {error["loc"][:2] for error in caught.value.errors()} == {
+            ("sources", 0),
+            ("sources",),
+        }
+        # The same reference is a valid L1 partition source, so what a cohort refuses is
+        # the position rather than the value.
+        assert TypeAdapter(SourceRef).validate_python(raw.model_dump(mode="python")) == raw
 
     def test_a_cohort_is_published_as_a_build_the_pointer_names(self, tmp_path: Path) -> None:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
@@ -805,24 +795,14 @@ class TestSourceAssurance:
         self, tmp_path: Path
     ) -> None:
         # The level production authority requires. Nothing a cohort may name reaches it
-        # yet — `CohortSourceRef` admits only sealed snapshots and legacy archives — so
-        # the positive case is stated here rather than left to be discovered when L1
-        # releases join the union and the gate turns out never to have had a pass.
+        # yet — `CohortSourceRef` admits only sealed snapshots, whose bytes the lake does
+        # not keep — so the positive case is stated here rather than left to be
+        # discovered when L1 releases join the union and the gate turns out never to
+        # have had a pass.
         assert source_assurance((_raw_ingest_source(),)) == "rebuildable_input"
-
-    def test_a_previous_producers_output_is_its_own_level(self, tmp_path: Path) -> None:
-        _, archive = _retained_calibration_source(tmp_path)
-
-        assert source_assurance((archive,)) == "result_archive"
 
     def test_a_generation_the_lake_did_not_keep_is_trace_only(self) -> None:
         assert source_assurance((synthetic_calibration_source(),)) == "trace_only"
-
-    def test_the_weakest_source_names_the_whole(self, tmp_path: Path) -> None:
-        _, archive = _retained_calibration_source(tmp_path)
-
-        assert source_assurance((_raw_ingest_source(), archive)) == "result_archive"
-        assert source_assurance((archive, synthetic_calibration_source())) == "trace_only"
 
     def test_naming_no_source_is_the_weakest_claim_rather_than_no_claim(self) -> None:
         # An empty tuple satisfies "every source is retained" vacuously, which would make
@@ -989,12 +969,12 @@ class TestRebuild:
     ) -> None:
         """Verification cost must follow how much source there is, not how often it is named.
 
-        A retired CSV archive is one source that every migrated cohort points at. Paying
-        per reference turns a 500 MB archive and 81 cohorts into hundreds of gigabytes of
-        hashing for a single migration, and every retry pays it again.
+        A Raw archive is one source that every partition built from its request range
+        points at. Paying per reference turns one archive and a 121 month release into
+        the archive's size times the number of partitions that name it, every run.
         """
 
-        archived, source = _retained_calibration_source(tmp_path)
+        archived, source = _stored_raw_source(tmp_path)
         hashed: list[str] = []
         real = sources_module.sha256_file
         monkeypatch.setattr(
@@ -1014,7 +994,7 @@ class TestRebuild:
     ) -> None:
         """Memoizing keys on the identity the caller asserted, not on the file it found."""
 
-        _, source = _retained_calibration_source(tmp_path)
+        _, source = _stored_raw_source(tmp_path)
         other = tmp_path / "other-mirror"
         other.mkdir()
 
@@ -1081,79 +1061,6 @@ class TestRebuild:
             assert sources_module.resolve_source_ref(tmp_path, present) == stored
             with pytest.raises(ValueError, match="does not resolve"):
                 sources_module.resolve_source_ref(tmp_path, absent)
-
-    def test_planning_verifies_each_archive_once_rather_than_once_per_cohort(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The read-only plan is the form of the command an operator runs often.
-
-        Reachability reaches the same archive from every cohort of every dataset, so
-        without a scope a dry run over 81 cohorts and one 500 MB archive reads more than
-        100 GB — and the operator stops running it, which is how a retention policy
-        becomes a document rather than a practice.
-        """
-
-        archived, source = _retained_calibration_source(tmp_path)
-        for asof in (_JANUARY, _FEBRUARY):
-            publish_panel(tmp_path, asof, _cohort(asof), source=source)
-        hashed: list[str] = []
-        real = sources_module.sha256_file
-        monkeypatch.setattr(
-            sources_module,
-            "sha256_file",
-            lambda path: (hashed.append(path.name), real(path))[1],
-        )
-
-        plan_gc(tmp_path)
-
-        assert hashed.count(archived.name) == 1
-
-    def test_adoption_refuses_a_generation_whose_cohort_source_is_gone(
-        self, tmp_path: Path
-    ) -> None:
-        """Losing the input a cohort was built from is invisible on the read path.
-
-        Its rows read back perfectly; the loss only surfaces later, when someone tries
-        to reproduce, pin, or publish the cohort. So the pointer switch is the last
-        place that can still refuse it.
-        """
-
-        current = tmp_path / "current"
-        generated = tmp_path / "generated"
-        publish_panel(current, _JANUARY, _cohort(_JANUARY))
-        archived, source = _retained_calibration_source(generated)
-        store.write_panel(
-            generated,
-            date.fromisoformat(_FEBRUARY),
-            (),
-            PanelDiagnostics(
-                asof=_FEBRUARY,
-                rules_hash="abc123",
-                universe_size=0,
-                population_size=0,
-                candidates=0,
-                evidence_candidates=0,
-                bars_tickers_not_in_master=0,
-                effective_bars_start="2020-01-01",
-                effective_fin_start="2020-01-01",
-                bars_window_clamped=False,
-                fin_window_clamped=False,
-                population_per_trailing_nonnull=0,
-                population_pbr_nonnull=0,
-                population_ocf_yield_nonnull=0,
-                population_per_trailing_exact=0,
-            ),
-            source=source,
-            input_cutoff=date.fromisoformat(_FEBRUARY),
-            producer_commit="a" * 40,
-        )
-        expected = current_bundle_ref(current)
-        archived.unlink()
-
-        with pytest.raises(CalibrationLakeError, match="source does not resolve"):
-            adopt_bundle_generation(current, generated, expected_current=expected)
-
-        assert current_bundle_ref(current) == expected
 
 
 class TestRetention:
@@ -1360,242 +1267,6 @@ class TestRetention:
 
         with pytest.raises(LakeRetentionError, match="generation or candidate identity changed"):
             apply_gc(tmp_path, plan, plan_hash=plan.plan_hash)
-
-
-class TestLegacyParity:
-    """A cohort in the retired CSV layout must read as the same rows a build holds."""
-
-    def _write_legacy(self, root: Path, asof: str, rows: list[PanelRow]) -> None:
-        root.mkdir(parents=True, exist_ok=True)
-        names = [field.name for field in dc_fields(PanelRow)]
-        with (root / f"panel-{asof}.csv").open("w", encoding="utf-8", newline="") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(names)
-            for row in rows:
-                writer.writerow([_encode(getattr(row, name)) for name in names])
-        (root / f"panel-{asof}.meta.yaml").write_text(
-            f"asof: '{asof}'\nrules_hash: abc123\n", encoding="utf-8"
-        )
-
-    def _write_legacy_forward(self, root: Path, asof: str, rows: list[ForwardReturnRow]) -> None:
-        names = [field.name for field in dc_fields(ForwardReturnRow)]
-        with (root / f"forward-{asof}.csv").open("w", encoding="utf-8", newline="") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(names)
-            for row in rows:
-                writer.writerow([_encode(getattr(row, name)) for name in names])
-
-    def test_the_same_cohort_reads_identically_from_both_representations(
-        self, tmp_path: Path
-    ) -> None:
-        published = tmp_path / "published"
-        legacy = tmp_path / "legacy"
-        publish_panel(published, _JANUARY, _cohort(_JANUARY))
-        forward_rows = [
-            {"ticker": "1301", "horizon": "1y", "price_return": 0.2, "status": "resolved"},
-            {"ticker": "7203", "horizon": "1y", "status": "unresolved_future_horizon"},
-        ]
-        publish_forward(published, _JANUARY, forward_rows)
-        asof = date.fromisoformat(_JANUARY)
-
-        self._write_legacy(legacy, _JANUARY, read_panel(published, asof))
-        self._write_legacy_forward(legacy, _JANUARY, read_forward(published, asof))
-
-        assert read_legacy_panel(legacy, asof) == read_panel(published, asof)
-        assert read_legacy_forward(legacy, asof) == read_forward(published, asof)
-        assert legacy_cohorts(legacy) == published_cohorts(published)
-        assert (
-            read_legacy_panel_meta(legacy, asof)["rules_hash"]
-            == read_panel_meta(published, asof)["rules_hash"]
-        )
-
-    def test_a_legacy_cohort_missing_a_column_the_contract_reads_is_refused(
-        self, tmp_path: Path
-    ) -> None:
-        published = tmp_path / "published"
-        legacy = tmp_path / "legacy"
-        publish_panel(published, _JANUARY, _cohort(_JANUARY))
-        asof = date.fromisoformat(_JANUARY)
-        self._write_legacy(legacy, _JANUARY, read_panel(published, asof))
-        path = legacy / f"panel-{_JANUARY}.csv"
-        lines = path.read_text(encoding="utf-8").splitlines()
-        kept = [name for name in lines[0].split(",") if name != "er_annual"]
-        path.write_text(",".join(kept) + "\n", encoding="utf-8")
-
-        with pytest.raises(CalibrationCacheError, match="missing er_annual"):
-            read_legacy_panel(legacy, asof)
-
-    def test_compatible_legacy_history_migrates_with_exact_parity(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(legacy_csv_module, "verified_git_commit", lambda: "a" * 40)
-        published = tmp_path / "published"
-        legacy = tmp_path / "legacy"
-        destination = tmp_path / "destination"
-        report = tmp_path / "migration.json"
-        publish_panel(published, _JANUARY, _cohort(_JANUARY))
-        publish_forward(
-            published,
-            _JANUARY,
-            [{"ticker": "1301", "horizon": "1y", "status": "unresolved_future_horizon"}],
-        )
-        asof = date.fromisoformat(_JANUARY)
-        panel = read_panel(published, asof)
-        forward = read_forward(published, asof)
-        self._write_legacy(legacy, _JANUARY, panel)
-        self._write_legacy_forward(legacy, _JANUARY, forward)
-        (legacy / f"panel-{_JANUARY}.meta.yaml").write_text(
-            yaml.safe_dump(read_panel_meta(published, asof), sort_keys=False),
-            encoding="utf-8",
-        )
-        (legacy / "calibration.meta.yaml").write_text(
-            yaml.safe_dump({"cache_schema_version": CACHE_SCHEMA_VERSION}),
-            encoding="utf-8",
-        )
-        legacy_panel = legacy / f"panel-{_JANUARY}.csv"
-        original_panel_bytes = legacy_panel.read_bytes()
-        original_install = legacy_csv_module._install_archived_copy
-
-        def mutate_after_capture(target: Path, source: Path, *, expected_sha256: str) -> None:
-            original_install(target, source, expected_sha256=expected_sha256)
-            if source == legacy_panel:
-                source.write_bytes(original_panel_bytes.replace(b"1301", b"9999", 1))
-
-        monkeypatch.setattr(legacy_csv_module, "_install_archived_copy", mutate_after_capture)
-
-        result = migrate_legacy_calibration(legacy, destination, report_path=report)
-
-        assert result["status"] == "migrated"
-        assert len(str(result["producer_git_commit"])) == 40
-        assert read_panel(destination, asof) == panel
-        assert read_forward(destination, asof) == forward
-        assert read_panel_meta(destination, asof) == read_panel_meta(published, asof)
-        assert all(result["parity"].values())
-        assert report.is_file()
-        assert not list(tmp_path.glob(".destination.migration.*"))
-        legacy_panel.write_bytes(b"mutated after migration")
-        archived_panel = (
-            destination / "lake/l2/calibration-legacy" / str(result["input_id"]) / legacy_panel.name
-        )
-        assert archived_panel.read_bytes() == original_panel_bytes
-
-    def test_incompatible_legacy_archive_is_outside_the_l2_gc_domain(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(legacy_csv_module, "verified_git_commit", lambda: "a" * 40)
-        legacy = tmp_path / "legacy"
-        legacy.mkdir()
-        for name, payload in (
-            (f"panel-{_JANUARY}.csv", b"legacy-panel"),
-            (f"panel-{_JANUARY}.meta.yaml", b"rules_hash: old\n"),
-            (f"forward-{_JANUARY}.csv", b"legacy-forward"),
-            ("calibration.meta.yaml", b"cache_schema_version: incompatible\n"),
-        ):
-            (legacy / name).write_bytes(payload)
-        destination = tmp_path / "destination"
-
-        result = migrate_legacy_calibration(
-            legacy,
-            destination,
-            report_path=tmp_path / "report.json",
-        )
-        plan = plan_gc(destination, now=datetime.now(UTC) + timedelta(days=400))
-
-        assert result["status"] == "archived_incompatible"
-        archived_prefix = f"lake/l2/calibration-legacy/{result['input_id']}/"
-        assert not any(item.key.startswith(archived_prefix) for item in plan.candidates)
-
-    def test_post_commit_report_failure_is_retryable_as_committed(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(legacy_csv_module, "verified_git_commit", lambda: "a" * 40)
-        published = tmp_path / "published"
-        legacy = tmp_path / "legacy"
-        destination = tmp_path / "destination"
-        report_path = tmp_path / "migration.json"
-        publish_panel(published, _JANUARY, _cohort(_JANUARY))
-        publish_forward(published, _JANUARY, [])
-        asof = date.fromisoformat(_JANUARY)
-        self._write_legacy(legacy, _JANUARY, read_panel(published, asof))
-        self._write_legacy_forward(legacy, _JANUARY, read_forward(published, asof))
-        (legacy / f"panel-{_JANUARY}.meta.yaml").write_text(
-            yaml.safe_dump(read_panel_meta(published, asof), sort_keys=False),
-            encoding="utf-8",
-        )
-        (legacy / "calibration.meta.yaml").write_text(
-            yaml.safe_dump({"cache_schema_version": CACHE_SCHEMA_VERSION}),
-            encoding="utf-8",
-        )
-        original_write = legacy_csv_module.write_bytes_atomic
-
-        def fail_report(path: Path, payload: bytes) -> None:
-            if path == report_path:
-                raise OSError("injected report failure")
-            original_write(path, payload)
-
-        monkeypatch.setattr(legacy_csv_module, "write_bytes_atomic", fail_report)
-        committed = migrate_legacy_calibration(
-            legacy,
-            destination,
-            report_path=report_path,
-        )
-
-        assert committed["status"] == "migrated"
-        assert committed["completion"] == "committed_with_warnings"
-        assert read_panel(destination, asof)
-
-        monkeypatch.setattr(legacy_csv_module, "write_bytes_atomic", original_write)
-        retried = migrate_legacy_calibration(
-            legacy,
-            destination,
-            report_path=report_path,
-        )
-        assert retried["status"] == "already_migrated"
-        assert retried["completion"] == "committed"
-        assert report_path.is_file()
-
-    def test_pin_rejects_a_bundle_the_reader_schema_rejects(self, tmp_path: Path) -> None:
-        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
-        target = _bundle_pointer(tmp_path).current
-        path = tmp_path / target.manifest_key
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        payload["cohorts"] = {"not-a-date": "not-an-inventory"}
-        path.write_text(json.dumps(payload), encoding="utf-8")
-
-        with pytest.raises(LakeRetentionError, match="target manifest is invalid"):
-            create_pin(
-                tmp_path,
-                pin_id="pin-invalid-bundle",
-                target_kind="calibration_bundle",
-                target_id=target.bundle_id,
-                reason="must remain reader-valid",
-                owner="test",
-            )
-
-    def test_legacy_migration_rejects_a_symlink_input(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(legacy_csv_module, "verified_git_commit", lambda: "a" * 40)
-        legacy = tmp_path / "legacy"
-        legacy.mkdir()
-        external = tmp_path / "outside.csv"
-        external.write_text("secret", encoding="utf-8")
-        (legacy / f"panel-{_JANUARY}.csv").symlink_to(external)
-        (legacy / f"panel-{_JANUARY}.meta.yaml").write_text(
-            "rules_hash: abc123\n", encoding="utf-8"
-        )
-        (legacy / f"forward-{_JANUARY}.csv").write_text("asof\n", encoding="utf-8")
-        (legacy / "calibration.meta.yaml").write_text(
-            yaml.safe_dump({"cache_schema_version": CACHE_SCHEMA_VERSION}),
-            encoding="utf-8",
-        )
-
-        with pytest.raises(CalibrationCacheError, match="escapes its root"):
-            migrate_legacy_calibration(
-                legacy,
-                tmp_path / "destination",
-                report_path=tmp_path / "report.json",
-            )
 
 
 def _encode(value: object) -> str:

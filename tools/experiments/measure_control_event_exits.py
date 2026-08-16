@@ -32,13 +32,7 @@ from baibai_engine.screening.calibration.lake import (
     CALIBRATION_PANEL,
     FixedCalibrationBundle,
 )
-from baibai_engine.screening.calibration.legacy_csv import (
-    legacy_cohorts,
-    legacy_panel_path,
-    read_legacy_forward,
-)
 from baibai_engine.screening.calibration.store import (
-    CalibrationCacheError,
     published_cohorts,
     read_forward,
     resolve_calibration_bundle,
@@ -90,34 +84,18 @@ class _Store:
     """
 
     root: Path
-    bundle: FixedCalibrationBundle | None
+    bundle: FixedCalibrationBundle
 
 
 def _open(root: Path) -> _Store:
-    """Fix the generation this store is read at, or mark it as the retired layout.
-
-    The baseline half is a frozen store from an earlier study, so it can still be in the
-    per-cohort CSV layout, which has no generation to fix. A store that *has* a bundle
-    which does not resolve raises instead — that is a broken store, not an old one, and
-    reading it through the legacy adapter would answer from whatever CSV happened to be
-    left beside it.
-    """
-
-    try:
-        return _Store(root=root, bundle=resolve_calibration_bundle(root))
-    except CalibrationCacheError:
-        return _Store(root=root, bundle=None)
+    return _Store(root=root, bundle=resolve_calibration_bundle(root))
 
 
 def _cohorts(store: _Store) -> list[date]:
-    if store.bundle is None:
-        return legacy_cohorts(store.root)
     return published_cohorts(store.root, bundle=store.bundle)
 
 
 def _rows(store: _Store, asof: date) -> list[dict[str, object]]:
-    if store.bundle is None:
-        return [asdict(row) for row in read_legacy_forward(store.root, asof)]
     return [asdict(row) for row in read_forward(store.root, asof, bundle=store.bundle)]
 
 
@@ -133,11 +111,6 @@ def _panel_identity(store: _Store) -> dict[str, str]:
     publish the same rows resolve to the same object keys.
     """
 
-    if store.bundle is None:
-        return {
-            asof.isoformat(): _sha256(legacy_panel_path(store.root, asof))
-            for asof in legacy_cohorts(store.root)
-        }
     manifest = store.bundle.datasets[CALIBRATION_PANEL.name]
     return {
         f"{int(partition.values['year']):04d}-{int(partition.values['month']):02d}": item.sha256

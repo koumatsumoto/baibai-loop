@@ -445,28 +445,17 @@ cohortごとのcarry検査がpresence/sizeで止まるのはこのためで、�
 digestもschemaも反対しないため、報告だけが何も生成していない数値になる。calibrationを読む分析tool
 （`tools/experiments/measure_*`）は入口で世代を1回固定し、以降のreadへ渡す。
 
-cohortのsourceには3つの保証水準があり、`source_assurance`として区別する。**rebuildable_input**は
+cohortのsourceには2つの保証水準があり、`source_assurance`として区別する。**rebuildable_input**は
 producerが読んだ上流入力をlakeが保持していて、producer側の誤りを直してから再導出できる。
-**result_archive**は前のproducerが出した結果bytesを保持していて、値の読み直しと評価の再実行はできるが、
-直したproducerへ与える入力が無い（legacy CSV archiveがこれ）。**trace_only**は読んだstore世代を
-名指せるだけで、どちらもできない。判断のaudit — 計算logicの誤りが後で見つかったときの訂正 — に要るのは
-最初の水準だけなので、`--run-purpose production_decision`はrebuildable_inputのcohortだけを許可し、
-それ以外には`source_not_rebuildable`をblocking reasonとして立てる。
+**trace_only**は読んだstore世代を名指せるだけで、それができない。判断のaudit — 計算logicの誤りが
+後で見つかったときの訂正 — に要るのは前者だけなので、`--run-purpose production_decision`は
+rebuildable_inputのcohortだけを許可し、それ以外には`source_not_rebuildable`をblocking reasonとして
+立てる。水準はcohortの3 role（panel / diagnostics / forward）が名指すsourceの最弱で決まる。
 
-水準はcohortの3 role（panel / diagnostics / forward）が名指すsourceの最弱で決まる。結論はこの3つで
-構成されるので、panelだけがarchive由来でforwardが未保持のstore世代由来なら、cohort全体はtrace_onlyである。
-
-`rebuildable_input`は現在形の主張なので、evaluateはcohort closureのretained sourceを1回ずつ解決して
-digestを検証し、結果を`source_closure_status`としてcoverageへ出す。値は
-`not_applicable` / `available` / `unavailable`の3つで、保持するsourceを持たないcohortは
-`not_applicable`である——検証対象が無いことを`available`と書けば、store中で最も素性の弱いcohortが
-最も確かなbytesを持つように読める。検証はrun purposeによらず行うが、**その実行が評価するcohortだけ**を
-対象にする（狭い窓の診断がstore全体のarchiveを読む理由はない）。同じarchiveを複数cohortが参照しても
-hashは1回になる（verification scope）。blockerを立てるのはproduction_decisionだけで、
-そこでは`source_unavailable`になる。
-
-L1 releaseがcohort sourceとして採れるようになるまで（Issue #917）、rebuildable_inputに到達するcohortは
-存在しない。`production_decision`はその間fail-closeする。
+**現時点でrebuildable_inputに到達するcohortは存在しない。** `CohortSourceRef`が許すのはsealed SQLite
+snapshotだけで、そのbytesをlakeは持たないからである。`production_decision`はその間fail-closeする。
+この水準が区別として意味を持ち始めるのは、L1 releaseがcohort sourceとして採れるようになった時点で
+（Issue #917）、同じ変更が「世代が名指すsourceがcurrentになる前に解決すること」の検査も連れてくる。
 
 cohortのinput cutoffとsealed snapshot identityが保証するのは**どのstore世代を読んだか名指せること**
 であって、その値が当時同じ形で入手できたことではない。J-Quantsのadjusted price、master、JPX flagは
@@ -508,8 +497,6 @@ calibration storeのwork generationはstoreのsiblingとして作られる（sto
 作るため）。これはlakeのどのprefixにも入らないので、次のbuildが — writer lockを持っている以上、
 live generationは存在しえない — 起動時に破棄し、回収したbytesを出力する。
 
-`calibration-legacy` exact archiveはこのsweepの対象外である。
-
 容量目標は1つのpolicyをclassへ分けて持つ。`lake inventory`の`capacity`が全classを同じ表で出す
 ので、あるclassがdesign上の理由で増えたことを、そのclassが対して測られている目標に対して読める。
 
@@ -542,8 +529,7 @@ bytesがなく、通常のcalibration-buildが作ったbundleはそのままremo
 **引き換えに失うもの**: 過去cohortをbyte単位でrebuildする「保証」は、この段階では持たない。同じ
 digestのmarket store世代があれば再現でき、digestで照合もできるが、その世代がまだ入手できることは
 lakeが保証しない。保証が戻るのは、cohortが必要とするtableがL1 releaseとして公開され、keyを持つ
-`rebuildable_input`になった時点である（Issue #917）。legacy CSV archiveはこの保証を与えない——
-保持しているのは前のproducerの出力であって、直したproducerへ与える入力ではない（`result_archive`）。
+`rebuildable_input`になった時点である（Issue #917）。
 
 ```bash
 uv run python -m baibai_batch.storage.lake_publish \

@@ -59,11 +59,8 @@ from .models import (
     CalibrationBundleRef as _BundleRef,
 )
 from .models import (
-    CalibrationInputManifest,
-    CalibrationInputSourceRef,
     DatasetManifest,
     RawArchiveMetadata,
-    RawIngestSourceRef,
     ReleaseManifest,
     SourceRef,
     load_lake_model_json,
@@ -559,17 +556,12 @@ def _reach_sources(
 ) -> None:
     for source in retained_sources(sources):
         try:
-            path = resolve_source_ref(mirror_root, source)
+            resolve_source_ref(mirror_root, source)
         except (OSError, ValueError):
-            key = getattr(source, "key", "unknown-source")
-            unresolved.append(str(key))
+            unresolved.append(source.key)
             continue
         reachable.add(source.key)
-        if isinstance(source, RawIngestSourceRef):
-            reachable.add(source.metadata_key)
-        elif isinstance(source, CalibrationInputSourceRef):
-            manifest = load_lake_model_json(path.read_bytes(), CalibrationInputManifest)
-            reachable.update(item.key for item in manifest.files.values())
+        reachable.add(source.metadata_key)
 
 
 def _unreachable(
@@ -658,10 +650,6 @@ def _candidate_reason(key: str) -> str | None:
         return "expired_quarantine"
     if key.startswith("lake/l1/canonical/"):
         return "unreferenced_l1_object"
-    if key.startswith("lake/l2/calibration-legacy/"):
-        # These bytes are the only recoverable evidence for an incompatible legacy
-        # cache, so they are retained independently of a readable L2 bundle.
-        return None
     if key.startswith("lake/l2/"):
         return "unreferenced_l2_object"
     if key.startswith("lake/manifests/datasets/"):

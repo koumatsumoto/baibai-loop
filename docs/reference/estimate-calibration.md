@@ -25,7 +25,7 @@ target は cohort の actual as-of date に calendar month を加算する。元
 
 panel は cohort as-of 以下の最新 `eq_master` snapshot だけを読む。prior snapshot、snapshot unavailable、survivorship、delisting、corporate-action event coverage の不備は payload に残り、3y/5y evidence を block する。
 
-cohort の入力保証（`source_assurance` / `source_closure_status`）は run purpose によらず coverage へ出るが、blocker になるのは `--run-purpose production_decision` のときだけである。他の blocker は cohort そのものの性質なので誰が読んでも成り立つのに対し、これは「この cohort を根拠に何を変えてよいか」であり、diagnostic 実行が問うていない。水準の定義と現在の到達可否は [`market-lake.md`](./market-lake.md) が正本。
+cohort の入力保証（`source_assurance`）は run purpose によらず coverage へ出るが、blocker になるのは `--run-purpose production_decision` のときだけである。他の blocker は cohort そのものの性質なので誰が読んでも成り立つのに対し、これは「この cohort を根拠に何を変えてよいか」であり、diagnostic 実行が問うていない。水準の定義と現在の到達可否は [`market-lake.md`](./market-lake.md) が正本。
 
 forward row は解決済み status（市場終値による `resolved`、成立した現金公開買付けによる `resolved_control_event_exit`）または明示的な unresolved status を持ち、`resolved` flag は前者 2 つと一致する。target と entry はそれぞれ target/as-of 以下の最終取引日で解決し、15 日超の stale exit は resolved return に入れない。価格は as-of basis adjustment factor で正規化するが、metric basis は `price_return_only` であり配当 accrual を加えない。entry 時点の配当利回りを horizon 年数で按分する固定 accrual は、期間中の増配・減配・無配・支払時期を観測した実現配当ではないため、実現値として扱わない。
 
@@ -150,25 +150,6 @@ uv run baibai-engine screening calibration-evaluate \
   --calibration-dir stores/screening/calibration/variants/pre2019 \
   --horizon 1y --horizon 3y --out /tmp/calibration-pre2019.yaml
 ```
-
-## legacy CSV store からの移行
-
-`calibration-migrate-legacy` は legacy CSV の bytes をそのまま archive し、cohort が**現行の
-measurement 契約で書かれている場合にだけ** L2 へ publish する。store が名乗る
-`cache_schema_version` と現行値が違えば `archived_incompatible` で終わり、bytes は保持したまま
-cohort は 1 つも publish しない。移行 chain を持たないのは設計であり、別の rules で測った月を
-現行の集計へ混ぜないためである。
-
-**実測（2026-08-16、production store 507MB / 81 cohort）: `archived_incompatible`、publish 0 件、
-3.8 秒。** store の `294f56eda4b30f50` に対し現行は `ebdfc3d91dae7397` で、rules がその間に動いて
-いる。したがって lake への移行は「archive + 全 cohort 再構築」であり、cohort 1 件あたり約 50 秒
-（2026-07-31 で panel 3,712 行 / forward 18,565 行 / object 7 件 / 1.17MB）から 81 cohort で
-おおよそ 70 分を見込む。
-
-再構築した cohort の source は sealed SQLite snapshot であり、bytes を lake に残さないので
-`source_assurance` は `trace_only` になる。`--run-purpose production_decision` は
-`source_not_rebuildable` で block されたままで、これは L1 release が cohort source になるまで
-解けない。**store を作り直しても production 判断は開かない。**
 
 ## Commands
 

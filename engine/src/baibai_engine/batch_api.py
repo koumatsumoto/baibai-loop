@@ -53,8 +53,6 @@ from baibai_engine.market.lake.models import (
     CalibrationBundleManifest,
     CalibrationBundlePointer,
     CalibrationBundleRef,
-    CalibrationInputManifest,
-    CalibrationInputSourceRef,
     load_lake_model_json,
 )
 from baibai_engine.market.lake.models import DatasetManifest as LakeDatasetManifest
@@ -107,8 +105,6 @@ __all__ = [
     "CalibrationBundleManifest",
     "CalibrationBundlePointer",
     "CalibrationBundleRef",
-    "CalibrationInputManifest",
-    "CalibrationInputSourceRef",
     "IndicatorDefinitions",
     "IndicatorsSchemaError",
     "L1ReleasePointer",

@@ -43,7 +43,6 @@ from baibai_engine.market.lake.keys import (
     dataset_manifest_key,
 )
 from baibai_engine.market.lake.models import (
-    CalibrationInputManifest,
     CohortInventoryEntry,
     CohortSourceRef,
     CohortStatus,
@@ -576,35 +575,7 @@ def _bundle_closure_keys(root: Path, bundle: FixedCalibrationBundle) -> tuple[st
         keys.append(reference.manifest_key)
         manifest = bundle.datasets[name]
         keys.extend(item.key for partition in manifest.partitions for item in partition.objects)
-        for cohort in manifest.cohort_inventory.values():
-            for source in retained_sources(cohort.sources):
-                keys.append(source.key)
-                input_manifest = load_lake_model_json(
-                    (root / source.key).read_bytes(), CalibrationInputManifest
-                )
-                keys.extend(item.key for item in input_manifest.files.values())
     return tuple(dict.fromkeys(keys))
-
-
-def _require_bundle_closure(root: Path, bundle: FixedCalibrationBundle) -> None:
-    """Every source a cohort states must still resolve, with its declared contents.
-
-    Output objects are checked against their manifests elsewhere; this is about the
-    other half of the graph. A cohort that has lost the input it was built from still
-    reads back perfectly, so nothing on the read path would notice — the loss surfaces
-    only when someone tries to reproduce, pin, or publish it, long after the generation
-    that dropped it became current.
-    """
-
-    for name, manifest in sorted(bundle.datasets.items()):
-        for asof, cohort in sorted(manifest.cohort_inventory.items()):
-            for source in retained_sources(cohort.sources):
-                try:
-                    resolve_source_ref(root, source)
-                except (OSError, ValueError) as exc:
-                    raise CalibrationLakeError(
-                        f"{name}: cohort {asof} source does not resolve: {exc}"
-                    ) from exc
 
 
 def adopt_bundle_generation(
@@ -648,7 +619,6 @@ def _adopt_bundle_generation(
     # manifest that is about to become current, so adoption does not restate them; it
     # only refuses a generation whose contract this build cannot serve.
     _require_current_contract(generated_root)
-    _require_bundle_closure(generated_root, fixed)
     hashed_bytes = 0
     for name, manifest in fixed.datasets.items():
         dataset = require_l2_dataset(name)

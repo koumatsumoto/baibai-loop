@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from hashlib import sha256
 from pathlib import PurePosixPath
 from types import MappingProxyType
-from typing import Annotated, Literal, overload
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from pydantic import (
@@ -264,47 +264,25 @@ class L1ReleaseSourceRef(_RetainedSourceRefBase):
         return self
 
 
-class CalibrationInputSourceRef(_RetainedSourceRefBase):
-    kind: Literal["calibration_input"]
-    input_type: Literal["legacy_csv_archive"]
-    manifest_version: Literal[1]
-
-    @field_validator("key")
-    @classmethod
-    def validate_key(cls, value: str) -> str:
-        key = validate_lake_object_key(value)
-        if not key.startswith("lake/manifests/calibration-inputs/") or not key.endswith(".json"):
-            raise ValueError("calibration_input must reference its input manifest")
-        return key
-
-    @model_validator(mode="after")
-    def validate_identity(self) -> CalibrationInputSourceRef:
-        if self.key != f"lake/manifests/calibration-inputs/{self.source_id}.json":
-            raise ValueError("calibration_input key does not match source_id")
-        return self
-
-
 type SourceRef = Annotated[
-    RawIngestSourceRef | SQLiteSnapshotSourceRef | CalibrationInputSourceRef,
+    RawIngestSourceRef | SQLiteSnapshotSourceRef,
     Field(discriminator="kind"),
 ]
 
-type RetainedSourceRef = Annotated[
-    RawIngestSourceRef | CalibrationInputSourceRef,
-    Field(discriminator="kind"),
-]
+type RetainedSourceRef = RawIngestSourceRef
 
 # What an analytical cohort may be built from. Provider Raw is outside it by
 # construction rather than by a check: Raw is addressed by request range and can be
 # fetched again, so a cohort naming it would not be pinned to one generation of
 # anything. Excluding the kind from the union is what makes that unrepresentable
 # instead of merely rejected.
-type CohortSourceRef = Annotated[
-    SQLiteSnapshotSourceRef | CalibrationInputSourceRef,
-    Field(discriminator="kind"),
-]
-
-type RetainedCohortSourceRef = CalibrationInputSourceRef
+#
+# One kind, so no cohort source is retained and `source_assurance` is `trace_only` for
+# every cohort that exists. Widening this to admit an L1 release is what turns the
+# assurance into a distinction — and the same change has to bring back a check that the
+# sources a generation states still resolve before it becomes current, which is dead
+# code while nothing retained can be named here.
+type CohortSourceRef = SQLiteSnapshotSourceRef
 
 
 def _source_identity(source: SourceRef) -> tuple[str, str, str]:
@@ -318,16 +296,6 @@ def _source_identity(source: SourceRef) -> tuple[str, str, str]:
     return (source.kind, source.source_id, source.sha256)
 
 
-@overload
-def retained_sources(
-    sources: Iterable[CohortSourceRef],
-) -> tuple[RetainedCohortSourceRef, ...]: ...
-
-
-@overload
-def retained_sources(sources: Iterable[SourceRef]) -> tuple[RetainedSourceRef, ...]: ...
-
-
 def retained_sources(sources: Iterable[SourceRef]) -> tuple[RetainedSourceRef, ...]:
     """The subset whose bytes the lake stores, in the order they were declared.
 
@@ -339,98 +307,31 @@ def retained_sources(sources: Iterable[SourceRef]) -> tuple[RetainedSourceRef, .
     return tuple(source for source in sources if not isinstance(source, SQLiteSnapshotSourceRef))
 
 
-SourceAssurance = Literal["rebuildable_input", "result_archive", "trace_only"]
+SourceAssurance = Literal["rebuildable_input", "trace_only"]
 
 
 def source_assurance(sources: Iterable[SourceRef]) -> SourceAssurance:
-    """What a cohort's lineage lets someone do with it, named by the weakest source.
+    """Whether a cohort's lineage lets it be re-derived, named by its weakest source.
 
-    Three capabilities hide under "reproducible", and only the strongest supports a
-    change to the production method. **rebuildable_input** keeps the upstream data the
-    producer read, so a cohort can be re-derived after a logic error is found in the
-    producer itself. **result_archive** keeps the bytes a previous producer emitted:
-    the numbers can be read and their evaluation replayed forever, but a corrected
-    producer has nothing to run against, because the archive is that producer's output
-    rather than its input. **trace_only** names the store generation a build read
-    without keeping it, so neither is possible.
+    **rebuildable_input** keeps the upstream data the producer read, so a cohort can be
+    re-derived after a logic error is found in the producer itself. **trace_only** names
+    the store generation a build read without keeping it, so it cannot.
+
+    No cohort reaches the first value today: ``CohortSourceRef`` admits only a sealed
+    SQLite snapshot, whose bytes the lake deliberately does not store. The distinction
+    is derived rather than declared, so it starts describing something the moment an L1
+    release becomes admissible as a cohort source — and until then the honest answer to
+    "may this decide production" is no.
 
     The value is the weakest of the sources stated, which is also why a caller can pass
     the sources of several cohort roles at once and get the assurance of the whole.
-    Stating no source at all is the weakest claim of the three rather than the absence
-    of a claim.
+    Stating no source at all is the weaker claim rather than the absence of a claim.
     """
 
     stated = tuple(sources)
     if not stated or len(retained_sources(stated)) != len(stated):
         return "trace_only"
-    if any(isinstance(source, CalibrationInputSourceRef) for source in stated):
-        return "result_archive"
     return "rebuildable_input"
-
-
-class CalibrationInputFile(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    key: str
-    sha256: str
-    bytes: int = Field(gt=0)
-
-    @field_validator("key")
-    @classmethod
-    def validate_key(cls, value: str) -> str:
-        key = validate_lake_object_key(value)
-        if not key.startswith("lake/l2/calibration-legacy/"):
-            raise ValueError("calibration input file must use the legacy archive prefix")
-        return key
-
-    @field_validator("sha256")
-    @classmethod
-    def validate_digest(cls, value: str) -> str:
-        return validate_sha256(value)
-
-
-class CalibrationInputManifest(BaseModel):
-    """The exact byte inventory of a retired CSV calibration cache.
-
-    This contract describes an archive: a fixed set of files, each closed by digest and
-    size, whose meaning is "these are the bytes that existed". That is the whole of what
-    a legacy archive has to state, because nothing recomputes from it — it is kept so an
-    incompatible cache remains recoverable.
-
-    It is deliberately not a general "calibration input" contract. A source that a
-    cohort is *rebuilt* from has to state its schema, table and column inventory, key
-    columns, row counts, and the date window it covers, or a package missing a table
-    would resolve exactly as cleanly as a complete one. Such a source needs its own
-    model; widening ``input_type`` here would reuse a file list as a completeness claim.
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    manifest_version: Literal[1]
-    input_id: str
-    input_type: Literal["legacy_csv_archive"]
-    files: Mapping[str, CalibrationInputFile] = Field(min_length=1)
-
-    @field_validator("input_id")
-    @classmethod
-    def validate_input_id(cls, value: str) -> str:
-        return validate_identifier(value, label="input_id")
-
-    @field_validator("files")
-    @classmethod
-    def freeze_files(
-        cls, values: Mapping[str, CalibrationInputFile]
-    ) -> Mapping[str, CalibrationInputFile]:
-        for name in values:
-            if PurePosixPath(name).name != name or name in {".", ".."}:
-                raise ValueError("calibration input file names must be flat safe names")
-        return MappingProxyType(dict(values))
-
-    @field_serializer("files")
-    def serialize_files(
-        self, values: Mapping[str, CalibrationInputFile]
-    ) -> dict[str, CalibrationInputFile]:
-        return dict(values)
 
 
 class LakeObject(BaseModel):
@@ -550,10 +451,7 @@ class CohortInventoryEntry(BaseModel):
             raise ValueError("complete cohort must contain rows")
         if self.status in {"empty", "not_computed"} and self.rows != 0:
             raise ValueError(f"{self.status} cohort cannot contain rows")
-        if any(
-            source.kind == "sqlite_snapshot" and self.input_cutoff > source.captured_at.date()
-            for source in self.sources
-        ):
+        if any(self.input_cutoff > source.captured_at.date() for source in self.sources):
             raise ValueError("cohort input cutoff cannot follow SQLite snapshot capture")
         return self
 

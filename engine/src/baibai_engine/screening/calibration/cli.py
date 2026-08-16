@@ -4,21 +4,19 @@ from __future__ import annotations
 
 import sys
 import uuid
-from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import date
 from os import link
 from pathlib import Path
 from shutil import copytree, rmtree
-from typing import Literal, TextIO, cast
+from typing import TextIO, cast
 
 import yaml
 
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.market.lake.identity import verified_git_commit
-from baibai_engine.market.lake.models import retained_sources, source_assurance
+from baibai_engine.market.lake.models import source_assurance
 from baibai_engine.market.lake.retention import lake_writer_lock
-from baibai_engine.market.lake.sources import resolve_source_ref, verified_source_scope
 from baibai_engine.market.lake.writer import (
     LakeBuildError,
     LegacySQLiteSnapshot,
@@ -47,7 +45,7 @@ from .forward import (
     read_control_event_exits,
 )
 from .grid import month_end_asof_grid
-from .lake import CalibrationBundleRef, CalibrationLakeError, FixedCalibrationBundle
+from .lake import CalibrationBundleRef, CalibrationLakeError
 from .panel import (
     PANEL_BUILD_POLICIES,
     PRODUCTION_PANEL_POLICY,
@@ -379,54 +377,6 @@ def _required_metric_statuses(
     }
 
 
-SourceClosureStatus = Literal["not_applicable", "available", "unavailable"]
-
-
-def _source_closure_status(
-    calibration_dir: Path, bundle: FixedCalibrationBundle, asofs: Sequence[date]
-) -> dict[str, SourceClosureStatus]:
-    """Whether each evaluated cohort's kept sources are still where it says they are.
-
-    Adoption, pinning, and publication each prove the closure at the moment they run,
-    and nothing between them proves it again. A file removed by hand or lost to disk
-    corruption afterwards leaves the output objects intact, so evaluation completes and
-    every manifest still states the assurance it was written with.
-
-    Three answers, not two. A cohort built from a store generation the lake never kept
-    has no closure to check, and calling that "available" would report the cohort with
-    the weakest lineage in the store as the one whose bytes are most certainly there.
-    ``not_applicable`` says the question does not arise; the assurance beside it says
-    why.
-
-    Only the cohorts this run evaluates are checked. Hashing every archive in the store
-    to report on a two-month window makes the cost of asking about a cohort depend on
-    how many other cohorts exist. The scope keeps even that proportional to distinct
-    sources rather than to references.
-    """
-
-    wanted = {asof.isoformat() for asof in asofs}
-    status: dict[str, SourceClosureStatus] = {}
-    with verified_source_scope():
-        for asof, cohort in bundle.manifest.cohorts.items():
-            if asof not in wanted:
-                continue
-            sources = [
-                source
-                for role in (cohort.panel, cohort.diagnostics, cohort.forward)
-                for source in retained_sources(role.sources)
-            ]
-            if not sources:
-                status[asof] = "not_applicable"
-                continue
-            status[asof] = "available"
-            for source in sources:
-                try:
-                    resolve_source_ref(calibration_dir, source)
-                except (OSError, ValueError):
-                    status[asof] = "unavailable"
-    return status
-
-
 def calibration_evaluate_command(
     *,
     calibration_dir: Path,
@@ -520,7 +470,6 @@ def calibration_evaluate_command(
         )
         for asof, entry in bundle.manifest.cohorts.items()
     }
-    closure_status = _source_closure_status(calibration_dir, bundle, asofs)
     results = evaluate_cohorts(panels, forwards, horizons=horizons)
     scope = EvaluationScope(
         run_purpose=run_purpose,
@@ -589,9 +538,6 @@ def calibration_evaluate_command(
                 }
             )
             coverage["source_assurance"] = cohort_assurance.get(str(cohort["asof"]), "trace_only")
-            coverage["source_closure_status"] = closure_status.get(
-                str(cohort["asof"]), "not_applicable"
-            )
             if horizon in {"3y", "5y"}:
                 # Reading a stored result again and recomputing it from its input are
                 # different capabilities. A decision that changes the production method
@@ -604,14 +550,11 @@ def calibration_evaluate_command(
                 # describe the cohort itself and hold whoever is reading it; this one
                 # describes what may be changed on the strength of the cohort, which is
                 # a question a diagnostic run is not asking.
-                if run_purpose == "production_decision":
-                    if coverage["source_assurance"] != "rebuildable_input":
-                        blockers.append("source_not_rebuildable")
-                    # `rebuildable_input` is a present-tense claim: the assurance is
-                    # read from the manifest, and a manifest keeps saying it long after
-                    # the bytes it names were deleted or corrupted underneath it.
-                    if coverage["source_closure_status"] == "unavailable":
-                        blockers.append("source_unavailable")
+                if (
+                    run_purpose == "production_decision"
+                    and coverage["source_assurance"] != "rebuildable_input"
+                ):
+                    blockers.append("source_not_rebuildable")
                 # One blocker per independent observation. A verdict derived from
                 # another observation would count the same gap twice and make the
                 # reason histogram unreadable.

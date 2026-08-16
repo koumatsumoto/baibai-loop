@@ -10,8 +10,6 @@ from contextvars import ContextVar
 from pathlib import Path
 
 from .models import (
-    CalibrationInputManifest,
-    CalibrationInputSourceRef,
     RawArchiveMetadata,
     RawIngestSourceRef,
     RetainedSourceRef,
@@ -27,10 +25,10 @@ _VERIFIED: ContextVar[dict[tuple[str, str], Path] | None] = ContextVar(
 def verified_source_scope() -> Iterator[None]:
     """Verify each immutable source once for the length of one operation.
 
-    A source is named by every cohort built from it, and one legacy archive can be named
-    by every cohort in the store. Verifying per reference makes the work scale with how
-    many times a generation is mentioned rather than with how much of it there is: 81
-    cohorts over a 500 MB archive is hundreds of gigabytes of hashing for one migration.
+    A Raw archive is named by every partition built from the request range it covers, so
+    verifying per reference makes the work scale with how many times a source is
+    mentioned rather than with how much of it there is. A release that carries 121
+    months would re-hash the same archives once per partition that names them.
 
     What makes memoizing safe is what makes the reference worth verifying at all — the
     bytes are immutable and content addressed, so a source that verified at the start of
@@ -76,24 +74,7 @@ def _resolve_source_ref(mirror_root: Path, source: RetainedSourceRef) -> Path:
         raise ValueError("source reference does not resolve inside the lake mirror")
     if sha256_file(path) != source.sha256:
         raise ValueError("source reference digest does not match")
-    if isinstance(source, RawIngestSourceRef):
-        _validate_raw_metadata(mirror_root, source)
-    elif isinstance(source, CalibrationInputSourceRef):
-        input_manifest = load_lake_model_json(path.read_bytes(), CalibrationInputManifest)
-        if (
-            input_manifest.input_id != source.source_id
-            or input_manifest.manifest_version != source.manifest_version
-        ):
-            raise ValueError("calibration input source identity does not match")
-        for item in input_manifest.files.values():
-            archived = (mirror_root / item.key).resolve()
-            if (
-                not archived.is_relative_to(root)
-                or not archived.is_file()
-                or archived.stat().st_size != item.bytes
-                or sha256_file(archived) != item.sha256
-            ):
-                raise ValueError("calibration input archive identity does not match")
+    _validate_raw_metadata(mirror_root, source)
     return path
 
 

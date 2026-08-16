@@ -23,7 +23,6 @@ from baibai_engine.batch_api import (
     CalibrationBundleManifest,
     CalibrationBundlePointer,
     CalibrationBundleRef,
-    CalibrationInputManifest,
     L1ReleasePointer,
     LakeDatasetManifest,
     LakeRawArchiveMetadata,
@@ -36,7 +35,6 @@ from baibai_engine.batch_api import (
     lake_current_l1_pointer_key,
     lake_dataset_manifest_key,
     lake_release_manifest_key,
-    lake_retained_sources,
     lake_verified_source_scope,
     load_lake_model_json,
     resolve_lake_source_ref,
@@ -809,30 +807,6 @@ def _publish_calibration_bundle(
         ):
             raise LakePublishError(f"calibration bundle dataset identity differs: {name}")
         dataset_manifests[name] = manifest
-        cohort_sources = {
-            (source.source_id, source.sha256): source
-            for cohort in manifest.cohort_inventory.values()
-            for source in lake_retained_sources(cohort.sources)
-        }
-        for source in cohort_sources.values():
-            source_path = resolve_lake_source_ref(mirror_root, source)
-            uploads[source.key] = (
-                source_path,
-                "application/json",
-                source.sha256,
-                source_path.stat().st_size,
-            )
-            input_manifest = load_lake_model_json(
-                source_path.read_bytes(), CalibrationInputManifest
-            )
-            for item in input_manifest.files.values():
-                archived = _mirror_path(mirror_root, item.key)
-                uploads[item.key] = (
-                    archived,
-                    "application/octet-stream",
-                    item.sha256,
-                    item.bytes,
-                )
         for partition in manifest.partitions:
             for lake_object in partition.objects:
                 object_path = _mirror_path(mirror_root, lake_object.key)
@@ -1016,27 +990,6 @@ def _require_remote_calibration_closure(
         ):
             raise LakePublishError(f"remote calibration dataset identity differs: {name}")
         manifests[name] = manifest
-        cohort_sources = {
-            (source.source_id, source.sha256): source
-            for cohort in manifest.cohort_inventory.values()
-            for source in lake_retained_sources(cohort.sources)
-        }
-        for source in cohort_sources.values():
-            input_manifest = _remote_json_model(
-                publication,
-                key=source.key,
-                expected_sha256=source.sha256,
-                model=CalibrationInputManifest,
-            )
-            if input_manifest.input_id != source.source_id:
-                raise LakePublishError("remote calibration input identity differs")
-            for archived_item in input_manifest.files.values():
-                publication.require_identity(
-                    key=archived_item.key,
-                    expected_sha256=archived_item.sha256,
-                    expected_size=archived_item.bytes,
-                    content_type="application/octet-stream",
-                )
         for partition in manifest.partitions:
             for lake_object in partition.objects:
                 publication.require_identity(
