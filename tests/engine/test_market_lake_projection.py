@@ -649,7 +649,7 @@ class TestFixedRelease:
         release = resolve_current_release(LocalMirrorSource(lake.mirror))
 
         with pytest.raises(LakeReadError, match="2026-09"):
-            selected_partitions(release, "jquants.daily_bars", months=[(2026, 9)])
+            selected_partitions(release, "jquants.daily_bars", periods=[(2026, 9)])
 
 
 class TestObjectIntegrity:

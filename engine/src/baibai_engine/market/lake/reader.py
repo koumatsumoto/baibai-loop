@@ -25,7 +25,7 @@ from types import MappingProxyType
 import duckdb
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
-from .datasets import LakeDataset, require_lake_dataset
+from .datasets import LakeDataset, period_label, require_lake_dataset
 from .duck import LakeSession
 from .keys import (
     current_l1_pointer_key,
@@ -54,7 +54,7 @@ class LakeReadError(RuntimeError):
 # number, not the dataset: a decade of daily bars is eight figures of rows.
 ROW_BATCH_SIZE = 20_000
 
-type Month = tuple[int, int]
+type Month = tuple[int, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,29 +248,40 @@ def selected_partitions(
     release: FixedRelease,
     dataset_name: str,
     *,
-    months: Iterable[Month] | None = None,
+    periods: Iterable[Month] | None = None,
 ) -> tuple[PartitionManifest, ...]:
-    """Partitions of one dataset, ordered by month, restricted to ``months``."""
+    """Partitions of one dataset, in calendar order, restricted to ``periods``."""
 
     manifest = release.dataset_manifest(dataset_name)
-    wanted = set(months) if months is not None else None
+    layout = tuple(manifest.partition_by)
+    wanted = set(periods) if periods is not None else None
+
+    def key(partition: PartitionManifest) -> Month:
+        return partition_period(partition, layout)
+
     selected = [
-        partition
-        for partition in manifest.partitions
-        if wanted is None or partition_month(partition) in wanted
+        partition for partition in manifest.partitions if wanted is None or key(partition) in wanted
     ]
     if wanted is not None:
-        missing = sorted(wanted - {partition_month(partition) for partition in selected})
+        missing = sorted(wanted - {key(partition) for partition in selected})
         if missing:
-            rendered = ", ".join(f"{year:04d}-{month:02d}" for year, month in missing)
+            rendered = ", ".join(period_label(item) for item in missing)
             raise LakeReadError(
                 f"release {release.release_id} does not publish {dataset_name} for {rendered}"
             )
-    return tuple(sorted(selected, key=partition_month))
+    return tuple(sorted(selected, key=key))
 
 
-def partition_month(partition: PartitionManifest) -> Month:
-    return (int(partition.values["year"]), int(partition.values["month"]))
+def partition_period(partition: PartitionManifest, layout: tuple[str, ...]) -> Month:
+    """Read one partition's calendar position through the layout its manifest declares.
+
+    The layout comes from the manifest rather than the dataset contract so that a
+    manifest written under another grain is read as what it says. Resolving it against
+    today's contract instead would reinterpret its partitions before anything checked
+    whether the manifest is acceptable at all.
+    """
+
+    return tuple(int(partition.values[name]) for name in layout)
 
 
 def partition_objects(partitions: Sequence[PartitionManifest]) -> tuple[LakeObject, ...]:
