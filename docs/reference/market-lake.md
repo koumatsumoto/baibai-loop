@@ -306,9 +306,10 @@ cold 78.55秒、reuse 47.07秒、peak RSS 433 MiB、output 1.33 GiB、代表quer
 `sha256:e53ee0ea9deb62adcb222cb63fefcc623ae8739e64c5d77d9f601f659cfe4e37`、benchmarkの
 implementation SHA-256は`6b583b2af13fd7920e01efab10ce6e7409f6b40fd4f28e6f03de533f061db6a1`である。
 
-**現在の状態: stale。** 現 head の projection fingerprint は `sha256:849830e5…` で、記録値とは別の
-identity である（currency check の full identity 化と、reuse identity への DuckDB / SQLite version
-追加による）。数値の桁は変わらないと見ているが、この head の証跡ではない。再計測が必要。
+**現在の状態: stale。** 現 head の projection fingerprint は `sha256:b12d5cb4…` で、記録値とは別の
+identity である。fingerprint は projection を作る実装 digest を含むので、reuse identity への
+DuckDB / SQLite version 追加と、その後の currency check の変更のたびに動く。数値の桁は変わらないと
+見ているが、この head の証跡ではない。再計測が必要。
 <!-- AP-02: cold=78.55443349899724、reuse=47.06548080200446、
 peak RSS=453734400 / 1048576 = 432.71484375 MiB、
 output=1430007808 / 1073741824 = 1.3317985534667969 GiB、query p95最大=0.0654769828543067 ms。 -->
