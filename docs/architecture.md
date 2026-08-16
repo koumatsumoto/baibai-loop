@@ -111,10 +111,11 @@ retentionから保護するclosure resolverと、それを使うpublisher・rete
 manifestとpointerを含むlake JSONは、duplicate key拒否とredacted validation errorを持つ
 共通parserだけを通し、wire size上限をparse前に検査する。partition valuesとrelease dataset
 inventoryはparse後に変更できない。
-releaseは`pilot`または`production` profileを宣言し、profileごとのrequired dataset、accepted
-contract、coverage、検証時刻基準のfreshness/skew、manifest size/object budgetを満たす場合だけ
-current候補になる。
-pilot profileは移行中の限定datasetを表し、production completenessを代替しない。
+releaseは`shadow`または`production` profileを宣言し、profileごとのmanifest size/object budgetと、
+dataset ごとのrequired・accepted contract・coverage要求・rows / population floor・検証時刻基準の
+freshness窓を満たす場合だけcurrent候補になる。cadenceも完全性もdatasetの性質なので、profile単位の
+単一閾値は持たない。
+shadow profileはcutover前を表し、production authorityを代替しない。
 
 version 語彙は `contract_version`（schema・PK・型・partition・意味の互換境界）、`build_id`
 （immutable build）、typed `SourceRef`内のsource側version、`producer_git_commit`（code identity）
