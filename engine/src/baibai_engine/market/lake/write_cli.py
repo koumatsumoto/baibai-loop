@@ -228,7 +228,7 @@ def main(argv: list[str]) -> int:
 def _projection_build(args: argparse.Namespace) -> int:
     """Resolve one release, then materialize it into a disposable SQLite projection."""
 
-    datasets = tuple(dict.fromkeys(args.dataset)) or tuple(sorted(LAKE_DATASETS))
+    requested = tuple(dict.fromkeys(args.dataset))
     commit = _git_commit()
     try:
         with open_lake(mirror=args.mirror, bucket=args.bucket) as (session, cache):
@@ -261,12 +261,17 @@ def _projection_build(args: argparse.Namespace) -> int:
                     resolved = resolve_current_release(source, evaluated_at=datetime.now(UTC))
                     return (resolved.release_id, resolved.manifest_sha256)
 
+            # Without an explicit selection the projection materializes what this
+            # release holds, not what the registry declares. A dataset whose source has
+            # not started publishing is absent from the release by design, and defaulting
+            # to the registry would make every release refuse to project until it does.
+            # A named dataset the release lacks still fails closed.
             report = build_projection(
                 session,
                 release=release,
                 cache=cache,
                 destination=args.projection,
-                dataset_names=datasets,
+                dataset_names=requested or tuple(sorted(release.dataset_manifests)),
                 builder_git_commit=commit,
                 still_current=still_current,
                 force=args.force,
