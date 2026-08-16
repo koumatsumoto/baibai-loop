@@ -651,6 +651,34 @@ class TestFixedRelease:
         with pytest.raises(LakeReadError, match="2026-09"):
             selected_partitions(release, "jquants.daily_bars", periods=[(2026, 9)])
 
+    def test_a_yearly_dataset_is_selected_through_its_own_layout(self, lake: Lake) -> None:
+        """A reader that assumed year/month read every yearly dataset as a KeyError.
+
+        The fixtures are month-grained, so the yearly path reached the reader for the
+        first time against the real store rather than here. Restating one manifest under
+        the layout a yearly dataset publishes puts that path back under test without
+        making every fixture carry a second dataset.
+        """
+
+        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        monthly = release.dataset_manifest("jquants.daily_bars")
+        yearly = monthly.model_copy(
+            update={
+                "partition_by": ("year",),
+                "partitions": tuple(
+                    partition.model_copy(update={"values": {"year": partition.values["year"]}})
+                    for partition in monthly.partitions[:1]
+                ),
+            }
+        )
+        fixed = replace(release, dataset_manifests={"jquants.daily_bars": yearly})
+
+        selected = selected_partitions(fixed, "jquants.daily_bars", periods=[(2026,)])
+        assert [item.values for item in selected] == [{"year": 2026}]
+
+        with pytest.raises(LakeReadError, match="2025"):
+            selected_partitions(fixed, "jquants.daily_bars", periods=[(2025,)])
+
 
 class TestObjectIntegrity:
     def test_object_whose_bytes_differ_from_the_manifest_fails_closed(
