@@ -105,19 +105,29 @@ short sale 1,413,013）を Linux/WSL2 の一時 directory で実測した結果�
 | full export（121 か月 × 2 dataset） | 367.0 秒 | 242 | 252,387,406 |
 | 1 か月訂正の再 export | 251.5 秒 | 1 | 848,197 |
 
-peak RSS は 993,619,968 bytes（948 MiB）。**1 か月の訂正で書き換わるのは 0.85 MB だが、
-local 側は 252 秒かかる。** その大半は 2 GB の sealed snapshot 作成と、carry する 120 か月分を
-含む full parity 検証である。これは correctness gate を測定前に弱めない選択の代価であり、
-daily pipeline の予算はこの実測値を前提に置く。fast path と scheduled full audit の分離は、
-この時間が daily の制約になった時点で検討する。
+peak RSS は 993,619,968 bytes（948 MiB）。
+
+**parity は build が書いた月だけを見る。** carried object は自分の bytes の digest で addressing
+されているので、「変わっていない」ことは検証対象ではなく恒等式である。全 history を SQLite から
+derive し直すのは、この build ではなく前の build を証明する作業になる。同一機・同一 store での A/B:
+
+| 増分 export（変更なし） | wall time |
+| --- | --- |
+| 既定（書いた月のみ検証） | **132 秒** |
+| `--audit`（全 history 再導出） | **309 秒** |
+
+月の inventory 比較（SQLite の月集合 == manifest の月集合）は常に全体で行う。全 history の再導出は
+`--audit` で明示的に求める — store 全体がまだ SQLite と一致するかを問う操作であり、日次の書き込み
+経路が毎回背負うものではない。
 
 この計測は commit ではなく実装 digest（writer / models / immutable / snapshot / benchmark tool）へ
 結ぶ。それらに触れない変更では証跡は有効なままで、触れた変更は再計測になる。
 
-**現在の状態: 参考値（digest 不一致）。** 計測時の digest は `fa237713…`、現在は `441ea529…` で、
-動いたのは `models.py`（cohort source の語彙）だけである。export path 本体 — writer / immutable /
-snapshot / benchmark tool — は計測時から差分ゼロなので数値は同程度と考えるが、digest 一致を根拠には
-できない。この表を current head の acceptance evidence として読まないこと。cutover 前に再計測する。
+**現在の状態: 参考値。** 上表は `a2005b74` の実測で、現 head では実装が動いている。同じ store
+（snapshot digest `703e3fab…`、11,554,322 rows）を現 head で測り直すと full export は 456 秒、
+projection は cold 104 秒 / reuse 61 秒で、いずれも記録値より 20〜30% 遅い。入力・行数・出力 bytes は
+完全に一致するので差は測定機の負荷であり、**記録値は楽観側に約 25% ずれている**と読むこと。増分
+export の A/B（上表）は現 head・同一機での実測である。
 
 <!-- AP-02: full=367.0256703949999 秒、incremental=251.45569620199967 秒、
 peak RSS=993619968 / 1048576 = 947.6015625 MiB、
