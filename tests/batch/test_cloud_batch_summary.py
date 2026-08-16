@@ -582,6 +582,7 @@ def test_workflow_summary_json_keys_match_the_ui_interface() -> None:
         "execution",
         "delivery",
         "workflow_errors",
+        "lake",
     }
     assert set(payload["execution"]) == {"kind", "summary"}
     assert set(payload["execution"]["summary"]) == {

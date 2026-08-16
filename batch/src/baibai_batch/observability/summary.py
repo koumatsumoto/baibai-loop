@@ -118,6 +118,8 @@ ERROR_STAGES = (
     "setup",
     "sync",
     "pull-stores",
+    "hydrate",
+    "publish-lake",
     "verify-cache-coverage",
     "bootstrap-cache",
     "extract-edinet-metrics",
@@ -688,6 +690,57 @@ class Delivery:
 
 
 @dataclass(frozen=True, slots=True)
+class LakeReleaseSummary:
+    """What the run published to the L1 lake, so the transfer claim is an observation.
+
+    The point of the lake is that a day's publication moves the day rather than the
+    history. A run that reported only "published" would leave that unmeasured, and the
+    first regression — a fingerprint change that rewrites every partition — would look
+    exactly like a healthy run.
+    """
+
+    release_id: str
+    data_as_of: str
+    changed_partitions: int
+    uploaded_objects: int
+    uploaded_bytes: int
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "release_id": self.release_id,
+            "data_as_of": self.data_as_of,
+            "changed_partitions": self.changed_partitions,
+            "uploaded_objects": self.uploaded_objects,
+            "uploaded_bytes": self.uploaded_bytes,
+        }
+
+    @classmethod
+    def from_json(cls, payload: object) -> LakeReleaseSummary | None:
+        if payload is None:
+            return None
+        if not isinstance(payload, dict):
+            raise SummaryValidationError("lake release summary must be an object or null")
+        for key in ("release_id", "data_as_of"):
+            if not isinstance(payload.get(key), str) or not payload.get(key):
+                raise SummaryValidationError(
+                    f"lake release summary {key} must be a non-empty string"
+                )
+        counts: dict[str, int] = {}
+        for key in ("changed_partitions", "uploaded_objects", "uploaded_bytes"):
+            value = payload.get(key)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise SummaryValidationError(
+                    f"lake release summary {key} must be a non-negative integer"
+                )
+            counts[key] = value
+        return cls(
+            release_id=payload["release_id"],
+            data_as_of=payload["data_as_of"],
+            **counts,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class WorkflowRunSummary:
     """Terminal workflow summary finalized once by the notification step."""
 
@@ -709,6 +762,9 @@ class WorkflowRunSummary:
     execution: Execution
     delivery: Delivery
     workflow_errors: tuple[BatchError, ...] = ()
+    # Absent when the run never reached the publication, which is a different fact from
+    # a publication that moved nothing.
+    lake: LakeReleaseSummary | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -726,6 +782,7 @@ class WorkflowRunSummary:
             "execution": self.execution.to_json(),
             "delivery": self.delivery.to_json(),
             "workflow_errors": [error.to_json() for error in self.workflow_errors],
+            "lake": None if self.lake is None else self.lake.to_json(),
         }
 
     @classmethod
@@ -788,6 +845,7 @@ class WorkflowRunSummary:
             execution=Execution.from_json(payload.get("execution")),
             delivery=Delivery.from_json(payload.get("delivery")),
             workflow_errors=workflow_errors,
+            lake=LakeReleaseSummary.from_json(payload.get("lake")),
         )
 
 

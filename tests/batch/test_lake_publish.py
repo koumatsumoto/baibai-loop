@@ -329,13 +329,13 @@ def _fixed_publication_clock(monkeypatch: pytest.MonkeyPatch) -> None:
                 "max_lead_days": 10_000,
             }
         )
-        for item in lake_models.SHADOW_RELEASE_POLICY.datasets
+        for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
         if item.dataset in {"jquants.daily_bars", "jquants.short_sale_reports"}
     )
     monkeypatch.setattr(
         lake_models,
-        "SHADOW_RELEASE_POLICY",
-        lake_models.SHADOW_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
+        "PRODUCTION_RELEASE_POLICY",
+        lake_models.PRODUCTION_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
     )
 
 

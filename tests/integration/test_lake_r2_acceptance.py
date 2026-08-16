@@ -60,10 +60,10 @@ def _store() -> AwsCliR2Store:
 
 
 def _allow_tiny_pilot(monkeypatch: pytest.MonkeyPatch) -> None:
-    policy = lake_models.SHADOW_RELEASE_POLICY
+    policy = lake_models.PRODUCTION_RELEASE_POLICY
     monkeypatch.setattr(
         lake_models,
-        "SHADOW_RELEASE_POLICY",
+        "PRODUCTION_RELEASE_POLICY",
         policy.model_copy(
             update={
                 "datasets": tuple(

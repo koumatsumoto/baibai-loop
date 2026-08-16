@@ -6,6 +6,14 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 stores_bucket="${R2_STORES_BUCKET:-baibai-stores}"
 serving_bucket="${R2_SERVING_BUCKET:-baibai-serving}"
 generation_dir="${R2_GENERATION_DIR:-${repo_root}/stores/.r2-generations}"
+# The lake mirror is a fetch-through cache of immutable objects, so it is named next to
+# the stores rather than inside one: every key it holds begins with `lake/`, which is why
+# the mirror root is the directory the stores live in and not one of them.
+lake_mirror="${R2_LAKE_MIRROR:-${repo_root}/stores}"
+# Which release the local market store currently corresponds to. Written by the fill and
+# rewritten by the publication, so the emptying that follows a push knows exactly which
+# release accounts for the rows it is about to drop.
+lake_release_record="${generation_dir}/lake-release.json"
 copy_read_timeout=300
 transfer_staging=""
 transfer_config=""
@@ -179,6 +187,84 @@ merge_market_store() {
   merge_store baibai_batch.storage.merge_market_store "$1" "$2"
 }
 
+lake_release_field() {
+  # The record is written by this script and read only by this script, so a missing one
+  # is a call out of order rather than a corrupt file, and it says so.
+  local field="$1"
+  if [[ ! -s "${lake_release_record}" ]]; then
+    printf 'no L1 release recorded for the market store; hydrate it before this step\n' >&2
+    return 1
+  fi
+  (
+    cd "${repo_root}" || exit 1
+    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+      uv run python -c 'import json,sys;print(json.load(open(sys.argv[1]))[sys.argv[2]])' \
+        "${lake_release_record}" "${field}"
+  )
+}
+
+record_lake_release() {
+  local temporary
+  mkdir -p "${generation_dir}"
+  temporary="$(mktemp "${generation_dir}/.lake-release.XXXXXX")"
+  cat > "${temporary}"
+  mv -f "${temporary}" "${lake_release_record}"
+  cat "${lake_release_record}"
+}
+
+hydrate_market() {
+  # The store arrives from R2 holding only what the lake does not own. Filling it is
+  # what makes it the store every reader already expects, and it fails closed on the
+  # published row counts, so a fill that silently did nothing cannot reach screening.
+  (
+    cd "${repo_root}" || exit 1
+    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+      uv run baibai-engine lake hydrate \
+        --mirror "${lake_mirror}" \
+        --store "$(store_path market.sqlite)" \
+        --bucket "${stores_bucket}"
+  ) | record_lake_release
+}
+
+publish_lake() {
+  # Export the partitions the day changed on top of the release this store was filled
+  # from, seal them into a release, and switch the pointer. The base is named rather
+  # than resolved, so a lake that moved underneath this run is refused instead of
+  # silently republished without the other writer's rows.
+  local base sha
+  base="$(lake_release_field release_id)"
+  sha="$(lake_release_field release_manifest_sha256)"
+  (
+    cd "${repo_root}" || exit 1
+    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+      uv run python -m baibai_batch.storage.publish_market_lake \
+        --sqlite "$(store_path market.sqlite)" \
+        --mirror "${lake_mirror}" \
+        --bucket "${stores_bucket}" \
+        --base-release "${base}" \
+        --base-manifest-sha256 "${sha}"
+  ) | record_lake_release
+}
+
+dehydrate_market_snapshot() {
+  # Runs on the copy about to be uploaded, never on the working store. It refuses unless
+  # the named release accounts for every row it drops, so the object can only shrink
+  # after the rows are published.
+  local path="$1" base sha
+  base="$(lake_release_field release_id)"
+  sha="$(lake_release_field release_manifest_sha256)"
+  (
+    cd "${repo_root}" || exit 1
+    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+      uv run baibai-engine lake dehydrate \
+        --mirror "${lake_mirror}" \
+        --store "${path}" \
+        --bucket "${stores_bucket}" \
+        --release "${base}" \
+        --manifest-sha256 "${sha}"
+  )
+}
+
 remote_version() {
   # ETag identifies the stored object, so a push during the pull changes it.
   aws s3api head-object \
@@ -324,6 +410,15 @@ _push_keys() {
     source="$(store_path "${key}")"
     started="${SECONDS}"
     snapshot_sqlite "${source}" "${transfer_staging}/${key}"
+    # The copy that leaves here carries only what the lake does not hold — but only
+    # once the lake holds anything. A serving pointer is where that authority is
+    # declared, so it is read rather than assumed: before the first publication (an
+    # empty bucket being seeded) the store is still the only copy of those rows, and
+    # after it the emptying is mandatory rather than best-effort.
+    if [[ "${key}" == "market.sqlite" ]] \
+      && remote_object_exists "lake/pointers/l1/current.json"; then
+      dehydrate_market_snapshot "${transfer_staging}/${key}"
+    fi
     snapshot_seconds+=("$((SECONDS - started))")
   done
   local index=0
@@ -514,7 +609,7 @@ upload_run_summary() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-longlist-history DIR|pull-run-summary FILE|seed-all|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR|upload-run-summary FILE}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-longlist-history DIR|pull-run-summary FILE|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR|upload-run-summary FILE}\n' "$0" >&2
 }
 
 load_credentials
@@ -524,6 +619,15 @@ case "${1:-}" in
     ;;
   pull-machine)
     pull_keys market.sqlite runs.sqlite macro.sqlite
+    ;;
+  # The market store arrives holding only what the lake does not own; these two are the
+  # halves that put the rest in and take it back out. They are separate from the pull and
+  # the push because their time and their transfer are worth reporting on their own.
+  hydrate-market)
+    hydrate_market
+    ;;
+  publish-lake)
+    publish_lake
     ;;
   # A pass that only writes the market store round-trips the other two for nothing,
   # and pushing them back unchanged after hours would revert whatever else wrote them

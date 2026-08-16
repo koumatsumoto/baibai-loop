@@ -168,7 +168,7 @@ def _release_payload() -> dict[str, object]:
     return {
         "manifest_version": 1,
         "release_id": "20260812T130000Z-release",
-        "profile": "shadow",
+        "profile": "production",
         "created_at": "2026-08-12T13:00:00Z",
         "data_as_of": "2026-08-12",
         "datasets": {
@@ -340,7 +340,7 @@ def test_manifest_nested_mappings_are_immutable(monkeypatch: pytest.MonkeyPatch)
     release_payload = {
         "manifest_version": 1,
         "release_id": "release-1",
-        "profile": "shadow",
+        "profile": "production",
         "created_at": "2026-08-12T13:00:00Z",
         "data_as_of": "2026-08-12",
         "datasets": {
@@ -400,13 +400,13 @@ def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
                 "minimum_population_count": 1,
             }
         )
-        for item in lake_models.SHADOW_RELEASE_POLICY.datasets
+        for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
         if item.dataset in {"jquants.daily_bars", "jquants.short_sale_reports"}
     )
     monkeypatch.setattr(
         lake_models,
-        "SHADOW_RELEASE_POLICY",
-        lake_models.SHADOW_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
+        "PRODUCTION_RELEASE_POLICY",
+        lake_models.PRODUCTION_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
     )
     manifest = _load_dataset(_dataset_payload())
     short_sale = _load_dataset(
@@ -421,7 +421,7 @@ def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
     release_payload = {
         "manifest_version": 1,
         "release_id": "release-1",
-        "profile": "shadow",
+        "profile": "production",
         "created_at": "2026-08-13T00:00:00Z",
         "data_as_of": "2026-08-11",
         "datasets": {
@@ -507,9 +507,12 @@ def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
             {manifest.dataset: manifest},
             evaluated_at=evaluated_at,
         )
-    with pytest.raises(ValueError, match="production release policy is not configured"):
+    # `model_copy` does not revalidate, so this is how a manifest carrying a profile
+    # no policy is registered for reaches the gate: it must refuse rather than fall
+    # back to the one policy that does exist.
+    with pytest.raises(ValueError, match="release policy is not configured for profile"):
         validate_release_policy(
-            release.model_copy(update={"profile": "production"}),
+            release.model_copy(update={"profile": "retired"}),
             manifests,
             evaluated_at=evaluated_at,
         )
@@ -545,7 +548,7 @@ def test_pilot_policy_rejects_a_fresh_one_day_population(monkeypatch: pytest.Mon
         {
             "manifest_version": 1,
             "release_id": "one-day-release",
-            "profile": "shadow",
+            "profile": "production",
             "created_at": datetime(2026, 8, 13, tzinfo=UTC),
             "data_as_of": date(2026, 8, 12),
             "datasets": {

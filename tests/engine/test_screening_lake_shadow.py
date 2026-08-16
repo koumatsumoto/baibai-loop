@@ -111,14 +111,14 @@ def frozen_lake(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
                 "max_lead_days": 10_000,
             }
         )
-        for item in lake_models.SHADOW_RELEASE_POLICY.datasets
+        for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
         if item.dataset in {"jquants.daily_bars", "jquants.short_sale_reports"}
     )
     patcher = pytest.MonkeyPatch()
     patcher.setattr(
         lake_models,
-        "SHADOW_RELEASE_POLICY",
-        lake_models.SHADOW_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
+        "PRODUCTION_RELEASE_POLICY",
+        lake_models.PRODUCTION_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
     )
 
     root = tmp_path_factory.mktemp("shadow")

@@ -235,8 +235,7 @@ def _require_contract_shape(connection: sqlite3.Connection, dataset: LakeDataset
     """
 
     actual = tuple(
-        str(row[1])
-        for row in connection.execute(f"PRAGMA table_info({dataset.sqlite_table})")  # nosec B608
+        str(row[1]) for row in connection.execute(f"PRAGMA table_info({dataset.sqlite_table})")
     )
     expected = tuple(column.name for column in dataset.columns)
     if actual != expected:
@@ -265,7 +264,7 @@ def _detach_secondary_indexes(
         )
     )
     for name, _ in declared:
-        connection.execute(f"DROP INDEX {name}")  # nosec B608
+        connection.execute(f"DROP INDEX {name}")
     return tuple(statement for _, statement in declared)
 
 

@@ -98,6 +98,17 @@ export interface WorkflowRunSummaryView {
   execution: RunExecutionView
   delivery: { status: string; detail: string | null }
   workflow_errors: RunErrorView[]
+  // What the run published to the L1 lake. Null when the run never reached the
+  // publication, which is a different fact from a publication that moved nothing.
+  lake: LakeReleaseView | null
+}
+
+export interface LakeReleaseView {
+  release_id: string
+  data_as_of: string
+  changed_partitions: number
+  uploaded_objects: number
+  uploaded_bytes: number
 }
 
 export interface HoldingView {
