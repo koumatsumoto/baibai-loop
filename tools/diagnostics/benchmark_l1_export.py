@@ -15,7 +15,7 @@ from pathlib import Path
 from baibai_engine.foundation.filesystem import write_bytes_atomic
 from baibai_engine.market.lake.identity import verified_git_commit
 from baibai_engine.market.lake.objects import sha256_file
-from baibai_engine.market.lake.writer import LakePilotBuildReport, export_pilot_legacy
+from baibai_engine.market.lake.writer import LakeExportReport, export_lake_legacy
 from baibai_engine.market.sqlite.snapshot import create_snapshot
 
 
@@ -39,7 +39,7 @@ def _implementation_sha256() -> str:
     return digest.hexdigest()
 
 
-def _report_build(build: LakePilotBuildReport) -> dict[str, object]:
+def _report_build(build: LakeExportReport) -> dict[str, object]:
     return {
         name: {
             "rows": result.manifest.totals.rows,
@@ -55,7 +55,7 @@ def _report_build(build: LakePilotBuildReport) -> dict[str, object]:
     }
 
 
-def _object_inventory(build: LakePilotBuildReport) -> dict[str, int]:
+def _object_inventory(build: LakeExportReport) -> dict[str, int]:
     return {
         item.key: item.bytes
         for result in build.datasets.values()
@@ -89,7 +89,7 @@ def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> 
         source_sha256 = sha256_file(working_sqlite)
 
         started = time.perf_counter()
-        full = export_pilot_legacy(
+        full = export_lake_legacy(
             sqlite_path=working_sqlite,
             mirror_root=mirror,
             producer_git_commit=producer_commit,
@@ -100,7 +100,7 @@ def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> 
         corrected_month = _inject_one_month_correction(working_sqlite)
         incremental_source_sha256 = sha256_file(working_sqlite)
         started = time.perf_counter()
-        incremental = export_pilot_legacy(
+        incremental = export_lake_legacy(
             sqlite_path=working_sqlite,
             mirror_root=mirror,
             producer_git_commit=producer_commit,

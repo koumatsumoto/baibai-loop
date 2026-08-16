@@ -29,7 +29,7 @@ from typing import Literal, TextIO
 import yaml
 
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.market.lake.datasets import PILOT_DATASETS, LakeDataset
+from baibai_engine.market.lake.datasets import LAKE_DATASETS, LakeDataset
 from baibai_engine.market.lake.models import SQLiteSnapshotSourceRef
 from baibai_engine.market.lake.objects import sha256_file
 from baibai_engine.market.lake.projection import (
@@ -198,10 +198,10 @@ def build_shadow_store(
 
 def _projection_datasets(entries: Sequence[ProjectionDataset]) -> tuple[LakeDataset, ...]:
     names = tuple(entry.dataset for entry in entries)
-    unknown = [name for name in names if name not in PILOT_DATASETS]
+    unknown = [name for name in names if name not in LAKE_DATASETS]
     if unknown:
         raise LakeShadowError(f"projection holds a dataset this shadow cannot place: {unknown[0]}")
-    return tuple(PILOT_DATASETS[name] for name in sorted(names))
+    return tuple(LAKE_DATASETS[name] for name in sorted(names))
 
 
 def _replace_table(connection: sqlite3.Connection, dataset: LakeDataset) -> int:

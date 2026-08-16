@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Literal, cast
 from urllib.parse import urlsplit, urlunsplit
 
-from .datasets import require_pilot_dataset
+from .datasets import require_lake_dataset
 from .immutable import ImmutableInstallError, install_immutable_bytes, install_immutable_file
 from .keys import raw_metadata_object_key, raw_object_key
 from .models import (
@@ -49,7 +49,7 @@ def archive_raw_file(
     """Capture one finalized source pass and atomically install Raw plus metadata."""
     if provider != "jquants":
         raise RawArchiveError("Phase 1 Raw archive accepts provider='jquants' only")
-    require_pilot_dataset(dataset)
+    require_lake_dataset(dataset)
     if not source_path.is_file() or source_path.is_symlink():
         raise RawArchiveError("Raw source must be a finalized regular file")
     if request_start is not None and request_end is not None and request_start > request_end:

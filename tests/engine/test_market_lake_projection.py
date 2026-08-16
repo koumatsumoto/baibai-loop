@@ -82,6 +82,10 @@ def resolve_current_release(source: object):
 
 @pytest.fixture(autouse=True)
 def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These fixtures build the two datasets the projection tests exercise, so the
+    # profile is narrowed to them: a policy that still required the other thirteen would
+    # refuse every fixture release for being incomplete, which is a fact about the
+    # fixture rather than about the code under test.
     datasets = tuple(
         item.model_copy(
             update={
@@ -92,12 +96,13 @@ def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
                 "max_lead_days": 366,
             }
         )
-        for item in lake_models.PILOT_RELEASE_POLICY.datasets
+        for item in lake_models.SHADOW_RELEASE_POLICY.datasets
+        if item.dataset in {"jquants.daily_bars", "jquants.short_sale_reports"}
     )
     monkeypatch.setattr(
         lake_models,
-        "PILOT_RELEASE_POLICY",
-        lake_models.PILOT_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
+        "SHADOW_RELEASE_POLICY",
+        lake_models.SHADOW_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
     )
 
 

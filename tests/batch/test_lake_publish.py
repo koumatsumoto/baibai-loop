@@ -39,8 +39,8 @@ from baibai_engine.market.lake.release import (
     create_l1_release,
 )
 from baibai_engine.market.lake.writer import (
+    export_lake_legacy,
     export_legacy_sqlite,
-    export_pilot_legacy,
     sealed_sqlite_snapshot,
 )
 from baibai_engine.market.sqlite import open_connection
@@ -325,14 +325,17 @@ def _fixed_publication_clock(monkeypatch: pytest.MonkeyPatch) -> None:
                 "coverage_start_on_or_before": date.max,
                 "minimum_rows": 1,
                 "minimum_population_count": 1,
+                "max_age_days": 10_000,
+                "max_lead_days": 10_000,
             }
         )
-        for item in lake_models.PILOT_RELEASE_POLICY.datasets
+        for item in lake_models.SHADOW_RELEASE_POLICY.datasets
+        if item.dataset in {"jquants.daily_bars", "jquants.short_sale_reports"}
     )
     monkeypatch.setattr(
         lake_models,
-        "PILOT_RELEASE_POLICY",
-        lake_models.PILOT_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
+        "SHADOW_RELEASE_POLICY",
+        lake_models.SHADOW_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
     )
 
 
@@ -998,7 +1001,7 @@ def _two_month_release(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, Path
     connection.commit()
     connection.close()
     mirror = tmp_path / "mirror"
-    build = export_pilot_legacy(
+    build = export_lake_legacy(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit="a" * 40,
@@ -1033,7 +1036,7 @@ def test_a_one_month_correction_moves_only_that_month(
     connection.execute("UPDATE jquants_daily_bars SET close = 9.0 WHERE traded_at = '2026-02-04'")
     connection.commit()
     connection.close()
-    corrected = export_pilot_legacy(
+    corrected = export_lake_legacy(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit="a" * 40,

@@ -1,4 +1,4 @@
-"""Write-side CLI for the concrete Phase 1 lake pilot."""
+"""Write-side CLI for the L1 canonical lake."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from .datasets import PILOT_DATASETS
+from .datasets import LAKE_DATASETS
 from .duck import LakeCredentialError
 from .identity import source_repo_root, verified_git_commit
 from .models import DatasetManifest, L1ReleaseSourceRef, load_lake_model_json
@@ -24,7 +24,7 @@ from .reader import (
 )
 from .release import create_l1_release
 from .retention import LakeRetentionError, apply_gc, plan_gc
-from .writer import export_legacy_sqlite, export_pilot_legacy, sealed_sqlite_snapshot
+from .writer import export_lake_legacy, export_legacy_sqlite, sealed_sqlite_snapshot
 
 _AUDIT_HELP = (
     "re-derive every carried month from SQLite as well as the months this build wrote; "
@@ -32,7 +32,7 @@ _AUDIT_HELP = (
 )
 
 WRITE_COMMANDS = frozenset(
-    {"archive-raw", "export-legacy", "export-pilot", "gc", "projection", "release"}
+    {"archive-raw", "export-all", "export-legacy", "gc", "projection", "release"}
 )
 
 
@@ -44,7 +44,7 @@ def main(argv: list[str]) -> int:
     raw.add_argument("--source-file", type=Path, required=True)
     raw.add_argument("--mirror", type=Path, required=True)
     raw.add_argument("--provider", choices=("jquants",), default="jquants")
-    raw.add_argument("--dataset", choices=sorted(PILOT_DATASETS), required=True)
+    raw.add_argument("--dataset", choices=sorted(LAKE_DATASETS), required=True)
     raw.add_argument("--ingest-id", required=True)
     raw.add_argument("--suffix", required=True)
     raw.add_argument("--retention", choices=tuple(RawRetentionClass), required=True)
@@ -55,7 +55,7 @@ def main(argv: list[str]) -> int:
     export = commands.add_parser(
         "export-legacy", help="export affected SQLite months as canonical Parquet"
     )
-    export.add_argument("--dataset", choices=sorted(PILOT_DATASETS), required=True)
+    export.add_argument("--dataset", choices=sorted(LAKE_DATASETS), required=True)
     export.add_argument("--sqlite", type=Path, required=True)
     export.add_argument("--mirror", type=Path, required=True)
     export.add_argument("--from", dest="start", type=date.fromisoformat)
@@ -69,13 +69,13 @@ def main(argv: list[str]) -> int:
         help=_AUDIT_HELP,
     )
 
-    pilot = commands.add_parser(
-        "export-pilot", help="export both pilot datasets from one sealed SQLite snapshot"
+    export_all = commands.add_parser(
+        "export-all", help="export every lake dataset from one sealed SQLite snapshot"
     )
-    pilot.add_argument("--sqlite", type=Path, required=True)
-    pilot.add_argument("--mirror", type=Path, required=True)
-    pilot.add_argument("--base-manifest", type=Path, action="append", default=[])
-    pilot.add_argument(
+    export_all.add_argument("--sqlite", type=Path, required=True)
+    export_all.add_argument("--mirror", type=Path, required=True)
+    export_all.add_argument("--base-manifest", type=Path, action="append", default=[])
+    export_all.add_argument(
         "--audit",
         action="store_true",
         help=_AUDIT_HELP,
@@ -108,7 +108,7 @@ def main(argv: list[str]) -> int:
         "--release-ref", type=Path, help="build a typed digest-pinned release reference"
     )
     build.add_argument("--manifest-sha256", help="required digest when --release is used")
-    build.add_argument("--dataset", action="append", default=[], choices=sorted(PILOT_DATASETS))
+    build.add_argument("--dataset", action="append", default=[], choices=sorted(LAKE_DATASETS))
     build.add_argument("--force", action="store_true")
 
     gc = commands.add_parser("gc", help="plan or apply deletion of unreachable objects")
@@ -175,14 +175,14 @@ def main(argv: list[str]) -> int:
             )
         )
         return 0
-    if args.command == "export-pilot":
+    if args.command == "export-all":
         bases: dict[str, Path] = {}
         for path in args.base_manifest:
             manifest = load_lake_model_json(path.read_bytes(), DatasetManifest)
             if manifest.dataset in bases:
                 raise RuntimeError(f"duplicate base manifest: {manifest.dataset}")
             bases[manifest.dataset] = path
-        pilot_report = export_pilot_legacy(
+        export_report = export_lake_legacy(
             sqlite_path=args.sqlite,
             mirror_root=args.mirror,
             producer_git_commit=_git_commit(),
@@ -194,10 +194,10 @@ def main(argv: list[str]) -> int:
                 {
                     "manifests": {
                         name: str(item.manifest_path)
-                        for name, item in pilot_report.datasets.items()
+                        for name, item in export_report.datasets.items()
                     },
-                    "snapshot_source_id": pilot_report.snapshot.source_id,
-                    "snapshot_sha256": pilot_report.snapshot.sha256,
+                    "snapshot_source_id": export_report.snapshot.source_id,
+                    "snapshot_sha256": export_report.snapshot.sha256,
                 },
                 sort_keys=True,
             )
@@ -228,7 +228,7 @@ def main(argv: list[str]) -> int:
 def _projection_build(args: argparse.Namespace) -> int:
     """Resolve one release, then materialize it into a disposable SQLite projection."""
 
-    datasets = tuple(dict.fromkeys(args.dataset)) or tuple(sorted(PILOT_DATASETS))
+    datasets = tuple(dict.fromkeys(args.dataset)) or tuple(sorted(LAKE_DATASETS))
     commit = _git_commit()
     try:
         with open_lake(mirror=args.mirror, bucket=args.bucket) as (session, cache):
@@ -330,7 +330,7 @@ commands:
   resolve            resolve one fixed release and print its immutable identity
   archive-raw        archive original provider bytes append-only
   export-legacy      export affected SQLite months as canonical Parquet
-  export-pilot       export both pilot datasets from one sealed SQLite snapshot
+  export-all         export every lake dataset from one sealed SQLite snapshot
   release create     create an immutable L1 release manifest
   projection build   materialize a local SQLite projection of one fixed release
   gc                 plan (default) or apply deletion of unreachable objects

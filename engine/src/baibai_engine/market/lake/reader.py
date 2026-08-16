@@ -25,7 +25,7 @@ from types import MappingProxyType
 import duckdb
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
-from .datasets import LakeDataset, require_pilot_dataset
+from .datasets import LakeDataset, require_lake_dataset
 from .duck import LakeSession
 from .keys import (
     current_l1_pointer_key,
@@ -232,7 +232,7 @@ def _load_release(
 def accepted_dataset(release: FixedRelease, dataset_name: str) -> LakeDataset:
     """The dataset contract this reader accepts, or an error naming the mismatch."""
 
-    dataset = require_pilot_dataset(dataset_name)
+    dataset = require_lake_dataset(dataset_name)
     manifest = release.dataset_manifest(dataset_name)
     if manifest.contract_version != dataset.contract_version:
         raise LakeReadError(

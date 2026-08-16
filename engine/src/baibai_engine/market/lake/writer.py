@@ -22,13 +22,13 @@ from baibai_engine.market.sqlite.snapshot import create_snapshot, validate_snaps
 
 from ..sqlite.coverage import daily_bars_covered_by_data, range_covered
 from .datasets import (
-    PILOT_DATASETS,
+    LAKE_DATASETS,
     LakeDataset,
     Period,
     period_bounds,
     period_label,
     period_values,
-    require_pilot_dataset,
+    require_lake_dataset,
 )
 from .immutable import ImmutableInstallError, install_immutable_bytes, install_immutable_file
 from .keys import canonical_object_key, dataset_manifest_key, validate_identifier
@@ -72,9 +72,11 @@ class LakeBuildPlan:
 
 
 @dataclass(frozen=True)
-class LakePilotBuildReport:
+class LakeExportReport:
     snapshot: SQLiteSnapshotSourceRef
     datasets: Mapping[str, LakeBuildReport]
+    empty_datasets: tuple[str, ...] = ()
+    """Datasets the registry declares whose source has not published a row yet."""
 
 
 @dataclass(frozen=True)
@@ -163,7 +165,7 @@ def export_legacy_sqlite(
     """Build whole affected months and reuse all unaffected base-manifest objects.
 
     The sealed snapshot is passed in rather than captured here: it belongs to the
-    operation, and a pilot export writes two datasets from one seal.
+    operation, and one export writes every dataset from one seal.
 
     Parity is checked on the months this build wrote. A carried object is addressed by
     the digest of its own bytes, so "unchanged" is an identity rather than a claim to
@@ -179,7 +181,7 @@ def export_legacy_sqlite(
         raise LakeBuildError("start and end must be supplied together")
     if start is not None and end is not None and start > end:
         raise LakeBuildError("start must not be after end")
-    dataset = require_pilot_dataset(dataset_name)
+    dataset = require_lake_dataset(dataset_name)
     now = (created_at or datetime.now(UTC)).astimezone(UTC)
     transform = _transform_fingerprint(dataset)
     actual_build_id = build_id or (
@@ -320,7 +322,7 @@ def export_legacy_sqlite(
         raise LakeBuildError(str(exc)) from exc
 
 
-def export_pilot_legacy(
+def export_lake_legacy(
     *,
     sqlite_path: Path,
     mirror_root: Path,
@@ -328,13 +330,23 @@ def export_pilot_legacy(
     base_manifest_paths: Mapping[str, Path] | None = None,
     created_at: datetime | None = None,
     audit_full_history: bool = False,
-) -> LakePilotBuildReport:
-    """Export both pilot datasets from one sealed SQLite generation."""
+) -> LakeExportReport:
+    """Export every lake dataset from one sealed SQLite generation."""
     bases = dict(base_manifest_paths or {})
-    unknown = set(bases) - set(PILOT_DATASETS)
+    unknown = set(bases) - set(LAKE_DATASETS)
     if unknown:
         raise LakeBuildError(f"unsupported base manifest datasets: {sorted(unknown)}")
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
+        with _open_immutable(snapshot.path) as probe:
+            # A dataset whose source has not started publishing yet holds no row, and a
+            # canonical build with no partition is not a release input. Skipping it keeps
+            # "this source has not begun" distinct from "this build failed", which is the
+            # difference an operator needs on the day the source does begin.
+            populated = tuple(
+                name for name in sorted(LAKE_DATASETS) if _has_rows(probe, LAKE_DATASETS[name])
+            )
+        if not populated:
+            raise LakeBuildError("no lake dataset holds a row in this SQLite generation")
         reports = {
             dataset_name: export_legacy_sqlite(
                 dataset_name=dataset_name,
@@ -345,9 +357,20 @@ def export_pilot_legacy(
                 created_at=created_at,
                 audit_full_history=audit_full_history,
             )
-            for dataset_name in sorted(PILOT_DATASETS)
+            for dataset_name in populated
         }
-        return LakePilotBuildReport(snapshot=snapshot.ref, datasets=MappingProxyType(reports))
+        return LakeExportReport(
+            snapshot=snapshot.ref,
+            datasets=MappingProxyType(reports),
+            empty_datasets=tuple(name for name in sorted(LAKE_DATASETS) if name not in reports),
+        )
+
+
+def _has_rows(connection: sqlite3.Connection, dataset: LakeDataset) -> bool:
+    row = connection.execute(
+        f"SELECT 1 FROM {dataset.sqlite_table} LIMIT 1"  # nosec B608
+    ).fetchone()
+    return row is not None
 
 
 def validate_legacy_parity(
@@ -367,7 +390,7 @@ def validate_legacy_parity(
     wrote. Passing ``None`` compares every partition, which is what a first export does
     by construction and what an explicit audit asks for.
     """
-    dataset = require_pilot_dataset(manifest.dataset)
+    dataset = require_lake_dataset(manifest.dataset)
     selected = None if periods is None else set(periods)
     with _open_immutable(sqlite_path) as connection:
         _validate_sqlite_contract(connection, dataset)
@@ -401,7 +424,7 @@ def plan_affected_periods(
     sqlite_path: Path,
     base_manifest_path: Path,
 ) -> LakeBuildPlan:
-    dataset = require_pilot_dataset(dataset_name)
+    dataset = require_lake_dataset(dataset_name)
     transform = _transform_fingerprint(dataset)
     base = _load_base_manifest(base_manifest_path, dataset, transform=transform)
     assert base is not None

@@ -19,7 +19,7 @@ from typing import Any
 
 import duckdb
 
-from baibai_engine.market.lake.datasets import PILOT_DATASETS
+from baibai_engine.market.lake.datasets import LAKE_DATASETS
 from baibai_engine.market.lake.identity import verified_git_commit
 from baibai_engine.market.lake.objects import open_lake
 from baibai_engine.market.lake.projection import ProjectionError, build_projection
@@ -119,12 +119,12 @@ def _query_evidence(path: Path) -> dict[str, object]:
         quick_check = connection.execute("PRAGMA quick_check").fetchone()
         rows = {
             name: int(
-                # The table name comes from the fixed PILOT_DATASETS contract.
+                # The table name comes from the fixed LAKE_DATASETS contract.
                 connection.execute(
                     f"SELECT COUNT(*) FROM {dataset.sqlite_table}"  # nosec B608
                 ).fetchone()[0]
             )
-            for name, dataset in sorted(PILOT_DATASETS.items())
+            for name, dataset in sorted(LAKE_DATASETS.items())
         }
         stats = int(connection.execute("SELECT COUNT(*) FROM sqlite_stat1").fetchone()[0])
     if quick_check != ("ok",):
@@ -200,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
                     release=release,
                     cache=cache,
                     destination=args.projection,
-                    dataset_names=tuple(sorted(PILOT_DATASETS)),
+                    dataset_names=tuple(sorted(LAKE_DATASETS)),
                     builder_git_commit=builder_git_commit,
                     force=True,
                 ),
@@ -212,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
                     release=release,
                     cache=cache,
                     destination=args.projection,
-                    dataset_names=tuple(sorted(PILOT_DATASETS)),
+                    dataset_names=tuple(sorted(LAKE_DATASETS)),
                     builder_git_commit=builder_git_commit,
                 ),
                 parent=args.projection.parent,

@@ -32,7 +32,7 @@ from pathlib import Path
 
 import duckdb
 
-from .datasets import PILOT_DATASETS, LakeDataset
+from .datasets import LAKE_DATASETS, LakeDataset
 from .duck import LakeSession
 from .models import PartitionManifest
 from .objects import LakeObjectCache, TransferAccounting, sha256_file
@@ -477,7 +477,7 @@ def _projection_is_intact(
             if set(stored_integrity) != set(names):
                 return False
             for name in names:
-                dataset = PILOT_DATASETS.get(name)
+                dataset = LAKE_DATASETS.get(name)
                 if dataset is None:
                     return False
                 count = int(
