@@ -121,8 +121,8 @@ def columns(connection: sqlite3.Connection, table: str, *, schema: str) -> Seque
     return [store_column(str(row[1])) for row in connection.execute(statement)]
 
 
-def count(connection: sqlite3.Connection, sql: str) -> int:
-    row = connection.execute(sql).fetchone()
+def count(connection: sqlite3.Connection, sql: str, parameters: Sequence[object] = ()) -> int:
+    row = connection.execute(sql, parameters).fetchone()
     if row is None:
         raise MergeError(f"query returned no row: {sql}")
     return int(row[0])

@@ -15,7 +15,6 @@ from .hydrate import LakeHydrateError, dehydrate_market_store, hydrate_market_st
 from .identity import source_repo_root, verified_git_commit
 from .models import DatasetManifest, L1ReleaseSourceRef, load_lake_model_json
 from .objects import LakeObjectError, LakeObjectSource, open_lake
-from .projection import ProjectionError, build_projection
 from .raw import RawRetentionClass, archive_raw_file, raw_source_ref
 from .reader import (
     FixedRelease,
@@ -41,7 +40,6 @@ WRITE_COMMANDS = frozenset(
         "export-legacy",
         "gc",
         "hydrate",
-        "projection",
         "release",
     }
 )
@@ -98,16 +96,6 @@ def main(argv: list[str]) -> int:
     create.add_argument("--dataset-manifest", type=Path, action="append", required=True)
     create.add_argument("--mirror", type=Path, required=True)
     create.add_argument("--release-id")
-
-    projection = commands.add_parser(
-        "projection", help="materialize a local SQLite projection of one fixed release"
-    )
-    projection_commands = projection.add_subparsers(dest="projection_command", required=True)
-    build = projection_commands.add_parser("build")
-    build.add_argument("--mirror", type=Path, required=True)
-    build.add_argument("--projection", type=Path, required=True)
-    _add_release_target(build)
-    build.add_argument("--force", action="store_true")
 
     hydrate = commands.add_parser(
         "hydrate", help="fill a market SQLite store's lake tables from one fixed release"
@@ -219,8 +207,6 @@ def main(argv: list[str]) -> int:
             )
         )
         return 0
-    if args.command == "projection":
-        return _projection_build(args)
     if args.command == "gc":
         return _gc(args)
     path, release_manifest = create_l1_release(
@@ -301,51 +287,6 @@ def _selected_datasets(args: argparse.Namespace, release: FixedRelease) -> tuple
     return requested or tuple(sorted(release.dataset_manifests))
 
 
-def _projection_build(args: argparse.Namespace) -> int:
-    """Resolve one release, then materialize it into a disposable SQLite projection."""
-
-    commit = _git_commit()
-    try:
-        with open_lake(mirror=args.mirror, bucket=args.bucket) as (session, cache):
-            release, still_current = _resolve_release_target(args, cache.source)
-            report = build_projection(
-                session,
-                release=release,
-                cache=cache,
-                destination=args.projection,
-                dataset_names=_selected_datasets(args, release),
-                builder_git_commit=commit,
-                still_current=still_current,
-                force=args.force,
-            )
-    except (
-        LakeCredentialError,
-        LakeObjectError,
-        LakeReadError,
-        ProjectionError,
-        OSError,
-        ValueError,
-    ) as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 1
-    print(
-        json.dumps(
-            {
-                "built_at": report.built_at.isoformat(),
-                "data_as_of": report.identity.data_as_of.isoformat(),
-                "objects": len(report.identity.objects),
-                "projection": str(report.path),
-                "release_id": report.identity.source_release_id,
-                "reused": report.reused,
-                "rows": dict(sorted(report.rows.items())),
-                **report.transfers.as_dict(),
-            },
-            sort_keys=True,
-        )
-    )
-    return 0
-
-
 def _hydrate(args: argparse.Namespace) -> int:
     """Resolve one release, then fill the market store's lake-owned tables from it."""
 
@@ -365,7 +306,6 @@ def _hydrate(args: argparse.Namespace) -> int:
         LakeHydrateError,
         LakeObjectError,
         LakeReadError,
-        ProjectionError,
         OSError,
         ValueError,
     ) as error:
@@ -387,7 +327,6 @@ def _dehydrate(args: argparse.Namespace) -> int:
         LakeHydrateError,
         LakeObjectError,
         LakeReadError,
-        ProjectionError,
         OSError,
         ValueError,
     ) as error:
@@ -430,7 +369,6 @@ commands:
   export-legacy      export affected SQLite months as canonical Parquet
   export-all         export every lake dataset from one sealed SQLite snapshot
   release create     create an immutable L1 release manifest
-  projection build   materialize a local SQLite projection of one fixed release
   hydrate            fill a market SQLite store's lake tables from one fixed release
   dehydrate          empty a market SQLite copy of every row one release holds
   gc                 plan (default) or apply deletion of unreachable objects

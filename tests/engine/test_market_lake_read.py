@@ -19,8 +19,7 @@ import pytest
 from baibai_engine.market.lake import duck as duck_module
 from baibai_engine.market.lake import hydrate as hydrate_module
 from baibai_engine.market.lake import models as lake_models
-from baibai_engine.market.lake import projection as projection_module
-from baibai_engine.market.lake.datasets import JQUANTS_DAILY_BARS, JQUANTS_SHORT_SALE_REPORTS
+from baibai_engine.market.lake.datasets import JQUANTS_DAILY_BARS
 from baibai_engine.market.lake.duck import (
     LakeCredentialError,
     LakeSession,
@@ -50,12 +49,6 @@ from baibai_engine.market.lake.objects import (
     mirror_path,
     mirror_root,
     sha256_file,
-)
-from baibai_engine.market.lake.projection import (
-    ProjectionError,
-    build_projection,
-    projection_fingerprint,
-    read_projection_identity,
 )
 from baibai_engine.market.lake.reader import (
     LakeReadError,
@@ -88,7 +81,7 @@ def resolve_current_release(source: object):
 
 @pytest.fixture(autouse=True)
 def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
-    # These fixtures build the two datasets the projection tests exercise, so the
+    # These fixtures build the two datasets these tests exercise, so the
     # profile is narrowed to them: a policy that still required the other thirteen would
     # refuse every fixture release for being incomplete, which is a fact about the
     # fixture rather than about the code under test.
@@ -278,29 +271,6 @@ def _cache(lake: Lake, *, recording: RecordingSource | None = None) -> LakeObjec
     return LakeObjectCache(root=lake.mirror, source=source)
 
 
-def _build(
-    session: LakeSession,
-    lake: Lake,
-    *,
-    destination: Path,
-    cache: LakeObjectCache | None = None,
-    commit: str = _COMMIT,
-    force: bool = False,
-):
-    used = cache or _cache(lake)
-    release = resolve_current_release(used.source)
-    return build_projection(
-        session,
-        release=release,
-        cache=used,
-        destination=destination,
-        dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
-        builder_git_commit=commit,
-        force=force,
-        built_at=_BUILT_AT,
-    )
-
-
 class TestFixedRelease:
     def test_pointer_is_read_once_and_a_mid_run_switch_does_not_change_the_input(
         self, session: LakeSession, lake: Lake, tmp_path: Path
@@ -314,28 +284,28 @@ class TestFixedRelease:
             (newer.mirror / current_l1_pointer_key()).read_bytes()
         )
 
-        report = build_projection(
+        report = hydrate_market_store(
             session,
             release=release,
             cache=cache,
-            destination=tmp_path / "projection.sqlite",
+            store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
             dataset_names=("jquants.daily_bars",),
-            builder_git_commit=_COMMIT,
-            built_at=_BUILT_AT,
         )
 
-        assert report.identity.source_release_id == "release-one"
+        assert report.release_id == "release-one"
         assert recording.reads.count(current_l1_pointer_key()) == 1
 
     def test_a_run_reads_only_lake_keys_and_never_the_legacy_sqlite(
         self, session: LakeSession, lake: Lake, tmp_path: Path
     ) -> None:
         recording = RecordingSource(LocalMirrorSource(lake.mirror))
-        _build(
+        cache = _cache(lake, recording=recording)
+        hydrate_market_store(
             session,
-            lake,
-            destination=tmp_path / "projection.sqlite",
-            cache=_cache(lake, recording=recording),
+            release=resolve_current_release(cache.source),
+            cache=cache,
+            store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
+            dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
         )
 
         assert recording.reads
@@ -785,24 +755,20 @@ class TestObjectIntegrity:
             manifest_sha256=_release_digest(remote, lake.release_id),
         )
 
-        first = build_projection(
+        first = hydrate_market_store(
             session,
             release=release,
             cache=cache,
-            destination=tmp_path / "projection.sqlite",
+            store=_dehydrated(lake, tmp_path / "first.sqlite"),
             dataset_names=("jquants.daily_bars",),
-            builder_git_commit=_COMMIT,
-            built_at=_BUILT_AT,
         )
         second_cache = LakeObjectCache(root=empty_cache_root, source=LocalMirrorSource(remote))
-        build_projection(
+        hydrate_market_store(
             session,
             release=release,
             cache=second_cache,
-            destination=tmp_path / "projection-2.sqlite",
+            store=_dehydrated(lake, tmp_path / "second.sqlite"),
             dataset_names=("jquants.daily_bars",),
-            builder_git_commit=_COMMIT,
-            built_at=_BUILT_AT,
         )
 
         assert first.transfers.fetched_objects == 2
@@ -810,461 +776,6 @@ class TestObjectIntegrity:
         assert first.transfers.reused_objects == 0
         assert second_cache.transfers.fetched_objects == 0
         assert second_cache.transfers.reused_bytes == first.transfers.fetched_bytes
-
-
-class TestProjection:
-    def test_projection_holds_the_release_rows_and_its_source_identity(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        destination = tmp_path / "projection.sqlite"
-
-        report = _build(session, lake, destination=destination)
-
-        assert report.reused is False
-        assert report.rows == {"jquants.daily_bars": 4, "jquants.short_sale_reports": 2}
-        with sqlite3.connect(destination) as connection:
-            bars = connection.execute(
-                "SELECT ticker, traded_at, close FROM jquants_daily_bars ORDER BY ticker, traded_at"
-            ).fetchall()
-            indexes = connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_%' "
-                "ORDER BY name"
-            ).fetchall()
-        assert bars == [
-            ("1301", "2026-01-05", 100.0),
-            ("1301", "2026-01-20", 105.0),
-            ("1301", "2026-02-02", 110.0),
-            ("7203", "2026-01-05", 200.0),
-        ]
-        assert [name for (name,) in indexes] == [
-            "idx_jquants_daily_bars_traded_at",
-            "idx_jquants_short_sale_reports_ticker",
-        ]
-        identity = read_projection_identity(destination)
-        assert identity is not None
-        assert (
-            identity.source_release_manifest_sha256
-            == report.identity.source_release_manifest_sha256
-        )
-
-    def test_projection_shape_matches_the_legacy_sqlite_contract(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        """Columns and indexes both, since a drop-in replacement is judged on both.
-
-        The projection declares its own DDL, so a change to the market schema that
-        is not mirrored here has to turn this red. Comparing structure rather than
-        DDL text keeps the check independent of how each side spells its statement.
-        """
-
-        destination = tmp_path / "projection.sqlite"
-        _build(session, lake, destination=destination)
-
-        for dataset in (JQUANTS_DAILY_BARS, JQUANTS_SHORT_SALE_REPORTS):
-            with (
-                sqlite3.connect(destination) as projection,
-                sqlite3.connect(lake.sqlite_path) as legacy,
-            ):
-                assert _table_shape(projection, dataset.sqlite_table) == _table_shape(
-                    legacy, dataset.sqlite_table
-                )
-
-    def test_identical_inputs_reuse_the_projection_without_rebuilding(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        destination = tmp_path / "projection.sqlite"
-        first = _build(session, lake, destination=destination)
-        stamp = destination.stat().st_mtime_ns
-
-        second = _build(session, lake, destination=destination)
-
-        assert second.reused is True
-        assert second.identity == first.identity
-        assert destination.stat().st_mtime_ns == stamp
-
-    def test_a_commit_that_changes_no_projection_input_reuses(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        destination = tmp_path / "projection.sqlite"
-        first = _build(session, lake, destination=destination)
-
-        second = _build(session, lake, destination=destination, commit=_OTHER_COMMIT)
-
-        assert second.reused is True
-        assert second.identity == first.identity
-
-    @pytest.mark.parametrize("module_name", ["projection.py", "reader.py", "datasets.py"])
-    def test_a_changed_projection_implementation_rebuilds(
-        self,
-        session: LakeSession,
-        lake: Lake,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        module_name: str,
-    ) -> None:
-        """The code that turns objects into tables decides the projection's bytes."""
-
-        destination = tmp_path / "projection.sqlite"
-        first = _build(session, lake, destination=destination)
-        target = Path(projection_module.__file__).resolve().with_name(module_name)
-        assert target.is_file()
-        real = projection_module.sha256_file
-        monkeypatch.setattr(
-            projection_module,
-            "sha256_file",
-            lambda path: "0" * 64 if path == target else real(path),
-        )
-
-        second = _build(session, lake, destination=destination)
-
-        assert second.reused is False
-        assert second.identity.projection_fingerprint != first.identity.projection_fingerprint
-
-    def test_an_upgraded_decoder_rebuilds(
-        self,
-        session: LakeSession,
-        lake: Lake,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """A projection is Parquet decoded by DuckDB and written through SQLite.
-
-        A release, its manifests, and this repository's code are all byte-identical
-        across a dependency upgrade, so a fingerprint made only of those says the stored
-        projection is still current — exactly when a corrected type conversion means it
-        is not, and exactly when nothing else would notice.
-        """
-
-        destination = tmp_path / "projection.sqlite"
-        first = _build(session, lake, destination=destination)
-        monkeypatch.setattr(projection_module.duckdb, "__version__", "0.0.0-upgraded")
-
-        second = _build(session, lake, destination=destination)
-
-        assert second.reused is False
-        assert second.identity.projection_fingerprint != first.identity.projection_fingerprint
-
-    def test_a_different_release_rebuilds(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        destination = tmp_path / "projection.sqlite"
-        _build(session, lake, destination=destination)
-        with sqlite3.connect(lake.sqlite_path) as connection:
-            connection.execute(
-                "UPDATE jquants_daily_bars SET close = 999.0 WHERE traded_at = '2026-02-02'"
-            )
-        rebuilt = _build_lake_second_release(lake)
-
-        cache = _cache(lake)
-        release = resolve_current_release(cache.source)
-        report = build_projection(
-            session,
-            release=release,
-            cache=cache,
-            destination=destination,
-            dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
-            builder_git_commit=_COMMIT,
-            built_at=_BUILT_AT,
-        )
-
-        assert report.reused is False
-        assert report.identity.source_release_id == rebuilt
-        with sqlite3.connect(destination) as connection:
-            close = connection.execute(
-                "SELECT close FROM jquants_daily_bars WHERE traded_at = '2026-02-02'"
-            ).fetchone()
-        assert close == (999.0,)
-
-    def test_deleting_the_projection_rebuilds_it_from_the_release(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        destination = tmp_path / "projection.sqlite"
-        first = _build(session, lake, destination=destination)
-        destination.unlink()
-
-        second = _build(session, lake, destination=destination)
-
-        assert second.reused is False
-        assert second.identity == first.identity
-
-    def test_metadata_is_deterministic_for_the_same_release_and_commit(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        first = _build(session, lake, destination=tmp_path / "one.sqlite")
-        second = _build(session, lake, destination=tmp_path / "two.sqlite")
-
-        assert first.identity == second.identity
-        assert first.identity.projection_fingerprint == projection_fingerprint(
-            [JQUANTS_DAILY_BARS, JQUANTS_SHORT_SALE_REPORTS]
-        )
-
-    def test_a_partial_projection_is_not_published_and_leaves_the_previous_one(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        destination = tmp_path / "projection.sqlite"
-        first = _build(session, lake, destination=destination)
-        before = destination.read_bytes()
-        release = resolve_current_release(LocalMirrorSource(lake.mirror))
-        manifest = release.dataset_manifest("jquants.short_sale_reports")
-        (lake.mirror / manifest.partitions[0].objects[0].key).unlink()
-
-        with pytest.raises(LakeObjectError):
-            build_projection(
-                session,
-                release=release,
-                cache=_cache(lake),
-                destination=destination,
-                dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
-                builder_git_commit=_OTHER_COMMIT,
-                force=True,
-                built_at=_BUILT_AT,
-            )
-
-        assert destination.read_bytes() == before
-        assert read_projection_identity(destination) == first.identity
-        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".building")]
-
-    def test_a_truncated_projection_reports_no_identity(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        destination = tmp_path / "projection.sqlite"
-        _build(session, lake, destination=destination)
-        destination.write_bytes(b"not a database")
-
-        assert read_projection_identity(destination) is None
-
-    def test_force_rebuilds_even_when_the_identity_matches(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        destination = tmp_path / "projection.sqlite"
-        _build(session, lake, destination=destination)
-
-        assert _build(session, lake, destination=destination, force=True).reused is False
-
-    def test_rows_removed_without_touching_the_metadata_still_rebuild(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        destination = tmp_path / "projection.sqlite"
-        first = _build(session, lake, destination=destination)
-        with sqlite3.connect(destination) as connection:
-            connection.execute("DELETE FROM jquants_daily_bars WHERE traded_at = '2026-02-02'")
-
-        second = _build(session, lake, destination=destination)
-
-        assert second.reused is False
-        assert second.rows == first.rows
-        with sqlite3.connect(destination) as connection:
-            restored = connection.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()
-        assert restored == (4,)
-
-    def test_value_mutation_with_the_same_row_count_rebuilds(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        destination = tmp_path / "projection.sqlite"
-        _build(session, lake, destination=destination)
-        with sqlite3.connect(destination) as connection:
-            connection.execute(
-                "UPDATE jquants_daily_bars SET close = 999.0 "
-                "WHERE ticker = '1301' AND traded_at = '2026-01-20'"
-            )
-
-        report = _build(session, lake, destination=destination)
-
-        assert report.reused is False
-        with sqlite3.connect(destination) as connection:
-            restored = connection.execute(
-                "SELECT close FROM jquants_daily_bars "
-                "WHERE ticker = '1301' AND traded_at = '2026-01-20'"
-            ).fetchone()
-        assert restored == (105.0,)
-
-    def test_schema_mutation_rebuilds(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        destination = tmp_path / "projection.sqlite"
-        _build(session, lake, destination=destination)
-        with sqlite3.connect(destination) as connection:
-            connection.execute("ALTER TABLE jquants_daily_bars ADD COLUMN injected TEXT")
-
-        report = _build(session, lake, destination=destination)
-
-        assert report.reused is False
-        with sqlite3.connect(destination) as connection:
-            names = [
-                str(row[1]) for row in connection.execute("PRAGMA table_info(jquants_daily_bars)")
-            ]
-        assert "injected" not in names
-
-    def test_index_mutation_rebuilds(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        destination = tmp_path / "projection.sqlite"
-        _build(session, lake, destination=destination)
-        with sqlite3.connect(destination) as connection:
-            connection.execute("DROP INDEX idx_jquants_daily_bars_traded_at")
-
-        report = _build(session, lake, destination=destination)
-
-        assert report.reused is False
-        with sqlite3.connect(destination) as connection:
-            index = connection.execute(
-                "SELECT name FROM sqlite_master "
-                "WHERE type = 'index' AND name = 'idx_jquants_daily_bars_traded_at'"
-            ).fetchone()
-        assert index == ("idx_jquants_daily_bars_traded_at",)
-
-    def test_partial_index_with_the_expected_name_and_columns_rebuilds(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        destination = tmp_path / "projection.sqlite"
-        _build(session, lake, destination=destination)
-        with sqlite3.connect(destination) as connection:
-            connection.execute("DROP INDEX idx_jquants_daily_bars_traded_at")
-            connection.execute(
-                "CREATE INDEX idx_jquants_daily_bars_traded_at "
-                "ON jquants_daily_bars(traded_at) WHERE ticker = '1301'"
-            )
-
-        report = _build(session, lake, destination=destination)
-
-        assert report.reused is False
-        with sqlite3.connect(destination) as connection:
-            indexes = connection.execute("PRAGMA index_list(jquants_daily_bars)").fetchall()
-        assert next(row for row in indexes if row[1] == "idx_jquants_daily_bars_traded_at")[4] == 0
-
-    def test_case_insensitive_filesystem_is_rejected_before_destination_change(
-        self,
-        session: LakeSession,
-        lake: Lake,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        destination = tmp_path / "projection.sqlite"
-        _build(session, lake, destination=destination)
-        before = destination.read_bytes()
-        monkeypatch.setattr(Path, "samefile", lambda _self, _other: True)
-
-        with pytest.raises(ProjectionError, match="case-sensitive"):
-            _build(session, lake, destination=destination, force=True)
-
-        assert destination.read_bytes() == before
-        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".probe")]
-
-    def test_insufficient_capacity_fails_before_changing_the_destination(
-        self,
-        session: LakeSession,
-        lake: Lake,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        destination = tmp_path / "projection.sqlite"
-        _build(session, lake, destination=destination)
-        before = destination.read_bytes()
-        monkeypatch.setattr(
-            shutil,
-            "disk_usage",
-            lambda _path: SimpleNamespace(free=0),
-        )
-
-        with pytest.raises(ProjectionError, match="free bytes"):
-            _build(session, lake, destination=destination, force=True)
-
-        assert destination.read_bytes() == before
-        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".building")]
-        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".rollback")]
-
-    def test_failed_atomic_replace_leaves_the_previous_projection(
-        self,
-        session: LakeSession,
-        lake: Lake,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        destination = tmp_path / "projection.sqlite"
-        _build(session, lake, destination=destination)
-        before = destination.read_bytes()
-        real_replace = Path.replace
-
-        def fail_replace(source: Path, target: Path) -> Path:
-            if source.name.endswith(".building"):
-                raise OSError("simulated replace failure")
-            return real_replace(source, target)
-
-        monkeypatch.setattr(Path, "replace", fail_replace)
-
-        with pytest.raises(OSError, match="replace failure"):
-            _build(session, lake, destination=destination, force=True)
-
-        assert destination.read_bytes() == before
-        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".building")]
-        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".rollback")]
-
-    def test_post_replace_directory_fsync_failure_restores_the_previous_projection(
-        self,
-        session: LakeSession,
-        lake: Lake,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        destination = tmp_path / "projection.sqlite"
-        _build(session, lake, destination=destination)
-        before = destination.read_bytes()
-        real_fsync = os.fsync
-        real_replace = Path.replace
-        candidate_visible = False
-        injected = False
-
-        def record_candidate_replace(source: Path, target: Path) -> Path:
-            nonlocal candidate_visible
-            result = real_replace(source, target)
-            if source.name.endswith(".building"):
-                candidate_visible = True
-            return result
-
-        def fail_post_replace_fsync(file_descriptor: int) -> None:
-            nonlocal injected
-            if candidate_visible and not injected:
-                injected = True
-                raise OSError("simulated post-replace fsync failure")
-            real_fsync(file_descriptor)
-
-        monkeypatch.setattr(Path, "replace", record_candidate_replace)
-        monkeypatch.setattr(os, "fsync", fail_post_replace_fsync)
-
-        with pytest.raises(ProjectionError, match="previous generation was restored"):
-            _build(session, lake, destination=destination, force=True)
-
-        assert destination.read_bytes() == before
-        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".rollback")]
-
-    def test_a_database_that_is_not_a_projection_is_never_replaced(
-        self, session: LakeSession, lake: Lake
-    ) -> None:
-        # A mistyped destination must not destroy the store it points at.
-        before = lake.sqlite_path.read_bytes()
-
-        with pytest.raises(ProjectionError, match="not a projection"):
-            _build(session, lake, destination=lake.sqlite_path)
-
-        assert lake.sqlite_path.read_bytes() == before
-
-    def test_a_file_that_is_not_a_database_is_never_replaced(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        # Refusing only readable databases would leave YAML, Parquet, and dotfiles
-        # exposed to the same mistyped path.
-        for name, payload in (
-            ("notes.yaml", b"asof: 2026-08-12\n"),
-            ("object.parquet", b"PAR1nonsense"),
-            (".env", b"R2_ACCESS_KEY_ID=x\n"),
-        ):
-            destination = tmp_path / name
-            destination.write_bytes(payload)
-
-            with pytest.raises(ProjectionError, match="not a projection"):
-                _build(session, lake, destination=destination)
-
-            assert destination.read_bytes() == payload
 
 
 class TestExplicitObjectReads:
@@ -1303,7 +814,7 @@ class TestExplicitObjectReads:
         """Peak memory has to follow the batch size, not the dataset size.
 
         A decade of daily bars is eight figures of rows; converting them all into
-        Python objects at once is what would make a real projection build unbuildable.
+        Python objects at once is what would make a real fill unbuildable.
         """
 
         release = resolve_current_release(LocalMirrorSource(lake.mirror))
@@ -1455,58 +966,62 @@ def _build_lake_second_release(lake: Lake) -> str:
     return release_id
 
 
-class TestProjectionConcurrency:
-    def test_a_second_builder_cannot_publish_the_same_destination_concurrently(
+class TestReleaseCurrency:
+    def test_a_second_fill_cannot_publish_the_same_store_concurrently(
         self, session: LakeSession, lake: Lake, tmp_path: Path
     ) -> None:
-        """Serialising the destination is what keeps an older release from landing last."""
+        """Serialising the store is what keeps an older release from landing last."""
 
-        destination = tmp_path / "projection.sqlite"
+        store = _dehydrated(lake, tmp_path / "arrived.sqlite")
         with (
-            exclusive_lock(
-                destination.with_name(f".{destination.name}.lock"), subject="projection destination"
-            ),
-            pytest.raises(LakeRetentionError, match="projection destination"),
+            exclusive_lock(store.with_name(f".{store.name}.lock"), subject="market store"),
+            pytest.raises(LakeRetentionError, match="market store"),
         ):
-            _build(session, lake, destination=destination)
+            _hydrate(session, lake, store)
 
-        assert not destination.exists()
-        assert _build(session, lake, destination=destination).reused is False
+        connection = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
+        try:
+            assert connection.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 0
+        finally:
+            connection.close()
+        assert _hydrate(session, lake, store).rows["jquants.daily_bars"] == 4
 
-    def test_a_build_that_resolved_an_older_release_does_not_replace_a_newer_one(
+    def test_a_fill_that_resolved_an_older_release_does_not_replace_a_newer_one(
         self, session: LakeSession, lake: Lake, tmp_path: Path
     ) -> None:
         """Serialising is not enough: the loser of the race can hold the older release.
 
-        A build resolves the pointer before it queues for the destination, so the
-        release it holds may be superseded while it waits. Publishing it anyway would
-        move the current projection backwards to a generation the pointer has already
-        left, and the projection would be internally valid the whole time — nothing
-        downstream could tell it apart from the newer one except by its release id.
+        A fill resolves the pointer before it queues for the store, so the release it
+        holds may be superseded while it waits. Installing it anyway would move the
+        store back to a generation the pointer has already left, and the store would be
+        internally valid the whole time — nothing downstream could tell it apart from
+        the newer one except by the release the fill recorded.
         """
 
-        destination = tmp_path / "projection.sqlite"
+        store = _dehydrated(lake, tmp_path / "arrived.sqlite")
         cache = _cache(lake)
         stale = resolve_current_release(cache.source)
         newer = _build_lake_second_release(lake)
         assert newer != stale.release_id
 
-        with pytest.raises(ProjectionError, match="no longer current"):
-            build_projection(
+        with pytest.raises(LakeHydrateError, match="no longer current"):
+            hydrate_market_store(
                 session,
                 release=stale,
                 cache=cache,
-                destination=destination,
+                store=store,
                 dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
-                builder_git_commit=_COMMIT,
                 still_current=lambda: (
                     resolve_current_release(cache.source).release_id,
                     resolve_current_release(cache.source).manifest_sha256,
                 ),
-                built_at=_BUILT_AT,
             )
 
-        assert not destination.exists()
+        connection = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
+        try:
+            assert connection.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 0
+        finally:
+            connection.close()
 
     def test_a_release_id_reused_for_other_bytes_does_not_pass_the_currency_check(
         self, session: LakeSession, lake: Lake, tmp_path: Path
@@ -1514,83 +1029,43 @@ class TestProjectionConcurrency:
         """A name is not an identity: recovery tools are exactly what reuse an ID.
 
         Comparing only the release id lets a manifest republished under an existing name
-        satisfy the check while pointing at a different graph, and the projection built
-        from the old bytes takes the current destination.
+        satisfy the check while pointing at a different graph, and the store filled from
+        the old bytes takes the destination.
         """
 
-        destination = tmp_path / "projection.sqlite"
+        store = _dehydrated(lake, tmp_path / "arrived.sqlite")
         cache = _cache(lake)
         release = resolve_current_release(cache.source)
 
-        with pytest.raises(ProjectionError, match="no longer current"):
-            build_projection(
+        with pytest.raises(LakeHydrateError, match="no longer current"):
+            hydrate_market_store(
                 session,
                 release=release,
                 cache=cache,
-                destination=destination,
+                store=store,
                 dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
-                builder_git_commit=_COMMIT,
                 still_current=lambda: (release.release_id, "0" * 64),
-                built_at=_BUILT_AT,
             )
 
-        assert not destination.exists()
-
-    def test_a_reuse_is_not_reported_as_current_when_the_pointer_moved_during_the_scan(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        """Reuse is not free of the race just because it writes nothing.
-
-        Deciding to reuse means reading the whole projection back — 47 seconds on the
-        production store — and reporting success afterwards says "this is the current
-        projection". A pointer that moved while that was being computed makes the
-        statement false, on the same terms that make it false for a rebuild.
-        """
-
-        destination = tmp_path / "projection.sqlite"
-        cache = _cache(lake)
-        release = resolve_current_release(cache.source)
-        assert _build(session, lake, destination=destination, cache=cache).reused is False
-
-        answers = iter(
-            [
-                (release.release_id, release.manifest_sha256),
-                (release.release_id, "0" * 64),
-            ]
-        )
-        with pytest.raises(ProjectionError, match="no longer current"):
-            build_projection(
-                session,
-                release=release,
-                cache=cache,
-                destination=destination,
-                dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
-                builder_git_commit=_COMMIT,
-                still_current=lambda: next(answers),
-                built_at=_BUILT_AT,
-            )
-
-    def test_an_explicitly_named_release_is_built_without_a_currency_check(
+    def test_an_explicitly_named_release_is_filled_without_a_currency_check(
         self, session: LakeSession, lake: Lake, tmp_path: Path
     ) -> None:
         """Asking for one named generation is a statement, not a race to be arbitrated."""
 
-        destination = tmp_path / "historical.sqlite"
+        store = _dehydrated(lake, tmp_path / "historical.sqlite")
         cache = _cache(lake)
         named = resolve_current_release(cache.source)
         _build_lake_second_release(lake)
 
-        report = build_projection(
+        report = hydrate_market_store(
             session,
             release=named,
             cache=cache,
-            destination=destination,
+            store=store,
             dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
-            builder_git_commit=_COMMIT,
-            built_at=_BUILT_AT,
         )
 
-        assert report.identity.source_release_id == named.release_id
+        assert report.release_id == named.release_id
 
 
 class TestCacheResilience:
@@ -1730,8 +1205,129 @@ class TestHydrate:
     ) -> None:
         store = _dehydrated(lake, tmp_path / "raced.sqlite")
         moved = ("release-two", "0" * 64)
-        with pytest.raises(ProjectionError, match="no longer current"):
+        with pytest.raises(LakeHydrateError, match="no longer current"):
             _hydrate(session, lake, store, still_current=lambda: moved)
+
+    def test_a_case_insensitive_filesystem_is_rejected_before_the_store_changes(
+        self,
+        session: LakeSession,
+        lake: Lake,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = _dehydrated(lake, tmp_path / "arrived.sqlite")
+        before = store.read_bytes()
+        monkeypatch.setattr(Path, "samefile", lambda _self, _other: True)
+
+        with pytest.raises(LakeHydrateError, match="case-sensitive"):
+            _hydrate(session, lake, store)
+
+        assert store.read_bytes() == before
+        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".probe")]
+
+    def test_insufficient_capacity_fails_before_the_store_changes(
+        self,
+        session: LakeSession,
+        lake: Lake,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = _dehydrated(lake, tmp_path / "arrived.sqlite")
+        before = store.read_bytes()
+        monkeypatch.setattr(shutil, "disk_usage", lambda _path: SimpleNamespace(free=0))
+
+        with pytest.raises(LakeHydrateError, match="free bytes"):
+            _hydrate(session, lake, store)
+
+        assert store.read_bytes() == before
+        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".hydrating")]
+        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".rollback")]
+
+    def test_a_failed_atomic_replace_leaves_the_previous_store(
+        self,
+        session: LakeSession,
+        lake: Lake,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = _dehydrated(lake, tmp_path / "arrived.sqlite")
+        before = store.read_bytes()
+        real_replace = Path.replace
+
+        def fail_replace(source: Path, target: Path) -> Path:
+            if source.name.endswith(".hydrating"):
+                raise OSError("simulated replace failure")
+            return real_replace(source, target)
+
+        monkeypatch.setattr(Path, "replace", fail_replace)
+
+        with pytest.raises(OSError, match="replace failure"):
+            _hydrate(session, lake, store)
+
+        assert store.read_bytes() == before
+        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".hydrating")]
+        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".rollback")]
+
+    def test_a_post_replace_directory_fsync_failure_restores_the_previous_store(
+        self,
+        session: LakeSession,
+        lake: Lake,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = _dehydrated(lake, tmp_path / "arrived.sqlite")
+        before = store.read_bytes()
+        real_fsync = os.fsync
+        real_replace = Path.replace
+        candidate_visible = False
+        injected = False
+
+        def record_candidate_replace(source: Path, target: Path) -> Path:
+            nonlocal candidate_visible
+            result = real_replace(source, target)
+            if source.name.endswith(".hydrating"):
+                candidate_visible = True
+            return result
+
+        def fail_post_replace_fsync(file_descriptor: int) -> None:
+            nonlocal injected
+            if candidate_visible and not injected:
+                injected = True
+                raise OSError("simulated post-replace fsync failure")
+            real_fsync(file_descriptor)
+
+        monkeypatch.setattr(Path, "replace", record_candidate_replace)
+        monkeypatch.setattr(os, "fsync", fail_post_replace_fsync)
+
+        with pytest.raises(LakeHydrateError, match="previous generation was restored"):
+            _hydrate(session, lake, store)
+
+        assert store.read_bytes() == before
+        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".rollback")]
+
+    def test_a_file_that_is_not_a_market_store_is_never_filled(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        """A mistyped store path must not destroy what it points at."""
+
+        for name, payload in (
+            ("notes.yaml", b"asof: 2026-08-12\n"),
+            ("object.parquet", b"PAR1nonsense"),
+            (".env", b"R2_ACCESS_KEY_ID=x\n"),
+        ):
+            store = tmp_path / name
+            store.write_bytes(payload)
+
+            with pytest.raises(sqlite3.DatabaseError, match="not a database"):
+                _hydrate(session, lake, store)
+
+            assert store.read_bytes() == payload
+
+    def test_a_store_that_does_not_exist_is_named_rather_than_created(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        with pytest.raises(LakeHydrateError, match="market store does not exist"):
+            _hydrate(session, lake, tmp_path / "absent.sqlite")
 
 
 class TestDehydrate:

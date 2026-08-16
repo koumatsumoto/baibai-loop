@@ -51,14 +51,6 @@ class LakeColumn:
 
 
 @dataclass(frozen=True)
-class LakeIndex:
-    """One index a local projection creates so it answers the queries SQLite does."""
-
-    name: str
-    columns: tuple[str, ...]
-
-
-@dataclass(frozen=True)
 class LakeDataset:
     name: str
     sqlite_table: str
@@ -75,7 +67,6 @@ class LakeDataset:
     """
     population_column: str | None = "ticker"
     """The column whose distinct values are the dataset's population, if it has one."""
-    projection_indexes: tuple[LakeIndex, ...] = ()
 
     @property
     def coverage_source_name(self) -> str:
@@ -167,7 +158,6 @@ JQUANTS_DAILY_BARS = LakeDataset(
         LakeColumn("upper_limit", "TEXT", _TEXT, True),
         LakeColumn("lower_limit", "TEXT", _TEXT, True),
     ),
-    projection_indexes=(LakeIndex("idx_jquants_daily_bars_traded_at", ("traded_at",)),),
 )
 
 JQUANTS_SHORT_SALE_REPORTS = LakeDataset(
@@ -189,12 +179,6 @@ JQUANTS_SHORT_SALE_REPORTS = LakeDataset(
         LakeColumn("previous_short_ratio", "REAL", _REAL, True),
         LakeColumn("is_cancellation", "INTEGER", _INTEGER, False),
         LakeColumn("notes", "TEXT", _TEXT, True),
-    ),
-    projection_indexes=(
-        LakeIndex(
-            "idx_jquants_short_sale_reports_ticker",
-            ("ticker", "disclosed_at", "calculated_at"),
-        ),
     ),
 )
 

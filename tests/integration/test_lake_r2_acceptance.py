@@ -23,6 +23,7 @@ from baibai_batch.storage.lake_publish import (
 )
 from baibai_engine.market.lake import models as lake_models
 from baibai_engine.market.lake.datasets import LAKE_DATASETS
+from baibai_engine.market.lake.hydrate import hydrate_market_store
 from baibai_engine.market.lake.keys import (
     current_l1_pointer_key,
     dataset_manifest_key,
@@ -32,7 +33,6 @@ from baibai_engine.market.lake.models import (
     load_lake_model_json,
 )
 from baibai_engine.market.lake.objects import open_lake, sha256_file
-from baibai_engine.market.lake.projection import build_projection
 from baibai_engine.market.lake.reader import resolve_current_release
 from baibai_engine.market.lake.release import L1ReleasePointer, create_l1_release
 from baibai_engine.market.lake.writer import export_lake_legacy
@@ -50,6 +50,35 @@ def _content_md5(path: Path) -> str:
         for chunk in iter(lambda: source.read(8 * 1024 * 1024), b""):
             digest.update(chunk)
     return base64.b64encode(digest.digest()).decode()
+
+
+def _emptied_market(source: Path, destination: Path) -> Path:
+    """A copy of the market store shaped like the object R2 holds: no lake-owned row."""
+
+    destination.write_bytes(source.read_bytes())
+    connection = sqlite3.connect(destination)
+    for dataset in LAKE_DATASETS.values():
+        connection.execute(f"DELETE FROM {dataset.sqlite_table}")  # nosec B608
+    connection.commit()
+    connection.close()
+    return destination
+
+
+def _lake_table_contents(path: Path) -> dict[str, list[tuple[object, ...]]]:
+    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        return {
+            dataset.sqlite_table: [
+                tuple(row)
+                for row in connection.execute(
+                    f"SELECT * FROM {dataset.sqlite_table} "  # nosec B608
+                    f"ORDER BY {', '.join(dataset.primary_key)}"
+                )
+            ]
+            for dataset in sorted(LAKE_DATASETS.values(), key=lambda item: item.sqlite_table)
+        }
+    finally:
+        connection.close()
 
 
 def _store() -> AwsCliR2Store:
@@ -176,7 +205,7 @@ def test_actual_r2_conditional_writes_refuse_a_stale_generation(tmp_path: Path) 
     assert json.loads(store.get_bytes(key))["generation"] == "second"
 
 
-def test_actual_r2_l1_publish_read_and_projection(
+def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _allow_tiny_pilot(monkeypatch)
@@ -199,37 +228,40 @@ def test_actual_r2_l1_publish_read_and_projection(
     remote_mirror = tmp_path / "remote-reader"
     _download_l1_closure(store, remote_mirror)
 
+    mirrored_store = _emptied_market(sqlite_path, tmp_path / "mirrored.sqlite")
     with open_lake(mirror=remote_mirror) as (session, cache):
         fixed = resolve_current_release(cache.source, evaluated_at=datetime.now(UTC))
-        projection = build_projection(
+        mirrored = hydrate_market_store(
             session,
             release=fixed,
             cache=cache,
-            destination=tmp_path / "projection.sqlite",
-            dataset_names=tuple(sorted(LAKE_DATASETS)),
-            builder_git_commit="a" * 40,
+            store=mirrored_store,
+            dataset_names=tuple(sorted(build.datasets)),
         )
-    assert projection.identity.source_release_id == fixed.release_id
-    with sqlite3.connect(projection.path) as connection:
+    assert mirrored.release_id == fixed.release_id
+    with sqlite3.connect(mirrored_store) as connection:
         assert connection.execute("PRAGMA quick_check").fetchone() == ("ok",)
 
     # The reader path production would use: objects resolved straight out of the bucket
     # through DuckDB's HTTP layer, with nothing pre-downloaded beside it.
     direct_mirror = tmp_path / "direct-reader"
+    direct_store = _emptied_market(sqlite_path, tmp_path / "direct.sqlite")
     with open_lake(mirror=direct_mirror, bucket=os.environ["R2_LAKE_ACCEPTANCE_BUCKET"]) as (
         session,
         cache,
     ):
         direct = resolve_current_release(cache.source, evaluated_at=datetime.now(UTC))
-        direct_projection = build_projection(
+        hydrate_market_store(
             session,
             release=direct,
             cache=cache,
-            destination=tmp_path / "direct-projection.sqlite",
-            dataset_names=tuple(sorted(LAKE_DATASETS)),
-            builder_git_commit="a" * 40,
+            store=direct_store,
+            dataset_names=tuple(sorted(build.datasets)),
         )
-    assert direct_projection.identity == projection.identity
+    # Reading the same release over HTTP and out of a downloaded mirror has to produce
+    # the same rows; comparing the filled tables is what proves it rather than assuming.
+    assert _lake_table_contents(direct_store) == _lake_table_contents(mirrored_store)
+    assert _lake_table_contents(mirrored_store) == _lake_table_contents(sqlite_path)
 
     # A run that changes nothing must not move the closure's bytes again.
     unchanged = publish_l1_release(
