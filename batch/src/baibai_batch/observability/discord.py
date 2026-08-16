@@ -53,6 +53,7 @@ from baibai_batch.observability.summary import (
     BatchError,
     Delivery,
     Execution,
+    LakeReleaseSummary,
     SummaryValidationError,
     WorkflowRunSummary,
     load_batch_execution_summary,
@@ -258,6 +259,8 @@ _NON_BATCH_STEPS: tuple[tuple[str, str], ...] = (
     ("setup", "setup"),
     ("sync", "sync"),
     ("pull-stores", "pull"),
+    ("hydrate", "hydrate"),
+    ("publish-lake", "publish-lake"),
     ("upload-machine", "upload-machine"),
     ("upload-serving", "upload-serving"),
     ("publish-serving", "publish-serving"),
@@ -334,6 +337,38 @@ def _total_duration_seconds(run_started_at: str) -> float:
     return max(duration, 0.0)
 
 
+def read_lake_release(path: Path | None, *, outcome: str) -> LakeReleaseSummary | None:
+    """Read what the publication reported, and only when a publication succeeded.
+
+    The record on disk names the release the local store corresponds to, which the fill
+    also writes. Reading it after a skipped or failed publication would report the
+    generation the run started from as the one it published.
+    """
+
+    if path is None or outcome != "success":
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    changed = payload.get("changed_partitions")
+    total = sum(changed.values()) if isinstance(changed, dict) else 0
+    try:
+        return LakeReleaseSummary.from_json(
+            {
+                "release_id": payload.get("release_id"),
+                "data_as_of": payload.get("data_as_of"),
+                "changed_partitions": total,
+                "uploaded_objects": payload.get("uploaded_objects"),
+                "uploaded_bytes": payload.get("uploaded_bytes"),
+            }
+        )
+    except SummaryValidationError:
+        return None
+
+
 def build_workflow_summary(
     *,
     summary_path: Path | None,
@@ -344,6 +379,7 @@ def build_workflow_summary(
     run_started_at: str,
     env: Mapping[str, str],
     cancelled: bool = False,
+    lake: LakeReleaseSummary | None = None,
 ) -> WorkflowRunSummary:
     failed_step = derive_failed_step(step_outcomes)
     publish_state = derive_publish_state(local_export=local_export, step_outcomes=step_outcomes)
@@ -401,6 +437,7 @@ def build_workflow_summary(
         execution=execution,
         delivery=Delivery(status=DELIVERY_NOT_ATTEMPTED),
         workflow_errors=tuple(workflow_errors),
+        lake=lake,
     )
 
 
@@ -526,6 +563,16 @@ def render_message(summary: WorkflowRunSummary) -> str:
         lines.append(f"batch not started (failed at: {summary.execution.stage})")
     elif summary.execution.kind == EXECUTION_UNAVAILABLE:
         lines.append("batch summary unavailable")
+    if summary.lake is not None:
+        lake = summary.lake
+        lines.append(
+            # The release as-of is the floor across its datasets, not the newest one:
+            # a weekly balance with a publication lag sets it while the bars are current.
+            # Printing it as "as-of" beside the run's own as-of reads as a stale lake.
+            f"lake: {lake.release_id} min as-of {lake.data_as_of} | "
+            f"changed {lake.changed_partitions} partition(s) | "
+            f"uploaded {lake.uploaded_objects} object(s), {lake.uploaded_bytes} bytes"
+        )
     lines.extend(_render_delta_tickers(summary))
     lines.extend(_render_error_overview(_collect_errors(summary)))
     lines.append(f"run: {summary.run_url}")
@@ -590,6 +637,9 @@ def build_parser() -> argparse.ArgumentParser:
     # before it could report which side got through.
     parser.add_argument("--upload-parallel-outcome", type=str, default="skipped")
     parser.add_argument("--publish-serving-outcome", type=str, default="skipped")
+    parser.add_argument("--hydrate-outcome", type=str, default="skipped")
+    parser.add_argument("--publish-lake-outcome", type=str, default="skipped")
+    parser.add_argument("--lake-release-path", type=Path, default=None)
     parser.add_argument("--asof", type=str, default="")
     parser.add_argument("--run-started-at", type=str, default="")
     parser.add_argument("--cancelled", type=str, default="false")
@@ -606,6 +656,8 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
         "setup": args.setup_outcome,
         "sync": args.sync_outcome,
         "pull": args.pull_outcome,
+        "hydrate": args.hydrate_outcome,
+        "publish-lake": args.publish_lake_outcome,
         "upload-machine": args.upload_machine_outcome,
         "upload-serving": args.upload_serving_outcome,
         "upload-parallel": args.upload_parallel_outcome,
@@ -621,6 +673,7 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
             run_started_at=args.run_started_at,
             env=env,
             cancelled=args.cancelled == "true",
+            lake=read_lake_release(args.lake_release_path, outcome=args.publish_lake_outcome),
         )
     except SummaryValidationError as exc:
         print(f"error: cannot compose workflow summary: {exc}", file=sys.stderr)

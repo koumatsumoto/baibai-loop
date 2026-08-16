@@ -110,6 +110,15 @@ jobs:
           content=fetcher.fetch_html('data:text/html,<p>baibai-browser-smoke</p>');
           fetcher.close(); assert 'baibai-browser-smoke' in content"
 
+      # The lake reads Parquet over R2 through DuckDB's httpfs extension, and runtime
+      # sessions disable extension downloads outright — a read path that could fetch
+      # executable code on demand is not one that fails closed. The install happens here,
+      # before credentials are present, so a missing extension is a setup failure with
+      # nothing published rather than a data failure part-way through a run.
+      - name: Provision DuckDB httpfs extension
+        id: duckdb-httpfs
+        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
+
       - name: Pull stores
         id: pull
         env:
@@ -119,6 +128,19 @@ jobs:
         run: |
           batch/scripts/r2_transfer.sh pull-machine
           batch/scripts/r2_transfer.sh pull-app
+
+      # The market store arrives holding only what the lake does not own — the coverage
+      # ledger and the operator-derived tables. Filling the rest from the current release
+      # is what makes it the store every reader already expects. It fails closed on the
+      # published row counts, so a fill that silently did nothing cannot reach screening
+      # as an empty universe.
+      - name: Hydrate market store from the L1 release
+        id: hydrate
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: batch/scripts/r2_transfer.sh hydrate-market
 
       - name: Run daily batch
         id: batch
@@ -157,9 +179,23 @@ jobs:
             exit "$code"
           fi
 
-      # The store push moves 1.88GB and is bandwidth-bound; the views mirror moves
-      # 54MB across 3,740 objects and is request-bound. Run serially they add up
-      # (248s + 282s measured); run together each fills the other's waiting.
+      # Publish before the store push, never after. A store push whose publication then
+      # failed would leave the cloud holding a store that claims today's coverage while
+      # the rows behind it exist only locally — and coverage saying "already fetched" is
+      # exactly what stops the next run from repairing it.
+      - name: Publish the L1 release
+        id: publish-lake
+        if: steps.batch.outputs.published == 'true'
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: batch/scripts/r2_transfer.sh publish-lake
+
+      # The market store push now moves the tables the lake does not own — kilobytes
+      # rather than the 1.88GB it moved before the cutover — while the views mirror moves
+      # 54MB across 3,740 objects and is request-bound. They stay parallel because the
+      # views side is unchanged and still the longer of the two.
       #
       # Only `views/` joins the store push. It is rewritten every business day, so a
       # run whose push fails leaves views the next run replaces. `history/` and
@@ -279,6 +315,9 @@ jobs:
             --setup-outcome "${{ steps.setup.outcome }}" \
             --sync-outcome "${{ steps.sync.outcome }}" \
             --pull-outcome "${{ steps.pull.outcome }}" \
+            --hydrate-outcome "${{ steps.hydrate.outcome }}" \
+            --publish-lake-outcome "${{ steps.publish-lake.outcome }}" \
+            --lake-release-path stores/.r2-generations/lake-release.json \
             --upload-machine-outcome "${{ steps.upload-parallel.outputs.machine }}" \
             --upload-serving-outcome "${{ steps.upload-parallel.outputs.views }}" \
             --upload-parallel-outcome "${{ steps.upload-parallel.outcome }}" \

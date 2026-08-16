@@ -52,7 +52,9 @@ _PROVIDERS = {
 }
 _EXPECTED_STEP_CREDENTIALS: dict[tuple[str, str, str], dict[str, str]] = {
     ("cloud-daily-batch.yml", "daily", "Pull stores"): _R2,
+    ("cloud-daily-batch.yml", "daily", "Hydrate market store from the L1 release"): _R2,
     ("cloud-daily-batch.yml", "daily", "Run daily batch"): _PROVIDERS,
+    ("cloud-daily-batch.yml", "daily", "Publish the L1 release"): _R2,
     ("cloud-daily-batch.yml", "daily", "Upload machine stores and serving views"): _R2,
     ("cloud-daily-batch.yml", "daily", "Publish serving history and freshness"): _R2,
     ("cloud-daily-batch.yml", "daily", "Notify Discord #batch-runs"): {
@@ -170,8 +172,14 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
     ("cloud-daily-batch.yml", "daily", "Pull stores"): (
         "3f98c56d975066951777b868cd4ded65038fa85700a5fcc3446043474fbfaa61"
     ),
+    ("cloud-daily-batch.yml", "daily", "Hydrate market store from the L1 release"): (
+        "27111a652d3d81932589921f36b4567618c70b61e6fb47f42360bd50b6036197"
+    ),
     ("cloud-daily-batch.yml", "daily", "Run daily batch"): (
         "13b6a705644d75410e7f1b5bc188e38b5064a0eed5c3081c7d1fc9eeaffdb74d"
+    ),
+    ("cloud-daily-batch.yml", "daily", "Publish the L1 release"): (
+        "2a015cf08ae041e6c97807b942bbc3c757c2d29bb130c06a84e8b2dd34992f5c"
     ),
     ("cloud-daily-batch.yml", "daily", "Upload machine stores and serving views"): (
         "f4edf907d92834cbb69639ba94cfe418711c5566b6abd334e00da778ec977ab6"
@@ -180,7 +188,7 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
         "8ebb0b45bd3a0515fbb06c8d55902316777195de8f433f2df8c0cd4ab9dc987b"
     ),
     ("cloud-daily-batch.yml", "daily", "Notify Discord #batch-runs"): (
-        "758228f11d1308d14f34bd712738469a032ad39497dc7e7192a0a5a0795efbe6"
+        "810c7c768125b20db0179437fcd29ba13fd69f2ea775c8a609c35603be2ec427"
     ),
     ("cloud-daily-batch.yml", "daily", "Upload run summary"): (
         "3d7d91775c0ac950577b25c2792bed82e5af551485965a7c3fb6a31311064259"

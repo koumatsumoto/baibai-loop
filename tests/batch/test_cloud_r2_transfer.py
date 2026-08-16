@@ -1127,3 +1127,17 @@ def test_pull_machine_replaces_every_store_when_no_push_intervened(tmp_path: Pat
         "macro.sqlite.etag": '"etag-stable"\n',
     }
     assert not list(root.glob(".r2-transfer.*"))
+
+
+def test_the_transfer_script_names_the_same_pointer_key_the_engine_publishes() -> None:
+    """The emptying gate reads this key; a rename would turn it off in silence.
+
+    `_push_keys` empties the market copy only when the lake serves a release, and it
+    decides that by looking for the pointer. A key that stopped matching would not
+    error — it would simply never find a pointer, and every push would go back to
+    carrying the full store while still reporting success.
+    """
+
+    from baibai_engine.batch_api import lake_current_l1_pointer_key
+
+    assert lake_current_l1_pointer_key() in TRANSFER_SCRIPT.read_text(encoding="utf-8")

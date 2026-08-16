@@ -76,12 +76,12 @@ manifest で exact input generation を固定する。DuckDB は Parquet の bui
 data、固定 release から再構築できる local projection に限定する。Web は L1 を直接読まず、
 materialized read model だけを読む。
 
-| layer | `sqlite_authority` | `lake_authority` | allowed contents |
-| --- | --- | --- | --- |
-| L1 Raw | canonical Raw archiveなし | R2 immutable object | provider original と request range / retrieved-at / content hash。credential と認証 header は保存しない |
-| L1 Canonical | `market.sqlite` | Parquet object + dataset / release manifest | typed source fact、source identity、publication / effective / retrieved time、revision semantics |
-| L2 Analytical | dataset別の既存rebuildable cache | Parquet object + dataset manifest + atomic bundle pointer | 再生成可能な panel、feature、forward outcome |
-| L2 Operational / L3 | SQLite | SQLite | run metadata、selection、thesis、proposal、ledger、operation 等の transaction / point lookup state |
+| layer | canonical form | allowed contents |
+| --- | --- | --- |
+| L1 Raw | R2 immutable object | provider original と request range / retrieved-at / content hash。credential と認証 header は保存しない |
+| L1 Canonical | Parquet object + dataset / release manifest | typed source fact、source identity、publication / effective / retrieved time、revision semantics |
+| L2 Analytical | Parquet object + dataset manifest + atomic bundle pointer | 再生成可能な panel、feature、forward outcome |
+| L2 Operational / L3 | SQLite | run metadata、selection、thesis、proposal、ledger、operation 等の transaction / point lookup state |
 
 R2 key は `lake/` 以下だけを使い、segment allowlist で path traversal を拒否する。time-series
 partition は `year/month`、file は ZSTD Parquet、object name は content SHA-256 とする。dataset
@@ -128,12 +128,10 @@ production reader は期待する contract 一つだけを受け入れ、schema 
 や `union_by_name` fallback ではなく、新しい contract の immutable rebuild と pointer switch で
 扱う。
 
-lifecycle state は `sqlite_authority` と `lake_authority` の二つだけで、一つの dataset が同時に
-二つの canonical writer を持たない。`sqlite_authority` では `market.sqlite` だけが canonical /
-runtime authority で、lake buildはnon-authoritative shadow comparison artifactである。parityと
-cutover条件を満たしたpointer switchで `lake_authority` へ移り、R2 releaseがcanonical authorityに
-なる。その後のSQLiteはfixed releaseから削除・再構築できるprojectionであり、R2 canonical key
-としてfull-file publishしない。
+一つの dataset が同時に二つの canonical writer を持たない。市場 fact の canonical authority は
+R2 の L1 release にあり、`market.sqlite` はその fixed release から削除・再構築できる runtime copy
+である。fetch 由来でない 4 table — 取得範囲の帳簿と operator 導出 fact — だけが SQLite を canonical
+とし、R2 が持つ store の copy はその 4 table だけを運ぶ。full-file publish は行わない。
 
 読み取り側は実行開始時に current pointer を 1 度だけ解決し、以後は固定した `release_id` と
 immutable object key だけを読む。manifest digest、object digest、dataset contract の不一致は

@@ -40,7 +40,7 @@ from .keys import (
 ManifestLayer = Literal["l1_canonical", "l2_analytical"]
 CoverageStatus = Literal["complete", "partial"]
 CohortStatus = Literal["complete", "empty", "partial", "not_computed"]
-ReleaseProfile = Literal["shadow", "production"]
+ReleaseProfile = Literal["production"]
 MAX_LAKE_JSON_BYTES = 16 * 1024 * 1024
 CALIBRATION_DATASETS = frozenset(
     {"calibration.panel", "calibration.panel_diagnostics", "calibration.forward"}
@@ -972,9 +972,9 @@ class ReleasePolicy(BaseModel):
         return self
 
 
-SHADOW_RELEASE_POLICY = ReleasePolicy(
+PRODUCTION_RELEASE_POLICY = ReleasePolicy(
     policy_version=1,
-    profile="shadow",
+    profile="production",
     datasets=(
         ReleaseDatasetPolicy(
             dataset="jquants.daily_bars",
@@ -1131,10 +1131,19 @@ SHADOW_RELEASE_POLICY = ReleasePolicy(
 
 
 def release_policy_for_profile(profile: ReleaseProfile) -> ReleasePolicy:
-    """Return the registered release policy; unconfigured authority profiles fail closed."""
-    if profile == "shadow":
-        return SHADOW_RELEASE_POLICY
-    raise ValueError("production release policy is not configured")
+    """Return the registered release policy; an unconfigured profile fails closed.
+
+    There is one profile because there is one set of requirements. The gates that
+    matter are per dataset — the row floor that catches a lossy export, the coverage
+    boundary, the cadence-aware freshness window — and they do not become different
+    requirements because a release is read by a different caller. A second profile
+    carrying the same fifteen entries would be two tables free to rot apart, so the
+    manifest records which gate it passed and there is exactly one gate to pass.
+    """
+
+    if profile == "production":
+        return PRODUCTION_RELEASE_POLICY
+    raise ValueError(f"release policy is not configured for profile: {profile}")
 
 
 type Manifest = DatasetManifest | ReleaseManifest

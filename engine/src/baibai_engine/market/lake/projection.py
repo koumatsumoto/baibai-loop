@@ -295,9 +295,9 @@ def _build_projection(
     built_at: datetime | None,
 ) -> ProjectionBuildReport:
     identity, partitions = plan_identity(release, dataset_names=dataset_names)
-    _require_still_current(still_current, release)
+    require_still_current(still_current, release)
     _require_replaceable(destination)
-    expected_rows = _expected_rows(identity)
+    expected_rows = expected_row_totals(identity)
     if not force:
         existing = read_projection_identity(destination)
         if (
@@ -310,7 +310,7 @@ def _build_projection(
             # rebuild. Reporting a reuse without asking again would answer "this is the
             # current projection" about a release that stopped being current while the
             # answer was being computed.
-            _require_still_current(still_current, release)
+            require_still_current(still_current, release)
             return ProjectionBuildReport(
                 path=destination,
                 identity=identity,
@@ -323,8 +323,8 @@ def _build_projection(
     now = (built_at or datetime.now(UTC)).astimezone(UTC)
     before = cache.transfers.as_dict()
     destination.parent.mkdir(parents=True, exist_ok=True)
-    _preflight_filesystem(destination.parent)
-    _require_capacity(destination.parent, identity)
+    require_durable_filesystem(destination.parent)
+    require_free_capacity(destination.parent, identity)
     temporary = destination.with_name(
         f".{destination.name}.{os.getpid()}.{uuid.uuid4().hex}.building"
     )
@@ -337,7 +337,7 @@ def _build_projection(
             for name in sorted(partitions):
                 dataset = accepted_dataset(release, name)
                 connection.executescript(_table_schema(dataset))
-                rows[name] = _load_dataset(
+                rows[name] = load_dataset_rows(
                     connection,
                     session=session,
                     cache=cache,
@@ -363,8 +363,8 @@ def _build_projection(
         finally:
             connection.close()
         _require_row_totals(rows, identity)
-        _require_still_current(still_current, release)
-        _durable_replace(temporary, destination)
+        require_still_current(still_current, release)
+        durable_replace(temporary, destination)
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
@@ -378,7 +378,7 @@ def _build_projection(
     )
 
 
-def _require_still_current(
+def require_still_current(
     still_current: Callable[[], tuple[str, str]] | None, release: FixedRelease
 ) -> None:
     """The full identity, not the name: an ID can be reused for different bytes.
@@ -452,7 +452,7 @@ def _read_built_at(path: Path) -> datetime:
     return datetime.fromisoformat(str(row[0]))
 
 
-def _expected_rows(identity: ProjectionIdentity) -> dict[str, int]:
+def expected_row_totals(identity: ProjectionIdentity) -> dict[str, int]:
     expected: dict[str, int] = {}
     for item in identity.objects:
         expected[item.dataset] = expected.get(item.dataset, 0) + item.rows
@@ -530,7 +530,7 @@ def _open_read_only(path: Path) -> sqlite3.Connection:
     return sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
 
 
-def _require_capacity(parent: Path, identity: ProjectionIdentity) -> None:
+def require_free_capacity(parent: Path, identity: ProjectionIdentity) -> None:
     published_bytes = sum(item.bytes for item in identity.objects)
     required = max(_MIN_FREE_BYTES, published_bytes * _PROJECTION_EXPANSION_FACTOR)
     if shutil.disk_usage(parent).free < required:
@@ -591,7 +591,7 @@ def _actual_indexes(
     return tuple(sorted(indexes))
 
 
-def _preflight_filesystem(parent: Path) -> None:
+def require_durable_filesystem(parent: Path) -> None:
     """Fail before the expensive load unless publication primitives are supported."""
     token = uuid.uuid4().hex
     upper = parent / f".projection-{token}-Case.probe"
@@ -649,7 +649,7 @@ def _table_content_sha256(connection: sqlite3.Connection, dataset: LakeDataset) 
     return digest.hexdigest()
 
 
-def _durable_replace(temporary: Path, destination: Path) -> None:
+def durable_replace(temporary: Path, destination: Path) -> None:
     with temporary.open("rb") as source:
         os.fsync(source.fileno())
     rollback = destination.with_name(
@@ -716,7 +716,7 @@ def _index_schema(dataset: LakeDataset) -> str:
     )
 
 
-def _load_dataset(
+def load_dataset_rows(
     connection: sqlite3.Connection,
     *,
     session: LakeSession,
@@ -747,7 +747,7 @@ def _load_dataset(
 
 
 def _require_row_totals(rows: Mapping[str, int], identity: ProjectionIdentity) -> None:
-    expected = _expected_rows(identity)
+    expected = expected_row_totals(identity)
     for name, count in sorted(rows.items()):
         if count != expected.get(name, 0):
             raise LakeReadError(

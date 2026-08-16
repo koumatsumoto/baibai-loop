@@ -52,7 +52,7 @@ def create_l1_release(
     mirror_root: Path,
     release_id: str | None = None,
     created_at: datetime | None = None,
-    profile: ReleaseProfile = "shadow",
+    profile: ReleaseProfile = "production",
 ) -> tuple[Path, ReleaseManifest]:
     if not dataset_manifest_paths:
         raise ValueError("at least one dataset manifest is required")

@@ -52,12 +52,12 @@ def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
                 "minimum_population_count": 1,
             }
         )
-        for item in lake_models.SHADOW_RELEASE_POLICY.datasets
+        for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
     )
     monkeypatch.setattr(
         lake_models,
-        "SHADOW_RELEASE_POLICY",
-        lake_models.SHADOW_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
+        "PRODUCTION_RELEASE_POLICY",
+        lake_models.PRODUCTION_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
     )
 
 

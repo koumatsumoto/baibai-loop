@@ -13,7 +13,7 @@ from .keys import (
 )
 from .models import (
     MAX_LAKE_JSON_BYTES,
-    SHADOW_RELEASE_POLICY,
+    PRODUCTION_RELEASE_POLICY,
     CohortInventoryEntry,
     DatasetManifest,
     L1ReleaseSourceRef,
@@ -40,7 +40,7 @@ from .sources import resolve_source_ref
 
 __all__ = [
     "MAX_LAKE_JSON_BYTES",
-    "SHADOW_RELEASE_POLICY",
+    "PRODUCTION_RELEASE_POLICY",
     "CohortInventoryEntry",
     "DatasetManifest",
     "L1ReleaseSourceRef",

@@ -36,7 +36,7 @@ def narrow_release_policy(
     """
 
     wanted = set(datasets)
-    policy = lake_models.SHADOW_RELEASE_POLICY
+    policy = lake_models.PRODUCTION_RELEASE_POLICY
     relaxation: dict[str, object] = (
         {
             "coverage_start_on_or_before": date.max,
@@ -50,7 +50,7 @@ def narrow_release_policy(
     )
     monkeypatch.setattr(
         lake_models,
-        "SHADOW_RELEASE_POLICY",
+        "PRODUCTION_RELEASE_POLICY",
         policy.model_copy(
             update={
                 "datasets": tuple(

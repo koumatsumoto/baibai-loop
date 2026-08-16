@@ -23,6 +23,8 @@ CHECKOUT_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1"
 R2_CREDENTIAL_NAMES = {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"}
 EXPECTED_CREDENTIAL_NAMES = {
     "Pull stores": R2_CREDENTIAL_NAMES,
+    "Hydrate market store from the L1 release": R2_CREDENTIAL_NAMES,
+    "Publish the L1 release": R2_CREDENTIAL_NAMES,
     "Pull the market store": R2_CREDENTIAL_NAMES,
     "Run daily batch": {"JQUANTS_API_KEY", "ESTAT_APP_ID", "EDINET_API_KEY"},
     "Upload machine stores and serving views": R2_CREDENTIAL_NAMES,
@@ -48,8 +50,12 @@ EXPECTED_COMMAND_DIGESTS = {
     ),
     "Upload serving objects": "9d24808d70e44a83714b0467ff39e9d460f2cea82c6c43aac55f074d339643cf",
     "Upload run summary": "0e82a34f7e5ac9aa09683356fc3324a608e9d18ff9618ff57712564d8b377fe1",
+    "Hydrate market store from the L1 release": (
+        "9ecafc1d17e20380cde4d1cc37be9876f4ebd3a1162f45005187c7eaabede1c9"
+    ),
+    "Publish the L1 release": ("e4cd247b545df25f59d1ab40cecb94177baae54f841130ed4c61199495756905"),
     "Notify Discord #batch-runs": (
-        "b265f961837c8fff45fc35b784dc980188b87bd5223f5c67b2f7c528f8d3c68e"
+        "e6001337cbcaee0be8ebb5c0a31fb9d7101b18b7188e12f104c8751e80f266bb"
     ),
     "Backfill and publish committed progress": (
         "1cf9306ca4460c2c257a41ccfe84d75549729dd4f2e003c235f79885d5e494b3"
@@ -482,7 +488,9 @@ def _credential_invocations(stub: WorkflowCommandStub) -> dict[str, dict[str, st
             None,
             {
                 "Pull stores",
+                "Hydrate market store from the L1 release",
                 "Run daily batch",
+                "Publish the L1 release",
                 "Upload machine stores and serving views",
                 "Publish serving history and freshness",
                 "Notify Discord #batch-runs",
@@ -496,7 +504,9 @@ def _credential_invocations(stub: WorkflowCommandStub) -> dict[str, dict[str, st
             None,
             {
                 "Pull stores",
+                "Hydrate market store from the L1 release",
                 "Run daily batch",
+                "Publish the L1 release",
                 "Upload machine stores and serving views",
                 "Publish serving history and freshness",
                 "Notify Discord #batch-runs",
@@ -517,6 +527,7 @@ def _credential_invocations(stub: WorkflowCommandStub) -> dict[str, dict[str, st
             "Run daily batch",
             {
                 "Pull stores",
+                "Hydrate market store from the L1 release",
                 "Run daily batch",
                 "Notify Discord #batch-runs",
                 "Upload run summary",
