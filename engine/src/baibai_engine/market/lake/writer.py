@@ -150,11 +150,21 @@ def export_legacy_sqlite(
     source_snapshot: LegacySQLiteSnapshot,
     build_id: str | None = None,
     created_at: datetime | None = None,
+    audit_full_history: bool = False,
 ) -> LakeBuildReport:
     """Build whole affected months and reuse all unaffected base-manifest objects.
 
     The sealed snapshot is passed in rather than captured here: it belongs to the
     operation, and a pilot export writes two datasets from one seal.
+
+    Parity is checked on the months this build wrote. A carried object is addressed by
+    the digest of its own bytes, so "unchanged" is an identity rather than a claim to
+    re-prove: different bytes would be a different key and the manifest reference would
+    stop resolving. Re-deriving every carried month from SQLite on every run re-proves
+    the previous build instead of this one, and makes a one month correction cost the
+    whole history. ``audit_full_history`` asks for that proof explicitly, for the
+    occasions where the question is whether the store as a whole still agrees with
+    SQLite rather than whether this build is correct.
     """
 
     if (start is None) != (end is None):
@@ -276,6 +286,14 @@ def export_legacy_sqlite(
             sqlite_path=snapshot.path,
             mirror_root=mirror_root,
             manifest=manifest,
+            months=(
+                None
+                if audit_full_history
+                else tuple(
+                    (int(item.manifest.values["year"]), int(item.manifest.values["month"]))
+                    for item in built
+                )
+            ),
         )
         manifest_path = _mirror_path(
             mirror_root,
@@ -309,6 +327,7 @@ def export_pilot_legacy(
     producer_git_commit: str,
     base_manifest_paths: Mapping[str, Path] | None = None,
     created_at: datetime | None = None,
+    audit_full_history: bool = False,
 ) -> LakePilotBuildReport:
     """Export both pilot datasets from one sealed SQLite generation."""
     bases = dict(base_manifest_paths or {})
@@ -324,6 +343,7 @@ def export_pilot_legacy(
                 base_manifest_path=bases.get(dataset_name),
                 source_snapshot=snapshot,
                 created_at=created_at,
+                audit_full_history=audit_full_history,
             )
             for dataset_name in sorted(PILOT_DATASETS)
         }
@@ -337,9 +357,18 @@ def validate_legacy_parity(
     manifest: DatasetManifest,
     months: Iterable[tuple[int, int]] | None = None,
 ) -> None:
-    """Require full exact parity; a requested range never weakens carried graph checks."""
+    """Check that the manifest describes the same months SQLite holds, and their rows.
+
+    The month inventory is always compared in full: a month present in one side and
+    absent from the other is a hole no per-partition check would look at, and answering
+    it costs one query.
+
+    ``months`` restricts the row-level comparison to the partitions a caller actually
+    wrote. Passing ``None`` compares every partition, which is what a first export does
+    by construction and what an explicit audit asks for.
+    """
     dataset = require_pilot_dataset(manifest.dataset)
-    del months
+    selected = None if months is None else set(months)
     with _open_immutable(sqlite_path) as connection:
         _validate_sqlite_contract(connection, dataset)
         source_months = set(_selected_months(connection, dataset, start=None, end=None))
@@ -350,6 +379,8 @@ def validate_legacy_parity(
             raise LakeBuildError("SQLite and manifest month inventories differ")
         for partition in manifest.partitions:
             month = (int(partition.values["year"]), int(partition.values["month"]))
+            if selected is not None and month not in selected:
+                continue
             rows = _month_rows(connection, dataset, month)
             if len(partition.objects) != 1:
                 raise LakeBuildError("pilot partition must contain exactly one object")

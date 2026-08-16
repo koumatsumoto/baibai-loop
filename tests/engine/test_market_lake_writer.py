@@ -5,6 +5,7 @@ import sqlite3
 import subprocess
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from tools.diagnostics.benchmark_l1_export import benchmark
@@ -634,6 +635,57 @@ def test_parity_rejects_a_missing_source_month(tmp_path: Path) -> None:
                 mirror_root=mirror,
                 manifest=incomplete,
             )
+
+
+def test_a_daily_build_checks_the_months_it_wrote_and_the_month_inventory(
+    tmp_path: Path,
+) -> None:
+    """What a build has to prove is that it is correct, not that the store still is.
+
+    A carried object is addressed by the digest of its own bytes, so re-deriving it from
+    SQLite on every run re-proves the previous build and makes a one month correction
+    cost the whole history. The month inventory is still compared in full, because a
+    month missing from one side is a hole no per-partition check would look at.
+    """
+
+    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    mirror = tmp_path / "mirror"
+    with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror) as snapshot:
+        first = export_legacy_sqlite(
+            dataset_name="jquants.daily_bars",
+            mirror_root=mirror,
+            producer_git_commit=_COMMIT,
+            source_snapshot=snapshot,
+            build_id="seed-build",
+        )
+
+    read: list[str] = []
+    real = writer_module.pq.read_table
+    with (
+        sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror) as snapshot,
+        mock.patch.object(
+            writer_module.pq,
+            "read_table",
+            side_effect=lambda path, *a, **k: (read.append(Path(path).name), real(path, *a, **k))[
+                1
+            ],
+        ),
+    ):
+        second = export_legacy_sqlite(
+            dataset_name="jquants.daily_bars",
+            mirror_root=mirror,
+            producer_git_commit=_COMMIT,
+            source_snapshot=snapshot,
+            base_manifest_path=first.manifest_path,
+            build_id="carry-build",
+        )
+
+    assert second.changed_partitions == ()
+    # The manifest still describes the whole history; the partitions were carried.
+    assert second.manifest.totals == first.manifest.totals
+    assert len(second.manifest.partitions) == len(first.manifest.partitions)
+    # Nothing was rebuilt, so no Parquet object had to be read back.
+    assert read == []
 
 
 def test_invalid_build_id_has_no_filesystem_side_effect(tmp_path: Path) -> None:

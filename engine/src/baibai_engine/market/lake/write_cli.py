@@ -27,6 +27,11 @@ from .release import create_l1_release
 from .retention import LakeRetentionError, apply_gc, plan_gc
 from .writer import export_legacy_sqlite, export_pilot_legacy, sealed_sqlite_snapshot
 
+_AUDIT_HELP = (
+    "re-derive every carried month from SQLite as well as the months this build wrote; "
+    "the default proves this build, this proves the whole store"
+)
+
 WRITE_COMMANDS = frozenset(
     {"archive-raw", "export-legacy", "export-pilot", "gc", "projection", "release"}
 )
@@ -59,6 +64,11 @@ def main(argv: list[str]) -> int:
     export.add_argument("--base-manifest", type=Path)
     export.add_argument("--raw-metadata", type=Path, action="append", default=[])
     export.add_argument("--build-id")
+    export.add_argument(
+        "--audit",
+        action="store_true",
+        help=_AUDIT_HELP,
+    )
 
     pilot = commands.add_parser(
         "export-pilot", help="export both pilot datasets from one sealed SQLite snapshot"
@@ -66,6 +76,11 @@ def main(argv: list[str]) -> int:
     pilot.add_argument("--sqlite", type=Path, required=True)
     pilot.add_argument("--mirror", type=Path, required=True)
     pilot.add_argument("--base-manifest", type=Path, action="append", default=[])
+    pilot.add_argument(
+        "--audit",
+        action="store_true",
+        help=_AUDIT_HELP,
+    )
 
     release = commands.add_parser("release", help="create an immutable L1 release")
     release_commands = release.add_subparsers(dest="release_command", required=True)
@@ -148,6 +163,7 @@ def main(argv: list[str]) -> int:
                 raw_source_refs=tuple(raw_source_ref(path) for path in args.raw_metadata),
                 source_snapshot=snapshot,
                 build_id=args.build_id,
+                audit_full_history=args.audit,
             )
         print(
             json.dumps(
@@ -175,6 +191,7 @@ def main(argv: list[str]) -> int:
             mirror_root=args.mirror,
             producer_git_commit=_git_commit(),
             base_manifest_paths=bases,
+            audit_full_history=args.audit,
         )
         print(
             json.dumps(
