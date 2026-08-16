@@ -45,7 +45,7 @@ J-Quants / EDINET から取得したデータは、個人利用・非公開 repo
 | --- | --- | --- |
 | L1 Raw | R2 immutable object | provider bytesを可能な限り原形で保持し、source request・retrieved-at・content hashを付ける |
 | L1 Canonical | R2 Parquet + dataset / release manifest | field・型・日付・source identity・revision semanticsを正規化し、判断・score・rankを入れない |
-| local projection | fixed L1 releaseから再構築するSQLite | R2 authorityにしない |
+| hydrated runtime copy | fixed L1 releaseから満たす`market.sqlite`の15 table | R2 authorityにしない |
 | disposable byproduct | `.cache/` | canonical verification後に削除でき、入力証跡として扱わない |
 
 Canonical manifestのsourceはtyped `SourceRef`で記録する。bytesを保持するkind（provider Raw、
@@ -54,8 +54,9 @@ provider Rawはprovider・dataset・request rangeとmetadata sidecarのkey・SHA
 ingest ID・object key・content digest・metadata versionを同時に照合する。legacy SQLite snapshotは
 identityだけを持つkindで、keyを名乗らない — sealed copyはbuild中にstoreが動かないようにする
 ためのもので、bytesはoperationの終わりで回収する。残るschema version・content digest・capture
-時刻が、canonical buildとshadow parityが同じstore世代を見ていることを照合可能にする。logical manifestへR2 ETagを保存せず、release profileの
-required dataset・coverage・freshness gateを通らないgenerationをproduction currentとして扱わない。
+時刻が、その buildを差し出されたstore世代と照合可能にする。logical manifestへR2 ETagを保存せず、
+release profileのrequired dataset・coverage・freshness gateを通らないgenerationをproduction current
+として扱わない。
 
 Raw retention は、再取得が高価または不可能な Premium CSV・EDINET XBRL・JPX 原本を
 `preserve`、routine API response を `buffer` とする。inventoryのsoft budgetはbuffer 50 GiBで、

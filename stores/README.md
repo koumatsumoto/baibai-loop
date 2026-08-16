@@ -14,8 +14,8 @@ canonical application state と machine store を所有する。production metho
 store 操作は `baibai-engine` の domain CLI と [`batch/scripts`](../batch/scripts) を使う。
 `baibai-engine lake inventory` はlocal R2 mirrorのfile metadataだけを読み、`lake validate`は
 manifest contractだけを検査する。どちらもobjectやpointerを書き換えない。`lake resolve`は
-current pointerを1度だけ解決し、`lake projection build`はその固定releaseからprojectionを
-再構築する。詳細手順は [Batch operations](../batch/OPERATIONS.md) と
+current pointerを1度だけ解決し、`lake hydrate`はその固定releaseから`market.sqlite`のlake所有
+15 tableを満たす。詳細手順は [Batch operations](../batch/OPERATIONS.md) と
 [market lake](../docs/reference/market-lake.md)。
 
 ## Reads / Writes
@@ -23,11 +23,10 @@ current pointerを1度だけ解決し、`lake projection build`はその固定re
 | store | authority | writer | backup / rebuild | cloud sync |
 | --- | --- | --- | --- | --- |
 | `application/baibai.sqlite` | local canonical、cloud replica | engine application service | `baibai-engine db backup`。自動 rebuild 禁止 | `batch/scripts/publish.sh` |
-| `market/market.sqlite` | fetch由来15 tableは`lake_authority`のreleaseから再構築されるruntime copy、残る4 tableはここがcanonical | provider + controlled merge | releaseからhydrate、または screening cache command で再取得可能 | lake所有15 tableを空にしてから push |
+| `market/market.sqlite` | fetch由来15 tableはR2のL1 releaseから再構築されるruntime copy、残る4 tableはここがcanonical | provider + controlled merge | releaseからhydrate、または screening cache command で再取得可能 | lake所有15 tableを空にしてから push |
 | R2 `lake/l1/` | fetch由来15 datasetのcanonical L1 | lake publisher | source再取得またはlegacy SQLite seedからimmutable rebuild | content object + manifest + CAS pointer |
-| R2 `lake/l2/` | dataset cutover前はnon-authoritative shadow、cutover後はrebuildable analytical authority | analytical build | fixed input generationからimmutable rebuild | calibrationはatomic bundle pointer |
+| R2 `lake/l2/` | rebuildable analytical authority | analytical build | fixed input generationからimmutable rebuild | calibrationはatomic bundle pointer |
 | `lake/` | disposable local R2 mirror / staging / content-addressed object cache | lake build | R2 manifestから再取得可能 | authorityにしない |
-| `market/projection.sqlite` | disposable projection of one fixed L1 release | lake projection build | 削除して固定releaseから再構築 | uploadしない |
 | `macro/macro.sqlite` | cloud rolling + local full history | macro indicator service + controlled merge | provider series から再取得可能 | no-loss merge 後のみ push |
 | `screening/runs.sqlite` | cloud canonical | daily batch screening service | screening run から再生成可能 | local から push 禁止 |
 | `screening/calibration/` | rebuildable L2（typed Parquet + atomic calibration bundle pointer） | engine calibration command | market/ledger evidence またはdigest固定したlegacy archiveから再生成可能 | 3 dataset manifestをbundleとしてpublish |
@@ -45,7 +44,7 @@ production rules は [method](../method/README.md)、historical evidence は
 [reports](../reports/README.md)。R2 object keyは`lake/`以下のpath-safe segmentだけで構成し、
 dataset / release manifestがobject inventory、checksum、rows、coverage、producerを固定する。
 manifestのlogical identityはcontent SHA-256で固定し、R2 ETagはpointer CAS等のtransport stateに
-限定する。sourceはtyped `SourceRef`、release completenessは明示profileのpolicyで検証する。
+限定する。sourceはtyped `SourceRef`、release completenessはmanifestが宣言したprofileのpolicyで検証する。
 repository path migration とR2 key semanticsを結合しない。
 
 ## Tests

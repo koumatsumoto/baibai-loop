@@ -57,7 +57,7 @@ uv run baibai-web serve
 
 | layer | 内容 | 例 |
 | --- | --- | --- |
-| L1 observed data | 再取得可能な市場・開示データ | `stores/market/market.sqlite` |
+| L1 observed data | 再取得可能な市場・開示データ | R2 の L1 release（`stores/market/market.sqlite` はそこから満たす runtime copy） |
 | L2 derived / estimate | 決定論的screen、指標、E[r]、FV anchor | screening output、local opportunity workspace |
 | L3 judgment / operation | 一次情報を確認した投資・保有判断 | macro context、thesis/review、proposal、ledger、operation session |
 

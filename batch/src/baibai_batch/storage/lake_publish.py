@@ -48,7 +48,8 @@ _MAX_SMALL_OBJECT_BYTES = 16 * 1024 * 1024
 # A subprocess deadline that is shorter than the transfer it guards turns a slow
 # object into an ambiguous outcome. The floor covers control-plane latency; the
 # transfer term is derived from the object's own size at a throughput well below
-# the 2 GB / 181 s upload this store has actually measured.
+# what this link has measured (11.9 MB/s over the 2 GB store upload that preceded
+# the lake, and 300 MB of Parquet in the first full release publication).
 _BASE_OPERATION_TIMEOUT_SECONDS = 120
 _MIN_TRANSFER_BYTES_PER_SECOND = 4 * 1024 * 1024
 

@@ -1,7 +1,10 @@
 """Forward-only schema migrations for the single physical store (`market.sqlite`).
 
-The store holds 675MB of API-rate-limited price/fundamentals cache, so a schema
-change upgrades an existing file in place instead of forcing a full re-fetch.
+The store holds gigabytes of API-rate-limited price/fundamentals cache, so a
+schema change upgrades an existing file in place instead of forcing a full
+re-fetch. Fifteen of its tables are refilled from the L1 release, but the store is
+the shape ingest writes into and the four tables the lake does not own are only
+here, so the file is migrated rather than rebuilt.
 `BASELINE_VERSION` is the oldest `user_version` the migration path accepts: a
 store at exactly the baseline (or any later version below `LATEST_VERSION`) is
 migrated forward one step at a time; an older store is rejected fail-fast because

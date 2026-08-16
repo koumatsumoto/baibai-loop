@@ -28,6 +28,11 @@ _BEHAVIOR_LEGACY = re.compile(
     # `(?<!/)` keeps retired path references (`records/`, `` `records/` ``) while
     # skipping `/records/` fragments inside external URLs.
     r"(?<!/)\brecords/|macro-dashboard|"
+    # market lake の cutover 前語彙。L1 release が fetch 由来 15 table の正本なので、
+    # legacy store と release を突き合わせる shadow 実行も、release が profile を選ぶ
+    # 二状態の記述も現行の説明ではない。`shadow` 単体は Tailwind の class 名や
+    # drop-shadow に当たるため、退役した結合だけを拒否する。
+    r"shadow\s*(?:parity|profile|build|read|store|実行)|sqlite_authority|lake_authority|"
     # screening rules は dated revision で増え、現行 revision は
     # `rule_config.DEFAULT_RULES_PATH` が解決する。file 名の実値を書いた doc は次の改訂で
     # 存在しない path を「閾値の正本」として指すことになるので、revision を名指ししない。
@@ -40,6 +45,14 @@ _REPOSITORY_PATH_LEGACY = re.compile(
     r"(?:^|[\s`])cd\s+ui(?:/|\s|$)|(?:\.\./)+ui(?:/|\s|[\"'])|"
     r"reports/\d{4}-\d{2}-\d{2}-|"
     r"cloud/worker|tools/cloud|data/(?:app|screening|indicators)|"
+    # 固定 release を SQLite へ実体化するのは `lake hydrate` だけになった。projection
+    # subsystem とその診断は削除済みなので、その module・CLI・成果物・metadata を指す
+    # 参照は存在しない path を現行手順として提示することになる。`projection` 単体は
+    # macro の forward projection や doctrine の表示物にも当たるため、退役した結合だけ
+    # を拒否する。
+    r"lake_shadow|verify_lake_release_parity|benchmark_lake_projection|"
+    r"build_projection|projection\.sqlite|projection_meta|projection_fingerprint|"
+    r"projection_indexes|lake projection build|"
     r"method/(?:macro-panel|screening-rules|macro-reading|playbooks)",
     re.IGNORECASE,
 )

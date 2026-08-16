@@ -94,6 +94,51 @@ def test_legacy_semantics_gate_rejects_the_retired_macro_context_contract(
     ]
 
 
+def test_legacy_semantics_gate_rejects_the_retired_lake_comparison_vocabulary(
+    tmp_path: Path,
+) -> None:
+    """The L1 release is the authority, so nothing is compared against a legacy side."""
+
+    path = tmp_path / "docs" / "reference" / "market-lake.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("shadow parity で release を検証する。\n", encoding="utf-8")
+
+    assert check_legacy_semantics.check(tmp_path) == [
+        "docs/reference/market-lake.md: obsolete operation instruction 'shadow parity'"
+    ]
+
+
+def test_legacy_semantics_gate_rejects_the_retired_projection_subsystem(tmp_path: Path) -> None:
+    """`lake hydrate` materializes a fixed release; the projection builder is gone."""
+
+    path = tmp_path / "docs" / "reference" / "market-lake.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("`lake projection build` で射影を作る。\n", encoding="utf-8")
+
+    assert check_legacy_semantics.check(tmp_path) == [
+        "docs/reference/market-lake.md: obsolete repository path 'lake projection build'"
+    ]
+
+
+def test_legacy_semantics_gate_keeps_the_live_senses_of_shadow_and_projection(
+    tmp_path: Path,
+) -> None:
+    """The gate must not sweep Tailwind classes or the macro forward projection.
+
+    Rejecting the bare words would make the rule unusable, so only the retired
+    combinations are matched and this is what proves the rest still passes.
+    """
+
+    doc = tmp_path / "docs" / "reference" / "macro.md"
+    doc.parent.mkdir(parents=True)
+    doc.write_text("forward projection の gate は target を列挙する。\n", encoding="utf-8")
+    component = tmp_path / "web" / "frontend" / "src" / "Card.tsx"
+    component.parent.mkdir(parents=True)
+    component.write_text('const cls = "shadow-sm drop-shadow";\n', encoding="utf-8")
+
+    assert check_legacy_semantics.check(tmp_path) == []
+
+
 def test_duplicate_policy_constant_gate_rejects_skill_copy(tmp_path: Path) -> None:
     policy = tmp_path / "engine/src/baibai_engine/position/policy.py"
     policy.parent.mkdir(parents=True)
