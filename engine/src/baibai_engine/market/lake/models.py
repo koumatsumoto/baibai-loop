@@ -546,7 +546,6 @@ class CalibrationBundleManifest(BaseModel):
     # serving and refuses to read the one it is.
     forward_observation_policy: ForwardObservationPolicyRef
     datasets: Mapping[str, CalibrationDatasetRef]
-    cohorts: Mapping[str, CalibrationCohortInventory] = Field(min_length=1)
 
     @field_validator("bundle_id")
     @classmethod
@@ -577,32 +576,66 @@ class CalibrationBundleManifest(BaseModel):
     ) -> dict[str, CalibrationDatasetRef]:
         return dict(values)
 
-    @field_validator("cohorts")
-    @classmethod
-    def freeze_cohorts(
-        cls, values: Mapping[str, CalibrationCohortInventory]
-    ) -> Mapping[str, CalibrationCohortInventory]:
-        for asof, cohort in values.items():
-            if date.fromisoformat(asof).isoformat() != asof:
-                raise ValueError("bundle cohort keys must be canonical ISO dates")
-            cohort_asof = date.fromisoformat(asof)
-            if cohort.panel.input_cutoff != cohort_asof:
-                raise ValueError("panel input cutoff must equal its cohort as-of")
-            if cohort.forward.input_cutoff < cohort_asof:
-                raise ValueError("forward input cutoff cannot precede its cohort as-of")
-        # One published generation is one series. Cohorts screened under different rules
-        # answer different questions, so aggregating them reports a change in the rules
-        # as a change in the market — and the aggregate is what a decision reads.
-        policies = {cohort.panel.measurement_policy for cohort in values.values()}
-        if len(policies) > 1:
-            raise ValueError("bundle cohorts mix measurement policies")
-        return MappingProxyType(dict(values))
 
-    @field_serializer("cohorts")
-    def serialize_cohorts(
-        self, values: Mapping[str, CalibrationCohortInventory]
-    ) -> dict[str, CalibrationCohortInventory]:
-        return dict(values)
+def require_calibration_generation(
+    manifests: Mapping[str, DatasetManifest],
+) -> Mapping[str, CalibrationCohortInventory]:
+    """Compose three dataset manifests into one generation's cohort inventory.
+
+    Each dataset manifest already states which cohorts its build holds and what each one
+    is. Deriving the bundle's view from them means the two cannot disagree, so there is
+    nothing to keep in step and nothing to check in three places. What the bundle asserts
+    that a dataset manifest cannot is that these three are one series, and that is what
+    this refuses to compose when it is false.
+    """
+
+    if set(manifests) != CALIBRATION_DATASETS:
+        raise ValueError("a calibration generation is exactly its three datasets")
+    inventories = {name: manifests[name].cohort_inventory for name in CALIBRATION_DATASETS}
+    asofs = set(inventories["calibration.panel"])
+    for name, inventory in inventories.items():
+        if set(inventory) != asofs:
+            raise ValueError(f"calibration datasets publish different cohorts: {name}")
+    cohorts = {
+        asof: CalibrationCohortInventory(
+            panel=inventories["calibration.panel"][asof],
+            diagnostics=inventories["calibration.panel_diagnostics"][asof],
+            forward=inventories["calibration.forward"][asof],
+        )
+        for asof in sorted(asofs)
+    }
+    require_one_generation(cohorts)
+    return MappingProxyType(cohorts)
+
+
+def require_one_generation(cohorts: Mapping[str, CalibrationCohortInventory]) -> None:
+    """Refuse a cohort set that is not one series measured one way.
+
+    The bundle manifest does not carry the inventory — each dataset manifest already
+    states which cohorts its build holds, and a second copy is a second place for the
+    same fact to be written and a third place to check that the two agree. What the
+    bundle *is* is the claim that these three datasets are one generation, and that
+    claim has cross-cohort content: keys are canonical as-ofs, a panel is measured as of
+    its own cohort date, an outcome is observed no earlier than the cross-section it
+    describes, and every cohort was screened under the same rules. Cohorts measured
+    under different rules answer different questions, so aggregating them reports a
+    change in the rules as a change in the market — and the aggregate is what a decision
+    reads.
+    """
+
+    for asof, cohort in cohorts.items():
+        if date.fromisoformat(asof).isoformat() != asof:
+            raise ValueError("bundle cohort keys must be canonical ISO dates")
+        cohort_asof = date.fromisoformat(asof)
+        if cohort.panel.input_cutoff != cohort_asof:
+            raise ValueError("panel input cutoff must equal its cohort as-of")
+        if cohort.forward.input_cutoff < cohort_asof:
+            raise ValueError("forward input cutoff cannot precede its cohort as-of")
+    if not cohorts:
+        raise ValueError("a calibration generation publishes at least one cohort")
+    policies = {cohort.panel.measurement_policy for cohort in cohorts.values()}
+    if len(policies) > 1:
+        raise ValueError("bundle cohorts mix measurement policies")
 
 
 class CalibrationBundleRef(BaseModel):

@@ -33,6 +33,7 @@ from .models import (
     load_lake_model_json,
     load_manifest_json,
     release_policy_for_profile,
+    require_calibration_generation,
     validate_release_policy,
 )
 from .sources import resolve_source_ref
@@ -67,6 +68,7 @@ __all__ = [
     "raw_object_key",
     "release_manifest_key",
     "release_policy_for_profile",
+    "require_calibration_generation",
     "resolve_source_ref",
     "validate_lake_object_key",
     "validate_release_policy",

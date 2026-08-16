@@ -51,6 +51,7 @@ from baibai_engine.market.lake.models import (
     MeasurementPolicyRef,
     PartitionManifest,
     load_lake_model_json,
+    require_calibration_generation,
     retained_sources,
 )
 from baibai_engine.market.lake.objects import sha256_bytes, sha256_file
@@ -296,6 +297,17 @@ def _require_partition_objects(
             raise CalibrationLakeError(f"{dataset.name}: published object differs: {item.key}")
 
 
+def _resolved_cohorts(
+    manifests: Mapping[str, DatasetManifest],
+) -> Mapping[str, CalibrationCohortInventory]:
+    """The generation's cohort inventory, derived from the three dataset manifests."""
+
+    try:
+        return require_calibration_generation(manifests)
+    except ValueError as exc:
+        raise CalibrationLakeError(f"calibration cohort is not one generation: {exc}") from exc
+
+
 def _pointer_ref(root: Path) -> CalibrationBundleRef | None:
     """The reference the pointer names, without resolving the generation behind it.
 
@@ -376,28 +388,10 @@ def _fixed_bundle(root: Path) -> FixedCalibrationBundle | None:
         if manifest.build_id != reference.build_id or manifest.totals.rows != reference.rows:
             raise CalibrationLakeError(f"calibration bundle dataset identity differs: {name}")
         manifests[name] = manifest
-    # Both directions. Checking only that each cohort the bundle lists is present in the
-    # manifests would accept a dataset holding cohorts the bundle does not publish, so
-    # the same build would mean one set of as-ofs on its surface and another inside, and
-    # the extra objects would be reachable through the bundle while described by nothing
-    # in it. The assembler cannot produce that, but the wire format has to refuse it.
-    for name, manifest in manifests.items():
-        if set(manifest.cohort_inventory) != set(bundle.cohorts):
-            raise CalibrationLakeError(
-                f"calibration bundle dataset publishes other cohorts than the bundle: {name}"
-            )
-    for asof, cohort in bundle.cohorts.items():
-        expected = {
-            CALIBRATION_PANEL.name: cohort.panel,
-            CALIBRATION_DIAGNOSTICS.name: cohort.diagnostics,
-            CALIBRATION_FORWARD.name: cohort.forward,
-        }
-        for name, entry in expected.items():
-            if manifests[name].cohort_inventory.get(asof) != entry:
-                raise CalibrationLakeError(f"calibration bundle cohort inventory differs: {asof}")
     return FixedCalibrationBundle(
         ref=pointer.current,
         manifest=bundle,
+        cohorts=_resolved_cohorts(manifests),
         datasets=MappingProxyType(manifests),
     )
 
@@ -465,20 +459,10 @@ def _publish_bundle(
             forward_policy=forward_policy,
         )
         references[name] = build.reference
-    cohort_keys = set(manifests[CALIBRATION_PANEL.name].cohort_inventory)
-    if set(manifests[CALIBRATION_DIAGNOSTICS.name].cohort_inventory) != cohort_keys:
-        raise CalibrationLakeError("panel and diagnostics cohort inventory differ")
-    if set(manifests[CALIBRATION_FORWARD.name].cohort_inventory) != cohort_keys:
-        raise CalibrationLakeError("panel and forward cohort inventory differ")
-    cohorts = {
-        asof: CalibrationCohortInventory(
-            panel=manifests[CALIBRATION_PANEL.name].cohort_inventory[asof],
-            diagnostics=manifests[CALIBRATION_DIAGNOSTICS.name].cohort_inventory[asof],
-            forward=manifests[CALIBRATION_FORWARD.name].cohort_inventory[asof],
-        )
-        for asof in sorted(cohort_keys)
-    }
-    _require_one_measurement_policy(cohorts)
+    # The same derivation the reader performs, run before publishing rather than after:
+    # a generation whose three datasets do not compose into one series is refused where
+    # it is assembled instead of becoming somebody else's unreadable current.
+    _resolved_cohorts(manifests)
     now = datetime.now(UTC)
     bundle_id = f"{now:%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex}"
     # Assembling a bundle is a different act from producing a dataset, so it carries a
@@ -493,7 +477,6 @@ def _publish_bundle(
             use_control_event_exits=forward_policy.use_control_event_exits
         ),
         datasets=references,
-        cohorts=cohorts,
     )
     key = calibration_bundle_manifest_key(bundle_id=bundle_id)
     path = root / key
@@ -510,30 +493,6 @@ def _publish_bundle(
         canonical_manifest_bytes(CalibrationBundlePointer(current=reference, previous=previous)),
     )
     return reference
-
-
-def _require_one_measurement_policy(
-    cohorts: Mapping[str, CalibrationCohortInventory],
-) -> None:
-    """One published generation is one series, measured one way throughout.
-
-    Cohorts screened under different rules answer different questions, so aggregating
-    them reports a difference in the rules as a difference in the market. The consumer
-    side already refuses to evaluate a mixture, but that leaves the mixture publishable
-    and only caught by whoever reads it next — the generation that creates it is where
-    it can still be declined.
-    """
-
-    distinct = {
-        entry.measurement_policy
-        for cohort in cohorts.values()
-        for entry in (cohort.panel, cohort.diagnostics, cohort.forward)
-    }
-    if len(distinct) > 1:
-        stated = ", ".join(
-            sorted(f"{policy.panel_variant}/{policy.rules_hash}" for policy in distinct)
-        )
-        raise CalibrationLakeError(f"calibration bundle mixes measurement policies: {stated}")
 
 
 def current_bundle_ref(root: Path) -> CalibrationBundleRef | None:
@@ -937,7 +896,7 @@ def has_cohort(root: Path, asof: date) -> bool:
         bundle = _fixed_bundle(root)
         if bundle is None:
             return False
-        entry = bundle.manifest.cohorts.get(asof.isoformat())
+        entry = bundle.cohorts.get(asof.isoformat())
         if entry is None or entry.panel.status not in {"complete", "empty"}:
             return False
         if entry.panel.status == "empty":
@@ -964,7 +923,7 @@ def published_cohorts(root: Path, *, bundle: FixedCalibrationBundle | None = Non
             _require_partition_objects(root, CALIBRATION_PANEL, partition)
         asofs = {
             date.fromisoformat(asof)
-            for asof, entry in fixed.manifest.cohorts.items()
+            for asof, entry in fixed.cohorts.items()
             if entry.panel.status in {"complete", "empty"}
         }
     except (CalibrationLakeError, LakeRetentionError) as exc:
@@ -985,7 +944,7 @@ def _cohort_payloads(
     if fixed is None:
         return []
     manifest = fixed.datasets[dataset.name]
-    cohort = fixed.manifest.cohorts.get(asof.isoformat())
+    cohort = fixed.cohorts.get(asof.isoformat())
     if cohort is None:
         return []
     entry = {
@@ -1022,7 +981,7 @@ def read_panel(
         payloads = _cohort_payloads(root, CALIBRATION_PANEL, asof, bundle=fixed)
     except (CalibrationLakeError, LakeRetentionError) as exc:
         raise CalibrationCacheError(f"calibration panel cache is invalid: {exc}") from exc
-    entry = fixed.manifest.cohorts.get(asof.isoformat())
+    entry = fixed.cohorts.get(asof.isoformat())
     if entry is not None and entry.panel.status == "empty":
         return []
     if not payloads:
@@ -1067,7 +1026,7 @@ def read_forward(
         # forward build against another generation's policy.
         forward_policy = _policy_of(fixed)
         manifest = fixed.datasets[CALIBRATION_FORWARD.name]
-        cohort = fixed.manifest.cohorts.get(asof.isoformat())
+        cohort = fixed.cohorts.get(asof.isoformat())
         if cohort is None or cohort.forward.status in {"partial", "not_computed"}:
             raise CalibrationCacheError(
                 "calibration cache is partial; run calibration-build --force"

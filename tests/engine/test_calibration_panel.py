@@ -1371,7 +1371,7 @@ class CalibrationPanelTest(unittest.TestCase):
                 bundle = resolve_calibration_bundle(store_dir)
                 identities.update(
                     source.source_id
-                    for entry in bundle.manifest.cohorts.values()
+                    for entry in bundle.cohorts.values()
                     for source in entry.panel.sources
                 )
 

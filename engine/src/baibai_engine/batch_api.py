@@ -54,6 +54,7 @@ from baibai_engine.market.lake.models import (
     CalibrationBundlePointer,
     CalibrationBundleRef,
     load_lake_model_json,
+    require_calibration_generation,
 )
 from baibai_engine.market.lake.models import DatasetManifest as LakeDatasetManifest
 from baibai_engine.market.lake.models import RawArchiveMetadata as LakeRawArchiveMetadata
@@ -135,6 +136,7 @@ __all__ = [
     "open_market_store",
     "parse_refresh_failure_count",
     "reject_legacy_store_paths",
+    "require_calibration_generation",
     "resolve_lake_source_ref",
     "scorecard_series_ids",
     "validate_lake_release_policy",

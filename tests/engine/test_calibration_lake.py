@@ -33,7 +33,7 @@ from baibai_engine.market.lake.models import (
     RawIngestSourceRef,
     SourceRef,
     canonical_lake_model_bytes,
-    load_lake_model_json,
+    require_calibration_generation,
     source_assurance,
 )
 from baibai_engine.market.lake.retention import (
@@ -246,31 +246,43 @@ class TestImmutableBuilds:
 
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY), rules_hash="rules-one")
         publish_panel(tmp_path, _FEBRUARY, _cohort(_FEBRUARY), rules_hash="rules-one")
-        bundle_path = tmp_path / _bundle_pointer(tmp_path).current.manifest_key
-        payload = json.loads(bundle_path.read_bytes())
-        february = payload["cohorts"][_FEBRUARY]
-        for role in ("panel", "diagnostics", "forward"):
-            february[role]["measurement_policy"]["rules_hash"] = "rules-two"
+        mixed = {}
+        for name, manifest in resolve_calibration_bundle(tmp_path).datasets.items():
+            inventory = dict(manifest.cohort_inventory)
+            entry = inventory[_FEBRUARY]
+            inventory[_FEBRUARY] = entry.model_copy(
+                update={
+                    "measurement_policy": entry.measurement_policy.model_copy(
+                        update={"rules_hash": "rules-two"}
+                    )
+                }
+            )
+            mixed[name] = manifest.model_copy(update={"cohort_inventory": inventory})
 
-        # The strict wire parser redacts the reason, so the reason is asserted against the
-        # model and the refusal against the parser that actually guards the store.
-        with pytest.raises(ValidationError, match="mix measurement policies"):
-            CalibrationBundleManifest.model_validate_json(json.dumps(payload))
-        with pytest.raises(ValueError, match="at cohorts"):
-            load_lake_model_json(json.dumps(payload).encode(), CalibrationBundleManifest)
+        with pytest.raises(ValueError, match="mix measurement policies"):
+            require_calibration_generation(mixed)
 
     def test_a_cohort_whose_roles_disagree_about_the_rules_cannot_be_parsed(
         self, tmp_path: Path
     ) -> None:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY), rules_hash="rules-one")
-        bundle_path = tmp_path / _bundle_pointer(tmp_path).current.manifest_key
-        payload = json.loads(bundle_path.read_bytes())
-        payload["cohorts"][_JANUARY]["forward"]["measurement_policy"]["rules_hash"] = "rules-two"
+        manifests = dict(resolve_calibration_bundle(tmp_path).datasets)
+        forward = manifests[CALIBRATION_FORWARD.name]
+        inventory = dict(forward.cohort_inventory)
+        entry = inventory[_JANUARY]
+        inventory[_JANUARY] = entry.model_copy(
+            update={
+                "measurement_policy": entry.measurement_policy.model_copy(
+                    update={"rules_hash": "rules-two"}
+                )
+            }
+        )
+        manifests[CALIBRATION_FORWARD.name] = forward.model_copy(
+            update={"cohort_inventory": inventory}
+        )
 
-        with pytest.raises(ValidationError, match="disagree about the rules"):
-            CalibrationBundleManifest.model_validate_json(json.dumps(payload))
-        with pytest.raises(ValueError, match="at cohorts"):
-            load_lake_model_json(json.dumps(payload).encode(), CalibrationBundleManifest)
+        with pytest.raises(ValueError, match="disagree about the rules"):
+            require_calibration_generation(manifests)
 
     def test_a_run_given_a_fixed_generation_never_consults_the_pointer_again(
         self, tmp_path: Path
@@ -379,15 +391,20 @@ class TestImmutableBuilds:
 
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
         publish_panel(tmp_path, _FEBRUARY, _cohort(_FEBRUARY))
-        payload = json.loads(
-            (tmp_path / _bundle_pointer(tmp_path).current.manifest_key).read_bytes()
+        manifests = dict(resolve_calibration_bundle(tmp_path).datasets)
+        panel = manifests[CALIBRATION_PANEL.name]
+        manifests[CALIBRATION_PANEL.name] = panel.model_copy(
+            update={
+                "cohort_inventory": {
+                    asof: entry
+                    for asof, entry in panel.cohort_inventory.items()
+                    if asof != _FEBRUARY
+                }
+            }
         )
-        del payload["cohorts"][_FEBRUARY]
-        payload["bundle_id"] = "20260227T000000Z-alternatewriter"
-        _repoint_bundle(tmp_path, payload)
 
-        with pytest.raises(CalibrationLakeError, match="other cohorts than the bundle"):
-            resolve_calibration_bundle(tmp_path)
+        with pytest.raises(ValueError, match="publish different cohorts"):
+            require_calibration_generation(manifests)
 
     def test_a_rewritten_panel_does_not_keep_the_outcomes_of_the_one_it_replaced(
         self, tmp_path: Path
@@ -407,8 +424,7 @@ class TestImmutableBuilds:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY, ("1301",)))
 
         assert (
-            resolve_calibration_bundle(tmp_path).manifest.cohorts[_JANUARY].forward.status
-            == "not_computed"
+            resolve_calibration_bundle(tmp_path).cohorts[_JANUARY].forward.status == "not_computed"
         )
         with pytest.raises(CalibrationCacheError, match="partial"):
             read_forward(tmp_path, date.fromisoformat(_JANUARY))
@@ -443,7 +459,7 @@ class TestImmutableBuilds:
         )
 
         bundle = store.resolve_calibration_bundle(tmp_path)
-        cohort = bundle.manifest.cohorts[_JANUARY]
+        cohort = bundle.cohorts[_JANUARY]
 
         assert cohort.panel.measurement_policy.rules_hash == "rules-one"
         assert cohort.panel.measurement_policy.panel_variant == "production"
@@ -556,7 +572,7 @@ class TestImmutableBuilds:
             input_cutoff=date(2027, 1, 31),
         )
 
-        bundle = resolve_calibration_bundle(tmp_path).manifest.cohorts[_JANUARY]
+        bundle = resolve_calibration_bundle(tmp_path).cohorts[_JANUARY]
 
         assert bundle.panel.sources == bundle.diagnostics.sources
         assert bundle.panel.sources != bundle.forward.sources
@@ -781,7 +797,7 @@ class TestImmutableBuilds:
         assert not (current / current_calibration_bundle_pointer_key()).exists()
 
         adopt_bundle_generation(current, generated, expected_current=None)
-        assert resolve_calibration_bundle(current).manifest.cohorts
+        assert resolve_calibration_bundle(current).cohorts
 
 
 class TestSourceAssurance:

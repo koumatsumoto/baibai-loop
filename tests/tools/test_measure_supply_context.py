@@ -363,7 +363,7 @@ def test_panels_built_with_different_screening_rules_cannot_be_published(
     calibration.mkdir()
     _history(calibration, levels=[0.05, 0.06])
 
-    with pytest.raises(CalibrationCacheError, match="mixes measurement policies"):
+    with pytest.raises(CalibrationCacheError, match="mix measurement policies"):
         _panel(
             calibration,
             "2024-03-28",

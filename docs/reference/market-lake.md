@@ -351,7 +351,15 @@ membershipとstatusを決めるからで、これがdiagnostics rowの中にし�
 開かないと世代の正体を知れず、混在したbundleを組み立てても何も反対しない。forwardはpanelの
 policyを継承する — 観測している銘柄はそのpanelが選んだ集合なので、別のrulesを名乗ると使って
 いないcross-sectionを説明することになる。**bundleは1つのpolicyしか持てず、混在は組み立てで
-拒否する。** consumer側で気づく設計だと、誰かが読むまでstoreが混在を抱えたままになる。panel/diagnosticsのcutoffはcohort as-ofと一致し、forwardは
+拒否する。** consumer側で気づく設計だと、誰かが読むまでstoreが混在を抱えたままになる。
+
+**bundle manifestはcohort inventoryを持たない。** 各dataset manifestが自分のbuildが持つcohortを
+既に述べているので、bundleへの複製は同じ事実の2つ目の置き場所であり、両者が一致することを確認する
+3つ目・4つ目の場所を作る。bundleが解決されるときに3つのdataset manifestから合成し、合成できない
+ものを拒否する — 3 datasetのcohort集合が違う、計算済みpanelにdiagnosticsが無い、roleが別のrulesを
+名乗る、panelとdiagnosticsの入力が違う、cohort keyが正規のas-ofでない、panelのcutoffがas-ofと違う、
+forwardの観測がcross-sectionより前、policyが混ざる。同じ合成をassemblerがpublish前に、remote
+publisherがCAS前に通す。複製が無いので、食い違いようがない。panel/diagnosticsのcutoffはcohort as-ofと一致し、forwardは
 実際に観測したmarket data cutoffを持つ。古いpanelを保持したままforwardだけ後日のsnapshotで更新でき、
 dataset全体へ過去の全source世代を累積しない。最後に3 manifestを
 `CalibrationBundleManifest`へ束ね、`lake/pointers/calibration/current.json`を1回だけ切り替える。

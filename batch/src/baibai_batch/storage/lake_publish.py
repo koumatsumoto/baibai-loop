@@ -37,6 +37,7 @@ from baibai_engine.batch_api import (
     lake_release_manifest_key,
     lake_verified_source_scope,
     load_lake_model_json,
+    require_calibration_generation,
     resolve_lake_source_ref,
     validate_lake_release_policy,
 )
@@ -829,20 +830,13 @@ def _publish_calibration_bundle(
             reference.manifest_sha256,
             len(manifest_payload),
         )
-    for asof, cohort in bundle.cohorts.items():
-        expected = {
-            "calibration.panel": cohort.panel,
-            "calibration.panel_diagnostics": cohort.diagnostics,
-            "calibration.forward": cohort.forward,
-        }
-        for name, entry in expected.items():
-            if dataset_manifests[name].cohort_inventory.get(asof) != entry:
-                raise LakePublishError(f"calibration bundle cohort inventory differs: {asof}")
-    if any(
-        set(manifest.cohort_inventory) != set(bundle.cohorts)
-        for manifest in dataset_manifests.values()
-    ):
-        raise LakePublishError("calibration bundle omits a dataset cohort inventory entry")
+    # The generation's cohort inventory is derived from the three dataset manifests, so
+    # what has to hold is that they compose into one series. Nothing here can disagree
+    # with the bundle, because the bundle does not restate it.
+    try:
+        require_calibration_generation(dataset_manifests)
+    except ValueError as exc:
+        raise LakePublishError(f"calibration bundle is not one generation: {exc}") from exc
     bundle_key = f"lake/manifests/calibration-bundles/{bundle.bundle_id}.json"
     uploads[bundle_key] = (
         resolved_bundle_path,
@@ -998,25 +992,12 @@ def _require_remote_calibration_closure(
                     expected_size=lake_object.bytes,
                     content_type="application/vnd.apache.parquet",
                 )
-    # Set equality in both directions, matching the local reader: a dataset manifest
-    # holding cohorts the bundle does not publish makes the generation mean one thing on
-    # its surface and another inside, and remote is where an alternate writer's store
-    # would arrive.
-    for name, manifest in manifests.items():
-        if set(manifest.cohort_inventory) != set(bundle.cohorts):
-            raise LakePublishError(
-                f"remote calibration dataset publishes other cohorts than the bundle: {name}"
-            )
-    for asof, cohort in bundle.cohorts.items():
-        expected = {
-            "calibration.panel": cohort.panel,
-            "calibration.panel_diagnostics": cohort.diagnostics,
-            "calibration.forward": cohort.forward,
-        }
-        if any(
-            manifests[name].cohort_inventory.get(asof) != entry for name, entry in expected.items()
-        ):
-            raise LakePublishError(f"remote calibration cohort inventory differs: {asof}")
+    # The same composition the local reader derives, checked against what remote
+    # actually holds: remote is where an alternate writer's store would arrive.
+    try:
+        require_calibration_generation(manifests)
+    except ValueError as exc:
+        raise LakePublishError(f"remote calibration bundle is not one generation: {exc}") from exc
 
 
 def _remote_json_model[ModelT: BaseModel](

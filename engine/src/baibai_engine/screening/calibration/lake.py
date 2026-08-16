@@ -259,6 +259,7 @@ class FixedCalibrationBundle:
     ref: CalibrationBundleRef
     manifest: CalibrationBundleManifest
     datasets: Mapping[str, DatasetManifest]
+    cohorts: Mapping[str, CalibrationCohortInventory]
 
 
 def require_l2_dataset(name: str) -> L2Dataset:

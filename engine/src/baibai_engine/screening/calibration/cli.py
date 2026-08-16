@@ -468,7 +468,7 @@ def calibration_evaluate_command(
         asof: source_assurance(
             (*entry.panel.sources, *entry.diagnostics.sources, *entry.forward.sources)
         )
-        for asof, entry in bundle.manifest.cohorts.items()
+        for asof, entry in bundle.cohorts.items()
     }
     results = evaluate_cohorts(panels, forwards, horizons=horizons)
     scope = EvaluationScope(

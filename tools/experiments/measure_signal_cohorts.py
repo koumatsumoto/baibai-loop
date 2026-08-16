@@ -154,9 +154,7 @@ def require_single_rules_hash(bundle: FixedCalibrationBundle) -> str:
     の行を開き直して数え直すと、authority ではない側で同じ判断をやり直すことになる。
     """
 
-    hashes = {
-        entry.panel.measurement_policy.rules_hash for entry in bundle.manifest.cohorts.values()
-    }
+    hashes = {entry.panel.measurement_policy.rules_hash for entry in bundle.cohorts.values()}
     if not hashes:
         raise SignalCohortMeasurementError(f"generation {bundle.ref.bundle_id} has no cohorts")
     if len(hashes) > 1:
