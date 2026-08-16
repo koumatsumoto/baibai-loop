@@ -116,7 +116,18 @@ def resolve_current_release(source: LakeObjectSource, *, evaluated_at: datetime)
 
 
 def _read_current_pointer(source: LakeObjectSource) -> L1ReleasePointer:
-    payload = source.read_bytes(current_l1_pointer_key())
+    try:
+        payload = source.read_bytes(current_l1_pointer_key())
+    except Exception as exc:
+        # The pointer is written by publication, so a mirror that has never published
+        # does not have one. Reporting that as an unreadable object sends the reader
+        # looking for a corrupt file that was never there — and it is the first thing a
+        # local build hits, because a release created locally is named explicitly until
+        # it is published.
+        raise LakeReadError(
+            "L1 current pointer is absent; publish a release, or name one with "
+            "--release and --manifest-sha256"
+        ) from exc
     try:
         pointer = load_lake_model_json(payload, L1ReleasePointer)
     except ValueError:
@@ -135,8 +146,10 @@ def resolve_release(
 ) -> FixedRelease:
     """Resolve one named release without reading the pointer at all.
 
-    This is how a rollback or a pinned study reads: the release is chosen by the
-    caller, so nothing about the current pointer takes part in the decision.
+    This is how a release that is not current gets read: the release is chosen by the
+    caller, so nothing about the current pointer takes part in the decision. A local
+    mirror has no pointer until it publishes, so it is also the only way to read one
+    before then.
     """
 
     validate_identifier(release_id, label="release_id")
@@ -148,7 +161,7 @@ def resolve_release(
 
 
 def resolve_release_ref(source: LakeObjectSource, reference: L1ReleaseSourceRef) -> FixedRelease:
-    """Resolve a persisted pin whose typed identity includes the manifest digest."""
+    """Resolve a persisted reference whose typed identity includes the manifest digest."""
 
     return resolve_release(
         source,

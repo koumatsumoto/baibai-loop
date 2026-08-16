@@ -179,8 +179,7 @@ def export_legacy_sqlite(
     )
     validate_identifier(actual_build_id, label="build_id")
     staging_root = _workspace_path(mirror_root, "staging", actual_build_id)
-    quarantine_root = _workspace_path(mirror_root, "quarantine", actual_build_id)
-    if staging_root.exists() or quarantine_root.exists():
+    if staging_root.exists():
         raise LakeBuildError(f"build workspace already exists: {actual_build_id}")
     snapshot = source_snapshot
     for source in raw_source_refs:
@@ -312,9 +311,9 @@ def export_legacy_sqlite(
             created_objects=created_objects,
         )
     except Exception as exc:
-        if staging_root.exists():
-            quarantine_root.parent.mkdir(parents=True, exist_ok=True)
-            staging_root.replace(quarantine_root)
+        # The staging tree is left where it is. It is under no manifest, so the collector
+        # takes it on the staging grace, and moving it somewhere with a longer one would
+        # only keep an accident report nobody opens.
         if isinstance(exc, (LakeBuildError, ValueError)):
             raise
         raise LakeBuildError(str(exc)) from exc

@@ -20,14 +20,11 @@ SOFT_BUDGET_BYTES = {
     # The published lake: canonical Parquet, analytical Parquet, manifests, pointers.
     # This is the class Issue #917 sized at roughly 10 GB.
     "published": 10 * 1024**3,
-    # Provider originals that cannot be retrieved again. Sized separately and approved
-    # separately; this is not the published-graph objective under another name.
-    "raw_preserve": 500 * 1024**3,
     # Provider responses a re-fetch can reproduce.
     "raw_buffer": 50 * 1024**3,
-    # In-flight staging and the quarantine a failed build was moved to. Neither is under
-    # any manifest, so nothing else in this report grows when they do — and both hold
-    # whole sealed stores, so a repeated large failure is otherwise an invisible leak.
+    # In-flight staging, including what a failed build left behind. It is under no
+    # manifest, so nothing else in this report grows when it does — and it holds whole
+    # sealed stores, so a repeated large failure is otherwise an invisible leak.
     "workspace": 20 * 1024**3,
 }
 
@@ -40,7 +37,7 @@ def _capacity_class(key: str) -> str | None:
     """The budget a stored key counts against, or ``None`` when another class holds it."""
     if key.startswith("lake/l1/raw/"):
         return None  # Counted by retention class from its metadata sidecar.
-    if key.startswith(("lake/staging/", "lake/quarantine/")):
+    if key.startswith("lake/staging/"):
         return "workspace"
     if key.startswith(("lake/l1/", "lake/l2/", "lake/manifests/", "lake/pointers/")):
         return "published"

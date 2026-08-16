@@ -810,9 +810,9 @@ def test_inventory_reports_every_class_against_its_own_budget(tmp_path: Path) ->
     )
     published.parent.mkdir(parents=True)
     published.write_bytes(b"parquet")
-    quarantined = tmp_path / "lake/quarantine/failed-build/part.parquet"
-    quarantined.parent.mkdir(parents=True)
-    quarantined.write_bytes(b"quarantined")
+    failed = tmp_path / "lake/staging/failed-build/part.parquet"
+    failed.parent.mkdir(parents=True)
+    failed.write_bytes(b"quarantined")
     staged = tmp_path / "lake/staging/snapshot-1/snapshot.sqlite"
     staged.parent.mkdir(parents=True)
     staged.write_bytes(b"sealed snapshot")
@@ -829,7 +829,7 @@ def test_inventory_reports_every_class_against_its_own_budget(tmp_path: Path) ->
     assert report["control_files"] == {"objects": 1, "bytes": 0}
     assert report["objects"] == 3
 
-    assert set(capacity) == {"published", "raw_buffer", "raw_preserve", "workspace"}
+    assert set(capacity) == {"published", "raw_buffer", "workspace"}
     assert capacity["published"]["bytes"] == 7
     assert capacity["workspace"]["bytes"] == 26
     assert capacity["published"]["soft_budget_bytes"] == 10 * 1024**3

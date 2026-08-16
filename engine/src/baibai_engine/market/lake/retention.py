@@ -67,14 +67,7 @@ from .sources import resolve_source_ref, sha256_file, verified_source_scope
 
 _GRACE_DAYS = 30
 _STAGING_GRACE_DAYS = 7
-# Quarantined staging is the only record of what a failed build produced, so it is kept
-# long enough to be investigated after the fact, and finite so a repeated large failure
-# cannot fill the disk while every manifest-derived figure stays inside its budget.
-_QUARANTINE_GRACE_DAYS = 90
-_CANDIDATE_GRACE_DAYS = {
-    "abandoned_staging": _STAGING_GRACE_DAYS,
-    "expired_quarantine": _QUARANTINE_GRACE_DAYS,
-}
+_CANDIDATE_GRACE_DAYS = {"abandoned_staging": _STAGING_GRACE_DAYS}
 _CALIBRATION_DATASETS = frozenset(
     {"calibration.panel", "calibration.panel_diagnostics", "calibration.forward"}
 )
@@ -471,8 +464,6 @@ def _has_objects_under(mirror_root: Path, prefix: str) -> bool:
 def _candidate_reason(key: str) -> str | None:
     if key.startswith("lake/staging/"):
         return "abandoned_staging"
-    if key.startswith("lake/quarantine/"):
-        return "expired_quarantine"
     if key.startswith("lake/l1/canonical/"):
         return "unreferenced_l1_object"
     if key.startswith("lake/l2/"):

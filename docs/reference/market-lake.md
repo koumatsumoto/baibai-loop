@@ -498,11 +498,10 @@ plan hashへ閉じる。`--apply`はpublisherと共通のlocal writer lock取得
 場所はcandidateになるまでの30日grace側にある。rootが未解決、object不足、pointer更新、candidate
 差替えのいずれでも削除を拒否する。
 
-`lake/staging/`と`lake/quarantine/`もGCの対象domainである。前者はin-flightのstagingとsealed
-snapshotが置かれる場所で、killされたoperationは自分の後片付けを実行できないため、7日のgrace後に
-回収する。後者は失敗したbuildのstagingを退避した先で、何が起きたかの唯一の記録
-なので90日保持し、その後同じsweepを通す。どちらもmanifestから到達しないので、age以外に回収の
-根拠がない。
+`lake/staging/`もGCの対象domainである。in-flightのstagingとsealed snapshotが置かれる場所で、
+killされたoperationも失敗したbuildも自分の後片付けを実行できないため、7日のgrace後に回収する。
+manifestから到達しないので、age以外に回収の根拠がない。失敗したbuildのstagingを別の場所へ退避して
+長く保持することはしない — 誰も開かない事故調資料である。
 
 calibration storeのwork generationはstoreのsiblingとして作られる（storeをhard linkで複製して
 作るため）。これはlakeのどのprefixにも入らないので、次のbuildが — writer lockを持っている以上、
@@ -514,14 +513,14 @@ live generationは存在しえない — 起動時に破棄し、回収したbyt
 | class | 内容 | soft budget |
 | --- | --- | --- |
 | `published` | canonical / analytical Parquet、manifest、pointer。R2が日常的に持つ graph | 10 GiB |
-| `raw_preserve` | 再取得できない provider 原本 (Premium CSV、長期 backfill) | 500 GiB |
 | `raw_buffer` | 再取得で再現できる routine response | 50 GiB |
-| `workspace` | in-flight staging と失敗 build の quarantine。どのmanifestにも属さない | 20 GiB |
+| `workspace` | in-flight staging と失敗 build が残したもの。どのmanifestにも属さない | 20 GiB |
 
-Issue #917 が置いた「R2 は原則 10 GB 前後」は `published` classの目標である。再取得できない原本を
-同じ数字に押し込むと保存自体を諦めることになるので、`raw_preserve`は別に承認した budget として持つ。
-単一の数字で報告すると、大きい方の budget が小さい方の超過を隠す — 500 GiB の枠の下では、
-published graph が目標を超えても、失敗した build の quarantine に 2 GB が積まれても、何も警告しない。
+Issue #917 が置いた「R2 は原則 10 GB 前後」は `published` classの目標である。classを分けるのは、
+単一の数字で報告すると大きい方の budget が小さい方の超過を隠すからで、published graph が目標を
+超えても失敗 build が 2 GB 積んでも、合算では何も警告しない。`preserve` classのRawは budget 表を
+持たない — 再取得できない原本を「いくらまで」で語ると、超えた日に捨てるか諦めるかしか選べなくなる。
+量が問題になった時点で、何を捨てるかを個別に決める。
 
 `lake inventory`は加えて`preserve / buffer`別のobject数、bytes、oldest retrievalを出す。
 metadata sidecarを持たないRaw payloadは`raw_unclassified`と`raw_inventory_errors`へ分離し、正常な
