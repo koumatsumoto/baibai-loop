@@ -88,6 +88,8 @@ def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
                 "coverage_start_on_or_before": date.max,
                 "minimum_rows": 1,
                 "minimum_population_count": 1,
+                "max_age_days": 366,
+                "max_lead_days": 366,
             }
         )
         for item in lake_models.PILOT_RELEASE_POLICY.datasets
@@ -95,9 +97,7 @@ def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         lake_models,
         "PILOT_RELEASE_POLICY",
-        lake_models.PILOT_RELEASE_POLICY.model_copy(
-            update={"datasets": datasets, "max_dataset_age_days": 366}
-        ),
+        lake_models.PILOT_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
     )
 
 

@@ -605,7 +605,7 @@ def _source_state_sha256(
 
 def _coverage_assessment(
     connection: sqlite3.Connection, dataset: LakeDataset
-) -> tuple[CoverageStatus, date, int]:
+) -> tuple[CoverageStatus, date, int | None]:
     """Derive completeness from the authority defined for the legacy source."""
     bounds = connection.execute(
         f"SELECT MIN({dataset.date_column}), MAX({dataset.date_column}) "  # nosec B608
@@ -615,31 +615,37 @@ def _coverage_assessment(
         raise LakeBuildError(f"{dataset.name} has no coverage bounds")
     start = date.fromisoformat(str(bounds[0]))
     end = date.fromisoformat(str(bounds[1]))
-    population_count = int(
-        connection.execute(
-            f"SELECT COUNT(DISTINCT ticker) FROM {dataset.sqlite_table}"  # nosec B608
-        ).fetchone()[0]
-    )
-    if population_count <= 0:
-        raise LakeBuildError(f"{dataset.name} has no ticker population")
-    if dataset.name == "jquants.daily_bars":
-        status: CoverageStatus = (
-            "complete" if daily_bars_covered_by_data(connection, start, end) else "partial"
+    population_count: int | None = None
+    if dataset.population_column is not None:
+        population_count = int(
+            connection.execute(
+                f"SELECT COUNT(DISTINCT {dataset.population_column}) "  # nosec B608
+                f"FROM {dataset.sqlite_table}"  # nosec B608
+            ).fetchone()[0]
         )
-        return status, start, population_count
-    if dataset.name == "jquants.short_sale_reports":
-        has_non_ok = connection.execute(
-            "SELECT 1 FROM source_coverage WHERE source = ? "
-            "AND coverage_start <= ? AND coverage_end >= ? AND status != 'ok' LIMIT 1",
-            (dataset.sqlite_table, end.isoformat(), start.isoformat()),
-        ).fetchone()
-        if has_non_ok is not None:
-            return "partial", start, population_count
-        status = (
-            "complete" if range_covered(connection, dataset.sqlite_table, start, end) else "partial"
-        )
-        return status, start, population_count
-    raise LakeBuildError(f"coverage authority is not defined for {dataset.name}")
+        if population_count <= 0:
+            raise LakeBuildError(f"{dataset.name} has no {dataset.population_column} population")
+    return _coverage_status(connection, dataset, start=start, end=end), start, population_count
+
+
+def _coverage_status(
+    connection: sqlite3.Connection, dataset: LakeDataset, *, start: date, end: date
+) -> CoverageStatus:
+    if dataset.coverage_authority == "daily_bars_rows":
+        return "complete" if daily_bars_covered_by_data(connection, start, end) else "partial"
+    if dataset.coverage_authority == "unproven":
+        # Nothing records what was fetched and the rows carry no invariant to check them
+        # against, so the build can say what it holds and not that it holds everything.
+        return "partial"
+    source = dataset.coverage_source_name
+    has_non_ok = connection.execute(
+        "SELECT 1 FROM source_coverage WHERE source = ? "
+        "AND coverage_start <= ? AND coverage_end >= ? AND status != 'ok' LIMIT 1",
+        (source, end.isoformat(), start.isoformat()),
+    ).fetchone()
+    if has_non_ok is not None:
+        return "partial"
+    return "complete" if range_covered(connection, source, start, end) else "partial"
 
 
 def _validate_parquet(

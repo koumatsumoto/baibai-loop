@@ -673,7 +673,14 @@ class DatasetManifest(BaseModel):
     created_at: datetime
     coverage_start: date
     data_as_of: date
-    population_count: int = Field(ge=0)
+    population_count: int | None = Field(default=None, ge=0)
+    """How many distinct subjects the dataset covers, where that is a meaningful count.
+
+    A per-issue fact table answers "how much of the market is in here", which is what a
+    release policy checks before serving it. A calendar or a filing index has no such
+    subject: every row is about a day or a document. Reporting zero there would claim an
+    empty population instead of an inapplicable question, so the absence is `None`.
+    """
     coverage_status: CoverageStatus
     partition_by: tuple[str, ...] = Field(min_length=1)
     cohort_inventory: Mapping[str, CohortInventoryEntry] = Field(default_factory=dict)
@@ -741,10 +748,10 @@ class DatasetManifest(BaseModel):
     def validate_semantics(self) -> DatasetManifest:
         if self.coverage_start > self.data_as_of:
             raise ValueError("coverage_start cannot be after data_as_of")
-        if self.population_count > self.totals.rows:
+        if self.population_count is not None and self.population_count > self.totals.rows:
             raise ValueError("population_count cannot exceed total rows")
         if self.layer == "l1_canonical":
-            if self.population_count == 0:
+            if self.population_count is not None and self.population_count == 0:
                 raise ValueError("l1_canonical population_count must be positive")
             if self.cohort_inventory:
                 raise ValueError("l1_canonical cannot contain analytical cohort inventory")
@@ -894,7 +901,23 @@ class ReleaseDatasetPolicy(BaseModel):
     accepted_contract_versions: tuple[int, ...] = Field(min_length=1)
     coverage_start_on_or_before: date
     minimum_rows: int = Field(gt=0)
-    minimum_population_count: int = Field(gt=0)
+    minimum_population_count: int | None = Field(default=None, gt=0)
+    """Absent for datasets whose rows have no per-subject population to count."""
+    max_age_days: int = Field(ge=0)
+    """How stale this dataset's watermark may be against the evaluation date.
+
+    Cadence belongs to the dataset, not to the profile. A weekly balance published with
+    a reporting lag and a daily bar are both current at watermarks two weeks apart, so
+    one shared limit has to be loose enough for the slowest and stops saying anything
+    about the fastest.
+    """
+    max_lead_days: int = Field(default=0, ge=0)
+    """How far ahead of the evaluation date this dataset legitimately publishes.
+
+    A market calendar names business days that have not happened yet, and an earnings
+    calendar names announcements that have not been made. Their watermarks are supposed
+    to be in the future; treating that as staleness inverted would refuse the release.
+    """
 
     @field_validator("dataset")
     @classmethod
@@ -917,8 +940,6 @@ class ReleasePolicy(BaseModel):
     policy_version: Literal[1]
     profile: ReleaseProfile
     datasets: tuple[ReleaseDatasetPolicy, ...] = Field(min_length=1)
-    max_dataset_age_days: int = Field(ge=0)
-    max_dataset_skew_days: int = Field(ge=0)
     require_complete_coverage: bool
     max_manifest_bytes: int = Field(gt=0)
     max_objects: int = Field(gt=0)
@@ -950,6 +971,7 @@ PILOT_RELEASE_POLICY = ReleasePolicy(
             coverage_start_on_or_before=date(2016, 8, 1),
             minimum_rows=9_630_029,
             minimum_population_count=5_098,
+            max_age_days=31,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.short_sale_reports",
@@ -958,10 +980,9 @@ PILOT_RELEASE_POLICY = ReleasePolicy(
             coverage_start_on_or_before=date(2016, 8, 10),
             minimum_rows=1_341_528,
             minimum_population_count=3_907,
+            max_age_days=31,
         ),
     ),
-    max_dataset_age_days=31,
-    max_dataset_skew_days=31,
     require_complete_coverage=True,
     max_manifest_bytes=16 * 1024 * 1024,
     max_objects=10_000,
@@ -1077,7 +1098,6 @@ def validate_release_policy(
 
     total_manifest_bytes = len(canonical_lake_model_bytes(release))
     total_objects = 0
-    watermarks: list[date] = []
     for dataset, release_dataset in release.datasets.items():
         manifest = manifests[dataset]
         dataset_policy = policy_by_dataset[dataset]
@@ -1104,17 +1124,21 @@ def validate_release_policy(
             raise ValueError("release dataset does not reach the profile history boundary")
         if manifest.totals.rows < dataset_policy.minimum_rows:
             raise ValueError("release dataset is below the profile row floor")
-        if manifest.population_count < dataset_policy.minimum_population_count:
-            raise ValueError("release dataset is below the profile population floor")
-        age = evaluated_at.date() - manifest.data_as_of
-        if age.days < 0 or age.days > policy.max_dataset_age_days:
-            raise ValueError("release dataset is outside the profile freshness window")
+        if dataset_policy.minimum_population_count is not None:
+            if manifest.population_count is None:
+                raise ValueError("release dataset does not report the population it is floored on")
+            if manifest.population_count < dataset_policy.minimum_population_count:
+                raise ValueError("release dataset is below the profile population floor")
+        age = (evaluated_at.date() - manifest.data_as_of).days
+        if age > dataset_policy.max_age_days or -age > dataset_policy.max_lead_days:
+            raise ValueError("release dataset is outside its freshness window")
         total_manifest_bytes += len(manifest_bytes)
         total_objects += manifest.totals.objects
-        watermarks.append(manifest.data_as_of)
 
-    if (max(watermarks) - min(watermarks)).days > policy.max_dataset_skew_days:
-        raise ValueError("release dataset watermarks exceed the profile skew limit")
+    # No separate skew limit: every watermark was just measured against its own dataset's
+    # window around the same evaluation date, so a dataset that stopped updating is
+    # already refused by its own bound. Comparing watermarks to each other instead would
+    # ask a daily bar and a monthly filing index to agree on a date they never share.
     if total_manifest_bytes > policy.max_manifest_bytes:
         raise ValueError("release manifest graph exceeds the profile byte budget")
     if total_objects > policy.max_objects:

@@ -255,7 +255,7 @@ def test_dataset_manifest_rejects_unknown_nested_fields() -> None:
         _load_dataset(payload)
 
 
-@pytest.mark.parametrize("field", ["coverage_start", "population_count"])
+@pytest.mark.parametrize("field", ["coverage_start"])
 def test_dataset_manifest_requires_coverage_evidence(field: str) -> None:
     payload = _dataset_payload()
     del payload[field]
@@ -436,6 +436,32 @@ def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
 
     evaluated_at = datetime(2026, 8, 13, tzinfo=UTC)
     validate_release_policy(release, manifests, evaluated_at=evaluated_at)
+
+    # A dataset with no population to count reports none, and the model accepts that
+    # because it cannot tell "inapplicable" from "omitted". The floor is what refuses
+    # it: a profile that measures a population against a dataset that does not report
+    # one has to stop rather than skip the check it was configured to make.
+    unpopulated = manifest.model_copy(update={"population_count": None})
+    unpopulated_release = release.model_copy(
+        update={
+            "datasets": {
+                **release.datasets,
+                manifest.dataset: release.datasets[manifest.dataset].model_copy(
+                    update={
+                        "manifest_sha256": hashlib.sha256(
+                            canonical_lake_model_bytes(unpopulated)
+                        ).hexdigest()
+                    }
+                ),
+            }
+        }
+    )
+    with pytest.raises(ValueError, match="does not report the population"):
+        validate_release_policy(
+            unpopulated_release,
+            {manifest.dataset: unpopulated, short_sale.dataset: short_sale},
+            evaluated_at=evaluated_at,
+        )
 
     incomplete = manifest.model_copy(update={"coverage_status": "partial"})
     with pytest.raises(ValueError, match="digest does not match"):

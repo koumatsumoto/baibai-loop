@@ -22,6 +22,16 @@ _GRAIN_LAYOUTS: dict[PartitionGrain, tuple[str, ...]] = {
     "year": ("year",),
 }
 
+CoverageAuthority = Literal["daily_bars_rows", "source_coverage", "unproven"]
+"""What decides whether a dataset's history is complete rather than merely present.
+
+Completeness is not a property of the rows for most sources: a filing that was never
+made and a filing that was never fetched leave the same absence behind, so the answer
+has to come from the fetch record. Daily bars are the exception — every trading day owes
+a full-market row set, so the rows themselves answer it. A source with no fetch record
+and no such invariant can say what it holds but not that it holds everything.
+"""
+
 
 @dataclass(frozen=True)
 class LakeColumn:
@@ -48,7 +58,20 @@ class LakeDataset:
     columns: tuple[LakeColumn, ...]
     contract_version: int = 1
     partition_grain: PartitionGrain = "month"
+    coverage_authority: CoverageAuthority = "source_coverage"
+    coverage_source: str | None = None
+    """The `source_coverage.source` that records this dataset's fetches.
+
+    Usually the SQLite table name, but the two are independent identifiers and have
+    already drifted apart once, so the exception is declared rather than assumed.
+    """
+    population_column: str | None = "ticker"
+    """The column whose distinct values are the dataset's population, if it has one."""
     projection_indexes: tuple[LakeIndex, ...] = ()
+
+    @property
+    def coverage_source_name(self) -> str:
+        return self.coverage_source or self.sqlite_table
 
     @property
     def partition_by(self) -> tuple[str, ...]:
@@ -117,6 +140,7 @@ JQUANTS_DAILY_BARS = LakeDataset(
     name="jquants.daily_bars",
     sqlite_table="jquants_daily_bars",
     date_column="traded_at",
+    coverage_authority="daily_bars_rows",
     columns=(
         LakeColumn("ticker", "TEXT", _TEXT, False, 1),
         LakeColumn("traded_at", "TEXT", _TEXT, False, 2),

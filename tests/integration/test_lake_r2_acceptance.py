@@ -72,12 +72,12 @@ def _allow_tiny_pilot(monkeypatch: pytest.MonkeyPatch) -> None:
                             "coverage_start_on_or_before": date.max,
                             "minimum_rows": 1,
                             "minimum_population_count": 1,
+                            "max_age_days": 10_000,
+                            "max_lead_days": 10_000,
                         }
                     )
                     for item in policy.datasets
                 ),
-                "max_dataset_age_days": 10_000,
-                "max_dataset_skew_days": 10_000,
             }
         ),
     )
