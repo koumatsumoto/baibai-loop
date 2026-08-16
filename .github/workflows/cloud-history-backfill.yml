@@ -5,8 +5,9 @@ name: cloud-history-backfill
 # hours, so it does not belong on the daily schedule.
 #
 # This is for history no machine holds yet. When a local store already covers the
-# window, `r2_transfer.sh push-market` merges it into the cloud copy in minutes
-# without calling the provider at all, and that is the path to take.
+# window, `r2_transfer.sh publish-lake` followed by `push-market` moves it into the
+# cloud copy in minutes without calling the provider at all, and that is the path
+# to take.
 #
 # Financial summaries are the slow part: 3.4 years took 2h32m of which 2h05m was
 # theirs. The job ceiling is 5 hours, so a first pass over a decade has to be split
@@ -81,12 +82,30 @@ jobs:
       - name: Sync Python environment
         run: uv sync --locked
 
+      # The fill reads the lake over HTTP, and runtime sessions refuse to download
+      # extensions, so the exact-version copy is installed before any credential is
+      # present.
+      - name: Provision DuckDB httpfs extension
+        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
+
       - name: Pull the market store
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: batch/scripts/r2_transfer.sh pull-market
+
+      # The object in R2 carries only what the lake does not own, so the store arrives
+      # with none of the history this pass is meant to extend. Filling it is what makes
+      # "which dates are already covered" answerable, and it is also what lets the pass
+      # publish afterwards: a release can only be built on the one the store was filled
+      # from.
+      - name: Hydrate market store from the L1 release
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: batch/scripts/r2_transfer.sh hydrate-market
 
       - name: Record the window the store already covers
         run: |

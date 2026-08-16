@@ -30,7 +30,7 @@ import shutil
 import sqlite3
 import uuid
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import suppress
+from contextlib import closing, suppress
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -189,6 +189,7 @@ def hydrate_market_store(
     plan, partitions = plan_release_load(release, dataset_names=dataset_names)
     require_still_current(still_current, release)
     with exclusive_lock(store.with_name(f".{store.name}.lock"), subject="market store"):
+        require_no_unpublished_rows(store, plan)
         require_durable_filesystem(store.parent)
         require_free_capacity(store.parent, store=store, plan=plan)
         schema_version = validate_snapshot(store)
@@ -311,6 +312,47 @@ def dehydrate_market_store(store: Path, *, release: FixedRelease) -> DehydrateRe
         bytes_before=bytes_before,
         bytes_after=store.stat().st_size,
     )
+
+
+def require_no_unpublished_rows(store: Path, plan: ReleaseLoadPlan) -> None:
+    """Refuse to fill over rows the release cannot give back.
+
+    The fill empties each lake-owned table before it reloads, so a store holding rows no
+    release published loses them with nothing to restore them from — a local backfill
+    that has not been through `publish-lake` is exactly that. The store being behind the
+    release is the ordinary case and stays allowed; holding *more* than the release is
+    the one that cannot be undone, and it is the state `publish-lake` leaves an operator
+    in when it refuses because the lake moved underneath them.
+
+    Counting separates the shape a backfill actually has: it adds rows, so a store
+    carrying unpublished fetches holds more than the release, while a store at an older
+    release holds fewer. What a total cannot see is a local pass that replaced as many
+    rows as it added; that case is left to the release-base check in the publication,
+    which refuses to build on a release the lake has moved past.
+    """
+
+    expected = expected_row_totals(plan)
+    with closing(sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True)) as connection:
+        for name in sorted(expected):
+            dataset = LAKE_DATASETS[name]
+            try:
+                held = int(
+                    connection.execute(
+                        f"SELECT COUNT(*) FROM {dataset.sqlite_table}"  # nosec B608
+                    ).fetchone()[0]
+                )
+            except sqlite3.OperationalError as exc:
+                # This runs before the copy, so it is also the first place a path that
+                # is a readable database but not a market store shows itself.
+                raise LakeHydrateError(
+                    f"market store does not carry {dataset.sqlite_table}: {store}"
+                ) from exc
+            if held > expected[name]:
+                raise LakeHydrateError(
+                    f"{name} holds {held} row(s) but release {plan.source_release_id} "
+                    f"publishes {expected[name]}; filling would drop rows no release can "
+                    "restore. Publish them first, or re-fetch them after filling"
+                )
 
 
 def require_still_current(

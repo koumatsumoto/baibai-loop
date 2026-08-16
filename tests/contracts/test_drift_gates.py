@@ -101,10 +101,13 @@ def test_legacy_semantics_gate_rejects_the_retired_lake_comparison_vocabulary(
 
     path = tmp_path / "docs" / "reference" / "market-lake.md"
     path.parent.mkdir(parents=True)
-    path.write_text("shadow parity で release を検証する。\n", encoding="utf-8")
+    path.write_text("releaseは`shadow`または`production` profileを宣言し\n", encoding="utf-8")
 
+    # The word is rejected on its own rather than in fixed combinations: the sentence
+    # this gate exists to stop puts `または` between `shadow` and `profile`, so an
+    # adjacency rule would let exactly the drift it was written for back in.
     assert check_legacy_semantics.check(tmp_path) == [
-        "docs/reference/market-lake.md: obsolete operation instruction 'shadow parity'"
+        "docs/reference/market-lake.md: obsolete operation instruction 'shadow'"
     ]
 
 
@@ -131,7 +134,11 @@ def test_legacy_semantics_gate_keeps_the_live_senses_of_shadow_and_projection(
 
     doc = tmp_path / "docs" / "reference" / "macro.md"
     doc.parent.mkdir(parents=True)
-    doc.write_text("forward projection の gate は target を列挙する。\n", encoding="utf-8")
+    doc.write_text(
+        "forward projection の gate は target を列挙する。表示物（projection）は"
+        "canonical ではない。\n",
+        encoding="utf-8",
+    )
     component = tmp_path / "web" / "frontend" / "src" / "Card.tsx"
     component.parent.mkdir(parents=True)
     component.write_text('const cls = "shadow-sm drop-shadow";\n', encoding="utf-8")

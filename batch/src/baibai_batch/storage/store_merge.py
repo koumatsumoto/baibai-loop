@@ -121,8 +121,8 @@ def columns(connection: sqlite3.Connection, table: str, *, schema: str) -> Seque
     return [store_column(str(row[1])) for row in connection.execute(statement)]
 
 
-def count(connection: sqlite3.Connection, sql: str, parameters: Sequence[object] = ()) -> int:
-    row = connection.execute(sql, parameters).fetchone()
+def count(connection: sqlite3.Connection, sql: str) -> int:
+    row = connection.execute(sql).fetchone()
     if row is None:
         raise MergeError(f"query returned no row: {sql}")
     return int(row[0])
@@ -174,7 +174,6 @@ def require_matching_payloads(
     keys: Sequence[str],
     eligible: RowFilter = EVERY_ROW,
     uncompared: Sequence[str] = (),
-    source_missing_allowed: Sequence[str] = (),
 ) -> None:
     """Refuse a shared key whose two copies disagree, rather than picking a winner.
 
@@ -182,30 +181,18 @@ def require_matching_payloads(
     rather than the source itself. Two stores that read the same record at different
     moments differ on those by construction, so comparing them would refuse every merge;
     the insert leaves the target's reading in place.
-
-    ``source_missing_allowed`` remains a fact comparison, but permits a null source value
-    when the target already has the fact. It is directional by design: a populated source
-    against a null target and two different populated values still refuse the merge.
     """
 
     name = internal_name(table)
     names = columns(connection, table, schema="main")
     key_names = tuple(internal_name(key) for key in keys)
     skipped = {internal_name(column) for column in uncompared}
-    source_may_be_missing = {internal_name(column) for column in source_missing_allowed}
     payload = tuple(column for column in names if column not in key_names and column not in skipped)
     key_match = " AND ".join(f't."{key}" = s."{key}"' for key in key_names)
     if not payload:
         # A table that is all key has nothing to disagree about.
         return
-    payload_differs = " OR ".join(
-        (
-            f'(s."{column}" IS NOT NULL AND t."{column}" IS NOT s."{column}")'
-            if column in source_may_be_missing
-            else f't."{column}" IS NOT s."{column}"'
-        )
-        for column in payload
-    )
+    payload_differs = " OR ".join(f't."{column}" IS NOT s."{column}"' for column in payload)
     selected = ", ".join(f's."{key}"' for key in key_names)
     row = connection.execute(
         f"SELECT {selected} "  # nosec B608
@@ -246,7 +233,6 @@ def merge_fact_tables(
     *,
     eligible: RowFilter = EVERY_ROW,
     uncompared: Mapping[str, tuple[str, ...]] | None = None,
-    source_missing_allowed: Mapping[str, tuple[str, ...]] | None = None,
 ) -> tuple[TableMerge, ...]:
     """Merge every fact table, proving agreement before and after and losing no row.
 
@@ -257,7 +243,6 @@ def merge_fact_tables(
     """
 
     exempt = uncompared or {}
-    missing = source_missing_allowed or {}
     for table in fact_keys:
         require_matching_payloads(
             connection,
@@ -265,7 +250,6 @@ def merge_fact_tables(
             keys=fact_keys[table],
             eligible=eligible,
             uncompared=exempt.get(table, ()),
-            source_missing_allowed=missing.get(table, ()),
         )
     merged = tuple(merge_table(connection, table, eligible=eligible) for table in fact_keys)
     for table in fact_keys:
@@ -275,7 +259,6 @@ def merge_fact_tables(
             keys=fact_keys[table],
             eligible=eligible,
             uncompared=exempt.get(table, ()),
-            source_missing_allowed=missing.get(table, ()),
         )
     violations = connection.execute("PRAGMA foreign_key_check").fetchall()
     if violations:

@@ -128,8 +128,8 @@ def _require_expected_base(
     """Refuse unless the lake still serves the release this store was filled from.
 
     The check is on the full identity rather than the name, for the same reason the
-    projection checks it that way: a release ID republished over different bytes would
-    pass a name comparison while naming a different graph.
+    fill checks it that way: a release ID republished over different bytes would pass
+    a name comparison while naming a different graph.
     """
 
     if expected_release_id is None:

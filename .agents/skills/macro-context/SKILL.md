@@ -20,7 +20,7 @@ description: 市場環境の評価（macro context report）を人間の判断�
 
 ## 手順
 
-0. cloud 正本の store を読む前に pull する: `batch/scripts/r2_transfer.sh pull-machine`（market / runs / macro。規律は ops-maintenance skill）。application DB は local が正本なので pull しない。
+0. cloud 正本の store を読む前に pull する: `batch/scripts/r2_transfer.sh pull-machine` → `hydrate-market`（market / runs / macro。market store は hydrate まで通さないと fetch 由来 15 table が空である。規律は ops-maintenance skill）。application DB は local が正本なので pull しない。
 1. `baibai-engine macro context head` で現行 head を確認し、あれば `context show --latest --asof <date>` で `as_of`・監視ポイント・前回の scorecard 条件と確率を読み、`context triggers --context-id <head> --asof <date>` で前回の無効化条件を機械照合する（`fired` は書き直しの根拠であって、今回の結論の前提ではない）。
 2. `baibai-engine macro refresh <series...> --start <date> --end <asof>` で主要 series を直近窓ごと再取得し（**`--end` は必須**）、`macro reading --asof <営業日>` を**全系列読む**。`stale`・`insufficient_history`・`flags`・極端な `z_score` を先に把握し、`next_print_estimate` で判断・保有窓内の公表を確認する（data health の異常は解釈より先に扱う）。
 3. **force 仮説を立てる**: reading の flags・|z| 極値・percentile 端・トレンド反転を束ね、8 分析レンズと突き合わせて「今の市場を動かす支配的な力」の候補を 2〜5 件名指しする。各候補について**支持する一次 source と反証する一次 source の両方**を web research で取得する（series range・単位・公表日・取得日を確認）。8 象限の被覆はこのリサーチと並行して満たす。WebSearch は日本語 query で unavailable になりやすい — 英語 query を先に試し、日本語一次資料は URL 直接 fetch で取る。

@@ -204,10 +204,20 @@ lake_release_field() {
 }
 
 record_lake_release() {
+  # Both sides of a pipeline run, so a producer that fails and prints nothing still
+  # reaches this with an empty stream. Replacing the record with that would erase the
+  # store's release identity exactly when it is most needed — a refused `publish-lake`
+  # is the case where the operator has to know which release their store came from —
+  # so nothing is written unless the producer actually emitted a record.
   local temporary
   mkdir -p "${generation_dir}"
   temporary="$(mktemp "${generation_dir}/.lake-release.XXXXXX")"
   cat > "${temporary}"
+  if [[ ! -s "${temporary}" ]]; then
+    rm -f -- "${temporary}"
+    printf 'no L1 release was reported; the previous record is left in place\n' >&2
+    return 1
+  fi
   mv -f "${temporary}" "${lake_release_record}"
   cat "${lake_release_record}"
 }

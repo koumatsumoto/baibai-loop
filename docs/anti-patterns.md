@@ -324,8 +324,10 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] 取得の記録（`source_coverage`）を、それが記述する行とは別の場所から数え直していないか。
       行がreleaseから、記録がstore mergeから届くようになった後、targetの行を数えて記録へ書き戻すと
       「まだ見えていない」が「取得して0件だった」に化ける。zeroとunknownを分ける契約がある
-      datasetでは、記録はそれを書いたfetchの数値を運ぶか。claimが実行数より多い側だけを拒否し、
-      少ない側を正常な過渡状態として通すか
+      datasetでは、記録はそれを書いたfetchの数値を運ぶか。実行数へ**引き上げるだけ**で決して
+      引き下げないか（引き下げた記録は、行が戻っても小さいままで、gateが以後の実行を止める一方
+      再取得は計画されない）。取得の記録が追記専用だと仮定していないか——失敗した取得が範囲を
+      撤回する設計なら、keyによるunionはそれを復活させる
 - [ ] market lakeのcomplete coverageはtable自身の`MIN..MAX`だけで自己充足させず、profileが固定する
       history boundary・row floor・population floorをrelease時に再検証するか。新鮮な1日1row、
       leading history欠損、大幅なrow/population regressionをcurrent候補にしないnegative testがあるか

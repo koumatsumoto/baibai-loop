@@ -1158,6 +1158,44 @@ class TestHydrate:
         finally:
             filled.close()
 
+    def test_filling_refuses_over_rows_the_release_cannot_give_back(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        """A local backfill that has not been published would be deleted with no restore.
+
+        This is the state `publish-lake` leaves an operator in when it refuses because
+        the lake moved: the tooling's only other move is to fill, and filling empties
+        each table first. Refusing here is what stops "hydrate again" from being the
+        instruction that destroys the work.
+        """
+
+        store = tmp_path / "ahead.sqlite"
+        shutil.copyfile(lake.sqlite_path, store)
+        connection = sqlite3.connect(store)
+        connection.execute(
+            "INSERT INTO jquants_daily_bars(ticker, traded_at, close, volume) "
+            "VALUES ('9984', '2026-03-02', 300.0, 3000.0)"
+        )
+        connection.commit()
+        connection.close()
+        before = store.read_bytes()
+
+        with pytest.raises(LakeHydrateError, match="no release can restore"):
+            _hydrate(session, lake, store)
+
+        assert store.read_bytes() == before
+
+    def test_filling_allows_a_store_that_is_behind_the_release(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        """Catching up is the ordinary case and must not be caught by the guard above."""
+
+        store = _dehydrated(lake, tmp_path / "behind.sqlite")
+
+        report = _hydrate(session, lake, store)
+
+        assert report.rows == {"jquants.daily_bars": 4, "jquants.short_sale_reports": 2}
+
     def test_filling_refuses_a_table_that_drifted_from_its_dataset_contract(
         self, session: LakeSession, lake: Lake, tmp_path: Path
     ) -> None:
@@ -1342,7 +1380,7 @@ class TestHydrate:
         connection.close()
         before = store.read_bytes()
 
-        with pytest.raises(LakeHydrateError, match="does not match the"):
+        with pytest.raises(LakeHydrateError, match="does not carry"):
             _hydrate(session, lake, store)
 
         assert store.read_bytes() == before

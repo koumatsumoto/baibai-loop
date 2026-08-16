@@ -334,17 +334,23 @@ class TestCoverageLedger:
 
 
 class TestFinancialSummaryCoverage:
-    def test_a_source_only_range_is_recounted_against_the_target(self, tmp_path: Path) -> None:
-        """The carried claim states a count proved against a store that is not this one."""
+    def test_a_source_only_range_below_the_targets_rows_is_lifted(self, tmp_path: Path) -> None:
+        """A carried claim that is behind this store is lifted to what the store holds.
+
+        Lifting is the only direction: it keeps the ledger describing the store a reader
+        will meet. The opposite direction is the one that ships a ledger understating the
+        release, and it is refused rather than written.
+        """
 
         source = _store(tmp_path / "source.sqlite")
         target = _store(tmp_path / "target.sqlite")
         _add_fin_summary(target, ticker="1301")
+        _add_fin_summary(target, ticker="1302", disclosed_at="2020-03-06")
         _add_coverage(
             source,
             "jquants_fin_summaries",
             _FIN_RANGE,
-            record_count=9,
+            record_count=1,
             min_date="2020-01-01",
             max_date="2020-12-31",
         )
@@ -352,7 +358,7 @@ class TestFinancialSummaryCoverage:
         merge_stores(source, target)
 
         assert _coverage(target, "jquants_fin_summaries") == [
-            (_FIN_RANGE, 1, "ok", "2026-07-31T00:00:00+00:00")
+            (_FIN_RANGE, 2, "ok", "2026-07-31T00:00:00+00:00")
         ]
 
     def test_an_unclassified_status_and_error_state_is_refused(self, tmp_path: Path) -> None:
@@ -421,6 +427,38 @@ class TestFinancialSummaryCoverage:
 
         assert _coverage(target, "jquants_fin_summaries")[0][1] == 2
 
+    def test_a_carried_claim_above_the_targets_rows_stops_the_merge(self, tmp_path: Path) -> None:
+        """The cloud's ledger of a generation this store was not filled from.
+
+        Writing this store's smaller number in would ship a ledger that understates the
+        release. The next fill restores the rows, the ledger keeps the smaller number,
+        and `verify-cache-coverage` then refuses every screening run while no re-fetch is
+        ever planned — `covered_intervals` drops a window only when its count is zero.
+        """
+
+        source = _store(tmp_path / "source.sqlite")
+        target = _store(tmp_path / "target.sqlite")
+        _add_fin_summary(target, ticker="1301")
+        _add_coverage(
+            target,
+            "jquants_fin_summaries",
+            "get_fin_summary_range:2020-01-01..2020-02-29",
+            record_count=1,
+            min_date="2020-01-01",
+            max_date="2020-02-29",
+        )
+        _add_coverage(
+            source,
+            "jquants_fin_summaries",
+            _FIN_RANGE,
+            record_count=3,
+            min_date="2020-01-01",
+            max_date="2020-12-31",
+        )
+
+        with pytest.raises(MergeError, match="claims 3 row"):
+            merge_stores(source, target)
+
     def test_a_target_claim_that_outruns_its_rows_is_refused(self, tmp_path: Path) -> None:
         source = _store(tmp_path / "source.sqlite")
         target = _store(tmp_path / "target.sqlite")
@@ -436,6 +474,76 @@ class TestFinancialSummaryCoverage:
 
         with pytest.raises(MergeError, match="claims more rows than the store holds"):
             merge_stores(source, target)
+
+
+class TestRetractedCoverage:
+    def test_a_window_a_failed_fetch_retracted_is_not_reinstated(self, tmp_path: Path) -> None:
+        """The ledger is not append-only: a failed fetch cuts its range out of the ok windows.
+
+        The older copy still holds the wide window, so a union by key puts it back and the
+        range reads as covered exactly where the other writer proved it is not — and the
+        planner then never re-fetches it.
+        """
+
+        source = _store(tmp_path / "source.sqlite")
+        target = _store(tmp_path / "target.sqlite")
+        _add_coverage(
+            source,
+            "jquants_market_calendar",
+            "get_mkt_trading_calendar:2026-01-01..2026-01-31",
+            record_count=31,
+            min_date="2026-01-01",
+            max_date="2026-01-31",
+        )
+        _add_coverage(
+            source,
+            "jquants_market_calendar",
+            "get_mkt_trading_calendar:2026-02-01..2026-02-28",
+            record_count=0,
+            min_date="2026-02-01",
+            max_date="2026-02-28",
+            status="failed",
+            error="provider 500",
+        )
+        _add_coverage(
+            target,
+            "jquants_market_calendar",
+            "get_mkt_trading_calendar:2026-01-01..2026-02-28",
+            record_count=31,
+            min_date="2026-01-01",
+            max_date="2026-02-28",
+        )
+
+        with pytest.raises(MergeError, match="reinstate a window a fetch retracted"):
+            merge_stores(source, target)
+
+    def test_a_clean_window_beside_an_unrelated_failure_still_merges(self, tmp_path: Path) -> None:
+        """Only an overlap is refused; a failure elsewhere in the same source is normal."""
+
+        source = _store(tmp_path / "source.sqlite")
+        target = _store(tmp_path / "target.sqlite")
+        _add_coverage(
+            source,
+            "jquants_market_calendar",
+            "get_mkt_trading_calendar:2026-03-01..2026-03-31",
+            record_count=0,
+            min_date="2026-03-01",
+            max_date="2026-03-31",
+            status="failed",
+            error="provider 500",
+        )
+        _add_coverage(
+            target,
+            "jquants_market_calendar",
+            "get_mkt_trading_calendar:2026-01-01..2026-02-28",
+            record_count=31,
+            min_date="2026-01-01",
+            max_date="2026-02-28",
+        )
+
+        merge_stores(source, target)
+
+        assert len(_coverage(target, "jquants_market_calendar")) == 2
 
 
 class TestShortSaleCoverage:
@@ -573,6 +681,23 @@ class TestShortSaleCoverage:
                 "2026-08-02T00:00:00+00:00",
             )
         ]
+
+    def test_a_claim_without_a_date_range_is_refused_rather_than_dropped(
+        self, tmp_path: Path
+    ) -> None:
+        """Every short-sale claim is rebuilt from the selected set, so a skip is a delete."""
+
+        source = _store(tmp_path / "source.sqlite")
+        target = _store(tmp_path / "target.sqlite")
+        _add_coverage(
+            source,
+            "jquants_short_sale_reports",
+            "get_mkt_short_sale_report:unbounded",
+            record_count=1,
+        )
+
+        with pytest.raises(MergeError, match="no disclosure date range"):
+            merge_stores(source, target)
 
     def test_a_claim_spanning_more_than_one_disclosure_date_is_refused(
         self, tmp_path: Path

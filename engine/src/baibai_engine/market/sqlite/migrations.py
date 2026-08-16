@@ -18,6 +18,15 @@ that append a column at the DDL tail may use a plain `ALTER TABLE ... ADD COLUMN
 statement. A change that reorders or drops columns must instead rebuild the table
 via `rebuild_table` in the migration's `transform` hook, because the strict shape
 check compares column order against the DDL and an appended column would fail it.
+
+Fifteen of these tables are published to the L1 lake (`market.lake.datasets`), and
+for those a migration is not enough on its own. `lake hydrate` compares the store's
+ordered column names against the dataset contract and refuses the fill when they
+differ, so a column added to a lake-owned table takes the daily batch down at the
+hydrate step until the dataset's `contract_version` is bumped and the dataset is
+re-exported under the new contract. CI does not catch this: the migration tests are
+schema-internal and the export selects columns by name. Changing a lake-owned table
+means migration + contract bump + re-export, in that order.
 """
 
 from __future__ import annotations
