@@ -21,12 +21,17 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from baibai_engine.market.lake.identity import verified_git_commit
-from baibai_engine.market.lake.keys import current_l1_pointer_key, dataset_manifest_key
-from baibai_engine.market.lake.models import ReleaseManifest, load_lake_model_json
-from baibai_engine.market.lake.objects import mirror_path
-from baibai_engine.market.lake.release import L1ReleasePointer, create_l1_release
-from baibai_engine.market.lake.writer import export_lake_legacy
+from baibai_engine.batch_api import (
+    L1ReleasePointer,
+    LakeReleaseManifest,
+    create_lake_l1_release,
+    export_lake_legacy,
+    lake_current_l1_pointer_key,
+    lake_dataset_manifest_key,
+    lake_mirror_path,
+    lake_verified_git_commit,
+    load_lake_model_json,
+)
 
 from .lake_publish import AwsCliR2Store, LakePublishError, ObjectStore, publish_l1_release
 
@@ -77,11 +82,11 @@ def publish_market_lake(
     export = export_lake_legacy(
         sqlite_path=sqlite_path,
         mirror_root=mirror_root,
-        producer_git_commit=verified_git_commit(),
+        producer_git_commit=lake_verified_git_commit(),
         base_manifest_paths=base_manifests,
         audit_full_history=False,
     )
-    release_path, release = create_l1_release(
+    release_path, release = create_lake_l1_release(
         dataset_manifest_paths=[item.manifest_path for item in export.datasets.values()],
         mirror_root=mirror_root,
         release_id=release_id,
@@ -109,10 +114,10 @@ def publish_market_lake(
 
 
 def _serving_pointer(store: ObjectStore) -> L1ReleasePointer | None:
-    remote = store.head(current_l1_pointer_key())
+    remote = store.head(lake_current_l1_pointer_key())
     if remote is None:
         return None
-    return load_lake_model_json(store.get_bytes(current_l1_pointer_key()), L1ReleasePointer)
+    return load_lake_model_json(store.get_bytes(lake_current_l1_pointer_key()), L1ReleasePointer)
 
 
 def _require_expected_base(
@@ -158,10 +163,10 @@ def _base_manifest_paths(
     if base is None:
         return {}
     release_path = _fetch(store, mirror_root, base.manifest_key)
-    release = load_lake_model_json(release_path.read_bytes(), ReleaseManifest)
+    release = load_lake_model_json(release_path.read_bytes(), LakeReleaseManifest)
     paths: dict[str, Path] = {}
     for dataset_name, entry in sorted(release.datasets.items()):
-        key = dataset_manifest_key(dataset=dataset_name, build_id=entry.build_id)
+        key = lake_dataset_manifest_key(dataset=dataset_name, build_id=entry.build_id)
         paths[dataset_name] = _fetch(store, mirror_root, key)
     return paths
 
@@ -169,7 +174,7 @@ def _base_manifest_paths(
 def _fetch(store: ObjectStore, mirror_root: Path, key: str) -> Path:
     # Through the validating resolver rather than a join: these keys come off a remote
     # pointer, and a join would follow one that escaped the mirror.
-    path = mirror_path(mirror_root, key)
+    path = lake_mirror_path(mirror_root, key)
     if path.is_file():
         return path
     path.parent.mkdir(parents=True, exist_ok=True)

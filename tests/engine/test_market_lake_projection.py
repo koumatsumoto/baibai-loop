@@ -17,6 +17,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from baibai_engine.market.lake import duck as duck_module
+from baibai_engine.market.lake import hydrate as hydrate_module
 from baibai_engine.market.lake import models as lake_models
 from baibai_engine.market.lake import projection as projection_module
 from baibai_engine.market.lake.datasets import JQUANTS_DAILY_BARS, JQUANTS_SHORT_SALE_REPORTS
@@ -25,6 +26,11 @@ from baibai_engine.market.lake.duck import (
     LakeSession,
     R2ReadCredentials,
     lake_session,
+)
+from baibai_engine.market.lake.hydrate import (
+    LakeHydrateError,
+    dehydrate_market_store,
+    hydrate_market_store,
 )
 from baibai_engine.market.lake.keys import (
     canonical_object_key,
@@ -1622,3 +1628,165 @@ class TestCacheResilience:
             cache.materialize(lake_object)
 
         assert (lake.mirror / lake_object.key).read_bytes() == b"rot"
+
+
+def _dehydrated(lake: Lake, path: Path) -> Path:
+    """A copy of the fixture store shaped like the one R2 holds after the cutover."""
+
+    shutil.copyfile(lake.sqlite_path, path)
+    connection = sqlite3.connect(path)
+    connection.execute("DELETE FROM jquants_daily_bars")
+    connection.execute("DELETE FROM jquants_short_sale_reports")
+    connection.commit()
+    connection.close()
+    return path
+
+
+def _hydrate(session: LakeSession, lake: Lake, store: Path, **kwargs: Any):
+    cache = _cache(lake)
+    return hydrate_market_store(
+        session,
+        release=resolve_current_release(cache.source),
+        cache=cache,
+        store=store,
+        dataset_names=("jquants.daily_bars", "jquants.short_sale_reports"),
+        **kwargs,
+    )
+
+
+class TestHydrate:
+    def test_filling_restores_the_published_rows_and_leaves_the_rest_of_the_store_alone(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        store = _dehydrated(lake, tmp_path / "arrived.sqlite")
+        before = sqlite3.connect(f"file:{lake.sqlite_path}?mode=ro", uri=True)
+        expected_shape = {
+            table: _table_shape(before, table)
+            for table in ("jquants_daily_bars", "jquants_short_sale_reports")
+        }
+        expected_version = before.execute("PRAGMA user_version").fetchone()[0]
+        before.close()
+
+        report = _hydrate(session, lake, store)
+
+        assert report.rows == {"jquants.daily_bars": 4, "jquants.short_sale_reports": 2}
+        assert report.release_id == lake.release_id
+        filled = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
+        try:
+            assert filled.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 4
+            # The coverage ledger is what the lake does not own, and the fill has to be
+            # the reason it survives rather than an accident of the copy.
+            assert filled.execute("SELECT COUNT(*) FROM source_coverage").fetchone()[0] == 1
+            assert filled.execute("PRAGMA user_version").fetchone()[0] == expected_version
+            for table, shape in expected_shape.items():
+                assert _table_shape(filled, table) == shape
+        finally:
+            filled.close()
+
+    def test_filling_refuses_a_table_that_drifted_from_its_dataset_contract(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        store = _dehydrated(lake, tmp_path / "drifted.sqlite")
+        connection = sqlite3.connect(store)
+        connection.execute("ALTER TABLE jquants_daily_bars ADD COLUMN settled_at TEXT")
+        connection.commit()
+        connection.close()
+
+        with pytest.raises(LakeHydrateError, match=r"does not match the jquants\.daily_bars"):
+            _hydrate(session, lake, store)
+
+    def test_a_fill_that_loaded_fewer_rows_than_the_release_published_is_refused(
+        self, session: LakeSession, lake: Lake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A silently short load is the failure the whole cutover has to fail closed on.
+
+        Screening reading a store whose bars stopped halfway publishes a smaller
+        universe as a healthy result, and nothing downstream can tell that apart from a
+        quiet market.
+        """
+
+        store = _dehydrated(lake, tmp_path / "short.sqlite")
+        real = hydrate_module.load_dataset_rows
+
+        def short_load(connection: Any, **kwargs: Any) -> int:
+            loaded = real(connection, **kwargs)
+            if kwargs["dataset"].name == "jquants.daily_bars":
+                connection.execute("DELETE FROM jquants_daily_bars WHERE traded_at = '2026-02-02'")
+                return loaded - 1
+            return loaded
+
+        monkeypatch.setattr(hydrate_module, "load_dataset_rows", short_load)
+        with pytest.raises(LakeHydrateError, match="published 4"):
+            _hydrate(session, lake, store)
+        # The refusal has to leave the store as it was, not half-filled.
+        arrived = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
+        try:
+            assert arrived.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 0
+        finally:
+            arrived.close()
+
+    def test_a_release_superseded_while_the_fill_waited_is_refused(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        store = _dehydrated(lake, tmp_path / "raced.sqlite")
+        moved = ("release-two", "0" * 64)
+        with pytest.raises(ProjectionError, match="no longer current"):
+            _hydrate(session, lake, store, still_current=lambda: moved)
+
+
+class TestDehydrate:
+    def test_emptying_removes_exactly_what_the_release_publishes(
+        self, lake: Lake, tmp_path: Path
+    ) -> None:
+        store = tmp_path / "leaving.sqlite"
+        shutil.copyfile(lake.sqlite_path, store)
+        release = resolve_current_release(_cache(lake).source)
+
+        report = dehydrate_market_store(store, release=release)
+
+        assert report.removed_rows == {"jquants.daily_bars": 4, "jquants.short_sale_reports": 2}
+        emptied = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
+        try:
+            assert emptied.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 0
+            assert emptied.execute("SELECT COUNT(*) FROM source_coverage").fetchone()[0] == 1
+        finally:
+            emptied.close()
+
+    def test_emptying_refuses_rows_the_release_has_not_published_yet(
+        self, lake: Lake, tmp_path: Path
+    ) -> None:
+        store = tmp_path / "ahead.sqlite"
+        shutil.copyfile(lake.sqlite_path, store)
+        connection = sqlite3.connect(store)
+        connection.execute(
+            "INSERT INTO jquants_daily_bars(ticker, traded_at, close, volume) "
+            "VALUES ('9984', '2026-03-02', 300.0, 3000.0)"
+        )
+        connection.commit()
+        connection.close()
+        release = resolve_current_release(_cache(lake).source)
+
+        with pytest.raises(LakeHydrateError, match="publish before emptying"):
+            dehydrate_market_store(store, release=release)
+
+    def test_emptying_refuses_a_dataset_the_release_does_not_carry_at_all(
+        self, lake: Lake, tmp_path: Path
+    ) -> None:
+        """A declared dataset whose source has not started publishing still holds rows.
+
+        Emptying it because the registry names it would drop the first rows a new source
+        ever produced, with no release able to give them back.
+        """
+
+        store = tmp_path / "unpublished.sqlite"
+        shutil.copyfile(lake.sqlite_path, store)
+        connection = sqlite3.connect(store)
+        connection.execute(
+            "INSERT INTO jquants_market_calendar(day, is_business_day) VALUES ('2026-03-02', 1)"
+        )
+        connection.commit()
+        connection.close()
+        release = resolve_current_release(_cache(lake).source)
+
+        with pytest.raises(LakeHydrateError, match="the release does not publish"):
+            dehydrate_market_store(store, release=release)

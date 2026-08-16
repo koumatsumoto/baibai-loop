@@ -23,8 +23,8 @@ current pointerを1度だけ解決し、`lake projection build`はその固定re
 | store | authority | writer | backup / rebuild | cloud sync |
 | --- | --- | --- | --- | --- |
 | `application/baibai.sqlite` | local canonical、cloud replica | engine application service | `baibai-engine db backup`。自動 rebuild 禁止 | `batch/scripts/publish.sh` |
-| `market/market.sqlite` | `sqlite_authority`の唯一のcanonical/runtime L1 | provider + controlled merge | screening cache command で再取得可能 | no-loss merge 後のみ push |
-| R2 `lake/l1/` | `sqlite_authority`ではnon-authoritative shadow、`lake_authority`ではcanonical L1 | lake publisher | source再取得またはlegacy SQLite seedからimmutable rebuild | content object + manifest + CAS pointer |
+| `market/market.sqlite` | fetch由来15 tableは`lake_authority`のreleaseから再構築されるruntime copy、残る4 tableはここがcanonical | provider + controlled merge | releaseからhydrate、または screening cache command で再取得可能 | lake所有15 tableを空にしてから push |
+| R2 `lake/l1/` | fetch由来15 datasetのcanonical L1 | lake publisher | source再取得またはlegacy SQLite seedからimmutable rebuild | content object + manifest + CAS pointer |
 | R2 `lake/l2/` | dataset cutover前はnon-authoritative shadow、cutover後はrebuildable analytical authority | analytical build | fixed input generationからimmutable rebuild | calibrationはatomic bundle pointer |
 | `lake/` | disposable local R2 mirror / staging / content-addressed object cache | lake build | R2 manifestから再取得可能 | authorityにしない |
 | `market/projection.sqlite` | disposable projection of one fixed L1 release | lake projection build | 削除して固定releaseから再構築 | uploadしない |
@@ -34,10 +34,10 @@ current pointerを1度だけ解決し、`lake projection build`はその固定re
 
 ## Allowed / Forbidden dependencies
 
-writer は上表の owner に限定する。lifecycle stateは`sqlite_authority`と`lake_authority`の二つ
-だけで、旧 `data/` path、新旧同時canonical writer、application DB の自動初期化、cloud copyに
-よるlocal canonical上書きを禁止する。`sqlite_authority`のlake objectはnon-authoritative shadow
-comparison artifactで、`lake_authority`のSQLiteはfixed releaseから再構築できるprojectionになる。
+writer は上表の owner に限定する。市場 fact の authority は lake にあり、旧 `data/` path、新旧同時
+canonical writer、application DB の自動初期化、cloud copyによるlocal canonical上書きを禁止する。
+`market.sqlite` の lake 所有 15 table は fixed release から再構築できる runtime copy であり、
+R2 が持つ copy はその 15 table を空にしたものになる（[market lake](../docs/reference/market-lake.md#daily-cutover)）。
 
 ## Stores / Config / Reports
 

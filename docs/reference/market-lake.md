@@ -10,7 +10,8 @@ status: active
 authority、manifest、version 語彙は [`../architecture.md`](../architecture.md#market-lake-publication-contract)
 を正本とする。この文書は publish と read の実操作を持つ。
 
-L1 は `market.sqlite` の fetch 由来 table 15 本を持つ。残る 4 本は L1 に入らない — `jpx_delistings`・
+L1 は `market.sqlite` の fetch 由来 table 15 本を持ち、R2 が持つ `market.sqlite` は残る 4 本だけを
+運ぶ（[Daily cutover](#daily-cutover)）。その 4 本は L1 に入らない — `jpx_delistings`・
 `tender_offer_exit_values`・`tse_capital_policy_snapshots` は operator が導出したもので fetch の
 蓄積ではなく、key merge すると撤回した行が復活する。`source_coverage` は取得範囲の帳簿であって
 fact ではない。**不足 dataset を legacy store で暗黙に埋めない**。比較は
@@ -51,9 +52,9 @@ schema version・`quick_check`を確定してから、両datasetのexport、sour
 が残すのはschema version・content digest・capture時刻という素性だけで、同じstore世代を持っているか
 どうかはre-sealして digest を突き合わせれば答えられる（unchangedなstoreに対してsealはbyte決定的）。
 
-`sqlite_authority`期間のrestore checkpointは既存のcloud `market.sqlite`を正本とし、lake
-authority cutover前に別retention classのinitial checkpointを一度検証する。日次buildごとにfull
-SQLiteをR2へ再送しない。
+日次buildごとにfull SQLiteをR2へ再送しない。restore checkpointはlakeのimmutable object graph
+そのものであり、release manifestが全partitionのkey・digest・rowsを列挙するので、release一つから
+storeを組み直せる。
 
 ```bash
 uv run baibai-engine lake export-all \
@@ -229,6 +230,41 @@ uv run python -m baibai_batch.storage.lake_publish \
 を確認した後にだけ実行する。
 
 <a id="fixed-release-read"></a>
+
+## Daily cutover
+
+日次バッチは lake から store を作り、lake へ publish して終わる。`market.sqlite` 全体の
+GET / backup copy / PUT は発生しない。
+
+| 段 | 何をするか |
+| --- | --- |
+| `r2_transfer.sh pull-machine` | `market.sqlite` を GET する。R2 の copy は lake が持たない 4 本だけを持つ |
+| `r2_transfer.sh hydrate-market` | current release を解決し、lake 由来 15 本を store へ積む |
+| `baibai-batch daily` | 変更なし。ingest は store へ書き、screening は store を読む |
+| `r2_transfer.sh publish-lake` | 変わった partition だけ export → release → pointer を CAS で切り替え |
+| `r2_transfer.sh push-machine` | push 用 copy から lake 所有 15 本を空にして PUT する |
+
+**publish は push より先に置く。** 逆順で publish に失敗すると、クラウドには「今日の coverage を
+主張する store」だけが残る。coverage が「取得済み」と言う限り次の run はその範囲を取りに行かないので、
+穴が自力で塞がらない唯一の組み合わせになる。
+
+**R2 の key は `market.sqlite` のままにする。** store の同一性は変わっていない — schema version も
+19 本という構成も同じで、変わったのは 15 本の権威が lake へ移り、pull のたびに hydrate が復元する
+という点だけである。
+
+**両側とも行数で fail-close する。** hydrate は release manifest が publish した行数と一致しなければ
+失敗する。積み損ねた store をそのまま screening へ渡すと、空の universe が健全な結果として publish
+されるためで、これが cutover が持ち込む唯一の新しい失敗経路である。dehydrate は逆向きに同じ一致を
+要求し、release が持たない dataset に行があれば拒否する — registry にあるが release にまだ無い
+dataset を空にすると、どの release からも戻せない行を落とすことになる。
+
+dehydrate が走るかどうかは `lake/pointers/l1/current.json` の有無で決まる。権威が lake にあることは
+pointer が宣言しているので、それを読む。pointer が無い bucket（初回 seed）では store がまだ唯一の
+複製であり、pointer がある以上は空にすることが必須になる。
+
+mirror は `stores/lake/` に置く。key が全て `lake/` で始まるので mirror root は store が並ぶ
+directory 自身であり、`--mirror stores` と渡す。mirror は immutable object の fetch-through cache
+なので、消しても release から作り直せる。
 
 ## Fixed release read
 

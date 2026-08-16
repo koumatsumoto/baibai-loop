@@ -41,6 +41,7 @@ from baibai_engine.macro.indicators.service import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
     LATEST_FETCH_LOOKBACK_DAYS,
 )
+from baibai_engine.market.lake.identity import verified_git_commit as lake_verified_git_commit
 from baibai_engine.market.lake.keys import (
     current_calibration_bundle_pointer_key as lake_current_calibration_bundle_pointer_key,
 )
@@ -64,9 +65,12 @@ from baibai_engine.market.lake.models import ReleaseManifest as LakeReleaseManif
 from baibai_engine.market.lake.models import SQLiteSnapshotSourceRef as LakeSQLiteSnapshotSourceRef
 from baibai_engine.market.lake.models import retained_sources as lake_retained_sources
 from baibai_engine.market.lake.models import validate_release_policy as validate_lake_release_policy
+from baibai_engine.market.lake.objects import mirror_path as lake_mirror_path
 from baibai_engine.market.lake.release import L1ReleasePointer
+from baibai_engine.market.lake.release import create_l1_release as create_lake_l1_release
 from baibai_engine.market.lake.sources import resolve_source_ref as resolve_lake_source_ref
 from baibai_engine.market.lake.sources import verified_source_scope as lake_verified_source_scope
+from baibai_engine.market.lake.writer import export_lake_legacy
 from baibai_engine.market.sqlite import open_connection as open_market_store
 from baibai_engine.market.sqlite.schema import (
     EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
@@ -122,13 +126,17 @@ __all__ = [
     "canonical_manifest_bytes",
     "cited_series_ids",
     "connect_read_only",
+    "create_lake_l1_release",
     "create_market_snapshot",
     "database_path",
+    "export_lake_legacy",
     "lake_current_calibration_bundle_pointer_key",
     "lake_current_l1_pointer_key",
     "lake_dataset_manifest_key",
+    "lake_mirror_path",
     "lake_release_manifest_key",
     "lake_retained_sources",
+    "lake_verified_git_commit",
     "lake_verified_source_scope",
     "load_definitions",
     "load_lake_model_json",

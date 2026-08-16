@@ -147,10 +147,17 @@ uv run baibai-engine screening ticker-profile --ticker TICKER
 3. **merge → upload** — cloud copyをローカルstoreへmergeし、cloud側の行が1行でも取り残されるなら停止する。全て取り込めた場合だけuploadする
 
 ```bash
+batch/scripts/r2_transfer.sh publish-lake          # market storeを進めた場合は先にこれ
 batch/scripts/r2_transfer.sh push-market
 batch/scripts/r2_transfer.sh push-macro
 gh workflow run cloud-materialize.yml --ref main   # 表示へ反映する場合
 ```
+
+**market storeはlakeへpublishしてからpushする。** fetch由来15 tableのcanonicalはR2のL1 releaseに
+あり、`push-market`が送るのはそれを空にした残り4 tableだけである。`publish-lake`を飛ばすと、
+dehydrateが「releaseが持つ行数と合わない」で停止する。ローカルが cloud より遅れている場合は先に
+`hydrate-market`で現行releaseへ揃える — publishはstoreをhydrateしたreleaseの上にだけ積めるので、
+別のwriterが進めたlakeの上へ古いstoreをpublishすることはできない。
 
 **cloud copyがcodeより古いのは正常な過渡状態である。** cloud copyのschemaは日次batchがstoreを開いたときに上がるので、schema bumpから次の実行までラグが残る。cronは平日だけなので、週末にschemaを上げると月曜まで続く。この間もmigrate段があるためpushは通り、日次batchを起こす必要はない。
 

@@ -41,12 +41,12 @@ J-Quants / EDINET から取得したデータは、個人利用・非公開 repo
 
 大規模な market fact は4つの責務へ分ける。
 
-| class | `sqlite_authority` | `lake_authority` | rule |
-| --- | --- | --- | --- |
-| L1 Raw | canonical Raw archiveなし | R2 immutable object | provider bytesを可能な限り原形で保持し、source request・retrieved-at・content hashを付ける |
-| L1 Canonical | `market.sqlite` | R2 Parquet + dataset / release manifest | field・型・日付・source identity・revision semanticsを正規化し、判断・score・rankを入れない |
-| local projection | `market.sqlite`がcanonicalを兼ねる | fixed L1 releaseから再構築するSQLite | R2 authorityにしない |
-| disposable byproduct | `.cache/` | `.cache/` | canonical verification後に削除でき、入力証跡として扱わない |
+| class | canonical form | rule |
+| --- | --- | --- |
+| L1 Raw | R2 immutable object | provider bytesを可能な限り原形で保持し、source request・retrieved-at・content hashを付ける |
+| L1 Canonical | R2 Parquet + dataset / release manifest | field・型・日付・source identity・revision semanticsを正規化し、判断・score・rankを入れない |
+| local projection | fixed L1 releaseから再構築するSQLite | R2 authorityにしない |
+| disposable byproduct | `.cache/` | canonical verification後に削除でき、入力証跡として扱わない |
 
 Canonical manifestのsourceはtyped `SourceRef`で記録する。bytesを保持するkind（provider Raw、
 calibration input archive）は実在するkey、SHA-256、source側schema/manifest versionへ束縛する。
@@ -65,11 +65,9 @@ current closureから未到達でretrieved-atから90日以上の場合だけ、
 planへ載せ、削除直前にidentityを再検証してlocal mirrorから削除する。R2削除はBucket Lock満了後の
 Delete専用retention finalizerへ分離する。
 
-lifecycle stateは`sqlite_authority`と`lake_authority`の二つだけである。`sqlite_authority`では
-`stores/market/market.sqlite`だけがscreening L1のcanonical/runtime authorityで、lake buildは
-non-authoritative shadow comparison artifactである。parityとcutover条件を満たしたpointer
-switch後の`lake_authority`でだけR2 releaseをcanonical authorityとして読む。dual canonical
-writeを行わない。run storeは`stores/screening/runs.sqlite`を継続する。SQLite layout の正本は
+screening L1のcanonical authorityはR2 releaseにあり、`stores/market/market.sqlite`はその固定
+releaseから再構築するruntime copyである。取得範囲の帳簿とoperator導出factだけがSQLiteをcanonical
+とする。dual canonical writeを行わない。run storeは`stores/screening/runs.sqlite`を継続する。SQLite layout の正本は
 [`./screening-runtime.md`](./screening-runtime.md)、lake manifest・version・authorityは
 [`../architecture.md`](../architecture.md#market-lake-publication-contract)を正本とする。
 
