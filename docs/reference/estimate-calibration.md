@@ -151,6 +151,27 @@ uv run baibai-engine screening calibration-evaluate \
   --horizon 1y --horizon 3y --out /tmp/calibration-pre2019.yaml
 ```
 
+## store の再構築
+
+旧 CSV store から L2 lake への移行機構は持たない。**旧 store を捨てて全 cohort を再構築する。**
+rules が動けば cohort は作り直しになるので、移行を作っても運べるのは「現行 code が読める契約で
+書かれた履歴」だけであり、実測ではそれが 0 件だった。
+
+```bash
+uv run baibai-engine screening calibration-build \
+  --start 2019-11-01 --end <latest-month-end>
+```
+
+**実測（2026-08-16、現行 head、実 `market.sqlite` 2.0GB）: 81 cohort を 58 分。** forward 1,527,240
+行（うち resolved 1,059,521、支配権イベント exit 4,686）、object 247 件、94.6MB。**同じ履歴が CSV の
+507MB から lake の 93MB になる。** bundle manifest は 81 cohort に対して 1,367 bytes である — 世代の
+cohort inventory は 3 つの dataset manifest から導出するので、bundle 自体は cohort 数に依存しない。
+
+再構築した cohort の source は sealed SQLite snapshot であり、bytes を lake に残さないので
+`source_assurance` は `trace_only` になる。`--run-purpose production_decision` は
+`source_not_rebuildable` で block されたままで、これは L1 release が cohort source になるまで
+解けない。**store を作り直しても production 判断は開かない。**
+
 ## Commands
 
 ```bash
