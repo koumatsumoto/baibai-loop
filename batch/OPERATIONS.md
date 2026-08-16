@@ -209,7 +209,7 @@ gh workflow run cloud-history-backfill.yml --ref main \
 
 `source_coverage`は取得範囲の帳簿で、両側が書くので主キー`(source, coverage_key)`で`INSERT OR IGNORE`し、同じ主キーを両側が持つ場合はpayloadの一致を検証する。**比較しないのは、出所が何を言ったかではなくstoreがいつ読んだかを記録する`fetched_at_utc`だけ**——2つのstoreが同じ範囲を別の時刻に読めばそこは必ず食い違うので、比較すれば全てのmergeを拒否する。
 
-`record_count`は行が在る場所でしか証明できない。R2が運ぶdehydrate済みのsourceでは証明せずclaimとして受け取り、hydrate済みのtargetでは**片方向だけ**検査する——実rowより多くを主張するclaimは停止させ、少ないclaimはunion後の実rowから引き上げる。2つの誤りは対称ではない。多い側は「この storeが示せない範囲を取得済み」と言うので、穴を塞ぐはずの再取得を抑止する。少ない側は再取得が1回増えるだけで、しかもcutover後は普通に起きる——行はhydrateで、ledgerはこのmergeで届くので、自分のledgerより新しいreleaseから満たされたstoreは、reconcileがclaimを上げるまで主張より多くを持つ。**多い側を拒否することがhydrate済みであることのgateでもある**——空のtargetは「取得済み」と言うclaimを黙って0へ書き換える代わりに、ここで停止する。
+`record_count`は行が在る場所でしか証明できない。R2が運ぶdehydrate済みのsourceでは証明せずclaimとして受け取り、hydrate済みのtargetでは**片方向だけ**検査する——実rowより多くを主張するclaimは停止させ、少ないclaimはunion後の実rowから引き上げる。2つの誤りは対称ではない。多い側はこのstoreではない何かを記述しており、後段のreconcileがそれをこのstoreの実行数へ**引き下げる**——取得の記録を、誰も求めていない小さい数値で黙って置き換えることになる。少ない側は追いつき待ちで、cutover後は普通に起きる——行はhydrateで、ledgerはこのmergeで届くので、自分のledgerより新しいreleaseから満たされたstoreは、reconcileがclaimを上げるまで主張より多くを持つ。**多い側を拒否することがhydrate済みであることのgateでもある**——空のtargetは「取得済み」と言うclaimを黙って0へ書き換える代わりに、ここで停止する。
 
 訂正可能な`jquants_short_sale_reports`のcoverageはdisclosure dateごとに1つのclaimを選ぶ。`ok`が`partial`/`failed`に勝ち、同種なら`fetched_at_utc`が新しい方が勝つ。`record_count`はreleaseが満たしたtargetの実rowから読み直す。行が1つも claimされないdateがあれば停止するが、**その検査はclaim選択の後**に置く——行はhydrateで、claimはmergeで届くので、cloudが取得して publishした日はtargetのtableに1段先に現れる。
 

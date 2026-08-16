@@ -198,11 +198,12 @@ def _require_no_overclaimed_coverage(connection: sqlite3.Connection) -> None:
     the rows.
 
     The check is one-directional because the two errors are not symmetric. A claim above
-    the rows says a range was fetched that this store cannot show, which suppresses the
-    re-fetch that would close the gap. A claim below the rows only costs one re-fetch,
-    and it is an ordinary state after the cutover: the rows arrive by hydration and the
-    ledger arrives by this merge, so a store filled from a release newer than its own
-    ledger holds more than it claims until the reconcile raises the claim.
+    the rows describes a store that is not this one, and the reconcile below would lower
+    it to what this store holds — quietly replacing the record of what was fetched with
+    a smaller number nobody asked for. A claim below the rows is an ordinary state after
+    the cutover: the rows arrive by hydration and the ledger arrives by this merge, so a
+    store filled from a release newer than its own ledger holds more than it claims until
+    the reconcile raises the claim.
 
     Refusing the dangerous direction is also what requires the target to be hydrated. A
     store whose claims say tens of thousands of rows and whose tables are empty fails
