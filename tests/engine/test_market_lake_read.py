@@ -1323,6 +1323,31 @@ class TestHydrate:
 
             assert store.read_bytes() == payload
 
+    def test_another_stores_database_is_never_filled(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        """A readable SQLite is the mistyped path that a file-type check would miss.
+
+        `runs.sqlite` and the application store open cleanly and pass every integrity
+        check, so what refuses them is the contract comparison: the release's tables are
+        not there. The copy is made first, so the proof that matters is that the named
+        file still holds its own bytes afterwards.
+        """
+
+        store = tmp_path / "runs.sqlite"
+        connection = sqlite3.connect(store)
+        connection.execute("CREATE TABLE screening_run(run_revision_id TEXT PRIMARY KEY)")
+        connection.execute("INSERT INTO screening_run VALUES ('r1')")
+        connection.commit()
+        connection.close()
+        before = store.read_bytes()
+
+        with pytest.raises(LakeHydrateError, match="does not match the"):
+            _hydrate(session, lake, store)
+
+        assert store.read_bytes() == before
+        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".hydrating")]
+
     def test_a_store_that_does_not_exist_is_named_rather_than_created(
         self, session: LakeSession, lake: Lake, tmp_path: Path
     ) -> None:
