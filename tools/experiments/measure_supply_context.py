@@ -27,9 +27,11 @@ from typing import TextIO
 import yaml
 from tools.experiments.measure_signal_cohorts import (
     SignalCohortMeasurementError,
+    fixed_generation,
     require_single_rules_hash,
 )
 
+from baibai_engine.screening.calibration.lake import FixedCalibrationBundle
 from baibai_engine.screening.calibration.store import published_cohorts, read_panel
 
 DEFAULT_CALIBRATION_DIR = Path("stores/screening/calibration")
@@ -166,7 +168,7 @@ def _breadth_snapshot(
 
 
 def _panel_history(
-    calibration_dir: Path, *, hurdle: float
+    calibration_dir: Path, bundle: FixedCalibrationBundle, *, hurdle: float
 ) -> tuple[
     list[tuple[str, float]], list[tuple[str, int]], list[BreadthSnapshot], list[dict[str, str]]
 ]:
@@ -174,7 +176,7 @@ def _panel_history(
     counts: list[tuple[str, int]] = []
     breadth: list[BreadthSnapshot] = []
     degraded: list[dict[str, str]] = []
-    asofs = published_cohorts(calibration_dir)
+    asofs = published_cohorts(calibration_dir, bundle=bundle)
     if not asofs:
         raise SupplyContextError(f"no panel rows under {calibration_dir}")
     previous_asof: date | None = None
@@ -190,7 +192,9 @@ def _panel_history(
         previous_asof = asof
         ranked: list[tuple[int, float]] = []
         clearing = 0
-        rows: list[dict[str, object]] = [asdict(row) for row in read_panel(calibration_dir, asof)]
+        rows: list[dict[str, object]] = [
+            asdict(row) for row in read_panel(calibration_dir, asof, bundle=bundle)
+        ]
         for row in rows:
             estimate = _optional_float(row.get("er_annual"))
             if estimate is None:
@@ -594,11 +598,12 @@ def build_supply_context(
     selection_id: str | None,
     hurdle: float,
 ) -> dict[str, object]:
+    generation = fixed_generation(calibration_dir)
     top5_history, count_history, panel_breadth, panel_degraded = _panel_history(
-        calibration_dir, hurdle=hurdle
+        calibration_dir, generation, hurdle=hurdle
     )
     current = _current_selection(runs_db, selection_id=selection_id)
-    rules_hash = require_single_rules_hash(calibration_dir)
+    rules_hash = require_single_rules_hash(generation)
     latest_count_asof, latest_count = count_history[-1]
     top5_values = [value for _, value in top5_history]
     count_values = [float(value) for _, value in count_history[:-1]]

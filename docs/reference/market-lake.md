@@ -438,6 +438,13 @@ cohortごとのcarry検査がpresence/sizeで止まるのはこのためで、�
 書き込み回数の二乗に比例する。readerはbundle pointerを開始時に1回だけ固定し、explicit `empty`の
 0 rowsだけを`[]`として返す。inventoryに無いcohortと`partial / not_computed`はfail-closeする。
 
+**固定は呼び手が行う。** `published_cohorts` / `read_panel` / `read_forward` は世代を受け取り、
+渡されなければcurrentを解決する。1つの測定はcohort列挙・forward rows・rules identity・panel rowsの
+4回以上のreadでできているので、それぞれがcurrentを解決すると、途中に入った publication が
+「片方の世代のpanel」と「もう片方の世代のoutcome」を1つの効果量へ入れる。個々のreadは全てvalidで
+digestもschemaも反対しないため、報告だけが何も生成していない数値になる。calibrationを読む分析tool
+（`tools/experiments/measure_*`）は入口で世代を1回固定し、以降のreadへ渡す。
+
 cohortのsourceには3つの保証水準があり、`source_assurance`として区別する。**rebuildable_input**は
 producerが読んだ上流入力をlakeが保持していて、producer側の誤りを直してから再導出できる。
 **result_archive**は前のproducerが出した結果bytesを保持していて、値の読み直しと評価の再実行はできるが、

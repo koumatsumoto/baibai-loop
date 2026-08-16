@@ -20,7 +20,7 @@ import sqlite3
 import sys
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any, TextIO
@@ -28,14 +28,17 @@ from typing import Any, TextIO
 import yaml
 
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.screening.calibration.lake import CALIBRATION_PANEL
+from baibai_engine.screening.calibration.lake import (
+    CALIBRATION_PANEL,
+    FixedCalibrationBundle,
+)
 from baibai_engine.screening.calibration.legacy_csv import (
     legacy_cohorts,
     legacy_panel_path,
     read_legacy_forward,
 )
 from baibai_engine.screening.calibration.store import (
-    current_bundle_ref,
+    CalibrationCacheError,
     published_cohorts,
     read_forward,
     resolve_calibration_bundle,
@@ -76,30 +79,53 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _cohorts(root: Path) -> list[date]:
-    """The cohorts a store holds, whichever representation it was written in.
+@dataclass(frozen=True, slots=True)
+class _Store:
+    """One side of the comparison, read at one generation throughout.
 
-    The baseline half of this comparison is a frozen store from an earlier study, so
-    it can still be in the retired per-cohort CSV layout. Reading it through the
-    legacy adapter keeps the pre-registered comparison runnable without rebuilding it.
+    A comparison that resolved current for every cohort list and every read could put
+    one generation's rows on one side of a difference and another's on the other, and
+    call the publication that landed between them an effect of the change under study.
+    Both halves are fixed once, before anything is read.
     """
 
-    if current_bundle_ref(root) is not None:
-        return published_cohorts(root)
-    return legacy_cohorts(root)
+    root: Path
+    bundle: FixedCalibrationBundle | None
 
 
-def _rows(root: Path, asof: date) -> list[dict[str, object]]:
-    if current_bundle_ref(root) is not None:
-        return [asdict(row) for row in read_forward(root, asof)]
-    return [asdict(row) for row in read_legacy_forward(root, asof)]
+def _open(root: Path) -> _Store:
+    """Fix the generation this store is read at, or mark it as the retired layout.
+
+    The baseline half is a frozen store from an earlier study, so it can still be in the
+    per-cohort CSV layout, which has no generation to fix. A store that *has* a bundle
+    which does not resolve raises instead — that is a broken store, not an old one, and
+    reading it through the legacy adapter would answer from whatever CSV happened to be
+    left beside it.
+    """
+
+    try:
+        return _Store(root=root, bundle=resolve_calibration_bundle(root))
+    except CalibrationCacheError:
+        return _Store(root=root, bundle=None)
+
+
+def _cohorts(store: _Store) -> list[date]:
+    if store.bundle is None:
+        return legacy_cohorts(store.root)
+    return published_cohorts(store.root, bundle=store.bundle)
+
+
+def _rows(store: _Store, asof: date) -> list[dict[str, object]]:
+    if store.bundle is None:
+        return [asdict(row) for row in read_legacy_forward(store.root, asof)]
+    return [asdict(row) for row in read_forward(store.root, asof, bundle=store.bundle)]
 
 
 def _key(row: Mapping[str, object]) -> tuple[str, str, str]:
     return str(row["asof"]), str(row["ticker"]), str(row["horizon"])
 
 
-def _panel_identity(root: Path) -> dict[str, str]:
+def _panel_identity(store: _Store) -> dict[str, str]:
     """Identify each published panel cohort by the objects the build fixed.
 
     The build manifest already addresses every object by content, so the cohort
@@ -107,13 +133,12 @@ def _panel_identity(root: Path) -> dict[str, str]:
     publish the same rows resolve to the same object keys.
     """
 
-    bundle = current_bundle_ref(root)
-    if bundle is None:
+    if store.bundle is None:
         return {
-            asof.isoformat(): _sha256(legacy_panel_path(root, asof))
-            for asof in legacy_cohorts(root)
+            asof.isoformat(): _sha256(legacy_panel_path(store.root, asof))
+            for asof in legacy_cohorts(store.root)
         }
-    manifest = resolve_calibration_bundle(root).datasets[CALIBRATION_PANEL.name]
+    manifest = store.bundle.datasets[CALIBRATION_PANEL.name]
     return {
         f"{int(partition.values['year']):04d}-{int(partition.values['month']):02d}": item.sha256
         for partition in manifest.partitions
@@ -121,10 +146,10 @@ def _panel_identity(root: Path) -> dict[str, str]:
     }
 
 
-def compare_forward(baseline_dir: Path, actual_dir: Path) -> dict[str, Any]:
+def compare_forward(baseline: _Store, actual: _Store) -> dict[str, Any]:
     """Count what the exit values replaced and prove nothing else moved."""
-    baseline_cohorts = _cohorts(baseline_dir)
-    if baseline_cohorts != _cohorts(actual_dir):
+    baseline_cohorts = _cohorts(baseline)
+    if baseline_cohorts != _cohorts(actual):
         raise ComparisonError("the two stores hold different cohorts")
 
     replaced_by_horizon: Counter[str] = Counter()
@@ -136,8 +161,8 @@ def compare_forward(baseline_dir: Path, actual_dir: Path) -> dict[str, Any]:
     unexpected: list[str] = []
     for asof in baseline_cohorts:
         name = asof.isoformat()
-        before = {_key(row): row for row in _rows(baseline_dir, asof)}
-        after = {_key(row): row for row in _rows(actual_dir, asof)}
+        before = {_key(row): row for row in _rows(baseline, asof)}
+        after = {_key(row): row for row in _rows(actual, asof)}
         if before.keys() != after.keys():
             raise ComparisonError(f"{name} holds a different row set in the two stores")
         for key, baseline_row in before.items():
@@ -296,8 +321,10 @@ def build_measurement(
     actual_payload = safe_load(actual_evaluation.read_text(encoding="utf-8"))
     if not isinstance(baseline_payload, dict) or not isinstance(actual_payload, dict):
         raise ComparisonError("an evaluation payload is not a mapping")
-    baseline_panels = _panel_identity(baseline_dir)
-    actual_panels = _panel_identity(actual_dir)
+    baseline_store = _open(baseline_dir)
+    actual_store = _open(actual_dir)
+    baseline_panels = _panel_identity(baseline_store)
+    actual_panels = _panel_identity(actual_store)
     return {
         "kind": "control-event-exit-comparison",
         "preregistration": "reports/studies/2026-08-11-capital-control-exit-values/"
@@ -313,7 +340,7 @@ def build_measurement(
             "er_model_version": actual_payload.get("er_model_version"),
         },
         "source_coverage": source_coverage(market_sqlite),
-        "forward": compare_forward(baseline_dir, actual_dir),
+        "forward": compare_forward(baseline_store, actual_store),
         "authority": compare_authority(baseline_payload, actual_payload),
         "core_metrics": compare_core_metrics(baseline_payload, actual_payload),
         "integrity": {

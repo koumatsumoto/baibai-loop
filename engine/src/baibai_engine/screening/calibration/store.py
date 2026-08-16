@@ -1027,6 +1027,11 @@ def pointed_cohorts(root: Path) -> list[date] | None:
         manifest = load_lake_model_json(payload, CalibrationBundleManifest)
     except (OSError, ValueError):
         return None
+    # The same identity check resolution makes, for the same reason: the assembler
+    # cannot produce a pointer and a manifest that disagree, and a store this is being
+    # asked about is one where something already went wrong.
+    if manifest.bundle_id != pointer.current.bundle_id:
+        return None
     return sorted(
         date.fromisoformat(asof)
         for asof, entry in manifest.cohorts.items()

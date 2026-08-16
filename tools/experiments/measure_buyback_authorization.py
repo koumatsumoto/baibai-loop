@@ -40,13 +40,14 @@ from baibai_engine.screening.buyback_report import (
     parse_buyback_report,
 )
 from baibai_engine.screening.buyback_store import StoredBuybackReport, read_buyback_reports
+from baibai_engine.screening.calibration.lake import FixedCalibrationBundle
 from baibai_engine.screening.calibration.store import (
     published_cohorts,
     read_forward,
     read_panel,
 )
 
-from .measure_signal_cohorts import require_single_rules_hash
+from .measure_signal_cohorts import fixed_generation, require_single_rules_hash
 
 DEFAULT_CALIBRATION_DIR = Path("stores/screening/calibration")
 DEFAULT_MARKET_SQLITE = Path("stores/market/market.sqlite")
@@ -120,12 +121,14 @@ def _annualized(cumulative_return: float, horizon: str) -> float:
     return float((1.0 + cumulative_return) ** (1.0 / HORIZON_YEARS[horizon]) - 1.0)
 
 
-def _load_panel(calibration_dir: Path) -> Mapping[str, tuple[_BasePanelRow, ...]]:
+def _load_panel(
+    calibration_dir: Path, bundle: FixedCalibrationBundle
+) -> Mapping[str, tuple[_BasePanelRow, ...]]:
     rows: dict[str, list[_BasePanelRow]] = defaultdict(list)
     identities: set[tuple[str, str]] = set()
-    for asof_date in published_cohorts(calibration_dir):
+    for asof_date in published_cohorts(calibration_dir, bundle=bundle):
         asof = asof_date.isoformat()
-        for stored in read_panel(calibration_dir, asof_date):
+        for stored in read_panel(calibration_dir, asof_date, bundle=bundle):
             if stored.asof != asof:
                 raise BuybackAuthorizationMeasurementError(
                     f"panel asof does not match its cohort: {asof}: {stored.asof!r}"
@@ -162,17 +165,17 @@ def _load_panel(calibration_dir: Path) -> Mapping[str, tuple[_BasePanelRow, ...]
 
 
 def _load_forward(
-    calibration_dir: Path, horizons: Sequence[str]
+    calibration_dir: Path, bundle: FixedCalibrationBundle, horizons: Sequence[str]
 ) -> Mapping[tuple[str, str], Mapping[str, float]]:
     wanted = set(horizons)
     forward: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
     identities: set[tuple[str, str, str]] = set()
-    asofs = published_cohorts(calibration_dir)
+    asofs = published_cohorts(calibration_dir, bundle=bundle)
     if not asofs:
         raise BuybackAuthorizationMeasurementError(f"no forward rows under {calibration_dir}")
     for asof_date in asofs:
         asof = asof_date.isoformat()
-        for row in read_forward(calibration_dir, asof_date):
+        for row in read_forward(calibration_dir, asof_date, bundle=bundle):
             if row.asof != asof:
                 raise BuybackAuthorizationMeasurementError(
                     f"forward asof does not match its cohort: {asof}: {row.asof!r}"
@@ -483,9 +486,10 @@ def build_measurement(
     for horizon in horizons:
         if horizon not in HORIZON_YEARS:
             raise BuybackAuthorizationMeasurementError(f"unsupported horizon: {horizon}")
-    rules_hash = require_single_rules_hash(calibration_dir)
-    panel = _load_panel(calibration_dir)
-    forward = _load_forward(calibration_dir, horizons)
+    generation = fixed_generation(calibration_dir)
+    rules_hash = require_single_rules_hash(generation)
+    panel = _load_panel(calibration_dir, generation)
+    forward = _load_forward(calibration_dir, generation, horizons)
     rows = _join_diagnostic_rows(
         panel,
         forward,

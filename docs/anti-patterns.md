@@ -283,7 +283,10 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       diagnosticでの非block、空sourceをそれぞれnegative testで固定したか
 - [ ] 固定した世代（fixed release / fixed bundle）を渡して読ませるAPIを追加・変更する場合、渡された世代だけで
       答えを閉じるか。rowだけでなく、rowの検証に使う policy / contract / identity も渡された世代から取るか。
-      current pointerを別世代へ動かした後、および pointer を削除した後に同じ結果が読めることをtestで固定したか
+      current pointerを別世代へ動かした後、および pointer を削除した後に同じ結果が読めることをtestで固定したか。
+      **consumer側もそのAPIを使っているか** — 世代を渡せるようにしただけで呼び手がdirectory渡しのままなら、
+      1回の測定が cohort列挙・rows・identity を別々のcurrentから読む。個々のreadは全てvalidなのでdigestも
+      schemaも反対せず、報告だけが何も生成していない数値になる。run途中でpointerを動かすbarrier testを置いたか
 - [ ] 部分範囲を再計算する操作（`--force`等）は、範囲外の既存生成物を黙って落とさないか。公開直前に
       「今serveしている集合」と「これからserveする集合」を比較し、差分があれば名指してfail closeするか。
       範囲がstoreを包含する場合は通ることも併せてtestしたか（否定側だけのtestは経路の全滅を隠す）。

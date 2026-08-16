@@ -22,6 +22,7 @@ from typing import Literal, TextIO
 
 import yaml
 
+from baibai_engine.screening.calibration.lake import FixedCalibrationBundle
 from baibai_engine.screening.calibration.panel import PanelRow as StoredPanelRow
 from baibai_engine.screening.calibration.store import (
     CalibrationCacheError,
@@ -92,7 +93,11 @@ def _annualized(cumulative_return: float, years: int) -> float:
 
 
 def _load_forward_returns(
-    calibration_dir: Path, horizons: Sequence[str], *, basis: MetricBasis
+    calibration_dir: Path,
+    bundle: FixedCalibrationBundle,
+    horizons: Sequence[str],
+    *,
+    basis: MetricBasis,
 ) -> tuple[Mapping[tuple[str, str], Mapping[str, float]], Mapping[str, Mapping[str, int]]]:
     """Resolved forward returns on the requested basis, plus what each basis resolves.
 
@@ -103,11 +108,11 @@ def _load_forward_returns(
     wanted = set(horizons)
     resolved: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
     counts: dict[str, dict[str, int]] = {horizon: {"price": 0, "total": 0} for horizon in horizons}
-    asofs = published_cohorts(calibration_dir)
+    asofs = published_cohorts(calibration_dir, bundle=bundle)
     if not asofs:
         raise SignalCohortMeasurementError(f"no forward rows under {calibration_dir}")
     for asof in asofs:
-        for row in read_forward(calibration_dir, asof):
+        for row in read_forward(calibration_dir, asof, bundle=bundle):
             if row.horizon not in wanted:
                 continue
             price = row.price_return if row.resolved else None
@@ -123,7 +128,24 @@ def _load_forward_returns(
     return resolved, counts
 
 
-def require_single_rules_hash(calibration_dir: Path) -> str:
+def fixed_generation(calibration_dir: Path) -> FixedCalibrationBundle:
+    """Fix the generation a measurement reads, before it reads anything.
+
+    A measurement is one statement about one series. Resolving current separately for
+    the cohort list, the forward rows, the rules identity, and the panel rows lets a
+    publication landing mid-run put panel rows from one generation and outcomes from
+    another into the same effect size — and every individual read is valid, so no
+    digest or schema check has anything to object to. The report would carry a number
+    nothing produced.
+    """
+
+    try:
+        return resolve_calibration_bundle(calibration_dir)
+    except CalibrationCacheError as exc:
+        raise SignalCohortMeasurementError(str(exc)) from exc
+
+
+def require_single_rules_hash(bundle: FixedCalibrationBundle) -> str:
     """この世代が名乗る screening rules の identity。
 
     rules を動かした後に一部だけ再構築すると、別の母集団定義で作られた月が混ざる。混ぜて
@@ -132,15 +154,11 @@ def require_single_rules_hash(calibration_dir: Path) -> str:
     の行を開き直して数え直すと、authority ではない側で同じ判断をやり直すことになる。
     """
 
-    try:
-        bundle = resolve_calibration_bundle(calibration_dir)
-    except CalibrationCacheError as exc:
-        raise SignalCohortMeasurementError(str(exc)) from exc
     hashes = {
         entry.panel.measurement_policy.rules_hash for entry in bundle.manifest.cohorts.values()
     }
     if not hashes:
-        raise SignalCohortMeasurementError(f"no panel metadata under {calibration_dir}")
+        raise SignalCohortMeasurementError(f"generation {bundle.ref.bundle_id} has no cohorts")
     if len(hashes) > 1:
         raise SignalCohortMeasurementError(
             f"panels mix screening rules revisions: {', '.join(sorted(hashes))}"
@@ -150,14 +168,15 @@ def require_single_rules_hash(calibration_dir: Path) -> str:
 
 def _load_panel(
     calibration_dir: Path,
+    bundle: FixedCalibrationBundle,
     forward: Mapping[tuple[str, str], Mapping[str, float]],
 ) -> list[PanelRow]:
-    asofs = published_cohorts(calibration_dir)
+    asofs = published_cohorts(calibration_dir, bundle=bundle)
     if not asofs:
         raise SignalCohortMeasurementError(f"no panel rows under {calibration_dir}")
     rows: list[PanelRow] = []
     for asof in asofs:
-        for stored in read_panel(calibration_dir, asof):
+        for stored in read_panel(calibration_dir, asof, bundle=bundle):
             row = _panel_row(stored, forward)
             if row is not None:
                 rows.append(row)
@@ -390,9 +409,12 @@ def build_measurement(
     for horizon in horizons:
         if horizon not in HORIZON_YEARS:
             raise SignalCohortMeasurementError(f"unsupported horizon: {horizon}")
-    rules_hash = require_single_rules_hash(calibration_dir)
-    forward, basis_counts = _load_forward_returns(calibration_dir, horizons, basis=basis)
-    rows = _load_panel(calibration_dir, forward)
+    generation = fixed_generation(calibration_dir)
+    rules_hash = require_single_rules_hash(generation)
+    forward, basis_counts = _load_forward_returns(
+        calibration_dir, generation, horizons, basis=basis
+    )
+    rows = _load_panel(calibration_dir, generation, forward)
     if asof_from is not None:
         rows = [row for row in rows if row.asof >= asof_from]
     if asof_to is not None:
@@ -403,6 +425,7 @@ def build_measurement(
     return {
         "kind": "signal-cohort-measurement",
         "calibration_dir": str(calibration_dir),
+        "calibration_bundle_id": generation.ref.bundle_id,
         "metric_basis": _METRIC_BASIS_LABEL[basis],
         "basis_coverage": _basis_coverage(basis_counts, horizons),
         "population": "liquidity_passing_panel_rows",
