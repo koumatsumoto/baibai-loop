@@ -1003,7 +1003,7 @@ SHADOW_RELEASE_POLICY = ReleasePolicy(
             coverage_start_on_or_before=date(2016, 8, 5),
             minimum_rows=1_960_849,
             minimum_population_count=4_866,
-            require_complete_coverage=True,
+            require_complete_coverage=False,
             max_age_days=45,
         ),
         ReleaseDatasetPolicy(
@@ -1013,7 +1013,7 @@ SHADOW_RELEASE_POLICY = ReleasePolicy(
             coverage_start_on_or_before=date(2016, 9, 30),
             minimum_rows=548_341,
             minimum_population_count=5_073,
-            require_complete_coverage=True,
+            require_complete_coverage=False,
             max_age_days=31,
         ),
         ReleaseDatasetPolicy(
@@ -1082,7 +1082,7 @@ SHADOW_RELEASE_POLICY = ReleasePolicy(
             coverage_start_on_or_before=date(2026, 5, 8),
             minimum_rows=131_909,
             minimum_population_count=3_788,
-            require_complete_coverage=True,
+            require_complete_coverage=False,
             max_age_days=31,
         ),
         ReleaseDatasetPolicy(
@@ -1111,7 +1111,7 @@ SHADOW_RELEASE_POLICY = ReleasePolicy(
             coverage_start_on_or_before=date(2026, 5, 8),
             minimum_rows=4_534,
             minimum_population_count=141,
-            require_complete_coverage=True,
+            require_complete_coverage=False,
             max_age_days=31,
         ),
         ReleaseDatasetPolicy(

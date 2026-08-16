@@ -28,8 +28,16 @@ CoverageAuthority = Literal["daily_bars_rows", "source_coverage", "unproven"]
 Completeness is not a property of the rows for most sources: a filing that was never
 made and a filing that was never fetched leave the same absence behind, so the answer
 has to come from the fetch record. Daily bars are the exception — every trading day owes
-a full-market row set, so the rows themselves answer it. A source with no fetch record
-and no such invariant can say what it holds but not that it holds everything.
+a full-market row set, so the rows themselves answer it.
+
+`source_coverage` holds two shapes of record and only one of them can answer the
+question. A range claim says a window was fetched, so a span is checkable. A
+per-observation claim says which dates carried an observation — measured on the real
+store, weekly margin holds 523 single-day intervals and master snapshots 126 — and no
+merge of those spans a range, because the days between them are days the source never
+published. Proving completeness there would mean knowing the source's publication
+calendar, which the store does not hold. Those sources are `unproven`: they can say what
+they hold, not that they hold everything.
 """
 
 
@@ -194,6 +202,7 @@ JQUANTS_WEEKLY_MARGIN = LakeDataset(
     name="jquants.weekly_margin",
     sqlite_table="jquants_weekly_margin",
     date_column="week_end",
+    coverage_authority="unproven",
     columns=(
         LakeColumn("week_end", "TEXT", _TEXT, False, 1),
         LakeColumn("ticker", "TEXT", _TEXT, False, 2),
@@ -230,6 +239,7 @@ JQUANTS_MASTER_SNAPSHOTS = LakeDataset(
     sqlite_table="jquants_master_snapshots",
     date_column="snapshot_date",
     partition_grain="year",
+    coverage_authority="unproven",
     columns=(
         LakeColumn("snapshot_date", "TEXT", _TEXT, False, 1),
         LakeColumn("ticker", "TEXT", _TEXT, False, 2),
@@ -365,6 +375,7 @@ EDINET_METRICS = LakeDataset(
     name="edinet.metrics",
     sqlite_table="edinet_metrics",
     date_column="asof_date",
+    coverage_authority="unproven",
     columns=(
         LakeColumn("asof_date", "TEXT", _TEXT, False, 1),
         LakeColumn("ticker", "TEXT", _TEXT, False, 2),
@@ -444,6 +455,7 @@ JPX_REGULATION_FLAGS = LakeDataset(
     sqlite_table="jpx_regulation_flags",
     date_column="asof_date",
     partition_grain="year",
+    coverage_authority="unproven",
     columns=(
         LakeColumn("asof_date", "TEXT", _TEXT, False, 1),
         LakeColumn("source_name", "TEXT", _TEXT, False, 2),
