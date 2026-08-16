@@ -10,6 +10,14 @@ from typing import Literal
 
 HorizonAuthority = Literal["regression_alert", "leading_evidence", "production_decision_evidence"]
 
+# How far before an as-of a close may sit and still resolve that as-of's entry. It lives
+# with the horizon contract rather than with the outcome code because both sides use it:
+# the panel reports the lag it screened under, and forward resolution accepts entries
+# within it. Keeping it here is also what stops a change to how outcomes are observed
+# from invalidating every published panel month, which reaches this module and no other
+# part of the forward build.
+STALE_PRICE_MAX_LAG_DAYS = 15
+
 
 @dataclass(frozen=True, slots=True)
 class HorizonSpec:

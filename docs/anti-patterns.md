@@ -236,6 +236,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
   - [ ] model 管理している **nested object** が未知 field を許していないか
   - [ ] **既存 thesis** が新 rule で breakage しないか、する場合は同 commit で fix する
   - [ ] decisionに応じて必須・禁止が切り替わる分類fieldは、必須時の欠落・未定義値・禁止時の混入をすべて拒否するか
+  - [ ] lake Raw lineageはcontent digestだけでなくprovider・dataset・request rangeをmetadataと照合し、対象partitionと交差しないrangeを拒否するか
 - [ ] 人間確認なしで完了できる operation 分岐は、専用の completion reason と canonical artifact evidence を必須にし、`not applicable` 等を human confirmation field へ書く抜け道、別 session kind での流用、evidence 件数の矛盾を negative test で拒否するか
 - [ ] rebuildable publication を再利用する gate は、外部 summary の schema・terminal state・artifact ID を exact に検証し、run と selection の両方を同一の clean application commit に束縛するか。長い計算は開始時 commit を publication 直前に再照合し、dirty tree・HEAD 変更・片方だけ provenance 欠損を current code 扱いしない negative test があるか
 - [ ] macro context の統合層 gate を変更する場合、「義務として同梱される別 input で充足できないか」を必ず疑う（bargain_topography の接地 gate は、2 本目以降の全レポートが必ず持つ前回 scorecard の `ScorecardSnapshotInput` では充足できないよう型と command で絞る。同型の抜け道：presence gate が「常在する別の何か」で満たせる設計）。確率検証は float 等値比較でなく整数化算術で書き、境界（0.00 / 0.95 / 刻み外 / 部分欠落）を negative test で塞ぐ
@@ -250,6 +251,71 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] `planned_limit`のportfolio exposureは、共通as-of・分母・current / prospective円額・比率・閾値・fallback銘柄が必須かつ機械整合し、欠損 / null / 0 / 負値 / nested未知field / 閾値warningの過不足 / fallback warningの過不足を拒否するか
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
+- [ ] immutable dataset / release manifestを変更する場合、rootとnested objectの未知field、
+      required fieldの欠落・null・0/負値、layer別source IDの必須/禁止、重複partition/object key、
+      contract versionごとのordered partition layoutと各partitionのexact key集合、object keyの
+      dataset/contract/partition/content hash不一致、totals不一致、duplicate JSON key、path
+      traversalをそれぞれnegative testでfail closedにするか
+- [ ] 固定releaseのreaderやprojectionを変更する場合、pointerを実行中に1度しか読まないこと、
+      pointerのmid-run変更が入力releaseを変えないこと、release manifest digest / pointer
+      manifest key / dataset manifestとrelease entryの不一致 / 未受入contract version /
+      object digest・byte数・row数・Arrow schemaの不一致 / 未publishのmonth要求 / path
+      traversalをそれぞれfail closeにするnegative testを持つか。projectionは完全一致でだけ
+      再利用し、削除・same-row value mutation・column/index mutation・破損・partialから再構築でき、
+      同一directoryのdurable atomic replace以外では公開しないことと、
+      credentialがSQL文・例外・metadataへ出ないことをtestで固定したか
+- [ ] L2 analytical buildを変更する場合、schemaを行のcontractから導き、transform fingerprint /
+      source release / schema / object digestの不一致をそれぞれfail closeにするnegative testを
+      持つか。full primary keyの重複・null・partition外as-ofをwrite/read両側で拒否するか。0-rowを
+      row不在から推測せず、cohort inventoryのexplicit emptyと未計算/partialを区別するか。複数datasetを
+      1 generationとして使う場合は全manifestをbundleへ閉じ、最後のpointer 1回だけで公開するか。
+      calibration sourceはdataset全体へ世代を累積せずcohort・role別のdigest/cutoffを持ち、panel as-ofと
+      forward observation horizonを区別するか。transform fingerprintは値を決める実装digestを含むか。
+      current / previous / digest付きpinから到達できるobjectがGC候補にならず、共通writer lock下の
+      再plan、root/object digest再検証、mark後のsecond sweep、candidate identity不一致で削除を拒否する
+      negative testがあるか。Raw bufferはpreserveと分離し、90日minimum age・source closure・
+      metadata/object pairを同じ二段階delete gateで検証するか
+- [ ] 入力保証を根拠にproduction変更を許可するgateを追加・変更する場合、保証水準の名前が「何を再実行できるか」を
+      一意に指すか（前のproducerの出力archiveを上流入力と同じ語で呼ばない）。結論を構成する全role（panel /
+      diagnostics / forward）の最弱から導くか。manifestの記述だけでなくsource closureの現存とdigestを同一実行内で
+      確認するか。開示値は全run purposeで実測し、未計測を「欠けなし」に見える既定値で埋めないか。purpose限定の
+      blockerが他のpurposeへ漏れていないか。retained panel + trace-only forward、archiveのみ、archive削除・改変、
+      diagnosticでの非block、空sourceをそれぞれnegative testで固定したか
+- [ ] 固定した世代（fixed release / fixed bundle）を渡して読ませるAPIを追加・変更する場合、渡された世代だけで
+      答えを閉じるか。rowだけでなく、rowの検証に使う policy / contract / identity も渡された世代から取るか。
+      current pointerを別世代へ動かした後、および pointer を削除した後に同じ結果が読めることをtestで固定したか。
+      **consumer側もそのAPIを使っているか** — 世代を渡せるようにしただけで呼び手がdirectory渡しのままなら、
+      1回の測定が cohort列挙・rows・identity を別々のcurrentから読む。個々のreadは全てvalidなのでdigestも
+      schemaも反対せず、報告だけが何も生成していない数値になる。run途中でpointerを動かすbarrier testを置いたか
+- [ ] 部分範囲を再計算する操作（`--force`等）は、範囲外の既存生成物を黙って落とさないか。公開直前に
+      「今serveしている集合」と「これからserveする集合」を比較し、差分があれば名指してfail closeするか。
+      範囲がstoreを包含する場合は通ることも併せてtestしたか（否定側だけのtestは経路の全滅を隠す）。
+      比較対象が読めない状態（壊れたroot等）では、推定で埋めずにその場での置換自体を拒否したか。
+      **稀な障害の復旧経路を通常経路の分岐として持つと、毎日の経路が常時その分岐を抱える。**
+      復旧は別の出力先へ作り直して入れ替える手順に寄せ、通常経路の状態数を増やさないか
+- [ ] 合成generationの解決を変更する場合、構造（digest edge）と契約版のどちらを問うているか区別したか。
+      解決時に契約版を問うと1 datasetの版上げが全datasetをunresolveにする。契約版はrowをdecodeする側と
+      canonical化するadoptionだけが問い、非変更datasetが読めることをtestで固定したか
+- [ ] wireへ出す集約値は、参照先から導出して検証するか、出さないか。writeされるだけで誰も読まない
+      summary fieldは、alternate writerが任意の値を名乗れて誰も誤りと言えないので削除する
+- [ ] 可用性・充足性の観測値は「非該当」「充足」「不足」を区別するか。検証対象が無い場合を「充足」と
+      書くと、最も素性の弱い対象が最も確かに見える。検証I/Oはその実行が扱う対象へ限定したか
+- [ ] 壊れたrootのrecovery操作を追加・変更する場合、対象root以外（previous・健全なmanifest）のidentityと
+      closureが操作前後で完全一致することをtestで固定したか。復旧のためにdirectory単位でmanifestを退避すると、
+      無関係なpinがunresolvedになりGCが恒久停止する。**rootを退避したstoreが「未公開のstore」と同じ姿に
+      なっていないか** — 両者が同じ答えを返すなら、次の通常実行はそれを空のstoreと読んで書き潰す。
+      publish済みの痕跡（manifest等）が残る限りfail closeし、退避が失敗しても壊れたままへ収束するか
+- [ ] bundle等の合成generationをreaderやremote closureで検証する場合、包含ではなく両方向のset equalityを要求するか。
+      bundleが列挙しないcohortを内部datasetが保持する状態をnegative testで拒否したか
+- [ ] wireのschema契約をdrift gateで固定する場合、readerが実際に比較する要素（Arrow metadataのdataset /
+      contract version / row type stamp等）を署名へ入れたか。列を変えずrow型名だけを変えるmutationでgateが赤くなるか。
+      失敗メッセージが実測値をそのまま出して「記録値を上書きすれば緑になる」と読める形になっていないか
+      （記録は版ごとの意味なので、上書きは同じ版に2つの形を持たせる。正しい修復は版を上げて追記する側である）
+- [ ] 再利用identityを持つ成果物（projection等）は、値を決めるruntime（DuckDB / SQLite等）のversionを
+      fingerprintへ入れたか。dependency upgradeが旧結果を再利用させないことをtestで固定したか
+- [ ] market lakeのcomplete coverageはtable自身の`MIN..MAX`だけで自己充足させず、profileが固定する
+      history boundary・row floor・population floorをrelease時に再検証するか。新鮮な1日1row、
+      leading history欠損、大幅なrow/population regressionをcurrent候補にしないnegative testがあるか
 - [ ] task-list validatorを変更する場合、schema違反のstatus・実在しないcalendar date・重複`task_id`をそれぞれnegative fixtureで拒否し、`task_id`一意性以外のcross-field制約や遷移監査を追加していないか
 - [ ] policy literalのdrift gateを追加・変更する場合、正本の値からpatternを導出し、正本doc/codeを
       除外し、桁prefixと単位違い（円 / 株 / 件）のnegative testを持つか
@@ -275,7 +341,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       lookalike host・query・fragmentを拒否し、抽出値を妥当域で検証し、矛盾する複数候補を
       hard errorにするか。manifest が公表カレンダーに追いつかない状態を無音にせず
       取得側だけを失敗させるか（読み取りは既存rowを返す）
-- [ ] GitHub Actions のtrust gateは`.yml` / `.yaml`の両方を走査し、dispatch inputの`run:`直接展開とvalidation step外の参照、step env外のsecret context、未承認・tag/branch参照の外部Actionを拒否するか。日付の形式・順序、bracket形式のexpression、inline `uses:`、欠落したrelease commentをnegative fixtureで固定したか
+- [ ] GitHub Actions のtrust gateは`.yml` / `.yaml`の両方を走査し、dispatch inputの`run:`直接展開とvalidation step外の参照、step env外のsecret context、未承認・tag/branch参照の外部Actionを拒否するか。secretを使うpre-merge acceptanceはrepository ownerが付ける固定label、same-repository PR、event-bound exact head SHA、checkout credential非保持、credential-bearing final stepとworkflow/jobの継承execution contextを一体で固定し、owner判定・head repository・SHA source・credential保持・custom shell・container・runnerを緩めるnegative fixtureを持つか。日付の形式・順序、bracket形式のexpression、inline `uses:`、欠落したrelease commentをnegative fixtureで固定したか
 - [ ] indicator の取得値は store 書き込み前に非有限値（NaN / ±inf）を拒否し、1 series の失敗が
       同一 pass の他 series を止めず、失敗を `provider_runs` と非0 exit の両方に残すか
 - [ ] indicator registry の `plausible_min` / `plausible_max` は有限かつ順序が正しく、標準の全系列で
@@ -301,6 +367,13 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       全writerがdownload時のR2 ETagをbackupと最終PutObjectの条件へ渡し、手動publish後に
       stale daily writerが到着する逆順と最後のversion確認後のraceもprecondition failureで
       no-overwriteになるnegative testを持つか
+- [ ] lakeのmanifest / pointer JSONは共通strict parserだけを通し、rootとnestedのduplicate
+      keyを拒否し、parse前のwire size上限を持ち、validation errorへpayload値を展開していないか。
+      logical manifestからR2 ETagを
+      分離し、nested mappingをparse後に変更できないか。lineageはtyped `SourceRef`でsource kind・
+      key・digest・versionを検証し、magic prefixや架空releaseを使っていないか。production releaseは
+      profileごとのrequired dataset・contract・coverage・trusted clock基準のfreshness/skew・manifest
+      budgetを満たすか
 - [ ] observation を読みから外すときは delete ではなく retraction vintage を積んだか。merge の
       no-loss 契約が delete を必ず巻き戻すので、delete は「消えたように見えて次の push で戻る」
       無音の失敗になる。retraction を入れたら、store 書き換え（`trim_before_first` /

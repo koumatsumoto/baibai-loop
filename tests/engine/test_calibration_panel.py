@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import contextlib
-import csv
 import io
+import sqlite3
 import sys
 import tempfile
 import unittest
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -16,29 +16,48 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from tests.helpers.calibration_store import publish_panel, synthetic_calibration_source
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
+from baibai_engine.market.lake.keys import current_calibration_bundle_pointer_key
 from baibai_engine.screening.calibration.cli import (
     calibration_build_command,
     calibration_evaluate_command,
 )
 from baibai_engine.screening.calibration.forward import (
     STALE_PRICE_MAX_LAG_DAYS,
+    TOTAL_RETURN_BASIS,
     ForwardReturnRow,
 )
 from baibai_engine.screening.calibration.identity import rules_contract_hash
+from baibai_engine.screening.calibration.lake import (
+    CALIBRATION_FORWARD,
+    CALIBRATION_PANEL,
+    CalibrationLakeError,
+    require_build_inputs,
+)
 from baibai_engine.screening.calibration.panel import (
     PRE2019_SELF_RANGE_POLICY,
     build_panel,
     rules_content_hash,
 )
 from baibai_engine.screening.calibration.store import (
+    CACHE_SCHEMA_VERSIONS,
     DEFAULT_CALIBRATION_DIR,
     CalibrationCacheError,
+    forward_row_from_mapping,
+    panel_row_from_mapping,
+    published_cohorts,
     read_forward,
     read_panel,
-    write_forward,
-    write_panel,
+    read_panel_meta,
+    resolve_calibration_bundle,
+)
+from baibai_engine.screening.calibration.store import (
+    write_forward as _write_forward,
+)
+from baibai_engine.screening.calibration.store import (
+    write_panel as _write_panel,
 )
 from baibai_engine.screening.metrics import (
     BARS_INPUT_WINDOW_DAYS,
@@ -52,6 +71,28 @@ from baibai_engine.screening.sqlite_reader import ReportedShortMetric
 from baibai_engine.screening.store_readiness import unreadable_store_reason
 
 ASOF = date(2026, 6, 30)
+
+
+def write_panel(root: Path, asof: date, *args: object, **kwargs: object) -> None:
+    _write_panel(
+        root,
+        asof,
+        *args,
+        source=synthetic_calibration_source(captured_on=asof),
+        input_cutoff=asof,
+        **kwargs,
+    )
+
+
+def write_forward(root: Path, asof: date, *args: object, **kwargs: object) -> None:
+    _write_forward(
+        root,
+        asof,
+        *args,
+        source=synthetic_calibration_source(captured_on=asof),
+        input_cutoff=asof,
+        **kwargs,
+    )
 
 
 def _build_fixture_sqlite(sqlite_path: Path) -> None:
@@ -187,7 +228,25 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
         )
 
 
+def _current_panel_manifest(root):  # type: ignore[no-untyped-def]
+    return resolve_calibration_bundle(root).datasets[CALIBRATION_PANEL.name]
+
+
 class CalibrationPanelTest(unittest.TestCase):
+    def setUp(self) -> None:
+        identity = patch(
+            "baibai_engine.screening.calibration.cli.verified_git_commit",
+            return_value="a" * 40,
+        )
+        identity.start()
+        self.addCleanup(identity.stop)
+        store_identity = patch(
+            "baibai_engine.screening.calibration.store.verified_git_commit",
+            return_value="a" * 40,
+        )
+        store_identity.start()
+        self.addCleanup(store_identity.stop)
+
     def test_a_filing_older_than_the_coverage_does_not_take_the_cohort_down(self) -> None:
         """The history floor follows what the store may serve, not its oldest row.
 
@@ -759,215 +818,137 @@ class CalibrationPanelTest(unittest.TestCase):
 
             self.assertEqual(read_panel(store_dir, ASOF), [excluded_row])
 
-    def test_store_reads_a_cache_that_carries_a_column_the_contract_dropped(self) -> None:
-        # 46 cohort を読み続けられることが、判定を評価時導出にした前提そのもの。
-        # 厳格一致へ戻すと既存 store が読めなくなるので、その契約を固定する。
+    def _panel_row(self, **updates: object) -> dict[str, object]:
+        """A stored panel row as native values, with the named fields replaced.
+
+        The invariants below are what the store enforces on every row it reads, so
+        they are exercised at the materializer rather than by editing a published
+        object — an edited object fails on its digest long before a value is parsed.
+        """
+
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             _build_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
-            store_dir = Path(tmp) / "calibration"
-            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-            rows = [
-                ForwardReturnRow(
-                    asof=ASOF.isoformat(),
-                    ticker="9001",
-                    horizon="6m",
-                    target_date="2026-12-29",
-                    resolved=False,
-                    price_return=None,
-                    stale_price=False,
-                    entry_date=ASOF.isoformat(),
-                    exit_date=None,
-                    status="unresolved_future_horizon",
-                )
-            ]
-            write_forward(store_dir, ASOF, rows)
-            path = store_dir / f"forward-{ASOF.isoformat()}.csv"
-            header, body = path.read_text(encoding="utf-8").splitlines()
-            path.write_text(
-                f"{header},retired_column\n{body},not_assessed\n",
-                encoding="utf-8",
-            )
+        payload = asdict(result.rows[0])
+        payload.update(updates)
+        return payload
 
-            self.assertEqual(read_forward(store_dir, ASOF), rows)
+    def test_store_rejects_a_row_whose_population_coverage_status_is_unknown(self) -> None:
+        row = self._panel_row(population_coverage_status="unknown")
 
-    def test_store_rejects_a_cache_missing_a_column_the_contract_reads(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
-            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
-            store_dir = Path(tmp) / "calibration"
-            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-            write_forward(store_dir, ASOF, [])
-            path = store_dir / f"forward-{ASOF.isoformat()}.csv"
-            header = path.read_text(encoding="utf-8").splitlines()[0]
-            kept = [name for name in header.split(",") if name != "status"]
-            path.write_text(",".join(kept) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "population coverage status"):
+            panel_row_from_mapping(row)
 
-            with self.assertRaisesRegex(CalibrationCacheError, "missing status"):
-                read_forward(store_dir, ASOF)
+    def test_store_rejects_invalid_shareholder_return_change_fields(self) -> None:
+        for updates in (
+            {"dps_yoy_latest": float("nan")},
+            {"share_count_reduction_streak": 3},
+            {"shareholder_return_change": False},
+        ):
+            with self.subTest(updates=updates), self.assertRaises(ValueError):
+                panel_row_from_mapping(self._panel_row(**updates))
+
+    def test_store_rejects_invalid_asset_backed_fields(self) -> None:
+        for updates in (
+            {"investment_securities": -1.0},
+            {"asset_backed_ratio": float("nan")},
+            {"asset_backed_ratio": 0.6},
+        ):
+            with self.subTest(updates=updates), self.assertRaises(ValueError):
+                panel_row_from_mapping(self._panel_row(**updates))
+
+    def test_store_rejects_invalid_margin_hypothesis_fields(self) -> None:
+        for updates in (
+            {"margin_short_to_adv": -0.1},
+            {"realized_volatility_60d": -0.1},
+        ):
+            with self.subTest(updates=updates), self.assertRaises(ValueError):
+                panel_row_from_mapping(self._panel_row(**updates))
+
+    def test_store_rejects_invalid_normalized_profit_fields(self) -> None:
+        for updates in (
+            {"normalized_per_3fy": -1.0},
+            {"self_range_observed_sessions": -1},
+        ):
+            with self.subTest(updates=updates), self.assertRaises(ValueError):
+                panel_row_from_mapping(self._panel_row(**updates))
 
     def test_store_rejects_total_return_basis_or_status_bypass(self) -> None:
         for field, invalid in (
             ("total_return_basis", "price_return_only"),
             ("total_return_status", "resolved_by_claim"),
         ):
-            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
-                sqlite_path = Path(tmp) / "market.sqlite"
-                _build_fixture_sqlite(sqlite_path)
-                result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
-                store_dir = Path(tmp) / "calibration"
-                write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-                row = ForwardReturnRow(
-                    asof=ASOF.isoformat(),
-                    ticker="9001",
-                    horizon="1y",
-                    target_date="2027-06-30",
-                    resolved=True,
-                    price_return=0.10,
-                    stale_price=False,
-                    entry_date=ASOF.isoformat(),
-                    exit_date="2027-06-30",
-                    realized_dividend_sum=10.0,
-                    realized_dividend_fy_count=1,
-                    total_return=0.12,
-                    total_return_status="resolved",
-                )
-                write_forward(store_dir, ASOF, [row])
-                path = store_dir / f"forward-{ASOF.isoformat()}.csv"
-                with path.open(encoding="utf-8", newline="") as handle:
-                    rows = list(csv.DictReader(handle))
-                    fieldnames = list(rows[0])
-                rows[0][field] = invalid
-                with path.open("w", encoding="utf-8", newline="") as handle:
-                    writer = csv.DictWriter(handle, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(rows)
+            with self.subTest(field=field):
+                payload = {
+                    "asof": ASOF.isoformat(),
+                    "ticker": "9001",
+                    "horizon": "1y",
+                    "target_date": "2027-06-30",
+                    "resolved": True,
+                    "price_return": 0.10,
+                    "stale_price": False,
+                    "entry_date": ASOF.isoformat(),
+                    "exit_date": "2027-06-30",
+                    "status": "resolved",
+                    "adjustment_factor_coverage": "unknown",
+                    "realized_dividend_sum": 10.0,
+                    "realized_dividend_fy_count": 1,
+                    "total_return": 0.12,
+                    "total_return_status": "resolved",
+                    "total_return_basis": TOTAL_RETURN_BASIS,
+                }
+                payload[field] = invalid
 
-                with self.assertRaisesRegex(CalibrationCacheError, "forward cache is invalid"):
-                    read_forward(store_dir, ASOF)
+                with self.assertRaises(ValueError):
+                    forward_row_from_mapping(payload)
 
-    def test_store_rejects_an_unknown_population_coverage_status(self) -> None:
+    def test_store_rejects_a_published_object_whose_bytes_changed(self) -> None:
+        """Tampering is caught by the object digest, before any value is read."""
+
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             _build_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
             write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-            path = store_dir / f"panel-{ASOF.isoformat()}.csv"
-            with path.open(encoding="utf-8", newline="") as handle:
-                rows = list(csv.DictReader(handle))
-                fieldnames = list(rows[0])
-            rows[0]["population_coverage_status"] = "unknown"
-            with path.open("w", encoding="utf-8", newline="") as handle:
-                writer = csv.DictWriter(handle, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerows(rows)
+            objects = sorted((store_dir / "lake" / "l2").rglob("*.parquet"))
+            self.assertTrue(objects)
+            objects[0].write_bytes(objects[0].read_bytes() + b"tamper")
 
             with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
                 read_panel(store_dir, ASOF)
 
-    def test_store_rejects_invalid_shareholder_return_change_fields(self) -> None:
-        for field, invalid in (
-            ("dps_guidance_up", "claimed_true"),
-            ("dps_yoy_latest", "nan"),
-            ("share_count_reduction_streak", "3"),
-            ("shareholder_return_change", "false"),
-        ):
-            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
-                sqlite_path = Path(tmp) / "market.sqlite"
-                _build_fixture_sqlite(sqlite_path)
-                result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
-                store_dir = Path(tmp) / "calibration"
-                write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-                path = store_dir / f"panel-{ASOF.isoformat()}.csv"
-                with path.open(encoding="utf-8", newline="") as handle:
-                    rows = list(csv.DictReader(handle))
-                    fieldnames = list(rows[0])
-                rows[0][field] = invalid
-                with path.open("w", encoding="utf-8", newline="") as handle:
-                    writer = csv.DictWriter(handle, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(rows)
+    def test_store_rejects_a_build_produced_by_another_transform(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            store_dir = Path(tmp) / "calibration"
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
 
-                with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
-                    read_panel(store_dir, ASOF)
+            with self.assertRaisesRegex(CalibrationLakeError, "different transform"):
+                require_build_inputs(
+                    _current_panel_manifest(store_dir),
+                    dataset=CALIBRATION_PANEL,
+                    cache_schema_version="0" * 16,
+                )
 
-    def test_store_rejects_invalid_asset_backed_fields(self) -> None:
-        invalid_updates = (
-            {"investment_securities": "-1"},
-            {"asset_backed_ratio": "nan"},
-            {"asset_backed_ratio": "0.6"},
-        )
-        for updates in invalid_updates:
-            with self.subTest(updates=updates), tempfile.TemporaryDirectory() as tmp:
-                sqlite_path = Path(tmp) / "market.sqlite"
-                _build_fixture_sqlite(sqlite_path)
-                result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
-                store_dir = Path(tmp) / "calibration"
-                write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-                path = store_dir / f"panel-{ASOF.isoformat()}.csv"
-                with path.open(encoding="utf-8", newline="") as handle:
-                    rows = list(csv.DictReader(handle))
-                    fieldnames = list(rows[0])
-                rows[0].update(updates)
-                with path.open("w", encoding="utf-8", newline="") as handle:
-                    writer = csv.DictWriter(handle, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(rows)
+    def test_store_rejects_a_build_that_was_not_bound_to_the_expected_release(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            store_dir = Path(tmp) / "calibration"
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
 
-                with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
-                    read_panel(store_dir, ASOF)
-
-    def test_store_rejects_invalid_margin_hypothesis_fields(self) -> None:
-        for field, invalid in (
-            ("margin_short_to_adv", "-0.1"),
-            ("realized_volatility_60d", "-0.1"),
-        ):
-            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
-                sqlite_path = Path(tmp) / "market.sqlite"
-                _build_fixture_sqlite(sqlite_path)
-                result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
-                store_dir = Path(tmp) / "calibration"
-                write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-                path = store_dir / f"panel-{ASOF.isoformat()}.csv"
-                with path.open(encoding="utf-8", newline="") as handle:
-                    rows = list(csv.DictReader(handle))
-                    fieldnames = list(rows[0])
-                rows[0][field] = invalid
-                with path.open("w", encoding="utf-8", newline="") as handle:
-                    writer = csv.DictWriter(handle, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(rows)
-
-                with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
-                    read_panel(store_dir, ASOF)
-
-    def test_store_rejects_invalid_normalized_profit_fields(self) -> None:
-        invalid_updates = (
-            {"normalized_per_3fy": "-1"},
-            {"self_range_observed_sessions": "-1"},
-        )
-        for updates in invalid_updates:
-            with self.subTest(updates=updates), tempfile.TemporaryDirectory() as tmp:
-                sqlite_path = Path(tmp) / "market.sqlite"
-                _build_fixture_sqlite(sqlite_path)
-                result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
-                store_dir = Path(tmp) / "calibration"
-                write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-                path = store_dir / f"panel-{ASOF.isoformat()}.csv"
-                with path.open(encoding="utf-8", newline="") as handle:
-                    rows = list(csv.DictReader(handle))
-                    fieldnames = list(rows[0])
-                rows[0].update(updates)
-                with path.open("w", encoding="utf-8", newline="") as handle:
-                    writer = csv.DictWriter(handle, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(rows)
-
-                with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
-                    read_panel(store_dir, ASOF)
+            with self.assertRaisesRegex(CalibrationLakeError, "not built from"):
+                require_build_inputs(
+                    _current_panel_manifest(store_dir),
+                    dataset=CALIBRATION_PANEL,
+                    cache_schema_version=CACHE_SCHEMA_VERSIONS[CALIBRATION_PANEL.name],
+                    source_release_id="release-that-was-not-used",
+                )
 
     def test_store_rejects_unversioned_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -977,19 +958,56 @@ class CalibrationPanelTest(unittest.TestCase):
             with self.assertRaisesRegex(CalibrationCacheError, "calibration-build --force"):
                 read_panel(store_dir, ASOF)
 
-    def test_store_rejects_previous_schema_version(self) -> None:
+    def test_store_rejects_a_panel_written_under_another_panel_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             _build_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
             write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-            (store_dir / "calibration.meta.yaml").write_text(
-                "cache_schema_version: 0000000000000000\n", encoding="utf-8"
-            )
+            # The contract a build was written under travels in its own transform
+            # fingerprint, so a code change that moves the panel contract is what makes
+            # the panel unreadable — there is no separate statement to rewrite.
+            from baibai_engine.screening.calibration import store as calibration_store
 
-            with self.assertRaisesRegex(CalibrationCacheError, "calibration-build --force"):
+            patcher = patch.dict(
+                calibration_store.CACHE_SCHEMA_VERSIONS,
+                {CALIBRATION_PANEL.name: "0" * 16},
+            )
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+            with self.assertRaisesRegex(CalibrationCacheError, "different transform"):
                 read_panel(store_dir, ASOF)
+
+    def test_a_forward_contract_change_leaves_the_panel_readable(self) -> None:
+        # The reason the contract version is derived per dataset. A column added to the
+        # forward rows says nothing about whether a stored panel is still the contract,
+        # and a store-wide compatibility gate would answer that it is not — turning a
+        # change to one dataset into a rebuild of all three.
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            store_dir = Path(tmp) / "calibration"
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            write_forward(store_dir, ASOF, [])
+            from baibai_engine.screening.calibration import store as calibration_store
+
+            patcher = patch.dict(
+                calibration_store.CACHE_SCHEMA_VERSIONS,
+                {CALIBRATION_FORWARD.name: "0" * 16},
+            )
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+            self.assertEqual(
+                {row.ticker for row in read_panel(store_dir, ASOF)},
+                {row.ticker for row in result.rows},
+            )
+            self.assertIsInstance(read_panel_meta(store_dir, ASOF), dict)
+            with self.assertRaisesRegex(CalibrationCacheError, "different transform"):
+                read_forward(store_dir, ASOF)
 
     def test_store_rejects_partial_versioned_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1120,6 +1138,31 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("separate --calibration-dir", errors.getvalue())
 
+    def test_baseline_forward_rules_cannot_use_the_production_store(self) -> None:
+        """The comparison baseline observes exits differently, so it gets its own store.
+
+        Letting it write here would replace the requested range under other observation
+        rules and leave the rest of the store measured under the default ones.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            errors = io.StringIO()
+
+            with contextlib.redirect_stderr(errors):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=DEFAULT_CALIBRATION_DIR,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    use_control_event_exits=False,
+                )
+
+            self.assertEqual(code, 1)
+            self.assertIn("separate --calibration-dir", errors.getvalue())
+
     def test_pre2019_variant_is_rejected_for_production_decision(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
@@ -1210,6 +1253,355 @@ class CalibrationPanelTest(unittest.TestCase):
 
             self.assertEqual(code, 1)
             self.assertIn("contract differs", errors.getvalue())
+
+    def test_failed_force_build_removes_its_unique_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            store_dir = Path(tmp) / "calibration"
+
+            def fail_after_staging(root: Path, *_args: object, **_kwargs: object) -> None:
+                root.mkdir(parents=True, exist_ok=True)
+                (root / "partial").write_bytes(b"partial")
+                raise CalibrationCacheError("injected write failure")
+
+            with (
+                patch(
+                    "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                    return_value=[ASOF],
+                ),
+                patch(
+                    "baibai_engine.screening.calibration.cli.write_panel",
+                    side_effect=fail_after_staging,
+                ),
+            ):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    force=True,
+                )
+
+            self.assertEqual(code, 1)
+            self.assertEqual(list(Path(tmp).glob(".calibration.generation.*")), [])
+
+    def test_failed_incremental_build_never_exposes_partial_cohorts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sqlite_path = root / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            store_dir = root / "calibration"
+            with patch(
+                "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                return_value=[ASOF],
+            ):
+                self.assertEqual(
+                    calibration_build_command(
+                        sqlite_path=sqlite_path,
+                        calibration_dir=store_dir,
+                        rules=load_screening_rules(),
+                        start=ASOF,
+                        end=ASOF,
+                    ),
+                    0,
+                )
+            before = resolve_calibration_bundle(store_dir).ref
+
+            with (
+                patch(
+                    "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                    return_value=[ASOF, date(2026, 7, 31)],
+                ),
+                patch(
+                    "baibai_engine.screening.calibration.cli.write_forward",
+                    side_effect=CalibrationCacheError("injected late failure"),
+                ),
+            ):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=date(2026, 7, 31),
+                )
+
+            self.assertEqual(code, 1)
+            self.assertEqual(resolve_calibration_bundle(store_dir).ref, before)
+            self.assertEqual(list(root.glob(".calibration.generation.*")), [])
+
+    def test_repeated_builds_do_not_accumulate_sealed_stores(self) -> None:
+        """Storage must follow what the store publishes, not how many times it was built.
+
+        Each build seals the whole legacy store to read it consistently. Keeping one per
+        build would put roughly 2 GB of production data into the store every month while
+        the cohorts themselves are a few hundred megabytes in total — the lake would
+        cross its entire capacity objective in a handful of generations, and reachability
+        would protect every copy, so collection could reclaim none of it.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sqlite_path = root / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            store_dir = root / "calibration"
+            identities: set[str] = set()
+
+            for run in range(3):
+                with sqlite3.connect(sqlite_path) as connection:
+                    connection.execute(
+                        "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?,?,?)",
+                        (f"90{run}0", "2026-06-29", 100.0 + run),
+                    )
+                with patch(
+                    "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                    return_value=[ASOF],
+                ):
+                    code = calibration_build_command(
+                        sqlite_path=sqlite_path,
+                        calibration_dir=store_dir,
+                        rules=load_screening_rules(),
+                        start=ASOF,
+                        end=ASOF,
+                        force=True,
+                        stdout=io.StringIO(),
+                    )
+                self.assertEqual(code, 0)
+                bundle = resolve_calibration_bundle(store_dir)
+                identities.update(
+                    source.source_id
+                    for entry in bundle.cohorts.values()
+                    for source in entry.panel.sources
+                )
+
+            # Three distinct generations were read and each was named in a manifest,
+            # and none of them left bytes behind: the store stays smaller than one copy
+            # of the legacy database rather than growing by one per build.
+            self.assertEqual(len(identities), 3)
+            self.assertEqual(list(store_dir.rglob("*.sqlite")), [])
+            self.assertEqual(list(root.glob(".generation.*")), [])
+            stored = sum(path.stat().st_size for path in store_dir.rglob("*") if path.is_file())
+            self.assertLess(stored, sqlite_path.stat().st_size)
+
+    def test_a_forced_build_refuses_to_drop_cohorts_outside_its_range(self) -> None:
+        """A build states the window it recomputes, not the history it means to keep.
+
+        Without ``--force`` the store is hard-linked into the work generation, so
+        everything outside the window is carried. With it the generation starts empty,
+        so a run meant to correct one month would publish a current bundle holding only
+        that month — and the years it dropped would leave the served inventory with
+        nothing saying so.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sqlite_path = root / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            store_dir = root / "calibration"
+            earlier = "2026-05-29"
+            publish_panel(store_dir, earlier, [{"ticker": "7203"}])
+            publish_panel(store_dir, ASOF.isoformat(), [{"ticker": "7203"}])
+            before = resolve_calibration_bundle(store_dir).ref.bundle_id
+
+            errors = io.StringIO()
+            with (
+                contextlib.redirect_stderr(errors),
+                patch(
+                    "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                    return_value=[ASOF],
+                ),
+            ):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    force=True,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(code, 1)
+            self.assertIn(earlier, errors.getvalue())
+            # Refused before adoption, so the served generation is untouched.
+            self.assertEqual(resolve_calibration_bundle(store_dir).ref.bundle_id, before)
+            self.assertEqual(published_cohorts(store_dir), [date.fromisoformat(earlier), ASOF])
+
+    def test_a_forced_build_covering_the_whole_store_is_allowed(self) -> None:
+        # The check is on what is about to become current, not on the flag: a forced
+        # rebuild whose window covers the served inventory drops nothing and proceeds.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sqlite_path = root / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            store_dir = root / "calibration"
+            publish_panel(store_dir, ASOF.isoformat(), [{"ticker": "7203"}])
+            before = resolve_calibration_bundle(store_dir).ref.bundle_id
+
+            with patch(
+                "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                return_value=[ASOF],
+            ):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    force=True,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(code, 0)
+            self.assertNotEqual(resolve_calibration_bundle(store_dir).ref.bundle_id, before)
+            self.assertEqual(published_cohorts(store_dir), [ASOF])
+
+    def test_an_unreadable_current_stops_every_build_into_that_store(self) -> None:
+        """A store that cannot say what it serves is not a store to write into.
+
+        Repairing it in place would mean rebuilding over live data from an inventory
+        nothing can state. Every attempt refuses identically, including the one that
+        follows a refusal, so the state a maintainer has to reason about is the one the
+        store is actually in rather than one an earlier repair left behind.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sqlite_path = root / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            store_dir = root / "calibration"
+            earlier = "2026-05-29"
+            publish_panel(store_dir, earlier, [{"ticker": "7203"}])
+            publish_panel(store_dir, ASOF.isoformat(), [{"ticker": "7203"}])
+            pointer = store_dir / current_calibration_bundle_pointer_key()
+            broken = b"{ not json"
+            pointer.write_bytes(broken)
+
+            for force in (False, True):
+                errors = io.StringIO()
+                with (
+                    patch(
+                        "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                        return_value=[ASOF],
+                    ),
+                    contextlib.redirect_stderr(errors),
+                ):
+                    code = calibration_build_command(
+                        sqlite_path=sqlite_path,
+                        calibration_dir=store_dir,
+                        rules=load_screening_rules(),
+                        start=ASOF,
+                        end=ASOF,
+                        force=force,
+                        stdout=io.StringIO(),
+                    )
+                self.assertEqual(code, 1)
+                self.assertIn("separate --calibration-dir", errors.getvalue())
+
+            # Nothing was moved, quarantined or written: the broken store is exactly as
+            # the operator left it, which is what makes the directory swap reversible.
+            self.assertEqual(pointer.read_bytes(), broken)
+
+            # The way forward is a store of its own, which reads before it replaces
+            # anything.
+            replacement = root / "calibration-rebuild"
+            with patch(
+                "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                return_value=[ASOF],
+            ):
+                rebuilt = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=replacement,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(rebuilt, 0)
+            self.assertEqual(published_cohorts(replacement), [ASOF])
+
+    def test_a_generation_a_killed_build_left_behind_is_discarded_and_reported(self) -> None:
+        """A work generation is a sibling of the store, so nothing else would find it.
+
+        It is built by hard-linking the store into it, which puts it outside every
+        prefix the lake inventory and the collector walk. A build killed mid-run leaves
+        one behind, and only the next build — which holds the writer lock, so no live
+        generation can exist — is in a position to reclaim it.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sqlite_path = root / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            store_dir = root / "calibration"
+            abandoned = root / f".generation.{store_dir.name}.deadbeef"
+            (abandoned / "lake").mkdir(parents=True)
+            (abandoned / "lake" / "leftover.parquet").write_bytes(b"abandoned generation")
+            output = io.StringIO()
+
+            with patch(
+                "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                return_value=[ASOF],
+            ):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    stdout=output,
+                )
+
+            self.assertEqual(code, 0)
+            self.assertFalse(abandoned.exists())
+            self.assertIn("discarded abandoned generation", output.getvalue())
+            self.assertIn("20 linked bytes", output.getvalue())
+
+    def test_build_closes_every_dataset_over_one_sqlite_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sqlite_path = root / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            store_dir = root / "calibration"
+            with patch(
+                "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                return_value=[ASOF],
+            ):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                )
+
+            self.assertEqual(code, 0)
+            fixed = resolve_calibration_bundle(store_dir)
+            manifests = list(fixed.datasets.values())
+            source_sets = {
+                cohort.sources
+                for manifest in manifests
+                for cohort in manifest.cohort_inventory.values()
+            }
+            self.assertEqual(len(source_sets), 1)
+            sources = next(iter(source_sets))
+            self.assertEqual(len(sources), 1)
+            snapshot = sources[0]
+            self.assertEqual(snapshot.kind, "sqlite_snapshot")
+            # The seal is the whole legacy store and belongs to the operation that took
+            # it, so what survives is the identity: the store the cohorts were built
+            # from can be recognised, and no copy of it is kept per generation.
+            self.assertEqual(
+                snapshot.source_id,
+                f"market-v{snapshot.schema_version}-{snapshot.sha256[:24]}",
+            )
+            self.assertEqual(list(store_dir.rglob("*.sqlite")), [])
+            self.assertEqual(
+                {manifest.producer_git_commit for manifest in manifests},
+                {"a" * 40},
+            )
 
     def test_missing_master_snapshot_becomes_unresolved_panel(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

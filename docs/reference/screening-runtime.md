@@ -288,7 +288,7 @@ EDINET code から ticker への解決は、同じ document list 履歴が観測
 
 `build-control-event-exits --asof` は、JPX が上場廃止理由に公開買付けを名指しした銘柄について、成立した現金公開買付けの 1 株買付価格を導出する。届出書（240、訂正 250）と報告書（270、訂正 280）を提出者 EDINET code ごとに束ね、撤回（260）が無く、報告書が買付けの実行を述べ、届出書が普通株式 1 株あたりの円建て価格を一意に示す案件だけを採る。同一対象へ複数の提出者が届出している場合、および 1 提出者が二段階公開買付け（応募合意株主向けと少数株主向けで価格が違う）を出している場合は実値化しない。導出規則と較正への影響は [`reports/studies/2026-08-11-capital-control-exit-values/`](../../reports/studies/2026-08-11-capital-control-exit-values/) に事前登録している。
 
-較正 forward はこの表を使い、市場終値で閉じられなかった窓（`unresolved_missing_exit` / `unresolved_stale_exit`）を `resolved_control_event_exit` へ置換する。置換した行は `resolved` になるが status は通常の `resolved` と別で、settled takeover consideration と観測 quote を混同しない。市場終値で閉じられた行は上書きしない。`calibration-build --without-control-event-exits` は置換前の baseline を再生成する。
+較正 forward はこの表を使い、市場終値で閉じられなかった窓（`unresolved_missing_exit` / `unresolved_stale_exit`）を `resolved_control_event_exit` へ置換する。置換した行は `resolved` になるが status は通常の `resolved` と別で、settled takeover consideration と観測 quote を混同しない。市場終値で閉じられた行は上書きしない。`calibration-build --without-control-event-exits` は置換前の baseline を再生成する。これは別の観測規則なので forward build の identity に入り、1 つの store は 1 つの規則しか持てない。default store では拒否し、別 `--calibration-dir` を要求する。
 
 ## select の判断境界
 

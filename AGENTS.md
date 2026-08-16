@@ -56,7 +56,7 @@ subsystem、public CLI、schema、persistence、dependency、state、運用手�
 | research | `engine/src/baibai_engine/research/` | `stores/application/baibai.sqlite` + `method/research/playbooks/` | `baibai-engine research` / `baibai-engine research evaluate` | thesis + planning-only limit + holding-review composition |
 | position | `engine/src/baibai_engine/position/` | `stores/application/baibai.sqlite` | `baibai-engine position` (`ledger` / draft / `apply-draft` / `outcome`) | human-confirmed portfolio ledger + holding review + portfolio outcome |
 | operation / proposal | `engine/src/baibai_engine/operation/`, `engine/src/baibai_engine/proposals/` | `stores/application/baibai.sqlite` | `baibai-engine operation` / `baibai-engine proposal` | current workspace + immutable final result / trade decision current state |
-| market | `engine/src/baibai_engine/market/` | （`stores/market/market.sqlite` ほか、git 外） | — | 価格・calendar data 層（screening・保有計測の価格基盤） |
+| market | `engine/src/baibai_engine/market/` | （`stores/market/market.sqlite` と lake mirror / projection、git 外） | `baibai-engine lake` | 価格・calendar data 層（screening・保有計測の価格基盤） |
 | foundation | `engine/src/baibai_engine/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
 | task | `engine/src/baibai_engine/tasks/` | `stores/application/baibai.sqlite` | `baibai-engine task` | current task state |
 | app | `web/backend/src/baibai_web/` | application DBほかdomain storeをread-only合成 | `baibai-web` | read model / local API |

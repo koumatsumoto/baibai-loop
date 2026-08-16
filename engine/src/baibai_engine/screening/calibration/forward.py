@@ -13,15 +13,39 @@ from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, asof_basis_c
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
 from ..providers.jquants import JQuantsDailyBar
-from .horizons import HORIZONS, HorizonSpec, require_horizon
+from .horizons import HORIZONS, STALE_PRICE_MAX_LAG_DAYS, HorizonSpec, require_horizon
 
 __all__ = (
+    "DEFAULT_FORWARD_OBSERVATION_POLICY",
     "HORIZONS",
     "ControlEventExit",
+    "ForwardObservationPolicy",
     "ForwardReturnRow",
     "compute_forward_returns",
     "read_control_event_exits",
 )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ForwardObservationPolicy:
+    """The observation rules that decide a forward row's status, exit, and return.
+
+    A forward cohort measured under different rules is a different measurement, not a
+    rebuild of the same one. The policy is folded into the forward build identity, so
+    a store cannot hold one range observed with control-event exits and another range
+    observed without them: carrying a partition built under other rules is refused
+    rather than silently republished under this build's fingerprint.
+    """
+
+    use_control_event_exits: bool = True
+
+    @property
+    def digest(self) -> str:
+        """A canonical statement of the policy, stable across field additions."""
+        return "|".join(f"{field.name}={getattr(self, field.name)!r}" for field in fields(self))
+
+
+DEFAULT_FORWARD_OBSERVATION_POLICY = ForwardObservationPolicy()
 
 ForwardStatus = str
 AdjustmentCoverage = str
@@ -60,7 +84,6 @@ def _shift_months(value: date, months: int) -> date:
     return date(year, month + 1, min(value.day, 28))
 
 
-STALE_PRICE_MAX_LAG_DAYS = 15
 BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY,)
 
 # A window that ended in a completed cash tender offer is resolved by the price that
@@ -172,7 +195,7 @@ def compute_forward_returns(
     # asof date reads as having no entry at all, even though it traded days earlier.
     min_asof = min(asofs) - timedelta(days=STALE_PRICE_MAX_LAG_DAYS)
     latest_target = max(spec.target_date(asof) for asof in asofs for spec in specs)
-    eval_cap = _latest_bar_date(sqlite_path)
+    eval_cap = latest_market_data_date(sqlite_path)
     rows: list[ForwardReturnRow] = []
     conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
@@ -659,7 +682,9 @@ def _cumulative_adjustment_factor_after(
     return factor
 
 
-def _latest_bar_date(sqlite_path: Path) -> date | None:
+def latest_market_data_date(sqlite_path: Path) -> date | None:
+    """Return the observation cutoff used by forward-return computation."""
+
     conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
         row = conn.execute("SELECT MAX(traded_at) FROM jquants_daily_bars").fetchone()

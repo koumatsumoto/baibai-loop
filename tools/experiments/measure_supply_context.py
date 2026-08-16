@@ -11,14 +11,13 @@ reported as unmeasured.  A missing observation is never imputed as zero.
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import math
 import sqlite3
 import sys
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date
 from itertools import pairwise
 from pathlib import Path
@@ -28,8 +27,12 @@ from typing import TextIO
 import yaml
 from tools.experiments.measure_signal_cohorts import (
     SignalCohortMeasurementError,
+    fixed_generation,
     require_single_rules_hash,
 )
+
+from baibai_engine.screening.calibration.lake import FixedCalibrationBundle
+from baibai_engine.screening.calibration.store import published_cohorts, read_panel
 
 DEFAULT_CALIBRATION_DIR = Path("stores/screening/calibration")
 DEFAULT_RUNS_DB = Path("stores/screening/runs.sqlite")
@@ -165,7 +168,7 @@ def _breadth_snapshot(
 
 
 def _panel_history(
-    calibration_dir: Path, *, hurdle: float
+    calibration_dir: Path, bundle: FixedCalibrationBundle, *, hurdle: float
 ) -> tuple[
     list[tuple[str, float]], list[tuple[str, int]], list[BreadthSnapshot], list[dict[str, str]]
 ]:
@@ -173,16 +176,12 @@ def _panel_history(
     counts: list[tuple[str, int]] = []
     breadth: list[BreadthSnapshot] = []
     degraded: list[dict[str, str]] = []
-    paths = sorted(calibration_dir.glob("panel-*.csv"))
-    if not paths:
+    asofs = published_cohorts(calibration_dir, bundle=bundle)
+    if not asofs:
         raise SupplyContextError(f"no panel rows under {calibration_dir}")
     previous_asof: date | None = None
-    for path in paths:
-        asof_text = path.name.removeprefix("panel-").removesuffix(".csv")
-        try:
-            asof = date.fromisoformat(asof_text)
-        except ValueError as error:
-            raise SupplyContextError(f"panel filename has an invalid as-of: {path}") from error
+    for asof in asofs:
+        asof_text = asof.isoformat()
         if previous_asof is not None and not _months_are_consecutive(previous_asof, asof):
             degraded.append(
                 {
@@ -193,31 +192,29 @@ def _panel_history(
         previous_asof = asof
         ranked: list[tuple[int, float]] = []
         clearing = 0
-        rows: list[dict[str, object]] = []
-        with path.open(newline="", encoding="utf-8") as handle:
-            for row in csv.DictReader(handle):
-                rows.append(dict(row))
-                estimate = _optional_float(row.get("er_annual"))
-                if estimate is None:
-                    continue
-                rank = _optional_rank(row.get("selection_rank"))
-                if rank is not None:
-                    ranked.append((rank, estimate))
-                if (
-                    row.get("pass_screen") in {"True", "true", "1"}
-                    and estimate >= hurdle
-                    and (_optional_float(row.get("market_cap_oku")) or 0.0) >= MIN_MARKET_CAP_OKU
-                    and (_optional_float(row.get("avg_turnover_oku")) or 0.0)
-                    >= MIN_AVG_TURNOVER_OKU
-                    and (_optional_float(row.get("listing_span_days")) or 0.0)
-                    >= MIN_LISTING_SPAN_DAYS
-                ):
-                    clearing += 1
+        rows: list[dict[str, object]] = [
+            asdict(row) for row in read_panel(calibration_dir, asof, bundle=bundle)
+        ]
+        for row in rows:
+            estimate = _optional_float(row.get("er_annual"))
+            if estimate is None:
+                continue
+            rank = _optional_rank(row.get("selection_rank"))
+            if rank is not None:
+                ranked.append((rank, estimate))
+            if (
+                row.get("pass_screen") is True
+                and estimate >= hurdle
+                and (_optional_float(row.get("market_cap_oku")) or 0.0) >= MIN_MARKET_CAP_OKU
+                and (_optional_float(row.get("avg_turnover_oku")) or 0.0) >= MIN_AVG_TURNOVER_OKU
+                and (_optional_float(row.get("listing_span_days")) or 0.0) >= MIN_LISTING_SPAN_DAYS
+            ):
+                clearing += 1
         ranked.sort()
         if len(ranked) >= SUPPLY_TOP_N:
             top5.append((asof_text, fmean(estimate for _, estimate in ranked[:SUPPLY_TOP_N])))
         counts.append((asof_text, clearing))
-        population_count = sum(row.get("in_population") in {"True", "true", "1"} for row in rows)
+        population_count = sum(row.get("in_population") is True for row in rows)
         snapshot: BreadthSnapshot | None
         breadth_reason: str | None
         if population_count < MIN_PANEL_POPULATION:
@@ -601,11 +598,12 @@ def build_supply_context(
     selection_id: str | None,
     hurdle: float,
 ) -> dict[str, object]:
+    generation = fixed_generation(calibration_dir)
     top5_history, count_history, panel_breadth, panel_degraded = _panel_history(
-        calibration_dir, hurdle=hurdle
+        calibration_dir, generation, hurdle=hurdle
     )
     current = _current_selection(runs_db, selection_id=selection_id)
-    rules_hash = require_single_rules_hash(calibration_dir)
+    rules_hash = require_single_rules_hash(generation)
     latest_count_asof, latest_count = count_history[-1]
     top5_values = [value for _, value in top5_history]
     count_values = [float(value) for _, value in count_history[:-1]]

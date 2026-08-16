@@ -11,28 +11,42 @@ canonical application state と machine store を所有する。production metho
 
 ## Public entrypoints
 
-store 操作は `baibai-engine` の domain CLI と [`batch/scripts`](../batch/scripts) を使う。詳細手順は
-[Batch operations](../batch/OPERATIONS.md)。
+store 操作は `baibai-engine` の domain CLI と [`batch/scripts`](../batch/scripts) を使う。
+`baibai-engine lake inventory` はlocal R2 mirrorのfile metadataだけを読み、`lake validate`は
+manifest contractだけを検査する。どちらもobjectやpointerを書き換えない。`lake resolve`は
+current pointerを1度だけ解決し、`lake projection build`はその固定releaseからprojectionを
+再構築する。詳細手順は [Batch operations](../batch/OPERATIONS.md) と
+[market lake](../docs/reference/market-lake.md)。
 
 ## Reads / Writes
 
 | store | authority | writer | backup / rebuild | cloud sync |
 | --- | --- | --- | --- | --- |
 | `application/baibai.sqlite` | local canonical、cloud replica | engine application service | `baibai-engine db backup`。自動 rebuild 禁止 | `batch/scripts/publish.sh` |
-| `market/market.sqlite` | cloud daily + local deep history | provider + controlled merge | screening cache command で再取得可能 | no-loss merge 後のみ push |
+| `market/market.sqlite` | `sqlite_authority`の唯一のcanonical/runtime L1 | provider + controlled merge | screening cache command で再取得可能 | no-loss merge 後のみ push |
+| R2 `lake/l1/` | `sqlite_authority`ではnon-authoritative shadow、`lake_authority`ではcanonical L1 | lake publisher | source再取得またはlegacy SQLite seedからimmutable rebuild | content object + manifest + CAS pointer |
+| R2 `lake/l2/` | dataset cutover前はnon-authoritative shadow、cutover後はrebuildable analytical authority | analytical build | fixed input generationからimmutable rebuild | calibrationはatomic bundle pointer |
+| `lake/` | disposable local R2 mirror / staging / content-addressed object cache | lake build | R2 manifestから再取得可能 | authorityにしない |
+| `market/projection.sqlite` | disposable projection of one fixed L1 release | lake projection build | 削除して固定releaseから再構築 | uploadしない |
 | `macro/macro.sqlite` | cloud rolling + local full history | macro indicator service + controlled merge | provider series から再取得可能 | no-loss merge 後のみ push |
 | `screening/runs.sqlite` | cloud canonical | daily batch screening service | screening run から再生成可能 | local から push 禁止 |
-| `screening/calibration/` | rebuildable L2 | engine calibration command | market/ledger evidence から再生成可能 | production store upload対象外 |
+| `screening/calibration/` | rebuildable L2（typed Parquet + atomic calibration bundle pointer） | engine calibration command | market/ledger evidence またはdigest固定したlegacy archiveから再生成可能 | 3 dataset manifestをbundleとしてpublish |
 
 ## Allowed / Forbidden dependencies
 
-writer は上表の owner に限定する。旧 `data/` path、新旧同時writer、application DB の自動初期化、
-cloud copyによるlocal canonical上書きを禁止する。
+writer は上表の owner に限定する。lifecycle stateは`sqlite_authority`と`lake_authority`の二つ
+だけで、旧 `data/` path、新旧同時canonical writer、application DB の自動初期化、cloud copyに
+よるlocal canonical上書きを禁止する。`sqlite_authority`のlake objectはnon-authoritative shadow
+comparison artifactで、`lake_authority`のSQLiteはfixed releaseから再構築できるprojectionになる。
 
 ## Stores / Config / Reports
 
 production rules は [method](../method/README.md)、historical evidence は
-[reports](../reports/README.md)。R2 object key semantics は repository path migration と独立して維持する。
+[reports](../reports/README.md)。R2 object keyは`lake/`以下のpath-safe segmentだけで構成し、
+dataset / release manifestがobject inventory、checksum、rows、coverage、producerを固定する。
+manifestのlogical identityはcontent SHA-256で固定し、R2 ETagはpointer CAS等のtransport stateに
+限定する。sourceはtyped `SourceRef`、release completenessは明示profileのpolicyで検証する。
+repository path migration とR2 key semanticsを結合しない。
 
 ## Tests
 

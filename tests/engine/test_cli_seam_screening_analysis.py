@@ -26,6 +26,18 @@ from tests.engine.test_calibration_panel import _build_fixture_sqlite
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.read_api import list_shortlist_payloads
+from baibai_engine.screening.calibration.lake import (
+    CALIBRATION_DIAGNOSTICS,
+    CALIBRATION_FORWARD,
+    CALIBRATION_PANEL,
+)
+from baibai_engine.screening.calibration.store import (
+    published_cohorts,
+    read_forward,
+    read_panel,
+    read_panel_meta,
+    resolve_calibration_bundle,
+)
 from baibai_engine.screening.cli import main as screening_main
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
 from baibai_engine.screening.sqlite_cache import open_connection
@@ -41,6 +53,14 @@ SHORTLIST_ID = "shortlist-20260708-cli-seam"
 # that only holds the two fixture names has no trading days at all. This is the
 # following month, which the grid needs in order to call the target month complete.
 NEXT_MONTH_END = date(2026, 7, 31)
+
+
+@pytest.fixture(autouse=True)
+def _verified_calibration_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "baibai_engine.screening.calibration.cli.verified_git_commit",
+        lambda: "a" * 40,
+    )
 
 
 def _narrative() -> dict[str, str]:
@@ -346,17 +366,21 @@ def test_calibration_build_cli_writes_the_panel_and_forward_store(
     captured = capsys.readouterr()
 
     assert code == 0
-    panel = calibration_dir / f"panel-{PANEL_ASOF.isoformat()}.csv"
-    meta = calibration_dir / f"panel-{PANEL_ASOF.isoformat()}.meta.yaml"
-    forward = calibration_dir / f"forward-{PANEL_ASOF.isoformat()}.csv"
-    assert panel.is_file()
-    assert meta.is_file()
-    assert forward.is_file()
+    assert published_cohorts(calibration_dir) == [PANEL_ASOF]
     # The panel holds the fixture's own names, so an empty grid or an unread store
     # cannot pass as a build.
-    assert "9001" in panel.read_text(encoding="utf-8")
-    assert yaml.safe_load(meta.read_text(encoding="utf-8"))["panel_variant"] == "production"
+    assert {row.ticker for row in read_panel(calibration_dir, PANEL_ASOF)} >= {"9001"}
+    assert read_panel_meta(calibration_dir, PANEL_ASOF)["panel_variant"] == "production"
+    assert read_forward(calibration_dir, PANEL_ASOF) != []
     assert "panels built=1" in captured.out
+    # The public bundle resolves all three datasets through one generation. A file
+    # sitting in the tree without that bundle membership is not a published build.
+    bundle = resolve_calibration_bundle(calibration_dir)
+    assert set(bundle.datasets) == {
+        CALIBRATION_PANEL.name,
+        CALIBRATION_DIAGNOSTICS.name,
+        CALIBRATION_FORWARD.name,
+    }
 
 
 def test_calibration_evaluate_cli_writes_the_evaluation_yaml(

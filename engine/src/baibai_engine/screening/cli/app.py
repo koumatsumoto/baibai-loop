@@ -18,7 +18,9 @@ from baibai_engine.screening.calibration.cli import (
 )
 from baibai_engine.screening.calibration.grid import days_with_bars, month_end_asof_grid
 from baibai_engine.screening.calibration.panel import PANEL_BUILD_POLICIES, PanelVariant
-from baibai_engine.screening.calibration.store import DEFAULT_CALIBRATION_DIR
+from baibai_engine.screening.calibration.store import (
+    DEFAULT_CALIBRATION_DIR,
+)
 from baibai_engine.screening.config import (
     DEFAULT_SQLITE_CACHE_DIR,
     ConfigError,
@@ -457,6 +459,7 @@ def build_parser() -> argparse.ArgumentParser:
     calibration_build_parser.add_argument(
         "--start", required=True, help="grid start date (YYYY-MM-DD)"
     )
+
     calibration_build_parser.add_argument("--end", required=True, help="grid end date (YYYY-MM-DD)")
     calibration_build_parser.add_argument(
         "--sqlite-path",

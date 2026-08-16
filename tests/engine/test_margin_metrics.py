@@ -5,14 +5,10 @@ import unittest
 from dataclasses import asdict, fields
 from datetime import date
 from pathlib import Path
+from unittest import mock
 
-import yaml
-
-from baibai_engine.screening.calibration.store import (
-    CalibrationCacheError,
-    cache_meta_path,
-    read_panel,
-)
+from baibai_engine.screening.calibration import store as calibration_store
+from baibai_engine.screening.calibration.store import CalibrationCacheError, read_panel
 from baibai_engine.screening.candidate_build import candidate_metrics_map
 from baibai_engine.screening.margin_metrics import MarginSupplyDemand, margin_supply_demand
 from baibai_engine.screening.providers.jquants import JQuantsWeeklyMargin
@@ -153,21 +149,27 @@ class CalibrationCacheVersionTest(unittest.TestCase):
 
     def test_a_panel_from_an_older_cache_version_is_refused_before_it_is_read(self) -> None:
         # Adding a column to PanelRow without bumping the cache version leaves the
-        # old CSVs readable-looking; the failure then surfaces mid-build as a
+        # stored rows readable-looking; the failure then surfaces mid-build as a
         # missing-column error on one cohort instead of as "rebuild the cache".
+        from tests.helpers.calibration_store import publish_panel
+
+        from baibai_engine.screening.calibration.lake import CALIBRATION_PANEL
+
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            cache_meta_path(root).parent.mkdir(parents=True, exist_ok=True)
-            cache_meta_path(root).write_text(
-                yaml.safe_dump({"cache_schema_version": "0000000000000000"}),
-                encoding="utf-8",
-            )
-            (root / "panel-2020-01-31.csv").write_text("asof,ticker\n2020-01-31,7203\n", "utf-8")
+            publish_panel(root, "2020-01-31", [{"ticker": "7203"}])
+            read_panel(root, date(2020, 1, 31))
 
-            with self.assertRaises(CalibrationCacheError) as caught:
+            with (
+                mock.patch.dict(
+                    calibration_store.CACHE_SCHEMA_VERSIONS,
+                    {CALIBRATION_PANEL.name: "0" * 16},
+                ),
+                self.assertRaises(CalibrationCacheError) as caught,
+            ):
                 read_panel(root, date(2020, 1, 31))
 
-            self.assertIn("cache version is incompatible", str(caught.exception))
+            self.assertIn("different transform", str(caught.exception))
 
 
 class PublishedWeekReadabilityTest(unittest.TestCase):

@@ -82,6 +82,71 @@ def test_current_workflows_satisfy_the_trust_gate() -> None:
 
 
 @pytest.mark.parametrize(
+    ("old", "new", "expected"),
+    [
+        (
+            "types: [labeled]",
+            "types: [opened, synchronize, labeled]",
+            "trigger must be owner-approved PR label",
+        ),
+        (
+            "github.actor == github.repository_owner",
+            "github.actor != ''",
+            "credential job must require owner label",
+        ),
+        (
+            "github.event.pull_request.head.repo.full_name == github.repository",
+            "github.event.pull_request.head.repo.full_name != ''",
+            "credential job must require owner label",
+        ),
+        (
+            "persist-credentials: false",
+            "persist-credentials: true",
+            "without persisting credentials",
+        ),
+        (
+            "EXPECTED_PR_SHA: ${{ github.event.pull_request.head.sha }}",
+            "EXPECTED_PR_SHA: ${{ github.sha }}",
+            "exact head sources must stay event-bound",
+        ),
+        (
+            "    runs-on: ubuntu-latest\n",
+            (
+                "    runs-on: ubuntu-latest\n"
+                "    defaults:\n"
+                "      run:\n"
+                "        shell: bash -c 'bash -e {0}'\n"
+            ),
+            "reviewed execution context contract",
+        ),
+        (
+            "    runs-on: ubuntu-latest\n",
+            "    runs-on: ubuntu-latest\n    container: attacker.example/image:latest\n",
+            "reviewed execution context contract",
+        ),
+        (
+            "    runs-on: ubuntu-latest",
+            "    runs-on: self-hosted",
+            "reviewed execution context contract",
+        ),
+    ],
+)
+def test_lake_acceptance_premerge_trust_boundary_rejects_mutation(
+    tmp_path: Path,
+    old: str,
+    new: str,
+    expected: str,
+) -> None:
+    text = (WORKFLOWS / "lake-acceptance.yml").read_text(encoding="utf-8")
+    assert old in text
+    path = _fixture(tmp_path, text.replace(old, new, 1), name="lake-acceptance.yml")
+
+    errors = check_workflow(path)
+
+    assert any(expected in error for error in errors)
+
+
+@pytest.mark.parametrize(
     "expression",
     [
         "${{ inputs.asof }}",

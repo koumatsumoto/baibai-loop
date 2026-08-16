@@ -40,6 +40,11 @@ _R2 = {
     # This is a GitHub expression, not a credential value.
     "R2_SECRET_ACCESS_KEY": "${{ secrets.R2_SECRET_ACCESS_KEY }}",  # nosec B105
 }
+_R2_ACCEPTANCE = {
+    "R2_ACCOUNT_ID": "${{ vars.R2_ACCOUNT_ID }}",
+    "R2_ACCESS_KEY_ID": "${{ secrets.R2_LAKE_ACCEPTANCE_ACCESS_KEY_ID }}",
+    "R2_SECRET_ACCESS_KEY": "${{ secrets.R2_LAKE_ACCEPTANCE_SECRET_ACCESS_KEY }}",  # nosec B105
+}
 _PROVIDERS = {
     "JQUANTS_API_KEY": "${{ secrets.JQUANTS_API_KEY }}",
     "ESTAT_APP_ID": "${{ secrets.ESTAT_APP_ID }}",
@@ -72,6 +77,11 @@ _EXPECTED_STEP_CREDENTIALS: dict[tuple[str, str, str], dict[str, str]] = {
         "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",  # nosec B105
         "CLOUDFLARE_ACCOUNT_ID": "${{ vars.R2_ACCOUNT_ID }}",
     },
+    (
+        "lake-acceptance.yml",
+        "actual-r2",
+        "Run actual R2 acceptance",
+    ): _R2_ACCEPTANCE,
 }
 _EXPECTED_INPUT_ENV: dict[tuple[str, str, str], dict[str, str]] = {
     ("cloud-daily-batch.yml", "daily", "Validate dispatch input"): {
@@ -84,6 +94,9 @@ _EXPECTED_INPUT_ENV: dict[tuple[str, str, str], dict[str, str]] = {
         "BACKFILL_START": "${{ inputs.start }}",
         "BACKFILL_END": "${{ inputs.end }}",
         "MASTER_MONTH_END_FROM": "${{ inputs.master_month_end_from }}",
+    },
+    ("lake-acceptance.yml", "actual-r2", "Validate exact head without credentials"): {
+        "EXPECTED_DISPATCH_SHA": "${{ inputs.expected_sha }}"
     },
 }
 _EXPECTED_VALIDATED_OUTPUT_ENV: dict[tuple[str, str, str], dict[str, str]] = {
@@ -126,6 +139,29 @@ _EXPECTED_VALIDATION_SCRIPTS = {
         echo "start=$BACKFILL_START" >> "$GITHUB_OUTPUT"
         echo "end=$BACKFILL_END" >> "$GITHUB_OUTPUT"
         echo "master_month_end_from=$MASTER_MONTH_END_FROM" >> "$GITHUB_OUTPUT"
+    """,
+    ("lake-acceptance.yml", "actual-r2", "Validate exact head without credentials"): """
+        if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+          EXPECTED_SHA="$EXPECTED_DISPATCH_SHA"
+        elif [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+          EXPECTED_SHA="$EXPECTED_PR_SHA"
+        else
+          echo "lake acceptance does not support this event" >&2
+          exit 2
+        fi
+        if [[ ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "expected_sha must be a full lowercase commit SHA" >&2
+          exit 2
+        fi
+        if ! git cat-file -e "$EXPECTED_SHA^{commit}" 2>/dev/null; then
+          echo "expected_sha is not a commit in this repository" >&2
+          exit 2
+        fi
+        if [[ "$(git rev-parse HEAD)" != "$EXPECTED_SHA" ]]; then
+          git checkout --detach "$EXPECTED_SHA"
+        fi
+        test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+        echo "expected_sha=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
     """,
 }
 # Each digest covers the full reviewed step mapping (run script, env, condition,
@@ -171,9 +207,27 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
     ("web.yml", "quality", "Deploy Worker and UI assets"): (
         "885b888768015c2ca9aaa48d92aa47c941566db9a28c0909209499bae6418763"
     ),
+    (
+        "lake-acceptance.yml",
+        "actual-r2",
+        "Run actual R2 acceptance",
+    ): "203fcedaa220abab7cb0f7b0ebbe46c89e01f3e81b737a421e1de24c29f31eb3",
 }
 _RESTRICTED_ENV_NAMES = frozenset(
     name for credentials in _EXPECTED_STEP_CREDENTIALS.values() for name in credentials
+)
+
+_LAKE_ACCEPTANCE_JOB_CONDITION = """\
+${{
+  github.event_name == 'workflow_dispatch' ||
+  (github.event_name == 'pull_request' &&
+   github.event.action == 'labeled' &&
+   github.event.label.name == 'lake-acceptance-approved' &&
+   github.actor == github.repository_owner &&
+   github.event.pull_request.head.repo.full_name == github.repository)
+}}"""
+_LAKE_ACCEPTANCE_WORKFLOW_DIGEST = (
+    "4aa1d2556e29006e0195f7840b301344404baf20e2c596d63ef4d2940d6b416e"
 )
 
 PathPart = str | int
@@ -216,14 +270,18 @@ def _json_value(value: object) -> object:
     return value
 
 
-def _step_digest(step: Mapping[object, object]) -> str:
+def _mapping_digest(mapping: Mapping[object, object]) -> str:
     payload = json.dumps(
-        _json_value(step),
+        _json_value(mapping),
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
     )
     return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _step_digest(step: Mapping[object, object]) -> str:
+    return _mapping_digest(step)
 
 
 def _contains_dispatch_input(value: str) -> bool:
@@ -489,6 +547,83 @@ def _input_errors(path: Path, workflow: Mapping[object, object]) -> list[str]:
     return errors
 
 
+def _lake_acceptance_errors(path: Path, workflow: Mapping[object, object]) -> list[str]:
+    """Pin the pre-merge label gate that protects acceptance credentials."""
+    if path.name != "lake-acceptance.yml":
+        return []
+
+    errors: list[str] = []
+    if _mapping_digest(workflow) != _LAKE_ACCEPTANCE_WORKFLOW_DIGEST:
+        errors.append(f"{path.name}: workflow differs from its reviewed execution context contract")
+    expected_trigger = {
+        "pull_request": {"types": ["labeled"]},
+        "workflow_dispatch": {
+            "inputs": {
+                "expected_sha": {
+                    "description": "Exact 40-character commit SHA under acceptance",
+                    "required": "true",
+                    "type": "string",
+                }
+            }
+        },
+    }
+    if _json_value(workflow.get("on")) != expected_trigger:
+        errors.append(f"{path.name}: trigger must be owner-approved PR label or exact-SHA dispatch")
+    if _json_value(workflow.get("permissions")) != {"contents": "read"}:
+        errors.append(f"{path.name}: workflow permissions must stay contents: read")
+    if _json_value(workflow.get("concurrency")) != {
+        "group": "lake-acceptance",
+        "cancel-in-progress": "false",
+    }:
+        errors.append(f"{path.name}: acceptance runs must stay serialized and non-cancelling")
+
+    jobs = _mapping(workflow.get("jobs"))
+    if jobs is None or {str(name) for name in jobs} != {"actual-r2"}:
+        errors.append(f"{path.name}: actual-r2 must be the only job")
+        return errors
+    job = _mapping(jobs.get("actual-r2"))
+    if job is None:
+        return [*errors, f"{path.name}: actual-r2 job must be a mapping"]
+    if job.get("if") != _LAKE_ACCEPTANCE_JOB_CONDITION:
+        errors.append(
+            f"{path.name}: credential job must require owner label and same-repository head"
+        )
+
+    steps = _sequence(job.get("steps"))
+    if steps is None:
+        return [*errors, f"{path.name}: actual-r2 steps must be a sequence"]
+    mapped_steps = [step for raw in steps if (step := _mapping(raw)) is not None]
+    checkout = [
+        step for step in mapped_steps if str(step.get("uses", "")).startswith("actions/checkout@")
+    ]
+    if len(checkout) != 1 or _json_value(checkout[0].get("with")) != {
+        "fetch-depth": "0",
+        "persist-credentials": "false",
+    }:
+        errors.append(
+            f"{path.name}: checkout must fetch every ref of this repository without persisting "
+            "credentials"
+        )
+    validation = [
+        step
+        for step in mapped_steps
+        if step.get("name") == "Validate exact head without credentials"
+    ]
+    if len(validation) == 1 and _json_value(validation[0].get("env")) != {
+        "EXPECTED_DISPATCH_SHA": "${{ inputs.expected_sha }}",
+        "EXPECTED_PR_SHA": "${{ github.event.pull_request.head.sha }}",
+    }:
+        errors.append(f"{path.name}: exact head sources must stay event-bound")
+    credential_indexes = [
+        index
+        for index, step in enumerate(mapped_steps)
+        if step.get("name") == "Run actual R2 acceptance"
+    ]
+    if credential_indexes != [len(mapped_steps) - 1]:
+        errors.append(f"{path.name}: credential-bearing acceptance must be the final step")
+    return errors
+
+
 def check_workflow(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8")
     try:
@@ -505,6 +640,7 @@ def check_workflow(path: Path) -> list[str]:
     errors.extend(_validated_output_errors(path, workflow))
     errors.extend(_validation_contract_errors(path, workflow))
     errors.extend(_credential_errors(path=path, workflow=workflow))
+    errors.extend(_lake_acceptance_errors(path, workflow))
     return errors
 
 

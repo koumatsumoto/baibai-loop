@@ -25,6 +25,8 @@ target は cohort の actual as-of date に calendar month を加算する。元
 
 panel は cohort as-of 以下の最新 `eq_master` snapshot だけを読む。prior snapshot、snapshot unavailable、survivorship、delisting、corporate-action event coverage の不備は payload に残り、3y/5y evidence を block する。
 
+cohort の入力保証（`source_assurance`）は run purpose によらず coverage へ出るが、blocker になるのは `--run-purpose production_decision` のときだけである。他の blocker は cohort そのものの性質なので誰が読んでも成り立つのに対し、これは「この cohort を根拠に何を変えてよいか」であり、diagnostic 実行が問うていない。水準の定義と現在の到達可否は [`market-lake.md`](./market-lake.md) が正本。
+
 forward row は解決済み status（市場終値による `resolved`、成立した現金公開買付けによる `resolved_control_event_exit`）または明示的な unresolved status を持ち、`resolved` flag は前者 2 つと一致する。target と entry はそれぞれ target/as-of 以下の最終取引日で解決し、15 日超の stale exit は resolved return に入れない。価格は as-of basis adjustment factor で正規化するが、metric basis は `price_return_only` であり配当 accrual を加えない。entry 時点の配当利回りを horizon 年数で按分する固定 accrual は、期間中の増配・減配・無配・支払時期を観測した実現配当ではないため、実現値として扱わない。
 
 財務サマリーの購読窓は 10 年の移動窓であり、store が読み取りを許す最古の日付は日々進む。panel の履歴窓（正規化 EPS 2,200 日、株主還元 1,200 日）はこの下限で切られるので、下限に近い古い cohort ほど履歴が短く、必要な期数に届かない値は null で出る。窓が通り過ぎた行は table に残るが読まない。**下限は store が持つ最古の行ではなく coverage が答える範囲から取る。** 両者は同じ「履歴の始まり」を指しながら別の量であり、行の側を採ると source が出せない範囲を要求して全 cohort が構築不能になる。
@@ -129,7 +131,7 @@ cache schema version は互換性を決める入力から導出する（panel / 
 
 報告空売り残高の L1 は disclosure date と calculation date を分け、reporter 名tuple、ratio / shares / units、取消、provider row ordinalを保存する。panel の `reported_short_ratio` / `reported_short_breadth` / `reported_short_latest_disclosed_at` は両日が cohort as-of 以下の最新stateだけを集約する。公式 dataset floor から連続coverageを証明できる場合だけ無報告を明示的0とし、plan floor、coverage gap、同率最新stateの競合では該当値をnullにする。0は「0.5%未満または報告不在」であって空売り不存在を意味しない。この軸も calibration annotation 専用である。
 
-信用需給では、2026-09-18 残高までの全銘柄週次公表を source として、貸借銘柄だけの `margin_short_to_adv` と、交絡確認用の60取引日 realized volatilityを保持する。`margin_std_long_share` は判断面へ出す文脈 annotation である。`selection.supply_demand.margin_std_long_share_exclude_at_or_above` は recommendation だけを詰める任意の除外 knob だが、canonical rules は節自体を持たず既定 `None` なので gate は無効であり、candidates・full rank・longlist は同 knob の設定に関わらず動かない。production判断で空売り残/ADVのraw annotationを使うrunは、`margin_short_to_adv`をcore 3 metricと併せて明示する。missing/mismatch/partial cache は `calibration-build --force` で再構築する。旧 reader は提供しない。
+信用需給では、2026-09-18 残高までの全銘柄週次公表を source として、貸借銘柄だけの `margin_short_to_adv` と、交絡確認用の60取引日 realized volatilityを保持する。`margin_std_long_share` は判断面へ出す文脈 annotation である。`selection.supply_demand.margin_std_long_share_exclude_at_or_above` は recommendation だけを詰める任意の除外 knob だが、canonical rules は節自体を持たず既定 `None` なので gate は無効であり、candidates・full rank・longlist は同 knob の設定に関わらず動かない。production判断で空売り残/ADVのraw annotationを使うrunは、`margin_short_to_adv`をcore 3 metricと併せて明示する。missing/mismatch/partial cache は `calibration-build --force` で再構築する。cohort の保存形式と retention は [`market-lake.md`](./market-lake.md#l2-calibration) を正本とする。
 
 `rules_hash` は `ScreeningRules` の JSON dump 全体から作る。したがって **panel の値を 1 つも変えられない変更（無効な knob の削除・field の並べ替え）でも hash は動き、store 全体が再構築対象になる**。rules model の形を変えるときは、その再構築コストを変更の便益と比べる。
 
@@ -148,6 +150,27 @@ uv run baibai-engine screening calibration-evaluate \
   --calibration-dir stores/screening/calibration/variants/pre2019 \
   --horizon 1y --horizon 3y --out /tmp/calibration-pre2019.yaml
 ```
+
+## store の再構築
+
+旧 CSV store から L2 lake への移行機構は持たない。**旧 store を捨てて全 cohort を再構築する。**
+rules が動けば cohort は作り直しになるので、移行を作っても運べるのは「現行 code が読める契約で
+書かれた履歴」だけであり、実測ではそれが 0 件だった。
+
+```bash
+uv run baibai-engine screening calibration-build \
+  --start 2019-11-01 --end <latest-month-end>
+```
+
+**実測（2026-08-16、現行 head、実 `market.sqlite` 2.0GB）: 81 cohort を 58 分。** forward 1,527,240
+行（うち resolved 1,059,521、支配権イベント exit 4,686）、object 247 件、94.6MB。**同じ履歴が CSV の
+507MB から lake の 93MB になる。** bundle manifest は 81 cohort に対して 1,367 bytes である — 世代の
+cohort inventory は 3 つの dataset manifest から導出するので、bundle 自体は cohort 数に依存しない。
+
+再構築した cohort の source は sealed SQLite snapshot であり、bytes を lake に残さないので
+`source_assurance` は `trace_only` になる。`--run-purpose production_decision` は
+`source_not_rebuildable` で block されたままで、これは L1 release が cohort source になるまで
+解けない。**store を作り直しても production 判断は開かない。**
 
 ## Commands
 

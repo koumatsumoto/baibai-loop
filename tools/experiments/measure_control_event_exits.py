@@ -15,18 +15,28 @@ different slice than the one registered.
 from __future__ import annotations
 
 import argparse
-import csv
 import hashlib
 import sqlite3
 import sys
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any, TextIO
 
 import yaml
 
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.screening.calibration.lake import (
+    CALIBRATION_PANEL,
+    FixedCalibrationBundle,
+)
+from baibai_engine.screening.calibration.store import (
+    published_cohorts,
+    read_forward,
+    resolve_calibration_bundle,
+)
 
 CONTROL_EVENT_STATUS = "resolved_control_event_exit"
 AUTHORITY_HORIZONS = ("3y", "5y")
@@ -57,30 +67,62 @@ class ComparisonError(RuntimeError):
     """The two stores cannot be compared on the registered terms."""
 
 
-def _rows(path: Path) -> list[dict[str, str]]:
-    with path.open(encoding="utf-8", newline="") as handle:
-        return [dict(row) for row in csv.DictReader(handle)]
-
-
-def _key(row: Mapping[str, str]) -> tuple[str, str, str]:
-    return row["asof"], row["ticker"], row["horizon"]
-
-
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     digest.update(path.read_bytes())
     return digest.hexdigest()
 
 
-def _panel_identity(root: Path) -> dict[str, str]:
-    return {path.name: _sha256(path) for path in sorted(root.glob("panel-*.csv"))}
+@dataclass(frozen=True, slots=True)
+class _Store:
+    """One side of the comparison, read at one generation throughout.
+
+    A comparison that resolved current for every cohort list and every read could put
+    one generation's rows on one side of a difference and another's on the other, and
+    call the publication that landed between them an effect of the change under study.
+    Both halves are fixed once, before anything is read.
+    """
+
+    root: Path
+    bundle: FixedCalibrationBundle
 
 
-def compare_forward(baseline_dir: Path, actual_dir: Path) -> dict[str, Any]:
+def _open(root: Path) -> _Store:
+    return _Store(root=root, bundle=resolve_calibration_bundle(root))
+
+
+def _cohorts(store: _Store) -> list[date]:
+    return published_cohorts(store.root, bundle=store.bundle)
+
+
+def _rows(store: _Store, asof: date) -> list[dict[str, object]]:
+    return [asdict(row) for row in read_forward(store.root, asof, bundle=store.bundle)]
+
+
+def _key(row: Mapping[str, object]) -> tuple[str, str, str]:
+    return str(row["asof"]), str(row["ticker"]), str(row["horizon"])
+
+
+def _panel_identity(store: _Store) -> dict[str, str]:
+    """Identify each published panel cohort by the objects the build fixed.
+
+    The build manifest already addresses every object by content, so the cohort
+    identity is read from it rather than hashed off the filesystem: two stores that
+    publish the same rows resolve to the same object keys.
+    """
+
+    manifest = store.bundle.datasets[CALIBRATION_PANEL.name]
+    return {
+        f"{int(partition.values['year']):04d}-{int(partition.values['month']):02d}": item.sha256
+        for partition in manifest.partitions
+        for item in partition.objects
+    }
+
+
+def compare_forward(baseline: _Store, actual: _Store) -> dict[str, Any]:
     """Count what the exit values replaced and prove nothing else moved."""
-    baseline_files = {path.name for path in baseline_dir.glob("forward-*.csv")}
-    actual_files = {path.name for path in actual_dir.glob("forward-*.csv")}
-    if baseline_files != actual_files:
+    baseline_cohorts = _cohorts(baseline)
+    if baseline_cohorts != _cohorts(actual):
         raise ComparisonError("the two stores hold different cohorts")
 
     replaced_by_horizon: Counter[str] = Counter()
@@ -90,17 +132,18 @@ def compare_forward(baseline_dir: Path, actual_dir: Path) -> dict[str, Any]:
     unresolved_before: Counter[str] = Counter()
     unresolved_after: Counter[str] = Counter()
     unexpected: list[str] = []
-    for name in sorted(baseline_files):
-        before = {_key(row): row for row in _rows(baseline_dir / name)}
-        after = {_key(row): row for row in _rows(actual_dir / name)}
+    for asof in baseline_cohorts:
+        name = asof.isoformat()
+        before = {_key(row): row for row in _rows(baseline, asof)}
+        after = {_key(row): row for row in _rows(actual, asof)}
         if before.keys() != after.keys():
             raise ComparisonError(f"{name} holds a different row set in the two stores")
         for key, baseline_row in before.items():
             actual_row = after[key]
             horizon = key[2]
-            if baseline_row["status"].startswith("unresolved"):
+            if str(baseline_row["status"]).startswith("unresolved"):
                 unresolved_before[horizon] += 1
-            if actual_row["status"].startswith("unresolved"):
+            if str(actual_row["status"]).startswith("unresolved"):
                 unresolved_after[horizon] += 1
             if baseline_row == actual_row:
                 continue
@@ -115,7 +158,7 @@ def compare_forward(baseline_dir: Path, actual_dir: Path) -> dict[str, Any]:
                 unexpected.append(f"{name}:{key[1]}:{horizon}")
                 continue
             replaced_by_horizon[horizon] += 1
-            replaced_prior_status[baseline_row["status"]] += 1
+            replaced_prior_status[str(baseline_row["status"])] += 1
             replaced_tickers.add(key[1])
             replaced_cohorts.setdefault(horizon, set()).add(key[0])
     return {
@@ -251,8 +294,10 @@ def build_measurement(
     actual_payload = safe_load(actual_evaluation.read_text(encoding="utf-8"))
     if not isinstance(baseline_payload, dict) or not isinstance(actual_payload, dict):
         raise ComparisonError("an evaluation payload is not a mapping")
-    baseline_panels = _panel_identity(baseline_dir)
-    actual_panels = _panel_identity(actual_dir)
+    baseline_store = _open(baseline_dir)
+    actual_store = _open(actual_dir)
+    baseline_panels = _panel_identity(baseline_store)
+    actual_panels = _panel_identity(actual_store)
     return {
         "kind": "control-event-exit-comparison",
         "preregistration": "reports/studies/2026-08-11-capital-control-exit-values/"
@@ -268,7 +313,7 @@ def build_measurement(
             "er_model_version": actual_payload.get("er_model_version"),
         },
         "source_coverage": source_coverage(market_sqlite),
-        "forward": compare_forward(baseline_dir, actual_dir),
+        "forward": compare_forward(baseline_store, actual_store),
         "authority": compare_authority(baseline_payload, actual_payload),
         "core_metrics": compare_core_metrics(baseline_payload, actual_payload),
         "integrity": {

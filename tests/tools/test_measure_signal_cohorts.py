@@ -1,17 +1,20 @@
 from __future__ import annotations
 
-import csv
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
+from tests.helpers.calibration_store import publish_forward, publish_panel
+from tools.experiments import measure_signal_cohorts
 from tools.experiments.measure_signal_cohorts import (
     SignalCohortMeasurementError,
     build_measurement,
     main,
 )
+
+from baibai_engine.screening.calibration.store import resolve_calibration_bundle
 
 PANEL_COLUMNS = (
     "asof",
@@ -42,24 +45,11 @@ FORWARD_COLUMNS = (
 def _write_panel(
     directory: Path, asof: str, rows: list[dict[str, Any]], *, rules_hash: str = "abc123"
 ) -> None:
-    (directory / f"panel-{asof}.meta.yaml").write_text(
-        f"asof: '{asof}'\nrules_hash: {rules_hash}\n", encoding="utf-8"
-    )
-    path = directory / f"panel-{asof}.csv"
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=PANEL_COLUMNS)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({column: row.get(column, "") for column in PANEL_COLUMNS})
+    publish_panel(directory, asof, rows, rules_hash=rules_hash)
 
 
 def _write_forward(directory: Path, asof: str, rows: list[dict[str, Any]]) -> None:
-    path = directory / f"forward-{asof}.csv"
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=FORWARD_COLUMNS)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({column: row.get(column, "") for column in FORWARD_COLUMNS})
+    publish_forward(directory, asof, rows)
 
 
 def _liquid(ticker: str, asof: str, **overrides: Any) -> dict[str, Any]:
@@ -320,3 +310,62 @@ def test_basis_coverage_reports_both_denominators(tmp_path: Path) -> None:
     assert coverage["total_to_price_ratio"] == 0.667
     # 2/3 は 0.75 を割るので、両 basis を並べて読める horizon ではない。
     assert coverage["bases_comparable"] is False
+
+
+def test_a_publication_landing_mid_run_does_not_enter_the_measurement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One measurement is one statement about one generation.
+
+    The cohort list, the forward rows, the rules identity and the panel rows are four
+    reads. Resolving current for each of them lets a publication landing between two of
+    them put one generation's panel rows against another's outcomes — and every read is
+    valid on its own, so nothing downstream has anything to object to.
+    """
+
+    directory = _store(tmp_path)
+    for index in range(24):
+        ticker = f"{1000 + index}"
+        _write_panel(directory, "2024-01-31", [_liquid(ticker, "2024-01-31")])
+        _write_forward(
+            directory,
+            "2024-01-31",
+            [
+                {
+                    "asof": "2024-01-31",
+                    "ticker": ticker,
+                    "horizon": "1y",
+                    "price_return": "0.10",
+                    "status": "resolved",
+                }
+            ],
+        )
+
+    fixed_before = resolve_calibration_bundle(directory)
+    real = measure_signal_cohorts.require_single_rules_hash
+
+    def publish_then_continue(bundle: Any) -> str:
+        # Between fixing the generation and the first row read, which is where the
+        # window is widest: the panel and forward passes each walk every cohort.
+        _write_panel(directory, "2024-02-29", [_liquid("9999", "2024-02-29")])
+        _write_forward(
+            directory,
+            "2024-02-29",
+            [
+                {
+                    "asof": "2024-02-29",
+                    "ticker": "9999",
+                    "horizon": "1y",
+                    "price_return": "5.00",
+                    "status": "resolved",
+                }
+            ],
+        )
+        return real(bundle)
+
+    monkeypatch.setattr(measure_signal_cohorts, "require_single_rules_hash", publish_then_continue)
+    payload = build_measurement(calibration_dir=directory, horizons=("1y",), er_threshold=0.085)
+
+    assert payload["panel_asof_start"] == "2024-01-31"
+    assert payload["panel_asof_end"] == "2024-01-31"
+    assert payload["calibration_bundle_id"] == fixed_before.ref.bundle_id

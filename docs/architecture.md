@@ -37,7 +37,7 @@ baibai-loop/
 | package | responsibility | public surface |
 | --- | --- | --- |
 | `foundation` | 共通 primitive と境界 utility | engine 内部 |
-| `market` | market price / calendar の取得と L1 SQLite | engine 内部 |
+| `market` | market fact の取得、L1 SQLite、immutable lake contract、固定 release の local projection | `baibai-engine lake` |
 | `macro` | indicator series（L1）、macro reading（L2）、published macro context（L3） | `baibai-engine macro` |
 | `screening` | screening run、machine selection、shortlist、calibration | `baibai-engine screening` |
 | `research` | opportunity workspace、thesis / thesis review、planning-only limit | `baibai-engine research` |
@@ -61,11 +61,94 @@ engine は web / batch / tools に依存しない。Web が engine へ触れる�
 | `stores/application/baibai.sqlite` | canonical application DB | task、macro context、shortlist、thesis revision、holding review、proposal、ledger event / price / meta、outcome、operation session | `baibai-engine` application service |
 | `stores/market/market.sqlite` | rebuildable L1 | J-Quants / EDINET / JPX の price、calendar、financial input と、資本配分・支配権イベントの typed fact | market / screening provider |
 | `stores/screening/runs.sqlite` | rebuildable L2 run store | 最新数世代を保持するprunable screening run / machine selection cache | screening service |
+| `stores/screening/calibration/` | rebuildable L2 analytical bundle | typed Parquet の calibration panel / diagnostics / forward outcome と、3 datasetを原子的に束ねるbundle manifest・pointer | screening calibration service |
 | `stores/macro/macro.sqlite` | rebuildable L1 | provider 別 macro indicator series。manual 観測は git seed から同期 | macro indicator service |
 
 application DB の default path は `stores/application/baibai.sqlite` で、`BAIBAI_DB` または各 CLI の `--db` で差し替えられる。手動 backup は `baibai-engine db backup` を使う。自動 backup、世代管理、監査 table、transition history は持たない。
 
 Git に残す `method/` は `screening/rules`、`macro/reading`、`research/playbooks` の production methodology である。Macro panel の表示 group は `web/config/macro-panel.yaml` が所有する。application data を GitHub Issue や YAML file に複製しない。
+
+### Market lake publication contract
+
+大規模な market fact は、R2 の不変 object を Parquet で保持し、dataset manifest と L1 release
+manifest で exact input generation を固定する。DuckDB は Parquet の build・validation・analysis
+だけを担い、常駐 server や唯一の永続 DB にしない。SQLite は application state、小規模な関係
+data、固定 release から再構築できる local projection に限定する。Web は L1 を直接読まず、
+materialized read model だけを読む。
+
+| layer | `sqlite_authority` | `lake_authority` | allowed contents |
+| --- | --- | --- | --- |
+| L1 Raw | canonical Raw archiveなし | R2 immutable object | provider original と request range / retrieved-at / content hash。credential と認証 header は保存しない |
+| L1 Canonical | `market.sqlite` | Parquet object + dataset / release manifest | typed source fact、source identity、publication / effective / retrieved time、revision semantics |
+| L2 Analytical | dataset別の既存rebuildable cache | Parquet object + dataset manifest + atomic bundle pointer | 再生成可能な panel、feature、forward outcome |
+| L2 Operational / L3 | SQLite | SQLite | run metadata、selection、thesis、proposal、ledger、operation 等の transaction / point lookup state |
+
+R2 key は `lake/` 以下だけを使い、segment allowlist で path traversal を拒否する。time-series
+partition は `year/month`、file は ZSTD Parquet、object name は content SHA-256 とする。dataset
+manifest は全 partition object と totals を列挙し、L1 release manifest は互換な dataset build の
+組を一つの `release_id` へ固定する。logical object identity は key・SHA-256・bytes・rows・schema
+で決まり、object-store固有のETagはpublish/CASのtransport stateにだけ置く。lineageは`raw_ingest`・`sqlite_snapshot`・`calibration_input`を区別するtyped `SourceRef`で表す。
+kindは**bytesを保持するかどうか**の2族に分かれ、それが型の違いになる。
+
+- **retained**（`raw_ingest`・`calibration_input`）はlake内のkeyを名乗る。keyを名乗ることは
+  「そのbytesが到達可能で、collectionから守られ、そのbuildを運ぶpublicationが一緒に運ぶ」という
+  約束であり、その大きさをlakeが世代の寿命だけ保持する意思のあるsourceだけが名乗れる。resolverは
+  key・SHA-256・source側versionを検証する。
+- **identity only**（`sqlite_snapshot`）はkeyを持たない。sealed snapshotはbuild中にstoreが動かない
+  ようにするためのもので、その役目はbuildの終わりで終わる。bytesはlegacy store全体（約2GB）なので、
+  buildごとに1つ保持すればlakeはpublishした量ではなくrun回数に比例して育つ。よってschema version・
+  content digest・capture時刻だけを残し、bytesはoperationの終わりで回収する。
+  同じ`source_id`を名乗る2つのbuildは同一入力を読んでおり、rebuildへ差し出されたstore世代はこの
+  digestで照合できる。**保証しないのは、その世代がまだ入手できること**である。lineageからのrebuild
+  保証は、cohortが必要とするtableがL1 releaseとして公開された時点（Issue #917）で、keyを持つ
+  retained sourceとして戻る。
+
+L1 releaseはこのunionに入れない。lineage sourceはそれを再生する完全なobject graphへ解決できねばならず、
+release manifestはそのrootにすぎない。dataset manifest・Parquet object・Raw archiveまでを列挙・検証・
+retentionから保護するclosure resolverと、それを使うpublisher・retention・auditが揃うまでkindを
+戻さない。文字列prefixや実在しないrelease IDでsource種別を表さない。
+
+manifestとpointerを含むlake JSONは、duplicate key拒否とredacted validation errorを持つ
+共通parserだけを通し、wire size上限をparse前に検査する。partition valuesとrelease dataset
+inventoryはparse後に変更できない。
+releaseは`pilot`または`production` profileを宣言し、profileごとのrequired dataset、accepted
+contract、coverage、検証時刻基準のfreshness/skew、manifest size/object budgetを満たす場合だけ
+current候補になる。
+pilot profileは移行中の限定datasetを表し、production completenessを代替しない。
+
+version 語彙は `contract_version`（schema・PK・型・partition・意味の互換境界）、`build_id`
+（immutable build）、typed `SourceRef`内のsource側version、`producer_git_commit`（code identity）
+に限定する。同じ contract 内の logic / config / 明示したtransform source codeは
+`transform_fingerprint`で識別する。
+L2 calibrationのlineageはdataset全体のsource集合ではなくcohort inventoryの各roleへ置き、panel /
+diagnosticsのcohort cutoffとforwardのobservation cutoffをsource digestと一緒に固定する。
+fingerprintはschema/configだけでなく、そのdatasetの値を決めるsemantic implementation fileのdigestを含む。
+production reader は期待する contract 一つだけを受け入れ、schema change は in-place migration
+や `union_by_name` fallback ではなく、新しい contract の immutable rebuild と pointer switch で
+扱う。
+
+lifecycle state は `sqlite_authority` と `lake_authority` の二つだけで、一つの dataset が同時に
+二つの canonical writer を持たない。`sqlite_authority` では `market.sqlite` だけが canonical /
+runtime authority で、lake buildはnon-authoritative shadow comparison artifactである。parityと
+cutover条件を満たしたpointer switchで `lake_authority` へ移り、R2 releaseがcanonical authorityに
+なる。その後のSQLiteはfixed releaseから削除・再構築できるprojectionであり、R2 canonical key
+としてfull-file publishしない。
+
+読み取り側は実行開始時に current pointer を 1 度だけ解決し、以後は固定した `release_id` と
+immutable object key だけを読む。manifest digest、object digest、dataset contract の不一致は
+fail-close で、prefix listing・glob・`union_by_name` による吸収・provider fallback はいずれも
+持たない。projection の再利用は release、manifest digest、object digest、projection contract
+fingerprint の完全一致だけで決め、不一致・partial・破損は一時 file への再構築と
+atomic replace で扱う。projection を作った commit は audit として残すが再利用条件には入れない —
+projection の bytes を動かさない変更で 10M row を作り直させないためで、bytes を動かす実装は
+contract fingerprint 側が持つ。手順は
+[`reference/market-lake.md`](./reference/market-lake.md#fixed-release-read) を正本とする。
+
+このcustom manifest protocolは、単一writer・小規模catalog・Python中心という現在の制約に対して
+table formatより小さい。次のいずれかが現れた時点で、Apache Iceberg / R2 Data Catalog等への
+置換を再評価する: 同時writerが2以上になる、object数が10万を超える、schema branchを複数同時に
+維持する、dataset横断のsnapshot transactionが要る、remote GCを自前で持つ、row-level mutationが要る。
+どれも現状は無く、無い間は自前protocolの方が状態空間が小さい。
 
 ## Stable CLI
 
@@ -77,7 +160,16 @@ Git に残す `method/` は `screening/rules`、`macro/reading`、`research/play
 `baibai-batch` は GitHub Actions と運用 script が production job を呼ぶための
 repository-internal entry point で、domain の利用者向け surface ではない。
 
-主要 domain は `screening / macro / operation / position / proposal / research / task / db`。schema field、option、stdout YAML は public `--help` と engine modelを正とする。screening `run / select / ticker-profile` の YAML view は AI 向け安定契約であり、保存先が SQLite でも field の意味を変えない。
+主要 domain は `lake / screening / macro / operation / position / proposal / research / task / db`。
+`lake inventory` は local R2 mirror の metadata だけを読み、`lake validate` は JSON manifest
+contract だけを検査して object の dereference・publish・rewrite をしない。`lake resolve` は
+current pointer を 1 度だけ解決して固定 release の identity を出し、`lake projection build` は
+その release から local projection を再構築する。どちらも immutable object を書き換えない。
+`lake gc` は root closure から削除候補と plan hash を出す
+（既定は dry-run で、`--apply` は同じ plan hash を要求する）。
+schema field、option、stdout YAML は public `--help` と engine modelを正とする。screening `run /
+select / ticker-profile` の YAML view は AI 向け安定契約であり、保存先が SQLite でも field の
+意味を変えない。
 
 ## Application data semantics
 
@@ -120,8 +212,8 @@ views + history + system        Bearer認証 + static UI
 
 | layer | examples | rule |
 | --- | --- | --- |
-| L1 fact | market price、calendar、macro series | provider由来を保持し、再取得可能なstoreへ置く |
-| L2 machine analysis | screening run、E[r]、FV anchor、machine selection、macro reading | observed / derived / estimateを区別し、judgmentと呼ばない |
+| L1 fact | market price、calendar、macro series | provider由来とsource identityを保持し、SQLiteまたはimmutable Parquetの一意なauthorityへ置く |
+| L2 machine analysis | screening run、E[r]、FV anchor、machine selection、macro reading、analytical Parquet | observed / derived / estimateを区別し、judgmentと呼ばない |
 | L3 judgment / operation | macro context、shortlist、research、proposal、ledger、task、operation | application DBを正本にし、人間境界をwrite-timeに検証する |
 
 fact / estimate / judgment の語彙と禁止事項は [`doctrine.md#fact-analysis-separation`](./doctrine.md#fact-analysis-separation) を正本とする。

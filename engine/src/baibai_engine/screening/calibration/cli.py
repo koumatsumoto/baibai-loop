@@ -3,15 +3,25 @@
 from __future__ import annotations
 
 import sys
+import uuid
 from dataclasses import asdict
 from datetime import date
+from os import link
 from pathlib import Path
-from shutil import rmtree
+from shutil import copytree, rmtree
 from typing import TextIO, cast
 
 import yaml
 
 from baibai_engine.foundation.filesystem import write_text_atomic
+from baibai_engine.market.lake.identity import verified_git_commit
+from baibai_engine.market.lake.models import source_assurance
+from baibai_engine.market.lake.retention import lake_writer_lock
+from baibai_engine.market.lake.writer import (
+    LakeBuildError,
+    LegacySQLiteSnapshot,
+    sealed_sqlite_snapshot,
+)
 
 from ..estimates import EXPECTED_RETURN_MODEL_VERSION
 from ..rule_config import ScreeningRules
@@ -28,11 +38,14 @@ from .evaluation import OPTIONAL_SENSITIVITY_METRICS, evaluate_cohorts
 from .forward import (
     CONTROL_EVENT_EXIT_STATUS,
     HORIZONS,
+    ForwardObservationPolicy,
     ForwardReturnRow,
     compute_forward_returns,
+    latest_market_data_date,
     read_control_event_exits,
 )
 from .grid import month_end_asof_grid
+from .lake import CalibrationBundleRef, CalibrationLakeError
 from .panel import (
     PANEL_BUILD_POLICIES,
     PRODUCTION_PANEL_POLICY,
@@ -46,10 +59,14 @@ from .store import (
     CACHE_SCHEMA_VERSION,
     DEFAULT_CALIBRATION_DIR,
     CalibrationCacheError,
-    panel_path,
+    adopt_bundle_generation,
+    current_bundle_ref,
+    has_cohort,
+    published_cohorts,
     read_forward,
     read_panel,
     read_panel_meta,
+    resolve_calibration_bundle,
     write_forward,
     write_panel,
 )
@@ -67,37 +84,145 @@ def calibration_build_command(
     use_control_event_exits: bool = True,
     stdout: TextIO | None = None,
 ) -> int:
-    out = stdout if stdout is not None else sys.stdout
     unreadable = unreadable_store_reason(sqlite_path)
     if unreadable is not None:
         print(f"calibration build: {unreadable}", file=sys.stderr)
         return 1
+    publication = lake_writer_lock(calibration_dir)
+    with publication:
+        try:
+            producer_commit = verified_git_commit()
+        except (OSError, RuntimeError) as exc:
+            print(f"calibration build: {exc}", file=sys.stderr)
+            return 1
+        try:
+            expected_current = current_bundle_ref(calibration_dir)
+        except (CalibrationCacheError, CalibrationLakeError) as exc:
+            # A store that cannot describe what it serves is not a store to write into.
+            # Repairing it in place would mean rebuilding over live data from an
+            # inventory nothing can state, so the store stays exactly as it is and the
+            # rebuild goes somewhere else, where it can be read before it replaces
+            # anything.
+            print(
+                f"calibration build: {exc}; rebuild into a separate --calibration-dir "
+                "and swap the directories once the new one reads",
+                file=sys.stderr,
+            )
+            return 1
+        discard_abandoned_generations(calibration_dir, stdout=stdout)
+        work_dir = calibration_dir.with_name(
+            f"{_GENERATION_PREFIX}{calibration_dir.name}.{uuid.uuid4().hex}"
+        )
+        if not force and calibration_dir.exists():
+            copytree(calibration_dir, work_dir, copy_function=link)
+        try:
+            with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=work_dir) as snapshot:
+                return _calibration_build_command(
+                    snapshot=snapshot,
+                    calibration_dir=calibration_dir,
+                    work_dir=work_dir,
+                    expected_current=expected_current,
+                    producer_commit=producer_commit,
+                    rules=rules,
+                    start=start,
+                    end=end,
+                    force=force,
+                    panel_variant=panel_variant,
+                    use_control_event_exits=use_control_event_exits,
+                    stdout=stdout,
+                )
+        except LakeBuildError as exc:
+            print(f"calibration build: {exc}", file=sys.stderr)
+            return 1
+        finally:
+            if work_dir.exists():
+                rmtree(work_dir)
+
+
+_GENERATION_PREFIX = ".generation."
+
+
+def discard_abandoned_generations(calibration_dir: Path, *, stdout: TextIO | None = None) -> None:
+    """Remove work generations a killed build left beside the store.
+
+    A generation directory is a sibling of the store rather than a child of it, because
+    it is built by hard-linking the store into it. That places it outside every prefix
+    the lake inventory and the collector walk, so a build killed mid-run leaves several
+    hundred megabytes that no capacity figure accounts for and nothing ever reclaims.
+
+    The writer lock is what makes this safe to do unconditionally: a generation can only
+    be live while its build holds that lock, and this runs holding it.
+    """
+
+    parent = calibration_dir.parent
+    if not parent.is_dir():
+        return
+    prefix = f"{_GENERATION_PREFIX}{calibration_dir.name}."
+    for path in sorted(parent.iterdir()):
+        if not path.name.startswith(prefix) or not path.is_dir():
+            continue
+        # A generation is a hard-link tree, so its apparent size counts bytes the store
+        # still holds; what this reclaims is the tree, not necessarily the blocks. Report
+        # both honestly, and report failure rather than assume the removal happened.
+        linked_bytes = sum(item.stat().st_size for item in path.rglob("*") if item.is_file())
+        rmtree(path, ignore_errors=True)
+        out = stdout if stdout is not None else sys.stdout
+        if path.exists():
+            print(
+                f"calibration build: could not discard abandoned generation {path.name}",
+                file=sys.stderr,
+            )
+            continue
+        print(
+            f"calibration build: discarded abandoned generation {path.name} "
+            f"({linked_bytes} linked bytes)",
+            file=out,
+        )
+
+
+def _calibration_build_command(
+    *,
+    snapshot: LegacySQLiteSnapshot,
+    calibration_dir: Path,
+    work_dir: Path,
+    expected_current: CalibrationBundleRef | None,
+    producer_commit: str,
+    rules: ScreeningRules,
+    start: date,
+    end: date,
+    force: bool = False,
+    panel_variant: PanelVariant = "production",
+    use_control_event_exits: bool = True,
+    stdout: TextIO | None = None,
+) -> int:
+    out = stdout if stdout is not None else sys.stdout
     policy = PANEL_BUILD_POLICIES[panel_variant]
-    if (
-        not policy.production_authority
-        and calibration_dir.resolve() == DEFAULT_CALIBRATION_DIR.resolve()
-    ):
+    forward_policy = ForwardObservationPolicy(use_control_event_exits=use_control_event_exits)
+    is_default_dir = calibration_dir.resolve() == DEFAULT_CALIBRATION_DIR.resolve()
+    if not policy.production_authority and is_default_dir:
         print(
             "calibration build: diagnostic panel variant requires a separate --calibration-dir",
             file=sys.stderr,
         )
         return 1
-    asofs = month_end_asof_grid(sqlite_path, start=start, end=end)
+    if not use_control_event_exits and is_default_dir:
+        print(
+            "calibration build: --without-control-event-exits builds a comparison baseline "
+            "and requires a separate --calibration-dir",
+            file=sys.stderr,
+        )
+        return 1
+    fixed_sqlite = snapshot.path
+    asofs = month_end_asof_grid(fixed_sqlite, start=start, end=end)
     if not asofs:
         print("no month-end trading days found in the requested window", file=sys.stderr)
         return 1
-    work_dir = calibration_dir
-    if force:
-        work_dir = calibration_dir.with_name(f".{calibration_dir.name}.rebuild")
-        if work_dir.exists():
-            rmtree(work_dir)
     tickers_by_asof: dict[date, set[str]] = {}
     built = 0
     expected_rules_hash = rules_content_hash(rules, policy)
     for asof in asofs:
-        path = panel_path(work_dir, asof)
         try:
-            if path.exists() and not force:
+            if has_cohort(work_dir, asof) and not force:
                 meta = read_panel_meta(work_dir, asof)
                 if (
                     meta.get("rules_hash") != expected_rules_hash
@@ -112,48 +237,113 @@ def calibration_build_command(
                     )
                 tickers_by_asof[asof] = {row.ticker for row in read_panel(work_dir, asof)}
                 continue
-            result = build_panel(asof, sqlite_path=sqlite_path, rules=rules, policy=policy)
+            result = build_panel(asof, sqlite_path=fixed_sqlite, rules=rules, policy=policy)
+            write_panel(
+                work_dir,
+                asof,
+                result.rows,
+                result.diagnostics,
+                source=snapshot.ref,
+                input_cutoff=asof,
+                producer_commit=producer_commit,
+                lock_held=True,
+                forward_policy=forward_policy,
+            )
         except (CalibrationError, CalibrationCacheError) as exc:
             print(f"calibration build: {asof.isoformat()} failed: {exc}", file=sys.stderr)
             return 1
-        write_panel(work_dir, asof, result.rows, result.diagnostics)
         tickers_by_asof[asof] = {row.ticker for row in result.rows}
         built += 1
-    control_event_exits = read_control_event_exits(sqlite_path) if use_control_event_exits else {}
+    control_event_exits = read_control_event_exits(fixed_sqlite) if use_control_event_exits else {}
+    observation_cutoff = latest_market_data_date(fixed_sqlite)
+    if observation_cutoff is None:
+        print("calibration build: snapshot contains no market observation cutoff", file=sys.stderr)
+        return 1
     by_asof: dict[str, list[ForwardReturnRow]] = {}
     for asof in asofs:
         for row in compute_forward_returns(
-            sqlite_path,
+            fixed_sqlite,
             asofs=(asof,),
             tickers=tickers_by_asof[asof],
             control_event_exits=control_event_exits,
         ):
             by_asof.setdefault(row.asof, []).append(row)
     for asof in asofs:
-        write_forward(work_dir, asof, by_asof.get(asof.isoformat(), []))
+        try:
+            write_forward(
+                work_dir,
+                asof,
+                by_asof.get(asof.isoformat(), []),
+                source=snapshot.ref,
+                input_cutoff=observation_cutoff,
+                producer_commit=producer_commit,
+                lock_held=True,
+                forward_policy=forward_policy,
+            )
+        except CalibrationCacheError as exc:
+            print(f"calibration build: {asof.isoformat()} failed: {exc}", file=sys.stderr)
+            return 1
     rows = [row for cohort_rows in by_asof.values() for row in cohort_rows]
     resolved = sum(row.resolved for row in rows)
     control_event = sum(row.status == CONTROL_EVENT_EXIT_STATUS for row in rows)
-    if force:
-        backup_dir = calibration_dir.with_name(f".{calibration_dir.name}.backup")
-        if backup_dir.exists():
-            rmtree(backup_dir)
-        if calibration_dir.exists():
-            calibration_dir.replace(backup_dir)
-        try:
-            work_dir.replace(calibration_dir)
-        except OSError:
-            if backup_dir.exists():
-                backup_dir.replace(calibration_dir)
-            raise
-        if backup_dir.exists():
-            rmtree(backup_dir)
+    dropped = _cohorts_this_build_would_drop(calibration_dir, work_dir, force=force)
+    if dropped:
+        print(
+            "calibration build: this run would publish a generation without "
+            f"{len(dropped)} cohort(s) the store holds: "
+            f"{', '.join(item.isoformat() for item in dropped[:5])}"
+            f"{' …' if len(dropped) > 5 else ''}. "
+            "Widen --start/--end to cover them, or rebuild into a separate "
+            "--calibration-dir if a shorter history is what you want.",
+            file=sys.stderr,
+        )
+        return 1
+    adoption = adopt_bundle_generation(
+        calibration_dir,
+        work_dir,
+        expected_current=expected_current,
+        lock_held=True,
+    )
     print(
         f"calibration build: done (panels built={built}, forward rows={len(rows)}, "
         f"resolved={resolved}, control event exits={control_event})",
         file=out,
     )
+    # What making the generation current cost. Printing it is how a run that starts
+    # reinstalling the whole store instead of the month it changed becomes visible
+    # before the wall time does.
+    print(
+        f"calibration build: adopted {adoption.bundle_id} "
+        f"(closure objects={adoption.closure_objects}, hashed bytes={adoption.hashed_bytes}, "
+        f"installed objects={adoption.installed_objects}, "
+        f"installed bytes={adoption.installed_bytes}, reused objects={adoption.reused_objects})",
+        file=out,
+    )
     return 0
+
+
+def _cohorts_this_build_would_drop(
+    calibration_dir: Path, work_dir: Path, *, force: bool
+) -> list[date]:
+    """Cohorts the store serves now that the generation about to be adopted omits.
+
+    A build states the window it recomputes, not the history it intends to keep. Without
+    ``--force`` the store is hard-linked into the work generation, so everything outside
+    the window is carried and this is empty by construction. With it the generation
+    starts empty and holds exactly the requested as-ofs — so a run meant to correct one
+    year would publish a current bundle holding only that year, and the other six would
+    leave the served inventory without anything saying so.
+
+    The check is on the built generation rather than on the requested grid: what matters
+    is what is about to become current, whatever produced it.
+
+    The store this runs against always resolves: a build that could not read what it
+    was about to replace stopped before it started.
+    """
+
+    if not force:
+        return []
+    return sorted(set(published_cohorts(calibration_dir)) - set(published_cohorts(work_dir)))
 
 
 def _optional_count(value: object) -> int | None:
@@ -233,10 +423,12 @@ def calibration_evaluate_command(
                 file=sys.stderr,
             )
             return 1
-    all_asofs = [
-        date.fromisoformat(path.stem.removeprefix("panel-"))
-        for path in calibration_dir.glob("panel-*.csv")
-    ]
+    try:
+        bundle = resolve_calibration_bundle(calibration_dir)
+    except CalibrationCacheError as exc:
+        print(f"calibration evaluate: {exc}", file=sys.stderr)
+        return 1
+    all_asofs = published_cohorts(calibration_dir, bundle=bundle)
     asofs = sorted(
         asof
         for asof in all_asofs
@@ -246,12 +438,14 @@ def calibration_evaluate_command(
         print(f"no panels found under {calibration_dir}", file=sys.stderr)
         return 1
     try:
-        metas = [read_panel_meta(calibration_dir, asof) for asof in asofs]
+        metas = [read_panel_meta(calibration_dir, asof, bundle=bundle) for asof in asofs]
         if len({meta.get("rules_hash") for meta in metas}) != 1:
             raise CalibrationCacheError(
                 "panel store mixes rules provenance; run calibration-build --force"
             )
-        panels = {asof.isoformat(): read_panel(calibration_dir, asof) for asof in asofs}
+        panels = {
+            asof.isoformat(): read_panel(calibration_dir, asof, bundle=bundle) for asof in asofs
+        }
         if run_purpose == "production_decision" and not _is_production_panel_contract(
             metas, panels
         ):
@@ -260,10 +454,22 @@ def calibration_evaluate_command(
                 file=sys.stderr,
             )
             return 1
-        forwards = {asof.isoformat(): read_forward(calibration_dir, asof) for asof in asofs}
+        forwards = {
+            asof.isoformat(): read_forward(calibration_dir, asof, bundle=bundle) for asof in asofs
+        }
     except CalibrationCacheError as exc:
         print(f"calibration evaluate: {exc}", file=sys.stderr)
         return 1
+    # The conclusion is made of all three roles, so the cohort's assurance is the
+    # weakest of them. Reading the panel alone would let a cohort whose outcomes came
+    # from an unkept store generation be reported as rebuildable because its
+    # cross-section happened to be migrated from an archive.
+    cohort_assurance = {
+        asof: source_assurance(
+            (*entry.panel.sources, *entry.diagnostics.sources, *entry.forward.sources)
+        )
+        for asof, entry in bundle.cohorts.items()
+    }
     results = evaluate_cohorts(panels, forwards, horizons=horizons)
     scope = EvaluationScope(
         run_purpose=run_purpose,
@@ -331,7 +537,24 @@ def calibration_evaluate_command(
                     ),
                 }
             )
+            coverage["source_assurance"] = cohort_assurance.get(str(cohort["asof"]), "trace_only")
             if horizon in {"3y", "5y"}:
+                # Reading a stored result again and recomputing it from its input are
+                # different capabilities. A decision that changes the production method
+                # has to survive being re-derived — after a logic error, after a rules
+                # revision — and only a cohort whose upstream input the lake keeps can
+                # be. The archive of a previous producer's output is not that input, so
+                # it states its own level rather than passing as one.
+                #
+                # This is the only blocker a diagnostic run does not take. The others
+                # describe the cohort itself and hold whoever is reading it; this one
+                # describes what may be changed on the strength of the cohort, which is
+                # a question a diagnostic run is not asking.
+                if (
+                    run_purpose == "production_decision"
+                    and coverage["source_assurance"] != "rebuildable_input"
+                ):
+                    blockers.append("source_not_rebuildable")
                 # One blocker per independent observation. A verdict derived from
                 # another observation would count the same gap twice and make the
                 # reason histogram unreadable.

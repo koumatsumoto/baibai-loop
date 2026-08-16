@@ -37,9 +37,43 @@ portfolio全体の年次・3年・5年outcomeは、JPXが公表する**TOPIX gro
 
 ## 取得データの保存方針
 
-J-Quants / EDINET から取得したデータは、個人利用・非公開 repository での Baibai Loop 運用に限り、ローカル cache または永続 storeとして保存してよい。外部公開・第三者再配布は行わない。screening のL1 storeは`stores/market/market.sqlite`、run storeは`stores/screening/runs.sqlite`、削除可能なbyproductは`.cache/`に置く。`method/`は screening rules・macro reading rules・research playbook、`web/config/`は presentation configuration を所有する。SQLite layout の正本は [`./screening-runtime.md`](./screening-runtime.md)。
+J-Quants / EDINET から取得したデータは、個人利用・非公開 repository での Baibai Loop 運用に限り、ローカル cache または永続 storeとして保存してよい。外部公開・第三者再配布は行わない。secret、token、認証 header は Raw metadata、manifest、log に保存しない。`method/`は screening rules・macro reading rules・research playbook、`web/config/`は presentation configuration を所有する。
 
-保存済み cache は、screening 再生成・保有計測・見積り calibration のための入力証跡として扱う。J-Quants の調整後価格、銘柄マスター、JPX 規制情報などは完全な point-in-time snapshot ではないため、再現性ではなく traceability の補助として使う。
+大規模な market fact は4つの責務へ分ける。
+
+| class | `sqlite_authority` | `lake_authority` | rule |
+| --- | --- | --- | --- |
+| L1 Raw | canonical Raw archiveなし | R2 immutable object | provider bytesを可能な限り原形で保持し、source request・retrieved-at・content hashを付ける |
+| L1 Canonical | `market.sqlite` | R2 Parquet + dataset / release manifest | field・型・日付・source identity・revision semanticsを正規化し、判断・score・rankを入れない |
+| local projection | `market.sqlite`がcanonicalを兼ねる | fixed L1 releaseから再構築するSQLite | R2 authorityにしない |
+| disposable byproduct | `.cache/` | `.cache/` | canonical verification後に削除でき、入力証跡として扱わない |
+
+Canonical manifestのsourceはtyped `SourceRef`で記録する。bytesを保持するkind（provider Raw、
+calibration input archive）は実在するkey、SHA-256、source側schema/manifest versionへ束縛する。
+provider Rawはprovider・dataset・request rangeとmetadata sidecarのkey・SHA-256を固定し、
+ingest ID・object key・content digest・metadata versionを同時に照合する。legacy SQLite snapshotは
+identityだけを持つkindで、keyを名乗らない — sealed copyはbuild中にstoreが動かないようにする
+ためのもので、bytesはoperationの終わりで回収する。残るschema version・content digest・capture
+時刻が、canonical buildとshadow parityが同じstore世代を見ていることを照合可能にする。logical manifestへR2 ETagを保存せず、release profileの
+required dataset・coverage・freshness gateを通らないgenerationをproduction currentとして扱わない。
+
+Raw retention は、再取得が高価または不可能な Premium CSV・EDINET XBRL・JPX 原本を
+`preserve`、routine API response を `buffer` とする。inventoryのsoft budgetはbuffer 50 GiBで、
+重要ingestを停止するhard capではない。`preserve`はGC候補にせず、budget表も持たない — 再取得
+できない原本を「いくらまで」で語ると、超えた日に捨てるか諦めるかしか選べない。`buffer`は
+current closureから未到達でretrieved-atから90日以上の場合だけ、metadata/object pairを通常GCの
+planへ載せ、削除直前にidentityを再検証してlocal mirrorから削除する。R2削除はBucket Lock満了後の
+Delete専用retention finalizerへ分離する。
+
+lifecycle stateは`sqlite_authority`と`lake_authority`の二つだけである。`sqlite_authority`では
+`stores/market/market.sqlite`だけがscreening L1のcanonical/runtime authorityで、lake buildは
+non-authoritative shadow comparison artifactである。parityとcutover条件を満たしたpointer
+switch後の`lake_authority`でだけR2 releaseをcanonical authorityとして読む。dual canonical
+writeを行わない。run storeは`stores/screening/runs.sqlite`を継続する。SQLite layout の正本は
+[`./screening-runtime.md`](./screening-runtime.md)、lake manifest・version・authorityは
+[`../architecture.md`](../architecture.md#market-lake-publication-contract)を正本とする。
+
+保存済み canonical fact は、screening 再生成・保有計測・見積り calibration のための入力証跡として扱う。J-Quants の調整後価格、銘柄マスター、JPX 規制情報などは完全な point-in-time snapshot ではないため、publication / effective / retrieved time と revision / coverage semantics が揃わない期間を完全再現可能とは扱わない。zero、complete snapshotでの無報告、coverage不足、parse failure、source unavailableを混同しない。
 
 J-Quants の非公開レート制限と `bootstrap-cache` の per-asof 長期履歴 re-fetch コストは [`./screening-runtime.md`](./screening-runtime.md) §12 にまとめる。歴史週の生成が遅い / 完了しない場合はまずそこを参照する。
 
