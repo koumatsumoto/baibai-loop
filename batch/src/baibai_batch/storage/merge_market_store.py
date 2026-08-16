@@ -138,7 +138,7 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                 # is built from counts taken around both rather than from either half.
                 source_rows = count(connection, "SELECT count(*) FROM source.source_coverage")
                 before = count(connection, "SELECT count(*) FROM main.source_coverage")
-                _require_target_coverage_counts(connection)
+                _require_no_overclaimed_coverage(connection)
                 _merge_short_sale_coverage(connection)
                 merge_fact_tables(
                     connection,
@@ -147,7 +147,7 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                     uncompared=_MERGE_EXEMPTIONS,
                 )
                 _reconcile_fin_summary_coverage_counts(connection)
-                _require_target_coverage_counts(connection)
+                _require_fin_summary_coverage_counts(connection, schema="main")
                 derived = _retain_derived_tables(connection)
                 after = count(connection, "SELECT count(*) FROM main.source_coverage")
                 connection.commit()
@@ -188,20 +188,35 @@ def _retain_derived_tables(connection: sqlite3.Connection) -> tuple[TableMerge, 
     return tuple(merges)
 
 
-def _require_target_coverage_counts(connection: sqlite3.Connection) -> None:
-    """Prove the target's clean range claims against the rows the target holds.
+def _require_no_overclaimed_coverage(connection: sqlite3.Connection) -> None:
+    """Refuse a target claim that asserts more rows than the target holds.
 
-    Only the target is proved. The source is the copy R2 carries, whose lake-owned
-    tables were emptied by the publication that put those rows in the release, so its
-    claims describe rows that are not in the file — provable there of nothing. Proving
-    the target is also what refuses a target that has not been hydrated: a store whose
-    claims say tens of thousands of rows and whose tables are empty fails here rather
-    than having its claims quietly rewritten down to zero.
+    Only the target is checked. The source is the copy R2 carries, whose lake-owned
+    tables were emptied by the publication that put those rows in the release, so every
+    claim in it would read as an overclaim about a file that was never meant to hold
+    the rows.
+
+    The check is one-directional because the two errors are not symmetric. A claim above
+    the rows says a range was fetched that this store cannot show, which suppresses the
+    re-fetch that would close the gap. A claim below the rows only costs one re-fetch,
+    and it is an ordinary state after the cutover: the rows arrive by hydration and the
+    ledger arrives by this merge, so a store filled from a release newer than its own
+    ledger holds more than it claims until the reconcile raises the claim.
+
+    Refusing the dangerous direction is also what requires the target to be hydrated. A
+    store whose claims say tens of thousands of rows and whose tables are empty fails
+    here rather than having its claims quietly rewritten down to zero.
     """
 
     _require_fin_summary_coverage_states(connection, schema="source")
     _require_fin_summary_coverage_states(connection, schema="main")
-    _require_fin_summary_coverage_counts(connection, schema="main")
+    for coverage_key, start, end, claim in _clean_fin_summary_claims(connection, schema="main"):
+        actual = _fin_summary_range_count(connection, schema="main", start=start, end=end)
+        if claim > actual:
+            raise MergeError(
+                "jquants_fin_summaries coverage claims more rows than the store holds for "
+                f"'jquants_fin_summaries', {coverage_key!r}: claims {claim}, holds {actual}"
+            )
 
 
 def _merge_short_sale_coverage(connection: sqlite3.Connection) -> None:
@@ -344,8 +359,10 @@ def _require_fin_summary_coverage_states(connection: sqlite3.Connection, *, sche
             raise MergeError(f"source_coverage payload disagrees for shared key: {key}")
 
 
-def _require_fin_summary_coverage_counts(connection: sqlite3.Connection, *, schema: str) -> None:
-    """Prove every clean range claim against the facts held by that store."""
+def _clean_fin_summary_claims(
+    connection: sqlite3.Connection, *, schema: str
+) -> list[tuple[str, str, str, int]]:
+    """Every clean financial-summary range claim, with its shape already validated."""
 
     rows = connection.execute(
         f"SELECT coverage_key, coverage_start, coverage_end, record_count "  # nosec B608
@@ -353,8 +370,8 @@ def _require_fin_summary_coverage_counts(connection: sqlite3.Connection, *, sche
         "WHERE source = 'jquants_fin_summaries' AND status = 'ok' AND error IS NULL "
         "ORDER BY coverage_key"
     ).fetchall()
+    claims: list[tuple[str, str, str, int]] = []
     for coverage_key, start, end, record_count in rows:
-        key = f"'jquants_fin_summaries', {coverage_key!r}"
         if (
             start is None
             or end is None
@@ -362,11 +379,23 @@ def _require_fin_summary_coverage_counts(connection: sqlite3.Connection, *, sche
             or not isinstance(record_count, int)
             or record_count < 0
         ):
+            key = f"'jquants_fin_summaries', {coverage_key!r}"
             raise MergeError(f"source_coverage payload disagrees for shared key: {key}")
-        actual = _fin_summary_range_count(connection, schema=schema, start=str(start), end=str(end))
+        claims.append((str(coverage_key), str(start), str(end), record_count))
+    return claims
+
+
+def _require_fin_summary_coverage_counts(connection: sqlite3.Connection, *, schema: str) -> None:
+    """Prove every clean range claim against the facts held by that store."""
+
+    for coverage_key, start, end, record_count in _clean_fin_summary_claims(
+        connection, schema=schema
+    ):
+        actual = _fin_summary_range_count(connection, schema=schema, start=start, end=end)
         if actual != record_count:
             raise MergeError(
-                "jquants_fin_summaries coverage count does not match stored rows for " + key
+                "jquants_fin_summaries coverage count does not match stored rows for "
+                f"'jquants_fin_summaries', {coverage_key!r}"
             )
 
 

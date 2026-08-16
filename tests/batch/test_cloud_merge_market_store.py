@@ -271,7 +271,7 @@ class TestLakeOwnedTables:
                 max_date="2020-12-31",
             )
 
-        with pytest.raises(MergeError, match="coverage count does not match stored rows"):
+        with pytest.raises(MergeError, match="claims more rows than the store holds"):
             merge_stores(source, target)
 
 
@@ -394,6 +394,33 @@ class TestFinancialSummaryCoverage:
             (_FIN_RANGE, 0, "failed", "2026-07-31T00:00:00+00:00")
         ]
 
+    def test_a_target_claim_below_its_rows_is_raised_rather_than_refused(
+        self, tmp_path: Path
+    ) -> None:
+        """A store filled from a release newer than its ledger holds more than it claims.
+
+        The rows arrive by hydration and the ledger arrives by this merge, so the two are
+        one step apart in ordinary operation. Understating coverage only costs a
+        re-fetch, so it is corrected upward instead of refusing the publish.
+        """
+
+        source = _store(tmp_path / "source.sqlite")
+        target = _store(tmp_path / "target.sqlite")
+        _add_fin_summary(target, ticker="1301")
+        _add_fin_summary(target, ticker="1302", disclosed_at="2020-03-06")
+        _add_coverage(
+            target,
+            "jquants_fin_summaries",
+            _FIN_RANGE,
+            record_count=1,
+            min_date="2020-01-01",
+            max_date="2020-12-31",
+        )
+
+        merge_stores(source, target)
+
+        assert _coverage(target, "jquants_fin_summaries")[0][1] == 2
+
     def test_a_target_claim_that_outruns_its_rows_is_refused(self, tmp_path: Path) -> None:
         source = _store(tmp_path / "source.sqlite")
         target = _store(tmp_path / "target.sqlite")
@@ -407,7 +434,7 @@ class TestFinancialSummaryCoverage:
             max_date="2020-12-31",
         )
 
-        with pytest.raises(MergeError, match="coverage count does not match stored rows"):
+        with pytest.raises(MergeError, match="claims more rows than the store holds"):
             merge_stores(source, target)
 
 
