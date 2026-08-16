@@ -21,7 +21,15 @@ from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 from baibai_engine.market.sqlite.snapshot import create_snapshot, validate_snapshot
 
 from ..sqlite.coverage import daily_bars_covered_by_data, range_covered
-from .datasets import PILOT_DATASETS, LakeDataset, require_pilot_dataset
+from .datasets import (
+    PILOT_DATASETS,
+    LakeDataset,
+    Period,
+    period_bounds,
+    period_label,
+    period_values,
+    require_pilot_dataset,
+)
 from .immutable import ImmutableInstallError, install_immutable_bytes, install_immutable_file
 from .keys import canonical_object_key, dataset_manifest_key, validate_identifier
 from .models import (
@@ -60,7 +68,7 @@ class LakeBuildReport:
 @dataclass(frozen=True)
 class LakeBuildPlan:
     dataset: str
-    affected_months: tuple[tuple[int, int], ...]
+    affected_periods: tuple[Period, ...]
 
 
 @dataclass(frozen=True)
@@ -79,7 +87,7 @@ class LegacySQLiteSnapshot:
 
 @dataclass(frozen=True)
 class _BuiltPartition:
-    month: tuple[int, int]
+    period: Period
     staged_path: Path
     manifest: PartitionManifest
 
@@ -192,50 +200,50 @@ def export_legacy_sqlite(
             _validate_sqlite_contract(connection, dataset)
             base = _load_base_manifest(base_manifest_path, dataset, transform=transform)
             partitions = _base_partitions(base)
-            months = _build_months(
+            periods = _build_periods(
                 connection,
                 dataset=dataset,
                 base=base,
                 start=start,
                 end=end,
             )
-            if not months and base is None:
+            if not periods and base is None:
                 raise LakeBuildError("selected window contains no rows")
             built: list[_BuiltPartition] = []
             changed: list[str] = []
             reused: list[str] = []
-            for month in months:
-                previous = partitions.pop(month, None)
-                rows = _month_rows(connection, dataset, month)
+            for period in periods:
+                previous = partitions.pop(period, None)
+                rows = _period_rows(connection, dataset, period)
+                label = period_label(period)
                 if not rows:
                     if previous is not None:
-                        changed.append(f"{month[0]:04d}-{month[1]:02d}")
+                        changed.append(label)
                     continue
-                item = _build_month(
+                item = _build_period(
                     connection,
                     dataset=dataset,
-                    month=month,
+                    period=period,
                     staging_root=staging_root,
                     rows=rows,
                     sources=_partition_sources(
                         dataset=dataset,
-                        month=month,
+                        period=period,
                         snapshot=snapshot.ref,
                         previous=previous,
                         current=raw_source_refs,
                     ),
                 )
                 built.append(item)
-                partitions[month] = item.manifest
-                label = f"{month[0]:04d}-{month[1]:02d}"
+                partitions[period] = item.manifest
                 if previous == item.manifest:
                     reused.append(label)
                 else:
                     changed.append(label)
             if not partitions:
                 raise LakeBuildError("dataset manifest must contain at least one partition")
-            _require_all_raw_sources_used(raw_source_refs, months)
-            data_as_of = _data_as_of(connection, dataset, months=partitions)
+            _require_all_raw_sources_used(raw_source_refs, periods)
+            data_as_of = _data_as_of(connection, dataset, periods=partitions)
             coverage_status, coverage_start, population_count = _coverage_assessment(
                 connection, dataset
             )
@@ -285,14 +293,7 @@ def export_legacy_sqlite(
             sqlite_path=snapshot.path,
             mirror_root=mirror_root,
             manifest=manifest,
-            months=(
-                None
-                if audit_full_history
-                else tuple(
-                    (int(item.manifest.values["year"]), int(item.manifest.values["month"]))
-                    for item in built
-                )
-            ),
+            periods=(None if audit_full_history else tuple(item.period for item in built)),
         )
         manifest_path = _mirror_path(
             mirror_root,
@@ -354,48 +355,47 @@ def validate_legacy_parity(
     sqlite_path: Path,
     mirror_root: Path,
     manifest: DatasetManifest,
-    months: Iterable[tuple[int, int]] | None = None,
+    periods: Iterable[Period] | None = None,
 ) -> None:
-    """Check that the manifest describes the same months SQLite holds, and their rows.
+    """Check that the manifest describes the same periods SQLite holds, and their rows.
 
-    The month inventory is always compared in full: a month present in one side and
+    The period inventory is always compared in full: a period present in one side and
     absent from the other is a hole no per-partition check would look at, and answering
     it costs one query.
 
-    ``months`` restricts the row-level comparison to the partitions a caller actually
+    ``periods`` restricts the row-level comparison to the partitions a caller actually
     wrote. Passing ``None`` compares every partition, which is what a first export does
     by construction and what an explicit audit asks for.
     """
     dataset = require_pilot_dataset(manifest.dataset)
-    selected = None if months is None else set(months)
+    selected = None if periods is None else set(periods)
     with _open_immutable(sqlite_path) as connection:
         _validate_sqlite_contract(connection, dataset)
-        source_months = set(_selected_months(connection, dataset, start=None, end=None))
-        manifest_months = {
-            (int(item.values["year"]), int(item.values["month"])) for item in manifest.partitions
-        }
-        if source_months != manifest_months:
-            raise LakeBuildError("SQLite and manifest month inventories differ")
-        for partition in manifest.partitions:
-            month = (int(partition.values["year"]), int(partition.values["month"]))
-            if selected is not None and month not in selected:
+        source_periods = set(_selected_periods(connection, dataset, start=None, end=None))
+        manifest_periods = set(_base_partitions(manifest))
+        if source_periods != manifest_periods:
+            raise LakeBuildError("SQLite and manifest partition inventories differ")
+        for period, partition in _base_partitions(manifest).items():
+            if selected is not None and period not in selected:
                 continue
-            rows = _month_rows(connection, dataset, month)
+            rows = _period_rows(connection, dataset, period)
             if len(partition.objects) != 1:
-                raise LakeBuildError("pilot partition must contain exactly one object")
+                raise LakeBuildError("a canonical partition must contain exactly one object")
             _validate_parquet(
                 mirror_root / partition.objects[0].key,
                 dataset=dataset,
-                month=month,
+                period=period,
                 expected_rows=rows,
                 expected_object=partition.objects[0],
             )
-            current_state = _source_state_sha256(connection, dataset, month, rows)
+            current_state = _source_state_sha256(connection, dataset, period, rows)
             if current_state != partition.source_state_sha256:
-                raise LakeBuildError(f"SQLite source state differs from manifest: {month}")
+                raise LakeBuildError(
+                    f"SQLite source state differs from manifest: {period_label(period)}"
+                )
 
 
-def plan_affected_months(
+def plan_affected_periods(
     *,
     dataset_name: str,
     sqlite_path: Path,
@@ -407,15 +407,15 @@ def plan_affected_months(
     assert base is not None
     with _open_immutable(sqlite_path) as connection:
         _validate_sqlite_contract(connection, dataset)
-        affected = _affected_months(connection, dataset, base)
-    return LakeBuildPlan(dataset=dataset.name, affected_months=affected)
+        affected = _affected_periods(connection, dataset, base)
+    return LakeBuildPlan(dataset=dataset.name, affected_periods=affected)
 
 
-def _build_month(
+def _build_period(
     connection: sqlite3.Connection,
     *,
     dataset: LakeDataset,
-    month: tuple[int, int],
+    period: Period,
     staging_root: Path,
     rows: Sequence[tuple[object, ...]],
     sources: tuple[SourceRef, ...],
@@ -424,7 +424,7 @@ def _build_month(
         [dict(zip((column.name for column in dataset.columns), row, strict=True)) for row in rows],
         schema=dataset.arrow_schema,
     )
-    provisional = staging_root / f"{dataset.sqlite_table}-{month[0]:04d}-{month[1]:02d}.parquet"
+    provisional = staging_root / f"{dataset.sqlite_table}-{period_label(period)}.parquet"
     pq.write_table(
         table,
         provisional,
@@ -441,7 +441,7 @@ def _build_month(
         layer="l1_canonical",
         dataset=dataset.name,
         contract_version=dataset.contract_version,
-        partition_values={"year": month[0], "month": month[1]},
+        partition_values=period_values(dataset, period),
         partition_by=dataset.partition_by,
         content_sha256=content_sha256,
     )
@@ -460,18 +460,18 @@ def _build_month(
     _validate_parquet(
         staged,
         dataset=dataset,
-        month=month,
+        period=period,
         expected_rows=rows,
         expected_object=lake_object,
     )
     return _BuiltPartition(
-        month=month,
+        period=period,
         staged_path=staged,
         manifest=PartitionManifest(
-            values={"year": month[0], "month": month[1]},
+            values=period_values(dataset, period),
             objects=(lake_object,),
             sources=sources,
-            source_state_sha256=_source_state_sha256(connection, dataset, month, rows),
+            source_state_sha256=_source_state_sha256(connection, dataset, period, rows),
         ),
     )
 
@@ -482,16 +482,15 @@ def _validate_raw_source_dataset(source: RawIngestSourceRef, dataset: LakeDatase
         raise LakeBuildError(f"Raw source does not match target dataset: {source.source_id}")
 
 
-def _raw_source_overlaps_month(source: RawIngestSourceRef, month: tuple[int, int]) -> bool:
-    start = date(month[0], month[1], 1)
-    end = date(month[0] + 1, 1, 1) if month[1] == 12 else date(month[0], month[1] + 1, 1)
+def _raw_source_overlaps_period(source: RawIngestSourceRef, period: Period) -> bool:
+    start, end = period_bounds(period)
     return source.request_start < end and source.request_end >= start
 
 
 def _partition_sources(
     *,
     dataset: LakeDataset,
-    month: tuple[int, int],
+    period: Period,
     snapshot: SQLiteSnapshotSourceRef,
     previous: PartitionManifest | None,
     current: Sequence[RawIngestSourceRef],
@@ -501,12 +500,12 @@ def _partition_sources(
         if previous is None
         else tuple(source for source in previous.sources if isinstance(source, RawIngestSourceRef))
     )
-    applicable = tuple(source for source in current if _raw_source_overlaps_month(source, month))
+    applicable = tuple(source for source in current if _raw_source_overlaps_period(source, period))
     for source in (*prior_raw, *applicable):
         _validate_raw_source_dataset(source, dataset)
-        if not _raw_source_overlaps_month(source, month):
+        if not _raw_source_overlaps_period(source, period):
             raise LakeBuildError(
-                f"Raw source request range does not cover partition month: {source.source_id}"
+                f"Raw source request range does not cover partition period: {source.source_id}"
             )
     by_identity = {
         (source.kind, source.source_id, source.key, source.sha256): source
@@ -516,12 +515,12 @@ def _partition_sources(
 
 
 def _require_all_raw_sources_used(
-    sources: Sequence[RawIngestSourceRef], months: Sequence[tuple[int, int]]
+    sources: Sequence[RawIngestSourceRef], periods: Sequence[Period]
 ) -> None:
     unused = [
         source.source_id
         for source in sources
-        if not any(_raw_source_overlaps_month(source, month) for month in months)
+        if not any(_raw_source_overlaps_period(source, period) for period in periods)
     ]
     if unused:
         raise LakeBuildError(
@@ -530,57 +529,56 @@ def _require_all_raw_sources_used(
         )
 
 
-def _build_months(
+def _build_periods(
     connection: sqlite3.Connection,
     *,
     dataset: LakeDataset,
     base: DatasetManifest | None,
     start: date | None,
     end: date | None,
-) -> tuple[tuple[int, int], ...]:
+) -> tuple[Period, ...]:
     if start is not None and end is not None:
-        selected = set(_selected_months(connection, dataset, start=start, end=end))
+        selected = set(_selected_periods(connection, dataset, start=start, end=end))
         if base is not None:
-            selected.update(
-                (int(item.values["year"]), int(item.values["month"]))
-                for item in base.partitions
-                if (start.year, start.month)
-                <= (int(item.values["year"]), int(item.values["month"]))
-                <= (end.year, end.month)
-            )
+            # A base partition that the window touches is rebuilt even when SQLite now
+            # holds no row in it, which is how a deletion reaches the manifest. The
+            # bounds are the window's own periods, so the comparison stays inside one
+            # grain rather than mixing a month against a year.
+            first = _period_of(dataset, start)
+            last = _period_of(dataset, end)
+            selected.update(period for period in _base_partitions(base) if first <= period <= last)
         return tuple(sorted(selected))
     if base is not None:
-        return _affected_months(connection, dataset, base)
-    return _selected_months(connection, dataset, start=None, end=None)
+        return _affected_periods(connection, dataset, base)
+    return _selected_periods(connection, dataset, start=None, end=None)
 
 
-def _affected_months(
+def _affected_periods(
     connection: sqlite3.Connection,
     dataset: LakeDataset,
     base: DatasetManifest,
-) -> tuple[tuple[int, int], ...]:
-    current = set(_selected_months(connection, dataset, start=None, end=None))
+) -> tuple[Period, ...]:
+    current = set(_selected_periods(connection, dataset, start=None, end=None))
     previous = _base_partitions(base)
-    affected: list[tuple[int, int]] = []
-    for month in sorted(current | set(previous)):
-        partition = previous.get(month)
-        rows = _month_rows(connection, dataset, month)
+    affected: list[Period] = []
+    for period in sorted(current | set(previous)):
+        partition = previous.get(period)
+        rows = _period_rows(connection, dataset, period)
         if partition is None or not rows:
-            affected.append(month)
+            affected.append(period)
             continue
-        if partition.source_state_sha256 != _source_state_sha256(connection, dataset, month, rows):
-            affected.append(month)
+        if partition.source_state_sha256 != _source_state_sha256(connection, dataset, period, rows):
+            affected.append(period)
     return tuple(affected)
 
 
 def _source_state_sha256(
     connection: sqlite3.Connection,
     dataset: LakeDataset,
-    month: tuple[int, int],
+    period: Period,
     rows: Sequence[tuple[object, ...]],
 ) -> str:
-    month_start = date(month[0], month[1], 1)
-    month_end = date(month[0] + 1, 1, 1) if month[1] == 12 else date(month[0], month[1] + 1, 1)
+    period_start, period_end = period_bounds(period)
     coverage = [
         tuple(row)
         for row in connection.execute(
@@ -589,11 +587,11 @@ def _source_state_sha256(
             "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
             "AND coverage_start < ? AND coverage_end >= ? ORDER BY 1, 2, 3, 4",
             (
-                month_start.isoformat(),
-                (month_end - date.resolution).isoformat(),
+                period_start.isoformat(),
+                (period_end - date.resolution).isoformat(),
                 dataset.sqlite_table,
-                month_end.isoformat(),
-                month_start.isoformat(),
+                period_end.isoformat(),
+                period_start.isoformat(),
             ),
         )
     ]
@@ -648,7 +646,7 @@ def _validate_parquet(
     path: Path,
     *,
     dataset: LakeDataset,
-    month: tuple[int, int],
+    period: Period,
     expected_rows: Sequence[tuple[object, ...]],
     expected_object: LakeObject,
 ) -> None:
@@ -668,41 +666,60 @@ def _validate_parquet(
     if len(keys) != len(set(keys)):
         raise LakeBuildError(f"Parquet primary key is not unique: {path}")
     date_index = names.index(dataset.date_column)
-    prefix = f"{month[0]:04d}-{month[1]:02d}-"
+    prefix = f"{period_label(period)}-"
     if any(not str(row[date_index]).startswith(prefix) for row in actual_rows):
-        raise LakeBuildError(f"Parquet row escapes its year/month partition: {path}")
+        raise LakeBuildError(f"Parquet row escapes its calendar partition: {path}")
     if len(actual_rows) != expected_object.rows:
         raise LakeBuildError(f"Parquet row count mismatch: {path}")
     if min(keys) != expected_object.min_key or max(keys) != expected_object.max_key:
         raise LakeBuildError(f"Parquet min/max primary key mismatch: {path}")
 
 
-def _selected_months(
+def _selected_periods(
     connection: sqlite3.Connection,
     dataset: LakeDataset,
     *,
     start: date | None,
     end: date | None,
-) -> tuple[tuple[int, int], ...]:
+) -> tuple[Period, ...]:
     where = ""
     params: tuple[str, ...] = ()
     if start is not None and end is not None:
         where = f"WHERE {dataset.date_column} BETWEEN ? AND ?"  # nosec B608
         params = (start.isoformat(), end.isoformat())
+    parts = _period_sql_parts(dataset)
     query = (
-        f"SELECT DISTINCT substr({dataset.date_column}, 1, 4), "  # nosec B608
-        f"substr({dataset.date_column}, 6, 2) FROM {dataset.sqlite_table} "
-        f"{where} ORDER BY 1, 2"
+        f"SELECT DISTINCT {', '.join(parts)} FROM {dataset.sqlite_table} "  # nosec B608
+        f"{where} ORDER BY {', '.join(str(index) for index in range(1, len(parts) + 1))}"
     )
-    return tuple((int(year), int(month)) for year, month in connection.execute(query, params))
+    return tuple(tuple(int(part) for part in row) for row in connection.execute(query, params))
 
 
-def _month_rows(
+def _period_sql_parts(dataset: LakeDataset) -> tuple[str, ...]:
+    """The ISO date substrings that name one partition, in layout order.
+
+    ISO dates sort and slice as text, so the grain is a prefix length rather than a date
+    function: the same expression names the partition and orders the result.
+    """
+
+    year = f"substr({dataset.date_column}, 1, 4)"
+    if dataset.partition_grain == "year":
+        return (year,)
+    return (year, f"substr({dataset.date_column}, 6, 2)")
+
+
+def _period_of(dataset: LakeDataset, day: date) -> Period:
+    if dataset.partition_grain == "year":
+        return (day.year,)
+    return (day.year, day.month)
+
+
+def _period_rows(
     connection: sqlite3.Connection,
     dataset: LakeDataset,
-    month: tuple[int, int],
+    period: Period,
 ) -> list[tuple[object, ...]]:
-    prefix = f"{month[0]:04d}-{month[1]:02d}-"
+    prefix = f"{period_label(period)}-"
     columns = ", ".join(column.name for column in dataset.columns)
     order = ", ".join(dataset.primary_key)
     query = (
@@ -761,12 +778,19 @@ def _load_base_manifest(
 
 def _base_partitions(
     manifest: DatasetManifest | None,
-) -> dict[tuple[int, int], PartitionManifest]:
+) -> dict[Period, PartitionManifest]:
+    """Key each partition by the calendar period its own manifest layout names.
+
+    The layout is read from the manifest rather than the dataset contract so that a
+    manifest written under a different grain is keyed by what it actually says. The
+    reader refuses that manifest separately; keying it by today's contract instead would
+    silently reinterpret its partitions first.
+    """
+
     if manifest is None:
         return {}
-    return {
-        (int(item.values["year"]), int(item.values["month"])): item for item in manifest.partitions
-    }
+    layout = tuple(manifest.partition_by)
+    return {tuple(int(item.values[name]) for name in layout): item for item in manifest.partitions}
 
 
 def _promote_partitions(mirror_root: Path, built: Sequence[_BuiltPartition]) -> int:
@@ -789,12 +813,12 @@ def _data_as_of(
     connection: sqlite3.Connection,
     dataset: LakeDataset,
     *,
-    months: Iterable[tuple[int, int]],
+    periods: Iterable[Period],
 ) -> date:
-    latest_month = max(months)
+    latest = max(periods)
     names = tuple(column.name for column in dataset.columns)
     date_index = names.index(dataset.date_column)
-    rows = _month_rows(connection, dataset, latest_month)
+    rows = _period_rows(connection, dataset, latest)
     if not rows:
         raise LakeBuildError("latest manifest partition is absent from the legacy SQLite")
     return max(date.fromisoformat(str(row[date_index])) for row in rows)

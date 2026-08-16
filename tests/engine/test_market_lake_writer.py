@@ -32,7 +32,7 @@ from baibai_engine.market.lake.writer import (
     LakeBuildReport,
     export_legacy_sqlite,
     export_pilot_legacy,
-    plan_affected_months,
+    plan_affected_periods,
     sealed_sqlite_snapshot,
     validate_legacy_parity,
 )
@@ -193,11 +193,11 @@ def test_automatic_plan_detects_fact_and_coverage_changes(tmp_path) -> None:
         build_id="plan-base",
     )
     assert (
-        plan_affected_months(
+        plan_affected_periods(
             dataset_name="jquants.daily_bars",
             sqlite_path=sqlite_path,
             base_manifest_path=first.manifest_path,
-        ).affected_months
+        ).affected_periods
         == ()
     )
 
@@ -220,11 +220,11 @@ def test_automatic_plan_detects_fact_and_coverage_changes(tmp_path) -> None:
             ),
         )
 
-    assert plan_affected_months(
+    assert plan_affected_periods(
         dataset_name="jquants.daily_bars",
         sqlite_path=sqlite_path,
         base_manifest_path=first.manifest_path,
-    ).affected_months == ((2026, 1), (2026, 2))
+    ).affected_periods == ((2026, 1), (2026, 2))
 
 
 def test_incremental_export_preserves_partition_lineage(tmp_path) -> None:
@@ -629,7 +629,7 @@ def test_parity_rejects_a_missing_source_month(tmp_path: Path) -> None:
             update={"partitions": report.manifest.partitions[:-1]}
         )
 
-        with pytest.raises(LakeBuildError, match="month inventories differ"):
+        with pytest.raises(LakeBuildError, match="partition inventories differ"):
             validate_legacy_parity(
                 sqlite_path=snapshot.path,
                 mirror_root=mirror,

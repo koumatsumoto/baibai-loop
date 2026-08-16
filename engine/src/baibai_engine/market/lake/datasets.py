@@ -1,10 +1,26 @@
-"""Concrete L1 contracts for the two lake pilot datasets."""
+"""Concrete L1 contracts for the lake datasets."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
+from typing import Literal
 
 import pyarrow as pa  # type: ignore[import-untyped]
+
+PartitionGrain = Literal["year", "month"]
+"""How much of one dataset's history a single partition covers.
+
+The grain is declared per dataset rather than derived from how many rows the store
+happens to hold. A reader checks the manifest's layout against this contract, so a
+layout that moved with the data would start refusing releases on the day a table grew.
+Row counts are the evidence for choosing a grain; they are not the mechanism.
+"""
+
+_GRAIN_LAYOUTS: dict[PartitionGrain, tuple[str, ...]] = {
+    "month": ("year", "month"),
+    "year": ("year",),
+}
 
 
 @dataclass(frozen=True)
@@ -31,8 +47,12 @@ class LakeDataset:
     date_column: str
     columns: tuple[LakeColumn, ...]
     contract_version: int = 1
-    partition_by: tuple[str, ...] = ("year", "month")
+    partition_grain: PartitionGrain = "month"
     projection_indexes: tuple[LakeIndex, ...] = ()
+
+    @property
+    def partition_by(self) -> tuple[str, ...]:
+        return _GRAIN_LAYOUTS[self.partition_grain]
 
     @property
     def primary_key(self) -> tuple[str, ...]:
@@ -60,6 +80,33 @@ class LakeDataset:
             ],
             metadata=metadata,
         )
+
+
+Period = tuple[int, ...]
+"""One partition's place in the calendar, ordered as the dataset's layout names it."""
+
+
+def period_values(dataset: LakeDataset, period: Period) -> dict[str, int]:
+    return dict(zip(dataset.partition_by, period, strict=True))
+
+
+def period_label(period: Period) -> str:
+    return "-".join((f"{period[0]:04d}", *(f"{part:02d}" for part in period[1:])))
+
+
+def period_bounds(period: Period) -> tuple[date, date]:
+    """The half-open calendar range one partition covers.
+
+    Callers compare source ranges against this, so the end is the first day the next
+    partition owns rather than the last day this one does. Expressing it that way keeps
+    the two grains one expression instead of two off-by-one cases.
+    """
+
+    if len(period) == 1:
+        return date(period[0], 1, 1), date(period[0] + 1, 1, 1)
+    year, month = period[0], period[1]
+    start = date(year, month, 1)
+    return start, date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
 
 
 _TEXT = pa.string()
