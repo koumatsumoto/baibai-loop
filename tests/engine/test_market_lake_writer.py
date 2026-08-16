@@ -787,7 +787,7 @@ def test_l1_manifest_digest_is_part_of_the_gc_root(tmp_path: Path) -> None:
     assert pointer.manifest_key not in plan.reachable
 
 
-def test_expired_unreferenced_buffer_raw_uses_the_two_sweep_delete_gate(tmp_path: Path) -> None:
+def test_expired_unreferenced_buffer_raw_is_deleted_with_its_metadata(tmp_path: Path) -> None:
     mirror = tmp_path / "mirror"
     raw = tmp_path / "raw.json.gz"
     raw.write_bytes(b"buffered raw")
@@ -809,9 +809,9 @@ def test_expired_unreferenced_buffer_raw_uses_the_two_sweep_delete_gate(tmp_path
         object_path.relative_to(mirror).as_posix(),
         metadata_path.relative_to(mirror).as_posix(),
     }
-    assert apply_gc(mirror, first, plan_hash=first.plan_hash) == ()
-    second = plan_gc(mirror, now=first.evaluated_at + timedelta(days=8))
-    assert set(apply_gc(mirror, second, plan_hash=second.plan_hash)) == {
+    # Bytes and sidecar go together: a payload without its metadata is unclassifiable
+    # and a sidecar without its payload names nothing.
+    assert set(apply_gc(mirror, first, plan_hash=first.plan_hash)) == {
         object_path.relative_to(mirror).as_posix(),
         metadata_path.relative_to(mirror).as_posix(),
     }
@@ -929,9 +929,7 @@ def test_a_seal_a_killed_operation_left_behind_is_collected(tmp_path: Path) -> N
     first = plan_gc(mirror, now=datetime.now(UTC) + timedelta(days=8))
 
     assert {item.key for item in first.candidates} == {key}
-    assert apply_gc(mirror, first, plan_hash=first.plan_hash) == ()
-    second = plan_gc(mirror, now=first.evaluated_at + timedelta(days=8))
-    assert apply_gc(mirror, second, plan_hash=second.plan_hash) == (key,)
+    assert apply_gc(mirror, first, plan_hash=first.plan_hash) == (key,)
     assert not abandoned.exists()
 
 

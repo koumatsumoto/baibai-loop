@@ -300,7 +300,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       summary fieldは、alternate writerが任意の値を名乗れて誰も誤りと言えないので削除する
 - [ ] 可用性・充足性の観測値は「非該当」「充足」「不足」を区別するか。検証対象が無い場合を「充足」と
       書くと、最も素性の弱い対象が最も確かに見える。検証I/Oはその実行が扱う対象へ限定したか
-- [ ] 壊れたrootのrecovery操作を追加・変更する場合、対象root以外（pin・previous・健全なmanifest）のidentityと
+- [ ] 壊れたrootのrecovery操作を追加・変更する場合、対象root以外（previous・健全なmanifest）のidentityと
       closureが操作前後で完全一致することをtestで固定したか。復旧のためにdirectory単位でmanifestを退避すると、
       無関係なpinがunresolvedになりGCが恒久停止する。**rootを退避したstoreが「未公開のstore」と同じ姿に
       なっていないか** — 両者が同じ答えを返すなら、次の通常実行はそれを空のstoreと読んで書き潰す。
@@ -367,7 +367,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       全writerがdownload時のR2 ETagをbackupと最終PutObjectの条件へ渡し、手動publish後に
       stale daily writerが到着する逆順と最後のversion確認後のraceもprecondition failureで
       no-overwriteになるnegative testを持つか
-- [ ] lakeのmanifest / pointer / pin JSONは共通strict parserだけを通し、rootとnestedのduplicate
+- [ ] lakeのmanifest / pointer JSONは共通strict parserだけを通し、rootとnestedのduplicate
       keyを拒否し、parse前のwire size上限を持ち、validation errorへpayload値を展開していないか。
       logical manifestからR2 ETagを
       分離し、nested mappingをparse後に変更できないか。lineageはtyped `SourceRef`でsource kind・

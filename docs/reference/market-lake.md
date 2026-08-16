@@ -155,7 +155,7 @@ pointer が previous を名乗るなら、それは復元できるという主�
 
 production authority化ではmutable pointer prefixを除くimmutable prefixへ
 [R2 Bucket Lock](https://developers.cloudflare.com/r2/buckets/bucket-locks/)を設定し、lock期間を
-previous/pin/restoreの最長保持期間以上にする。R2の
+previous/restoreの最長保持期間以上にする。R2の
 [S3互換checksum](https://developers.cloudflare.com/r2/api/s3/api/#checksum-types)はfull-object SHA-256を
 提供しないため、existing objectの再利用はcontent-addressed key、immutable PUT metadata、Bucket Lock、
 readerのSHA-256検証、そして`--verify-bytes`監査の組合せで閉じる。Bucket Lock設定確認と
@@ -199,7 +199,7 @@ uv run python -m baibai_batch.storage.lake_publish --rollback-l1
 読み取りは実行の最初に current pointer を 1 度だけ解決し、以後は固定した `release_id` と
 immutable object key だけを読む。実行途中に pointer が切り替わっても、その実行の入力 release は
 変わらない。current operational readは解決時刻に対してprofileのfreshness/skew/coverage policyを
-再評価し、staleならscreening開始前にfail-closeする。named/pinned/previousのhistorical readは現在
+再評価し、staleならscreening開始前にfail-closeする。named/previousのhistorical readは現在
 時刻のfreshnessを要求せず、固定されたidentity chainだけを検証する。
 
 ```bash
@@ -208,10 +208,10 @@ uv run baibai-engine lake resolve --mirror <local-mirror> \
   --release <release-id> --manifest-sha256 <release-manifest-sha256>
 ```
 
-`--release` を渡すとpointerを一切読まないが、同じpinに記録した`--manifest-sha256`を必須とする。
-`--previous`はcurrent pointerに対で保存されたprevious release ID / manifest digestを使う。永続pinは
-typed `L1ReleaseSourceRef`（ID・key・SHA-256）として保存し、`--release-ref`で解決する。IDだけのnamed /
-rollback / study pinは同じkeyの差し替えを検出できないため受理しない。
+`--release` を渡すとpointerを一切読まないが、`--manifest-sha256`を必須とする。`--previous`は
+current pointerに対で保存されたprevious release ID / manifest digestを使う。手元のrelease参照は
+typed `L1ReleaseSourceRef`（ID・key・SHA-256）として保存し、`--release-ref`で解決する。IDだけの
+named readは同じkeyの差し替えを検出できないため受理しない。
 
 identity は各辺を digest で閉じる。pointer が release manifest の SHA-256 を、release manifest が
 各 dataset manifest の SHA-256 を、dataset manifest が各 object の SHA-256 を持つ。dataset
@@ -257,7 +257,9 @@ uv run baibai-engine lake projection build \
 ```
 
 current以外は`--previous`、または`--release <id> --manifest-sha256 <sha256>`、または
-typed pin fileを渡す`--release-ref <path>`で固定する。IDだけのprojection buildは受理しない。
+typed release ref fileを渡す`--release-ref <path>`で固定する。IDだけのprojection buildは受理しない。
+publishしていないlocal mirrorにはcurrent pointerが無いので、初回のprojectionは必ずこのどれかで
+releaseを名指す。
 
 `--bucket baibai-stores` を足すと、mirror に無い object だけを R2 から取得して mirror へ
 content-addressed に格納する。object key は content hash なので、変わらなかった partition は
@@ -426,10 +428,7 @@ retentionは既にこの区別でsweepを止めており、readerだけが「空
 
 adoptionはbundleが閉じているものだけを歩く。bundle manifest → dataset manifest → partition object
 → 保持するcohort sourceとそのfileであり、directory treeではない（treeには追い越された世代も居る）。
-全partition objectのdigest・size・schema・row countをpointerの前に検証し、加えて各cohortの保持
-sourceが解決することを確かめる。後者は失われても読み取りでは気づけない — rowsは完全に読めるので、
-損失はreproduce / pin / publishしようとした時に初めて出てくる。だからpointer切替が拒否できる最後の
-機会になる。generationはstoreをhard linkで複製して作るので、carryされたobjectは最初からstore側と
+全partition objectのdigest・size・schema・row countをpointerの前に検証する。generationはstoreをhard linkで複製して作るので、carryされたobjectは最初からstore側と
 同じinodeを共有している。同一inodeにinstallもcompareも不要であり、残るのはこのbuildが実際に作った
 ものだけになる。CLIはclosure object数、hashしたbytes、installしたobject数とbytes、再利用した
 object数を出力するので、更新1回のI/Oがstore全体へ広がったことはwall timeより先に見える。
@@ -463,33 +462,33 @@ revisionを含み、完全なvintageではない（[`data-sources.md`](./data-so
 live deploy可能なhistorical alphaとして読まず、PIT不完全なfieldに依存するmetricはその前提込みで
 保守的に解釈する。
 
-retention の root は 3 種類で、そこから到達できる object は齢によらず残す。
+retention の root は 2 種類で、そこから到達できる object は齢によらず残す。
 
 - calibration bundle の current と previous（各3 datasetの完全closure）
 - L1 の current release と previous release
-- 明示 pin
 
 ```bash
-uv run baibai-engine lake pin create \
-  --mirror <local-mirror> --pin-id <id> \
-  --bundle <bundle-id> \
-  --reason "adopted as calibration evidence" --owner <owner>
-
 uv run baibai-engine lake gc --mirror <local-mirror>
 uv run baibai-engine lake gc --mirror <local-mirror> --apply --plan-hash <hash>
 ```
 
-calibrationのrootはbundle pointerだけである。pinはbundle manifest keyとSHA-256を固定し、作成時に
-target closureを検証する。pin file自身が記録であり、別のevent logは持たない — 誰も読まない記録は、収集の対象になるか永久に積まれるかのどちらかにしかならない。
+**世代を無期限に到達可能へ留める機構は持たない。** 公開した study をそれが読んだ bytes から再現
+する能力は、この store が提供するものではない — 記録は report であり、report が名指した世代を
+すべて抱えることは、store が「今何を serve しているか」を言えなくなる道筋そのものである。
 
-`gc` は既定がdry-runで、pointer/pin exact bytes、全root manifest/object digest、candidate identityを
-plan hashへ閉じる。`--apply`はpublisher/pinと共通のlocal writer lock取得後に再planする。初回applyは
-candidateをmarkするだけで、7日後のsecond sweepが同じidentityを再検証してから削除する。rootが
-未解決、object不足、pointer/pin更新、candidate差替えのいずれでも削除を拒否する。
+`gc` は既定がdry-runで、pointer exact bytes、全root manifest/object digest、candidate identityを
+plan hashへ閉じる。`--apply`はpublisherと共通のlocal writer lock取得後に再planし、同じ実行の中で
+削除まで終える。plan hashがoperatorの読んだ planへ束縛し、lockが並行publishを排除し、lock内の
+再planがrootの実状態に対して候補を計算し直し、削除直前に各candidateのbytesを再検証する。間に
+到達可能になったcandidateは再planの結果を変えるのでloopに入らない。markして1週間後に消す二段構えは
+何も足さない — 競合は既に排除されており、planner自体の誤りは2回目も同じ答えを計算する。単独運用で
+収集を終えるのに2回の実行が要るだけで、それはretention policyが実行されなくなる道筋である。待つ
+場所はcandidateになるまでの30日grace側にある。rootが未解決、object不足、pointer更新、candidate
+差替えのいずれでも削除を拒否する。
 
 `lake/staging/`と`lake/quarantine/`もGCの対象domainである。前者はin-flightのstagingとsealed
-snapshotが置かれる場所で、killされたoperationは自分の後片付けを実行できないため、7日 + 7日の
-second sweepで回収する。後者は失敗したbuildのstagingを退避した先で、何が起きたかの唯一の記録
+snapshotが置かれる場所で、killされたoperationは自分の後片付けを実行できないため、7日のgrace後に
+回収する。後者は失敗したbuildのstagingを退避した先で、何が起きたかの唯一の記録
 なので90日保持し、その後同じsweepを通す。どちらもmanifestから到達しないので、age以外に回収の
 根拠がない。
 
@@ -514,9 +513,9 @@ published graph が目標を超えても、失敗した build の quarantine に
 
 `lake inventory`は加えて`preserve / buffer`別のobject数、bytes、oldest retrievalを出す。
 metadata sidecarを持たないRaw payloadは`raw_unclassified`と`raw_inventory_errors`へ分離し、正常な
-retention classの容量へ混ぜない。`preserve`はGC候補にせず、`buffer`はcurrent/previous/pin closureから
+retention classの容量へ混ぜない。`preserve`はGC候補にせず、`buffer`はcurrent/previous closureから
 未到達かつretrieved-atから90日以上の場合だけ通常GCの候補にする。object/metadata pairを同じplan hashへ
-固定し、他のcandidateと同じ7日second sweepを通してlocal mirrorから削除する。R2側の削除はBucket Lock
+固定し、他のcandidateと同じsweepでlocal mirrorから削除する。R2側の削除はBucket Lock
 満了後にDelete専用retention finalizerが同じcandidate identityを検証する運用境界とする。
 
 R2へのpublishは3 datasetのobject/source/manifestとbundle manifestを`If-None-Match: *`で転送し、
@@ -559,14 +558,13 @@ bundle pointerを1回切り替える。非互換履歴は`archived_incompatible`
 report、Discord通知、CI artifact、そこへ載るerror — にはcredential、account ID、bucket URL、
 そしてlocal filesystem pathを出さない。publish reportがrelease ID・pointer ETag・転送counterだけで
 できているのはこのためである。**operator-local CLI**（`inventory`、`release`、`projection`、
-`archive-raw`、`pin`、immutable installのerror）はlocal pathを出す。operatorが次に触るのはその
+`archive-raw`、immutable installのerror）はlocal pathを出す。operatorが次に触るのはその
 pathそのものであり、隠すとdebug可能性を失うだけで誰も守らない。共有される場所へこれらのoutputを
 そのまま貼る運用にしない。
 
 R2 credentialはroleを分ける。readerはGet/Headだけ、publisherはGet/Head/Putだけ（Deleteなし）、
 retention finalizerだけがDeleteを持つ。Bucket Locksはimmutable object/manifest/archive prefixへ適用し、
-mutableな`lake/pointers/`、`lake/staging/`、retention markは対象外にする。pinはapplication reachabilityを
-表し、Bucket Locksのrule上限・prefix粒度をpin代替に使わない。
+mutableな`lake/pointers/`と`lake/staging/`は対象外にする。
 
 merge gateは各stack headの通常CIに加え、`.github/workflows/lake-acceptance.yml`を実行する。
 workflowがdefault branchへ入る前はrepository ownerがsame-repository PRへ

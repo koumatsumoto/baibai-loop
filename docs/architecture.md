@@ -61,7 +61,7 @@ engine は web / batch / tools に依存しない。Web が engine へ触れる�
 | `stores/application/baibai.sqlite` | canonical application DB | task、macro context、shortlist、thesis revision、holding review、proposal、ledger event / price / meta、outcome、operation session | `baibai-engine` application service |
 | `stores/market/market.sqlite` | rebuildable L1 | J-Quants / EDINET / JPX の price、calendar、financial input と、資本配分・支配権イベントの typed fact | market / screening provider |
 | `stores/screening/runs.sqlite` | rebuildable L2 run store | 最新数世代を保持するprunable screening run / machine selection cache | screening service |
-| `stores/screening/calibration/` | rebuildable L2 analytical bundle | typed Parquet の calibration panel / diagnostics / forward outcome と、3 datasetを原子的に束ねるbundle manifest・pointer・pin | screening calibration service |
+| `stores/screening/calibration/` | rebuildable L2 analytical bundle | typed Parquet の calibration panel / diagnostics / forward outcome と、3 datasetを原子的に束ねるbundle manifest・pointer | screening calibration service |
 | `stores/macro/macro.sqlite` | rebuildable L1 | provider 別 macro indicator series。manual 観測は git seed から同期 | macro indicator service |
 
 application DB の default path は `stores/application/baibai.sqlite` で、`BAIBAI_DB` または各 CLI の `--db` で差し替えられる。手動 backup は `baibai-engine db backup` を使う。自動 backup、世代管理、監査 table、transition history は持たない。
@@ -105,10 +105,10 @@ kindは**bytesを保持するかどうか**の2族に分かれ、それが型の
 
 L1 releaseはこのunionに入れない。lineage sourceはそれを再生する完全なobject graphへ解決できねばならず、
 release manifestはそのrootにすぎない。dataset manifest・Parquet object・Raw archiveまでを列挙・検証・
-retentionから保護するclosure resolverと、それを使うpublisher・pin・retention・auditが揃うまでkindを
+retentionから保護するclosure resolverと、それを使うpublisher・retention・auditが揃うまでkindを
 戻さない。文字列prefixや実在しないrelease IDでsource種別を表さない。
 
-manifest、pointer、pinを含むlake JSONは、duplicate key拒否とredacted validation errorを持つ
+manifestとpointerを含むlake JSONは、duplicate key拒否とredacted validation errorを持つ
 共通parserだけを通し、wire size上限をparse前に検査する。partition valuesとrelease dataset
 inventoryはparse後に変更できない。
 releaseは`pilot`または`production` profileを宣言し、profileごとのrequired dataset、accepted
@@ -165,7 +165,7 @@ repository-internal entry point で、domain の利用者向け surface では�
 contract だけを検査して object の dereference・publish・rewrite をしない。`lake resolve` は
 current pointer を 1 度だけ解決して固定 release の identity を出し、`lake projection build` は
 その release から local projection を再構築する。どちらも immutable object を書き換えない。
-`lake pin` は retention root を明示し、`lake gc` は root closure から削除候補と plan hash を出す
+`lake gc` は root closure から削除候補と plan hash を出す
 （既定は dry-run で、`--apply` は同じ plan hash を要求する）。
 schema field、option、stdout YAML は public `--help` と engine modelを正とする。screening `run /
 select / ticker-profile` の YAML view は AI 向け安定契約であり、保存先が SQLite でも field の

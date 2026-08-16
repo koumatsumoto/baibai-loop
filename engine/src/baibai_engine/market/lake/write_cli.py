@@ -24,11 +24,11 @@ from .reader import (
     resolve_release_ref,
 )
 from .release import create_l1_release
-from .retention import LakeRetentionError, apply_gc, create_pin, plan_gc, remove_pin
+from .retention import LakeRetentionError, apply_gc, plan_gc
 from .writer import export_legacy_sqlite, export_pilot_legacy, sealed_sqlite_snapshot
 
 WRITE_COMMANDS = frozenset(
-    {"archive-raw", "export-legacy", "export-pilot", "gc", "pin", "projection", "release"}
+    {"archive-raw", "export-legacy", "export-pilot", "gc", "projection", "release"}
 )
 
 
@@ -99,19 +99,6 @@ def main(argv: list[str]) -> int:
     build.add_argument("--manifest-sha256", help="required digest when --release is used")
     build.add_argument("--dataset", action="append", default=[], choices=sorted(PILOT_DATASETS))
     build.add_argument("--force", action="store_true")
-
-    pin = commands.add_parser("pin", help="keep one release or build reachable indefinitely")
-    pin_commands = pin.add_subparsers(dest="pin_command", required=True)
-    pin_create = pin_commands.add_parser("create")
-    pin_create.add_argument("--mirror", type=Path, required=True)
-    pin_create.add_argument("--pin-id", required=True)
-    pin_create.add_argument("--release", help="L1 release id to pin")
-    pin_create.add_argument("--bundle", help="calibration bundle id to pin")
-    pin_create.add_argument("--reason", required=True)
-    pin_create.add_argument("--owner", required=True)
-    pin_remove = pin_commands.add_parser("remove")
-    pin_remove.add_argument("--mirror", type=Path, required=True)
-    pin_remove.add_argument("--pin-id", required=True)
 
     gc = commands.add_parser("gc", help="plan or apply deletion of unreachable objects")
     gc.add_argument("--mirror", type=Path, required=True)
@@ -205,8 +192,6 @@ def main(argv: list[str]) -> int:
         return 0
     if args.command == "projection":
         return _projection_build(args)
-    if args.command == "pin":
-        return _pin(args)
     if args.command == "gc":
         return _gc(args)
     path, release_manifest = create_l1_release(
@@ -303,32 +288,6 @@ def _projection_build(args: argparse.Namespace) -> int:
     return 0
 
 
-def _pin(args: argparse.Namespace) -> int:
-    """Create or remove one explicit retention root."""
-
-    try:
-        if args.pin_command == "remove":
-            removed = remove_pin(args.mirror, pin_id=args.pin_id)
-            print(json.dumps({"pin_id": args.pin_id, "removed": removed}, sort_keys=True))
-            return 0 if removed else 1
-        if bool(args.release) == bool(args.bundle):
-            print("error: pin exactly one of --release or --bundle", file=sys.stderr)
-            return 1
-        path = create_pin(
-            args.mirror,
-            pin_id=args.pin_id,
-            target_kind="l1_release" if args.release else "calibration_bundle",
-            target_id=args.release or args.bundle,
-            reason=args.reason,
-            owner=args.owner,
-        )
-    except (LakeObjectError, LakeRetentionError, OSError, ValueError) as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 1
-    print(json.dumps({"pin": str(path), "pin_id": args.pin_id}, sort_keys=True))
-    return 0
-
-
 def _gc(args: argparse.Namespace) -> int:
     """Plan deletion from the root closure; delete only against that same plan."""
 
@@ -363,8 +322,6 @@ commands:
   export-pilot       export both pilot datasets from one sealed SQLite snapshot
   release create     create an immutable L1 release manifest
   projection build   materialize a local SQLite projection of one fixed release
-  pin create         keep one release or calibration bundle reachable indefinitely
-  pin remove         drop one explicit retention root
   gc                 plan (default) or apply deletion of unreachable objects
 """
     )

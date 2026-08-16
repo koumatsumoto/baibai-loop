@@ -22,7 +22,6 @@ from baibai_engine.market.lake import sources as sources_module
 from baibai_engine.market.lake.keys import (
     calibration_bundle_manifest_key,
     current_calibration_bundle_pointer_key,
-    pin_key,
 )
 from baibai_engine.market.lake.models import (
     CalibrationBundleManifest,
@@ -40,11 +39,8 @@ from baibai_engine.market.lake.models import (
 from baibai_engine.market.lake.retention import (
     LakeRetentionError,
     apply_gc,
-    create_pin,
     lake_writer_lock,
     plan_gc,
-    read_pins,
-    remove_pin,
 )
 from baibai_engine.screening.calibration import lake as lake_module
 from baibai_engine.screening.calibration import store
@@ -1112,80 +1108,6 @@ class TestRetention:
             == plan_gc(tmp_path, now=datetime.now(UTC) + timedelta(days=400)).plan_hash
         )
 
-    def test_a_pinned_build_survives_the_sweep(self, tmp_path: Path) -> None:
-        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
-        first = _bundle_pointer(tmp_path).current
-        for asof in (_FEBRUARY, "2026-03-31"):
-            publish_panel(tmp_path, asof, _cohort(asof))
-        create_pin(
-            tmp_path,
-            pin_id="pin-adopted-cohort",
-            target_kind="calibration_bundle",
-            target_id=first.bundle_id,
-            reason="adopted as calibration evidence",
-            owner="owner",
-        )
-
-        plan = plan_gc(
-            tmp_path,
-            now=datetime.now(UTC) + timedelta(days=400),
-        )
-
-        assert first.manifest_key in plan.reachable
-        assert first.manifest_key not in {item.key for item in plan.candidates}
-        pins = read_pins(tmp_path)
-        assert [pin.pin_id for pin in pins] == ["pin-adopted-cohort"]
-        assert pins[0].manifest_key == first.manifest_key
-        assert pins[0].manifest_sha256 == first.manifest_sha256
-
-    def test_removing_a_pin_returns_its_target_to_the_sweep(self, tmp_path: Path) -> None:
-        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
-        first = _bundle_pointer(tmp_path).current
-        for asof in (_FEBRUARY, "2026-03-31"):
-            publish_panel(tmp_path, asof, _cohort(asof))
-        create_pin(
-            tmp_path,
-            pin_id="pin-adopted-cohort",
-            target_kind="calibration_bundle",
-            target_id=first.bundle_id,
-            reason="adopted as calibration evidence",
-            owner="owner",
-        )
-
-        assert remove_pin(tmp_path, pin_id="pin-adopted-cohort") is True
-        assert not (tmp_path / pin_key(pin_id="pin-adopted-cohort")).exists()
-        plan = plan_gc(
-            tmp_path,
-            now=datetime.now(UTC) + timedelta(days=400),
-        )
-        assert first.manifest_key in {item.key for item in plan.candidates}
-
-    def test_a_pin_target_that_does_not_exist_is_refused(self, tmp_path: Path) -> None:
-        with pytest.raises(LakeRetentionError, match="target manifest is missing"):
-            create_pin(
-                tmp_path,
-                pin_id="pin-no-dataset",
-                target_kind="calibration_bundle",
-                target_id="some-bundle",
-                reason="reason",
-                owner="owner",
-            )
-
-    def test_a_pin_target_with_a_missing_object_is_refused(self, tmp_path: Path) -> None:
-        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
-        target = _bundle_pointer(tmp_path).current
-        next((tmp_path / "lake/l2").rglob("*.parquet")).unlink()
-
-        with pytest.raises(LakeRetentionError, match="target closure is incomplete"):
-            create_pin(
-                tmp_path,
-                pin_id="pin-incomplete-bundle",
-                target_kind="calibration_bundle",
-                target_id=target.bundle_id,
-                reason="must not pin a partial graph",
-                owner="test",
-            )
-
     def test_applying_a_plan_requires_the_hash_that_plan_produced(self, tmp_path: Path) -> None:
         for asof in (_JANUARY, _FEBRUARY, "2026-03-31"):
             publish_panel(tmp_path, asof, _cohort(asof))
@@ -1197,13 +1119,11 @@ class TestRetention:
         with pytest.raises(LakeRetentionError, match="plan hash does not match"):
             apply_gc(tmp_path, plan, plan_hash="0" * 64)
 
-        assert apply_gc(tmp_path, plan, plan_hash=plan.plan_hash) == ()
-        second = plan_gc(
-            tmp_path,
-            now=plan.evaluated_at + timedelta(days=8),
-        )
-        deleted = apply_gc(tmp_path, second, plan_hash=second.plan_hash)
+        # The hash the dry run printed is what authorises the deletion, and the sweep
+        # finishes in the run the operator started. Nothing is left marked for later.
+        deleted = apply_gc(tmp_path, plan, plan_hash=plan.plan_hash)
         assert set(deleted) == {item.key for item in plan.candidates}
+        assert not any((tmp_path / key).exists() for key in deleted)
         # The current cohort still reads after the sweep.
         assert read_panel(tmp_path, date.fromisoformat("2026-03-31"))
 
@@ -1217,35 +1137,6 @@ class TestRetention:
         assert plan.unresolved_roots
         with pytest.raises(LakeRetentionError, match="root is unresolved"):
             apply_gc(tmp_path, plan, plan_hash=plan.plan_hash)
-
-    def test_a_reachable_candidate_loses_its_old_second_sweep_mark(self, tmp_path: Path) -> None:
-        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
-        first = _bundle_pointer(tmp_path).current
-        for asof in (_FEBRUARY, "2026-03-31", "2026-04-30"):
-            publish_panel(tmp_path, asof, _cohort(asof))
-        marked_plan = plan_gc(tmp_path, now=datetime.now(UTC) + timedelta(days=400))
-        assert first.manifest_key in {item.key for item in marked_plan.candidates}
-        assert apply_gc(tmp_path, marked_plan, plan_hash=marked_plan.plan_hash) == ()
-        marker = (
-            tmp_path
-            / "lake/retention/marks"
-            / f"{hashlib.sha256(first.manifest_key.encode()).hexdigest()}.json"
-        )
-        assert marker.is_file()
-
-        create_pin(
-            tmp_path,
-            pin_id="first-bundle-live-again",
-            target_kind="calibration_bundle",
-            target_id=first.bundle_id,
-            reason="regression fixture",
-            owner="test",
-        )
-        fresh = plan_gc(tmp_path, now=marked_plan.evaluated_at + timedelta(days=8))
-        apply_gc(tmp_path, fresh, plan_hash=fresh.plan_hash)
-
-        assert (tmp_path / first.manifest_key).is_file()
-        assert not marker.exists()
 
     def test_a_pointer_update_after_planning_refuses_the_sweep(self, tmp_path: Path) -> None:
         for asof in (_JANUARY, _FEBRUARY, "2026-03-31"):

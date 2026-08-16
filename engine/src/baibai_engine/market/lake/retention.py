@@ -1,10 +1,9 @@
-"""What the lake keeps, what it may delete, and the pins that override both.
+"""What the lake keeps and what it may delete.
 
-Retention is decided by reachability, never by age alone. Three kinds of root make
-an object reachable: the current L1 release and the one before it, the current
-calibration bundle and the one before it, and explicit pins. Everything the closure of
-those roots does not reach is a deletion candidate; everything it reaches is kept
-regardless of how old it is.
+Retention is decided by reachability, never by age alone. The roots are the current L1
+release and the one before it, and the current calibration bundle and the one before
+it. Everything the closure of those roots does not reach is a deletion candidate;
+everything it reaches is kept regardless of how old it is.
 
 There is deliberately no per-dataset L2 head among them. An L2 dataset is published as
 part of a bundle and reached through it, so a second pointer naming the same builds
@@ -12,10 +11,10 @@ would be a second mutable statement of what the store serves, and only one of th
 can be carried into the next generation. An L2 dataset that is not part of the
 calibration bundle needs its own authority designed before it can be a root.
 
-Pins exist because a published study or an adopted calibration cohort has to remain
-reproducible after the pointer has moved on twice. Pinning every daily generation
-would make the store grow without bound, so a pin is an explicit, reasoned object
-rather than something a routine run creates.
+There is no mechanism to keep a generation reachable indefinitely. Reproducing a
+published study from the exact bytes it read is not a capability this store offers:
+the report is the record, and holding every generation a report ever named is how a
+store stops being able to say what it currently serves.
 
 Deletion is planned before it is performed. ``plan_gc`` produces a plan and a hash of
 that plan; applying requires the same hash back, so a plan computed against one state
@@ -32,21 +31,12 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-from baibai_engine.foundation.filesystem import write_bytes_atomic
-
-from .immutable import ImmutableInstallError, install_immutable_bytes
 from .keys import (
-    calibration_bundle_manifest_key,
     current_calibration_bundle_pointer_key,
     current_l1_pointer_key,
     dataset_manifest_key,
-    pin_key,
     release_manifest_key,
-    validate_identifier,
     validate_lake_object_key,
 )
 from .models import (
@@ -67,7 +57,7 @@ from .models import (
     retained_sources,
 )
 from .objects import mirror_path, sha256_bytes
-from .release import L1ReleasePointer, canonical_json_bytes
+from .release import L1ReleasePointer
 from .sources import resolve_source_ref, sha256_file, verified_source_scope
 
 _GRACE_DAYS = 30
@@ -76,7 +66,6 @@ _STAGING_GRACE_DAYS = 7
 # long enough to be investigated after the fact, and finite so a repeated large failure
 # cannot fill the disk while every manifest-derived figure stays inside its budget.
 _QUARANTINE_GRACE_DAYS = 90
-_SECOND_SWEEP_GRACE_DAYS = 7
 _CANDIDATE_GRACE_DAYS = {
     "abandoned_staging": _STAGING_GRACE_DAYS,
     "expired_quarantine": _QUARANTINE_GRACE_DAYS,
@@ -108,7 +97,7 @@ def exclusive_lock(lock_path: Path, *, subject: str) -> Iterator[None]:
 
 @contextmanager
 def lake_writer_lock(mirror_root: Path) -> Iterator[None]:
-    """Serialize local publication, pin mutation, and retention finalization.
+    """Serialize local publication and retention finalization.
 
     Holding the lock is also what bounds the source verification scope: no other writer
     can change an immutable source while it is held, so one verification of a given
@@ -121,142 +110,6 @@ def lake_writer_lock(mirror_root: Path) -> Iterator[None]:
         verified_source_scope(),
     ):
         yield
-
-
-class LakePin(BaseModel):
-    """An explicit reason to keep one release or build reachable indefinitely."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    pin_version: Literal[1] = 1
-    pin_id: str
-    target_kind: Literal["l1_release", "calibration_bundle"]
-    target_id: str
-    manifest_key: str
-    manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    reason: str = Field(min_length=1, max_length=500)
-    owner: str = Field(min_length=1, max_length=100)
-    created_at: datetime
-
-    @field_validator("pin_id", "target_id")
-    @classmethod
-    def validate_identifiers(cls, value: str) -> str:
-        return validate_identifier(value, label="pin identifier")
-
-    def require_consistent_target(self) -> LakePin:
-        expected = (
-            release_manifest_key(release_id=self.target_id)
-            if self.target_kind == "l1_release"
-            else calibration_bundle_manifest_key(bundle_id=self.target_id)
-        )
-        if self.manifest_key != expected:
-            raise ValueError("pin manifest key does not match its target identity")
-        return self
-
-
-def create_pin(
-    mirror_root: Path,
-    *,
-    pin_id: str,
-    target_kind: Literal["l1_release", "calibration_bundle"],
-    target_id: str,
-    reason: str,
-    owner: str,
-    created_at: datetime | None = None,
-) -> Path:
-    with lake_writer_lock(mirror_root):
-        manifest_key = (
-            release_manifest_key(release_id=target_id)
-            if target_kind == "l1_release"
-            else calibration_bundle_manifest_key(bundle_id=target_id)
-        )
-        manifest_path = mirror_path(mirror_root, manifest_key)
-        if not manifest_path.is_file():
-            raise LakeRetentionError(f"pin target manifest is missing: {manifest_key}")
-        manifest_payload = manifest_path.read_bytes()
-        try:
-            if target_kind == "l1_release":
-                release_manifest = load_lake_model_json(manifest_payload, ReleaseManifest)
-                if release_manifest.release_id != target_id:
-                    raise LakeRetentionError("pin target release identity differs")
-            else:
-                bundle_manifest = load_lake_model_json(manifest_payload, _BundleRootManifest)
-                if bundle_manifest.bundle_id != target_id:
-                    raise LakeRetentionError("pin target bundle identity differs")
-        except ValueError as exc:
-            raise LakeRetentionError("pin target manifest is invalid") from exc
-        pin = LakePin(
-            pin_id=pin_id,
-            target_kind=target_kind,
-            target_id=target_id,
-            manifest_key=manifest_key,
-            manifest_sha256=sha256_bytes(manifest_payload),
-            reason=reason,
-            owner=owner,
-            created_at=(created_at or datetime.now(UTC)).astimezone(UTC),
-        ).require_consistent_target()
-        reachable: set[str] = set()
-        unresolved: list[str] = []
-        if target_kind == "l1_release":
-            _reach_release(
-                mirror_root,
-                target_id,
-                reachable,
-                unresolved,
-                expected_manifest_sha256=pin.manifest_sha256,
-            )
-        else:
-            _reach_bundle(
-                mirror_root,
-                _BundleRef(
-                    bundle_id=target_id,
-                    manifest_key=pin.manifest_key,
-                    manifest_sha256=pin.manifest_sha256,
-                ),
-                reachable,
-                unresolved,
-            )
-        if unresolved:
-            raise LakeRetentionError(
-                "pin target closure is incomplete: " + ", ".join(sorted(unresolved))
-            )
-        path = mirror_path(mirror_root, pin_key(pin_id=pin_id))
-        payload = canonical_json_bytes(pin)
-        try:
-            install_immutable_bytes(path, payload)
-        except ImmutableInstallError as exc:
-            raise LakeRetentionError(
-                f"pin already exists with different content: {pin_id}"
-            ) from exc
-        return path
-
-
-def remove_pin(mirror_root: Path, *, pin_id: str) -> bool:
-    with lake_writer_lock(mirror_root):
-        path = mirror_path(mirror_root, pin_key(pin_id=pin_id))
-        if not path.is_file():
-            return False
-        try:
-            load_lake_model_json(path.read_bytes(), LakePin).require_consistent_target()
-        except ValueError as exc:
-            raise LakeRetentionError(f"pin is invalid: {pin_id}: {exc}") from exc
-        path.unlink()
-        return True
-
-
-def read_pins(mirror_root: Path) -> tuple[LakePin, ...]:
-    root = mirror_path(mirror_root, "lake/manifests/pins/placeholder.json").parent
-    if not root.is_dir():
-        return ()
-    pins: list[LakePin] = []
-    for path in sorted(root.glob("*.json")):
-        try:
-            pins.append(
-                load_lake_model_json(path.read_bytes(), LakePin).require_consistent_target()
-            )
-        except ValueError as exc:
-            raise LakeRetentionError(f"pin is invalid: {path.name}: {exc}") from exc
-    return tuple(pins)
 
 
 @dataclass(frozen=True, slots=True)
@@ -392,29 +245,6 @@ def _plan_gc(mirror_root: Path, *, now: datetime | None) -> GcPlan:
             _reach_bundle(mirror_root, bundle_pointer.previous, reachable, unresolved)
     elif _has_calibration_builds(mirror_root):
         unresolved.append(current_calibration_bundle_pointer_key())
-
-    for pin in read_pins(mirror_root):
-        roots.append(pin_key(pin_id=pin.pin_id))
-        reachable.add(pin_key(pin_id=pin.pin_id))
-        if pin.target_kind == "l1_release":
-            _reach_release(
-                mirror_root,
-                pin.target_id,
-                reachable,
-                unresolved,
-                expected_manifest_sha256=pin.manifest_sha256,
-            )
-        else:
-            _reach_bundle(
-                mirror_root,
-                _BundleRef(
-                    bundle_id=pin.target_id,
-                    manifest_key=pin.manifest_key,
-                    manifest_sha256=pin.manifest_sha256,
-                ),
-                reachable,
-                unresolved,
-            )
 
     candidates = _unreachable(mirror_root, reachable=reachable, now=moment)
     plan_hash = hashlib.sha256(
@@ -669,7 +499,23 @@ def _reachable_identity(mirror_root: Path, key: str) -> tuple[int, str] | None:
 
 
 def apply_gc(mirror_root: Path, plan: GcPlan, *, plan_hash: str) -> tuple[str, ...]:
-    """Mark candidates, then delete only on a verified later sweep under the writer lock."""
+    """Delete a plan's candidates under the writer lock, after recomputing it.
+
+    Everything that could change between planning and deleting is checked here rather
+    than waited out. The plan hash binds this call to the plan the operator read; the
+    lock means nothing else can publish while it runs; the plan is recomputed inside the
+    lock against the store's actual roots; an unresolved root refuses the whole sweep;
+    and each candidate's bytes are verified immediately before unlinking. A candidate
+    that became reachable in between changes the recomputed plan, so it never reaches
+    the loop.
+
+    Nothing is gained by writing marks and returning to delete a week later. The race is
+    already excluded, and a planner that is wrong about reachability computes the same
+    wrong answer on the second run — the delay would only make a single-operator store
+    need two scheduled runs to finish collecting, which is how a retention policy stops
+    being run at all. The 30 day grace before an object becomes a candidate is where the
+    waiting belongs.
+    """
 
     if plan_hash != plan.plan_hash:
         raise LakeRetentionError("GC plan hash does not match the plan being applied")
@@ -687,64 +533,15 @@ def apply_gc(mirror_root: Path, plan: GcPlan, *, plan_hash: str) -> tuple[str, .
                 "GC refuses to delete while a root is unresolved: "
                 + ", ".join(fresh.unresolved_roots)
             )
-        candidate_keys = {candidate.key for candidate in fresh.candidates}
-        marks_root = mirror_root / "lake" / "retention" / "marks"
-        if marks_root.is_dir():
-            for marker in sorted(marks_root.glob("*.json")):
-                try:
-                    marked = json.loads(marker.read_bytes())
-                    marked_key = marked["key"]
-                except (OSError, ValueError, KeyError, TypeError) as exc:
-                    raise LakeRetentionError(f"GC mark is invalid: {marker.name}") from exc
-                if not isinstance(marked_key, str):
-                    raise LakeRetentionError(f"GC mark is invalid: {marker.name}")
-                if marked_key not in candidate_keys:
-                    marker.unlink()
         deleted: list[str] = []
         for candidate in fresh.candidates:
-            marker = (
-                mirror_root
-                / "lake"
-                / "retention"
-                / "marks"
-                / (hashlib.sha256(candidate.key.encode()).hexdigest() + ".json")
-            )
-            identity = {
-                "key": candidate.key,
-                "sha256": candidate.sha256,
-                "bytes": candidate.bytes,
-            }
-            if not marker.is_file():
-                marker.parent.mkdir(parents=True, exist_ok=True)
-                write_bytes_atomic(
-                    marker,
-                    json.dumps(
-                        {**identity, "marked_at": fresh.evaluated_at.isoformat()},
-                        sort_keys=True,
-                        separators=(",", ":"),
-                    ).encode()
-                    + b"\n",
-                )
-                continue
-            try:
-                marked = json.loads(marker.read_bytes())
-                marked_at = datetime.fromisoformat(marked["marked_at"])
-            except (OSError, ValueError, KeyError, TypeError) as exc:
-                raise LakeRetentionError(f"GC mark is invalid: {candidate.key}") from exc
-            if {key: marked.get(key) for key in identity} != identity:
-                raise LakeRetentionError(
-                    f"GC candidate identity changed after marking: {candidate.key}"
-                )
-            age = (fresh.evaluated_at - marked_at.astimezone(UTC)).total_seconds()
-            if age < _SECOND_SWEEP_GRACE_DAYS * 86_400:
-                continue
             path = mirror_path(mirror_root, candidate.key)
-            if path.is_file():
-                if path.stat().st_size != candidate.bytes or sha256_file(path) != candidate.sha256:
-                    raise LakeRetentionError(
-                        f"GC candidate identity changed before deletion: {candidate.key}"
-                    )
-                path.unlink()
-                deleted.append(candidate.key)
-            marker.unlink(missing_ok=True)
+            if not path.is_file():
+                continue
+            if path.stat().st_size != candidate.bytes or sha256_file(path) != candidate.sha256:
+                raise LakeRetentionError(
+                    f"GC candidate identity changed before deletion: {candidate.key}"
+                )
+            path.unlink()
+            deleted.append(candidate.key)
         return tuple(deleted)

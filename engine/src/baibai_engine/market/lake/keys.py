@@ -170,8 +170,3 @@ def calibration_bundle_manifest_key(*, bundle_id: str) -> str:
 
 def current_calibration_bundle_pointer_key() -> str:
     return "lake/pointers/calibration/current.json"
-
-
-def pin_key(*, pin_id: str) -> str:
-    validate_identifier(pin_id, label="pin_id")
-    return validate_lake_object_key(f"lake/manifests/pins/{pin_id}.json")
