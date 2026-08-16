@@ -32,6 +32,10 @@ SOFT_BUDGET_BYTES = {
 # Files the operation writes beside the lake namespace, not objects the lake publishes.
 _CONTROL_FILES = frozenset({".lake-writer.lock"})
 
+# The mirror root is a directory the operator also keeps stores and generation records in,
+# so the lake is one subtree of it rather than the whole thing.
+_NAMESPACE = "lake"
+
 
 def _capacity_class(key: str) -> str | None:
     """The budget a stored key counts against, or ``None`` when another class holds it."""
@@ -92,7 +96,12 @@ def inventory(root: Path) -> dict[str, JsonValue]:
     capacity: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
     control_files = 0
     control_bytes = 0
-    for path in sorted(root.rglob("*")):
+    # Walking the whole root would describe the operator's directory rather than the lake:
+    # a market store, a backup and a generation record are not badly named lake objects,
+    # and counting them as such buries the one thing an invalid key is meant to surface.
+    walked = list((root / _NAMESPACE).rglob("*"))
+    walked.extend(root / name for name in _CONTROL_FILES)
+    for path in sorted(walked):
         if not path.is_file():
             continue
         key = path.relative_to(root).as_posix()
