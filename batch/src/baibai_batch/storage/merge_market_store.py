@@ -36,7 +36,7 @@ import sys
 from collections.abc import Mapping
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 
 from baibai_batch.storage.store_merge import (
@@ -111,6 +111,7 @@ _NON_SHORT_COVERAGE = RowFilter(
 class _ShortCoverageClaim:
     fetched_at: datetime
     fetched_at_text: str
+    record_count: int
     status: str
     error: str | None
 
@@ -220,12 +221,17 @@ def _require_no_overclaimed_coverage(connection: sqlite3.Connection) -> None:
 
 
 def _merge_short_sale_coverage(connection: sqlite3.Connection) -> None:
-    """Select the better claim per disclosure date, and recount it against the target.
+    """Select the better claim per disclosure date, and carry it whole.
 
     Each disclosure date is a correction-prone complete snapshot, so its claim is chosen
     rather than unioned: a successful fetch beats an incomplete one whatever their ages,
-    and between two of the same kind the newer one wins. The rows themselves belong to
-    the release, so the count is read back from the target that the release filled.
+    and between two of the same kind the newer one wins.
+
+    The count travels with the claim it belongs to rather than being recounted here. It
+    records what that fetch returned, and the rows are the release's — a target filled
+    from a release that predates the fetch does not hold them yet, so recounting would
+    rewrite "this date disclosed two positions" into "this date disclosed none". Zero and
+    not-yet-visible are the one pair this dataset must never conflate.
     """
 
     source_claims = _short_coverage_claims(connection, schema="source")
@@ -247,11 +253,6 @@ def _merge_short_sale_coverage(connection: sqlite3.Connection) -> None:
     )
     for disclosed_at, claim in selected.items():
         iso = disclosed_at.isoformat()
-        record_count = count(
-            connection,
-            "SELECT COUNT(*) FROM main.jquants_short_sale_reports WHERE disclosed_at = ?",
-            (iso,),
-        )
         connection.execute(
             """
             INSERT INTO main.source_coverage(
@@ -265,7 +266,7 @@ def _merge_short_sale_coverage(connection: sqlite3.Connection) -> None:
                 iso,
                 iso,
                 claim.fetched_at_text,
-                record_count,
+                claim.record_count,
                 claim.status,
                 claim.error,
             ),
@@ -276,33 +277,42 @@ def _short_coverage_claims(
     connection: sqlite3.Connection, *, schema: str
 ) -> dict[date, _ShortCoverageClaim]:
     rows = connection.execute(
-        f"SELECT coverage_start, coverage_end, fetched_at_utc, status, error "  # nosec B608
+        f"SELECT coverage_start, coverage_end, fetched_at_utc, "  # nosec B608
+        f"record_count, status, error "
         f"FROM {schema_name(schema)}.source_coverage "
         "WHERE source = 'jquants_short_sale_reports' "
         "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL"
     ).fetchall()
     claims: dict[date, _ShortCoverageClaim] = {}
-    for raw_start, raw_end, raw_fetched, raw_status, raw_error in rows:
+    for raw_start, raw_end, raw_fetched, raw_count, raw_status, raw_error in rows:
         try:
             start = date.fromisoformat(str(raw_start))
             end = date.fromisoformat(str(raw_end))
             fetched = datetime.fromisoformat(str(raw_fetched))
         except ValueError as exc:
             raise MergeError("invalid short-sale coverage timestamp") from exc
-        if start > end or fetched.tzinfo is None or fetched.utcoffset() is None:
+        if fetched.tzinfo is None or fetched.utcoffset() is None:
             raise MergeError("invalid short-sale coverage range")
+        # One claim, one disclosure date. The writer records the range it fetched a day
+        # at a time, and the count belongs to that day; a claim spanning several days
+        # carries one total that cannot be divided among them without inventing the
+        # split, so it is refused rather than expanded.
+        if start != end:
+            raise MergeError(
+                f"short-sale coverage spans more than one disclosure date: {start}..{end}"
+            )
+        if not isinstance(raw_count, int) or raw_count < 0:
+            raise MergeError(f"short-sale coverage has no usable record count: {start}")
         claim = _ShortCoverageClaim(
             fetched_at=fetched,
             fetched_at_text=str(raw_fetched),
+            record_count=raw_count,
             status=str(raw_status),
             error=str(raw_error) if raw_error is not None else None,
         )
-        cursor = start
-        while cursor <= end:
-            current = claims.get(cursor)
-            if current is None or claim.fetched_at >= current.fetched_at:
-                claims[cursor] = claim
-            cursor += timedelta(days=1)
+        current = claims.get(start)
+        if current is None or claim.fetched_at >= current.fetched_at:
+            claims[start] = claim
     return claims
 
 

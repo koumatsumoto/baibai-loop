@@ -256,14 +256,14 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       contract versionごとのordered partition layoutと各partitionのexact key集合、object keyの
       dataset/contract/partition/content hash不一致、totals不一致、duplicate JSON key、path
       traversalをそれぞれnegative testでfail closedにするか
-- [ ] 固定releaseのreaderやprojectionを変更する場合、pointerを実行中に1度しか読まないこと、
+- [ ] 固定releaseのreaderやhydrationを変更する場合、pointerを実行中に1度しか読まないこと、
       pointerのmid-run変更が入力releaseを変えないこと、release manifest digest / pointer
       manifest key / dataset manifestとrelease entryの不一致 / 未受入contract version /
       object digest・byte数・row数・Arrow schemaの不一致 / 未publishのmonth要求 / path
-      traversalをそれぞれfail closeにするnegative testを持つか。projectionは完全一致でだけ
-      再利用し、削除・same-row value mutation・column/index mutation・破損・partialから再構築でき、
-      同一directoryのdurable atomic replace以外では公開しないことと、
-      credentialがSQL文・例外・metadataへ出ないことをtestで固定したか
+      traversalをそれぞれfail closeにするnegative testを持つか。hydrationは積んだ行数が
+      release manifestのpublish行数と一致しなければ失敗し、同一directoryのdurable atomic
+      replace以外では公開せず、失敗時は直前のstoreを壊さないことと、credentialがSQL文・
+      例外・metadataへ出ないことをtestで固定したか
 - [ ] L2 analytical buildを変更する場合、schemaを行のcontractから導き、transform fingerprint /
       source release / schema / object digestの不一致をそれぞれfail closeにするnegative testを
       持つか。full primary keyの重複・null・partition外as-ofをwrite/read両側で拒否するか。0-rowを
@@ -319,8 +319,13 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       contract version / row type stamp等）を署名へ入れたか。列を変えずrow型名だけを変えるmutationでgateが赤くなるか。
       失敗メッセージが実測値をそのまま出して「記録値を上書きすれば緑になる」と読める形になっていないか
       （記録は版ごとの意味なので、上書きは同じ版に2つの形を持たせる。正しい修復は版を上げて追記する側である）
-- [ ] 再利用identityを持つ成果物（projection等）は、値を決めるruntime（DuckDB / SQLite等）のversionを
-      fingerprintへ入れたか。dependency upgradeが旧結果を再利用させないことをtestで固定したか
+- [ ] 再利用identityを持つ成果物（calibration bundle等）は、値を決めるruntime（DuckDB / SQLite等）の
+      versionをfingerprintへ入れたか。dependency upgradeが旧結果を再利用させないことをtestで固定したか
+- [ ] 取得の記録（`source_coverage`）を、それが記述する行とは別の場所から数え直していないか。
+      行がreleaseから、記録がstore mergeから届くようになった後、targetの行を数えて記録へ書き戻すと
+      「まだ見えていない」が「取得して0件だった」に化ける。zeroとunknownを分ける契約がある
+      datasetでは、記録はそれを書いたfetchの数値を運ぶか。claimが実行数より多い側だけを拒否し、
+      少ない側を正常な過渡状態として通すか
 - [ ] market lakeのcomplete coverageはtable自身の`MIN..MAX`だけで自己充足させず、profileが固定する
       history boundary・row floor・population floorをrelease時に再検証するか。新鮮な1日1row、
       leading history欠損、大幅なrow/population regressionをcurrent候補にしないnegative testがあるか

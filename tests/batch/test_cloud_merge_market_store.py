@@ -526,10 +526,15 @@ class TestShortSaleCoverage:
         with pytest.raises(MergeError, match="rows lack coverage"):
             merge_stores(source, target)
 
-    def test_the_claim_is_recounted_against_the_rows_the_release_filled(
-        self,
-        tmp_path: Path,
-    ) -> None:
+    def test_the_selected_claim_carries_its_own_count(self, tmp_path: Path) -> None:
+        """The count records what that fetch returned, not what this file holds.
+
+        The rows belong to the release, so a target filled from a release that predates
+        the fetch does not have them yet. Recounting here would rewrite "this date
+        disclosed two positions" into "this date disclosed none", and zero and
+        not-yet-visible are the one pair this dataset must never conflate.
+        """
+
         source = _store(tmp_path / "source.sqlite")
         target = _store(tmp_path / "target.sqlite")
         _store_short_snapshot(
@@ -543,7 +548,50 @@ class TestShortSaleCoverage:
 
         merge_stores(source, target)
 
-        assert _coverage(target, "jquants_short_sale_reports")[0][1] == 1
+        assert _coverage(target, "jquants_short_sale_reports")[0][1] == 2
+
+    def test_a_date_the_target_has_no_rows_for_keeps_the_count_the_cloud_recorded(
+        self, tmp_path: Path
+    ) -> None:
+        """The publication that put those rows in the lake is a step ahead of this store."""
+
+        source = _store(tmp_path / "source.sqlite")
+        target = _store(tmp_path / "target.sqlite")
+        _store_short_snapshot(
+            source,
+            [_short_record("A", 0.5), _short_record("B", 0.6)],
+            fetched_at_utc="2026-08-02T00:00:00+00:00",
+        )
+
+        merge_stores(source, target)
+
+        assert _coverage(target, "jquants_short_sale_reports") == [
+            (
+                "get_mkt_short_sale_report:2026-08-01..2026-08-01",
+                2,
+                "ok",
+                "2026-08-02T00:00:00+00:00",
+            )
+        ]
+
+    def test_a_claim_spanning_more_than_one_disclosure_date_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        """One total cannot be divided among several dates without inventing the split."""
+
+        source = _store(tmp_path / "source.sqlite")
+        target = _store(tmp_path / "target.sqlite")
+        _add_coverage(
+            source,
+            "jquants_short_sale_reports",
+            "get_mkt_short_sale_report:2026-08-01..2026-08-03",
+            record_count=5,
+            min_date="2026-08-01",
+            max_date="2026-08-03",
+        )
+
+        with pytest.raises(MergeError, match="spans more than one disclosure date"):
+            merge_stores(source, target)
 
 
 class TestDerivedTables:
