@@ -231,7 +231,6 @@ def create_pin(
             raise LakeRetentionError(
                 f"pin already exists with different content: {pin_id}"
             ) from exc
-        _write_pin_audit(mirror_root, action="create", pin=pin)
         return path
 
 
@@ -241,37 +240,11 @@ def remove_pin(mirror_root: Path, *, pin_id: str) -> bool:
         if not path.is_file():
             return False
         try:
-            pin = load_lake_model_json(path.read_bytes(), LakePin).require_consistent_target()
+            load_lake_model_json(path.read_bytes(), LakePin).require_consistent_target()
         except ValueError as exc:
             raise LakeRetentionError(f"pin is invalid: {pin_id}: {exc}") from exc
-        _write_pin_audit(mirror_root, action="remove_requested", pin=pin)
         path.unlink()
-        _write_pin_audit(mirror_root, action="remove", pin=pin)
         return True
-
-
-def _write_pin_audit(mirror_root: Path, *, action: str, pin: LakePin) -> None:
-    now = datetime.now(UTC)
-    path = (
-        mirror_root
-        / "lake"
-        / "audit"
-        / "pins"
-        / (f"{now:%Y%m%dT%H%M%S%fZ}-{pin.pin_id}-{action}.json")
-    )
-    write_bytes_atomic(
-        path,
-        json.dumps(
-            {
-                "action": action,
-                "recorded_at": now.isoformat(),
-                "pin": pin.model_dump(mode="json"),
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-        + b"\n",
-    )
 
 
 def read_pins(mirror_root: Path) -> tuple[LakePin, ...]:

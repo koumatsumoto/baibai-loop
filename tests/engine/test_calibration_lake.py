@@ -1230,7 +1230,6 @@ class TestRetention:
         assert [pin.pin_id for pin in pins] == ["pin-adopted-cohort"]
         assert pins[0].manifest_key == first.manifest_key
         assert pins[0].manifest_sha256 == first.manifest_sha256
-        assert len(list((tmp_path / "lake/audit/pins").glob("*.json"))) == 1
 
     def test_removing_a_pin_returns_its_target_to_the_sweep(self, tmp_path: Path) -> None:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
@@ -1248,11 +1247,6 @@ class TestRetention:
 
         assert remove_pin(tmp_path, pin_id="pin-adopted-cohort") is True
         assert not (tmp_path / pin_key(pin_id="pin-adopted-cohort")).exists()
-        audit_actions = {
-            json.loads(path.read_text(encoding="utf-8"))["action"]
-            for path in (tmp_path / "lake/audit/pins").glob("*.json")
-        }
-        assert audit_actions == {"create", "remove_requested", "remove"}
         plan = plan_gc(
             tmp_path,
             now=datetime.now(UTC) + timedelta(days=400),

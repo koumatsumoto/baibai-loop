@@ -491,7 +491,7 @@ uv run baibai-engine lake gc --mirror <local-mirror> --apply --plan-hash <hash>
 ```
 
 calibrationのrootはbundle pointerだけである。pinはbundle manifest keyとSHA-256を固定し、作成時に
-target closureを検証する。create/removeは`lake/audit/pins/`へappend-only eventを残す。
+target closureを検証する。pin file自身が記録であり、別のevent logは持たない — 誰も読まない記録は、収集の対象になるか永久に積まれるかのどちらかにしかならない。
 
 `gc` は既定がdry-runで、pointer/pin exact bytes、全root manifest/object digest、candidate identityを
 plan hashへ閉じる。`--apply`はpublisher/pinと共通のlocal writer lock取得後に再planする。初回applyは
