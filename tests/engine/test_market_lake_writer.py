@@ -727,14 +727,14 @@ def test_transform_source_digest_change_rejects_partition_reuse(
         producer_git_commit=_COMMIT,
         build_id="code-base",
     )
-    original = writer_module.sha256_file
+    original = writer_module.semantic_source_digest
 
     def changed_digest(path: Path) -> str:
         if path.name == "writer.py":
             return "f" * 64
         return original(path)
 
-    monkeypatch.setattr(writer_module, "sha256_file", changed_digest)
+    monkeypatch.setattr(writer_module, "semantic_source_digest", changed_digest)
     with pytest.raises(LakeBuildError, match="full rebuild"):
         _export(
             dataset_name="jquants.daily_bars",
@@ -938,10 +938,10 @@ class TestTransformIdentity:
         baseline = writer_module._transform_fingerprint(dataset)
         target = Path(writer_module.__file__).resolve().parents[1] / "sqlite" / "coverage.py"
         assert target.is_file()
-        real = writer_module.sha256_file
+        real = writer_module.semantic_source_digest
         monkeypatch.setattr(
             writer_module,
-            "sha256_file",
+            "semantic_source_digest",
             lambda path: "0" * 64 if path == target else real(path),
         )
 

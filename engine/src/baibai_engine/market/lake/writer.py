@@ -17,6 +17,7 @@ from types import MappingProxyType
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
+from baibai_engine.foundation.source_identity import release_line, semantic_source_digest
 from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 from baibai_engine.market.sqlite.snapshot import create_snapshot, validate_snapshot
 
@@ -873,15 +874,20 @@ def _transform_fingerprint(dataset: LakeDataset) -> str:
         "partition_by": dataset.partition_by,
         "row_group_size": _ROW_GROUP_SIZE,
         "source_kind": "legacy_sqlite_import",
-        "writer": f"pyarrow-{pa.__version__}",
+        # Only the release line: a patch release does not change the file format, and
+        # 25.0.0 to 25.0.1 was measured to write byte-identical Parquet while stopping the
+        # daily batch. A minor or major bump still forces the rebuild.
+        "writer": f"pyarrow-{release_line(pa.__version__)}",
         # Coverage semantics decide which months a build touches, whether a release
         # calls itself complete, and where its history starts. A change there moves the
         # release's meaning without moving a single Parquet byte, so a build made under
         # the old rules must not carry into one made under the new ones.
         "implementation_sha256": {
-            "market/lake/datasets.py": sha256_file(Path(__file__).with_name("datasets.py")),
-            "market/lake/writer.py": sha256_file(Path(__file__)),
-            "market/sqlite/coverage.py": sha256_file(
+            "market/lake/datasets.py": semantic_source_digest(
+                Path(__file__).with_name("datasets.py")
+            ),
+            "market/lake/writer.py": semantic_source_digest(Path(__file__)),
+            "market/sqlite/coverage.py": semantic_source_digest(
                 Path(__file__).resolve().parents[1] / "sqlite" / "coverage.py"
             ),
         },

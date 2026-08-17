@@ -904,3 +904,148 @@ def test_a_replaced_snapshot_carries_no_history_floor() -> None:
     # 蓄積する dataset は床を持ち続ける。免除は snapshot に限る。
     assert policy["jquants.daily_bars"].coverage_start_on_or_before == date(2016, 8, 1)
     assert policy["jquants.short_sale_reports"].coverage_start_on_or_before is not None
+
+
+def test_only_a_replaced_table_is_exempt_from_the_history_floor() -> None:
+    """免除の判定基準は「fetch が table を丸ごと置き換えるか」で、code から決まる。
+
+    範囲指定なしの `DELETE FROM <table>` はその table を snapshot にする — 行は蓄積せず、
+    最古の行も件数も source が今公表している範囲そのものになる。日付で絞った delete は
+    冪等な upsert で、行は蓄積するので 観測の 0.95 倍という床は時間とともに余裕が広がる。
+
+    将来 snapshot 型の dataset が増えたとき、履歴の床を付けたまま入ると年に一度止まる。
+    """
+
+    import re
+
+    from baibai_engine.market.lake.datasets import LAKE_DATASETS
+    from baibai_engine.market.lake.models import PRODUCTION_RELEASE_POLICY
+
+    cache = Path(__file__).resolve().parents[2] / "engine/src/baibai_engine/screening/sqlite_cache"
+    replaced = {
+        match.group(1)
+        for path in cache.rglob("*.py")
+        for match in re.finditer(r"DELETE FROM (\w+)\s*(?:\"|')", path.read_text(encoding="utf-8"))
+    }
+    snapshot_datasets = {
+        dataset.name for dataset in LAKE_DATASETS.values() if dataset.sqlite_table in replaced
+    }
+    exempt = {
+        item.dataset
+        for item in PRODUCTION_RELEASE_POLICY.datasets
+        if item.coverage_start_on_or_before is None
+    }
+
+    assert snapshot_datasets == {"jquants.earnings_calendar"}
+    assert exempt == snapshot_datasets
+
+
+def test_the_seasonal_calendar_floor_clears_its_measured_trough() -> None:
+    """季節性を持つ量の床は、観測した谷の下に無ければならない。
+
+    先 68 日窓 — この snapshot の幅 — に決算を announce する社数は、実開示 2023-08 以降の
+    週次 149 標本で 978〜4,699・中央 3,985 と 5 倍近く動く。谷は 3 年連続で 11 月中旬に
+    来る。旧床 3,232 は一度の観測 3,403 の 0.95 倍で、 32% の窓を割っており、健全な publish
+    を毎秋拒否していた。床が守るのは「calendar の一部しか返さなかった fetch」なので、
+    観測最小の半分に置く。
+    """
+
+    from baibai_engine.market.lake.models import PRODUCTION_RELEASE_POLICY
+
+    policy = {item.dataset: item for item in PRODUCTION_RELEASE_POLICY.datasets}
+    calendar = policy["jquants.earnings_calendar"]
+    measured_trough = 978
+
+    assert calendar.minimum_rows < measured_trough
+    assert calendar.minimum_population_count is not None
+    assert calendar.minimum_population_count < measured_trough
+    # 空の fetch を通してしまう床では意味がない。
+    assert calendar.minimum_rows > measured_trough // 4
+
+
+def test_a_forward_only_calendar_publishes_and_a_history_keeping_one_still_cannot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """免除は宣言だけでなく、publish が実際に通るところまで成立していなければならない。
+
+    先だけを持つ calendar の最古の行は今日より後ろにある。2026-08-17 の日次バッチは
+    `coverage starts 2026-07-03, later than the profile boundary 2026-06-19` で止まり、
+    その日の L1 release が 3 回とも publish されなかった。境界を持つ dataset では同じ
+    manifest が今も拒まれることを併せて固定し、通ったのが検査の不在ではないことを示す。
+    """
+
+    calendar = next(
+        item
+        for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
+        if item.dataset == "jquants.earnings_calendar"
+    )
+    monkeypatch.setattr(
+        lake_models,
+        "PRODUCTION_RELEASE_POLICY",
+        lake_models.PRODUCTION_RELEASE_POLICY.model_copy(update={"datasets": (calendar,)}),
+    )
+    payload = _dataset_payload(
+        dataset="jquants.earnings_calendar",
+        raw_dataset="earnings_calendar",
+        coverage_start="2026-07-03",
+        population_count=3403,
+        rows=3403,
+    )
+    # 決算 calendar は年で切る。contract version が partition の形を固定しているので、
+    # 既定の year+month のままでは manifest 自体が読めない。
+    payload["partition_by"] = ["year"]
+    partitions = payload["partitions"]
+    assert isinstance(partitions, list)
+    partitions[0]["values"] = {"year": 2026}
+    objects = partitions[0]["objects"]
+    assert isinstance(objects, list)
+    objects[0]["key"] = canonical_object_key(
+        layer="l1_canonical",
+        dataset="jquants.earnings_calendar",
+        contract_version=1,
+        partition_values={"year": 2026},
+        content_sha256="a" * 64,
+    )
+    manifest = _load_dataset(payload)
+    manifests = {manifest.dataset: manifest}
+    release = load_lake_model_json(
+        json.dumps(
+            {
+                "manifest_version": 1,
+                "release_id": "release-calendar",
+                "profile": "production",
+                "created_at": "2026-08-13T00:00:00Z",
+                "data_as_of": "2026-08-12",
+                "datasets": {
+                    manifest.dataset: {
+                        "build_id": manifest.build_id,
+                        "contract_version": manifest.contract_version,
+                        "manifest_sha256": hashlib.sha256(
+                            canonical_lake_model_bytes(manifest)
+                        ).hexdigest(),
+                        "data_as_of": manifest.data_as_of.isoformat(),
+                        "coverage_status": manifest.coverage_status,
+                        "totals": manifest.totals.model_dump(mode="json"),
+                    }
+                },
+            }
+        ),
+        ReleaseManifest,
+    )
+    evaluated_at = datetime(2026, 8, 13, tzinfo=UTC)
+
+    validate_release_policy(release, manifests, evaluated_at=evaluated_at)
+
+    monkeypatch.setattr(
+        lake_models,
+        "PRODUCTION_RELEASE_POLICY",
+        lake_models.PRODUCTION_RELEASE_POLICY.model_copy(
+            update={
+                "datasets": (
+                    calendar.model_copy(update={"coverage_start_on_or_before": date(2026, 6, 19)}),
+                )
+            }
+        ),
+    )
+    with pytest.raises(ValueError, match="later than the profile boundary"):
+        validate_release_policy(release, manifests, evaluated_at=evaluated_at)
