@@ -27,7 +27,7 @@ panel は cohort as-of 以下の最新 `eq_master` snapshot だけを読む。pr
 
 cohort の入力保証（`source_assurance`）は run purpose によらず coverage へ出るが、blocker になるのは `--run-purpose production_decision` のときだけである。他の blocker は cohort そのものの性質なので誰が読んでも成り立つのに対し、これは「この cohort を根拠に何を変えてよいか」であり、diagnostic 実行が問うていない。水準の定義と現在の到達可否は [`market-lake.md`](./market-lake.md) が正本。
 
-forward row は解決済み status（市場終値による `resolved`、成立した現金公開買付けによる `resolved_control_event_exit`）または明示的な unresolved status を持ち、`resolved` flag は前者 2 つと一致する。target と entry はそれぞれ target/as-of 以下の最終取引日で解決し、15 日超の stale exit は resolved return に入れない。価格は as-of basis adjustment factor で正規化するが、metric basis は `price_return_only` であり配当 accrual を加えない。entry 時点の配当利回りを horizon 年数で按分する固定 accrual は、期間中の増配・減配・無配・支払時期を観測した実現配当ではないため、実現値として扱わない。
+forward row は解決済み status（市場終値による `resolved`、成立した現金公開買付けによる `resolved_control_event_exit`、破綻型の上場廃止による `resolved_failure_exit`）または明示的な unresolved status を持ち、`resolved` flag は前者 3 つと一致する。target と entry はそれぞれ target/as-of 以下の最終取引日で解決し、15 日超の stale exit は resolved return に入れない。価格は as-of basis adjustment factor で正規化するが、metric basis は `price_return_only` であり配当 accrual を加えない。entry 時点の配当利回りを horizon 年数で按分する固定 accrual は、期間中の増配・減配・無配・支払時期を観測した実現配当ではないため、実現値として扱わない。
 
 財務サマリーの購読窓は 10 年の移動窓であり、store が読み取りを許す最古の日付は日々進む。panel の履歴窓（正規化 EPS 2,200 日、株主還元 1,200 日）はこの下限で切られるので、下限に近い古い cohort ほど履歴が短く、必要な期数に届かない値は null で出る。窓が通り過ぎた行は table に残るが読まない。**下限は store が持つ最古の行ではなく coverage が答える範囲から取る。** 両者は同じ「履歴の始まり」を指しながら別の量であり、行の側を採ると source が出せない範囲を要求して全 cohort が構築不能になる。
 
@@ -176,7 +176,7 @@ cohort inventory は 3 つの dataset manifest から導出するので、bundle
 
 ```bash
 uv run baibai-engine screening backfill-master --month-end-from 2022-09-01 --month-end-to 2026-06-30
-uv run baibai-engine screening calibration-build --start 2023-01-01 --end 2026-04-30 --force
+uv run baibai-engine screening calibration-build --start 2019-11-01 --end 2026-07-31 --force
 uv run baibai-engine screening calibration-evaluate --out .cache/calibration-eval.yaml
 uv run python -m tools.experiments.measure_buyback_authorization \
   --out .cache/buyback-authorization-calibration.yaml
@@ -266,6 +266,14 @@ primary-research lane の research FV と screening FV の bridge は、有効�
 ### 支配権イベントの実現 exit 値
 
 上場廃止で市場終値が無くなった forward 窓は、成立した現金公開買付けの 1 株買付価格で解決する（`resolved_control_event_exit`）。これは効果量を選ぶ仮説ではなく、観測済みの対価へ置き換える correctness 変更である。導出規則・置換規則・比較方法・停止条件は [`reports/studies/2026-08-11-capital-control-exit-values/preregistration.md`](../../reports/studies/2026-08-11-capital-control-exit-values/preregistration.md) に事前登録し、置換前後の較正影響を同ディレクトリの report に固定する。実値化できない上場廃止は従来どおり全損・中立の両側 bracket に残り、`unpriced_exit_flips_direction` の判定材料であり続ける。
+
+### 破綻型の実現 exit 値
+
+上場維持基準への不適合・破産・民事再生・会社更生・債務超過・内部管理体制・開示義務違反による上場廃止は、市場が最後に付けた終値で解決する（`resolved_failure_exit`）。資金が消えた退出には再投資の問いが立たないので、買収型と違い対価の規約を決めずに実値化できる。
+
+分類は JPX が `jpx_delistings.reason` に自由記述で書く語で行い、**fail-closed** とする。買収を示す語（完全子会社化・買収・公開買付・株式等売渡請求・合併・ＭＢＯ・株式移転・株式交換）を含む reason は破綻型としない。買収を破綻型と読むと買収プレミアムを全損として記録するのに対し、破綻型を分類し損ねても既存の欠落が残るだけである。`株式の併合` 単独はスクイーズアウトの第 2 段階なので破綻型ではない。
+
+価格は entry と同じ調整系列の終値どうしなので、買付価格と違い基準の突合を要さない。調整 factor の被覆は `resolved` と同じく行に記録し gate はしない。退出日が上場廃止日より後の銘柄（廃止後に再び取引された系列）と、1 窓に破綻型の廃止が 2 件入る銘柄は実値化せず unresolved に残す。廃止のかなり前に売買停止された銘柄は停止前の終値で評価されるため損失を過小に測るが、これは行ごと落とす現状と同じ向きで、より小さい。
 
 ### 誠実性の規律
 

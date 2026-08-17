@@ -38,12 +38,14 @@ from .context import CalibrationContextError, build_er_distribution_context
 from .evaluation import OPTIONAL_SENSITIVITY_METRICS, evaluate_cohorts
 from .forward import (
     CONTROL_EVENT_EXIT_STATUS,
+    FAILURE_EXIT_STATUS,
     HORIZONS,
     ForwardObservationPolicy,
     ForwardReturnRow,
     compute_forward_returns,
     latest_market_data_date,
     read_control_event_exits,
+    read_failure_exits,
 )
 from .grid import month_end_asof_grid
 from .lake import CalibrationBundleRef, CalibrationLakeError
@@ -83,6 +85,7 @@ def calibration_build_command(
     force: bool = False,
     panel_variant: PanelVariant = "production",
     use_control_event_exits: bool = True,
+    use_failure_exits: bool = True,
     stdout: TextIO | None = None,
 ) -> int:
     unreadable = unreadable_store_reason(sqlite_path)
@@ -130,6 +133,7 @@ def calibration_build_command(
                     force=force,
                     panel_variant=panel_variant,
                     use_control_event_exits=use_control_event_exits,
+                    use_failure_exits=use_failure_exits,
                     stdout=stdout,
                 )
         except LakeBuildError as exc:
@@ -194,11 +198,14 @@ def _calibration_build_command(
     force: bool = False,
     panel_variant: PanelVariant = "production",
     use_control_event_exits: bool = True,
+    use_failure_exits: bool = True,
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
     policy = PANEL_BUILD_POLICIES[panel_variant]
-    forward_policy = ForwardObservationPolicy(use_control_event_exits=use_control_event_exits)
+    forward_policy = ForwardObservationPolicy(
+        use_control_event_exits=use_control_event_exits, use_failure_exits=use_failure_exits
+    )
     is_default_dir = calibration_dir.resolve() == DEFAULT_CALIBRATION_DIR.resolve()
     if not policy.production_authority and is_default_dir:
         print(
@@ -209,6 +216,13 @@ def _calibration_build_command(
     if not use_control_event_exits and is_default_dir:
         print(
             "calibration build: --without-control-event-exits builds a comparison baseline "
+            "and requires a separate --calibration-dir",
+            file=sys.stderr,
+        )
+        return 1
+    if not use_failure_exits and is_default_dir:
+        print(
+            "calibration build: --without-failure-exits builds a comparison baseline "
             "and requires a separate --calibration-dir",
             file=sys.stderr,
         )
@@ -262,6 +276,7 @@ def _calibration_build_command(
         tickers_by_asof[asof] = {row.ticker for row in result.rows}
         built += 1
     control_event_exits = read_control_event_exits(fixed_sqlite) if use_control_event_exits else {}
+    failure_exits = read_failure_exits(fixed_sqlite) if use_failure_exits else {}
     observation_cutoff = latest_market_data_date(fixed_sqlite)
     if observation_cutoff is None:
         print("calibration build: snapshot contains no market observation cutoff", file=sys.stderr)
@@ -273,6 +288,7 @@ def _calibration_build_command(
             asofs=(asof,),
             tickers=tickers_by_asof[asof],
             control_event_exits=control_event_exits,
+            failure_exits=failure_exits,
         ):
             by_asof.setdefault(row.asof, []).append(row)
     for asof in asofs:
@@ -293,6 +309,7 @@ def _calibration_build_command(
     rows = [row for cohort_rows in by_asof.values() for row in cohort_rows]
     resolved = sum(row.resolved for row in rows)
     control_event = sum(row.status == CONTROL_EVENT_EXIT_STATUS for row in rows)
+    failure_exit = sum(row.status == FAILURE_EXIT_STATUS for row in rows)
     dropped = _cohorts_this_build_would_drop(calibration_dir, work_dir, force=force)
     if dropped:
         print(_dropped_cohorts_message(dropped), file=sys.stderr)
@@ -305,7 +322,8 @@ def _calibration_build_command(
     )
     print(
         f"calibration build: done (panels built={built}, forward rows={len(rows)}, "
-        f"resolved={resolved}, control event exits={control_event})",
+        f"resolved={resolved}, control event exits={control_event}, "
+        f"failure exits={failure_exit})",
         file=out,
     )
     # What making the generation current cost. Printing it is how a run that starts
