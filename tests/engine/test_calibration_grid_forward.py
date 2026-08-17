@@ -18,11 +18,14 @@ from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 from baibai_engine.screening.calibration.forward import (
     HORIZONS,
     ControlEventExit,
+    FailureExit,
     ForwardReturnRow,
     _FYDividendObservation,
     _ticker_forward_rows,
     compute_forward_returns,
+    is_failure_delisting,
     read_control_event_exits,
+    read_failure_exits,
 )
 from baibai_engine.screening.calibration.grid import complete_month_end_dates
 from baibai_engine.screening.providers.jquants import JQuantsDailyBar
@@ -183,6 +186,7 @@ class ForwardReturnTest(unittest.TestCase):
                     tickers=["1000"],
                     horizons=["3m"],
                     control_event_exits={},
+                    failure_exits={},
                 )
                 if row.ticker == "1000"
             )
@@ -204,6 +208,7 @@ class ForwardReturnTest(unittest.TestCase):
                     tickers=["1000"],
                     horizons=["3m"],
                     control_event_exits={},
+                    failure_exits={},
                 )
                 if row.ticker == "1000"
             )
@@ -257,6 +262,7 @@ class ForwardReturnTest(unittest.TestCase):
                     tickers=["1000"],
                     horizons=["1y"],
                     control_event_exits={},
+                    failure_exits={},
                 )
                 if row.ticker == "1000"
             )
@@ -278,6 +284,7 @@ class ForwardReturnTest(unittest.TestCase):
                     tickers=["1000"],
                     horizons=["1y"],
                     control_event_exits={},
+                    failure_exits={},
                 )
                 if row.ticker == "1000"
             )
@@ -528,6 +535,7 @@ class ForwardEntryToleranceTest(unittest.TestCase):
                 tickers=["1000"],
                 horizons=["3m"],
                 control_event_exits={},
+                failure_exits={},
             )
 
             row = next(row for row in rows if row.ticker == "1000")
@@ -729,3 +737,166 @@ class AdjustmentFactorGuardTest(unittest.TestCase):
         self.assertEqual(row.adjustment_factor_coverage, "unknown")
         self.assertNotEqual(row.status, "resolved_control_event_exit")
         self.assertFalse(row.resolved)
+
+
+class FailureExitTest(unittest.TestCase):
+    """A window ended by a failure delisting is a realized loss, not a missing observation.
+
+    Dropping it removes the left tail from every measured return: at 3y the 516 windows
+    that fall here have a median of -85.7% and a 20% win rate, against +36.6% mean for the
+    windows that resolved. The capital is gone, so no reinvestment convention is needed to
+    price it — the last close the market printed is what the position was worth.
+    """
+
+    ASOF = date(2025, 1, 31)
+    DELISTED_ON = date(2025, 3, 14)
+
+    def _rows(
+        self,
+        *,
+        bars: list[JQuantsDailyBar] | None = None,
+        failure_exits: tuple[FailureExit, ...] = (),
+    ) -> list[ForwardReturnRow]:
+        return _ticker_forward_rows(
+            "1000",
+            bars if bars is not None else [_bar(self.ASOF, 100.0), _bar(date(2025, 3, 13), 8.0)],
+            asofs=[self.ASOF],
+            horizons=(HORIZONS["3m"],),
+            eval_cap=date(2026, 6, 30),
+            failure_exits=failure_exits,
+        )
+
+    def _failure(self, reason: str = "上場維持基準への不適合") -> tuple[FailureExit, ...]:
+        return (FailureExit(delisted_on=self.DELISTED_ON, reason=reason),)
+
+    def test_a_failure_delisting_is_priced_at_the_last_close(self) -> None:
+        row = self._rows(failure_exits=self._failure())[0]
+
+        self.assertEqual(row.status, "resolved_failure_exit")
+        self.assertTrue(row.resolved)
+        self.assertAlmostEqual(row.price_return or 0.0, -0.92)
+        self.assertEqual(row.exit_date, "2025-03-13")
+
+    def test_the_same_window_without_the_delisting_stays_unresolved(self) -> None:
+        """The negative side of the same window, so a change that fires on everything
+        cannot pass as a working replacement."""
+
+        row = self._rows()[0]
+
+        self.assertEqual(row.status, "unresolved_stale_exit")
+        self.assertFalse(row.resolved)
+        self.assertIsNone(row.price_return)
+
+    def test_a_delisting_outside_the_window_does_not_price_it(self) -> None:
+        row = self._rows(
+            failure_exits=(FailureExit(delisted_on=date(2025, 8, 1), reason="破産手続き"),)
+        )[0]
+
+        self.assertEqual(row.status, "unresolved_stale_exit")
+
+    def test_a_name_that_traded_after_the_delisting_is_left_unresolved(self) -> None:
+        """A last close later than the removal is not the price trading stopped at."""
+
+        row = self._rows(
+            bars=[_bar(self.ASOF, 100.0), _bar(date(2025, 3, 20), 8.0)],
+            failure_exits=self._failure(),
+        )[0]
+
+        self.assertEqual(row.status, "unresolved_stale_exit")
+
+    def test_two_delistings_in_one_window_are_ambiguous(self) -> None:
+        row = self._rows(
+            failure_exits=(
+                FailureExit(delisted_on=self.DELISTED_ON, reason="破産手続き"),
+                FailureExit(delisted_on=date(2025, 3, 20), reason="民事再生手続き"),
+            )
+        )[0]
+
+        self.assertEqual(row.status, "unresolved_stale_exit")
+
+    def test_a_window_the_market_closed_is_untouched(self) -> None:
+        """Realizing failures must not restate a single window the market itself closed."""
+
+        row = self._rows(
+            bars=[_bar(self.ASOF, 100.0), _bar(date(2025, 4, 28), 120.0)],
+            failure_exits=self._failure(),
+        )[0]
+
+        self.assertEqual(row.status, "resolved")
+        self.assertAlmostEqual(row.price_return or 0.0, 0.2)
+
+
+class FailureReasonClassificationTest(unittest.TestCase):
+    """JPX writes the reason as free prose, so both sides of the split are pinned.
+
+    Reading an acquisition as a failure would book a takeover premium as a wipeout, which
+    is worse than the omission being replaced. The rule is fail-closed accordingly.
+    """
+
+    def test_insolvency_and_listing_failures_are_failures(self) -> None:
+        for reason in (
+            "上場維持基準への不適合",
+            "民事再生手続き",
+            "破産手続き",
+            "会社更生手続",
+            "債務超過",
+            "JASDAQ業績基準該当及び債務超過",
+            "内部管理体制等の改善がなされず改善の見込みがなくなったと当取引所が認める場合",
+            "有価証券報告書等の虚偽記載",
+            "四半期報告書提出遅延",
+            "時価総額が所要額未満",
+            "新規上場申請に係る宣誓書における重大な違反",
+            "公益・投資者保護（破産手続き開始の決定）",
+        ):
+            with self.subTest(reason=reason):
+                self.assertTrue(is_failure_delisting(reason))
+
+    def test_acquisitions_and_reorganisations_are_not_failures(self) -> None:
+        for reason in (
+            "株式の併合",
+            "株式等売渡請求による取得",
+            "他社による買収（公開買付け、株式併合）",
+            "ＭＢＯ（公開買付け、株式併合）",
+            "支配株主等による買収（株式併合）",
+            "イオンの完全子会社化（株式交換）",
+            "Ｊトラストに合併",
+            "ＧＭＯＴＥＣＨホールディングスの完全子会社化（株式移転）",
+            "申請による上場廃止",
+        ):
+            with self.subTest(reason=reason):
+                self.assertFalse(is_failure_delisting(reason))
+
+    def test_a_reverse_split_that_wiped_the_equity_out_is_a_failure(self) -> None:
+        """`株式の併合` alone is a squeeze-out; next to an insolvency it is the wipeout."""
+
+        self.assertTrue(
+            is_failure_delisting(
+                "株式の併合・破産手続、再生手続又は更生手続に準ずる状態（債務免除）"
+            )
+        )
+
+    def test_an_insolvency_phrase_inside_an_acquisition_does_not_realize_it(self) -> None:
+        """The fail-closed direction: an acquisition wins, and the row stays unresolved."""
+
+        self.assertFalse(is_failure_delisting("民事再生手続き中の会社の完全子会社化"))
+
+    def test_read_failure_exits_keeps_only_the_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            connection = open_connection(sqlite_path)
+            connection.executemany(
+                "INSERT INTO jpx_delistings(delisted_on, ticker, name, market, reason) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [
+                    ("2025-03-14", "1000", "A", "プライム", "上場維持基準への不適合"),
+                    ("2020-03-14", "1000", "A", "プライム", "民事再生手続き"),
+                    ("2025-05-01", "2000", "B", "スタンダード", "株式の併合"),
+                ],
+            )
+            connection.commit()
+            connection.close()
+
+            exits = read_failure_exits(sqlite_path)
+
+            self.assertEqual(sorted(exits), ["1000"])
+            self.assertEqual(len(exits["1000"]), 2)

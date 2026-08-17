@@ -25,6 +25,7 @@ from baibai_engine.read_api.shortlist import list_shortlist_payloads
 from baibai_engine.screening.calibration.forward import (
     compute_forward_returns,
     read_control_event_exits,
+    read_failure_exits,
 )
 from baibai_engine.screening.calibration.horizons import require_horizon
 from baibai_engine.screening.run_store import ScreeningRunReader, run_store_path
@@ -286,6 +287,7 @@ def build_measurement(
             tickers=[item.ticker for item in cohort.judgments],
             horizons=selected_horizons,
             control_event_exits=read_control_event_exits(market_db_path),
+            failure_exits=read_failure_exits(market_db_path),
         )
         cycle["counterfactual"] = {
             "status": estimate_source,

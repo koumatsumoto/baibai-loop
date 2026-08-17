@@ -44,6 +44,7 @@ from .forward import (
     compute_forward_returns,
     latest_market_data_date,
     read_control_event_exits,
+    read_failure_exits,
 )
 from .grid import month_end_asof_grid
 from .lake import CalibrationBundleRef, CalibrationLakeError
@@ -83,6 +84,7 @@ def calibration_build_command(
     force: bool = False,
     panel_variant: PanelVariant = "production",
     use_control_event_exits: bool = True,
+    use_failure_exits: bool = True,
     stdout: TextIO | None = None,
 ) -> int:
     unreadable = unreadable_store_reason(sqlite_path)
@@ -130,6 +132,7 @@ def calibration_build_command(
                     force=force,
                     panel_variant=panel_variant,
                     use_control_event_exits=use_control_event_exits,
+                    use_failure_exits=use_failure_exits,
                     stdout=stdout,
                 )
         except LakeBuildError as exc:
@@ -194,11 +197,14 @@ def _calibration_build_command(
     force: bool = False,
     panel_variant: PanelVariant = "production",
     use_control_event_exits: bool = True,
+    use_failure_exits: bool = True,
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
     policy = PANEL_BUILD_POLICIES[panel_variant]
-    forward_policy = ForwardObservationPolicy(use_control_event_exits=use_control_event_exits)
+    forward_policy = ForwardObservationPolicy(
+        use_control_event_exits=use_control_event_exits, use_failure_exits=use_failure_exits
+    )
     is_default_dir = calibration_dir.resolve() == DEFAULT_CALIBRATION_DIR.resolve()
     if not policy.production_authority and is_default_dir:
         print(
@@ -209,6 +215,13 @@ def _calibration_build_command(
     if not use_control_event_exits and is_default_dir:
         print(
             "calibration build: --without-control-event-exits builds a comparison baseline "
+            "and requires a separate --calibration-dir",
+            file=sys.stderr,
+        )
+        return 1
+    if not use_failure_exits and is_default_dir:
+        print(
+            "calibration build: --without-failure-exits builds a comparison baseline "
             "and requires a separate --calibration-dir",
             file=sys.stderr,
         )
@@ -262,6 +275,7 @@ def _calibration_build_command(
         tickers_by_asof[asof] = {row.ticker for row in result.rows}
         built += 1
     control_event_exits = read_control_event_exits(fixed_sqlite) if use_control_event_exits else {}
+    failure_exits = read_failure_exits(fixed_sqlite) if use_failure_exits else {}
     observation_cutoff = latest_market_data_date(fixed_sqlite)
     if observation_cutoff is None:
         print("calibration build: snapshot contains no market observation cutoff", file=sys.stderr)
@@ -273,6 +287,7 @@ def _calibration_build_command(
             asofs=(asof,),
             tickers=tickers_by_asof[asof],
             control_event_exits=control_event_exits,
+            failure_exits=failure_exits,
         ):
             by_asof.setdefault(row.asof, []).append(row)
     for asof in asofs:

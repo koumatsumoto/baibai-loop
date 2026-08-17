@@ -19,10 +19,13 @@ __all__ = (
     "DEFAULT_FORWARD_OBSERVATION_POLICY",
     "HORIZONS",
     "ControlEventExit",
+    "FailureExit",
     "ForwardObservationPolicy",
     "ForwardReturnRow",
     "compute_forward_returns",
+    "is_failure_delisting",
     "read_control_event_exits",
+    "read_failure_exits",
 )
 
 
@@ -38,6 +41,7 @@ class ForwardObservationPolicy:
     """
 
     use_control_event_exits: bool = True
+    use_failure_exits: bool = True
 
     @property
     def digest(self) -> str:
@@ -92,7 +96,56 @@ BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY,)
 # takeover; the rules that produce these values are pre-registered in
 # reports/studies/2026-08-11-capital-control-exit-values/.
 CONTROL_EVENT_EXIT_STATUS = "resolved_control_event_exit"
-RESOLVED_STATUSES = frozenset({"resolved", CONTROL_EVENT_EXIT_STATUS})
+
+# A window that ended when the exchange removed a failing company is resolved by the last
+# price the market printed, because that is the last price the position could be sold at
+# and no reinvestment question follows — the capital is gone. The status stays separate
+# from `resolved` so a reader can tell a window the market closed on its own target date
+# from one closed by a delisting.
+FAILURE_EXIT_STATUS = "resolved_failure_exit"
+RESOLVED_STATUSES = frozenset({"resolved", CONTROL_EVENT_EXIT_STATUS, FAILURE_EXIT_STATUS})
+
+# JPX writes the delisting reason as free prose, so the classification is by the phrases
+# the exchange actually uses. It is deliberately fail-closed: a reason that carries no
+# failure phrase, or that carries one alongside an acquisition phrase, is left to the
+# unresolved statuses rather than priced at a last close. Getting an acquisition wrong
+# would book a takeover premium as a wipeout; leaving a failure unclassified only
+# preserves the omission that already exists.
+_FAILURE_REASON_PHRASES = (
+    "破産",
+    "民事再生",
+    "会社更生",
+    "債務超過",
+    "上場維持基準",
+    "内部管理体制",
+    "虚偽記載",
+    "提出遅延",
+    "提出の遅延",
+    "時価総額が所要額未満",
+    "業績基準",
+    "宣誓書における重大な違反",
+)
+# `株式の併合` is not here: on its own it is the second step of a squeeze-out, which is
+# an acquisition rather than a failure. It only ever appears in a failure reason next to
+# an explicit insolvency phrase, and that reason is classified by the insolvency.
+_ACQUISITION_REASON_PHRASES = (
+    "完全子会社化",
+    "買収",
+    "公開買付",
+    "株式等売渡請求",
+    "合併",
+    "ＭＢＯ",
+    "MBO",
+    "株式移転",
+    "株式交換",
+)
+
+
+def is_failure_delisting(reason: str) -> bool:
+    """Whether this delisting reason is a failure whose last close is the realized exit."""
+    if any(phrase in reason for phrase in _ACQUISITION_REASON_PHRASES):
+        return False
+    return any(phrase in reason for phrase in _FAILURE_REASON_PHRASES)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -129,6 +182,14 @@ class ControlEventExit:
 
     delisted_on: date
     offer_price_yen: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class FailureExit:
+    """The day the exchange removed a failing company, and the reason it gave."""
+
+    delisted_on: date
+    reason: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +238,30 @@ def read_control_event_exits(sqlite_path: Path) -> dict[str, tuple[ControlEventE
     return {ticker: tuple(values) for ticker, values in exits.items()}
 
 
+def read_failure_exits(sqlite_path: Path) -> dict[str, tuple[FailureExit, ...]]:
+    """Load the delistings that removed a failing company, keyed by ticker.
+
+    The reason is carried through so a row can say which phrase realized it, and so a
+    later reading of the same store can tell a reclassification from a data change.
+    """
+    # No fallback to an empty mapping, for the same reason `read_control_event_exits`
+    # has none: a store that cannot answer would build a byte-identical baseline while
+    # presenting itself as the realized-exit contract.
+    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    try:
+        rows = conn.execute("SELECT ticker, delisted_on, reason FROM jpx_delistings").fetchall()
+    finally:
+        conn.close()
+    exits: dict[str, list[FailureExit]] = {}
+    for ticker, delisted_on, reason in rows:
+        if not is_failure_delisting(str(reason)):
+            continue
+        exits.setdefault(str(ticker), []).append(
+            FailureExit(delisted_on=date.fromisoformat(str(delisted_on)), reason=str(reason))
+        )
+    return {ticker: tuple(values) for ticker, values in exits.items()}
+
+
 def compute_forward_returns(
     sqlite_path: Path,
     *,
@@ -184,6 +269,7 @@ def compute_forward_returns(
     tickers: Iterable[str],
     horizons: Sequence[str] = tuple(HORIZONS),
     control_event_exits: Mapping[str, Sequence[ControlEventExit]],
+    failure_exits: Mapping[str, Sequence[FailureExit]],
 ) -> list[ForwardReturnRow]:
     if not asofs:
         return []
@@ -222,6 +308,7 @@ def compute_forward_returns(
                     horizons=specs,
                     eval_cap=eval_cap,
                     control_event_exits=tuple(control_event_exits.get(ticker, ())),
+                    failure_exits=tuple(failure_exits.get(ticker, ())),
                 )
             )
     finally:
@@ -239,6 +326,7 @@ def _ticker_forward_rows(
     horizons: Sequence[HorizonSpec],
     eval_cap: date | None,
     control_event_exits: Sequence[ControlEventExit] = (),
+    failure_exits: Sequence[FailureExit] = (),
 ) -> list[ForwardReturnRow]:
     dates = [bar.traded_at for bar in bars]
     events = bars if adjustment_events is None else adjustment_events
@@ -311,8 +399,33 @@ def _ticker_forward_rows(
                     if exit_close is None or stale_exit
                     else None
                 )
+                # A delisting for failure is priced only where the market itself could
+                # not close the window, so this is tried after the offer price and after
+                # the ordinary close: a window whose target date has a fresh bar is
+                # already resolved by that bar and is not revisited here.
+                failure_row = (
+                    _failure_exit_row(
+                        base,
+                        bars,
+                        fy_dividends,
+                        adjustment_events=events,
+                        price_basis_date=price_basis_date,
+                        failure_exit=_matching_failure_exit(
+                            failure_exits, entry_date=entry_date, target=target
+                        ),
+                        entry_date=entry_date,
+                        entry_close=float(entry_close or 0.0),
+                        exit_date=exit_date,
+                        exit_close=exit_close,
+                        adjustment_coverage=adjustment,
+                    )
+                    if control_row is None and stale_exit
+                    else None
+                )
                 if control_row is not None:
                     rows.append(control_row)
+                elif failure_row is not None:
+                    rows.append(failure_row)
                 elif exit_close is None or exit_date is None:
                     rows.append(replace(base, status="unresolved_missing_exit"))
                 elif stale_exit:
@@ -420,6 +533,81 @@ def _control_event_row(
         price_return=price_return,
         exit_date=control_exit.delisted_on.isoformat(),
         status=CONTROL_EVENT_EXIT_STATUS,
+        realized_dividend_sum=dividend_sum,
+        realized_dividend_fy_count=dividend_count,
+        total_return=total_return,
+        total_return_status=total_status,
+    )
+
+
+def _matching_failure_exit(
+    exits: Sequence[FailureExit], *, entry_date: date | None, target: date
+) -> FailureExit | None:
+    """The one failure delisting that ended trading inside this window, if exactly one did."""
+    if entry_date is None:
+        return None
+    matching = [
+        failure_exit for failure_exit in exits if entry_date < failure_exit.delisted_on <= target
+    ]
+    return matching[0] if len(matching) == 1 else None
+
+
+def _failure_exit_row(
+    base: ForwardReturnRow,
+    bars: Sequence[JQuantsDailyBar],
+    fy_dividends: Sequence[_FYDividendObservation],
+    *,
+    adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
+    price_basis_date: date | None,
+    failure_exit: FailureExit | None,
+    entry_date: date | None,
+    entry_close: float,
+    exit_date: date | None,
+    exit_close: float | None,
+    adjustment_coverage: AdjustmentCoverage,
+) -> ForwardReturnRow | None:
+    """Price the window with the last close before the delisting, or decline.
+
+    Entry and exit closes both come from the same adjusted series, so no basis
+    reconciliation is needed here — unlike an offer price, which is quoted on the share
+    basis of the delisting day. Adjustment coverage is therefore recorded on the row and
+    not gated on, exactly as it is for a window the market closed itself: this is the same
+    arithmetic as `resolved`, taken at a date the target could not reach.
+
+    The exit has to fall on or before the delisting, which is what distinguishes a company
+    the exchange removed from one that merely stopped trading: a name that traded again
+    afterwards is left unresolved rather than priced at a close that was not its last.
+
+    A company suspended long before the exchange removed it is priced at the last close it
+    printed, which understates the loss rather than overstating it. That is the same
+    direction the omission this replaces already had, and a smaller amount of it.
+    """
+    if failure_exit is None or entry_date is None or entry_close <= 0:
+        return None
+    if exit_date is None or exit_close is None or exit_close <= 0 or not bars:
+        return None
+    if exit_date > failure_exit.delisted_on:
+        return None
+    price_return = exit_close / entry_close - 1
+    if not isfinite(price_return) or price_return < -1:
+        return None
+    dividend_sum, dividend_count, total_return, total_status = _resolve_total_return(
+        bars,
+        fy_dividends,
+        adjustment_events=adjustment_events,
+        price_basis_date=price_basis_date,
+        entry_date=entry_date,
+        exit_date=exit_date,
+        entry_close=entry_close,
+        price_return=price_return,
+        adjustment_coverage=adjustment_coverage,
+    )
+    return replace(
+        base,
+        resolved=True,
+        price_return=price_return,
+        exit_date=exit_date.isoformat(),
+        status=FAILURE_EXIT_STATUS,
         realized_dividend_sum=dividend_sum,
         realized_dividend_fy_count=dividend_count,
         total_return=total_return,

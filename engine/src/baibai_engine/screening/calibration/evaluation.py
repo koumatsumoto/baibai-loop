@@ -18,7 +18,12 @@ from statistics import fmean, median, stdev
 
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
-from .forward import CONTROL_EVENT_EXIT_STATUS, TOTAL_RETURN_BASIS, ForwardReturnRow
+from .forward import (
+    CONTROL_EVENT_EXIT_STATUS,
+    FAILURE_EXIT_STATUS,
+    TOTAL_RETURN_BASIS,
+    ForwardReturnRow,
+)
 from .horizons import require_horizon
 from .panel import PanelRow
 
@@ -259,6 +264,10 @@ def _evaluate_cohort(
         "control_event_exit_count": sum(
             1 for row in candidate_rows if row.status == CONTROL_EVENT_EXIT_STATUS
         ),
+        # Windows the exchange closed by removing a failing company, priced at the last
+        # close it printed. Counted apart for the same reason: these carry the left tail,
+        # so a reader has to be able to see how much of a cohort's loss comes from them.
+        "failure_exit_count": sum(1 for row in candidate_rows if row.status == FAILURE_EXIT_STATUS),
         "data_unresolved_count": len(unresolved),
         "data_unresolved_reason_counts": unresolved_reasons,
         # Unresolved rows are not one kind of defect. A name that was not listed

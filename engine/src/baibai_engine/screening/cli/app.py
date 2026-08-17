@@ -495,6 +495,14 @@ def build_parser() -> argparse.ArgumentParser:
             "the imputation bracket; regenerates the comparison baseline"
         ),
     )
+    calibration_build_parser.add_argument(
+        "--without-failure-exits",
+        action="store_true",
+        help=(
+            "leave windows ended by a failure delisting unresolved instead of pricing them "
+            "at the last close; regenerates the comparison baseline"
+        ),
+    )
 
     calibration_evaluate_parser = subparsers.add_parser(
         "calibration-evaluate",
@@ -692,6 +700,7 @@ def main(argv: list[str] | None = None) -> int:
             force=args.force,
             panel_variant=cast(PanelVariant, args.panel_variant),
             use_control_event_exits=not args.without_control_event_exits,
+            use_failure_exits=not args.without_failure_exits,
         )
 
     if args.command == "calibration-evaluate":
