@@ -15,10 +15,10 @@ from pathlib import Path
 
 import pytest
 
+import baibai_batch.storage.publish_market_lake as publish_module
 from baibai_batch.storage.lake_publish import LakePublishError
 from baibai_batch.storage.publish_market_lake import (
     _require_no_rows_lost,
-    build_parser,
     publish_market_lake,
 )
 from baibai_engine.batch_api import L1ReleasePointer
@@ -128,10 +128,21 @@ def test_a_full_rebuild_and_an_expected_base_are_mutually_exclusive(tmp_path: Pa
         )
 
 
-def test_the_flag_reaches_the_publication() -> None:
-    args = build_parser().parse_args(
+def test_the_flag_reaches_the_publication(monkeypatch: pytest.MonkeyPatch) -> None:
+    """argparse が旗を持つことと、main がそれを渡すことは別の事実である。"""
+
+    seen: dict[str, object] = {}
+
+    def _capture(**kwargs: object) -> object:
+        seen.update(kwargs)
+        raise LakePublishError("stop before touching R2")
+
+    monkeypatch.setattr(publish_module, "publish_market_lake", _capture)
+    monkeypatch.setattr(publish_module, "AwsCliR2Store", lambda **_: _UnusedStore())
+
+    exit_code = publish_module.main(
         ["--sqlite", "market.sqlite", "--mirror", "stores", "--full-rebuild"]
     )
 
-    assert args.full_rebuild is True
-    assert args.base_release is None
+    assert exit_code == 1
+    assert seen["full_rebuild"] is True

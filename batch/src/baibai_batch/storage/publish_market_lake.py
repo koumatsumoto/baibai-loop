@@ -274,6 +274,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             expected_base_release_id=args.base_release,
             expected_base_manifest_sha256=args.base_manifest_sha256,
             release_id=args.release_id,
+            full_rebuild=args.full_rebuild,
         )
     except LakePublishError as error:
         print(f"error: {error}", file=sys.stderr)
