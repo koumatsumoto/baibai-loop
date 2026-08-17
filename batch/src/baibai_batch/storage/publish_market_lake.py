@@ -90,11 +90,16 @@ def publish_market_lake(
     if full_rebuild and expected_base_release_id is not None:
         raise LakePublishError("a full rebuild has no base release to expect")
     base = _serving_pointer(store)
-    _require_expected_base(base, expected_base_release_id, expected_base_manifest_sha256)
     if full_rebuild:
+        # The base-identity check asks "is the release I exported on top of still the
+        # one serving?" — a rebuild exports on top of nothing, so there is no such
+        # release to name and the question does not apply. What it protects against
+        # (sealing a graph that is missing another writer's rows) is answered instead
+        # by the row floor, which compares the store against the release being replaced.
         _require_no_rows_lost(sqlite_path, store, mirror_root, base)
         base_manifests: dict[str, Path] = {}
     else:
+        _require_expected_base(base, expected_base_release_id, expected_base_manifest_sha256)
         base_manifests = _base_manifest_paths(store, mirror_root, base)
 
     export = export_lake_legacy(
