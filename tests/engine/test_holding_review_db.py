@@ -437,3 +437,24 @@ def test_holding_build_and_publish_forward_one_operation_instant(
 
     assert validation_instants
     assert set(validation_instants) == {operation_now}
+
+
+def test_a_fractional_fair_value_is_floored_onto_the_whole_yen_grid() -> None:
+    """研究 FV は小数で出る。拒否すると documented な research 経路が保有に使えない。
+
+    `scenario_arithmetic --required-cagr-pct` は 4 桁の小数を出し、それが
+    `estimates.current_fair_value_yen` の既定の置き方である。購入側は同じ問いを
+    ceiling の floor で解いている — `execution_policy.max_acceptable_price` — ので、
+    保有側もそれに揃える。切り上げは thesis が主張していない upside を作る。
+    """
+
+    assert holding_builder_module._whole_yen(Decimal("963.3259")) == 963
+    assert holding_builder_module._whole_yen(Decimal("963.9999")) == 963
+    assert holding_builder_module._whole_yen(Decimal("1044")) == 1044
+
+
+def test_a_price_that_floors_to_zero_is_refused() -> None:
+    """1 円未満は whole-yen の格子に乗らない。0 を返すと下流の除算が壊れる。"""
+
+    with pytest.raises(holding_builder_module.HoldingReviewError):
+        holding_builder_module._whole_yen(Decimal("0.4"))

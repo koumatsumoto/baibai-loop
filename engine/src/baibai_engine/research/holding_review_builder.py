@@ -12,7 +12,7 @@ import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 from pathlib import Path
 
 from baibai_engine.appdb.write import connect_rw, initialize_database
@@ -329,9 +329,21 @@ def _base_5y_cagr(thesis: ThesisDocument, *, now: datetime) -> float:
 
 
 def _whole_yen(value: Decimal) -> int:
-    if value != value.to_integral_value():
-        raise HoldingReviewError("holding review requires whole-yen current price and fair value")
-    return int(value)
+    """Bring a price onto the whole-yen grid the review compares against.
+
+    The documented way to set `estimates.current_fair_value_yen` is to discount the 5y
+    base path with `scenario_arithmetic --required-cagr-pct`, which prints four decimals,
+    so refusing a fractional value made the documented research path unusable for any
+    holding. The purchase path already resolves the same question by flooring the ceiling
+    it derives (`execution_policy.max_acceptable_price`), and this follows it: sub-yen
+    precision is spurious against a market that trades in whole yen, and flooring keeps a
+    fair value from being rounded up into an upside the thesis did not claim.
+    """
+
+    floored = int(value.to_integral_value(rounding=ROUND_FLOOR))
+    if floored <= 0:
+        raise HoldingReviewError("holding review requires a positive whole-yen price")
+    return floored
 
 
 def _operation_instant(now: datetime | None) -> datetime:
