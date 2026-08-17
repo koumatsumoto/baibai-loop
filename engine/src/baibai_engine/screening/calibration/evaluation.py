@@ -151,6 +151,9 @@ AXES: tuple[AxisSpec, ...] = (
     AxisSpec(name="srp_ev_ebitda", direction=-1),
     AxisSpec(name="srp_p_s", direction=-1),
     AxisSpec(name="net_share_change_yoy", direction=-1),
+    # 同じ株数変化を自己株控除後で測った軸。方向は旧軸と同じ「縮むほど良い」を先に宣言する。
+    # 採否は reports/studies/2026-08-17-tradable-share-change/ の事前登録が決める。
+    AxisSpec(name="tradable_share_change_yoy", direction=-1),
     AxisSpec(name="accruals_to_assets", direction=-1),
     AxisSpec(name="dps_yoy_latest", direction=1),
     AxisSpec(name="share_count_reduction_streak", direction=1),
