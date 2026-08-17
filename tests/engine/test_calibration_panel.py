@@ -1736,3 +1736,48 @@ class DerivedCacheIdentityTests(unittest.TestCase):
             calibration_store._derive_cache_schema_version(),
             calibration_store._derive_cache_schema_version(),
         )
+
+
+class GridDropRefusalTest(unittest.TestCase):
+    """A too-narrow `--force` window is refused from the grid, before anything is built."""
+
+    def _store_with_cohorts(self, directory: Path, asofs: tuple[str, ...]) -> None:
+        for asof in asofs:
+            publish_panel(directory, asof, [{"ticker": "1301"}])
+
+    def test_a_narrow_force_window_is_refused_from_the_grid_alone(self) -> None:
+        from baibai_engine.screening.calibration.cli import _cohorts_a_grid_would_drop
+
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            self._store_with_cohorts(directory, ("2024-01-31", "2024-02-29", "2024-03-29"))
+
+            dropped = _cohorts_a_grid_would_drop(directory, [date(2024, 3, 29)], force=True)
+
+        self.assertEqual(dropped, [date(2024, 1, 31), date(2024, 2, 29)])
+
+    def test_a_window_covering_every_stored_cohort_is_allowed(self) -> None:
+        from baibai_engine.screening.calibration.cli import _cohorts_a_grid_would_drop
+
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            self._store_with_cohorts(directory, ("2024-01-31", "2024-02-29"))
+
+            dropped = _cohorts_a_grid_would_drop(
+                directory, [date(2024, 1, 31), date(2024, 2, 29)], force=True
+            )
+
+        self.assertEqual(dropped, [])
+
+    def test_an_incremental_build_carries_history_so_nothing_is_dropped(self) -> None:
+        """Without `--force` the store is hard-linked in, so a narrow window keeps history."""
+
+        from baibai_engine.screening.calibration.cli import _cohorts_a_grid_would_drop
+
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            self._store_with_cohorts(directory, ("2024-01-31", "2024-02-29"))
+
+            dropped = _cohorts_a_grid_would_drop(directory, [date(2024, 2, 29)], force=False)
+
+        self.assertEqual(dropped, [])
