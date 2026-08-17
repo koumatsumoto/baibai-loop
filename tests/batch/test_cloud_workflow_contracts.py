@@ -134,6 +134,29 @@ def test_lake_acceptance_premerge_trigger_is_owner_approved_and_event_bound() ->
     assert not any("secrets." in str(step) for step in steps[:-1])
 
 
+def test_history_workflow_fills_the_store_before_it_reads_or_extends_it() -> None:
+    """The object in R2 carries none of the history this pass is meant to extend.
+
+    Without the fill the pass reads an empty coverage window, re-fetches everything a
+    previous dispatch already got, and then cannot publish at all — the store push
+    empties the lake-owned tables against a release nothing has named. The daily batch
+    never exposed this because it does not run the merge, so the ordering is pinned
+    here rather than left to the next reader of the workflow.
+    """
+
+    steps = _steps(_workflow("cloud-history-backfill.yml"), "backfill")
+    names = [str(step.get("name", "")) for step in steps]
+
+    assert "Provision DuckDB httpfs extension" in names
+    assert names.index("Provision DuckDB httpfs extension") < names.index("Pull the market store")
+    assert names.index("Pull the market store") < names.index(
+        "Hydrate market store from the L1 release"
+    )
+    assert names.index("Hydrate market store from the L1 release") < names.index(
+        "Record the window the store already covers"
+    )
+
+
 def test_history_workflow_delegates_partial_failure_publication_to_tested_tool() -> None:
     steps = _steps(_workflow("cloud-history-backfill.yml"), "backfill")
     backfill = next(

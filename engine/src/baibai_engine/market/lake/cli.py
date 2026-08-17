@@ -34,8 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
     inventory_parser.add_argument(
         "--root",
         type=Path,
-        default=Path("stores/lake"),
-        help="local bucket mirror root; object keys below it must start with lake/",
+        default=Path("stores"),
+        help="local bucket mirror root; the lake namespace is the lake/ subtree below it",
     )
     inventory_parser.add_argument("--format", choices=("yaml", "json"), default="yaml")
 

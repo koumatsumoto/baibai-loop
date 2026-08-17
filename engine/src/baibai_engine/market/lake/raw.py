@@ -48,7 +48,7 @@ def archive_raw_file(
 ) -> tuple[Path, Path, RawArchiveMetadata]:
     """Capture one finalized source pass and atomically install Raw plus metadata."""
     if provider != "jquants":
-        raise RawArchiveError("Phase 1 Raw archive accepts provider='jquants' only")
+        raise RawArchiveError("Raw archive accepts provider='jquants' only")
     require_lake_dataset(dataset)
     if not source_path.is_file() or source_path.is_symlink():
         raise RawArchiveError("Raw source must be a finalized regular file")

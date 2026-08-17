@@ -724,13 +724,16 @@ def test_inventory_reads_metadata_only_and_groups_valid_keys(tmp_path: Path) -> 
     object_path = tmp_path / key
     object_path.parent.mkdir(parents=True)
     object_path.write_bytes(b"parquet")
-    invalid = tmp_path / "outside.txt"
-    invalid.write_text("ignored", encoding="utf-8")
+    # The mirror root is also where the operator keeps stores and backups. Those are not
+    # lake objects at all, so they belong in neither the totals nor the invalid keys.
+    (tmp_path / "market").mkdir()
+    (tmp_path / "market" / "market.sqlite").write_bytes(b"store")
+    (tmp_path / "outside.txt").write_text("ignored", encoding="utf-8")
 
     result = inventory(tmp_path)
 
-    assert result["objects"] == 2
-    assert result["bytes"] == 14
+    assert result["objects"] == 1
+    assert result["bytes"] == 7
     assert result["areas"] == [
         {
             "prefix": "lake/l1/canonical/jquants.daily_bars",
@@ -738,7 +741,21 @@ def test_inventory_reads_metadata_only_and_groups_valid_keys(tmp_path: Path) -> 
             "bytes": 7,
         }
     ]
-    assert result["invalid_keys"] == ["outside.txt"]
+    assert result["invalid_keys"] == []
+
+
+def test_inventory_reports_an_unsafe_key_inside_the_namespace(tmp_path: Path) -> None:
+    """Narrowing the walk to the namespace must not stop it reporting a bad key in it."""
+
+    stray = tmp_path / "lake" / "l1" / "canonical" / "jquants daily bars" / "part.parquet"
+    stray.parent.mkdir(parents=True)
+    stray.write_bytes(b"parquet")
+
+    result = inventory(tmp_path)
+
+    assert result["objects"] == 1
+    assert result["invalid_keys"] == ["lake/l1/canonical/jquants daily bars/part.parquet"]
+    assert result["areas"] == []
 
 
 def test_inventory_reports_raw_retention_class_bytes_and_age(tmp_path: Path) -> None:

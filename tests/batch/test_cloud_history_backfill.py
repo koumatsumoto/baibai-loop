@@ -14,8 +14,10 @@ def _store(path: Path) -> None:
         connection.execute("CREATE TABLE chunks (name TEXT PRIMARY KEY)")
 
 
+# The pass publishes the release and then the store, so both transfer steps have to be
+# recognised as "upload" by a fake runner that otherwise pretends to be the backfill.
 def _is_upload(command: Sequence[str]) -> bool:
-    return command[-1] == "push-market"
+    return command[-1] in {"publish-lake", "push-market"}
 
 
 def test_history_failure_uploads_committed_partial_progress_then_fails(tmp_path: Path) -> None:
@@ -99,12 +101,12 @@ def test_redispatch_reuses_persisted_chunk_without_fetch_or_upload(tmp_path: Pat
     store = tmp_path / "market.sqlite"
     _store(store)
     fetches = 0
-    uploads = 0
+    uploads: list[str] = []
 
     def runner(command: Sequence[str]) -> int:
-        nonlocal fetches, uploads
+        nonlocal fetches
         if _is_upload(command):
-            uploads += 1
+            uploads.append(command[-1])
             return 0
         with sqlite3.connect(store) as connection:
             cached = connection.execute(
@@ -134,7 +136,9 @@ def test_redispatch_reuses_persisted_chunk_without_fetch_or_upload(tmp_path: Pat
     assert first == 1
     assert second == 0
     assert fetches == 1
-    assert uploads == 1
+    # One publication cycle, in the only order that can complete: the store push empties
+    # the lake-owned tables against the release the publication just sealed.
+    assert uploads == ["publish-lake", "push-market"]
 
 
 def test_corrupt_partial_store_is_not_uploaded(tmp_path: Path) -> None:

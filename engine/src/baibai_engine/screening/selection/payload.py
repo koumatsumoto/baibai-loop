@@ -503,8 +503,14 @@ def _diagnostics(
             # only comparable across runs that read the same one.
             "previous_candidates_source": previous_candidates.source,
             "previous_candidates_count": len(previous_tickers),
+            # The count is against the previous set and the ratio is against this run's
+            # recommendations, so the two divide by different things. Printing the
+            # recommendation count and naming the denominator in the key is what keeps a
+            # reader from dividing the count by the number directly above it: 4 of 5
+            # recommendations repeating reads as 0.2 against a previous set of 20.
+            "recommended_count": len(recommended_tickers),
             "overlap_count": len(overlap_tickers),
-            "overlap_ratio": round(overlap_ratio, 4),
+            "overlap_share_of_recommendations": round(overlap_ratio, 4),
         },
         "durability_counts": _durability_counts(ranked_candidates),
         "invalid_numeric_metric_value_count": metric_type_warning_count,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import uuid
+from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import date
 from os import link
@@ -217,6 +218,12 @@ def _calibration_build_command(
     if not asofs:
         print("no month-end trading days found in the requested window", file=sys.stderr)
         return 1
+    # Both sides of this comparison are known before a single cohort is computed, and a
+    # full rebuild of this store takes 25 minutes. Refusing here rather than only after
+    # the build is what keeps a too-narrow window from costing that time twice.
+    if dropped := _cohorts_a_grid_would_drop(calibration_dir, asofs, force=force):
+        print(_dropped_cohorts_message(dropped), file=sys.stderr)
+        return 1
     tickers_by_asof: dict[date, set[str]] = {}
     built = 0
     expected_rules_hash = rules_content_hash(rules, policy)
@@ -288,15 +295,7 @@ def _calibration_build_command(
     control_event = sum(row.status == CONTROL_EVENT_EXIT_STATUS for row in rows)
     dropped = _cohorts_this_build_would_drop(calibration_dir, work_dir, force=force)
     if dropped:
-        print(
-            "calibration build: this run would publish a generation without "
-            f"{len(dropped)} cohort(s) the store holds: "
-            f"{', '.join(item.isoformat() for item in dropped[:5])}"
-            f"{' …' if len(dropped) > 5 else ''}. "
-            "Widen --start/--end to cover them, or rebuild into a separate "
-            "--calibration-dir if a shorter history is what you want.",
-            file=sys.stderr,
-        )
+        print(_dropped_cohorts_message(dropped), file=sys.stderr)
         return 1
     adoption = adopt_bundle_generation(
         calibration_dir,
@@ -320,6 +319,33 @@ def _calibration_build_command(
         file=out,
     )
     return 0
+
+
+def _dropped_cohorts_message(dropped: Sequence[date]) -> str:
+    return (
+        "calibration build: this run would publish a generation without "
+        f"{len(dropped)} cohort(s) the store holds: "
+        f"{', '.join(item.isoformat() for item in dropped[:5])}"
+        f"{' …' if len(dropped) > 5 else ''}. "
+        "Widen --start/--end to cover them, or rebuild into a separate "
+        "--calibration-dir if a shorter history is what you want."
+    )
+
+
+def _cohorts_a_grid_would_drop(
+    calibration_dir: Path, asofs: Sequence[date], *, force: bool
+) -> list[date]:
+    """The same refusal as below, decided from the requested grid before anything is built.
+
+    A full rebuild recomputes every cohort from the sealed snapshot, so learning that the
+    window was too narrow only at adoption time throws away the whole run. The grid is not
+    the authority on what the generation will hold — a cohort can fail to build — so this
+    predicts rather than decides, and the check on the built generation still runs.
+    """
+
+    if not force:
+        return []
+    return sorted(set(published_cohorts(calibration_dir)) - set(asofs))
 
 
 def _cohorts_this_build_would_drop(

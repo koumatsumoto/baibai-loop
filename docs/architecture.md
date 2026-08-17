@@ -37,7 +37,7 @@ baibai-loop/
 | package | responsibility | public surface |
 | --- | --- | --- |
 | `foundation` | 共通 primitive と境界 utility | engine 内部 |
-| `market` | market fact の取得、L1 SQLite、immutable lake contract、固定 release の local projection | `baibai-engine lake` |
+| `market` | market fact の取得、L1 SQLite、immutable lake contract、固定 release からの store hydration | `baibai-engine lake` |
 | `macro` | indicator series（L1）、macro reading（L2）、published macro context（L3） | `baibai-engine macro` |
 | `screening` | screening run、machine selection、shortlist、calibration | `baibai-engine screening` |
 | `research` | opportunity workspace、thesis / thesis review、planning-only limit | `baibai-engine research` |
@@ -73,7 +73,7 @@ Git に残す `method/` は `screening/rules`、`macro/reading`、`research/play
 大規模な market fact は、R2 の不変 object を Parquet で保持し、dataset manifest と L1 release
 manifest で exact input generation を固定する。DuckDB は Parquet の build・validation・analysis
 だけを担い、常駐 server や唯一の永続 DB にしない。SQLite は application state、小規模な関係
-data、固定 release から再構築できる local projection に限定する。Web は L1 を直接読まず、
+data、固定 release から再構築できる runtime copy に限定する。Web は L1 を直接読まず、
 materialized read model だけを読む。
 
 | layer | canonical form | allowed contents |
@@ -111,11 +111,10 @@ retentionから保護するclosure resolverと、それを使うpublisher・rete
 manifestとpointerを含むlake JSONは、duplicate key拒否とredacted validation errorを持つ
 共通parserだけを通し、wire size上限をparse前に検査する。partition valuesとrelease dataset
 inventoryはparse後に変更できない。
-releaseは`shadow`または`production` profileを宣言し、profileごとのmanifest size/object budgetと、
-dataset ごとのrequired・accepted contract・coverage要求・rows / population floor・検証時刻基準の
-freshness窓を満たす場合だけcurrent候補になる。cadenceも完全性もdatasetの性質なので、profile単位の
-単一閾値は持たない。
-shadow profileはcutover前を表し、production authorityを代替しない。
+releaseはprofileを宣言し、そのprofileのmanifest size/object budgetと、dataset ごとのrequired・
+accepted contract・coverage要求・rows / population floor・検証時刻基準のfreshness窓を満たす場合だけ
+current候補になる。cadenceも完全性もdatasetの性質なので、profile単位の単一閾値は持たない。
+profileは`production`ひとつで、要求の集合がひとつだからである。登録の無いprofileはfail-closeする。
 
 version 語彙は `contract_version`（schema・PK・型・partition・意味の互換境界）、`build_id`
 （immutable build）、typed `SourceRef`内のsource側version、`producer_git_commit`（code identity）
@@ -136,11 +135,10 @@ R2 の L1 release にあり、`market.sqlite` はその fixed release から削�
 読み取り側は実行開始時に current pointer を 1 度だけ解決し、以後は固定した `release_id` と
 immutable object key だけを読む。manifest digest、object digest、dataset contract の不一致は
 fail-close で、prefix listing・glob・`union_by_name` による吸収・provider fallback はいずれも
-持たない。projection の再利用は release、manifest digest、object digest、projection contract
-fingerprint の完全一致だけで決め、不一致・partial・破損は一時 file への再構築と
-atomic replace で扱う。projection を作った commit は audit として残すが再利用条件には入れない —
-projection の bytes を動かさない変更で 10M row を作り直させないためで、bytes を動かす実装は
-contract fingerprint 側が持つ。手順は
+持たない。固定 release を SQLite へ実体化するのは `lake hydrate` で、store の sealed copy へ
+lake 所有 table だけを積み直し、single rename で publish する。読み込んだ行数が release manifest の
+publish 行数と一致しなければ fail-close する — 静かに空のまま進んだ store は、screening に空の
+universe を健全な結果として publish させるためである。手順は
 [`reference/market-lake.md`](./reference/market-lake.md#fixed-release-read) を正本とする。
 
 このcustom manifest protocolは、単一writer・小規模catalog・Python中心という現在の制約に対して
@@ -162,8 +160,8 @@ repository-internal entry point で、domain の利用者向け surface では�
 主要 domain は `lake / screening / macro / operation / position / proposal / research / task / db`。
 `lake inventory` は local R2 mirror の metadata だけを読み、`lake validate` は JSON manifest
 contract だけを検査して object の dereference・publish・rewrite をしない。`lake resolve` は
-current pointer を 1 度だけ解決して固定 release の identity を出し、`lake projection build` は
-その release から local projection を再構築する。どちらも immutable object を書き換えない。
+current pointer を 1 度だけ解決して固定 release の identity を出し、`lake hydrate` はその release
+から market store の lake 所有 table を満たす。どちらも immutable object を書き換えない。
 `lake gc` は root closure から削除候補と plan hash を出す
 （既定は dry-run で、`--apply` は同じ plan hash を要求する）。
 schema field、option、stdout YAML は public `--help` と engine modelを正とする。screening `run /

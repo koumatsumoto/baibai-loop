@@ -1,6 +1,6 @@
 ---
 title: "Market lake operations"
-summary: "R2 の immutable object と manifest で market fact を publish し、固定 release から local projection を作る運用契約。"
+summary: "R2 の immutable object と manifest で market fact を publish し、固定 release から market store を満たす運用契約。"
 doc_type: reference
 status: active
 ---
@@ -14,9 +14,8 @@ L1 は `market.sqlite` の fetch 由来 table 15 本を持ち、R2 が持つ `ma
 運ぶ（[Daily cutover](#daily-cutover)）。その 4 本は L1 に入らない — `jpx_delistings`・
 `tender_offer_exit_values`・`tse_capital_policy_snapshots` は operator が導出したもので fetch の
 蓄積ではなく、key merge すると撤回した行が復活する。`source_coverage` は取得範囲の帳簿であって
-fact ではない。**不足 dataset を legacy store で暗黙に埋めない**。比較は
-[Shadow parity](#shadow-parity) の統制された shadow 実行だけで行い、その report が release 由来の
-table と legacy 由来の table を必ず両方列挙する。
+fact ではない。**不足 dataset を store の残り物で暗黙に埋めない** — hydrate は積む前に対象 table を
+空にし、積んだ行数が release manifest の publish 行数と一致しなければ失敗する。
 
 partition の粒度は dataset 契約が宣言する。行数から導出しない — reader は manifest の layout を
 契約と突き合わせるので、行数由来だと table が育った日に layout が無言で変わり reader が release を
@@ -46,9 +45,8 @@ precision、publication / effective / retrieved time、revision/cancellation sem
 これらのmappingを確定しRaw→canonical semantic parityを満たした時点をv2 rebuild triggerとする。
 
 `export-all`は開始時にSQLite backup APIでWALを含むsealed snapshotを1回作り、snapshot digest・
-schema version・`quick_check`を確定してから、両datasetのexport、source-state、parityを同じsnapshot
-から導出する。release作成時にも全partitionが両datasetでexactに1 snapshot generationへ閉じることを
-検証する。snapshotはoperationの一時入力であり、bytesはlakeにもremote closureにも残さない。manifest
+schema version・`quick_check`を確定してから、全datasetのexport、source-state、parityを同じsnapshotから導出する。
+release作成時にも全partitionが全datasetでexactに1 snapshot generationへ閉じることを検証する。snapshotはoperationの一時入力であり、bytesはlakeにもremote closureにも残さない。manifest
 が残すのはschema version・content digest・capture時刻という素性だけで、同じstore世代を持っているか
 どうかはre-sealして digest を突き合わせれば答えられる（unchangedなstoreに対してsealはbyte決定的）。
 
@@ -114,9 +112,11 @@ uv run baibai-engine lake archive-raw \
 ```bash
 uv run baibai-engine lake release create \
   --mirror <local-mirror> \
-  --dataset-manifest <daily-bars-manifest> \
-  --dataset-manifest <short-sale-manifest>
+  --dataset-manifest <manifest> ...    # export-all が出した 15 本すべて
 ```
+
+`--dataset-manifest` は release policy が required とする dataset を全て満たす必要がある。欠けた
+まま作ると release 検証が「required dataset を欠く」で停止する。
 
 ### local pipeline の実測
 
@@ -128,44 +128,35 @@ uv run python -m tools.diagnostics.benchmark_l1_export \
   --sqlite stores/market/market.sqlite --report <report.json>
 ```
 
-production store（2,013,155,328 bytes、schema v23、11,554,322 rows = daily bars 10,141,309 +
-short sale 1,413,013）を Linux/WSL2 の一時 directory で実測した結果は次のとおり。
+production store（2,013,155,328 bytes、schema v23、snapshot digest `100b1257…`、14,722,121 rows）
+を Linux/WSL2 の一時 directory で実測した結果は次のとおり。
 
 | 局面 | wall time | 生成 object | 生成 bytes |
 | --- | --- | --- | --- |
-| full export（121 か月 × 2 dataset） | 367.0 秒 | 242 | 252,387,406 |
-| 1 か月訂正の再 export | 251.5 秒 | 1 | 848,197 |
+| full export（14 dataset・全 partition） | 436.1 秒 | 435 | 299,949,710 |
+| 1 か月訂正の再 export | 122.5 秒 | 1 | 948,040 |
 
-peak RSS は 993,619,968 bytes（948 MiB）。
+peak RSS は 1,061,478,400 bytes（1,012 MiB）。`jquants.all_issues_daily_margin` は JPX の公表制度
+移行まで行を持たないので、export は 15 dataset のうち 14 を書く。
 
 **parity は build が書いた月だけを見る。** carried object は自分の bytes の digest で addressing
 されているので、「変わっていない」ことは検証対象ではなく恒等式である。全 history を SQLite から
-derive し直すのは、この build ではなく前の build を証明する作業になる。同一機・同一 store での A/B:
-
-| 増分 export（変更なし） | wall time |
-| --- | --- |
-| 既定（書いた月のみ検証） | **132 秒** |
-| `--audit`（全 history 再導出） | **309 秒** |
+derive し直すのは、この build ではなく前の build を証明する作業になる。上表の 2 行がその差で、
+1 か月の訂正は全量の 3.6 分の 1 で済み、生成 object は 435 分の 1 になる。
 
 月の inventory 比較（SQLite の月集合 == manifest の月集合）は常に全体で行う。全 history の再導出は
 `--audit` で明示的に求める — store 全体がまだ SQLite と一致するかを問う操作であり、日次の書き込み
 経路が毎回背負うものではない。日次 window の外側で SQLite を訂正した月は次の `--audit` まで lake に
-映らないので、週次と cutover 直前に `--audit` を実行する。
+映らないので、週次で `--audit` を実行する。
 
 この計測は commit ではなく実装 digest（writer / models / immutable / snapshot / benchmark tool）へ
 結ぶ。それらに触れない変更では証跡は有効なままで、触れた変更は再計測になる。
 
-**現在の状態: 参考値。** 上表は `a2005b74` の実測で、現 head では実装が動いている。同じ store
-（snapshot digest `703e3fab…`、11,554,322 rows）を現 head で測り直すと full export は 456 秒、
-projection は cold 104 秒 / reuse 61 秒で、いずれも記録値より 20〜30% 遅い。入力・行数・出力 bytes は
-完全に一致するので差は測定機の負荷であり、**記録値は楽観側に約 25% ずれている**と読むこと。増分
-export の A/B（上表）は現 head・同一機での実測である。
-
-<!-- AP-02: full=367.0256703949999 秒、incremental=251.45569620199967 秒、
-peak RSS=993619968 / 1048576 = 947.6015625 MiB、
-source sha256=703e3fab403489726708fc83c07fe1975e9f0ddad5ba492834ad2f1ec33144ce、
-implementation sha256=fa2377139ec3d9ab09f0d2a9fa011677b157072b6a569bbdcd02415c13b8fcb8、
-producer commit=bffb199a3119b1f02123626a2096a955185dd1d1。 -->
+<!-- AP-02: full=436.0613511959673 秒、incremental=122.4990771220182 秒、
+peak RSS=1061478400 / 1048576 = 1012.30 MiB、
+source sha256=100b125717183a9d82915fed88cf6b1839506159a3989111dab2838191d933ef、
+implementation sha256=ff126483d3f6240bc537262da5733caa4c338d039bd83ada59d8eef5c0a032a1、
+producer commit=4a17e41afd04b6da230bdef10ed61d16e5e0d203、recorded=2026-08-16T14:53:07Z。 -->
 
 ## R2 publish
 
@@ -194,15 +185,19 @@ writer が 1 つしかないこの構成では、悪い release を publish し�
 することである。同じ release ID の再 publish だけは中断した publication の retry として受け付け、
 identity が違えば拒否する。
 
-production authority化ではmutable pointer prefixを除くimmutable prefixへ
-[R2 Bucket Lock](https://developers.cloudflare.com/r2/buckets/bucket-locks/)を設定し、lock期間を
-restoreの最長保持期間以上にする。R2の
+**Bucket Lock は未設定である。** mutable pointer prefix を除く immutable prefix へ
+[R2 Bucket Lock](https://developers.cloudflare.com/r2/buckets/bucket-locks/) を設定し、lock 期間を
+restore の最長保持期間以上にすることが残っている。R2 の
 [S3互換checksum](https://developers.cloudflare.com/r2/api/s3/api/#checksum-types)はfull-object SHA-256を
 提供しないため、existing objectの再利用はcontent-addressed key、immutable PUT metadata、Bucket Lock、
-readerのSHA-256検証、そして`--verify-bytes`監査の組合せで閉じる。Bucket Lock設定確認と
-tamper→reader拒否→前へのre-publish drillはcutover acceptanceの必須項目である。
+readerのSHA-256検証、そして`--verify-bytes`監査の組合せで閉じる設計であり、現状はその 1 本が欠けた
+状態で運用している。設定には account 単位の権限が要り、日次の publisher token では設定状態を読めない
+（`GetObjectLockConfiguration` が `AccessDenied`）。設定後は tamper→reader 拒否→前への re-publish
+の drill を 1 度通す。
 
-Raw object と metadata は release publication より前に個別 publish する。
+Raw archive は writer と publish 経路を持つが、日次経路からは呼ばれない — provider ingest の
+Raw-first 化（#917 Goal 2）が未実装で、`lake/l1/raw/` の object は 0 である。手で archive した
+Raw を載せる場合は、release publication より前に個別 publish する。
 
 ```bash
 uv run python -m baibai_batch.storage.lake_publish \
@@ -316,85 +311,50 @@ row は bounded batch で読む。dataset は 10 年分の日足であり、全 
 変換すると build が終わる前に memory を使い切る。partition（1 か月）ごとに object を取得・検証し、
 その中を batch で流し込むので、peak memory は dataset の大きさではなく batch 幅に従う。
 
-## Local projection
+## Store hydration
 
-projection は固定 release から作る使い捨ての SQLite で、authority ではない。削除しても release
-から再構築できる。
+固定 release を SQLite へ実体化するのは hydrate である。`market.sqlite` の lake 所有 15 table を
+空にして release の object から積み直し、他の 4 table と schema はそのまま残す。store は満たされた
+後も ingest が書き続けるので、契約から導いた形ではなく store 自身の schema — 書き込み時の制約と
+index — を運ぶ必要がある。両者は実際に違う（store だけが `week_end` を制約し、契約が宣言しない
+secondary index を持つ）ので、契約側の形で作った store は本物が拒否する行を黙って受け入れる。
 
 ```bash
-uv run baibai-engine lake projection build \
-  --mirror <local-mirror> \
-  --projection stores/market/projection.sqlite
+uv run baibai-engine lake hydrate \
+  --mirror stores \
+  --store stores/market/market.sqlite
 ```
 
-current以外は`--release <id> --manifest-sha256 <sha256>`、または
-typed release ref fileを渡す`--release-ref <path>`で固定する。IDだけのprojection buildは受理しない。
-publishしていないlocal mirrorにはcurrent pointerが無いので、初回のprojectionは必ずこのどれかで
-releaseを名指す。
+current以外は`--release <id> --manifest-sha256 <sha256>`、または typed release ref fileを渡す
+`--release-ref <path>`で固定する。IDだけのhydrateは受理しない。publishしていないlocal mirrorには
+current pointerが無いので、初回のhydrateは必ずこのどれかでreleaseを名指す。
 
 `--bucket baibai-stores` を足すと、mirror に無い object だけを R2 から取得して mirror へ
 content-addressed に格納する。object key は content hash なので、変わらなかった partition は
 既に手元にあり転送量に乗らない。出力の `fetched_bytes` / `reused_bytes` がその内訳になる。
 
-再利用は完全一致でだけ起きる。`release_id`、release manifest digest、全 dataset manifest digest、
-全 object digest、projection contract fingerprint のいずれかが違えば再構築する。fingerprintには
-table / column / index契約に加え、projectionを作る実装（`projection.py` / `datasets.py` /
-`reader.py`）のdigestが入るので、bytesを動かす変更は必ず再構築になる。
-identity一致後もtable schema、PK、secondary index、row count、PK順の全row content digest、SQLite
-`quick_check`を再計算する。同じrow数のvalue mutation、column/indexの追加・削除、identity tableだけを
-残した改変は再利用しない。
-`built_at` と build した commit は identity に含めない。`built_at` は同じ入力の 2 回の build で必ず
-違い、commit は docs や web だけの変更でも動くので、含めると 10M row の再構築が projection の
-bytes と無関係な理由で起きる。commit は `builder_git_commit` として projection の meta に残す。
-CLIとbenchmarkは同じidentityを使うので、benchmarkのwarm reuseは実運用の挙動を表す。build は一意な一時 file へ書いて 1 回の rename で公開するので、途中状態が
-読まれることはなく、失敗しても直前の projection は壊れない。
+hydrate は store の sealed copy へ書き、1 回の rename で公開する。途中状態が読まれることはなく、
+失敗しても直前の store は壊れない。current modeでは成功を返す直前にcurrent pointerのfull identityを
+問い直す。identity は名前ではなく digest まで見る — 同じ release ID で別の bytes を再 publish した
+recovery が、名前比較なら通ってしまうためである。
 
-current modeでは、再利用と再構築の**どちらも**成功を返す直前にcurrent pointerのfull identityを
-問い直す。再利用は何も書かないが、決めるためにprojection全体を読み返す（production storeで47秒）
-ので、その間にpointerが動く窓は再構築と同じだけある。成功の報告は「これがcurrentのprojectionだ」
-という主張なので、計算中にcurrentでなくなった releaseについてそれを言わない。
+積む前に table の列並びを dataset 契約と突き合わせ、違えば load 前に停止する。契約はこの schema から
+導いたので、両者が一致していることが fill の前提である。secondary index は store 自身の DDL から
+読み取って落とし、load 後に同じ DDL で作り直す — index を張ったまま load すると load 自体の数倍
+かかる一方、契約側から index を発明することも store の index を失うこともない。primary key の
+auto index は DDL を持たず落とせないので残り、それが load の key semantics を保つ。
 
-production scaleではsecondary indexをbulk insert後に作る。開始前にpublished object bytesの5倍
-（最低64 MiB）の同一filesystem空き容量を要求し、10,136,873 daily-bar rowsと1,412,135 short-sale
-rowsのbaselineをbounded 20,000-row batchで処理し、index作成後に`ANALYZE`する。受入は次を実行し、
-reportの`status: passed`をrelease ID / manifest digestと一緒に保存する。
+開始前に同一 filesystem の空き容量を要求する。必要量は 64 MiB、現 store の bytes、published object
+bytes の 8 倍のうち最大で、真ん中の項は「一時 copy は store の複製として始まり満たされて終わる」
+ことから来る。倍率は実測（release 299,949,710 bytes の Parquet に対し store 2,013,155,328 bytes、
+6.71 倍）の上に置く。
 
-```bash
-uv run python -m tools.diagnostics.benchmark_lake_projection \
-  --mirror <local-mirror> --projection <temporary-projection> \
-  --release <release-id> --manifest-sha256 <release-manifest-sha256> \
-  --report <acceptance-report.json>
-```
-
-budgetはcold build 1,800秒、unchanged reuse検証300秒、peak RSS 4 GiB、build中の残空き2 GiB、
-代表index queryのp95 100 ms、3年後を現在row/output/timeの1.5倍とする線形stressでoutput 8 GiB・
-cold/reuseを同じ時間上限以内とする。11,549,008 row未満のfixtureはproduction-scale証拠として受理しない。
-reportはoutput bytes、`quick_check`、table rows、`sqlite_stat1`、query planも記録する。
-
-contract v2のreference acceptanceはLinux/WSL2、DuckDB 1.5.5、SQLite 3.50.4で、release
-`pr946-r5-acceptance` / manifest SHA-256
-`e960473ac41235caa5e927e3e031bd621eed86c5527d61ac079bc6b40e5dd0d5`の11,554,322 rowsを用いる。
-cold 78.55秒、reuse 47.07秒、peak RSS 433 MiB、output 1.33 GiB、代表query p95最大0.065 msで、
-全budget、`quick_check`、4件の`sqlite_stat1`を満たす。projection fingerprintは
-`sha256:e53ee0ea9deb62adcb222cb63fefcc623ae8739e64c5d77d9f601f659cfe4e37`、benchmarkの
-implementation SHA-256は`6b583b2af13fd7920e01efab10ce6e7409f6b40fd4f28e6f03de533f061db6a1`である。
-
-**現在の状態: stale。** 現 head の projection fingerprint は `sha256:b12d5cb4…` で、記録値とは別の
-identity である。fingerprint は projection を作る実装 digest を含むので、reuse identity への
-DuckDB / SQLite version 追加と、その後の currency check の変更のたびに動く。数値の桁は変わらないと
-見ているが、この head の証跡ではない。再計測が必要。
-<!-- AP-02: cold=78.55443349899724、reuse=47.06548080200446、
-peak RSS=453734400 / 1048576 = 432.71484375 MiB、
-output=1430007808 / 1073741824 = 1.3317985534667969 GiB、query p95最大=0.0654769828543067 ms。 -->
-これはproduction storeをsealed snapshotへ複製し、一時directoryだけにmirror /
-projectionを作った結果である。
-
-projectionのatomic publicationが対応するfilesystemは、case-sensitiveでhard link、同一directory内の
-`os.replace`、file fsync、directory fsyncを提供するLinux / WSL上のlocal POSIX filesystem
-（CIのext4/overlayfsを含む）である。buildは小さなprobe fileでこれらをload開始前に検査する。temporaryと
-destinationは必ず同じdirectoryに置く。NFS/CIFS、FUSE/DrvFS、directory fsyncを提供しないfilesystem、
-Windows native pathは未対応であり、projection destinationに使わない。replace失敗時はtemporaryを
-除去して直前projectionを保持する。
+hydrate の atomic publication が対応する filesystem は、case-sensitive で hard link、同一 directory
+内の `os.replace`、file fsync、directory fsync を提供する Linux / WSL 上の local POSIX filesystem
+（CI の ext4/overlayfs を含む）である。開始前に小さな probe file でこれらを検査する。temporary と
+destination は必ず同じ directory に置く。NFS/CIFS、FUSE/DrvFS、directory fsync を提供しない
+filesystem、Windows native path は未対応であり、market store の置き場に使わない。replace 失敗時は
+temporary を除去して直前の store を保持する。
 
 <a id="l2-calibration"></a>
 
@@ -627,7 +587,7 @@ rulesがその間に動いているため旧storeのcohortは1件もそのまま
 出力へ何を出さないかは、その出力が誰の手に渡るかで決まる。**共有される成果物** — remote publish
 report、Discord通知、CI artifact、そこへ載るerror — にはcredential、account ID、bucket URL、
 そしてlocal filesystem pathを出さない。publish reportがrelease ID・pointer ETag・転送counterだけで
-できているのはこのためである。**operator-local CLI**（`inventory`、`release`、`projection`、
+できているのはこのためである。**operator-local CLI**（`inventory`、`release`、`hydrate`、
 `archive-raw`、immutable installのerror）はlocal pathを出す。operatorが次に触るのはその
 pathそのものであり、隠すとdebug可能性を失うだけで誰も守らない。共有される場所へこれらのoutputを
 そのまま貼る運用にしない。
@@ -642,36 +602,18 @@ workflowがdefault branchへ入る前はrepository ownerがsame-repository PRへ
 入った後の再検証はexact 40文字SHAでmanual dispatchする。workflowは`acceptance`を名前に含む
 専用bucket以外を拒否し、bundle graphの
 実PUT、pointer read-back、前へのre-publishによる実CAS pointer switch、stale ETagの
-412/409 fail-closeに加え、tiny L1 publish→remote closure download→reader→projection、2 GiB objectの
+412/409 fail-closeに加え、tiny L1 publish→remote closure download→reader→hydrate、2 GiB objectの
 PUT/read-back時間、同じsize/偽SHA metadataを持つtampered bytesの拒否、wrong credential errorのredactionを
 検査する。
 credentialはvalidation/setupへ渡さず、actual R2 stepだけが専用publisher tokenを持つ。production-size
-export/projectionは上記reference acceptance reportをhead SHAと一緒に保存する。production bucketとcanonical storeをacceptanceに使わない。
+exportは上記reference acceptance reportをhead SHAと一緒に保存する。production bucketとcanonical storeをacceptanceに使わない。
 
-## Shadow parity
+**acceptance credentialは未設定である。** `R2_LAKE_ACCEPTANCE_BUCKET` variableだけが設定済みで、
+workflowが読む `R2_LAKE_ACCEPTANCE_ACCESS_KEY_ID` と `R2_LAKE_ACCEPTANCE_SECRET_ACCESS_KEY` の
+secretが無い。dispatchすると`Validate exact head without credentials`までは通り、actual R2 stepが
+`required environment variable is missing: R2_ACCESS_KEY_ID`で停止する。日次のpublisher tokenは
+acceptance bucketへ403を返すため代用できず、role分離の設計上代用してはならない。専用bucketの作成と
+その bucket だけへ Get/Head/Put/Delete を持つtokenの発行、2つのsecret登録が残っている。それまでの間、
+lakeのread経路を変える変更はacceptanceの代わりに実bucketに対するpublish→download→hydrateの
+round tripで確かめる。
 
-release から作った projection と legacy store で screening を 2 回実行し、candidate / metric /
-selection を突き合わせる。差分があれば非ゼロ終了する。legacy と lake が併存する間だけ必要な
-比較なので、stable CLI ではなく diagnostic script に置く。
-
-```bash
-uv run python -m tools.diagnostics.verify_lake_release_parity \
-  --asof <YYYY-MM-DD> \
-  --projection stores/market/projection.sqlite \
-  --mirror <local-mirror> \
-  --sqlite stores/market/market.sqlite
-```
-
-両側は同じ as-of、同じ rules、同じ時刻、同じ application DB で走り、provider は cache-only に
-固定する。legacy sideは`--sqlite`で渡したstoreをsealし、そのdigestがprojection identityの固定した
-releaseが名乗るsnapshot generationと一致することを要求する。sealはunchangedなstoreに対してbyte
-決定的なので、この一致は「両側が同じ世代を見ている」ことの証明になる。releaseを作った世代を
-もう持っていない場合は、比較を始める前に拒否する。reportはsnapshotのdigest/schema/capture時刻と
-release manifest digestを必須出力する。fetch できる provider が 1 つでもあると、release に欠けた行が裏で補われて「一致」が
-間違った理由で成立するので、release 側に穴があれば実行そのものを失敗させる。
-
-値が違ってよいのは publication ごとに新しく発行される識別子（`run_revision_id`、`selection_id`、
-`selection.input_refs.candidates_ref`）だけで、順序を含む他の全 field は一致しなければならない。
-両側とも候補 0 件なら `compared_nothing` を立てて不一致として扱う（空同士は自明に一致するので、
-それを一致と報告すると壊れた入力が証拠になってしまう）。report は `release_sourced_tables` と
-`legacy_sourced_tables` を必ず両方出す。後者が cutover の残作業そのものである。

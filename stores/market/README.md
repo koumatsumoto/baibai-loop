@@ -1,8 +1,7 @@
 # stores/market
 
-`market.sqlite` は価格・calendar・開示データを保持する rebuildable L1 store です。
-cloud の日次更新と local の深い履歴を merge して authority を維持します。
-
-`projection.sqlite` は固定した L1 release から作る使い捨ての射影で、authority ではありません。
-削除しても `baibai-engine lake projection build` で release から再構築でき、R2 へ upload しません
-（[market lake](../../docs/reference/market-lake.md)）。
+`market.sqlite` は価格・calendar・開示データを保持する store です。fetch 由来の 15 table は
+R2 の L1 release が canonical で、この file はそこから満たされる runtime copy です
+（`baibai-engine lake hydrate`）。取得範囲の帳簿と operator 導出 fact の 4 table だけが
+ここを canonical とし、R2 が持つ copy はその 4 table だけを運びます
+（[market lake](../../docs/reference/market-lake.md#daily-cutover)）。

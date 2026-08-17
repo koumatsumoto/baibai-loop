@@ -50,7 +50,7 @@ uv run python -m tools.experiments.measure_limit_outcomes --asof <最新完全�
 
 | store | 正本 | 転送規律 |
 | --- | --- | --- |
-| market / machine（runs） | R2 | 読む前に `pull-market` / `pull-machine`。push は script が **R2 copy を merge してから upload**（merge-then-push）。ローカルだけで長く作業した store を直接 push しない |
+| market / machine（runs） | R2 | 読む前に `pull-market` / `pull-machine` → **`hydrate-market`**。R2 の market copy は lake が持たない 4 table だけを運ぶので、pull しただけの store には価格も財務も 1 行も無い。push は lake 由来 15 table を `publish-lake` で先に出し、その後 `push-market` が残り 4 table を R2 copy と merge してから upload する（merge-then-push）。ローカルだけで長く作業した store を直接 push しない |
 | macro（indicators） | R2 | 同上（`push-macro` は no-loss merge。誤値の訂正は削除でなく `macro retract` — 契約は [`macro.md`](../../../docs/reference/macro.md)） |
 | app（baibai.sqlite） | **local** | 判断はローカルが正本。publish 後に `push-app`（直 push）→ materialize。**pull しない** — `pull-app` はローカルに store があれば止まる（cloud copy で置換すると未 push の判断が消える）|
 
@@ -81,9 +81,14 @@ batch/scripts/r2_transfer.sh upload-serving <dir>
 
 ```bash
 batch/scripts/r2_transfer.sh pull-market
+batch/scripts/r2_transfer.sh hydrate-market
 uv run baibai-engine screening refresh-buyback-reports --asof <最新完全営業日> --lookback-days 400
+batch/scripts/r2_transfer.sh publish-lake
 batch/scripts/r2_transfer.sh push-market
 ```
+
+`edinet_buyback_reports` は lake 所有なので、hydrate せずに走らせると空の store へ書き、
+`publish-lake` を飛ばすと `push-market` が「release が持つ行数と合わない」で止まる。
 
 **完了の判定は行数が動かなくなることで、`considered` が 0 になることではない。** store は 1 銘柄 1
 報告月につき勝った提出しか覚えないので、同じ月を別の提出（訂正）が上書きすると、上書きされた側は
@@ -97,9 +102,10 @@ batch/scripts/r2_transfer.sh push-market
 
 ## 月次維持
 
-- **calibration panel**: `uv run baibai-engine screening calibration-build --start 2022-09-01 --end <直近の完全月末>`（増分。rules 改訂後は `--force` 再構築）→ `calibration-evaluate`。契約は [`estimate-calibration.md`](../../../docs/reference/estimate-calibration.md)。
+- **calibration panel**: `uv run baibai-engine screening calibration-build --start 2022-09-01 --end <直近の完全月末>`（増分）→ `calibration-evaluate`。契約は [`estimate-calibration.md`](../../../docs/reference/estimate-calibration.md)。**`--force` は窓が別物である**。増分は窓の外の cohort を hard-link で引き継ぐが、`--force` は generation を空から作るので、窓が store の保持 cohort を覆っていないと拒否される。全再構築の `--start` は `published_cohorts` の最古（2026-08-17 時点で 2019-11-29）に合わせる。所要は 81 cohort で 40 分台、47 cohort で 25 分。
 - **PMI manifest**: `uv run python -m baibai_engine.macro.indicators.pmi_manifest --dry-run` → 本実行 → `macro refresh` で該当月を取得し公表値と照合してから commit。月が飛ぶ追記は拒否される（先に穴を埋める）。
-- **資本配分・支配権イベント**: 東証の開示企業一覧は毎月 15 日前後に更新される。`uv run baibai-engine screening refresh-capital-control --asof <ASOF>` → `uv run baibai-engine screening build-control-event-exits --asof <ASOF>`。前者は東証一覧と JPX 上場廃止を読み直し、後者は成立した公開買付けの実現 exit 値を導出する。どちらも繰り返し実行して同じ結果になる。出力の `tse_sheets` は取り込めた月次シート数で、前月から増えていなければ東証側がまだ更新していない（減っていたら最古シートが落ちたということなので、既存の月は store に残る）。`build-control-event-exits` の rejection 内訳は「一次資料が案件を一意に決められなかった件数」であり、0 になる性質のものではない。実行後は `push-market` で R2 正本へ同期する。契約は [`screening-runtime.md`](../../../docs/reference/screening-runtime.md#資本配分支配権イベントの-typed-fact)。
+- **lake の全 history 照合**: 週次で lake export の `--audit` を回す（正確な command は [`market-lake.md`](../../../docs/reference/market-lake.md#local-pipeline-の実測)）。日次の publish は「その build が書いた月」しか SQLite ↔ Parquet parity を見ないので、日次 window の外側で store を訂正した月は次の `--audit` まで lake に映らない。これが release と SQLite が全期間で一致することを問う唯一の操作である。実測は全量 436 秒。
+- **資本配分・支配権イベント**: 東証の開示企業一覧は毎月 15 日前後に更新される。`uv run baibai-engine screening refresh-capital-control --asof <ASOF>` → `uv run baibai-engine screening build-control-event-exits --asof <ASOF>`。前者は東証一覧と JPX 上場廃止を読み直し、後者は成立した公開買付けの実現 exit 値を導出する。どちらも繰り返し実行して同じ結果になる。出力の `tse_sheets` は取り込めた月次シート数で、前月から増えていなければ東証側がまだ更新していない（減っていたら最古シートが落ちたということなので、既存の月は store に残る）。`build-control-event-exits` の rejection 内訳は「一次資料が案件を一意に決められなかった件数」であり、0 になる性質のものではない。実行後は `push-market` で R2 正本へ同期する（この 2 つが書く 3 table は lake 所有ではないので `publish-lake` は要らないが、`push-market` は hydrate 済みの store を要求する — 先に `hydrate-market` を通す）。契約は [`screening-runtime.md`](../../../docs/reference/screening-runtime.md#資本配分支配権イベントの-typed-fact)。
 
 ## 運用 task の規約
 

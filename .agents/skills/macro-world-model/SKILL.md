@@ -34,7 +34,7 @@ cycle 3 以降の machine contract は `tools/experiments/macro_world_model/READ
 
 ### 0. Prior-blind preflight
 
-1. `batch/scripts/r2_transfer.sh pull-machine` で market / runs / macro store を同期する。application DB は local 正本なので pull しない。
+1. `batch/scripts/r2_transfer.sh pull-machine` → `hydrate-market` で market / runs / macro store を同期する。market store は hydrate まで通さないと fetch 由来 15 table が空である。application DB は local 正本なので pull しない。
 2. `as_of` を市場データの最終完全営業日に固定する。
 3. `baibai-engine macro context head` で head ID を得る。`context show` の出力は parser へ直接渡し、`as_of` だけを取り出す。本文、synthesis、connection、monitoring point の文言、scorecard 条件、確率を表示・保存しない。
 4. `baibai-engine macro context triggers --context-id <head> --asof <as_of> --format json` の出力は parser へ直接渡し、`context_as_of` と `status == "fired"` の件数だけを取り出す。event、view_change、series、threshold を表示・保存しない。

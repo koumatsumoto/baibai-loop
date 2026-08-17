@@ -11,7 +11,8 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 
 | bucket | object | owner |
 | --- | --- | --- |
-| `baibai-stores` | `market.sqlite` | `cloud-daily-batch` + `cloud-history-backfill`（手動 dispatch。窓を名指しして履歴を遡る）+ ローカル`push-market`（cloud copyのmerge後だけupload） |
+| `baibai-stores` | `market.sqlite`（lakeが持たない4 tableだけ） | `cloud-daily-batch` + `cloud-history-backfill`（手動 dispatch。窓を名指しして履歴を遡る）+ ローカル`push-market`（cloud copyのmerge後だけupload） |
+| `baibai-stores` | `lake/`（fetch由来15 datasetのcanonical L1） | `cloud-daily-batch`の`publish-lake` + ローカル`r2_transfer.sh publish-lake` |
 | `baibai-stores` | `runs.sqlite` | `cloud-daily-batch` |
 | `baibai-stores` | `macro.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-macro`（全履歴。cloud copyのmerge後だけupload） |
 | `baibai-stores` | `baibai.sqlite` | ローカル`publish.sh`（replica） |
@@ -204,7 +205,19 @@ gh workflow run cloud-history-backfill.yml --ref main \
 
 どちらのmergeも、終わった時点でsource側だけに残る行が1行でもあれば停止する。日次batchが取得済みでローカルに無い行を、uploadで失わないための不変条件である。以下はstoreごとに違う部分。
 
-`push-market`のmergeは`merge_market_store.py`である。通常の事実tableは主キーにより`INSERT OR IGNORE`し、同じ主キーを両側が持つ場合はpayloadの一致をmerge前後に検証する。訂正可能な`jquants_short_sale_reports`だけはdisclosure dateごとの完全snapshotとして扱う。同じrow集合ならprovider応答順ordinalの差を無視し、集合が異なる場合は`source_coverage.fetched_at_utc`が新しい完全取得側で日全体を置換する。片側が`partial`なら古くても`ok`側を残し、同一取得時刻で集合が異なれば正本を推測せず停止する。`source_coverage`には日付keyとrange keyがあり、cleanな財務summary rangeは各入力の実rowをmerge前に再計数する。入力claimが正しい場合だけfactsをunionし、targetのclean range countをunion後の実rowから再生成して再検証する。財務summary coverageの状態は`ok` + errorなし、または`partial` / `failed` + errorありのいずれかに完全分類し、unknown statusとhybridを拒否する。`partial` / `failed`は完全性claimとして扱わず、failure provenanceのpayloadをそのまま保持する。**比較しないのは、出所が何を言ったかではなくstoreがいつどう読んだかを記録する列だけ**（fetch時刻、およびEDINETが公開後に書き換える改訂marker）——2つのstoreが同じ記録を別の時刻に読めばそこは必ず食い違うので、比較すれば全てのmergeを拒否する。現行schemaを持つcloud側の財務4列がNULLで、完全再構築したlocal側だけ値を持つ場合はlocal値を保持する。逆向きの欠損と双方の値の不一致は拒否する。除外列とこの方向付き例外は`merge_market_store.py`に列挙し、事実列へ広がっていないことをtestが確かめる。mergeの対象tableは`FACT_KEYS`に列挙し、storeのtable一覧とずれたらtestが落ちる。
+`push-market`のmergeは`merge_market_store.py`である。**対象はlakeが持たない4 tableだけ**で、fetch由来15 tableのcloud/local突き合わせはreleaseが引き取っている——`publish-lake`はstoreをhydrateしたreleaseをlakeが既に離れていれば拒否し、dehydrateはreleaseが持たない行を持つstoreのuploadを拒否する。
+
+`source_coverage`は取得範囲の帳簿で、両側が書くので主キー`(source, coverage_key)`で`INSERT OR IGNORE`し、同じ主キーを両側が持つ場合はpayloadの一致を検証する。**比較しないのは、出所が何を言ったかではなくstoreがいつ読んだかを記録する`fetched_at_utc`だけ**——2つのstoreが同じ範囲を別の時刻に読めばそこは必ず食い違うので、比較すれば全てのmergeを拒否する。
+
+`record_count`は行が在る場所でしか証明できない。R2が運ぶdehydrate済みのsourceでは証明せずclaimとして受け取り、targetのclaimは**実rowへ引き上げるだけで、決して引き下げない**。引き下げは、このstoreが満たされていないreleaseを記述しているclaimを、より小さい数値で置き換える操作である。次のhydrateが行を戻してもledgerは小さいままで、`verify-cache-coverage`が以後の全screening runを止める一方、再取得は永久に計画されない——`covered_intervals`が窓を落とすのはcountが0のときだけだからである。引き上げられないclaimはmerge後の検査で停止し、「lakeがserveしているreleaseからhydrateし直せ」と出る。**空のtargetもここで止まる**——「取得済み」と言うclaimを黙って0へ書き換える代わりに拒否する。
+
+**ledgerは追記専用ではない。** 取得に失敗すると、その範囲は重なる`ok`窓から切り出され、残余が新しいkeyで書き直される（穴が失敗した場所に見えるようにするため）。keyによるunionは、後の取得が撤回した広い窓を古いcopyから復活させ得るので、mergeはそれを修復せず拒否する——同じsourceで`ok`窓が`failed` / `partial`窓に重なるledgerは、どのfetcherも書かない形である。
+
+訂正可能な`jquants_short_sale_reports`のcoverageはdisclosure dateごとに1つのclaimを選ぶ。`ok`が`partial`/`failed`に勝ち、同種なら`fetched_at_utc`が新しい方が勝つ。`record_count`はreleaseが満たしたtargetの実rowから読み直す。行が1つも claimされないdateがあれば停止するが、**その検査はclaim選択の後**に置く——行はhydrateで、claimはmergeで届くので、cloudが取得して publishした日はtargetのtableに1段先に現れる。
+
+`jpx_delistings` / `tender_offer_exit_values` / `tse_capital_policy_snapshots`はoperatorが導出したもので、targetを丸ごと残しsourceから1行も取り込まない。key mergeすると、後の導出が撤回した行が古いcopyから復活し、訂正した値は「2つのstoreが食い違う」と読まれてpublish全体を止める。
+
+mergeの対象tableは`merge_market_store.py`の`FACT_KEYS` / `DERIVED_KEYS`に列挙し、**それとlake datasetの合併がstoreのtable一覧と一致すること**をtestが確かめる。新しいtableはlakeかmergeのどちらかに分類しないと落ちる。
 
 machine storeの全writerはdownload時のR2 ETagを保持し、backupは同じsource ETag、最終`PutObject`は同じdestination ETagを条件にする。日次batchは`pull-machine`が3 storeのgenerationを記録し、`push-machine`が全keyを事前照合してから各keyを条件付きで発行する。merge中またはupload直前に別writerがobjectを更新した場合はprecondition failureで停止し、最新cloud copyからやり直す。これにより、GitHub Actions外の手動pushと日次batchのどちらが後着しても、先に発行された更新を巻き戻さない。途中のkeyでnetwork / precondition failureになった場合はserving tailを発行せず、次回runが各keyの現行generationをpullして再構成する。
 
@@ -239,7 +252,7 @@ npx wrangler secret put VIEW_PASSWORD
 
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
 - 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括のmachine store pushはGitHub Actionsからだけ許可する（`runs.sqlite`はcloudが唯一のwriterで、無条件uploadが古いローカルcopyで巻き戻すため）。`macro.sqlite` / `market.sqlite`はローカルからも`push-macro` / `push-market`でuploadできるが、いずれもcloud copyのmergeを通した後だけで、mergeがcloud側の行の取り残しを検出したら停止する。
-- pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例してGB級のstoreではaws CLI既定のread timeout 60秒に収まらないため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。**cutover後、`market.sqlite`が運ぶのはlakeが持たない4 tableだけになる。** cutover直後のrunner実測は`market.sqlite` 4,972,544 bytes（snapshot 46秒・backup 114秒・upload 2秒）、`runs.sqlite` 52,838,400 bytes（1秒・7秒・3秒）、`macro.sqlite` 256,184,320 bytes（2秒・17秒・14秒）である。market storeのsnapshotが46秒なのは、空にする前のfull storeを一度copyするためで、`.bak`の114秒は**置き換えられる側**——cutover前の1.88GB——のserver-side copyなので、次のrunからは5MBのcopyになる。`push-machine`はkeyごとに`store push: key=... bytes=... snapshot=...s backup=...s upload=...s`を出すので、storeが伸びたときの内訳はrunのlogで見る。
+- pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例してGB級のstoreではaws CLI既定のread timeout 60秒に収まらないため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。**`market.sqlite`が運ぶのはlakeが持たない4 tableだけである。** runner実測は`market.sqlite` 4,972,544 bytes（snapshot 46秒・backup 114秒・upload 2秒）、`runs.sqlite` 52,838,400 bytes（1秒・7秒・3秒）、`macro.sqlite` 256,184,320 bytes（2秒・17秒・14秒）である。market storeのsnapshotが46秒なのは、空にする前のfull storeを一度copyするためである。この`.bak` 114秒は置き換えられる側が1.88GBだった初回の値で、以降は5MBのcopyになる。`push-machine`はkeyごとに`store push: key=... bytes=... snapshot=...s backup=...s upload=...s`を出すので、storeが伸びたときの内訳はrunのlogで見る。
 - `.bak`は1世代のみで、次のpushで置き換わる。日次batchが毎営業日pushするため、実質の巻き戻し猶予は約24時間である。registry編集後は日次workflowの`registry-prune-pending` / `registry-prune`行（transaction ID・series ID・observation/provider-run削除件数）を当日中に確認する。pending に対応する committed 行が無い実行や意図しないpruneを検出したら、次のpushが`.bak`を置き換える前に状態を確認・復元する。
 - 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。
 - pullは固定4 key以外を受け付けず、全downloadと`quick_check`完了後に置換する。

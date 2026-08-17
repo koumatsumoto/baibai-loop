@@ -471,6 +471,7 @@ def _credential_invocations(stub: WorkflowCommandStub) -> dict[str, dict[str, st
             None,
             {
                 "Pull the market store",
+                "Hydrate market store from the L1 release",
                 "Backfill and publish committed progress",
             },
         ),

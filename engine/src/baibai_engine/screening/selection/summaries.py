@@ -273,6 +273,20 @@ def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str
             "authorization_window_end": metrics.get("buyback_authorization_window_end"),
             "report_month_end": metrics.get("buyback_report_month_end"),
         },
+        # carry のもう半分。`dividend_yield` は予想 DPS を現値で割った 1 つの数で、その額が
+        # 反復する普通配当なのか一回性の特別配当なのかを区別しない。特別配当は予想年間 DPS へ
+        # そのまま入るので、carry が E[r] の主キーである以上、一回性の分配は上位へ集中して
+        # 現れる。予想と直近実績を並べて出すのは、その桁の跳ねを判断面で見えるようにするため
+        # である。両者は同じ株式基準へ揃えた後の値で、揃えられなかった年度は実績側が null に
+        # なる (`basis` がどちらを使ったかを言う)。比率にはしない — 実績側は前年度の値なので、
+        # 1 つの数へ畳むと「どの期と比べているか」が消える。
+        "dividend_basis": {
+            "annual_yield": metrics.get("dividend_yield"),
+            "dps_forecast_annual": metrics.get("dps_forecast_annual"),
+            "dps_actual_annual": metrics.get("dps_actual_annual"),
+            "basis": metrics.get("dividend_basis"),
+            "split_factor": metrics.get("dividend_split_factor"),
+        },
         # longlist は OP3 が 20 件を点検する view なので、価値実現の経路を示す dated fact も
         # ここに置く。rank へは接続しない。
         "capital_control": {

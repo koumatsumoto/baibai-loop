@@ -72,7 +72,12 @@ def run_history_backfill(
     upload_code = 0
     if after_sha256 != before_sha256:
         validate_database(sqlite_path)
-        upload_code = runner((str(ROOT / "batch/scripts/r2_transfer.sh"), "push-market"))
+        # The lake owns the tables this pass extends, so the release is published first
+        # and the store second. The store push empties those tables against the release
+        # it names, so the reverse order cannot even complete — and if it could, it would
+        # leave a cloud store claiming coverage whose rows are in no release.
+        transfer = str(ROOT / "batch/scripts/r2_transfer.sh")
+        upload_code = runner((transfer, "publish-lake")) or runner((transfer, "push-market"))
     else:
         print("history backfill made no market-store change; upload skipped")
 

@@ -192,10 +192,10 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: batch/scripts/r2_transfer.sh publish-lake
 
-      # The market store push now moves the tables the lake does not own — kilobytes
-      # rather than the 1.88GB it moved before the cutover — while the views mirror moves
-      # 54MB across 3,740 objects and is request-bound. They stay parallel because the
-      # views side is unchanged and still the longer of the two.
+      # The market store push moves only the tables the lake does not own — 4,972,544
+      # bytes measured — while the views mirror moves 54MB across 3,740 objects and is
+      # request-bound. They stay parallel because the views side is now the longer of
+      # the two by a wide margin.
       #
       # Only `views/` joins the store push. It is rewritten every business day, so a
       # run whose push fails leaves views the next run replaces. `history/` and

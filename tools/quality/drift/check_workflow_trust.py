@@ -70,6 +70,11 @@ _EXPECTED_STEP_CREDENTIALS: dict[tuple[str, str, str], dict[str, str]] = {
     (
         "cloud-history-backfill.yml",
         "backfill",
+        "Hydrate market store from the L1 release",
+    ): _R2,
+    (
+        "cloud-history-backfill.yml",
+        "backfill",
         "Backfill and publish committed progress",
     ): {**_R2, "JQUANTS_API_KEY": "${{ secrets.JQUANTS_API_KEY }}"},
     ("cloud-materialize.yml", "materialize", "Pull stores"): _R2,
@@ -201,6 +206,11 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
     ("cloud-history-backfill.yml", "backfill", "Pull the market store"): (
         "adebb121bed282346210d5a71a832a530661cb8c14a696cedf78328580aa3a31"
     ),
+    (
+        "cloud-history-backfill.yml",
+        "backfill",
+        "Hydrate market store from the L1 release",
+    ): "5a173109b80c186739af4a831a234c96f55b381d77b3f324a2b2f3e04538ca2c",
     (
         "cloud-history-backfill.yml",
         "backfill",
