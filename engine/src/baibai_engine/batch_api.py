@@ -41,6 +41,7 @@ from baibai_engine.macro.indicators.service import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
     LATEST_FETCH_LOOKBACK_DAYS,
 )
+from baibai_engine.market.lake.datasets import LAKE_DATASETS
 from baibai_engine.market.lake.identity import verified_git_commit as lake_verified_git_commit
 from baibai_engine.market.lake.keys import (
     current_calibration_bundle_pointer_key as lake_current_calibration_bundle_pointer_key,
@@ -99,6 +100,7 @@ __all__ = [
     "DEFAULT_MACRO_DB_PATH",
     "EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS",
     "EDINET_DOCUMENT_LIFECYCLE_COLUMNS",
+    "LAKE_DATASETS",
     "LATEST_FETCH_LOOKBACK_DAYS",
     "MACRO_CONTEXT_SCHEMA_VERSION",
     "MACRO_DB_PATH",
