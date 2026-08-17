@@ -145,6 +145,7 @@ class PanelRow:
     cfo_yoy: float | None
     accruals_to_assets: float | None
     net_share_change_yoy: float | None
+    tradable_share_change_yoy: float | None
     ttm_quality_per_trailing: str
     ttm_quality_ocf_yield: str
     price_change_60d: float | None
@@ -484,6 +485,7 @@ def build_panel(
                 cfo_yoy=financial.cfo_yoy,
                 accruals_to_assets=financial.accruals_to_assets,
                 net_share_change_yoy=financial.net_share_change_yoy,
+                tradable_share_change_yoy=financial.tradable_share_change_yoy,
                 ttm_quality_per_trailing=financial.ttm_quality_per_trailing.value,
                 ttm_quality_ocf_yield=financial.ttm_quality_ocf_yield.value,
                 price_change_60d=derived.price_change_60d,
@@ -690,6 +692,7 @@ def _unresolved_master_member_row(
         cfo_yoy=None,
         accruals_to_assets=None,
         net_share_change_yoy=None,
+        tradable_share_change_yoy=None,
         ttm_quality_per_trailing="unavailable",
         ttm_quality_ocf_yield="unavailable",
         price_change_60d=None,

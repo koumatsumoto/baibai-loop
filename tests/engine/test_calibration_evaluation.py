@@ -133,6 +133,7 @@ def _panel_row(
         cfo_yoy=None,
         accruals_to_assets=None,
         net_share_change_yoy=None,
+        tradable_share_change_yoy=None,
         ttm_quality_per_trailing="exact",
         ttm_quality_ocf_yield="exact",
         price_change_60d=price_change_60d,

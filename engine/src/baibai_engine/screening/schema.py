@@ -175,6 +175,10 @@ class FinancialSnapshot:
     # Positive = dilution, negative = buyback. None if prior-year share count
     # is missing or zero.
     net_share_change_yoy: float | None = None
+    # 同じ前年比を自己株式控除後の株数で測ったもの。日本の自社株買いは取得株を自己株式へ
+    # 入れるだけで発行済株式総数を減らさないので、上の量と別の年に動く。carry へは入れず、
+    # 事前登録した比較の入力として持つだけである。自己株式数が観測できない行は答えない。
+    tradable_share_change_yoy: float | None = None
     # Point-in-time F-score-style components. Missing inputs remain None so a
     # component cannot silently count as either support or failure. The count is
     # exposed only when at least six of the eight components are observable.
@@ -233,6 +237,7 @@ class FinancialSnapshot:
         "shares_outstanding",
         "accruals_to_assets",
         "net_share_change_yoy",
+        "tradable_share_change_yoy",
     )
     @classmethod
     def _finite_numeric_fields(cls, value: float | None) -> float | None:
