@@ -480,7 +480,7 @@ def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
             "manifest_sha256": hashlib.sha256(canonical_lake_model_bytes(incomplete)).hexdigest(),
         }
     )
-    with pytest.raises(ValueError, match="does not prove the coverage"):
+    with pytest.raises(ValueError, match="but its profile requires"):
         validate_release_policy(
             release.model_copy(
                 update={
@@ -565,7 +565,7 @@ def test_pilot_policy_rejects_a_fresh_one_day_population(monkeypatch: pytest.Mon
         }
     )
 
-    with pytest.raises(ValueError, match="history boundary"):
+    with pytest.raises(ValueError, match="later than the profile boundary"):
         validate_release_policy(
             release,
             manifests,

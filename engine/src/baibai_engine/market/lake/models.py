@@ -1251,14 +1251,17 @@ def validate_release_policy(
         manifest = manifests[dataset]
         dataset_policy = policy_by_dataset[dataset]
         if manifest.layer != "l1_canonical" or manifest.dataset != dataset:
-            raise ValueError("release accepts matching L1 dataset manifests only")
+            raise ValueError(f"{dataset}: release accepts matching L1 dataset manifests only")
         if manifest.created_at > release.created_at:
-            raise ValueError("release cannot predate a referenced dataset manifest")
+            raise ValueError(f"{dataset}: release cannot predate a referenced dataset manifest")
         if manifest.contract_version not in dataset_policy.accepted_contract_versions:
-            raise ValueError("release dataset contract is not accepted by its profile")
+            raise ValueError(
+                f"{dataset}: contract v{manifest.contract_version} is not accepted by its "
+                f"profile {dataset_policy.accepted_contract_versions}"
+            )
         manifest_bytes = canonical_lake_model_bytes(manifest)
         if release_dataset.manifest_sha256 != sha256(manifest_bytes).hexdigest():
-            raise ValueError("release dataset manifest digest does not match")
+            raise ValueError(f"{dataset}: release dataset manifest digest does not match")
         if (
             release_dataset.build_id != manifest.build_id
             or release_dataset.contract_version != manifest.contract_version
@@ -1266,18 +1269,30 @@ def validate_release_policy(
             or release_dataset.coverage_status != manifest.coverage_status
             or release_dataset.totals != manifest.totals
         ):
-            raise ValueError("release dataset inventory does not match its manifest")
+            raise ValueError(f"{dataset}: release dataset inventory does not match its manifest")
         if dataset_policy.require_complete_coverage and manifest.coverage_status != "complete":
-            raise ValueError("release dataset does not prove the coverage its profile requires")
+            raise ValueError(
+                f"{dataset}: coverage is {manifest.coverage_status}, but its profile requires "
+                "complete"
+            )
         if manifest.coverage_start > dataset_policy.coverage_start_on_or_before:
-            raise ValueError("release dataset does not reach the profile history boundary")
+            raise ValueError(
+                f"{dataset}: coverage starts {manifest.coverage_start}, later than the profile "
+                f"boundary {dataset_policy.coverage_start_on_or_before}"
+            )
         if manifest.totals.rows < dataset_policy.minimum_rows:
-            raise ValueError("release dataset is below the profile row floor")
+            raise ValueError(
+                f"{dataset}: {manifest.totals.rows} row(s) is below the profile floor "
+                f"{dataset_policy.minimum_rows}"
+            )
         if dataset_policy.minimum_population_count is not None:
             if manifest.population_count is None:
-                raise ValueError("release dataset does not report the population it is floored on")
+                raise ValueError(f"{dataset}: does not report the population it is floored on")
             if manifest.population_count < dataset_policy.minimum_population_count:
-                raise ValueError("release dataset is below the profile population floor")
+                raise ValueError(
+                    f"{dataset}: population {manifest.population_count} is below the profile "
+                    f"floor {dataset_policy.minimum_population_count}"
+                )
         age = (evaluated_at.date() - manifest.data_as_of).days
         if age > dataset_policy.max_age_days or -age > dataset_policy.max_lead_days:
             raise ValueError("release dataset is outside its freshness window")
