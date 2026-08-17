@@ -1053,8 +1053,18 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             # Replaced by every snapshot fetch, so its earliest row is whatever the
             # exchange still publishes rather than a history this release keeps.
             coverage_start_on_or_before=None,
-            minimum_rows=3_232,
-            minimum_population_count=3_232,
+            # A forward calendar's size is seasonal, so a floor taken from one snapshot
+            # bounds the season it was taken in rather than a broken fetch. Measured on
+            # actual disclosures 2023-08 onward, the number of companies announcing in
+            # any 68-day window (this snapshot's span) ranges 978 to 4,699 with a median
+            # of 3,985; the trough is mid-November three years running. The previous
+            # floor of 3,232 — one observation of 3,403 times 0.95 — sits above 32% of
+            # those windows, so it refused a healthy publication every autumn. What the
+            # floor is for is a fetch that returned a fraction of the calendar, so it is
+            # set at half the observed minimum: low enough that no measured window
+            # breaches it, high enough that a truncated response does.
+            minimum_rows=489,
+            minimum_population_count=489,
             require_complete_coverage=True,
             max_age_days=31,
             max_lead_days=120,
