@@ -17,7 +17,7 @@ from types import MappingProxyType
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
-from baibai_engine.foundation.source_identity import semantic_source_digest
+from baibai_engine.foundation.source_identity import release_line, semantic_source_digest
 from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 from baibai_engine.market.sqlite.snapshot import create_snapshot, validate_snapshot
 
@@ -863,19 +863,6 @@ def _pk_indexes(dataset: LakeDataset) -> tuple[int, ...]:
     return tuple(names.index(name) for name in dataset.primary_key)
 
 
-def _release_line(version: str) -> str:
-    """The major.minor of a dependency version, or the whole string when it has neither.
-
-    Patch releases of the Parquet writer do not change the file format, so folding one
-    into a build fingerprint refuses every previous build for a change that cannot move a
-    byte — measured on 2026-08-17, pyarrow 25.0.0 to 25.0.1 wrote identical objects while
-    stopping the daily batch and invalidating the calibration store.
-    """
-
-    parts = version.split(".")
-    return ".".join(parts[:2]) if len(parts) >= 2 else version
-
-
 def _transform_fingerprint(dataset: LakeDataset) -> str:
     contract = {
         "arrow_schema": str(dataset.arrow_schema),
@@ -890,7 +877,7 @@ def _transform_fingerprint(dataset: LakeDataset) -> str:
         # Only the release line: a patch release does not change the file format, and
         # 25.0.0 to 25.0.1 was measured to write byte-identical Parquet while stopping the
         # daily batch. A minor or major bump still forces the rebuild.
-        "writer": f"pyarrow-{_release_line(pa.__version__)}",
+        "writer": f"pyarrow-{release_line(pa.__version__)}",
         # Coverage semantics decide which months a build touches, whether a release
         # calls itself complete, and where its history starts. A change there moves the
         # release's meaning without moving a single Parquet byte, so a build made under

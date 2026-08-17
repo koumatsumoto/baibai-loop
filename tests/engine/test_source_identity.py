@@ -14,7 +14,11 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.foundation.source_identity import semantic_source_digest
+from baibai_engine.foundation.source_identity import (
+    _digest_of_source,
+    release_line,
+    semantic_source_digest,
+)
 
 
 def _digest(tmp_path: Path, source: str, *, name: str = "module.py") -> str:
@@ -87,6 +91,35 @@ def test_a_file_that_is_not_python_is_refused(tmp_path: Path) -> None:
         _digest(tmp_path, "def rows(:\n")
 
 
+def test_the_same_source_is_parsed_once(tmp_path: Path) -> None:
+    """A fingerprint is taken once per published partition, so parsing has to be paid once.
+
+    Parsing a closure costs 216 times hashing the same bytes, which is invisible in a
+    build and decisive in a suite: without this, one test went from 2.6 to 84.8 seconds
+    and the whole run exceeded the twenty minutes CI allows it.
+    """
+
+    path = tmp_path / "module.py"
+    path.write_text("def rows(x):\n    return x * 2\n", encoding="utf-8")
+
+    before = _digest_of_source.cache_info()
+    semantic_source_digest(path)
+    semantic_source_digest(path)
+    after = _digest_of_source.cache_info()
+
+    assert after.misses - before.misses == 1
+    assert after.hits - before.hits == 1
+
+
+def test_rewriting_a_file_in_place_is_not_a_stale_hit(tmp_path: Path) -> None:
+    """The key is the text, so the same path holding new bytes cannot reuse the old digest."""
+
+    before = _digest(tmp_path, "def rows(x):\n    return x * 2\n")
+    after = _digest(tmp_path, "def rows(x):\n    return x * 3\n")
+
+    assert before != after
+
+
 def test_a_patch_release_shares_a_writer_identity_but_a_minor_does_not() -> None:
     """依存の patch は形式を変えず、minor は変えうる。境界をそこへ置く。
 
@@ -95,10 +128,8 @@ def test_a_patch_release_shares_a_writer_identity_but_a_minor_does_not() -> None
     だった。書かれた Parquet は 1 バイトも変わっていない。
     """
 
-    from baibai_engine.market.lake.writer import _release_line
-
-    assert _release_line("25.0.0") == _release_line("25.0.1")
-    assert _release_line("25.0.0") != _release_line("25.1.0")
-    assert _release_line("25.0.0") != _release_line("26.0.0")
+    assert release_line("25.0.0") == release_line("25.0.1")
+    assert release_line("25.0.0") != release_line("25.1.0")
+    assert release_line("25.0.0") != release_line("26.0.0")
     # 版が 1 要素しか無い依存でも壊れない。
-    assert _release_line("25") == "25"
+    assert release_line("25") == "25"
