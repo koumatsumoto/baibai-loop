@@ -574,6 +574,10 @@ digestのmarket store世代があれば再現でき、digestで照合もでき�
 lakeが保証しない。保証が戻るのは、cohortが必要とするtableがL1 releaseとして公開され、keyを持つ
 `rebuildable_input`になった時点である（Issue #917）。
 
+L1 releaseと違い、この経路は日次経路から呼ばれない。L2 cohortのsourceがまだ
+`rebuildable_input`にならないので publish する意味が無く、R2に calibration bundle pointer は
+存在しない。手で publish する場合だけ使う。
+
 ```bash
 uv run python -m baibai_batch.storage.lake_publish \
   --mirror <local-mirror> \
