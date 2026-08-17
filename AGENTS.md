@@ -10,6 +10,36 @@ Baibai Loop の運用作業を AI エージェントに任せるときの最小�
 - 静的契約（artifact・式・data source・validation）: [`docs/reference/README.md`](./docs/reference/README.md)
 - **失敗パターンと再発防止**: [`docs/anti-patterns.md`](./docs/anti-patterns.md) — 過去の PR レビューで繰り返し指摘された類型集。macro context / research / write-time validation を編集する前に該当節のチェックリストを 1 周すること
 
+## ローカルで完結させる
+
+**ローカルで実行できる作業をクラウドへ出さない。** クラウドの実行は課金され、上限に達すると
+日次 batch が「失敗」ではなく「起動しない」形で止まる。通知も出ないので、気づくのは翌日以降になる。
+
+**CI を試行錯誤の場にしない。** push 前にローカルで完全形の gate を通し、緑を確認してから push する。
+gate の正本は [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §9 で、
+ローカルでも CI と同じコマンド形（`ruff format --check` であって `ruff format` ではない）で回す。
+subset だけ通して残りを CI に見つけさせると、赤 → 修正 → push を CI 上で繰り返すことになる。
+macro subsystem（`engine/src/baibai_engine/macro/`・`method/macro/`・indicator registry）に触れたら、
+加えて `uv run baibai-batch validate-macro-stores` を通す。git 管理外の 2 store を突き合わせる検査で、
+CI には application store が無いためここでしか回せない。
+
+**成功しないと分かっている実行を起動しない。** 必要な secret・variable・label・前提 artifact の
+有無は起動前に確認する。「走らせて確かめる」は、ローカルで確かめられない場合の最後の手段である。
+
+**移行も判断もローカルで完結させる。日次 batch は開発の無い日の定常処理であり、移行をそこで走らせない。**
+schema 変更・store 再構築・全期間再取得・較正 store の作り直しは、ローカルで完結させ、
+**その成果をローカルからクラウドへ反映する**。
+
+- 移行を含む merge 後にやること: ローカルで store を完全にし、判断成果物（run / selection / serving view /
+  application DB）までローカルで作り、`r2_transfer.sh` の push 系と `batch/scripts/publish.sh` でクラウドへ出す
+- やらないこと: 日次 batch を dispatch して移行を吸収させる、その完走を待つ、クラウドに再取得させる
+- 理由は 3 つある。(a) 完全なデータはローカルに在るので、クラウドの再取得は同じ行をもう一度買うだけになる。
+  (b) 日次 batch はその日の増分のために組まれており、移行の入力（深い履歴・再構築済み cache）を持たない。
+  (c) 移行がクラウドで途中失敗すると、正本が新旧混在のまま残る
+
+判断（`screening run` / `select` / shortlist publish）も同じで、**ローカルの store が完全なら、
+クラウドの run を待つ理由は無い**。
+
 ## 運用の入口（trigger → skill）
 
 日常の運用手順の正本は skill（1 運用 = 1 skill）である。trigger を特定し、対応する skill の SKILL.md を全文読んでから操作する。
@@ -56,7 +86,7 @@ subsystem、public CLI、schema、persistence、dependency、state、運用手�
 | research | `engine/src/baibai_engine/research/` | `stores/application/baibai.sqlite` + `method/research/playbooks/` | `baibai-engine research` / `baibai-engine research evaluate` | thesis + planning-only limit + holding-review composition |
 | position | `engine/src/baibai_engine/position/` | `stores/application/baibai.sqlite` | `baibai-engine position` (`ledger` / draft / `apply-draft` / `outcome`) | human-confirmed portfolio ledger + holding review + portfolio outcome |
 | operation / proposal | `engine/src/baibai_engine/operation/`, `engine/src/baibai_engine/proposals/` | `stores/application/baibai.sqlite` | `baibai-engine operation` / `baibai-engine proposal` | current workspace + immutable final result / trade decision current state |
-| market | `engine/src/baibai_engine/market/` | （`stores/market/market.sqlite` と lake mirror / projection、git 外） | `baibai-engine lake` | 価格・calendar data 層（screening・保有計測の価格基盤） |
+| market | `engine/src/baibai_engine/market/` | （`stores/market/market.sqlite` と lake mirror、git 外） | `baibai-engine lake` | 価格・calendar data 層（screening・保有計測の価格基盤） |
 | foundation | `engine/src/baibai_engine/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
 | task | `engine/src/baibai_engine/tasks/` | `stores/application/baibai.sqlite` | `baibai-engine task` | current task state |
 | app | `web/backend/src/baibai_web/` | application DBほかdomain storeをread-only合成 | `baibai-web` | read model / local API |
@@ -75,16 +105,6 @@ storeごとに正本の所在が違う。ローカルで進めたstoreをクラ�
 | `stores/application/baibai.sqlite` | ローカル（判断） | `batch/scripts/publish.sh` |
 
 **schemaを上げるcodeはmainへ入れてからpushする。** ローカルがmainより先のversionでstoreを置くと、次の日次batchがそのversionを知らずfail-fastする。手順と失敗時の見え方は [`batch/OPERATIONS.md`](./batch/OPERATIONS.md#ローカルからクラウドを更新する) を正本とする。
-
-### 移行はローカルで完結させる
-
-**日次batchは開発の無い日の定常処理である。移行をそこで走らせない。** schema変更・store再構築・全期間再取得・較正storeの作り直しといった移行は、ローカルで完結させ、**その成果をローカルからクラウドへ反映する**。
-
-- 移行を含むmerge後にやること: ローカルでstoreを完全にし、判断成果物（run / selection / serving view / application DB）までローカルで作り、`r2_transfer.sh` の push系と `batch/scripts/publish.sh` でクラウドへ出す
-- やらないこと: 日次batchをdispatchして移行を吸収させる、その完走を待つ、クラウドに再取得させる
-- 理由は3つある。(a) 完全なデータはローカルに在るので、クラウドの再取得は同じ行をもう一度買うだけになる。(b) 日次batchはその日の増分のために組まれており、移行の入力（深い履歴・再構築済みcache）を持たない。(c) 移行がクラウドで途中失敗すると、正本が新旧混在のまま残る
-
-判断（`screening run` / `select` / shortlist publish）も同じで、**ローカルのstoreが完全なら、クラウドのrunを待つ理由は無い**。
 
 **store schemaを上げるmergeは、移行済みstoreのpushまでが1つの作業である。** クラウドのcodeはstoreのschema版を検査してfail-closeするので、codeだけがmainへ入った状態ではその日の日次batchが落ち、serving viewが更新されない。migrationをmergeしたら、同じ作業の中でローカルを移行し、`integrity_check`と行数を移行前と突き合わせてからpushする。「次のcycleで一緒に出す」と後回しにしない。
 
@@ -133,33 +153,8 @@ method / src / docs の変更を含む commit を作る前に、[`docs/anti-patt
 
 screening run storeはobserved / derived / estimateを区別する機械出力層、application DB のmacro context・shortlist・thesisはjudgment層。candidatesにAI解釈・因果・相場観を書かず、E[r] / FV anchorを事実と呼ばない。詳細は[`docs/doctrine.md#fact-analysis-separation`](./docs/doctrine.md#fact-analysis-separation)。
 
-## Codex sandbox routing
+## shell 経由の gh 操作
 
-Codex の managed sandbox で実行不能と分かっている操作は、sandbox 内で試してから再実行せず、初回から承認経路へ送る。
-
-- `gh`、`git fetch/pull/push` などの network 操作と、branch / stage / commit など `.git` への書き込み
-- local socket / browser を使う `baibai-web serve`、headless Chrome、FastAPI `TestClient` を含む `pytest`
-- `uv` が sandbox 外の cache へ書く操作。既存環境で足りる検証は `.venv/bin/{ruff,mypy,pytest,lint-imports}` を優先し、`uv` 自体が必要なら承認経路を使う
-- Markdown を含む `gh issue/pr` の本文は `--body-file` で渡し、backtick や `$()` を shell の二重引用符へ埋め込まない
-
-## 検証
-
-application data のmodel / write pathを変更したら、コミット前に最低限以下を通す。
-
-```bash
-uv run ruff format --check .
-uv run ruff check .
-uv run mypy
-uv run pytest
-uv run lint-imports
-```
-
-macro subsystem（`engine/src/baibai_engine/macro/`・`method/macro/`・indicator registry）に触れた変更では、
-加えて次を通す。git 管理外の 2 store を突き合わせる検査であり、CI には application store が無いので
-機械化できるのはここだけである。
-
-```bash
-uv run baibai-batch validate-macro-stores
-```
+Markdown を含む `gh issue/pr` の本文は `--body-file` で渡し、backtick や `$()` を shell の二重引用符へ埋め込まない。
 
 これはローカル用の subset。drift gate・bandit・pip-audit・UI build を含む完全な CI gate は [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §9 を正本とする。
