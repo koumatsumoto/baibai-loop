@@ -16,12 +16,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sqlite3
 import sys
 from collections.abc import Mapping, Sequence
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
 from baibai_engine.batch_api import (
+    LAKE_DATASETS,
     L1ReleasePointer,
     LakeReleaseManifest,
     create_lake_l1_release,
@@ -68,16 +71,36 @@ def publish_market_lake(
     expected_base_release_id: str | None,
     expected_base_manifest_sha256: str | None,
     release_id: str | None = None,
+    full_rebuild: bool = False,
 ) -> MarketLakePublishReport:
-    """Export the changed partitions on top of the serving release and publish them."""
+    """Export the changed partitions on top of the serving release and publish them.
+
+    ``full_rebuild`` drops the base and re-derives every partition from the store. The
+    export refuses a base manifest whose transform fingerprint differs from the current
+    one — a dependency bump that moves the Parquet writer version is enough — and the
+    only way forward it names is a build without a base. Without this the recovery it
+    demands has no publication path, so the daily batch stays broken until the fingerprint
+    happens to match again.
+    """
 
     if (expected_base_release_id is None) != (expected_base_manifest_sha256 is None):
         raise LakePublishError(
             "a base release is named by its id and its manifest digest, or not at all"
         )
+    if full_rebuild and expected_base_release_id is not None:
+        raise LakePublishError("a full rebuild has no base release to expect")
     base = _serving_pointer(store)
-    _require_expected_base(base, expected_base_release_id, expected_base_manifest_sha256)
-    base_manifests = _base_manifest_paths(store, mirror_root, base)
+    if full_rebuild:
+        # The base-identity check asks "is the release I exported on top of still the
+        # one serving?" — a rebuild exports on top of nothing, so there is no such
+        # release to name and the question does not apply. What it protects against
+        # (sealing a graph that is missing another writer's rows) is answered instead
+        # by the row floor, which compares the store against the release being replaced.
+        _require_no_rows_lost(sqlite_path, store, mirror_root, base)
+        base_manifests: dict[str, Path] = {}
+    else:
+        _require_expected_base(base, expected_base_release_id, expected_base_manifest_sha256)
+        base_manifests = _base_manifest_paths(store, mirror_root, base)
 
     export = export_lake_legacy(
         sqlite_path=sqlite_path,
@@ -150,6 +173,39 @@ def _require_expected_base(
         )
 
 
+def _require_no_rows_lost(
+    sqlite_path: Path, store: ObjectStore, mirror_root: Path, base: L1ReleasePointer | None
+) -> None:
+    """Refuse a full rebuild that would publish fewer rows than the release it replaces.
+
+    A differential build cannot lose history: unchanged partitions are carried by
+    reference from the base. A full rebuild has no such floor — it publishes exactly what
+    the store holds, so a store that is behind the lake would seal a release missing the
+    difference, and the pointer CAS would not notice because the switch itself is valid.
+    The base release's own per-dataset totals are the floor, and they are already in the
+    manifest this publication would replace.
+    """
+
+    if base is None:
+        return
+    release_path = _fetch(store, mirror_root, base.manifest_key)
+    release = load_lake_model_json(release_path.read_bytes(), LakeReleaseManifest)
+    with closing(sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)) as conn:
+        for name, entry in sorted(release.datasets.items()):
+            dataset = LAKE_DATASETS.get(name)
+            if dataset is None:
+                continue
+            held = int(
+                conn.execute(f"SELECT COUNT(*) FROM {dataset.sqlite_table}").fetchone()[0]  # nosec B608
+            )
+            if held < entry.totals.rows:
+                raise LakePublishError(
+                    f"{name} holds {held} row(s) but release {base.release_id} publishes "
+                    f"{entry.totals.rows}; a full rebuild would drop the difference. "
+                    "Hydrate the store from the serving release first"
+                )
+
+
 def _base_manifest_paths(
     store: ObjectStore, mirror_root: Path, base: L1ReleasePointer | None
 ) -> dict[str, Path]:
@@ -195,6 +251,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--base-manifest-sha256", help="required digest when --base-release is used"
     )
     parser.add_argument("--release-id")
+    parser.add_argument(
+        "--full-rebuild",
+        action="store_true",
+        help=(
+            "re-derive every partition from the store instead of carrying the base "
+            "release's unchanged ones. Required after the export transform fingerprint "
+            "moves — a Parquet writer version bump is enough — because the differential "
+            "export refuses a base built under the previous one"
+        ),
+    )
     return parser
 
 
@@ -208,6 +274,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             expected_base_release_id=args.base_release,
             expected_base_manifest_sha256=args.base_manifest_sha256,
             release_id=args.release_id,
+            full_rebuild=args.full_rebuild,
         )
     except LakePublishError as error:
         print(f"error: {error}", file=sys.stderr)
