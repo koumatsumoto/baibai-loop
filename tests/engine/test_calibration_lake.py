@@ -170,10 +170,10 @@ class TestTypedContract:
             CALIBRATION_PANEL, cache_schema_version=CACHE_SCHEMA_VERSION
         )
         assert same != other
-        original = lake_module.sha256_file
+        original = lake_module.semantic_source_digest
         monkeypatch.setattr(
             lake_module,
-            "sha256_file",
+            "semantic_source_digest",
             lambda path: "0" * 64 if path.name == "panel.py" else original(path),
         )
         assert same != transform_fingerprint(
@@ -1335,10 +1335,10 @@ class TestSemanticIdentity:
     ) -> str:
         target = self._ENGINE_ROOT / relative_path
         assert target.is_file(), relative_path
-        real = lake_module.sha256_file
+        real = lake_module.semantic_source_digest
         monkeypatch.setattr(
             lake_module,
-            "sha256_file",
+            "semantic_source_digest",
             lambda path: "0" * 64 if path == target else real(path),
         )
         return transform_fingerprint(dataset, cache_schema_version="contract")  # type: ignore[arg-type]
