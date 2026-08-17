@@ -98,10 +98,11 @@ BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY,)
 CONTROL_EVENT_EXIT_STATUS = "resolved_control_event_exit"
 
 # A window that ended when the exchange removed a failing company is resolved by the last
-# price the market printed, because that is the last price the position could be sold at
-# and no reinvestment question follows — the capital is gone. The status stays separate
-# from `resolved` so a reader can tell a window the market closed on its own target date
-# from one closed by a delisting.
+# price the market printed. No reinvestment convention is needed for these: the holding is
+# either extinguished or left unlisted, so nothing comes back to redeploy and the last
+# quote is the last value the market put on it. The status stays separate from `resolved`
+# so a reader can tell a window the market closed on its own target date from one closed
+# by a delisting.
 FAILURE_EXIT_STATUS = "resolved_failure_exit"
 RESOLVED_STATUSES = frozenset({"resolved", CONTROL_EVENT_EXIT_STATUS, FAILURE_EXIT_STATUS})
 
@@ -602,6 +603,10 @@ def _failure_exit_row(
         price_return=price_return,
         adjustment_coverage=adjustment_coverage,
     )
+    # `stale_price` stays false, as it does for an offer price. It marks a price the
+    # tolerance rejected, and this one is not rejected but definitive; `exit_date` already
+    # says exactly when the window ended, and `failure_exit_count` is where these are
+    # counted.
     return replace(
         base,
         resolved=True,

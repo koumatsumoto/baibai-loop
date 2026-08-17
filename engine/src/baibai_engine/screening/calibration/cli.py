@@ -38,6 +38,7 @@ from .context import CalibrationContextError, build_er_distribution_context
 from .evaluation import OPTIONAL_SENSITIVITY_METRICS, evaluate_cohorts
 from .forward import (
     CONTROL_EVENT_EXIT_STATUS,
+    FAILURE_EXIT_STATUS,
     HORIZONS,
     ForwardObservationPolicy,
     ForwardReturnRow,
@@ -308,6 +309,7 @@ def _calibration_build_command(
     rows = [row for cohort_rows in by_asof.values() for row in cohort_rows]
     resolved = sum(row.resolved for row in rows)
     control_event = sum(row.status == CONTROL_EVENT_EXIT_STATUS for row in rows)
+    failure_exit = sum(row.status == FAILURE_EXIT_STATUS for row in rows)
     dropped = _cohorts_this_build_would_drop(calibration_dir, work_dir, force=force)
     if dropped:
         print(_dropped_cohorts_message(dropped), file=sys.stderr)
@@ -320,7 +322,8 @@ def _calibration_build_command(
     )
     print(
         f"calibration build: done (panels built={built}, forward rows={len(rows)}, "
-        f"resolved={resolved}, control event exits={control_event})",
+        f"resolved={resolved}, control event exits={control_event}, "
+        f"failure exits={failure_exit})",
         file=out,
     )
     # What making the generation current cost. Printing it is how a run that starts
