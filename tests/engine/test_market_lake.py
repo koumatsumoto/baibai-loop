@@ -885,3 +885,22 @@ def test_inventory_reports_every_class_against_its_own_budget(tmp_path: Path) ->
     assert capacity["workspace"]["bytes"] == 26
     assert capacity["published"]["soft_budget_bytes"] == 10 * 1024**3
     assert not any(item["budget_exceeded"] for item in capacity.values())
+
+
+def test_a_replaced_snapshot_carries_no_history_floor() -> None:
+    """置き換わる view に開始日を固定すると、source が約束していない履歴を課す。
+
+    `jquants.earnings_calendar` の SQLite table は fetch ごとに DELETE されて入れ直る
+    forward calendar なので、最古の行は取引所がまだ公表している範囲そのものである。
+    2026-08-17 の日次バッチは、snapshot が 2026-06-19 始まりから 2026-07-03 始まりへ
+    進んだだけで停止した。
+    """
+
+    from baibai_engine.market.lake.models import PRODUCTION_RELEASE_POLICY
+
+    policy = {item.dataset: item for item in PRODUCTION_RELEASE_POLICY.datasets}
+
+    assert policy["jquants.earnings_calendar"].coverage_start_on_or_before is None
+    # 蓄積する dataset は床を持ち続ける。免除は snapshot に限る。
+    assert policy["jquants.daily_bars"].coverage_start_on_or_before == date(2016, 8, 1)
+    assert policy["jquants.short_sale_reports"].coverage_start_on_or_before is not None

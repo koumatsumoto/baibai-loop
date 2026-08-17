@@ -904,7 +904,17 @@ class ReleaseDatasetPolicy(BaseModel):
     dataset: str
     required: bool
     accepted_contract_versions: tuple[int, ...] = Field(min_length=1)
-    coverage_start_on_or_before: date
+    coverage_start_on_or_before: date | None
+    """How far back this dataset's history must reach, or absent when it has no history.
+
+    A dataset whose SQLite table is replaced by each fetch holds a current view rather
+    than an archive: `jquants.earnings_calendar` is the forward announcement calendar, so
+    its earliest row moves forward every time the exchange drops a past announcement.
+    Pinning a start date against a sliding view states a promise the source never made
+    and fails on a schedule — the daily batch stopped on 2026-08-17 because the snapshot
+    had advanced from 2026-06-19 to 2026-07-03. Absent means the dataset carries no
+    history floor; every other check (rows, population, staleness) still applies.
+    """
     minimum_rows: int = Field(gt=0)
     minimum_population_count: int | None = Field(default=None, gt=0)
     """Absent for datasets whose rows have no per-subject population to count."""
@@ -1040,7 +1050,9 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             dataset="jquants.earnings_calendar",
             required=True,
             accepted_contract_versions=(1,),
-            coverage_start_on_or_before=date(2026, 6, 19),
+            # Replaced by every snapshot fetch, so its earliest row is whatever the
+            # exchange still publishes rather than a history this release keeps.
+            coverage_start_on_or_before=None,
             minimum_rows=3_232,
             minimum_population_count=3_232,
             require_complete_coverage=True,
@@ -1275,7 +1287,10 @@ def validate_release_policy(
                 f"{dataset}: coverage is {manifest.coverage_status}, but its profile requires "
                 "complete"
             )
-        if manifest.coverage_start > dataset_policy.coverage_start_on_or_before:
+        if (
+            dataset_policy.coverage_start_on_or_before is not None
+            and manifest.coverage_start > dataset_policy.coverage_start_on_or_before
+        ):
             raise ValueError(
                 f"{dataset}: coverage starts {manifest.coverage_start}, later than the profile "
                 f"boundary {dataset_policy.coverage_start_on_or_before}"
