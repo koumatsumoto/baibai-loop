@@ -39,6 +39,7 @@ from pydantic import (
     BaseModel,
 )
 
+from baibai_engine.foundation.source_identity import semantic_source_digest
 from baibai_engine.market.lake.immutable import ImmutableInstallError, install_immutable_bytes
 from baibai_engine.market.lake.keys import (
     canonical_object_key,
@@ -272,6 +273,19 @@ def require_l2_dataset(name: str) -> L2Dataset:
         ) from exc
 
 
+def _release_line(version: str) -> str:
+    """The major.minor of a dependency version, or the whole string when it has neither.
+
+    Patch releases of the Parquet writer do not change the file format, so folding one
+    into a build fingerprint refuses every previous build for a change that cannot move a
+    byte — measured on 2026-08-17, pyarrow 25.0.0 to 25.0.1 wrote identical objects while
+    stopping the daily batch and invalidating the calibration store.
+    """
+
+    parts = version.split(".")
+    return ".".join(parts[:2]) if len(parts) >= 2 else version
+
+
 def transform_fingerprint(
     dataset: L2Dataset,
     *,
@@ -300,7 +314,10 @@ def transform_fingerprint(
         "parquet_version": _PARQUET_VERSION,
         "partition_by": dataset.partition_by,
         "row_group_size": _ROW_GROUP_SIZE,
-        "writer": f"pyarrow-{pa.__version__}",
+        # Only the release line: a patch release does not change the file format, and
+        # 25.0.0 to 25.0.1 was measured to write byte-identical Parquet while invalidating
+        # every base manifest. A minor or major bump still forces the rebuild.
+        "writer": f"pyarrow-{_release_line(pa.__version__)}",
         "implementation_sha256": _semantic_implementation_digests(dataset),
     }
     if dataset.name == FORWARD_DATASET:
@@ -423,7 +440,10 @@ def _semantic_implementation_digests(dataset: L2Dataset) -> dict[str, str]:
         if not writer.is_file():
             raise CalibrationLakeError(f"semantic dependency is missing: {name}")
         paths.add(writer)
-    return {path.relative_to(_ENGINE_ROOT).as_posix(): sha256_file(path) for path in sorted(paths)}
+    return {
+        path.relative_to(_ENGINE_ROOT).as_posix(): semantic_source_digest(path)
+        for path in sorted(paths)
+    }
 
 
 @dataclass(frozen=True, slots=True)
