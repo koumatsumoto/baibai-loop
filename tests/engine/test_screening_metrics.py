@@ -4307,3 +4307,100 @@ class FinancialSummaryPeriodResolutionTests(unittest.TestCase):
 
         self.assertEqual(snapshot.latest_disclosed_at, current.disclosed_at)
         self.assertEqual(snapshot.sales, current.sales)
+
+
+class TradableShareChangeTest(unittest.TestCase):
+    """取得年と消却年で 2 つの株数軸が別々に動くことを固定する。
+
+    日本の自社株買いは取得した株式を自己株式へ入れるだけで、発行済株式総数は消却するまで
+    減らない。carry の株数項が発行済で測られている限り、還元が起きた年は 0 で、現金の動かない
+    消却年に符号が付く。どちらで測るかは事前登録した比較で決めるので
+    (reports/studies/2026-08-17-tradable-share-change/)、ここでは 2 軸が別物であることだけを
+    固定する。
+    """
+
+    ASOF = date(2026, 6, 30)
+
+    def _snapshot(
+        self,
+        *,
+        prior_issued: float,
+        prior_treasury: float | None,
+        issued: float,
+        treasury: float | None,
+    ) -> FinancialSnapshot:
+        summaries = [
+            _summary(
+                "130A",
+                date(2025, 5, 12),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 3, 31),
+                period_start=date(2024, 4, 1),
+                period_end=date(2025, 3, 31),
+                shares_outstanding=prior_issued,
+                treasury_shares=prior_treasury,
+            ),
+            _summary(
+                "130A",
+                date(2026, 5, 12),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                period_end=date(2026, 3, 31),
+                shares_outstanding=issued,
+                treasury_shares=treasury,
+            ),
+        ]
+        result = build_metrics(
+            asof_date=self.ASOF,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": _daily_bars("130A", self.ASOF, 400)},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        return result.financials["130A"]
+
+    def test_a_buyback_year_moves_only_the_treasury_excluded_count(self) -> None:
+        """自己株を 10% 積んだ年。発行済は動かないので現行の carry 項は 0 になる。"""
+
+        financial = self._snapshot(
+            prior_issued=400_000_000.0,
+            prior_treasury=0.0,
+            issued=400_000_000.0,
+            treasury=40_000_000.0,
+        )
+
+        assert financial.net_share_change_yoy is not None
+        self.assertAlmostEqual(financial.net_share_change_yoy, 0.0, places=9)
+        assert financial.tradable_share_change_yoy is not None
+        self.assertAlmostEqual(financial.tradable_share_change_yoy, -0.10, places=9)
+
+    def test_a_cancellation_year_moves_only_the_issued_count(self) -> None:
+        """積んだ自己株を消却した年。現金は動かないのに現行の carry 項だけが符号を持つ。"""
+
+        financial = self._snapshot(
+            prior_issued=400_000_000.0,
+            prior_treasury=40_000_000.0,
+            issued=360_000_000.0,
+            treasury=0.0,
+        )
+
+        assert financial.net_share_change_yoy is not None
+        self.assertAlmostEqual(financial.net_share_change_yoy, -0.10, places=9)
+        assert financial.tradable_share_change_yoy is not None
+        self.assertAlmostEqual(financial.tradable_share_change_yoy, 0.0, places=9)
+
+    def test_an_unobservable_treasury_count_leaves_the_new_axis_unanswered(self) -> None:
+        """自己株式数の欠損を 0 で埋めると自己株ゼロを捏造する。答えない側に倒す。"""
+
+        financial = self._snapshot(
+            prior_issued=400_000_000.0,
+            prior_treasury=None,
+            issued=400_000_000.0,
+            treasury=40_000_000.0,
+        )
+
+        self.assertIsNone(financial.tradable_share_change_yoy)
+        # 発行済側は前年行から答えられるので、旧軸は残る。
+        assert financial.net_share_change_yoy is not None
+        self.assertAlmostEqual(financial.net_share_change_yoy, 0.0, places=9)

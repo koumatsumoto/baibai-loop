@@ -26,7 +26,7 @@ import types
 import typing
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass, replace
 from datetime import UTC, date, datetime
 from functools import cache
 from itertools import pairwise
@@ -172,7 +172,7 @@ def _arrow_schema(dataset: L2Dataset) -> Any:
 # after either dataset gains a field, which is the one thing an external reader is
 # entitled to use the version for. `verify_l2_schema_signatures` is what keeps the
 # number honest: change a row type without bumping it and the gate fails.
-CALIBRATION_PANEL = L2Dataset(name=PANEL_DATASET, row_type=PanelRow, contract_version=1)
+CALIBRATION_PANEL = L2Dataset(name=PANEL_DATASET, row_type=PanelRow, contract_version=2)
 CALIBRATION_DIAGNOSTICS = L2Dataset(
     name=DIAGNOSTICS_DATASET,
     row_type=PanelDiagnostics,
@@ -191,7 +191,9 @@ CALIBRATION_FORWARD = L2Dataset(
 # column sets addressed by the same `contract=v1` prefix — readable by this repository's
 # strict reader, and misread by anything that trusts the version.
 _RECORDED_SCHEMA_SIGNATURES: Mapping[tuple[str, int], str] = {
+    # v1 は tradable_share_change_yoy を持たない。published object の意味なので消さない。
     (PANEL_DATASET, 1): "63f2bdd83d17198372f4ed482cf6d08aee63046433efcad2ed4cf9ac9deb86a7",
+    (PANEL_DATASET, 2): "44893ddd59ba7dd81c2bb2dac01195043e31c8058c49290d77b3c4c33d43c2d2",
     (DIAGNOSTICS_DATASET, 1): "925417b9cec5ee5946707a0be815820f99a10b07aed06a1910b7947c5e7bb362",
     (FORWARD_DATASET, 1): "377bd76a691e3f2c40a0ad60cde177f0d011bab4bd5408a36e7fa1878db7cc80",
 }
@@ -239,12 +241,17 @@ def verify_l2_schema_signatures() -> list[str]:
         recorded = _RECORDED_SCHEMA_SIGNATURES.get((dataset.name, dataset.contract_version))
         actual = schema_signature(dataset)
         if recorded != actual:
+            # The version is stamped into the signature, so the digest to record is the
+            # one the next version produces — not the one printed for the current version.
+            # Naming the current digest would send the reader through the bump twice.
+            following = dataset.contract_version + 1
             drifted.append(
                 f"{dataset.name}: contract v{dataset.contract_version} records "
                 f"{recorded} but the row type now signs as {actual}; raise "
-                f"{dataset.name}'s contract_version and record {actual} under the new "
-                "version rather than overwriting what v"
-                f"{dataset.contract_version} already means"
+                f"{dataset.name}'s contract_version to {following} and record "
+                f"{schema_signature(replace(dataset, contract_version=following))} under "
+                f"v{following} rather than overwriting what v{dataset.contract_version} "
+                "already means"
             )
     return drifted
 

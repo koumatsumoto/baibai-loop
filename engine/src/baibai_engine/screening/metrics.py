@@ -1847,6 +1847,18 @@ def _build_financial_snapshot(
         shares_outstanding,
         shares_prior.shares_outstanding if shares_prior else None,
     )
+    # 同じ前年行を、自己株式を除いた株数で測り直したもの。日本の自社株買いは取得した株式を
+    # 自己株式へ入れるだけで発行済株式総数を減らさないので、上の量が動くのは主に消却年で
+    # あって取得年ではない。どちらが forward 実現をよく説明するかは事前登録した比較で決める
+    # ので (reports/studies/2026-08-17-tradable-share-change/)、ここでは両方を fact として
+    # 出すだけで、carry の計算は変えない。
+    tradable_share_change_yoy = _yoy_ratio(
+        shares_ex_treasury,
+        _shares_excluding_treasury(
+            shares_prior.shares_outstanding if shares_prior else None,
+            shares_prior.treasury_shares if shares_prior else None,
+        ),
+    )
     return FinancialSnapshot(
         latest_disclosed_at=latest.disclosed_at if latest else None,
         per_forward=per_forward,
@@ -1940,6 +1952,7 @@ def _build_financial_snapshot(
         shares_outstanding=shares_outstanding,
         accruals_to_assets=accruals_to_assets,
         net_share_change_yoy=net_share_change_yoy,
+        tradable_share_change_yoy=tradable_share_change_yoy,
         bs_carry_forward_fields=bs_carry_forward_fields or None,
         bs_carry_forward_lag_days=bs_carry_forward_lag_days,
         forecast_special_gain_flag=forecast_special_gain_flag,
