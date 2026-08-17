@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import date
 from pathlib import Path
 
@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.screening.run_store import ScreeningRunReader
+from baibai_engine.tasks.service import TaskService
 
 from .shortlist import (
     SelectionBinding,
@@ -98,14 +99,40 @@ def publish_shortlist(
         return 1
     yaml.safe_dump(published.payload(), sys.stdout, sort_keys=False, allow_unicode=True)
     _print_reevaluation_task_suggestions(
-        reevaluation_task_suggestions(published, earnings_by_ticker)
+        reevaluation_task_suggestions(
+            published,
+            earnings_by_ticker,
+            existing_followups=_open_followup_events(app_db_path),
+        )
     )
     return 0
+
+
+def _open_followup_events(app_db_path: Path | None) -> set[tuple[str, str]]:
+    """Which ``(ticker, event date)`` pairs already carry an open follow-up.
+
+    Read here rather than inside the suggestion builder so that stays a pure function of
+    the shortlist and the run. A store that cannot be read yields no pairs: the
+    suggestions are advisory lines a human runs, so losing the de-duplication is worth
+    less than failing a publication that has already been written.
+    """
+
+    try:
+        tasks = TaskService(app_db_path).list(status="open")
+    except (OSError, sqlite3.Error, ValueError):  # pragma: no cover - advisory read
+        return set()
+    return {
+        (task.ticker, task.event_date.isoformat())
+        for task in tasks
+        if task.kind == "follow-up" and task.ticker is not None and task.event_date is not None
+    }
 
 
 def reevaluation_task_suggestions(
     shortlist: Shortlist,
     earnings_by_ticker: Mapping[str, Mapping[str, object | None]],
+    *,
+    existing_followups: Collection[tuple[str, str]] = (),
 ) -> list[str]:
     """Build ready-to-run task-add lines for every non-selected entry.
 
@@ -114,7 +141,14 @@ def reevaluation_task_suggestions(
     次の公表日、将来の推定日、undated condition の順で進める。write は人間境界に残すので、
     この関数は提案文字列だけを組み立てる。title は narrative 散文を引かず ticker と
     disposition だけで組み、引用符事故を避ける。
+
+    ``existing_followups`` は既に open な follow-up の ``(ticker, event 日付)``。同じ
+    銘柄の同じ event へ 2 度目を提案すると、既存 task が持つ具体的な確認事項を、汎用の
+    title を持つ新しい行が隣に並べて薄める。cycle をまたいで同じ決算が trigger になる
+    のは正常なので、提案の代わりに既存があることを出して、人間が既存側を更新できるように
+    する。
     """
+    already = {(str(ticker), str(day)) for ticker, day in existing_followups}
     suggestions: list[str] = []
     for entry in shortlist.entries:
         if entry.decision == "selected":
@@ -145,6 +179,12 @@ def reevaluation_task_suggestions(
             )
             continue
         iso = earnings_date.isoformat()
+        if (entry.ticker, iso) in already:
+            suggestions.append(
+                f"# {entry.ticker}（{disposition}）: {iso} の follow-up は既に open — "
+                "重複起票せず既存 task を task edit で更新する"
+            )
+            continue
         suggestions.append(
             f"baibai-engine task add --kind follow-up --ticker {entry.ticker} "
             f'--title "{entry.ticker} 決算で{disposition}判断を再評価" '

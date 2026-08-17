@@ -523,3 +523,41 @@ def test_reevaluation_suggestion_uses_jst_publication_date_for_due_boundary() ->
 
     assert all("--due 2026-08-09" not in suggestion for suggestion in suggestions)
     assert suggestions[0].startswith("# 2331")
+
+
+def test_reevaluation_suggestion_does_not_repeat_an_open_followup() -> None:
+    """同じ決算が 2 cycle 連続で trigger になるのは正常。2 度目は起票を勧めない。
+
+    汎用 title の新しい task を隣へ並べると、既存 task が持つ具体的な確認事項が薄まる。
+    """
+
+    suggestions = reevaluation_task_suggestions(
+        _shortlist(),
+        {
+            "2331": {"next_earnings_date": "2026-07-30"},
+            "0001": {"next_earnings_date": "2026-08-06"},
+        },
+        existing_followups={("0001", "2026-08-06")},
+    )
+
+    assert len(suggestions) == 1
+    note = suggestions[0]
+    assert note.startswith("# 0001")
+    assert "既に open" in note
+    assert "task add" not in note
+
+
+def test_a_followup_on_another_date_does_not_suppress_the_suggestion() -> None:
+    """抑止は ticker と event 日付の対で決める。前回の別 event は今回を消さない。"""
+
+    suggestions = reevaluation_task_suggestions(
+        _shortlist(),
+        {
+            "2331": {"next_earnings_date": "2026-07-30"},
+            "0001": {"next_earnings_date": "2026-08-06"},
+        },
+        existing_followups={("0001", "2026-05-08")},
+    )
+
+    assert len(suggestions) == 1
+    assert suggestions[0].startswith("baibai-engine task add")
