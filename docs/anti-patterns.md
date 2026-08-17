@@ -320,7 +320,12 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       失敗メッセージが実測値をそのまま出して「記録値を上書きすれば緑になる」と読める形になっていないか
       （記録は版ごとの意味なので、上書きは同じ版に2つの形を持たせる。正しい修復は版を上げて追記する側である）
 - [ ] 再利用identityを持つ成果物（calibration bundle等）は、値を決めるruntime（DuckDB / SQLite等）の
-      versionをfingerprintへ入れたか。dependency upgradeが旧結果を再利用させないことをtestで固定したか
+      versionをfingerprintへ入れたか。入れるのは互換境界（major.minor）までで、出力形式を変えないpatch
+      まで入れると健全な再利用を毎回捨てる。境界を跨ぐupgradeが再利用させないことと、境界の内側の
+      releaseが再利用を保つことを、両方testで固定したか
+- [ ] 実装のdigestをfingerprintへ入れる場合、値を動かさない差分（コメント・docstring・整形）で
+      動かないか。bytesのhashは31%が提示の差で、1行のdocstringが全cohortを捨てさせる。またその
+      digestが1 partitionごとに取られるなら、コストを旧実装と比べたか（AST parseはbytes hashの216倍）
 - [ ] 取得の記録（`source_coverage`）を、それが記述する行とは別の場所から数え直していないか。
       行がreleaseから、記録がstore mergeから届くようになった後、targetの行を数えて記録へ書き戻すと
       「まだ見えていない」が「取得して0件だった」に化ける。zeroとunknownを分ける契約がある

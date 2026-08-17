@@ -427,7 +427,7 @@ bundle全体をunresolveにし、完全にdecodeできるpanelが要求される
 build途中で1 datasetだけを作り直せない）。段階的なdataset単位upgradeは別phaseとする。
 
 build identityはcohort別typed `SourceRef`、その dataset を最後に作った`producer_git_commit`、
-semantic dependency closureのSHA-256とforward observation policyを含む`transform_fingerprint`、
+semantic dependency closureのAST digestとforward observation policyを含む`transform_fingerprint`、
 `contract_version`、full primary key、partition/object hashである。panelは`(asof,ticker)`、diagnosticsは
 `(asof)`、forwardは`(asof,ticker,horizon)`を一意にし、全rowのyear/month所属をwrite/read両側で
 検査する。
@@ -439,6 +439,11 @@ importした時点で遅れる — 行の値は変わったのにfingerprintが�
 ような、どのcalibration moduleも名指していないが値を決めているhelperである。2つのdatasetは別々の
 entryから辿るので、outcomeの観測を変えてもpanelの月は無効化しない（唯一の共有だったentry lagは
 horizon契約が持つ）。
+
+closureの各moduleは、bytesではなく位置とdocstringを落としたASTのdumpをhashする。コメント・
+docstring・整形は行の値を動かせないのに、bytes hashではhash対象の31%を占めて全cohortを捨て
+させる。parseはbytes hashの216倍かかり、fingerprintはpublishするpartitionごとに取られるので、
+digestはsource text自体をkeyにmemoiseする。依存のversionは互換境界（major.minor）までを入れる。
 
 write APIはsource refのclosureを先に解決し、source省略を受け入れない。同じ source を何度
 名指しても検証は operation ごとに 1 回で、writer lock を持つ間は immutable な source が
