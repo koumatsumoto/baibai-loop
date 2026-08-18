@@ -30,6 +30,14 @@ jobs:
       - name: Sync Python environment
         run: uv sync --locked
 
+      # The lake reads Parquet over R2 through DuckDB's httpfs extension, and runtime
+      # sessions disable extension downloads outright — a read path that could fetch
+      # executable code on demand is not one that fails closed. The install happens here,
+      # before credentials are present, so a missing extension is a setup failure with
+      # nothing published rather than a data failure part-way through a run.
+      - name: Provision DuckDB httpfs extension
+        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
+
       - name: Pull stores
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
@@ -38,6 +46,19 @@ jobs:
         run: |
           batch/scripts/r2_transfer.sh pull-machine
           batch/scripts/r2_transfer.sh pull-app
+
+      # The market store arrives holding only what the lake does not own — the coverage
+      # ledger and the operator-derived tables. Filling the rest from the current release
+      # is what makes it the store every reader already expects. It fails closed on the
+      # published row counts, so a fill that silently did nothing cannot reach the export
+      # as an empty market. Without it this workflow republishes every valuation, daily
+      # delta and security view with no price behind it.
+      - name: Hydrate market store from the L1 release
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: batch/scripts/r2_transfer.sh hydrate-market
 
       - name: Materialize read models
         run: uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving" --batch manual

@@ -63,6 +63,7 @@ from .materialization import (
     MaterializationPreconditionError,
     validate_application_store_schema,
     validate_macro_reading_rules,
+    validate_market_store_hydration,
 )
 from .operations import list_operation_sessions, operation_session
 from .position import list_portfolio_outcome_payloads, portfolio_ledger_document
@@ -164,5 +165,6 @@ __all__ = [
     "thesis_publication",
     "validate_application_store_schema",
     "validate_macro_reading_rules",
+    "validate_market_store_hydration",
     "worst_close_drawdown",
 ]

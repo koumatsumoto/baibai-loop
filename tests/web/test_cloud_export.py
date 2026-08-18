@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -20,6 +21,7 @@ from baibai_engine.macro.indicators.db import (
     open_connection,
 )
 from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH
+from baibai_engine.market.sqlite import open_connection as open_market_connection
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
 from baibai_web import materialize as export_module
 from baibai_web.api.server import create_app
@@ -372,6 +374,83 @@ def test_export_fails_before_writing_when_rules_do_not_cover_the_registry(
     assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 1
     assert "macro reading rules have no defaults for frequency" in capsys.readouterr().err
     assert not output_dir.exists()
+
+
+def _seed_market_store(root: Path, *, claimed_rows: int, held_rows: int) -> Path:
+    """Write a market store whose fetch ledger claims rows the store may not hold.
+
+    ``held_rows`` short of ``claimed_rows`` is not the interesting case — coverage
+    windows overlap, so the working store is short by millions. Zero is: it is what
+    the published copy looks like after the lake-owned tables were emptied.
+    """
+
+    path = root / "stores/market/market.sqlite"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with closing(open_market_connection(path)) as connection:
+        connection.execute(
+            "INSERT INTO source_coverage "
+            "(source, coverage_key, coverage_start, coverage_end, fetched_at_utc, "
+            "record_count, status) VALUES "
+            "('jquants_daily_bars', '2026-08-17', '2026-08-17', '2026-08-17', "
+            "'2026-08-17T08:00:00+00:00', ?, 'ok')",
+            (claimed_rows,),
+        )
+        for index in range(held_rows):
+            connection.execute(
+                "INSERT INTO jquants_daily_bars (ticker, traded_at, close) VALUES (?, ?, ?)",
+                (f"{1000 + index}", "2026-08-17", 100.0),
+            )
+        connection.commit()
+    return path
+
+
+def test_export_fails_before_writing_when_the_market_store_was_never_hydrated(
+    app_method_root: Path, tmp_path: Path, capsys
+) -> None:
+    """The published market store carries its fetch ledger and none of the rows.
+
+    Every lake-owned table still answers, so the export writes valuations and security
+    views with no price behind them and reports success. The 2026-08-17 manual publish
+    did exactly that.
+    """
+
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    _seed_market_store(app_method_root, claimed_rows=15_052_807, held_rows=0)
+    output_dir = tmp_path / "export"
+
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 1
+    message = capsys.readouterr().err
+    assert "market store is not hydrated" in message
+    assert "jquants.daily_bars claims 15052807 row(s) and holds none" in message
+    assert not output_dir.exists()
+
+
+def test_export_accepts_a_market_store_holding_fewer_rows_than_its_windows_claim(
+    app_method_root: Path, tmp_path: Path
+) -> None:
+    """Overlapping coverage windows make the claim exceed the rows on a healthy store
+    — on the working store by 4.9M — so only an empty table may stop the export."""
+
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    _seed_market_store(app_method_root, claimed_rows=15_052_807, held_rows=1)
+    output_dir = tmp_path / "export"
+
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
+    assert (output_dir / "views/dashboard.json").is_file()
+
+
+def test_export_ignores_lake_tables_whose_ledger_claims_nothing(
+    app_method_root: Path, tmp_path: Path
+) -> None:
+    """A dataset nothing has fetched here is empty for a reason the store cannot tell
+    from an unfilled one, so the claim is what makes emptiness a fault."""
+
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    _seed_market_store(app_method_root, claimed_rows=0, held_rows=0)
+    output_dir = tmp_path / "export"
+
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
+    assert (output_dir / "views/dashboard.json").is_file()
 
 
 def test_exported_views_match_api_responses(app_method_root: Path, tmp_path: Path) -> None:

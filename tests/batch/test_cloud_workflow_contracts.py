@@ -157,6 +157,45 @@ def test_history_workflow_fills_the_store_before_it_reads_or_extends_it() -> Non
     )
 
 
+def test_materialize_workflow_fills_the_store_before_it_reads_it() -> None:
+    """The store this workflow pulls carries no market rows at all.
+
+    Every lake-owned table survives the emptying, so the export answers from all of
+    them and writes valuations, daily deltas and security views with nothing behind
+    them — and the upload then replaces the views the daily batch published from a
+    filled store. This runs on every `publish.sh`, so the ordering is pinned rather
+    than left to the next reader of the workflow.
+    """
+
+    steps = _steps(_workflow("cloud-materialize.yml"), "materialize")
+    names = [str(step.get("name", "")) for step in steps]
+
+    assert names.index("Provision DuckDB httpfs extension") < names.index("Pull stores")
+    assert names.index("Pull stores") < names.index("Hydrate market store from the L1 release")
+    assert names.index("Hydrate market store from the L1 release") < names.index(
+        "Materialize read models"
+    )
+    assert names.index("Materialize read models") < names.index("Upload serving objects")
+
+
+def test_materialize_provisions_the_extension_before_any_credential_reaches_a_step() -> None:
+    """A missing extension has to fail as setup, with nothing published, rather than
+    part-way through a run that already holds credentials."""
+
+    steps = _steps(_workflow("cloud-materialize.yml"), "materialize")
+    provision = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Provision DuckDB httpfs extension"
+    )
+    credentialed = [
+        index for index, step in enumerate(steps) if "secrets." in str(step.get("env", {}))
+    ]
+
+    assert credentialed
+    assert provision < min(credentialed)
+
+
 def test_history_workflow_delegates_partial_failure_publication_to_tested_tool() -> None:
     steps = _steps(_workflow("cloud-history-backfill.yml"), "backfill")
     backfill = next(

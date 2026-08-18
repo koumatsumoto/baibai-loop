@@ -52,6 +52,7 @@ class Sources:
     er_level_calibration: ErLevelCalibrationContext | None
     app_db_path: Path
     runs_db_path: Path
+    market_db_path: Path
 
 
 def load_macro_groups(root: Path) -> tuple[MacroGroupConfig, ...]:
@@ -77,6 +78,7 @@ def build_sources(
 
     resolved_db = (db_path or root / APPLICATION_DB_PATH).resolve()
     resolved_runs = (runs_db_path or root / RUNS_DB_PATH).resolve()
+    resolved_market = (root / MARKET_DB_PATH).resolve()
     indicators_db = root / MACRO_DB_PATH
     groups = macro_groups if macro_groups is not None else load_macro_groups(root)
     return Sources(
@@ -86,13 +88,14 @@ def build_sources(
         candidates=DbCandidatesSource(resolved_runs, resolved_db),
         macro=DbMacroSource(resolved_db, indicators_db, groups, root / MACRO_READING_RULES_PATH),
         operations=DbOperationsSource(resolved_db),
-        market=DbMarketPriceSource(root / MARKET_DB_PATH),
+        market=DbMarketPriceSource(resolved_market),
         meta=DbMetaSource(resolved_db, resolved_runs, indicators_db),
-        system=DbSystemSource(resolved_db, resolved_runs, indicators_db, root / MARKET_DB_PATH),
+        system=DbSystemSource(resolved_db, resolved_runs, indicators_db, resolved_market),
         er_level_calibration=load_er_level_calibration_context(
             root / ER_LEVEL_CALIBRATION_CONTEXT_PATH,
             expected_method_identity=screening_calibration_method_identity(root),
         ),
         app_db_path=resolved_db,
         runs_db_path=resolved_runs,
+        market_db_path=resolved_market,
     )
