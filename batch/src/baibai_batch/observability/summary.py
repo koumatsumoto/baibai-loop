@@ -134,7 +134,7 @@ ERROR_STAGES = (
     "screening-prune",
     "upload-machine",
     "upload-serving",
-    "upload-parallel",
+    "upload-stores",
     "publish-serving",
     "batch",
     # A step before the batch that the notification does not track by id

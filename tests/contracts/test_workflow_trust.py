@@ -43,7 +43,7 @@ EXPECTED_COMMAND_DIGESTS = {
     "Pull the market store": "395ec7ad8ac253d16bdc5db38fc900d56745aac63fd668035ab9c50f9af3c5bf",
     "Run daily batch": "afc553515df1b1e1e0cfaddbd0c78360ddb7aa6568cf4f3082ae92a4a9859ba1",
     "Upload machine stores and serving views": (
-        "9d23aa9f11aa012ae04640e5e81a0c1eba0df2e7d8fefeeb1864a01184189b98"
+        "8b340d153936088076375788e38f097b7843a45e6c648ac626a0e1e68d2b69e8"
     ),
     "Publish serving history and freshness": (
         "b4f7598cddeb3659b4cdb38409f7310d672c871284d42b5e55d307e2b2ac698e"
@@ -55,7 +55,7 @@ EXPECTED_COMMAND_DIGESTS = {
     ),
     "Publish the L1 release": ("e4cd247b545df25f59d1ab40cecb94177baae54f841130ed4c61199495756905"),
     "Notify Discord #batch-runs": (
-        "e6001337cbcaee0be8ebb5c0a31fb9d7101b18b7188e12f104c8751e80f266bb"
+        "a98e9a25a4fd7b12f33677250dd4f416a47a13c75317c9e3fffd3bf1d871c612"
     ),
     "Backfill and publish committed progress": (
         "1cf9306ca4460c2c257a41ccfe84d75549729dd4f2e003c235f79885d5e494b3"

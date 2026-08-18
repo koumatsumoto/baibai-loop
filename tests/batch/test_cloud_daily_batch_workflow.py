@@ -82,7 +82,7 @@ def test_known_steps_have_stable_ids(steps_by_id: dict[str, dict]) -> None:
         "browser-smoke",
         "pull",
         "batch",
-        "upload-parallel",
+        "upload-stores",
         "publish-serving",
         "deferred-report",
         "cancellation",
@@ -148,7 +148,7 @@ def test_batch_step_writes_summary_and_finalizes_outputs_before_fatal_exit(
 
 
 def test_upload_steps_run_only_when_published(steps_by_id: dict[str, dict]) -> None:
-    assert steps_by_id["upload-parallel"]["if"] == "steps.batch.outputs.published == 'true'"
+    assert steps_by_id["upload-stores"]["if"] == "steps.batch.outputs.published == 'true'"
 
 
 def test_the_durable_record_waits_for_the_store_and_the_views(
@@ -159,7 +159,7 @@ def test_the_durable_record_waits_for_the_store_and_the_views(
     Publishing either before the store holding this run is persisted would leave a
     permanent record of a run the store does not contain.
     """
-    assert steps_by_id["publish-serving"]["if"] == "steps.upload-parallel.outcome == 'success'"
+    assert steps_by_id["publish-serving"]["if"] == "steps.upload-stores.outcome == 'success'"
 
 
 @pytest.mark.parametrize(
@@ -184,27 +184,33 @@ def test_a_failed_upload_publishes_no_durable_record(
     # so a non-zero step is enough to hold the tail back. Simulate that decision
     # and confirm the tail command is the one it withholds.
     condition = steps_by_id["publish-serving"]["if"]
-    tail_runs = condition == "steps.upload-parallel.outcome == 'success'" and code == 0
+    tail_runs = condition == "steps.upload-stores.outcome == 'success'" and code == 0
 
     assert tail_runs is False
     assert "publish-serving-tail" in steps_by_id["publish-serving"]["run"]
-    assert "publish-serving-tail" not in steps_by_id["upload-parallel"]["run"]
+    assert "publish-serving-tail" not in steps_by_id["upload-stores"]["run"]
 
 
-def test_the_store_push_and_the_views_mirror_run_together(steps_by_id: dict[str, dict]) -> None:
-    """One is bandwidth-bound and the other request-bound; serially they add up."""
-    run = steps_by_id["upload-parallel"]["run"]
+def test_the_store_push_runs_before_the_views_mirror(steps_by_id: dict[str, dict]) -> None:
+    """`views/` must never describe a run the remote store does not hold.
 
-    assert "push-machine >" in run
-    assert "upload-serving-views" in run
-    assert run.count("&\n") == 2
-    assert 'wait "$machine_pid"' in run
-    assert 'wait "$views_pid"' in run
-    # Each side reports itself so the notification can name the one that failed.
+    Run together, a machine push that failed beside a mirror that succeeded left
+    exactly that, standing until the next successful run. Ordered this way the only
+    partial state left behind is views older than the store.
+    """
+    run = steps_by_id["upload-stores"]["run"]
+
+    assert run.index("push-machine >") < run.index("upload-serving-views")
+    # Nothing is backgrounded: the mirror is inside the branch the push's exit opens.
+    assert "&\n" not in run
+    assert "wait " not in run
+    # Each side reports itself so the notification can name the one that failed, and
+    # a mirror that never ran says so rather than leaving its output absent.
     assert 'echo "machine=success"' in run
     assert 'echo "views=success"' in run
     assert 'echo "machine=failure"' in run
     assert 'echo "views=failure"' in run
+    assert 'echo "views=skipped"' in run
 
 
 def _run_upload_step(
@@ -214,19 +220,19 @@ def _run_upload_step(
 
     Asserting on the text of a run block says nothing about whether the shell in it
     works. This runs it: a stub `r2_transfer.sh` sleeps and records when each side
-    started and finished, so the overlap and the reported results are observed
-    rather than read.
+    started and finished, so the ordering, whether the second side ran at all, and
+    the reported results are observed rather than read.
     """
-    script = steps_by_id["upload-parallel"]["run"]
+    script = steps_by_id["upload-stores"]["run"]
     stub_dir = tmp_path / "batch" / "scripts"
     stub_dir.mkdir(parents=True)
     timings = tmp_path / "timings.tsv"
     (stub_dir / "r2_transfer.sh").write_text(
         "#!/usr/bin/env bash\n"
         'started="$(date +%s.%N)"\n'
-        # Wide enough that a loaded CI box starting the second shell late still
-        # leaves the two overlapping; a serial implementation fails regardless.
-        "sleep 1.0\n"
+        # Long enough that the recorded windows stay distinguishable on a loaded
+        # CI box, short enough that four parametrised runs stay cheap.
+        "sleep 0.3\n"
         'printf "%s\\t%s\\t%s\\n" "$1" "$started" "$(date +%s.%N)" >> "$TIMINGS"\n'
         'printf "stub ran %s\\n" "$1"\n'
         'if [[ "$1" == "push-machine" ]]; then exit "$MACHINE_EXIT"; fi\n'
@@ -268,7 +274,9 @@ def _run_upload_step(
     return completed.returncode, outputs, recorded
 
 
-def test_the_two_uploads_actually_overlap(tmp_path: Path, steps_by_id: dict[str, dict]) -> None:
+def test_the_mirror_starts_only_after_the_store_push_finished(
+    tmp_path: Path, steps_by_id: dict[str, dict]
+) -> None:
     code, outputs, recorded = _run_upload_step(tmp_path, steps_by_id, machine_exit=0, views_exit=0)
 
     assert code == 0
@@ -276,41 +284,41 @@ def test_the_two_uploads_actually_overlap(tmp_path: Path, steps_by_id: dict[str,
     assert {name for name, _start, _end in recorded} == {"push-machine", "upload-serving-views"}
     starts = {name: start for name, start, _end in recorded}
     ends = {name: end for name, _start, end in recorded}
-    # Neither side waited for the other: each began before the other had finished.
-    assert starts["push-machine"] < ends["upload-serving-views"]
-    assert starts["upload-serving-views"] < ends["push-machine"]
+    assert starts["upload-serving-views"] >= ends["push-machine"]
 
 
 @pytest.mark.parametrize(
-    ("machine_exit", "views_exit", "expected"),
+    ("machine_exit", "views_exit", "expected", "sides_run"),
     [
-        (1, 0, {"machine": "failure", "views": "success"}),
-        (0, 1, {"machine": "success", "views": "failure"}),
-        (1, 1, {"machine": "failure", "views": "failure"}),
+        (1, 0, {"machine": "failure", "views": "skipped"}, 1),
+        (0, 1, {"machine": "success", "views": "failure"}, 2),
+        (1, 1, {"machine": "failure", "views": "skipped"}, 1),
     ],
 )
-def test_either_side_failing_fails_the_step_and_names_the_side(
+def test_a_failed_store_push_fails_the_step_and_leaves_the_mirror_untouched(
     tmp_path: Path,
     steps_by_id: dict[str, dict],
     machine_exit: int,
     views_exit: int,
     expected: dict[str, str],
+    sides_run: int,
 ) -> None:
-    """Both sides are always waited on, so one failing never hides the other."""
+    """`skipped` is a measurement: it says the mirror did not run, which is what
+    makes the remote `views/` still the previous run's rather than unknown."""
     code, outputs, recorded = _run_upload_step(
         tmp_path, steps_by_id, machine_exit=machine_exit, views_exit=views_exit
     )
 
     assert code != 0
     assert outputs == expected
-    assert len(recorded) == 2
+    assert len(recorded) == sides_run
 
 
 def test_uploads_precede_deferred_report_which_fires_on_exit_3(
     steps: list[dict], steps_by_id: dict[str, dict]
 ) -> None:
     ids = [step.get("id") for step in steps]
-    assert ids.index("upload-parallel") < ids.index("deferred-report")
+    assert ids.index("upload-stores") < ids.index("deferred-report")
     assert ids.index("publish-serving") < ids.index("deferred-report")
     assert steps_by_id["deferred-report"]["if"] == "steps.batch.outputs.exit_code == '3'"
 
@@ -405,7 +413,7 @@ def test_data_credentials_are_absent_from_job_and_setup_steps(
         "hydrate": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "batch": {"JQUANTS_API_KEY", "ESTAT_APP_ID", "EDINET_API_KEY"},
         "publish-lake": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
-        "upload-parallel": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
+        "upload-stores": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "publish-serving": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "upload-run-summary": {
             "R2_ACCOUNT_ID",
@@ -430,7 +438,7 @@ def test_notify_step_receives_summary_and_step_outcomes(steps_by_id: dict[str, d
         "--upload-serving-outcome",
         # The step's own outcome, which GitHub supplies on every terminal state,
         # is what stands in when the step died before writing its outputs.
-        "--upload-parallel-outcome",
+        "--upload-step-outcome",
         "--publish-serving-outcome",
         "--run-started-at",
         "--output",
@@ -440,9 +448,9 @@ def test_notify_step_receives_summary_and_step_outcomes(steps_by_id: dict[str, d
     assert "steps.setup.outcome" in notify_run
     # Which side of the parallel upload got through comes from the step's outputs;
     # whether the step reached the end at all comes from GitHub's own outcome.
-    assert "steps.upload-parallel.outputs.machine" in notify_run
-    assert "steps.upload-parallel.outputs.views" in notify_run
-    assert "steps.upload-parallel.outcome" in notify_run
+    assert "steps.upload-stores.outputs.machine" in notify_run
+    assert "steps.upload-stores.outputs.views" in notify_run
+    assert "steps.upload-stores.outcome" in notify_run
     assert "steps.publish-serving.outcome" in notify_run
     assert "steps.batch.outputs.exit_code" in notify_run
     assert "steps.batch.outputs.local_export" in notify_run

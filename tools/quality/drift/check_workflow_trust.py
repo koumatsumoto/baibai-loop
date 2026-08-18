@@ -192,13 +192,13 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
         "2a015cf08ae041e6c97807b942bbc3c757c2d29bb130c06a84e8b2dd34992f5c"
     ),
     ("cloud-daily-batch.yml", "daily", "Upload machine stores and serving views"): (
-        "f4edf907d92834cbb69639ba94cfe418711c5566b6abd334e00da778ec977ab6"
+        "12d6ff92a7b260a7e4be4ae3beed297ac3b4df3c2ddd79eec23fa4265a2e63b4"
     ),
     ("cloud-daily-batch.yml", "daily", "Publish serving history and freshness"): (
-        "8ebb0b45bd3a0515fbb06c8d55902316777195de8f433f2df8c0cd4ab9dc987b"
+        "1d57fc8572d6e924225001484b9aba706f2eb790f4712e1bac7192f9e6bbcd16"
     ),
     ("cloud-daily-batch.yml", "daily", "Notify Discord #batch-runs"): (
-        "810c7c768125b20db0179437fcd29ba13fd69f2ea775c8a609c35603be2ec427"
+        "e3e76cd0f536a10f572857906d4bb85d4d78f6445a2475f93ffa0d70de31ffcd"
     ),
     ("cloud-daily-batch.yml", "daily", "Upload run summary"): (
         "3d7d91775c0ac950577b25c2792bed82e5af551485965a7c3fb6a31311064259"

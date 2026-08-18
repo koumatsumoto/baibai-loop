@@ -192,17 +192,22 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: batch/scripts/r2_transfer.sh publish-lake
 
-      # The market store push moves only the tables the lake does not own — 4,972,544
-      # bytes measured — while the views mirror moves 54MB across 3,740 objects and is
-      # request-bound. They stay parallel because the views side is now the longer of
-      # the two by a wide margin.
+      # The store push runs first and the views mirror only after it succeeded. The two
+      # ran together while the views side — 54MB across 3,740 objects, request-bound —
+      # was the longer of the two by a wide margin and the wall clock was what the
+      # ordering was chosen on. What that traded away is the direction of the partial
+      # state a failure leaves: a machine push that failed beside a views upload that
+      # succeeded leaves `views/` describing a run no remote store holds, and it stands
+      # until the next successful run replaces it. Serialised this way the surviving
+      # mismatch is always the harmless one — views older than the store, never a store
+      # older than the views.
       #
       # Only `views/` joins the store push. It is rewritten every business day, so a
       # run whose push fails leaves views the next run replaces. `history/` and
       # `meta.json` are published afterwards, once the store holding this run is
       # persisted, so no permanent record of an unpersisted run is ever written.
       - name: Upload machine stores and serving views
-        id: upload-parallel
+        id: upload-stores
         if: steps.batch.outputs.published == 'true'
         shell: bash
         env:
@@ -214,45 +219,51 @@ jobs:
           # than a code change.
           R2_SERVING_UPLOAD_CONCURRENCY: ${{ vars.R2_SERVING_UPLOAD_CONCURRENCY }}
         run: |
-          # Each side writes to its own log so the two do not interleave into an
-          # unreadable stream; both are printed in full once they have finished.
+          # Each side writes to its own log and both are printed once they are done,
+          # so the store push's timing report stays readable next to the mirror's.
           machine_log="$RUNNER_TEMP/upload-machine.log"
           views_log="$RUNNER_TEMP/upload-views.log"
-          batch/scripts/r2_transfer.sh push-machine >"$machine_log" 2>&1 &
-          machine_pid=$!
-          batch/scripts/r2_transfer.sh upload-serving-views "$RUNNER_TEMP/serving" \
-            >"$views_log" 2>&1 &
-          views_pid=$!
           machine_code=0
-          wait "$machine_pid" || machine_code=$?
+          batch/scripts/r2_transfer.sh push-machine >"$machine_log" 2>&1 || machine_code=$?
           views_code=0
-          wait "$views_pid" || views_code=$?
+          views_ran=0
+          if [[ $machine_code -eq 0 ]]; then
+            views_ran=1
+            batch/scripts/r2_transfer.sh upload-serving-views "$RUNNER_TEMP/serving" \
+              >"$views_log" 2>&1 || views_code=$?
+          fi
           # A side that succeeded is folded away; a side that failed is printed
           # open, because a collapsed group is the first thing a reader opening a
           # red run has to fight past.
-          for side in "machine:$machine_code:$machine_log" "views:$views_code:$views_log"; do
-            name="${side%%:*}"
-            rest="${side#*:}"
-            code="${rest%%:*}"
-            log="${rest#*:}"
-            if [[ "$code" -eq 0 ]]; then
-              echo "::group::$name"
-              cat "$log"
+          print_log() {
+            if [[ "$2" -eq 0 ]]; then
+              echo "::group::$1"
+              cat "$3"
               echo "::endgroup::"
             else
-              echo "::error::$name upload failed with exit $code"
-              cat "$log"
+              echo "::error::$1 upload failed with exit $2"
+              cat "$3"
             fi
-          done
+          }
+          print_log machine "$machine_code" "$machine_log"
+          if [[ $views_ran -eq 1 ]]; then
+            print_log views "$views_code" "$views_log"
+          else
+            echo "views upload not attempted: the store push failed first"
+          fi
           # Written before the exit so the notification can tell which side failed;
           # a step killed by a timeout writes neither, which the notifier reads as
-          # unknown rather than as "did not upload".
+          # unknown rather than as "did not upload". `skipped` is written out rather
+          # than left absent, so "the mirror never ran" and "the step never got to
+          # say" stay distinguishable.
           if [[ $machine_code -eq 0 ]]; then
             echo "machine=success" >> "$GITHUB_OUTPUT"
           else
             echo "machine=failure" >> "$GITHUB_OUTPUT"
           fi
-          if [[ $views_code -eq 0 ]]; then
+          if [[ $views_ran -eq 0 ]]; then
+            echo "views=skipped" >> "$GITHUB_OUTPUT"
+          elif [[ $views_code -eq 0 ]]; then
             echo "views=success" >> "$GITHUB_OUTPUT"
           else
             echo "views=failure" >> "$GITHUB_OUTPUT"
@@ -269,7 +280,7 @@ jobs:
 
       - name: Publish serving history and freshness
         id: publish-serving
-        if: steps.upload-parallel.outcome == 'success'
+        if: steps.upload-stores.outcome == 'success'
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -318,9 +329,9 @@ jobs:
             --hydrate-outcome "${{ steps.hydrate.outcome }}" \
             --publish-lake-outcome "${{ steps.publish-lake.outcome }}" \
             --lake-release-path stores/.r2-generations/lake-release.json \
-            --upload-machine-outcome "${{ steps.upload-parallel.outputs.machine }}" \
-            --upload-serving-outcome "${{ steps.upload-parallel.outputs.views }}" \
-            --upload-parallel-outcome "${{ steps.upload-parallel.outcome }}" \
+            --upload-machine-outcome "${{ steps.upload-stores.outputs.machine }}" \
+            --upload-serving-outcome "${{ steps.upload-stores.outputs.views }}" \
+            --upload-step-outcome "${{ steps.upload-stores.outcome }}" \
             --publish-serving-outcome "${{ steps.publish-serving.outcome }}" \
             --asof "$MANUAL_ASOF" \
             --run-started-at "${{ steps.smoke.outputs.started_at }}" \

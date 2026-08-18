@@ -271,12 +271,13 @@ _NON_BATCH_STEPS: tuple[tuple[str, str], ...] = (
 # own last lines — a job timeout, a cancel, a dead runner — and the step's GitHub
 # outcome is the only account of that run. Reading the absence as "did not upload"
 # would report a run that may have half-replaced production views as one that
-# published nothing.
+# published nothing. A mirror the step deliberately did not run says so with
+# `skipped`, which is a measurement and not this absence.
 _UPLOAD_BRANCH_KEYS = ("upload-machine", "upload-serving")
 
 
 def _upload_ended_without_reporting(step_outcomes: Mapping[str, str]) -> bool:
-    step_outcome = step_outcomes.get("upload-parallel", "skipped")
+    step_outcome = step_outcomes.get("upload-stores", "skipped")
     if step_outcome in {"skipped", "success"}:
         return False
     return any(step_outcomes.get(key, "") == "" for key in _UPLOAD_BRANCH_KEYS)
@@ -289,10 +290,10 @@ def derive_failed_step(step_outcomes: Mapping[str, str]) -> str:
         if step_outcomes.get(key) == "failure":
             return stage
     if _upload_ended_without_reporting(step_outcomes):
-        # Neither side reported, so which one got further is unknown. The step that
-        # ran both is the honest answer; naming one branch would send the reader
+        # Neither side reported, so how far the step got is unknown. The step that
+        # runs both is the honest answer; naming one branch would send the reader
         # after a push that may have been fine while the mirror was mid-delete.
-        return "upload-parallel"
+        return "upload-stores"
     # A step that was cancelled rather than failed still stopped the publish, and
     # the reader needs somewhere to start.
     if step_outcomes.get("publish-serving", "skipped") not in {"skipped", "success"}:
@@ -635,7 +636,7 @@ def build_parser() -> argparse.ArgumentParser:
     # The step that runs the two uploads together. Its own outcome is supplied by
     # GitHub on every terminal state, so it is what stands in when the step ended
     # before it could report which side got through.
-    parser.add_argument("--upload-parallel-outcome", type=str, default="skipped")
+    parser.add_argument("--upload-step-outcome", type=str, default="skipped")
     parser.add_argument("--publish-serving-outcome", type=str, default="skipped")
     parser.add_argument("--hydrate-outcome", type=str, default="skipped")
     parser.add_argument("--publish-lake-outcome", type=str, default="skipped")
@@ -660,7 +661,7 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
         "publish-lake": args.publish_lake_outcome,
         "upload-machine": args.upload_machine_outcome,
         "upload-serving": args.upload_serving_outcome,
-        "upload-parallel": args.upload_parallel_outcome,
+        "upload-stores": args.upload_step_outcome,
         "publish-serving": args.publish_serving_outcome,
     }
     try:

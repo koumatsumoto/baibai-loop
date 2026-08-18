@@ -157,6 +157,23 @@ def test_history_workflow_fills_the_store_before_it_reads_or_extends_it() -> Non
     )
 
 
+def test_the_daily_batch_pushes_stores_before_it_mirrors_the_views() -> None:
+    """The two used to run together, trading the direction of the partial state for
+    wall clock. A machine push that failed beside a mirror that succeeded published
+    views describing a run no remote store holds, and it stood until the next
+    successful run. This pins the order that makes the surviving mismatch harmless.
+    """
+
+    steps = _steps(_workflow("cloud-daily-batch.yml"), "daily")
+    upload = next(step for step in steps if step.get("id") == "upload-stores")
+    run = str(upload["run"])
+
+    assert run.index("push-machine") < run.index("upload-serving-views")
+    assert "&\n" not in run
+    tail = next(step for step in steps if step.get("id") == "publish-serving")
+    assert tail["if"] == "steps.upload-stores.outcome == 'success'"
+
+
 def test_materialize_workflow_fills_the_store_before_it_reads_it() -> None:
     """The store this workflow pulls carries no market rows at all.
 
