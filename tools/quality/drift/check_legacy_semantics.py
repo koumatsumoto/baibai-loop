@@ -51,8 +51,7 @@ _REPOSITORY_PATH_LEGACY = re.compile(
     # 固定 release を SQLite へ実体化するのは `lake hydrate` だけになった。projection
     # subsystem とその診断は削除済みなので、その module・CLI・成果物・metadata を指す
     # 参照は存在しない path を現行手順として提示することになる。`projection` 単体は
-    # macro の forward projection や doctrine の表示物にも当たるため、退役した結合だけ
-    # を拒否する。
+    # doctrine の表示物にも当たるため、退役した結合だけを拒否する。
     r"lake_shadow|verify_lake_release_parity|benchmark_lake_projection|"
     r"build_projection|projection\.sqlite|projection_meta|projection_fingerprint|"
     r"projection_indexes|lake projection build|"

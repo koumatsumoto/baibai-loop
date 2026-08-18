@@ -1,6 +1,0 @@
-interface:
-  display_name: "Baibai Macro World Model"
-  short_description: "prior-blind world model から macro context を publish"
-  default_prompt: "Use $macro-world-model to run this Baibai Loop pilot operation."
-policy:
-  allow_implicit_invocation: false

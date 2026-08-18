@@ -126,17 +126,16 @@ def test_legacy_semantics_gate_rejects_the_retired_projection_subsystem(tmp_path
 def test_legacy_semantics_gate_keeps_the_live_senses_of_shadow_and_projection(
     tmp_path: Path,
 ) -> None:
-    """The gate must not sweep Tailwind classes or the macro forward projection.
+    """The gate must not sweep Tailwind classes or the doctrine sense of projection.
 
     Rejecting the bare words would make the rule unusable, so only the retired
     combinations are matched and this is what proves the rest still passes.
     """
 
-    doc = tmp_path / "docs" / "reference" / "macro.md"
+    doc = tmp_path / "docs" / "doctrine.md"
     doc.parent.mkdir(parents=True)
     doc.write_text(
-        "forward projection の gate は target を列挙する。表示物（projection）は"
-        "canonical ではない。\n",
+        "表示物（projection）は canonical ではない。\n",
         encoding="utf-8",
     )
     component = tmp_path / "web" / "frontend" / "src" / "Card.tsx"

@@ -14,7 +14,6 @@ EXPECTED = frozenset(
         "holding-review",
         "ledger-record",
         "macro-context",
-        "macro-world-model",
         "ops-maintenance",
     }
 )
@@ -26,6 +25,7 @@ OLD = frozenset(
         "decision-cycle",
         "macro-analysis",
         "improvement-loop",
+        "macro-world-model",
     }
 )
 
