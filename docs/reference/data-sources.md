@@ -158,9 +158,36 @@ Tier 1 / Tier 1 準拠 ソースが作業環境からアクセスできない場
 - 連続 2 回の macro context 作成で同じソースが取得失敗した場合、代替一次ソース（同じ統計を別 URL で配信している一次統計ミラー・集約サイト）の Tier 1 準拠追加を検討する
 - 検討の結果、恒常的に取れないと判断した指標は、テンプレート側から該当行を落とすか、空欄運用で確定させる
 
+### 取得失敗の切り分け：まず fetch tool を替える
+
+**取得失敗の多くは host の遮断ではなく fetch tool の遮断である。** WebFetch が 403 を返した host でも、`curl` はそのまま通ることが多い。別の一次 source を探し始める前に、必ず `curl` で 1 回試す（macro context 1 サイクルの実測で、一次 source の取得可否の切り分けが 12 pass 中の最大費目 21 分を占めた。その大半がこの取り違えだった）。
+
+```bash
+UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+curl -sSL --max-time 25 -A "$UA" '<URL>' | head -c 2000
+```
+
+2026-08-18 に本作業環境から実測した結果:
+
+| host | WebFetch | `curl`（素） | `curl -A '<browser UA>'` | 通る経路 |
+|---|---|---|---|---|
+| `fred.stlouisfed.org` | 403 | 200 | 200 | `curl` で直接。`fredgraph.csv?id=<ID>` も通る |
+| `www.meti.go.jp` | 403 | 403 | **200** | `curl` + browser UA が必須 |
+| `www.jpx.co.jp` | 403 | 200 | 200 | `curl` で直接 |
+| `www.tsr-net.co.jp` | — | 200 | 200 | HTML の `news/status/`、数値は `news/status/json/search.json`（`tsr_bankruptcies` provider と同じ endpoint） |
+| `www.federalregister.gov` | API のみ 200 | 200 | 200 | WebFetch は HTML が 302 で `unblock.federalregister.gov` へ飛ぶ。`api/v1/documents.json?conditions[term]=<語>` なら WebFetch でも通る |
+| `www.bls.gov` / `download.bls.gov` | 403 | 403 | 403 | **host 側の遮断。** 下記の代替を使う |
+
+**BLS だけは真の遮断**なので、次のどちらかを使う（どちらも 2026-08-18 に 200 を確認）。
+
+- 数値: `https://api.bls.gov/publicAPI/v2/timeseries/data/<seriesID>`（無認証で直近 3 年。CPI 総合は `CUUR0000SA0`）
+- 本文: Web Archive（下記の手順）
+
+引用は元 source の URL として書き、経路（`curl` / API / Web Archive）を `used_for` に添える。
+
 ### 既知の取得経路と代替ルート
 
-本リポジトリの作業環境では `fred.stlouisfed.org` への直接 HTTP リクエストが HTTP/2 stream INTERNAL_ERROR で打ち切られる（curl の `--http1.1` を付けても同じ）。FRED 経由で取りに行く前に、以下の Tier 1 / Tier 1 準拠 経路を優先的に試す:
+上の切り分けで直接取得できない指標は、以下の Tier 1 / Tier 1 準拠 経路を順に試す:
 
 | 指標 | 第一経路 (Tier 1) | 第二経路 (Tier 1 準拠) | 第三経路 (恒常的失敗時のみ) |
 |---|---|---|---|
@@ -176,7 +203,15 @@ Tier 1 / Tier 1 準拠 ソースが作業環境からアクセスできない場
 | TOPIX | J-Quants 専用 index bars endpoint（`jquants_indices` provider） | — | — |
 | FedWatch (利下げ確率) | CME FedWatch Tool（HTTP 403 で取得不可） | — | — |
 
-**Web Archive の使い方**: `https://web.archive.org/web/{TIMESTAMP}/{元 URL}` で snapshot を直接取得できる。`TIMESTAMP` は `YYYYMMDD` 8 桁または `YYYYMMDDHHMMSS` 14 桁。最新値が欲しい場合は観測日寄りのタイムスタンプを指定し、それでも snapshot が古い場合は別シリーズで複数 timestamp を試す。Wayback の snapshot は元ソースのキャッシュであり、引用は元ソース URL（FRED 等）として扱い、Wayback URL を併記する。
+**Web Archive の使い方**: timestamp を推測せず、availability API で実在する snapshot を先に引く。8 桁 `YYYYMMDD` や年だけの短縮形は Wayback 側が最寄りへ redirect する経路で、HTTP 500 を返すことがある（2026-08-18 実測）。
+
+```bash
+TS=$(curl -sS 'https://archive.org/wayback/available?url=<host/path>' \
+     | python3 -c 'import json,sys;print(json.load(sys.stdin)["archived_snapshots"]["closest"]["timestamp"])')
+curl -sS --compressed "https://web.archive.org/web/${TS}id_/<元 URL>"
+```
+
+`id_` は書き換えなしの原本を返すので、公表期を含む原題がそのまま残る（BLS CPI なら `Consumer Price Index Summary - 2026 M07 Results`）。**`--compressed` は必須** — 付けないと元の gzip バイト列がそのまま返る。archive.org は短時間の連続アクセスへ HTTP 429 を返すので、JSON でなく HTML が返ったら間を置いて 1 回だけ試し直す（`archived_snapshots` が空なら snapshot 自体が無いので別 source へ移る）。Wayback の snapshot は元ソースのキャッシュであり、引用は元ソース URL（FRED 等）として扱い、Wayback URL を併記する。
 
 **ECB を使う前提**: ECB FX レートは日次 (CET 16:00) であり、週次の H.10 (米 NY noon) と timing が異なる。両者の差は通常 ±0.5 円以内。短期スパンでは互換とみなしてよいが、macro context 内で USD/JPY を H.10 と ECB で混在させない（同一 macro context 内では基準時刻を揃える）。
 
