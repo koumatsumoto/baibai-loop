@@ -539,7 +539,11 @@ def _credential_invocations(stub: WorkflowCommandStub) -> dict[str, dict[str, st
             "materialize",
             {},
             None,
-            {"Pull stores", "Upload serving objects"},
+            {
+                "Pull stores",
+                "Hydrate market store from the L1 release",
+                "Upload serving objects",
+            },
         ),
         (
             "web.yml",

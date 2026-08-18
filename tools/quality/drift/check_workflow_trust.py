@@ -78,6 +78,11 @@ _EXPECTED_STEP_CREDENTIALS: dict[tuple[str, str, str], dict[str, str]] = {
         "Backfill and publish committed progress",
     ): {**_R2, "JQUANTS_API_KEY": "${{ secrets.JQUANTS_API_KEY }}"},
     ("cloud-materialize.yml", "materialize", "Pull stores"): _R2,
+    (
+        "cloud-materialize.yml",
+        "materialize",
+        "Hydrate market store from the L1 release",
+    ): _R2,
     ("cloud-materialize.yml", "materialize", "Upload serving objects"): _R2,
     ("web.yml", "quality", "Deploy Worker and UI assets"): {
         # This is a GitHub expression, not a credential value.
@@ -219,6 +224,11 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
     ("cloud-materialize.yml", "materialize", "Pull stores"): (
         "9e9bf135564f525b25aaa86886d154ab52a4b714b4f69b43b9bc33bd947a98e7"
     ),
+    (
+        "cloud-materialize.yml",
+        "materialize",
+        "Hydrate market store from the L1 release",
+    ): "5a173109b80c186739af4a831a234c96f55b381d77b3f324a2b2f3e04538ca2c",
     ("cloud-materialize.yml", "materialize", "Upload serving objects"): (
         "d5b4145027538c195bddaebd389036be68f4c17eacc8d754f975c1f1a9d5cd51"
     ),

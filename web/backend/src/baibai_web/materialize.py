@@ -30,6 +30,7 @@ from baibai_engine.read_api import (
     screening_run_asof_dates,
     validate_application_store_schema,
     validate_macro_reading_rules,
+    validate_market_store_hydration,
 )
 from baibai_web.readmodel.builders import (
     MacroPeriod,
@@ -103,6 +104,7 @@ def export_read_models(
     stores = build_sources(root)
     validate_application_store_schema(stores.app_db_path)
     validate_macro_reading_rules(root / MACRO_READING_RULES_PATH)
+    validate_market_store_hydration(stores.market_db_path)
     views_dir = output_dir / "views"
     if views_dir.is_dir():
         shutil.rmtree(views_dir)
