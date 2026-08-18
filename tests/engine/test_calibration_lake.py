@@ -22,17 +22,16 @@ from baibai_engine.market.lake import sources as sources_module
 from baibai_engine.market.lake.keys import (
     calibration_bundle_manifest_key,
     current_calibration_bundle_pointer_key,
+    release_manifest_key,
 )
 from baibai_engine.market.lake.models import (
     CalibrationBundleManifest,
     CalibrationDatasetRef,
     CohortInventoryEntry,
     DatasetManifest,
+    L1ReleaseSourceRef,
     MeasurementPolicyRef,
-    RawArchiveMetadata,
-    RawIngestSourceRef,
     SourceRef,
-    canonical_lake_model_bytes,
     require_calibration_generation,
     source_assurance,
 )
@@ -181,55 +180,25 @@ class TestTypedContract:
         )
 
 
-def _stored_raw_source(root: Path) -> tuple[Path, RawIngestSourceRef]:
-    """A retained source whose bytes are on disk, and the archived file it names."""
+def _stored_release_source(root: Path) -> tuple[Path, L1ReleaseSourceRef]:
+    """A retained source whose bytes are on disk, and the manifest file it names."""
 
-    reference = _raw_ingest_source()
-    payload = b"raw ingest payload\n"
+    reference = _release_source()
+    payload = b'{"release_version": 1}\n'
     stored = root / reference.key
     stored.parent.mkdir(parents=True, exist_ok=True)
     stored.write_bytes(payload)
-    metadata = RawArchiveMetadata(
-        metadata_version=1,
-        provider=reference.provider,
-        dataset=reference.dataset,
-        request_start=reference.request_start,
-        request_end=reference.request_end,
-        ingest_id=reference.source_id,
-        object_key=reference.key,
-        content_sha256=hashlib.sha256(payload).hexdigest(),
-        retrieved_at=datetime(2026, 1, 30, tzinfo=UTC),
-        retention_class="preserve",
-        suffix=".json.gz",
-        bytes=len(payload),
-    )
-    metadata_payload = canonical_lake_model_bytes(metadata)
-    (root / reference.metadata_key).write_bytes(metadata_payload)
-    return stored, reference.model_copy(
-        update={
-            "sha256": hashlib.sha256(payload).hexdigest(),
-            "metadata_sha256": hashlib.sha256(metadata_payload).hexdigest(),
-        }
-    )
+    return stored, reference.model_copy(update={"sha256": hashlib.sha256(payload).hexdigest()})
 
 
-def _raw_ingest_source() -> RawIngestSourceRef:
-    digest = "b" * 64
-    return RawIngestSourceRef(
-        kind="raw_ingest",
-        source_id="20260130T000000Z-ingest",
-        key="lake/l1/raw/jquants/daily_bars/ingest_date=2026-01-30/20260130T000000Z-ingest.json.gz",
-        sha256=digest,
-        provider="jquants",
-        dataset="daily_bars",
-        request_start=date(2026, 1, 1),
-        request_end=date(2026, 1, 30),
-        metadata_version=1,
-        metadata_key=(
-            "lake/l1/raw/jquants/daily_bars/ingest_date=2026-01-30/"
-            "20260130T000000Z-ingest.json.gz.metadata.json"
-        ),
-        metadata_sha256="c" * 64,
+def _release_source() -> L1ReleaseSourceRef:
+    release_id = "20260130T000000Z-release"
+    return L1ReleaseSourceRef(
+        kind="l1_release",
+        source_id=release_id,
+        key=release_manifest_key(release_id=release_id),
+        sha256="b" * 64,
+        manifest_version=1,
     )
 
 
@@ -466,19 +435,20 @@ class TestImmutableBuilds:
                 [{"ticker": "1301", "horizon": "1y", "price_return": 0.2, "status": "resolved"}],
             )
 
-    def test_a_cohort_cannot_name_provider_raw_as_its_source(self, tmp_path: Path) -> None:
-        """An analytical cohort is built from a fixed generation, never a request range.
+    def test_a_cohort_cannot_name_an_l1_release_as_its_source(self, tmp_path: Path) -> None:
+        """A release is a read reference until its whole closure is walked.
 
-        Raw is addressed by provider and date range and can be fetched again, so a
-        cohort naming it would be pinned to nothing. The kind is outside the cohort
-        source union, which makes the claim unrepresentable rather than merely refused.
+        Admitting it as a cohort source before the publisher, reader, retention planner
+        and pin all enumerate that closure would let a build claim a lineage nothing
+        keeps whole. The kind is outside the cohort source union, which makes the claim
+        unrepresentable rather than merely refused.
         """
 
         del tmp_path
         policy = MeasurementPolicyRef(
             rules_hash="abc123", panel_variant="production", production_authority=True
         )
-        raw = _raw_ingest_source()
+        release = _release_source()
         # A complete entry apart from the source kind, so the rejection can only be the
         # discriminator. Leaving another required field out would let the test pass while
         # the kind was accepted.
@@ -494,7 +464,7 @@ class TestImmutableBuilds:
             CohortInventoryEntry(
                 status="empty",
                 rows=0,
-                sources=(raw,),  # type: ignore[arg-type]
+                sources=(release,),  # type: ignore[arg-type]
                 input_cutoff=date.fromisoformat(_JANUARY),
                 measurement_policy=policy,
             )
@@ -505,9 +475,10 @@ class TestImmutableBuilds:
             ("sources", 0),
             ("sources",),
         }
-        # The same reference is a valid L1 partition source, so what a cohort refuses is
-        # the position rather than the value.
-        assert TypeAdapter(SourceRef).validate_python(raw.model_dump(mode="python")) == raw
+        # Not a partition source either: the kind is outside `SourceRef` as well, which
+        # is what keeps a lineage nothing resolves from being stated anywhere.
+        with pytest.raises(ValidationError):
+            TypeAdapter(SourceRef).validate_python(release.model_dump(mode="python"))
 
     def test_a_cohort_is_published_as_a_build_the_pointer_names(self, tmp_path: Path) -> None:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
@@ -799,7 +770,7 @@ class TestSourceAssurance:
         # not keep — so the positive case is stated here rather than left to be
         # discovered when L1 releases join the union and the gate turns out never to
         # have had a pass.
-        assert source_assurance((_raw_ingest_source(),)) == "rebuildable_input"
+        assert source_assurance((_release_source(),)) == "rebuildable_input"
 
     def test_a_generation_the_lake_did_not_keep_is_trace_only(self) -> None:
         assert source_assurance((synthetic_calibration_source(),)) == "trace_only"
@@ -955,12 +926,12 @@ class TestRebuild:
     ) -> None:
         """Verification cost must follow how much source there is, not how often it is named.
 
-        A Raw archive is one source that every partition built from its request range
-        points at. Paying per reference turns one archive and a 121 month release into
-        the archive's size times the number of partitions that name it, every run.
+        A retained source is one object that every partition built from it points at.
+        Paying per reference turns one object and a 121 month release into that object's
+        size times the number of partitions that name it, every run.
         """
 
-        archived, source = _stored_raw_source(tmp_path)
+        archived, source = _stored_release_source(tmp_path)
         hashed: list[str] = []
         real = sources_module.sha256_file
         monkeypatch.setattr(
@@ -980,7 +951,7 @@ class TestRebuild:
     ) -> None:
         """Memoizing keys on the identity the caller asserted, not on the file it found."""
 
-        _, source = _stored_raw_source(tmp_path)
+        _, source = _stored_release_source(tmp_path)
         other = tmp_path / "other-mirror"
         other.mkdir()
 
@@ -989,64 +960,6 @@ class TestRebuild:
 
             with pytest.raises(ValueError, match="does not resolve"):
                 sources_module.resolve_source_ref(other, source)
-
-    def test_two_references_agreeing_only_on_the_generation_are_verified_separately(
-        self, tmp_path: Path
-    ) -> None:
-        """A memo hit has to mean this exact question was already answered.
-
-        Raw is addressed by provider, dataset, key, and metadata as well as by ingest id
-        and digest, so the same empty payload ingested under two dataset namespaces gives
-        two references that agree on generation and disagree on everything that says
-        where the bytes are. Keying the memo on the generation alone would let the first
-        one stand for the second, and reachability would then add a key nothing checked.
-        """
-
-        first = _raw_ingest_source()
-        second = first.model_copy(
-            update={
-                "dataset": "daily_quotes",
-                "key": first.key.replace("/daily_bars/", "/daily_quotes/"),
-                "metadata_key": first.metadata_key.replace("/daily_bars/", "/daily_quotes/"),
-            }
-        )
-        payload = b"raw ingest payload\n"
-        stored = tmp_path / first.key
-        stored.parent.mkdir(parents=True, exist_ok=True)
-        stored.write_bytes(payload)
-        metadata = RawArchiveMetadata(
-            metadata_version=1,
-            provider=first.provider,
-            dataset=first.dataset,
-            request_start=first.request_start,
-            request_end=first.request_end,
-            ingest_id=first.source_id,
-            object_key=first.key,
-            content_sha256=hashlib.sha256(payload).hexdigest(),
-            retrieved_at=datetime(2026, 1, 30, tzinfo=UTC),
-            retention_class="preserve",
-            suffix=".json.gz",
-            bytes=len(payload),
-        )
-        metadata_payload = canonical_lake_model_bytes(metadata)
-        (tmp_path / first.metadata_key).write_bytes(metadata_payload)
-        present = first.model_copy(
-            update={
-                "sha256": hashlib.sha256(payload).hexdigest(),
-                "metadata_sha256": hashlib.sha256(metadata_payload).hexdigest(),
-            }
-        )
-        absent = second.model_copy(
-            update={
-                "sha256": present.sha256,
-                "metadata_sha256": present.metadata_sha256,
-            }
-        )
-
-        with sources_module.verified_source_scope():
-            assert sources_module.resolve_source_ref(tmp_path, present) == stored
-            with pytest.raises(ValueError, match="does not resolve"):
-                sources_module.resolve_source_ref(tmp_path, absent)
 
 
 class TestRetention:

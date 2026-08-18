@@ -23,16 +23,9 @@ from baibai_batch.storage.lake_publish import (
     RemoteObject,
     publish_calibration_bundle,
     publish_l1_release,
-    publish_raw_archive,
 )
 from baibai_engine.market.lake import models as lake_models
 from baibai_engine.market.lake.keys import current_calibration_bundle_pointer_key
-from baibai_engine.market.lake.models import RawArchiveMetadata, load_lake_model_json
-from baibai_engine.market.lake.raw import (
-    RawRetentionClass,
-    archive_raw_file,
-    raw_source_ref,
-)
 from baibai_engine.market.lake.release import (
     L1ReleasePointer,
     canonical_lake_model_bytes,
@@ -478,40 +471,6 @@ def test_pointer_cas_conflict_leaves_current_unchanged(tmp_path) -> None:
     assert store.values["lake/pointers/l1/current.json"].body == original
 
 
-def test_raw_object_and_metadata_publish_idempotently(tmp_path) -> None:
-    source = tmp_path / "response.json.gz"
-    source.write_bytes(b"provider-original")
-    mirror = tmp_path / "mirror"
-    _, metadata_path, _ = archive_raw_file(
-        source_path=source,
-        mirror_root=mirror,
-        provider="jquants",
-        dataset="jquants.daily_bars",
-        ingest_id="raw-1",
-        suffix=".json.gz",
-        retention_class=RawRetentionClass.PRESERVE,
-        retrieved_at=datetime(2026, 1, 6, tzinfo=UTC),
-        request_start=date(2026, 1, 1),
-        request_end=date(2026, 1, 31),
-    )
-    store = _MemoryStore()
-
-    first = publish_raw_archive(
-        mirror_root=mirror,
-        metadata_path=metadata_path,
-        store=store,
-    )
-    second = publish_raw_archive(
-        mirror_root=mirror,
-        metadata_path=metadata_path,
-        store=store,
-    )
-
-    assert first.transfers.uploaded_objects == 2
-    assert second.transfers.uploaded_objects == 0
-    assert second.transfers.reused_objects == 2
-
-
 def test_r2_account_id_rejects_endpoint_injection() -> None:
     with pytest.raises(LakePublishError, match="32 lowercase hexadecimal"):
         AwsCliR2Store(
@@ -524,28 +483,6 @@ def test_r2_account_id_rejects_endpoint_injection() -> None:
         )
 
 
-def test_raw_metadata_rejects_a_non_raw_namespace(tmp_path) -> None:
-    source = tmp_path / "response.json.gz"
-    source.write_bytes(b"provider-original")
-    _, _, metadata = archive_raw_file(
-        source_path=source,
-        mirror_root=tmp_path / "mirror",
-        provider="jquants",
-        dataset="jquants.daily_bars",
-        ingest_id="raw-key",
-        suffix=".json.gz",
-        retention_class=RawRetentionClass.PRESERVE,
-        retrieved_at=datetime(2026, 1, 6, tzinfo=UTC),
-        request_start=date(2026, 1, 1),
-        request_end=date(2026, 1, 31),
-    )
-    payload = metadata.model_dump(mode="json")
-    payload["object_key"] = "lake/pointers/l1/current.json"
-
-    with pytest.raises(ValueError, match="value_error"):
-        load_lake_model_json(json.dumps(payload), RawArchiveMetadata)
-
-
 def test_publish_rejects_local_graph_symlinks_outside_mirror(tmp_path: Path) -> None:
     mirror = tmp_path / "mirror"
     mirror.mkdir()
@@ -555,146 +492,11 @@ def test_publish_rejects_local_graph_symlinks_outside_mirror(tmp_path: Path) -> 
     metadata_link.symlink_to(outside)
 
     with pytest.raises(LakePublishError, match="escapes mirror root"):
-        publish_raw_archive(
-            mirror_root=mirror,
-            metadata_path=metadata_link,
-            store=_MemoryStore(),
-        )
-
-    with pytest.raises(LakePublishError, match="escapes mirror root"):
         publish_l1_release(
             mirror_root=mirror,
             release_manifest_path=metadata_link,
             store=_MemoryStore(),
         )
-
-
-def test_release_publish_closes_referenced_raw_graph(tmp_path) -> None:
-    sqlite_path = tmp_path / "market.sqlite"
-    connection = open_connection(sqlite_path)
-    connection.execute(
-        "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES ('1301', '2026-01-05', 1)"
-    )
-    connection.execute(
-        """INSERT INTO jquants_short_sale_reports(
-             disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name,
-             discretionary_investment_contractor_name, investment_fund_name, is_cancellation
-           ) VALUES ('2026-01-06', 0, '2026-01-05', '7203', 'Fund', '', '', 0)"""
-    )
-    _add_short_sale_coverage(connection)
-    connection.commit()
-    connection.close()
-    mirror = tmp_path / "mirror"
-    source = tmp_path / "response.json.gz"
-    source.write_bytes(b"provider-original")
-    _, metadata_path, _ = archive_raw_file(
-        source_path=source,
-        mirror_root=mirror,
-        provider="jquants",
-        dataset="jquants.daily_bars",
-        ingest_id="raw-release",
-        suffix=".json.gz",
-        retention_class=RawRetentionClass.PRESERVE,
-        retrieved_at=datetime(2026, 1, 6, tzinfo=UTC),
-        request_start=date(2026, 1, 1),
-        request_end=date(2026, 1, 31),
-    )
-    with sealed_sqlite_snapshot(
-        sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id="raw-release-snapshot"
-    ) as snapshot:
-        datasets = [
-            export_legacy_sqlite(
-                dataset_name=name,
-                mirror_root=mirror,
-                producer_git_commit="a" * 40,
-                raw_source_refs=(raw_source_ref(metadata_path),) if index == 1 else (),
-                source_snapshot=snapshot,
-                build_id=f"raw-build-{index}",
-                created_at=datetime(2026, 1, 7, tzinfo=UTC),
-            ).manifest_path
-            for index, name in enumerate(
-                ("jquants.daily_bars", "jquants.short_sale_reports"), start=1
-            )
-        ]
-    release_path, _ = create_l1_release(
-        dataset_manifest_paths=datasets,
-        mirror_root=mirror,
-        release_id="raw-release-1",
-        created_at=datetime(2026, 1, 7, tzinfo=UTC),
-    )
-    store = _MemoryStore()
-
-    report = publish_l1_release(
-        mirror_root=mirror,
-        release_manifest_path=release_path,
-        store=store,
-    )
-
-    assert report.transfers.uploaded_objects == 7
-
-
-def test_release_allows_the_same_ingest_id_in_two_dataset_namespaces(tmp_path) -> None:
-    sqlite_path = tmp_path / "market.sqlite"
-    connection = open_connection(sqlite_path)
-    connection.execute(
-        "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES ('1301', '2026-01-05', 1)"
-    )
-    connection.execute(
-        """INSERT INTO jquants_short_sale_reports(
-             disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name,
-             discretionary_investment_contractor_name, investment_fund_name, is_cancellation
-           ) VALUES ('2026-01-06', 0, '2026-01-05', '7203', 'Fund', '', '', 0)"""
-    )
-    _add_short_sale_coverage(connection)
-    connection.commit()
-    connection.close()
-    mirror = tmp_path / "mirror"
-    manifests: list[Path] = []
-    with sealed_sqlite_snapshot(
-        sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id="shared-release-snapshot"
-    ) as snapshot:
-        for index, dataset in enumerate(
-            ("jquants.daily_bars", "jquants.short_sale_reports"), start=1
-        ):
-            source = tmp_path / f"response-{index}.json.gz"
-            source.write_bytes(f"provider-original-{index}".encode())
-            _, metadata_path, _ = archive_raw_file(
-                source_path=source,
-                mirror_root=mirror,
-                provider="jquants",
-                dataset=dataset,
-                ingest_id="shared-run",
-                suffix=".json.gz",
-                retention_class=RawRetentionClass.PRESERVE,
-                retrieved_at=datetime(2026, 1, 6, tzinfo=UTC),
-                request_start=date(2026, 1, 1),
-                request_end=date(2026, 1, 31),
-            )
-            manifests.append(
-                export_legacy_sqlite(
-                    dataset_name=dataset,
-                    mirror_root=mirror,
-                    producer_git_commit="a" * 40,
-                    raw_source_refs=(raw_source_ref(metadata_path),),
-                    source_snapshot=snapshot,
-                    build_id=f"shared-build-{index}",
-                    created_at=datetime(2026, 1, 7, tzinfo=UTC),
-                ).manifest_path
-            )
-    release_path, _ = create_l1_release(
-        dataset_manifest_paths=manifests,
-        mirror_root=mirror,
-        release_id="shared-release",
-        created_at=datetime(2026, 1, 7, tzinfo=UTC),
-    )
-
-    report = publish_l1_release(
-        mirror_root=mirror,
-        release_manifest_path=release_path,
-        store=_MemoryStore(),
-    )
-
-    assert report.transfers.uploaded_objects == 9
 
 
 def test_reuse_rejects_remote_integrity_metadata_change(tmp_path: Path) -> None:

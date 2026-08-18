@@ -20,12 +20,6 @@ from baibai_engine.market.lake.immutable import install_immutable_bytes
 from baibai_engine.market.lake.keys import current_l1_pointer_key
 from baibai_engine.market.lake.models import canonical_lake_model_bytes
 from baibai_engine.market.lake.objects import sha256_bytes as _sha256_bytes
-from baibai_engine.market.lake.raw import (
-    RawArchiveError,
-    RawRetentionClass,
-    archive_raw_file,
-    raw_source_ref,
-)
 from baibai_engine.market.lake.release import L1ReleasePointer, create_l1_release
 from baibai_engine.market.lake.retention import apply_gc, plan_gc
 from baibai_engine.market.lake.writer import (
@@ -228,137 +222,6 @@ def test_automatic_plan_detects_fact_and_coverage_changes(tmp_path) -> None:
     ).affected_periods == ((2026, 1), (2026, 2))
 
 
-def test_incremental_export_preserves_partition_lineage(tmp_path) -> None:
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
-    with sqlite3.connect(sqlite_path) as connection:
-        connection.execute(
-            "INSERT INTO jquants_daily_bars(ticker, traded_at, close) "
-            "VALUES ('7203', '2026-02-02', 222.0)"
-        )
-    mirror = tmp_path / "mirror"
-    raw_a = tmp_path / "raw-a.json.gz"
-    raw_a.write_bytes(b"raw-a")
-    _, metadata_a, _ = archive_raw_file(
-        source_path=raw_a,
-        mirror_root=mirror,
-        provider="jquants",
-        dataset="jquants.daily_bars",
-        ingest_id="ingest-a",
-        suffix=".json.gz",
-        retention_class=RawRetentionClass.BUFFER,
-        retrieved_at=datetime(2026, 2, 4, tzinfo=UTC),
-        request_start=date(2026, 1, 1),
-        request_end=date(2026, 2, 28),
-    )
-    first = _export(
-        dataset_name="jquants.daily_bars",
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        producer_git_commit=_COMMIT,
-        raw_source_refs=(raw_source_ref(metadata_a),),
-        build_id="lineage-base",
-    )
-    with sqlite3.connect(sqlite_path) as connection:
-        connection.execute(
-            "UPDATE jquants_daily_bars SET close = 111.0 WHERE traded_at = '2026-02-02'"
-        )
-    raw_b = tmp_path / "raw-b.json.gz"
-    raw_b.write_bytes(b"raw-b")
-    _, metadata_b, _ = archive_raw_file(
-        source_path=raw_b,
-        mirror_root=mirror,
-        provider="jquants",
-        dataset="jquants.daily_bars",
-        ingest_id="ingest-b",
-        suffix=".json.gz",
-        retention_class=RawRetentionClass.BUFFER,
-        retrieved_at=datetime(2026, 2, 5, tzinfo=UTC),
-        request_start=date(2026, 2, 1),
-        request_end=date(2026, 2, 28),
-    )
-    second = _export(
-        dataset_name="jquants.daily_bars",
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        producer_git_commit=_COMMIT,
-        raw_source_refs=(raw_source_ref(metadata_b),),
-        base_manifest_path=first.manifest_path,
-        build_id="lineage-next",
-    )
-    lineage = {
-        (int(item.values["year"]), int(item.values["month"])): tuple(
-            source.source_id for source in item.sources if source.kind == "raw_ingest"
-        )
-        for item in second.manifest.partitions
-    }
-    assert lineage == {
-        (2026, 1): ("ingest-a",),
-        (2026, 2): ("ingest-a", "ingest-b"),
-    }
-    assert second.manifest.sources == ()
-
-
-def test_export_rejects_raw_lineage_outside_target_dataset_or_partition(tmp_path) -> None:
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
-    mirror = tmp_path / "mirror"
-    raw = tmp_path / "raw.json.gz"
-    raw.write_bytes(b"raw")
-    _, wrong_dataset_metadata, _ = archive_raw_file(
-        source_path=raw,
-        mirror_root=mirror,
-        provider="jquants",
-        dataset="jquants.short_sale_reports",
-        ingest_id="wrong-dataset",
-        suffix=".json.gz",
-        retention_class=RawRetentionClass.BUFFER,
-        retrieved_at=datetime(2026, 2, 5, tzinfo=UTC),
-        request_start=date(2026, 1, 1),
-        request_end=date(2026, 2, 28),
-    )
-    with pytest.raises(LakeBuildError, match="does not match target dataset"):
-        _export(
-            dataset_name="jquants.daily_bars",
-            sqlite_path=sqlite_path,
-            mirror_root=mirror,
-            producer_git_commit=_COMMIT,
-            raw_source_refs=(raw_source_ref(wrong_dataset_metadata),),
-            build_id="wrong-dataset-build",
-        )
-
-    _, wrong_range_metadata, _ = archive_raw_file(
-        source_path=raw,
-        mirror_root=mirror,
-        provider="jquants",
-        dataset="jquants.daily_bars",
-        ingest_id="wrong-range",
-        suffix=".json.gz",
-        retention_class=RawRetentionClass.BUFFER,
-        retrieved_at=datetime(2025, 12, 5, tzinfo=UTC),
-        request_start=date(2025, 12, 1),
-        request_end=date(2025, 12, 31),
-    )
-    with pytest.raises(LakeBuildError, match="does not cover any rebuilt partition"):
-        _export(
-            dataset_name="jquants.daily_bars",
-            sqlite_path=sqlite_path,
-            mirror_root=mirror,
-            producer_git_commit=_COMMIT,
-            raw_source_refs=(raw_source_ref(wrong_range_metadata),),
-            build_id="wrong-range-build",
-        )
-
-    valid = raw_source_ref(wrong_range_metadata).model_copy(update={"provider": "other"})
-    with pytest.raises(ValueError, match="metadata identity does not match"):
-        _export(
-            dataset_name="jquants.daily_bars",
-            sqlite_path=sqlite_path,
-            mirror_root=mirror,
-            producer_git_commit=_COMMIT,
-            raw_source_refs=(valid,),
-            build_id="wrong-provider-build",
-        )
-
-
 def test_incremental_export_rejects_a_different_transform(tmp_path) -> None:
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
@@ -402,38 +265,6 @@ def test_short_sale_export_preserves_pk_values_and_cancellation(tmp_path) -> Non
         mirror_root=mirror,
         manifest=result.manifest,
     )
-
-
-def test_raw_archive_is_append_only_and_strips_endpoint_query(tmp_path) -> None:
-    source = tmp_path / "response.json.gz"
-    source.write_bytes(b"original-provider-bytes")
-    mirror = tmp_path / "mirror"
-    target, _, metadata = archive_raw_file(
-        source_path=source,
-        mirror_root=mirror,
-        provider="jquants",
-        dataset="jquants.daily_bars",
-        ingest_id="ingest-1",
-        suffix="json.gz",
-        retention_class=RawRetentionClass.PRESERVE,
-        retrieved_at=datetime(2026, 2, 4, tzinfo=UTC),
-        endpoint="https://api.jquants.com/v2/equities/bars/daily?token=secret",
-    )
-    assert target.read_bytes() == source.read_bytes()
-    assert metadata.endpoint == "https://api.jquants.com/v2/equities/bars/daily"
-
-    source.write_bytes(b"different")
-    with pytest.raises(RawArchiveError, match="different bytes"):
-        archive_raw_file(
-            source_path=source,
-            mirror_root=mirror,
-            provider="jquants",
-            dataset="jquants.daily_bars",
-            ingest_id="ingest-1",
-            suffix="json.gz",
-            retention_class=RawRetentionClass.PRESERVE,
-            retrieved_at=datetime(2026, 2, 4, tzinfo=UTC),
-        )
 
 
 def test_release_manifest_composes_exact_dataset_builds(
@@ -850,62 +681,6 @@ def test_l1_manifest_digest_is_part_of_the_gc_root(
 
     assert pointer.manifest_key in plan.unresolved_roots
     assert pointer.manifest_key not in plan.reachable
-
-
-def test_expired_unreferenced_buffer_raw_is_deleted_with_its_metadata(tmp_path: Path) -> None:
-    mirror = tmp_path / "mirror"
-    raw = tmp_path / "raw.json.gz"
-    raw.write_bytes(b"buffered raw")
-    object_path, metadata_path, _metadata = archive_raw_file(
-        source_path=raw,
-        mirror_root=mirror,
-        provider="jquants",
-        dataset="jquants.daily_bars",
-        ingest_id="expired-buffer",
-        suffix=".json.gz",
-        retention_class=RawRetentionClass.BUFFER,
-        retrieved_at=datetime(2026, 1, 1, tzinfo=UTC),
-        request_start=date(2025, 12, 1),
-        request_end=date(2025, 12, 31),
-    )
-    first = plan_gc(mirror, now=datetime(2026, 4, 2, tzinfo=UTC))
-
-    assert {item.key for item in first.candidates} == {
-        object_path.relative_to(mirror).as_posix(),
-        metadata_path.relative_to(mirror).as_posix(),
-    }
-    # Bytes and sidecar go together: a payload without its metadata is unclassifiable
-    # and a sidecar without its payload names nothing.
-    assert set(apply_gc(mirror, first, plan_hash=first.plan_hash)) == {
-        object_path.relative_to(mirror).as_posix(),
-        metadata_path.relative_to(mirror).as_posix(),
-    }
-    assert not object_path.exists()
-    assert not metadata_path.exists()
-
-
-def test_preserve_raw_never_enters_gc_candidates(tmp_path: Path) -> None:
-    mirror = tmp_path / "mirror"
-    raw = tmp_path / "raw.json.gz"
-    raw.write_bytes(b"preserved raw")
-    object_path, metadata_path, _metadata = archive_raw_file(
-        source_path=raw,
-        mirror_root=mirror,
-        provider="jquants",
-        dataset="jquants.daily_bars",
-        ingest_id="preserved-raw",
-        suffix=".json.gz",
-        retention_class=RawRetentionClass.PRESERVE,
-        retrieved_at=datetime(2020, 1, 1, tzinfo=UTC),
-        request_start=date(2019, 12, 1),
-        request_end=date(2019, 12, 31),
-    )
-
-    plan = plan_gc(mirror, now=datetime(2027, 1, 1, tzinfo=UTC))
-
-    candidate_keys = {item.key for item in plan.candidates}
-    assert object_path.relative_to(mirror).as_posix() not in candidate_keys
-    assert metadata_path.relative_to(mirror).as_posix() not in candidate_keys
 
 
 def test_l1_export_benchmark_records_full_and_incremental_transfer(tmp_path: Path) -> None:

@@ -15,7 +15,6 @@ from .hydrate import LakeHydrateError, dehydrate_market_store, hydrate_market_st
 from .identity import source_repo_root, verified_git_commit
 from .models import DatasetManifest, L1ReleaseSourceRef, load_lake_model_json
 from .objects import LakeObjectError, LakeObjectSource, open_lake
-from .raw import RawRetentionClass, archive_raw_file, raw_source_ref
 from .reader import (
     FixedRelease,
     LakeReadError,
@@ -34,7 +33,6 @@ _AUDIT_HELP = (
 
 WRITE_COMMANDS = frozenset(
     {
-        "archive-raw",
         "dehydrate",
         "export-all",
         "export-legacy",
@@ -49,18 +47,6 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="baibai-engine lake")
     commands = parser.add_subparsers(dest="command", required=True)
 
-    raw = commands.add_parser("archive-raw", help="archive original provider bytes append-only")
-    raw.add_argument("--source-file", type=Path, required=True)
-    raw.add_argument("--mirror", type=Path, required=True)
-    raw.add_argument("--provider", choices=("jquants",), default="jquants")
-    raw.add_argument("--dataset", choices=sorted(LAKE_DATASETS), required=True)
-    raw.add_argument("--ingest-id", required=True)
-    raw.add_argument("--suffix", required=True)
-    raw.add_argument("--retention", choices=tuple(RawRetentionClass), required=True)
-    raw.add_argument("--endpoint")
-    raw.add_argument("--from", dest="start", type=date.fromisoformat)
-    raw.add_argument("--to", dest="end", type=date.fromisoformat)
-
     export = commands.add_parser(
         "export-legacy", help="export affected SQLite months as canonical Parquet"
     )
@@ -70,7 +56,6 @@ def main(argv: list[str]) -> int:
     export.add_argument("--from", dest="start", type=date.fromisoformat)
     export.add_argument("--to", dest="end", type=date.fromisoformat)
     export.add_argument("--base-manifest", type=Path)
-    export.add_argument("--raw-metadata", type=Path, action="append", default=[])
     export.add_argument("--build-id")
     export.add_argument(
         "--audit",
@@ -125,31 +110,6 @@ def main(argv: list[str]) -> int:
         return _hydrate(args)
     if args.command == "dehydrate":
         return _dehydrate(args)
-    if args.command == "archive-raw":
-        target, metadata_path, metadata = archive_raw_file(
-            source_path=args.source_file,
-            mirror_root=args.mirror,
-            provider=args.provider,
-            dataset=args.dataset,
-            ingest_id=args.ingest_id,
-            suffix=args.suffix,
-            retention_class=RawRetentionClass(args.retention),
-            endpoint=args.endpoint,
-            request_start=args.start,
-            request_end=args.end,
-        )
-        print(
-            json.dumps(
-                {
-                    "bytes": metadata.bytes,
-                    "metadata": str(metadata_path),
-                    "object": str(target),
-                    "sha256": metadata.content_sha256,
-                },
-                sort_keys=True,
-            )
-        )
-        return 0
     if args.command == "export-legacy":
         verified_commit = _git_commit()
         with sealed_sqlite_snapshot(sqlite_path=args.sqlite, mirror_root=args.mirror) as snapshot:
@@ -160,7 +120,6 @@ def main(argv: list[str]) -> int:
                 start=args.start,
                 end=args.end,
                 base_manifest_path=args.base_manifest,
-                raw_source_refs=tuple(raw_source_ref(path) for path in args.raw_metadata),
                 source_snapshot=snapshot,
                 build_id=args.build_id,
                 audit_full_history=args.audit,
@@ -365,7 +324,6 @@ commands:
   inventory          inspect a local lake mirror without reading object contents
   validate           validate one manifest contract without changing objects
   resolve            resolve one fixed release and print its immutable identity
-  archive-raw        archive original provider bytes append-only
   export-legacy      export affected SQLite months as canonical Parquet
   export-all         export every lake dataset from one sealed SQLite snapshot
   release create     create an immutable L1 release manifest

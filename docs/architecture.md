@@ -78,7 +78,6 @@ materialized read model だけを読む。
 
 | layer | canonical form | allowed contents |
 | --- | --- | --- |
-| L1 Raw | R2 immutable object | provider original と request range / retrieved-at / content hash。credential と認証 header は保存しない |
 | L1 Canonical | Parquet object + dataset / release manifest | typed source fact、source identity、publication / effective / retrieved time、revision semantics |
 | L2 Analytical | Parquet object + dataset manifest + atomic bundle pointer | 再生成可能な panel、feature、forward outcome |
 | L2 Operational / L3 | SQLite | run metadata、selection、thesis、proposal、ledger、operation 等の transaction / point lookup state |
@@ -87,10 +86,10 @@ R2 key は `lake/` 以下だけを使い、segment allowlist で path traversal 
 partition は `year/month`、file は ZSTD Parquet、object name は content SHA-256 とする。dataset
 manifest は全 partition object と totals を列挙し、L1 release manifest は互換な dataset build の
 組を一つの `release_id` へ固定する。logical object identity は key・SHA-256・bytes・rows・schema
-で決まり、object-store固有のETagはpublish/CASのtransport stateにだけ置く。lineageは`raw_ingest`・`sqlite_snapshot`・`calibration_input`を区別するtyped `SourceRef`で表す。
+で決まり、object-store固有のETagはpublish/CASのtransport stateにだけ置く。lineageは`sqlite_snapshot`・`calibration_input`を区別するtyped `SourceRef`で表す。
 kindは**bytesを保持するかどうか**の2族に分かれ、それが型の違いになる。
 
-- **retained**（`raw_ingest`・`calibration_input`）はlake内のkeyを名乗る。keyを名乗ることは
+- **retained**（`calibration_input`・`l1_release`）はlake内のkeyを名乗る。keyを名乗ることは
   「そのbytesが到達可能で、collectionから守られ、そのbuildを運ぶpublicationが一緒に運ぶ」という
   約束であり、その大きさをlakeが世代の寿命だけ保持する意思のあるsourceだけが名乗れる。resolverは
   key・SHA-256・source側versionを検証する。
@@ -104,7 +103,7 @@ kindは**bytesを保持するかどうか**の2族に分かれ、それが型の
   retained sourceとして戻る。
 
 L1 releaseはこのunionに入れない。lineage sourceはそれを再生する完全なobject graphへ解決できねばならず、
-release manifestはそのrootにすぎない。dataset manifest・Parquet object・Raw archiveまでを列挙・検証・
+release manifestはそのrootにすぎない。dataset manifest・Parquet objectまでを列挙・検証・
 retentionから保護するclosure resolverと、それを使うpublisher・retention・auditが揃うまでkindを
 戻さない。文字列prefixや実在しないrelease IDでsource種別を表さない。
 

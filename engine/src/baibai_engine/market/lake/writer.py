@@ -39,13 +39,12 @@ from .models import (
     LakeObject,
     ManifestTotals,
     PartitionManifest,
-    RawIngestSourceRef,
     SourceRef,
     SQLiteSnapshotSourceRef,
     canonical_lake_model_bytes,
     load_lake_model_json,
 )
-from .sources import resolve_source_ref, sha256_file, validate_sqlite_snapshot
+from .sources import sha256_file, validate_sqlite_snapshot
 
 _ROW_GROUP_SIZE = 65_536
 _PARQUET_VERSION = "2.6"
@@ -157,7 +156,6 @@ def export_legacy_sqlite(
     start: date | None = None,
     end: date | None = None,
     base_manifest_path: Path | None = None,
-    raw_source_refs: Sequence[RawIngestSourceRef] = (),
     source_snapshot: LegacySQLiteSnapshot,
     build_id: str | None = None,
     created_at: datetime | None = None,
@@ -193,9 +191,6 @@ def export_legacy_sqlite(
     if staging_root.exists():
         raise LakeBuildError(f"build workspace already exists: {actual_build_id}")
     snapshot = source_snapshot
-    for source in raw_source_refs:
-        resolve_source_ref(mirror_root, source)
-        _validate_raw_source_dataset(source, dataset)
     staging_root.mkdir(parents=True)
 
     try:
@@ -229,13 +224,7 @@ def export_legacy_sqlite(
                     period=period,
                     staging_root=staging_root,
                     rows=rows,
-                    sources=_partition_sources(
-                        dataset=dataset,
-                        period=period,
-                        snapshot=snapshot.ref,
-                        previous=previous,
-                        current=raw_source_refs,
-                    ),
+                    sources=(snapshot.ref,),
                 )
                 built.append(item)
                 partitions[period] = item.manifest
@@ -245,7 +234,6 @@ def export_legacy_sqlite(
                     changed.append(label)
             if not partitions:
                 raise LakeBuildError("dataset manifest must contain at least one partition")
-            _require_all_raw_sources_used(raw_source_refs, periods)
             data_as_of = _data_as_of(connection, dataset, periods=partitions)
             coverage_status, coverage_start, population_count = _coverage_assessment(
                 connection, dataset
@@ -254,18 +242,7 @@ def export_legacy_sqlite(
         # Every partition was checked against this sealed snapshot below. Refresh
         # reused lineage too, so a release names one coherent source generation.
         ordered = tuple(
-            partitions[key].model_copy(
-                update={
-                    "sources": (
-                        snapshot.ref,
-                        *(
-                            source
-                            for source in partitions[key].sources
-                            if source.kind != "sqlite_snapshot"
-                        ),
-                    )
-                }
-            )
+            partitions[key].model_copy(update={"sources": (snapshot.ref,)})
             for key in sorted(partitions)
         )
         totals = ManifestTotals(
@@ -498,59 +475,6 @@ def _build_period(
             source_state_sha256=_source_state_sha256(connection, dataset, period, rows),
         ),
     )
-
-
-def _validate_raw_source_dataset(source: RawIngestSourceRef, dataset: LakeDataset) -> None:
-    provider = dataset.name.partition(".")[0]
-    if source.provider != provider or source.dataset != dataset.name:
-        raise LakeBuildError(f"Raw source does not match target dataset: {source.source_id}")
-
-
-def _raw_source_overlaps_period(source: RawIngestSourceRef, period: Period) -> bool:
-    start, end = period_bounds(period)
-    return source.request_start < end and source.request_end >= start
-
-
-def _partition_sources(
-    *,
-    dataset: LakeDataset,
-    period: Period,
-    snapshot: SQLiteSnapshotSourceRef,
-    previous: PartitionManifest | None,
-    current: Sequence[RawIngestSourceRef],
-) -> tuple[SourceRef, ...]:
-    prior_raw = (
-        ()
-        if previous is None
-        else tuple(source for source in previous.sources if isinstance(source, RawIngestSourceRef))
-    )
-    applicable = tuple(source for source in current if _raw_source_overlaps_period(source, period))
-    for source in (*prior_raw, *applicable):
-        _validate_raw_source_dataset(source, dataset)
-        if not _raw_source_overlaps_period(source, period):
-            raise LakeBuildError(
-                f"Raw source request range does not cover partition period: {source.source_id}"
-            )
-    by_identity = {
-        (source.kind, source.source_id, source.key, source.sha256): source
-        for source in (*prior_raw, *applicable)
-    }
-    return (snapshot, *(by_identity[key] for key in sorted(by_identity)))
-
-
-def _require_all_raw_sources_used(
-    sources: Sequence[RawIngestSourceRef], periods: Sequence[Period]
-) -> None:
-    unused = [
-        source.source_id
-        for source in sources
-        if not any(_raw_source_overlaps_period(source, period) for period in periods)
-    ]
-    if unused:
-        raise LakeBuildError(
-            "Raw source request range does not cover any rebuilt partition: "
-            + ", ".join(sorted(unused))
-        )
 
 
 def _build_periods(

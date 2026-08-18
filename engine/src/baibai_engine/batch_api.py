@@ -61,8 +61,6 @@ from baibai_engine.market.lake.models import (
     require_calibration_generation,
 )
 from baibai_engine.market.lake.models import DatasetManifest as LakeDatasetManifest
-from baibai_engine.market.lake.models import RawArchiveMetadata as LakeRawArchiveMetadata
-from baibai_engine.market.lake.models import RawIngestSourceRef as LakeRawIngestSourceRef
 from baibai_engine.market.lake.models import ReleaseManifest as LakeReleaseManifest
 from baibai_engine.market.lake.models import SQLiteSnapshotSourceRef as LakeSQLiteSnapshotSourceRef
 from baibai_engine.market.lake.models import retained_sources as lake_retained_sources
@@ -118,8 +116,6 @@ __all__ = [
     "IndicatorsSchemaError",
     "L1ReleasePointer",
     "LakeDatasetManifest",
-    "LakeRawArchiveMetadata",
-    "LakeRawIngestSourceRef",
     "LakeReleaseManifest",
     "LakeSQLiteSnapshotSourceRef",
     "MacroContextDocument",
