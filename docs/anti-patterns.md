@@ -43,11 +43,16 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - 6590 芝浦メカトロニクス の顧客を TSMC / Samsung / Kioxia と断定した (公式製品ページで
   確認できるのは製品領域までで、顧客別売上比率は有報未確認)
 - OPEC+ 5/3 statement を macro context 作成日 (5/4) に確認していなかった
+- 同じ文書の上流に「7/28〜8/3 の円高が当局介入か市場要因か一次情報で未確認」「金利差で説明でき
+  ない残差の中身は不明」と書きながら、summary と公開 revision では当局介入を発生済み fact として
+  断定し、残差を主機構と断じた (macro context 2026-08-12)
 
 ### 根本原因
 - 自分の事前知識ベースで「だろう」と書く habit
 - 二次情報・分析記事で見た数字を一次情報の数字と区別せず引用する
 - 一次情報 URL の本文を読まず source ID だけ書く
+- 上流で正直に置いた「未確認」が、要約・統合の過程で落ちる。**引用元を持たない断定は URL 検査に
+  かからない**ので、source を確かめる checklist だけでは検出できない
 
 ### 再発防止チェックリスト (commit 前必須)
 
@@ -65,6 +70,9 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       説明資料 / 統合報告書のいずれかに直接 URL でリンクしているか。リンクなしの断定は禁止
 - [ ] macro context の発行日付近に大型 statement (FOMC / BOJ / OPEC+ / CPI / PCE) が予定
       されていれば、発行前に「最新版が出ていないか」を schedule で確認したか
+- [ ] 自分の draft の上流 (evidence / fact 層) で「未確認」「不明」「推定」と書いた事象を、下流の
+      summary / judgment / 結論で確定事実として書いていないか。**一次確認に行って取れなかった
+      ことは、書かない理由であって断定してよい理由ではない**。取れなかった事実自体を本文に残す
 
 ## 2. AP-02: 数値計算を機械的に検算しない
 
@@ -240,7 +248,6 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] 人間確認なしで完了できる operation 分岐は、専用の completion reason と canonical artifact evidence を必須にし、`not applicable` 等を human confirmation field へ書く抜け道、別 session kind での流用、evidence 件数の矛盾を negative test で拒否するか
 - [ ] rebuildable publication を再利用する gate は、外部 summary の schema・terminal state・artifact ID を exact に検証し、run と selection の両方を同一の clean application commit に束縛するか。長い計算は開始時 commit を publication 直前に再照合し、dirty tree・HEAD 変更・片方だけ provenance 欠損を current code 扱いしない negative test があるか
 - [ ] macro context の統合層 gate を変更する場合、「義務として同梱される別 input で充足できないか」を必ず疑う（bargain_topography の接地 gate は、2 本目以降の全レポートが必ず持つ前回 scorecard の `ScorecardSnapshotInput` では充足できないよう型と command で絞る。同型の抜け道：presence gate が「常在する別の何か」で満たせる設計）。確率検証は float 等値比較でなく整数化算術で書き、境界（0.00 / 0.95 / 刻み外 / 部分欠落）を negative test で塞ぐ
-- [ ] macro の forward projection gate は target 1 件の存在だけで充足させず、canonical v4 model と renderer が共有する plan から one-page / v4 の judgment-bearing scalar path を列挙して全件 mapping を要求するか。base / bear / bull の欠落、selected evidence の未使用、snapshot measure と unit の付け替え、typed upstream と evidence の非接続、全 consumer から未参照の graph node / edge、edge より強い source claim、source より強い output claim、state uncertainty 4 種の欠落、real / nominal・stock / flow・observation / expectation・unit の不一致、revision diff の as_of 混在、nested unknown field を個別の negative test で拒否するか。schema version の downgrade や final input option の省略で gate を回避できないか。validator の declaration pass を prose の semantic pass と扱わず、独立縦読み review を別に要求するか
 - [ ] ledger eventを導入・変更する場合、reservationとbuy execution、terminal orderとrelease、cash不足、guard超過、expiry後のbuy、保有超過sellをhard errorとして確認したか
 - [ ] concentrationはholding market value + active reservationをledgerの`total_capital_yen`で割り、warning + 期限付きoverrideとして扱うことを確認したか
 - [ ] human result CLIを変更する場合、報告なしでno write、approved proposal ID必須、missing fieldの質問、draft時canonical非変更、stale append head拒否をcontract testで確認したか
@@ -618,11 +625,19 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
 - 財務履歴の下限を最古の行 (`MIN(disclosed_at)`) から取った。読み取りの可否を決めるのは
   coverage であり、10 年の移動窓が通り過ぎた 1,911 行が下限を coverage の外へ引き下げて、
   最近の履歴しか要らない cohort まで含め 80 cohort 全部が構築不能になった
+- 「日米独の実質割引率」として、米の実質 10 年 2.43% と日独の**名目** 10 年 2.815% / 2.97% を
+  並べた。real と nominal は同じ「10 年金利」の語で並ぶので、名前では衝突しない
+  (macro context 2026-08-12)
+- 実質賃金指数の deflator (持家の帰属家賃を除く総合) と `jp.cpi.core_yoy` を同じ量として結び、
+  両者の関係を会計恒等として書いた。**0.5pt の許容幅を置いたこと自体が恒等でないことを示していた**
 
 ### 根本原因
 
 - 量が持つ基準 (**資本基準 / 株式基準 / 実体 / 期間 / 観測の齢**) が field 名にも型にも現れず、
   組み合わせる場所で誰も一致を確かめない
+- マクロ系列は名前が近いほど基準が違う (「10 年金利」は real / nominal、「コア CPI」は対象範囲が
+  publisher ごとに違う)。基準は `macro reading` の `statistic` / `statistic_unit` / `unit` に出て
+  いるのに、prose へ引用する段で落ちる
 - 誤りは型を通り、値は有限で、単体テストは緑のまま通る。**fixture 自体が恒等式を破っていても
   誰も気付かない**
 - 「per-share の値を足す」「per-share に株数を掛ける」が書けてしまう
@@ -673,6 +688,12 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
 - [ ] **store が「持っている」ことと「出せる」ことを同じ量として扱っていないか。** 読み取り範囲の
       端は行から導かず、その範囲を出せると宣言している側から取る。source の窓は動くので、
       取得できた事実は保持し続ける保証にならない
+- [ ] マクロ系列を並べる前に、**real / nominal・stock / flow・水準 / 前年比・観測 / 期待**が全系列
+      で揃っているか。`macro reading` の `statistic` (`level` / `yoy`)・`statistic_unit`・`unit` は
+      系列ごとに違う
+- [ ] 2 つの指数を恒等式で結ぶ前に、**deflator・基準年・対象範囲**が同じ定義かを一次資料で確認
+      したか。**許容幅を置きたくなったら、それは恒等ではない** — 関係の性質を identity から
+      経験的関係へ落とす
 
 ## 13. AP-13: 変動が構造的に存在しない値を、変動する値として読む
 

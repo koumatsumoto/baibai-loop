@@ -184,7 +184,7 @@ uv run baibai-engine macro context show --latest --asof 2026-07-19
 
 レポートは **core 10 セクション + synthesis + connection 1 セクション** で構成する。core は use-case agnostic な環境評価（チャネル別の evidence 層）であり、日本株積立ループ固有の語彙（sector tilt・research 優先度・sizing caution）を持たない。synthesis は core の上に載る統合層で、やはり use-case agnostic である。connection はループ固有の語彙を 1 か所へ隔離する。読み手の順は summary → synthesis → core → connection であり、executive な統合が evidence より先に来る。
 
-この分離は書き手の注意ではなく **参照方向の機械契約** で守る：connection が引用できる series は core が引用済みのものだけで、connection は依拠する core セクション（その series を実際に引用しているセクション）を `core_section_ids` で明示する。core 側へ sector tilt / research 優先度ヒント / sizing caution を書いた draft は schema が拒否する。series 以外の input（`screening market-snapshot` の市場内部やループ固有の記事）は connection が自分の入力として持ってよい——バーゲン地形は connection の担当であり、core を日本株ループの語彙で汚さないためである。ただし **prose は機械では縛れない**（core の judgment に行動指示を書き込むことは schema では止まらない）ので、そこは skill の敵対的 self-check が受け持つ。core が単体で完結していることの構造的な証明になり、リポジトリ外のスポット資産運用判断の材料としてもそのまま読める。
+この分離は書き手の注意ではなく **参照方向の機械契約** で守る：connection が引用できる series は core が引用済みのものだけで、connection は依拠する core セクション（その series を実際に引用しているセクション）を `core_section_ids` で明示する。core 側へ sector tilt / research 優先度ヒント / sizing caution を書いた draft は schema が拒否する。series 以外の input（`screening market-snapshot` の市場内部やループ固有の記事）は connection が自分の入力として持ってよい——バーゲン地形は connection の担当であり、core を日本株ループの語彙で汚さないためである。ただし **prose は機械では縛れない**（core の judgment に行動指示を書き込むことは schema では止まらない）ので、そこは skill の敵対的 self-check と、publish 前に author と別 role が縦読みする独立レビューが受け持つ。core が単体で完結していることの構造的な証明になり、リポジトリ外のスポット資産運用判断の材料としてもそのまま読める。
 
 ### synthesis：支配的な力と相互作用
 
