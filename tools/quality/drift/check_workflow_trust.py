@@ -111,6 +111,12 @@ _EXPECTED_INPUT_ENV: dict[tuple[str, str, str], dict[str, str]] = {
         "EXPECTED_DISPATCH_SHA": "${{ inputs.expected_sha }}"
     },
 }
+# `run-name` is display metadata: GitHub renders it and the API returns it as
+# `display_title`, and nothing executes it. It is allowlisted per workflow with its
+# exact text so a dispatch input can reach it only in a form that has been read here.
+_EXPECTED_RUN_NAMES: dict[str, str] = {
+    "cloud-daily-batch.yml": "daily ${{ inputs.asof || '' }}",
+}
 _EXPECTED_VALIDATED_OUTPUT_ENV: dict[tuple[str, str, str], dict[str, str]] = {
     ("cloud-daily-batch.yml", "daily", "Run daily batch"): {
         "MANUAL_ASOF": "${{ steps.validate-input.outputs.asof }}"
@@ -556,11 +562,16 @@ def _input_errors(path: Path, workflow: Mapping[object, object]) -> list[str]:
         boundary_name="dispatch input",
     )
     seen: set[DocumentPath] = set()
+    expected_run_name = _EXPECTED_RUN_NAMES.get(path.name)
+    if expected_run_name is not None and workflow.get("run-name") != expected_run_name:
+        errors.append(f"{path.name}:run-name: differs from its reviewed text")
     for location, value in _iter_scalars(workflow):
         if not _contains_dispatch_input(value):
             continue
         if location and location[-1] == "run":
             errors.append(f"{path.name}:{_display(location)}: inputs.* must pass through step env")
+            continue
+        if location == ("run-name",) and value == expected_run_name:
             continue
         expected = allowed.get(location)
         if expected is None or value != expected:

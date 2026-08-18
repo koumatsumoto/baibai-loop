@@ -25,7 +25,7 @@ import os
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 from baibai_batch.observability.discord import (
@@ -56,9 +56,59 @@ SCHEDULED_FIRE_TIME = time(12, 0, tzinfo=UTC)
 #     more than eight hours of delay.
 DEFAULT_WINDOW_HOURS = 20
 
+_JST = timezone(timedelta(hours=9))
+
+# `cloud-daily-batch`'s own cron, in UTC (16:43 JST). "Which day is this run for" is a
+# question about that schedule, so it is anchored on the cron rather than on JST
+# midnight: both this watchdog and the batch it watches are fired late by GitHub's
+# schedule queue — about two hours at the median — and a firing that slips past
+# midnight JST must keep asking about the same day rather than about a day whose batch
+# is not due yet. A contract test pins this against the workflow.
+BATCH_SCHEDULED_FIRE_TIME = time(7, 43, tzinfo=UTC)
+
+# The `run-name` the batch declares. A scheduled run leaves the date empty; a recovery
+# dispatch carries the `--asof` it was given, which is the only place the target day of
+# a past-dated recovery is visible in the run listing at all.
+RUN_NAME_PREFIX = "daily"
+
 
 class WatchdogInputError(ValueError):
     """The run listing does not satisfy the shape this adapter reads."""
+
+
+def batch_target_date(instant: datetime) -> date:
+    """The JST day the batch firing at or before ``instant`` is responsible for."""
+
+    fired = datetime.combine(instant.astimezone(UTC).date(), BATCH_SCHEDULED_FIRE_TIME)
+    if fired > instant:
+        fired -= timedelta(days=1)
+    return fired.astimezone(_JST).date()
+
+
+def run_target_date(*, event: str, created_at: datetime, display_title: str) -> date | None:
+    """Which day a run answers for, or ``None`` when the listing cannot say.
+
+    A scheduled run always answers for its own day: the schedule event supplies no
+    `asof`, so the batch reads today. A dispatch names its day in the run name, and one
+    whose run name this cannot read is not evidence about any particular day — runs
+    created before the workflow carried a run name are exactly that, and reading them
+    as "today" is what let a past-dated recovery stand in for a missing batch.
+    """
+
+    if event == "schedule":
+        return batch_target_date(created_at)
+    if event != "workflow_dispatch":
+        return None
+    title = display_title.strip()
+    if title == RUN_NAME_PREFIX:
+        return batch_target_date(created_at)
+    prefix = f"{RUN_NAME_PREFIX} "
+    if not title.startswith(prefix):
+        return None
+    try:
+        return date.fromisoformat(title[len(prefix) :].strip())
+    except ValueError:
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +120,7 @@ class WorkflowRun:
     status: str
     conclusion: str
     created_at: datetime
+    target_date: date | None
 
     @property
     def succeeded(self) -> bool:
@@ -81,9 +132,10 @@ class WorkflowRun:
 
     def describe(self) -> str:
         state = self.conclusion or self.status
+        target = self.target_date.isoformat() if self.target_date is not None else "unnamed day"
         return (
             f"#{self.run_number} {sanitize_one_line(self.event)} "
-            f"{sanitize_one_line(state)} {self.created_at.isoformat()}"
+            f"{sanitize_one_line(state)} {self.created_at.isoformat()} for {target}"
         )
 
 
@@ -104,6 +156,7 @@ class Verdict:
     """
 
     state: str
+    check_date: date
     window_start: datetime
     window_end: datetime
     runs_in_window: tuple[WorkflowRun, ...]
@@ -142,13 +195,20 @@ def parse_runs(payload: object) -> tuple[WorkflowRun, ...]:
         run_number = entry.get("run_number")
         if not isinstance(run_number, int) or isinstance(run_number, bool):
             raise WatchdogInputError("run run_number must be an integer")
+        event = str(entry.get("event", "unknown"))
+        created_at = _parse_instant(entry.get("created_at"), field="created_at")
         runs.append(
             WorkflowRun(
                 run_number=run_number,
-                event=str(entry.get("event", "unknown")),
+                event=event,
                 status=str(entry.get("status", "unknown")),
                 conclusion=str(entry.get("conclusion") or ""),
-                created_at=_parse_instant(entry.get("created_at"), field="created_at"),
+                created_at=created_at,
+                target_date=run_target_date(
+                    event=event,
+                    created_at=created_at,
+                    display_title=str(entry.get("display_title") or ""),
+                ),
             )
         )
     return tuple(runs)
@@ -165,14 +225,22 @@ def evaluate(runs: Sequence[WorkflowRun], *, window_end: datetime, window_hours:
             key=lambda run: run.created_at,
         )
     )
-    if any(run.succeeded for run in in_window):
+    check_date = batch_target_date(window_end)
+    # A recovery dispatch for an earlier day says nothing about this one. Reading the
+    # window as a set of runs rather than as a set of answered days is what let a
+    # past-dated success — the shape that actually occurred on 2026-08-18 — cover a
+    # missing batch. The same filter applies to a run still in flight for the same
+    # reason: it will report an outcome about its own day, not about this one.
+    answering = tuple(run for run in in_window if run.target_date == check_date)
+    if any(run.succeeded for run in answering):
         state = STATE_HEALTHY
-    elif any(run.in_flight for run in in_window):
+    elif any(run.in_flight for run in answering):
         state = STATE_IN_FLIGHT
     else:
         state = STATE_MISSING
     return Verdict(
         state=state,
+        check_date=check_date,
         window_start=window_start,
         window_end=window_end,
         runs_in_window=in_window,
@@ -183,7 +251,10 @@ def render_alert(verdict: Verdict, *, repository: str, watchdog_run_url: str) ->
     """Render the bounded alert message for a window with no successful run."""
     window_hours = int((verdict.window_end - verdict.window_start).total_seconds() // 3600)
     lines = [
-        f"[MISSING] no successful {WATCHED_WORKFLOW} run in the last {window_hours}h",
+        (
+            f"[MISSING] no successful {WATCHED_WORKFLOW} run for "
+            f"{verdict.check_date.isoformat()} in the last {window_hours}h"
+        ),
         f"repo: {sanitize_one_line(repository)}",
         f"window: {verdict.window_start.isoformat()} .. {verdict.window_end.isoformat()}",
     ]
@@ -255,7 +326,10 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
     if not verdict.alerting:
         # Silence is the product on a healthy day: a second daily [OK] would train
         # the reader to skip the channel the alert has to reach.
-        print(f"watchdog: {verdict.state}; no gap to report inside {window}")
+        print(
+            f"watchdog: {verdict.state} for {verdict.check_date.isoformat()}; "
+            f"no gap to report inside {window}"
+        )
         return 0
     message = render_alert(
         verdict,
@@ -268,7 +342,10 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
     if delivery.status != DELIVERY_DELIVERED:
         print(f"error: watchdog alert failed: {delivery.detail}", file=sys.stderr)
         return 1
-    print(f"watchdog: alert delivered; no successful run inside {window}")
+    print(
+        f"watchdog: alert delivered; no successful run for "
+        f"{verdict.check_date.isoformat()} inside {window}"
+    )
     return 0
 
 
