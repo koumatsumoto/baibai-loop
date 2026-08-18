@@ -217,6 +217,23 @@ curl -sS --compressed "https://web.archive.org/web/${TS}id_/<元 URL>"
 
 **PDF 抽出の前提**: BOJ の総裁記者会見・展望レポート PDF と JPX 日次統計 PDF は CMap encoded Type0 font を使うため、`pdftotext` (poppler-utils) か Python の `pdfminer.six` / `pypdf` が必要。本作業環境にこれらが入っていない場合、TOPIX や BOJ 政策決定本文は数値・本文ともに `データ取得失敗` 扱いになる。
 
+### 一次 source の記事 URL（推測で当てると 404 になる）
+
+macro context の `inputs.articles` で繰り返し使う日本の公表機関は、索引ページから辿らないと当たらない URL 規則を持つ。2026-08-17 の執筆で 10 回の 404 を出したのは全てこの探索で、tool の遮断ではない。確定した規則を置く。
+
+| 公表 | URL 規則 |
+|---|---|
+| 財務省 為替介入実績（月次） | `https://www.mof.go.jp/english/policy/international_policy/reference/feio/monthly/<YYYYMMDD>e.html`（`feint` ではなく **`feio`**） |
+| 総務省 消費者物価指数（速報） | `https://www.stat.go.jp/data/cpi/sokuhou/tsuki/index-z.html`（`index.html` ではなく **`index-z.html`**） |
+| 内閣府 四半期別 GDP 速報 | `https://www.esri.cao.go.jp/jp/sna/data/data_list/sokuhou/files/<YYYY>/qe<NNN>/tables/<table>.csv`（統計表はメニュー経由でしか辿れず、パスの推測は当たらない） |
+| 厚生労働省 毎月勤労統計（速報） | `https://www.mhlw.go.jp/toukei/itiran/roudou/monthly/r08/<YYMM>p/dl/pdf<YYMM>p.pdf` |
+
+**文字コード**: `www.mhlw.go.jp` と `www.stat.go.jp` の HTML は **cp932**。utf-8 で読むと例外にならず文字化けを素通しするので、デコードを明示する。
+
+**timeout**: `www.ecb.europa.eu` は 30 秒では落ちる。60 秒へ延ばすと通る。
+
+**curl でも通らない host**: `indexes.nikkei.co.jp`（Cloudflare の JS challenge で 403。日経 PER / PBR は `nikkei_indexes` provider の series で代替し、記事としては引用しない）、`www.stats.gov.cn`（接続 timeout。数値の代替埋めはせず `status: failed` の input として残し、中国は §意図的な境界 の proxy basket で読む）。
+
 ## Tier 2 補助ソースの運用と例外
 
 Tier 2 の Reuters / AP News / NHK は、Web 取得ツール側の制約で直接アクセスできない場合がある。その場合の暫定運用:
