@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
 import yaml
 
 from baibai_batch.jobs.watchdog import (
+    BATCH_SCHEDULED_FIRE_TIME,
     DEFAULT_WINDOW_HOURS,
+    RUN_NAME_PREFIX,
     STATE_HEALTHY,
     STATE_IN_FLIGHT,
     STATE_MISSING,
     WatchdogInputError,
+    batch_target_date,
     evaluate,
     main,
     parse_runs,
@@ -46,14 +49,18 @@ def _run(
     status: str = "completed",
     conclusion: str = "success",
     event: str = "schedule",
+    display_title: str | None = None,
 ) -> dict[str, object]:
-    return {
+    entry: dict[str, object] = {
         "run_number": number,
         "event": event,
         "status": status,
         "conclusion": conclusion,
         "created_at": created_at.isoformat(),
     }
+    if display_title is not None:
+        entry["display_title"] = display_title
+    return entry
 
 
 def _listing(*runs: dict[str, object]) -> dict[str, object]:
@@ -194,15 +201,130 @@ def test_a_late_watchdog_firing_still_sees_the_days_batch() -> None:
     assert late.state == STATE_HEALTHY
 
 
-def test_a_manual_recovery_dispatch_counts_as_the_days_run() -> None:
+def test_a_manual_recovery_dispatch_for_today_counts_as_the_days_run() -> None:
     runs = parse_runs(
         _listing(
             _run(created_at=FIRED_AT - timedelta(hours=3), conclusion="failure"),
-            _run(number=2, created_at=FIRED_AT - timedelta(hours=1), event="workflow_dispatch"),
+            _run(
+                number=2,
+                created_at=FIRED_AT - timedelta(hours=1),
+                event="workflow_dispatch",
+                display_title="daily",
+            ),
         )
     )
 
     assert evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS).alerting is False
+
+
+def test_a_recovery_dispatch_for_an_earlier_day_does_not_cover_this_one() -> None:
+    """The shape that actually occurred: 2026-08-17's batch failed three times and the
+    recovery ran the next morning. Had 08-18's own schedule also gone missing, a window
+    holding that success would have read healthy."""
+
+    runs = parse_runs(
+        _listing(
+            _run(
+                created_at=FIRED_AT - timedelta(hours=4),
+                event="workflow_dispatch",
+                display_title="daily 2026-08-02",
+            ),
+        )
+    )
+
+    verdict = evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS)
+
+    assert verdict.check_date == date(2026, 8, 3)
+    assert verdict.state == STATE_MISSING
+    assert verdict.runs_in_window[0].target_date == date(2026, 8, 2)
+
+
+def test_a_recovery_dispatch_for_an_earlier_day_is_not_in_flight_cover_either() -> None:
+    runs = parse_runs(
+        _listing(
+            _run(
+                created_at=FIRED_AT - timedelta(minutes=20),
+                status="in_progress",
+                conclusion="",
+                event="workflow_dispatch",
+                display_title="daily 2026-08-02",
+            ),
+        )
+    )
+
+    assert evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS).state == (
+        STATE_MISSING
+    )
+
+
+def test_runs_created_before_the_workflow_carried_a_run_name_still_count_when_scheduled() -> None:
+    """The transition costs nothing on the schedule side: a schedule event supplies no
+    `asof`, so a scheduled run answers for its own day whatever its title says."""
+
+    runs = parse_runs(
+        _listing(
+            _run(created_at=FIRED_AT - timedelta(hours=3), display_title="Merge pull request #1"),
+        )
+    )
+
+    assert evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS).alerting is False
+
+
+def test_a_dispatch_whose_run_name_cannot_be_read_answers_for_no_day() -> None:
+    for title in (None, "cloud-daily-batch", "daily not-a-date", "daily 2026-13-40"):
+        runs = parse_runs(
+            _listing(
+                _run(
+                    created_at=FIRED_AT - timedelta(hours=1),
+                    event="workflow_dispatch",
+                    display_title=title,
+                ),
+            )
+        )
+
+        assert runs[0].target_date is None, title
+        assert evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS).state == (
+            STATE_MISSING
+        )
+
+
+def test_the_day_a_run_answers_for_is_anchored_on_the_batch_cron_not_on_midnight() -> None:
+    """Both this watchdog and the batch are fired late by GitHub's queue — about two
+    hours at the median. A firing that slips past midnight JST must keep asking about
+    the same day rather than about one whose batch is not due yet."""
+
+    # 15:30 UTC on 2026-08-03 is 00:30 JST on 08-04, past JST midnight.
+    late = datetime(2026, 8, 3, 15, 30, tzinfo=UTC)
+
+    assert batch_target_date(late) == date(2026, 8, 3)
+    # 07:00 UTC is before the batch's own 07:43 UTC cron, so the day in question is
+    # still the previous one.
+    assert batch_target_date(datetime(2026, 8, 3, 7, 0, tzinfo=UTC)) == date(2026, 8, 2)
+    assert batch_target_date(datetime(2026, 8, 3, 7, 43, tzinfo=UTC)) == date(2026, 8, 3)
+
+
+def test_the_batch_cron_this_anchors_on_is_the_one_the_workflow_declares() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/cloud-daily-batch.yml").read_text(encoding="utf-8")
+    )
+    crons = [entry["cron"] for entry in workflow[True]["schedule"]]
+
+    assert len(crons) == 1
+    minute, hour, *_rest = crons[0].split()
+    assert (int(hour), int(minute)) == (
+        BATCH_SCHEDULED_FIRE_TIME.hour,
+        BATCH_SCHEDULED_FIRE_TIME.minute,
+    )
+
+
+def test_the_batch_run_name_is_the_one_the_watchdog_parses() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/cloud-daily-batch.yml").read_text(encoding="utf-8")
+    )
+    run_name = workflow["run-name"]
+
+    assert run_name.startswith(f"{RUN_NAME_PREFIX} ")
+    assert "inputs.asof" in run_name
 
 
 # --- input handling (fail closed) ------------------------------------------

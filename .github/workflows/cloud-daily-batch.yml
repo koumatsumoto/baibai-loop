@@ -1,4 +1,9 @@
 name: cloud-daily-batch
+# Display metadata, never executed. It is also the only place the day a recovery
+# dispatch is for appears in the run listing, which is what lets the watchdog tell a
+# past-dated recovery from the run that answers for today. A scheduled firing leaves
+# the date empty, which reads as "for its own day".
+run-name: "daily ${{ inputs.asof || '' }}"
 
 on:
   schedule:

@@ -102,10 +102,10 @@ batch/scripts/r2_transfer.sh push-market
 
 ## 月次維持
 
-- **calibration panel**: `uv run baibai-engine screening calibration-build --start 2022-09-01 --end <直近の完全月末>`（増分）→ `calibration-evaluate`。契約は [`estimate-calibration.md`](../../../docs/reference/estimate-calibration.md)。**`--force` は窓が別物である**。増分は窓の外の cohort を hard-link で引き継ぐが、`--force` は generation を空から作るので、窓が store の保持 cohort を覆っていないと拒否される。全再構築の `--start` は `published_cohorts` の最古（2026-08-17 時点で 2019-11-29）に合わせる。所要は 81 cohort で 40 分台、47 cohort で 25 分。
-- **PMI manifest**: `uv run python -m baibai_engine.macro.indicators.pmi_manifest --dry-run` → 本実行 → `macro refresh` で該当月を取得し公表値と照合してから commit。月が飛ぶ追記は拒否される（先に穴を埋める）。
-- **lake の全 history 照合**: 週次で lake export の `--audit` を回す（正確な command は [`market-lake.md`](../../../docs/reference/market-lake.md#local-pipeline-の実測)）。日次の publish は「その build が書いた月」しか SQLite ↔ Parquet parity を見ないので、日次 window の外側で store を訂正した月は次の `--audit` まで lake に映らない。これが release と SQLite が全期間で一致することを問う唯一の操作である。実測は全量 436 秒。
-- **資本配分・支配権イベント**: 東証の開示企業一覧は毎月 15 日前後に更新される。`uv run baibai-engine screening refresh-capital-control --asof <ASOF>` → `uv run baibai-engine screening build-control-event-exits --asof <ASOF>`。前者は東証一覧と JPX 上場廃止を読み直し、後者は成立した公開買付けの実現 exit 値を導出する。どちらも繰り返し実行して同じ結果になる。出力の `tse_sheets` は取り込めた月次シート数で、前月から増えていなければ東証側がまだ更新していない（減っていたら最古シートが落ちたということなので、既存の月は store に残る）。`build-control-event-exits` の rejection 内訳は「一次資料が案件を一意に決められなかった件数」であり、0 になる性質のものではない。実行後は `push-market` で R2 正本へ同期する（この 2 つが書く 3 table は lake 所有ではないので `publish-lake` は要らないが、`push-market` は hydrate 済みの store を要求する — 先に `hydrate-market` を通す）。契約は [`screening-runtime.md`](../../../docs/reference/screening-runtime.md#資本配分支配権イベントの-typed-fact)。
+- **calibration panel**（次回 due の起点: 月初、前月の完全月末まで）: `uv run baibai-engine screening calibration-build --start 2022-09-01 --end <直近の完全月末>`（増分）→ `calibration-evaluate`。契約は [`estimate-calibration.md`](../../../docs/reference/estimate-calibration.md)。**`--force` は窓が別物である**。増分は窓の外の cohort を hard-link で引き継ぐが、`--force` は generation を空から作るので、窓が store の保持 cohort を覆っていないと拒否される。全再構築の `--start` は `published_cohorts` の最古（2026-08-17 時点で 2019-11-29）に合わせる。所要は 81 cohort で 40 分台、47 cohort で 25 分。
+- **PMI manifest**（次回 due の起点: 公表の翌週）: `uv run python -m baibai_engine.macro.indicators.pmi_manifest --dry-run` → 本実行 → `macro refresh` で該当月を取得し公表値と照合してから commit。月が飛ぶ追記は拒否される（先に穴を埋める）。
+- **lake の全 history 照合**（次回 due の起点: 前回実施の +7 日）: 週次で lake export の `--audit` を回す（正確な command は [`market-lake.md`](../../../docs/reference/market-lake.md#local-pipeline-の実測)）。日次の publish は「その build が書いた月」しか SQLite ↔ Parquet parity を見ないので、日次 window の外側で store を訂正した月は次の `--audit` まで lake に映らない。これが release と SQLite が全期間で一致することを問う唯一の操作である。実測は全量 436 秒。
+- **資本配分・支配権イベント**（次回 due の起点: 翌月 15 日以降）: 東証の開示企業一覧は毎月 15 日前後に更新される。`uv run baibai-engine screening refresh-capital-control --asof <ASOF>` → `uv run baibai-engine screening build-control-event-exits --asof <ASOF>`。前者は東証一覧と JPX 上場廃止を読み直し、後者は成立した公開買付けの実現 exit 値を導出する。どちらも繰り返し実行して同じ結果になる。出力の `tse_sheets` は取り込めた月次シート数で、前月から増えていなければ東証側がまだ更新していない（減っていたら最古シートが落ちたということなので、既存の月は store に残る）。`build-control-event-exits` の rejection 内訳は「一次資料が案件を一意に決められなかった件数」であり、0 になる性質のものではない。実行後は `push-market` で R2 正本へ同期する（この 2 つが書く 3 table は lake 所有ではないので `publish-lake` は要らないが、`push-market` は hydrate 済みの store を要求する — 先に `hydrate-market` を通す）。契約は [`screening-runtime.md`](../../../docs/reference/screening-runtime.md#資本配分支配権イベントの-typed-fact)。
 
 ## 運用 task の規約
 
@@ -115,4 +115,5 @@ batch/scripts/r2_transfer.sh push-market
 - **粒度**: 同じ期限・種別・領域の未保有候補は 1 件に統合。保有・売買判断・高重要は個別。追加前に `task list --status open` で既存と照合する。
 - **body**: load-bearing question / primary sources / expected destination / close condition だけを短く。作業ログを複製しない。
 - **状態**: `done`（判断と canonical 更新完了）/ `dropped`（問いが不成立）。判断が変わった理由は thesis 等の正本へ書く。
+- **週次・月次維持**: 上記「月次維持」の 4 項目は dated ops task で回す。task を close するとき、同じ実行で次回分を `task add` する（due は各項目に書いた起点）。外部の更新待ちで実施できないときは close せず due を進め、待っている対象を body に書く。
 - **resume**: `uv run baibai-engine task list --status open` を due 順に読み、current canonical entity・ledger と照合して trigger 到来の task を 1 件選ぶ。矛盾したら停止し、推定で終端へ進めない。
