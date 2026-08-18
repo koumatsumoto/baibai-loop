@@ -25,14 +25,37 @@ def connect_rw(path: Path | None = None) -> sqlite3.Connection:
     return connection
 
 
+KEPT_BACKUP_GENERATIONS = 10
+"""How many local checkpoints survive. Ten covers the migrations of several working
+sessions, which is the window in which a migration defect is still being looked for;
+past that the store has been read and written enough that a much older copy would be
+restoring a different portfolio rather than repairing this one."""
+
+_BACKUP_GLOB = "baibai-*.sqlite"
+
+
 def initialize_database(
     path: Path | None = None,
     *,
     migrations: Sequence[Migration] = MIGRATIONS,
 ) -> int:
-    """Apply pending migrations, each as one immediate transaction."""
+    """Apply pending migrations, each as one immediate transaction.
+
+    A checkpoint is taken first whenever there is anything to apply. The transaction
+    around each migration only undoes statements that failed; a migration that runs
+    exactly as written and means the wrong thing commits, and this store is the only
+    copy of the judgments and the ledger. Routine writers call this on every command,
+    so the point a defect is introduced is also the last point a copy can be taken —
+    and the copy has to exist before the first statement rather than after it.
+    """
     with closing(connect_rw(path)) as connection:
         current = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        if current > 0 and any(migration.version > current for migration in migrations):
+            # Fails closed: a checkpoint that could not be written leaves the migration
+            # unapplied, because the alternative is applying it with no way back. A store
+            # still at version 0 is a file `connect_rw` has just created and holds nothing
+            # a copy could give back.
+            backup_database(path)
         for migration in migrations:
             if migration.version <= current:
                 continue
@@ -63,8 +86,13 @@ def backup_database(
     *,
     backup_dir: Path | None = None,
     now: datetime | None = None,
+    keep: int = KEPT_BACKUP_GENERATIONS,
 ) -> Path | None:
-    """Create a consistent SQLite snapshot, including uncheckpointed WAL rows."""
+    """Create a consistent SQLite snapshot, including uncheckpointed WAL rows.
+
+    Older generations are pruned only once this one is written and verified, so a run
+    that cannot produce a checkpoint never reduces the ones already held.
+    """
     source_path = database_path(path)
     if not source_path.exists():
         return None
@@ -78,4 +106,22 @@ def backup_database(
             raise sqlite3.DatabaseError("backup integrity_check failed")
         if destination.execute("PRAGMA foreign_key_check").fetchall():
             raise sqlite3.IntegrityError("backup foreign_key_check failed")
+    prune_backups(target_dir, keep=keep)
     return target
+
+
+def prune_backups(backup_dir: Path, *, keep: int = KEPT_BACKUP_GENERATIONS) -> list[Path]:
+    """Drop all but the newest ``keep`` checkpoints and return what was removed.
+
+    Ordering is by name: the stamp is fixed-width and its offset is a constant, so the
+    lexicographic order is the chronological one. Reading the times off the filesystem
+    would instead reorder the set whenever a copy was touched.
+    """
+
+    if keep < 1:
+        raise ValueError(f"keep must be at least 1: {keep}")
+    generations = sorted(backup_dir.glob(_BACKUP_GLOB), key=lambda item: item.name)
+    removed = generations[: max(len(generations) - keep, 0)]
+    for path in removed:
+        path.unlink()
+    return removed

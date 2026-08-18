@@ -180,6 +180,36 @@ batch/scripts/publish.sh
 
 application DBのschemaはローカルのCLI実行でmigrateされ、クラウドはこのstoreをread-onlyで読む。schema migrationを含むcodeがmainへ入ったら、次の`cloud-daily-batch`より前に`publish.sh`を実行する。exportはstoreのschemaがcodeと一致しない間viewを1件も書かずexit 1で停止するため、未publishのままではscreening結果も含めて何も更新されない。
 
+### application DB を復元する
+
+application DBは判断とledgerの正本で、何も再生成しない。復元点は2系統ある。
+
+**ローカルのcheckpoint**: `initialize_database`は未適用のmigrationを見つけると、最初の文を実行する前に`stores/application/backups/baibai-<JST stamp>.sqlite`を書く（`sqlite3.Connection.backup`によるWAL込みのsnapshot、`integrity_check`と`foreign_key_check`つき）。直近10世代を残し、それを超えた分はcheckpoint作成に成功した後だけ削除する。手動で取るときは`uv run baibai-engine db backup`。
+
+```bash
+ls -t stores/application/backups/                      # 世代を新しい順に見る
+target=stores/application/backups/baibai-<stamp>.sqlite
+sqlite3 "$target" 'PRAGMA integrity_check; PRAGMA foreign_key_check;'
+sqlite3 "$target" 'PRAGMA user_version;'               # 戻す先のschema版
+mv stores/application/baibai.sqlite stores/application/baibai-before-restore.sqlite
+cp "$target" stores/application/baibai.sqlite
+uv run baibai-engine position ledger | head -20        # ledger headを確認
+```
+
+戻したstoreはcheckpoint時点のschema版なので、次のCLI実行が未適用のmigrationを（新しいcheckpointを取ってから）適用する。欠陥のあるmigrationがまだmainに居るなら、先に修正を入れてから実行する。
+
+**R2の世代**: ローカルのcheckpointが失われた場合に使う。`pull-app`はローカルにfileがあれば止まるので、この経路はstagingへ直接取得する。
+
+```bash
+aws s3api list-objects-v2 --bucket baibai-stores --prefix baibai.sqlite.bak- \
+  --query 'Contents[].[Key,LastModified]' --output text --endpoint-url "$endpoint"
+aws s3api get-object --bucket baibai-stores --key baibai.sqlite.bak-YYYYMMDD \
+  --endpoint-url "$endpoint" /tmp/baibai-restore.sqlite
+sqlite3 /tmp/baibai-restore.sqlite 'PRAGMA integrity_check; PRAGMA user_version;'
+```
+
+**cloud copyはローカルより古い可能性がある。** publish済みで未pushの窓ではローカルが進んでいるので、R2の世代へ戻すのはローカル側が失われたときだけにする。戻した後は`user_version`とledger headを確認し、次の`publish.sh`まで判断を再開しない。
+
 ### 履歴を深くする
 
 indicator storeの履歴を深くしてクラウドへ載せる。日次batchはfrequency別のrolling窓しか引き直さないため、cloud正本の履歴は前へ伸びるだけで過去へ伸びない。系列を追加した後や窓を超える取得断の後は、ローカルで全履歴を取得してから`push-macro`する。
@@ -253,7 +283,7 @@ npx wrangler secret put VIEW_PASSWORD
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
 - 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括のmachine store pushはGitHub Actionsからだけ許可する（`runs.sqlite`はcloudが唯一のwriterで、無条件uploadが古いローカルcopyで巻き戻すため）。`macro.sqlite` / `market.sqlite`はローカルからも`push-macro` / `push-market`でuploadできるが、いずれもcloud copyのmergeを通した後だけで、mergeがcloud側の行の取り残しを検出したら停止する。
 - pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例してGB級のstoreではaws CLI既定のread timeout 60秒に収まらないため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。**`market.sqlite`が運ぶのはlakeが持たない4 tableだけである。** runner実測は`market.sqlite` 4,972,544 bytes（snapshot 46秒・backup 114秒・upload 2秒）、`runs.sqlite` 52,838,400 bytes（1秒・7秒・3秒）、`macro.sqlite` 256,184,320 bytes（2秒・17秒・14秒）である。market storeのsnapshotが46秒なのは、空にする前のfull storeを一度copyするためである。この`.bak` 114秒は置き換えられる側が1.88GBだった初回の値で、以降は5MBのcopyになる。`push-machine`はkeyごとに`store push: key=... bytes=... snapshot=...s backup=...s upload=...s`を出すので、storeが伸びたときの内訳はrunのlogで見る。
-- `.bak`は1世代のみで、次のpushで置き換わる。日次batchが毎営業日pushするため、実質の巻き戻し猶予は約24時間である。registry編集後は日次workflowの`registry-prune-pending` / `registry-prune`行（transaction ID・series ID・observation/provider-run削除件数）を当日中に確認する。pending に対応する committed 行が無い実行や意図しないpruneを検出したら、次のpushが`.bak`を置き換える前に状態を確認・復元する。
+- machine store の`.bak`は1世代のみで、次のpushで置き換わる。日次batchが毎営業日pushするため、実質の巻き戻し猶予は約24時間である。`baibai.sqlite`だけは`baibai.sqlite.bak-YYYYMMDD`（JST）で日ごとに1世代を残し、直近14世代を超えた分をpush成功後に削除する。machine storeはsourceから作り直せて毎営業日書き換わるのに対し、application storeのjudgmentとledgerは何も再生成しないためである。prune は`baibai.sqlite.bak-`配下をlistし、`baibai.sqlite.bak-YYYYMMDD`に一致するkeyだけを完全一致で削除する（prefix削除はしない）。registry編集後は日次workflowの`registry-prune-pending` / `registry-prune`行（transaction ID・series ID・observation/provider-run削除件数）を当日中に確認する。pending に対応する committed 行が無い実行や意図しないpruneを検出したら、次のpushが`.bak`を置き換える前に状態を確認・復元する。
 - 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。
 - pullは固定4 key以外を受け付けず、全downloadと`quick_check`完了後に置換する。
 - application store (`baibai.sqlite`) のpullは`pull-app`だけが行い、bulk pullは触らない。この storeの正本はローカルで、判断はローカルでpublishしてから`push-app`でcloudへ出すため、publish済みで未pushの窓ではローカルがcloudより進んでいる。cloud copyでの置換は再生成できないjudgmentを消すので、`pull-app`はローカルにfileがあれば止める。CIはcheckout直後で`stores/application/`が空なので素通りする。ローカルで意図して置き換えるときは、既存fileを自分で退避してから実行する。

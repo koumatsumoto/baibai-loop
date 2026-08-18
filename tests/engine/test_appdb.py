@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import shutil
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
@@ -11,6 +13,7 @@ from baibai_engine.appdb.write import (
     backup_database,
     connect_rw,
     initialize_database,
+    prune_backups,
 )
 from baibai_engine.foundation.time import JST
 
@@ -79,6 +82,127 @@ def test_backup_includes_uncheckpointed_wal_rows(tmp_path: Path) -> None:
 
 def test_backup_reports_absent_database(tmp_path: Path) -> None:
     assert backup_database(tmp_path / "missing.sqlite") is None
+
+
+_SEED = (
+    Migration(1, ("CREATE TABLE ledger (id INTEGER PRIMARY KEY, ticker TEXT) STRICT",)),
+    Migration(2, ("INSERT INTO ledger (id, ticker) VALUES (1, '8255'), (2, '9692')",)),
+)
+
+
+def _seeded(path: Path) -> None:
+    assert initialize_database(path, migrations=_SEED) == 2
+
+
+def test_a_pending_migration_takes_a_checkpoint_before_its_first_statement(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "app.sqlite"
+    _seeded(path)
+    backups = path.parent / "backups"
+    assert not backups.exists()
+
+    initialize_database(
+        path, migrations=(*_SEED, Migration(3, ("ALTER TABLE ledger ADD lots INTEGER",)))
+    )
+
+    generations = sorted(backups.glob("baibai-*.sqlite"))
+    assert len(generations) == 1
+    with closing(sqlite3.connect(generations[0])) as checkpoint:
+        # Taken before the migration, so it carries the schema the migration changed.
+        assert checkpoint.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert "lots" not in {
+            row[1] for row in checkpoint.execute("PRAGMA table_info(ledger)").fetchall()
+        }
+
+
+def test_a_store_with_nothing_pending_takes_no_checkpoint(tmp_path: Path) -> None:
+    """Routine writers call this on every command; a copy per command would be a copy
+    of a store nothing is about to change."""
+    path = tmp_path / "app.sqlite"
+    _seeded(path)
+
+    initialize_database(path, migrations=_SEED)
+
+    assert not (path.parent / "backups").exists()
+
+
+def test_a_new_store_takes_no_checkpoint(tmp_path: Path) -> None:
+    path = tmp_path / "app.sqlite"
+
+    _seeded(path)
+
+    assert not (path.parent / "backups").exists()
+
+
+def test_a_checkpoint_that_cannot_be_written_leaves_the_migration_unapplied(
+    tmp_path: Path,
+) -> None:
+    """Fail-close: applying it anyway is applying it with no way back."""
+    path = tmp_path / "app.sqlite"
+    _seeded(path)
+    (path.parent / "backups").write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        initialize_database(
+            path, migrations=(*_SEED, Migration(3, ("ALTER TABLE ledger ADD lots INTEGER",)))
+        )
+
+    with closing(sqlite3.connect(path)) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert "lots" not in {
+            row[1] for row in connection.execute("PRAGMA table_info(ledger)").fetchall()
+        }
+
+
+def test_the_checkpoint_gives_back_the_rows_a_committed_migration_removed(
+    tmp_path: Path,
+) -> None:
+    """The transaction only undoes statements that failed. A migration that runs exactly
+    as written and means the wrong thing commits, and this is the copy it is undone from.
+    """
+    path = tmp_path / "app.sqlite"
+    _seeded(path)
+
+    assert (
+        initialize_database(
+            path, migrations=(*_SEED, Migration(3, ("DELETE FROM ledger WHERE ticker = '9692'",)))
+        )
+        == 3
+    )
+    with closing(sqlite3.connect(path)) as damaged:
+        assert damaged.execute("SELECT count(*) FROM ledger").fetchone()[0] == 1
+
+    checkpoint = sorted((path.parent / "backups").glob("baibai-*.sqlite"))[-1]
+    shutil.copy(checkpoint, path)
+
+    with closing(sqlite3.connect(path)) as restored:
+        assert restored.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert [row[0] for row in restored.execute("SELECT ticker FROM ledger ORDER BY id")] == [
+            "8255",
+            "9692",
+        ]
+
+
+def test_pruning_removes_the_oldest_generation_only(tmp_path: Path) -> None:
+    path = tmp_path / "app.sqlite"
+    _seeded(path)
+    backups = tmp_path / "backups"
+    stamps = [datetime(2026, 8, day, 12, 0, tzinfo=JST) for day in (1, 2, 3, 4)]
+
+    written = [backup_database(path, backup_dir=backups, now=stamp, keep=3) for stamp in stamps]
+
+    assert all(target is not None for target in written)
+    oldest, *kept = written
+    assert oldest is not None
+    remaining = sorted(item.name for item in backups.glob("baibai-*.sqlite"))
+    assert remaining == sorted(target.name for target in kept if target is not None)
+    assert not oldest.exists()
+
+
+def test_pruning_never_empties_the_directory(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="keep must be at least 1"):
+        prune_backups(tmp_path, keep=0)
 
 
 def test_migration_v10_rewrites_legacy_vocabulary_rows(tmp_path: Path) -> None:

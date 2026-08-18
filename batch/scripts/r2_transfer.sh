@@ -23,6 +23,12 @@ copy_read_timeout=300
 # receipt is what records which three generations were last seen together. It is
 # rewritten by every push that changes a member and checked before a bundle pull
 # replaces the local stores.
+# The application store is the one object here nothing regenerates: it holds the
+# judgments and the ledger. A single `.bak` is a single undo, and a store damaged before
+# anyone looked at it has already spent that undo by the second push, so this key keeps
+# one generation per day instead. Two weeks is the window in which a wrong number is
+# still noticed by reading the portfolio rather than by auditing it.
+app_backup_generations=14
 machine_manifest_key="machine-manifest.json"
 machine_bundle_keys=(market.sqlite runs.sqlite macro.sqlite)
 transfer_staging=""
@@ -496,6 +502,55 @@ pull_keys() {
   transfer_staging=""
 }
 
+backup_key_for() {
+  # Dated for the application store and fixed for the rest. The machine stores are
+  # rewritten every business day and rebuildable from their sources, so a generation
+  # each would only hold copies of a store the next batch replaces anyway.
+  case "$1" in
+    baibai.sqlite) printf '%s.bak-%s\n' "$1" "$(TZ=Asia/Tokyo date +%Y%m%d)" ;;
+    *) printf '%s.bak\n' "$1" ;;
+  esac
+}
+
+prune_app_backups() {
+  # Only keys this script writes are considered, and each delete names one exact key.
+  # A prefix delete would take whatever else happened to sit under the prefix, and the
+  # pattern is what keeps the single pre-dated `baibai.sqlite.bak` out of the set.
+  local listing key
+  local -a generations=()
+  listing="$(aws s3api list-objects-v2 \
+    --bucket "${stores_bucket}" \
+    --prefix "baibai.sqlite.bak-" \
+    --query 'Contents[].Key' \
+    --output text \
+    --endpoint-url "${endpoint}")"
+  for key in ${listing}; do
+    if [[ "${key}" == "None" ]]; then
+      continue
+    fi
+    if [[ ! "${key}" =~ ^baibai\.sqlite\.bak-[0-9]{8}$ ]]; then
+      printf 'leaving an unrecognised key under the application backup prefix: %s\n' \
+        "${key}" >&2
+      continue
+    fi
+    generations+=("${key}")
+  done
+  local index=0
+  while read -r key; do
+    [[ -n "${key}" ]] || continue
+    index=$((index + 1))
+    if [[ ${index} -le ${app_backup_generations} ]]; then
+      continue
+    fi
+    aws s3api delete-object \
+      --bucket "${stores_bucket}" \
+      --key "${key}" \
+      --endpoint-url "${endpoint}" \
+      >/dev/null
+    printf 'pruned application store backup: %s\n' "${key}"
+  done < <(printf '%s\n' ${generations+"${generations[@]}"} | sort -r)
+}
+
 backup_remote_key() {
   # Keep one generation of the object being replaced. A store is rebuildable from
   # its sources in principle, but some of it is not re-fetchable in practice (the
@@ -514,13 +569,15 @@ backup_remote_key() {
   # copy that is genuinely stuck still fails the step inside the job's time budget.
   local key="$1" expected_version="${2:-}"
   if remote_object_exists "${key}"; then
+    local backup_key
+    backup_key="$(backup_key_for "${key}")"
     local -a source_condition=()
     if [[ -n "${expected_version}" ]]; then
       source_condition+=(--copy-source-if-match "${expected_version}")
     fi
     aws s3api copy-object \
       --bucket "${stores_bucket}" \
-      --key "${key}.bak" \
+      --key "${backup_key}" \
       --copy-source "${stores_bucket}/${key}" \
       "${source_condition[@]}" \
       --endpoint-url "${endpoint}" \
@@ -833,6 +890,7 @@ case "${1:-}" in
     ;;
   push-app)
     push_keys baibai.sqlite
+    prune_app_backups
     ;;
   # The serving bucket has one writer: the batch that produces a complete export.
   # The views mirror runs with `--delete`, so a partial local export would remove

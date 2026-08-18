@@ -4,7 +4,9 @@ import os
 import re
 import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -75,6 +77,12 @@ if [[ "$1 $2" == "s3api head-object" ]]; then
   done
   printf 'An error occurred (404) when calling the HeadObject operation\\n' >&2
   exit 254
+fi
+if [[ "$1 $2" == "s3api list-objects-v2" ]]; then
+  # `--query Contents[].Key --output text` prints the keys on one tab-separated line,
+  # and `None` when the prefix matches nothing.
+  printf '%s\n' "${AWS_FAKE_LIST_KEYS:-None}"
+  exit 0
 fi
 if [[ "$1 $2" == "s3api get-object" ]]; then
   key=""
@@ -1005,6 +1013,104 @@ def test_machine_store_push_reports_where_each_key_spends_its_time(tmp_path: Pat
     # The staged snapshot is what gets uploaded, so its size is the transferred byte
     # count. The fake snapshot writes one byte.
     assert reported == {"market.sqlite": "1", "runs.sqlite": "1", "macro.sqlite": "1"}
+
+
+def _push_app(
+    tmp_path: Path, *, listed: str | None = None
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["AWS_FAKE_EXISTING_KEY"] = "baibai.sqlite"
+    if listed is not None:
+        env["AWS_FAKE_LIST_KEYS"] = listed
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "push-app"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return completed, _transfer_commands(log)
+
+
+def test_application_store_push_keeps_a_dated_generation(tmp_path: Path) -> None:
+    """The judgments and the ledger are the one thing here nothing regenerates, and a
+    single `.bak` is a single undo: a damaged store pushed twice has already spent it."""
+
+    completed, commands = _push_app(tmp_path)
+    today = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y%m%d")
+
+    assert completed.returncode == 0, completed.stderr
+    backups = [command for command in commands if command.startswith("s3api copy-object ")]
+    assert len(backups) == 1
+    assert f"--key baibai.sqlite.bak-{today}" in backups[0]
+    # Same-day pushes land on the same key, so the kept set is one generation per day.
+    assert "--copy-source baibai-stores/baibai.sqlite" in backups[0]
+
+
+def test_application_store_push_prunes_beyond_the_kept_generations(tmp_path: Path) -> None:
+    listed = "\t".join(f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 17))
+
+    completed, commands = _push_app(tmp_path, listed=listed)
+    deletes = [command for command in commands if command.startswith("s3api delete-object ")]
+
+    assert completed.returncode == 0, completed.stderr
+    # Sixteen generations, fourteen kept: the two oldest go, named exactly.
+    assert [command.split("--key ")[1].split(" ")[0] for command in deletes] == [
+        "baibai.sqlite.bak-20260802",
+        "baibai.sqlite.bak-20260801",
+    ]
+
+
+def test_application_store_prune_leaves_keys_it_did_not_write(tmp_path: Path) -> None:
+    """A prefix delete would take whatever else sits under the prefix. The pre-dated
+    single `.bak` is exactly that, and it is still a generation worth having."""
+
+    listed = "\t".join(
+        [
+            "baibai.sqlite.bak",
+            "baibai.sqlite.bak-notadate",
+            *(f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 17)),
+        ]
+    )
+
+    completed, commands = _push_app(tmp_path, listed=listed)
+    deleted = [
+        command.split("--key ")[1].split(" ")[0]
+        for command in commands
+        if command.startswith("s3api delete-object ")
+    ]
+
+    assert completed.returncode == 0, completed.stderr
+    assert deleted == ["baibai.sqlite.bak-20260802", "baibai.sqlite.bak-20260801"]
+    assert "leaving an unrecognised key" in completed.stderr
+
+
+def test_machine_store_backups_stay_a_single_generation(tmp_path: Path) -> None:
+    """The three machine stores are rewritten every business day and rebuildable from
+    their sources, so a generation each would only hold copies of a store the next
+    batch replaces anyway."""
+
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["GITHUB_ACTIONS"] = "true"
+    env["AWS_FAKE_EXISTING_KEY"] = "macro.sqlite"
+
+    subprocess.run(
+        [TRANSFER_SCRIPT, "push-machine"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    backups = [
+        command for command in _transfer_commands(log) if command.startswith("s3api copy-object ")
+    ]
+
+    assert len(backups) == 1
+    assert "--key macro.sqlite.bak " in f"{backups[0]} "
 
 
 def test_machine_store_push_keeps_one_generation_of_the_store_it_replaces(
