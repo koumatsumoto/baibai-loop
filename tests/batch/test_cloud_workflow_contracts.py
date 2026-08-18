@@ -335,6 +335,28 @@ def test_web_trigger_covers_every_tree_the_job_publishes() -> None:
     assert push["paths"] == published
 
 
+def test_the_generated_ui_types_sit_inside_the_web_trigger() -> None:
+    """The read models reach the UI gates through the file they generate.
+
+    `tools/quality/drift/check_readmodel_contract.py` already turns a model change with
+    stale artifacts red in the Python job, so the only state the UI gates have to see is
+    a regenerated one — and regenerating rewrites `web/frontend/src/api/types.ts`, which
+    the existing filter matches. Widening the filter to `web/backend/**` would run the
+    npm install, the build and the Worker dry-run on every backend pull request without
+    catching a state the Python gate lets through. Moving the generated file out of that
+    tree is what would open the gap, so it is pinned here rather than left implicit.
+    """
+    from baibai_web.contracts_export import TYPES_PATH
+
+    triggers = _workflow("web.yml")["on"]
+    assert isinstance(triggers, dict)
+    pull_request = triggers["pull_request"]
+    assert isinstance(pull_request, dict)
+    covered = [str(entry).removesuffix("/**") for entry in pull_request["paths"]]
+
+    assert any(TYPES_PATH.is_relative_to(prefix) for prefix in covered)
+
+
 def test_tracked_tree_stays_inside_the_path_filter_evaluation_limit() -> None:
     """Keep web.yml's `paths` filter exact rather than quietly selective.
 
