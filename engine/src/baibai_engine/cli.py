@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from typing import Protocol, cast
 
 from baibai_engine.foundation.repository_layout import (
-    LegacyStorePathError,
-    reject_legacy_store_paths,
+    StoreLayoutError,
+    reject_noncanonical_store_paths,
 )
 
 Command = Callable[[list[str] | None], int]
@@ -107,8 +107,8 @@ def main(argv: list[str] | None = None) -> int:
     args = _usage().parse_args(argv)
     if not {"-h", "--help"}.intersection(args.arguments):
         try:
-            reject_legacy_store_paths(raw_arguments=args.arguments)
-        except LegacyStorePathError as error:
+            reject_noncanonical_store_paths(raw_arguments=args.arguments)
+        except StoreLayoutError as error:
             print(f"error: {error}", file=sys.stderr)
             return 2
     return DOMAINS[args.domain].load().main(args.arguments)

@@ -13,8 +13,9 @@ import uvicorn
 from baibai_engine.read_api import (
     APPLICATION_DB_PATH,
     RUNS_DB_PATH,
-    LegacyStorePathError,
-    reject_legacy_store_paths,
+    StoreLayoutError,
+    reject_noncanonical_store_paths,
+    repository_root_error,
 )
 from baibai_web.api.server import create_app
 
@@ -46,11 +47,11 @@ def main(argv: list[str] | None = None) -> int:
     db_path = _resolved_store_path(root, args.db, "BAIBAI_DB", APPLICATION_DB_PATH)
     runs_db_path = _resolved_store_path(root, args.runs_db, "BAIBAI_RUNS_DB", RUNS_DB_PATH)
     try:
-        reject_legacy_store_paths(
+        reject_noncanonical_store_paths(
             root,
             raw_arguments=(str(db_path), str(runs_db_path)),
         )
-    except LegacyStorePathError as error:
+    except StoreLayoutError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     url = f"http://{_HOST}:{args.port}"
@@ -65,11 +66,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _root_error(root: Path) -> str | None:
-    if not (root / "pyproject.toml").is_file():
-        return f"--root does not contain pyproject.toml: {root}"
-    if not (root / "method").is_dir():
-        return f"--root does not contain method/: {root}"
-    return None
+    return repository_root_error(root, label="--root")
 
 
 def _resolved_store_path(
