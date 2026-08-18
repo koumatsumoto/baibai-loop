@@ -21,12 +21,16 @@ from tests.helpers.fixed_now import FIXED_NOW
 FIXTURES = Path(__file__).parent / "fixtures"
 
 # Real operational stores that a test must never open. App DB and run store resolve
-# their default from these env vars; the indicators store has no env override and is
-# guarded by fingerprint detection alone.
+# their default from these env vars; the indicators and market stores have no env
+# override and are guarded by fingerprint detection alone. The market store is the one
+# a shell test can reach without opening a database at all: `r2_transfer.sh` resolves
+# every store path from its own location, so a pull run from the checkout replaces all
+# four files whatever the fake CLI hands back.
 _REAL_DB_DEFAULTS = (
     Path("stores/application/baibai.sqlite"),
     Path("stores/screening/runs.sqlite"),
     Path("stores/macro/macro.sqlite"),
+    Path("stores/market/market.sqlite"),
 )
 
 

@@ -240,7 +240,7 @@ def test_delivery_reports_only_the_type_of_an_unlisted_transport_exception() -> 
 UPLOADS_OK = {
     "upload-machine": "success",
     "upload-serving": "success",
-    "upload-parallel": "success",
+    "upload-stores": "success",
     "publish-serving": "success",
 }
 
@@ -300,7 +300,7 @@ def test_every_step_the_notifier_can_name_is_a_nameable_error_stage() -> None:
     silence. Tracking a step without allowlisting it is the way that happens.
     """
     nameable = {stage for stage, _key in _NON_BATCH_STEPS}
-    nameable.add("upload-parallel")
+    nameable.add("upload-stores")
 
     assert nameable <= set(ERROR_STAGES)
 
@@ -317,7 +317,7 @@ def test_a_failed_tail_publish_still_produces_a_notification(tmp_path: Path) -> 
         step_outcomes={
             "upload-machine": "success",
             "upload-serving": "success",
-            "upload-parallel": "success",
+            "upload-stores": "success",
             "publish-serving": "failure",
         },
     )
@@ -334,7 +334,7 @@ def test_a_cancelled_tail_publish_still_names_where_to_look() -> None:
 
 def test_an_upload_step_that_died_before_reporting_names_the_step_that_ran_both() -> None:
     """Which side got further is unknown, so neither branch may be blamed."""
-    assert derive_failed_step({"upload-parallel": "cancelled"}) == "upload-parallel"
+    assert derive_failed_step({"upload-stores": "cancelled"}) == "upload-stores"
 
 
 def test_views_mirror_failure_alone_is_an_upload_failure() -> None:
@@ -345,7 +345,7 @@ def test_views_mirror_failure_alone_is_an_upload_failure() -> None:
             step_outcomes={
                 "upload-machine": "success",
                 "upload-serving": "failure",
-                "upload-parallel": "failure",
+                "upload-stores": "failure",
             },
         )
         == PUBLISH_UPLOAD_FAILED
@@ -355,6 +355,24 @@ def test_views_mirror_failure_alone_is_an_upload_failure() -> None:
     )
 
 
+def test_a_skipped_mirror_names_the_store_push_rather_than_reading_as_unknown() -> None:
+    """The mirror is skipped by design when the store push fails, and that is a
+    measurement: the remote `views/` is still the previous run's.
+
+    Left absent it would read as the step dying before it could say anything, which
+    is the state where the remote may be half-replaced — the reader would be sent
+    after a step that ran both instead of the push that actually failed.
+    """
+    skipped = {
+        "upload-machine": "failure",
+        "upload-serving": "skipped",
+        "upload-stores": "failure",
+    }
+
+    assert derive_failed_step(skipped) == "upload-machine"
+    assert derive_publish_state(local_export=True, step_outcomes=skipped) == PUBLISH_UPLOAD_FAILED
+
+
 def test_an_upload_step_that_died_before_reporting_is_an_upload_failure() -> None:
     """A job timeout or a cancel leaves the step's own outputs unwritten.
 
@@ -362,10 +380,10 @@ def test_an_upload_step_that_died_before_reporting_is_an_upload_failure() -> Non
     replaced part of production as one that never touched it. The step outcome is
     supplied by GitHub on every terminal state, so it is what decides here.
     """
-    killed = {"upload-parallel": "cancelled"}
+    killed = {"upload-stores": "cancelled"}
 
     assert derive_publish_state(local_export=True, step_outcomes=killed) == PUBLISH_UPLOAD_FAILED
-    assert derive_failed_step(killed) == "upload-parallel"
+    assert derive_failed_step(killed) == "upload-stores"
 
 
 def test_history_and_freshness_not_published_is_not_published(tmp_path: Path) -> None:
@@ -376,7 +394,7 @@ def test_history_and_freshness_not_published_is_not_published(tmp_path: Path) ->
             step_outcomes={
                 "upload-machine": "success",
                 "upload-serving": "success",
-                "upload-parallel": "success",
+                "upload-stores": "success",
                 "publish-serving": "skipped",
             },
         )
@@ -881,7 +899,7 @@ def test_main_delivers_and_writes_summary_on_success(tmp_path: Path, monkeypatch
             "success",
             "--upload-serving-outcome",
             "success",
-            "--upload-parallel-outcome",
+            "--upload-step-outcome",
             "success",
             "--publish-serving-outcome",
             "success",
@@ -923,7 +941,7 @@ def test_main_fails_the_run_when_delivery_fails(tmp_path: Path, monkeypatch) -> 
             "success",
             "--upload-serving-outcome",
             "success",
-            "--upload-parallel-outcome",
+            "--upload-step-outcome",
             "success",
             "--publish-serving-outcome",
             "success",

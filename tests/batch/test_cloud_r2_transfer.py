@@ -65,16 +65,60 @@ if [[ "$1 $2" == "s3api head-object" ]]; then
     fi
     exit 0
   fi
-  if [[ -n "${AWS_FAKE_EXISTING_KEY:-}" && "$key" == "$AWS_FAKE_EXISTING_KEY" ]]; then
-    printf '{"ContentLength": 1}\\n'
+  # A colon-separated list so a test can make the bundle receipt exist beside the
+  # backup key the push path checks for.
+  for existing in ${AWS_FAKE_EXISTING_KEY:+${AWS_FAKE_EXISTING_KEY//:/ }}; do
+    if [[ "$key" == "$existing" ]]; then
+      printf '{"ContentLength": 1}\\n'
+      exit 0
+    fi
+  done
+  printf 'An error occurred (404) when calling the HeadObject operation\\n' >&2
+  exit 254
+fi
+if [[ "$1 $2" == "s3api get-object" ]]; then
+  key=""
+  destination=""
+  while [[ $# -gt 0 ]]; do
+    if [[ "$1" == "--key" ]]; then
+      key="$2"
+    fi
+    destination="$1"
+    shift
+  done
+  if [[ -n "${AWS_FAKE_OBJECT_BODY:-}" && "$key" == "${AWS_FAKE_OBJECT_KEY:-}" ]]; then
+    printf '%s' "$AWS_FAKE_OBJECT_BODY" > "$destination"
     exit 0
   fi
-  printf 'An error occurred (404) when calling the HeadObject operation\\n' >&2
+  printf 'An error occurred (NoSuchKey) when calling the GetObject operation\\n' >&2
   exit 254
 fi
 if [[ "$1 $2" == "s3api put-object" && -n "${AWS_FAKE_REJECT_CONDITIONAL_PUT:-}" ]]; then
   printf 'An error occurred (PreconditionFailed) when calling PutObject\n' >&2
   exit 255
+fi
+if [[ "$1 $2" == "s3api put-object" ]]; then
+  key=""
+  body=""
+  while [[ $# -gt 0 ]]; do
+    if [[ "$1" == "--key" ]]; then
+      key="$2"
+    fi
+    if [[ "$1" == "--body" ]]; then
+      body="$2"
+    fi
+    shift
+  done
+  # Every uploaded body is kept so a test can read what was actually published
+  # rather than only that a call was made.
+  if [[ -n "$body" && -f "$body" ]]; then
+    cp "$body" "${AWS_FAKE_STATE}/put-$(printf '%s' "$key" | tr / _)"
+  fi
+  if [[ -n "${AWS_FAKE_FAIL_PUT_KEY:-}" && "$key" == "${AWS_FAKE_FAIL_PUT_KEY}" ]]; then
+    printf 'An error occurred (InternalError) when calling PutObject\n' >&2
+    exit 253
+  fi
+  exit 0
 fi
 if [[ "$1 $2" == "s3 cp" && "$3" == s3://* ]]; then
   printf 'x' > "$4"
@@ -745,9 +789,167 @@ def test_machine_store_push_uploads_three_stores_in_github_actions(tmp_path: Pat
     assert completed.returncode == 0
     commands = _transfer_commands(log)
     uploads = [command for command in commands if command.startswith("s3api put-object ")]
-    assert len(uploads) == 3
-    assert all('--if-match "etag-stable"' in command for command in uploads)
+    stores = [command for command in uploads if "--key machine-manifest.json" not in command]
+    assert len(stores) == 3
+    assert all('--if-match "etag-stable"' in command for command in stores)
     assert all(".bak" not in command for command in commands)
+    # The receipt is written last and unconditionally: it describes the set the three
+    # pushes just produced, so it cannot be bound to a generation any of them replaced.
+    assert uploads[-1] == uploads[3]
+    assert "--key machine-manifest.json" in uploads[-1]
+    assert "--if-match" not in uploads[-1]
+
+
+def _receipt(state: Path) -> str | None:
+    written = state / "put-machine-manifest.json"
+    return written.read_text(encoding="utf-8") if written.exists() else None
+
+
+def _pull_machine(tmp_path: Path, *, receipt: str | None) -> subprocess.CompletedProcess[str]:
+    """Run a bundle pull in a throwaway root: the script resolves store paths from its
+    own location, so running it from the checkout replaces the operational stores."""
+
+    pull_root = tmp_path / "pull"
+    pull_root.mkdir(exist_ok=True)
+    bin_dir, log = _fake_aws(pull_root)
+    root = _fake_repo(pull_root)
+    env = _environment(bin_dir, log)
+    if receipt is not None:
+        env["AWS_FAKE_EXISTING_KEY"] = "machine-manifest.json"
+        env["AWS_FAKE_OBJECT_KEY"] = "machine-manifest.json"
+        env["AWS_FAKE_OBJECT_BODY"] = receipt
+    return subprocess.run(
+        [root / "batch/scripts/r2_transfer.sh", "pull-machine"],
+        cwd=root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_a_push_that_stops_partway_leaves_no_receipt_for_the_set_it_made(
+    tmp_path: Path,
+) -> None:
+    """Three conditional PUTs cannot be one commit, so the second one failing leaves the
+    bucket holding a set no batch produced. The receipt is written only after all three,
+    so what survives is the previous set's receipt — which is what the next pull reads."""
+
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["GITHUB_ACTIONS"] = "true"
+    env["AWS_FAKE_FAIL_PUT_KEY"] = "runs.sqlite"
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "push-machine"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    commands = _transfer_commands(log)
+    pushed = [
+        command
+        for command in commands
+        if command.startswith("s3api put-object ") and "--key machine-manifest.json" not in command
+    ]
+    # The market store went out; runs failed; macro was never attempted.
+    assert len(pushed) == 2
+    assert "--key market.sqlite" in pushed[0]
+    assert "--key runs.sqlite" in pushed[1]
+    assert not any("--key macro.sqlite" in command for command in pushed)
+    assert _receipt(Path(env["AWS_FAKE_STATE"])) is None
+
+
+def test_a_bundle_pull_refuses_a_set_the_receipt_does_not_name(tmp_path: Path) -> None:
+    """Per key the mixed set looks intact — the straddle check compares each object with
+    itself — so only the receipt can tell the pull that these three were never together."""
+
+    stale = (
+        '{\n  "schema_version": 1,\n  "written_at_utc": "2026-08-18T08:37:45Z",\n'
+        '  "keys": {\n'
+        '    "market.sqlite": "etag-before-the-failed-push",\n'
+        '    "runs.sqlite": "etag-stable",\n'
+        '    "macro.sqlite": "etag-stable"\n  }\n}\n'
+    )
+
+    completed = _pull_machine(tmp_path, receipt=stale)
+
+    assert completed.returncode == 1
+    assert "R2 holds market.sqlite at generation etag-stable" in completed.stderr
+    assert "receipt names etag-before-the-failed-push" in completed.stderr
+    assert "Wait for the next daily batch to finish and pull again" in completed.stderr
+    # The refusal happens before anything is downloaded, so the local stores stand.
+    assert not any(
+        command.startswith("s3 cp s3://baibai-stores/")
+        for command in _transfer_commands(tmp_path / "pull" / "aws.log")
+    )
+
+
+def test_a_bundle_pull_accepts_the_set_the_receipt_names(tmp_path: Path) -> None:
+    current = (
+        '{\n  "schema_version": 1,\n  "written_at_utc": "2026-08-19T00:00:00Z",\n'
+        '  "keys": {\n'
+        '    "market.sqlite": "etag-stable",\n'
+        '    "runs.sqlite": "etag-stable",\n'
+        '    "macro.sqlite": "etag-stable"\n  }\n}\n'
+    )
+
+    completed = _pull_machine(tmp_path, receipt=current)
+
+    assert completed.returncode == 0, completed.stderr
+    assert "machine bundle receipt matches" in completed.stdout
+
+
+def test_a_receipt_that_does_not_read_back_refuses_rather_than_passing(tmp_path: Path) -> None:
+    """A receipt this script cannot parse says nothing about the set, and nothing is
+    exactly what a check that waves it through would also say."""
+
+    completed = _pull_machine(tmp_path, receipt='{"keys": {"market.sqlite": ""}}\n')
+
+    assert completed.returncode == 1
+    assert "receipt names no generation" in completed.stderr
+
+
+def test_a_retried_push_publishes_the_same_generation_and_writes_the_receipt(
+    tmp_path: Path,
+) -> None:
+    """Recovery is the same command again: the conditional PUTs are bound to the
+    generation this run pulled, so the keys already at it are simply rewritten."""
+
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["GITHUB_ACTIONS"] = "true"
+
+    first = subprocess.run(
+        [TRANSFER_SCRIPT, "push-machine"],
+        cwd=REPO_ROOT,
+        env={**env, "AWS_FAKE_FAIL_PUT_KEY": "runs.sqlite"},
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    retry = subprocess.run(
+        [TRANSFER_SCRIPT, "push-machine"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert first.returncode != 0
+    assert retry.returncode == 0, retry.stderr
+    receipt = _receipt(Path(env["AWS_FAKE_STATE"]))
+    assert receipt is not None
+    for key in ("market.sqlite", "runs.sqlite", "macro.sqlite"):
+        assert f'"{key}": "etag-stable"' in receipt
+    assert '"schema_version": 1' in receipt
+    # The receipt the retry wrote is the one a pull then accepts.
+    assert _pull_machine(tmp_path, receipt=receipt).returncode == 0
 
 
 def test_machine_store_push_rejects_a_generation_replaced_by_manual_publish(
@@ -906,8 +1108,15 @@ def test_macro_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> N
     assert "stores/macro/macro.sqlite" in commands[merges[0]]
     assert '--if-match "etag-stable"' in commands[uploads[0]]
     # Only the indicator store is published; market and runs stay owned by the batch.
-    assert all("market.sqlite" not in command for command in commands)
-    assert all("runs.sqlite" not in command for command in commands)
+    # The receipt that follows reads their generations back, so what has to stay absent
+    # is a write of them, not a mention.
+    writes = [
+        command
+        for command in commands
+        if command.startswith(("s3api put-object ", "s3api copy-object ", "s3 cp "))
+    ]
+    assert all("market.sqlite" not in command for command in writes)
+    assert all("runs.sqlite" not in command for command in writes)
 
 
 def test_macro_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -> None:
@@ -973,9 +1182,15 @@ def test_market_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> 
     assert "--store market" in commands[migrations[0]]
     assert "stores/market/market.sqlite" in commands[merges[0]]
     assert '--if-match "etag-stable"' in commands[uploads[0]]
-    # Only the market store is published; runs and the indicator store are untouched.
-    assert all("runs.sqlite" not in command for command in commands)
-    assert all("macro.sqlite" not in command for command in commands)
+    # Only the market store is published. The receipt that follows reads the other two
+    # generations back, so what has to stay absent is a write of them, not a mention.
+    writes = [
+        command
+        for command in commands
+        if command.startswith(("s3api put-object ", "s3api copy-object ", "s3 cp "))
+    ]
+    assert all("runs.sqlite" not in command for command in writes)
+    assert all("macro.sqlite" not in command for command in writes)
 
 
 def test_market_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -> None:
