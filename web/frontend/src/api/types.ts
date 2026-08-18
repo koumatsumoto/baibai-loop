@@ -1,370 +1,8 @@
-export interface MetaView {
-  generated_at: string
-  data_updated_at?: string | null
-  screening_asof: string | null
-  macro_asof: string | null
-  app_db_updated_at: string | null
-  batch: 'daily' | 'manual' | null
-}
-
-export type SystemStoreName = 'market' | 'runs' | 'macro' | 'baibai'
-
-export interface SystemStoreView {
-  store: SystemStoreName
-  exists: boolean
-  size_bytes: number | null
-  row_count: number | null
-  latest_date: string | null
-  updated_at: string | null
-}
-
-export interface SystemProviderView {
-  series_id: string
-  name: string
-  consecutive_failures: number
-  failing_since: string
-  last_error: string | null
-}
-
-export interface SystemView {
-  generated_at: string
-  batch: 'daily' | 'manual' | null
-  stores: SystemStoreView[]
-  failing_providers: SystemProviderView[]
-  never_attempted_series: string[]
-  provider_series_total: number
-}
-
-// The workflow's terminal summary, published to R2 by the daily batch. Absent
-// until the first run publishes one, and absent from the local API entirely.
-export type RunOutcome =
-  | 'succeeded'
-  | 'skipped_non_business_day'
-  | 'published_with_deferred_failure'
-  | 'failed'
-  // GitHub reports a job that hit `timeout-minutes` as cancelled, not failed.
-  | 'cancelled'
-
-export type RunPublishState = 'not_generated' | 'generated' | 'upload_failed' | 'published'
-
-export interface RunErrorView {
-  code: string
-  stage: string
-  impact: 'failed' | 'degraded'
-  message: string
-}
-
-export interface RunBatchView {
-  batch_name: string
-  datasets: string[]
-  status: 'ok' | 'degraded' | 'failed' | 'skipped'
-  duration_seconds: number
-  metrics: Record<string, unknown>
-  errors: RunErrorView[]
-}
-
-export interface RunExecutionSummaryView {
-  schema_version: number
-  asof: string
-  outcome: RunOutcome
-  started_at: string
-  finished_at: string
-  duration_seconds: number
-  batches: RunBatchView[]
-  local_export: boolean
-}
-
-// Discriminated by `kind`; only the member for that kind is serialized, so the
-// other keys are absent rather than null.
-export type RunExecutionView =
-  | { kind: 'available'; summary?: RunExecutionSummaryView }
-  | { kind: 'not_started'; stage?: string }
-  | { kind: 'unavailable'; error?: RunErrorView }
-
-export interface WorkflowRunSummaryView {
-  schema_version: number
-  workflow: string
-  repository: string
-  trigger: string
-  run_attempt: string
-  run_url: string
-  asof: string | null
-  // When the run reached its terminal state. Without it a stale object (the
-  // upload is best-effort) is indistinguishable from a fresh run.
-  finished_at: string
-  duration_seconds: number
-  overall_outcome: RunOutcome
-  publish_state: RunPublishState
-  execution: RunExecutionView
-  delivery: { status: string; detail: string | null }
-  workflow_errors: RunErrorView[]
-  // What the run published to the L1 lake. Null when the run never reached the
-  // publication, which is a different fact from a publication that moved nothing.
-  lake: LakeReleaseView | null
-}
-
-export interface LakeReleaseView {
-  release_id: string
-  data_as_of: string
-  changed_partitions: number
-  uploaded_objects: number
-  uploaded_bytes: number
-}
-
-export interface HoldingView {
-  ticker: string
-  company_name: string | null
-  sector: string
-  quantity: number
-  deployed_cost_yen: number
-  market_price_yen: string
-  market_price_as_of: string
-  market_value_yen: number
-  unrealized_pnl_yen: number
-  unrealized_pnl_pct: number
-  fair_value_yen: number | null
-  fv_gap_pct: number | null
-  latest_thesis_id: string | null
-  recommendation: string | null
-  next_earnings_date: string | null
-}
-
-export interface ReservationView {
-  reservation_id: string
-  ticker: string
-  sector: string
-  remaining_quantity: number
-  price_guard_yen: string
-  reserved_yen: number
-  expires_at: string
-}
-
-export interface WarningView {
-  code: string
-  scope: string
-  key: string
-  actual_pct: number
-  warning_pct: number
-  overridden: boolean
-}
-
-export interface TaskView {
-  task_id: string
-  title: string
-  kind: string
-  status: string
-  ticker: string | null
-  due_date: string
-  event_label: string | null
-  event_date: string | null
-  overdue: boolean
-}
-
-export interface UpcomingEventView {
-  event_date: string
-  kind: 'earnings' | 'reservation_expiry'
-  ticker: string | null
-  label: string
-  days_until: number
-}
-
-export interface DashboardView {
-  generated_at: string
-  ledger_exists: boolean
-  ledger_error: string | null
-  ledger_as_of: string | null
-  ledger_stale: boolean
-  valuation_as_of?: string | null
-  valuation_stale?: boolean
-  total_capital_yen: number | null
-  available_cash_yen: number | null
-  reserved_cash_yen: number | null
-  holdings_market_value_yen: number | null
-  deployed_cost_yen: number | null
-  cash_pct: number | null
-  reserved_pct: number | null
-  deployed_pct: number | null
-  holdings: HoldingView[]
-  reservations: ReservationView[]
-  warnings: WarningView[]
-  upcoming_events: UpcomingEventView[]
-  open_tasks: TaskView[]
-  next_task: TaskView | null
-  tasks_exist: boolean
-  research_load_errors: string[]
-}
-
-export interface OperationSessionView {
-  operation_id: string
-  session_kind: string
-  status: string
-  as_of: string
-  ticker: string | null
-  started_at: string
-  completed_at: string | null
-  payload: Record<string, unknown>
-}
-
-export interface ProposalView {
-  proposal_id: string
-  ticker: string
-  thesis_id: string
-  review_id: string
-  created_at: string
-  status: 'pending' | 'approved' | 'deferred' | 'rejected'
-  decided_at: string | null
-  payload: Record<string, unknown>
-}
-
-export interface PortfolioOutcomeView {
-  outcome_id: string
-  horizon: string
-  period_start_date: string
-  period_end_date: string
-  status: string
-  reason: string | null
-  portfolio_twr_pct: number | null
-  benchmark_cumulative_return_pct: number | null
-}
-
-export interface OperationsView {
-  operations: OperationSessionView[]
-  proposals: ProposalView[]
-  outcomes: PortfolioOutcomeView[]
-}
-
-export interface ScreeningRunView {
-  run_id: string
-  run_date: string
-  asof_date: string
-  run_at: string
-  universe_size: number
-  candidate_count: number
-  run_revision_id: string
-  stale: boolean
-}
-
-export type PortfolioState = 'unheld' | 'held' | 'reserved' | 'held_and_reserved'
-
-export interface CandidateRowView {
-  ticker: string
-  name: string | null
-  sector_33: string | null
-  market_cap_oku: number | null
-  avg_turnover_oku: number | null
-  per_trailing: number | null
-  normalized_per_3fy: number | null
-  per_forward: number | null
-  pbr: number | null
-  ev_ebitda: number | null
-  p_s: number | null
-  pcfr: number | null
-  dividend_yield: number | null
-  er_annual: number | null
-  er_reversion_annual: number | null
-  er_carry_annual: number | null
-  net_cash_to_market_cap: number | null
-  fcf_yield: number | null
-  ocf_yield: number | null
-  equity_ratio: number | null
-  sales_yoy: number | null
-  operating_profit_yoy: number | null
-  sector_relative_strength_percentile: number | null
-  price_change_20d: number | null
-  gap_from_52w_low: number | null
-  margin_week_end?: string | null
-  margin_long_to_adv: number | null
-  margin_short_to_adv?: number | null
-  margin_long_share: number | null
-  margin_long_delta_26w: number | null
-  margin_std_long_share: number | null
-  next_earnings_date: string | null
-  data_quality_flags: string[]
-  portfolio_state: PortfolioState
-  has_research: boolean
-  // FV アンカーは machine selection の longlist だけが持つので、longlist 外は null。
-  fair_value_anchor_yen: number | null
-  fair_value_gap_pct: number | null
-  er_level_quintile?: number | null
-  er_meets_8_5pct_band?: boolean
-}
-
-export interface ErLevelCalibrationStatsView {
-  median: number
-  q25: number
-  q10: number
-  trap_rate: number
-  n: number
-}
-
-export interface ErLevelCalibrationBasisView {
-  basis: string
-  ticker_equal: ErLevelCalibrationStatsView
-  cohort_equal: ErLevelCalibrationStatsView
-}
-
-export interface ErLevelCalibrationBandView {
-  band_id: string
-  quintile: number | null
-  lower_er_annual: number | null
-  upper_er_annual: number | null
-  median_predicted_er_annual: number
-  cohort_count: number
-  median_n: number
-  bases: ErLevelCalibrationBasisView[]
-}
-
-export interface ErLevelCalibrationHorizonView {
-  horizon: string
-  asof_start: string
-  asof_end: string
-  cohort_count: number
-  bands: ErLevelCalibrationBandView[]
-}
-
-export interface ErLevelCalibrationContextView {
-  generated_at: string
-  valid_through: string
-  reference_horizon: string
-  screening_rules_hash: string
-  er_model_version: string
-  primary_realized_basis: string
-  secondary_realized_basis: string
-  trap_basis: string
-  horizons: ErLevelCalibrationHorizonView[]
-}
-
-export interface ScreeningView {
-  run: ScreeningRunView | null
-  rows: CandidateRowView[]
-  selections: MachineSelectionView[]
-  shortlists: ShortlistView[]
-  assessments: BargainAssessmentSummaryView[]
-  er_level_calibration?: ErLevelCalibrationContextView | null
-}
-
-export interface BargainAssessmentSummaryView {
-  assessment_id: string
-  as_of: string
-  published_at: string
-  result: string
-  headline: string
-  shortlist_id: string
-  lane_count: number
-  selected_ticker: string | null
-}
-
-export interface SourceCaveatView {
-  source_id: string
-  status: string
-  decision_impact: string
-}
-
-export interface ResearchQuestionView {
-  question: string
-  answer: string
-  status: string
-}
+// Generated from web/backend/src/baibai_web/readmodel/models.py.
+// Run `uv run python -m baibai_web.contracts_export` after changing those models;
+// `tools/quality/drift/check_readmodel_contract.py` refuses a stale copy.
+// Types for `system/latest-run.json` are hand-written in ./run-summary.ts: the daily
+// batch writes that object, not the read models.
 
 export interface AssessmentLaneView {
   ticker: string
@@ -419,6 +57,17 @@ export interface AssessmentReviewView {
   open_findings: string[]
 }
 
+export interface BargainAssessmentSummaryView {
+  assessment_id: string
+  as_of: string
+  published_at: string
+  result: string
+  headline: string
+  shortlist_id: string
+  lane_count: number
+  selected_ticker: string | null
+}
+
 export interface BargainAssessmentView {
   assessment_id: string
   as_of: string
@@ -435,15 +84,684 @@ export interface BargainAssessmentView {
   review: AssessmentReviewView
 }
 
-export interface ScreeningHistoryView {
-  dates: string[]
+/**
+ * A ticker whose presence in the machine pool changed between two runs.
+ *
+ * ``disclosed_since_previous`` is ``null`` when the store that holds disclosure
+ * dates could not answer, which must not read as "no disclosure".
+ */
+export interface CandidateEntryDeltaView {
+  ticker: string
+  company_name: string | null
+  er_annual_pct: number | null
+  disclosed_since_previous: boolean | null
 }
 
+/**
+ * A ticker in both pools whose machine E[r] moved most.
+ */
+export interface CandidateMoveDeltaView {
+  ticker: string
+  company_name: string | null
+  er_annual_pct: number | null
+  previous_er_annual_pct: number | null
+  change_pp: number
+}
+
+export interface CandidateRowView {
+  ticker: string
+  name: string | null
+  sector_33: string | null
+  market_cap_oku: number | null
+  avg_turnover_oku: number | null
+  per_trailing: number | null
+  normalized_per_3fy: number | null
+  per_forward: number | null
+  pbr: number | null
+  ev_ebitda: number | null
+  p_s: number | null
+  pcfr: number | null
+  dividend_yield: number | null
+  dividend_basis: string | null
+  dividend_split_factor: number | null
+  er_annual: number | null
+  er_reversion_annual: number | null
+  er_carry_annual: number | null
+  net_cash_to_market_cap: number | null
+  fcf_yield: number | null
+  ocf_yield: number | null
+  equity_ratio: number | null
+  sales_yoy: number | null
+  operating_profit_yoy: number | null
+  sector_relative_strength_percentile: number | null
+  price_change_20d: number | null
+  gap_from_52w_low: number | null
+  next_earnings_date: string | null
+  margin_week_end: string | null
+  margin_long_to_adv: number | null
+  margin_short_to_adv: number | null
+  margin_long_share: number | null
+  margin_long_delta_26w: number | null
+  margin_std_long_share: number | null
+  data_quality_flags: string[]
+  portfolio_state: PortfolioState
+  has_research: boolean
+  fair_value_anchor_yen: number | null
+  fair_value_gap_pct: number | null
+  er_level_quintile: number | null
+  er_meets_8_5pct_band: boolean
+}
+
+/**
+ * What changed between the latest machine run and the one before it.
+ *
+ * Every field is an observation or a comparison of observations. The view names no
+ * cause and carries no recommendation: it tells the reader where to look, and the
+ * decision to start an opportunity cycle or a holding review stays human.
+ *
+ * ``unavailable`` lists the sections no store could answer, so an empty section is
+ * never read as "nothing changed". ``pool`` names which machine pool the comparison
+ * used, and ``rules_changed`` marks a pair of runs built from different screening
+ * rules — the pool difference is then a method change, so no rows are reported.
+ * Holdings that cannot be compared are counts rather than rows: repeating the same
+ * list every day would bury the day's actual changes. ``er_moves_total`` says how
+ * many names cleared the threshold before the row cap, so a capped list does not
+ * hide its own remainder.
+ */
+export interface DailyDeltaView {
+  generated_at: string
+  asof: string | null
+  previous_asof: string | null
+  pool: DeltaPool | null
+  rules_changed: boolean
+  entered: CandidateEntryDeltaView[]
+  exited: CandidateEntryDeltaView[]
+  er_moves: CandidateMoveDeltaView[]
+  er_moves_total: number
+  holdings: HoldingDeltaView[]
+  holdings_without_fair_value: number
+  holdings_without_price: number
+  macro_flags: MacroFlagDeltaView[]
+  macro_extremes: MacroExtremeDeltaView[]
+  unavailable: DeltaUnavailable[]
+}
+
+export interface DashboardView {
+  generated_at: string
+  ledger_exists: boolean
+  ledger_error: string | null
+  ledger_as_of: string | null
+  ledger_stale: boolean
+  valuation_as_of: string | null
+  valuation_stale: boolean
+  total_capital_yen: number | null
+  available_cash_yen: number | null
+  reserved_cash_yen: number | null
+  holdings_market_value_yen: number | null
+  deployed_cost_yen: number | null
+  cash_pct: number | null
+  reserved_pct: number | null
+  deployed_pct: number | null
+  holdings: HoldingView[]
+  reservations: ReservationView[]
+  warnings: WarningView[]
+  upcoming_events: UpcomingEventView[]
+  open_tasks: TaskView[]
+  next_task: TaskView | null
+  tasks_exist: boolean
+  research_load_errors: string[]
+}
+
+export type DeltaPool = 'longlist' | 'recommendations'
+
+export type DeltaUnavailable = 'candidates' | 'candidates_estimate' | 'candidates_pool' | 'candidates_previous_run' | 'holdings' | 'holdings_fair_value' | 'macro' | 'market'
+
+export interface ErLevelCalibrationBandView {
+  band_id: string
+  quintile: number | null
+  lower_er_annual: number | null
+  upper_er_annual: number | null
+  median_predicted_er_annual: number
+  cohort_count: number
+  median_n: number
+  bases: ErLevelCalibrationBasisView[]
+}
+
+export interface ErLevelCalibrationBasisView {
+  basis: string
+  ticker_equal: ErLevelCalibrationStatsView
+  cohort_equal: ErLevelCalibrationStatsView
+}
+
+export interface ErLevelCalibrationContextView {
+  generated_at: string
+  valid_through: string
+  reference_horizon: string
+  screening_rules_hash: string
+  er_model_version: string
+  primary_realized_basis: string
+  secondary_realized_basis: string
+  trap_basis: string
+  horizons: ErLevelCalibrationHorizonView[]
+}
+
+export interface ErLevelCalibrationHorizonView {
+  horizon: string
+  asof_start: string
+  asof_end: string
+  cohort_count: number
+  bands: ErLevelCalibrationBandView[]
+}
+
+export interface ErLevelCalibrationStatsView {
+  median: number
+  q25: number
+  q10: number
+  trap_rate: number
+  n: number
+}
+
+/**
+ * Read-only warning provenance; it never carries selection authority.
+ */
+export interface FvConvergenceView {
+  status: 'warning' | 'clear' | 'not_evaluable'
+  warning_code: string | null
+  market_price_yen: number | null
+  anchors_yen: Record<string, number>
+  er_reversion_annual: number | null
+}
+
+/**
+ * One open holding whose observation crossed a threshold worth reading.
+ *
+ * ``at_or_above_fair_value`` is the comparison of two numbers, not a decision:
+ * reaching fair value is a review trigger the human owns.
+ */
+export interface HoldingDeltaView {
+  ticker: string
+  company_name: string | null
+  at_or_above_fair_value: boolean | null
+  change_since_previous_pct: number | null
+  days_to_next_earnings: number | null
+}
+
+export interface HoldingReviewView {
+  holding_review_id: string
+  as_of: string
+  thesis_id: string
+  candidate_thesis_id: string | null
+  action: string
+  note: string | null
+}
+
+export interface HoldingView {
+  ticker: string
+  company_name: string | null
+  sector: string
+  quantity: number
+  deployed_cost_yen: number
+  market_price_yen: string
+  market_price_as_of: string
+  market_value_yen: number
+  unrealized_pnl_yen: number
+  unrealized_pnl_pct: number
+  fair_value_yen: number | null
+  fv_gap_pct: number | null
+  latest_thesis_id: string | null
+  recommendation: string | null
+  next_earnings_date: string | null
+}
+
+export interface MachineSelectionView {
+  selection_id: string
+  run_revision_id: string
+  profile: string
+  macro_context_id: string | null
+  created_at: string
+  longlist: SelectionLonglistEntryView[]
+}
+
+export interface MacroConnectionSectionView {
+  section_id: string
+  series: MacroSeriesReferenceView[]
+  core_section_ids: string[]
+  fact_summary: MacroFactSummaryView[]
+  judgment: MacroSectionJudgmentView
+  research_priority_hints: MacroResearchPriorityHintView[]
+  sector_tilts: MacroSectorTiltView[]
+  sizing_cautions: MacroSizingCautionView[]
+  bargain_topography: MacroFactSummaryView | null
+  estimate_caveats: MacroEstimateCaveatView[]
+}
+
+export interface MacroContextRevisionView {
+  context_id: string
+  as_of: string
+  published_at: string
+  summary: string
+  age_days: number
+  stale: boolean
+}
+
+export interface MacroContextView {
+  context_id: string
+  as_of: string
+  published_at: string
+  summary: string
+  age_days: number
+  stale: boolean
+  synthesis: MacroSynthesisView | null
+  core: MacroCoreSectionView[]
+  connection: MacroConnectionSectionView
+  triggers: MacroTriggerEvaluationView | null
+}
+
+export interface MacroCoreSectionView {
+  section_id: string
+  series: MacroSeriesReferenceView[]
+  fact_summary: MacroFactSummaryView[]
+  judgment: MacroSectionJudgmentView
+  economic_connection: MacroEconomicConnectionView
+  change_since_previous: string | null
+  previous_scorecard_review: string | null
+  material_deltas: MacroMaterialDeltaView[]
+  risk_environment: MacroRiskEnvironmentView | null
+  scenarios: MacroScenarioView[]
+  monitoring_points: MacroMonitoringPointView[]
+}
+
+export interface MacroDominantForceView {
+  force_id: string
+  title: string
+  summary: string
+  transmission: string
+  core_section_ids: string[]
+  series: MacroSeriesReferenceView[]
+  counter_evidence: string
+  direction: string
+  confidence: string
+  source_ids: string[]
+}
+
+export interface MacroEconomicConnectionView {
+  summary: string
+  source_ids: string[]
+}
+
+export interface MacroEstimateCaveatView {
+  summary: string
+  applies_to: string
+  affected_component: string
+  materiality: string
+  source_ids: string[]
+}
+
+/**
+ * A series whose |z-score| arrived at the distribution edge.
+ *
+ * ``previous_z_score`` is what it was on the earlier reading, so the reader can see
+ * how far it came rather than only that it is past the line.
+ */
+export interface MacroExtremeDeltaView {
+  series_id: string
+  z_score: number
+  previous_z_score: number | null
+}
+
+export interface MacroFactSummaryView {
+  summary: string
+  source_ids: string[]
+}
+
+/**
+ * A threshold note that appeared or disappeared between two readings.
+ */
+export interface MacroFlagDeltaView {
+  series_id: string
+  flag: string
+  state: 'raised' | 'cleared'
+}
+
+export interface MacroForceInteractionView {
+  summary: string
+  force_ids: string[]
+  source_ids: string[]
+}
+
+export interface MacroGroupView {
+  title: string
+  series: MacroSeriesView[]
+}
+
+export interface MacroMaterialDeltaView {
+  channel: string
+  direction: string
+  materiality: string
+  summary: string
+  used_for: string
+  source_ids: string[]
+}
+
+export interface MacroMonitoringPointView {
+  event: string
+  condition: string
+  view_change: string
+  summary: string
+  source_ids: string[]
+}
+
+export interface MacroPointView {
+  observed_at: string
+  value: number
+}
+
+export interface MacroReadingSeriesView {
+  series_id: string
+  name: string
+  category: string
+  geography: string
+  frequency: string
+  unit: string
+  latest_value: number | null
+  observed_at: string | null
+  staleness_days: number | null
+  stale: boolean
+  staleness_warn_days: number
+  next_print_estimate: string | null
+  print_due_in_days: number | null
+  window_years: number
+  window_observations: number
+  expected_observations: number | null
+  insufficient_history: boolean
+  statistic: string
+  statistic_unit: string
+  statistic_value: number | null
+  percentile: number | null
+  z_score: number | null
+  short_trend: MacroReadingTrendView | null
+  long_trend: MacroReadingTrendView | null
+  flags: string[]
+}
+
+export interface MacroReadingTrendView {
+  months: number
+  anchor_observed_at: string
+  anchor_value: number
+  change: number
+  direction: string
+}
+
+/**
+ * The machine reading of every registered series for one as-of date.
+ *
+ * A projection of the L2 reading, recomputed from the indicator store; the panel it
+ * feeds is a display of that reading and not a second canonical artifact.
+ * ``fetch_health`` rides along because staleness alone cannot see a provider that has
+ * just gone silent — a low-frequency series stays inside its threshold for weeks.
+ */
+export interface MacroReadingView {
+  asof: string
+  rules_revision: string
+  series: MacroReadingSeriesView[]
+  fetch_health: MacroSeriesFetchHealthView[]
+}
+
+export interface MacroResearchPriorityHintView {
+  summary: string
+  applies_to: string
+  source_ids: string[]
+}
+
+export interface MacroRiskEnvironmentView {
+  stance: string
+  confidence: string
+  summary: string
+  falsifiers: string[]
+  source_ids: string[]
+}
+
+export interface MacroScenarioView {
+  case: string
+  direction: string
+  probability: number | null
+  summary: string
+  conditions: string[]
+  scorecard: MacroScorecardConditionView[]
+  economic_implications: string[]
+  source_ids: string[]
+}
+
+export interface MacroScorecardConditionView {
+  series_id: string
+  comparison: string
+  threshold: number
+  deadline: string
+}
+
+export interface MacroSectionJudgmentView {
+  summary: string
+  direction: string
+  confidence: string
+  source_ids: string[]
+}
+
+export interface MacroSectorTiltView {
+  sector: string
+  direction: string
+  summary: string
+  source_ids: string[]
+}
+
+/**
+ * The latest acquisition attempt for one series (not part of the reading itself).
+ */
+export interface MacroSeriesFetchHealthView {
+  series_id: string
+  status: string
+  finished_at: string
+  record_count: number
+  error_message: string | null
+}
+
+export interface MacroSeriesReferenceView {
+  series_id: string
+  name: string
+}
+
+export interface MacroSeriesView {
+  series_id: string
+  label: string
+  name: string
+  unit: string
+  tradingview_symbol: string | null
+  points: MacroPointView[]
+}
+
+export interface MacroSizingCautionView {
+  severity: string
+  summary: string
+  source_ids: string[]
+}
+
+/**
+ * The integrated layer: named cross-channel forces and how they combine.
+ */
+export interface MacroSynthesisView {
+  dominant_forces: MacroDominantForceView[]
+  interactions: MacroForceInteractionView[]
+}
+
+/**
+ * Whether the report's own invalidation conditions have been met since it was written.
+ */
+export interface MacroTriggerEvaluationView {
+  asof: string
+  evaluated: number
+  fired: number
+  results: MacroTriggerResultView[]
+}
+
+export interface MacroTriggerResultView {
+  point_index: number
+  event: string
+  condition_index: number
+  series_id: string
+  comparison: string
+  threshold: number
+  status: string
+  observed_at: string | null
+  value: number | null
+  view_change: string
+}
+
+/**
+ * Macro overview: the report index (summaries) plus the indicator panel.
+ *
+ * Full report sections are served per revision by ``MacroContextView`` at
+ * ``/api/macro/context/{context_id}`` so the overview stays a lightweight index.
+ */
+export interface MacroView {
+  as_of: string
+  period: '1y' | '5y' | '10y' | 'max'
+  granularity: 'daily' | 'weekly' | 'monthly' | 'yearly'
+  reports: MacroContextRevisionView[]
+  groups: MacroGroupView[]
+}
+
+export type MetaBatch = 'daily' | 'manual'
+
+/**
+ * Store freshness shown alongside every view and exported as views/meta.json.
+ */
+export interface MetaView {
+  generated_at: string
+  data_updated_at: string | null
+  screening_asof: string | null
+  macro_asof: string | null
+  app_db_updated_at: string | null
+  batch: MetaBatch | null
+}
+
+export interface OperationSessionView {
+  operation_id: string
+  session_kind: string
+  status: string
+  as_of: string
+  ticker: string | null
+  started_at: string
+  completed_at: string | null
+  payload: Record<string, unknown>
+}
+
+export interface OperationsView {
+  operations: OperationSessionView[]
+  proposals: ProposalView[]
+  outcomes: PortfolioOutcomeView[]
+}
+
+export interface PortfolioOutcomeView {
+  outcome_id: string
+  horizon: string
+  period_start_date: string
+  period_end_date: string
+  status: string
+  reason: string | null
+  portfolio_twr_pct: number | null
+  benchmark_cumulative_return_pct: number | null
+}
+
+export type PortfolioState = 'unheld' | 'held' | 'reserved' | 'held_and_reserved'
+
+export interface ProposalView {
+  proposal_id: string
+  ticker: string
+  thesis_id: string
+  review_id: string
+  created_at: string
+  status: string
+  decided_at: string | null
+  payload: Record<string, unknown>
+}
+
+export interface ResearchQuestionView {
+  question: string
+  answer: string
+  status: string
+}
+
+export interface ResearchRevisionView {
+  as_of: string
+  thesis_id: string
+  recommendation: string
+  confidence: string | null
+  current_fair_value_yen: number | null
+  model_version: string | null
+  review_id: string | null
+}
+
+export interface ReservationView {
+  reservation_id: string
+  ticker: string
+  sector: string
+  remaining_quantity: number
+  price_guard_yen: string
+  reserved_yen: number
+  expires_at: string
+}
+
+export interface ScenarioView {
+  name: string
+  horizon_years: number
+}
+
+/**
+ * Stable UI projection of one retained screening run.
+ */
 export interface ScreeningHistoryRunView {
   run: ScreeningRunView
   rows: CandidateRowView[]
 }
 
+export interface ScreeningHistoryView {
+  dates: string[]
+}
+
+export interface ScreeningRunView {
+  run_id: string
+  run_date: string
+  asof_date: string
+  run_at: string
+  universe_size: number
+  candidate_count: number
+  run_revision_id: string
+  stale: boolean
+}
+
+export interface ScreeningView {
+  run: ScreeningRunView | null
+  rows: CandidateRowView[]
+  selections: MachineSelectionView[]
+  shortlists: ShortlistView[]
+  assessments: BargainAssessmentSummaryView[]
+  er_level_calibration: ErLevelCalibrationContextView | null
+}
+
+export interface SecurityDetailView {
+  ticker: string
+  company_name: string | null
+  sector: string | null
+  holding: HoldingView | null
+  revisions: ResearchRevisionView[]
+  latest_thesis: ThesisDetailView | null
+  holding_reviews: HoldingReviewView[]
+  candidate_row: CandidateRowView | null
+  candidate_run: ScreeningRunView | null
+}
+
+/**
+ * 機械 rank 上位の候補 1 件。FV アンカーと E[r] はここだけが持つ。
+ */
 export interface SelectionLonglistEntryView {
   rank: number | null
   ticker: string
@@ -460,23 +778,21 @@ export interface SelectionLonglistEntryView {
   fv_convergence: FvConvergenceView
 }
 
-export interface FvConvergenceView {
-  status: 'warning' | 'clear' | 'not_evaluable'
-  warning_code: string | null
-  market_price_yen: number | null
-  anchors_yen: Record<string, number>
-  er_reversion_annual: number | null
+export interface ShortlistEntryView {
+  ticker: string
+  decision: string
+  reason: string
+  rank: number | null
+  narrative: ShortlistNarrativeView | null
+  machine_snapshot: SelectionLonglistEntryView | null
 }
 
-export interface MachineSelectionView {
-  selection_id: string
-  run_revision_id: string
-  profile: string
-  macro_context_id: string | null
-  created_at: string
-  longlist: SelectionLonglistEntryView[]
-}
-
+/**
+ * 発行済み shortlist の判断。read 側は欠けた field を空欄として通す。
+ *
+ * 必須性を強制するのは publish の write path だけであり、read model が同じ必須を
+ * 課すと、schema を進めた瞬間に旧 revision を読む export と API が落ちる。
+ */
 export interface ShortlistNarrativeView {
   ploss: string
   why: string
@@ -497,16 +813,6 @@ export interface ShortlistNarrativeView {
   sector_label: string | null
 }
 
-export interface ShortlistEntryView {
-  ticker: string
-  decision: string
-  reason: string
-  rank: number | null
-  narrative: ShortlistNarrativeView | null
-  // 判断時の機械座標。source run が prune された後はこれが唯一の機械値になる。
-  machine_snapshot: SelectionLonglistEntryView | null
-}
-
 export interface ShortlistView {
   shortlist_id: string
   selection_id: string
@@ -517,19 +823,66 @@ export interface ShortlistView {
   unreadable_entries: number
 }
 
-export interface ResearchRevisionView {
-  as_of: string
-  thesis_id: string
-  recommendation: string
-  confidence: string | null
-  current_fair_value_yen: number | null
-  model_version: string | null
-  review_id: string | null
+export interface SourceCaveatView {
+  source_id: string
+  status: string
+  decision_impact: string
 }
 
-export interface ScenarioView {
+/**
+ * A series whose most recent acquisition attempt failed, and for how long.
+ */
+export interface SystemProviderView {
+  series_id: string
   name: string
-  horizon_years: number
+  consecutive_failures: number
+  failing_since: string
+  last_error: string | null
+}
+
+export type SystemStoreName = 'market' | 'runs' | 'macro' | 'baibai'
+
+/**
+ * One machine store's depth and freshness.
+ *
+ * ``row_count`` and ``latest_date`` come from the store's representative table,
+ * so a retention accident or a feed that stopped landing shows up as a number
+ * that moved even when the view it feeds still renders.
+ */
+export interface SystemStoreView {
+  store: SystemStoreName
+  exists: boolean
+  size_bytes: number | null
+  row_count: number | null
+  latest_date: string | null
+  updated_at: string | null
+}
+
+/**
+ * Operational state of the pipeline, exported as views/system.json.
+ *
+ * Deliberately carries no judgment input: everything here is about whether the
+ * machinery ran, never about what a number means for a holding or a candidate.
+ */
+export interface SystemView {
+  generated_at: string
+  batch: MetaBatch | null
+  stores: SystemStoreView[]
+  failing_providers: SystemProviderView[]
+  never_attempted_series: string[]
+  provider_series_total: number
+}
+
+export interface TaskView {
+  task_id: string
+  title: string
+  kind: string
+  status: string
+  ticker: string | null
+  due_date: string
+  event_label: string | null
+  event_date: string | null
+  overdue: boolean
 }
 
 export interface ThesisDetailView {
@@ -543,354 +896,19 @@ export interface ThesisDetailView {
   sizing_action: string | null
 }
 
-export interface HoldingReviewView {
-  holding_review_id: string
-  as_of: string
-  thesis_id: string
-  candidate_thesis_id: string | null
-  action: string
-  note: string | null
-}
-
-export interface SecurityDetailView {
-  ticker: string
-  company_name: string | null
-  sector: string | null
-  holding: HoldingView | null
-  revisions: ResearchRevisionView[]
-  latest_thesis: ThesisDetailView | null
-  holding_reviews: HoldingReviewView[]
-  candidate_row: CandidateRowView | null
-  candidate_run: ScreeningRunView | null
-}
-
-export interface MacroMaterialDeltaView {
-  channel: string
-  direction: string
-  materiality: string
-  summary: string
-  used_for: string
-  source_ids: string[]
-}
-
-export interface MacroSizingCautionView {
-  severity: string
-  summary: string
-  source_ids: string[]
-}
-
-export interface MacroSeriesReferenceView {
-  series_id: string
-  name: string
-}
-
-export interface MacroFactSummaryView {
-  summary: string
-  source_ids: string[]
-}
-
-export interface MacroSectionJudgmentView {
-  summary: string
-  direction: string
-  confidence: string
-  source_ids: string[]
-}
-
-export interface MacroEconomicConnectionView {
-  summary: string
-  source_ids: string[]
-}
-
-export interface MacroRiskEnvironmentView {
-  stance: string
-  confidence: string
-  summary: string
-  falsifiers: string[]
-  source_ids: string[]
-}
-
-/** A machine-checkable scenario condition: series compared to a threshold by a deadline. */
-export interface MacroScorecardConditionView {
-  series_id: string
-  comparison: string
-  threshold: number
-  deadline: string
-}
-
-export interface MacroScenarioView {
-  case: string
-  direction: string
-  /** Subjective weight on this case; null on revisions published before the field. */
-  probability: number | null
-  summary: string
-  conditions: string[]
-  scorecard: MacroScorecardConditionView[]
-  economic_implications: string[]
-  source_ids: string[]
-}
-
-/** A named force driving the environment across at least two transmission channels. */
-export interface MacroDominantForceView {
-  force_id: string
-  title: string
-  summary: string
-  transmission: string
-  core_section_ids: string[]
-  series: MacroSeriesReferenceView[]
-  counter_evidence: string
-  direction: string
-  confidence: string
-  source_ids: string[]
-}
-
-export interface MacroForceInteractionView {
-  summary: string
-  force_ids: string[]
-  source_ids: string[]
-}
-
-/** The integrated layer: dominant forces and how they compound or offset. */
-export interface MacroSynthesisView {
-  dominant_forces: MacroDominantForceView[]
-  interactions: MacroForceInteractionView[]
-}
-
-/** How the current regime bends the loop's own machine estimates. */
-export interface MacroEstimateCaveatView {
-  summary: string
-  applies_to: string
-  affected_component: string
-  materiality: string
-  source_ids: string[]
-}
-
-export interface MacroResearchPriorityHintView {
-  summary: string
-  // Which candidate type the hint bites on; a hint without it has no discriminating power.
-  applies_to: string
-  source_ids: string[]
-}
-
-export interface MacroSectorTiltView {
-  sector: string
-  direction: string
-  summary: string
-  source_ids: string[]
-}
-
-export interface MacroMonitoringPointView {
-  event: string
-  condition: string
-  view_change: string
-  summary: string
-  source_ids: string[]
-}
-
-/** One of the 10 core sections: a use-case agnostic reading of the environment. */
-export interface MacroCoreSectionView {
-  section_id: string
-  series: MacroSeriesReferenceView[]
-  fact_summary: MacroFactSummaryView[]
-  judgment: MacroSectionJudgmentView
-  economic_connection: MacroEconomicConnectionView
-  change_since_previous: string | null
-  previous_scorecard_review: string | null
-  material_deltas: MacroMaterialDeltaView[]
-  risk_environment: MacroRiskEnvironmentView | null
-  scenarios: MacroScenarioView[]
-  monitoring_points: MacroMonitoringPointView[]
-}
-
-/** The single connection section, where loop-specific vocabulary is isolated. */
-export interface MacroConnectionSectionView {
-  section_id: string
-  series: MacroSeriesReferenceView[]
-  core_section_ids: string[]
-  fact_summary: MacroFactSummaryView[]
-  judgment: MacroSectionJudgmentView
-  research_priority_hints: MacroResearchPriorityHintView[]
-  sector_tilts: MacroSectorTiltView[]
-  sizing_cautions: MacroSizingCautionView[]
-  /** Absent (null) on revisions published before the integrated layer. */
-  bargain_topography: MacroFactSummaryView | null
-  estimate_caveats: MacroEstimateCaveatView[]
-}
-
-export interface MacroContextView {
-  context_id: string
-  as_of: string
-  published_at: string
-  summary: string
-  age_days: number
-  stale: boolean
-  /** Absent (null) on revisions published before the integrated layer. */
-  synthesis: MacroSynthesisView | null
-  core: MacroCoreSectionView[]
-  connection: MacroConnectionSectionView
-}
-
-export interface MacroContextRevisionView {
-  context_id: string
-  as_of: string
-  published_at: string
-  summary: string
-  age_days: number
-  stale: boolean
-}
-
-export interface MacroReadingTrendView {
-  months: number
-  anchor_observed_at: string
-  anchor_value: number
-  change: number
-  direction: string
-}
-
-/** One series' machine reading: where it stands, which way it moved, how old it is. */
-export interface MacroReadingSeriesView {
-  series_id: string
-  name: string
-  category: string
-  geography: string
-  frequency: string
-  unit: string
-  latest_value: number | null
-  observed_at: string | null
-  staleness_days: number | null
-  stale: boolean
-  staleness_warn_days: number
-  // Mechanical estimate from the series cadence and publication lag; not an event calendar.
-  next_print_estimate: string | null
-  // Days from the reading as-of; negative means the next print is expected already.
-  print_due_in_days: number | null
-  window_years: number
-  window_observations: number
-  // Observations the frequency implies for the window; null for a daily series, where
-  // the count depends on the market calendar rather than on the frequency.
-  expected_observations: number | null
-  // The effective window is not met, so percentile / z_score are withheld as null.
-  insufficient_history: boolean
-  // What percentile / z_score rank: 'level' for a value with a scale of its own, 'yoy'
-  // for the year-on-year percent change of a series whose scale is its own history.
-  statistic: string
-  statistic_unit: string
-  // The ranked statistic itself; null when the transform cannot reach the latest
-  // observation, which withholds the rank too.
-  statistic_value: number | null
-  // Share of the window's statistic sample at or below statistic_value, as 0–1.
-  percentile: number | null
-  z_score: number | null
-  short_trend: MacroReadingTrendView | null
-  long_trend: MacroReadingTrendView | null
-  // Notes that a textbook threshold is touched. Not a signal.
-  flags: string[]
-}
-
-/** The latest acquisition attempt for one series. Not part of the reading itself. */
-export interface MacroSeriesFetchHealthView {
-  series_id: string
-  status: string
-  finished_at: string
-  record_count: number
-  error_message: string | null
-}
-
-export interface MacroReadingView {
-  asof: string
-  rules_revision: string
-  series: MacroReadingSeriesView[]
-  // Staleness alone cannot see a provider that has just gone silent: a low-frequency
-  // series stays inside its threshold for weeks after its source stops answering.
-  fetch_health: MacroSeriesFetchHealthView[]
-}
-
-export interface MacroPointView {
-  observed_at: string
-  value: number
-}
-
-export interface MacroSeriesView {
-  series_id: string
+export interface UpcomingEventView {
+  event_date: string
+  kind: 'earnings' | 'reservation_expiry'
+  ticker: string | null
   label: string
-  name: string
-  unit: string
-  tradingview_symbol: string | null
-  points: MacroPointView[]
+  days_until: number
 }
 
-export interface MacroGroupView {
-  title: string
-  series: MacroSeriesView[]
-}
-
-export interface MacroView {
-  as_of: string
-  period: '1y' | '5y' | '10y' | 'max'
-  granularity: 'daily' | 'weekly' | 'monthly' | 'yearly'
-  reports: MacroContextRevisionView[]
-  groups: MacroGroupView[]
-}
-
-export type DeltaPool = 'longlist' | 'recommendations'
-export type DeltaUnavailable =
-  | 'candidates'
-  | 'candidates_estimate'
-  | 'candidates_pool'
-  | 'candidates_previous_run'
-  | 'holdings'
-  | 'holdings_fair_value'
-  | 'macro'
-  | 'market'
-
-export interface CandidateEntryDeltaView {
-  ticker: string
-  company_name: string | null
-  er_annual_pct: number | null
-  disclosed_since_previous: boolean | null
-}
-
-export interface CandidateMoveDeltaView {
-  ticker: string
-  company_name: string | null
-  er_annual_pct: number | null
-  previous_er_annual_pct: number | null
-  change_pp: number
-}
-
-export interface HoldingDeltaView {
-  ticker: string
-  company_name: string | null
-  at_or_above_fair_value: boolean | null
-  change_since_previous_pct: number | null
-  days_to_next_earnings: number | null
-}
-
-export interface MacroFlagDeltaView {
-  series_id: string
-  flag: string
-  state: 'raised' | 'cleared'
-}
-
-export interface MacroExtremeDeltaView {
-  series_id: string
-  z_score: number
-  previous_z_score: number | null
-}
-
-export interface DailyDeltaView {
-  generated_at: string
-  asof: string | null
-  previous_asof: string | null
-  pool: DeltaPool | null
-  rules_changed: boolean
-  entered: CandidateEntryDeltaView[]
-  exited: CandidateEntryDeltaView[]
-  er_moves: CandidateMoveDeltaView[]
-  er_moves_total: number
-  holdings: HoldingDeltaView[]
-  holdings_without_fair_value: number
-  holdings_without_price: number
-  macro_flags: MacroFlagDeltaView[]
-  macro_extremes: MacroExtremeDeltaView[]
-  unavailable: DeltaUnavailable[]
+export interface WarningView {
+  code: string
+  scope: string
+  key: string
+  actual_pct: number
+  warning_pct: number
+  overridden: boolean
 }

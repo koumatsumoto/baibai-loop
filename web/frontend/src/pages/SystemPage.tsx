@@ -7,10 +7,9 @@ import type {
   RunErrorView,
   RunOutcome,
   RunPublishState,
-  SystemStoreName,
-  SystemView,
   WorkflowRunSummaryView,
-} from '../api/types'
+} from '../api/run-summary'
+import type { SystemStoreName, SystemView } from '../api/types'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
 import { SectionCard } from '../components/SectionCard'
