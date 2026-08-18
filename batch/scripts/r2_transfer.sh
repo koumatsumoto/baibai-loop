@@ -15,6 +15,16 @@ lake_mirror="${R2_LAKE_MIRROR:-${repo_root}/stores}"
 # release accounts for the rows it is about to drop.
 lake_release_record="${generation_dir}/lake-release.json"
 copy_read_timeout=300
+# The three machine stores are pushed one after another, each conditional on the
+# generation the batch pulled, and three PUTs cannot be made one commit. A push that
+# stops partway therefore leaves a set nothing ever wrote: the earlier keys at the new
+# generation, the rest at the old one. Per key that state is indistinguishable from a
+# healthy one — the pull's straddle check compares each object with itself — so the
+# receipt is what records which three generations were last seen together. It is
+# rewritten by every push that changes a member and checked before a bundle pull
+# replaces the local stores.
+machine_manifest_key="machine-manifest.json"
+machine_bundle_keys=(market.sqlite runs.sqlite macro.sqlite)
 transfer_staging=""
 transfer_config=""
 # The serving prefix is thousands of small objects, so its wall clock is request
@@ -325,7 +335,117 @@ pulled_version() {
   printf '%s\n' "${version}"
 }
 
+etag_body() {
+  # `remote_version` returns the ETag as the API quotes it. The receipt holds the bare
+  # value, and the charset it is required to sit in is what keeps the receipt JSON it
+  # never has to escape. Anything outside it is refused here rather than written out
+  # and compared later.
+  local value="$1"
+  value="${value%\"}"
+  value="${value#\"}"
+  if [[ ! "${value}" =~ ^[A-Za-z0-9._:-]+$ ]]; then
+    printf 'unusable object version: %s\n' "$1" >&2
+    return 1
+  fi
+  printf '%s\n' "${value}"
+}
+
+write_machine_manifest() {
+  # The versions are read back rather than carried out of the PUTs. The receipt is a
+  # statement about what the bucket holds now, so a write landing after this read leaves
+  # it merely stale — which the next bundle pull refuses. Values carried forward from
+  # the pushes would instead let it claim a generation nobody ever observed together.
+  local key version file first=1
+  file="$(mktemp "${TMPDIR:-/tmp}/baibai-machine-manifest.XXXXXX")"
+  {
+    printf '{\n'
+    printf '  "schema_version": 1,\n'
+    printf '  "written_at_utc": "%s",\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf '  "keys": {\n'
+    for key in "${machine_bundle_keys[@]}"; do
+      version="$(etag_body "$(remote_version "${key}")")"
+      if [[ ${first} -eq 0 ]]; then
+        printf ',\n'
+      fi
+      printf '    "%s": "%s"' "${key}" "${version}"
+      first=0
+    done
+    printf '\n  }\n}\n'
+  } > "${file}"
+  aws s3api put-object \
+    --bucket "${stores_bucket}" \
+    --key "${machine_manifest_key}" \
+    --body "${file}" \
+    --endpoint-url "${endpoint}" \
+    >/dev/null
+  rm -f -- "${file}"
+  printf 'machine bundle receipt written: %s\n' "${machine_manifest_key}"
+}
+
+manifest_recorded_version() {
+  # This script is the receipt's only writer, so its shape is fixed. Anything that does
+  # not read back as one ETag is reported as no record at all, which refuses the pull
+  # instead of comparing against a value nobody can account for.
+  local file="$1" key="$2" value
+  value="$(sed -n "s/^[[:space:]]*\"${key}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" \
+    "${file}" | head -n 1)"
+  if [[ ! "${value}" =~ ^[A-Za-z0-9._:-]+$ ]]; then
+    value=""
+  fi
+  printf '%s\n' "${value}"
+}
+
+require_machine_manifest() {
+  # Each argument is `key=version` for the generation this pull is about to take. A
+  # mismatch is either a push that stopped partway or one running right now; both are
+  # answered by waiting for the next batch rather than by taking the set.
+  local file entry key expected actual
+  file="${transfer_staging}/machine-manifest.json"
+  # Absence is decided by the existence check, not by the download failing: a download
+  # that fails for any other reason must refuse the pull rather than read as "no receipt
+  # was ever written", which is the shape a hole in this check would take. The existence
+  # check is the same head-object this pull has already run once per key, so a broken
+  # credential or a dead endpoint has stopped it well before here.
+  if ! remote_object_exists "${machine_manifest_key}"; then
+    printf 'no machine bundle receipt in s3://%s yet; taking the store set unverified. ' \
+      "${stores_bucket}" >&2
+    printf 'The next machine push writes one.\n' >&2
+    return 0
+  fi
+  aws s3api get-object \
+    --bucket "${stores_bucket}" \
+    --key "${machine_manifest_key}" \
+    --endpoint-url "${endpoint}" \
+    "${file}" >/dev/null
+  if [[ ! -s "${file}" ]]; then
+    printf 'machine bundle receipt downloaded empty from s3://%s/%s\n' \
+      "${stores_bucket}" "${machine_manifest_key}" >&2
+    exit 1
+  fi
+  for entry in "$@"; do
+    key="${entry%%=*}"
+    actual="$(etag_body "${entry#*=}")"
+    expected="$(manifest_recorded_version "${file}" "${key}")"
+    if [[ "${expected}" != "${actual}" ]]; then
+      printf 'refusing to replace local stores: R2 holds %s at generation %s but the ' \
+        "${key}" "${actual}" >&2
+      printf 'machine bundle receipt names %s. A machine push stopped partway, or one ' \
+        "${expected:-no generation}" >&2
+      printf 'is running now. Wait for the next daily batch to finish and pull again; ' >&2
+      printf 'if it keeps failing, re-dispatch the batch so a complete push rewrites ' >&2
+      printf 'the receipt.\n' >&2
+      exit 1
+    fi
+  done
+  printf 'machine bundle receipt matches the store generations being pulled\n'
+}
+
 pull_keys() {
+  local verify_receipt=0
+  if [[ "${1:-}" == "--bundle-receipt" ]]; then
+    verify_receipt=1
+    shift
+  fi
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
   local key target index
   # The stores download one after another, so a daily batch that pushes partway
@@ -340,6 +460,15 @@ pull_keys() {
   for key in "$@"; do
     versions+=("$(remote_version "${key}")")
   done
+  if [[ ${verify_receipt} -eq 1 ]]; then
+    local -a observed=()
+    index=0
+    for key in "$@"; do
+      observed+=("${key}=${versions[index]}")
+      index=$((index + 1))
+    done
+    require_machine_manifest "${observed[@]}"
+  fi
   for key in "$@"; do
     aws_s3 cp "s3://${stores_bucket}/${key}" "${transfer_staging}/${key}"
     check_sqlite "${transfer_staging}/${key}"
@@ -502,6 +631,7 @@ push_pulled_keys() {
     push_key_if_version "${key}" "${versions[index]}"
     index=$((index + 1))
   done
+  write_machine_manifest
 }
 
 seed_keys() {
@@ -628,7 +758,7 @@ case "${1:-}" in
     pull_app
     ;;
   pull-machine)
-    pull_keys market.sqlite runs.sqlite macro.sqlite
+    pull_keys --bundle-receipt "${machine_bundle_keys[@]}"
     ;;
   # The market store arrives holding only what the lake does not own; these two are the
   # halves that put the rest in and take it back out. They are separate from the pull and
@@ -664,7 +794,7 @@ case "${1:-}" in
       printf 'refusing machine-store push outside GitHub Actions\n' >&2
       exit 2
     fi
-    push_pulled_keys market.sqlite runs.sqlite macro.sqlite
+    push_pulled_keys "${machine_bundle_keys[@]}"
     ;;
   push-market)
     # Deep history is fetched where there is time for it — hours of provider calls for a
@@ -682,6 +812,7 @@ case "${1:-}" in
     cleanup_staging
     transfer_staging=""
     push_key_if_version market.sqlite "${market_version}"
+    write_machine_manifest
     ;;
   push-macro)
     # Deep history is fetched locally with `macro refresh --all-history`, which the
@@ -698,6 +829,7 @@ case "${1:-}" in
     cleanup_staging
     transfer_staging=""
     push_key_if_version macro.sqlite "${macro_version}"
+    write_machine_manifest
     ;;
   push-app)
     push_keys baibai.sqlite
