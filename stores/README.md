@@ -35,6 +35,8 @@ current pointerを1度だけ解決し、`lake hydrate`はその固定releaseか�
 
 writer は上表の owner に限定する。市場 fact の authority は lake にあり、旧 `data/` path、新旧同時
 canonical writer、application DB の自動初期化、cloud copyによるlocal canonical上書きを禁止する。
+上表の path はすべて repository root からの相対で、runtime は起動前に root を確認し、root 以外
+（`engine/` などの部分木）からの起動は store を作らずに停止する。
 `market.sqlite` の lake 所有 15 table は fixed release から再構築できる runtime copy であり、
 R2 が持つ copy はその 15 table を空にしたものになる（[market lake](../docs/reference/market-lake.md#daily-cutover)）。
 

@@ -63,6 +63,7 @@ from baibai_engine.batch_api import (
     MARKET_DB_PATH,
     RUNS_DB_PATH,
     parse_refresh_failure_count,
+    repository_root_error,
 )
 from baibai_engine.read_api import market_calendar_business_day, previous_run_revision_id
 
@@ -1051,11 +1052,7 @@ def _execute_daily_batch(
 
 
 def _root_error(root: Path) -> str | None:
-    if not (root / "pyproject.toml").is_file():
-        return f"--repo-root does not contain pyproject.toml: {root}"
-    if not (root / "method").is_dir():
-        return f"--repo-root does not contain method/: {root}"
-    return None
+    return repository_root_error(root, label="--repo-root")
 
 
 def _write_invalid_asof_summary(summary_output: Path | None, raw_asof: str) -> None:

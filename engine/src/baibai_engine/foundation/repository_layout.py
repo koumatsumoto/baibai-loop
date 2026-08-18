@@ -22,17 +22,50 @@ STORE_LAYOUT_MAPPINGS = (
 )
 
 
-class LegacyStorePathError(RuntimeError):
-    """Runtime state remains under a retired path and could create a second writer."""
+class StoreLayoutError(RuntimeError):
+    """Runtime state would live outside the canonical store layout."""
 
 
-def reject_legacy_store_paths(root: Path = Path(), *, raw_arguments: Iterable[str] = ()) -> None:
-    """Fail before a runtime can read or write a store at a retired path.
+def repository_root_error(root: Path, *, label: str) -> str | None:
+    """Describe why ``root`` is not the repository root, or ``None`` when it is.
 
-    Existing files detect an incomplete migration. Environment overrides and raw
-    CLI arguments are checked as prospective paths as well, so stale configuration
-    cannot recreate a retired writer after the old file has been moved away.
+    ``label`` names what the caller resolved the root from, so a command that takes
+    it as an argument reports the argument the operator has to fix.
     """
+
+    for marker, present in (
+        ("pyproject.toml", (root / "pyproject.toml").is_file()),
+        ("method/", (root / "method").is_dir()),
+    ):
+        if not present:
+            return f"{label} does not contain {marker}: {root}"
+    return None
+
+
+def reject_noncanonical_store_paths(
+    root: Path = Path(), *, raw_arguments: Iterable[str] = ()
+) -> None:
+    """Fail before a runtime can read or write a store outside the canonical layout.
+
+    The root is checked first because every path in this module is relative to it.
+    Scanning the wrong tree reports "no retired path" whatever the repository holds,
+    and sqlite creates a missing store rather than refusing, so a working directory
+    one level off forks the state silently instead of failing.
+
+    Retired paths are then rejected both where they exist and where configuration
+    only names them, so stale settings cannot recreate a retired writer after the
+    old file has been moved away.
+    """
+
+    # The default root is the working directory, which renders as ".": report where
+    # that actually is, because the whole point is that the operator is elsewhere.
+    resolved_root = root.resolve()
+    root_error = repository_root_error(resolved_root, label="the store root")
+    if root_error is not None:
+        raise StoreLayoutError(
+            f"{root_error}; run Baibai Loop from the repository root so the relative "
+            "store paths resolve to the canonical stores instead of creating new ones"
+        )
 
     legacy_paths = tuple(legacy for legacy, _current in STORE_LAYOUT_MAPPINGS)
     present = [path for path in legacy_paths if os.path.lexists(root / path)]
@@ -45,7 +78,6 @@ def reject_legacy_store_paths(root: Path = Path(), *, raw_arguments: Iterable[st
         candidate = argument.split("=", maxsplit=1)[-1]
         configured.append(Path(candidate).expanduser())
 
-    resolved_root = root.resolve()
     retired_targets = {(resolved_root / path).resolve(): path for path in legacy_paths}
     selected = [
         retired_targets[resolved]
@@ -56,7 +88,7 @@ def reject_legacy_store_paths(root: Path = Path(), *, raw_arguments: Iterable[st
     rejected = tuple(dict.fromkeys([*present, *selected]))
     if rejected:
         rendered = ", ".join(str(path) for path in rejected)
-        raise LegacyStorePathError(
+        raise StoreLayoutError(
             f"retired store path exists or is configured ({rendered}); "
             "complete the data -> stores migration "
             "before running Baibai Loop"
@@ -73,6 +105,7 @@ __all__ = [
     "RUNS_DB_PATH",
     "SCREENING_RULES_PATH",
     "STORE_LAYOUT_MAPPINGS",
-    "LegacyStorePathError",
-    "reject_legacy_store_paths",
+    "StoreLayoutError",
+    "reject_noncanonical_store_paths",
+    "repository_root_error",
 ]

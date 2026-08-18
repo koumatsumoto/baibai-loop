@@ -10,7 +10,7 @@ from baibai_batch.jobs.daily import main as daily_main
 from baibai_batch.jobs.history_backfill import main as history_backfill_main
 from baibai_batch.jobs.watchdog import main as watchdog_main
 from baibai_batch.validation.macro_stores import main as validate_macro_stores_main
-from baibai_engine.batch_api import LegacyStorePathError, reject_legacy_store_paths
+from baibai_engine.batch_api import StoreLayoutError, reject_noncanonical_store_paths
 
 Command = Callable[[list[str] | None], int]
 
@@ -34,8 +34,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if not {"-h", "--help"}.intersection(args.arguments):
         try:
-            reject_legacy_store_paths(raw_arguments=args.arguments)
-        except LegacyStorePathError as error:
+            reject_noncanonical_store_paths(raw_arguments=args.arguments)
+        except StoreLayoutError as error:
             print(f"error: {error}", file=sys.stderr)
             return 2
     return _COMMANDS[args.command](args.arguments)

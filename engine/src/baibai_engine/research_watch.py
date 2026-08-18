@@ -17,8 +17,8 @@ import yaml
 
 from baibai_engine.foundation.repository_layout import (
     APPLICATION_DB_PATH,
-    LegacyStorePathError,
-    reject_legacy_store_paths,
+    StoreLayoutError,
+    reject_noncanonical_store_paths,
 )
 from baibai_engine.market.sqlite import (
     SQLiteSchemaError,
@@ -104,8 +104,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        reject_legacy_store_paths(raw_arguments=(str(args.db), str(args.sqlite_path)))
-    except LegacyStorePathError as error:
+        reject_noncanonical_store_paths(raw_arguments=(str(args.db), str(args.sqlite_path)))
+    except StoreLayoutError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     try:

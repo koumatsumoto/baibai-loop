@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from baibai_engine.batch_api import LegacyStorePathError, reject_legacy_store_paths
+from baibai_engine.batch_api import StoreLayoutError, reject_noncanonical_store_paths
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -14,8 +14,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv)
     try:
-        reject_legacy_store_paths(args.root.resolve())
-    except LegacyStorePathError as error:
+        reject_noncanonical_store_paths(args.root.resolve())
+    except StoreLayoutError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     return 0

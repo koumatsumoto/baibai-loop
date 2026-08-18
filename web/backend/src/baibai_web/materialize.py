@@ -22,10 +22,11 @@ from pydantic import BaseModel
 
 from baibai_engine.read_api import (
     MACRO_READING_RULES_PATH,
-    LegacyStorePathError,
     MacroGranularity,
     MaterializationPreconditionError,
-    reject_legacy_store_paths,
+    StoreLayoutError,
+    reject_noncanonical_store_paths,
+    repository_root_error,
     screening_run_asof_dates,
     validate_application_store_schema,
     validate_macro_reading_rules,
@@ -391,11 +392,7 @@ def _warn(message: str) -> None:
 
 
 def _root_error(root: Path) -> str | None:
-    if not (root / "pyproject.toml").is_file():
-        return f"--repo-root does not contain pyproject.toml: {root}"
-    if not (root / "method").is_dir():
-        return f"--repo-root does not contain method/: {root}"
-    return None
+    return repository_root_error(root, label="--repo-root")
 
 
 def _batch_kind(value: str | None) -> MetaBatch | None:
@@ -428,8 +425,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {error}", file=sys.stderr)
         return 1
     try:
-        reject_legacy_store_paths(root)
-    except LegacyStorePathError as legacy_error:
+        reject_noncanonical_store_paths(root)
+    except StoreLayoutError as legacy_error:
         print(f"error: {legacy_error}", file=sys.stderr)
         return 2
     output_dir = args.output_dir.resolve()
