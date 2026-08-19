@@ -60,7 +60,6 @@ typing = [
 ]
 quality = [
   "import-linter>=2.13",
-  "mutmut>=3.7.0",
   "pre-commit>=4.6.2",
   "ruff>=0.16.3",
 ]
@@ -214,17 +213,6 @@ exclude_lines = [
 # the match to a directory of that name, which is the only thing meant to be skipped.
 exclude_dirs = ["/tests/", "/.venv/"]
 skips = ["B101"]
-
-[tool.mutmut]
-paths_to_mutate = [
-  "engine/src/baibai_engine",
-  "web/backend/src/baibai_web",
-  "batch/src/baibai_batch",
-]
-tests_dir = "tests"
-# mutmut runs the suite once per mutant and parallelises the mutants itself, so the
-# workers `addopts` asks for would multiply against that rather than add to it.
-runner = "python -m pytest -q -m 'not slow' -n 0"
 
 # Import-direction contracts encode the subsystem dependency DAG
 # (macro / screening / position / research / shared) so a structural edit that
