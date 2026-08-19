@@ -15,7 +15,7 @@ store 操作は `baibai-engine` の domain CLI と [`batch/scripts`](../batch/sc
 `baibai-engine lake inventory` はlocal R2 mirrorのfile metadataだけを読み、`lake validate`は
 manifest contractだけを検査する。どちらもobjectやpointerを書き換えない。`lake resolve`は
 current pointerを1度だけ解決し、`lake hydrate`はその固定releaseから`market.sqlite`のlake所有
-15 tableを満たす。詳細手順は [Batch operations](../batch/OPERATIONS.md) と
+17 tableを満たす。詳細手順は [Batch operations](../batch/OPERATIONS.md) と
 [market lake](../docs/reference/market-lake.md)。
 
 ## Reads / Writes
@@ -23,8 +23,8 @@ current pointerを1度だけ解決し、`lake hydrate`はその固定releaseか�
 | store | authority | writer | backup / rebuild | cloud sync |
 | --- | --- | --- | --- | --- |
 | `application/baibai.sqlite` | local canonical、cloud replica | engine application service | `baibai-engine db backup`。自動 rebuild 禁止 | `batch/scripts/publish.sh` |
-| `market/market.sqlite` | fetch由来15 tableはR2のL1 releaseから再構築されるruntime copy、残る4 tableはここがcanonical | provider + controlled merge | releaseからhydrate、または screening cache command で再取得可能 | lake所有15 tableを空にしてから push |
-| R2 `lake/l1/` | fetch由来15 datasetのcanonical L1 | lake publisher | source再取得またはlegacy SQLite seedからimmutable rebuild | content object + manifest + CAS pointer |
+| `market/market.sqlite` | lake所有17 tableはR2のL1 releaseから再構築されるruntime copy、残る2 tableはここがcanonical | provider + controlled merge | releaseからhydrate、または screening cache command で再取得可能 | lake所有17 tableを空にしてから push |
+| R2 `lake/l1/` | lake所有17 datasetのcanonical L1 | lake publisher | source再取得またはlegacy SQLite seedからimmutable rebuild | content object + manifest + CAS pointer |
 | `lake/` | disposable local R2 mirror / staging / content-addressed object cache | lake build | R2 manifestから再取得可能 | authorityにしない |
 | `macro/macro.sqlite` | cloud rolling + local full history | macro indicator service + controlled merge | provider series から再取得可能 | no-loss merge 後のみ push |
 | `screening/runs.sqlite` | cloud canonical | daily batch screening service | screening run から再生成可能 | local から push 禁止 |
@@ -36,8 +36,8 @@ writer は上表の owner に限定する。市場 fact の authority は lake �
 canonical writer、application DB の自動初期化、cloud copyによるlocal canonical上書きを禁止する。
 上表の path はすべて repository root からの相対で、runtime は起動前に root を確認し、root 以外
 （`engine/` などの部分木）からの起動は store を作らずに停止する。
-`market.sqlite` の lake 所有 15 table は fixed release から再構築できる runtime copy であり、
-R2 が持つ copy はその 15 table を空にしたものになる（[market lake](../docs/reference/market-lake.md#daily-cutover)）。
+`market.sqlite` の lake 所有 17 table は fixed release から再構築できる runtime copy であり、
+R2 が持つ copy はその 17 table を空にしたものになる（[market lake](../docs/reference/market-lake.md#daily-cutover)）。
 
 ## Stores / Config / Reports
 

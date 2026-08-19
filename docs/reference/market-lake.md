@@ -122,7 +122,7 @@ production store（2,013,155,328 bytes、schema v23、snapshot digest `100b1257�
 | 1 か月訂正の再 export | 122.5 秒 | 1 | 948,040 |
 
 peak RSS は 1,061,478,400 bytes（1,012 MiB）。`jquants.all_issues_daily_margin` は JPX の公表制度
-移行まで行を持たないので、export は 15 dataset のうち 14 を書く。
+移行まで行を持たないので、export は 17 dataset のうち 16 を書く。
 
 **parity は build が書いた月だけを見る。** carried object は自分の bytes の digest で addressing
 されているので、「変わっていない」ことは検証対象ではなく恒等式である。全 history を SQLite から
@@ -295,8 +295,8 @@ row は bounded batch で読む。dataset は 10 年分の日足であり、全 
 
 ## Store hydration
 
-固定 release を SQLite へ実体化するのは hydrate である。`market.sqlite` の lake 所有 15 table を
-空にして release の object から積み直し、他の 4 table と schema はそのまま残す。store は満たされた
+固定 release を SQLite へ実体化するのは hydrate である。`market.sqlite` の lake 所有 17 table を
+空にして release の object から積み直し、他の 2 table と schema はそのまま残す。store は満たされた
 後も ingest が書き続けるので、契約から導いた形ではなく store 自身の schema — 書き込み時の制約と
 index — を運ぶ必要がある。両者は実際に違う（store だけが `week_end` を制約し、契約が宣言しない
 secondary index を持つ）ので、契約側の形で作った store は本物が拒否する行を黙って受け入れる。

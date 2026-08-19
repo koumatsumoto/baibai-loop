@@ -85,10 +85,13 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
 # whole publish. Both are silent, and the first one puts a price into the calibration
 # forward that the current rules say cannot be established.
 DERIVED_KEYS: Mapping[str, tuple[str, ...]] = {
-    "jpx_delistings": ("delisted_on", "ticker"),
-    "tender_offer_exit_values": ("ticker", "delisted_on"),
     "tse_capital_policy_snapshots": ("snapshot_month_end", "ticker"),
 }
+# `jpx_delistings` and `tender_offer_exit_values` used to be here. They are lake datasets
+# now, which answers the retraction problem this table exists to describe rather than
+# working around it: `hydrate` empties a lake-owned table before filling it from the
+# release, so a row a later derivation dropped is absent from the next generation and
+# stays absent. The merge never sees them, so there is no older copy to reinstate from.
 
 ALL_TABLES: Mapping[str, tuple[str, ...]] = {**FACT_KEYS, **DERIVED_KEYS}
 

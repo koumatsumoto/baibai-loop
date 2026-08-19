@@ -112,6 +112,21 @@ def _short_record(name: str, ratio: float) -> dict[str, object]:
     }
 
 
+def _add_capital_policy_row(path: Path, ticker: str) -> None:
+    conn = open_connection(path)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO tse_capital_policy_snapshots("
+            "snapshot_month_end, ticker, status, contact_requested, "
+            "first_disclosure_left_censored"
+            ") VALUES ('2026-05-31', ?, 'disclosed', 0, 0)",
+            (ticker,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _store_short_snapshot(
     path: Path,
     records: list[dict[str, object]],
@@ -720,87 +735,24 @@ class TestShortSaleCoverage:
 
 
 class TestDerivedTables:
-    def test_a_retracted_exit_value_is_not_resurrected_from_the_published_copy(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """A later derivation that could not establish the price has to win.
+    def test_every_derived_table_is_reported_as_kept_whole(self, tmp_path: Path) -> None:
+        """The target keeps its own derivation, and the report says so per table.
 
-        Reinserting the published row would put a price into the calibration forward
-        that the current rules refuse to establish.
+        Only `tse_capital_policy_snapshots` reaches here now: the other two derived
+        tables became lake datasets, where the release generation carries the same
+        answer and `hydrate` empties before it fills.
         """
 
-        published = _store(tmp_path / "published.sqlite")
-        local = _store(tmp_path / "local.sqlite")
-        _add_exit_value(published, "2000", 1060.0)
-
-        merge_stores(published, local)
-
-        conn = sqlite3.connect(f"file:{local}?mode=ro", uri=True)
-        try:
-            assert conn.execute("SELECT count(*) FROM tender_offer_exit_values").fetchone()[0] == 0
-        finally:
-            conn.close()
-
-    def test_a_corrected_exit_value_does_not_block_the_publish(self, tmp_path: Path) -> None:
-        published = _store(tmp_path / "published.sqlite")
-        local = _store(tmp_path / "local.sqlite")
-        _add_exit_value(published, "2000", 1060.0)
-        _add_exit_value(local, "2000", 1200.0)
-
-        merge_stores(published, local)
-
-        conn = sqlite3.connect(f"file:{local}?mode=ro", uri=True)
-        try:
-            assert (
-                conn.execute("SELECT offer_price_yen FROM tender_offer_exit_values").fetchone()[0]
-                == 1200.0
-            )
-        finally:
-            conn.close()
-
-    def test_a_reworded_delisting_row_does_not_refuse_the_publish(self, tmp_path: Path) -> None:
-        """JPX rewords its archive, and only the operator ever writes this table."""
-
-        published = _store(tmp_path / "published.sqlite")
-        local = _store(tmp_path / "local.sqlite")
-        for path, reason in (
-            (published, "株式の併合"),
-            (local, "ＭＢＯ（公開買付け、株式併合）"),
-        ):
-            conn = open_connection(path)
-            try:
-                conn.execute(
-                    "INSERT INTO jpx_delistings(delisted_on, ticker, name, market, reason) "
-                    "VALUES ('2026-05-01', '2000', 'テスト', 'プライム', ?)",
-                    (reason,),
-                )
-                conn.commit()
-            finally:
-                conn.close()
-
-        merge_stores(published, local)
-
-        conn = sqlite3.connect(f"file:{local}?mode=ro", uri=True)
-        try:
-            assert (
-                conn.execute("SELECT reason FROM jpx_delistings").fetchone()[0]
-                == "ＭＢＯ（公開買付け、株式併合）"
-            )
-        finally:
-            conn.close()
-
-    def test_every_derived_table_is_reported_as_kept_whole(self, tmp_path: Path) -> None:
         source = _store(tmp_path / "source.sqlite")
         target = _store(tmp_path / "target.sqlite")
-        _add_exit_value(source, "2000", 1060.0)
+        _add_capital_policy_row(source, "2000")
 
         report = merge_stores(source, target)
 
         derived = {item.table: item for item in report.tables if item.table in DERIVED_KEYS}
         assert set(derived) == set(DERIVED_KEYS)
         assert all(item.inserted == 0 for item in derived.values())
-        assert derived["tender_offer_exit_values"].skipped == 1
+        assert derived["tse_capital_policy_snapshots"].skipped == 1
 
 
 class TestStoreContract:

@@ -59,7 +59,7 @@ engine は web / batch / tools に依存しない。Web が engine へ触れる�
 | store | classification | contents | write owner |
 | --- | --- | --- | --- |
 | `stores/application/baibai.sqlite` | canonical application DB | task、macro context、shortlist、thesis revision、holding review、proposal、ledger event / price / meta、outcome、operation session | `baibai-engine` application service |
-| `stores/market/market.sqlite` | mixed authority（fetch 由来 15 table は L1 release からの runtime copy、残る 4 table はここが canonical） | J-Quants / EDINET / JPX の price、calendar、financial input と、取得範囲の帳簿・資本配分・支配権イベントの typed fact | market / screening provider |
+| `stores/market/market.sqlite` | mixed authority（lake 所有 17 table は L1 release からの runtime copy、残る 2 table はここが canonical） | J-Quants / EDINET / JPX の price、calendar、financial input と、取得範囲の帳簿・資本配分・支配権イベントの typed fact | market / screening provider |
 | `stores/screening/runs.sqlite` | rebuildable L2 run store | 最新数世代を保持するprunable screening run / machine selection cache | screening service |
 | `stores/screening/calibration/` | rebuildable L2 analytical bundle | typed Parquet の calibration panel / diagnostics / forward outcome と、3 datasetを原子的に束ねるbundle manifest・pointer | screening calibration service |
 | `stores/macro/macro.sqlite` | rebuildable L1 | provider 別 macro indicator series。manual 観測は git seed から同期 | macro indicator service |
@@ -128,8 +128,8 @@ production reader は期待する contract 一つだけを受け入れ、schema 
 
 一つの dataset が同時に二つの canonical writer を持たない。市場 fact の canonical authority は
 R2 の L1 release にあり、`market.sqlite` はその fixed release から削除・再構築できる runtime copy
-である。fetch 由来でない 4 table — 取得範囲の帳簿と operator 導出 fact — だけが SQLite を canonical
-とし、R2 が持つ store の copy はその 4 table だけを運ぶ。full-file publish は行わない。
+である。lake が持たない 2 table — 取得範囲の帳簿と、月次 snapshot の operator 導出 fact — だけが
+SQLite を canonical とし、R2 が持つ store の copy はその 2 table だけを運ぶ。full-file publish は行わない。
 
 読み取り側は実行開始時に current pointer を 1 度だけ解決し、以後は固定した `release_id` と
 immutable object key だけを読む。manifest digest、object digest、dataset contract の不一致は

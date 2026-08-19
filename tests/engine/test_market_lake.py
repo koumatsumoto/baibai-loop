@@ -744,10 +744,13 @@ def test_only_a_replaced_table_is_exempt_from_the_history_floor() -> None:
     from baibai_engine.market.lake.datasets import LAKE_DATASETS
     from baibai_engine.market.lake.models import PRODUCTION_RELEASE_POLICY
 
-    cache = Path(__file__).resolve().parents[2] / "engine/src/baibai_engine/screening/sqlite_cache"
+    # The whole screening package, not just its cache: the writers of the two
+    # operator-derived datasets live beside it, and a scan bounded by directory would
+    # call their wholesale replacement an accumulation.
+    screening = Path(__file__).resolve().parents[2] / "engine/src/baibai_engine/screening"
     replaced = {
         match.group(1)
-        for path in cache.rglob("*.py")
+        for path in screening.rglob("*.py")
         for match in re.finditer(r"DELETE FROM (\w+)\s*(?:\"|')", path.read_text(encoding="utf-8"))
     }
     snapshot_datasets = {
@@ -759,7 +762,10 @@ def test_only_a_replaced_table_is_exempt_from_the_history_floor() -> None:
         if item.coverage_start_on_or_before is None
     }
 
-    assert snapshot_datasets == {"jquants.earnings_calendar"}
+    assert snapshot_datasets == {
+        "edinet.tender_offer_exit_values",
+        "jquants.earnings_calendar",
+    }
     assert exempt == snapshot_datasets
 
 
