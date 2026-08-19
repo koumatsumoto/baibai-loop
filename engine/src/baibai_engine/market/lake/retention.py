@@ -62,6 +62,7 @@ from .models import (
 from .models import (
     DatasetManifest,
     ReleaseManifest,
+    RetainedSourceRef,
     SourceRef,
     load_lake_model_json,
     retained_sources,
@@ -373,7 +374,7 @@ def _reach_dataset(
 
 def _reach_sources(
     mirror_root: Path,
-    sources: Sequence[SourceRef],
+    sources: Sequence[SourceRef | RetainedSourceRef],
     reachable: set[str],
     unresolved: list[str],
 ) -> None:

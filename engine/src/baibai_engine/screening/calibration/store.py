@@ -260,17 +260,19 @@ def store_forward_policy(root: Path) -> ForwardObservationPolicy:
 def _inputs(
     root: Path,
     dataset: L2Dataset,
-    source: CohortSourceRef,
+    sources: tuple[CohortSourceRef, ...],
     *,
     producer_commit: str | None = None,
     forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> L2BuildInputs:
     """Resolve and fix the exact source generation used by one cohort write."""
 
-    for retained in retained_sources((source,)):
+    # Resolving is what makes a retained claim true rather than merely stated: the whole
+    # closure the reference roots has to be in the mirror, at the digests it published.
+    for retained in retained_sources(sources):
         resolve_source_ref(root, retained)
     return L2BuildInputs(
-        sources=(source,),
+        sources=sources,
         producer_git_commit=producer_commit or verified_git_commit(),
         cache_schema_version=CACHE_SCHEMA_VERSIONS[dataset.name],
         forward_policy=forward_policy,
@@ -635,7 +637,7 @@ def _publish_cohort(
     asof: date,
     rows: Sequence[object],
     status: CohortStatus | None = None,
-    source: CohortSourceRef,
+    sources: tuple[CohortSourceRef, ...],
     input_cutoff: date,
     measurement_policy: MeasurementPolicyRef,
     producer_commit: str | None = None,
@@ -666,7 +668,7 @@ def _publish_cohort(
     inputs = _inputs(
         root,
         dataset,
-        source,
+        sources,
         producer_commit=producer_commit,
         forward_policy=forward_policy,
     )
@@ -762,7 +764,7 @@ def write_panel(
     rows: tuple[PanelRow, ...],
     diagnostics: PanelDiagnostics,
     *,
-    source: CohortSourceRef,
+    sources: tuple[CohortSourceRef, ...],
     input_cutoff: date,
     producer_commit: str | None = None,
     lock_held: bool = False,
@@ -777,7 +779,7 @@ def write_panel(
                 dataset=CALIBRATION_PANEL,
                 asof=asof,
                 rows=rows,
-                source=source,
+                sources=sources,
                 input_cutoff=input_cutoff,
                 measurement_policy=measurement_policy,
                 producer_commit=producer_commit,
@@ -788,7 +790,7 @@ def write_panel(
                 dataset=CALIBRATION_DIAGNOSTICS,
                 asof=asof,
                 rows=(diagnostics,),
-                source=source,
+                sources=sources,
                 input_cutoff=input_cutoff,
                 measurement_policy=measurement_policy,
                 producer_commit=producer_commit,
@@ -809,7 +811,7 @@ def write_panel(
             asof=asof,
             rows=(),
             status="not_computed",
-            source=source,
+            sources=sources,
             input_cutoff=input_cutoff,
             measurement_policy=measurement_policy,
             producer_commit=producer_commit,
@@ -828,7 +830,7 @@ def write_forward(
     asof: date,
     rows: list[ForwardReturnRow],
     *,
-    source: CohortSourceRef,
+    sources: tuple[CohortSourceRef, ...],
     input_cutoff: date,
     producer_commit: str | None = None,
     lock_held: bool = False,
@@ -844,7 +846,7 @@ def write_forward(
             dataset=CALIBRATION_FORWARD,
             asof=asof,
             rows=rows,
-            source=source,
+            sources=sources,
             input_cutoff=input_cutoff,
             measurement_policy=_panel_measurement_policy(root, asof),
             producer_commit=producer_commit,

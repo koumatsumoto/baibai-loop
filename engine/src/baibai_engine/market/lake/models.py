@@ -113,12 +113,14 @@ class SQLiteSnapshotSourceRef(_SourceRefBase):
 class L1ReleaseSourceRef(_RetainedSourceRefBase):
     """A digest-pinned reference to one L1 release, used to read a fixed generation.
 
-    This is deliberately outside ``SourceRef``. A lineage source has to resolve to the
-    complete object graph that reproduces it, and a release manifest is only the root
-    of one: its dataset manifests and Parquet objects are what would have to be
-    enumerated, verified, and protected from retention. Admitting the kind
-    into the union before the publisher, reader, retention planner, and pin all walk
-    that closure would let a build claim a lineage nothing keeps whole.
+    Admissible as a cohort source because the closure behind it is now walked rather
+    than assumed: ``resolve_source_ref`` enumerates the release's dataset manifests and
+    every Parquet object they name, and verifies each against the digest the manifest
+    published. A reference that resolves therefore states a lineage the mirror actually
+    holds whole, which is the condition this kind was kept out of the union for.
+
+    It stays outside ``SourceRef``. That union is what a *build* records about the
+    generation it read, and a build reads a sealed store rather than a release.
     """
 
     kind: Literal["l1_release"]
@@ -144,19 +146,19 @@ class L1ReleaseSourceRef(_RetainedSourceRefBase):
 type SourceRef = Annotated[SQLiteSnapshotSourceRef, Field(discriminator="kind")]
 
 # The sources whose bytes the lake stores. `L1ReleaseSourceRef` is the only kind that
-# names a key, and it is deliberately outside `SourceRef` until the publisher, reader,
-# retention planner and pin all walk a release's closure — so nothing retained can be
-# stated yet, and `source_assurance` is `trace_only` for every build that exists.
+# names a key, and resolving one walks the whole closure it roots.
 type RetainedSourceRef = L1ReleaseSourceRef
 
-# What an analytical cohort may be built from. Widening this to admit an L1 release is
-# what turns the assurance into a distinction — and the same change has to bring back a
-# check that the sources a generation states still resolve before it becomes current,
-# which is dead code while nothing retained can be named here.
-type CohortSourceRef = SQLiteSnapshotSourceRef
+# What an analytical cohort may be built from. A cohort states both: the sealed store
+# generation it actually read, and the L1 release those rows came from. The first says
+# which bytes were read, the second says where they can be read again — and it is the
+# second that makes `source_assurance` a distinction rather than one constant answer.
+type CohortSourceRef = Annotated[
+    SQLiteSnapshotSourceRef | L1ReleaseSourceRef, Field(discriminator="kind")
+]
 
 
-def _source_identity(source: SourceRef) -> tuple[str, str, str]:
+def _source_identity(source: SourceRef | RetainedSourceRef) -> tuple[str, str, str]:
     """What makes two lineage references the same generation.
 
     The key is not part of it. A key is derived from the identity where one exists, so
@@ -328,8 +330,17 @@ class CohortInventoryEntry(BaseModel):
             raise ValueError("complete cohort must contain rows")
         if self.status in {"empty", "not_computed"} and self.rows != 0:
             raise ValueError(f"{self.status} cohort cannot contain rows")
-        if any(self.input_cutoff > source.captured_at.date() for source in self.sources):
+        # Only the sealed snapshot carries a capture instant. A release names a
+        # generation the store was filled from, and its own creation time says nothing
+        # about which rows the cohort read — the snapshot already answers that.
+        if any(
+            self.input_cutoff > source.captured_at.date()
+            for source in self.sources
+            if isinstance(source, SQLiteSnapshotSourceRef)
+        ):
             raise ValueError("cohort input cutoff cannot follow SQLite snapshot capture")
+        if not any(isinstance(source, SQLiteSnapshotSourceRef) for source in self.sources):
+            raise ValueError("cohort must state the sealed store generation it read")
         return self
 
 

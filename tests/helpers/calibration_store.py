@@ -229,8 +229,12 @@ def publish_panel(
         date.fromisoformat(asof),
         tuple(_panel(asof, row) for row in rows),
         diagnostics,
-        source=source
-        or synthetic_calibration_source(label=source_label, captured_on=date.fromisoformat(asof)),
+        sources=(
+            source
+            or synthetic_calibration_source(
+                label=source_label, captured_on=date.fromisoformat(asof)
+            ),
+        ),
         input_cutoff=date.fromisoformat(asof),
         producer_commit=producer_commit,
         forward_policy=forward_policy,
@@ -253,7 +257,7 @@ def publish_forward(
         directory,
         date.fromisoformat(asof),
         [_forward(asof, row) for row in rows],
-        source=source or synthetic_calibration_source(label=source_label, captured_on=cutoff),
+        sources=(source or synthetic_calibration_source(label=source_label, captured_on=cutoff),),
         input_cutoff=cutoff,
         producer_commit=producer_commit,
         forward_policy=forward_policy,

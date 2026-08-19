@@ -16,7 +16,9 @@ something to adapt to.
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Iterable, Iterator, Mapping, Sequence
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -25,7 +27,7 @@ from types import MappingProxyType
 import duckdb
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
-from .datasets import LakeDataset, period_label, require_lake_dataset
+from .datasets import LAKE_DATASETS, LakeDataset, period_label, require_lake_dataset
 from .duck import LakeSession
 from .keys import (
     current_l1_pointer_key,
@@ -407,3 +409,59 @@ def materialize_partitions(
         verify_object(path, dataset, lake_object)
         paths.append(path)
     return tuple(paths)
+
+
+def release_backing_store(
+    source: LakeObjectSource,
+    *,
+    store: Path,
+    release_id: str,
+    manifest_sha256: str,
+) -> L1ReleaseSourceRef | None:
+    """The named release, when the store demonstrably holds exactly what it publishes.
+
+    A cohort may state a release as its lineage only if that release can give the rows
+    back. Naming one is not that: a store filled from an older generation, or carrying
+    fetches nobody published, reads the same from the outside. So the name is a hint and
+    the proof is here — every lake-owned table is counted against the totals the release
+    publishes, and the reference is returned only when all of them agree exactly.
+
+    The current pointer is not consulted. It lives in the object store rather than the
+    local mirror, and a build that reached for it would be doing network I/O to answer a
+    question the store in front of it already settles. A release that is no longer
+    current still reproduces the rows a cohort read from it.
+
+    A dataset the release omits must hold nothing. That is how a dataset with no rows
+    yet — `jquants.all_issues_daily_margin` until the exchange starts publishing it —
+    stays consistent, while a table holding rows no release carries makes the claim
+    false rather than approximate.
+
+    Absent rather than raising. A store that does not match any release is the ordinary
+    state during a backfill, and the honest consequence is a cohort whose assurance stays
+    `trace_only` — not a build that refuses to run.
+    """
+
+    try:
+        release = resolve_release(source, release_id, manifest_sha256=manifest_sha256)
+    except LakeReadError:
+        return None
+    expected = {name: item.totals.rows for name, item in release.dataset_manifests.items()}
+    try:
+        with closing(sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True)) as conn:
+            for name, dataset in LAKE_DATASETS.items():
+                held = int(
+                    conn.execute(
+                        f"SELECT COUNT(*) FROM {dataset.sqlite_table}"  # nosec B608
+                    ).fetchone()[0]
+                )
+                if held != expected.get(name, 0):
+                    return None
+    except sqlite3.Error:
+        return None
+    return L1ReleaseSourceRef(
+        kind="l1_release",
+        source_id=release.release_id,
+        key=release.manifest_key,
+        sha256=release.manifest_sha256,
+        manifest_version=release.manifest.manifest_version,
+    )
