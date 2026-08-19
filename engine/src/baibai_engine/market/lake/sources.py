@@ -9,7 +9,14 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 
-from .models import RetainedSourceRef
+from .keys import L1_RELEASE_PREFIX, dataset_manifest_key
+from .models import (
+    DatasetManifest,
+    L1ReleaseSourceRef,
+    ReleaseManifest,
+    RetainedSourceRef,
+    load_lake_model_json,
+)
 
 _VERIFIED: ContextVar[dict[tuple[str, str], Path] | None] = ContextVar(
     "lake_verified_sources", default=None
@@ -39,13 +46,40 @@ def verified_source_scope() -> Iterator[None]:
         _VERIFIED.reset(token)
 
 
-def resolve_source_ref(mirror_root: Path, source: RetainedSourceRef) -> Path:
-    """Resolve one retained source inside the mirror and verify its immutable identity.
+def source_mirror(source: RetainedSourceRef, *, mirror_root: Path, l1_mirror: Path | None) -> Path:
+    """Which mirror answers for this source.
+
+    A store is not one namespace. The calibration store publishes its own L2 objects,
+    dataset manifests and bundle pointer; the L1 releases a cohort names live in the
+    market mirror. Resolving both against the store that holds the cohort would refuse
+    every release a cohort states, because that store has never held one — and refusing
+    is what it did, on the first build after the union was widened.
+
+    ``l1_mirror`` absent means the caller has no L1 mirror to offer, and the reference
+    then resolves against the one mirror it does have. That keeps the market lake's own
+    resolution — where both are the same directory — unchanged.
+
+    Routed by the key's namespace rather than by the reference's type. The two happen to
+    agree while `RetainedSourceRef` has one kind, and a second kind would be routed by
+    where its objects live rather than by a branch someone has to remember to add.
+    """
+
+    if l1_mirror is not None and source.key.startswith(L1_RELEASE_PREFIX):
+        return l1_mirror
+    return mirror_root
+
+
+def resolve_source_ref(
+    mirror_root: Path, source: RetainedSourceRef, *, l1_mirror: Path | None = None
+) -> Path:
+    """Resolve one retained source inside its mirror and verify its immutable identity.
 
     Only sources the lake stores can be resolved. An identity-only reference such as a
     sealed SQLite generation names no key, so it is excluded by type rather than by a
     runtime branch that would otherwise have to decide what a missing file means.
     """
+
+    mirror_root = source_mirror(source, mirror_root=mirror_root, l1_mirror=l1_mirror)
 
     memo = _VERIFIED.get()
     # The whole reference, not the part of it that names a generation. Two references
@@ -63,12 +97,53 @@ def resolve_source_ref(mirror_root: Path, source: RetainedSourceRef) -> Path:
 
 def _resolve_source_ref(mirror_root: Path, source: RetainedSourceRef) -> Path:
     root = mirror_root.resolve()
-    path = (mirror_root / source.key).resolve()
+    path = _resolve_key(root, mirror_root, source.key, source.sha256)
+    if isinstance(source, L1ReleaseSourceRef):
+        _require_release_closure(root, mirror_root, path)
+    return path
+
+
+def _resolve_key(root: Path, mirror_root: Path, key: str, sha256: str) -> Path:
+    path = (mirror_root / key).resolve()
     if not path.is_relative_to(root) or not path.is_file():
         raise ValueError("source reference does not resolve inside the lake mirror")
-    if sha256_file(path) != source.sha256:
+    if sha256_file(path) != sha256:
         raise ValueError("source reference digest does not match")
     return path
+
+
+def _require_release_closure(root: Path, mirror_root: Path, manifest_path: Path) -> None:
+    """Walk the whole graph the release roots, not just the manifest that names it.
+
+    A release manifest is a list of dataset manifests, and each of those is a list of
+    Parquet objects. Verifying only the root would let a cohort state a lineage whose
+    rows are not in the mirror at all — the difference between "the reference is
+    well-formed" and "the bytes it names can be read again", which is the entire
+    distinction ``source_assurance`` draws.
+
+    The objects are checked by digest rather than by presence and size. A cohort states
+    this once per build, and the whole point of the claim is that these exact bytes are
+    what a re-derivation would read.
+    """
+
+    try:
+        release = load_lake_model_json(manifest_path.read_bytes(), ReleaseManifest)
+    except ValueError as error:
+        raise ValueError(f"l1_release source is not a release manifest: {error}") from error
+    for name, entry in sorted(release.datasets.items()):
+        dataset_path = _resolve_key(
+            root,
+            mirror_root,
+            dataset_manifest_key(dataset=name, build_id=entry.build_id),
+            entry.manifest_sha256,
+        )
+        try:
+            manifest = load_lake_model_json(dataset_path.read_bytes(), DatasetManifest)
+        except ValueError as error:
+            raise ValueError(f"l1_release dataset manifest is invalid: {name}: {error}") from error
+        for partition in manifest.partitions:
+            for item in partition.objects:
+                _resolve_key(root, mirror_root, item.key, item.sha256)
 
 
 def sha256_file(path: Path) -> str:

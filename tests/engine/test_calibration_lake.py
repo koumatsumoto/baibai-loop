@@ -16,8 +16,10 @@ from tests.helpers.calibration_store import (
     publish_panel,
     synthetic_calibration_source,
 )
+from tests.helpers.l1_release import stored_release_source
 
 from baibai_engine.market.lake import models as lake_models
+from baibai_engine.market.lake import retention as retention_module
 from baibai_engine.market.lake import sources as sources_module
 from baibai_engine.market.lake.keys import (
     calibration_bundle_manifest_key,
@@ -178,17 +180,6 @@ class TestTypedContract:
         assert same != transform_fingerprint(
             CALIBRATION_PANEL, cache_schema_version=CACHE_SCHEMA_VERSION
         )
-
-
-def _stored_release_source(root: Path) -> tuple[Path, L1ReleaseSourceRef]:
-    """A retained source whose bytes are on disk, and the manifest file it names."""
-
-    reference = _release_source()
-    payload = b'{"release_version": 1}\n'
-    stored = root / reference.key
-    stored.parent.mkdir(parents=True, exist_ok=True)
-    stored.write_bytes(payload)
-    return stored, reference.model_copy(update={"sha256": hashlib.sha256(payload).hexdigest()})
 
 
 def _release_source() -> L1ReleaseSourceRef:
@@ -435,50 +426,55 @@ class TestImmutableBuilds:
                 [{"ticker": "1301", "horizon": "1y", "price_return": 0.2, "status": "resolved"}],
             )
 
-    def test_a_cohort_cannot_name_an_l1_release_as_its_source(self, tmp_path: Path) -> None:
-        """A release is a read reference until its whole closure is walked.
-
-        Admitting it as a cohort source before the publisher, reader, retention planner
-        and pin all enumerate that closure would let a build claim a lineage nothing
-        keeps whole. The kind is outside the cohort source union, which makes the claim
-        unrepresentable rather than merely refused.
-        """
+    def test_a_cohort_may_name_an_l1_release_beside_the_snapshot_it_read(
+        self, tmp_path: Path
+    ) -> None:
+        """The release says where the rows can be read again; the snapshot says which
+        rows were read. A cohort states both, and stating only the release would drop
+        the generation the build actually saw."""
 
         del tmp_path
         policy = MeasurementPolicyRef(
             rules_hash="abc123", panel_variant="production", production_authority=True
         )
-        release = _release_source()
-        # A complete entry apart from the source kind, so the rejection can only be the
-        # discriminator. Leaving another required field out would let the test pass while
-        # the kind was accepted.
-        CohortInventoryEntry(
+        snapshot = synthetic_calibration_source(captured_on=date.fromisoformat(_JANUARY))
+
+        entry = CohortInventoryEntry(
             status="empty",
             rows=0,
-            sources=(synthetic_calibration_source(captured_on=date.fromisoformat(_JANUARY)),),
+            sources=(snapshot, _release_source()),
             input_cutoff=date.fromisoformat(_JANUARY),
             measurement_policy=policy,
         )
 
-        with pytest.raises(ValidationError) as caught:
+        assert [item.kind for item in entry.sources] == ["sqlite_snapshot", "l1_release"]
+
+    def test_a_cohort_stating_only_a_release_is_refused(self, tmp_path: Path) -> None:
+        """A release names a generation, not the read. Without the sealed snapshot the
+        cohort cannot say which bytes it saw, and the input-cutoff check that binds the
+        two would have nothing to compare against."""
+
+        del tmp_path
+        policy = MeasurementPolicyRef(
+            rules_hash="abc123", panel_variant="production", production_authority=True
+        )
+
+        with pytest.raises(ValidationError, match="sealed store generation"):
             CohortInventoryEntry(
                 status="empty",
                 rows=0,
-                sources=(release,),  # type: ignore[arg-type]
+                sources=(_release_source(),),
                 input_cutoff=date.fromisoformat(_JANUARY),
                 measurement_policy=policy,
             )
 
-        # The rejection has to be about the source itself, not some other field the
-        # test forgot to supply — otherwise the guard could be gone and the test green.
-        assert {error["loc"][:2] for error in caught.value.errors()} == {
-            ("sources", 0),
-            ("sources",),
-        }
-        # Not a partition source either: the kind is outside `SourceRef` as well, which
-        # is what keeps a lineage nothing resolves from being stated anywhere.
+    def test_a_release_is_still_not_a_partition_source(self, tmp_path: Path) -> None:
+        """`SourceRef` is what one build records about the generation it read, and a
+        build reads a sealed store. Widening the cohort union does not widen that one."""
+
+        del tmp_path
         with pytest.raises(ValidationError):
-            TypeAdapter(SourceRef).validate_python(release.model_dump(mode="python"))
+            TypeAdapter(SourceRef).validate_python(_release_source().model_dump(mode="python"))
 
     def test_a_cohort_is_published_as_a_build_the_pointer_names(self, tmp_path: Path) -> None:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
@@ -780,6 +776,33 @@ class TestSourceAssurance:
         # a cohort that states no lineage at all the strongest one in the store.
         assert source_assurance(()) == "trace_only"
 
+    def test_the_snapshot_beside_a_release_does_not_cancel_the_release(self) -> None:
+        """The shape production actually writes, and the one no test held before.
+
+        A build reads one thing — the market store — and names it twice: the sealed
+        snapshot is which bytes it read, the release is where they can be read again.
+        Reading the pair as "weakest wins" would let the record of the read cancel the
+        claim that the read is reproducible, which is the only claim the gate is asking
+        about.
+        """
+
+        pair = (synthetic_calibration_source(), _release_source())
+
+        assert source_assurance(pair) == "rebuildable_input"
+        assert source_assurance(tuple(reversed(pair))) == "rebuildable_input"
+
+    def test_several_roles_are_answered_together_by_whether_any_is_kept(self) -> None:
+        """`evaluate` passes panel, diagnostics and forward sources at once. A role built
+        before the release joined the union states only its snapshot, and the conclusion
+        rests on all three — so the pair below is a cohort mid-migration, not a whole
+        one."""
+
+        assert source_assurance((synthetic_calibration_source(),)) == "trace_only"
+        assert (
+            source_assurance((synthetic_calibration_source(), synthetic_calibration_source()))
+            == "trace_only"
+        )
+
 
 class TestFailClose:
     def test_a_build_from_another_transform_is_refused(self, tmp_path: Path) -> None:
@@ -931,7 +954,7 @@ class TestRebuild:
         size times the number of partitions that name it, every run.
         """
 
-        archived, source = _stored_release_source(tmp_path)
+        archived, source = stored_release_source(tmp_path)
         hashed: list[str] = []
         real = sources_module.sha256_file
         monkeypatch.setattr(
@@ -951,7 +974,7 @@ class TestRebuild:
     ) -> None:
         """Memoizing keys on the identity the caller asserted, not on the file it found."""
 
-        _, source = _stored_release_source(tmp_path)
+        _, source = stored_release_source(tmp_path)
         other = tmp_path / "other-mirror"
         other.mkdir()
 
@@ -1536,3 +1559,87 @@ class TestSemanticIdentity:
 
         assert store.store_forward_policy(tmp_path) == policy
         assert read_forward(tmp_path, date.fromisoformat(_JANUARY))
+
+
+class TestCrossStoreLineage:
+    """A cohort names a release the market mirror holds, not this one.
+
+    The calibration store publishes L2 objects, its dataset manifests and its bundle
+    pointer. L1 releases are not in it and never will be, so both the write path and the
+    sweep have to answer for them somewhere else — the first build after the union was
+    widened was refused outright because neither did.
+    """
+
+    @staticmethod
+    def _mirrors(tmp_path: Path) -> tuple[Path, Path, L1ReleaseSourceRef]:
+        market = tmp_path / "market"
+        market.mkdir(parents=True)
+        _, release = stored_release_source(market)
+        return tmp_path / "calibration", market, release
+
+    def test_a_cohort_states_a_release_the_market_mirror_answers_for(self, tmp_path: Path) -> None:
+        calibration, market, release = self._mirrors(tmp_path)
+
+        publish_panel(
+            calibration,
+            _JANUARY,
+            _cohort(_JANUARY),
+            extra_sources=(release,),
+            l1_mirror=market,
+        )
+
+        reference = _dataset_ref(calibration, CALIBRATION_PANEL.name)
+        manifest = load_manifest(calibration / reference.manifest_key)
+        stated = manifest.cohort_inventory[_JANUARY].sources
+        assert [item.kind for item in stated] == ["sqlite_snapshot", "l1_release"]
+        assert source_assurance(stated) == "rebuildable_input"
+
+    def test_the_same_cohort_is_refused_without_the_mirror_that_holds_the_release(
+        self, tmp_path: Path
+    ) -> None:
+        """Resolving is the proof. Without the mirror there is nothing to prove against,
+        and a cohort that recorded the claim anyway would state a lineage no store was
+        asked to keep."""
+
+        calibration, _market, release = self._mirrors(tmp_path)
+
+        with pytest.raises(CalibrationCacheError, match="does not resolve"):
+            publish_panel(
+                calibration, _JANUARY, _cohort(_JANUARY), extra_sources=(release,), l1_mirror=None
+            )
+
+    def test_the_sweep_does_not_call_another_stores_release_unresolved(
+        self, tmp_path: Path
+    ) -> None:
+        """Reporting it would stop the calibration sweep on a fact about the market
+        mirror; marking it reachable would claim to protect bytes this store does not
+        hold. Neither, and the sweep still plans."""
+
+        calibration, market, release = self._mirrors(tmp_path)
+        publish_panel(
+            calibration, _JANUARY, _cohort(_JANUARY), extra_sources=(release,), l1_mirror=market
+        )
+
+        plan = plan_gc(calibration, now=datetime.now(UTC) + timedelta(days=400))
+
+        assert plan.unresolved_roots == ()
+        assert release.key not in plan.reachable
+
+    def test_a_mirror_that_does_publish_releases_still_answers_for_them(
+        self, tmp_path: Path
+    ) -> None:
+        """Absence alone must not excuse a source. A mirror holding L1 releases owns that
+        namespace, so one it cannot resolve there is the loss the sweep reports."""
+
+        market = tmp_path / "market"
+        market.mkdir(parents=True)
+        stored, release = stored_release_source(market)
+        stored.unlink()
+        (market / stored.parent.relative_to(market) / "other.json").write_text(
+            "{}", encoding="utf-8"
+        )
+        unresolved: list[str] = []
+
+        retention_module._reach_sources(market, (release,), set(), unresolved)
+
+        assert unresolved == [release.key]

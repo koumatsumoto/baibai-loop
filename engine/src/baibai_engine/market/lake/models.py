@@ -113,12 +113,14 @@ class SQLiteSnapshotSourceRef(_SourceRefBase):
 class L1ReleaseSourceRef(_RetainedSourceRefBase):
     """A digest-pinned reference to one L1 release, used to read a fixed generation.
 
-    This is deliberately outside ``SourceRef``. A lineage source has to resolve to the
-    complete object graph that reproduces it, and a release manifest is only the root
-    of one: its dataset manifests and Parquet objects are what would have to be
-    enumerated, verified, and protected from retention. Admitting the kind
-    into the union before the publisher, reader, retention planner, and pin all walk
-    that closure would let a build claim a lineage nothing keeps whole.
+    Admissible as a cohort source because the closure behind it is now walked rather
+    than assumed: ``resolve_source_ref`` enumerates the release's dataset manifests and
+    every Parquet object they name, and verifies each against the digest the manifest
+    published. A reference that resolves therefore states a lineage the mirror actually
+    holds whole, which is the condition this kind was kept out of the union for.
+
+    It stays outside ``SourceRef``. That union is what a *build* records about the
+    generation it read, and a build reads a sealed store rather than a release.
     """
 
     kind: Literal["l1_release"]
@@ -144,19 +146,19 @@ class L1ReleaseSourceRef(_RetainedSourceRefBase):
 type SourceRef = Annotated[SQLiteSnapshotSourceRef, Field(discriminator="kind")]
 
 # The sources whose bytes the lake stores. `L1ReleaseSourceRef` is the only kind that
-# names a key, and it is deliberately outside `SourceRef` until the publisher, reader,
-# retention planner and pin all walk a release's closure — so nothing retained can be
-# stated yet, and `source_assurance` is `trace_only` for every build that exists.
+# names a key, and resolving one walks the whole closure it roots.
 type RetainedSourceRef = L1ReleaseSourceRef
 
-# What an analytical cohort may be built from. Widening this to admit an L1 release is
-# what turns the assurance into a distinction — and the same change has to bring back a
-# check that the sources a generation states still resolve before it becomes current,
-# which is dead code while nothing retained can be named here.
-type CohortSourceRef = SQLiteSnapshotSourceRef
+# What an analytical cohort may be built from. A cohort states both: the sealed store
+# generation it actually read, and the L1 release those rows came from. The first says
+# which bytes were read, the second says where they can be read again — and it is the
+# second that makes `source_assurance` a distinction rather than one constant answer.
+type CohortSourceRef = Annotated[
+    SQLiteSnapshotSourceRef | L1ReleaseSourceRef, Field(discriminator="kind")
+]
 
 
-def _source_identity(source: SourceRef) -> tuple[str, str, str]:
+def _source_identity(source: SourceRef | RetainedSourceRef) -> tuple[str, str, str]:
     """What makes two lineage references the same generation.
 
     The key is not part of it. A key is derived from the identity where one exists, so
@@ -188,25 +190,30 @@ SourceAssurance = Literal["rebuildable_input", "trace_only"]
 
 
 def source_assurance(sources: Iterable[SourceRef | RetainedSourceRef]) -> SourceAssurance:
-    """Whether a cohort's lineage lets it be re-derived, named by its weakest source.
+    """Whether a cohort's lineage lets it be re-derived.
 
     **rebuildable_input** keeps the upstream data the producer read, so a cohort can be
     re-derived after a logic error is found in the producer itself. **trace_only** names
     the store generation a build read without keeping it, so it cannot.
 
-    No build reaches the first value today: ``SourceRef`` admits only a sealed SQLite
-    snapshot, whose bytes the lake deliberately does not store. The distinction
-    is derived rather than declared, so it starts describing something the moment an L1
-    release becomes admissible as a cohort source — and until then the honest answer to
-    "may this decide production" is no.
+    Answered by whether any retained source is stated, not by the weakest one. The two
+    kinds a cohort states are not two inputs: a build reads one thing — the market store
+    — and names it twice. The sealed snapshot is which bytes it read; the L1 release is
+    where those bytes can be read again, and stating it is only allowed after the store
+    has been counted table for table against what that release publishes. Reading the
+    pair as "weakest wins" would make the snapshot, whose whole purpose is to record the
+    read, cancel the claim that the read is reproducible.
 
-    The value is the weakest of the sources stated, which is also why a caller can pass
-    the sources of several cohort roles at once and get the assurance of the whole.
+    That holds because every table a cohort reads is lake-owned. If a build ever took an
+    input the lake does not carry, this would have to go back to naming the weakest —
+    and the check that would notice is the one in `release_backing_store`, which counts
+    every lake-owned table and refuses a store holding rows no release published.
+
     Stating no source at all is the weaker claim rather than the absence of a claim.
     """
 
     stated = tuple(sources)
-    if not stated or len(retained_sources(stated)) != len(stated):
+    if not stated or not retained_sources(stated):
         return "trace_only"
     return "rebuildable_input"
 
@@ -328,8 +335,17 @@ class CohortInventoryEntry(BaseModel):
             raise ValueError("complete cohort must contain rows")
         if self.status in {"empty", "not_computed"} and self.rows != 0:
             raise ValueError(f"{self.status} cohort cannot contain rows")
-        if any(self.input_cutoff > source.captured_at.date() for source in self.sources):
+        # Only the sealed snapshot carries a capture instant. A release names a
+        # generation the store was filled from, and its own creation time says nothing
+        # about which rows the cohort read — the snapshot already answers that.
+        if any(
+            self.input_cutoff > source.captured_at.date()
+            for source in self.sources
+            if isinstance(source, SQLiteSnapshotSourceRef)
+        ):
             raise ValueError("cohort input cutoff cannot follow SQLite snapshot capture")
+        if not any(isinstance(source, SQLiteSnapshotSourceRef) for source in self.sources):
+            raise ValueError("cohort must state the sealed store generation it read")
         return self
 
 

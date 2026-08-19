@@ -44,6 +44,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .keys import (
+    L1_RELEASE_PREFIX,
     current_calibration_bundle_pointer_key,
     current_l1_pointer_key,
     dataset_manifest_key,
@@ -62,6 +63,7 @@ from .models import (
 from .models import (
     DatasetManifest,
     ReleaseManifest,
+    RetainedSourceRef,
     SourceRef,
     load_lake_model_json,
     retained_sources,
@@ -373,17 +375,41 @@ def _reach_dataset(
 
 def _reach_sources(
     mirror_root: Path,
-    sources: Sequence[SourceRef],
+    sources: Sequence[SourceRef | RetainedSourceRef],
     reachable: set[str],
     unresolved: list[str],
 ) -> None:
+    """Mark what this mirror keeps for these sources, and only what it keeps.
+
+    A cohort in the calibration store names the L1 release its rows came from, and that
+    release is in the market mirror. This planner speaks for one mirror: calling a key
+    it has never published "unresolved" would stop the calibration sweep on a fact about
+    a different store, and calling it "reachable" would claim to protect bytes it does
+    not hold. It is neither — the market mirror's own sweep answers for it.
+
+    Absence alone does not decide that. A key under a namespace this mirror does publish
+    is its own business, and a missing one there is the loss the unresolved list exists
+    to report.
+    """
+
     for source in retained_sources(sources):
+        if source.key.startswith(L1_RELEASE_PREFIX) and not _publishes(
+            mirror_root, L1_RELEASE_PREFIX
+        ):
+            continue
         try:
             resolve_source_ref(mirror_root, source)
         except (OSError, ValueError):
             unresolved.append(source.key)
             continue
         reachable.add(source.key)
+
+
+def _publishes(mirror_root: Path, prefix: str) -> bool:
+    """Whether this mirror holds anything under a namespace, so it can speak for it."""
+
+    directory = mirror_root / prefix
+    return directory.is_dir() and any(directory.iterdir())
 
 
 def _unreachable(

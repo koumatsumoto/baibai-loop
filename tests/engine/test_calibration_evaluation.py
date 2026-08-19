@@ -60,7 +60,7 @@ def write_panel(root: Path, asof: date, *args: object, **kwargs: object) -> None
         root,
         asof,
         *args,
-        source=synthetic_calibration_source(captured_on=asof),
+        sources=(synthetic_calibration_source(captured_on=asof),),
         input_cutoff=asof,
         **kwargs,
     )
@@ -71,7 +71,7 @@ def write_forward(root: Path, asof: date, *args: object, **kwargs: object) -> No
         root,
         asof,
         *args,
-        source=synthetic_calibration_source(captured_on=asof),
+        sources=(synthetic_calibration_source(captured_on=asof),),
         input_cutoff=asof,
         **kwargs,
     )
@@ -1672,7 +1672,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             asof,
             (_panel_row("7203", per_trailing=12.0),),
             _panel_diagnostics(),
-            source=cast(CohortSourceRef, panel_source),
+            sources=(cast(CohortSourceRef, panel_source),),
             input_cutoff=asof,
             producer_commit="a" * 40,
         )
@@ -1680,7 +1680,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             root,
             asof,
             [_forward_row("7203", 0.1, horizon="3y")],
-            source=cast(CohortSourceRef, forward_source),
+            sources=(cast(CohortSourceRef, forward_source),),
             input_cutoff=asof,
             producer_commit="a" * 40,
         )

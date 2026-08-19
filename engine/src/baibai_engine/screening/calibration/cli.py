@@ -16,7 +16,13 @@ import yaml
 
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.market.lake.identity import verified_git_commit
-from baibai_engine.market.lake.models import source_assurance
+from baibai_engine.market.lake.models import (
+    CohortSourceRef,
+    L1ReleaseSourceRef,
+    source_assurance,
+)
+from baibai_engine.market.lake.objects import LakeObjectError, open_lake
+from baibai_engine.market.lake.reader import LakeReadError, release_backing_store
 from baibai_engine.market.lake.retention import lake_writer_lock
 from baibai_engine.market.lake.writer import (
     LakeBuildError,
@@ -75,6 +81,55 @@ from .store import (
 )
 
 
+def _market_mirror(sqlite_path: Path) -> Path | None:
+    """Where the L1 releases this store was filled from live.
+
+    The lake mirror is the directory the stores live in, so the market store's
+    grandparent is it. Absent when that directory holds no lake at all, which is the
+    shape of every fixture that builds a calibration store on its own.
+    """
+
+    mirror = sqlite_path.resolve().parent.parent
+    return mirror if (mirror / "lake").is_dir() else None
+
+
+def _l1_release_source(
+    sqlite_path: Path, *, release_id: str | None, manifest_sha256: str | None
+) -> L1ReleaseSourceRef | None:
+    """The L1 release backing this market store, when the named one demonstrably does.
+
+    The caller names a release; this proves it. The store is counted table by table
+    against what that release publishes, and a mismatch returns nothing — so a wrong
+    name, a stale name, or a store carrying unpublished fetches all end the same way,
+    with a cohort whose assurance stays `trace_only`.
+
+    Naming is required because the current pointer is not in the local mirror: it lives
+    in the object store, and a calibration build does no network I/O. Which release a
+    store was filled from is what `stores/.r2-generations/` records, and that record is
+    written by the fill and the publication rather than by whoever runs this.
+
+    Stating the release alongside the sealed snapshot is what turns `source_assurance`
+    into a distinction. The snapshot says which bytes were read; the release says where
+    they can be read again.
+    """
+
+    if release_id is None or manifest_sha256 is None:
+        return None
+    mirror = _market_mirror(sqlite_path)
+    if mirror is None:
+        return None
+    try:
+        with open_lake(mirror=mirror) as (_session, cache):
+            return release_backing_store(
+                cache.source,
+                store=sqlite_path,
+                release_id=release_id,
+                manifest_sha256=manifest_sha256,
+            )
+    except (LakeObjectError, LakeReadError, OSError, ValueError):
+        return None
+
+
 def calibration_build_command(
     *,
     sqlite_path: Path,
@@ -82,6 +137,8 @@ def calibration_build_command(
     rules: ScreeningRules,
     start: date,
     end: date,
+    l1_release: str | None = None,
+    l1_manifest_sha256: str | None = None,
     force: bool = False,
     panel_variant: PanelVariant = "production",
     use_control_event_exits: bool = True,
@@ -123,6 +180,12 @@ def calibration_build_command(
             with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=work_dir) as snapshot:
                 return _calibration_build_command(
                     snapshot=snapshot,
+                    l1_release=_l1_release_source(
+                        sqlite_path,
+                        release_id=l1_release,
+                        manifest_sha256=l1_manifest_sha256,
+                    ),
+                    l1_mirror=_market_mirror(sqlite_path),
                     calibration_dir=calibration_dir,
                     work_dir=work_dir,
                     expected_current=expected_current,
@@ -185,9 +248,19 @@ def discard_abandoned_generations(calibration_dir: Path, *, stdout: TextIO | Non
         )
 
 
+def _cohort_sources(
+    snapshot: LegacySQLiteSnapshot, l1_release: L1ReleaseSourceRef | None
+) -> tuple[CohortSourceRef, ...]:
+    """What this cohort states it was built from, weakest claim first."""
+
+    return (snapshot.ref,) if l1_release is None else (snapshot.ref, l1_release)
+
+
 def _calibration_build_command(
     *,
     snapshot: LegacySQLiteSnapshot,
+    l1_release: L1ReleaseSourceRef | None,
+    l1_mirror: Path | None,
     calibration_dir: Path,
     work_dir: Path,
     expected_current: CalibrationBundleRef | None,
@@ -264,7 +337,8 @@ def _calibration_build_command(
                 asof,
                 result.rows,
                 result.diagnostics,
-                source=snapshot.ref,
+                sources=_cohort_sources(snapshot, l1_release),
+                l1_mirror=l1_mirror,
                 input_cutoff=asof,
                 producer_commit=producer_commit,
                 lock_held=True,
@@ -297,7 +371,8 @@ def _calibration_build_command(
                 work_dir,
                 asof,
                 by_asof.get(asof.isoformat(), []),
-                source=snapshot.ref,
+                sources=_cohort_sources(snapshot, l1_release),
+                l1_mirror=l1_mirror,
                 input_cutoff=observation_cutoff,
                 producer_commit=producer_commit,
                 lock_held=True,

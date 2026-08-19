@@ -215,6 +215,8 @@ def publish_panel(
     exclusion_counts: Mapping[str, int] | None = None,
     source_label: str = "default",
     source: CohortSourceRef | None = None,
+    extra_sources: tuple[CohortSourceRef, ...] = (),
+    l1_mirror: Path | None = None,
     producer_commit: str = _TEST_PRODUCER_COMMIT,
     forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> None:
@@ -229,8 +231,14 @@ def publish_panel(
         date.fromisoformat(asof),
         tuple(_panel(asof, row) for row in rows),
         diagnostics,
-        source=source
-        or synthetic_calibration_source(label=source_label, captured_on=date.fromisoformat(asof)),
+        sources=(
+            source
+            or synthetic_calibration_source(
+                label=source_label, captured_on=date.fromisoformat(asof)
+            ),
+            *extra_sources,
+        ),
+        l1_mirror=l1_mirror,
         input_cutoff=date.fromisoformat(asof),
         producer_commit=producer_commit,
         forward_policy=forward_policy,
@@ -253,7 +261,7 @@ def publish_forward(
         directory,
         date.fromisoformat(asof),
         [_forward(asof, row) for row in rows],
-        source=source or synthetic_calibration_source(label=source_label, captured_on=cutoff),
+        sources=(source or synthetic_calibration_source(label=source_label, captured_on=cutoff),),
         input_cutoff=cutoff,
         producer_commit=producer_commit,
         forward_policy=forward_policy,
