@@ -36,7 +36,7 @@ source_paths:
 - `[project.dependencies]`: 実行時に必要な依存だけ。
 - `[dependency-groups]` の `test`: pytest / coverage / Hypothesis などテスト用。
 - `[dependency-groups]` の `typing`: mypy と stub。
-- `[dependency-groups]` の `quality`: Ruff / pre-commit / mutmut。
+- `[dependency-groups]` の `quality`: Ruff / import-linter / pre-commit。
 - `[dependency-groups]` の `security`: Bandit / pip-audit。
 - `[dependency-groups]` の `dev`: 上記 group の include だけ。
 
