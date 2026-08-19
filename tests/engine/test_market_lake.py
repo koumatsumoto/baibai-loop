@@ -19,16 +19,13 @@ from baibai_engine.market.lake.keys import (
     canonical_object_key,
     current_l1_pointer_key,
     dataset_manifest_key,
-    raw_metadata_object_key,
-    raw_object_key,
     release_manifest_key,
 )
 from baibai_engine.market.lake.models import (
     MAX_LAKE_JSON_BYTES,
     DatasetManifest,
+    L1ReleaseSourceRef,
     PartitionManifest,
-    RawArchiveMetadata,
-    RawIngestSourceRef,
     ReleaseManifest,
     canonical_lake_model_bytes,
     load_lake_model_json,
@@ -36,45 +33,6 @@ from baibai_engine.market.lake.models import (
     validate_release_policy,
 )
 from baibai_engine.market.lake.sources import resolve_source_ref
-
-
-def _raw_source_payload(*, dataset: str, ingest_id: str) -> dict[str, object]:
-    key = raw_object_key(
-        provider="jquants",
-        dataset=dataset,
-        ingest_date=date(2026, 8, 12),
-        ingest_id=ingest_id,
-        suffix=".json.gz",
-    )
-    metadata = RawArchiveMetadata(
-        metadata_version=1,
-        provider="jquants",
-        dataset=dataset,
-        ingest_id=ingest_id,
-        retrieved_at=datetime(2026, 8, 12, 12, tzinfo=UTC),
-        retention_class="buffer",
-        suffix=".json.gz",
-        endpoint="https://api.jquants.com/v2/markets",
-        request_start=date(2026, 8, 1),
-        request_end=date(2026, 8, 12),
-        object_key=key,
-        content_sha256="f" * 64,
-        bytes=3,
-    )
-    metadata_bytes = canonical_lake_model_bytes(metadata)
-    return {
-        "kind": "raw_ingest",
-        "source_id": ingest_id,
-        "provider": "jquants",
-        "dataset": dataset,
-        "request_start": "2026-08-01",
-        "request_end": "2026-08-12",
-        "key": key,
-        "sha256": "f" * 64,
-        "metadata_version": 1,
-        "metadata_key": raw_metadata_object_key(raw_key=key),
-        "metadata_sha256": hashlib.sha256(metadata_bytes).hexdigest(),
-    }
 
 
 def _snapshot_source_payload(digest: str = "9" * 64, schema_version: int = 22) -> dict[str, object]:
@@ -91,7 +49,6 @@ def _snapshot_source_payload(digest: str = "9" * 64, schema_version: int = 22) -
 def _dataset_payload(
     *,
     dataset: str = "jquants.daily_bars",
-    raw_dataset: str = "daily_bars",
     data_as_of: str = "2026-08-12",
     digest: str = "a" * 64,
     coverage_start: str = "2026-08-01",
@@ -123,13 +80,7 @@ def _dataset_payload(
         "partitions": [
             {
                 "values": {"year": 2026, "month": 8},
-                "sources": [
-                    _raw_source_payload(
-                        dataset=raw_dataset,
-                        ingest_id="20260812T120000Z-ingest",
-                    ),
-                    _snapshot_source_payload(),
-                ],
+                "sources": [_snapshot_source_payload()],
                 "source_state_sha256": "b" * 64,
                 "objects": [
                     {
@@ -313,7 +264,7 @@ def test_manifest_loader_rejects_oversized_wire_payload_before_parsing() -> None
     "replacement",
     [
         '"values": {"year": 2026, "year": 2026, "month": 8}',
-        '"sources": [{"kind": "raw_ingest", "kind": "raw_ingest"',
+        '"sources": [{"kind": "sqlite_snapshot", "kind": "sqlite_snapshot"',
     ],
 )
 def test_manifest_loader_rejects_duplicate_nested_json_fields(replacement: str) -> None:
@@ -322,7 +273,7 @@ def test_manifest_loader_rejects_duplicate_nested_json_fields(replacement: str) 
         duplicate = raw.replace('"values": {"year": 2026, "month": 8}', replacement)
     else:
         duplicate = raw.replace(
-            '"sources": [{"kind": "raw_ingest"',
+            '"sources": [{"kind": "sqlite_snapshot"',
             replacement,
         )
 
@@ -381,13 +332,6 @@ def test_source_ref_rejects_unknown_kind_and_prefix_identity() -> None:
     with pytest.raises(ValueError, match="union_tag_invalid"):
         _load_dataset(payload)
 
-    prefixed = _raw_source_payload(dataset="daily_bars", ingest_id="ingest.variant")
-    prefixed["source_id"] = "ingest"
-    prefixed["request_start"] = date(2026, 8, 1)
-    prefixed["request_end"] = date(2026, 8, 12)
-    with pytest.raises(ValueError, match="key does not match source_id"):
-        RawIngestSourceRef.model_validate(prefixed)
-
 
 def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
     monkeypatch: pytest.MonkeyPatch,
@@ -412,7 +356,6 @@ def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
     short_sale = _load_dataset(
         _dataset_payload(
             dataset="jquants.short_sale_reports",
-            raw_dataset="short_sale_reports",
             data_as_of="2026-08-11",
             digest="e" * 64,
         )
@@ -536,7 +479,6 @@ def test_pilot_policy_rejects_a_fresh_one_day_population(monkeypatch: pytest.Mon
     short_sale = _load_dataset(
         _dataset_payload(
             dataset="jquants.short_sale_reports",
-            raw_dataset="short_sale_reports",
             coverage_start="2026-08-12",
             population_count=1,
             rows=1,
@@ -573,83 +515,37 @@ def test_pilot_policy_rejects_a_fresh_one_day_population(monkeypatch: pytest.Mon
         )
 
 
-def test_typed_source_refs_resolve_and_validate_digest_and_version(tmp_path: Path) -> None:
-    raw_key = raw_object_key(
-        provider="jquants",
-        dataset="daily_bars",
-        ingest_date=date(2026, 8, 12),
-        ingest_id="ingest-1",
-        suffix=".json.gz",
-    )
-    raw_path = tmp_path / raw_key
-    raw_path.parent.mkdir(parents=True)
-    raw_path.write_bytes(b"raw")
-    raw_metadata = RawArchiveMetadata(
-        metadata_version=1,
-        provider="jquants",
-        dataset="daily_bars",
-        ingest_id="ingest-1",
-        retrieved_at=datetime(2026, 8, 12, 12, tzinfo=UTC),
-        retention_class="buffer",
-        suffix=".json.gz",
-        endpoint="https://api.jquants.com/v2/markets",
-        request_start=date(2026, 8, 1),
-        request_end=date(2026, 8, 12),
-        object_key=raw_key,
-        content_sha256=hashlib.sha256(b"raw").hexdigest(),
-        bytes=3,
-    )
-    metadata_key = raw_metadata_object_key(raw_key=raw_key)
-    metadata_path = tmp_path / metadata_key
-    metadata_bytes = canonical_lake_model_bytes(raw_metadata)
-    metadata_path.write_bytes(metadata_bytes)
-    raw = RawIngestSourceRef(
-        kind="raw_ingest",
-        source_id="ingest-1",
-        provider="jquants",
-        dataset="daily_bars",
-        request_start=date(2026, 8, 1),
-        request_end=date(2026, 8, 12),
-        key=raw_key,
-        sha256=hashlib.sha256(b"raw").hexdigest(),
-        metadata_version=1,
-        metadata_key=metadata_key,
-        metadata_sha256=hashlib.sha256(metadata_bytes).hexdigest(),
-    )
-    assert resolve_source_ref(tmp_path, raw) == raw_path
+def test_a_retained_reference_resolves_only_to_its_own_immutable_bytes(tmp_path: Path) -> None:
+    """`L1ReleaseSourceRef` is the only kind that names a key, so it is the only kind
+    this resolution has to answer for — and it answers by the digest, not by the name."""
 
-    for update in (
-        {"provider": "other"},
-        {"dataset": "short_sale_reports"},
-        {"request_start": date(2026, 7, 1)},
-        {"request_end": date(2026, 8, 31)},
-    ):
-        with pytest.raises(ValueError, match="metadata identity does not match"):
-            resolve_source_ref(tmp_path, raw.model_copy(update=update))
-    with pytest.raises(ValueError, match="request_start must not be after request_end"):
-        RawIngestSourceRef.model_validate(
-            {
-                **raw.model_dump(mode="json"),
-                "request_start": date(2026, 8, 13),
-                "request_end": date(2026, 8, 12),
-            }
-        )
+    key = release_manifest_key(release_id="release-1")
+    path = tmp_path / key
+    path.parent.mkdir(parents=True)
+    payload = b'{"release": 1}'
+    path.write_bytes(payload)
+    reference = L1ReleaseSourceRef(
+        kind="l1_release",
+        source_id="release-1",
+        key=key,
+        sha256=hashlib.sha256(payload).hexdigest(),
+        manifest_version=1,
+    )
+
+    assert resolve_source_ref(tmp_path, reference) == path
 
     with pytest.raises(ValueError, match="digest does not match"):
-        resolve_source_ref(tmp_path, raw.model_copy(update={"sha256": "0" * 64}))
-    with pytest.raises(ValueError, match="metadata identity does not match"):
-        resolve_source_ref(tmp_path, raw.model_copy(update={"metadata_version": 2}))
-    with pytest.raises(ValueError, match="metadata reference digest does not match"):
-        resolve_source_ref(tmp_path, raw.model_copy(update={"metadata_sha256": "0" * 64}))
+        resolve_source_ref(tmp_path, reference.model_copy(update={"sha256": "0" * 64}))
+    path.unlink()
+    with pytest.raises(ValueError, match="does not resolve inside the lake mirror"):
+        resolve_source_ref(tmp_path, reference)
 
-    metadata_path.unlink()
-    with pytest.raises(ValueError, match="metadata reference does not resolve"):
-        resolve_source_ref(tmp_path, raw)
 
+def test_a_release_reference_is_not_admissible_as_partition_lineage() -> None:
     # An L1 release is a read reference, not a lineage source: reproducing it needs its
-    # dataset manifests, objects, and Raw archives kept whole, and nothing here walks
-    # that closure yet. A partition that claimed it would name a lineage no publisher,
-    # reader, or retention plan keeps.
+    # dataset manifests and objects kept whole, and nothing here walks that closure yet.
+    # A partition that claimed it would name a lineage no publisher, reader, or
+    # retention plan keeps.
     with pytest.raises(ValueError, match="PartitionManifest"):
         load_lake_model_json(
             json.dumps(
@@ -682,16 +578,6 @@ def test_key_builders_are_deterministic_and_traversal_safe() -> None:
         content_sha256=digest,
     ) == (
         f"lake/l1/canonical/jquants.daily_bars/contract=v1/year=2026/month=8/part-{digest}.parquet"
-    )
-    assert (
-        raw_object_key(
-            provider="jquants",
-            dataset="daily_bars",
-            ingest_date=date(2026, 8, 12),
-            ingest_id="ingest-1",
-            suffix=".json.gz",
-        )
-        == "lake/l1/raw/jquants/daily_bars/ingest_date=2026-08-12/ingest-1.json.gz"
     )
     assert (
         dataset_manifest_key(dataset="jquants.daily_bars", build_id="build-1")
@@ -758,67 +644,6 @@ def test_inventory_reports_an_unsafe_key_inside_the_namespace(tmp_path: Path) ->
     assert result["areas"] == []
 
 
-def test_inventory_reports_raw_retention_class_bytes_and_age(tmp_path: Path) -> None:
-    raw = b"raw-bytes"
-    digest = hashlib.sha256(raw).hexdigest()
-    key = raw_object_key(
-        provider="jquants",
-        dataset="jquants.daily_bars",
-        ingest_date=date(2026, 8, 12),
-        ingest_id="inventory-buffer",
-        suffix=".json.gz",
-    )
-    object_path = tmp_path / key
-    object_path.parent.mkdir(parents=True)
-    object_path.write_bytes(raw)
-    metadata = RawArchiveMetadata(
-        metadata_version=1,
-        provider="jquants",
-        dataset="jquants.daily_bars",
-        ingest_id="inventory-buffer",
-        retrieved_at=datetime(2026, 8, 12, 12, tzinfo=UTC),
-        retention_class="buffer",
-        suffix=".json.gz",
-        object_key=key,
-        content_sha256=digest,
-        bytes=len(raw),
-    )
-    metadata_path = tmp_path / raw_metadata_object_key(raw_key=key)
-    metadata_path.write_bytes(canonical_lake_model_bytes(metadata))
-
-    result = inventory(tmp_path)
-
-    by_class = {item["class"]: item for item in result["raw_retention"]}
-    assert by_class["buffer"]["objects"] == 1
-    assert by_class["buffer"]["bytes"] == len(raw)
-    assert by_class["buffer"]["oldest_retrieved_at"] is not None
-    capacity = {item["class"]: item for item in result["capacity"]}
-    assert capacity["raw_buffer"]["bytes"] == len(raw)
-    assert capacity["raw_buffer"]["budget_exceeded"] is False
-    assert result["raw_inventory_errors"] == []
-    assert result["raw_unclassified"] == {"objects": 0, "bytes": 0}
-
-
-def test_inventory_reports_a_raw_payload_without_its_metadata(tmp_path: Path) -> None:
-    key = raw_object_key(
-        provider="jquants",
-        dataset="jquants.daily_bars",
-        ingest_date=date(2026, 8, 12),
-        ingest_id="orphan-payload",
-        suffix=".json.gz",
-    )
-    path = tmp_path / key
-    path.parent.mkdir(parents=True)
-    path.write_bytes(b"orphan")
-
-    result = inventory(tmp_path)
-
-    assert result["raw_unclassified"] == {"objects": 1, "bytes": 6}
-    assert result["raw_inventory_errors"] == [
-        {"key": key, "error": "Raw object has no metadata sidecar"}
-    ]
-
-
 def test_validate_cli_is_read_only_and_redacts_rejected_values(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -848,11 +673,9 @@ def test_lake_domain_is_exposed_by_the_root_cli() -> None:
 def test_inventory_reports_every_class_against_its_own_budget(tmp_path: Path) -> None:
     """A class that grows for a design reason has to be visible against its objective.
 
-    Reporting only the Raw budget would let the published graph pass the objective it
-    was sized against without anything saying so, and would hide a workspace holding a
-    sealed store the size of the whole legacy database behind a figure fifty times
-    larger. Workspace bytes are under no manifest, so nothing else in this report grows
-    when they do.
+    Reporting one figure would hide a workspace holding a sealed store the size of the
+    whole legacy database behind the published graph's own objective. Workspace bytes
+    are under no manifest, so nothing else in this report grows when they do.
     """
 
     published = tmp_path / (
@@ -880,7 +703,7 @@ def test_inventory_reports_every_class_against_its_own_budget(tmp_path: Path) ->
     assert report["control_files"] == {"objects": 1, "bytes": 0}
     assert report["objects"] == 3
 
-    assert set(capacity) == {"published", "raw_buffer", "workspace"}
+    assert set(capacity) == {"published", "workspace"}
     assert capacity["published"]["bytes"] == 7
     assert capacity["workspace"]["bytes"] == 26
     assert capacity["published"]["soft_budget_bytes"] == 10 * 1024**3
@@ -986,7 +809,6 @@ def test_a_forward_only_calendar_publishes_and_a_history_keeping_one_still_canno
     )
     payload = _dataset_payload(
         dataset="jquants.earnings_calendar",
-        raw_dataset="earnings_calendar",
         coverage_start="2026-07-03",
         population_count=3403,
         rows=3403,

@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import JsonValue
 
 from .keys import validate_lake_object_key
-from .models import RawArchiveMetadata, load_lake_model_json
 
 # One capacity policy, split by what each class is for, so a class that grows for a
 # design reason is visible against the objective that class was sized against. A single
@@ -20,8 +18,6 @@ SOFT_BUDGET_BYTES = {
     # The published lake: canonical Parquet, analytical Parquet, manifests, pointers.
     # This is the class Issue #917 sized at roughly 10 GB.
     "published": 10 * 1024**3,
-    # Provider responses a re-fetch can reproduce.
-    "raw_buffer": 50 * 1024**3,
     # In-flight staging, including what a failed build left behind. It is under no
     # manifest, so nothing else in this report grows when it does — and it holds whole
     # sealed stores, so a repeated large failure is otherwise an invisible leak.
@@ -39,8 +35,6 @@ _NAMESPACE = "lake"
 
 def _capacity_class(key: str) -> str | None:
     """The budget a stored key counts against, or ``None`` when another class holds it."""
-    if key.startswith("lake/l1/raw/"):
-        return None  # Counted by retention class from its metadata sidecar.
     if key.startswith("lake/staging/"):
         return "workspace"
     if key.startswith(("lake/l1/", "lake/l2/", "lake/manifests/", "lake/pointers/")):
@@ -50,8 +44,6 @@ def _capacity_class(key: str) -> str | None:
 
 def _area(key: str) -> str:
     parts = key.split("/")
-    if parts[:3] == ["lake", "l1", "raw"] and len(parts) >= 5:
-        return "/".join(parts[:5])
     if parts[:3] == ["lake", "l1", "canonical"] and len(parts) >= 4:
         return "/".join(parts[:4])
     if parts[:2] == ["lake", "l2"] and len(parts) >= 3:
@@ -64,7 +56,7 @@ def _area(key: str) -> str:
 
 
 def inventory(root: Path) -> dict[str, JsonValue]:
-    """Count object metadata; only Raw JSON sidecars are parsed for retention class."""
+    """Count object metadata by prefix and capacity class; no object body is read."""
     if not root.exists():
         return {
             "schema_version": 1,
@@ -75,9 +67,6 @@ def inventory(root: Path) -> dict[str, JsonValue]:
             "bytes": 0,
             "areas": [],
             "capacity": [],
-            "raw_retention": [],
-            "raw_inventory_errors": [],
-            "raw_unclassified": {"objects": 0, "bytes": 0},
             "control_files": {"objects": 0, "bytes": 0},
             "invalid_keys": [],
         }
@@ -88,11 +77,6 @@ def inventory(root: Path) -> dict[str, JsonValue]:
     invalid_keys: list[JsonValue] = []
     objects = 0
     total_bytes = 0
-    raw_totals: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
-    raw_oldest: dict[str, datetime] = {}
-    raw_inventory_errors: list[JsonValue] = []
-    raw_payloads: dict[str, int] = {}
-    raw_metadata_objects: set[str] = set()
     capacity: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
     control_files = 0
     control_bytes = 0
@@ -128,35 +112,6 @@ def inventory(root: Path) -> dict[str, JsonValue]:
             counter = capacity[capacity_class]
             counter[0] += 1
             counter[1] += size
-        if key.startswith("lake/l1/raw/") and key.endswith(".metadata.json"):
-            try:
-                metadata = load_lake_model_json(path.read_bytes(), RawArchiveMetadata)
-                archived = root / metadata.object_key
-                if not archived.is_file() or archived.stat().st_size != metadata.bytes:
-                    raise ValueError("Raw object is missing or has a different size")
-            except (OSError, ValueError) as exc:
-                raw_inventory_errors.append({"key": key, "error": str(exc)})
-                continue
-            raw_metadata_objects.add(metadata.object_key)
-            retention = raw_totals[metadata.retention_class]
-            retention[0] += 1
-            retention[1] += metadata.bytes
-            raw_oldest[metadata.retention_class] = min(
-                metadata.retrieved_at,
-                raw_oldest.get(metadata.retention_class, metadata.retrieved_at),
-            )
-        elif key.startswith("lake/l1/raw/") and key.endswith((".json.gz", ".csv.gz", ".zip")):
-            raw_payloads[key] = size
-
-    orphan_payloads = sorted(set(raw_payloads) - raw_metadata_objects)
-    raw_inventory_errors.extend(
-        {"key": key, "error": "Raw object has no metadata sidecar"} for key in orphan_payloads
-    )
-
-    counted = {
-        name: (raw_totals[name.removeprefix("raw_")] if name.startswith("raw_") else capacity[name])
-        for name in SOFT_BUDGET_BYTES
-    }
     areas: list[JsonValue] = [
         {"prefix": prefix, "objects": values[0], "bytes": values[1]}
         for prefix, values in sorted(totals.items())
@@ -169,32 +124,16 @@ def inventory(root: Path) -> dict[str, JsonValue]:
         "objects": objects,
         "bytes": total_bytes,
         "areas": areas,
-        "raw_retention": [
-            {
-                "class": name,
-                "objects": raw_totals[name][0],
-                "bytes": raw_totals[name][1],
-                "oldest_retrieved_at": (
-                    raw_oldest[name].astimezone(UTC).isoformat() if name in raw_oldest else None
-                ),
-            }
-            for name in ("preserve", "buffer")
-        ],
         "capacity": [
             {
                 "class": name,
-                "objects": counted[name][0],
-                "bytes": counted[name][1],
+                "objects": capacity[name][0],
+                "bytes": capacity[name][1],
                 "soft_budget_bytes": budget,
-                "budget_exceeded": counted[name][1] > budget,
+                "budget_exceeded": capacity[name][1] > budget,
             }
             for name, budget in sorted(SOFT_BUDGET_BYTES.items())
         ],
-        "raw_inventory_errors": raw_inventory_errors,
-        "raw_unclassified": {
-            "objects": len(orphan_payloads),
-            "bytes": sum(raw_payloads[key] for key in orphan_payloads),
-        },
         "control_files": {"objects": control_files, "bytes": control_bytes},
         "invalid_keys": invalid_keys,
     }

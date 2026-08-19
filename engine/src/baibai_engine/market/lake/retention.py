@@ -55,7 +55,6 @@ from .models import (
 )
 from .models import (
     DatasetManifest,
-    RawArchiveMetadata,
     ReleaseManifest,
     SourceRef,
     load_lake_model_json,
@@ -379,18 +378,12 @@ def _reach_sources(
             unresolved.append(source.key)
             continue
         reachable.add(source.key)
-        reachable.add(source.metadata_key)
 
 
 def _unreachable(
     mirror_root: Path, *, reachable: Mapping[str, object] | set[str], now: datetime
 ) -> tuple[GcCandidate, ...]:
-    """Everything under the canonical prefixes that no root reaches.
-
-    Raw archives are outside this domain: their retention is decided by class and
-    age rather than by manifest reachability, so a reachability sweep must not
-    propose them.
-    """
+    """Everything under the canonical prefixes that no root reaches."""
 
     root = mirror_root.resolve()
     candidates: list[GcCandidate] = []
@@ -401,36 +394,6 @@ def _unreachable(
         try:
             validate_lake_object_key(key)
         except ValueError:
-            continue
-        if key.startswith("lake/l1/raw/"):
-            if not key.endswith(".metadata.json"):
-                continue
-            try:
-                metadata = load_lake_model_json(path.read_bytes(), RawArchiveMetadata)
-            except (OSError, ValueError) as exc:
-                raise LakeRetentionError(f"Raw retention metadata is invalid: {key}") from exc
-            if metadata.retention_class == "preserve":
-                continue
-            metadata_key = key
-            object_key = metadata.object_key
-            if metadata_key in reachable or object_key in reachable:
-                continue
-            age_days = max(0, (now.date() - metadata.retrieved_at.date()).days)
-            if age_days < 90:
-                continue
-            for candidate_key in (object_key, metadata_key):
-                candidate_path = mirror_path(mirror_root, candidate_key)
-                if not candidate_path.is_file():
-                    raise LakeRetentionError(f"Raw retention pair is incomplete: {candidate_key}")
-                candidates.append(
-                    GcCandidate(
-                        key=candidate_key,
-                        bytes=candidate_path.stat().st_size,
-                        sha256=sha256_file(candidate_path),
-                        age_days=age_days,
-                        reason="expired_buffer_raw",
-                    )
-                )
             continue
         reason = _candidate_reason(key)
         if reason is None or key in reachable:

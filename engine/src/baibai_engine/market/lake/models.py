@@ -6,10 +6,8 @@ import json
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta
 from hashlib import sha256
-from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Annotated, Literal
-from urllib.parse import urlsplit
 
 from pydantic import (
     BaseModel,
@@ -27,8 +25,6 @@ from .keys import (
     calibration_bundle_manifest_key,
     canonical_object_key,
     dataset_manifest_key,
-    raw_metadata_object_key,
-    raw_object_key,
     release_manifest_key,
     validate_dataset_name,
     validate_identifier,
@@ -45,77 +41,6 @@ MAX_LAKE_JSON_BYTES = 16 * 1024 * 1024
 CALIBRATION_DATASETS = frozenset(
     {"calibration.panel", "calibration.panel_diagnostics", "calibration.forward"}
 )
-
-
-class RawArchiveMetadata(BaseModel):
-    """Strict sidecar that binds provider Raw bytes to their retrieval identity."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    metadata_version: Literal[1]
-    provider: str
-    dataset: str
-    ingest_id: str
-    retrieved_at: datetime
-    retention_class: Literal["preserve", "buffer"]
-    suffix: Literal[".json.gz", ".csv.gz", ".zip"]
-    endpoint: str | None = None
-    request_start: date | None = None
-    request_end: date | None = None
-    object_key: str
-    content_sha256: str
-    bytes: int = Field(gt=0)
-
-    @field_validator("provider", "dataset")
-    @classmethod
-    def validate_dataset_segment(cls, value: str) -> str:
-        return validate_dataset_name(value)
-
-    @field_validator("ingest_id")
-    @classmethod
-    def validate_ingest_id(cls, value: str) -> str:
-        return validate_identifier(value, label="ingest_id")
-
-    @field_validator("retrieved_at")
-    @classmethod
-    def validate_retrieved_at(cls, value: datetime) -> datetime:
-        if value.utcoffset() != timedelta(0):
-            raise ValueError("retrieved_at must be UTC")
-        return value
-
-    @field_validator("endpoint")
-    @classmethod
-    def validate_endpoint(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        parsed = urlsplit(value)
-        if parsed.username or parsed.password or parsed.query or parsed.fragment:
-            raise ValueError("endpoint must not contain credentials, query, or fragment")
-        return value
-
-    @field_validator("content_sha256")
-    @classmethod
-    def validate_digest(cls, value: str) -> str:
-        return validate_sha256(value)
-
-    @model_validator(mode="after")
-    def validate_identity(self) -> RawArchiveMetadata:
-        expected = raw_object_key(
-            provider=self.provider,
-            dataset=self.dataset,
-            ingest_date=self.retrieved_at.date(),
-            ingest_id=self.ingest_id,
-            suffix=self.suffix,
-        )
-        if self.object_key != expected:
-            raise ValueError("Raw object_key does not match metadata identity")
-        if (
-            self.request_start is not None
-            and self.request_end is not None
-            and self.request_start > self.request_end
-        ):
-            raise ValueError("request_start must not be after request_end")
-        return self
 
 
 class _SourceRefBase(BaseModel):
@@ -147,56 +72,6 @@ class _RetainedSourceRefBase(_SourceRefBase):
     """
 
     key: str
-
-
-class RawIngestSourceRef(_RetainedSourceRefBase):
-    kind: Literal["raw_ingest"]
-    provider: str
-    dataset: str
-    request_start: date
-    request_end: date
-    metadata_version: int = Field(ge=1)
-    metadata_key: str
-    metadata_sha256: str
-
-    @field_validator("provider", "dataset")
-    @classmethod
-    def validate_source_segment(cls, value: str) -> str:
-        return validate_dataset_name(value)
-
-    @field_validator("key")
-    @classmethod
-    def validate_key(cls, value: str) -> str:
-        key = validate_lake_object_key(value)
-        if key.startswith("lake/l1/raw/legacy_sqlite/") or not (
-            key.startswith("lake/l1/raw/") and key.endswith((".csv.gz", ".json.gz", ".zip"))
-        ):
-            raise ValueError("raw_ingest must reference an L1 Raw object")
-        return key
-
-    @field_validator("metadata_key")
-    @classmethod
-    def validate_metadata_key(cls, value: str) -> str:
-        return validate_lake_object_key(value)
-
-    @field_validator("metadata_sha256")
-    @classmethod
-    def validate_metadata_digest(cls, value: str) -> str:
-        return validate_sha256(value)
-
-    @model_validator(mode="after")
-    def validate_identity(self) -> RawIngestSourceRef:
-        if self.request_start > self.request_end:
-            raise ValueError("raw_ingest request_start must not be after request_end")
-        if PurePosixPath(self.key).name not in {
-            f"{self.source_id}.csv.gz",
-            f"{self.source_id}.json.gz",
-            f"{self.source_id}.zip",
-        }:
-            raise ValueError("raw_ingest key does not match source_id")
-        if self.metadata_key != raw_metadata_object_key(raw_key=self.key):
-            raise ValueError("raw_ingest metadata key does not match Raw object key")
-        return self
 
 
 class SQLiteSnapshotSourceRef(_SourceRefBase):
@@ -240,8 +115,8 @@ class L1ReleaseSourceRef(_RetainedSourceRefBase):
 
     This is deliberately outside ``SourceRef``. A lineage source has to resolve to the
     complete object graph that reproduces it, and a release manifest is only the root
-    of one: its dataset manifests, Parquet objects, and Raw archives are what would
-    have to be enumerated, verified, and protected from retention. Admitting the kind
+    of one: its dataset manifests and Parquet objects are what would have to be
+    enumerated, verified, and protected from retention. Admitting the kind
     into the union before the publisher, reader, retention planner, and pin all walk
     that closure would let a build claim a lineage nothing keeps whole.
     """
@@ -264,24 +139,20 @@ class L1ReleaseSourceRef(_RetainedSourceRefBase):
         return self
 
 
-type SourceRef = Annotated[
-    RawIngestSourceRef | SQLiteSnapshotSourceRef,
-    Field(discriminator="kind"),
-]
+# One kind. A lineage source names a generation that can be read again, and the only
+# such generation a build states today is the sealed store snapshot it read.
+type SourceRef = Annotated[SQLiteSnapshotSourceRef, Field(discriminator="kind")]
 
-type RetainedSourceRef = RawIngestSourceRef
+# The sources whose bytes the lake stores. `L1ReleaseSourceRef` is the only kind that
+# names a key, and it is deliberately outside `SourceRef` until the publisher, reader,
+# retention planner and pin all walk a release's closure — so nothing retained can be
+# stated yet, and `source_assurance` is `trace_only` for every build that exists.
+type RetainedSourceRef = L1ReleaseSourceRef
 
-# What an analytical cohort may be built from. Provider Raw is outside it by
-# construction rather than by a check: Raw is addressed by request range and can be
-# fetched again, so a cohort naming it would not be pinned to one generation of
-# anything. Excluding the kind from the union is what makes that unrepresentable
-# instead of merely rejected.
-#
-# One kind, so no cohort source is retained and `source_assurance` is `trace_only` for
-# every cohort that exists. Widening this to admit an L1 release is what turns the
-# assurance into a distinction — and the same change has to bring back a check that the
-# sources a generation states still resolve before it becomes current, which is dead
-# code while nothing retained can be named here.
+# What an analytical cohort may be built from. Widening this to admit an L1 release is
+# what turns the assurance into a distinction — and the same change has to bring back a
+# check that the sources a generation states still resolve before it becomes current,
+# which is dead code while nothing retained can be named here.
 type CohortSourceRef = SQLiteSnapshotSourceRef
 
 
@@ -296,29 +167,35 @@ def _source_identity(source: SourceRef) -> tuple[str, str, str]:
     return (source.kind, source.source_id, source.sha256)
 
 
-def retained_sources(sources: Iterable[SourceRef]) -> tuple[RetainedSourceRef, ...]:
+def retained_sources(
+    sources: Iterable[SourceRef | RetainedSourceRef],
+) -> tuple[RetainedSourceRef, ...]:
     """The subset whose bytes the lake stores, in the order they were declared.
 
     Resolution, reachability, and publication all act on exactly this subset, and each
     of them derives it here rather than by testing kinds locally, so a new source kind
     joins or stays out of all three at once.
+
+    The parameter admits both families because ``SourceRef`` currently holds no retained
+    kind: typed to it alone the filter would be statically empty, and the question would
+    stop being asked at the moment the answer became interesting.
     """
 
-    return tuple(source for source in sources if not isinstance(source, SQLiteSnapshotSourceRef))
+    return tuple(source for source in sources if isinstance(source, L1ReleaseSourceRef))
 
 
 SourceAssurance = Literal["rebuildable_input", "trace_only"]
 
 
-def source_assurance(sources: Iterable[SourceRef]) -> SourceAssurance:
+def source_assurance(sources: Iterable[SourceRef | RetainedSourceRef]) -> SourceAssurance:
     """Whether a cohort's lineage lets it be re-derived, named by its weakest source.
 
     **rebuildable_input** keeps the upstream data the producer read, so a cohort can be
     re-derived after a logic error is found in the producer itself. **trace_only** names
     the store generation a build read without keeping it, so it cannot.
 
-    No cohort reaches the first value today: ``CohortSourceRef`` admits only a sealed
-    SQLite snapshot, whose bytes the lake deliberately does not store. The distinction
+    No build reaches the first value today: ``SourceRef`` admits only a sealed SQLite
+    snapshot, whose bytes the lake deliberately does not store. The distinction
     is derived rather than declared, so it starts describing something the moment an L1
     release becomes admissible as a cohort source — and until then the honest answer to
     "may this decide production" is no.
@@ -762,11 +639,11 @@ class DatasetManifest(BaseModel):
             if any(not partition.sources for partition in self.partitions):
                 raise ValueError("each L1 partition requires source lineage")
             if any(
-                source.kind not in {"raw_ingest", "sqlite_snapshot"}
+                source.kind != "sqlite_snapshot"
                 for partition in self.partitions
                 for source in partition.sources
             ):
-                raise ValueError("L1 partitions accept Raw ingest or SQLite snapshot sources only")
+                raise ValueError("L1 partitions accept SQLite snapshot sources only")
         else:
             if self.sources:
                 raise ValueError("L2 lineage belongs to each analytical cohort")
@@ -967,8 +844,8 @@ class ReleasePolicy(BaseModel):
     max_objects: int = Field(gt=0)
     # Whether every dataset in the release must have been exported from one and the same
     # sealed SQLite generation. That is a property of how a profile's datasets are
-    # produced, not of what a release is: a dataset built from provider Raw has no
-    # SQLite generation to share, and a rule stated here lets such a dataset join a
+    # produced, not of what a release is: a dataset produced without reading a store has
+    # no SQLite generation to share, and a rule stated here lets such a dataset join a
     # release under its own profile instead of requiring the constructor to change.
     require_shared_snapshot_generation: bool
 
@@ -1347,7 +1224,6 @@ def _require_shared_snapshot_generation(manifests: Iterable[DatasetManifest]) ->
             (source.source_id, source.sha256, source.schema_version)
             for partition in manifest.partitions
             for source in partition.sources
-            if isinstance(source, SQLiteSnapshotSourceRef)
         }
         if len(manifest_identities) != 1:
             raise ValueError(

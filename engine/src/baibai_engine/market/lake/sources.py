@@ -9,12 +9,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 
-from .models import (
-    RawArchiveMetadata,
-    RawIngestSourceRef,
-    RetainedSourceRef,
-    load_lake_model_json,
-)
+from .models import RetainedSourceRef
 
 _VERIFIED: ContextVar[dict[tuple[str, str], Path] | None] = ContextVar(
     "lake_verified_sources", default=None
@@ -25,10 +20,10 @@ _VERIFIED: ContextVar[dict[tuple[str, str], Path] | None] = ContextVar(
 def verified_source_scope() -> Iterator[None]:
     """Verify each immutable source once for the length of one operation.
 
-    A Raw archive is named by every partition built from the request range it covers, so
-    verifying per reference makes the work scale with how many times a source is
-    mentioned rather than with how much of it there is. A release that carries 121
-    months would re-hash the same archives once per partition that names them.
+    A retained source is named by every partition built from it, so verifying per
+    reference makes the work scale with how many times a source is mentioned rather than
+    with how much of it there is. A release that carries 121 months would re-hash the
+    same objects once per partition that names them.
 
     What makes memoizing safe is what makes the reference worth verifying at all — the
     bytes are immutable and content addressed, so a source that verified at the start of
@@ -54,10 +49,9 @@ def resolve_source_ref(mirror_root: Path, source: RetainedSourceRef) -> Path:
 
     memo = _VERIFIED.get()
     # The whole reference, not the part of it that names a generation. Two references
-    # can agree on kind, id, and digest and still ask different questions: a Raw ingest
-    # is addressed by provider, dataset, and key as well, so an empty payload reused
-    # under two dataset namespaces would let one verified reference stand for another
-    # whose object or metadata is not there at all.
+    # can agree on kind, id, and digest and still ask different questions, so an empty
+    # payload reused under two namespaces would otherwise let one verified reference
+    # stand for another whose object is not there at all.
     identity = (str(mirror_root.resolve()), source.model_dump_json())
     if memo is not None and identity in memo:
         return memo[identity]
@@ -74,30 +68,7 @@ def _resolve_source_ref(mirror_root: Path, source: RetainedSourceRef) -> Path:
         raise ValueError("source reference does not resolve inside the lake mirror")
     if sha256_file(path) != source.sha256:
         raise ValueError("source reference digest does not match")
-    _validate_raw_metadata(mirror_root, source)
     return path
-
-
-def _validate_raw_metadata(mirror_root: Path, source: RawIngestSourceRef) -> None:
-    root = mirror_root.resolve()
-    path = (mirror_root / source.metadata_key).resolve()
-    if not path.is_relative_to(root) or not path.is_file():
-        raise ValueError("Raw metadata reference does not resolve inside the lake mirror")
-    payload = path.read_bytes()
-    if hashlib.sha256(payload).hexdigest() != source.metadata_sha256:
-        raise ValueError("Raw metadata reference digest does not match")
-    metadata = load_lake_model_json(payload, RawArchiveMetadata)
-    if (
-        metadata.metadata_version != source.metadata_version
-        or metadata.provider != source.provider
-        or metadata.dataset != source.dataset
-        or metadata.request_start != source.request_start
-        or metadata.request_end != source.request_end
-        or metadata.ingest_id != source.source_id
-        or metadata.object_key != source.key
-        or metadata.content_sha256 != source.sha256
-    ):
-        raise ValueError("Raw metadata identity does not match source reference")
 
 
 def sha256_file(path: Path) -> str:

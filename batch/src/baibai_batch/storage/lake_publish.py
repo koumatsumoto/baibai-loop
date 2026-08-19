@@ -25,8 +25,6 @@ from baibai_engine.batch_api import (
     CalibrationBundleRef,
     L1ReleasePointer,
     LakeDatasetManifest,
-    LakeRawArchiveMetadata,
-    LakeRawIngestSourceRef,
     LakeReleaseManifest,
     LakeSQLiteSnapshotSourceRef,
     canonical_lake_model_bytes,
@@ -38,7 +36,6 @@ from baibai_engine.batch_api import (
     lake_verified_source_scope,
     load_lake_model_json,
     require_calibration_generation,
-    resolve_lake_source_ref,
     validate_lake_release_policy,
 )
 
@@ -143,15 +140,6 @@ class CalibrationBundlePublishReport:
             "pointer_etag": self.pointer_etag,
             **self.transfers.as_dict(),
         }
-
-
-@dataclass(frozen=True)
-class RawPublishReport:
-    ingest_id: str
-    transfers: TransferReport
-
-    def as_dict(self) -> dict[str, object]:
-        return {"ingest_id": self.ingest_id, **self.transfers.as_dict()}
 
 
 @dataclass
@@ -401,56 +389,6 @@ class _RemotePublication:
                 temporary_path.unlink(missing_ok=True)
 
 
-def publish_raw_archive(
-    *,
-    mirror_root: Path,
-    metadata_path: Path,
-    store: ObjectStore,
-    verify_bytes: bool = False,
-) -> RawPublishReport:
-    publication = _RemotePublication(store=store, verify_bytes=verify_bytes)
-    root = mirror_root.resolve()
-    resolved_metadata_path = metadata_path.resolve()
-    if not resolved_metadata_path.is_relative_to(root):
-        raise LakePublishError("Raw metadata path escapes mirror root")
-    metadata = load_lake_model_json(resolved_metadata_path.read_bytes(), LakeRawArchiveMetadata)
-    object_path = _mirror_path(mirror_root, metadata.object_key)
-    expected_metadata_path = Path(f"{object_path}.metadata.json")
-    if resolved_metadata_path != expected_metadata_path:
-        raise LakePublishError("Raw metadata path does not match its object_key")
-    if _sha256(object_path) != metadata.content_sha256:
-        raise LakePublishError("Raw object checksum does not match its metadata")
-    if object_path.stat().st_size != metadata.bytes:
-        raise LakePublishError("Raw object size does not match its metadata")
-    metadata_payload = resolved_metadata_path.read_bytes()
-    uploads = (
-        (
-            metadata.object_key,
-            object_path,
-            "application/octet-stream",
-            metadata.content_sha256,
-            metadata.bytes,
-        ),
-        (
-            f"{metadata.object_key}.metadata.json",
-            resolved_metadata_path,
-            "application/json",
-            hashlib.sha256(metadata_payload).hexdigest(),
-            len(metadata_payload),
-        ),
-    )
-    for key, path, content_type, expected_sha256, expected_size in uploads:
-        _ensure_immutable(
-            publication,
-            key=key,
-            path=path,
-            content_type=content_type,
-            expected_sha256=expected_sha256,
-            expected_size=expected_size,
-        )
-    return RawPublishReport(ingest_id=metadata.ingest_id, transfers=publication.report())
-
-
 def publish_l1_release(
     *,
     mirror_root: Path,
@@ -473,7 +411,6 @@ def publish_l1_release(
 
     uploads: list[tuple[str, Path, str, str, int]] = []
     manifests: dict[str, LakeDatasetManifest] = {}
-    referenced_sources: dict[tuple[str, str, str], LakeRawIngestSourceRef] = {}
     for dataset_name, release_dataset in sorted(release.datasets.items()):
         manifest_key = lake_dataset_manifest_key(
             dataset=dataset_name,
@@ -492,14 +429,8 @@ def publish_l1_release(
         manifests[dataset_name] = manifest
         for partition in manifest.partitions:
             for source in partition.sources:
-                if not isinstance(
-                    source,
-                    (LakeRawIngestSourceRef, LakeSQLiteSnapshotSourceRef),
-                ):
+                if not isinstance(source, LakeSQLiteSnapshotSourceRef):
                     raise LakePublishError("L1 graph contains an unsupported source reference")
-                if isinstance(source, LakeRawIngestSourceRef):
-                    resolve_lake_source_ref(mirror_root, source)
-                    referenced_sources[(source.kind, source.key, source.sha256)] = source
             for item in partition.objects:
                 object_path = _mirror_path(mirror_root, item.key)
                 if _sha256(object_path) != item.sha256 or object_path.stat().st_size != item.bytes:
@@ -537,27 +468,6 @@ def publish_l1_release(
         manifests,
         evaluated_at=_utc_now(),
     )
-    for source in referenced_sources.values():
-        if isinstance(source, LakeRawIngestSourceRef):
-            uploads.extend(
-                (
-                    (
-                        source.key,
-                        _mirror_path(mirror_root, source.key),
-                        "application/octet-stream",
-                        source.sha256,
-                        _mirror_path(mirror_root, source.key).stat().st_size,
-                    ),
-                    (
-                        source.metadata_key,
-                        _mirror_path(mirror_root, source.metadata_key),
-                        "application/json",
-                        source.metadata_sha256,
-                        _mirror_path(mirror_root, source.metadata_key).stat().st_size,
-                    ),
-                )
-            )
-
     # Every reachable node is proved once. The publication memo makes this both the
     # per-upload postcondition and the pointer precondition: nothing between the two
     # can replace a key the store refuses to overwrite, so re-reading the closure
@@ -670,18 +580,6 @@ def _require_remote_l1_closure(
                     expected_size=item.bytes,
                     content_type="application/vnd.apache.parquet",
                 )
-            for source in partition.sources:
-                if isinstance(source, LakeRawIngestSourceRef):
-                    publication.require_present_identity(
-                        key=source.key,
-                        expected_sha256=source.sha256,
-                        content_type="application/octet-stream",
-                    )
-                    publication.require_small_object(
-                        key=source.metadata_key,
-                        expected_sha256=source.metadata_sha256,
-                        content_type="application/json",
-                    )
 
 
 def publish_calibration_bundle(
@@ -1092,7 +990,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mirror", type=Path)
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument("--release-manifest", type=Path)
-    target.add_argument("--raw-metadata", type=Path)
     target.add_argument("--calibration-bundle", type=Path)
     parser.add_argument("--bucket", default="baibai-stores")
     parser.add_argument(
@@ -1112,15 +1009,6 @@ def main(argv: list[str] | None = None) -> int:
     store = AwsCliR2Store(bucket=args.bucket)
     if args.mirror is None:
         parser.error("--mirror is required for publication")
-    if args.raw_metadata is not None:
-        raw_report = publish_raw_archive(
-            mirror_root=args.mirror,
-            metadata_path=args.raw_metadata,
-            store=store,
-            verify_bytes=args.verify_bytes,
-        )
-        print(json.dumps(raw_report.as_dict(), sort_keys=True))
-        return 0
     if args.calibration_bundle is not None:
         bundle_report = publish_calibration_bundle(
             mirror_root=args.mirror,

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from datetime import date
 
 LakeLayer = str
 PartitionValue = str | int
@@ -13,7 +12,6 @@ _DATASET = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _KEY_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._=-]*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
-_RAW_SUFFIXES = frozenset({".csv.gz", ".json.gz", ".zip"})
 _PARTITION_ORDER = {"year": 0, "month": 1, "date": 2, "ingest_date": 3}
 
 
@@ -95,33 +93,6 @@ def validate_lake_object_key(key: str) -> str:
     ):
         raise ValueError("lake object key contains an unsafe path segment")
     return key
-
-
-def raw_object_key(
-    *,
-    provider: str,
-    dataset: str,
-    ingest_date: date,
-    ingest_id: str,
-    suffix: str,
-) -> str:
-    validate_dataset_name(provider)
-    validate_dataset_name(dataset)
-    validate_identifier(ingest_id, label="ingest_id")
-    if suffix not in _RAW_SUFFIXES:
-        raise ValueError("raw object suffix must be .json.gz, .csv.gz, or .zip")
-    return validate_lake_object_key(
-        f"lake/l1/raw/{provider}/{dataset}/ingest_date={ingest_date.isoformat()}/"
-        f"{ingest_id}{suffix}"
-    )
-
-
-def raw_metadata_object_key(*, raw_key: str) -> str:
-    """Return the sidecar key that binds Raw bytes to retrieval metadata."""
-    key = validate_lake_object_key(raw_key)
-    if key.startswith("lake/l1/raw/legacy_sqlite/") or not key.endswith(tuple(_RAW_SUFFIXES)):
-        raise ValueError("Raw metadata requires an L1 Raw object key")
-    return validate_lake_object_key(f"{key}.metadata.json")
 
 
 def canonical_object_key(

@@ -40,9 +40,10 @@ release 入力にならない。飛ばすことで「まだ始まっていない
 初回 seed は全期間を export する。現行 provider / Premium backfill は coverage を SQLite に
 commit し、lake export はその SQLite を `legacy_sqlite_import` として月 partition へ変換する。
 provider 取得と Parquet writer の二重 canonical write は行わない。contract v1はfixed legacy
-SQLite snapshotからauthorityを移すcompatibility boundaryであり、Rawだけにあるfield、decimal
-precision、publication / effective / retrieved time、revision/cancellation semanticsを完全には表さない。
-これらのmappingを確定しRaw→canonical semantic parityを満たした時点をv2 rebuild triggerとする。
+SQLite snapshotからauthorityを移すcompatibility boundaryであり、provider responseにしかないfield、
+decimal precision、publication / effective / retrieved time、revision/cancellation semanticsを完全には
+表さない。これらのmappingを確定しprovider→canonical semantic parityを満たした時点をv2 rebuild
+triggerとする。
 
 `export-all`は開始時にSQLite backup APIでWALを含むsealed snapshotを1回作り、snapshot digest・
 schema version・`quick_check`を確定してから、全datasetのexport、source-state、parityを同じsnapshotから導出する。
@@ -90,22 +91,6 @@ floorは観測rows・populationの95%をregression floorにする。新鮮でも
 leading history欠損、大幅なpopulation縮小はcurrent候補にならない。population floorを持つdatasetが
 populationを報告しなければ、checkをskipせず停止する。日や書類を行とするdatasetにpopulationの問いは
 無いので、そこでは floor も報告も持たない。
-
-Raw は取得直後の bytes を変換せず archive する。Premium CSV と長期 backfill response は
-`preserve`、再取得可能な routine response は `buffer` を指定する。endpoint の query と
-credential は metadata に保存しない。
-
-```bash
-uv run baibai-engine lake archive-raw \
-  --source-file <provider-response> \
-  --mirror <local-mirror> \
-  --dataset jquants.daily_bars \
-  --ingest-id <immutable-id> \
-  --suffix json.gz \
-  --retention preserve \
-  --from <request-start> \
-  --to <request-end>
-```
 
 検証済み dataset manifest を release に固定する。
 
@@ -173,7 +158,7 @@ report は `uploaded_bytes` / `downloaded_bytes` / `head_requests` / `get_reques
 「差分転送になっている」は主張ではなく観測になる。
 
 sealed SQLiteはdigest・schema・capture時刻をmanifestへ記録するだけでbytesを持たないため、
-日次remote bytesはchanged Parquet/Raw/manifestへ比例する。最後に`lake/pointers/l1/current.json`を
+日次remote bytesはchanged Parquet/manifestへ比例する。最後に`lake/pointers/l1/current.json`を
 ETag `If-Match`で切り替え、pointer bytesだけをGETで読み戻す。409/412のCAS conflictはretryせず
 fail-closeし、current releaseを再解決する。subprocessのdeadlineはobject sizeから導く（base 120秒 +
 実測を下回る4 MiB/秒での転送時間）ので、大きなobjectがtimeoutで曖昧な結果になることを避ける。
@@ -185,25 +170,22 @@ writer が 1 つしかないこの構成では、悪い release を publish し�
 することである。同じ release ID の再 publish だけは中断した publication の retry として受け付け、
 identity が違えば拒否する。
 
-**Bucket Lock は未設定である。** mutable pointer prefix を除く immutable prefix へ
-[R2 Bucket Lock](https://developers.cloudflare.com/r2/buckets/bucket-locks/) を設定し、lock 期間を
-restore の最長保持期間以上にすることが残っている。R2 の
-[S3互換checksum](https://developers.cloudflare.com/r2/api/s3/api/#checksum-types)はfull-object SHA-256を
-提供しないため、existing objectの再利用はcontent-addressed key、immutable PUT metadata、Bucket Lock、
-readerのSHA-256検証、そして`--verify-bytes`監査の組合せで閉じる設計であり、現状はその 1 本が欠けた
-状態で運用している。設定には account 単位の権限が要り、日次の publisher token では設定状態を読めない
-（`GetObjectLockConfiguration` が `AccessDenied`）。設定後は tamper→reader 拒否→前への re-publish
-の drill を 1 度通す。
-
-Raw archive は writer と publish 経路を持つが、日次経路からは呼ばれない — provider ingest の
-Raw-first 化（#917 Goal 2）が未実装で、`lake/l1/raw/` の object は 0 である。手で archive した
-Raw を載せる場合は、release publication より前に個別 publish する。
+**immutable prefix は Bucket Lock で守る。** `lake/l1/canonical/` と `lake/manifests/` へ
+[R2 Bucket Lock](https://developers.cloudflare.com/r2/buckets/bucket-locks/) を age-based で設定し、
+削除と上書きの両方を拒否させる。mutable な `lake/pointers/`、GC が回収する `lake/staging/`、bucket
+直下の store key は対象にしない。lock 期間は「到達不能 object の R2 側削除は満了を待つ」という
+retention 設計と整合する長さにする — lock を外して即時削除する運用は取らない。現在の設定は読み取りで
+確かめる:
 
 ```bash
-uv run python -m baibai_batch.storage.lake_publish \
-  --mirror <local-mirror> \
-  --raw-metadata <raw-metadata>
+npx wrangler r2 bucket lock list baibai-stores
 ```
+
+R2 の [S3互換checksum](https://developers.cloudflare.com/r2/api/s3/api/#checksum-types)は
+full-object SHA-256 を提供しないため、existing object の再利用は content-addressed key、immutable
+PUT metadata、Bucket Lock、reader の SHA-256 検証、`--verify-bytes` 監査の組合せで閉じる。設定には
+account 単位の権限が要り、日次の publisher token では設定状態を読めない
+（`GetObjectLockConfiguration` が `AccessDenied`）。
 
 ```bash
 uv run python -m baibai_batch.storage.lake_publish \
@@ -546,20 +528,14 @@ live generationは存在しえない — 起動時に破棄し、回収したbyt
 | class | 内容 | soft budget |
 | --- | --- | --- |
 | `published` | canonical / analytical Parquet、manifest、pointer。R2が日常的に持つ graph | 10 GiB |
-| `raw_buffer` | 再取得で再現できる routine response | 50 GiB |
 | `workspace` | in-flight staging と失敗 build が残したもの。どのmanifestにも属さない | 20 GiB |
 
 Issue #917 が置いた「R2 は原則 10 GB 前後」は `published` classの目標である。classを分けるのは、
 単一の数字で報告すると大きい方の budget が小さい方の超過を隠すからで、published graph が目標を
-超えても失敗 build が 2 GB 積んでも、合算では何も警告しない。`preserve` classのRawは budget 表を
-持たない — 再取得できない原本を「いくらまで」で語ると、超えた日に捨てるか諦めるかしか選べなくなる。
-量が問題になった時点で、何を捨てるかを個別に決める。
+超えても失敗 build が 2 GB 積んでも、合算では何も警告しない。
 
-`lake inventory`は加えて`preserve / buffer`別のobject数、bytes、oldest retrievalを出す。
-metadata sidecarを持たないRaw payloadは`raw_unclassified`と`raw_inventory_errors`へ分離し、正常な
-retention classの容量へ混ぜない。`preserve`はGC候補にせず、`buffer`はcurrent closureから
-未到達かつretrieved-atから90日以上の場合だけ通常GCの候補にする。object/metadata pairを同じplan hashへ
-固定し、他のcandidateと同じsweepでlocal mirrorから削除する。R2側の削除はBucket Lock
+GC の候補は current closure から未到達な object だけで、grace 期間を過ぎたものを同じ plan hash へ
+固定し、1 回の sweep で local mirror から削除する。R2側の削除はBucket Lock
 満了後にDelete専用retention finalizerが同じcandidate identityを検証する運用境界とする。
 
 R2へのpublishは3 datasetのobject/source/manifestとbundle manifestを`If-None-Match: *`で転送し、
@@ -597,7 +573,7 @@ rulesがその間に動いているため旧storeのcohortは1件もそのまま
 report、Discord通知、CI artifact、そこへ載るerror — にはcredential、account ID、bucket URL、
 そしてlocal filesystem pathを出さない。publish reportがrelease ID・pointer ETag・転送counterだけで
 できているのはこのためである。**operator-local CLI**（`inventory`、`release`、`hydrate`、
-`archive-raw`、immutable installのerror）はlocal pathを出す。operatorが次に触るのはその
+`dehydrate`、immutable installのerror）はlocal pathを出す。operatorが次に触るのはその
 pathそのものであり、隠すとdebug可能性を失うだけで誰も守らない。共有される場所へこれらのoutputを
 そのまま貼る運用にしない。
 
