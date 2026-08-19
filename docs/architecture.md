@@ -24,7 +24,7 @@ baibai-loop/
 ├── tools/
 ├── method/{macro,screening,research}/
 ├── stores/{application,market,macro,screening}/
-├── reports/{studies,published}/
+├── reports/{studies,published,operations}/
 ├── docs/
 ├── .agents/
 └── .github/

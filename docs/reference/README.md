@@ -22,6 +22,7 @@ referenceは「artifact・式・error/warningは何を意味するか」を持�
 | screening CLI、SQLite、provider、selectの判断境界 | [`screening-runtime.md`](./screening-runtime.md) |
 | macro layer（L1/L2/L3・深度契約・8レンズ・scorecard） | [`macro.md`](./macro.md) |
 | source tierと取得失敗 | [`data-sources.md`](./data-sources.md) |
+| 信用残高の公表制度変更（2026-09-28）前後の語義と取込契約 | [`margin-publication-transition.md`](./margin-publication-transition.md) |
 | lakeのbuild/publish/固定release読み/store hydration/L2 retention | [`market-lake.md`](./market-lake.md) |
 | write-time validation 層 | [`../architecture.md`](../architecture.md) Development gates |
 | Python、dependency、quality gate、CI | [`python-foundation.md`](./python-foundation.md) |

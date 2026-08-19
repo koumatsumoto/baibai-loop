@@ -6,7 +6,7 @@ import argparse
 import json
 import sys
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .datasets import LAKE_DATASETS
@@ -24,7 +24,7 @@ from .reader import (
 )
 from .release import create_l1_release
 from .retention import LakeRetentionError, apply_gc, plan_gc
-from .writer import export_lake_legacy, export_legacy_sqlite, sealed_sqlite_snapshot
+from .writer import export_lake_legacy
 
 _AUDIT_HELP = (
     "re-derive every carried month from SQLite as well as the months this build wrote; "
@@ -35,7 +35,6 @@ WRITE_COMMANDS = frozenset(
     {
         "dehydrate",
         "export-all",
-        "export-legacy",
         "gc",
         "hydrate",
         "release",
@@ -46,22 +45,6 @@ WRITE_COMMANDS = frozenset(
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="baibai-engine lake")
     commands = parser.add_subparsers(dest="command", required=True)
-
-    export = commands.add_parser(
-        "export-legacy", help="export affected SQLite months as canonical Parquet"
-    )
-    export.add_argument("--dataset", choices=sorted(LAKE_DATASETS), required=True)
-    export.add_argument("--sqlite", type=Path, required=True)
-    export.add_argument("--mirror", type=Path, required=True)
-    export.add_argument("--from", dest="start", type=date.fromisoformat)
-    export.add_argument("--to", dest="end", type=date.fromisoformat)
-    export.add_argument("--base-manifest", type=Path)
-    export.add_argument("--build-id")
-    export.add_argument(
-        "--audit",
-        action="store_true",
-        help=_AUDIT_HELP,
-    )
 
     export_all = commands.add_parser(
         "export-all", help="export every lake dataset from one sealed SQLite snapshot"
@@ -110,34 +93,6 @@ def main(argv: list[str]) -> int:
         return _hydrate(args)
     if args.command == "dehydrate":
         return _dehydrate(args)
-    if args.command == "export-legacy":
-        verified_commit = _git_commit()
-        with sealed_sqlite_snapshot(sqlite_path=args.sqlite, mirror_root=args.mirror) as snapshot:
-            report = export_legacy_sqlite(
-                dataset_name=args.dataset,
-                mirror_root=args.mirror,
-                producer_git_commit=verified_commit,
-                start=args.start,
-                end=args.end,
-                base_manifest_path=args.base_manifest,
-                source_snapshot=snapshot,
-                build_id=args.build_id,
-                audit_full_history=args.audit,
-            )
-        print(
-            json.dumps(
-                {
-                    "build_id": report.manifest.build_id,
-                    "changed_partitions": report.changed_partitions,
-                    "created_objects": report.created_objects,
-                    "manifest": str(report.manifest_path),
-                    "reused_partitions": report.reused_partitions,
-                    "rows": report.manifest.totals.rows,
-                },
-                sort_keys=True,
-            )
-        )
-        return 0
     if args.command == "export-all":
         bases: dict[str, Path] = {}
         for path in args.base_manifest:
@@ -324,7 +279,6 @@ commands:
   inventory          inspect a local lake mirror without reading object contents
   validate           validate one manifest contract without changing objects
   resolve            resolve one fixed release and print its immutable identity
-  export-legacy      export affected SQLite months as canonical Parquet
   export-all         export every lake dataset from one sealed SQLite snapshot
   release create     create an immutable L1 release manifest
   hydrate            fill a market SQLite store's lake tables from one fixed release

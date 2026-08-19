@@ -50,7 +50,6 @@ _KIND_BY_CURRENT_PATH = {
 _REQUIRED_TABLES = {
     "application": frozenset(
         {
-            "app_meta",
             "bargain_assessment",
             "holding_review",
             "ledger_event",

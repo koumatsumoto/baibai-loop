@@ -7,7 +7,8 @@ methodology 改善の preregistration、結果、consumer contract を歴史的�
 ## Owns / Does not own
 
 `studies` は study 単位の evidence、`published` は明示的 consumer を持つ小さな machine-readable
-surface を所有する。production methodology と runtime state は所有しない。
+surface、`operations` は不可逆または外部設定を伴う運用操作の実施記録（before / probe / after）を
+所有する。production methodology と runtime state は所有しない。
 
 ## Public entrypoints
 
@@ -40,4 +41,5 @@ published consumer と path/link contract は [`tests/web`](../tests/web) と
 ## Common change scenarios
 
 新しい調査は `studies/YYYY-MM-DD-slug`、cross-subsystem consumer が必要な安定 artifact だけを
-`published` に置く。
+`published` に置く。クラウド設定のように後から差分を読めない操作は `operations/YYYY-MM-DD-slug`
+へ実施記録を残す。

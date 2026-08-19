@@ -416,9 +416,18 @@ def test_the_alert_lists_the_runs_that_did_happen_but_did_not_succeed() -> None:
 def test_main_sends_nothing_when_the_window_holds_a_successful_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    payload = _listing(_run(created_at=datetime.now(UTC) - timedelta(hours=2)))
+    """Both instants come from `--check-date`, because the geometry needs both.
 
-    exit_code, transport = _run_main(tmp_path, monkeypatch, payload)
+    An empty check date closes the window at the wall clock, and the day a run answers
+    for is anchored on the batch cron — so a run placed at an offset from `now` lands on
+    the wrong side of that anchor for part of every day. Pinning the firing keeps the one
+    realistic shape (batch at 07:43 UTC, watchdog at 12:00 UTC) true at every hour.
+    """
+    payload = _listing(_run(created_at=FIRED_AT - timedelta(hours=2)))
+
+    exit_code, transport = _run_main(
+        tmp_path, monkeypatch, payload, argv=["--check-date", "2026-08-03"]
+    )
 
     assert exit_code == 0
     assert transport.calls == []
@@ -430,13 +439,15 @@ def test_main_sends_nothing_while_the_days_batch_is_still_running(
 ) -> None:
     payload = _listing(
         _run(
-            created_at=datetime.now(UTC) - timedelta(minutes=15),
+            created_at=FIRED_AT - timedelta(minutes=15),
             status="in_progress",
             conclusion="",
         )
     )
 
-    exit_code, transport = _run_main(tmp_path, monkeypatch, payload)
+    exit_code, transport = _run_main(
+        tmp_path, monkeypatch, payload, argv=["--check-date", "2026-08-03"]
+    )
 
     assert exit_code == 0
     assert transport.calls == []
