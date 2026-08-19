@@ -8,7 +8,6 @@ from collections.abc import Callable, Sequence
 
 from baibai_batch.jobs.daily import main as daily_main
 from baibai_batch.jobs.history_backfill import main as history_backfill_main
-from baibai_batch.jobs.watchdog import main as watchdog_main
 from baibai_batch.validation.macro_stores import main as validate_macro_stores_main
 from baibai_engine.batch_api import StoreLayoutError, reject_noncanonical_store_paths
 
@@ -17,7 +16,6 @@ Command = Callable[[list[str] | None], int]
 _COMMANDS: dict[str, Command] = {
     "daily": daily_main,
     "history-backfill": history_backfill_main,
-    "watchdog": watchdog_main,
     "validate-macro-stores": validate_macro_stores_main,
 }
 
