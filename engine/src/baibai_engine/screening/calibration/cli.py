@@ -81,6 +81,18 @@ from .store import (
 )
 
 
+def _market_mirror(sqlite_path: Path) -> Path | None:
+    """Where the L1 releases this store was filled from live.
+
+    The lake mirror is the directory the stores live in, so the market store's
+    grandparent is it. Absent when that directory holds no lake at all, which is the
+    shape of every fixture that builds a calibration store on its own.
+    """
+
+    mirror = sqlite_path.resolve().parent.parent
+    return mirror if (mirror / "lake").is_dir() else None
+
+
 def _l1_release_source(
     sqlite_path: Path, *, release_id: str | None, manifest_sha256: str | None
 ) -> L1ReleaseSourceRef | None:
@@ -103,8 +115,8 @@ def _l1_release_source(
 
     if release_id is None or manifest_sha256 is None:
         return None
-    mirror = sqlite_path.resolve().parent.parent
-    if not (mirror / "lake").is_dir():
+    mirror = _market_mirror(sqlite_path)
+    if mirror is None:
         return None
     try:
         with open_lake(mirror=mirror) as (_session, cache):
@@ -173,6 +185,7 @@ def calibration_build_command(
                         release_id=l1_release,
                         manifest_sha256=l1_manifest_sha256,
                     ),
+                    l1_mirror=_market_mirror(sqlite_path),
                     calibration_dir=calibration_dir,
                     work_dir=work_dir,
                     expected_current=expected_current,
@@ -247,6 +260,7 @@ def _calibration_build_command(
     *,
     snapshot: LegacySQLiteSnapshot,
     l1_release: L1ReleaseSourceRef | None,
+    l1_mirror: Path | None,
     calibration_dir: Path,
     work_dir: Path,
     expected_current: CalibrationBundleRef | None,
@@ -324,6 +338,7 @@ def _calibration_build_command(
                 result.rows,
                 result.diagnostics,
                 sources=_cohort_sources(snapshot, l1_release),
+                l1_mirror=l1_mirror,
                 input_cutoff=asof,
                 producer_commit=producer_commit,
                 lock_held=True,
@@ -357,6 +372,7 @@ def _calibration_build_command(
                 asof,
                 by_asof.get(asof.isoformat(), []),
                 sources=_cohort_sources(snapshot, l1_release),
+                l1_mirror=l1_mirror,
                 input_cutoff=observation_cutoff,
                 producer_commit=producer_commit,
                 lock_held=True,

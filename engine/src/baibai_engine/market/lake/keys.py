@@ -125,9 +125,13 @@ def dataset_manifest_key(*, dataset: str, build_id: str) -> str:
     return validate_lake_object_key(f"lake/manifests/datasets/{dataset}/{build_id}.json")
 
 
+L1_RELEASE_PREFIX = "lake/manifests/releases/l1/"
+"""Where L1 release manifests live, which is also which mirror answers for them."""
+
+
 def release_manifest_key(*, release_id: str) -> str:
     validate_identifier(release_id, label="release_id")
-    return validate_lake_object_key(f"lake/manifests/releases/l1/{release_id}.json")
+    return validate_lake_object_key(f"{L1_RELEASE_PREFIX}{release_id}.json")
 
 
 def current_l1_pointer_key() -> str:

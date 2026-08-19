@@ -19,6 +19,7 @@ from tests.helpers.calibration_store import (
 from tests.helpers.l1_release import stored_release_source
 
 from baibai_engine.market.lake import models as lake_models
+from baibai_engine.market.lake import retention as retention_module
 from baibai_engine.market.lake import sources as sources_module
 from baibai_engine.market.lake.keys import (
     calibration_bundle_manifest_key,
@@ -1558,3 +1559,87 @@ class TestSemanticIdentity:
 
         assert store.store_forward_policy(tmp_path) == policy
         assert read_forward(tmp_path, date.fromisoformat(_JANUARY))
+
+
+class TestCrossStoreLineage:
+    """A cohort names a release the market mirror holds, not this one.
+
+    The calibration store publishes L2 objects, its dataset manifests and its bundle
+    pointer. L1 releases are not in it and never will be, so both the write path and the
+    sweep have to answer for them somewhere else — the first build after the union was
+    widened was refused outright because neither did.
+    """
+
+    @staticmethod
+    def _mirrors(tmp_path: Path) -> tuple[Path, Path, L1ReleaseSourceRef]:
+        market = tmp_path / "market"
+        market.mkdir(parents=True)
+        _, release = stored_release_source(market)
+        return tmp_path / "calibration", market, release
+
+    def test_a_cohort_states_a_release_the_market_mirror_answers_for(self, tmp_path: Path) -> None:
+        calibration, market, release = self._mirrors(tmp_path)
+
+        publish_panel(
+            calibration,
+            _JANUARY,
+            _cohort(_JANUARY),
+            extra_sources=(release,),
+            l1_mirror=market,
+        )
+
+        reference = _dataset_ref(calibration, CALIBRATION_PANEL.name)
+        manifest = load_manifest(calibration / reference.manifest_key)
+        stated = manifest.cohort_inventory[_JANUARY].sources
+        assert [item.kind for item in stated] == ["sqlite_snapshot", "l1_release"]
+        assert source_assurance(stated) == "rebuildable_input"
+
+    def test_the_same_cohort_is_refused_without_the_mirror_that_holds_the_release(
+        self, tmp_path: Path
+    ) -> None:
+        """Resolving is the proof. Without the mirror there is nothing to prove against,
+        and a cohort that recorded the claim anyway would state a lineage no store was
+        asked to keep."""
+
+        calibration, _market, release = self._mirrors(tmp_path)
+
+        with pytest.raises(CalibrationCacheError, match="does not resolve"):
+            publish_panel(
+                calibration, _JANUARY, _cohort(_JANUARY), extra_sources=(release,), l1_mirror=None
+            )
+
+    def test_the_sweep_does_not_call_another_stores_release_unresolved(
+        self, tmp_path: Path
+    ) -> None:
+        """Reporting it would stop the calibration sweep on a fact about the market
+        mirror; marking it reachable would claim to protect bytes this store does not
+        hold. Neither, and the sweep still plans."""
+
+        calibration, market, release = self._mirrors(tmp_path)
+        publish_panel(
+            calibration, _JANUARY, _cohort(_JANUARY), extra_sources=(release,), l1_mirror=market
+        )
+
+        plan = plan_gc(calibration, now=datetime.now(UTC) + timedelta(days=400))
+
+        assert plan.unresolved_roots == ()
+        assert release.key not in plan.reachable
+
+    def test_a_mirror_that_does_publish_releases_still_answers_for_them(
+        self, tmp_path: Path
+    ) -> None:
+        """Absence alone must not excuse a source. A mirror holding L1 releases owns that
+        namespace, so one it cannot resolve there is the loss the sweep reports."""
+
+        market = tmp_path / "market"
+        market.mkdir(parents=True)
+        stored, release = stored_release_source(market)
+        stored.unlink()
+        (market / stored.parent.relative_to(market) / "other.json").write_text(
+            "{}", encoding="utf-8"
+        )
+        unresolved: list[str] = []
+
+        retention_module._reach_sources(market, (release,), set(), unresolved)
+
+        assert unresolved == [release.key]

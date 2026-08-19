@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 
-from .keys import dataset_manifest_key
+from .keys import L1_RELEASE_PREFIX, dataset_manifest_key
 from .models import (
     DatasetManifest,
     L1ReleaseSourceRef,
@@ -46,13 +46,40 @@ def verified_source_scope() -> Iterator[None]:
         _VERIFIED.reset(token)
 
 
-def resolve_source_ref(mirror_root: Path, source: RetainedSourceRef) -> Path:
-    """Resolve one retained source inside the mirror and verify its immutable identity.
+def source_mirror(source: RetainedSourceRef, *, mirror_root: Path, l1_mirror: Path | None) -> Path:
+    """Which mirror answers for this source.
+
+    A store is not one namespace. The calibration store publishes its own L2 objects,
+    dataset manifests and bundle pointer; the L1 releases a cohort names live in the
+    market mirror. Resolving both against the store that holds the cohort would refuse
+    every release a cohort states, because that store has never held one — and refusing
+    is what it did, on the first build after the union was widened.
+
+    ``l1_mirror`` absent means the caller has no L1 mirror to offer, and the reference
+    then resolves against the one mirror it does have. That keeps the market lake's own
+    resolution — where both are the same directory — unchanged.
+
+    Routed by the key's namespace rather than by the reference's type. The two happen to
+    agree while `RetainedSourceRef` has one kind, and a second kind would be routed by
+    where its objects live rather than by a branch someone has to remember to add.
+    """
+
+    if l1_mirror is not None and source.key.startswith(L1_RELEASE_PREFIX):
+        return l1_mirror
+    return mirror_root
+
+
+def resolve_source_ref(
+    mirror_root: Path, source: RetainedSourceRef, *, l1_mirror: Path | None = None
+) -> Path:
+    """Resolve one retained source inside its mirror and verify its immutable identity.
 
     Only sources the lake stores can be resolved. An identity-only reference such as a
     sealed SQLite generation names no key, so it is excluded by type rather than by a
     runtime branch that would otherwise have to decide what a missing file means.
     """
+
+    mirror_root = source_mirror(source, mirror_root=mirror_root, l1_mirror=l1_mirror)
 
     memo = _VERIFIED.get()
     # The whole reference, not the part of it that names a generation. Two references
