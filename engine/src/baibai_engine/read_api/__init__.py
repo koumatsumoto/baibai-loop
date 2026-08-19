@@ -1,13 +1,14 @@
-"""Query-only facade imported by :mod:`baibai_web`.
+"""Query-only facade for read paths: :mod:`baibai_web`, the batch, and engine CLIs.
 
 Writable connections, migrations, providers, and CLI composition deliberately
 remain outside this package. The re-exports expose DB-backed queries and the
-domain models needed to assemble read-only application views.
+domain models needed to assemble read-only application views. What is re-exported
+here tracks what is imported through the facade; a query with no facade consumer
+stays reachable at its own module.
 """
 
 from baibai_engine.foundation.repository_layout import (
     APPLICATION_DB_PATH,
-    CALIBRATION_DIR,
     ER_LEVEL_CALIBRATION_CONTEXT_PATH,
     MACRO_DB_PATH,
     MARKET_DB_PATH,
@@ -21,10 +22,8 @@ from baibai_engine.position.ledger import (
     HoldingSnapshot,
     PortfolioLedgerError,
     PortfolioSnapshot,
-    load_portfolio_ledger,
     reconcile_portfolio,
 )
-from baibai_engine.research.thesis import ThesisError, load_thesis
 
 from .assessment import (
     bargain_assessment_payload,
@@ -65,13 +64,11 @@ from .materialization import (
     validate_macro_reading_rules,
     validate_market_store_hydration,
 )
-from .operations import list_operation_sessions, operation_session
+from .operations import list_operation_sessions
 from .position import list_portfolio_outcome_payloads, portfolio_ledger_document
 from .proposals import list_proposal_payloads
 from .research import (
-    list_holding_review_payloads,
     list_holding_review_publications,
-    list_thesis_payloads,
     list_thesis_publications,
     list_thesis_review_publications,
     thesis_publication,
@@ -96,7 +93,6 @@ from .tasks import list_task_payloads, task_store_exists
 
 __all__ = [
     "APPLICATION_DB_PATH",
-    "CALIBRATION_DIR",
     "ER_LEVEL_CALIBRATION_CONTEXT_PATH",
     "MACRO_CONTEXT_STALE_DAYS",
     "MACRO_DB_PATH",
@@ -111,7 +107,6 @@ __all__ = [
     "ProviderFailureStreak",
     "StoreLayoutError",
     "StoreStats",
-    "ThesisError",
     "application_db_updated_at",
     "application_store_stats",
     "bargain_assessment_payload",
@@ -122,7 +117,6 @@ __all__ = [
     "latest_shortlist_payload",
     "latest_unadjusted_closes",
     "list_bargain_assessment_payloads",
-    "list_holding_review_payloads",
     "list_holding_review_publications",
     "list_macro_context_payloads",
     "list_operation_sessions",
@@ -130,11 +124,8 @@ __all__ = [
     "list_proposal_payloads",
     "list_shortlist_payloads",
     "list_task_payloads",
-    "list_thesis_payloads",
     "list_thesis_publications",
     "list_thesis_review_publications",
-    "load_portfolio_ledger",
-    "load_thesis",
     "macro_context_payload",
     "macro_context_triggers",
     "macro_indicator_series",
@@ -146,7 +137,6 @@ __all__ = [
     "market_calendar_business_day",
     "never_attempted_series",
     "next_earnings_dates",
-    "operation_session",
     "portfolio_ledger_document",
     "previous_business_day",
     "previous_run_revision_id",

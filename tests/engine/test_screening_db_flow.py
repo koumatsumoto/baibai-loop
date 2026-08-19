@@ -12,9 +12,11 @@ from fastapi.testclient import TestClient
 
 from baibai_engine.proposals.cli import main as proposal_main
 from baibai_engine.read_api import (
-    list_holding_review_payloads,
     list_proposal_payloads,
     list_shortlist_payloads,
+)
+from baibai_engine.read_api.research import (
+    list_holding_review_payloads,
     list_thesis_payloads,
 )
 from baibai_engine.screening.cli.query import select_command
