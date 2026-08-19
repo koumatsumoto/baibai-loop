@@ -593,12 +593,18 @@ PUT/read-back時間、同じsize/偽SHA metadataを持つtampered bytesの拒否
 credentialはvalidation/setupへ渡さず、actual R2 stepだけが専用publisher tokenを持つ。production-size
 exportは上記reference acceptance reportをhead SHAと一緒に保存する。production bucketとcanonical storeをacceptanceに使わない。
 
-**acceptance credentialは未設定である。** `R2_LAKE_ACCEPTANCE_BUCKET` variableだけが設定済みで、
-workflowが読む `R2_LAKE_ACCEPTANCE_ACCESS_KEY_ID` と `R2_LAKE_ACCEPTANCE_SECRET_ACCESS_KEY` の
-secretが無い。dispatchすると`Validate exact head without credentials`までは通り、actual R2 stepが
-`required environment variable is missing: R2_ACCESS_KEY_ID`で停止する。日次のpublisher tokenは
-acceptance bucketへ403を返すため代用できず、role分離の設計上代用してはならない。専用bucketの作成と
-その bucket だけへ Get/Head/Put/Delete を持つtokenの発行、2つのsecret登録が残っている。それまでの間、
-lakeのread経路を変える変更はacceptanceの代わりに実bucketに対するpublish→download→hydrateの
-round tripで確かめる。
+**acceptanceは専用bucketと専用tokenだけで走る。** workflowは `R2_LAKE_ACCEPTANCE_BUCKET`
+variableと `R2_LAKE_ACCEPTANCE_ACCESS_KEY_ID` / `R2_LAKE_ACCEPTANCE_SECRET_ACCESS_KEY` の 2 secretを
+読む。tokenはその bucket だけへ Get/Head/Put/Delete を持つ。**日次のpublisher tokenで代用しない** —
+acceptance bucketへは403を返すうえ、role分離の設計がその代用を禁じている。secretが揃っているかは
+dispatchで分かる: `Validate exact head without credentials`までは通り、揃っていなければactual R2 stepが
+`required environment variable is missing: R2_ACCESS_KEY_ID`で停止する。
+
+```bash
+gh secret list | rg R2_LAKE_ACCEPTANCE
+gh variable list | rg R2_LAKE_ACCEPTANCE
+```
+
+acceptanceが走らせられない間、lakeのread経路を変える変更は実bucketに対する
+publish→download→hydrateのround tripで確かめる。
 
