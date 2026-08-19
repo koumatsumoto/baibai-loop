@@ -403,8 +403,11 @@ manifest_recorded_version() {
 
 require_machine_manifest() {
   # Each argument is `key=version` for the generation this pull is about to take. A
-  # mismatch is either a push that stopped partway or one running right now; both are
-  # answered by waiting for the next batch rather than by taking the set.
+  # mismatch is either a push running right now or one that stopped partway. The two
+  # need different answers: the first clears itself when that push finishes, and the
+  # second clears nothing on its own — the conditional PUTs are bound to the generation
+  # the failed run pulled, so re-running the same command is refused by its own
+  # precheck. The message names both rather than telling the reader to retry.
   local file entry key expected actual
   file="${transfer_staging}/machine-manifest.json"
   # Absence is decided by the existence check, not by the download failing: a download
@@ -435,11 +438,10 @@ require_machine_manifest() {
     if [[ "${expected}" != "${actual}" ]]; then
       printf 'refusing to replace local stores: R2 holds %s at generation %s but the ' \
         "${key}" "${actual}" >&2
-      printf 'machine bundle receipt names %s. A machine push stopped partway, or one ' \
-        "${expected:-no generation}" >&2
-      printf 'is running now. Wait for the next daily batch to finish and pull again; ' >&2
-      printf 'if it keeps failing, re-dispatch the batch so a complete push rewrites ' >&2
-      printf 'the receipt.\n' >&2
+      printf 'machine bundle receipt names %s.\n' "${expected:-no generation}" >&2
+      printf 'If a machine push is running right now, wait for it to finish and pull ' >&2
+      printf 'again. If one stopped partway, no retry clears this by itself: follow ' >&2
+      printf '"部分 push からの復旧" in batch/OPERATIONS.md.\n' >&2
       exit 1
     fi
   done
