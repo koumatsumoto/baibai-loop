@@ -162,10 +162,11 @@ uv run baibai-engine screening calibration-build \
   --start 2019-11-01 --end <latest-month-end>
 ```
 
-**実測（2026-08-16、現行 head、実 `market.sqlite` 2.0GB）: 81 cohort を 58 分。** forward 1,527,240
-行（うち resolved 1,059,521、支配権イベント exit 4,686）、object 247 件、94.6MB。**同じ履歴が CSV の
-507MB から lake の 93MB になる。** bundle manifest は 81 cohort に対して 1,367 bytes である — 世代の
-cohort inventory は 3 つの dataset manifest から導出するので、bundle 自体は cohort 数に依存しない。
+**実測（2026-08-19、L1 release を名乗る形での全再構築、実 `market.sqlite` 2.0GB）: 81 cohort を
+43 分。** forward 1,527,240 行（うち resolved 1,060,478、支配権イベント exit 4,686、破綻型 exit 957）、
+closure object 247 件、96.8MB。**同じ履歴が CSV の 507MB から lake の 93MB になる。** bundle manifest は
+81 cohort に対して 1,367 bytes である — 世代の cohort inventory は 3 つの dataset manifest から
+導出するので、bundle 自体は cohort 数に依存しない。
 
 再構築した cohort は sealed SQLite snapshot と、その store を満たした L1 release の両方を source と
 して述べる。`--l1-release` と `--l1-manifest-sha256` で release を名乗り、build が lake 所有 17 table を
