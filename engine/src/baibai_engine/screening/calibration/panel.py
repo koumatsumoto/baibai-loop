@@ -171,16 +171,16 @@ class PanelRow:
     reported_short_ratio: float | None
     reported_short_breadth: int | None
     reported_short_latest_disclosed_at: str | None
-    # Supply/demand from the legacy all-issues weekly margin balances, joined at
-    # the publication lag (see `sqlite_reader.published_margin_week_ends`). The
-    # post-2026-09-25 daily series must use separately named calibration fields.
-    # Carried on the panel so the
-    # axes can be measured against forward returns before any of them is allowed to
-    # change a rule.
+    # Supply/demand from the exchange's published all-issues margin balances, joined
+    # at the publication lag of whichever series published the balance date (see
+    # `sqlite_reader.published_margin_balance_dates`). Axes that use the daily
+    # series' frequency rather than its balances must use separately named
+    # calibration fields. Carried on the panel so the axes can be measured against
+    # forward returns before any of them is allowed to change a rule.
     # The balance date behind the four numbers. Carried so a panel row states how
-    # old its positioning read is: the balances are weekly and published days
-    # later, and a store with a gap would otherwise show plausible axes with no
-    # trace of which week they came from.
+    # old its positioning read is: the balance is published days later, and a store
+    # with a gap would otherwise show plausible axes with no trace of which balance
+    # date they came from.
     margin_week_end: str | None
     margin_long_to_adv: float | None
     margin_long_share: float | None

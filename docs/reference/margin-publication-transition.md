@@ -2,9 +2,9 @@
 
 ## 1. 目的
 
-JPX の信用取引残高は 2026-09-28 に公表粒度が変わる。L1 store は変更前後のデータを別の
-語義として保持し、週次由来の screening / calibration 指標へ日次値を混入させない。本書は
-公表日、balance date、対象母集団を区別する取込契約の正本である。
+JPX の信用取引残高は 2026-09-28 に公表粒度が変わる。L1 store は変更前後のデータを別 table・
+別 balance date 域として保持し、指標側は「どちらの series がその balance date を公表したか」を
+明示して読む。本書は公表日、balance date、対象母集団を区別する取込契約の正本である。
 
 ## 2. 公式日程
 
@@ -22,9 +22,9 @@ JPX の集計システムは 2026-09-27 に移行し、移行可否は同日 20:
 
 | source / table | 対象 | 日付 identity | cadence / 公表 | 利用契約 |
 | --- | --- | --- | --- | --- |
-| J-Quants `margin-interest` / `jquants_weekly_margin` | 全銘柄 | `week_end` | 2026-09-18 残高まで週次。原則第2営業日に公表 | 既存 `margin_*` の唯一の残高 source。9/18 後を拒否する |
+| J-Quants `margin-interest` / `jquants_weekly_margin` | 全銘柄 | `week_end` | 2026-09-18 残高まで週次。原則第2営業日に公表 | 2026-09-18 残高までの `margin_*` の残高 source。9/18 後を拒否する |
 | J-Quants `margin-alert` / `jquants_margin_alerts` | 日々公表銘柄等だけ | `(publication_date, ticker)` | 日次。現行 API は同日 16:30 更新 | 過熱・規制 risk の fact / annotation 用。全銘柄系列や rank / gate へ代用しない |
-| J-Quants Pro 全銘柄 daily / `jquants_all_issues_daily_margin` | 全銘柄 | `(balance_date, ticker)` | 2026-09-25 残高から日次。翌営業日 16:00 公表 | 日次系列専用。ClientV2 binding は U4 で実 payload を確認するまで無効。週次 table と既存 `margin_*` へ接続しない |
+| J-Quants Pro 全銘柄 daily / `jquants_all_issues_daily_margin` | 全銘柄 | `(balance_date, ticker)` | 2026-09-25 残高から日次。翌営業日 16:00 公表 | 2026-09-25 残高以後の `margin_*` の残高 source。ClientV2 binding は U4 で実 payload を確認するまで無効で、activation までは serving が読まない。週次 table と row を union しない |
 
 `margin-alert` は `PubDate` と `AppDate` を別々に保存する。`TSEMrgnRegCls` は取引所の規制
 分類 fact であり、残高値から導出しない。全銘柄日次系列は `Date` を balance date として保存し、
@@ -94,6 +94,19 @@ union しない。6 残高 field は有限・非負、`IssType` は non-null を
 ## 6. `margin_*` の固定語義
 
 `margin_long_to_adv`、`margin_short_to_adv`、`margin_long_share`、
-`margin_long_delta_26w`、`margin_std_long_share` はすべて公表済みの
-`jquants_weekly_margin` 週末残高から導出する。全銘柄日次系列を同じ列へ流し込まない。
-日次軸を評価する場合は、別名の metric と事前登録 study を用意する。
+`margin_long_delta_26w`、`margin_std_long_share` は「公表済みの直近残高」から導出する。
+残高を公表する series は 2026-09-18 で入れ替わるので、balance date が source を決める —
+`week_end <= 2026-09-18` は `jquants_weekly_margin`、`balance_date >= 2026-09-25` は
+`jquants_all_issues_daily_margin` である。
+
+**軸の語義は cadence で変わらない。** level 軸は直近公表残高であり、日次化は解像度の向上で
+あって意味の変更ではない。`margin_long_delta_26w` は 26 週前との比較であり、日次側からも各
+ISO 週の最終 balance date だけを sampling して週間隔を保つ — 日次行を 26 個遡ると半年の変化が
+5 週間の変化に化ける。
+
+日次の高頻度性そのものを使う軸（日次 delta など）はこの列へ足さない。別名の metric と事前登録
+study を用意する。
+
+serving の統合列は `sqlite_reader.published_margin_balance_dates` で、公表ラグは cadence 別に
+持つ（週次は第 2 営業日、日次は翌営業日）。`ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED` が `False`
+の間は週次 balance date だけを返す。
