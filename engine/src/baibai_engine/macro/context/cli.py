@@ -24,6 +24,7 @@ from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH
 
 from .models import (
     MacroContextDocument,
+    require_attributed_statements,
     require_integrated_strategy,
     require_machine_checkable_monitoring,
     require_registry_agreement,
@@ -115,6 +116,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 require_integrated_strategy(document)
                 require_machine_checkable_monitoring(document)
                 require_registry_agreement(document)
+                require_attributed_statements(document)
                 _emit({"check": "ok", "context_id": document.context_id})
             else:
                 _emit(service.publish(document, expected_head=args.expected_head).payload())

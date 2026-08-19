@@ -22,6 +22,7 @@ from .models import (
     MACRO_CONTEXT_SCHEMA_VERSION,
     MacroContextDocument,
     ScorecardSnapshotInput,
+    require_attributed_statements,
     require_integrated_strategy,
     require_machine_checkable_monitoring,
     require_registry_agreement,
@@ -54,6 +55,7 @@ class MacroContextService:
         require_registry_agreement(document)
         require_machine_checkable_monitoring(document)
         require_integrated_strategy(document)
+        require_attributed_statements(document)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")

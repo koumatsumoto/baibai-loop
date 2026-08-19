@@ -171,6 +171,37 @@ class ArticleInput(_TimestampedInput):
     accessed_at: datetime
     status: Literal["ok", "failed"]
     used_for: str = Field(min_length=1)
+    identifiers: tuple[str, ...] = ()
+    """Distinctive tokens this article is the source of: figures, names, quoted phrases.
+
+    The existing gates ask whether a citation resolves. They cannot ask whether the
+    statement's claim is the one that citation supports, and the difference is not
+    academic: on 2026-08-17 fourteen statements restated a figure from one article while
+    citing only the series input beside it, and `publish --check` returned ok every time.
+
+    Declared rather than extracted. Measured on that report, deriving them from
+    ``used_for`` mechanically reproduced 11 of the 35 tokens the author had to write by
+    hand and added noise of its own (`PDF`, `CSV`, and every generic percentage), because
+    which token is distinctive is a judgement about the source, not about the string.
+    Whoever read the article knows; the machine reading the prose does not.
+
+    An article that declares none is not checked. That is the honest state for one cited
+    as background, and the field is worth nothing if the way to satisfy it is to leave it
+    empty — so a report is measured by how many of its articles carry identifiers, not by
+    a floor that would push authors to invent tokens.
+    """
+
+    @field_validator("identifiers")
+    @classmethod
+    def require_distinctive_identifiers(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not value.strip() for value in values):
+            raise ValueError("article identifiers must be non-blank")
+        if len(values) != len(set(values)):
+            raise ValueError("article identifiers must be unique")
+        for value in values:
+            if len(value.strip()) < 2:
+                raise ValueError(f"article identifier is too short to be distinctive: {value!r}")
+        return values
 
 
 class IndicatorSeriesInput(_TimestampedInput):
@@ -1162,6 +1193,113 @@ def _distinct_assignment_exists(candidates: Sequence[set[str]]) -> bool:
         )
 
     return assign(0, frozenset())
+
+
+_IDENTIFIER_EDGE = re.compile(r"[0-9A-Za-z]")
+
+
+def _statement_prose(statement: _SourcedStatement) -> str:
+    """Every free-text field of one statement, read from the model rather than a list.
+
+    A per-model list of prose fields would go stale the day a field is added, and
+    silently: the new field would carry claims nothing checks.
+    """
+
+    parts: list[str] = []
+    for name, value in statement:
+        if name == "source_ids":
+            continue
+        if isinstance(value, str):
+            parts.append(value)
+        elif isinstance(value, tuple | list):
+            parts.extend(item for item in value if isinstance(item, str))
+    return "\n".join(parts)
+
+
+def _statement_paths(
+    document: MacroContextDocument,
+) -> tuple[tuple[str, _SourcedStatement], ...]:
+    """Every judgment-bearing statement in the report, with a path a human can find."""
+
+    found: list[tuple[str, _SourcedStatement]] = []
+    for section in document.core:
+        for item in _sourced_items(section):
+            found.append((f"core/{section.section_id}", item))
+    for item in _sourced_items(document.connection):
+        found.append((f"connection/{document.connection.section_id}", item))
+    if document.synthesis is not None:
+        for force in document.synthesis.dominant_forces:
+            found.append((f"synthesis/force/{force.force_id}", force))
+        for index, interaction in enumerate(document.synthesis.interactions):
+            found.append((f"synthesis/interaction[{index}]", interaction))
+    return tuple(found)
+
+
+def _mentions(prose: str, identifier: str) -> bool:
+    """Whether the prose uses this identifier, not merely contains its characters.
+
+    `8-1` sits inside `2026-08-17` and `9-3` inside a date range, which is how the first
+    hand-run sweep returned 33 hits for 14 real gaps. An identifier whose own edge is
+    alphanumeric must not be flanked by another alphanumeric character.
+    """
+
+    start = 0
+    while (index := prose.find(identifier, start)) != -1:
+        before = prose[index - 1] if index else ""
+        after_index = index + len(identifier)
+        after = prose[after_index] if after_index < len(prose) else ""
+        leading_ok = not (
+            _IDENTIFIER_EDGE.match(identifier[0]) and before and _IDENTIFIER_EDGE.match(before)
+        )
+        trailing_ok = not (
+            _IDENTIFIER_EDGE.match(identifier[-1]) and after and _IDENTIFIER_EDGE.match(after)
+        )
+        if leading_ok and trailing_ok:
+            return True
+        start = index + 1
+    return False
+
+
+def unattributed_statements(document: MacroContextDocument) -> tuple[str, ...]:
+    """Statements that use an article's declared identifier without citing that article.
+
+    The existing gates ask whether a citation resolves; this asks whether the claim is
+    the one the citation supports. Both were needed on 2026-08-17: `publish --check`
+    returned ok while fourteen statements restated a figure from one article and cited
+    only the series input beside it.
+    """
+
+    owners: dict[str, set[str]] = {}
+    for article in document.inputs.articles:
+        if article.status != "ok":
+            continue
+        for identifier in article.identifiers:
+            owners.setdefault(identifier, set()).add(article.input_id)
+    if not owners:
+        return ()
+    failures: list[str] = []
+    for path, statement in _statement_paths(document):
+        prose = _statement_prose(statement)
+        cited = set(statement.source_ids)
+        for identifier, article_ids in sorted(owners.items()):
+            if cited & article_ids:
+                continue
+            if _mentions(prose, identifier):
+                failures.append(
+                    f"{path}: uses {identifier!r} without citing "
+                    + " or ".join(sorted(article_ids))
+                )
+    return tuple(failures)
+
+
+def require_attributed_statements(document: MacroContextDocument) -> None:
+    """Reject a report whose claims outrun the inputs they cite."""
+
+    failures = unattributed_statements(document)
+    if failures:
+        raise ValueError(
+            "statements use an article's identifier without citing it: " + "; ".join(failures)
+        )
 
 
 def _sourced_items(
