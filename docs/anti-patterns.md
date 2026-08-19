@@ -743,7 +743,53 @@ panel 70 列・forward 16 列と、local SQLite 4 store の全 table を 1 回�
 3 件と、他 5 件の候補（`source_coverage.status` が常に `ok`、`capex_source` が 1 値、
 `macro.series.priority` が 1 値など）を検出した。
 
-## 14. 関連ドキュメント
+## 14. AP-14: 実装が追い越した記述を、追い越された日に直さない
+
+### 観測された症状
+
+- `architecture.md` が lineage の retained kind として `l1_release` を挙げた直後に「L1 release は
+  この union に入れない。closure resolver が揃うまで kind を戻さない」と書いていた。resolver は
+  実装済みで、`CohortSourceRef` は `l1_release` を含む。**同じ文書の中で矛盾していた**
+- `market-lake.md` の「保証が戻るのは cohort の table が L1 release として公開された時点」は、
+  それが起きて 81 cohort 全てが `rebuildable_input` になった後も残っていた
+- lake の table 数が 15/4 → 17/2 へ動いた変更で、同じ file の 3 箇所だけが直り 5 箇所が残った。
+  結果として 1 つの file の中に 17 と 15 が併存した
+- `OPERATIONS.md` が serving views を「store push と同時に走らせる」と書き続けていた。workflow は
+  machine push が成功した場合にしか views を走らせない
+- L1 export の実測が、doc 自身の失効条件（実装 digest を 5 file から取る）を満たしたまま残った。
+  digest は動いていて、記録は期限切れだった
+- 較正 store の全再構築の所要が reference・skill・実測で 3 通りに分かれていた
+
+### 根本原因
+
+- **「将来こうなる」は書いた時点で正しいので、review で誤りとして見えない。**誤りになるのは後日で、
+  そのとき誰もその段落を読み返さない
+- 変更 PR は自分が触った file を直すが、同じ契約を**別の言葉で述べている file** を探さない。
+  file 名では見つからず、主張の語（「union」「同時」「本」「戻る」）でしか引けない
+- 数値は「いつ信じてはいけないか」を併記しないと、古くなったことが誰にも観測できない
+- 同じ事実が 2 か所以上にあると、片方だけが直る。正本を決めていないと、どちらが古いか判らない
+
+### 再発防止チェックリスト
+
+- [ ] 実装の前提・境界・数値を変えたら、その契約を述べている file を**主張の語**で `rg` する。
+      触った file の中も端から端まで見る（同じ file の中に古い値が残るのが最頻）
+- [ ] 「〜まで」「〜時点で」「〜になったら」を書くなら、**その条件が満たされたときに何を直すか**を
+      同じ段落に書く。書けないならその条件は書かない
+- [ ] 計測値を doc へ置くときは失効条件を併記し、条件は機械で判定できる形にする
+      （実装 digest・schema version・行数）。失効した値は消すのではなく**取り直す**
+- [ ] 同じ数値・同じ契約が複数 doc にあるなら 1 つを正本にし、他は参照にする
+- [ ] doc の契約を直したら、同じ契約が**コードの comment / docstring** にも書かれていないか確認する
+      （`margin_*` の source 規則は reference と `calibration/panel.py` の両方にあった）
+- [ ] 手順の正本を書いたら、その障害の**入口から辿れるか**を確認する。runbook を書いても運用 skill
+      から link が無ければ、operator は届かない
+
+### 機械検査を置かない理由
+
+doc の主張を一般に機械照合することはできない。機械化できる下位ケース（実装 digest に結んだ計測値）に
+gate を置くと、`models.py` のような日常的に触る file を変更するたびに数分の再計測を要求することに
+なり、発生頻度に対して釣り合わない。ここは検査でなくチェックリストで持つ。
+
+## 15. 関連ドキュメント
 
 - 思想・基本方針: [`doctrine.md`](./doctrine.md)
 - 事実 / 分析の分離: [`doctrine.md#fact-analysis-separation`](./doctrine.md#fact-analysis-separation)

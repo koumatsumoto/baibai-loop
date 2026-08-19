@@ -98,7 +98,7 @@ populationを報告しなければ、checkをskipせず停止する。日や書�
 ```bash
 uv run baibai-engine lake release create \
   --mirror <local-mirror> \
-  --dataset-manifest <manifest> ...    # export-all が出した 15 本すべて
+  --dataset-manifest <manifest> ...    # export-all が出した manifest すべて
 ```
 
 `--dataset-manifest` は release policy が required とする dataset を全て満たす必要がある。欠けた
@@ -114,21 +114,22 @@ uv run python -m tools.diagnostics.benchmark_l1_export \
   --sqlite stores/market/market.sqlite --report <report.json>
 ```
 
-production store（2,013,155,328 bytes、schema v23、snapshot digest `100b1257…`、14,722,121 rows）
+production store（1,812,189,184 bytes、schema v23、snapshot digest `ef791840…`、14,751,189 rows）
 を Linux/WSL2 の一時 directory で実測した結果は次のとおり。
 
 | 局面 | wall time | 生成 object | 生成 bytes |
 | --- | --- | --- | --- |
-| full export（14 dataset・全 partition） | 436.1 秒 | 435 | 299,949,710 |
-| 1 か月訂正の再 export | 122.5 秒 | 1 | 948,040 |
+| full export（16 dataset・全 partition） | 359.9 秒 | 448 | 300,587,037 |
+| 1 か月訂正の再 export | 125.7 秒 | 1 | 1,144,400 |
 
-peak RSS は 1,061,478,400 bytes（1,012 MiB）。`jquants.all_issues_daily_margin` は JPX の公表制度
+peak RSS は 1,030,107,136 bytes（982 MiB）。`jquants.all_issues_daily_margin` は JPX の公表制度
 移行まで行を持たないので、export は 17 dataset のうち 16 を書く。
 
 **parity は build が書いた月だけを見る。** carried object は自分の bytes の digest で addressing
 されているので、「変わっていない」ことは検証対象ではなく恒等式である。全 history を SQLite から
 derive し直すのは、この build ではなく前の build を証明する作業になる。上表の 2 行がその差で、
-1 か月の訂正は全量の 3.6 分の 1 で済み、生成 object は 435 分の 1 になる。
+1 か月の訂正は全量の 2.9 分の 1 で済み、生成 object は 448 分の 1 になる。**時間の比より object の比が
+桁で大きい** — 訂正が節約するのは書き出しであって、月集合の照合と snapshot の作成ではない。
 
 月の inventory 比較（SQLite の月集合 == manifest の月集合）は常に全体で行う。全 history の再導出は
 `--audit` で明示的に求める — store 全体がまだ SQLite と一致するかを問う操作であり、日次の書き込み
@@ -138,11 +139,11 @@ derive し直すのは、この build ではなく前の build を証明する�
 この計測は commit ではなく実装 digest（writer / models / immutable / snapshot / benchmark tool）へ
 結ぶ。それらに触れない変更では証跡は有効なままで、触れた変更は再計測になる。
 
-<!-- AP-02: full=436.0613511959673 秒、incremental=122.4990771220182 秒、
-peak RSS=1061478400 / 1048576 = 1012.30 MiB、
-source sha256=100b125717183a9d82915fed88cf6b1839506159a3989111dab2838191d933ef、
-implementation sha256=ff126483d3f6240bc537262da5733caa4c338d039bd83ada59d8eef5c0a032a1、
-producer commit=4a17e41afd04b6da230bdef10ed61d16e5e0d203、recorded=2026-08-16T14:53:07Z。 -->
+<!-- AP-02: full=359.8542985210079 秒、incremental=125.72119240899337 秒、
+peak RSS=1030107136 / 1048576 = 982.39 MiB、
+source sha256=ef79184082ce1e82177d5bffac58e7336eff757f4a41c15d00a17fe461f89a2e、
+implementation sha256=20c9cea642c9be2bc2f505d40abe56c39933159952240e73304d87714385d39a、
+producer commit=85d3dbdc13c67b05a018448e1be17710ddcb869e、recorded=2026-08-19T23:32:19Z。 -->
 
 ## L1 dataset を追加する
 
@@ -236,18 +237,18 @@ GET / backup copy / PUT は発生しない。
 
 | 段 | 何をするか |
 | --- | --- |
-| `r2_transfer.sh pull-machine` | `market.sqlite` を GET する。R2 の copy は lake が持たない 4 本だけを持つ |
-| `r2_transfer.sh hydrate-market` | current release を解決し、lake 由来 15 本を store へ積む |
-| `baibai-batch daily` | 変更なし。ingest は store へ書き、screening は store を読む |
+| `r2_transfer.sh pull-machine` | `market.sqlite` を GET する。R2 の copy は lake が持たない 2 本だけを持つ |
+| `r2_transfer.sh hydrate-market` | current release を解決し、lake 所有 17 本を store へ積む |
+| `baibai-batch daily` | ingest は store へ書き、screening は store を読む。lake は経路に入らない |
 | `r2_transfer.sh publish-lake` | 変わった partition だけ export → release → pointer を CAS で切り替え |
-| `r2_transfer.sh push-machine` | push 用 copy から lake 所有 15 本を空にして PUT する |
+| `r2_transfer.sh push-machine` | push 用 copy から lake 所有 17 本を空にして PUT する |
 
 **publish は push より先に置く。** 逆順で publish に失敗すると、クラウドには「今日の coverage を
 主張する store」だけが残る。coverage が「取得済み」と言う限り次の run はその範囲を取りに行かないので、
 穴が自力で塞がらない唯一の組み合わせになる。
 
 **R2 の key は `market.sqlite` のままにする。** store の同一性は変わっていない — schema version も
-19 本という構成も同じで、変わったのは 15 本の権威が lake へ移り、pull のたびに hydrate が復元する
+19 本という構成も同じで、変わったのは 17 本の権威が lake へ移り、pull のたびに hydrate が復元する
 という点だけである。
 
 **両側とも行数で fail-close する。** hydrate は release manifest が publish した行数と一致しなければ
@@ -349,8 +350,8 @@ auto index は DDL を持たず落とせないので残り、それが load の 
 
 開始前に同一 filesystem の空き容量を要求する。必要量は 64 MiB、現 store の bytes、published object
 bytes の 8 倍のうち最大で、真ん中の項は「一時 copy は store の複製として始まり満たされて終わる」
-ことから来る。倍率は実測（release 299,949,710 bytes の Parquet に対し store 2,013,155,328 bytes、
-6.71 倍）の上に置く。
+ことから来る。倍率は実測（release 300,587,037 bytes の Parquet に対し store 1,812,189,184 bytes、
+6.03 倍）の上に置く。
 
 hydrate の atomic publication が対応する filesystem は、case-sensitive で hard link、同一 directory
 内の `os.replace`、file fsync、directory fsync を提供する Linux / WSL 上の local POSIX filesystem
@@ -571,9 +572,9 @@ live generationは存在しえない — 起動時に破棄し、回収したbyt
 | `published` | canonical / analytical Parquet、manifest、pointer。R2が日常的に持つ graph | 10 GiB |
 | `workspace` | in-flight staging と失敗 build が残したもの。どのmanifestにも属さない | 20 GiB |
 
-Issue #917 が置いた「R2 は原則 10 GB 前後」は `published` classの目標である。classを分けるのは、
-単一の数字で報告すると大きい方の budget が小さい方の超過を隠すからで、published graph が目標を
-超えても失敗 build が 2 GB 積んでも、合算では何も警告しない。
+budget は class ごとに持ち、合算では持たない。単一の数字で報告すると大きい方の budget が小さい方の
+超過を隠すからで、published graph が目標を超えても失敗 build が 2 GB 積んでも、合算では何も
+警告しない。
 
 GC の候補は current closure から未到達な object だけで、grace 期間を過ぎたものを同じ plan hash へ
 固定し、1 回の sweep で local mirror から削除する。R2側の削除はBucket Lock
@@ -583,14 +584,16 @@ GC の候補は current closure から未到達な object だけで、grace 期�
 再生成できるローカル成果物で、cloud 側にこれを読む consumer が居ない。R2 に calibration bundle
 pointer は存在せず、bundle を出す publish 経路も持たない。読者が現れた時点で設計し直す。
 
-これがローカル資産でいられるのは cohort source が `rebuildable_input` にならない間だけの都合では
-なく、consumer が居ないという理由による。cohort source の水準の話は下段の「引き換えに失うもの」を
-読む。
+ローカル資産でいられる理由は consumer が居ないことであって、cohort source の保証水準とは無関係で
+ある。水準の話は次段を読む。
 
-**引き換えに失うもの**: 過去cohortをbyte単位でrebuildする「保証」は、この段階では持たない。同じ
-digestのmarket store世代があれば再現でき、digestで照合もできるが、その世代がまだ入手できることは
-lakeが保証しない。保証が戻るのは、cohortが必要とするtableがL1 releaseとして公開され、keyを持つ
-`rebuildable_input`になった時点である（Issue #917）。
+**保証の範囲**: cohort は読んだ bytes（sealed snapshot）と読み直せる場所（L1 release）の両方を
+名乗るので、`rebuildable_input` である。ただし **retention が根として固定するのは current release
+だけ**で、cohort が名乗る過去世代は根を持たない。object は content-addressed なので、current
+release が同じ bytes を名乗る限り到達可能であり続けるが、その世代にしか無い object が残ることを
+lake は約束しない。較正 store の sweep はこの点について沈黙する — `lake gc --mirror
+stores/screening/calibration` の `roots` は bundle pointer 1 つで、L1 release は較正 store が
+publish していない namespace だからである。
 
 current bundleに問題がある場合、直すのは前へ build することである。local storeで作り直した
 generationを `calibration-build` が publish すれば、bundle pointer は 1 回のCASでそれを指す。

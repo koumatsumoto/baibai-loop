@@ -19,6 +19,7 @@ push の経路は 2 本ある。run が起動すれば run 自身が結果を通
 - **validation 失敗**: application service / DB constraint / model validation の error path を読み、schema・validator の意味を推測で変えない（必要なら issue）。
 - **automation 失敗**: screening CLI は [`screening-runtime.md`](../../../docs/reference/screening-runtime.md)、バッチ経路は [`architecture.md#cloud-serving-layer`](../../../docs/architecture.md#cloud-serving-layer)、CI/local parity は [`python-foundation.md`](../../../docs/reference/python-foundation.md)。
 
+- **publish-lake が `transform_fingerprint differs` で落ちる**: lake の export 意味論を変えた merge の翌日に必ず出る。**再 dispatch では直らない** — 自然治癒せず、full rebuild release を publish するまで毎日同じ場所で落ちる。手順は [`batch/OPERATIONS.md`](../../../batch/OPERATIONS.md#fingerprint-変更後の-full-rebuild) を正本とし、復旧はローカルで完結させて翌定時の緑で確認する。
 - **欠測（`[MISSING]` が届く / 何も届かない）**: schedule run が起動していない。`gh run list --workflow=cloud-daily-batch.yml` で当日の run を確認し、無ければ下記の手順で当日分を dispatch する。過去日の判定をやり直すときは `gh workflow run cloud-batch-watchdog.yml -f check_date=<YYYY-MM-DD>`（その日の 21:00 JST に発火した watchdog と同じ窓を評価する）。
 
 失敗 run は publish が skip され正本は変わらない。復旧後の再実行は `gh workflow run cloud-daily-batch`（必要なら `MANUAL_ASOF` dispatch input）。**古い workflow revision の rerun は使わない**（main の現行コードで dispatch し直す）。復旧 dispatch が成功すれば watchdog の窓に入るので、当日中の復旧なら警報は出ない。

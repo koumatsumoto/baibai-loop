@@ -98,14 +98,15 @@ manifest は全 partition object と totals を列挙し、L1 release manifest �
   buildごとに1つ保持すればlakeはpublishした量ではなくrun回数に比例して育つ。よってschema version・
   content digest・capture時刻だけを残し、bytesはoperationの終わりで回収する。
   同じ`source_id`を名乗る2つのbuildは同一入力を読んでおり、rebuildへ差し出されたstore世代はこの
-  digestで照合できる。**保証しないのは、その世代がまだ入手できること**である。lineageからのrebuild
-  保証は、cohortが必要とするtableがL1 releaseとして公開された時点（Issue #917）で、keyを持つ
-  retained sourceとして戻る。
+  digestで照合できる。**保証しないのは、その世代がまだ入手できること**である。
 
-L1 releaseはこのunionに入れない。lineage sourceはそれを再生する完全なobject graphへ解決できねばならず、
-release manifestはそのrootにすぎない。dataset manifest・Parquet objectまでを列挙・検証・
-retentionから保護するclosure resolverと、それを使うpublisher・retention・auditが揃うまでkindを
-戻さない。文字列prefixや実在しないrelease IDでsource種別を表さない。
+`SourceRef`（buildが自分の入力について述べるunion）に入るのは`sqlite_snapshot`だけである。buildが
+読むのはsealed storeであってreleaseではないからで、closure resolverの有無ではなく何を読んだかが
+決めている。`l1_release`が名乗れるのは`CohortSourceRef` — 分析cohortのlineage — で、cohortは1つの
+読みを2通りに述べる: snapshotが「どのbytesを読んだか」、releaseが「それをどこで読み直せるか」。
+release manifestはobject graphのrootにすぎないので、resolverはdataset manifestとParquet objectまで
+歩いて全部digestで検証し、歩き切れないrefは解決しない。文字列prefixや実在しないrelease IDで
+source種別を表さない。
 
 manifestとpointerを含むlake JSONは、duplicate key拒否とredacted validation errorを持つ
 共通parserだけを通し、wire size上限をparse前に検査する。partition valuesとrelease dataset
