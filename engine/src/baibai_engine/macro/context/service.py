@@ -26,7 +26,7 @@ from .models import (
     require_machine_checkable_monitoring,
     require_registry_agreement,
 )
-from .scorecard import evaluate_scorecard_from_stores
+from .scorecard import already_met_conditions_from_stores, evaluate_scorecard_from_stores
 
 
 class MacroContextConflictError(ValueError):
@@ -80,6 +80,7 @@ class MacroContextService:
                     previous_context_as_of=_context_as_of(connection, current),
                     application_db=database_path(self._db_path).resolve(),
                 )
+                _require_scorecard_conditions_not_already_met(document)
                 connection.execute(
                     """
                     INSERT INTO macro_context (
@@ -233,6 +234,51 @@ def _require_previous_scorecard_snapshot(
     ):
         raise MacroContextConflictError(
             "previous scorecard snapshot identity does not match a read-only recomputation"
+        )
+
+
+def _require_scorecard_conditions_not_already_met(document: MacroContextDocument) -> None:
+    """Reject a scenario condition that was already true when the report was written.
+
+    A condition the closing observation already meets is settled `met` by the first
+    observation after `as_of` whatever happens, so it records no view. One such condition
+    in a report of six to nine lifts the accumulated probability-versus-outcome tally,
+    which is the only calibration path the macro layer has.
+
+    The store to ask is the one the report itself was scored against: every revision
+    after the first carries a canonical scorecard snapshot naming it, and
+    `_require_previous_scorecard_snapshot` has already proved that store readable by
+    recomputing the predecessor's digest from it. A report with no such snapshot is the
+    first revision of a contract, which has no store to name — and inventing one here
+    would make the gate read whichever store happened to sit at the canonical path.
+    """
+
+    snapshot = next(
+        (
+            item
+            for item in document.inputs.machine_snapshots
+            if isinstance(item, ScorecardSnapshotInput)
+            and item.status == "ok"
+            and _is_canonical_scorecard_snapshot(item)
+        ),
+        None,
+    )
+    if snapshot is None:
+        return
+    already_met = already_met_conditions_from_stores(
+        document,
+        indicators_db_path=Path(snapshot.indicators_db),
+        rules_path=READING_RULES_PATH.parent / f"{snapshot.rules_revision}.yaml",
+    )
+    if already_met:
+        detail = "; ".join(
+            f"{item.case}[{item.condition_index}] {item.series_id} "
+            f"{item.comparison} {item.threshold} was already true at as_of "
+            f"({item.observed_at}: {item.value})"
+            for item in already_met
+        )
+        raise MacroContextConflictError(
+            f"scorecard conditions already hold at as_of {document.as_of}: {detail}"
         )
 
 
