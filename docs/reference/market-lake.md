@@ -98,7 +98,7 @@ populationを報告しなければ、checkをskipせず停止する。日や書�
 ```bash
 uv run baibai-engine lake release create \
   --mirror <local-mirror> \
-  --dataset-manifest <manifest> ...    # export-all が出した 15 本すべて
+  --dataset-manifest <manifest> ...    # export-all が出した manifest すべて
 ```
 
 `--dataset-manifest` は release policy が required とする dataset を全て満たす必要がある。欠けた
@@ -236,18 +236,18 @@ GET / backup copy / PUT は発生しない。
 
 | 段 | 何をするか |
 | --- | --- |
-| `r2_transfer.sh pull-machine` | `market.sqlite` を GET する。R2 の copy は lake が持たない 4 本だけを持つ |
-| `r2_transfer.sh hydrate-market` | current release を解決し、lake 由来 15 本を store へ積む |
+| `r2_transfer.sh pull-machine` | `market.sqlite` を GET する。R2 の copy は lake が持たない 2 本だけを持つ |
+| `r2_transfer.sh hydrate-market` | current release を解決し、lake 所有 17 本を store へ積む |
 | `baibai-batch daily` | 変更なし。ingest は store へ書き、screening は store を読む |
 | `r2_transfer.sh publish-lake` | 変わった partition だけ export → release → pointer を CAS で切り替え |
-| `r2_transfer.sh push-machine` | push 用 copy から lake 所有 15 本を空にして PUT する |
+| `r2_transfer.sh push-machine` | push 用 copy から lake 所有 17 本を空にして PUT する |
 
 **publish は push より先に置く。** 逆順で publish に失敗すると、クラウドには「今日の coverage を
 主張する store」だけが残る。coverage が「取得済み」と言う限り次の run はその範囲を取りに行かないので、
 穴が自力で塞がらない唯一の組み合わせになる。
 
 **R2 の key は `market.sqlite` のままにする。** store の同一性は変わっていない — schema version も
-19 本という構成も同じで、変わったのは 15 本の権威が lake へ移り、pull のたびに hydrate が復元する
+19 本という構成も同じで、変わったのは 17 本の権威が lake へ移り、pull のたびに hydrate が復元する
 という点だけである。
 
 **両側とも行数で fail-close する。** hydrate は release manifest が publish した行数と一致しなければ
