@@ -5,6 +5,12 @@ release and the current calibration bundle. Everything the closure of those root
 not reach is a deletion candidate; everything it reaches is kept regardless of how old
 it is.
 
+Both roots are live, and the bundle one is not about R2. This runs against any directory
+shaped like a mirror, and the local calibration store is one: it writes `lake/l2/` objects
+and switches its own bundle pointer inside its own root. Dropping the bundle root because
+no publication carries L2 content to R2 would leave that store with no roots at all, and
+every object in it a candidate once the grace period passes.
+
 There is no rollback root. Repair here means publishing forward from a local mirror that
 holds the whole graph, not stepping backwards to a generation the store was asked to
 stop serving — and a pointer that names a generation as restorable is a promise someone

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import sqlite3
 import subprocess
 from dataclasses import dataclass
@@ -9,11 +8,6 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from tests.helpers.calibration_store import (
-    publish_forward,
-    publish_panel,
-    synthetic_calibration_source,
-)
 
 from baibai_batch.storage import lake_publish as lake_publish_module
 from baibai_batch.storage.lake_publish import (
@@ -21,7 +15,6 @@ from baibai_batch.storage.lake_publish import (
     LakeCASConflict,
     LakePublishError,
     RemoteObject,
-    publish_calibration_bundle,
     publish_l1_release,
 )
 from baibai_engine.market.lake import models as lake_models
@@ -110,199 +103,10 @@ class _MemoryStore:
         return result
 
 
-def test_calibration_bundle_switches_one_pointer_after_the_complete_graph(
-    tmp_path: Path,
-) -> None:
-    mirror = tmp_path / "mirror"
-    publish_panel(
-        mirror,
-        "2026-01-30",
-        [{"ticker": "1301", "er_annual": 0.1, "pass_screen": True}],
-    )
-    publish_forward(
-        mirror,
-        "2026-01-30",
-        [{"ticker": "1301", "horizon": "1y", "status": "unresolved_future_horizon"}],
-    )
-    local_pointer = CalibrationBundlePointer.model_validate_json(
-        (mirror / current_calibration_bundle_pointer_key()).read_bytes()
-    )
-    remote = _MemoryStore()
-
-    report = publish_calibration_bundle(
-        mirror_root=mirror,
-        bundle_manifest_path=mirror / local_pointer.current.manifest_key,
-        store=remote,
-    )
-
-    assert report.bundle_id == local_pointer.current.bundle_id
-    assert current_calibration_bundle_pointer_key() in remote.values
-    assert not any(key.startswith("lake/pointers/l2/") for key in remote.values)
-    remote_pointer = CalibrationBundlePointer.model_validate_json(
-        remote.values[current_calibration_bundle_pointer_key()].body
-    )
-    assert remote_pointer.current == local_pointer.current
-
-
-def test_calibration_bundle_cas_conflict_leaves_the_previous_pointer(
-    tmp_path: Path,
-) -> None:
-    mirror = tmp_path / "mirror"
-    publish_panel(mirror, "2026-01-30", [])
-    local_pointer = CalibrationBundlePointer.model_validate_json(
-        (mirror / current_calibration_bundle_pointer_key()).read_bytes()
-    )
-    remote = _MemoryStore()
-    remote.conflict_pointer = True
-
-    with pytest.raises(LakeCASConflict):
-        publish_calibration_bundle(
-            mirror_root=mirror,
-            bundle_manifest_path=mirror / local_pointer.current.manifest_key,
-            store=remote,
-        )
-
-    assert current_calibration_bundle_pointer_key() not in remote.values
-
-
-def test_a_local_store_two_generations_ahead_still_converges(tmp_path: Path) -> None:
-    """One failed publication must not make every later generation unpublishable.
-
-    What remote serves and what the local store published last are independent facts.
-    A publisher that required them to agree would make remote reachable only from the
-    generation immediately after it: skip one, and the local store can never publish
-    again while the generation remote wants no longer exists.
-    """
-
-    mirror = tmp_path / "mirror"
-    remote = _MemoryStore()
-    publish_panel(mirror, "2026-01-30", [])
-    first = _local_bundle(mirror)
-    publish_calibration_bundle(
-        mirror_root=mirror,
-        bundle_manifest_path=mirror / first.current.manifest_key,
-        store=remote,
-    )
-    # The publication of the second generation never happens — a network failure, a
-    # cancelled run — and the store moves on to a third.
-    publish_panel(mirror, "2026-02-27", [])
-    publish_panel(mirror, "2026-03-31", [])
-    third = _local_bundle(mirror)
-
-    publish_calibration_bundle(
-        mirror_root=mirror,
-        bundle_manifest_path=mirror / third.current.manifest_key,
-        store=remote,
-    )
-
-    published = CalibrationBundlePointer.model_validate_json(
-        remote.values[current_calibration_bundle_pointer_key()].body
-    )
-    assert published.current == third.current
-
-
-def test_republishing_the_bundle_remote_already_serves_changes_nothing(tmp_path: Path) -> None:
-    mirror = tmp_path / "mirror"
-    remote = _MemoryStore()
-    publish_panel(mirror, "2026-01-30", [])
-    current = _local_bundle(mirror)
-    publish_calibration_bundle(
-        mirror_root=mirror,
-        bundle_manifest_path=mirror / current.current.manifest_key,
-        store=remote,
-    )
-    before = dict(remote.values)
-
-    report = publish_calibration_bundle(
-        mirror_root=mirror,
-        bundle_manifest_path=mirror / current.current.manifest_key,
-        store=remote,
-    )
-
-    assert report.transfers.uploaded_objects == 0
-    assert {key: value.body for key, value in remote.values.items()} == {
-        key: value.body for key, value in before.items()
-    }
-
-
-def test_a_remote_pointer_naming_this_bundle_with_another_identity_is_refused(
-    tmp_path: Path,
-) -> None:
-    mirror = tmp_path / "mirror"
-    remote = _MemoryStore()
-    publish_panel(mirror, "2026-01-30", [])
-    current = _local_bundle(mirror)
-    publish_calibration_bundle(
-        mirror_root=mirror,
-        bundle_manifest_path=mirror / current.current.manifest_key,
-        store=remote,
-    )
-    key = current_calibration_bundle_pointer_key()
-    forged = canonical_lake_model_bytes(
-        CalibrationBundlePointer(
-            current=current.current.model_copy(update={"manifest_sha256": "0" * 64}),
-        )
-    )
-    remote.values[key] = _Value(
-        body=forged,
-        etag=hashlib.md5(forged, usedforsecurity=False).hexdigest(),  # nosec B324
-        metadata={
-            "sha256": hashlib.sha256(forged).hexdigest(),
-            "content-md5": "present",
-            "integrity": "content-md5-v1",
-        },
-        content_type="application/json",
-    )
-
-    with pytest.raises(LakePublishError, match="different identity"):
-        publish_calibration_bundle(
-            mirror_root=mirror,
-            bundle_manifest_path=mirror / current.current.manifest_key,
-            store=remote,
-        )
-
-
 def _local_bundle(mirror: Path) -> CalibrationBundlePointer:
     return CalibrationBundlePointer.model_validate_json(
         (mirror / current_calibration_bundle_pointer_key()).read_bytes()
     )
-
-
-def test_calibration_acceptance_can_republish_from_a_fresh_local_mirror(
-    tmp_path: Path,
-) -> None:
-    remote = _MemoryStore()
-    first_mirror = tmp_path / "first-run"
-    publish_panel(first_mirror, "2026-01-30", [])
-    first = CalibrationBundlePointer.model_validate_json(
-        (first_mirror / current_calibration_bundle_pointer_key()).read_bytes()
-    )
-    publish_calibration_bundle(
-        mirror_root=first_mirror,
-        bundle_manifest_path=first_mirror / first.current.manifest_key,
-        store=remote,
-    )
-
-    fresh_mirror = tmp_path / "next-run"
-    publish_panel(fresh_mirror, "2026-02-27", [])
-    fresh = CalibrationBundlePointer.model_validate_json(
-        (fresh_mirror / current_calibration_bundle_pointer_key()).read_bytes()
-    )
-    aligned = CalibrationBundlePointer(current=fresh.current)
-    (fresh_mirror / current_calibration_bundle_pointer_key()).write_bytes(
-        lake_models.canonical_lake_model_bytes(aligned)
-    )
-
-    publish_calibration_bundle(
-        mirror_root=fresh_mirror,
-        bundle_manifest_path=fresh_mirror / fresh.current.manifest_key,
-        store=remote,
-    )
-
-    current = CalibrationBundlePointer.model_validate_json(
-        remote.get_bytes(current_calibration_bundle_pointer_key())
-    )
-    assert current.current == fresh.current
 
 
 @pytest.fixture(autouse=True)
@@ -685,85 +489,6 @@ def test_r2_adapter_classifies_409_and_timeout(
     monkeypatch.setattr(lake_publish_module.subprocess, "run", timeout)
     with pytest.raises(LakePublishError, match="timed out"):
         store._run("put-object", "--key", "test")
-
-
-def test_a_cohort_built_from_a_sealed_store_publishes_its_identity_and_no_bytes(
-    tmp_path: Path,
-) -> None:
-    """The path a normal build produces reaches the remote current pointer.
-
-    A cohort's sealed-store reference carries identity only, so publication has nothing
-    to upload for it: the remote graph states which store generation the rows came from
-    without the durable inventory growing by the whole legacy store per generation.
-    """
-
-    mirror = tmp_path / "mirror"
-    publish_panel(
-        mirror,
-        "2026-01-30",
-        [{"ticker": "1301", "er_annual": 0.1, "pass_screen": True}],
-    )
-    publish_forward(
-        mirror,
-        "2026-01-30",
-        [{"ticker": "1301", "horizon": "1y", "status": "unresolved_future_horizon"}],
-    )
-    local_pointer = CalibrationBundlePointer.model_validate_json(
-        (mirror / current_calibration_bundle_pointer_key()).read_bytes()
-    )
-    bundle_path = mirror / local_pointer.current.manifest_key
-    remote = _MemoryStore()
-
-    report = publish_calibration_bundle(
-        mirror_root=mirror,
-        bundle_manifest_path=bundle_path,
-        store=remote,
-    )
-
-    assert current_calibration_bundle_pointer_key() in remote.values
-    assert report.transfers.uploaded_bytes > 0
-    bundle = json.loads(remote.values[bundle_path.relative_to(mirror).as_posix()].body)
-    cohort_sources = {
-        source["source_id"]
-        for dataset in bundle["datasets"].values()
-        for manifest in [json.loads(remote.values[dataset["manifest_key"]].body)]
-        for cohort in manifest["cohort_inventory"].values()
-        for source in cohort["sources"]
-    }
-    assert cohort_sources == {synthetic_calibration_source().source_id}
-    assert all(
-        key.startswith(("lake/l2/", "lake/manifests/", "lake/pointers/")) for key in remote.values
-    )
-
-
-def test_calibration_bundle_accepts_datasets_built_at_different_commits(tmp_path: Path) -> None:
-    """Maturing forward outcomes must not require rebuilding the panels they score."""
-
-    mirror = tmp_path / "mirror"
-    publish_panel(
-        mirror,
-        "2026-01-30",
-        [{"ticker": "1301", "er_annual": 0.1, "pass_screen": True}],
-        producer_commit="a" * 40,
-    )
-    publish_forward(
-        mirror,
-        "2026-01-30",
-        [{"ticker": "1301", "horizon": "1y", "status": "resolved", "price_return": 0.1}],
-        producer_commit="b" * 40,
-    )
-    local_pointer = CalibrationBundlePointer.model_validate_json(
-        (mirror / current_calibration_bundle_pointer_key()).read_bytes()
-    )
-    remote = _MemoryStore()
-
-    report = publish_calibration_bundle(
-        mirror_root=mirror,
-        bundle_manifest_path=mirror / local_pointer.current.manifest_key,
-        store=remote,
-    )
-
-    assert report.bundle_id == local_pointer.current.bundle_id
 
 
 def test_operation_timeout_covers_the_object_it_transfers() -> None:

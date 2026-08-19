@@ -493,6 +493,12 @@ retention の root は 2 種類で、そこから到達できる object は齢�
 - calibration bundle の current（3 datasetの完全closure）
 - L1 の current release
 
+`gc` は mirror の形をした directory であれば何に対しても回せるので、この 2 root はどちらも live で
+ある。**較正 store（`stores/screening/calibration/`）自身が bundle root を持つ mirror** で、
+`lake gc --mirror stores/screening/calibration` は pointer から 3 dataset の closure を辿って全 object を
+到達可能にする。bundle root を「R2 publish 用」と読むと、この store 全体が 30 日の grace の後に
+削除候補へ変わる。検証は下の dry-run で `roots` に pointer が出ることを見る。
+
 ```bash
 uv run baibai-engine lake gc --mirror <local-mirror>
 uv run baibai-engine lake gc --mirror <local-mirror> --apply --plan-hash <hash>
@@ -538,30 +544,22 @@ GC の候補は current closure から未到達な object だけで、grace 期�
 固定し、1 回の sweep で local mirror から削除する。R2側の削除はBucket Lock
 満了後にDelete専用retention finalizerが同じcandidate identityを検証する運用境界とする。
 
-R2へのpublishは3 datasetのobject/source/manifestとbundle manifestを`If-None-Match: *`で転送し、
-最後にbundle pointerだけをETag `If-Match`で切り替える。
+**L2 calibration はローカル資産で、R2 へ publish しない。** 較正 store は market/ledger evidence から
+再生成できるローカル成果物で、cloud 側にこれを読む consumer が居ない。R2 に calibration bundle
+pointer は存在せず、bundle を出す publish 経路も持たない。読者が現れた時点で設計し直す。
 
-cohort sourceのうちbytesを保持するもの（`calibration_input`）はそのbundleと一緒にuploadされ、
-durable remote inventoryはcohortが実際に保持する分だけ増える。sealed SQLiteは素性だけなので運ぶ
-bytesがなく、通常のcalibration-buildが作ったbundleはそのままremoteへ公開できる。
+これがローカル資産でいられるのは cohort source が `rebuildable_input` にならない間だけの都合では
+なく、consumer が居ないという理由による。cohort source の水準の話は下段の「引き換えに失うもの」を
+読む。
 
 **引き換えに失うもの**: 過去cohortをbyte単位でrebuildする「保証」は、この段階では持たない。同じ
 digestのmarket store世代があれば再現でき、digestで照合もできるが、その世代がまだ入手できることは
 lakeが保証しない。保証が戻るのは、cohortが必要とするtableがL1 releaseとして公開され、keyを持つ
 `rebuildable_input`になった時点である（Issue #917）。
 
-L1 releaseと違い、この経路は日次経路から呼ばれない。L2 cohortのsourceがまだ
-`rebuildable_input`にならないので publish する意味が無く、R2に calibration bundle pointer は
-存在しない。手で publish する場合だけ使う。
-
-```bash
-uv run python -m baibai_batch.storage.lake_publish \
-  --mirror <local-mirror> \
-  --calibration-bundle <bundle-manifest>
-```
-
-current bundleに問題がある場合も、直すのは前へ publish することである。local storeで作り直した
-generationを publish すれば pointer は 1 回のCASでそれを指す。
+current bundleに問題がある場合、直すのは前へ build することである。local storeで作り直した
+generationを `calibration-build` が publish すれば、bundle pointer は 1 回のCASでそれを指す。
+これは較正 store 内で完結する操作で、R2 は関与しない。
 
 旧CSV storeからの移行機構は持たない。**旧 store を捨てて全 cohort を再構築する。** 実測では、
 rulesがその間に動いているため旧storeのcohortは1件もそのまま使えず、移行を作っても達成するのは
