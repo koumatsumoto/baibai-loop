@@ -425,6 +425,77 @@ def test_documented_command_gate_accepts_a_complete_command(tmp_path: Path) -> N
     assert check_documented_commands.check(tmp_path) == []
 
 
+def _transfer_script(root: Path, *names: str) -> None:
+    """A stand-in for `r2_transfer.sh` carrying only the dispatch the gate reads."""
+
+    path = root / "batch" / "scripts" / "r2_transfer.sh"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    branches = "".join(f"  {name})\n    :\n    ;;\n" for name in names)
+    path.write_text(
+        f'case "${{1:-}}" in\n{branches}  *)\n    usage\n    exit 2\n    ;;\nesac\n',
+        encoding="utf-8",
+    )
+
+
+def test_documented_command_gate_rejects_an_absent_transfer_subcommand(tmp_path: Path) -> None:
+    """A skill line naming a subcommand the script has no branch for dies on `usage`.
+
+    This is the shape the Materialize section carried for months: `upload-serving`
+    instead of `upload-serving-views`, past a gate that only looked at `uv run` lines.
+    """
+
+    _transfer_script(tmp_path, "upload-serving-views")
+    _skill(tmp_path, "```bash\nbatch/scripts/r2_transfer.sh upload-serving <dir>\n```\n")
+
+    assert check_documented_commands.check(tmp_path) == [
+        (
+            ".agents/skills/demo/SKILL.md: `batch/scripts/r2_transfer.sh upload-serving <dir>` "
+            "names no r2_transfer subcommand (upload-serving)"
+        )
+    ]
+
+
+def test_documented_command_gate_accepts_a_transfer_subcommand_the_script_dispatches(
+    tmp_path: Path,
+) -> None:
+    _transfer_script(tmp_path, "pull-machine", "upload-serving-views")
+    _skill(
+        tmp_path,
+        "```bash\nbatch/scripts/r2_transfer.sh pull-machine\n```\n"
+        "`batch/scripts/r2_transfer.sh upload-serving-views <dir>` で出す。\n",
+    )
+
+    assert check_documented_commands.check(tmp_path) == []
+
+
+def test_documented_command_gate_reads_the_dispatch_the_repository_script_runs() -> None:
+    """Read from the branch that runs, not from the usage line beside it.
+
+    A parser that returned nothing would call every documented line unknown and be
+    noticed; one that returned too much would pass the very name this gate exists to
+    reject, and nothing else would say so.
+    """
+
+    names = check_documented_commands.transfer_subcommands(ROOT)
+
+    assert {"pull-machine", "push-machine", "upload-serving-views"} <= names
+    assert "upload-serving" not in names
+    assert "*" not in names
+
+
+def test_documented_command_gate_resolves_batch_modules(tmp_path: Path) -> None:
+    """`baibai_batch.` は skill に書かれた日まで entry point として解決されなかった。"""
+
+    _skill(tmp_path, "```bash\nuv run python -m baibai_batch.observability.discord\n```\n")
+
+    assert check_documented_commands.check(tmp_path) == [
+        (
+            ".agents/skills/demo/SKILL.md: "
+            "`uv run python -m baibai_batch.observability.discord` omits required --output"
+        )
+    ]
+
+
 def test_documented_command_gate_reads_inline_code_spans(tmp_path: Path) -> None:
     """手順の途中に 1 行で置かれた command も、fenced block と同じ実行対象である。"""
 
