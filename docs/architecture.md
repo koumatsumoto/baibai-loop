@@ -86,10 +86,10 @@ R2 key は `lake/` 以下だけを使い、segment allowlist で path traversal 
 partition は `year/month`、file は ZSTD Parquet、object name は content SHA-256 とする。dataset
 manifest は全 partition object と totals を列挙し、L1 release manifest は互換な dataset build の
 組を一つの `release_id` へ固定する。logical object identity は key・SHA-256・bytes・rows・schema
-で決まり、object-store固有のETagはpublish/CASのtransport stateにだけ置く。lineageは`sqlite_snapshot`・`calibration_input`を区別するtyped `SourceRef`で表す。
-kindは**bytesを保持するかどうか**の2族に分かれ、それが型の違いになる。
+で決まり、object-store固有のETagはpublish/CASのtransport stateにだけ置く。lineageはtyped `SourceRef`で表す。kindは**bytesを保持するかどうか**の2族に分かれ、
+それが型の違いになる。
 
-- **retained**（`calibration_input`・`l1_release`）はlake内のkeyを名乗る。keyを名乗ることは
+- **retained**（`l1_release`）はlake内のkeyを名乗る。keyを名乗ることは
   「そのbytesが到達可能で、collectionから守られ、そのbuildを運ぶpublicationが一緒に運ぶ」という
   約束であり、その大きさをlakeが世代の寿命だけ保持する意思のあるsourceだけが名乗れる。resolverは
   key・SHA-256・source側versionを検証する。

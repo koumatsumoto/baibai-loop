@@ -25,7 +25,6 @@ current pointerを1度だけ解決し、`lake hydrate`はその固定releaseか�
 | `application/baibai.sqlite` | local canonical、cloud replica | engine application service | `baibai-engine db backup`。自動 rebuild 禁止 | `batch/scripts/publish.sh` |
 | `market/market.sqlite` | fetch由来15 tableはR2のL1 releaseから再構築されるruntime copy、残る4 tableはここがcanonical | provider + controlled merge | releaseからhydrate、または screening cache command で再取得可能 | lake所有15 tableを空にしてから push |
 | R2 `lake/l1/` | fetch由来15 datasetのcanonical L1 | lake publisher | source再取得またはlegacy SQLite seedからimmutable rebuild | content object + manifest + CAS pointer |
-| R2 `lake/l2/` | rebuildable analytical authority | analytical build | fixed input generationからimmutable rebuild | calibrationはatomic bundle pointer |
 | `lake/` | disposable local R2 mirror / staging / content-addressed object cache | lake build | R2 manifestから再取得可能 | authorityにしない |
 | `macro/macro.sqlite` | cloud rolling + local full history | macro indicator service + controlled merge | provider series から再取得可能 | no-loss merge 後のみ push |
 | `screening/runs.sqlite` | cloud canonical | daily batch screening service | screening run から再生成可能 | local から push 禁止 |

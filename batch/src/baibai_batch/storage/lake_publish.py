@@ -20,22 +20,15 @@ from typing import Protocol
 from pydantic import BaseModel
 
 from baibai_engine.batch_api import (
-    CalibrationBundleManifest,
-    CalibrationBundlePointer,
-    CalibrationBundleRef,
     L1ReleasePointer,
     LakeDatasetManifest,
     LakeReleaseManifest,
     LakeSQLiteSnapshotSourceRef,
     canonical_lake_model_bytes,
-    canonical_manifest_bytes,
-    lake_current_calibration_bundle_pointer_key,
     lake_current_l1_pointer_key,
     lake_dataset_manifest_key,
     lake_release_manifest_key,
-    lake_verified_source_scope,
     load_lake_model_json,
-    require_calibration_generation,
     validate_lake_release_policy,
 )
 
@@ -123,20 +116,6 @@ class PublishReport:
     def as_dict(self) -> dict[str, object]:
         return {
             "release_id": self.release_id,
-            "pointer_etag": self.pointer_etag,
-            **self.transfers.as_dict(),
-        }
-
-
-@dataclass(frozen=True)
-class CalibrationBundlePublishReport:
-    bundle_id: str
-    transfers: TransferReport
-    pointer_etag: str
-
-    def as_dict(self) -> dict[str, object]:
-        return {
-            "bundle_id": self.bundle_id,
             "pointer_etag": self.pointer_etag,
             **self.transfers.as_dict(),
         }
@@ -582,204 +561,6 @@ def _require_remote_l1_closure(
                 )
 
 
-def publish_calibration_bundle(
-    *,
-    mirror_root: Path,
-    bundle_manifest_path: Path,
-    store: ObjectStore,
-    verify_bytes: bool = False,
-) -> CalibrationBundlePublishReport:
-    """Publish a complete three-dataset graph, then switch one bundle pointer by CAS."""
-
-    with lake_verified_source_scope():
-        return _publish_calibration_bundle(
-            mirror_root=mirror_root,
-            bundle_manifest_path=bundle_manifest_path,
-            store=store,
-            verify_bytes=verify_bytes,
-        )
-
-
-def _publish_calibration_bundle(
-    *,
-    mirror_root: Path,
-    bundle_manifest_path: Path,
-    store: ObjectStore,
-    verify_bytes: bool,
-) -> CalibrationBundlePublishReport:
-    publication = _RemotePublication(store=store, verify_bytes=verify_bytes)
-    root = mirror_root.resolve()
-    resolved_bundle_path = bundle_manifest_path.resolve()
-    if not resolved_bundle_path.is_relative_to(root):
-        raise LakePublishError("calibration bundle manifest path escapes mirror root")
-    bundle_payload = resolved_bundle_path.read_bytes()
-    bundle = load_lake_model_json(bundle_payload, CalibrationBundleManifest)
-    bundle_sha256 = hashlib.sha256(bundle_payload).hexdigest()
-    bundle_reference = CalibrationBundleRef(
-        bundle_id=bundle.bundle_id,
-        manifest_key=f"lake/manifests/calibration-bundles/{bundle.bundle_id}.json",
-        manifest_sha256=bundle_sha256,
-    )
-    local_pointer_path = _mirror_path(mirror_root, lake_current_calibration_bundle_pointer_key())
-    local_pointer = load_lake_model_json(local_pointer_path.read_bytes(), CalibrationBundlePointer)
-    if local_pointer.current != bundle_reference:
-        raise LakePublishError("calibration bundle is not the local current pointer identity")
-    if resolved_bundle_path != _mirror_path(
-        mirror_root, f"lake/manifests/calibration-bundles/{bundle.bundle_id}.json"
-    ):
-        raise LakePublishError("calibration bundle path does not match its identity")
-
-    uploads: dict[str, tuple[Path, str, str, int]] = {}
-    dataset_manifests: dict[str, LakeDatasetManifest] = {}
-    for name, reference in bundle.datasets.items():
-        manifest_path = _mirror_path(mirror_root, reference.manifest_key)
-        manifest_payload = manifest_path.read_bytes()
-        if hashlib.sha256(manifest_payload).hexdigest() != reference.manifest_sha256:
-            raise LakePublishError(f"calibration bundle dataset digest differs: {name}")
-        manifest = load_lake_model_json(manifest_payload, LakeDatasetManifest)
-        if (
-            manifest.dataset != name
-            or manifest.build_id != reference.build_id
-            or manifest.totals.rows != reference.rows
-        ):
-            raise LakePublishError(f"calibration bundle dataset identity differs: {name}")
-        dataset_manifests[name] = manifest
-        for partition in manifest.partitions:
-            for lake_object in partition.objects:
-                object_path = _mirror_path(mirror_root, lake_object.key)
-                if (
-                    _sha256(object_path) != lake_object.sha256
-                    or object_path.stat().st_size != lake_object.bytes
-                ):
-                    raise LakePublishError(
-                        f"local object does not match manifest: {lake_object.key}"
-                    )
-                uploads[lake_object.key] = (
-                    object_path,
-                    "application/vnd.apache.parquet",
-                    lake_object.sha256,
-                    lake_object.bytes,
-                )
-        uploads[reference.manifest_key] = (
-            manifest_path,
-            "application/json",
-            reference.manifest_sha256,
-            len(manifest_payload),
-        )
-    # The generation's cohort inventory is derived from the three dataset manifests, so
-    # what has to hold is that they compose into one series. Nothing here can disagree
-    # with the bundle, because the bundle does not restate it.
-    try:
-        require_calibration_generation(dataset_manifests)
-    except ValueError as exc:
-        raise LakePublishError(f"calibration bundle is not one generation: {exc}") from exc
-    bundle_key = f"lake/manifests/calibration-bundles/{bundle.bundle_id}.json"
-    uploads[bundle_key] = (
-        resolved_bundle_path,
-        "application/json",
-        bundle_sha256,
-        len(bundle_payload),
-    )
-
-    for key, (path, content_type, digest, size) in sorted(uploads.items()):
-        _ensure_immutable(
-            publication,
-            key=key,
-            path=path,
-            content_type=content_type,
-            expected_sha256=digest,
-            expected_size=size,
-        )
-
-    pointer_key = lake_current_calibration_bundle_pointer_key()
-    current = publication.head(pointer_key)
-    if current is not None:
-        old_pointer = load_lake_model_json(
-            publication.read_pointer(pointer_key, current), CalibrationBundlePointer
-        )
-        # Republishing the generation remote already serves is the retry of an
-        # interrupted publication, and it has to be exactly the same generation rather
-        # than the same name.
-        if old_pointer.current.bundle_id == bundle.bundle_id:
-            if old_pointer.current != bundle_reference:
-                raise LakePublishError("bundle ID is already current with a different identity")
-            _require_remote_calibration_closure(publication, old_pointer.current)
-            return CalibrationBundlePublishReport(
-                bundle_id=bundle.bundle_id,
-                transfers=publication.report(),
-                pointer_etag=current.etag,
-            )
-    remote_pointer = CalibrationBundlePointer(current=bundle_reference)
-    pointer_payload = canonical_manifest_bytes(remote_pointer)
-    with tempfile.NamedTemporaryFile(
-        prefix="baibai-calibration-pointer-", suffix=".json"
-    ) as temporary:
-        temporary.write(pointer_payload)
-        temporary.flush()
-        try:
-            result = publication.put(
-                pointer_key,
-                Path(temporary.name),
-                sha256=hashlib.sha256(pointer_payload).hexdigest(),
-                content_md5=_content_md5(Path(temporary.name)),
-                content_type="application/json",
-                if_match=current.etag if current is not None else None,
-                if_none_match=current is None,
-            )
-        except LakeCASConflict:
-            raise
-        except Exception as exc:
-            raise LakePublishError("calibration bundle pointer switch failed") from exc
-    publication.require_pointer_bytes(key=pointer_key, expected=pointer_payload)
-    return CalibrationBundlePublishReport(
-        bundle_id=bundle.bundle_id,
-        transfers=publication.report(),
-        pointer_etag=result.etag,
-    )
-
-
-def _require_remote_calibration_closure(
-    publication: _RemotePublication, reference: CalibrationBundleRef
-) -> None:
-    bundle = _remote_json_model(
-        publication,
-        key=reference.manifest_key,
-        expected_sha256=reference.manifest_sha256,
-        model=CalibrationBundleManifest,
-    )
-    if bundle.bundle_id != reference.bundle_id:
-        raise LakePublishError("remote calibration bundle identity differs")
-    manifests: dict[str, LakeDatasetManifest] = {}
-    for name, dataset_ref in bundle.datasets.items():
-        manifest = _remote_json_model(
-            publication,
-            key=dataset_ref.manifest_key,
-            expected_sha256=dataset_ref.manifest_sha256,
-            model=LakeDatasetManifest,
-        )
-        if (
-            manifest.dataset != name
-            or manifest.build_id != dataset_ref.build_id
-            or manifest.totals.rows != dataset_ref.rows
-        ):
-            raise LakePublishError(f"remote calibration dataset identity differs: {name}")
-        manifests[name] = manifest
-        for partition in manifest.partitions:
-            for lake_object in partition.objects:
-                publication.require_identity(
-                    key=lake_object.key,
-                    expected_sha256=lake_object.sha256,
-                    expected_size=lake_object.bytes,
-                    content_type="application/vnd.apache.parquet",
-                )
-    # The same composition the local reader derives, checked against what remote
-    # actually holds: remote is where an alternate writer's store would arrive.
-    try:
-        require_calibration_generation(manifests)
-    except ValueError as exc:
-        raise LakePublishError(f"remote calibration bundle is not one generation: {exc}") from exc
-
-
 def _remote_json_model[ModelT: BaseModel](
     publication: _RemotePublication,
     *,
@@ -988,9 +769,7 @@ class AwsCliR2Store:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mirror", type=Path)
-    target = parser.add_mutually_exclusive_group(required=True)
-    target.add_argument("--release-manifest", type=Path)
-    target.add_argument("--calibration-bundle", type=Path)
+    parser.add_argument("--release-manifest", type=Path, required=True)
     parser.add_argument("--bucket", default="baibai-stores")
     parser.add_argument(
         "--verify-bytes",
@@ -1009,16 +788,6 @@ def main(argv: list[str] | None = None) -> int:
     store = AwsCliR2Store(bucket=args.bucket)
     if args.mirror is None:
         parser.error("--mirror is required for publication")
-    if args.calibration_bundle is not None:
-        bundle_report = publish_calibration_bundle(
-            mirror_root=args.mirror,
-            bundle_manifest_path=args.calibration_bundle,
-            store=store,
-            verify_bytes=args.verify_bytes,
-        )
-        print(json.dumps(bundle_report.as_dict(), sort_keys=True))
-        return 0
-    assert args.release_manifest is not None
     release_report = publish_l1_release(
         mirror_root=args.mirror,
         release_manifest_path=args.release_manifest,
