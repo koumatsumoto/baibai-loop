@@ -10,13 +10,11 @@ from .cache import (
     backfill_master_command,
     bootstrap_cache_command,
     invalidate_coverage_command,
-    verify_cache_coverage_command,
 )
 from .edinet_extract import extract_edinet_metrics_command
 from .providers import ProviderBundle
 from .query import (
     market_snapshot_command,
-    select_command,
     ticker_profile_command,
 )
 from .run import run_command
@@ -32,7 +30,5 @@ __all__ = [
     "main",
     "market_snapshot_command",
     "run_command",
-    "select_command",
     "ticker_profile_command",
-    "verify_cache_coverage_command",
 ]
