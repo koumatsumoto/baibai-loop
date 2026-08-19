@@ -38,14 +38,14 @@ _WRITE_GATES = frozenset({"market_calendar_business_day", "previous_run_revision
 _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
     {
         *_NOT_STORE_READERS,
+        "connect_read_only",  # opens the connection the queries run on, not a query
+        "is_unwritten_store",  # classifies an exception, not a store
         "macro_registered_series",  # reads the bundled definitions, not a store
         "macro_series_names",  # reads the bundled definitions, not a store
+        "read_rows",  # takes the SQL to run, which this file would have to invent
         "reconcile_portfolio",  # takes a document, not a path
         "reject_noncanonical_store_paths",  # startup layout guard, not a query
         "repository_root_error",  # inspects a directory layout, not a store
-        "connect_read_only",  # opens the connection the queries run on, not a query
-        "is_unwritten_store",  # classifies an exception, not a store
-        "read_rows",  # takes the SQL to run, which this file would have to invent
         "safe_load",  # a YAML helper re-exported for callers
         "screening_calibration_method_identity",  # reads Git-managed method config
         "store_stats",  # takes a store name alongside its path
