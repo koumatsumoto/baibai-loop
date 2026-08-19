@@ -124,6 +124,14 @@ storeごとに正本の所在が違う。ローカルで進めたstoreをクラ�
 
 **store schemaを上げるmergeは、移行済みstoreのpushまでが1つの作業である。** クラウドのcodeはstoreのschema版を検査してfail-closeするので、codeだけがmainへ入った状態ではその日の日次batchが落ち、serving viewが更新されない。migrationをmergeしたら、同じ作業の中でローカルを移行し、`integrity_check`と行数を移行前と突き合わせてからpushする。「次のcycleで一緒に出す」と後回しにしない。
 
+**lake の export 意味論を変えるmergeは、full rebuild releaseのpublishまでが1つの作業である。**
+`market/lake/writer.py`・`market/lake/datasets.py`・`market/sqlite/coverage.py` のsemanticな変更
+（comment / docstring / 整形はfingerprintに入らないので該当しない）はexportの`transform_fingerprint`を
+動かす。日次batchの増分publishは前世代のfingerprintで作られたbase manifestを継ぎ足せないので、
+**翌定時の日次batchがpublish-lakeでfail-closeする**。自然治癒しないので、full rebuildをpublishする
+まで毎日同じ場所で落ちる。手順は
+[`batch/OPERATIONS.md`](./batch/OPERATIONS.md#fingerprint-変更後の-full-rebuild)を正本とする。
+
 ## Repository-local skills
 
 repository-local skillの正本は`.agents/skills/<name>/SKILL.md`である（一覧と選び方は上記「運用の入口」）。`.claude/skills/<name>`は同じdirectoryへのrelative symlinkであり、別内容として編集しない。skillが参照するreferenceとpublic `--help`を優先し、tests/fixturesやsrcから日常手順を推測しない。

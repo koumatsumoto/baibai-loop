@@ -26,6 +26,7 @@ from pathlib import Path
 from baibai_engine.batch_api import (
     LAKE_DATASETS,
     L1ReleasePointer,
+    LakeBuildError,
     LakeReleaseManifest,
     create_lake_l1_release,
     export_lake_legacy,
@@ -264,6 +265,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+RECOVERY_RUNBOOK_SECTION = "fingerprint 変更後の full rebuild"
+"""The `batch/OPERATIONS.md` section that carries the command this failure needs."""
+
+_FULL_REBUILD_RECOVERY = (
+    "no retry clears this: the base release was built under a different export "
+    "fingerprint, and every scheduled batch stops here until a full rebuild is "
+    f'published. Follow "{RECOVERY_RUNBOOK_SECTION}" in batch/OPERATIONS.md.'
+)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
@@ -276,6 +287,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             release_id=args.release_id,
             full_rebuild=args.full_rebuild,
         )
+    except LakeBuildError as error:
+        # The export refuses a base built under a different transform fingerprint. That
+        # is the guard working, but the run log used to end in a traceback that named no
+        # way out — and the state does not clear on its own, so every scheduled batch
+        # stops in the same place until a full rebuild is published. The pointer lives
+        # here rather than in the writer's message because the writer's source is one of
+        # the three files the fingerprint is taken over: editing this wording there would
+        # move the fingerprint and demand the very rebuild it describes.
+        print(f"error: {error}", file=sys.stderr)
+        print(f"error: {_FULL_REBUILD_RECOVERY}", file=sys.stderr)
+        return 1
     except LakePublishError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
