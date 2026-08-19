@@ -53,22 +53,37 @@ if [[ "$1 $2" == "s3api head-object" ]]; then
     fi
     shift
   done
+  slug="$(printf '%s' "$key" | tr / _)"
   if [[ -n "$wants_etag" ]]; then
     # Counts the calls per key so a test can make one object change mid-pull:
     # the version query runs once before the downloads and once after.
-    calls="${AWS_FAKE_STATE}/$(printf '%s' "$key" | tr / _)"
+    calls="${AWS_FAKE_STATE}/calls-${slug}"
     printf 'x' >> "$calls"
     if [[ -n "${AWS_FAKE_ETAG_OVERRIDE:-}" ]]; then
       printf '%s\n' "${AWS_FAKE_ETAG_OVERRIDE}"
     elif [[ "$key" == "${AWS_FAKE_CHANGED_KEY:-}" ]]; then
       printf '"etag-%s"\\n' "$(wc -c < "$calls" | tr -d ' ')"
+    elif [[ -s "${AWS_FAKE_STATE}/generation-${slug}" ]]; then
+      # An upload changes the object, so every later read of it reads a new version.
+      # Without this the fake lets a conditional PUT bound to the pulled generation
+      # succeed twice, which no real bucket does.
+      printf '"etag-put-%s"\\n' "$(wc -c < "${AWS_FAKE_STATE}/generation-${slug}" | tr -d ' ')"
     else
       printf '"etag-stable"\\n'
     fi
     exit 0
   fi
-  # A colon-separated list so a test can make the bundle receipt exist beside the
-  # backup key the push path checks for.
+  if [[ -f "${AWS_FAKE_STATE}/deleted-${slug}" ]]; then
+    printf 'An error occurred (404) when calling the HeadObject operation\\n' >&2
+    exit 254
+  fi
+  # Uploaded objects exist from then on. The colon-separated list seeds what the bucket
+  # held before the run, so a test can make the bundle receipt exist beside the backup
+  # key the push path checks for.
+  if [[ -s "${AWS_FAKE_STATE}/generation-${slug}" ]]; then
+    printf '{"ContentLength": 1}\\n'
+    exit 0
+  fi
   for existing in ${AWS_FAKE_EXISTING_KEY:+${AWS_FAKE_EXISTING_KEY//:/ }}; do
     if [[ "$key" == "$existing" ]]; then
       printf '{"ContentLength": 1}\\n'
@@ -77,6 +92,19 @@ if [[ "$1 $2" == "s3api head-object" ]]; then
   done
   printf 'An error occurred (404) when calling the HeadObject operation\\n' >&2
   exit 254
+fi
+if [[ "$1 $2" == "s3api delete-object" ]]; then
+  key=""
+  while [[ $# -gt 0 ]]; do
+    if [[ "$1" == "--key" ]]; then
+      key="$2"
+    fi
+    shift
+  done
+  slug="$(printf '%s' "$key" | tr / _)"
+  printf 'x' > "${AWS_FAKE_STATE}/deleted-${slug}"
+  rm -f "${AWS_FAKE_STATE}/generation-${slug}" "${AWS_FAKE_STATE}/put-${slug}"
+  exit 0
 fi
 if [[ "$1 $2" == "s3api list-objects-v2" ]]; then
   # `--query Contents[].Key --output text` prints the keys on one tab-separated line,
@@ -96,6 +124,13 @@ if [[ "$1 $2" == "s3api get-object" ]]; then
   done
   if [[ -n "${AWS_FAKE_OBJECT_BODY:-}" && "$key" == "${AWS_FAKE_OBJECT_KEY:-}" ]]; then
     printf '%s' "$AWS_FAKE_OBJECT_BODY" > "$destination"
+    exit 0
+  fi
+  # Otherwise the bucket answers with what was uploaded to that key, so a test can push
+  # and then read the object the push wrote rather than one the test composed for it.
+  stored="${AWS_FAKE_STATE}/put-$(printf '%s' "$key" | tr / _)"
+  if [[ -f "$stored" ]]; then
+    cp "$stored" "$destination"
     exit 0
   fi
   printf 'An error occurred (NoSuchKey) when calling the GetObject operation\\n' >&2
@@ -126,10 +161,20 @@ if [[ "$1 $2" == "s3api put-object" ]]; then
     printf 'An error occurred (InternalError) when calling PutObject\n' >&2
     exit 253
   fi
+  slug="$(printf '%s' "$key" | tr / _)"
+  printf 'x' >> "${AWS_FAKE_STATE}/generation-${slug}"
+  rm -f "${AWS_FAKE_STATE}/deleted-${slug}"
   exit 0
 fi
 if [[ "$1 $2" == "s3 cp" && "$3" == s3://* ]]; then
   printf 'x' > "$4"
+fi
+if [[ "$1 $2" == "s3 cp" && "$4" == s3://* ]]; then
+  key="${4#s3://}"
+  key="${key#*/}"
+  slug="$(printf '%s' "$key" | tr / _)"
+  printf 'x' >> "${AWS_FAKE_STATE}/generation-${slug}"
+  rm -f "${AWS_FAKE_STATE}/deleted-${slug}"
 fi
 """,
         encoding="utf-8",
@@ -889,7 +934,10 @@ def test_a_bundle_pull_refuses_a_set_the_receipt_does_not_name(tmp_path: Path) -
     assert completed.returncode == 1
     assert "R2 holds market.sqlite at generation etag-stable" in completed.stderr
     assert "receipt names etag-before-the-failed-push" in completed.stderr
-    assert "Wait for the next daily batch to finish and pull again" in completed.stderr
+    assert "wait for it to finish and pull again" in completed.stderr
+    # Not "retry": a push that stopped partway is not cleared by running it again.
+    assert "no retry clears this by itself" in completed.stderr
+    assert "batch/OPERATIONS.md" in completed.stderr
     # The refusal happens before anything is downloaded, so the local stores stand.
     assert not any(
         command.startswith("s3 cp s3://baibai-stores/")
@@ -922,11 +970,35 @@ def test_a_receipt_that_does_not_read_back_refuses_rather_than_passing(tmp_path:
     assert "receipt names no generation" in completed.stderr
 
 
-def test_a_retried_push_publishes_the_same_generation_and_writes_the_receipt(
-    tmp_path: Path,
-) -> None:
-    """Recovery is the same command again: the conditional PUTs are bound to the
-    generation this run pulled, so the keys already at it are simply rewritten."""
+RECOVERY_SECTION = "部分 push からの復旧"
+
+
+def test_the_rejection_names_a_recovery_the_runbook_actually_carries() -> None:
+    """The message is the only thing an operator has at the moment the pull stops.
+
+    It used to say "re-dispatch the batch", which cannot work: the re-dispatch starts
+    with the same pull and stops at the same place. Pointing at a section is only better
+    while the section exists and carries the step it promises.
+    """
+
+    message = (REPO_ROOT / "batch/scripts/r2_transfer.sh").read_text(encoding="utf-8")
+    runbook = (REPO_ROOT / "batch/OPERATIONS.md").read_text(encoding="utf-8")
+
+    assert RECOVERY_SECTION in message
+    assert "batch/OPERATIONS.md" in message
+    assert "re-dispatch" not in message
+    assert f"### {RECOVERY_SECTION}" in runbook
+    # The step the message sends the reader to: one exact key, never a prefix.
+    assert "--key machine-manifest.json" in runbook
+
+
+def test_a_retry_after_a_partial_push_is_refused_by_its_own_precheck(tmp_path: Path) -> None:
+    """Recovery is not "run it again".
+
+    Each conditional PUT is bound to the generation the failed run pulled, and the one
+    that already succeeded changed that key. Running the command again — by hand or by
+    re-dispatching the batch — is refused before it writes anything.
+    """
 
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
@@ -940,6 +1012,7 @@ def test_a_retried_push_publishes_the_same_generation_and_writes_the_receipt(
         capture_output=True,
         text=True,
     )
+    log.write_text("", encoding="utf-8")
     retry = subprocess.run(
         [TRANSFER_SCRIPT, "push-machine"],
         cwd=REPO_ROOT,
@@ -950,14 +1023,100 @@ def test_a_retried_push_publishes_the_same_generation_and_writes_the_receipt(
     )
 
     assert first.returncode != 0
-    assert retry.returncode == 0, retry.stderr
-    receipt = _receipt(Path(env["AWS_FAKE_STATE"]))
-    assert receipt is not None
-    for key in ("market.sqlite", "runs.sqlite", "macro.sqlite"):
-        assert f'"{key}": "etag-stable"' in receipt
-    assert '"schema_version": 1' in receipt
-    # The receipt the retry wrote is the one a pull then accepts.
-    assert _pull_machine(tmp_path, receipt=receipt).returncode == 0
+    assert retry.returncode != 0
+    assert "market.sqlite changed on R2 after the pull" in retry.stderr
+    # Refused before writing: the mixed set the first run left is not made worse.
+    assert not [
+        command
+        for command in _transfer_commands(log)
+        if command.startswith(("s3api put-object ", "s3api copy-object "))
+    ]
+
+
+def test_the_documented_recovery_puts_a_partially_pushed_bucket_back_in_step(
+    tmp_path: Path,
+) -> None:
+    """`batch/OPERATIONS.md` step (i), end to end: delete the receipt, take the set
+    unverified once, and let the next complete push write the receipt again.
+
+    Every stage runs the real script against the fake bucket, so what is being checked
+    is the procedure rather than a description of it.
+    """
+
+    bin_dir, log = _fake_aws(tmp_path)
+    root = _fake_repo(tmp_path)
+    env = _environment(bin_dir, log)
+    state = Path(env["AWS_FAKE_STATE"])
+    script = root / "batch/scripts/r2_transfer.sh"
+
+    def run(command: str, **overrides: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [script, command],
+            cwd=root,
+            env={**env, **overrides},
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    # A complete push, then the pull that records what it wrote: the steady state.
+    assert run("push-machine", GITHUB_ACTIONS="true").returncode == 0
+    settled_pull = run("pull-machine")
+    assert settled_pull.returncode == 0
+    # The accepting line, not just the exit code: a pull that found no receipt also
+    # exits 0, so the code alone cannot tell verified from unverified.
+    assert "machine bundle receipt matches" in settled_pull.stdout
+    settled = _receipt(state)
+    assert settled is not None
+    assert '"market.sqlite": "etag-put-1"' in settled
+
+    # The failure this recovers from: the second key's PUT does not land.
+    partial = run("push-machine", GITHUB_ACTIONS="true", AWS_FAKE_FAIL_PUT_KEY="runs.sqlite")
+    assert partial.returncode != 0
+    # The receipt still names the previous set, which is now not what the bucket holds.
+    assert _receipt(state) == settled
+
+    stuck = run("pull-machine")
+    assert stuck.returncode == 1
+    assert "R2 holds market.sqlite at generation etag-put-2" in stuck.stderr
+
+    # Step (i): one exact key, the same call the runbook prints.
+    removed = subprocess.run(
+        [
+            "aws",
+            "s3api",
+            "delete-object",
+            "--bucket",
+            "baibai-stores",
+            "--key",
+            "machine-manifest.json",
+            "--endpoint-url",
+            "https://account-for-test.r2.cloudflarestorage.com",
+        ],
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert removed.returncode == 0
+    assert _receipt(state) is None
+
+    unverified = run("pull-machine")
+    assert unverified.returncode == 0
+    assert "taking the store set unverified" in unverified.stderr
+
+    assert run("push-machine", GITHUB_ACTIONS="true").returncode == 0
+    rewritten = _receipt(state)
+    assert rewritten is not None
+    # The generations moved: the recovery published a set, it did not restate the old one.
+    assert '"market.sqlite": "etag-put-3"' in rewritten
+    assert '"runs.sqlite": "etag-put-2"' in rewritten
+    assert '"macro.sqlite": "etag-put-2"' in rewritten
+
+    # And the receipt the recovery wrote is one a later pull verifies against.
+    verified = run("pull-machine")
+    assert verified.returncode == 0
+    assert "machine bundle receipt matches" in verified.stdout
 
 
 def test_machine_store_push_rejects_a_generation_replaced_by_manual_publish(

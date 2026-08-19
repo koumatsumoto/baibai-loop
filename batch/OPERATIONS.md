@@ -201,10 +201,14 @@ uv run baibai-engine position ledger | head -20        # ledger headを確認
 **R2の世代**: ローカルのcheckpointが失われた場合に使う。`pull-app`はローカルにfileがあれば止まるので、この経路はstagingへ直接取得する。
 
 ```bash
-aws s3api list-objects-v2 --bucket baibai-stores --prefix baibai.sqlite.bak- \
-  --query 'Contents[].[Key,LastModified]' --output text --endpoint-url "$endpoint"
-aws s3api get-object --bucket baibai-stores --key baibai.sqlite.bak-YYYYMMDD \
-  --endpoint-url "$endpoint" /tmp/baibai-restore.sqlite
+(set -a; source .env; set +a; \
+ export AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}" AWS_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY}" \
+        AWS_DEFAULT_REGION=auto
+ endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+ aws s3api list-objects-v2 --bucket baibai-stores --prefix baibai.sqlite.bak- \
+   --query 'Contents[].[Key,LastModified]' --output text --endpoint-url "$endpoint"
+ aws s3api get-object --bucket baibai-stores --key baibai.sqlite.bak-YYYYMMDD \
+   --endpoint-url "$endpoint" /tmp/baibai-restore.sqlite)
 sqlite3 /tmp/baibai-restore.sqlite 'PRAGMA integrity_check; PRAGMA user_version;'
 ```
 
@@ -258,9 +262,46 @@ gh workflow run cloud-history-backfill.yml --ref main \
 
 mergeの対象tableは`merge_market_store.py`の`FACT_KEYS` / `DERIVED_KEYS`に列挙し、**それとlake datasetの合併がstoreのtable一覧と一致すること**をtestが確かめる。新しいtableはlakeかmergeのどちらかに分類しないと落ちる。
 
-machine storeの全writerはdownload時のR2 ETagを保持し、backupは同じsource ETag、最終`PutObject`は同じdestination ETagを条件にする。日次batchは`pull-machine`が3 storeのgenerationを記録し、`push-machine`が全keyを事前照合してから各keyを条件付きで発行する。merge中またはupload直前に別writerがobjectを更新した場合はprecondition failureで停止し、最新cloud copyからやり直す。これにより、GitHub Actions外の手動pushと日次batchのどちらが後着しても、先に発行された更新を巻き戻さない。途中のkeyでnetwork / precondition failureになった場合はserving tailを発行せず、次回runが各keyの現行generationをpullして再構成する。
+machine storeの全writerはdownload時のR2 ETagを保持し、backupは同じsource ETag、最終`PutObject`は同じdestination ETagを条件にする。日次batchは`pull-machine`が3 storeのgenerationを記録し、`push-machine`が全keyを事前照合してから各keyを条件付きで発行する。merge中またはupload直前に別writerがobjectを更新した場合はprecondition failureで停止し、最新cloud copyからやり直す。これにより、GitHub Actions外の手動pushと日次batchのどちらが後着しても、先に発行された更新を巻き戻さない。途中のkeyでnetwork / precondition failureになった場合はserving tailを発行しない。3 keyのPUTが全て終わってから書かれる`machine-manifest.json`（bundle receipt）も書かれないので、次回の`pull-machine`は旧receiptとの突合で停止する——次回runが自力で再構成することはない。復旧は下の「部分 push からの復旧」に従う。
 
 `push-macro`のmergeは`merge_indicator_store.py`である。対象は事実を積み上げるtable（`observations` / `provider_runs`）だけで、主キーで`INSERT OR IGNORE`する。同じ主キーを両側が持つ場合は全payloadの一致をmerge前後に検証し、値・単位・source等が異なれば片方を正本と推測せずtransaction全体を停止する。source / target はschema version・列構成に加えて`schema.sql`由来の全persistent triggerとregistry state contractをcanonical定義へ完全一致させる。targetが保持する全series metadataは両端が有限なplausible rangeを持つことを前提とし、source / target observationをtransaction先頭でtargetのunitとrangeに照合する。いずれかの契約違反があればtargetを変更せず停止する。`series` / `aliases`はsourceから取り込まない。通常のopenは登録外seriesのfacts・metadata・aliasesを保持し、明示的な`macro refresh`だけが現行registryに無いseriesをpruneするため、古いbranchのread後もtargetに残る新系列へcloud factsをmergeできる。source の registry generation が target より新しい場合と、同世代なのに `source.series` membership がtargetから欠ける場合は、facts未取得のseriesでもmergeを拒否する。target が source より新しい世代でmetadataが無いseriesのrowだけを意図した退役としてskip件数に含める。`market.sqlite` / `runs.sqlite`は`push-macro`が触らない。
+
+### 部分 push からの復旧
+
+`push-machine`は3 keyを逐次に条件付きPUTし、全て終わってから`machine-manifest.json`（bundle receipt）を
+書く。2本目以降が失敗すると、receiptは旧世代のまま残り、bucketは「先行keyだけ新世代」というどのbatchも
+書いていない組合せを持つ。この状態は`pull-machine`のreceipt突合が拒否する（安全側——実在しない
+cross-sectionをscreeningへ渡さない）。
+
+**同じコマンドの再実行では戻らない。** 条件付きPUTは失敗したrunがpullした世代に束ねられており、成功済みの
+1本目がそのkeyのETagを既に変えているので、`push_pulled_keys`の事前照合が「changed on R2 after the pull」で
+拒否する。日次batchのre-dispatchも同じで、pull stepで止まってpushへ到達しない。
+
+**手順 (i)（既定・最軽量）**: receiptを消して、次の完全pushに書き直させる。receiptはbucket直下のmutable
+keyで、Bucket Lockの対象prefix（`lake/l1/canonical/` / `lake/manifests/`）の外にある。
+
+```bash
+(set -a; source .env; set +a; \
+ AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}" \
+ AWS_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY}" \
+ AWS_DEFAULT_REGION=auto \
+ aws s3api delete-object \
+   --bucket baibai-stores \
+   --key machine-manifest.json \
+   --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com")
+```
+
+消すのは`machine-manifest.json`のexact key 1件だけである（prefix削除はしない）。この後の`pull-machine`は
+「no machine bundle receipt … taking the store set unverified」と警告して通り、その時点の現行世代を記録
+する。次の日次batchが3 keyを完全にpushして新しいreceiptを書き、以後の突合が再び効く。**receiptが無い1周
+だけcross-sectionの保証が落ちる**——それがこの手順の代価である。
+
+**手順 (ii)（ローカルの成果も出したいとき）**: `push-market` / `push-macro`はmerge→CAS pushの後に3 keyの
+HEADからreceiptを現在世代へ書き直す。publishしたいローカルの変更があるなら、復旧を兼ねられる。
+`push-market`はhydrate済みのstoreを要求するので先に`hydrate-market`を通す（[ローカルからクラウドを更新する](#ローカルからクラウドを更新する)）。
+
+どちらの手順でも`push-machine`をローカルから撃たない——`GITHUB_ACTIONS`の外では拒否される。`runs.sqlite`は
+cloudが唯一のwriterで、ローカルcopyのuploadは巻き戻しにしかならないための境界である。
 
 ### 日次 workflow を手動実行する
 
