@@ -257,7 +257,26 @@ publish_lake() {
   # from, seal them into a release, and switch the pointer. The base is named rather
   # than resolved, so a lake that moved underneath this run is refused instead of
   # silently republished without the other writer's rows.
-  local base sha
+  #
+  # `full-rebuild` drops the base and re-derives every partition, which is what the
+  # export transform fingerprint moving requires. It goes through here rather than being
+  # left to a direct module call because the record this writes is the store's release
+  # identity: a rebuild published around it leaves the store naming a release the lake
+  # has moved past, and the next `push-market` refuses to dehydrate against it. Measured
+  # on 2026-08-19 — the recovery ran as a module call and left exactly that state.
+  local mode="${1:-incremental}" base sha
+  if [[ "${mode}" == "full-rebuild" ]]; then
+    (
+      cd "${repo_root}" || exit 1
+      UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+        uv run python -m baibai_batch.storage.publish_market_lake \
+          --sqlite "$(store_path market.sqlite)" \
+          --mirror "${lake_mirror}" \
+          --bucket "${stores_bucket}" \
+          --full-rebuild
+    ) | record_lake_release
+    return
+  fi
   base="$(lake_release_field release_id)"
   sha="$(lake_release_field release_manifest_sha256)"
   (
@@ -808,7 +827,7 @@ upload_run_summary() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-longlist-history DIR|pull-run-summary FILE|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR|upload-run-summary FILE}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-longlist-history DIR|pull-run-summary FILE|seed-all|hydrate-market|publish-lake [full-rebuild]|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR|upload-run-summary FILE}\n' "$0" >&2
 }
 
 load_credentials
@@ -826,7 +845,12 @@ case "${1:-}" in
     hydrate_market
     ;;
   publish-lake)
-    publish_lake
+    [[ $# -le 2 ]] || { usage; exit 2; }
+    if [[ $# -eq 2 && "$2" != "full-rebuild" ]]; then
+      usage
+      exit 2
+    fi
+    publish_lake "${2:-incremental}"
     ;;
   # A pass that only writes the market store round-trips the other two for nothing,
   # and pushing them back unchanged after hours would revert whatever else wrote them

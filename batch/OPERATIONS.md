@@ -303,17 +303,19 @@ base manifest transform_fingerprint differs; run a full rebuild without --base-m
 3. **full rebuild を publish する**
 
    ```bash
-   uv run python -m baibai_batch.storage.publish_market_lake \
-     --sqlite stores/market/market.sqlite \
-     --mirror stores \
-     --bucket baibai-stores \
-     --full-rebuild
+   batch/scripts/r2_transfer.sh publish-lake full-rebuild
    ```
 
    `--full-rebuild` は `--base-release` と排他で、全 partition を store から derive し直す。同一 bytes の
    Parquet は content-addressed key と `If-None-Match: *` で再 upload されないので、転送は新 manifest 群と
    pointer CAS が中心になる。Bucket Lock は新 key の PUT と `lake/pointers/` の CAS を対象にしないので
-   干渉しない
+   干渉しない。
+
+   **module を直接叩かない。** `publish_market_lake` は release を作るが、`stores/.r2-generations/`
+   の release 記録は書かない。この記録は「ローカル store が今どの release に対応するか」で、
+   `push-market` の dehydrate と次の増分 publish がその名前で照合する。直叩きで publish すると
+   store が lake の移った先より古い release を名乗ったままになり、次の `push-market` が
+   dehydrate で止まる（2026-08-19 の復旧で実際にこの状態を作った）
 
 4. **pointer が新 release を指すことを確認する**
 

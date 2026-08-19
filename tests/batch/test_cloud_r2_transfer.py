@@ -200,9 +200,23 @@ for argument in "$@"; do
     baibai_batch.storage.merge_market_store) script=merge ;;
     baibai_batch.storage.migrate_store) script=migrate ;;
     baibai_batch.validation.repository_layout) script=layout ;;
+    baibai_batch.storage.publish_market_lake) script=publish ;;
   esac
 done
 case "${script}" in
+  publish)
+    printf 'publish %s\\n' "$*" >> "$AWS_LOG"
+    # The real publisher prints its report only on success and nothing at all when it
+    # refuses, which is what the record's emptiness guard reads. A stub that printed
+    # regardless would let that guard pass a test it does not hold in production.
+    if [[ "${PUBLISH_FAKE_EXIT:-0}" != "0" ]]; then
+      printf 'error: publish refused\\n' >&2
+      exit "${PUBLISH_FAKE_EXIT}"
+    fi
+    printf '{"release_id": "release-after-rebuild", "release_manifest_sha256": "%s"}\\n' \\
+      "0000000000000000000000000000000000000000000000000000000000000000"
+    exit 0
+    ;;
   snapshot)
     if [[ "$*" == *" version "* ]]; then
       printf '%s\\n' "${SQLITE_FAKE_VERSION:-13}"
@@ -1621,3 +1635,82 @@ def test_the_transfer_script_names_the_same_pointer_key_the_engine_publishes() -
     from baibai_engine.batch_api import lake_current_l1_pointer_key
 
     assert lake_current_l1_pointer_key() in TRANSFER_SCRIPT.read_text(encoding="utf-8")
+
+
+def test_a_full_rebuild_publish_records_which_release_the_store_now_names(
+    tmp_path: Path,
+) -> None:
+    """The recovery has to leave the store's release identity pointing at what it built.
+
+    A rebuild published around this record leaves the store naming a release the lake has
+    moved past, and the next `push-market` refuses to dehydrate against it. That is the
+    state the 2026-08-19 recovery produced by calling the publisher module directly, so
+    the runbook now goes through here and this is what says so.
+    """
+
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    environment = _environment(bin_dir, log)
+    record = Path(environment["R2_GENERATION_DIR"]) / "lake-release.json"
+    record.write_text(
+        '{"release_id": "release-before", "release_manifest_sha256": "old"}\n', encoding="utf-8"
+    )
+
+    completed = subprocess.run(
+        [root / "batch/scripts/r2_transfer.sh", "publish-lake", "full-rebuild"],
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    published = [line for line in log.read_text(encoding="utf-8").splitlines() if "publish" in line]
+    assert len(published) == 1
+    assert "--full-rebuild" in published[0]
+    assert "--base-release" not in published[0]
+    assert "release-after-rebuild" in record.read_text(encoding="utf-8")
+
+
+def test_a_publish_that_reports_nothing_leaves_the_previous_release_named(
+    tmp_path: Path,
+) -> None:
+    """A refused rebuild must not erase the identity the operator needs to read."""
+
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    environment = _environment(bin_dir, log)
+    environment["PUBLISH_FAKE_EXIT"] = "1"
+    record = Path(environment["R2_GENERATION_DIR"]) / "lake-release.json"
+    record.write_text(
+        '{"release_id": "release-before", "release_manifest_sha256": "old"}\n', encoding="utf-8"
+    )
+
+    subprocess.run(
+        [root / "batch/scripts/r2_transfer.sh", "publish-lake", "full-rebuild"],
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "release-before" in record.read_text(encoding="utf-8")
+
+
+def test_an_unknown_publish_lake_argument_is_refused(tmp_path: Path) -> None:
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+
+    completed = subprocess.run(
+        [root / "batch/scripts/r2_transfer.sh", "publish-lake", "incremental-please"],
+        cwd=tmp_path,
+        env=_environment(bin_dir, log),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "usage:" in completed.stderr

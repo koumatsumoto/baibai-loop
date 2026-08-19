@@ -9,7 +9,6 @@ totals are it.
 from __future__ import annotations
 
 import json
-import shlex
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -189,19 +188,42 @@ def test_the_recovery_the_message_names_is_one_the_runbook_carries() -> None:
     assert "publish_market_lake" in section
 
 
-def test_the_runbook_command_is_one_the_publisher_accepts() -> None:
-    """The section prints a command; argparse is what decides whether it runs."""
+def test_the_runbook_recovery_goes_through_the_path_that_records_the_release() -> None:
+    """The publisher creates a release; the transfer script records which one the store
+    now corresponds to. A recovery published around that record leaves the store naming
+    a release the lake has moved past, and the next `push-market` refuses to dehydrate
+    against it — which is what happened on 2026-08-19 when the recovery ran as a direct
+    module call. Bind the runbook's command to the branch that writes the record."""
 
     runbook = (ROOT / "batch/OPERATIONS.md").read_text(encoding="utf-8")
     section = runbook.split(f"### {publish_module.RECOVERY_RUNBOOK_SECTION}", 1)[1].split("\n### ")[
         0
     ]
-    lines = [line.strip().rstrip("\\").strip() for line in section.splitlines()]
-    joined = " ".join(lines)
-    start = joined.index("uv run python -m baibai_batch.storage.publish_market_lake")
-    tokens = shlex.split(joined[start:].split("```")[0])[5:]
+    transfer = (ROOT / "batch/scripts/r2_transfer.sh").read_text(encoding="utf-8")
+    branch = transfer.split('if [[ "${mode}" == "full-rebuild" ]]; then', 1)[1].split(
+        "\n  fi\n", 1
+    )[0]
 
-    parsed = publish_module.build_parser().parse_args(tokens)
+    assert "batch/scripts/r2_transfer.sh publish-lake full-rebuild" in section
+    assert "module を直接叩かない" in section
+    assert "--full-rebuild" in branch
+    assert "record_lake_release" in branch
+
+
+def test_the_publisher_still_accepts_the_flag_the_script_passes() -> None:
+    """The script names a flag; argparse is what decides whether it runs."""
+
+    parsed = publish_module.build_parser().parse_args(
+        [
+            "--sqlite",
+            "market.sqlite",
+            "--mirror",
+            "stores",
+            "--bucket",
+            "baibai-stores",
+            "--full-rebuild",
+        ]
+    )
 
     assert parsed.full_rebuild is True
     assert parsed.bucket == "baibai-stores"
