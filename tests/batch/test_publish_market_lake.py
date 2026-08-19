@@ -9,6 +9,7 @@ totals are it.
 from __future__ import annotations
 
 import json
+import shlex
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,8 +22,9 @@ from baibai_batch.storage.publish_market_lake import (
     _require_no_rows_lost,
     publish_market_lake,
 )
-from baibai_engine.batch_api import L1ReleasePointer
+from baibai_engine.batch_api import L1ReleasePointer, LakeBuildError
 
+ROOT = Path(__file__).resolve().parents[2]
 _RELEASE_ID = "20260817T085308Z-70f77913-da700a8e825e"
 _MANIFEST_KEY = f"lake/manifests/releases/l1/{_RELEASE_ID}.json"
 
@@ -146,3 +148,60 @@ def test_the_flag_reaches_the_publication(monkeypatch: pytest.MonkeyPatch) -> No
 
     assert exit_code == 1
     assert seen["full_rebuild"] is True
+
+
+def test_a_fingerprint_refusal_names_a_recovery_instead_of_ending_in_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The shape that stopped 2026-08-19's batch: the export refuses a base built under
+    the previous transform fingerprint, and the run log ended in an uncaught traceback
+    naming no way out. The guard is right; what was missing was where to go next."""
+
+    def _refuse(**_: object) -> object:
+        raise LakeBuildError(
+            "base manifest transform_fingerprint differs; run a full rebuild without "
+            "--base-manifest"
+        )
+
+    monkeypatch.setattr(publish_module, "publish_market_lake", _refuse)
+    monkeypatch.setattr(publish_module, "AwsCliR2Store", lambda **_: _UnusedStore())
+
+    exit_code = publish_module.main(["--sqlite", "market.sqlite", "--mirror", "stores"])
+
+    assert exit_code == 1
+    printed = capsys.readouterr().err
+    assert "transform_fingerprint differs" in printed
+    assert "no retry clears this" in printed
+    assert publish_module.RECOVERY_RUNBOOK_SECTION in printed
+
+
+def test_the_recovery_the_message_names_is_one_the_runbook_carries() -> None:
+    """A pointer to a section nobody wrote sends the operator nowhere. Bind the two, so
+    renaming the section fails here rather than at 17:00 on the day it is needed."""
+
+    runbook = (ROOT / "batch/OPERATIONS.md").read_text(encoding="utf-8")
+
+    assert f"### {publish_module.RECOVERY_RUNBOOK_SECTION}" in runbook
+    section = runbook.split(f"### {publish_module.RECOVERY_RUNBOOK_SECTION}", 1)[1].split("\n### ")[
+        0
+    ]
+    assert "--full-rebuild" in section
+    assert "publish_market_lake" in section
+
+
+def test_the_runbook_command_is_one_the_publisher_accepts() -> None:
+    """The section prints a command; argparse is what decides whether it runs."""
+
+    runbook = (ROOT / "batch/OPERATIONS.md").read_text(encoding="utf-8")
+    section = runbook.split(f"### {publish_module.RECOVERY_RUNBOOK_SECTION}", 1)[1].split("\n### ")[
+        0
+    ]
+    lines = [line.strip().rstrip("\\").strip() for line in section.splitlines()]
+    joined = " ".join(lines)
+    start = joined.index("uv run python -m baibai_batch.storage.publish_market_lake")
+    tokens = shlex.split(joined[start:].split("```")[0])[5:]
+
+    parsed = publish_module.build_parser().parse_args(tokens)
+
+    assert parsed.full_rebuild is True
+    assert parsed.bucket == "baibai-stores"

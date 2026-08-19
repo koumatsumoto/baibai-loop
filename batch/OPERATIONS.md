@@ -266,6 +266,66 @@ machine storeの全writerはdownload時のR2 ETagを保持し、backupは同じs
 
 `push-macro`のmergeは`merge_indicator_store.py`である。対象は事実を積み上げるtable（`observations` / `provider_runs`）だけで、主キーで`INSERT OR IGNORE`する。同じ主キーを両側が持つ場合は全payloadの一致をmerge前後に検証し、値・単位・source等が異なれば片方を正本と推測せずtransaction全体を停止する。source / target はschema version・列構成に加えて`schema.sql`由来の全persistent triggerとregistry state contractをcanonical定義へ完全一致させる。targetが保持する全series metadataは両端が有限なplausible rangeを持つことを前提とし、source / target observationをtransaction先頭でtargetのunitとrangeに照合する。いずれかの契約違反があればtargetを変更せず停止する。`series` / `aliases`はsourceから取り込まない。通常のopenは登録外seriesのfacts・metadata・aliasesを保持し、明示的な`macro refresh`だけが現行registryに無いseriesをpruneするため、古いbranchのread後もtargetに残る新系列へcloud factsをmergeできる。source の registry generation が target より新しい場合と、同世代なのに `source.series` membership がtargetから欠ける場合は、facts未取得のseriesでもmergeを拒否する。target が source より新しい世代でmetadataが無いseriesのrowだけを意図した退役としてskip件数に含める。`market.sqlite` / `runs.sqlite`は`push-macro`が触らない。
 
+### fingerprint 変更後の full rebuild
+
+`market/lake/writer.py`・`market/lake/datasets.py`・`market/sqlite/coverage.py` の semantic な変更を
+merge した翌日、日次 batch は publish-lake でこう落ちる。
+
+```
+baibai_engine.market.lake.writer.LakeBuildError:
+base manifest transform_fingerprint differs; run a full rebuild without --base-manifest
+```
+
+増分 export は base manifest を継ぎ足すが、その base は前世代の fingerprint で作られている。**guard は
+正しく働いている** — 旧意味論で built した release へ新意味論の増分を積むことを拒んでいる。自然治癒は
+しないので、full rebuild を publish するまで毎日同じ場所で落ちる。当日の実データは失われない
+（publish-lake は push-machine より前なので coverage claim が R2 に出ておらず、復旧後の日次が前方
+再取得する）。
+
+復旧はローカルで完結させる。
+
+1. **前提を測る** — ローカル store が cloud release を包含しているか。行数と partition 集合を突き合わせ、
+   1 dataset でも不足があれば rebuild せず先に解く（full rebuild は release の内容をローカル store で
+   置き換えるので、不足はそのまま canonical の欠落になる）
+
+   ```bash
+   uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores --format json
+   ```
+
+   これが出す各 dataset の `rows` / `partitions` を、`LAKE_DATASETS` の `sqlite_table` の行数と
+   partition grain 別の期間集合と比べる。byte 一致は見ない — fingerprint が動いた後の Parquet bytes は
+   変わって当然で、確かめるのは行が落ちないことである
+
+2. **worktree を clean にする** — publish は `git status --porcelain` が空であることを要求する
+   （`lake publication requires a clean tracked worktree`）。export は本番 store で 7 分強かかるので、
+   その途中で tracked file を触ると最後の commit 検証で全部捨てることになる
+
+3. **full rebuild を publish する**
+
+   ```bash
+   uv run python -m baibai_batch.storage.publish_market_lake \
+     --sqlite stores/market/market.sqlite \
+     --mirror stores \
+     --bucket baibai-stores \
+     --full-rebuild
+   ```
+
+   `--full-rebuild` は `--base-release` と排他で、全 partition を store から derive し直す。同一 bytes の
+   Parquet は content-addressed key と `If-None-Match: *` で再 upload されないので、転送は新 manifest 群と
+   pointer CAS が中心になる。Bucket Lock は新 key の PUT と `lake/pointers/` の CAS を対象にしないので
+   干渉しない
+
+4. **pointer が新 release を指すことを確認する**
+
+   ```bash
+   uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores --format json
+   ```
+
+5. **翌定時の日次 batch の緑が最終確認**。手動 dispatch はしない — 定時 cron がその日のうちに答える。
+   復旧が定時より後になった日は、その夜の `cloud-batch-watchdog` が `[MISSING]` を正しく報じる
+
+`push-market` は不要である。この経路が直すのは lake の release であって、store 側の 4 table ではない。
+
 ### 部分 push からの復旧
 
 `push-machine`は3 keyを逐次に条件付きPUTし、全て終わってから`machine-manifest.json`（bundle receipt）を

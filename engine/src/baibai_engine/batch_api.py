@@ -60,7 +60,7 @@ from baibai_engine.market.lake.models import validate_release_policy as validate
 from baibai_engine.market.lake.objects import mirror_path as lake_mirror_path
 from baibai_engine.market.lake.release import L1ReleasePointer
 from baibai_engine.market.lake.release import create_l1_release as create_lake_l1_release
-from baibai_engine.market.lake.writer import export_lake_legacy
+from baibai_engine.market.lake.writer import LakeBuildError, export_lake_legacy
 from baibai_engine.market.sqlite import open_connection as open_market_store
 from baibai_engine.market.sqlite.schema import (
     SQLITE_SCHEMA_VERSION as MARKET_SCHEMA_VERSION,
@@ -93,6 +93,7 @@ __all__ = [
     "IndicatorDefinitions",
     "IndicatorsSchemaError",
     "L1ReleasePointer",
+    "LakeBuildError",
     "LakeDatasetManifest",
     "LakeReleaseManifest",
     "LakeSQLiteSnapshotSourceRef",
