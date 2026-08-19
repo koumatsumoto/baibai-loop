@@ -1,4 +1,4 @@
-"""Supply/demand axes derived from the exchange's weekly margin balances.
+"""Supply/demand axes derived from the exchange's published margin balances.
 
 These sit beside valuation, quality and liquidity rather than inside them: a
 margin balance says who is already positioned, which is a different question from
@@ -19,13 +19,29 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from .providers.jquants import JQuantsWeeklyMargin
-
 # A 信用銘柄 carries no stock lending, so it has no margin short balance to speak
 # of. Its long side cannot be placed on a crowding scale that is defined by the
 # short side, and mixing the two into one cross-section would rank instruments
 # against a quantity half of them cannot have.
 ISSUE_TYPE_LENDING_ELIGIBLE = "2"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MarginBalance:
+    """One ticker's margin balance on one balance date, whichever series published it.
+
+    The exchange publishes the same six quantities weekly through 2026-09-18 and for
+    every issue daily from 2026-09-25, so an axis that named one of those two tables
+    would stop answering on the day the other one took over. What the axis needs is
+    the balance, not the cadence that produced it — this type is that need stated
+    once, and the reader is where a balance date is resolved to its series.
+    """
+
+    balance_date: date
+    issue_type: str | None = None
+    long_vol: float | None = None
+    short_vol: float | None = None
+    long_std_vol: float | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -60,8 +76,8 @@ class MarginSupplyDemand:
 
 def margin_supply_demand(
     *,
-    latest: JQuantsWeeklyMargin | None,
-    prior_26w: JQuantsWeeklyMargin | None,
+    latest: MarginBalance | None,
+    prior_26w: MarginBalance | None,
     avg_daily_volume_shares: float | None,
     shares_outstanding: float | None,
     split_within_adv_window: bool = False,
@@ -88,7 +104,7 @@ def margin_supply_demand(
         else None
     )
     return MarginSupplyDemand(
-        margin_week_end=latest.week_end,
+        margin_week_end=latest.balance_date,
         margin_issue_type=latest.issue_type,
         margin_long_to_adv=(
             long_vol / avg_daily_volume_shares

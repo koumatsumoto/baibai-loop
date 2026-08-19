@@ -15,7 +15,7 @@ from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.time import JST
@@ -49,6 +49,7 @@ from .edinet_store import (
 from .edinet_store import (
     read_unfinalized_edinet_document_dates as read_unfinalized_edinet_document_dates,
 )
+from .margin_metrics import MarginBalance
 from .margin_publication import (
     ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
     ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED,
@@ -478,6 +479,19 @@ def _opt_float_value(value: object) -> float | None:
 MARGIN_PUBLICATION_TRADING_DAYS = 2
 
 
+def _publication_has_happened(
+    trading_days: list[date], balance_date: date, *, asof: date, trading_day_lag: int
+) -> bool:
+    """Whether the balance date's publication day is a trading day strictly before `asof`.
+
+    Same comparison for both cadences: the publication lands in the late afternoon
+    while a decision prices at the close, so a balance published on `asof` is not
+    yet usable at `asof`'s price.
+    """
+    publication = bisect_right(trading_days, balance_date) + trading_day_lag - 1
+    return publication < len(trading_days) and trading_days[publication] < asof
+
+
 def published_margin_week_ends(sqlite_path: Path, asof: date) -> list[date]:
     """Balance dates whose publication had already happened by `asof`, ascending.
 
@@ -528,16 +542,99 @@ def published_margin_week_ends(sqlite_path: Path, asof: date) -> list[date]:
     finally:
         conn.close()
     # `trading_days` stops at `asof`, so a balance date's publication day is inside
-    # the list exactly when it has already happened. The publication itself lands in
-    # the late afternoon while a decision prices at the close, so a balance date
-    # published on `asof` is not yet usable at `asof`'s price; the strict comparison
-    # costs a week of freshness on a weekly series and removes that overlap.
-    published: list[date] = []
-    for week_end in week_ends:
-        publication = bisect_right(trading_days, week_end) + MARGIN_PUBLICATION_TRADING_DAYS - 1
-        if publication < len(trading_days) and trading_days[publication] < asof:
-            published.append(week_end)
-    return published
+    # the list exactly when it has already happened.
+    return [
+        week_end
+        for week_end in week_ends
+        if _publication_has_happened(
+            trading_days, week_end, asof=asof, trading_day_lag=MARGIN_PUBLICATION_TRADING_DAYS
+        )
+    ]
+
+
+# The all-issues daily balance is published on the next business day, one trading
+# day sooner than the weekly series waits. The lag is per cadence rather than per
+# store because both series are read through the same column.
+ALL_ISSUES_DAILY_PUBLICATION_TRADING_DAYS = 1
+
+MarginCadence = Literal["weekly", "daily"]
+
+
+def published_margin_balance_dates(
+    sqlite_path: Path,
+    asof: date,
+    *,
+    publication_confirmed: bool = ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED,
+) -> list[tuple[date, MarginCadence]]:
+    """Every published balance date usable at `asof`, ascending, tagged by series.
+
+    The exchange stops publishing the weekly balance after 2026-09-18 and starts an
+    all-issues daily balance on 2026-09-25, so the axes see one column that changes
+    cadence rather than two series. The two are disjoint by construction — the
+    balance-date domains are enforced on the way in — so the union needs no
+    tie-break and the six-day gap between them is simply a gap.
+
+    `publication_confirmed` is the transition's activation flag. While it is false
+    this returns exactly the weekly dates, which is what the whole daily half is
+    inert behind.
+    """
+    weekly = published_margin_week_ends(sqlite_path, asof)
+    if not publication_confirmed:
+        return [(day, "weekly") for day in weekly]
+    daily = _published_all_issues_daily_balance_dates(sqlite_path, asof)
+    tagged: list[tuple[date, MarginCadence]] = [(day, "weekly") for day in weekly]
+    tagged.extend((day, "daily") for day in daily)
+    tagged.sort()
+    return tagged
+
+
+def _published_all_issues_daily_balance_dates(sqlite_path: Path, asof: date) -> list[date]:
+    """Daily balance dates whose next-business-day publication is already past."""
+    if not sqlite_path.exists():
+        return []
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return []
+    try:
+        readable = {
+            str(row[0])
+            for row in conn.execute(
+                "SELECT coverage_key FROM source_coverage "
+                "WHERE source = ? AND status = 'ok' AND record_count > 0",
+                (ALL_ISSUES_DAILY_MARGIN_SOURCE,),
+            )
+        }
+        balance_dates = [
+            date.fromisoformat(str(row[0]))
+            for row in conn.execute(
+                "SELECT DISTINCT balance_date FROM jquants_all_issues_daily_margin "
+                "WHERE balance_date <= ? ORDER BY balance_date",
+                (asof.isoformat(),),
+            )
+            if all_issues_daily_margin_coverage_key(date.fromisoformat(str(row[0]))) in readable
+        ]
+        if not balance_dates:
+            return []
+        trading_days = [
+            date.fromisoformat(str(row[0]))
+            for row in conn.execute(
+                "SELECT DISTINCT traded_at FROM jquants_daily_bars "
+                "WHERE traded_at > ? AND traded_at <= ? ORDER BY traded_at",
+                (balance_dates[0].isoformat(), asof.isoformat()),
+            )
+        ]
+    finally:
+        conn.close()
+    return [
+        balance_date
+        for balance_date in balance_dates
+        if _publication_has_happened(
+            trading_days,
+            balance_date,
+            asof=asof,
+            trading_day_lag=ALL_ISSUES_DAILY_PUBLICATION_TRADING_DAYS,
+        )
+    ]
 
 
 # Balance dates the delta axis reaches back over. They are weekly, so this is about
@@ -698,25 +795,71 @@ def _latest_stored_trading_day(*, conn_path: Path) -> date | None:
         return None
 
 
+def _last_balance_date_of_each_week(
+    published: list[tuple[date, MarginCadence]],
+) -> list[tuple[date, MarginCadence]]:
+    """One entry per ISO week, the week's last published balance date.
+
+    `MARGIN_DELTA_WEEKS` counts weeks, and it has to keep counting weeks after the
+    cadence changes: reaching 26 entries back through a daily column would compare
+    balances five weeks apart and call the result a half-year change. Sampling the
+    week's last balance date leaves the weekly era untouched — the exchange publishes
+    one balance date per week, so each week already contributes exactly one entry.
+    """
+    last_of_week: dict[tuple[int, int], tuple[date, MarginCadence]] = {}
+    for entry in published:
+        last_of_week[entry[0].isocalendar()[:2]] = entry
+    return [last_of_week[key] for key in sorted(last_of_week)]
+
+
+def _read_margin_balances(
+    sqlite_path: Path, balance_date: date, cadence: MarginCadence
+) -> dict[str, MarginBalance]:
+    """One balance date's rows as the axis sees them, from whichever series holds it."""
+    rows: list[JQuantsWeeklyMargin] | list[JQuantsAllIssuesDailyMargin] | None = (
+        read_weekly_margin(sqlite_path, balance_date)
+        if cadence == "weekly"
+        else read_all_issues_daily_margin(sqlite_path, balance_date)
+    )
+    return {
+        row.ticker: MarginBalance(
+            balance_date=balance_date,
+            issue_type=row.issue_type,
+            long_vol=row.long_vol,
+            short_vol=row.short_vol,
+            long_std_vol=row.long_std_vol,
+        )
+        for row in rows or ()
+    }
+
+
 def read_margin_supply_demand_inputs(
-    sqlite_path: Path, asof: date
-) -> tuple[dict[str, JQuantsWeeklyMargin], dict[str, JQuantsWeeklyMargin]]:
-    """The published balance dates a cohort at `asof` may use: latest, and 26 back.
+    sqlite_path: Path,
+    asof: date,
+    *,
+    publication_confirmed: bool = ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED,
+) -> tuple[dict[str, MarginBalance], dict[str, MarginBalance]]:
+    """The published balance dates a cohort at `asof` may use: latest, and 26 weeks back.
 
     Both are keyed by ticker. Empty mappings mean the store holds no published
-    balance date for this as-of, which is what a store without the weekly source
-    looks like and yields unset axes rather than wrong ones.
+    balance date for this as-of, which is what a store without a margin source looks
+    like and yields unset axes rather than wrong ones.
+
+    `latest` is the newest published balance date whichever series published it, so
+    the level axes keep describing the most recent balance the exchange has stated.
+    `prior` is 26 weeks back in the sampled column, so the delta axis keeps comparing
+    across half a year rather than across however many rows the cadence produced.
     """
-    week_ends = published_margin_week_ends(sqlite_path, asof)
-    if not week_ends or (asof - week_ends[-1]).days > MARGIN_MAX_STALE_DAYS:
+    published = published_margin_balance_dates(
+        sqlite_path, asof, publication_confirmed=publication_confirmed
+    )
+    if not published or (asof - published[-1][0]).days > MARGIN_MAX_STALE_DAYS:
         return {}, {}
-    latest = {row.ticker: row for row in read_weekly_margin(sqlite_path, week_ends[-1]) or ()}
-    prior: dict[str, JQuantsWeeklyMargin] = {}
-    if len(week_ends) > MARGIN_DELTA_WEEKS:
-        prior = {
-            row.ticker: row
-            for row in read_weekly_margin(sqlite_path, week_ends[-1 - MARGIN_DELTA_WEEKS]) or ()
-        }
+    latest = _read_margin_balances(sqlite_path, *published[-1])
+    prior: dict[str, MarginBalance] = {}
+    weekly_steps = _last_balance_date_of_each_week(published)
+    if len(weekly_steps) > MARGIN_DELTA_WEEKS:
+        prior = _read_margin_balances(sqlite_path, *weekly_steps[-1 - MARGIN_DELTA_WEEKS])
     return latest, prior
 
 

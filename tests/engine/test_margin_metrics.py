@@ -3,34 +3,33 @@ from __future__ import annotations
 import tempfile
 import unittest
 from dataclasses import asdict, fields
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from unittest import mock
 
 from baibai_engine.screening.calibration import store as calibration_store
 from baibai_engine.screening.calibration.store import CalibrationCacheError, read_panel
 from baibai_engine.screening.candidate_build import candidate_metrics_map
-from baibai_engine.screening.margin_metrics import MarginSupplyDemand, margin_supply_demand
-from baibai_engine.screening.providers.jquants import JQuantsWeeklyMargin
+from baibai_engine.screening.margin_metrics import (
+    MarginBalance,
+    MarginSupplyDemand,
+    margin_supply_demand,
+)
 from baibai_engine.screening.schema import DerivedMetrics, FinancialSnapshot
 
 WEEK = date(2026, 7, 24)
 
 
-def _margin(**overrides: object) -> JQuantsWeeklyMargin:
+def _margin(**overrides: object) -> MarginBalance:
     values: dict[str, object] = {
-        "ticker": "7203",
-        "week_end": WEEK,
+        "balance_date": WEEK,
         "long_vol": 1000.0,
         "short_vol": 250.0,
         "long_std_vol": 800.0,
-        "long_neg_vol": 200.0,
-        "short_std_vol": 200.0,
-        "short_neg_vol": 50.0,
         "issue_type": "2",
     }
     values.update(overrides)
-    return JQuantsWeeklyMargin(**values)  # type: ignore[arg-type]
+    return MarginBalance(**values)  # type: ignore[arg-type]
 
 
 def _axes(**overrides: object) -> MarginSupplyDemand:
@@ -58,7 +57,7 @@ class MarginSupplyDemandTest(unittest.TestCase):
     def test_the_most_crowded_state_stays_in_the_cross_section(self) -> None:
         # A 貸借銘柄 with longs and no shorts is the extreme the axis exists to
         # rank. The long/short ratio is undefined there; the long share is 1.0.
-        axes = _axes(latest=_margin(short_vol=0.0, short_std_vol=0.0, short_neg_vol=0.0))
+        axes = _axes(latest=_margin(short_vol=0.0))
 
         self.assertEqual(axes.margin_long_share, 1.0)
         self.assertEqual(axes.margin_short_to_adv, 0.0)
@@ -85,7 +84,7 @@ class MarginSupplyDemandTest(unittest.TestCase):
         self.assertIsNotNone(delta.margin_long_to_adv)
 
     def test_a_zero_long_balance_is_no_overhang_but_not_a_zero_share(self) -> None:
-        axes = _axes(latest=_margin(long_vol=0.0, long_std_vol=0.0, long_neg_vol=0.0))
+        axes = _axes(latest=_margin(long_vol=0.0, long_std_vol=0.0))
 
         self.assertEqual(axes.margin_long_to_adv, 0.0)
         self.assertIsNone(axes.margin_std_long_share)
@@ -245,6 +244,175 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
 
             self.assertEqual(sorted(fresh), ["7203"])
             self.assertEqual(stale, {})
+
+
+class MarginPublicationSeamTest(unittest.TestCase):
+    """The supply/demand column has to cross the 2026-09-18 freeze without going dark.
+
+    The weekly balance stops at 2026-09-18 and the all-issues daily balance starts at
+    2026-09-25, so a column that only reads the weekly table answers for 35 more days
+    and then unsets the margin axes for every ticker. These tests seed both series and
+    ask what the column says on either side of that date.
+    """
+
+    LAST_WEEKLY = date(2026, 9, 18)
+    FIRST_DAILY = date(2026, 9, 25)
+
+    @staticmethod
+    def _weekdays(start: date, end: date) -> list[date]:
+        days: list[date] = []
+        day = start
+        while day <= end:
+            if day.weekday() < 5:
+                days.append(day)
+            day += timedelta(days=1)
+        return days
+
+    @classmethod
+    def _seed(cls, db: Path, *, weekly_from: date, daily_through: date) -> None:
+        """Weekly balances through the freeze, daily balances after it, bars for both."""
+        from baibai_engine.screening.sqlite_cache import (
+            open_connection,
+            store_jquants_all_issues_daily_margin,
+            store_jquants_weekly_margin,
+        )
+
+        trading = cls._weekdays(weekly_from, daily_through)
+        conn = open_connection(db)
+        try:
+            conn.executemany(
+                "INSERT OR REPLACE INTO jquants_daily_bars"
+                "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
+                [("7203", day.isoformat(), 1.0, 1.0) for day in trading],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        last_of_week: dict[tuple[int, int], date] = {}
+        for day in trading:
+            if day <= cls.LAST_WEEKLY:
+                last_of_week[day.isocalendar()[:2]] = day
+        for week_end in sorted(last_of_week.values()):
+            store_jquants_weekly_margin(
+                db,
+                [{"Code": "72030", "LongVol": 1000.0, "IssType": "2"}],
+                week_end=week_end,
+            )
+        for day in trading:
+            if day < cls.FIRST_DAILY:
+                continue
+            store_jquants_all_issues_daily_margin(
+                db,
+                [
+                    {
+                        "Code": "72030",
+                        "Date": day.isoformat(),
+                        "LongVol": 2000.0,
+                        "ShrtVol": 250.0,
+                        "LongStdVol": 800.0,
+                        "LongNegVol": 1200.0,
+                        "ShrtStdVol": 200.0,
+                        "ShrtNegVol": 50.0,
+                        "IssType": "2",
+                    }
+                ],
+                balance_date=day,
+            )
+
+    def test_the_flag_off_column_holds_no_daily_balance_date(self) -> None:
+        """Inert means inert: with the flag false the daily rows are seeded and unread."""
+        from baibai_engine.screening.sqlite_reader import (
+            published_margin_balance_dates,
+            published_margin_week_ends,
+            read_margin_supply_demand_inputs,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            self._seed(db, weekly_from=date(2026, 3, 2), daily_through=date(2026, 10, 5))
+            asof = date(2026, 10, 8)
+
+            weekly = published_margin_week_ends(db, asof)
+            column = published_margin_balance_dates(db, asof, publication_confirmed=False)
+
+            self.assertEqual(column, [(day, "weekly") for day in weekly])
+            self.assertEqual(weekly[-1], self.LAST_WEEKLY)
+
+            latest, prior = read_margin_supply_demand_inputs(db, asof, publication_confirmed=False)
+
+            self.assertEqual({row.balance_date for row in latest.values()}, {self.LAST_WEEKLY})
+            # The 26-week reach is the same list index the weekly-only reader used.
+            self.assertEqual(
+                {row.balance_date for row in prior.values()},
+                {weekly[-1 - 26]},
+            )
+
+    def test_the_axes_go_dark_after_the_freeze_and_the_daily_series_keeps_them_lit(self) -> None:
+        """The failure this exists to prevent, and the same store answering with the flag on."""
+        from baibai_engine.screening.sqlite_reader import read_margin_supply_demand_inputs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            self._seed(db, weekly_from=date(2026, 3, 2), daily_through=date(2026, 10, 30))
+            # 2026-09-18 + MARGIN_MAX_STALE_DAYS lands on 2026-10-23, so this as-of is
+            # the first Monday on which the weekly-only column has nothing to say.
+            asof = date(2026, 10, 26)
+
+            self.assertEqual(
+                read_margin_supply_demand_inputs(db, asof, publication_confirmed=False),
+                ({}, {}),
+            )
+
+            latest, _ = read_margin_supply_demand_inputs(db, asof, publication_confirmed=True)
+
+            self.assertEqual(sorted(latest), ["7203"])
+            observed = {row.balance_date for row in latest.values()}
+            self.assertEqual(observed, {date(2026, 10, 22)})
+
+    def test_a_daily_balance_is_unusable_until_its_publication_day_has_closed(self) -> None:
+        """Next business day, and not at that day's own close."""
+        from baibai_engine.screening.sqlite_reader import published_margin_balance_dates
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            self._seed(db, weekly_from=date(2026, 9, 1), daily_through=date(2026, 9, 30))
+
+            def daily_dates(asof: date) -> list[date]:
+                return [
+                    day
+                    for day, cadence in published_margin_balance_dates(
+                        db, asof, publication_confirmed=True
+                    )
+                    if cadence == "daily"
+                ]
+
+            # 2026-09-25 is published on 2026-09-28, the next trading day.
+            self.assertEqual(daily_dates(date(2026, 9, 28)), [])
+            self.assertEqual(daily_dates(date(2026, 9, 29)), [date(2026, 9, 25)])
+            self.assertEqual(daily_dates(date(2026, 9, 30)), [date(2026, 9, 25), date(2026, 9, 28)])
+
+    def test_the_delta_keeps_reaching_back_half_a_year_once_the_cadence_changes(self) -> None:
+        """26 rows back into a daily column would be five weeks, not half a year."""
+        from baibai_engine.screening.sqlite_reader import read_margin_supply_demand_inputs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            self._seed(db, weekly_from=date(2026, 1, 5), daily_through=date(2026, 10, 30))
+            asof = date(2026, 11, 2)
+
+            latest, prior = read_margin_supply_demand_inputs(db, asof, publication_confirmed=True)
+
+            observed = next(iter(latest.values())).balance_date
+            reached = next(iter(prior.values())).balance_date
+
+            # 2026-10-30 is stored but published on 2026-11-02, which is `asof` itself.
+            self.assertEqual(observed, date(2026, 10, 29))
+            # Independent of the reader: 26 weeks before the observed balance date.
+            self.assertLessEqual(abs((observed - reached).days - 26 * 7), 7)
+            # And it therefore still lands in the weekly era rather than in the daily
+            # rows, which is what "26 back" would have given.
+            self.assertLess(reached, self.LAST_WEEKLY)
 
 
 if __name__ == "__main__":

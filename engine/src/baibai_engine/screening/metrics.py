@@ -41,12 +41,11 @@ from statistics import fmean, mean, median
 
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, asof_basis_closes
 
-from .margin_metrics import margin_supply_demand
+from .margin_metrics import MarginBalance, margin_supply_demand
 from .providers.edinet import EdinetMetricRecord
 from .providers.jquants import (
     JQuantsDailyBar,
     JQuantsFinancialSummary,
-    JQuantsWeeklyMargin,
 )
 from .rule_config import ScreeningRules, TTMRules, load_screening_rules
 from .schema import (
@@ -387,8 +386,8 @@ def build_metrics(
     edinet_by_ticker: Mapping[str, EdinetMetricRecord],
     rules: ScreeningRules | None = None,
     median_population: frozenset[str] | None = None,
-    margin_latest: Mapping[str, JQuantsWeeklyMargin] | None = None,
-    margin_prior_26w: Mapping[str, JQuantsWeeklyMargin] | None = None,
+    margin_latest: Mapping[str, MarginBalance] | None = None,
+    margin_prior_26w: Mapping[str, MarginBalance] | None = None,
     valuation_history_sessions: int = VALUATION_HISTORY_SESSIONS,
     adjustment_events_by_ticker: Mapping[
         str, Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar]
@@ -397,10 +396,10 @@ def build_metrics(
 ) -> MetricBuildResult:
     """Build per-ticker financial and derived metrics for the screen scope.
 
-    ``margin_latest`` / ``margin_prior_26w`` carry the weekly margin balances that
-    were already published at ``asof_date``; leaving them out yields the same
-    metrics with the supply/demand axes unset, which is what a store without the
-    weekly source produces.
+    ``margin_latest`` / ``margin_prior_26w`` carry the margin balances that were
+    already published at ``asof_date``; leaving them out yields the same metrics
+    with the supply/demand axes unset, which is what a store without a published
+    margin balance produces.
 
     ``median_population`` restricts the comparison population for sector / market
     medians and sector relative strength to the given tickers (the investable,
