@@ -167,10 +167,22 @@ uv run baibai-engine screening calibration-build \
 507MB から lake の 93MB になる。** bundle manifest は 81 cohort に対して 1,367 bytes である — 世代の
 cohort inventory は 3 つの dataset manifest から導出するので、bundle 自体は cohort 数に依存しない。
 
-再構築した cohort の source は sealed SQLite snapshot であり、bytes を lake に残さないので
-`source_assurance` は `trace_only` になる。`--run-purpose production_decision` は
-`source_not_rebuildable` で block されたままで、これは L1 release が cohort source になるまで
-解けない。**store を作り直しても production 判断は開かない。**
+再構築した cohort は sealed SQLite snapshot と、その store を満たした L1 release の両方を source と
+して述べる。`--l1-release` と `--l1-manifest-sha256` で release を名乗り、build が lake 所有 17 table を
+その release の totals と突き合わせて一致したときだけ記録するので、`source_assurance` は
+`rebuildable_input` になり `--run-purpose production_decision` の `source_not_rebuildable` は立たない。
+release を名乗らずに build した cohort、または store が release と一致しない状態で build した cohort は
+`trace_only` のままで、その block も残る。
+
+```bash
+uv run baibai-engine screening calibration-build \
+  --start <YYYY-MM-DD> --end <YYYY-MM-DD> \
+  --l1-release "$(python3 -c 'import json;print(json.load(open("stores/.r2-generations/lake-release.json"))["release_id"])')" \
+  --l1-manifest-sha256 "$(python3 -c 'import json;print(json.load(open("stores/.r2-generations/lake-release.json"))["release_manifest_sha256"])')"
+```
+
+release の identity は `stores/.r2-generations/lake-release.json` が持つ。この記録は hydrate と
+publication が書くもので、運用者が書くものではない。
 
 ## Commands
 

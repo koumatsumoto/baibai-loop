@@ -475,12 +475,26 @@ producerが読んだ上流入力をlakeが保持していて、producer側の誤
 **trace_only**は読んだstore世代を名指せるだけで、それができない。判断のaudit — 計算logicの誤りが
 後で見つかったときの訂正 — に要るのは前者だけなので、`--run-purpose production_decision`は
 rebuildable_inputのcohortだけを許可し、それ以外には`source_not_rebuildable`をblocking reasonとして
-立てる。水準はcohortの3 role（panel / diagnostics / forward）が名指すsourceの最弱で決まる。
+立てる。
 
-**現時点でrebuildable_inputに到達するcohortは存在しない。** `CohortSourceRef`が許すのはsealed SQLite
-snapshotだけで、そのbytesをlakeは持たないからである。`production_decision`はその間fail-closeする。
-この水準が区別として意味を持ち始めるのは、L1 releaseがcohort sourceとして採れるようになった時点で
-（Issue #917）、同じ変更が「世代が名指すsourceがcurrentになる前に解決すること」の検査も連れてくる。
+**cohortは1つの読みを2通りに名乗る。** sealed SQLite snapshotが「どのbytesを読んだか」、L1 releaseが
+「それをどこで読み直せるか」で、水準を決めるのは後者があるかどうかである。最弱で決める規則にすると、
+読みの記録であるsnapshotが「その読みは再現可能だ」という主張を打ち消すことになる。この読み替えが
+成り立つのは、cohortが読むtableが全部lake所有だからである（`jquants.daily_bars`・`fin_summaries`・
+`master_snapshots`・`edinet.metrics`・`jpx.delistings`・`edinet.tender_offer_exit_values`）。lakeが
+運ばない入力を取るようになったら最弱へ戻す必要がある。
+
+**releaseの名前はhintで、証明は行の突合である。** buildはreleaseを名乗られてから、lake所有17 tableを
+そのreleaseが公表するtotalsと1つずつ突き合わせ、全部一致したときだけcohortにそれを述べさせる。
+releaseが省くdatasetはstore側も0行でなければならない。名前が違う・世代が古い・publishしていない行を
+storeが持つ、のいずれもcohortを`trace_only`のままにする。
+
+**cohortのlineageは別のmirrorを指す。** 較正storeが持つのはL2 objectと自分のmanifest・pointerで、
+L1 releaseはmarket mirrorにある。解決先はkeyのnamespaceで決まり、`lake/manifests/releases/l1/`は
+buildが渡したmarket mirrorが答える。`lake gc`は自分がpublishしていないnamespaceのsourceを
+到達可能にも未解決にもしない — 前者は持っていないbytesを守ると称することになり、後者は別storeの
+事実で較正のsweepを止めることになる。ただし不在だけを理由にはしない: そのnamespaceをpublishしている
+mirrorでは、解決できないsourceは未解決として報告する。
 
 cohortのinput cutoffとsealed snapshot identityが保証するのは**どのstore世代を読んだか名指せること**
 であって、その値が当時同じ形で入手できたことではない。J-Quantsのadjusted price、master、JPX flagは
