@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import importlib
 import inspect
 import re
 import sqlite3
@@ -22,8 +23,6 @@ from baibai_engine.screening.run_store import initialize_run_store
 # These parse Git-managed YAML paths, not runtime stores.
 _NOT_STORE_READERS = frozenset(
     {
-        "load_portfolio_ledger",
-        "load_thesis",
         "validate_application_store_schema",
         "validate_macro_reading_rules",
     }
@@ -39,8 +38,11 @@ _WRITE_GATES = frozenset({"market_calendar_business_day", "previous_run_revision
 _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
     {
         *_NOT_STORE_READERS,
+        "connect_read_only",  # opens the connection the queries run on, not a query
+        "is_unwritten_store",  # classifies an exception, not a store
         "macro_registered_series",  # reads the bundled definitions, not a store
         "macro_series_names",  # reads the bundled definitions, not a store
+        "read_rows",  # takes the SQL to run, which this file would have to invent
         "reconcile_portfolio",  # takes a document, not a path
         "reject_noncanonical_store_paths",  # startup layout guard, not a query
         "repository_root_error",  # inspects a directory layout, not a store
@@ -73,6 +75,26 @@ _ARGUMENTS: dict[str, object] = {
 _STORE_PARAMETERS = ("path", "db_path", "indicators_db_path")
 
 
+def _published_callables() -> dict[str, object]:
+    """Everything read_api publishes, from the package facade and from its modules alike.
+
+    Following only the facade would tie this sweep's reach to how wide the facade happens
+    to be: pruning one re-export whose consumers import the module directly would drop
+    that query from the degrade policy without changing the query at all. The modules are
+    where the queries live, so the sweep follows both and takes the union.
+    """
+
+    published: dict[str, object] = {name: getattr(read_api, name) for name in read_api.__all__}
+    package = Path(read_api.__file__).parent
+    for module_path in sorted(package.glob("*.py")):
+        if module_path.name == "__init__.py":
+            continue
+        module = importlib.import_module(f"{read_api.__name__}.{module_path.stem}")
+        for name in getattr(module, "__all__", ()):
+            published.setdefault(name, getattr(module, name))
+    return published
+
+
 def _classify_readers() -> tuple[list[tuple[str, object, dict[str, object]]], set[str]]:
     """Split read_api's public callables into "this sweep drives it" and "it does not".
 
@@ -82,8 +104,7 @@ def _classify_readers() -> tuple[list[tuple[str, object, dict[str, object]]], se
 
     readers: list[tuple[str, object, dict[str, object]]] = []
     uncovered: set[str] = set()
-    for name in sorted(read_api.__all__):
-        function = getattr(read_api, name)
+    for name, function in sorted(_published_callables().items()):
         if not callable(function) or inspect.isclass(function):
             continue
         if name in _NOT_STORE_READERS:

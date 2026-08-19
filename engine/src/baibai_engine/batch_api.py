@@ -63,19 +63,13 @@ from baibai_engine.market.lake.models import (
 from baibai_engine.market.lake.models import DatasetManifest as LakeDatasetManifest
 from baibai_engine.market.lake.models import ReleaseManifest as LakeReleaseManifest
 from baibai_engine.market.lake.models import SQLiteSnapshotSourceRef as LakeSQLiteSnapshotSourceRef
-from baibai_engine.market.lake.models import retained_sources as lake_retained_sources
 from baibai_engine.market.lake.models import validate_release_policy as validate_lake_release_policy
 from baibai_engine.market.lake.objects import mirror_path as lake_mirror_path
 from baibai_engine.market.lake.release import L1ReleasePointer
 from baibai_engine.market.lake.release import create_l1_release as create_lake_l1_release
-from baibai_engine.market.lake.sources import resolve_source_ref as resolve_lake_source_ref
 from baibai_engine.market.lake.sources import verified_source_scope as lake_verified_source_scope
 from baibai_engine.market.lake.writer import export_lake_legacy
 from baibai_engine.market.sqlite import open_connection as open_market_store
-from baibai_engine.market.sqlite.schema import (
-    EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
-    EDINET_DOCUMENT_LIFECYCLE_COLUMNS,
-)
 from baibai_engine.market.sqlite.schema import (
     SQLITE_SCHEMA_VERSION as MARKET_SCHEMA_VERSION,
 )
@@ -97,8 +91,6 @@ __all__ = [
     "CALIBRATION_DIR",
     "DEFAULT_LATEST_LOOKBACK_DAYS",
     "DEFAULT_MACRO_DB_PATH",
-    "EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS",
-    "EDINET_DOCUMENT_LIFECYCLE_COLUMNS",
     "LAKE_DATASETS",
     "LATEST_FETCH_LOOKBACK_DAYS",
     "MACRO_CONTEXT_SCHEMA_VERSION",
@@ -134,7 +126,6 @@ __all__ = [
     "lake_dataset_manifest_key",
     "lake_mirror_path",
     "lake_release_manifest_key",
-    "lake_retained_sources",
     "lake_verified_git_commit",
     "lake_verified_source_scope",
     "load_definitions",
@@ -146,7 +137,6 @@ __all__ = [
     "reject_noncanonical_store_paths",
     "repository_root_error",
     "require_calibration_generation",
-    "resolve_lake_source_ref",
     "scorecard_series_ids",
     "validate_lake_release_policy",
     "validate_macro_schema",
