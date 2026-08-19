@@ -143,7 +143,7 @@ repository-local skillの正本は`.agents/skills/<name>/SKILL.md`である（�
 
 ## commit 前 / PR 前の self-review
 
-method / src / docs の変更を含む commit を作る前に、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の対応する anti-pattern (AP-01〜AP-11) のチェックリストを通過させること。特に以下は 100% 防ぐ:
+method / src / docs の変更を含む commit を作る前に、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の**全 active anti-pattern** のうち対応するもののチェックリストを通過させること（番号は追加され続けるので、ここでは範囲を列挙しない。`tools/quality/drift/check_anti_pattern_index.py` がこの参照の形を守る）。特に以下は 100% 防ぐ:
 
 - 一次情報を直接確認せず二次情報・推測で書く (AP-01)
 - 数値計算を機械的に検算しない (AP-02)
@@ -172,5 +172,9 @@ screening run storeはobserved / derived / estimateを区別する機械出力�
 ## shell 経由の gh 操作
 
 Markdown を含む `gh issue/pr` の本文は `--body-file` で渡し、backtick や `$()` を shell の二重引用符へ埋め込まない。
+
+## issue を close するとき
+
+未完了項目には successor issue または application DB の dated task を必ず作ってから close する。段階 delivery（一部だけをマージして issue を残す）の PR 本文では auto-close keyword（`Closes` / `Fixes #N`）を使わず `refs #N` で参照する — keyword は「その PR で終わる」と宣言する操作であり、残作業のある issue に付けると期限つきの作業が backlog から消える。
 
 これはローカル用の subset。drift gate・bandit・pip-audit・UI build を含む完全な CI gate は [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §9 を正本とする。

@@ -223,10 +223,19 @@ batch/scripts/r2_transfer.sh push-macro
 
 market storeの履歴を深くしてクラウドへ載せる。日次batchは前へしか伸ばさないので、過去へ伸ばす経路は2つある。**ローカルに既にその履歴があるなら取り直さない** — providerを一度も呼ばずに数分で載る。ローカルにも無い履歴だけ`cloud-history-backfill`をdispatchして取る。
 
+ローカルから載せる手順は、触ったtableがlake所有かどうかで分かれる。`_push_keys`はuploadする複製を`dehydrate_market_snapshot`に通し、**releaseが持たない行をlake所有tableに持つstoreのuploadを拒否する**ので、fetch由来15 tableを増やした場合は`push-market`だけでは止まる。
+
 ```bash
-batch/scripts/r2_transfer.sh push-market              # ローカルに履歴がある場合
+# (a) lake所有の15 tableを増やした場合: hydrate済みstoreで変更し、先にreleaseへ載せる
+batch/scripts/r2_transfer.sh publish-lake
+batch/scripts/r2_transfer.sh push-market
+
+# (b) lakeが持たない4 table（source_coverageとoperator-derived 3 table）だけを変えた場合
+batch/scripts/r2_transfer.sh push-market
+
+# (c) ローカルにも無い履歴を取る場合
 gh workflow run cloud-history-backfill.yml --ref main \
-  -f start=YYYY-MM-DD -f end=YYYY-MM-DD               # ローカルにも無い場合
+  -f start=YYYY-MM-DD -f end=YYYY-MM-DD
 ```
 
 `cloud-history-backfill`は財務サマリーが律速で、実測は3.4年で2時間32分（うち財務2時間05分）である。job上限は5時間なので、大量欠損は3〜4年ずつに分けてdispatchする。coverageのmergeが繋ぐので分割しても結果は同じになる。source failureまでにcommitされたchunkは、store SHA-256が変わった場合だけ`quick_check`と`push-market`を通してR2へ保存し、workflow自体は元の非0で失敗する。変更が無いfailureはuploadをskipする。3つのcloud writerは`cloud-publish`の`queue: max`を共有し、1件だけを実行しながらpending runをFIFOで保持する。

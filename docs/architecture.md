@@ -59,12 +59,12 @@ engine は web / batch / tools に依存しない。Web が engine へ触れる�
 | store | classification | contents | write owner |
 | --- | --- | --- | --- |
 | `stores/application/baibai.sqlite` | canonical application DB | task、macro context、shortlist、thesis revision、holding review、proposal、ledger event / price / meta、outcome、operation session | `baibai-engine` application service |
-| `stores/market/market.sqlite` | rebuildable L1 | J-Quants / EDINET / JPX の price、calendar、financial input と、資本配分・支配権イベントの typed fact | market / screening provider |
+| `stores/market/market.sqlite` | mixed authority（fetch 由来 15 table は L1 release からの runtime copy、残る 4 table はここが canonical） | J-Quants / EDINET / JPX の price、calendar、financial input と、取得範囲の帳簿・資本配分・支配権イベントの typed fact | market / screening provider |
 | `stores/screening/runs.sqlite` | rebuildable L2 run store | 最新数世代を保持するprunable screening run / machine selection cache | screening service |
 | `stores/screening/calibration/` | rebuildable L2 analytical bundle | typed Parquet の calibration panel / diagnostics / forward outcome と、3 datasetを原子的に束ねるbundle manifest・pointer | screening calibration service |
 | `stores/macro/macro.sqlite` | rebuildable L1 | provider 別 macro indicator series。manual 観測は git seed から同期 | macro indicator service |
 
-application DB の default path は `stores/application/baibai.sqlite` で、`BAIBAI_DB` または各 CLI の `--db` で差し替えられる。手動 backup は `baibai-engine db backup` を使う。自動 backup、世代管理、監査 table、transition history は持たない。
+application DB の default path は `stores/application/baibai.sqlite` で、`BAIBAI_DB` または各 CLI の `--db` で差し替えられる。未適用 migration があるときだけ、最初の文の前に checkpoint を自動で取り、直近 10 世代を残す（手動で取るときは `baibai-engine db backup`）。R2 側は `baibai.sqlite.bak-YYYYMMDD` で 1 日 1 世代を直近 14 世代まで残す。監査 table と transition history は持たない — 復元点は store の copy であって、行ごとの履歴ではない。
 
 Git に残す `method/` は `screening/rules`、`macro/reading`、`research/playbooks` の production methodology である。Macro panel の表示 group は `web/config/macro-panel.yaml` が所有する。application data を GitHub Issue や YAML file に複製しない。
 
