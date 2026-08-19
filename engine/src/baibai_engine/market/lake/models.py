@@ -1014,6 +1014,45 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             max_age_days=31,
         ),
         ReleaseDatasetPolicy(
+            dataset="jpx.delistings",
+            required=True,
+            accepted_contract_versions=(1,),
+            # Accumulating by construction: the store keeps a delisting that JPX's
+            # archive page has since dropped, so its earliest row does not move.
+            coverage_start_on_or_before=date(2017, 1, 16),
+            # Half the 760 rows held on 2026-08-19. A derivation that returned a
+            # fraction of the archive breaches it; normal growth never approaches it.
+            minimum_rows=380,
+            minimum_population_count=380,
+            # No fetch record: the operator derives this rather than a provider serving
+            # it, so nothing can prove the archive was read completely.
+            require_complete_coverage=False,
+            # The watermark is the latest delisting date, and JPX schedules them ahead —
+            # 15 of the 760 rows were still in the future on 2026-08-19, the furthest by
+            # 135 days. This dataset is refreshed by an operator command rather than by
+            # the daily batch, so the freshness window is an abandonment detector, not a
+            # cadence: firing it would stop the whole daily run over a monthly chore,
+            # and stale exits are caught where they matter by the cohort that reads them.
+            max_age_days=400,
+            max_lead_days=550,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="edinet.tender_offer_exit_values",
+            required=True,
+            accepted_contract_versions=(1,),
+            # Replaced wholesale by each derivation, so a reclassified offer moves the
+            # earliest row. Pinning a start date would refuse exactly the correction the
+            # derivation exists to make.
+            coverage_start_on_or_before=None,
+            # Half the 152 rows held on 2026-08-19.
+            minimum_rows=76,
+            minimum_population_count=76,
+            require_complete_coverage=False,
+            # Operator-run like the delistings above; see that entry for why the window
+            # is wide. This watermark is always past — an exit is a completed event.
+            max_age_days=400,
+        ),
+        ReleaseDatasetPolicy(
             dataset="jpx.regulation_sources",
             required=True,
             accepted_contract_versions=(1,),

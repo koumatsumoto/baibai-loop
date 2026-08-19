@@ -463,6 +463,37 @@ JPX_REGULATION_SOURCES = LakeDataset(
     ),
 )
 
+JPX_DELISTINGS = LakeDataset(
+    name="jpx.delistings",
+    sqlite_table="jpx_delistings",
+    date_column="delisted_on",
+    partition_grain="year",
+    coverage_authority="unproven",
+    columns=(
+        LakeColumn("delisted_on", "TEXT", _TEXT, False, 1),
+        LakeColumn("ticker", "TEXT", _TEXT, False, 2),
+        LakeColumn("name", "TEXT", _TEXT, False),
+        LakeColumn("market", "TEXT", _TEXT, True),
+        LakeColumn("reason", "TEXT", _TEXT, False),
+    ),
+)
+
+TENDER_OFFER_EXIT_VALUES = LakeDataset(
+    name="edinet.tender_offer_exit_values",
+    sqlite_table="tender_offer_exit_values",
+    date_column="delisted_on",
+    partition_grain="year",
+    coverage_authority="unproven",
+    columns=(
+        LakeColumn("ticker", "TEXT", _TEXT, False, 1),
+        LakeColumn("delisted_on", "TEXT", _TEXT, False, 2),
+        LakeColumn("offer_price_yen", "REAL", _REAL, False),
+        LakeColumn("offer_doc_id", "TEXT", _TEXT, False),
+        LakeColumn("result_doc_id", "TEXT", _TEXT, False),
+        LakeColumn("filed_on", "TEXT", _TEXT, False),
+    ),
+)
+
 LAKE_DATASETS = {
     JQUANTS_DAILY_BARS.name: JQUANTS_DAILY_BARS,
     JQUANTS_SHORT_SALE_REPORTS.name: JQUANTS_SHORT_SALE_REPORTS,
@@ -479,6 +510,8 @@ LAKE_DATASETS = {
     EDINET_BUYBACK_REPORTS.name: EDINET_BUYBACK_REPORTS,
     JPX_REGULATION_FLAGS.name: JPX_REGULATION_FLAGS,
     JPX_REGULATION_SOURCES.name: JPX_REGULATION_SOURCES,
+    JPX_DELISTINGS.name: JPX_DELISTINGS,
+    TENDER_OFFER_EXIT_VALUES.name: TENDER_OFFER_EXIT_VALUES,
 }
 
 

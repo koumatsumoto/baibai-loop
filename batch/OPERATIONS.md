@@ -11,8 +11,8 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 
 | bucket | object | owner |
 | --- | --- | --- |
-| `baibai-stores` | `market.sqlite`（lakeが持たない4 tableだけ） | `cloud-daily-batch` + `cloud-history-backfill`（手動 dispatch。窓を名指しして履歴を遡る）+ ローカル`push-market`（cloud copyのmerge後だけupload） |
-| `baibai-stores` | `lake/`（fetch由来15 datasetのcanonical L1） | `cloud-daily-batch`の`publish-lake` + ローカル`r2_transfer.sh publish-lake` |
+| `baibai-stores` | `market.sqlite`（lakeが持たない2 tableだけ） | `cloud-daily-batch` + `cloud-history-backfill`（手動 dispatch。窓を名指しして履歴を遡る）+ ローカル`push-market`（cloud copyのmerge後だけupload） |
+| `baibai-stores` | `lake/`（lake所有17 datasetのcanonical L1） | `cloud-daily-batch`の`publish-lake` + ローカル`r2_transfer.sh publish-lake` |
 | `baibai-stores` | `runs.sqlite` | `cloud-daily-batch` |
 | `baibai-stores` | `macro.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-macro`（全履歴。cloud copyのmerge後だけupload） |
 | `baibai-stores` | `baibai.sqlite` | ローカル`publish.sh`（replica） |
@@ -154,8 +154,8 @@ batch/scripts/r2_transfer.sh push-macro
 gh workflow run cloud-materialize.yml --ref main   # 表示へ反映する場合
 ```
 
-**market storeはlakeへpublishしてからpushする。** fetch由来15 tableのcanonicalはR2のL1 releaseに
-あり、`push-market`が送るのはそれを空にした残り4 tableだけである。`publish-lake`を飛ばすと、
+**market storeはlakeへpublishしてからpushする。** lake所有17 tableのcanonicalはR2のL1 releaseに
+あり、`push-market`が送るのはそれを空にした残り2 tableだけである。`publish-lake`を飛ばすと、
 dehydrateが「releaseが持つ行数と合わない」で停止する。ローカルが cloud より遅れている場合は先に
 `hydrate-market`で現行releaseへ揃える — publishはstoreをhydrateしたreleaseの上にだけ積めるので、
 別のwriterが進めたlakeの上へ古いstoreをpublishすることはできない。
@@ -227,14 +227,14 @@ batch/scripts/r2_transfer.sh push-macro
 
 market storeの履歴を深くしてクラウドへ載せる。日次batchは前へしか伸ばさないので、過去へ伸ばす経路は2つある。**ローカルに既にその履歴があるなら取り直さない** — providerを一度も呼ばずに数分で載る。ローカルにも無い履歴だけ`cloud-history-backfill`をdispatchして取る。
 
-ローカルから載せる手順は、触ったtableがlake所有かどうかで分かれる。`_push_keys`はuploadする複製を`dehydrate_market_snapshot`に通し、**releaseが持たない行をlake所有tableに持つstoreのuploadを拒否する**ので、fetch由来15 tableを増やした場合は`push-market`だけでは止まる。
+ローカルから載せる手順は、触ったtableがlake所有かどうかで分かれる。`_push_keys`はuploadする複製を`dehydrate_market_snapshot`に通し、**releaseが持たない行をlake所有tableに持つstoreのuploadを拒否する**ので、lake所有17 tableを増やした場合は`push-market`だけでは止まる。
 
 ```bash
-# (a) lake所有の15 tableを増やした場合: hydrate済みstoreで変更し、先にreleaseへ載せる
+# (a) lake所有の17 tableを増やした場合: hydrate済みstoreで変更し、先にreleaseへ載せる
 batch/scripts/r2_transfer.sh publish-lake
 batch/scripts/r2_transfer.sh push-market
 
-# (b) lakeが持たない4 table（source_coverageとoperator-derived 3 table）だけを変えた場合
+# (b) lakeが持たない2 table（source_coverageとtse_capital_policy_snapshots）だけを変えた場合
 batch/scripts/r2_transfer.sh push-market
 
 # (c) ローカルにも無い履歴を取る場合
@@ -248,7 +248,7 @@ gh workflow run cloud-history-backfill.yml --ref main \
 
 どちらのmergeも、終わった時点でsource側だけに残る行が1行でもあれば停止する。日次batchが取得済みでローカルに無い行を、uploadで失わないための不変条件である。以下はstoreごとに違う部分。
 
-`push-market`のmergeは`merge_market_store.py`である。**対象はlakeが持たない4 tableだけ**で、fetch由来15 tableのcloud/local突き合わせはreleaseが引き取っている——`publish-lake`はstoreをhydrateしたreleaseをlakeが既に離れていれば拒否し、dehydrateはreleaseが持たない行を持つstoreのuploadを拒否する。
+`push-market`のmergeは`merge_market_store.py`である。**対象はlakeが持たない2 tableだけ**で、lake所有17 tableのcloud/local突き合わせはreleaseが引き取っている——`publish-lake`はstoreをhydrateしたreleaseをlakeが既に離れていれば拒否し、dehydrateはreleaseが持たない行を持つstoreのuploadを拒否する。
 
 `source_coverage`は取得範囲の帳簿で、両側が書くので主キー`(source, coverage_key)`で`INSERT OR IGNORE`し、同じ主キーを両側が持つ場合はpayloadの一致を検証する。**比較しないのは、出所が何を言ったかではなくstoreがいつ読んだかを記録する`fetched_at_utc`だけ**——2つのstoreが同じ範囲を別の時刻に読めばそこは必ず食い違うので、比較すれば全てのmergeを拒否する。
 
@@ -324,7 +324,7 @@ base manifest transform_fingerprint differs; run a full rebuild without --base-m
 5. **翌定時の日次 batch の緑が最終確認**。手動 dispatch はしない — 定時 cron がその日のうちに答える。
    復旧が定時より後になった日は、その夜の `cloud-batch-watchdog` が `[MISSING]` を正しく報じる
 
-`push-market` は不要である。この経路が直すのは lake の release であって、store 側の 4 table ではない。
+`push-market` は不要である。この経路が直すのは lake の release であって、store 側の 2 table ではない。
 
 ### 部分 push からの復旧
 
@@ -392,7 +392,7 @@ npx wrangler secret put VIEW_PASSWORD
 
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
 - 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括のmachine store pushはGitHub Actionsからだけ許可する（`runs.sqlite`はcloudが唯一のwriterで、無条件uploadが古いローカルcopyで巻き戻すため）。`macro.sqlite` / `market.sqlite`はローカルからも`push-macro` / `push-market`でuploadできるが、いずれもcloud copyのmergeを通した後だけで、mergeがcloud側の行の取り残しを検出したら停止する。
-- pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例してGB級のstoreではaws CLI既定のread timeout 60秒に収まらないため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。**`market.sqlite`が運ぶのはlakeが持たない4 tableだけである。** runner実測は`market.sqlite` 4,972,544 bytes（snapshot 46秒・backup 114秒・upload 2秒）、`runs.sqlite` 52,838,400 bytes（1秒・7秒・3秒）、`macro.sqlite` 256,184,320 bytes（2秒・17秒・14秒）である。market storeのsnapshotが46秒なのは、空にする前のfull storeを一度copyするためである。この`.bak` 114秒は置き換えられる側が1.88GBだった初回の値で、以降は5MBのcopyになる。`push-machine`はkeyごとに`store push: key=... bytes=... snapshot=...s backup=...s upload=...s`を出すので、storeが伸びたときの内訳はrunのlogで見る。
+- pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例してGB級のstoreではaws CLI既定のread timeout 60秒に収まらないため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。**`market.sqlite`が運ぶのはlakeが持たない2 tableだけである。** runner実測は`market.sqlite` 4,972,544 bytes（snapshot 46秒・backup 114秒・upload 2秒）、`runs.sqlite` 52,838,400 bytes（1秒・7秒・3秒）、`macro.sqlite` 256,184,320 bytes（2秒・17秒・14秒）である。market storeのsnapshotが46秒なのは、空にする前のfull storeを一度copyするためである。この`.bak` 114秒は置き換えられる側が1.88GBだった初回の値で、以降は5MBのcopyになる。`push-machine`はkeyごとに`store push: key=... bytes=... snapshot=...s backup=...s upload=...s`を出すので、storeが伸びたときの内訳はrunのlogで見る。
 - machine store の`.bak`は1世代のみで、次のpushで置き換わる。日次batchが毎営業日pushするため、実質の巻き戻し猶予は約24時間である。`baibai.sqlite`だけは`baibai.sqlite.bak-YYYYMMDD`（JST）で日ごとに1世代を残し、直近14世代を超えた分をpush成功後に削除する。machine storeはsourceから作り直せて毎営業日書き換わるのに対し、application storeのjudgmentとledgerは何も再生成しないためである。prune は`baibai.sqlite.bak-`配下をlistし、`baibai.sqlite.bak-YYYYMMDD`に一致するkeyだけを完全一致で削除する（prefix削除はしない）。registry編集後は日次workflowの`registry-prune-pending` / `registry-prune`行（transaction ID・series ID・observation/provider-run削除件数）を当日中に確認する。pending に対応する committed 行が無い実行や意図しないpruneを検出したら、次のpushが`.bak`を置き換える前に状態を確認・復元する。
 - 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。
 - pullは固定4 key以外を受け付けず、全downloadと`quick_check`完了後に置換する。

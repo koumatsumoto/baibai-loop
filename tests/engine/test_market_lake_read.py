@@ -79,6 +79,11 @@ def resolve_current_release(source: object):
     return _resolve_current_release_at(source, evaluated_at=_BUILT_AT)  # type: ignore[arg-type]
 
 
+# Captured before any fixture narrows the module attribute, so a fixture that narrows it
+# further starts from the real profile rather than from another fixture's leftovers.
+_FULL_RELEASE_POLICY = lake_models.PRODUCTION_RELEASE_POLICY
+
+
 @pytest.fixture(autouse=True)
 def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
     # These fixtures build the two datasets these tests exercise, so the
@@ -95,13 +100,13 @@ def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
                 "max_lead_days": 366,
             }
         )
-        for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
+        for item in _FULL_RELEASE_POLICY.datasets
         if item.dataset in {"jquants.daily_bars", "jquants.short_sale_reports"}
     )
     monkeypatch.setattr(
         lake_models,
         "PRODUCTION_RELEASE_POLICY",
-        lake_models.PRODUCTION_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
+        _FULL_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
     )
 
 
@@ -1449,3 +1454,173 @@ class TestDehydrate:
 
         with pytest.raises(LakeHydrateError, match="the release does not publish"):
             dehydrate_market_store(store, release=release)
+
+
+class TestOperatorDerivedRetraction:
+    """A derivation that drops a row must not have it come back through the lake.
+
+    `jpx_delistings` and `tender_offer_exit_values` were kept out of the lake precisely
+    because a key-wise merge would reinstate a row a later derivation retracted — an
+    offer that turned out to have a second bidder, a company the exchange removed from
+    its list — and put a price into the calibration forward that the current rules say
+    cannot be established. Lake ownership answers that rather than working around it:
+    hydrate empties the table before it fills, so absence in the newer generation is
+    what the store ends up holding. This is the test that says so.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _policy(self, _small_pilot_release_policy: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Requested by name so it runs after the module-wide narrowing rather than
+        # before it; autouse order alone would leave this dataset outside the profile.
+        datasets = tuple(
+            item.model_copy(
+                update={
+                    "coverage_start_on_or_before": date.max,
+                    "minimum_rows": 1,
+                    "minimum_population_count": 1,
+                    "max_age_days": 3660,
+                    "max_lead_days": 3660,
+                }
+            )
+            for item in _FULL_RELEASE_POLICY.datasets
+            if item.dataset == "edinet.tender_offer_exit_values"
+        )
+        monkeypatch.setattr(
+            lake_models,
+            "PRODUCTION_RELEASE_POLICY",
+            _FULL_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
+        )
+
+    @staticmethod
+    def _store(path: Path, tickers: tuple[str, ...]) -> Path:
+        connection = open_connection(path)
+        connection.executemany(
+            "INSERT OR REPLACE INTO tender_offer_exit_values("
+            "ticker, delisted_on, offer_price_yen, offer_doc_id, result_doc_id, filed_on"
+            ") VALUES (?, '2026-05-01', 1060.0, 'REG', 'RES', '2026-02-01')",
+            [(ticker,) for ticker in tickers],
+        )
+        connection.commit()
+        connection.close()
+        return path
+
+    def _release(self, sqlite_path: Path, mirror: Path, release_id: str) -> str:
+        with sealed_sqlite_snapshot(
+            sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id=f"snapshot-{release_id}"
+        ) as snapshot:
+            manifest_path = export_legacy_sqlite(
+                dataset_name="edinet.tender_offer_exit_values",
+                mirror_root=mirror,
+                producer_git_commit=_COMMIT,
+                source_snapshot=snapshot,
+                build_id=f"build-exits-{release_id}",
+                created_at=_BUILT_AT,
+            ).manifest_path
+        release_manifest, _release = create_l1_release(
+            dataset_manifest_paths=[manifest_path],
+            mirror_root=mirror,
+            release_id=release_id,
+            created_at=_BUILT_AT,
+        )
+        _publish_pointer(mirror, release_id, release_manifest)
+        return release_id
+
+    def test_a_retracted_exit_value_does_not_come_back_through_hydrate(
+        self, session: LakeSession, tmp_path: Path
+    ) -> None:
+        """The newer generation is what the store ends up holding, row for row."""
+
+        mirror = tmp_path / "mirror"
+        first_source = self._store(tmp_path / "gen1.sqlite", ("2000", "3000"))
+        self._release(first_source, mirror, "release-gen1")
+        second_source = self._store(tmp_path / "gen2.sqlite", ("2000",))
+        self._release(second_source, mirror, "release-gen2")
+
+        # The store arrives dehydrated, which is the shape both the daily batch and
+        # `hydrate-market` fill: `push-market` empties every lake-owned table before it
+        # uploads, so the published copy has nothing to put a retracted row back from.
+        store = self._store(tmp_path / "store.sqlite", ())
+        release = resolve_release(
+            LocalMirrorSource(mirror),
+            "release-gen2",
+            manifest_sha256=_release_digest(mirror, "release-gen2"),
+        )
+        hydrate_market_store(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=tmp_path / "cache", source=LocalMirrorSource(mirror)),
+            store=store,
+            dataset_names=("edinet.tender_offer_exit_values",),
+        )
+
+        connection = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
+        try:
+            held = {
+                str(row[0])
+                for row in connection.execute("SELECT ticker FROM tender_offer_exit_values")
+            }
+        finally:
+            connection.close()
+        assert held == {"2000"}
+
+    def test_the_published_copy_carries_no_row_to_resurrect(self, tmp_path: Path) -> None:
+        """The resurrection vector is gone rather than guarded against.
+
+        `push-market` dehydrates every lake-owned table before it uploads, so the copy a
+        later merge would read holds none of these rows at all. This is what replaced the
+        key-wise merge exemption these two tables used to need.
+        """
+
+        mirror = tmp_path / "mirror"
+        source = self._store(tmp_path / "gen1.sqlite", ("2000", "3000"))
+        self._release(source, mirror, "release-push")
+        release = resolve_release(
+            LocalMirrorSource(mirror),
+            "release-push",
+            manifest_sha256=_release_digest(mirror, "release-push"),
+        )
+
+        report = dehydrate_market_store(source, release=release)
+
+        assert report.removed_rows["edinet.tender_offer_exit_values"] == 2
+        connection = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+        try:
+            held = connection.execute("SELECT count(*) FROM tender_offer_exit_values").fetchone()[0]
+        finally:
+            connection.close()
+        assert held == 0
+
+    def test_the_older_generation_still_holds_the_row_it_named(
+        self, session: LakeSession, tmp_path: Path
+    ) -> None:
+        """Retraction is a property of the newer generation, not a deletion of history.
+
+        Without this, a hydrate that silently produced an empty table would pass the
+        test above for the wrong reason.
+        """
+
+        mirror = tmp_path / "mirror"
+        self._release(self._store(tmp_path / "gen1.sqlite", ("2000", "3000")), mirror, "gen-one")
+        store = self._store(tmp_path / "store.sqlite", ())
+        release = resolve_release(
+            LocalMirrorSource(mirror),
+            "gen-one",
+            manifest_sha256=_release_digest(mirror, "gen-one"),
+        )
+        hydrate_market_store(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=tmp_path / "cache", source=LocalMirrorSource(mirror)),
+            store=store,
+            dataset_names=("edinet.tender_offer_exit_values",),
+        )
+
+        connection = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
+        try:
+            held = {
+                str(row[0])
+                for row in connection.execute("SELECT ticker FROM tender_offer_exit_values")
+            }
+        finally:
+            connection.close()
+        assert held == {"2000", "3000"}

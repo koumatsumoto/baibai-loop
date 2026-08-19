@@ -115,7 +115,7 @@ storeごとに正本の所在が違う。ローカルで進めたstoreをクラ�
 
 | store | 正本 | ローカルからの反映 |
 | --- | --- | --- |
-| `stores/market/market.sqlite` | fetch由来15 tableはR2のL1 release、残る4 tableはcloud（日次batch）+ ローカルの深い履歴 | `r2_transfer.sh publish-lake` → `push-market`（merge後だけupload） |
+| `stores/market/market.sqlite` | lake所有17 tableはR2のL1 release、残る2 tableはcloud（日次batch）+ ローカルの深い履歴 | `r2_transfer.sh publish-lake` → `push-market`（merge後だけupload） |
 | `stores/macro/macro.sqlite` | cloud（rolling窓）+ ローカルの全履歴 | `r2_transfer.sh push-macro`（merge後だけupload） |
 | `stores/screening/runs.sqlite` | cloudのみ | しない（cloudが唯一のwriter） |
 | `stores/application/baibai.sqlite` | ローカル（判断） | `batch/scripts/publish.sh` |
