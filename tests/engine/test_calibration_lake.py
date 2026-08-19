@@ -775,6 +775,33 @@ class TestSourceAssurance:
         # a cohort that states no lineage at all the strongest one in the store.
         assert source_assurance(()) == "trace_only"
 
+    def test_the_snapshot_beside_a_release_does_not_cancel_the_release(self) -> None:
+        """The shape production actually writes, and the one no test held before.
+
+        A build reads one thing — the market store — and names it twice: the sealed
+        snapshot is which bytes it read, the release is where they can be read again.
+        Reading the pair as "weakest wins" would let the record of the read cancel the
+        claim that the read is reproducible, which is the only claim the gate is asking
+        about.
+        """
+
+        pair = (synthetic_calibration_source(), _release_source())
+
+        assert source_assurance(pair) == "rebuildable_input"
+        assert source_assurance(tuple(reversed(pair))) == "rebuildable_input"
+
+    def test_several_roles_are_answered_together_by_whether_any_is_kept(self) -> None:
+        """`evaluate` passes panel, diagnostics and forward sources at once. A role built
+        before the release joined the union states only its snapshot, and the conclusion
+        rests on all three — so the pair below is a cohort mid-migration, not a whole
+        one."""
+
+        assert source_assurance((synthetic_calibration_source(),)) == "trace_only"
+        assert (
+            source_assurance((synthetic_calibration_source(), synthetic_calibration_source()))
+            == "trace_only"
+        )
+
 
 class TestFailClose:
     def test_a_build_from_another_transform_is_refused(self, tmp_path: Path) -> None:

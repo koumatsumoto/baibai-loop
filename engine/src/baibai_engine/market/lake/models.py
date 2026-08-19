@@ -190,25 +190,30 @@ SourceAssurance = Literal["rebuildable_input", "trace_only"]
 
 
 def source_assurance(sources: Iterable[SourceRef | RetainedSourceRef]) -> SourceAssurance:
-    """Whether a cohort's lineage lets it be re-derived, named by its weakest source.
+    """Whether a cohort's lineage lets it be re-derived.
 
     **rebuildable_input** keeps the upstream data the producer read, so a cohort can be
     re-derived after a logic error is found in the producer itself. **trace_only** names
     the store generation a build read without keeping it, so it cannot.
 
-    No build reaches the first value today: ``SourceRef`` admits only a sealed SQLite
-    snapshot, whose bytes the lake deliberately does not store. The distinction
-    is derived rather than declared, so it starts describing something the moment an L1
-    release becomes admissible as a cohort source — and until then the honest answer to
-    "may this decide production" is no.
+    Answered by whether any retained source is stated, not by the weakest one. The two
+    kinds a cohort states are not two inputs: a build reads one thing — the market store
+    — and names it twice. The sealed snapshot is which bytes it read; the L1 release is
+    where those bytes can be read again, and stating it is only allowed after the store
+    has been counted table for table against what that release publishes. Reading the
+    pair as "weakest wins" would make the snapshot, whose whole purpose is to record the
+    read, cancel the claim that the read is reproducible.
 
-    The value is the weakest of the sources stated, which is also why a caller can pass
-    the sources of several cohort roles at once and get the assurance of the whole.
+    That holds because every table a cohort reads is lake-owned. If a build ever took an
+    input the lake does not carry, this would have to go back to naming the weakest —
+    and the check that would notice is the one in `release_backing_store`, which counts
+    every lake-owned table and refuses a store holding rows no release published.
+
     Stating no source at all is the weaker claim rather than the absence of a claim.
     """
 
     stated = tuple(sources)
-    if not stated or len(retained_sources(stated)) != len(stated):
+    if not stated or not retained_sources(stated):
         return "trace_only"
     return "rebuildable_input"
 
