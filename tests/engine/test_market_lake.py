@@ -737,6 +737,26 @@ def test_inventory_reports_every_class_against_its_own_budget(tmp_path: Path) ->
     assert not any(item["budget_exceeded"] for item in capacity.values())
 
 
+def test_every_lake_dataset_states_a_release_policy() -> None:
+    """policy を持たない dataset は、床も鮮度も無いまま production release へ入る。
+
+    `ReleaseDatasetPolicy` は release が dataset を受け入れる条件 — 最小行数・履歴の床・
+    公表からの経過 — を述べる唯一の場所で、名前が挙がっていない dataset には何も課されない。
+    lake 側の定義だけを足して policy を忘れると、その dataset は「検査を通った」ではなく
+    「検査の対象ですらない」状態で publish される。どの build log にも現れない差である。
+
+    `required` は dataset ごとに違ってよい。公表制度の開始を待つ `all_issues_daily_margin`
+    は False である。ここが要求するのは policy が存在することだけである。
+    """
+
+    from baibai_engine.market.lake.datasets import LAKE_DATASETS
+    from baibai_engine.market.lake.models import PRODUCTION_RELEASE_POLICY
+
+    stated = {item.dataset for item in PRODUCTION_RELEASE_POLICY.datasets}
+
+    assert stated == set(LAKE_DATASETS)
+
+
 def test_a_replaced_snapshot_carries_no_history_floor() -> None:
     """置き換わる view に開始日を固定すると、source が約束していない履歴を課す。
 

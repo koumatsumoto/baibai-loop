@@ -10,12 +10,13 @@ status: active
 authority、manifest、version 語彙は [`../architecture.md`](../architecture.md#market-lake-publication-contract)
 を正本とする。この文書は publish と read の実操作を持つ。
 
-L1 は `market.sqlite` の fetch 由来 table 15 本を持ち、R2 が持つ `market.sqlite` は残る 4 本だけを
-運ぶ（[Daily cutover](#daily-cutover)）。その 4 本は L1 に入らない — `jpx_delistings`・
-`tender_offer_exit_values`・`tse_capital_policy_snapshots` は operator が導出したもので fetch の
-蓄積ではなく、key merge すると撤回した行が復活する。`source_coverage` は取得範囲の帳簿であって
-fact ではない。**不足 dataset を store の残り物で暗黙に埋めない** — hydrate は積む前に対象 table を
-空にし、積んだ行数が release manifest の publish 行数と一致しなければ失敗する。
+L1 は `market.sqlite` の 17 table を持ち、R2 が持つ `market.sqlite` は残る 2 本だけを運ぶ
+（[Daily cutover](#daily-cutover)）。その 2 本は L1 に入らない — `tse_capital_policy_snapshots` は
+operator が導出したもので fetch の蓄積ではなく、key merge すると撤回した行が復活する。
+`source_coverage` は取得範囲の帳簿であって fact ではない。**不足 dataset を store の残り物で暗黙に
+埋めない** — hydrate は積む前に対象 table を空にし、積んだ行数が release manifest の publish 行数と
+一致しなければ失敗する。この「空にしてから積む」順序は撤回した行を次世代へ持ち越さないので、
+operator が導出する dataset でも L1 へ載せれば key merge の危険は無くなる。
 
 partition の粒度は dataset 契約が宣言する。行数から導出しない — reader は manifest の layout を
 契約と突き合わせるので、行数由来だと table が育った日に layout が無言で変わり reader が release を
@@ -29,7 +30,7 @@ partition の粒度は dataset 契約が宣言する。行数から導出しな�
 | month | `jquants.short_sale_reports` | 11.7k |
 | month | `edinet.documents` | 6.8k（古い行の lifecycle 更新で書き直しが起きるため細かく） |
 | month | `jquants.all_issues_daily_margin` | 2026-09-28 から全銘柄日次 |
-| year | `jquants.master_snapshots` / `jquants.fin_summaries` / `edinet.buyback_reports` / `edinet.document_lists` / `jquants.market_calendar` / `jquants.earnings_calendar` / `jquants.margin_alerts` / `jpx.regulation_flags` / `jpx.regulation_sources` | 30〜4.8k |
+| year | `jquants.master_snapshots` / `jquants.fin_summaries` / `edinet.buyback_reports` / `edinet.document_lists` / `jquants.market_calendar` / `jquants.earnings_calendar` / `jquants.margin_alerts` / `jpx.regulation_flags` / `jpx.regulation_sources` / `jpx.delistings` / `edinet.tender_offer_exit_values` | 6〜4.9k |
 
 行を持たない dataset は export が飛ばす。`jquants.all_issues_daily_margin` は JPX の公表制度変更
 （2026-09-28、初回は 9/25 残高）を待っているので今は 0 行で、canonical build に partition が無いと
@@ -142,6 +143,26 @@ peak RSS=1061478400 / 1048576 = 1012.30 MiB、
 source sha256=100b125717183a9d82915fed88cf6b1839506159a3989111dab2838191d933ef、
 implementation sha256=ff126483d3f6240bc537262da5733caa4c338d039bd83ada59d8eef5c0a032a1、
 producer commit=4a17e41afd04b6da230bdef10ed61d16e5e0d203、recorded=2026-08-16T14:53:07Z。 -->
+
+## L1 dataset を追加する
+
+新しい table を L1 へ載せる作業が触る場所と、忘れたときに何が言うか。
+
+| 触る場所 | 忘れると |
+| --- | --- |
+| `market/lake/datasets.py` の `LakeDataset` 定義と `LAKE_DATASETS` | 起点なので忘れられない。要点は下段の fingerprint 規約 |
+| `market/lake/models.py` の `PRODUCTION_RELEASE_POLICY` へ `ReleaseDatasetPolicy` 1 件 | `test_every_lake_dataset_states_a_release_policy` が落ちる |
+| `market/sqlite/schema.py` と `market/sqlite/migrations.py` の table | `tests/batch/test_cloud_merge_market_store.py` が落ちる。新 table を lake 側か merge 側かに分類するまで通らない |
+| provider が `market/sqlite/coverage.py` へ記録する `source_coverage.source` と dataset の `coverage_authority` | 何も言わない。既定の `source_coverage` はその帳簿を読むので、名前がずれた dataset は `partial` を名乗り続ける（`coverage_source` で宣言できる） |
+| 本書の grain 表と [`../../stores/README.md`](../../stores/README.md) の table 数 | 何も言わない。ここが唯一の備忘 |
+
+hydrate / dehydrate に個別作業は無い。どちらも `LAKE_DATASETS` から従い、積んだ行数が release
+manifest と合わなければ [Store hydration](#store-hydration) が fail-close する。
+
+**`datasets.py` は `transform_fingerprint` の 3 file の 1 つなので、この merge は full rebuild
+release の publish までが 1 つの作業である。**手順は
+[`AGENTS.md`](../../AGENTS.md#store-の正本とクラウド反映) と
+[`batch/OPERATIONS.md`](../../batch/OPERATIONS.md#fingerprint-変更後の-full-rebuild) を正本とする。
 
 ## R2 publish
 
