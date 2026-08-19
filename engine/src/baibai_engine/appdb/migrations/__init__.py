@@ -614,6 +614,16 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=16,
+        statements=(
+            # v1 が作った `app_meta` は 1 行も書かれたことがない。schema 版は
+            # `PRAGMA user_version` が持ち、他の meta も専用 table を使っている。
+            # 読み書きの経路が無い table は、次に読む人へ「ここに版が入る」と
+            # 誤った契約を示すだけになる。
+            "DROP TABLE app_meta",
+        ),
+    ),
 )
 
 LATEST_VERSION = APPLICATION_SCHEMA_VERSION

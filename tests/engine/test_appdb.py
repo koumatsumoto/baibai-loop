@@ -64,7 +64,12 @@ def test_backup_includes_uncheckpointed_wal_rows(tmp_path: Path) -> None:
     writer = connect_rw(path)
     try:
         writer.execute("PRAGMA journal_mode = WAL")
-        writer.execute("INSERT INTO app_meta (key, value) VALUES ('k', 'v')")
+        writer.execute(
+            """
+            INSERT INTO task (task_id, status, kind, due_date, created_at, payload)
+            VALUES ('task-1', 'open', 'ops', '2026-07-19', '2026-07-19T12:00:00+09:00', '{}')
+            """
+        )
         target = backup_database(
             path,
             backup_dir=tmp_path / "backups",
@@ -75,7 +80,9 @@ def test_backup_includes_uncheckpointed_wal_rows(tmp_path: Path) -> None:
 
     assert target is not None
     with sqlite3.connect(target) as backup:
-        assert backup.execute("SELECT value FROM app_meta WHERE key='k'").fetchone()[0] == "v"
+        assert (
+            backup.execute("SELECT status FROM task WHERE task_id='task-1'").fetchone()[0] == "open"
+        )
         assert backup.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert backup.execute("PRAGMA foreign_key_check").fetchall() == []
 
