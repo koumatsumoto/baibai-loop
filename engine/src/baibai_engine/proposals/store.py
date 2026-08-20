@@ -33,6 +33,7 @@ from baibai_engine.research.thesis import (
     IndependentReview,
     ThesisDocument,
     evaluate_thesis,
+    evidence_exception_axes,
     require_recorded_identity,
 )
 
@@ -535,11 +536,20 @@ def _starter_executed_cost_yen(connection: sqlite3.Connection, proposal_id: str)
 
 
 def _require_required_return_within_intent(thesis: ThesisDocument) -> None:
-    """要求利回りが、宣言した position intent の帯に収まっているか。
+    """要求利回りが、宣言した position intent の許す形に収まっているか。
 
-    starter が縮小 lot と bucket 上限を負うのは要求利回りを下げる代償である。`full` に床が
-    無いと、同じ利回りを full と書くだけでその代償を回避できてしまい、bound が opt-in に
-    落ちる。両側を見て初めて帯が帯になる。
+    starter が縮小 lot と bucket 上限を負うのは、full なら許されない何かを許してもらう
+    代償である。許される形は 2 つ — (a) 要求利回りが帯 [floor, ceiling) にあり、水準を
+    下げる代わりに金額を絞る。(b) 要求利回りは full の水準(ceiling 以上)を満たすが、
+    evidence に不完全または adverse な軸が残っており、確証を待つ代わりに金額を絞る。
+    (b) の例外軸の定義は buy gate の override 要求と同じ `evidence_exception_axes` で、
+    adverse を含む軸は総合結論を elevated にするため thesis 側の starter 検証(非 elevated
+    必須)が先に落とす — ここへ届く (b) は実質 unknown / 未検証 / 一次 source 欠落である。
+    evidence が完全で ceiling 以上なら starter は取れない(確信のある判断を縮小 lot へ
+    退避させて capital guidance を空洞化させない)。
+
+    `full` に床が無いと、同じ利回りを full と書くだけで代償を回避できてしまい、bound が
+    opt-in に落ちる。両側を見て初めて帯が帯になる。
 
     thesis 側で強制しないのは、published 済みの thesis を後から invalid にすると holding
     review と assessment がまとめて止まるからである。資本を約束するのは proposal なので
@@ -548,15 +558,19 @@ def _require_required_return_within_intent(thesis: ThesisDocument) -> None:
 
     required = thesis.estimates.required_5y_base_cagr_pct
     if thesis.judgment.position_intent == "starter":
-        if not (
+        in_band = (
             STARTER_REQUIRED_RETURN_FLOOR_PCT <= required < STARTER_REQUIRED_RETURN_CEILING_PCT
-        ):
-            raise ProposalValidationError(
-                "starter proposal requires a 5y base CAGR requirement inside "
-                f"[{STARTER_REQUIRED_RETURN_FLOOR_PCT}, {STARTER_REQUIRED_RETURN_CEILING_PCT}): "
-                f"{required}"
-            )
-        return
+        )
+        if in_band:
+            return
+        if required >= STARTER_REQUIRED_RETURN_CEILING_PCT and evidence_exception_axes(thesis):
+            return
+        raise ProposalValidationError(
+            "starter proposal requires a 5y base CAGR requirement inside "
+            f"[{STARTER_REQUIRED_RETURN_FLOOR_PCT}, {STARTER_REQUIRED_RETURN_CEILING_PCT}), "
+            f"or at least {STARTER_REQUIRED_RETURN_CEILING_PCT} with an incomplete or "
+            f"adverse evidence axis: {required}"
+        )
     if required < STARTER_REQUIRED_RETURN_CEILING_PCT:
         raise ProposalValidationError(
             "full proposal requires a 5y base CAGR requirement of at least "
