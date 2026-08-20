@@ -7,7 +7,7 @@ import shutil
 import sqlite3
 import threading
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager, nullcontext
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -1694,7 +1694,7 @@ class TestPrefetchingHydration:
         ]
 
     def test_prefetched_fill_reads_objects_from_workers_and_counts_them_fetched(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
+        self, session: LakeSession, lake: Lake, tmp_path: Path, capfd: pytest.CaptureFixture[str]
     ) -> None:
         base = RecordingSource(LocalMirrorSource(lake.mirror))
         workers = RecordingSource(LocalMirrorSource(lake.mirror))
@@ -1723,6 +1723,10 @@ class TestPrefetchingHydration:
         assert not [key for key in base.reads if key in planned_keys]
         assert report.transfers.fetched_objects == len(planned)
         assert report.transfers.reused_objects == 0
+        assert (
+            f"served {len(planned)}/{len(planned)} planned objects (0 already mirrored)"
+            in capfd.readouterr().err
+        )
 
     def test_a_corrupted_prefetched_payload_fails_the_fill_closed(
         self, session: LakeSession, lake: Lake, tmp_path: Path
@@ -1777,7 +1781,7 @@ class TestPrefetchingHydration:
         assert "prefetch disabled" in capfd.readouterr().err
 
     def test_an_already_mirrored_object_is_not_fetched_again(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
+        self, session: LakeSession, lake: Lake, tmp_path: Path, capfd: pytest.CaptureFixture[str]
     ) -> None:
         cache_root = tmp_path / "cache"
         release = self._release(lake)
@@ -1806,6 +1810,7 @@ class TestPrefetchingHydration:
         assert planned[0].key not in workers.reads
         assert report.transfers.reused_objects == 1
         assert report.transfers.fetched_objects == len(planned) - 1
+        assert "(1 already mirrored)" in capfd.readouterr().err
 
     def test_offline_hydration_cache_passes_through_unchanged(self, lake: Lake) -> None:
         cache = _cache(lake)
@@ -1903,3 +1908,30 @@ class TestPrefetchingHydration:
         assert len(worker_sources) == len(opened_sessions)
         served = [key for source in worker_sources for key in source.reads]
         assert sorted(served) == sorted(item.key for item in planned)
+
+    def test_a_failing_source_factory_degrades_to_sequential_reads(
+        self, lake: Lake, tmp_path: Path, capfd: pytest.CaptureFixture[str]
+    ) -> None:
+        """A worker that cannot even open its source leaves the fill on the base read."""
+
+        inner = LocalMirrorSource(lake.mirror)
+        release = self._release(lake)
+        planned = hydration_order(release, self._NAMES)
+
+        def refusing_factory() -> AbstractContextManager[LocalMirrorSource]:
+            raise RuntimeError("worker session cannot be opened")
+
+        source = PrefetchingSource(
+            base=inner,
+            objects=planned,
+            source_factory=refusing_factory,
+            mirror=tmp_path / "cache",
+        )
+        try:
+            for item in planned:
+                assert source.read_bytes(item.key) == inner.read_bytes(item.key)
+        finally:
+            source.close()
+        err = capfd.readouterr().err
+        assert "prefetch disabled" in err
+        assert f"served 0/{len(planned)} planned objects" in err
