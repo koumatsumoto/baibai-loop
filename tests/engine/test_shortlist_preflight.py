@@ -815,3 +815,62 @@ def test_preflight_keeps_newer_canonical_previous_when_all_its_runs_were_pruned(
     assert report["previous"]["status"] == "resolved-shortlist"
     assert report["previous"]["as_of"] == "2026-08-06"
     assert report["previous"]["run_revision_id"] == "run-old-pruned"
+
+
+def test_error_vocabulary_matches_the_workflow_summary_producer() -> None:
+    """The preflight re-validates the producer contract without importing it at runtime,
+    so the vocabularies live in two files. This bridge forces a producer addition (a new
+    stage or code) to land in the preflight allowlist in the same change — the drift
+    surfaced as a preflight crash on the first failed run after the lake cutover added
+    the hydrate / publish-lake stages.
+    """
+
+    from baibai_batch.observability import summary as workflow_summary
+
+    assert set(workflow_summary.ERROR_STAGES) == shortlist_preflight_module._ERROR_STAGES
+    assert set(workflow_summary.ERROR_CODES) == shortlist_preflight_module._ERROR_CODES
+    assert set(workflow_summary.ERROR_IMPACTS) == {"failed", "degraded"}
+
+
+def test_preflight_reads_a_failed_lake_publication_run_and_blocks_with_reasons(
+    tmp_path: Path,
+) -> None:
+    """A cloud run that failed at publish-lake is a normal operational state: the
+    summary must parse, and the decision must say what stands in the way rather
+    than refusing the summary itself.
+    """
+
+    runs = tmp_path / "runs.sqlite"
+    app = tmp_path / "app.sqlite"
+    summary = tmp_path / "latest-run.json"
+    initialize_database(app)
+    store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
+    store.publish_run(
+        _run("2026-08-18", "2026-08-18T12:00:00+09:00"),
+        run_revision_id="run-previous",
+    )
+    _summary(summary, run_id="run-cloud", selection_id="selection-cloud", as_of="2026-08-19")
+    payload = json.loads(summary.read_text(encoding="utf-8"))
+    payload["overall_outcome"] = "failed"
+    payload["publish_state"] = "generated"
+    payload["workflow_errors"] = [
+        {
+            "code": "step_failed",
+            "stage": "publish-lake",
+            "impact": "failed",
+            "message": "GitHub Actions step failed; open the run log",
+        }
+    ]
+    summary.write_text(json.dumps(payload), encoding="utf-8")
+
+    report = shortlist_preflight(
+        as_of=date(2026, 8, 19),
+        cloud_summary_path=summary,
+        runs_db_path=runs,
+        app_db_path=app,
+        repo_root=tmp_path,
+        git_state=GitState(commit=COMMIT, clean=True),
+    )
+
+    assert report["decision"] == "blocked"
+    assert "cloud batch did not finish with a reusable outcome" in report["reasons"]
