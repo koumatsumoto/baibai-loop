@@ -718,6 +718,34 @@ def load_independent_review(path: Path) -> IndependentReview:
         raise ThesisError(str(error)) from error
 
 
+def _evidence_gap_axes(document: ThesisDocument) -> list[RiskAxis]:
+    source_tiers = {
+        source.source_id: source.source_tier for source in document.input_snapshot.sources
+    }
+    return [
+        risk.axis
+        for risk in document.permanent_loss_risks
+        if risk.evidence_status != "verified"
+        or risk.assessment == "unknown"
+        or not any(source_tiers.get(source_id) == "primary" for source_id in risk.source_ids)
+    ]
+
+
+def _adverse_axes(document: ThesisDocument) -> list[RiskAxis]:
+    return [risk.axis for risk in document.permanent_loss_risks if risk.assessment == "adverse"]
+
+
+def evidence_exception_axes(document: ThesisDocument) -> tuple[RiskAxis, ...]:
+    """buy gate の例外集合 — evidence 不完全(未検証・unknown・一次 source 欠落)か adverse な軸。
+
+    `evaluate_thesis` の override 要求と、proposal 側の starter 帯判定(evidence-gap 型の
+    starter を帯外の要求利回りでも受理する条件)が同じ集合を見るための共有述語。ここが
+    二重実装になると、gate ごとに「不完全」の定義がずれて fail-open の隙間を作る。
+    """
+
+    return tuple(sorted(set(_evidence_gap_axes(document) + _adverse_axes(document))))
+
+
 def evaluate_thesis(
     document: ThesisDocument,
     *,
@@ -814,21 +842,13 @@ def evaluate_thesis(
     if document.judgment.permanent_loss_conclusion != expected_conclusion:
         errors.append("judgment.permanent_loss_conclusion contradicts permanent-loss risk axes")
     _check_ai_value_capture(document, source_ids, risk_by_axis, errors)
-    evidence_gaps = [
-        risk.axis
-        for risk in document.permanent_loss_risks
-        if risk.evidence_status != "verified"
-        or risk.assessment == "unknown"
-        or not any(source_tiers.get(source_id) == "primary" for source_id in risk.source_ids)
-    ]
+    evidence_gaps = _evidence_gap_axes(document)
     if evidence_gaps:
         warnings.append(f"permanent-loss evidence incomplete: {sorted(evidence_gaps)}")
     if evidence_gaps and document.judgment.confidence == "high":
         errors.append("high confidence is not allowed with incomplete primary evidence")
 
-    adverse_axes = [
-        risk.axis for risk in document.permanent_loss_risks if risk.assessment == "adverse"
-    ]
+    adverse_axes = _adverse_axes(document)
     if adverse_axes:
         warnings.append(f"permanent-loss risk is adverse: {sorted(adverse_axes)}")
     exception_axes = sorted(set(evidence_gaps + adverse_axes))

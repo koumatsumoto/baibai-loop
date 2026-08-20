@@ -29,6 +29,7 @@ from baibai_engine.proposals.store import (
     PlannedLimitInput,
     ProposalStoreService,
     ProposalValidationError,
+    _require_required_return_within_intent,
     _require_starter_bucket_headroom,
 )
 from baibai_engine.research.opportunity import plan_limit
@@ -36,6 +37,7 @@ from baibai_engine.research.store import ResearchStoreService
 from baibai_engine.research.thesis import (
     IndependentReview,
     ThesisDocument,
+    evidence_exception_axes,
     independent_review_hash,
     thesis_core_hash,
 )
@@ -240,7 +242,14 @@ def test_starter_defers_when_a_single_lot_already_exceeds_the_notional_cap(
     assert planned["defer_reasons"] == ["starter_lot_exceeds_notional_cap"]
 
 
-def test_a_starter_proposal_outside_the_opened_band_is_refused(tmp_path: Path) -> None:
+def test_an_evidence_gapped_starter_at_full_requirement_is_accepted(tmp_path: Path) -> None:
+    """要求利回りを full の水準に保ったまま、evidence 例外軸を代償に縮小 lot を取る形。
+
+    fixture の customer_concentration は unknown / partially_verified で、buy gate が
+    override を要求する例外軸そのもの。この lane が確証を待つ代わりに金額を絞る経路が
+    帯の第 2 の形であり、要求利回りは 1pt も下げていない。
+    """
+
     path = tmp_path / "app.sqlite"
     thesis_path = _write_starter_workspace(tmp_path)
     raw = safe_load(thesis_path.read_text(encoding="utf-8"))
@@ -265,14 +274,55 @@ def test_a_starter_proposal_outside_the_opened_band_is_refused(tmp_path: Path) -
         path, market_db_path=market, clock=lambda: CREATED_AT + timedelta(hours=1)
     )
 
+    proposal = service.create(
+        THESIS_ID,
+        _planned_input(planned),
+        reconcile_portfolio(LedgerStoreService(path).load()),
+        snapshot_append_head=LedgerStoreService(path).append_head(),
+        created_at=CREATED_AT,
+    )
+
+    assert proposal.payload["position_intent"] == "starter"
+    stored = proposal.payload["planned_limit"]
+    assert isinstance(stored, dict)
+    assert stored["budget_max_yen"] == 100_000
+
+
+def test_a_clean_evidence_starter_at_full_requirement_is_refused(tmp_path: Path) -> None:
+    """evidence が完全で要求も full 水準なら starter は取れない。
+
+    確信のある判断を縮小 lot へ退避させると capital guidance が空洞化する。帯は
+    「水準を下げる」か「確証を待たない」のどちらかの代償と交換でだけ開く。
+    """
+
+    raw = _starter()
+    estimates = raw["estimates"]
+    assert isinstance(estimates, dict)
+    estimates["required_5y_base_cagr_pct"] = 8.5
+    for risk in raw["permanent_loss_risks"]:
+        assert isinstance(risk, dict)
+        risk["assessment"] = "acceptable"
+        risk["evidence_status"] = "verified"
+    judgment = raw["judgment"]
+    assert isinstance(judgment, dict)
+    judgment["permanent_loss_conclusion"] = "acceptable"
+    document = ThesisDocument.model_validate(raw)
+    assert evidence_exception_axes(document) == ()
+
     with pytest.raises(ProposalValidationError, match="starter proposal requires"):
-        service.create(
-            THESIS_ID,
-            _planned_input(planned),
-            reconcile_portfolio(LedgerStoreService(path).load()),
-            snapshot_append_head=LedgerStoreService(path).append_head(),
-            created_at=CREATED_AT,
-        )
+        _require_required_return_within_intent(document)
+
+
+def test_a_starter_below_the_floor_is_refused_even_with_evidence_gaps(tmp_path: Path) -> None:
+    raw = _starter()
+    estimates = raw["estimates"]
+    assert isinstance(estimates, dict)
+    estimates["required_5y_base_cagr_pct"] = 6.5
+    document = ThesisDocument.model_validate(raw)
+    assert evidence_exception_axes(document) != ()
+
+    with pytest.raises(ProposalValidationError, match="starter proposal requires"):
+        _require_required_return_within_intent(document)
 
 
 def test_the_starter_bucket_counts_only_capital_deployed_through_starter_proposals(

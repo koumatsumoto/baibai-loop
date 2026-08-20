@@ -100,7 +100,7 @@ max_acceptable_price = floor_to_tick(
 
 ## Position intent
 
-`judgment.position_intent`は`full`（既定）と`starter`を取る。`starter`は要求利回りが full の水準に届かない境界帯を、縮小 lot と bucket 上限つきで建てる宣言であり、`sizing_action: reduced`、非`elevated`な永久損失結論、`judgment.starter_catalyst_date`（再評価を発火させる日付）を同時に要求する。帯・1注文上限・bucket上限の数値と撤退基準は[`portfolio-management.md`](../portfolio-management.md#starter-band)を正本とし、機械gateは`plan-limit`の数量と`proposal create`が持つ。thesis側で帯を強制しないのは、published済みthesisを後からinvalidにするとholding reviewとassessmentが同時に止まるためである。
+`judgment.position_intent`は`full`（既定）と`starter`を取る。`starter`は境界にある判断を縮小 lot と bucket 上限つきで建てる宣言で、許される形は 2 つ — (a) 要求利回りが full の水準に届かない境界帯、(b) 要求は full の水準のまま、evidence に不完全な軸（`evidence_exception_axes` — buy gate が override を要求する例外集合と同じ定義）が残る lane。どちらも`sizing_action: reduced`、非`elevated`な永久損失結論、`judgment.starter_catalyst_date`（再評価を発火させる日付）を同時に要求する。evidence が完全で要求も full 水準なら starter は取れない。帯・1注文上限・bucket上限の数値と撤退基準は[`portfolio-management.md`](../portfolio-management.md#starter-band)を正本とし、機械gateは`plan-limit`の数量と`proposal create`が持つ。thesis側で帯を強制しないのは、published済みthesisを後からinvalidにするとholding reviewとassessmentが同時に止まるためである。
 
 ## Core hash
 

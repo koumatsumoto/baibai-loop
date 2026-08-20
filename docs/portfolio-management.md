@@ -34,11 +34,14 @@ AIは候補、risk、price、quantity、warningを提案し、人間がapprove/d
 
 ## Starter band
 
-要求利回りに届かない境界帯へ、縮小 lot と bucket 上限つきで入る経路。thesis が `judgment.position_intent: starter` を宣言したときだけ開く。
+境界にある判断へ、縮小 lot と bucket 上限つきで入る経路。thesis が `judgment.position_intent: starter` を宣言したときだけ開く。帯が許す形は 2 つで、どちらも「full なら許されない何か」と金額の有界化を交換する。
+
+- **(a) 水準を下げる形** — 要求 5 年 base CAGR が full の水準に届かない境界帯（floor 以上 ceiling 未満）。
+- **(b) 確証を待たない形** — 要求は full の水準（ceiling 以上）を満たすが、evidence に不完全な軸（`unknown` / 未検証 / 一次 source 欠落 — buy gate が override を要求する例外集合と同じ定義）が残っている。全額の確信を宣言できない lane を、二値の見送りに落とさず縮小 lot で建てる。
 
 | 条件 | 値 |
 | --- | --- |
-| 要求 5 年 base CAGR | `starter_band.required_return_floor_pct` 以上 `required_return_ceiling_pct` 未満 |
+| 要求 5 年 base CAGR | (a) `starter_band.required_return_floor_pct` 以上 `required_return_ceiling_pct` 未満、**または** (b) `required_return_ceiling_pct` 以上かつ evidence 例外軸が残る。evidence が完全で ceiling 以上なら starter は取れない（確信のある判断を縮小 lot へ退避させない） |
 | 永久損失結論 | `acceptable` または `unknown`（`elevated` は不可） |
 | sizing_action | `reduced` |
 | dated catalyst | `judgment.starter_catalyst_date` 必須。再評価を発火させる日付 |
@@ -55,7 +58,7 @@ AIは候補、risk、price、quantity、warningを提案し、人間がapprove/d
 
 各 starter は `starter_catalyst_date` を期日にした follow-up task を持つ。期日に thesis の前提が成立したかを確認しないまま保有を続けない — 帯を開く代償は縮小 lot だけでなく、再評価の義務でもある。
 
-この帯を開く根拠は、機械 E[r] 上位群が母集団を上回る一方、正規化と据え置き倍率を積んだ research の base が要求利回りに届かず全件棄却になっていたという計測である（[診断](../reports/studies/2026-08-06-bargain-capture-diagnosis/report.md)）。ただし cohort 一致数は最小群サイズの閾値に依存し、5y の entry は 2020 年の暴落局面へ強く偏る。**この帯は「機械が確実に勝つ」という前提の上には立っていない。** 狙いは購入件数でも期待値の最大化でもなく、境界帯の実現結果を観測ゼロから非ゼロにすることであり、外れたときの損失を有界に保つのが上限と撤退基準の役割である。
+この帯を開く根拠は、機械 E[r] 上位群が母集団を上回る一方、正規化と据え置き倍率を積んだ research の base が要求利回りに届かず全件棄却になっていたという計測である（[診断](../reports/studies/2026-08-06-bargain-capture-diagnosis/report.md)）。形 (b) を足した根拠は、その後の再点検（[厳格性再点検](../reports/studies/2026-08-20-strictness-recheck/report.md)）で、実現した機会費用が「base は水準を満たすのに evidence・確信の不足で二値の見送りに落ちた lane」に集中し、形 (a) だけの帯には流量が来ず空転していたという計測である。ただし cohort 一致数は最小群サイズの閾値に依存し、5y の entry は 2020 年の暴落局面へ強く偏る。**この帯は「機械が確実に勝つ」という前提の上には立っていない。** 狙いは購入件数でも期待値の最大化でもなく、境界帯の実現結果を観測ゼロから非ゼロにすることであり、外れたときの損失を有界に保つのが上限と撤退基準の役割である。
 
 帯の下限・1 注文上限・bucket 上限の数値は計測から導出したものではなく、オーナーが受け入れる損失の大きさから決めた判断である。計測が変わっても自動では動かない。
 
