@@ -288,6 +288,8 @@ _ERROR_STAGES = {
     "setup",
     "sync",
     "pull-stores",
+    "hydrate",
+    "publish-lake",
     "verify-cache-coverage",
     "bootstrap-cache",
     "extract-edinet-metrics",
@@ -302,7 +304,7 @@ _ERROR_STAGES = {
     "screening-prune",
     "upload-machine",
     "upload-serving",
-    "upload-parallel",
+    "upload-stores",
     "publish-serving",
     "batch",
     "pre-batch",
@@ -470,7 +472,10 @@ def _validate_errors(value: object, *, label: str) -> None:
             or not isinstance(message, str)
             or not message.strip()
         ):
-            raise ValueError(f"{label} error has an invalid contract")
+            raise ValueError(
+                f"{label} error has an invalid contract "
+                f"(code={code!r}, stage={stage!r}, impact={impact!r})"
+            )
 
 
 def _require_nonempty_strings(

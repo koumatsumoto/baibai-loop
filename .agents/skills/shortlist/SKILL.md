@@ -9,7 +9,7 @@ description: 買い機会の発見と絞り込み。screening run → select →
 
 ## 前提
 
-1. AGENTS.md の session 規約に従い `operation start --kind opportunity --as-of <最新完全営業日>`（active があれば resume）。
+1. AGENTS.md の session 規約に従い `operation start --kind opportunity --as-of <最新完全営業日>`（active があれば resume）。active の有無は `uv run baibai-engine operation --db stores/application/baibai.sqlite show` で確認する（`--db` は subcommand の**前**）。
 2. `uv run baibai-engine position ledger --db stores/application/baibai.sqlite` で holding / reservation / cash を読む。
 3. macro context head の鮮度を判断する: `baibai-engine macro context head` → head が古い、または[深度契約](../../../docs/reference/macro.md#depth-contract)を満たさないと判断したら、先に `macro-context` skill で書き直す。
 4. 候補比較の優先順位は [doctrine](../../../docs/doctrine.md)（永久損失 → 5 年期待値と FV 乖離 → portfolio 追加価値 → 購入可能性）。cash・集中・保有はannotationであり、上位候補の hard 除外に使わない。
@@ -25,7 +25,9 @@ description: 買い機会の発見と絞り込み。screening run → select →
      --asof <ASOF> --cloud-summary "$shortlist_preflight_dir/latest-run.json"
    ```
 
-   local run store に cloud publication が無ければ `batch/scripts/r2_transfer.sh pull-runs` で cloud 正本だけを取り込み、preflight を再実行する。`decision: reuse` なら表示された `selection_id` を `screening selection show` で取得して手順 4 へ進み、同一 as-of の `run` / `select` は実行しない。`decision: resume-current-code` なら表示された `run_revision_id` で手順 3 だけを 1 回実行する。`decision: rerun-current-code` のときだけ手順 2・3 を各 1 回実行する。`previous.status: ambiguous` なら candidate の run ID を選び、同じ preflight に `--previous-run-revision-id <ID>` を足して再実行する。`decision: blocked` は理由を解消するまで run を作らない。preflight 後に HEAD または as-of が変わったら古い判定を使わず再実行する。
+   local run store に cloud publication が無ければ `batch/scripts/r2_transfer.sh pull-runs` で cloud 正本だけを取り込み、preflight を再実行する。**最新 cloud run が失敗している（`overall_outcome: failed`）ときは pull-runs では解消できない** — 失敗 run は runs store を push しない。ops-maintenance の復旧手順（`gh workflow run cloud-daily-batch.yml --ref main -f asof=<ASOF>`）を完走させてから pull-runs → preflight を再実行する。`decision: reuse` なら表示された `selection_id` を `screening selection show` で取得して手順 4 へ進み、同一 as-of の `run` / `select` は実行しない。`decision: resume-current-code` なら表示された `run_revision_id` で手順 3 だけを 1 回実行する。`decision: rerun-current-code` のときだけ手順 2・3 を各 1 回実行する。`previous.status: ambiguous` なら candidate の run ID を選び、同じ preflight に `--previous-run-revision-id <ID>` を足して再実行する。`decision: blocked` は理由を解消するまで run を作らない。preflight 後に HEAD または as-of が変わったら古い判定を使わず再実行する。
+
+   market / machine store は読む前に ops-maintenance の規律どおり同期する（`pull-market` / `pull-machine` → `hydrate-market`）。reuse で local run を作らない日も、手順 5 の `research_watch` と手順 1 の coverage 判定が market store の現在価格を読むので省略しない。batch 走行中の pull は避ける（窓は `batch/OPERATIONS.md`）。
 
    ```bash
    uv run baibai-engine screening verify-cache-coverage --asof <ASOF>
@@ -34,7 +36,7 @@ description: 買い機会の発見と絞り込み。screening run → select →
    ```
 
    coverage が future-dated / stale JPX なら停止（historical backfill 以外で `--allow-stale-jpx` を使わない）。
-2. `uv run baibai-engine screening run --asof <ASOF>` → `run_revision_id` を保持。
+2. `uv run baibai-engine screening run --asof <ASOF>` → `run_revision_id` を保持。exit 0 は clean、**exit 2 は partial warning で run は publish 済み** — 警告理由（data quality の件数系）を確認して継続する。失敗と読み違えて再実行しない（同 as-of の再実行は retention 世代を消費する）。
 3. `uv run baibai-engine screening select --asof <ASOF> --run-revision-id <ID> <PREVIOUS_ARGS> --longlist-top 20 --output-path <workdir>/selection.yaml` → `selection_id` を保持。`<PREVIOUS_ARGS>` は preflight の `previous.selection_arguments` をそのまま渡す（`previous.status: missing` だけは省略）。これにより canonical previous を別 revision へ置換せず、prune 済みなら application DB の retained shortlist entries を明示利用する。longlist 20 件は点検 view であり全件深掘りの命令ではない。`--longlist-top` は publish 時の機械行焼き込みの入力でもあるので省略しない（省略すると run が prune された後にレビュー面の機械値が消える）。
 4. **供給文脈**: 手順 3 で保持した `selection_id` を渡して当日の座標を控える。
 
