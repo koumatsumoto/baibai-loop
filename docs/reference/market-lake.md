@@ -312,8 +312,10 @@ R2 sessionをfail-closeする。credentialは非 persistent secretとしてbind 
 例外・metadataに残さない。
 
 row は bounded batch で読む。dataset は 10 年分の日足であり、全 row を一度に Python object へ
-変換すると build が終わる前に memory を使い切る。partition（1 か月）ごとに object を取得・検証し、
-その中を batch で流し込むので、peak memory は dataset の大きさではなく batch 幅に従う。
+変換すると build が終わる前に memory を使い切る。partition（1 か月）ごとに object を検証してから
+その中を batch で流し込み、hydrate の R2 読みでは worker が消費順の先の object を bounded buffer
+（既定 16 object）へ先読みする。peak memory は dataset の大きさではなく batch 幅と buffer 上限に
+従い、検証・install・transfer 計数は先読みの有無にかかわらず消費側 thread の同じ経路を通る。
 
 ## Store hydration
 

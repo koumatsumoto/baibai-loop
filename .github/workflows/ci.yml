@@ -73,15 +73,21 @@ jobs:
           done
 
       - name: Tests with coverage
-        # The worker count is fixed here rather than left to `auto`, which resolves to the
-        # runner's 2 cores. The suite waits on sqlite more than it computes, so a little
-        # oversubscription is worth taking while a lot is not: measured on this runner, 8
-        # workers take 92s and 16 take 130s, while 2 and 4 both land in the 74-95s the
-        # runner varies across, so 4 is the modest end of that. Developer machines keep
-        # `auto` from `addopts`, where a wider box is worth using.
+        # TMPDIR on tmpfs is what the suite's speed rests on: tests create thousands of
+        # small SQLite stores under pytest's tmp root, and on the runner's disk every
+        # commit waits on fsync. On tmpfs those waits vanish while fsync stays a working
+        # no-op, so the durability probes in the suite still pass. Measured locally on 2
+        # pinned cores: 91s wall (73s CPU) on disk vs 32s wall (63s CPU) on tmpfs, no-cov.
+        # A full run writes ~211MB of tmp against the runner's ~3.4GB /dev/shm.
+        #
+        # With the I/O wait gone the suite is CPU-bound and -n 4 already keeps both
+        # runner cores saturated (CPU/wall ≈ 2.0), so the worker count stays at 4.
+        # Developer machines keep `auto` from `addopts`, where a wider box is worth using.
         #
         # pytest-cov measures the xdist workers because it starts coverage inside each one;
         # `coverage run -m pytest` would only see the controller and report a near-empty run.
+        env:
+          TMPDIR: /dev/shm
         run: uv run pytest -n 4 --cov --cov-report=term-missing
 
       - name: Brand asset contract
