@@ -110,6 +110,7 @@ class PrefetchingSource:
         self._mirror = mirror
         self._wait_seconds = wait_seconds
         self._served = 0
+        self._mirrored = 0
         unique: dict[str, LakeObject] = {}
         for item in objects:
             unique.setdefault(item.key, item)
@@ -170,8 +171,11 @@ class PrefetchingSource:
         for thread in self._threads:
             thread.join(timeout=_PREFETCH_JOIN_SECONDS)
         if self._plan:
+            # The mirrored count keeps a warm fill's "served 0/N" reading as healthy
+            # reuse rather than as a silent degrade, which prints its own line.
             print(
-                f"lake prefetch served {self._served}/{len(self._plan)} planned objects",
+                f"lake prefetch served {self._served}/{len(self._plan)} planned objects "
+                f"({self._mirrored} already mirrored)",
                 file=sys.stderr,
             )
 
@@ -214,6 +218,8 @@ class PrefetchingSource:
                 # Already installed by an earlier run; the cache will reuse it without
                 # asking this source, so fetching it again would only be spent bytes.
                 self._budget.release()
+                with self._lock:
+                    self._mirrored += 1
                 slot.resolve(None)
                 return True
             payload = source.read_bytes(item.key)

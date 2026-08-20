@@ -187,7 +187,7 @@ uv run ruff check .
 uv run mypy
 uv run lint-imports
 for gate in tools/quality/drift/check_*.py; do uv run python -m "tools.quality.drift.$(basename "$gate" .py)"; done
-uv run pytest -n 4 --cov --cov-report=term-missing
+TMPDIR=/dev/shm uv run pytest -n 4 --cov --cov-report=term-missing
 uv run --with pillow python -c 'import PIL.Image'
 uv run --with pillow pytest -n 0 tests/tools/test_brand_assets.py
 uv run bandit -c pyproject.toml -q -r engine/src/baibai_engine web/backend/src/baibai_web batch/src/baibai_batch tools
