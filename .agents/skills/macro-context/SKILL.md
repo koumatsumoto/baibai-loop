@@ -20,7 +20,7 @@ description: 市場環境の評価（macro context report）を人間の判断�
 
 ## 手順
 
-0. cloud 正本の store を読む前に pull する: `batch/scripts/r2_transfer.sh pull-machine` → `hydrate-market`（market / runs / macro。market store は hydrate まで通さないと fetch 由来 15 table が空である。規律は ops-maintenance skill）。application DB は local が正本なので pull しない。
+0. cloud 正本の store を読む前に pull する: `batch/scripts/r2_transfer.sh pull-machine` → `hydrate-market`（market / runs / macro。market store は hydrate まで通さないと lake 所有 17 table が空である。規律は ops-maintenance skill）。application DB は local が正本なので pull しない。
 1. **前回の分析を見ずに起動する**（[`macro.md`](../../../docs/reference/macro.md) §分析の独立性）。`baibai-engine macro context head` で head ID を取り、trigger は**必ず投影して**読む。`triggers` の JSON / table は条件ごとに `event` と `view_change`（＝前回の結論そのもの）を含み、`fired` は property で serialize されないので、生出力を開くと前回の判断が context に入る。
 
    ```bash

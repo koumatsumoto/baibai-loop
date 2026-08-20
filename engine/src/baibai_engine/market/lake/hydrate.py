@@ -53,7 +53,7 @@ from .retention import exclusive_lock
 _MIN_FREE_BYTES = 64 * 1024 * 1024
 # SQLite holds the same rows in b-trees with the store's own indexes, so a store is a
 # multiple of the compressed Parquet the release publishes. The production release is
-# 299,949,710 bytes of Parquet against a 2,013,155,328-byte store — 6.71 — and the
+# 300,587,037 bytes of Parquet against a 1,812,189,184-byte store — 6.03 — and the
 # factor is set above that so the check refuses before the load rather than after it.
 _STORE_EXPANSION_FACTOR = 8
 

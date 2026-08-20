@@ -339,6 +339,13 @@ current pointerが無いので、初回のhydrateは必ずこのどれかでrele
 content-addressed に格納する。object key は content hash なので、変わらなかった partition は
 既に手元にあり転送量に乗らない。出力の `fetched_bytes` / `reused_bytes` がその内訳になる。
 
+R2 読みは worker（既定 8、各自の DuckDB session）が消費順の先の object を bounded buffer へ
+先読みし、stderr に 2 種類の行を出す。`lake prefetch served X/Y planned objects (Z already
+mirrored)` は毎回出る要約で、cold fill は served ≈ Y、warm fill は served 0 + mirrored ≈ Y と
+読む。`lake prefetch disabled; reads continue sequentially: ...` は worker 側の失敗や待ちの
+超過で逐次読みへ退化したときだけ出る — fill は正しく完走するが遅くなるので、hydrate の
+所要時間が戻った run ではまずこの行の有無を見る。
+
 hydrate は store の sealed copy へ書き、1 回の rename で公開する。途中状態が読まれることはなく、
 失敗しても直前の store は壊れない。current modeでは成功を返す直前にcurrent pointerのfull identityを
 問い直す。identity は名前ではなく digest まで見る — 同じ release ID で別の bytes を再 publish した
