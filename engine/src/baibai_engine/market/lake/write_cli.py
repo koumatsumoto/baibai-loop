@@ -15,6 +15,7 @@ from .hydrate import LakeHydrateError, dehydrate_market_store, hydrate_market_st
 from .identity import source_repo_root, verified_git_commit
 from .models import DatasetManifest, L1ReleaseSourceRef, load_lake_model_json
 from .objects import LakeObjectError, LakeObjectSource, open_lake
+from .prefetch import prefetching_hydration_cache
 from .reader import (
     FixedRelease,
     LakeReadError,
@@ -207,14 +208,21 @@ def _hydrate(args: argparse.Namespace) -> int:
     try:
         with open_lake(mirror=args.mirror, bucket=args.bucket) as (session, cache):
             release, still_current = _resolve_release_target(args, cache.source)
-            report = hydrate_market_store(
-                session,
+            dataset_names = _selected_datasets(args, release)
+            with prefetching_hydration_cache(
+                cache,
                 release=release,
-                cache=cache,
-                store=args.store,
-                dataset_names=_selected_datasets(args, release),
-                still_current=still_current,
-            )
+                dataset_names=dataset_names,
+                bucket=args.bucket,
+            ) as hydration_cache:
+                report = hydrate_market_store(
+                    session,
+                    release=release,
+                    cache=hydration_cache,
+                    store=args.store,
+                    dataset_names=dataset_names,
+                    still_current=still_current,
+                )
     except (
         LakeCredentialError,
         LakeHydrateError,

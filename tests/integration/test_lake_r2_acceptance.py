@@ -33,6 +33,7 @@ from baibai_engine.market.lake.models import (
     load_lake_model_json,
 )
 from baibai_engine.market.lake.objects import open_lake, sha256_file
+from baibai_engine.market.lake.prefetch import prefetching_hydration_cache
 from baibai_engine.market.lake.reader import resolve_current_release
 from baibai_engine.market.lake.release import L1ReleasePointer, create_l1_release
 from baibai_engine.market.lake.writer import export_lake_legacy
@@ -242,8 +243,9 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
     with sqlite3.connect(mirrored_store) as connection:
         assert connection.execute("PRAGMA quick_check").fetchone() == ("ok",)
 
-    # The reader path production would use: objects resolved straight out of the bucket
-    # through DuckDB's HTTP layer, with nothing pre-downloaded beside it.
+    # The reader path production uses: objects resolved out of the bucket through
+    # DuckDB's HTTP layer, prefetched by the same worker wiring `lake hydrate` runs,
+    # with nothing pre-downloaded beside it.
     direct_mirror = tmp_path / "direct-reader"
     direct_store = _emptied_market(sqlite_path, tmp_path / "direct.sqlite")
     with open_lake(mirror=direct_mirror, bucket=os.environ["R2_LAKE_ACCEPTANCE_BUCKET"]) as (
@@ -251,13 +253,19 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
         cache,
     ):
         direct = resolve_current_release(cache.source, evaluated_at=datetime.now(UTC))
-        hydrate_market_store(
-            session,
+        with prefetching_hydration_cache(
+            cache,
             release=direct,
-            cache=cache,
-            store=direct_store,
             dataset_names=tuple(sorted(build.datasets)),
-        )
+            bucket=os.environ["R2_LAKE_ACCEPTANCE_BUCKET"],
+        ) as hydration_cache:
+            hydrate_market_store(
+                session,
+                release=direct,
+                cache=hydration_cache,
+                store=direct_store,
+                dataset_names=tuple(sorted(build.datasets)),
+            )
     # Reading the same release over HTTP and out of a downloaded mirror has to produce
     # the same rows; comparing the filled tables is what proves it rather than assuming.
     assert _lake_table_contents(direct_store) == _lake_table_contents(mirrored_store)

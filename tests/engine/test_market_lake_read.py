@@ -5,7 +5,9 @@ import json
 import os
 import shutil
 import sqlite3
+import threading
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -19,6 +21,7 @@ import pytest
 from baibai_engine.market.lake import duck as duck_module
 from baibai_engine.market.lake import hydrate as hydrate_module
 from baibai_engine.market.lake import models as lake_models
+from baibai_engine.market.lake import prefetch as prefetch_module
 from baibai_engine.market.lake.datasets import JQUANTS_DAILY_BARS
 from baibai_engine.market.lake.duck import (
     LakeCredentialError,
@@ -49,6 +52,11 @@ from baibai_engine.market.lake.objects import (
     mirror_path,
     mirror_root,
     sha256_file,
+)
+from baibai_engine.market.lake.prefetch import (
+    PrefetchingSource,
+    hydration_order,
+    prefetching_hydration_cache,
 )
 from baibai_engine.market.lake.reader import (
     LakeReadError,
@@ -1624,3 +1632,274 @@ class TestOperatorDerivedRetraction:
         finally:
             connection.close()
         assert held == {"2000", "3000"}
+
+
+@dataclass
+class _CorruptingSource:
+    """A source that flips one byte of one key's payload, length preserved."""
+
+    inner: LocalMirrorSource
+    key: str
+
+    def read_bytes(self, key: str) -> bytes:
+        payload = self.inner.read_bytes(key)
+        if key != self.key:
+            return payload
+        return payload[:-1] + bytes([payload[-1] ^ 1])
+
+    def uri(self, key: str) -> str:
+        return self.inner.uri(key)
+
+
+@dataclass
+class _RefusingSource:
+    """A source whose every object read fails, as a worker's session might."""
+
+    inner: LocalMirrorSource
+
+    def read_bytes(self, key: str) -> bytes:
+        raise LakeObjectError(f"worker cannot read: {key}")
+
+    def uri(self, key: str) -> str:
+        return self.inner.uri(key)
+
+
+class TestPrefetchingHydration:
+    """The prefetching source must change wall time only, never a fill's meaning."""
+
+    _NAMES = ("jquants.daily_bars", "jquants.short_sale_reports")
+
+    def _release(self, lake: Lake) -> Any:
+        return resolve_current_release(LocalMirrorSource(lake.mirror))
+
+    def test_planned_order_is_exactly_the_order_a_fill_reads_objects(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        recording = RecordingSource(LocalMirrorSource(lake.mirror))
+        cache = LakeObjectCache(root=tmp_path / "cache", source=recording)
+        release = self._release(lake)
+        planned = hydration_order(release, self._NAMES)
+
+        hydrate_market_store(
+            session,
+            release=release,
+            cache=cache,
+            store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
+            dataset_names=self._NAMES,
+        )
+
+        planned_keys = {item.key for item in planned}
+        assert [key for key in recording.reads if key in planned_keys] == [
+            item.key for item in planned
+        ]
+
+    def test_prefetched_fill_reads_objects_from_workers_and_counts_them_fetched(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        base = RecordingSource(LocalMirrorSource(lake.mirror))
+        workers = RecordingSource(LocalMirrorSource(lake.mirror))
+        release = self._release(lake)
+        planned = hydration_order(release, self._NAMES)
+        source = PrefetchingSource(
+            base=base,
+            objects=planned,
+            source_factory=lambda: nullcontext(workers),
+            mirror=tmp_path / "cache",
+        )
+        try:
+            report = hydrate_market_store(
+                session,
+                release=release,
+                cache=LakeObjectCache(root=tmp_path / "cache", source=source),
+                store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
+                dataset_names=self._NAMES,
+            )
+        finally:
+            source.close()
+
+        assert report.rows == {"jquants.daily_bars": 4, "jquants.short_sale_reports": 2}
+        assert sorted(workers.reads) == sorted(item.key for item in planned)
+        planned_keys = {item.key for item in planned}
+        assert not [key for key in base.reads if key in planned_keys]
+        assert report.transfers.fetched_objects == len(planned)
+        assert report.transfers.reused_objects == 0
+
+    def test_a_corrupted_prefetched_payload_fails_the_fill_closed(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        release = self._release(lake)
+        planned = hydration_order(release, self._NAMES)
+        corrupting = _CorruptingSource(LocalMirrorSource(lake.mirror), planned[-1].key)
+        source = PrefetchingSource(
+            base=LocalMirrorSource(lake.mirror),
+            objects=planned,
+            source_factory=lambda: nullcontext(corrupting),
+            mirror=tmp_path / "cache",
+        )
+        try:
+            with pytest.raises(LakeObjectError, match="digest differs"):
+                hydrate_market_store(
+                    session,
+                    release=release,
+                    cache=LakeObjectCache(root=tmp_path / "cache", source=source),
+                    store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
+                    dataset_names=self._NAMES,
+                )
+        finally:
+            source.close()
+
+    def test_worker_failure_degrades_to_sequential_reads_and_the_fill_completes(
+        self, session: LakeSession, lake: Lake, tmp_path: Path, capfd: pytest.CaptureFixture[str]
+    ) -> None:
+        base = RecordingSource(LocalMirrorSource(lake.mirror))
+        release = self._release(lake)
+        planned = hydration_order(release, self._NAMES)
+        source = PrefetchingSource(
+            base=base,
+            objects=planned,
+            source_factory=lambda: nullcontext(_RefusingSource(LocalMirrorSource(lake.mirror))),
+            mirror=tmp_path / "cache",
+        )
+        try:
+            report = hydrate_market_store(
+                session,
+                release=release,
+                cache=LakeObjectCache(root=tmp_path / "cache", source=source),
+                store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
+                dataset_names=self._NAMES,
+            )
+        finally:
+            source.close()
+
+        assert report.rows == {"jquants.daily_bars": 4, "jquants.short_sale_reports": 2}
+        planned_keys = {item.key for item in planned}
+        assert {key for key in base.reads if key in planned_keys} == planned_keys
+        assert "prefetch disabled" in capfd.readouterr().err
+
+    def test_an_already_mirrored_object_is_not_fetched_again(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        cache_root = tmp_path / "cache"
+        release = self._release(lake)
+        planned = hydration_order(release, self._NAMES)
+        LakeObjectCache(root=cache_root, source=LocalMirrorSource(lake.mirror)).materialize(
+            planned[0]
+        )
+        workers = RecordingSource(LocalMirrorSource(lake.mirror))
+        source = PrefetchingSource(
+            base=LocalMirrorSource(lake.mirror),
+            objects=planned,
+            source_factory=lambda: nullcontext(workers),
+            mirror=cache_root,
+        )
+        try:
+            report = hydrate_market_store(
+                session,
+                release=release,
+                cache=LakeObjectCache(root=cache_root, source=source),
+                store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
+                dataset_names=self._NAMES,
+            )
+        finally:
+            source.close()
+
+        assert planned[0].key not in workers.reads
+        assert report.transfers.reused_objects == 1
+        assert report.transfers.fetched_objects == len(planned) - 1
+
+    def test_offline_hydration_cache_passes_through_unchanged(self, lake: Lake) -> None:
+        cache = _cache(lake)
+        with prefetching_hydration_cache(
+            cache,
+            release=self._release(lake),
+            dataset_names=self._NAMES,
+            bucket=None,
+        ) as out:
+            assert out is cache
+
+    def test_a_stalled_worker_fetch_falls_back_to_the_base_read(
+        self, lake: Lake, tmp_path: Path, capfd: pytest.CaptureFixture[str]
+    ) -> None:
+        release = self._release(lake)
+        planned = hydration_order(release, self._NAMES)
+        inner = LocalMirrorSource(lake.mirror)
+        gate = threading.Event()
+        stalled_key = planned[0].key
+
+        @dataclass
+        class _Stalling:
+            def read_bytes(self, key: str) -> bytes:
+                if key == stalled_key:
+                    gate.wait()
+                return inner.read_bytes(key)
+
+            def uri(self, key: str) -> str:
+                return inner.uri(key)
+
+        source = PrefetchingSource(
+            base=inner,
+            objects=planned,
+            source_factory=lambda: nullcontext(_Stalling()),
+            mirror=tmp_path / "cache",
+            wait_seconds=0.2,
+        )
+        try:
+            assert source.read_bytes(stalled_key) == inner.read_bytes(stalled_key)
+        finally:
+            gate.set()
+            source.close()
+        assert "prefetch disabled" in capfd.readouterr().err
+
+    def test_r2_hydration_cache_gives_each_worker_its_own_session(
+        self,
+        session: LakeSession,
+        lake: Lake,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The bucket branch is exercised offline: one session and one source per worker."""
+
+        opened_sessions: list[object] = []
+        worker_sources: list[RecordingSource] = []
+
+        @contextmanager
+        def fake_lake_session(*, credentials: object) -> Iterator[object]:
+            token = object()
+            opened_sessions.append(token)
+            yield token
+
+        def fake_r2_source(worker_session: object) -> RecordingSource:
+            source = RecordingSource(LocalMirrorSource(lake.mirror))
+            worker_sources.append(source)
+            return source
+
+        monkeypatch.setattr(prefetch_module, "lake_session", fake_lake_session)
+        monkeypatch.setattr(prefetch_module, "R2ObjectSource", fake_r2_source)
+        monkeypatch.setenv("R2_ACCOUNT_ID", "0" * 32)
+        monkeypatch.setenv("R2_ACCESS_KEY_ID", "A" * 20)
+        monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "acceptance-dummy")
+
+        cache = LakeObjectCache(root=tmp_path / "cache", source=LocalMirrorSource(lake.mirror))
+        release = self._release(lake)
+        planned = hydration_order(release, self._NAMES)
+        with prefetching_hydration_cache(
+            cache,
+            release=release,
+            dataset_names=self._NAMES,
+            bucket="acceptance-fake",
+        ) as hydration_cache:
+            assert hydration_cache is not cache
+            assert hydration_cache.transfers is cache.transfers
+            report = hydrate_market_store(
+                session,
+                release=release,
+                cache=hydration_cache,
+                store=_dehydrated(lake, tmp_path / "arrived.sqlite"),
+                dataset_names=self._NAMES,
+            )
+
+        assert report.rows == {"jquants.daily_bars": 4, "jquants.short_sale_reports": 2}
+        assert len(opened_sessions) == min(8, len(planned))
+        assert len(worker_sources) == len(opened_sessions)
+        served = [key for source in worker_sources for key in source.reads]
+        assert sorted(served) == sorted(item.key for item in planned)
