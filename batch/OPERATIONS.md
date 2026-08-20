@@ -381,6 +381,26 @@ daily batchはcoverageが完全でも`bootstrap-cache`を実行する。財務�
 
 `daily_batch.py`のexit 3はfresh screening exportを持つため、workflowはstores/serving uploadまで完了させてからjobを失敗にする。exit 1は新しいpublish可能runがないためuploadしない。非営業日skipはexportがないため既存servingを変更しない。
 
+## Actions 使用量の月次確認
+
+GitHub Actions の課金は job 単位の分切り上げで、無料枠は月 2,000 分。定常ペースが枠を超えていないかを月次（calibration panel / PMI manifest の月次維持と同じタイミング）で確認する。
+
+```bash
+gh run list --created ">=$(date -d '14 days ago' +%F)" --limit 1000 \
+  --json workflowName,startedAt,updatedAt \
+  --jq 'map(select(.startedAt >= "2020" and .updatedAt >= "2020"))
+        | group_by(.workflowName)
+        | map({wf: .[0].workflowName, runs: length, min: (map(((.updatedAt|fromdate)-(.startedAt|fromdate))/60) | add | floor)})
+        | sort_by(-.min)'
+```
+
+出力は workflow ごとの 14 日間の run 数と wall 分。先頭の select は実行中 run の欠損・ゼロ時刻を落とすためで、外すと集計全体が落ちるか桁違いの値が混ざる。判定は次のとおり。
+
+- 合計 ≤ 1,000 分/14 日（≒ 月 2,000 分ペース）なら枠内。billable は job 単位の分切り上げなので wall 合計に加えて **run 1 件あたり平均 +0.5 分** 程度上に出る（全 workflow が単一 job 構成である間はこの近似でよい。run 数が多い週ほど乖離が増える）
+- 超えているときは上位 workflow の内訳（schedule 分・PR 分・障害復旧 dispatch 分）を分け、非定常 run を除いた定常ペースで判断する
+- 月 2,500 分超が 2 か月続いたら self-hosted runner の再評価を issue にする（採否判断の経緯は #1016）
+- 請求実額は GitHub billing UI（Settings → Billing）で月 1 回照合する。spending limit は「月次想定 + バッファ」に置き、上限到達で Actions が無言停止する状態を避ける
+
 ## Password rotation
 
 ```bash
