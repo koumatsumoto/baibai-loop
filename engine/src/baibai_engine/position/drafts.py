@@ -21,6 +21,8 @@ from baibai_engine.position.ledger import (
     PortfolioLedgerDocument,
     WithdrawalEvent,
     reconcile_portfolio,
+    replay_events_through,
+    require_resolved_expiries,
 )
 from baibai_engine.position.store import LedgerApplyResult, LedgerStoreService
 
@@ -236,7 +238,15 @@ def apply_draft(
         raise ValueError("ledger draft apply requires explicit human confirmation")
     if not draft.confirmation_required:
         raise ValueError("ledger draft is not eligible for explicit apply")
-    reconcile_portfolio(draft.replacement)
+    if draft.kind == "record-result":
+        # A broker result changes cash / reservations / lots, but does not assert a
+        # fresh portfolio valuation. Recheck the complete event state and expiry
+        # invariants without letting an unrelated stale holding quote block the
+        # human-reported result.
+        state = replay_events_through(draft.replacement.events, draft.replacement.as_of)
+        require_resolved_expiries(state)
+    else:
+        reconcile_portfolio(draft.replacement)
     return service.apply_document(
         expected_head=draft.expected_head,
         expected_document=draft.source,

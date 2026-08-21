@@ -15,7 +15,11 @@ from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 from baibai_engine.position.cli import main
 from baibai_engine.position.drafts import apply_draft, load_draft
-from baibai_engine.position.ledger import load_portfolio_ledger, reconcile_portfolio
+from baibai_engine.position.ledger import (
+    PortfolioLedgerError,
+    load_portfolio_ledger,
+    reconcile_portfolio,
+)
 from baibai_engine.position.result_service import build_result_draft
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.proposals.store import PlannedLimitInput, ProposalStoreService
@@ -209,7 +213,25 @@ def test_record_result_cli_builds_db_bound_draft_and_retries_as_no_change(
     assert isinstance(orders, list)
     order = orders[0]
     assert isinstance(order, dict)
+    source, append_head = ledger.load_with_head()
+    stale = source.model_copy(
+        update={
+            "market_prices": tuple(
+                price.model_copy(
+                    update={"observed_at": datetime.fromisoformat("2026-07-01T10:00:00+09:00")}
+                )
+                for price in source.market_prices
+            )
+        }
+    )
+    ledger.apply_document(
+        expected_head=append_head,
+        expected_document=source,
+        replacement=stale,
+    )
     before = ledger.load()
+    with pytest.raises(PortfolioLedgerError, match="market price for 2331 is stale"):
+        reconcile_portfolio(before)
 
     args = [
         "record-result",
