@@ -53,6 +53,20 @@ total_return_CAGR = ((terminal_price + cumulative_dividend_per_share) / entry_pr
 
 `starting_share_count`は**自己株式を除いた期末実質発行済株式数**を使う。決算短信の「期末発行済株式数（自己株式を含む）」と screening の`shares_outstanding`はどちらも自己株式込みのグロス値で、自己株式が発行済の数%に達する銘柄ではそのまま使うと1株価値を同じ割合だけ過小評価する。会社自身の1株当たり当期純利益および予想EPSが含意する株数と突き合わせて確認する。
 
+### Base terminal multiple
+
+base scenario の終端倍率は、as-of に観測した正の trailing multiple を据え置くのを既定とする。現観測より高い倍率は、**直近実績にすでに現れ、一次開示で検証した機構**（構造的な margin 改善、事業 mix 転換、継続的な還元機構の変化など）を名指しできる場合に限って置ける。「割安に見える」「業種中央値より低い」「機械 FV anchor が高い」といった相対値や期待だけは機構ではない。
+
+上振れの上限は、採用した valuation 軸の as-of 時点の自己レンジ中央値とする。この自己レンジは真の過去倍率系列ではなく、最新 fundamentals を固定して直近 750 session の価格だけを動かした proxy である（[`valuation-metrics.md` §9](./valuation-metrics.md#9-過去自己比較過去-3-年レンジ)）。したがって上限を与えるだけで、倍率回復の根拠には使わない。値が欠損・非正・比較不能、または corporate action を解消できない場合は上振れを採用しない。
+
+現観測より高い倍率を base に採用する thesis は、次の 3 ガードをすべて満たす。
+
+1. base の `assumption` に、倍率上振れを支える機構、一次 source ID、現観測倍率、採用倍率、自己レンジ中央値を明記する。
+2. starting earnings と同じ期間について、親会社株主帰属純利益と営業利益・経常利益の比を突き合わせ、特別利益・特別損失の有無を一次開示で確認する。一過性損益の影響を除外できない起点では倍率を上振れさせない。
+3. `judgment.strongest_countercase` に、終端倍率を現観測のまま据え置いて再計算した base CAGR を数値で併記する。再計算には `scenario_arithmetic` を使い、成長・株数・配当の他条件を変えない。
+
+6088 のように粗利率 44.6% から 49.4% への改善が一次開示で実績化した lane は、3 ガードを満たせば上振れを検討できる。一方、4887 の機械 anchor 21.6 倍のように一過性 EPS の影響を受け、独立した構造機構を示せない値は採用しない。これは機械 anchor の一律採用規則ではなく、base judgment と独立反証の規律であり、engine の readiness validation は変更しない。
+
 ### 5-year base break-even
 
 `baibai-engine research evaluate`は5年base scenarioだけについて、thesis schemaへ値を複製せず`five_year_base_break_even`を派生出力する。要求CAGRを`r`、entry priceを`P`、累積配当を`D`、5年後利益と株数を`E5`、`S5`とすると、境界値は次の式で求める。
