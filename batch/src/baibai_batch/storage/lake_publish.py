@@ -8,15 +8,20 @@ import hashlib
 import json
 import os
 import re
-import subprocess  # nosec B404
 import tempfile
+import time
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Never, Protocol
 
+import boto3
+from botocore.config import Config
+from botocore.exceptions import BotoCoreError, ClientError, ConnectTimeoutError, ReadTimeoutError
+from mypy_boto3_s3 import S3Client
+from mypy_boto3_s3.type_defs import PutObjectRequestTypeDef
 from pydantic import BaseModel
 
 from baibai_engine.batch_api import (
@@ -35,7 +40,7 @@ from baibai_engine.batch_api import (
 _R2_ACCOUNT_ID = re.compile(r"^[0-9a-f]{32}$")
 _MAX_POINTER_BYTES = 64 * 1024
 _MAX_SMALL_OBJECT_BYTES = 16 * 1024 * 1024
-# A subprocess deadline that is shorter than the transfer it guards turns a slow
+# A request deadline that is shorter than the transfer it guards turns a slow
 # object into an ambiguous outcome. The floor covers control-plane latency; the
 # transfer term is derived from the object's own size at a throughput well below
 # what this link has measured (11.9 MB/s over the 2 GB store upload that preceded
@@ -60,6 +65,19 @@ class RemoteObject:
     content_type: str
 
 
+@dataclass(frozen=True, slots=True)
+class PointerPrecondition:
+    """The exact mutable-pointer generation a publication started from."""
+
+    etag: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class PointerSnapshot:
+    pointer: L1ReleasePointer | None
+    precondition: PointerPrecondition
+
+
 class ObjectStore(Protocol):
     def head(self, key: str) -> RemoteObject | None: ...
 
@@ -78,6 +96,21 @@ class ObjectStore(Protocol):
         if_match: str | None = None,
         if_none_match: bool = False,
     ) -> RemoteObject: ...
+
+
+def read_pointer_snapshot(store: ObjectStore) -> PointerSnapshot:
+    """Read and validate the exact mutable-pointer generation visible now."""
+
+    publication = _RemotePublication(store=store)
+    key = lake_current_l1_pointer_key()
+    remote = publication.head(key)
+    if remote is None:
+        return PointerSnapshot(pointer=None, precondition=PointerPrecondition(etag=None))
+    try:
+        pointer = load_lake_model_json(publication.read_pointer(key, remote), L1ReleasePointer)
+    except ValueError:
+        raise LakePublishError("serving pointer is invalid") from None
+    return PointerSnapshot(pointer=pointer, precondition=PointerPrecondition(etag=remote.etag))
 
 
 @dataclass(frozen=True)
@@ -112,6 +145,9 @@ class PublishReport:
     release_id: str
     transfers: TransferReport
     pointer_etag: str
+    local_graph_seconds: float
+    remote_closure_seconds: float
+    pointer_seconds: float
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -374,9 +410,22 @@ def publish_l1_release(
     release_manifest_path: Path,
     store: ObjectStore,
     verify_bytes: bool = False,
+    pointer_precondition: PointerPrecondition | None = None,
 ) -> PublishReport:
     """Upload immutable graph nodes, then atomically switch the one mutable pointer."""
     publication = _RemotePublication(store=store, verify_bytes=verify_bytes)
+    pointer_key = lake_current_l1_pointer_key()
+    if pointer_precondition is None:
+        initial = publication.head(pointer_key)
+        if initial is not None:
+            try:
+                load_lake_model_json(
+                    publication.read_pointer(pointer_key, initial), L1ReleasePointer
+                )
+            except ValueError:
+                raise LakePublishError("serving pointer is invalid") from None
+        pointer_precondition = PointerPrecondition(etag=None if initial is None else initial.etag)
+    local_graph_started = time.perf_counter()
     root = mirror_root.resolve()
     resolved_release_path = release_manifest_path.resolve()
     if not resolved_release_path.is_relative_to(root):
@@ -457,6 +506,7 @@ def publish_l1_release(
         previous_expected = inventory.setdefault(key, expected)
         if previous_expected != expected:
             raise LakePublishError(f"remote graph has conflicting identities: {key}")
+    remote_closure_started = time.perf_counter()
     for key, path, content_type, expected_sha256, expected_size in uploads:
         _ensure_immutable(
             publication,
@@ -467,7 +517,7 @@ def publish_l1_release(
             expected_size=expected_size,
         )
 
-    pointer_key = lake_current_l1_pointer_key()
+    pointer_started = time.perf_counter()
     current = publication.head(pointer_key)
     if current is not None:
         serving = load_lake_model_json(
@@ -485,6 +535,9 @@ def publish_l1_release(
                 release_id=release.release_id,
                 transfers=publication.report(),
                 pointer_etag=current.etag,
+                local_graph_seconds=remote_closure_started - local_graph_started,
+                remote_closure_seconds=pointer_started - remote_closure_started,
+                pointer_seconds=time.perf_counter() - pointer_started,
             )
     release_sha256 = hashlib.sha256(release_payload).hexdigest()
     pointer = L1ReleasePointer(
@@ -503,8 +556,8 @@ def publish_l1_release(
                 sha256=hashlib.sha256(pointer_payload).hexdigest(),
                 content_md5=_content_md5(Path(temporary.name)),
                 content_type="application/json",
-                if_match=current.etag if current is not None else None,
-                if_none_match=current is None,
+                if_match=pointer_precondition.etag,
+                if_none_match=pointer_precondition.etag is None,
             )
         except LakeCASConflict:
             raise
@@ -515,6 +568,9 @@ def publish_l1_release(
         release_id=release.release_id,
         transfers=publication.report(),
         pointer_etag=result.etag,
+        local_graph_seconds=remote_closure_started - local_graph_started,
+        remote_closure_seconds=pointer_started - remote_closure_started,
+        pointer_seconds=time.perf_counter() - pointer_started,
     )
 
 
@@ -634,8 +690,8 @@ def _ensure_immutable(
         return uploaded
 
 
-class AwsCliR2Store:
-    """Small S3-compatible R2 adapter using the repository's existing AWS CLI dependency."""
+class Boto3R2Store:
+    """S3-compatible R2 adapter with reusable in-process connections."""
 
     def __init__(self, *, bucket: str, env: Mapping[str, str] | None = None) -> None:
         source = dict(os.environ if env is None else env)
@@ -644,21 +700,43 @@ class AwsCliR2Store:
             raise LakePublishError("R2_ACCOUNT_ID must be 32 lowercase hexadecimal characters")
         self.bucket = bucket
         self.endpoint = f"https://{account_id}.r2.cloudflarestorage.com"
-        self.env = {
-            key: source[key]
-            for key in ("HOME", "PATH", "SSL_CERT_FILE", "SSL_CERT_DIR")
-            if key in source
-        } | {
-            "AWS_ACCESS_KEY_ID": _required(source, "R2_ACCESS_KEY_ID"),
-            "AWS_SECRET_ACCESS_KEY": _required(source, "R2_SECRET_ACCESS_KEY"),
-            "AWS_DEFAULT_REGION": "auto",
-        }
+        self.access_key_id = _required(source, "R2_ACCESS_KEY_ID")
+        self.secret_access_key = _required(source, "R2_SECRET_ACCESS_KEY")
+        self._clients: dict[int, S3Client] = {}
+
+    def _client(self, payload_bytes: int | None = None) -> S3Client:
+        timeout = _operation_timeout(payload_bytes)
+        cached = self._clients.get(timeout)
+        if cached is not None:
+            return cached
+        client = boto3.client(
+            "s3",
+            endpoint_url=self.endpoint,
+            region_name="auto",
+            aws_access_key_id=self.access_key_id,
+            aws_secret_access_key=self.secret_access_key,
+            config=Config(
+                connect_timeout=_BASE_OPERATION_TIMEOUT_SECONDS,
+                read_timeout=timeout,
+                retries={"mode": "standard", "total_max_attempts": 3},
+                request_checksum_calculation="when_required",
+                response_checksum_validation="when_required",
+            ),
+        )
+        self._clients[timeout] = client
+        return client
 
     def head(self, key: str) -> RemoteObject | None:
-        result = self._run("head-object", "--key", key, allow_missing=True)
-        if result is None:
-            return None
-        value = json.loads(result.stdout)
+        try:
+            value = self._client().head_object(Bucket=self.bucket, Key=key)
+        except ClientError as exc:
+            if _error_code(exc) in {"404", "NoSuchKey", "NotFound"}:
+                return None
+            _raise_r2_error("head-object", exc)
+        except (ConnectTimeoutError, ReadTimeoutError) as exc:
+            raise LakePublishError("R2 head-object timed out") from exc
+        except BotoCoreError as exc:
+            raise LakePublishError("R2 head-object failed") from exc
         return RemoteObject(
             etag=str(value["ETag"]).strip('"'),
             size=int(value["ContentLength"]),
@@ -667,14 +745,36 @@ class AwsCliR2Store:
         )
 
     def get_bytes(self, key: str) -> bytes:
-        with tempfile.NamedTemporaryFile() as target:
-            result = self._run("get-object", "--key", key, target.name)
-            assert result is not None
-            return Path(target.name).read_bytes()
+        try:
+            response = self._client().get_object(Bucket=self.bucket, Key=key)
+            body = response["Body"]
+            try:
+                return body.read()
+            finally:
+                body.close()
+        except (ConnectTimeoutError, ReadTimeoutError) as exc:
+            raise LakePublishError("R2 get-object timed out") from exc
+        except ClientError as exc:
+            _raise_r2_error("get-object", exc)
+        except BotoCoreError as exc:
+            raise LakePublishError("R2 get-object failed") from exc
 
     def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
-        result = self._run("get-object", "--key", key, str(path), payload_bytes=expect_bytes)
-        assert result is not None
+        try:
+            response = self._client(expect_bytes).get_object(Bucket=self.bucket, Key=key)
+            body = response["Body"]
+            try:
+                with path.open("wb") as target:
+                    while chunk := body.read(8 * 1024 * 1024):
+                        target.write(chunk)
+            finally:
+                body.close()
+        except (ConnectTimeoutError, ReadTimeoutError) as exc:
+            raise LakePublishError("R2 get-object timed out") from exc
+        except ClientError as exc:
+            _raise_r2_error("get-object", exc)
+        except BotoCoreError as exc:
+            raise LakePublishError("R2 get-object failed") from exc
 
     def put_file(
         self,
@@ -687,83 +787,50 @@ class AwsCliR2Store:
         if_match: str | None = None,
         if_none_match: bool = False,
     ) -> RemoteObject:
-        arguments = [
-            "put-object",
-            "--key",
-            key,
-            "--body",
-            str(path),
-            "--content-type",
-            content_type,
-            "--metadata",
-            json.dumps(
-                {
-                    "sha256": sha256,
-                    "content-md5": content_md5,
-                    "integrity": "content-md5-v1",
-                },
-                separators=(",", ":"),
-            ),
-            "--content-md5",
-            content_md5,
-        ]
+        request: PutObjectRequestTypeDef = {
+            "Bucket": self.bucket,
+            "Key": key,
+            "ContentType": content_type,
+            "Metadata": {
+                "sha256": sha256,
+                "content-md5": content_md5,
+                "integrity": "content-md5-v1",
+            },
+            "ContentMD5": content_md5,
+        }
         if if_match is not None:
-            arguments.extend(("--if-match", if_match))
+            request["IfMatch"] = if_match
         if if_none_match:
-            arguments.extend(("--if-none-match", "*"))
+            request["IfNoneMatch"] = "*"
         try:
-            self._run(*arguments, payload_bytes=path.stat().st_size)
-        except LakeCASConflict:
-            raise
+            with path.open("rb") as body:
+                request["Body"] = body
+                self._client(path.stat().st_size).put_object(**request)
+        except (ConnectTimeoutError, ReadTimeoutError) as exc:
+            raise LakePublishError("R2 put-object timed out") from exc
+        except ClientError as exc:
+            _raise_r2_error("put-object", exc)
+        except BotoCoreError as exc:
+            raise LakePublishError("R2 put-object failed") from exc
         result = self.head(key)
         if result is None:
             raise LakePublishError(f"R2 object missing after successful put: {key}")
         return result
 
-    def _run(
-        self,
-        operation: str,
-        *arguments: str,
-        allow_missing: bool = False,
-        payload_bytes: int | None = None,
-    ) -> subprocess.CompletedProcess[str] | None:
-        command = (
-            "aws",
-            "s3api",
-            operation,
-            "--bucket",
-            self.bucket,
-            *arguments,
-            "--endpoint-url",
-            self.endpoint,
-            "--output",
-            "json",
-            "--no-cli-pager",
-        )
-        try:
-            result = subprocess.run(  # nosec B603
-                command,
-                check=False,
-                capture_output=True,
-                text=True,
-                env=self.env,
-                timeout=_operation_timeout(payload_bytes),
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise LakePublishError(f"R2 {operation} timed out") from exc
-        if result.returncode == 0:
-            return result
-        error = result.stderr
-        if allow_missing and ("Not Found" in error or "404" in error or "NoSuchKey" in error):
-            return None
-        if (
-            "PreconditionFailed" in error
-            or "ConditionalRequestConflict" in error
-            or "412" in error
-            or "409" in error
-        ):
-            raise LakeCASConflict(f"R2 conditional write conflict: {operation}")
-        raise LakePublishError(f"R2 {operation} failed with exit code {result.returncode}")
+
+def _error_code(error: ClientError) -> str:
+    return str(error.response.get("Error", {}).get("Code", ""))
+
+
+def _raise_r2_error(operation: str, error: ClientError) -> Never:
+    code = _error_code(error)
+    status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+    if code in {"PreconditionFailed", "ConditionalRequestConflict", "412", "409"} or status in {
+        409,
+        412,
+    }:
+        raise LakeCASConflict(f"R2 conditional write conflict: {operation}") from error
+    raise LakePublishError(f"R2 {operation} failed") from error
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -785,7 +852,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    store = AwsCliR2Store(bucket=args.bucket)
+    store = Boto3R2Store(bucket=args.bucket)
     if args.mirror is None:
         parser.error("--mirror is required for publication")
     release_report = publish_l1_release(

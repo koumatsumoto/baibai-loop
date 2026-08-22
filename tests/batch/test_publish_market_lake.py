@@ -12,6 +12,7 @@ import json
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -76,6 +77,17 @@ def _pointer() -> L1ReleasePointer:
     )
 
 
+def _use_fixture_release(monkeypatch: pytest.MonkeyPatch, mirror: Path) -> None:
+    release = publish_module.load_lake_model_json(
+        (mirror / _MANIFEST_KEY).read_bytes(), publish_module.LakeReleaseManifest
+    )
+    monkeypatch.setattr(
+        publish_module,
+        "_resolve_base_release",
+        lambda *_: SimpleNamespace(manifest=release),
+    )
+
+
 class _UnusedStore:
     """The manifest is already in the mirror, so nothing may be downloaded."""
 
@@ -84,27 +96,34 @@ class _UnusedStore:
 
 
 def test_a_store_behind_the_release_cannot_be_published_as_a_full_rebuild(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     mirror = _mirror_with_release(tmp_path, rows=10)
     store = _store_with_bars(tmp_path, rows=9)
+    _use_fixture_release(monkeypatch, mirror)
 
     with pytest.raises(LakePublishError, match="would drop the difference"):
         _require_no_rows_lost(store, _UnusedStore(), mirror, _pointer())
 
 
-def test_a_store_that_matches_the_release_is_allowed(tmp_path: Path) -> None:
+def test_a_store_that_matches_the_release_is_allowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     mirror = _mirror_with_release(tmp_path, rows=10)
     store = _store_with_bars(tmp_path, rows=10)
+    _use_fixture_release(monkeypatch, mirror)
 
     _require_no_rows_lost(store, _UnusedStore(), mirror, _pointer())
 
 
-def test_a_store_ahead_of_the_release_is_allowed(tmp_path: Path) -> None:
+def test_a_store_ahead_of_the_release_is_allowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The ordinary shape after a local fetch — the rebuild is what publishes them."""
 
     mirror = _mirror_with_release(tmp_path, rows=10)
     store = _store_with_bars(tmp_path, rows=12)
+    _use_fixture_release(monkeypatch, mirror)
 
     _require_no_rows_lost(store, _UnusedStore(), mirror, _pointer())
 
@@ -139,7 +158,7 @@ def test_the_flag_reaches_the_publication(monkeypatch: pytest.MonkeyPatch) -> No
         raise LakePublishError("stop before touching R2")
 
     monkeypatch.setattr(publish_module, "publish_market_lake", _capture)
-    monkeypatch.setattr(publish_module, "AwsCliR2Store", lambda **_: _UnusedStore())
+    monkeypatch.setattr(publish_module, "Boto3R2Store", lambda **_: _UnusedStore())
 
     exit_code = publish_module.main(
         ["--sqlite", "market.sqlite", "--mirror", "stores", "--full-rebuild"]
@@ -163,7 +182,7 @@ def test_a_fingerprint_refusal_names_a_recovery_instead_of_ending_in_a_traceback
         )
 
     monkeypatch.setattr(publish_module, "publish_market_lake", _refuse)
-    monkeypatch.setattr(publish_module, "AwsCliR2Store", lambda **_: _UnusedStore())
+    monkeypatch.setattr(publish_module, "Boto3R2Store", lambda **_: _UnusedStore())
 
     exit_code = publish_module.main(["--sqlite", "market.sqlite", "--mirror", "stores"])
 

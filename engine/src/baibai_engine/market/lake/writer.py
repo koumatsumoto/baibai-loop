@@ -561,8 +561,8 @@ def _coverage_assessment(
     ).fetchone()
     if bounds is None or bounds[0] is None or bounds[1] is None:
         raise LakeBuildError(f"{dataset.name} has no coverage bounds")
-    start = date.fromisoformat(str(bounds[0]))
-    end = date.fromisoformat(str(bounds[1]))
+    start = _iso_date(bounds[0], dataset=dataset)
+    end = _iso_date(bounds[1], dataset=dataset)
     population_count: int | None = None
     if dataset.population_column is not None:
         population_count = int(
@@ -775,11 +775,22 @@ def _data_as_of(
     rows = _period_rows(connection, dataset, latest)
     if not rows:
         raise LakeBuildError("latest manifest partition is absent from the legacy SQLite")
-    return max(date.fromisoformat(str(row[date_index])) for row in rows)
+    return max(_iso_date(row[date_index], dataset=dataset) for row in rows)
+
+
+def _iso_date(value: object, *, dataset: LakeDataset) -> date:
+    if not isinstance(value, str):
+        raise LakeBuildError(f"{dataset.name} date column must contain ISO text")
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        raise LakeBuildError(f"{dataset.name} date column must contain ISO text") from None
 
 
 def _open_immutable(path: Path) -> sqlite3.Connection:
-    return sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
+    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
+    connection.execute("PRAGMA case_sensitive_like=ON")
+    return connection
 
 
 def _pk_indexes(dataset: LakeDataset) -> tuple[int, ...]:

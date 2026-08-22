@@ -222,6 +222,79 @@ def test_automatic_plan_detects_fact_and_coverage_changes(tmp_path) -> None:
     ).affected_periods == ((2026, 1), (2026, 2))
 
 
+def test_case_sensitive_like_keeps_partition_rows_order_and_identity(tmp_path: Path) -> None:
+    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    dataset = require_lake_dataset("jquants.daily_bars")
+    uri = f"{sqlite_path.resolve().as_uri()}?mode=ro&immutable=1"
+    with (
+        sqlite3.connect(uri, uri=True) as legacy,
+        writer_module._open_immutable(sqlite_path) as indexed,
+    ):
+        legacy.execute("PRAGMA case_sensitive_like=OFF")
+        for period in ((2026, 1), (2026, 2)):
+            legacy_rows = writer_module._period_rows(legacy, dataset, period)
+            indexed_rows = writer_module._period_rows(indexed, dataset, period)
+            assert indexed_rows == legacy_rows
+            assert writer_module._source_state_sha256(
+                indexed, dataset, period, indexed_rows
+            ) == writer_module._source_state_sha256(legacy, dataset, period, legacy_rows)
+
+
+def test_indexed_like_keeps_partition_source_hash_and_object_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    mirror = tmp_path / "mirror"
+    indexed_open = writer_module._open_immutable
+
+    def legacy_open(path: Path) -> sqlite3.Connection:
+        connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
+        connection.execute("PRAGMA case_sensitive_like=OFF")
+        return connection
+
+    monkeypatch.setattr(writer_module, "_open_immutable", legacy_open)
+    legacy = _export(
+        dataset_name="jquants.daily_bars",
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit=_COMMIT,
+        build_id="legacy-like",
+    )
+    monkeypatch.setattr(writer_module, "_open_immutable", indexed_open)
+    indexed = _export(
+        dataset_name="jquants.daily_bars",
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit=_COMMIT,
+        build_id="indexed-like",
+    )
+
+    assert [
+        (item.values, item.source_state_sha256, item.objects[0].key)
+        for item in indexed.manifest.partitions
+    ] == [
+        (item.values, item.source_state_sha256, item.objects[0].key)
+        for item in legacy.manifest.partitions
+    ]
+
+
+def test_blob_date_still_fails_closed_with_indexed_like(tmp_path: Path) -> None:
+    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    with sqlite3.connect(sqlite_path) as connection:
+        connection.execute(
+            "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
+            ("9999", sqlite3.Binary(b"2026-01-31"), 1.0),
+        )
+
+    with pytest.raises(LakeBuildError):
+        _export(
+            dataset_name="jquants.daily_bars",
+            sqlite_path=sqlite_path,
+            mirror_root=tmp_path / "mirror",
+            producer_git_commit=_COMMIT,
+        )
+
+
 def test_incremental_export_rejects_a_different_transform(tmp_path) -> None:
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
