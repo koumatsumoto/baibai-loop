@@ -53,7 +53,7 @@ EXPECTED_COMMAND_DIGESTS = {
     "Hydrate market store from the L1 release": (
         "9ecafc1d17e20380cde4d1cc37be9876f4ebd3a1162f45005187c7eaabede1c9"
     ),
-    "Publish the L1 release": ("e4cd247b545df25f59d1ab40cecb94177baae54f841130ed4c61199495756905"),
+    "Publish the L1 release": ("157b7b40538247156b891d8cc7846162d14486a1d6e24082124b84d333bb8985"),
     "Notify Discord #batch-runs": (
         "a98e9a25a4fd7b12f33677250dd4f416a47a13c75317c9e3fffd3bf1d871c612"
     ),

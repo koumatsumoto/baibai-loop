@@ -195,7 +195,7 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
         "13b6a705644d75410e7f1b5bc188e38b5064a0eed5c3081c7d1fc9eeaffdb74d"
     ),
     ("cloud-daily-batch.yml", "daily", "Publish the L1 release"): (
-        "2a015cf08ae041e6c97807b942bbc3c757c2d29bb130c06a84e8b2dd34992f5c"
+        "57aa06a1bb4ce35842acc7b0ddbde30a4c97870b29b573cc836ffc7bb373ebc9"
     ),
     ("cloud-daily-batch.yml", "daily", "Upload machine stores and serving views"): (
         "12d6ff92a7b260a7e4be4ae3beed297ac3b4df3c2ddd79eec23fa4265a2e63b4"

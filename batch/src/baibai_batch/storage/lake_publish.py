@@ -11,6 +11,7 @@ import re
 import subprocess  # nosec B404
 import tempfile
 from collections.abc import Iterator, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -42,6 +43,7 @@ _MAX_SMALL_OBJECT_BYTES = 16 * 1024 * 1024
 # the lake, and 300 MB of Parquet in the first full release publication).
 _BASE_OPERATION_TIMEOUT_SECONDS = 120
 _MIN_TRANSFER_BYTES_PER_SECOND = 4 * 1024 * 1024
+_PUBLISH_WORKERS = 8
 
 
 class LakePublishError(RuntimeError):
@@ -61,6 +63,8 @@ class RemoteObject:
 
 
 class ObjectStore(Protocol):
+    """Thread-safe exact-key operations used by parallel immutable publication."""
+
     def head(self, key: str) -> RemoteObject | None: ...
 
     def get_bytes(self, key: str) -> bytes: ...
@@ -158,6 +162,16 @@ class _RemotePublication:
             head_requests=self.head_requests,
             get_requests=self.get_requests,
         )
+
+    def include(self, report: TransferReport) -> None:
+        """Add request accounting from one isolated parallel graph publication."""
+
+        self.uploaded_objects += report.uploaded_objects
+        self.reused_objects += report.reused_objects
+        self.uploaded_bytes += report.uploaded_bytes
+        self.downloaded_bytes += report.downloaded_bytes
+        self.head_requests += report.head_requests
+        self.get_requests += report.get_requests
 
     def head(self, key: str) -> RemoteObject | None:
         self.head_requests += 1
@@ -457,15 +471,12 @@ def publish_l1_release(
         previous_expected = inventory.setdefault(key, expected)
         if previous_expected != expected:
             raise LakePublishError(f"remote graph has conflicting identities: {key}")
-    for key, path, content_type, expected_sha256, expected_size in uploads:
-        _ensure_immutable(
-            publication,
-            key=key,
-            path=path,
-            content_type=content_type,
-            expected_sha256=expected_sha256,
-            expected_size=expected_size,
-        )
+    with ThreadPoolExecutor(max_workers=_PUBLISH_WORKERS) as executor:
+        for report in executor.map(
+            lambda upload: _publish_graph_node(store, verify_bytes, upload),
+            uploads,
+        ):
+            publication.include(report)
 
     pointer_key = lake_current_l1_pointer_key()
     current = publication.head(pointer_key)
@@ -516,6 +527,26 @@ def publish_l1_release(
         transfers=publication.report(),
         pointer_etag=result.etag,
     )
+
+
+def _publish_graph_node(
+    store: ObjectStore,
+    verify_bytes: bool,
+    upload: tuple[str, Path, str, str, int],
+) -> TransferReport:
+    """Publish one immutable node without sharing mutable accounting across workers."""
+
+    key, path, content_type, expected_sha256, expected_size = upload
+    publication = _RemotePublication(store=store, verify_bytes=verify_bytes)
+    _ensure_immutable(
+        publication,
+        key=key,
+        path=path,
+        content_type=content_type,
+        expected_sha256=expected_sha256,
+        expected_size=expected_size,
+    )
+    return publication.report()
 
 
 def _require_remote_l1_closure(
