@@ -125,16 +125,12 @@ production store（1,812,189,184 bytes、schema v23、snapshot digest `ef791840�
 peak RSS は 1,030,107,136 bytes（982 MiB）。`jquants.all_issues_daily_margin` は JPX の公表制度
 移行まで行を持たないので、export は 17 dataset のうち 16 を書く。
 
-**parity は build が書いた月だけを見る。** carried object は自分の bytes の digest で addressing
-されているので、「変わっていない」ことは検証対象ではなく恒等式である。全 history を SQLite から
-derive し直すのは、この build ではなく前の build を証明する作業になる。上表の 2 行がその差で、
-1 か月の訂正は全量の 2.9 分の 1 で済み、生成 object は 448 分の 1 になる。**時間の比より object の比が
-桁で大きい** — 訂正が節約するのは書き出しであって、月集合の照合と snapshot の作成ではない。
-
-月の inventory 比較（SQLite の月集合 == manifest の月集合）は常に全体で行う。全 history の再導出は
-`--audit` で明示的に求める — store 全体がまだ SQLite と一致するかを問う操作であり、日次の書き込み
-経路が毎回背負うものではない。日次 window の外側で SQLite を訂正した月は次の `--audit` まで lake に
-映らないので、週次で `--audit` を実行する。
+日次 build も base と current SQLite の全 partition を PK 順の row hash と period に clip した
+coverageで比較する。したがって日次 window の外側の訂正・削除も次の publish でaffectedとなり、最後の
+rowを失った月はmanifestから消える。**parity の Parquet 再導出は build が書いた月だけを見る。** carry
+できるのはこの全比較で同一と証明済みのpartitionであり、content-addressed objectを再生成しない。上表の
+2行がその差で、1か月の訂正は全量の2.9分の1で済み、生成objectは448分の1になる。`--audit` はcarry
+した月もParquetを再導出してSQLiteとのparityを問う明示検査で、mutationを初めて検出する入口ではない。
 
 この計測は commit ではなく実装 digest（writer / models / immutable / snapshot / benchmark tool）へ
 結ぶ。それらに触れない変更では証跡は有効なままで、触れた変更は再計測になる。
@@ -181,9 +177,13 @@ report は `uploaded_bytes` / `downloaded_bytes` / `head_requests` / `get_reques
 
 sealed SQLiteはdigest・schema・capture時刻をmanifestへ記録するだけでbytesを持たないため、
 日次remote bytesはchanged Parquet/manifestへ比例する。最後に`lake/pointers/l1/current.json`を
-ETag `If-Match`で切り替え、pointer bytesだけをGETで読み戻す。409/412のCAS conflictはretryせず
-fail-closeし、current releaseを再解決する。subprocessのdeadlineはobject sizeから導く（base 120秒 +
-実測を下回る4 MiB/秒での転送時間）ので、大きなobjectがtimeoutで曖昧な結果になることを避ける。
+開始時に検証したETagの`If-Match`（開始時に不在なら`If-None-Match: *`）で切り替え、終了時に見えた
+successorのETagへ乗り換えない。pointer HEADのidentity metadataとGET bytesも開始時に照合するため、
+export中に別writerがcurrentを動かせば409/412でfail-closeする。remote adapterはin-processのboto3
+S3 clientで接続を再利用し、requestごとのprocess起動を行わない。deadlineはobject sizeから導く
+（base 120秒 + 実測を下回る4 MiB/秒での転送時間）。成功時はstderrへ
+`lake publish phases: seal_plan_export=... release_create=... local_graph=... remote_closure=... pointer=...`
+を1行出し、stdoutはrelease recordに使うJSON 1行だけを維持する。
 
 **pointerはcurrentだけを名乗る。rollbackは無い。** 修理は前へ publish することであり、store が
 serve をやめた世代へ戻ることではない。pointer が「この世代は復元できる」と名乗れば、それは publish の
@@ -652,4 +652,3 @@ gh variable list | rg R2_LAKE_ACCEPTANCE
 
 acceptanceが走らせられない間、lakeのread経路を変える変更は実bucketに対する
 publish→download→hydrateのround tripで確かめる。
-
