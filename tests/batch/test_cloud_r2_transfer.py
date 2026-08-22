@@ -192,14 +192,6 @@ if [[ -n "${UV_EXPECTED_CWD:-}" && "$PWD" != "$UV_EXPECTED_CWD" ]]; then
   printf 'unexpected uv cwd: %s\n' "$PWD" >&2
   exit 97
 fi
-if [[ "$*" == *"json,sys;print(json.load"* ]]; then
-  case "${!#}" in
-    release_id) printf 'release-before\n' ;;
-    release_manifest_sha256) printf 'old\n' ;;
-    *) exit 2 ;;
-  esac
-  exit 0
-fi
 script=""
 for argument in "$@"; do
   case "${argument}" in
@@ -1679,32 +1671,6 @@ def test_a_full_rebuild_publish_records_which_release_the_store_now_names(
     assert "--full-rebuild" in published[0]
     assert "--base-release" not in published[0]
     assert "release-after-rebuild" in record.read_text(encoding="utf-8")
-
-
-def test_a_daily_publish_passes_the_coverage_delta_mode(tmp_path: Path) -> None:
-    root = _fake_repo(tmp_path)
-    bin_dir, log = _fake_aws(tmp_path)
-    environment = _environment(bin_dir, log)
-    record = Path(environment["R2_GENERATION_DIR"]) / "lake-release.json"
-    record.write_text(
-        '{"release_id": "release-before", "release_manifest_sha256": "old"}\n',
-        encoding="utf-8",
-    )
-
-    completed = subprocess.run(
-        [root / "batch/scripts/r2_transfer.sh", "publish-lake", "coverage-delta"],
-        cwd=tmp_path,
-        env=environment,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 0, completed.stderr
-    published = [line for line in log.read_text(encoding="utf-8").splitlines() if "publish" in line]
-    assert len(published) == 1
-    assert "--coverage-delta" in published[0]
-    assert "--full-rebuild" not in published[0]
 
 
 def test_a_publish_that_reports_nothing_leaves_the_previous_release_named(

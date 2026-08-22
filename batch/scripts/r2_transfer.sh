@@ -264,7 +264,7 @@ publish_lake() {
   # identity: a rebuild published around it leaves the store naming a release the lake
   # has moved past, and the next `push-market` refuses to dehydrate against it. Measured
   # on 2026-08-19 — the recovery ran as a module call and left exactly that state.
-  local mode="${1:-incremental}" base sha coverage_delta_args=()
+  local mode="${1:-incremental}" base sha
   if [[ "${mode}" == "full-rebuild" ]]; then
     (
       cd "${repo_root}" || exit 1
@@ -277,12 +277,6 @@ publish_lake() {
     ) | record_lake_release
     return
   fi
-  if [[ "${mode}" == "coverage-delta" ]]; then
-    coverage_delta_args=(--coverage-delta)
-  elif [[ "${mode}" != "incremental" ]]; then
-    printf 'unknown publish-lake mode: %s\n' "${mode}" >&2
-    return 2
-  fi
   base="$(lake_release_field release_id)"
   sha="$(lake_release_field release_manifest_sha256)"
   (
@@ -293,8 +287,7 @@ publish_lake() {
         --mirror "${lake_mirror}" \
         --bucket "${stores_bucket}" \
         --base-release "${base}" \
-        --base-manifest-sha256 "${sha}" \
-        "${coverage_delta_args[@]}"
+        --base-manifest-sha256 "${sha}"
   ) | record_lake_release
 }
 
@@ -834,7 +827,7 @@ upload_run_summary() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-longlist-history DIR|pull-run-summary FILE|seed-all|hydrate-market|publish-lake [coverage-delta|full-rebuild]|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR|upload-run-summary FILE}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-longlist-history DIR|pull-run-summary FILE|seed-all|hydrate-market|publish-lake [full-rebuild]|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR|upload-run-summary FILE}\n' "$0" >&2
 }
 
 load_credentials
@@ -853,7 +846,7 @@ case "${1:-}" in
     ;;
   publish-lake)
     [[ $# -le 2 ]] || { usage; exit 2; }
-    if [[ $# -eq 2 && "$2" != "coverage-delta" && "$2" != "full-rebuild" ]]; then
+    if [[ $# -eq 2 && "$2" != "full-rebuild" ]]; then
       usage
       exit 2
     fi

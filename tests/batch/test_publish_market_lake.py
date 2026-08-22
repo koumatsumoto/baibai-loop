@@ -129,19 +129,6 @@ def test_a_full_rebuild_and_an_expected_base_are_mutually_exclusive(tmp_path: Pa
         )
 
 
-def test_a_full_rebuild_cannot_use_coverage_delta(tmp_path: Path) -> None:
-    with pytest.raises(LakePublishError, match="cannot use coverage-delta"):
-        publish_market_lake(
-            sqlite_path=tmp_path / "market.sqlite",
-            mirror_root=tmp_path / "mirror",
-            store=_UnusedStore(),
-            expected_base_release_id=None,
-            expected_base_manifest_sha256=None,
-            full_rebuild=True,
-            coverage_delta=True,
-        )
-
-
 def test_the_flag_reaches_the_publication(monkeypatch: pytest.MonkeyPatch) -> None:
     """argparse が旗を持つことと、main がそれを渡すことは別の事実である。"""
 

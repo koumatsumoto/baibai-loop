@@ -73,7 +73,6 @@ def publish_market_lake(
     expected_base_manifest_sha256: str | None,
     release_id: str | None = None,
     full_rebuild: bool = False,
-    coverage_delta: bool = False,
 ) -> MarketLakePublishReport:
     """Export the changed partitions on top of the serving release and publish them.
 
@@ -91,8 +90,6 @@ def publish_market_lake(
         )
     if full_rebuild and expected_base_release_id is not None:
         raise LakePublishError("a full rebuild has no base release to expect")
-    if full_rebuild and coverage_delta:
-        raise LakePublishError("a full rebuild cannot use coverage-delta planning")
     base = _serving_pointer(store)
     if full_rebuild:
         # The base-identity check asks "is the release I exported on top of still the
@@ -112,7 +109,6 @@ def publish_market_lake(
         producer_git_commit=lake_verified_git_commit(),
         base_manifest_paths=base_manifests,
         audit_full_history=False,
-        coverage_delta=coverage_delta,
     )
     release_path, release = create_lake_l1_release(
         dataset_manifest_paths=[item.manifest_path for item in export.datasets.values()],
@@ -266,14 +262,6 @@ def build_parser() -> argparse.ArgumentParser:
             "export refuses a base built under the previous one"
         ),
     )
-    parser.add_argument(
-        "--coverage-delta",
-        action="store_true",
-        help=(
-            "use canonical source_coverage writes since the base snapshot to plan "
-            "partitions; reserved for a freshly hydrated daily-batch store"
-        ),
-    )
     return parser
 
 
@@ -298,7 +286,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             expected_base_manifest_sha256=args.base_manifest_sha256,
             release_id=args.release_id,
             full_rebuild=args.full_rebuild,
-            coverage_delta=args.coverage_delta,
         )
     except LakeBuildError as error:
         # The export refuses a base built under a different transform fingerprint. That
