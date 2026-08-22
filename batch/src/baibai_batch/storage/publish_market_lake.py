@@ -18,6 +18,7 @@ import hashlib
 import json
 import sqlite3
 import sys
+import time
 from collections.abc import Mapping, Sequence
 from contextlib import closing
 from dataclasses import dataclass
@@ -27,17 +28,27 @@ from baibai_engine.batch_api import (
     LAKE_DATASETS,
     L1ReleasePointer,
     LakeBuildError,
+    LakeFixedRelease,
+    LakeReadError,
     LakeReleaseManifest,
+    LocalMirrorSource,
     create_lake_l1_release,
     export_lake_legacy,
-    lake_current_l1_pointer_key,
     lake_dataset_manifest_key,
     lake_mirror_path,
     lake_verified_git_commit,
     load_lake_model_json,
+    resolve_release,
 )
 
-from .lake_publish import AwsCliR2Store, LakePublishError, ObjectStore, publish_l1_release
+from .lake_publish import (
+    Boto3R2Store,
+    LakePublishError,
+    ObjectStore,
+    PointerSnapshot,
+    publish_l1_release,
+    read_pointer_snapshot,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,7 +101,9 @@ def publish_market_lake(
         )
     if full_rebuild and expected_base_release_id is not None:
         raise LakePublishError("a full rebuild has no base release to expect")
-    base = _serving_pointer(store)
+    export_started = time.perf_counter()
+    serving = _serving_pointer(store)
+    base = serving.pointer
     if full_rebuild:
         # The base-identity check asks "is the release I exported on top of still the
         # one serving?" — a rebuild exports on top of nothing, so there is no such
@@ -110,15 +123,27 @@ def publish_market_lake(
         base_manifest_paths=base_manifests,
         audit_full_history=False,
     )
+    export_finished = time.perf_counter()
     release_path, release = create_lake_l1_release(
         dataset_manifest_paths=[item.manifest_path for item in export.datasets.values()],
         mirror_root=mirror_root,
         release_id=release_id,
     )
+    release_finished = time.perf_counter()
     published = publish_l1_release(
         mirror_root=mirror_root,
         release_manifest_path=release_path,
         store=store,
+        pointer_precondition=serving.precondition,
+    )
+    print(
+        "lake publish phases: "
+        f"seal_plan_export={export_finished - export_started:.3f}s "
+        f"release_create={release_finished - export_finished:.3f}s "
+        f"local_graph={published.local_graph_seconds:.3f}s "
+        f"remote_closure={published.remote_closure_seconds:.3f}s "
+        f"pointer={published.pointer_seconds:.3f}s",
+        file=sys.stderr,
     )
     transfers = published.transfers.as_dict()
     return MarketLakePublishReport(
@@ -137,11 +162,8 @@ def publish_market_lake(
     )
 
 
-def _serving_pointer(store: ObjectStore) -> L1ReleasePointer | None:
-    remote = store.head(lake_current_l1_pointer_key())
-    if remote is None:
-        return None
-    return load_lake_model_json(store.get_bytes(lake_current_l1_pointer_key()), L1ReleasePointer)
+def _serving_pointer(store: ObjectStore) -> PointerSnapshot:
+    return read_pointer_snapshot(store)
 
 
 def _require_expected_base(
@@ -189,8 +211,7 @@ def _require_no_rows_lost(
 
     if base is None:
         return
-    release_path = _fetch(store, mirror_root, base.manifest_key)
-    release = load_lake_model_json(release_path.read_bytes(), LakeReleaseManifest)
+    release = _resolve_base_release(store, mirror_root, base).manifest
     with closing(sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)) as conn:
         for name, entry in sorted(release.datasets.items()):
             dataset = LAKE_DATASETS.get(name)
@@ -219,13 +240,38 @@ def _base_manifest_paths(
 
     if base is None:
         return {}
+    fixed = _resolve_base_release(store, mirror_root, base)
+    return {
+        dataset_name: lake_mirror_path(
+            mirror_root,
+            lake_dataset_manifest_key(dataset=dataset_name, build_id=entry.build_id),
+        )
+        for dataset_name, entry in sorted(fixed.manifest.datasets.items())
+    }
+
+
+def _resolve_base_release(
+    store: ObjectStore, mirror_root: Path, base: L1ReleasePointer
+) -> LakeFixedRelease:
     release_path = _fetch(store, mirror_root, base.manifest_key)
-    release = load_lake_model_json(release_path.read_bytes(), LakeReleaseManifest)
-    paths: dict[str, Path] = {}
+    try:
+        release = load_lake_model_json(release_path.read_bytes(), LakeReleaseManifest)
+    except ValueError:
+        raise LakePublishError(f"base release manifest is invalid: {base.manifest_key}") from None
     for dataset_name, entry in sorted(release.datasets.items()):
-        key = lake_dataset_manifest_key(dataset=dataset_name, build_id=entry.build_id)
-        paths[dataset_name] = _fetch(store, mirror_root, key)
-    return paths
+        _fetch(
+            store,
+            mirror_root,
+            lake_dataset_manifest_key(dataset=dataset_name, build_id=entry.build_id),
+        )
+    try:
+        return resolve_release(
+            LocalMirrorSource(mirror_root),
+            base.release_id,
+            manifest_sha256=base.manifest_sha256,
+        )
+    except LakeReadError as exc:
+        raise LakePublishError(f"base release identity validation failed: {exc}") from None
 
 
 def _fetch(store: ObjectStore, mirror_root: Path, key: str) -> Path:
@@ -281,7 +327,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         report = publish_market_lake(
             sqlite_path=args.sqlite,
             mirror_root=args.mirror,
-            store=AwsCliR2Store(bucket=args.bucket),
+            store=Boto3R2Store(bucket=args.bucket),
             expected_base_release_id=args.base_release,
             expected_base_manifest_sha256=args.base_manifest_sha256,
             release_id=args.release_id,

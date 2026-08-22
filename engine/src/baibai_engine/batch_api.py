@@ -57,7 +57,10 @@ from baibai_engine.market.lake.models import (
     load_lake_model_json,
 )
 from baibai_engine.market.lake.models import validate_release_policy as validate_lake_release_policy
+from baibai_engine.market.lake.objects import LocalMirrorSource
 from baibai_engine.market.lake.objects import mirror_path as lake_mirror_path
+from baibai_engine.market.lake.reader import FixedRelease as LakeFixedRelease
+from baibai_engine.market.lake.reader import LakeReadError, resolve_release
 from baibai_engine.market.lake.release import L1ReleasePointer
 from baibai_engine.market.lake.release import create_l1_release as create_lake_l1_release
 from baibai_engine.market.lake.writer import LakeBuildError, export_lake_legacy
@@ -95,8 +98,11 @@ __all__ = [
     "L1ReleasePointer",
     "LakeBuildError",
     "LakeDatasetManifest",
+    "LakeFixedRelease",
+    "LakeReadError",
     "LakeReleaseManifest",
     "LakeSQLiteSnapshotSourceRef",
+    "LocalMirrorSource",
     "MacroContextDocument",
     "MarketSchemaError",
     "StoreLayoutError",
@@ -120,6 +126,7 @@ __all__ = [
     "parse_refresh_failure_count",
     "reject_noncanonical_store_paths",
     "repository_root_error",
+    "resolve_release",
     "scorecard_series_ids",
     "validate_lake_release_policy",
     "validate_macro_schema",
