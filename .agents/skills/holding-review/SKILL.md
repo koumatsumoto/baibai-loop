@@ -1,15 +1,15 @@
 ---
 name: holding-review
-description: 決算、material event、FV 到達、永久損失兆候、優れた代替を trigger に保有銘柄を再評価し、hold / add / reduce / exit を発行する。約定記録は ledger-record skill。
+description: 決算、material event、FV 到達、永久損失兆候、優れた代替を trigger として保有銘柄を再評価し、hold / add / reduce / exit を発行する。約定の記録は ledger-record skill。
 ---
 
 # Holding Review
 
-対象 ticker だけを再評価する。含み損だけでは売らず、FV 到達を自動 exit にしない。action と税引後代替の正本は [`holding-review.md`](../../../docs/reference/holding-review.md)。
+対象 ticker だけを再評価する。含み損だけでは売らず、FV 到達を自動 exit にしない。action と税引後代替の算術は [`holding-review.md`](../../../docs/reference/holding-review.md) を正本とする。
 
 ## 手順
 
-1. AGENTS.md に従い `earnings-material-event` session を start または resume する。
+1. AGENTS.md に従い `earnings-material-event` session を開始または再開する。
 2. 最新完全営業日の market price draft を作り、人間確認後に apply する。
 
    ```bash
@@ -20,8 +20,8 @@ description: 決算、material event、FV 到達、永久損失兆候、優れ�
    ```
 
 3. `research holding-prepare` で対象 ticker の workspace を作り、`thesis-scaffold` と `review-scaffold` を実行する。
-4. 直近 thesis から変わった決算実数、guidance、資本政策だけを一次情報で更新する。thesis の算術・source・独立反証・promote は `research` skill と [`thesis.md`](../../../docs/reference/thesis.md) に従う。guidance 据え置きは観測事実とせず、同四半期の進捗を過去3期の同四半期対通期実績と比較して検証する。
-5. review draft を build し、load-bearing scalar、thesis revision、ledger state、税引後代替価値を確認する。人間確認後だけ publish する。
+4. 直近 thesis から変わった決算実数、guidance、資本政策だけを一次情報で更新する。thesis の算術、source、独立反証、promote は `research` skill と [`thesis.md`](../../../docs/reference/thesis.md) に従う。guidance の据え置きは観測事実としない。当該四半期の経常利益 ÷ 通期 guidance を、過去3期の同四半期経常利益 ÷ 各期通期実績と比較して検証する。
+5. review draft を build し、load-bearing scalar、thesis revision、ledger state、税引後代替価値を確認する。人間が確認した後だけ publish する。
 
    ```bash
    uv run baibai-engine position holding-review-build --db stores/application/baibai.sqlite \
@@ -31,13 +31,15 @@ description: 決算、material event、FV 到達、永久損失兆候、優れ�
      --db stores/application/baibai.sqlite --thesis-id <THESIS_ID>
    ```
 
-6. review ID、action、次の trigger を session と task に記録して complete する。`reduce / exit` は人間の約定報告後に `ledger-record` skill へ進む。cloud 反映は `ops-maintenance` skill に従う。
+6. review ID、action、次の trigger を session と task に記録し、session を complete する。`reduce / exit` は、人間から約定報告を受けた後に `ledger-record` skill へ進む。cloud 反映は `ops-maintenance` skill に従う。
 
 ## 停止条件
 
-- raw close、calendar coverage、corporate-action basis が unresolved。
-- thesis revision と holding scalar が不一致。
-- 人間確認のない publish または売却記録。
+次の場合は停止する。
+
+- raw close、calendar coverage、corporate-action basis が unresolved である
+- thesis revision と holding scalar が一致しない
+- 人間が確認していない publish または売却記録を行おうとしている
 
 ## 正本
 
