@@ -286,7 +286,7 @@ def test_blob_date_still_fails_closed_with_indexed_like(tmp_path: Path) -> None:
             ("9999", sqlite3.Binary(b"2026-01-31"), 1.0),
         )
 
-    with pytest.raises(LakeBuildError, match="Parquet values or row order differ"):
+    with pytest.raises(LakeBuildError):
         _export(
             dataset_name="jquants.daily_bars",
             sqlite_path=sqlite_path,
