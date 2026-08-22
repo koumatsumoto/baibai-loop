@@ -1,112 +1,78 @@
 ---
 name: research
-description: 人間が選んだ primary-research set の深掘り。一次情報 → thesis → 独立反証 → promote → plan-limit / proposal → bargain assessment → session complete まで。候補提示までは shortlist skill。
+description: 人間が選んだ候補を一次情報で深掘りし、thesis、独立反証、proposal または見送り、統合判断まで確定する。候補提示までは shortlist skill。
 ---
 
 # Research
 
-安く見える理由が一時的な誤解か構造的毀損かを一次情報で区別し、proposal（指値・数量・期限）または見送り（no_actionable_bargain / defer）の統合判断を人間へ提示する。approve と broker 操作は人間だけが行う。
+割安に見える理由を一次情報で検証し、proposal または見送りを人間へ提示する。approve と broker 操作は人間だけが行う。
 
 ## 前提
 
-- active な opportunity session と、人間が選択した primary-research set（2〜4 件）。
-- 選択・判断の記録: 人間の選択内容と予算条件を session checkpoint の `human_confirmation` へ先に記録する。
+- active な opportunity session と、人間が選んだ primary-research set。
+- 選択内容と予算条件を session checkpoint の `human_confirmation` に記録済みであること。
 
 ## 手順
 
-1. **workspace prepare**:
+1. **workspace を固定する**
 
    ```bash
    uv run baibai-engine research prepare --asof <ASOF> --selection-output <selection.yaml> \
      --db stores/application/baibai.sqlite --workspace .cache/opportunity/<ASOF>
    ```
 
-   `--selection-output` は **workspace 外**（scratchpad 等）に置く。prepare は入力ファイルの
-   sha256 を manifest に固定して workspace へコピーするので、workspace 内のパスを渡すと入力と
-   コピーが同一ファイルになり、手順 2 の shortlist 記入編集が `input hash drift` で拒否される。
+   selection file は workspace 外に置く。無ければ `screening selection show` で再取得し、`select` は再実行しない。workspace の shortlist に選択 ticker を記入し、各 lane で `thesis-scaffold` と `review-scaffold` を実行する。次の操作は `research status` に従う。
 
-   selection output が手元に無ければ run store から read-only で取り出す（bound run が
-   evict 済みでも取れる。`select` の再実行は新しい selection を publish してしまうので使わない）:
+2. **一次情報を調査する**
 
-   ```bash
-   uv run baibai-engine screening selection show --selection-id <ID> \
-     --runs-db stores/screening/runs.sqlite --output-path <selection.yaml>
-   ```
+   会社 IR、EDINET、決算資料で load-bearing claim を検証する。検索 snippet、二次情報、外部 AI 出力を観測事実にしない。取得不能は代替 source で突合し、未確認は未検証のまま残す。PDF は `baibai_engine.research.pdf_reader` で原文を読む。business-model guide は指定 lane だけに適用する。
 
-2. workspace の `selection.yaml` の `shortlist:` へ選択 ticker を `[{ticker: 'XXXX'}, ...]` で記入し、lane を作る:
+3. **thesis を書いて検算する**
 
-   ```bash
-   uv run baibai-engine research thesis-scaffold --workspace .cache/opportunity/<ASOF> \
-     --db stores/application/baibai.sqlite --ticker XXXX --sqlite-path stores/market/market.sqlite \
-     --target-session <次の取引session>
-   uv run baibai-engine research review-scaffold --workspace .cache/opportunity/<ASOF> \
-     --db stores/application/baibai.sqlite --ticker XXXX
-   ```
+   scaffold の構造を変えず、[`thesis.md`](../../../docs/reference/thesis.md) の契約に従う。scenario 算術は `baibai_engine.research.scenario_arithmetic` で計算し、permanent-loss 7軸、terminal multiple、starting earnings、share basis、source date を照合する。
 
-   `research status --workspace ...` が常に次コマンドを教える。
-3. **一次情報調査**（lane ごと。委譲するときは AGENTS.md の subagent 規律に従う）: 会社 IR・EDINET・決算資料の原文で load-bearing claim を検証する。TDnet・株探は 403 になりやすい（irbank の PDF ミラー等で代替し、裏取りできない項目は「未検証」と明示する）。落とした PDF は `uv run python -m baibai_engine.research.pdf_reader <pdf> --search <キーワード>` で読む（決算短信の AES 暗号化に対応済み。`--pages 1-3` で節を通読）。検索 snippet・外部 AI 要約を観測事実へ昇格しない。business-model guide の pilot 指定 lane だけ [`business-model-research.md`](../../../docs/reference/business-model-research.md) の lens を適用する。
-4. **thesis 執筆**（契約・算術の正本は [`thesis.md`](../../../docs/reference/thesis.md)）。schema が語らない機械 gate:
-   - scenario の starting earnings / share count は input_snapshot の**開示済み fact** に束縛される（正規化の主張は growth 側で表現する）。claimed_* は engine 再計算と一致が必須（CAGR は 2 桁丸め）。bear ≤ base ≤ bull の順序も検証される。claimed_* は手計算せず `uv run python -m baibai_engine.research.scenario_arithmetic --entry-price <P> --starting-earnings <E> --starting-shares <S> --scenario <name>:<3|5>:<growth>:<share_change>:<multiple>:<dividends> ... [--required-cagr-pct <要求 CAGR>]` で出す（engine と同じ関数を呼ぶので丸めがずれない。`--required-cagr-pct` は 5y base を要求 CAGR で割り戻した FV 候補を併記する）。
-   - `permanent_loss_conclusion` は 7 軸から自動導出された期待値と一致が必須: adverse が 1 つでもあれば `elevated`、無ければ unknown 軸ありで `unknown`、それ以外 `acceptable`。
-   - base の終端倍率を置く前に、[`thesis.md#base-terminal-multiple`](../../../docs/reference/thesis.md#base-terminal-multiple) の既定と 3 ガードを適用する。現観測より上を置けるのは一次開示で実績化した機構を名指しできる場合だけで、自己レンジ中央値は根拠でなく上限である。起点利益の一過性汚染を除外し、据え置き倍率で再計算した base CAGR を `strongest_countercase` に残す。
-   - retrieved_at / proposed_at / reviewed_at は**現在時刻以前**。source 取得より前の proposed_at も拒否される。proposed_at は core hash に入るので**記入の直前に `date` を実行して貼る** — 未来時刻を書くと reviewer が `reviewed_at ≥ proposed_at` を満たせず待たされ、直すと hash が変わって review の取り直しになる。
-   - scaffold が置いた構造は変えず、null と `TODO` だけを埋める（draft 冒頭の comment が gate の要求を持つ）。`facts[trailing-per]` は `scenario.base_3y_5y` の観測 multiple なので、比率を入れて利益側の一次 source を `source_ids` へ足す。`independent_review_ref` は review-scaffold が書き出す隣接ファイル名なので触らない。
+   macro context の該当 `estimate_caveats` と、`research-comparison.yaml` の E[r] 帯文脈を読む。使う、適用外、古くて弱い、いずれの場合も thesis の scenario assumption または `screening_fv_bridge.note` に判断を残す。macro は数値 driver、採用 gate、自動 sizing にしない。
 
-   **macro estimate_caveats の消化**: 機械見積りの歪みは head の macro context が `affected_component` 付きで名指ししているので、FV アンカーと 5y base を置く前に読む。
+4. **evaluate と独立反証を通す**
 
-   ```bash
-   uv run baibai-engine macro context show --latest --asof <ASOF> \
-     | uv run python -c 'import sys,yaml,json;print(json.dumps(yaml.safe_load(sys.stdin)["connection"]["estimate_caveats"],ensure_ascii=False,indent=2))'
-   ```
+   `research evaluate <thesis-draft>` の error を 0 にする。author と別 role が一次 source、算術、multiple premium、永久損失7軸、countercase、macro caveat、E[r] 帯との乖離、代替候補、portfolio marginal value、limit 整合を反証する。結論または価格を変えたら thesis に戻り、新しい core hash で review を取り直す。
 
-   （`context show` の出力は JSON ではなく YAML なので `jq` を直接つながない）
-
-   `affected_component`（`fv_anchor` / `reversion` / `carry` / `resilience`）が今回の見積りで使う成分に当たるものを消化し、**該当 scenario の `estimates.scenarios[].assumption` へ反映内容を書いて、その `source_ids` から macro context を引く**。source は `input_snapshot.sources` へ 1 件足す（`judgment` namespace は `extra="forbid"` で caveat 用の field を持たないので、そこには書けない）:
-
-   ```yaml
-   - source_id: macro_context_<YYYY_MM_DD>
-     ticker: "XXXX"
-     source_tier: local_data
-     provider: baibai-loop
-     dataset: macro-context
-     as_of: <head の as_of>
-     retrieved_at: <取得時刻>
-     used_for: <どの caveat をどの成分へ効かせたか>
-   ```
-
-   **機械帯の実現文脈の消化**: base scenario と要求水準を確定する前に、workspace の `research-comparison.yaml` で自 ticker の `er_realized_distribution_context`（機械 E[r] 帯の予測中央値と実現中央値）を読み、**自 lane の 5y base とその帯の実現中央値の乖離を 1 文で `screening_fv_bridge.note` か base の `assumption` へ消化する**（例 —「機械 E[r] が hurdle 以上の帯の実現中央値(3y 20.9%)に対し base 11.4% を置く。差は正規化起点と倍率据え置きによる保守で、上昇 regime の実現値をそのまま期待しない判断」）。乖離の理由を書けない場合は base の保守が過剰である signal として倍率・成長の置き方を見直す。これは数値ドライバーでも採用 gate でもない（[doctrine](../../../docs/doctrine.md) 柱 2）— full の要求水準を素で当てず、帯文脈を見たうえで裁定した記録を残すための手順である。
-
-   `applies_to` がこの候補タイプに当たらない、`materiality: low`、または head が無いために消化しないなら、**その判断を `screening_fv_bridge.note` か base scenario の `assumption` に書く**（黙って落とさない）。**古さだけを理由に丸ごと飛ばさない** — 鮮度の基準は `screening select` と同じ `as_of` 45 日で、それを超えたときも「どの caveat がどう当てにならないか」を書く（[`macro.md`](../../../docs/reference/macro.md) §鮮度は読む側が判断する）。macro を数値ドライバー・採用 gate・自動 sizing にはしない（[`doctrine.md`](../../../docs/doctrine.md) 柱 2）。
-5. **evaluate と独立反証**: `uv run baibai-engine research evaluate <thesis-draft>` のエラーを 0 にする。独立レビューは thesis author と別 role で実施し、次を必須反証にする: 上位候補の都合よい除外 / 構造衰退の一時割安誤認 / scenario・FV・CAGR・株数・配当の再計算（recalculated は engine の 2 桁丸め値と完全一致が必須）/ base・break-even・buffer と観測 trailing multiple の `scenario.base_3y_5y` check への記録 / **multiple premium について、機構と一次 source、starting earnings の一過性汚染、自己レンジ上限、据え置き倍率での base CAGR の 4 点を独立に反証** / 7 軸 unknown・adverse の一次照合 / **macro estimate_caveats の該当分の消化（無視した場合はその判断が書かれているか）** / **機械帯実現中央値との乖離の消化が thesis に書かれているか** / 代替候補 / portfolio marginal value / limit 整合。review が結論・価格を変えるなら `proposal_changed=true` で thesis へ戻し、hash 変更後は review を再生成する。
-6. **promote**（lane ごと。買わない lane も canonical thesis を持つ）:
+5. **canonical thesis にする**
 
    ```bash
    uv run baibai-engine research promote --workspace .cache/opportunity/<ASOF> \
      --db stores/application/baibai.sqlite --ticker XXXX
    ```
 
-   gate: checklist 全 complete・review hash = thesis core hash・schema valid。**not-ready の buy は promote 自体が拒否される**（evidence の鮮度切れ・adverse 軸を持つ buy は human override + `sizing_action: reduced` が無いと canonical 化できない）。人間の override をその場で取れない場合は recommendation を `defer` にして canonical 化し、trigger（有報更新・override 判断）を assessment と follow-up task へ記録する — thesis を workspace に置いたまま session を終えない。`research-comparison.yaml` に各 lane の FV / 5y base CAGR / countercase / disposition を記入し（`fv_gap_pct` は FV/price − 1）、`selected_ticker` は 0〜1 件。
-7. **plan-limit と proposal**:
+   buy / defer / reject の全 lane を promote する。evidence 不足や adverse axis を持つ buy は、人間の evidence override と reduced sizing が無ければ通さない。人間判断を得られなければ defer とし、dated trigger を assessment と task に残す。comparison には全 lane の FV、5y base CAGR、countercase、disposition を記録し、selected は最大1件とする。
+
+6. **proposal または見送りを確定する**
+
+   buy lane は次の command で latest raw close、required return、canonical ledger から価格・数量・期限を計画する。
 
    ```bash
-   uv run baibai-engine research plan-limit --thesis <thesis-draft> --db stores/application/baibai.sqlite \
-     --sqlite-path stores/market/market.sqlite --target-session <日付> \
-     --budget-min-yen <MIN> --budget-max-yen <MAX> --output <proposal-input.yaml>
+   uv run baibai-engine research plan-limit --thesis <thesis-draft> \
+     --db stores/application/baibai.sqlite --sqlite-path stores/market/market.sqlite \
+     --target-session <日付> --output <proposal-input.yaml>
    ```
 
-   **starter band**（2 つの形）: 永久損失が `elevated` でなく dated catalyst がある lane は、全件見送りの代わりに縮小 lot で建てる選択肢がある。**(a) 水準を下げる形** — 5y base が `starter_band.required_return_ceiling_pct` に届かないが `required_return_floor_pct` 以上の lane。`estimates.required_5y_base_cagr_pct` を帯内（下限以上・上限未満）にする。**(b) 確証を待たない形** — base は full の水準を満たすが evidence に不完全な軸（unknown / 未検証 / 一次 source 欠落）が残る lane。`required_5y_base_cagr_pct` は **full の水準のまま下げず**、`position_intent: starter` で金額だけを絞る（3836 の 8/20 defer は evidence 分類の例であり、注文可否は後段の 1 単元上限で別判定する。full への昇格は evidence 解消時の thesis 改訂で行う）。どちらの形も `judgment` に `position_intent: starter` / `sizing_action: reduced` / `starter_catalyst_date` を置く。`plan-limit` が 1 注文の金額を `max_order_notional_yen` で切り、`proposal create` と `approve` が帯・1 注文上限・`max_bucket_pct` を検証する。要求利回りが帯の上限未満で `full` のままだと proposal は作れない（帯を開く代償を負わずに水準だけ下げる経路を残さないため）。**帯の実値と撤退基準は [`portfolio-management.md`](../../../docs/portfolio-management.md#starter-band) が正本**（この手順に数値を写さない）。7 軸・独立レビュー・human override は緩めない。starter を作ったら `starter_catalyst_date` を期日にした follow-up task を必ず `task add` する。
+   starter は [`portfolio-management.md#starter-band`](../../../docs/portfolio-management.md#starter-band) の2経路だけを許し、7軸、独立 review、human override を緩めない。starter には `position_intent: starter`、`sizing_action: reduced`、`starter_catalyst_date` と同日期限の task が必要である。
 
-   機械契約: **指値 = 前営業日 raw close 固定**（gap を追う注文は作れない）、**`max_acceptable_price` = thesis 自身の 5y base FV を required return で割引いた値**。close > max なら `defer_reasons: close_above_max_acceptable_price` — これは正常な条件付き結論で、「終値 ≤ ceiling の日の夕方に proposal を起動する」watch に変換する。proposal create は thesis の recommendation が `buy` のときだけ通り、**adverse 軸・evidence gap・review 未完全検証がある buy には human evidence override（`approved_by: human`）が必須**（機械単独では buy を記録できない。人間の明示承認を取ってから記録する）。
-8. **bargain assessment**: `uv run baibai-engine research assessment-scaffold --assessment-id bargain-assessment-<YYYYMMDD>-<slug>（日付は 8 桁・ハイフン無し。publish の正規表現が拒否するが scaffold は通してしまう） --asof <ASOF> --shortlist-id <ID> --thesis-id <ID>（lane ごとに反復）[--proposal-id <ID>] --out <draft>` で骨格を作り、散文（headline / comparison / entry_timing / forgone / lane 別 6 項目）を記入する。reject / defer lane にも `reject_class` 必須。`uv run baibai-engine research assessment-publish <draft> --db stores/application/baibai.sqlite --check` の `draft_sha256` を review block へ転記してから publish する（--check なしで実 publish）。
-9. **完了**: follow-up task（defer の dated trigger）を `task add` し、session を complete する（opportunity の complete は `artifacts` 1 件以上が必須 — plan-limit の defer 証跡等を置く）。cloud 反映（`push-app` → materialize → success 確認）。報告には各 lane の判定・FV vs 価格・countercase・TradingView link・次の trigger を載せる。
+   close が `max_acceptable_price` を超える場合は正常な defer とし、price watch に変換する。proposal は recommendation `buy` と必要な human override が揃う場合だけ作る。
 
-## 人間境界
+7. **統合判断と session を完了する**
 
-- 最新完全営業日の raw close で寄り前の指値を計画する。realtime 板・fill 確率を必須にしない。
-- 人間報告前に broker 状態を推定せず ledger を変更しない。`approve / defer / reject` は人間の権限で、見送りも正常な結論である。
+   `research assessment-scaffold` で全 lane を束ね、reject / defer にも `reject_class` を記録する。`assessment-publish --check` の digest を review に束縛してから publish する。dated follow-up を task 化し、canonical artifact を持つ final payload で session を complete する。cloud 反映は `ops-maintenance` skill に従う。
 
-## 参照
+## 停止条件
 
-- thesis 算術・review binding: [`docs/reference/thesis.md`](../../../docs/reference/thesis.md)
-- 統合判断の契約: [`docs/reference/bargain-assessment.md`](../../../docs/reference/bargain-assessment.md)
-- 資金・注文額 baseline: [`docs/portfolio-management.md`](../../../docs/portfolio-management.md)
+- primary-research set または人間確認がない。
+- 一次情報、source date、算術、review hash、ledger snapshot の矛盾。
+- 未検証事実を buy 根拠へ昇格する、または人間の approve 前に broker / ledger へ進むこと。
+
+## 正本
+
+- thesis、算術、review binding: [`thesis.md`](../../../docs/reference/thesis.md)
+- lane 比較と統合判断: [`bargain-assessment.md`](../../../docs/reference/bargain-assessment.md)
+- business model 調査: [`business-model-research.md`](../../../docs/reference/business-model-research.md)
+- 資本、starter、注文額: [`portfolio-management.md`](../../../docs/portfolio-management.md)
