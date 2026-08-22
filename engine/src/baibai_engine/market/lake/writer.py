@@ -160,6 +160,7 @@ def export_legacy_sqlite(
     build_id: str | None = None,
     created_at: datetime | None = None,
     audit_full_history: bool = False,
+    coverage_delta: bool = False,
 ) -> LakeBuildReport:
     """Build whole affected months and reuse all unaffected base-manifest objects.
 
@@ -204,6 +205,7 @@ def export_legacy_sqlite(
                 base=base,
                 start=start,
                 end=end,
+                coverage_delta=coverage_delta,
             )
             if not periods and base is None:
                 raise LakeBuildError("selected window contains no rows")
@@ -308,6 +310,7 @@ def export_lake_legacy(
     base_manifest_paths: Mapping[str, Path] | None = None,
     created_at: datetime | None = None,
     audit_full_history: bool = False,
+    coverage_delta: bool = False,
 ) -> LakeExportReport:
     """Export every lake dataset from one sealed SQLite generation."""
     bases = dict(base_manifest_paths or {})
@@ -334,6 +337,7 @@ def export_lake_legacy(
                 source_snapshot=snapshot,
                 created_at=created_at,
                 audit_full_history=audit_full_history,
+                coverage_delta=coverage_delta,
             )
             for dataset_name in populated
         }
@@ -484,6 +488,7 @@ def _build_periods(
     base: DatasetManifest | None,
     start: date | None,
     end: date | None,
+    coverage_delta: bool,
 ) -> tuple[Period, ...]:
     if start is not None and end is not None:
         selected = set(_selected_periods(connection, dataset, start=start, end=end))
@@ -497,8 +502,63 @@ def _build_periods(
             selected.update(period for period in _base_partitions(base) if first <= period <= last)
         return tuple(sorted(selected))
     if base is not None:
+        if coverage_delta and dataset.coverage_tracks_mutations:
+            return _coverage_delta_periods(connection, dataset, base)
         return _affected_periods(connection, dataset, base)
     return _selected_periods(connection, dataset, start=None, end=None)
+
+
+def _coverage_delta_periods(
+    connection: sqlite3.Connection,
+    dataset: LakeDataset,
+    base: DatasetManifest,
+) -> tuple[Period, ...]:
+    """Limit a hydrated daily store to ranges changed by its canonical writer.
+
+    This is an explicit daily-batch optimization, not the general export contract.
+    Canonical writers for opted-in datasets replace rows and record the same range in
+    ``source_coverage`` in one transaction. A local or backfill export does not opt in
+    and continues to compare every partition.
+    """
+
+    source_refs = {source for partition in base.partitions for source in partition.sources}
+    if len(source_refs) != 1:
+        return _affected_periods(connection, dataset, base)
+    source_ref = next(iter(source_refs))
+
+    changed_ranges: list[tuple[date, date]] = []
+    rows = connection.execute(
+        "SELECT coverage_start, coverage_end, fetched_at_utc FROM source_coverage WHERE source = ?",
+        (dataset.coverage_source_name,),
+    ).fetchall()
+    for raw_start, raw_end, raw_fetched_at in rows:
+        try:
+            fetched_at = datetime.fromisoformat(str(raw_fetched_at).replace("Z", "+00:00"))
+        except ValueError:
+            return _affected_periods(connection, dataset, base)
+        if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
+            return _affected_periods(connection, dataset, base)
+        if fetched_at.astimezone(UTC) <= source_ref.captured_at.astimezone(UTC):
+            continue
+        if raw_start is None or raw_end is None:
+            return _affected_periods(connection, dataset, base)
+        try:
+            low = date.fromisoformat(str(raw_start))
+            high = date.fromisoformat(str(raw_end))
+        except ValueError:
+            return _affected_periods(connection, dataset, base)
+        if low > high:
+            return _affected_periods(connection, dataset, base)
+        changed_ranges.append((low, high))
+
+    current = set(_selected_periods(connection, dataset, start=None, end=None))
+    previous = set(_base_partitions(base))
+    affected = current ^ previous
+    for period in current | previous:
+        period_start, period_end = period_bounds(period)
+        if any(low < period_end and high >= period_start for low, high in changed_ranges):
+            affected.add(period)
+    return tuple(sorted(affected))
 
 
 def _affected_periods(
