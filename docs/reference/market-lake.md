@@ -176,7 +176,6 @@ SHA-256、transport marker、size、content typeを同じimmutable PUTのmetadat
 直前の再走査は行わない — overwriteを拒否するstoreでは、その間にkeyが差し替わることがないので、
 2度目の全streamは同じ結論のためにhistory全体のbytesを動かすだけになる。remote bytesの差し替えを
 探す全stream監査は`--verify-bytes`の別実行が持ち、publication hot pathとはSLOを分ける。
-immutable graph nodeの検証・PUTは8 workerで並行し、全nodeの完了後だけpointerを切り替える。
 report は `uploaded_bytes` / `downloaded_bytes` / `head_requests` / `get_requests` を出すので、
 「差分転送になっている」は主張ではなく観測になる。
 
@@ -241,17 +240,12 @@ GET / backup copy / PUT は発生しない。
 | `r2_transfer.sh pull-machine` | `market.sqlite` を GET する。R2 の copy は lake が持たない 2 本だけを持つ |
 | `r2_transfer.sh hydrate-market` | current release を解決し、lake 所有 17 本を store へ積む |
 | `baibai-batch daily` | ingest は store へ書き、screening は store を読む。lake は経路に入らない |
-| `r2_transfer.sh publish-lake coverage-delta` | 定時batchで、canonical writerが同一transactionに記録した再取得範囲だけを比較し、release → pointer を CAS で切り替え |
+| `r2_transfer.sh publish-lake` | 変わった partition だけ export → release → pointer を CAS で切り替え |
 | `r2_transfer.sh push-machine` | push 用 copy から lake 所有 17 本を空にして PUT する |
 
 **publish は push より先に置く。** 逆順で publish に失敗すると、クラウドには「今日の coverage を
 主張する store」だけが残る。coverage が「取得済み」と言う限り次の run はその範囲を取りに行かないので、
 穴が自力で塞がらない唯一の組み合わせになる。
-
-`coverage-delta` は hydrate 直後の定時batch専用である。daily bars・weekly margin・short-sale reports
-は行の置換と同じtransactionで `source_coverage.fetched_at_utc` を更新するため、前releaseのsnapshot後に
-再取得したpartitionだけを再hashできる。通常のローカルpublishとbackfillはこのmodeを使わず、全partition
-のsource-stateを比較する。lineageまたはcoverage時刻が不正なら全比較へ退化する。
 
 **R2 の key は `market.sqlite` のままにする。** store の同一性は変わっていない — schema version も
 19 本という構成も同じで、変わったのは 17 本の権威が lake へ移り、pull のたびに hydrate が復元する
@@ -658,3 +652,4 @@ gh variable list | rg R2_LAKE_ACCEPTANCE
 
 acceptanceが走らせられない間、lakeのread経路を変える変更は実bucketに対する
 publish→download→hydrateのround tripで確かめる。
+

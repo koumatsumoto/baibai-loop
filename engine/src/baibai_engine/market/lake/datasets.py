@@ -67,8 +67,6 @@ class LakeDataset:
     """
     population_column: str | None = "ticker"
     """The column whose distinct values are the dataset's population, if it has one."""
-    coverage_tracks_mutations: bool = False
-    """Whether canonical writes record their changed date range in source_coverage."""
 
     @property
     def coverage_source_name(self) -> str:
@@ -142,7 +140,6 @@ JQUANTS_DAILY_BARS = LakeDataset(
     sqlite_table="jquants_daily_bars",
     date_column="traded_at",
     coverage_authority="daily_bars_rows",
-    coverage_tracks_mutations=True,
     columns=(
         LakeColumn("ticker", "TEXT", _TEXT, False, 1),
         LakeColumn("traded_at", "TEXT", _TEXT, False, 2),
@@ -167,7 +164,6 @@ JQUANTS_SHORT_SALE_REPORTS = LakeDataset(
     name="jquants.short_sale_reports",
     sqlite_table="jquants_short_sale_reports",
     date_column="disclosed_at",
-    coverage_tracks_mutations=True,
     columns=(
         LakeColumn("disclosed_at", "TEXT", _TEXT, False, 1),
         LakeColumn("source_ordinal", "INTEGER", _INTEGER, False, 2),
@@ -191,7 +187,6 @@ JQUANTS_WEEKLY_MARGIN = LakeDataset(
     sqlite_table="jquants_weekly_margin",
     date_column="week_end",
     coverage_authority="unproven",
-    coverage_tracks_mutations=True,
     columns=(
         LakeColumn("week_end", "TEXT", _TEXT, False, 1),
         LakeColumn("ticker", "TEXT", _TEXT, False, 2),

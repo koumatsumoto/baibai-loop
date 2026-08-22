@@ -385,9 +385,6 @@ daily batchはcoverageが完全でも`bootstrap-cache`を実行する。財務�
 
 GitHub Actions の課金は job 単位の分切り上げで、無料枠は月 2,000 分。定常ペースが枠を超えていないかを月次（calibration panel / PMI manifest の月次維持と同じタイミング）で確認する。
 
-定時dailyの `publish-lake coverage-delta` は、hydrate後にcanonical writerが記録した再取得範囲だけを
-比較する。ローカルpublish・backfill・full rebuildでは指定せず、従来どおり全partitionを比較する。
-
 ```bash
 gh run list --created ">=$(date -d '14 days ago' +%F)" --limit 1000 \
   --json workflowName,startedAt,updatedAt \

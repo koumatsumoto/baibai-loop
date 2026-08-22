@@ -3,8 +3,6 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 import subprocess
-import threading
-import time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -232,35 +230,6 @@ def test_publication_proves_each_remote_key_once(tmp_path: Path) -> None:
     graph_heads = [key for key in store.head_keys if not key.startswith("lake/pointers/")]
     assert sorted(graph_heads) == sorted(set(graph_heads))
     assert set(graph_heads) == {key for key in store.values if not key.startswith("lake/pointers/")}
-
-
-def test_publication_checks_immutable_graph_nodes_in_parallel(tmp_path: Path) -> None:
-    mirror, release_path = _release(tmp_path)
-
-    class ObservedStore(_MemoryStore):
-        def __init__(self) -> None:
-            super().__init__()
-            self._active_lock = threading.Lock()
-            self.active_heads = 0
-            self.max_active_heads = 0
-
-        def head(self, key: str) -> RemoteObject | None:
-            if key.startswith("lake/pointers/"):
-                return super().head(key)
-            with self._active_lock:
-                self.active_heads += 1
-                self.max_active_heads = max(self.max_active_heads, self.active_heads)
-            try:
-                time.sleep(0.01)
-                return super().head(key)
-            finally:
-                with self._active_lock:
-                    self.active_heads -= 1
-
-    store = ObservedStore()
-    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
-
-    assert store.max_active_heads > 1
 
 
 def test_verify_bytes_streams_the_whole_closure(tmp_path: Path) -> None:
