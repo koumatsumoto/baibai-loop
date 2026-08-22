@@ -779,7 +779,9 @@ def _data_as_of(
 
 
 def _open_immutable(path: Path) -> sqlite3.Connection:
-    return sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
+    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
+    connection.execute("PRAGMA case_sensitive_like=ON")
+    return connection
 
 
 def _pk_indexes(dataset: LakeDataset) -> tuple[int, ...]:
