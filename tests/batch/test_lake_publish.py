@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
-import subprocess
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
+from botocore.exceptions import ClientError, ReadTimeoutError
 
 from baibai_batch.storage import lake_publish as lake_publish_module
+from baibai_batch.storage import publish_market_lake as market_publish_module
 from baibai_batch.storage.lake_publish import (
-    AwsCliR2Store,
+    Boto3R2Store,
     LakeCASConflict,
     LakePublishError,
+    PointerPrecondition,
     RemoteObject,
     publish_l1_release,
 )
@@ -47,6 +50,7 @@ class _MemoryStore:
         self.conflict_pointer = False
         self.get_keys: list[str] = []
         self.head_keys: list[str] = []
+        self.put_keys: list[str] = []
 
     def head(self, key: str) -> RemoteObject | None:
         self.head_keys.append(key)
@@ -79,6 +83,7 @@ class _MemoryStore:
         if_match: str | None = None,
         if_none_match: bool = False,
     ) -> RemoteObject:
+        self.put_keys.append(key)
         current = self.values.get(key)
         if "/pointers/" in f"/{key}" and self.conflict_pointer:
             raise LakeCASConflict("injected")
@@ -111,10 +116,23 @@ def _local_bundle(mirror: Path) -> CalibrationBundlePointer:
 
 @pytest.fixture(autouse=True)
 def _fixed_publication_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    fixed_now = datetime(2026, 1, 7, tzinfo=UTC)
     monkeypatch.setattr(
         lake_publish_module,
         "_utc_now",
-        lambda: datetime(2026, 1, 7, tzinfo=UTC),
+        lambda: fixed_now,
+    )
+    create_release = market_publish_module.create_lake_l1_release
+    monkeypatch.setattr(
+        market_publish_module,
+        "create_lake_l1_release",
+        lambda **kwargs: create_release(created_at=fixed_now, **kwargs),
+    )
+    export_lake = market_publish_module.export_lake_legacy
+    monkeypatch.setattr(
+        market_publish_module,
+        "export_lake_legacy",
+        lambda **kwargs: export_lake(created_at=fixed_now, **kwargs),
     )
     datasets = tuple(
         item.model_copy(
@@ -187,6 +205,16 @@ def _release(tmp_path: Path) -> tuple[Path, Path]:
     return mirror, release_path
 
 
+def _successor_release(mirror: Path, release_id: str) -> Path:
+    release_path, _ = create_l1_release(
+        dataset_manifest_paths=sorted((mirror / "lake/manifests/datasets").glob("*/*.json")),
+        mirror_root=mirror,
+        release_id=release_id,
+        created_at=datetime(2026, 1, 7, tzinfo=UTC),
+    )
+    return release_path
+
+
 def test_publish_uploads_immutable_graph_before_current_pointer(tmp_path) -> None:
     mirror, release_path = _release(tmp_path)
     store = _MemoryStore()
@@ -207,10 +235,9 @@ def test_publish_uploads_immutable_graph_before_current_pointer(tmp_path) -> Non
     assert second.transfers.reused_objects == 5
     assert not any(key.startswith("lake/build-inputs/") for key in store.values)
     assert "lake/pointers/l1/current.json" in store.values
-    # A run that changes nothing moves no object bytes. Objects the store already
-    # holds are proved by the identity metadata their immutable write bound to them;
-    # only the one mutable pointer is read back.
-    assert second.transfers.downloaded_bytes == len(
+    # A run that changes nothing moves no immutable object bytes. The mutable pointer
+    # is read once to freeze the starting generation and once for exact-retry detection.
+    assert second.transfers.downloaded_bytes == 2 * len(
         store.values["lake/pointers/l1/current.json"].body
     )
     assert not any(
@@ -275,9 +302,248 @@ def test_pointer_cas_conflict_leaves_current_unchanged(tmp_path) -> None:
     assert store.values["lake/pointers/l1/current.json"].body == original
 
 
+def test_final_cas_uses_the_starting_pointer_generation(tmp_path: Path) -> None:
+    mirror, first_path = _release(tmp_path)
+    store = _MemoryStore()
+    publish_l1_release(mirror_root=mirror, release_manifest_path=first_path, store=store)
+    pointer_key = "lake/pointers/l1/current.json"
+    initial = store.head(pointer_key)
+    assert initial is not None
+    second_path = _successor_release(mirror, "release-2")
+    third_path = _successor_release(mirror, "release-3")
+    publish_l1_release(mirror_root=mirror, release_manifest_path=second_path, store=store)
+    successor = store.values[pointer_key].body
+
+    with pytest.raises(LakeCASConflict):
+        publish_l1_release(
+            mirror_root=mirror,
+            release_manifest_path=third_path,
+            store=store,
+            pointer_precondition=PointerPrecondition(etag=initial.etag),
+        )
+
+    assert store.values[pointer_key].body == successor
+
+
+def test_absent_starting_pointer_uses_if_none_match(tmp_path: Path) -> None:
+    mirror, first_path = _release(tmp_path)
+    store = _MemoryStore()
+    second_path = _successor_release(mirror, "release-2")
+    publish_l1_release(mirror_root=mirror, release_manifest_path=first_path, store=store)
+    successor = store.values["lake/pointers/l1/current.json"].body
+
+    with pytest.raises(LakeCASConflict):
+        publish_l1_release(
+            mirror_root=mirror,
+            release_manifest_path=second_path,
+            store=store,
+            pointer_precondition=PointerPrecondition(etag=None),
+        )
+
+    assert store.values["lake/pointers/l1/current.json"].body == successor
+
+
+def test_exact_target_identity_is_an_idempotent_retry_with_no_put(tmp_path: Path) -> None:
+    mirror, first_path = _release(tmp_path)
+    store = _MemoryStore()
+    publish_l1_release(mirror_root=mirror, release_manifest_path=first_path, store=store)
+    initial = store.head("lake/pointers/l1/current.json")
+    assert initial is not None
+    second_path = _successor_release(mirror, "release-2")
+    publish_l1_release(mirror_root=mirror, release_manifest_path=second_path, store=store)
+    puts_before = len(store.put_keys)
+
+    report = publish_l1_release(
+        mirror_root=mirror,
+        release_manifest_path=second_path,
+        store=store,
+        pointer_precondition=PointerPrecondition(etag=initial.etag),
+    )
+
+    assert report.release_id == "release-2"
+    assert len(store.put_keys) == puts_before
+
+
+@pytest.mark.parametrize("full_rebuild", [False, True])
+def test_market_publish_conflicts_if_current_moves_during_export(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, full_rebuild: bool
+) -> None:
+    mirror, first_path = _release(tmp_path)
+    store = _MemoryStore()
+    publish_l1_release(mirror_root=mirror, release_manifest_path=first_path, store=store)
+    pointer = L1ReleasePointer.model_validate_json(
+        store.values["lake/pointers/l1/current.json"].body
+    )
+    successor_path = _successor_release(mirror, "concurrent-successor")
+    original_export = market_publish_module.export_lake_legacy
+
+    def concurrent_export(**kwargs: object) -> object:
+        publish_l1_release(
+            mirror_root=mirror,
+            release_manifest_path=successor_path,
+            store=store,
+        )
+        return original_export(**kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(market_publish_module, "export_lake_legacy", concurrent_export)
+    monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
+
+    with pytest.raises(LakeCASConflict):
+        market_publish_module.publish_market_lake(
+            sqlite_path=tmp_path / "market.sqlite",
+            mirror_root=mirror,
+            store=store,
+            expected_base_release_id=None if full_rebuild else pointer.release_id,
+            expected_base_manifest_sha256=None if full_rebuild else pointer.manifest_sha256,
+            release_id=f"target-{full_rebuild}",
+            full_rebuild=full_rebuild,
+        )
+
+    serving = L1ReleasePointer.model_validate_json(
+        store.values["lake/pointers/l1/current.json"].body
+    )
+    assert serving.release_id == "concurrent-successor"
+
+
+def test_pointer_head_get_straddle_fails_its_metadata_identity(tmp_path: Path) -> None:
+    mirror, release_path = _release(tmp_path)
+
+    class StraddlingStore(_MemoryStore):
+        armed = False
+
+        def get_bytes(self, key: str) -> bytes:
+            if self.armed and key == "lake/pointers/l1/current.json":
+                self.values[key].body += b" "
+            return super().get_bytes(key)
+
+    store = StraddlingStore()
+    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+    store.armed = True
+
+    with pytest.raises(LakePublishError, match="pointer bytes differ"):
+        market_publish_module._serving_pointer(store)
+
+
+@pytest.mark.parametrize("level", ["release", "dataset"])
+def test_structurally_valid_mirror_replacement_stops_before_export(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, level: str
+) -> None:
+    mirror, release_path = _release(tmp_path)
+    store = _MemoryStore()
+    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+    pointer = L1ReleasePointer.model_validate_json(
+        store.values["lake/pointers/l1/current.json"].body
+    )
+    path = (
+        release_path
+        if level == "release"
+        else next((mirror / "lake/manifests/datasets").glob("*/*.json"))
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["created_at"] = "2026-01-08T00:00:00Z"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    export_called = False
+
+    def unexpected_export(**_: object) -> object:
+        nonlocal export_called
+        export_called = True
+        raise AssertionError("export must not start")
+
+    monkeypatch.setattr(market_publish_module, "export_lake_legacy", unexpected_export)
+
+    with pytest.raises(LakePublishError, match="base release identity validation failed"):
+        market_publish_module.publish_market_lake(
+            sqlite_path=tmp_path / "market.sqlite",
+            mirror_root=mirror,
+            store=store,
+            expected_base_release_id=pointer.release_id,
+            expected_base_manifest_sha256=pointer.manifest_sha256,
+        )
+
+    assert export_called is False
+
+
+@pytest.mark.parametrize("level", ["release", "dataset"])
+def test_remote_manifest_digest_mismatch_stops_before_export(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, level: str
+) -> None:
+    source_mirror, release_path = _release(tmp_path)
+    store = _MemoryStore()
+    publish_l1_release(mirror_root=source_mirror, release_manifest_path=release_path, store=store)
+    pointer = L1ReleasePointer.model_validate_json(
+        store.values["lake/pointers/l1/current.json"].body
+    )
+    key = (
+        pointer.manifest_key
+        if level == "release"
+        else next(key for key in store.values if key.startswith("lake/manifests/datasets/"))
+    )
+    value = store.values[key]
+    payload = json.loads(value.body)
+    payload["created_at"] = "2026-01-08T00:00:00Z"
+    value.body = json.dumps(payload).encode()
+    value.etag = hashlib.md5(value.body, usedforsecurity=False).hexdigest()  # nosec B324
+    value.metadata["sha256"] = hashlib.sha256(value.body).hexdigest()
+    export_called = False
+
+    def unexpected_export(**_: object) -> object:
+        nonlocal export_called
+        export_called = True
+        raise AssertionError("export must not start")
+
+    monkeypatch.setattr(market_publish_module, "export_lake_legacy", unexpected_export)
+
+    with pytest.raises(LakePublishError, match="base release identity validation failed"):
+        market_publish_module.publish_market_lake(
+            sqlite_path=tmp_path / "market.sqlite",
+            mirror_root=tmp_path / "fresh-mirror",
+            store=store,
+            expected_base_release_id=pointer.release_id,
+            expected_base_manifest_sha256=pointer.manifest_sha256,
+        )
+
+    assert export_called is False
+
+
+def test_market_publish_logs_one_phase_line_without_polluting_stdout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mirror, _ = _release(tmp_path)
+    store = _MemoryStore()
+    monkeypatch.setattr(market_publish_module, "Boto3R2Store", lambda **_: store)
+    monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
+
+    assert (
+        market_publish_module.main(
+            [
+                "--sqlite",
+                str(tmp_path / "market.sqlite"),
+                "--mirror",
+                str(mirror),
+                "--release-id",
+                "timed-release",
+            ]
+        )
+        == 0
+    )
+
+    output = capsys.readouterr()
+    assert len(output.out.splitlines()) == 1
+    assert json.loads(output.out)["release_id"] == "timed-release"
+    assert output.err.count("lake publish phases:") == 1
+    for phase in (
+        "seal_plan_export=",
+        "release_create=",
+        "local_graph=",
+        "remote_closure=",
+        "pointer=",
+    ):
+        assert phase in output.err
+
+
 def test_r2_account_id_rejects_endpoint_injection() -> None:
     with pytest.raises(LakePublishError, match="32 lowercase hexadecimal"):
-        AwsCliR2Store(
+        Boto3R2Store(
             bucket="baibai-stores",
             env={
                 "R2_ACCOUNT_ID": "safe@attacker.example/",
@@ -461,10 +727,14 @@ def test_local_graph_mutation_after_validation_is_rejected(
         )
 
 
-def test_r2_adapter_classifies_409_and_timeout(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("code", "status"),
+    [("ConditionalRequestConflict", 409), ("PreconditionFailed", 412)],
+)
+def test_r2_adapter_classifies_conflict_and_timeout(
+    monkeypatch: pytest.MonkeyPatch, code: str, status: int
 ) -> None:
-    store = AwsCliR2Store(
+    store = Boto3R2Store(
         bucket="integration-test",
         env={
             "R2_ACCOUNT_ID": "a" * 32,
@@ -472,23 +742,79 @@ def test_r2_adapter_classifies_409_and_timeout(
             "R2_SECRET_ACCESS_KEY": "not-logged",
         },
     )
-    conflict = subprocess.CompletedProcess(
-        args=("aws",),
-        returncode=1,
-        stdout="",
-        stderr="ConditionalRequestConflict (409)",
+    conflict = ClientError(
+        {
+            "Error": {"Code": code, "Message": "secret"},
+            "ResponseMetadata": {"HTTPStatusCode": status},
+        },
+        "PutObject",
     )
-    monkeypatch.setattr(lake_publish_module.subprocess, "run", lambda *args, **kwargs: conflict)
     with pytest.raises(LakeCASConflict):
-        store._run("put-object", "--key", "test")
+        lake_publish_module._raise_r2_error("put-object", conflict)
 
-    def timeout(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
-        del args, kwargs
-        raise subprocess.TimeoutExpired(cmd=("aws",), timeout=120)
+    class TimeoutClient:
+        def head_object(self, **_: object) -> object:
+            raise ReadTimeoutError(endpoint_url="https://redacted.invalid")
 
-    monkeypatch.setattr(lake_publish_module.subprocess, "run", timeout)
+    monkeypatch.setattr(store, "_client", lambda *_: TimeoutClient())
     with pytest.raises(LakePublishError, match="timed out"):
-        store._run("put-object", "--key", "test")
+        store.head("test")
+
+
+def test_r2_adapter_sends_conditional_put_and_classifies_404(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = Boto3R2Store(
+        bucket="integration-test",
+        env={
+            "R2_ACCOUNT_ID": "a" * 32,
+            "R2_ACCESS_KEY_ID": "not-logged",
+            "R2_SECRET_ACCESS_KEY": "not-logged",
+        },
+    )
+    requests: list[dict[str, object]] = []
+
+    class RecordingClient:
+        def put_object(self, **kwargs: object) -> object:
+            requests.append(kwargs)
+            return {"ETag": '"put"'}
+
+        def head_object(self, **_: object) -> object:
+            if not requests:
+                raise ClientError(
+                    {
+                        "Error": {"Code": "404", "Message": "credential-must-not-leak"},
+                        "ResponseMetadata": {"HTTPStatusCode": 404},
+                    },
+                    "HeadObject",
+                )
+            return {
+                "ETag": '"put"',
+                "ContentLength": 3,
+                "Metadata": {
+                    "sha256": "a" * 64,
+                    "content-md5": "md5",
+                    "integrity": "content-md5-v1",
+                },
+                "ContentType": "application/json",
+            }
+
+    monkeypatch.setattr(store, "_client", lambda *_: RecordingClient())
+    assert store.head("missing") is None
+    payload = tmp_path / "payload"
+    payload.write_bytes(b"one")
+    store.put_file(
+        "key",
+        payload,
+        sha256="a" * 64,
+        content_md5="md5",
+        content_type="application/json",
+        if_match="start-etag",
+    )
+
+    assert requests[0]["IfMatch"] == "start-etag"
+    assert "IfNoneMatch" not in requests[0]
+    assert requests[0]["ContentMD5"] == "md5"
 
 
 def test_operation_timeout_covers_the_object_it_transfers() -> None:

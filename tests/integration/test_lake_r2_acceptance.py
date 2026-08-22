@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from baibai_batch.storage.lake_publish import (
-    AwsCliR2Store,
+    Boto3R2Store,
     LakeCASConflict,
     LakePublishError,
     RemoteObject,
@@ -82,11 +82,11 @@ def _lake_table_contents(path: Path) -> dict[str, list[tuple[object, ...]]]:
         connection.close()
 
 
-def _store() -> AwsCliR2Store:
+def _store() -> Boto3R2Store:
     bucket = os.environ["R2_LAKE_ACCEPTANCE_BUCKET"]
     if bucket == "baibai-stores" or "acceptance" not in bucket:
         pytest.fail("R2 acceptance must use a dedicated non-production bucket")
-    return AwsCliR2Store(bucket=bucket)
+    return Boto3R2Store(bucket=bucket)
 
 
 def _allow_tiny_pilot(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -140,7 +140,7 @@ def _tiny_market(path: Path) -> Path:
     return path
 
 
-def _download_l1_closure(store: AwsCliR2Store, mirror: Path) -> None:
+def _download_l1_closure(store: Boto3R2Store, mirror: Path) -> None:
     def download(key: str) -> bytes:
         path = mirror / key
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -362,7 +362,7 @@ def test_actual_r2_large_reuse_reads_bytes_and_rejects_forged_metadata(tmp_path:
 
 def test_actual_r2_wrong_credentials_do_not_leak(tmp_path: Path) -> None:
     secret = f"acceptance-secret-{uuid.uuid4().hex}"
-    store = AwsCliR2Store(
+    store = Boto3R2Store(
         bucket=os.environ["R2_LAKE_ACCEPTANCE_BUCKET"],
         env={
             "PATH": os.environ["PATH"],
