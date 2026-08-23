@@ -124,6 +124,19 @@ def test_lake_origin_advance_refuses_a_replaced_sqlite_generation(tmp_path: Path
     assert read_lake_store_origin(sqlite_path) == different
 
 
+def test_lake_origin_advance_never_creates_a_missing_database(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "removed-market.sqlite"
+    target = LakeStoreOrigin(
+        release_id="release-c",
+        release_manifest_sha256="c" * 64,
+    )
+
+    with pytest.raises(LakeStoreOriginError, match="update failed"):
+        advance_lake_store_origin(sqlite_path, expected=None, target=target)
+
+    assert not sqlite_path.exists()
+
+
 def test_margin_publication_date_domains_are_sqlite_constraints(tmp_path: Path) -> None:
     conn = open_connection(tmp_path / "market.sqlite")
     try:

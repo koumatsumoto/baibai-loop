@@ -231,7 +231,7 @@ def test_the_exempt_columns_belong_to_a_table_the_merge_unions(tmp_path: Path) -
 
 class TestLakeOwnedTables:
     def test_rows_the_release_owns_are_not_carried_by_the_merge(self, tmp_path: Path) -> None:
-        """The release reconciles the fifteen tables; copying them here would fork them."""
+        """The release reconciles the seventeen tables; copying them here would fork them."""
 
         source = _store(tmp_path / "source.sqlite")
         target = _store(tmp_path / "target.sqlite")

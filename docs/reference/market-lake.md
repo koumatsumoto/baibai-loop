@@ -10,7 +10,8 @@ status: active
 authority、manifest、version 語彙は [`../architecture.md`](../architecture.md#market-lake-publication-contract)
 を正本とする。この文書は publish と read の実操作を持つ。
 
-L1 は `market.sqlite` の 17 table を持ち、R2 が持つ `market.sqlite` は残る 2 本だけを運ぶ
+L1は`market.sqlite`の17 data tableを持ち、R2が持つ`market.sqlite`は残る2 data tableと
+store-local metadataの`lake_store_origin`だけを運ぶ
 （[Daily cutover](#daily-cutover)）。その 2 本は L1 に入らない — `tse_capital_policy_snapshots` は
 operator が導出したもので fetch の蓄積ではなく、key merge すると撤回した行が復活する。
 `source_coverage` は取得範囲の帳簿であって fact ではない。**不足 dataset を store の残り物で暗黙に
@@ -190,7 +191,8 @@ remote bytesをprivate temporaryへ再取得し、digest一致後だけcacheを�
 
 incremental export は開始時 current pointer と、exportに使う同じsealed SQLite snapshot内の
 `lake_store_origin`を照合し、digest chain を検証した dataset manifest の private snapshot から unchanged
-partition を carry する。sidecarはSQLiteと分離してrestoreできるためauthorityにしない。full rebuild は
+partition を carry する。release identityはSQLite内の`lake_store_origin`だけに置き、分離可能な
+identity sidecarは持たない。full rebuild は
 baseをcarryしないが、同じsealed snapshotのembedded originをcurrent pointerと照合する。currentとoriginが
 ともに無いfirst publicationだけは例外である。
 
@@ -256,8 +258,8 @@ GET / backup copy / PUT は発生しない。
 
 | 段 | 何をするか |
 | --- | --- |
-| `r2_transfer.sh pull-machine` | `market.sqlite` を GET する。R2 の copy は lake が持たない 2 本だけを持つ |
-| `r2_transfer.sh hydrate-market` | current release を解決し、lake 所有 17 本を store へ積む |
+| `r2_transfer.sh pull-machine` | `market.sqlite` をGETする。R2のcopyはlakeが持たない2 data tableと`lake_store_origin`だけを持つ |
+| `r2_transfer.sh hydrate-market` | pulled storeを現行schemaへmigrateし、current releaseを解決してlake所有17本を積む |
 | `baibai-batch daily` | ingest は store へ書き、screening は store を読む。lake は経路に入らない |
 | `r2_transfer.sh publish-lake` | 変わった partition だけ export → release → pointer を CAS で切り替え |
 | `r2_transfer.sh push-machine` | push 用 copy から lake 所有 17 本を空にして PUT する |
@@ -266,8 +268,8 @@ GET / backup copy / PUT は発生しない。
 主張する store」だけが残る。coverage が「取得済み」と言う限り次の run はその範囲を取りに行かないので、
 穴が自力で塞がらない唯一の組み合わせになる。
 
-**R2 の key は `market.sqlite` のままにする。** store の同一性は変わっていない — schema version も
-19 本という構成も同じで、変わったのは 17 本の権威が lake へ移り、pull のたびに hydrate が復元する
+**R2 の key は `market.sqlite` のままにする。** storeの同一性は変わっていない。schema v24では
+19 data tableと1 metadata tableを持ち、17 data tableの権威がlakeへ移り、pullのたびにhydrateが復元する
 という点だけである。
 
 **両側とも行数で fail-close する。** hydrate は release manifest が publish した行数と一致しなければ
@@ -339,7 +341,7 @@ row は bounded batch で読む。dataset は 10 年分の日足であり、全 
 ## Store hydration
 
 固定 release を SQLite へ実体化するのは hydrate である。`market.sqlite` の lake 所有 17 table を
-空にして release の object から積み直し、他の 2 table と schema はそのまま残す。store は満たされた
+空にしてreleaseのobjectから積み直し、他の2 data table、`lake_store_origin`、schemaはそのまま残す。storeは満たされた
 後も ingest が書き続けるので、契約から導いた形ではなく store 自身の schema — 書き込み時の制約と
 index — を運ぶ必要がある。両者は実際に違う（store だけが `week_end` を制約し、契約が宣言しない
 secondary index を持つ）ので、契約側の形で作った store は本物が拒否する行を黙って受け入れる。

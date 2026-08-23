@@ -196,7 +196,7 @@ def test_the_recovery_the_message_names_is_one_the_runbook_carries() -> None:
     assert "publish_market_lake" in section
 
 
-def test_the_runbook_recovery_goes_through_the_path_that_records_the_release() -> None:
+def test_the_runbook_recovery_goes_through_the_standard_wrapper() -> None:
     runbook = (ROOT / "batch/OPERATIONS.md").read_text(encoding="utf-8")
     section = runbook.split(f"### {publish_module.RECOVERY_RUNBOOK_SECTION}", 1)[1].split(
         "\n### ", 1
@@ -207,9 +207,9 @@ def test_the_runbook_recovery_goes_through_the_path_that_records_the_release() -
     )[0]
 
     assert "batch/scripts/r2_transfer.sh publish-lake full-rebuild" in section
-    assert "module を直接叩かない" in section
+    assert "標準運用は`r2_transfer.sh`" in section
     assert "--full-rebuild" in branch
-    assert "record_lake_release" in branch
+    assert "record_lake_release" not in transfer
 
 
 def test_publisher_cli_has_no_sidecar_origin_arguments() -> None:

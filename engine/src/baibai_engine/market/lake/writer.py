@@ -429,7 +429,7 @@ def plan_affected_periods(
     assert base is not None
     with _open_immutable(sqlite_path) as connection:
         _validate_sqlite_contract(connection, dataset)
-        affected = _affected_periods(connection, dataset, base)
+        affected = affected_periods(connection, dataset, base)
     return LakeBuildPlan(dataset=dataset.name, affected_periods=affected)
 
 
@@ -518,15 +518,22 @@ def _build_periods(
             selected.update(period for period in _base_partitions(base) if first <= period <= last)
         return tuple(sorted(selected))
     if base is not None:
-        return _affected_periods(connection, dataset, base)
+        return affected_periods(connection, dataset, base)
     return _selected_periods(connection, dataset, start=None, end=None)
 
 
-def _affected_periods(
+def affected_periods(
     connection: sqlite3.Connection,
     dataset: LakeDataset,
     base: DatasetManifest,
 ) -> tuple[Period, ...]:
+    """Return every partition whose rows or relevant coverage differ from ``base``.
+
+    Publication uses this to decide what to rebuild. Read-only provenance checks reuse
+    the same comparison so they cannot call a store rebuildable from a release under a
+    weaker definition of equality than the publisher itself.
+    """
+
     current = set(_selected_periods(connection, dataset, start=None, end=None))
     previous = _base_partitions(base)
     affected: list[Period] = []
@@ -558,7 +565,7 @@ def _source_state_sha256(
             (
                 period_start.isoformat(),
                 (period_end - date.resolution).isoformat(),
-                dataset.sqlite_table,
+                dataset.coverage_source_name,
                 period_end.isoformat(),
                 period_start.isoformat(),
             ),

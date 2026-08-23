@@ -46,6 +46,7 @@ from .models import (
 )
 from .objects import LakeObjectCache, LakeObjectSource, sha256_bytes
 from .release import L1ReleasePointer
+from .writer import affected_periods
 
 
 class LakeReadError(RuntimeError):
@@ -423,8 +424,9 @@ def release_backing_store(
     A cohort may state a release as its lineage only if that release can give the rows
     back. Naming one is not that: a store filled from an older generation, or carrying
     fetches nobody published, reads the same from the outside. So the name is a hint and
-    the proof is here — every lake-owned table is counted against the totals the release
-    publishes, and the reference is returned only when all of them agree exactly.
+    the proof is here — every lake-owned partition is compared with the same row and
+    coverage identity the publisher uses, and the reference is returned only when all
+    of them agree exactly.
 
     The current pointer is not consulted. It lives in the object store rather than the
     local mirror, and a build that reached for it would be doing network I/O to answer a
@@ -445,16 +447,20 @@ def release_backing_store(
         release = resolve_release(source, release_id, manifest_sha256=manifest_sha256)
     except LakeReadError:
         return None
-    expected = {name: item.totals.rows for name, item in release.dataset_manifests.items()}
     try:
         with closing(sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True)) as conn:
             for name, dataset in LAKE_DATASETS.items():
+                manifest = release.dataset_manifests.get(name)
+                if manifest is not None:
+                    if affected_periods(conn, dataset, manifest):
+                        return None
+                    continue
                 held = int(
                     conn.execute(
                         f"SELECT COUNT(*) FROM {dataset.sqlite_table}"  # nosec B608
                     ).fetchone()[0]
                 )
-                if held != expected.get(name, 0):
+                if held:
                     return None
     except sqlite3.Error:
         return None

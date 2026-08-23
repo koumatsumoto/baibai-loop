@@ -35,7 +35,12 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from ..sqlite.lake_origin import LakeStoreOrigin, write_lake_store_origin
+from ..sqlite.lake_origin import (
+    LakeStoreOrigin,
+    LakeStoreOriginError,
+    read_lake_store_origin,
+    write_lake_store_origin,
+)
 from ..sqlite.snapshot import create_snapshot, validate_snapshot
 from .datasets import LAKE_DATASETS, LakeDataset
 from .duck import LakeSession
@@ -272,7 +277,12 @@ class DehydrateReport:
         }
 
 
-def dehydrate_market_store(store: Path, *, release: FixedRelease) -> DehydrateReport:
+def dehydrate_market_store(
+    store: Path,
+    *,
+    release: FixedRelease,
+    still_current: Callable[[], tuple[str, str]] | None = None,
+) -> DehydrateReport:
     """Empty every lake-owned table of ``store``, keeping only what the lake does not hold.
 
     This runs on the copy that is about to be uploaded, never on the working store. It
@@ -282,6 +292,19 @@ def dehydrate_market_store(store: Path, *, release: FixedRelease) -> DehydrateRe
 
     if not store.is_file():
         raise LakeHydrateError(f"market store does not exist: {store}")
+    try:
+        origin = read_lake_store_origin(store)
+    except LakeStoreOriginError as exc:
+        raise LakeHydrateError(str(exc)) from exc
+    expected_origin = LakeStoreOrigin(
+        release_id=release.release_id,
+        release_manifest_sha256=release.manifest_sha256,
+    )
+    if origin != expected_origin:
+        raise LakeHydrateError(
+            "market store origin does not match the release selected for dehydration"
+        )
+    require_still_current(still_current, release)
     published = expected_row_totals(
         plan_release_load(release, dataset_names=tuple(sorted(release.dataset_manifests)))[0]
     )
@@ -379,7 +402,7 @@ def require_still_current(
     expected = (release.release_id, release.manifest_sha256)
     if actual != expected:
         raise LakeHydrateError(
-            f"the current release moved while this store was being filled: "
+            f"the current release moved while this store was being used: "
             f"{expected[0]} is no longer current ({actual[0]} is)"
         )
 

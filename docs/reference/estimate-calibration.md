@@ -169,23 +169,21 @@ closure object 247 件、96.8MB。**同じ履歴が CSV の 507MB から lake �
 導出するので、bundle 自体は cohort 数に依存しない。
 
 再構築した cohort は sealed SQLite snapshot と、その store を満たした L1 release の両方を source と
-して述べる。`--l1-release` と `--l1-manifest-sha256` で release を名乗り、build が lake 所有 17 table を
-その release の totals と突き合わせて一致したときだけ記録するので、`source_assurance` は
+して述べる。buildはsealed snapshot内の`lake_store_origin`を読み、lake所有17 datasetを
+そのreleaseとpartition単位のrow・coverage identityで突き合わせて一致したときだけ記録するので、`source_assurance` は
 `rebuildable_input` になり `--run-purpose production_decision` の `source_not_rebuildable` は立たない。
 release を名乗らずに build した cohort、または store が release と一致しない状態で build した cohort は
 `trace_only` のままで、その block も残る。
 
 ```bash
 uv run baibai-engine screening calibration-build \
-  --start <YYYY-MM-DD> --end <YYYY-MM-DD> \
-  --l1-release "$(python3 -c 'import json;print(json.load(open("stores/.r2-generations/lake-release.json"))["release_id"])')" \
-  --l1-manifest-sha256 "$(python3 -c 'import json;print(json.load(open("stores/.r2-generations/lake-release.json"))["release_manifest_sha256"])')"
+  --start <YYYY-MM-DD> --end <YYYY-MM-DD>
 ```
 
-このcommandへ渡すrelease identityは`stores/.r2-generations/lake-release.json`から読む。このfileは
-hydrateとpublicationがdurably更新するoperator/calibration cacheで、運用者が手書きするものではない。
-market publicationのcorrectness authorityはSQLite内の`lake_store_origin`であり、sidecarだけを新旧へ
-差し替えてもpublicationを許可しない。calibration build自身は指定releaseのtotalsとstore rowsを照合する。
+release identityはcalibrationが読む同じsealed SQLite snapshotの`lake_store_origin`から導く。
+`--l1-release`と`--l1-manifest-sha256`は必要な場合だけpairで渡すassertionで、embedded identityを
+上書きせず、不一致ならbuildを拒否する。releaseをlineageへ加える前に、lake所有17 datasetのpartition inventory、PK順row、
+coverage identityをpublisherと同じ比較で照合する。1つでも違えばcohortは`trace_only`のままである。
 
 ## Commands
 

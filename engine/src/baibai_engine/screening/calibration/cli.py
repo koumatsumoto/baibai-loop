@@ -29,6 +29,7 @@ from baibai_engine.market.lake.writer import (
     LegacySQLiteSnapshot,
     sealed_sqlite_snapshot,
 )
+from baibai_engine.market.sqlite.lake_origin import LakeStoreOriginError, read_lake_store_origin
 
 from ..estimates import EXPECTED_RETURN_MODEL_VERSION
 from ..rule_config import ScreeningRules
@@ -94,37 +95,43 @@ def _market_mirror(sqlite_path: Path) -> Path | None:
 
 
 def _l1_release_source(
-    sqlite_path: Path, *, release_id: str | None, manifest_sha256: str | None
+    sqlite_path: Path,
+    *,
+    mirror: Path | None,
+    asserted_release_id: str | None,
+    asserted_manifest_sha256: str | None,
 ) -> L1ReleaseSourceRef | None:
-    """The L1 release backing this market store, when the named one demonstrably does.
+    """The L1 release that demonstrably rebuilds this exact sealed store.
 
-    The caller names a release; this proves it. The store is counted table by table
-    against what that release publishes, and a mismatch returns nothing — so a wrong
-    name, a stale name, or a store carrying unpublished fetches all end the same way,
-    with a cohort whose assurance stays `trace_only`.
-
-    Naming is required because the current pointer is not in the local mirror: it lives
-    in the object store, and a calibration build does no network I/O. Which release a
-    store was filled from is what `stores/.r2-generations/` records, and that record is
-    written by the fill and the publication rather than by whoever runs this.
+    Identity comes from the marker embedded in the sealed SQLite generation. Optional
+    caller values are assertions only; they can reject a mismatched invocation but can
+    never name another release. The partition comparison uses the publisher's row and
+    coverage identity, so equal table counts cannot raise assurance on stale values.
 
     Stating the release alongside the sealed snapshot is what turns `source_assurance`
-    into a distinction. The snapshot says which bytes were read; the release says where
-    they can be read again.
+    into a distinction. The snapshot says which bytes were read; exact comparison says
+    where those same rows can be read again.
     """
 
-    if release_id is None or manifest_sha256 is None:
+    try:
+        origin = read_lake_store_origin(sqlite_path)
+    except LakeStoreOriginError:
         return None
-    mirror = _market_mirror(sqlite_path)
-    if mirror is None:
+    if origin is None or mirror is None:
         return None
+    assertions = (asserted_release_id, asserted_manifest_sha256)
+    if any(value is not None for value in assertions) and assertions != (
+        origin.release_id,
+        origin.release_manifest_sha256,
+    ):
+        raise LakeBuildError("asserted L1 release does not match the sealed market store origin")
     try:
         with open_lake(mirror=mirror) as (_session, cache):
             return release_backing_store(
                 cache.source,
                 store=sqlite_path,
-                release_id=release_id,
-                manifest_sha256=manifest_sha256,
+                release_id=origin.release_id,
+                manifest_sha256=origin.release_manifest_sha256,
             )
     except (LakeObjectError, LakeReadError, OSError, ValueError):
         return None
@@ -145,6 +152,12 @@ def calibration_build_command(
     use_failure_exits: bool = True,
     stdout: TextIO | None = None,
 ) -> int:
+    if (l1_release is None) != (l1_manifest_sha256 is None):
+        print(
+            "calibration build: --l1-release and --l1-manifest-sha256 must be provided together",
+            file=sys.stderr,
+        )
+        return 1
     unreadable = unreadable_store_reason(sqlite_path)
     if unreadable is not None:
         print(f"calibration build: {unreadable}", file=sys.stderr)
@@ -181,9 +194,10 @@ def calibration_build_command(
                 return _calibration_build_command(
                     snapshot=snapshot,
                     l1_release=_l1_release_source(
-                        sqlite_path,
-                        release_id=l1_release,
-                        manifest_sha256=l1_manifest_sha256,
+                        snapshot.path,
+                        mirror=_market_mirror(sqlite_path),
+                        asserted_release_id=l1_release,
+                        asserted_manifest_sha256=l1_manifest_sha256,
                     ),
                     l1_mirror=_market_mirror(sqlite_path),
                     calibration_dir=calibration_dir,

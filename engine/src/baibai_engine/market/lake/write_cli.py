@@ -244,8 +244,12 @@ def _dehydrate(args: argparse.Namespace) -> int:
 
     try:
         with open_lake(mirror=args.mirror, bucket=args.bucket) as (_, cache):
-            release, _ = _resolve_release_target(args, cache.source)
-            report = dehydrate_market_store(args.store, release=release)
+            release, still_current = _resolve_release_target(args, cache.source)
+            report = dehydrate_market_store(
+                args.store,
+                release=release,
+                still_current=still_current,
+            )
     except (
         LakeCredentialError,
         LakeHydrateError,

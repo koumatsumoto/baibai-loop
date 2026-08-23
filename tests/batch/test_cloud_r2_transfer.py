@@ -203,6 +203,10 @@ if [[ "$*" == *"baibai-engine lake dehydrate"* ]]; then
   printf 'dehydrate %s\\n' "$*" >> "$AWS_LOG"
   exit 0
 fi
+if [[ "$*" == *"baibai-engine lake hydrate"* ]]; then
+  printf 'hydrate %s\\n' "$*" >> "$AWS_LOG"
+  exit 0
+fi
 script=""
 for argument in "$@"; do
   case "${argument}" in
@@ -217,9 +221,8 @@ done
 case "${script}" in
   publish)
     printf 'publish %s\\n' "$*" >> "$AWS_LOG"
-    # The real publisher prints its report only on success and nothing at all when it
-    # refuses, which is what the record's emptiness guard reads. A stub that printed
-    # regardless would let that guard pass a test it does not hold in production.
+    # The real publisher prints its JSON report only on success. Refusal may still have
+    # emitted partial stdout, but the wrapper persists none of it as identity state.
     if [[ "${PUBLISH_FAKE_EXIT:-0}" != "0" ]]; then
       if [[ -n "${PUBLISH_FAKE_PARTIAL:-}" ]]; then
         printf '%s' "${PUBLISH_FAKE_PARTIAL}"
@@ -372,6 +375,32 @@ def test_sqlite_helpers_run_from_the_repository_when_called_elsewhere(tmp_path: 
     )
 
     assert completed.returncode == 0, completed.stderr
+
+
+def test_hydrate_migrates_a_pulled_store_before_writing_the_origin(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    root = _fake_repo(tmp_path)
+    environment = _environment(bin_dir, log)
+
+    completed = subprocess.run(
+        [root / "batch/scripts/r2_transfer.sh", "hydrate-market"],
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    commands = log.read_text(encoding="utf-8").splitlines()
+    migration = next(
+        index for index, command in enumerate(commands) if command.startswith("migrate ")
+    )
+    hydration = next(
+        index for index, command in enumerate(commands) if command.startswith("hydrate ")
+    )
+    assert migration < hydration
+    assert "--store market" in commands[migration]
 
 
 def _serving_export(tmp_path: Path) -> Path:
@@ -1503,7 +1532,7 @@ def test_market_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> 
     assert all("macro.sqlite" not in command for command in writes)
 
 
-def test_market_dehydrate_reads_origin_from_the_uploaded_sqlite_not_the_sidecar(
+def test_market_dehydrate_resolves_current_and_leaves_identity_check_to_the_core(
     tmp_path: Path,
 ) -> None:
     root = _fake_repo(tmp_path)
@@ -1523,11 +1552,6 @@ def test_market_dehydrate_reads_origin_from_the_uploaded_sqlite_not_the_sidecar(
     environment = _environment(bin_dir, log)
     environment["SNAPSHOT_FAKE_COPY"] = "1"
     environment["AWS_FAKE_EXISTING_KEY"] = "lake/pointers/l1/current.json"
-    sidecar = Path(environment["R2_GENERATION_DIR"]) / "lake-release.json"
-    sidecar.write_text(
-        '{"release_id":"sidecar-release","release_manifest_sha256":"' + "d" * 64 + '"}\n',
-        encoding="utf-8",
-    )
 
     completed = subprocess.run(
         [root / "batch/scripts/r2_transfer.sh", "push-market"],
@@ -1544,9 +1568,8 @@ def test_market_dehydrate_reads_origin_from_the_uploaded_sqlite_not_the_sidecar(
         for command in log.read_text(encoding="utf-8").splitlines()
         if command.startswith("dehydrate ")
     )
-    assert "--release sqlite-release" in dehydrate
-    assert f"--manifest-sha256 {'c' * 64}" in dehydrate
-    assert "sidecar-release" not in dehydrate
+    assert "--release" not in dehydrate
+    assert "--manifest-sha256" not in dehydrate
 
 
 def test_market_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -> None:
@@ -1714,10 +1737,10 @@ def test_the_transfer_script_names_the_same_pointer_key_the_engine_publishes() -
     assert lake_current_l1_pointer_key() in TRANSFER_SCRIPT.read_text(encoding="utf-8")
 
 
-def test_first_full_rebuild_needs_no_sidecar_and_records_its_result(
+def test_first_full_rebuild_needs_no_sidecar_and_prints_its_result(
     tmp_path: Path,
 ) -> None:
-    """The canonical shell path must support a lake with no pointer or record yet."""
+    """The canonical shell path supports first publication without duplicate state."""
 
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
@@ -1740,13 +1763,14 @@ def test_first_full_rebuild_needs_no_sidecar_and_records_its_result(
     assert "--base-release" not in published[0]
     assert "--origin-release" not in published[0]
     assert "--origin-manifest-sha256" not in published[0]
-    assert "release-after-rebuild" in record.read_text(encoding="utf-8")
+    assert "release-after-rebuild" in completed.stdout
+    assert not record.exists()
 
 
-def test_a_publish_that_reports_nothing_leaves_the_previous_release_named(
+def test_a_failed_publish_does_not_touch_a_legacy_sidecar(
     tmp_path: Path,
 ) -> None:
-    """A refused rebuild must not erase the identity the operator needs to read."""
+    """A leftover pre-marker cache is ignored rather than kept as hidden state."""
 
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
@@ -1756,30 +1780,6 @@ def test_a_publish_that_reports_nothing_leaves_the_previous_release_named(
     record.write_text(
         '{"release_id": "release-before", "release_manifest_sha256": "old"}\n', encoding="utf-8"
     )
-
-    subprocess.run(
-        [root / "batch/scripts/r2_transfer.sh", "publish-lake", "full-rebuild"],
-        cwd=tmp_path,
-        env=environment,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert "release-before" in record.read_text(encoding="utf-8")
-
-
-def test_partial_stdout_from_a_failed_publisher_never_replaces_the_record(
-    tmp_path: Path,
-) -> None:
-    root = _fake_repo(tmp_path)
-    bin_dir, log = _fake_aws(tmp_path)
-    environment = _environment(bin_dir, log)
-    environment["PUBLISH_FAKE_EXIT"] = "1"
-    environment["PUBLISH_FAKE_PARTIAL"] = '{"release_id":"partial"'
-    record = Path(environment["R2_GENERATION_DIR"]) / "lake-release.json"
-    before = b'{"release_id": "release-before", "release_manifest_sha256": "old"}\n'
-    record.write_bytes(before)
 
     completed = subprocess.run(
         [root / "batch/scripts/r2_transfer.sh", "publish-lake", "full-rebuild"],
@@ -1791,24 +1791,17 @@ def test_partial_stdout_from_a_failed_publisher_never_replaces_the_record(
     )
 
     assert completed.returncode != 0
-    assert record.read_bytes() == before
+    assert "release-before" in record.read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize(
-    "payload",
-    [
-        '{"release_id":"missing-digest"}',
-        '{"release_id":"bad-digest","release_manifest_sha256":"no"}',
-        'warning\\n{"release_id":"release","release_manifest_sha256":"' + "0" * 64 + '"}',
-    ],
-)
-def test_invalid_success_stdout_never_replaces_the_release_record(
-    tmp_path: Path, payload: str
+def test_partial_stdout_from_a_failed_publisher_is_never_persisted(
+    tmp_path: Path,
 ) -> None:
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
     environment = _environment(bin_dir, log)
-    environment["PUBLISH_FAKE_PAYLOAD"] = payload
+    environment["PUBLISH_FAKE_EXIT"] = "1"
+    environment["PUBLISH_FAKE_PARTIAL"] = '{"release_id":"partial"'
     record = Path(environment["R2_GENERATION_DIR"]) / "lake-release.json"
     before = b'{"release_id": "release-before", "release_manifest_sha256": "old"}\n'
     record.write_bytes(before)

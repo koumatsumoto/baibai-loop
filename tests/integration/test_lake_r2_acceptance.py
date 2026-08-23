@@ -5,10 +5,10 @@ import hashlib
 import json
 import os
 import sqlite3
-import time
 import uuid
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -17,8 +17,6 @@ from baibai_batch.storage.lake_publish import (
     LakeCASConflict,
     LakePublishError,
     RemoteObject,
-    _ensure_immutable,
-    _RemotePublication,
     publish_l1_release,
 )
 from baibai_engine.market.lake import models as lake_models
@@ -30,9 +28,10 @@ from baibai_engine.market.lake.keys import (
 )
 from baibai_engine.market.lake.models import (
     ReleaseManifest,
+    canonical_lake_model_bytes,
     load_lake_model_json,
 )
-from baibai_engine.market.lake.objects import open_lake, sha256_file
+from baibai_engine.market.lake.objects import open_lake
 from baibai_engine.market.lake.prefetch import prefetching_hydration_cache
 from baibai_engine.market.lake.reader import resolve_current_release
 from baibai_engine.market.lake.release import L1ReleasePointer, create_l1_release
@@ -227,6 +226,13 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
     )
 
     first = publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+    immediate = store.head(current_l1_pointer_key())
+    assert immediate is not None
+    assert immediate.etag == first.pointer_etag
+    immediate_pointer = load_lake_model_json(
+        store.get_bytes(current_l1_pointer_key()), L1ReleasePointer
+    )
+    assert immediate_pointer.release_id == first.release_id
     remote_mirror = tmp_path / "remote-reader"
     _download_l1_closure(store, remote_mirror)
 
@@ -294,71 +300,127 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
     assert serving.release_id == successor_id
 
 
-def test_actual_r2_large_reuse_reads_bytes_and_rejects_forged_metadata(tmp_path: Path) -> None:
-    store = _store()
-    size = 2 * 1024 * 1024 * 1024
-    payload = tmp_path / "two-gib.bin"
-    with payload.open("wb") as handle:
-        handle.truncate(size)
-    digest = sha256_file(payload)
-    key = f"lake/acceptance/large/{digest}.bin"
-    if store.head(key) is not None:
-        store.put_file(
-            key,
-            payload,
-            sha256=digest,
-            content_md5=_content_md5(payload),
-            content_type="application/octet-stream",
-        )
-    started = time.perf_counter()
-    _ensure_immutable(
-        _RemotePublication(store=store),
-        key=key,
-        path=payload,
-        content_type="application/octet-stream",
-        expected_sha256=digest,
-        expected_size=size,
-    )
-    first_seconds = time.perf_counter() - started
+@pytest.mark.parametrize("fault", ["put", "head", "get", "conflict", "unknown"])
+def test_actual_r2_reconciles_a_real_pointer_commit_after_a_wrapper_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault: Literal["put", "head", "get", "conflict", "unknown"],
+) -> None:
+    """Keep R2 responsible for the commit while a thin wrapper loses its result."""
 
-    forged = tmp_path / "forged.bin"
-    with forged.open("wb") as handle:
-        handle.write(b"forged")
-        handle.truncate(size)
-    store.put_file(
-        key,
-        forged,
-        sha256=digest,
-        content_md5=_content_md5(forged),
-        content_type="application/octet-stream",
+    _allow_tiny_pilot(monkeypatch)
+    delegate = _store()
+    mirror = tmp_path / "publisher"
+    sqlite_path = _tiny_market(tmp_path / "market.sqlite")
+    build = export_lake_legacy(
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit="b" * 40,
+        expected_store_origin=None,
     )
-    # Forged bytes under an unchanged identity are what the streaming audit exists for;
-    # the publication path proves the identity metadata and leaves the stream to it.
-    _ensure_immutable(
-        _RemotePublication(store=store),
-        key=key,
-        path=payload,
-        content_type="application/octet-stream",
-        expected_sha256=digest,
-        expected_size=size,
+    release_id = f"acceptance-ambiguous-{fault}-{uuid.uuid4().hex}"
+    release_path, _release = create_l1_release(
+        dataset_manifest_paths=[item.manifest_path for item in build.datasets.values()],
+        mirror_root=mirror,
+        release_id=release_id,
+        created_at=datetime.now(UTC),
     )
-    with pytest.raises(LakePublishError, match="bytes postcondition failed"):
-        _ensure_immutable(
-            _RemotePublication(store=store, verify_bytes=True),
-            key=key,
-            path=payload,
-            content_type="application/octet-stream",
-            expected_sha256=digest,
-            expected_size=size,
-        )
-    store.put_file(
-        key,
-        payload,
-        sha256=digest,
-        content_md5=_content_md5(payload),
-        content_type="application/octet-stream",
+    pointer_key = current_l1_pointer_key()
+
+    class FaultAfterPointerCommit:
+        def __init__(self) -> None:
+            self.armed = False
+
+        def head(self, key: str) -> RemoteObject | None:
+            if self.armed and key == pointer_key:
+                if fault == "head":
+                    self.armed = False
+                    raise LakePublishError("injected one-shot HEAD failure after real commit")
+                if fault == "unknown":
+                    raise LakePublishError("injected unreadable pointer after real commit")
+            return delegate.head(key)
+
+        def get_bytes(self, key: str) -> bytes:
+            if self.armed and key == pointer_key and fault == "get":
+                self.armed = False
+                raise LakePublishError("injected one-shot GET failure after real commit")
+            return delegate.get_bytes(key)
+
+        def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
+            delegate.download_file(key, path, expect_bytes=expect_bytes)
+
+        def put_file(
+            self,
+            key: str,
+            path: Path,
+            *,
+            sha256: str,
+            content_md5: str,
+            content_type: str,
+            if_match: str | None = None,
+            if_none_match: bool = False,
+        ) -> RemoteObject:
+            result = delegate.put_file(
+                key,
+                path,
+                sha256=sha256,
+                content_md5=content_md5,
+                content_type=content_type,
+                if_match=if_match,
+                if_none_match=if_none_match,
+            )
+            if key != pointer_key:
+                return result
+            self.armed = True
+            if fault == "conflict":
+                successor = canonical_lake_model_bytes(
+                    L1ReleasePointer(
+                        release_id=f"acceptance-successor-{uuid.uuid4().hex}",
+                        manifest_key=("lake/manifests/releases/l1/acceptance-successor.json"),
+                        manifest_sha256="f" * 64,
+                    )
+                )
+                successor_path = tmp_path / "successor-pointer.json"
+                successor_path.write_bytes(successor)
+                delegate.put_file(
+                    key,
+                    successor_path,
+                    sha256=hashlib.sha256(successor).hexdigest(),
+                    content_md5=_content_md5(successor_path),
+                    content_type="application/json",
+                    if_match=result.etag,
+                )
+                raise LakePublishError("injected error after a real successor won")
+            if fault in {"put", "unknown"}:
+                raise LakePublishError("injected response loss after real pointer commit")
+            return result
+
+    store = FaultAfterPointerCommit()
+    if fault == "conflict":
+        with pytest.raises(LakeCASConflict, match="different release"):
+            publish_l1_release(
+                mirror_root=mirror,
+                release_manifest_path=release_path,
+                store=store,
+            )
+        return
+    if fault == "unknown":
+        with pytest.raises(LakePublishError, match="outcome is unknown"):
+            publish_l1_release(
+                mirror_root=mirror,
+                release_manifest_path=release_path,
+                store=store,
+            )
+        return
+
+    report = publish_l1_release(
+        mirror_root=mirror,
+        release_manifest_path=release_path,
+        store=store,
     )
-    print(json.dumps({"large_object_bytes": size, "first_publish_seconds": first_seconds}))
+    assert report.release_id == release_id
+    current = load_lake_model_json(delegate.get_bytes(pointer_key), L1ReleasePointer)
+    assert current.release_id == release_id
 
 
 def test_actual_r2_wrong_credentials_do_not_leak(tmp_path: Path) -> None:

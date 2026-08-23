@@ -271,6 +271,12 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       release manifestのpublish行数と一致しなければ失敗し、同一directoryのdurable atomic
       replace以外では公開せず、失敗時は直前のstoreを壊さないことと、credentialがSQL文・
       例外・metadataへ出ないことをtestで固定したか
+- [ ] market storeをreleaseへ束縛するgateは、判断対象と同じsealed SQLite generation内の
+      `lake_store_origin`を使い、分離可能なfileやlive pathをauthorityにしないか。
+      calibrationの`rebuildable_input`はtable countだけで昇格せず、publisherと同じpartition単位の
+      row・coverage identityでexact一致を確認するか。dehydrateはDELETE開始前にembedded originと
+      resolved releaseのID・digest一致、およびcurrent指定時のpointer再確認を行い、不一致時のDB不変を
+      negative testで固定したか
 - [ ] L2 analytical buildを変更する場合、schemaを行のcontractから導き、transform fingerprint /
       source release / schema / object digestの不一致をそれぞれfail closeにするnegative testを
       持つか。full primary keyの重複・null・partition外as-ofをwrite/read両側で拒否するか。0-rowを

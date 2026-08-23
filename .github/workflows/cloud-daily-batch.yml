@@ -195,7 +195,10 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: batch/scripts/r2_transfer.sh publish-lake
+        run: |
+          set -o pipefail
+          batch/scripts/r2_transfer.sh publish-lake \
+            | tee "$RUNNER_TEMP/lake-publish-report.json"
 
       # The store push runs first and the views mirror only after it succeeded. The two
       # ran together while the views side — 54MB across 3,740 objects, request-bound —
@@ -333,7 +336,7 @@ jobs:
             --pull-outcome "${{ steps.pull.outcome }}" \
             --hydrate-outcome "${{ steps.hydrate.outcome }}" \
             --publish-lake-outcome "${{ steps.publish-lake.outcome }}" \
-            --lake-release-path stores/.r2-generations/lake-release.json \
+            --lake-publish-report-path "$RUNNER_TEMP/lake-publish-report.json" \
             --upload-machine-outcome "${{ steps.upload-stores.outputs.machine }}" \
             --upload-serving-outcome "${{ steps.upload-stores.outputs.views }}" \
             --upload-step-outcome "${{ steps.upload-stores.outcome }}" \

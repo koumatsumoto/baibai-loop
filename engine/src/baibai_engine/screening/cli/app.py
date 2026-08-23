@@ -479,13 +479,13 @@ def build_parser() -> argparse.ArgumentParser:
     calibration_build_parser.add_argument(
         "--l1-release",
         help=(
-            "the L1 release this market store was filled from; the build proves the "
-            "claim against the store before a cohort states it"
+            "optional assertion for the release embedded in the sealed market store; "
+            "cannot override that identity"
         ),
     )
     calibration_build_parser.add_argument(
         "--l1-manifest-sha256",
-        help="required digest when --l1-release is given",
+        help="optional digest assertion paired with --l1-release",
     )
     calibration_build_parser.add_argument(
         "--force",

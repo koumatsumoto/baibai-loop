@@ -2,12 +2,12 @@
 
 The market store has two writers. The daily batch extends it forward in the cloud, and
 an operator extends it backward locally. Most of what they write is no longer decided
-here: the fifteen fetch-derived tables are published to the L1 lake, and the object this
+here: the seventeen fetch-derived tables are published to the L1 lake, and the object this
 merge runs against is the copy that carries only what the lake does not own. Their
 reconciliation is the release's, not this file's — ``publish_market_lake`` refuses to
 build on a release the lake has moved past, and ``lake dehydrate`` refuses to empty a
-store whose rows the release does not account for. What is left here is the four tables
-that stay canonical in SQLite.
+store whose rows the release does not account for. What is left here is the two data
+tables that stay canonical in SQLite plus the store-local publication marker.
 
 ``source_coverage`` is the ledger of what was fetched, and both writers keep their own.
 Its rows describe lake-owned facts but are not facts themselves: a claim carries a status
@@ -31,9 +31,10 @@ fetch retracted, and the merge refuses that rather than repairing it: an ``ok`` 
 overlapping a ``failed`` or ``partial`` one for the same source is a ledger no fetcher
 would write.
 
-The other three tables are functions of other tables rather than accumulations of fetched
-records. Only the operator derives them, so the copy that ran the derivation last holds
-the answer and the target is kept whole.
+The other data table is a function of other tables rather than an accumulation of fetched
+records. Only the operator derives it, so the copy that ran the derivation last holds the
+answer and the target is kept whole. The publication marker also stays with the target
+generation and is never merged from the source.
 
 Both stores must carry the current schema. An older cloud copy is not migrated here —
 the cloud raises its own schema by opening the store, and doing it from this side would

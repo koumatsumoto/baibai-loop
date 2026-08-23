@@ -32,6 +32,7 @@ from baibai_engine.market.lake.writer import (
     validate_legacy_parity,
 )
 from baibai_engine.market.sqlite import open_connection
+from baibai_engine.market.sqlite.lake_origin import LakeStoreOrigin, write_lake_store_origin
 
 _COMMIT = "a" * 40
 
@@ -238,6 +239,59 @@ def test_case_sensitive_like_keeps_partition_rows_order_and_identity(tmp_path: P
             assert writer_module._source_state_sha256(
                 indexed, dataset, period, indexed_rows
             ) == writer_module._source_state_sha256(legacy, dataset, period, legacy_rows)
+
+
+def test_logical_coverage_change_affects_earnings_partition_but_fetch_time_does_not(
+    tmp_path: Path,
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    connection = open_connection(sqlite_path)
+    connection.execute(
+        "INSERT INTO jquants_earnings_calendar(announcement_date, ticker) "
+        "VALUES ('2026-02-10', '1301')"
+    )
+    connection.execute(
+        "INSERT INTO source_coverage("
+        "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, "
+        "record_count, status, error"
+        ") VALUES ('jpx_earnings_calendar', 'snapshot', '2026-02-01', '2026-02-28', "
+        "'2026-02-01T00:00:00+00:00', 1, 'ok', NULL)"
+    )
+    connection.commit()
+    connection.close()
+    mirror = tmp_path / "mirror"
+    first = _export(
+        dataset_name="jquants.earnings_calendar",
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit=_COMMIT,
+        build_id="earnings-before-coverage-change",
+    )
+
+    with sqlite3.connect(sqlite_path) as connection:
+        connection.execute(
+            "UPDATE source_coverage SET fetched_at_utc = '2026-02-02T00:00:00+00:00' "
+            "WHERE source = 'jpx_earnings_calendar'"
+        )
+    assert (
+        plan_affected_periods(
+            dataset_name="jquants.earnings_calendar",
+            sqlite_path=sqlite_path,
+            base_manifest_path=first.manifest_path,
+        ).affected_periods
+        == ()
+    )
+
+    with sqlite3.connect(sqlite_path) as connection:
+        connection.execute(
+            "UPDATE source_coverage SET status = 'failed', error = 'provider refused' "
+            "WHERE source = 'jpx_earnings_calendar'"
+        )
+    assert plan_affected_periods(
+        dataset_name="jquants.earnings_calendar",
+        sqlite_path=sqlite_path,
+        base_manifest_path=first.manifest_path,
+    ).affected_periods == ((2026,),)
 
 
 def test_indexed_like_keeps_partition_source_hash_and_object_key(
@@ -760,6 +814,16 @@ def test_l1_manifest_digest_is_part_of_the_gc_root(
 
 def test_l1_export_benchmark_records_full_and_incremental_transfer(tmp_path: Path) -> None:
     sqlite_path = _market_store(tmp_path / "market.sqlite")
+    connection = open_connection(sqlite_path)
+    write_lake_store_origin(
+        connection,
+        LakeStoreOrigin(
+            release_id="benchmark-baseline",
+            release_manifest_sha256="b" * 64,
+        ),
+    )
+    connection.commit()
+    connection.close()
     report_path = tmp_path / "report.json"
 
     report = benchmark(

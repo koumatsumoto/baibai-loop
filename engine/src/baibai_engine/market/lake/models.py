@@ -200,14 +200,14 @@ def source_assurance(sources: Iterable[SourceRef | RetainedSourceRef]) -> Source
     kinds a cohort states are not two inputs: a build reads one thing — the market store
     — and names it twice. The sealed snapshot is which bytes it read; the L1 release is
     where those bytes can be read again, and stating it is only allowed after the store
-    has been counted table for table against what that release publishes. Reading the
+    has matched the release partition for partition by row and coverage identity. Reading the
     pair as "weakest wins" would make the snapshot, whose whole purpose is to record the
     read, cancel the claim that the read is reproducible.
 
     That holds because every table a cohort reads is lake-owned. If a build ever took an
     input the lake does not carry, this would have to go back to naming the weakest —
-    and the check that would notice is the one in `release_backing_store`, which counts
-    every lake-owned table and refuses a store holding rows no release published.
+    and the check that would notice is the one in `release_backing_store`, which compares
+    every lake-owned partition and refuses rows or coverage no release published.
 
     Stating no source at all is the weaker claim rather than the absence of a claim.
     """
@@ -1091,7 +1091,7 @@ def release_policy_for_profile(profile: ReleaseProfile) -> ReleasePolicy:
     matter are per dataset — the row floor that catches a lossy export, the coverage
     boundary, the cadence-aware freshness window — and they do not become different
     requirements because a release is read by a different caller. A second profile
-    carrying the same fifteen entries would be two tables free to rot apart, so the
+    carrying the same seventeen entries would be two tables free to rot apart, so the
     manifest records which gate it passed and there is exactly one gate to pass.
     """
 

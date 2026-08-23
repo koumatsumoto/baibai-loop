@@ -62,6 +62,7 @@ from baibai_engine.market.lake.reader import (
     LakeReadError,
     accepted_dataset,
     iter_partition_rows,
+    release_backing_store,
     resolve_release,
     resolve_release_ref,
     selected_partitions,
@@ -75,9 +76,18 @@ from baibai_engine.market.lake.release import (
     create_l1_release,
 )
 from baibai_engine.market.lake.retention import LakeRetentionError, exclusive_lock
-from baibai_engine.market.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
-from baibai_engine.market.sqlite import open_connection
-from baibai_engine.market.sqlite.lake_origin import read_lake_store_origin
+from baibai_engine.market.lake.writer import (
+    export_lake_legacy,
+    export_legacy_sqlite,
+    sealed_sqlite_snapshot,
+)
+from baibai_engine.market.sqlite import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_engine.market.sqlite.lake_origin import (
+    LakeStoreOrigin,
+    advance_lake_store_origin,
+    read_lake_store_origin,
+    write_lake_store_origin,
+)
 
 _COMMIT = "b" * 40
 _OTHER_COMMIT = "c" * 40
@@ -216,6 +226,16 @@ def _build_lake(root: Path, *, release_id: str = "release-one") -> Lake:
         created_at=_BUILT_AT,
     )
     _publish_pointer(mirror, release_id, manifest_path)
+    connection = open_connection(sqlite_path)
+    write_lake_store_origin(
+        connection,
+        LakeStoreOrigin(
+            release_id=release_id,
+            release_manifest_sha256=_release_digest(mirror, release_id),
+        ),
+    )
+    connection.commit()
+    connection.close()
     return Lake(root=root, mirror=mirror, sqlite_path=sqlite_path, release_id=release_id)
 
 
@@ -1412,6 +1432,46 @@ class TestHydrate:
 
 
 class TestDehydrate:
+    def test_emptying_refuses_when_current_moves_before_delete(
+        self, lake: Lake, tmp_path: Path
+    ) -> None:
+        store = tmp_path / "moved-current.sqlite"
+        shutil.copyfile(lake.sqlite_path, store)
+        before = store.read_bytes()
+        release = resolve_current_release(_cache(lake).source)
+
+        with pytest.raises(LakeHydrateError, match="no longer current"):
+            dehydrate_market_store(
+                store,
+                release=release,
+                still_current=lambda: ("new-release", "d" * 64),
+            )
+
+        assert store.read_bytes() == before
+
+    def test_emptying_refuses_a_different_embedded_release_before_delete(
+        self, lake: Lake, tmp_path: Path
+    ) -> None:
+        store = tmp_path / "wrong-origin.sqlite"
+        shutil.copyfile(lake.sqlite_path, store)
+        connection = open_connection(store)
+        write_lake_store_origin(
+            connection,
+            LakeStoreOrigin(
+                release_id="different-release",
+                release_manifest_sha256="d" * 64,
+            ),
+        )
+        connection.commit()
+        connection.close()
+        before = store.read_bytes()
+        release = resolve_current_release(_cache(lake).source)
+
+        with pytest.raises(LakeHydrateError, match="origin does not match"):
+            dehydrate_market_store(store, release=release)
+
+        assert store.read_bytes() == before
+
     def test_emptying_removes_exactly_what_the_release_publishes(
         self, lake: Lake, tmp_path: Path
     ) -> None:
@@ -1467,6 +1527,71 @@ class TestDehydrate:
 
         with pytest.raises(LakeHydrateError, match="the release does not publish"):
             dehydrate_market_store(store, release=release)
+
+
+def test_v23_store_migrates_hydrates_exports_and_dehydrates_as_one_cutover(
+    session: LakeSession, lake: Lake, tmp_path: Path
+) -> None:
+    store = tmp_path / "cutover.sqlite"
+    shutil.copyfile(lake.sqlite_path, store)
+    with sqlite3.connect(store) as connection:
+        connection.execute("DROP TABLE lake_store_origin")
+        connection.execute("PRAGMA user_version = 23")
+
+    migrated = open_connection(store)
+    assert migrated.execute("PRAGMA user_version").fetchone()[0] == SQLITE_SCHEMA_VERSION == 24
+    assert migrated.execute("SELECT COUNT(*) FROM lake_store_origin").fetchone()[0] == 0
+    migrated.close()
+
+    source = LocalMirrorSource(lake.mirror)
+    current = resolve_current_release(source)
+    hydrate_market_store(
+        session,
+        release=current,
+        cache=LakeObjectCache(root=tmp_path / "cutover-cache", source=source),
+        store=store,
+        dataset_names=current.dataset_names(),
+    )
+    assert read_lake_store_origin(store) == LakeStoreOrigin(
+        release_id=current.release_id,
+        release_manifest_sha256=current.manifest_sha256,
+    )
+
+    candidate_mirror = tmp_path / "candidate"
+    export = export_lake_legacy(
+        sqlite_path=store,
+        mirror_root=candidate_mirror,
+        producer_git_commit=_COMMIT,
+        expected_store_origin=read_lake_store_origin(store),
+        created_at=_BUILT_AT,
+    )
+    candidate_path, candidate_model = create_l1_release(
+        dataset_manifest_paths=[item.manifest_path for item in export.datasets.values()],
+        mirror_root=candidate_mirror,
+        release_id="cutover-candidate",
+        created_at=_BUILT_AT,
+    )
+    candidate = resolve_release(
+        LocalMirrorSource(candidate_mirror),
+        candidate_model.release_id,
+        manifest_sha256=sha256_file(candidate_path),
+    )
+    advance_lake_store_origin(
+        store,
+        expected=read_lake_store_origin(store),
+        target=LakeStoreOrigin(
+            release_id=candidate.release_id,
+            release_manifest_sha256=candidate.manifest_sha256,
+        ),
+    )
+
+    report = dehydrate_market_store(store, release=candidate)
+
+    assert report.removed_rows == {"jquants.daily_bars": 4, "jquants.short_sale_reports": 2}
+    with sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True) as connection:
+        assert connection.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 24
+        assert connection.execute("SELECT COUNT(*) FROM lake_store_origin").fetchone()[0] == 1
 
 
 class TestOperatorDerivedRetraction:
@@ -1536,6 +1661,16 @@ class TestOperatorDerivedRetraction:
             created_at=_BUILT_AT,
         )
         _publish_pointer(mirror, release_id, release_manifest)
+        connection = open_connection(sqlite_path)
+        write_lake_store_origin(
+            connection,
+            LakeStoreOrigin(
+                release_id=release_id,
+                release_manifest_sha256=_release_digest(mirror, release_id),
+            ),
+        )
+        connection.commit()
+        connection.close()
         return release_id
 
     def test_a_retracted_exit_value_does_not_come_back_through_hydrate(
@@ -1637,6 +1772,80 @@ class TestOperatorDerivedRetraction:
         finally:
             connection.close()
         assert held == {"2000", "3000"}
+
+
+class TestReleaseBackingStore:
+    def test_same_count_value_change_is_not_rebuildable(self, lake: Lake) -> None:
+        source = LocalMirrorSource(lake.mirror)
+        release = resolve_current_release(source)
+
+        assert (
+            release_backing_store(
+                source,
+                store=lake.sqlite_path,
+                release_id=release.release_id,
+                manifest_sha256=release.manifest_sha256,
+            )
+            is not None
+        )
+        with sqlite3.connect(lake.sqlite_path) as connection:
+            connection.execute(
+                "UPDATE jquants_daily_bars SET close = close + 1 "
+                "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
+            )
+
+        assert (
+            release_backing_store(
+                source,
+                store=lake.sqlite_path,
+                release_id=release.release_id,
+                manifest_sha256=release.manifest_sha256,
+            )
+            is None
+        )
+
+    def test_same_count_delete_and_insert_is_not_rebuildable(self, lake: Lake) -> None:
+        source = LocalMirrorSource(lake.mirror)
+        release = resolve_current_release(source)
+        with sqlite3.connect(lake.sqlite_path) as connection:
+            connection.execute(
+                "DELETE FROM jquants_daily_bars WHERE ticker = '1301' AND traded_at = '2026-01-05'"
+            )
+            connection.execute(
+                "INSERT INTO jquants_daily_bars(ticker, traded_at, close, volume) "
+                "VALUES ('9984', '2026-01-05', 300.0, 3000.0)"
+            )
+
+        assert (
+            release_backing_store(
+                source,
+                store=lake.sqlite_path,
+                release_id=release.release_id,
+                manifest_sha256=release.manifest_sha256,
+            )
+            is None
+        )
+
+    def test_non_lake_table_change_keeps_rebuildable_release(self, lake: Lake) -> None:
+        source = LocalMirrorSource(lake.mirror)
+        release = resolve_current_release(source)
+        with sqlite3.connect(lake.sqlite_path) as connection:
+            connection.execute(
+                "INSERT INTO tse_capital_policy_snapshots("
+                "snapshot_month_end, ticker, status, contact_requested, "
+                "first_disclosure_left_censored"
+                ") VALUES ('2026-01-31', '1301', 'disclosed', 0, 0)"
+            )
+
+        assert (
+            release_backing_store(
+                source,
+                store=lake.sqlite_path,
+                release_id=release.release_id,
+                manifest_sha256=release.manifest_sha256,
+            )
+            is not None
+        )
 
 
 @dataclass

@@ -10,10 +10,6 @@ generation_dir="${R2_GENERATION_DIR:-${repo_root}/stores/.r2-generations}"
 # the stores rather than inside one: every key it holds begins with `lake/`, which is why
 # the mirror root is the directory the stores live in and not one of them.
 lake_mirror="${R2_LAKE_MIRROR:-${repo_root}/stores}"
-# Which release the local market store currently corresponds to. Written by the fill and
-# rewritten by the publication, so the emptying that follows a push knows exactly which
-# release accounts for the rows it is about to drop.
-lake_release_record="${generation_dir}/lake-release.json"
 copy_read_timeout=300
 # The three machine stores are pushed one after another, each conditional on the
 # generation the batch pulled, and three PUTs cannot be made one commit. A push that
@@ -203,90 +199,33 @@ merge_market_store() {
   merge_store baibai_batch.storage.merge_market_store "$1" "$2"
 }
 
-record_lake_release() {
-  # This is an operator/calibration cache, not the publication authority. The producer
-  # has already succeeded before this function is called; validate and durably replace
-  # the cache so a partial stdout followed by failure can never become the next input.
-  local source="$1"
-  mkdir -p "${generation_dir}"
-  if ! (
-    cd "${repo_root}" || exit 1
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run python -c '
-import json, os, pathlib, re, sys, tempfile
-source, target = map(pathlib.Path, sys.argv[1:])
-value = json.loads(source.read_text(encoding="utf-8"))
-if not isinstance(value, dict):
-    raise SystemExit("release record must be one JSON object")
-release_id = value.get("release_id")
-digest = value.get("release_manifest_sha256")
-if not isinstance(release_id, str) or not release_id:
-    raise SystemExit("release record release_id is missing")
-if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
-    raise SystemExit("release record manifest digest is invalid")
-payload = (json.dumps(value, sort_keys=True) + "\n").encode()
-descriptor, temporary = tempfile.mkstemp(dir=target.parent, prefix=".lake-release.")
-try:
-    with os.fdopen(descriptor, "wb") as output:
-        output.write(payload)
-        output.flush()
-        os.fsync(output.fileno())
-    os.replace(temporary, target)
-    directory = os.open(target.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-    try:
-        os.fsync(directory)
-    finally:
-        os.close(directory)
-finally:
-    pathlib.Path(temporary).unlink(missing_ok=True)
-' "${source}" "${lake_release_record}"
-  ); then
-    return 1
-  fi
-  cat "${lake_release_record}"
-}
-
 hydrate_market() {
   # The store arrives from R2 holding only what the lake does not own. Filling it is
   # what makes it the store every reader already expects, and it fails closed on the
   # published row counts, so a fill that silently did nothing cannot reach screening.
-  local output
-  mkdir -p "${generation_dir}"
-  output="$(mktemp "${generation_dir}/.lake-release-output.XXXXXX")"
-  if ! (
+  migrate_downloaded_store market "$(store_path market.sqlite)"
+  (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
       uv run baibai-engine lake hydrate \
         --mirror "${lake_mirror}" \
         --store "$(store_path market.sqlite)" \
         --bucket "${stores_bucket}"
-  ) > "${output}"; then
-    rm -f -- "${output}"
-    return 1
-  fi
-  if ! record_lake_release "${output}"; then
-    rm -f -- "${output}"
-    return 1
-  fi
-  rm -f -- "${output}"
+  )
 }
 
 publish_lake() {
   # Export the store on top of the release recorded inside that same SQLite file, seal a
   # release, and switch the pointer. Incremental publication uses that release as its
   # base; full rebuild carries no partition from it. Both refuse when the embedded origin
-  # differs from current, so a separately restored sidecar cannot authorize stale rows.
+  # differs from current, so no detached identity file can authorize stale rows.
   #
   # `full-rebuild` drops the base and re-derives every partition, which is what the
-  # export transform fingerprint moving requires. It goes through here rather than being
-  # left to a direct module call because the record this writes is the operator and
-  # calibration cache used by later shell steps. Publication correctness itself uses the
-  # marker embedded in market.sqlite.
-  local mode="${1:-incremental}" output
-  mkdir -p "${generation_dir}"
-  output="$(mktemp "${generation_dir}/.lake-release-output.XXXXXX")"
+  # export transform fingerprint moving requires. The JSON report is stdout only; the
+  # durable identity lives in market.sqlite.
+  local mode="${1:-incremental}"
   if [[ "${mode}" == "full-rebuild" ]]; then
-    if ! (
+    (
       cd "${repo_root}" || exit 1
       UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
         uv run python -m baibai_batch.storage.publish_market_lake \
@@ -294,66 +233,31 @@ publish_lake() {
           --mirror "${lake_mirror}" \
           --bucket "${stores_bucket}" \
           --full-rebuild
-    ) > "${output}"; then
-      rm -f -- "${output}"
-      return 1
-    fi
-    if ! record_lake_release "${output}"; then
-      rm -f -- "${output}"
-      return 1
-    fi
-    rm -f -- "${output}"
+    )
     return
   fi
-  if ! (
+  (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
       uv run python -m baibai_batch.storage.publish_market_lake \
         --sqlite "$(store_path market.sqlite)" \
         --mirror "${lake_mirror}" \
         --bucket "${stores_bucket}"
-  ) > "${output}"; then
-    rm -f -- "${output}"
-    return 1
-  fi
-  if ! record_lake_release "${output}"; then
-    rm -f -- "${output}"
-    return 1
-  fi
-  rm -f -- "${output}"
+  )
 }
 
 dehydrate_market_snapshot() {
   # Runs on the copy about to be uploaded, never on the working store. It refuses unless
   # the release embedded in that same SQLite generation accounts for every row it drops,
-  # so a separately restored sidecar cannot authorize the object to shrink.
-  local path="$1" base sha origin
-  origin="$(
-    cd "${repo_root}" || exit 1
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run python -c '
-import pathlib, sqlite3, sys
-path = pathlib.Path(sys.argv[1]).resolve()
-with sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True) as connection:
-    row = connection.execute(
-        "SELECT release_id, release_manifest_sha256 "
-        "FROM lake_store_origin WHERE singleton = 1"
-    ).fetchone()
-if row is None:
-    raise SystemExit("market store has no L1 origin; hydrate it before push-market")
-print(*row)
-' "${path}"
-  )"
-  read -r base sha <<< "${origin}"
+  # so no detached identity file can authorize the object to shrink.
+  local path="$1"
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
       uv run baibai-engine lake dehydrate \
         --mirror "${lake_mirror}" \
         --store "${path}" \
-        --bucket "${stores_bucket}" \
-        --release "${base}" \
-        --manifest-sha256 "${sha}"
+        --bucket "${stores_bucket}"
   )
 }
 
