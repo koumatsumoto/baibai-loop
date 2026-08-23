@@ -48,7 +48,7 @@ application DBの`bargain_assessment`が正本で、Baibai LoopのStocks面がin
 
 ## 機械値の束縛
 
-v3 new writeの`cases[].machine`はpromoted thesisからの導出値で、scaffoldが書きpublishが照合する。v2 historyの`lanes`は保存payloadを書き換えずreaderが`cases`へprojectする。v2 / v3以外はfail-closeする。
+v3 new writeの`cases[].machine`はpromoted thesisからの導出値で、scaffoldが書きpublishが照合する。v1 / v2 historyの`lanes`は保存payloadを書き換えずreaderが`cases`へprojectする。v1 / v2 / v3以外はfail-closeする。
 
 | field | 導出元 |
 | --- | --- |

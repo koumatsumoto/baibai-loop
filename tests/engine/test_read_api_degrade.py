@@ -331,3 +331,62 @@ def test_shortlist_reader_rejects_an_unknown_version(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="unsupported shortlist schema_version"):
         read_api.latest_shortlist_payload(store)
+
+
+@pytest.mark.parametrize("schema_version", [1, 2])
+def test_assessment_reader_projects_each_known_legacy_version(
+    tmp_path: Path, schema_version: int
+) -> None:
+    store = tmp_path / "app.sqlite"
+    with sqlite3.connect(store) as connection:
+        connection.execute(
+            "CREATE TABLE bargain_assessment (assessment_id TEXT, as_of TEXT, "
+            "published_at TEXT, payload TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO bargain_assessment VALUES (?, ?, ?, ?)",
+            (
+                f"assessment-legacy-v{schema_version}",
+                "2026-07-01",
+                "2026-07-01T14:00:00+09:00",
+                json.dumps(
+                    {
+                        "schema_version": schema_version,
+                        "assessment_id": f"assessment-legacy-v{schema_version}",
+                        "lanes": [{"ticker": "2331"}],
+                    }
+                ),
+            ),
+        )
+
+    payloads = read_api.list_bargain_assessment_payloads(store)
+
+    assert payloads == [
+        {
+            "schema_version": schema_version,
+            "assessment_id": f"assessment-legacy-v{schema_version}",
+            "cases": [{"ticker": "2331"}],
+            "case_schema_status": "legacy_projected",
+        }
+    ]
+
+
+def test_assessment_reader_rejects_an_unknown_version(tmp_path: Path) -> None:
+    store = tmp_path / "app.sqlite"
+    with sqlite3.connect(store) as connection:
+        connection.execute(
+            "CREATE TABLE bargain_assessment (assessment_id TEXT, as_of TEXT, "
+            "published_at TEXT, payload TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO bargain_assessment VALUES (?, ?, ?, ?)",
+            (
+                "assessment-unknown",
+                "2026-07-01",
+                "2026-07-01T14:00:00+09:00",
+                json.dumps({"schema_version": 99, "assessment_id": "assessment-unknown"}),
+            ),
+        )
+
+    with pytest.raises(ValueError, match="unsupported bargain assessment schema_version"):
+        read_api.list_bargain_assessment_payloads(store)

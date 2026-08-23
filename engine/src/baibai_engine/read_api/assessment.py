@@ -36,7 +36,7 @@ def _payload(raw: object) -> dict[str, object]:
         projected = dict(payload)
         projected["case_schema_status"] = "exact"
         return projected
-    if version == 2:
+    if version in {1, 2}:
         projected = dict(payload)
         projected["cases"] = projected.pop("lanes", [])
         projected["case_schema_status"] = "legacy_projected"
