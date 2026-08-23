@@ -13,7 +13,9 @@ from pathlib import Path
 
 from baibai_engine.market.sqlite.schema import (
     EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
+    EDINET_DOCUMENT_IDENTITY_COLUMNS,
     EDINET_DOCUMENT_LIFECYCLE_COLUMNS,
+    EDINET_DOCUMENT_RETAINED_COLUMNS,
 )
 from baibai_engine.screening.sqlite_cache import open_connection, store_edinet_documents
 
@@ -32,6 +34,9 @@ _SERVED = {
     "legalStatus": "1",
     "disclosureStatus": "0",
     "withdrawalStatus": "0",
+    "edinetCode": "E00001",
+    "issuerEdinetCode": "E00002",
+    "subjectEdinetCode": "E00003",
 }
 
 # What the same entry looks like once the inspection period has run out: the five
@@ -49,6 +54,9 @@ _EXPIRED = {
     "legalStatus": "0",
     "disclosureStatus": "0",
     "withdrawalStatus": "0",
+    "edinetCode": None,
+    "issuerEdinetCode": None,
+    "subjectEdinetCode": None,
 }
 
 
@@ -95,6 +103,20 @@ def test_a_relisted_day_takes_the_new_lifecycle_answer(tmp_path: Path) -> None:
     assert row["legal_status"] == "0"
     assert row["csv_flag"] == "0"
     assert row["xbrl_flag"] == "0"
+
+
+def test_a_relisted_day_keeps_the_identity_the_expired_response_no_longer_carries(
+    tmp_path: Path,
+) -> None:
+    store = _empty_store(tmp_path / "market.sqlite")
+    store_edinet_documents(store, _DAY, [_SERVED])
+
+    store_edinet_documents(store, _DAY, [_EXPIRED])
+
+    row = _read(store)
+    assert row["edinet_code"] == "E00001"
+    assert row["issuer_edinet_code"] == "E00002"
+    assert row["subject_edinet_code"] == "E00003"
 
 
 def test_a_withdrawal_observed_on_a_later_list_replaces_the_stored_status(
@@ -234,8 +256,9 @@ def test_the_retained_columns_are_the_ones_the_schema_classifies(tmp_path: Path)
     store_edinet_documents(store, _DAY, [_EXPIRED])
 
     row = _read(store)
-    retained = {column for column in EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS if row[column] is not None}
-    assert retained == set(EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS)
-    assert (
-        set(EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS) & set(EDINET_DOCUMENT_LIFECYCLE_COLUMNS) == set()
+    retained = {column for column in EDINET_DOCUMENT_RETAINED_COLUMNS if row[column] is not None}
+    assert retained == set(EDINET_DOCUMENT_RETAINED_COLUMNS)
+    assert set(EDINET_DOCUMENT_RETAINED_COLUMNS) == (
+        set(EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS) | set(EDINET_DOCUMENT_IDENTITY_COLUMNS)
     )
+    assert set(EDINET_DOCUMENT_RETAINED_COLUMNS) & set(EDINET_DOCUMENT_LIFECYCLE_COLUMNS) == set()

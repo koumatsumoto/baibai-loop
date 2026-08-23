@@ -56,6 +56,20 @@ EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS: tuple[str, ...] = (
     "doc_description",
 )
 
+# EDINET also stops serving these filing identities once the inspection period ends.
+# They remain true of the filing just like its descriptive columns, so ingest retains
+# an identity it has observed instead of replacing it with a later null response.
+EDINET_DOCUMENT_IDENTITY_COLUMNS: tuple[str, ...] = (
+    "edinet_code",
+    "issuer_edinet_code",
+    "subject_edinet_code",
+)
+
+EDINET_DOCUMENT_RETAINED_COLUMNS: tuple[str, ...] = (
+    *EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
+    *EDINET_DOCUMENT_IDENTITY_COLUMNS,
+)
+
 # What EDINET currently does with the filing rather than what the filing says: whether
 # the inspection period is running, whether the document files are still downloadable,
 # and whether the filing has been withdrawn. Two stores that read the same day at
