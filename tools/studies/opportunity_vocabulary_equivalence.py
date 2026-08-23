@@ -99,9 +99,15 @@ def compare(
     old_db: Path,
     old_run_id: str,
     old_selection_id: str,
+    old_implementation_git_commit: str,
+    old_calibration_bundle_id: str,
+    old_calibration_bundle_manifest_sha256: str,
     new_db: Path,
     new_run_id: str,
     new_selection_id: str,
+    new_implementation_git_commit: str,
+    new_calibration_bundle_id: str,
+    new_calibration_bundle_manifest_sha256: str,
 ) -> dict[str, object]:
     old_candidates_raw = _read_candidates(old_db, old_run_id)
     new_candidates_raw = _read_candidates(new_db, new_run_id)
@@ -175,15 +181,28 @@ def compare(
         "as_of": old_run.get("asof_date"),
         "old": {
             "source": "pre-rename implementation against the current local market store",
+            "implementation_git_commit": old_implementation_git_commit,
             "run_revision_id": old_run_id,
             "selection_id": old_selection_id,
             "rules_hash": old_run.get("screening_rules_hash"),
         },
         "new": {
             "source": "post-rename implementation against the same current local market store",
+            "implementation_git_commit": new_implementation_git_commit,
             "run_revision_id": new_run_id,
             "selection_id": new_selection_id,
             "rules_hash": new_run.get("screening_rules_hash"),
+        },
+        "calibration_migration": {
+            "old": {
+                "bundle_id": old_calibration_bundle_id,
+                "manifest_sha256": old_calibration_bundle_manifest_sha256,
+            },
+            "new": {
+                "bundle_id": new_calibration_bundle_id,
+                "manifest_sha256": new_calibration_bundle_manifest_sha256,
+            },
+            "forward_replay_repeated_for_equivalence": False,
         },
         "expected_differences": [
             "rules_hash",
@@ -207,18 +226,30 @@ def main() -> int:
     parser.add_argument("--old-db", type=Path, required=True)
     parser.add_argument("--old-run-id", required=True)
     parser.add_argument("--old-selection-id", required=True)
+    parser.add_argument("--old-implementation-git-commit", required=True)
+    parser.add_argument("--old-calibration-bundle-id", required=True)
+    parser.add_argument("--old-calibration-bundle-manifest-sha256", required=True)
     parser.add_argument("--new-db", type=Path, required=True)
     parser.add_argument("--new-run-id", required=True)
     parser.add_argument("--new-selection-id", required=True)
+    parser.add_argument("--new-implementation-git-commit", required=True)
+    parser.add_argument("--new-calibration-bundle-id", required=True)
+    parser.add_argument("--new-calibration-bundle-manifest-sha256", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     payload = compare(
         old_db=args.old_db,
         old_run_id=args.old_run_id,
         old_selection_id=args.old_selection_id,
+        old_implementation_git_commit=args.old_implementation_git_commit,
+        old_calibration_bundle_id=args.old_calibration_bundle_id,
+        old_calibration_bundle_manifest_sha256=args.old_calibration_bundle_manifest_sha256,
         new_db=args.new_db,
         new_run_id=args.new_run_id,
         new_selection_id=args.new_selection_id,
+        new_implementation_git_commit=args.new_implementation_git_commit,
+        new_calibration_bundle_id=args.new_calibration_bundle_id,
+        new_calibration_bundle_manifest_sha256=args.new_calibration_bundle_manifest_sha256,
     )
     write_text_atomic(args.output, yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     print(f"wrote {args.output}: verdict={payload['verdict']}")

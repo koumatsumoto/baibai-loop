@@ -61,7 +61,7 @@ _REPOSITORY_PATH_LEGACY = re.compile(
 
 _DOMAIN_IDENTIFIER_LEGACY = re.compile(
     r"\bOP3\b|\blenses?\b|AssessmentLane|LaneDisposition|LaneMachineValues|"
-    r"candidate_lenses|durability_lens|screening_playbooks?|selection_playbook|"
+    r"candidate_lenses|durability_lens|durability_gate|screening_playbooks?|selection_playbook|"
     r"research_selection_playbook_order",
     re.IGNORECASE,
 )

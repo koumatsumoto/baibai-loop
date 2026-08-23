@@ -27,6 +27,12 @@ description: 人間が選んだ候補を一次情報で深掘りし、thesis、�
 
    会社 IR、EDINET、決算資料で load-bearing claim を検証する。検索 snippet、二次情報、外部 AI 出力を観測事実にしない。取得できない場合は代替 source で突合し、確認できない項目は未検証のまま残す。PDF は `baibai_engine.research.pdf_reader` で原文を読む。business-model guide は指定caseだけに適用する。
 
+   各caseのShortlist v5 `machine_snapshot`にある`opportunity_lane_id`と
+   `primary_evidence_pattern_id`を、[`method/research/playbooks/`](../../../method/research/playbooks/README.md)の
+   active Research Playbookが明示する`applies_to_opportunity_lane_ids` /
+   `applies_to_evidence_pattern_ids`へ照合し、一致するchecklistを適用する。同名slugからimplicitに
+   対応を推測しない。明示mappingが無いcaseはscaffoldの共通checklistだけを使い、適用先を捏造しない。
+
 3. **thesis を書いて検算する**
 
    scaffold の構造を変えず、[`thesis.md`](../../../docs/reference/thesis.md) の契約に従う。scenario の算術は `baibai_engine.research.scenario_arithmetic` で計算し、permanent-loss 7軸、terminal multiple、starting earnings、share basis、source date を照合する。

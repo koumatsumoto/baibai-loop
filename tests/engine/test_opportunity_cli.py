@@ -987,7 +987,7 @@ def test_status_waits_for_human_shortlist_before_thesis_scaffold(
     assert "/shortlist" in str(payload["next_command"])
 
 
-def test_status_points_to_first_missing_shortlist_lane(
+def test_status_points_to_first_missing_primary_research_ticker(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"

@@ -82,7 +82,7 @@ def test_legacy_semantics_gate_rejects_obsolete_skill_instruction(tmp_path: Path
 
 @pytest.mark.parametrize(
     "identifier",
-    ["OP3", "AssessmentLane", "durability_lens", "screening_playbook"],
+    ["OP3", "AssessmentLane", "durability_lens", "durability_gate", "screening_playbook"],
 )
 def test_legacy_semantics_gate_rejects_retired_domain_identifiers(
     tmp_path: Path, identifier: str

@@ -214,7 +214,7 @@ def test_check_verifies_the_bindings_without_writing(app_method_root: Path) -> N
 
 
 @pytest.mark.parametrize("disposition", ["reject", "defer"])
-def test_reject_or_defer_lane_requires_a_known_reject_class(
+def test_reject_or_defer_case_requires_a_known_reject_class(
     app_method_root: Path, disposition: str
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
@@ -230,7 +230,7 @@ def test_reject_or_defer_lane_requires_a_known_reject_class(
         BargainAssessment.model_validate(payload)
 
 
-def test_selected_lane_forbids_reject_class(app_method_root: Path) -> None:
+def test_selected_case_forbids_reject_class(app_method_root: Path) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
     shortlist_id = _publish_shortlist(db_path)
     payload = _draft(db_path, shortlist_id)
@@ -243,7 +243,7 @@ def test_selected_lane_forbids_reject_class(app_method_root: Path) -> None:
         BargainAssessment.model_validate(payload)
 
 
-def test_publish_rejects_a_lane_that_the_shortlist_did_not_select(
+def test_publish_rejects_a_case_that_the_shortlist_did_not_select(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
@@ -327,7 +327,7 @@ def test_a_proposal_result_requires_a_purchase_plan_and_entry_timing(
         BargainAssessment.model_validate(payload)
 
 
-def test_a_selected_lane_cannot_appear_without_a_proposal_result(
+def test_a_selected_case_cannot_appear_without_a_proposal_result(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
@@ -462,7 +462,7 @@ def test_publish_rejects_an_assessment_dated_before_its_shortlist(
         BargainAssessmentService(db_path).publish(assessment)
 
 
-def test_a_lane_cannot_drop_the_question_that_earned_it_a_research_slot(
+def test_a_case_cannot_drop_the_question_that_earned_it_a_research_slot(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"

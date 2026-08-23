@@ -35,7 +35,7 @@ selection:
     min_listing_span_days: 182
     exclude_jpx_flagged: true
   # 塩漬け耐性 (durability) annotation の事前固定閾値。ranking / gate には使わず、
-  # research の必須ゲート判定 (durability_gate) の機械入力になる。
+  # Research Gateで確認すべきrisk / quality文脈として渡す。
   candidate_diagnostics:
     durability:
       high_min_support_count: 4
