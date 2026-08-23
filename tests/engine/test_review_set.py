@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 
-from baibai_engine.screening.selection.review_set import (
+from baibai_engine.foundation.review_set import (
     ReviewSetResolutionError,
     resolve_review_set_rows,
 )

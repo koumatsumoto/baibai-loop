@@ -11,10 +11,10 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+from baibai_engine.foundation.review_set import resolve_review_set_rows
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.screening.run_store import ScreeningRunReader
-from baibai_engine.screening.selection.review_set import resolve_review_set_rows
 from baibai_engine.tasks.service import TaskService
 
 from .shortlist import (

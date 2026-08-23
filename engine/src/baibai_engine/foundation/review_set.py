@@ -1,4 +1,4 @@
-"""Exact source resolution for the current ``longlist`` / ``longlist_alt`` wire."""
+"""Resolve Review Set rows at the screening/research document boundary."""
 
 from __future__ import annotations
 
