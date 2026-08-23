@@ -1,0 +1,32 @@
+kind: opportunity-vocabulary-semantic-equivalence
+as_of: '2026-08-21'
+old:
+  source: pre-rename implementation against the current local market store
+  run_revision_id: run-revision-68e4266996f64ec3a913768f4e59e6f6
+  selection_id: selection-c0fb7586b7a24d09be5d55865d129f21
+  rules_hash: 05b14095834171be
+new:
+  source: post-rename implementation against the same current local market store
+  run_revision_id: run-revision-488dd4ff00f843b699630b2739549ac3
+  selection_id: selection-254d32758f19475e924a9c335819d63f
+  rules_hash: dcc251a24aeec82d
+expected_differences:
+- rules_hash
+- bundle_identity
+- Evidence Pattern and Candidate Diagnostic field/class names
+- Value / Carry and Attention exact provenance
+counts:
+  old_candidates: 3707
+  new_candidates: 3707
+  candidate_payload_mismatches: 0
+  estimate_or_fv_mismatches: 0
+checks:
+  candidate_membership: true
+  candidate_order: true
+  candidate_payload_after_field_alias: true
+  evidence_hit_meaning: true
+  estimates_and_fv: true
+  recommendation: true
+  longlist_order_and_values: true
+  candidate_diagnostic_projection: true
+verdict: equivalent
