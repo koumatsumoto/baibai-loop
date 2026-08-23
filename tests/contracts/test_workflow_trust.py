@@ -53,9 +53,9 @@ EXPECTED_COMMAND_DIGESTS = {
     "Hydrate market store from the L1 release": (
         "9ecafc1d17e20380cde4d1cc37be9876f4ebd3a1162f45005187c7eaabede1c9"
     ),
-    "Publish the L1 release": ("e4cd247b545df25f59d1ab40cecb94177baae54f841130ed4c61199495756905"),
+    "Publish the L1 release": ("8f96c0f144c0d59b60d35603b36bb6b225015f2ae5125ac877a2dec34635cccb"),
     "Notify Discord #batch-runs": (
-        "a98e9a25a4fd7b12f33677250dd4f416a47a13c75317c9e3fffd3bf1d871c612"
+        "f8c21b5f2fc4c7c78dd8ea67a3a197b7b545bfe41ad7829b88f42ac80ac07385"
     ),
     "Backfill and publish committed progress": (
         "1cf9306ca4460c2c257a41ccfe84d75549729dd4f2e003c235f79885d5e494b3"

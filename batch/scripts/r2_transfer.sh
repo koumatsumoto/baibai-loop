@@ -10,10 +10,6 @@ generation_dir="${R2_GENERATION_DIR:-${repo_root}/stores/.r2-generations}"
 # the stores rather than inside one: every key it holds begins with `lake/`, which is why
 # the mirror root is the directory the stores live in and not one of them.
 lake_mirror="${R2_LAKE_MIRROR:-${repo_root}/stores}"
-# Which release the local market store currently corresponds to. Written by the fill and
-# rewritten by the publication, so the emptying that follows a push knows exactly which
-# release accounts for the rows it is about to drop.
-lake_release_record="${generation_dir}/lake-release.json"
 copy_read_timeout=300
 # The three machine stores are pushed one after another, each conditional on the
 # generation the batch pulled, and three PUTs cannot be made one commit. A push that
@@ -203,45 +199,11 @@ merge_market_store() {
   merge_store baibai_batch.storage.merge_market_store "$1" "$2"
 }
 
-lake_release_field() {
-  # The record is written by this script and read only by this script, so a missing one
-  # is a call out of order rather than a corrupt file, and it says so.
-  local field="$1"
-  if [[ ! -s "${lake_release_record}" ]]; then
-    printf 'no L1 release recorded for the market store; hydrate it before this step\n' >&2
-    return 1
-  fi
-  (
-    cd "${repo_root}" || exit 1
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run python -c 'import json,sys;print(json.load(open(sys.argv[1]))[sys.argv[2]])' \
-        "${lake_release_record}" "${field}"
-  )
-}
-
-record_lake_release() {
-  # Both sides of a pipeline run, so a producer that fails and prints nothing still
-  # reaches this with an empty stream. Replacing the record with that would erase the
-  # store's release identity exactly when it is most needed — a refused `publish-lake`
-  # is the case where the operator has to know which release their store came from —
-  # so nothing is written unless the producer actually emitted a record.
-  local temporary
-  mkdir -p "${generation_dir}"
-  temporary="$(mktemp "${generation_dir}/.lake-release.XXXXXX")"
-  cat > "${temporary}"
-  if [[ ! -s "${temporary}" ]]; then
-    rm -f -- "${temporary}"
-    printf 'no L1 release was reported; the previous record is left in place\n' >&2
-    return 1
-  fi
-  mv -f "${temporary}" "${lake_release_record}"
-  cat "${lake_release_record}"
-}
-
 hydrate_market() {
   # The store arrives from R2 holding only what the lake does not own. Filling it is
   # what makes it the store every reader already expects, and it fails closed on the
   # published row counts, so a fill that silently did nothing cannot reach screening.
+  migrate_downloaded_store market "$(store_path market.sqlite)"
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
@@ -249,22 +211,19 @@ hydrate_market() {
         --mirror "${lake_mirror}" \
         --store "$(store_path market.sqlite)" \
         --bucket "${stores_bucket}"
-  ) | record_lake_release
+  )
 }
 
 publish_lake() {
-  # Export the partitions the day changed on top of the release this store was filled
-  # from, seal them into a release, and switch the pointer. The base is named rather
-  # than resolved, so a lake that moved underneath this run is refused instead of
-  # silently republished without the other writer's rows.
+  # Export the store on top of the release recorded inside that same SQLite file, seal a
+  # release, and switch the pointer. Incremental publication uses that release as its
+  # base; full rebuild carries no partition from it. Both refuse when the embedded origin
+  # differs from current, so no detached identity file can authorize stale rows.
   #
   # `full-rebuild` drops the base and re-derives every partition, which is what the
-  # export transform fingerprint moving requires. It goes through here rather than being
-  # left to a direct module call because the record this writes is the store's release
-  # identity: a rebuild published around it leaves the store naming a release the lake
-  # has moved past, and the next `push-market` refuses to dehydrate against it. Measured
-  # on 2026-08-19 — the recovery ran as a module call and left exactly that state.
-  local mode="${1:-incremental}" base sha
+  # export transform fingerprint moving requires. The JSON report is stdout only; the
+  # durable identity lives in market.sqlite.
+  local mode="${1:-incremental}"
   if [[ "${mode}" == "full-rebuild" ]]; then
     (
       cd "${repo_root}" || exit 1
@@ -274,39 +233,31 @@ publish_lake() {
           --mirror "${lake_mirror}" \
           --bucket "${stores_bucket}" \
           --full-rebuild
-    ) | record_lake_release
+    )
     return
   fi
-  base="$(lake_release_field release_id)"
-  sha="$(lake_release_field release_manifest_sha256)"
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
       uv run python -m baibai_batch.storage.publish_market_lake \
         --sqlite "$(store_path market.sqlite)" \
         --mirror "${lake_mirror}" \
-        --bucket "${stores_bucket}" \
-        --base-release "${base}" \
-        --base-manifest-sha256 "${sha}"
-  ) | record_lake_release
+        --bucket "${stores_bucket}"
+  )
 }
 
 dehydrate_market_snapshot() {
   # Runs on the copy about to be uploaded, never on the working store. It refuses unless
-  # the named release accounts for every row it drops, so the object can only shrink
-  # after the rows are published.
-  local path="$1" base sha
-  base="$(lake_release_field release_id)"
-  sha="$(lake_release_field release_manifest_sha256)"
+  # the release embedded in that same SQLite generation accounts for every row it drops,
+  # so no detached identity file can authorize the object to shrink.
+  local path="$1"
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
       uv run baibai-engine lake dehydrate \
         --mirror "${lake_mirror}" \
         --store "${path}" \
-        --bucket "${stores_bucket}" \
-        --release "${base}" \
-        --manifest-sha256 "${sha}"
+        --bucket "${stores_bucket}"
   )
 }
 

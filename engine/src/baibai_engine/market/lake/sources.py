@@ -116,14 +116,11 @@ def _require_release_closure(root: Path, mirror_root: Path, manifest_path: Path)
     """Walk the whole graph the release roots, not just the manifest that names it.
 
     A release manifest is a list of dataset manifests, and each of those is a list of
-    Parquet objects. Verifying only the root would let a cohort state a lineage whose
-    rows are not in the mirror at all — the difference between "the reference is
-    well-formed" and "the bytes it names can be read again", which is the entire
-    distinction ``source_assurance`` draws.
+    Parquet objects. Verifying only the root would accept a reference whose rows are not
+    in the mirror at all. A valid fixed-release reference therefore resolves its entire
+    content-addressed closure.
 
-    The objects are checked by digest rather than by presence and size. A cohort states
-    this once per build, and the whole point of the claim is that these exact bytes are
-    what a re-derivation would read.
+    The objects are checked by digest rather than by presence and size.
     """
 
     try:

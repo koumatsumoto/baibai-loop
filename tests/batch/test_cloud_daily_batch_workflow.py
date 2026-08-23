@@ -442,6 +442,7 @@ def test_notify_step_receives_summary_and_step_outcomes(steps_by_id: dict[str, d
         "--publish-serving-outcome",
         "--run-started-at",
         "--output",
+        "--lake-publish-report-path",
     ):
         assert flag in notify_run, f"notify step missing {flag}"
     assert "steps.smoke.outcome" in notify_run
@@ -454,6 +455,18 @@ def test_notify_step_receives_summary_and_step_outcomes(steps_by_id: dict[str, d
     assert "steps.publish-serving.outcome" in notify_run
     assert "steps.batch.outputs.exit_code" in notify_run
     assert "steps.batch.outputs.local_export" in notify_run
+
+
+def test_lake_notification_reads_only_this_runs_transient_publish_report(
+    steps_by_id: dict[str, dict],
+) -> None:
+    publish_run = steps_by_id["publish-lake"]["run"]
+    notify_run = steps_by_id["notify"]["run"]
+
+    assert 'tee "$RUNNER_TEMP/lake-publish-report.json"' in publish_run
+    assert "set -o pipefail" in publish_run
+    assert '"$RUNNER_TEMP/lake-publish-report.json"' in notify_run
+    assert "stores/.r2-generations/lake-release.json" not in notify_run
 
 
 def test_notify_step_does_not_interpolate_dispatch_input_into_the_run_block(

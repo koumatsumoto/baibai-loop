@@ -59,7 +59,7 @@ engine は web / batch / tools に依存しない。Web が engine へ触れる�
 | store | classification | contents | write owner |
 | --- | --- | --- | --- |
 | `stores/application/baibai.sqlite` | canonical application DB | task、macro context、shortlist、thesis revision、holding review、proposal、ledger event / price / meta、outcome、operation session | `baibai-engine` application service |
-| `stores/market/market.sqlite` | mixed authority（lake 所有 17 table は L1 release からの runtime copy、残る 2 table はここが canonical） | J-Quants / EDINET / JPX の price、calendar、financial input と、取得範囲の帳簿・資本配分・支配権イベントの typed fact | market / screening provider |
+| `stores/market/market.sqlite` | mixed authority（lake所有17 data tableはL1 releaseからのruntime copy、残る2 data tableはここがcanonical、`lake_store_origin`はstore-local metadata） | J-Quants / EDINET / JPX の price、calendar、financial input と、取得範囲の帳簿・資本配分・支配権イベントの typed fact | market / screening provider |
 | `stores/screening/runs.sqlite` | rebuildable L2 run store | 最新数世代を保持するprunable screening run / machine selection cache | screening service |
 | `stores/screening/calibration/` | rebuildable L2 analytical bundle | typed Parquet の calibration panel / diagnostics / forward outcome と、3 datasetを原子的に束ねるbundle manifest・pointer | screening calibration service |
 | `stores/macro/macro.sqlite` | rebuildable L1 | provider 別 macro indicator series。manual 観測は git seed から同期 | macro indicator service |
@@ -89,10 +89,9 @@ manifest は全 partition object と totals を列挙し、L1 release manifest �
 で決まり、object-store固有のETagはpublish/CASのtransport stateにだけ置く。lineageはtyped `SourceRef`で表す。kindは**bytesを保持するかどうか**の2族に分かれ、
 それが型の違いになる。
 
-- **retained**（`l1_release`）はlake内のkeyを名乗る。keyを名乗ることは
-  「そのbytesが到達可能で、collectionから守られ、そのbuildを運ぶpublicationが一緒に運ぶ」という
-  約束であり、その大きさをlakeが世代の寿命だけ保持する意思のあるsourceだけが名乗れる。resolverは
-  key・SHA-256・source側versionを検証する。
+- **retained**（`l1_release`）はlake内のkeyを名乗る。resolverはkey・SHA-256・source側versionと
+  release closureを検証する。ただし到達可能性はcurrent releaseのretention policyに従い、分析成果物が
+  過去releaseを名乗っただけで恒久保持されるわけではない。
 - **identity only**（`sqlite_snapshot`）はkeyを持たない。sealed snapshotはbuild中にstoreが動かない
   ようにするためのもので、その役目はbuildの終わりで終わる。bytesはlegacy store全体（約2GB）なので、
   buildごとに1つ保持すればlakeはpublishした量ではなくrun回数に比例して育つ。よってschema version・
@@ -102,11 +101,11 @@ manifest は全 partition object と totals を列挙し、L1 release manifest �
 
 `SourceRef`（buildが自分の入力について述べるunion）に入るのは`sqlite_snapshot`だけである。buildが
 読むのはsealed storeであってreleaseではないからで、closure resolverの有無ではなく何を読んだかが
-決めている。`l1_release`が名乗れるのは`CohortSourceRef` — 分析cohortのlineage — で、cohortは1つの
-読みを2通りに述べる: snapshotが「どのbytesを読んだか」、releaseが「それをどこで読み直せるか」。
-release manifestはobject graphのrootにすぎないので、resolverはdataset manifestとParquet objectまで
-歩いて全部digestで検証し、歩き切れないrefは解決しない。文字列prefixや実在しないrelease IDで
-source種別を表さない。
+決めている。`CohortSourceRef`は既存のimmutable v1 manifestを読むため`l1_release`も受け入れるが、
+calibrationの現行writerはsnapshotだけを記録する。L1は`source_coverage`などの非lake入力を保持しない
+ため、release refをcalibration inputの完全再構築保証には使わない。release manifestはobject graphの
+rootにすぎないので、resolverはdataset manifestとParquet objectまで歩いて全部digestで検証し、
+歩き切れないrefは解決しない。
 
 manifestとpointerを含むlake JSONは、duplicate key拒否とredacted validation errorを持つ
 共通parserだけを通し、wire size上限をparse前に検査する。partition valuesとrelease dataset
@@ -129,8 +128,9 @@ production reader は期待する contract 一つだけを受け入れ、schema 
 
 一つの dataset が同時に二つの canonical writer を持たない。市場 fact の canonical authority は
 R2 の L1 release にあり、`market.sqlite` はその fixed release から削除・再構築できる runtime copy
-である。lake が持たない 2 table — 取得範囲の帳簿と、月次 snapshot の operator 導出 fact — だけが
-SQLite を canonical とし、R2 が持つ store の copy はその 2 table だけを運ぶ。full-file publish は行わない。
+である。lakeが持たない2 data table — 取得範囲の帳簿と、月次snapshotのoperator導出fact — だけが
+SQLiteをcanonicalとする。R2が持つstoreのcopyはその2 data tableと、store-local publication metadata
+`lake_store_origin`を運ぶ。full-file publish は行わない。
 
 読み取り側は実行開始時に current pointer を 1 度だけ解決し、以後は固定した `release_id` と
 immutable object key だけを読む。manifest digest、object digest、dataset contract の不一致は

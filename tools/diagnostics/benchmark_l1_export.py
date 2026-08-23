@@ -16,6 +16,7 @@ from baibai_engine.foundation.filesystem import write_bytes_atomic
 from baibai_engine.market.lake.identity import verified_git_commit
 from baibai_engine.market.lake.objects import sha256_file
 from baibai_engine.market.lake.writer import LakeExportReport, export_lake_legacy
+from baibai_engine.market.sqlite.lake_origin import read_lake_store_origin
 from baibai_engine.market.sqlite.snapshot import create_snapshot
 
 
@@ -87,12 +88,14 @@ def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> 
         mirror = root / "mirror"
         create_snapshot(sqlite_path, working_sqlite)
         source_sha256 = sha256_file(working_sqlite)
+        store_origin = read_lake_store_origin(working_sqlite)
 
         started = time.perf_counter()
         full = export_lake_legacy(
             sqlite_path=working_sqlite,
             mirror_root=mirror,
             producer_git_commit=producer_commit,
+            expected_store_origin=store_origin,
         )
         full_seconds = time.perf_counter() - started
         baseline_objects = _object_inventory(full)
@@ -104,6 +107,7 @@ def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> 
             sqlite_path=working_sqlite,
             mirror_root=mirror,
             producer_git_commit=producer_commit,
+            expected_store_origin=store_origin,
             base_manifest_paths={
                 name: result.manifest_path for name, result in full.datasets.items()
             },

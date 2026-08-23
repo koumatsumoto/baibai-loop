@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import tempfile
 import time
 from collections.abc import Iterator, Mapping
@@ -15,14 +16,16 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Never, Protocol
+from typing import TYPE_CHECKING, Never, Protocol
 
 import boto3
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError, ConnectTimeoutError, ReadTimeoutError
-from mypy_boto3_s3 import S3Client
-from mypy_boto3_s3.type_defs import PutObjectRequestTypeDef
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from mypy_boto3_s3 import S3Client
+    from mypy_boto3_s3.type_defs import PutObjectRequestTypeDef
 
 from baibai_engine.batch_api import (
     L1ReleasePointer,
@@ -40,11 +43,12 @@ from baibai_engine.batch_api import (
 _R2_ACCOUNT_ID = re.compile(r"^[0-9a-f]{32}$")
 _MAX_POINTER_BYTES = 64 * 1024
 _MAX_SMALL_OBJECT_BYTES = 16 * 1024 * 1024
-# A request deadline that is shorter than the transfer it guards turns a slow
-# object into an ambiguous outcome. The floor covers control-plane latency; the
+# A per-attempt read timeout that is shorter than the transfer it guards turns a
+# slow object into an avoidable retry. The floor covers control-plane latency; the
 # transfer term is derived from the object's own size at a throughput well below
 # what this link has measured (11.9 MB/s over the 2 GB store upload that preceded
-# the lake, and 300 MB of Parquet in the first full release publication).
+# the lake, and 300 MB of Parquet in the first full release publication). Botocore's
+# retry policy applies this value to each attempt; it is not an overall deadline.
 _BASE_OPERATION_TIMEOUT_SECONDS = 120
 _MIN_TRANSFER_BYTES_PER_SECOND = 4 * 1024 * 1024
 
@@ -411,6 +415,7 @@ def publish_l1_release(
     store: ObjectStore,
     verify_bytes: bool = False,
     pointer_precondition: PointerPrecondition | None = None,
+    expected_release_sha256: str | None = None,
 ) -> PublishReport:
     """Upload immutable graph nodes, then atomically switch the one mutable pointer."""
     publication = _RemotePublication(store=store, verify_bytes=verify_bytes)
@@ -431,6 +436,9 @@ def publish_l1_release(
     if not resolved_release_path.is_relative_to(root):
         raise LakePublishError("release manifest path escapes mirror root")
     release_payload = resolved_release_path.read_bytes()
+    release_sha256 = hashlib.sha256(release_payload).hexdigest()
+    if expected_release_sha256 is not None and release_sha256 != expected_release_sha256:
+        raise LakePublishError("release manifest changed after its publication was planned")
     release = load_lake_model_json(release_payload, LakeReleaseManifest)
     expected_release_key = lake_release_manifest_key(release_id=release.release_id)
     expected_release_path = _mirror_path(mirror_root, expected_release_key)
@@ -486,7 +494,7 @@ def publish_l1_release(
             expected_release_key,
             resolved_release_path,
             "application/json",
-            hashlib.sha256(release_payload).hexdigest(),
+            release_sha256,
             len(release_payload),
         )
     )
@@ -528,7 +536,7 @@ def publish_l1_release(
         if serving.release_id == release.release_id:
             if (
                 serving.manifest_key != expected_release_key
-                or serving.manifest_sha256 != hashlib.sha256(release_payload).hexdigest()
+                or serving.manifest_sha256 != release_sha256
             ):
                 raise LakePublishError("current pointer reuses release ID with different identity")
             return PublishReport(
@@ -539,7 +547,6 @@ def publish_l1_release(
                 remote_closure_seconds=pointer_started - remote_closure_started,
                 pointer_seconds=time.perf_counter() - pointer_started,
             )
-    release_sha256 = hashlib.sha256(release_payload).hexdigest()
     pointer = L1ReleasePointer(
         release_id=release.release_id,
         manifest_key=expected_release_key,
@@ -559,11 +566,14 @@ def publish_l1_release(
                 if_match=pointer_precondition.etag,
                 if_none_match=pointer_precondition.etag is None,
             )
-        except LakeCASConflict:
-            raise
-        except Exception as exc:
-            raise LakePublishError("L1 current pointer switch failed") from exc
-    publication.require_pointer_bytes(key=pointer_key, expected=pointer_payload)
+            publication.require_pointer_bytes(key=pointer_key, expected=pointer_payload)
+        except LakePublishError as exc:
+            result = _reconcile_pointer_switch(
+                publication,
+                key=pointer_key,
+                expected=pointer_payload,
+                cause=exc,
+            )
     return PublishReport(
         release_id=release.release_id,
         transfers=publication.report(),
@@ -572,6 +582,29 @@ def publish_l1_release(
         remote_closure_seconds=pointer_started - remote_closure_started,
         pointer_seconds=time.perf_counter() - pointer_started,
     )
+
+
+def _reconcile_pointer_switch(
+    publication: _RemotePublication,
+    *,
+    key: str,
+    expected: bytes,
+    cause: Exception,
+) -> RemoteObject:
+    """Resolve a conditional PUT whose remote commit result is ambiguous."""
+
+    try:
+        remote = publication.head(key)
+        if remote is None:
+            raise LakePublishError("L1 pointer is absent after an ambiguous switch")
+        actual = publication.read_pointer(key, remote)
+    except LakePublishError as reconciliation_error:
+        raise LakePublishError(
+            "L1 current pointer switch outcome is unknown; resolve current before retrying"
+        ) from reconciliation_error
+    if actual == expected:
+        return remote
+    raise LakeCASConflict("L1 current pointer moved to a different release") from cause
 
 
 def _require_remote_l1_closure(
@@ -760,21 +793,41 @@ class Boto3R2Store:
             raise LakePublishError("R2 get-object failed") from exc
 
     def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".part",
+        )
+        os.close(descriptor)
+        temporary_path = Path(temporary_name)
         try:
             response = self._client(expect_bytes).get_object(Bucket=self.bucket, Key=key)
             body = response["Body"]
             try:
-                with path.open("wb") as target:
+                written = 0
+                with temporary_path.open("wb") as target:
                     while chunk := body.read(8 * 1024 * 1024):
                         target.write(chunk)
+                        written += len(chunk)
+                    target.flush()
+                    os.fsync(target.fileno())
             finally:
                 body.close()
+            if expect_bytes is not None and written != expect_bytes:
+                raise LakePublishError(
+                    f"R2 get-object size mismatch: expected {expect_bytes}, got {written}"
+                )
+            temporary_path.replace(path)
+            _fsync_directory(path.parent)
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
             raise LakePublishError("R2 get-object timed out") from exc
         except ClientError as exc:
             _raise_r2_error("get-object", exc)
         except BotoCoreError as exc:
             raise LakePublishError("R2 get-object failed") from exc
+        finally:
+            temporary_path.unlink(missing_ok=True)
 
     def put_file(
         self,
@@ -852,25 +905,51 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    store = Boto3R2Store(bucket=args.bucket)
     if args.mirror is None:
         parser.error("--mirror is required for publication")
-    release_report = publish_l1_release(
-        mirror_root=args.mirror,
-        release_manifest_path=args.release_manifest,
-        store=store,
-        verify_bytes=args.verify_bytes,
-    )
+    store = Boto3R2Store(bucket=args.bucket)
+    try:
+        payload = args.release_manifest.read_bytes()
+        release = load_lake_model_json(payload, LakeReleaseManifest)
+        release_sha256 = hashlib.sha256(payload).hexdigest()
+        serving = read_pointer_snapshot(store)
+        if serving.pointer is not None and (
+            serving.pointer.release_id != release.release_id
+            or serving.pointer.manifest_sha256 != release_sha256
+        ):
+            raise LakePublishError(
+                "low-level publication cannot replace current; use publish_market_lake "
+                "for a forward publication"
+            )
+        release_report = publish_l1_release(
+            mirror_root=args.mirror,
+            release_manifest_path=args.release_manifest,
+            expected_release_sha256=release_sha256,
+            store=store,
+            verify_bytes=args.verify_bytes,
+            pointer_precondition=serving.precondition,
+        )
+    except (OSError, ValueError, LakePublishError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
     print(json.dumps(release_report.as_dict(), sort_keys=True))
     return 0
 
 
 def _operation_timeout(payload_bytes: int | None) -> int:
-    """A deadline the object's own size can satisfy, not a constant it can outgrow."""
+    """A per-attempt read timeout the object's own size can satisfy."""
     if payload_bytes is None or payload_bytes <= 0:
         return _BASE_OPERATION_TIMEOUT_SECONDS
     transfer = -(-payload_bytes // _MIN_TRANSFER_BYTES_PER_SECOND)
     return _BASE_OPERATION_TIMEOUT_SECONDS + transfer
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _required(env: Mapping[str, str], name: str) -> str:

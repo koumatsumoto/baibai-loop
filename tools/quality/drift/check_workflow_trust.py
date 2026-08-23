@@ -195,7 +195,7 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
         "13b6a705644d75410e7f1b5bc188e38b5064a0eed5c3081c7d1fc9eeaffdb74d"
     ),
     ("cloud-daily-batch.yml", "daily", "Publish the L1 release"): (
-        "2a015cf08ae041e6c97807b942bbc3c757c2d29bb130c06a84e8b2dd34992f5c"
+        "27d0b4bbe9b9703ad990fc93776a9f4112acf07dcddc3b440166475cc8f0250e"
     ),
     ("cloud-daily-batch.yml", "daily", "Upload machine stores and serving views"): (
         "12d6ff92a7b260a7e4be4ae3beed297ac3b4df3c2ddd79eec23fa4265a2e63b4"
@@ -204,7 +204,7 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
         "1d57fc8572d6e924225001484b9aba706f2eb790f4712e1bac7192f9e6bbcd16"
     ),
     ("cloud-daily-batch.yml", "daily", "Notify Discord #batch-runs"): (
-        "e3e76cd0f536a10f572857906d4bb85d4d78f6445a2475f93ffa0d70de31ffcd"
+        "b0dbcabdd11eefa066781d6d0e9890330e738a60be0a205e246a9cfd968b9c6a"
     ),
     ("cloud-daily-batch.yml", "daily", "Upload run summary"): (
         "3d7d91775c0ac950577b25c2792bed82e5af551485965a7c3fb6a31311064259"

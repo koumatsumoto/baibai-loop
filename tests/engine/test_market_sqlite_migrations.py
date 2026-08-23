@@ -28,6 +28,13 @@ from baibai_engine.market.sqlite import (
     range_covered,
     rebuild_table,
 )
+from baibai_engine.market.sqlite.lake_origin import (
+    LakeStoreOrigin,
+    LakeStoreOriginError,
+    advance_lake_store_origin,
+    read_lake_store_origin,
+    write_lake_store_origin,
+)
 from baibai_engine.screening.cli import invalidate_coverage_command
 
 
@@ -76,6 +83,58 @@ def test_open_connection_reopens_latest_store_without_refetch(tmp_path: Path) ->
         )
     finally:
         reopened.close()
+
+
+def test_lake_origin_is_carried_inside_the_market_store(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    connection = open_connection(sqlite_path)
+    origin = LakeStoreOrigin(
+        release_id="release-a",
+        release_manifest_sha256="a" * 64,
+    )
+    write_lake_store_origin(connection, origin)
+    connection.commit()
+    connection.close()
+
+    assert read_lake_store_origin(sqlite_path) == origin
+
+
+def test_lake_origin_advance_refuses_a_replaced_sqlite_generation(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    connection = open_connection(sqlite_path)
+    old = LakeStoreOrigin(
+        release_id="release-a",
+        release_manifest_sha256="a" * 64,
+    )
+    different = LakeStoreOrigin(
+        release_id="release-restored-backup",
+        release_manifest_sha256="b" * 64,
+    )
+    target = LakeStoreOrigin(
+        release_id="release-c",
+        release_manifest_sha256="c" * 64,
+    )
+    write_lake_store_origin(connection, different)
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(LakeStoreOriginError, match="changed while"):
+        advance_lake_store_origin(sqlite_path, expected=old, target=target)
+
+    assert read_lake_store_origin(sqlite_path) == different
+
+
+def test_lake_origin_advance_never_creates_a_missing_database(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "removed-market.sqlite"
+    target = LakeStoreOrigin(
+        release_id="release-c",
+        release_manifest_sha256="c" * 64,
+    )
+
+    with pytest.raises(LakeStoreOriginError, match="update failed"):
+        advance_lake_store_origin(sqlite_path, expected=None, target=target)
+
+    assert not sqlite_path.exists()
 
 
 def test_margin_publication_date_domains_are_sqlite_constraints(tmp_path: Path) -> None:

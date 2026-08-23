@@ -2,9 +2,10 @@
 
 The store holds gigabytes of API-rate-limited price/fundamentals cache, so a
 schema change upgrades an existing file in place instead of forcing a full
-re-fetch. Fifteen of its tables are refilled from the L1 release, but the store is
-the shape ingest writes into and the four tables the lake does not own are only
-here, so the file is migrated rather than rebuilt.
+re-fetch. Seventeen of its data tables are refilled from the L1 release, but the store is
+the shape ingest writes into and the two data tables the lake does not own are only here.
+It also carries one store-local publication metadata table, so the file is migrated
+rather than rebuilt.
 `BASELINE_VERSION` is the oldest `user_version` the migration path accepts: a
 store at exactly the baseline (or any later version below `LATEST_VERSION`) is
 migrated forward one step at a time; an older store is rejected fail-fast because
@@ -19,7 +20,7 @@ statement. A change that reorders or drops columns must instead rebuild the tabl
 via `rebuild_table` in the migration's `transform` hook, because the strict shape
 check compares column order against the DDL and an appended column would fail it.
 
-Fifteen of these tables are published to the L1 lake (`market.lake.datasets`), and
+Seventeen of these tables are published to the L1 lake (`market.lake.datasets`), and
 for those a migration is not enough on its own. `lake hydrate` compares the store's
 ordered column names against the dataset contract and refuses the fill when they
 differ, so a column added to a lake-owned table takes the daily batch down at the
@@ -361,6 +362,19 @@ MIGRATIONS: tuple[Migration, ...] = (
             "ALTER TABLE jquants_fin_summaries ADD COLUMN dividend_year_end REAL",
             "ALTER TABLE jquants_fin_summaries ADD COLUMN dividend_total_annual REAL",
             "ALTER TABLE jquants_fin_summaries ADD COLUMN average_shares REAL",
+        ),
+    ),
+    Migration(
+        version=24,
+        statements=(
+            """
+            CREATE TABLE IF NOT EXISTS lake_store_origin(
+              singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+              release_id TEXT NOT NULL,
+              release_manifest_sha256 TEXT NOT NULL
+                CHECK (length(release_manifest_sha256) = 64)
+            )
+            """,
         ),
     ),
 )

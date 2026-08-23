@@ -149,10 +149,10 @@ type SourceRef = Annotated[SQLiteSnapshotSourceRef, Field(discriminator="kind")]
 # names a key, and resolving one walks the whole closure it roots.
 type RetainedSourceRef = L1ReleaseSourceRef
 
-# What an analytical cohort may be built from. A cohort states both: the sealed store
-# generation it actually read, and the L1 release those rows came from. The first says
-# which bytes were read, the second says where they can be read again — and it is the
-# second that makes `source_assurance` a distinction rather than one constant answer.
+# What an analytical cohort may state. Current writers record the sealed SQLite
+# generation they actually read. L1 release refs remain readable because immutable v1
+# bundle manifests may already contain them, but a release does not retain non-lake
+# inputs such as source_coverage and therefore is not a rebuildability claim.
 type CohortSourceRef = Annotated[
     SQLiteSnapshotSourceRef | L1ReleaseSourceRef, Field(discriminator="kind")
 ]
@@ -184,38 +184,6 @@ def retained_sources(
     """
 
     return tuple(source for source in sources if isinstance(source, L1ReleaseSourceRef))
-
-
-SourceAssurance = Literal["rebuildable_input", "trace_only"]
-
-
-def source_assurance(sources: Iterable[SourceRef | RetainedSourceRef]) -> SourceAssurance:
-    """Whether a cohort's lineage lets it be re-derived.
-
-    **rebuildable_input** keeps the upstream data the producer read, so a cohort can be
-    re-derived after a logic error is found in the producer itself. **trace_only** names
-    the store generation a build read without keeping it, so it cannot.
-
-    Answered by whether any retained source is stated, not by the weakest one. The two
-    kinds a cohort states are not two inputs: a build reads one thing — the market store
-    — and names it twice. The sealed snapshot is which bytes it read; the L1 release is
-    where those bytes can be read again, and stating it is only allowed after the store
-    has been counted table for table against what that release publishes. Reading the
-    pair as "weakest wins" would make the snapshot, whose whole purpose is to record the
-    read, cancel the claim that the read is reproducible.
-
-    That holds because every table a cohort reads is lake-owned. If a build ever took an
-    input the lake does not carry, this would have to go back to naming the weakest —
-    and the check that would notice is the one in `release_backing_store`, which counts
-    every lake-owned table and refuses a store holding rows no release published.
-
-    Stating no source at all is the weaker claim rather than the absence of a claim.
-    """
-
-    stated = tuple(sources)
-    if not stated or not retained_sources(stated):
-        return "trace_only"
-    return "rebuildable_input"
 
 
 class LakeObject(BaseModel):
@@ -1091,7 +1059,7 @@ def release_policy_for_profile(profile: ReleaseProfile) -> ReleasePolicy:
     matter are per dataset — the row floor that catches a lossy export, the coverage
     boundary, the cadence-aware freshness window — and they do not become different
     requirements because a release is read by a different caller. A second profile
-    carrying the same fifteen entries would be two tables free to rot apart, so the
+    carrying the same seventeen entries would be two tables free to rot apart, so the
     manifest records which gate it passed and there is exactly one gate to pass.
     """
 

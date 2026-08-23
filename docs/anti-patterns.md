@@ -271,6 +271,16 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       release manifestのpublish行数と一致しなければ失敗し、同一directoryのdurable atomic
       replace以外では公開せず、失敗時は直前のstoreを壊さないことと、credentialがSQL文・
       例外・metadataへ出ないことをtestで固定したか
+- [ ] market storeをreleaseへ束縛するgateは、判断対象と同じsealed SQLite generation内の
+      `lake_store_origin`を使い、分離可能なfileやlive pathをauthorityにしないか。
+      「再構築可能」を名乗る場合はconsumerが読むlake外のledgerを含む全入力bytesと、そのretention
+      rootが実在するかを列挙したか。一部tableの一致やdigestだけを完全な再構築保証へ読み替えないか。
+      exact replayがT1〜T3の成果に不要なら、新しい永続stateやblockerを足さず、保持済みoutputのintegrityと
+      現在の完全storeからの再buildで済ませるか。dehydrateはDELETE開始前にembedded originとresolved
+      releaseのID・digest一致、およびcurrent指定時のpointer再確認を行い、不一致時のDB不変をnegative
+      testで固定したか。store-wide originを進めるhydrateはtarget releaseの全datasetを対象とし、partial
+      hydrateはsame-origin repairだけに限定したか。cross-release hydrateでtargetが持たないlake datasetの
+      rowを旧storeから引き継がず、origin更新前に拒否するnegative testがあるか
 - [ ] L2 analytical buildを変更する場合、schemaを行のcontractから導き、transform fingerprint /
       source release / schema / object digestの不一致をそれぞれfail closeにするnegative testを
       持つか。full primary keyの重複・null・partition外as-ofをwrite/read両側で拒否するか。0-rowを
@@ -750,8 +760,8 @@ panel 70 列・forward 16 列と、local SQLite 4 store の全 table を 1 回�
 - `architecture.md` が lineage の retained kind として `l1_release` を挙げた直後に「L1 release は
   この union に入れない。closure resolver が揃うまで kind を戻さない」と書いていた。resolver は
   実装済みで、`CohortSourceRef` は `l1_release` を含む。**同じ文書の中で矛盾していた**
-- `market-lake.md` の「保証が戻るのは cohort の table が L1 release として公開された時点」は、
-  それが起きて 81 cohort 全てが `rebuildable_input` になった後も残っていた
+- calibrationがlake外の`source_coverage`も読むのに、L1 factの一致だけで全入力を
+  `rebuildable_input`と記述していた。保持対象とconsumer入力の棚卸しが同時に更新されていなかった
 - lake の table 数が 15/4 → 17/2 へ動いた変更で、同じ file の 3 箇所だけが直り 5 箇所が残った。
   結果として 1 つの file の中に 17 と 15 が併存した
 - `OPERATIONS.md` が serving views を「store push と同時に走らせる」と書き続けていた。workflow は

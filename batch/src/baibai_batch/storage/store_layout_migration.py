@@ -82,6 +82,7 @@ _REQUIRED_TABLES = {
             "jquants_margin_alerts",
             "jquants_all_issues_daily_margin",
             "jquants_weekly_margin",
+            "lake_store_origin",
             "source_coverage",
         }
     ),

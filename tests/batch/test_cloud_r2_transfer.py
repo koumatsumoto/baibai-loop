@@ -10,6 +10,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from baibai_engine.market.sqlite import open_connection
+from baibai_engine.market.sqlite.lake_origin import LakeStoreOrigin, write_lake_store_origin
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TRANSFER_SCRIPT = REPO_ROOT / "batch/scripts/r2_transfer.sh"
 
@@ -192,6 +195,18 @@ if [[ -n "${UV_EXPECTED_CWD:-}" && "$PWD" != "$UV_EXPECTED_CWD" ]]; then
   printf 'unexpected uv cwd: %s\n' "$PWD" >&2
   exit 97
 fi
+if [[ "$1 $2 $3" == "run python -c" ]]; then
+  shift
+  exec "$@"
+fi
+if [[ "$*" == *"baibai-engine lake dehydrate"* ]]; then
+  printf 'dehydrate %s\\n' "$*" >> "$AWS_LOG"
+  exit 0
+fi
+if [[ "$*" == *"baibai-engine lake hydrate"* ]]; then
+  printf 'hydrate %s\\n' "$*" >> "$AWS_LOG"
+  exit 0
+fi
 script=""
 for argument in "$@"; do
   case "${argument}" in
@@ -206,15 +221,21 @@ done
 case "${script}" in
   publish)
     printf 'publish %s\\n' "$*" >> "$AWS_LOG"
-    # The real publisher prints its report only on success and nothing at all when it
-    # refuses, which is what the record's emptiness guard reads. A stub that printed
-    # regardless would let that guard pass a test it does not hold in production.
+    # The real publisher prints its JSON report only on success. Refusal may still have
+    # emitted partial stdout, but the wrapper persists none of it as identity state.
     if [[ "${PUBLISH_FAKE_EXIT:-0}" != "0" ]]; then
+      if [[ -n "${PUBLISH_FAKE_PARTIAL:-}" ]]; then
+        printf '%s' "${PUBLISH_FAKE_PARTIAL}"
+      fi
       printf 'error: publish refused\\n' >&2
       exit "${PUBLISH_FAKE_EXIT}"
     fi
-    printf '{"release_id": "release-after-rebuild", "release_manifest_sha256": "%s"}\\n' \\
-      "0000000000000000000000000000000000000000000000000000000000000000"
+    if [[ -n "${PUBLISH_FAKE_PAYLOAD:-}" ]]; then
+      printf '%s\\n' "${PUBLISH_FAKE_PAYLOAD}"
+    else
+      printf '{"release_id": "release-after-rebuild", "release_manifest_sha256": "%s"}\\n' \\
+        "0000000000000000000000000000000000000000000000000000000000000000"
+    fi
     exit 0
     ;;
   snapshot)
@@ -222,13 +243,26 @@ case "${script}" in
       printf '%s\\n' "${SQLITE_FAKE_VERSION:-13}"
       exit 0
     fi
+    source=""
+    output=""
     while [[ $# -gt 0 ]]; do
+      if [[ "$1" == "--source" ]]; then
+        shift
+        source="$1"
+      fi
       if [[ "$1" == "--output" ]]; then
         shift
-        printf 'x' > "$1"
+        output="$1"
       fi
       shift
     done
+    if [[ -n "$output" ]]; then
+      if [[ -n "${SNAPSHOT_FAKE_COPY:-}" ]]; then
+        cp "$source" "$output"
+      else
+        printf 'x' > "$output"
+      fi
+    fi
     exit 0
     ;;
   merge)
@@ -341,6 +375,32 @@ def test_sqlite_helpers_run_from_the_repository_when_called_elsewhere(tmp_path: 
     )
 
     assert completed.returncode == 0, completed.stderr
+
+
+def test_hydrate_migrates_a_pulled_store_before_writing_the_origin(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    root = _fake_repo(tmp_path)
+    environment = _environment(bin_dir, log)
+
+    completed = subprocess.run(
+        [root / "batch/scripts/r2_transfer.sh", "hydrate-market"],
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    commands = log.read_text(encoding="utf-8").splitlines()
+    migration = next(
+        index for index, command in enumerate(commands) if command.startswith("migrate ")
+    )
+    hydration = next(
+        index for index, command in enumerate(commands) if command.startswith("hydrate ")
+    )
+    assert migration < hydration
+    assert "--store market" in commands[migration]
 
 
 def _serving_export(tmp_path: Path) -> Path:
@@ -1472,6 +1532,46 @@ def test_market_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> 
     assert all("macro.sqlite" not in command for command in writes)
 
 
+def test_market_dehydrate_resolves_current_and_leaves_identity_check_to_the_core(
+    tmp_path: Path,
+) -> None:
+    root = _fake_repo(tmp_path)
+    market = root / "stores/market/market.sqlite"
+    market.parent.mkdir(parents=True)
+    connection = open_connection(market)
+    write_lake_store_origin(
+        connection,
+        LakeStoreOrigin(
+            release_id="sqlite-release",
+            release_manifest_sha256="c" * 64,
+        ),
+    )
+    connection.commit()
+    connection.close()
+    bin_dir, log = _fake_aws(tmp_path)
+    environment = _environment(bin_dir, log)
+    environment["SNAPSHOT_FAKE_COPY"] = "1"
+    environment["AWS_FAKE_EXISTING_KEY"] = "lake/pointers/l1/current.json"
+
+    completed = subprocess.run(
+        [root / "batch/scripts/r2_transfer.sh", "push-market"],
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    dehydrate = next(
+        command
+        for command in log.read_text(encoding="utf-8").splitlines()
+        if command.startswith("dehydrate ")
+    )
+    assert "--release" not in dehydrate
+    assert "--manifest-sha256" not in dehydrate
+
+
 def test_market_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -> None:
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
@@ -1637,24 +1737,15 @@ def test_the_transfer_script_names_the_same_pointer_key_the_engine_publishes() -
     assert lake_current_l1_pointer_key() in TRANSFER_SCRIPT.read_text(encoding="utf-8")
 
 
-def test_a_full_rebuild_publish_records_which_release_the_store_now_names(
+def test_first_full_rebuild_needs_no_sidecar_and_prints_its_result(
     tmp_path: Path,
 ) -> None:
-    """The recovery has to leave the store's release identity pointing at what it built.
-
-    A rebuild published around this record leaves the store naming a release the lake has
-    moved past, and the next `push-market` refuses to dehydrate against it. That is the
-    state the 2026-08-19 recovery produced by calling the publisher module directly, so
-    the runbook now goes through here and this is what says so.
-    """
+    """The canonical shell path supports first publication without duplicate state."""
 
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
     environment = _environment(bin_dir, log)
     record = Path(environment["R2_GENERATION_DIR"]) / "lake-release.json"
-    record.write_text(
-        '{"release_id": "release-before", "release_manifest_sha256": "old"}\n', encoding="utf-8"
-    )
 
     completed = subprocess.run(
         [root / "batch/scripts/r2_transfer.sh", "publish-lake", "full-rebuild"],
@@ -1670,13 +1761,16 @@ def test_a_full_rebuild_publish_records_which_release_the_store_now_names(
     assert len(published) == 1
     assert "--full-rebuild" in published[0]
     assert "--base-release" not in published[0]
-    assert "release-after-rebuild" in record.read_text(encoding="utf-8")
+    assert "--origin-release" not in published[0]
+    assert "--origin-manifest-sha256" not in published[0]
+    assert "release-after-rebuild" in completed.stdout
+    assert not record.exists()
 
 
-def test_a_publish_that_reports_nothing_leaves_the_previous_release_named(
+def test_a_failed_publish_does_not_touch_a_legacy_sidecar(
     tmp_path: Path,
 ) -> None:
-    """A refused rebuild must not erase the identity the operator needs to read."""
+    """A leftover pre-marker cache is ignored rather than kept as hidden state."""
 
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
@@ -1687,7 +1781,7 @@ def test_a_publish_that_reports_nothing_leaves_the_previous_release_named(
         '{"release_id": "release-before", "release_manifest_sha256": "old"}\n', encoding="utf-8"
     )
 
-    subprocess.run(
+    completed = subprocess.run(
         [root / "batch/scripts/r2_transfer.sh", "publish-lake", "full-rebuild"],
         cwd=tmp_path,
         env=environment,
@@ -1696,7 +1790,33 @@ def test_a_publish_that_reports_nothing_leaves_the_previous_release_named(
         text=True,
     )
 
+    assert completed.returncode != 0
     assert "release-before" in record.read_text(encoding="utf-8")
+
+
+def test_partial_stdout_from_a_failed_publisher_is_never_persisted(
+    tmp_path: Path,
+) -> None:
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    environment = _environment(bin_dir, log)
+    environment["PUBLISH_FAKE_EXIT"] = "1"
+    environment["PUBLISH_FAKE_PARTIAL"] = '{"release_id":"partial"'
+    record = Path(environment["R2_GENERATION_DIR"]) / "lake-release.json"
+    before = b'{"release_id": "release-before", "release_manifest_sha256": "old"}\n'
+    record.write_bytes(before)
+
+    completed = subprocess.run(
+        [root / "batch/scripts/r2_transfer.sh", "publish-lake", "full-rebuild"],
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert record.read_bytes() == before
 
 
 def test_an_unknown_publish_lake_argument_is_refused(tmp_path: Path) -> None:

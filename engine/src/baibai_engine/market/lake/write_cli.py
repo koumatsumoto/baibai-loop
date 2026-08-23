@@ -9,7 +9,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .datasets import LAKE_DATASETS
+from ..sqlite.lake_origin import read_lake_store_origin
 from .duck import LakeCredentialError
 from .hydrate import LakeHydrateError, dehydrate_market_store, hydrate_market_store
 from .identity import source_repo_root, verified_git_commit
@@ -78,7 +78,7 @@ def main(argv: list[str]) -> int:
     )
     dehydrate.add_argument("--mirror", type=Path, required=True)
     dehydrate.add_argument("--store", type=Path, required=True)
-    _add_release_target(dehydrate, datasets=False)
+    _add_release_target(dehydrate)
 
     gc = commands.add_parser("gc", help="plan or apply deletion of unreachable objects")
     gc.add_argument("--mirror", type=Path, required=True)
@@ -105,6 +105,7 @@ def main(argv: list[str]) -> int:
             sqlite_path=args.sqlite,
             mirror_root=args.mirror,
             producer_git_commit=_git_commit(),
+            expected_store_origin=read_lake_store_origin(args.sqlite),
             base_manifest_paths=bases,
             audit_full_history=args.audit,
         )
@@ -142,7 +143,7 @@ def main(argv: list[str]) -> int:
     return 0
 
 
-def _add_release_target(parser: argparse.ArgumentParser, *, datasets: bool = True) -> None:
+def _add_release_target(parser: argparse.ArgumentParser) -> None:
     """The three ways to name one fixed release, shared by every build that reads one."""
 
     parser.add_argument(
@@ -158,8 +159,6 @@ def _add_release_target(parser: argparse.ArgumentParser, *, datasets: bool = Tru
         "--release-ref", type=Path, help="build a typed digest-pinned release reference"
     )
     parser.add_argument("--manifest-sha256", help="required digest when --release is used")
-    if datasets:
-        parser.add_argument("--dataset", action="append", default=[], choices=sorted(LAKE_DATASETS))
 
 
 def _resolve_release_target(
@@ -190,25 +189,13 @@ def _resolve_release_target(
     return resolve_current_release(source, evaluated_at=datetime.now(UTC)), still_current
 
 
-def _selected_datasets(args: argparse.Namespace, release: FixedRelease) -> tuple[str, ...]:
-    """Default to what the release holds, never to what the registry declares.
-
-    A dataset whose source has not started publishing is absent from the release by
-    design, and defaulting to the registry would make every such release refuse to
-    build until it does. A named dataset the release lacks still fails closed.
-    """
-
-    requested = tuple(dict.fromkeys(args.dataset))
-    return requested or tuple(sorted(release.dataset_manifests))
-
-
 def _hydrate(args: argparse.Namespace) -> int:
     """Resolve one release, then fill the market store's lake-owned tables from it."""
 
     try:
         with open_lake(mirror=args.mirror, bucket=args.bucket) as (session, cache):
             release, still_current = _resolve_release_target(args, cache.source)
-            dataset_names = _selected_datasets(args, release)
+            dataset_names = release.dataset_names()
             with prefetching_hydration_cache(
                 cache,
                 release=release,
@@ -242,8 +229,12 @@ def _dehydrate(args: argparse.Namespace) -> int:
 
     try:
         with open_lake(mirror=args.mirror, bucket=args.bucket) as (_, cache):
-            release, _ = _resolve_release_target(args, cache.source)
-            report = dehydrate_market_store(args.store, release=release)
+            release, still_current = _resolve_release_target(args, cache.source)
+            report = dehydrate_market_store(
+                args.store,
+                release=release,
+                still_current=still_current,
+            )
     except (
         LakeCredentialError,
         LakeHydrateError,

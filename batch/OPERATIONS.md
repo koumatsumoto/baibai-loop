@@ -11,7 +11,7 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 
 | bucket | object | owner |
 | --- | --- | --- |
-| `baibai-stores` | `market.sqlite`（lakeが持たない2 tableだけ） | `cloud-daily-batch` + `cloud-history-backfill`（手動 dispatch。窓を名指しして履歴を遡る）+ ローカル`push-market`（cloud copyのmerge後だけupload） |
+| `baibai-stores` | `market.sqlite`（lakeが持たない2 data table + `lake_store_origin` metadata） | `cloud-daily-batch` + `cloud-history-backfill`（手動 dispatch。窓を名指しして履歴を遡る）+ ローカル`push-market`（cloud copyのmerge後だけupload） |
 | `baibai-stores` | `lake/`（lake所有17 datasetのcanonical L1） | `cloud-daily-batch`の`publish-lake` + ローカル`r2_transfer.sh publish-lake` |
 | `baibai-stores` | `runs.sqlite` | `cloud-daily-batch` |
 | `baibai-stores` | `macro.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-macro`（全履歴。cloud copyのmerge後だけupload） |
@@ -155,10 +155,17 @@ gh workflow run cloud-materialize.yml --ref main   # 表示へ反映する場合
 ```
 
 **market storeはlakeへpublishしてからpushする。** lake所有17 tableのcanonicalはR2のL1 releaseに
-あり、`push-market`が送るのはそれを空にした残り2 tableだけである。`publish-lake`を飛ばすと、
+あり、`push-market`が送るのはそれを空にした残り2 data tableとstore自身のrelease origin metadataで
+ある。`publish-lake`を飛ばすと、
 dehydrateが「releaseが持つ行数と合わない」で停止する。ローカルが cloud より遅れている場合は先に
 `hydrate-market`で現行releaseへ揃える — publishはstoreをhydrateしたreleaseの上にだけ積めるので、
 別のwriterが進めたlakeの上へ古いstoreをpublishすることはできない。
+
+`hydrate-market`はlake所有tableへ変更を加える前にだけ実行する。変更後に再度hydrateすると、行数が
+同じUPDATEやDELETE+INSERTをrow-count guardでは識別できず、current releaseの内容で上書きする。
+変更を残すなら先に`publish-lake`し、捨てる場合だけ明示的な復元操作としてhydrateする。daily workflowは
+hydrate後にfetch/build/publishへ直列に進み、変更後の再hydrateを行わないため、hot pathへ全partition
+比較や追加lockは置かない。
 
 **cloud copyがcodeより古いのは正常な過渡状態である。** cloud copyのschemaは日次batchがstoreを開いたときに上がるので、schema bumpから次の実行までラグが残る。cronは平日だけなので、週末にschemaを上げると月曜まで続く。この間もmigrate段があるためpushは通り、日次batchを起こす必要はない。
 
@@ -248,7 +255,12 @@ gh workflow run cloud-history-backfill.yml --ref main \
 
 どちらのmergeも、終わった時点でsource側だけに残る行が1行でもあれば停止する。日次batchが取得済みでローカルに無い行を、uploadで失わないための不変条件である。以下はstoreごとに違う部分。
 
-`push-market`のmergeは`merge_market_store.py`である。**対象はlakeが持たない2 tableだけ**で、lake所有17 tableのcloud/local突き合わせはreleaseが引き取っている——`publish-lake`はstoreをhydrateしたreleaseをlakeが既に離れていれば拒否し、dehydrateはreleaseが持たない行を持つstoreのuploadを拒否する。
+`push-market`のmergeは`merge_market_store.py`である。対象はlakeが持たない2 data tableと
+`lake_store_origin`で、lake所有17 tableのcloud/local突き合わせはreleaseが引き取っている。
+`source_coverage`はunionし、operator導出の`tse_capital_policy_snapshots`とstore自身の
+`lake_store_origin`はtargetを保持する。cloud copyのoriginを取り込むと、local rowsを別release由来と
+偽ってしまうためである。`publish-lake`はstoreをhydrateしたreleaseをlakeが既に離れていれば拒否し、
+dehydrateはreleaseが持たない行を持つstoreのuploadを拒否する。
 
 `source_coverage`は取得範囲の帳簿で、両側が書くので主キー`(source, coverage_key)`で`INSERT OR IGNORE`し、同じ主キーを両側が持つ場合はpayloadの一致を検証する。**比較しないのは、出所が何を言ったかではなくstoreがいつ読んだかを記録する`fetched_at_utc`だけ**——2つのstoreが同じ範囲を別の時刻に読めばそこは必ず食い違うので、比較すれば全てのmergeを拒否する。
 
@@ -258,7 +270,10 @@ gh workflow run cloud-history-backfill.yml --ref main \
 
 訂正可能な`jquants_short_sale_reports`のcoverageはdisclosure dateごとに1つのclaimを選ぶ。`ok`が`partial`/`failed`に勝ち、同種なら`fetched_at_utc`が新しい方が勝つ。`record_count`はreleaseが満たしたtargetの実rowから読み直す。行が1つも claimされないdateがあれば停止するが、**その検査はclaim選択の後**に置く——行はhydrateで、claimはmergeで届くので、cloudが取得して publishした日はtargetのtableに1段先に現れる。
 
-`jpx_delistings` / `tender_offer_exit_values` / `tse_capital_policy_snapshots`はoperatorが導出したもので、targetを丸ごと残しsourceから1行も取り込まない。key mergeすると、後の導出が撤回した行が古いcopyから復活し、訂正した値は「2つのstoreが食い違う」と読まれてpublish全体を止める。
+`tse_capital_policy_snapshots`はoperatorが導出したもので、targetを丸ごと残しsourceから1行も
+取り込まない。key mergeすると、後の導出が撤回した行が古いcopyから復活し、訂正した値は
+「2つのstoreが食い違う」と読まれてpublish全体を止める。`jpx_delistings`と
+`tender_offer_exit_values`はlake datasetであり、merge対象ではない。
 
 mergeの対象tableは`merge_market_store.py`の`FACT_KEYS` / `DERIVED_KEYS`に列挙し、**それとlake datasetの合併がstoreのtable一覧と一致すること**をtestが確かめる。新しいtableはlakeかmergeのどちらかに分類しないと落ちる。
 
@@ -284,17 +299,22 @@ base manifest transform_fingerprint differs; run a full rebuild without --base-m
 
 復旧はローカルで完結させる。
 
-1. **前提を測る** — ローカル store が cloud release を包含しているか。行数と partition 集合を突き合わせ、
-   1 dataset でも不足があれば rebuild せず先に解く（full rebuild は release の内容をローカル store で
-   置き換えるので、不足はそのまま canonical の欠落になる）
+1. **store origin を確認する** — `market.sqlite`内の`lake_store_origin`が、ローカル store を
+   hydrateしたrelease IDとmanifest SHA-256を保持する。full rebuildはexport対象と同じsealed snapshotから
+   このidentityを読み、開始時current pointerと照合して、違えばdataset export前に停止する。SQLiteだけを
+   古いbackupへ戻したstoreはembedded originの不一致で通らず、origin確認とsnapshot captureの間に
+   DB pathが差し替わっても通らない。originが無いのを許すのはcurrent pointerも無いfirst publicationだけである。
+   違う場合は推測で補わず、先に`hydrate-market`でcurrent releaseへ揃える
 
    ```bash
+   uv run python -c 'import sqlite3; print(sqlite3.connect("stores/market/market.sqlite").execute("SELECT release_id, release_manifest_sha256 FROM lake_store_origin WHERE singleton = 1").fetchone())'
    uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores --format json
    ```
 
-   これが出す各 dataset の `rows` / `partitions` を、`LAKE_DATASETS` の `sqlite_table` の行数と
-   partition grain 別の期間集合と比べる。byte 一致は見ない — fingerprint が動いた後の Parquet bytes は
-   変わって当然で、確かめるのは行が落ちないことである
+   全dataset共通の「前release以上」というrow floorは持たない。訂正やsnapshot置換で正常に件数が
+   減るdatasetがあるためである。代わりにrelease時のproduction policyがdatasetごとのhistory境界、
+   minimum rows / population、coverage、freshnessを検査する。historical datasetの大幅欠損はこの固定
+   policyで拒否し、正常なsnapshot縮小は許可する
 
 2. **worktree を clean にする** — publish は `git status --porcelain` が空であることを要求する
    （`lake publication requires a clean tracked worktree`）。export は本番 store で 7 分強かかるので、
@@ -306,16 +326,17 @@ base manifest transform_fingerprint differs; run a full rebuild without --base-m
    batch/scripts/r2_transfer.sh publish-lake full-rebuild
    ```
 
-   `--full-rebuild` は `--base-release` と排他で、全 partition を store から derive し直す。同一 bytes の
+   publisherはoriginを同じ`market.sqlite`から読み、`--full-rebuild`ではbase manifestをcarryせず全
+   partitionをstoreからderiveし直す。同一 bytes の
    Parquet は content-addressed key と `If-None-Match: *` で再 upload されないので、転送は新 manifest 群と
    pointer CAS が中心になる。Bucket Lock は新 key の PUT と `lake/pointers/` の CAS を対象にしないので
    干渉しない。
 
-   **module を直接叩かない。** `publish_market_lake` は release を作るが、`stores/.r2-generations/`
-   の release 記録は書かない。この記録は「ローカル store が今どの release に対応するか」で、
-   `push-market` の dehydrate と次の増分 publish がその名前で照合する。直叩きで publish すると
-   store が lake の移った先より古い release を名乗ったままになり、次の `push-market` が
-   dehydrate で止まる（2026-08-19 の復旧で実際にこの状態を作った）
+   標準運用は`r2_transfer.sh`を使う。high-level `publish_market_lake` moduleもcorrectness上は同じ
+   SQLite originを使うが、wrapperがcredentialsと標準操作順を揃える。publisherはpointer成功後に
+   SQLite内originを新releaseへ進め、dehydrateもupload対象SQLite内の同じoriginを読む。
+   low-level `lake_publish` CLIはfirst publicationとexact-target retryだけを許し、currentを別releaseへ
+   直接切り替える用途には使えない
 
 4. **pointer が新 release を指すことを確認する**
 
@@ -326,7 +347,10 @@ base manifest transform_fingerprint differs; run a full rebuild without --base-m
 5. **翌定時の日次 batch の緑が最終確認**。手動 dispatch はしない — 定時 cron がその日のうちに答える。
    復旧が定時より後になった日は、その夜の `cloud-batch-watchdog` が `[MISSING]` を正しく報じる
 
-`push-market` は不要である。この経路が直すのは lake の release であって、store 側の 2 table ではない。
+fingerprintだけを変えた通常のfull rebuildでは`push-market`は不要である。この経路が直すのはlakeの
+releaseであって、store側の2 data tableではない。ただしmarket schemaも同時に上げたcutoverでは、
+hydrate済みstoreのschemaと`lake_store_origin`をR2 copyへ運ぶため、full rebuild後に同じ作業で
+`push-market`まで完了する。
 
 ### 部分 push からの復旧
 
@@ -414,7 +438,7 @@ npx wrangler secret put VIEW_PASSWORD
 
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
 - 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括のmachine store pushはGitHub Actionsからだけ許可する（`runs.sqlite`はcloudが唯一のwriterで、無条件uploadが古いローカルcopyで巻き戻すため）。`macro.sqlite` / `market.sqlite`はローカルからも`push-macro` / `push-market`でuploadできるが、いずれもcloud copyのmergeを通した後だけで、mergeがcloud側の行の取り残しを検出したら停止する。
-- pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例してGB級のstoreではaws CLI既定のread timeout 60秒に収まらないため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。**`market.sqlite`が運ぶのはlakeが持たない2 tableだけである。** runner実測は`market.sqlite` 4,972,544 bytes（snapshot 46秒・backup 114秒・upload 2秒）、`runs.sqlite` 52,838,400 bytes（1秒・7秒・3秒）、`macro.sqlite` 256,184,320 bytes（2秒・17秒・14秒）である。market storeのsnapshotが46秒なのは、空にする前のfull storeを一度copyするためである。この`.bak` 114秒は置き換えられる側が1.88GBだった初回の値で、以降は5MBのcopyになる。`push-machine`はkeyごとに`store push: key=... bytes=... snapshot=...s backup=...s upload=...s`を出すので、storeが伸びたときの内訳はrunのlogで見る。
+- pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例してGB級のstoreではaws CLI既定のread timeout 60秒に収まらないため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。**`market.sqlite`が運ぶのはlakeが持たない2 data tableと`lake_store_origin` metadataだけである。** runner実測は`market.sqlite` 4,972,544 bytes（snapshot 46秒・backup 114秒・upload 2秒）、`runs.sqlite` 52,838,400 bytes（1秒・7秒・3秒）、`macro.sqlite` 256,184,320 bytes（2秒・17秒・14秒）である。market storeのsnapshotが46秒なのは、空にする前のfull storeを一度copyするためである。この`.bak` 114秒は置き換えられる側が1.88GBだった初回の値で、以降は5MBのcopyになる。`push-machine`はkeyごとに`store push: key=... bytes=... snapshot=...s backup=...s upload=...s`を出すので、storeが伸びたときの内訳はrunのlogで見る。
 - machine store の`.bak`は1世代のみで、次のpushで置き換わる。日次batchが毎営業日pushするため、実質の巻き戻し猶予は約24時間である。`baibai.sqlite`だけは`baibai.sqlite.bak-YYYYMMDD`（JST）で日ごとに1世代を残し、直近14世代を超えた分をpush成功後に削除する。machine storeはsourceから作り直せて毎営業日書き換わるのに対し、application storeのjudgmentとledgerは何も再生成しないためである。prune は`baibai.sqlite.bak-`配下をlistし、`baibai.sqlite.bak-YYYYMMDD`に一致するkeyだけを完全一致で削除する（prefix削除はしない）。registry編集後は日次workflowの`registry-prune-pending` / `registry-prune`行（transaction ID・series ID・observation/provider-run削除件数）を当日中に確認する。pending に対応する committed 行が無い実行や意図しないpruneを検出したら、次のpushが`.bak`を置き換える前に状態を確認・復元する。
 - 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。
 - pullは固定4 key以外を受け付けず、全downloadと`quick_check`完了後に置換する。

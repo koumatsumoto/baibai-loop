@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import sys
 import unittest
-from collections.abc import Mapping
 from contextlib import redirect_stderr
 from dataclasses import replace
 from datetime import date, datetime
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import cast
 from zoneinfo import ZoneInfo
 
 import yaml
@@ -22,7 +20,6 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_engine.market.lake.models import CohortSourceRef
 from baibai_engine.screening.calibration.authority import (
     KNOWN_METRICS,
     PRODUCTION_REQUIRED_METRICS,
@@ -1625,132 +1622,6 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertTrue(sensitivity["direction_stable"])
         self.assertNotIn("priced_master_without_universe_return_unresolved", counts)
         self.assertNotIn("priced_master_without_universe_flips_direction", counts)
-
-    @staticmethod
-    def _evaluate(root: Path, *, run_purpose: str, asof: date) -> tuple[int, Mapping[str, object]]:
-        output_path = root / f"evaluation-{run_purpose}.yaml"
-        exit_code = calibration_evaluate_command(
-            calibration_dir=root,
-            horizons=["3y"],
-            run_purpose=run_purpose,
-            required_asofs=[asof.isoformat()] if run_purpose == "production_decision" else None,
-            required_metrics=(
-                list(PRODUCTION_REQUIRED_METRICS) if run_purpose == "production_decision" else None
-            ),
-            output_path=output_path,
-            stdout=StringIO(),
-        )
-        payload = yaml.safe_load(output_path.read_text(encoding="utf-8"))
-        assert isinstance(payload, dict)
-        return exit_code, payload
-
-    @staticmethod
-    def _coverage(payload: Mapping[str, object]) -> Mapping[str, object]:
-        results = payload["results"]
-        assert isinstance(results, dict)
-        horizon = results["3y"]
-        assert isinstance(horizon, dict)
-        cohorts = horizon["cohorts"]
-        assert isinstance(cohorts, list)
-        coverage = cohorts[0]["coverage"]
-        assert isinstance(coverage, dict)
-        return coverage
-
-    @staticmethod
-    def _reasons(payload: Mapping[str, object]) -> Mapping[str, int]:
-        coverage = payload["authority_coverage"]
-        assert isinstance(coverage, dict)
-        reasons = coverage["reason_counts"]
-        assert isinstance(reasons, dict)
-        return reasons
-
-    def _publish_cohort(
-        self, root: Path, asof: date, *, panel_source: object, forward_source: object
-    ) -> None:
-        _write_panel(
-            root,
-            asof,
-            (_panel_row("7203", per_trailing=12.0),),
-            _panel_diagnostics(),
-            sources=(cast(CohortSourceRef, panel_source),),
-            input_cutoff=asof,
-            producer_commit="a" * 40,
-        )
-        _write_forward(
-            root,
-            asof,
-            [_forward_row("7203", 0.1, horizon="3y")],
-            sources=(cast(CohortSourceRef, forward_source),),
-            input_cutoff=asof,
-            producer_commit="a" * 40,
-        )
-
-    def test_a_cohort_whose_input_is_not_kept_cannot_carry_a_production_decision(
-        self,
-    ) -> None:
-        """A decision that changes the method has to survive being re-derived.
-
-        The sealed store a routine build reads is discarded when the build ends, so the
-        cohort can be read back forever and never recomputed. Reading and recomputing are
-        different capabilities, and only the second supports correcting a decision after
-        a logic error is found in the code that produced it.
-        """
-
-        with TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            asof = date(2025, 6, 30)
-            write_panel(
-                root,
-                asof,
-                (_panel_row("7203", per_trailing=12.0),),
-                _panel_diagnostics(),
-                producer_commit="a" * 40,
-            )
-            write_forward(
-                root, asof, [_forward_row("7203", 0.1, horizon="3y")], producer_commit="a" * 40
-            )
-
-            exit_code, payload = self._evaluate(root, run_purpose="production_decision", asof=asof)
-            self.assertEqual(exit_code, 0)
-            self.assertIn("source_not_rebuildable", self._reasons(payload))
-            self.assertEqual(self._coverage(payload)["source_assurance"], "trace_only")
-            self.assertFalse(payload["production_decision"]["production_change_allowed"])
-
-    def test_a_diagnostic_run_discloses_the_assurance_without_blocking_on_it(self) -> None:
-        # The other integrity blockers describe the cohort, so they hold whoever reads
-        # it. This one describes what may be changed on the strength of the cohort,
-        # which a diagnostic run is not asking, and counting it there makes a routine
-        # investigation read as a broken cohort.
-        with TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            asof = date(2025, 6, 30)
-            write_panel(
-                root,
-                asof,
-                (_panel_row("7203", per_trailing=12.0),),
-                _panel_diagnostics(),
-                producer_commit="a" * 40,
-            )
-            write_forward(
-                root, asof, [_forward_row("7203", 0.1, horizon="3y")], producer_commit="a" * 40
-            )
-
-            exit_code, payload = self._evaluate(root, run_purpose="diagnostic", asof=asof)
-            self.assertEqual(exit_code, 0)
-            self.assertEqual(self._coverage(payload)["source_assurance"], "trace_only")
-            # The level describes the cohort and is disclosed to whoever reads it. It
-            # holds nothing back: what may be *changed* on the strength of a cohort is a
-            # question a diagnostic run is not asking.
-            self.assertNotIn("source_not_rebuildable", self._reasons(payload))
-
-            # The same cohort, asked whether it may decide production. A sealed SQLite
-            # snapshot is the only cohort source there is and the lake does not keep its
-            # bytes, so no cohort reaches `rebuildable_input` and this blocks for every
-            # cohort in every store until an L1 release can be named as one.
-            _production_code, production = self._evaluate(
-                root, run_purpose="production_decision", asof=asof
-            )
-            self.assertIn("source_not_rebuildable", self._reasons(production))
 
     def test_production_decision_requires_explicit_core_scope(self) -> None:
         with TemporaryDirectory() as temp_dir:

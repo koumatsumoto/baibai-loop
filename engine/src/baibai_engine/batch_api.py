@@ -63,8 +63,19 @@ from baibai_engine.market.lake.reader import FixedRelease as LakeFixedRelease
 from baibai_engine.market.lake.reader import LakeReadError, resolve_release
 from baibai_engine.market.lake.release import L1ReleasePointer
 from baibai_engine.market.lake.release import create_l1_release as create_lake_l1_release
-from baibai_engine.market.lake.writer import LakeBuildError, export_lake_legacy
+from baibai_engine.market.lake.writer import (
+    LakeBuildError,
+    LakeBuildReport,
+    LakeTransformFingerprintMismatch,
+    export_lake_legacy,
+)
 from baibai_engine.market.sqlite import open_connection as open_market_store
+from baibai_engine.market.sqlite.lake_origin import (
+    LakeStoreOrigin,
+    LakeStoreOriginError,
+    advance_lake_store_origin,
+    read_lake_store_origin,
+)
 from baibai_engine.market.sqlite.schema import (
     SQLITE_SCHEMA_VERSION as MARKET_SCHEMA_VERSION,
 )
@@ -97,15 +108,20 @@ __all__ = [
     "IndicatorsSchemaError",
     "L1ReleasePointer",
     "LakeBuildError",
+    "LakeBuildReport",
     "LakeDatasetManifest",
     "LakeFixedRelease",
     "LakeReadError",
     "LakeReleaseManifest",
     "LakeSQLiteSnapshotSourceRef",
+    "LakeStoreOrigin",
+    "LakeStoreOriginError",
+    "LakeTransformFingerprintMismatch",
     "LocalMirrorSource",
     "MacroContextDocument",
     "MarketSchemaError",
     "StoreLayoutError",
+    "advance_lake_store_origin",
     "canonical_lake_model_bytes",
     "cited_series_ids",
     "connect_read_only",
@@ -124,6 +140,7 @@ __all__ = [
     "open_macro_store",
     "open_market_store",
     "parse_refresh_failure_count",
+    "read_lake_store_origin",
     "reject_noncanonical_store_paths",
     "repository_root_error",
     "resolve_release",

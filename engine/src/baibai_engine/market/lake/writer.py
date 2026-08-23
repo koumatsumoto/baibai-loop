@@ -18,6 +18,11 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from baibai_engine.foundation.source_identity import release_line, semantic_source_digest
+from baibai_engine.market.sqlite.lake_origin import (
+    LakeStoreOrigin,
+    LakeStoreOriginError,
+    read_lake_store_origin_from_connection,
+)
 from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 from baibai_engine.market.sqlite.snapshot import create_snapshot, validate_snapshot
 
@@ -56,6 +61,10 @@ class LakeBuildError(RuntimeError):
     pass
 
 
+class LakeTransformFingerprintMismatch(LakeBuildError):
+    """A differential build cannot reuse a base made by another transform."""
+
+
 @dataclass(frozen=True)
 class LakeBuildReport:
     manifest_path: Path
@@ -74,6 +83,7 @@ class LakeBuildPlan:
 @dataclass(frozen=True)
 class LakeExportReport:
     snapshot: SQLiteSnapshotSourceRef
+    store_origin: LakeStoreOrigin | None
     datasets: Mapping[str, LakeBuildReport]
     empty_datasets: tuple[str, ...] = ()
     """Datasets the registry declares whose source has not published a row yet."""
@@ -305,6 +315,7 @@ def export_lake_legacy(
     sqlite_path: Path,
     mirror_root: Path,
     producer_git_commit: str,
+    expected_store_origin: LakeStoreOrigin | None,
     base_manifest_paths: Mapping[str, Path] | None = None,
     created_at: datetime | None = None,
     audit_full_history: bool = False,
@@ -316,6 +327,15 @@ def export_lake_legacy(
         raise LakeBuildError(f"unsupported base manifest datasets: {sorted(unknown)}")
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
         with _open_immutable(snapshot.path) as probe:
+            try:
+                store_origin = read_lake_store_origin_from_connection(probe)
+            except LakeStoreOriginError as exc:
+                raise LakeBuildError(f"sealed SQLite store origin is invalid: {exc}") from exc
+            if store_origin != expected_store_origin:
+                raise LakeBuildError(
+                    "sealed SQLite store origin differs from the serving L1 release; "
+                    "hydrate from current before publishing"
+                )
             # A dataset whose source has not started publishing yet holds no row, and a
             # canonical build with no partition is not a release input. Skipping it keeps
             # "this source has not begun" distinct from "this build failed", which is the
@@ -339,6 +359,7 @@ def export_lake_legacy(
         }
         return LakeExportReport(
             snapshot=snapshot.ref,
+            store_origin=store_origin,
             datasets=MappingProxyType(reports),
             empty_datasets=tuple(name for name in sorted(LAKE_DATASETS) if name not in reports),
         )
@@ -408,7 +429,7 @@ def plan_affected_periods(
     assert base is not None
     with _open_immutable(sqlite_path) as connection:
         _validate_sqlite_contract(connection, dataset)
-        affected = _affected_periods(connection, dataset, base)
+        affected = affected_periods(connection, dataset, base)
     return LakeBuildPlan(dataset=dataset.name, affected_periods=affected)
 
 
@@ -497,15 +518,22 @@ def _build_periods(
             selected.update(period for period in _base_partitions(base) if first <= period <= last)
         return tuple(sorted(selected))
     if base is not None:
-        return _affected_periods(connection, dataset, base)
+        return affected_periods(connection, dataset, base)
     return _selected_periods(connection, dataset, start=None, end=None)
 
 
-def _affected_periods(
+def affected_periods(
     connection: sqlite3.Connection,
     dataset: LakeDataset,
     base: DatasetManifest,
 ) -> tuple[Period, ...]:
+    """Return every partition whose rows or relevant coverage differ from ``base``.
+
+    Publication uses this to decide what to rebuild. Read-only provenance checks reuse
+    the same comparison so they cannot call a store rebuildable from a release under a
+    weaker definition of equality than the publisher itself.
+    """
+
     current = set(_selected_periods(connection, dataset, start=None, end=None))
     previous = _base_partitions(base)
     affected: list[Period] = []
@@ -537,7 +565,7 @@ def _source_state_sha256(
             (
                 period_start.isoformat(),
                 (period_end - date.resolution).isoformat(),
-                dataset.sqlite_table,
+                dataset.coverage_source_name,
                 period_end.isoformat(),
                 period_start.isoformat(),
             ),
@@ -723,7 +751,7 @@ def _load_base_manifest(
     ):
         raise LakeBuildError("base manifest does not match the requested dataset contract")
     if value.transform_fingerprint != transform:
-        raise LakeBuildError(
+        raise LakeTransformFingerprintMismatch(
             "base manifest transform_fingerprint differs; run a full rebuild without "
             "--base-manifest"
         )

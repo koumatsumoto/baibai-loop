@@ -20,6 +20,7 @@ from tests.helpers.calibration_store import publish_panel, synthetic_calibration
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
 from baibai_engine.market.lake.keys import current_calibration_bundle_pointer_key
+from baibai_engine.market.sqlite.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from baibai_engine.screening.calibration.cli import (
     calibration_build_command,
     calibration_evaluate_command,
@@ -1564,6 +1565,16 @@ class CalibrationPanelTest(unittest.TestCase):
             root = Path(tmp)
             sqlite_path = root / "market.sqlite"
             _build_fixture_sqlite(sqlite_path)
+            connection = open_connection(sqlite_path)
+            write_lake_store_origin(
+                connection,
+                LakeStoreOrigin(
+                    release_id="release-that-only-covers-lake-facts",
+                    release_manifest_sha256="a" * 64,
+                ),
+            )
+            connection.commit()
+            connection.close()
             store_dir = root / "calibration"
             with patch(
                 "baibai_engine.screening.calibration.cli.month_end_asof_grid",
@@ -1587,6 +1598,9 @@ class CalibrationPanelTest(unittest.TestCase):
             }
             self.assertEqual(len(source_sets), 1)
             sources = next(iter(source_sets))
+            # An embedded L1 origin covers the lake-owned facts, not source_coverage or
+            # the historical retention of this complete calibration input. Recording it
+            # here would overstate what can be replayed after this snapshot is gone.
             self.assertEqual(len(sources), 1)
             snapshot = sources[0]
             self.assertEqual(snapshot.kind, "sqlite_snapshot")

@@ -338,13 +338,8 @@ def _total_duration_seconds(run_started_at: str) -> float:
     return max(duration, 0.0)
 
 
-def read_lake_release(path: Path | None, *, outcome: str) -> LakeReleaseSummary | None:
-    """Read what the publication reported, and only when a publication succeeded.
-
-    The record on disk names the release the local store corresponds to, which the fill
-    also writes. Reading it after a skipped or failed publication would report the
-    generation the run started from as the one it published.
-    """
+def read_lake_publish_report(path: Path | None, *, outcome: str) -> LakeReleaseSummary | None:
+    """Read this run's transient publication report after successful publication."""
 
     if path is None or outcome != "success":
         return None
@@ -640,7 +635,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--publish-serving-outcome", type=str, default="skipped")
     parser.add_argument("--hydrate-outcome", type=str, default="skipped")
     parser.add_argument("--publish-lake-outcome", type=str, default="skipped")
-    parser.add_argument("--lake-release-path", type=Path, default=None)
+    parser.add_argument("--lake-publish-report-path", type=Path, default=None)
     parser.add_argument("--asof", type=str, default="")
     parser.add_argument("--run-started-at", type=str, default="")
     parser.add_argument("--cancelled", type=str, default="false")
@@ -674,7 +669,10 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
             run_started_at=args.run_started_at,
             env=env,
             cancelled=args.cancelled == "true",
-            lake=read_lake_release(args.lake_release_path, outcome=args.publish_lake_outcome),
+            lake=read_lake_publish_report(
+                args.lake_publish_report_path,
+                outcome=args.publish_lake_outcome,
+            ),
         )
     except SummaryValidationError as exc:
         print(f"error: cannot compose workflow summary: {exc}", file=sys.stderr)

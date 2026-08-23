@@ -21,6 +21,7 @@ from baibai_batch.observability.discord import (
     derive_publish_state,
     main,
     prepare_webhook_url,
+    read_lake_publish_report,
     render_message,
 )
 from baibai_batch.observability.summary import (
@@ -52,6 +53,29 @@ ENV = {
     "GITHUB_RUN_ID": "123",
 }
 VALID_URL = "https://discord.com/api/webhooks/111/secret-token"
+
+
+def test_read_lake_publish_report_uses_only_a_successful_current_run(tmp_path: Path) -> None:
+    report = tmp_path / "lake-publish-report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "release_id": "release-1",
+                "data_as_of": "2026-08-23",
+                "changed_partitions": {"dataset-a": 2, "dataset-b": 3},
+                "uploaded_objects": 4,
+                "uploaded_bytes": 5,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = read_lake_publish_report(report, outcome="success")
+
+    assert summary is not None
+    assert summary.release_id == "release-1"
+    assert summary.changed_partitions == 5
+    assert read_lake_publish_report(report, outcome="failure") is None
 
 
 def _now_iso() -> str:

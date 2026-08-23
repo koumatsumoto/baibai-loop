@@ -532,9 +532,7 @@ def test_a_retained_reference_resolves_only_to_its_own_immutable_bytes(tmp_path:
 
 def test_a_release_whose_closure_is_incomplete_does_not_resolve(tmp_path: Path) -> None:
     """The manifest is the root of a graph, not the graph. A reference that resolved on
-    the root alone would let a cohort state a lineage whose rows are not in the mirror —
-    which is the whole distinction `source_assurance` draws between naming a generation
-    and being able to read it again."""
+    the root alone would claim a readable fixed release while its rows are absent."""
 
     _, reference = stored_release_source(tmp_path)
     objects = sorted((tmp_path / "lake/l1/canonical").rglob("*.parquet"))
@@ -839,8 +837,9 @@ def test_the_seasonal_calendar_floor_clears_its_measured_trough() -> None:
     assert calendar.minimum_rows > measured_trough // 4
 
 
-def test_a_forward_only_calendar_publishes_and_a_history_keeping_one_still_cannot(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(("rows", "accepted"), [(1_100, True), (400, False)])
+def test_a_forward_only_calendar_uses_its_policy_floor_not_the_previous_snapshot(
+    monkeypatch: pytest.MonkeyPatch, rows: int, accepted: bool
 ) -> None:
     """免除は宣言だけでなく、publish が実際に通るところまで成立していなければならない。
 
@@ -863,8 +862,8 @@ def test_a_forward_only_calendar_publishes_and_a_history_keeping_one_still_canno
     payload = _dataset_payload(
         dataset="jquants.earnings_calendar",
         coverage_start="2026-07-03",
-        population_count=3403,
-        rows=3403,
+        population_count=rows,
+        rows=rows,
     )
     # 決算 calendar は年で切る。contract version が partition の形を固定しているので、
     # 既定の year+month のままでは manifest 自体が読めない。
@@ -908,6 +907,11 @@ def test_a_forward_only_calendar_publishes_and_a_history_keeping_one_still_canno
         ReleaseManifest,
     )
     evaluated_at = datetime(2026, 8, 13, tzinfo=UTC)
+
+    if not accepted:
+        with pytest.raises(ValueError, match="below the profile floor"):
+            validate_release_policy(release, manifests, evaluated_at=evaluated_at)
+        return
 
     validate_release_policy(release, manifests, evaluated_at=evaluated_at)
 
