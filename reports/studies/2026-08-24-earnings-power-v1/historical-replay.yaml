@@ -1,0 +1,1008 @@
+kind: earnings-power-v1-frozen-historical-replay
+bundle:
+  bundle_id: 20260820T073844Z-02061626ff91452cb645ef3c0ffc54a1
+  manifest_sha256: e189c36dc0f098747be30569d8f934612b45a51bddf71ed47964758e47042cb4
+policy:
+  maximum_normalized_per_3fy: 12.0
+  depth: 20
+  minimum_cohorts_per_horizon: 12
+  minimum_total_return_coverage: 0.75
+  minimum_median_alt_only_count: 5.0
+  maximum_median_sector_concentration: 0.5
+source_rules_hashes:
+- 05b14095834171be
+geometry:
+- asof: '2019-11-29'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 5
+  alt_only_count: 15
+  earnings_sector_concentration: 0.2
+- asof: '2019-12-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 4
+  alt_only_count: 16
+  earnings_sector_concentration: 0.2
+- asof: '2020-01-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.25
+- asof: '2020-02-28'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.15
+- asof: '2020-03-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 0
+  alt_only_count: 20
+  earnings_sector_concentration: 0.2
+- asof: '2020-04-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.2
+- asof: '2020-05-29'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.2
+- asof: '2020-06-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.15
+- asof: '2020-07-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 1
+  alt_only_count: 19
+  earnings_sector_concentration: 0.15
+- asof: '2020-08-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 0
+  alt_only_count: 20
+  earnings_sector_concentration: 0.2
+- asof: '2020-09-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 1
+  alt_only_count: 19
+  earnings_sector_concentration: 0.25
+- asof: '2020-10-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 0
+  alt_only_count: 20
+  earnings_sector_concentration: 0.25
+- asof: '2020-11-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 0
+  alt_only_count: 20
+  earnings_sector_concentration: 0.25
+- asof: '2020-12-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 0
+  alt_only_count: 20
+  earnings_sector_concentration: 0.3
+- asof: '2021-01-29'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 1
+  alt_only_count: 19
+  earnings_sector_concentration: 0.4
+- asof: '2021-02-26'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 1
+  alt_only_count: 19
+  earnings_sector_concentration: 0.3
+- asof: '2021-03-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 1
+  alt_only_count: 19
+  earnings_sector_concentration: 0.45
+- asof: '2021-04-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 1
+  alt_only_count: 19
+  earnings_sector_concentration: 0.35
+- asof: '2021-05-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.4
+- asof: '2021-06-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.35
+- asof: '2021-07-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 3
+  alt_only_count: 17
+  earnings_sector_concentration: 0.4
+- asof: '2021-08-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 1
+  alt_only_count: 19
+  earnings_sector_concentration: 0.35
+- asof: '2021-09-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.35
+- asof: '2021-10-29'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 3
+  alt_only_count: 17
+  earnings_sector_concentration: 0.35
+- asof: '2021-11-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 3
+  alt_only_count: 17
+  earnings_sector_concentration: 0.25
+- asof: '2021-12-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.2
+- asof: '2022-01-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.25
+- asof: '2022-02-28'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.25
+- asof: '2022-03-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 3
+  alt_only_count: 17
+  earnings_sector_concentration: 0.25
+- asof: '2022-04-28'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 4
+  alt_only_count: 16
+  earnings_sector_concentration: 0.2
+- asof: '2022-05-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 4
+  alt_only_count: 16
+  earnings_sector_concentration: 0.25
+- asof: '2022-06-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.25
+- asof: '2022-07-29'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 4
+  alt_only_count: 16
+  earnings_sector_concentration: 0.25
+- asof: '2022-08-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 4
+  alt_only_count: 16
+  earnings_sector_concentration: 0.2
+- asof: '2022-09-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 5
+  alt_only_count: 15
+  earnings_sector_concentration: 0.2
+- asof: '2022-10-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 4
+  alt_only_count: 16
+  earnings_sector_concentration: 0.25
+- asof: '2022-11-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 5
+  alt_only_count: 15
+  earnings_sector_concentration: 0.25
+- asof: '2022-12-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 4
+  alt_only_count: 16
+  earnings_sector_concentration: 0.2
+- asof: '2023-01-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 3
+  alt_only_count: 17
+  earnings_sector_concentration: 0.25
+- asof: '2023-02-28'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 3
+  alt_only_count: 17
+  earnings_sector_concentration: 0.15
+- asof: '2023-03-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 1
+  alt_only_count: 19
+  earnings_sector_concentration: 0.2
+- asof: '2023-04-28'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 3
+  alt_only_count: 17
+  earnings_sector_concentration: 0.15
+- asof: '2023-05-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 3
+  alt_only_count: 17
+  earnings_sector_concentration: 0.3
+- asof: '2023-06-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.25
+- asof: '2023-07-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.25
+- asof: '2023-08-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 3
+  alt_only_count: 17
+  earnings_sector_concentration: 0.25
+- asof: '2023-09-29'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.25
+- asof: '2023-10-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 1
+  alt_only_count: 19
+  earnings_sector_concentration: 0.25
+- asof: '2023-11-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 1
+  alt_only_count: 19
+  earnings_sector_concentration: 0.15
+- asof: '2023-12-29'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 1
+  alt_only_count: 19
+  earnings_sector_concentration: 0.15
+- asof: '2024-01-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.15
+- asof: '2024-02-29'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.15
+- asof: '2024-03-29'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 1
+  alt_only_count: 19
+  earnings_sector_concentration: 0.2
+- asof: '2024-04-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 1
+  alt_only_count: 19
+  earnings_sector_concentration: 0.25
+- asof: '2024-05-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.3
+- asof: '2024-06-28'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.25
+- asof: '2024-07-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.2
+- asof: '2024-08-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 0
+  alt_only_count: 20
+  earnings_sector_concentration: 0.25
+- asof: '2024-09-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 0
+  alt_only_count: 20
+  earnings_sector_concentration: 0.2
+- asof: '2024-10-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 0
+  alt_only_count: 20
+  earnings_sector_concentration: 0.2
+- asof: '2024-11-29'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 0
+  alt_only_count: 20
+  earnings_sector_concentration: 0.25
+- asof: '2024-12-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 1
+  alt_only_count: 19
+  earnings_sector_concentration: 0.2
+- asof: '2025-01-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 1
+  alt_only_count: 19
+  earnings_sector_concentration: 0.25
+- asof: '2025-02-28'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.25
+- asof: '2025-03-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 4
+  alt_only_count: 16
+  earnings_sector_concentration: 0.2
+- asof: '2025-04-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 3
+  alt_only_count: 17
+  earnings_sector_concentration: 0.25
+- asof: '2025-05-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 3
+  alt_only_count: 17
+  earnings_sector_concentration: 0.2
+- asof: '2025-06-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 4
+  alt_only_count: 16
+  earnings_sector_concentration: 0.2
+- asof: '2025-07-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 3
+  alt_only_count: 17
+  earnings_sector_concentration: 0.2
+- asof: '2025-08-29'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 1
+  alt_only_count: 19
+  earnings_sector_concentration: 0.15
+- asof: '2025-09-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 3
+  alt_only_count: 17
+  earnings_sector_concentration: 0.15
+- asof: '2025-10-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 3
+  alt_only_count: 17
+  earnings_sector_concentration: 0.15
+- asof: '2025-11-28'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 4
+  alt_only_count: 16
+  earnings_sector_concentration: 0.15
+- asof: '2025-12-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 3
+  alt_only_count: 17
+  earnings_sector_concentration: 0.15
+- asof: '2026-01-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.15
+- asof: '2026-02-27'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.2
+- asof: '2026-03-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 0
+  alt_only_count: 20
+  earnings_sector_concentration: 0.15
+- asof: '2026-04-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.35
+- asof: '2026-05-29'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 3
+  alt_only_count: 17
+  earnings_sector_concentration: 0.4
+- asof: '2026-06-30'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 2
+  alt_only_count: 18
+  earnings_sector_concentration: 0.35
+- asof: '2026-07-31'
+  earnings_count: 20
+  value_carry_count: 20
+  overlap_count: 3
+  alt_only_count: 17
+  earnings_sector_concentration: 0.4
+horizons:
+  3y:
+    eligible_cohort_count: 35
+    eligible_asofs:
+    - '2020-02-28'
+    - '2020-03-31'
+    - '2020-04-30'
+    - '2020-05-29'
+    - '2020-07-31'
+    - '2020-08-31'
+    - '2020-09-30'
+    - '2020-10-30'
+    - '2020-11-30'
+    - '2020-12-30'
+    - '2021-01-29'
+    - '2021-02-26'
+    - '2021-03-31'
+    - '2021-04-30'
+    - '2021-05-31'
+    - '2021-06-30'
+    - '2021-07-30'
+    - '2021-09-30'
+    - '2021-10-29'
+    - '2021-11-30'
+    - '2021-12-30'
+    - '2022-02-28'
+    - '2022-03-31'
+    - '2022-04-28'
+    - '2022-06-30'
+    - '2022-07-29'
+    - '2022-08-31'
+    - '2022-09-30'
+    - '2022-10-31'
+    - '2022-11-30'
+    - '2023-01-31'
+    - '2023-03-31'
+    - '2023-05-31'
+    - '2023-06-30'
+    - '2023-07-31'
+    excluded_cohorts:
+    - asof: '2019-11-29'
+      reasons:
+      - entry_price_gap
+      - unpriced_exit_flips_direction
+    - asof: '2019-12-30'
+      reasons:
+      - unpriced_exit_flips_direction
+    - asof: '2020-01-31'
+      reasons:
+      - unpriced_exit_flips_direction
+    - asof: '2020-06-30'
+      reasons:
+      - entry_price_gap
+    - asof: '2021-08-31'
+      reasons:
+      - entry_price_gap
+    - asof: '2022-01-31'
+      reasons:
+      - entry_price_gap
+    - asof: '2022-05-31'
+      reasons:
+      - entry_price_gap
+    - asof: '2022-12-30'
+      reasons:
+      - priced_master_without_universe_flips_direction
+      - unpriced_exit_flips_direction
+    - asof: '2023-02-28'
+      reasons:
+      - unpriced_exit_flips_direction
+    - asof: '2023-04-28'
+      reasons:
+      - unpriced_exit_flips_direction
+    - asof: '2023-08-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2023-09-29'
+      reasons:
+      - horizon_not_matured
+    - asof: '2023-10-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2023-11-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2023-12-29'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-01-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-02-29'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-03-29'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-04-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-05-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-06-28'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-07-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-08-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-09-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-10-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-11-29'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-12-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-01-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-02-28'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-03-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-04-30'
+      reasons:
+      - entry_price_gap
+      - horizon_not_matured
+    - asof: '2025-05-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-06-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-07-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-08-29'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-09-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-10-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-11-28'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-12-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2026-01-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2026-02-27'
+      reasons:
+      - horizon_not_matured
+    - asof: '2026-03-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2026-04-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2026-05-29'
+      reasons:
+      - horizon_not_matured
+    - asof: '2026-06-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2026-07-31'
+      reasons:
+      - horizon_not_matured
+    bases:
+      price_return:
+        earnings_power:
+          cohort_equal_median_as_reported: 0.9533268626975199
+          cohort_equal_median_neutral: 0.7940376875370927
+          cohort_equal_median_failure: 0.7940376875370927
+          ticker_equal_median_as_reported: 0.8432619358233899
+          coverage: 0.9371428571428572
+          trap_rate: 0.036585365853658534
+        value_carry:
+          cohort_equal_median_as_reported: 0.6578846032015324
+          cohort_equal_median_neutral: 0.599298255056032
+          cohort_equal_median_failure: 0.599298255056032
+          ticker_equal_median_as_reported: 0.6110197368421053
+          coverage: 0.9557142857142857
+          trap_rate: 0.04035874439461883
+        alt_only:
+          cohort_equal_median_as_reported: 0.9533268626975199
+          cohort_equal_median_neutral: 0.7940376875370927
+          cohort_equal_median_failure: 0.7940376875370927
+          ticker_equal_median_as_reported: 0.8394771241830066
+          coverage: 0.9298245614035088
+          trap_rate: 0.029159519725557463
+        cohort_equal_median_difference:
+          as_reported: 0.29544225949598746
+          neutral: 0.19473943248106074
+          failure: 0.19473943248106074
+      total_return:
+        earnings_power:
+          cohort_equal_median_as_reported: 1.0211942809083263
+          cohort_equal_median_neutral: 0.7518683415487358
+          cohort_equal_median_failure: 0.7518683415487358
+          ticker_equal_median_as_reported: 0.953125
+          coverage: 0.8214285714285714
+          trap_rate: 0.03304347826086956
+        value_carry:
+          cohort_equal_median_as_reported: 0.736842105263158
+          cohort_equal_median_neutral: 0.6896300508531692
+          cohort_equal_median_failure: 0.6896300508531692
+          ticker_equal_median_as_reported: 0.7516582451634516
+          coverage: 0.8942857142857142
+          trap_rate: 0.02875399361022364
+        alt_only:
+          cohort_equal_median_as_reported: 0.995793990847864
+          cohort_equal_median_neutral: 0.7312414733969986
+          cohort_equal_median_failure: 0.7312414733969986
+          ticker_equal_median_as_reported: 0.949367088607595
+          coverage: 0.8054226475279107
+          trap_rate: 0.023762376237623763
+        cohort_equal_median_difference:
+          as_reported: 0.28435217564516835
+          neutral: 0.062238290695566634
+          failure: 0.062238290695566634
+  5y:
+    eligible_cohort_count: 19
+    eligible_asofs:
+    - '2019-12-30'
+    - '2020-01-31'
+    - '2020-02-28'
+    - '2020-03-31'
+    - '2020-04-30'
+    - '2020-05-29'
+    - '2020-07-31'
+    - '2020-08-31'
+    - '2020-09-30'
+    - '2020-10-30'
+    - '2020-11-30'
+    - '2020-12-30'
+    - '2021-01-29'
+    - '2021-02-26'
+    - '2021-03-31'
+    - '2021-04-30'
+    - '2021-05-31'
+    - '2021-06-30'
+    - '2021-07-30'
+    excluded_cohorts:
+    - asof: '2019-11-29'
+      reasons:
+      - entry_price_gap
+    - asof: '2020-06-30'
+      reasons:
+      - entry_price_gap
+    - asof: '2021-08-31'
+      reasons:
+      - entry_price_gap
+      - horizon_not_matured
+    - asof: '2021-09-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2021-10-29'
+      reasons:
+      - horizon_not_matured
+    - asof: '2021-11-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2021-12-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2022-01-31'
+      reasons:
+      - entry_price_gap
+      - horizon_not_matured
+    - asof: '2022-02-28'
+      reasons:
+      - horizon_not_matured
+    - asof: '2022-03-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2022-04-28'
+      reasons:
+      - horizon_not_matured
+    - asof: '2022-05-31'
+      reasons:
+      - entry_price_gap
+      - horizon_not_matured
+    - asof: '2022-06-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2022-07-29'
+      reasons:
+      - horizon_not_matured
+    - asof: '2022-08-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2022-09-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2022-10-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2022-11-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2022-12-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2023-01-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2023-02-28'
+      reasons:
+      - horizon_not_matured
+    - asof: '2023-03-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2023-04-28'
+      reasons:
+      - horizon_not_matured
+    - asof: '2023-05-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2023-06-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2023-07-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2023-08-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2023-09-29'
+      reasons:
+      - horizon_not_matured
+    - asof: '2023-10-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2023-11-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2023-12-29'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-01-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-02-29'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-03-29'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-04-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-05-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-06-28'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-07-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-08-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-09-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-10-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-11-29'
+      reasons:
+      - horizon_not_matured
+    - asof: '2024-12-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-01-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-02-28'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-03-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-04-30'
+      reasons:
+      - entry_price_gap
+      - horizon_not_matured
+    - asof: '2025-05-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-06-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-07-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-08-29'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-09-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-10-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-11-28'
+      reasons:
+      - horizon_not_matured
+    - asof: '2025-12-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2026-01-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2026-02-27'
+      reasons:
+      - horizon_not_matured
+    - asof: '2026-03-31'
+      reasons:
+      - horizon_not_matured
+    - asof: '2026-04-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2026-05-29'
+      reasons:
+      - horizon_not_matured
+    - asof: '2026-06-30'
+      reasons:
+      - horizon_not_matured
+    - asof: '2026-07-31'
+      reasons:
+      - horizon_not_matured
+    bases:
+      price_return:
+        earnings_power:
+          cohort_equal_median_as_reported: 1.4818910256410256
+          cohort_equal_median_neutral: 1.0478967422527121
+          cohort_equal_median_failure: 1.0478967422527121
+          ticker_equal_median_as_reported: 1.266124346310285
+          coverage: 0.8868421052631579
+          trap_rate: 0.05934718100890208
+        value_carry:
+          cohort_equal_median_as_reported: 1.0555380723188943
+          cohort_equal_median_neutral: 0.9895055065778574
+          cohort_equal_median_failure: 0.9895055065778574
+          ticker_equal_median_as_reported: 0.983418199936619
+          coverage: 0.9421052631578948
+          trap_rate: 0.061452513966480445
+        alt_only:
+          cohort_equal_median_as_reported: 1.4818910256410256
+          cohort_equal_median_neutral: 1.0442913385826773
+          cohort_equal_median_failure: 1.0442913385826773
+          ticker_equal_median_as_reported: 1.1759647866983134
+          coverage: 0.8788732394366198
+          trap_rate: 0.057692307692307696
+        cohort_equal_median_difference:
+          as_reported: 0.4263529533221313
+          neutral: 0.05839123567485471
+          failure: 0.05839123567485471
+      total_return:
+        earnings_power:
+          cohort_equal_median_as_reported: 1.3037093807480074
+          cohort_equal_median_neutral: 0.8585027984702228
+          cohort_equal_median_failure: 0.8585027984702228
+          ticker_equal_median_as_reported: 1.4362682300955099
+          coverage: 0.7315789473684211
+          trap_rate: 0.04316546762589928
+        value_carry:
+          cohort_equal_median_as_reported: 1.2916666666666665
+          cohort_equal_median_neutral: 1.003857603157437
+          cohort_equal_median_failure: 1.003857603157437
+          ticker_equal_median_as_reported: 1.1675511751326764
+          coverage: 0.8289473684210527
+          trap_rate: 0.02857142857142857
+        alt_only:
+          cohort_equal_median_as_reported: 1.229028147074263
+          cohort_equal_median_neutral: 0.8682351384077889
+          cohort_equal_median_failure: 0.8682351384077889
+          ticker_equal_median_as_reported: 1.4020761245674742
+          coverage: 0.7352112676056338
+          trap_rate: 0.0421455938697318
+        cohort_equal_median_difference:
+          as_reported: 0.012042714081340833
+          neutral: -0.1453548046872143
+          failure: -0.1453548046872143
+verdict_inputs:
+  negative_comparison: false
+  sensitivity_sign_split: true
+  total_return_coverage_below_floor: true
+  median_alt_only_count: 18
+  median_sector_concentration: 0.25
+  all_as_reported_differences_nonnegative: true
+verdict: inconclusive

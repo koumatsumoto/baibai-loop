@@ -211,7 +211,7 @@ authority は次の境界を越えない。
 | Research Gate契約 | research gate contract | method identity | L3 | Research Gateの比較順・required narrative・selected条件を識別するversioned contract |
 | 深掘り候補一覧 | shortlist | パイプライン状態 + 判断 | L3 | Research Gateのselected narrativeとrejected理由を持つcanonical snapshot |
 | 一次リサーチ集合 | primary research set | パイプライン状態 | L3 | Shortlist selectedから人間が深掘り対象としてadmitした集合 |
-| 棄却理由分類 | reject class | 判断要約 | L3 | shortlist rejected entryとbargain assessment reject / defer laneの主因を共通enumで集計する。自由記述が判断の正本であり、分類は自動除外・ranking・売買判断に使わない |
+| 棄却理由分類 | reject class | 判断要約 | L3 | shortlist rejected entryとbargain assessment reject / defer caseの主因を共通enumで集計する。自由記述が判断の正本であり、分類は自動除外・ranking・売買判断に使わない |
 | 個別銘柄リサーチ | research | 活動 | L3 | 一次情報、FV、RR、期待利回り、耐性、反証を調べる工程 |
 | 投資仮説 | thesis | 判断文書 | L3 | 3年/5年scenario、永久損失、source、採否を固定するcanonical artifact。保有中は thesis health を問い、thesis break が売却の主因になる |
 | 独立反証レビュー | thesis review | 判断文書 | L3 | 別 agent による thesis の second-pass 反証。hash で対象 revision へ束縛する |
@@ -221,7 +221,7 @@ authority は次の境界を越えない。
 | 割安機会評価 | bargain assessment | 判断文書 | L3 | Assessment Caseの横比較・研究要点digest・購入方法または見送り理由を固定する1サイクルの統合判断。購入提案の無いサイクルにも成立する |
 | portfolio状態・保有判断 | position | 執行/保有 | L3 | human-confirmed ledger、holding review、outcome |
 | 購入機会サイクル | opportunity | 運転（operation kind） | — | screening → longlist → shortlist → thesis → proposal を 1 trigger で進める operation session の kind |
-| 境界帯の建て方 | starter | 運用語（position の建て方） | L3 | 境界にある lane を全件見送りの代わりに縮小 lot で建てる建て方。境界は 2 形 — 要求利回りが帯の下限以上・上限未満、または要求は full 水準のまま evidence に不完全な軸が残る。パイプライン状態でも判断文書でもなく position の建て方を表すので、`ThesisJudgment.position_intent` の enum 値（`full` / `starter`）として持つ。帯・1 注文上限・bucket 上限の実値は `portfolio-management.md#starter-band` が正本 |
+| 境界帯の建て方 | starter | 運用語（position の建て方） | L3 | 境界にある case を全件見送りの代わりに縮小 lot で建てる建て方。境界は 2 形 — 要求利回りが帯の下限以上・上限未満、または要求は full 水準のまま evidence に不完全な軸が残る。パイプライン状態でも判断文書でもなく position の建て方を表すので、`ThesisJudgment.position_intent` の enum 値（`full` / `starter`）として持つ。帯・1 注文上限・bucket 上限の実値は `portfolio-management.md#starter-band` が正本 |
 
 `research`は個別銘柄を調べる活動（workflow・CLI domain・package 名）、`thesis`はその canonical 成果物である。`thesis break`と`thesis health`は保有判断の正準な投資概念であり、thesis artifact の状態を指す。Git tree は authoritative business system の `engine/`、read-only presentation の `web/`、non-request orchestration の `batch/`、developer tooling の `tools/` と、production methodology の `method/`、runtime state の `stores/`、historical evidence の `reports/` を責務ごとに読む。
 
@@ -279,7 +279,7 @@ L1 / L2の機械store（market / macro series / screening run）のobserved / de
 - `research_gate_contract_id`はResearch Gate判断契約のsemantic versionである。
 - `selection_policy_hash`と`attention_policy_hash`はcanonical representationとtyped execution parametersのexact SHA-256であり、semantic IDと混同しない。
 - behavior-neutralな表現変更ではsemantic IDを維持できるがexact hashは変わり得る。equivalence reportをbridgeにし、旧hashをaliasしない。
-- Value / Carryは`value-carry` / `value-carry-v1`、Earnings Powerは`earnings-power` / `earnings-power-v1`、Core-only Attentionは`value-carry-only-v1`、bounded pilotは`value-carry-plus-earnings-bounded-v1`、Research Gateは`research-gate-v1`を正準IDとする。
+- Value / Carryは`value-carry` / `value-carry-v1`、Core-only Attentionは`value-carry-only-v1`、Research Gateは`research-gate-v1`を正準IDとする。検証時に固定したEarnings Powerの`earnings-power` / `earnings-power-v1`とbounded pilotの`value-carry-plus-earnings-bounded-v1`は、historical replayが`inconclusive`だったためreserved identityでありproduction artifactへ書かない。
 - `core / alternative`はAttention Policy内のruntime roleであり、Opportunity Lane identityではない。
 
 ## 9. 参考
