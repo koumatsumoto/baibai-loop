@@ -1,4 +1,4 @@
-"""Resolve Review Set rows at the screening/research document boundary."""
+"""Resolve the adopted Value / Carry Review Set at the research boundary."""
 
 from __future__ import annotations
 
@@ -7,17 +7,6 @@ from collections.abc import Mapping, Sequence
 
 class ReviewSetResolutionError(ValueError):
     pass
-
-
-_COMMON_SOURCE_FIELDS = (
-    "ticker",
-    "name",
-    "expected_return_pct",
-    "fair_value_anchor_yen",
-    "market_price_yen",
-    "liquidity_status",
-    "estimate_snapshot",
-)
 
 
 def resolve_review_set_rows(
@@ -30,39 +19,9 @@ def resolve_review_set_rows(
     if len(review_tickers) != len(set(review_tickers)):
         raise ReviewSetResolutionError("Review Set contains duplicate tickers")
     core = _unique_rows(payload.get("longlist"), source_name="longlist")
-    alt_block = payload.get("longlist_alt")
-    alt_entries = alt_block.get("entries") if isinstance(alt_block, Mapping) else None
-    alternative = _unique_rows(alt_entries, source_name="longlist_alt.entries")
-
-    rows: dict[str, Mapping[str, object]] = {}
-    for ticker in review_tickers:
-        core_row = core.get(ticker)
-        alt_row = alternative.get(ticker)
-        if core_row is not None:
-            if alt_row is not None:
-                if alt_row.get("overlaps_value_carry_longlist") is not True:
-                    raise ReviewSetResolutionError(
-                        f"{ticker} Earnings overlap is missing its overlap flag"
-                    )
-                conflicts = [
-                    field
-                    for field in _COMMON_SOURCE_FIELDS
-                    if core_row.get(field) != alt_row.get(field)
-                ]
-                if conflicts:
-                    raise ReviewSetResolutionError(
-                        f"{ticker} Review Set source facts conflict: {', '.join(conflicts)}"
-                    )
-            rows[ticker] = core_row
-            continue
-        if alt_row is None:
-            raise ReviewSetResolutionError(f"{ticker} has no Review Set source row")
-        if alt_row.get("overlaps_value_carry_longlist") is True:
-            raise ReviewSetResolutionError(
-                f"{ticker} declares Value / Carry overlap but has no Core source row"
-            )
-        rows[ticker] = alt_row
-    return review_tickers, rows
+    if review_tickers != tuple(core):
+        raise ReviewSetResolutionError("Value / Carry Review Set must equal longlist in order")
+    return review_tickers, core
 
 
 def _unique_rows(value: object, *, source_name: str) -> dict[str, Mapping[str, object]]:
