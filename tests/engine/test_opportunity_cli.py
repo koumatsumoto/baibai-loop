@@ -1037,7 +1037,7 @@ def test_status_waits_for_all_lane_checks_before_comparison(
     assert code == 0
     assert payload["workspace_status"] == "incomplete"
     assert payload["pending_checks"]
-    assert payload["next_command"] == "complete primary research lane for 2331"
+    assert payload["next_command"] == "complete primary research for 2331"
 
     checklist_path = workspace / "2331" / "research-checklist.yaml"
     checklist = safe_load(checklist_path.read_text(encoding="utf-8"))
@@ -1119,7 +1119,7 @@ def test_thesis_scaffold_requires_primary_research_set_membership(
     assert not (workspace / "2331").exists()
 
 
-def test_thesis_scaffold_confines_research_lane_to_direct_ticker_child(
+def test_thesis_scaffold_confines_research_ticker_to_direct_child(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     selection_output = tmp_path / "selection.yaml"
@@ -1168,7 +1168,7 @@ def test_thesis_scaffold_confines_research_lane_to_direct_ticker_child(
     assert not (tmp_path / "outside").exists()
 
 
-def test_primary_research_lanes_share_lineage_and_remain_isolated(
+def test_primary_research_tickers_share_lineage_and_remain_isolated(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"

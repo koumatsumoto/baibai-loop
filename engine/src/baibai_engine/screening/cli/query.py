@@ -270,7 +270,7 @@ def _load_market_regime(
     regime_sqlite_path: Path | None,
     asof_date: date,
 ) -> MarketRegimeSnapshot | None:
-    # A missing cache silently disables the lens (selection stays usable on a
+    # A missing cache silently disables the diagnostic (selection stays usable on a
     # checkout without market.sqlite); the diagnostics record market_regime: null
     # so the degraded mode is visible in the output.
     if regime_sqlite_path is None:

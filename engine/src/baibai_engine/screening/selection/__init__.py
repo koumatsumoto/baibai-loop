@@ -5,10 +5,10 @@ Module map (extension points):
 - ``records``: candidate record types and loaders
 - ``profiles``: built-in profile resolution (``balanced`` is the only profile,
   inlined into ``method/screening/rules/*.yaml``)
-- ``lenses``: per-candidate annotations (durability / 塩漬け耐性) — add a
-  new lens here and surface it via ``payload``
+- ``candidate_diagnostics``: per-candidate annotations (durability / 塩漬け耐性) — add a
+  new diagnostic here and surface it via ``payload``
 - ``ranking``: sort-key components (Evidence Pattern order + valuation-discount strength)
-- ``macro_fit``: macro context fit diagnostics (soft lens, never a gate)
+- ``macro_fit``: macro context fit diagnostics (soft annotation, never a gate)
 - ``summaries``: output tag / summary rendering
 - ``payload``: assembles ranking + diversity + diagnostics into the payload
 

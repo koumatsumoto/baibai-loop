@@ -39,7 +39,7 @@ class MultplProvider:
     ``provider_series_id`` (e.g. ``shiller-pe``).
 
     Used for S&P 500 valuation (Shiller CAPE / GAAP PE / earnings yield) which has
-    no clean FRED/official feed but anchors the equity-risk-premium lens. Short
+    no clean FRED/official feed but anchors the equity-risk-premium perspective. Short
     latest-value requests use the current page. Longer requests use the public
     monthly history table, which also carries the current observation.
     """

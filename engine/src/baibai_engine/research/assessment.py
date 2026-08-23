@@ -214,7 +214,7 @@ class BargainAssessment(BaseModel):
             raise ValueError("at most one case can be selected in one proposal round")
         if self.result == "proposal":
             if not selected:
-                raise ValueError("a proposal result requires exactly one selected lane")
+                raise ValueError("a proposal result requires exactly one selected case")
             if self.purchase is None:
                 raise ValueError("a proposal result requires a purchase plan")
             if self.purchase.ticker != selected[0].ticker:
@@ -223,7 +223,7 @@ class BargainAssessment(BaseModel):
                 raise ValueError("a proposal result requires entry_timing")
         else:
             if selected:
-                raise ValueError("only a proposal result can carry a selected lane")
+                raise ValueError("only a proposal result can carry a selected case")
             if self.purchase is not None:
                 raise ValueError("a purchase plan requires a proposal result")
         return self

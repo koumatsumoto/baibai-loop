@@ -52,7 +52,7 @@ def _app_db(app_method_root: Path) -> Path:
 
 
 def _publish_shortlist(db_path: Path) -> str:
-    """Seed the selected lane an assessment round is scaffolded and published against."""
+    """Seed the selected case an assessment round is scaffolded and published against."""
     shortlist = Shortlist.model_validate(
         {
             "schema_version": 5,
@@ -164,10 +164,10 @@ def _fill_judgment(draft: dict[str, Any]) -> dict[str, Any]:
     draft["headline"] = "現時点で買うに値する候補はない"
     draft["comparison"] = "唯一の深掘り候補が要求利回りを満たさなかった"
     draft["forgone"] = "2331 は決算後に再評価する"
-    lane = draft["cases"][0]
-    lane["disposition"] = "reject"
-    lane["disposition_reason"] = "5年期待値が要求利回りに届かない"
-    lane["reject_class"] = "price_already_converged"
+    case = draft["cases"][0]
+    case["disposition"] = "reject"
+    case["disposition_reason"] = "5年期待値が要求利回りに届かない"
+    case["reject_class"] = "price_already_converged"
     for field in (
         "business_model",
         "value_capture",
@@ -176,8 +176,8 @@ def _fill_judgment(draft: dict[str, Any]) -> dict[str, Any]:
         "strongest_countercase",
         "catalyst",
     ):
-        lane[field] = f"{field} の判断"
-    for question in lane["research_questions"]:
+        case[field] = f"{field} の判断"
+    for question in case["research_questions"]:
         question["answer"] = "翌期の受注残は横ばい"
         question["status"] = "answered"
     draft["review"]["reviewer_identity"] = "independent-reviewer"

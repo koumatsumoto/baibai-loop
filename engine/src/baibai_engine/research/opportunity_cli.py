@@ -156,7 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--thesis-id",
         action="append",
         required=True,
-        help="one promoted thesis per researched lane; repeat the flag",
+        help="one promoted thesis per researched ticker; repeat the flag",
     )
     assessment_scaffold_parser.add_argument("--proposal-id")
     assessment_scaffold_parser.add_argument("--out", type=Path)

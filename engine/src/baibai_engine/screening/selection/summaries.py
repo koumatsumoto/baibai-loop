@@ -122,7 +122,7 @@ def _candidate_risk_tags(candidate: Mapping[str, object]) -> list[str]:
 def _selection_candidate_summary(
     candidate: Mapping[str, object], *, rank: int
 ) -> dict[str, object]:
-    durability_lens = _durability_diagnostic_of(candidate)
+    durability_diagnostic = _durability_diagnostic_of(candidate)
     metrics = mapping_or_empty(candidate.get("metrics"))
     summary = {
         "rank": rank,
@@ -221,8 +221,10 @@ def _selection_candidate_summary(
         "fin_latest_disclosed_date": metrics.get("fin_latest_disclosed_date"),
         "stale_fin_flag": metrics.get("stale_fin_flag"),
         "position_tier": candidate.get("position_tier"),
-        "durability_rating": string_or_none(durability_lens.get("rating")),
-        "durability_caution_reasons": list(string_sequence(durability_lens.get("caution_reasons"))),
+        "durability_rating": string_or_none(durability_diagnostic.get("rating")),
+        "durability_caution_reasons": list(
+            string_sequence(durability_diagnostic.get("caution_reasons"))
+        ),
         "previous_candidate": candidate.get("previous_candidate") is True,
         "reason_tags": list(string_sequence(candidate.get("reason_tags"))),
         "risk_tags": list(string_sequence(candidate.get("risk_tags"))),
@@ -241,7 +243,7 @@ def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str
     の参考値であることを field で明示する。
     """
     metrics = mapping_or_empty(candidate.get("metrics"))
-    durability_lens = _durability_diagnostic_of(candidate)
+    durability_diagnostic = _durability_diagnostic_of(candidate)
     risk_tags = list(string_sequence(candidate.get("risk_tags")))
     decision_input_seed = mapping_or_empty(candidate.get("decision_input_seed"))
     seed_estimates = mapping_or_empty(decision_input_seed.get("estimates"))
@@ -298,7 +300,7 @@ def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str
             "tender_offer_event_latest_on": metrics.get("tender_offer_event_latest_on"),
         },
         "liquidity_status": "pass",
-        "durability_warnings": list(string_sequence(durability_lens.get("caution_reasons"))),
+        "durability_warnings": list(string_sequence(durability_diagnostic.get("caution_reasons"))),
         "event_warnings": [tag for tag in risk_tags if tag in _EVENT_RISK_TAGS],
         "selection_reasons": list(string_sequence(candidate.get("reason_tags"))),
         # opportunity thesis-scaffold は longlist から選ばれた銘柄も扱うため、
@@ -438,14 +440,14 @@ def _decision_input_seed(candidate: Mapping[str, object], *, asof_date: date) ->
 
 
 def _sweep_candidate_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str, object]:
-    durability_lens = _durability_diagnostic_of(candidate)
+    durability_diagnostic = _durability_diagnostic_of(candidate)
     return {
         "rank": rank,
         "ticker": string_or_none(candidate.get("ticker")),
         "name": string_or_none(candidate.get("name")),
         "primary_evidence_pattern_id": string_or_none(candidate.get("primary_evidence_pattern_id")),
         "benchmark_relative_20d": candidate.get("benchmark_relative_20d"),
-        "durability_rating": string_or_none(durability_lens.get("rating")),
+        "durability_rating": string_or_none(durability_diagnostic.get("rating")),
         "previous_candidate": candidate.get("previous_candidate") is True,
         "reason_tags": list(string_sequence(candidate.get("reason_tags"))),
         "risk_tags": list(string_sequence(candidate.get("risk_tags"))),

@@ -26,7 +26,7 @@ application DBの`bargain_assessment`が正本で、Baibai LoopのStocks面がin
 
 調査の全文はthesisとoperation session artifactに残り、assessmentには判断に必要な要点だけを置く。
 
-## Lane digest の責務
+## Case digest の責務
 
 各caseは深掘りの結論を次の要点へ圧縮する。thesisの複製ではなく、**caseを採否した理由が読み取れる最小限**にする。
 

@@ -129,10 +129,10 @@ def _draft(db_path: Path, shortlist_id: str) -> dict[str, Any]:
         proposal_id=None,
         published_at=PUBLISHED_AT,
     )
-    lane = draft["cases"][0]
-    lane["disposition"] = "reject"
-    lane["disposition_reason"] = "5年期待値が要求利回りに届かない"
-    lane["reject_class"] = "price_already_converged"
+    case = draft["cases"][0]
+    case["disposition"] = "reject"
+    case["disposition_reason"] = "5年期待値が要求利回りに届かない"
+    case["reject_class"] = "price_already_converged"
     for field in (
         "business_model",
         "value_capture",
@@ -141,11 +141,11 @@ def _draft(db_path: Path, shortlist_id: str) -> dict[str, Any]:
         "strongest_countercase",
         "catalyst",
     ):
-        lane[field] = f"{field} の判断"
+        case[field] = f"{field} の判断"
     draft["headline"] = "現時点で買うに値する候補はない"
     draft["comparison"] = "唯一の深掘り候補が要求利回りを満たさなかった"
     draft["forgone"] = "2331 は決算後に再評価する"
-    lane["research_questions"] = [
+    case["research_questions"] = [
         {"question": "受注残を確認", "answer": "翌期の受注残は横ばい", "status": "answered"}
     ]
     draft["review"]["reviewer_identity"] = "independent-reviewer"
@@ -176,12 +176,12 @@ def test_scaffold_fills_machine_values_from_the_thesis_and_leaves_judgment_blank
         published_at=PUBLISHED_AT,
     )
 
-    lane = draft["cases"][0]
-    assert lane["ticker"] == "2331"
-    assert lane["machine"]["five_year_base_cagr_pct"] == pytest.approx(9.57)
-    assert lane["machine"]["required_return_pct"] == pytest.approx(8.5)
-    assert lane["machine"]["fair_value_yen"] == pytest.approx(1300.0)
-    assert lane["business_model"] == "TODO"
+    case = draft["cases"][0]
+    assert case["ticker"] == "2331"
+    assert case["machine"]["five_year_base_cagr_pct"] == pytest.approx(9.57)
+    assert case["machine"]["required_return_pct"] == pytest.approx(8.5)
+    assert case["machine"]["fair_value_yen"] == pytest.approx(1300.0)
+    assert case["business_model"] == "TODO"
     assert draft["macro_context_id"] == "macro-context-2026-07-21-test"
     assert draft["result"] == "no_actionable_bargain"
 
@@ -395,9 +395,9 @@ def test_scaffold_carries_the_permanent_loss_verdict_and_the_shortlist_question(
         published_at=PUBLISHED_AT,
     )
 
-    lane = draft["cases"][0]
-    assert lane["machine"]["permanent_loss_conclusion"] in {"acceptable", "elevated", "unknown"}
-    assert lane["research_questions"] == [
+    case = draft["cases"][0]
+    assert case["machine"]["permanent_loss_conclusion"] in {"acceptable", "elevated", "unknown"}
+    assert case["research_questions"] == [
         {"question": "受注残を確認", "answer": "TODO", "status": "unresolved"}
     ]
     assert draft["review"]["draft_sha256"] == UNREVIEWED_DRAFT_SHA256
