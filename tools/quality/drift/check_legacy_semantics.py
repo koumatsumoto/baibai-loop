@@ -99,7 +99,6 @@ _DOMAIN_IDENTIFIER_ADAPTERS = {
     # translate historical evidence into the canonical vocabulary; they do not emit
     # the retired identifiers on a new-write surface.
     Path("engine/src/baibai_engine/read_api/shortlist.py"),
-    Path("engine/src/baibai_engine/screening/run_store/store.py"),
     Path("tools/studies/opportunity_vocabulary_equivalence.py"),
 }
 
