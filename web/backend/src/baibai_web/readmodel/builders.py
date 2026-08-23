@@ -43,7 +43,7 @@ from baibai_web.sources.types import (
 )
 
 from .models import (
-    AssessmentLaneView,
+    AssessmentCaseView,
     AssessmentPurchaseView,
     AssessmentReviewView,
     BargainAssessmentSummaryView,
@@ -543,9 +543,9 @@ def build_assessment_detail(
 
 
 def _assessment_summary_view(raw: Mapping[str, object]) -> BargainAssessmentSummaryView:
-    lanes = _mapping_items_optional(raw.get("lanes"))
+    cases = _mapping_items_optional(raw.get("cases"))
     selected = next(
-        (str(lane["ticker"]) for lane in lanes if lane.get("disposition") == "selected"),
+        (str(case["ticker"]) for case in cases if case.get("disposition") == "selected"),
         None,
     )
     return BargainAssessmentSummaryView(
@@ -555,7 +555,7 @@ def _assessment_summary_view(raw: Mapping[str, object]) -> BargainAssessmentSumm
         result=str(raw["result"]),
         headline=str(raw["headline"]),
         shortlist_id=str(raw["shortlist_id"]),
-        lane_count=len(lanes),
+        case_count=len(cases),
         selected_ticker=selected,
     )
 
@@ -576,16 +576,16 @@ def _assessment_view(
         comparison=str(raw["comparison"]),
         entry_timing=_text(raw.get("entry_timing")),
         forgone=str(raw["forgone"]),
-        lanes=[_assessment_lane_view(item) for item in _mapping_items_optional(raw.get("lanes"))],
+        cases=[_assessment_case_view(item) for item in _mapping_items_optional(raw.get("cases"))],
         purchase=_assessment_purchase_view(raw.get("purchase"), proposal_states=proposal_states),
         review=AssessmentReviewView.model_validate(raw["review"]),
     )
 
 
-def _assessment_lane_view(raw: Mapping[str, object]) -> AssessmentLaneView:
+def _assessment_case_view(raw: Mapping[str, object]) -> AssessmentCaseView:
     machine = raw.get("machine")
     machine_values = machine if isinstance(machine, Mapping) else {}
-    return AssessmentLaneView(
+    return AssessmentCaseView(
         ticker=str(raw["ticker"]),
         name=_text(raw.get("name")),
         disposition=str(raw["disposition"]),
@@ -677,7 +677,7 @@ def _selection_longlist_entry_view(raw: Mapping[str, object]) -> SelectionLongli
         fair_value_anchor_yen=anchor,
         fair_value_gap_pct=_fair_value_gap_pct(anchor, price),
         expected_return_pct=_number(raw.get("expected_return_pct")),
-        screening_playbook=_text(raw.get("screening_playbook")),
+        primary_evidence_pattern_id=_text(raw.get("primary_evidence_pattern_id")),
         liquidity_status=_text(raw.get("liquidity_status")),
         selection_reasons=_string_list(raw.get("selection_reasons")),
         durability_warnings=_string_list(raw.get("durability_warnings")),

@@ -575,7 +575,8 @@ def _validate_evidence_hits(candidate: Mapping[str, object], *, ticker: str) -> 
         if not isinstance(hit, Mapping):
             raise ValueError(f"candidate evidence hit must be an object: {ticker}")
         _required_string(hit, "name")
-        _required_string(hit, "playbook_id")
+        if not isinstance(hit.get("evidence_pattern_id", hit.get("playbook_id")), str):
+            raise ValueError(f"evidence pattern ID is missing: {ticker}")
         status = hit.get("source_status")
         eligible = hit.get("sizing_eligible")
         if status not in allowed_statuses:

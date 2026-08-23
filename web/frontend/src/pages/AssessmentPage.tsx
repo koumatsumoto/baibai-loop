@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router'
 import { ArrowLeft, CircleAlert } from 'lucide-react'
 
 import { fetchJson } from '../api/client'
-import type { AssessmentLaneView, AssessmentPurchaseView, BargainAssessmentView } from '../api/types'
+import type { AssessmentCaseView, AssessmentPurchaseView, BargainAssessmentView } from '../api/types'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
 import { SectionCard } from '../components/SectionCard'
@@ -15,7 +15,7 @@ import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
-import { ASSESSMENT_RESULT, ASSESSMENT_TONE_CLASS as TONE_CLASS, headroomToMaxPct, LANE_DISPOSITION, limitVsClosePct, orderLanes, PERMANENT_LOSS_LABEL, PERMANENT_LOSS_TONE, purchaseAlerts } from '../lib/assessment'
+import { ASSESSMENT_RESULT, ASSESSMENT_TONE_CLASS as TONE_CLASS, CASE_DISPOSITION, headroomToMaxPct, limitVsClosePct, orderCases, PERMANENT_LOSS_LABEL, PERMANENT_LOSS_TONE, purchaseAlerts } from '../lib/assessment'
 import { EMPTY, formatJstDateTime, formatNumber, formatYen } from '../lib/format'
 import { LABEL } from '../lib/labels'
 import { cn } from '../lib/utils'
@@ -23,7 +23,7 @@ import { cn } from '../lib/utils'
 // The research digest, in the order the argument is built: what the business is, whether
 // it keeps what it earns, whether that lasts, whether it survives being wrong, what would
 // break the case, and what pays the reader back.
-const LANE_SECTIONS: readonly (readonly [keyof AssessmentLaneView, string])[] = [
+const CASE_SECTIONS: readonly (readonly [keyof AssessmentCaseView, string])[] = [
   ['business_model', '事業モデル'],
   ['value_capture', '価値の取り分'],
   ['growth_quality', '成長の質'],
@@ -32,9 +32,9 @@ const LANE_SECTIONS: readonly (readonly [keyof AssessmentLaneView, string])[] = 
   ['catalyst', 'catalyst'],
 ]
 
-// Per-lane machine values, all derived by the engine from the thesis and verified against
-// it at publish time. The buffers are what decide the lane, so they lead.
-const MACHINE_ROWS: readonly (readonly [keyof AssessmentLaneView, string, 'pct' | 'pp' | 'yen' | 'x'])[] = [
+// Per-case machine values, all derived by the engine from the thesis and verified against
+// it at publish time. The buffers are what decide the case, so they lead.
+const MACHINE_ROWS: readonly (readonly [keyof AssessmentCaseView, string, 'pct' | 'pp' | 'yen' | 'x'])[] = [
   ['five_year_base_cagr_pct', '5年 base CAGR', 'pct'],
   ['required_return_pct', '要求リターン', 'pct'],
   ['fair_value_yen', 'FV', 'yen'],
@@ -47,8 +47,8 @@ const MACHINE_ROWS: readonly (readonly [keyof AssessmentLaneView, string, 'pct' 
   ['earnings_growth_buffer_pp', '利益成長バッファ', 'pp'],
 ]
 
-function machineCell(lane: AssessmentLaneView, key: keyof AssessmentLaneView, unit: 'pct' | 'pp' | 'yen' | 'x') {
-  const value = lane[key]
+function machineCell(assessmentCase: AssessmentCaseView, key: keyof AssessmentCaseView, unit: 'pct' | 'pp' | 'yen' | 'x') {
+  const value = assessmentCase[key]
   if (typeof value !== 'number') return <span className="text-muted-foreground">{EMPTY}</span>
   if (unit === 'pct') return <PctBadge value={value} />
   if (unit === 'pp') return <span className={cn('font-mono font-medium tabular-nums', value > 0 ? 'text-positive' : value < 0 && 'text-destructive')}>{value > 0 ? '+' : ''}{formatNumber(value, 1)} pp</span>
@@ -57,7 +57,7 @@ function machineCell(lane: AssessmentLaneView, key: keyof AssessmentLaneView, un
 }
 
 function DispositionBadge({ disposition }: { disposition: string }) {
-  const meta = LANE_DISPOSITION[disposition] ?? { label: disposition, tone: 'muted' as const }
+  const meta = CASE_DISPOSITION[disposition] ?? { label: disposition, tone: 'muted' as const }
   return <Badge className={cn('font-semibold', TONE_CLASS[meta.tone])}>{meta.label}</Badge>
 }
 
@@ -117,18 +117,18 @@ function PurchaseCard({ purchase }: { purchase: AssessmentPurchaseView }) {
   )
 }
 
-function LaneComparison({ lanes }: { lanes: readonly AssessmentLaneView[] }) {
+function CaseComparison({ cases }: { cases: readonly AssessmentCaseView[] }) {
   return (
-    <SectionCard description="個別リサーチの thesis から engine が導いた値。publish 時に thesis と突合済みです。" padded title="lane 横比較">
+    <SectionCard description="個別リサーチの thesis から engine が導いた値。publish 時に thesis と突合済みです。" padded title="case 横比較">
         <div className="overflow-x-auto">
           <Table className="text-sm">
             <TableHeader>
               <TableRow>
                 <TableHead className="min-w-44">指標</TableHead>
-                {lanes.map((lane) => (
-                  <TableHead className="min-w-32 text-right" key={lane.ticker}>
-                    <Link className="font-mono font-semibold underline-offset-4 hover:underline" to={`/securities/${lane.ticker}`}>{lane.ticker}</Link>
-                    <span className="ml-1.5 font-normal text-muted-foreground">{lane.name ?? ''}</span>
+                {cases.map((assessmentCase) => (
+                  <TableHead className="min-w-32 text-right" key={assessmentCase.ticker}>
+                    <Link className="font-mono font-semibold underline-offset-4 hover:underline" to={`/securities/${assessmentCase.ticker}`}>{assessmentCase.ticker}</Link>
+                    <span className="ml-1.5 font-normal text-muted-foreground">{assessmentCase.name ?? ''}</span>
                   </TableHead>
                 ))}
               </TableRow>
@@ -136,17 +136,17 @@ function LaneComparison({ lanes }: { lanes: readonly AssessmentLaneView[] }) {
             <TableBody>
               <TableRow>
                 <TableCell className="font-medium">判定</TableCell>
-                {lanes.map((lane) => <TableCell className="text-right" key={lane.ticker}><DispositionBadge disposition={lane.disposition} /></TableCell>)}
+                {cases.map((assessmentCase) => <TableCell className="text-right" key={assessmentCase.ticker}><DispositionBadge disposition={assessmentCase.disposition} /></TableCell>)}
               </TableRow>
               <TableRow>
                 <TableCell className="font-medium">永久損失</TableCell>
-                {lanes.map((lane) => (
-                  <TableCell className="text-right" key={lane.ticker}>
-                    {lane.permanent_loss_conclusion === null
+                {cases.map((assessmentCase) => (
+                  <TableCell className="text-right" key={assessmentCase.ticker}>
+                    {assessmentCase.permanent_loss_conclusion === null
                       ? <span className="text-muted-foreground">{EMPTY}</span>
-                      : <Badge className={cn('font-semibold', TONE_CLASS[PERMANENT_LOSS_TONE[lane.permanent_loss_conclusion] ?? 'muted'])}>{PERMANENT_LOSS_LABEL[lane.permanent_loss_conclusion] ?? lane.permanent_loss_conclusion}</Badge>}
-                    {lane.adverse_risk_axes.length > 0 && (
-                      <p className="mt-1 text-[10px] text-warning">不利: {lane.adverse_risk_axes.join(', ')}</p>
+                      : <Badge className={cn('font-semibold', TONE_CLASS[PERMANENT_LOSS_TONE[assessmentCase.permanent_loss_conclusion] ?? 'muted'])}>{PERMANENT_LOSS_LABEL[assessmentCase.permanent_loss_conclusion] ?? assessmentCase.permanent_loss_conclusion}</Badge>}
+                    {assessmentCase.adverse_risk_axes.length > 0 && (
+                      <p className="mt-1 text-[10px] text-warning">不利: {assessmentCase.adverse_risk_axes.join(', ')}</p>
                     )}
                   </TableCell>
                 ))}
@@ -154,7 +154,7 @@ function LaneComparison({ lanes }: { lanes: readonly AssessmentLaneView[] }) {
               {MACHINE_ROWS.map(([key, label, unit]) => (
                 <TableRow key={key}>
                   <TableCell className="font-medium">{label}</TableCell>
-                  {lanes.map((lane) => <TableCell className="text-right" key={lane.ticker}>{machineCell(lane, key, unit)}</TableCell>)}
+                  {cases.map((assessmentCase) => <TableCell className="text-right" key={assessmentCase.ticker}>{machineCell(assessmentCase, key, unit)}</TableCell>)}
                 </TableRow>
               ))}
               <TableRow>
@@ -162,7 +162,7 @@ function LaneComparison({ lanes }: { lanes: readonly AssessmentLaneView[] }) {
                 {/* The only prose in the table. Cells do not wrap by default, so without
                     this one sentence stretches the table past the viewport and pushes
                     every value in every row out of sight. */}
-                {lanes.map((lane) => <TableCell className="max-w-96 min-w-64 text-left align-top whitespace-normal text-muted-foreground" key={lane.ticker}>{lane.disposition_reason}</TableCell>)}
+                {cases.map((assessmentCase) => <TableCell className="max-w-96 min-w-64 text-left align-top whitespace-normal text-muted-foreground" key={assessmentCase.ticker}>{assessmentCase.disposition_reason}</TableCell>)}
               </TableRow>
             </TableBody>
           </Table>
@@ -171,31 +171,31 @@ function LaneComparison({ lanes }: { lanes: readonly AssessmentLaneView[] }) {
   )
 }
 
-function LaneCard({ lane }: { lane: AssessmentLaneView }) {
+function CaseCard({ assessmentCase }: { assessmentCase: AssessmentCaseView }) {
   return (
     <Card className="gap-0 overflow-hidden py-0 shadow-sm">
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b bg-muted/40 px-5 py-4">
         <div>
           <CardTitle className="text-base">
-            <Link className="font-mono underline-offset-4 hover:underline" to={`/securities/${lane.ticker}`}>{lane.ticker}</Link>
-            <span className="ml-2 font-normal">{lane.name ?? ''}</span>
+            <Link className="font-mono underline-offset-4 hover:underline" to={`/securities/${assessmentCase.ticker}`}>{assessmentCase.ticker}</Link>
+            <span className="ml-2 font-normal">{assessmentCase.name ?? ''}</span>
           </CardTitle>
           <CardDescription className="font-mono text-xs">
-            thesis {lane.thesis_id}{lane.review_id !== null && ` · review ${lane.review_id}`}
+            thesis {assessmentCase.thesis_id}{assessmentCase.review_id !== null && ` · review ${assessmentCase.review_id}`}
           </CardDescription>
         </div>
         <div className="flex items-center gap-2">
-          <DispositionBadge disposition={lane.disposition} />
-          <TradingViewButton ticker={lane.ticker} />
+          <DispositionBadge disposition={assessmentCase.disposition} />
+          <TradingViewButton ticker={assessmentCase.ticker} />
         </div>
       </CardHeader>
       <CardContent className="grid gap-3 px-5 py-4">
         <div className="rounded-md border bg-muted/30 p-3">
           <span className="text-xs font-semibold text-muted-foreground">判定理由</span>
-          <p className="text-sm font-medium">{lane.disposition_reason}</p>
+          <p className="text-sm font-medium">{assessmentCase.disposition_reason}</p>
         </div>
-        {LANE_SECTIONS.map(([key, heading]) => {
-          const text = lane[key]
+        {CASE_SECTIONS.map(([key, heading]) => {
+          const text = assessmentCase[key]
           if (typeof text !== 'string' || text === '') return null
           return (
             <div key={key}>
@@ -204,13 +204,13 @@ function LaneCard({ lane }: { lane: AssessmentLaneView }) {
             </div>
           )
         })}
-        {lane.research_questions.length > 0 && (
+        {assessmentCase.research_questions.length > 0 && (
           <div>
             {/* Why this candidate earned a research slot, and whether the research settled
                 it. An unresolved question is shown, not dropped. */}
             <h4 className="text-sm font-semibold text-accent-foreground/90">選定時の確認事項</h4>
             <div className="grid gap-2">
-              {lane.research_questions.map((item) => (
+              {assessmentCase.research_questions.map((item) => (
                 <div className="rounded-md border p-2.5" key={item.question}>
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge className={cn('text-[10px] font-semibold', item.status === 'answered' ? TONE_CLASS.positive : TONE_CLASS.warning)}>
@@ -224,19 +224,19 @@ function LaneCard({ lane }: { lane: AssessmentLaneView }) {
             </div>
           </div>
         )}
-        {lane.unknowns.length > 0 && (
+        {assessmentCase.unknowns.length > 0 && (
           <div>
             <h4 className="text-sm font-semibold text-accent-foreground/90">未解決の不確実性</h4>
             <ul className="ml-4 list-disc text-sm text-muted-foreground">
-              {lane.unknowns.map((item) => <li key={item}>{item}</li>)}
+              {assessmentCase.unknowns.map((item) => <li key={item}>{item}</li>)}
             </ul>
           </div>
         )}
-        {lane.source_caveats.length > 0 && (
+        {assessmentCase.source_caveats.length > 0 && (
           <div>
             <h4 className="text-sm font-semibold text-warning">出典の欠落と判断への影響</h4>
             <div className="grid gap-1.5">
-              {lane.source_caveats.map((caveat) => (
+              {assessmentCase.source_caveats.map((caveat) => (
                 <p className="text-sm text-muted-foreground" key={`${caveat.source_id}-${caveat.status}`}>
                   <Badge className="mr-1.5 text-[10px]" variant="outline">{caveat.status}</Badge>
                   <span className="font-mono text-xs">{caveat.source_id}</span> — {caveat.decision_impact}
@@ -265,7 +265,7 @@ export function AssessmentPage() {
       })
   }, [assessmentId])
 
-  const lanes = useMemo(() => orderLanes(data?.lanes ?? []), [data])
+  const cases = useMemo(() => orderCases(data?.cases ?? []), [data])
 
   if (error) return <PageState message={error} title="提案レポート" />
   if (!data) return <LoadingPage label="提案レポートを読み込んでいます" />
@@ -304,14 +304,14 @@ export function AssessmentPage() {
         </SectionCard>
       )}
 
-      <SectionCard description="lane 間の比較で何が決め手になったか" padded title="なぜこの結論か">
+      <SectionCard description="case 間の比較で何が決め手になったか" padded title="なぜこの結論か">
         <p className="text-sm whitespace-pre-line">{data.comparison}</p>
       </SectionCard>
 
-      {lanes.length > 0 && <LaneComparison lanes={lanes} />}
+      {cases.length > 0 && <CaseComparison cases={cases} />}
 
       <div className="grid gap-4">
-        {lanes.map((lane) => <LaneCard key={lane.ticker} lane={lane} />)}
+        {cases.map((assessmentCase) => <CaseCard key={assessmentCase.ticker} assessmentCase={assessmentCase} />)}
       </div>
 
       <SectionCard description="この判断で諦めた機会と、その代償の見立て" padded title="見送ったもの">

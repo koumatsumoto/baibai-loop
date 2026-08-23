@@ -1,4 +1,4 @@
-import type { AssessmentLaneView, AssessmentPurchaseView } from '../api/types'
+import type { AssessmentCaseView, AssessmentPurchaseView } from '../api/types'
 
 // A bargain assessment answers one question: is there something worth buying right now.
 // The three answers are equally valid conclusions, so each gets its own reading tone
@@ -15,7 +15,7 @@ export const ASSESSMENT_TONE_CLASS: Record<'positive' | 'warning' | 'muted', str
   muted: 'bg-muted text-muted-foreground',
 }
 
-export const LANE_DISPOSITION: Record<string, { readonly label: string; readonly tone: 'positive' | 'warning' | 'muted' }> = {
+export const CASE_DISPOSITION: Record<string, { readonly label: string; readonly tone: 'positive' | 'warning' | 'muted' }> = {
   selected: { label: '採用', tone: 'positive' },
   reject: { label: '不採用', tone: 'muted' },
   defer: { label: '保留', tone: 'warning' },
@@ -36,18 +36,18 @@ export const PERMANENT_LOSS_TONE: Record<string, 'positive' | 'warning' | 'muted
   unknown: 'warning',
 }
 
-// The selected lane leads so the answer reads first; the rest keep their published order
+// The selected case leads so the answer reads first; the rest keep their published order
 // because that is the order the assessment argues them in.
-export function orderLanes(lanes: readonly AssessmentLaneView[]): readonly AssessmentLaneView[] {
-  return [...lanes]
-    .map((lane, index) => ({ lane, index }))
+export function orderCases(cases: readonly AssessmentCaseView[]): readonly AssessmentCaseView[] {
+  return [...cases]
+    .map((assessmentCase, index) => ({ assessmentCase, index }))
     .sort((left, right) => {
-      const leftSelected = left.lane.disposition === 'selected' ? 0 : 1
-      const rightSelected = right.lane.disposition === 'selected' ? 0 : 1
+      const leftSelected = left.assessmentCase.disposition === 'selected' ? 0 : 1
+      const rightSelected = right.assessmentCase.disposition === 'selected' ? 0 : 1
       if (leftSelected !== rightSelected) return leftSelected - rightSelected
       return left.index - right.index
     })
-    .map((item) => item.lane)
+    .map((item) => item.assessmentCase)
 }
 
 export interface PurchaseAlert {

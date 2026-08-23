@@ -97,7 +97,7 @@ def _panel_row(
     smg_p_s: float | None = None,
     smg_market_fallback: str = "",
     pass_screen: bool = False,
-    evidence_playbooks: str = "",
+    evidence_patterns: str = "",
     threshold_blocks: str = "",
     operating_profit_yoy: float | None = None,
 ) -> PanelRow:
@@ -160,7 +160,7 @@ def _panel_row(
         margin_long_delta_26w=None,
         margin_std_long_share=None,
         pass_screen=pass_screen or rank is not None,
-        evidence_playbooks=evidence_playbooks,
+        evidence_patterns=evidence_patterns,
         threshold_blocks=threshold_blocks,
         selection_rank=rank,
         recommended_rank=rank,
@@ -318,7 +318,7 @@ class PlaybookThresholdTest(unittest.TestCase):
             taken = _panel_row(
                 f"{4000 + index}",
                 per_trailing=10.0,
-                evidence_playbooks="cash-rich-asset-discount",
+                evidence_patterns="cash-rich-asset-discount",
                 pass_screen=True,
             )
             turned_away = _panel_row(
@@ -378,7 +378,7 @@ class PlaybookThresholdTest(unittest.TestCase):
             taken = _panel_row(
                 f"{4000 + index}",
                 per_trailing=10.0,
-                evidence_playbooks="cash-rich-asset-discount",
+                evidence_patterns="cash-rich-asset-discount",
                 pass_screen=True,
             )
             panel.append(taken)

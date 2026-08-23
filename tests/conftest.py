@@ -189,6 +189,10 @@ candidates:
   - ticker: "2331"
     name: ALSOK
     sector_33: サービス業
+    market_cap_oku: 1000.0
+    avg_turnover_oku: 10.0
+    listing_span_days: 1000
+    jpx_flags: []
     per_trailing: 12.0
     metrics:
       er_annual: 0.12
@@ -196,10 +200,18 @@ candidates:
   - ticker: "0001"
     name: Sample One
     sector_33: 情報・通信業
+    market_cap_oku: 1000.0
+    avg_turnover_oku: 10.0
+    listing_span_days: 1000
+    jpx_flags: []
     metrics: {}
     evidence_hits: []
   - ticker: "0002"
     name: Sample Two
     sector_33: 小売業
+    market_cap_oku: 1000.0
+    avg_turnover_oku: 10.0
+    listing_span_days: 1000
+    jpx_flags: []
     evidence_hits: []
 """

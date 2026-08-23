@@ -468,11 +468,11 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
   - [ ] `docs/reference/screening-runtime.md` §3 (env var) / §8 (rules baseline) / §select の判断境界
   - [ ] 関連 test fixture (test_screening_cli の sweep / scorecard テスト等)
 - [ ] **screening evidence pattern を削減する場合、以下を同 commit で揃える**:
-  - [ ] `method/screening/rules/*.yaml` の `screening_playbooks.<playbook>` と
-        `research_selection_playbook_order` から削除
-  - [ ] `engine/src/baibai_engine/screening/rules.py` の `match` 句 / PLAYBOOK_* / REASON_* / `_<playbook>_*` 関数
-  - [ ] `engine/src/baibai_engine/screening/rule_config.py` の `<Name>Playbook` class と Union 型
-        (`screening_playbooks: Mapping[..., A | B | C]`) と `match` 句
+  - [ ] `method/screening/rules/*.yaml` の `evidence_patterns.<pattern>` と
+        `evidence_pattern_order` から削除
+  - [ ] `engine/src/baibai_engine/screening/rules.py` の `match` 句 / EVIDENCE_PATTERN_* / REASON_* / `_<pattern>_*` 関数
+  - [ ] `engine/src/baibai_engine/screening/rule_config.py` の `<Name>EvidencePattern` class と Union 型
+        (`evidence_patterns: Mapping[..., A | B | C]`) と `match` 句
   - [ ] `engine/src/baibai_engine/screening/selection/ranking.py` の sort key match arm
   - [ ] 削除根拠は保有 outcome の calibration で示す (安易な削除で有効な割安タイプを失わない)
 - [ ] **judgment-gate 系の必須 contract を追加する場合、bypass を test で塞ぐ**:

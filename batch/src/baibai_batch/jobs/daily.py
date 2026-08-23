@@ -79,7 +79,7 @@ _COVERAGE_INCOMPLETE_MARKER = "SQLite cache coverage incomplete"
 # Exit 3 means the screening result was published and exported, but a deferred
 # (macro / prune) step failed afterwards.
 _EXIT_DEFERRED_FAILURE = 3
-# The OP3 review input population size the opportunity path uses.
+# The Research Gate input population size the opportunity path uses.
 _SELECT_LONGLIST_TOP = 20
 _EDINET_QUARANTINE_RE = re.compile(
     r"\bquarantined_events=(?P<events>\d+)\s+"

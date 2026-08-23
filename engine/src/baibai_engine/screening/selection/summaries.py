@@ -16,7 +16,7 @@ from baibai_engine.foundation.coerce import (
 )
 
 from ..metrics import PRICE_HISTORY_WINDOW_DAYS
-from .lenses import _durability_lens_of
+from .candidate_diagnostics import _durability_diagnostic_of
 
 # longlist の event_warnings は、価格・EPS・配当の fact を歪め得る
 # corporate action / 決算跨ぎ / 開示鮮度の risk tag だけを写す。需給系
@@ -50,17 +50,17 @@ _PRICE_HISTORY_GAP_MIN_LISTING_SPAN_DAYS = PRICE_HISTORY_WINDOW_DAYS
 def _durability_counts(candidates: Sequence[Mapping[str, object]]) -> dict[str, int]:
     counts: Counter[str] = Counter()
     for candidate in candidates:
-        rating = string_or_none(_durability_lens_of(candidate).get("rating")) or "unknown"
+        rating = string_or_none(_durability_diagnostic_of(candidate).get("rating")) or "unknown"
         counts[rating] += 1
     return dict(counts)
 
 
 def _candidate_reason_tags(candidate: Mapping[str, object]) -> list[str]:
     tags: list[str] = []
-    playbook = string_or_none(candidate.get("selection_playbook"))
+    playbook = string_or_none(candidate.get("primary_evidence_pattern_id"))
     if playbook:
         tags.append(playbook)
-    durability = _durability_lens_of(candidate)
+    durability = _durability_diagnostic_of(candidate)
     rating = string_or_none(durability.get("rating"))
     if rating == "high":
         tags.append("durability_high")
@@ -122,14 +122,14 @@ def _candidate_risk_tags(candidate: Mapping[str, object]) -> list[str]:
 def _selection_candidate_summary(
     candidate: Mapping[str, object], *, rank: int
 ) -> dict[str, object]:
-    durability_lens = _durability_lens_of(candidate)
+    durability_lens = _durability_diagnostic_of(candidate)
     metrics = mapping_or_empty(candidate.get("metrics"))
     summary = {
         "rank": rank,
         "ticker": string_or_none(candidate.get("ticker")),
         "name": string_or_none(candidate.get("name")),
         "sector_33": string_or_none(candidate.get("sector_33")),
-        "selection_playbook": string_or_none(candidate.get("selection_playbook")),
+        "primary_evidence_pattern_id": string_or_none(candidate.get("primary_evidence_pattern_id")),
         "market_cap_oku": candidate.get("market_cap_oku"),
         # liquidity: 5% ADV 参加上限で発注可能サイズを判断し、約定できない薄商いを弾く
         "avg_turnover_oku": candidate.get("avg_turnover_oku"),
@@ -241,7 +241,7 @@ def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str
     の参考値であることを field で明示する。
     """
     metrics = mapping_or_empty(candidate.get("metrics"))
-    durability_lens = _durability_lens_of(candidate)
+    durability_lens = _durability_diagnostic_of(candidate)
     risk_tags = list(string_sequence(candidate.get("risk_tags")))
     decision_input_seed = mapping_or_empty(candidate.get("decision_input_seed"))
     seed_estimates = mapping_or_empty(decision_input_seed.get("estimates"))
@@ -249,7 +249,7 @@ def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str
         "rank": rank,
         "ticker": string_or_none(candidate.get("ticker")),
         "name": string_or_none(candidate.get("name")),
-        "screening_playbook": string_or_none(candidate.get("selection_playbook")),
+        "primary_evidence_pattern_id": string_or_none(candidate.get("primary_evidence_pattern_id")),
         # er_annual は annual_ratio (0.1 = 10%/年)。longlist view は pct で読むので x100。
         "expected_return_pct": _ratio_to_pct(optional_float(metrics.get("er_annual"))),
         "fair_value_anchor_yen": _conservative_fair_value_yen(metrics),
@@ -257,7 +257,7 @@ def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str
         # price basis ではなく、plan-limit は SQLite の raw/unadjusted close を再取得する。
         "market_price_yen": _screening_reference_close_yen(metrics),
         "fv_convergence": _fv_convergence_annotation(candidate, metrics),
-        # 自己株券買付状況報告書の提出観測。longlist は OP3 が 20 件を点検する view なので、
+        # 自己株券買付状況報告書の提出観測。longlistはResearch Gateが20件を点検するviewなので、
         # carry を forward の現金還元として narrative に書けるかの判断材料をここに置く。
         # 提出の齢だけでは答えられない — 枠が満了していれば新しい提出でも forward の還元は
         # 無いので、決議した株数・金額のうち未取得の割合・直近 3 報告月の取得割合・取得期間の
@@ -287,7 +287,7 @@ def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str
             "basis": metrics.get("dividend_basis"),
             "split_factor": metrics.get("dividend_split_factor"),
         },
-        # longlist は OP3 が 20 件を点検する view なので、価値実現の経路を示す dated fact も
+        # longlistはResearch Gateが20件を点検するviewなので、価値実現の経路を示すdated factも
         # ここに置く。rank へは接続しない。
         "capital_control": {
             "tse_capital_policy_status": metrics.get("tse_capital_policy_status"),
@@ -438,12 +438,12 @@ def _decision_input_seed(candidate: Mapping[str, object], *, asof_date: date) ->
 
 
 def _sweep_candidate_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str, object]:
-    durability_lens = _durability_lens_of(candidate)
+    durability_lens = _durability_diagnostic_of(candidate)
     return {
         "rank": rank,
         "ticker": string_or_none(candidate.get("ticker")),
         "name": string_or_none(candidate.get("name")),
-        "selection_playbook": string_or_none(candidate.get("selection_playbook")),
+        "primary_evidence_pattern_id": string_or_none(candidate.get("primary_evidence_pattern_id")),
         "benchmark_relative_20d": candidate.get("benchmark_relative_20d"),
         "durability_rating": string_or_none(durability_lens.get("rating")),
         "previous_candidate": candidate.get("previous_candidate") is True,
@@ -464,7 +464,7 @@ def _sweep_changed_summaries(
             key
             for key in (
                 "durability_rating",
-                "selection_playbook",
+                "primary_evidence_pattern_id",
                 "rank",
             )
             if base.get(key) != current.get(key)

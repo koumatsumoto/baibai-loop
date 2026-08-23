@@ -174,7 +174,7 @@ def _write_selection(
 ) -> None:
     selection_metadata: dict[str, object] = {
         "research_selection_target_max": research_selection_target_max,
-        "research_selection_playbook_order": ["cashflow-yield-discount"],
+        "evidence_pattern_order": ["cashflow-yield-discount"],
     }
     if selection_asof is not None:
         selection_metadata["asof"] = selection_asof
@@ -185,6 +185,7 @@ def _write_selection(
     payload = {
         "recommendations": [],
         "longlist": longlist,
+        "review_tickers": [str(row["ticker"]) for row in longlist],
         "selection": selection_metadata,
     }
     path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
@@ -195,7 +196,7 @@ def _longlist_row(ticker: str, rank: int = 1) -> dict[str, object]:
         "rank": rank,
         "ticker": ticker,
         "name": f"candidate {ticker}",
-        "screening_playbook": "cashflow-yield-discount",
+        "primary_evidence_pattern_id": "cashflow-yield-discount",
         "expected_return_pct": 9.5,
         "fair_value_anchor_yen": 1300,
         "market_price_yen": 1000,
@@ -1653,29 +1654,26 @@ def test_prepare_rejects_selection_estimate_asof_mismatch(
     assert code == 3
 
 
-def test_thesis_scaffold_rejects_duplicate_longlist_ticker(
+def test_prepare_rejects_duplicate_review_set_ticker(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
-    workspace = _prepared_workspace(
-        tmp_path,
-        sqlite_path,
-        longlist=[_longlist_row("2331", 1), _longlist_row("2331", 2)],
+    selection = tmp_path / "selection.yaml"
+    _write_selection(
+        selection,
+        [_longlist_row("2331", 1), _longlist_row("2331", 2)],
     )
     code = opportunity_main(
         [
-            "thesis-scaffold",
+            "prepare",
+            "--asof",
+            "2026-07-03",
+            "--selection-output",
+            str(selection),
+            "--db",
+            str(_app_db(tmp_path)),
             "--workspace",
-            str(workspace),
-            "--ticker",
-            "2331",
-            "--sqlite-path",
-            str(sqlite_path),
-            "--target-session",
-            TARGET_SESSION,
-        ],
-        now=FIXED_NOW,
+            str(tmp_path / "ws"),
+        ]
     )
     assert code == 3
 

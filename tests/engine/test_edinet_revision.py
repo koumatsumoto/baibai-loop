@@ -82,7 +82,7 @@ _UNREFERENCED_ARTIFACTS = (
     "screening/cli/run.py",
     "screening/cli/prune.py",
     "screening/selection/payload.py",
-    "screening/selection/lenses.py",
+    "screening/selection/candidate_diagnostics.py",
     "screening/calibration/evaluation.py",
     "screening/calibration/panel.py",
     # The candidate row model and the metrics computed from EDINET rows. Both read the

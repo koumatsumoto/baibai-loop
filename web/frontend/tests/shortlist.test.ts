@@ -68,7 +68,7 @@ function longlistEntry(
     fair_value_anchor_yen: 1250,
     fair_value_gap_pct: 25,
     expected_return_pct: 10.8,
-    screening_playbook: null,
+    primary_evidence_pattern_id: null,
     liquidity_status: 'ok',
     selection_reasons: [],
     durability_warnings: [],

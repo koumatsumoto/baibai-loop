@@ -11,6 +11,6 @@
 ## Selected candidates remain active
 
 - **対象層** — selected がある通常 cycle の session 終端
-- **題材** — preflight で既存 cloud publication を再利用し、OP3 narrative を持つ selected 2 件を publish する標準 cycle。
+- **題材** — preflightで既存cloud publicationを再利用し、Research Gate narrativeを持つselected 2件をpublishする標準cycle。
 - **期待品質** — primary-research set の人間選択を待つため opportunity session を active に保つ。zero-selection completion を適用せず、追加の completion 儀式を持ち込まない。
 - **判定** — 回帰題材として採用（2026-08-09、#869）。

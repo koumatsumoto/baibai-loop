@@ -324,7 +324,7 @@ class DerivedMetrics:
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class EvidenceHit:
     name: NonEmptyString
-    playbook_id: NonEmptyString
+    evidence_pattern_id: NonEmptyString
     reasons: tuple[str, ...]
     metrics: MetricValueMap = Field(default_factory=dict)
 

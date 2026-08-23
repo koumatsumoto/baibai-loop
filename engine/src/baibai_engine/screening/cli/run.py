@@ -59,8 +59,8 @@ from baibai_engine.screening.providers.jquants import (
 )
 from baibai_engine.screening.render import render_screened_yaml
 from baibai_engine.screening.rule_config import (
-    CashflowYieldPlaybook,
-    SalesDiscountGrowthPlaybook,
+    CashflowYieldEvidencePattern,
+    SalesDiscountGrowthEvidencePattern,
     ScreeningRules,
     load_screening_rules,
 )
@@ -549,7 +549,7 @@ def _evidence_hits_summary(
     candidates: Sequence[ScreenedCandidate],
     rules: ScreeningRules,
 ) -> dict[str, int]:
-    summary = dict.fromkeys(rules.playbook_order, 0)
+    summary = dict.fromkeys(rules.evidence_pattern_order, 0)
     for candidate in candidates:
         for evidence_hit in candidate.evidence_hits:
             summary[evidence_hit.name] = summary.get(evidence_hit.name, 0) + 1
@@ -562,10 +562,10 @@ def _required_ttm_non_exact_count(
 ) -> int:
     snapshots = tuple(financials)
     required_qualities: list[TTMQuality] = []
-    for playbook in rules.screening_playbooks.values():
-        if isinstance(playbook, CashflowYieldPlaybook) and playbook.ttm_cfo_required:
+    for playbook in rules.evidence_patterns.values():
+        if isinstance(playbook, CashflowYieldEvidencePattern) and playbook.ttm_cfo_required:
             required_qualities.extend(snapshot.ttm_quality_ocf_yield for snapshot in snapshots)
-        if isinstance(playbook, SalesDiscountGrowthPlaybook):
+        if isinstance(playbook, SalesDiscountGrowthEvidencePattern):
             required_qualities.extend(snapshot.ttm_quality_p_s for snapshot in snapshots)
     return sum(1 for quality in required_qualities if quality != TTMQuality.EXACT)
 

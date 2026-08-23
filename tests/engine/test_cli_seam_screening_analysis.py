@@ -96,7 +96,7 @@ def _candidate(ticker: str, *, name: str, sector: str, er_annual: float) -> dict
         "evidence_hits": [
             {
                 "name": "valuation-reversion",
-                "playbook_id": "cashflow-yield-discount",
+                "evidence_pattern_id": "cashflow-yield-discount",
                 "source_status": "ok",
                 "sizing_eligible": True,
             }
@@ -170,7 +170,7 @@ def _write_shortlist_draft(path: Path, selection: dict[str, object]) -> None:
     path.write_text(
         yaml.safe_dump(
             {
-                "schema_version": 4,
+                "schema_version": 5,
                 "kind": "shortlist",
                 "shortlist_id": SHORTLIST_ID,
                 "selection_id": selection["selection_id"],
@@ -179,6 +179,13 @@ def _write_shortlist_draft(path: Path, selection: dict[str, object]) -> None:
                 "published_at": f"{RUN_ASOF.isoformat()}T15:00:00+09:00",
                 "profile": block["profile"],
                 "macro_context_id": None,
+                "attention_policy_id": selection["attention_policy_id"],
+                "attention_policy_hash": selection["attention_policy_hash"],
+                "attention_policy_parameters": selection["attention_policy_parameters"],
+                "review_basis_shortlist_id": selection["review_basis"][
+                    "judged_through_shortlist_id"
+                ],
+                "research_gate_contract_id": "research-gate-v1",
                 "entries": [
                     {
                         "ticker": "1111",

@@ -20,8 +20,8 @@ from baibai_engine.appdb.read import connect_read_only
 
 from .assessment import (
     AssessmentConflictError,
-    LaneMachineValues,
-    derive_lane_machine_values,
+    CaseMachineValues,
+    derive_case_machine_values,
 )
 from .thesis import ThesisDocument, require_recorded_identity
 
@@ -49,21 +49,21 @@ def scaffold_assessment(
     if not path.is_file():
         raise AssessmentConflictError(f"application database is unavailable: {path}")
     with closing(connect_read_only(path)) as connection:
-        lanes = [_lane_skeleton(connection, thesis_id) for thesis_id in thesis_ids]
+        cases = [_case_skeleton(connection, thesis_id) for thesis_id in thesis_ids]
         purchase = None if proposal_id is None else _purchase_skeleton(connection, proposal_id)
         shortlist = _shortlist_row(connection, shortlist_id)
     questions = _research_questions_by_ticker(shortlist)
-    for lane in lanes:
-        lane["research_questions"] = [
+    for case in cases:
+        case["research_questions"] = [
             {
-                "question": questions.get(str(lane["ticker"]), _PROSE_PLACEHOLDER),
+                "question": questions.get(str(case["ticker"]), _PROSE_PLACEHOLDER),
                 "answer": _PROSE_PLACEHOLDER,
                 "status": "unresolved",
             }
         ]
     macro_context_id = shortlist.get("macro_context_id")
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "kind": "bargain_assessment",
         "assessment_id": assessment_id,
         "as_of": as_of.isoformat(),
@@ -75,7 +75,7 @@ def scaffold_assessment(
         "comparison": _PROSE_PLACEHOLDER,
         "entry_timing": _PROSE_PLACEHOLDER if proposal_id is not None else None,
         "forgone": _PROSE_PLACEHOLDER,
-        "lanes": lanes,
+        "cases": cases,
         "purchase": purchase,
         "review": {
             "attempt": 1,
@@ -110,7 +110,7 @@ def _research_questions_by_ticker(shortlist: dict[str, object]) -> dict[str, str
     return questions
 
 
-def _lane_skeleton(connection: sqlite3.Connection, thesis_id: str) -> dict[str, object]:
+def _case_skeleton(connection: sqlite3.Connection, thesis_id: str) -> dict[str, object]:
     row = _fetch(
         connection,
         "SELECT ticker, core_sha256, payload FROM thesis WHERE thesis_id = ?",
@@ -119,7 +119,7 @@ def _lane_skeleton(connection: sqlite3.Connection, thesis_id: str) -> dict[str, 
     if row is None:
         raise AssessmentConflictError(f"thesis is unavailable: {thesis_id}")
     document = ThesisDocument.model_validate(json.loads(str(row[2])))
-    machine = derive_lane_machine_values(document)
+    machine = derive_case_machine_values(document)
     return {
         "ticker": str(row[0]),
         "name": document.input_snapshot.company_name,
@@ -141,7 +141,7 @@ def _lane_skeleton(connection: sqlite3.Connection, thesis_id: str) -> dict[str, 
     }
 
 
-def _machine_payload(machine: LaneMachineValues) -> dict[str, object]:
+def _machine_payload(machine: CaseMachineValues) -> dict[str, object]:
     return machine.model_dump(mode="json")
 
 

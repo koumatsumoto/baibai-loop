@@ -334,10 +334,9 @@ def build_parser() -> argparse.ArgumentParser:
     select_parser.add_argument(
         "--longlist-top",
         type=int,
-        default=0,
+        default=20,
         help=(
-            "emit an longlist of the top N ranked candidates before diversity/cap "
-            "truncation (0-100; default 0 omits longlist for output compatibility)"
+            "emit the Value / Carry Lane Longlist before Attention allocation (0-100; default 20)"
         ),
     )
     select_parser.add_argument(

@@ -488,7 +488,7 @@ class CalibrationPanelTest(unittest.TestCase):
             cheap = rows_by_ticker["9001"]
             self.assertTrue(cheap.in_population)
             self.assertTrue(cheap.pass_screen)
-            self.assertEqual(cheap.evidence_playbooks, "cash-rich-asset-discount")
+            self.assertEqual(cheap.evidence_patterns, "cash-rich-asset-discount")
             self.assertEqual(cheap.selection_rank, 1)
             self.assertEqual(cheap.recommended_rank, 1)
             assert cheap.per_trailing is not None

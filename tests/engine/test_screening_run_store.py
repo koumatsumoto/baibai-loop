@@ -621,15 +621,30 @@ def test_reader_returns_none_for_missing_publications(tmp_path: Path) -> None:
     ("evidence_hit", "message"),
     [
         (
-            {"name": "x", "playbook_id": "p", "source_status": "invalid", "sizing_eligible": False},
+            {
+                "name": "x",
+                "evidence_pattern_id": "p",
+                "source_status": "invalid",
+                "sizing_eligible": False,
+            },
             "source_status",
         ),
         (
-            {"name": "x", "playbook_id": "p", "source_status": "warning", "sizing_eligible": True},
+            {
+                "name": "x",
+                "evidence_pattern_id": "p",
+                "source_status": "warning",
+                "sizing_eligible": True,
+            },
             "non-ok evidence",
         ),
         (
-            {"name": "", "playbook_id": "p", "source_status": "ok", "sizing_eligible": True},
+            {
+                "name": "",
+                "evidence_pattern_id": "p",
+                "source_status": "ok",
+                "sizing_eligible": True,
+            },
             "name must",
         ),
     ],
@@ -689,7 +704,7 @@ def test_run_rejects_missing_retired_schema_root_fields(tmp_path: Path, field: s
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
-        ("playbook_id", None, "playbook_id"),
+        ("evidence_pattern_id", None, "evidence pattern ID"),
         ("sizing_eligible", 1, "sizing_eligible must be boolean"),
     ],
 )
@@ -703,7 +718,7 @@ def test_run_rejects_missing_or_mistyped_evidence_fields(
     candidate = dict(payload["candidates"][0])  # type: ignore[index]
     evidence_hit: dict[str, object] = {
         "name": "evidence",
-        "playbook_id": "playbook",
+        "evidence_pattern_id": "pattern",
         "source_status": "ok",
         "sizing_eligible": True,
     }

@@ -1,4 +1,4 @@
-"""Emit the OP3 judgment cohort comparison as a deterministic YAML payload."""
+"""Emit the Research Gate judgment cohort comparison as a deterministic YAML payload."""
 
 from __future__ import annotations
 

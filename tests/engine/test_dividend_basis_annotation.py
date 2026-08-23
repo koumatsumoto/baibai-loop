@@ -1,4 +1,4 @@
-"""The dividend half of carry has to be readable on the surface OP3 inspects.
+"""The dividend half of carry has to be readable on the surface Research Gate inspects.
 
 `dividend_yield` is one number and a special dividend enters it whole, so a one-off
 distribution and a repeatable payout look identical there. Because carry is the primary

@@ -437,7 +437,7 @@ class ThresholdCoverageTests(unittest.TestCase):
 
     def test_every_playbook_field_is_classified(self) -> None:
         rules = load_screening_rules()
-        for name, playbook in rules.screening_playbooks.items():
+        for name, playbook in rules.evidence_patterns.items():
             with self.subTest(playbook=name):
                 relaxed = set(_RELAXED_THRESHOLDS.get(name, {}))
                 fields = set(type(playbook).model_fields)
@@ -448,14 +448,14 @@ class ThresholdCoverageTests(unittest.TestCase):
     def test_every_playbook_has_a_relaxation_entry(self) -> None:
         rules = load_screening_rules()
         self.assertEqual(
-            set(rules.screening_playbooks) - set(_RELAXED_THRESHOLDS),
+            set(rules.evidence_patterns) - set(_RELAXED_THRESHOLDS),
             set(),
         )
 
     def test_the_relaxed_value_admits_what_the_threshold_rejects(self) -> None:
         """A permissive value that is not permissive would silently measure nothing."""
         rules = load_screening_rules()
-        reversion = rules.screening_playbooks[PLAYBOOK_VALUATION_REVERSION]
+        reversion = rules.evidence_patterns[PLAYBOOK_VALUATION_REVERSION]
         relaxed = _RELAXED_THRESHOLDS[PLAYBOOK_VALUATION_REVERSION]
         # The self-range percentile is a share, so 1.0 admits every observation while
         # staying inside the field's own bound.

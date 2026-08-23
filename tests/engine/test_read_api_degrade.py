@@ -267,7 +267,7 @@ def test_shortlist_list_and_latest_agree_on_the_newest_row(tmp_path: Path) -> No
                     shortlist_id,
                     "2026-07-29",
                     "2026-07-29T14:00:00+09:00",
-                    f'{{"shortlist_id": "{shortlist_id}"}}',
+                    f'{{"schema_version": 4, "entries": [], "shortlist_id": "{shortlist_id}"}}',
                 ),
             )
 

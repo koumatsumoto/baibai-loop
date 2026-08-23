@@ -11,7 +11,7 @@ _BEHAVIOR_LEGACY = re.compile(
     r"durability_gate|execution lifecycle|"
     # Retired domain vocabulary (doctrine #vocabulary is the naming authority):
     # the judgment artifact is the thesis, the pre-cap rank pool is the longlist,
-    # and the OP3 output is the shortlist. The Git method tree is method/, so
+    # and the Research Gate output is the shortlist. The Git method tree is method/, so
     # reject any records/ path.
     r"decision.packet|packet.scaffold|packet.draft|--packet-id|research_packet|"
     r"audit.pool|--audit-top|reviewed.shortlist|cockpit|"

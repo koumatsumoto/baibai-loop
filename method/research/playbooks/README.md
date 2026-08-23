@@ -1,8 +1,8 @@
 # method/research/playbooks/
 
 Screening evidence pattern ごとの人間向け research checklist。各 Markdown の
-`playbook_id` は `method/screening/rules/*.yaml` と candidates の
-`evidence_hits[].playbook_id` に対応する。機械的な閾値・除外条件・選定順は
+Research Playbookの`playbook_id`は、`method/screening/rules/*.yaml`とcandidatesの
+`evidence_hits[].evidence_pattern_id`にある同名のMachine Evidence Patternへ対応する。機械的な閾値・除外条件・選定順は
 screening rules が正本で、この領域は H2 見出しの強制や runtime loader を持たない。
 
 ## Layout

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -41,7 +42,7 @@ def _narrative() -> dict[str, object]:
 def _shortlist() -> Shortlist:
     return Shortlist.model_validate(
         {
-            "schema_version": 4,
+            "schema_version": 5,
             "kind": "shortlist",
             "shortlist_id": "shortlist-20260719-base",
             "selection_id": "selection-test",
@@ -50,6 +51,11 @@ def _shortlist() -> Shortlist:
             "published_at": "2026-07-19T14:00:00+09:00",
             "profile": "default",
             "macro_context_id": "macro-context-2026-07-19-base",
+            "attention_policy_id": "value-carry-only-v1",
+            "attention_policy_hash": "a" * 64,
+            "attention_policy_parameters": {"value_carry_limit": 2},
+            "review_basis_shortlist_id": None,
+            "research_gate_contract_id": "research-gate-v1",
             "entries": [
                 {
                     "ticker": "2331",
@@ -75,7 +81,15 @@ def _longlist_row(ticker: str, rank: int) -> dict[str, object]:
         "rank": rank,
         "ticker": ticker,
         "name": f"name-{ticker}",
-        "screening_playbook": "cashflow-yield-discount",
+        "opportunity_lane_id": "value-carry",
+        "selection_policy_id": "value-carry-v1",
+        "selection_policy_hash": "b" * 64,
+        "lane_rank": rank,
+        "lane_native_value": 0.12,
+        "lane_native_unit": "annual_ratio",
+        "baseline_er_rank": rank,
+        "primary_evidence_pattern_id": "cashflow-yield-discount",
+        "policy_diagnostic_ids": [],
         "expected_return_pct": 12.0,
         "fair_value_anchor_yen": 1250.0,
         "market_price_yen": 1000.0,
@@ -111,9 +125,15 @@ def _binding(machine_rows: dict[str, dict[str, object]] | None = None) -> Select
         as_of=shortlist.as_of,
         profile=shortlist.profile,
         macro_context_id=shortlist.macro_context_id,
-        candidate_tickers=frozenset({"2331", "0001"}),
+        review_tickers=("2331", "0001"),
         candidate_er={"2331": 0.12, "0001": 0.04},
-        candidate_machine_rows=machine_rows or {},
+        candidate_machine_rows={
+            "2331": _longlist_row("2331", 1),
+            "0001": _longlist_row("0001", 2),
+            **(machine_rows or {}),
+        },
+        attention_policy_hash="a" * 64,
+        attention_policy_parameters={"value_carry_limit": 2},
     )
 
 
@@ -131,6 +151,40 @@ def test_shortlist_publish_is_immutable_and_identical_retry_is_no_change(tmp_pat
     )
     with pytest.raises(ShortlistConflictError):
         service.publish(changed, selection=_binding())
+
+
+def test_publish_rejects_a_selection_built_before_the_latest_review_basis(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "app.sqlite"
+    service = ShortlistService(path)
+    first = _shortlist()
+    service.publish(first, selection=_binding())
+    second = first.model_copy(
+        update={
+            "shortlist_id": "shortlist-20260720-next",
+            "selection_id": "selection-next",
+            "run_revision_id": "runrev-next",
+            "as_of": date(2026, 7, 20),
+            "published_at": datetime(2026, 7, 20, 14, tzinfo=UTC),
+        }
+    )
+    stale_binding = replace(
+        _binding(),
+        selection_id="selection-next",
+        run_revision_id="runrev-next",
+        as_of=date(2026, 7, 20),
+    )
+
+    with pytest.raises(ShortlistConflictError, match="Review Basis is stale"):
+        service.publish(second, selection=stale_binding)
+
+    current = second.model_copy(update={"review_basis_shortlist_id": first.shortlist_id})
+    current_binding = replace(
+        stale_binding,
+        review_basis_shortlist_id=first.shortlist_id,
+    )
+    assert service.publish(current, selection=current_binding).shortlist_id == current.shortlist_id
 
 
 def test_publish_keeps_the_machine_estimate_the_judgment_was_made_against(
@@ -173,20 +227,18 @@ def test_publish_keeps_the_machine_coordinates_the_judgment_was_compared_against
     # longlist view が増えても判断記録は追随しない。取得枠 annotation は判断時に
     # selection から読む入力であり、shortlist entry へは焼き込まない。
     assert "buyback_authorization" not in by_ticker["2331"]
-    # A ticker the selection did not rank has nothing to burn in.
-    assert by_ticker["0001"] is None
+    assert by_ticker["0001"]["lane_rank"] == 2
 
 
-def test_a_selection_without_a_longlist_burns_nothing_in(tmp_path: Path) -> None:
-    # `select` emits a longlist only when asked for one. Nothing to record is a
-    # normal state, not a reason to fail the publication.
+def test_a_selection_with_a_missing_review_source_fails_closed(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
-    ShortlistService(path).publish(_shortlist(), selection=_binding())
-
-    with sqlite3.connect(path) as connection:
-        payload = json.loads(connection.execute("SELECT payload FROM shortlist").fetchone()[0])
-
-    assert all(entry["machine_snapshot"] is None for entry in payload["entries"])
+    binding = _binding()
+    binding = replace(
+        binding,
+        candidate_machine_rows={"2331": _longlist_row("2331", 1)},
+    )
+    with pytest.raises(ShortlistConflictError, match="source rows are missing"):
+        ShortlistService(path).publish(_shortlist(), selection=binding)
 
 
 def test_a_published_snapshot_is_not_recomputed_by_a_later_run(tmp_path: Path) -> None:

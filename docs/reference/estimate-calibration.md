@@ -220,7 +220,7 @@ The retained diagnostics are selection top-5/top-10 median excess and trap rate,
 | マクロ読みの手順・レンズ | [`macro.md`](./macro.md) + skill `macro-context` | 保有 outcome / 月次の事後検証（N≈1、統計計測はしない） |
 | research の見積り手順 | [`thesis.md`](./thesis.md) + skill `research` | portfolio outcome と長期 horizon calibration |
 | 資本・cap・sizing | [`portfolio-management.md`](../portfolio-management.md) + `position/policy.py` | 保有 outcome |
-| OP3 の選定判断 | skill `shortlist` の深度契約 | 判断コホート比較（`screening shortlist outcome`）+ 機会費用計測 tools |
+| Research Gateの選定判断 | skill `shortlist`の深度契約 | 判断コホート比較（`screening shortlist outcome`）+ 機会費用計測tools |
 
 evidence pattern（playbook）を追加・変更・削除するときは、screening rules・対応 checklist・selection の順位・test を同じ変更で整合させ、根拠を較正結果に置く。
 
@@ -267,12 +267,12 @@ primary-research lane の research FV と screening FV の bridge は、有効�
 
 #### カタリスト軸の事前登録
 
-`screening shortlist outcome` は selected を、OP3 narrative が日付つきカタリストを持つか否かで 2 分する（`selected_by_catalyst`）。**次を計測の実行前に固定する。**
+`screening shortlist outcome`はselectedを、Research Gate narrativeが日付つきカタリストを持つか否かで2分する（`selected_by_catalyst`）。**次を計測の実行前に固定する。**
 
 - **切る場所は selected の内側だけ**。rejected は narrative を持たないので、pool 全体で切ると selected / rejected の差をカタリストの差として報告することになる。
 - **判定基準は棄却コストと同じ**（1y 以上・cohort 8 以上・時間 2 分割で同方向）。満たすまで方向を主張しない。
 - **母数が 10 件未満の側は中央超過を算出せず件数だけを並べる。**
-- **この軸は選定にも ranking にも入れない。** 満たした場合に起票できるのは OP3 深度契約（カタリストの日付要求）の見直しだけであり、`tse_capital_policy_status` などの annotation を機械の入力へ昇格させる根拠にはしない。
+- **この軸は選定にもrankingにも入れない。** 満たした場合に起票できるのはResearch Gate深度契約（カタリストの日付要求）の見直しだけであり、`tse_capital_policy_status`などのannotationを機械の入力へ昇格させる根拠にはしない。
 
 初回の採点可能日は棄却コストと同じ 2026-10-17 である。
 

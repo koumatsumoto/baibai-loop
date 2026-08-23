@@ -293,7 +293,7 @@ MIGRATIONS: tuple[Migration, ...] = (
             ),
         ),
     ),
-    # Domain vocabulary: the per-security judgment artifact is the thesis, the OP3
+    # Domain vocabulary: the per-security judgment artifact is the thesis, the Research Gate
     # gate output is the shortlist, and the pre-cap rank pool is the longlist.
     # Row data is preserved; ID string values in existing rows stay opaque and are
     # not rewritten. Completed operation_session payloads are immutable final

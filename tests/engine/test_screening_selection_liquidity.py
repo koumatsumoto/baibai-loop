@@ -171,7 +171,7 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         recommendations = payload["recommendations"]
         assert isinstance(recommendations, list)
         self.assertEqual([item["ticker"] for item in recommendations], ["1111", "2222"])
-        self.assertIsNone(recommendations[0]["selection_playbook"])
+        self.assertIsNone(recommendations[0]["primary_evidence_pattern_id"])
         self.assertEqual(payload["selection"]["counts"]["evidence_annotated"], 1)
 
     def test_financial_sectors_without_evidence_remain_in_er_ranking(self) -> None:
@@ -200,7 +200,9 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
             [item["sector_33"] for item in recommendations],
             list(financial_sectors),
         )
-        self.assertTrue(all(item["selection_playbook"] is None for item in recommendations))
+        self.assertTrue(
+            all(item["primary_evidence_pattern_id"] is None for item in recommendations)
+        )
         self.assertEqual(payload["selection"]["counts"]["evidence_annotated"], 0)
         longlist = payload["longlist"]
         assert isinstance(longlist, list)
@@ -208,10 +210,10 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
             [item["ticker"] for item in longlist],
             [str(1001 + index) for index in range(len(financial_sectors))],
         )
-        self.assertTrue(all(item["screening_playbook"] is None for item in longlist))
+        self.assertTrue(all(item["primary_evidence_pattern_id"] is None for item in longlist))
 
     def test_playbook_cap_binds_via_profile_override(self) -> None:
-        """max_recommended_per_playbook は E[r] 主キー下でも enforcement が生きている。
+        """Evidence Pattern cap は E[r] 主キー下でも enforcement が生きている。
 
         既定 rules は 10 (実質無効) だが、override で 1 に絞ると同一 playbook の
         2 本目が推奨から落ちる。"""
@@ -230,7 +232,9 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
             profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
-            profile_overrides={"balanced": {"diversity": {"max_recommended_per_playbook": 1}}},
+            profile_overrides={
+                "balanced": {"diversity": {"max_recommended_per_evidence_pattern": 1}}
+            },
         )
         self.assertEqual(self._tickers(payload), {"1111"})
 
@@ -260,7 +264,9 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
             profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
-            profile_overrides={"balanced": {"diversity": {"max_recommended_per_playbook": 1}}},
+            profile_overrides={
+                "balanced": {"diversity": {"max_recommended_per_evidence_pattern": 1}}
+            },
         )
         self.assertEqual(self._tickers(payload), {"1111", "2222"})
 

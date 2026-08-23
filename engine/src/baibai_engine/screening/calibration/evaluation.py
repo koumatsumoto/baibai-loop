@@ -1179,13 +1179,13 @@ def _evaluate_playbook_thresholds(
     population: Sequence[PanelRow],
     excess: Mapping[str, float],
 ) -> dict[str, object]:
-    """What each playbook threshold admitted, against what it alone removed.
+    """What each Evidence Pattern threshold admitted, against what it alone removed.
 
     The axes say which signals order returns. They do not say whether the numbers that
     decide admission are set where they should be, because a threshold is not a ranking:
     it is one cut, and the only rows that speak to it are the ones that satisfied every
-    other condition of the same playbook. `rules.threshold_blocks` names those rows, so
-    the comparison here is between the names a playbook took and the names one of its
+    other condition of the same Evidence Pattern. `rules.threshold_blocks` names those rows, so
+    the comparison here is between the names an Evidence Pattern took and the names one of its
     thresholds turned away.
     """
     admitted: dict[str, list[float]] = defaultdict(list)
@@ -1194,16 +1194,16 @@ def _evaluate_playbook_thresholds(
         value = excess.get(row.ticker)
         if value is None:
             continue
-        for playbook in row.evidence_playbooks.split("|"):
-            if playbook:
-                admitted[playbook].append(value)
+        for evidence_pattern in row.evidence_patterns.split("|"):
+            if evidence_pattern:
+                admitted[evidence_pattern].append(value)
         for block in row.threshold_blocks.split("|"):
             if block:
                 removed[block].append(value)
     result: dict[str, object] = {}
     for block, removed_values in removed.items():
-        playbook = block.split(":", 1)[0]
-        admitted_values = admitted.get(playbook, [])
+        evidence_pattern = block.split(":", 1)[0]
+        admitted_values = admitted.get(evidence_pattern, [])
         if not admitted_values:
             continue
         result[block] = {

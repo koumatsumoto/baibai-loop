@@ -15,10 +15,17 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.foundation.reject_classification import RejectClass
+from baibai_engine.screening.selection.contracts import (
+    RESEARCH_GATE_CONTRACT_ID,
+    VALUE_CARRY_ONLY_ATTENTION_POLICY_ID,
+    ValueCarryOnlyAttentionParameters,
+)
+
+SHORTLIST_SCHEMA_VERSION = 5
 
 
 class ShortlistNarrative(BaseModel):
-    """OP3 human-review judgment for a selected candidate.
+    """Research Gate judgment for a selected candidate.
 
     Screening は数値の由来を機械出力するが、なぜ深掘りに値するかという判断は
     ここへ人間/AI が固定する。selected 銘柄でだけ必須にし、shortlist を
@@ -79,7 +86,15 @@ class ShortlistMachineSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid")
     rank: int | None = None
     name: str | None = None
-    screening_playbook: str | None = None
+    opportunity_lane_id: str = Field(min_length=1)
+    selection_policy_id: str = Field(min_length=1)
+    selection_policy_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    lane_rank: int = Field(ge=1)
+    lane_native_value: float | None
+    lane_native_unit: str = Field(min_length=1)
+    baseline_er_rank: int | None = Field(default=None, ge=1)
+    primary_evidence_pattern_id: str | None = None
+    policy_diagnostic_ids: tuple[str, ...]
     expected_return_pct: float | None = None
     fair_value_anchor_yen: float | None = None
     market_price_yen: float | None = None
@@ -112,7 +127,7 @@ class ShortlistEntry(BaseModel):
     @model_validator(mode="after")
     def validate_narrative_matches_decision(self) -> Self:
         if self.decision == "selected" and self.narrative is None:
-            raise ValueError("selected shortlist entry must include an OP3 narrative")
+            raise ValueError("selected shortlist entry must include a Research Gate narrative")
         if self.decision == "rejected" and self.narrative is not None:
             raise ValueError("rejected shortlist entry must not include a narrative")
         if self.decision == "selected" and self.rank is None:
@@ -136,7 +151,7 @@ as_of より前の日付は既に判明した事実なので、どちらも再�
 
 class Shortlist(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    schema_version: Literal[4]
+    schema_version: Literal[5]
     kind: Literal["shortlist"]
     shortlist_id: str
     selection_id: str = Field(min_length=1)
@@ -145,6 +160,11 @@ class Shortlist(BaseModel):
     published_at: datetime
     profile: str = Field(min_length=1)
     macro_context_id: str | None = None
+    attention_policy_id: Literal["value-carry-only-v1"]
+    attention_policy_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    attention_policy_parameters: ValueCarryOnlyAttentionParameters
+    review_basis_shortlist_id: str | None
+    research_gate_contract_id: Literal["research-gate-v1"]
     entries: tuple[ShortlistEntry, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -153,10 +173,16 @@ class Shortlist(BaseModel):
             raise ValueError("shortlist_id has an invalid format")
         if self.published_at.tzinfo is None:
             raise ValueError("published_at must include a timezone")
+        if self.attention_policy_id == VALUE_CARRY_ONLY_ATTENTION_POLICY_ID and not isinstance(
+            self.attention_policy_parameters, ValueCarryOnlyAttentionParameters
+        ):
+            raise ValueError("Core-only Attention Policy parameters do not match policy ID")
+        if self.research_gate_contract_id != RESEARCH_GATE_CONTRACT_ID:
+            raise ValueError("unknown Research Gate Contract ID")
         tickers = [entry.ticker for entry in self.entries]
         if len(tickers) != len(set(tickers)):
             raise ValueError("shortlist ticker must be unique")
-        # selected 0 件は「longlist を OP3 で見たが、一次リサーチの枠を使う価値のある
+        # selected 0 件は「longlist をResearch Gateで見たが、一次リサーチの枠を使う価値のある
         # 候補が無かった」という正常な判断であり、その見送り理由は rejected entry の
         # reason にしか書けない。ここで publish を拒むと、そのサイクルの判断が
         # 記録の外へ落ちる。
@@ -196,12 +222,16 @@ class SelectionBinding:
     as_of: date
     profile: str
     macro_context_id: str | None
-    candidate_tickers: frozenset[str]
+    review_tickers: tuple[str, ...]
     candidate_er: Mapping[str, float]
     # ticker -> the selection's longlist row. Empty when the selection was published
     # without a longlist, in which case nothing is burned in and the review surface
     # degrades once the bound run is evicted.
     candidate_machine_rows: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
+    attention_policy_id: str = VALUE_CARRY_ONLY_ATTENTION_POLICY_ID
+    attention_policy_hash: str = ""
+    attention_policy_parameters: Mapping[str, object] = field(default_factory=dict)
+    review_basis_shortlist_id: str | None = None
 
 
 def _machine_snapshot(row: Mapping[str, object] | None) -> ShortlistMachineSnapshot | None:
@@ -245,12 +275,33 @@ class ShortlistService:
         )
         if actual != expected:
             raise ShortlistConflictError("shortlist source selection metadata does not match")
-        unknown = sorted(
-            {entry.ticker for entry in shortlist.entries} - selection.candidate_tickers
+        contract_expected = (
+            selection.attention_policy_id,
+            selection.attention_policy_hash,
+            dict(selection.attention_policy_parameters),
+            selection.review_basis_shortlist_id,
         )
-        if unknown:
+        contract_actual = (
+            shortlist.attention_policy_id,
+            shortlist.attention_policy_hash,
+            shortlist.attention_policy_parameters.model_dump(mode="json"),
+            shortlist.review_basis_shortlist_id,
+        )
+        if contract_actual != contract_expected:
+            raise ShortlistConflictError("shortlist Attention Policy binding does not match")
+        entry_tickers = tuple(entry.ticker for entry in shortlist.entries)
+        if set(entry_tickers) != set(selection.review_tickers):
+            missing = sorted(set(selection.review_tickers) - set(entry_tickers))
+            extra = sorted(set(entry_tickers) - set(selection.review_tickers))
             raise ShortlistConflictError(
-                f"shortlist contains tickers outside source run: {', '.join(unknown)}"
+                f"shortlist entries must equal the Review Set; missing={missing}, extra={extra}"
+            )
+        missing_rows = sorted(
+            set(selection.review_tickers) - selection.candidate_machine_rows.keys()
+        )
+        if missing_rows:
+            raise ShortlistConflictError(
+                f"Review Set source rows are missing: {', '.join(missing_rows)}"
             )
         # Burn the machine estimate into the judgment before it is persisted, so the
         # later comparison reads what the judgment saw rather than whatever run is
@@ -286,6 +337,19 @@ class ShortlistService:
                     raise ShortlistConflictError(
                         f"shortlist differs from existing publication: {shortlist.shortlist_id}"
                     )
+                latest = connection.execute(
+                    """
+                    SELECT shortlist_id FROM shortlist
+                    ORDER BY as_of DESC, published_at DESC, shortlist_id DESC
+                    LIMIT 1
+                    """
+                ).fetchone()
+                latest_id = str(latest[0]) if latest is not None else None
+                if shortlist.review_basis_shortlist_id != latest_id:
+                    raise ShortlistConflictError(
+                        "Review Basis is stale; source selection must be rebuilt against "
+                        f"the latest canonical shortlist: {latest_id}"
+                    )
                 connection.execute(
                     """
                     INSERT INTO shortlist (
@@ -310,6 +374,7 @@ class ShortlistService:
 
 __all__ = [
     "CATALYST_HORIZON_DAYS",
+    "SHORTLIST_SCHEMA_VERSION",
     "SelectionBinding",
     "Shortlist",
     "ShortlistConflictError",

@@ -42,6 +42,10 @@ from baibai_engine.position.ledger import (
 )
 from baibai_engine.position.policy import PORTFOLIO_POLICY
 from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.screening.selection.review_set import (
+    ReviewSetResolutionError,
+    resolve_review_set_rows,
+)
 
 from .close_source import (
     PreviousClose,
@@ -199,7 +203,11 @@ def prepare_workspace(
     'no actionable bargain' outcome and still produces a workspace.
     """
     selection = _load_mapping(selection_output, label="selection output")
-    longlist = _dict_list(selection.get("longlist"))
+    try:
+        review_tickers, review_rows = resolve_review_set_rows(selection)
+    except ReviewSetResolutionError as error:
+        raise OpportunityDataError(f"selection Review Set is invalid: {error}") from error
+    longlist = [dict(review_rows[ticker]) for ticker in review_tickers]
     _validate_selection_estimate_asof(selection=selection, longlist=longlist, asof=asof)
     snapshot, append_head = _load_snapshot(db_path)
 
@@ -255,7 +263,7 @@ def prepare_workspace(
         "inputs": manifest_inputs,
         "rules": {
             "research_selection_target_max": research_selection_target_max,
-            "research_selection_playbook_order": _selection_playbook_order(selection),
+            "evidence_pattern_order": _evidence_pattern_order(selection),
         },
     }
     _write_workspace_file(manifest_path, manifest)
@@ -1668,10 +1676,10 @@ def _research_selection_target_max(selection: Mapping[str, object]) -> int:
     return value
 
 
-def _selection_playbook_order(selection: Mapping[str, object]) -> object:
+def _evidence_pattern_order(selection: Mapping[str, object]) -> object:
     block = selection.get("selection")
     if isinstance(block, Mapping):
-        return block.get("research_selection_playbook_order")
+        return block.get("evidence_pattern_order")
     return None
 
 

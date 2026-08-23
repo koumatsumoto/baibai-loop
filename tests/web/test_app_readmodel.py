@@ -761,7 +761,7 @@ def test_shortlist_view_reads_the_burned_machine_snapshot_as_a_longlist_row() ->
                         "market_price_yen": 1000.0,
                         "fair_value_anchor_yen": 1250.0,
                         "expected_return_pct": 12.0,
-                        "screening_playbook": "cashflow-yield-discount",
+                        "primary_evidence_pattern_id": "cashflow-yield-discount",
                         "liquidity_status": "pass",
                         "durability_warnings": [],
                         "event_warnings": ["stale_financials"],

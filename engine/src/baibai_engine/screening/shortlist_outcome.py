@@ -1,4 +1,4 @@
-"""Compare what the OP3 gate selected against what it rejected, after the fact.
+"""Compare what the Research Gate selected against what it rejected, after the fact.
 
 The improvement loop measures the machine estimate against realised prices and the
 few holdings against their own outcome. The judgment between them — which names got
@@ -27,14 +27,14 @@ from statistics import median
 
 from .calibration.forward import ForwardReturnRow
 
-# The ploss vocabulary the OP3 narrative uses, ordered from the least to the most
+# The ploss vocabulary the Research Gate narrative uses, ordered from the least to the most
 # concerning so a report reads down the scale.
 PLOSS_ORDER: tuple[str, ...] = ("低", "中低", "中", "要精査", "高")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ShortlistJudgment:
-    """One ticker's OP3 verdict, with the machine rank it was judged against."""
+    """One ticker's Research Gate verdict, with the machine rank it was judged against."""
 
     ticker: str
     decision: str
@@ -299,7 +299,7 @@ def _selected_by_catalyst(
     """Split the selected names by whether their narrative named a dated catalyst.
 
     The split is inside the selected cohort on purpose. Only a selected name carries an
-    OP3 narrative, so a pool-wide split would separate selected from rejected under a
+    Research Gate narrative, so a pool-wide split would separate selected from rejected under a
     different name and report the selection effect as a catalyst effect.
     """
 

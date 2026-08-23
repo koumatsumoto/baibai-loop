@@ -187,7 +187,7 @@ class PanelRow:
     margin_long_delta_26w: float | None
     margin_std_long_share: float | None
     pass_screen: bool
-    evidence_playbooks: str
+    evidence_patterns: str
     selection_rank: int | None
     recommended_rank: int | None
     population_coverage_status: PopulationCoverageStatus = "evaluated"
@@ -544,7 +544,7 @@ def build_panel(
                 operating_margin=profitability.operating_margin,
                 asset_turnover=profitability.asset_turnover,
                 pass_screen=ticker in evidence_by_ticker,
-                evidence_playbooks="|".join(evidence_by_ticker.get(ticker, ())),
+                evidence_patterns="|".join(evidence_by_ticker.get(ticker, ())),
                 smg_market_fallback="|".join(
                     metric
                     for metric in VALUATION_METRICS
@@ -723,7 +723,7 @@ def _unresolved_master_member_row(
         margin_std_long_share=None,
         realized_volatility_60d=None,
         pass_screen=False,
-        evidence_playbooks="",
+        evidence_patterns="",
         selection_rank=None,
         recommended_rank=None,
         population_coverage_status=(
@@ -802,7 +802,7 @@ def _replay_ranks(
                 },
                 "diversity": {
                     "max_recommended_per_sector": 10**9,
-                    "max_recommended_per_playbook": 10**9,
+                    "max_recommended_per_evidence_pattern": 10**9,
                     "max_previous_candidates_in_recommended": None,
                 },
             }

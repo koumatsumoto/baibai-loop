@@ -3,11 +3,11 @@ from __future__ import annotations
 from math import inf
 
 from .rule_config import (
-    CashflowYieldPlaybook,
-    CashRichPlaybook,
-    SalesDiscountGrowthPlaybook,
+    CashflowYieldEvidencePattern,
+    CashRichEvidencePattern,
+    SalesDiscountGrowthEvidencePattern,
     ScreeningRules,
-    ValuationReversionPlaybook,
+    ValuationReversionEvidencePattern,
 )
 from .schema import DerivedMetrics, EvidenceHit, FinancialSnapshot, ScreeningResult, TTMQuality
 
@@ -33,10 +33,10 @@ def evaluate_screening(
     evidence_hits: list[EvidenceHit] = []
     null_reasons: list[str] = []
 
-    for name, playbook in rules.screening_playbooks.items():
+    for name, playbook in rules.evidence_patterns.items():
         match name:
             case "valuation-reversion":
-                if not isinstance(playbook, ValuationReversionPlaybook):
+                if not isinstance(playbook, ValuationReversionEvidencePattern):
                     continue
                 if _is_excluded_sector(sector_33, playbook.excluded_sectors):
                     null_reasons.append("valuation_reversion_excluded_sector")
@@ -49,21 +49,21 @@ def evaluate_screening(
                     null_reasons,
                 )
             case "cash-rich-asset-discount":
-                if not isinstance(playbook, CashRichPlaybook):
+                if not isinstance(playbook, CashRichEvidencePattern):
                     continue
                 if _is_excluded_sector(sector_33, playbook.excluded_sectors):
                     null_reasons.append("cash_rich_excluded_sector")
                     continue
                 hit = _cash_rich_asset_discount(financial, playbook, null_reasons)
             case "cashflow-yield-discount":
-                if not isinstance(playbook, CashflowYieldPlaybook):
+                if not isinstance(playbook, CashflowYieldEvidencePattern):
                     continue
                 if _is_excluded_sector(sector_33, playbook.excluded_sectors):
                     null_reasons.append("cashflow_yield_excluded_sector")
                     continue
                 hit = _cashflow_yield_discount(financial, playbook, null_reasons)
             case "sales-discount-growth":
-                if not isinstance(playbook, SalesDiscountGrowthPlaybook):
+                if not isinstance(playbook, SalesDiscountGrowthEvidencePattern):
                     continue
                 if _is_excluded_sector(sector_33, playbook.excluded_sectors):
                     null_reasons.append("sales_discount_excluded_sector")
@@ -129,7 +129,7 @@ _RELAXED_THRESHOLDS: dict[str, dict[str, object]] = {
 _NON_THRESHOLD_FIELDS = frozenset(
     {
         # 素性と適用範囲
-        "playbook_id",
+        "evidence_pattern_id",
         "excluded_sectors",
         "metrics",
         # data 要件。落とすのは水準ではなく事実の有無
@@ -162,22 +162,22 @@ def threshold_blocks(
     is set at rather than its null policy.
     """
     blocked: list[str] = []
-    for name, playbook in rules.screening_playbooks.items():
+    for name, playbook in rules.evidence_patterns.items():
         relaxations = _RELAXED_THRESHOLDS.get(name)
         if relaxations is None or _is_excluded_sector(sector_33, playbook.excluded_sectors):
             continue
-        if _playbook_hit(financial, derived, rules, name, playbook) is not None:
+        if _evidence_pattern_hit(financial, derived, rules, name, playbook) is not None:
             continue
         for field, permissive in relaxations.items():
             if getattr(playbook, field, None) == permissive:
                 continue
             relaxed = playbook.model_copy(update={field: permissive})
-            if _playbook_hit(financial, derived, rules, name, relaxed) is not None:
+            if _evidence_pattern_hit(financial, derived, rules, name, relaxed) is not None:
                 blocked.append(f"{name}:{field}")
     return tuple(blocked)
 
 
-def _playbook_hit(
+def _evidence_pattern_hit(
     financial: FinancialSnapshot,
     derived: DerivedMetrics,
     rules: ScreeningRules,
@@ -187,13 +187,13 @@ def _playbook_hit(
     """Evaluate one playbook, discarding the null reasons a probe would otherwise emit."""
     discarded: list[str] = []
     match name:
-        case "cash-rich-asset-discount" if isinstance(playbook, CashRichPlaybook):
+        case "cash-rich-asset-discount" if isinstance(playbook, CashRichEvidencePattern):
             return _cash_rich_asset_discount(financial, playbook, discarded)
-        case "cashflow-yield-discount" if isinstance(playbook, CashflowYieldPlaybook):
+        case "cashflow-yield-discount" if isinstance(playbook, CashflowYieldEvidencePattern):
             return _cashflow_yield_discount(financial, playbook, discarded)
-        case "sales-discount-growth" if isinstance(playbook, SalesDiscountGrowthPlaybook):
+        case "sales-discount-growth" if isinstance(playbook, SalesDiscountGrowthEvidencePattern):
             return _sales_discount_growth(financial, derived, playbook, discarded)
-        case "valuation-reversion" if isinstance(playbook, ValuationReversionPlaybook):
+        case "valuation-reversion" if isinstance(playbook, ValuationReversionEvidencePattern):
             return _valuation_reversion(
                 financial, derived, playbook, rules.quality.yoy_deterioration_threshold, discarded
             )
@@ -204,7 +204,7 @@ def _playbook_hit(
 def _valuation_reversion(
     financial: FinancialSnapshot,
     derived: DerivedMetrics,
-    playbook: ValuationReversionPlaybook,
+    playbook: ValuationReversionEvidencePattern,
     deterioration_threshold: float,
     null_reasons: list[str],
 ) -> EvidenceHit | None:
@@ -237,7 +237,7 @@ def _valuation_reversion(
         return None
     return EvidenceHit(
         name=PLAYBOOK_VALUATION_REVERSION,
-        playbook_id=playbook.playbook_id,
+        evidence_pattern_id=playbook.evidence_pattern_id,
         reasons=tuple(reasons),
         metrics=metrics,
     )
@@ -246,7 +246,7 @@ def _valuation_reversion(
 def _condition_a_metric(
     financial: FinancialSnapshot,
     derived: DerivedMetrics,
-    playbook: ValuationReversionPlaybook,
+    playbook: ValuationReversionEvidencePattern,
     null_reasons: list[str],
 ) -> str | None:
     if derived.short_history_flag:
@@ -269,7 +269,7 @@ def _condition_a_metric(
 def _condition_b_metric(
     financial: FinancialSnapshot,
     derived: DerivedMetrics,
-    playbook: ValuationReversionPlaybook,
+    playbook: ValuationReversionEvidencePattern,
     deterioration_threshold: float,
     null_reasons: list[str],
 ) -> str | None:
@@ -293,7 +293,7 @@ def _condition_b_metric(
 
 def _cash_rich_asset_discount(
     financial: FinancialSnapshot,
-    playbook: CashRichPlaybook,
+    playbook: CashRichEvidencePattern,
     null_reasons: list[str],
 ) -> EvidenceHit | None:
     if financial.cash_to_market_cap is None:
@@ -340,7 +340,7 @@ def _cash_rich_asset_discount(
         return None
     return EvidenceHit(
         name=PLAYBOOK_CASH_RICH,
-        playbook_id=playbook.playbook_id,
+        evidence_pattern_id=playbook.evidence_pattern_id,
         reasons=(REASON_CASH_RICH,),
         metrics={
             "cash_to_market_cap": financial.cash_to_market_cap,
@@ -356,7 +356,7 @@ def _cash_rich_asset_discount(
 
 def _cashflow_yield_discount(
     financial: FinancialSnapshot,
-    playbook: CashflowYieldPlaybook,
+    playbook: CashflowYieldEvidencePattern,
     null_reasons: list[str],
 ) -> EvidenceHit | None:
     if financial.ttm_quality_ocf_yield == TTMQuality.UNAVAILABLE:
@@ -392,7 +392,7 @@ def _cashflow_yield_discount(
         return None
     return EvidenceHit(
         name=PLAYBOOK_CASHFLOW_YIELD,
-        playbook_id=playbook.playbook_id,
+        evidence_pattern_id=playbook.evidence_pattern_id,
         reasons=(REASON_CASHFLOW_YIELD,),
         metrics={
             "ocf_yield": financial.ocf_yield,
@@ -407,7 +407,7 @@ def _cashflow_yield_discount(
 def _sales_discount_growth(
     financial: FinancialSnapshot,
     derived: DerivedMetrics,
-    playbook: SalesDiscountGrowthPlaybook,
+    playbook: SalesDiscountGrowthEvidencePattern,
     null_reasons: list[str],
 ) -> EvidenceHit | None:
     ps_gap = derived.sector_median_gap.get("p_s")
@@ -423,7 +423,7 @@ def _sales_discount_growth(
         return None
     return EvidenceHit(
         name=PLAYBOOK_SALES_DISCOUNT,
-        playbook_id=playbook.playbook_id,
+        evidence_pattern_id=playbook.evidence_pattern_id,
         reasons=(REASON_SALES_DISCOUNT,),
         metrics={
             "p_s": financial.p_s,
@@ -439,7 +439,7 @@ def _sales_discount_growth(
 
 def _sales_operating_profit_gate(
     financial: FinancialSnapshot,
-    playbook: SalesDiscountGrowthPlaybook,
+    playbook: SalesDiscountGrowthEvidencePattern,
 ) -> bool:
     # C2: operating margin floor — kills the "loss narrowing" escape hatch
     # that admitted chronic losers (e.g. -100B -> -50B counts as "narrowing"
@@ -475,7 +475,7 @@ def _has_deterioration(financial: FinancialSnapshot, deterioration_threshold: fl
 
 
 def _rule_metrics(
-    financial: FinancialSnapshot, playbook: ValuationReversionPlaybook
+    financial: FinancialSnapshot, playbook: ValuationReversionEvidencePattern
 ) -> tuple[str, ...]:
     metrics: list[str] = []
     for metric in playbook.metrics:

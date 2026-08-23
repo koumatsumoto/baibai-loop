@@ -172,7 +172,7 @@ def _arrow_schema(dataset: L2Dataset) -> Any:
 # after either dataset gains a field, which is the one thing an external reader is
 # entitled to use the version for. `verify_l2_schema_signatures` is what keeps the
 # number honest: change a row type without bumping it and the gate fails.
-CALIBRATION_PANEL = L2Dataset(name=PANEL_DATASET, row_type=PanelRow, contract_version=2)
+CALIBRATION_PANEL = L2Dataset(name=PANEL_DATASET, row_type=PanelRow, contract_version=3)
 CALIBRATION_DIAGNOSTICS = L2Dataset(
     name=DIAGNOSTICS_DATASET,
     row_type=PanelDiagnostics,
@@ -194,6 +194,7 @@ _RECORDED_SCHEMA_SIGNATURES: Mapping[tuple[str, int], str] = {
     # v1 は tradable_share_change_yoy を持たない。published object の意味なので消さない。
     (PANEL_DATASET, 1): "63f2bdd83d17198372f4ed482cf6d08aee63046433efcad2ed4cf9ac9deb86a7",
     (PANEL_DATASET, 2): "44893ddd59ba7dd81c2bb2dac01195043e31c8058c49290d77b3c4c33d43c2d2",
+    (PANEL_DATASET, 3): "8035e26244cf809341e3f668f437ed6a6307249e0dd4d5127a0c139344f18ac2",
     (DIAGNOSTICS_DATASET, 1): "925417b9cec5ee5946707a0be815820f99a10b07aed06a1910b7947c5e7bb362",
     (FORWARD_DATASET, 1): "377bd76a691e3f2c40a0ad60cde177f0d011bab4bd5408a36e7fa1878db7cc80",
 }
