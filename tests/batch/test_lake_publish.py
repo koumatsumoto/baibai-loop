@@ -451,8 +451,8 @@ def test_pointer_head_get_straddle_fails_its_metadata_identity(tmp_path: Path) -
 
 
 @pytest.mark.parametrize("level", ["release", "dataset"])
-def test_structurally_valid_mirror_replacement_stops_before_export(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, level: str
+def test_structurally_valid_mirror_replacement_is_healed_from_remote(
+    tmp_path: Path, level: str
 ) -> None:
     mirror, release_path = _release(tmp_path)
     store = _MemoryStore()
@@ -465,28 +465,15 @@ def test_structurally_valid_mirror_replacement_stops_before_export(
         if level == "release"
         else next((mirror / "lake/manifests/datasets").glob("*/*.json"))
     )
+    expected = path.read_bytes()
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["created_at"] = "2026-01-08T00:00:00Z"
     path.write_text(json.dumps(payload), encoding="utf-8")
-    export_called = False
 
-    def unexpected_export(**_: object) -> object:
-        nonlocal export_called
-        export_called = True
-        raise AssertionError("export must not start")
+    fixed = market_publish_module._resolve_base_release(store, mirror, pointer)
 
-    monkeypatch.setattr(market_publish_module, "export_lake_legacy", unexpected_export)
-
-    with pytest.raises(LakePublishError, match="base release identity validation failed"):
-        market_publish_module.publish_market_lake(
-            sqlite_path=tmp_path / "market.sqlite",
-            mirror_root=mirror,
-            store=store,
-            expected_base_release_id=pointer.release_id,
-            expected_base_manifest_sha256=pointer.manifest_sha256,
-        )
-
-    assert export_called is False
+    assert fixed.release_id == pointer.release_id
+    assert path.read_bytes() == expected
 
 
 def test_validated_base_manifest_bytes_are_fixed_before_export(tmp_path: Path) -> None:
@@ -541,7 +528,7 @@ def test_remote_manifest_digest_mismatch_stops_before_export(
 
     monkeypatch.setattr(market_publish_module, "export_lake_legacy", unexpected_export)
 
-    with pytest.raises(LakePublishError, match="base release identity validation failed"):
+    with pytest.raises(LakePublishError, match="downloaded lake object digest mismatch"):
         market_publish_module.publish_market_lake(
             sqlite_path=tmp_path / "market.sqlite",
             mirror_root=tmp_path / "fresh-mirror",
@@ -580,6 +567,7 @@ def test_market_publish_logs_one_phase_line_without_polluting_stdout(
     assert json.loads(output.out)["release_id"] == "timed-release"
     assert output.err.count("lake publish phases:") == 1
     for phase in (
+        "base_resolve=",
         "seal_plan_export=",
         "release_create=",
         "local_graph=",
@@ -865,8 +853,125 @@ def test_r2_adapter_sends_conditional_put_and_classifies_404(
     assert requests[0]["ContentMD5"] == "md5"
 
 
+@pytest.mark.parametrize("existing", [False, True])
+def test_r2_download_stream_failure_never_exposes_partial_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing: bool
+) -> None:
+    store = Boto3R2Store(
+        bucket="integration-test",
+        env={
+            "R2_ACCOUNT_ID": "a" * 32,
+            "R2_ACCESS_KEY_ID": "not-logged",
+            "R2_SECRET_ACCESS_KEY": "not-logged",
+        },
+    )
+    target = tmp_path / "cache.json"
+    if existing:
+        target.write_bytes(b"known-good")
+
+    class BrokenBody:
+        reads = 0
+
+        def read(self, _: int) -> bytes:
+            self.reads += 1
+            if self.reads == 1:
+                return b"partial"
+            raise ReadTimeoutError(endpoint_url="https://redacted.invalid")
+
+        def close(self) -> None:
+            pass
+
+    class Client:
+        def get_object(self, **_: object) -> object:
+            return {"Body": BrokenBody()}
+
+    monkeypatch.setattr(store, "_client", lambda *_: Client())
+    with pytest.raises(LakePublishError, match="timed out"):
+        store.download_file("key", target, expect_bytes=10)
+
+    if existing:
+        assert target.read_bytes() == b"known-good"
+    else:
+        assert not target.exists()
+    assert list(tmp_path.glob(".cache.json.*.part")) == []
+
+
+@pytest.mark.parametrize(("payload", "expected"), [(b"short", 6), (b"too-long", 7)])
+def test_r2_download_rejects_size_mismatch_without_replacing_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    payload: bytes,
+    expected: int,
+) -> None:
+    store = Boto3R2Store(
+        bucket="integration-test",
+        env={
+            "R2_ACCOUNT_ID": "a" * 32,
+            "R2_ACCESS_KEY_ID": "not-logged",
+            "R2_SECRET_ACCESS_KEY": "not-logged",
+        },
+    )
+    target = tmp_path / "cache.json"
+    target.write_bytes(b"known-good")
+
+    class Body:
+        returned = False
+
+        def read(self, _: int) -> bytes:
+            if self.returned:
+                return b""
+            self.returned = True
+            return payload
+
+        def close(self) -> None:
+            pass
+
+    class Client:
+        def get_object(self, **_: object) -> object:
+            return {"Body": Body()}
+
+    monkeypatch.setattr(store, "_client", lambda *_: Client())
+    with pytest.raises(LakePublishError, match="size mismatch"):
+        store.download_file("key", target, expect_bytes=expected)
+
+    assert target.read_bytes() == b"known-good"
+
+
+def test_r2_download_atomically_installs_complete_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = Boto3R2Store(
+        bucket="integration-test",
+        env={
+            "R2_ACCOUNT_ID": "a" * 32,
+            "R2_ACCESS_KEY_ID": "not-logged",
+            "R2_SECRET_ACCESS_KEY": "not-logged",
+        },
+    )
+    target = tmp_path / "nested" / "cache.json"
+
+    class Body:
+        chunks = iter((b"complete", b""))
+
+        def read(self, _: int) -> bytes:
+            return next(self.chunks)
+
+        def close(self) -> None:
+            pass
+
+    class Client:
+        def get_object(self, **_: object) -> object:
+            return {"Body": Body()}
+
+    monkeypatch.setattr(store, "_client", lambda *_: Client())
+    store.download_file("key", target, expect_bytes=8)
+
+    assert target.read_bytes() == b"complete"
+    assert list(target.parent.glob(".cache.json.*.part")) == []
+
+
 def test_operation_timeout_covers_the_object_it_transfers() -> None:
-    """A deadline shorter than the transfer turns a slow object into an ambiguous one."""
+    """A per-attempt read timeout must leave enough room for the object."""
 
     two_gigabytes = 2_013_155_328
     measured_upload_seconds = 181
