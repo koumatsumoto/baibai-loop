@@ -475,6 +475,10 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
         (`evidence_patterns: Mapping[..., A | B | C]`) と `match` 句
   - [ ] `engine/src/baibai_engine/screening/selection/ranking.py` の sort key match arm
   - [ ] 削除根拠は保有 outcome の calibration で示す (安易な削除で有効な割安タイプを失わない)
+- [ ] **domain語彙をrenameする場合、new-write / read projection / behavior assetをatomicに揃える**:
+  - [ ] producer、consumer、Web contract、skill、method、current docsから旧identifierを除去する
+  - [ ] immutable historyはrewriteせず、旧keyを読むadapter pathだけを明示allowlistする
+  - [ ] `check_legacy_semantics.py`へ旧identifierのnegative testとadapterのpositive testを追加する
 - [ ] **judgment-gate 系の必須 contract を追加する場合、bypass を test で塞ぐ**:
   - [ ] data 不在 label で hard trigger を回避できないか
   - [ ] label と根拠数値の不整合が catch されるか
