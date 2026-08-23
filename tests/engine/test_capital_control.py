@@ -459,6 +459,24 @@ class ControlEventIndexTest(unittest.TestCase):
 
             self.assertFalse(covered)
 
+    def test_an_expired_typed_row_without_an_edinet_code_keeps_the_window_observed(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            self._listed_window(
+                sqlite_path,
+                rows=[("2026-08-03", 1, "S1", "13010", "350", "0", "0", "0", None, "E2", None)],
+            )
+            connection = connect_current(sqlite_path)
+            assert connection is not None
+            try:
+                covered = edinet_identity_covered(connection, start=date(2026, 1, 1), end=self.ASOF)
+            finally:
+                connection.close()
+
+            self.assertTrue(covered)
+
     def test_the_index_reads_the_target_company_not_the_filer(self) -> None:
         with TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"

@@ -23,7 +23,7 @@ from baibai_engine.market.sqlite.coverage import (
     record_source_coverage,
 )
 from baibai_engine.market.sqlite.schema import (
-    EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
+    EDINET_DOCUMENT_RETAINED_COLUMNS,
     open_connection,
 )
 
@@ -43,7 +43,7 @@ def store_edinet_documents(
         rows = _edinet_document_rows(
             on_date.isoformat(),
             records_list,
-            observed=_observed_descriptive_columns(conn, on_date.isoformat()),
+            observed=_observed_retained_columns(conn, on_date.isoformat()),
         )
         expected_count = len(records_list) if result_count is None else result_count
         if expected_count != len(records_list):
@@ -162,7 +162,7 @@ def store_edinet_metrics(
         conn.close()
 
 
-def _observed_descriptive_columns(
+def _observed_retained_columns(
     conn: sqlite3.Connection, doc_date: str
 ) -> dict[int, tuple[str, Mapping[str, str | None]]]:
     """What this store already saw a day's filings say, keyed by list position.
@@ -176,13 +176,14 @@ def _observed_descriptive_columns(
     """
     rows = conn.execute(
         "SELECT sequence_number, doc_id, sec_code, doc_type_code, parent_doc_id, "
-        "submit_datetime, doc_description FROM edinet_documents WHERE doc_date = ?",
+        "submit_datetime, doc_description, edinet_code, issuer_edinet_code, "
+        "subject_edinet_code FROM edinet_documents WHERE doc_date = ?",
         (doc_date,),
     ).fetchall()
     return {
         int(sequence_number): (
             str(doc_id),
-            dict(zip(EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS, values, strict=True)),
+            dict(zip(EDINET_DOCUMENT_RETAINED_COLUMNS, values, strict=True)),
         )
         for sequence_number, doc_id, *values in rows
     }
@@ -216,7 +217,8 @@ def _edinet_document_rows(
         if sequence_number in sequence_numbers:
             raise ValueError(f"duplicate EDINET seqNumber: {sequence_number}")
         sequence_numbers.add(sequence_number)
-        # A list read after the inspection period ended reports these five as null. The
+        # A list read after the inspection period ended reports the descriptive and
+        # identity columns as null. The
         # stored answer from a read while the filing was still served stays true, so the
         # new response only ever adds to them — and only when the stored row at this
         # position is the same document, so that a reordered day loses a description
@@ -224,7 +226,7 @@ def _edinet_document_rows(
         # answer unconditionally: an expiry or a withdrawal is the point of re-reading.
         stored = observed.get(sequence_number)
         retained = stored[1] if stored is not None and stored[0] == doc_id else {}
-        described = {
+        retained_values = {
             column: value if value is not None else retained.get(column)
             for column, value in (
                 ("sec_code", to_str_or_none(first(record, "secCode", "sec_code"))),
@@ -238,6 +240,15 @@ def _edinet_document_rows(
                     "doc_description",
                     to_str_or_none(first(record, "docDescription", "doc_description")),
                 ),
+                ("edinet_code", to_str_or_none(first(record, "edinetCode", "edinet_code"))),
+                (
+                    "issuer_edinet_code",
+                    to_str_or_none(first(record, "issuerEdinetCode", "issuer_edinet_code")),
+                ),
+                (
+                    "subject_edinet_code",
+                    to_str_or_none(first(record, "subjectEdinetCode", "subject_edinet_code")),
+                ),
             )
         }
         rows.append(
@@ -245,23 +256,23 @@ def _edinet_document_rows(
                 doc_date,
                 sequence_number,
                 doc_id,
-                described["sec_code"],
-                described["doc_type_code"],
+                retained_values["sec_code"],
+                retained_values["doc_type_code"],
                 to_str_or_none(first(record, "csvFlag", "csv_flag")),
                 to_str_or_none(first(record, "xbrlFlag", "xbrl_flag")),
                 to_str_or_none(first(record, "legalStatus", "legal_status")),
                 to_str_or_none(first(record, "disclosureStatus", "disclosure_status")),
                 to_str_or_none(first(record, "withdrawalStatus", "withdrawal_status")),
                 to_str_or_none(first(record, "docInfoEditStatus", "doc_info_edit_status")),
-                described["parent_doc_id"],
+                retained_values["parent_doc_id"],
                 to_str_or_none(first(record, "opeDateTime", "operation_datetime")),
-                described["submit_datetime"],
-                described["doc_description"],
+                retained_values["submit_datetime"],
+                retained_values["doc_description"],
                 date_iso(first(record, "periodStart", "period_start")),
                 date_iso(first(record, "periodEnd", "period_end")),
-                to_str_or_none(first(record, "edinetCode", "edinet_code")),
-                to_str_or_none(first(record, "issuerEdinetCode", "issuer_edinet_code")),
-                to_str_or_none(first(record, "subjectEdinetCode", "subject_edinet_code")),
+                retained_values["edinet_code"],
+                retained_values["issuer_edinet_code"],
+                retained_values["subject_edinet_code"],
             )
         )
     return rows

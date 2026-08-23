@@ -410,10 +410,12 @@ def edinet_identity_covered(connection: sqlite3.Connection, *, start: date, end:
 
     Two things can leave a hole. A day the store never listed has no rows at all, and
     counting filings over it would silently read zero. A day listed before the identity
-    columns existed has typed rows whose `edinetCode` is null; the API supplies that
-    field for every typed document, so a null one is a stale row rather than a filing
-    without a submitter. The list also carries untyped operation rows that legitimately
-    have neither a document type nor a submitter, and those are not evidence either way.
+    columns existed has typed, currently inspectable rows whose `edinetCode` is null;
+    the API supplies that field for every such document, so a null one is a stale row
+    rather than a filing without a submitter. Expired rows cannot regain identity on a
+    later list and are unusable as events. The list also carries untyped operation rows
+    that legitimately have neither a document type nor a submitter, and those are not
+    evidence either way.
     """
     listed_days = int(
         connection.execute(
@@ -427,7 +429,8 @@ def edinet_identity_covered(connection: sqlite3.Connection, *, start: date, end:
     stale_rows = int(
         connection.execute(
             "SELECT COUNT(*) FROM edinet_documents WHERE doc_date BETWEEN ? AND ? "
-            "AND doc_type_code IS NOT NULL AND edinet_code IS NULL",
+            "AND doc_type_code IS NOT NULL AND edinet_code IS NULL "
+            "AND legal_status IN ('1', '2')",
             (start.isoformat(), end.isoformat()),
         ).fetchone()[0]
         or 0
