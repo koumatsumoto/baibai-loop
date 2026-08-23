@@ -177,7 +177,7 @@ class ScreeningRenderTests(unittest.TestCase):
             -0.155,
         )
 
-    def test_render_evidence_keeps_core_playbook_metrics(self) -> None:
+    def test_render_evidence_keeps_core_evidence_pattern_metrics(self) -> None:
         document = ScreenedRunDocument(
             run_date=date(2026, 4, 24),
             asof_date=date(2026, 4, 24),

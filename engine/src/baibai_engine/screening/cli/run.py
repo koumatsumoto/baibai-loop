@@ -409,7 +409,7 @@ def run_command(
         fallback_lines.append(f"ttm_quality 非 exact 件数: {approx_total}")
     if required_ttm_non_exact:
         fallback_lines.append(
-            f"有効 playbook 必須 TTM metric 非 exact 件数(流動性母集団): {required_ttm_non_exact}"
+            f"有効Evidence Pattern必須TTM metric非exact件数(流動性母集団): {required_ttm_non_exact}"
         )
     if population_yoy_missing:
         fallback_lines.append(
@@ -562,10 +562,10 @@ def _required_ttm_non_exact_count(
 ) -> int:
     snapshots = tuple(financials)
     required_qualities: list[TTMQuality] = []
-    for playbook in rules.evidence_patterns.values():
-        if isinstance(playbook, CashflowYieldEvidencePattern) and playbook.ttm_cfo_required:
+    for pattern in rules.evidence_patterns.values():
+        if isinstance(pattern, CashflowYieldEvidencePattern) and pattern.ttm_cfo_required:
             required_qualities.extend(snapshot.ttm_quality_ocf_yield for snapshot in snapshots)
-        if isinstance(playbook, SalesDiscountGrowthEvidencePattern):
+        if isinstance(pattern, SalesDiscountGrowthEvidencePattern):
             required_qualities.extend(snapshot.ttm_quality_p_s for snapshot in snapshots)
     return sum(1 for quality in required_qualities if quality != TTMQuality.EXACT)
 

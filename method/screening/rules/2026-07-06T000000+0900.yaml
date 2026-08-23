@@ -49,7 +49,7 @@ selection:
       fcf_yield_positive_min: 0.0
       min_avg_turnover_oku: 1.0
   diversity:
-    # select は E[r] 母集団順位を壊さない。sector / playbook 集中は ranking cap
+    # selectはE[r]母集団順位を壊さない。sector / Evidence Pattern集中はranking cap
     # ではなく診断と entry preflight / position policy で管理する。
     max_recommended_per_sector: 1000
     max_recommended_per_evidence_pattern: 1000
@@ -63,8 +63,8 @@ evidence_patterns:
   # annotation だけを止め、liquidity と E[r] を満たす候補の ranking は止めない。
   valuation-reversion:
     # 金融業の PER / PBR は規制資本・金利環境の構造要因を含み、事業会社と同じ
-    # mean-reversion の前提で機械判定できないため、他 playbook と同様に除外する。
-    # 電気・ガス業は BS / CF 機械判定の不成立という他 playbook の除外根拠が
+    # mean-reversionの前提で機械判定できないため、他Evidence Patternと同様に除外する。
+    # 電気・ガス業はBS / CF機械判定の不成立という他Evidence Patternの除外根拠が
     # 相対 valuation には当たらないため除外しない。
     excluded_sectors:
     - 銀行業

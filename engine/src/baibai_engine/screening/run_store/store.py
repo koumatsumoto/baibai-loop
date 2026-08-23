@@ -575,6 +575,9 @@ def _validate_evidence_hits(candidate: Mapping[str, object], *, ticker: str) -> 
         if not isinstance(hit, Mapping):
             raise ValueError(f"candidate evidence hit must be an object: {ticker}")
         _required_string(hit, "name")
+        # Retained pre-vocabulary-migration run revisions used ``playbook_id``.
+        # Accept it only while reading immutable history; new writers emit the exact
+        # Evidence Pattern field and no alias is written back.
         if not isinstance(hit.get("evidence_pattern_id", hit.get("playbook_id")), str):
             raise ValueError(f"evidence pattern ID is missing: {ticker}")
         status = hit.get("source_status")

@@ -322,7 +322,7 @@ def _evaluate_cohort(
             "selection": {},
             "gates": {},
             "sector_median_basis": {},
-            "playbook_thresholds": {},
+            "evidence_pattern_thresholds": {},
             "reversion": {},
             "shareholder_return_change": {},
             "margin_supply_demand_hypotheses": {},
@@ -384,7 +384,7 @@ def _evaluate_cohort(
         "selection": selection,
         "gates": _evaluate_gates(population, excess),
         "sector_median_basis": _evaluate_sector_median_basis(population, excess),
-        "playbook_thresholds": _evaluate_playbook_thresholds(population, excess),
+        "evidence_pattern_thresholds": _evaluate_evidence_pattern_thresholds(population, excess),
         "reversion": _evaluate_reversion(population, excess),
         "shareholder_return_change": return_change,
         "margin_supply_demand_hypotheses": margin_hypotheses,
@@ -1175,7 +1175,7 @@ def _evaluate_gates(
     return result
 
 
-def _evaluate_playbook_thresholds(
+def _evaluate_evidence_pattern_thresholds(
     population: Sequence[PanelRow],
     excess: Mapping[str, float],
 ) -> dict[str, object]:
@@ -1657,7 +1657,7 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
         "selection": selection_summary,
         "gates": _aggregate_gates(cohorts),
         "sector_median_basis": _aggregate_sector_median_basis(cohorts),
-        "playbook_thresholds": _aggregate_playbook_thresholds(cohorts),
+        "evidence_pattern_thresholds": _aggregate_evidence_pattern_thresholds(cohorts),
         "shareholder_return_change": _aggregate_shareholder_return_change(cohorts),
         "margin_supply_demand_hypotheses": _aggregate_margin_hypotheses(cohorts),
         "profit_normalization_hypotheses": _aggregate_profit_normalization(cohorts),
@@ -1726,7 +1726,9 @@ def _aggregate_gates(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
     return result
 
 
-def _aggregate_playbook_thresholds(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
+def _aggregate_evidence_pattern_thresholds(
+    cohorts: Sequence[dict[str, object]],
+) -> dict[str, object]:
     """Cross-cohort verdict per threshold: the effect and how often it holds.
 
     A single as-of can favour any cut. What a threshold is worth is whether the same sign
@@ -1746,7 +1748,7 @@ def _aggregate_playbook_thresholds(cohorts: Sequence[dict[str, object]]) -> dict
     admitted_n: dict[str, int] = defaultdict(int)
     removed_n: dict[str, int] = defaultdict(int)
     for cohort in cohorts:
-        node = cohort.get("playbook_thresholds")
+        node = cohort.get("evidence_pattern_thresholds")
         if not isinstance(node, dict):
             continue
         for block, entry in node.items():

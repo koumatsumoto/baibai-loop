@@ -1,4 +1,4 @@
-"""Ranking components: evidence choice, playbook order, strength keys."""
+"""Ranking components: Evidence Pattern choice, configured order, and strength keys."""
 
 from __future__ import annotations
 
@@ -10,11 +10,11 @@ from baibai_engine.foundation.coerce import float_or, metric_map, string_or_none
 def _best_selection_evidence(
     evidence_hits: Sequence[Mapping[str, object]],
     *,
-    playbook_order: Sequence[str],
+    evidence_pattern_order: Sequence[str],
 ) -> tuple[str | None, dict[str, object], tuple[float, ...]]:
     entries = [
         (
-            _playbook_order_rank(name, playbook_order),
+            _evidence_pattern_order_rank(name, evidence_pattern_order),
             _evidence_strength_key(name, metrics),
             name,
             metrics,
@@ -29,11 +29,11 @@ def _best_selection_evidence(
     return name, metrics, strength_key
 
 
-def _playbook_order_rank(name: str | None, playbook_order: Sequence[str]) -> int:
+def _evidence_pattern_order_rank(name: str | None, evidence_pattern_order: Sequence[str]) -> int:
     try:
-        return playbook_order.index(name or "")
+        return evidence_pattern_order.index(name or "")
     except ValueError:
-        return len(playbook_order)
+        return len(evidence_pattern_order)
 
 
 def _sizing_eligible_evidence_hits(

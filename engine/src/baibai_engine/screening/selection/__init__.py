@@ -7,7 +7,7 @@ Module map (extension points):
   inlined into ``method/screening/rules/*.yaml``)
 - ``lenses``: per-candidate annotations (durability / 塩漬け耐性) — add a
   new lens here and surface it via ``payload``
-- ``ranking``: sort-key components (playbook order + valuation-discount strength)
+- ``ranking``: sort-key components (Evidence Pattern order + valuation-discount strength)
 - ``macro_fit``: macro context fit diagnostics (soft lens, never a gate)
 - ``summaries``: output tag / summary rendering
 - ``payload``: assembles ranking + diversity + diagnostics into the payload

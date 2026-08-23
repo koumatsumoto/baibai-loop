@@ -57,9 +57,9 @@ def _durability_counts(candidates: Sequence[Mapping[str, object]]) -> dict[str, 
 
 def _candidate_reason_tags(candidate: Mapping[str, object]) -> list[str]:
     tags: list[str] = []
-    playbook = string_or_none(candidate.get("primary_evidence_pattern_id"))
-    if playbook:
-        tags.append(playbook)
+    evidence_pattern = string_or_none(candidate.get("primary_evidence_pattern_id"))
+    if evidence_pattern:
+        tags.append(evidence_pattern)
     durability = _durability_diagnostic_of(candidate)
     rating = string_or_none(durability.get("rating"))
     if rating == "high":

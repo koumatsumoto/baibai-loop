@@ -716,7 +716,7 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
   判定関数が入力欠落で `True` へ fail-open していた。instrument type の除外は一度も発火せず、
   診断 `exclusion_counts["non_common_stock"]` は常に 0 で「弾いた」と読めた。適格市場区分に ETF と
   優先出資証券が残り、片方は 80 cohort すべてで screen を 28 回通過していた
-- `price_to_equity` は cash-rich の第 2 整列キーだが、**どの playbook も書き込まない**。全候補で既定値
+- `price_to_equity`はcash-richの第2整列キーだが、**どのEvidence Patternも書き込まない**。全候補で既定値
   99.0 に落ち、同点は ticker 順へ抜けていた。銘柄横断の順位キーなのに順位を付けていない
 - 業種中央値は母数 10 未満で市場中央値へ落ちるが、落ちた事実がどこにも残らない。同じ field が
   「業種との差」と「市場との差」の 2 つの量を指し、(asof, sector) の 26.4% で後者だった

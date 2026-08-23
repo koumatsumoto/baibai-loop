@@ -308,7 +308,7 @@ class DeteriorationGateTest(unittest.TestCase):
         self.assertEqual(entry["blocked_n"], 5)
 
 
-class PlaybookThresholdTest(unittest.TestCase):
+class EvidencePatternThresholdTest(unittest.TestCase):
     """A threshold is judged against the names it alone turned away."""
 
     def _cohort(self) -> dict[str, object]:
@@ -338,7 +338,7 @@ class PlaybookThresholdTest(unittest.TestCase):
     def test_the_cohort_reports_both_sides_of_the_cut(self) -> None:
         cohort = self._cohort()["cohorts"][0]
         assert isinstance(cohort, dict)
-        node = cohort["playbook_thresholds"]
+        node = cohort["evidence_pattern_thresholds"]
         assert isinstance(node, dict)
         entry = node["cash-rich-asset-discount:equity_ratio_min"]
         assert isinstance(entry, dict)
@@ -355,7 +355,7 @@ class PlaybookThresholdTest(unittest.TestCase):
     def test_the_aggregate_reports_how_often_the_cut_held(self) -> None:
         aggregate = self._cohort()["aggregate"]
         assert isinstance(aggregate, dict)
-        node = aggregate["playbook_thresholds"]
+        node = aggregate["evidence_pattern_thresholds"]
         assert isinstance(node, dict)
         entry = node["cash-rich-asset-discount:equity_ratio_min"]
         assert isinstance(entry, dict)
@@ -397,14 +397,16 @@ class PlaybookThresholdTest(unittest.TestCase):
         ]
         cohort = result["cohorts"][0]
         assert isinstance(cohort, dict)
-        node = cohort["playbook_thresholds"]
+        node = cohort["evidence_pattern_thresholds"]
         assert isinstance(node, dict)
         # The cohort still records what it saw; the aggregate decides what it can average.
         self.assertIn("cash-rich-asset-discount:equity_ratio_min", node)
 
         aggregate = result["aggregate"]
         assert isinstance(aggregate, dict)
-        entry = aggregate["playbook_thresholds"]["cash-rich-asset-discount:equity_ratio_min"]
+        entry = aggregate["evidence_pattern_thresholds"][
+            "cash-rich-asset-discount:equity_ratio_min"
+        ]
         assert isinstance(entry, dict)
         self.assertEqual(entry["cohorts"], 1)
         self.assertEqual(entry["eligible_cohorts"], 0)

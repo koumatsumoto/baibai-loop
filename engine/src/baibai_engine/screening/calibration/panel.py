@@ -212,7 +212,7 @@ class PanelRow:
     # と同じ語彙。空文字は「自業種から答えた」と「そもそも軸を評価していない」の
     # 両方を取るので、素性は対応する `smg_*` が非 null の行でだけ意味を持つ。
     smg_market_fallback: str = ""
-    # `<playbook>:<threshold>` を `|` で並べる。その playbook の他条件をすべて満たし、
+    # `<evidence-pattern>:<threshold>`を`|`で並べる。そのEvidence Patternの他条件をすべて満たし、
     # この閾値だけで落ちた行にだけ入る。閾値が選んだ相手はこの行なので、通した群と
     # 並べれば閾値の水準そのものを実現値で測れる。判定は `rules.threshold_blocks`。
     threshold_blocks: str = ""
@@ -394,8 +394,8 @@ def build_panel(
 
         if result.pass_fail:
             evidence_by_ticker[ticker] = tuple(hit.name for hit in result.evidence_hits)
-        # Every row, not just the rejected ones: a name the screen took on one playbook
-        # can still be the counterfactual another playbook's threshold removed, and that
+        # Every row, not just the rejected ones: a name the screen took on one Evidence Pattern
+        # can still be the counterfactual another Evidence Pattern's threshold removed, and that
         # is the row that says what the threshold chose against.
         blocks_by_ticker[ticker] = threshold_blocks(
             metric_result.financials[ticker],

@@ -39,7 +39,7 @@ from .macro_fit import (
 from .profiles import resolve_selection_rules
 from .ranking import (
     _best_selection_evidence,
-    _playbook_order_rank,
+    _evidence_pattern_order_rank,
     _sizing_eligible_evidence_hits,
 )
 from .records import (
@@ -102,10 +102,8 @@ def build_selection_payload(
     # market regime snapshot が持つ benchmark return を候補へ機械転記する。
     # snapshot が無ければ null に degrade する。
     benchmark_return_20d = market_regime.benchmark_return_20d if market_regime else None
-    # Single source of truth for playbook priority: the configured
-    # evidence_pattern_order ranks both the queue and the primary
-    # evidence pick.
-    playbook_order = tuple(rules.output.evidence_pattern_order)
+    # The configured order ranks both the queue and the primary Evidence Pattern.
+    evidence_pattern_order = tuple(rules.output.evidence_pattern_order)
 
     liquidity = selection_rules.liquidity
     required_jpx_flags = frozenset(rules.universe.required_jpx_flags)
@@ -133,7 +131,7 @@ def build_selection_payload(
             evidence_annotated_count += 1
         primary_evidence_pattern_id, selection_metrics, strength_key = _best_selection_evidence(
             eligible_evidence_hits,
-            playbook_order=playbook_order,
+            evidence_pattern_order=evidence_pattern_order,
         )
         candidate_diagnostics = _candidate_diagnostics(item, selection_rules)
         candidate = _selection_candidate(
@@ -147,11 +145,11 @@ def build_selection_payload(
         candidate["decision_input_seed"] = _decision_input_seed(candidate, asof_date=asof_date)
         # 主キーは機械 E[r] (成分分解付き見積り) の降順:「どれくらいお買い得か」の
         # 見積りが着手順位を決める。E[r] 欠損の
-        # 候補は ranking 対象外とし、従キーとして playbook 優先順 + 各 screen の
+        # 候補はranking対象外とし、従キーとしてEvidence Pattern優先順 + 各screenの
         # 強度キーを残す。macro context は診断 annotation であり順位には使わない。
         sort_key = (
             -er_annual,
-            _playbook_order_rank(primary_evidence_pattern_id, playbook_order),
+            _evidence_pattern_order_rank(primary_evidence_pattern_id, evidence_pattern_order),
             *strength_key,
             item.ticker,
         )
@@ -419,7 +417,7 @@ def _recommended_research_candidates(
     selected: list[dict[str, object]] = []
     selected_tickers: set[str] = set()
     sector_counts: Counter[str] = Counter()
-    playbook_counts: Counter[str] = Counter()
+    evidence_pattern_counts: Counter[str] = Counter()
     previous_candidate_count = 0
 
     def can_add(candidate: Mapping[str, object], *, enforce_diversity: bool) -> bool:
@@ -429,12 +427,12 @@ def _recommended_research_candidates(
         if not enforce_diversity:
             return True
         sector = string_or_none(candidate.get("sector_33")) or ""
-        # The ranking pass already chose this candidate's playbook from the same
+        # The ranking pass already chose this candidate's Evidence Pattern from the same
         # order; re-deriving it here would let the two disagree on which screen a
-        # candidate counts against for the per-playbook diversity cap.
-        playbook = string_or_none(candidate.get("primary_evidence_pattern_id"))
+        # candidate counts against for the per-pattern diversity cap.
+        evidence_pattern = string_or_none(candidate.get("primary_evidence_pattern_id"))
         max_sector = diversity_rules.max_recommended_per_sector
-        max_playbook = diversity_rules.max_recommended_per_evidence_pattern
+        max_evidence_pattern = diversity_rules.max_recommended_per_evidence_pattern
         max_previous = diversity_rules.max_previous_candidates_in_recommended
         if (
             max_previous is not None
@@ -444,7 +442,10 @@ def _recommended_research_candidates(
             return False
         if sector_counts[sector] >= max_sector:
             return False
-        return playbook is None or playbook_counts[playbook] < max_playbook
+        return (
+            evidence_pattern is None
+            or evidence_pattern_counts[evidence_pattern] < max_evidence_pattern
+        )
 
     def add(candidate: Mapping[str, object]) -> None:
         nonlocal previous_candidate_count
@@ -454,8 +455,10 @@ def _recommended_research_candidates(
         selected.append(dict(candidate))
         selected_tickers.add(ticker)
         sector_counts[string_or_none(candidate.get("sector_33")) or ""] += 1
-        if (playbook := string_or_none(candidate.get("primary_evidence_pattern_id"))) is not None:
-            playbook_counts[playbook] += 1
+        if (
+            evidence_pattern := string_or_none(candidate.get("primary_evidence_pattern_id"))
+        ) is not None:
+            evidence_pattern_counts[evidence_pattern] += 1
         if candidate.get("previous_candidate") is True:
             previous_candidate_count += 1
 

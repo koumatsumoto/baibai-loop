@@ -212,10 +212,10 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         )
         self.assertTrue(all(item["primary_evidence_pattern_id"] is None for item in longlist))
 
-    def test_playbook_cap_binds_via_profile_override(self) -> None:
+    def test_evidence_pattern_cap_binds_via_profile_override(self) -> None:
         """Evidence Pattern cap は E[r] 主キー下でも enforcement が生きている。
 
-        既定 rules は 10 (実質無効) だが、override で 1 に絞ると同一 playbook の
+        既定rulesは10 (実質無効) だが、overrideで1に絞ると同一Evidence Patternの
         2 本目が推奨から落ちる。"""
         payload = build_selection_payload(
             asof_date=_ASOF,
@@ -238,7 +238,7 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         )
         self.assertEqual(self._tickers(payload), {"1111"})
 
-    def test_playbook_cap_does_not_bind_candidates_without_evidence_hits(self) -> None:
+    def test_evidence_pattern_cap_does_not_bind_candidates_without_evidence_hits(self) -> None:
         payload = build_selection_payload(
             asof_date=_ASOF,
             candidates=tuple(
