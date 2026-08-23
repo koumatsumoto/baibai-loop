@@ -188,13 +188,21 @@ remote bytesをprivate temporaryへ再取得し、digest一致後だけcacheを�
 `lake publish phases: base_resolve=... seal_plan_export=... release_create=... local_graph=... remote_closure=... pointer=...`
 を1行出し、stdoutはrelease recordに使うJSON 1行だけを維持する。
 
-incremental export は開始時 current pointer と local store の recorded base identity を照合し、digest
-chain を検証した dataset manifest の private snapshot から unchanged partition を carry する。共有 mirror
-のmanifest pathは検証後に再読込しない。full rebuild はbaseをcarryしないが、recorded store originの
-release ID / manifest SHA-256を開始時current pointerと照合する。全partitionを1つのsealed SQLite snapshot
-からexportした後、そのdataset totalsが置換対象releaseを包含することを確認してからreleaseを作成する。
-これにより、同数の古い値を持つstoreと、事前count後・snapshot前に短くなったstoreの双方をpointer切替前に
-拒否する。currentが無いfirst publicationだけはoriginとrow floorを要求しない。
+incremental export は開始時 current pointer と、exportに使う同じsealed SQLite snapshot内の
+`lake_store_origin`を照合し、digest chain を検証した dataset manifest の private snapshot から unchanged
+partition を carry する。sidecarはSQLiteと分離してrestoreできるためauthorityにしない。full rebuild は
+baseをcarryしないが、同じsealed snapshotのembedded originをcurrent pointerと照合する。currentとoriginが
+ともに無いfirst publicationだけは例外である。
+
+exportが返したin-memory manifestはcanonical bytesにしてmirror配下のpublication-private directoryへ
+固定し、release作成はそのpathだけを読む。releaseも作成時payloadのSHA-256をpublisherへ渡し、pathが
+差し替わっていればpointer切替前に拒否する。全dataset共通のprevious-release row floorは、正常に縮小する
+snapshotや取消・訂正と両立しないため持たない。欠損はdatasetごとのproduction policy（history境界、
+minimum rows / population、coverage、freshness）で拒否する。
+
+conditional pointer PUTや直後のHEAD/GETが失敗した場合はcurrentを再読込し、exact targetなら成功、別
+identityならconflict、読めなければunknown outcomeとして停止する。low-level publisher CLIがcurrentを
+変更できるのはfirst publicationだけで、currentとexact targetが一致する場合はretryとして成功する。
 
 **pointerはcurrentだけを名乗る。rollbackは無い。** 修理は前へ publish することであり、store が
 serve をやめた世代へ戻ることではない。pointer が「この世代は復元できる」と名乗れば、それは publish の

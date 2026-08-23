@@ -217,6 +217,7 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit="a" * 40,
+        expected_store_origin=None,
     )
     release_path, _release = create_l1_release(
         dataset_manifest_paths=[item.manifest_path for item in build.datasets.values()],

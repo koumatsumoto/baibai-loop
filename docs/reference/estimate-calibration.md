@@ -182,8 +182,10 @@ uv run baibai-engine screening calibration-build \
   --l1-manifest-sha256 "$(python3 -c 'import json;print(json.load(open("stores/.r2-generations/lake-release.json"))["release_manifest_sha256"])')"
 ```
 
-release の identity は `stores/.r2-generations/lake-release.json` が持つ。この記録は hydrate と
-publication が書くもので、運用者が書くものではない。
+このcommandへ渡すrelease identityは`stores/.r2-generations/lake-release.json`から読む。このfileは
+hydrateとpublicationがdurably更新するoperator/calibration cacheで、運用者が手書きするものではない。
+market publicationのcorrectness authorityはSQLite内の`lake_store_origin`であり、sidecarだけを新旧へ
+差し替えてもpublicationを許可しない。calibration build自身は指定releaseのtotalsとstore rowsを照合する。
 
 ## Commands
 

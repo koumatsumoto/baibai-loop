@@ -87,13 +87,23 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
 DERIVED_KEYS: Mapping[str, tuple[str, ...]] = {
     "tse_capital_policy_snapshots": ("snapshot_month_end", "ticker"),
 }
+# Store-local publication metadata belongs to the target SQLite generation. Importing
+# the cloud copy's marker would claim that target rows came from a release they did not
+# come from; hydrate/publish are the only writers allowed to advance it.
+LOCAL_METADATA_KEYS: Mapping[str, tuple[str, ...]] = {
+    "lake_store_origin": ("singleton",),
+}
 # `jpx_delistings` and `tender_offer_exit_values` used to be here. They are lake datasets
 # now, which answers the retraction problem this table exists to describe rather than
 # working around it: `hydrate` empties a lake-owned table before filling it from the
 # release, so a row a later derivation dropped is absent from the next generation and
 # stays absent. The merge never sees them, so there is no older copy to reinstate from.
 
-ALL_TABLES: Mapping[str, tuple[str, ...]] = {**FACT_KEYS, **DERIVED_KEYS}
+TARGET_RETAINED_KEYS: Mapping[str, tuple[str, ...]] = {
+    **DERIVED_KEYS,
+    **LOCAL_METADATA_KEYS,
+}
+ALL_TABLES: Mapping[str, tuple[str, ...]] = {**FACT_KEYS, **TARGET_RETAINED_KEYS}
 
 # When a store read the source, not what the source said. Two stores that read the same
 # range at different moments differ here by construction — measured on the real stores,
@@ -165,7 +175,7 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                 _raise_fin_summary_coverage_counts(connection)
                 _require_fin_summary_coverage_counts(connection, schema="main")
                 _require_no_reinstated_coverage(connection)
-                derived = _retain_derived_tables(connection)
+                retained = _retain_target_tables(connection)
                 after = count(connection, "SELECT count(*) FROM main.source_coverage")
                 connection.commit()
                 coverage = TableMerge(
@@ -176,7 +186,7 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                     skipped=max(0, source_rows - (after - before)),
                     target_rows_after=after,
                 )
-                by_name = {item.table: item for item in (coverage, *derived)}
+                by_name = {item.table: item for item in (coverage, *retained)}
                 return MergeReport(tables=tuple(by_name[table] for table in ALL_TABLES))
             except BaseException:
                 connection.rollback()
@@ -185,11 +195,11 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
             connection.execute("DETACH DATABASE source")
 
 
-def _retain_derived_tables(connection: sqlite3.Connection) -> tuple[TableMerge, ...]:
-    """Report the derived tables as kept whole, copying nothing from the source."""
+def _retain_target_tables(connection: sqlite3.Connection) -> tuple[TableMerge, ...]:
+    """Report target-owned tables as kept whole, copying nothing from the source."""
 
     merges: list[TableMerge] = []
-    for table in DERIVED_KEYS:
+    for table in TARGET_RETAINED_KEYS:
         source_rows = count(connection, f'SELECT count(*) FROM source."{table}"')  # nosec B608
         target_rows = count(connection, f'SELECT count(*) FROM main."{table}"')  # nosec B608
         merges.append(

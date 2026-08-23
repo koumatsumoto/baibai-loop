@@ -9,6 +9,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
+from ..sqlite.lake_origin import read_lake_store_origin
 from .datasets import LAKE_DATASETS
 from .duck import LakeCredentialError
 from .hydrate import LakeHydrateError, dehydrate_market_store, hydrate_market_store
@@ -105,6 +106,7 @@ def main(argv: list[str]) -> int:
             sqlite_path=args.sqlite,
             mirror_root=args.mirror,
             producer_git_commit=_git_commit(),
+            expected_store_origin=read_lake_store_origin(args.sqlite),
             base_manifest_paths=bases,
             audit_full_history=args.audit,
         )

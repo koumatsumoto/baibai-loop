@@ -1,4 +1,4 @@
-"""The market-store merge owns the four tables the lake does not, and loses no row."""
+"""The market-store merge owns every table the lake does not, and loses no row."""
 
 from __future__ import annotations
 
@@ -19,6 +19,11 @@ from baibai_batch.storage.merge_market_store import (
     merge_stores,
 )
 from baibai_engine.market.lake.datasets import LAKE_DATASETS
+from baibai_engine.market.sqlite.lake_origin import (
+    LakeStoreOrigin,
+    read_lake_store_origin,
+    write_lake_store_origin,
+)
 from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 from baibai_engine.screening.sqlite_cache import (
     open_connection,
@@ -240,6 +245,27 @@ class TestLakeOwnedTables:
         finally:
             conn.close()
         assert {item.table for item in report.tables} == set(ALL_TABLES)
+
+    def test_merge_keeps_the_target_sqlite_origin(self, tmp_path: Path) -> None:
+        source = _store(tmp_path / "source.sqlite")
+        target = _store(tmp_path / "target.sqlite")
+        source_origin = LakeStoreOrigin(
+            release_id="cloud-release",
+            release_manifest_sha256="a" * 64,
+        )
+        target_origin = LakeStoreOrigin(
+            release_id="local-release",
+            release_manifest_sha256="b" * 64,
+        )
+        for path, origin in ((source, source_origin), (target, target_origin)):
+            connection = open_connection(path)
+            write_lake_store_origin(connection, origin)
+            connection.commit()
+            connection.close()
+
+        merge_stores(source, target)
+
+        assert read_lake_store_origin(target) == target_origin
 
     def test_a_store_the_lake_emptied_still_merges(self, tmp_path: Path) -> None:
         """The published copy carries claims whose rows the publication moved to the lake.

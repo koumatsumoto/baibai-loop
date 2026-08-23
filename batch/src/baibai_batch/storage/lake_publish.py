@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import tempfile
 import time
 from collections.abc import Iterator, Mapping
@@ -414,6 +415,7 @@ def publish_l1_release(
     store: ObjectStore,
     verify_bytes: bool = False,
     pointer_precondition: PointerPrecondition | None = None,
+    expected_release_sha256: str | None = None,
 ) -> PublishReport:
     """Upload immutable graph nodes, then atomically switch the one mutable pointer."""
     publication = _RemotePublication(store=store, verify_bytes=verify_bytes)
@@ -434,6 +436,9 @@ def publish_l1_release(
     if not resolved_release_path.is_relative_to(root):
         raise LakePublishError("release manifest path escapes mirror root")
     release_payload = resolved_release_path.read_bytes()
+    release_sha256 = hashlib.sha256(release_payload).hexdigest()
+    if expected_release_sha256 is not None and release_sha256 != expected_release_sha256:
+        raise LakePublishError("release manifest changed after its publication was planned")
     release = load_lake_model_json(release_payload, LakeReleaseManifest)
     expected_release_key = lake_release_manifest_key(release_id=release.release_id)
     expected_release_path = _mirror_path(mirror_root, expected_release_key)
@@ -489,7 +494,7 @@ def publish_l1_release(
             expected_release_key,
             resolved_release_path,
             "application/json",
-            hashlib.sha256(release_payload).hexdigest(),
+            release_sha256,
             len(release_payload),
         )
     )
@@ -531,7 +536,7 @@ def publish_l1_release(
         if serving.release_id == release.release_id:
             if (
                 serving.manifest_key != expected_release_key
-                or serving.manifest_sha256 != hashlib.sha256(release_payload).hexdigest()
+                or serving.manifest_sha256 != release_sha256
             ):
                 raise LakePublishError("current pointer reuses release ID with different identity")
             return PublishReport(
@@ -542,7 +547,6 @@ def publish_l1_release(
                 remote_closure_seconds=pointer_started - remote_closure_started,
                 pointer_seconds=time.perf_counter() - pointer_started,
             )
-    release_sha256 = hashlib.sha256(release_payload).hexdigest()
     pointer = L1ReleasePointer(
         release_id=release.release_id,
         manifest_key=expected_release_key,
@@ -562,11 +566,14 @@ def publish_l1_release(
                 if_match=pointer_precondition.etag,
                 if_none_match=pointer_precondition.etag is None,
             )
-        except LakeCASConflict:
-            raise
-        except Exception as exc:
-            raise LakePublishError("L1 current pointer switch failed") from exc
-    publication.require_pointer_bytes(key=pointer_key, expected=pointer_payload)
+            publication.require_pointer_bytes(key=pointer_key, expected=pointer_payload)
+        except LakePublishError as exc:
+            result = _reconcile_pointer_switch(
+                publication,
+                key=pointer_key,
+                expected=pointer_payload,
+                cause=exc,
+            )
     return PublishReport(
         release_id=release.release_id,
         transfers=publication.report(),
@@ -575,6 +582,29 @@ def publish_l1_release(
         remote_closure_seconds=pointer_started - remote_closure_started,
         pointer_seconds=time.perf_counter() - pointer_started,
     )
+
+
+def _reconcile_pointer_switch(
+    publication: _RemotePublication,
+    *,
+    key: str,
+    expected: bytes,
+    cause: Exception,
+) -> RemoteObject:
+    """Resolve a conditional PUT whose remote commit result is ambiguous."""
+
+    try:
+        remote = publication.head(key)
+        if remote is None:
+            raise LakePublishError("L1 pointer is absent after an ambiguous switch")
+        actual = publication.read_pointer(key, remote)
+    except LakePublishError as reconciliation_error:
+        raise LakePublishError(
+            "L1 current pointer switch outcome is unknown; resolve current before retrying"
+        ) from reconciliation_error
+    if actual == expected:
+        return remote
+    raise LakeCASConflict("L1 current pointer moved to a different release") from cause
 
 
 def _require_remote_l1_closure(
@@ -875,15 +905,33 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    store = Boto3R2Store(bucket=args.bucket)
     if args.mirror is None:
         parser.error("--mirror is required for publication")
-    release_report = publish_l1_release(
-        mirror_root=args.mirror,
-        release_manifest_path=args.release_manifest,
-        store=store,
-        verify_bytes=args.verify_bytes,
-    )
+    store = Boto3R2Store(bucket=args.bucket)
+    try:
+        payload = args.release_manifest.read_bytes()
+        release = load_lake_model_json(payload, LakeReleaseManifest)
+        release_sha256 = hashlib.sha256(payload).hexdigest()
+        serving = read_pointer_snapshot(store)
+        if serving.pointer is not None and (
+            serving.pointer.release_id != release.release_id
+            or serving.pointer.manifest_sha256 != release_sha256
+        ):
+            raise LakePublishError(
+                "low-level publication cannot replace current; use publish_market_lake "
+                "for a forward publication"
+            )
+        release_report = publish_l1_release(
+            mirror_root=args.mirror,
+            release_manifest_path=args.release_manifest,
+            expected_release_sha256=release_sha256,
+            store=store,
+            verify_bytes=args.verify_bytes,
+            pointer_precondition=serving.precondition,
+        )
+    except (OSError, ValueError, LakePublishError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
     print(json.dumps(release_report.as_dict(), sort_keys=True))
     return 0
 

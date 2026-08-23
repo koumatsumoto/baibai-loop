@@ -363,6 +363,19 @@ MIGRATIONS: tuple[Migration, ...] = (
             "ALTER TABLE jquants_fin_summaries ADD COLUMN average_shares REAL",
         ),
     ),
+    Migration(
+        version=24,
+        statements=(
+            """
+            CREATE TABLE IF NOT EXISTS lake_store_origin(
+              singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+              release_id TEXT NOT NULL,
+              release_manifest_sha256 TEXT NOT NULL
+                CHECK (length(release_manifest_sha256) = 64)
+            )
+            """,
+        ),
+    ),
 )
 
 LATEST_VERSION = MIGRATIONS[-1].version if MIGRATIONS else BASELINE_VERSION

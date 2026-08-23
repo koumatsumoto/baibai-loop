@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from ..sqlite.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from ..sqlite.snapshot import create_snapshot, validate_snapshot
 from .datasets import LAKE_DATASETS, LakeDataset
 from .duck import LakeSession
@@ -218,6 +219,13 @@ def hydrate_market_store(
                     )
                     for statement in indexes:
                         connection.execute(statement)
+                write_lake_store_origin(
+                    connection,
+                    LakeStoreOrigin(
+                        release_id=release.release_id,
+                        release_manifest_sha256=release.manifest_sha256,
+                    ),
+                )
                 connection.commit()
                 if connection.execute("PRAGMA quick_check").fetchone() != ("ok",):
                     raise LakeHydrateError("hydrated market store failed quick_check")

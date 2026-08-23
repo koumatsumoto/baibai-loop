@@ -1,16 +1,8 @@
-"""The full-rebuild path and the floor that keeps it from publishing a shorter history.
-
-A differential publication cannot lose rows: the partitions it does not rewrite are
-carried by reference from the base release. A full rebuild has no such floor — it seals
-exactly what the store holds — so it needs one supplied, and the base release's own
-totals are it.
-"""
+"""Publication binds one SQLite generation to one immutable release graph."""
 
 from __future__ import annotations
 
 import hashlib
-import json
-from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,74 +10,28 @@ import pytest
 
 import baibai_batch.storage.publish_market_lake as publish_module
 from baibai_batch.storage.lake_publish import LakePublishError
-from baibai_batch.storage.publish_market_lake import (
-    _require_expected_release,
-    _require_no_rows_lost,
-    publish_market_lake,
+from baibai_engine.batch_api import (
+    L1ReleasePointer,
+    LakeBuildError,
+    LakeTransformFingerprintMismatch,
 )
-from baibai_engine.batch_api import L1ReleasePointer, LakeBuildError
 
 ROOT = Path(__file__).resolve().parents[2]
 _RELEASE_ID = "20260817T085308Z-70f77913-da700a8e825e"
-_MANIFEST_KEY = f"lake/manifests/releases/l1/{_RELEASE_ID}.json"
 
 
-def _manifest(rows: int) -> dict[str, object]:
-    return {
-        "manifest_version": 1,
-        "release_id": _RELEASE_ID,
-        "profile": "production",
-        "created_at": datetime(2026, 8, 17, tzinfo=UTC).isoformat().replace("+00:00", "Z"),
-        "data_as_of": "2026-07-31",
-        "datasets": {
-            "jquants.daily_bars": {
-                "build_id": "20260817T084715Z-legacy-7fdfcf3c-a8eb8f6747ce",
-                "contract_version": 1,
-                "coverage_status": "complete",
-                "data_as_of": "2026-07-31",
-                "manifest_sha256": "e" * 64,
-                "totals": {"bytes": 1, "objects": 1, "rows": rows},
-            }
-        },
-    }
-
-
-def _mirror_with_release(tmp_path: Path, *, rows: int) -> Path:
-    mirror = tmp_path / "mirror"
-    path = mirror / _MANIFEST_KEY
-    path.parent.mkdir(parents=True)
-    path.write_text(json.dumps(_manifest(rows)), encoding="utf-8")
-    return mirror
-
-
-def _pointer() -> L1ReleasePointer:
+def _pointer(*, release_id: str = _RELEASE_ID, manifest_sha256: str = "f" * 64) -> L1ReleasePointer:
     return L1ReleasePointer(
         pointer_version=1,
-        release_id=_RELEASE_ID,
-        manifest_key=_MANIFEST_KEY,
-        manifest_sha256="f" * 64,
+        release_id=release_id,
+        manifest_key=f"lake/manifests/releases/l1/{release_id}.json",
+        manifest_sha256=manifest_sha256,
     )
-
-
-def _fixed_release(mirror: Path) -> SimpleNamespace:
-    release = publish_module.load_lake_model_json(
-        (mirror / _MANIFEST_KEY).read_bytes(), publish_module.LakeReleaseManifest
-    )
-    return SimpleNamespace(
-        release_id=_RELEASE_ID,
-        manifest=release,
-    )
-
-
-def _exported(rows: int) -> dict[str, object]:
-    return {"jquants.daily_bars": SimpleNamespace(totals=SimpleNamespace(rows=rows))}
 
 
 class _UnusedStore:
-    """The manifest is already in the mirror, so nothing may be downloaded."""
-
     def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
-        raise AssertionError(f"the mirror already holds {key}")
+        raise AssertionError(f"the test must not download {key}")
 
 
 class _DownloadStore:
@@ -159,127 +105,28 @@ def test_fetch_reuses_a_cache_with_the_expected_digest(tmp_path: Path) -> None:
     assert store.downloads == []
 
 
-def test_a_store_behind_the_release_cannot_be_published_as_a_full_rebuild(
-    tmp_path: Path,
-) -> None:
-    mirror = _mirror_with_release(tmp_path, rows=10)
-
-    with pytest.raises(LakePublishError, match="would drop the difference"):
-        _require_no_rows_lost(_exported(9), _fixed_release(mirror))  # type: ignore[arg-type]
-
-
-def test_a_store_that_matches_the_release_is_allowed(
-    tmp_path: Path,
-) -> None:
-    mirror = _mirror_with_release(tmp_path, rows=10)
-
-    _require_no_rows_lost(_exported(10), _fixed_release(mirror))  # type: ignore[arg-type]
-
-
-def test_a_store_ahead_of_the_release_is_allowed(
-    tmp_path: Path,
-) -> None:
-    """The ordinary shape after a local fetch — the rebuild is what publishes them."""
-
-    mirror = _mirror_with_release(tmp_path, rows=10)
-
-    _require_expected_release(_pointer(), _RELEASE_ID, "f" * 64, role="origin")
-    _require_no_rows_lost(_exported(12), _fixed_release(mirror))  # type: ignore[arg-type]
-
-
-def test_a_new_dataset_does_not_change_the_replaced_release_floor(tmp_path: Path) -> None:
-    mirror = _mirror_with_release(tmp_path, rows=10)
-    exported = {
-        **_exported(10),
-        "new.dataset": SimpleNamespace(totals=SimpleNamespace(rows=1)),
-    }
-
-    _require_no_rows_lost(exported, _fixed_release(mirror))  # type: ignore[arg-type]
-
-
-def test_a_dataset_that_disappears_from_the_sealed_export_is_refused(tmp_path: Path) -> None:
-    mirror = _mirror_with_release(tmp_path, rows=10)
-
-    with pytest.raises(LakePublishError, match="holds 0 row"):
-        _require_no_rows_lost({}, _fixed_release(mirror))  # type: ignore[arg-type]
-
-
-def test_the_first_publication_has_no_floor_to_check() -> None:
-    _require_no_rows_lost({}, None)
-
-
-def test_full_rebuild_requires_the_recorded_store_origin() -> None:
-    with pytest.raises(LakePublishError, match="name it as the store origin"):
-        _require_expected_release(_pointer(), None, None, role="origin")
-
-
-def test_full_rebuild_rejects_same_release_id_with_a_different_digest() -> None:
-    with pytest.raises(LakePublishError, match="hydrate again before publishing"):
-        _require_expected_release(_pointer(), _RELEASE_ID, "0" * 64, role="origin")
-
-
-def test_same_count_store_from_an_older_release_is_refused() -> None:
-    with pytest.raises(LakePublishError, match="hydrate again before publishing"):
-        _require_expected_release(_pointer(), "older-release", "f" * 64, role="origin")
-
-
-def test_first_publication_accepts_no_origin() -> None:
-    _require_expected_release(None, None, None, role="origin")
-
-
-def test_sealed_export_floor_runs_before_release_creation(
+def test_export_manifests_are_frozen_from_the_checked_models_inside_the_mirror(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    mirror = _mirror_with_release(tmp_path, rows=10)
-    fixed = _fixed_release(mirror)
-    serving = SimpleNamespace(pointer=_pointer(), precondition=object())
-    exported = SimpleNamespace(
-        datasets={
-            "jquants.daily_bars": SimpleNamespace(
-                manifest=SimpleNamespace(totals=SimpleNamespace(rows=9))
-            )
-        }
+    shared = tmp_path / "mirror/lake/manifests/datasets/shared.json"
+    shared.parent.mkdir(parents=True)
+    shared.write_bytes(b"manifest-before-export")
+    checked_model = object()
+    report = SimpleNamespace(manifest=checked_model, manifest_path=shared)
+    monkeypatch.setattr(
+        publish_module,
+        "canonical_lake_model_bytes",
+        lambda model: b"checked-model\n" if model is checked_model else b"unexpected",
     )
-    created = False
 
-    def _create(**_: object) -> object:
-        nonlocal created
-        created = True
-        raise AssertionError("release creation must follow the sealed floor")
+    with publish_module._export_manifest_snapshot(
+        {"jquants.daily_bars": report}, tmp_path / "mirror"
+    ) as paths:
+        shared.write_bytes(b"valid-but-different-manifest\n")
 
-    monkeypatch.setattr(publish_module, "_serving_pointer", lambda _: serving)
-    monkeypatch.setattr(publish_module, "_resolve_base_release", lambda *_: fixed)
-    monkeypatch.setattr(publish_module, "export_lake_legacy", lambda **_: exported)
-    monkeypatch.setattr(publish_module, "lake_verified_git_commit", lambda: "a" * 40)
-    monkeypatch.setattr(publish_module, "create_lake_l1_release", _create)
-
-    with pytest.raises(LakePublishError, match="sealed export"):
-        publish_market_lake(
-            sqlite_path=tmp_path / "market.sqlite",
-            mirror_root=mirror,
-            store=_UnusedStore(),
-            expected_base_release_id=None,
-            expected_base_manifest_sha256=None,
-            origin_release_id=_RELEASE_ID,
-            origin_manifest_sha256="f" * 64,
-            full_rebuild=True,
-        )
-
-    assert created is False
-
-
-def test_a_full_rebuild_and_an_expected_base_are_mutually_exclusive(tmp_path: Path) -> None:
-    """Naming a base a rebuild will not read would assert a check that never runs."""
-
-    with pytest.raises(LakePublishError, match="no base release to expect"):
-        publish_market_lake(
-            sqlite_path=tmp_path / "market.sqlite",
-            mirror_root=tmp_path / "mirror",
-            store=_UnusedStore(),
-            expected_base_release_id=_RELEASE_ID,
-            expected_base_manifest_sha256="a" * 64,
-            full_rebuild=True,
-        )
+        assert len(paths) == 1
+        assert paths[0].read_bytes() == b"checked-model\n"
+        assert paths[0].is_relative_to(tmp_path / "mirror")
 
 
 def test_the_flag_reaches_the_publication(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -302,18 +149,11 @@ def test_the_flag_reaches_the_publication(monkeypatch: pytest.MonkeyPatch) -> No
     assert seen["full_rebuild"] is True
 
 
-def test_a_fingerprint_refusal_names_a_recovery_instead_of_ending_in_a_traceback(
+def test_a_fingerprint_refusal_names_the_full_rebuild_recovery(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The shape that stopped 2026-08-19's batch: the export refuses a base built under
-    the previous transform fingerprint, and the run log ended in an uncaught traceback
-    naming no way out. The guard is right; what was missing was where to go next."""
-
     def _refuse(**_: object) -> object:
-        raise LakeBuildError(
-            "base manifest transform_fingerprint differs; run a full rebuild without "
-            "--base-manifest"
-        )
+        raise LakeTransformFingerprintMismatch("transform_fingerprint differs")
 
     monkeypatch.setattr(publish_module, "publish_market_lake", _refuse)
     monkeypatch.setattr(publish_module, "Boto3R2Store", lambda **_: _UnusedStore())
@@ -327,31 +167,40 @@ def test_a_fingerprint_refusal_names_a_recovery_instead_of_ending_in_a_traceback
     assert publish_module.RECOVERY_RUNBOOK_SECTION in printed
 
 
-def test_the_recovery_the_message_names_is_one_the_runbook_carries() -> None:
-    """A pointer to a section nobody wrote sends the operator nowhere. Bind the two, so
-    renaming the section fails here rather than at 17:00 on the day it is needed."""
+def test_an_unrelated_build_error_does_not_prescribe_a_full_rebuild(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def _refuse(**_: object) -> object:
+        raise LakeBuildError("invalid date in sealed SQLite snapshot")
 
+    monkeypatch.setattr(publish_module, "publish_market_lake", _refuse)
+    monkeypatch.setattr(publish_module, "Boto3R2Store", lambda **_: _UnusedStore())
+
+    exit_code = publish_module.main(["--sqlite", "market.sqlite", "--mirror", "stores"])
+
+    assert exit_code == 1
+    printed = capsys.readouterr().err
+    assert "invalid date" in printed
+    assert "full rebuild" not in printed
+    assert "no retry clears this" not in printed
+
+
+def test_the_recovery_the_message_names_is_one_the_runbook_carries() -> None:
     runbook = (ROOT / "batch/OPERATIONS.md").read_text(encoding="utf-8")
 
     assert f"### {publish_module.RECOVERY_RUNBOOK_SECTION}" in runbook
-    section = runbook.split(f"### {publish_module.RECOVERY_RUNBOOK_SECTION}", 1)[1].split("\n### ")[
-        0
-    ]
+    section = runbook.split(f"### {publish_module.RECOVERY_RUNBOOK_SECTION}", 1)[1].split(
+        "\n### ", 1
+    )[0]
     assert "--full-rebuild" in section
     assert "publish_market_lake" in section
 
 
 def test_the_runbook_recovery_goes_through_the_path_that_records_the_release() -> None:
-    """The publisher creates a release; the transfer script records which one the store
-    now corresponds to. A recovery published around that record leaves the store naming
-    a release the lake has moved past, and the next `push-market` refuses to dehydrate
-    against it — which is what happened on 2026-08-19 when the recovery ran as a direct
-    module call. Bind the runbook's command to the branch that writes the record."""
-
     runbook = (ROOT / "batch/OPERATIONS.md").read_text(encoding="utf-8")
-    section = runbook.split(f"### {publish_module.RECOVERY_RUNBOOK_SECTION}", 1)[1].split("\n### ")[
-        0
-    ]
+    section = runbook.split(f"### {publish_module.RECOVERY_RUNBOOK_SECTION}", 1)[1].split(
+        "\n### ", 1
+    )[0]
     transfer = (ROOT / "batch/scripts/r2_transfer.sh").read_text(encoding="utf-8")
     branch = transfer.split('if [[ "${mode}" == "full-rebuild" ]]; then', 1)[1].split(
         "\n  fi\n", 1
@@ -363,9 +212,7 @@ def test_the_runbook_recovery_goes_through_the_path_that_records_the_release() -
     assert "record_lake_release" in branch
 
 
-def test_the_publisher_still_accepts_the_flag_the_script_passes() -> None:
-    """The script names a flag; argparse is what decides whether it runs."""
-
+def test_publisher_cli_has_no_sidecar_origin_arguments() -> None:
     parsed = publish_module.build_parser().parse_args(
         [
             "--sqlite",
@@ -374,14 +221,10 @@ def test_the_publisher_still_accepts_the_flag_the_script_passes() -> None:
             "stores",
             "--bucket",
             "baibai-stores",
-            "--origin-release",
-            _RELEASE_ID,
-            "--origin-manifest-sha256",
-            "f" * 64,
             "--full-rebuild",
         ]
     )
 
     assert parsed.full_rebuild is True
     assert parsed.bucket == "baibai-stores"
-    assert parsed.origin_release == _RELEASE_ID
+    assert not hasattr(parsed, "origin_release")

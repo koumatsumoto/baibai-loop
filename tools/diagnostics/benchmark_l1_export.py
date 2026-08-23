@@ -93,6 +93,7 @@ def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> 
             sqlite_path=working_sqlite,
             mirror_root=mirror,
             producer_git_commit=producer_commit,
+            expected_store_origin=None,
         )
         full_seconds = time.perf_counter() - started
         baseline_objects = _object_inventory(full)
@@ -104,6 +105,7 @@ def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> 
             sqlite_path=working_sqlite,
             mirror_root=mirror,
             producer_git_commit=producer_commit,
+            expected_store_origin=None,
             base_manifest_paths={
                 name: result.manifest_path for name, result in full.datasets.items()
             },

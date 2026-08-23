@@ -155,7 +155,8 @@ gh workflow run cloud-materialize.yml --ref main   # 表示へ反映する場合
 ```
 
 **market storeはlakeへpublishしてからpushする。** lake所有17 tableのcanonicalはR2のL1 releaseに
-あり、`push-market`が送るのはそれを空にした残り2 tableだけである。`publish-lake`を飛ばすと、
+あり、`push-market`が送るのはそれを空にした残り2 data tableとstore自身のrelease origin metadataで
+ある。`publish-lake`を飛ばすと、
 dehydrateが「releaseが持つ行数と合わない」で停止する。ローカルが cloud より遅れている場合は先に
 `hydrate-market`で現行releaseへ揃える — publishはstoreをhydrateしたreleaseの上にだけ積めるので、
 別のwriterが進めたlakeの上へ古いstoreをpublishすることはできない。
@@ -248,7 +249,12 @@ gh workflow run cloud-history-backfill.yml --ref main \
 
 どちらのmergeも、終わった時点でsource側だけに残る行が1行でもあれば停止する。日次batchが取得済みでローカルに無い行を、uploadで失わないための不変条件である。以下はstoreごとに違う部分。
 
-`push-market`のmergeは`merge_market_store.py`である。**対象はlakeが持たない2 tableだけ**で、lake所有17 tableのcloud/local突き合わせはreleaseが引き取っている——`publish-lake`はstoreをhydrateしたreleaseをlakeが既に離れていれば拒否し、dehydrateはreleaseが持たない行を持つstoreのuploadを拒否する。
+`push-market`のmergeは`merge_market_store.py`である。対象はlakeが持たない2 data tableと
+`lake_store_origin`で、lake所有17 tableのcloud/local突き合わせはreleaseが引き取っている。
+`source_coverage`はunionし、operator導出の`tse_capital_policy_snapshots`とstore自身の
+`lake_store_origin`はtargetを保持する。cloud copyのoriginを取り込むと、local rowsを別release由来と
+偽ってしまうためである。`publish-lake`はstoreをhydrateしたreleaseをlakeが既に離れていれば拒否し、
+dehydrateはreleaseが持たない行を持つstoreのuploadを拒否する。
 
 `source_coverage`は取得範囲の帳簿で、両側が書くので主キー`(source, coverage_key)`で`INSERT OR IGNORE`し、同じ主キーを両側が持つ場合はpayloadの一致を検証する。**比較しないのは、出所が何を言ったかではなくstoreがいつ読んだかを記録する`fetched_at_utc`だけ**——2つのstoreが同じ範囲を別の時刻に読めばそこは必ず食い違うので、比較すれば全てのmergeを拒否する。
 
@@ -258,7 +264,10 @@ gh workflow run cloud-history-backfill.yml --ref main \
 
 訂正可能な`jquants_short_sale_reports`のcoverageはdisclosure dateごとに1つのclaimを選ぶ。`ok`が`partial`/`failed`に勝ち、同種なら`fetched_at_utc`が新しい方が勝つ。`record_count`はreleaseが満たしたtargetの実rowから読み直す。行が1つも claimされないdateがあれば停止するが、**その検査はclaim選択の後**に置く——行はhydrateで、claimはmergeで届くので、cloudが取得して publishした日はtargetのtableに1段先に現れる。
 
-`jpx_delistings` / `tender_offer_exit_values` / `tse_capital_policy_snapshots`はoperatorが導出したもので、targetを丸ごと残しsourceから1行も取り込まない。key mergeすると、後の導出が撤回した行が古いcopyから復活し、訂正した値は「2つのstoreが食い違う」と読まれてpublish全体を止める。
+`tse_capital_policy_snapshots`はoperatorが導出したもので、targetを丸ごと残しsourceから1行も
+取り込まない。key mergeすると、後の導出が撤回した行が古いcopyから復活し、訂正した値は
+「2つのstoreが食い違う」と読まれてpublish全体を止める。`jpx_delistings`と
+`tender_offer_exit_values`はlake datasetであり、merge対象ではない。
 
 mergeの対象tableは`merge_market_store.py`の`FACT_KEYS` / `DERIVED_KEYS`に列挙し、**それとlake datasetの合併がstoreのtable一覧と一致すること**をtestが確かめる。新しいtableはlakeかmergeのどちらかに分類しないと落ちる。
 
@@ -284,20 +293,22 @@ base manifest transform_fingerprint differs; run a full rebuild without --base-m
 
 復旧はローカルで完結させる。
 
-1. **store origin を確認する** — `stores/.r2-generations/lake-release.json` が、ローカル store を
-   hydrate した release ID と manifest SHA-256 を保持していることを確認する。full rebuild はこの
-   identity を開始時 current pointer と照合し、違えば export 前に停止する。記録が無い、または current
-   より古い場合は推測で補わず、先に `hydrate-market` で current release へ揃える
+1. **store origin を確認する** — `market.sqlite`内の`lake_store_origin`が、ローカル store を
+   hydrateしたrelease IDとmanifest SHA-256を保持する。full rebuildはexport対象と同じsealed snapshotから
+   このidentityを読み、開始時current pointerと照合して、違えばdataset export前に停止する。SQLiteだけを
+   古いbackupへ戻してsidecarが新しいままでも通らず、origin確認とsnapshot captureの間にDB pathが
+   差し替わっても通らない。originが無いのを許すのはcurrent pointerも無いfirst publicationだけである。
+   違う場合は推測で補わず、先に`hydrate-market`でcurrent releaseへ揃える
 
    ```bash
-   sed -n '1p' stores/.r2-generations/lake-release.json
+   uv run python -c 'import sqlite3; print(sqlite3.connect("stores/market/market.sqlite").execute("SELECT release_id, release_manifest_sha256 FROM lake_store_origin WHERE singleton = 1").fetchone())'
    uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores --format json
    ```
 
-   行数 floor の authority は full rebuild が実際に読んだ sealed SQLite snapshot である。全 partition の
-   export 後、その manifest totals が置換対象 release を包含することを publisher が検査し、dataset の
-   消滅または行数減少では release 作成と pointer 切替を行わない。fingerprint 変更後の Parquet bytes は
-   変わり得るため、直前 release との byte 一致を gate にはしない
+   全dataset共通の「前release以上」というrow floorは持たない。訂正やsnapshot置換で正常に件数が
+   減るdatasetがあるためである。代わりにrelease時のproduction policyがdatasetごとのhistory境界、
+   minimum rows / population、coverage、freshnessを検査する。historical datasetの大幅欠損はこの固定
+   policyで拒否し、正常なsnapshot縮小は許可する
 
 2. **worktree を clean にする** — publish は `git status --porcelain` が空であることを要求する
    （`lake publication requires a clean tracked worktree`）。export は本番 store で 7 分強かかるので、
@@ -309,18 +320,18 @@ base manifest transform_fingerprint differs; run a full rebuild without --base-m
    batch/scripts/r2_transfer.sh publish-lake full-rebuild
    ```
 
-   script は release 記録を `--origin-release` / `--origin-manifest-sha256` として publisher へ渡す。
-   `--full-rebuild` は `--base-release` と排他で、origin manifest を carry せず全 partition を store から
-   derive し直す。同一 bytes の
+   publisherはoriginを同じ`market.sqlite`から読み、`--full-rebuild`ではbase manifestをcarryせず全
+   partitionをstoreからderiveし直す。同一 bytes の
    Parquet は content-addressed key と `If-None-Match: *` で再 upload されないので、転送は新 manifest 群と
    pointer CAS が中心になる。Bucket Lock は新 key の PUT と `lake/pointers/` の CAS を対象にしないので
    干渉しない。
 
-   **module を直接叩かない。** `publish_market_lake` は release を作るが、`stores/.r2-generations/`
-   の release 記録は書かない。この記録は「ローカル store が今どの release に対応するか」で、
-   `push-market` の dehydrate と次の増分 publish がその名前で照合する。直叩きで publish すると
-   store が lake の移った先より古い release を名乗ったままになり、次の `push-market` が
-   dehydrate で止まる（2026-08-19 の復旧で実際にこの状態を作った）
+   **module を直接叩かない。** high-level `publish_market_lake` moduleもshell経由で使う。shellは成功したstdoutを検証・durable replaceして
+   `stores/.r2-generations/lake-release.json`へ保存する。このfileはoperator表示とcalibration向けcacheで、
+   publication/dehydrateのauthorityではない。publisherはpointer成功後にSQLite内originを新releaseへ進め、
+   dehydrateもupload対象SQLite内の同じoriginを読む。
+   low-level `lake_publish` CLIはfirst publicationとexact-target retryだけを許し、currentを別releaseへ
+   直接切り替える用途には使えない
 
 4. **pointer が新 release を指すことを確認する**
 

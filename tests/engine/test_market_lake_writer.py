@@ -480,6 +480,7 @@ def test_pilot_orchestration_exports_one_release_generation(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit=_COMMIT,
+        expected_store_origin=None,
         created_at=datetime(2026, 2, 4, tzinfo=UTC),
     )
     manifests = [item.manifest_path for item in report.datasets.values()]
@@ -733,6 +734,7 @@ def test_l1_manifest_digest_is_part_of_the_gc_root(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit=_COMMIT,
+        expected_store_origin=None,
         created_at=datetime(2026, 2, 4, tzinfo=UTC),
     )
     release_path, release = create_l1_release(
@@ -811,6 +813,7 @@ def test_the_sealed_store_is_gone_when_the_export_operation_ends(tmp_path: Path)
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit=_COMMIT,
+        expected_store_origin=None,
         created_at=datetime(2026, 2, 4, tzinfo=UTC),
     )
 
@@ -858,6 +861,7 @@ def test_a_release_stays_resolvable_with_no_sealed_store_to_reach(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit=_COMMIT,
+        expected_store_origin=None,
         created_at=datetime(2026, 2, 4, tzinfo=UTC),
     )
     release_path, release = create_l1_release(

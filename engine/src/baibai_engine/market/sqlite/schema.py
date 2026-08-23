@@ -102,6 +102,7 @@ _REQUIRED_TABLES = (
     "jpx_regulation_flags",
     "jpx_regulation_sources",
     "source_coverage",
+    "lake_store_origin",
 )
 _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
     "jquants_daily_bars": (
@@ -321,6 +322,11 @@ _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
         "record_count",
         "status",
         "error",
+    ),
+    "lake_store_origin": (
+        "singleton",
+        "release_id",
+        "release_manifest_sha256",
     ),
 }
 _EXPLICIT_INDEXES: Mapping[str, tuple[str, tuple[str, ...], bool]] = {
@@ -615,6 +621,13 @@ CREATE TABLE IF NOT EXISTS source_coverage(
 
 CREATE INDEX IF NOT EXISTS idx_source_coverage_source_window
   ON source_coverage(source, coverage_start, coverage_end);
+
+CREATE TABLE IF NOT EXISTS lake_store_origin(
+  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+  release_id TEXT NOT NULL,
+  release_manifest_sha256 TEXT NOT NULL
+    CHECK (length(release_manifest_sha256) = 64)
+);
 
 CREATE TABLE IF NOT EXISTS edinet_buyback_reports(
   ticker TEXT NOT NULL,

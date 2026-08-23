@@ -2,10 +2,9 @@
 
 This is the write half of the daily cutover. Its read half is ``lake hydrate``, and the
 two are joined by one rule: the serving release must still be the one the store was
-filled from. An incremental export uses that release as its base; a full rebuild uses it
-as the floor its sealed snapshot must contain. A run derived from another generation
-could seal a graph missing current rows, and the pointer CAS would not notice — the CAS
-protects the switch, not the store the graph was derived from.
+filled from. That identity lives in the SQLite file itself: a sidecar can be restored or
+copied independently and therefore cannot prove which rows the export is reading. An
+incremental export uses that release as its base; a full rebuild re-derives every row.
 
 An incremental publication writes only changed partitions and carries every other one by
 reference from private copies of the validated base manifests. A full rebuild carries no
@@ -29,11 +28,15 @@ from pathlib import Path
 from baibai_engine.batch_api import (
     L1ReleasePointer,
     LakeBuildError,
-    LakeDatasetManifest,
+    LakeBuildReport,
     LakeFixedRelease,
     LakeReadError,
     LakeReleaseManifest,
+    LakeStoreOrigin,
+    LakeStoreOriginError,
+    LakeTransformFingerprintMismatch,
     LocalMirrorSource,
+    advance_lake_store_origin,
     canonical_lake_model_bytes,
     create_lake_l1_release,
     export_lake_legacy,
@@ -83,10 +86,6 @@ def publish_market_lake(
     sqlite_path: Path,
     mirror_root: Path,
     store: ObjectStore,
-    expected_base_release_id: str | None,
-    expected_base_manifest_sha256: str | None,
-    origin_release_id: str | None = None,
-    origin_manifest_sha256: str | None = None,
     release_id: str | None = None,
     full_rebuild: bool = False,
 ) -> MarketLakePublishReport:
@@ -100,33 +99,13 @@ def publish_market_lake(
     happens to match again.
     """
 
-    _require_complete_identity("base", expected_base_release_id, expected_base_manifest_sha256)
-    _require_complete_identity("origin", origin_release_id, origin_manifest_sha256)
-    if full_rebuild and expected_base_release_id is not None:
-        raise LakePublishError("a full rebuild has no base release to expect")
-    if not full_rebuild and origin_release_id is not None:
-        raise LakePublishError("a store origin is only named for a full rebuild")
     base_resolve_started = time.perf_counter()
     serving = _serving_pointer(store)
     base = serving.pointer
-    if full_rebuild:
-        _require_expected_release(
-            base,
-            origin_release_id,
-            origin_manifest_sha256,
-            role="origin",
-        )
-        replaced = None if base is None else _resolve_base_release(store, mirror_root, base)
-        fixed_base = None
-    else:
-        _require_expected_release(
-            base,
-            expected_base_release_id,
-            expected_base_manifest_sha256,
-            role="base",
-        )
-        fixed_base = None if base is None else _resolve_base_release(store, mirror_root, base)
-        replaced = None
+    expected_store_origin = _pointer_origin(base)
+    fixed_base = (
+        None if full_rebuild or base is None else _resolve_base_release(store, mirror_root, base)
+    )
 
     with _base_manifest_snapshot(fixed_base) as base_manifests:
         export_started = time.perf_counter()
@@ -134,27 +113,38 @@ def publish_market_lake(
             sqlite_path=sqlite_path,
             mirror_root=mirror_root,
             producer_git_commit=lake_verified_git_commit(),
+            expected_store_origin=expected_store_origin,
             base_manifest_paths=base_manifests,
             audit_full_history=False,
         )
-    if full_rebuild:
-        _require_no_rows_lost(
-            {name: item.manifest for name, item in export.datasets.items()},
-            replaced,
-        )
     export_finished = time.perf_counter()
-    release_path, release = create_lake_l1_release(
-        dataset_manifest_paths=[item.manifest_path for item in export.datasets.values()],
-        mirror_root=mirror_root,
-        release_id=release_id,
+    with _export_manifest_snapshot(export.datasets, mirror_root) as manifest_paths:
+        release_path, release = create_lake_l1_release(
+            dataset_manifest_paths=manifest_paths,
+            mirror_root=mirror_root,
+            release_id=release_id,
+        )
+        release_payload = canonical_lake_model_bytes(release)
+        release_sha256 = hashlib.sha256(release_payload).hexdigest()
+        release_finished = time.perf_counter()
+        published = publish_l1_release(
+            mirror_root=mirror_root,
+            release_manifest_path=release_path,
+            expected_release_sha256=release_sha256,
+            store=store,
+            pointer_precondition=serving.precondition,
+        )
+    target_origin = LakeStoreOrigin(
+        release_id=published.release_id,
+        release_manifest_sha256=release_sha256,
     )
-    release_finished = time.perf_counter()
-    published = publish_l1_release(
-        mirror_root=mirror_root,
-        release_manifest_path=release_path,
-        store=store,
-        pointer_precondition=serving.precondition,
-    )
+    try:
+        advance_lake_store_origin(sqlite_path, expected=export.store_origin, target=target_origin)
+    except LakeStoreOriginError as exc:
+        raise LakePublishError(
+            f"the L1 pointer advanced but the local market store origin did not: {exc}; "
+            "hydrate the store from current before publishing again"
+        ) from exc
     print(
         "lake publish phases: "
         f"base_resolve={export_started - base_resolve_started:.3f}s "
@@ -168,7 +158,7 @@ def publish_market_lake(
     transfers = published.transfers.as_dict()
     return MarketLakePublishReport(
         release_id=published.release_id,
-        release_manifest_sha256=hashlib.sha256(release_path.read_bytes()).hexdigest(),
+        release_manifest_sha256=release_sha256,
         data_as_of=release.data_as_of.isoformat(),
         base_release_id=None if base is None else base.release_id,
         changed_partitions={
@@ -186,71 +176,33 @@ def _serving_pointer(store: ObjectStore) -> PointerSnapshot:
     return read_pointer_snapshot(store)
 
 
-def _require_complete_identity(
-    role: str, release_id: str | None, manifest_sha256: str | None
-) -> None:
-    if (release_id is None) != (manifest_sha256 is None):
-        raise LakePublishError(
-            f"a {role} release is named by its id and its manifest digest, or not at all"
-        )
+def _pointer_origin(pointer: L1ReleasePointer | None) -> LakeStoreOrigin | None:
+    if pointer is None:
+        return None
+    return LakeStoreOrigin(
+        release_id=pointer.release_id,
+        release_manifest_sha256=pointer.manifest_sha256,
+    )
 
 
-def _require_expected_release(
-    base: L1ReleasePointer | None,
-    expected_release_id: str | None,
-    expected_manifest_sha256: str | None,
-    *,
-    role: str,
-) -> None:
-    """Refuse unless the lake still serves the release this store was filled from.
+@contextmanager
+def _export_manifest_snapshot(
+    datasets: Mapping[str, LakeBuildReport], mirror_root: Path
+) -> Iterator[list[Path]]:
+    """Freeze the exact manifest models checked by the export into private bytes."""
 
-    The check is on the full identity rather than the name, for the same reason the
-    fill checks it that way: a release ID republished over different bytes would pass
-    a name comparison while naming a different graph.
-    """
-
-    if expected_release_id is None:
-        if base is not None:
-            raise LakePublishError(
-                f"the lake already serves release {base.release_id}; "
-                f"name it as the store {role}, or hydrate from it first"
-            )
-        return
-    if base is None:
-        raise LakePublishError(
-            f"the lake serves no release, but {expected_release_id} was named as the base"
-        )
-    if (base.release_id, base.manifest_sha256) != (expected_release_id, expected_manifest_sha256):
-        raise LakePublishError(
-            f"the lake moved to release {base.release_id} since this store was hydrated "
-            f"from {expected_release_id}; hydrate again before publishing"
-        )
-
-
-def _require_no_rows_lost(
-    exported_manifests: Mapping[str, LakeDatasetManifest], replaced: LakeFixedRelease | None
-) -> None:
-    """Refuse a full rebuild that would publish fewer rows than the release it replaces.
-
-    A differential build cannot lose history: unchanged partitions are carried by
-    reference from the base. A full rebuild has no such floor — it publishes exactly what
-    the store holds, so a store that is behind the lake would seal a release missing the
-    difference, and the pointer CAS would not notice because the switch itself is valid.
-    The base release's own per-dataset totals are the floor, and they are already in the
-    manifest this publication would replace.
-    """
-
-    if replaced is None:
-        return
-    for name, entry in sorted(replaced.manifest.datasets.items()):
-        exported = exported_manifests.get(name)
-        held = 0 if exported is None else exported.totals.rows
-        if held < entry.totals.rows:
-            raise LakePublishError(
-                f"{name} holds {held} row(s) in the sealed export but release "
-                f"{replaced.release_id} publishes {entry.totals.rows}; a full rebuild "
-                "would drop the difference. Hydrate the store from the serving release first"
-            )
+    mirror_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        dir=mirror_root, prefix=".lake-publication-manifests-"
+    ) as directory:
+        root = Path(directory)
+        paths: list[Path] = []
+        for index, (name, item) in enumerate(sorted(datasets.items())):
+            payload = canonical_lake_model_bytes(item.manifest)
+            path = root / f"{index:02d}-{name.replace('.', '-')}.json"
+            path.write_bytes(payload)
+            paths.append(path)
+        yield paths
 
 
 @contextmanager
@@ -355,21 +307,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sqlite", type=Path, required=True)
     parser.add_argument("--mirror", type=Path, required=True)
     parser.add_argument("--bucket", default="baibai-stores")
-    parser.add_argument(
-        "--base-release",
-        help="the release this store was hydrated from; omit only for the first publication",
-    )
-    parser.add_argument(
-        "--base-manifest-sha256", help="required digest when --base-release is used"
-    )
-    parser.add_argument(
-        "--origin-release",
-        help="the release a full-rebuild store was hydrated from",
-    )
-    parser.add_argument(
-        "--origin-manifest-sha256",
-        help="required digest when --origin-release is used",
-    )
     parser.add_argument("--release-id")
     parser.add_argument(
         "--full-rebuild",
@@ -401,14 +338,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             sqlite_path=args.sqlite,
             mirror_root=args.mirror,
             store=Boto3R2Store(bucket=args.bucket),
-            expected_base_release_id=args.base_release,
-            expected_base_manifest_sha256=args.base_manifest_sha256,
-            origin_release_id=args.origin_release,
-            origin_manifest_sha256=args.origin_manifest_sha256,
             release_id=args.release_id,
             full_rebuild=args.full_rebuild,
         )
-    except LakeBuildError as error:
+    except LakeTransformFingerprintMismatch as error:
         # The export refuses a base built under a different transform fingerprint. That
         # is the guard working, but the run log used to end in a traceback that named no
         # way out — and the state does not clear on its own, so every scheduled batch
@@ -418,6 +351,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         # move the fingerprint and demand the very rebuild it describes.
         print(f"error: {error}", file=sys.stderr)
         print(f"error: {_FULL_REBUILD_RECOVERY}", file=sys.stderr)
+        return 1
+    except LakeBuildError as error:
+        print(f"error: {error}", file=sys.stderr)
         return 1
     except LakePublishError as error:
         print(f"error: {error}", file=sys.stderr)

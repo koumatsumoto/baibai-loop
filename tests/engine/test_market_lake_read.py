@@ -77,6 +77,7 @@ from baibai_engine.market.lake.release import (
 from baibai_engine.market.lake.retention import LakeRetentionError, exclusive_lock
 from baibai_engine.market.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
 from baibai_engine.market.sqlite import open_connection
+from baibai_engine.market.sqlite.lake_origin import read_lake_store_origin
 
 _COMMIT = "b" * 40
 _OTHER_COMMIT = "c" * 40
@@ -1159,6 +1160,10 @@ class TestHydrate:
 
         assert report.rows == {"jquants.daily_bars": 4, "jquants.short_sale_reports": 2}
         assert report.release_id == lake.release_id
+        origin = read_lake_store_origin(store)
+        assert origin is not None
+        assert origin.release_id == lake.release_id
+        assert origin.release_manifest_sha256 == report.release_manifest_sha256
         filled = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
         try:
             assert filled.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 4
