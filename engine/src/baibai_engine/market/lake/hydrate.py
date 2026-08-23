@@ -7,9 +7,9 @@ carries secondary indexes the contract does not declare, and a store built to th
 contract shape would silently accept rows the real one rejects.
 
 So the fill works from the store outwards. A sealed copy of the store supplies the schema
-and every table the lake does not own, and each lake-owned table is emptied and reloaded
-from the release's objects. The copy is promoted with a single rename, so a reader never
-sees a half-filled store and a failed fill leaves the previous one intact.
+and every table the lake does not own, and each release-published table is emptied and
+reloaded from the release's objects. The copy is promoted with a single rename, so a
+reader never sees a half-filled store and a failed fill leaves the previous one intact.
 
 Filling is fail-closed on the count: a store whose lake tables silently stayed empty
 would let a screening run publish an empty universe as a healthy result, which is the
@@ -195,10 +195,11 @@ def hydrate_market_store(
     plan, partitions = plan_release_load(release, dataset_names=dataset_names)
     require_still_current(still_current, release)
     with exclusive_lock(store.with_name(f".{store.name}.lock"), subject="market store"):
+        schema_version = validate_snapshot(store)
         require_no_unpublished_rows(store, plan)
+        require_safe_hydrate_transition(store, release=release, plan=plan)
         require_durable_filesystem(store.parent)
         require_free_capacity(store.parent, store=store, plan=plan)
-        schema_version = validate_snapshot(store)
         before = cache.transfers.as_dict()
         temporary = store.with_name(f".{store.name}.{os.getpid()}.{uuid.uuid4().hex}.hydrating")
         rows: dict[str, int] = {}
@@ -257,6 +258,61 @@ def hydrate_market_store(
         rows=dict(sorted(rows.items())),
         transfers=cache.transfers.since(before),
     )
+
+
+def require_safe_hydrate_transition(
+    store: Path,
+    *,
+    release: FixedRelease,
+    plan: ReleaseLoadPlan,
+) -> None:
+    """Let only a store-wide fill move the store-wide release identity.
+
+    A partial fill is a repair inside an already established generation. Moving an
+    older store to a new release requires every dataset that release publishes; any row
+    from a registry dataset it omits must be dealt with explicitly rather than being
+    mistaken for a post-release local change.
+    """
+
+    try:
+        origin = read_lake_store_origin(store)
+    except LakeStoreOriginError as exc:
+        raise LakeHydrateError(str(exc)) from exc
+    target = LakeStoreOrigin(
+        release_id=release.release_id,
+        release_manifest_sha256=release.manifest_sha256,
+    )
+    selected = frozenset(item.dataset for item in plan.datasets)
+    published = frozenset(release.dataset_names())
+    if selected != published:
+        if origin != target:
+            raise LakeHydrateError(
+                "partial hydration can only repair a store already bound to the target release"
+            )
+        return
+    if origin == target:
+        return
+
+    omitted = tuple(sorted(set(LAKE_DATASETS) - published))
+    with closing(sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True)) as connection:
+        for name in omitted:
+            dataset = LAKE_DATASETS[name]
+            try:
+                held = int(
+                    connection.execute(
+                        f"SELECT COUNT(*) FROM {dataset.sqlite_table}"  # nosec B608
+                    ).fetchone()[0]
+                )
+            except sqlite3.OperationalError as exc:
+                raise LakeHydrateError(
+                    f"market store does not carry {dataset.sqlite_table}: {store}"
+                ) from exc
+            if held:
+                raise LakeHydrateError(
+                    f"{name} holds {held} row(s) but target release {release.release_id} "
+                    "does not publish it; publish or explicitly discard those rows before "
+                    "changing the store origin"
+                )
 
 
 @dataclass(frozen=True, slots=True)

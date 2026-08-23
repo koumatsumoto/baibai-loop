@@ -1163,6 +1163,140 @@ def _hydrate(session: LakeSession, lake: Lake, store: Path, **kwargs: Any):
 
 
 class TestHydrate:
+    def test_partial_fill_cannot_advance_a_store_from_an_older_release(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        store = tmp_path / "stale.sqlite"
+        shutil.copyfile(lake.sqlite_path, store)
+        with sqlite3.connect(lake.sqlite_path) as connection:
+            connection.execute(
+                "UPDATE jquants_daily_bars SET close = 999.0 "
+                "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
+            )
+            connection.execute("DELETE FROM jquants_short_sale_reports WHERE ticker = '6758'")
+        _build_lake_second_release(lake)
+        release = resolve_current_release(_cache(lake).source)
+        before = store.read_bytes()
+
+        with pytest.raises(LakeHydrateError, match="partial hydration can only repair"):
+            hydrate_market_store(
+                session,
+                release=release,
+                cache=_cache(lake),
+                store=store,
+                dataset_names=("jquants.daily_bars",),
+            )
+
+        assert store.read_bytes() == before
+        assert read_lake_store_origin(store) == LakeStoreOrigin(
+            release_id=lake.release_id,
+            release_manifest_sha256=_release_digest(lake.mirror, lake.release_id),
+        )
+
+    def test_partial_fill_repairs_one_dataset_inside_the_same_release(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        store = tmp_path / "repair.sqlite"
+        shutil.copyfile(lake.sqlite_path, store)
+        with sqlite3.connect(store) as connection:
+            connection.execute(
+                "UPDATE jquants_daily_bars SET close = 999.0 "
+                "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
+            )
+        release = resolve_current_release(_cache(lake).source)
+
+        report = hydrate_market_store(
+            session,
+            release=release,
+            cache=_cache(lake),
+            store=store,
+            dataset_names=("jquants.daily_bars",),
+        )
+
+        assert report.rows == {"jquants.daily_bars": 4}
+        assert read_lake_store_origin(store) == LakeStoreOrigin(
+            release_id=release.release_id,
+            release_manifest_sha256=release.manifest_sha256,
+        )
+        with sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True) as connection:
+            assert connection.execute(
+                "SELECT close FROM jquants_daily_bars "
+                "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
+            ).fetchone() == (100.0,)
+            assert connection.execute(
+                "SELECT COUNT(*) FROM jquants_short_sale_reports"
+            ).fetchone() == (2,)
+
+    def test_full_fill_can_advance_the_whole_store_to_a_new_release(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        store = tmp_path / "generation-a.sqlite"
+        shutil.copyfile(lake.sqlite_path, store)
+        with sqlite3.connect(lake.sqlite_path) as connection:
+            connection.execute(
+                "UPDATE jquants_daily_bars SET close = 999.0 "
+                "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
+            )
+        _build_lake_second_release(lake)
+        release = resolve_current_release(_cache(lake).source)
+
+        report = hydrate_market_store(
+            session,
+            release=release,
+            cache=_cache(lake),
+            store=store,
+            dataset_names=release.dataset_names(),
+        )
+
+        assert set(report.rows) == set(release.dataset_names())
+        assert read_lake_store_origin(store) == LakeStoreOrigin(
+            release_id=release.release_id,
+            release_manifest_sha256=release.manifest_sha256,
+        )
+        with sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True) as connection:
+            assert connection.execute(
+                "SELECT close FROM jquants_daily_bars "
+                "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
+            ).fetchone() == (999.0,)
+
+    def test_cross_release_fill_refuses_rows_from_a_dataset_the_target_omits(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        store = tmp_path / "omitted.sqlite"
+        shutil.copyfile(lake.sqlite_path, store)
+        original = resolve_current_release(_cache(lake).source)
+        target = replace(
+            original,
+            release_id="release-without-short-sales",
+            manifest_sha256="e" * 64,
+            dataset_manifests={
+                "jquants.daily_bars": original.dataset_manifest("jquants.daily_bars")
+            },
+            dataset_manifest_sha256={
+                "jquants.daily_bars": original.dataset_manifest_sha256["jquants.daily_bars"]
+            },
+        )
+        before = store.read_bytes()
+
+        with pytest.raises(LakeHydrateError, match=r"target release .* does not publish"):
+            hydrate_market_store(
+                session,
+                release=target,
+                cache=_cache(lake),
+                store=store,
+                dataset_names=target.dataset_names(),
+            )
+
+        assert store.read_bytes() == before
+        assert read_lake_store_origin(store) == LakeStoreOrigin(
+            release_id=original.release_id,
+            release_manifest_sha256=original.manifest_sha256,
+        )
+        with sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True) as connection:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM jquants_short_sale_reports"
+            ).fetchone() == (2,)
+
     def test_filling_restores_the_published_rows_and_leaves_the_rest_of_the_store_alone(
         self, session: LakeSession, lake: Lake, tmp_path: Path
     ) -> None:

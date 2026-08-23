@@ -1,17 +1,17 @@
 """Typed Parquet L2 builds for the calibration panel, diagnostics, and forward rows.
 
 The calibration cohort is a wide, append-only cross-section that is rebuilt rather
-than edited, which is what makes it an L2 dataset rather than a table. Each build is
-immutable and carries the identity it was produced from: the L1 release it was bound
-to, the legacy store it still had to read, the code that produced it, and the
-fingerprint of the transform. A contract change is a new build under a new
+than edited, which is what makes it an L2 dataset rather than a table. Each new build is
+immutable and records the sealed SQLite generation it read, the code that produced it,
+and the fingerprint of the transform. Legacy manifests may additionally carry an L1
+release reference. A contract change is a new build under a new
 ``contract_version``, never an edit of published objects.
 
 The Arrow schema is derived from the row dataclasses, so the stored columns cannot
 drift from the contract the rest of calibration computes against — a field added to
 ``PanelRow`` changes the schema, the transform fingerprint, and therefore the build.
 
-Reads are fail-closed. A build whose schema, transform fingerprint, or source release
+Reads are fail-closed. A build whose schema, transform fingerprint, or source identity
 is not the one the reader expects is an error; there is no ``union_by_name`` and no
 column-defaulting, because a silently missing column would read as "measured and
 absent" for a cohort that never measured it at all.

@@ -278,7 +278,9 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       exact replayがT1〜T3の成果に不要なら、新しい永続stateやblockerを足さず、保持済みoutputのintegrityと
       現在の完全storeからの再buildで済ませるか。dehydrateはDELETE開始前にembedded originとresolved
       releaseのID・digest一致、およびcurrent指定時のpointer再確認を行い、不一致時のDB不変をnegative
-      testで固定したか
+      testで固定したか。store-wide originを進めるhydrateはtarget releaseの全datasetを対象とし、partial
+      hydrateはsame-origin repairだけに限定したか。cross-release hydrateでtargetが持たないlake datasetの
+      rowを旧storeから引き継がず、origin更新前に拒否するnegative testがあるか
 - [ ] L2 analytical buildを変更する場合、schemaを行のcontractから導き、transform fingerprint /
       source release / schema / object digestの不一致をそれぞれfail closeにするnegative testを
       持つか。full primary keyの重複・null・partition外as-ofをwrite/read両側で拒否するか。0-rowを

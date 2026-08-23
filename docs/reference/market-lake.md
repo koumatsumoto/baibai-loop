@@ -340,8 +340,8 @@ row は bounded batch で読む。dataset は 10 年分の日足であり、全 
 
 ## Store hydration
 
-固定 release を SQLite へ実体化するのは hydrate である。`market.sqlite` の lake 所有 17 table を
-空にしてreleaseのobjectから積み直し、他の2 data table、`lake_store_origin`、schemaはそのまま残す。storeは満たされた
+固定 release を SQLite へ実体化するのは hydrate である。releaseがpublishするlake所有tableを空にして
+objectから積み直し、他の2 data table、`lake_store_origin`、schemaはそのまま残す。storeは満たされた
 後も ingest が書き続けるので、契約から導いた形ではなく store 自身の schema — 書き込み時の制約と
 index — を運ぶ必要がある。両者は実際に違う（store だけが `week_end` を制約し、契約が宣言しない
 secondary index を持つ）ので、契約側の形で作った store は本物が拒否する行を黙って受け入れる。
@@ -355,6 +355,11 @@ uv run baibai-engine lake hydrate \
 current以外は`--release <id> --manifest-sha256 <sha256>`、または typed release ref fileを渡す
 `--release-ref <path>`で固定する。IDだけのhydrateは受理しない。publishしていないlocal mirrorには
 current pointerが無いので、初回のhydrateは必ずこのどれかでreleaseを名指す。
+
+hydrateは常にreleaseがpublishする全datasetを対象とする。store-wideな`lake_store_origin`を別releaseへ
+進めるのもこの全体hydrateだけである。target releaseがpublishしないlake datasetを旧storeが保持する
+場合は、旧世代のrowをlocal変更と誤認しないようorigin更新前に拒否する。先にpublishするか、破棄を
+明示してからhydrateする。
 
 `--bucket baibai-stores` を足すと、mirror に無い object だけを R2 から取得して mirror へ
 content-addressed に格納する。object key は content hash なので、変わらなかった partition は
@@ -620,7 +625,7 @@ rulesがその間に動いているため旧storeのcohortは1件もそのまま
 それは設計自身が「旧rulesのcohortを現行集計に混ぜない」ために拒否していたものである。
 
 出力へ何を出さないかは、その出力が誰の手に渡るかで決まる。**共有される成果物** — remote publish
-report、Discord通知、CI artifact、そこへ載るerror — にはcredential、account ID、bucket URL、
+report、Discord通知、CI artifact、そこへ載るerror — にはcredential、bucket URL、
 そしてlocal filesystem pathを出さない。publish reportがrelease ID・pointer ETag・転送counterだけで
 できているのはこのためである。**operator-local CLI**（`inventory`、`release`、`hydrate`、
 `dehydrate`、immutable installのerror）はlocal pathを出す。operatorが次に触るのはその
