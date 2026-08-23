@@ -253,10 +253,11 @@ hydrate_market() {
 }
 
 publish_lake() {
-  # Export the partitions the day changed on top of the release this store was filled
-  # from, seal them into a release, and switch the pointer. The base is named rather
-  # than resolved, so a lake that moved underneath this run is refused instead of
-  # silently republished without the other writer's rows.
+  # Export the store on top of the release it was filled from, seal a release, and switch
+  # the pointer. Incremental publication names that release as its base; full rebuild
+  # names it only as the store origin and carries no partition from it. Either identity
+  # is checked against current, so a lake that moved underneath this store is refused
+  # instead of silently republished without the other writer's rows.
   #
   # `full-rebuild` drops the base and re-derives every partition, which is what the
   # export transform fingerprint moving requires. It goes through here rather than being
@@ -266,6 +267,8 @@ publish_lake() {
   # on 2026-08-19 — the recovery ran as a module call and left exactly that state.
   local mode="${1:-incremental}" base sha
   if [[ "${mode}" == "full-rebuild" ]]; then
+    base="$(lake_release_field release_id)"
+    sha="$(lake_release_field release_manifest_sha256)"
     (
       cd "${repo_root}" || exit 1
       UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
@@ -273,6 +276,8 @@ publish_lake() {
           --sqlite "$(store_path market.sqlite)" \
           --mirror "${lake_mirror}" \
           --bucket "${stores_bucket}" \
+          --origin-release "${base}" \
+          --origin-manifest-sha256 "${sha}" \
           --full-rebuild
     ) | record_lake_release
     return
