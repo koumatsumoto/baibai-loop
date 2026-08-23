@@ -29,8 +29,8 @@ def _payload(raw: object) -> dict[str, object]:
     version = payload.get("schema_version")
     if version == 5:
         return _project_v5(payload)
-    if version == 4:
-        return _project_v4(payload)
+    if version in {2, 3, 4}:
+        return _project_legacy(payload)
     raise ValueError(f"unsupported shortlist schema_version: {version!r}")
 
 
@@ -41,8 +41,8 @@ def _project_v5(payload: dict[str, object]) -> dict[str, object]:
     return projected
 
 
-def _project_v4(payload: dict[str, object]) -> dict[str, object]:
-    """Project immutable v4 history without inventing exact policy identities."""
+def _project_legacy(payload: dict[str, object]) -> dict[str, object]:
+    """Project known immutable v2-v4 history without inventing exact identities."""
 
     projected = dict(payload)
     projected["attention_policy_id"] = None

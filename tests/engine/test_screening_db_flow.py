@@ -120,9 +120,32 @@ def test_select_and_shortlist_publish_from_explicit_run_revision(
         encoding="utf-8",
     )
     assert publish_shortlist(draft, app_db_path=app_path, runs_db_path=runs_path) == 0
+    current_stdout = io.StringIO()
+    assert (
+        select_command(
+            asof_date=date.fromisoformat(run.as_of_date),
+            top=10,
+            run_revision_id=run.run_revision_id,
+            runs_db_path=runs_path,
+            app_db_path=app_path,
+            longlist_top=1,
+            stdout=current_stdout,
+        )
+        == 0
+    )
+    current_selection = yaml.safe_load(current_stdout.getvalue())
     newer_shortlist = yaml.safe_load(draft.read_text(encoding="utf-8"))
     newer_shortlist["shortlist_id"] = "shortlist-20260708-test-newer"
+    newer_shortlist["selection_id"] = current_selection["selection_id"]
     newer_shortlist["published_at"] = "2026-07-08T16:00:00+09:00"
+    newer_shortlist["attention_policy_id"] = current_selection["attention_policy_id"]
+    newer_shortlist["attention_policy_hash"] = current_selection["attention_policy_hash"]
+    newer_shortlist["attention_policy_parameters"] = current_selection[
+        "attention_policy_parameters"
+    ]
+    newer_shortlist["review_basis_shortlist_id"] = current_selection["review_basis"][
+        "judged_through_shortlist_id"
+    ]
     draft.write_text(
         yaml.safe_dump(newer_shortlist, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
@@ -133,7 +156,7 @@ def test_select_and_shortlist_publish_from_explicit_run_revision(
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         response = client.get("/api/screening/latest")
     assert response.status_code == 200
-    assert len(response.json()["selections"]) == 2
+    assert len(response.json()["selections"]) == 3
     assert len(response.json()["shortlists"]) == 1
     assert response.json()["shortlists"][0]["shortlist_id"] == ("shortlist-20260708-test-newer")
     assert response.json()["shortlists"][0]["as_of"] == run.as_of_date
