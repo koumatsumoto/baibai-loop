@@ -23,4 +23,4 @@ issues: [1041, 1064]
 
 # 実装上の帰結
 
-Shortlist v5、exact provenance、Review Set resolver、Research Gate bindingは採用済みValue / Carryだけで運用する。Earnings Power用Selection Policy YAMLとreplay evaluatorはnon-adoptionの証拠として保持するが、public CLI、selection payload、Shortlist schemaにはEarnings production pathを持たせない。
+Shortlist v5、exact provenance、Review Set resolver、Research Gate bindingは採用済みValue / Carryだけで運用する。固定Selection Policy入力はstudy artifactとして保持する。active `method/` policy、replay evaluator、public CLI、selection payload、Shortlist schemaにはEarnings production pathを持たせない。

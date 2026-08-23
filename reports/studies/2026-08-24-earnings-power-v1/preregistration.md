@@ -13,7 +13,8 @@ issues: [1041, 1064]
 
 # 固定Selection Policy
 
-正本は`method/screening/selection-policies/earnings-power-v1.yaml`とする。
+固定入力の正本は[`frozen-policy.yaml`](./frozen-policy.yaml)とする。A′が
+`inconclusive`となったため、active `method/` policyと再実行可能なevaluatorは結果確定後に削除した。
 
 - Lane ID: `earnings-power`
 - Selection Policy ID: `earnings-power-v1`

@@ -41,7 +41,7 @@ def _read_run(path: Path, run_revision_id: str) -> dict[str, object]:
         ).fetchone()
     if row is None:
         raise ValueError(f"run not found: {run_revision_id}")
-    return json.loads(str(row[0]))
+    return _json_mapping(row[0], label=f"run {run_revision_id}")
 
 
 def _read_selection(path: Path, selection_id: str) -> dict[str, object]:
@@ -52,7 +52,14 @@ def _read_selection(path: Path, selection_id: str) -> dict[str, object]:
         ).fetchone()
     if row is None:
         raise ValueError(f"selection not found: {selection_id}")
-    return json.loads(str(row[0]))
+    return _json_mapping(row[0], label=f"selection {selection_id}")
+
+
+def _json_mapping(value: object, *, label: str) -> dict[str, object]:
+    payload = json.loads(str(value))
+    if not isinstance(payload, dict):
+        raise ValueError(f"{label} payload must be an object")
+    return payload
 
 
 def _normalize_candidate(value: Mapping[str, object]) -> dict[str, object]:
