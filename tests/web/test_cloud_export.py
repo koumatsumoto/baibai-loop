@@ -483,6 +483,7 @@ def test_export_skips_security_view_for_ticker_no_source_knows(
 ) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     payload = {
+        "schema_version": 4,
         "shortlist_id": "shortlist-20260708-value",
         "selection_id": "selection-old",
         "run_revision_id": "run-revision-old",
