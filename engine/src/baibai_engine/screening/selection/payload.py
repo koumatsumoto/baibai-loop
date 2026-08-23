@@ -186,7 +186,13 @@ def build_selection_payload(
             for rank, candidate in enumerate(recommended, start=1)
         ]
     )
-    selection_policy_hash = value_carry_selection_policy_hash(lane_longlist_depth=longlist_top)
+    selection_policy_hash = value_carry_selection_policy_hash(
+        lane_longlist_depth=longlist_top,
+        screening_rules_hash=screening_rules_hash,
+        required_jpx_flags=sorted(required_jpx_flags),
+        liquidity_parameters=liquidity.model_dump(mode="json"),
+        evidence_pattern_order=evidence_pattern_order,
+    )
     attention_parameters = ValueCarryOnlyAttentionParameters(value_carry_limit=longlist_top)
     attention_policy_hash = value_carry_only_attention_policy_hash(
         selection_policy_hash=selection_policy_hash,

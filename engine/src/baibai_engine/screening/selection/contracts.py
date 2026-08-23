@@ -7,6 +7,7 @@ exactly which executable contract produced it.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from hashlib import sha256
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -29,14 +30,26 @@ class ValueCarryOnlyAttentionParameters(BaseModel):
     value_carry_limit: int = Field(ge=0, le=100)
 
 
-def value_carry_selection_policy_representation(*, lane_longlist_depth: int) -> dict[str, object]:
+def value_carry_selection_policy_representation(
+    *,
+    lane_longlist_depth: int,
+    screening_rules_hash: str | None,
+    required_jpx_flags: Sequence[str],
+    liquidity_parameters: Mapping[str, object],
+    evidence_pattern_order: Sequence[str],
+) -> dict[str, object]:
     """Return the exact executable Value / Carry v1 contract."""
 
     return {
         "opportunity_lane_id": VALUE_CARRY_OPPORTUNITY_LANE_ID,
         "selection_policy_id": VALUE_CARRY_SELECTION_POLICY_ID,
         "expected_return_model_id": EXPECTED_RETURN_MODEL_VERSION,
-        "common_investable_gate_id": COMMON_INVESTABLE_GATE_ID,
+        "screening_rules_hash": screening_rules_hash,
+        "common_investable_gate": {
+            "common_investable_gate_id": COMMON_INVESTABLE_GATE_ID,
+            "required_jpx_flags": sorted(required_jpx_flags),
+            "liquidity_parameters": dict(liquidity_parameters),
+        },
         "eligibility": {"er_annual": "finite"},
         "ordering": [
             "er_annual_desc",
@@ -44,13 +57,27 @@ def value_carry_selection_policy_representation(*, lane_longlist_depth: int) -> 
             "evidence_strength",
             "ticker_asc",
         ],
+        "evidence_pattern_order": list(evidence_pattern_order),
         "lane_longlist_depth": lane_longlist_depth,
     }
 
 
-def value_carry_selection_policy_hash(*, lane_longlist_depth: int) -> str:
+def value_carry_selection_policy_hash(
+    *,
+    lane_longlist_depth: int,
+    screening_rules_hash: str | None,
+    required_jpx_flags: Sequence[str],
+    liquidity_parameters: Mapping[str, object],
+    evidence_pattern_order: Sequence[str],
+) -> str:
     return _canonical_sha256(
-        value_carry_selection_policy_representation(lane_longlist_depth=lane_longlist_depth)
+        value_carry_selection_policy_representation(
+            lane_longlist_depth=lane_longlist_depth,
+            screening_rules_hash=screening_rules_hash,
+            required_jpx_flags=required_jpx_flags,
+            liquidity_parameters=liquidity_parameters,
+            evidence_pattern_order=evidence_pattern_order,
+        )
     )
 
 
