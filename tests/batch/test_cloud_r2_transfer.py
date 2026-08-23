@@ -192,6 +192,10 @@ if [[ -n "${UV_EXPECTED_CWD:-}" && "$PWD" != "$UV_EXPECTED_CWD" ]]; then
   printf 'unexpected uv cwd: %s\n' "$PWD" >&2
   exit 97
 fi
+if [[ "$1 $2 $3" == "run python -c" ]]; then
+  shift
+  exec "$@"
+fi
 script=""
 for argument in "$@"; do
   case "${argument}" in
@@ -1670,6 +1674,8 @@ def test_a_full_rebuild_publish_records_which_release_the_store_now_names(
     assert len(published) == 1
     assert "--full-rebuild" in published[0]
     assert "--base-release" not in published[0]
+    assert "--origin-release release-before" in published[0]
+    assert "--origin-manifest-sha256 old" in published[0]
     assert "release-after-rebuild" in record.read_text(encoding="utf-8")
 
 

@@ -284,17 +284,20 @@ base manifest transform_fingerprint differs; run a full rebuild without --base-m
 
 復旧はローカルで完結させる。
 
-1. **前提を測る** — ローカル store が cloud release を包含しているか。行数と partition 集合を突き合わせ、
-   1 dataset でも不足があれば rebuild せず先に解く（full rebuild は release の内容をローカル store で
-   置き換えるので、不足はそのまま canonical の欠落になる）
+1. **store origin を確認する** — `stores/.r2-generations/lake-release.json` が、ローカル store を
+   hydrate した release ID と manifest SHA-256 を保持していることを確認する。full rebuild はこの
+   identity を開始時 current pointer と照合し、違えば export 前に停止する。記録が無い、または current
+   より古い場合は推測で補わず、先に `hydrate-market` で current release へ揃える
 
    ```bash
+   sed -n '1p' stores/.r2-generations/lake-release.json
    uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores --format json
    ```
 
-   これが出す各 dataset の `rows` / `partitions` を、`LAKE_DATASETS` の `sqlite_table` の行数と
-   partition grain 別の期間集合と比べる。byte 一致は見ない — fingerprint が動いた後の Parquet bytes は
-   変わって当然で、確かめるのは行が落ちないことである
+   行数 floor の authority は full rebuild が実際に読んだ sealed SQLite snapshot である。全 partition の
+   export 後、その manifest totals が置換対象 release を包含することを publisher が検査し、dataset の
+   消滅または行数減少では release 作成と pointer 切替を行わない。fingerprint 変更後の Parquet bytes は
+   変わり得るため、直前 release との byte 一致を gate にはしない
 
 2. **worktree を clean にする** — publish は `git status --porcelain` が空であることを要求する
    （`lake publication requires a clean tracked worktree`）。export は本番 store で 7 分強かかるので、
@@ -306,7 +309,9 @@ base manifest transform_fingerprint differs; run a full rebuild without --base-m
    batch/scripts/r2_transfer.sh publish-lake full-rebuild
    ```
 
-   `--full-rebuild` は `--base-release` と排他で、全 partition を store から derive し直す。同一 bytes の
+   script は release 記録を `--origin-release` / `--origin-manifest-sha256` として publisher へ渡す。
+   `--full-rebuild` は `--base-release` と排他で、origin manifest を carry せず全 partition を store から
+   derive し直す。同一 bytes の
    Parquet は content-addressed key と `If-None-Match: *` で再 upload されないので、転送は新 manifest 群と
    pointer CAS が中心になる。Bucket Lock は新 key の PUT と `lake/pointers/` の CAS を対象にしないので
    干渉しない。

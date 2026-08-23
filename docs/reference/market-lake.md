@@ -185,6 +185,14 @@ S3 clientで接続を再利用し、requestごとのprocess起動を行わない
 `lake publish phases: seal_plan_export=... release_create=... local_graph=... remote_closure=... pointer=...`
 を1行出し、stdoutはrelease recordに使うJSON 1行だけを維持する。
 
+incremental export は開始時 current pointer と local store の recorded base identity を照合し、digest
+chain を検証した dataset manifest の private snapshot から unchanged partition を carry する。共有 mirror
+のmanifest pathは検証後に再読込しない。full rebuild はbaseをcarryしないが、recorded store originの
+release ID / manifest SHA-256を開始時current pointerと照合する。全partitionを1つのsealed SQLite snapshot
+からexportした後、そのdataset totalsが置換対象releaseを包含することを確認してからreleaseを作成する。
+これにより、同数の古い値を持つstoreと、事前count後・snapshot前に短くなったstoreの双方をpointer切替前に
+拒否する。currentが無いfirst publicationだけはoriginとrow floorを要求しない。
+
 **pointerはcurrentだけを名乗る。rollbackは無い。** 修理は前へ publish することであり、store が
 serve をやめた世代へ戻ることではない。pointer が「この世代は復元できる」と名乗れば、それは publish の
 たびに検証し続けなければならない約束になり、実際そうしていた。local mirror が graph 全体を持ち、

@@ -395,6 +395,8 @@ def test_market_publish_conflicts_if_current_moves_during_export(
             store=store,
             expected_base_release_id=None if full_rebuild else pointer.release_id,
             expected_base_manifest_sha256=None if full_rebuild else pointer.manifest_sha256,
+            origin_release_id=pointer.release_id if full_rebuild else None,
+            origin_manifest_sha256=pointer.manifest_sha256 if full_rebuild else None,
             release_id=f"target-{full_rebuild}",
             full_rebuild=full_rebuild,
         )
@@ -403,6 +405,30 @@ def test_market_publish_conflicts_if_current_moves_during_export(
         store.values["lake/pointers/l1/current.json"].body
     )
     assert serving.release_id == "concurrent-successor"
+
+
+def test_first_full_rebuild_publication_needs_no_store_origin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mirror, _ = _release(tmp_path)
+    store = _MemoryStore()
+    monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
+
+    report = market_publish_module.publish_market_lake(
+        sqlite_path=tmp_path / "market.sqlite",
+        mirror_root=mirror,
+        store=store,
+        expected_base_release_id=None,
+        expected_base_manifest_sha256=None,
+        release_id="first-full-rebuild",
+        full_rebuild=True,
+    )
+
+    serving = L1ReleasePointer.model_validate_json(
+        store.values["lake/pointers/l1/current.json"].body
+    )
+    assert report.release_id == "first-full-rebuild"
+    assert serving.release_id == "first-full-rebuild"
 
 
 def test_pointer_head_get_straddle_fails_its_metadata_identity(tmp_path: Path) -> None:
@@ -461,6 +487,28 @@ def test_structurally_valid_mirror_replacement_stops_before_export(
         )
 
     assert export_called is False
+
+
+def test_validated_base_manifest_bytes_are_fixed_before_export(tmp_path: Path) -> None:
+    mirror, release_path = _release(tmp_path)
+    store = _MemoryStore()
+    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+    pointer = L1ReleasePointer.model_validate_json(
+        store.values["lake/pointers/l1/current.json"].body
+    )
+    fixed = market_publish_module._resolve_base_release(store, mirror, pointer)
+    shared_path = next((mirror / "lake/manifests/datasets").glob("*/*.json"))
+    shared_path.write_text("{}", encoding="utf-8")
+
+    with market_publish_module._base_manifest_snapshot(fixed) as private_paths:
+        for name, path in private_paths.items():
+            assert path != shared_path
+            assert (
+                hashlib.sha256(path.read_bytes()).hexdigest()
+                == (fixed.dataset_manifest_sha256[name])
+            )
+
+    assert all(not path.exists() for path in private_paths.values())
 
 
 @pytest.mark.parametrize("level", ["release", "dataset"])

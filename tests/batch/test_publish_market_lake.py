@@ -9,7 +9,6 @@ totals are it.
 from __future__ import annotations
 
 import json
-import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,6 +18,7 @@ import pytest
 import baibai_batch.storage.publish_market_lake as publish_module
 from baibai_batch.storage.lake_publish import LakePublishError
 from baibai_batch.storage.publish_market_lake import (
+    _require_expected_release,
     _require_no_rows_lost,
     publish_market_lake,
 )
@@ -57,17 +57,6 @@ def _mirror_with_release(tmp_path: Path, *, rows: int) -> Path:
     return mirror
 
 
-def _store_with_bars(tmp_path: Path, *, rows: int) -> Path:
-    store = tmp_path / "market.sqlite"
-    with sqlite3.connect(store) as connection:
-        connection.execute("CREATE TABLE jquants_daily_bars (ticker TEXT, traded_at TEXT)")
-        connection.executemany(
-            "INSERT INTO jquants_daily_bars VALUES (?, ?)",
-            [(str(index), "2026-07-31") for index in range(rows)],
-        )
-    return store
-
-
 def _pointer() -> L1ReleasePointer:
     return L1ReleasePointer(
         pointer_version=1,
@@ -77,15 +66,18 @@ def _pointer() -> L1ReleasePointer:
     )
 
 
-def _use_fixture_release(monkeypatch: pytest.MonkeyPatch, mirror: Path) -> None:
+def _fixed_release(mirror: Path) -> SimpleNamespace:
     release = publish_module.load_lake_model_json(
         (mirror / _MANIFEST_KEY).read_bytes(), publish_module.LakeReleaseManifest
     )
-    monkeypatch.setattr(
-        publish_module,
-        "_resolve_base_release",
-        lambda *_: SimpleNamespace(manifest=release),
+    return SimpleNamespace(
+        release_id=_RELEASE_ID,
+        manifest=release,
     )
+
+
+def _exported(rows: int) -> dict[str, object]:
+    return {"jquants.daily_bars": SimpleNamespace(totals=SimpleNamespace(rows=rows))}
 
 
 class _UnusedStore:
@@ -96,42 +88,112 @@ class _UnusedStore:
 
 
 def test_a_store_behind_the_release_cannot_be_published_as_a_full_rebuild(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     mirror = _mirror_with_release(tmp_path, rows=10)
-    store = _store_with_bars(tmp_path, rows=9)
-    _use_fixture_release(monkeypatch, mirror)
 
     with pytest.raises(LakePublishError, match="would drop the difference"):
-        _require_no_rows_lost(store, _UnusedStore(), mirror, _pointer())
+        _require_no_rows_lost(_exported(9), _fixed_release(mirror))  # type: ignore[arg-type]
 
 
 def test_a_store_that_matches_the_release_is_allowed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     mirror = _mirror_with_release(tmp_path, rows=10)
-    store = _store_with_bars(tmp_path, rows=10)
-    _use_fixture_release(monkeypatch, mirror)
 
-    _require_no_rows_lost(store, _UnusedStore(), mirror, _pointer())
+    _require_no_rows_lost(_exported(10), _fixed_release(mirror))  # type: ignore[arg-type]
 
 
 def test_a_store_ahead_of_the_release_is_allowed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """The ordinary shape after a local fetch — the rebuild is what publishes them."""
 
     mirror = _mirror_with_release(tmp_path, rows=10)
-    store = _store_with_bars(tmp_path, rows=12)
-    _use_fixture_release(monkeypatch, mirror)
 
-    _require_no_rows_lost(store, _UnusedStore(), mirror, _pointer())
+    _require_expected_release(_pointer(), _RELEASE_ID, "f" * 64, role="origin")
+    _require_no_rows_lost(_exported(12), _fixed_release(mirror))  # type: ignore[arg-type]
 
 
-def test_the_first_publication_has_no_floor_to_check(tmp_path: Path) -> None:
-    store = _store_with_bars(tmp_path, rows=0)
+def test_a_new_dataset_does_not_change_the_replaced_release_floor(tmp_path: Path) -> None:
+    mirror = _mirror_with_release(tmp_path, rows=10)
+    exported = {
+        **_exported(10),
+        "new.dataset": SimpleNamespace(totals=SimpleNamespace(rows=1)),
+    }
 
-    _require_no_rows_lost(store, _UnusedStore(), tmp_path / "mirror", None)
+    _require_no_rows_lost(exported, _fixed_release(mirror))  # type: ignore[arg-type]
+
+
+def test_a_dataset_that_disappears_from_the_sealed_export_is_refused(tmp_path: Path) -> None:
+    mirror = _mirror_with_release(tmp_path, rows=10)
+
+    with pytest.raises(LakePublishError, match="holds 0 row"):
+        _require_no_rows_lost({}, _fixed_release(mirror))  # type: ignore[arg-type]
+
+
+def test_the_first_publication_has_no_floor_to_check() -> None:
+    _require_no_rows_lost({}, None)
+
+
+def test_full_rebuild_requires_the_recorded_store_origin() -> None:
+    with pytest.raises(LakePublishError, match="name it as the store origin"):
+        _require_expected_release(_pointer(), None, None, role="origin")
+
+
+def test_full_rebuild_rejects_same_release_id_with_a_different_digest() -> None:
+    with pytest.raises(LakePublishError, match="hydrate again before publishing"):
+        _require_expected_release(_pointer(), _RELEASE_ID, "0" * 64, role="origin")
+
+
+def test_same_count_store_from_an_older_release_is_refused() -> None:
+    with pytest.raises(LakePublishError, match="hydrate again before publishing"):
+        _require_expected_release(_pointer(), "older-release", "f" * 64, role="origin")
+
+
+def test_first_publication_accepts_no_origin() -> None:
+    _require_expected_release(None, None, None, role="origin")
+
+
+def test_sealed_export_floor_runs_before_release_creation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mirror = _mirror_with_release(tmp_path, rows=10)
+    fixed = _fixed_release(mirror)
+    serving = SimpleNamespace(pointer=_pointer(), precondition=object())
+    exported = SimpleNamespace(
+        datasets={
+            "jquants.daily_bars": SimpleNamespace(
+                manifest=SimpleNamespace(totals=SimpleNamespace(rows=9))
+            )
+        }
+    )
+    created = False
+
+    def _create(**_: object) -> object:
+        nonlocal created
+        created = True
+        raise AssertionError("release creation must follow the sealed floor")
+
+    monkeypatch.setattr(publish_module, "_serving_pointer", lambda _: serving)
+    monkeypatch.setattr(publish_module, "_resolve_base_release", lambda *_: fixed)
+    monkeypatch.setattr(publish_module, "export_lake_legacy", lambda **_: exported)
+    monkeypatch.setattr(publish_module, "lake_verified_git_commit", lambda: "a" * 40)
+    monkeypatch.setattr(publish_module, "create_lake_l1_release", _create)
+
+    with pytest.raises(LakePublishError, match="sealed export"):
+        publish_market_lake(
+            sqlite_path=tmp_path / "market.sqlite",
+            mirror_root=mirror,
+            store=_UnusedStore(),
+            expected_base_release_id=None,
+            expected_base_manifest_sha256=None,
+            origin_release_id=_RELEASE_ID,
+            origin_manifest_sha256="f" * 64,
+            full_rebuild=True,
+        )
+
+    assert created is False
 
 
 def test_a_full_rebuild_and_an_expected_base_are_mutually_exclusive(tmp_path: Path) -> None:
@@ -240,9 +302,14 @@ def test_the_publisher_still_accepts_the_flag_the_script_passes() -> None:
             "stores",
             "--bucket",
             "baibai-stores",
+            "--origin-release",
+            _RELEASE_ID,
+            "--origin-manifest-sha256",
+            "f" * 64,
             "--full-rebuild",
         ]
     )
 
     assert parsed.full_rebuild is True
     assert parsed.bucket == "baibai-stores"
+    assert parsed.origin_release == _RELEASE_ID
