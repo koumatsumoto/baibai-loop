@@ -16,10 +16,10 @@ from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules import (
     _NON_THRESHOLD_FIELDS,
     _RELAXED_THRESHOLDS,
-    PLAYBOOK_CASH_RICH,
-    PLAYBOOK_CASHFLOW_YIELD,
-    PLAYBOOK_SALES_DISCOUNT,
-    PLAYBOOK_VALUATION_REVERSION,
+    EVIDENCE_PATTERN_CASH_RICH,
+    EVIDENCE_PATTERN_CASHFLOW_YIELD,
+    EVIDENCE_PATTERN_SALES_DISCOUNT,
+    EVIDENCE_PATTERN_VALUATION_REVERSION,
     REASON_SECTOR_SELF_RANGE,
     REASON_VALUATION_SIGMA,
     evaluate_screening,
@@ -106,7 +106,7 @@ class ScreeningRulesTests(unittest.TestCase):
     def test_condition_a_hits_when_sector_gap_and_self_range_match(self) -> None:
         result = evaluate_screening(_financial(), _derived(), RULES)
         self.assertTrue(result.pass_fail)
-        self.assertEqual(result.evidence_hits[0].name, PLAYBOOK_VALUATION_REVERSION)
+        self.assertEqual(result.evidence_hits[0].name, EVIDENCE_PATTERN_VALUATION_REVERSION)
         self.assertIn(REASON_SECTOR_SELF_RANGE, result.evidence_hits[0].reasons)
 
     def test_short_history_skips_condition_a(self) -> None:
@@ -114,7 +114,7 @@ class ScreeningRulesTests(unittest.TestCase):
         valuation = next(
             evidence_hit
             for evidence_hit in result.evidence_hits
-            if evidence_hit.name == PLAYBOOK_VALUATION_REVERSION
+            if evidence_hit.name == EVIDENCE_PATTERN_VALUATION_REVERSION
         )
         self.assertNotIn(REASON_SECTOR_SELF_RANGE, valuation.reasons)
         self.assertIn("valuation_reversion_condition_a_short_history", result.null_reasons)
@@ -147,7 +147,7 @@ class ScreeningRulesTests(unittest.TestCase):
         valuation = next(
             evidence_hit
             for evidence_hit in result.evidence_hits
-            if evidence_hit.name == PLAYBOOK_VALUATION_REVERSION
+            if evidence_hit.name == EVIDENCE_PATTERN_VALUATION_REVERSION
         )
         self.assertIn(REASON_VALUATION_SIGMA, valuation.reasons)
         self.assertIsNone(valuation.metrics["price_change_60d"])
@@ -271,7 +271,8 @@ class ScreeningRulesTests(unittest.TestCase):
             RULES,
         )
         self.assertIn(
-            PLAYBOOK_CASHFLOW_YIELD, [evidence_hit.name for evidence_hit in result.evidence_hits]
+            EVIDENCE_PATTERN_CASHFLOW_YIELD,
+            [evidence_hit.name for evidence_hit in result.evidence_hits],
         )
 
     def test_cashflow_yield_discount_requires_cfo_yoy_when_configured(self) -> None:
@@ -281,7 +282,8 @@ class ScreeningRulesTests(unittest.TestCase):
             RULES,
         )
         self.assertNotIn(
-            PLAYBOOK_CASHFLOW_YIELD, [evidence_hit.name for evidence_hit in result.evidence_hits]
+            EVIDENCE_PATTERN_CASHFLOW_YIELD,
+            [evidence_hit.name for evidence_hit in result.evidence_hits],
         )
         self.assertIn("cashflow_yield_missing_cfo_yoy", result.null_reasons)
 
@@ -292,10 +294,11 @@ class ScreeningRulesTests(unittest.TestCase):
             RULES,
         )
         self.assertNotIn(
-            PLAYBOOK_CASHFLOW_YIELD, [evidence_hit.name for evidence_hit in result.evidence_hits]
+            EVIDENCE_PATTERN_CASHFLOW_YIELD,
+            [evidence_hit.name for evidence_hit in result.evidence_hits],
         )
 
-    def test_financial_sector_is_excluded_from_operating_cashflow_playbook(self) -> None:
+    def test_financial_sector_is_excluded_from_operating_cashflow_pattern(self) -> None:
         result = evaluate_screening(
             _financial(ocf_ttm=100.0, ocf_yield=0.1, cfo_yoy=0.2),
             _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
@@ -303,11 +306,12 @@ class ScreeningRulesTests(unittest.TestCase):
             sector_33="銀行業",
         )
         self.assertNotIn(
-            PLAYBOOK_CASHFLOW_YIELD, [evidence_hit.name for evidence_hit in result.evidence_hits]
+            EVIDENCE_PATTERN_CASHFLOW_YIELD,
+            [evidence_hit.name for evidence_hit in result.evidence_hits],
         )
         self.assertIn("cashflow_yield_excluded_sector", result.null_reasons)
 
-    def test_utility_sector_is_excluded_from_operating_cashflow_playbook(self) -> None:
+    def test_utility_sector_is_excluded_from_operating_cashflow_pattern(self) -> None:
         result = evaluate_screening(
             _financial(ocf_ttm=100.0, ocf_yield=0.1, cfo_yoy=0.2),
             _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
@@ -315,7 +319,8 @@ class ScreeningRulesTests(unittest.TestCase):
             sector_33="電気・ガス業",
         )
         self.assertNotIn(
-            PLAYBOOK_CASHFLOW_YIELD, [evidence_hit.name for evidence_hit in result.evidence_hits]
+            EVIDENCE_PATTERN_CASHFLOW_YIELD,
+            [evidence_hit.name for evidence_hit in result.evidence_hits],
         )
         self.assertIn("cashflow_yield_excluded_sector", result.null_reasons)
 
@@ -335,10 +340,11 @@ class ScreeningRulesTests(unittest.TestCase):
             RULES,
         )
         self.assertIn(
-            PLAYBOOK_SALES_DISCOUNT, [evidence_hit.name for evidence_hit in result.evidence_hits]
+            EVIDENCE_PATTERN_SALES_DISCOUNT,
+            [evidence_hit.name for evidence_hit in result.evidence_hits],
         )
 
-    def test_financial_sector_is_excluded_from_sales_discount_playbook(self) -> None:
+    def test_financial_sector_is_excluded_from_sales_discount_pattern(self) -> None:
         result = evaluate_screening(
             _financial(
                 p_s=0.4,
@@ -354,11 +360,12 @@ class ScreeningRulesTests(unittest.TestCase):
             sector_33="銀行業",
         )
         self.assertNotIn(
-            PLAYBOOK_SALES_DISCOUNT, [evidence_hit.name for evidence_hit in result.evidence_hits]
+            EVIDENCE_PATTERN_SALES_DISCOUNT,
+            [evidence_hit.name for evidence_hit in result.evidence_hits],
         )
         self.assertIn("sales_discount_excluded_sector", result.null_reasons)
 
-    def test_financial_sector_is_excluded_from_valuation_reversion_playbook(self) -> None:
+    def test_financial_sector_is_excluded_from_valuation_reversion_pattern(self) -> None:
         result = evaluate_screening(
             _financial(),
             _derived(),
@@ -366,12 +373,12 @@ class ScreeningRulesTests(unittest.TestCase):
             sector_33="銀行業",
         )
         self.assertNotIn(
-            PLAYBOOK_VALUATION_REVERSION,
+            EVIDENCE_PATTERN_VALUATION_REVERSION,
             [evidence_hit.name for evidence_hit in result.evidence_hits],
         )
         self.assertIn("valuation_reversion_excluded_sector", result.null_reasons)
 
-    def test_utility_sector_stays_eligible_for_valuation_reversion_playbook(self) -> None:
+    def test_utility_sector_stays_eligible_for_valuation_reversion_pattern(self) -> None:
         result = evaluate_screening(
             _financial(),
             _derived(),
@@ -379,7 +386,7 @@ class ScreeningRulesTests(unittest.TestCase):
             sector_33="電気・ガス業",
         )
         self.assertIn(
-            PLAYBOOK_VALUATION_REVERSION,
+            EVIDENCE_PATTERN_VALUATION_REVERSION,
             [evidence_hit.name for evidence_hit in result.evidence_hits],
         )
 
@@ -390,7 +397,8 @@ class ScreeningRulesTests(unittest.TestCase):
             RULES,
         )
         self.assertIn(
-            PLAYBOOK_CASH_RICH, [evidence_hit.name for evidence_hit in result.evidence_hits]
+            EVIDENCE_PATTERN_CASH_RICH,
+            [evidence_hit.name for evidence_hit in result.evidence_hits],
         )
 
     def test_cash_rich_asset_discount_rejects_low_equity_ratio(self) -> None:
@@ -405,7 +413,8 @@ class ScreeningRulesTests(unittest.TestCase):
             RULES,
         )
         self.assertNotIn(
-            PLAYBOOK_CASH_RICH, [evidence_hit.name for evidence_hit in result.evidence_hits]
+            EVIDENCE_PATTERN_CASH_RICH,
+            [evidence_hit.name for evidence_hit in result.evidence_hits],
         )
 
     def test_cash_rich_asset_discount_rejects_edinet_net_debt_contradiction(self) -> None:
@@ -421,7 +430,8 @@ class ScreeningRulesTests(unittest.TestCase):
             RULES,
         )
         self.assertNotIn(
-            PLAYBOOK_CASH_RICH, [evidence_hit.name for evidence_hit in result.evidence_hits]
+            EVIDENCE_PATTERN_CASH_RICH,
+            [evidence_hit.name for evidence_hit in result.evidence_hits],
         )
         self.assertIn("cash_rich_edinet_net_cash_contradiction", result.null_reasons)
 
@@ -435,28 +445,28 @@ class ThresholdCoverageTests(unittest.TestCase):
     threshold from arriving unmeasured.
     """
 
-    def test_every_playbook_field_is_classified(self) -> None:
+    def test_every_evidence_pattern_field_is_classified(self) -> None:
         rules = load_screening_rules()
-        for name, playbook in rules.screening_playbooks.items():
-            with self.subTest(playbook=name):
+        for name, pattern in rules.evidence_patterns.items():
+            with self.subTest(evidence_pattern=name):
                 relaxed = set(_RELAXED_THRESHOLDS.get(name, {}))
-                fields = set(type(playbook).model_fields)
+                fields = set(type(pattern).model_fields)
                 unclassified = fields - relaxed - _NON_THRESHOLD_FIELDS
                 self.assertEqual(unclassified, set())
                 self.assertEqual(relaxed - fields, set())
 
-    def test_every_playbook_has_a_relaxation_entry(self) -> None:
+    def test_every_evidence_pattern_has_a_relaxation_entry(self) -> None:
         rules = load_screening_rules()
         self.assertEqual(
-            set(rules.screening_playbooks) - set(_RELAXED_THRESHOLDS),
+            set(rules.evidence_patterns) - set(_RELAXED_THRESHOLDS),
             set(),
         )
 
     def test_the_relaxed_value_admits_what_the_threshold_rejects(self) -> None:
         """A permissive value that is not permissive would silently measure nothing."""
         rules = load_screening_rules()
-        reversion = rules.screening_playbooks[PLAYBOOK_VALUATION_REVERSION]
-        relaxed = _RELAXED_THRESHOLDS[PLAYBOOK_VALUATION_REVERSION]
+        reversion = rules.evidence_patterns[EVIDENCE_PATTERN_VALUATION_REVERSION]
+        relaxed = _RELAXED_THRESHOLDS[EVIDENCE_PATTERN_VALUATION_REVERSION]
         # The self-range percentile is a share, so 1.0 admits every observation while
         # staying inside the field's own bound.
         self.assertEqual(relaxed["self_range_percentile_max"], 1.0)
@@ -467,7 +477,7 @@ class ThresholdBlockTests(unittest.TestCase):
     """`threshold_blocks` names the cut a row met every other condition of."""
 
     def _cash_rich_shape(self, **overrides: object) -> FinancialSnapshot:
-        # Everything the cash-rich playbook asks for, at values that clear it.
+        # Everything the cash-rich Evidence Pattern asks for, at values that clear it.
         base: dict[str, object] = {
             "cash_to_market_cap": 0.6,
             "pbr": 0.7,
@@ -479,7 +489,7 @@ class ThresholdBlockTests(unittest.TestCase):
         base.update(overrides)
         return _financial(**base)
 
-    def test_a_row_the_playbook_takes_names_no_threshold(self) -> None:
+    def test_a_row_the_evidence_pattern_takes_names_no_threshold(self) -> None:
         blocks = threshold_blocks(self._cash_rich_shape(), _derived(), RULES, sector_33="機械")
         self.assertNotIn(
             "cash-rich-asset-discount", "|".join(block.split(":")[0] for block in blocks)
@@ -522,7 +532,7 @@ class ThresholdBlockTests(unittest.TestCase):
         self.assertIn("cash-rich-asset-discount:operating_profit_positive_required", blocks)
 
     def test_a_missing_fact_is_not_a_threshold_rejection(self) -> None:
-        # The playbook refuses a null equity ratio outright; relaxing the floor does not
+        # The Evidence Pattern refuses a null equity ratio outright; relaxing the floor does not
         # admit it, so the coordinate stays silent rather than blaming the level.
         blocks = threshold_blocks(
             self._cash_rich_shape(equity_ratio=None), _derived(), RULES, sector_33="機械"

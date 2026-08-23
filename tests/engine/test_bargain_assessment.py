@@ -56,7 +56,7 @@ def _narrative() -> dict[str, object]:
 def _publish_shortlist(db_path: Path, *, shortlist_id: str = "shortlist-20260721-test") -> str:
     shortlist = Shortlist.model_validate(
         {
-            "schema_version": 4,
+            "schema_version": 5,
             "kind": "shortlist",
             "shortlist_id": shortlist_id,
             "selection_id": "selection-test",
@@ -65,6 +65,11 @@ def _publish_shortlist(db_path: Path, *, shortlist_id: str = "shortlist-20260721
             "published_at": "2026-07-21T15:00:00+09:00",
             "profile": "value",
             "macro_context_id": "macro-context-2026-07-21-test",
+            "attention_policy_id": "value-carry-only-v1",
+            "attention_policy_hash": "a" * 64,
+            "attention_policy_parameters": {"value_carry_limit": 2},
+            "review_basis_shortlist_id": None,
+            "research_gate_contract_id": "research-gate-v1",
             "entries": [
                 {
                     "ticker": "2331",
@@ -90,8 +95,25 @@ def _publish_shortlist(db_path: Path, *, shortlist_id: str = "shortlist-20260721
             as_of=shortlist.as_of,
             profile=shortlist.profile,
             macro_context_id=shortlist.macro_context_id,
-            candidate_tickers=frozenset({"2331", "0001"}),
+            review_tickers=("2331", "0001"),
             candidate_er={"2331": 0.12, "0001": 0.04},
+            candidate_machine_rows={
+                ticker: {
+                    "ticker": ticker,
+                    "opportunity_lane_id": "value-carry",
+                    "selection_policy_id": "value-carry-v1",
+                    "selection_policy_hash": "b" * 64,
+                    "lane_rank": rank,
+                    "lane_native_value": value,
+                    "lane_native_unit": "annual_ratio",
+                    "baseline_er_rank": rank,
+                    "primary_evidence_pattern_id": None,
+                    "policy_diagnostic_ids": [],
+                }
+                for rank, (ticker, value) in enumerate((("2331", 0.12), ("0001", 0.04)), start=1)
+            },
+            attention_policy_hash="a" * 64,
+            attention_policy_parameters={"value_carry_limit": 2},
         ),
     )
     return shortlist_id
@@ -107,10 +129,10 @@ def _draft(db_path: Path, shortlist_id: str) -> dict[str, Any]:
         proposal_id=None,
         published_at=PUBLISHED_AT,
     )
-    lane = draft["lanes"][0]
-    lane["disposition"] = "reject"
-    lane["disposition_reason"] = "5年期待値が要求利回りに届かない"
-    lane["reject_class"] = "price_already_converged"
+    case = draft["cases"][0]
+    case["disposition"] = "reject"
+    case["disposition_reason"] = "5年期待値が要求利回りに届かない"
+    case["reject_class"] = "price_already_converged"
     for field in (
         "business_model",
         "value_capture",
@@ -119,11 +141,11 @@ def _draft(db_path: Path, shortlist_id: str) -> dict[str, Any]:
         "strongest_countercase",
         "catalyst",
     ):
-        lane[field] = f"{field} の判断"
+        case[field] = f"{field} の判断"
     draft["headline"] = "現時点で買うに値する候補はない"
     draft["comparison"] = "唯一の深掘り候補が要求利回りを満たさなかった"
     draft["forgone"] = "2331 は決算後に再評価する"
-    lane["research_questions"] = [
+    case["research_questions"] = [
         {"question": "受注残を確認", "answer": "翌期の受注残は横ばい", "status": "answered"}
     ]
     draft["review"]["reviewer_identity"] = "independent-reviewer"
@@ -154,12 +176,12 @@ def test_scaffold_fills_machine_values_from_the_thesis_and_leaves_judgment_blank
         published_at=PUBLISHED_AT,
     )
 
-    lane = draft["lanes"][0]
-    assert lane["ticker"] == "2331"
-    assert lane["machine"]["five_year_base_cagr_pct"] == pytest.approx(9.57)
-    assert lane["machine"]["required_return_pct"] == pytest.approx(8.5)
-    assert lane["machine"]["fair_value_yen"] == pytest.approx(1300.0)
-    assert lane["business_model"] == "TODO"
+    case = draft["cases"][0]
+    assert case["ticker"] == "2331"
+    assert case["machine"]["five_year_base_cagr_pct"] == pytest.approx(9.57)
+    assert case["machine"]["required_return_pct"] == pytest.approx(8.5)
+    assert case["machine"]["fair_value_yen"] == pytest.approx(1300.0)
+    assert case["business_model"] == "TODO"
     assert draft["macro_context_id"] == "macro-context-2026-07-21-test"
     assert draft["result"] == "no_actionable_bargain"
 
@@ -192,28 +214,28 @@ def test_check_verifies_the_bindings_without_writing(app_method_root: Path) -> N
 
 
 @pytest.mark.parametrize("disposition", ["reject", "defer"])
-def test_reject_or_defer_lane_requires_a_known_reject_class(
+def test_reject_or_defer_case_requires_a_known_reject_class(
     app_method_root: Path, disposition: str
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
     shortlist_id = _publish_shortlist(db_path)
     payload = _draft(db_path, shortlist_id)
-    payload["lanes"][0]["disposition"] = disposition
-    del payload["lanes"][0]["reject_class"]
+    payload["cases"][0]["disposition"] = disposition
+    del payload["cases"][0]["reject_class"]
     with pytest.raises(ValidationError, match="must include a reject_class"):
         BargainAssessment.model_validate(payload)
 
-    payload["lanes"][0]["reject_class"] = "future_guess"
+    payload["cases"][0]["reject_class"] = "future_guess"
     with pytest.raises(ValidationError, match="Input should be"):
         BargainAssessment.model_validate(payload)
 
 
-def test_selected_lane_forbids_reject_class(app_method_root: Path) -> None:
+def test_selected_case_forbids_reject_class(app_method_root: Path) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
     shortlist_id = _publish_shortlist(db_path)
     payload = _draft(db_path, shortlist_id)
     payload["result"] = "proposal"
-    payload["lanes"][0]["disposition"] = "selected"
+    payload["cases"][0]["disposition"] = "selected"
     payload["entry_timing"] = "決算前に買う理由"
     payload["purchase"] = _purchase_payload(db_path, _seed_proposal(db_path))
 
@@ -221,13 +243,13 @@ def test_selected_lane_forbids_reject_class(app_method_root: Path) -> None:
         BargainAssessment.model_validate(payload)
 
 
-def test_publish_rejects_a_lane_that_the_shortlist_did_not_select(
+def test_publish_rejects_a_case_that_the_shortlist_did_not_select(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
     shortlist_id = _publish_shortlist(db_path)
     payload = _draft(db_path, shortlist_id)
-    payload["lanes"][0]["ticker"] = "0001"
+    payload["cases"][0]["ticker"] = "0001"
     assessment = _bound(payload)
 
     with pytest.raises(AssessmentConflictError, match="not a selected candidate"):
@@ -244,7 +266,7 @@ def test_publish_rejects_machine_values_edited_after_the_scaffold(
     db_path = app_method_root / "stores/application/baibai.sqlite"
     shortlist_id = _publish_shortlist(db_path)
     payload = _draft(db_path, shortlist_id)
-    payload["lanes"][0]["machine"][field] = 99.0
+    payload["cases"][0]["machine"][field] = 99.0
     assessment = _bound(payload)
 
     with pytest.raises(AssessmentConflictError, match=field):
@@ -257,7 +279,7 @@ def test_publish_rejects_a_thesis_hash_that_moved_since_the_draft(
     db_path = app_method_root / "stores/application/baibai.sqlite"
     shortlist_id = _publish_shortlist(db_path)
     payload = _draft(db_path, shortlist_id)
-    payload["lanes"][0]["thesis_core_sha256"] = "0" * 64
+    payload["cases"][0]["thesis_core_sha256"] = "0" * 64
     assessment = _bound(payload)
 
     with pytest.raises(AssessmentConflictError, match="has moved"):
@@ -298,21 +320,21 @@ def test_a_proposal_result_requires_a_purchase_plan_and_entry_timing(
     shortlist_id = _publish_shortlist(db_path)
     payload = _draft(db_path, shortlist_id)
     payload["result"] = "proposal"
-    payload["lanes"][0]["disposition"] = "selected"
-    payload["lanes"][0]["reject_class"] = None
+    payload["cases"][0]["disposition"] = "selected"
+    payload["cases"][0]["reject_class"] = None
 
     with pytest.raises(ValidationError, match="requires a purchase plan"):
         BargainAssessment.model_validate(payload)
 
 
-def test_a_selected_lane_cannot_appear_without_a_proposal_result(
+def test_a_selected_case_cannot_appear_without_a_proposal_result(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
     shortlist_id = _publish_shortlist(db_path)
     payload = _draft(db_path, shortlist_id)
-    payload["lanes"][0]["disposition"] = "selected"
-    payload["lanes"][0]["reject_class"] = None
+    payload["cases"][0]["disposition"] = "selected"
+    payload["cases"][0]["reject_class"] = None
 
     with pytest.raises(ValidationError, match="only a proposal result"):
         BargainAssessment.model_validate(payload)
@@ -326,8 +348,8 @@ def test_publish_rejects_a_purchase_plan_that_does_not_match_the_proposal(
     proposal_id = _seed_proposal(db_path)
     payload = _draft(db_path, shortlist_id)
     payload["result"] = "proposal"
-    payload["lanes"][0]["disposition"] = "selected"
-    payload["lanes"][0]["reject_class"] = None
+    payload["cases"][0]["disposition"] = "selected"
+    payload["cases"][0]["reject_class"] = None
     payload["entry_timing"] = "決算前に買う理由"
     payload["purchase"] = _purchase_payload(db_path, proposal_id)
     payload["purchase"]["limit_price_yen"] = 1.0
@@ -345,9 +367,9 @@ def test_publish_accepts_a_proposal_round_bound_to_the_stored_proposal(
     proposal_id = _seed_proposal(db_path)
     payload = _draft(db_path, shortlist_id)
     payload["result"] = "proposal"
-    payload["lanes"][0]["disposition"] = "selected"
-    payload["lanes"][0]["reject_class"] = None
-    payload["lanes"][0]["disposition_reason"] = "要求利回りを上回る"
+    payload["cases"][0]["disposition"] = "selected"
+    payload["cases"][0]["reject_class"] = None
+    payload["cases"][0]["disposition_reason"] = "要求利回りを上回る"
     payload["entry_timing"] = "決算前に買う理由"
     payload["purchase"] = _purchase_payload(db_path, proposal_id)
 
@@ -373,9 +395,9 @@ def test_scaffold_carries_the_permanent_loss_verdict_and_the_shortlist_question(
         published_at=PUBLISHED_AT,
     )
 
-    lane = draft["lanes"][0]
-    assert lane["machine"]["permanent_loss_conclusion"] in {"acceptable", "elevated", "unknown"}
-    assert lane["research_questions"] == [
+    case = draft["cases"][0]
+    assert case["machine"]["permanent_loss_conclusion"] in {"acceptable", "elevated", "unknown"}
+    assert case["research_questions"] == [
         {"question": "受注残を確認", "answer": "TODO", "status": "unresolved"}
     ]
     assert draft["review"]["draft_sha256"] == UNREVIEWED_DRAFT_SHA256
@@ -387,8 +409,8 @@ def test_publish_rejects_a_permanent_loss_verdict_edited_after_the_scaffold(
     db_path = app_method_root / "stores/application/baibai.sqlite"
     shortlist_id = _publish_shortlist(db_path)
     payload = _draft(db_path, shortlist_id)
-    payload["lanes"][0]["machine"]["permanent_loss_conclusion"] = "acceptable"
-    payload["lanes"][0]["machine"]["adverse_risk_axes"] = []
+    payload["cases"][0]["machine"]["permanent_loss_conclusion"] = "acceptable"
+    payload["cases"][0]["machine"]["adverse_risk_axes"] = []
     assessment = _bound(payload)
 
     with pytest.raises(AssessmentConflictError, match="permanent_loss_conclusion"):
@@ -440,13 +462,13 @@ def test_publish_rejects_an_assessment_dated_before_its_shortlist(
         BargainAssessmentService(db_path).publish(assessment)
 
 
-def test_a_lane_cannot_drop_the_question_that_earned_it_a_research_slot(
+def test_a_case_cannot_drop_the_question_that_earned_it_a_research_slot(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
     shortlist_id = _publish_shortlist(db_path)
     payload = _draft(db_path, shortlist_id)
-    payload["lanes"][0]["research_questions"] = []
+    payload["cases"][0]["research_questions"] = []
 
     with pytest.raises(ValidationError, match="research_questions"):
         BargainAssessment.model_validate(payload)

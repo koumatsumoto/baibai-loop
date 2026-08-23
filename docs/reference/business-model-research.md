@@ -11,7 +11,7 @@ related_docs:
 
 # Business-model research guide
 
-このguideは「なぜ安く見えるか」を扱うscreening playbookとは別に、「企業がどう稼ぎ、どのKPIと制約が5年価値を決めるか」を確認するためのpilot question lensである。business model分類そのものを投資根拠、screening条件、thesis fieldにせず、問いの抜けを減らすためだけに使う。pilot期間はoperation sessionで対象に指定したprimary-research laneだけへ適用し、対象外laneへ一律に強制しない。
+このguideは「なぜ安く見えるか」を扱うMachine Evidence Patternとは別に、「企業がどう稼ぎ、どのKPIと制約が5年価値を決めるか」を確認するためのpilot question lensである。business model分類そのものを投資根拠、screening条件、thesis fieldにせず、問いの抜けを減らすためだけに使う。pilot期間はoperation sessionで指定したprimary-research対象だけへ適用し、対象外へ一律に強制しない。
 
 ## 適用手順
 

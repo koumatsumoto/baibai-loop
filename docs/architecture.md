@@ -39,7 +39,7 @@ baibai-loop/
 | `foundation` | 共通 primitive と境界 utility | engine 内部 |
 | `market` | market fact の取得、L1 SQLite、immutable lake contract、固定 release からの store hydration | `baibai-engine lake` |
 | `macro` | indicator series（L1）、macro reading（L2）、published macro context（L3） | `baibai-engine macro` |
-| `screening` | screening run、machine selection、shortlist、calibration | `baibai-engine screening` |
+| `screening` | screening run、Opportunity Lane selection、Attention Policy、Review Set、Research Gate、shortlist、calibration | `baibai-engine screening` |
 | `research` | opportunity workspace、thesis / thesis review、planning-only limit | `baibai-engine research` |
 | `position` | event replay、draft / apply、holding review、outcome | `baibai-engine position` |
 | `tasks` | task current state | `baibai-engine task` |
@@ -176,6 +176,21 @@ select / ticker-profile` の YAML view は AI 向け安定契約であり、保�
 - ledger は append-only eventを `(occurred_at, same_instant_order)` でreplayする。既存event IDとlegacy decision referenceは保存し、新規eventを遡及挿入してcurrent snapshotを再計算できる。
 - canonical ledger mutationは draft生成と、人間確認後の `position apply-draft --confirmed` を分離する。applyはexpected append head、proposal / reservation binding、置換対象rowを同一transactionで再検証する。
 - operation sessionは5 kindの全体でactive最大1件。active rowのcurrent payloadを置換し、complete時に同じrowをimmutable final recordにする。checkpoint historyやtransition logは持たない。
+
+Opportunity Discoveryからproposalまでの状態遷移は次の責務境界を持つ。
+
+```text
+universe → candidates                 screening
+candidates → Lane Longlists           Selection Policies
+Lane Longlists → Review Set           Attention Policy
+Review Set → Shortlist                Research Gate
+Shortlist → Primary Research Set      human admission
+Primary Research Set → Thesis         research + review
+Theses → Bargain Assessment           Assessment Casesの統合判断
+Bargain Assessment → Trade Proposal   human decision input
+```
+
+異なるEconomic Hypothesisを採用するときは別Opportunity Laneとし、同一scoreへ畳まない。Selection PolicyがLane内のnomination / ordering、Attention PolicyがLane間のallocation、Research Gateがresearch-worthiness judgment、人間がPrimary Research Setへのadmissionを所有する。現行wireは、採用済みValue / Carry Laneの`longlist`を`value-carry-only-v1`が`review_tickers`へ写す最小構成であり、generic registry・executor・Dynamic Attention Composerは持たない。Earnings Power Laneは固定replayが`inconclusive`だったためproduction wireへ採用していない（[`historical-replay.yaml`](../reports/studies/2026-08-24-earnings-power-v1/historical-replay.yaml)）。
 
 ## Read-only app invariants
 

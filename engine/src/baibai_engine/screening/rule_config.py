@@ -43,10 +43,10 @@ class QualityRules(BaseModel):
     yoy_deterioration_threshold: float
 
 
-class ValuationReversionPlaybook(BaseModel):
+class ValuationReversionEvidencePattern(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
-    playbook_id: str
+    evidence_pattern_id: str
     excluded_sectors: tuple[str, ...] = ()
     sector_median_gap_max: float
     self_range_percentile_max: float = Field(ge=0, le=1)
@@ -64,10 +64,10 @@ class ValuationReversionPlaybook(BaseModel):
         return tuple(value or ())
 
 
-class CashRichPlaybook(BaseModel):
+class CashRichEvidencePattern(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
-    playbook_id: str
+    evidence_pattern_id: str
     excluded_sectors: tuple[str, ...] = ()
     cash_to_market_cap_min: float = Field(ge=0)
     edinet_net_cash_to_market_cap_min_if_available: float | None = None
@@ -82,10 +82,10 @@ class CashRichPlaybook(BaseModel):
         return tuple(value or ())
 
 
-class CashflowYieldPlaybook(BaseModel):
+class CashflowYieldEvidencePattern(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
-    playbook_id: str
+    evidence_pattern_id: str
     excluded_sectors: tuple[str, ...] = ()
     ocf_yield_min: float = Field(ge=0)
     ttm_cfo_required: bool
@@ -100,10 +100,10 @@ class CashflowYieldPlaybook(BaseModel):
         return tuple(value or ())
 
 
-class SalesDiscountGrowthPlaybook(BaseModel):
+class SalesDiscountGrowthEvidencePattern(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
-    playbook_id: str
+    evidence_pattern_id: str
     excluded_sectors: tuple[str, ...] = ()
     ps_sector_gap_max: float
     sales_yoy_min: float
@@ -120,17 +120,15 @@ class OutputRules(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
     research_selection_target_max: int = Field(ge=0)
-    research_selection_playbook_order: tuple[str, ...]
+    evidence_pattern_order: tuple[str, ...]
 
-    @field_validator("research_selection_playbook_order", mode="before")
+    @field_validator("evidence_pattern_order", mode="before")
     @classmethod
-    def _tuple_research_selection_playbook_order(
-        cls, value: list[str] | tuple[str, ...]
-    ) -> tuple[str, ...]:
+    def _tuple_evidence_pattern_order(cls, value: list[str] | tuple[str, ...]) -> tuple[str, ...]:
         return tuple(value)
 
 
-class DurabilityRules(BaseModel):
+class DurabilityDiagnosticRules(BaseModel):
     """塩漬け耐性 (durability) annotation の事前固定閾値。
 
     価格 stop を置かない long-hold の前提を成立させる耐性シグナル
@@ -152,11 +150,18 @@ class DurabilityRules(BaseModel):
     min_avg_turnover_oku: float = Field(default=1.0, ge=0)
 
 
+class CandidateDiagnosticRules(BaseModel):
+    """Thresholds for shared annotations that never nominate or order a Lane."""
+
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+    durability: DurabilityDiagnosticRules = Field(default_factory=DurabilityDiagnosticRules)
+
+
 class SelectionDiversityRules(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
     max_recommended_per_sector: int = Field(default=1, ge=1)
-    max_recommended_per_playbook: int = Field(default=10, ge=1)
+    max_recommended_per_evidence_pattern: int = Field(default=10, ge=1)
     max_previous_candidates_in_recommended: int | None = Field(default=2, ge=0)
     previous_overlap_warning_ratio: float = Field(default=0.6, ge=0, le=1)
 
@@ -224,7 +229,9 @@ class SelectionRules(BaseModel):
     default_profile: str = "balanced"
     liquidity: SelectionLiquidityRules = Field(default_factory=SelectionLiquidityRules)
     supply_demand: SelectionSupplyDemandRules = Field(default_factory=SelectionSupplyDemandRules)
-    durability: DurabilityRules = Field(default_factory=DurabilityRules)
+    candidate_diagnostics: CandidateDiagnosticRules = Field(
+        default_factory=CandidateDiagnosticRules
+    )
     diversity: SelectionDiversityRules = Field(default_factory=SelectionDiversityRules)
 
     @field_validator("default_profile")
@@ -244,49 +251,49 @@ class ScreeningRules(BaseModel):
     universe: UniverseRules
     ttm: TTMRules
     quality: QualityRules
-    screening_playbooks: Mapping[
+    evidence_patterns: Mapping[
         str,
-        ValuationReversionPlaybook
-        | CashRichPlaybook
-        | CashflowYieldPlaybook
-        | SalesDiscountGrowthPlaybook,
+        ValuationReversionEvidencePattern
+        | CashRichEvidencePattern
+        | CashflowYieldEvidencePattern
+        | SalesDiscountGrowthEvidencePattern,
     ]
     output: OutputRules
     selection: SelectionRules = Field(default_factory=SelectionRules)
 
-    @field_validator("screening_playbooks", mode="before")
+    @field_validator("evidence_patterns", mode="before")
     @classmethod
-    def _coerce_screening_playbooks(cls, value: Mapping[str, Any]) -> dict[str, Any]:
+    def _coerce_evidence_patterns(cls, value: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(value, Mapping):
-            raise ValueError("screening_playbooks must be a mapping")
-        playbooks: dict[str, Any] = {}
+            raise ValueError("evidence_patterns must be a mapping")
+        patterns: dict[str, Any] = {}
         for name, raw in value.items():
             if not isinstance(raw, Mapping):
-                raise ValueError(f"evidence_hit playbook {name!r} must be a mapping")
+                raise ValueError(f"evidence pattern {name!r} must be a mapping")
             data = dict(raw)
             match name:
                 case "valuation-reversion":
-                    playbooks[name] = ValuationReversionPlaybook.model_validate(data)
+                    patterns[name] = ValuationReversionEvidencePattern.model_validate(data)
                 case "cash-rich-asset-discount":
-                    playbooks[name] = CashRichPlaybook.model_validate(data)
+                    patterns[name] = CashRichEvidencePattern.model_validate(data)
                 case "cashflow-yield-discount":
-                    playbooks[name] = CashflowYieldPlaybook.model_validate(data)
+                    patterns[name] = CashflowYieldEvidencePattern.model_validate(data)
                 case "sales-discount-growth":
-                    playbooks[name] = SalesDiscountGrowthPlaybook.model_validate(data)
+                    patterns[name] = SalesDiscountGrowthEvidencePattern.model_validate(data)
                 case _:
-                    raise ValueError(f"unknown evidence_hit playbook: {name}")
-        return playbooks
+                    raise ValueError(f"unknown evidence pattern: {name}")
+        return patterns
 
     @property
-    def playbook_order(self) -> tuple[str, ...]:
-        return tuple(self.screening_playbooks.keys())
+    def evidence_pattern_order(self) -> tuple[str, ...]:
+        return tuple(self.evidence_patterns.keys())
 
     @model_validator(mode="after")
-    def _validate_output_playbook_order(self) -> ScreeningRules:
-        unknown = set(self.output.research_selection_playbook_order) - set(self.screening_playbooks)
+    def _validate_output_evidence_pattern_order(self) -> ScreeningRules:
+        unknown = set(self.output.evidence_pattern_order) - set(self.evidence_patterns)
         if unknown:
             joined = ", ".join(sorted(unknown))
-            raise ValueError(f"unknown research selection playbook(s): {joined}")
+            raise ValueError(f"unknown Evidence Pattern(s): {joined}")
         return self
 
 

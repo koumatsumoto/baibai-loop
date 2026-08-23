@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import importlib
 import inspect
+import json
 import re
 import sqlite3
 from contextlib import closing
@@ -267,7 +268,7 @@ def test_shortlist_list_and_latest_agree_on_the_newest_row(tmp_path: Path) -> No
                     shortlist_id,
                     "2026-07-29",
                     "2026-07-29T14:00:00+09:00",
-                    f'{{"shortlist_id": "{shortlist_id}"}}',
+                    f'{{"schema_version": 4, "entries": [], "shortlist_id": "{shortlist_id}"}}',
                 ),
             )
 
@@ -276,3 +277,116 @@ def test_shortlist_list_and_latest_agree_on_the_newest_row(tmp_path: Path) -> No
 
     assert latest is not None
     assert payloads[0]["shortlist_id"] == latest["shortlist_id"]
+
+
+@pytest.mark.parametrize("schema_version", [2, 3, 4])
+def test_shortlist_reader_projects_each_known_legacy_version(
+    tmp_path: Path, schema_version: int
+) -> None:
+    store = tmp_path / "app.sqlite"
+    with sqlite3.connect(store) as connection:
+        connection.execute(
+            "CREATE TABLE shortlist (shortlist_id TEXT, as_of TEXT, published_at TEXT, "
+            "payload TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO shortlist VALUES (?, ?, ?, ?)",
+            (
+                f"shortlist-legacy-v{schema_version}",
+                "2026-07-01",
+                "2026-07-01T14:00:00+09:00",
+                json.dumps(
+                    {
+                        "schema_version": schema_version,
+                        "entries": [],
+                        "shortlist_id": f"shortlist-legacy-v{schema_version}",
+                    }
+                ),
+            ),
+        )
+
+    payload = read_api.latest_shortlist_payload(store)
+
+    assert payload is not None
+    assert payload["attention_provenance_status"] == "unresolved"
+    assert payload["attention_policy_id"] is None
+
+
+def test_shortlist_reader_rejects_an_unknown_version(tmp_path: Path) -> None:
+    store = tmp_path / "app.sqlite"
+    with sqlite3.connect(store) as connection:
+        connection.execute(
+            "CREATE TABLE shortlist (shortlist_id TEXT, as_of TEXT, published_at TEXT, "
+            "payload TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO shortlist VALUES (?, ?, ?, ?)",
+            (
+                "unknown",
+                "2026-07-01",
+                "2026-07-01T14:00:00+09:00",
+                json.dumps({"schema_version": 99, "entries": [], "shortlist_id": "unknown"}),
+            ),
+        )
+
+    with pytest.raises(ValueError, match="unsupported shortlist schema_version"):
+        read_api.latest_shortlist_payload(store)
+
+
+@pytest.mark.parametrize("schema_version", [1, 2])
+def test_assessment_reader_projects_each_known_legacy_version(
+    tmp_path: Path, schema_version: int
+) -> None:
+    store = tmp_path / "app.sqlite"
+    with sqlite3.connect(store) as connection:
+        connection.execute(
+            "CREATE TABLE bargain_assessment (assessment_id TEXT, as_of TEXT, "
+            "published_at TEXT, payload TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO bargain_assessment VALUES (?, ?, ?, ?)",
+            (
+                f"assessment-legacy-v{schema_version}",
+                "2026-07-01",
+                "2026-07-01T14:00:00+09:00",
+                json.dumps(
+                    {
+                        "schema_version": schema_version,
+                        "assessment_id": f"assessment-legacy-v{schema_version}",
+                        "lanes": [{"ticker": "2331"}],
+                    }
+                ),
+            ),
+        )
+
+    payloads = read_api.list_bargain_assessment_payloads(store)
+
+    assert payloads == [
+        {
+            "schema_version": schema_version,
+            "assessment_id": f"assessment-legacy-v{schema_version}",
+            "cases": [{"ticker": "2331"}],
+            "case_schema_status": "legacy_projected",
+        }
+    ]
+
+
+def test_assessment_reader_rejects_an_unknown_version(tmp_path: Path) -> None:
+    store = tmp_path / "app.sqlite"
+    with sqlite3.connect(store) as connection:
+        connection.execute(
+            "CREATE TABLE bargain_assessment (assessment_id TEXT, as_of TEXT, "
+            "published_at TEXT, payload TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO bargain_assessment VALUES (?, ?, ?, ?)",
+            (
+                "assessment-unknown",
+                "2026-07-01",
+                "2026-07-01T14:00:00+09:00",
+                json.dumps({"schema_version": 99, "assessment_id": "assessment-unknown"}),
+            ),
+        )
+
+    with pytest.raises(ValueError, match="unsupported bargain assessment schema_version"):
+        read_api.list_bargain_assessment_payloads(store)

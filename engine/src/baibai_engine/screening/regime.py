@@ -101,7 +101,7 @@ def compute_market_regime(
     Returns ``None`` when the SQLite cache is absent or holds no bars on or
     before ``asof_date``; insufficient history degrades individual fields to
     ``None`` and the regime to ``unknown`` instead of failing, so callers can
-    keep ranking with the lens disabled while recording why.
+    keep ranking with the diagnostic disabled while recording why.
     """
     if not sqlite_path.exists():
         return None

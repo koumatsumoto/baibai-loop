@@ -87,7 +87,7 @@ current source state であり point-in-time ledger ではない。既存の
 ない過去 as-of の再抽出は実行時点の EDINET current source state を使い、観測前の
 修正前・取下げ前状態を再現するものではない。
 
-`select` は明示した`run_revision_id`のpublication viewからresearch recommendationsを出力する。macro contextはapplication DBからas-of以前のlatest eligible revisionを読む任意のcontext-level warningで、ranking、candidate facts、採用、投入額を変えない。不在時は`macro_context_missing`、stale時は`macro_context_stale`、future contextはerrorである。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、詳細は `--detail full` で出す。ranking の主キーは機械 E[r]（成分分解付き年率見積り）の降順（E[r] 欠損は ranking 対象外・従キーに evidence pattern の優先順 + 割安強度）で、`durability`（塩漬け耐性）annotation を採用の gate へ接続する。`selection_playbook` は evidence がある候補だけに付く primary thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。閾値変更は `method/screening/rules/` を編集して新しいrun/select revisionを作る。`research` の選定プロセス（skill `shortlist` / `research`）を支援する。
+`select` は明示した`run_revision_id`のpublication viewからresearch recommendationsを出力する。macro contextはapplication DBからas-of以前のlatest eligible revisionを読む任意のcontext-level warningで、ranking、candidate facts、採用、投入額を変えない。不在時は`macro_context_missing`、stale時は`macro_context_stale`、future contextはerrorである。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、詳細は `--detail full` で出す。ranking の主キーは機械 E[r]（成分分解付き年率見積り）の降順（E[r] 欠損はValue / Carry Laneのranking対象外・従キーにEvidence Patternの優先順 + 割安強度）で、`candidate_diagnostics.durability`（塩漬け耐性）はannotationとしてResearch Gateへ渡す。`primary_evidence_pattern_id`はevidenceがある候補だけに付く機械annotationで、evidenceがない候補はnullのままLane Longlistへ入り得る。閾値変更は `method/screening/rules/` を編集して新しいrun/select revisionを作る。`research` の選定プロセス（skill `shortlist` / `research`）を支援する。
 
 `shortlist outcome` は published shortlist ごとに、その entry 集合を母集団として selected / rejected / 機械 E[r] 上位同数の forward return を母集団中央値と突き合わせ、選定時の `ploss` 別に実現ドローダウンを集計する。E[r] は shortlist が束縛した run から読むので、その run が prune 済みなら機械 cohort は `estimate_missing` として計算しない。割当は無作為化されていないので出力は記述比較であり、payload の `comparison_basis` がそれを明示する。
 
@@ -95,7 +95,7 @@ current source state であり point-in-time ledger ではない。既存の
 
 `prune --keep N` は as-of、run timestamp、revision ID の新しい順に N 世代を残し、対象 run のcandidateとmachine selectionをtransaction内で削除してから`VACUUM`する。既定は3世代。run storeは再生成可能なcacheであり、canonicalなshortlist、research、proposal、holding reviewはapplication DBのsnapshotを読む。
 
-金融4業種（銀行業、証券・商品先物取引業、保険業、その他金融業）の `excluded_sectors` は、事業会社向け generic evidence playbook の適用だけを止める。金融4業種も liquidity を通過して E[r] が非 null なら、通常どおり ranking、recommendation、longlist の対象になる。
+金融4業種（銀行業、証券・商品先物取引業、保険業、その他金融業）の`excluded_sectors`は、事業会社向けgeneric Evidence Patternの適用だけを止める。金融4業種もliquidityを通過してE[r]がnon-nullなら、通常どおりranking、recommendation、longlistの対象になる。
 
 `ticker-profile` は任意の上場銘柄(universe 内外を問わない)について、価格・流動性・対 benchmark / sector 相対・regime・イベント(次回決算日、JPX 規制 flag)・直近screening runのcandidate record・prior research を 1 つの事実 profile として出力する。`next_earnings_date` は JPX snapshot に公表済みの asof 以後の最短日であり、`null` は snapshot 内に既知日程がない（未定を含む）ことを示す。決算が存在しないという意味ではない。valuation はそのcandidate recordから引用し、再計算しない(記録と矛盾する値を作らないため)。`--asof` 省略時は cache の最新営業日を使う。provider 認証は不要で、market.sqlite、run store（`stores/screening/runs.sqlite`）、application DB（prior research 用）を読む。
 
@@ -186,7 +186,7 @@ uv run baibai-engine screening run --asof YYYY-MM-DD
 閾値の正本は `method/screening/rules/` の現行 revision で、その実 path は `rule_config.DEFAULT_RULES_PATH` が持つ（`--rules-path` / `SCREENING_RULES_PATH` で override した場合はそちら）。rules は dated revision で増えるので、file 名の実値をここへ書かない。実装側の hardcode は parser default と型定義に留め、運用で変える閾値は YAML に寄せる。
 
 - scope / 絞り込み: `universe.required_jpx_flags`(記録対象の規制 flag)と `selection.liquidity`(時価総額・平均売買代金・上場期間・JPX 規制の分析層パラメータ)
-- evidence pattern (`playbook_id`) の screen 閾値: `valuation-reversion` / `cashflow-yield-discount` / `sales-discount-growth`
+- Evidence Pattern (`evidence_pattern_id`) のscreen閾値: `valuation-reversion` / `cashflow-yield-discount` / `sales-discount-growth`
 - TTM 期間一致基準: partial period の許容日数差、FY 期間長
 - 品質条件: 売上 YoY、営業利益、営業 CF 悪化、赤字縮小条件
 - `EV/EBITDA` は `ttm_quality = exact` かつ EV / EBITDA がどちらも正のときのみ判定に使う。EDINET が無い場合、または EV / EBITDA がゼロ以下の場合は `unavailable` / `null` として他 metric で degrade する
@@ -208,7 +208,7 @@ uv run baibai-engine screening run --asof YYYY-MM-DD
 - `stores/market/market.sqlite` は screening input の local canonical store。J-Quants / EDINET / JPX の provider fetch は normalized table と `source_coverage` を直接更新する
 - `.cache/screening/edinet/csv_zips/` は EDINET `type=5` CSV ZIP の cache。削除しても SQLite の metric rows は残る
 - `.cache/screening/disclosures/**/*.json` は SQLite 正本の対象外に残す任意の disclosure title cache。TDnet / 会社 IR 等から取得した `ticker` / `date` / `title` / `source` / `url` 相当の record を置くと、screening run が EDINET metrics 提出日以降の M&A・借入などの title keyword hit をYAML viewの`freshness_warnings`に出す。cache が無い場合は `provider_status_lines` に optional unavailable を出す。cache が存在するが JSON 読み込み失敗・未対応 layout・必須 key 欠損がある場合は `provider_status_lines` と `fallback_lines` に件数を出す
-- `method/` は screening rules・macro panel・playbook だけを置く。通常運用の raw JSON cache、SQLite、CSV ZIP、一時 manifest は置かない
+- `method/`はscreening rules・macro panel・Research Playbookだけを置く。通常運用のraw JSON cache、SQLite、CSV ZIP、一時manifestは置かない
 - `screening run` は開始時に `verify-cache-coverage --asof` 相当の coverage 検証を行う。SQLite が不完全な場合は fail-fast し、raw JSON cache や provider API へフォールバックしない。通常指標は 1200 日の日次足と 730 日の財務行を読み、`normalized_per_3fy` は 2200 日窓から FY 行と分割・併合 event だけを疎に読むため、全日次足を追加でメモリへ載せない
 - `JQuantsProvider` / `EDINETProvider` / `JPXProvider` は bootstrap / extract 系コマンドでは SQLite miss 後に provider API へ進み、取得結果を SQLite に直接保存する。`screening run` では `cache_only` で構築され、run 中の追加取得を禁止する
 
@@ -328,7 +328,7 @@ percentile に新しい二値閾値を置かず、raw 座標を単一 regime lab
 （[`2026-08-06-bargain-capture-diagnosis`](../../reports/studies/2026-08-06-bargain-capture-diagnosis/report.md)
 §6.3）ため、carry 集中も単独で悪化や除外と読まない。
 
-**判断時の機械行焼き込み**: run store は 3 世代 retention で、ある shortlist を rank した selection はその run と一緒に消える。shortlist は cycle の正本判断記録（selected 0 件のときは唯一の記録）なので、レビュー面が比較する機械座標は判断側へ持たせる。`shortlist publish` は source selection の longlist 行（`rank` / `fair_value_anchor_yen` / `market_price_yen` / `expected_return_pct` / `fv_convergence` / `event_warnings` / `durability_warnings` / `selection_reasons` / `screening_playbook` / `liquidity_status`）を entry の `machine_snapshot` へ焼き込む。`er_annual` と同じ規律で、**表示専用・publish 後に再計算も上書きもしない**（内容が違う再 publish は conflict）。read model は焼き込みを longlist 行と同じ view 型で返し、レビュー面は生きている selection を優先しつつ prune 後は焼き込みへ落ちる。`select` を `--longlist-top` 無しで publish した selection には焼き込む行が無く、その shortlist は prune 後に機械値を失う。
+**判断時の機械行焼き込み**: run store は3世代retentionで、あるShortlistをrankしたselectionはそのrunと一緒に消える。Shortlist v5は`review_tickers`とentry集合をexactに束縛し、現行Value / Carry-only resolverは`review_tickers`が`longlist`の全tickerと順序まで一致する場合だけ受理する。source rowの`opportunity_lane_id` / `selection_policy_id` / `selection_policy_hash` / `lane_rank` / native value・unit / `baseline_er_rank` / `primary_evidence_pattern_id` / `policy_diagnostic_ids`を`machine_snapshot`へ焼き込み、publish後は再計算も上書きもしない。v4 historyは保存payloadを書き換えず、readerがLane=`value-carry`を`legacy_inferred`としてprojectするが、存在しなかったPolicy ID・hashは捏造しない。
 
 **決算ラグ annotation**: 決算開示と as-of 財務のラグを判断面へ出す。`jquants_earnings_calendar` は ticker あたり 1 行の**予定**表で、`next_earnings_date` は as-of 以降の最短予定日しか持たないため、日付だけでは「これから」と「もう出た」が区別できない。`next_earnings_status` が 4 状態で答える — `announced`（予定日が as-of 以前）/ `scheduled`（予定日が as-of より後）/ `estimated`（カレンダー行が無く、過去の開示周期から推定できる）/ `unknown`（材料なし）。会社が予定日より前に開示してもカレンダー行は残るので、その銘柄は `scheduled` のまま見える —— 予定日直前の開示は前倒しの実績より業績予想修正・再開示であることが多く（実 store の retrospective で前倒し判定は 89% が誤り）、誤って `announced` にすると読み手が目前の決算を event risk から外すため、判定しない側へ倒している。前倒しかどうかは隣の `fin_latest_disclosed_date` が予定日の直前を指すことで読む。`fin_latest_disclosed_date` は機械行の財務が含む最後の開示日。`stale_fin_flag` は「予定日が as-of 以前なのに、その発表に対応する開示が行に無い」で立ち、**原因は区別しない**（延期・決算期変更・provider 欠落のいずれでも立つ。読み手のすべきことはどれでも同じで、一次開示で切り分ける）。判定材料が無い場合は `null` で、`false`（照合して食い違わなかった）と同じ値にしない。`next_earnings_estimated_date` は前年同期の次の開示日を 1 年ずらした推定で、確定日を上書きしない。周期の刻みに数えるのは実績を伴う開示だけで、来期ガイダンス行（`period_end` が開示日より後）・同一期の再開示・実績列を持たない業績予想/配当予想の修正は除く。実 store の過去 4 as-of で**実際の次回開示日**と突合すると誤差 7 日以内 88〜95%・誤差の中央値 1 日（全件）。次回開示までの距離や決算期の分布で帯ごとに 75〜96% まで振れるので、確定日の代わりには使わない —— event risk 判定は確定日だけで行い、推定は着手順の目安に留める。いずれも annotation で、screen pass・自動除外・E[r]・rank・recommendation を変更しない。カレンダー行を持たない universe ticker 数は `run` の進捗行に出す（実測で universe の約 18%。個別企業の未公表を含むので閾値は置かず、急増を provider 欠落として読む）。
 

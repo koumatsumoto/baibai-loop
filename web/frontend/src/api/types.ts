@@ -4,7 +4,7 @@
 // Types for `system/latest-run.json` are hand-written in ./run-summary.ts: the daily
 // batch writes that object, not the read models.
 
-export interface AssessmentLaneView {
+export interface AssessmentCaseView {
   ticker: string
   name: string | null
   disposition: string
@@ -64,7 +64,7 @@ export interface BargainAssessmentSummaryView {
   result: string
   headline: string
   shortlist_id: string
-  lane_count: number
+  case_count: number
   selected_ticker: string | null
 }
 
@@ -79,7 +79,7 @@ export interface BargainAssessmentView {
   comparison: string
   entry_timing: string | null
   forgone: string
-  lanes: AssessmentLaneView[]
+  cases: AssessmentCaseView[]
   purchase: AssessmentPurchaseView | null
   review: AssessmentReviewView
 }
@@ -770,7 +770,7 @@ export interface SelectionLonglistEntryView {
   fair_value_anchor_yen: number | null
   fair_value_gap_pct: number | null
   expected_return_pct: number | null
-  screening_playbook: string | null
+  primary_evidence_pattern_id: string | null
   liquidity_status: string | null
   selection_reasons: string[]
   durability_warnings: string[]

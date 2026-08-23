@@ -84,7 +84,7 @@ _PANEL_REQUIRED: Mapping[str, Any] = {
     "margin_long_delta_26w": None,
     "margin_std_long_share": None,
     "pass_screen": False,
-    "evidence_playbooks": "",
+    "evidence_patterns": "",
     "selection_rank": None,
     "recommended_rank": None,
 }

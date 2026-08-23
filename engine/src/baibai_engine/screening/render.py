@@ -160,7 +160,7 @@ def candidate_entry(candidate: ScreenedCandidate) -> dict[str, object]:
     entry["evidence_hits"] = [
         {
             "name": QuotedString(evidence_hit.name),
-            "playbook_id": QuotedString(evidence_hit.playbook_id),
+            "evidence_pattern_id": QuotedString(evidence_hit.evidence_pattern_id),
             "source_status": "warning" if candidate.freshness_warnings else "ok",
             "sizing_eligible": not candidate.freshness_warnings,
             "reasons": [QuotedString(reason) for reason in evidence_hit.reasons],

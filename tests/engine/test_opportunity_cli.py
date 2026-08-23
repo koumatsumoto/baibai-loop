@@ -174,7 +174,7 @@ def _write_selection(
 ) -> None:
     selection_metadata: dict[str, object] = {
         "research_selection_target_max": research_selection_target_max,
-        "research_selection_playbook_order": ["cashflow-yield-discount"],
+        "evidence_pattern_order": ["cashflow-yield-discount"],
     }
     if selection_asof is not None:
         selection_metadata["asof"] = selection_asof
@@ -185,6 +185,7 @@ def _write_selection(
     payload = {
         "recommendations": [],
         "longlist": longlist,
+        "review_tickers": [str(row["ticker"]) for row in longlist],
         "selection": selection_metadata,
     }
     path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
@@ -195,7 +196,7 @@ def _longlist_row(ticker: str, rank: int = 1) -> dict[str, object]:
         "rank": rank,
         "ticker": ticker,
         "name": f"candidate {ticker}",
-        "screening_playbook": "cashflow-yield-discount",
+        "primary_evidence_pattern_id": "cashflow-yield-discount",
         "expected_return_pct": 9.5,
         "fair_value_anchor_yen": 1300,
         "market_price_yen": 1000,
@@ -986,7 +987,7 @@ def test_status_waits_for_human_shortlist_before_thesis_scaffold(
     assert "/shortlist" in str(payload["next_command"])
 
 
-def test_status_points_to_first_missing_shortlist_lane(
+def test_status_points_to_first_missing_primary_research_ticker(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
@@ -1036,7 +1037,7 @@ def test_status_waits_for_all_lane_checks_before_comparison(
     assert code == 0
     assert payload["workspace_status"] == "incomplete"
     assert payload["pending_checks"]
-    assert payload["next_command"] == "complete primary research lane for 2331"
+    assert payload["next_command"] == "complete primary research for 2331"
 
     checklist_path = workspace / "2331" / "research-checklist.yaml"
     checklist = safe_load(checklist_path.read_text(encoding="utf-8"))
@@ -1118,7 +1119,7 @@ def test_thesis_scaffold_requires_primary_research_set_membership(
     assert not (workspace / "2331").exists()
 
 
-def test_thesis_scaffold_confines_research_lane_to_direct_ticker_child(
+def test_thesis_scaffold_confines_research_ticker_to_direct_child(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     selection_output = tmp_path / "selection.yaml"
@@ -1167,7 +1168,7 @@ def test_thesis_scaffold_confines_research_lane_to_direct_ticker_child(
     assert not (tmp_path / "outside").exists()
 
 
-def test_primary_research_lanes_share_lineage_and_remain_isolated(
+def test_primary_research_tickers_share_lineage_and_remain_isolated(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
@@ -1653,29 +1654,26 @@ def test_prepare_rejects_selection_estimate_asof_mismatch(
     assert code == 3
 
 
-def test_thesis_scaffold_rejects_duplicate_longlist_ticker(
+def test_prepare_rejects_duplicate_review_set_ticker(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
-    workspace = _prepared_workspace(
-        tmp_path,
-        sqlite_path,
-        longlist=[_longlist_row("2331", 1), _longlist_row("2331", 2)],
+    selection = tmp_path / "selection.yaml"
+    _write_selection(
+        selection,
+        [_longlist_row("2331", 1), _longlist_row("2331", 2)],
     )
     code = opportunity_main(
         [
-            "thesis-scaffold",
+            "prepare",
+            "--asof",
+            "2026-07-03",
+            "--selection-output",
+            str(selection),
+            "--db",
+            str(_app_db(tmp_path)),
             "--workspace",
-            str(workspace),
-            "--ticker",
-            "2331",
-            "--sqlite-path",
-            str(sqlite_path),
-            "--target-session",
-            TARGET_SESSION,
-        ],
-        now=FIXED_NOW,
+            str(tmp_path / "ws"),
+        ]
     )
     assert code == 3
 

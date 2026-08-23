@@ -83,7 +83,7 @@ def _write_candidates(runs_db_path: Path) -> None:
                     "evidence_hits": [
                         {
                             "name": "cashflow-yield-discount",
-                            "playbook_id": "cashflow-yield-discount",
+                            "evidence_pattern_id": "cashflow-yield-discount",
                             "source_status": "ok",
                             "sizing_eligible": True,
                         }

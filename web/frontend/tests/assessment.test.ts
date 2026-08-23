@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import type { AssessmentLaneView, AssessmentPurchaseView } from '../src/api/types'
-import { ASSESSMENT_RESULT, headroomToMaxPct, LANE_DISPOSITION, limitVsClosePct, orderLanes, purchaseAlerts } from '../src/lib/assessment'
+import type { AssessmentCaseView, AssessmentPurchaseView } from '../src/api/types'
+import { ASSESSMENT_RESULT, CASE_DISPOSITION, headroomToMaxPct, limitVsClosePct, orderCases, purchaseAlerts } from '../src/lib/assessment'
 
-function lane(ticker: string, disposition: string): AssessmentLaneView {
+function assessmentCase(ticker: string, disposition: string): AssessmentCaseView {
   return {
     ticker,
     name: null,
@@ -50,23 +50,23 @@ function purchase(overrides: Partial<AssessmentPurchaseView> = {}): AssessmentPu
   }
 }
 
-describe('orderLanes', () => {
-  it('leads with the selected lane and keeps the rest in published order', () => {
-    const ordered = orderLanes([lane('1111', 'reject'), lane('2222', 'defer'), lane('3333', 'selected')])
+describe('orderCases', () => {
+  it('leads with the selected case and keeps the rest in published order', () => {
+    const ordered = orderCases([assessmentCase('1111', 'reject'), assessmentCase('2222', 'defer'), assessmentCase('3333', 'selected')])
     expect(ordered.map((item) => item.ticker)).toEqual(['3333', '1111', '2222'])
   })
 
-  it('keeps published order when no lane was selected', () => {
-    // no_actionable_bargain and defer cycles have no selected lane, and their reading
+  it('keeps published order when no case was selected', () => {
+    // no_actionable_bargain and defer cycles have no selected case, and their reading
     // order is the order the assessment argues them in.
-    const ordered = orderLanes([lane('1111', 'reject'), lane('2222', 'defer')])
+    const ordered = orderCases([assessmentCase('1111', 'reject'), assessmentCase('2222', 'defer')])
     expect(ordered.map((item) => item.ticker)).toEqual(['1111', '2222'])
   })
 
   it('does not mutate the input', () => {
-    const lanes = [lane('1111', 'reject'), lane('2222', 'selected')]
-    orderLanes(lanes)
-    expect(lanes.map((item) => item.ticker)).toEqual(['1111', '2222'])
+    const cases = [assessmentCase('1111', 'reject'), assessmentCase('2222', 'selected')]
+    orderCases(cases)
+    expect(cases.map((item) => item.ticker)).toEqual(['1111', '2222'])
   })
 })
 
@@ -134,9 +134,9 @@ describe('vocabulary', () => {
     }
   })
 
-  it('labels every lane disposition the engine can publish', () => {
+  it('labels every case disposition the engine can publish', () => {
     for (const disposition of ['selected', 'reject', 'defer']) {
-      expect(LANE_DISPOSITION[disposition]).toBeDefined()
+      expect(CASE_DISPOSITION[disposition]).toBeDefined()
     }
   })
 })

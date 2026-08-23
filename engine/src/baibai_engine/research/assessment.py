@@ -42,14 +42,14 @@ from .thesis import (
     require_recorded_identity,
 )
 
-BARGAIN_ASSESSMENT_SCHEMA_VERSION = 2
+BARGAIN_ASSESSMENT_SCHEMA_VERSION = 3
 
 # 機械値の照合許容差。thesis 評価は Decimal、YAML 往復は float を通るので、
 # 表示桁の丸めだけを許し、書き換えは許さない幅にする。
 _NUMERIC_TOLERANCE = Decimal("0.005")
 
 type AssessmentResult = Literal["proposal", "no_actionable_bargain", "defer"]
-type LaneDisposition = Literal["selected", "reject", "defer"]
+type CaseDisposition = Literal["selected", "reject", "defer"]
 
 
 class AssessmentError(ValueError):
@@ -60,7 +60,7 @@ class AssessmentConflictError(AssessmentError):
     pass
 
 
-class LaneMachineValues(BaseModel):
+class CaseMachineValues(BaseModel):
     """promoted thesis から再導出する値。scaffold が書き、publish が照合する。
 
     リターン側の数値だけでなく永久損失の結論も含める。リスクリワードは片側だけでは
@@ -104,20 +104,20 @@ class SourceCaveat(BaseModel):
     decision_impact: str = Field(min_length=1)
 
 
-class AssessmentLane(BaseModel):
+class AssessmentCase(BaseModel):
     """深掘りした 1 銘柄の結論。判断の要点と、thesis へ束縛した機械値を持つ。"""
 
     model_config = ConfigDict(extra="forbid")
     ticker: str = Field(pattern=r"^[0-9A-Z]{4}$")
     name: str | None = None
-    disposition: LaneDisposition
+    disposition: CaseDisposition
     disposition_reason: str = Field(min_length=1)
     # disposition_reason が判断の正本。class は棄却理由の頻度集計にだけ使う。
     reject_class: RejectClass | None = None
     thesis_id: str = Field(min_length=1)
     thesis_core_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     review_id: str | None = None
-    machine: LaneMachineValues = LaneMachineValues()
+    machine: CaseMachineValues = CaseMachineValues()
     business_model: str = Field(min_length=1)
     value_capture: str = Field(min_length=1)
     growth_quality: str = Field(min_length=1)
@@ -131,9 +131,9 @@ class AssessmentLane(BaseModel):
     @model_validator(mode="after")
     def validate_reject_class_matches_disposition(self) -> Self:
         if self.disposition in {"reject", "defer"} and self.reject_class is None:
-            raise ValueError("reject/defer assessment lane must include a reject_class")
+            raise ValueError("reject/defer assessment case must include a reject_class")
         if self.disposition == "selected" and self.reject_class is not None:
-            raise ValueError("selected assessment lane must not include a reject_class")
+            raise ValueError("selected assessment case must not include a reject_class")
         return self
 
 
@@ -184,7 +184,7 @@ class ContentReviewBinding(BaseModel):
 
 class BargainAssessment(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     kind: Literal["bargain_assessment"]
     assessment_id: str
     as_of: date
@@ -196,7 +196,7 @@ class BargainAssessment(BaseModel):
     comparison: str = Field(min_length=1)
     entry_timing: str | None = None
     forgone: str = Field(min_length=1)
-    lanes: tuple[AssessmentLane, ...] = Field(min_length=1)
+    cases: tuple[AssessmentCase, ...] = Field(min_length=1)
     purchase: PurchasePlan | None = None
     review: ContentReviewBinding
 
@@ -206,24 +206,24 @@ class BargainAssessment(BaseModel):
             raise ValueError("assessment_id has an invalid format")
         if self.published_at.tzinfo is None:
             raise ValueError("published_at must include a timezone")
-        tickers = [lane.ticker for lane in self.lanes]
+        tickers = [case.ticker for case in self.cases]
         if len(tickers) != len(set(tickers)):
-            raise ValueError("assessment lane ticker must be unique")
-        selected = [lane for lane in self.lanes if lane.disposition == "selected"]
+            raise ValueError("assessment case ticker must be unique")
+        selected = [case for case in self.cases if case.disposition == "selected"]
         if len(selected) > 1:
-            raise ValueError("at most one lane can be selected in one proposal round")
+            raise ValueError("at most one case can be selected in one proposal round")
         if self.result == "proposal":
             if not selected:
-                raise ValueError("a proposal result requires exactly one selected lane")
+                raise ValueError("a proposal result requires exactly one selected case")
             if self.purchase is None:
                 raise ValueError("a proposal result requires a purchase plan")
             if self.purchase.ticker != selected[0].ticker:
-                raise ValueError("purchase plan ticker must match the selected lane")
+                raise ValueError("purchase plan ticker must match the selected case")
             if self.entry_timing is None or not self.entry_timing.strip():
                 raise ValueError("a proposal result requires entry_timing")
         else:
             if selected:
-                raise ValueError("only a proposal result can carry a selected lane")
+                raise ValueError("only a proposal result can carry a selected case")
             if self.purchase is not None:
                 raise ValueError("a purchase plan requires a proposal result")
         return self
@@ -307,25 +307,25 @@ class BargainAssessmentService:
                 f"assessment as_of {assessment.as_of} precedes shortlist {shortlist_as_of}"
             )
         shortlist_tickers = _selected_tickers(shortlist, assessment.shortlist_id)
-        for lane in assessment.lanes:
-            if lane.ticker not in shortlist_tickers:
+        for case in assessment.cases:
+            if case.ticker not in shortlist_tickers:
                 raise AssessmentConflictError(
-                    f"lane {lane.ticker} is not a selected candidate of {assessment.shortlist_id}"
+                    f"case {case.ticker} is not a selected candidate of {assessment.shortlist_id}"
                 )
-            stored = self._stored_thesis(lane.thesis_id)
-            if stored.ticker != lane.ticker:
+            stored = self._stored_thesis(case.thesis_id)
+            if stored.ticker != case.ticker:
                 raise AssessmentConflictError(
-                    f"thesis {lane.thesis_id} belongs to {stored.ticker}, not {lane.ticker}"
+                    f"thesis {case.thesis_id} belongs to {stored.ticker}, not {case.ticker}"
                 )
-            if stored.core_sha256 != lane.thesis_core_sha256:
+            if stored.core_sha256 != case.thesis_core_sha256:
                 raise AssessmentConflictError(
-                    f"thesis {lane.thesis_id} has moved since the draft was written"
+                    f"thesis {case.thesis_id} has moved since the draft was written"
                 )
-            _require_matching_machine_values(lane, derive_lane_machine_values(stored.document))
+            _require_matching_machine_values(case, derive_case_machine_values(stored.document))
         if assessment.purchase is not None:
-            self._verify_purchase(assessment.purchase, assessment.lanes)
+            self._verify_purchase(assessment.purchase, assessment.cases)
 
-    def _verify_purchase(self, purchase: PurchasePlan, lanes: tuple[AssessmentLane, ...]) -> None:
+    def _verify_purchase(self, purchase: PurchasePlan, cases: tuple[AssessmentCase, ...]) -> None:
         row = self._row(
             "SELECT ticker, thesis_id, payload FROM proposal WHERE proposal_id = ?",
             (purchase.proposal_id,),
@@ -339,11 +339,11 @@ class BargainAssessmentService:
             raise AssessmentConflictError(
                 f"proposal {purchase.proposal_id} belongs to {ticker}, not {purchase.ticker}"
             )
-        selected = next(lane for lane in lanes if lane.disposition == "selected")
+        selected = next(case for case in cases if case.disposition == "selected")
         if selected.thesis_id != thesis_id:
             raise AssessmentConflictError(
                 f"proposal {purchase.proposal_id} binds thesis {thesis_id}, "
-                f"not the selected lane's {selected.thesis_id}"
+                f"not the selected case's {selected.thesis_id}"
             )
         digest = _sha256_json(payload)
         if digest != purchase.proposal_sha256:
@@ -414,8 +414,8 @@ def _selected_tickers(payload: Mapping[str, object], shortlist_id: str) -> froze
     )
 
 
-def derive_lane_machine_values(document: ThesisDocument) -> LaneMachineValues:
-    """thesis から lane の機械値を導出する。scaffold と publish が同じ経路を使う。"""
+def derive_case_machine_values(document: ThesisDocument) -> CaseMachineValues:
+    """thesis から case の機械値を導出する。scaffold と publish が同じ経路を使う。"""
     # Only the scenarios are read here; the identity never leaves this call.
     result = evaluate_thesis(document, identity=UnpublishedThesis.DRAFT)
     base = next(
@@ -430,7 +430,7 @@ def derive_lane_machine_values(document: ThesisDocument) -> LaneMachineValues:
     estimates = document.estimates
     fair_value = estimates.current_fair_value_yen
     entry_price = estimates.entry_price_basis_yen
-    return LaneMachineValues(
+    return CaseMachineValues(
         five_year_base_cagr_pct=(None if base is None else round(base.total_return_cagr_pct, 4)),
         required_return_pct=_float(estimates.required_5y_base_cagr_pct),
         fair_value_yen=_float(fair_value),
@@ -484,7 +484,7 @@ def _float(value: object) -> float | None:
     return None
 
 
-def _require_matching_machine_values(lane: AssessmentLane, derived: LaneMachineValues) -> None:
+def _require_matching_machine_values(case: AssessmentCase, derived: CaseMachineValues) -> None:
     """draft の機械値が thesis からの再導出と一致することを求める。
 
     scaffold が書いた値を手で書き換えても、publish は保存しない。散文は判断だが、
@@ -492,12 +492,12 @@ def _require_matching_machine_values(lane: AssessmentLane, derived: LaneMachineV
     """
     drifted = [
         name
-        for name in LaneMachineValues.model_fields
-        if not _values_agree(getattr(lane.machine, name), getattr(derived, name))
+        for name in CaseMachineValues.model_fields
+        if not _values_agree(getattr(case.machine, name), getattr(derived, name))
     ]
     if drifted:
         raise AssessmentConflictError(
-            f"{lane.ticker} machine values do not match the thesis: {', '.join(sorted(drifted))}"
+            f"{case.ticker} machine values do not match the thesis: {', '.join(sorted(drifted))}"
         )
 
 
@@ -552,18 +552,18 @@ def _sha256_json(payload: object) -> str:
 
 __all__ = [
     "BARGAIN_ASSESSMENT_SCHEMA_VERSION",
+    "AssessmentCase",
     "AssessmentConflictError",
     "AssessmentError",
-    "AssessmentLane",
     "AssessmentResult",
     "BargainAssessment",
     "BargainAssessmentService",
+    "CaseDisposition",
+    "CaseMachineValues",
     "ContentReviewBinding",
-    "LaneDisposition",
-    "LaneMachineValues",
     "PurchasePlan",
     "ResearchQuestion",
     "SourceCaveat",
     "assessment_draft_sha256",
-    "derive_lane_machine_values",
+    "derive_case_machine_values",
 ]

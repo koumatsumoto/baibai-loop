@@ -34,6 +34,10 @@ from pydantic import BaseModel, ValidationError
 
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.repository_layout import ER_LEVEL_CALIBRATION_CONTEXT_PATH
+from baibai_engine.foundation.review_set import (
+    ReviewSetResolutionError,
+    resolve_review_set_rows,
+)
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.ledger import (
@@ -199,7 +203,11 @@ def prepare_workspace(
     'no actionable bargain' outcome and still produces a workspace.
     """
     selection = _load_mapping(selection_output, label="selection output")
-    longlist = _dict_list(selection.get("longlist"))
+    try:
+        review_tickers, review_rows = resolve_review_set_rows(selection)
+    except ReviewSetResolutionError as error:
+        raise OpportunityDataError(f"selection Review Set is invalid: {error}") from error
+    longlist = [dict(review_rows[ticker]) for ticker in review_tickers]
     _validate_selection_estimate_asof(selection=selection, longlist=longlist, asof=asof)
     snapshot, append_head = _load_snapshot(db_path)
 
@@ -255,7 +263,7 @@ def prepare_workspace(
         "inputs": manifest_inputs,
         "rules": {
             "research_selection_target_max": research_selection_target_max,
-            "research_selection_playbook_order": _selection_playbook_order(selection),
+            "evidence_pattern_order": _evidence_pattern_order(selection),
         },
     }
     _write_workspace_file(manifest_path, manifest)
@@ -573,61 +581,61 @@ def compute_status(workspace: Path, *, db_path: Path | None = None) -> dict[str,
             next_command="review the /shortlist gate and fill selection.yaml shortlist",
         )
 
-    missing_lanes = [
+    missing_research = [
         ticker
         for ticker in shortlist_tickers
-        if not (_research_lane_dir(workspace, ticker) / "thesis-draft.yaml").is_file()
+        if not (_research_ticker_dir(workspace, ticker) / "thesis-draft.yaml").is_file()
     ]
-    if missing_lanes:
+    if missing_research:
         return _status_payload(
             workspace_status="incomplete",
             selected_ticker=selected_ticker,
-            next_command=f"baibai-engine research thesis-scaffold --ticker {missing_lanes[0]}",
+            next_command=f"baibai-engine research thesis-scaffold --ticker {missing_research[0]}",
         )
 
-    lane_pending: list[str] = []
-    lane_blocked: list[str] = []
-    lane_thesis_errors: list[str] = []
+    research_pending: list[str] = []
+    research_blocked: list[str] = []
+    research_thesis_errors: list[str] = []
     for ticker in shortlist_tickers:
         checklist = _load_checklist(workspace, ticker)
-        lane_pending.extend(
+        research_pending.extend(
             f"{ticker}:{check_id}"
             for item in checklist
             if item.get("status") == "pending"
             if (check_id := _string_or_none(item.get("check_id"))) is not None
         )
-        lane_blocked.extend(
+        research_blocked.extend(
             f"{ticker}:{check_id}"
             for item in checklist
             if item.get("status") == "blocked"
             if (check_id := _string_or_none(item.get("check_id"))) is not None
         )
-        lane_thesis_errors.extend(
+        research_thesis_errors.extend(
             f"{ticker}:{error}" for error in _thesis_validation_errors(workspace, ticker)
         )
-    if lane_pending or lane_thesis_errors:
-        first_ticker = (lane_pending or lane_thesis_errors)[0].split(":", maxsplit=1)[0]
+    if research_pending or research_thesis_errors:
+        first_ticker = (research_pending or research_thesis_errors)[0].split(":", maxsplit=1)[0]
         return _status_payload(
             workspace_status="incomplete",
             selected_ticker=selected_ticker,
-            pending_checks=lane_pending,
-            blocked_checks=lane_blocked,
-            thesis_validation_errors=lane_thesis_errors,
-            next_command=f"complete primary research lane for {first_ticker}",
+            pending_checks=research_pending,
+            blocked_checks=research_blocked,
+            thesis_validation_errors=research_thesis_errors,
+            next_command=f"complete primary research for {first_ticker}",
         )
 
     if selected_ticker is None:
         return _status_payload(
             workspace_status="ready_for_comparison",
             selected_ticker=None,
-            blocked_checks=lane_blocked,
+            blocked_checks=research_blocked,
             next_command=(
                 "complete research-comparison.yaml and set selected_ticker, "
                 "or record no actionable bargain"
             ),
         )
 
-    checklist_path = _research_lane_dir(workspace, selected_ticker) / "research-checklist.yaml"
+    checklist_path = _research_ticker_dir(workspace, selected_ticker) / "research-checklist.yaml"
     if not checklist_path.exists():
         return _status_payload(
             workspace_status="incomplete",
@@ -837,20 +845,20 @@ def _validate_holding_review_drafts(
         )
 
 
-def _research_lane_dir(workspace: Path, ticker: str) -> Path:
-    """Return a path-confined ticker lane inside the shared opportunity workspace."""
+def _research_ticker_dir(workspace: Path, ticker: str) -> Path:
+    """Return a path-confined ticker directory inside the shared opportunity workspace."""
 
     workspace_root = workspace.resolve()
     ticker_dir = (workspace_root / ticker).resolve()
     if ticker_dir.parent != workspace_root:
         raise OpportunityDataError(
-            f"research lane must be a direct child of the workspace: {ticker}"
+            f"research ticker directory must be a direct child of the workspace: {ticker}"
         )
     return ticker_dir
 
 
 def _review_filename(*, asof: date, ticker: str) -> str:
-    """Return the stable independent-review filename for a lane.
+    """Return the stable independent-review filename for a research ticker.
 
     The thesis payload carries this name in ``independent_review_ref`` and
     ``plan-limit`` resolves the review by that name from the thesis's own
@@ -862,7 +870,7 @@ def _review_filename(*, asof: date, ticker: str) -> str:
 
 
 def _review_draft_path(workspace: Path, ticker: str, asof: date) -> Path:
-    return _research_lane_dir(workspace, ticker) / _review_filename(asof=asof, ticker=ticker)
+    return _research_ticker_dir(workspace, ticker) / _review_filename(asof=asof, ticker=ticker)
 
 
 def _require_primary_research_ticker(workspace: Path, ticker: str, *, action: str) -> None:
@@ -900,7 +908,7 @@ def scaffold_thesis(
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest)
-    _require_primary_research_ticker(workspace, ticker, action="scaffold research lane")
+    _require_primary_research_ticker(workspace, ticker, action="scaffold research")
     asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     purpose = str(manifest.get("purpose") or "opportunity")
     screening_estimate: dict[str, object] | None
@@ -913,7 +921,7 @@ def scaffold_thesis(
             ticker=ticker,
             asof=asof,
         )
-    ticker_dir = _research_lane_dir(workspace, ticker)
+    ticker_dir = _research_ticker_dir(workspace, ticker)
 
     price = resolve_previous_business_day_close(
         sqlite_path=sqlite_path, ticker=ticker, target_session=target_session
@@ -1256,7 +1264,7 @@ def scaffold_review(
     _validate_editable_drafts(workspace, manifest)
     _require_primary_research_ticker(workspace, ticker, action="scaffold review")
     asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
-    ticker_dir = _research_lane_dir(workspace, ticker)
+    ticker_dir = _research_ticker_dir(workspace, ticker)
     thesis_path = ticker_dir / "thesis-draft.yaml"
     if not thesis_path.exists():
         raise OpportunityDataError(f"thesis draft not found for {ticker}: {thesis_path}")
@@ -1351,13 +1359,13 @@ def promote(
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest)
-    # Every researched lane earns a canonical thesis, not only the one being bought.
+    # Every researched ticker earns a canonical thesis, not only the one being bought.
     # A cycle that buys nothing still produced the judgment that says why, and the
-    # bargain assessment binds each lane's machine values to a stored thesis.
+    # bargain assessment binds each case's machine values to a stored thesis.
     _require_primary_research_ticker(workspace, ticker, action="promote")
 
     manifest_asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
-    ticker_dir = _research_lane_dir(workspace, ticker)
+    ticker_dir = _research_ticker_dir(workspace, ticker)
     thesis_path = ticker_dir / "thesis-draft.yaml"
     review_path = _review_draft_path(workspace, ticker, manifest_asof)
     if not thesis_path.exists() or not review_path.exists():
@@ -1605,13 +1613,13 @@ def _load_snapshot(db_path: Path | None) -> tuple[PortfolioSnapshot, int]:
 
 
 def _load_checklist(workspace: Path, ticker: str) -> list[dict[str, object]]:
-    checklist_path = _research_lane_dir(workspace, ticker) / "research-checklist.yaml"
+    checklist_path = _research_ticker_dir(workspace, ticker) / "research-checklist.yaml"
     payload = _load_mapping(checklist_path, label="research checklist")
     return _dict_list(payload.get("checks"))
 
 
 def _thesis_validation_errors(workspace: Path, ticker: str) -> list[str]:
-    thesis_path = _research_lane_dir(workspace, ticker) / "thesis-draft.yaml"
+    thesis_path = _research_ticker_dir(workspace, ticker) / "thesis-draft.yaml"
     if not thesis_path.exists():
         return ["thesis draft missing"]
     try:
@@ -1629,7 +1637,7 @@ def _review_validation_errors(workspace: Path, ticker: str, asof: date) -> list[
         review = load_independent_review(review_path)
     except ThesisError as error:
         return [str(error).splitlines()[0]]
-    thesis_path = _research_lane_dir(workspace, ticker) / "thesis-draft.yaml"
+    thesis_path = _research_ticker_dir(workspace, ticker) / "thesis-draft.yaml"
     core_hash = _thesis_core_hash_if_valid(thesis_path)
     if core_hash is not None and review.reviewed_thesis_sha256 != core_hash:
         return ["review is stale for the current thesis"]
@@ -1668,10 +1676,10 @@ def _research_selection_target_max(selection: Mapping[str, object]) -> int:
     return value
 
 
-def _selection_playbook_order(selection: Mapping[str, object]) -> object:
+def _evidence_pattern_order(selection: Mapping[str, object]) -> object:
     block = selection.get("selection")
     if isinstance(block, Mapping):
-        return block.get("research_selection_playbook_order")
+        return block.get("evidence_pattern_order")
     return None
 
 

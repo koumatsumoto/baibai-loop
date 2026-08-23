@@ -52,10 +52,10 @@ def _app_db(app_method_root: Path) -> Path:
 
 
 def _publish_shortlist(db_path: Path) -> str:
-    """Seed the selected lane an assessment round is scaffolded and published against."""
+    """Seed the selected case an assessment round is scaffolded and published against."""
     shortlist = Shortlist.model_validate(
         {
-            "schema_version": 4,
+            "schema_version": 5,
             "kind": "shortlist",
             "shortlist_id": SHORTLIST_ID,
             "selection_id": "selection-cli-seam",
@@ -64,6 +64,11 @@ def _publish_shortlist(db_path: Path) -> str:
             "published_at": "2026-07-21T15:00:00+09:00",
             "profile": "value",
             "macro_context_id": "macro-context-2026-07-21-cli-seam",
+            "attention_policy_id": "value-carry-only-v1",
+            "attention_policy_hash": "a" * 64,
+            "attention_policy_parameters": {"value_carry_limit": 2},
+            "review_basis_shortlist_id": None,
+            "research_gate_contract_id": "research-gate-v1",
             "entries": [
                 {
                     "ticker": "2331",
@@ -106,8 +111,25 @@ def _publish_shortlist(db_path: Path) -> str:
             as_of=shortlist.as_of,
             profile=shortlist.profile,
             macro_context_id=shortlist.macro_context_id,
-            candidate_tickers=frozenset({"2331", "0001"}),
+            review_tickers=("2331", "0001"),
             candidate_er={"2331": 0.12, "0001": 0.04},
+            candidate_machine_rows={
+                ticker: {
+                    "ticker": ticker,
+                    "opportunity_lane_id": "value-carry",
+                    "selection_policy_id": "value-carry-v1",
+                    "selection_policy_hash": "b" * 64,
+                    "lane_rank": rank,
+                    "lane_native_value": value,
+                    "lane_native_unit": "annual_ratio",
+                    "baseline_er_rank": rank,
+                    "primary_evidence_pattern_id": None,
+                    "policy_diagnostic_ids": [],
+                }
+                for rank, (ticker, value) in enumerate((("2331", 0.12), ("0001", 0.04)), start=1)
+            },
+            attention_policy_hash="a" * 64,
+            attention_policy_parameters={"value_carry_limit": 2},
         ),
     )
     return SHORTLIST_ID
@@ -142,10 +164,10 @@ def _fill_judgment(draft: dict[str, Any]) -> dict[str, Any]:
     draft["headline"] = "現時点で買うに値する候補はない"
     draft["comparison"] = "唯一の深掘り候補が要求利回りを満たさなかった"
     draft["forgone"] = "2331 は決算後に再評価する"
-    lane = draft["lanes"][0]
-    lane["disposition"] = "reject"
-    lane["disposition_reason"] = "5年期待値が要求利回りに届かない"
-    lane["reject_class"] = "price_already_converged"
+    case = draft["cases"][0]
+    case["disposition"] = "reject"
+    case["disposition_reason"] = "5年期待値が要求利回りに届かない"
+    case["reject_class"] = "price_already_converged"
     for field in (
         "business_model",
         "value_capture",
@@ -154,8 +176,8 @@ def _fill_judgment(draft: dict[str, Any]) -> dict[str, Any]:
         "strongest_countercase",
         "catalyst",
     ):
-        lane[field] = f"{field} の判断"
-    for question in lane["research_questions"]:
+        case[field] = f"{field} の判断"
+    for question in case["research_questions"]:
         question["answer"] = "翌期の受注残は横ばい"
         question["status"] = "answered"
     draft["review"]["reviewer_identity"] = "independent-reviewer"
@@ -222,8 +244,8 @@ def test_assessment_scaffold_writes_a_draft_from_argv(
     assert draft["as_of"] == ASSESSMENT_ASOF
     assert draft["published_at"] == PUBLISHED_AT.isoformat()
     assert draft["shortlist_id"] == shortlist_id
-    assert [lane["ticker"] for lane in draft["lanes"]] == ["2331"]
-    assert draft["lanes"][0]["research_questions"][0]["question"] == RESEARCH_QUESTION
+    assert [case["ticker"] for case in draft["cases"]] == ["2331"]
+    assert draft["cases"][0]["research_questions"][0]["question"] == RESEARCH_QUESTION
     assert yaml.safe_load(capsys.readouterr().out)["assessment_id"] == ASSESSMENT_ID
 
 

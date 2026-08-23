@@ -178,7 +178,7 @@ uv run baibai-engine macro context show --latest --asof 2026-07-19
 
 レポートは **1 種類だけ**で、常に下記の深度契約を満たす full 深度で書く。軽い事実確認のための軽量版は持たない（その用途は §② が毎営業日 機械で果たす）。レポートの中心的な価値は **統合**にある: チャネル別の評価を並べるだけでは投資戦略の土台にならないため、複数チャネルを横断する支配的な力（synthesis）・確率付きシナリオ・機械見積りの歪み補正（estimate caveats）・バーゲン地形を、後述の機械契約と publish gate で必須にしている。
 
-**作成のきっかけは人間の判断だけ**である。定例義務・monitoring 発火時の更新義務・賞味期限の宣言は持たない。推奨リズムは (a) 米雇用統計の翌週、(b) スポットの資産運用判断の前、(c) opportunity cycle（OP3）の前で head が古いとき、の 3 つで、書かない月があっても壊れるものは無い。鮮度の判断は読む側が持つ（後述の consumer 側鮮度規則）。
+**作成のきっかけは人間の判断だけ**である。定例義務・monitoring 発火時の更新義務・賞味期限の宣言は持たない。推奨リズムは (a) 米雇用統計の翌週、(b) スポットの資産運用判断の前、(c) opportunity cycleのResearch Gate前にheadが古いとき、の3つで、書かない月があっても壊れるものは無い。鮮度の判断は読む側が持つ（後述の consumer 側鮮度規則）。
 
 ### 3 層構成：core（環境評価）・synthesis（統合評価）・connection（積立ループ接続）
 
@@ -278,7 +278,7 @@ scorecard はレポート `as_of` の翌日から各条件の期限日までを�
 レポートは自分の賞味期限を宣言しない。鮮度の扱いは consumer が自分の規則として持つ。
 
 - **screening select**: head レポートの `as_of` が判断 asof から 45 日より古ければ `macro_context_stale` warning を出す。レポート自身が書いた無効化条件が満たされていれば `macro_context_invalidated` warning を出す。warning は context-level summary の材料であり、E[r]順位・candidateの事実層・候補抽出のいずれも変えない。`as_of` が判断 asof より未来のときだけ hard error にする
-- **opportunity cycle（OP3）/ スポット判断**: head が古い、または深度契約を満たさないと判断したら、shortlist 作成の前に書き直す。判断の前提が古いままかは判断する人が決める
+- **opportunity cycleのResearch Gate / スポット判断**: headが古い、または深度契約を満たさないと判断したら、shortlist作成の前に書き直す。判断の前提が古いままかは判断する人が決める
 - **Baibai Loop**: Macro タブが head の `as_of` を表示し、読む人が古さを目で確認できる
 
 ### 分析の独立性
@@ -333,7 +333,7 @@ macro contextはdiscount rate、需要、資金調達、共通tail risk、sizing
 
 - **select**（[`./screening-runtime.md`](./screening-runtime.md)）：material deltaと`as_of`鮮度warningをcontext-level summaryとして出す。E[r]順位とcandidateの事実層は変えない。
 - **research**：material deltaが個別5年期待値へ影響する場合だけ、thesisのjudgmentへその因果と根拠を残す。マクロを数値ドライバー、採用gate、投入額ルールにはしない。
-- **connection セクション**：OP3 が research 優先度ヒントと sizing caution を消化する入口になる（skill `shortlist`）。
+- **connection セクション**：Research Gateがresearch優先度ヒントとsizing cautionを消化する入口になる（skill `shortlist`）。
 
 行動指示（売買タイミング・現金比率・配分指示）はcore にもconnection にも書かない。sector tiltとresearch優先度ヒントは着手順位を判断するjudgment入力であり、機械ranking・hard gate・自動sizingへは接続しない。
 

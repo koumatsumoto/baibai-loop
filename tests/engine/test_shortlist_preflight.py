@@ -120,6 +120,7 @@ def _canonical_shortlist(
 ) -> None:
     initialize_database(path)
     payload = {
+        "schema_version": 4,
         "shortlist_id": "shortlist-20260806-canonical",
         "as_of": as_of,
         "run_revision_id": run_id,

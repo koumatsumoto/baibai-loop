@@ -16,11 +16,11 @@ quality:
   yoy_deterioration_threshold: -0.3
 output:
   research_selection_target_max: 5
-  # playbook 優先順位。推奨 queue の従キー (主キーは機械 E[r] 降順) と
+  # Evidence Pattern 優先順位。推奨 queue の従キー (主キーは機械 E[r] 降順) と
   # primary evidence の選択に使う。下値保護の裏付けが強い順 (資産・現金 →
   # 相対 valuation → cash flow → 売上)。主キーの根拠:
   # E[r] ranking policy parameter。実証的な変更は long-horizon evidence を要する。
-  research_selection_playbook_order:
+  evidence_pattern_order:
   - cash-rich-asset-discount
   - valuation-reversion
   - cashflow-yield-discount
@@ -35,35 +35,36 @@ selection:
     min_listing_span_days: 182
     exclude_jpx_flagged: true
   # 塩漬け耐性 (durability) annotation の事前固定閾値。ranking / gate には使わず、
-  # research の必須ゲート判定 (durability_gate) の機械入力になる。
-  durability:
-    high_min_support_count: 4
-    medium_min_support_count: 2
-    equity_ratio_high_min: 0.5
-    equity_ratio_medium_min: 0.35
-    net_cash_to_market_cap_high_min: 0.2
-    net_cash_to_market_cap_medium_min: 0.0
-    cash_to_market_cap_high_min: 0.3
-    ocf_yield_positive_min: 0.0
-    fcf_yield_positive_min: 0.0
-    min_avg_turnover_oku: 1.0
+  # Research Gateで確認すべきrisk / quality文脈として渡す。
+  candidate_diagnostics:
+    durability:
+      high_min_support_count: 4
+      medium_min_support_count: 2
+      equity_ratio_high_min: 0.5
+      equity_ratio_medium_min: 0.35
+      net_cash_to_market_cap_high_min: 0.2
+      net_cash_to_market_cap_medium_min: 0.0
+      cash_to_market_cap_high_min: 0.3
+      ocf_yield_positive_min: 0.0
+      fcf_yield_positive_min: 0.0
+      min_avg_turnover_oku: 1.0
   diversity:
-    # select は E[r] 母集団順位を壊さない。sector / playbook 集中は ranking cap
+    # selectはE[r]母集団順位を壊さない。sector / Evidence Pattern集中はranking cap
     # ではなく診断と entry preflight / position policy で管理する。
     max_recommended_per_sector: 1000
-    max_recommended_per_playbook: 1000
+    max_recommended_per_evidence_pattern: 1000
     # E[r] 主キーでは割安上位が月をまたいで持続するのが正常な挙動で、繰越 cap は
     # 較正リプレイで検証した順位 (previous 中立で計測) を運用で崩す。null = cap なし。
     max_previous_candidates_in_recommended: null
     previous_overlap_warning_ratio: 0.6
-screening_playbooks:
+evidence_patterns:
   # 金融4業種は規制資本・金利構造の影響により、事業会社向け generic evidence
   # pattern の比較前提が成立しないため除外する。excluded_sectors は evidence
   # annotation だけを止め、liquidity と E[r] を満たす候補の ranking は止めない。
   valuation-reversion:
     # 金融業の PER / PBR は規制資本・金利環境の構造要因を含み、事業会社と同じ
-    # mean-reversion の前提で機械判定できないため、他 playbook と同様に除外する。
-    # 電気・ガス業は BS / CF 機械判定の不成立という他 playbook の除外根拠が
+    # mean-reversionの前提で機械判定できないため、他Evidence Patternと同様に除外する。
+    # 電気・ガス業はBS / CF機械判定の不成立という他Evidence Patternの除外根拠が
     # 相対 valuation には当たらないため除外しない。
     excluded_sectors:
     - 銀行業
@@ -83,7 +84,7 @@ screening_playbooks:
     - per_trailing
     - pbr
     - ev_ebitda
-    playbook_id: valuation-reversion
+    evidence_pattern_id: valuation-reversion
   cash-rich-asset-discount:
     # 卸売業の運転資金 (商社・問屋) は J-Quants cash_eq を機械判定で
     # 膨張させる (2026-06-12 candidates で cash-rich 最大 cluster 49/292)。
@@ -106,7 +107,7 @@ screening_playbooks:
     # 発動。OR-passing 構造で -50% EPS YoY 会社が cash-rich 経由で通る穴を
     # 塞ぐ。
     operating_profit_yoy_deterioration_threshold: -0.3
-    playbook_id: cash-rich-asset-discount
+    evidence_pattern_id: cash-rich-asset-discount
   cashflow-yield-discount:
     excluded_sectors:
     - 銀行業
@@ -123,7 +124,7 @@ screening_playbooks:
     # C4: FCF が連続マイナスの重設備会社を排除。OCF+/FCF- (capex 先行) は
     # 割安の実現可能性を機械判定しにくい。出典: ideas.md C4。
     fcf_yield_required_positive: true
-    playbook_id: cashflow-yield-discount
+    evidence_pattern_id: cashflow-yield-discount
   sales-discount-growth:
     excluded_sectors:
     - 銀行業
@@ -136,4 +137,4 @@ screening_playbooks:
     # C2: 損失縮小 escape hatch (-100B → -50B が pass) を operating margin
     # floor で defang。chronic loser を排除。出典: ideas.md C2。
     operating_margin_min: -0.05
-    playbook_id: sales-discount-growth
+    evidence_pattern_id: sales-discount-growth

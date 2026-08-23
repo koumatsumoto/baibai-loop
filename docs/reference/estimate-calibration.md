@@ -106,7 +106,7 @@ cohort 比較（`tools.experiments.measure_signal_cohorts`）は `--basis price|
 
 buyback authorization の診断は `tools.experiments.measure_buyback_authorization` が production panel と forward store を read-only で結合する。Form 220 は提出日と報告月末がともに cohort as-of 以下の行だけを使い、`net_share_change_yoy` 単独、直近3報告月の取得ペース単独、終了済み carry を0にする composition を同じ resolved row で比較する。3m / 6m は regression alert、1y は leading evidenceである。3y / 5y双方の全対象 identity が point-in-time source、resolved return、比較両群を満たすことは production 検討の必要条件にすぎず、artifact 自体は採用権限を持たない。production 変更は本書の事前登録・design/confirm・coverage gateを別途通す。処理状況の消却・従業員報酬/持株会・その他再放出は実行済み行を分類し、将来の取得目的とは呼ばない。source ZIP、既知の全 table category、明示的なゼロ行のいずれかが欠ける場合は目的なしでなく未観測にする。
 
-閾値座標 `playbook_thresholds` は、playbook が採用した銘柄と、同じ playbook の他条件をすべて満たしながらその閾値 1 本だけで落ちた銘柄の実現超過を並べる。落ちた側は `rules.threshold_blocks` が決める。判定は閾値を無効化した config で同じ playbook 判定関数を呼び直して得るので、条件の意味も null の扱いも `rules.py` の 1 か所にとどまり、座標側に書き写さない。2 本以上の閾値で落ちた行はどちらの閾値も選んでいないので、どちらの群にも入らない。欠損や除外業種で判定できない行も同様に入らないため、この座標は閾値の水準を測り、null 方針は測らない。cohort 横断では平均効果量と、採用側が上回った cohort の比率を出す。
+閾値座標`evidence_pattern_thresholds`は、Evidence Patternが採用した銘柄と、同じEvidence Patternの他条件をすべて満たしながらその閾値1本だけで落ちた銘柄の実現超過を並べる。落ちた側は`rules.threshold_blocks`が決める。判定は閾値を無効化したconfigで同じEvidence Pattern判定関数を呼び直して得るので、条件の意味もnullの扱いも`rules.py`の1か所にとどまり、座標側に書き写さない。2本以上の閾値で落ちた行はどちらの閾値も選んでいないので、どちらの群にも入らない。欠損や除外業種で判定できない行も同様に入らないため、この座標は閾値の水準を測り、null方針は測らない。cohort横断では平均効果量と、採用側が上回ったcohortの比率を出す。
 
 `gates` 座標は deterioration gate を割安 decile 内で通過群と非通過群に分けて測り、cohort 横断で同じ形の集計を持つ。
 
@@ -130,7 +130,7 @@ forward row は price-only の `price_return` / `status` と、`realized_dividen
 
 `er_level_calibration`、`margin_short_to_adv`、`normalized_per_3fy` は production core metricではなくoptionalな既知metricである。各metricをproduction判断に使う事前登録済みrunは、core 3 metricと併せて対象を`--required-metric`へ明示する。
 
-cache schema version は互換性を決める入力から導出する（panel / diagnostics / forward の field、測る playbook 閾値、gate 軸、sector-gap 軸）。市場 store の `user_version` と同じく自動で進むので、列の形を変えずに観測の範囲だけ広げた変更でも版が動く。手で宣言する識別子は `VALUATION_CALCULATION_REVISION` だけで、式の意味の変更は内容から導けないためそこだけ人が進める。panel は、production の730日財務入力を変えずに補助履歴から、3 FY の split-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少 streak と還元変化 composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、PIT-TTM の `operating_profit_to_assets`・`operating_margin`・`asset_turnover` を記録する。収益性 level は calibration 専用で、production の candidate、E[r]、FV、rank、gate へ渡さない。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化 proxy である。`rules_hash` は rules・variant・入力窓に加えて valuation calculation revision を含む。valuation の式・資本分母・価格基準が異なる panel は、method identity と cache schema の不一致で fail closed にする。
+cache schema versionは互換性を決める入力から導出する（panel / diagnostics / forwardのfield、測るEvidence Pattern閾値、gate軸、sector-gap軸）。市場storeの`user_version`と同じく自動で進むので、列の形を変えずに観測の範囲だけ広げた変更でも版が動く。手で宣言する識別子は`VALUATION_CALCULATION_REVISION`だけで、式の意味の変更は内容から導けないためそこだけ人が進める。panelは、productionの730日財務入力を変えずに補助履歴から、3 FYのsplit-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少streakと還元変化composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、PIT-TTMの`operating_profit_to_assets`・`operating_margin`・`asset_turnover`を記録する。収益性levelはcalibration専用で、productionのcandidate、E[r]、FV、rank、gateへ渡さない。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化proxyである。`rules_hash`はrules・variant・入力窓に加えてvaluation calculation revisionを含む。valuationの式・資本分母・価格基準が異なるpanelは、method identityとcache schemaの不一致でfail closedにする。
 
 報告空売り残高の L1 は disclosure date と calculation date を分け、reporter 名tuple、ratio / shares / units、取消、provider row ordinalを保存する。panel の `reported_short_ratio` / `reported_short_breadth` / `reported_short_latest_disclosed_at` は両日が cohort as-of 以下の最新stateだけを集約する。公式 dataset floor から連続coverageを証明できる場合だけ無報告を明示的0とし、plan floor、coverage gap、同率最新stateの競合では該当値をnullにする。0は「0.5%未満または報告不在」であって空売り不存在を意味しない。この軸も calibration annotation 専用である。
 
@@ -220,9 +220,9 @@ The retained diagnostics are selection top-5/top-10 median excess and trap rate,
 | マクロ読みの手順・レンズ | [`macro.md`](./macro.md) + skill `macro-context` | 保有 outcome / 月次の事後検証（N≈1、統計計測はしない） |
 | research の見積り手順 | [`thesis.md`](./thesis.md) + skill `research` | portfolio outcome と長期 horizon calibration |
 | 資本・cap・sizing | [`portfolio-management.md`](../portfolio-management.md) + `position/policy.py` | 保有 outcome |
-| OP3 の選定判断 | skill `shortlist` の深度契約 | 判断コホート比較（`screening shortlist outcome`）+ 機会費用計測 tools |
+| Research Gateの選定判断 | skill `shortlist`の深度契約 | 判断コホート比較（`screening shortlist outcome`）+ 機会費用計測tools |
 
-evidence pattern（playbook）を追加・変更・削除するときは、screening rules・対応 checklist・selection の順位・test を同じ変更で整合させ、根拠を較正結果に置く。
+Evidence Patternを追加・変更・削除するときは、screening rules・対応Research Playbook checklist・selectionの順位・testを同じ変更で整合させ、根拠を較正結果に置く。
 
 ### 事前登録と design/confirm
 
@@ -247,7 +247,7 @@ matched 比較の被覆率・membership 数・集中度など、forward outcome 
 
 ### 判断コホートの集計
 
-primary-research lane の research FV と screening FV の bridge は、有効観測（同一 thesis 再実行・scaffold-only・未 review・遡及記入を除く）が 5 件以上になったら乖離率の中央値・範囲・要因件数・coverage を記述集計する。この集計だけで screening 式を変えず、変更仮説は別 issue で事前登録して design/confirm へ進める。四半期ごとに shortlist rejected と assessment reject / defer の `reject_class` 頻度を集計し、機械化可能な型を warning / flag 候補として事前登録する（分類で自動除外・ranking 変更はしない）。
+primary-research ticker の research FV と screening FV の bridge は、有効観測（同一 thesis 再実行・scaffold-only・未 review・遡及記入を除く）が 5 件以上になったら乖離率の中央値・範囲・要因件数・coverage を記述集計する。この集計だけで screening 式を変えず、変更仮説は別 issue で事前登録して design/confirm へ進める。四半期ごとに shortlist rejected と assessment reject / defer の `reject_class` 頻度を集計し、機械化可能な型を warning / flag 候補として事前登録する（分類で自動除外・ranking 変更はしない）。
 
 <a id="rejection-cost-preregistration"></a>
 
@@ -267,12 +267,12 @@ primary-research lane の research FV と screening FV の bridge は、有効�
 
 #### カタリスト軸の事前登録
 
-`screening shortlist outcome` は selected を、OP3 narrative が日付つきカタリストを持つか否かで 2 分する（`selected_by_catalyst`）。**次を計測の実行前に固定する。**
+`screening shortlist outcome`はselectedを、Research Gate narrativeが日付つきカタリストを持つか否かで2分する（`selected_by_catalyst`）。**次を計測の実行前に固定する。**
 
 - **切る場所は selected の内側だけ**。rejected は narrative を持たないので、pool 全体で切ると selected / rejected の差をカタリストの差として報告することになる。
 - **判定基準は棄却コストと同じ**（1y 以上・cohort 8 以上・時間 2 分割で同方向）。満たすまで方向を主張しない。
 - **母数が 10 件未満の側は中央超過を算出せず件数だけを並べる。**
-- **この軸は選定にも ranking にも入れない。** 満たした場合に起票できるのは OP3 深度契約（カタリストの日付要求）の見直しだけであり、`tse_capital_policy_status` などの annotation を機械の入力へ昇格させる根拠にはしない。
+- **この軸は選定にもrankingにも入れない。** 満たした場合に起票できるのはResearch Gate深度契約（カタリストの日付要求）の見直しだけであり、`tse_capital_policy_status`などのannotationを機械の入力へ昇格させる根拠にはしない。
 
 初回の採点可能日は棄却コストと同じ 2026-10-17 である。
 

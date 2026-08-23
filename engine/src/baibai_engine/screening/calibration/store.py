@@ -120,7 +120,7 @@ def _derive_cache_schema_version() -> dict[str, str]:
     ことが「効かなかった」として読まれる。
 
     互換性を決めるのは 3 つある。**列の形** (panel / diagnostics / forward の field)、
-    **列に入る観測の範囲** (どの playbook 閾値をどの緩和値で測るか)、そして **列の値の
+    **列に入る観測の範囲** (どのEvidence Pattern閾値をどの緩和値で測るか)、そして **列の値の
     意味** (`metrics.VALUATION_CALCULATION_REVISION`)。式の意味の変更だけは内容から
     導けないので人が宣言するが、宣言すれば cache 版もそれに従って動く。
 

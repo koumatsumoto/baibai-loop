@@ -24,14 +24,22 @@ from ..rule_config import (
 )
 from ..schema import UNRESOLVED_DIVIDEND_BASIS
 from ..tiers import position_tier
-from .lenses import _candidate_lenses
+from .candidate_diagnostics import _candidate_diagnostics
+from .contracts import (
+    VALUE_CARRY_ONLY_ATTENTION_POLICY_ID,
+    VALUE_CARRY_OPPORTUNITY_LANE_ID,
+    VALUE_CARRY_SELECTION_POLICY_ID,
+    ValueCarryOnlyAttentionParameters,
+    value_carry_only_attention_policy_hash,
+    value_carry_selection_policy_hash,
+)
 from .macro_fit import (
     macro_context_summary,
 )
 from .profiles import resolve_selection_rules
 from .ranking import (
     _best_selection_evidence,
-    _playbook_order_rank,
+    _evidence_pattern_order_rank,
     _sizing_eligible_evidence_hits,
 )
 from .records import (
@@ -70,6 +78,7 @@ def build_selection_payload(
     longlist_top: int = 0,
     screening_rules_hash: str | None = None,
     er_model_version: str | None = None,
+    review_basis_shortlist_id: str | None = None,
 ) -> dict[str, object]:
     if detail not in {"summary", "full"}:
         raise ValueError("detail must be summary or full")
@@ -93,10 +102,8 @@ def build_selection_payload(
     # market regime snapshot が持つ benchmark return を候補へ機械転記する。
     # snapshot が無ければ null に degrade する。
     benchmark_return_20d = market_regime.benchmark_return_20d if market_regime else None
-    # Single source of truth for playbook priority: the configured
-    # research_selection_playbook_order ranks both the queue and the primary
-    # evidence pick.
-    playbook_order = tuple(rules.output.research_selection_playbook_order)
+    # The configured order ranks both the queue and the primary Evidence Pattern.
+    evidence_pattern_order = tuple(rules.output.evidence_pattern_order)
 
     liquidity = selection_rules.liquidity
     required_jpx_flags = frozenset(rules.universe.required_jpx_flags)
@@ -105,7 +112,6 @@ def build_selection_payload(
     evidence_annotated_count = 0
     er_missing_count = 0
     unresolved_dividend_basis: list[str] = []
-
     ranked_entries: list[tuple[tuple[object, ...], dict[str, object]]] = []
     for item in candidates:
         passes, facts_missing = _passes_liquidity(item, liquidity, required_jpx_flags)
@@ -117,37 +123,33 @@ def build_selection_payload(
         er_annual = optional_float(item.metrics.get("er_annual"))
         if er_annual is None:
             er_missing_count += 1
-            # A year whose dividend share basis cannot be resolved carries no yield, so
-            # no E[r], so the name leaves here. Naming those tickers is what separates
-            # "not cheap" from "not measurable" for a reader of the funnel: the row
-            # itself never reaches the machine table, and a count alone says neither.
             if item.metrics.get("dividend_basis") == UNRESOLVED_DIVIDEND_BASIS:
                 unresolved_dividend_basis.append(item.ticker)
             continue
         eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
         if eligible_evidence_hits:
             evidence_annotated_count += 1
-        selection_playbook, selection_metrics, strength_key = _best_selection_evidence(
+        primary_evidence_pattern_id, selection_metrics, strength_key = _best_selection_evidence(
             eligible_evidence_hits,
-            playbook_order=playbook_order,
+            evidence_pattern_order=evidence_pattern_order,
         )
-        lenses = _candidate_lenses(item, selection_rules)
+        candidate_diagnostics = _candidate_diagnostics(item, selection_rules)
         candidate = _selection_candidate(
             item,
-            selection_playbook=selection_playbook,
+            primary_evidence_pattern_id=primary_evidence_pattern_id,
             selection_metrics=selection_metrics,
-            lenses=lenses,
+            candidate_diagnostics=candidate_diagnostics,
             previous_candidate=item.ticker in previous_tickers,
             benchmark_return_20d=benchmark_return_20d,
         )
         candidate["decision_input_seed"] = _decision_input_seed(candidate, asof_date=asof_date)
         # 主キーは機械 E[r] (成分分解付き見積り) の降順:「どれくらいお買い得か」の
         # 見積りが着手順位を決める。E[r] 欠損の
-        # 候補は ranking 対象外とし、従キーとして playbook 優先順 + 各 screen の
+        # 候補はranking対象外とし、従キーとしてEvidence Pattern優先順 + 各screenの
         # 強度キーを残す。macro context は診断 annotation であり順位には使わない。
         sort_key = (
             -er_annual,
-            _playbook_order_rank(selection_playbook, playbook_order),
+            _evidence_pattern_order_rank(primary_evidence_pattern_id, evidence_pattern_order),
             *strength_key,
             item.ticker,
         )
@@ -184,17 +186,59 @@ def build_selection_payload(
             for rank, candidate in enumerate(recommended, start=1)
         ]
     )
+    selection_policy_hash = value_carry_selection_policy_hash(
+        lane_longlist_depth=longlist_top,
+        screening_rules_hash=screening_rules_hash,
+        required_jpx_flags=sorted(required_jpx_flags),
+        liquidity_parameters=liquidity.model_dump(mode="json"),
+        evidence_pattern_order=evidence_pattern_order,
+    )
+    attention_parameters = ValueCarryOnlyAttentionParameters(value_carry_limit=longlist_top)
+    attention_policy_hash = value_carry_only_attention_policy_hash(
+        selection_policy_hash=selection_policy_hash,
+        parameters=attention_parameters,
+    )
     payload: dict[str, object] = {
         "recommendations": recommendations,
+        "longlist_origin": {
+            "opportunity_lane_id": VALUE_CARRY_OPPORTUNITY_LANE_ID,
+            "selection_policy_id": VALUE_CARRY_SELECTION_POLICY_ID,
+            "selection_policy_hash": selection_policy_hash,
+        },
+        "attention_policy_id": VALUE_CARRY_ONLY_ATTENTION_POLICY_ID,
+        "attention_policy_hash": attention_policy_hash,
+        "attention_policy_parameters": attention_parameters.model_dump(mode="json"),
+        "review_basis": {
+            "judged_through_shortlist_id": review_basis_shortlist_id,
+        },
     }
     # longlist は監査用の追加 view。--longlist-top 省略 (0) では既存 output 互換のため
     # key 自体を出さない。出す場合は同じ rank 済み集合 (diversity/cap 切断前) の先頭
     # N 件で、recommendation の production cap とは独立に監査できるようにする。
     if longlist_top > 0:
-        payload["longlist"] = [
-            _longlist_summary(candidate, rank=rank)
+        longlist = [
+            {
+                **_longlist_summary(candidate, rank=rank),
+                "opportunity_lane_id": VALUE_CARRY_OPPORTUNITY_LANE_ID,
+                "selection_policy_id": VALUE_CARRY_SELECTION_POLICY_ID,
+                "selection_policy_hash": selection_policy_hash,
+                "lane_rank": rank,
+                "lane_native_value": optional_float(
+                    mapping_or_empty(candidate.get("metrics")).get("er_annual")
+                ),
+                "lane_native_unit": "annual_ratio",
+                "baseline_er_rank": rank,
+                "primary_evidence_pattern_id": string_or_none(
+                    candidate.get("primary_evidence_pattern_id")
+                ),
+                "policy_diagnostic_ids": [],
+            }
             for rank, candidate in enumerate(ranked_candidates[:longlist_top], start=1)
         ]
+        payload["longlist"] = longlist
+        payload["review_tickers"] = [str(row["ticker"]) for row in longlist]
+    else:
+        payload["review_tickers"] = []
     payload["selection"] = {
         "asof": asof_date.isoformat(),
         "profile": effective_profile,
@@ -212,7 +256,7 @@ def build_selection_payload(
             "er_missing_unresolved_dividend_basis": sorted(unresolved_dividend_basis),
         },
         "research_selection_target_max": rules.output.research_selection_target_max,
-        "research_selection_playbook_order": list(rules.output.research_selection_playbook_order),
+        "evidence_pattern_order": list(rules.output.evidence_pattern_order),
         "macro_context_summary": macro_context_summary(macro_context, asof_date=asof_date),
         "diagnostics": diagnostics,
         "detail": detail,
@@ -308,9 +352,9 @@ def build_selection_sweep_payload(
 def _selection_candidate(
     item: CandidateRecord,
     *,
-    selection_playbook: str | None,
+    primary_evidence_pattern_id: str | None,
     selection_metrics: Mapping[str, object],
-    lenses: Mapping[str, object],
+    candidate_diagnostics: Mapping[str, object],
     previous_candidate: bool,
     benchmark_return_20d: float | None = None,
 ) -> dict[str, object]:
@@ -352,11 +396,11 @@ def _selection_candidate(
         is True,
         "evidence_hits": list(item.evidence_hits),
         "freshness_warnings": list(item.freshness_warnings),
-        "selection_playbook": selection_playbook,
+        "primary_evidence_pattern_id": primary_evidence_pattern_id,
         "selection_metrics": dict(selection_metrics),
         "next_earnings_date": item.next_earnings_date,
         "position_tier": position_tier(item.market_cap_oku),
-        "lenses": dict(lenses),
+        "candidate_diagnostics": dict(candidate_diagnostics),
         "previous_candidate": previous_candidate,
     }
     metric_type_warnings = _numeric_metric_type_warnings(item.metrics, source="metrics")
@@ -379,7 +423,7 @@ def _recommended_research_candidates(
     selected: list[dict[str, object]] = []
     selected_tickers: set[str] = set()
     sector_counts: Counter[str] = Counter()
-    playbook_counts: Counter[str] = Counter()
+    evidence_pattern_counts: Counter[str] = Counter()
     previous_candidate_count = 0
 
     def can_add(candidate: Mapping[str, object], *, enforce_diversity: bool) -> bool:
@@ -389,12 +433,12 @@ def _recommended_research_candidates(
         if not enforce_diversity:
             return True
         sector = string_or_none(candidate.get("sector_33")) or ""
-        # The ranking pass already chose this candidate's playbook from the same
+        # The ranking pass already chose this candidate's Evidence Pattern from the same
         # order; re-deriving it here would let the two disagree on which screen a
-        # candidate counts against for the per-playbook diversity cap.
-        playbook = string_or_none(candidate.get("selection_playbook"))
+        # candidate counts against for the per-pattern diversity cap.
+        evidence_pattern = string_or_none(candidate.get("primary_evidence_pattern_id"))
         max_sector = diversity_rules.max_recommended_per_sector
-        max_playbook = diversity_rules.max_recommended_per_playbook
+        max_evidence_pattern = diversity_rules.max_recommended_per_evidence_pattern
         max_previous = diversity_rules.max_previous_candidates_in_recommended
         if (
             max_previous is not None
@@ -404,7 +448,10 @@ def _recommended_research_candidates(
             return False
         if sector_counts[sector] >= max_sector:
             return False
-        return playbook is None or playbook_counts[playbook] < max_playbook
+        return (
+            evidence_pattern is None
+            or evidence_pattern_counts[evidence_pattern] < max_evidence_pattern
+        )
 
     def add(candidate: Mapping[str, object]) -> None:
         nonlocal previous_candidate_count
@@ -414,8 +461,10 @@ def _recommended_research_candidates(
         selected.append(dict(candidate))
         selected_tickers.add(ticker)
         sector_counts[string_or_none(candidate.get("sector_33")) or ""] += 1
-        if (playbook := string_or_none(candidate.get("selection_playbook"))) is not None:
-            playbook_counts[playbook] += 1
+        if (
+            evidence_pattern := string_or_none(candidate.get("primary_evidence_pattern_id"))
+        ) is not None:
+            evidence_pattern_counts[evidence_pattern] += 1
         if candidate.get("previous_candidate") is True:
             previous_candidate_count += 1
 

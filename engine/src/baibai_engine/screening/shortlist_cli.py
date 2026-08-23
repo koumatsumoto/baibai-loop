@@ -11,6 +11,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+from baibai_engine.foundation.review_set import resolve_review_set_rows
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.screening.run_store import ScreeningRunReader
@@ -40,27 +41,6 @@ def _machine_estimates(candidates: Sequence[Mapping[str, object]]) -> dict[str, 
     return estimates
 
 
-def _machine_rows(payload: Mapping[str, object]) -> dict[str, Mapping[str, object]]:
-    """Index the selection's longlist rows by ticker.
-
-    The longlist is the ranked set the human reviewed, so its row is what the
-    judgment was made against. A selection published without `--longlist-top` has
-    nothing to burn in and leaves the entries without a snapshot.
-    """
-
-    longlist = payload.get("longlist")
-    if not isinstance(longlist, Sequence) or isinstance(longlist, str | bytes):
-        return {}
-    rows: dict[str, Mapping[str, object]] = {}
-    for item in longlist:
-        if not isinstance(item, Mapping):
-            continue
-        ticker = item.get("ticker")
-        if ticker is not None:
-            rows[str(ticker)] = item
-    return rows
-
-
 def publish_shortlist(
     draft_path: Path,
     *,
@@ -79,22 +59,43 @@ def publish_shortlist(
         run = reader.get_run(selection.run_revision_id)
         if run is None:  # pragma: no cover - run-store FK invariant
             raise ShortlistConflictError(f"source run is unavailable: {selection.run_revision_id}")
+        review_tickers, review_rows = resolve_review_set_rows(selection.payload)
+        review_basis = selection.payload.get("review_basis")
+        if not isinstance(review_basis, Mapping):
+            raise ShortlistConflictError("source selection has no Review Basis")
+        attention_parameters = selection.payload.get("attention_policy_parameters")
+        if not isinstance(attention_parameters, Mapping):
+            raise ShortlistConflictError("source selection has invalid Attention parameters")
         binding = SelectionBinding(
             selection_id=selection.selection_id,
             run_revision_id=selection.run_revision_id,
             as_of=date.fromisoformat(selection.as_of_date),
             profile=selection.profile,
             macro_context_id=selection.macro_context_id,
-            candidate_tickers=frozenset(str(item["ticker"]) for item in run.candidates),
+            review_tickers=review_tickers,
             candidate_er=_machine_estimates(run.candidates),
-            candidate_machine_rows=_machine_rows(selection.payload),
+            candidate_machine_rows=review_rows,
+            attention_policy_id=str(selection.payload.get("attention_policy_id", "")),
+            attention_policy_hash=str(selection.payload.get("attention_policy_hash", "")),
+            attention_policy_parameters=dict(attention_parameters),
+            review_basis_shortlist_id=(
+                str(review_basis["judged_through_shortlist_id"])
+                if review_basis.get("judged_through_shortlist_id") is not None
+                else None
+            ),
         )
         earnings_by_ticker = _earnings_by_ticker(run.candidates)
         published = ShortlistService(app_db_path).publish(
             shortlist,
             selection=binding,
         )
-    except (OSError, ValueError, ValidationError, ShortlistConflictError, sqlite3.Error) as error:
+    except (
+        OSError,
+        ValueError,
+        ValidationError,
+        ShortlistConflictError,
+        sqlite3.Error,
+    ) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     yaml.safe_dump(published.payload(), sys.stdout, sort_keys=False, allow_unicode=True)

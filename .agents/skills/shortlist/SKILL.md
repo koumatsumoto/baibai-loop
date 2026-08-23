@@ -64,7 +64,7 @@ description: screening からレビュー済み shortlist を発行し、人間�
 
 4. **候補をレビューする**
 
-   selected 候補の material disclosure を一次情報で確認し、OP3 narrative の `why`、`counter`、`what_changes_mind` を書く。次の annotation を必ず判断へ反映する。
+   selected 候補の material disclosure を一次情報で確認し、Research Gate narrative の `why`、`counter`、`what_changes_mind` を書く。active contract IDは`research-gate-v1`。次の annotation を必ず判断へ反映する。
 
    - FV convergence、full-year loss、stale financials、data-quality / durability warning は、見積りをどの方向へ歪めるかを書く。
    - margin、capital-control、大量保有、TOB、buyback filing は観測の文脈であり、単独で除外や rank 変更に使わない。`null` / `unknown` を否定事実へ変換しない。

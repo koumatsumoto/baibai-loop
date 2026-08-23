@@ -21,11 +21,17 @@ description: 人間が選んだ候補を一次情報で深掘りし、thesis、�
      --db stores/application/baibai.sqlite --workspace .cache/opportunity/<ASOF>
    ```
 
-   selection file は workspace 外に置く。手元にない場合は `screening selection show` で再取得し、`select` は再実行しない。workspace の shortlist に選択 ticker を記入し、各 lane で `thesis-scaffold` と `review-scaffold` を実行する。次の操作は `research status` に従う。
+   selection file は workspace 外に置く。手元にない場合は `screening selection show` で再取得し、`select` は再実行しない。workspace の shortlist に選択 ticker を記入し、各caseで `thesis-scaffold` と `review-scaffold` を実行する。次の操作は `research status` に従う。
 
 2. **一次情報を調査する**
 
-   会社 IR、EDINET、決算資料で load-bearing claim を検証する。検索 snippet、二次情報、外部 AI 出力を観測事実にしない。取得できない場合は代替 source で突合し、確認できない項目は未検証のまま残す。PDF は `baibai_engine.research.pdf_reader` で原文を読む。business-model guide は指定 lane だけに適用する。
+   会社 IR、EDINET、決算資料で load-bearing claim を検証する。検索 snippet、二次情報、外部 AI 出力を観測事実にしない。取得できない場合は代替 source で突合し、確認できない項目は未検証のまま残す。PDF は `baibai_engine.research.pdf_reader` で原文を読む。business-model guide は指定caseだけに適用する。
+
+   各caseのShortlist v5 `machine_snapshot`にある`opportunity_lane_id`と
+   `primary_evidence_pattern_id`を、[`method/research/playbooks/`](../../../method/research/playbooks/README.md)の
+   active Research Playbookが明示する`applies_to_opportunity_lane_ids` /
+   `applies_to_evidence_pattern_ids`へ照合し、一致するchecklistを適用する。同名slugからimplicitに
+   対応を推測しない。明示mappingが無いcaseはscaffoldの共通checklistだけを使い、適用先を捏造しない。
 
 3. **thesis を書いて検算する**
 
@@ -44,11 +50,11 @@ description: 人間が選んだ候補を一次情報で深掘りし、thesis、�
      --db stores/application/baibai.sqlite --ticker XXXX
    ```
 
-   buy / defer / reject の全 lane を promote する。evidence が不足しているか adverse axis がある buy は、人間の evidence override と reduced sizing がなければ通さない。人間の判断を得られない場合は defer とし、dated trigger を assessment と task に残す。comparison には全 lane の FV、5y base CAGR、countercase、disposition を記録し、selected は最大1件とする。
+   buy / defer / reject の全caseを promote する。evidence が不足しているか adverse axis がある buy は、人間の evidence override と reduced sizing がなければ通さない。人間の判断を得られない場合は defer とし、dated trigger を assessment と task に残す。comparison には全caseの FV、5y base CAGR、countercase、disposition を記録し、selected は最大1件とする。
 
 6. **proposal または見送りを確定する**
 
-   buy lane は次のコマンドで、最新の raw close、required return、canonical ledger から価格、数量、期限を計画する。
+   buy case は次のコマンドで、最新の raw close、required return、canonical ledger から価格、数量、期限を計画する。
 
    ```bash
    uv run baibai-engine research plan-limit --thesis <thesis-draft> \
@@ -63,7 +69,7 @@ description: 人間が選んだ候補を一次情報で深掘りし、thesis、�
 
 7. **統合判断と session を完了する**
 
-   `research assessment-scaffold` で全 lane を束ね、reject / defer にも `reject_class` を記録する。`assessment-publish --check` の digest を review に束縛してから publish する。dated follow-up を task 化し、canonical artifact を含む final payload で session を complete する。cloud 反映は `ops-maintenance` skill に従う。
+   `research assessment-scaffold` で全caseを束ね、reject / defer にも `reject_class` を記録する。`assessment-publish --check` の digest を review に束縛してから publish する。dated follow-up を task 化し、canonical artifact を含む final payload で session を complete する。cloud 反映は `ops-maintenance` skill に従う。
 
 ## 停止条件
 
@@ -76,6 +82,6 @@ description: 人間が選んだ候補を一次情報で深掘りし、thesis、�
 ## 正本
 
 - thesis、算術、review binding: [`thesis.md`](../../../docs/reference/thesis.md)
-- lane 比較と統合判断: [`bargain-assessment.md`](../../../docs/reference/bargain-assessment.md)
+- Assessment Case比較と統合判断: [`bargain-assessment.md`](../../../docs/reference/bargain-assessment.md)
 - business model 調査: [`business-model-research.md`](../../../docs/reference/business-model-research.md)
 - 資本、starter、注文額: [`portfolio-management.md`](../../../docs/portfolio-management.md)

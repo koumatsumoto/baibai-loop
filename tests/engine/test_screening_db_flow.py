@@ -63,6 +63,7 @@ def test_select_and_shortlist_publish_from_explicit_run_revision(
                 run_revision_id=run.run_revision_id,
                 runs_db_path=runs_path,
                 app_db_path=app_path,
+                longlist_top=1,
                 stdout=stdout,
             )
             == 0
@@ -87,7 +88,7 @@ def test_select_and_shortlist_publish_from_explicit_run_revision(
     draft.write_text(
         yaml.safe_dump(
             {
-                "schema_version": 4,
+                "schema_version": 5,
                 "kind": "shortlist",
                 "shortlist_id": "shortlist-20260708-test",
                 "selection_id": outputs[0]["selection_id"],
@@ -96,6 +97,13 @@ def test_select_and_shortlist_publish_from_explicit_run_revision(
                 "published_at": "2026-07-08T15:00:00+09:00",
                 "profile": selection["profile"],
                 "macro_context_id": None,
+                "attention_policy_id": outputs[0]["attention_policy_id"],
+                "attention_policy_hash": outputs[0]["attention_policy_hash"],
+                "attention_policy_parameters": outputs[0]["attention_policy_parameters"],
+                "review_basis_shortlist_id": outputs[0]["review_basis"][
+                    "judged_through_shortlist_id"
+                ],
+                "research_gate_contract_id": "research-gate-v1",
                 "entries": [
                     {
                         "ticker": "2331",
@@ -112,9 +120,32 @@ def test_select_and_shortlist_publish_from_explicit_run_revision(
         encoding="utf-8",
     )
     assert publish_shortlist(draft, app_db_path=app_path, runs_db_path=runs_path) == 0
+    current_stdout = io.StringIO()
+    assert (
+        select_command(
+            asof_date=date.fromisoformat(run.as_of_date),
+            top=10,
+            run_revision_id=run.run_revision_id,
+            runs_db_path=runs_path,
+            app_db_path=app_path,
+            longlist_top=1,
+            stdout=current_stdout,
+        )
+        == 0
+    )
+    current_selection = yaml.safe_load(current_stdout.getvalue())
     newer_shortlist = yaml.safe_load(draft.read_text(encoding="utf-8"))
     newer_shortlist["shortlist_id"] = "shortlist-20260708-test-newer"
+    newer_shortlist["selection_id"] = current_selection["selection_id"]
     newer_shortlist["published_at"] = "2026-07-08T16:00:00+09:00"
+    newer_shortlist["attention_policy_id"] = current_selection["attention_policy_id"]
+    newer_shortlist["attention_policy_hash"] = current_selection["attention_policy_hash"]
+    newer_shortlist["attention_policy_parameters"] = current_selection[
+        "attention_policy_parameters"
+    ]
+    newer_shortlist["review_basis_shortlist_id"] = current_selection["review_basis"][
+        "judged_through_shortlist_id"
+    ]
     draft.write_text(
         yaml.safe_dump(newer_shortlist, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
@@ -125,7 +156,7 @@ def test_select_and_shortlist_publish_from_explicit_run_revision(
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         response = client.get("/api/screening/latest")
     assert response.status_code == 200
-    assert len(response.json()["selections"]) == 2
+    assert len(response.json()["selections"]) == 3
     assert len(response.json()["shortlists"]) == 1
     assert response.json()["shortlists"][0]["shortlist_id"] == ("shortlist-20260708-test-newer")
     assert response.json()["shortlists"][0]["as_of"] == run.as_of_date
@@ -148,6 +179,10 @@ candidates:
   - ticker: "2331"
     name: ALSOK
     sector_33: サービス業
+    market_cap_oku: 1000.0
+    avg_turnover_oku: 10.0
+    listing_span_days: 1000
+    jpx_flags: []
     per_trailing: 12.0
     metrics: {er_annual: 0.12}
     evidence_hits: []
@@ -155,7 +190,12 @@ candidates:
   - ticker: "0001"
     name: Sample One
     sector_33: 情報・通信業
+    market_cap_oku: 1000.0
+    avg_turnover_oku: 10.0
+    listing_span_days: 1000
+    jpx_flags: []
     metrics:
+      er_annual: 0.08
       fin_latest_disclosed_date: "2026-07-15"
       next_earnings_estimated_date: "2026-08-06"
     evidence_hits: []
@@ -163,7 +203,11 @@ candidates:
   - ticker: "0002"
     name: Sample Two
     sector_33: 小売業
-    metrics: {}
+    market_cap_oku: 1000.0
+    avg_turnover_oku: 10.0
+    listing_span_days: 1000
+    jpx_flags: []
+    metrics: {er_annual: 0.06}
     evidence_hits: []
 """
     )
@@ -176,6 +220,7 @@ candidates:
             run_revision_id=run_revision_id,
             runs_db_path=runs_path,
             app_db_path=app_path,
+            longlist_top=3,
             stdout=stdout,
         )
         == 0
@@ -189,7 +234,7 @@ candidates:
     draft.write_text(
         yaml.safe_dump(
             {
-                "schema_version": 4,
+                "schema_version": 5,
                 "kind": "shortlist",
                 "shortlist_id": "shortlist-20260715-trigger",
                 "selection_id": selection_id,
@@ -198,6 +243,13 @@ candidates:
                 "published_at": "2026-07-15T15:00:00+09:00",
                 "profile": profile,
                 "macro_context_id": None,
+                "attention_policy_id": selection_payload["attention_policy_id"],
+                "attention_policy_hash": selection_payload["attention_policy_hash"],
+                "attention_policy_parameters": selection_payload["attention_policy_parameters"],
+                "review_basis_shortlist_id": selection_payload["review_basis"][
+                    "judged_through_shortlist_id"
+                ],
+                "research_gate_contract_id": "research-gate-v1",
                 "entries": [
                     {
                         "ticker": "2331",
@@ -258,6 +310,7 @@ def test_screening_api_falls_back_to_selection_bound_run(app_method_root: Path) 
             run_revision_id=run.run_revision_id,
             runs_db_path=runs_path,
             app_db_path=app_path,
+            longlist_top=1,
             stdout=output,
         )
         == 0
@@ -348,6 +401,7 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
             run_revision_id=source_run.run_revision_id,
             runs_db_path=runs_path,
             app_db_path=app_path,
+            longlist_top=1,
             stdout=output,
         )
         == 0
@@ -362,7 +416,7 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
     draft.write_text(
         yaml.safe_dump(
             {
-                "schema_version": 4,
+                "schema_version": 5,
                 "kind": "shortlist",
                 "shortlist_id": "shortlist-20260708-weak-ref",
                 "selection_id": selection_id,
@@ -371,6 +425,13 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
                 "published_at": "2026-07-08T16:00:00+09:00",
                 "profile": selection["profile"],
                 "macro_context_id": input_refs["macro_context_ref"],
+                "attention_policy_id": selection_payload["attention_policy_id"],
+                "attention_policy_hash": selection_payload["attention_policy_hash"],
+                "attention_policy_parameters": selection_payload["attention_policy_parameters"],
+                "review_basis_shortlist_id": selection_payload["review_basis"][
+                    "judged_through_shortlist_id"
+                ],
+                "research_gate_contract_id": "research-gate-v1",
                 "entries": [
                     {
                         "ticker": "2331",

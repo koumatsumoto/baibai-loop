@@ -31,7 +31,17 @@ def _payload(raw: object) -> dict[str, object]:
     payload = json.loads(str(raw))
     if not isinstance(payload, dict):
         raise ValueError("bargain assessment payload must be an object")
-    return payload
+    version = payload.get("schema_version")
+    if version == 3:
+        projected = dict(payload)
+        projected["case_schema_status"] = "exact"
+        return projected
+    if version in {1, 2}:
+        projected = dict(payload)
+        projected["cases"] = projected.pop("lanes", [])
+        projected["case_schema_status"] = "legacy_projected"
+        return projected
+    raise ValueError(f"unsupported bargain assessment schema_version: {version!r}")
 
 
 __all__ = ["bargain_assessment_payload", "list_bargain_assessment_payloads"]

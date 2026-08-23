@@ -125,6 +125,7 @@ def test_select_reads_pruned_canonical_previous_from_shortlist(
     run_revision_id, asof = _pruned_to_latest_run(app_method_root / "stores/screening/runs.sqlite")
     shortlist_id = "shortlist-20260707-canonical"
     payload = {
+        "schema_version": 4,
         "shortlist_id": shortlist_id,
         "as_of": "2026-07-07",
         "entries": [

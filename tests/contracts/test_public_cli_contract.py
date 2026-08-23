@@ -77,7 +77,7 @@ def _publish_contract_run(runs_db: Path) -> str:
                     "evidence_hits": [
                         {
                             "name": "valuation-reversion",
-                            "playbook_id": "cashflow-yield-discount",
+                            "evidence_pattern_id": "cashflow-yield-discount",
                             "source_status": "ok",
                             "sizing_eligible": True,
                         }
@@ -124,17 +124,30 @@ def test_select_cli_emits_stable_yaml_shape(
     assert screening_main(_select_argv(tmp_path, runs_db, run_revision_id)) == 0
     payload = _payload(capsys.readouterr().out)
 
-    assert set(payload) == {"recommendations", "selection", "selection_id"}
+    assert set(payload) == {
+        "recommendations",
+        "longlist_origin",
+        "longlist",
+        "attention_policy_id",
+        "attention_policy_hash",
+        "attention_policy_parameters",
+        "review_basis",
+        "review_tickers",
+        "selection",
+        "selection_id",
+    }
     assert str(payload["selection_id"]).startswith("selection-")
     recommendations = payload["recommendations"]
     assert isinstance(recommendations, list)
     assert len(recommendations) == 1
+    assert payload["review_tickers"] == ["1111"]
+    assert payload["attention_policy_id"] == "value-carry-only-v1"
     assert set(recommendations[0]) == {
         "rank",
         "ticker",
         "name",
         "sector_33",
-        "selection_playbook",
+        "primary_evidence_pattern_id",
         "market_cap_oku",
         "avg_turnover_oku",
         "per_trailing",
@@ -211,7 +224,7 @@ def test_select_cli_emits_stable_yaml_shape(
         "input_refs",
         "counts",
         "research_selection_target_max",
-        "research_selection_playbook_order",
+        "evidence_pattern_order",
         "macro_context_summary",
         "diagnostics",
         "detail",

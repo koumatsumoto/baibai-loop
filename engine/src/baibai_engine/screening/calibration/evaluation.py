@@ -322,7 +322,7 @@ def _evaluate_cohort(
             "selection": {},
             "gates": {},
             "sector_median_basis": {},
-            "playbook_thresholds": {},
+            "evidence_pattern_thresholds": {},
             "reversion": {},
             "shareholder_return_change": {},
             "margin_supply_demand_hypotheses": {},
@@ -384,7 +384,7 @@ def _evaluate_cohort(
         "selection": selection,
         "gates": _evaluate_gates(population, excess),
         "sector_median_basis": _evaluate_sector_median_basis(population, excess),
-        "playbook_thresholds": _evaluate_playbook_thresholds(population, excess),
+        "evidence_pattern_thresholds": _evaluate_evidence_pattern_thresholds(population, excess),
         "reversion": _evaluate_reversion(population, excess),
         "shareholder_return_change": return_change,
         "margin_supply_demand_hypotheses": margin_hypotheses,
@@ -1175,17 +1175,17 @@ def _evaluate_gates(
     return result
 
 
-def _evaluate_playbook_thresholds(
+def _evaluate_evidence_pattern_thresholds(
     population: Sequence[PanelRow],
     excess: Mapping[str, float],
 ) -> dict[str, object]:
-    """What each playbook threshold admitted, against what it alone removed.
+    """What each Evidence Pattern threshold admitted, against what it alone removed.
 
     The axes say which signals order returns. They do not say whether the numbers that
     decide admission are set where they should be, because a threshold is not a ranking:
     it is one cut, and the only rows that speak to it are the ones that satisfied every
-    other condition of the same playbook. `rules.threshold_blocks` names those rows, so
-    the comparison here is between the names a playbook took and the names one of its
+    other condition of the same Evidence Pattern. `rules.threshold_blocks` names those rows, so
+    the comparison here is between the names an Evidence Pattern took and the names one of its
     thresholds turned away.
     """
     admitted: dict[str, list[float]] = defaultdict(list)
@@ -1194,16 +1194,16 @@ def _evaluate_playbook_thresholds(
         value = excess.get(row.ticker)
         if value is None:
             continue
-        for playbook in row.evidence_playbooks.split("|"):
-            if playbook:
-                admitted[playbook].append(value)
+        for evidence_pattern in row.evidence_patterns.split("|"):
+            if evidence_pattern:
+                admitted[evidence_pattern].append(value)
         for block in row.threshold_blocks.split("|"):
             if block:
                 removed[block].append(value)
     result: dict[str, object] = {}
     for block, removed_values in removed.items():
-        playbook = block.split(":", 1)[0]
-        admitted_values = admitted.get(playbook, [])
+        evidence_pattern = block.split(":", 1)[0]
+        admitted_values = admitted.get(evidence_pattern, [])
         if not admitted_values:
             continue
         result[block] = {
@@ -1657,7 +1657,7 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
         "selection": selection_summary,
         "gates": _aggregate_gates(cohorts),
         "sector_median_basis": _aggregate_sector_median_basis(cohorts),
-        "playbook_thresholds": _aggregate_playbook_thresholds(cohorts),
+        "evidence_pattern_thresholds": _aggregate_evidence_pattern_thresholds(cohorts),
         "shareholder_return_change": _aggregate_shareholder_return_change(cohorts),
         "margin_supply_demand_hypotheses": _aggregate_margin_hypotheses(cohorts),
         "profit_normalization_hypotheses": _aggregate_profit_normalization(cohorts),
@@ -1726,7 +1726,9 @@ def _aggregate_gates(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
     return result
 
 
-def _aggregate_playbook_thresholds(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
+def _aggregate_evidence_pattern_thresholds(
+    cohorts: Sequence[dict[str, object]],
+) -> dict[str, object]:
     """Cross-cohort verdict per threshold: the effect and how often it holds.
 
     A single as-of can favour any cut. What a threshold is worth is whether the same sign
@@ -1746,7 +1748,7 @@ def _aggregate_playbook_thresholds(cohorts: Sequence[dict[str, object]]) -> dict
     admitted_n: dict[str, int] = defaultdict(int)
     removed_n: dict[str, int] = defaultdict(int)
     for cohort in cohorts:
-        node = cohort.get("playbook_thresholds")
+        node = cohort.get("evidence_pattern_thresholds")
         if not isinstance(node, dict):
             continue
         for block, entry in node.items():

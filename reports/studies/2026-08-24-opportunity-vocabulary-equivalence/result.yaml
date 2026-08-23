@@ -1,0 +1,42 @@
+kind: opportunity-vocabulary-semantic-equivalence
+as_of: '2026-08-21'
+old:
+  source: pre-rename implementation against the current local market store
+  implementation_git_commit: 448cd971dd6e89688920b8bea73490d614776060
+  run_revision_id: run-revision-68e4266996f64ec3a913768f4e59e6f6
+  selection_id: selection-c0fb7586b7a24d09be5d55865d129f21
+  rules_hash: 05b14095834171be
+new:
+  source: post-rename implementation against the same current local market store
+  implementation_git_commit: bae01ccedc4f9c89ef588fd41f91a4f71956640d
+  run_revision_id: run-revision-488dd4ff00f843b699630b2739549ac3
+  selection_id: selection-254d32758f19475e924a9c335819d63f
+  rules_hash: dcc251a24aeec82d
+calibration_migration:
+  old:
+    bundle_id: 20260820T073844Z-02061626ff91452cb645ef3c0ffc54a1
+    manifest_sha256: e189c36dc0f098747be30569d8f934612b45a51bddf71ed47964758e47042cb4
+  new:
+    bundle_id: 20260823T173158Z-ee29164cd6954478a32bc14fda40a680
+    manifest_sha256: 4d7d05df6bd31bbb57156bb3262ec1a69313625d52243c8aea35f54ecfd085fc
+  forward_replay_repeated_for_equivalence: false
+expected_differences:
+- rules_hash
+- bundle_identity
+- Evidence Pattern and Candidate Diagnostic field/class names
+- Value / Carry and Attention exact provenance
+counts:
+  old_candidates: 3707
+  new_candidates: 3707
+  candidate_payload_mismatches: 0
+  estimate_or_fv_mismatches: 0
+checks:
+  candidate_membership: true
+  candidate_order: true
+  candidate_payload_after_field_alias: true
+  evidence_hit_meaning: true
+  estimates_and_fv: true
+  recommendation: true
+  longlist_order_and_values: true
+  candidate_diagnostic_projection: true
+verdict: equivalent

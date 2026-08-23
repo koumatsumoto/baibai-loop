@@ -59,8 +59,8 @@ from baibai_engine.screening.providers.jquants import (
 )
 from baibai_engine.screening.render import render_screened_yaml
 from baibai_engine.screening.rule_config import (
-    CashflowYieldPlaybook,
-    SalesDiscountGrowthPlaybook,
+    CashflowYieldEvidencePattern,
+    SalesDiscountGrowthEvidencePattern,
     ScreeningRules,
     load_screening_rules,
 )
@@ -409,7 +409,7 @@ def run_command(
         fallback_lines.append(f"ttm_quality 非 exact 件数: {approx_total}")
     if required_ttm_non_exact:
         fallback_lines.append(
-            f"有効 playbook 必須 TTM metric 非 exact 件数(流動性母集団): {required_ttm_non_exact}"
+            f"有効Evidence Pattern必須TTM metric非exact件数(流動性母集団): {required_ttm_non_exact}"
         )
     if population_yoy_missing:
         fallback_lines.append(
@@ -549,7 +549,7 @@ def _evidence_hits_summary(
     candidates: Sequence[ScreenedCandidate],
     rules: ScreeningRules,
 ) -> dict[str, int]:
-    summary = dict.fromkeys(rules.playbook_order, 0)
+    summary = dict.fromkeys(rules.evidence_pattern_order, 0)
     for candidate in candidates:
         for evidence_hit in candidate.evidence_hits:
             summary[evidence_hit.name] = summary.get(evidence_hit.name, 0) + 1
@@ -562,10 +562,10 @@ def _required_ttm_non_exact_count(
 ) -> int:
     snapshots = tuple(financials)
     required_qualities: list[TTMQuality] = []
-    for playbook in rules.screening_playbooks.values():
-        if isinstance(playbook, CashflowYieldPlaybook) and playbook.ttm_cfo_required:
+    for pattern in rules.evidence_patterns.values():
+        if isinstance(pattern, CashflowYieldEvidencePattern) and pattern.ttm_cfo_required:
             required_qualities.extend(snapshot.ttm_quality_ocf_yield for snapshot in snapshots)
-        if isinstance(playbook, SalesDiscountGrowthPlaybook):
+        if isinstance(pattern, SalesDiscountGrowthEvidencePattern):
             required_qualities.extend(snapshot.ttm_quality_p_s for snapshot in snapshots)
     return sum(1 for quality in required_qualities if quality != TTMQuality.EXACT)
 

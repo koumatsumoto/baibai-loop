@@ -26,7 +26,64 @@ def _payload(raw: object) -> dict[str, object]:
     payload = json.loads(str(raw))
     if not isinstance(payload, dict):
         raise ValueError("shortlist payload must be an object")
-    return payload
+    version = payload.get("schema_version")
+    if version == 5:
+        return _project_v5(payload)
+    if version in {2, 3, 4}:
+        return _project_legacy(payload)
+    raise ValueError(f"unsupported shortlist schema_version: {version!r}")
+
+
+def _project_v5(payload: dict[str, object]) -> dict[str, object]:
+    projected = dict(payload)
+    projected["attention_provenance_status"] = "exact"
+    projected["entries"] = _project_entries(payload.get("entries"), legacy=False)
+    return projected
+
+
+def _project_legacy(payload: dict[str, object]) -> dict[str, object]:
+    """Project known immutable v2-v4 history without inventing exact identities."""
+
+    projected = dict(payload)
+    projected["attention_policy_id"] = None
+    projected["attention_policy_hash"] = None
+    projected["attention_policy_parameters"] = None
+    projected["review_basis_shortlist_id"] = None
+    projected["research_gate_contract_id"] = None
+    projected["attention_provenance_status"] = "unresolved"
+    projected["entries"] = _project_entries(payload.get("entries"), legacy=True)
+    return projected
+
+
+def _project_entries(value: object, *, legacy: bool) -> list[object]:
+    if not isinstance(value, list):
+        raise ValueError("shortlist entries must be a list")
+    entries: list[object] = []
+    for value_entry in value:
+        if not isinstance(value_entry, dict):
+            raise ValueError("shortlist entry must be an object")
+        entry = dict(value_entry)
+        snapshot_value = entry.get("machine_snapshot")
+        if isinstance(snapshot_value, dict):
+            snapshot = dict(snapshot_value)
+            if legacy:
+                snapshot["opportunity_lane_id"] = "value-carry"
+                snapshot["selection_policy_id"] = None
+                snapshot["selection_policy_hash"] = None
+                snapshot["lane_rank"] = snapshot.get("rank")
+                snapshot["lane_native_value"] = entry.get("er_annual")
+                snapshot["lane_native_unit"] = "annual_ratio"
+                snapshot["baseline_er_rank"] = snapshot.get("rank")
+                snapshot["primary_evidence_pattern_id"] = snapshot.get("screening_playbook")
+                snapshot["policy_diagnostic_ids"] = None
+                snapshot["lane_provenance_status"] = "legacy_inferred"
+            else:
+                snapshot["lane_provenance_status"] = "exact"
+            entry["machine_snapshot"] = snapshot
+        elif legacy:
+            entry["lane_provenance_status"] = "unresolved"
+        entries.append(entry)
+    return entries
 
 
 __all__ = ["latest_shortlist_payload", "list_shortlist_payloads"]

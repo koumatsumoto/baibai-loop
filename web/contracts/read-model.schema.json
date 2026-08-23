@@ -18,7 +18,7 @@
     "views/system.json": "#/$defs/SystemView"
   },
   "$defs": {
-    "AssessmentLaneView": {
+    "AssessmentCaseView": {
       "properties": {
         "ticker": {
           "title": "Ticker",
@@ -261,7 +261,7 @@
         "unknowns",
         "source_caveats"
       ],
-      "title": "AssessmentLaneView",
+      "title": "AssessmentCaseView",
       "type": "object"
     },
     "AssessmentPurchaseView": {
@@ -409,8 +409,8 @@
           "title": "Shortlist Id",
           "type": "string"
         },
-        "lane_count": {
-          "title": "Lane Count",
+        "case_count": {
+          "title": "Case Count",
           "type": "integer"
         },
         "selected_ticker": {
@@ -432,7 +432,7 @@
         "result",
         "headline",
         "shortlist_id",
-        "lane_count",
+        "case_count",
         "selected_ticker"
       ],
       "title": "BargainAssessmentSummaryView",
@@ -496,11 +496,11 @@
           "title": "Forgone",
           "type": "string"
         },
-        "lanes": {
+        "cases": {
           "items": {
-            "$ref": "#/$defs/AssessmentLaneView"
+            "$ref": "#/$defs/AssessmentCaseView"
           },
-          "title": "Lanes",
+          "title": "Cases",
           "type": "array"
         },
         "purchase": {
@@ -528,7 +528,7 @@
         "comparison",
         "entry_timing",
         "forgone",
-        "lanes",
+        "cases",
         "purchase",
         "review"
       ],
@@ -4342,7 +4342,7 @@
           ],
           "title": "Expected Return Pct"
         },
-        "screening_playbook": {
+        "primary_evidence_pattern_id": {
           "anyOf": [
             {
               "type": "string"
@@ -4351,7 +4351,7 @@
               "type": "null"
             }
           ],
-          "title": "Screening Playbook"
+          "title": "Primary Evidence Pattern Id"
         },
         "liquidity_status": {
           "anyOf": [
@@ -4397,7 +4397,7 @@
         "fair_value_anchor_yen",
         "fair_value_gap_pct",
         "expected_return_pct",
-        "screening_playbook",
+        "primary_evidence_pattern_id",
         "liquidity_status",
         "selection_reasons",
         "durability_warnings",

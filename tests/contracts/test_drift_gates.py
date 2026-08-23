@@ -80,6 +80,30 @@ def test_legacy_semantics_gate_rejects_obsolete_skill_instruction(tmp_path: Path
     ]
 
 
+@pytest.mark.parametrize(
+    "identifier",
+    ["OP3", "AssessmentLane", "durability_lens", "durability_gate", "screening_playbook"],
+)
+def test_legacy_semantics_gate_rejects_retired_domain_identifiers(
+    tmp_path: Path, identifier: str
+) -> None:
+    path = tmp_path / "engine" / "current.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(f"name = {identifier!r}\n", encoding="utf-8")
+
+    assert check_legacy_semantics.check(tmp_path) == [
+        f"engine/current.py: retired domain identifier {identifier!r}"
+    ]
+
+
+def test_legacy_semantics_gate_allows_historical_payload_adapter(tmp_path: Path) -> None:
+    path = tmp_path / "engine/src/baibai_engine/read_api/shortlist.py"
+    path.parent.mkdir(parents=True)
+    path.write_text('legacy = "screening_playbook"\n', encoding="utf-8")
+
+    assert check_legacy_semantics.check(tmp_path) == []
+
+
 def test_legacy_semantics_gate_rejects_the_retired_macro_context_contract(
     tmp_path: Path,
 ) -> None:

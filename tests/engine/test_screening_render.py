@@ -62,7 +62,7 @@ class ScreeningRenderTests(unittest.TestCase):
                     evidence_hits=(
                         EvidenceHit(
                             name="valuation-reversion",
-                            playbook_id="valuation-reversion",
+                            evidence_pattern_id="valuation-reversion",
                             reasons=("valuation_sigma_down",),
                         ),
                     ),
@@ -125,7 +125,7 @@ class ScreeningRenderTests(unittest.TestCase):
                     evidence_hits=(
                         EvidenceHit(
                             name="valuation-reversion",
-                            playbook_id="valuation-reversion",
+                            evidence_pattern_id="valuation-reversion",
                             reasons=(
                                 "sector_median_discount_and_self_range_bottom",
                                 "valuation_sigma_down",
@@ -169,13 +169,15 @@ class ScreeningRenderTests(unittest.TestCase):
         self.assertEqual(candidate["ticker"], "130A")
         self.assertEqual(candidate["sector_33"], "業種名")
         self.assertEqual(candidate["price_change_20d"], -0.072)
-        self.assertEqual(candidate["evidence_hits"][0]["playbook_id"], "valuation-reversion")
+        self.assertEqual(
+            candidate["evidence_hits"][0]["evidence_pattern_id"], "valuation-reversion"
+        )
         self.assertEqual(
             candidate["evidence_hits"][0]["metrics"]["price_change_60d"],
             -0.155,
         )
 
-    def test_render_evidence_keeps_core_playbook_metrics(self) -> None:
+    def test_render_evidence_keeps_core_evidence_pattern_metrics(self) -> None:
         document = ScreenedRunDocument(
             run_date=date(2026, 4, 24),
             asof_date=date(2026, 4, 24),
@@ -195,7 +197,7 @@ class ScreeningRenderTests(unittest.TestCase):
                     evidence_hits=(
                         EvidenceHit(
                             name="sales-discount-growth",
-                            playbook_id="sales-discount-growth",
+                            evidence_pattern_id="sales-discount-growth",
                             metrics={"ps_sector_gap": -0.6, "sales_yoy": 0.1},
                             reasons=("sales_discount_growth",),
                         ),
@@ -218,7 +220,7 @@ class ScreeningRenderTests(unittest.TestCase):
         payload = safe_load(render_screened_yaml(document))
 
         evidence = payload["candidates"][0]["evidence_hits"][0]
-        self.assertEqual(evidence["playbook_id"], "sales-discount-growth")
+        self.assertEqual(evidence["evidence_pattern_id"], "sales-discount-growth")
         self.assertEqual(evidence["metrics"]["sales_yoy"], 0.1)
 
     def test_render_requires_jst_run_at(self) -> None:

@@ -195,6 +195,7 @@ def select_command(
             longlist_top=longlist_top,
             screening_rules_hash=inputs.screening_rules_hash,
             er_model_version=inputs.er_model_version,
+            review_basis_shortlist_id=inputs.review_basis_shortlist_id,
         )
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
@@ -269,7 +270,7 @@ def _load_market_regime(
     regime_sqlite_path: Path | None,
     asof_date: date,
 ) -> MarketRegimeSnapshot | None:
-    # A missing cache silently disables the lens (selection stays usable on a
+    # A missing cache silently disables the diagnostic (selection stays usable on a
     # checkout without market.sqlite); the diagnostics record market_regime: null
     # so the degraded mode is visible in the output.
     if regime_sqlite_path is None:
@@ -286,6 +287,7 @@ class _SelectionInputs:
     macro_context_ref: str | None
     screening_rules_hash: str | None
     er_model_version: str | None
+    review_basis_shortlist_id: str | None
 
 
 def _load_selection_inputs_db(
@@ -367,6 +369,13 @@ def _load_selection_inputs_db(
             asof_date=asof_date,
         )
     )
+    shortlist_history = list_shortlist_payloads(resolved_app_db)
+    latest_shortlist = shortlist_history[0] if shortlist_history else None
+    review_basis_shortlist_id = (
+        _optional_non_empty_string(latest_shortlist.get("shortlist_id"))
+        if latest_shortlist is not None
+        else None
+    )
     return _SelectionInputs(
         candidates=candidate_records,
         macro_context=context,
@@ -375,6 +384,7 @@ def _load_selection_inputs_db(
         macro_context_ref=None if context is None else context.context_id,
         screening_rules_hash=_optional_non_empty_string(run.payload.get("screening_rules_hash")),
         er_model_version=_optional_non_empty_string(run.payload.get("er_model_version")),
+        review_basis_shortlist_id=review_basis_shortlist_id,
     )
 
 

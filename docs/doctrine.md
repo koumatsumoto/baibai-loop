@@ -34,7 +34,7 @@ flowchart LR
   policy["運用方針<br/>資本・積立・余力"] --> screen["割安 screening<br/>valuation ranking"]
   macro["マクロ分析<br/>material delta / common risk"] -.補助context.-> research
   macro -.judgment 入力.-> select
-  screen --> select["リサーチ候補選定<br/>lens で着手順位"]
+  screen --> select["Opportunity Discovery<br/>Selection / Attention Policy"]
   select --> research["深い個別調査<br/>FV・RR・期待利回りを見積る"]
   research --> proposal["売買提案<br/>trade proposal"]
   proposal --> decision["人間裁定<br/>approve / defer / reject"]
@@ -140,14 +140,45 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 | 状態遷移 | gate 主体 | 判断文書（L3） | 機械成果物（L2） |
 | --- | --- | --- | --- |
 | universe → candidates | 機械（screening rules） | — | screening run |
-| candidates → longlist | 機械（E[r] ranking、cap 切断前上位 N） | — | selection（longlist + machine recommendations） |
-| longlist → shortlist | AI + 人間（OP3 gate） | shortlist record（selected narrative + rejected 理由） | — |
-| shortlist → proposal | AI research → 独立レビュー → 人間 | thesis（採否付き投資仮説）+ thesis review + bargain assessment（1サイクルの統合判断） | evaluate 派生値 |
+| candidates → lane longlists | 機械（Selection Policy） | — | selection（Lane別のlonglist + machine recommendations） |
+| lane longlists → review set | 機械（Attention Policy） | — | selection（`review_tickers`） |
+| review set → shortlist | AI（Research Gate） | shortlist（selected narrative + rejected理由） | — |
+| shortlist → primary research set | 人間（admission） | operationのhuman confirmation | — |
+| primary research set → proposal | AI research → 独立レビュー → 人間 | thesis（採否付き投資仮説）+ thesis review + bargain assessment（Assessment Caseの統合判断） | evaluate 派生値 |
 | proposal → position | 人間（broker 執行 → 報告） | ledger events | — |
 | position → hold / add / reduce / exit | AI draft + 人間確認 | holding review（thesis health 判定） | — |
 | position → outcome | 機械計測 + 年次評価 | outcome | calibration replay |
 
-`macro reading` と `macro context` はどの遷移にも属さない ambient 入力であり、reading は macro context 執筆の必須入力、macro context は OP3 と thesis 執筆の判断材料になる（screening は macro-blind のまま）。shortlist・proposal・ledger は「状態」と「その canonical record」が同一物であり、thesis・holding review は状態ではなく遷移の理由書である。
+`macro reading` と `macro context` はどの遷移にも属さない ambient 入力であり、reading は macro context 執筆の必須入力、macro context は Research Gate と thesis 執筆の判断材料になる（screening は macro-blind のまま）。shortlist・proposal・ledger は「状態」と「その canonical record」が同一物であり、thesis・holding review は状態ではなく遷移の理由書である。
+
+### Opportunity Discovery の概念と authority
+
+```text
+Observed Fact ──────────────┐
+                            ├─→ Derived Metric
+Observed Fact + Metric ─────┴─→ Model ─→ Estimate
+Observed Fact + Metric ───────→ Evidence Pattern ─→ Evidence Hit
+Observed Fact + Metric ───────→ Candidate Diagnostic
+Selection Policy context ─────→ Policy Diagnostic
+
+Economic Hypothesis → Opportunity Lane → Selection Policy → Lane Longlist
+Lane Longlists → Attention Policy → Review Set
+Review Set → Research Gate → Shortlist → human admission → Primary Research Set
+Primary Research Set → Research → Thesis → Assessment Case
+Assessment Cases → Bargain Assessment → Trade Proposal
+```
+
+authority は次の境界を越えない。
+
+1. Model は Estimate を計算するが、候補順位を直接決めない。
+2. Derived Metric は数値座標であり、Selection Policy が参照しない限り順位authorityを持たない。
+3. Evidence Pattern は Evidence Hit を生成する。単独ではnomination authorityを持たない。
+4. Candidate Diagnostic はOpportunity Lane横断のannotationであり、eligibility・ordering・capを変えない。
+5. Policy Diagnostic はSelection Policy固有のannotationである。同じPolicyがexactに定義したmetric-integrity ruleだけがAttention blockの入力になり得る。
+6. Selection Policyだけが1 Lane内のnominationとorderingを決める。
+7. Attention PolicyだけがLane間のdedupe・freshness・review capacityを決める。
+8. Research GateはReview Setをselected / rejectedへ分類し、canonical Shortlistを作る。
+9. ShortlistからPrimary Research Setへのadmissionと、最終`approve / defer / reject`は人間が所有する。
 
 ### 語彙表
 
@@ -159,21 +190,38 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 | 市場データ基盤 | market.sqlite | データ store | L1 | 全上場銘柄の実データの正本 |
 | 機械スクリーニング | screening | 機械処理 | L2 | valuation ranking で割安ゾーンを機械抽出 |
 | スクリーニング実行結果 | screening run | 機械成果物 | L2 出力 | run storeに保存する再生成可能なobserved / derived / estimateのsnapshot |
-| 通過候補 | candidates | パイプライン状態 | L2 出力 | screening rules を通過した全銘柄 |
-| 機械絞り込み候補 | longlist | パイプライン状態 | L2 出力 | diversity/cap 切断前の機械 rank 上位 N 件。OP3 レビューの入力母集団 |
+| 候補 | candidate | パイプライン状態 | L2 出力 | Universe各tickerへFact・Metric・Estimate・Evidence Hit・Diagnosticを付けた比較row。Evidence Hitの有無を問わない |
+| 観測事実 | observed fact | observation | L1 | source identityとtime semanticsを持つ観測値 |
+| 導出指標 | derived metric | derived | L2 | Factから決定論的に計算しforwardな経済主張を持たない座標。`normalized_per_3fy`はDerived Metric |
+| 見積り | estimate | estimate | L2 | assumptions・unit・必要ならcomponentを持つ経済量推定。E[r]はEstimate |
+| モデル | model | method | L2 | Fact / MetricからEstimateまたは明示したpredictionを作るversioned algorithm。`expected-return-v1`はModel |
+| 証拠パターン | evidence pattern | predicate | L2 | opportunity shapeを認識してEvidence Hitを出す機械条件。単独authorityは持たない |
+| 証拠一致 | evidence hit | 機械成果物 | L2 出力 | Evidence Patternとの一致とreason / metric |
+| 候補診断 | candidate diagnostic | annotation | L2 | opportunity typeを問わずrisk・quality・data状態を横断診断するannotation。durabilityはCandidate Diagnostic |
+| Policy診断 | policy diagnostic | annotation | L2 | 特定Selection Policyのfalse-positive class・metric integrity・policy-local risk |
+| 経済仮説 | economic hypothesis | method concept | L2 | mispricing原因と価値実現経路の金融仮説 |
+| 機会経路 | opportunity lane | discovery path | L2 | 1 Economic Hypothesisに基づき独立してcandidateをnominateする経路 |
+| 選定方針 | selection policy | method | L2 | 1 Opportunity Laneのinput・eligibility・ordering・tie-break・depthを固定するversioned contract |
+| Lane候補一覧 | lane longlist | パイプライン状態 | L2 出力 | 1 Selection Policyが出すAttention適用前のranked集合 |
+| Attention方針 | attention policy | method | L2 | Opportunity Lane間のdedupe・freshness・review cap・allocationを決めるversioned contract |
+| Review集合 | review set | パイプライン状態 | L2 出力 | Attention PolicyがResearch Gateへ渡すexact集合。wire表現は`review_tickers` |
 | 機械参考推奨 | machine recommendation | 機械成果物 | L2 出力 | cap 適用後の機械 top-N。calibration 監視用の参考値であり judgment ではない |
-| リサーチ候補選定 | select | 機械処理 | L2 | screening runの候補に機械 E[r] 降順の着手順位と lens 注記を付ける |
-| 深掘り候補一覧 | shortlist | パイプライン状態 + 判断 | L3 | OP3 gate で longlist から選んだ候補のcanonical snapshot。selected narrative と rejected 理由を持つ（`stores/application/baibai.sqlite`） |
-| 棄却理由分類 | reject class | 判断要約 | L3 | shortlist rejected entryとbargain assessment reject / defer laneの主因を共通enumで集計する。自由記述が判断の正本であり、分類は自動除外・ranking・売買判断に使わない |
+| リサーチ候補選定 | select | 機械処理 | L2 | Selection PolicyでLane Longlistを作り、Attention PolicyでReview Setを確定する |
+| Research Gate | research gate | 判断工程 | L3 | AIがReview Setをresearch-worthyなselected / rejectedへ分類する工程 |
+| Research Gate契約 | research gate contract | method identity | L3 | Research Gateの比較順・required narrative・selected条件を識別するversioned contract |
+| 深掘り候補一覧 | shortlist | パイプライン状態 + 判断 | L3 | Research Gateのselected narrativeとrejected理由を持つcanonical snapshot |
+| 一次リサーチ集合 | primary research set | パイプライン状態 | L3 | Shortlist selectedから人間が深掘り対象としてadmitした集合 |
+| 棄却理由分類 | reject class | 判断要約 | L3 | shortlist rejected entryとbargain assessment reject / defer caseの主因を共通enumで集計する。自由記述が判断の正本であり、分類は自動除外・ranking・売買判断に使わない |
 | 個別銘柄リサーチ | research | 活動 | L3 | 一次情報、FV、RR、期待利回り、耐性、反証を調べる工程 |
 | 投資仮説 | thesis | 判断文書 | L3 | 3年/5年scenario、永久損失、source、採否を固定するcanonical artifact。保有中は thesis health を問い、thesis break が売却の主因になる |
 | 独立反証レビュー | thesis review | 判断文書 | L3 | 別 agent による thesis の second-pass 反証。hash で対象 revision へ束縛する |
-| 戦略プレイブック | `playbook_id` | method | L2 設定 + research checklist | 割安型の label・閾値・除外条件を `screening-rules` から候補へ注記し、個別調査の確認項目を保持する |
+| Research Playbook | research playbook | method | L3 | Opportunity LaneまたはEvidence Patternに応じて一次情報を調べるhuman checklist |
 | 売買提案 | trade proposal | パイプライン状態 + 判断の入口 | L3 | 銘柄・価格・株数と人間のcurrent decisionをapplication DBに保持する |
-| 割安機会評価 | bargain assessment | 判断文書 | L3 | 深掘りしたlaneの横比較・研究要点digest・購入方法または見送り理由を固定する1サイクルの統合判断。購入提案の無いサイクルにも成立する |
+| 評価ケース | assessment case | 判断component | L3 | research済み1 tickerの結論をBargain Assessment内で表すcase |
+| 割安機会評価 | bargain assessment | 判断文書 | L3 | Assessment Caseの横比較・研究要点digest・購入方法または見送り理由を固定する1サイクルの統合判断。購入提案の無いサイクルにも成立する |
 | portfolio状態・保有判断 | position | 執行/保有 | L3 | human-confirmed ledger、holding review、outcome |
 | 購入機会サイクル | opportunity | 運転（operation kind） | — | screening → longlist → shortlist → thesis → proposal を 1 trigger で進める operation session の kind |
-| 境界帯の建て方 | starter | 運用語（position の建て方） | L3 | 境界にある lane を全件見送りの代わりに縮小 lot で建てる建て方。境界は 2 形 — 要求利回りが帯の下限以上・上限未満、または要求は full 水準のまま evidence に不完全な軸が残る。パイプライン状態でも判断文書でもなく position の建て方を表すので、`ThesisJudgment.position_intent` の enum 値（`full` / `starter`）として持つ。帯・1 注文上限・bucket 上限の実値は `portfolio-management.md#starter-band` が正本 |
+| 境界帯の建て方 | starter | 運用語（position の建て方） | L3 | 境界にある case を全件見送りの代わりに縮小 lot で建てる建て方。境界は 2 形 — 要求利回りが帯の下限以上・上限未満、または要求は full 水準のまま evidence に不完全な軸が残る。パイプライン状態でも判断文書でもなく position の建て方を表すので、`ThesisJudgment.position_intent` の enum 値（`full` / `starter`）として持つ。帯・1 注文上限・bucket 上限の実値は `portfolio-management.md#starter-band` が正本 |
 
 `research`は個別銘柄を調べる活動（workflow・CLI domain・package 名）、`thesis`はその canonical 成果物である。`thesis break`と`thesis health`は保有判断の正準な投資概念であり、thesis artifact の状態を指す。Git tree は authoritative business system の `engine/`、read-only presentation の `web/`、non-request orchestration の `batch/`、developer tooling の `tools/` と、production methodology の `method/`、runtime state の `stores/`、historical evidence の `reports/` を責務ごとに読む。
 
@@ -187,7 +235,7 @@ thesisで見積りの根拠を検証するときの分析レンズ / return源�
 - **マクロ機械読み値 (macro reading)**：L1 の指標 store だけを入力に、全登録系列の記述統計と観測の齢を決定論で計算する。解釈・因果・行動指示を持たない。
 - **マクロ環境分析 (macro context)**：macro reading と外部記事・指標データを参照し、環境評価（core：レジーム・経路別のfactとjudgment・リスク選好環境の評価・確率と機械照合可能な条件を持つシナリオ・監視ポイント）、統合評価（synthesis：経路横断の支配的な力とその相互作用）、日本株積立ループ接続（connection：research優先度・sector tilt・sizing caution・バーゲン地形・機械見積りの歪み注意）を分析階層（§7）に沿った構造化レポートとして残す。記事本文や取得ログは保存しない。
 - **スクリーニング実行結果 (screening run)**：run storeに保存する再生成可能な機械出力。observed、derived、estimateを由来付きで残し、judgment・因果解釈・相場観を書かない。
-- **深掘り候補一覧 (shortlist)**：OP3 gateでlonglistから選んだ深掘り候補のcanonical snapshot。selected narrativeとrejected理由を持ち、application DBに置き、source run revisionへの束縛を保つ。
+- **深掘り候補一覧 (shortlist)**：Research GateがReview Setをselected / rejectedへ分類したcanonical snapshot。application DBに置き、source selection / run revisionとReview Setへの束縛を保つ。
 - **個別銘柄research / thesis**：一次情報、FV、3年/5年scenario、risk/reward、期待return、永久損失、countercaseを検証し、採否をcanonical thesisへ固定する。
 - **売買提案 (trade proposal)**：research の採用結論を「どの銘柄を・いくらで・何株」という具体提案に落とし、人間の `approve / defer / reject` を current state として保持する入口。
 - **売買執行記録 (position)**：実際に発注・entry した判断の注文・約定・保有・全売り決済と、見積り vs 実現の calibration を記録する。
@@ -222,6 +270,17 @@ L1 / L2の機械store（market / macro series / screening run）のobserved / de
 - ETF / 投資信託 / 海外株、口座・税制のモデル化。
 - broker状態の自動推定、broker会計の完全複製、ledger精密化の目的化。
 - 外部向けの汎用データ配信（feature store）・MCP server・書き込み API の公開（`baibai-web` の read-only API と閲覧専用 read model への publish は柱 4 (b) の読み取り側であり、範囲内）。SQLite は market data のローカル正本とし、AI は CLI と SQL で直接読む。
+
+### Opportunity Discovery identity grammar
+
+- `opportunity_lane_id`はEconomic Hypothesisのstable kebab-caseで、version・`core`・`alternative`・`pilot`を含めない。
+- `selection_policy_id`はsemantic versionを含み、input・eligibility・ordering・tie-break・depth・利用Model / Metric semanticsが変われば進める。
+- `attention_policy_id`はinput Lane集合とdedupe・freshness・allocation semanticsを識別する。execution parameterだけの変更ではIDを維持する。
+- `research_gate_contract_id`はResearch Gate判断契約のsemantic versionである。
+- `selection_policy_hash`と`attention_policy_hash`はcanonical representationとtyped execution parametersのexact SHA-256であり、semantic IDと混同しない。
+- behavior-neutralな表現変更ではsemantic IDを維持できるがexact hashは変わり得る。equivalence reportをbridgeにし、旧hashをaliasしない。
+- Value / Carryは`value-carry` / `value-carry-v1`、Core-only Attentionは`value-carry-only-v1`、Research Gateは`research-gate-v1`を正準IDとする。検証時に固定したEarnings Powerの`earnings-power` / `earnings-power-v1`とbounded pilotの`value-carry-plus-earnings-bounded-v1`は、historical replayが`inconclusive`だったためreserved identityでありproduction artifactへ書かない。
+- `core / alternative`はAttention Policy内のruntime roleであり、Opportunity Lane identityではない。
 
 ## 9. 参考
 

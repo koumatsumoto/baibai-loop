@@ -347,7 +347,7 @@ class SelectionLonglistEntryView(BaseModel):
     fair_value_anchor_yen: float | None
     fair_value_gap_pct: float | None
     expected_return_pct: float | None
-    screening_playbook: str | None
+    primary_evidence_pattern_id: str | None
     liquidity_status: str | None
     selection_reasons: list[str]
     durability_warnings: list[str]
@@ -761,7 +761,7 @@ class ResearchQuestionView(BaseModel):
     status: str
 
 
-class AssessmentLaneView(BaseModel):
+class AssessmentCaseView(BaseModel):
     ticker: str
     name: str | None
     disposition: str
@@ -823,7 +823,7 @@ class BargainAssessmentSummaryView(BaseModel):
     result: str
     headline: str
     shortlist_id: str
-    lane_count: int
+    case_count: int
     selected_ticker: str | None
 
 
@@ -838,7 +838,7 @@ class BargainAssessmentView(BaseModel):
     comparison: str
     entry_timing: str | None
     forgone: str
-    lanes: list[AssessmentLaneView]
+    cases: list[AssessmentCaseView]
     purchase: AssessmentPurchaseView | None
     review: AssessmentReviewView
 

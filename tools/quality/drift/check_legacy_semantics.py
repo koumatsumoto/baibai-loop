@@ -11,7 +11,7 @@ _BEHAVIOR_LEGACY = re.compile(
     r"durability_gate|execution lifecycle|"
     # Retired domain vocabulary (doctrine #vocabulary is the naming authority):
     # the judgment artifact is the thesis, the pre-cap rank pool is the longlist,
-    # and the OP3 output is the shortlist. The Git method tree is method/, so
+    # and the Research Gate output is the shortlist. The Git method tree is method/, so
     # reject any records/ path.
     r"decision.packet|packet.scaffold|packet.draft|--packet-id|research_packet|"
     r"audit.pool|--audit-top|reviewed.shortlist|cockpit|"
@@ -59,6 +59,13 @@ _REPOSITORY_PATH_LEGACY = re.compile(
     re.IGNORECASE,
 )
 
+_DOMAIN_IDENTIFIER_LEGACY = re.compile(
+    r"\bOP3\b|\blenses?\b|AssessmentLane|LaneDisposition|LaneMachineValues|"
+    r"candidate_lenses|durability_lens|durability_gate|screening_playbooks?|selection_playbook|"
+    r"research_selection_playbook_order",
+    re.IGNORECASE,
+)
+
 # Documentation surfaces that state current behaviour. reports/ holds dated
 # measurement records that intentionally keep the vocabulary of their time, so it
 # is excluded; everything an agent reads as current instruction is scanned.
@@ -87,6 +94,13 @@ _PATH_PATTERN_OWNERS = {
     Path("engine/src/baibai_engine/foundation/repository_layout.py"),
     Path("tools/quality/drift/check_legacy_semantics.py"),
 }
+_DOMAIN_IDENTIFIER_ADAPTERS = {
+    # Immutable pre-migration payloads retain these keys. These readers/tools only
+    # translate historical evidence into the canonical vocabulary; they do not emit
+    # the retired identifiers on a new-write surface.
+    Path("engine/src/baibai_engine/read_api/shortlist.py"),
+    Path("tools/studies/opportunity_vocabulary_equivalence.py"),
+}
 
 
 def check(root: Path) -> list[str]:
@@ -112,9 +126,14 @@ def check(root: Path) -> list[str]:
             )
     for path in current_paths:
         relative_path = path.relative_to(root)
+        text = path.read_text(encoding="utf-8")
+        if relative_path not in _PATH_PATTERN_OWNERS | _DOMAIN_IDENTIFIER_ADAPTERS and (
+            match := _DOMAIN_IDENTIFIER_LEGACY.search(text)
+        ):
+            errors.append(f"{relative_path}: retired domain identifier {match.group(0)!r}")
         if relative_path in _PATH_PATTERN_OWNERS:
             continue
-        if match := _REPOSITORY_PATH_LEGACY.search(path.read_text(encoding="utf-8")):
+        if match := _REPOSITORY_PATH_LEGACY.search(text):
             errors.append(f"{relative_path}: obsolete repository path {match.group(0)!r}")
     return errors
 

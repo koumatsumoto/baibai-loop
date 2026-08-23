@@ -28,7 +28,7 @@ import { LABEL } from '../lib/labels'
 import { buildShortlistComparison, rankDivergence, summarize, type ShortlistComparisonRow } from '../lib/shortlist'
 import { cn } from '../lib/utils'
 
-// OP3 narrative sections in render order. The risk-reward block leads because it decides
+// Research Gate narrative sections in render order. The risk-reward block leads because it decides
 // whether a candidate earns a primary-research slot; the descriptive reads follow it.
 const NARRATIVE_SECTIONS: readonly (readonly [keyof NarrativeText, string])[] = [
   ['upside', '上値の根拠'],
