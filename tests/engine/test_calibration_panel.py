@@ -11,8 +11,6 @@ from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -22,11 +20,8 @@ from tests.helpers.calibration_store import publish_panel, synthetic_calibration
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
 from baibai_engine.market.lake.keys import current_calibration_bundle_pointer_key
-from baibai_engine.market.lake.models import L1ReleaseSourceRef
-from baibai_engine.market.lake.writer import LakeBuildError, sealed_sqlite_snapshot
 from baibai_engine.market.sqlite.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from baibai_engine.screening.calibration.cli import (
-    _l1_release_source,
     calibration_build_command,
     calibration_evaluate_command,
 )
@@ -77,105 +72,6 @@ from baibai_engine.screening.sqlite_reader import ReportedShortMetric
 from baibai_engine.screening.store_readiness import unreadable_store_reason
 
 ASOF = date(2026, 6, 30)
-
-
-class TestCalibrationL1Source:
-    def test_identity_is_read_from_the_sealed_snapshot_not_replaced_live_store(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            live = root / "market.sqlite"
-            _build_fixture_sqlite(live)
-            connection = open_connection(live)
-            sealed_origin = LakeStoreOrigin(
-                release_id="release-sealed",
-                release_manifest_sha256="a" * 64,
-            )
-            write_lake_store_origin(connection, sealed_origin)
-            connection.commit()
-            connection.close()
-            expected = L1ReleaseSourceRef(
-                kind="l1_release",
-                source_id=sealed_origin.release_id,
-                key="lake/manifests/releases/l1/release-sealed.json",
-                sha256=sealed_origin.release_manifest_sha256,
-                manifest_version=1,
-            )
-
-            with sealed_sqlite_snapshot(sqlite_path=live, mirror_root=root / "seal") as snapshot:
-                connection = open_connection(live)
-                write_lake_store_origin(
-                    connection,
-                    LakeStoreOrigin(
-                        release_id="release-live-replacement",
-                        release_manifest_sha256="b" * 64,
-                    ),
-                )
-                connection.commit()
-                connection.close()
-                source = object()
-                cache = type("Cache", (), {"source": source})()
-                with (
-                    patch(
-                        "baibai_engine.screening.calibration.cli.open_lake",
-                        return_value=contextlib.nullcontext((object(), cache)),
-                    ),
-                    patch(
-                        "baibai_engine.screening.calibration.cli.release_backing_store",
-                        return_value=expected,
-                    ) as comparison,
-                ):
-                    actual = _l1_release_source(
-                        snapshot.path,
-                        mirror=root,
-                        asserted_release_id=None,
-                        asserted_manifest_sha256=None,
-                    )
-
-            assert actual == expected
-            comparison.assert_called_once_with(
-                source,
-                store=snapshot.path,
-                release_id=sealed_origin.release_id,
-                manifest_sha256=sealed_origin.release_manifest_sha256,
-            )
-
-    def test_explicit_release_identity_is_only_an_assertion(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
-            connection = open_connection(sqlite_path)
-            write_lake_store_origin(
-                connection,
-                LakeStoreOrigin(
-                    release_id="embedded-release",
-                    release_manifest_sha256="a" * 64,
-                ),
-            )
-            connection.commit()
-            connection.close()
-
-            with pytest.raises(LakeBuildError, match="does not match"):
-                _l1_release_source(
-                    sqlite_path,
-                    mirror=Path(tmp),
-                    asserted_release_id="sidecar-release",
-                    asserted_manifest_sha256="b" * 64,
-                )
-
-    def test_partial_release_assertion_is_rejected_before_build(self) -> None:
-        errors = io.StringIO()
-        with contextlib.redirect_stderr(errors):
-            code = calibration_build_command(
-                sqlite_path=Path("does-not-need-to-exist.sqlite"),
-                calibration_dir=Path("does-not-need-to-exist"),
-                rules=load_screening_rules(),
-                start=ASOF,
-                end=ASOF,
-                l1_release="release-without-digest",
-            )
-
-        assert code == 1
-        assert "must be provided together" in errors.getvalue()
 
 
 def write_panel(root: Path, asof: date, *args: object, **kwargs: object) -> None:
@@ -1669,6 +1565,16 @@ class CalibrationPanelTest(unittest.TestCase):
             root = Path(tmp)
             sqlite_path = root / "market.sqlite"
             _build_fixture_sqlite(sqlite_path)
+            connection = open_connection(sqlite_path)
+            write_lake_store_origin(
+                connection,
+                LakeStoreOrigin(
+                    release_id="release-that-only-covers-lake-facts",
+                    release_manifest_sha256="a" * 64,
+                ),
+            )
+            connection.commit()
+            connection.close()
             store_dir = root / "calibration"
             with patch(
                 "baibai_engine.screening.calibration.cli.month_end_asof_grid",
@@ -1692,6 +1598,9 @@ class CalibrationPanelTest(unittest.TestCase):
             }
             self.assertEqual(len(source_sets), 1)
             sources = next(iter(source_sets))
+            # An embedded L1 origin covers the lake-owned facts, not source_coverage or
+            # the historical retention of this complete calibration input. Recording it
+            # here would overstate what can be replayed after this snapshot is gone.
             self.assertEqual(len(sources), 1)
             snapshot = sources[0]
             self.assertEqual(snapshot.kind, "sqlite_snapshot")

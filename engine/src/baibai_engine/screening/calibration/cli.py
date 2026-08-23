@@ -16,20 +16,13 @@ import yaml
 
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.market.lake.identity import verified_git_commit
-from baibai_engine.market.lake.models import (
-    CohortSourceRef,
-    L1ReleaseSourceRef,
-    source_assurance,
-)
-from baibai_engine.market.lake.objects import LakeObjectError, open_lake
-from baibai_engine.market.lake.reader import LakeReadError, release_backing_store
+from baibai_engine.market.lake.models import CohortSourceRef
 from baibai_engine.market.lake.retention import lake_writer_lock
 from baibai_engine.market.lake.writer import (
     LakeBuildError,
     LegacySQLiteSnapshot,
     sealed_sqlite_snapshot,
 )
-from baibai_engine.market.sqlite.lake_origin import LakeStoreOriginError, read_lake_store_origin
 
 from ..estimates import EXPECTED_RETURN_MODEL_VERSION
 from ..rule_config import ScreeningRules
@@ -82,61 +75,6 @@ from .store import (
 )
 
 
-def _market_mirror(sqlite_path: Path) -> Path | None:
-    """Where the L1 releases this store was filled from live.
-
-    The lake mirror is the directory the stores live in, so the market store's
-    grandparent is it. Absent when that directory holds no lake at all, which is the
-    shape of every fixture that builds a calibration store on its own.
-    """
-
-    mirror = sqlite_path.resolve().parent.parent
-    return mirror if (mirror / "lake").is_dir() else None
-
-
-def _l1_release_source(
-    sqlite_path: Path,
-    *,
-    mirror: Path | None,
-    asserted_release_id: str | None,
-    asserted_manifest_sha256: str | None,
-) -> L1ReleaseSourceRef | None:
-    """The L1 release that demonstrably rebuilds this exact sealed store.
-
-    Identity comes from the marker embedded in the sealed SQLite generation. Optional
-    caller values are assertions only; they can reject a mismatched invocation but can
-    never name another release. The partition comparison uses the publisher's row and
-    coverage identity, so equal table counts cannot raise assurance on stale values.
-
-    Stating the release alongside the sealed snapshot is what turns `source_assurance`
-    into a distinction. The snapshot says which bytes were read; exact comparison says
-    where those same rows can be read again.
-    """
-
-    try:
-        origin = read_lake_store_origin(sqlite_path)
-    except LakeStoreOriginError:
-        return None
-    if origin is None or mirror is None:
-        return None
-    assertions = (asserted_release_id, asserted_manifest_sha256)
-    if any(value is not None for value in assertions) and assertions != (
-        origin.release_id,
-        origin.release_manifest_sha256,
-    ):
-        raise LakeBuildError("asserted L1 release does not match the sealed market store origin")
-    try:
-        with open_lake(mirror=mirror) as (_session, cache):
-            return release_backing_store(
-                cache.source,
-                store=sqlite_path,
-                release_id=origin.release_id,
-                manifest_sha256=origin.release_manifest_sha256,
-            )
-    except (LakeObjectError, LakeReadError, OSError, ValueError):
-        return None
-
-
 def calibration_build_command(
     *,
     sqlite_path: Path,
@@ -144,20 +82,12 @@ def calibration_build_command(
     rules: ScreeningRules,
     start: date,
     end: date,
-    l1_release: str | None = None,
-    l1_manifest_sha256: str | None = None,
     force: bool = False,
     panel_variant: PanelVariant = "production",
     use_control_event_exits: bool = True,
     use_failure_exits: bool = True,
     stdout: TextIO | None = None,
 ) -> int:
-    if (l1_release is None) != (l1_manifest_sha256 is None):
-        print(
-            "calibration build: --l1-release and --l1-manifest-sha256 must be provided together",
-            file=sys.stderr,
-        )
-        return 1
     unreadable = unreadable_store_reason(sqlite_path)
     if unreadable is not None:
         print(f"calibration build: {unreadable}", file=sys.stderr)
@@ -193,13 +123,6 @@ def calibration_build_command(
             with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=work_dir) as snapshot:
                 return _calibration_build_command(
                     snapshot=snapshot,
-                    l1_release=_l1_release_source(
-                        snapshot.path,
-                        mirror=_market_mirror(sqlite_path),
-                        asserted_release_id=l1_release,
-                        asserted_manifest_sha256=l1_manifest_sha256,
-                    ),
-                    l1_mirror=_market_mirror(sqlite_path),
                     calibration_dir=calibration_dir,
                     work_dir=work_dir,
                     expected_current=expected_current,
@@ -262,19 +185,15 @@ def discard_abandoned_generations(calibration_dir: Path, *, stdout: TextIO | Non
         )
 
 
-def _cohort_sources(
-    snapshot: LegacySQLiteSnapshot, l1_release: L1ReleaseSourceRef | None
-) -> tuple[CohortSourceRef, ...]:
-    """What this cohort states it was built from, weakest claim first."""
+def _cohort_sources(snapshot: LegacySQLiteSnapshot) -> tuple[CohortSourceRef, ...]:
+    """The sealed SQLite generation that supplied every cohort input."""
 
-    return (snapshot.ref,) if l1_release is None else (snapshot.ref, l1_release)
+    return (snapshot.ref,)
 
 
 def _calibration_build_command(
     *,
     snapshot: LegacySQLiteSnapshot,
-    l1_release: L1ReleaseSourceRef | None,
-    l1_mirror: Path | None,
     calibration_dir: Path,
     work_dir: Path,
     expected_current: CalibrationBundleRef | None,
@@ -351,8 +270,7 @@ def _calibration_build_command(
                 asof,
                 result.rows,
                 result.diagnostics,
-                sources=_cohort_sources(snapshot, l1_release),
-                l1_mirror=l1_mirror,
+                sources=_cohort_sources(snapshot),
                 input_cutoff=asof,
                 producer_commit=producer_commit,
                 lock_held=True,
@@ -385,8 +303,7 @@ def _calibration_build_command(
                 work_dir,
                 asof,
                 by_asof.get(asof.isoformat(), []),
-                sources=_cohort_sources(snapshot, l1_release),
-                l1_mirror=l1_mirror,
+                sources=_cohort_sources(snapshot),
                 input_cutoff=observation_cutoff,
                 producer_commit=producer_commit,
                 lock_held=True,
@@ -593,16 +510,6 @@ def calibration_evaluate_command(
     except CalibrationCacheError as exc:
         print(f"calibration evaluate: {exc}", file=sys.stderr)
         return 1
-    # The conclusion is made of all three roles, so the cohort's assurance is the
-    # weakest of them. Reading the panel alone would let a cohort whose outcomes came
-    # from an unkept store generation be reported as rebuildable because its
-    # cross-section happened to be migrated from an archive.
-    cohort_assurance = {
-        asof: source_assurance(
-            (*entry.panel.sources, *entry.diagnostics.sources, *entry.forward.sources)
-        )
-        for asof, entry in bundle.cohorts.items()
-    }
     results = evaluate_cohorts(panels, forwards, horizons=horizons)
     scope = EvaluationScope(
         run_purpose=run_purpose,
@@ -670,24 +577,7 @@ def calibration_evaluate_command(
                     ),
                 }
             )
-            coverage["source_assurance"] = cohort_assurance.get(str(cohort["asof"]), "trace_only")
             if horizon in {"3y", "5y"}:
-                # Reading a stored result again and recomputing it from its input are
-                # different capabilities. A decision that changes the production method
-                # has to survive being re-derived — after a logic error, after a rules
-                # revision — and only a cohort whose upstream input the lake keeps can
-                # be. The archive of a previous producer's output is not that input, so
-                # it states its own level rather than passing as one.
-                #
-                # This is the only blocker a diagnostic run does not take. The others
-                # describe the cohort itself and hold whoever is reading it; this one
-                # describes what may be changed on the strength of the cohort, which is
-                # a question a diagnostic run is not asking.
-                if (
-                    run_purpose == "production_decision"
-                    and coverage["source_assurance"] != "rebuildable_input"
-                ):
-                    blockers.append("source_not_rebuildable")
                 # One blocker per independent observation. A verdict derived from
                 # another observation would count the same gap twice and make the
                 # reason histogram unreadable.

@@ -89,10 +89,9 @@ manifest は全 partition object と totals を列挙し、L1 release manifest �
 で決まり、object-store固有のETagはpublish/CASのtransport stateにだけ置く。lineageはtyped `SourceRef`で表す。kindは**bytesを保持するかどうか**の2族に分かれ、
 それが型の違いになる。
 
-- **retained**（`l1_release`）はlake内のkeyを名乗る。keyを名乗ることは
-  「そのbytesが到達可能で、collectionから守られ、そのbuildを運ぶpublicationが一緒に運ぶ」という
-  約束であり、その大きさをlakeが世代の寿命だけ保持する意思のあるsourceだけが名乗れる。resolverは
-  key・SHA-256・source側versionを検証する。
+- **retained**（`l1_release`）はlake内のkeyを名乗る。resolverはkey・SHA-256・source側versionと
+  release closureを検証する。ただし到達可能性はcurrent releaseのretention policyに従い、分析成果物が
+  過去releaseを名乗っただけで恒久保持されるわけではない。
 - **identity only**（`sqlite_snapshot`）はkeyを持たない。sealed snapshotはbuild中にstoreが動かない
   ようにするためのもので、その役目はbuildの終わりで終わる。bytesはlegacy store全体（約2GB）なので、
   buildごとに1つ保持すればlakeはpublishした量ではなくrun回数に比例して育つ。よってschema version・
@@ -102,11 +101,11 @@ manifest は全 partition object と totals を列挙し、L1 release manifest �
 
 `SourceRef`（buildが自分の入力について述べるunion）に入るのは`sqlite_snapshot`だけである。buildが
 読むのはsealed storeであってreleaseではないからで、closure resolverの有無ではなく何を読んだかが
-決めている。`l1_release`が名乗れるのは`CohortSourceRef` — 分析cohortのlineage — で、cohortは1つの
-読みを2通りに述べる: snapshotが「どのbytesを読んだか」、releaseが「それをどこで読み直せるか」。
-release manifestはobject graphのrootにすぎないので、resolverはdataset manifestとParquet objectまで
-歩いて全部digestで検証し、歩き切れないrefは解決しない。文字列prefixや実在しないrelease IDで
-source種別を表さない。
+決めている。`CohortSourceRef`は既存のimmutable v1 manifestを読むため`l1_release`も受け入れるが、
+calibrationの現行writerはsnapshotだけを記録する。L1は`source_coverage`などの非lake入力を保持しない
+ため、release refをcalibration inputの完全再構築保証には使わない。release manifestはobject graphの
+rootにすぎないので、resolverはdataset manifestとParquet objectまで歩いて全部digestで検証し、
+歩き切れないrefは解決しない。
 
 manifestとpointerを含むlake JSONは、duplicate key拒否とredacted validation errorを持つ
 共通parserだけを通し、wire size上限をparse前に検査する。partition valuesとrelease dataset

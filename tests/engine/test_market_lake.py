@@ -532,9 +532,7 @@ def test_a_retained_reference_resolves_only_to_its_own_immutable_bytes(tmp_path:
 
 def test_a_release_whose_closure_is_incomplete_does_not_resolve(tmp_path: Path) -> None:
     """The manifest is the root of a graph, not the graph. A reference that resolved on
-    the root alone would let a cohort state a lineage whose rows are not in the mirror —
-    which is the whole distinction `source_assurance` draws between naming a generation
-    and being able to read it again."""
+    the root alone would claim a readable fixed release while its rows are absent."""
 
     _, reference = stored_release_source(tmp_path)
     objects = sorted((tmp_path / "lake/l1/canonical").rglob("*.parquet"))

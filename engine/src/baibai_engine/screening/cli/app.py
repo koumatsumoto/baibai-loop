@@ -477,17 +477,6 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"panel / forward store directory (default: {DEFAULT_CALIBRATION_DIR})",
     )
     calibration_build_parser.add_argument(
-        "--l1-release",
-        help=(
-            "optional assertion for the release embedded in the sealed market store; "
-            "cannot override that identity"
-        ),
-    )
-    calibration_build_parser.add_argument(
-        "--l1-manifest-sha256",
-        help="optional digest assertion paired with --l1-release",
-    )
-    calibration_build_parser.add_argument(
         "--force",
         action="store_true",
         help="rebuild panels that already exist in the calibration store",
@@ -708,8 +697,6 @@ def main(argv: list[str] | None = None) -> int:
             rules=load_screening_rules(Path(args.rules_path)),
             start=_parse_iso_date(args.start),
             end=_parse_iso_date(args.end),
-            l1_release=args.l1_release,
-            l1_manifest_sha256=args.l1_manifest_sha256,
             force=args.force,
             panel_variant=cast(PanelVariant, args.panel_variant),
             use_control_event_exits=not args.without_control_event_exits,

@@ -6,6 +6,7 @@ import json
 import os
 import sqlite3
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Literal
@@ -25,6 +26,7 @@ from baibai_engine.market.lake.hydrate import hydrate_market_store
 from baibai_engine.market.lake.keys import (
     current_l1_pointer_key,
     dataset_manifest_key,
+    release_manifest_key,
 )
 from baibai_engine.market.lake.models import (
     ReleaseManifest,
@@ -86,6 +88,43 @@ def _store() -> Boto3R2Store:
     if bucket == "baibai-stores" or "acceptance" not in bucket:
         pytest.fail("R2 acceptance must use a dedicated non-production bucket")
     return Boto3R2Store(bucket=bucket)
+
+
+def _bucket_keys(store: Boto3R2Store) -> list[str]:
+    client = store._client()
+    paginator = client.get_paginator("list_objects_v2")
+    return sorted(
+        str(item["Key"])
+        for page in paginator.paginate(Bucket=store.bucket)
+        for item in page.get("Contents", [])
+    )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _exclusive_bucket_lifecycle() -> Iterator[None]:
+    """Require an empty dedicated bucket and leave it empty for a repeatable gate."""
+
+    store = _store()
+    existing = _bucket_keys(store)
+    if existing:
+        pytest.fail(
+            "R2 acceptance bucket must be empty and exclusive before the run; "
+            f"found {len(existing)} object(s)"
+        )
+    try:
+        yield
+    finally:
+        keys = _bucket_keys(store)
+        client = store._client()
+        for offset in range(0, len(keys), 1_000):
+            client.delete_objects(
+                Bucket=store.bucket,
+                Delete={"Objects": [{"Key": key} for key in keys[offset : offset + 1_000]]},
+            )
+        remaining = _bucket_keys(store)
+        if remaining:
+            pytest.fail(f"R2 acceptance cleanup left {len(remaining)} object(s)")
+        print(f"R2 acceptance cleanup deleted {len(keys)} key(s): {keys}")
 
 
 def _allow_tiny_pilot(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -373,10 +412,11 @@ def test_actual_r2_reconciles_a_real_pointer_commit_after_a_wrapper_error(
                 return result
             self.armed = True
             if fault == "conflict":
+                successor_id = f"acceptance-successor-{uuid.uuid4().hex}"
                 successor = canonical_lake_model_bytes(
                     L1ReleasePointer(
-                        release_id=f"acceptance-successor-{uuid.uuid4().hex}",
-                        manifest_key=("lake/manifests/releases/l1/acceptance-successor.json"),
+                        release_id=successor_id,
+                        manifest_key=release_manifest_key(release_id=successor_id),
                         manifest_sha256="f" * 64,
                     )
                 )

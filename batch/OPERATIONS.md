@@ -161,6 +161,12 @@ dehydrateが「releaseが持つ行数と合わない」で停止する。ロー�
 `hydrate-market`で現行releaseへ揃える — publishはstoreをhydrateしたreleaseの上にだけ積めるので、
 別のwriterが進めたlakeの上へ古いstoreをpublishすることはできない。
 
+`hydrate-market`はlake所有tableへ変更を加える前にだけ実行する。変更後に再度hydrateすると、行数が
+同じUPDATEやDELETE+INSERTをrow-count guardでは識別できず、current releaseの内容で上書きする。
+変更を残すなら先に`publish-lake`し、捨てる場合だけ明示的な復元操作としてhydrateする。daily workflowは
+hydrate後にfetch/build/publishへ直列に進み、変更後の再hydrateを行わないため、hot pathへ全partition
+比較や追加lockは置かない。
+
 **cloud copyがcodeより古いのは正常な過渡状態である。** cloud copyのschemaは日次batchがstoreを開いたときに上がるので、schema bumpから次の実行までラグが残る。cronは平日だけなので、週末にschemaを上げると月曜まで続く。この間もmigrate段があるためpushは通り、日次batchを起こす必要はない。
 
 **publishするcodeは、cloudが動かすcodeでなければならない。** ローカルのschema versionがmainより先にあると、cloudが知らないversionのstoreを置くことになり、次の日次batchが`open_connection`のbaseline検査で停止する（`supported range`を挙げてfail-fastし、Discordに`[FAILED]`が出る。1世代の`.bak`も残る）。schemaを上げるcodeは**mainへ入れてからpushする**。

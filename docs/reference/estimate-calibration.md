@@ -25,7 +25,10 @@ target は cohort の actual as-of date に calendar month を加算する。元
 
 panel は cohort as-of 以下の最新 `eq_master` snapshot だけを読む。prior snapshot、snapshot unavailable、survivorship、delisting、corporate-action event coverage の不備は payload に残り、3y/5y evidence を block する。
 
-cohort の入力保証（`source_assurance`）は run purpose によらず coverage へ出るが、blocker になるのは `--run-purpose production_decision` のときだけである。他の blocker は cohort そのものの性質なので誰が読んでも成り立つのに対し、これは「この cohort を根拠に何を変えてよいか」であり、diagnostic 実行が問うていない。水準の定義と現在の到達可否は [`market-lake.md`](./market-lake.md) が正本。
+cohort manifest は build が実際に読んだ sealed SQLite snapshot の identity を記録する。snapshot bytes
+自体は保持しない。production decision の可否は、保持している panel / forward / diagnostics の
+integrity、3y/5y coverage、required metric と measurement policy で決める。将来の code で過去入力を
+完全再実行できるという別の保証は要求しない。
 
 forward row は解決済み status（市場終値による `resolved`、成立した現金公開買付けによる `resolved_control_event_exit`、破綻型の上場廃止による `resolved_failure_exit`）または明示的な unresolved status を持ち、`resolved` flag は前者 3 つと一致する。target と entry はそれぞれ target/as-of 以下の最終取引日で解決し、15 日超の stale exit は resolved return に入れない。価格は as-of basis adjustment factor で正規化するが、metric basis は `price_return_only` であり配当 accrual を加えない。entry 時点の配当利回りを horizon 年数で按分する固定 accrual は、期間中の増配・減配・無配・支払時期を観測した実現配当ではないため、実現値として扱わない。
 
@@ -168,22 +171,19 @@ closure object 247 件、96.8MB。**同じ履歴が CSV の 507MB から lake �
 81 cohort に対して 1,367 bytes である — 世代の cohort inventory は 3 つの dataset manifest から
 導出するので、bundle 自体は cohort 数に依存しない。
 
-再構築した cohort は sealed SQLite snapshot と、その store を満たした L1 release の両方を source と
-して述べる。buildはsealed snapshot内の`lake_store_origin`を読み、lake所有17 datasetを
-そのreleaseとpartition単位のrow・coverage identityで突き合わせて一致したときだけ記録するので、`source_assurance` は
-`rebuildable_input` になり `--run-purpose production_decision` の `source_not_rebuildable` は立たない。
-release を名乗らずに build した cohort、または store が release と一致しない状態で build した cohort は
-`trace_only` のままで、その block も残る。
+再構築した cohort は、全datasetが共有したsealed SQLite snapshotのidentityをsourceとして述べる。
+calibrationはlake-owned factに加えて`source_coverage`も読むが、L1 releaseはそのledgerを保持せず、
+retentionも過去L1 releaseを恒久的なrootにしない。そのためL1 releaseを併記して「同じ入力を将来も
+再構築できる」とは主張しない。
 
 ```bash
 uv run baibai-engine screening calibration-build \
   --start <YYYY-MM-DD> --end <YYYY-MM-DD>
 ```
 
-release identityはcalibrationが読む同じsealed SQLite snapshotの`lake_store_origin`から導く。
-`--l1-release`と`--l1-manifest-sha256`は必要な場合だけpairで渡すassertionで、embedded identityを
-上書きせず、不一致ならbuildを拒否する。releaseをlineageへ加える前に、lake所有17 datasetのpartition inventory、PK順row、
-coverage identityをpublisherと同じ比較で照合する。1つでも違えばcohortは`trace_only`のままである。
+logicやrulesを変更した場合は、その時点の完全なmarket storeから全cohortを再構築し、新しい
+measurement generationとして評価する。過去入力の完全保存は、現在のproduction method改善に必要な
+品質ゲートではなく、2GB storeや別ledger objectを世代ごとに保持する複雑性にも見合わない。
 
 ## Commands
 

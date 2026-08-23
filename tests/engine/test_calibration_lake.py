@@ -35,7 +35,6 @@ from baibai_engine.market.lake.models import (
     MeasurementPolicyRef,
     SourceRef,
     require_calibration_generation,
-    source_assurance,
 )
 from baibai_engine.market.lake.retention import (
     LakeRetentionError,
@@ -753,55 +752,6 @@ class TestImmutableBuilds:
 
         adopt_bundle_generation(current, generated, expected_current=None)
         assert resolve_calibration_bundle(current).cohorts
-
-
-class TestSourceAssurance:
-    """What each lineage kind lets someone do, which is what authority is decided on."""
-
-    def test_an_upstream_input_the_lake_keeps_is_the_rebuildable_level(
-        self, tmp_path: Path
-    ) -> None:
-        # The level production authority requires. Nothing a cohort may name reaches it
-        # yet — `CohortSourceRef` admits only sealed snapshots, whose bytes the lake does
-        # not keep — so the positive case is stated here rather than left to be
-        # discovered when L1 releases join the union and the gate turns out never to
-        # have had a pass.
-        assert source_assurance((_release_source(),)) == "rebuildable_input"
-
-    def test_a_generation_the_lake_did_not_keep_is_trace_only(self) -> None:
-        assert source_assurance((synthetic_calibration_source(),)) == "trace_only"
-
-    def test_naming_no_source_is_the_weakest_claim_rather_than_no_claim(self) -> None:
-        # An empty tuple satisfies "every source is retained" vacuously, which would make
-        # a cohort that states no lineage at all the strongest one in the store.
-        assert source_assurance(()) == "trace_only"
-
-    def test_the_snapshot_beside_a_release_does_not_cancel_the_release(self) -> None:
-        """The shape production actually writes, and the one no test held before.
-
-        A build reads one thing — the market store — and names it twice: the sealed
-        snapshot is which bytes it read, the release is where they can be read again.
-        Reading the pair as "weakest wins" would let the record of the read cancel the
-        claim that the read is reproducible, which is the only claim the gate is asking
-        about.
-        """
-
-        pair = (synthetic_calibration_source(), _release_source())
-
-        assert source_assurance(pair) == "rebuildable_input"
-        assert source_assurance(tuple(reversed(pair))) == "rebuildable_input"
-
-    def test_several_roles_are_answered_together_by_whether_any_is_kept(self) -> None:
-        """`evaluate` passes panel, diagnostics and forward sources at once. A role built
-        before the release joined the union states only its snapshot, and the conclusion
-        rests on all three — so the pair below is a cohort mid-migration, not a whole
-        one."""
-
-        assert source_assurance((synthetic_calibration_source(),)) == "trace_only"
-        assert (
-            source_assurance((synthetic_calibration_source(), synthetic_calibration_source()))
-            == "trace_only"
-        )
 
 
 class TestFailClose:
@@ -1592,7 +1542,6 @@ class TestCrossStoreLineage:
         manifest = load_manifest(calibration / reference.manifest_key)
         stated = manifest.cohort_inventory[_JANUARY].sources
         assert [item.kind for item in stated] == ["sqlite_snapshot", "l1_release"]
-        assert source_assurance(stated) == "rebuildable_input"
 
     def test_the_same_cohort_is_refused_without_the_mirror_that_holds_the_release(
         self, tmp_path: Path
