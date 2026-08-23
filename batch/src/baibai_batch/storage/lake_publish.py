@@ -15,14 +15,16 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Never, Protocol
+from typing import TYPE_CHECKING, Never, Protocol
 
 import boto3
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError, ConnectTimeoutError, ReadTimeoutError
-from mypy_boto3_s3 import S3Client
-from mypy_boto3_s3.type_defs import PutObjectRequestTypeDef
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from mypy_boto3_s3 import S3Client
+    from mypy_boto3_s3.type_defs import PutObjectRequestTypeDef
 
 from baibai_engine.batch_api import (
     L1ReleasePointer,
@@ -40,11 +42,12 @@ from baibai_engine.batch_api import (
 _R2_ACCOUNT_ID = re.compile(r"^[0-9a-f]{32}$")
 _MAX_POINTER_BYTES = 64 * 1024
 _MAX_SMALL_OBJECT_BYTES = 16 * 1024 * 1024
-# A request deadline that is shorter than the transfer it guards turns a slow
-# object into an ambiguous outcome. The floor covers control-plane latency; the
+# A per-attempt read timeout that is shorter than the transfer it guards turns a
+# slow object into an avoidable retry. The floor covers control-plane latency; the
 # transfer term is derived from the object's own size at a throughput well below
 # what this link has measured (11.9 MB/s over the 2 GB store upload that preceded
-# the lake, and 300 MB of Parquet in the first full release publication).
+# the lake, and 300 MB of Parquet in the first full release publication). Botocore's
+# retry policy applies this value to each attempt; it is not an overall deadline.
 _BASE_OPERATION_TIMEOUT_SECONDS = 120
 _MIN_TRANSFER_BYTES_PER_SECOND = 4 * 1024 * 1024
 
@@ -760,21 +763,41 @@ class Boto3R2Store:
             raise LakePublishError("R2 get-object failed") from exc
 
     def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".part",
+        )
+        os.close(descriptor)
+        temporary_path = Path(temporary_name)
         try:
             response = self._client(expect_bytes).get_object(Bucket=self.bucket, Key=key)
             body = response["Body"]
             try:
-                with path.open("wb") as target:
+                written = 0
+                with temporary_path.open("wb") as target:
                     while chunk := body.read(8 * 1024 * 1024):
                         target.write(chunk)
+                        written += len(chunk)
+                    target.flush()
+                    os.fsync(target.fileno())
             finally:
                 body.close()
+            if expect_bytes is not None and written != expect_bytes:
+                raise LakePublishError(
+                    f"R2 get-object size mismatch: expected {expect_bytes}, got {written}"
+                )
+            temporary_path.replace(path)
+            _fsync_directory(path.parent)
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
             raise LakePublishError("R2 get-object timed out") from exc
         except ClientError as exc:
             _raise_r2_error("get-object", exc)
         except BotoCoreError as exc:
             raise LakePublishError("R2 get-object failed") from exc
+        finally:
+            temporary_path.unlink(missing_ok=True)
 
     def put_file(
         self,
@@ -866,11 +889,19 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _operation_timeout(payload_bytes: int | None) -> int:
-    """A deadline the object's own size can satisfy, not a constant it can outgrow."""
+    """A per-attempt read timeout the object's own size can satisfy."""
     if payload_bytes is None or payload_bytes <= 0:
         return _BASE_OPERATION_TIMEOUT_SECONDS
     transfer = -(-payload_bytes // _MIN_TRANSFER_BYTES_PER_SECOND)
     return _BASE_OPERATION_TIMEOUT_SECONDS + transfer
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _required(env: Mapping[str, str], name: str) -> str:

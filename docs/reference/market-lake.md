@@ -180,9 +180,12 @@ sealed SQLiteはdigest・schema・capture時刻をmanifestへ記録するだけ�
 開始時に検証したETagの`If-Match`（開始時に不在なら`If-None-Match: *`）で切り替え、終了時に見えた
 successorのETagへ乗り換えない。pointer HEADのidentity metadataとGET bytesも開始時に照合するため、
 export中に別writerがcurrentを動かせば409/412でfail-closeする。remote adapterはin-processのboto3
-S3 clientで接続を再利用し、requestごとのprocess起動を行わない。deadlineはobject sizeから導く
+S3 clientで接続を再利用し、requestごとのprocess起動を行わない。各attemptのread timeoutはobject sizeから導く
+（botocoreのretryを含むoperation全体のdeadlineではない）。downloadは同一directoryのtemporary fileへ
+書き、expected sizeとfsyncを確認してからatomic replaceする。manifest cacheが期待digestと異なる場合は、
+remote bytesをprivate temporaryへ再取得し、digest一致後だけcacheを置換する。
 （base 120秒 + 実測を下回る4 MiB/秒での転送時間）。成功時はstderrへ
-`lake publish phases: seal_plan_export=... release_create=... local_graph=... remote_closure=... pointer=...`
+`lake publish phases: base_resolve=... seal_plan_export=... release_create=... local_graph=... remote_closure=... pointer=...`
 を1行出し、stdoutはrelease recordに使うJSON 1行だけを維持する。
 
 incremental export は開始時 current pointer と local store の recorded base identity を照合し、digest

@@ -14,6 +14,10 @@ from importlib import resources
 from pathlib import Path
 
 _PACKAGES = ("baibai_engine", "baibai_web", "baibai_batch")
+_RUNTIME_MODULES = (
+    "baibai_batch.storage.lake_publish",
+    "baibai_batch.storage.publish_market_lake",
+)
 _WHEEL_REQUIRED = {
     "baibai_engine/__init__.py",
     "baibai_engine/macro/indicators/schema.sql",
@@ -67,7 +71,7 @@ def check_sdist(path: Path) -> None:
 
 
 def check_installed() -> None:
-    for package in _PACKAGES:
+    for package in (*_PACKAGES, *_RUNTIME_MODULES):
         importlib.import_module(package)
 
     resource_checks = (
@@ -93,6 +97,19 @@ def check_installed() -> None:
         if completed.returncode != 0:
             raise DistributionError(
                 f"installed {script} --help failed ({completed.returncode}): {completed.stderr}"
+            )
+
+    for module in _RUNTIME_MODULES:
+        completed = subprocess.run(  # nosec B603
+            [sys.executable, "-m", module, "--help"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise DistributionError(
+                f"installed python -m {module} --help failed "
+                f"({completed.returncode}): {completed.stderr}"
             )
 
 

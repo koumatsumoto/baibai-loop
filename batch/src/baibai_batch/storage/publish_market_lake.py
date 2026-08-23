@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import time
@@ -105,7 +106,7 @@ def publish_market_lake(
         raise LakePublishError("a full rebuild has no base release to expect")
     if not full_rebuild and origin_release_id is not None:
         raise LakePublishError("a store origin is only named for a full rebuild")
-    export_started = time.perf_counter()
+    base_resolve_started = time.perf_counter()
     serving = _serving_pointer(store)
     base = serving.pointer
     if full_rebuild:
@@ -128,6 +129,7 @@ def publish_market_lake(
         replaced = None
 
     with _base_manifest_snapshot(fixed_base) as base_manifests:
+        export_started = time.perf_counter()
         export = export_lake_legacy(
             sqlite_path=sqlite_path,
             mirror_root=mirror_root,
@@ -155,6 +157,7 @@ def publish_market_lake(
     )
     print(
         "lake publish phases: "
+        f"base_resolve={export_started - base_resolve_started:.3f}s "
         f"seal_plan_export={export_finished - export_started:.3f}s "
         f"release_create={release_finished - export_finished:.3f}s "
         f"local_graph={published.local_graph_seconds:.3f}s "
@@ -277,7 +280,12 @@ def _base_manifest_snapshot(
 def _resolve_base_release(
     store: ObjectStore, mirror_root: Path, base: L1ReleasePointer
 ) -> LakeFixedRelease:
-    release_path = _fetch(store, mirror_root, base.manifest_key)
+    release_path = _fetch(
+        store,
+        mirror_root,
+        base.manifest_key,
+        expected_sha256=base.manifest_sha256,
+    )
     try:
         release = load_lake_model_json(release_path.read_bytes(), LakeReleaseManifest)
     except ValueError:
@@ -287,6 +295,7 @@ def _resolve_base_release(
             store,
             mirror_root,
             lake_dataset_manifest_key(dataset=dataset_name, build_id=entry.build_id),
+            expected_sha256=entry.manifest_sha256,
         )
     try:
         return resolve_release(
@@ -298,15 +307,47 @@ def _resolve_base_release(
         raise LakePublishError(f"base release identity validation failed: {exc}") from None
 
 
-def _fetch(store: ObjectStore, mirror_root: Path, key: str) -> Path:
+def _fetch(
+    store: ObjectStore,
+    mirror_root: Path,
+    key: str,
+    *,
+    expected_sha256: str,
+) -> Path:
     # Through the validating resolver rather than a join: these keys come off a remote
     # pointer, and a join would follow one that escaped the mirror.
     path = lake_mirror_path(mirror_root, key)
-    if path.is_file():
+    if path.is_file() and _file_sha256(path) == expected_sha256:
         return path
     path.parent.mkdir(parents=True, exist_ok=True)
-    store.download_file(key, path)
+    with tempfile.TemporaryDirectory(dir=path.parent, prefix=f".{path.name}.") as directory:
+        candidate = Path(directory) / path.name
+        store.download_file(key, candidate)
+        actual_sha256 = _file_sha256(candidate)
+        if actual_sha256 != expected_sha256:
+            raise LakePublishError(
+                f"downloaded lake object digest mismatch: {key}; "
+                f"expected {expected_sha256}, got {actual_sha256}"
+            )
+        candidate.replace(path)
+        _fsync_directory(path.parent)
     return path
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def build_parser() -> argparse.ArgumentParser:

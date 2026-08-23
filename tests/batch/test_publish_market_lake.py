@@ -8,6 +8,7 @@ totals are it.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -85,6 +86,77 @@ class _UnusedStore:
 
     def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
         raise AssertionError(f"the mirror already holds {key}")
+
+
+class _DownloadStore:
+    def __init__(self, payload: bytes) -> None:
+        self.payload = payload
+        self.downloads: list[str] = []
+
+    def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
+        self.downloads.append(key)
+        path.write_bytes(self.payload)
+
+
+def test_fetch_heals_a_corrupted_manifest_cache_after_digest_validation(tmp_path: Path) -> None:
+    mirror = tmp_path / "mirror"
+    key = "lake/manifests/releases/l1/release.json"
+    cached = mirror / key
+    cached.parent.mkdir(parents=True)
+    cached.write_bytes(b"corrupted")
+    remote = b'{"valid":true}\n'
+    store = _DownloadStore(remote)
+
+    result = publish_module._fetch(
+        store,
+        mirror,
+        key,
+        expected_sha256=hashlib.sha256(remote).hexdigest(),
+    )
+
+    assert result == cached
+    assert cached.read_bytes() == remote
+    assert store.downloads == [key]
+
+
+def test_fetch_does_not_replace_cache_with_wrong_remote_digest(tmp_path: Path) -> None:
+    mirror = tmp_path / "mirror"
+    key = "lake/manifests/releases/l1/release.json"
+    cached = mirror / key
+    cached.parent.mkdir(parents=True)
+    cached.write_bytes(b"existing-corruption")
+    store = _DownloadStore(b"wrong-remote")
+
+    with pytest.raises(LakePublishError, match="digest mismatch"):
+        publish_module._fetch(
+            store,
+            mirror,
+            key,
+            expected_sha256=hashlib.sha256(b"expected").hexdigest(),
+        )
+
+    assert cached.read_bytes() == b"existing-corruption"
+    assert store.downloads == [key]
+
+
+def test_fetch_reuses_a_cache_with_the_expected_digest(tmp_path: Path) -> None:
+    mirror = tmp_path / "mirror"
+    key = "lake/manifests/releases/l1/release.json"
+    cached = mirror / key
+    cached.parent.mkdir(parents=True)
+    payload = b"already-valid"
+    cached.write_bytes(payload)
+    store = _DownloadStore(b"must-not-be-read")
+
+    result = publish_module._fetch(
+        store,
+        mirror,
+        key,
+        expected_sha256=hashlib.sha256(payload).hexdigest(),
+    )
+
+    assert result == cached
+    assert store.downloads == []
 
 
 def test_a_store_behind_the_release_cannot_be_published_as_a_full_rebuild(
