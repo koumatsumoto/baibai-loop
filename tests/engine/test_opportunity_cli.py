@@ -333,6 +333,30 @@ def _prepared_workspace(
     return workspace
 
 
+def _move_market_price_day(db_path: Path, *, ticker: str, observed_at: str) -> None:
+    """Re-apply one holding's market price, the way a new price draft does."""
+
+    service = LedgerStoreService(db_path)
+    document, head = service.load_with_head()
+    service.apply_document(
+        expected_head=head,
+        expected_document=document,
+        replacement=document.model_copy(
+            update={
+                # A price draft moves the document's as_of with the observation; the
+                # ledger refuses a price observed after it. Neither is an event.
+                "as_of": datetime.fromisoformat(observed_at),
+                "market_prices": tuple(
+                    price.model_copy(update={"observed_at": datetime.fromisoformat(observed_at)})
+                    if price.ticker == ticker
+                    else price
+                    for price in document.market_prices
+                ),
+            }
+        ),
+    )
+
+
 def _ledger_with_market_price_date(path: Path, observed_on: date) -> Path:
     payload = safe_load(LEDGER_FIXTURE.read_text(encoding="utf-8"))
     payload["market_prices"][0]["observed_at"] = f"{observed_on.isoformat()}T15:30:00+09:00"
@@ -757,15 +781,30 @@ def test_holding_prepare_builds_fixed_one_ticker_workspace(
     assert thesis["input_snapshot"]["facts"][0]["as_of"] == "2026-07-10"
 
 
-@pytest.mark.parametrize("ticker", ["8929", "9999"])
-def test_holding_prepare_rejects_ticker_without_open_holding(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], ticker: str
+# What makes a legitimate holding-review subject. `holding-prepare` proves it once
+# and every later gate re-proves the same set, so the two are driven from one table:
+# a precondition only one of them holds is how `purpose: holding_review` turns into a
+# way around the Research Gate.
+HOLDING_SUBJECT_REJECTIONS = (
+    pytest.param("8929", "2026-07-11", "not an open holding", id="held_by_no_one"),
+    pytest.param("9999", "2026-07-11", "not an open holding", id="unknown_ticker"),
+    pytest.param("2331", "2026-07-10", "market price on 2026-07-11", id="wrong_as_of"),
+)
+
+
+@pytest.mark.parametrize(("ticker", "asof", "expected"), HOLDING_SUBJECT_REJECTIONS)
+def test_holding_prepare_rejects_an_illegitimate_subject(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    ticker: str,
+    asof: str,
+    expected: str,
 ) -> None:
     code = opportunity_main(
         [
             "holding-prepare",
             "--asof",
-            "2026-07-11",
+            asof,
             "--db",
             str(_app_db(tmp_path)),
             "--ticker",
@@ -776,8 +815,59 @@ def test_holding_prepare_rejects_ticker_without_open_holding(
     )
 
     assert code == 3
-    assert "not an open holding" in capsys.readouterr().err
+    assert expected in capsys.readouterr().err
     assert not (tmp_path / "holding-ws").exists()
+
+
+@pytest.mark.parametrize(("ticker", "asof", "expected"), HOLDING_SUBJECT_REJECTIONS)
+def test_every_gate_re_proves_the_holding_subject_prepare_proved(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    ticker: str,
+    asof: str,
+    expected: str,
+) -> None:
+    """A manifest claiming what `holding-prepare` would refuse gets no further.
+
+    The manifest is a rebuildable file, so each rejection `holding-prepare` makes
+    has to survive being written into one by hand.
+    """
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [(ticker, "2026-07-10", 1000.0, 1.0)])
+    ledger = _app_db(tmp_path)
+    workspace = tmp_path / "holding-ws"
+    assert (
+        opportunity_main(
+            [
+                "holding-prepare",
+                "--asof",
+                "2026-07-11",
+                "--db",
+                str(ledger),
+                "--ticker",
+                "2331",
+                "--workspace",
+                str(workspace),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    manifest_path = workspace / "manifest.yaml"
+    manifest = safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["holding_ticker"] = ticker
+    manifest["as_of"] = asof
+    manifest_path.write_text(
+        yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+    code = opportunity_main(["status", "--workspace", str(workspace), "--db", str(ledger)])
+
+    assert code == 4
+    error = capsys.readouterr().err
+    assert "holding-review workspace subject is invalid" in error
+    assert expected in error
 
 
 def test_holding_workspace_binds_canonical_ledger_revision(
@@ -811,26 +901,57 @@ def test_holding_workspace_binds_canonical_ledger_revision(
     assert opportunity_main(["status", "--workspace", str(workspace), "--db", str(ledger)]) == 0
 
 
-def test_holding_prepare_requires_same_day_market_price(
+def test_a_holding_workspace_stops_when_the_ledger_price_moves_under_it(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    code = opportunity_main(
-        [
-            "holding-prepare",
-            "--asof",
-            "2026-07-10",
-            "--db",
-            str(_app_db(tmp_path)),
-            "--ticker",
-            "2331",
-            "--workspace",
-            str(tmp_path / "holding-ws"),
-        ]
-    )
+    """A re-applied price draft invalidates an in-flight review, so the gate says so.
 
-    assert code == 3
-    assert "market price date" in capsys.readouterr().err
-    assert not (tmp_path / "holding-ws").exists()
+    ``append_head`` cannot carry this: it counts ledger events, while market prices
+    are replaced in their own table, so the observation date moves under an
+    unchanged head. The canonical holding review is built against that observation
+    (`holding_review_builder`), so the workspace is already unusable — the gate only
+    decides whether the operator learns it now or after writing the research.
+    """
+    ledger_path = tmp_path / "moving-price-ledger.yaml"
+    payload = safe_load(LEDGER_FIXTURE.read_text(encoding="utf-8"))
+    payload["market_prices"][0]["source_kind"] = "licensed_dataset"
+    ledger_path.write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    db_path = _app_db(tmp_path, ledger_path)
+    workspace = tmp_path / "holding-ws"
+    assert (
+        opportunity_main(
+            [
+                "holding-prepare",
+                "--asof",
+                "2026-07-11",
+                "--db",
+                str(db_path),
+                "--ticker",
+                "2331",
+                "--workspace",
+                str(workspace),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert opportunity_main(["status", "--workspace", str(workspace), "--db", str(db_path)]) == 0
+    capsys.readouterr()
+
+    head_before = LedgerStoreService(db_path).append_head()
+    _move_market_price_day(db_path, ticker="2331", observed_at="2026-07-12T15:30:00+09:00")
+    # The pin the workspace holds is untouched by a price-only write, which is why
+    # the subject has to be re-proved rather than assumed fresh.
+    assert LedgerStoreService(db_path).append_head() == head_before
+
+    code = opportunity_main(["status", "--workspace", str(workspace), "--db", str(db_path)])
+
+    assert code == 4
+    error = capsys.readouterr().err
+    assert "market price on 2026-07-12, not 2026-07-11" in error
+    assert "holding-prepare --force" in error
 
 
 @pytest.mark.parametrize(
