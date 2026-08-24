@@ -49,6 +49,7 @@ from baibai_engine.screening.sqlite_reader import (
     final_legacy_week_requires_refresh,
     read_eq_master_exact,
     weekly_margin_candidate_dates,
+    weekly_margin_empty_requires_refresh,
 )
 
 from .providers import ProviderBundle
@@ -604,6 +605,7 @@ def bootstrap_cache_command(
             sqlite_path,
             asof_date - timedelta(days=_WEEKLY_MARGIN_BOOTSTRAP_DAYS),
             asof_date,
+            publication_asof=asof_date,
         )
         print(
             f"bootstrap-cache jquants weekly_margin: {len(margin_weeks)} week(s) start",
@@ -612,7 +614,7 @@ def bootstrap_cache_command(
         )
         margin_rows = 0
         for week_end in margin_weeks:
-            if (
+            if weekly_margin_empty_requires_refresh(sqlite_path, week_end, asof=asof_date) or (
                 week_end == LEGACY_WEEKLY_LAST_BALANCE_DATE
                 and asof_date >= LEGACY_WEEKLY_LAST_PUBLICATION_DATE
                 and final_legacy_week_requires_refresh(sqlite_path)
