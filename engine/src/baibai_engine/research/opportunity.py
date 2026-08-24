@@ -263,12 +263,18 @@ def _resolve_research_gate(
 ) -> _ResearchGate:
     """Resolve the canonical judgment for this selection, and check it is the named one.
 
-    The lookup is by ``selection_id``, never by the ID a caller hands in. The
-    selection file is pinned by hash for the life of a workspace, so anchoring the
-    judgment to it is what stops a workspace from being re-pointed at another
-    cycle's Gate. Publication permits only one judgment per selection — a second
-    one carries a Review Basis that is stale by then — so any other count is a
-    store this must not interpret.
+    The lookup is by ``selection_id``, never by the ID a caller hands in, so
+    renaming the bound shortlist cannot hand a workspace some other cycle's Gate:
+    the judgment a selection carries is a property of the store, not of the
+    request. What this does not claim is immutability of the whole binding — the
+    selection a workspace points at is named in the same editable manifest as its
+    hash, so re-pointing both together moves the workspace to that selection's
+    Gate. The property that holds either way is the one that matters here: a
+    workspace can only admit what some published Research Gate selected.
+
+    Publication permits only one judgment per selection — a second one carries a
+    Review Basis that is stale by then — so any other count is a store this must
+    not interpret.
 
     A workspace researching a different cycle than the judgment it names is not a
     lesser form of the same operation: the E[r], the prices, and the rejection
@@ -335,9 +341,10 @@ def _verify_research_gate(
     """Re-resolve the bound judgment on every workspace gate, from the pinned inputs.
 
     The manifest names the judgment so an operator can read it, but the identity is
-    re-derived from the hash-pinned selection each time. Editing the manifest
-    therefore changes what the workspace claims and not what the Gate decided: a
-    re-pointed ID stops matching the judgment the selection actually carries.
+    re-derived from the selection each time, so a hand-written ticker list is never
+    what a gate reads. Renaming the bound shortlist stops matching the judgment the
+    selection carries; what an edit cannot do at all is admit a ticker no published
+    Research Gate selected.
     """
 
     binding = inputs.get("shortlist")
