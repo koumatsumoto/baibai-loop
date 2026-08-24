@@ -39,11 +39,14 @@ from baibai_engine.screening.calibration.store import (
     resolve_calibration_bundle,
 )
 from baibai_engine.screening.cli import main as screening_main
+from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
 from baibai_engine.screening.sqlite_cache import open_connection
 
 ROOT = Path(__file__).resolve().parents[2]
 RULES_PATH = ROOT / "method/screening/rules/2026-07-06T000000+0900.yaml"
+RULES_HASH = production_rules_contract_hash(load_screening_rules(RULES_PATH).model_dump_json())
 
 RUN_REVISION_ID = "run-revision-cli-seam"
 RUN_ASOF = date(2026, 7, 8)
@@ -114,6 +117,8 @@ def _publish_run(runs_db: Path) -> None:
             "run_at": f"{RUN_ASOF.isoformat()}T18:00:00+09:00",
             "universe_size": 2,
             "rules_ref": str(RULES_PATH),
+            "screening_rules_hash": RULES_HASH,
+            "er_model_version": "expected-return-v1",
             "candidates": [
                 _candidate("1111", name="seam candidate", sector="機械", er_annual=0.12),
                 _candidate("2222", name="seam alternate", sector="サービス業", er_annual=0.04),

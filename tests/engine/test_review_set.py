@@ -34,6 +34,12 @@ def test_review_ticker_without_source_row_fails_closed() -> None:
         resolve_review_set_rows({"review_tickers": ["2331"], "longlist": []})
 
 
+@pytest.mark.parametrize("ticker", [2331, None, "233", "2331.T"])
+def test_review_set_rejects_noncanonical_ticker(ticker: object) -> None:
+    with pytest.raises(ReviewSetResolutionError, match="invalid ticker"):
+        resolve_review_set_rows({"review_tickers": [ticker], "longlist": []})
+
+
 def test_adopted_core_only_contract_requires_the_complete_longlist_in_order() -> None:
     first = _core_row("2331")
     second = _core_row("0001")

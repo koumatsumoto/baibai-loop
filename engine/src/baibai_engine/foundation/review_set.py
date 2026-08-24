@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 
 
@@ -15,7 +16,12 @@ def resolve_review_set_rows(
     review_tickers_raw = payload.get("review_tickers")
     if not isinstance(review_tickers_raw, Sequence) or isinstance(review_tickers_raw, str | bytes):
         raise ReviewSetResolutionError("source selection has no Review Set")
-    review_tickers = tuple(str(value) for value in review_tickers_raw)
+    if not all(
+        isinstance(value, str) and re.fullmatch(r"[0-9A-Z]{4}", value)
+        for value in review_tickers_raw
+    ):
+        raise ReviewSetResolutionError("Review Set contains an invalid ticker")
+    review_tickers = tuple(review_tickers_raw)
     if len(review_tickers) != len(set(review_tickers)):
         raise ReviewSetResolutionError("Review Set contains duplicate tickers")
     core = _unique_rows(payload.get("longlist"), source_name="longlist")
@@ -31,7 +37,11 @@ def _unique_rows(value: object, *, source_name: str) -> dict[str, Mapping[str, o
         raise ReviewSetResolutionError(f"{source_name} must be a sequence")
     rows: dict[str, Mapping[str, object]] = {}
     for item in value:
-        if not isinstance(item, Mapping) or not isinstance(item.get("ticker"), str):
+        if (
+            not isinstance(item, Mapping)
+            or not isinstance(item.get("ticker"), str)
+            or re.fullmatch(r"[0-9A-Z]{4}", str(item["ticker"])) is None
+        ):
             raise ReviewSetResolutionError(f"{source_name} contains an invalid row")
         ticker = str(item["ticker"])
         if ticker in rows:

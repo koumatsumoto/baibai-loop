@@ -479,6 +479,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
   - [ ] producer、consumer、Web contract、skill、method、current docsから旧identifierを除去する
   - [ ] immutable historyはrewriteせず、旧keyを読むadapter pathだけを明示allowlistする
   - [ ] `check_legacy_semantics.py`へ旧identifierのnegative testとadapterのpositive testを追加する
+- [ ] Selection / Attention Policy provenanceをnew-writeへ追加・変更する場合、select時のrulesから独立再計算したrun identity / Model identity / candidate membership / native E[r]、表示E[r]・FV・価格・estimate snapshot、top-level origin、各Lane Longlist row、strict typed Policy parameters、Policy / Attention hash、Review Setのmembership / order / capを同じ発行境界で照合するか。不整合なprovenanceを後段draftが反復しただけで`exact`としてShortlistへ焼き込めないnegative testがあるか
 - [ ] **judgment-gate 系の必須 contract を追加する場合、bypass を test で塞ぐ**:
   - [ ] data 不在 label で hard trigger を回避できないか
   - [ ] label と根拠数値の不整合が catch されるか

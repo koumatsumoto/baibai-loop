@@ -20,7 +20,6 @@ from baibai_engine.screening.buyback_authorization import (
     with_authorization_state,
 )
 from baibai_engine.screening.buyback_store import read_buyback_reports
-from baibai_engine.screening.calibration.identity import rules_contract_hash
 from baibai_engine.screening.candidate_build import build_screened_candidate
 from baibai_engine.screening.capital_control import read_capital_control_annotations
 from baibai_engine.screening.config import (
@@ -40,8 +39,6 @@ from baibai_engine.screening.metrics import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
-    VALUATION_CALCULATION_REVISION,
-    VALUATION_HISTORY_SESSIONS,
     build_metrics,
     build_normalized_profit_signals,
     build_shares_outstanding_index,
@@ -65,6 +62,7 @@ from baibai_engine.screening.rule_config import (
     load_screening_rules,
 )
 from baibai_engine.screening.rules import evaluate_screening
+from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import (
     ScreeningRunStore,
     application_git_commit,
@@ -491,14 +489,7 @@ def run_command(
         candidates=tuple(screened_candidates),
         run_at=run_now,
         run_id=run_id,
-        screening_rules_hash=rules_contract_hash(
-            rules.model_dump_json(),
-            valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
-            variant="production",
-            valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
-            bars_input_window_days=BARS_INPUT_WINDOW_DAYS,
-            production_authority=True,
-        ),
+        screening_rules_hash=production_rules_contract_hash(rules.model_dump_json()),
         er_model_version=EXPECTED_RETURN_MODEL_VERSION,
         data_sources=tuple(data_sources),
         provider_status_lines=tuple(provider_status_lines),

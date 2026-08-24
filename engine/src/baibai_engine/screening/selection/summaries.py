@@ -243,22 +243,11 @@ def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str
     の参考値であることを field で明示する。
     """
     metrics = mapping_or_empty(candidate.get("metrics"))
-    durability_diagnostic = _durability_diagnostic_of(candidate)
-    risk_tags = list(string_sequence(candidate.get("risk_tags")))
-    decision_input_seed = mapping_or_empty(candidate.get("decision_input_seed"))
-    seed_estimates = mapping_or_empty(decision_input_seed.get("estimates"))
     return {
         "rank": rank,
         "ticker": string_or_none(candidate.get("ticker")),
-        "name": string_or_none(candidate.get("name")),
         "primary_evidence_pattern_id": string_or_none(candidate.get("primary_evidence_pattern_id")),
-        # er_annual は annual_ratio (0.1 = 10%/年)。longlist view は pct で読むので x100。
-        "expected_return_pct": _ratio_to_pct(optional_float(metrics.get("er_annual"))),
-        "fair_value_anchor_yen": _conservative_fair_value_yen(metrics),
-        # 最後の raw close を as-of の株式基準へ換算した screening 参考値。約定 limit の
-        # price basis ではなく、plan-limit は SQLite の raw/unadjusted close を再取得する。
-        "market_price_yen": _screening_reference_close_yen(metrics),
-        "fv_convergence": _fv_convergence_annotation(candidate, metrics),
+        **_longlist_machine_projection(candidate),
         # 自己株券買付状況報告書の提出観測。longlistはResearch Gateが20件を点検するviewなので、
         # carry を forward の現金還元として narrative に書けるかの判断材料をここに置く。
         # 提出の齢だけでは答えられない — 枠が満了していれば新しい提出でも forward の還元は
@@ -299,10 +288,25 @@ def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str
             "tender_offer_event_recent": metrics.get("tender_offer_event_recent"),
             "tender_offer_event_latest_on": metrics.get("tender_offer_event_latest_on"),
         },
-        "liquidity_status": "pass",
-        "durability_warnings": list(string_sequence(durability_diagnostic.get("caution_reasons"))),
-        "event_warnings": [tag for tag in risk_tags if tag in _EVENT_RISK_TAGS],
-        "selection_reasons": list(string_sequence(candidate.get("reason_tags"))),
+    }
+
+
+def _longlist_machine_projection(candidate: Mapping[str, object]) -> dict[str, object]:
+    """Project every source-derived coordinate burned into a shortlist snapshot."""
+
+    metrics = mapping_or_empty(candidate.get("metrics"))
+    durability_diagnostic = _durability_diagnostic_of(candidate)
+    risk_tags = list(string_sequence(candidate.get("risk_tags")))
+    decision_input_seed = mapping_or_empty(candidate.get("decision_input_seed"))
+    seed_estimates = mapping_or_empty(decision_input_seed.get("estimates"))
+    return {
+        "name": string_or_none(candidate.get("name")),
+        # er_annual は annual_ratio (0.1 = 10%/年)。longlist view は pct で読むので x100。
+        "expected_return_pct": _ratio_to_pct(optional_float(metrics.get("er_annual"))),
+        "fair_value_anchor_yen": _conservative_fair_value_yen(metrics),
+        # 最後の raw close を as-of の株式基準へ換算した screening 参考値。約定 limit の
+        # price basis ではなく、plan-limit は SQLite の raw/unadjusted close を再取得する。
+        "market_price_yen": _screening_reference_close_yen(metrics),
         # opportunity thesis-scaffold は longlist から選ばれた銘柄も扱うため、
         # recommendation と同じ raw estimate + provenance contract を渡す。flat fields
         # は人間向け表示であり、転記時の正本にはしない。
@@ -310,6 +314,11 @@ def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str
             "as_of": decision_input_seed.get("as_of"),
             **seed_estimates,
         },
+        "liquidity_status": "pass",
+        "durability_warnings": list(string_sequence(durability_diagnostic.get("caution_reasons"))),
+        "event_warnings": [tag for tag in risk_tags if tag in _EVENT_RISK_TAGS],
+        "selection_reasons": list(string_sequence(candidate.get("reason_tags"))),
+        "fv_convergence": _fv_convergence_annotation(candidate, metrics),
     }
 
 

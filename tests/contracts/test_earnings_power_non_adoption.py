@@ -35,7 +35,59 @@ def test_frozen_evidence_mechanically_supports_inconclusive_verdict() -> None:
     assert len(geometry) == 81
     verdict_inputs = replay["verdict_inputs"]
     assert isinstance(verdict_inputs, dict)
-    assert median(row["alt_only_count"] for row in geometry) == 18
-    assert median(row["earnings_sector_concentration"] for row in geometry) == pytest.approx(0.25)
-    assert verdict_inputs["sensitivity_sign_split"] is True
-    assert verdict_inputs["total_return_coverage_below_floor"] is True
+    horizons = replay["horizons"]
+    assert isinstance(horizons, dict)
+    assert set(horizons) == {"3y", "5y"}
+
+    comparisons: list[dict[str, float]] = []
+    total_return_coverages: list[float] = []
+    for horizon in ("3y", "5y"):
+        result = horizons[horizon]
+        assert isinstance(result, dict)
+        assert result["eligible_cohort_count"] >= 12
+        bases = result["bases"]
+        assert isinstance(bases, dict)
+        for basis in ("price_return", "total_return"):
+            basis_result = bases[basis]
+            assert isinstance(basis_result, dict)
+            difference = basis_result["cohort_equal_median_difference"]
+            assert isinstance(difference, dict)
+            comparisons.append(
+                {name: float(difference[name]) for name in ("as_reported", "neutral", "failure")}
+            )
+            if basis == "total_return":
+                for lane in ("earnings_power", "value_carry"):
+                    lane_result = basis_result[lane]
+                    assert isinstance(lane_result, dict)
+                    total_return_coverages.append(float(lane_result["coverage"]))
+
+    negative_comparison = any(all(values[name] < 0 for name in values) for values in comparisons)
+    sensitivity_sign_split = any(
+        min(values.values()) < 0 <= max(values.values()) for values in comparisons
+    )
+    total_return_coverage_below_floor = any(coverage < 0.75 for coverage in total_return_coverages)
+    median_alt_only_count = median(row["alt_only_count"] for row in geometry)
+    median_sector_concentration = median(row["earnings_sector_concentration"] for row in geometry)
+    all_as_reported_nonnegative = all(values["as_reported"] >= 0 for values in comparisons)
+    if negative_comparison:
+        derived_verdict = "negative"
+    elif sensitivity_sign_split or total_return_coverage_below_floor:
+        derived_verdict = "inconclusive"
+    elif (
+        all_as_reported_nonnegative
+        and median_alt_only_count >= 5
+        and median_sector_concentration <= 0.5
+    ):
+        derived_verdict = "eligible_for_shadow"
+    else:
+        derived_verdict = "inconclusive"
+
+    assert verdict_inputs == {
+        "negative_comparison": negative_comparison,
+        "sensitivity_sign_split": sensitivity_sign_split,
+        "total_return_coverage_below_floor": total_return_coverage_below_floor,
+        "median_alt_only_count": median_alt_only_count,
+        "median_sector_concentration": pytest.approx(median_sector_concentration),
+        "all_as_reported_differences_nonnegative": all_as_reported_nonnegative,
+    }
+    assert replay["verdict"] == derived_verdict == "inconclusive"

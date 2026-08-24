@@ -32,6 +32,7 @@ from baibai_engine.screening.rule_config import (
     ScreeningRules,
     load_screening_rules,
 )
+from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import (
     ScreeningRunReader,
     ScreeningRunStore,
@@ -177,6 +178,14 @@ def select_command(
         )
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
+        return 1
+
+    current_rules_hash = production_rules_contract_hash(rules.model_dump_json())
+    if inputs.screening_rules_hash != current_rules_hash:
+        print(
+            "source run screening rules do not match the current selection rules",
+            file=sys.stderr,
+        )
         return 1
 
     try:

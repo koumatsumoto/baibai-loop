@@ -1119,52 +1119,29 @@ def test_thesis_scaffold_requires_primary_research_set_membership(
     assert not (workspace / "2331").exists()
 
 
-def test_thesis_scaffold_confines_research_ticker_to_direct_child(
+def test_prepare_rejects_noncanonical_review_set_ticker_before_workspace_write(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     selection_output = tmp_path / "selection.yaml"
     _write_selection(selection_output, [_longlist_row("../outside")])
     workspace = tmp_path / "ws"
-    assert (
-        opportunity_main(
-            [
-                "prepare",
-                "--asof",
-                "2026-07-03",
-                "--selection-output",
-                str(selection_output),
-                "--db",
-                str(_app_db(tmp_path)),
-                "--workspace",
-                str(workspace),
-            ]
-        )
-        == 0
-    )
-    capsys.readouterr()
-    selection_path = workspace / "selection.yaml"
-    selection = safe_load(selection_path.read_text(encoding="utf-8"))
-    selection["shortlist"] = [{"ticker": "../outside", "reason": "invalid path"}]
-    selection_path.write_text(
-        yaml.safe_dump(selection, sort_keys=False, allow_unicode=True), encoding="utf-8"
-    )
-
     code = opportunity_main(
         [
-            "thesis-scaffold",
+            "prepare",
+            "--asof",
+            "2026-07-03",
+            "--selection-output",
+            str(selection_output),
+            "--db",
+            str(_app_db(tmp_path)),
             "--workspace",
             str(workspace),
-            "--ticker",
-            "../outside",
-            "--sqlite-path",
-            str(tmp_path / "market.sqlite"),
-            "--target-session",
-            TARGET_SESSION,
         ]
     )
 
     assert code == 3
-    assert "direct child" in capsys.readouterr().err
+    assert "invalid ticker" in capsys.readouterr().err
+    assert not workspace.exists()
     assert not (tmp_path / "outside").exists()
 
 

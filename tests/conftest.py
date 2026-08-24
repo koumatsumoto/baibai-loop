@@ -13,12 +13,15 @@ from baibai_engine.macro.indicators.db import initialize_database as initialize_
 from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH
 from baibai_engine.position.ledger import load_portfolio_ledger
 from baibai_engine.research.store import ResearchStoreService
+from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_engine.tasks.models import Task
 from tests.helpers.db_seed import seed_ledger, seed_tasks
 from tests.helpers.fixed_now import FIXED_NOW
 
 FIXTURES = Path(__file__).parent / "fixtures"
+SCREENING_RULES_HASH = production_rules_contract_hash(load_screening_rules().model_dump_json())
 
 # Real operational stores that a test must never open. App DB and run store resolve
 # their default from these env vars; the indicators and market stores have no env
@@ -118,6 +121,7 @@ def _seed_app_method_root(root: Path) -> None:
     ):
         payload = yaml.safe_load(text)
         assert isinstance(payload, dict)
+        payload["screening_rules_hash"] = SCREENING_RULES_HASH
         run_store.publish_run(payload)
 
 
@@ -185,6 +189,8 @@ run_date: "2026-07-08"
 asof_date: "2026-07-08"
 universe_size: 3
 run_at: "2026-07-08T12:00:00+09:00"
+screening_rules_hash: rules-app-method-fixture
+er_model_version: expected-return-v1
 candidates:
   - ticker: "2331"
     name: ALSOK
@@ -204,7 +210,8 @@ candidates:
     avg_turnover_oku: 10.0
     listing_span_days: 1000
     jpx_flags: []
-    metrics: {}
+    metrics:
+      er_annual: 0.1
     evidence_hits: []
   - ticker: "0002"
     name: Sample Two

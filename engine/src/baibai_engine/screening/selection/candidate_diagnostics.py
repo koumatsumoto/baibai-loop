@@ -6,13 +6,13 @@ from collections.abc import Mapping
 
 from baibai_engine.foundation.coerce import float_or, optional_float
 
-from ..rule_config import SelectionRules
+from ..rule_config import CandidateDiagnosticRules
 from .records import CandidateRecord
 
 
 def _candidate_diagnostics(
     item: CandidateRecord,
-    rules: SelectionRules,
+    rules: CandidateDiagnosticRules,
 ) -> dict[str, object]:
     return {
         "durability": _durability_diagnostic(item, rules),
@@ -21,9 +21,9 @@ def _candidate_diagnostics(
 
 def _durability_diagnostic(
     item: CandidateRecord,
-    rules: SelectionRules,
+    rules: CandidateDiagnosticRules,
 ) -> dict[str, object]:
-    diagnostic_rules = rules.candidate_diagnostics.durability
+    diagnostic_rules = rules.durability
     metrics = item.metrics
     reasons: list[str] = []
     missing_reasons: list[str] = []

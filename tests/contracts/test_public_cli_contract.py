@@ -24,13 +24,16 @@ from baibai_engine.research.opportunity_cli import build_parser as opportunity_p
 from baibai_engine.research.opportunity_cli import main as opportunity_main
 from baibai_engine.screening.cli import main as screening_main
 from baibai_engine.screening.cli.app import build_parser as screening_parser
-from baibai_engine.screening.run_store import ScreeningRunStore
+from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.screening.rules_identity import production_rules_contract_hash
+from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
 
 ROOT = Path(__file__).resolve().parents[2]
 DECISION_FIXTURE = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
 LEDGER_FIXTURE = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 BENCHMARK_FIXTURE = ROOT / "tests/fixtures/benchmark-observation/topix-1y.yaml"
 RULES_PATH = ROOT / "method/screening/rules/2026-07-06T000000+0900.yaml"
+RULES_HASH = production_rules_contract_hash(load_screening_rules(RULES_PATH).model_dump_json())
 
 
 def _payload(text: str) -> dict[str, object]:
@@ -64,6 +67,8 @@ def _publish_contract_run(runs_db: Path) -> str:
             "run_at": "2026-04-24T18:00:00+09:00",
             "universe_size": 1,
             "rules_ref": str(RULES_PATH),
+            "screening_rules_hash": RULES_HASH,
+            "er_model_version": "expected-return-v1",
             "candidates": [
                 {
                     "ticker": "1111",
@@ -127,6 +132,7 @@ def test_select_cli_emits_stable_yaml_shape(
     assert set(payload) == {
         "recommendations",
         "longlist_origin",
+        "selection_policy_parameters",
         "longlist",
         "attention_policy_id",
         "attention_policy_hash",
@@ -142,6 +148,15 @@ def test_select_cli_emits_stable_yaml_shape(
     assert len(recommendations) == 1
     assert payload["review_tickers"] == ["1111"]
     assert payload["attention_policy_id"] == "value-carry-only-v1"
+    assert set(payload["selection_policy_parameters"]) == {
+        "lane_longlist_depth",
+        "expected_return_model_id",
+        "screening_rules_hash",
+        "required_jpx_flags",
+        "liquidity_parameters",
+        "candidate_diagnostic_parameters",
+        "evidence_pattern_order",
+    }
     assert set(recommendations[0]) == {
         "rank",
         "ticker",
@@ -228,6 +243,8 @@ def test_select_cli_emits_stable_yaml_shape(
         "macro_context_summary",
         "diagnostics",
         "detail",
+        "screening_rules_hash",
+        "er_model_version",
     }
     input_refs = selection["input_refs"]
     assert isinstance(input_refs, dict)
@@ -236,6 +253,27 @@ def test_select_cli_emits_stable_yaml_shape(
         "macro_context_ref",
         "previous_candidates_ref",
     }
+
+
+def test_select_cli_rejects_rules_that_differ_from_the_source_run(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runs_db = tmp_path / "runs.sqlite"
+    run_revision_id = _publish_contract_run(runs_db)
+    changed_rules = tmp_path / "changed-rules.yaml"
+    changed_rules.write_text(
+        RULES_PATH.read_text(encoding="utf-8").replace(
+            "min_market_cap_oku: 100", "min_market_cap_oku: 101", 1
+        ),
+        encoding="utf-8",
+    )
+    argv = _select_argv(tmp_path, runs_db, run_revision_id)
+    argv[argv.index(str(RULES_PATH))] = str(changed_rules)
+
+    assert screening_main(argv) == 1
+    assert "source run screening rules do not match" in capsys.readouterr().err
+    assert ScreeningRunReader(runs_db).list_selections() == []
 
 
 def test_selection_show_reproduces_the_published_output_without_writing(

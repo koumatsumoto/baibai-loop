@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
 from tests.helpers.macro_context import macro_context_payload
+from tests.helpers.screening_selection import value_carry_selection_payload
 
 from baibai_engine.appdb import LATEST_VERSION
 from baibai_engine.appdb.json import canonical_json
@@ -208,10 +209,16 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
         run_revision_id=run.run_revision_id,
         profile="value",
         macro_context_id=None,
-        payload={
-            "recommendations": [{"ticker": "2331", "er_annual": 0.12}],
-            "longlist": [{"ticker": "0001"}],
-        },
+        payload=value_carry_selection_payload(
+            ticker="2331",
+            er_annual=0.12,
+            rules_hash=str(run.payload["screening_rules_hash"]),
+            recommendations=[{"ticker": "2331", "er_annual": 0.12}],
+            asof=run.as_of_date,
+            profile="value",
+            candidates_ref=run.run_revision_id,
+            source_candidates=run.candidates,
+        ),
         created_at=datetime(2026, 7, 8, 4, 0, tzinfo=UTC),
     )
     output_dir = tmp_path / "export"
@@ -287,7 +294,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     assert longlist_record["kind"] == "daily-longlist-membership"
     assert longlist_record["selection_status"] == "available"
     assert longlist_record["selection_id"] == screening.selections[0].selection_id
-    assert longlist_record["members"] == [{"ticker": "0001", "rank": None, "er_annual": None}]
+    assert longlist_record["members"] == [{"ticker": "2331", "rank": 1, "er_annual": 0.12}]
 
 
 def test_export_writes_explicit_empty_longlist_when_selection_is_missing(
@@ -305,7 +312,16 @@ def test_export_writes_explicit_empty_longlist_when_selection_is_missing(
         run_revision_id=runs[1].run_revision_id,
         profile="value",
         macro_context_id=None,
-        payload={"recommendations": [], "longlist": [{"ticker": "0001"}]},
+        payload=value_carry_selection_payload(
+            ticker="2331",
+            er_annual=0.12,
+            rules_hash=str(runs[1].payload["screening_rules_hash"]),
+            recommendations=[],
+            asof=runs[1].as_of_date,
+            profile="value",
+            candidates_ref=runs[1].run_revision_id,
+            source_candidates=runs[1].candidates,
+        ),
         created_at=datetime(2026, 7, 1, 4, 0, tzinfo=UTC),
     )
     output_dir = tmp_path / "export"
