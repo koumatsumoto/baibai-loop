@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from baibai_engine.screening.calibration.identity import production_rules_contract_hash
+from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_web.sources.db_sources import (
     DbCandidatesSource,
@@ -105,8 +107,10 @@ class CandidatesSourceContract:
         assert run.run_id == "screening-20260708"
         assert len(run.rows) == 3
         assert run.run_revision_id.startswith("run-revision-")
-        assert run.screening_rules_hash is None
-        assert run.er_model_version is None
+        assert run.screening_rules_hash == production_rules_contract_hash(
+            load_screening_rules().model_dump_json()
+        )
+        assert run.er_model_version == "expected-return-v1"
 
 
 class TestDbCandidatesSource(CandidatesSourceContract):

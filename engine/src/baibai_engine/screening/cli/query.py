@@ -25,6 +25,7 @@ from baibai_engine.macro.indicators.db import DEFAULT_DB_PATH as INDICATORS_DB_P
 from baibai_engine.market.store import latest_daily_bar_date
 from baibai_engine.read_api.macro import latest_macro_context_payload, macro_context_payload
 from baibai_engine.read_api.shortlist import list_shortlist_payloads
+from baibai_engine.screening.calibration.identity import production_rules_contract_hash
 from baibai_engine.screening.market_snapshot import build_market_snapshot
 from baibai_engine.screening.regime import MarketRegimeSnapshot, compute_market_regime
 from baibai_engine.screening.rule_config import (
@@ -177,6 +178,14 @@ def select_command(
         )
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
+        return 1
+
+    current_rules_hash = production_rules_contract_hash(rules.model_dump_json())
+    if inputs.screening_rules_hash != current_rules_hash:
+        print(
+            "source run screening rules do not match the current selection rules",
+            file=sys.stderr,
+        )
         return 1
 
     try:

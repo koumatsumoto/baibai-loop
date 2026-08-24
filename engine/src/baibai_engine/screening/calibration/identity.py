@@ -19,3 +19,22 @@ def rules_contract_hash(
         f"{bars_input_window_days}|{production_authority}"
     )
     return sha256(contract.encode("utf-8")).hexdigest()[:16]
+
+
+def production_rules_contract_hash(rules_json: str) -> str:
+    """Return the exact method identity used by production run and select."""
+
+    from ..metrics import (
+        BARS_INPUT_WINDOW_DAYS,
+        VALUATION_CALCULATION_REVISION,
+        VALUATION_HISTORY_SESSIONS,
+    )
+
+    return rules_contract_hash(
+        rules_json,
+        valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
+        variant="production",
+        valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
+        bars_input_window_days=BARS_INPUT_WINDOW_DAYS,
+        production_authority=True,
+    )

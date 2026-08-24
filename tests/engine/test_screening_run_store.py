@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import Event
 
 import pytest
+from tests.helpers.screening_selection import value_carry_selection_payload
 
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.foundation.yaml_io import safe_load
@@ -26,6 +27,13 @@ from baibai_engine.screening.run_store.store import (
     _application_git_commit,
     unchanged_application_git_commit,
 )
+from baibai_engine.screening.selection.contracts import (
+    ValueCarryOnlyAttentionParameters,
+    value_carry_only_attention_policy_hash,
+)
+
+_RULES_HASH = "rules-fixture"
+_MODEL_ID = "expected-return-v1"
 
 
 def _run(
@@ -44,6 +52,8 @@ def _run(
         "data_sources": ["j-quants-light"],
         "run_at": run_at,
         "run_id": f"screening-{compact}",
+        "screening_rules_hash": _RULES_HASH,
+        "er_model_version": _MODEL_ID,
         "candidates": [
             {
                 "ticker": ticker,
@@ -52,6 +62,10 @@ def _run(
                 "per_forward": 7.43,
                 "per_trailing": 7.82,
                 "pbr": 0.69,
+                "market_cap_oku": 1000.0,
+                "avg_turnover_oku": 10.0,
+                "listing_span_days": 1000,
+                "jpx_flags": [],
                 "metrics": {"dividend_yield": 0.021, "er_annual": 0.13},
                 "evidence_hits": [],
             }
@@ -61,15 +75,25 @@ def _run(
     }
 
 
-def _selection(ticker: str = "1301") -> dict[str, object]:
-    return {
-        "recommendations": [{"ticker": ticker, "rank": 1, "reason_tags": ["cheap"]}],
-        "selection": {
-            "asof": "2026-07-08",
-            "profile": "default",
-            "input_refs": {"candidates_ref": "run-revision-fixture"},
-        },
-    }
+def _selection(
+    ticker: str = "1301",
+    *,
+    asof: str = "2026-07-08",
+    candidates_ref: str = "run-revision-fixture",
+    macro_context_ref: str | None = None,
+) -> dict[str, object]:
+    source_run = _run(as_of=asof, ticker=ticker)
+    return value_carry_selection_payload(
+        ticker=ticker,
+        er_annual=0.13,
+        rules_hash=_RULES_HASH,
+        model_id=_MODEL_ID,
+        asof=asof,
+        candidates_ref=candidates_ref,
+        macro_context_ref=macro_context_ref,
+        source_candidates=source_run["candidates"],  # type: ignore[arg-type]
+        recommendations=[{"ticker": ticker, "rank": 1, "reason_tags": ["cheap"]}],
+    )
 
 
 def test_run_store_has_independent_forward_schema(tmp_path: Path) -> None:
@@ -366,19 +390,20 @@ def test_selection_binds_explicit_run_and_read_facade_exposes_metadata(tmp_path:
     commit = "a" * 40
     store = ScreeningRunStore(database, git_commit_factory=lambda: commit)
     store.publish_run(_run(), run_revision_id="run-revision-fixture")
+    payload = _selection(macro_context_ref="macro-context-2026-07-08-base")
 
     result = store.publish_selection(
         run_revision_id="run-revision-fixture",
         profile="default",
         macro_context_id="macro-context-2026-07-08-base",
-        payload=_selection(),
+        payload=payload,
         selection_id="selection-fixture",
     )
     retry = store.publish_selection(
         run_revision_id="run-revision-fixture",
         profile="default",
         macro_context_id="macro-context-2026-07-08-base",
-        payload=_selection(),
+        payload=payload,
         selection_id="selection-fixture",
     )
 
@@ -393,15 +418,283 @@ def test_selection_binds_explicit_run_and_read_facade_exposes_metadata(tmp_path:
     assert publication.profile == "default"
     assert publication.macro_context_id == "macro-context-2026-07-08-base"
     assert publication.application_git_commit == commit
-    assert publication.payload == _selection()
-    assert publication.entries == tuple(_selection()["recommendations"])  # type: ignore[arg-type]
+    assert publication.payload == payload
+    assert publication.entries == tuple(payload["recommendations"])  # type: ignore[arg-type]
     with sqlite3.connect(database) as connection:
         stored = json.loads(
             connection.execute(
                 "SELECT payload FROM screening_selection WHERE selection_id = 'selection-fixture'"
             ).fetchone()[0]
         )
-    assert stored == _selection()
+    assert stored == payload
+
+
+def test_selection_rejects_fabricated_exact_provenance(tmp_path: Path) -> None:
+    database = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(database)
+    store.publish_run(_run(), run_revision_id="run-revision-fixture")
+    payload = _selection()
+    payload["attention_policy_hash"] = "f" * 64
+
+    with pytest.raises(ValueError, match="Attention Policy hash does not match"):
+        store.publish_selection(
+            run_revision_id="run-revision-fixture",
+            profile="default",
+            macro_context_id=None,
+            payload=payload,
+        )
+
+
+def test_selection_rejects_self_consistent_but_fabricated_policy_hash(tmp_path: Path) -> None:
+    database = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(database)
+    store.publish_run(_run(), run_revision_id="run-revision-fixture")
+    payload = _selection()
+    fabricated = "f" * 64
+    origin = payload["longlist_origin"]
+    assert isinstance(origin, dict)
+    origin["selection_policy_hash"] = fabricated
+    longlist = payload["longlist"]
+    assert isinstance(longlist, list)
+    assert isinstance(longlist[0], dict)
+    longlist[0]["selection_policy_hash"] = fabricated
+    parameters = ValueCarryOnlyAttentionParameters.model_validate(
+        payload["attention_policy_parameters"]
+    )
+    payload["attention_policy_hash"] = value_carry_only_attention_policy_hash(
+        selection_policy_hash=fabricated,
+        parameters=parameters,
+    )
+
+    with pytest.raises(ValueError, match="Selection Policy hash does not match its inputs"):
+        store.publish_selection(
+            run_revision_id="run-revision-fixture",
+            profile="default",
+            macro_context_id=None,
+            payload=payload,
+        )
+
+
+def test_selection_rejects_longlist_provenance_that_differs_from_origin(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(database)
+    store.publish_run(_run(), run_revision_id="run-revision-fixture")
+    payload = _selection()
+    longlist = payload["longlist"]
+    assert isinstance(longlist, list)
+    row = longlist[0]
+    assert isinstance(row, dict)
+    row["selection_policy_hash"] = "f" * 64
+
+    with pytest.raises(ValueError, match="row Policy hash does not match"):
+        store.publish_selection(
+            run_revision_id="run-revision-fixture",
+            profile="default",
+            macro_context_id=None,
+            payload=payload,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("rank", 99, "longlist ranks must be contiguous and aligned"),
+        ("expected_return_pct", -999.0, r"displayed E\[r\] does not match"),
+        ("estimate_snapshot", {}, "estimate_snapshot does not match the source candidate"),
+        ("fair_value_anchor_yen", 1.0, "fair_value_anchor_yen does not match"),
+        ("market_price_yen", 1.0, "market_price_yen does not match"),
+        ("name", "改ざん名", "longlist name does not match"),
+        (
+            "fv_convergence",
+            {
+                "status": "clear",
+                "warning_code": None,
+                "market_price_yen": None,
+                "anchors_yen": {},
+                "er_reversion_annual": None,
+            },
+            "longlist fv_convergence does not match",
+        ),
+        ("durability_warnings", [], "longlist durability_warnings does not match"),
+        ("event_warnings", ["freshness_warning"], "longlist event_warnings does not match"),
+        (
+            "selection_reasons",
+            ["durability_high"],
+            "longlist selection_reasons does not match",
+        ),
+    ],
+)
+def test_selection_rejects_display_coordinates_that_differ_from_exact_rank(
+    tmp_path: Path,
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    database = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(database)
+    store.publish_run(_run(), run_revision_id="run-revision-fixture")
+    payload = _selection()
+    longlist = payload["longlist"]
+    assert isinstance(longlist, list)
+    assert isinstance(longlist[0], dict)
+    longlist[0][field] = value
+
+    with pytest.raises(ValueError, match=message):
+        store.publish_selection(
+            run_revision_id="run-revision-fixture",
+            profile="default",
+            macro_context_id=None,
+            payload=payload,
+        )
+
+
+@pytest.mark.parametrize("parameter_kind", ["selection", "attention"])
+def test_selection_rejects_coerced_wire_parameters(
+    tmp_path: Path,
+    parameter_kind: str,
+) -> None:
+    database = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(database)
+    store.publish_run(_run(), run_revision_id="run-revision-fixture")
+    payload = _selection()
+    if parameter_kind == "selection":
+        parameters = payload["selection_policy_parameters"]
+        assert isinstance(parameters, dict)
+        parameters["required_jpx_flags"] = ""
+        message = "invalid Selection Policy parameters"
+    else:
+        parameters = payload["attention_policy_parameters"]
+        assert isinstance(parameters, dict)
+        parameters["value_carry_limit"] = "1"
+        message = "invalid Attention Policy parameters"
+
+    with pytest.raises(ValueError, match=message):
+        store.publish_selection(
+            run_revision_id="run-revision-fixture",
+            profile="default",
+            macro_context_id=None,
+            payload=payload,
+        )
+
+
+def test_selection_rejects_model_identity_that_differs_from_source_run(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(database)
+    store.publish_run(_run(), run_revision_id="run-revision-fixture")
+    payload = _selection()
+    selection = payload["selection"]
+    assert isinstance(selection, dict)
+    selection["er_model_version"] = "expected-return-v2"
+
+    with pytest.raises(ValueError, match="Model ID does not match selection metadata"):
+        store.publish_selection(
+            run_revision_id="run-revision-fixture",
+            profile="default",
+            macro_context_id=None,
+            payload=payload,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("asof", "2026-07-09", "asof does not match the source run"),
+        ("profile", "balanced", "profile does not match the publication"),
+        ("candidates_ref", "run-foreign", "candidates_ref does not match the source run"),
+        ("macro_context_ref", "macro-foreign", "macro_context_ref does not match"),
+    ],
+)
+def test_selection_rejects_metadata_that_is_not_bound_to_publication(
+    tmp_path: Path,
+    field: str,
+    value: str,
+    message: str,
+) -> None:
+    database = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(database)
+    store.publish_run(_run(), run_revision_id="run-revision-fixture")
+    payload = _selection()
+    selection = payload["selection"]
+    assert isinstance(selection, dict)
+    if field in {"candidates_ref", "macro_context_ref"}:
+        input_refs = selection["input_refs"]
+        assert isinstance(input_refs, dict)
+        input_refs[field] = value
+    else:
+        selection[field] = value
+
+    with pytest.raises(ValueError, match=message):
+        store.publish_selection(
+            run_revision_id="run-revision-fixture",
+            profile="default",
+            macro_context_id=None,
+            payload=payload,
+        )
+
+
+def test_selection_rejects_longlist_order_that_differs_from_policy(tmp_path: Path) -> None:
+    database = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(database)
+    run = _run()
+    second = dict(run["candidates"][0])  # type: ignore[index]
+    second["ticker"] = "9999"
+    second["metrics"] = {"er_annual": 0.2}
+    run["candidates"] = [run["candidates"][0], second]  # type: ignore[index]
+    store.publish_run(run, run_revision_id="run-revision-fixture")
+    payload = value_carry_selection_payload(
+        ticker="1301",
+        er_annual=0.13,
+        rules_hash=_RULES_HASH,
+        model_id=_MODEL_ID,
+        longlist=(("1301", 0.13), ("9999", 0.2)),
+        source_candidates=run["candidates"],  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ValueError, match="longlist order or Evidence Pattern"):
+        store.publish_selection(
+            run_revision_id="run-revision-fixture",
+            profile="default",
+            macro_context_id=None,
+            payload=payload,
+        )
+
+
+@pytest.mark.parametrize(
+    ("ticker", "native_value", "message"),
+    [
+        ("9999", 0.13, "ticker does not belong to the source run"),
+        ("1301", 0.14, r"native value does not match the source run E\[r\]"),
+    ],
+)
+def test_selection_rejects_longlist_that_does_not_match_source_candidates(
+    tmp_path: Path,
+    ticker: str,
+    native_value: float,
+    message: str,
+) -> None:
+    database = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(database)
+    store.publish_run(_run(), run_revision_id="run-revision-fixture")
+    payload = _selection(ticker)
+    longlist = payload["longlist"]
+    assert isinstance(longlist, list)
+    row = longlist[0]
+    assert isinstance(row, dict)
+    row["lane_native_value"] = native_value
+    if ticker == "1301":
+        row["expected_return_pct"] = round(native_value * 100, 4)
+
+    with pytest.raises(ValueError, match=message):
+        store.publish_selection(
+            run_revision_id="run-revision-fixture",
+            profile="default",
+            macro_context_id=None,
+            payload=payload,
+        )
 
 
 def test_selection_rejects_unknown_or_cross_run_source(tmp_path: Path) -> None:
@@ -423,7 +716,7 @@ def test_selection_rejects_unknown_or_cross_run_source(tmp_path: Path) -> None:
         run_revision_id="run-a",
         profile="default",
         macro_context_id=None,
-        payload=_selection(),
+        payload=_selection(candidates_ref="run-a"),
         selection_id="selection-a",
     )
     with pytest.raises(RunStoreConflictError, match="same run revision"):
@@ -431,7 +724,7 @@ def test_selection_rejects_unknown_or_cross_run_source(tmp_path: Path) -> None:
             run_revision_id="run-b",
             profile="default",
             macro_context_id=None,
-            payload=_selection(),
+            payload=_selection(asof="2026-07-09", candidates_ref="run-b"),
             source_selection_id="selection-a",
         )
 
@@ -491,14 +784,14 @@ def test_prune_keeps_newest_generations_and_removes_dependent_cache_rows(
         run_revision_id="run-1",
         profile="default",
         macro_context_id=None,
-        payload=_selection(),
+        payload=_selection(asof="2026-07-01", candidates_ref="run-1"),
         selection_id="selection-parent",
     )
     store.publish_selection(
         run_revision_id="run-1",
         profile="default",
         macro_context_id=None,
-        payload=_selection(),
+        payload=_selection(asof="2026-07-01", candidates_ref="run-1"),
         selection_id="selection-child",
         source_selection_id="selection-parent",
     )
@@ -506,7 +799,7 @@ def test_prune_keeps_newest_generations_and_removes_dependent_cache_rows(
         run_revision_id="run-5",
         profile="default",
         macro_context_id=None,
-        payload=_selection(),
+        payload=_selection(asof="2026-07-05", candidates_ref="run-5"),
         selection_id="selection-kept",
     )
 

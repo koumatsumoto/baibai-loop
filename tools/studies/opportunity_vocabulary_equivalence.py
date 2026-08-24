@@ -30,7 +30,10 @@ def _read_candidates(path: Path, run_revision_id: str) -> list[dict[str, object]
             "SELECT payload FROM screening_candidate WHERE run_revision_id = ? ORDER BY ordinal",
             (run_revision_id,),
         ).fetchall()
-    return [json.loads(str(row[0])) for row in rows]
+    return [
+        _json_mapping(row[0], label=f"candidate {run_revision_id} ordinal {ordinal}")
+        for ordinal, row in enumerate(rows)
+    ]
 
 
 def _read_run(path: Path, run_revision_id: str) -> dict[str, object]:
@@ -65,7 +68,7 @@ def _json_mapping(value: object, *, label: str) -> dict[str, object]:
 def _normalize_candidate(value: Mapping[str, object]) -> dict[str, object]:
     normalized = dict(value)
     hits = []
-    for raw in _mapping_items(value.get("evidence_hits")):
+    for raw in _mapping_items(value.get("evidence_hits"), label="candidate evidence_hits"):
         hit = dict(raw)
         if "playbook_id" in hit:
             hit["evidence_pattern_id"] = hit.pop("playbook_id")
@@ -88,10 +91,42 @@ def _normalize_selection_row(
     return normalized
 
 
-def _mapping_items(value: object) -> list[Mapping[str, object]]:
+def _mapping_items(value: object, *, label: str) -> list[Mapping[str, object]]:
     if not isinstance(value, Sequence) or isinstance(value, str | bytes):
-        return []
-    return [item for item in value if isinstance(item, Mapping)]
+        raise ValueError(f"{label} must be an array")
+    if not all(isinstance(item, Mapping) for item in value):
+        raise ValueError(f"{label} contains an invalid row")
+    return list(value)
+
+
+def _index_candidates(
+    candidates: Sequence[Mapping[str, object]], *, label: str
+) -> dict[str, Mapping[str, object]]:
+    indexed: dict[str, Mapping[str, object]] = {}
+    for candidate in candidates:
+        ticker = candidate.get("ticker")
+        if not isinstance(ticker, str) or not ticker:
+            raise ValueError(f"{label} candidate has an invalid ticker")
+        if ticker in indexed:
+            raise ValueError(f"{label} candidates contain duplicate ticker {ticker}")
+        indexed[ticker] = candidate
+    return indexed
+
+
+def _estimate_coordinates(candidate: Mapping[str, object]) -> tuple[object, ...]:
+    metrics = candidate.get("metrics")
+    if not isinstance(metrics, Mapping):
+        raise ValueError("candidate metrics must be an object")
+    return tuple(
+        metrics.get(field)
+        for field in (
+            "er_annual",
+            "er_reversion_annual",
+            "er_carry_annual",
+            "fv_sector_median_yen",
+            "fv_self_range_yen",
+        )
+    )
 
 
 def compare(
@@ -113,45 +148,40 @@ def compare(
     new_candidates_raw = _read_candidates(new_db, new_run_id)
     old_candidates = [_normalize_candidate(item) for item in old_candidates_raw]
     new_candidates = [_normalize_candidate(item) for item in new_candidates_raw]
-    old_by_ticker = {str(item["ticker"]): item for item in old_candidates}
-    new_by_ticker = {str(item["ticker"]): item for item in new_candidates}
+    old_by_ticker = _index_candidates(old_candidates, label="old")
+    new_by_ticker = _index_candidates(new_candidates, label="new")
     common = sorted(old_by_ticker.keys() & new_by_ticker.keys())
     candidate_mismatches = [
         ticker for ticker in common if old_by_ticker[ticker] != new_by_ticker[ticker]
     ]
-    estimate_fields = (
-        "er_annual",
-        "er_reversion_annual",
-        "er_carry_annual",
-        "fv_sector_median_yen",
-        "fv_self_range_yen",
-    )
     estimate_mismatches = [
         ticker
         for ticker in common
-        if any(
-            old_by_ticker[ticker].get(field) != new_by_ticker[ticker].get(field)
-            for field in estimate_fields
-        )
+        if _estimate_coordinates(old_by_ticker[ticker])
+        != _estimate_coordinates(new_by_ticker[ticker])
     ]
 
     old_selection = _read_selection(old_db, old_selection_id)
     new_selection = _read_selection(new_db, new_selection_id)
     old_recommendations = [
         _normalize_selection_row(item, drop_new_provenance=False)
-        for item in _mapping_items(old_selection.get("recommendations"))
+        for item in _mapping_items(
+            old_selection.get("recommendations"), label="old recommendations"
+        )
     ]
     new_recommendations = [
         _normalize_selection_row(item, drop_new_provenance=False)
-        for item in _mapping_items(new_selection.get("recommendations"))
+        for item in _mapping_items(
+            new_selection.get("recommendations"), label="new recommendations"
+        )
     ]
     old_longlist = [
         _normalize_selection_row(item, drop_new_provenance=False)
-        for item in _mapping_items(old_selection.get("longlist"))
+        for item in _mapping_items(old_selection.get("longlist"), label="old longlist")
     ]
     new_longlist = [
         _normalize_selection_row(item, drop_new_provenance=True)
-        for item in _mapping_items(new_selection.get("longlist"))
+        for item in _mapping_items(new_selection.get("longlist"), label="new longlist")
     ]
     old_run = _read_run(old_db, old_run_id)
     new_run = _read_run(new_db, new_run_id)

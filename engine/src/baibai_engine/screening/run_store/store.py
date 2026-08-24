@@ -19,6 +19,11 @@ from typing import Any
 
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.foundation.repository_layout import RUNS_DB_PATH
+from baibai_engine.screening.selection.contracts import (
+    ValueCarrySelectionContractError,
+    validate_value_carry_selection_payload,
+    value_carry_expected_longlist,
+)
 
 from .migrations import MIGRATIONS
 
@@ -269,6 +274,7 @@ class ScreeningRunStore:
     ) -> PublicationResult:
         if not run_revision_id or not profile or not publication_kind:
             raise ValueError("run_revision_id, profile, and publication_kind are required")
+        policy_parameters = validate_value_carry_selection_payload(payload)
         entries = _selection_entries(payload)
         identifier = selection_id or f"selection-{self._id_factory().hex}"
         timestamp = (created_at or datetime.now(UTC)).isoformat()
@@ -278,14 +284,33 @@ class ScreeningRunStore:
         with closing(connect_rw(self._path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
-                if (
-                    connection.execute(
-                        "SELECT 1 FROM screening_run WHERE run_revision_id = ?",
-                        (run_revision_id,),
-                    ).fetchone()
-                    is None
-                ):
+                run_row = connection.execute(
+                    "SELECT payload FROM screening_run WHERE run_revision_id = ?",
+                    (run_revision_id,),
+                ).fetchone()
+                if run_row is None:
                     raise RunStoreNotFoundError(f"unknown run_revision_id: {run_revision_id}")
+                run_payload = decode_payload(run_row[0])
+                candidate_rows = connection.execute(
+                    """
+                    SELECT ticker, er_annual, payload FROM screening_candidate
+                    WHERE run_revision_id = ?
+                    """,
+                    (run_revision_id,),
+                ).fetchall()
+                _validate_selection_run_binding(
+                    payload,
+                    run_payload,
+                    run_revision_id=run_revision_id,
+                    profile=profile,
+                    macro_context_id=macro_context_id,
+                    source_candidate_er={str(row[0]): row[1] for row in candidate_rows},
+                    expected_longlist=value_carry_expected_longlist(
+                        [decode_payload(row[2]) for row in candidate_rows],
+                        parameters=policy_parameters,
+                        asof_date=str(run_payload.get("asof_date")),
+                    ),
+                )
                 if source_selection_id is not None:
                     source = connection.execute(
                         "SELECT run_revision_id FROM screening_selection WHERE selection_id = ?",
@@ -564,6 +589,91 @@ def _selection_entries(payload: Mapping[str, object]) -> tuple[_SelectionEntry, 
         tickers.add(ticker)
         entries.append(_SelectionEntry(ticker=ticker, selected=True, payload=dict(raw)))
     return tuple(entries)
+
+
+def _validate_selection_run_binding(
+    selection_payload: Mapping[str, object],
+    run_payload: Mapping[str, object],
+    *,
+    run_revision_id: str,
+    profile: str,
+    macro_context_id: str | None,
+    source_candidate_er: Mapping[str, object],
+    expected_longlist: Sequence[tuple[str, float, str | None, Mapping[str, object]]],
+) -> None:
+    selection = selection_payload.get("selection")
+    if not isinstance(selection, Mapping):
+        raise ValueCarrySelectionContractError("selection metadata must be an object")
+    for key in ("screening_rules_hash", "er_model_version"):
+        run_value = run_payload.get(key)
+        selection_value = selection.get(key)
+        if not isinstance(run_value, str) or not run_value.strip():
+            raise ValueCarrySelectionContractError(f"source run has no exact {key}")
+        if selection_value != run_value:
+            raise ValueCarrySelectionContractError(f"selection {key} does not match the source run")
+    if selection.get("asof") != run_payload.get("asof_date"):
+        raise ValueCarrySelectionContractError("selection asof does not match the source run")
+    if selection.get("profile") != profile:
+        raise ValueCarrySelectionContractError("selection profile does not match the publication")
+    input_refs = selection.get("input_refs")
+    if not isinstance(input_refs, Mapping):
+        raise ValueCarrySelectionContractError("selection input_refs must be an object")
+    if input_refs.get("candidates_ref") != run_revision_id:
+        raise ValueCarrySelectionContractError(
+            "selection candidates_ref does not match the source run"
+        )
+    if input_refs.get("macro_context_ref") != macro_context_id:
+        raise ValueCarrySelectionContractError(
+            "selection macro_context_ref does not match the publication"
+        )
+    raw_recommendations = selection_payload.get("recommendations")
+    if not isinstance(raw_recommendations, Sequence) or isinstance(
+        raw_recommendations, str | bytes
+    ):
+        raise ValueCarrySelectionContractError("recommendations must be an array")
+    for recommendation in raw_recommendations:
+        if not isinstance(recommendation, Mapping):
+            raise ValueCarrySelectionContractError("recommendation must be an object")
+        ticker = recommendation.get("ticker")
+        if not isinstance(ticker, str) or ticker not in source_candidate_er:
+            raise ValueCarrySelectionContractError(
+                "recommendation ticker does not belong to the source run"
+            )
+    raw_longlist = selection_payload.get("longlist", ())
+    if not isinstance(raw_longlist, Sequence) or isinstance(raw_longlist, str | bytes):
+        raise ValueCarrySelectionContractError("longlist must be an array")
+    actual_longlist: list[tuple[str, float, str | None]] = []
+    validated_longlist: list[Mapping[str, object]] = []
+    for row in raw_longlist:
+        if not isinstance(row, Mapping):  # pragma: no cover - checked by contract validation
+            raise ValueCarrySelectionContractError("longlist row must be an object")
+        ticker = row.get("ticker")
+        if not isinstance(ticker, str) or ticker not in source_candidate_er:
+            raise ValueCarrySelectionContractError(
+                "longlist ticker does not belong to the source run"
+            )
+        if row.get("lane_native_value") != source_candidate_er[ticker]:
+            raise ValueCarrySelectionContractError(
+                "longlist native value does not match the source run E[r]"
+            )
+        primary_pattern = row.get("primary_evidence_pattern_id")
+        if primary_pattern is not None and not isinstance(primary_pattern, str):
+            raise ValueCarrySelectionContractError(
+                "longlist primary Evidence Pattern ID must be a string or null"
+            )
+        actual_longlist.append((ticker, float(row["lane_native_value"]), primary_pattern))
+        validated_longlist.append(row)
+    expected_rank_coordinates = tuple(row[:3] for row in expected_longlist)
+    if tuple(actual_longlist) != expected_rank_coordinates:
+        raise ValueCarrySelectionContractError(
+            "longlist order or Evidence Pattern does not match the Selection Policy"
+        )
+    for row, expected in zip(validated_longlist, expected_longlist, strict=True):
+        for key, expected_value in expected[3].items():
+            if row.get(key) != expected_value:
+                raise ValueCarrySelectionContractError(
+                    f"longlist {key} does not match the source candidate"
+                )
 
 
 def _validate_evidence_hits(candidate: Mapping[str, object], *, ticker: str) -> None:

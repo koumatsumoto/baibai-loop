@@ -14,6 +14,7 @@ from baibai_engine.foundation.coerce import (
     string_sequence,
 )
 from baibai_engine.macro.context import MacroContext
+from baibai_engine.screening.estimates import EXPECTED_RETURN_MODEL_VERSION
 
 from ..regime import MarketRegimeSnapshot
 from ..rule_config import (
@@ -30,6 +31,7 @@ from .contracts import (
     VALUE_CARRY_OPPORTUNITY_LANE_ID,
     VALUE_CARRY_SELECTION_POLICY_ID,
     ValueCarryOnlyAttentionParameters,
+    ValueCarrySelectionPolicyParameters,
     value_carry_only_attention_policy_hash,
     value_carry_selection_policy_hash,
 )
@@ -133,7 +135,7 @@ def build_selection_payload(
             eligible_evidence_hits,
             evidence_pattern_order=evidence_pattern_order,
         )
-        candidate_diagnostics = _candidate_diagnostics(item, selection_rules)
+        candidate_diagnostics = _candidate_diagnostics(item, selection_rules.candidate_diagnostics)
         candidate = _selection_candidate(
             item,
             primary_evidence_pattern_id=primary_evidence_pattern_id,
@@ -186,12 +188,18 @@ def build_selection_payload(
             for rank, candidate in enumerate(recommended, start=1)
         ]
     )
-    selection_policy_hash = value_carry_selection_policy_hash(
+    expected_return_model_id = er_model_version or EXPECTED_RETURN_MODEL_VERSION
+    selection_policy_parameters = ValueCarrySelectionPolicyParameters(
         lane_longlist_depth=longlist_top,
+        expected_return_model_id=expected_return_model_id,
         screening_rules_hash=screening_rules_hash,
-        required_jpx_flags=sorted(required_jpx_flags),
-        liquidity_parameters=liquidity.model_dump(mode="json"),
-        evidence_pattern_order=evidence_pattern_order,
+        required_jpx_flags=tuple(sorted(required_jpx_flags)),
+        liquidity_parameters=liquidity,
+        candidate_diagnostic_parameters=selection_rules.candidate_diagnostics,
+        evidence_pattern_order=tuple(evidence_pattern_order),
+    )
+    selection_policy_hash = value_carry_selection_policy_hash(
+        **selection_policy_parameters.model_dump(mode="python")
     )
     attention_parameters = ValueCarryOnlyAttentionParameters(value_carry_limit=longlist_top)
     attention_policy_hash = value_carry_only_attention_policy_hash(
@@ -205,6 +213,7 @@ def build_selection_payload(
             "selection_policy_id": VALUE_CARRY_SELECTION_POLICY_ID,
             "selection_policy_hash": selection_policy_hash,
         },
+        "selection_policy_parameters": selection_policy_parameters.model_dump(mode="json"),
         "attention_policy_id": VALUE_CARRY_ONLY_ATTENTION_POLICY_ID,
         "attention_policy_hash": attention_policy_hash,
         "attention_policy_parameters": attention_parameters.model_dump(mode="json"),
@@ -260,14 +269,9 @@ def build_selection_payload(
         "macro_context_summary": macro_context_summary(macro_context, asof_date=asof_date),
         "diagnostics": diagnostics,
         "detail": detail,
+        "screening_rules_hash": screening_rules_hash,
+        "er_model_version": expected_return_model_id,
     }
-    selection_metadata = payload["selection"]
-    if not isinstance(selection_metadata, dict):  # pragma: no cover - local invariant
-        raise AssertionError("selection metadata must be a dictionary")
-    if screening_rules_hash is not None:
-        selection_metadata["screening_rules_hash"] = screening_rules_hash
-    if er_model_version is not None:
-        selection_metadata["er_model_version"] = er_model_version
     return payload
 
 

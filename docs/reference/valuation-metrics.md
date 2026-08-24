@@ -68,7 +68,7 @@ Baibai Loop スクリーニングで使う valuation 指標の算出仕様とデ
 
 ### 3.1 3FY normalized PER の算出と用途
 
-`normalized_per_3fy` は、as-of 以前に開示された直近 3 FY の EPS を現在の株式数基準へ分割補正し、その単純平均で現在株価を割る raw estimate である。3 FY が揃わない、補正後 EPS 平均が正でない、または価格・分割係数を確定できない場合は `null` とし、別指標へのフォールバックは行わない。
+`normalized_per_3fy` は、as-of 以前に開示された直近 3 FY の EPS を現在の株式数基準へ分割補正し、その単純平均で現在株価を割る raw Derived Metric である。3 FY が揃わない、補正後 EPS 平均が正でない、または価格・分割係数を確定できない場合は `null` とし、別指標へのフォールバックは行わない。
 
 shortlist UI では trailing PER と並べて表示するが、warning、除外条件、ranking、FV、E[r] の入力には使わない。一時損益の中身を判定する指標ではなく、単年 EPS への依存度を人間が確認するための annotation として扱う。
 

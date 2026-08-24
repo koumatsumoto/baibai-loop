@@ -175,6 +175,8 @@ run_date: "2026-07-15"
 asof_date: "2026-07-15"
 universe_size: 3
 run_at: "2026-07-15T12:00:00+09:00"
+screening_rules_hash: rules-task-suggestion-fixture
+er_model_version: expected-return-v1
 candidates:
   - ticker: "2331"
     name: ALSOK
@@ -209,8 +211,11 @@ candidates:
     jpx_flags: []
     metrics: {er_annual: 0.06}
     evidence_hits: []
-"""
+    """
     )
+    current_run = ScreeningRunReader(runs_path).latest_run()
+    assert current_run is not None
+    run_payload["screening_rules_hash"] = current_run.payload["screening_rules_hash"]
     run_revision_id = ScreeningRunStore(runs_path).publish_run(run_payload).publication_id
     stdout = io.StringIO()
     assert (

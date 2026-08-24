@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
+from tests.helpers.screening_selection import value_carry_selection_payload
 
 from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.screening import shortlist_preflight as shortlist_preflight_module
@@ -34,7 +35,20 @@ def _run(as_of: str, run_at: str) -> dict[str, object]:
         "asof_date": as_of,
         "run_at": run_at,
         "universe_size": 1,
-        "candidates": [{"ticker": "2331", "name": "ALSOK", "evidence_hits": [], "metrics": {}}],
+        "screening_rules_hash": "rules-preflight-fixture",
+        "er_model_version": "expected-return-v1",
+        "candidates": [
+            {
+                "ticker": "2331",
+                "name": "ALSOK",
+                "market_cap_oku": 1000.0,
+                "avg_turnover_oku": 10.0,
+                "listing_span_days": 1000,
+                "jpx_flags": [],
+                "evidence_hits": [],
+                "metrics": {"er_annual": 0.1},
+            }
+        ],
     }
 
 
@@ -46,11 +60,31 @@ def _selection(
     *,
     profile: str = "balanced",
 ) -> None:
+    assert store._path is not None
+    with sqlite3.connect(store._path) as connection:
+        row = connection.execute(
+            "SELECT asof_date FROM screening_run WHERE run_revision_id = ?",
+            (run_id,),
+        ).fetchone()
+        candidate_rows = connection.execute(
+            "SELECT payload FROM screening_candidate WHERE run_revision_id = ?",
+            (run_id,),
+        ).fetchall()
+    assert row is not None
+    asof = str(row[0])
     store.publish_selection(
         run_revision_id=run_id,
         profile=profile,
         macro_context_id=None,
-        payload={"recommendations": [{"ticker": "2331"}]},
+        payload=value_carry_selection_payload(
+            ticker="2331",
+            er_annual=0.1,
+            rules_hash="rules-preflight-fixture",
+            asof=asof,
+            profile=profile,
+            candidates_ref=run_id,
+            source_candidates=[json.loads(str(item[0])) for item in candidate_rows],
+        ),
         selection_id=selection_id,
         created_at=datetime.fromisoformat(created),
     )
