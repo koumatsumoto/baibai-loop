@@ -99,7 +99,7 @@ description: screening からレビュー済み shortlist を発行し、人間�
 - valuation annotation: [`valuation-metrics.md`](../../../docs/reference/valuation-metrics.md)
 - screening runtime と field semantics: [`screening-runtime.md`](../../../docs/reference/screening-runtime.md)
 
-   selected があれば checkpoint を更新して人間の選択を待つ。0件なら canonical shortlist を証拠に `completion_reason: no-shortlist-selection` で session を complete する。cloud 反映は `ops-maintenance` skill の application store 手順に従う。
+   selected があれば `shortlist_id` と selected 一覧を人間へ提示し、checkpoint を更新して選択を待つ。人間が選べるのは selected の部分集合で、`research prepare --shortlist-id` がその境界を強制する。rejected 候補への異議は、同じ run で `select` を実行し直して新しい Shortlist を publish する経路で扱う。0件なら canonical shortlist を証拠に `completion_reason: no-shortlist-selection` で session を complete する。cloud 反映は `ops-maintenance` skill の application store 手順に従う。
 
 ## 停止条件
 
