@@ -48,7 +48,7 @@ from baibai_engine.position.ledger import (
 )
 from baibai_engine.position.policy import PORTFOLIO_POLICY
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.read_api.shortlist import shortlist_payload
+from baibai_engine.read_api.shortlist import shortlist_payloads_for_selection
 
 from .close_source import (
     PreviousClose,
@@ -252,38 +252,52 @@ def _research_gate_decisions(
     return tuple(ordered), decisions
 
 
-def _load_research_gate(
+def _resolve_research_gate(
     *,
     db_path: Path | None,
-    shortlist_id: str,
+    expected_shortlist_id: str,
     selection: Mapping[str, object],
     selection_output: Path,
     asof: date,
     review_tickers: Sequence[str],
 ) -> _ResearchGate:
-    """Bind a new workspace to the canonical Shortlist that judged this Review Set.
+    """Resolve the canonical judgment for this selection, and check it is the named one.
 
-    A workspace that researches a different cycle than the judgment it names is not
-    a lesser form of the same operation — the E[r], the prices, and the rejection
-    reasons all belong to another as-of. Every mismatch is therefore fail-close at
-    prepare, before any research capacity is spent.
+    The lookup is by ``selection_id``, never by the ID a caller hands in. The
+    selection file is pinned by hash for the life of a workspace, so anchoring the
+    judgment to it is what stops a workspace from being re-pointed at another
+    cycle's Gate. Publication permits only one judgment per selection — a second
+    one carries a Review Basis that is stale by then — so any other count is a
+    store this must not interpret.
+
+    A workspace researching a different cycle than the judgment it names is not a
+    lesser form of the same operation: the E[r], the prices, and the rejection
+    reasons all belong to another as-of. Every mismatch is fail-close, before any
+    research capacity is spent.
     """
 
-    payload = shortlist_payload(database_path(db_path), shortlist_id)
-    if payload is None:
+    selection_id = _nonempty_string(selection.get("selection_id"), label="selection_id")
+    payloads = shortlist_payloads_for_selection(database_path(db_path), selection_id)
+    if not payloads:
         raise OpportunityDataError(
-            f"canonical shortlist not found in the application DB: {shortlist_id}"
+            f"no canonical Research Gate judgment for selection {selection_id} "
+            f"({selection_output}); publish the shortlist before starting research"
+        )
+    if len(payloads) > 1:
+        named = ", ".join(sorted(str(payload.get("shortlist_id")) for payload in payloads))
+        raise OpportunityDataError(
+            f"selection {selection_id} carries more than one canonical judgment: {named}"
+        )
+    payload = payloads[0]
+    shortlist_id = _nonempty_string(payload.get("shortlist_id"), label="shortlist_id")
+    if shortlist_id != expected_shortlist_id:
+        raise OpportunityDataError(
+            f"selection {selection_id} was judged by {shortlist_id}, not {expected_shortlist_id}"
         )
     admissible, decisions = _research_gate_decisions(payload, shortlist_id=shortlist_id)
 
-    selection_id = _nonempty_string(selection.get("selection_id"), label="selection_id")
-    if payload.get("selection_id") != selection_id:
-        raise OpportunityDataError(
-            f"{shortlist_id} judged selection {payload.get('selection_id')!r}, not "
-            f"{selection_id!r} from {selection_output}"
-        )
-    metadata = _required_mapping(selection.get("selection"), label="selection.selection")
     expected_asof = asof.isoformat()
+    metadata = _required_mapping(selection.get("selection"), label="selection.selection")
     if payload.get("as_of") != expected_asof or metadata.get("asof") != expected_asof:
         raise OpportunityDataError(
             f"{shortlist_id} as_of {payload.get('as_of')!r} and selection as_of "
@@ -315,12 +329,15 @@ def _load_research_gate(
     )
 
 
-def _verify_research_gate(inputs: Mapping[str, object], *, db_path: Path | None) -> _ResearchGate:
-    """Re-resolve the bound judgment from the DB on every workspace gate.
+def _verify_research_gate(
+    manifest: Mapping[str, object], inputs: Mapping[str, object], *, db_path: Path | None
+) -> _ResearchGate:
+    """Re-resolve the bound judgment on every workspace gate, from the pinned inputs.
 
-    The manifest carries the admitted tickers so an operator can read them, but the
-    authority is the stored shortlist: editing the manifest changes what the
-    workspace claims, never what the Research Gate decided.
+    The manifest names the judgment so an operator can read it, but the identity is
+    re-derived from the hash-pinned selection each time. Editing the manifest
+    therefore changes what the workspace claims and not what the Gate decided: a
+    re-pointed ID stops matching the judgment the selection actually carries.
     """
 
     binding = inputs.get("shortlist")
@@ -329,7 +346,7 @@ def _verify_research_gate(inputs: Mapping[str, object], *, db_path: Path | None)
             "workspace has no Research Gate binding; rebuild it with "
             "`research prepare --shortlist-id <SHORTLIST_ID> --force`"
         )
-    shortlist_id = _nonempty_string(
+    recorded_shortlist_id = _nonempty_string(
         binding.get("shortlist_id"), label="manifest.inputs.shortlist.shortlist_id"
     )
     recorded_selection_id = _nonempty_string(
@@ -338,25 +355,41 @@ def _verify_research_gate(inputs: Mapping[str, object], *, db_path: Path | None)
     recorded_tickers = binding.get("selected_tickers")
     if not isinstance(recorded_tickers, Sequence) or isinstance(recorded_tickers, str | bytes):
         raise OpportunityDataError("manifest.inputs.shortlist.selected_tickers must be an array")
-    payload = shortlist_payload(database_path(db_path), shortlist_id)
-    if payload is None:
-        raise OpportunityConflictError(
-            f"bound canonical shortlist is no longer readable: {shortlist_id}"
+    selection_ref = _required_mapping(
+        inputs.get("selection_output"), label="manifest.inputs.selection_output"
+    )
+    selection_output = Path(
+        _nonempty_string(selection_ref.get("path"), label="manifest.inputs.selection_output.path")
+    )
+    selection = _load_mapping(selection_output, label="selection output")
+    try:
+        review_tickers, _rows = resolve_review_set_rows(selection)
+    except ReviewSetResolutionError as error:
+        raise OpportunityDataError(f"selection Review Set is invalid: {error}") from error
+    asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
+    try:
+        gate = _resolve_research_gate(
+            db_path=db_path,
+            expected_shortlist_id=recorded_shortlist_id,
+            selection=selection,
+            selection_output=selection_output,
+            asof=asof,
+            review_tickers=review_tickers,
         )
-    admissible, decisions = _research_gate_decisions(payload, shortlist_id=shortlist_id)
-    if payload.get("selection_id") != recorded_selection_id or list(admissible) != [
+    except OpportunityDataError as error:
+        raise OpportunityConflictError(
+            "workspace Research Gate binding does not match the canonical shortlist "
+            f"{recorded_shortlist_id}; rebuild the workspace with "
+            f"`research prepare --force` ({error})"
+        ) from error
+    if gate.selection_id != recorded_selection_id or list(gate.admissible) != [
         str(value) for value in recorded_tickers
     ]:
         raise OpportunityConflictError(
             "workspace Research Gate binding does not match the canonical shortlist "
-            f"{shortlist_id}; rebuild the workspace with `research prepare --force`"
+            f"{gate.shortlist_id}; rebuild the workspace with `research prepare --force`"
         )
-    return _ResearchGate(
-        shortlist_id=shortlist_id,
-        selection_id=recorded_selection_id,
-        admissible=admissible,
-        decision_by_ticker=decisions,
-    )
+    return gate
 
 
 def prepare_workspace(
@@ -383,9 +416,9 @@ def prepare_workspace(
         raise OpportunityDataError(f"selection Review Set is invalid: {error}") from error
     longlist = [dict(review_rows[ticker]) for ticker in review_tickers]
     _validate_selection_estimate_asof(selection=selection, longlist=longlist, asof=asof)
-    gate = _load_research_gate(
+    gate = _resolve_research_gate(
         db_path=db_path,
-        shortlist_id=shortlist_id,
+        expected_shortlist_id=shortlist_id,
         selection=selection,
         selection_output=selection_output,
         asof=asof,
@@ -1004,7 +1037,7 @@ def _verify_external_inputs(
             )
     if purpose == "holding_review":
         return None
-    return _verify_research_gate(inputs, db_path=db_path)
+    return _verify_research_gate(manifest, inputs, db_path=db_path)
 
 
 def _validate_editable_drafts(
@@ -1038,7 +1071,10 @@ def _validate_editable_drafts(
         ticker not in longlist_tickers for ticker in shortlist_tickers
     ):
         raise OpportunityDataError("workspace shortlist is invalid")
-    if gate is None:
+    # Narrowing guard, not a reachable state: `_verify_external_inputs` reads purpose
+    # from this same manifest and returns None only for holding review, which left
+    # above. A missing binding is refused there, with the command that rebuilds it.
+    if gate is None:  # pragma: no cover - unreachable by construction
         raise OpportunityDataError("opportunity workspace has no Research Gate binding")
     # Named before the slot count: over-filling and reaching past the Gate both show
     # up as "too many tickers", and only one of them is a capacity question.

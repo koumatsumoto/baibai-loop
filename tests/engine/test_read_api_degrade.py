@@ -63,6 +63,7 @@ _ARGUMENTS: dict[str, object] = {
     "end": date(2026, 7, 29),
     "operation_id": "op-20260729-a-1",
     "run_revision_id": "run-revision-20260729",
+    "selection_id": "selection-20260729-a",
     "series_id": "jp.cpi",
     "since": date(2026, 7, 28),
     "shortlist_id": "shortlist-20260729-a",

@@ -695,7 +695,7 @@ def test_prepare_rejects_a_review_set_no_research_gate_judged(
         ]
     )
     assert code == 3
-    assert "canonical shortlist not found" in capsys.readouterr().err
+    assert "no canonical Research Gate judgment for selection" in capsys.readouterr().err
     assert not (tmp_path / "ws").exists()
 
 
@@ -1303,7 +1303,11 @@ def test_research_gate_rejected_ticker_cannot_enter_the_primary_research_set(
 def test_prepare_rejects_a_shortlist_that_judged_another_selection(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Negative 2: the judgment and the machine inputs must name the same selection."""
+    """Negative 2: a judgment over some other selection cannot bound this one.
+
+    The judgment is looked up by the selection it judged, so one made elsewhere is
+    not merely mismatched — for this cycle it does not exist.
+    """
     selection = tmp_path / "selection.yaml"
     _write_selection(selection, [_longlist_row("2331")])
     db_path = _seed_gate(tmp_path, selection, selection_id="selection-somewhere-else")
@@ -1326,7 +1330,7 @@ def test_prepare_rejects_a_shortlist_that_judged_another_selection(
     )
     error = capsys.readouterr().err
     assert code == 3
-    assert "judged selection 'selection-somewhere-else'" in error
+    assert f"no canonical Research Gate judgment for selection {SELECTION_ID}" in error
     assert not workspace.exists()
 
 
@@ -1493,7 +1497,7 @@ def test_prepare_rejects_an_unknown_shortlist_id(
         ]
     )
     assert code == 3
-    assert "canonical shortlist not found" in capsys.readouterr().err
+    assert f"was judged by {SHORTLIST_ID}, not shortlist-20260703-absent" in capsys.readouterr().err
     assert not workspace.exists()
 
 
@@ -1546,6 +1550,37 @@ def test_hand_edited_manifest_cannot_widen_the_admitted_set(
     )
     assert code == 4
     assert "does not match the canonical shortlist" in capsys.readouterr().err
+    assert not (workspace / "8929").exists()
+
+
+def test_repointing_the_manifest_at_another_judgment_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Naming a different real judgment must not re-bind an existing workspace.
+
+    A published judgment that selected the rejected ticker is the strongest form of
+    this: the manifest would then name a genuine Gate decision, so only anchoring
+    the lookup to the workspace's own hash-pinned selection can tell the two apart.
+    """
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("8929", "2026-07-10", 750.0, 1.0)])
+    workspace, selection, db_path = _gated_workspace(tmp_path, sqlite_path)
+    other = "shortlist-20260703-second-judgment"
+    _seed_gate(tmp_path, selection, rejected=["2331"], shortlist_id=other)
+
+    manifest_path = workspace / "manifest.yaml"
+    manifest = safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["inputs"]["shortlist"]["shortlist_id"] = other
+    manifest["inputs"]["shortlist"]["selected_tickers"] = ["8929"]
+    manifest_path.write_text(
+        yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    _set_primary_research_set(workspace, ["8929"])
+
+    code = opportunity_main(["status", "--workspace", str(workspace), "--db", str(db_path)])
+    error = capsys.readouterr().err
+    assert code == 4
+    assert "does not match the canonical shortlist" in error
     assert not (workspace / "8929").exists()
 
 
