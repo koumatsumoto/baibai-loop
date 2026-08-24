@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import date, datetime
 from pathlib import Path
 from typing import Literal
@@ -19,6 +19,7 @@ import pytest
 import yaml
 from pydantic import BaseModel
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.research_gate import research_gate_shortlist, seed_shortlist
 
 import baibai_engine.research.opportunity as opportunity_module
 import baibai_engine.research.store as research_store_module
@@ -49,6 +50,10 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
 REVIEW_FIXTURE = ROOT / "tests/fixtures/thesis/2331-decision-review.yaml"
 LEDGER_FIXTURE = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
+
+SELECTION_ID = "selection-opportunity-test"
+RUN_REVISION_ID = "run-revision-opportunity-test"
+SHORTLIST_ID = "shortlist-20260703-opportunity-test"
 
 FIXED_NOW = datetime(2026, 7, 12, 10, 0, tzinfo=JST)
 TARGET_SESSION = "2026-07-13"
@@ -171,10 +176,13 @@ def _write_selection(
     selection_asof: str | None = "2026-07-03",
     screening_rules_hash: str | None = None,
     er_model_version: str | None = None,
+    selection_id: str = SELECTION_ID,
+    run_revision_id: str = RUN_REVISION_ID,
 ) -> None:
     selection_metadata: dict[str, object] = {
         "research_selection_target_max": research_selection_target_max,
         "evidence_pattern_order": ["cashflow-yield-discount"],
+        "input_refs": {"candidates_ref": run_revision_id},
     }
     if selection_asof is not None:
         selection_metadata["asof"] = selection_asof
@@ -183,12 +191,51 @@ def _write_selection(
     if er_model_version is not None:
         selection_metadata["er_model_version"] = er_model_version
     payload = {
+        "selection_id": selection_id,
         "recommendations": [],
         "longlist": longlist,
         "review_tickers": [str(row["ticker"]) for row in longlist],
         "selection": selection_metadata,
     }
     path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+
+def _seed_gate(
+    tmp_path: Path,
+    selection_path: Path,
+    *,
+    rejected: Sequence[str] = (),
+    as_of: str = "2026-07-03",
+    selection_id: str | None = None,
+    run_revision_id: str | None = None,
+    shortlist_id: str = SHORTLIST_ID,
+    ledger_path: Path = LEDGER_FIXTURE,
+) -> Path:
+    """Publish the Research Gate judgment over the Review Set this selection carries.
+
+    Reading the tickers back out of the selection keeps one source for the cycle: a
+    shortlist that judged a different set is exactly what prepare must refuse, so a
+    test asks for that by overriding, never by drifting.
+    """
+
+    selection = safe_load(selection_path.read_text(encoding="utf-8"))
+    review_tickers = [str(ticker) for ticker in selection.get("review_tickers") or []]
+    excluded = set(rejected)
+    db_path = _app_db(tmp_path, ledger_path)
+    seed_shortlist(
+        db_path,
+        research_gate_shortlist(
+            shortlist_id=shortlist_id,
+            selection_id=selection_id or str(selection["selection_id"]),
+            run_revision_id=(
+                run_revision_id or str(selection["selection"]["input_refs"]["candidates_ref"])
+            ),
+            as_of=as_of,
+            selected=[ticker for ticker in review_tickers if ticker not in excluded],
+            rejected=[ticker for ticker in review_tickers if ticker in excluded],
+        ),
+    )
+    return db_path
 
 
 def _longlist_row(ticker: str, rank: int = 1) -> dict[str, object]:
@@ -267,8 +314,10 @@ def _prepared_workspace(
                 "2026-07-03",
                 "--selection-output",
                 str(selection),
+                "--shortlist-id",
+                SHORTLIST_ID,
                 "--db",
-                str(_app_db(tmp_path)),
+                str(_seed_gate(tmp_path, selection)),
                 "--workspace",
                 str(workspace),
             ]
@@ -559,11 +608,17 @@ def test_prepare_annotates_held_reserved_without_excluding(
     }
 
 
-def test_prepare_empty_longlist_is_no_actionable_bargain(
+def test_prepare_selecting_nothing_is_no_actionable_bargain(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """A Gate that rejected everything is a finished cycle, not a broken one.
+
+    The workspace still exists — the comparison context is the record of what was
+    looked at — but nothing can be admitted, so no thesis can start.
+    """
     selection = tmp_path / "selection.yaml"
-    _write_selection(selection, [])
+    _write_selection(selection, [_longlist_row("2331"), _longlist_row("8929", rank=2)])
+    workspace = tmp_path / "ws"
     code, payload = _run(
         [
             "prepare",
@@ -571,16 +626,77 @@ def test_prepare_empty_longlist_is_no_actionable_bargain(
             "2026-07-03",
             "--selection-output",
             str(selection),
+            "--shortlist-id",
+            SHORTLIST_ID,
             "--db",
-            str(_app_db(tmp_path)),
+            str(_seed_gate(tmp_path, selection, rejected=["2331", "8929"])),
             "--workspace",
-            str(tmp_path / "ws"),
+            str(workspace),
         ],
         capsys,
     )
     assert code == 0
     assert payload["actionable"] is False
+    assert payload["admissible_tickers"] == []
+    assert payload["shortlist_slots"] == 0
     assert payload["note"] == "no actionable bargain"
+
+    workspace_selection = safe_load((workspace / "selection.yaml").read_text(encoding="utf-8"))
+    # Rejected candidates stay as comparison context and carry the Gate's answer.
+    assert [row["ticker"] for row in workspace_selection["longlist"]] == ["2331", "8929"]
+    assert {row["research_gate_decision"] for row in workspace_selection["longlist"]} == {
+        "rejected"
+    }
+
+    code = opportunity_main(
+        [
+            "thesis-scaffold",
+            "--workspace",
+            str(workspace),
+            "--db",
+            str(_app_db(tmp_path)),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(tmp_path / "market.sqlite"),
+            "--target-session",
+            TARGET_SESSION,
+        ]
+    )
+    assert code == 3
+    assert "not in the primary-research set" in capsys.readouterr().err
+    assert not (workspace / "2331").exists()
+
+
+def test_prepare_rejects_a_review_set_no_research_gate_judged(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An empty Review Set has no Research Gate judgment, so research cannot start.
+
+    A shortlist requires at least one entry, so this state is not a shortlist that
+    selected nothing — it is a cycle whose Gate never ran. Failing here says so once,
+    instead of producing a workspace that no session could ever complete.
+    """
+    selection = tmp_path / "selection.yaml"
+    _write_selection(selection, [])
+    code = opportunity_main(
+        [
+            "prepare",
+            "--asof",
+            "2026-07-03",
+            "--selection-output",
+            str(selection),
+            "--shortlist-id",
+            SHORTLIST_ID,
+            "--db",
+            str(_app_db(tmp_path)),
+            "--workspace",
+            str(tmp_path / "ws"),
+        ]
+    )
+    assert code == 3
+    assert "no canonical Research Gate judgment for selection" in capsys.readouterr().err
+    assert not (tmp_path / "ws").exists()
 
 
 def test_holding_prepare_builds_fixed_one_ticker_workspace(
@@ -740,8 +856,10 @@ def test_prepare_derives_shortlist_slots_from_selection_output(
             "2026-07-03",
             "--selection-output",
             str(selection),
+            "--shortlist-id",
+            SHORTLIST_ID,
             "--db",
-            str(_app_db(tmp_path)),
+            str(_seed_gate(tmp_path, selection)),
             "--workspace",
             str(tmp_path / "ws"),
         ],
@@ -864,8 +982,10 @@ def test_prepare_binds_matching_er_distribution_context(
             "2026-07-03",
             "--selection-output",
             str(selection),
+            "--shortlist-id",
+            SHORTLIST_ID,
             "--db",
-            str(_app_db(tmp_path)),
+            str(_seed_gate(tmp_path, selection)),
             "--workspace",
             str(workspace),
         ],
@@ -907,8 +1027,10 @@ def test_prepare_degrades_when_optional_er_context_is_malformed(
             "2026-07-03",
             "--selection-output",
             str(selection),
+            "--shortlist-id",
+            SHORTLIST_ID,
             "--db",
-            str(_app_db(tmp_path)),
+            str(_seed_gate(tmp_path, selection)),
             "--workspace",
             str(workspace),
         ],
@@ -941,8 +1063,10 @@ def test_prepare_rejects_invalid_research_selection_target_max(
             "2026-07-03",
             "--selection-output",
             str(selection),
+            "--shortlist-id",
+            SHORTLIST_ID,
             "--db",
-            str(_app_db(tmp_path)),
+            str(_seed_gate(tmp_path, selection)),
             "--workspace",
             str(tmp_path / "ws"),
         ]
@@ -1087,6 +1211,564 @@ def test_status_rejects_shortlist_ticker_outside_longlist(
     assert code == 3
 
 
+# --------------------------------------------------------------------------- #
+# Research Gate binding
+# --------------------------------------------------------------------------- #
+
+
+def _gated_workspace(
+    tmp_path: Path,
+    sqlite_path: Path,
+    *,
+    rejected: Sequence[str] = ("8929",),
+) -> tuple[Path, Path, Path]:
+    """Prepare a two-ticker workspace whose Gate selected some and rejected others."""
+
+    selection = tmp_path / "selection.yaml"
+    _write_selection(selection, [_longlist_row("2331"), _longlist_row("8929", rank=2)])
+    db_path = _seed_gate(tmp_path, selection, rejected=rejected)
+    workspace = tmp_path / "ws"
+    assert (
+        opportunity_main(
+            [
+                "prepare",
+                "--asof",
+                "2026-07-03",
+                "--selection-output",
+                str(selection),
+                "--shortlist-id",
+                SHORTLIST_ID,
+                "--db",
+                str(db_path),
+                "--workspace",
+                str(workspace),
+            ]
+        )
+        == 0
+    )
+    return workspace, selection, db_path
+
+
+def _set_primary_research_set(workspace: Path, tickers: Sequence[str]) -> None:
+    selection_path = workspace / "selection.yaml"
+    selection = safe_load(selection_path.read_text(encoding="utf-8"))
+    selection["shortlist"] = [{"ticker": ticker, "reason": "research"} for ticker in tickers]
+    selection_path.write_text(
+        yaml.safe_dump(selection, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+
+def test_research_gate_rejected_ticker_cannot_enter_the_primary_research_set(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Negative 1: a Review Set member the Gate rejected is refused before any thesis.
+
+    Bargain Assessment re-checks this at publication, but a proposal only needs a
+    thesis and a review — so a gate that fires at assessment time fires after the
+    capital-committing artifact already exists.
+    """
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("8929", "2026-07-10", 750.0, 1.0)])
+    workspace, _selection, db_path = _gated_workspace(tmp_path, sqlite_path)
+    _set_primary_research_set(workspace, ["8929"])
+
+    code = opportunity_main(["status", "--workspace", str(workspace), "--db", str(db_path)])
+    error = capsys.readouterr().err
+    assert code == 3
+    assert "8929" in error
+    assert f"{SHORTLIST_ID} rejected at the Research Gate" in error
+
+    code = opportunity_main(
+        [
+            "thesis-scaffold",
+            "--workspace",
+            str(workspace),
+            "--db",
+            str(db_path),
+            "--ticker",
+            "8929",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        now=FIXED_NOW,
+    )
+    assert code == 3
+    assert "rejected at the Research Gate" in capsys.readouterr().err
+    assert not (workspace / "8929").exists()
+    _assert_no_theses(db_path)
+
+
+def test_prepare_rejects_a_shortlist_that_judged_another_selection(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Negative 2: a judgment over some other selection cannot bound this one.
+
+    The judgment is looked up by the selection it judged, so one made elsewhere is
+    not merely mismatched — for this cycle it does not exist.
+    """
+    selection = tmp_path / "selection.yaml"
+    _write_selection(selection, [_longlist_row("2331")])
+    db_path = _seed_gate(tmp_path, selection, selection_id="selection-somewhere-else")
+    workspace = tmp_path / "ws"
+
+    code = opportunity_main(
+        [
+            "prepare",
+            "--asof",
+            "2026-07-03",
+            "--selection-output",
+            str(selection),
+            "--shortlist-id",
+            SHORTLIST_ID,
+            "--db",
+            str(db_path),
+            "--workspace",
+            str(workspace),
+        ]
+    )
+    error = capsys.readouterr().err
+    assert code == 3
+    assert f"no canonical Research Gate judgment for selection {SELECTION_ID}" in error
+    assert not workspace.exists()
+
+
+@pytest.mark.parametrize(
+    ("gate_as_of", "gate_run_revision_id", "expected"),
+    [
+        ("2026-07-02", None, "must both equal 2026-07-03"),
+        (None, "run-revision-other", "judged run 'run-revision-other'"),
+    ],
+)
+def test_prepare_rejects_a_shortlist_from_another_cycle(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    gate_as_of: str | None,
+    gate_run_revision_id: str | None,
+    expected: str,
+) -> None:
+    """Negative 3: same selection ID is not enough — as-of and run must agree too."""
+    selection = tmp_path / "selection.yaml"
+    _write_selection(selection, [_longlist_row("2331")])
+    db_path = _seed_gate(
+        tmp_path,
+        selection,
+        as_of=gate_as_of or "2026-07-03",
+        run_revision_id=gate_run_revision_id,
+    )
+    workspace = tmp_path / "ws"
+
+    code = opportunity_main(
+        [
+            "prepare",
+            "--asof",
+            "2026-07-03",
+            "--selection-output",
+            str(selection),
+            "--shortlist-id",
+            SHORTLIST_ID,
+            "--db",
+            str(db_path),
+            "--workspace",
+            str(workspace),
+        ]
+    )
+    assert code == 3
+    assert expected in capsys.readouterr().err
+    assert not workspace.exists()
+
+
+def test_prepare_rejects_a_shortlist_over_a_different_review_set(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The judgment has to cover this cycle's Review Set, member for member."""
+    selection = tmp_path / "selection.yaml"
+    _write_selection(selection, [_longlist_row("2331"), _longlist_row("8929", rank=2)])
+    db_path = _app_db(tmp_path)
+    seed_shortlist(
+        db_path,
+        research_gate_shortlist(
+            shortlist_id=SHORTLIST_ID,
+            selection_id=SELECTION_ID,
+            run_revision_id=RUN_REVISION_ID,
+            as_of="2026-07-03",
+            selected=["2331"],
+        ),
+    )
+    workspace = tmp_path / "ws"
+
+    code = opportunity_main(
+        [
+            "prepare",
+            "--asof",
+            "2026-07-03",
+            "--selection-output",
+            str(selection),
+            "--shortlist-id",
+            SHORTLIST_ID,
+            "--db",
+            str(db_path),
+            "--workspace",
+            str(workspace),
+        ]
+    )
+    error = capsys.readouterr().err
+    assert code == 3
+    assert "must equal the selection Review Set" in error
+    assert "missing=['8929']" in error
+    assert not workspace.exists()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected"),
+    [
+        ({"schema_version": 4}, "is schema_version 4"),
+        ({"research_gate_contract_id": "research-gate-v2"}, "unsupported Research Gate contract"),
+    ],
+)
+def test_prepare_rejects_a_shortlist_without_a_supported_research_gate(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    mutation: dict[str, object],
+    expected: str,
+) -> None:
+    """Negative 4: only a judgment this build understands may bound research.
+
+    A v4 shortlist predates the Research Gate contract, so its entries carry no
+    judgment research can honour. It stays readable as history; it just cannot
+    authorize spending research capacity.
+    """
+    selection = tmp_path / "selection.yaml"
+    _write_selection(selection, [_longlist_row("2331")])
+    payload = research_gate_shortlist(
+        shortlist_id=SHORTLIST_ID,
+        selection_id=SELECTION_ID,
+        run_revision_id=RUN_REVISION_ID,
+        as_of="2026-07-03",
+        selected=["2331"],
+    )
+    payload.update(mutation)
+    db_path = _app_db(tmp_path)
+    seed_shortlist(db_path, payload)
+    workspace = tmp_path / "ws"
+
+    code = opportunity_main(
+        [
+            "prepare",
+            "--asof",
+            "2026-07-03",
+            "--selection-output",
+            str(selection),
+            "--shortlist-id",
+            SHORTLIST_ID,
+            "--db",
+            str(db_path),
+            "--workspace",
+            str(workspace),
+        ]
+    )
+    assert code == 3
+    assert expected in capsys.readouterr().err
+    assert not workspace.exists()
+
+
+def test_prepare_rejects_an_unknown_shortlist_id(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    selection = tmp_path / "selection.yaml"
+    _write_selection(selection, [_longlist_row("2331")])
+    _seed_gate(tmp_path, selection)
+    workspace = tmp_path / "ws"
+
+    code = opportunity_main(
+        [
+            "prepare",
+            "--asof",
+            "2026-07-03",
+            "--selection-output",
+            str(selection),
+            "--shortlist-id",
+            "shortlist-20260703-absent",
+            "--db",
+            str(_app_db(tmp_path)),
+            "--workspace",
+            str(workspace),
+        ]
+    )
+    assert code == 3
+    assert f"was judged by {SHORTLIST_ID}, not shortlist-20260703-absent" in capsys.readouterr().err
+    assert not workspace.exists()
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        pytest.param(
+            lambda binding: binding["selected_tickers"].append("8929"),
+            id="widened_ticker_list",
+        ),
+        pytest.param(
+            lambda binding: binding.update({"selection_id": "selection-forged"}),
+            id="forged_selection_id",
+        ),
+    ],
+)
+def test_hand_edited_manifest_cannot_widen_the_admitted_set(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    mutate: Callable[[dict[str, object]], object],
+) -> None:
+    """Negative 5: the manifest records the binding; the stored shortlist is its authority."""
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("8929", "2026-07-10", 750.0, 1.0)])
+    workspace, _selection, db_path = _gated_workspace(tmp_path, sqlite_path)
+
+    manifest_path = workspace / "manifest.yaml"
+    manifest = safe_load(manifest_path.read_text(encoding="utf-8"))
+    mutate(manifest["inputs"]["shortlist"])
+    manifest_path.write_text(
+        yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    _set_primary_research_set(workspace, ["8929"])
+
+    code = opportunity_main(
+        [
+            "thesis-scaffold",
+            "--workspace",
+            str(workspace),
+            "--db",
+            str(db_path),
+            "--ticker",
+            "8929",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        now=FIXED_NOW,
+    )
+    assert code == 4
+    assert "does not match the canonical shortlist" in capsys.readouterr().err
+    assert not (workspace / "8929").exists()
+
+
+def test_repointing_the_manifest_at_another_judgment_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Naming a different real judgment must not re-bind an existing workspace.
+
+    A published judgment that selected the rejected ticker is the strongest form of
+    this: the manifest would then name a genuine Gate decision, so only anchoring
+    the lookup to the workspace's own hash-pinned selection can tell the two apart.
+    """
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("8929", "2026-07-10", 750.0, 1.0)])
+    workspace, selection, db_path = _gated_workspace(tmp_path, sqlite_path)
+    other = "shortlist-20260703-second-judgment"
+    _seed_gate(tmp_path, selection, rejected=["2331"], shortlist_id=other)
+
+    manifest_path = workspace / "manifest.yaml"
+    manifest = safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["inputs"]["shortlist"]["shortlist_id"] = other
+    manifest["inputs"]["shortlist"]["selected_tickers"] = ["8929"]
+    manifest_path.write_text(
+        yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    _set_primary_research_set(workspace, ["8929"])
+
+    code = opportunity_main(["status", "--workspace", str(workspace), "--db", str(db_path)])
+    error = capsys.readouterr().err
+    assert code == 4
+    assert "does not match the canonical shortlist" in error
+    assert not (workspace / "8929").exists()
+
+
+def test_prepare_admits_the_selected_subset_and_records_every_gate_decision(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Negative 6: selected tickers are researchable, and slots bound the admitted set."""
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace, _selection, db_path = _gated_workspace(tmp_path, sqlite_path)
+
+    selection = safe_load((workspace / "selection.yaml").read_text(encoding="utf-8"))
+    assert selection["research_gate_shortlist_id"] == SHORTLIST_ID
+    assert selection["admissible_tickers"] == ["2331"]
+    assert selection["shortlist_slots"] == 1
+    assert {row["ticker"]: row["research_gate_decision"] for row in selection["longlist"]} == {
+        "2331": "selected",
+        "8929": "rejected",
+    }
+
+    _set_primary_research_set(workspace, ["2331"])
+    code, payload = _run(["status", "--workspace", str(workspace), "--db", str(db_path)], capsys)
+    assert code == 0
+    assert payload["research_gate"] == {
+        "purpose": "opportunity",
+        "shortlist_id": SHORTLIST_ID,
+        "admissible_tickers": ["2331"],
+    }
+
+    assert (
+        opportunity_main(
+            [
+                "thesis-scaffold",
+                "--workspace",
+                str(workspace),
+                "--db",
+                str(db_path),
+                "--ticker",
+                "2331",
+                "--sqlite-path",
+                str(sqlite_path),
+                "--target-session",
+                TARGET_SESSION,
+            ],
+            now=FIXED_NOW,
+        )
+        == 0
+    )
+    assert (workspace / "2331" / "thesis-draft.yaml").is_file()
+
+
+def test_holding_review_workspace_needs_no_research_gate(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Negative 8: the ledger is holding review's source, so no Gate bounds it."""
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    ledger = _ledger_with_market_price_date(tmp_path / "ledger", date(2026, 7, 10))
+    workspace = tmp_path / "holding-ws"
+    assert (
+        opportunity_main(
+            [
+                "holding-prepare",
+                "--asof",
+                "2026-07-10",
+                "--db",
+                str(ledger),
+                "--ticker",
+                "2331",
+                "--workspace",
+                str(workspace),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    code, payload = _run(["status", "--workspace", str(workspace), "--db", str(ledger)], capsys)
+    assert code == 0
+    assert payload["research_gate"] == {
+        "purpose": "holding_review",
+        "shortlist_id": None,
+        "admissible_tickers": [],
+    }
+
+    assert (
+        opportunity_main(
+            [
+                "thesis-scaffold",
+                "--workspace",
+                str(workspace),
+                "--db",
+                str(ledger),
+                "--ticker",
+                "2331",
+                "--sqlite-path",
+                str(sqlite_path),
+                "--target-session",
+                "2026-07-13",
+            ],
+            now=FIXED_NOW,
+        )
+        == 0
+    )
+    assert (workspace / "2331" / "thesis-draft.yaml").is_file()
+
+
+def test_declaring_holding_review_does_not_opt_a_workspace_out_of_the_gate(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Forging the manifest's purpose must not turn the Gate off.
+
+    Holding review has no Research Gate because the ledger is its source, so a
+    workspace that claims that purpose has to prove its subject against the ledger.
+    Otherwise `purpose` is simply the switch that disables the binding.
+    """
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("8929", "2026-07-10", 750.0, 1.0)])
+    workspace, _selection, db_path = _gated_workspace(tmp_path, sqlite_path)
+
+    manifest_path = workspace / "manifest.yaml"
+    manifest = safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["purpose"] = "holding_review"
+    manifest["holding_ticker"] = "8929"
+    manifest_path.write_text(
+        yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    selection_path = workspace / "selection.yaml"
+    selection = safe_load(selection_path.read_text(encoding="utf-8"))
+    selection["longlist"] = [
+        {"rank": 1, "ticker": "8929", "sector": "サービス業", "portfolio_annotation": "held"}
+    ]
+    selection["shortlist"] = [{"ticker": "8929", "reason": "open holding review"}]
+    selection["shortlist_slots"] = 1
+    selection["actionable"] = True
+    selection_path.write_text(
+        yaml.safe_dump(selection, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    comparison_path = workspace / "research-comparison.yaml"
+    comparison = safe_load(comparison_path.read_text(encoding="utf-8"))
+    comparison["candidates"] = [{"ticker": "8929"}]
+    comparison["selected_ticker"] = "8929"
+    comparison_path.write_text(
+        yaml.safe_dump(comparison, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+    code = opportunity_main(
+        [
+            "thesis-scaffold",
+            "--workspace",
+            str(workspace),
+            "--db",
+            str(db_path),
+            "--ticker",
+            "8929",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        now=FIXED_NOW,
+    )
+    assert code == 4
+    assert "is not an open holding in the canonical ledger" in capsys.readouterr().err
+    assert not (workspace / "8929").exists()
+
+
+def test_workspace_prepared_before_the_binding_fails_closed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A workspace with no Gate binding is rebuilt, never trusted."""
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace, _selection, db_path = _gated_workspace(tmp_path, sqlite_path)
+    manifest_path = workspace / "manifest.yaml"
+    manifest = safe_load(manifest_path.read_text(encoding="utf-8"))
+    del manifest["inputs"]["shortlist"]
+    manifest_path.write_text(
+        yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+    code = opportunity_main(["status", "--workspace", str(workspace), "--db", str(db_path)])
+    error = capsys.readouterr().err
+    assert code == 3
+    assert "no Research Gate binding" in error
+    assert "--shortlist-id" in error
+
+
 def test_thesis_scaffold_requires_primary_research_set_membership(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1132,6 +1814,8 @@ def test_prepare_rejects_noncanonical_review_set_ticker_before_workspace_write(
             "2026-07-03",
             "--selection-output",
             str(selection_output),
+            "--shortlist-id",
+            SHORTLIST_ID,
             "--db",
             str(_app_db(tmp_path)),
             "--workspace",
@@ -1164,8 +1848,10 @@ def test_primary_research_tickers_share_lineage_and_remain_isolated(
                 "2026-07-03",
                 "--selection-output",
                 str(selection_output),
+                "--shortlist-id",
+                SHORTLIST_ID,
                 "--db",
-                str(_app_db(tmp_path)),
+                str(_seed_gate(tmp_path, selection_output)),
                 "--workspace",
                 str(workspace),
             ]
@@ -1620,6 +2306,8 @@ def test_prepare_rejects_selection_estimate_asof_mismatch(
             "2026-07-03",
             "--selection-output",
             str(selection),
+            "--shortlist-id",
+            SHORTLIST_ID,
             "--db",
             str(_app_db(tmp_path)),
             "--workspace",
@@ -1646,6 +2334,8 @@ def test_prepare_rejects_duplicate_review_set_ticker(
             "2026-07-03",
             "--selection-output",
             str(selection),
+            "--shortlist-id",
+            SHORTLIST_ID,
             "--db",
             str(_app_db(tmp_path)),
             "--workspace",

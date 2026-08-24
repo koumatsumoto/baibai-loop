@@ -68,6 +68,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prepare_parser.add_argument("--asof", required=True, help="workspace as-of date (YYYY-MM-DD)")
     prepare_parser.add_argument("--selection-output", required=True, type=Path)
+    prepare_parser.add_argument(
+        "--shortlist-id",
+        required=True,
+        help="canonical Shortlist whose Research Gate judgment bounds this workspace",
+    )
     prepare_parser.add_argument("--db", type=Path)
     prepare_parser.add_argument("--workspace", required=True, type=Path)
     prepare_parser.add_argument(
@@ -194,6 +199,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 prepared = prepare_workspace(
                     asof=_parse_date(args.asof),
                     selection_output=args.selection_output,
+                    shortlist_id=args.shortlist_id,
                     db_path=args.db,
                     workspace=args.workspace,
                     force=args.force,
@@ -204,6 +210,8 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         "actionable": prepared.actionable,
                         "longlist_size": prepared.longlist_size,
                         "shortlist_slots": prepared.shortlist_slots,
+                        "shortlist_id": prepared.shortlist_id,
+                        "admissible_tickers": list(prepared.admissible_tickers),
                         "note": None if prepared.actionable else "no actionable bargain",
                     },
                     out,

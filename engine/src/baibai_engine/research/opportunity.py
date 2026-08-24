@@ -32,9 +32,11 @@ from typing import get_args
 import yaml
 from pydantic import BaseModel, ValidationError
 
+from baibai_engine.appdb.paths import database_path
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.repository_layout import ER_LEVEL_CALIBRATION_CONTEXT_PATH
 from baibai_engine.foundation.review_set import (
+    RESEARCH_GATE_CONTRACT_ID,
     ReviewSetResolutionError,
     resolve_review_set_rows,
 )
@@ -46,6 +48,7 @@ from baibai_engine.position.ledger import (
 )
 from baibai_engine.position.policy import PORTFOLIO_POLICY
 from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.read_api.shortlist import shortlist_payloads_for_selection
 
 from .close_source import (
     PreviousClose,
@@ -75,6 +78,11 @@ from .thesis import (
 )
 
 TOOL_VERSION = "opportunity-v1"
+# Research reads the Research Gate judgment, so it only accepts the shortlist schema
+# that carries one. Older canonical shortlists stay readable as history; they simply
+# cannot bound a research workspace, and `read_api` keeps projecting them for the
+# history views.
+RESEARCH_GATE_SHORTLIST_SCHEMA_VERSION = 5
 BOARD_LOT: int = PORTFOLIO_POLICY["order_constraints"]["board_lot"]
 STARTER_MAX_ORDER_NOTIONAL_YEN: int = PORTFOLIO_POLICY["starter_band"]["max_order_notional_yen"]
 # 対象 sizing 帯 (20-30万円 / 100株 = ¥2000-3000/株) はちょうど JPX 現物の ¥1 tick 帯。
@@ -186,21 +194,227 @@ class PrepareResult:
     actionable: bool
     shortlist_slots: int
     longlist_size: int
+    shortlist_id: str | None = None
+    admissible_tickers: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _ResearchGate:
+    """The canonical Research Gate judgment a research workspace is bound to.
+
+    ``admissible`` is the Shortlist's ``selected`` set in judgment order: the exact
+    set a human may admit into the Primary Research Set. The human still chooses
+    which of those to research; what they cannot do is widen the set from the
+    workspace, because research capacity and a canonical thesis are spent per
+    ticker and the Gate already decided this cycle's answer for each one.
+    """
+
+    shortlist_id: str
+    selection_id: str
+    admissible: tuple[str, ...]
+    decision_by_ticker: dict[str, str]
+
+
+def _research_gate_decisions(
+    payload: Mapping[str, object], *, shortlist_id: str
+) -> tuple[tuple[str, ...], dict[str, str]]:
+    """Read one shortlist payload as a Research Gate judgment, or fail closed."""
+
+    version = payload.get("schema_version")
+    if version != RESEARCH_GATE_SHORTLIST_SCHEMA_VERSION:
+        raise OpportunityDataError(
+            f"research requires a Shortlist v{RESEARCH_GATE_SHORTLIST_SCHEMA_VERSION} "
+            f"Research Gate judgment: {shortlist_id} is schema_version {version!r}"
+        )
+    contract_id = payload.get("research_gate_contract_id")
+    if contract_id != RESEARCH_GATE_CONTRACT_ID:
+        raise OpportunityDataError(
+            f"unsupported Research Gate contract on {shortlist_id}: {contract_id!r} "
+            f"(this build admits {RESEARCH_GATE_CONTRACT_ID!r})"
+        )
+    entries = _dict_list(payload.get("entries"))
+    if not entries:
+        raise OpportunityDataError(f"{shortlist_id} carries no Research Gate entries")
+    decisions: dict[str, str] = {}
+    ordered: list[str] = []
+    for entry in entries:
+        ticker = _nonempty_string(entry.get("ticker"), label=f"{shortlist_id} entry ticker")
+        decision = entry.get("decision")
+        if decision not in {"selected", "rejected"}:
+            raise OpportunityDataError(
+                f"{shortlist_id} entry {ticker} has an unknown Research Gate decision: {decision!r}"
+            )
+        if ticker in decisions:
+            raise OpportunityDataError(f"{shortlist_id} judged {ticker} more than once")
+        decisions[ticker] = str(decision)
+        if decision == "selected":
+            ordered.append(ticker)
+    return tuple(ordered), decisions
+
+
+def _resolve_research_gate(
+    *,
+    db_path: Path | None,
+    expected_shortlist_id: str,
+    selection: Mapping[str, object],
+    selection_output: Path,
+    asof: date,
+    review_tickers: Sequence[str],
+) -> _ResearchGate:
+    """Resolve the canonical judgment for this selection, and check it is the named one.
+
+    The lookup is by ``selection_id``, never by the ID a caller hands in, so
+    renaming the bound shortlist cannot hand a workspace some other cycle's Gate:
+    the judgment a selection carries is a property of the store, not of the
+    request. What this does not claim is immutability of the whole binding — the
+    selection a workspace points at is named in the same editable manifest as its
+    hash, so re-pointing both together moves the workspace to that selection's
+    Gate. The property that holds either way is the one that matters here: a
+    workspace can only admit what some published Research Gate selected.
+
+    Publication permits only one judgment per selection — a second one carries a
+    Review Basis that is stale by then — so any other count is a store this must
+    not interpret.
+
+    A workspace researching a different cycle than the judgment it names is not a
+    lesser form of the same operation: the E[r], the prices, and the rejection
+    reasons all belong to another as-of. Every mismatch is fail-close, before any
+    research capacity is spent.
+    """
+
+    selection_id = _nonempty_string(selection.get("selection_id"), label="selection_id")
+    payloads = shortlist_payloads_for_selection(database_path(db_path), selection_id)
+    if not payloads:
+        raise OpportunityDataError(
+            f"no canonical Research Gate judgment for selection {selection_id} "
+            f"({selection_output}); publish the shortlist before starting research"
+        )
+    if len(payloads) > 1:
+        named = ", ".join(sorted(str(payload.get("shortlist_id")) for payload in payloads))
+        raise OpportunityDataError(
+            f"selection {selection_id} carries more than one canonical judgment: {named}"
+        )
+    payload = payloads[0]
+    shortlist_id = _nonempty_string(payload.get("shortlist_id"), label="shortlist_id")
+    if shortlist_id != expected_shortlist_id:
+        raise OpportunityDataError(
+            f"selection {selection_id} was judged by {shortlist_id}, not {expected_shortlist_id}"
+        )
+    admissible, decisions = _research_gate_decisions(payload, shortlist_id=shortlist_id)
+
+    expected_asof = asof.isoformat()
+    metadata = _required_mapping(selection.get("selection"), label="selection.selection")
+    if payload.get("as_of") != expected_asof or metadata.get("asof") != expected_asof:
+        raise OpportunityDataError(
+            f"{shortlist_id} as_of {payload.get('as_of')!r} and selection as_of "
+            f"{metadata.get('asof')!r} must both equal {expected_asof}"
+        )
+    input_refs = _required_mapping(
+        metadata.get("input_refs"), label="selection.selection.input_refs"
+    )
+    if payload.get("run_revision_id") != input_refs.get("candidates_ref"):
+        raise OpportunityDataError(
+            f"{shortlist_id} judged run {payload.get('run_revision_id')!r}, not the "
+            f"selection's {input_refs.get('candidates_ref')!r}"
+        )
+    # Publication already binds entries to the Review Set; re-checking here keeps a
+    # shortlist and a selection that disagree from meeting for the first time inside
+    # a research workspace.
+    if set(decisions) != set(review_tickers):
+        missing = sorted(set(review_tickers) - set(decisions))
+        extra = sorted(set(decisions) - set(review_tickers))
+        raise OpportunityDataError(
+            f"{shortlist_id} entries must equal the selection Review Set; "
+            f"missing={missing}, extra={extra}"
+        )
+    return _ResearchGate(
+        shortlist_id=shortlist_id,
+        selection_id=selection_id,
+        admissible=admissible,
+        decision_by_ticker=decisions,
+    )
+
+
+def _verify_research_gate(
+    manifest: Mapping[str, object], inputs: Mapping[str, object], *, db_path: Path | None
+) -> _ResearchGate:
+    """Re-resolve the bound judgment on every workspace gate, from the pinned inputs.
+
+    The manifest names the judgment so an operator can read it, but the identity is
+    re-derived from the selection each time, so a hand-written ticker list is never
+    what a gate reads. Renaming the bound shortlist stops matching the judgment the
+    selection carries; what an edit cannot do at all is admit a ticker no published
+    Research Gate selected.
+    """
+
+    binding = inputs.get("shortlist")
+    if not isinstance(binding, Mapping):
+        raise OpportunityDataError(
+            "workspace has no Research Gate binding; rebuild it with "
+            "`research prepare --shortlist-id <SHORTLIST_ID> --force`"
+        )
+    recorded_shortlist_id = _nonempty_string(
+        binding.get("shortlist_id"), label="manifest.inputs.shortlist.shortlist_id"
+    )
+    recorded_selection_id = _nonempty_string(
+        binding.get("selection_id"), label="manifest.inputs.shortlist.selection_id"
+    )
+    recorded_tickers = binding.get("selected_tickers")
+    if not isinstance(recorded_tickers, Sequence) or isinstance(recorded_tickers, str | bytes):
+        raise OpportunityDataError("manifest.inputs.shortlist.selected_tickers must be an array")
+    selection_ref = _required_mapping(
+        inputs.get("selection_output"), label="manifest.inputs.selection_output"
+    )
+    selection_output = Path(
+        _nonempty_string(selection_ref.get("path"), label="manifest.inputs.selection_output.path")
+    )
+    selection = _load_mapping(selection_output, label="selection output")
+    try:
+        review_tickers, _rows = resolve_review_set_rows(selection)
+    except ReviewSetResolutionError as error:
+        raise OpportunityDataError(f"selection Review Set is invalid: {error}") from error
+    asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
+    try:
+        gate = _resolve_research_gate(
+            db_path=db_path,
+            expected_shortlist_id=recorded_shortlist_id,
+            selection=selection,
+            selection_output=selection_output,
+            asof=asof,
+            review_tickers=review_tickers,
+        )
+    except OpportunityDataError as error:
+        raise OpportunityConflictError(
+            "workspace Research Gate binding does not match the canonical shortlist "
+            f"{recorded_shortlist_id}; rebuild the workspace with "
+            f"`research prepare --force` ({error})"
+        ) from error
+    if gate.selection_id != recorded_selection_id or list(gate.admissible) != [
+        str(value) for value in recorded_tickers
+    ]:
+        raise OpportunityConflictError(
+            "workspace Research Gate binding does not match the canonical shortlist "
+            f"{gate.shortlist_id}; rebuild the workspace with `research prepare --force`"
+        )
+    return gate
 
 
 def prepare_workspace(
     *,
     asof: date,
     selection_output: Path,
+    shortlist_id: str,
     db_path: Path | None,
     workspace: Path,
     force: bool = False,
 ) -> PrepareResult:
-    """Build the opportunity workspace from a screening selection output and ledger.
+    """Build the workspace from a selection, its Research Gate judgment, and the ledger.
 
-    Holdings/reservations are ledger annotations, never hard exclusions: a held or
-    reserved ticker stays a comparable candidate. An empty longlist is a normal
-    'no actionable bargain' outcome and still produces a workspace.
+    The workspace keeps the whole Review Set as comparison context but may only
+    admit the shortlist's ``selected`` tickers into primary research: the Gate has
+    already spent this cycle's judgment on the rest. Holdings/reservations stay
+    ledger annotations, never hard exclusions. A Gate that selected nothing is a
+    normal 'no actionable bargain' outcome and still produces a workspace.
     """
     selection = _load_mapping(selection_output, label="selection output")
     try:
@@ -209,6 +423,14 @@ def prepare_workspace(
         raise OpportunityDataError(f"selection Review Set is invalid: {error}") from error
     longlist = [dict(review_rows[ticker]) for ticker in review_tickers]
     _validate_selection_estimate_asof(selection=selection, longlist=longlist, asof=asof)
+    gate = _resolve_research_gate(
+        db_path=db_path,
+        expected_shortlist_id=shortlist_id,
+        selection=selection,
+        selection_output=selection_output,
+        asof=asof,
+        review_tickers=review_tickers,
+    )
     snapshot, append_head = _load_snapshot(db_path)
 
     manifest_path = workspace / "manifest.yaml"
@@ -219,20 +441,27 @@ def prepare_workspace(
 
     held = {holding.ticker for holding in snapshot.holdings}
     reserved = {reservation.ticker for reservation in snapshot.active_reservations}
-    annotated = [_annotate_candidate(row, held=held, reserved=reserved) for row in longlist]
+    annotated = [
+        _annotate_candidate(row, held=held, reserved=reserved, decisions=gate.decision_by_ticker)
+        for row in longlist
+    ]
     research_selection_target_max = _research_selection_target_max(selection)
+    # Slots bound the admitted set, not the comparison set: rejected rows stay in the
+    # longlist as context and can never occupy a research slot.
     shortlist_slots = (
-        min(research_selection_target_max, len(annotated))
+        min(research_selection_target_max, len(gate.admissible))
         if research_selection_target_max > 0
-        else len(annotated)
+        else len(gate.admissible)
     )
 
     selection_doc = {
         "as_of": asof.isoformat(),
+        "research_gate_shortlist_id": gate.shortlist_id,
+        "admissible_tickers": list(gate.admissible),
         "longlist": annotated,
         "shortlist_slots": shortlist_slots,
         "shortlist": [],
-        "actionable": bool(annotated),
+        "actionable": bool(gate.admissible),
     }
     er_context, er_context_ref = _load_er_distribution_context(
         selection=selection,
@@ -249,6 +478,13 @@ def prepare_workspace(
         "selection_output": {
             "path": selection_output.as_posix(),
             "sha256": _sha256_file(selection_output),
+        },
+        # A readable record of the binding, not its authority: every gate re-resolves
+        # these tickers from the stored shortlist before trusting them.
+        "shortlist": {
+            "shortlist_id": gate.shortlist_id,
+            "selection_id": gate.selection_id,
+            "selected_tickers": list(gate.admissible),
         },
         "ledger": {
             "entity_id": "portfolio-ledger",
@@ -270,9 +506,11 @@ def prepare_workspace(
     _write_status(workspace, db_path=db_path)
     return PrepareResult(
         workspace=workspace,
-        actionable=bool(annotated),
+        actionable=bool(gate.admissible),
         shortlist_slots=shortlist_slots,
         longlist_size=len(annotated),
+        shortlist_id=gate.shortlist_id,
+        admissible_tickers=gate.admissible,
     )
 
 
@@ -357,12 +595,17 @@ def prepare_holding_workspace(
 
 
 def _annotate_candidate(
-    row: Mapping[str, object], *, held: set[str], reserved: set[str]
+    row: Mapping[str, object],
+    *,
+    held: set[str],
+    reserved: set[str],
+    decisions: Mapping[str, str],
 ) -> dict[str, object]:
     ticker = str(row.get("ticker") or "")
     annotation = _portfolio_annotation(ticker, held=held, reserved=reserved)
     output = dict(row)
     output["portfolio_annotation"] = annotation
+    output["research_gate_decision"] = decisions[ticker]
     return output
 
 
@@ -565,9 +808,26 @@ def compute_status(workspace: Path, *, db_path: Path | None = None) -> dict[str,
     drafts are editable, but their structure and lineage must remain consistent.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    _verify_external_inputs(manifest, db_path=db_path)
-    _validate_editable_drafts(workspace, manifest)
+    gate = _verify_external_inputs(manifest, db_path=db_path)
+    _validate_editable_drafts(workspace, manifest, gate=gate)
+    status = _draft_status(workspace, manifest)
+    status["research_gate"] = _research_gate_view(gate)
+    return status
 
+
+def _research_gate_view(gate: _ResearchGate | None) -> dict[str, object]:
+    """Name the judgment bounding this workspace and what it lets a human admit."""
+
+    if gate is None:
+        return {"purpose": "holding_review", "shortlist_id": None, "admissible_tickers": []}
+    return {
+        "purpose": "opportunity",
+        "shortlist_id": gate.shortlist_id,
+        "admissible_tickers": list(gate.admissible),
+    }
+
+
+def _draft_status(workspace: Path, manifest: Mapping[str, object]) -> dict[str, object]:
     selection = _load_mapping(workspace / "selection.yaml", label="workspace selection")
     shortlist = _dict_list(selection.get("shortlist"))
     shortlist_tickers = [str(row.get("ticker") or "") for row in shortlist]
@@ -726,7 +986,21 @@ def _status_payload(
     }
 
 
-def _verify_external_inputs(manifest: Mapping[str, object], *, db_path: Path | None = None) -> None:
+def _verify_external_inputs(
+    manifest: Mapping[str, object], *, db_path: Path | None = None
+) -> _ResearchGate | None:
+    """Re-check every external input, and return the Research Gate that bounds this workspace.
+
+    Returning the gate rather than reading it later is what keeps the two in step:
+    a caller cannot validate drafts without having first proved, against the store,
+    which tickers the Gate admits.
+
+    Holding review has no Gate — the ledger is its source — so it gets ``None``, and
+    its subject is re-checked against that ledger here. Both purposes therefore
+    prove their subject against a store: without that, declaring ``holding_review``
+    in the manifest would be a way to opt out of the Gate entirely.
+    """
+
     inputs = manifest.get("inputs")
     if not isinstance(inputs, Mapping):
         raise OpportunityDataError("manifest is missing external input hashes")
@@ -772,9 +1046,34 @@ def _verify_external_inputs(manifest: Mapping[str, object], *, db_path: Path | N
             raise OpportunityConflictError(
                 f"workspace external input changed since prepare (input hash drift): {name}"
             )
+    if purpose == "holding_review":
+        _require_open_holding(manifest, db_path=db_path)
+        return None
+    return _verify_research_gate(manifest, inputs, db_path=db_path)
 
 
-def _validate_editable_drafts(workspace: Path, manifest: Mapping[str, object]) -> None:
+def _require_open_holding(manifest: Mapping[str, object], *, db_path: Path | None) -> None:
+    """Re-prove a holding-review workspace's subject against the canonical ledger.
+
+    ``holding-prepare`` refuses a ticker that is not an open holding, but the
+    manifest recording that answer is an editable file. Re-reading the ledger on
+    every gate keeps the purpose from being a way to research an arbitrary ticker.
+    """
+
+    ticker = _string_or_none(manifest.get("holding_ticker"))
+    if ticker is None:
+        raise OpportunityDataError("holding-review manifest is missing holding_ticker")
+    snapshot, _append_head = _load_snapshot(db_path)
+    if all(holding.ticker != ticker for holding in snapshot.holdings):
+        raise OpportunityConflictError(
+            f"holding-review workspace subject {ticker} is not an open holding in the "
+            "canonical ledger"
+        )
+
+
+def _validate_editable_drafts(
+    workspace: Path, manifest: Mapping[str, object], *, gate: _ResearchGate | None
+) -> None:
     selection = _load_mapping(workspace / "selection.yaml", label="workspace selection")
     comparison = _load_mapping(workspace / "research-comparison.yaml", label="research comparison")
     manifest_asof = str(manifest.get("as_of") or "")
@@ -799,11 +1098,25 @@ def _validate_editable_drafts(workspace: Path, manifest: Mapping[str, object]) -
     if not isinstance(shortlist_slots, int) or shortlist_slots < 0:
         raise OpportunityDataError("workspace shortlist_slots is invalid")
     shortlist_tickers = [str(row.get("ticker") or "") for row in shortlist]
-    if (
-        len(shortlist) > shortlist_slots
-        or len(shortlist_tickers) != len(set(shortlist_tickers))
-        or any(ticker not in longlist_tickers for ticker in shortlist_tickers)
+    if len(shortlist_tickers) != len(set(shortlist_tickers)) or any(
+        ticker not in longlist_tickers for ticker in shortlist_tickers
     ):
+        raise OpportunityDataError("workspace shortlist is invalid")
+    # Narrowing guard, not a reachable state: `_verify_external_inputs` reads purpose
+    # from this same manifest and returns None only for holding review, which left
+    # above. A missing binding is refused there, with the command that rebuilds it.
+    if gate is None:  # pragma: no cover - unreachable by construction
+        raise OpportunityDataError("opportunity workspace has no Research Gate binding")
+    # Named before the slot count: over-filling and reaching past the Gate both show
+    # up as "too many tickers", and only one of them is a capacity question.
+    rejected = [ticker for ticker in shortlist_tickers if ticker not in gate.admissible]
+    if rejected:
+        raise OpportunityDataError(
+            f"workspace shortlist admits {', '.join(rejected)}, which "
+            f"{gate.shortlist_id} rejected at the Research Gate; to research a rejected "
+            "candidate, publish a new Research Gate judgment and re-prepare"
+        )
+    if len(shortlist) > shortlist_slots:
         raise OpportunityDataError("workspace shortlist is invalid")
 
     candidates = _dict_list(comparison.get("candidates"))
@@ -873,7 +1186,9 @@ def _review_draft_path(workspace: Path, ticker: str, asof: date) -> Path:
     return _research_ticker_dir(workspace, ticker) / _review_filename(asof=asof, ticker=ticker)
 
 
-def _require_primary_research_ticker(workspace: Path, ticker: str, *, action: str) -> None:
+def _require_primary_research_ticker(
+    workspace: Path, ticker: str, *, action: str, gate: _ResearchGate | None
+) -> None:
     selection = _load_mapping(workspace / "selection.yaml", label="workspace selection")
     shortlist_tickers = {
         str(row.get("ticker") or "") for row in _dict_list(selection.get("shortlist"))
@@ -881,6 +1196,10 @@ def _require_primary_research_ticker(workspace: Path, ticker: str, *, action: st
     if ticker not in shortlist_tickers:
         raise OpportunityDataError(
             f"cannot {action} for {ticker}: ticker is not in the primary-research set"
+        )
+    if gate is not None and ticker not in gate.admissible:
+        raise OpportunityDataError(
+            f"cannot {action} for {ticker}: {gate.shortlist_id} rejected it at the Research Gate"
         )
 
 
@@ -906,9 +1225,9 @@ def scaffold_thesis(
     series). An unresolved corporate action blocks the corporate-action check.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    _verify_external_inputs(manifest, db_path=db_path)
-    _validate_editable_drafts(workspace, manifest)
-    _require_primary_research_ticker(workspace, ticker, action="scaffold research")
+    gate = _verify_external_inputs(manifest, db_path=db_path)
+    _validate_editable_drafts(workspace, manifest, gate=gate)
+    _require_primary_research_ticker(workspace, ticker, action="scaffold research", gate=gate)
     asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     purpose = str(manifest.get("purpose") or "opportunity")
     screening_estimate: dict[str, object] | None
@@ -1260,9 +1579,9 @@ def scaffold_review(
     and plan-limit resolve it without an intervening copy.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    _verify_external_inputs(manifest, db_path=db_path)
-    _validate_editable_drafts(workspace, manifest)
-    _require_primary_research_ticker(workspace, ticker, action="scaffold review")
+    gate = _verify_external_inputs(manifest, db_path=db_path)
+    _validate_editable_drafts(workspace, manifest, gate=gate)
+    _require_primary_research_ticker(workspace, ticker, action="scaffold review", gate=gate)
     asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     ticker_dir = _research_ticker_dir(workspace, ticker)
     thesis_path = ticker_dir / "thesis-draft.yaml"
@@ -1357,12 +1676,12 @@ def promote(
     path confinement. Reusing an immutable ID with different content is rejected.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    _verify_external_inputs(manifest, db_path=db_path)
-    _validate_editable_drafts(workspace, manifest)
+    gate = _verify_external_inputs(manifest, db_path=db_path)
+    _validate_editable_drafts(workspace, manifest, gate=gate)
     # Every researched ticker earns a canonical thesis, not only the one being bought.
     # A cycle that buys nothing still produced the judgment that says why, and the
     # bargain assessment binds each case's machine values to a stored thesis.
-    _require_primary_research_ticker(workspace, ticker, action="promote")
+    _require_primary_research_ticker(workspace, ticker, action="promote", gate=gate)
 
     manifest_asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     ticker_dir = _research_ticker_dir(workspace, ticker)

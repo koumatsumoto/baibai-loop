@@ -63,6 +63,7 @@ _ARGUMENTS: dict[str, object] = {
     "end": date(2026, 7, 29),
     "operation_id": "op-20260729-a-1",
     "run_revision_id": "run-revision-20260729",
+    "selection_id": "selection-20260729-a",
     "series_id": "jp.cpi",
     "since": date(2026, 7, 28),
     "shortlist_id": "shortlist-20260729-a",
@@ -310,6 +311,98 @@ def test_shortlist_reader_projects_each_known_legacy_version(
     assert payload is not None
     assert payload["attention_provenance_status"] == "unresolved"
     assert payload["attention_policy_id"] is None
+
+
+def test_shortlist_payloads_for_selection_answers_by_the_selection_it_judged(
+    tmp_path: Path,
+) -> None:
+    """`research prepare` asks which judgment covers a cycle, not which ID exists."""
+
+    store = tmp_path / "app.sqlite"
+    with sqlite3.connect(store) as connection:
+        connection.execute(
+            "CREATE TABLE shortlist (shortlist_id TEXT, selection_id TEXT, as_of TEXT, "
+            "published_at TEXT, payload TEXT)"
+        )
+        for shortlist_id, selection_id, schema_version, published_at in (
+            ("shortlist-20260729-current", "selection-20260729-a", 5, "2026-07-29T14:00:00+09:00"),
+            ("shortlist-20260701-legacy", "selection-20260701-a", 4, "2026-07-01T14:00:00+09:00"),
+        ):
+            connection.execute(
+                "INSERT INTO shortlist VALUES (?, ?, ?, ?, ?)",
+                (
+                    shortlist_id,
+                    selection_id,
+                    "2026-07-29",
+                    published_at,
+                    json.dumps(
+                        {
+                            "schema_version": schema_version,
+                            "entries": [],
+                            "shortlist_id": shortlist_id,
+                            "selection_id": selection_id,
+                        }
+                    ),
+                ),
+            )
+
+    current = read_api.shortlist_payloads_for_selection(store, "selection-20260729-a")
+    assert [payload["shortlist_id"] for payload in current] == ["shortlist-20260729-current"]
+    assert current[0]["schema_version"] == 5
+    assert current[0]["attention_provenance_status"] == "exact"
+
+    # History stays readable here; refusing it as a research binding is the research
+    # boundary's call, not this query's — so the version has to survive the projection.
+    legacy = read_api.shortlist_payloads_for_selection(store, "selection-20260701-a")
+    assert [payload["schema_version"] for payload in legacy] == [4]
+    assert legacy[0]["attention_provenance_status"] == "unresolved"
+
+    assert read_api.shortlist_payloads_for_selection(store, "selection-absent") == []
+
+
+def test_shortlist_payloads_for_selection_returns_every_judgment_newest_first(
+    tmp_path: Path,
+) -> None:
+    """Two judgments over one selection is a store the caller must refuse, not pick from.
+
+    Publication cannot produce this state, so the query reports what it found and
+    leaves the refusal to the boundary that knows one judgment is required.
+    """
+
+    store = tmp_path / "app.sqlite"
+    with sqlite3.connect(store) as connection:
+        connection.execute(
+            "CREATE TABLE shortlist (shortlist_id TEXT, selection_id TEXT, as_of TEXT, "
+            "published_at TEXT, payload TEXT)"
+        )
+        for shortlist_id, published_at in (
+            ("shortlist-20260729-first", "2026-07-29T14:00:00+09:00"),
+            ("shortlist-20260729-second", "2026-07-29T15:00:00+09:00"),
+        ):
+            connection.execute(
+                "INSERT INTO shortlist VALUES (?, ?, ?, ?, ?)",
+                (
+                    shortlist_id,
+                    "selection-20260729-a",
+                    "2026-07-29",
+                    published_at,
+                    json.dumps(
+                        {
+                            "schema_version": 5,
+                            "entries": [],
+                            "shortlist_id": shortlist_id,
+                            "selection_id": "selection-20260729-a",
+                        }
+                    ),
+                ),
+            )
+
+    payloads = read_api.shortlist_payloads_for_selection(store, "selection-20260729-a")
+
+    assert [payload["shortlist_id"] for payload in payloads] == [
+        "shortlist-20260729-second",
+        "shortlist-20260729-first",
+    ]
 
 
 def test_shortlist_reader_rejects_an_unknown_version(tmp_path: Path) -> None:

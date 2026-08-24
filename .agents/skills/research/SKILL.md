@@ -10,6 +10,7 @@ description: 人間が選んだ候補を一次情報で深掘りし、thesis、�
 ## 前提
 
 - active の opportunity session と、人間が選んだ primary-research set。
+- primary-research set は canonical Shortlist の `selected` の部分集合であること。Research Gate が `rejected` とした ticker は深掘りしない。
 - 選択内容と予算条件を session checkpoint の `human_confirmation` に記録済みであること。
 
 ## 手順
@@ -18,10 +19,14 @@ description: 人間が選んだ候補を一次情報で深掘りし、thesis、�
 
    ```bash
    uv run baibai-engine research prepare --asof <ASOF> --selection-output <selection.yaml> \
-     --db stores/application/baibai.sqlite --workspace .cache/opportunity/<ASOF>
+     --shortlist-id <SHORTLIST_ID> --db stores/application/baibai.sqlite --workspace .cache/opportunity/<ASOF>
    ```
 
-   selection file は workspace 外に置く。手元にない場合は `screening selection show` で再取得し、`select` は再実行しない。workspace の shortlist に選択 ticker を記入し、各caseで `thesis-scaffold` と `review-scaffold` を実行する。次の操作は `research status` に従う。
+   `--shortlist-id` は selection を判断した canonical Shortlist。prepare は selection と Shortlist の `selection_id` / as-of / run revision / Review Set membership を照合し、`selected` を admission 可能集合として workspace へ固定する。selection file は workspace 外に置く。手元にない場合は `screening selection show` で再取得し、`select` は再実行しない。
+
+   workspace の `selection.yaml` の `shortlist` に選択 ticker を記入する。書けるのは `admissible_tickers`（= Shortlist selected）だけで、Review Set に居ても `rejected` なら scaffold 前に拒否される。各caseで `thesis-scaffold` と `review-scaffold` を実行し、次の操作は `research status` に従う。
+
+   Research Gate の判定に異議がある場合は workspace で override しない。同じ run に対して `screening select` を実行し直し、修正した判断で Shortlist を publish して、その `shortlist_id` で prepare をやり直す。
 
 2. **一次情報を調査する**
 
@@ -76,6 +81,7 @@ description: 人間が選んだ候補を一次情報で深掘りし、thesis、�
 次の場合は停止する。
 
 - primary-research set または人間確認がない
+- 人間の選択に Shortlist `selected` 以外の ticker が含まれる（正規の再判定経路へ戻す）
 - 一次情報、source date、算術、review hash、ledger snapshot に矛盾がある
 - 未検証事実を buy の根拠へ昇格するか、人間の approve 前に broker / ledger へ進もうとしている
 

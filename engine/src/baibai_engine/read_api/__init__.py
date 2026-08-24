@@ -80,7 +80,11 @@ from .screening import (
     screening_run_payload,
     screening_selection_payloads,
 )
-from .shortlist import latest_shortlist_payload, list_shortlist_payloads
+from .shortlist import (
+    latest_shortlist_payload,
+    list_shortlist_payloads,
+    shortlist_payloads_for_selection,
+)
 from .system import (
     ProviderFailureStreak,
     StoreStats,
@@ -150,6 +154,7 @@ __all__ = [
     "screening_run_asof_dates",
     "screening_run_payload",
     "screening_selection_payloads",
+    "shortlist_payloads_for_selection",
     "store_stats",
     "task_store_exists",
     "thesis_publication",

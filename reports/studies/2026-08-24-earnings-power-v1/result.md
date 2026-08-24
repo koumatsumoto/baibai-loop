@@ -24,3 +24,11 @@ issues: [1041, 1064]
 # 実装上の帰結
 
 Shortlist v5、exact provenance、Review Set resolver、Research Gate bindingは採用済みValue / Carryだけで運用する。固定Selection Policy入力はstudy artifactとして保持する。active `method/` policy、replay evaluator、public CLI、selection payload、Shortlist schemaにはEarnings production pathを持たせない。
+
+# 2026-08-24 完成監査で確認した limitation
+
+verdict、threshold、window、K、diagnostic は変更していない。以下は結論を覆す観測ではなく、**次の Lane study が同じ曖昧さを持たないための記録**である。要求する最小 artifact は [`estimate-calibration.md`](../../../docs/reference/estimate-calibration.md#別-opportunity-lane-を検証する-study-の最小-artifact) を正本とする。
+
+- [`historical-replay.yaml`](./historical-replay.yaml) は cohort ごとの件数・overlap・sector concentration を持つが、ticker membership を持たない。どの銘柄が `alt_only` として差を作ったかは、この artifact だけからは再構成できない。
+- [`frozen-policy.yaml`](./frozen-policy.yaml) は Policy Diagnostic として `earnings-power-leverage-risk-v1` と `earnings-power-historical-special-gain-risk-v1` を固定したが、replay dataset がその判定に必要な Fact を保持していないため、artifact には値も `not_observable` も残っていない。diagnostic が実際に何件へ立ったかは事後に確認できない。
+- calibration panel は `jpx_flags_by_ticker={}` で universe を再生する（`engine/src/baibai_engine/screening/calibration/panel.py`）。production の共通 gate である `required_jpx_flags`（特別注意銘柄 / 整理銘柄 / 取引停止、`exclude_jpx_flagged: true`）による除外は、両 Lane とも歴史的に適用されていない。これは「該当 0 件だった」ではなく **point-in-time 再現不能**である。

@@ -5,6 +5,13 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 
+# The Research Gate judgment contract a Shortlist declares over its Review Set.
+# Screening publishes it with the judgment; research admits a Primary Research Set
+# only from a Shortlist that carries a contract it understands. Both sides read the
+# identity from this seam so a new contract generation cannot be honoured by one
+# side while the other keeps applying the old meaning.
+RESEARCH_GATE_CONTRACT_ID = "research-gate-v1"
+
 
 class ReviewSetResolutionError(ValueError):
     pass
@@ -50,4 +57,8 @@ def _unique_rows(value: object, *, source_name: str) -> dict[str, Mapping[str, o
     return rows
 
 
-__all__ = ["ReviewSetResolutionError", "resolve_review_set_rows"]
+__all__ = [
+    "RESEARCH_GATE_CONTRACT_ID",
+    "ReviewSetResolutionError",
+    "resolve_review_set_rows",
+]

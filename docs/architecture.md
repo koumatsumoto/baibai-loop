@@ -190,7 +190,7 @@ Theses → Bargain Assessment           Assessment Casesの統合判断
 Bargain Assessment → Trade Proposal   human decision input
 ```
 
-異なるEconomic Hypothesisを採用するときは別Opportunity Laneとし、同一scoreへ畳まない。Selection PolicyがLane内のnomination / ordering、Attention PolicyがLane間のallocation、Research Gateがresearch-worthiness judgment、人間がPrimary Research Setへのadmissionを所有する。現行wireは、採用済みValue / Carry Laneの`longlist`を`value-carry-only-v1`が`review_tickers`へ写す最小構成であり、generic registry・executor・Dynamic Attention Composerは持たない。Earnings Power Laneは固定replayが`inconclusive`だったためproduction wireへ採用していない（[`historical-replay.yaml`](../reports/studies/2026-08-24-earnings-power-v1/historical-replay.yaml)）。
+異なるEconomic Hypothesisを採用するときは別Opportunity Laneとし、同一scoreへ畳まない。Selection PolicyがLane内のnomination / ordering、Attention PolicyがLane間のallocation、Research Gateがresearch-worthiness judgment、人間がPrimary Research Setへのadmissionを所有する。この admission 境界は記述だけでなく機械的に強制する — `research prepare --shortlist-id` がcanonical Shortlistへ束縛し、researchできるのはいずれかのpublished Research Gateが`selected`としたtickerに限られる（[`screening-runtime.md`](./reference/screening-runtime.md)）。現行wireは、採用済みValue / Carry Laneの`longlist`を`value-carry-only-v1`が`review_tickers`へ写す最小構成であり、generic registry・executor・Dynamic Attention Composerは持たない。Earnings Power Laneは固定replayが`inconclusive`だったためproduction wireへ採用していない（[`historical-replay.yaml`](../reports/studies/2026-08-24-earnings-power-v1/historical-replay.yaml)）。
 
 ## Read-only app invariants
 
