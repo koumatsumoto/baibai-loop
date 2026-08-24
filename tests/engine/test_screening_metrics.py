@@ -135,43 +135,6 @@ def _security(code: str = "130A") -> SecurityMaster:
     )
 
 
-def _quality_summary(
-    *,
-    disclosed_at: date,
-    fiscal_year_end: date,
-    period_start: date,
-    period_end: date,
-    eps: float,
-    shares: float,
-    sales: float,
-    cfo: float,
-    operating_profit: float | None,
-    ordinary_profit: float | None = None,
-    profit: float | None = None,
-    total_assets: float,
-    equity: float,
-) -> JQuantsFinancialSummary:
-    return JQuantsFinancialSummary(
-        ticker="130A",
-        disclosed_at=disclosed_at,
-        forecast_eps=eps,
-        eps_ttm=eps,
-        bps=equity / shares,
-        shares_outstanding=shares,
-        sales=sales,
-        cfo=cfo,
-        total_assets=total_assets,
-        equity=equity,
-        operating_profit=operating_profit,
-        ordinary_profit=ordinary_profit,
-        profit=profit,
-        fiscal_period="FY",
-        fiscal_year_end=fiscal_year_end,
-        period_start=period_start,
-        period_end=period_end,
-    )
-
-
 def _edinet_metric_record(
     code: str = "130A",
     *,

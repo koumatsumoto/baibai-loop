@@ -275,37 +275,6 @@ def read_eq_master_asof(sqlite_path: Path, asof: date) -> MasterSnapshotRead:
     )
 
 
-def read_eq_master(sqlite_path: Path) -> list[SecurityMaster] | None:
-    """Return only the globally latest operational master snapshot.
-
-    A ticker absent from the latest snapshot is not backfilled from an older
-    date. Historical membership belongs to :func:`read_eq_master_asof`.
-    """
-    if not sqlite_path.exists():
-        return None
-    conn = connect_current(sqlite_path)
-    if conn is None:
-        return None
-    try:
-        if not _has_any_import(conn, "jquants_master_snapshots"):
-            return None
-        snapshot = conn.execute(
-            "SELECT MAX(snapshot_date) FROM jquants_master_snapshots "
-            "WHERE snapshot_date != 'unknown'"
-        ).fetchone()[0]
-        if snapshot is None:
-            return None
-        rows = conn.execute(
-            "SELECT ticker, name, market, sector_33, is_common_stock "
-            "FROM jquants_master_snapshots WHERE snapshot_date = ? ORDER BY ticker",
-            (str(snapshot),),
-        ).fetchall()
-    finally:
-        conn.close()
-
-    return _materialize_masters(rows)
-
-
 def read_weekly_margin(sqlite_path: Path, week_end: date) -> list[JQuantsWeeklyMargin] | None:
     """Return one balance date's rows, or None when it has not been examined.
 

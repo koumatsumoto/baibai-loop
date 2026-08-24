@@ -244,10 +244,6 @@ def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
     )
 
 
-def _populate_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
-    _seed_complete_coverage(conn, asof)
-
-
 def _complete_coverage_template_path() -> Path:
     global _COMPLETE_COVERAGE_TEMPLATE_DIR, _COMPLETE_COVERAGE_TEMPLATE_PATH
     if _COMPLETE_COVERAGE_TEMPLATE_PATH is None:
@@ -305,8 +301,8 @@ class SQLiteCoverageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, first)
-            _populate_complete_coverage(conn, second)
+            _seed_complete_coverage(conn, first)
+            _seed_complete_coverage(conn, second)
 
             bars_start = first - timedelta(days=2200)
             fin_start = first - timedelta(days=2200)

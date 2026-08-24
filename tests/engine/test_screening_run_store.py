@@ -943,15 +943,6 @@ def test_reader_returns_none_for_missing_publications(tmp_path: Path) -> None:
         (
             {
                 "name": "x",
-                "playbook_id": "legacy-pattern",
-                "source_status": "ok",
-                "sizing_eligible": True,
-            },
-            "evidence pattern ID",
-        ),
-        (
-            {
-                "name": "x",
                 "evidence_pattern_id": "  ",
                 "source_status": "ok",
                 "sizing_eligible": True,

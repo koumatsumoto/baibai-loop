@@ -9,6 +9,7 @@ import pytest
 import yaml
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.fixed_now import FIXED_NOW
+from tests.helpers.ledger import load_portfolio_ledger
 
 import baibai_engine.research.holding_review_builder as holding_builder_module
 import baibai_engine.research.store as research_store_module
@@ -16,7 +17,7 @@ from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.cli import main as position_main
 from baibai_engine.position.drafts import apply_draft, build_event_draft
 from baibai_engine.position.holding_review import HoldingReviewDocument
-from baibai_engine.position.ledger import ContributionEvent, load_portfolio_ledger
+from baibai_engine.position.ledger import ContributionEvent
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.holding_review_builder import (
     HoldingReviewError,

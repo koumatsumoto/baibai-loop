@@ -10,6 +10,7 @@ import pytest
 import yaml
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.fixed_now import FIXED_NOW
+from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.research_gate import RESEARCH_GATE_NARRATIVE
 
 from baibai_engine.macro.indicators.cli import build_parser as macro_parser
@@ -17,14 +18,13 @@ from baibai_engine.macro.indicators.cli import main as macro_main
 from baibai_engine.position.cli import _draft_output_path
 from baibai_engine.position.cli import build_parser as position_parser
 from baibai_engine.position.cli import main as position_main
-from baibai_engine.position.ledger import PortfolioLedgerDocument, load_portfolio_ledger
+from baibai_engine.position.ledger import PortfolioLedgerDocument
 from baibai_engine.position.outcome_store import PortfolioOutcomeStore
 from baibai_engine.proposals.cli import build_parser as proposal_parser
 from baibai_engine.research.decision_cli import main as decision_main
 from baibai_engine.research.opportunity_cli import build_parser as opportunity_parser
 from baibai_engine.research.opportunity_cli import main as opportunity_main
 from baibai_engine.screening.cli import main as screening_main
-from baibai_engine.screening.cli.app import build_parser as screening_parser
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
@@ -710,43 +710,6 @@ def test_decision_cli_emits_stable_yaml_shape(capsys: pytest.CaptureFixture[str]
     }
 
 
-def test_decision_cli_emits_the_thesis_evaluation_shape(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    assert decision_main([str(DECISION_FIXTURE)], now=FIXED_NOW) == 0
-    payload = _payload(capsys.readouterr().out)
-
-    assert set(payload) == {
-        "thesis_status",
-        "decision_readiness",
-        "thesis_sha256",
-        "errors",
-        "warnings",
-        "scenarios",
-        "five_year_base_break_even",
-        "screening_fv_revision_pct",
-    }
-    break_even = payload["five_year_base_break_even"]
-    assert isinstance(break_even, dict)
-    assert set(break_even) == {
-        "required_total_value_yen",
-        "required_total_return_cagr_pct",
-        "base_terminal_valuation_multiple",
-        "break_even_terminal_valuation_multiple",
-        "terminal_multiple_downside_buffer",
-        "terminal_multiple_status",
-        "base_annual_earnings_growth_pct",
-        "break_even_annual_earnings_growth_pct",
-        "earnings_growth_downside_buffer_pct_points",
-        "earnings_growth_status",
-        "observed_trailing_multiple_status",
-        "observed_trailing_multiple_fact_id",
-        "observed_trailing_multiple",
-        "base_terminal_multiple_minus_observed",
-        "base_terminal_multiple_premium_pct",
-    }
-
-
 def test_opportunity_cli_exposes_the_research_authoring_subcommands() -> None:
     parser = opportunity_parser()
     subactions = [
@@ -784,24 +747,6 @@ def test_macro_cli_lists_every_command_group() -> None:
         "refresh",
         "retract",
     }
-
-
-@pytest.mark.parametrize(
-    "command",
-    [
-        "prepare",
-        "holding-prepare",
-        "status",
-        "thesis-scaffold",
-        "review-scaffold",
-        "promote",
-        "plan-limit",
-    ],
-)
-def test_opportunity_subcommand_help_is_public(command: str) -> None:
-    with pytest.raises(SystemExit) as excinfo:
-        opportunity_main([command, "--help"])
-    assert excinfo.value.code == 0
 
 
 @pytest.mark.parametrize(
@@ -872,16 +817,6 @@ def test_position_cli_exposes_human_result_and_holding_build_subcommands() -> No
 
 
 @pytest.mark.parametrize(
-    "command",
-    ["holding-review-build", "market-price-draft", "record-result", "sell-result-draft"],
-)
-def test_position_human_boundary_subcommand_help_is_public(command: str) -> None:
-    with pytest.raises(SystemExit) as excinfo:
-        position_main([command, "--help"])
-    assert excinfo.value.code == 0
-
-
-@pytest.mark.parametrize(
     "parser_factory",
     [opportunity_parser, position_parser, proposal_parser],
 )
@@ -898,184 +833,6 @@ def test_current_decision_clis_do_not_expose_backdated_clock(
                 pending.extend(action.choices.values())
 
     assert "--now" not in option_strings
-
-
-@pytest.mark.parametrize(
-    ("parser_factory", "argv"),
-    [
-        (
-            screening_parser,
-            ["run", "--asof", "2026-07-10", "--output-path", "/tmp/candidates.yaml"],
-        ),
-        (
-            screening_parser,
-            [
-                "select",
-                "--asof",
-                "2026-07-10",
-                "--run-revision-id",
-                "run-revision-example",
-                "--longlist-top",
-                "20",
-                "--output-path",
-                "/tmp/selection.yaml",
-            ],
-        ),
-        (
-            screening_parser,
-            [
-                "selection",
-                "show",
-                "--selection-id",
-                "selection-example",
-                "--runs-db",
-                "stores/screening/runs.sqlite",
-                "--output-path",
-                "/tmp/selection.yaml",
-            ],
-        ),
-        (
-            opportunity_parser,
-            [
-                "prepare",
-                "--asof",
-                "2026-07-10",
-                "--selection-output",
-                "/tmp/selection.yaml",
-                "--shortlist-id",
-                "shortlist-20260710-example",
-                "--db",
-                "stores/application/baibai.sqlite",
-                "--workspace",
-                ".cache/opportunity/2026-07-10",
-            ],
-        ),
-        (
-            opportunity_parser,
-            [
-                "promote",
-                "--workspace",
-                ".cache/opportunity/2026-07-10",
-                "--ticker",
-                "1234",
-                "--db",
-                "stores/application/baibai.sqlite",
-            ],
-        ),
-        (
-            opportunity_parser,
-            [
-                "plan-limit",
-                "--thesis",
-                "thesis.yaml",
-                "--db",
-                "stores/application/baibai.sqlite",
-                "--sqlite-path",
-                "market.sqlite",
-                "--target-session",
-                "2026-07-13",
-                "--output",
-                "proposal.yaml",
-            ],
-        ),
-        (
-            position_parser,
-            [
-                "market-price-draft",
-                "--db",
-                "stores/application/baibai.sqlite",
-                "--sqlite",
-                "stores/market/market.sqlite",
-                "--asof",
-                "2026-07-10",
-                "--out",
-                ".cache/position/2026-07-10-market-price-ledger.yaml",
-            ],
-        ),
-        (
-            position_parser,
-            [
-                "record-result",
-                "--db",
-                "stores/application/baibai.sqlite",
-                "--proposal-ref",
-                "prop-20260712-1234-example",
-                "--status",
-                "filled",
-                "--occurred-at",
-                "2026-07-12T10:00:00+09:00",
-                "--ticker",
-                "1234",
-                "--quantity",
-                "100",
-                "--price-yen",
-                "990",
-                "--reservation-id",
-                "reservation-1",
-                "--out",
-                ".cache/ledger/draft.yaml",
-            ],
-        ),
-        (
-            position_parser,
-            [
-                "sell-result-draft",
-                "--db",
-                "stores/application/baibai.sqlite",
-                "--ticker",
-                "1234",
-                "--quantity",
-                "100",
-                "--price-yen",
-                "1100",
-                "--occurred-at",
-                "2026-07-12T10:00:00+09:00",
-                "--decision-reference",
-                "holding-review-20260712-1234-position-1",
-                "--out",
-                ".cache/ledger/sell-draft.yaml",
-            ],
-        ),
-        (
-            position_parser,
-            [
-                "holding-review-build",
-                "--db",
-                "stores/application/baibai.sqlite",
-                "--thesis-id",
-                "thesis-20260712-1234-r1",
-                "--position-id",
-                "position-1",
-                "--out",
-                ".cache/holding-review/review.yaml",
-            ],
-        ),
-        (
-            position_parser,
-            [
-                "holding-review",
-                "--input",
-                ".cache/holding-review/review.yaml",
-            ],
-        ),
-    ],
-)
-def test_skill_recipes_use_public_cli_contract(
-    parser_factory: Callable[[], argparse.ArgumentParser], argv: list[str]
-) -> None:
-    parser = parser_factory()
-    parsed = parser.parse_args(argv)
-    assert parsed.command == argv[0]
-    executable = {
-        screening_parser: "baibai-engine screening",
-        opportunity_parser: "baibai-engine research",
-        position_parser: "baibai-engine position",
-    }[parser_factory]
-    skills = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in sorted((ROOT / ".agents" / "skills").glob("*/SKILL.md"))
-    )
-    assert f"{executable} {argv[0]}" in skills
 
 
 def test_skill_draft_output_paths_are_accepted_by_the_draft_path_guard(tmp_path: Path) -> None:

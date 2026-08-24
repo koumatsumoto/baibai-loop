@@ -45,7 +45,6 @@ from baibai_engine.market.lake.retention import (
 from baibai_engine.screening.calibration import lake as lake_module
 from baibai_engine.screening.calibration import store
 from baibai_engine.screening.calibration.forward import (
-    DEFAULT_FORWARD_OBSERVATION_POLICY,
     ForwardObservationPolicy,
     ForwardReturnRow,
 )
@@ -1513,16 +1512,13 @@ class TestSemanticIdentity:
                 forward_policy=ForwardObservationPolicy(use_control_event_exits=False),
             )
 
-        assert store.store_forward_policy(tmp_path) == DEFAULT_FORWARD_OBSERVATION_POLICY
+    def test_a_store_built_wholly_under_other_rules_reads_back(self, tmp_path: Path) -> None:
+        """The refusal above is about mixing, not about the non-default rules."""
 
-    def test_a_store_states_the_rules_its_forward_rows_were_observed_under(
-        self, tmp_path: Path
-    ) -> None:
         policy = ForwardObservationPolicy(use_control_event_exits=False)
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY), forward_policy=policy)
         publish_forward(tmp_path, _JANUARY, _forward_rows(_JANUARY), forward_policy=policy)
 
-        assert store.store_forward_policy(tmp_path) == policy
         assert read_forward(tmp_path, date.fromisoformat(_JANUARY))
 
 

@@ -8,7 +8,7 @@ shapes coerce to a neutral value instead of raising, so callers stay total.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime
+from datetime import date
 
 
 def dedupe_strings(values: Sequence[str]) -> list[str]:
@@ -52,10 +52,6 @@ def string_or_none(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def string_or_empty(value: object) -> str:
-    return value if isinstance(value, str) else ""
-
-
 def optional_float(value: object) -> float | None:
     if isinstance(value, bool) or value is None:
         return None
@@ -79,12 +75,6 @@ def int_or(value: object, default: int) -> int:
     return default
 
 
-def int_map(value: object) -> dict[str, int]:
-    if not isinstance(value, Mapping):
-        return {}
-    return {str(key): int_or(item, 0) for key, item in value.items()}
-
-
 def parse_iso_date(value: object) -> date | None:
     # The length guard rejects compact forms like "20260608" that
     # date.fromisoformat would otherwise accept; records always use
@@ -95,12 +85,3 @@ def parse_iso_date(value: object) -> date | None:
         return date.fromisoformat(value[:10])
     except ValueError:
         return None
-
-
-def date_from_datetime_prefix(value: object) -> date | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        return datetime.fromisoformat(value).date()
-    except ValueError:
-        return parse_iso_date(value)

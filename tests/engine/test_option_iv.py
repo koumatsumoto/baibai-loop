@@ -10,8 +10,6 @@ from zoneinfo import ZoneInfo
 
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import RetryError, Timeout
-from tools.experiments.research.option_iv_sample import business_days, quantiles
-from tools.experiments.research.option_iv_sample import main as sample_main
 
 from baibai_engine.macro.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.macro.indicators.providers import jquants_options
@@ -708,70 +706,6 @@ class QuoteParsingTest(unittest.TestCase):
 
         self.assertEqual([quote.expiry for quote in quotes], [date(2026, 8, 14)])
         self.assertEqual((quotes[0].expiry - ASOF).days, 16)
-
-
-class SampleWindowTest(unittest.TestCase):
-    """The step that draws the quantiles the readings are quoted against."""
-
-    def test_a_step_that_divides_the_trading_week_is_refused(self) -> None:
-        # Five business days is one calendar week, so the sample would land on one
-        # weekday forever and could not be checked for the bias that carries.
-        with self.assertRaises(ValueError):
-            list(business_days(date(2018, 1, 1), date(2018, 3, 1), 5))
-        with self.assertRaises(ValueError):
-            list(business_days(date(2018, 1, 1), date(2018, 3, 1), 10))
-
-    def test_a_step_beside_the_week_reaches_every_weekday(self) -> None:
-        days = list(business_days(date(2018, 1, 1), date(2018, 12, 31), 4))
-
-        self.assertEqual({day.weekday() for day in days}, {0, 1, 2, 3, 4})
-        self.assertTrue(all(day.weekday() < 5 for day in days))
-
-    def test_every_quantile_is_an_observed_reading(self) -> None:
-        # The report quotes these numbers directly, and a reading that was averaged
-        # or extrapolated into existence would be presented as one the market made.
-        values = [float(n) for n in range(1, 101)]
-
-        stats = quantiles(values)
-
-        self.assertEqual(set(stats), {"p05", "p10", "p25", "p50", "p75", "p90", "p95", "p99"})
-        self.assertEqual(stats["p05"], 6.0)
-        self.assertEqual(stats["p50"], 51.0)
-        self.assertEqual(stats["p99"], 100.0)
-        self.assertTrue(all(value in values for value in stats.values()))
-
-    def test_a_short_series_stays_inside_its_own_tail(self) -> None:
-        # The top quantile of a series shorter than a hundred readings still has to
-        # be one of them: p99 of ten readings is the tenth, and of one is that one.
-        self.assertEqual(quantiles([float(n) for n in range(10)])["p99"], 9.0)
-        self.assertEqual(quantiles([7.0])["p99"], 7.0)
-
-    def test_an_output_path_that_is_not_a_csv_is_refused_before_any_fetch(self) -> None:
-        # The write lands after hours of fetching, so a mistyped path would truncate
-        # whatever is there and throw away the run at the same time.
-        self.assertEqual(
-            sample_main(
-                ["--start", "2026-07-01", "--end", "2026-07-02", "--out", "data/store.sqlite"]
-            ),
-            2,
-        )
-
-    def test_the_step_counts_business_days_not_calendar_days(self) -> None:
-        # Counting calendar days would skip a different number of sessions depending
-        # on where a weekend fell, so the sample would not be evenly spaced.
-        days = list(business_days(date(2018, 1, 1), date(2018, 1, 31), 4))
-
-        self.assertEqual(
-            days,
-            [
-                date(2018, 1, 1),
-                date(2018, 1, 5),
-                date(2018, 1, 11),
-                date(2018, 1, 17),
-                date(2018, 1, 23),
-                date(2018, 1, 29),
-            ],
-        )
 
 
 class OptionProviderTest(unittest.TestCase):

@@ -27,7 +27,6 @@ from baibai_engine.market.lake.writer import (
     LakeBuildReport,
     export_lake_legacy,
     export_legacy_sqlite,
-    plan_affected_periods,
     sealed_sqlite_snapshot,
     validate_legacy_parity,
 )
@@ -35,6 +34,26 @@ from baibai_engine.market.sqlite import open_connection
 from baibai_engine.market.sqlite.lake_origin import LakeStoreOrigin, write_lake_store_origin
 
 _COMMIT = "a" * 40
+
+
+def _affected_periods(
+    *, dataset_name: str, sqlite_path: Path, base_manifest_path: Path
+) -> tuple[tuple[int, ...], ...]:
+    """Ask the publisher which partitions a base manifest no longer describes.
+
+    ``writer.affected_periods`` is the production comparison; reaching it needs the
+    same manifest load and immutable open that a rebuild does, which is all this
+    does.
+    """
+
+    dataset = require_lake_dataset(dataset_name)
+    base = writer_module._load_base_manifest(
+        base_manifest_path, dataset, transform=writer_module._transform_fingerprint(dataset)
+    )
+    assert base is not None
+    with writer_module._open_immutable(sqlite_path) as connection:
+        writer_module._validate_sqlite_contract(connection, dataset)
+        return writer_module.affected_periods(connection, dataset, base)
 
 
 @pytest.fixture(autouse=True)
@@ -189,11 +208,11 @@ def test_automatic_plan_detects_fact_and_coverage_changes(tmp_path) -> None:
         build_id="plan-base",
     )
     assert (
-        plan_affected_periods(
+        _affected_periods(
             dataset_name="jquants.daily_bars",
             sqlite_path=sqlite_path,
             base_manifest_path=first.manifest_path,
-        ).affected_periods
+        )
         == ()
     )
 
@@ -216,11 +235,11 @@ def test_automatic_plan_detects_fact_and_coverage_changes(tmp_path) -> None:
             ),
         )
 
-    assert plan_affected_periods(
+    assert _affected_periods(
         dataset_name="jquants.daily_bars",
         sqlite_path=sqlite_path,
         base_manifest_path=first.manifest_path,
-    ).affected_periods == ((2026, 1), (2026, 2))
+    ) == ((2026, 1), (2026, 2))
 
 
 def test_case_sensitive_like_keeps_partition_rows_order_and_identity(tmp_path: Path) -> None:
@@ -274,11 +293,11 @@ def test_logical_coverage_change_affects_earnings_partition_but_fetch_time_does_
             "WHERE source = 'jpx_earnings_calendar'"
         )
     assert (
-        plan_affected_periods(
+        _affected_periods(
             dataset_name="jquants.earnings_calendar",
             sqlite_path=sqlite_path,
             base_manifest_path=first.manifest_path,
-        ).affected_periods
+        )
         == ()
     )
 
@@ -287,11 +306,11 @@ def test_logical_coverage_change_affects_earnings_partition_but_fetch_time_does_
             "UPDATE source_coverage SET status = 'failed', error = 'provider refused' "
             "WHERE source = 'jpx_earnings_calendar'"
         )
-    assert plan_affected_periods(
+    assert _affected_periods(
         dataset_name="jquants.earnings_calendar",
         sqlite_path=sqlite_path,
         base_manifest_path=first.manifest_path,
-    ).affected_periods == ((2026,),)
+    ) == ((2026,),)
 
 
 def test_indexed_like_keeps_partition_source_hash_and_object_key(

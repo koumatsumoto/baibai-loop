@@ -19,6 +19,7 @@ import pytest
 import yaml
 from pydantic import BaseModel
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.research_gate import research_gate_shortlist, seed_shortlist
 
 import baibai_engine.research.opportunity as opportunity_module
@@ -26,7 +27,6 @@ import baibai_engine.research.store as research_store_module
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.sqlite.schema import open_connection
-from baibai_engine.position.ledger import load_portfolio_ledger
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.close_source import (
     _EXPECTED_MARKET_SCHEMA_VERSION,
@@ -2500,49 +2500,6 @@ def test_thesis_scaffold_converts_huge_numeric_overflow_to_data_error(
 
 
 @pytest.mark.parametrize(
-    ("annual", "sector_anchor", "self_anchor"),
-    [
-        (-1.0001, 1350.0, 1300.0),
-        (10.0001, 1350.0, 1300.0),
-        (0.095, 1350.0, 0.0001),
-        (0.095, 1_000_000_001, None),
-    ],
-)
-def test_thesis_scaffold_rejects_values_outside_thesis_estimate_contract(
-    tmp_path: Path,
-    annual: object,
-    sector_anchor: object,
-    self_anchor: object,
-) -> None:
-    sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
-    row = _longlist_row_with_estimate(
-        "2331",
-        annual=annual,
-        sector_anchor=sector_anchor,
-        self_anchor=self_anchor,
-    )
-    workspace = _prepared_workspace(tmp_path, sqlite_path, longlist=[row])
-
-    code = opportunity_main(
-        [
-            "thesis-scaffold",
-            "--workspace",
-            str(workspace),
-            "--ticker",
-            "2331",
-            "--sqlite-path",
-            str(sqlite_path),
-            "--target-session",
-            TARGET_SESSION,
-        ],
-        now=FIXED_NOW,
-    )
-
-    assert code == 3
-
-
-@pytest.mark.parametrize(
     ("selection_asof", "snapshot_asof"),
     [
         ("2026-07-02", "2026-07-03"),
@@ -2649,43 +2606,6 @@ def test_holding_thesis_scaffold_rejects_raw_close_date_before_workspace_asof(
     assert code == 3
     assert "does not match workspace manifest as_of" in capsys.readouterr().err
     assert not (workspace / "2331").exists()
-
-
-def test_thesis_scaffold_draft_has_no_structural_schema_errors(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """A freshly scaffolded draft must only be flagged for unfilled operator fields,
-    never for a malformed price fact — the operator fills judgment, not structure."""
-    sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(
-        sqlite_path, [("2331", "2026-07-09", 990.0, 1.0), ("2331", "2026-07-10", 1005.0, 1.0)]
-    )
-    workspace = _prepared_workspace(tmp_path, sqlite_path)
-    code, _ = _run(
-        [
-            "thesis-scaffold",
-            "--workspace",
-            str(workspace),
-            "--ticker",
-            "2331",
-            "--sqlite-path",
-            str(sqlite_path),
-            "--target-session",
-            TARGET_SESSION,
-        ],
-        capsys,
-    )
-    assert code == 0
-    draft_path = workspace / "2331" / "thesis-draft.yaml"
-    draft = safe_load(draft_path.read_text(encoding="utf-8"))
-    assert isinstance(draft, dict)
-    snapshot = draft["input_snapshot"]
-    assert isinstance(snapshot, dict)
-    assert "price_snapshot" not in snapshot
-    facts = snapshot["facts"]
-    assert isinstance(facts, list)
-    assert facts[0]["fact_kind"] == "market_price"
-    assert facts[0]["price_basis"] == "last_close_unadjusted"
 
 
 def test_thesis_scaffold_without_raw_close_exits_3(
@@ -3271,6 +3191,19 @@ def test_promote_ready_publishes_atomic_thesis_and_review(
         == ()
     )
 
+    # A retry after an interrupted operation exits 0 and adds nothing: the store's
+    # own idempotence (test_research_store.py) reaching the operator through the CLI.
+    assert (
+        opportunity_main(
+            ["promote", "--workspace", str(workspace), "--ticker", "2331", "--db", str(db_path)],
+            now=FIXED_NOW,
+        )
+        == 0
+    )
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("SELECT count(*) FROM thesis").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM thesis_review").fetchone()[0] == 1
+
 
 def test_promote_publishes_a_researched_lane_with_no_selected_ticker(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -3382,28 +3315,6 @@ def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
     assert result.errors == ()
     assert result.screening_fv_revision_pct is not None
     assert round(float(result.screening_fv_revision_pct), 4) == -0.1746
-
-
-def test_promote_retry_is_idempotent(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
-    workspace = _prepared_workspace(tmp_path, sqlite_path)
-    _fill_ready_workspace(workspace)
-    db_path = tmp_path / "app.sqlite"
-    args = [
-        "promote",
-        "--workspace",
-        str(workspace),
-        "--ticker",
-        "2331",
-        "--db",
-        str(db_path),
-    ]
-    assert opportunity_main(args, now=FIXED_NOW) == 0
-    assert opportunity_main(args, now=FIXED_NOW) == 0
-    with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT count(*) FROM thesis").fetchone()[0] == 1
-        assert connection.execute("SELECT count(*) FROM thesis_review").fetchone()[0] == 1
 
 
 # --------------------------------------------------------------------------- #

@@ -25,7 +25,7 @@ import json
 import types
 import typing
 import uuid
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass, replace
 from datetime import UTC, date, datetime
 from functools import cache
@@ -846,7 +846,3 @@ def build_identifier(*, dataset: L2Dataset, fingerprint: str, now: datetime) -> 
         f"{now:%Y%m%dT%H%M%SZ}-{dataset.name.replace('.', '-')}-"
         f"{uuid.uuid4().hex[:8]}-{fingerprint[-12:]}"
     )
-
-
-def months_of(asofs: Iterable[str]) -> tuple[tuple[int, int], ...]:
-    return tuple(sorted({asof_month(asof) for asof in asofs}))

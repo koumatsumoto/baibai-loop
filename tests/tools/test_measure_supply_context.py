@@ -12,21 +12,6 @@ from tools.experiments.measure_supply_context import SupplyContextError, build_s
 
 from baibai_engine.screening.calibration.store import CalibrationCacheError
 
-PANEL_COLUMNS = (
-    "asof",
-    "ticker",
-    "sector_33",
-    "in_population",
-    "market_cap_oku",
-    "avg_turnover_oku",
-    "listing_span_days",
-    "er_annual",
-    "er_reversion_annual",
-    "er_carry_annual",
-    "selection_rank",
-    "pass_screen",
-)
-
 
 def _panel(
     directory: Path, asof: str, rows: list[dict[str, Any]], *, rules_hash: str = "abc123"

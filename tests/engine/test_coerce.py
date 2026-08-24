@@ -4,18 +4,15 @@ import unittest
 from datetime import date
 
 from baibai_engine.foundation.coerce import (
-    date_from_datetime_prefix,
     dedupe_strings,
     dict_sequence,
     float_or,
-    int_map,
     int_or,
     mapping_or_empty,
     mapping_sequence,
     metric_map,
     optional_float,
     parse_iso_date,
-    string_or_empty,
     string_or_none,
     string_sequence,
 )
@@ -43,12 +40,6 @@ class OptionalFloatTests(unittest.TestCase):
     def test_int_or_with_bool_returns_default(self) -> None:
         self.assertEqual(int_or(True, 7), 7)
 
-    def test_int_map_with_non_mapping_returns_empty(self) -> None:
-        self.assertEqual(int_map(["a"]), {})
-
-    def test_int_map_coerces_values_and_keys(self) -> None:
-        self.assertEqual(int_map({"a": 1, "b": "x"}), {"a": 1, "b": 0})
-
 
 class ParseIsoDateTests(unittest.TestCase):
     def test_parse_iso_date_with_plain_date_parses(self) -> None:
@@ -66,15 +57,6 @@ class ParseIsoDateTests(unittest.TestCase):
 
     def test_parse_iso_date_with_non_string_returns_none(self) -> None:
         self.assertIsNone(parse_iso_date(20260608))
-
-    def test_date_from_datetime_prefix_with_datetime_parses(self) -> None:
-        self.assertEqual(date_from_datetime_prefix("2026-06-08T09:00:00+09:00"), date(2026, 6, 8))
-
-    def test_date_from_datetime_prefix_with_plain_date_falls_back(self) -> None:
-        self.assertEqual(date_from_datetime_prefix("2026-06-08"), date(2026, 6, 8))
-
-    def test_date_from_datetime_prefix_with_non_string_returns_none(self) -> None:
-        self.assertIsNone(date_from_datetime_prefix(None))
 
 
 class SequenceCoercionTests(unittest.TestCase):
@@ -106,9 +88,6 @@ class MappingCoercionTests(unittest.TestCase):
 
     def test_string_or_none_with_non_string_returns_none(self) -> None:
         self.assertIsNone(string_or_none(1))
-
-    def test_string_or_empty_with_non_string_returns_empty(self) -> None:
-        self.assertEqual(string_or_empty(None), "")
 
 
 if __name__ == "__main__":

@@ -43,7 +43,6 @@ from baibai_engine.screening.providers.jquants import (
     normalize_daily_bar,
     normalize_financial_summary,
     normalize_market_calendar,
-    normalize_security_master,
     parse_jquants_code,
 )
 from baibai_engine.screening.schema import TTMQuality
@@ -1333,61 +1332,6 @@ class ScreeningProviderTests(unittest.TestCase):
             provider = EDINETProvider(None, Path(tmpdir))
             with self.assertRaisesRegex(EDINETProviderError, "EDINET_API_KEY"):
                 provider.download_csv_zip("S100TEST")
-
-    def test_normalize_security_master_handles_alpha_numeric_ticker(self) -> None:
-        security = normalize_security_master(
-            {
-                "Code": "130A",
-                "CompanyName": "Alpha",
-                "MarketCodeName": "Prime",
-                "Sector33CodeName": "情報・通信業",
-                "SecurityType": "common",
-            }
-        )
-        self.assertEqual(security.code, "130A")
-        self.assertEqual(security.market_segment, "Prime")
-
-    def test_normalize_security_master_supports_client_v2_field_names(self) -> None:
-        security = normalize_security_master(
-            {
-                "Code": "130A0",
-                "CoName": "Alpha",
-                "MktNm": "グロース",
-                "S33Nm": "情報・通信業",
-                "Date": "2026-04-24T00:00:00",
-            }
-        )
-        self.assertEqual(security.code, "130A")
-        self.assertEqual(security.name, "Alpha")
-        self.assertEqual(security.market_segment, "グロース")
-        self.assertEqual(security.sector_33, "情報・通信業")
-
-    def test_normalize_security_master_normalizes_half_width_middle_dot_in_sector(self) -> None:
-        # J-Quants payloads use both U+FF65 ("情報･通信業") and U+30FB
-        # ("情報・通信業") for the same TSE 33 sector. Normalize to full-width.
-        security = normalize_security_master(
-            {
-                "Code": "130A",
-                "CoName": "Alpha",
-                "MktNm": "プライム",
-                "S33Nm": "情報･通信業",
-                "Date": "2026-04-24T00:00:00",
-            }
-        )
-        self.assertEqual(security.sector_33, "情報・通信業")
-
-    def test_normalize_security_master_marks_non_zero_suffix_as_non_common(self) -> None:
-        security = normalize_security_master(
-            {
-                "Code": "25935",
-                "CoName": "優先株",
-                "MktNm": "プライム",
-                "S33Nm": "食料品",
-                "Date": "2026-04-24T00:00:00",
-            }
-        )
-        self.assertEqual(security.code, "2593")
-        self.assertFalse(security.is_common_stock)
 
     def test_normalize_market_calendar_business_day(self) -> None:
         calendar_day = normalize_market_calendar({"Date": "2026-04-24", "HolidayDivision": "1"})

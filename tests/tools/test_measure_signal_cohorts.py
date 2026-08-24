@@ -16,21 +16,6 @@ from tools.experiments.measure_signal_cohorts import (
 
 from baibai_engine.screening.calibration.store import resolve_calibration_bundle
 
-PANEL_COLUMNS = (
-    "asof",
-    "ticker",
-    "market_cap_oku",
-    "avg_turnover_oku",
-    "listing_span_days",
-    "per_forward",
-    "per_trailing",
-    "dividend_yield",
-    "net_share_change_yoy",
-    "er_annual",
-    "er_reversion_annual",
-    "er_carry_annual",
-    "er_upside_capped",
-)
 FORWARD_COLUMNS = (
     "asof",
     "ticker",

@@ -162,96 +162,52 @@ def test_select_and_shortlist_publish_from_explicit_run_revision(
     assert response.json()["shortlists"][0]["as_of"] == run.as_of_date
 
 
-def test_shortlist_publish_prints_reevaluation_task_suggestions(
+def test_reevaluation_suggestions_leave_stdout_a_single_yaml_document(
     app_method_root: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """The suggestion lines are for a human; stdout is for the next command.
+
+    What each line says is `test_shortlist.py`'s (`reevaluation_task_suggestions`).
+    What this owns is the stream they leave on: printing them to stdout would make
+    the published shortlist unparseable to whatever reads it next.
+    """
+
     runs_path = app_method_root / "stores/screening/runs.sqlite"
     app_path = app_method_root / "stores/application/baibai.sqlite"
-    run_payload = yaml.safe_load(
-        """\
-run_id: screening-20260715
-run_date: "2026-07-15"
-asof_date: "2026-07-15"
-universe_size: 3
-run_at: "2026-07-15T12:00:00+09:00"
-screening_rules_hash: rules-task-suggestion-fixture
-er_model_version: expected-return-v1
-candidates:
-  - ticker: "2331"
-    name: ALSOK
-    sector_33: サービス業
-    market_cap_oku: 1000.0
-    avg_turnover_oku: 10.0
-    listing_span_days: 1000
-    jpx_flags: []
-    per_trailing: 12.0
-    metrics: {er_annual: 0.12}
-    evidence_hits: []
-    next_earnings_date: "2026-07-30"
-  - ticker: "0001"
-    name: Sample One
-    sector_33: 情報・通信業
-    market_cap_oku: 1000.0
-    avg_turnover_oku: 10.0
-    listing_span_days: 1000
-    jpx_flags: []
-    metrics:
-      er_annual: 0.08
-      fin_latest_disclosed_date: "2026-07-15"
-      next_earnings_estimated_date: "2026-08-06"
-    evidence_hits: []
-    next_earnings_date: "2026-07-14"
-  - ticker: "0002"
-    name: Sample Two
-    sector_33: 小売業
-    market_cap_oku: 1000.0
-    avg_turnover_oku: 10.0
-    listing_span_days: 1000
-    jpx_flags: []
-    metrics: {er_annual: 0.06}
-    evidence_hits: []
-    """
-    )
-    current_run = ScreeningRunReader(runs_path).latest_run()
-    assert current_run is not None
-    run_payload["screening_rules_hash"] = current_run.payload["screening_rules_hash"]
-    run_revision_id = ScreeningRunStore(runs_path).publish_run(run_payload).publication_id
+    run = ScreeningRunReader(runs_path).latest_run()
+    assert run is not None
     stdout = io.StringIO()
     assert (
         select_command(
-            asof_date=date(2026, 7, 15),
+            asof_date=date.fromisoformat(run.as_of_date),
             top=10,
-            run_revision_id=run_revision_id,
+            run_revision_id=run.run_revision_id,
             runs_db_path=runs_path,
             app_db_path=app_path,
-            longlist_top=3,
+            longlist_top=2,
             stdout=stdout,
         )
         == 0
     )
-    selection_payload = yaml.safe_load(stdout.getvalue())
-    assert isinstance(selection_payload, dict)
-    selection_id = str(selection_payload["selection_id"])
-    profile = str(selection_payload["selection"]["profile"])
-
+    selection = yaml.safe_load(stdout.getvalue())
     draft = app_method_root / "shortlist-triggers.yaml"
     draft.write_text(
         yaml.safe_dump(
             {
                 "schema_version": 5,
                 "kind": "shortlist",
-                "shortlist_id": "shortlist-20260715-trigger",
-                "selection_id": selection_id,
-                "run_revision_id": run_revision_id,
-                "as_of": "2026-07-15",
-                "published_at": "2026-07-15T15:00:00+09:00",
-                "profile": profile,
+                "shortlist_id": "shortlist-20260708-trigger",
+                "selection_id": selection["selection_id"],
+                "run_revision_id": run.run_revision_id,
+                "as_of": run.as_of_date,
+                "published_at": "2026-07-08T15:00:00+09:00",
+                "profile": selection["selection"]["profile"],
                 "macro_context_id": None,
-                "attention_policy_id": selection_payload["attention_policy_id"],
-                "attention_policy_hash": selection_payload["attention_policy_hash"],
-                "attention_policy_parameters": selection_payload["attention_policy_parameters"],
-                "review_basis_shortlist_id": selection_payload["review_basis"][
+                "attention_policy_id": selection["attention_policy_id"],
+                "attention_policy_hash": selection["attention_policy_hash"],
+                "attention_policy_parameters": selection["attention_policy_parameters"],
+                "review_basis_shortlist_id": selection["review_basis"][
                     "judged_through_shortlist_id"
                 ],
                 "research_gate_contract_id": "research-gate-v1",
@@ -269,12 +225,6 @@ candidates:
                         "reason": "決算前で見送り",
                         "reject_class": "event_wait",
                     },
-                    {
-                        "ticker": "0002",
-                        "decision": "rejected",
-                        "reason": "決算日が読めない",
-                        "reject_class": "event_wait",
-                    },
                 ],
             },
             sort_keys=False,
@@ -283,20 +233,16 @@ candidates:
         encoding="utf-8",
     )
     capsys.readouterr()
-    assert publish_shortlist(draft, app_db_path=app_path, runs_db_path=runs_path) == 0
-    captured = capsys.readouterr()
 
-    yaml.safe_load(captured.out)  # stdout stays a single machine-readable YAML document
-    assert (
-        "baibai-engine task add --kind follow-up --ticker 0001 "
-        '--title "0001 決算で見送り判断を再評価" '
-        "--due 2026-08-06 --event-date 2026-08-06 "
-        '--event-label "0001 決算（推定）"'
-    ) in captured.err
-    assert "--due 2026-07-14" not in captured.err
-    assert "0002" in captured.err
-    assert "将来の決算日なし" in captured.err
-    assert "2331" not in captured.err
+    assert publish_shortlist(draft, app_db_path=app_path, runs_db_path=runs_path) == 0
+
+    captured = capsys.readouterr()
+    # safe_load refuses a stream carrying more than one document.
+    published = yaml.safe_load(captured.out)
+    assert isinstance(published, dict)
+    assert published["shortlist_id"] == "shortlist-20260708-trigger"
+    assert "0001" in captured.err
+    assert "0001 決算で見送り判断を再評価" not in captured.out
 
 
 def test_screening_api_falls_back_to_selection_bound_run(app_method_root: Path) -> None:

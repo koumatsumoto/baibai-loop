@@ -10,6 +10,7 @@ import pytest
 import yaml
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.fixed_now import FIXED_NOW
+from tests.helpers.ledger import load_portfolio_ledger
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
@@ -17,7 +18,6 @@ from baibai_engine.position.cli import main
 from baibai_engine.position.drafts import apply_draft, load_draft
 from baibai_engine.position.ledger import (
     PortfolioLedgerError,
-    load_portfolio_ledger,
     reconcile_portfolio,
 )
 from baibai_engine.position.result_service import build_result_draft

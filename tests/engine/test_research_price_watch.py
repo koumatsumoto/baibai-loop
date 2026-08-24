@@ -10,12 +10,12 @@ import pytest
 import yaml
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.fixed_now import FIXED_NOW
+from tests.helpers.ledger import load_portfolio_ledger
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.sqlite import open_connection
 from baibai_engine.operation.models import HumanConfirmation, OperationPayload
 from baibai_engine.operation.service import OperationService
-from baibai_engine.position.ledger import load_portfolio_ledger
 from baibai_engine.research.store import ResearchStoreService
 from baibai_engine.research.thesis import (
     independent_review_hash,

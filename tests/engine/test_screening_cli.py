@@ -55,7 +55,6 @@ from baibai_engine.screening.providers.jquants import (
     JQuantsProviderError,
     JQuantsWeeklyMargin,
 )
-from baibai_engine.screening.render import build_output_path
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.schema import SecurityMaster, TTMQuality
 from baibai_engine.screening.sqlite_cache import (
@@ -272,6 +271,21 @@ class FakeEDINETProvider:
     def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
         self.bootstrap_calls.append((start, end))
         return {"ok": 1}
+
+
+def build_output_path(asof_date: date) -> Path:
+    """Where these tests ask ``screening run`` to write.
+
+    The command takes the path; nothing in production computes one, so the layout
+    below is this suite's own convention rather than a contract under test.
+    """
+
+    return (
+        Path(".cache/screening/exports")
+        / f"{asof_date:%Y}"
+        / f"{asof_date:%m}"
+        / f"{asof_date:%Y-%m-%d}.yaml"
+    )
 
 
 class _FreshnessWarningEDINETProvider(FakeEDINETProvider):

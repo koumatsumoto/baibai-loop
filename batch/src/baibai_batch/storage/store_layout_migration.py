@@ -1,4 +1,4 @@
-"""One-time, reversible migration between repository store layouts.
+"""One-time migration of the repository store layout onto ``stores/``.
 
 This module is an operational cutover surface, not a stable public CLI.  It keeps
 the canonical database file itself intact: all writers must be stopped, SQLite
@@ -36,8 +36,6 @@ from baibai_engine.batch_api import (
     RUNS_DB_PATH,
     STORE_LAYOUT_MAPPINGS,
 )
-
-Direction = Literal["forward", "rollback"]
 
 _SQLITE_KINDS = {"application", "market", "macro", "runs"}
 _KIND_BY_CURRENT_PATH = {
@@ -164,7 +162,6 @@ Identity = SQLiteIdentity | DirectoryIdentity
 
 @dataclass(frozen=True, slots=True)
 class MigrationResult:
-    direction: Direction
     applied: bool
     backup: str | None
     resources: tuple[tuple[str, str], ...]
@@ -175,12 +172,11 @@ def _lexists(path: Path) -> bool:
     return os.path.lexists(path)
 
 
-def _entry_paths(root: Path, direction: Direction) -> tuple[LayoutEntry, ...]:
+def _entry_paths(root: Path) -> tuple[LayoutEntry, ...]:
     entries: list[LayoutEntry] = []
     for legacy_relative, current_relative in STORE_LAYOUT_MAPPINGS:
-        legacy = root / legacy_relative
-        current = root / current_relative
-        source, destination = (legacy, current) if direction == "forward" else (current, legacy)
+        source = root / legacy_relative
+        destination = root / current_relative
         source_exists = _lexists(source)
         destination_exists = _lexists(destination)
         if source_exists and destination_exists:
@@ -335,10 +331,8 @@ def _nearest_existing_parent(path: Path) -> Path:
     return candidate
 
 
-def _preflight(
-    root: Path, direction: Direction
-) -> tuple[tuple[LayoutEntry, ...], dict[str, Identity]]:
-    entries = _entry_paths(root, direction)
+def _preflight(root: Path) -> tuple[tuple[LayoutEntry, ...], dict[str, Identity]]:
+    entries = _entry_paths(root)
     layout_sidecars = [
         sidecar
         for entry in entries
@@ -475,19 +469,23 @@ def _remove_empty_legacy_directories(root: Path) -> None:
             candidate.rmdir()
 
 
-def migrate(root: Path, direction: Direction, *, apply: bool = False) -> MigrationResult:
-    """Validate a layout and optionally rename every pending resource.
+def migrate(root: Path, *, apply: bool = False) -> MigrationResult:
+    """Validate the layout and optionally rename every pending resource.
 
     The default is a no-write dry run.  On any move or post-move verification
     failure, completed renames are reversed before the error is returned.
+
+    There is no reverse direction. The layout guard refuses every entrypoint while
+    a retired path exists, so the legacy layout is not a state this code can run
+    in; a revision that wants it brings its own migration.
     """
 
     root = root.resolve()
-    entries, before = _preflight(root, direction)
+    entries, before = _preflight(root)
     pending = tuple(entry for entry in entries if entry.status == "pending")
     resources = tuple((entry.kind, entry.status) for entry in entries)
     if not apply or not pending:
-        return MigrationResult(direction, False, None, resources, _verification(before))
+        return MigrationResult(False, None, resources, _verification(before))
 
     application_entry = next(entry for entry in entries if entry.kind == "application")
     application_identity = cast(SQLiteIdentity, before["application"])
@@ -497,7 +495,7 @@ def migrate(root: Path, direction: Direction, *, apply: bool = False) -> Migrati
         for entry in pending:
             _atomic_move(entry.source, entry.destination)
             moved.append(entry)
-        after_entries, after = _preflight(root, direction)
+        after_entries, after = _preflight(root)
         if any(entry.status == "pending" for entry in after_entries):
             raise StoreLayoutMigrationError("migration left pending resources")
         for entry in moved:
@@ -527,11 +525,9 @@ def migrate(root: Path, direction: Direction, *, apply: bool = False) -> Migrati
             raise
         raise StoreLayoutMigrationError(f"migration failed and was rolled back: {error}") from error
 
-    if direction == "forward":
-        _remove_empty_legacy_directories(root)
+    _remove_empty_legacy_directories(root)
     final_resources = tuple((entry.kind, entry.status) for entry in after_entries)
     return MigrationResult(
-        direction,
         True,
         str(backup.relative_to(root)),
         final_resources,
@@ -541,7 +537,6 @@ def migrate(root: Path, direction: Direction, *, apply: bool = False) -> Migrati
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("direction", choices=("forward", "rollback"))
     parser.add_argument("--root", type=Path, default=Path.cwd())
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="validate only (the default)")
@@ -552,7 +547,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = migrate(args.root, cast(Direction, args.direction), apply=bool(args.apply))
+        result = migrate(args.root, apply=bool(args.apply))
     except StoreLayoutMigrationError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

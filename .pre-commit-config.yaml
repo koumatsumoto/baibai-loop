@@ -32,6 +32,13 @@ repos:
         language: system
         pass_filenames: false
 
+      - id: drift-gates
+        name: drift gates
+        entry: bash -c 'for gate in tools/quality/drift/check_*.py; do uv run python -m "tools.quality.drift.$(basename "$gate" .py)" || exit 1; done'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
       - id: pytest-fast
         name: pytest fast
         entry: uv run pytest -q -m "not slow"

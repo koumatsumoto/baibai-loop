@@ -410,13 +410,6 @@ class ReplayedPortfolioValue:
     holdings: tuple[HoldingSnapshot, ...]
 
 
-def load_portfolio_ledger(path: Path) -> PortfolioLedgerDocument:
-    """Load strict YAML without accepting implicit numeric or datetime coercion."""
-
-    document, _source_sha256 = load_portfolio_ledger_with_sha256(path)
-    return document
-
-
 def load_portfolio_ledger_with_sha256(path: Path) -> tuple[PortfolioLedgerDocument, str]:
     """Parse a ledger and hash the exact same bytes used for that parse."""
 

@@ -19,13 +19,14 @@ import pytest
 import yaml
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.fixed_now import FIXED_NOW
+from tests.helpers.ledger import load_portfolio_ledger
 
 from baibai_engine.cli import main as engine_main
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 from baibai_engine.operation.cli import main as operation_main
 from baibai_engine.position.cli import main as position_main
-from baibai_engine.position.ledger import load_portfolio_ledger, reconcile_portfolio
+from baibai_engine.position.ledger import reconcile_portfolio
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.proposals.cli import main as proposal_main
 from baibai_engine.proposals.store import PlannedLimitInput, ProposalStoreService

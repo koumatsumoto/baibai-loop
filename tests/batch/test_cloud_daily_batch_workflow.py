@@ -191,28 +191,6 @@ def test_a_failed_upload_publishes_no_durable_record(
     assert "publish-serving-tail" not in steps_by_id["upload-stores"]["run"]
 
 
-def test_the_store_push_runs_before_the_views_mirror(steps_by_id: dict[str, dict]) -> None:
-    """`views/` must never describe a run the remote store does not hold.
-
-    Run together, a machine push that failed beside a mirror that succeeded left
-    exactly that, standing until the next successful run. Ordered this way the only
-    partial state left behind is views older than the store.
-    """
-    run = steps_by_id["upload-stores"]["run"]
-
-    assert run.index("push-machine >") < run.index("upload-serving-views")
-    # Nothing is backgrounded: the mirror is inside the branch the push's exit opens.
-    assert "&\n" not in run
-    assert "wait " not in run
-    # Each side reports itself so the notification can name the one that failed, and
-    # a mirror that never ran says so rather than leaving its output absent.
-    assert 'echo "machine=success"' in run
-    assert 'echo "views=success"' in run
-    assert 'echo "machine=failure"' in run
-    assert 'echo "views=failure"' in run
-    assert 'echo "views=skipped"' in run
-
-
 def _run_upload_step(
     tmp_path: Path, steps_by_id: dict[str, dict], *, machine_exit: int, views_exit: int
 ) -> tuple[int, dict[str, str], list[tuple[str, float, float]]]:
@@ -277,6 +255,12 @@ def _run_upload_step(
 def test_the_mirror_starts_only_after_the_store_push_finished(
     tmp_path: Path, steps_by_id: dict[str, dict]
 ) -> None:
+    """`views/` must never describe a run the remote store does not hold.
+
+    Run together, a machine push that failed beside a mirror that succeeded left
+    exactly that, standing until the next successful run. Ordered this way the only
+    partial state left behind is views older than the store.
+    """
     code, outputs, recorded = _run_upload_step(tmp_path, steps_by_id, machine_exit=0, views_exit=0)
 
     assert code == 0

@@ -27,7 +27,6 @@ from baibai_engine.screening.sqlite_reader import (
     EDINETMetricBaselineError,
     fin_summaries_readable_from,
     read_edinet_metric_baseline,
-    read_eq_master,
     read_eq_master_asof,
     read_fin_summaries,
     read_jpx_earnings_calendar_snapshot,
@@ -52,94 +51,7 @@ def _add_source_coverage(
     )
 
 
-class ReadEqMasterTests(unittest.TestCase):
-    def test_returns_none_when_sqlite_missing(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            self.assertIsNone(read_eq_master(Path(tmp) / "missing.sqlite"))
-
-    def test_returns_none_when_no_master_imported(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            conn = open_connection(db)
-            conn.commit()
-            conn.close()
-            self.assertIsNone(read_eq_master(db))
-
-    def test_returns_none_when_master_coverage_has_zero_rows(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            conn = open_connection(db)
-            _add_source_coverage(
-                conn,
-                source="jquants_master_snapshots",
-                path="get_eq_master:2026-05-07..2026-05-07",
-                record_count=0,
-                min_date="2026-05-07",
-                max_date="2026-05-07",
-            )
-            conn.commit()
-            conn.close()
-
-            self.assertIsNone(read_eq_master(db))
-
-    def test_returns_securities_after_import(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            conn = open_connection(db)
-            conn.execute(
-                "INSERT INTO jquants_master_snapshots("
-                "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                ") VALUES (?, ?, ?, ?, ?, ?)",
-                ("2026-05-07", "1301", "極洋", "プライム", "水産・農林業", 1),
-            )
-            _add_source_coverage(
-                conn,
-                source="jquants_master_snapshots",
-                path=".cache/screening/raw/jquants/get_eq_master.json",
-                record_count=1,
-                min_date="2026-05-07",
-                max_date="2026-05-07",
-            )
-            conn.commit()
-            conn.close()
-
-            masters = read_eq_master(db)
-            self.assertIsNotNone(masters)
-            assert masters is not None  # narrow for type checker
-            self.assertEqual(len(masters), 1)
-            self.assertEqual(masters[0].code, "1301")
-            self.assertEqual(masters[0].name, "極洋")
-            self.assertEqual(masters[0].sector_33, "水産・農林業")
-            self.assertTrue(masters[0].is_common_stock)
-
-    def test_picks_latest_snapshot_when_ticker_repeated(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            conn = open_connection(db)
-            conn.executemany(
-                "INSERT INTO jquants_master_snapshots("
-                "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                ") VALUES (?, ?, ?, ?, ?, ?)",
-                [
-                    ("2026-04-07", "1301", "OldName", "プライム", "水産", 1),
-                    ("2026-05-07", "1301", "NewName", "プライム", "水産", 1),
-                ],
-            )
-            _add_source_coverage(
-                conn,
-                source="jquants_master_snapshots",
-                path="m.json",
-                record_count=2,
-                min_date="2026-04-07",
-                max_date="2026-05-07",
-            )
-            conn.commit()
-            conn.close()
-
-            masters = read_eq_master(db)
-            assert masters is not None
-            self.assertEqual(masters[0].name, "NewName")
-
+class ReadEqMasterAsOfTests(unittest.TestCase):
     def test_asof_reader_prefers_prior_and_falls_back_to_earliest_future_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"

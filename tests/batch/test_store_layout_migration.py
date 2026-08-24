@@ -43,7 +43,7 @@ def _seed_legacy_layout(root: Path) -> None:
 def test_forward_dry_run_is_read_only_and_reports_pending(tmp_path: Path) -> None:
     _seed_legacy_layout(tmp_path)
 
-    result = migrate(tmp_path, "forward")
+    result = migrate(tmp_path)
 
     assert result.applied is False
     assert next(item for item in result.verification if item["kind"] == "application") == {
@@ -76,13 +76,13 @@ def test_forward_dry_run_is_read_only_and_reports_pending(tmp_path: Path) -> Non
     assert not list(tmp_path.rglob("baibai-layout-*.sqlite"))
 
 
-def test_forward_and_rollback_keep_one_physical_store_and_verified_backup(
+def test_forward_keeps_one_physical_store_and_a_verified_backup(
     tmp_path: Path,
 ) -> None:
     _seed_legacy_layout(tmp_path)
     original_inode = (tmp_path / STORE_LAYOUT_MAPPINGS[0][0]).stat().st_ino
 
-    forward = migrate(tmp_path, "forward", apply=True)
+    forward = migrate(tmp_path, apply=True)
 
     assert forward.applied is True
     assert forward.backup is not None
@@ -92,22 +92,13 @@ def test_forward_and_rollback_keep_one_physical_store_and_verified_backup(
         assert not (tmp_path / legacy).exists()
         assert (tmp_path / current).exists()
 
-    rollback = migrate(tmp_path, "rollback", apply=True)
-
-    assert rollback.applied is True
-    assert rollback.backup is not None
-    assert (tmp_path / STORE_LAYOUT_MAPPINGS[0][0]).stat().st_ino == original_inode
-    for legacy, current in STORE_LAYOUT_MAPPINGS:
-        assert (tmp_path / legacy).exists()
-        assert not (tmp_path / current).exists()
-
 
 def test_both_layouts_are_rejected_without_creating_a_backup(tmp_path: Path) -> None:
     _seed_legacy_layout(tmp_path)
     _create_store(tmp_path / STORE_LAYOUT_MAPPINGS[0][1], "application")
 
     with pytest.raises(StoreLayoutMigrationError, match=r"both .* exist"):
-        migrate(tmp_path, "forward", apply=True)
+        migrate(tmp_path, apply=True)
 
     assert not list(tmp_path.rglob("baibai-layout-*.sqlite"))
     assert (tmp_path / STORE_LAYOUT_MAPPINGS[0][0]).exists()
@@ -121,7 +112,7 @@ def test_missing_required_table_stops_before_any_move(tmp_path: Path) -> None:
         connection.execute("DROP TABLE thesis")
 
     with pytest.raises(StoreLayoutMigrationError, match="missing required tables: thesis"):
-        migrate(tmp_path, "forward", apply=True)
+        migrate(tmp_path, apply=True)
 
     for legacy, current in STORE_LAYOUT_MAPPINGS:
         assert (tmp_path / legacy).exists()
@@ -142,7 +133,7 @@ def test_incompatible_schema_stops_before_any_move(tmp_path: Path, schema_versio
             rf"{store_layout_migration._EXPECTED_SCHEMA_VERSIONS['market']}"
         ),
     ):
-        migrate(tmp_path, "forward", apply=True)
+        migrate(tmp_path, apply=True)
 
     for legacy, current in STORE_LAYOUT_MAPPINGS:
         assert (tmp_path / legacy).exists()
@@ -154,7 +145,7 @@ def test_sqlite_sidecar_stops_before_any_move(tmp_path: Path) -> None:
     Path(f"{tmp_path / STORE_LAYOUT_MAPPINGS[0][0]}-wal").touch()
 
     with pytest.raises(StoreLayoutMigrationError, match="SQLite sidecar exists"):
-        migrate(tmp_path, "forward", apply=True)
+        migrate(tmp_path, apply=True)
 
     assert (tmp_path / STORE_LAYOUT_MAPPINGS[0][0]).exists()
     assert not (tmp_path / STORE_LAYOUT_MAPPINGS[0][1]).exists()
@@ -165,14 +156,14 @@ def test_orphan_sidecar_on_either_layout_stops_a_complete_dry_run(
     tmp_path: Path, side: str
 ) -> None:
     _seed_legacy_layout(tmp_path)
-    migrate(tmp_path, "forward", apply=True)
+    migrate(tmp_path, apply=True)
     legacy, current = STORE_LAYOUT_MAPPINGS[0]
     primary = tmp_path / (legacy if side == "source" else current)
     primary.parent.mkdir(parents=True, exist_ok=True)
     Path(f"{primary}-wal").touch()
 
     with pytest.raises(StoreLayoutMigrationError, match="SQLite sidecar exists"):
-        migrate(tmp_path, "forward")
+        migrate(tmp_path)
 
 
 def test_a_mid_move_failure_restores_every_moved_resource(
@@ -192,7 +183,7 @@ def test_a_mid_move_failure_restores_every_moved_resource(
     monkeypatch.setattr(store_layout_migration, "_atomic_move", fail_second_move)
 
     with pytest.raises(StoreLayoutMigrationError, match="failed and was rolled back"):
-        migrate(tmp_path, "forward", apply=True)
+        migrate(tmp_path, apply=True)
 
     for legacy, current in STORE_LAYOUT_MAPPINGS:
         assert (tmp_path / legacy).exists()
