@@ -18,7 +18,10 @@ from baibai_engine.position.drafts import apply_draft, build_event_draft
 from baibai_engine.position.holding_review import HoldingReviewDocument
 from baibai_engine.position.ledger import ContributionEvent, load_portfolio_ledger
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.research.holding_review_builder import build_holding_review_from_db
+from baibai_engine.research.holding_review_builder import (
+    HoldingReviewError,
+    build_holding_review_from_db,
+)
 from baibai_engine.research.store import ResearchStoreService
 from baibai_engine.research.thesis import (
     IndependentReview,
@@ -139,6 +142,79 @@ def _publish_candidate(
         review,
     )
     return candidate_id
+
+
+def _reprice_holding(
+    db: Path, *, ticker: str, observed_at: str, price_yen: Decimal | None = None
+) -> None:
+    """Re-apply one holding's ledger market price, the way a new price draft does."""
+
+    service = LedgerStoreService(db)
+    document, head = service.load_with_head()
+    observed = datetime.fromisoformat(observed_at)
+    service.apply_document(
+        expected_head=head,
+        expected_document=document,
+        replacement=document.model_copy(
+            update={
+                # The ledger refuses a price observed after as_of, and events after it;
+                # a real price draft only ever moves as_of forward.
+                "as_of": max(document.as_of, observed),
+                "market_prices": tuple(
+                    price.model_copy(
+                        update={
+                            "observed_at": observed,
+                            **({} if price_yen is None else {"price_yen": price_yen}),
+                        }
+                    )
+                    if price.ticker == ticker
+                    else price
+                    for price in document.market_prices
+                ),
+            }
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("observed_at", "price_yen", "expected"),
+    [
+        pytest.param(
+            "2026-07-06T08:30:00+09:00",
+            None,
+            "thesis as_of must equal the holding market-price observation date",
+            id="observation_date_moved",
+        ),
+        pytest.param(
+            "2026-07-03T08:30:00+09:00",
+            Decimal("1040"),
+            "holding thesis market price does not match ledger unadjusted close",
+            id="observed_price_corrected",
+        ),
+    ],
+)
+def test_holding_review_build_refuses_a_thesis_the_ledger_price_no_longer_supports(
+    tmp_path: Path, observed_at: str, price_yen: Decimal | None, expected: str
+) -> None:
+    """The canonical review is built against the ledger's own price observation.
+
+    This is what makes a workspace whose ledger price moved already unusable, and
+    therefore what the research gates are entitled to refuse early: the thesis they
+    would let the operator finish could never become a holding review.
+    """
+    db = _database(tmp_path)
+    head_before = LedgerStoreService(db).append_head()
+    _reprice_holding(db, ticker="2331", observed_at=observed_at, price_yen=price_yen)
+    # A price-only write is invisible to the append head every workspace pins.
+    assert LedgerStoreService(db).append_head() == head_before
+
+    with pytest.raises(HoldingReviewError, match=expected):
+        build_holding_review_from_db(
+            db_path=db,
+            holding_thesis_id=THESIS_ID,
+            position_id="2331",
+            now=FIXED_NOW,
+        )
 
 
 def test_db_holding_review_build_and_publish_recheck_canonical_revisions(

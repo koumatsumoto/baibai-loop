@@ -514,6 +514,29 @@ def prepare_workspace(
     )
 
 
+def _holding_subject_problem(snapshot: PortfolioSnapshot, *, ticker: str, asof: date) -> str | None:
+    """Say why ``ticker`` cannot be a holding-review subject at ``asof``, or ``None``.
+
+    Holding review has no Research Gate because the ledger is its source, so this is
+    the whole of what makes a subject legitimate — and it has to be one statement,
+    because ``holding-prepare`` and every later gate must not be able to disagree
+    about it. The as-of half is not decoration: the canonical holding review is
+    built against the ledger's own price observation, so a review that runs at any
+    other as-of cannot become one.
+    """
+
+    holding = next((item for item in snapshot.holdings if item.ticker == ticker), None)
+    if holding is None:
+        return f"{ticker} is not an open holding in the canonical ledger"
+    observed_on = holding.market_price_observed_at.date()
+    if observed_on != asof:
+        return (
+            f"the canonical ledger observed {ticker}'s market price on "
+            f"{observed_on.isoformat()}, not {asof.isoformat()}"
+        )
+    return None
+
+
 def prepare_holding_workspace(
     *,
     asof: date,
@@ -530,17 +553,10 @@ def prepare_holding_workspace(
     without weakening the normal opportunity-selection contract.
     """
     snapshot, append_head = _load_snapshot(db_path)
-    holding = next((item for item in snapshot.holdings if item.ticker == ticker), None)
-    if holding is None:
-        raise OpportunityDataError(
-            f"cannot prepare holding review for {ticker}: ticker is not an open holding"
-        )
-    if holding.market_price_observed_at.date() != asof:
-        raise OpportunityDataError(
-            f"cannot prepare holding review for {ticker}: holding market price date "
-            f"{holding.market_price_observed_at.date().isoformat()} does not match --asof "
-            f"{asof.isoformat()}"
-        )
+    problem = _holding_subject_problem(snapshot, ticker=ticker, asof=asof)
+    if problem is not None:
+        raise OpportunityDataError(f"cannot prepare holding review: {problem}")
+    holding = next(item for item in snapshot.holdings if item.ticker == ticker)
 
     manifest_path = workspace / "manifest.yaml"
     if manifest_path.exists() and not force:
@@ -828,6 +844,7 @@ def _research_gate_view(gate: _ResearchGate | None) -> dict[str, object]:
 
 
 def _draft_status(workspace: Path, manifest: Mapping[str, object]) -> dict[str, object]:
+    manifest_asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     selection = _load_mapping(workspace / "selection.yaml", label="workspace selection")
     shortlist = _dict_list(selection.get("shortlist"))
     shortlist_tickers = [str(row.get("ticker") or "") for row in shortlist]
@@ -871,7 +888,8 @@ def _draft_status(workspace: Path, manifest: Mapping[str, object]) -> dict[str, 
             if (check_id := _string_or_none(item.get("check_id"))) is not None
         )
         research_thesis_errors.extend(
-            f"{ticker}:{error}" for error in _thesis_validation_errors(workspace, ticker)
+            f"{ticker}:{error}"
+            for error in _thesis_validation_errors(workspace, ticker, manifest_asof)
         )
     if research_pending or research_thesis_errors:
         first_ticker = (research_pending or research_thesis_errors)[0].split(":", maxsplit=1)[0]
@@ -915,10 +933,8 @@ def _draft_status(workspace: Path, manifest: Mapping[str, object]) -> dict[str, 
         for item in checklist
         if item.get("status") == "blocked"
     ]
-    thesis_errors = _thesis_validation_errors(workspace, selected_ticker)
-    review_errors = _review_validation_errors(
-        workspace, selected_ticker, _parse_date(str(manifest.get("as_of")), label="manifest as_of")
-    )
+    thesis_errors = _thesis_validation_errors(workspace, selected_ticker, manifest_asof)
+    review_errors = _review_validation_errors(workspace, selected_ticker, manifest_asof)
 
     workspace_status = _resolve_workspace_status(
         pending=pending, blocked=blocked, thesis_errors=thesis_errors, review_errors=review_errors
@@ -996,9 +1012,9 @@ def _verify_external_inputs(
     which tickers the Gate admits.
 
     Holding review has no Gate — the ledger is its source — so it gets ``None``, and
-    its subject is re-checked against that ledger here. Both purposes therefore
-    prove their subject against a store: without that, declaring ``holding_review``
-    in the manifest would be a way to opt out of the Gate entirely.
+    its subject and as-of are re-proved against that ledger here. Both purposes
+    therefore prove their subject against a store: without that, declaring
+    ``holding_review`` in the manifest would be a way to opt out of the Gate.
     """
 
     inputs = manifest.get("inputs")
@@ -1047,27 +1063,40 @@ def _verify_external_inputs(
                 f"workspace external input changed since prepare (input hash drift): {name}"
             )
     if purpose == "holding_review":
-        _require_open_holding(manifest, db_path=db_path)
+        _require_holding_subject(manifest, db_path=db_path)
         return None
     return _verify_research_gate(manifest, inputs, db_path=db_path)
 
 
-def _require_open_holding(manifest: Mapping[str, object], *, db_path: Path | None) -> None:
+def _require_holding_subject(manifest: Mapping[str, object], *, db_path: Path | None) -> None:
     """Re-prove a holding-review workspace's subject against the canonical ledger.
 
-    ``holding-prepare`` refuses a ticker that is not an open holding, but the
-    manifest recording that answer is an editable file. Re-reading the ledger on
-    every gate keeps the purpose from being a way to research an arbitrary ticker.
+    ``holding-prepare`` proves the subject once, but the manifest recording that
+    answer is an editable file, so the purpose would otherwise be a way to research
+    an arbitrary ticker at an arbitrary as-of.
+
+    The pinned ``append_head`` does not cover this: it counts ``ledger_event`` rows,
+    while market prices live in their own table and are replaced wholesale, so a
+    re-applied price draft moves the observation date under an unchanged head. That
+    is exactly the drift worth catching — the canonical holding review is built
+    against the ledger's own observation, so a workspace whose price date has moved
+    can no longer produce one. Failing here says so before the research is written
+    rather than after.
     """
 
     ticker = _string_or_none(manifest.get("holding_ticker"))
     if ticker is None:
         raise OpportunityDataError("holding-review manifest is missing holding_ticker")
+    asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     snapshot, _append_head = _load_snapshot(db_path)
-    if all(holding.ticker != ticker for holding in snapshot.holdings):
+    problem = _holding_subject_problem(snapshot, ticker=ticker, asof=asof)
+    if problem is not None:
         raise OpportunityConflictError(
-            f"holding-review workspace subject {ticker} is not an open holding in the "
-            "canonical ledger"
+            f"holding-review workspace subject is invalid: {problem}; a holding review "
+            "runs at the as-of its ledger market price was observed, so rebuild at that "
+            "date with `research holding-prepare --asof <observed> --force` and "
+            "regenerate the ticker drafts with `research thesis-scaffold --force` "
+            "(market prices only move forward, so the old as-of cannot be restored)"
         )
 
 
@@ -1937,14 +1966,31 @@ def _load_checklist(workspace: Path, ticker: str) -> list[dict[str, object]]:
     return _dict_list(payload.get("checks"))
 
 
-def _thesis_validation_errors(workspace: Path, ticker: str) -> list[str]:
+def _thesis_validation_errors(workspace: Path, ticker: str, asof: date) -> list[str]:
+    """Report what stops this draft from becoming a canonical thesis.
+
+    The as-of comparison belongs here and not only in ``promote``: rebuilding a
+    workspace at a new as-of leaves the ticker directory untouched, so a draft
+    written for the previous one survives. Without this the workspace would call
+    itself ``ready_for_review`` and send the operator to the most expensive step of
+    all, and only promote would say the draft was never usable.
+    """
+
     thesis_path = _research_ticker_dir(workspace, ticker) / "thesis-draft.yaml"
     if not thesis_path.exists():
         return ["thesis draft missing"]
     try:
-        load_thesis(thesis_path)
+        document = load_thesis(thesis_path)
     except ThesisError as error:
         return [str(error).splitlines()[0]]
+    if document.input_snapshot.as_of != asof:
+        return [
+            (
+                f"thesis as_of {document.input_snapshot.as_of.isoformat()} does not match "
+                f"workspace as_of {asof.isoformat()}; regenerate it with "
+                "`research thesis-scaffold --force`"
+            )
+        ]
     return []
 
 
