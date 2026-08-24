@@ -43,6 +43,8 @@ from baibai_engine.screening.sqlite_reader import (
     read_fin_summaries,
     read_margin_alerts,
     read_weekly_margin,
+    weekly_margin_candidate_dates,
+    weekly_margin_empty_requires_refresh,
 )
 
 
@@ -1109,6 +1111,98 @@ class WeeklyMarginStoreTest(unittest.TestCase):
             self.assertEqual(persisted, 0)
             self.assertEqual(read_weekly_margin(db, date(2017, 5, 5)), [])
             self.assertIsNone(read_weekly_margin(db, date(2017, 5, 12)))
+
+    def test_publication_candidates_wait_for_the_second_trading_day(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            trading_days = (
+                date(2026, 7, 31),
+                date(2026, 8, 3),
+                date(2026, 8, 4),
+                date(2026, 8, 5),
+            )
+            conn = open_connection(db)
+            try:
+                conn.executemany(
+                    "INSERT INTO jquants_daily_bars"
+                    "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
+                    [("7203", day.isoformat(), 1.0, 1.0) for day in trading_days],
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            self.assertEqual(
+                weekly_margin_candidate_dates(
+                    db,
+                    date(2026, 7, 31),
+                    date(2026, 8, 3),
+                    publication_asof=date(2026, 8, 3),
+                ),
+                [],
+            )
+            self.assertEqual(
+                weekly_margin_candidate_dates(
+                    db,
+                    date(2026, 7, 31),
+                    date(2026, 8, 4),
+                    publication_asof=date(2026, 8, 4),
+                ),
+                [date(2026, 7, 31)],
+            )
+
+    def test_only_an_empty_snapshot_fetched_by_publication_day_is_retried(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            week_end = date(2026, 7, 31)
+            conn = open_connection(db)
+            try:
+                conn.executemany(
+                    "INSERT INTO jquants_daily_bars"
+                    "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
+                    [
+                        ("7203", day.isoformat(), 1.0, 1.0)
+                        for day in (
+                            week_end,
+                            date(2026, 8, 3),
+                            date(2026, 8, 4),
+                            date(2026, 8, 5),
+                        )
+                    ],
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            store_jquants_weekly_margin(db, [], week_end=week_end)
+            conn = open_connection(db)
+            try:
+                conn.execute(
+                    "UPDATE source_coverage SET fetched_at_utc = ? "
+                    "WHERE source = 'jquants_weekly_margin'",
+                    ("2026-08-04T07:00:00+00:00",),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            self.assertTrue(
+                weekly_margin_empty_requires_refresh(db, week_end, asof=date(2026, 8, 5))
+            )
+
+            conn = open_connection(db)
+            try:
+                conn.execute(
+                    "UPDATE source_coverage SET fetched_at_utc = ? "
+                    "WHERE source = 'jquants_weekly_margin'",
+                    ("2026-08-05T07:00:00+00:00",),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            self.assertFalse(
+                weekly_margin_empty_requires_refresh(db, week_end, asof=date(2026, 8, 5))
+            )
 
     def test_non_common_stock_lines_are_excluded_not_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

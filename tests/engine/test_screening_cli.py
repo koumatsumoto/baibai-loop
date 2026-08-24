@@ -58,7 +58,12 @@ from baibai_engine.screening.providers.jquants import (
 from baibai_engine.screening.render import build_output_path
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.schema import SecurityMaster, TTMQuality
-from baibai_engine.screening.sqlite_cache import store_edinet_metrics, store_jquants_daily_bars
+from baibai_engine.screening.sqlite_cache import (
+    open_connection,
+    store_edinet_metrics,
+    store_jquants_daily_bars,
+    store_jquants_weekly_margin,
+)
 from baibai_engine.screening.sqlite_coverage import (
     RequiredFieldCoverage,
     RequiredFieldRepairPlan,
@@ -1038,6 +1043,56 @@ class ScreeningCliTests(unittest.TestCase):
                 date(2026, 9, 18),
                 date(2026, 9, 18),
             ),
+            jquants.calls,
+        )
+
+    def test_bootstrap_repairs_an_empty_week_cached_before_publication(self) -> None:
+        asof = date(2026, 8, 5)
+        week_end = date(2026, 7, 31)
+        jquants = FakeJQuantsProvider()
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            trading_days = (
+                week_end,
+                date(2026, 8, 3),
+                date(2026, 8, 4),
+                asof,
+            )
+            store_jquants_daily_bars(
+                sqlite_path,
+                [
+                    {"Date": day.isoformat(), "Code": "72030", "Close": 100.0}
+                    for day in trading_days
+                ],
+                requested_start=trading_days[0],
+                requested_end=trading_days[-1],
+            )
+            store_jquants_weekly_margin(sqlite_path, [], week_end=week_end)
+            conn = open_connection(sqlite_path)
+            try:
+                conn.execute(
+                    "UPDATE source_coverage SET fetched_at_utc = ? "
+                    "WHERE source = 'jquants_weekly_margin'",
+                    ("2026-08-04T07:00:00+00:00",),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            exit_code = bootstrap_cache_command(
+                asof_date=asof,
+                providers=ProviderBundle(
+                    jquants=jquants,
+                    edinet=FakeEDINETProvider(),
+                    jpx=FakeJPXProvider(),
+                ),
+                sqlite_path=sqlite_path,
+                stdout=io.StringIO(),
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn(
+            ("refresh_mkt_margin_interest_week", week_end, week_end),
             jquants.calls,
         )
 

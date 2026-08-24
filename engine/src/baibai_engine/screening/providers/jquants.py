@@ -285,10 +285,10 @@ class JQuantsProvider(JQuantsMarketProvider):
         """Fetch every ticker's margin balance for one weekly balance date.
 
         The endpoint answers per balance date, and not every week has one: the
-        exchange skips weeks it does not publish, so an empty answer is a fact
-        about that week rather than a failure. The coverage row records the
-        attempt either way, which is what keeps a skipped week from being asked
-        for again on every pass.
+        exchange skips weeks it does not publish. The coverage row records an
+        empty attempt either way; the bootstrap planner uses its fetch time and
+        the publication calendar to distinguish a premature empty response from
+        a final skipped week.
         """
         from ..margin_publication import require_legacy_weekly_balance_date
 

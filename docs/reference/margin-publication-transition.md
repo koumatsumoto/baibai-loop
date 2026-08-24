@@ -46,6 +46,9 @@ union しない。6 残高 field は有限・非負、`IssType` は non-null を
 - `jquants_weekly_margin` は `week_end <= 2026-09-18`、全銘柄日次 table は
   `balance_date >= 2026-09-25` を application と SQLite `CHECK` の両方で強制する。境界違反は
   provider ingest、直接 SQL、store merge のいずれでも fail-fast する。
+- 週次残高は第2取引日の公表が到来した候補だけをdaily bootstrapが取得する。公表前または公表日の
+  途中に取得したempty snapshotは最終的な「非公表週」とみなさず、公表後のbatchで一度再取得する。
+  公表後にもemptyだった週はcleanな対象なしとして保持し、以後は再取得しない。
 - daily batch は `margin-alert` の直近 7 日を再取得し、遅延追加・訂正を取り込む。
 - 最終週次 2026-09-18 残高は 2026-09-24 以後、clean かつ non-empty な snapshot を
   保存するまで再取得する。公表前の空 response を既存 cache が保持していても、最終週を

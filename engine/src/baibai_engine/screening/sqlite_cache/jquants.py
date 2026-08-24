@@ -126,10 +126,11 @@ def store_jquants_weekly_margin(
     """Persist one weekly balance date, including the fact that it was empty.
 
     Not every week has a balance date; the exchange skips some, and asking for one
-    of those returns nothing. Recording the coverage row for an empty answer is
-    what tells the next pass the week was already examined, so a skipped week is
-    asked for once rather than on every run. The row set for a date is replaced
-    whole, which is how a re-fetch corrects a partially stored week.
+    of those returns nothing. Recording the coverage row preserves what the fetch
+    observed. The bootstrap planner uses its timestamp and the publication calendar
+    to retry an empty response observed too early; an empty observed after
+    publication is final and is not fetched on every run. The row set for a date is
+    replaced whole, which is how a re-fetch corrects a prematurely stored week.
     """
     require_legacy_weekly_balance_date(week_end)
     normalized = _weekly_margin_rows_with_quality(records, week_end)
