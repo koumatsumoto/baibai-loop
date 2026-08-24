@@ -986,8 +986,12 @@ def _verify_external_inputs(
 
     Returning the gate rather than reading it later is what keeps the two in step:
     a caller cannot validate drafts without having first proved, against the store,
-    which tickers the Gate admits. Holding review has no Gate — the ledger is its
-    source — so it gets ``None``.
+    which tickers the Gate admits.
+
+    Holding review has no Gate — the ledger is its source — so it gets ``None``, and
+    its subject is re-checked against that ledger here. Both purposes therefore
+    prove their subject against a store: without that, declaring ``holding_review``
+    in the manifest would be a way to opt out of the Gate entirely.
     """
 
     inputs = manifest.get("inputs")
@@ -1036,8 +1040,28 @@ def _verify_external_inputs(
                 f"workspace external input changed since prepare (input hash drift): {name}"
             )
     if purpose == "holding_review":
+        _require_open_holding(manifest, db_path=db_path)
         return None
     return _verify_research_gate(manifest, inputs, db_path=db_path)
+
+
+def _require_open_holding(manifest: Mapping[str, object], *, db_path: Path | None) -> None:
+    """Re-prove a holding-review workspace's subject against the canonical ledger.
+
+    ``holding-prepare`` refuses a ticker that is not an open holding, but the
+    manifest recording that answer is an editable file. Re-reading the ledger on
+    every gate keeps the purpose from being a way to research an arbitrary ticker.
+    """
+
+    ticker = _string_or_none(manifest.get("holding_ticker"))
+    if ticker is None:
+        raise OpportunityDataError("holding-review manifest is missing holding_ticker")
+    snapshot, _append_head = _load_snapshot(db_path)
+    if all(holding.ticker != ticker for holding in snapshot.holdings):
+        raise OpportunityConflictError(
+            f"holding-review workspace subject {ticker} is not an open holding in the "
+            "canonical ledger"
+        )
 
 
 def _validate_editable_drafts(

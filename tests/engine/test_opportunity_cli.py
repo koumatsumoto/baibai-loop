@@ -1688,6 +1688,66 @@ def test_holding_review_workspace_needs_no_research_gate(
     assert (workspace / "2331" / "thesis-draft.yaml").is_file()
 
 
+def test_declaring_holding_review_does_not_opt_a_workspace_out_of_the_gate(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Forging the manifest's purpose must not turn the Gate off.
+
+    Holding review has no Research Gate because the ledger is its source, so a
+    workspace that claims that purpose has to prove its subject against the ledger.
+    Otherwise `purpose` is simply the switch that disables the binding.
+    """
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("8929", "2026-07-10", 750.0, 1.0)])
+    workspace, _selection, db_path = _gated_workspace(tmp_path, sqlite_path)
+
+    manifest_path = workspace / "manifest.yaml"
+    manifest = safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["purpose"] = "holding_review"
+    manifest["holding_ticker"] = "8929"
+    manifest_path.write_text(
+        yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    selection_path = workspace / "selection.yaml"
+    selection = safe_load(selection_path.read_text(encoding="utf-8"))
+    selection["longlist"] = [
+        {"rank": 1, "ticker": "8929", "sector": "サービス業", "portfolio_annotation": "held"}
+    ]
+    selection["shortlist"] = [{"ticker": "8929", "reason": "open holding review"}]
+    selection["shortlist_slots"] = 1
+    selection["actionable"] = True
+    selection_path.write_text(
+        yaml.safe_dump(selection, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    comparison_path = workspace / "research-comparison.yaml"
+    comparison = safe_load(comparison_path.read_text(encoding="utf-8"))
+    comparison["candidates"] = [{"ticker": "8929"}]
+    comparison["selected_ticker"] = "8929"
+    comparison_path.write_text(
+        yaml.safe_dump(comparison, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+    code = opportunity_main(
+        [
+            "thesis-scaffold",
+            "--workspace",
+            str(workspace),
+            "--db",
+            str(db_path),
+            "--ticker",
+            "8929",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        now=FIXED_NOW,
+    )
+    assert code == 4
+    assert "is not an open holding in the canonical ledger" in capsys.readouterr().err
+    assert not (workspace / "8929").exists()
+
+
 def test_workspace_prepared_before_the_binding_fails_closed(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
