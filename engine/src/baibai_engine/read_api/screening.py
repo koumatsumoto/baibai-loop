@@ -20,9 +20,9 @@ def screening_calibration_method_identity(root: Path) -> tuple[str, str] | None:
     # calibration context needs the panel contract and method configuration.
     from yaml import YAMLError
 
-    from baibai_engine.screening.calibration.identity import production_rules_contract_hash
     from baibai_engine.screening.estimates import EXPECTED_RETURN_MODEL_VERSION
     from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
+    from baibai_engine.screening.rules_identity import production_rules_contract_hash
 
     try:
         rules = load_screening_rules(root / DEFAULT_RULES_PATH)

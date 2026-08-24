@@ -1285,6 +1285,21 @@ class TestSemanticIdentity:
 
         assert changed == baseline
 
+    def test_production_rules_identity_does_not_invalidate_calibration_panels(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A run/select identity helper cannot change historical panel row bytes."""
+
+        baseline = transform_fingerprint(CALIBRATION_PANEL, cache_schema_version="contract")
+
+        changed = self._fingerprint_with_changed_file(
+            monkeypatch,
+            dataset=CALIBRATION_PANEL,
+            relative_path="screening/rules_identity.py",
+        )
+
+        assert changed == baseline
+
     @pytest.mark.parametrize("dataset", [CALIBRATION_PANEL, CALIBRATION_FORWARD])
     def test_the_store_that_orchestrates_a_build_is_not_part_of_its_identity(
         self, monkeypatch: pytest.MonkeyPatch, dataset: object

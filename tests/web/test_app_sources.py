@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from baibai_engine.screening.calibration.identity import production_rules_contract_hash
 from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_web.sources.db_sources import (
     DbCandidatesSource,

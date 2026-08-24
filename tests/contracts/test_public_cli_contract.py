@@ -22,10 +22,10 @@ from baibai_engine.proposals.cli import build_parser as proposal_parser
 from baibai_engine.research.decision_cli import main as decision_main
 from baibai_engine.research.opportunity_cli import build_parser as opportunity_parser
 from baibai_engine.research.opportunity_cli import main as opportunity_main
-from baibai_engine.screening.calibration.identity import production_rules_contract_hash
 from baibai_engine.screening.cli import main as screening_main
 from baibai_engine.screening.cli.app import build_parser as screening_parser
 from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
 
 ROOT = Path(__file__).resolve().parents[2]
