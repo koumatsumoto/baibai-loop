@@ -333,6 +333,34 @@ def _prepared_workspace(
     return workspace
 
 
+def _rewrite_holding_workspace(workspace: Path, *, ticker: str, asof: str) -> None:
+    """Point a holding-review workspace at another subject and as-of, by hand.
+
+    All three documents move together because that is the shape of the hole: a
+    manifest alone trips the draft as_of check first, which is not the same gate.
+    """
+
+    for name, key in (("selection.yaml", "longlist"), ("research-comparison.yaml", "candidates")):
+        path = workspace / name
+        document = safe_load(path.read_text(encoding="utf-8"))
+        document["as_of"] = asof
+        document[key] = [{**row, "ticker": ticker} for row in document[key]]
+        if key == "longlist":
+            document["shortlist"] = [{**row, "ticker": ticker} for row in document["shortlist"]]
+        else:
+            document["selected_ticker"] = ticker
+        path.write_text(
+            yaml.safe_dump(document, sort_keys=False, allow_unicode=True), encoding="utf-8"
+        )
+    manifest_path = workspace / "manifest.yaml"
+    manifest = safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["holding_ticker"] = ticker
+    manifest["as_of"] = asof
+    manifest_path.write_text(
+        yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+
 def _move_market_price_day(db_path: Path, *, ticker: str, observed_at: str) -> None:
     """Re-apply one holding's market price, the way a new price draft does."""
 
@@ -854,20 +882,33 @@ def test_every_gate_re_proves_the_holding_subject_prepare_proved(
     )
     capsys.readouterr()
 
-    manifest_path = workspace / "manifest.yaml"
-    manifest = safe_load(manifest_path.read_text(encoding="utf-8"))
-    manifest["holding_ticker"] = ticker
-    manifest["as_of"] = asof
-    manifest_path.write_text(
-        yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True), encoding="utf-8"
-    )
+    _rewrite_holding_workspace(workspace, ticker=ticker, asof=asof)
 
-    code = opportunity_main(["status", "--workspace", str(workspace), "--db", str(ledger)])
-
-    assert code == 4
-    error = capsys.readouterr().err
-    assert "holding-review workspace subject is invalid" in error
-    assert expected in error
+    # Every gate, not just the cheapest one: they share one verification, and a
+    # workspace that reached `promote` would already have spent the research.
+    for argv in (
+        ["status", "--workspace", str(workspace), "--db", str(ledger)],
+        [
+            "thesis-scaffold",
+            "--workspace",
+            str(workspace),
+            "--db",
+            str(ledger),
+            "--ticker",
+            ticker,
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        ["review-scaffold", "--workspace", str(workspace), "--db", str(ledger), "--ticker", ticker],
+        ["promote", "--workspace", str(workspace), "--db", str(ledger), "--ticker", ticker],
+    ):
+        assert opportunity_main(argv, now=FIXED_NOW) == 4, argv[0]
+        error = capsys.readouterr().err
+        assert "holding-review workspace subject is invalid" in error, argv[0]
+        assert expected in error, argv[0]
+    assert not (workspace / ticker).exists()
 
 
 def test_holding_workspace_binds_canonical_ledger_revision(
@@ -951,7 +992,105 @@ def test_a_holding_workspace_stops_when_the_ledger_price_moves_under_it(
     assert code == 4
     error = capsys.readouterr().err
     assert "market price on 2026-07-12, not 2026-07-11" in error
-    assert "holding-prepare --force" in error
+    # Market prices only move forward, so the old as-of cannot be restored: the
+    # recovery the message names has to be the one that actually works.
+    assert "holding-prepare --asof <observed> --force" in error
+    assert "thesis-scaffold --force" in error
+
+
+def test_rebuilding_a_holding_workspace_reports_the_draft_left_at_the_old_as_of(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Re-preparing at a new as-of leaves the written research behind, and status says so.
+
+    `--force` rewrites the workspace documents but not `<ws>/<ticker>/`, so a thesis
+    the operator already finished survives at the previous as-of. Without this the
+    rebuilt workspace calls itself ready_for_review and sends them to write an
+    independent review that promote could never accept.
+    """
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    ledger_path = tmp_path / "moving-price-ledger.yaml"
+    payload = safe_load(LEDGER_FIXTURE.read_text(encoding="utf-8"))
+    payload["market_prices"][0]["source_kind"] = "licensed_dataset"
+    payload["market_prices"][0]["observed_at"] = "2026-07-10T15:30:00+09:00"
+    ledger_path.write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    db_path = _app_db(tmp_path, ledger_path)
+    workspace = tmp_path / "holding-ws"
+
+    def prepare(asof: str, *, force: bool = False) -> int:
+        return opportunity_main(
+            [
+                "holding-prepare",
+                "--asof",
+                asof,
+                "--db",
+                str(db_path),
+                "--ticker",
+                "2331",
+                "--workspace",
+                str(workspace),
+                *(["--force"] if force else []),
+            ]
+        )
+
+    assert prepare("2026-07-10") == 0
+    assert (
+        opportunity_main(
+            [
+                "thesis-scaffold",
+                "--workspace",
+                str(workspace),
+                "--db",
+                str(db_path),
+                "--ticker",
+                "2331",
+                "--sqlite-path",
+                str(sqlite_path),
+                "--target-session",
+                "2026-07-11",
+            ],
+            now=FIXED_NOW,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    # Research the operator already finished, carrying the as-of it was written for.
+    thesis, _review, _review_name = _ready_thesis_and_review()
+    (workspace / "2331" / "thesis-draft.yaml").write_text(
+        yaml.safe_dump(thesis, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    code, payload_out = _run(
+        ["status", "--workspace", str(workspace), "--db", str(db_path)], capsys
+    )
+    assert code == 0
+    assert payload_out["thesis_validation_errors"] == [
+        (
+            "2331:thesis as_of 2026-07-03 does not match workspace as_of 2026-07-10; "
+            "regenerate it with `research thesis-scaffold --force`"
+        )
+    ]
+
+    _move_market_price_day(db_path, ticker="2331", observed_at="2026-07-11T15:30:00+09:00")
+    assert prepare("2026-07-11", force=True) == 0
+    capsys.readouterr()
+
+    code, payload_out = _run(
+        ["status", "--workspace", str(workspace), "--db", str(db_path)], capsys
+    )
+
+    assert code == 0
+    assert payload_out["workspace_status"] == "incomplete"
+    # The rebuild moved the workspace, not the ticker directory: the finished
+    # research is still there, still unusable, and now says so before the review.
+    assert payload_out["thesis_validation_errors"] == [
+        (
+            "2331:thesis as_of 2026-07-03 does not match workspace as_of 2026-07-11; "
+            "regenerate it with `research thesis-scaffold --force`"
+        )
+    ]
 
 
 @pytest.mark.parametrize(

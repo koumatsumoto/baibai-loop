@@ -258,7 +258,8 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] `planned_limit`のportfolio exposureは、共通as-of・分母・current / prospective円額・比率・閾値・fallback銘柄が必須かつ機械整合し、欠損 / null / 0 / 負値 / nested未知field / 閾値warningの過不足 / fallback warningの過不足を拒否するか
 - [ ] machine judgment が下流の作業範囲を決める gate は、その集合を**判断artifactからDBで再解決**して検査し、workspace / manifest / draft の自由編集で広げられないことを negative test で塞いだか。手書き側は読み取り用の記録に留め、authorization source にしない（`research prepare --shortlist-id` は Shortlist `selected` を admission 可能集合とし、各 gate が stored shortlist から再解決する）
 - [ ] 前提を再証明する gate は、**入口が課した前提集合の全体**を見ているか。部分集合しか見ない再証明は、残りの前提を宣言で飛ばす経路として残る（`holding-prepare` は保有と as-of の 2 つを課すので、gate も同じ 2 つを 1 つの共有 helper から見る）
-- [ ] 鮮度の pin は、**その purpose が実際に依存する field を覆っているか**。`append_head` は `ledger_event` しか数えず、market price は別 table を丸ごと入れ替えるので、pin が一致したまま価格観測日だけが動く
+- [ ] 鮮度の pin は、**その purpose が実際に依存する field を覆っているか**。`append_head` は `ledger_event` しか数えず、market price は別 table を丸ごと入れ替えるので、pin が一致したまま価格観測日だけが動く。覆えない残りは「最後の関門だけが見る」と正直に書き、gate が見ていない範囲を over-claim しない
+- [ ] **その修正が案内する復旧手順を実際に最後まで通したか。** 途中までしか復旧しない手順は、operator を最も高コストな工程へ誘導したうえで最後の関門で落とす（`holding-prepare --force` は `<ws>/<ticker>/` を再生成しないので、`thesis-scaffold --force` まで案内し、残った draft を `status` に出す）
 - [ ] その gate に**分岐（purpose / mode / kind）で無効化される経路**がある場合、分岐先も同じ強さで対象を store に対して証明するか。「この分岐には gate が要らない」は、その分岐を宣言するだけで gate を外せる形で残る（`purpose: holding_review` は Shortlist 束縛を持たない代わりに、対象が canonical ledger の保有であることを各 gate で再照合する）
 - [ ] その gate は**下流で最初に不可逆な資源を使う手前**に置いたか。「最後に必ず止まる」検査があっても、その手前で canonical artifact や資本を約束する artifact が作れるなら遅すぎる（Bargain Assessment の `selected` 検査は proposal より後に来るため、research 開始境界の binding を別に置いた）
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の

@@ -844,6 +844,7 @@ def _research_gate_view(gate: _ResearchGate | None) -> dict[str, object]:
 
 
 def _draft_status(workspace: Path, manifest: Mapping[str, object]) -> dict[str, object]:
+    manifest_asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     selection = _load_mapping(workspace / "selection.yaml", label="workspace selection")
     shortlist = _dict_list(selection.get("shortlist"))
     shortlist_tickers = [str(row.get("ticker") or "") for row in shortlist]
@@ -887,7 +888,8 @@ def _draft_status(workspace: Path, manifest: Mapping[str, object]) -> dict[str, 
             if (check_id := _string_or_none(item.get("check_id"))) is not None
         )
         research_thesis_errors.extend(
-            f"{ticker}:{error}" for error in _thesis_validation_errors(workspace, ticker)
+            f"{ticker}:{error}"
+            for error in _thesis_validation_errors(workspace, ticker, manifest_asof)
         )
     if research_pending or research_thesis_errors:
         first_ticker = (research_pending or research_thesis_errors)[0].split(":", maxsplit=1)[0]
@@ -931,10 +933,8 @@ def _draft_status(workspace: Path, manifest: Mapping[str, object]) -> dict[str, 
         for item in checklist
         if item.get("status") == "blocked"
     ]
-    thesis_errors = _thesis_validation_errors(workspace, selected_ticker)
-    review_errors = _review_validation_errors(
-        workspace, selected_ticker, _parse_date(str(manifest.get("as_of")), label="manifest as_of")
-    )
+    thesis_errors = _thesis_validation_errors(workspace, selected_ticker, manifest_asof)
+    review_errors = _review_validation_errors(workspace, selected_ticker, manifest_asof)
 
     workspace_status = _resolve_workspace_status(
         pending=pending, blocked=blocked, thesis_errors=thesis_errors, review_errors=review_errors
@@ -1093,8 +1093,10 @@ def _require_holding_subject(manifest: Mapping[str, object], *, db_path: Path | 
     if problem is not None:
         raise OpportunityConflictError(
             f"holding-review workspace subject is invalid: {problem}; a holding review "
-            "runs at the as-of its ledger market price was observed, so re-apply the "
-            "price draft for that date and rebuild with `research holding-prepare --force`"
+            "runs at the as-of its ledger market price was observed, so rebuild at that "
+            "date with `research holding-prepare --asof <observed> --force` and "
+            "regenerate the ticker drafts with `research thesis-scaffold --force` "
+            "(market prices only move forward, so the old as-of cannot be restored)"
         )
 
 
@@ -1964,14 +1966,31 @@ def _load_checklist(workspace: Path, ticker: str) -> list[dict[str, object]]:
     return _dict_list(payload.get("checks"))
 
 
-def _thesis_validation_errors(workspace: Path, ticker: str) -> list[str]:
+def _thesis_validation_errors(workspace: Path, ticker: str, asof: date) -> list[str]:
+    """Report what stops this draft from becoming a canonical thesis.
+
+    The as-of comparison belongs here and not only in ``promote``: rebuilding a
+    workspace at a new as-of leaves the ticker directory untouched, so a draft
+    written for the previous one survives. Without this the workspace would call
+    itself ``ready_for_review`` and send the operator to the most expensive step of
+    all, and only promote would say the draft was never usable.
+    """
+
     thesis_path = _research_ticker_dir(workspace, ticker) / "thesis-draft.yaml"
     if not thesis_path.exists():
         return ["thesis draft missing"]
     try:
-        load_thesis(thesis_path)
+        document = load_thesis(thesis_path)
     except ThesisError as error:
         return [str(error).splitlines()[0]]
+    if document.input_snapshot.as_of != asof:
+        return [
+            (
+                f"thesis as_of {document.input_snapshot.as_of.isoformat()} does not match "
+                f"workspace as_of {asof.isoformat()}; regenerate it with "
+                "`research thesis-scaffold --force`"
+            )
+        ]
     return []
 
 
