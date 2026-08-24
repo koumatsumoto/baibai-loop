@@ -239,6 +239,17 @@ matched 比較の被覆率・membership 数・集中度など、forward outcome 
 - rules variant の計測は本番 rules を変えず `SCREENING_RULES_PATH` で variant を指し、別 store（`stores/screening/calibration/variants/<variant>/`）へ panel を構築する。rules_hash provenance が混線を機械検出する。
 - 機械レバー（screen / select / E[r]）の実証的改訂は 3y/5y eligible evidence を必須の関門にし、判断レバー（macro / research 手順）は保有 outcome と運用の事後検証で改める。
 
+#### 別 Opportunity Lane を検証する study の最小 artifact
+
+新しい Opportunity Lane を固定 replay で検証する study は、成果物から `(as_of, ticker)` 単位で次を追えるようにする: `opportunity_lane_id` / `lane_rank` / native metric の値と単位 / champion Lane との overlap / `alt_only` / sector / `policy_diagnostic_ids`（読めないなら `diagnostic_observability: not_observable`）/ metric integrity block の status と observability / forward resolution status（outcome を読む study のみ）。cohort ごとの件数と集中度だけでは、後から「どの銘柄が効果を作ったか」も「diagnostic が実際に効いたか」も再構成できない。
+
+- study dataset に Diagnostic の必要 Fact が無い場合、推定 tag を作らず `not_observable` を明示する。Diagnostic のためだけに panel schema を広げたり再構築したりしない。
+- point-in-time で再現できない共通 gate fact（例: 過去 as-of の JPX 規制フラグ）は、**「0 件として扱った」ではなく「再現不能」**と limitation に書く。
+- production へ実際に追加される `alt-only` / incremental 候補を primary にするか明示的 secondary にするかを事前登録で決める。Lane 全体の成績だけを見て、結果が出てから incremental を判定軸へ昇格させない。
+- generic な study framework / registry / replay DSL / 新 store は作らない。不足は次の study contract へ反映し、既存の frozen artifact は immutable evidence として扱う。
+
+この節は [`2026-08-24-earnings-power-v1`](../../reports/studies/2026-08-24-earnings-power-v1/result.md) の完成監査で不足が観測されたことによる。
+
 ### 採用後
 
 - 通過した変更だけを本番へ反映し、計測した構成と本番構成を一致させる。rules 改訂後は panel を `--force` 再構築する。
