@@ -9,7 +9,6 @@ from .sqlite import read_rows
 
 # Both queries must name the same newest shortlist, so they share one total order.
 _SELECT = "SELECT payload FROM shortlist ORDER BY as_of DESC, published_at DESC, shortlist_id DESC"
-_SELECT_BY_ID = "SELECT payload FROM shortlist WHERE shortlist_id = ?"
 _SELECT_BY_SELECTION = (
     "SELECT payload FROM shortlist WHERE selection_id = ? "
     "ORDER BY published_at DESC, shortlist_id DESC"
@@ -18,20 +17,6 @@ _SELECT_BY_SELECTION = (
 
 def list_shortlist_payloads(path: Path) -> list[dict[str, object]]:
     return [_payload(row[0]) for row in read_rows(path, _SELECT)]
-
-
-def shortlist_payload(path: Path, shortlist_id: str) -> dict[str, object] | None:
-    """Return one named shortlist, or ``None`` when this store has no such judgment.
-
-    ``research prepare`` binds a workspace to the Research Gate judgment named here,
-    so the caller has to tell "no such shortlist" apart from a shortlist it may not
-    use. The projection is the same one the history and Web views read: the version
-    stays in the payload, and deciding which versions may bind research belongs to
-    the research boundary, not to this query.
-    """
-
-    rows = read_rows(path, _SELECT_BY_ID, (shortlist_id,))
-    return _payload(rows[0][0]) if rows else None
 
 
 def shortlist_payloads_for_selection(path: Path, selection_id: str) -> list[dict[str, object]]:
@@ -121,6 +106,5 @@ def _project_entries(value: object, *, legacy: bool) -> list[object]:
 __all__ = [
     "latest_shortlist_payload",
     "list_shortlist_payloads",
-    "shortlist_payload",
     "shortlist_payloads_for_selection",
 ]

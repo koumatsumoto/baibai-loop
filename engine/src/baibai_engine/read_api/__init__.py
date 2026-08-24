@@ -83,7 +83,6 @@ from .screening import (
 from .shortlist import (
     latest_shortlist_payload,
     list_shortlist_payloads,
-    shortlist_payload,
     shortlist_payloads_for_selection,
 )
 from .system import (
@@ -155,7 +154,6 @@ __all__ = [
     "screening_run_asof_dates",
     "screening_run_payload",
     "screening_selection_payloads",
-    "shortlist_payload",
     "shortlist_payloads_for_selection",
     "store_stats",
     "task_store_exists",
