@@ -312,6 +312,54 @@ def test_shortlist_reader_projects_each_known_legacy_version(
     assert payload["attention_policy_id"] is None
 
 
+def test_shortlist_payload_reads_one_named_judgment(tmp_path: Path) -> None:
+    """`research prepare` names a shortlist; the reader must find that one, or none."""
+
+    store = tmp_path / "app.sqlite"
+    with sqlite3.connect(store) as connection:
+        connection.execute(
+            "CREATE TABLE shortlist (shortlist_id TEXT, as_of TEXT, published_at TEXT, "
+            "payload TEXT)"
+        )
+        for shortlist_id, schema_version in (
+            ("shortlist-20260729-current", 5),
+            ("shortlist-20260701-legacy", 4),
+        ):
+            connection.execute(
+                "INSERT INTO shortlist VALUES (?, ?, ?, ?)",
+                (
+                    shortlist_id,
+                    "2026-07-29",
+                    "2026-07-29T14:00:00+09:00",
+                    json.dumps(
+                        {
+                            "schema_version": schema_version,
+                            "entries": [],
+                            "shortlist_id": shortlist_id,
+                        }
+                    ),
+                ),
+            )
+
+    current = read_api.shortlist_payload(store, "shortlist-20260729-current")
+    assert current is not None
+    assert current["schema_version"] == 5
+    assert current["attention_provenance_status"] == "exact"
+
+    # History stays readable here; refusing it as a research binding is the research
+    # boundary's call, not this query's.
+    legacy = read_api.shortlist_payload(store, "shortlist-20260701-legacy")
+    assert legacy is not None
+    assert legacy["schema_version"] == 4
+    assert legacy["attention_provenance_status"] == "unresolved"
+
+    assert read_api.shortlist_payload(store, "shortlist-20260729-absent") is None
+
+
+def test_shortlist_payload_reads_an_unwritten_store_as_no_judgment(tmp_path: Path) -> None:
+    assert read_api.shortlist_payload(tmp_path / "absent.sqlite", "shortlist-20260729-a") is None
+
+
 def test_shortlist_reader_rejects_an_unknown_version(tmp_path: Path) -> None:
     store = tmp_path / "app.sqlite"
     with sqlite3.connect(store) as connection:

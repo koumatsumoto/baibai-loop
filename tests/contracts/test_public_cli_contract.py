@@ -10,6 +10,7 @@ import pytest
 import yaml
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.fixed_now import FIXED_NOW
+from tests.helpers.research_gate import RESEARCH_GATE_NARRATIVE
 
 from baibai_engine.macro.indicators.cli import build_parser as macro_parser
 from baibai_engine.macro.indicators.cli import main as macro_main
@@ -111,6 +112,180 @@ def _select_argv(tmp_path: Path, runs_db: Path, run_revision_id: str) -> list[st
         "--sqlite-path",
         str(tmp_path / "missing-market.sqlite"),
     ]
+
+
+def _publish_two_candidate_run(runs_db: Path) -> str:
+    """Publish a run with one candidate the Gate will select and one it will reject."""
+
+    run_revision_id = "run-revision-research-gate-e2e"
+    ScreeningRunStore(runs_db).publish_run(
+        {
+            "run_id": "screening-20260424",
+            "run_date": "2026-04-24",
+            "asof_date": "2026-04-24",
+            "run_at": "2026-04-24T18:00:00+09:00",
+            "universe_size": 2,
+            "rules_ref": str(RULES_PATH),
+            "screening_rules_hash": RULES_HASH,
+            "er_model_version": "expected-return-v1",
+            "candidates": [
+                {
+                    "ticker": ticker,
+                    "name": f"gate candidate {ticker}",
+                    "sector_33": "機械",
+                    "market_cap_oku": 300,
+                    "avg_turnover_oku": 2.0,
+                    "listing_span_days": 1200,
+                    "jpx_flags": [],
+                    "metrics": {"er_annual": er_annual},
+                    "evidence_hits": [
+                        {
+                            "name": "valuation-reversion",
+                            "evidence_pattern_id": "cashflow-yield-discount",
+                            "source_status": "ok",
+                            "sizing_eligible": True,
+                        }
+                    ],
+                }
+                for ticker, er_annual in (("1111", 1.0), ("2222", 0.5))
+            ],
+        },
+        run_revision_id=run_revision_id,
+    )
+    return run_revision_id
+
+
+def _research_gate_draft(selection: dict[str, object], *, selected: str, rejected: str) -> dict:
+    """Author the Research Gate judgment the way the shortlist skill's template does."""
+
+    metadata = selection["selection"]
+    assert isinstance(metadata, dict)
+    return {
+        "schema_version": 5,
+        "kind": "shortlist",
+        "shortlist_id": "shortlist-20260424-research-gate-e2e",
+        "selection_id": selection["selection_id"],
+        "run_revision_id": metadata["input_refs"]["candidates_ref"],
+        "as_of": "2026-04-24",
+        "published_at": "2026-04-24T18:30:00+09:00",
+        "profile": metadata["profile"],
+        "macro_context_id": None,
+        "attention_policy_id": selection["attention_policy_id"],
+        "attention_policy_hash": selection["attention_policy_hash"],
+        "attention_policy_parameters": selection["attention_policy_parameters"],
+        "review_basis_shortlist_id": None,
+        "research_gate_contract_id": "research-gate-v1",
+        "entries": [
+            {
+                "ticker": selected,
+                "decision": "selected",
+                "rank": 1,
+                "reason": "一次リサーチへ進める",
+                "narrative": dict(RESEARCH_GATE_NARRATIVE),
+            },
+            {
+                "ticker": rejected,
+                "decision": "rejected",
+                "reason": "深掘りの枠を使う価値が確認できない",
+                "reject_class": "other",
+            },
+        ],
+    }
+
+
+def test_research_gate_bounds_the_primary_research_set_end_to_end(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """select → shortlist publish → research prepare, driven only through public CLIs.
+
+    Each step here is the production writer, so this fixes the whole hand-off, not
+    just the boundary under test: a selection the run store minted, a judgment the
+    shortlist publisher bound to it, and a workspace that may admit exactly what
+    that judgment selected.
+    """
+    runs_db = tmp_path / "runs.sqlite"
+    app_db = tmp_path / "app.sqlite"
+    _import_ledger(app_db)
+    run_revision_id = _publish_two_candidate_run(runs_db)
+
+    selection_path = tmp_path / "selection.yaml"
+    select_argv = _select_argv(tmp_path, runs_db, run_revision_id)
+    select_argv[select_argv.index("--top") + 1] = "2"
+    select_argv += ["--app-db", str(app_db), "--output-path", str(selection_path)]
+    assert screening_main(select_argv) == 0
+    selection = _payload(capsys.readouterr().out)
+    assert selection["review_tickers"] == ["1111", "2222"]
+
+    draft_path = tmp_path / "shortlist-draft.yaml"
+    draft_path.write_text(
+        yaml.safe_dump(
+            _research_gate_draft(selection, selected="1111", rejected="2222"),
+            sort_keys=False,
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        screening_main(
+            [
+                "shortlist",
+                "publish",
+                str(draft_path),
+                "--db",
+                str(app_db),
+                "--runs-db",
+                str(runs_db),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    workspace = tmp_path / "ws"
+    assert (
+        opportunity_main(
+            [
+                "prepare",
+                "--asof",
+                "2026-04-24",
+                "--selection-output",
+                str(selection_path),
+                "--shortlist-id",
+                "shortlist-20260424-research-gate-e2e",
+                "--db",
+                str(app_db),
+                "--workspace",
+                str(workspace),
+            ]
+        )
+        == 0
+    )
+    prepared = _payload(capsys.readouterr().out)
+    assert prepared["admissible_tickers"] == ["1111"]
+
+    workspace_selection = workspace / "selection.yaml"
+    document = _payload(workspace_selection.read_text(encoding="utf-8"))
+    assert [row["ticker"] for row in document["longlist"]] == ["1111", "2222"]
+
+    # The human admits a subset of what the Gate selected.
+    document["shortlist"] = [{"ticker": "1111", "reason": "一次情報を確認する"}]
+    workspace_selection.write_text(
+        yaml.safe_dump(document, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    assert opportunity_main(["status", "--workspace", str(workspace), "--db", str(app_db)]) == 0
+    status = _payload(capsys.readouterr().out)
+    assert status["research_gate"]["admissible_tickers"] == ["1111"]
+
+    # Reaching past the Gate stops here, before any thesis exists.
+    document["shortlist"] = [
+        {"ticker": "1111", "reason": "一次情報を確認する"},
+        {"ticker": "2222", "reason": "やはり調べたい"},
+    ]
+    workspace_selection.write_text(
+        yaml.safe_dump(document, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    assert opportunity_main(["status", "--workspace", str(workspace), "--db", str(app_db)]) == 3
+    assert "rejected at the Research Gate" in capsys.readouterr().err
 
 
 def _store_bytes(runs_db: Path) -> dict[str, bytes]:
@@ -767,6 +942,8 @@ def test_current_decision_clis_do_not_expose_backdated_clock(
                 "2026-07-10",
                 "--selection-output",
                 "/tmp/selection.yaml",
+                "--shortlist-id",
+                "shortlist-20260710-example",
                 "--db",
                 "stores/application/baibai.sqlite",
                 "--workspace",

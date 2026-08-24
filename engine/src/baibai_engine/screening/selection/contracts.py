@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.foundation.coerce import optional_float
+from baibai_engine.foundation.review_set import RESEARCH_GATE_CONTRACT_ID
 from baibai_engine.screening.rule_config import (
     CandidateDiagnosticRules,
     SelectionLiquidityRules,
@@ -39,8 +40,6 @@ from .summaries import (
 VALUE_CARRY_OPPORTUNITY_LANE_ID = "value-carry"
 VALUE_CARRY_SELECTION_POLICY_ID = "value-carry-v1"
 VALUE_CARRY_ONLY_ATTENTION_POLICY_ID = "value-carry-only-v1"
-RESEARCH_GATE_CONTRACT_ID = "research-gate-v1"
-
 COMMON_INVESTABLE_GATE_ID = "required-jpx-flags-and-liquidity-v1"
 
 
