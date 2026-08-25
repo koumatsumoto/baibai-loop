@@ -9,7 +9,7 @@ import threading
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -63,13 +63,11 @@ from baibai_engine.market.lake.reader import (
     LakeReadError,
     accepted_dataset,
     iter_partition_rows,
+    resolve_current_release,
     resolve_release,
     resolve_release_ref,
     selected_partitions,
     verify_object,
-)
-from baibai_engine.market.lake.reader import (
-    resolve_current_release as _resolve_current_release_at,
 )
 from baibai_engine.market.lake.release import (
     L1ReleasePointer,
@@ -94,17 +92,13 @@ _OTHER_COMMIT = "c" * 40
 _BUILT_AT = datetime(2026, 8, 12, 3, 0, tzinfo=UTC)
 
 
-def resolve_current_release(source: object):
-    return _resolve_current_release_at(source, evaluated_at=_BUILT_AT)  # type: ignore[arg-type]
-
-
 @pytest.fixture(autouse=True)
 def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
     # These fixtures build the two datasets these tests exercise, so the profile is
     # narrowed to them: a policy that still required the other thirteen would refuse
     # every fixture release for being incomplete, which is a fact about the fixture
     # rather than about the code under test.
-    narrow_release_policy(monkeypatch, age_days=366)
+    narrow_release_policy(monkeypatch)
 
 
 @dataclass
@@ -322,14 +316,10 @@ class TestFixedRelease:
     def test_a_named_release_that_restates_its_manifest_wrongly_is_refused(
         self, lake: Lake, restate: Callable[[dict[str, Any]], None]
     ) -> None:
-        """Exempting freshness on a historical read is not exempting inventory.
-
-        A pinned study reads a release the pointer left behind, so the age check has to
-        go. What the release *says* about the datasets it names — the watermark, the
-        coverage, the totals — is time-independent, and it is what a reader reports about
-        the generation. An entry that disagrees with the manifest it addresses describes
-        data that is not there.
-        """
+        """A pinned study reads a release the pointer left behind. What the release
+        *says* about the datasets it names — the watermark, the coverage, the totals —
+        is what a reader reports about the generation, and an entry that disagrees with
+        the manifest it addresses describes data that is not there."""
 
         path = lake.mirror / release_manifest_key(release_id=lake.release_id)
         payload = json.loads(path.read_bytes())
@@ -360,15 +350,19 @@ class TestFixedRelease:
         assert release.release_id == lake.release_id
         assert release.manifest_sha256 == digest
 
-    def test_operational_current_rechecks_freshness_but_named_release_is_historical(
-        self, lake: Lake
-    ) -> None:
+    def test_current_is_not_refused_for_its_age(self, lake: Lake) -> None:
+        """A source that pauses freezes the watermark; the release stays readable.
+
+        With a bound here, a weekly balance whose provider stopped on 2026-09-18 would
+        have refused current from 2026-11-02 and failed every hydrate after it. Age is
+        the reader's axis to null, not the resolver's reason to stop.
+        """
+
         source = LocalMirrorSource(lake.mirror)
-        with pytest.raises(LakeReadError, match=r"operational policy.*freshness window"):
-            _resolve_current_release_at(
-                source,
-                evaluated_at=_BUILT_AT + timedelta(days=367),
-            )
+        # The fixture was built on 2026-08-12 and the resolver takes no clock at all:
+        # there is no evaluation instant left for an age to be measured against.
+        current = resolve_current_release(source)
+        assert current.release_id == lake.release_id
 
         pinned = resolve_release(
             source,
@@ -376,12 +370,6 @@ class TestFixedRelease:
             manifest_sha256=_release_digest(lake.mirror, lake.release_id),
         )
         assert pinned.release_id == lake.release_id
-
-        weekend = _resolve_current_release_at(
-            source,
-            evaluated_at=_BUILT_AT + timedelta(days=3),
-        )
-        assert weekend.release_id == lake.release_id
 
     def test_release_manifest_digest_mismatch_fails_closed(self, lake: Lake) -> None:
         pointer_path = lake.mirror / current_l1_pointer_key()
@@ -1688,9 +1676,7 @@ class TestOperatorDerivedRetraction:
     def _policy(self, _small_pilot_release_policy: None, monkeypatch: pytest.MonkeyPatch) -> None:
         # Requested by name so it runs after the module-wide narrowing rather than
         # before it; autouse order alone would leave this dataset outside the profile.
-        narrow_release_policy(
-            monkeypatch, datasets=("edinet.tender_offer_exit_values",), age_days=3660
-        )
+        narrow_release_policy(monkeypatch, datasets=("edinet.tender_offer_exit_values",))
 
     @staticmethod
     def _store(path: Path, tickers: tuple[str, ...]) -> Path:

@@ -248,7 +248,7 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
 
     mirrored_store = _emptied_market(sqlite_path, tmp_path / "mirrored.sqlite")
     with open_lake(mirror=remote_mirror) as (session, cache):
-        fixed = resolve_current_release(cache.source, evaluated_at=datetime.now(UTC))
+        fixed = resolve_current_release(cache.source)
         mirrored = hydrate_market_store(
             session,
             release=fixed,
@@ -269,7 +269,7 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
         session,
         cache,
     ):
-        direct = resolve_current_release(cache.source, evaluated_at=datetime.now(UTC))
+        direct = resolve_current_release(cache.source)
         with prefetching_hydration_cache(
             cache,
             release=direct,

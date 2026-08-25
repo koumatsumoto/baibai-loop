@@ -30,7 +30,6 @@ def narrow_release_policy(
     datasets: Iterable[str] = FIXTURE_DATASETS,
     minimum_rows: int = 1,
     minimum_population_count: int = 1,
-    age_days: int | None = 10_000,
     carries_history: bool = False,
     relax_floors: bool = True,
 ) -> None:
@@ -38,8 +37,7 @@ def narrow_release_policy(
 
     A test about the floors themselves needs the shipping values, so it narrows the set
     without relaxing them; relaxing there would move the boundary the test is asserting.
-    ``relax_floors=False`` keeps every floor, and ``age_days=None`` keeps only the
-    staleness bounds while still lowering the row and population minimums.
+    ``relax_floors=False`` keeps every floor.
     """
 
     wanted = set(datasets)
@@ -51,11 +49,6 @@ def narrow_release_policy(
             "minimum_rows": minimum_rows,
             "minimum_population_count": minimum_population_count,
         }
-        # `age_days=None` keeps the shipping staleness bounds, which is what a test
-        # about those bounds needs while still narrowing the dataset set.
-        if age_days is not None:
-            relaxation["max_age_days"] = age_days
-            relaxation["max_lead_days"] = age_days
     monkeypatch.setattr(
         lake_models,
         "PRODUCTION_RELEASE_POLICY",

@@ -499,11 +499,7 @@ def publish_l1_release(
         )
     )
 
-    validate_lake_release_policy(
-        release,
-        manifests,
-        evaluated_at=_utc_now(),
-    )
+    validate_lake_release_policy(release, manifests)
     # Every reachable node is proved once. The publication memo makes this both the
     # per-upload postcondition and the pointer precondition: nothing between the two
     # can replace a key the store refuses to overwrite, so re-reading the closure

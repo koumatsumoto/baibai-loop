@@ -6,7 +6,6 @@ import argparse
 import json
 import sys
 from collections.abc import Callable
-from datetime import UTC, datetime
 from pathlib import Path
 
 from ..sqlite.lake_origin import read_lake_store_origin
@@ -164,10 +163,10 @@ def _resolve_release_target(
         return resolve_release_ref(source, reference), None
 
     def still_current() -> tuple[str, str]:
-        resolved = resolve_current_release(source, evaluated_at=datetime.now(UTC))
+        resolved = resolve_current_release(source)
         return (resolved.release_id, resolved.manifest_sha256)
 
-    return resolve_current_release(source, evaluated_at=datetime.now(UTC)), still_current
+    return resolve_current_release(source), still_current
 
 
 def _hydrate(args: argparse.Namespace) -> int:

@@ -109,8 +109,9 @@ manifestとpointerを含むlake JSONは、duplicate key拒否とredacted validat
 共通parserだけを通し、wire size上限をparse前に検査する。partition valuesとrelease dataset
 inventoryはparse後に変更できない。
 releaseはprofileを宣言し、そのprofileのmanifest size/object budgetと、dataset ごとのrequired・
-accepted contract・coverage要求・rows / population floor・検証時刻基準のfreshness窓を満たす場合だけ
-current候補になる。cadenceも完全性もdatasetの性質なので、profile単位の単一閾値は持たない。
+accepted contract・coverage要求・rows / population floor を満たす場合だけcurrent候補になる。
+鮮度窓は持たない（[Failure policy](#failure-policy)）。完全性はdatasetの性質なので、profile単位の
+単一閾値は持たない。
 profileは`production`ひとつで、要求の集合がひとつだからである。登録の無いprofileはfail-closeする。
 
 version 語彙は `contract_version`（schema・PK・型・partition・意味の互換境界）、`build_id`

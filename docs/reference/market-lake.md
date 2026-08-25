@@ -75,12 +75,11 @@ git identityが取得不能、unknown zero commitの場合にbuildを開始し�
 行を負うため行自体が答える。どちらも持たないsourceは`unproven`として、持っているものは言えるが全部
 持っているとは言えない状態を表す。dataset契約が`coverage_authority`でこれを宣言する。
 
-release policyはdatasetごとに、必須性・history境界・rows / population floor・完全性要求・鮮度窓を
-持つ。cadenceはdatasetの性質であってprofileの性質ではない — 週次残高と日次barは watermark が2週間
-離れていても両方currentで、profile単一の上限は最も遅いdatasetに合わせるしかなく、その時点で最も速い
-datasetについて何も言わなくなる。`max_lead_days`は先取り公表を表す（market calendarは未到来の営業日を、
-earnings calendarは未発表の announcement を名乗る）。watermark同士のskew上限は持たない — 各watermarkを
-同じ評価日に対して自分の窓で測っているので、更新の止まったdatasetは自分の窓が既に拒否する。
+release policyはdatasetごとに、必須性・history境界・rows / population floor・完全性要求を持つ。
+鮮度（age・lead・skew）の窓は持たない — watermark の古さは release が object を正しく記述しているか
+と無関係で、stale を気にする reader（週次残高の `MARGIN_MAX_STALE_DAYS`）は自分で軸を null にする。
+policy に窓を置くと、source が止まった日から current release が policy を通らず hydrate が毎日
+落ちる（[Failure policy](../architecture.md#failure-policy)）。
 
 floorは観測rows・populationの95%をregression floorにする。新鮮でも1日・1rowだけのstore、
 leading history欠損、大幅なpopulation縮小はcurrent候補にならない。population floorを持つdatasetが
@@ -182,7 +181,7 @@ exportが返したin-memory manifestはcanonical bytesにしてmirror配下のpu
 固定し、release作成はそのpathだけを読む。releaseも作成時payloadのSHA-256をpublisherへ渡し、pathが
 差し替わっていればpointer切替前に拒否する。全dataset共通のprevious-release row floorは、正常に縮小する
 snapshotや取消・訂正と両立しないため持たない。欠損はdatasetごとのproduction policy（history境界、
-minimum rows / population、coverage、freshness）で拒否する。
+minimum rows / population、coverage）で拒否する。
 
 conditional pointer PUTや直後のHEAD/GETが失敗した場合はcurrentを再読込し、exact targetなら成功、別
 identityならconflict、読めなければunknown outcomeとして停止する。low-level publisher CLIがcurrentを
@@ -272,9 +271,9 @@ directory 自身であり、`--mirror stores` と渡す。mirror は immutable o
 
 読み取りは実行の最初に current pointer を 1 度だけ解決し、以後は固定した `release_id` と
 immutable object key だけを読む。実行途中に pointer が切り替わっても、その実行の入力 release は
-変わらない。current operational readは解決時刻に対してprofileのfreshness/skew/coverage policyを
-再評価し、staleならscreening開始前にfail-closeする。named releaseのhistorical readは現在
-時刻のfreshnessを要求せず、固定されたidentity chainだけを検証する。
+変わらない。current の read は profile の構造 policy（required dataset・coverage・floor・予算）を
+再検証し、named release の historical read は固定された identity chain だけを検証する。どちらも
+解決時刻に対する鮮度は問わない。
 
 ```bash
 uv run baibai-engine lake resolve --mirror <local-mirror>
