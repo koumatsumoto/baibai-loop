@@ -239,8 +239,9 @@ def _calibration_build_command(
         print("no month-end trading days found in the requested window", file=sys.stderr)
         return 1
     # Both sides of this comparison are known before a single cohort is computed, and a
-    # full rebuild of this store takes 25 minutes. Refusing here rather than only after
-    # the build is what keeps a too-narrow window from costing that time twice.
+    # full rebuild of this store takes 45 minutes — measured 2026-08-25 over the 81-cohort
+    # production grid, 2019-11-01..2026-07-31. Refusing here rather than only after the
+    # build is what keeps a too-narrow window from costing that time twice.
     if dropped := _cohorts_a_grid_would_drop(calibration_dir, asofs, force=force):
         print(_dropped_cohorts_message(dropped), file=sys.stderr)
         return 1
