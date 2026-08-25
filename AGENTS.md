@@ -91,6 +91,21 @@ subsystem、public CLI、schema、persistence、dependency、state、運用手�
 
 実装後のreviewでも効果対複雑性を再判定する。釣り合わない場合は一般化を削る、surfaceを縮小する、またはnon-adoptionとする。correctnessとsafetyに必要な検証・防御は「複雑だから」という理由で削らず、効果核を守る最小構成へ置く。
 
+## 無人経路のfail-close
+
+**無人で走る経路がfail-closeしてよいのは、(a)自力で回復できず、かつ(b)実行しないことより実行することの害が大きい、の両方を満たすときだけである。**それ以外はself-heal、degrade、deferのいずれかにする。
+
+fail-closeはreviewで批判されにくい既定であり、個々のguardは局所的には必ず正当化できる。評価されないのは合成である。2026-07-22〜08-25の日次batchは、どのrunも成功しない日が27日中7日、runの48%が失敗していた。原因は個々のguardの誤りではなく、誰も合計を見ていなかったことである。
+
+判断は次の順で行う。
+
+- **producerのidentityではなくproductの性質を検査する。**「codeが変わったか」は「出力が変わったか」より遥かに広い。lakeのexport fingerprintの発火4件のうち3件は出力が完全に同一だった。
+- **閾値は前回publishした値など、系が自分で更新できる基準に置く。**書かれた日の実測値を定数にすると余裕0で始まり、最初に動いた日に止まる。
+- **必須でない入力の欠損はdegradeにする。**軸をnullにして報告し、無関係な入力は通す。
+- 新しいblocking guardを足すPRは、本文で(a)(b)を満たすことを述べる。述べられないならdegradeで実装する。
+
+無人経路の完走率は`cloud-batch-watchdog`のalertが`unattended: n/m days`として報じる。定時runが人手なしにその日を答えた割合であり、手動dispatchで救った日は未応答として数える——測っているのは介入のコストだからである。
+
 ## サブシステム索引
 
 サブシステム名（macro / screening / research / position など）を指定されたら、この表で src / store / CLI / 品質改善計器を引いて着手する。運用手順は上記 skill、依存構造は [`docs/architecture.md#repository-map`](./docs/architecture.md#repository-map) を正本とする。

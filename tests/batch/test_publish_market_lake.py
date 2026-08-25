@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 from pathlib import Path
 from types import SimpleNamespace
@@ -204,3 +205,28 @@ def test_publisher_cli_has_no_sidecar_origin_arguments() -> None:
     assert parsed.full_rebuild is True
     assert parsed.bucket == "baibai-stores"
     assert not hasattr(parsed, "origin_release")
+
+
+def test_a_full_rebuild_is_still_floored_on_what_the_serving_release_covers() -> None:
+    """Carrying partitions is what the flag turns off; the history floor is not.
+
+    A rebuild that derived less history than the release it replaces would publish the
+    loss silently, and the automatic rebuild on a moved export made that path ordinary.
+    """
+
+    source = (ROOT / "batch/src/baibai_batch/storage/publish_market_lake.py").read_text(
+        encoding="utf-8"
+    )
+    tree = ast.parse(source)
+    assignments = {
+        target.id: ast.unparse(node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+
+    # The serving release is resolved unconditionally; only the carry is gated.
+    assert "full_rebuild" not in assignments["serving_release"]
+    assert "full_rebuild" in assignments["fixed_base"]
+    assert "full_rebuild" not in assignments["published_coverage_start"]

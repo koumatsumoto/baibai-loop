@@ -336,7 +336,7 @@ def test_source_ref_rejects_unknown_kind_and_prefix_identity() -> None:
 def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    narrow_release_policy(monkeypatch, coverage_start_on_or_before=date(2026, 8, 1), age_days=None)
+    narrow_release_policy(monkeypatch, age_days=None)
     manifest = _load_dataset(_dataset_payload())
     short_sale = _load_dataset(
         _dataset_payload(
@@ -492,11 +492,22 @@ def test_pilot_policy_rejects_a_fresh_one_day_population(monkeypatch: pytest.Mon
         }
     )
 
-    with pytest.raises(ValueError, match="later than the profile boundary"):
+    # A store holding one day is refused on the size of what it holds. The history
+    # question needs something already published to compare against, so it is asked
+    # separately below rather than inferred from a date written into the policy.
+    with pytest.raises(ValueError, match="below the profile floor"):
         validate_release_policy(
             release,
             manifests,
             evaluated_at=datetime(2026, 8, 13, tzinfo=UTC),
+        )
+
+    with pytest.raises(ValueError, match="the serving release already covers"):
+        validate_release_policy(
+            release,
+            manifests,
+            evaluated_at=datetime(2026, 8, 13, tzinfo=UTC),
+            published_coverage_start={"jquants.daily_bars": date(2016, 8, 1)},
         )
 
 
@@ -753,10 +764,10 @@ def test_a_replaced_snapshot_carries_no_history_floor() -> None:
 
     policy = {item.dataset: item for item in PRODUCTION_RELEASE_POLICY.datasets}
 
-    assert policy["jquants.earnings_calendar"].coverage_start_on_or_before is None
+    assert policy["jquants.earnings_calendar"].carries_history is False
     # 蓄積する dataset は床を持ち続ける。免除は snapshot に限る。
-    assert policy["jquants.daily_bars"].coverage_start_on_or_before == date(2016, 8, 1)
-    assert policy["jquants.short_sale_reports"].coverage_start_on_or_before is not None
+    assert policy["jquants.daily_bars"].carries_history is True
+    assert policy["jquants.short_sale_reports"].carries_history is True
 
 
 def test_only_a_replaced_table_is_exempt_from_the_history_floor() -> None:
@@ -787,9 +798,7 @@ def test_only_a_replaced_table_is_exempt_from_the_history_floor() -> None:
         dataset.name for dataset in LAKE_DATASETS.values() if dataset.sqlite_table in replaced
     }
     exempt = {
-        item.dataset
-        for item in PRODUCTION_RELEASE_POLICY.datasets
-        if item.coverage_start_on_or_before is None
+        item.dataset for item in PRODUCTION_RELEASE_POLICY.datasets if not item.carries_history
     }
 
     assert snapshot_datasets == {
@@ -897,18 +906,19 @@ def test_a_forward_only_calendar_uses_its_policy_floor_not_the_previous_snapshot
 
     validate_release_policy(release, manifests, evaluated_at=evaluated_at)
 
-    # Not the shared narrowing: this half moves the very boundary under test, so the
-    # value belongs at the call site rather than behind a helper argument.
+    # Not the shared narrowing: this half turns the dataset under test into one that
+    # accumulates, which is the state the floor applies to.
     monkeypatch.setattr(
         lake_models,
         "PRODUCTION_RELEASE_POLICY",
         lake_models.PRODUCTION_RELEASE_POLICY.model_copy(
-            update={
-                "datasets": (
-                    calendar.model_copy(update={"coverage_start_on_or_before": date(2026, 6, 19)}),
-                )
-            }
+            update={"datasets": (calendar.model_copy(update={"carries_history": True}),)}
         ),
     )
-    with pytest.raises(ValueError, match="later than the profile boundary"):
-        validate_release_policy(release, manifests, evaluated_at=evaluated_at)
+    with pytest.raises(ValueError, match="the serving release already covers"):
+        validate_release_policy(
+            release,
+            manifests,
+            evaluated_at=evaluated_at,
+            published_coverage_start={"jquants.earnings_calendar": date(2026, 6, 19)},
+        )
