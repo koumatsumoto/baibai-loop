@@ -190,9 +190,9 @@ class WeeklyMarginStalenessDegradesTest(unittest.TestCase):
         conn.commit()
         return conn
 
-    def test_a_balance_past_the_staleness_limit_is_reported_without_blocking(self) -> None:
+    def test_a_balance_past_the_readers_bound_is_reported_without_blocking(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            conn = self._store_with_balance(tmp, date(2026, 7, 24))
+            conn = self._store_with_balance(tmp, date(2026, 7, 15))
             issues: list = []
 
             _append_weekly_margin_issue(conn, issues, asof_date=date(2026, 8, 24))
@@ -200,10 +200,26 @@ class WeeklyMarginStalenessDegradesTest(unittest.TestCase):
 
             self.assertEqual(len(issues), 1)
             self.assertFalse(issues[0].blocking)
-            self.assertIn("31 days before the as-of", issues[0].reason)
+            self.assertIn("40 days before the as-of", issues[0].reason)
             self.assertIn("null for this run", issues[0].reason)
 
-    def test_a_balance_inside_the_limit_reports_nothing_at_all(self) -> None:
+    def test_the_bound_is_the_readers_own_so_the_message_is_true(self) -> None:
+        """2026-08-24 sat at 31 days: past the old gate, inside the bound the reader uses.
+
+        A second tighter number here stopped the batch to announce that axes were null
+        while the reader was still joining the balance. One bound, or the sentence lies.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = self._store_with_balance(tmp, date(2026, 7, 24))
+            issues: list = []
+
+            _append_weekly_margin_issue(conn, issues, asof_date=date(2026, 8, 24))
+            conn.close()
+
+            self.assertEqual(issues, [])
+
+    def test_a_fresh_balance_reports_nothing_at_all(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             conn = self._store_with_balance(tmp, date(2026, 8, 21))
             issues: list = []
@@ -1798,3 +1814,33 @@ class SQLiteCoverageTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+def test_only_the_weekly_margin_staleness_declines_to_block() -> None:
+    """Marking an input non-blocking is how a required gap gets waved through.
+
+    The flag defaults to blocking, so reaching this list takes a deliberate edit — and
+    this test makes that edit visible in review rather than only in a green pipeline.
+    """
+
+    import ast
+
+    package = Path(__file__).resolve().parents[2] / (
+        "engine/src/baibai_engine/screening/sqlite_coverage"
+    )
+    non_blocking: list[str] = []
+    for path in sorted(package.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            for keyword in node.keywords:
+                if (
+                    keyword.arg == "blocking"
+                    and isinstance(keyword.value, ast.Constant)
+                    and keyword.value.value is False
+                ):
+                    non_blocking.append(f"{path.name}:{node.lineno}")
+
+    assert len(non_blocking) == 1, non_blocking
+    assert non_blocking[0].startswith("core.py:")

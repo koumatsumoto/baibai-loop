@@ -1217,7 +1217,9 @@ def validate_release_policy(
         ):
             raise ValueError(
                 f"{dataset}: coverage starts {manifest.coverage_start}, later than the "
-                f"{served_start} the serving release already covers"
+                f"{served_start} the serving release already covers; restore the history "
+                "in the store, or set carries_history=False if this source stopped "
+                "accumulating"
             )
         if manifest.totals.rows < dataset_policy.minimum_rows:
             raise ValueError(

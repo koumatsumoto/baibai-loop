@@ -25,6 +25,7 @@ from ..metrics import (
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
 )
 from ..sqlite_cache.jquants import WEEKLY_MARGIN_SOURCE, weekly_margin_coverage_key
+from ..sqlite_reader import MARGIN_MAX_STALE_DAYS
 from .edinet import _append_edinet_metrics_coverage_issues
 from .jpx import (
     _append_jpx_earnings_calendar_issues,
@@ -407,7 +408,6 @@ def _schema_shape_issue(conn: sqlite3.Connection, sqlite_path: Path) -> CacheCov
 # Three weeks of cadence plus a long closure, with room for one skipped week: the
 # 2020 Golden Week already produced twenty days between balance dates, so a tighter
 # bound would fail the batch on a state the exchange itself created.
-_WEEKLY_MARGIN_MAX_STALE_DAYS = 28
 
 
 def _append_weekly_margin_issue(
@@ -466,21 +466,24 @@ def _append_weekly_margin_issue(
             )
         )
         return
-    if stale_days > _WEEKLY_MARGIN_MAX_STALE_DAYS:
-        # The same reasoning the branch above states for the post-transition world holds
-        # here: staleness makes the legacy-derived optional axes null, and that is not a
-        # reason to stop unrelated screening inputs. The pre-transition branch used to
-        # block on the premise that a stale weekly balance meant our own fetch was
-        # broken. 2026-08-24 falsified it — the exchange was four to five weeks behind
-        # and delivered the backlog the next morning, while the batch discarded a day.
+    if stale_days > MARGIN_MAX_STALE_DAYS:
+        # The reader is the authority on how stale this axis may be, and it declines to
+        # answer past its own bound rather than joining silently. Holding a second,
+        # tighter number here said the axes were null while the reader was still using
+        # the balance, and stopped the whole batch to say it. Reporting against the one
+        # bound makes the sentence true and leaves unrelated inputs alone — the same
+        # reasoning the post-transition branch above already states.
+        #
+        # 2026-08-24 is why it must not block: the exchange was four to five weeks
+        # behind and delivered the backlog the next morning, while the batch discarded
+        # a completed day's work.
         issues.append(
             CacheCoverageIssue(
                 source="jquants_weekly_margin",
                 requirement=asof_date.isoformat(),
                 reason=(
                     f"newest balance date {latest} is {stale_days} days before the as-of "
-                    f"(limit {_WEEKLY_MARGIN_MAX_STALE_DAYS}); the legacy-derived margin "
-                    "axes are null for this run"
+                    f"(limit {MARGIN_MAX_STALE_DAYS}); the margin axes are null for this run"
                 ),
                 blocking=False,
             )
