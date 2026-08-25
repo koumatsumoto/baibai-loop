@@ -567,6 +567,13 @@ run自身の通知は「runが起動したこと」を前提にする。GitHub�
 
 watchdog jobは何もinstallしない（checkoutとsystem `python3`だけ）。警報が必要なまさにその瞬間にtoolchainの都合で止まらないようにするためで、`tests/batch/test_cloud_batch_watchdog.py`がstep一覧で固定する。
 
+定時runの完走率が要るときは、同じrun一覧をschedule eventだけで数える:
+
+```bash
+gh run list --workflow cloud-daily-batch --created ">=YYYY-MM-DD" --limit 200 --json event,conclusion \
+  --jq '[.[] | select(.event=="schedule")] | "\([.[] | select(.conclusion=="success")] | length)/\(length) scheduled runs succeeded"'
+```
+
 ### webhook rotation
 
 `DISCORD_WEBHOOK_URL` は GitHub Actions の repository secret で、通知 step だけが読む（job env ・

@@ -8,7 +8,7 @@ Baibai Loop の運用作業を AI エージェントに任せるときの最小�
 - 構造・repository map・CLI/SQLite 契約: [`docs/architecture.md`](./docs/architecture.md)
 - 資本・ポジション管理: [`docs/portfolio-management.md`](./docs/portfolio-management.md)
 - 静的契約（artifact・式・data source・validation）: [`docs/reference/README.md`](./docs/reference/README.md)
-- **失敗パターンと再発防止**: [`docs/anti-patterns.md`](./docs/anti-patterns.md) — 過去の PR レビューで繰り返し指摘された類型集。macro context / research / write-time validation を編集する前に該当節のチェックリストを 1 周すること
+- 失敗パターンと再発防止: [`docs/anti-patterns.md`](./docs/anti-patterns.md)
 
 ## ローカルで完結させる
 
@@ -33,11 +33,9 @@ CLI を叩くだけなので、失敗した step はローカルで実行でき�
 
 - 失敗を再現する: 失敗した step の command をローカルで同じ引数で叩く。R2 を読む step は
   `.env` の credential でそのまま動く
-- データ起因の失敗を再現する: store を複製し、クラウドが見た状態を作る。2026-08-17 の
-  `coverage_start` 障害は、複製から古い行を消すだけで再現できた — この dataset が滑るのは
-  code から決まる性質なので、外部 API もクラウドのデータも要らない
-- 原因が分からないまま dispatch しない。**エラーが何を言っていないかを先に直す。** 同障害では
-  「どの dataset が境界を割ったか」を出していなかったため 1 回余計に焼いた
+- データ起因の失敗は store を複製してクラウドが見た状態を作る。code から決まる性質の障害に
+  外部 API もクラウドのデータも要らない
+- 原因が分からないまま dispatch しない。**エラーが何を言っていないかを先に直す**
 
 **日次 batch の cron は定時に走る。** 復旧の確認はそれで足りることが多い。手動 dispatch を足す前に、
 次の定時実行まで待てないかを確かめる。
@@ -81,30 +79,13 @@ schema 変更・store 再構築・全期間再取得・較正 store の作り直
 
 ## 効果と複雑性の均衡
 
-subsystem、public CLI、schema、persistence、dependency、state、運用手順などの複雑性を増やす前に、期待効果の大きさと導入・保守・撤回コストを比較する。期待効果は[`doctrine.md#improvement-value-hierarchy`](./docs/doctrine.md#improvement-value-hierarchy)の価値階層を第一基準とし、利用頻度、evidence強度とあわせて評価する。作れることや実装済みであること自体を採用理由にしない。
+subsystem、public CLI、schema、persistence、dependency、state、運用手順、規則を増やす前に、期待効果と導入・保守・撤回コストを比較する。期待効果は[`doctrine.md#improvement-value-hierarchy`](./docs/doctrine.md#improvement-value-hierarchy)の価値階層を第一基準とし、利用頻度、evidence強度とあわせて評価する。作れることや実装済みであること自体を採用理由にしない。コストに実装量・工数は含めない（[`doctrine.md#development-investment-policy`](./docs/doctrine.md#development-investment-policy)）。
 
-ここでのコストに実装量・工数は含まない。規模と複雑性の扱いは[`doctrine.md#development-investment-policy`](./docs/doctrine.md#development-investment-policy)の開発投資の大方針を正本とする。
-
-改善提案とreview指摘は、冒頭に`価値tier: Tn — <直接的な成果への因果経路>`を1行で宣言する。tierの定義、複数効果の扱い、T4の採用条件はdoctrineを正本とし、同じ定義をこの文書へ複写しない。
+改善提案とreview指摘は、冒頭に`価値tier: Tn — <直接的な成果への因果経路>`を1行で宣言する。定義はdoctrineを正本とし、ここへ複写しない。
 
 効果に見合う最小で可逆なsurfaceを選ぶ。初期サンプルや単発用途は`tools/`、既存output、operation sessionから始め、反復利用と効果を確認してからstable CLI、model、subsystemへ昇格する。将来の利用を仮定した未使用拡張、汎用化、永続stateは持ち込まない。
 
-実装後のreviewでも効果対複雑性を再判定する。釣り合わない場合は一般化を削る、surfaceを縮小する、またはnon-adoptionとする。correctnessとsafetyに必要な検証・防御は「複雑だから」という理由で削らず、効果核を守る最小構成へ置く。
-
-## 無人経路のfail-close
-
-**無人で走る経路がfail-closeしてよいのは、(a)自力で回復できず、かつ(b)実行しないことより実行することの害が大きい、の両方を満たすときだけである。**それ以外はself-heal、degrade、deferのいずれかにする。
-
-fail-closeはreviewで批判されにくい既定であり、個々のguardは局所的には必ず正当化できる。評価されないのは合成である。2026-07-22〜08-25の日次batchは、どのrunも成功しない日が27日中7日、runの48%が失敗していた。原因は個々のguardの誤りではなく、誰も合計を見ていなかったことである。
-
-判断は次の順で行う。
-
-- **producerのidentityではなくproductの性質を検査する。**「codeが変わったか」は「出力が変わったか」より遥かに広い。lakeのexport fingerprintの発火4件のうち3件は出力が完全に同一だった。
-- **閾値は前回publishした値など、系が自分で更新できる基準に置く。**書かれた日の実測値を定数にすると余裕0で始まり、最初に動いた日に止まる。
-- **必須でない入力の欠損はdegradeにする。**軸をnullにして報告し、無関係な入力は通す。
-- 新しいblocking guardを足すPRは、本文で(a)(b)を満たすことを述べる。述べられないならdegradeで実装する。
-
-無人経路の完走率は`cloud-batch-watchdog`のalertが`unattended: n/m days`として報じる。定時runが人手なしにその日を答えた割合であり、手動dispatchで救った日は未応答として数える——測っているのは介入のコストだからである。
+検証・防御も同じ基準で測る。現在の判断の誤りをその場で防ぐもの（T1 / T2）だけを置き、監査・再現・将来の安全のためだけのもの（T4）は足さない。無人経路が止まってよい条件は[`docs/architecture.md#failure-policy`](./docs/architecture.md#failure-policy)の2つだけである。実装後のreviewでも効果対複雑性を再判定し、釣り合わなければ一般化を削る、surfaceを縮小する、またはnon-adoptionとする。
 
 ## サブシステム索引
 
@@ -158,17 +139,7 @@ repository-local skillの正本は`.agents/skills/<name>/SKILL.md`である（�
 
 ## commit 前 / PR 前の self-review
 
-method / src / docs の変更を含む commit を作る前に、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の**全 active anti-pattern** のうち対応するもののチェックリストを通過させること（番号は追加され続けるので、ここでは範囲を列挙しない。`tools/quality/drift/check_anti_pattern_index.py` がこの参照の形を守る）。特に以下は 100% 防ぐ:
-
-- 一次情報を直接確認せず二次情報・推測で書く (AP-01)
-- 数値計算を機械的に検算しない (AP-02)
-- 株価異常値の corporate action 確認を skip する (AP-03)
-- schema / 実装の意味を読まずに推測で解釈する (AP-04)
-- macro context の根拠 URL / series / used_for を曖昧にする
-- 公表日 / source の最新性確認を skip する (AP-07)
-- validator の抜け道を意識しない (AP-08)
-- 外部 AI 分析や system output を事実として thesis（application DB）に取り込む / canonical ledgerのcurrent + reserved exposureを再計算しない / 注文と約定の状態を区別しない (AP-09)
-- 定期公表データの最新期を無条件に必須とし、公表ラグを障害として誤検出する (AP-11)
+method / src / docs の変更を含む commit を作る前に、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の**全 active anti-pattern** のうち対応するもののチェックリストを通過させること（番号は追加され続けるので、ここでは範囲を列挙しない。`tools/quality/drift/check_anti_pattern_index.py` がこの参照の形を守る）。
 
 成分別の詳細チェックリスト:
 - macro context 編集時: [`docs/reference/macro.md`](./docs/reference/macro.md)
@@ -177,7 +148,6 @@ method / src / docs の変更を含む commit を作る前に、[`docs/anti-patt
 メタ運用 (失敗パターンの再発防止):
 - 同じ failure mode を 2 回以上 PR review で指摘されたら、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の該当節を強化する
 - 新しい write-time validation rule を追加するときは、anti-patterns.md AP-08 のチェックリストを必ず更新して次回 review で同じ穴が再発しないように記録する
-- 一次情報 (Tier 1) が継続的に取得困難な指標は [`docs/reference/data-sources.md`](./docs/reference/data-sources.md) §「一次統計の数値で Tier 1 取得が困難な場合の Tier 2 例外運用」に従い、`status: failed` Tier 1 と `status: ok` Tier 2 を併記する
 - Python 構文を review で指摘する前に、必ず [`pyproject.toml`](./pyproject.toml) の `requires-python` / Ruff `target-version` と [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §3 を確認する。この repo は Python 3.14 固定だが、Ruff は `target-version = "py313"` にして PEP 758 の `except T1, T2:` へ自動整形されないようにしている。複数例外捕捉は必ず `except (T1, T2):` と書く
 
 ## 事実と分析の分離
@@ -191,5 +161,3 @@ Markdown を含む `gh issue/pr` の本文は `--body-file` で渡し、backtick
 ## issue を close するとき
 
 未完了項目には successor issue または application DB の dated task を必ず作ってから close する。段階 delivery（一部だけをマージして issue を残す）の PR 本文では auto-close keyword（`Closes` / `Fixes #N`）を使わず `refs #N` で参照する — keyword は「その PR で終わる」と宣言する操作であり、残作業のある issue に付けると期限つきの作業が backlog から消える。
-
-これはローカル用の subset。drift gate・bandit・pip-audit・UI build を含む完全な CI gate は [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §9 を正本とする。
