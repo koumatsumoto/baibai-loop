@@ -106,6 +106,40 @@ def _daily_points(count: int, *, end: date, step: float) -> list[tuple[date, flo
     ]
 
 
+def test_a_percentile_needs_eight_observations_in_its_window() -> None:
+    """Below the floor the reading is withheld, not ranked against a handful of points.
+
+    A percentile is read as "where this sits in its own history", so ranking against
+    seven points reports the shape of the sample rather than of the series — and the
+    number reaches a human as a position in a distribution either way. The counts are
+    literal: derived from the constant they would move with it and pin nothing.
+    """
+
+    definition = series_definition(frequency="daily")
+    asof = date(2026, 7, 10)
+    rules = load_reading_rules(DEFAULT_RULES_PATH)
+
+    def ranked(count: int) -> float | None:
+        # Both calls start at the same observation and differ only in how many points
+        # sit between it and `asof`, so the count is the only thing that can change the
+        # answer. Points have to be spread rather than consecutive: a run of days would
+        # be withheld for not spanning the window, and points before the window are not
+        # counted at all — both are the neighbouring rule rather than this floor.
+        points = [(date(2016 + index, 7, 10), 100.0 + index) for index in range(count - 1)]
+        points.append((asof, 100.0 + count))
+        snapshot = compute_reading(
+            series=[definition],
+            reader=store_reader(observations(definition.series_id, points)),
+            rules=rules,
+            rules_revision="test",
+            asof=asof,
+        )
+        return snapshot.series[0].percentile
+
+    assert ranked(8) is not None
+    assert ranked(7) is None
+
+
 def test_reading_rules_resolve_for_every_registered_series() -> None:
     # A series must never silently get an arbitrary window: registering one without
     # a resolvable rule has to fail here rather than produce a plausible number.

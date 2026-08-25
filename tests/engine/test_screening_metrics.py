@@ -22,11 +22,15 @@ from baibai_engine.screening.metrics import (
     MetricBuildResult,
     _asof_basis_dividend,
     _avg_daily_volume,
+    _closer_share_basis,
     _common_equity_yen,
+    _edinet_describes_same_entity,
     _normalize_summaries_to_asof_basis,
     _resolve_capital_basis,
     _resolve_dividend_carry,
+    _ShareBasis,
     _shares_excluding_treasury,
+    _shares_for_per_share,
     _ttm_value,
     build_metrics,
     build_normalized_profit_signals,
@@ -4371,6 +4375,194 @@ def test_the_average_volume_window_is_twenty_sessions() -> None:
     # A window that reached one session further would take it in, which is what makes
     # this the edge rather than a restatement of the constant.
     assert _avg_daily_volume(bars, asof, sessions=21) != 1_000.0
+
+
+def test_the_average_volume_needs_fifteen_of_the_twenty_sessions_to_report() -> None:
+    """The floor decides whether an illiquid name gets a days-of-volume figure at all.
+
+    Days of trading is a margin balance over this average, and the margin overhang axis
+    is where thin names matter most — demanding all twenty would drop exactly them,
+    while accepting two would put a figure on a name that barely trades. The counts are
+    written out rather than derived from the constants: a fixture built from them moves
+    with them and can never say where the floor is.
+    """
+
+    asof = date(2026, 7, 10)
+
+    def _bars(reported: int) -> list[JQuantsDailyBar]:
+        # Twenty sessions, of which `reported` carry a volume and the rest carry none.
+        return [
+            JQuantsDailyBar(
+                ticker="130A",
+                traded_at=asof - timedelta(days=19 - offset),
+                open=None,
+                high=None,
+                low=None,
+                close=100.0,
+                volume=(1_000.0 if offset < reported else None),
+                turnover_value=None,
+                adjustment_factor=1.0,
+            )
+            for offset in range(20)
+        ]
+
+    assert _avg_daily_volume(_bars(15), asof) == 1_000.0
+    assert _avg_daily_volume(_bars(14), asof) is None
+
+    # The other half of the rule: the twenty sessions have to exist at all. A name
+    # listed last week reports every day it has traded, so the reporting floor alone
+    # would hand it a days-of-volume figure off a handful of sessions.
+    assert _avg_daily_volume(_bars(19)[1:], asof) is None
+
+
+def test_the_share_count_anchor_admits_a_double_and_refuses_past_it() -> None:
+    """The filer's own average-share count is what says whether the end-of-period count
+    can be a per-share denominator.
+
+    A ratio inside the band is an ordinary buyback or issuance during the year; outside
+    it, the two numbers are counting different things and dividing by the wrong one puts
+    a per-share figure into a valuation. Both ends are written out, because a band
+    derived from the constant moves with it and pins nothing.
+    """
+
+    def resolved(average_shares: float) -> float | None:
+        return _shares_for_per_share(
+            _summary(
+                "130A",
+                date(2026, 5, 10),
+                shares_outstanding=2_000_000.0,
+                treasury_shares=0.0,
+                average_shares=average_shares,
+            )
+        )
+
+    # 2.0x and its reciprocal are inside the band; a hair past either end is not.
+    assert resolved(1_000_000.0) == 2_000_000.0
+    assert resolved(4_000_000.0) == 2_000_000.0
+    assert resolved(999_999.0) is None
+    assert resolved(4_000_001.0) is None
+
+
+def test_the_two_dividend_routes_must_agree_within_five_percent() -> None:
+    """The per-share total and the sum of the payments are two readings of one year.
+
+    They are computed on different share bases — the total is divided by the period-end
+    count while each payment belongs to its own record date — so a few percent apart is
+    the buyback, and further apart means one route is on another basis entirely. The
+    year is then dropped rather than averaged, because a wrong dividend reaches the
+    reader as a yield.
+    """
+
+    def carried(detail_total: float) -> float | None:
+        half = detail_total / 2
+        return _asof_basis_dividend(
+            _summary(
+                "130A",
+                date(2026, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                period_end=date(2026, 3, 31),
+                dps_actual_annual=100.0,
+                dividend_interim=half,
+                dividend_year_end=half,
+            ),
+            [],
+            asof_date=date(2026, 7, 10),
+        )
+
+    assert carried(104.9) is not None
+    assert carried(95.1) is not None
+    assert carried(105.1) is None
+    assert carried(94.9) is None
+
+
+def test_the_edinet_balance_sheet_must_be_within_a_double_of_the_statement() -> None:
+    """Total assets are the one figure both sides publish, so they decide identity.
+
+    The extractor reads one filing on either a consolidated or a parent-only basis, and
+    a parent-only read of a consolidated company reports the parent's debt and cash
+    against a market cap taken from the consolidated statement. Measured, those rows are
+    off by orders of magnitude, so a factor of two is far outside ordinary revision and
+    a row past it is not the same balance sheet. Both ends are literal.
+    """
+
+    def same_entity(edinet_total_assets: float) -> bool:
+        return _edinet_describes_same_entity(
+            _edinet_metric_record(total_assets=edinet_total_assets), 1_000.0
+        )
+
+    assert same_entity(2_000.0)
+    assert same_entity(500.0)
+    assert not same_entity(2_001.0)
+    assert not same_entity(499.0)
+
+
+def test_the_common_equity_routes_must_agree_within_five_percent() -> None:
+    """`total assets x equity ratio` is fresher; `bps x shares` is on the common basis.
+
+    Where the two agree the company's yen route is also common-basis, so the fresher one
+    is kept. Where they disagree the difference is the capital structure — preferred
+    stock or a non-controlling interest sitting inside the yen route — and taking the
+    fresh number would put non-common equity into a per-share book value. Measured, that
+    is 677 rows. Both ends are literal.
+    """
+
+    def equity(ratio: float) -> float | None:
+        # The row's own two routes are what the comparison reads. bps 120.0 x 1,000,000
+        # shares is 1.2e8, which is a 0.60 equity ratio on 2e8 of assets, so the band
+        # runs from 0.57 to 0.63.
+        summaries = [
+            _summary(
+                "130A",
+                date(2026, 5, 10),
+                fiscal_period="FY",
+                shares_outstanding=1_000_000.0,
+                treasury_shares=0.0,
+                total_assets=2e8,
+                equity_to_asset_ratio=ratio,
+            )
+        ]
+        return _common_equity_yen(
+            summaries,
+            total_assets=2e8,
+            equity_to_asset_ratio=ratio,
+            bps=120.0,
+            shares_ex_treasury=1_000_000.0,
+        )
+
+    # 0.629 is 4.8% from the common-basis route and 0.631 is 5.2%, so the pair
+    # straddles the band closely enough that widening or narrowing it changes an answer.
+    # The band's own edge, 0.63, is a float equality and is deliberately not asserted.
+    inside = equity(0.629)
+    outside = equity(0.631)
+
+    assert inside is not None
+    assert outside is not None
+    # Inside the band the fresher yen route is kept, so the answer follows the ratio.
+    assert abs(inside - 0.629 * 2e8) < 1.0
+    # Outside it the common-basis route wins and the answer stops following the ratio.
+    assert abs(outside - 1.2e8) < 1.0
+
+
+def test_a_share_count_that_moved_more_than_a_fifth_after_the_split_is_not_classified() -> None:
+    """The residual is what is left once the ratio is pulled onto the nearer basis.
+
+    A split and a large issuance in the same period make the same ratio readable as
+    either basis, and choosing wrong moves the share count by the split factor. Measured
+    residuals stop at 12.4% and resume at 29.3%, so the cut sits in the empty 17 points
+    between them, and a row past it is answered as indeterminate rather than guessed.
+    The residuals below are literal, not derived from the constant.
+    """
+
+    # A 1:4 split: the two hypotheses are a factor of four apart, so the geometric
+    # midpoint is far outside the residual band and this cut is the one that decides.
+    interim = 0.25
+
+    assert _closer_share_basis(1.19, interim) is _ShareBasis.AS_OF_PERIOD_END
+    assert _closer_share_basis(0.81, interim) is _ShareBasis.AS_OF_PERIOD_END
+    assert _closer_share_basis(1.26, interim) is _ShareBasis.INDETERMINATE
+    assert _closer_share_basis(0.79, interim) is _ShareBasis.INDETERMINATE
 
 
 if __name__ == "__main__":
