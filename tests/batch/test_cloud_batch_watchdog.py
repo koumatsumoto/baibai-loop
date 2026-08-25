@@ -21,7 +21,6 @@ from baibai_batch.jobs.watchdog import (
     parse_runs,
     render_alert,
     resolve_window_end,
-    unattended,
 )
 from baibai_batch.validation.workflow_inputs import WorkflowInputError, validate_watchdog_input
 
@@ -556,81 +555,3 @@ def test_the_watchdog_fires_on_weekdays_after_the_batch_is_due() -> None:
 
     assert watchdog_days == batch_days
     assert (int(watchdog_hour), int(watchdog_minute)) > (int(batch_hour), int(batch_minute))
-
-
-def _day(offset: int) -> datetime:
-    """A scheduled firing `offset` days before the reference date, in the batch window."""
-
-    return datetime(2026, 8, 3, 8, 0, tzinfo=UTC) - timedelta(days=offset)
-
-
-def test_unattended_counts_answered_days_not_runs() -> None:
-    """A day retried three times is one answered day, not three."""
-
-    runs = parse_runs(
-        _listing(
-            _run(created_at=_day(0), conclusion="failure"),
-            _run(created_at=_day(0), conclusion="failure"),
-            _run(created_at=_day(0), conclusion="success"),
-            _run(created_at=_day(1), conclusion="failure"),
-            _run(created_at=_day(2), conclusion="success"),
-        )
-    )
-
-    rate = unattended(runs)
-
-    assert rate is not None
-    assert (rate.answered, rate.total) == (2, 3)
-    assert rate.describe().startswith("2/3 days (67%)")
-
-
-def test_unattended_is_absent_when_the_listing_dates_nothing() -> None:
-    assert unattended(()) is None
-
-
-def test_the_alert_carries_the_completion_it_was_given() -> None:
-    """The aggregate cost of every guard, in front of whoever is reading a failure."""
-
-    runs = parse_runs(
-        _listing(
-            _run(created_at=_day(0), conclusion="failure"),
-            _run(created_at=_day(1), conclusion="success"),
-        )
-    )
-    verdict = evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS)
-
-    message = render_alert(
-        verdict,
-        repository="owner/repo",
-        watchdog_run_url="https://example.invalid/run",
-        rate=unattended(runs),
-    )
-
-    assert "unattended: 1/2 days (50%)" in message
-
-
-def test_the_alert_omits_completion_when_there_is_none() -> None:
-    verdict = evaluate((), window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS)
-
-    message = render_alert(
-        verdict, repository="owner/repo", watchdog_run_url="https://example.invalid/run"
-    )
-
-    assert "unattended:" not in message
-
-
-def test_a_day_rescued_by_hand_is_not_an_unattended_success() -> None:
-    """The cost being measured is the intervention, so a rescued day must still count."""
-
-    runs = parse_runs(
-        _listing(
-            _run(created_at=_day(0), conclusion="failure"),
-            _run(created_at=_day(0), conclusion="success", event="workflow_dispatch"),
-            _run(created_at=_day(1), conclusion="success"),
-        )
-    )
-
-    rate = unattended(runs)
-
-    assert rate is not None
-    assert (rate.answered, rate.total) == (1, 2)

@@ -127,7 +127,7 @@ uv run baibai-engine screening ticker-profile --ticker TICKER
 なるため、required-field補修には使わない。補修後は同じverify commandで
 `market_cap_required_fields`と`valuation_required_fields`がminimum以上であることを確認する。
 
-`pull.sh`はmarket/runs/macroの全downloadとSQLite `quick_check`が成功してから3 storeを置換し、`baibai.sqlite`には触れない。**batchが走っている間にpullすると、batch前のstoreとbatch後のstoreが混ざった断面がローカルへ載る**。`quick_check`は各storeを個別に見るのでこれを通し、screeningが読む価格・run・macro seriesの組み合わせが実在しない断面になる。避けるべき窓はcronの実値から導ける — 平日07:43 UTC（16:43 JST）に始まり、schedule遅延（実測median約2時間）とjob実行（`timeout-minutes: 60`）、既存の遅延余裕を含む**16:43〜21:30 JST**である。この窓を外すか、`gh run list --workflow cloud-daily-batch.yml --limit 1`で当日のrunが`completed`であることを確かめてからpullする。
+`pull.sh`はmarket/runs/macroの全downloadとSQLite `quick_check`が成功してから3 storeを置換し、`baibai.sqlite`には触れない。**batchが走っている間にpullすると、batch前のstoreとbatch後のstoreが混ざった断面がローカルへ載る**。`quick_check`は各storeを個別に見るのでこれを通し、screeningが読む価格・run・macro seriesの組み合わせが実在しない断面になる。避けるべき窓はcronの実値から導ける — 平日07:43 UTC（16:43 JST）に始まり、schedule遅延（実測median約2時間）とjob実行（`timeout-minutes: 90`）、既存の遅延余裕を含む**16:43〜22:00 JST**である。この窓を外すか、`gh run list --workflow cloud-daily-batch.yml --limit 1`で当日のrunが`completed`であることを確かめてからpullする。
 
 ### ローカルからクラウドを更新する
 
@@ -336,7 +336,7 @@ gh run list --workflow cloud-daily-batch.yml --limit 10
 
 daily batchはcoverageが完全でも`bootstrap-cache`を実行する。財務サマリーの直近7日を再取得するため、同日の先行runより後にJ-Quantsへ反映された開示は後続runで取り込まれる。bootstrap後はcoverageを再検証してからscreeningへ進む。
 
-`daily_batch.py`のexit 3はfresh screening exportを持つため、workflowはstores/serving uploadまで完了させてからjobを失敗にする。exit 1は新しいpublish可能runがないためuploadしない。非営業日skipはexportがないため既存servingを変更しない。
+`daily_batch.py`のexit 3はfresh screening exportを持つため、workflowはstores/serving uploadまで完了させる。job は赤にしない — degrade は Discord `[DEGRADED]` と run summary が運ぶ。exit 1は新しいpublish可能runがないためuploadしない。非営業日skipはexportがないため既存servingを変更しない。
 
 ## Actions 使用量の月次確認
 
@@ -477,7 +477,7 @@ summary には redaction 済みの typed errors だけを渡す。
   `extract-edinet-metrics` を毎回実行する。変更のない metric row は baseline から再利用し、
   extraction 後の coverage と quarantine counters を current state に揃える
 - macro series refresh の失敗は繰延べる: export まで完走して screening 結果は publish し、
-  最後に exit 3 で終了する（scheduled workflow の失敗通知は発火し、鮮度は meta の
+  最後に exit 3 で終了する（job は緑のまま Discord に `[DEGRADED]` が出て、鮮度は meta の
   `macro_asof` に現れる）。繰延べた失敗の詳細は発生時点で stderr にも出す
 - `select` の前回 run 比較は、runs store の「target より前の最大 as-of の最新 revision」を
   この script が決定論的に解決して `--previous-run-revision-id` で渡す（同一日の再実行が

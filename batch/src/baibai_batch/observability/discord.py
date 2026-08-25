@@ -251,9 +251,7 @@ def decide_outcome(
 
 
 # Non-batch steps whose failure is a workflow (not batch) failure, in step order.
-# The deferred-report step that turns exit 3 into a job failure is intentionally
-# excluded: its failure is the batch's deferred signal, already carried by the
-# batch exit code and the degraded summary.
+# exit 3 は job を赤にしない。[DEGRADED] は summary が運ぶ。
 _NON_BATCH_STEPS: tuple[tuple[str, str], ...] = (
     ("smoke", "smoke"),
     ("setup", "setup"),
