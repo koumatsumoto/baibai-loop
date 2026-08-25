@@ -280,11 +280,45 @@ def test_shortlist_list_and_latest_agree_on_the_newest_row(tmp_path: Path) -> No
     assert payloads[0]["shortlist_id"] == latest["shortlist_id"]
 
 
-@pytest.mark.parametrize("schema_version", [2, 3, 4])
-def test_shortlist_reader_projects_each_known_legacy_version(
-    tmp_path: Path, schema_version: int
-) -> None:
-    store = tmp_path / "app.sqlite"
+def _legacy_entries() -> list[dict[str, object]]:
+    """Entries in the shape the store's own v4 rows carry.
+
+    Field names come from `stores/application/baibai.sqlite`; the values are synthetic.
+    A judgment published before the Opportunity vocabulary carries `screening_playbook`
+    and a bare `rank`, and only some entries carry a machine snapshot at all.
+    """
+
+    return [
+        {
+            "ticker": "2331",
+            "decision": "selected",
+            "rank": 1,
+            "reason": "一次IRへ進める",
+            "er_annual": 0.1055,
+            "machine_snapshot": {
+                "rank": 1,
+                "name": "ALSOK",
+                "market_price_yen": 1000.0,
+                "fair_value_anchor_yen": 1250.0,
+                "expected_return_pct": 10.55,
+                "screening_playbook": "valuation-reversion",
+                "liquidity_status": "pass",
+                "durability_warnings": [],
+                "event_warnings": [],
+                "selection_reasons": ["valuation_reversion"],
+                "fv_convergence": {"status": "clear"},
+            },
+        },
+        {
+            "ticker": "0001",
+            "decision": "rejected",
+            "reason": "根拠が弱い",
+            "reject_class": "other",
+        },
+    ]
+
+
+def _store_with_shortlist(store: Path, payload: dict[str, object]) -> None:
     with sqlite3.connect(store) as connection:
         connection.execute(
             "CREATE TABLE shortlist (shortlist_id TEXT, as_of TEXT, published_at TEXT, "
@@ -293,24 +327,99 @@ def test_shortlist_reader_projects_each_known_legacy_version(
         connection.execute(
             "INSERT INTO shortlist VALUES (?, ?, ?, ?)",
             (
-                f"shortlist-legacy-v{schema_version}",
+                str(payload["shortlist_id"]),
                 "2026-07-01",
                 "2026-07-01T14:00:00+09:00",
-                json.dumps(
-                    {
-                        "schema_version": schema_version,
-                        "entries": [],
-                        "shortlist_id": f"shortlist-legacy-v{schema_version}",
-                    }
-                ),
+                json.dumps(payload),
             ),
         )
+
+
+@pytest.mark.parametrize("schema_version", [2, 3, 4])
+def test_shortlist_reader_projects_each_known_legacy_version(
+    tmp_path: Path, schema_version: int
+) -> None:
+    """A judgment published before the Opportunity vocabulary is read, not refused.
+
+    The projection is what makes those rows answerable at all, and it has to say that
+    the identities it fills in were inferred rather than recorded: `value-carry` was
+    the only lane at the time, so it is the lane, but no policy produced it.
+    """
+
+    store = tmp_path / "app.sqlite"
+    _store_with_shortlist(
+        store,
+        {
+            "schema_version": schema_version,
+            "shortlist_id": f"shortlist-legacy-v{schema_version}",
+            "entries": _legacy_entries(),
+        },
+    )
 
     payload = read_api.latest_shortlist_payload(store)
 
     assert payload is not None
     assert payload["attention_provenance_status"] == "unresolved"
     assert payload["attention_policy_id"] is None
+    assert payload["research_gate_contract_id"] is None
+    entries = payload["entries"]
+    assert isinstance(entries, list)
+    snapshot = entries[0]["machine_snapshot"]
+    assert snapshot["opportunity_lane_id"] == "value-carry"
+    assert snapshot["lane_provenance_status"] == "legacy_inferred"
+    # The retired key is where the current one is read from; nothing else can supply it.
+    assert snapshot["primary_evidence_pattern_id"] == "valuation-reversion"
+    assert snapshot["lane_rank"] == 1
+    assert snapshot["baseline_er_rank"] == 1
+    assert snapshot["lane_native_value"] == 0.1055
+    assert snapshot["lane_native_unit"] == "annual_ratio"
+    assert snapshot["selection_policy_id"] is None
+    assert snapshot["selection_policy_hash"] is None
+    assert snapshot["policy_diagnostic_ids"] is None
+    # An entry with no snapshot has nothing to infer a lane from, and says so rather
+    # than borrowing the one beside it.
+    assert entries[1]["lane_provenance_status"] == "unresolved"
+    assert "machine_snapshot" not in entries[1]
+
+
+def test_shortlist_reader_marks_a_current_judgment_as_exactly_provenanced(
+    tmp_path: Path,
+) -> None:
+    """The v5 side of the same projection: nothing here is inferred.
+
+    A current judgment records the policy that produced it, so the status the reader
+    stamps is what tells a consumer it may treat the lane as measured rather than as a
+    reconstruction.
+    """
+
+    store = tmp_path / "app.sqlite"
+    entries = _legacy_entries()
+    snapshot = entries[0]["machine_snapshot"]
+    assert isinstance(snapshot, dict)
+    snapshot.pop("screening_playbook")
+    snapshot["primary_evidence_pattern_id"] = "cashflow-yield-discount"
+    snapshot["opportunity_lane_id"] = "value-carry"
+    _store_with_shortlist(
+        store,
+        {
+            "schema_version": 5,
+            "shortlist_id": "shortlist-20260701-current",
+            "entries": entries,
+        },
+    )
+
+    payload = read_api.latest_shortlist_payload(store)
+
+    assert payload is not None
+    assert payload["attention_provenance_status"] == "exact"
+    projected = payload["entries"]
+    assert isinstance(projected, list)
+    assert projected[0]["machine_snapshot"]["lane_provenance_status"] == "exact"
+    assert projected[0]["machine_snapshot"]["primary_evidence_pattern_id"] == (
+        "cashflow-yield-discount"
+    )
+    # A v5 entry without a snapshot is not stamped at all: there is nothing inferred.
+    assert "lane_provenance_status" not in projected[1]
 
 
 def test_shortlist_payloads_for_selection_answers_by_the_selection_it_judged(

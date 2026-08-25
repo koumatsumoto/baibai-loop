@@ -21,6 +21,7 @@ from baibai_engine.screening.calibration.forward import (
 from baibai_engine.screening.metrics import (
     MetricBuildResult,
     _asof_basis_dividend,
+    _avg_daily_volume,
     _common_equity_yen,
     _normalize_summaries_to_asof_basis,
     _resolve_capital_basis,
@@ -4337,6 +4338,39 @@ class TradableShareChangeTest(unittest.TestCase):
         # 発行済側は前年行から答えられるので、旧軸は残る。
         assert financial.net_share_change_yoy is not None
         self.assertAlmostEqual(financial.net_share_change_yoy, 0.0, places=9)
+
+
+def test_the_average_volume_window_is_twenty_sessions() -> None:
+    """The window length is a number the margin figures are divided by.
+
+    Days of trading is a margin balance over this average, so a window one session
+    wider moves every overhang figure without any read failing. The counts here are
+    written out rather than derived from `AVG_VOLUME_SESSIONS`: a fixture built from
+    the constant moves with it and can never say where the edge is.
+    """
+
+    asof = date(2026, 7, 10)
+    # Twenty-one sessions, the oldest carrying a volume nothing else comes near.
+    bars = [
+        JQuantsDailyBar(
+            ticker="130A",
+            traded_at=asof - timedelta(days=20 - offset),
+            open=None,
+            high=None,
+            low=None,
+            close=100.0,
+            volume=(1_000_000.0 if offset == 0 else 1_000.0),
+            turnover_value=None,
+            adjustment_factor=1.0,
+        )
+        for offset in range(21)
+    ]
+
+    # Twenty sessions back from the newest bar leaves the outlier one session outside.
+    assert _avg_daily_volume(bars, asof) == 1_000.0
+    # A window that reached one session further would take it in, which is what makes
+    # this the edge rather than a restatement of the constant.
+    assert _avg_daily_volume(bars, asof, sessions=21) != 1_000.0
 
 
 if __name__ == "__main__":

@@ -551,12 +551,14 @@ def published_margin_week_ends(sqlite_path: Path, asof: date) -> list[date]:
                 (WEEKLY_MARGIN_SOURCE,),
             )
         }
+        # Not filtered on `asof` here: the publication-lag test below is the one that
+        # decides usability, and a balance date the market has not reached has no
+        # publication day inside `trading_days`, which stops at `asof`. Filtering twice
+        # would put the point-in-time rule in two places that could disagree.
         week_ends = [
             date.fromisoformat(str(row[0]))
             for row in conn.execute(
-                "SELECT DISTINCT week_end FROM jquants_weekly_margin "
-                "WHERE week_end <= ? ORDER BY week_end",
-                (asof.isoformat(),),
+                "SELECT DISTINCT week_end FROM jquants_weekly_margin ORDER BY week_end"
             )
             if weekly_margin_coverage_key(date.fromisoformat(str(row[0]))) in readable
         ]

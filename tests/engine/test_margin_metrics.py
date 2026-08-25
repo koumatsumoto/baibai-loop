@@ -194,6 +194,29 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_a_balance_date_after_the_asof_is_not_published_yet(self) -> None:
+        # A store filled past the decision date holds balance dates the market has not
+        # reached. Listing one would put a future week at the head of the cohort, which
+        # is the point-in-time break this reader exists to prevent.
+        from baibai_engine.screening.sqlite_reader import published_margin_week_ends
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            weeks = [date(2026, 7, 17), date(2026, 7, 24), date(2026, 7, 31)]
+            trading = [
+                date(2026, 7, 17),
+                *(date(2026, 7, day) for day in (20, 21, 22, 23, 24, 27, 28, 29, 30, 31)),
+                *(date(2026, 8, day) for day in (3, 4, 5, 6, 7)),
+            ]
+            self._seed(db, weeks, trading)
+
+            # 2026-07-31's own publication day has not been reached either, so this
+            # holds whether the read filters on the balance date or on the lag.
+            self.assertEqual(
+                published_margin_week_ends(db, date(2026, 7, 30)),
+                [date(2026, 7, 17), date(2026, 7, 24)],
+            )
+
     def test_a_partial_week_falls_back_instead_of_blanking_the_cohort(self) -> None:
         # One malformed code in one weekly payload marks that week `partial`, which
         # the reader refuses. If the published list still named it, the newest entry

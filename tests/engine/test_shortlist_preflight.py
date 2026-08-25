@@ -901,3 +901,224 @@ def test_preflight_reads_a_failed_lake_publication_run_and_blocks_with_reasons(
 
     assert report["decision"] == "blocked"
     assert "cloud batch did not finish with a reusable outcome" in report["reasons"]
+
+
+def _reusable_world(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """A cloud publication the preflight would answer `reuse` for.
+
+    Every case below starts here and breaks exactly one thing, so the reason it
+    produces is attributable to that one change.
+    """
+
+    runs = tmp_path / "runs.sqlite"
+    app = tmp_path / "app.sqlite"
+    summary = tmp_path / "latest-run.json"
+    store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
+    previous = store.publish_run(
+        _run("2026-08-06", "2026-08-06T12:00:00+09:00"), run_revision_id="run-previous"
+    ).publication_id
+    current = store.publish_run(
+        _run("2026-08-07", "2026-08-07T12:00:00+09:00"), run_revision_id="run-cloud"
+    ).publication_id
+    _selection(store, previous, "selection-previous", "2026-08-06T12:10:00+00:00")
+    _selection(store, current, "selection-cloud", "2026-08-07T12:10:00+00:00")
+    _canonical_shortlist(
+        app, as_of="2026-08-06", run_id=previous, selection_id="selection-previous"
+    )
+    _summary(summary, run_id=current, selection_id="selection-cloud", as_of="2026-08-07")
+    return runs, app, summary
+
+
+def _edit_summary(summary: Path, **changes: object) -> None:
+    payload = json.loads(summary.read_text(encoding="utf-8"))
+    payload.update(changes)
+    summary.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_every_reason_the_preflight_can_block_on_is_reachable(tmp_path: Path) -> None:
+    """One case per refusal, each producing only its own reason.
+
+    The preflight is the gate that decides whether a cloud publication may be reused
+    instead of rerun, so a reason nothing can produce is a refusal that would never
+    fire when it was needed. Only two of the eleven were exercised before this.
+    """
+
+    def dirty_worktree(runs: Path, app: Path, summary: Path) -> GitState:
+        return GitState(commit=COMMIT, clean=False)
+
+    def wrong_asof(runs: Path, app: Path, summary: Path) -> GitState:
+        # A whole summary for another day, not an edited field: the loader refuses a
+        # summary whose own as-of values disagree before any reason is collected.
+        _summary(summary, run_id="run-cloud", selection_id="selection-cloud", as_of="2026-08-06")
+        return GitState(commit=COMMIT, clean=True)
+
+    def failed_outcome(runs: Path, app: Path, summary: Path) -> GitState:
+        _edit_summary(summary, overall_outcome="failed")
+        return GitState(commit=COMMIT, clean=True)
+
+    def screening_not_ok(runs: Path, app: Path, summary: Path) -> GitState:
+        # `publish_state` cannot be moved on its own — the loader refuses a summary
+        # whose terminal state contradicts it — so the reachable half of this refusal
+        # is the screening batch reporting something other than ok.
+        payload = json.loads(summary.read_text(encoding="utf-8"))
+        payload["overall_outcome"] = "published_with_deferred_failure"
+        payload["execution"]["summary"]["outcome"] = "published_with_deferred_failure"
+        for batch in payload["execution"]["summary"]["batches"]:
+            if batch["batch_name"] == "screening":
+                batch["status"] = "degraded"
+        summary.write_text(json.dumps(payload), encoding="utf-8")
+        return GitState(commit=COMMIT, clean=True)
+
+    def _publish_under_another_commit(connection: sqlite3.Connection) -> None:
+        """Take the cloud run out of the current-code path.
+
+        A run published by this commit is reusable on its own, so a cloud publication
+        broken in some other way would resume from it instead of reporting the break.
+        Attributing a reason needs the run to belong to a commit that is not HEAD.
+        """
+
+        connection.execute(
+            "UPDATE screening_run SET application_git_commit = ? WHERE run_revision_id = ?",
+            ("b" * 40, "run-cloud"),
+        )
+
+    def absent_selection(runs: Path, app: Path, summary: Path) -> GitState:
+        with sqlite3.connect(runs) as connection:
+            connection.execute(
+                "DELETE FROM screening_selection WHERE selection_id = 'selection-cloud'"
+            )
+            _publish_under_another_commit(connection)
+        return GitState(commit=COMMIT, clean=True)
+
+    def unbound_selection(runs: Path, app: Path, summary: Path) -> GitState:
+        with sqlite3.connect(runs) as connection:
+            connection.execute(
+                "UPDATE screening_selection SET run_revision_id = 'run-previous' "
+                "WHERE selection_id = 'selection-cloud'"
+            )
+            _publish_under_another_commit(connection)
+        return GitState(commit=COMMIT, clean=True)
+
+    def run_asof_mismatch(runs: Path, app: Path, summary: Path) -> GitState:
+        with sqlite3.connect(runs) as connection:
+            connection.execute(
+                "UPDATE screening_run SET asof_date = '2026-08-05' "
+                "WHERE run_revision_id = 'run-cloud'"
+            )
+            _publish_under_another_commit(connection)
+        return GitState(commit=COMMIT, clean=True)
+
+    def no_run_provenance(runs: Path, app: Path, summary: Path) -> GitState:
+        with sqlite3.connect(runs) as connection:
+            connection.execute(
+                "UPDATE screening_run SET application_git_commit = NULL "
+                "WHERE run_revision_id = 'run-cloud'"
+            )
+        return GitState(commit=COMMIT, clean=True)
+
+    def absent_run(runs: Path, app: Path, summary: Path) -> GitState:
+        # The selection references the run, so a run that is gone takes its selection
+        # with it: this input produces both absence reasons or neither.
+        with sqlite3.connect(runs) as connection:
+            connection.execute(
+                "DELETE FROM screening_selection WHERE selection_id = 'selection-cloud'"
+            )
+            connection.execute("DELETE FROM screening_run WHERE run_revision_id = 'run-cloud'")
+        return GitState(commit=COMMIT, clean=True)
+
+    def ambiguous_current_code(runs: Path, app: Path, summary: Path) -> GitState:
+        store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
+        for suffix, hour in (("a", "13"), ("b", "14")):
+            run_id = store.publish_run(
+                _run("2026-08-07", f"2026-08-07T{hour}:00:00+09:00"),
+                run_revision_id=f"run-head-{suffix}",
+            ).publication_id
+            _selection(store, run_id, f"selection-head-{suffix}", f"2026-08-07T{hour}:10:00+00:00")
+        with sqlite3.connect(runs) as connection:
+            _publish_under_another_commit(connection)
+        return GitState(commit=COMMIT, clean=True)
+
+    def unresolved_previous(runs: Path, app: Path, summary: Path) -> GitState:
+        store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
+        second = store.publish_run(
+            _run("2026-08-06", "2026-08-06T13:00:00+09:00"), run_revision_id="run-previous-b"
+        ).publication_id
+        _selection(store, second, "selection-previous-b", "2026-08-06T13:10:00+00:00")
+        with sqlite3.connect(app) as connection:
+            connection.execute("DELETE FROM shortlist")
+        with sqlite3.connect(runs) as connection:
+            _publish_under_another_commit(connection)
+        return GitState(commit=COMMIT, clean=True)
+
+    cases: tuple[tuple[str, object, tuple[str, ...]], ...] = (
+        ("dirty_worktree", dirty_worktree, ("checked-out worktree is dirty",)),
+        ("wrong_asof", wrong_asof, ("cloud batch as-of does not match the requested as-of",)),
+        (
+            "failed_outcome",
+            failed_outcome,
+            ("cloud batch did not finish with a reusable outcome",),
+        ),
+        ("screening_not_ok", screening_not_ok, ("cloud screening publication is not complete",)),
+        (
+            "absent_selection",
+            absent_selection,
+            ("cloud selection is absent from the local run store; pull-runs first",),
+        ),
+        (
+            "unbound_selection",
+            unbound_selection,
+            ("cloud selection does not bind the reported run and as-of",),
+        ),
+        (
+            # The selection carries no as-of of its own — it reads the run's — so moving
+            # the run's as-of necessarily unbinds the selection too. These two reasons
+            # are one input, not two.
+            "run_asof_mismatch",
+            run_asof_mismatch,
+            (
+                "cloud selection does not bind the reported run and as-of",
+                "cloud run does not match the requested as-of",
+            ),
+        ),
+        (
+            "no_run_provenance",
+            no_run_provenance,
+            ("cloud run has no application commit provenance",),
+        ),
+        (
+            "absent_run",
+            absent_run,
+            (
+                "cloud run is absent from the local run store; pull-runs first",
+                "cloud selection is absent from the local run store; pull-runs first",
+            ),
+        ),
+        (
+            "ambiguous_current_code",
+            ambiguous_current_code,
+            ("multiple current-code publications require an explicit choice",),
+        ),
+        (
+            "unresolved_previous",
+            unresolved_previous,
+            ("previous publication must be resolved before run or select",),
+        ),
+    )
+
+    for index, (name, break_it, expected) in enumerate(cases):
+        root = tmp_path / f"case-{index}"
+        root.mkdir()
+        runs, app, summary = _reusable_world(root)
+        git_state = break_it(runs, app, summary)  # type: ignore[operator]
+
+        report = shortlist_preflight(
+            as_of=date(2026, 8, 7),
+            cloud_summary_path=summary,
+            runs_db_path=runs,
+            app_db_path=app,
+            repo_root=root,
+            git_state=git_state,
+        )
+
+        assert report["decision"] == "blocked", name
+        assert report["reasons"] == list(expected), name
