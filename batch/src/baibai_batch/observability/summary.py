@@ -693,14 +693,16 @@ class LakeReleaseSummary:
     """What the run published to the L1 lake, so the transfer claim is an observation.
 
     The point of the lake is that a day's publication moves the day rather than the
-    history. A run that reported only "published" would leave that unmeasured, and the
-    first regression — a fingerprint change that rewrites every partition — would look
-    exactly like a healthy run.
+    history. Every partition is derived on every run, but one lands on a new object only
+    when its bytes moved; a run that reported only "published" would leave that
+    unmeasured, and a regression that rewrote every partition would look exactly like
+    a healthy run.
     """
 
     release_id: str
     data_as_of: str
     changed_partitions: int
+    """How many partitions landed on an object the mirror did not already hold."""
     uploaded_objects: int
     uploaded_bytes: int
 

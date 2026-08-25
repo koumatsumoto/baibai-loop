@@ -221,7 +221,10 @@ class PartitionManifest(BaseModel):
     values: Mapping[str, PartitionValue] = Field(min_length=1)
     objects: tuple[LakeObject, ...] = Field(min_length=1)
     sources: tuple[SourceRef, ...] = ()
-    source_state_sha256: str
+    source_state_sha256: str | None = None
+    """Left unset by the L1 export, which derives every partition from the store on
+    each run and has no earlier build to compare a source state against. Calibration
+    builds still record theirs; older L1 manifests carry one and remain readable."""
 
     @field_validator("values")
     @classmethod
@@ -242,8 +245,8 @@ class PartitionManifest(BaseModel):
 
     @field_validator("source_state_sha256")
     @classmethod
-    def validate_source_state_sha256(cls, value: str) -> str:
-        return validate_sha256(value)
+    def validate_source_state_sha256(cls, value: str | None) -> str | None:
+        return None if value is None else validate_sha256(value)
 
 
 class ManifestTotals(BaseModel):
@@ -383,8 +386,8 @@ class CalibrationBundleManifest(BaseModel):
     identity of the code that produced its datasets. Each dataset manifest keeps its
     own ``producer_git_commit``, so a bundle that matures forward outcomes on top of
     panels built earlier states both facts instead of restating one as the other.
-    Compatibility between the datasets is decided by their transform fingerprints,
-    cohort sources, and cutoffs — not by a shared commit.
+    Compatibility between the datasets is decided by their cohort sources and cutoffs —
+    not by a shared commit.
 
     There is deliberately no bundle-level compatibility field. Compatibility is a
     per-dataset question and every answer lives in the dataset manifest the bundle
@@ -530,7 +533,10 @@ class DatasetManifest(BaseModel):
     build_id: str
     sources: tuple[SourceRef, ...]
     producer_git_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
-    transform_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    transform_fingerprint: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    """Identity of the code that produced a calibration build. L1 has none: the export
+    derives every partition on every run, so nothing carries between generations and
+    there is no compatibility to decide. Older L1 manifests carry one and remain readable."""
     created_at: datetime
     coverage_start: date
     data_as_of: date
@@ -771,7 +777,7 @@ class ReleaseDatasetPolicy(BaseModel):
     A dataset whose SQLite table is replaced by each fetch holds a current view rather
     than an archive: `jquants.earnings_calendar` is the forward announcement calendar, so
     its earliest row moves forward every time the exchange drops a past announcement.
-    False exempts it; every other check (rows, population, staleness) still applies.
+    False exempts it; every other check (rows, population) still applies.
 
     For the rest the floor is the release already serving, not a date written here. A
     pinned date states the value it had the day it was written, and measured on
@@ -784,14 +790,6 @@ class ReleaseDatasetPolicy(BaseModel):
     minimum_rows: int = Field(gt=0)
     minimum_population_count: int | None = Field(default=None, gt=0)
     """Absent for datasets whose rows have no per-subject population to count."""
-    max_age_days: int = Field(ge=0)
-    """How stale this dataset's watermark may be against the evaluation date.
-
-    Cadence belongs to the dataset, not to the profile. A weekly balance published with
-    a reporting lag and a daily bar are both current at watermarks two weeks apart, so
-    one shared limit has to be loose enough for the slowest and stops saying anything
-    about the fastest.
-    """
     require_complete_coverage: bool = True
     """Whether this dataset must prove complete coverage to enter a release.
 
@@ -799,13 +797,6 @@ class ReleaseDatasetPolicy(BaseModel):
     can never carry it. Serving what it holds while saying so is the honest state; the
     flag is per dataset because completeness is a property of what records the source,
     not of the release the dataset happens to join.
-    """
-    max_lead_days: int = Field(default=0, ge=0)
-    """How far ahead of the evaluation date this dataset legitimately publishes.
-
-    A market calendar names business days that have not happened yet, and an earnings
-    calendar names announcements that have not been made. Their watermarks are supposed
-    to be in the future; treating that as staleness inverted would refuse the release.
     """
 
     @field_validator("dataset")
@@ -860,7 +851,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             minimum_rows=9_634_243,
             minimum_population_count=5_097,
             require_complete_coverage=True,
-            max_age_days=31,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.short_sale_reports",
@@ -870,7 +860,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             minimum_rows=1_342_362,
             minimum_population_count=3_907,
             require_complete_coverage=True,
-            max_age_days=31,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.weekly_margin",
@@ -880,7 +869,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             minimum_rows=1_960_849,
             minimum_population_count=4_866,
             require_complete_coverage=False,
-            max_age_days=45,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.master_snapshots",
@@ -890,7 +878,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             minimum_rows=548_341,
             minimum_population_count=5_073,
             require_complete_coverage=False,
-            max_age_days=31,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.fin_summaries",
@@ -900,7 +887,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             minimum_rows=173_198,
             minimum_population_count=4_425,
             require_complete_coverage=True,
-            max_age_days=31,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.market_calendar",
@@ -909,8 +895,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             carries_history=True,
             minimum_rows=3_524,
             require_complete_coverage=True,
-            max_age_days=31,
-            max_lead_days=400,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.earnings_calendar",
@@ -932,8 +916,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             minimum_rows=489,
             minimum_population_count=489,
             require_complete_coverage=True,
-            max_age_days=31,
-            max_lead_days=120,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.margin_alerts",
@@ -943,7 +925,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             minimum_rows=1_657,
             minimum_population_count=214,
             require_complete_coverage=True,
-            max_age_days=31,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.all_issues_daily_margin",
@@ -952,7 +933,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             carries_history=True,
             minimum_rows=1,
             require_complete_coverage=False,
-            max_age_days=31,
         ),
         ReleaseDatasetPolicy(
             dataset="edinet.documents",
@@ -961,7 +941,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             carries_history=True,
             minimum_rows=160_990,
             require_complete_coverage=True,
-            max_age_days=31,
         ),
         ReleaseDatasetPolicy(
             dataset="edinet.metrics",
@@ -971,7 +950,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             minimum_rows=131_909,
             minimum_population_count=3_788,
             require_complete_coverage=False,
-            max_age_days=31,
         ),
         ReleaseDatasetPolicy(
             dataset="edinet.document_lists",
@@ -980,7 +958,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             carries_history=True,
             minimum_rows=706,
             require_complete_coverage=False,
-            max_age_days=31,
         ),
         ReleaseDatasetPolicy(
             dataset="edinet.buyback_reports",
@@ -990,7 +967,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             minimum_rows=5_871,
             minimum_population_count=1_159,
             require_complete_coverage=False,
-            max_age_days=62,
         ),
         ReleaseDatasetPolicy(
             dataset="jpx.regulation_flags",
@@ -1000,7 +976,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             minimum_rows=4_534,
             minimum_population_count=141,
             require_complete_coverage=False,
-            max_age_days=31,
         ),
         ReleaseDatasetPolicy(
             dataset="jpx.delistings",
@@ -1022,8 +997,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             # the daily batch, so the freshness window is an abandonment detector, not a
             # cadence: firing it would stop the whole daily run over a monthly chore,
             # and stale exits are caught where they matter by the cohort that reads them.
-            max_age_days=400,
-            max_lead_days=550,
         ),
         ReleaseDatasetPolicy(
             dataset="edinet.tender_offer_exit_values",
@@ -1039,7 +1012,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             require_complete_coverage=False,
             # Operator-run like the delistings above; see that entry for why the window
             # is wide. This watermark is always past — an exit is a completed event.
-            max_age_days=400,
         ),
         ReleaseDatasetPolicy(
             dataset="jpx.regulation_sources",
@@ -1048,7 +1020,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             carries_history=True,
             minimum_rows=133,
             require_complete_coverage=False,
-            max_age_days=31,
         ),
     ),
     max_manifest_bytes=16 * 1024 * 1024,
@@ -1150,20 +1121,21 @@ def validate_release_policy(
     release: ReleaseManifest,
     manifests: Mapping[str, DatasetManifest],
     *,
-    evaluated_at: datetime,
     published_coverage_start: Mapping[str, date] | None = None,
 ) -> None:
-    """Require a release to be complete and fresh for its declared profile.
+    """Require a release to be structurally complete for its declared profile.
+
+    No freshness is checked here, at write or at read. How old a dataset's watermark is
+    changes nothing about whether the release describes its objects truthfully, and the
+    readers that care (a stale weekly balance, say) null that axis themselves. A bound
+    here would refuse a current release the day a source paused, and stop every hydrate
+    after it.
 
     ``published_coverage_start`` is what the serving release covers, per dataset. It is
     the floor an archival dataset must still reach. Absent — a first publication, or a
     dataset this release introduces — leaves the history check with nothing to compare
     and the remaining checks unchanged.
     """
-    if evaluated_at.utcoffset() != timedelta(0):
-        raise ValueError("release evaluation time must be UTC")
-    if release.created_at > evaluated_at:
-        raise ValueError("release creation time cannot be after its evaluation time")
     policy = release_policy_for_profile(release.profile)
     policy_by_dataset = {item.dataset: item for item in policy.datasets}
     unknown = set(release.datasets) - set(policy_by_dataset)
@@ -1174,8 +1146,8 @@ def validate_release_policy(
         raise ValueError("release is missing a required dataset")
     if set(manifests) != set(release.datasets):
         raise ValueError("release validation requires every referenced dataset manifest")
-    # Structural first: whether these datasets are one picture of the store at all comes
-    # before whether that picture is fresh enough to publish.
+    # Whether these datasets are one picture of the store at all comes before what the
+    # picture says.
     if policy.require_shared_snapshot_generation:
         _require_shared_snapshot_generation(manifests.values())
 
@@ -1234,16 +1206,9 @@ def validate_release_policy(
                     f"{dataset}: population {manifest.population_count} is below the profile "
                     f"floor {dataset_policy.minimum_population_count}"
                 )
-        age = (evaluated_at.date() - manifest.data_as_of).days
-        if age > dataset_policy.max_age_days or -age > dataset_policy.max_lead_days:
-            raise ValueError("release dataset is outside its freshness window")
         total_manifest_bytes += len(manifest_bytes)
         total_objects += manifest.totals.objects
 
-    # No separate skew limit: every watermark was just measured against its own dataset's
-    # window around the same evaluation date, so a dataset that stopped updating is
-    # already refused by its own bound. Comparing watermarks to each other instead would
-    # ask a daily bar and a monthly filing index to agree on a date they never share.
     if total_manifest_bytes > policy.max_manifest_bytes:
         raise ValueError("release manifest graph exceeds the profile byte budget")
     if total_objects > policy.max_objects:

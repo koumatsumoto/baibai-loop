@@ -84,7 +84,6 @@ def test_known_steps_have_stable_ids(steps_by_id: dict[str, dict]) -> None:
         "batch",
         "upload-stores",
         "publish-serving",
-        "deferred-report",
         "cancellation",
         "notify",
         "upload-run-summary",
@@ -296,15 +295,6 @@ def test_a_failed_store_push_fails_the_step_and_leaves_the_mirror_untouched(
     assert code != 0
     assert outputs == expected
     assert len(recorded) == sides_run
-
-
-def test_uploads_precede_deferred_report_which_fires_on_exit_3(
-    steps: list[dict], steps_by_id: dict[str, dict]
-) -> None:
-    ids = [step.get("id") for step in steps]
-    assert ids.index("upload-stores") < ids.index("deferred-report")
-    assert ids.index("publish-serving") < ids.index("deferred-report")
-    assert steps_by_id["deferred-report"]["if"] == "steps.batch.outputs.exit_code == '3'"
 
 
 def test_notify_is_the_single_notification_point_running_on_every_terminal_state(

@@ -63,31 +63,23 @@ uv run baibai-engine lake export-all \
   --mirror <local-mirror>
 ```
 
-中断した Premium CSV / API backfill は既存 `source_coverage` から再開する。直前 manifest を
-渡すと SQLite facts + coverage の state hash を比較し、commit 済みの追加・訂正月だけを
-export して未変更月を再利用する。transform fingerprintはschema/configに加えてwriter・dataset
-contract sourceのdigestを含む。CLIは実装sourceが属するrepositoryを固定し、tracked worktreeがdirty、
+export は毎回、全 dataset の全 partition を sealed snapshot から導出する。前回 build を base に
+した増分・carry・transform identity は持たない — object は自身の bytes の digest で address される
+ので、行が動かなかった月は既にある key に落ちて新 object を生まず、識別機構なしに「変わったか」が
+決まる。中断した Premium CSV / API backfill は既存 `source_coverage` から再開し、次の export が
+それを含めて導出し直す。CLIは実装sourceが属するrepositoryを固定し、tracked worktreeがdirty、
 git identityが取得不能、unknown zero commitの場合にbuildを開始しない。
-
-```bash
-uv run baibai-engine lake export-all \
-  --sqlite stores/market/market.sqlite \
-  --mirror <local-mirror> \
-  --base-manifest <previous-daily-bars-manifest> \
-  --base-manifest <previous-short-sale-manifest>
-```
 
 `coverage_status`は固定値ではない。完全性は多くのsourceで行から導けない — 提出されなかった書類と
 取得しなかった書類は同じ不在を残すので、取得記録が答える。daily barsだけが例外で、全営業日が全市場分の
 行を負うため行自体が答える。どちらも持たないsourceは`unproven`として、持っているものは言えるが全部
 持っているとは言えない状態を表す。dataset契約が`coverage_authority`でこれを宣言する。
 
-release policyはdatasetごとに、必須性・history境界・rows / population floor・完全性要求・鮮度窓を
-持つ。cadenceはdatasetの性質であってprofileの性質ではない — 週次残高と日次barは watermark が2週間
-離れていても両方currentで、profile単一の上限は最も遅いdatasetに合わせるしかなく、その時点で最も速い
-datasetについて何も言わなくなる。`max_lead_days`は先取り公表を表す（market calendarは未到来の営業日を、
-earnings calendarは未発表の announcement を名乗る）。watermark同士のskew上限は持たない — 各watermarkを
-同じ評価日に対して自分の窓で測っているので、更新の止まったdatasetは自分の窓が既に拒否する。
+release policyはdatasetごとに、必須性・history境界・rows / population floor・完全性要求を持つ。
+鮮度（age・lead・skew）の窓は持たない — watermark の古さは release が object を正しく記述しているか
+と無関係で、stale を気にする reader（週次残高の `MARGIN_MAX_STALE_DAYS`）は自分で軸を null にする。
+policy に窓を置くと、source が止まった日から current release が policy を通らず hydrate が毎日
+落ちる（[Failure policy](../architecture.md#failure-policy)）。
 
 floorは観測rows・populationの95%をregression floorにする。新鮮でも1日・1rowだけのstore、
 leading history欠損、大幅なpopulation縮小はcurrent候補にならない。population floorを持つdatasetが
@@ -107,8 +99,8 @@ uv run baibai-engine lake release create \
 
 ### local pipeline の実測
 
-remote への転送が差分でも、local 側は毎 run sealed snapshot を作り、affected month を
-判定し、全 history の SQLite ↔ Parquet parity を検証する。その時間は主張ではなく計測で持つ。
+remote への転送が差分でも、local 側は毎 run sealed snapshot を作り、全 partition を導出し、
+全 history の SQLite ↔ Parquet parity を検証する。その時間は主張ではなく計測で持つ。
 
 ```bash
 uv run python -m tools.diagnostics.benchmark_l1_export \
@@ -121,26 +113,19 @@ production store（1,812,189,184 bytes、schema v23、snapshot digest `ef791840�
 | 局面 | wall time | 生成 object | 生成 bytes |
 | --- | --- | --- | --- |
 | full export（16 dataset・全 partition） | 359.9 秒 | 448 | 300,587,037 |
-| 1 か月訂正の再 export | 125.7 秒 | 1 | 1,144,400 |
+| 1 か月訂正後の再 export（全 partition） | 全量と同じ | 1 | 1,144,400 |
 
 peak RSS は 1,030,107,136 bytes（982 MiB）。`jquants.all_issues_daily_margin` は JPX の公表制度
 移行まで行を持たないので、export は 17 dataset のうち 16 を書く。
 
-日次 build も base と current SQLite の全 partition を PK 順の row hash と period に clip した
-coverageで比較する。したがって日次 window の外側の訂正・削除も次の publish でaffectedとなり、最後の
-rowを失った月はmanifestから消える。**parity の Parquet 再導出は build が書いた月だけを見る。** carry
-できるのはこの全比較で同一と証明済みのpartitionであり、content-addressed objectを再生成しない。上表の
-2行がその差で、1か月の訂正は全量の2.9分の1で済み、生成objectは448分の1になる。`--audit` はcarry
-した月もParquetを再導出してSQLiteとのparityを問う明示検査で、mutationを初めて検出する入口ではない。
+日次 build も同じ全導出である。日次 window の外側の訂正・削除もその日の export に含まれ、最後の
+rowを失った月はmanifestから消える。parity の Parquet 再導出は毎回全 partition を見る。1か月の訂正は
+上表 2 行目のとおり export 時間は全量と同じで、生成 object だけが 448 分の 1 になる。全導出の
+export が 15 分を超えるようになったら、対処は export の高速化（`_period_rows` の `LIKE` を
+`BETWEEN` に、dataset 単位の並列）であって、増分・identity 機構を戻すことではない。
 
 この計測は commit ではなく実装 digest（writer / models / immutable / snapshot / benchmark tool）へ
 結ぶ。それらに触れない変更では証跡は有効なままで、触れた変更は再計測になる。
-
-<!-- AP-02: full=359.8542985210079 秒、incremental=125.72119240899337 秒、
-peak RSS=1030107136 / 1048576 = 982.39 MiB、
-source sha256=ef79184082ce1e82177d5bffac58e7336eff757f4a41c15d00a17fe461f89a2e、
-implementation sha256=20c9cea642c9be2bc2f505d40abe56c39933159952240e73304d87714385d39a、
-producer commit=85d3dbdc13c67b05a018448e1be17710ddcb869e、recorded=2026-08-19T23:32:19Z。 -->
 
 ## L1 dataset を追加する
 
@@ -148,7 +133,7 @@ producer commit=85d3dbdc13c67b05a018448e1be17710ddcb869e、recorded=2026-08-19T2
 
 | 触る場所 | 忘れると |
 | --- | --- |
-| `market/lake/datasets.py` の `LakeDataset` 定義と `LAKE_DATASETS` | 起点なので忘れられない。要点は下段の fingerprint 規約 |
+| `market/lake/datasets.py` の `LakeDataset` 定義と `LAKE_DATASETS` | 起点なので忘れられない |
 | `market/lake/models.py` の `PRODUCTION_RELEASE_POLICY` へ `ReleaseDatasetPolicy` 1 件 | `test_every_lake_dataset_states_a_release_policy` が落ちる |
 | `market/sqlite/schema.py` と `market/sqlite/migrations.py` の table | `tests/batch/test_cloud_merge_market_store.py` が落ちる。新 table を lake 側か merge 側かに分類するまで通らない |
 | provider が `market/sqlite/coverage.py` へ記録する `source_coverage.source` と dataset の `coverage_authority` | 何も言わない。既定の `source_coverage` はその帳簿を読むので、名前がずれた dataset は `partial` を名乗り続ける（`coverage_source` で宣言できる） |
@@ -157,9 +142,7 @@ producer commit=85d3dbdc13c67b05a018448e1be17710ddcb869e、recorded=2026-08-19T2
 hydrate / dehydrate に個別作業は無い。どちらも `LAKE_DATASETS` から従い、積んだ行数が release
 manifest と合わなければ [Store hydration](#store-hydration) が fail-close する。
 
-**`datasets.py` は `transform_fingerprint` の 3 file の 1 つなので、この merge の翌日の publish は
-base を carry せず全 partition を store から導出し直す。**日次はそれを自動で行い、
-`rebuilt_from_source` に対象 dataset を記録する。作業は要らない。
+merge の翌日の publish は、いつもどおり全 partition を store から導出する。作業は要らない。
 
 ## R2 publish
 
@@ -188,18 +171,17 @@ remote bytesをprivate temporaryへ再取得し、digest一致後だけcacheを�
 `lake publish phases: base_resolve=... seal_plan_export=... release_create=... local_graph=... remote_closure=... pointer=...`
 を1行出し、stdoutはrelease recordに使うJSON 1行だけを維持する。
 
-incremental export は開始時 current pointer と、exportに使う同じsealed SQLite snapshot内の
-`lake_store_origin`を照合し、digest chain を検証した dataset manifest の private snapshot から unchanged
-partition を carry する。release identityはSQLite内の`lake_store_origin`だけに置き、分離可能な
-identity sidecarは持たない。full rebuild は
-baseをcarryしないが、同じsealed snapshotのembedded originをcurrent pointerと照合する。currentとoriginが
-ともに無いfirst publicationだけは例外である。
+publish は経路が 1 つである。開始時 current pointer と、exportに使う同じsealed SQLite snapshot内の
+`lake_store_origin`を照合し、serving release の dataset manifest からは `coverage_start`（履歴の床）
+だけを読んで、全 partition を store から導出する。serving release の partition は carry しない。
+release identityはSQLite内の`lake_store_origin`だけに置き、分離可能なidentity sidecarは持たない。
+currentとoriginがともに無いfirst publicationだけは照合を省く。
 
 exportが返したin-memory manifestはcanonical bytesにしてmirror配下のpublication-private directoryへ
 固定し、release作成はそのpathだけを読む。releaseも作成時payloadのSHA-256をpublisherへ渡し、pathが
 差し替わっていればpointer切替前に拒否する。全dataset共通のprevious-release row floorは、正常に縮小する
 snapshotや取消・訂正と両立しないため持たない。欠損はdatasetごとのproduction policy（history境界、
-minimum rows / population、coverage、freshness）で拒否する。
+minimum rows / population、coverage）で拒否する。
 
 conditional pointer PUTや直後のHEAD/GETが失敗した場合はcurrentを再読込し、exact targetなら成功、別
 identityならconflict、読めなければunknown outcomeとして停止する。low-level publisher CLIがcurrentを
@@ -289,9 +271,9 @@ directory 自身であり、`--mirror stores` と渡す。mirror は immutable o
 
 読み取りは実行の最初に current pointer を 1 度だけ解決し、以後は固定した `release_id` と
 immutable object key だけを読む。実行途中に pointer が切り替わっても、その実行の入力 release は
-変わらない。current operational readは解決時刻に対してprofileのfreshness/skew/coverage policyを
-再評価し、staleならscreening開始前にfail-closeする。named releaseのhistorical readは現在
-時刻のfreshnessを要求せず、固定されたidentity chainだけを検証する。
+変わらない。current の read は profile の構造 policy（required dataset・coverage・floor・予算）を
+再検証し、named release の historical read は固定された identity chain だけを検証する。どちらも
+解決時刻に対する鮮度は問わない。
 
 ```bash
 uv run baibai-engine lake resolve --mirror <local-mirror>

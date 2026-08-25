@@ -1,4 +1,9 @@
-"""Measure production-size L1 full export and one-month correction reuse."""
+"""Measure a production-size L1 export, and what a one-month correction moves.
+
+Every export derives every partition, so the second run costs the same export as the
+first; what it measures is that content addressing lands the untouched months on their
+existing objects and only the corrected month becomes a new one.
+"""
 
 from __future__ import annotations
 
@@ -46,10 +51,8 @@ def _report_build(build: LakeExportReport) -> dict[str, object]:
             "rows": result.manifest.totals.rows,
             "objects": result.manifest.totals.objects,
             "bytes": result.manifest.totals.bytes,
-            "partitions": len(result.manifest.partitions),
-            "changed_partitions": list(result.changed_partitions),
-            "reused_partitions": list(result.reused_partitions),
-            "created_objects": result.created_objects,
+            "partitions": result.partitions,
+            "new_objects": result.new_objects,
             "manifest_sha256": sha256_file(result.manifest_path),
         }
         for name, result in sorted(build.datasets.items())
@@ -101,20 +104,17 @@ def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> 
         baseline_objects = _object_inventory(full)
 
         corrected_month = _inject_one_month_correction(working_sqlite)
-        incremental_source_sha256 = sha256_file(working_sqlite)
+        corrected_source_sha256 = sha256_file(working_sqlite)
         started = time.perf_counter()
-        incremental = export_lake_legacy(
+        corrected = export_lake_legacy(
             sqlite_path=working_sqlite,
             mirror_root=mirror,
             producer_git_commit=producer_commit,
             expected_store_origin=store_origin,
-            base_manifest_paths={
-                name: result.manifest_path for name, result in full.datasets.items()
-            },
         )
-        incremental_seconds = time.perf_counter() - started
-        incremental_objects = _object_inventory(incremental)
-        new_keys = set(incremental_objects) - set(baseline_objects)
+        corrected_seconds = time.perf_counter() - started
+        corrected_objects = _object_inventory(corrected)
+        new_keys = set(corrected_objects) - set(baseline_objects)
 
         payload: dict[str, object] = {
             "kind": "l1_full_history_export_acceptance",
@@ -130,13 +130,13 @@ def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> 
                 "elapsed_seconds": full_seconds,
                 "datasets": _report_build(full),
             },
-            "incremental_correction": {
+            "correction": {
                 "corrected_month": corrected_month,
-                "source_sha256": incremental_source_sha256,
-                "elapsed_seconds": incremental_seconds,
+                "source_sha256": corrected_source_sha256,
+                "elapsed_seconds": corrected_seconds,
                 "new_object_count": len(new_keys),
-                "new_object_bytes": sum(incremental_objects[key] for key in new_keys),
-                "datasets": _report_build(incremental),
+                "new_object_bytes": sum(corrected_objects[key] for key in new_keys),
+                "datasets": _report_build(corrected),
             },
             "peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024,
         }

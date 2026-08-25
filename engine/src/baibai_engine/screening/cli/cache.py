@@ -93,35 +93,14 @@ def verify_cache_coverage_command(
             "financial required-field coverage: " + field_coverage.summary_line(),
             file=out,
         )
-    degraded = tuple(issue for issue in issues if not issue.blocking)
-    blocking = tuple(issue for issue in issues if issue.blocking)
-    if degraded:
-        _print_degraded_coverage(degraded, stream=out)
-    if blocking:
-        _print_cache_coverage_issues(blocking, asof_date=asof_date, stream=out)
+    if issues:
+        _print_cache_coverage_issues(issues, asof_date=asof_date, stream=out)
         return 1
     print(
         f"SQLite cache coverage complete for --asof {asof_date.isoformat()}: {sqlite_path}",
         file=out,
     )
     return 0
-
-
-def _print_degraded_coverage(
-    issues: Sequence[CacheCoverageIssue],
-    *,
-    stream: TextIO,
-) -> None:
-    """Say what this run goes without, on a run that still produces its output.
-
-    Printed above the completion line rather than folded into it: a reader scanning for
-    "complete" has to see that an axis was carried null, and a reader scanning for a
-    failure must not mistake this for one.
-    """
-
-    print("SQLite cache coverage degraded (screening proceeds without these):", file=stream)
-    for issue in issues:
-        print(f"  {issue.source} {issue.requirement}: {issue.reason}", file=stream)
 
 
 def _print_cache_coverage_issues(

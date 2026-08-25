@@ -566,10 +566,13 @@ class JPXProvider:
                 break
         if header_index is None or code_column is None or date_column is None:
             raise JPXProviderError(f"unexpected JPX earnings calendar header layout: {url}")
-        entries: list[JPXEarningsCalendarEntry] = []
+        entries: dict[str, JPXEarningsCalendarEntry] = {}
         raw_count = 0
         excluded_count = 0
         seen: dict[str, date] = {}
+        conflicted: set[str] = set()
+        conflicts: list[str] = []
+        unparsable: list[str] = []
         for _, raw_row in frame.iloc[header_index + 1 :].iterrows():
             values = [str(value).strip() for value in raw_row.tolist()]
             code_raw = values[code_column] if code_column < len(values) else ""
@@ -583,22 +586,43 @@ class JPXProvider:
             if not date_raw or date_raw.startswith("未定"):
                 excluded_count += 1
                 continue
-            announcement_date = _parse_jpx_earnings_date(date_raw, url=url, ticker=ticker)
+            announcement_date = _parse_jpx_earnings_date(date_raw)
+            if announcement_date is None:
+                # A cell that is not a date is that issuer's row, not the file's: it
+                # leaves as undated, like a 未定 row.
+                excluded_count += 1
+                unparsable.append(f"{ticker}: {date_raw!r}")
+                continue
+            if ticker in conflicted:
+                excluded_count += 1
+                continue
             previous = seen.get(ticker)
-            if previous is not None and previous != announcement_date:
-                raise JPXProviderError(
-                    f"conflicting JPX earnings dates for {ticker}: "
-                    f"{previous} and {announcement_date}"
-                )
             if previous is None:
                 seen[ticker] = announcement_date
-                entries.append(
-                    JPXEarningsCalendarEntry(ticker=ticker, announcement_date=announcement_date)
+                entries[ticker] = JPXEarningsCalendarEntry(
+                    ticker=ticker, announcement_date=announcement_date
                 )
+            elif previous != announcement_date:
+                # One issuer dated twice in one file is that issuer's ambiguity, not a
+                # missing input for the day: it goes out as undated, like a 未定 row,
+                # and the rest of the file stands.
+                conflicted.add(ticker)
+                del entries[ticker]
+                excluded_count += 2
+                conflicts.append(f"{ticker}: {previous} and {announcement_date}")
+        if conflicts or unparsable:
+            _LOGGER.warning(
+                "JPX earnings calendar dropped undated ticker(s) in %s: "
+                "conflicting=%d unparsable=%d: %s",
+                url,
+                len(conflicts),
+                len(unparsable),
+                "; ".join((conflicts + unparsable)[:20]),
+            )
         return _EarningsCalendarFile(
             url=url,
             published_on=published_on,
-            entries=tuple(entries),
+            entries=tuple(entries.values()),
             raw_record_count=raw_count,
             excluded_record_count=excluded_count,
         )
@@ -1002,10 +1026,10 @@ def _warn_on_unexpected_earnings_sources(files: Sequence[_EarningsCalendarFile])
         )
 
 
-def _parse_jpx_earnings_date(raw: str, *, url: str, ticker: str) -> date:
+def _parse_jpx_earnings_date(raw: str) -> date | None:
     normalized = raw.strip().replace("年", "-").replace("月", "-").replace("日", "")
     normalized = normalized.replace("/", "-").replace(".", "-")[:10]
     try:
         return date.fromisoformat(normalized)
-    except ValueError as exc:
-        raise JPXProviderError(f"invalid JPX earnings date for {ticker}: {raw!r} ({url})") from exc
+    except ValueError:
+        return None

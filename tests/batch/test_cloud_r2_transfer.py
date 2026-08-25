@@ -1737,7 +1737,7 @@ def test_the_transfer_script_names_the_same_pointer_key_the_engine_publishes() -
     assert lake_current_l1_pointer_key() in TRANSFER_SCRIPT.read_text(encoding="utf-8")
 
 
-def test_first_full_rebuild_needs_no_sidecar_and_prints_its_result(
+def test_first_publication_needs_no_sidecar_and_prints_its_result(
     tmp_path: Path,
 ) -> None:
     """The canonical shell path supports first publication without duplicate state."""
@@ -1748,7 +1748,7 @@ def test_first_full_rebuild_needs_no_sidecar_and_prints_its_result(
     record = Path(environment["R2_GENERATION_DIR"]) / "lake-release.json"
 
     completed = subprocess.run(
-        [root / "batch/scripts/r2_transfer.sh", "publish-lake", "full-rebuild"],
+        [root / "batch/scripts/r2_transfer.sh", "publish-lake"],
         cwd=tmp_path,
         env=environment,
         check=False,
@@ -1759,7 +1759,7 @@ def test_first_full_rebuild_needs_no_sidecar_and_prints_its_result(
     assert completed.returncode == 0, completed.stderr
     published = [line for line in log.read_text(encoding="utf-8").splitlines() if "publish" in line]
     assert len(published) == 1
-    assert "--full-rebuild" in published[0]
+    assert "--full-rebuild" not in published[0]
     assert "--base-release" not in published[0]
     assert "--origin-release" not in published[0]
     assert "--origin-manifest-sha256" not in published[0]
@@ -1782,7 +1782,7 @@ def test_a_failed_publish_does_not_touch_a_legacy_sidecar(
     )
 
     completed = subprocess.run(
-        [root / "batch/scripts/r2_transfer.sh", "publish-lake", "full-rebuild"],
+        [root / "batch/scripts/r2_transfer.sh", "publish-lake"],
         cwd=tmp_path,
         env=environment,
         check=False,
@@ -1807,7 +1807,7 @@ def test_partial_stdout_from_a_failed_publisher_is_never_persisted(
     record.write_bytes(before)
 
     completed = subprocess.run(
-        [root / "batch/scripts/r2_transfer.sh", "publish-lake", "full-rebuild"],
+        [root / "batch/scripts/r2_transfer.sh", "publish-lake"],
         cwd=tmp_path,
         env=environment,
         check=False,

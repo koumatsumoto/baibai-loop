@@ -109,14 +109,16 @@ manifestとpointerを含むlake JSONは、duplicate key拒否とredacted validat
 共通parserだけを通し、wire size上限をparse前に検査する。partition valuesとrelease dataset
 inventoryはparse後に変更できない。
 releaseはprofileを宣言し、そのprofileのmanifest size/object budgetと、dataset ごとのrequired・
-accepted contract・coverage要求・rows / population floor・検証時刻基準のfreshness窓を満たす場合だけ
-current候補になる。cadenceも完全性もdatasetの性質なので、profile単位の単一閾値は持たない。
+accepted contract・coverage要求・rows / population floor を満たす場合だけcurrent候補になる。
+鮮度窓は持たない（[Failure policy](#failure-policy)）。完全性はdatasetの性質なので、profile単位の
+単一閾値は持たない。
 profileは`production`ひとつで、要求の集合がひとつだからである。登録の無いprofileはfail-closeする。
 
 version 語彙は `contract_version`（schema・PK・型・partition・意味の互換境界）、`build_id`
 （immutable build）、typed `SourceRef`内のsource側version、`producer_git_commit`（code identity）
-に限定する。同じ contract 内の logic / config / 明示したtransform source codeは
-`transform_fingerprint`で識別する。
+に限定する。L1 に transform identity は無い — 毎回全 partition を導出するので、build 間の互換を
+問う場面が無い。`transform_fingerprint` は L2 calibration だけが持ち、同じ contract 内の logic /
+config / 明示したtransform source codeを識別する。
 L2 calibrationのlineageはdataset全体のsource集合ではなくcohort inventoryの各roleへ置き、panel /
 diagnosticsのcohort cutoffとforwardのobservation cutoffをsource digestと一緒に固定する。
 fingerprintはschema/configだけでなく、そのdatasetの値を決めるsemantic implementation fileのdigestを含む。
@@ -229,7 +231,7 @@ views + history + system        Bearer認証 + static UI
 
 それ以外では止めない。鮮度（age・staleness・lead）は reader が軸を null にする。producer の identity（fingerprint・revision）の変化は停止理由ではなく作り直しの契機である。1 record の異常（衝突・欠落）は当該 record を落として続ける。publish 済みの内容を答える reader は file / table の欠損を空 view として返し（`read_rows`）、書き込みを門番する reader（`market_calendar_business_day`、`previous_run_revision_id`）は条件 2 に当たるので raise する。この規則は `tests/engine/test_read_api_degrade.py` が全 public reader を走査して守る。
 
-degrade の報告経路は batch の exit 3（Discord `[DEGRADED]` と run summary）の 1 本で、新しい語彙・field・指標・gate を足さない。blocking guard を足す PR は 2 条件のどちらに当たるかを本文で述べ、述べられないなら足さない。guard を消す PR は、窓内の発火を 1 件ずつ原因と修正 PR へ帰属させる — 「自然解消した」は、同日に修正が merge されていないことを確かめてから言う。完走率が要るときは定時 run だけで数える（[`batch/OPERATIONS.md`](../batch/OPERATIONS.md#欠測の検知cloud-batch-watchdog)）。
+degrade の報告経路は batch の exit 3（Discord `[DEGRADED]` と run summary）の 1 本で、新しい語彙・field・指標・gate を足さない。exit 3 は GHA の job を赤にしないので、GHA の赤はその日の成果物が出なかったことだけを意味する。blocking guard を足す PR は 2 条件のどちらに当たるかを本文で述べ、述べられないなら足さない。guard を消す PR は、窓内の発火を 1 件ずつ原因と修正 PR へ帰属させる — 「自然解消した」は、同日に修正が merge されていないことを確かめてから言う。完走率が要るときは定時 run だけで数える（[`batch/OPERATIONS.md`](../batch/OPERATIONS.md#欠測の検知cloud-batch-watchdog)）。
 
 ## Data layers
 

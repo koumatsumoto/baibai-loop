@@ -251,9 +251,7 @@ def decide_outcome(
 
 
 # Non-batch steps whose failure is a workflow (not batch) failure, in step order.
-# The deferred-report step that turns exit 3 into a job failure is intentionally
-# excluded: its failure is the batch's deferred signal, already carried by the
-# batch exit code and the degraded summary.
+# exit 3 は job を赤にしない。[DEGRADED] は summary が運ぶ。
 _NON_BATCH_STEPS: tuple[tuple[str, str], ...] = (
     ("smoke", "smoke"),
     ("setup", "setup"),
@@ -566,7 +564,7 @@ def render_message(summary: WorkflowRunSummary) -> str:
             # a weekly balance with a publication lag sets it while the bars are current.
             # Printing it as "as-of" beside the run's own as-of reads as a stale lake.
             f"lake: {lake.release_id} min as-of {lake.data_as_of} | "
-            f"changed {lake.changed_partitions} partition(s) | "
+            f"new {lake.changed_partitions} partition(s) | "
             f"uploaded {lake.uploaded_objects} object(s), {lake.uploaded_bytes} bytes"
         )
     lines.extend(_render_delta_tickers(summary))

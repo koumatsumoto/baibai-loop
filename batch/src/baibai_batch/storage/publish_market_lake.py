@@ -3,12 +3,11 @@
 This is the write half of the daily cutover. Its read half is ``lake hydrate``, and the
 two are joined by one rule: the serving release must still be the one the store was
 filled from. That identity lives in the SQLite file itself: a sidecar can be restored or
-copied independently and therefore cannot prove which rows the export is reading. An
-incremental export uses that release as its base; a full rebuild re-derives every row.
+copied independently and therefore cannot prove which rows the export is reading.
 
-An incremental publication writes only changed partitions and carries every other one by
-reference from private copies of the validated base manifests. A full rebuild carries no
-base partition and re-derives the whole store.
+Every publication derives every partition from the store. The serving release is read
+for two facts only — the origin the store must be bound to, and the history floor the
+new release must still reach — and none of its partitions are carried.
 """
 
 from __future__ import annotations
@@ -61,21 +60,18 @@ class MarketLakePublishReport:
     release_id: str
     release_manifest_sha256: str
     data_as_of: str
-    base_release_id: str | None
+    previous_release_id: str | None
     changed_partitions: Mapping[str, int]
-    created_objects: Mapping[str, int]
+    """Per dataset, how many partitions landed on a content-addressed key the mirror
+    did not hold — the partitions whose bytes moved since the previous publication."""
     uploaded_objects: int
     uploaded_bytes: int
-    # Datasets whose base belonged to an earlier generation of the export and were
-    # derived from the store instead of carried. Empty on an ordinary run.
-    rebuilt_from_source: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, object]:
         return {
-            "base_release_id": self.base_release_id,
             "changed_partitions": dict(sorted(self.changed_partitions.items())),
-            "created_objects": dict(sorted(self.created_objects.items())),
             "data_as_of": self.data_as_of,
+            "previous_release_id": self.previous_release_id,
             "release_id": self.release_id,
             "release_manifest_sha256": self.release_manifest_sha256,
             "uploaded_bytes": self.uploaded_bytes,
@@ -89,25 +85,21 @@ def publish_market_lake(
     mirror_root: Path,
     store: ObjectStore,
     release_id: str | None = None,
-    full_rebuild: bool = False,
 ) -> MarketLakePublishReport:
-    """Export the changed partitions on top of the serving release and publish them.
+    """Derive every partition from the store, seal a release, and publish it.
 
-    ``full_rebuild`` drops the base and re-derives every partition from the store. The
-    export does the same on its own when the base belongs to an earlier generation, so
-    this flag is for deriving everything on purpose — a schema cutover, or proving the
-    store and the lake still agree — rather than for recovering from one.
-
-    The serving release is resolved either way. Carrying its partitions is what the flag
-    turns off; the history floor it sets for the policy check is not, because a rebuild
-    must not quietly publish less history than the release it replaces.
+    The serving release is resolved for the origin the store must be bound to and for
+    the history floor the policy check applies — a publication must not quietly serve
+    less history than the release it replaces. None of its partitions are carried.
     """
 
     base_resolve_started = time.perf_counter()
     serving = _serving_pointer(store)
-    base = serving.pointer
-    expected_store_origin = _pointer_origin(base)
-    serving_release = None if base is None else _resolve_base_release(store, mirror_root, base)
+    previous = serving.pointer
+    expected_store_origin = _pointer_origin(previous)
+    serving_release = (
+        None if previous is None else _resolve_serving_release(store, mirror_root, previous)
+    )
     published_coverage_start = (
         {}
         if serving_release is None
@@ -116,18 +108,14 @@ def publish_market_lake(
             for name, manifest in serving_release.dataset_manifests.items()
         }
     )
-    fixed_base = None if full_rebuild else serving_release
 
-    with _base_manifest_snapshot(fixed_base) as base_manifests:
-        export_started = time.perf_counter()
-        export = export_lake_legacy(
-            sqlite_path=sqlite_path,
-            mirror_root=mirror_root,
-            producer_git_commit=lake_verified_git_commit(),
-            expected_store_origin=expected_store_origin,
-            base_manifest_paths=base_manifests,
-            audit_full_history=False,
-        )
+    export_started = time.perf_counter()
+    export = export_lake_legacy(
+        sqlite_path=sqlite_path,
+        mirror_root=mirror_root,
+        producer_git_commit=lake_verified_git_commit(),
+        expected_store_origin=expected_store_origin,
+    )
     export_finished = time.perf_counter()
     with _export_manifest_snapshot(export.datasets, mirror_root) as manifest_paths:
         release_path, release = create_lake_l1_release(
@@ -167,33 +155,17 @@ def publish_market_lake(
         f"pointer={published.pointer_seconds:.3f}s",
         file=sys.stderr,
     )
-    rebuilt = tuple(
-        name for name, item in sorted(export.datasets.items()) if item.rebuilt_from_source
-    )
-    if rebuilt:
-        # This run derived every partition of these datasets instead of carrying the
-        # previous release's. It is the batch recovering from a merge that moved the
-        # export, and it is why the run took longer than an ordinary one.
-        print(
-            "lake publish rebuilt from source (base was an earlier generation of the "
-            f"export): {', '.join(rebuilt)}",
-            file=sys.stderr,
-        )
     transfers = published.transfers.as_dict()
     return MarketLakePublishReport(
         release_id=published.release_id,
         release_manifest_sha256=release_sha256,
         data_as_of=release.data_as_of.isoformat(),
-        base_release_id=None if base is None else base.release_id,
+        previous_release_id=None if previous is None else previous.release_id,
         changed_partitions={
-            name: len(item.changed_partitions) for name, item in sorted(export.datasets.items())
-        },
-        created_objects={
-            name: item.created_objects for name, item in sorted(export.datasets.items())
+            name: item.new_objects for name, item in sorted(export.datasets.items())
         },
         uploaded_objects=int(transfers.get("uploaded_objects", 0)),
         uploaded_bytes=int(transfers.get("uploaded_bytes", 0)),
-        rebuilt_from_source=rebuilt,
     )
 
 
@@ -230,43 +202,21 @@ def _export_manifest_snapshot(
         yield paths
 
 
-@contextmanager
-def _base_manifest_snapshot(
-    fixed: LakeFixedRelease | None,
-) -> Iterator[dict[str, Path]]:
-    """Give the writer private bytes from the release that was already validated."""
-
-    if fixed is None:
-        yield {}
-        return
-    with tempfile.TemporaryDirectory(prefix="baibai-lake-base-manifests-") as directory:
-        root = Path(directory)
-        paths: dict[str, Path] = {}
-        for index, (dataset_name, manifest) in enumerate(sorted(fixed.dataset_manifests.items())):
-            payload = canonical_lake_model_bytes(manifest)
-            if hashlib.sha256(payload).hexdigest() != fixed.dataset_manifest_sha256[dataset_name]:
-                raise LakePublishError(
-                    f"validated base manifest cannot reproduce its identity: {dataset_name}"
-                )
-            path = root / f"{index:02d}.json"
-            path.write_bytes(payload)
-            paths[dataset_name] = path
-        yield paths
-
-
-def _resolve_base_release(
-    store: ObjectStore, mirror_root: Path, base: L1ReleasePointer
+def _resolve_serving_release(
+    store: ObjectStore, mirror_root: Path, serving: L1ReleasePointer
 ) -> LakeFixedRelease:
     release_path = _fetch(
         store,
         mirror_root,
-        base.manifest_key,
-        expected_sha256=base.manifest_sha256,
+        serving.manifest_key,
+        expected_sha256=serving.manifest_sha256,
     )
     try:
         release = load_lake_model_json(release_path.read_bytes(), LakeReleaseManifest)
     except ValueError:
-        raise LakePublishError(f"base release manifest is invalid: {base.manifest_key}") from None
+        raise LakePublishError(
+            f"serving release manifest is invalid: {serving.manifest_key}"
+        ) from None
     for dataset_name, entry in sorted(release.datasets.items()):
         _fetch(
             store,
@@ -277,11 +227,11 @@ def _resolve_base_release(
     try:
         return resolve_release(
             LocalMirrorSource(mirror_root),
-            base.release_id,
-            manifest_sha256=base.manifest_sha256,
+            serving.release_id,
+            manifest_sha256=serving.manifest_sha256,
         )
     except LakeReadError as exc:
-        raise LakePublishError(f"base release identity validation failed: {exc}") from None
+        raise LakePublishError(f"serving release identity validation failed: {exc}") from None
 
 
 def _fetch(
@@ -333,16 +283,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mirror", type=Path, required=True)
     parser.add_argument("--bucket", default="baibai-stores")
     parser.add_argument("--release-id")
-    parser.add_argument(
-        "--full-rebuild",
-        action="store_true",
-        help=(
-            "re-derive every partition from the store instead of carrying the base "
-            "release's unchanged ones. Required after the export transform fingerprint "
-            "moves — a Parquet writer version bump is enough — because the differential "
-            "export refuses a base built under the previous one"
-        ),
-    )
     return parser
 
 
@@ -354,7 +294,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             mirror_root=args.mirror,
             store=Boto3R2Store(bucket=args.bucket),
             release_id=args.release_id,
-            full_rebuild=args.full_rebuild,
         )
     except LakeBuildError as error:
         print(f"error: {error}", file=sys.stderr)

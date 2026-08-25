@@ -333,10 +333,10 @@ def test_source_ref_rejects_unknown_kind_and_prefix_identity() -> None:
         _load_dataset(payload)
 
 
-def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
+def test_release_policy_rejects_incomplete_or_missing_inventory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    narrow_release_policy(monkeypatch, age_days=None)
+    narrow_release_policy(monkeypatch)
     manifest = _load_dataset(_dataset_payload())
     short_sale = _load_dataset(
         _dataset_payload(
@@ -366,8 +366,7 @@ def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
     }
     release = load_lake_model_json(json.dumps(release_payload), ReleaseManifest)
 
-    evaluated_at = datetime(2026, 8, 13, tzinfo=UTC)
-    validate_release_policy(release, manifests, evaluated_at=evaluated_at)
+    validate_release_policy(release, manifests)
 
     # A dataset with no population to count reports none, and the model accepts that
     # because it cannot tell "inapplicable" from "omitted". The floor is what refuses
@@ -392,7 +391,6 @@ def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
         validate_release_policy(
             unpopulated_release,
             {manifest.dataset: unpopulated, short_sale.dataset: short_sale},
-            evaluated_at=evaluated_at,
         )
 
     incomplete = manifest.model_copy(update={"coverage_status": "partial"})
@@ -400,7 +398,6 @@ def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
         validate_release_policy(
             release,
             {manifest.dataset: incomplete, short_sale.dataset: short_sale},
-            evaluated_at=evaluated_at,
         )
     incomplete_release_dataset = release.datasets[manifest.dataset].model_copy(
         update={
@@ -419,13 +416,6 @@ def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
                 }
             ),
             {manifest.dataset: incomplete, short_sale.dataset: short_sale},
-            evaluated_at=evaluated_at,
-        )
-    with pytest.raises(ValueError, match="freshness window"):
-        validate_release_policy(
-            release,
-            manifests,
-            evaluated_at=datetime(2026, 10, 1, tzinfo=UTC),
         )
     with pytest.raises(ValueError, match="missing a required dataset"):
         validate_release_policy(
@@ -433,7 +423,6 @@ def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
                 update={"datasets": {manifest.dataset: release.datasets[manifest.dataset]}}
             ),
             {manifest.dataset: manifest},
-            evaluated_at=evaluated_at,
         )
     # `model_copy` does not revalidate, so this is how a manifest carrying a profile
     # no policy is registered for reaches the gate: it must refuse rather than fall
@@ -442,13 +431,6 @@ def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
         validate_release_policy(
             release.model_copy(update={"profile": "retired"}),
             manifests,
-            evaluated_at=evaluated_at,
-        )
-    with pytest.raises(ValueError, match="cannot be after its evaluation time"):
-        validate_release_policy(
-            release.model_copy(update={"created_at": datetime(2026, 8, 14, tzinfo=UTC)}),
-            manifests,
-            evaluated_at=evaluated_at,
         )
 
 
@@ -499,14 +481,12 @@ def test_pilot_policy_rejects_a_fresh_one_day_population(monkeypatch: pytest.Mon
         validate_release_policy(
             release,
             manifests,
-            evaluated_at=datetime(2026, 8, 13, tzinfo=UTC),
         )
 
     with pytest.raises(ValueError, match="the serving release already covers"):
         validate_release_policy(
             release,
             manifests,
-            evaluated_at=datetime(2026, 8, 13, tzinfo=UTC),
             published_coverage_start={"jquants.daily_bars": date(2016, 8, 1)},
         )
 
@@ -897,14 +877,12 @@ def test_a_forward_only_calendar_uses_its_policy_floor_not_the_previous_snapshot
         ),
         ReleaseManifest,
     )
-    evaluated_at = datetime(2026, 8, 13, tzinfo=UTC)
-
     if not accepted:
         with pytest.raises(ValueError, match="below the profile floor"):
-            validate_release_policy(release, manifests, evaluated_at=evaluated_at)
+            validate_release_policy(release, manifests)
         return
 
-    validate_release_policy(release, manifests, evaluated_at=evaluated_at)
+    validate_release_policy(release, manifests)
 
     # Not the shared narrowing: this half turns the dataset under test into one that
     # accumulates, which is the state the floor applies to.
@@ -919,6 +897,5 @@ def test_a_forward_only_calendar_uses_its_policy_floor_not_the_previous_snapshot
         validate_release_policy(
             release,
             manifests,
-            evaluated_at=evaluated_at,
             published_coverage_start={"jquants.earnings_calendar": date(2026, 6, 19)},
         )

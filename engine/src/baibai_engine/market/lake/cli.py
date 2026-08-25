@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -96,7 +95,7 @@ def _resolved_release(args: argparse.Namespace) -> dict[str, JsonValue]:
             )
             release = resolve_release_ref(cache.source, reference)
         else:
-            release = resolve_current_release(cache.source, evaluated_at=datetime.now(UTC))
+            release = resolve_current_release(cache.source)
     return {
         "schema_version": 1,
         "kind": "lake_release",

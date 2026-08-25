@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import shutil
 import sqlite3
 import uuid
@@ -17,7 +16,6 @@ from types import MappingProxyType
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
-from baibai_engine.foundation.source_identity import release_line, semantic_source_digest
 from baibai_engine.market.sqlite.lake_origin import (
     LakeStoreOrigin,
     LakeStoreOriginError,
@@ -31,7 +29,6 @@ from .datasets import (
     LAKE_DATASETS,
     LakeDataset,
     Period,
-    period_bounds,
     period_label,
     period_values,
     require_lake_dataset,
@@ -65,13 +62,10 @@ class LakeBuildError(RuntimeError):
 class LakeBuildReport:
     manifest_path: Path
     manifest: DatasetManifest
-    changed_partitions: tuple[str, ...]
-    reused_partitions: tuple[str, ...]
-    created_objects: int
-    # True when the base belonged to an earlier generation of the export and every
-    # partition was re-derived instead of carried. Recorded because the run costs more
-    # than an ordinary one and the reason is not visible in the partition counts.
-    rebuilt_from_source: bool = False
+    partitions: int
+    """How many partitions this build derived — every one the store holds."""
+    new_objects: int
+    """How many content-addressed keys the build installed that the mirror lacked."""
 
 
 @dataclass(frozen=True)
@@ -157,39 +151,25 @@ def export_legacy_sqlite(
     dataset_name: str,
     mirror_root: Path,
     producer_git_commit: str,
-    start: date | None = None,
-    end: date | None = None,
-    base_manifest_path: Path | None = None,
     source_snapshot: LegacySQLiteSnapshot,
     build_id: str | None = None,
     created_at: datetime | None = None,
-    audit_full_history: bool = False,
 ) -> LakeBuildReport:
-    """Build whole affected months and reuse all unaffected base-manifest objects.
+    """Derive every partition of one dataset from the sealed snapshot.
 
     The sealed snapshot is passed in rather than captured here: it belongs to the
     operation, and one export writes every dataset from one seal.
 
-    Parity is checked on the months this build wrote. A carried object is addressed by
-    the digest of its own bytes, so "unchanged" is an identity rather than a claim to
-    re-prove: different bytes would be a different key and the manifest reference would
-    stop resolving. Re-deriving every carried month from SQLite on every run re-proves
-    the previous build instead of this one, and makes a one month correction cost the
-    whole history. ``audit_full_history`` asks for that proof explicitly, for the
-    occasions where the question is whether the store as a whole still agrees with
-    SQLite rather than whether this build is correct.
+    Nothing is carried from an earlier build. An object is addressed by the digest of
+    its own bytes, so a partition whose rows did not move lands on the key it already
+    has and costs no new object; what a full derivation buys is that the manifest is
+    proved against SQLite in whole on every run, with no notion of a base whose
+    generation could disagree with this one.
     """
 
-    if (start is None) != (end is None):
-        raise LakeBuildError("start and end must be supplied together")
-    if start is not None and end is not None and start > end:
-        raise LakeBuildError("start must not be after end")
     dataset = require_lake_dataset(dataset_name)
     now = (created_at or datetime.now(UTC)).astimezone(UTC)
-    transform = _transform_fingerprint(dataset)
-    actual_build_id = build_id or (
-        f"{now:%Y%m%dT%H%M%SZ}-legacy-{uuid.uuid4().hex[:8]}-{transform[-12:]}"
-    )
+    actual_build_id = build_id or f"{now:%Y%m%dT%H%M%SZ}-legacy-{uuid.uuid4().hex[:8]}"
     validate_identifier(actual_build_id, label="build_id")
     staging_root = _workspace_path(mirror_root, "staging", actual_build_id)
     if staging_root.exists():
@@ -200,58 +180,25 @@ def export_legacy_sqlite(
     try:
         with _open_immutable(snapshot.path) as connection:
             _validate_sqlite_contract(connection, dataset)
-            base = _load_base_manifest(base_manifest_path, dataset, transform=transform)
-            # A base was offered and refused: it belongs to an earlier generation of the
-            # export, so this build derives everything rather than carrying it.
-            rebuilt_from_source = base_manifest_path is not None and base is None
-            partitions = _base_partitions(base)
-            periods = _build_periods(
-                connection,
-                dataset=dataset,
-                base=base,
-                start=start,
-                end=end,
-            )
-            if not periods and base is None:
-                raise LakeBuildError("selected window contains no rows")
-            built: list[_BuiltPartition] = []
-            changed: list[str] = []
-            reused: list[str] = []
-            for period in periods:
-                previous = partitions.pop(period, None)
-                rows = _period_rows(connection, dataset, period)
-                label = period_label(period)
-                if not rows:
-                    if previous is not None:
-                        changed.append(label)
-                    continue
-                item = _build_period(
-                    connection,
+            periods = _selected_periods(connection, dataset)
+            if not periods:
+                raise LakeBuildError("dataset holds no rows")
+            built = [
+                _build_period(
                     dataset=dataset,
                     period=period,
                     staging_root=staging_root,
-                    rows=rows,
+                    rows=_period_rows(connection, dataset, period),
                     sources=(snapshot.ref,),
                 )
-                built.append(item)
-                partitions[period] = item.manifest
-                if previous == item.manifest:
-                    reused.append(label)
-                else:
-                    changed.append(label)
-            if not partitions:
-                raise LakeBuildError("dataset manifest must contain at least one partition")
-            data_as_of = _data_as_of(connection, dataset, periods=partitions)
+                for period in periods
+            ]
+            data_as_of = _data_as_of(connection, dataset, periods=periods)
             coverage_status, coverage_start, population_count = _coverage_assessment(
                 connection, dataset
             )
 
-        # Every partition was checked against this sealed snapshot below. Refresh
-        # reused lineage too, so a release names one coherent source generation.
-        ordered = tuple(
-            partitions[key].model_copy(update={"sources": (snapshot.ref,)})
-            for key in sorted(partitions)
-        )
+        ordered = tuple(item.manifest for item in built)
         totals = ManifestTotals(
             objects=sum(len(item.objects) for item in ordered),
             bytes=sum(obj.bytes for item in ordered for obj in item.objects),
@@ -265,7 +212,6 @@ def export_legacy_sqlite(
             build_id=actual_build_id,
             sources=(),
             producer_git_commit=producer_git_commit,
-            transform_fingerprint=transform,
             created_at=now,
             coverage_start=coverage_start,
             data_as_of=data_as_of,
@@ -275,12 +221,11 @@ def export_legacy_sqlite(
             partitions=ordered,
             totals=totals,
         )
-        created_objects = _promote_partitions(mirror_root, built)
+        new_objects = _promote_partitions(mirror_root, built)
         validate_legacy_parity(
             sqlite_path=snapshot.path,
             mirror_root=mirror_root,
             manifest=manifest,
-            periods=(None if audit_full_history else tuple(item.period for item in built)),
         )
         manifest_path = _mirror_path(
             mirror_root,
@@ -294,10 +239,8 @@ def export_legacy_sqlite(
         return LakeBuildReport(
             manifest_path=manifest_path,
             manifest=manifest,
-            changed_partitions=tuple(changed),
-            reused_partitions=tuple(reused),
-            created_objects=created_objects,
-            rebuilt_from_source=rebuilt_from_source,
+            partitions=len(built),
+            new_objects=new_objects,
         )
     except Exception as exc:
         # The staging tree is left where it is. It is under no manifest, so the collector
@@ -314,15 +257,9 @@ def export_lake_legacy(
     mirror_root: Path,
     producer_git_commit: str,
     expected_store_origin: LakeStoreOrigin | None,
-    base_manifest_paths: Mapping[str, Path] | None = None,
     created_at: datetime | None = None,
-    audit_full_history: bool = False,
 ) -> LakeExportReport:
     """Export every lake dataset from one sealed SQLite generation."""
-    bases = dict(base_manifest_paths or {})
-    unknown = set(bases) - set(LAKE_DATASETS)
-    if unknown:
-        raise LakeBuildError(f"unsupported base manifest datasets: {sorted(unknown)}")
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
         with _open_immutable(snapshot.path) as probe:
             try:
@@ -348,10 +285,8 @@ def export_lake_legacy(
                 dataset_name=dataset_name,
                 mirror_root=mirror_root,
                 producer_git_commit=producer_git_commit,
-                base_manifest_path=bases.get(dataset_name),
                 source_snapshot=snapshot,
                 created_at=created_at,
-                audit_full_history=audit_full_history,
             )
             for dataset_name in populated
         }
@@ -375,29 +310,21 @@ def validate_legacy_parity(
     sqlite_path: Path,
     mirror_root: Path,
     manifest: DatasetManifest,
-    periods: Iterable[Period] | None = None,
 ) -> None:
     """Check that the manifest describes the same periods SQLite holds, and their rows.
 
-    The period inventory is always compared in full: a period present in one side and
-    absent from the other is a hole no per-partition check would look at, and answering
-    it costs one query.
-
-    ``periods`` restricts the row-level comparison to the partitions a caller actually
-    wrote. Passing ``None`` compares every partition, which is what a first export does
-    by construction and what an explicit audit asks for.
+    The period inventory is compared first: a period present in one side and absent
+    from the other is a hole no per-partition check would look at, and answering it
+    costs one query. Every partition's rows are then compared in full.
     """
     dataset = require_lake_dataset(manifest.dataset)
-    selected = None if periods is None else set(periods)
     with _open_immutable(sqlite_path) as connection:
         _validate_sqlite_contract(connection, dataset)
-        source_periods = set(_selected_periods(connection, dataset, start=None, end=None))
-        manifest_periods = set(_base_partitions(manifest))
-        if source_periods != manifest_periods:
+        source_periods = set(_selected_periods(connection, dataset))
+        partitions = _manifest_partitions(manifest)
+        if source_periods != set(partitions):
             raise LakeBuildError("SQLite and manifest partition inventories differ")
-        for period, partition in _base_partitions(manifest).items():
-            if selected is not None and period not in selected:
-                continue
+        for period, partition in partitions.items():
             rows = _period_rows(connection, dataset, period)
             if len(partition.objects) != 1:
                 raise LakeBuildError("a canonical partition must contain exactly one object")
@@ -408,15 +335,9 @@ def validate_legacy_parity(
                 expected_rows=rows,
                 expected_object=partition.objects[0],
             )
-            current_state = _source_state_sha256(connection, dataset, period, rows)
-            if current_state != partition.source_state_sha256:
-                raise LakeBuildError(
-                    f"SQLite source state differs from manifest: {period_label(period)}"
-                )
 
 
 def _build_period(
-    connection: sqlite3.Connection,
     *,
     dataset: LakeDataset,
     period: Period,
@@ -475,90 +396,8 @@ def _build_period(
             values=period_values(dataset, period),
             objects=(lake_object,),
             sources=sources,
-            source_state_sha256=_source_state_sha256(connection, dataset, period, rows),
         ),
     )
-
-
-def _build_periods(
-    connection: sqlite3.Connection,
-    *,
-    dataset: LakeDataset,
-    base: DatasetManifest | None,
-    start: date | None,
-    end: date | None,
-) -> tuple[Period, ...]:
-    if start is not None and end is not None:
-        selected = set(_selected_periods(connection, dataset, start=start, end=end))
-        if base is not None:
-            # A base partition that the window touches is rebuilt even when SQLite now
-            # holds no row in it, which is how a deletion reaches the manifest. The
-            # bounds are the window's own periods, so the comparison stays inside one
-            # grain rather than mixing a month against a year.
-            first = _period_of(dataset, start)
-            last = _period_of(dataset, end)
-            selected.update(period for period in _base_partitions(base) if first <= period <= last)
-        return tuple(sorted(selected))
-    if base is not None:
-        return affected_periods(connection, dataset, base)
-    return _selected_periods(connection, dataset, start=None, end=None)
-
-
-def affected_periods(
-    connection: sqlite3.Connection,
-    dataset: LakeDataset,
-    base: DatasetManifest,
-) -> tuple[Period, ...]:
-    """Return every partition whose rows or relevant coverage differ from ``base``.
-
-    Publication uses this to decide what to rebuild. Read-only provenance checks reuse
-    the same comparison so they cannot call a store rebuildable from a release under a
-    weaker definition of equality than the publisher itself.
-    """
-
-    current = set(_selected_periods(connection, dataset, start=None, end=None))
-    previous = _base_partitions(base)
-    affected: list[Period] = []
-    for period in sorted(current | set(previous)):
-        partition = previous.get(period)
-        rows = _period_rows(connection, dataset, period)
-        if partition is None or not rows:
-            affected.append(period)
-            continue
-        if partition.source_state_sha256 != _source_state_sha256(connection, dataset, period, rows):
-            affected.append(period)
-    return tuple(affected)
-
-
-def _source_state_sha256(
-    connection: sqlite3.Connection,
-    dataset: LakeDataset,
-    period: Period,
-    rows: Sequence[tuple[object, ...]],
-) -> str:
-    period_start, period_end = period_bounds(period)
-    coverage = [
-        tuple(row)
-        for row in connection.execute(
-            "SELECT MAX(coverage_start, ?), MIN(coverage_end, ?), status, error "
-            "FROM source_coverage WHERE source = ? "
-            "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
-            "AND coverage_start < ? AND coverage_end >= ? ORDER BY 1, 2, 3, 4",
-            (
-                period_start.isoformat(),
-                (period_end - date.resolution).isoformat(),
-                dataset.coverage_source_name,
-                period_end.isoformat(),
-                period_start.isoformat(),
-            ),
-        )
-    ]
-    payload = json.dumps(
-        {"coverage": coverage, "rows": rows},
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode()
-    return hashlib.sha256(payload).hexdigest()
 
 
 def _coverage_assessment(
@@ -639,24 +478,13 @@ def _validate_parquet(
         raise LakeBuildError(f"Parquet min/max primary key mismatch: {path}")
 
 
-def _selected_periods(
-    connection: sqlite3.Connection,
-    dataset: LakeDataset,
-    *,
-    start: date | None,
-    end: date | None,
-) -> tuple[Period, ...]:
-    where = ""
-    params: tuple[str, ...] = ()
-    if start is not None and end is not None:
-        where = f"WHERE {dataset.date_column} BETWEEN ? AND ?"  # nosec B608
-        params = (start.isoformat(), end.isoformat())
+def _selected_periods(connection: sqlite3.Connection, dataset: LakeDataset) -> tuple[Period, ...]:
     parts = _period_sql_parts(dataset)
     query = (
         f"SELECT DISTINCT {', '.join(parts)} FROM {dataset.sqlite_table} "  # nosec B608
-        f"{where} ORDER BY {', '.join(str(index) for index in range(1, len(parts) + 1))}"
+        f"ORDER BY {', '.join(str(index) for index in range(1, len(parts) + 1))}"
     )
-    return tuple(tuple(int(part) for part in row) for row in connection.execute(query, params))
+    return tuple(tuple(int(part) for part in row) for row in connection.execute(query))
 
 
 def _period_sql_parts(dataset: LakeDataset) -> tuple[str, ...]:
@@ -670,12 +498,6 @@ def _period_sql_parts(dataset: LakeDataset) -> tuple[str, ...]:
     if dataset.partition_grain == "year":
         return (year,)
     return (year, f"substr({dataset.date_column}, 6, 2)")
-
-
-def _period_of(dataset: LakeDataset, day: date) -> Period:
-    if dataset.partition_grain == "year":
-        return (day.year,)
-    return (day.year, day.month)
 
 
 def _period_rows(
@@ -713,49 +535,7 @@ def _validate_sqlite_contract(connection: sqlite3.Connection, dataset: LakeDatas
         raise LakeBuildError(f"legacy SQLite table contract mismatch: {dataset.sqlite_table}")
 
 
-def _load_base_manifest(
-    path: Path | None,
-    dataset: LakeDataset,
-    *,
-    transform: str,
-) -> DatasetManifest | None:
-    """The base to carry, or ``None`` when this build must derive every partition.
-
-    Two kinds of disagreement reach here and they are not the same question. Being handed
-    a manifest for another dataset, or for another layer, says the caller wired the wrong
-    file in: nothing downstream can make that right, so it raises.
-
-    A base built under an earlier contract version, partition grain or transform is not a
-    wiring error. It is the ordinary consequence of merging a change to the export, and
-    the answer is the one the operator used to type by hand — derive every partition from
-    the store instead of carrying the old ones. Refusing instead stopped the scheduled
-    batch every morning until someone published a rebuild, and it did so for changes that
-    provably wrote identical bytes: measured over the four firings before 2026-08-25,
-    three were byte-identical and the fourth still needed a rebuild rather than a stop.
-    Rebuilding costs the export of every partition — 448 against 12 on an ordinary day —
-    on the roughly one merge in eight that moves the export, against losing the day.
-    """
-
-    if path is None:
-        return None
-    try:
-        value = load_lake_model_json(path.read_bytes(), DatasetManifest)
-    except Exception as exc:
-        raise LakeBuildError(f"invalid base dataset manifest: {path}: {exc}") from exc
-    if value.dataset != dataset.name or value.layer != "l1_canonical":
-        raise LakeBuildError("base manifest does not match the requested dataset contract")
-    if (
-        value.contract_version != dataset.contract_version
-        or tuple(value.partition_by) != dataset.partition_by
-        or value.transform_fingerprint != transform
-    ):
-        return None
-    return value
-
-
-def _base_partitions(
-    manifest: DatasetManifest | None,
-) -> dict[Period, PartitionManifest]:
+def _manifest_partitions(manifest: DatasetManifest) -> dict[Period, PartitionManifest]:
     """Key each partition by the calendar period its own manifest layout names.
 
     The layout is read from the manifest rather than the dataset contract so that a
@@ -764,8 +544,6 @@ def _base_partitions(
     silently reinterpret its partitions first.
     """
 
-    if manifest is None:
-        return {}
     layout = tuple(manifest.partition_by)
     return {tuple(int(item.values[name]) for name in layout): item for item in manifest.partitions}
 
@@ -819,39 +597,6 @@ def _open_immutable(path: Path) -> sqlite3.Connection:
 def _pk_indexes(dataset: LakeDataset) -> tuple[int, ...]:
     names = tuple(column.name for column in dataset.columns)
     return tuple(names.index(name) for name in dataset.primary_key)
-
-
-def _transform_fingerprint(dataset: LakeDataset) -> str:
-    contract = {
-        "arrow_schema": str(dataset.arrow_schema),
-        "compression": _COMPRESSION,
-        "compression_level": _COMPRESSION_LEVEL,
-        "contract_version": dataset.contract_version,
-        "dataset": dataset.name,
-        "parquet_version": _PARQUET_VERSION,
-        "partition_by": dataset.partition_by,
-        "row_group_size": _ROW_GROUP_SIZE,
-        "source_kind": "legacy_sqlite_import",
-        # Only the release line: a patch release does not change the file format, and
-        # 25.0.0 to 25.0.1 was measured to write byte-identical Parquet while stopping the
-        # daily batch. A minor or major bump still forces the rebuild.
-        "writer": f"pyarrow-{release_line(pa.__version__)}",
-        # Coverage semantics decide which months a build touches, whether a release
-        # calls itself complete, and where its history starts. A change there moves the
-        # release's meaning without moving a single Parquet byte, so a build made under
-        # the old rules must not carry into one made under the new ones.
-        "implementation_sha256": {
-            "market/lake/datasets.py": semantic_source_digest(
-                Path(__file__).with_name("datasets.py")
-            ),
-            "market/lake/writer.py": semantic_source_digest(Path(__file__)),
-            "market/sqlite/coverage.py": semantic_source_digest(
-                Path(__file__).resolve().parents[1] / "sqlite" / "coverage.py"
-            ),
-        },
-    }
-    payload = json.dumps(contract, sort_keys=True, separators=(",", ":")).encode()
-    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
 
 
 def _sha256(path: Path) -> str:

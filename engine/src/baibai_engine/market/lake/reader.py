@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from types import MappingProxyType
 
@@ -95,8 +95,8 @@ class FixedRelease:
             ) from None
 
 
-def resolve_current_release(source: LakeObjectSource, *, evaluated_at: datetime) -> FixedRelease:
-    """Freeze current and require it to satisfy policy at the operational read time."""
+def resolve_current_release(source: LakeObjectSource) -> FixedRelease:
+    """Freeze current and require it to satisfy policy structurally."""
 
     pointer = _read_current_pointer(source)
     release = _load_release(
@@ -108,7 +108,6 @@ def resolve_current_release(source: LakeObjectSource, *, evaluated_at: datetime)
         validate_release_policy(
             release.manifest,
             release.dataset_manifests,
-            evaluated_at=evaluated_at,
         )
     except ValueError as exc:
         raise LakeReadError(f"L1 current release fails operational policy: {exc}") from None

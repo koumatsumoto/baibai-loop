@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import dataclasses
-import json
 import sqlite3
 import subprocess
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -35,26 +33,6 @@ from baibai_engine.market.sqlite import open_connection
 from baibai_engine.market.sqlite.lake_origin import LakeStoreOrigin, write_lake_store_origin
 
 _COMMIT = "a" * 40
-
-
-def _affected_periods(
-    *, dataset_name: str, sqlite_path: Path, base_manifest_path: Path
-) -> tuple[tuple[int, ...], ...]:
-    """Ask the publisher which partitions a base manifest no longer describes.
-
-    ``writer.affected_periods`` is the production comparison; reaching it needs the
-    same manifest load and immutable open that a rebuild does, which is all this
-    does.
-    """
-
-    dataset = require_lake_dataset(dataset_name)
-    base = writer_module._load_base_manifest(
-        base_manifest_path, dataset, transform=writer_module._transform_fingerprint(dataset)
-    )
-    assert base is not None
-    with writer_module._open_immutable(sqlite_path) as connection:
-        writer_module._validate_sqlite_contract(connection, dataset)
-        return writer_module.affected_periods(connection, dataset, base)
 
 
 def _export(*, sqlite_path: Path, mirror_root: Path, **kwargs: object) -> LakeBuildReport:
@@ -92,8 +70,9 @@ def test_legacy_export_is_byte_deterministic_and_reuses_unchanged_objects(tmp_pa
     assert [(item.key, item.sha256) for item in first_objects] == [
         (item.key, item.sha256) for item in second_objects
     ]
-    assert first.created_objects == 2
-    assert second.created_objects == 0
+    assert (first.partitions, first.new_objects) == (2, 2)
+    # Every partition was derived again; content addressing landed each on its key.
+    assert (second.partitions, second.new_objects) == (2, 0)
     validate_legacy_parity(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
@@ -101,7 +80,12 @@ def test_legacy_export_is_byte_deterministic_and_reuses_unchanged_objects(tmp_pa
     )
 
 
-def test_incremental_export_replaces_only_the_affected_month(tmp_path) -> None:
+def test_every_run_derives_every_partition_and_only_moved_bytes_make_new_objects(
+    tmp_path: Path,
+) -> None:
+    """There is no base to carry from: a correction to one month costs the export of
+    the whole history, and buys a manifest proved against SQLite in full each run."""
+
     sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     first = _export(
@@ -115,16 +99,20 @@ def test_incremental_export_replaces_only_the_affected_month(tmp_path) -> None:
         connection.execute(
             "UPDATE jquants_daily_bars SET close = 111.0 WHERE traded_at = '2026-02-02'"
         )
-    second = _export(
-        dataset_name="jquants.daily_bars",
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        producer_git_commit=_COMMIT,
-        start=date(2026, 2, 1),
-        end=date(2026, 2, 28),
-        base_manifest_path=first.manifest_path,
-        build_id="incremental-build",
-    )
+    read: list[str] = []
+    real = writer_module.pq.read_table
+    with mock.patch.object(
+        writer_module.pq,
+        "read_table",
+        side_effect=lambda path, *a, **k: (read.append(Path(path).name), real(path, *a, **k))[1],
+    ):
+        second = _export(
+            dataset_name="jquants.daily_bars",
+            sqlite_path=sqlite_path,
+            mirror_root=mirror,
+            producer_git_commit=_COMMIT,
+            build_id="corrected-build",
+        )
 
     before = {
         (int(item.values["year"]), int(item.values["month"])): item.objects[0].key
@@ -136,58 +124,17 @@ def test_incremental_export_replaces_only_the_affected_month(tmp_path) -> None:
     }
     assert before[(2026, 1)] == after[(2026, 1)]
     assert before[(2026, 2)] != after[(2026, 2)]
-    assert second.created_objects == 1
-    assert second.changed_partitions == ("2026-02",)
+    assert second.partitions == 2
+    assert second.new_objects == 1
+    assert all(item.source_state_sha256 is None for item in second.manifest.partitions)
+    assert second.manifest.transform_fingerprint is None
+    # Both months were written and read back for parity, not only the corrected one.
+    assert len(read) >= 2 * 2
     validate_legacy_parity(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         manifest=second.manifest,
     )
-
-
-def test_automatic_plan_detects_fact_and_coverage_changes(tmp_path) -> None:
-    sqlite_path = market_store(tmp_path / "market.sqlite")
-    mirror = tmp_path / "mirror"
-    first = _export(
-        dataset_name="jquants.daily_bars",
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        producer_git_commit=_COMMIT,
-        build_id="plan-base",
-    )
-    assert (
-        _affected_periods(
-            dataset_name="jquants.daily_bars",
-            sqlite_path=sqlite_path,
-            base_manifest_path=first.manifest_path,
-        )
-        == ()
-    )
-
-    with sqlite3.connect(sqlite_path) as connection:
-        connection.execute(
-            "UPDATE jquants_daily_bars SET close = 111.0 WHERE traded_at = '2026-02-02'"
-        )
-        connection.execute(
-            """INSERT INTO source_coverage(
-                 source, coverage_key, coverage_start, coverage_end,
-                 fetched_at_utc, record_count, status, error
-               ) VALUES (?, ?, ?, ?, ?, ?, 'ok', NULL)""",
-            (
-                "jquants_daily_bars",
-                "test:2026-01-01..2026-01-31",
-                "2026-01-01",
-                "2026-01-31",
-                "2026-03-01T00:00:00+00:00",
-                2,
-            ),
-        )
-
-    assert _affected_periods(
-        dataset_name="jquants.daily_bars",
-        sqlite_path=sqlite_path,
-        base_manifest_path=first.manifest_path,
-    ) == ((2026, 1), (2026, 2))
 
 
 def test_case_sensitive_like_keeps_partition_rows_order_and_identity(tmp_path: Path) -> None:
@@ -203,65 +150,9 @@ def test_case_sensitive_like_keeps_partition_rows_order_and_identity(tmp_path: P
             legacy_rows = writer_module._period_rows(legacy, dataset, period)
             indexed_rows = writer_module._period_rows(indexed, dataset, period)
             assert indexed_rows == legacy_rows
-            assert writer_module._source_state_sha256(
-                indexed, dataset, period, indexed_rows
-            ) == writer_module._source_state_sha256(legacy, dataset, period, legacy_rows)
 
 
-def test_logical_coverage_change_affects_earnings_partition_but_fetch_time_does_not(
-    tmp_path: Path,
-) -> None:
-    sqlite_path = tmp_path / "market.sqlite"
-    connection = open_connection(sqlite_path)
-    connection.execute(
-        "INSERT INTO jquants_earnings_calendar(announcement_date, ticker) "
-        "VALUES ('2026-02-10', '1301')"
-    )
-    connection.execute(
-        "INSERT INTO source_coverage("
-        "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, "
-        "record_count, status, error"
-        ") VALUES ('jpx_earnings_calendar', 'snapshot', '2026-02-01', '2026-02-28', "
-        "'2026-02-01T00:00:00+00:00', 1, 'ok', NULL)"
-    )
-    connection.commit()
-    connection.close()
-    mirror = tmp_path / "mirror"
-    first = _export(
-        dataset_name="jquants.earnings_calendar",
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        producer_git_commit=_COMMIT,
-        build_id="earnings-before-coverage-change",
-    )
-
-    with sqlite3.connect(sqlite_path) as connection:
-        connection.execute(
-            "UPDATE source_coverage SET fetched_at_utc = '2026-02-02T00:00:00+00:00' "
-            "WHERE source = 'jpx_earnings_calendar'"
-        )
-    assert (
-        _affected_periods(
-            dataset_name="jquants.earnings_calendar",
-            sqlite_path=sqlite_path,
-            base_manifest_path=first.manifest_path,
-        )
-        == ()
-    )
-
-    with sqlite3.connect(sqlite_path) as connection:
-        connection.execute(
-            "UPDATE source_coverage SET status = 'failed', error = 'provider refused' "
-            "WHERE source = 'jpx_earnings_calendar'"
-        )
-    assert _affected_periods(
-        dataset_name="jquants.earnings_calendar",
-        sqlite_path=sqlite_path,
-        base_manifest_path=first.manifest_path,
-    ) == ((2026,),)
-
-
-def test_indexed_like_keeps_partition_source_hash_and_object_key(
+def test_indexed_like_keeps_partition_object_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sqlite_path = market_store(tmp_path / "market.sqlite")
@@ -290,12 +181,8 @@ def test_indexed_like_keeps_partition_source_hash_and_object_key(
         build_id="indexed-like",
     )
 
-    assert [
-        (item.values, item.source_state_sha256, item.objects[0].key)
-        for item in indexed.manifest.partitions
-    ] == [
-        (item.values, item.source_state_sha256, item.objects[0].key)
-        for item in legacy.manifest.partitions
+    assert [(item.values, item.objects[0].key) for item in indexed.manifest.partitions] == [
+        (item.values, item.objects[0].key) for item in legacy.manifest.partitions
     ]
 
 
@@ -313,103 +200,6 @@ def test_blob_date_still_fails_closed_with_indexed_like(tmp_path: Path) -> None:
             sqlite_path=sqlite_path,
             mirror_root=tmp_path / "mirror",
             producer_git_commit=_COMMIT,
-        )
-
-
-def test_a_base_from_an_earlier_transform_is_rebuilt_rather_than_refused(tmp_path) -> None:
-    """Refusing stopped the scheduled batch every morning until someone rebuilt by hand."""
-
-    sqlite_path = market_store(tmp_path / "market.sqlite")
-    mirror = tmp_path / "mirror"
-    first = _export(
-        dataset_name="jquants.daily_bars",
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        producer_git_commit=_COMMIT,
-        build_id="transform-base",
-    )
-    payload = json.loads(first.manifest_path.read_text())
-    payload["transform_fingerprint"] = f"sha256:{'f' * 64}"
-    changed = tmp_path / "earlier-transform.json"
-    changed.write_text(json.dumps(payload))
-
-    second = _export(
-        dataset_name="jquants.daily_bars",
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        producer_git_commit=_COMMIT,
-        base_manifest_path=changed,
-        build_id="transform-next",
-    )
-
-    assert second.rebuilt_from_source is True
-    # Nothing was carried, so every partition was derived again and the release still
-    # describes the same history.
-    assert second.reused_partitions == ()
-    assert set(second.changed_partitions) == set(first.changed_partitions)
-    assert second.manifest.totals.rows == first.manifest.totals.rows
-
-
-def test_a_base_from_an_earlier_contract_version_is_rebuilt_rather_than_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A version bump reaches the same place, so it must get the same answer.
-
-    The base is written under the version the code carried at the time — object keys
-    included — so it is a valid manifest, just an older one. Editing the field in place
-    instead would break the keys it names and test the parser rather than this decision.
-    """
-
-    sqlite_path = market_store(tmp_path / "market.sqlite")
-    mirror = tmp_path / "mirror"
-    first = _export(
-        dataset_name="jquants.daily_bars",
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        producer_git_commit=_COMMIT,
-        build_id="version-base",
-    )
-    dataset = require_lake_dataset("jquants.daily_bars")
-    monkeypatch.setitem(
-        writer_module.LAKE_DATASETS,
-        "jquants.daily_bars",
-        dataclasses.replace(dataset, contract_version=dataset.contract_version + 1),
-    )
-
-    second = _export(
-        dataset_name="jquants.daily_bars",
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        producer_git_commit=_COMMIT,
-        base_manifest_path=first.manifest_path,
-        build_id="version-next",
-    )
-
-    assert second.rebuilt_from_source is True
-    assert second.manifest.contract_version == dataset.contract_version + 1
-
-
-def test_a_base_for_another_dataset_is_still_refused(tmp_path) -> None:
-    """Being handed the wrong file is a wiring error; no rebuild makes it the right one."""
-
-    sqlite_path = market_store(tmp_path / "market.sqlite")
-    mirror = tmp_path / "mirror"
-    foreign = _export(
-        dataset_name="jquants.short_sale_reports",
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        producer_git_commit=_COMMIT,
-        build_id="foreign-base",
-    )
-
-    with pytest.raises(LakeBuildError, match="does not match the requested dataset contract"):
-        _export(
-            dataset_name="jquants.daily_bars",
-            sqlite_path=sqlite_path,
-            mirror_root=mirror,
-            producer_git_commit=_COMMIT,
-            base_manifest_path=foreign.manifest_path,
-            build_id="foreign-next",
         )
 
 
@@ -644,57 +434,6 @@ def test_parity_rejects_a_missing_source_month(tmp_path: Path) -> None:
             )
 
 
-def test_a_daily_build_checks_the_months_it_wrote_and_the_month_inventory(
-    tmp_path: Path,
-) -> None:
-    """What a build has to prove is that it is correct, not that the store still is.
-
-    A carried object is addressed by the digest of its own bytes, so re-deriving it from
-    SQLite on every run re-proves the previous build and makes a one month correction
-    cost the whole history. The month inventory is still compared in full, because a
-    month missing from one side is a hole no per-partition check would look at.
-    """
-
-    sqlite_path = market_store(tmp_path / "market.sqlite")
-    mirror = tmp_path / "mirror"
-    with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror) as snapshot:
-        first = export_legacy_sqlite(
-            dataset_name="jquants.daily_bars",
-            mirror_root=mirror,
-            producer_git_commit=_COMMIT,
-            source_snapshot=snapshot,
-            build_id="seed-build",
-        )
-
-    read: list[str] = []
-    real = writer_module.pq.read_table
-    with (
-        sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror) as snapshot,
-        mock.patch.object(
-            writer_module.pq,
-            "read_table",
-            side_effect=lambda path, *a, **k: (read.append(Path(path).name), real(path, *a, **k))[
-                1
-            ],
-        ),
-    ):
-        second = export_legacy_sqlite(
-            dataset_name="jquants.daily_bars",
-            mirror_root=mirror,
-            producer_git_commit=_COMMIT,
-            source_snapshot=snapshot,
-            base_manifest_path=first.manifest_path,
-            build_id="carry-build",
-        )
-
-    assert second.changed_partitions == ()
-    # The manifest still describes the whole history; the partitions were carried.
-    assert second.manifest.totals == first.manifest.totals
-    assert len(second.manifest.partitions) == len(first.manifest.partitions)
-    # Nothing was rebuilt, so no Parquet object had to be read back.
-    assert read == []
-
-
 def test_invalid_build_id_has_no_filesystem_side_effect(tmp_path: Path) -> None:
     sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
@@ -710,43 +449,6 @@ def test_invalid_build_id_has_no_filesystem_side_effect(tmp_path: Path) -> None:
 
     assert not [path for path in mirror.rglob("*") if path.is_file()]
     assert not (tmp_path / "escape").exists()
-
-
-def test_a_moved_source_digest_rebuilds_onto_the_same_objects(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    sqlite_path = market_store(tmp_path / "market.sqlite")
-    mirror = tmp_path / "mirror"
-    base = _export(
-        dataset_name="jquants.daily_bars",
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        producer_git_commit=_COMMIT,
-        build_id="code-base",
-    )
-    original = writer_module.semantic_source_digest
-
-    def changed_digest(path: Path) -> str:
-        if path.name == "writer.py":
-            return "f" * 64
-        return original(path)
-
-    monkeypatch.setattr(writer_module, "semantic_source_digest", changed_digest)
-    rebuilt = _export(
-        dataset_name="jquants.daily_bars",
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        producer_git_commit=_COMMIT,
-        base_manifest_path=base.manifest_path,
-        build_id="code-next",
-    )
-
-    assert rebuilt.rebuilt_from_source is True
-    # The digest moved but the code that writes the bytes did not, which is what three of
-    # the four firings before 2026-08-25 were. Re-deriving lands on the same objects, so
-    # the rebuild costs the export and nothing else — content addressing takes the rest.
-    assert rebuilt.created_objects == 0
-    assert rebuilt.manifest.totals == base.manifest.totals
 
 
 def test_immutable_metadata_link_failure_leaves_final_absent(
@@ -856,7 +558,7 @@ def test_l1_manifest_digest_is_part_of_the_gc_root(
     assert pointer.manifest_key not in plan.reachable
 
 
-def test_l1_export_benchmark_records_full_and_incremental_transfer(tmp_path: Path) -> None:
+def test_l1_export_benchmark_records_full_export_and_correction_transfer(tmp_path: Path) -> None:
     sqlite_path = market_store(tmp_path / "market.sqlite")
     connection = open_connection(sqlite_path)
     write_lake_store_origin(
@@ -878,32 +580,8 @@ def test_l1_export_benchmark_records_full_and_incremental_transfer(tmp_path: Pat
 
     assert report["status"] == "passed"
     assert report["full"]["datasets"]["jquants.daily_bars"]["rows"] == 4  # type: ignore[index]
-    assert report["incremental_correction"]["new_object_count"] == 1  # type: ignore[index]
+    assert report["correction"]["new_object_count"] == 1  # type: ignore[index]
     assert report_path.is_file()
-
-
-class TestTransformIdentity:
-    """What an L1 build has to be identified by before a release may carry it."""
-
-    def test_coverage_semantics_are_part_of_the_transform_identity(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Coverage decides which months a build touches and whether it calls itself
-        complete, so a build made under other coverage rules is not the same transform
-        even when every Parquet byte matches."""
-
-        dataset = require_lake_dataset("jquants.daily_bars")
-        baseline = writer_module._transform_fingerprint(dataset)
-        target = Path(writer_module.__file__).resolve().parents[1] / "sqlite" / "coverage.py"
-        assert target.is_file()
-        real = writer_module.semantic_source_digest
-        monkeypatch.setattr(
-            writer_module,
-            "semantic_source_digest",
-            lambda path: "0" * 64 if path == target else real(path),
-        )
-
-        assert writer_module._transform_fingerprint(dataset) != baseline
 
 
 def test_the_sealed_store_is_gone_when_the_export_operation_ends(tmp_path: Path) -> None:

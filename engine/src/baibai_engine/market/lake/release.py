@@ -96,7 +96,6 @@ def create_l1_release(
     validate_release_policy(
         release,
         {item.dataset: item for item in manifests},
-        evaluated_at=now,
         published_coverage_start=published_coverage_start,
     )
     path = (root / release_manifest_key(release_id=actual_release_id)).resolve()
