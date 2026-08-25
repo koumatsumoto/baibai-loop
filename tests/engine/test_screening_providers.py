@@ -2484,36 +2484,39 @@ class ScreeningProviderTests(unittest.TestCase):
                 "text/html; charset=jpx-unknown",
             )
 
-    def test_jpx_reorganization_invalid_code_raises(self) -> None:
-        broken_html = (
-            self._read_jpx_fixture("reorganization.html")
-            .decode("utf-8")
-            .replace("4917", "49171", 1)
-            .encode("utf-8")
+    def test_jpx_refuses_an_invalid_code_in_every_regulation_page(self) -> None:
+        # Each page has its own table layout, so a code the parser cannot normalise has
+        # to stop each of them rather than reach the store as a ticker nobody trades.
+        cases: tuple[tuple[str, str, str, str, str], ...] = (
+            (
+                "整理銘柄",
+                "reorganization.html",
+                "4917",
+                "49171",
+                "https://www.jpx.co.jp/listing/market-alerts/supervision/",
+            ),
+            (
+                "上場廃止警告",
+                "delisting_warning.html",
+                "7709",
+                "77091",
+                "https://www.jpx.co.jp/listing/stocks/delisted/",
+            ),
         )
-        with tempfile.TemporaryDirectory() as tmp:
-            provider = JPXProvider(
-                Path(tmp),
-                regulation_urls={
-                    "整理銘柄": "https://www.jpx.co.jp/listing/market-alerts/supervision/"
-                },
-                session=_FixedHtmlSession(broken_html),
-            )
-            with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
-                provider.get_regulation_snapshot(date(2026, 4, 24))
 
-    def test_jpx_delisting_warning_invalid_code_raises(self) -> None:
-        broken_html = (
-            self._read_jpx_fixture("delisting_warning.html")
-            .decode("utf-8")
-            .replace("7709", "77091", 1)
-            .encode("utf-8")
-        )
-        with tempfile.TemporaryDirectory() as tmp:
-            provider = JPXProvider(
-                Path(tmp),
-                regulation_urls={"上場廃止警告": "https://www.jpx.co.jp/listing/stocks/delisted/"},
-                session=_FixedHtmlSession(broken_html),
-            )
-            with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
-                provider.get_regulation_snapshot(date(2026, 4, 24))
+        for source_name, fixture, code, broken_code, url in cases:
+            with self.subTest(case=source_name):
+                broken_html = (
+                    self._read_jpx_fixture(fixture)
+                    .decode("utf-8")
+                    .replace(code, broken_code, 1)
+                    .encode("utf-8")
+                )
+                with tempfile.TemporaryDirectory() as tmp:
+                    provider = JPXProvider(
+                        Path(tmp),
+                        regulation_urls={source_name: url},
+                        session=_FixedHtmlSession(broken_html),
+                    )
+                    with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
+                        provider.get_regulation_snapshot(date(2026, 4, 24))

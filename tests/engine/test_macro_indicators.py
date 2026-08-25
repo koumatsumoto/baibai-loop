@@ -2196,30 +2196,245 @@ class IndicatorsProviderParserTests(unittest.TestCase):
                 ),
             )
 
-    def test_extract_pmi_value_reads_headline_for_month(self) -> None:
-        text = (
-            "the headline S&P Global Japan Manufacturing PMI picked up to 54.8 in June "
-            "from 54.5 in May and signalled an improvement in operating conditions."
-        )
+    # One release phrasing per row: the case name, the release text, the month the
+    # reading is wanted for, the month the release was published, and the value that
+    # must come back — None where the text states no reading for that month. The rows
+    # are the whole point: each is a phrasing a real S&P Global release used, and the
+    # extractor has to keep answering all of them.
+    _READING_CASES: tuple[tuple[str, str, date, date, float | None], ...] = (
+        (
+            "reads_headline_for_month",
+            "the headline S&P Global Japan Manufacturing PMI picked up to 54.8 in June from 54.5 in May and signalled an improvement in operating conditions.",
+            date(2026, 6, 1),
+            date(2026, 6, 1),
+            54.8,
+        ),
+        (
+            "returns_none_when_month_absent",
+            "the headline PMI picked up to 54.8 in June from 54.5 in May.",
+            date(2026, 3, 1),
+            date(2026, 6, 1),
+            None,
+        ),
+        (
+            # Services releases phrase the value as "the headline index posted X in
+            # Month" — the value sentence names no "PMI", and a definitional
+            # "the headline figure is ..." sentence comes first.
+            "reads_services_headline_without_pmi_token",
+            "The headline figure is the Services Business Activity Index, which tracks changes in the volume of business activity. A reading above 50.0 indicates growth. The headline index posted 53.2 in November, up fractionally from 53.1 in October and signalled a further solid expansion.",
+            date(2025, 11, 1),
+            date(2025, 11, 1),
+            53.2,
+        ),
+        (
+            # Older releases drop "the headline" and lead with the index name.
+            "reads_index_anchored_statement_without_headline",
+            "The seasonally adjusted S&P Global US Services PMI® Business Activity Index posted 52.9 in January, down markedly from 56.8 in December.",
+            date(2025, 1, 1),
+            date(2025, 1, 1),
+            52.9,
+        ),
+        (
+            # "posted at the neutral level of 50.0 in October" — a qualifier sits
+            # between the reporting verb and the number.
+            "reads_value_with_qualifier_between_verb_and_number",
+            "The seasonally adjusted S&P Global US Manufacturing Purchasing Managers' Index™ (PMI) posted at the neutral level of 50.0 in October, in line with the earlier flash estimate.",
+            date(2023, 10, 1),
+            date(2023, 10, 1),
+            50.0,
+        ),
+        (
+            # A release states the month before it as well as its own, which is how a
+            # month whose own release is unavailable is read.
+            "reads_the_previous_month_named_in_a_restating_release",
+            "The headline index posted 53.2 in November, up fractionally from 53.1 in October and signalled a further solid expansion.",
+            date(2025, 10, 1),
+            date(2025, 11, 1),
+            53.1,
+        ),
+        (
+            # The comparison names no month, so it can only be read for the month before
+            # the one the release reports.
+            "reads_the_previous_month_from_a_bare_comparison",
+            "The seasonally adjusted S&P Global US Manufacturing Purchasing Managers’ Index™ (PMI®) remained above the crucial 50.0 no-change mark in March. Recording 50.2, down from 52.7, the PMI signaled a marginal improvement.",
+            date(2025, 2, 1),
+            date(2025, 3, 1),
+            52.7,
+        ),
+        (
+            # The statement introduces its reading without naming a month, so it belongs
+            # to the release's own month and must not answer for the month before it.
+            "does_not_attribute_a_release_reading_to_the_previous_month",
+            "The headline index posted 53.2 in November, ending a soft patch.",
+            date(2025, 10, 1),
+            date(2025, 11, 1),
+            None,
+        ),
+        (
+            # pypdf renders "47.9" as "47 .9" in some releases.
+            "reads_a_value_the_pdf_text_split_at_the_decimal",
+            "The PMI fell to 47 .9 in August, from 49.0 in July, indicating a downturn.",
+            date(2023, 8, 1),
+            date(2023, 8, 1),
+            47.9,
+        ),
+        (
+            # "in <month> to <value>" — the month leads the value in the same clause.
+            "reads_a_month_stated_before_its_value",
+            "The seasonally adjusted S&P Global US Services PMI ® Business Activity Index fell for the third month running in April to 51.3 from 51.7 in March.",
+            date(2024, 4, 1),
+            date(2024, 4, 1),
+            51.3,
+        ),
+        (
+            # "during <month>", and the flash estimate in the same sentence is provisional.
+            "reads_a_value_stated_during_the_month",
+            "The S&P Global US Services PMI® Business Activity Index recorded 53.7 during May, which was stronger than the earlier 'flash' reading of 52.3.",
+            date(2025, 5, 1),
+            date(2025, 5, 1),
+            53.7,
+        ),
+        (
+            # The statement sentence gives only the no-change threshold; the reading
+            # follows in the next sentence.
+            "reads_the_level_stated_after_the_threshold_sentence",
+            "The headline au Jibun Bank Japan Services Business Activity Index remained above the 50.0 no-change mark for the fourteenth successive month in October, signalling a further expansion. That said, at 51.6 the index was down from 53.8 in September and pointed to a modest rise in output.",
+            date(2023, 10, 1),
+            date(2023, 10, 1),
+            51.6,
+        ),
+        (
+            # "slipped from <previous> in <previous month> to <reading>".
+            "reads_a_movement_destination_stated_after_a_comparison",
+            "However, the headline index slipped from 53.2 in November to 51.6, to signal a modest rate of growth that was the slowest seen since May.",
+            date(2025, 12, 1),
+            date(2025, 12, 1),
+            51.6,
+        ),
+        (
+            # "reaching a 33-month high of <reading> following a reading of <previous>".
+            "reads_a_reading_named_as_a_record_level",
+            "The seasonally adjusted S&P Global US Services PMI® Business Activity Index rose for the second month running in December, reaching a 33-month high of 56.8 following a reading of 56.1 in November.",
+            date(2024, 12, 1),
+            date(2024, 12, 1),
+            56.8,
+        ),
+        (
+            # A reading of exactly 50.0 is stated as equal to the threshold.
+            "reads_a_reading_equal_to_the_no_change_mark",
+            "The seasonally adjusted S&P Global US Manufacturing Purchasing Managers’ Index™ (PMI ®) posted in line with the 50.0 no-change mark in April to point to stable business conditions.",
+            date(2024, 4, 1),
+            date(2024, 4, 1),
+            50.0,
+        ),
+        (
+            # "broadly in line with" states an approximation, not the reading.
+            "ignores_a_hedged_comparison_with_the_no_change_mark",
+            "The seasonally adjusted S&P Global US Manufacturing Purchasing Managers’ Index™ (PMI ®) was broadly in line with the 50.0 no-change mark in April.",
+            date(2024, 4, 1),
+            date(2024, 4, 1),
+            None,
+        ),
+        (
+            # "below the 50.0 no-change mark in November" is the threshold; the reading is
+            # the level stated beside it.
+            "ignores_a_threshold_the_reading_is_measured_against",
+            "The seasonally adjusted S&P Global US Manufacturing Purchasing Managers’ Index™ (PMI®) remained below the 50.0 no-change mark in November, but at 49.7 pointed to only a marginal worsening in the health of the sector.",
+            date(2024, 11, 1),
+            date(2024, 11, 1),
+            49.7,
+        ),
+        (
+            # A span average is not any single month's reading.
+            "ignores_an_average_over_several_months",
+            "The Business Activity Index has trended at 53.7 from January to November, comfortably above the next-highest annual average of 52.4 set in 2013.",
+            date(2023, 11, 1),
+            date(2023, 11, 1),
+            None,
+        ),
+        (
+            # The composite index is published in the same release and its statement reads
+            # like the headline one.
+            "ignores_the_composite_index_statement",
+            "S&P Global US Services PMI® At 50.7 in November, the final S&P Global US Composite PMI Output Index* was unchanged from October. The headline S&P Global US Services PMI® Business Activity Index recorded 54.1 in November.",
+            date(2025, 11, 1),
+            date(2025, 11, 1),
+            54.1,
+        ),
+        (
+            # A sub-index moves on its own and must never answer for the headline.
+            "ignores_a_sub_index_statement",
+            "The headline index posted 49.7 in November, a marginal worsening. The New Orders Index rose to 48.2 in November.",
+            date(2024, 11, 1),
+            date(2024, 11, 1),
+            49.7,
+        ),
+        (
+            # Only a sentence that refers back to the index carries the statement on, so a
+            # sentence about another subject cannot supply the headline reading.
+            "ignores_a_sentence_that_moves_on_from_the_statement",
+            "The headline index remained subdued in June. Employment growth eased to 51.2 in June.",
+            date(2026, 6, 1),
+            date(2026, 6, 1),
+            None,
+        ),
+        (
+            # "compared to <previous>" borrows the preposition a movement uses, without
+            # stating the release's own reading.
+            "ignores_a_comparison_sharing_the_movement_preposition",
+            "The headline index improved in October, compared to 52.0 in September.",
+            date(2025, 10, 1),
+            date(2025, 10, 1),
+            None,
+        ),
+        (
+            # A chart caption pairs the month with a year, which is not a reading.
+            "ignores_a_year_beside_the_month",
+            "Comment January 2026 Index, sa, >50 = growth m/m. The headline index eased.",
+            date(2026, 1, 1),
+            date(2026, 1, 1),
+            None,
+        ),
+    )
 
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2026, 6, 1),
-            release_observed_at=date(2026, 6, 1),
-        )
+    # Text the extractor must refuse rather than answer, with the reason it gives.
+    _REFUSAL_CASES: tuple[tuple[str, str, date, date, str], ...] = (
+        (
+            "rejects_implausible_reading",
+            "the headline PMI surged to 101.0 in June, an unprecedented reading.",
+            date(2026, 6, 1),
+            date(2026, 6, 1),
+            "outside plausible range",
+        ),
+        (
+            "rejects_conflicting_values",
+            "the headline PMI reading was 54.8 in June. Separately, the headline PMI figure was 55.9 in June per a revised estimate.",
+            date(2026, 6, 1),
+            date(2026, 6, 1),
+            "conflicting",
+        ),
+    )
 
-        self.assertEqual(value, 54.8)
+    def test_extract_pmi_value_reads_the_phrasings_releases_actually_use(self) -> None:
+        for name, text, expected_at, release_at, expected in self._READING_CASES:
+            with self.subTest(case=name):
+                self.assertEqual(
+                    extract_pmi_value(
+                        text,
+                        expected_observed_at=expected_at,
+                        release_observed_at=release_at,
+                    ),
+                    expected,
+                )
 
-    def test_extract_pmi_value_returns_none_when_month_absent(self) -> None:
-        text = "the headline PMI picked up to 54.8 in June from 54.5 in May."
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2026, 3, 1),
-            release_observed_at=date(2026, 6, 1),
-        )
-
-        self.assertIsNone(value)
+    def test_extract_pmi_value_refuses_text_it_cannot_read_one_reading_from(self) -> None:
+        for name, text, expected_at, release_at, reason in self._REFUSAL_CASES:
+            with self.subTest(case=name), self.assertRaisesRegex(PmiExtractionError, reason):
+                extract_pmi_value(
+                    text,
+                    expected_observed_at=expected_at,
+                    release_observed_at=release_at,
+                )
 
     def test_extract_pmi_value_accepts_full_diffusion_index_domain(self) -> None:
         for expected in (0.0, 9.9, 21.5, 70.4, 100.0):
@@ -2231,358 +2446,6 @@ class IndicatorsProviderParserTests(unittest.TestCase):
                 )
 
                 self.assertEqual(value, expected)
-
-    def test_extract_pmi_value_rejects_implausible_reading(self) -> None:
-        text = "the headline PMI surged to 101.0 in June, an unprecedented reading."
-
-        with self.assertRaisesRegex(PmiExtractionError, "outside plausible range"):
-            extract_pmi_value(
-                text,
-                expected_observed_at=date(2026, 6, 1),
-                release_observed_at=date(2026, 6, 1),
-            )
-
-    def test_extract_pmi_value_rejects_conflicting_values(self) -> None:
-        text = (
-            "the headline PMI reading was 54.8 in June. Separately, the headline PMI "
-            "figure was 55.9 in June per a revised estimate."
-        )
-
-        with self.assertRaisesRegex(PmiExtractionError, "conflicting"):
-            extract_pmi_value(
-                text,
-                expected_observed_at=date(2026, 6, 1),
-                release_observed_at=date(2026, 6, 1),
-            )
-
-    def test_extract_pmi_value_reads_services_headline_without_pmi_token(self) -> None:
-        # Services releases phrase the value as "the headline index posted X in
-        # Month" — the value sentence names no "PMI", and a definitional
-        # "the headline figure is ..." sentence comes first.
-        text = (
-            "The headline figure is the Services Business Activity Index, which tracks "
-            "changes in the volume of business activity. A reading above 50.0 indicates "
-            "growth. The headline index posted 53.2 in November, up fractionally from "
-            "53.1 in October and signalled a further solid expansion."
-        )
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2025, 11, 1),
-            release_observed_at=date(2025, 11, 1),
-        )
-
-        self.assertEqual(value, 53.2)
-
-    def test_extract_pmi_value_reads_index_anchored_statement_without_headline(self) -> None:
-        # Older releases drop "the headline" and lead with the index name.
-        text = (
-            "The seasonally adjusted S&P Global US Services PMI® Business Activity Index "
-            "posted 52.9 in January, down markedly from 56.8 in December."
-        )
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2025, 1, 1),
-            release_observed_at=date(2025, 1, 1),
-        )
-
-        self.assertEqual(value, 52.9)
-
-    def test_extract_pmi_value_reads_value_with_qualifier_between_verb_and_number(self) -> None:
-        # "posted at the neutral level of 50.0 in October" — a qualifier sits
-        # between the reporting verb and the number.
-        text = (
-            "The seasonally adjusted S&P Global US Manufacturing Purchasing Managers' "
-            "Index™ (PMI) posted at the neutral level of 50.0 in October, in line with "
-            "the earlier flash estimate."
-        )
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2023, 10, 1),
-            release_observed_at=date(2023, 10, 1),
-        )
-
-        self.assertEqual(value, 50.0)
-
-    def test_extract_pmi_value_reads_the_previous_month_named_in_a_restating_release(self) -> None:
-        # A release states the month before it as well as its own, which is how a
-        # month whose own release is unavailable is read.
-        text = (
-            "The headline index posted 53.2 in November, up fractionally from 53.1 "
-            "in October and signalled a further solid expansion."
-        )
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2025, 10, 1),
-            release_observed_at=date(2025, 11, 1),
-        )
-
-        self.assertEqual(value, 53.1)
-
-    def test_extract_pmi_value_reads_the_previous_month_from_a_bare_comparison(self) -> None:
-        # The comparison names no month, so it can only be read for the month before
-        # the one the release reports.
-        text = (
-            "The seasonally adjusted S&P Global US Manufacturing Purchasing Managers’ "
-            "Index™ (PMI®) remained above the crucial 50.0 no-change mark in March. "
-            "Recording 50.2, down from 52.7, the PMI signaled a marginal improvement."
-        )
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2025, 2, 1),
-            release_observed_at=date(2025, 3, 1),
-        )
-
-        self.assertEqual(value, 52.7)
-
-    def test_extract_pmi_value_does_not_attribute_a_release_reading_to_the_previous_month(
-        self,
-    ) -> None:
-        # The statement introduces its reading without naming a month, so it belongs
-        # to the release's own month and must not answer for the month before it.
-        text = "The headline index posted 53.2 in November, ending a soft patch."
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2025, 10, 1),
-            release_observed_at=date(2025, 11, 1),
-        )
-
-        self.assertIsNone(value)
-
-    def test_extract_pmi_value_reads_a_value_the_pdf_text_split_at_the_decimal(self) -> None:
-        # pypdf renders "47.9" as "47 .9" in some releases.
-        text = "The PMI fell to 47 .9 in August, from 49.0 in July, indicating a downturn."
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2023, 8, 1),
-            release_observed_at=date(2023, 8, 1),
-        )
-
-        self.assertEqual(value, 47.9)
-
-    def test_extract_pmi_value_reads_a_month_stated_before_its_value(self) -> None:
-        # "in <month> to <value>" — the month leads the value in the same clause.
-        text = (
-            "The seasonally adjusted S&P Global US Services PMI ® Business Activity "
-            "Index fell for the third month running in April to 51.3 from 51.7 in March."
-        )
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2024, 4, 1),
-            release_observed_at=date(2024, 4, 1),
-        )
-
-        self.assertEqual(value, 51.3)
-
-    def test_extract_pmi_value_reads_a_value_stated_during_the_month(self) -> None:
-        # "during <month>", and the flash estimate in the same sentence is provisional.
-        text = (
-            "The S&P Global US Services PMI® Business Activity Index recorded 53.7 "
-            "during May, which was stronger than the earlier 'flash' reading of 52.3."
-        )
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2025, 5, 1),
-            release_observed_at=date(2025, 5, 1),
-        )
-
-        self.assertEqual(value, 53.7)
-
-    def test_extract_pmi_value_reads_the_level_stated_after_the_threshold_sentence(self) -> None:
-        # The statement sentence gives only the no-change threshold; the reading
-        # follows in the next sentence.
-        text = (
-            "The headline au Jibun Bank Japan Services Business Activity Index remained "
-            "above the 50.0 no-change mark for the fourteenth successive month in "
-            "October, signalling a further expansion. That said, at 51.6 the index was "
-            "down from 53.8 in September and pointed to a modest rise in output."
-        )
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2023, 10, 1),
-            release_observed_at=date(2023, 10, 1),
-        )
-
-        self.assertEqual(value, 51.6)
-
-    def test_extract_pmi_value_reads_a_movement_destination_stated_after_a_comparison(
-        self,
-    ) -> None:
-        # "slipped from <previous> in <previous month> to <reading>".
-        text = (
-            "However, the headline index slipped from 53.2 in November to 51.6, to "
-            "signal a modest rate of growth that was the slowest seen since May."
-        )
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2025, 12, 1),
-            release_observed_at=date(2025, 12, 1),
-        )
-
-        self.assertEqual(value, 51.6)
-
-    def test_extract_pmi_value_reads_a_reading_named_as_a_record_level(self) -> None:
-        # "reaching a 33-month high of <reading> following a reading of <previous>".
-        text = (
-            "The seasonally adjusted S&P Global US Services PMI® Business Activity Index "
-            "rose for the second month running in December, reaching a 33-month high of "
-            "56.8 following a reading of 56.1 in November."
-        )
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2024, 12, 1),
-            release_observed_at=date(2024, 12, 1),
-        )
-
-        self.assertEqual(value, 56.8)
-
-    def test_extract_pmi_value_reads_a_reading_equal_to_the_no_change_mark(self) -> None:
-        # A reading of exactly 50.0 is stated as equal to the threshold.
-        text = (
-            "The seasonally adjusted S&P Global US Manufacturing Purchasing Managers’ "
-            "Index™ (PMI ®) posted in line with the 50.0 no-change mark in April to "
-            "point to stable business conditions."
-        )
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2024, 4, 1),
-            release_observed_at=date(2024, 4, 1),
-        )
-
-        self.assertEqual(value, 50.0)
-
-    def test_extract_pmi_value_ignores_a_hedged_comparison_with_the_no_change_mark(self) -> None:
-        # "broadly in line with" states an approximation, not the reading.
-        text = (
-            "The seasonally adjusted S&P Global US Manufacturing Purchasing Managers’ "
-            "Index™ (PMI ®) was broadly in line with the 50.0 no-change mark in April."
-        )
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2024, 4, 1),
-            release_observed_at=date(2024, 4, 1),
-        )
-
-        self.assertIsNone(value)
-
-    def test_extract_pmi_value_ignores_a_threshold_the_reading_is_measured_against(self) -> None:
-        # "below the 50.0 no-change mark in November" is the threshold; the reading is
-        # the level stated beside it.
-        text = (
-            "The seasonally adjusted S&P Global US Manufacturing Purchasing Managers’ "
-            "Index™ (PMI®) remained below the 50.0 no-change mark in November, but at "
-            "49.7 pointed to only a marginal worsening in the health of the sector."
-        )
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2024, 11, 1),
-            release_observed_at=date(2024, 11, 1),
-        )
-
-        self.assertEqual(value, 49.7)
-
-    def test_extract_pmi_value_ignores_an_average_over_several_months(self) -> None:
-        # A span average is not any single month's reading.
-        text = (
-            "The Business Activity Index has trended at 53.7 from January to November, "
-            "comfortably above the next-highest annual average of 52.4 set in 2013."
-        )
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2023, 11, 1),
-            release_observed_at=date(2023, 11, 1),
-        )
-
-        self.assertIsNone(value)
-
-    def test_extract_pmi_value_ignores_the_composite_index_statement(self) -> None:
-        # The composite index is published in the same release and its statement reads
-        # like the headline one.
-        text = (
-            "S&P Global US Services PMI® At 50.7 in November, the final S&P Global US "
-            "Composite PMI Output Index* was unchanged from October. The headline S&P "
-            "Global US Services PMI® Business Activity Index recorded 54.1 in November."
-        )
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2025, 11, 1),
-            release_observed_at=date(2025, 11, 1),
-        )
-
-        self.assertEqual(value, 54.1)
-
-    def test_extract_pmi_value_ignores_a_sub_index_statement(self) -> None:
-        # A sub-index moves on its own and must never answer for the headline.
-        text = (
-            "The headline index posted 49.7 in November, a marginal worsening. "
-            "The New Orders Index rose to 48.2 in November."
-        )
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2024, 11, 1),
-            release_observed_at=date(2024, 11, 1),
-        )
-
-        self.assertEqual(value, 49.7)
-
-    def test_extract_pmi_value_ignores_a_sentence_that_moves_on_from_the_statement(self) -> None:
-        # Only a sentence that refers back to the index carries the statement on, so a
-        # sentence about another subject cannot supply the headline reading.
-        text = (
-            "The headline index remained subdued in June. Employment growth eased to 51.2 in June."
-        )
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2026, 6, 1),
-            release_observed_at=date(2026, 6, 1),
-        )
-
-        self.assertIsNone(value)
-
-    def test_extract_pmi_value_ignores_a_comparison_sharing_the_movement_preposition(
-        self,
-    ) -> None:
-        # "compared to <previous>" borrows the preposition a movement uses, without
-        # stating the release's own reading.
-        text = "The headline index improved in October, compared to 52.0 in September."
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2025, 10, 1),
-            release_observed_at=date(2025, 10, 1),
-        )
-
-        self.assertIsNone(value)
-
-    def test_extract_pmi_value_ignores_a_year_beside_the_month(self) -> None:
-        # A chart caption pairs the month with a year, which is not a reading.
-        text = "Comment January 2026 Index, sa, >50 = growth m/m. The headline index eased."
-
-        value = extract_pmi_value(
-            text,
-            expected_observed_at=date(2026, 1, 1),
-            release_observed_at=date(2026, 1, 1),
-        )
-
-        self.assertIsNone(value)
 
     def test_extract_pdf_text_rejects_non_pdf(self) -> None:
         with self.assertRaisesRegex(IndicatorsProviderError, "not a PDF"):
@@ -3113,6 +2976,82 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         with self.assertRaisesRegex(IndicatorsProviderError, "outside plausible"):
             parse_nikkei_valuation(series, html, start=date(2026, 7, 1), end=date(2026, 7, 31))
 
+    def test_parse_boj_xlsx_refuses_a_workbook_it_cannot_read_the_named_column_from(
+        self,
+    ) -> None:
+        # One damaged BOJ workbook per row: the series it was requested for, the
+        # bytes, the window, and the refusal. Every row is a way the published
+        # workbook has changed shape without the values leaving their band, which is
+        # what makes reading the wrong column silent.
+        refusals: tuple[tuple[str, SeriesDefinition, bytes, date, date, str], ...] = (
+            (
+                "shifted_value_column_even_when_value_is_in_band",
+                _series(
+                    "boj",
+                    "3|Monetary Base|8|Unit: 100 million yen",
+                    unit="jpy-100m",
+                    plausible_min=2000.0,
+                    plausible_max=100000000.0,
+                ),
+                _boj_workbook_bytes([(None, date(2026, 1, 31), 9999.0, 350000.0)], header_column=4),
+                date(2026, 1, 1),
+                date(2026, 1, 31),
+                "header mismatch",
+            ),
+            (
+                "empty_selected_column_for_in_range_dates",
+                _series("boj", "3|Monetary Base|8|Unit: 100 million yen", unit="jpy-100m"),
+                _boj_workbook_bytes(
+                    [
+                        (None, date(2026, 1, 31), None, 350000.0),
+                        (None, date(2026, 2, 28), None, 360000.0),
+                    ]
+                ),
+                date(2026, 1, 1),
+                date(2026, 2, 28),
+                "no numeric values",
+            ),
+            (
+                "scale_metadata_change_with_in_band_value",
+                _series(
+                    "boj",
+                    "3|Monetary Base|8|Unit: 100 million yen",
+                    unit="jpy-100m",
+                    plausible_min=2000.0,
+                    plausible_max=100000000.0,
+                ),
+                _boj_workbook_bytes([(None, date(2026, 1, 31), 350000.0)], metadata="Unit: yen"),
+                date(2026, 1, 1),
+                date(2026, 1, 31),
+                "metadata column 8 mismatch",
+            ),
+            (
+                "non_xlsx_bytes",
+                _series("boj", "3|Monetary Base|8|Unit: 100 million yen", unit="jpy-100m"),
+                b"not a zip",
+                date(2026, 1, 1),
+                date(2026, 12, 31),
+                "not a .xlsx",
+            ),
+            (
+                "non_numeric_column_index",
+                _series(
+                    "boj", "BS01'MABJMTA|Monetary Base|8|Unit: 100 million yen", unit="jpy-100m"
+                ),
+                _boj_workbook_bytes([(None, date(2026, 1, 31), 1.0, 2.0)]),
+                date(2026, 1, 1),
+                date(2026, 12, 31),
+                "start with a 1-based column index",
+            ),
+        )
+
+        for name, series, content, start, end, reason in refusals:
+            with (
+                self.subTest(case=name),
+                self.assertRaisesRegex(IndicatorsProviderError, reason),
+            ):
+                parse_boj_xlsx(series, content, start=start, end=end)
+
     def test_parse_boj_xlsx_extracts_value_column_and_filters_range(self) -> None:
         content = _boj_workbook_bytes(
             [
@@ -3157,73 +3096,6 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0].value, 360000.0)
 
-    def test_parse_boj_xlsx_rejects_shifted_value_column_even_when_value_is_in_band(
-        self,
-    ) -> None:
-        content = _boj_workbook_bytes(
-            [(None, date(2026, 1, 31), 9999.0, 350000.0)],
-            header_column=4,
-        )
-        series = _series(
-            "boj",
-            "3|Monetary Base|8|Unit: 100 million yen",
-            unit="jpy-100m",
-            plausible_min=2000.0,
-            plausible_max=100000000.0,
-        )
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "header mismatch"):
-            parse_boj_xlsx(
-                series,
-                content,
-                start=date(2026, 1, 1),
-                end=date(2026, 1, 31),
-            )
-
-    def test_parse_boj_xlsx_rejects_empty_selected_column_for_in_range_dates(self) -> None:
-        content = _boj_workbook_bytes(
-            [
-                (None, date(2026, 1, 31), None, 350000.0),
-                (None, date(2026, 2, 28), None, 360000.0),
-            ]
-        )
-        series = _series(
-            "boj",
-            "3|Monetary Base|8|Unit: 100 million yen",
-            unit="jpy-100m",
-        )
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "no numeric values"):
-            parse_boj_xlsx(
-                series,
-                content,
-                start=date(2026, 1, 1),
-                end=date(2026, 2, 28),
-            )
-
-    def test_parse_boj_xlsx_rejects_scale_metadata_change_with_in_band_value(
-        self,
-    ) -> None:
-        content = _boj_workbook_bytes(
-            [(None, date(2026, 1, 31), 350000.0)],
-            metadata="Unit: yen",
-        )
-        series = _series(
-            "boj",
-            "3|Monetary Base|8|Unit: 100 million yen",
-            unit="jpy-100m",
-            plausible_min=2000.0,
-            plausible_max=100000000.0,
-        )
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "metadata column 8 mismatch"):
-            parse_boj_xlsx(
-                series,
-                content,
-                start=date(2026, 1, 1),
-                end=date(2026, 1, 31),
-            )
-
     def test_parse_boj_xlsx_does_not_accept_expected_metadata_from_an_adjacent_series(
         self,
     ) -> None:
@@ -3250,27 +3122,6 @@ class IndicatorsProviderParserTests(unittest.TestCase):
                 start=date(2026, 1, 1),
                 end=date(2026, 1, 31),
             )
-
-    def test_parse_boj_xlsx_rejects_non_xlsx_bytes(self) -> None:
-        series = _series(
-            "boj",
-            "3|Monetary Base|8|Unit: 100 million yen",
-            unit="jpy-100m",
-        )
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "not a .xlsx"):
-            parse_boj_xlsx(series, b"not a zip", start=date(2026, 1, 1), end=date(2026, 12, 31))
-
-    def test_parse_boj_xlsx_rejects_non_numeric_column_index(self) -> None:
-        content = _boj_workbook_bytes([(None, date(2026, 1, 31), 1.0, 2.0)])
-        series = _series(
-            "boj",
-            "BS01'MABJMTA|Monetary Base|8|Unit: 100 million yen",
-            unit="jpy-100m",
-        )
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "start with a 1-based column index"):
-            parse_boj_xlsx(series, content, start=date(2026, 1, 1), end=date(2026, 12, 31))
 
     def test_parse_boj_xlsx_wraps_corrupt_zip_as_provider_error(self) -> None:
         buffer = io.BytesIO()
@@ -3346,49 +3197,105 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         self.assertEqual(observations[0].observed_at, date(2026, 5, 1))
         self.assertEqual(observations[0].value, 102.0)
 
-    def test_parse_estat_json_rejects_missing_structure(self) -> None:
-        series = _series("estat", "0003427113", unit="index")
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "GET_STATS_DATA"):
-            parse_estat_json(series, "{}", start=date(2026, 1, 1), end=date(2026, 12, 31))
-
-    def test_parse_estat_json_rejects_a_cell_outside_the_requested_narrowing(self) -> None:
-        """An e-Stat table carries dozens of series behind one statsDataId.
-
-        A narrowing code the table does not define is answered by leaving that
-        dimension open, and the store's upsert would then keep whichever cell of
-        the period came last. The answer is checked cell by cell instead.
-        """
-
-        series = _series("estat", "0003355222?cdCat01=160&cdCat02=100&cdTab=100", unit="index")
-        text = _estat_payload(
-            [
-                {
-                    "@tab": "100",
-                    "@cat01": "160",
-                    "@cat02": "100",
-                    "@time": "2026000505",
-                    "$": "961973.8",
-                },
-                {
-                    "@tab": "100",
-                    "@cat01": "110",
-                    "@cat02": "100",
-                    "@time": "2026000505",
-                    "$": "2874019.3",
-                },
-            ]
+    def test_parse_estat_json_refuses_every_answer_it_cannot_read_one_series_from(
+        self,
+    ) -> None:
+        # One malformed e-Stat answer per row: the series it was requested for, the
+        # response body, the window, and the refusal it must produce. Every row is a shape
+        # the API has actually returned; the parser has to keep refusing all of them.
+        refusals: tuple[tuple[str, SeriesDefinition, str, date, date, str], ...] = (
+            (
+                "missing_structure",
+                _series("estat", "0003427113", unit="index"),
+                "{}",
+                date(2026, 1, 1),
+                date(2026, 12, 31),
+                "GET_STATS_DATA",
+            ),
+            (
+                # An e-Stat table carries dozens of series behind one statsDataId.
+                #
+                # A narrowing code the table does not define is answered by leaving that
+                # dimension open, and the store's upsert would then keep whichever cell of
+                # the period came last. The answer is checked cell by cell instead.
+                "a_cell_outside_the_requested_narrowing",
+                _series("estat", "0003355222?cdCat01=160&cdCat02=100&cdTab=100", unit="index"),
+                _estat_payload(
+                    [
+                        {
+                            "@tab": "100",
+                            "@cat01": "160",
+                            "@cat02": "100",
+                            "@time": "2026000505",
+                            "$": "961973.8",
+                        },
+                        {
+                            "@tab": "100",
+                            "@cat01": "110",
+                            "@cat02": "100",
+                            "@time": "2026000505",
+                            "$": "2874019.3",
+                        },
+                    ]
+                ),
+                date(2026, 1, 1),
+                date(2026, 12, 31),
+                "outside the requested narrowing",
+            ),
+            (
+                "a_narrowing_key_it_cannot_check",
+                _series("estat", "0003355222?lvCat01=3", unit="index"),
+                _estat_payload({"@time": "2026000505", "$": "102.0"}),
+                date(2026, 1, 1),
+                date(2026, 12, 31),
+                "no row attribute",
+            ),
+            (
+                "a_cell_spanning_more_than_one_month",
+                _series("estat", "0003427113", unit="index"),
+                _estat_payload({"@time": "2025000103", "$": "110.0"}),
+                date(2025, 1, 1),
+                date(2025, 12, 31),
+                "more than one month",
+            ),
+            (
+                "a_time_code_it_cannot_place",
+                _series("estat", "0003427113", unit="index"),
+                _estat_payload({"@time": "202501", "$": "110.0"}),
+                date(2025, 1, 1),
+                date(2025, 12, 31),
+                "cannot place",
+            ),
+            (
+                "a_rejected_request",
+                _series("estat", "0003427113", unit="index"),
+                json.dumps(
+                    {
+                        "GET_STATS_DATA": {
+                            "RESULT": {"STATUS": 100, "ERROR_MSG": "統計表が存在しません。"}
+                        }
+                    }
+                ),
+                date(2026, 1, 1),
+                date(2026, 12, 31),
+                "status=100",
+            ),
+            (
+                "one_page_of_a_longer_result",
+                _series("estat", "0003427113", unit="index"),
+                _estat_payload({"@time": "2026000505", "$": "102.0"}, next_key=100001),
+                date(2026, 1, 1),
+                date(2026, 12, 31),
+                "one page of a longer result",
+            ),
         )
 
-        with self.assertRaisesRegex(IndicatorsProviderError, "outside the requested narrowing"):
-            parse_estat_json(series, text, start=date(2026, 1, 1), end=date(2026, 12, 31))
-
-    def test_parse_estat_json_rejects_a_narrowing_key_it_cannot_check(self) -> None:
-        series = _series("estat", "0003355222?lvCat01=3", unit="index")
-        text = _estat_payload({"@time": "2026000505", "$": "102.0"})
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "no row attribute"):
-            parse_estat_json(series, text, start=date(2026, 1, 1), end=date(2026, 12, 31))
+        for name, series, text, start, end, reason in refusals:
+            with (
+                self.subTest(case=name),
+                self.assertRaisesRegex(IndicatorsProviderError, reason),
+            ):
+                parse_estat_json(series, text, start=start, end=end)
 
     def test_parse_estat_json_reads_a_month_whose_closing_month_is_left_open(self) -> None:
         """e-Stat published 2024-01 of the watcher survey as "2024000100".
@@ -3425,36 +3332,6 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         self.assertEqual(
             [(o.observed_at, o.value) for o in observations], [(date(2025, 1, 1), 110.0)]
         )
-
-    def test_parse_estat_json_rejects_a_cell_spanning_more_than_one_month(self) -> None:
-        series = _series("estat", "0003427113", unit="index")
-        text = _estat_payload({"@time": "2025000103", "$": "110.0"})
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "more than one month"):
-            parse_estat_json(series, text, start=date(2025, 1, 1), end=date(2025, 12, 31))
-
-    def test_parse_estat_json_rejects_a_time_code_it_cannot_place(self) -> None:
-        series = _series("estat", "0003427113", unit="index")
-        text = _estat_payload({"@time": "202501", "$": "110.0"})
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "cannot place"):
-            parse_estat_json(series, text, start=date(2025, 1, 1), end=date(2025, 12, 31))
-
-    def test_parse_estat_json_rejects_a_rejected_request(self) -> None:
-        series = _series("estat", "0003427113", unit="index")
-        text = json.dumps(
-            {"GET_STATS_DATA": {"RESULT": {"STATUS": 100, "ERROR_MSG": "統計表が存在しません。"}}}
-        )
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "status=100"):
-            parse_estat_json(series, text, start=date(2026, 1, 1), end=date(2026, 12, 31))
-
-    def test_parse_estat_json_rejects_one_page_of_a_longer_result(self) -> None:
-        series = _series("estat", "0003427113", unit="index")
-        text = _estat_payload({"@time": "2026000505", "$": "102.0"}, next_key=100001)
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "one page of a longer result"):
-            parse_estat_json(series, text, start=date(2026, 1, 1), end=date(2026, 12, 31))
 
     def test_estat_dashboard_fetch_always_opens_the_request_at_the_history_floor(self) -> None:
         """ "No data" is the same answer as "unknown IndicatorCode" on this API.
@@ -3933,69 +3810,58 @@ class IndicatorsProviderParserTests(unittest.TestCase):
             [(date(2026, 5, 1), 993.0), (date(2026, 6, 1), 1021.0)],
         )
 
-    def test_parse_tsr_bankruptcies_json_rejects_unparseable_monthly_entry(
+    def test_parse_tsr_bankruptcies_json_refuses_a_listing_it_cannot_read_a_history_from(
         self,
     ) -> None:
+        # One damaged TSR listing per row. The provider reads a monthly count out of
+        # press-release titles, so a title it cannot parse, a month it never saw, and a
+        # history that does not reach the floor are all silent holes unless refused.
         series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
-        text = json.dumps(
-            [
-                {
-                    "period_division": "月次",
-                    "title": "月次の全国企業倒産状況",
-                    "free_word": [],
-                }
-            ]
+        refusals: tuple[tuple[str, str, date, date, str], ...] = (
+            (
+                "unparseable_monthly_entry",
+                json.dumps(
+                    [
+                        {
+                            "period_division": "月次",
+                            "title": "月次の全国企業倒産状況",
+                            "free_word": [],
+                        }
+                    ]
+                ),
+                date(2003, 1, 1),
+                date(2026, 6, 1),
+                "cannot parse monthly entry",
+            ),
+            (
+                "history_gap",
+                json.dumps(
+                    [
+                        {"period_division": "月次", "title": "2026年4月の全国企業倒産990件"},
+                        {"period_division": "月次", "title": "2026年6月の全国企業倒産1,021件"},
+                    ]
+                ),
+                date(2026, 4, 1),
+                date(2026, 6, 1),
+                "missing monthly entries",
+            ),
+            (
+                "missing_history_floor",
+                json.dumps(
+                    [{"period_division": "月次", "title": "2026年6月の全国企業倒産1,021件"}]
+                ),
+                date(2003, 1, 1),
+                date(2026, 7, 20),
+                "must start at 2003-01-01",
+            ),
         )
 
-        with self.assertRaisesRegex(IndicatorsProviderError, "cannot parse monthly entry"):
-            parse_tsr_bankruptcies_json(
-                series,
-                text,
-                start=date(2003, 1, 1),
-                end=date(2026, 6, 1),
-            )
-
-    def test_parse_tsr_bankruptcies_json_rejects_history_gap(self) -> None:
-        series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
-        text = json.dumps(
-            [
-                {
-                    "period_division": "月次",
-                    "title": "2026年4月の全国企業倒産990件",
-                },
-                {
-                    "period_division": "月次",
-                    "title": "2026年6月の全国企業倒産1,021件",
-                },
-            ]
-        )
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "missing monthly entries"):
-            parse_tsr_bankruptcies_json(
-                series,
-                text,
-                start=date(2026, 4, 1),
-                end=date(2026, 6, 1),
-            )
-
-    def test_parse_tsr_bankruptcies_json_rejects_missing_history_floor(self) -> None:
-        series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
-        text = json.dumps(
-            [
-                {
-                    "period_division": "月次",
-                    "title": "2026年6月の全国企業倒産1,021件",
-                }
-            ]
-        )
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "must start at 2003-01-01"):
-            parse_tsr_bankruptcies_json(
-                series,
-                text,
-                start=date(2003, 1, 1),
-                end=date(2026, 7, 20),
-            )
+        for name, text, start, end, reason in refusals:
+            with (
+                self.subTest(case=name),
+                self.assertRaisesRegex(IndicatorsProviderError, reason),
+            ):
+                parse_tsr_bankruptcies_json(series, text, start=start, end=end)
 
     def test_parse_tsr_bankruptcies_json_rejects_missing_latest_release(self) -> None:
         series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")

@@ -663,29 +663,36 @@ class QuoteParsingTest(unittest.TestCase):
         self.assertEqual([quote.implied_volatility for quote in quotes], [20.0])
         self.assertEqual([quote.underlying for quote in quotes], [40000.0])
 
-    def test_a_row_that_does_not_say_which_snapshot_it_is_from_is_dropped(self) -> None:
-        # Keeping unmarked rows would restore the mixing as soon as the source stopped
-        # sending the field, which is exactly when nothing would notice.
-        rows = [self._record(EmMrgnTrgDiv=None), self._record(EmMrgnTrgDiv="")]
+    def test_rows_the_reader_cannot_believe_are_dropped(self) -> None:
+        # One unusable row shape per case. Each is a value the source really sends,
+        # and each would land in an average as a number nobody quoted.
+        cases: tuple[tuple[str, list[dict[str, object]]], ...] = (
+            (
+                # Keeping unmarked rows would restore the snapshot mixing as soon as
+                # the source stopped sending the field, which is exactly when nothing
+                # would notice.
+                "no_snapshot_marker",
+                [self._record(EmMrgnTrgDiv=None), self._record(EmMrgnTrgDiv="")],
+            ),
+            ("unknown_side", [self._record(PCDiv="9")]),
+            (
+                # A missing numeric arrives from the frame as NaN rather than as an
+                # absent key, and NaN compares false against every bound, so it would
+                # pass each later check.
+                "not_a_number",
+                [self._record(IV=float("nan")), self._record(UnderPx=float("inf"))],
+            ),
+        )
 
-        self.assertEqual(quotes_from_records(rows, ASOF), [])
+        for name, rows in cases:
+            with self.subTest(case=name):
+                self.assertEqual(quotes_from_records(rows, ASOF), [])
 
     def test_a_row_missing_a_field_is_dropped_rather_than_failing(self) -> None:
         # A chain always carries contracts with no quote; a day is still readable.
         rows = [self._record(), self._record(IV=None), self._record(Strike="")]
 
         self.assertEqual(len(quotes_from_records(rows, ASOF)), 1)
-
-    def test_an_unknown_side_is_dropped(self) -> None:
-        self.assertEqual(quotes_from_records([self._record(PCDiv="9")], ASOF), [])
-
-    def test_a_number_the_source_could_not_produce_is_dropped(self) -> None:
-        # A missing numeric arrives from the frame as NaN rather than as an absent
-        # key, and NaN compares false against every bound, so it would pass each
-        # later check and land in an average as a value that is not one.
-        rows = [self._record(IV=float("nan")), self._record(UnderPx=float("inf"))]
-
-        self.assertEqual(quotes_from_records(rows, ASOF), [])
 
     def test_an_expiry_carrying_a_time_is_read_as_its_date(self) -> None:
         # Typed as text the column carries the time with it, and date parsing refuses
@@ -726,28 +733,35 @@ class OptionProviderTest(unittest.TestCase):
             notes="test",
         )
 
-    def test_the_exception_a_rate_limit_actually_raises_is_retried(self) -> None:
+    def test_the_failures_worth_waiting_out_are_the_ones_that_can_change(self) -> None:
+        # A backfill runs for hours against one endpoint. A gateway blinking, or the
+        # client exhausting its own retries, has to cost a wait rather than the whole
+        # range; an auth or schema refusal has to end it, because waiting only delays
+        # the report. One row per failure the endpoint actually produces.
+        #
         # The client retries the rate-limited statuses itself and, when its attempts
-        # run out, raises RetryError with no response attached. Classifying on the
-        # status code alone made the wait unreachable for the one case it exists for,
-        # and a suite that built its own 429-shaped exception could not see that.
+        # run out, raises RetryError with *no response attached* — classifying on the
+        # status code alone made the wait unreachable for the one case it exists for.
         self.assertIsNone(RetryError("max retries").response)
-        self.assertTrue(jquants_options._is_retryable(RetryError("max retries")))
-        self.assertTrue(jquants_options._is_retryable(RequestsConnectionError("reset")))
-        self.assertTrue(jquants_options._is_retryable(Timeout("read timed out")))
 
-    def test_a_rate_limited_call_is_retried_rather_than_ending_the_range(self) -> None:
-        # A range long enough to be worth fetching is long enough to meet a 429, and
-        # raising discards every day already fetched.
-        response = SimpleNamespace(status_code=429)
-        self.assertTrue(jquants_options._is_retryable(RuntimeError_with(response)))
-
-    def test_an_error_that_will_not_change_is_not_retried(self) -> None:
-        # Waiting out an auth or schema failure only delays the report.
-        self.assertFalse(
-            jquants_options._is_retryable(RuntimeError_with(SimpleNamespace(status_code=401)))
+        cases: tuple[tuple[str, BaseException, bool], ...] = (
+            ("client_exhausted_its_own_retries", RetryError("max retries"), True),
+            ("connection_reset", RequestsConnectionError("reset"), True),
+            ("read_timeout", Timeout("read timed out"), True),
+            *(
+                (f"status_{status}", RuntimeError_with(SimpleNamespace(status_code=status)), True)
+                for status in (429, 500, 502, 503, 504)
+            ),
+            *(
+                (f"status_{status}", RuntimeError_with(SimpleNamespace(status_code=status)), False)
+                for status in (400, 401, 403, 404)
+            ),
+            ("no_response_attached", RuntimeError("no response attached"), False),
         )
-        self.assertFalse(jquants_options._is_retryable(RuntimeError("no response attached")))
+
+        for name, error, retryable in cases:
+            with self.subTest(case=name):
+                self.assertEqual(jquants_options._is_retryable(error), retryable)
 
     def test_backoff_gives_up_and_names_the_day_without_leaking_the_key(self) -> None:
         attempts = []
@@ -869,24 +883,6 @@ class OptionProviderTest(unittest.TestCase):
 
         self.assertEqual(jquants_options._days(one_day, one_day), [one_day])
         self.assertEqual(jquants_options._days(one_day, one_day - timedelta(days=1)), [])
-
-    def test_a_server_side_failure_is_waited_out_and_a_refusal_is_not(self) -> None:
-        # A backfill runs for hours against one endpoint; a gateway blinking has to
-        # cost a wait rather than the whole range, while a refusal has to end it.
-        for status in (429, 500, 502, 503, 504):
-            with self.subTest(status=status):
-                self.assertTrue(
-                    jquants_options._is_retryable(
-                        RuntimeError_with(SimpleNamespace(status_code=status))
-                    )
-                )
-        for status in (400, 403, 404):
-            with self.subTest(status=status):
-                self.assertFalse(
-                    jquants_options._is_retryable(
-                        RuntimeError_with(SimpleNamespace(status_code=status))
-                    )
-                )
 
     def test_a_missing_key_is_named_rather_than_failing_at_the_endpoint(self) -> None:
         # Without this the run reaches the API and comes back with an auth error that

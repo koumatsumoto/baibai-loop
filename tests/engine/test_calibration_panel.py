@@ -6,6 +6,8 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager
 from dataclasses import asdict, replace
 from datetime import date, timedelta
 from pathlib import Path
@@ -71,6 +73,14 @@ from baibai_engine.screening.sqlite_reader import ReportedShortMetric
 from baibai_engine.screening.store_readiness import unreadable_store_reason
 
 ASOF = CALIBRATION_FIXTURE_ASOF
+
+
+def _retuned_relaxed(relaxed: Mapping[str, Mapping[str, object]]) -> dict[str, object]:
+    """The same threshold set with one value measured differently."""
+
+    name, fields = next(iter(relaxed.items()))
+    field = next(iter(fields))
+    return {**relaxed, name: {**fields, field: "retuned-sentinel"}}
 
 
 def _current_panel_manifest(root):  # type: ignore[no-untyped-def]
@@ -1518,74 +1528,77 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertFalse((Path(tmp) / "absent.sqlite").exists())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class DerivedCacheIdentityTests(unittest.TestCase):
     """互換性を決める入力が動けば版も動く。手で進める判断を残さないための検査。"""
 
-    def test_a_new_panel_column_moves_the_identity(self) -> None:
-        from baibai_engine.screening.calibration import store as calibration_store
-
-        before = calibration_store._derive_cache_schema_version()
-        with patch.object(
-            calibration_store,
-            "PANEL_FIELD_NAMES",
-            (*calibration_store.PANEL_FIELD_NAMES, "new_axis"),
-        ):
-            after = calibration_store._derive_cache_schema_version()
-        self.assertNotEqual(before, after)
-
-    def test_measuring_one_more_threshold_moves_the_identity(self) -> None:
-        """列の形を変えずに観測の範囲だけ広げた変更が、実際に進め忘れを起こした形。"""
-        from baibai_engine.screening.calibration import store as calibration_store
-
-        before = calibration_store._derive_cache_schema_version()
-        widened = {
-            name: {**fields, "newly_measured_threshold": None}
-            for name, fields in calibration_store.RELAXED.items()
-        }
-        with patch.object(calibration_store, "RELAXED", widened):
-            after = calibration_store._derive_cache_schema_version()
-        self.assertNotEqual(before, after)
-
-    def test_changing_a_relaxed_value_moves_the_identity(self) -> None:
-        """同じ閾値を別の値で測った cohort は互換でない。名前だけ見ると気付けない。"""
-        from baibai_engine.screening.calibration import store as calibration_store
-
-        before = calibration_store._derive_cache_schema_version()
-        name, fields = next(iter(calibration_store.RELAXED.items()))
-        field = next(iter(fields))
-        retuned = {
-            **calibration_store.RELAXED,
-            name: {**fields, field: "retuned-sentinel"},
-        }
-        with patch.object(calibration_store, "RELAXED", retuned):
-            after = calibration_store._derive_cache_schema_version()
-        self.assertNotEqual(before, after)
-
-    def test_a_new_valuation_revision_moves_the_identity(self) -> None:
-        """式の意味の変更は内容から導けないので人が宣言するが、宣言すれば版も動く。"""
-        from baibai_engine.screening.calibration import store as calibration_store
-
-        before = calibration_store._derive_cache_schema_version()
-        with patch.object(calibration_store, "VALUATION_CALCULATION_REVISION", "next-revision"):
-            after = calibration_store._derive_cache_schema_version()
-        self.assertNotEqual(before, after)
-
-    def test_a_new_gate_axis_leaves_the_identity_alone(self) -> None:
-        """評価軸は既存の panel 列を指すだけで、cache の中身を 1 バイトも変えない。
-
-        版へ入れると 81 cohort の再構築を互換性上は不要な変更のたびに要求する。
-        """
+    def test_the_identity_follows_every_input_that_decides_compatibility(self) -> None:
         from baibai_engine.screening.calibration import evaluation
         from baibai_engine.screening.calibration import store as calibration_store
 
+        Patch = Callable[[], AbstractContextManager[object]]
+        # One input per row: what is changed, and whether the derived version has to
+        # move for it. The last row is the one that must NOT move — an evaluation axis
+        # only names existing panel columns, and putting it in the version would demand
+        # 81 cohort rebuilds for a change that alters no cached byte.
+        inputs: tuple[tuple[str, Patch, bool], ...] = (
+            (
+                "a_new_panel_column",
+                lambda: patch.object(
+                    calibration_store,
+                    "PANEL_FIELD_NAMES",
+                    (*calibration_store.PANEL_FIELD_NAMES, "new_axis"),
+                ),
+                True,
+            ),
+            (
+                # 列の形を変えずに観測の範囲だけ広げた変更が、実際に進め忘れを起こした形。
+                "measuring_one_more_threshold",
+                lambda: patch.object(
+                    calibration_store,
+                    "RELAXED",
+                    {
+                        name: {**fields, "newly_measured_threshold": None}
+                        for name, fields in calibration_store.RELAXED.items()
+                    },
+                ),
+                True,
+            ),
+            (
+                # 同じ閾値を別の値で測った cohort は互換でない。名前だけ見ると気付けない。
+                "changing_a_relaxed_value",
+                lambda: patch.object(
+                    calibration_store,
+                    "RELAXED",
+                    _retuned_relaxed(calibration_store.RELAXED),
+                ),
+                True,
+            ),
+            (
+                # 式の意味の変更は内容から導けないので人が宣言するが、宣言すれば版も動く。
+                "a_new_valuation_revision",
+                lambda: patch.object(
+                    calibration_store, "VALUATION_CALCULATION_REVISION", "next-revision"
+                ),
+                True,
+            ),
+            (
+                "a_new_gate_axis",
+                lambda: patch.object(
+                    evaluation, "GATE_BASE_AXES", (*evaluation.GATE_BASE_AXES, "p_s")
+                ),
+                False,
+            ),
+        )
+
         before = calibration_store._derive_cache_schema_version()
-        with patch.object(evaluation, "GATE_BASE_AXES", (*evaluation.GATE_BASE_AXES, "p_s")):
-            after = calibration_store._derive_cache_schema_version()
-        self.assertEqual(before, after)
+        for name, patcher, moves in inputs:
+            with self.subTest(case=name):
+                with patcher():
+                    after = calibration_store._derive_cache_schema_version()
+                if moves:
+                    self.assertNotEqual(before, after)
+                else:
+                    self.assertEqual(before, after)
 
     def test_the_identity_is_stable_for_the_same_inputs(self) -> None:
         from baibai_engine.screening.calibration import store as calibration_store
@@ -1639,3 +1652,7 @@ class GridDropRefusalTest(unittest.TestCase):
             dropped = _cohorts_a_grid_would_drop(directory, [date(2024, 2, 29)], force=False)
 
         self.assertEqual(dropped, [])
+
+
+if __name__ == "__main__":
+    unittest.main()
