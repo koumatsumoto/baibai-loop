@@ -21,6 +21,12 @@ import pytest
 import yaml
 from tests.helpers.fixed_now import FIXED_NOW
 from tests.helpers.macro_context import macro_context_payload
+from tests.helpers.shortlist import (
+    narrative,
+    rejected_entry,
+    selected_entry,
+    shortlist_payload,
+)
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
@@ -54,54 +60,19 @@ def _app_db(app_method_root: Path) -> Path:
 def _publish_shortlist(db_path: Path) -> str:
     """Seed the selected case an assessment round is scaffolded and published against."""
     shortlist = Shortlist.model_validate(
-        {
-            "schema_version": 5,
-            "kind": "shortlist",
-            "shortlist_id": SHORTLIST_ID,
-            "selection_id": "selection-cli-seam",
-            "run_revision_id": "runrev-cli-seam",
-            "as_of": "2026-07-21",
-            "published_at": "2026-07-21T15:00:00+09:00",
-            "profile": "value",
-            "macro_context_id": "macro-context-2026-07-21-cli-seam",
-            "attention_policy_id": "value-carry-only-v1",
-            "attention_policy_hash": "a" * 64,
-            "attention_policy_parameters": {"value_carry_limit": 2},
-            "review_basis_shortlist_id": None,
-            "research_gate_contract_id": "research-gate-v1",
-            "entries": [
-                {
-                    "ticker": "2331",
-                    "decision": "selected",
-                    "rank": 1,
-                    "reason": "一次IRへ進める",
-                    "narrative": {
-                        "ploss": "中低",
-                        "why": "受注端境",
-                        "temporary": "翌期に戻る",
-                        "structural": "毀損はない",
-                        "survive": "net cashで耐える",
-                        "unlock": "還元強化",
-                        "upside": "正常化でPER12倍相当",
-                        "downside": "簿価が床",
-                        "rr": "下値が資産で支えられる",
-                        "catalyst": "2Q決算",
-                        "catalyst_date": None,
-                        "macro": "sizing cautionは該当なし",
-                        "counter": "構造鈍化",
-                        "research": RESEARCH_QUESTION,
-                        "value": "FV乖離が大きい",
-                        "prov": "深掘り最優先",
-                    },
-                },
-                {
-                    "ticker": "0001",
-                    "decision": "rejected",
-                    "reason": "根拠が弱い",
-                    "reject_class": "other",
-                },
+        shortlist_payload(
+            shortlist_id=SHORTLIST_ID,
+            selection_id="selection-cli-seam",
+            run_revision_id="runrev-cli-seam",
+            as_of="2026-07-21",
+            published_at="2026-07-21T15:00:00+09:00",
+            profile="value",
+            macro_context_id="macro-context-2026-07-21-cli-seam",
+            entries=[
+                selected_entry("2331", narrative=narrative(research=RESEARCH_QUESTION)),
+                rejected_entry("0001"),
             ],
-        }
+        )
     )
     ShortlistService(db_path).publish(
         shortlist,

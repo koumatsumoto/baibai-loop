@@ -258,26 +258,17 @@ class BuildTickerProfileTests(unittest.TestCase):
             runs_path = root / "runs.sqlite"
             _write_candidates(runs_path)
             latest = ScreeningRunStore(runs_path).publish_run(
-                {
-                    "run_date": "2026-05-30",
-                    "asof_date": "2026-05-30",
-                    "universe_size": 1,
-                    "filters": {},
-                    "generated_by": "test",
-                    "data_sources": [],
-                    "run_at": "2026-05-30T09:00:00+09:00",
-                    "run_id": "screening-20260530",
-                    "candidates": [
-                        {
-                            "ticker": "BBBB",
-                            "name": "同業ペア",
-                            "evidence_hits": [],
-                            "metrics": {},
-                        }
-                    ],
-                    "provider_status_lines": [],
-                    "fallback_lines": [],
-                }
+                screening_run_payload(
+                    as_of="2026-05-30",
+                    run_at="2026-05-30T09:00:00+09:00",
+                    universe_size=1,
+                    candidates=[screening_candidate("BBBB", name="同業ペア", metrics={})],
+                    filters={},
+                    generated_by="test",
+                    data_sources=[],
+                    provider_status_lines=[],
+                    fallback_lines=[],
+                )
             )
 
             thesis = build_ticker_profile(

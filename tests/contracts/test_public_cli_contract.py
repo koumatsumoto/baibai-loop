@@ -116,37 +116,25 @@ def _publish_two_candidate_run(runs_db: Path) -> str:
 
     run_revision_id = "run-revision-research-gate-e2e"
     ScreeningRunStore(runs_db).publish_run(
-        {
-            "run_id": "screening-20260424",
-            "run_date": "2026-04-24",
-            "asof_date": "2026-04-24",
-            "run_at": "2026-04-24T18:00:00+09:00",
-            "universe_size": 2,
-            "rules_ref": str(RULES_PATH),
-            "screening_rules_hash": RULES_HASH,
-            "er_model_version": "expected-return-v1",
-            "candidates": [
-                {
-                    "ticker": ticker,
-                    "name": f"gate candidate {ticker}",
-                    "sector_33": "機械",
-                    "market_cap_oku": 300,
-                    "avg_turnover_oku": 2.0,
-                    "listing_span_days": 1200,
-                    "jpx_flags": [],
-                    "metrics": {"er_annual": er_annual},
-                    "evidence_hits": [
-                        {
-                            "name": "valuation-reversion",
-                            "evidence_pattern_id": "cashflow-yield-discount",
-                            "source_status": "ok",
-                            "sizing_eligible": True,
-                        }
-                    ],
-                }
+        screening_run_payload(
+            as_of="2026-04-24",
+            universe_size=2,
+            rules_hash=RULES_HASH,
+            candidates=[
+                screening_candidate(
+                    ticker,
+                    name=f"gate candidate {ticker}",
+                    sector_33="機械",
+                    market_cap_oku=300,
+                    avg_turnover_oku=2.0,
+                    listing_span_days=1200,
+                    metrics={"er_annual": er_annual},
+                    evidence_hits=[evidence_hit()],
+                )
                 for ticker, er_annual in (("1111", 1.0), ("2222", 0.5))
             ],
-        },
+            rules_ref=str(RULES_PATH),
+        ),
         run_revision_id=run_revision_id,
     )
     return run_revision_id

@@ -336,22 +336,7 @@ def test_source_ref_rejects_unknown_kind_and_prefix_identity() -> None:
 def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    datasets = tuple(
-        item.model_copy(
-            update={
-                "coverage_start_on_or_before": date(2026, 8, 1),
-                "minimum_rows": 1,
-                "minimum_population_count": 1,
-            }
-        )
-        for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
-        if item.dataset in {"jquants.daily_bars", "jquants.short_sale_reports"}
-    )
-    monkeypatch.setattr(
-        lake_models,
-        "PRODUCTION_RELEASE_POLICY",
-        lake_models.PRODUCTION_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
-    )
+    narrow_release_policy(monkeypatch, coverage_start_on_or_before=date(2026, 8, 1), age_days=None)
     manifest = _load_dataset(_dataset_payload())
     short_sale = _load_dataset(
         _dataset_payload(
