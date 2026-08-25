@@ -31,7 +31,7 @@ _TRUSTED_ACTIONS = {
     "actions/checkout": ("3d3c42e5aac5ba805825da76410c181273ba90b1", "v7.0.1"),
     "actions/setup-node": ("820762786026740c76f36085b0efc47a31fe5020", "v7.0.0"),
     "actions/setup-python": ("5fda3b95a4ea91299a34e894583c3862153e4b97", "v7.0.0"),
-    "astral-sh/setup-uv": ("ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d", "v10.0.0"),
+    "astral-sh/setup-uv": ("20cfd1bf945f4377ade1205e4dbc17946fc9a30d", "v10.0.1"),
 }
 
 _R2 = {
@@ -261,7 +261,7 @@ ${{
    github.event.pull_request.head.repo.full_name == github.repository)
 }}"""
 _LAKE_ACCEPTANCE_WORKFLOW_DIGEST = (
-    "b1660279a8db172702c05cfb6e8cbbb57dbddac80faeaad506ef6637a8cec66c"
+    "190780bf2a9fe9819abc6b34be48d3da1b049d1b3cde20fe6950a880208a11c6"
 )
 
 PathPart = str | int
