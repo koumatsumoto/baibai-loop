@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import sqlite3
 import subprocess
@@ -315,7 +316,9 @@ def test_blob_date_still_fails_closed_with_indexed_like(tmp_path: Path) -> None:
         )
 
 
-def test_incremental_export_rejects_a_different_transform(tmp_path) -> None:
+def test_a_base_from_an_earlier_transform_is_rebuilt_rather_than_refused(tmp_path) -> None:
+    """Refusing stopped the scheduled batch every morning until someone rebuilt by hand."""
+
     sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     first = _export(
@@ -327,17 +330,86 @@ def test_incremental_export_rejects_a_different_transform(tmp_path) -> None:
     )
     payload = json.loads(first.manifest_path.read_text())
     payload["transform_fingerprint"] = f"sha256:{'f' * 64}"
-    changed = tmp_path / "different-transform.json"
+    changed = tmp_path / "earlier-transform.json"
     changed.write_text(json.dumps(payload))
 
-    with pytest.raises(LakeBuildError, match="full rebuild"):
+    second = _export(
+        dataset_name="jquants.daily_bars",
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit=_COMMIT,
+        base_manifest_path=changed,
+        build_id="transform-next",
+    )
+
+    assert second.rebuilt_from_source is True
+    # Nothing was carried, so every partition was derived again and the release still
+    # describes the same history.
+    assert second.reused_partitions == ()
+    assert set(second.changed_partitions) == set(first.changed_partitions)
+    assert second.manifest.totals.rows == first.manifest.totals.rows
+
+
+def test_a_base_from_an_earlier_contract_version_is_rebuilt_rather_than_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A version bump reaches the same place, so it must get the same answer.
+
+    The base is written under the version the code carried at the time — object keys
+    included — so it is a valid manifest, just an older one. Editing the field in place
+    instead would break the keys it names and test the parser rather than this decision.
+    """
+
+    sqlite_path = market_store(tmp_path / "market.sqlite")
+    mirror = tmp_path / "mirror"
+    first = _export(
+        dataset_name="jquants.daily_bars",
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit=_COMMIT,
+        build_id="version-base",
+    )
+    dataset = require_lake_dataset("jquants.daily_bars")
+    monkeypatch.setitem(
+        writer_module.LAKE_DATASETS,
+        "jquants.daily_bars",
+        dataclasses.replace(dataset, contract_version=dataset.contract_version + 1),
+    )
+
+    second = _export(
+        dataset_name="jquants.daily_bars",
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit=_COMMIT,
+        base_manifest_path=first.manifest_path,
+        build_id="version-next",
+    )
+
+    assert second.rebuilt_from_source is True
+    assert second.manifest.contract_version == dataset.contract_version + 1
+
+
+def test_a_base_for_another_dataset_is_still_refused(tmp_path) -> None:
+    """Being handed the wrong file is a wiring error; no rebuild makes it the right one."""
+
+    sqlite_path = market_store(tmp_path / "market.sqlite")
+    mirror = tmp_path / "mirror"
+    foreign = _export(
+        dataset_name="jquants.short_sale_reports",
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit=_COMMIT,
+        build_id="foreign-base",
+    )
+
+    with pytest.raises(LakeBuildError, match="does not match the requested dataset contract"):
         _export(
             dataset_name="jquants.daily_bars",
             sqlite_path=sqlite_path,
             mirror_root=mirror,
             producer_git_commit=_COMMIT,
-            base_manifest_path=changed,
-            build_id="transform-next",
+            base_manifest_path=foreign.manifest_path,
+            build_id="foreign-next",
         )
 
 
@@ -640,7 +712,7 @@ def test_invalid_build_id_has_no_filesystem_side_effect(tmp_path: Path) -> None:
     assert not (tmp_path / "escape").exists()
 
 
-def test_transform_source_digest_change_rejects_partition_reuse(
+def test_a_moved_source_digest_rebuilds_onto_the_same_objects(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sqlite_path = market_store(tmp_path / "market.sqlite")
@@ -660,15 +732,21 @@ def test_transform_source_digest_change_rejects_partition_reuse(
         return original(path)
 
     monkeypatch.setattr(writer_module, "semantic_source_digest", changed_digest)
-    with pytest.raises(LakeBuildError, match="full rebuild"):
-        _export(
-            dataset_name="jquants.daily_bars",
-            sqlite_path=sqlite_path,
-            mirror_root=mirror,
-            producer_git_commit=_COMMIT,
-            base_manifest_path=base.manifest_path,
-            build_id="code-next",
-        )
+    rebuilt = _export(
+        dataset_name="jquants.daily_bars",
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit=_COMMIT,
+        base_manifest_path=base.manifest_path,
+        build_id="code-next",
+    )
+
+    assert rebuilt.rebuilt_from_source is True
+    # The digest moved but the code that writes the bytes did not, which is what three of
+    # the four firings before 2026-08-25 were. Re-deriving lands on the same objects, so
+    # the rebuild costs the export and nothing else — content addressing takes the rest.
+    assert rebuilt.created_objects == 0
+    assert rebuilt.manifest.totals == base.manifest.totals
 
 
 def test_immutable_metadata_link_failure_leaves_final_absent(
