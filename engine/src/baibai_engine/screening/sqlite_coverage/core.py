@@ -467,14 +467,22 @@ def _append_weekly_margin_issue(
         )
         return
     if stale_days > _WEEKLY_MARGIN_MAX_STALE_DAYS:
+        # The same reasoning the branch above states for the post-transition world holds
+        # here: staleness makes the legacy-derived optional axes null, and that is not a
+        # reason to stop unrelated screening inputs. The pre-transition branch used to
+        # block on the premise that a stale weekly balance meant our own fetch was
+        # broken. 2026-08-24 falsified it — the exchange was four to five weeks behind
+        # and delivered the backlog the next morning, while the batch discarded a day.
         issues.append(
             CacheCoverageIssue(
                 source="jquants_weekly_margin",
                 requirement=asof_date.isoformat(),
                 reason=(
                     f"newest balance date {latest} is {stale_days} days before the as-of "
-                    f"(limit {_WEEKLY_MARGIN_MAX_STALE_DAYS})"
+                    f"(limit {_WEEKLY_MARGIN_MAX_STALE_DAYS}); the legacy-derived margin "
+                    "axes are null for this run"
                 ),
+                blocking=False,
             )
         )
 
