@@ -78,7 +78,6 @@ class MarketLakePublishReport:
             "data_as_of": self.data_as_of,
             "release_id": self.release_id,
             "release_manifest_sha256": self.release_manifest_sha256,
-            "rebuilt_from_source": list(self.rebuilt_from_source),
             "uploaded_bytes": self.uploaded_bytes,
             "uploaded_objects": self.uploaded_objects,
         }
@@ -158,6 +157,18 @@ def publish_market_lake(
         f"pointer={published.pointer_seconds:.3f}s",
         file=sys.stderr,
     )
+    rebuilt = tuple(
+        name for name, item in sorted(export.datasets.items()) if item.rebuilt_from_source
+    )
+    if rebuilt:
+        # This run derived every partition of these datasets instead of carrying the
+        # previous release's. It is the batch recovering from a merge that moved the
+        # export, and it is why the run took longer than an ordinary one.
+        print(
+            "lake publish rebuilt from source (base was an earlier generation of the "
+            f"export): {', '.join(rebuilt)}",
+            file=sys.stderr,
+        )
     transfers = published.transfers.as_dict()
     return MarketLakePublishReport(
         release_id=published.release_id,
@@ -172,9 +183,7 @@ def publish_market_lake(
         },
         uploaded_objects=int(transfers.get("uploaded_objects", 0)),
         uploaded_bytes=int(transfers.get("uploaded_bytes", 0)),
-        rebuilt_from_source=tuple(
-            name for name, item in sorted(export.datasets.items()) if item.rebuilt_from_source
-        ),
+        rebuilt_from_source=rebuilt,
     )
 
 
