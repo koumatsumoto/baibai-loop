@@ -247,7 +247,64 @@ def evaluate(runs: Sequence[WorkflowRun], *, window_end: datetime, window_hours:
     )
 
 
-def render_alert(verdict: Verdict, *, repository: str, watchdog_run_url: str) -> str:
+@dataclass(frozen=True, slots=True)
+class Unattended:
+    """How often the schedule answered its own day, over the listing already fetched.
+
+    Every fail-close guard in the pipeline is defensible on its own; what nobody sees is
+    what they cost together. Reporting the aggregate beside an alert puts it in front of
+    whoever is about to add another guard.
+
+    A day is answered only by a run this listing can attribute to it, which is the same
+    rule the verdict uses — and `run_target_date` attributes scheduled runs, not manual
+    dispatches. So a day the schedule failed and a person rescued by hand counts as
+    unanswered. That is deliberate: the cost being measured is the intervention, and a
+    metric that forgave rescued days would report the pipeline healthy on exactly the
+    days someone had to work. Measured on 2026-08-25 it read 15 of 24 days, against 20
+    of 27 for the looser question "did the day produce output eventually".
+
+    Days are counted, not runs, so a day retried three times is one day either way.
+    """
+
+    answered: int
+    total: int
+    first_day: date
+    last_day: date
+
+    def describe(self) -> str:
+        share = 0 if self.total == 0 else round(100 * self.answered / self.total)
+        return (
+            f"{self.answered}/{self.total} days ({share}%) "
+            f"{self.first_day.isoformat()}..{self.last_day.isoformat()}"
+        )
+
+
+def unattended(runs: Sequence[WorkflowRun]) -> Unattended | None:
+    """Per-day unattended success, or None when the listing attributes no run to a day."""
+
+    answered: dict[date, bool] = {}
+    for run in runs:
+        day = run.target_date
+        if day is None:
+            continue
+        answered[day] = answered.get(day, False) or run.succeeded
+    if not answered:
+        return None
+    return Unattended(
+        answered=sum(1 for ok in answered.values() if ok),
+        total=len(answered),
+        first_day=min(answered),
+        last_day=max(answered),
+    )
+
+
+def render_alert(
+    verdict: Verdict,
+    *,
+    repository: str,
+    watchdog_run_url: str,
+    rate: Unattended | None = None,
+) -> str:
     """Render the bounded alert message for a window with no successful run."""
     window_hours = int((verdict.window_end - verdict.window_start).total_seconds() // 3600)
     lines = [
@@ -266,6 +323,8 @@ def render_alert(verdict: Verdict, *, repository: str, watchdog_run_url: str) ->
             lines.append(f"- +{len(verdict.runs_in_window) - RUNS_SHOWN} more")
     else:
         lines.append("runs in window: none (the schedule did not fire)")
+    if rate is not None:
+        lines.append(f"unattended: {rate.describe()}")
     lines.append(f"watchdog: {sanitize_one_line(watchdog_run_url)}")
     message = "\n".join(lines)
     if len(message) > MESSAGE_MAX_CHARS:
@@ -335,6 +394,7 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
         verdict,
         repository=env.get("GITHUB_REPOSITORY", "local/local"),
         watchdog_run_url=_watchdog_run_url(env),
+        rate=unattended(runs),
     )
     delivery = deliver(
         env.get(WEBHOOK_ENV_VAR, ""), message, timeout=args.timeout, transport=transport
