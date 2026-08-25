@@ -1800,17 +1800,12 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(parsed.excluded_record_count, 1)
         self.assertIsNone(parsed.published_on)
 
-    def test_jpx_earnings_parser_fails_on_layout_and_invalid_date(self) -> None:
+    def test_jpx_earnings_parser_fails_on_layout_and_invalid_code(self) -> None:
         provider = JPXProvider(Path("/tmp"))
         url = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx"
         with self.assertRaisesRegex(JPXProviderError, "header layout"):
             provider._parse_earnings_calendar_excel(
                 self._earnings_xlsx([["Date", "Code"], ["2026-07-15", "130A"]]), url
-            )
-        with self.assertRaisesRegex(JPXProviderError, "invalid JPX earnings date"):
-            provider._parse_earnings_calendar_excel(
-                self._earnings_xlsx([["決算発表日", "コード"], ["2026-99-99", "130A"]]),
-                url,
             )
         with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
             provider._parse_earnings_calendar_excel(
@@ -2041,19 +2036,39 @@ class ScreeningProviderTests(unittest.TestCase):
         )
         self.assertEqual(beside_a_bad_cell.published_on, date(2026, 7, 2))
 
-    def test_jpx_earnings_parser_fails_on_conflict_inside_one_file(self) -> None:
+    def test_jpx_earnings_parser_drops_a_ticker_dated_twice_and_keeps_the_file(self) -> None:
+        """2026-08-05: one issuer with two dates stopped the whole fetch, and the day.
+
+        The ticker leaves as undated — the same exit a 未定 row takes — and every
+        other issuer in the file is still delivered. A cell that is not a date at
+        all takes the same exit.
+        """
+
         provider = JPXProvider(Path("/tmp"))
-        with self.assertRaisesRegex(JPXProviderError, "conflicting JPX earnings dates"):
-            provider._parse_earnings_calendar_excel(
+        with self.assertLogs("baibai_engine.screening.providers.jpx", level="WARNING") as logs:
+            parsed = provider._parse_earnings_calendar_excel(
                 self._earnings_xlsx(
                     [
                         ["決算発表予定日", "コード"],
                         ["2026-08-06", "130A"],
                         ["2026-08-07", "130A"],
+                        ["2026-08-07", "1301"],
+                        ["2026-08-08", "130A"],
+                        ["8月上旬", "1305"],
                     ]
                 ),
                 "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/k.xlsx",
             )
+
+        self.assertEqual(
+            parsed.entries,
+            (JPXEarningsCalendarEntry(ticker="1301", announcement_date=date(2026, 8, 7)),),
+        )
+        self.assertEqual(parsed.raw_record_count, 5)
+        self.assertEqual(parsed.excluded_record_count, 4)
+        self.assertIn("conflicting=1 unparsable=1", logs.output[0])
+        self.assertIn("1305: '8月上旬'", logs.output[0])
+        self.assertIn("130A: 2026-08-06 and 2026-08-07", logs.output[0])
 
     def test_jpx_earnings_index_resolves_all_allowed_cohort_links(self) -> None:
         html = b"""
