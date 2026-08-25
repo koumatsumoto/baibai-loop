@@ -839,11 +839,8 @@ def test_a_forward_only_calendar_uses_its_policy_floor_not_the_previous_snapshot
         for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
         if item.dataset == "jquants.earnings_calendar"
     )
-    monkeypatch.setattr(
-        lake_models,
-        "PRODUCTION_RELEASE_POLICY",
-        lake_models.PRODUCTION_RELEASE_POLICY.model_copy(update={"datasets": (calendar,)}),
-    )
+    # The floors are what this test asserts against, so they are not relaxed.
+    narrow_release_policy(monkeypatch, datasets=("jquants.earnings_calendar",), relax_floors=False)
     payload = _dataset_payload(
         dataset="jquants.earnings_calendar",
         coverage_start="2026-07-03",
@@ -900,6 +897,8 @@ def test_a_forward_only_calendar_uses_its_policy_floor_not_the_previous_snapshot
 
     validate_release_policy(release, manifests, evaluated_at=evaluated_at)
 
+    # Not the shared narrowing: this half moves the very boundary under test, so the
+    # value belongs at the call site rather than behind a helper argument.
     monkeypatch.setattr(
         lake_models,
         "PRODUCTION_RELEASE_POLICY",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import sqlite3
@@ -84,7 +85,15 @@ def _build_monthly_history(directory: Path, *, months: list[str]) -> None:
 # twenty-plus cohorts. `build_supply_context` only reads, and the few tests that write
 # do so into their own copy, so each distinct store is built once for the session and
 # copied per test.
-_TEMPLATES: dict[tuple[str, tuple[object, ...]], Path] = {}
+_TEMPLATES: dict[tuple[str, tuple[object, ...]], tuple[Path, str]] = {}
+
+
+def _fingerprint(root: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        digest.update(path.relative_to(root).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
 
 
 def _template(
@@ -92,11 +101,17 @@ def _template(
 ) -> Path:
     cached = _TEMPLATES.get((kind, key))
     if cached is None:
-        cached = factory.mktemp(f"supply-{kind}-{len(_TEMPLATES)}") / "calibration"
-        cached.mkdir()
-        build(cached)  # type: ignore[operator]
+        root = factory.mktemp(f"supply-{kind}-{len(_TEMPLATES)}") / "calibration"
+        root.mkdir()
+        build(root)  # type: ignore[operator]
+        cached = (root, _fingerprint(root))
         _TEMPLATES[(kind, key)] = cached
-    return cached
+    root, fingerprint = cached
+    # A shared seed is only safe while nothing writes through it, and the tests that
+    # publish extra cohorts do so into their copy. Checked rather than assumed: a
+    # template mutated once would change every later test in this file silently.
+    assert _fingerprint(root) == fingerprint, f"supply-context {kind} template was mutated"
+    return root
 
 
 def _history(tmp_path: Path, factory: pytest.TempPathFactory, *, levels: list[float]) -> Path:
@@ -105,6 +120,7 @@ def _history(tmp_path: Path, factory: pytest.TempPathFactory, *, levels: list[fl
     )
     calibration = tmp_path / "calibration"
     shutil.copytree(template, calibration)
+    assert calibration != template
     return calibration
 
 
@@ -114,6 +130,7 @@ def _monthly_history(tmp_path: Path, factory: pytest.TempPathFactory, *, months:
     )
     calibration = tmp_path / "calibration"
     shutil.copytree(template, calibration)
+    assert calibration != template
     return calibration
 
 

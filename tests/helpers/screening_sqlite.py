@@ -7,7 +7,10 @@ in real test code.
 
 from __future__ import annotations
 
+import hashlib
+import shutil
 import sqlite3
+import tempfile
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -110,10 +113,37 @@ def insert_daily_bars_from_closes(
 
 CALIBRATION_FIXTURE_ASOF = date(2026, 6, 30)
 
+# Forty call sites build the same two-name store, and a panel build only reads it, so
+# it is written once per session and copied after that.
+_CALIBRATION_TEMPLATE: tempfile.TemporaryDirectory[str] | None = None
+_CALIBRATION_TEMPLATE_PATH: Path | None = None
+_CALIBRATION_TEMPLATE_SHA256: str | None = None
+
 
 def build_calibration_fixture_sqlite(sqlite_path: Path) -> None:
     """Two priced, disclosed names — the smallest market store a panel build accepts."""
 
+    global _CALIBRATION_TEMPLATE, _CALIBRATION_TEMPLATE_PATH, _CALIBRATION_TEMPLATE_SHA256
+    if _CALIBRATION_TEMPLATE_PATH is None:
+        _CALIBRATION_TEMPLATE = tempfile.TemporaryDirectory()
+        _CALIBRATION_TEMPLATE_PATH = Path(_CALIBRATION_TEMPLATE.name) / "market.sqlite"
+        _write_calibration_fixture_sqlite(_CALIBRATION_TEMPLATE_PATH)
+        _CALIBRATION_TEMPLATE_SHA256 = _file_sha256(_CALIBRATION_TEMPLATE_PATH)
+    # Callers write to their own copy, so nothing should reach the shared bytes. Checked
+    # rather than assumed: a template mutated once would change every later caller with
+    # nothing failing.
+    assert _file_sha256(_CALIBRATION_TEMPLATE_PATH) == _CALIBRATION_TEMPLATE_SHA256, (
+        "calibration fixture template was mutated"
+    )
+    assert sqlite_path != _CALIBRATION_TEMPLATE_PATH
+    shutil.copyfile(_CALIBRATION_TEMPLATE_PATH, sqlite_path)
+
+
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _write_calibration_fixture_sqlite(sqlite_path: Path) -> None:
     ASOF = CALIBRATION_FIXTURE_ASOF
 
     conn = open_connection(sqlite_path)
