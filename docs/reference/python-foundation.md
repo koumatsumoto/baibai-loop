@@ -70,6 +70,7 @@ formatter と linter は Ruff に統一する。Black / isort / Flake8 / pyupgra
 - tests は `ANN` / `PT009` / `PT027` などを緩める。テストは既存の `unittest` 形を維持しつつ、production code の strictness を優先する。
 - Markdown では末尾スペースが hard break として使われるため、pre-commit の trailing whitespace hook は `.md` を除外する。`end-of-file-fixer` は EOF 改行のみ補正し本文の hard break には触らないので、Markdown 全般を対象にしたままで安全。
 - 複数例外捕捉は `except (T1, T2):` と書く。commit 前に `rg -n "except [A-Za-z0-9_.]+, [A-Za-z0-9_.]+" src tests` が 0 件であることを確認する。
+- pre-push hook は §9 と同じ 14 gate を同じ形で回し、その後に `pytest -q -m "not slow"` を回す。drift gate は pytest の中では走らない — CI の Drift gates step と §9 が正本で、pytest に同じ実行を持たせると同じ入力を 2 度検査することになる。
 
 参考:
 
@@ -137,16 +138,23 @@ provider では次を守る。
 
 pytest は CI / config / marker / xfail の strict 系を個別に有効化する。`addopts` に `--strict-config` と `--strict-markers` を入れ、ini で `xfail_strict = true` を設定する。`--strict` の集約 alias は pytest 9 では曖昧になるため使わず、明示指定で厳密度の意図を保つ。
 
-suite は pytest-xdist の worker で並列実行する。CPU 時間は壁時計時間の 3 分の 1 しかなく残りは sqlite の I/O 待ちなので、core 数を超える worker がしばらく効き、その先で memory と切り替えに負ける。`addopts` の `-n auto` は開発機の広さを使うための既定で、CI は runner 実測で選んだ固定値を渡す。2 core の runner では worker 8 が 92 秒・16 が 130 秒と明確に悪化し、2 と 4 はどちらも runner のばらつき（74〜95 秒）の中に入る。過剰にしない側の 4 を取る。単一 process が要る実行（`-s`、`--pdb`、逐次の進捗表示）は `-n 0` で戻す。
+suite は pytest-xdist の worker で並列実行する。`TMPDIR` を tmpfs へ寄せてから I/O 待ちは消え、現在は CPU-bound である（`ci.yml` の該当 comment が実測を持つ: 2 core runner で CPU/wall ≈ 2.0）。待ちを埋める余地が無いので、core 数を超える worker は memory と切り替えに負けるだけになる。`addopts` の `-n auto` は開発機の広さを使うための既定で、CI は runner 実測で選んだ固定値を渡す。2 core の runner では worker 8 が 92 秒・16 が 130 秒と明確に悪化し、2 と 4 はどちらも runner のばらつき（74〜95 秒）の中に入る。過剰にしない側の 4 を取る。単一 process が要る実行（`-s`、`--pdb`、逐次の進捗表示）は `-n 0` で戻す。
 
 coverage は pytest-cov 経由で計測する。pytest-cov は各 worker の中で coverage を開始するのに対し、`coverage run -m pytest` は controller process しか見ず、並列実行では空に近い結果を報告する。計測値は直列実行と一致する。
 
-coverage gate は現在 80%。これは理想値ではなく、既存 suite の実測に合わせた初期 baseline である。今後は以下の順で ratchet する。
+coverage gate は現在 80%。これは理想値ではなく、既存 suite の実測に合わせた初期 baseline である。上げるのは行数ではなく検出力を上げたときで、その判断は次の所有権規則で行う。
 
-1. provider の cache / error path を追加テストする。
-2. CLI parser と subcommand error path を追加テストする。
-3. 変更行 coverage を PR レビュー観点に入れる。
-4. total gate を 85%、90%、95% の順に上げる。
+### 7.1 どの層が何を所有するか
+
+1 契約 = 1 primary owner。owner はその契約を実装する最下層の module とし、上位層はそこへ配線されていることだけを見る。
+
+- **R1 所有権**: owner 以外が同じ値・同じ述語を assert している箇所は、配線を示す 1 assert を残して literal を削る。
+- **R2 上位層の予算**: CLI / batch / Web / export が持つのは option・default・exit code・public output・配線と、代表的な正常系 1 本と fail-close 1 本。domain の全 partition を上位層で繰り返さない。
+- **R3 payload 所有**: consumer は自分が所有する field だけを assert する。payload 全文の比較は serializer round-trip の owner 1 箇所に置く。
+- **R4 同型**: 入力が 1 つだけ違う test が 3 件以上あれば 1 つの table にする。行（case）は減らさず、各行に元の test 名由来の id とその行がある理由を残す。`addopts` に `--maxfail=1` があるため、行ごとの失敗を全部報告する `subtests`（pytest 9 組み込み）を第一候補にし、行ごとに独立した fixture が要るときだけ `parametrize` を使う。table の行は production の定数から導かず literal で書く — 定数から導いた行はその定数と一緒に動き、定数の変更を検出できない。
+- **R5 builder**: 同じ概念の fixture builder は `tests/helpers/` に 1 つだけ置く。default が違う 2 つ目は variant ではなく bug である。builder は production の writer が受理する形を出す。production が拒否する形を正常系 fixture にしない。
+
+削除・統合は「`rg` で 0 件」では決めない。消して full suite を回し、対象の guard を 1 行壊して retained test が赤になることを確かめてから確定する。
 
 参考:
 

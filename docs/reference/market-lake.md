@@ -661,5 +661,3 @@ gh variable list | rg R2_LAKE_ACCEPTANCE
 BAIBAI_R2_ACCEPTANCE=1 uv run pytest -n 0 -vv tests/integration/test_lake_r2_acceptance.py
 ```
 
-acceptanceが走らせられない間、lakeのread経路を変える変更は実bucketに対する
-publish→download→hydrateのround tripで確かめる。
