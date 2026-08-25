@@ -8,11 +8,11 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
+from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
 from tools.diagnostics.benchmark_l1_export import benchmark
 
 from baibai_engine.market.lake import identity as identity_module
-from baibai_engine.market.lake import models as lake_models
 from baibai_engine.market.lake import write_cli as write_cli_module
 from baibai_engine.market.lake import writer as writer_module
 from baibai_engine.market.lake.datasets import require_lake_dataset
@@ -56,59 +56,6 @@ def _affected_periods(
         return writer_module.affected_periods(connection, dataset, base)
 
 
-@pytest.fixture(autouse=True)
-def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
-    datasets = tuple(
-        item.model_copy(
-            update={
-                "coverage_start_on_or_before": date.max,
-                "minimum_rows": 1,
-                "minimum_population_count": 1,
-            }
-        )
-        for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
-    )
-    monkeypatch.setattr(
-        lake_models,
-        "PRODUCTION_RELEASE_POLICY",
-        lake_models.PRODUCTION_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
-    )
-
-
-def _market_store(path: Path) -> Path:
-    connection = open_connection(path)
-    connection.executemany(
-        "INSERT INTO jquants_daily_bars(ticker, traded_at, close, volume) VALUES (?, ?, ?, ?)",
-        [
-            ("1301", "2026-01-05", 100.0, 1000.0),
-            ("7203", "2026-01-05", 200.0, 2000.0),
-            ("1301", "2026-01-20", 105.0, 1100.0),
-            ("1301", "2026-02-02", 110.0, 1200.0),
-        ],
-    )
-    connection.executemany(
-        """INSERT INTO jquants_short_sale_reports(
-             disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name,
-             discretionary_investment_contractor_name, investment_fund_name,
-             short_ratio, short_shares, short_trading_units, is_cancellation
-           ) VALUES (?, ?, ?, ?, ?, '', '', ?, ?, ?, ?)""",
-        [
-            ("2026-01-06", 0, "2026-01-05", "7203", "Fund A", 0.006, 600, 6, 0),
-            ("2026-02-03", 0, "2026-02-02", "6758", "Fund B", None, None, None, 1),
-        ],
-    )
-    connection.execute(
-        """INSERT INTO source_coverage(
-             source, coverage_key, coverage_start, coverage_end,
-             fetched_at_utc, record_count, status, error
-           ) VALUES ('jquants_short_sale_reports', 'test:pilot', '2026-01-01',
-                     '2026-02-28', '2026-03-01T00:00:00+00:00', 2, 'ok', NULL)"""
-    )
-    connection.commit()
-    connection.close()
-    return path
-
-
 def _export(*, sqlite_path: Path, mirror_root: Path, **kwargs: object) -> LakeBuildReport:
     """One whole export operation: seal the store, export from it, release the seal."""
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
@@ -120,7 +67,7 @@ def _export(*, sqlite_path: Path, mirror_root: Path, **kwargs: object) -> LakeBu
 
 
 def test_legacy_export_is_byte_deterministic_and_reuses_unchanged_objects(tmp_path) -> None:
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     first = _export(
         dataset_name="jquants.daily_bars",
@@ -154,7 +101,7 @@ def test_legacy_export_is_byte_deterministic_and_reuses_unchanged_objects(tmp_pa
 
 
 def test_incremental_export_replaces_only_the_affected_month(tmp_path) -> None:
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     first = _export(
         dataset_name="jquants.daily_bars",
@@ -198,7 +145,7 @@ def test_incremental_export_replaces_only_the_affected_month(tmp_path) -> None:
 
 
 def test_automatic_plan_detects_fact_and_coverage_changes(tmp_path) -> None:
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     first = _export(
         dataset_name="jquants.daily_bars",
@@ -243,7 +190,7 @@ def test_automatic_plan_detects_fact_and_coverage_changes(tmp_path) -> None:
 
 
 def test_case_sensitive_like_keeps_partition_rows_order_and_identity(tmp_path: Path) -> None:
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     dataset = require_lake_dataset("jquants.daily_bars")
     uri = f"{sqlite_path.resolve().as_uri()}?mode=ro&immutable=1"
     with (
@@ -316,7 +263,7 @@ def test_logical_coverage_change_affects_earnings_partition_but_fetch_time_does_
 def test_indexed_like_keeps_partition_source_hash_and_object_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     indexed_open = writer_module._open_immutable
 
@@ -352,7 +299,7 @@ def test_indexed_like_keeps_partition_source_hash_and_object_key(
 
 
 def test_blob_date_still_fails_closed_with_indexed_like(tmp_path: Path) -> None:
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     with sqlite3.connect(sqlite_path) as connection:
         connection.execute(
             "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
@@ -369,7 +316,7 @@ def test_blob_date_still_fails_closed_with_indexed_like(tmp_path: Path) -> None:
 
 
 def test_incremental_export_rejects_a_different_transform(tmp_path) -> None:
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     first = _export(
         dataset_name="jquants.daily_bars",
@@ -395,7 +342,7 @@ def test_incremental_export_rejects_a_different_transform(tmp_path) -> None:
 
 
 def test_short_sale_export_preserves_pk_values_and_cancellation(tmp_path) -> None:
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     result = _export(
         dataset_name="jquants.short_sale_reports",
@@ -417,7 +364,7 @@ def test_release_manifest_composes_exact_dataset_builds(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     narrow_release_policy(monkeypatch)
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(
         sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id="release-generation"
@@ -452,7 +399,7 @@ def test_release_rejects_mixed_sqlite_snapshot_generations(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     narrow_release_policy(monkeypatch)
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     created_at = datetime(2026, 8, 14, tzinfo=UTC)
     daily = _export(
@@ -487,7 +434,7 @@ def test_release_rejects_mixed_sqlite_snapshot_generations(
 
 
 def test_short_sale_unknown_coverage_is_not_publishable(tmp_path: Path) -> None:
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     with sqlite3.connect(sqlite_path) as connection:
         connection.execute(
             "DELETE FROM source_coverage WHERE source = ?", ("jquants_short_sale_reports",)
@@ -504,7 +451,7 @@ def test_short_sale_unknown_coverage_is_not_publishable(tmp_path: Path) -> None:
 
 
 def test_wal_snapshot_is_one_generation_for_both_pilot_datasets(tmp_path: Path) -> None:
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     live = sqlite3.connect(sqlite_path)
     live.execute("PRAGMA journal_mode = WAL")
     live.execute("PRAGMA wal_autocheckpoint = 0")
@@ -546,7 +493,7 @@ def test_pilot_orchestration_exports_one_release_generation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     narrow_release_policy(monkeypatch)
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
 
     report = export_lake_legacy(
@@ -575,7 +522,7 @@ def test_pilot_orchestration_exports_one_release_generation(
 
 
 def test_commit_after_snapshot_does_not_change_export_generation(tmp_path: Path) -> None:
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(
         sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id="before-later-commit"
@@ -603,7 +550,7 @@ def test_commit_after_snapshot_does_not_change_export_generation(tmp_path: Path)
 
 
 def test_parity_rejects_a_missing_source_month(tmp_path: Path) -> None:
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror) as snapshot:
         report = export_legacy_sqlite(
@@ -636,7 +583,7 @@ def test_a_daily_build_checks_the_months_it_wrote_and_the_month_inventory(
     month missing from one side is a hole no per-partition check would look at.
     """
 
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror) as snapshot:
         first = export_legacy_sqlite(
@@ -677,7 +624,7 @@ def test_a_daily_build_checks_the_months_it_wrote_and_the_month_inventory(
 
 
 def test_invalid_build_id_has_no_filesystem_side_effect(tmp_path: Path) -> None:
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
 
     with pytest.raises(ValueError, match="path-safe"):
@@ -696,7 +643,7 @@ def test_invalid_build_id_has_no_filesystem_side_effect(tmp_path: Path) -> None:
 def test_transform_source_digest_change_rejects_partition_reuse(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     base = _export(
         dataset_name="jquants.daily_bars",
@@ -801,7 +748,7 @@ def test_l1_manifest_digest_is_part_of_the_gc_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     narrow_release_policy(monkeypatch)
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     report = export_lake_legacy(
         sqlite_path=sqlite_path,
@@ -832,7 +779,7 @@ def test_l1_manifest_digest_is_part_of_the_gc_root(
 
 
 def test_l1_export_benchmark_records_full_and_incremental_transfer(tmp_path: Path) -> None:
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     connection = open_connection(sqlite_path)
     write_lake_store_origin(
         connection,
@@ -889,7 +836,7 @@ def test_the_sealed_store_is_gone_when_the_export_operation_ends(tmp_path: Path)
     state which generation they read.
     """
 
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
 
     report = export_lake_legacy(
@@ -938,7 +885,7 @@ def test_a_release_stays_resolvable_with_no_sealed_store_to_reach(
     narrow_release_policy(monkeypatch)
     """The sealed generation is named, not kept, so nothing reports it as a lost root."""
 
-    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     report = export_lake_legacy(
         sqlite_path=sqlite_path,

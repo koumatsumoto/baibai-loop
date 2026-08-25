@@ -7,11 +7,13 @@ import os
 import sqlite3
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
 import pytest
+from tests.helpers.l1_release import market_store
+from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_batch.storage.lake_publish import (
     Boto3R2Store,
@@ -38,7 +40,6 @@ from baibai_engine.market.lake.prefetch import prefetching_hydration_cache
 from baibai_engine.market.lake.reader import resolve_current_release
 from baibai_engine.market.lake.release import L1ReleasePointer, create_l1_release
 from baibai_engine.market.lake.writer import export_lake_legacy
-from baibai_engine.market.sqlite import open_connection
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("BAIBAI_R2_ACCEPTANCE") != "1",
@@ -127,55 +128,25 @@ def _exclusive_bucket_lifecycle() -> Iterator[None]:
         print(f"R2 acceptance cleanup deleted {len(keys)} key(s): {keys}")
 
 
-def _allow_tiny_pilot(monkeypatch: pytest.MonkeyPatch) -> None:
-    policy = lake_models.PRODUCTION_RELEASE_POLICY
-    monkeypatch.setattr(
-        lake_models,
-        "PRODUCTION_RELEASE_POLICY",
-        policy.model_copy(
-            update={
-                "datasets": tuple(
-                    item.model_copy(
-                        update={
-                            "coverage_start_on_or_before": date.max,
-                            "minimum_rows": 1,
-                            "minimum_population_count": 1,
-                            "max_age_days": 10_000,
-                            "max_lead_days": 10_000,
-                        }
-                    )
-                    for item in policy.datasets
-                    if item.dataset in {"jquants.daily_bars", "jquants.short_sale_reports"}
-                ),
-            }
+def _tiny_market(path: Path) -> Path:
+    """The smallest store that still satisfies the narrowed release profile.
+
+    Every extra row is an extra object this acceptance run uploads to and deletes
+    from real R2, so the seed stays at one row per dataset.
+    """
+
+    return market_store(
+        path,
+        daily_bars=(("1301", "2026-01-05", 100.0, 1000.0),),
+        short_sale_reports=(("2026-01-06", 0, "2026-01-05", "1301", "Fund", 0.006, 600, 6, 0),),
+        short_sale_coverage=(
+            "acceptance",
+            "2026-01-01",
+            "2026-01-31",
+            "2026-02-01T00:00:00+00:00",
+            1,
         ),
     )
-
-
-def _tiny_market(path: Path) -> Path:
-    connection = open_connection(path)
-    connection.execute(
-        "INSERT INTO jquants_daily_bars(ticker, traded_at, close, volume) "
-        "VALUES ('1301', '2026-01-05', 100.0, 1000.0)"
-    )
-    connection.execute(
-        """INSERT INTO jquants_short_sale_reports(
-             disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name,
-             discretionary_investment_contractor_name, investment_fund_name,
-             short_ratio, short_shares, short_trading_units, is_cancellation
-           ) VALUES ('2026-01-06', 0, '2026-01-05', '1301', 'Fund', '', '',
-                     0.006, 600, 6, 0)"""
-    )
-    connection.execute(
-        """INSERT INTO source_coverage(
-             source, coverage_key, coverage_start, coverage_end,
-             fetched_at_utc, record_count, status, error
-           ) VALUES ('jquants_short_sale_reports', 'acceptance', '2026-01-01',
-                     '2026-01-31', '2026-02-01T00:00:00+00:00', 1, 'ok', NULL)"""
-    )
-    connection.commit()
-    connection.close()
-    return path
 
 
 def _download_l1_closure(store: Boto3R2Store, mirror: Path) -> None:
@@ -247,7 +218,7 @@ def test_actual_r2_conditional_writes_refuse_a_stale_generation(tmp_path: Path) 
 def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _allow_tiny_pilot(monkeypatch)
+    narrow_release_policy(monkeypatch)
     store = _store()
     mirror = tmp_path / "publisher"
     sqlite_path = _tiny_market(tmp_path / "market.sqlite")
@@ -347,7 +318,7 @@ def test_actual_r2_reconciles_a_real_pointer_commit_after_a_wrapper_error(
 ) -> None:
     """Keep R2 responsible for the commit while a thin wrapper loses its result."""
 
-    _allow_tiny_pilot(monkeypatch)
+    narrow_release_policy(monkeypatch)
     delegate = _store()
     mirror = tmp_path / "publisher"
     sqlite_path = _tiny_market(tmp_path / "market.sqlite")

@@ -21,9 +21,19 @@ import yaml
 
 # The market store a panel can actually be built from: master snapshot, financial
 # summaries and bars, seeded the way the calibration tests already seed it.
-from tests.engine.test_calibration_panel import ASOF as PANEL_ASOF
-from tests.engine.test_calibration_panel import _build_fixture_sqlite
-from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
+from tests.helpers.screening_run import screening_run_payload
+from tests.helpers.screening_sqlite import (
+    CALIBRATION_FIXTURE_ASOF as PANEL_ASOF,
+)
+from tests.helpers.screening_sqlite import (
+    build_calibration_fixture_sqlite,
+    insert_daily_bars_from_closes,
+)
+from tests.helpers.shortlist import (
+    rejected_entry,
+    selected_entry,
+    shortlist_from_selection,
+)
 
 from baibai_engine.read_api import list_shortlist_payloads
 from baibai_engine.screening.calibration.lake import (
@@ -66,26 +76,6 @@ def _verified_calibration_source(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def _narrative() -> dict[str, str]:
-    return {
-        "ploss": "中低",
-        "why": "一時的な受注端境で売られている",
-        "temporary": "翌期受注残は積み上がる",
-        "structural": "構造的な需要毀損はない",
-        "survive": "net cashで5年耐える",
-        "unlock": "還元強化の余地",
-        "upside": "受注が平年並みなら正常利益ベースでPER12倍相当",
-        "downside": "受注半減でも営業黒字を保ち簿価が床になる",
-        "rr": "下値が資産で支えられ上値は倍近い",
-        "catalyst": "2Q決算で受注残の回復を確認する",
-        "macro": "connectionのsizing cautionは該当なし",
-        "counter": "受注が構造鈍化する可能性",
-        "research": "受注残と粗利率を一次IRで確認",
-        "value": "FV乖離が大きい",
-        "prov": "深掘り最優先",
-    }
-
-
 def _candidate(ticker: str, *, name: str, sector: str, er_annual: float) -> dict[str, object]:
     return {
         "ticker": ticker,
@@ -110,20 +100,16 @@ def _candidate(ticker: str, *, name: str, sector: str, er_annual: float) -> dict
 def _publish_run(runs_db: Path) -> None:
     """Seed the immutable run the selection is drawn from."""
     ScreeningRunStore(runs_db).publish_run(
-        {
-            "run_id": "screening-20260708",
-            "run_date": RUN_ASOF.isoformat(),
-            "asof_date": RUN_ASOF.isoformat(),
-            "run_at": f"{RUN_ASOF.isoformat()}T18:00:00+09:00",
-            "universe_size": 2,
-            "rules_ref": str(RULES_PATH),
-            "screening_rules_hash": RULES_HASH,
-            "er_model_version": "expected-return-v1",
-            "candidates": [
+        screening_run_payload(
+            as_of=RUN_ASOF.isoformat(),
+            universe_size=2,
+            rules_hash=RULES_HASH,
+            candidates=[
                 _candidate("1111", name="seam candidate", sector="機械", er_annual=0.12),
                 _candidate("2222", name="seam alternate", sector="サービス業", er_annual=0.04),
             ],
-        },
+            rules_ref=str(RULES_PATH),
+        ),
         run_revision_id=RUN_REVISION_ID,
     )
 
@@ -170,43 +156,15 @@ def _publish_selection(runs_db: Path, tmp_path: Path) -> dict[str, object]:
 
 
 def _write_shortlist_draft(path: Path, selection: dict[str, object]) -> None:
-    block = selection["selection"]
-    assert isinstance(block, dict)
     path.write_text(
         yaml.safe_dump(
-            {
-                "schema_version": 5,
-                "kind": "shortlist",
-                "shortlist_id": SHORTLIST_ID,
-                "selection_id": selection["selection_id"],
-                "run_revision_id": RUN_REVISION_ID,
-                "as_of": RUN_ASOF.isoformat(),
-                "published_at": f"{RUN_ASOF.isoformat()}T15:00:00+09:00",
-                "profile": block["profile"],
-                "macro_context_id": None,
-                "attention_policy_id": selection["attention_policy_id"],
-                "attention_policy_hash": selection["attention_policy_hash"],
-                "attention_policy_parameters": selection["attention_policy_parameters"],
-                "review_basis_shortlist_id": selection["review_basis"][
-                    "judged_through_shortlist_id"
-                ],
-                "research_gate_contract_id": "research-gate-v1",
-                "entries": [
-                    {
-                        "ticker": "1111",
-                        "decision": "selected",
-                        "rank": 1,
-                        "reason": "一次IRへ進める",
-                        "narrative": _narrative(),
-                    },
-                    {
-                        "ticker": "2222",
-                        "decision": "rejected",
-                        "reason": "根拠が弱い",
-                        "reject_class": "other",
-                    },
-                ],
-            },
+            shortlist_from_selection(
+                selection,
+                shortlist_id=SHORTLIST_ID,
+                run_revision_id=RUN_REVISION_ID,
+                as_of=RUN_ASOF.isoformat(),
+                entries=[selected_entry("1111"), rejected_entry("2222")],
+            ),
             sort_keys=False,
             allow_unicode=True,
         ),
@@ -330,7 +288,7 @@ def test_shortlist_outcome_cli_writes_the_cohort_comparison_file(
 def panel_market_sqlite(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A market store whose breadth lets the month-end grid resolve a cohort date."""
     sqlite_path = tmp_path_factory.mktemp("panel-market") / "market.sqlite"
-    _build_fixture_sqlite(sqlite_path)
+    build_calibration_fixture_sqlite(sqlite_path)
     breadth = [
         (f"{3000 + index:04d}", day.isoformat(), 100.0, 100.0)
         for day in (PANEL_ASOF, NEXT_MONTH_END)

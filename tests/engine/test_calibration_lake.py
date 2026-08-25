@@ -16,7 +16,7 @@ from tests.helpers.calibration_store import (
     publish_panel,
     synthetic_calibration_source,
 )
-from tests.helpers.l1_release import stored_release_source
+from tests.helpers.l1_release import release_source, stored_release_source
 
 from baibai_engine.market.lake import models as lake_models
 from baibai_engine.market.lake import retention as retention_module
@@ -24,7 +24,6 @@ from baibai_engine.market.lake import sources as sources_module
 from baibai_engine.market.lake.keys import (
     calibration_bundle_manifest_key,
     current_calibration_bundle_pointer_key,
-    release_manifest_key,
 )
 from baibai_engine.market.lake.models import (
     CalibrationBundleManifest,
@@ -178,17 +177,6 @@ class TestTypedContract:
         assert same != transform_fingerprint(
             CALIBRATION_PANEL, cache_schema_version=CACHE_SCHEMA_VERSION
         )
-
-
-def _release_source() -> L1ReleaseSourceRef:
-    release_id = "20260130T000000Z-release"
-    return L1ReleaseSourceRef(
-        kind="l1_release",
-        source_id=release_id,
-        key=release_manifest_key(release_id=release_id),
-        sha256="b" * 64,
-        manifest_version=1,
-    )
 
 
 class TestImmutableBuilds:
@@ -440,7 +428,7 @@ class TestImmutableBuilds:
         entry = CohortInventoryEntry(
             status="empty",
             rows=0,
-            sources=(snapshot, _release_source()),
+            sources=(snapshot, release_source()),
             input_cutoff=date.fromisoformat(_JANUARY),
             measurement_policy=policy,
         )
@@ -461,7 +449,7 @@ class TestImmutableBuilds:
             CohortInventoryEntry(
                 status="empty",
                 rows=0,
-                sources=(_release_source(),),
+                sources=(release_source(),),
                 input_cutoff=date.fromisoformat(_JANUARY),
                 measurement_policy=policy,
             )
@@ -472,7 +460,7 @@ class TestImmutableBuilds:
 
         del tmp_path
         with pytest.raises(ValidationError):
-            TypeAdapter(SourceRef).validate_python(_release_source().model_dump(mode="python"))
+            TypeAdapter(SourceRef).validate_python(release_source().model_dump(mode="python"))
 
     def test_a_cohort_is_published_as_a_build_the_pointer_names(self, tmp_path: Path) -> None:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))

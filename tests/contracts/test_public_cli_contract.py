@@ -11,7 +11,16 @@ import yaml
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.fixed_now import FIXED_NOW
 from tests.helpers.ledger import load_portfolio_ledger
-from tests.helpers.research_gate import RESEARCH_GATE_NARRATIVE
+from tests.helpers.screening_run import (
+    evidence_hit,
+    screening_candidate,
+    screening_run_payload,
+)
+from tests.helpers.shortlist import (
+    rejected_entry,
+    selected_entry,
+    shortlist_from_selection,
+)
 
 from baibai_engine.macro.indicators.cli import build_parser as macro_parser
 from baibai_engine.macro.indicators.cli import main as macro_main
@@ -61,36 +70,24 @@ def _import_ledger(db_path: Path, source: Path = LEDGER_FIXTURE) -> None:
 def _publish_contract_run(runs_db: Path) -> str:
     run_revision_id = "run-revision-public-contract"
     ScreeningRunStore(runs_db).publish_run(
-        {
-            "run_id": "screening-20260424",
-            "run_date": "2026-04-24",
-            "asof_date": "2026-04-24",
-            "run_at": "2026-04-24T18:00:00+09:00",
-            "universe_size": 1,
-            "rules_ref": str(RULES_PATH),
-            "screening_rules_hash": RULES_HASH,
-            "er_model_version": "expected-return-v1",
-            "candidates": [
-                {
-                    "ticker": "1111",
-                    "name": "contract candidate",
-                    "sector_33": "機械",
-                    "market_cap_oku": 300,
-                    "avg_turnover_oku": 2.0,
-                    "listing_span_days": 1200,
-                    "jpx_flags": [],
-                    "metrics": {"er_annual": 1.0},
-                    "evidence_hits": [
-                        {
-                            "name": "valuation-reversion",
-                            "evidence_pattern_id": "cashflow-yield-discount",
-                            "source_status": "ok",
-                            "sizing_eligible": True,
-                        }
-                    ],
-                }
+        screening_run_payload(
+            as_of="2026-04-24",
+            universe_size=1,
+            rules_hash=RULES_HASH,
+            candidates=[
+                screening_candidate(
+                    "1111",
+                    name="contract candidate",
+                    sector_33="機械",
+                    market_cap_oku=300,
+                    avg_turnover_oku=2.0,
+                    listing_span_days=1200,
+                    metrics={"er_annual": 1.0},
+                    evidence_hits=[evidence_hit()],
+                )
             ],
-        },
+            rules_ref=str(RULES_PATH),
+        ),
         run_revision_id=run_revision_id,
     )
     return run_revision_id
@@ -160,37 +157,17 @@ def _research_gate_draft(selection: dict[str, object], *, selected: str, rejecte
 
     metadata = selection["selection"]
     assert isinstance(metadata, dict)
-    return {
-        "schema_version": 5,
-        "kind": "shortlist",
-        "shortlist_id": "shortlist-20260424-research-gate-e2e",
-        "selection_id": selection["selection_id"],
-        "run_revision_id": metadata["input_refs"]["candidates_ref"],
-        "as_of": "2026-04-24",
-        "published_at": "2026-04-24T18:30:00+09:00",
-        "profile": metadata["profile"],
-        "macro_context_id": None,
-        "attention_policy_id": selection["attention_policy_id"],
-        "attention_policy_hash": selection["attention_policy_hash"],
-        "attention_policy_parameters": selection["attention_policy_parameters"],
-        "review_basis_shortlist_id": None,
-        "research_gate_contract_id": "research-gate-v1",
-        "entries": [
-            {
-                "ticker": selected,
-                "decision": "selected",
-                "rank": 1,
-                "reason": "一次リサーチへ進める",
-                "narrative": dict(RESEARCH_GATE_NARRATIVE),
-            },
-            {
-                "ticker": rejected,
-                "decision": "rejected",
-                "reason": "深掘りの枠を使う価値が確認できない",
-                "reject_class": "other",
-            },
+    return shortlist_from_selection(
+        selection,
+        shortlist_id="shortlist-20260424-research-gate-e2e",
+        run_revision_id=str(metadata["input_refs"]["candidates_ref"]),
+        as_of="2026-04-24",
+        published_at="2026-04-24T18:30:00+09:00",
+        entries=[
+            selected_entry(selected, reason="一次リサーチへ進める"),
+            rejected_entry(rejected, reason="深掘りの枠を使う価値が確認できない"),
         ],
-    }
+    )
 
 
 def test_research_gate_bounds_the_primary_research_set_end_to_end(

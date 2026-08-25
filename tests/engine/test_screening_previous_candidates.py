@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests.helpers.shortlist import rejected_entry, shortlist_payload
 
 from baibai_engine.appdb.write import connect_rw
 from baibai_engine.screening.cli.query import select_command
@@ -124,15 +125,14 @@ def test_select_reads_pruned_canonical_previous_from_shortlist(
 ) -> None:
     run_revision_id, asof = _pruned_to_latest_run(app_method_root / "stores/screening/runs.sqlite")
     shortlist_id = "shortlist-20260707-canonical"
-    payload = {
-        "schema_version": 4,
-        "shortlist_id": shortlist_id,
-        "as_of": "2026-07-07",
-        "entries": [
-            {"ticker": "2331", "decision": "rejected"},
-            {"ticker": "0001", "decision": "rejected"},
-        ],
-    }
+    payload = shortlist_payload(
+        shortlist_id=shortlist_id,
+        selection_id="selection-pruned",
+        run_revision_id="run-pruned",
+        as_of="2026-07-07",
+        published_at="2026-07-07T18:00:00+09:00",
+        entries=[rejected_entry("2331"), rejected_entry("0001")],
+    )
     with connect_rw(app_method_root / "stores/application/baibai.sqlite") as connection:
         connection.execute(
             """

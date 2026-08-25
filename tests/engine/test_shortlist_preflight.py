@@ -6,7 +6,9 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
+from tests.helpers.screening_run import screening_candidate, screening_run_payload
 from tests.helpers.screening_selection import value_carry_selection_payload
+from tests.helpers.shortlist import rejected_entry, shortlist_payload
 
 from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.screening import shortlist_preflight as shortlist_preflight_module
@@ -29,27 +31,17 @@ def test_git_state_rejects_head_change_during_snapshot(
 
 
 def _run(as_of: str, run_at: str) -> dict[str, object]:
-    return {
-        "run_id": f"screening-{as_of.replace('-', '')}",
-        "run_date": as_of,
-        "asof_date": as_of,
-        "run_at": run_at,
-        "universe_size": 1,
-        "screening_rules_hash": "rules-preflight-fixture",
-        "er_model_version": "expected-return-v1",
-        "candidates": [
-            {
-                "ticker": "2331",
-                "name": "ALSOK",
-                "market_cap_oku": 1000.0,
-                "avg_turnover_oku": 10.0,
-                "listing_span_days": 1000,
-                "jpx_flags": [],
-                "evidence_hits": [],
-                "metrics": {"er_annual": 0.1},
-            }
+    return screening_run_payload(
+        as_of=as_of,
+        run_at=run_at,
+        universe_size=1,
+        rules_hash="rules-preflight-fixture",
+        candidates=[
+            screening_candidate(
+                "2331", name="ALSOK", sector_33="サービス業", metrics={"er_annual": 0.1}
+            )
         ],
-    }
+    )
 
 
 def _selection(
@@ -153,14 +145,14 @@ def _canonical_shortlist(
     selection_id: str,
 ) -> None:
     initialize_database(path)
-    payload = {
-        "schema_version": 4,
-        "shortlist_id": "shortlist-20260806-canonical",
-        "as_of": as_of,
-        "run_revision_id": run_id,
-        "selection_id": selection_id,
-        "entries": [{"ticker": "2331", "decision": "rejected"}],
-    }
+    payload = shortlist_payload(
+        shortlist_id="shortlist-20260806-canonical",
+        as_of=as_of,
+        published_at=f"{as_of}T18:00:00+09:00",
+        run_revision_id=run_id,
+        selection_id=selection_id,
+        entries=[rejected_entry("2331")],
+    )
     connection = connect_rw(path)
     try:
         connection.execute(

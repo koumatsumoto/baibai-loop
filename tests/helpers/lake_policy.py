@@ -19,6 +19,11 @@ from baibai_engine.market.lake import models as lake_models
 
 FIXTURE_DATASETS = ("jquants.daily_bars", "jquants.short_sale_reports")
 
+# Captured at import, before any test patches the module attribute, so narrowing always
+# starts from the shipping profile. A fixture that narrows further would otherwise select
+# from another fixture's leftovers and find nothing.
+_FULL_RELEASE_POLICY = lake_models.PRODUCTION_RELEASE_POLICY
+
 
 def narrow_release_policy(
     monkeypatch: pytest.MonkeyPatch,
@@ -36,7 +41,7 @@ def narrow_release_policy(
     """
 
     wanted = set(datasets)
-    policy = lake_models.PRODUCTION_RELEASE_POLICY
+    policy = _FULL_RELEASE_POLICY
     relaxation: dict[str, object] = (
         {
             "coverage_start_on_or_before": date.max,

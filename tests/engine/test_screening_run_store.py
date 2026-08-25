@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import Event
 
 import pytest
+from tests.helpers.screening_run import screening_candidate, screening_run_payload
 from tests.helpers.screening_selection import value_carry_selection_payload
 
 from baibai_engine.appdb.json import canonical_json
@@ -42,37 +43,26 @@ def _run(
     run_at: str = "2026-07-09T01:59:42+09:00",
     ticker: str = "1301",
 ) -> dict[str, object]:
-    compact = as_of.replace("-", "")
-    return {
-        "run_date": as_of,
-        "asof_date": as_of,
-        "universe_size": 3744,
-        "filters": {"scope": "all-common-stocks"},
-        "generated_by": "screening-cli-v1",
-        "data_sources": ["j-quants-light"],
-        "run_at": run_at,
-        "run_id": f"screening-{compact}",
-        "screening_rules_hash": _RULES_HASH,
-        "er_model_version": _MODEL_ID,
-        "candidates": [
-            {
-                "ticker": ticker,
-                "name": "極洋",
-                "sector_33": "水産・農林業",
-                "per_forward": 7.43,
-                "per_trailing": 7.82,
-                "pbr": 0.69,
-                "market_cap_oku": 1000.0,
-                "avg_turnover_oku": 10.0,
-                "listing_span_days": 1000,
-                "jpx_flags": [],
-                "metrics": {"dividend_yield": 0.021, "er_annual": 0.13},
-                "evidence_hits": [],
-            }
+    return screening_run_payload(
+        as_of=as_of,
+        run_at=run_at,
+        rules_hash=_RULES_HASH,
+        model_id=_MODEL_ID,
+        candidates=[
+            screening_candidate(
+                ticker,
+                per_forward=7.43,
+                per_trailing=7.82,
+                pbr=0.69,
+                metrics={"dividend_yield": 0.021, "er_annual": 0.13},
+            )
         ],
-        "provider_status_lines": [],
-        "fallback_lines": [],
-    }
+        filters={"scope": "all-common-stocks"},
+        generated_by="screening-cli-v1",
+        data_sources=["j-quants-light"],
+        provider_status_lines=[],
+        fallback_lines=[],
+    )
 
 
 def _selection(

@@ -9,6 +9,11 @@ from pathlib import Path
 import pytest
 import yaml
 from fastapi.testclient import TestClient
+from tests.helpers.shortlist import (
+    rejected_entry,
+    selected_entry,
+    shortlist_from_selection,
+)
 
 from baibai_engine.proposals.cli import main as proposal_main
 from baibai_engine.read_api import (
@@ -23,26 +28,6 @@ from baibai_engine.screening.cli.query import select_command
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
 from baibai_engine.screening.shortlist_cli import publish_shortlist
 from baibai_web.api.server import create_app
-
-
-def _selected_narrative() -> dict[str, str]:
-    return {
-        "ploss": "中低",
-        "why": "一時的な受注端境で売られている",
-        "temporary": "翌期受注残は積み上がる",
-        "structural": "構造的な需要毀損はない",
-        "survive": "net cashで5年耐える",
-        "unlock": "還元強化の余地",
-        "upside": "受注が平年並みなら正常利益ベースでPER12倍相当",
-        "downside": "受注半減でも営業黒字を保ち簿価が床になる",
-        "rr": "下値が資産で支えられ上値は倍近い",
-        "catalyst": "2Q決算で受注残の回復を確認する",
-        "macro": "connectionのsizing cautionは該当なし",
-        "counter": "受注が構造鈍化する可能性",
-        "research": "受注残と粗利率を一次IRで確認",
-        "value": "FV乖離が大きい",
-        "prov": "深掘り最優先",
-    }
 
 
 def test_select_and_shortlist_publish_from_explicit_run_revision(
@@ -87,33 +72,13 @@ def test_select_and_shortlist_publish_from_explicit_run_revision(
     draft = app_method_root / "shortlist.yaml"
     draft.write_text(
         yaml.safe_dump(
-            {
-                "schema_version": 5,
-                "kind": "shortlist",
-                "shortlist_id": "shortlist-20260708-test",
-                "selection_id": outputs[0]["selection_id"],
-                "run_revision_id": run.run_revision_id,
-                "as_of": run.as_of_date,
-                "published_at": "2026-07-08T15:00:00+09:00",
-                "profile": selection["profile"],
-                "macro_context_id": None,
-                "attention_policy_id": outputs[0]["attention_policy_id"],
-                "attention_policy_hash": outputs[0]["attention_policy_hash"],
-                "attention_policy_parameters": outputs[0]["attention_policy_parameters"],
-                "review_basis_shortlist_id": outputs[0]["review_basis"][
-                    "judged_through_shortlist_id"
-                ],
-                "research_gate_contract_id": "research-gate-v1",
-                "entries": [
-                    {
-                        "ticker": "2331",
-                        "decision": "selected",
-                        "rank": 1,
-                        "reason": "一次IRへ進める",
-                        "narrative": _selected_narrative(),
-                    }
-                ],
-            },
+            shortlist_from_selection(
+                outputs[0],
+                shortlist_id="shortlist-20260708-test",
+                run_revision_id=run.run_revision_id,
+                as_of=run.as_of_date,
+                entries=[selected_entry("2331")],
+            ),
             sort_keys=False,
             allow_unicode=True,
         ),
@@ -194,39 +159,16 @@ def test_reevaluation_suggestions_leave_stdout_a_single_yaml_document(
     draft = app_method_root / "shortlist-triggers.yaml"
     draft.write_text(
         yaml.safe_dump(
-            {
-                "schema_version": 5,
-                "kind": "shortlist",
-                "shortlist_id": "shortlist-20260708-trigger",
-                "selection_id": selection["selection_id"],
-                "run_revision_id": run.run_revision_id,
-                "as_of": run.as_of_date,
-                "published_at": "2026-07-08T15:00:00+09:00",
-                "profile": selection["selection"]["profile"],
-                "macro_context_id": None,
-                "attention_policy_id": selection["attention_policy_id"],
-                "attention_policy_hash": selection["attention_policy_hash"],
-                "attention_policy_parameters": selection["attention_policy_parameters"],
-                "review_basis_shortlist_id": selection["review_basis"][
-                    "judged_through_shortlist_id"
+            shortlist_from_selection(
+                selection,
+                shortlist_id="shortlist-20260708-trigger",
+                run_revision_id=run.run_revision_id,
+                as_of=run.as_of_date,
+                entries=[
+                    selected_entry("2331"),
+                    rejected_entry("0001", reason="決算前で見送り", reject_class="event_wait"),
                 ],
-                "research_gate_contract_id": "research-gate-v1",
-                "entries": [
-                    {
-                        "ticker": "2331",
-                        "decision": "selected",
-                        "rank": 1,
-                        "reason": "一次IRへ進める",
-                        "narrative": _selected_narrative(),
-                    },
-                    {
-                        "ticker": "0001",
-                        "decision": "rejected",
-                        "reason": "決算前で見送り",
-                        "reject_class": "event_wait",
-                    },
-                ],
-            },
+            ),
             sort_keys=False,
             allow_unicode=True,
         ),
@@ -366,33 +308,15 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
     draft = app_method_root / "shortlist-weak-ref.yaml"
     draft.write_text(
         yaml.safe_dump(
-            {
-                "schema_version": 5,
-                "kind": "shortlist",
-                "shortlist_id": "shortlist-20260708-weak-ref",
-                "selection_id": selection_id,
-                "run_revision_id": source_run.run_revision_id,
-                "as_of": source_run.as_of_date,
-                "published_at": "2026-07-08T16:00:00+09:00",
-                "profile": selection["profile"],
-                "macro_context_id": input_refs["macro_context_ref"],
-                "attention_policy_id": selection_payload["attention_policy_id"],
-                "attention_policy_hash": selection_payload["attention_policy_hash"],
-                "attention_policy_parameters": selection_payload["attention_policy_parameters"],
-                "review_basis_shortlist_id": selection_payload["review_basis"][
-                    "judged_through_shortlist_id"
-                ],
-                "research_gate_contract_id": "research-gate-v1",
-                "entries": [
-                    {
-                        "ticker": "2331",
-                        "decision": "selected",
-                        "rank": 1,
-                        "reason": "一次IRへ進める",
-                        "narrative": _selected_narrative(),
-                    }
-                ],
-            },
+            shortlist_from_selection(
+                selection_payload,
+                shortlist_id="shortlist-20260708-weak-ref",
+                run_revision_id=source_run.run_revision_id,
+                as_of=source_run.as_of_date,
+                published_at="2026-07-08T16:00:00+09:00",
+                macro_context_id=input_refs["macro_context_ref"],
+                entries=[selected_entry("2331")],
+            ),
             sort_keys=False,
             allow_unicode=True,
         ),

@@ -14,6 +14,17 @@ from urllib.parse import parse_qs, urlsplit
 
 import pandas as pd
 import requests
+from tests.helpers.http_doubles import (
+    ExplodingSession,
+    FakeResponse,
+    FakeSession,
+    always,
+    by_url,
+    html_response,
+    json_response,
+    response,
+    sequence,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
@@ -53,112 +64,66 @@ from baibai_engine.screening.sqlite_cache import (
 )
 
 
-class _FixedHtmlSession:
-    def __init__(self, content: bytes) -> None:
-        self._content = content
+def _FixedHtmlSession(content: bytes) -> FakeSession:
+    """Every request answers with the same HTML page."""
 
-    def get(self, url: str, timeout: int):
-        del url, timeout
-
-        class _Response:
-            def __init__(self, content: bytes) -> None:
-                self.content = content
-                self.status_code = 200
-                self.headers = {"content-type": "text/html; charset=UTF-8"}
-
-        return _Response(self._content)
+    return always(html_response(content))
 
 
-class _SequenceBytesSession:
-    def __init__(self, contents: list[bytes]) -> None:
-        self._contents = contents
+def _SequenceBytesSession(contents: list[bytes]) -> FakeSession:
+    """Each request takes the next payload, in order."""
 
-    def get(self, url: str, timeout: int):
-        del url, timeout
-        content = self._contents.pop(0)
-
-        class _Response:
-            def __init__(self, payload: bytes) -> None:
-                self.content = payload
-                self.status_code = 200
-                self.headers = {"content-type": "application/octet-stream"}
-
-        return _Response(content)
+    return sequence(
+        response(content, content_type="application/octet-stream") for content in contents
+    )
 
 
-class _TransientThenBytesSession:
-    def __init__(self, *, content: bytes, secret: str = "key") -> None:
-        self._content = content
-        self._secret = secret
-        self.calls = 0
+def _TransientThenBytesSession(*, content: bytes, secret: str = "key") -> FakeSession:
+    """One connection failure whose message carries a credential, then the payload."""
 
-    def get(self, url: str, timeout: int):
-        del url, timeout
-        self.calls += 1
-        if self.calls == 1:
-            raise requests.ConnectionError(f"temporary failure Subscription-Key={self._secret}")
-
-        class _Response:
-            def __init__(self, payload: bytes) -> None:
-                self.content = payload
-                self.status_code = 200
-
-        return _Response(self._content)
+    return FakeSession(
+        requests.ConnectionError(f"temporary failure Subscription-Key={secret}"),
+        response(content),
+    )
 
 
-class _TransientThenJsonSession:
-    def __init__(self) -> None:
-        self.calls = 0
+def _TransientThenJsonSession() -> FakeSession:
+    """One connection failure, then an empty but well-formed EDINET listing."""
 
-    def get(self, url: str, timeout: int):
-        del url, timeout
-        self.calls += 1
-        if self.calls == 1:
-            raise requests.ConnectionError("temporary failure")
-
-        class _Response:
-            status_code = 200
-
-            @staticmethod
-            def json() -> dict[str, object]:
-                return {
-                    "metadata": {
-                        "resultset": {"count": 0},
-                        "processDateTime": "2026-07-10 12:00",
-                    },
-                    "results": [],
-                }
-
-        return _Response()
+    return FakeSession(
+        requests.ConnectionError("temporary failure"),
+        json_response(
+            {
+                "metadata": {
+                    "resultset": {"count": 0},
+                    "processDateTime": "2026-07-10 12:00",
+                },
+                "results": [],
+            }
+        ),
+    )
 
 
-class _DateJsonSession:
+class _DateJsonSession(FakeSession):
+    """Answers per requested `date=` query parameter, refusing the ones named."""
+
     def __init__(
         self,
         payloads: dict[str, dict[str, object]],
         *,
         failing_dates: set[str] | None = None,
     ) -> None:
+        super().__init__()
         self._payloads = payloads
         self._failing_dates = failing_dates or set()
-        self.calls: list[str] = []
 
-    def get(self, url: str, timeout: int):
+    def get(self, url: str, timeout: int | None = None) -> FakeResponse:
         del timeout
         requested_date = parse_qs(urlsplit(url).query)["date"][0]
         self.calls.append(requested_date)
-
-        class _Response:
-            def __init__(self, status_code: int, payload: dict[str, object]) -> None:
-                self.status_code = status_code
-                self._payload = payload
-
-            def json(self) -> dict[str, object]:
-                return self._payload
-
         if requested_date in self._failing_dates:
-            return _Response(400, {})
-        return _Response(200, self._payloads[requested_date])
+            return json_response({}, status_code=400)
+        return json_response(self._payloads[requested_date])
 
 
 def _edinet_csv_zip(rows: list[tuple[str, str, str]]) -> bytes:
@@ -359,13 +324,10 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertIn("'S100?BAD'", str(ctx.exception))
 
     def test_download_csv_zip_rejects_invalid_doc_id_before_cache_path(self) -> None:
-        class ExplodingSession:
-            def get(self, url: str, timeout: int):
-                del url, timeout
-                raise AssertionError("request should not be attempted")
-
         with tempfile.TemporaryDirectory() as tmp:
-            provider = EDINETProvider("key", Path(tmp), session=ExplodingSession())
+            provider = EDINETProvider(
+                "key", Path(tmp), session=ExplodingSession("request should not be attempted")
+            )
 
             with self.assertRaisesRegex(EDINETProviderError, "invalid EDINET docID"):
                 provider.download_csv_zip("../../etc/passwd")
@@ -422,7 +384,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 content = provider.download_csv_zip("S100TEST")
 
             self.assertEqual(content, expected)
-            self.assertEqual(session.calls, 2)
+            self.assertEqual(len(session.calls), 2)
             sleep.assert_called_once_with(3)
             self.assertEqual((cache / "edinet/csv_zips/S100TEST.zip").read_bytes(), expected)
 
@@ -435,7 +397,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 documents = provider.list_documents(date(2026, 7, 10))
 
             self.assertEqual(documents, [])
-            self.assertEqual(session.calls, 2)
+            self.assertEqual(len(session.calls), 2)
             sleep.assert_called_once_with(3)
 
     def test_refresh_document_state_fetches_target_then_all_unresolved_dates(self) -> None:
@@ -625,16 +587,8 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_download_csv_zip_final_connection_error_is_redacted_without_final_sleep(
         self,
     ) -> None:
-        class AlwaysFailingSession:
-            calls = 0
-
-            def get(self, url: str, timeout: int):
-                del url, timeout
-                self.calls += 1
-                raise requests.ConnectionError("temporary failure secret-key")
-
         with tempfile.TemporaryDirectory() as tmp:
-            session = AlwaysFailingSession()
+            session = FakeSession(default=requests.ConnectionError("temporary failure secret-key"))
             provider = EDINETProvider("secret-key", Path(tmp), session=session)
 
             with (
@@ -643,7 +597,7 @@ class ScreeningProviderTests(unittest.TestCase):
             ):
                 provider.download_csv_zip("S100TEST")
 
-            self.assertEqual(session.calls, 3)
+            self.assertEqual(len(session.calls), 3)
             self.assertEqual(sleep.call_count, 2)
             self.assertNotIn("secret-key", str(caught.exception))
             self.assertIn("<redacted>", str(caught.exception))
@@ -2221,19 +2175,9 @@ class ScreeningProviderTests(unittest.TestCase):
             provider._resolve_special_attention_xls_url(date(2026, 4, 24))
 
     def test_jpx_resolve_special_attention_xls_raises_on_index_http_error(self) -> None:
-        class FakeResponse:
-            content = b""
-            status_code = 503
-            headers: dict[str, str] = {}
-
-        class FakeSession:
-            def get(self, url: str, timeout: int) -> FakeResponse:
-                del url, timeout
-                return FakeResponse()
-
         provider = JPXProvider(
             Path("/tmp"),
-            session=FakeSession(),
+            session=always(response(status_code=503)),
             special_caution_index_url="https://www.jpx.co.jp/markets/statistics-equities/margin/index.html",
         )
 
@@ -2316,16 +2260,7 @@ class ScreeningProviderTests(unittest.TestCase):
         )
 
     def test_jpx_download_rows_rejects_non_jpx_origin(self) -> None:
-        class FakeSession:
-            def __init__(self) -> None:
-                self.calls: list[str] = []
-
-            def get(self, url: str, timeout: int):
-                del timeout
-                self.calls.append(url)
-                raise AssertionError("request should not be attempted")
-
-        session = FakeSession()
+        session = ExplodingSession("request should not be attempted")
         provider = JPXProvider(Path("/tmp"), session=session)
 
         with self.assertRaisesRegex(JPXProviderError, "https://www\\.jpx\\.co\\.jp"):
@@ -2336,23 +2271,9 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(session.calls, [])
 
     def test_jpx_parse_reorganization_html_rows_from_content_type(self) -> None:
-        class FakeResponse:
-            def __init__(self, content: bytes) -> None:
-                self.content = content
-                self.status_code = 200
-                self.headers = {"content-type": "text/html; charset=UTF-8"}
-
-        class FakeSession:
-            def __init__(self, response: FakeResponse) -> None:
-                self._response = response
-
-            def get(self, url: str, timeout: int) -> FakeResponse:
-                del url, timeout
-                return self._response
-
         provider = JPXProvider(
             Path("/tmp"),
-            session=FakeSession(FakeResponse(self._read_jpx_fixture("reorganization.html"))),
+            session=always(html_response(self._read_jpx_fixture("reorganization.html"))),
         )
         rows = provider._download_rows(
             "整理銘柄", "https://www.jpx.co.jp/listing/market-alerts/supervision/"
@@ -2410,20 +2331,6 @@ class ScreeningProviderTests(unittest.TestCase):
             )
 
     def test_jpx_get_regulation_snapshot_fails_on_invalid_html_code(self) -> None:
-        class FakeResponse:
-            def __init__(self, content: bytes) -> None:
-                self.content = content
-                self.status_code = 200
-                self.headers = {"content-type": "text/html; charset=UTF-8"}
-
-        class FakeSession:
-            def __init__(self, responses: dict[str, FakeResponse]) -> None:
-                self._responses = responses
-
-            def get(self, url: str, timeout: int) -> FakeResponse:
-                del timeout
-                return self._responses[url]
-
         url = "https://www.jpx.co.jp/markets/equities/suspended/"
         broken_html = (
             self._read_jpx_fixture("trading_halt.html")
@@ -2436,7 +2343,7 @@ class ScreeningProviderTests(unittest.TestCase):
             provider = JPXProvider(
                 Path(tmp),
                 regulation_urls={"取引停止": url},
-                session=FakeSession({url: FakeResponse(broken_html)}),
+                session=by_url({url: html_response(broken_html)}),
             )
             with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
                 provider.get_regulation_snapshot(date(2026, 4, 24))
@@ -2476,17 +2383,10 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(rows, [{"code": "4917", "flag": "整理銘柄"}])
 
     def test_jpx_download_rows_rejects_unsupported_format(self) -> None:
-        class FakeResponse:
-            content = b"<plain>"
-            status_code = 200
-            headers: dict[str, str] = {"content-type": "text/plain; charset=UTF-8"}
-
-        class FakeSession:
-            def get(self, url: str, timeout: int) -> FakeResponse:
-                del url, timeout
-                return FakeResponse()
-
-        provider = JPXProvider(Path("/tmp"), session=FakeSession())
+        provider = JPXProvider(
+            Path("/tmp"),
+            session=always(response(b"<plain>", content_type="text/plain; charset=UTF-8")),
+        )
         with self.assertRaisesRegex(JPXProviderError, "unsupported JPX regulation source format"):
             provider._download_rows(
                 "整理銘柄",
@@ -2494,17 +2394,7 @@ class ScreeningProviderTests(unittest.TestCase):
             )
 
     def test_jpx_download_rows_raises_on_http_error_status(self) -> None:
-        class FakeResponse:
-            content = b""
-            status_code = 503
-            headers: dict[str, str] = {}
-
-        class FakeSession:
-            def get(self, url: str, timeout: int) -> FakeResponse:
-                del url, timeout
-                return FakeResponse()
-
-        provider = JPXProvider(Path("/tmp"), session=FakeSession())
+        provider = JPXProvider(Path("/tmp"), session=always(response(status_code=503)))
         with self.assertRaisesRegex(JPXProviderError, "status=503"):
             provider._download_rows(
                 "整理銘柄",
@@ -2512,11 +2402,6 @@ class ScreeningProviderTests(unittest.TestCase):
             )
 
     def test_jpx_get_regulation_snapshot_uses_cache_without_calling_session(self) -> None:
-        class ExplodingSession:
-            def get(self, url: str, timeout: int):
-                del url, timeout
-                raise AssertionError("session.get must not be called when cache is present")
-
         url = "https://www.jpx.co.jp/listing/market-alerts/supervision/"
         with tempfile.TemporaryDirectory() as tmp:
             cache_dir = Path(tmp) / "cache"
@@ -2531,7 +2416,7 @@ class ScreeningProviderTests(unittest.TestCase):
             provider = JPXProvider(
                 cache_dir,
                 regulation_urls={"整理銘柄": url},
-                session=ExplodingSession(),
+                session=ExplodingSession("session.get must not be called when cache is present"),
                 sqlite_path=sqlite_path,
             )
             snapshot = provider.get_regulation_snapshot(date(2026, 4, 24))
@@ -2540,16 +2425,6 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(snapshot.flags_by_ticker, {"4917": ("整理銘柄",)})
 
     def test_jpx_get_regulation_snapshot_records_fetched_at_utc_on_fetch(self) -> None:
-        class FakeResponse:
-            status_code = 200
-            content = b"code\n49170\n"
-            headers = {"content-type": "text/csv"}
-
-        class FakeSession:
-            def get(self, url: str, timeout: int) -> FakeResponse:
-                del url, timeout
-                return FakeResponse()
-
         url = "https://www.jpx.co.jp/listing/market-alerts/supervision/list.csv"
         with tempfile.TemporaryDirectory() as tmp:
             cache_dir = Path(tmp) / "cache"
@@ -2557,7 +2432,7 @@ class ScreeningProviderTests(unittest.TestCase):
             provider = JPXProvider(
                 cache_dir,
                 regulation_urls={"整理銘柄": url},
-                session=FakeSession(),
+                session=always(response(b"code\n49170\n", content_type="text/csv")),
                 sqlite_path=sqlite_path,
             )
             provider.get_regulation_snapshot(date(2026, 4, 24))
@@ -2574,22 +2449,12 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertIsNotNone(rows[0][0])
 
     def test_jpx_get_regulation_snapshot_rejects_rows_without_code_column(self) -> None:
-        class FakeResponse:
-            status_code = 200
-            content = b"unexpected\n49170\n"
-            headers = {"content-type": "text/csv"}
-
-        class FakeSession:
-            def get(self, url: str, timeout: int) -> FakeResponse:
-                del url, timeout
-                return FakeResponse()
-
         provider = JPXProvider(
             Path("/tmp"),
             regulation_urls={
                 "整理銘柄": "https://www.jpx.co.jp/listing/market-alerts/supervision/list.csv"
             },
-            session=FakeSession(),
+            session=always(response(b"unexpected\n49170\n", content_type="text/csv")),
         )
 
         with self.assertRaisesRegex(JPXProviderError, "missing JPX code column"):

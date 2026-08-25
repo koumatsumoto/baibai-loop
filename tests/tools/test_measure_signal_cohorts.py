@@ -6,7 +6,12 @@ from typing import Any
 
 import pytest
 import yaml
-from tests.helpers.calibration_store import publish_forward, publish_panel
+from tests.helpers.calibration_store import (
+    calibration_root,
+    liquid_panel_row,
+    publish_forward,
+    publish_panel,
+)
 from tools.experiments import measure_signal_cohorts
 from tools.experiments.measure_signal_cohorts import (
     SignalCohortMeasurementError,
@@ -27,55 +32,19 @@ FORWARD_COLUMNS = (
 )
 
 
-def _write_panel(
-    directory: Path, asof: str, rows: list[dict[str, Any]], *, rules_hash: str = "abc123"
-) -> None:
-    publish_panel(directory, asof, rows, rules_hash=rules_hash)
-
-
-def _write_forward(directory: Path, asof: str, rows: list[dict[str, Any]]) -> None:
-    publish_forward(directory, asof, rows)
-
-
-def _liquid(ticker: str, asof: str, **overrides: Any) -> dict[str, Any]:
-    row = {
-        "asof": asof,
-        "ticker": ticker,
-        "market_cap_oku": 500,
-        "avg_turnover_oku": 5,
-        "listing_span_days": 900,
-        "per_forward": 10,
-        "per_trailing": 11,
-        "dividend_yield": 0.03,
-        "net_share_change_yoy": 0.0,
-        "er_annual": 0.05,
-        "er_reversion_annual": 0.02,
-        "er_carry_annual": 0.03,
-        "er_upside_capped": 0.2,
-    }
-    row.update(overrides)
-    return row
-
-
-def _store(tmp_path: Path) -> Path:
-    directory = tmp_path / "calibration"
-    directory.mkdir()
-    return directory
-
-
 def test_illiquid_rows_are_excluded_from_every_group(tmp_path: Path) -> None:
-    directory = _store(tmp_path)
-    _write_panel(
+    directory = calibration_root(tmp_path)
+    publish_panel(
         directory,
         "2024-01-31",
         [
-            _liquid("1111", "2024-01-31"),
-            _liquid("2222", "2024-01-31", market_cap_oku=50),
-            _liquid("3333", "2024-01-31", avg_turnover_oku=0.2),
-            _liquid("4444", "2024-01-31", listing_span_days=30),
+            liquid_panel_row("1111", "2024-01-31"),
+            liquid_panel_row("2222", "2024-01-31", market_cap_oku=50),
+            liquid_panel_row("3333", "2024-01-31", avg_turnover_oku=0.2),
+            liquid_panel_row("4444", "2024-01-31", listing_span_days=30),
         ],
     )
-    _write_forward(
+    publish_forward(
         directory,
         "2024-01-31",
         [
@@ -96,13 +65,13 @@ def test_illiquid_rows_are_excluded_from_every_group(tmp_path: Path) -> None:
 
 
 def test_unresolved_forward_rows_do_not_enter_the_median(tmp_path: Path) -> None:
-    directory = _store(tmp_path)
-    _write_panel(
+    directory = calibration_root(tmp_path)
+    publish_panel(
         directory,
         "2024-01-31",
-        [_liquid("1111", "2024-01-31"), _liquid("2222", "2024-01-31")],
+        [liquid_panel_row("1111", "2024-01-31"), liquid_panel_row("2222", "2024-01-31")],
     )
-    _write_forward(
+    publish_forward(
         directory,
         "2024-01-31",
         [
@@ -133,14 +102,14 @@ def test_unresolved_forward_rows_do_not_enter_the_median(tmp_path: Path) -> None
 
 
 def test_buyback_group_uses_the_clip_and_reports_the_cohort_difference(tmp_path: Path) -> None:
-    directory = _store(tmp_path)
+    directory = calibration_root(tmp_path)
     rows = []
     forward = []
     for index in range(24):
         clipped = index < 12
         ticker = f"{1000 + index}"
         rows.append(
-            _liquid(
+            liquid_panel_row(
                 ticker,
                 "2024-01-31",
                 net_share_change_yoy=-0.20 if clipped else 0.0,
@@ -155,8 +124,8 @@ def test_buyback_group_uses_the_clip_and_reports_the_cohort_difference(tmp_path:
                 "status": "resolved",
             }
         )
-    _write_panel(directory, "2024-01-31", rows)
-    _write_forward(directory, "2024-01-31", forward)
+    publish_panel(directory, "2024-01-31", rows)
+    publish_forward(directory, "2024-01-31", forward)
 
     payload = build_measurement(calibration_dir=directory, horizons=("1y",), er_threshold=0.085)
 
@@ -175,16 +144,16 @@ def test_buyback_group_uses_the_clip_and_reports_the_cohort_difference(tmp_path:
 
 
 def test_missing_store_fails_instead_of_reporting_an_empty_comparison(tmp_path: Path) -> None:
-    directory = _store(tmp_path)
+    directory = calibration_root(tmp_path)
 
     with pytest.raises(SignalCohortMeasurementError):
         build_measurement(calibration_dir=directory, horizons=("1y",), er_threshold=0.085)
 
 
-def test_cli_writes_yaml_and_reports_a_missing_store(tmp_path: Path) -> None:
-    directory = _store(tmp_path)
-    _write_panel(directory, "2024-01-31", [_liquid("1111", "2024-01-31")])
-    _write_forward(
+def test_cli_writes_yaml_and_reports_a_missingcalibration_root(tmp_path: Path) -> None:
+    directory = calibration_root(tmp_path)
+    publish_panel(directory, "2024-01-31", [liquid_panel_row("1111", "2024-01-31")])
+    publish_forward(
         directory,
         "2024-01-31",
         [
@@ -207,16 +176,16 @@ def test_cli_writes_yaml_and_reports_a_missing_store(tmp_path: Path) -> None:
     assert main(["--calibration-dir", str(tmp_path / "absent"), "--horizon", "1y"]) == 1
 
 
-def _both_bases_store(tmp_path: Path) -> Path:
+def _both_basescalibration_root(tmp_path: Path) -> Path:
     """One as-of where the two bases resolve different rows and different values."""
 
-    directory = _store(tmp_path)
-    _write_panel(
+    directory = calibration_root(tmp_path)
+    publish_panel(
         directory,
         "2020-01-31",
-        [_liquid(f"{1000 + index}", "2020-01-31") for index in range(3)],
+        [liquid_panel_row(f"{1000 + index}", "2020-01-31") for index in range(3)],
     )
-    _write_forward(
+    publish_forward(
         directory,
         "2020-01-31",
         [
@@ -262,7 +231,7 @@ def _population_group(payload: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def test_total_basis_uses_the_dividend_inclusive_return(tmp_path: Path) -> None:
-    directory = _both_bases_store(tmp_path)
+    directory = _both_basescalibration_root(tmp_path)
 
     price = build_measurement(
         calibration_dir=directory, horizons=("1y",), er_threshold=0.085, basis="price"
@@ -283,7 +252,7 @@ def test_total_basis_uses_the_dividend_inclusive_return(tmp_path: Path) -> None:
 def test_basis_coverage_reports_both_denominators(tmp_path: Path) -> None:
     """total の中央値を「同じ群の別 basis」として読ませないための母数表明。"""
 
-    directory = _both_bases_store(tmp_path)
+    directory = _both_basescalibration_root(tmp_path)
 
     payload = build_measurement(
         calibration_dir=directory, horizons=("1y",), er_threshold=0.085, basis="total"
@@ -308,11 +277,11 @@ def test_a_publication_landing_mid_run_does_not_enter_the_measurement(
     valid on its own, so nothing downstream has anything to object to.
     """
 
-    directory = _store(tmp_path)
+    directory = calibration_root(tmp_path)
     for index in range(24):
         ticker = f"{1000 + index}"
-        _write_panel(directory, "2024-01-31", [_liquid(ticker, "2024-01-31")])
-        _write_forward(
+        publish_panel(directory, "2024-01-31", [liquid_panel_row(ticker, "2024-01-31")])
+        publish_forward(
             directory,
             "2024-01-31",
             [
@@ -332,8 +301,8 @@ def test_a_publication_landing_mid_run_does_not_enter_the_measurement(
     def publish_then_continue(bundle: Any) -> str:
         # Between fixing the generation and the first row read, which is where the
         # window is widest: the panel and forward passes each walk every cohort.
-        _write_panel(directory, "2024-02-29", [_liquid("9999", "2024-02-29")])
-        _write_forward(
+        publish_panel(directory, "2024-02-29", [liquid_panel_row("9999", "2024-02-29")])
+        publish_forward(
             directory,
             "2024-02-29",
             [

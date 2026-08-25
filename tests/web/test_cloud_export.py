@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from fastapi.testclient import TestClient
 from tests.helpers.macro_context import macro_context_payload
 from tests.helpers.screening_selection import value_carry_selection_payload
+from tests.helpers.shortlist import rejected_entry, shortlist_payload
 
 from baibai_engine.appdb import LATEST_VERSION
 from baibai_engine.appdb.json import canonical_json
@@ -498,15 +499,14 @@ def test_export_skips_security_view_for_ticker_no_source_knows(
     app_method_root: Path, tmp_path: Path, capsys
 ) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-    payload = {
-        "schema_version": 4,
-        "shortlist_id": "shortlist-20260708-value",
-        "selection_id": "selection-old",
-        "run_revision_id": "run-revision-old",
-        "as_of": "2026-07-08",
-        "published_at": "2026-07-08T13:00:00+09:00",
-        "entries": [{"ticker": "9999", "decision": "rejected", "reason": "決算後に再評価"}],
-    }
+    payload = shortlist_payload(
+        shortlist_id="shortlist-20260708-value",
+        selection_id="selection-old",
+        run_revision_id="run-revision-old",
+        as_of="2026-07-08",
+        published_at="2026-07-08T13:00:00+09:00",
+        entries=[rejected_entry("9999", reason="決算後に再評価")],
+    )
     with sqlite3.connect(app_method_root / "stores/application/baibai.sqlite") as connection:
         connection.execute(
             """

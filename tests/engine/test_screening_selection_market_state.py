@@ -4,6 +4,8 @@ import unittest
 from collections.abc import Mapping
 from datetime import date
 
+from tests.helpers.screening_run import evidence_hit
+
 from baibai_engine.screening.cli import build_parser
 from baibai_engine.screening.regime import MarketRegime, MarketRegimeSnapshot
 from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
@@ -27,7 +29,7 @@ _DECLINER_CANDIDATE: Mapping[str, object] = {
     "jpx_flags": [],
     "price_change_5d": -0.10,
     "price_change_20d": -0.12,
-    "evidence_hits": [{"name": "sales-discount-growth"}],
+    "evidence_hits": [evidence_hit("sales-discount-growth")],
     "metrics": {"ocf_yield": 0.12, "net_cash_to_market_cap": 0.3, "er_annual": 0.04},
 }
 
@@ -42,7 +44,7 @@ _CALM_CANDIDATE: Mapping[str, object] = {
     "jpx_flags": [],
     "price_change_5d": 0.01,
     "price_change_20d": 0.02,
-    "evidence_hits": [{"name": "valuation-reversion"}],
+    "evidence_hits": [evidence_hit("valuation-reversion")],
     "metrics": {"ocf_yield": 0.12, "net_cash_to_market_cap": 0.3, "er_annual": 0.05},
 }
 

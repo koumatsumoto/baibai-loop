@@ -6,7 +6,12 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
-from tests.tools.test_measure_signal_cohorts import _liquid, _store, _write_forward, _write_panel
+from tests.helpers.calibration_store import (
+    calibration_root,
+    liquid_panel_row,
+    publish_forward,
+    publish_panel,
+)
 from tools.experiments.measure_buyback_authorization import (
     DiagnosticRow,
     _complete_cohort_count,
@@ -122,7 +127,7 @@ def _seed_market(path: Path, zip_dir: Path) -> None:
 def test_diagnostic_compares_the_same_rows_and_blocks_long_horizon_adoption(
     tmp_path: Path,
 ) -> None:
-    calibration = _store(tmp_path)
+    calibration = calibration_root(tmp_path)
     market = tmp_path / "market.sqlite"
     zip_dir = tmp_path / "zips"
     asof = "2026-08-31"
@@ -131,7 +136,7 @@ def test_diagnostic_compares_the_same_rows_and_blocks_long_horizon_adoption(
     for index in range(30):
         ticker = f"{1100 + index}"
         panel_rows.append(
-            _liquid(
+            liquid_panel_row(
                 ticker,
                 asof,
                 net_share_change_yoy=(-0.03 if index < 20 else 0.0),
@@ -146,8 +151,8 @@ def test_diagnostic_compares_the_same_rows_and_blocks_long_horizon_adoption(
                 "status": "resolved",
             }
         )
-    _write_panel(calibration, asof, panel_rows)
-    _write_forward(calibration, asof, forward_rows)
+    publish_panel(calibration, asof, panel_rows)
+    publish_forward(calibration, asof, forward_rows)
     _seed_market(market, zip_dir)
 
     payload = build_measurement(
@@ -175,11 +180,11 @@ def test_diagnostic_compares_the_same_rows_and_blocks_long_horizon_adoption(
 
 
 def test_source_rows_filed_after_asof_do_not_enter_the_join(tmp_path: Path) -> None:
-    calibration = _store(tmp_path)
+    calibration = calibration_root(tmp_path)
     market = tmp_path / "market.sqlite"
     asof = "2026-08-04"
-    _write_panel(calibration, asof, [_liquid("1111", asof, net_share_change_yoy=-0.03)])
-    _write_forward(
+    publish_panel(calibration, asof, [liquid_panel_row("1111", asof, net_share_change_yoy=-0.03)])
+    publish_forward(
         calibration,
         asof,
         [
@@ -242,19 +247,21 @@ def test_complete_cohort_requires_every_identity_not_only_resolved_survivors() -
 
 
 def test_duplicate_panel_identity_is_rejected_before_counting_groups(tmp_path: Path) -> None:
-    calibration = _store(tmp_path)
+    calibration = calibration_root(tmp_path)
     asof = "2026-08-31"
 
     with pytest.raises(CalibrationCacheError, match="duplicate primary key"):
-        _write_panel(calibration, asof, [_liquid("1111", asof), _liquid("1111", asof)])
+        publish_panel(
+            calibration, asof, [liquid_panel_row("1111", asof), liquid_panel_row("1111", asof)]
+        )
 
 
 def test_duplicate_forward_identity_is_rejected_instead_of_overwritten(tmp_path: Path) -> None:
-    calibration = _store(tmp_path)
+    calibration = calibration_root(tmp_path)
     asof = "2026-08-31"
-    _write_panel(calibration, asof, [_liquid("1111", asof)])
+    publish_panel(calibration, asof, [liquid_panel_row("1111", asof)])
     with pytest.raises(CalibrationCacheError, match="duplicate primary key"):
-        _write_forward(
+        publish_forward(
             calibration,
             asof,
             [

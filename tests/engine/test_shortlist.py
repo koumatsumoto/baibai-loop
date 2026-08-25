@@ -8,6 +8,12 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from tests.helpers.shortlist import (
+    narrative,
+    rejected_entry,
+    selected_entry,
+    shortlist_payload,
+)
 
 from baibai_engine.screening.shortlist import (
     SelectionBinding,
@@ -19,59 +25,18 @@ from baibai_engine.screening.shortlist_cli import reevaluation_task_suggestions
 
 
 def _narrative() -> dict[str, object]:
-    return {
-        "ploss": "中低",
-        "why": "一時的な受注端境で売られている",
-        "temporary": "翌期の受注残は積み上がっている",
-        "structural": "構造的な需要毀損の証拠はない",
-        "survive": "net cashで5年の下振れに耐えられる",
-        "unlock": "自己株買いと増配で還元余地がある",
-        "upside": "受注が平年並みに戻れば正常利益ベースでPER12倍相当まで",
-        "downside": "受注が半減しても営業黒字を保ち、簿価純資産が下値を支える",
-        "rr": "下値が資産で支えられる一方、正常化の上値が倍近い",
-        "catalyst": "2Q決算で受注残の回復が確認できるか",
-        "catalyst_date": "2026-08-06",
-        "macro": "connectionのsizing cautionに該当なし。research優先度ヒントの内需回復系に合致",
-        "counter": "受注が構造的に鈍化している可能性",
-        "research": "受注残と粗利率の推移を一次IRで確認",
-        "value": "FV乖離が大きく深掘り価値が高い",
-        "prov": "深掘り最優先",
-    }
+    return narrative(catalyst_date="2026-08-06")
 
 
 def _shortlist() -> Shortlist:
     return Shortlist.model_validate(
-        {
-            "schema_version": 5,
-            "kind": "shortlist",
-            "shortlist_id": "shortlist-20260719-base",
-            "selection_id": "selection-test",
-            "run_revision_id": "runrev-test",
-            "as_of": "2026-07-19",
-            "published_at": "2026-07-19T14:00:00+09:00",
-            "profile": "default",
-            "macro_context_id": "macro-context-2026-07-19-base",
-            "attention_policy_id": "value-carry-only-v1",
-            "attention_policy_hash": "a" * 64,
-            "attention_policy_parameters": {"value_carry_limit": 2},
-            "review_basis_shortlist_id": None,
-            "research_gate_contract_id": "research-gate-v1",
-            "entries": [
-                {
-                    "ticker": "2331",
-                    "decision": "selected",
-                    "rank": 1,
-                    "reason": "一次IRへ進める",
-                    "narrative": _narrative(),
-                },
-                {
-                    "ticker": "0001",
-                    "decision": "rejected",
-                    "reason": "根拠が弱い",
-                    "reject_class": "other",
-                },
+        shortlist_payload(
+            macro_context_id="macro-context-2026-07-19-base",
+            entries=[
+                selected_entry("2331", narrative=_narrative()),
+                rejected_entry("0001"),
             ],
-        }
+        )
     )
 
 

@@ -16,7 +16,11 @@ from unittest.mock import MagicMock, patch
 
 import openpyxl
 import requests
-from tests.helpers.indicator_store import downgrade_to_previous_schema
+from tests.helpers.indicator_store import (
+    downgrade_to_previous_schema,
+    observation,
+    series_definition,
+)
 
 import baibai_engine.macro.indicators.db as indicators_db
 from baibai_engine.macro.indicators.cli import (
@@ -494,7 +498,7 @@ class IndicatorsDBTests(unittest.TestCase):
                 patch("builtins.print", side_effect=_try_concurrent_write),
                 patch(
                     "baibai_engine.macro.indicators.service.fetch_observations",
-                    return_value=[_obs("us.10y", date(2026, 5, 1), 4.39)],
+                    return_value=[observation("us.10y", date(2026, 5, 1), 4.39)],
                 ),
             ):
                 IndicatorsService(database).refresh_series(
@@ -552,17 +556,10 @@ class IndicatorsDBTests(unittest.TestCase):
             database = Path(tmp) / "macro.sqlite"
             conn = initialize_database(database)
             try:
-                for observation, expected in (
-                    (_obs("us.10y", date(2026, 5, 1), 999.0), "plausible range"),
+                for record, expected in (
+                    (observation("us.10y", date(2026, 5, 1), 999.0), "plausible range"),
                     (
-                        ObservationRecord(
-                            series_id="us.10y",
-                            observed_at=date(2026, 5, 1),
-                            value=4.39,
-                            unit="basis-points",
-                            source_url="https://example.com/data.csv",
-                            vintage_at=datetime.now(UTC),
-                        ),
+                        observation("us.10y", date(2026, 5, 1), 4.39, unit="basis-points"),
                         "series unit",
                     ),
                 ):
@@ -570,7 +567,7 @@ class IndicatorsDBTests(unittest.TestCase):
                         self.subTest(expected=expected),
                         self.assertRaisesRegex(sqlite3.IntegrityError, expected),
                     ):
-                        insert_observations(conn, [observation])
+                        insert_observations(conn, [record])
                     conn.rollback()
                 stored = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
             finally:
@@ -587,8 +584,8 @@ class IndicatorsDBTests(unittest.TestCase):
                     insert_observations(
                         conn,
                         [
-                            _obs("us.10y", date(2026, 5, 1), 4.39),
-                            _obs("us.10y", date(2026, 5, 2), 999.0),
+                            observation("us.10y", date(2026, 5, 1), 4.39),
+                            observation("us.10y", date(2026, 5, 2), 999.0),
                         ],
                     )
                 conn.commit()
@@ -605,7 +602,7 @@ class IndicatorsDBTests(unittest.TestCase):
             database = Path(tmp) / "macro.sqlite"
             conn = initialize_database(database)
             try:
-                insert_observations(conn, [_obs("us.10y", date(2026, 5, 1), 4.39)])
+                insert_observations(conn, [observation("us.10y", date(2026, 5, 1), 4.39)])
                 conn.commit()
             finally:
                 conn.close()
@@ -656,14 +653,14 @@ class IndicatorsDBTests(unittest.TestCase):
             try:
                 insert_observations(
                     conn,
-                    [_obs("us.10y", date(2026, 4, 30), 4.30)],
+                    [observation("us.10y", date(2026, 4, 30), 4.30)],
                 )
                 with self.assertRaisesRegex(sqlite3.IntegrityError, "plausible range"):
                     insert_observations(
                         conn,
                         [
-                            _obs("us.10y", date(2026, 5, 1), 4.39),
-                            _obs("us.10y", date(2026, 5, 2), 999.0),
+                            observation("us.10y", date(2026, 5, 1), 4.39),
+                            observation("us.10y", date(2026, 5, 2), 999.0),
                         ],
                     )
                 conn.commit()
@@ -684,7 +681,7 @@ class IndicatorsDBTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "macro.sqlite"
             conn = initialize_database(database)
-            existing = _obs("us.10y", date(2026, 5, 2), 4.40)
+            existing = observation("us.10y", date(2026, 5, 2), 4.40)
             try:
                 insert_observations(conn, [existing])
                 conn.commit()
@@ -692,7 +689,7 @@ class IndicatorsDBTests(unittest.TestCase):
                     insert_observations(
                         conn,
                         [
-                            _obs("us.10y", date(2026, 5, 1), 4.39),
+                            observation("us.10y", date(2026, 5, 1), 4.39),
                             ObservationRecord(
                                 series_id="us.10y",
                                 observed_at=existing.observed_at,
@@ -721,7 +718,7 @@ class IndicatorsDBTests(unittest.TestCase):
             database = Path(tmp) / "macro.sqlite"
             conn = initialize_database(database)
             try:
-                insert_observations(conn, [_obs("us.10y", date(2026, 5, 1), 4.39)])
+                insert_observations(conn, [observation("us.10y", date(2026, 5, 1), 4.39)])
                 conn.commit()
 
                 with self.assertRaisesRegex(sqlite3.IntegrityError, "plausible range"):
@@ -746,7 +743,7 @@ class IndicatorsDBTests(unittest.TestCase):
             try:
                 insert_observations(
                     conn,
-                    [_obs("test.series", date(2026, 5, 1), 100.0)],
+                    [observation("test.series", date(2026, 5, 1), 100.0)],
                 )
                 conn.commit()
             finally:
@@ -785,7 +782,7 @@ class IndicatorsDBTests(unittest.TestCase):
             try:
                 insert_observations(
                     conn,
-                    [_obs("test.series", date(2026, 5, 1), 100.0)],
+                    [observation("test.series", date(2026, 5, 1), 100.0)],
                 )
                 conn.commit()
 
@@ -1035,8 +1032,12 @@ class RetractionVintageTests(unittest.TestCase):
                 insert_observations(
                     conn,
                     [
-                        _rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC)),
-                        _rate(series, date(2026, 5, 4), 4.41, datetime(2026, 5, 5, tzinfo=UTC)),
+                        observation(
+                            series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC)
+                        ),
+                        observation(
+                            series, date(2026, 5, 4), 4.41, datetime(2026, 5, 5, tzinfo=UTC)
+                        ),
                     ],
                 )
                 retract_observations(
@@ -1071,11 +1072,12 @@ class RetractionVintageTests(unittest.TestCase):
                 insert_observations(
                     conn,
                     [
-                        _flow(
+                        observation(
                             series,
                             date(2024, 8, 23),
                             -408854431.0,
                             datetime(2024, 8, 29, tzinfo=UTC),
+                            period_days=4,
                         )
                     ],
                 )
@@ -1118,7 +1120,7 @@ class RetractionVintageTests(unittest.TestCase):
                 series = get_series(conn, "us.10y")
                 insert_observations(
                     conn,
-                    [_rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
+                    [observation(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
                 )
                 retract_observations(
                     conn,
@@ -1128,7 +1130,11 @@ class RetractionVintageTests(unittest.TestCase):
                 )
                 insert_observations(
                     conn,
-                    [_rate(series, date(2026, 5, 1), 4.44, datetime(2026, 5, 20, tzinfo=UTC))],
+                    [
+                        observation(
+                            series, date(2026, 5, 1), 4.44, datetime(2026, 5, 20, tzinfo=UTC)
+                        )
+                    ],
                 )
                 conn.commit()
 
@@ -1147,7 +1153,7 @@ class RetractionVintageTests(unittest.TestCase):
                 series = get_series(conn, "us.10y")
                 insert_observations(
                     conn,
-                    [_rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
+                    [observation(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
                 )
                 retract_observations(
                     conn,
@@ -1177,8 +1183,12 @@ class RetractionVintageTests(unittest.TestCase):
             conn = initialize_database(database)
             try:
                 series = get_series(conn, "jp.foreign_flows")
-                week = _flow(
-                    series, date(2026, 7, 3), 400343944.0, datetime(2026, 7, 9, tzinfo=UTC)
+                week = observation(
+                    series,
+                    date(2026, 7, 3),
+                    400343944.0,
+                    datetime(2026, 7, 9, tzinfo=UTC),
+                    period_days=4,
                 )
                 phantom = replace(
                     week,
@@ -1244,8 +1254,12 @@ class RetractionVintageTests(unittest.TestCase):
                 insert_observations(
                     conn,
                     [
-                        _rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC)),
-                        _rate(series, date(2026, 5, 1), 9.99, datetime(2026, 6, 23, tzinfo=UTC)),
+                        observation(
+                            series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC)
+                        ),
+                        observation(
+                            series, date(2026, 5, 1), 9.99, datetime(2026, 6, 23, tzinfo=UTC)
+                        ),
                     ],
                 )
                 outcomes = retract_observations(
@@ -1276,11 +1290,15 @@ class RetractionVintageTests(unittest.TestCase):
             conn = initialize_database(Path(tmp) / "macro.sqlite")
             try:
                 series = get_series(conn, "us.10y")
-                wrong = _rate(series, date(2026, 5, 1), 9.99, datetime(2026, 6, 23, tzinfo=UTC))
+                wrong = observation(
+                    series, date(2026, 5, 1), 9.99, datetime(2026, 6, 23, tzinfo=UTC)
+                )
                 insert_observations(
                     conn,
                     [
-                        _rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC)),
+                        observation(
+                            series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC)
+                        ),
                         wrong,
                     ],
                 )
@@ -1311,8 +1329,12 @@ class RetractionVintageTests(unittest.TestCase):
                 insert_observations(
                     conn,
                     [
-                        _rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC)),
-                        _rate(series, date(2026, 5, 1), 9.99, datetime(2026, 6, 23, tzinfo=UTC)),
+                        observation(
+                            series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC)
+                        ),
+                        observation(
+                            series, date(2026, 5, 1), 9.99, datetime(2026, 6, 23, tzinfo=UTC)
+                        ),
                     ],
                 )
                 retract_observations(
@@ -1356,9 +1378,9 @@ class RetractionVintageTests(unittest.TestCase):
                 insert_observations(
                     conn,
                     [
-                        _rate(get_series(conn, "us.10y"), date(2026, 7, 20), 4.5, vintage),
-                        _rate(get_series(conn, "jp.10y"), date(2026, 7, 20), 1.6, vintage),
-                        _rate(
+                        observation(get_series(conn, "us.10y"), date(2026, 7, 20), 4.5, vintage),
+                        observation(get_series(conn, "jp.10y"), date(2026, 7, 20), 1.6, vintage),
+                        observation(
                             get_series(conn, "rate_diff.us_jp_10y"),
                             date(2026, 7, 20),
                             2.9,
@@ -1394,8 +1416,12 @@ class RetractionVintageTests(unittest.TestCase):
             conn = initialize_database(database)
             try:
                 series = get_series(conn, "jp.foreign_flows")
-                week = _flow(
-                    series, date(2026, 7, 3), 400343944.0, datetime(2026, 7, 9, tzinfo=UTC)
+                week = observation(
+                    series,
+                    date(2026, 7, 3),
+                    400343944.0,
+                    datetime(2026, 7, 9, tzinfo=UTC),
+                    period_days=4,
                 )
                 wrong = replace(
                     week, value=200238561.0, vintage_at=datetime(2026, 7, 10, tzinfo=UTC)
@@ -1465,7 +1491,7 @@ class RetractionVintageTests(unittest.TestCase):
                 series = get_series(conn, "us.10y")
                 insert_observations(
                     conn,
-                    [_rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
+                    [observation(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
                 )
                 retract_observations(
                     conn,
@@ -1495,7 +1521,7 @@ class RetractionVintageTests(unittest.TestCase):
                 series = get_series(conn, "us.10y")
                 insert_observations(
                     conn,
-                    [_rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
+                    [observation(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
                 )
                 conn.commit()
             finally:
@@ -1530,7 +1556,7 @@ class RetractionVintageTests(unittest.TestCase):
                 series = get_series(conn, "us.10y")
                 insert_observations(
                     conn,
-                    [_rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
+                    [observation(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
                 )
                 conn.commit()
             finally:
@@ -2843,11 +2869,11 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         series = _series("derived", "rate_diff.us_jp_10y", unit="percent")
         store: dict[str, tuple[ObservationRecord, ...]] = {
             "us.10y": (
-                _obs("us.10y", date(2026, 7, 16), 4.53),
-                _obs("us.10y", date(2026, 7, 17), 4.55),
+                observation("us.10y", date(2026, 7, 16), 4.53),
+                observation("us.10y", date(2026, 7, 17), 4.55),
             ),
             # jp.10y missing 07-16 -> that date is skipped (no half-computed value)
-            "jp.10y": (_obs("jp.10y", date(2026, 7, 17), 2.715),),
+            "jp.10y": (observation("jp.10y", date(2026, 7, 17), 2.715),),
         }
         context = FetchContext(store_reader=lambda sid, s, e: store[sid])
 
@@ -2889,14 +2915,14 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         series = _series("derived", "jp.real_10y_proxy", unit="percent", frequency="monthly")
         store: dict[str, tuple[ObservationRecord, ...]] = {
             "jp.10y": (
-                _obs("jp.10y", date(2026, 5, 1), 1.50),
-                _obs("jp.10y", date(2026, 5, 29), 1.58),
-                _obs("jp.10y", date(2026, 6, 1), 1.60),
-                _obs("jp.10y", date(2026, 6, 30), 1.62),  # June month-end reading
+                observation("jp.10y", date(2026, 5, 1), 1.50),
+                observation("jp.10y", date(2026, 5, 29), 1.58),
+                observation("jp.10y", date(2026, 6, 1), 1.60),
+                observation("jp.10y", date(2026, 6, 30), 1.62),  # June month-end reading
             ),
             "jp.cpi.core_yoy": (
-                _obs("jp.cpi.core_yoy", date(2026, 5, 1), 1.5),
-                _obs("jp.cpi.core_yoy", date(2026, 6, 1), 1.6),
+                observation("jp.cpi.core_yoy", date(2026, 5, 1), 1.5),
+                observation("jp.cpi.core_yoy", date(2026, 6, 1), 1.6),
             ),
         }
         context = FetchContext(store_reader=lambda sid, s, e: store[sid])
@@ -2918,8 +2944,10 @@ class IndicatorsProviderParserTests(unittest.TestCase):
     def test_us_erp_monthly_alignment_uses_latest_input_date(self) -> None:
         series = _series("derived", "us.erp", unit="percent", frequency="monthly")
         store: dict[str, tuple[ObservationRecord, ...]] = {
-            "us.sp500_earnings_yield": (_obs("us.sp500_earnings_yield", date(2026, 5, 1), 5.0),),
-            "us.10y": (_obs("us.10y", date(2026, 5, 29), 4.0),),
+            "us.sp500_earnings_yield": (
+                observation("us.sp500_earnings_yield", date(2026, 5, 1), 5.0),
+            ),
+            "us.10y": (observation("us.10y", date(2026, 5, 29), 4.0),),
         }
 
         observations = DerivedProvider().fetch(
@@ -2939,12 +2967,12 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         series = _series("derived", "jp.real_10y_proxy", unit="percent", frequency="monthly")
         store: dict[str, tuple[ObservationRecord, ...]] = {
             "jp.10y": (
-                _obs("jp.10y", date(2026, 5, 29), 1.58),
-                _obs("jp.10y", date(2026, 6, 30), 1.62),  # June has a yield ...
+                observation("jp.10y", date(2026, 5, 29), 1.58),
+                observation("jp.10y", date(2026, 6, 30), 1.62),  # June has a yield ...
             ),
             # ... but June core CPI is not released yet, so June must not emit a
             # half-computed proxy.
-            "jp.cpi.core_yoy": (_obs("jp.cpi.core_yoy", date(2026, 5, 1), 1.5),),
+            "jp.cpi.core_yoy": (observation("jp.cpi.core_yoy", date(2026, 5, 1), 1.5),),
         }
         context = FetchContext(store_reader=lambda sid, s, e: store[sid])
 
@@ -4720,7 +4748,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 ),
                 patch(
                     "baibai_engine.macro.indicators.service.fetch_observations",
-                    return_value=[_obs("other.series", date(2026, 7, 20), 4.2)],
+                    return_value=[observation("other.series", date(2026, 7, 20), 4.2)],
                 ),
             ):
                 outcomes = IndicatorsService(database).refresh_series(
@@ -4799,8 +4827,8 @@ class IndicatorsServiceTests(unittest.TestCase):
             definitions = IndicatorDefinitions(series=(definition,))
             initialize_database(database, definitions=definitions).close()
             observations = [
-                _obs("test.series", date(2026, 7, 19), 4.2),
-                _obs("test.series", date(2026, 7, 20), 2000.0),
+                observation("test.series", date(2026, 7, 19), 4.2),
+                observation("test.series", date(2026, 7, 20), 2000.0),
             ]
 
             with (
@@ -4851,7 +4879,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 ),
                 patch(
                     "baibai_engine.macro.indicators.service.fetch_observations",
-                    return_value=[_obs("test.series", date(2026, 7, 20), 1e100)],
+                    return_value=[observation("test.series", date(2026, 7, 20), 1e100)],
                 ),
             ):
                 outcomes = IndicatorsService(database).refresh_series(
@@ -4888,8 +4916,8 @@ class IndicatorsServiceTests(unittest.TestCase):
                 patch(
                     "baibai_engine.macro.indicators.service.fetch_observations",
                     return_value=[
-                        _obs("test.series", date(2026, 7, 19), -2.0),
-                        _obs("test.series", date(2026, 7, 20), 20.0),
+                        observation("test.series", date(2026, 7, 19), -2.0),
+                        observation("test.series", date(2026, 7, 20), 20.0),
                     ],
                 ),
             ):
@@ -5365,7 +5393,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             ) -> list[ObservationRecord]:
                 if series.series_id == "us.2y":
                     raise IndicatorsProviderError("source unavailable")
-                return [_obs(series.series_id, date(2026, 7, 20), 4.2)]
+                return [observation(series.series_id, date(2026, 7, 20), 4.2)]
 
             with (
                 patch(
@@ -5409,7 +5437,9 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             with patch(
                 "baibai_engine.macro.indicators.service.fetch_observations",
-                side_effect=lambda series, **_: [_obs(series.series_id, date(2026, 7, 20), 4.2)],
+                side_effect=lambda series, **_: [
+                    observation(series.series_id, date(2026, 7, 20), 4.2)
+                ],
             ):
                 outcomes = IndicatorsService(database).refresh_series(
                     ["jp.cpi.stale", "us.10y"],
@@ -5463,7 +5493,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 assert context is not None
                 cache_sizes.append(len(context.bytes_cache))
                 context.bytes_cache[(series.series_id, ())] = b"payload"
-                return [_obs(series.series_id, date(2026, 7, 20), 4.2)]
+                return [observation(series.series_id, date(2026, 7, 20), 4.2)]
 
             with patch(
                 "baibai_engine.macro.indicators.service.fetch_observations",
@@ -5493,7 +5523,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             ) -> list[ObservationRecord]:
                 if series.series_id == "us.2y":
                     raise RuntimeError("browser process died")
-                return [_obs(series.series_id, date(2026, 7, 20), 4.2)]
+                return [observation(series.series_id, date(2026, 7, 20), 4.2)]
 
             with patch(
                 "baibai_engine.macro.indicators.service.fetch_observations",
@@ -5535,7 +5565,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 context.bytes_cache[cache_key] = b"<html>blocked</html>"
                 if series.series_id == "us.10y":
                     raise IndicatorsProviderError("missing Time Period header")
-                return [_obs(series.series_id, date(2026, 7, 20), 4.2)]
+                return [observation(series.series_id, date(2026, 7, 20), 4.2)]
 
             with (
                 patch(
@@ -5565,7 +5595,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 with (
                     patch(
                         "baibai_engine.macro.indicators.service.fetch_observations",
-                        return_value=[_obs("us.10y", date(2026, 7, 20), value)],
+                        return_value=[observation("us.10y", date(2026, 7, 20), value)],
                     ),
                     self.assertRaisesRegex(IndicatorsProviderError, "non-finite value"),
                 ):
@@ -5605,7 +5635,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             ) -> list[ObservationRecord]:
                 if series.series_id in {"us.2y", "us.30y"}:
                     raise IndicatorsProviderError(f"{series.series_id} source unavailable")
-                return [_obs(series.series_id, date(2026, 7, 20), 4.2)]
+                return [observation(series.series_id, date(2026, 7, 20), 4.2)]
 
             with (
                 patch(
@@ -6121,40 +6151,6 @@ def _write_retired_series(database: Path) -> None:
         conn.close()
 
 
-def _rate(
-    series: SeriesDefinition,
-    observed_at: date,
-    value: float,
-    vintage_at: datetime,
-) -> ObservationRecord:
-    return ObservationRecord(
-        series_id=series.series_id,
-        observed_at=observed_at,
-        value=value,
-        unit=series.unit,
-        source_url=series.source_url,
-        vintage_at=vintage_at,
-    )
-
-
-def _flow(
-    series: SeriesDefinition,
-    observed_at: date,
-    value: float,
-    vintage_at: datetime,
-) -> ObservationRecord:
-    return ObservationRecord(
-        series_id=series.series_id,
-        observed_at=observed_at,
-        value=value,
-        unit=series.unit,
-        source_url=series.source_url,
-        period_start=observed_at - timedelta(days=4),
-        period_end=observed_at,
-        vintage_at=vintage_at,
-    )
-
-
 def _retired_counts(database: Path) -> tuple[int, int, int]:
     conn = sqlite3.connect(database)
     try:
@@ -6170,17 +6166,6 @@ def _retired_counts(database: Path) -> tuple[int, int, int]:
         )
     finally:
         conn.close()
-
-
-def _obs(series_id: str, observed_at: date, value: float) -> ObservationRecord:
-    return ObservationRecord(
-        series_id=series_id,
-        observed_at=observed_at,
-        value=value,
-        unit="percent",
-        source_url="https://example.com/data.csv",
-        vintage_at=datetime.now(UTC),
-    )
 
 
 def _multpl_monthly_table(*, floor: date, latest: date, omit: date | None = None) -> str:
@@ -6212,17 +6197,15 @@ def _series(
     plausible_min: float | None = None,
     plausible_max: float | None = None,
 ) -> SeriesDefinition:
-    return SeriesDefinition(
-        series_id=series_id,
-        name="Test Series",
-        category="test",
-        geography="world",
-        frequency=frequency,
-        unit=unit,
+    """A provider-specific registry entry; `category` stays "test" for these tests."""
+
+    return series_definition(
+        series_id,
         provider=provider,
         provider_series_id=provider_series_id,
-        source_id="test-source",
-        source_url="https://example.com/data.csv",
+        category="test",
+        unit=unit,
+        frequency=frequency,
         plausible_min=plausible_min,
         plausible_max=plausible_max,
     )

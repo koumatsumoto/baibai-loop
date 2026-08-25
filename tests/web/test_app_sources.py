@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tests.helpers.screening_run import screening_candidate, screening_run_payload
+
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunStore
@@ -123,16 +125,13 @@ class TestDbCandidatesSource(CandidatesSourceContract):
     def test_latest_run_preserves_method_identity(self, tmp_path: Path) -> None:
         runs_path = tmp_path / "runs.sqlite"
         ScreeningRunStore(runs_path).publish_run(
-            {
-                "run_id": "screening-20260801",
-                "run_date": "2026-08-01",
-                "asof_date": "2026-08-01",
-                "run_at": "2026-08-01T18:30:00+09:00",
-                "universe_size": 1,
-                "screening_rules_hash": "rules-hash-v1",
-                "er_model_version": "expected-return-v1",
-                "candidates": [{"ticker": "4432", "name": "sample", "evidence_hits": []}],
-            }
+            screening_run_payload(
+                as_of="2026-08-01",
+                run_at="2026-08-01T18:30:00+09:00",
+                universe_size=1,
+                rules_hash="rules-hash-v1",
+                candidates=[screening_candidate("4432", name="sample")],
+            )
         )
 
         run = DbCandidatesSource(runs_path, tmp_path / "app.sqlite").latest_run()

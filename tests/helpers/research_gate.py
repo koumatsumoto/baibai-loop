@@ -18,24 +18,7 @@ from pathlib import Path
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.screening.shortlist import Shortlist
-
-RESEARCH_GATE_NARRATIVE: Mapping[str, object] = {
-    "ploss": "中低",
-    "why": "一時的な受注端境で売られている",
-    "temporary": "翌期の受注残は積み上がっている",
-    "structural": "構造的な需要毀損の証拠はない",
-    "survive": "net cash で 5 年の下振れに耐えられる",
-    "unlock": "自己株買いと増配で還元余地がある",
-    "counter": "受注が構造的に鈍化している可能性",
-    "research": "受注残と粗利率の推移を一次 IR で確認",
-    "value": "FV 乖離が大きく深掘り価値が高い",
-    "prov": "深掘り最優先",
-    "upside": "受注が平年並みに戻れば正常利益ベースで PER12 倍相当まで",
-    "downside": "受注が半減しても営業黒字を保ち、簿価純資産が下値を支える",
-    "rr": "下値が資産で支えられる一方、正常化の上値が倍近い",
-    "catalyst": "次の四半期決算で受注残の回復が確認できるか",
-    "macro": "connection の sizing caution に該当なし",
-}
+from tests.helpers.shortlist import rejected_entry, selected_entry, shortlist_payload
 
 
 def research_gate_shortlist(
@@ -52,42 +35,24 @@ def research_gate_shortlist(
     """Build one canonical v5 Research Gate judgment over ``selected + rejected``."""
 
     entries: list[dict[str, object]] = [
-        {
-            "ticker": ticker,
-            "decision": "selected",
-            "rank": rank,
-            "reason": "一次リサーチへ進める",
-            "narrative": dict(RESEARCH_GATE_NARRATIVE),
-        }
+        selected_entry(ticker, rank=rank, reason="一次リサーチへ進める")
         for rank, ticker in enumerate(selected, start=1)
     ]
     entries.extend(
-        {
-            "ticker": ticker,
-            "decision": "rejected",
-            "reason": "深掘りの枠を使う価値が確認できない",
-            "reject_class": "other",
-        }
-        for ticker in rejected
+        rejected_entry(ticker, reason="深掘りの枠を使う価値が確認できない") for ticker in rejected
     )
     return Shortlist.model_validate(
-        {
-            "schema_version": 5,
-            "kind": "shortlist",
-            "shortlist_id": shortlist_id,
-            "selection_id": selection_id,
-            "run_revision_id": run_revision_id,
-            "as_of": as_of,
-            "published_at": f"{as_of}T18:00:00+09:00",
-            "profile": profile,
-            "macro_context_id": macro_context_id,
-            "attention_policy_id": "value-carry-only-v1",
-            "attention_policy_hash": "a" * 64,
-            "attention_policy_parameters": {"value_carry_limit": len(entries)},
-            "review_basis_shortlist_id": None,
-            "research_gate_contract_id": "research-gate-v1",
-            "entries": entries,
-        }
+        shortlist_payload(
+            shortlist_id=shortlist_id,
+            selection_id=selection_id,
+            run_revision_id=run_revision_id,
+            as_of=as_of,
+            published_at=f"{as_of}T18:00:00+09:00",
+            profile=profile,
+            macro_context_id=macro_context_id,
+            attention_policy_parameters={"value_carry_limit": len(entries)},
+            entries=entries,
+        )
     ).payload()
 
 
@@ -141,7 +106,6 @@ def seed_research_gate(
 
 
 __all__ = [
-    "RESEARCH_GATE_NARRATIVE",
     "research_gate_shortlist",
     "seed_research_gate",
     "seed_shortlist",

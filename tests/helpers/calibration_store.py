@@ -85,6 +85,8 @@ _PANEL_REQUIRED: Mapping[str, Any] = {
     "margin_std_long_share": None,
     "pass_screen": False,
     "evidence_patterns": "",
+    "threshold_blocks": "",
+    "smg_market_fallback": "",
     "selection_rank": None,
     "recommended_rank": None,
 }
@@ -154,13 +156,38 @@ def _coerce(value: Any, annotation: Any) -> Any:
 
 
 def panel_row(asof: str, ticker: str, **overrides: Any) -> PanelRow:
+    """One panel row, with the fields a fixture never varies filled in.
+
+    A selection rank is derived from, not independent of, passing the screen: the
+    builder sets `pass_screen` and mirrors the rank into `recommended_rank` so a
+    fixture cannot describe a ranked row the panel would not have produced.
+    """
+
     hints = get_type_hints(PanelRow)
     payload: dict[str, Any] = {"asof": asof, "ticker": ticker, **_PANEL_REQUIRED}
     for key, value in overrides.items():
         if key in {"asof", "ticker"}:
             continue
         payload[key] = _coerce(value, hints[key])
+    rank = payload.get("selection_rank")
+    if rank is not None:
+        payload["pass_screen"] = True
+        payload.setdefault("recommended_rank", rank)
+        if payload.get("recommended_rank") is None:
+            payload["recommended_rank"] = rank
     return PanelRow(**payload)
+
+
+def panel_diagnostics(asof: str, **overrides: Any) -> PanelDiagnostics:
+    """The diagnostics block a cohort is written with, minus what a test varies."""
+
+    payload: dict[str, Any] = {
+        "asof": asof,
+        "rules_hash": "abc123",
+        **_DIAGNOSTICS_REQUIRED,
+        **overrides,
+    }
+    return PanelDiagnostics(**payload)
 
 
 def forward_row(asof: str, ticker: str, horizon: str, **overrides: Any) -> ForwardReturnRow:
@@ -204,6 +231,71 @@ def _panel(asof: str, row: Mapping[str, Any]) -> PanelRow:
 def _forward(asof: str, row: Mapping[str, Any]) -> ForwardReturnRow:
     payload = {key: value for key, value in row.items() if key not in {"ticker", "horizon", "asof"}}
     return forward_row(asof, str(row["ticker"]), str(row["horizon"]), **payload)
+
+
+def calibration_root(tmp_path: Path) -> Path:
+    """An empty calibration store directory under a test's tmp_path."""
+
+    directory = tmp_path / "calibration"
+    directory.mkdir()
+    return directory
+
+
+def liquid_panel_row(ticker: str, asof: str, **overrides: Any) -> dict[str, Any]:
+    """A panel row that clears every liquidity floor a measurement applies.
+
+    Measurement tools drop illiquid names before they group anything, so a fixture row
+    that means "included" has to state all four of those fields. What a test varies is
+    what it passes.
+    """
+
+    row: dict[str, Any] = {
+        "asof": asof,
+        "ticker": ticker,
+        "market_cap_oku": 500,
+        "avg_turnover_oku": 5,
+        "listing_span_days": 900,
+        "per_forward": 10,
+        "per_trailing": 11,
+        "dividend_yield": 0.03,
+        "net_share_change_yoy": 0.0,
+        "er_annual": 0.05,
+        "er_reversion_annual": 0.02,
+        "er_carry_annual": 0.03,
+        "er_upside_capped": 0.2,
+    }
+    row.update(overrides)
+    return row
+
+
+def store_panel(root: Path, asof: date, *args: Any, **kwargs: Any) -> None:
+    """`write_panel` with the source and cutoff every fixture cohort declares.
+
+    A cohort that names no source is one the store refuses to read back, so the two
+    arguments no test varies are filled here rather than at each call.
+    """
+
+    write_panel(
+        root,
+        asof,
+        *args,
+        sources=(synthetic_calibration_source(captured_on=asof),),
+        input_cutoff=asof,
+        **kwargs,
+    )
+
+
+def store_forward(root: Path, asof: date, *args: Any, **kwargs: Any) -> None:
+    """`write_forward` with the source and cutoff every fixture cohort declares."""
+
+    write_forward(
+        root,
+        asof,
+        *args,
+        sources=(synthetic_calibration_source(captured_on=asof),),
+        input_cutoff=asof,
+        **kwargs,
+    )
 
 
 def publish_panel(

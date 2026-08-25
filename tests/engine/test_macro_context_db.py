@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 from pydantic import ValidationError
+from tests.helpers.indicator_store import observation, seed_store
 from tests.helpers.macro_context import macro_context_payload
 
 from baibai_engine.appdb.write import initialize_database
@@ -29,7 +30,7 @@ from baibai_engine.macro.context.scorecard import (
     evaluate_scorecard_from_stores,
 )
 from baibai_engine.macro.context.service import MacroContextConflictError, MacroContextService
-from baibai_engine.macro.indicators.db import ObservationRecord, insert_observations
+from baibai_engine.macro.indicators.db import ObservationRecord
 from baibai_engine.macro.indicators.db import initialize_database as initialize_indicators
 from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH
 from baibai_engine.read_api.macro import latest_macro_context_payload
@@ -805,23 +806,15 @@ def test_document_rejects_failed_series_hidden_by_successful_source(
 
 
 def _us10y(observed_at: date, value: float) -> ObservationRecord:
-    return ObservationRecord(
-        series_id="us.10y",
-        observed_at=observed_at,
-        value=value,
-        unit="percent",
+    """A 10y reading vintaged at the start of the day it was observed."""
+
+    return observation(
+        "us.10y",
+        observed_at,
+        value,
+        datetime.combine(observed_at, time.min, tzinfo=UTC),
         source_url="https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10",
-        vintage_at=datetime.combine(observed_at, time.min, tzinfo=UTC),
     )
-
-
-def _seeded_indicators(path: Path, *observations: ObservationRecord) -> None:
-    connection = initialize_indicators(path)
-    try:
-        if observations:
-            insert_observations(connection, list(observations))
-    finally:
-        connection.close()
 
 
 def _already_met(document: MacroContextDocument, indicators_db: Path) -> tuple[str, ...]:
@@ -839,7 +832,7 @@ def test_a_condition_the_closing_observation_already_meets_is_found(tmp_path: Pa
     window scored it `met` without the view having predicted anything."""
 
     indicators_db = tmp_path / "macro.sqlite"
-    _seeded_indicators(indicators_db, _us10y(date(2026, 7, 18), 4.0))
+    seed_store(indicators_db, _us10y(date(2026, 7, 18), 4.0))
 
     # base is `at_or_above 3.5` and `at_or_above 3.75`; 4.0 satisfies both already.
     assert _already_met(_document(), indicators_db) == ("base[1]", "base[2]")
@@ -849,7 +842,7 @@ def test_a_condition_no_observation_reaches_yet_is_left_alone(tmp_path: Path) ->
     """ "Not measurable yet" is a different answer from "already true"."""
 
     indicators_db = tmp_path / "macro.sqlite"
-    _seeded_indicators(indicators_db, _us10y(date(2026, 7, 18), 3.4))
+    seed_store(indicators_db, _us10y(date(2026, 7, 18), 3.4))
 
     # 3.4 clears neither `at_or_above 3.5` nor `below 3.25`.
     assert _already_met(_document(), indicators_db) == ()
@@ -857,7 +850,7 @@ def test_a_condition_no_observation_reaches_yet_is_left_alone(tmp_path: Path) ->
 
 def test_a_store_that_holds_nothing_for_the_series_is_not_a_rejection(tmp_path: Path) -> None:
     indicators_db = tmp_path / "macro.sqlite"
-    _seeded_indicators(indicators_db)
+    seed_store(indicators_db)
 
     assert _already_met(_document(), indicators_db) == ()
 
@@ -867,7 +860,7 @@ def test_an_observation_stale_at_as_of_does_not_decide_the_condition(tmp_path: P
     so it cannot say the condition was already true either."""
 
     indicators_db = tmp_path / "macro.sqlite"
-    _seeded_indicators(indicators_db, _us10y(date(2025, 7, 18), 4.0))
+    seed_store(indicators_db, _us10y(date(2025, 7, 18), 4.0))
 
     assert _already_met(_document(), indicators_db) == ()
 
@@ -883,7 +876,7 @@ def test_the_publish_gate_refuses_a_report_whose_conditions_already_hold(
     service = MacroContextService(context_db)
     first = _document()
     service.publish(first, expected_head=None)
-    _seeded_indicators(indicators_db, _us10y(date(2026, 7, 19), 4.0))
+    seed_store(indicators_db, _us10y(date(2026, 7, 19), 4.0))
     later = _with_previous_scorecard_snapshot(
         _document(
             context_id="macro-context-2026-07-20-next",
@@ -910,7 +903,7 @@ def test_the_publish_gate_passes_a_report_whose_conditions_are_all_open(
     service = MacroContextService(context_db)
     first = _document()
     service.publish(first, expected_head=None)
-    _seeded_indicators(indicators_db, _us10y(date(2026, 7, 19), 3.4))
+    seed_store(indicators_db, _us10y(date(2026, 7, 19), 3.4))
     later = _with_previous_scorecard_snapshot(
         _document(
             context_id="macro-context-2026-07-20-next",
@@ -938,7 +931,7 @@ def test_a_level_that_was_crossed_earlier_but_came_back_is_not_already_met(
     indicators_db = tmp_path / "macro.sqlite"
     # Both readings are fresh at as_of, so only their order decides the answer. A month
     # apart, staleness would refuse the earlier one and hide a reader that took it.
-    _seeded_indicators(
+    seed_store(
         indicators_db,
         _us10y(date(2026, 7, 16), 4.0),
         _us10y(date(2026, 7, 18), 3.4),
