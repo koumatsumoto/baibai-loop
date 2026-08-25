@@ -334,7 +334,20 @@ base manifest transform_fingerprint differs; run a full rebuild without --base-m
    uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores --format json
    ```
 
-5. **翌定時の日次 batch の緑が最終確認**。手動 dispatch はしない — 定時 cron がその日のうちに答える。
+5. **pin を実値へ揃える**
+
+   ```bash
+   uv run python tools/quality/drift/check_export_fingerprints.py --record
+   ```
+
+   drift gate は pin した fingerprint と実値を突き合わせるので、publish しただけでは gate が赤い
+   ままになる。fingerprint を動かした変更をまだ merge していない場合は、pin の更新を同じ PR に
+   含める。publish せずに pin だけ更新すると gate は緑になるが日次 batch は止まったままなので、
+   この順序（publish が先、pin が後）を崩さない。pin は記録時点の `lake_store_origin` の
+   release ID も持つ。手順どおりなら fingerprint と一緒に新 release へ動くので、diff で
+   fingerprint だけが動いて release が据え置きなら、publish を飛ばしたと読める
+
+6. **翌定時の日次 batch の緑が最終確認**。手動 dispatch はしない — 定時 cron がその日のうちに答える。
    復旧が定時より後になった日は、その夜の `cloud-batch-watchdog` が `[MISSING]` を正しく報じる
 
 fingerprintだけを変えた通常のfull rebuildでは`push-market`は不要である。この経路が直すのはlakeの

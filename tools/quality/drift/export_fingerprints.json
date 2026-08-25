@@ -1,0 +1,27 @@
+{
+  "datasets": {
+    "edinet.buyback_reports": "sha256:8c9d027c8083484b95adb1582907eaa45c16740ae43445dc70e595c268e1094b",
+    "edinet.document_lists": "sha256:7c216f2eaf473651e7c86b20a98747fdfb9b93c242d7fa88b5cb499352c909bc",
+    "edinet.documents": "sha256:da272781acfb8e60e7493bafad25ed57bfdbef978660c47ef2aa90f733e27496",
+    "edinet.metrics": "sha256:54a9bd5f3a3f3fe91bf04990c38e00ffd9b93a24b513a9edaeafa049f735a11b",
+    "edinet.tender_offer_exit_values": "sha256:f20e11d34d216ea9ecf28c03a4a13b2fa7fc2859f50c5a8e24a48480c3a31089",
+    "jpx.delistings": "sha256:fca895cd722f7e2fdf4a3af97862c7a043b6950bd99ce48fb0ee4de1b1c71236",
+    "jpx.regulation_flags": "sha256:441b522d2fd96094e6d2a4c3c957b09a6e7ab4accf454a42b721d7a6b77950aa",
+    "jpx.regulation_sources": "sha256:1d86fcdc046faa32fb8aa44309d30c2de0d50f4c36420ac9d6c19885448e021c",
+    "jquants.all_issues_daily_margin": "sha256:80e983dcd96d2facff4adf1f7b499eb8f5130f0f78a79970f6c4ba11fcca6ef6",
+    "jquants.daily_bars": "sha256:7beba39f027406869e73d2680d8fad7f2c46b3a8c31762f0fdbff76289a90ca3",
+    "jquants.earnings_calendar": "sha256:467fed6f17f1427d6674480463ca096b88427dd79fddc731bf776080bac784a2",
+    "jquants.fin_summaries": "sha256:0346f6cd7a570d881e2acfb81e1dad88c043afcb62f6e862d4500116df4b3fef",
+    "jquants.margin_alerts": "sha256:e315ab9c123885bf871d0b09e7bfc64285b9db02daf19440bc2d9139ab5b6a62",
+    "jquants.market_calendar": "sha256:94c7e1454cb4859624d62c34d9b8be40178f419bdaf23c95fc1c4c9f7cb295bc",
+    "jquants.master_snapshots": "sha256:9b13188b85230ee1abb8383fc87e5dd7240b463d3fbb22c82d3904755419d722",
+    "jquants.short_sale_reports": "sha256:fd460e88e6cd88b3d1a75345bf510fc77f04370d23ff0be3917389b70cddbd1c",
+    "jquants.weekly_margin": "sha256:dc90a0c7c1328a90b79af884274030931a7f208bfec60e398c94c217e0fe66cc"
+  },
+  "implementation": {
+    "market/lake/datasets.py": "6bcdef27db48cb220e01c31ee7b06e297b87356682e76451fbff6127d0380c29",
+    "market/lake/writer.py": "b5cd12fd06555e1f51dd394ab2f16b7f6f3442ecb46c8e530b7961ba5b84b5b3",
+    "market/sqlite/coverage.py": "f847d38807057cdf2bca1b4348e796b04f8e8fdd9df0ba86fc568e094e15571a"
+  },
+  "recorded_for_release": "20260825T094715Z-93ce4743-b9519eb8ae0d"
+}
