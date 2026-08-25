@@ -152,7 +152,7 @@ coverage gate は現在 80%。これは理想値ではなく、既存 suite の�
 - **R2 上位層の予算**: CLI / batch / Web / export が持つのは option・default・exit code・public output・配線と、代表的な正常系 1 本と fail-close 1 本。domain の全 partition を上位層で繰り返さない。
 - **R3 payload 所有**: consumer は自分が所有する field だけを assert する。payload 全文の比較は serializer round-trip の owner 1 箇所に置く。
 - **R4 同型**: 入力が 1 つだけ違う test が 3 件以上あれば 1 つの table にする。行（case）は減らさず、各行に元の test 名由来の id とその行がある理由を残す。`addopts` に `--maxfail=1` があるため、行ごとの失敗を全部報告する `subtests`（pytest 9 組み込み）を第一候補にし、行ごとに独立した fixture が要るときだけ `parametrize` を使う。table の行は production の定数から導かず literal で書く — 定数から導いた行はその定数と一緒に動き、定数の変更を検出できない。
-- **R5 builder**: 同じ概念の fixture builder は `tests/helpers/` に 1 つだけ置く。default が違う 2 つ目は variant ではなく bug である。builder は production の writer が受理する形を出す。production が拒否する形を正常系 fixture にしない。
+- **R5 builder**: 同じ概念の fixture builder は `tests/helpers/` に 1 つだけ置く。default が違う 2 つ目は variant ではなく bug である。builder が出せる形は production の writer が受理する形と一致させる。これは両向きに効く: production が拒否する形を正常系 fixture にしないのと同じだけ、**production が出す形を builder が書けなくしない**。field 間の関係を builder 側で導出すると後者が起きる — 導出した不変条件が production のものでなければ、その組み合わせを持つ回帰は fixture に書けず、永久に検出できない。
 
 削除・統合は「`rg` で 0 件」では決めない。消して full suite を回し、対象の guard を 1 行壊して retained test が赤になることを確かめてから確定する。
 
