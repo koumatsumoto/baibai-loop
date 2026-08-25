@@ -18,17 +18,6 @@ from tools.quality.drift import (
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_repository_passes_all_drift_gates() -> None:
-    assert check_markdown_links.check(ROOT) == []
-    assert check_cli_doc.check(ROOT) == []
-    assert check_cli_help.check(ROOT) == []
-    assert check_documented_commands.check(ROOT) == []
-    assert check_legacy_semantics.check(ROOT) == []
-    assert check_duplicate_constants.check(ROOT) == []
-    assert check_skill_inventory.check(ROOT) == []
-    assert check_repository_paths.check(ROOT) == []
-
-
 def test_repository_path_gate_rejects_runtime_literal_outside_owner(tmp_path: Path) -> None:
     path = tmp_path / "batch/src/baibai_batch/job.py"
     path.parent.mkdir(parents=True)

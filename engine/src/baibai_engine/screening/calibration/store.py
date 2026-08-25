@@ -203,26 +203,6 @@ def _read_generation(root: Path, bundle: FixedCalibrationBundle | None) -> Fixed
     return bundle if bundle is not None else _published_generation(root)
 
 
-def _published_policy(root: Path) -> ForwardObservationPolicy:
-    """Fix the served generation and return the observation rules it states.
-
-    The contract is read from the bundle manifest the pointer names, so the answer can
-    never describe a generation other than the one being served. The stated policy only
-    selects which forward identity to expect: the build's own fingerprint is what proves
-    the rows were produced under it, so a rewritten statement can cause a refusal but
-    never an acceptance.
-
-    Compatibility is not decided here. It is a per-dataset question — that is the whole
-    point of deriving a contract version per dataset — and each read already asks it of
-    the dataset it is about to read, through the transform fingerprint on that dataset's
-    manifest. Asking the bundle-wide question first would undo the split: a change to the
-    forward contract alone moves the aggregate, and every panel read in the store would
-    refuse until all 81 panel cohorts were rebuilt for a contract that did not move.
-    """
-
-    return _policy_of(_published_generation(root))
-
-
 def _policy_of(bundle: FixedCalibrationBundle) -> ForwardObservationPolicy:
     return ForwardObservationPolicy(
         use_control_event_exits=bundle.manifest.forward_observation_policy.use_control_event_exits
@@ -250,11 +230,6 @@ def _require_current_contract(root: Path) -> None:
             cache_schema_version=CACHE_SCHEMA_VERSIONS[name],
             forward_policy=policy,
         )
-
-
-def store_forward_policy(root: Path) -> ForwardObservationPolicy:
-    """The observation rules this store's forward builds must be identified by."""
-    return _published_policy(root)
 
 
 def _inputs(

@@ -7,7 +7,11 @@ in real test code.
 
 from __future__ import annotations
 
+import hashlib
+import shutil
 import sqlite3
+import tempfile
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -100,6 +104,218 @@ def insert_daily_bars_from_closes(
     try:
         conn.executemany(
             f"INSERT OR REPLACE INTO jquants_daily_bars({columns}) VALUES ({placeholders})",
+            rows,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+CALIBRATION_FIXTURE_ASOF = date(2026, 6, 30)
+
+# Forty call sites build the same two-name store, and a panel build only reads it, so
+# it is written once per session and copied after that.
+_CALIBRATION_TEMPLATE: tempfile.TemporaryDirectory[str] | None = None
+_CALIBRATION_TEMPLATE_PATH: Path | None = None
+_CALIBRATION_TEMPLATE_SHA256: str | None = None
+
+
+def build_calibration_fixture_sqlite(sqlite_path: Path) -> None:
+    """Two priced, disclosed names — the smallest market store a panel build accepts."""
+
+    global _CALIBRATION_TEMPLATE, _CALIBRATION_TEMPLATE_PATH, _CALIBRATION_TEMPLATE_SHA256
+    if _CALIBRATION_TEMPLATE_PATH is None:
+        _CALIBRATION_TEMPLATE = tempfile.TemporaryDirectory()
+        _CALIBRATION_TEMPLATE_PATH = Path(_CALIBRATION_TEMPLATE.name) / "market.sqlite"
+        _write_calibration_fixture_sqlite(_CALIBRATION_TEMPLATE_PATH)
+        _CALIBRATION_TEMPLATE_SHA256 = _file_sha256(_CALIBRATION_TEMPLATE_PATH)
+    # Callers write to their own copy, so nothing should reach the shared bytes. Checked
+    # rather than assumed: a template mutated once would change every later caller with
+    # nothing failing.
+    assert _file_sha256(_CALIBRATION_TEMPLATE_PATH) == _CALIBRATION_TEMPLATE_SHA256, (
+        "calibration fixture template was mutated"
+    )
+    assert sqlite_path != _CALIBRATION_TEMPLATE_PATH
+    shutil.copyfile(_CALIBRATION_TEMPLATE_PATH, sqlite_path)
+
+
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _write_calibration_fixture_sqlite(sqlite_path: Path) -> None:
+    ASOF = CALIBRATION_FIXTURE_ASOF
+
+    conn = open_connection(sqlite_path)
+    try:
+        conn.executemany(
+            "INSERT OR REPLACE INTO jquants_master_snapshots("
+            "snapshot_date, ticker, name, market, sector_33, is_common_stock"
+            ") VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                ("2026-06-01", "9001", "キャッシュリッチ", "プライム", "サービス業", 1),
+                ("2026-06-01", "9002", "割高", "プライム", "サービス業", 1),
+            ],
+        )
+        add_source_coverage(
+            conn,
+            source="jquants_master_snapshots",
+            coverage_key="latest",
+            record_count=2,
+            min_date="2026-06-01",
+            max_date="2026-06-01",
+        )
+        fin_columns = (
+            "ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, "
+            "sales, cfo, cash_eq, total_assets, equity, operating_profit, ordinary_profit, "
+            "profit, fiscal_period, fiscal_year_end, period_start, period_end, "
+            "dps_actual_annual, dps_forecast_annual, treasury_shares, equity_to_asset_ratio"
+        )
+        conn.executemany(
+            f"INSERT OR REPLACE INTO jquants_fin_summaries({fin_columns}) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "9001",
+                    "2026-05-10",
+                    11.0,
+                    10.0,
+                    200.0,
+                    1e8,
+                    5e9,
+                    1e9,
+                    4e9,
+                    3e10,
+                    2e10,
+                    5e8,
+                    5e8,
+                    # 報告純利益は 1 株当たり当期純利益 x 自己株控除後株数と一致する。
+                    # 自己資本も `bps x 自己株控除後株数 == 総資産 x 自己資本比率`
+                    # (200 x 1e8 == 3e10 x 2/3) を満たす。倍率はこの行から出るので、
+                    # 行の中で両方の恒等式が成り立っている必要がある。
+                    1e9,
+                    "FY",
+                    "2026-03-31",
+                    "2025-04-01",
+                    "2026-03-31",
+                    4.0,
+                    4.5,
+                    0.0,
+                    2e10 / 3e10,
+                ),
+                (
+                    "9002",
+                    "2026-05-10",
+                    1.0,
+                    1.0,
+                    10.0,
+                    1e8,
+                    5e9,
+                    1e8,
+                    1e8,
+                    2e10,
+                    5e9,
+                    5e8,
+                    5e8,
+                    1e8,
+                    "FY",
+                    "2026-03-31",
+                    "2025-04-01",
+                    "2026-03-31",
+                    None,
+                    None,
+                    0.0,
+                    5e9 / 2e10,
+                ),
+            ],
+        )
+        add_source_coverage(
+            conn,
+            source="jquants_fin_summaries",
+            coverage_key="2026",
+            record_count=2,
+            min_date="2026-05-10",
+            max_date="2026-06-30",
+        )
+        conn.execute(
+            # 総資産と基準は、EDINET の貸借対照表が短信と同じ実体を指すことを示す事実として
+            # 持つ。短信の総資産 (3e10) と揃わない行は EDINET 由来の値を出さない。
+            "INSERT INTO edinet_metrics("
+            "asof_date, ticker, debt, cash, net_cash, investment_securities, "
+            "total_assets, consolidation_basis, failure_reasons, extractor_revision"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                ASOF.isoformat(),
+                "9001",
+                1e9,
+                4e9,
+                3e9,
+                2e9,
+                3e10,
+                "consolidated",
+                "[]",
+                "a" * 64,
+            ),
+        )
+        add_source_coverage(
+            conn,
+            source="edinet_metrics",
+            coverage_key=ASOF.isoformat(),
+            record_count=1,
+            min_date=ASOF.isoformat(),
+            max_date=ASOF.isoformat(),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    for ticker in ("9001", "9002"):
+        insert_daily_bars_from_closes(
+            sqlite_path,
+            ticker,
+            [100.0] * 200,
+            end_date=ASOF,
+            turnover_value=2e8,
+        )
+
+
+def market_store_with_fetch_claim(root: Path, *, claimed_rows: int, held_rows: int) -> Path:
+    """Write a market store whose fetch ledger claims rows the store may not hold.
+
+    ``held_rows`` short of ``claimed_rows`` is not the interesting case — coverage
+    windows overlap, so the working store is short by millions. Zero is: it is what
+    the published copy looks like after the lake-owned tables were emptied.
+    """
+
+    path = root / "stores/market/market.sqlite"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with closing(open_connection(path)) as connection:
+        connection.execute(
+            "INSERT INTO source_coverage "
+            "(source, coverage_key, coverage_start, coverage_end, fetched_at_utc, "
+            "record_count, status) VALUES "
+            "('jquants_daily_bars', '2026-08-17', '2026-08-17', '2026-08-17', "
+            "'2026-08-17T08:00:00+00:00', ?, 'ok')",
+            (claimed_rows,),
+        )
+        for index in range(held_rows):
+            connection.execute(
+                "INSERT INTO jquants_daily_bars (ticker, traded_at, close) VALUES (?, ?, ?)",
+                (f"{1000 + index}", "2026-08-17", 100.0),
+            )
+        connection.commit()
+    return path
+
+
+def seed_daily_bars(
+    sqlite_path: Path,
+    rows: list[tuple[str, str, float | None, float | None]],
+) -> None:
+    """Insert (ticker, traded_at, close, adjustment_factor) rows into the store."""
+    conn = open_connection(sqlite_path)
+    try:
+        conn.executemany(
+            "INSERT OR REPLACE INTO jquants_daily_bars"
+            "(ticker, traded_at, close, adjustment_factor) VALUES (?, ?, ?, ?)",
             rows,
         )
         conn.commit()

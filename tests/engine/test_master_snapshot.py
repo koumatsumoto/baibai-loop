@@ -21,7 +21,6 @@ from baibai_engine.screening.providers.jquants import JQuantsProvider
 from baibai_engine.screening.sqlite_cache import open_connection, store_jquants_master
 from baibai_engine.screening.sqlite_coverage.jquants import _append_master_snapshot_issues
 from baibai_engine.screening.sqlite_reader import (
-    read_eq_master,
     read_eq_master_asof,
     read_eq_master_exact,
 )
@@ -312,6 +311,20 @@ class MasterSnapshotStoreTests(unittest.TestCase):
 
             self.assertEqual(_db_fingerprint(db), before)
 
+    def test_the_half_width_middle_dot_sector_is_stored_in_one_form(self) -> None:
+        """J-Quants emits U+FF65 ("情報･通信業") and U+30FB ("情報・通信業") for the same
+        TSE 33 sector. Two spellings of one sector split every sector-relative
+        comparison downstream, so validation folds them before the row is persisted.
+        """
+
+        asof = date(2026, 5, 7)
+        records = make_master_records(asof)
+        records[0]["S33Nm"] = "情報･通信業"
+
+        validated = validate_master_snapshot(records, asof)
+
+        self.assertEqual(validated.rows[0][4], "情報・通信業")
+
 
 class MasterSnapshotCoverageTests(unittest.TestCase):
     def test_non_integer_coverage_count_is_reported_as_an_issue(self) -> None:
@@ -430,10 +443,6 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             fallback = read_eq_master_asof(db, first - timedelta(days=1))
             self.assertEqual(fallback.status, "future_snapshot")
             self.assertEqual(fallback.snapshot_date, first)
-            latest = read_eq_master(db)
-            assert latest is not None
-            self.assertNotIn("8000", {row.code for row in latest})
-            self.assertEqual(len(latest), 2500)
 
     def test_exact_reader_treats_corrupt_ticker_as_semantic_miss(self) -> None:
         asof = date(2026, 5, 29)

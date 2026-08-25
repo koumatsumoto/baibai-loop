@@ -9,6 +9,7 @@ never produces.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from baibai_engine.market.lake.models import (
     ReleaseManifest,
     canonical_lake_model_bytes,
 )
+from baibai_engine.market.sqlite import open_connection
 from tests.helpers.calibration_store import synthetic_calibration_source
 
 
@@ -116,3 +118,64 @@ def stored_release_source(root: Path) -> tuple[Path, L1ReleaseSourceRef]:
     stored.parent.mkdir(parents=True, exist_ok=True)
     stored.write_bytes(payload)
     return stored, reference.model_copy(update={"sha256": hashlib.sha256(payload).hexdigest()})
+
+
+_DEFAULT_DAILY_BARS: tuple[tuple[str, str, float, float], ...] = (
+    ("1301", "2026-01-05", 100.0, 1000.0),
+    ("7203", "2026-01-05", 200.0, 2000.0),
+    ("1301", "2026-01-20", 105.0, 1100.0),
+    ("1301", "2026-02-02", 110.0, 1200.0),
+)
+_DEFAULT_SHORT_SALE_REPORTS: tuple[
+    tuple[str, int, str, str, str, float | None, int | None, int | None, int], ...
+] = (
+    ("2026-01-06", 0, "2026-01-05", "7203", "Fund A", 0.006, 600, 6, 0),
+    ("2026-02-03", 0, "2026-02-02", "6758", "Fund B", None, None, None, 1),
+)
+
+
+def market_store(
+    path: Path,
+    *,
+    daily_bars: Sequence[tuple[str, str, float, float]] = _DEFAULT_DAILY_BARS,
+    short_sale_reports: Sequence[
+        tuple[str, int, str, str, str, float | None, int | None, int | None, int]
+    ] = _DEFAULT_SHORT_SALE_REPORTS,
+    short_sale_coverage: tuple[str, str, str, str, int] = (
+        "test:pilot",
+        "2026-01-01",
+        "2026-02-28",
+        "2026-03-01T00:00:00+00:00",
+        2,
+    ),
+) -> Path:
+    """Seed the three tables an L1 fixture release is built from.
+
+    The column lists live here so a schema change reaches every lake fixture at once;
+    the rows stay with the caller, because how many periods a store spans is what each
+    of these tests is actually about.
+    """
+
+    connection = open_connection(path)
+    connection.executemany(
+        "INSERT INTO jquants_daily_bars(ticker, traded_at, close, volume) VALUES (?, ?, ?, ?)",
+        list(daily_bars),
+    )
+    connection.executemany(
+        """INSERT INTO jquants_short_sale_reports(
+             disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name,
+             discretionary_investment_contractor_name, investment_fund_name,
+             short_ratio, short_shares, short_trading_units, is_cancellation
+           ) VALUES (?, ?, ?, ?, ?, '', '', ?, ?, ?, ?)""",
+        list(short_sale_reports),
+    )
+    connection.execute(
+        """INSERT INTO source_coverage(
+             source, coverage_key, coverage_start, coverage_end,
+             fetched_at_utc, record_count, status, error
+           ) VALUES ('jquants_short_sale_reports', ?, ?, ?, ?, ?, 'ok', NULL)""",
+        short_sale_coverage,
+    )
+    connection.commit()
+    connection.close()
+    return path

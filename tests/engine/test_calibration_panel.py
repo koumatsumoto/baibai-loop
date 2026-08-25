@@ -6,6 +6,8 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager
 from dataclasses import asdict, replace
 from datetime import date, timedelta
 from pathlib import Path
@@ -16,8 +18,13 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from tests.helpers.calibration_store import publish_panel, synthetic_calibration_source
-from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
+from tests.helpers.calibration_store import publish_panel, store_forward, store_panel
+from tests.helpers.screening_sqlite import (
+    CALIBRATION_FIXTURE_ASOF,
+    add_source_coverage,
+    build_calibration_fixture_sqlite,
+    insert_daily_bars_from_closes,
+)
 
 from baibai_engine.market.lake.keys import current_calibration_bundle_pointer_key
 from baibai_engine.market.sqlite.lake_origin import LakeStoreOrigin, write_lake_store_origin
@@ -54,12 +61,6 @@ from baibai_engine.screening.calibration.store import (
     read_panel_meta,
     resolve_calibration_bundle,
 )
-from baibai_engine.screening.calibration.store import (
-    write_forward as _write_forward,
-)
-from baibai_engine.screening.calibration.store import (
-    write_panel as _write_panel,
-)
 from baibai_engine.screening.metrics import (
     BARS_INPUT_WINDOW_DAYS,
     VALUATION_HISTORY_SESSIONS,
@@ -71,162 +72,15 @@ from baibai_engine.screening.sqlite_cache import open_connection
 from baibai_engine.screening.sqlite_reader import ReportedShortMetric
 from baibai_engine.screening.store_readiness import unreadable_store_reason
 
-ASOF = date(2026, 6, 30)
+ASOF = CALIBRATION_FIXTURE_ASOF
 
 
-def write_panel(root: Path, asof: date, *args: object, **kwargs: object) -> None:
-    _write_panel(
-        root,
-        asof,
-        *args,
-        sources=(synthetic_calibration_source(captured_on=asof),),
-        input_cutoff=asof,
-        **kwargs,
-    )
+def _retuned_relaxed(relaxed: Mapping[str, Mapping[str, object]]) -> dict[str, object]:
+    """The same threshold set with one value measured differently."""
 
-
-def write_forward(root: Path, asof: date, *args: object, **kwargs: object) -> None:
-    _write_forward(
-        root,
-        asof,
-        *args,
-        sources=(synthetic_calibration_source(captured_on=asof),),
-        input_cutoff=asof,
-        **kwargs,
-    )
-
-
-def _build_fixture_sqlite(sqlite_path: Path) -> None:
-    conn = open_connection(sqlite_path)
-    try:
-        conn.executemany(
-            "INSERT OR REPLACE INTO jquants_master_snapshots("
-            "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-            ") VALUES (?, ?, ?, ?, ?, ?)",
-            [
-                ("2026-06-01", "9001", "キャッシュリッチ", "プライム", "サービス業", 1),
-                ("2026-06-01", "9002", "割高", "プライム", "サービス業", 1),
-            ],
-        )
-        add_source_coverage(
-            conn,
-            source="jquants_master_snapshots",
-            coverage_key="latest",
-            record_count=2,
-            min_date="2026-06-01",
-            max_date="2026-06-01",
-        )
-        fin_columns = (
-            "ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, "
-            "sales, cfo, cash_eq, total_assets, equity, operating_profit, ordinary_profit, "
-            "profit, fiscal_period, fiscal_year_end, period_start, period_end, "
-            "dps_actual_annual, dps_forecast_annual, treasury_shares, equity_to_asset_ratio"
-        )
-        conn.executemany(
-            f"INSERT OR REPLACE INTO jquants_fin_summaries({fin_columns}) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    "9001",
-                    "2026-05-10",
-                    11.0,
-                    10.0,
-                    200.0,
-                    1e8,
-                    5e9,
-                    1e9,
-                    4e9,
-                    3e10,
-                    2e10,
-                    5e8,
-                    5e8,
-                    # 報告純利益は 1 株当たり当期純利益 x 自己株控除後株数と一致する。
-                    # 自己資本も `bps x 自己株控除後株数 == 総資産 x 自己資本比率`
-                    # (200 x 1e8 == 3e10 x 2/3) を満たす。倍率はこの行から出るので、
-                    # 行の中で両方の恒等式が成り立っている必要がある。
-                    1e9,
-                    "FY",
-                    "2026-03-31",
-                    "2025-04-01",
-                    "2026-03-31",
-                    4.0,
-                    4.5,
-                    0.0,
-                    2e10 / 3e10,
-                ),
-                (
-                    "9002",
-                    "2026-05-10",
-                    1.0,
-                    1.0,
-                    10.0,
-                    1e8,
-                    5e9,
-                    1e8,
-                    1e8,
-                    2e10,
-                    5e9,
-                    5e8,
-                    5e8,
-                    1e8,
-                    "FY",
-                    "2026-03-31",
-                    "2025-04-01",
-                    "2026-03-31",
-                    None,
-                    None,
-                    0.0,
-                    5e9 / 2e10,
-                ),
-            ],
-        )
-        add_source_coverage(
-            conn,
-            source="jquants_fin_summaries",
-            coverage_key="2026",
-            record_count=2,
-            min_date="2026-05-10",
-            max_date="2026-06-30",
-        )
-        conn.execute(
-            # 総資産と基準は、EDINET の貸借対照表が短信と同じ実体を指すことを示す事実として
-            # 持つ。短信の総資産 (3e10) と揃わない行は EDINET 由来の値を出さない。
-            "INSERT INTO edinet_metrics("
-            "asof_date, ticker, debt, cash, net_cash, investment_securities, "
-            "total_assets, consolidation_basis, failure_reasons, extractor_revision"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                ASOF.isoformat(),
-                "9001",
-                1e9,
-                4e9,
-                3e9,
-                2e9,
-                3e10,
-                "consolidated",
-                "[]",
-                "a" * 64,
-            ),
-        )
-        add_source_coverage(
-            conn,
-            source="edinet_metrics",
-            coverage_key=ASOF.isoformat(),
-            record_count=1,
-            min_date=ASOF.isoformat(),
-            max_date=ASOF.isoformat(),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-    for ticker in ("9001", "9002"):
-        insert_daily_bars_from_closes(
-            sqlite_path,
-            ticker,
-            [100.0] * 200,
-            end_date=ASOF,
-            turnover_value=2e8,
-        )
+    name, fields = next(iter(relaxed.items()))
+    field = next(iter(fields))
+    return {**relaxed, name: {**fields, field: "retuned-sentinel"}}
 
 
 def _current_panel_manifest(root):  # type: ignore[no-untyped-def]
@@ -258,7 +112,7 @@ class CalibrationPanelTest(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
                 conn.execute(
@@ -288,7 +142,7 @@ class CalibrationPanelTest(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
                 conn.execute(
@@ -320,7 +174,7 @@ class CalibrationPanelTest(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
 
             with_edinet = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             self.assertGreaterEqual(with_edinet.diagnostics.population_edinet_axis_nonnull, 1)
@@ -345,7 +199,7 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_panel_distinguishes_covered_no_report_from_source_gap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             with patch(
                 "baibai_engine.screening.calibration.panel.read_reported_short_metrics",
                 return_value={
@@ -435,7 +289,7 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_panel_and_store_round_trip_profitability_levels(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             by_ticker = {row.ticker: row for row in result.rows}
 
@@ -444,7 +298,7 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertAlmostEqual(by_ticker["9001"].asset_turnover or 0.0, 5e9 / 3e10)
 
             store_dir = Path(tmp) / "calibration"
-            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
             restored = {row.ticker: row for row in read_panel(store_dir, ASOF)}
             self.assertEqual(
                 restored["9001"].operating_profit_to_assets,
@@ -459,7 +313,7 @@ class CalibrationPanelTest(unittest.TestCase):
                 operating_margin=-0.10,
                 asset_turnover=-0.50,
             )
-            write_panel(store_dir, ASOF, (negative_sales_row,), result.diagnostics)
+            store_panel(store_dir, ASOF, (negative_sales_row,), result.diagnostics)
             self.assertEqual(read_panel(store_dir, ASOF), [negative_sales_row])
 
     def test_valuation_calculation_revision_is_part_of_method_identity(self) -> None:
@@ -478,7 +332,7 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_build_panel_replays_screen_and_selection_point_in_time(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             rules = load_screening_rules()
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=rules)
 
@@ -521,7 +375,7 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_panel_reads_three_fy_return_history_without_widening_metric_window(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
                 conn.executemany(
@@ -592,7 +446,7 @@ class CalibrationPanelTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
                 conn.execute(
@@ -693,7 +547,7 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_panel_normalizes_old_fy_eps_for_split_before_recent_bar_window(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             old_history_start = date(2022, 5, 10)
             insert_daily_bars_from_closes(
                 sqlite_path,
@@ -752,12 +606,12 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_panel_and_forward_store_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             rules = load_screening_rules()
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=rules)
 
             store_dir = Path(tmp) / "calibration"
-            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
             loaded = read_panel(store_dir, ASOF)
             self.assertEqual(list(result.rows), loaded)
             self.assertEqual(result.rows[0].realized_volatility_60d, 0.0)
@@ -779,13 +633,13 @@ class CalibrationPanelTest(unittest.TestCase):
                     total_return_status="resolved",
                 )
             ]
-            write_forward(store_dir, ASOF, forward_rows)
+            store_forward(store_dir, ASOF, forward_rows)
             self.assertEqual(read_forward(store_dir, ASOF), forward_rows)
 
     def test_store_accepts_ratio_built_from_exact_market_cap_behind_rounded_oku(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             rounded_row = replace(
                 result.rows[0],
@@ -796,14 +650,14 @@ class CalibrationPanelTest(unittest.TestCase):
             )
             store_dir = Path(tmp) / "calibration"
 
-            write_panel(store_dir, ASOF, (rounded_row,), result.diagnostics)
+            store_panel(store_dir, ASOF, (rounded_row,), result.diagnostics)
 
             self.assertEqual(read_panel(store_dir, ASOF), [rounded_row])
 
     def test_store_accepts_non_population_ratio_without_liquidity_market_cap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             excluded_row = replace(
                 result.rows[0],
@@ -815,7 +669,7 @@ class CalibrationPanelTest(unittest.TestCase):
             )
             store_dir = Path(tmp) / "calibration"
 
-            write_panel(store_dir, ASOF, (excluded_row,), result.diagnostics)
+            store_panel(store_dir, ASOF, (excluded_row,), result.diagnostics)
 
             self.assertEqual(read_panel(store_dir, ASOF), [excluded_row])
 
@@ -829,7 +683,7 @@ class CalibrationPanelTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
         payload = asdict(result.rows[0])
         payload.update(updates)
@@ -909,10 +763,10 @@ class CalibrationPanelTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
-            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
             objects = sorted((store_dir / "lake" / "l2").rglob("*.parquet"))
             self.assertTrue(objects)
             objects[0].write_bytes(objects[0].read_bytes() + b"tamper")
@@ -923,10 +777,10 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_store_rejects_a_build_produced_by_another_transform(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
-            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
 
             with self.assertRaisesRegex(CalibrationLakeError, "different transform"):
                 require_build_inputs(
@@ -938,10 +792,10 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_store_rejects_a_build_that_was_not_bound_to_the_expected_release(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
-            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
 
             with self.assertRaisesRegex(CalibrationLakeError, "not built from"):
                 require_build_inputs(
@@ -962,10 +816,10 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_store_rejects_a_panel_written_under_another_panel_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
-            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
             # The contract a build was written under travels in its own transform
             # fingerprint, so a code change that moves the panel contract is what makes
             # the panel unreadable — there is no separate statement to rewrite.
@@ -988,11 +842,11 @@ class CalibrationPanelTest(unittest.TestCase):
         # change to one dataset into a rebuild of all three.
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
-            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-            write_forward(store_dir, ASOF, [])
+            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            store_forward(store_dir, ASOF, [])
             from baibai_engine.screening.calibration import store as calibration_store
 
             patcher = patch.dict(
@@ -1013,10 +867,10 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_store_rejects_partial_versioned_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
-            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
             with self.assertRaisesRegex(CalibrationCacheError, "calibration-build --force"):
                 read_forward(store_dir, ASOF)
 
@@ -1025,7 +879,7 @@ class CalibrationPanelTest(unittest.TestCase):
         # universe を再現していないことの証拠なので数える。
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             insert_daily_bars_from_closes(
                 sqlite_path, "9003", [100.0] * 200, end_date=ASOF, turnover_value=2e8
             )
@@ -1042,7 +896,7 @@ class CalibrationPanelTest(unittest.TestCase):
         # 流用すると、どの master でも mismatch を 0 にできなくなる。
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             insert_daily_bars_from_closes(
                 sqlite_path,
                 "9004",
@@ -1059,7 +913,7 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_panel_reports_no_mismatch_when_master_holds_every_asof_priced_ticker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
 
             diagnostics = result.diagnostics
@@ -1071,7 +925,7 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_panel_marks_priced_master_member_that_cannot_enter_the_universe(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
                 conn.execute(
@@ -1100,7 +954,7 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_pre2019_variant_is_degraded_and_has_distinct_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             rules = load_screening_rules()
 
             result = build_panel(
@@ -1123,7 +977,7 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_pre2019_variant_cannot_use_the_production_store(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             errors = io.StringIO()
 
             with contextlib.redirect_stderr(errors):
@@ -1148,7 +1002,7 @@ class CalibrationPanelTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             errors = io.StringIO()
 
             with contextlib.redirect_stderr(errors):
@@ -1167,7 +1021,7 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_pre2019_variant_is_rejected_for_production_decision(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(
                 ASOF,
                 sqlite_path=sqlite_path,
@@ -1175,13 +1029,13 @@ class CalibrationPanelTest(unittest.TestCase):
                 policy=PRE2019_SELF_RANGE_POLICY,
             )
             store_dir = Path(tmp) / "calibration-pre2019"
-            write_panel(
+            store_panel(
                 store_dir,
                 ASOF,
                 result.rows,
                 replace(result.diagnostics, production_authority=True),
             )
-            write_forward(store_dir, ASOF, [])
+            store_forward(store_dir, ASOF, [])
             errors = io.StringIO()
 
             with contextlib.redirect_stderr(errors):
@@ -1203,12 +1057,12 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_degraded_row_is_rejected_even_with_production_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             degraded_rows = (replace(result.rows[0], self_range_degraded=True), *result.rows[1:])
             store_dir = Path(tmp) / "calibration"
-            write_panel(store_dir, ASOF, degraded_rows, result.diagnostics)
-            write_forward(store_dir, ASOF, [])
+            store_panel(store_dir, ASOF, degraded_rows, result.diagnostics)
+            store_forward(store_dir, ASOF, [])
             errors = io.StringIO()
 
             with contextlib.redirect_stderr(errors):
@@ -1230,10 +1084,10 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_build_requires_force_when_existing_panel_contract_differs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration-custom"
-            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
             errors = io.StringIO()
 
             with (
@@ -1258,7 +1112,7 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_failed_force_build_removes_its_unique_generation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             store_dir = Path(tmp) / "calibration"
 
             def fail_after_staging(root: Path, *_args: object, **_kwargs: object) -> None:
@@ -1292,7 +1146,7 @@ class CalibrationPanelTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             sqlite_path = root / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             store_dir = root / "calibration"
             with patch(
                 "baibai_engine.screening.calibration.cli.month_end_asof_grid",
@@ -1345,7 +1199,7 @@ class CalibrationPanelTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             sqlite_path = root / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             store_dir = root / "calibration"
             identities: set[str] = set()
 
@@ -1398,7 +1252,7 @@ class CalibrationPanelTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             sqlite_path = root / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             store_dir = root / "calibration"
             earlier = "2026-05-29"
             publish_panel(store_dir, earlier, [{"ticker": "7203"}])
@@ -1435,7 +1289,7 @@ class CalibrationPanelTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             sqlite_path = root / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             store_dir = root / "calibration"
             publish_panel(store_dir, ASOF.isoformat(), [{"ticker": "7203"}])
             before = resolve_calibration_bundle(store_dir).ref.bundle_id
@@ -1470,7 +1324,7 @@ class CalibrationPanelTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             sqlite_path = root / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             store_dir = root / "calibration"
             earlier = "2026-05-29"
             publish_panel(store_dir, earlier, [{"ticker": "7203"}])
@@ -1535,7 +1389,7 @@ class CalibrationPanelTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             sqlite_path = root / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             store_dir = root / "calibration"
             abandoned = root / f".generation.{store_dir.name}.deadbeef"
             (abandoned / "lake").mkdir(parents=True)
@@ -1564,7 +1418,7 @@ class CalibrationPanelTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             sqlite_path = root / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             connection = open_connection(sqlite_path)
             write_lake_store_origin(
                 connection,
@@ -1633,7 +1487,7 @@ class CalibrationPanelTest(unittest.TestCase):
         # told the store is stale instead of receiving panels holding nobody.
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
                 conn.execute("PRAGMA user_version = 1")
@@ -1659,7 +1513,7 @@ class CalibrationPanelTest(unittest.TestCase):
         # that blocked one would stop every measurement with the same message.
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
+            build_calibration_fixture_sqlite(sqlite_path)
 
             self.assertIsNone(unreadable_store_reason(sqlite_path))
 
@@ -1674,74 +1528,77 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertFalse((Path(tmp) / "absent.sqlite").exists())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class DerivedCacheIdentityTests(unittest.TestCase):
     """互換性を決める入力が動けば版も動く。手で進める判断を残さないための検査。"""
 
-    def test_a_new_panel_column_moves_the_identity(self) -> None:
-        from baibai_engine.screening.calibration import store as calibration_store
-
-        before = calibration_store._derive_cache_schema_version()
-        with patch.object(
-            calibration_store,
-            "PANEL_FIELD_NAMES",
-            (*calibration_store.PANEL_FIELD_NAMES, "new_axis"),
-        ):
-            after = calibration_store._derive_cache_schema_version()
-        self.assertNotEqual(before, after)
-
-    def test_measuring_one_more_threshold_moves_the_identity(self) -> None:
-        """列の形を変えずに観測の範囲だけ広げた変更が、実際に進め忘れを起こした形。"""
-        from baibai_engine.screening.calibration import store as calibration_store
-
-        before = calibration_store._derive_cache_schema_version()
-        widened = {
-            name: {**fields, "newly_measured_threshold": None}
-            for name, fields in calibration_store.RELAXED.items()
-        }
-        with patch.object(calibration_store, "RELAXED", widened):
-            after = calibration_store._derive_cache_schema_version()
-        self.assertNotEqual(before, after)
-
-    def test_changing_a_relaxed_value_moves_the_identity(self) -> None:
-        """同じ閾値を別の値で測った cohort は互換でない。名前だけ見ると気付けない。"""
-        from baibai_engine.screening.calibration import store as calibration_store
-
-        before = calibration_store._derive_cache_schema_version()
-        name, fields = next(iter(calibration_store.RELAXED.items()))
-        field = next(iter(fields))
-        retuned = {
-            **calibration_store.RELAXED,
-            name: {**fields, field: "retuned-sentinel"},
-        }
-        with patch.object(calibration_store, "RELAXED", retuned):
-            after = calibration_store._derive_cache_schema_version()
-        self.assertNotEqual(before, after)
-
-    def test_a_new_valuation_revision_moves_the_identity(self) -> None:
-        """式の意味の変更は内容から導けないので人が宣言するが、宣言すれば版も動く。"""
-        from baibai_engine.screening.calibration import store as calibration_store
-
-        before = calibration_store._derive_cache_schema_version()
-        with patch.object(calibration_store, "VALUATION_CALCULATION_REVISION", "next-revision"):
-            after = calibration_store._derive_cache_schema_version()
-        self.assertNotEqual(before, after)
-
-    def test_a_new_gate_axis_leaves_the_identity_alone(self) -> None:
-        """評価軸は既存の panel 列を指すだけで、cache の中身を 1 バイトも変えない。
-
-        版へ入れると 81 cohort の再構築を互換性上は不要な変更のたびに要求する。
-        """
+    def test_the_identity_follows_every_input_that_decides_compatibility(self) -> None:
         from baibai_engine.screening.calibration import evaluation
         from baibai_engine.screening.calibration import store as calibration_store
 
+        Patch = Callable[[], AbstractContextManager[object]]
+        # One input per row: what is changed, and whether the derived version has to
+        # move for it. The last row is the one that must NOT move — an evaluation axis
+        # only names existing panel columns, and putting it in the version would demand
+        # 81 cohort rebuilds for a change that alters no cached byte.
+        inputs: tuple[tuple[str, Patch, bool], ...] = (
+            (
+                "a_new_panel_column",
+                lambda: patch.object(
+                    calibration_store,
+                    "PANEL_FIELD_NAMES",
+                    (*calibration_store.PANEL_FIELD_NAMES, "new_axis"),
+                ),
+                True,
+            ),
+            (
+                # 列の形を変えずに観測の範囲だけ広げた変更が、実際に進め忘れを起こした形。
+                "measuring_one_more_threshold",
+                lambda: patch.object(
+                    calibration_store,
+                    "RELAXED",
+                    {
+                        name: {**fields, "newly_measured_threshold": None}
+                        for name, fields in calibration_store.RELAXED.items()
+                    },
+                ),
+                True,
+            ),
+            (
+                # 同じ閾値を別の値で測った cohort は互換でない。名前だけ見ると気付けない。
+                "changing_a_relaxed_value",
+                lambda: patch.object(
+                    calibration_store,
+                    "RELAXED",
+                    _retuned_relaxed(calibration_store.RELAXED),
+                ),
+                True,
+            ),
+            (
+                # 式の意味の変更は内容から導けないので人が宣言するが、宣言すれば版も動く。
+                "a_new_valuation_revision",
+                lambda: patch.object(
+                    calibration_store, "VALUATION_CALCULATION_REVISION", "next-revision"
+                ),
+                True,
+            ),
+            (
+                "a_new_gate_axis",
+                lambda: patch.object(
+                    evaluation, "GATE_BASE_AXES", (*evaluation.GATE_BASE_AXES, "p_s")
+                ),
+                False,
+            ),
+        )
+
         before = calibration_store._derive_cache_schema_version()
-        with patch.object(evaluation, "GATE_BASE_AXES", (*evaluation.GATE_BASE_AXES, "p_s")):
-            after = calibration_store._derive_cache_schema_version()
-        self.assertEqual(before, after)
+        for name, patcher, moves in inputs:
+            with self.subTest(case=name):
+                with patcher():
+                    after = calibration_store._derive_cache_schema_version()
+                if moves:
+                    self.assertNotEqual(before, after)
+                else:
+                    self.assertEqual(before, after)
 
     def test_the_identity_is_stable_for_the_same_inputs(self) -> None:
         from baibai_engine.screening.calibration import store as calibration_store
@@ -1795,3 +1652,7 @@ class GridDropRefusalTest(unittest.TestCase):
             dropped = _cohorts_a_grid_would_drop(directory, [date(2024, 2, 29)], force=False)
 
         self.assertEqual(dropped, [])
+
+
+if __name__ == "__main__":
+    unittest.main()

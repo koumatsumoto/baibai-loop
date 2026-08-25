@@ -75,12 +75,6 @@ class LakeBuildReport:
 
 
 @dataclass(frozen=True)
-class LakeBuildPlan:
-    dataset: str
-    affected_periods: tuple[Period, ...]
-
-
-@dataclass(frozen=True)
 class LakeExportReport:
     snapshot: SQLiteSnapshotSourceRef
     store_origin: LakeStoreOrigin | None
@@ -415,22 +409,6 @@ def validate_legacy_parity(
                 raise LakeBuildError(
                     f"SQLite source state differs from manifest: {period_label(period)}"
                 )
-
-
-def plan_affected_periods(
-    *,
-    dataset_name: str,
-    sqlite_path: Path,
-    base_manifest_path: Path,
-) -> LakeBuildPlan:
-    dataset = require_lake_dataset(dataset_name)
-    transform = _transform_fingerprint(dataset)
-    base = _load_base_manifest(base_manifest_path, dataset, transform=transform)
-    assert base is not None
-    with _open_immutable(sqlite_path) as connection:
-        _validate_sqlite_contract(connection, dataset)
-        affected = affected_periods(connection, dataset, base)
-    return LakeBuildPlan(dataset=dataset.name, affected_periods=affected)
 
 
 def _build_period(

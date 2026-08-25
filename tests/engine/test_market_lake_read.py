@@ -9,7 +9,7 @@ import threading
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass, field, replace
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -17,10 +17,11 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from tests.helpers.l1_release import market_store
+from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.market.lake import duck as duck_module
 from baibai_engine.market.lake import hydrate as hydrate_module
-from baibai_engine.market.lake import models as lake_models
 from baibai_engine.market.lake import prefetch as prefetch_module
 from baibai_engine.market.lake.datasets import JQUANTS_DAILY_BARS
 from baibai_engine.market.lake.duck import (
@@ -97,35 +98,13 @@ def resolve_current_release(source: object):
     return _resolve_current_release_at(source, evaluated_at=_BUILT_AT)  # type: ignore[arg-type]
 
 
-# Captured before any fixture narrows the module attribute, so a fixture that narrows it
-# further starts from the real profile rather than from another fixture's leftovers.
-_FULL_RELEASE_POLICY = lake_models.PRODUCTION_RELEASE_POLICY
-
-
 @pytest.fixture(autouse=True)
 def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
-    # These fixtures build the two datasets these tests exercise, so the
-    # profile is narrowed to them: a policy that still required the other thirteen would
-    # refuse every fixture release for being incomplete, which is a fact about the
-    # fixture rather than about the code under test.
-    datasets = tuple(
-        item.model_copy(
-            update={
-                "coverage_start_on_or_before": date.max,
-                "minimum_rows": 1,
-                "minimum_population_count": 1,
-                "max_age_days": 366,
-                "max_lead_days": 366,
-            }
-        )
-        for item in _FULL_RELEASE_POLICY.datasets
-        if item.dataset in {"jquants.daily_bars", "jquants.short_sale_reports"}
-    )
-    monkeypatch.setattr(
-        lake_models,
-        "PRODUCTION_RELEASE_POLICY",
-        _FULL_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
-    )
+    # These fixtures build the two datasets these tests exercise, so the profile is
+    # narrowed to them: a policy that still required the other thirteen would refuse
+    # every fixture release for being incomplete, which is a fact about the fixture
+    # rather than about the code under test.
+    narrow_release_policy(monkeypatch, age_days=366)
 
 
 @dataclass
@@ -151,40 +130,6 @@ class Lake:
     release_id: str
 
 
-def _market_store(path: Path) -> Path:
-    connection = open_connection(path)
-    connection.executemany(
-        "INSERT INTO jquants_daily_bars(ticker, traded_at, close, volume) VALUES (?, ?, ?, ?)",
-        [
-            ("1301", "2026-01-05", 100.0, 1000.0),
-            ("7203", "2026-01-05", 200.0, 2000.0),
-            ("1301", "2026-01-20", 105.0, 1100.0),
-            ("1301", "2026-02-02", 110.0, 1200.0),
-        ],
-    )
-    connection.execute(
-        """INSERT INTO source_coverage(
-             source, coverage_key, coverage_start, coverage_end,
-             fetched_at_utc, record_count, status, error
-           ) VALUES ('jquants_short_sale_reports', 'test:pilot', '2026-01-01',
-                     '2026-02-28', '2026-03-01T00:00:00+00:00', 2, 'ok', NULL)"""
-    )
-    connection.executemany(
-        """INSERT INTO jquants_short_sale_reports(
-             disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name,
-             discretionary_investment_contractor_name, investment_fund_name,
-             short_ratio, short_shares, short_trading_units, is_cancellation
-           ) VALUES (?, ?, ?, ?, ?, '', '', ?, ?, ?, ?)""",
-        [
-            ("2026-01-06", 0, "2026-01-05", "7203", "Fund A", 0.006, 600, 6, 0),
-            ("2026-02-03", 0, "2026-02-02", "6758", "Fund B", None, None, None, 1),
-        ],
-    )
-    connection.commit()
-    connection.close()
-    return path
-
-
 def _publish_pointer(mirror: Path, release_id: str, manifest_path: Path) -> None:
     target = mirror / current_l1_pointer_key()
     pointer = L1ReleasePointer(
@@ -202,7 +147,7 @@ def _release_digest(mirror: Path, release_id: str) -> str:
 
 
 def _build_lake(root: Path, *, release_id: str = "release-one") -> Lake:
-    sqlite_path = _market_store(root / "market.sqlite")
+    sqlite_path = market_store(root / "market.sqlite")
     mirror = root / "mirror"
     with sealed_sqlite_snapshot(
         sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id=f"snapshot-{release_id}"
@@ -1743,23 +1688,8 @@ class TestOperatorDerivedRetraction:
     def _policy(self, _small_pilot_release_policy: None, monkeypatch: pytest.MonkeyPatch) -> None:
         # Requested by name so it runs after the module-wide narrowing rather than
         # before it; autouse order alone would leave this dataset outside the profile.
-        datasets = tuple(
-            item.model_copy(
-                update={
-                    "coverage_start_on_or_before": date.max,
-                    "minimum_rows": 1,
-                    "minimum_population_count": 1,
-                    "max_age_days": 3660,
-                    "max_lead_days": 3660,
-                }
-            )
-            for item in _FULL_RELEASE_POLICY.datasets
-            if item.dataset == "edinet.tender_offer_exit_values"
-        )
-        monkeypatch.setattr(
-            lake_models,
-            "PRODUCTION_RELEASE_POLICY",
-            _FULL_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
+        narrow_release_policy(
+            monkeypatch, datasets=("edinet.tender_offer_exit_values",), age_days=3660
         )
 
     @staticmethod

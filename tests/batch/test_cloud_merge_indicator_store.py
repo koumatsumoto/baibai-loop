@@ -8,7 +8,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from tests.helpers.indicator_store import downgrade_to_previous_schema
+from tests.helpers.indicator_store import downgrade_to_previous_schema, observation
 
 from baibai_batch.storage.merge_indicator_store import (
     MergeError,
@@ -68,14 +68,9 @@ def _build_store(
 
 
 def _observation(series_id: str, day: date, value: float) -> ObservationRecord:
-    return ObservationRecord(
-        series_id=series_id,
-        observed_at=day,
-        value=value,
-        unit="percent",
-        source_url="https://example.com/series",
-        vintage_at=VINTAGE,
-    )
+    """One reading at this file's fixed vintage."""
+
+    return observation(series_id, day, value, VINTAGE, source_url="https://example.com/series")
 
 
 def _rows(path: Path, sql: str) -> list[tuple[object, ...]]:

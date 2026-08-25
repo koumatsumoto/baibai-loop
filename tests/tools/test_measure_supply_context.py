@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import shutil
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -11,21 +13,6 @@ from tests.helpers.calibration_store import publish_panel
 from tools.experiments.measure_supply_context import SupplyContextError, build_supply_context, main
 
 from baibai_engine.screening.calibration.store import CalibrationCacheError
-
-PANEL_COLUMNS = (
-    "asof",
-    "ticker",
-    "sector_33",
-    "in_population",
-    "market_cap_oku",
-    "avg_turnover_oku",
-    "listing_span_days",
-    "er_annual",
-    "er_reversion_annual",
-    "er_carry_annual",
-    "selection_rank",
-    "pass_screen",
-)
 
 
 def _panel(
@@ -51,7 +38,7 @@ def _liquid(ticker: str, asof: str, *, er: float, rank: int | str = "") -> dict[
     }
 
 
-def _history(directory: Path, *, levels: list[float]) -> None:
+def _build_history(directory: Path, *, levels: list[float]) -> None:
     """月ごとに水準の違う panel を作る。上位 5 の平均がその月の座標になる。"""
 
     for index, level in enumerate(levels):
@@ -72,7 +59,7 @@ def _history(directory: Path, *, levels: list[float]) -> None:
         )
 
 
-def _monthly_history(directory: Path, *, months: list[str]) -> None:
+def _build_monthly_history(directory: Path, *, months: list[str]) -> None:
     for index, month in enumerate(months):
         asof = f"{month}-28"
         _panel(
@@ -92,6 +79,59 @@ def _monthly_history(directory: Path, *, months: list[str]) -> None:
                 ],
             ],
         )
+
+
+# Seventeen tests need one of four calibration stores, and building one publishes
+# twenty-plus cohorts. `build_supply_context` only reads, and the few tests that write
+# do so into their own copy, so each distinct store is built once for the session and
+# copied per test.
+_TEMPLATES: dict[tuple[str, tuple[object, ...]], tuple[Path, str]] = {}
+
+
+def _fingerprint(root: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        digest.update(path.relative_to(root).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def _template(
+    factory: pytest.TempPathFactory, kind: str, key: tuple[object, ...], build: object
+) -> Path:
+    cached = _TEMPLATES.get((kind, key))
+    if cached is None:
+        root = factory.mktemp(f"supply-{kind}-{len(_TEMPLATES)}") / "calibration"
+        root.mkdir()
+        build(root)  # type: ignore[operator]
+        cached = (root, _fingerprint(root))
+        _TEMPLATES[(kind, key)] = cached
+    root, fingerprint = cached
+    # A shared seed is only safe while nothing writes through it, and the tests that
+    # publish extra cohorts do so into their copy. Checked rather than assumed: a
+    # template mutated once would change every later test in this file silently.
+    assert _fingerprint(root) == fingerprint, f"supply-context {kind} template was mutated"
+    return root
+
+
+def _history(tmp_path: Path, factory: pytest.TempPathFactory, *, levels: list[float]) -> Path:
+    template = _template(
+        factory, "levels", tuple(levels), lambda root: _build_history(root, levels=levels)
+    )
+    calibration = tmp_path / "calibration"
+    shutil.copytree(template, calibration)
+    assert calibration != template
+    return calibration
+
+
+def _monthly_history(tmp_path: Path, factory: pytest.TempPathFactory, *, months: list[str]) -> Path:
+    template = _template(
+        factory, "months", tuple(months), lambda root: _build_monthly_history(root, months=months)
+    )
+    calibration = tmp_path / "calibration"
+    shutil.copytree(template, calibration)
+    assert calibration != template
+    return calibration
 
 
 def _runs_db(path: Path, *, estimates: list[float]) -> None:
@@ -210,10 +250,9 @@ def _application_db(path: Path, *, rows: list[tuple[str, str, list[str]]]) -> No
 
 def test_a_supply_level_above_every_past_month_reports_the_top_percentile(
     tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
-    calibration = tmp_path / "calibration"
-    calibration.mkdir()
-    _history(calibration, levels=[0.05, 0.06, 0.07, 0.08])
+    calibration = _history(tmp_path, tmp_path_factory, levels=[0.05, 0.06, 0.07, 0.08])
     runs = tmp_path / "runs.sqlite"
     _runs_db(runs, estimates=[0.20] * 5)
 
@@ -229,10 +268,9 @@ def test_a_supply_level_above_every_past_month_reports_the_top_percentile(
 
 def test_a_supply_level_below_every_past_month_reports_the_bottom_percentile(
     tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
-    calibration = tmp_path / "calibration"
-    calibration.mkdir()
-    _history(calibration, levels=[0.05, 0.06, 0.07, 0.08])
+    calibration = _history(tmp_path, tmp_path_factory, levels=[0.05, 0.06, 0.07, 0.08])
     runs = tmp_path / "runs.sqlite"
     _runs_db(runs, estimates=[0.01] * 5)
 
@@ -245,10 +283,10 @@ def test_a_supply_level_below_every_past_month_reports_the_bottom_percentile(
     assert top5["percentile_rank"] == 0.0
 
 
-def test_the_hurdle_count_uses_the_latest_month_end_panel_and_says_so(tmp_path: Path) -> None:
-    calibration = tmp_path / "calibration"
-    calibration.mkdir()
-    _history(calibration, levels=[0.05, 0.06, 0.07])
+def test_the_hurdle_count_uses_the_latest_month_end_panel_and_says_so(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    calibration = _history(tmp_path, tmp_path_factory, levels=[0.05, 0.06, 0.07])
     # 最新月だけ hurdle を超える行を足す。件数座標は月末 panel から取る。
     _panel(
         calibration,
@@ -273,11 +311,10 @@ def test_the_hurdle_count_uses_the_latest_month_end_panel_and_says_so(tmp_path: 
     assert count["value"] == 2
 
 
-def test_illiquid_rows_never_enter_the_hurdle_count(tmp_path: Path) -> None:
-    calibration = tmp_path / "calibration"
-    calibration.mkdir()
-    # 件数座標は最新月を過去と比べるので、比較対象の月が 1 つ以上要る。
-    _history(calibration, levels=[0.05])
+def test_illiquid_rows_never_enter_the_hurdle_count(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    calibration = _history(tmp_path, tmp_path_factory, levels=[0.05])
     asof = "2024-02-28"
     rows = [_liquid(f"{1000 + slot}", asof, er=0.05, rank=slot + 1) for slot in range(5)]
     rows.append({**_liquid("9001", asof, er=0.12), "avg_turnover_oku": 0.1})
@@ -296,10 +333,9 @@ def test_illiquid_rows_never_enter_the_hurdle_count(tmp_path: Path) -> None:
 
 def test_a_selection_without_enough_ranked_estimates_fails_instead_of_averaging_a_partial_top(
     tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
-    calibration = tmp_path / "calibration"
-    calibration.mkdir()
-    _history(calibration, levels=[0.05])
+    calibration = _history(tmp_path, tmp_path_factory, levels=[0.05])
     runs = tmp_path / "runs.sqlite"
     _runs_db(runs, estimates=[0.05, 0.06])
 
@@ -309,10 +345,10 @@ def test_a_selection_without_enough_ranked_estimates_fails_instead_of_averaging_
         )
 
 
-def test_cli_writes_yaml_and_reports_a_missing_store(tmp_path: Path) -> None:
-    calibration = tmp_path / "calibration"
-    calibration.mkdir()
-    _history(calibration, levels=[0.05, 0.06])
+def test_cli_writes_yaml_and_reports_a_missing_store(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    calibration = _history(tmp_path, tmp_path_factory, levels=[0.05, 0.06])
     runs = tmp_path / "runs.sqlite"
     _runs_db(runs, estimates=[0.07] * 5)
     out = tmp_path / "supply.yaml"
@@ -336,10 +372,10 @@ def test_cli_writes_yaml_and_reports_a_missing_store(tmp_path: Path) -> None:
     assert main(["--calibration-dir", str(tmp_path / "absent"), "--runs-db", str(runs)]) == 1
 
 
-def test_a_lone_panel_cannot_place_its_own_count_in_history(tmp_path: Path) -> None:
-    calibration = tmp_path / "calibration"
-    calibration.mkdir()
-    _history(calibration, levels=[0.05])
+def test_a_lone_panel_cannot_place_its_own_count_in_history(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    calibration = _history(tmp_path, tmp_path_factory, levels=[0.05])
     runs = tmp_path / "runs.sqlite"
     _runs_db(runs, estimates=[0.05] * 5)
 
@@ -351,6 +387,7 @@ def test_a_lone_panel_cannot_place_its_own_count_in_history(tmp_path: Path) -> N
 
 def test_panels_built_with_different_screening_rules_cannot_be_published(
     tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
     """A mixture is declined where it would be created, not where it would be read.
 
@@ -359,9 +396,7 @@ def test_panels_built_with_different_screening_rules_cannot_be_published(
     consumer means the store holds a mixture until someone happens to look.
     """
 
-    calibration = tmp_path / "calibration"
-    calibration.mkdir()
-    _history(calibration, levels=[0.05, 0.06])
+    calibration = _history(tmp_path, tmp_path_factory, levels=[0.05, 0.06])
 
     with pytest.raises(CalibrationCacheError, match="mix measurement policies"):
         _panel(
@@ -372,11 +407,12 @@ def test_panels_built_with_different_screening_rules_cannot_be_published(
         )
 
 
-def test_breadth_coordinates_report_current_values_and_panel_percentiles(tmp_path: Path) -> None:
-    calibration = tmp_path / "calibration"
-    calibration.mkdir()
-    _monthly_history(
-        calibration,
+def test_breadth_coordinates_report_current_values_and_panel_percentiles(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    calibration = _monthly_history(
+        tmp_path,
+        tmp_path_factory,
         months=[
             "2023-01",
             "2023-02",
@@ -413,11 +449,12 @@ def test_breadth_coordinates_report_current_values_and_panel_percentiles(tmp_pat
     assert breadth["max_cluster_share"]["value"] == 0.25
 
 
-def test_missing_panel_month_does_not_claim_zero_trailing_breadth(tmp_path: Path) -> None:
-    calibration = tmp_path / "calibration"
-    calibration.mkdir()
-    _monthly_history(
-        calibration,
+def test_missing_panel_month_does_not_claim_zero_trailing_breadth(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    calibration = _monthly_history(
+        tmp_path,
+        tmp_path_factory,
         months=[
             "2023-01",
             "2023-02",
@@ -455,9 +492,8 @@ def test_missing_panel_month_does_not_claim_zero_trailing_breadth(tmp_path: Path
 
 def test_incomplete_latest_panel_does_not_fall_back_to_prior_trailing_breadth(
     tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
-    calibration = tmp_path / "calibration"
-    calibration.mkdir()
     months = [
         "2023-01",
         "2023-02",
@@ -473,7 +509,7 @@ def test_incomplete_latest_panel_does_not_fall_back_to_prior_trailing_breadth(
         "2023-12",
         "2024-01",
     ]
-    _monthly_history(calibration, months=months)
+    calibration = _monthly_history(tmp_path, tmp_path_factory, months=months)
     latest_asof = "2024-01-28"
     _panel(
         calibration,
@@ -500,10 +536,10 @@ def test_incomplete_latest_panel_does_not_fall_back_to_prior_trailing_breadth(
     assert trailing["panel_asof"] is None
 
 
-def test_pruned_previous_run_does_not_claim_zero_temporal_overlap(tmp_path: Path) -> None:
-    calibration = tmp_path / "calibration"
-    calibration.mkdir()
-    _history(calibration, levels=[0.05, 0.06])
+def test_pruned_previous_run_does_not_claim_zero_temporal_overlap(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    calibration = _history(tmp_path, tmp_path_factory, levels=[0.05, 0.06])
     runs = tmp_path / "runs.sqlite"
     _runs_db(runs, estimates=[0.1] * 20)
 
@@ -524,10 +560,10 @@ def test_pruned_previous_run_does_not_claim_zero_temporal_overlap(tmp_path: Path
     assert "retention" in temporal["reason"]
 
 
-def test_longlist_history_recovers_previous_top20_after_run_pruning(tmp_path: Path) -> None:
-    calibration = tmp_path / "calibration"
-    calibration.mkdir()
-    _history(calibration, levels=[0.05, 0.06])
+def test_longlist_history_recovers_previous_top20_after_run_pruning(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    calibration = _history(tmp_path, tmp_path_factory, levels=[0.05, 0.06])
     runs = tmp_path / "runs.sqlite"
     _runs_db(runs, estimates=[0.1] * 20)
     history = tmp_path / "longlists"
@@ -557,10 +593,9 @@ def test_longlist_history_recovers_previous_top20_after_run_pruning(tmp_path: Pa
 
 def test_longlist_history_skips_selection_missing_day_to_last_available_top20(
     tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
-    calibration = tmp_path / "calibration"
-    calibration.mkdir()
-    _history(calibration, levels=[0.05, 0.06])
+    calibration = _history(tmp_path, tmp_path_factory, levels=[0.05, 0.06])
     runs = tmp_path / "runs.sqlite"
     _runs_db(runs, estimates=[0.1] * 20)
     history = tmp_path / "longlists"
@@ -589,10 +624,10 @@ def test_longlist_history_skips_selection_missing_day_to_last_available_top20(
     assert temporal["previous_asof"] == "2024-06-26"
 
 
-def test_missing_shortlist_does_not_claim_zero_event_wait_share(tmp_path: Path) -> None:
-    calibration = tmp_path / "calibration"
-    calibration.mkdir()
-    _history(calibration, levels=[0.05, 0.06])
+def test_missing_shortlist_does_not_claim_zero_event_wait_share(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    calibration = _history(tmp_path, tmp_path_factory, levels=[0.05, 0.06])
     runs = tmp_path / "runs.sqlite"
     _runs_db(runs, estimates=[0.1] * 20)
 
@@ -614,10 +649,9 @@ def test_missing_shortlist_does_not_claim_zero_event_wait_share(tmp_path: Path) 
 
 def test_event_wait_share_uses_latest_shortlist_and_prior_cycles_for_percentile(
     tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
-    calibration = tmp_path / "calibration"
-    calibration.mkdir()
-    _history(calibration, levels=[0.05, 0.06])
+    calibration = _history(tmp_path, tmp_path_factory, levels=[0.05, 0.06])
     runs = tmp_path / "runs.sqlite"
     _runs_db(runs, estimates=[0.1] * 20)
     application = tmp_path / "application.sqlite"
@@ -649,10 +683,9 @@ def test_event_wait_share_uses_latest_shortlist_and_prior_cycles_for_percentile(
 
 def test_latest_shortlist_without_rejections_does_not_reuse_prior_event_wait_share(
     tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
-    calibration = tmp_path / "calibration"
-    calibration.mkdir()
-    _history(calibration, levels=[0.05, 0.06])
+    calibration = _history(tmp_path, tmp_path_factory, levels=[0.05, 0.06])
     runs = tmp_path / "runs.sqlite"
     _runs_db(runs, estimates=[0.1] * 20)
     application = tmp_path / "application.sqlite"

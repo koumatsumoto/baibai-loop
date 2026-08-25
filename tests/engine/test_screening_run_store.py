@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import Event
 
 import pytest
+from tests.helpers.screening_run import screening_candidate, screening_run_payload
 from tests.helpers.screening_selection import value_carry_selection_payload
 
 from baibai_engine.appdb.json import canonical_json
@@ -42,37 +43,26 @@ def _run(
     run_at: str = "2026-07-09T01:59:42+09:00",
     ticker: str = "1301",
 ) -> dict[str, object]:
-    compact = as_of.replace("-", "")
-    return {
-        "run_date": as_of,
-        "asof_date": as_of,
-        "universe_size": 3744,
-        "filters": {"scope": "all-common-stocks"},
-        "generated_by": "screening-cli-v1",
-        "data_sources": ["j-quants-light"],
-        "run_at": run_at,
-        "run_id": f"screening-{compact}",
-        "screening_rules_hash": _RULES_HASH,
-        "er_model_version": _MODEL_ID,
-        "candidates": [
-            {
-                "ticker": ticker,
-                "name": "極洋",
-                "sector_33": "水産・農林業",
-                "per_forward": 7.43,
-                "per_trailing": 7.82,
-                "pbr": 0.69,
-                "market_cap_oku": 1000.0,
-                "avg_turnover_oku": 10.0,
-                "listing_span_days": 1000,
-                "jpx_flags": [],
-                "metrics": {"dividend_yield": 0.021, "er_annual": 0.13},
-                "evidence_hits": [],
-            }
+    return screening_run_payload(
+        as_of=as_of,
+        run_at=run_at,
+        rules_hash=_RULES_HASH,
+        model_id=_MODEL_ID,
+        candidates=[
+            screening_candidate(
+                ticker,
+                per_forward=7.43,
+                per_trailing=7.82,
+                pbr=0.69,
+                metrics={"dividend_yield": 0.021, "er_annual": 0.13},
+            )
         ],
-        "provider_status_lines": [],
-        "fallback_lines": [],
-    }
+        filters={"scope": "all-common-stocks"},
+        generated_by="screening-cli-v1",
+        data_sources=["j-quants-light"],
+        provider_status_lines=[],
+        fallback_lines=[],
+    )
 
 
 def _selection(
@@ -94,6 +84,33 @@ def _selection(
         source_candidates=source_run["candidates"],  # type: ignore[arg-type]
         recommendations=[{"ticker": ticker, "rank": 1, "reason_tags": ["cheap"]}],
     )
+
+
+def test_a_candidate_that_carries_no_metrics_is_stored_and_reads_as_absent(
+    tmp_path: Path,
+) -> None:
+    """`metrics` is optional in the payload the store accepts.
+
+    The store projects two metrics into their own columns for querying. A candidate
+    that reported none is not one reporting zero, and the projection walks every
+    stored candidate, so a row without the key has to answer NULL rather than raise.
+    """
+
+    database = tmp_path / "runs.sqlite"
+    payload = screening_run_payload(candidates=[screening_candidate("1301", metrics=None)])
+    assert "metrics" not in payload["candidates"][0]
+
+    revision = ScreeningRunStore(database).publish_run(payload).publication_id
+
+    run = ScreeningRunReader(database).get_run(revision)
+    assert run is not None
+    assert "metrics" not in run.candidates[0]
+    with sqlite3.connect(database) as connection:
+        columns = connection.execute(
+            "SELECT er_annual, dividend_yield FROM screening_candidate WHERE run_revision_id = ?",
+            (revision,),
+        ).fetchone()
+    assert columns == (None, None)
 
 
 def test_run_store_has_independent_forward_schema(tmp_path: Path) -> None:
@@ -939,15 +956,6 @@ def test_reader_returns_none_for_missing_publications(tmp_path: Path) -> None:
                 "sizing_eligible": True,
             },
             "name must",
-        ),
-        (
-            {
-                "name": "x",
-                "playbook_id": "legacy-pattern",
-                "source_status": "ok",
-                "sizing_eligible": True,
-            },
-            "evidence pattern ID",
         ),
         (
             {

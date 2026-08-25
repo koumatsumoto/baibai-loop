@@ -711,19 +711,25 @@ def _v2_narrative() -> dict[str, str]:
 
 
 def test_shortlist_view_keeps_reading_entries_published_before_the_risk_reward_block() -> None:
+    # What `read_api` hands the builder: a v2 row after the legacy projection, which
+    # stamps a provenance status onto an entry that has no machine snapshot to infer
+    # a lane from.
     view = _shortlist_view(
         {
+            "schema_version": 2,
             "shortlist_id": "shortlist-20260717-legacy",
             "selection_id": "selection-legacy",
             "run_revision_id": "runrev-legacy",
             "as_of": "2026-07-17",
             "published_at": "2026-07-17T15:00:00+09:00",
+            "attention_provenance_status": "unresolved",
             "entries": [
                 {
                     "ticker": "2331",
                     "decision": "selected",
                     "reason": "深掘りへ",
                     "narrative": _v2_narrative(),
+                    "lane_provenance_status": "unresolved",
                 }
             ],
         }
@@ -744,11 +750,13 @@ def test_shortlist_view_reads_the_burned_machine_snapshot_as_a_longlist_row() ->
     # shape the live join produces, or the surface needs a second code path.
     view = _shortlist_view(
         {
+            "schema_version": 5,
             "shortlist_id": "shortlist-20260731-burned",
             "selection_id": "selection-burned",
             "run_revision_id": "runrev-burned",
             "as_of": "2026-07-31",
             "published_at": "2026-07-31T18:00:00+09:00",
+            "attention_provenance_status": "exact",
             "entries": [
                 {
                     "ticker": "2331",
@@ -757,6 +765,8 @@ def test_shortlist_view_reads_the_burned_machine_snapshot_as_a_longlist_row() ->
                     "reject_class": "price_already_converged",
                     "machine_snapshot": {
                         "rank": 3,
+                        "lane_provenance_status": "exact",
+                        "opportunity_lane_id": "value-carry",
                         "name": "ALSOK",
                         "market_price_yen": 1000.0,
                         "fair_value_anchor_yen": 1250.0,
@@ -791,13 +801,20 @@ def test_shortlist_view_reads_the_burned_machine_snapshot_as_a_longlist_row() ->
 def test_shortlist_view_leaves_the_snapshot_empty_when_the_judgment_predates_it() -> None:
     view = _shortlist_view(
         {
+            "schema_version": 2,
             "shortlist_id": "shortlist-20260717-legacy",
             "selection_id": "selection-legacy",
             "run_revision_id": "runrev-legacy",
             "as_of": "2026-07-17",
             "published_at": "2026-07-17T18:00:00+09:00",
+            "attention_provenance_status": "unresolved",
             "entries": [
-                {"ticker": "2331", "decision": "rejected", "reason": "見送り"},
+                {
+                    "ticker": "2331",
+                    "decision": "rejected",
+                    "reason": "見送り",
+                    "lane_provenance_status": "unresolved",
+                },
             ],
         }
     )
@@ -808,6 +825,7 @@ def test_shortlist_view_leaves_the_snapshot_empty_when_the_judgment_predates_it(
 def test_shortlist_view_counts_unreadable_entries_instead_of_dropping_the_surface() -> None:
     view = _shortlist_view(
         {
+            "schema_version": 5,
             "shortlist_id": "shortlist-20260717-mixed",
             "selection_id": "selection-mixed",
             "run_revision_id": "runrev-mixed",

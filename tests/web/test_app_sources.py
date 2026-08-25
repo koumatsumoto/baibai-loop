@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
+from tests.helpers.screening_run import screening_candidate, screening_run_payload
+from tests.helpers.screening_sqlite import seed_daily_bars
+
+from baibai_engine.market.sqlite import open_connection
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_web.sources.db_sources import (
     DbCandidatesSource,
     DbLedgerSource,
+    DbMarketPriceSource,
     DbResearchSource,
     DbTaskSource,
 )
@@ -19,9 +25,9 @@ from baibai_web.sources.protocols import (
 )
 
 
-class LedgerSourceContract:
+class TestDbLedgerSource:
     def make_source(self, root: Path) -> LedgerSource:
-        raise NotImplementedError
+        return DbLedgerSource(root / "stores/application/baibai.sqlite")
 
     def test_exists_false_when_absent(self, tmp_path: Path) -> None:
         assert self.make_source(tmp_path).exists() is False
@@ -37,14 +43,9 @@ class LedgerSourceContract:
         assert snapshot.holdings[0].ticker == "2331"
 
 
-class TestDbLedgerSource(LedgerSourceContract):
-    def make_source(self, root: Path) -> LedgerSource:
-        return DbLedgerSource(root / "stores/application/baibai.sqlite")
-
-
-class ResearchSourceContract:
+class TestDbResearchSource:
     def make_source(self, root: Path) -> ResearchSource:
-        raise NotImplementedError
+        return DbResearchSource(root / "stores/application/baibai.sqlite")
 
     def test_revisions_and_thesis_detail(self, app_method_root: Path) -> None:
         source = self.make_source(app_method_root)
@@ -61,14 +62,9 @@ class ResearchSourceContract:
         assert source.holding_reviews(ticker="2331") == []
 
 
-class TestDbResearchSource(ResearchSourceContract):
-    def make_source(self, root: Path) -> ResearchSource:
-        return DbResearchSource(root / "stores/application/baibai.sqlite")
-
-
-class TaskSourceContract:
+class TestDbTaskSource:
     def make_source(self, root: Path) -> TaskSource:
-        raise NotImplementedError
+        return DbTaskSource(root / "stores/application/baibai.sqlite")
 
     def test_exists_false_and_lists_empty_when_absent(self, tmp_path: Path) -> None:
         source = self.make_source(tmp_path)
@@ -86,14 +82,12 @@ class TaskSourceContract:
         assert tasks[0].event_date is not None
 
 
-class TestDbTaskSource(TaskSourceContract):
-    def make_source(self, root: Path) -> TaskSource:
-        return DbTaskSource(root / "stores/application/baibai.sqlite")
-
-
-class CandidatesSourceContract:
+class TestDbCandidatesSource:
     def make_source(self, root: Path) -> CandidatesSource:
-        raise NotImplementedError
+        return DbCandidatesSource(
+            root / "stores/screening/runs.sqlite",
+            root / "stores/application/baibai.sqlite",
+        )
 
     def test_latest_run_is_none_when_absent(self, tmp_path: Path) -> None:
         assert self.make_source(tmp_path).latest_run() is None
@@ -112,27 +106,16 @@ class CandidatesSourceContract:
         )
         assert run.er_model_version == "expected-return-v1"
 
-
-class TestDbCandidatesSource(CandidatesSourceContract):
-    def make_source(self, root: Path) -> CandidatesSource:
-        return DbCandidatesSource(
-            root / "stores/screening/runs.sqlite",
-            root / "stores/application/baibai.sqlite",
-        )
-
     def test_latest_run_preserves_method_identity(self, tmp_path: Path) -> None:
         runs_path = tmp_path / "runs.sqlite"
         ScreeningRunStore(runs_path).publish_run(
-            {
-                "run_id": "screening-20260801",
-                "run_date": "2026-08-01",
-                "asof_date": "2026-08-01",
-                "run_at": "2026-08-01T18:30:00+09:00",
-                "universe_size": 1,
-                "screening_rules_hash": "rules-hash-v1",
-                "er_model_version": "expected-return-v1",
-                "candidates": [{"ticker": "4432", "name": "sample", "evidence_hits": []}],
-            }
+            screening_run_payload(
+                as_of="2026-08-01",
+                run_at="2026-08-01T18:30:00+09:00",
+                universe_size=1,
+                rules_hash="rules-hash-v1",
+                candidates=[screening_candidate("4432", name="sample")],
+            )
         )
 
         run = DbCandidatesSource(runs_path, tmp_path / "app.sqlite").latest_run()
@@ -140,3 +123,44 @@ class TestDbCandidatesSource(CandidatesSourceContract):
         assert run is not None
         assert run.screening_rules_hash == "rules-hash-v1"
         assert run.er_model_version == "expected-return-v1"
+
+
+class TestDbMarketPriceSource:
+    """The daily-delta reads, whose behaviour is `test_market_read_api.py`'s.
+
+    What this owns is the wiring: the source has to hand the market store path to the
+    right read. A delegation that lost its argument or called the neighbouring read
+    would still type-check and would still answer, with the wrong number.
+    """
+
+    def _market(self, tmp_path: Path) -> Path:
+        path = tmp_path / "market.sqlite"
+        seed_daily_bars(
+            path,
+            [("2331", "2026-07-28", 100.0, 1.0), ("2331", "2026-07-29", 110.0, 1.0)],
+        )
+        connection = open_connection(path)
+        try:
+            connection.executemany(
+                "INSERT OR REPLACE INTO jquants_market_calendar(day, is_business_day) "
+                "VALUES (?, ?)",
+                [("2026-07-28", 1), ("2026-07-29", 1)],
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        return path
+
+    def test_exists_false_when_absent(self, tmp_path: Path) -> None:
+        assert DbMarketPriceSource(tmp_path / "missing.sqlite").exists() is False
+
+    def test_reads_the_previous_trading_day_and_the_change_since_it(self, tmp_path: Path) -> None:
+        source = DbMarketPriceSource(self._market(tmp_path))
+
+        previous = source.previous_business_day(date(2026, 7, 29))
+
+        assert source.exists() is True
+        assert previous == date(2026, 7, 28)
+        assert previous is not None
+        assert source.close_changes_since(["2331"], since=previous) == {"2331": 10.0}
+        assert source.latest_closes(["2331"]) == {"2331": (110.0, date(2026, 7, 29))}

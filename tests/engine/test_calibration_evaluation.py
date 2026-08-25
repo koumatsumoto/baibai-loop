@@ -12,7 +12,11 @@ from zoneinfo import ZoneInfo
 
 import yaml
 from tests.helpers.calibration_store import (
-    synthetic_calibration_source,
+    forward_row,
+    panel_diagnostics,
+    panel_row,
+    store_forward,
+    store_panel,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -44,128 +48,31 @@ from baibai_engine.screening.calibration.panel import (
     PanelDiagnostics,
     PanelRow,
 )
-from baibai_engine.screening.calibration.store import (
-    write_forward as _write_forward,
-)
-from baibai_engine.screening.calibration.store import (
-    write_panel as _write_panel,
-)
+
+_ASOF = "2025-06-30"
 
 
-def write_panel(root: Path, asof: date, *args: object, **kwargs: object) -> None:
-    _write_panel(
-        root,
-        asof,
-        *args,
-        sources=(synthetic_calibration_source(captured_on=asof),),
-        input_cutoff=asof,
-        **kwargs,
-    )
+def _panel_row(ticker: str, *, rank: int | None = None, **overrides: object) -> PanelRow:
+    """A row for this file's one cohort: liquid enough to be eligible, dated `_ASOF`.
 
+    Everything else comes from `tests.helpers.calibration_store.panel_row`, so a new
+    panel field lands there once instead of in a second copy of the row shape.
+    """
 
-def write_forward(root: Path, asof: date, *args: object, **kwargs: object) -> None:
-    _write_forward(
-        root,
-        asof,
-        *args,
-        sources=(synthetic_calibration_source(captured_on=asof),),
-        input_cutoff=asof,
-        **kwargs,
-    )
-
-
-def _panel_row(
-    ticker: str,
-    *,
-    per_trailing: float | None,
-    rank: int | None = None,
-    dividend_yield: float | None = None,
-    sector_33: str = "サービス業",
-    er_annual: float | None = None,
-    er_reversion_annual: float | None = None,
-    er_carry_annual: float | None = None,
-    close: float | None = 1000.0,
-    market_cap_oku: float | None = 500.0,
-    avg_turnover_oku: float | None = 5.0,
-    pbr: float | None = None,
-    net_cash_to_market_cap: float | None = None,
-    investment_securities: float | None = None,
-    asset_backed_ratio: float | None = None,
-    equity_ratio: float | None = None,
-    shareholder_return_change: bool | None = None,
-    price_change_60d: float | None = None,
-    smg_p_s: float | None = None,
-    smg_market_fallback: str = "",
-    pass_screen: bool = False,
-    evidence_patterns: str = "",
-    threshold_blocks: str = "",
-    operating_profit_yoy: float | None = None,
-) -> PanelRow:
-    return PanelRow(
-        asof="2025-06-30",
-        ticker=ticker,
-        sector_33=sector_33,
-        in_population=True,
-        market_cap_oku=market_cap_oku,
-        avg_turnover_oku=avg_turnover_oku,
-        listing_span_days=1200,
-        close=close,
-        per_forward=None,
-        per_trailing=per_trailing,
-        pbr=pbr,
-        ev_ebitda=None,
-        p_s=None,
-        pcfr=None,
-        ocf_yield=None,
-        fcf_yield=None,
-        net_cash_to_market_cap=net_cash_to_market_cap,
-        cash_to_market_cap=None,
-        investment_securities=investment_securities,
-        asset_backed_ratio=asset_backed_ratio,
-        equity_ratio=equity_ratio,
-        dividend_yield=dividend_yield,
-        eps_yoy=None,
-        sales_yoy=None,
-        operating_profit_yoy=operating_profit_yoy,
-        cfo_yoy=None,
-        accruals_to_assets=None,
-        net_share_change_yoy=None,
-        tradable_share_change_yoy=None,
-        ttm_quality_per_trailing="exact",
-        ttm_quality_ocf_yield="exact",
-        price_change_60d=price_change_60d,
-        gap_from_52w_low=None,
-        price_history_coverage_750d=1.0,
-        smg_per_forward=None,
-        smg_per_trailing=None,
-        smg_pbr=None,
-        smg_ev_ebitda=None,
-        smg_p_s=smg_p_s,
-        smg_market_fallback=smg_market_fallback,
-        srp_per_forward=None,
-        srp_per_trailing=None,
-        srp_pbr=None,
-        srp_ev_ebitda=None,
-        srp_p_s=None,
-        er_annual=er_annual,
-        er_reversion_annual=er_reversion_annual,
-        er_carry_annual=er_carry_annual,
-        er_upside_capped=None,
-        reported_short_ratio=None,
-        reported_short_breadth=None,
-        reported_short_latest_disclosed_at=None,
-        margin_week_end=None,
-        margin_long_to_adv=None,
-        margin_long_share=None,
-        margin_long_delta_26w=None,
-        margin_std_long_share=None,
-        pass_screen=pass_screen or rank is not None,
-        evidence_patterns=evidence_patterns,
-        threshold_blocks=threshold_blocks,
-        selection_rank=rank,
-        recommended_rank=rank,
-        shareholder_return_change=shareholder_return_change,
-    )
+    if rank is not None:
+        # This file's cohort is one where every ranked name also passed, which is what
+        # its evaluation cases are about; the panel does not require that in general.
+        overrides["selection_rank"] = rank
+        overrides["recommended_rank"] = rank
+        overrides.setdefault("pass_screen", True)
+    liquid: dict[str, object] = {
+        "market_cap_oku": 500.0,
+        "avg_turnover_oku": 5.0,
+        "listing_span_days": 1200,
+        "close": 1000.0,
+        "price_history_coverage_750d": 1.0,
+    }
+    return panel_row(_ASOF, ticker, **(liquid | overrides))
 
 
 def _forward_row(
@@ -175,18 +82,16 @@ def _forward_row(
     total_return: float | None = None,
     horizon: str = "6m",
 ) -> ForwardReturnRow:
-    return ForwardReturnRow(
-        asof="2025-06-30",
-        ticker=ticker,
-        horizon=horizon,
+    """One resolved forward observation for this file's cohort."""
+
+    return forward_row(
+        _ASOF,
+        ticker,
+        horizon,
         target_date="2025-12-29",
-        resolved=True,
         price_return=price_return,
-        stale_price=False,
-        entry_date="2025-06-30",
+        entry_date=_ASOF,
         exit_date="2025-12-29",
-        realized_dividend_sum=(10.0 if total_return is not None else None),
-        realized_dividend_fy_count=(1 if total_return is not None else 0),
         total_return=total_return,
         total_return_status=(
             "resolved" if total_return is not None else "unresolved_missing_dividend"
@@ -200,21 +105,16 @@ def _panel_diagnostics(
     asof_population_mismatch_count: int = 0,
     priced_master_without_universe_count: int = 0,
 ) -> PanelDiagnostics:
-    return PanelDiagnostics(
-        asof="2025-06-30",
+    """This file's cohort: 240 names, all with an exact trailing multiple."""
+
+    return panel_diagnostics(
+        _ASOF,
         rules_hash="rules-hash",
         universe_size=240,
         population_size=240,
-        candidates=0,
-        evidence_candidates=0,
-        bars_tickers_not_in_master=0,
         effective_bars_start="2024-01-01",
         effective_fin_start="2024-01-01",
-        bars_window_clamped=False,
-        fin_window_clamped=False,
         population_per_trailing_nonnull=240,
-        population_pbr_nonnull=0,
-        population_ocf_yield_nonnull=0,
         population_per_trailing_exact=240,
         master_snapshot_status=master_snapshot_status,
         asof_population_mismatch_count=asof_population_mismatch_count,
@@ -1340,14 +1240,14 @@ class MarginSizeNormalizationTest(unittest.TestCase):
 
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            write_panel(
+            store_panel(
                 root,
                 date(2025, 6, 30),
                 tuple(panel),
                 _panel_diagnostics(),
                 producer_commit="a" * 40,
             )
-            write_forward(
+            store_forward(
                 root,
                 date(2025, 6, 30),
                 forwards,
@@ -1423,7 +1323,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
     ) -> tuple[dict[str, int], dict[str, object]]:
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            write_panel(
+            store_panel(
                 root,
                 date(2025, 6, 30),
                 tuple(panel),
@@ -1433,7 +1333,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
                 ),
                 producer_commit="a" * 40,
             )
-            write_forward(
+            store_forward(
                 root,
                 date(2025, 6, 30),
                 forwards,

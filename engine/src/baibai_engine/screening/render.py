@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date
-from pathlib import Path
 
 import yaml
 
@@ -42,15 +40,6 @@ def _quoted_scalar_representer(dumper: yaml.SafeDumper, data: QuotedString) -> y
 
 
 _QuotedDumper.add_representer(QuotedString, _quoted_scalar_representer)
-
-
-def build_output_path(asof_date: date) -> Path:
-    return (
-        Path(".cache/screening/exports")
-        / f"{asof_date:%Y}"
-        / f"{asof_date:%m}"
-        / f"{asof_date:%Y-%m-%d}.yaml"
-    )
 
 
 def render_screened_yaml(

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Literal
 
 import pytest
+from tests.helpers.indicator_store import observation, observations, store_reader
 from tests.helpers.macro_context import macro_context_payload
 
 from baibai_engine.macro.context.cli import main as context_main
@@ -44,29 +45,20 @@ def _document(*, deadline: str = "2026-10-31") -> MacroContextDocument:
     return MacroContextDocument.model_validate(macro_context_payload(scorecard_deadline=deadline))
 
 
+_US10Y_SOURCE = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10"
+
+
 def _observations(*points: tuple[date, float]) -> tuple[ObservationRecord, ...]:
-    return tuple(
-        ObservationRecord(
-            series_id="us.10y",
-            observed_at=observed_at,
-            value=value,
-            unit="percent",
-            source_url="https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10",
-            vintage_at=datetime.combine(observed_at, datetime.min.time(), tzinfo=UTC),
-        )
-        for observed_at, value in points
+    """Daily 10y readings, each vintaged at the start of the day it was observed."""
+
+    return observations(
+        "us.10y",
+        points,
+        source_url=_US10Y_SOURCE,
+        vintage_at=lambda observed_at: datetime.combine(
+            observed_at, datetime.min.time(), tzinfo=UTC
+        ),
     )
-
-
-def _reader(observations: Sequence[ObservationRecord]):  # type: ignore[no-untyped-def]
-    def read(series_id: str, start: date, end: date) -> tuple[ObservationRecord, ...]:
-        return tuple(
-            observation
-            for observation in observations
-            if observation.series_id == series_id and start <= observation.observed_at <= end
-        )
-
-    return read
 
 
 def _result(
@@ -116,7 +108,7 @@ def _evaluate(
 ) -> ScorecardEvaluation:
     return evaluate_scorecard(
         _document(),
-        reader=_reader(observations),
+        reader=store_reader(observations),
         provider_run_checker=(
             lambda _series_id, _provider, _start, _end, _completed_after, _asof: settlement
         ),
@@ -357,15 +349,14 @@ def test_scorecard_separates_observation_deadline_from_vintage_cutoff(
         definition = load_definitions().by_id()["jp.foreign_flows"]
         value = max(4.0, definition.plausible_min or 4.0)
         assert definition.plausible_max is None or value <= definition.plausible_max
-        observation = ObservationRecord(
-            series_id="jp.foreign_flows",
-            observed_at=date(2026, 8, 21),
-            value=value,
-            unit=definition.unit,
+        record = observation(
+            definition,
+            date(2026, 8, 21),
+            value,
+            datetime(2026, 8, 27, tzinfo=UTC),
             source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
-            vintage_at=datetime(2026, 8, 27, tzinfo=UTC),
         )
-        insert_observations(connection, [observation])
+        insert_observations(connection, [record])
         connection.commit()
 
         evaluation = evaluate_scorecard(

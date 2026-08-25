@@ -16,7 +16,7 @@ from tests.helpers.calibration_store import (
     publish_panel,
     synthetic_calibration_source,
 )
-from tests.helpers.l1_release import stored_release_source
+from tests.helpers.l1_release import release_source, stored_release_source
 
 from baibai_engine.market.lake import models as lake_models
 from baibai_engine.market.lake import retention as retention_module
@@ -24,7 +24,6 @@ from baibai_engine.market.lake import sources as sources_module
 from baibai_engine.market.lake.keys import (
     calibration_bundle_manifest_key,
     current_calibration_bundle_pointer_key,
-    release_manifest_key,
 )
 from baibai_engine.market.lake.models import (
     CalibrationBundleManifest,
@@ -45,7 +44,6 @@ from baibai_engine.market.lake.retention import (
 from baibai_engine.screening.calibration import lake as lake_module
 from baibai_engine.screening.calibration import store
 from baibai_engine.screening.calibration.forward import (
-    DEFAULT_FORWARD_OBSERVATION_POLICY,
     ForwardObservationPolicy,
     ForwardReturnRow,
 )
@@ -179,17 +177,6 @@ class TestTypedContract:
         assert same != transform_fingerprint(
             CALIBRATION_PANEL, cache_schema_version=CACHE_SCHEMA_VERSION
         )
-
-
-def _release_source() -> L1ReleaseSourceRef:
-    release_id = "20260130T000000Z-release"
-    return L1ReleaseSourceRef(
-        kind="l1_release",
-        source_id=release_id,
-        key=release_manifest_key(release_id=release_id),
-        sha256="b" * 64,
-        manifest_version=1,
-    )
 
 
 class TestImmutableBuilds:
@@ -441,7 +428,7 @@ class TestImmutableBuilds:
         entry = CohortInventoryEntry(
             status="empty",
             rows=0,
-            sources=(snapshot, _release_source()),
+            sources=(snapshot, release_source()),
             input_cutoff=date.fromisoformat(_JANUARY),
             measurement_policy=policy,
         )
@@ -462,7 +449,7 @@ class TestImmutableBuilds:
             CohortInventoryEntry(
                 status="empty",
                 rows=0,
-                sources=(_release_source(),),
+                sources=(release_source(),),
                 input_cutoff=date.fromisoformat(_JANUARY),
                 measurement_policy=policy,
             )
@@ -473,7 +460,7 @@ class TestImmutableBuilds:
 
         del tmp_path
         with pytest.raises(ValidationError):
-            TypeAdapter(SourceRef).validate_python(_release_source().model_dump(mode="python"))
+            TypeAdapter(SourceRef).validate_python(release_source().model_dump(mode="python"))
 
     def test_a_cohort_is_published_as_a_build_the_pointer_names(self, tmp_path: Path) -> None:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
@@ -1513,16 +1500,13 @@ class TestSemanticIdentity:
                 forward_policy=ForwardObservationPolicy(use_control_event_exits=False),
             )
 
-        assert store.store_forward_policy(tmp_path) == DEFAULT_FORWARD_OBSERVATION_POLICY
+    def test_a_store_built_wholly_under_other_rules_reads_back(self, tmp_path: Path) -> None:
+        """The refusal above is about mixing, not about the non-default rules."""
 
-    def test_a_store_states_the_rules_its_forward_rows_were_observed_under(
-        self, tmp_path: Path
-    ) -> None:
         policy = ForwardObservationPolicy(use_control_event_exits=False)
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY), forward_policy=policy)
         publish_forward(tmp_path, _JANUARY, _forward_rows(_JANUARY), forward_policy=policy)
 
-        assert store.store_forward_policy(tmp_path) == policy
         assert read_forward(tmp_path, date.fromisoformat(_JANUARY))
 
 

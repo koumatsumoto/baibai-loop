@@ -11,7 +11,6 @@ import yaml
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.macro.indicators.db import initialize_database as initialize_indicators_db
 from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH
-from baibai_engine.position.ledger import load_portfolio_ledger
 from baibai_engine.research.store import ResearchStoreService
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
@@ -19,6 +18,8 @@ from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_engine.tasks.models import Task
 from tests.helpers.db_seed import seed_ledger, seed_tasks
 from tests.helpers.fixed_now import FIXED_NOW
+from tests.helpers.ledger import load_portfolio_ledger
+from tests.helpers.screening_run import screening_candidate, screening_run_payload
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SCREENING_RULES_HASH = production_rules_contract_hash(load_screening_rules().model_dump_json())
@@ -113,16 +114,8 @@ def _seed_app_method_root(root: Path) -> None:
     tasks = yaml.safe_load(_TASKS)["tasks"]
     seed_tasks(db_path, (Task.model_validate(item) for item in tasks))
     run_store = ScreeningRunStore(root / "stores/screening/runs.sqlite")
-    for text in (
-        _CANDIDATES.replace("screening-20260708", "screening-20260701").replace(
-            "2026-07-08", "2026-07-01"
-        ),
-        _CANDIDATES,
-    ):
-        payload = yaml.safe_load(text)
-        assert isinstance(payload, dict)
-        payload["screening_rules_hash"] = SCREENING_RULES_HASH
-        run_store.publish_run(payload)
+    for as_of in ("2026-07-01", "2026-07-08"):
+        run_store.publish_run(_seed_candidates(as_of))
 
 
 def _tree_fingerprint(root: Path) -> str:
@@ -183,42 +176,29 @@ tasks:
     closed_at: "2026-07-01"
 """
 
-_CANDIDATES = """\
-run_id: screening-20260708
-run_date: "2026-07-08"
-asof_date: "2026-07-08"
-universe_size: 3
-run_at: "2026-07-08T12:00:00+09:00"
-screening_rules_hash: rules-app-method-fixture
-er_model_version: expected-return-v1
-candidates:
-  - ticker: "2331"
-    name: ALSOK
-    sector_33: サービス業
-    market_cap_oku: 1000.0
-    avg_turnover_oku: 10.0
-    listing_span_days: 1000
-    jpx_flags: []
-    per_trailing: 12.0
-    metrics:
-      er_annual: 0.12
-    evidence_hits: []
-  - ticker: "0001"
-    name: Sample One
-    sector_33: 情報・通信業
-    market_cap_oku: 1000.0
-    avg_turnover_oku: 10.0
-    listing_span_days: 1000
-    jpx_flags: []
-    metrics:
-      er_annual: 0.1
-    evidence_hits: []
-  - ticker: "0002"
-    name: Sample Two
-    sector_33: 小売業
-    market_cap_oku: 1000.0
-    avg_turnover_oku: 10.0
-    listing_span_days: 1000
-    jpx_flags: []
-    evidence_hits: []
-"""
+
+def _seed_candidates(as_of: str) -> dict[str, object]:
+    """The three-name run the application-store fixture is built from."""
+
+    return screening_run_payload(
+        as_of=as_of,
+        run_at=f"{as_of}T12:00:00+09:00",
+        universe_size=3,
+        rules_hash=SCREENING_RULES_HASH,
+        candidates=[
+            screening_candidate(
+                "2331",
+                name="ALSOK",
+                sector_33="サービス業",
+                per_trailing=12.0,
+                metrics={"er_annual": 0.12},
+            ),
+            screening_candidate(
+                "0001",
+                name="Sample One",
+                sector_33="情報・通信業",
+                metrics={"er_annual": 0.1},
+            ),
+            screening_candidate("0002", name="Sample Two", sector_33="小売業", metrics={}),
+        ],
+    )

@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 from pydantic import ValidationError
+from tests.helpers.indicator_store import observation, store_reader
 from tests.helpers.macro_context import macro_context_payload
 
 from baibai_engine.macro.context.cli import main as context_main
@@ -47,32 +48,25 @@ def _document_without_conditions() -> MacroContextDocument:
     return MacroContextDocument.model_validate(macro_context_payload(machine_conditions=[]))
 
 
-def _reader(observations: Sequence[ObservationRecord]):  # type: ignore[no-untyped-def]
-    def read(series_id: str, start: date, end: date) -> tuple[ObservationRecord, ...]:
-        return tuple(
-            item
-            for item in observations
-            if item.series_id == series_id and start <= item.observed_at <= end
-        )
-
-    return read
+_US10Y_SOURCE = "https://www.federalreserve.gov/datadownload/Output.aspx"
 
 
 def _observation(observed_at: date, value: float) -> ObservationRecord:
-    return ObservationRecord(
-        series_id="us.10y",
-        observed_at=observed_at,
-        value=value,
-        unit="percent",
-        source_url="https://www.federalreserve.gov/datadownload/Output.aspx",
-        vintage_at=datetime.combine(observed_at, datetime.min.time(), tzinfo=UTC),
+    """A 10y reading vintaged at the start of the day it was observed."""
+
+    return observation(
+        "us.10y",
+        observed_at,
+        value,
+        datetime.combine(observed_at, datetime.min.time(), tzinfo=UTC),
+        source_url=_US10Y_SOURCE,
     )
 
 
 def _evaluate(observations: Sequence[ObservationRecord], *, asof: date):  # type: ignore[no-untyped-def]
     return evaluate_triggers(
         _document(_BREAKOUT),
-        reader=_reader(observations),
+        reader=store_reader(observations),
         known_series=frozenset({"us.10y"}),
         asof=asof,
     )
@@ -135,7 +129,7 @@ def test_an_observation_on_the_asof_day_is_inside_the_window() -> None:
 def test_a_series_the_registry_no_longer_defines_is_not_evaluable() -> None:
     evaluation = evaluate_triggers(
         _document(_BREAKOUT),
-        reader=_reader([_observation(date(2026, 7, 20), 5.4)]),
+        reader=store_reader([_observation(date(2026, 7, 20), 5.4)]),
         known_series=frozenset(),
         asof=date(2026, 7, 20),
     )
@@ -153,7 +147,7 @@ def test_a_report_without_machine_conditions_evaluates_to_nothing() -> None:
 
     evaluation = evaluate_triggers(
         _document_without_conditions(),
-        reader=_reader([]),
+        reader=store_reader([]),
         known_series=frozenset({"us.10y"}),
         asof=date(2026, 7, 25),
     )

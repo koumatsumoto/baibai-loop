@@ -56,7 +56,7 @@ from baibai_engine.market.jquants import (
 )
 from baibai_engine.market.provider import JQuantsMarketProvider
 
-from ..master_snapshot import normalize_sector_name, validate_master_snapshot
+from ..master_snapshot import validate_master_snapshot
 from ..schema import SecurityMaster, normalize_ticker
 
 
@@ -788,52 +788,6 @@ class JQuantsProvider(JQuantsMarketProvider):
             )
             return
         super()._store_records(method, records, params)
-
-
-def normalize_security_master(record: Mapping[str, Any]) -> SecurityMaster:
-    code, common_code = parse_jquants_code_parts(
-        first_value(record, "Code", "code", "LocalCode", "local_code")
-    )
-    name = first_value(record, "CompanyName", "company_name", "Name", "name", "CoName", "co_name")
-    market_segment = first_value(
-        record,
-        "MarketCodeName",
-        "market_segment",
-        "Section",
-        "section",
-        "MktNm",
-        "mkt_nm",
-    )
-    sector_33 = normalize_sector_name(
-        first_value(
-            record,
-            "Sector33CodeName",
-            "sector_33",
-            "Sector33Name",
-            "S33Nm",
-            "s33_nm",
-        )
-    )
-    # J-Quants v2 /listed/info (get_eq_master) does not return a listing date field.
-    # Consumers that need listing_span compute it from bars history instead of
-    # relying on a master-side listing_date proxy.
-    is_common_stock = bool(
-        record.get("is_common_stock")
-        if "is_common_stock" in record
-        else first_value(
-            record, "TypeOfDocument", "SecurityType", "security_type", default="common"
-        ).lower()
-        in {"common", "common stock", "普通株"}
-    )
-    if not common_code:
-        is_common_stock = False
-    return SecurityMaster(
-        code=code,
-        name=str(name),
-        market_segment=str(market_segment),
-        sector_33=str(sector_33),
-        is_common_stock=is_common_stock,
-    )
 
 
 def normalize_weekly_margin(

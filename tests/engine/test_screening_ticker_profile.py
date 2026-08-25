@@ -8,6 +8,11 @@ from datetime import date
 from pathlib import Path
 
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.screening_run import (
+    evidence_hit,
+    screening_candidate,
+    screening_run_payload,
+)
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.foundation.yaml_io import safe_load
@@ -67,36 +72,27 @@ def _insert_reference_rows(sqlite_path: Path) -> None:
 
 def _write_candidates(runs_db_path: Path) -> None:
     ScreeningRunStore(runs_db_path).publish_run(
-        {
-            "run_date": "2026-05-29",
-            "asof_date": "2026-05-29",
-            "universe_size": 1,
-            "filters": {},
-            "generated_by": "test",
-            "data_sources": [],
-            "run_at": "2026-05-29T09:00:00+09:00",
-            "run_id": "screening-20260529",
-            "candidates": [
-                {
-                    "ticker": "AAAA",
-                    "name": "テスト製作所",
-                    "evidence_hits": [
-                        {
-                            "name": "cashflow-yield-discount",
-                            "evidence_pattern_id": "cashflow-yield-discount",
-                            "source_status": "ok",
-                            "sizing_eligible": True,
-                        }
-                    ],
-                    "metrics": {"ocf_yield": 0.11},
-                }
+        screening_run_payload(
+            as_of="2026-05-29",
+            run_at="2026-05-29T09:00:00+09:00",
+            universe_size=1,
+            candidates=[
+                screening_candidate(
+                    "AAAA",
+                    name="テスト製作所",
+                    evidence_hits=[evidence_hit("cashflow-yield-discount")],
+                    metrics={"ocf_yield": 0.11},
+                )
             ],
-            "provider_status_lines": [],
-            "universe_exclusion_lines": [],
-            "ttm_quality_counts": {},
-            "evidence_hits_summary": {},
-            "fallback_lines": [],
-        },
+            filters={},
+            generated_by="test",
+            data_sources=[],
+            provider_status_lines=[],
+            universe_exclusion_lines=[],
+            ttm_quality_counts={},
+            evidence_hits_summary={},
+            fallback_lines=[],
+        ),
         run_revision_id="run-20260529-test",
     )
 
@@ -262,26 +258,17 @@ class BuildTickerProfileTests(unittest.TestCase):
             runs_path = root / "runs.sqlite"
             _write_candidates(runs_path)
             latest = ScreeningRunStore(runs_path).publish_run(
-                {
-                    "run_date": "2026-05-30",
-                    "asof_date": "2026-05-30",
-                    "universe_size": 1,
-                    "filters": {},
-                    "generated_by": "test",
-                    "data_sources": [],
-                    "run_at": "2026-05-30T09:00:00+09:00",
-                    "run_id": "screening-20260530",
-                    "candidates": [
-                        {
-                            "ticker": "BBBB",
-                            "name": "同業ペア",
-                            "evidence_hits": [],
-                            "metrics": {},
-                        }
-                    ],
-                    "provider_status_lines": [],
-                    "fallback_lines": [],
-                }
+                screening_run_payload(
+                    as_of="2026-05-30",
+                    run_at="2026-05-30T09:00:00+09:00",
+                    universe_size=1,
+                    candidates=[screening_candidate("BBBB", name="同業ペア", metrics={})],
+                    filters={},
+                    generated_by="test",
+                    data_sources=[],
+                    provider_status_lines=[],
+                    fallback_lines=[],
+                )
             )
 
             thesis = build_ticker_profile(

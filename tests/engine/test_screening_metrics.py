@@ -21,6 +21,7 @@ from baibai_engine.screening.calibration.forward import (
 from baibai_engine.screening.metrics import (
     MetricBuildResult,
     _asof_basis_dividend,
+    _avg_daily_volume,
     _common_equity_yen,
     _normalize_summaries_to_asof_basis,
     _resolve_capital_basis,
@@ -132,43 +133,6 @@ def _security(code: str = "130A") -> SecurityMaster:
         market_segment="Prime",
         sector_33="情報・通信業",
         is_common_stock=True,
-    )
-
-
-def _quality_summary(
-    *,
-    disclosed_at: date,
-    fiscal_year_end: date,
-    period_start: date,
-    period_end: date,
-    eps: float,
-    shares: float,
-    sales: float,
-    cfo: float,
-    operating_profit: float | None,
-    ordinary_profit: float | None = None,
-    profit: float | None = None,
-    total_assets: float,
-    equity: float,
-) -> JQuantsFinancialSummary:
-    return JQuantsFinancialSummary(
-        ticker="130A",
-        disclosed_at=disclosed_at,
-        forecast_eps=eps,
-        eps_ttm=eps,
-        bps=equity / shares,
-        shares_outstanding=shares,
-        sales=sales,
-        cfo=cfo,
-        total_assets=total_assets,
-        equity=equity,
-        operating_profit=operating_profit,
-        ordinary_profit=ordinary_profit,
-        profit=profit,
-        fiscal_period="FY",
-        fiscal_year_end=fiscal_year_end,
-        period_start=period_start,
-        period_end=period_end,
     )
 
 
@@ -590,61 +554,35 @@ class ScreeningMetricsTests(unittest.TestCase):
         )
         return result.financials["130A"]
 
-    def test_forecast_special_gain_flag_set_when_net_income_exceeds_ordinary(self) -> None:
-        # 会社予想で純利益>経常なら特別益をほぼ確定する (税負担が通常正)。flag を立てる。
-        snapshot = self._forecast_gain_snapshot(
-            forecast_profit=5_464_000_000.0, forecast_ordinary_profit=3_406_000_000.0
-        )
-        self.assertTrue(snapshot.forecast_special_gain_flag)
-
-    def test_forecast_special_gain_flag_clear_when_net_income_not_above_ordinary(self) -> None:
-        # 純利益<=経常 (通常の税負担後) では立てない。
-        snapshot = self._forecast_gain_snapshot(
-            forecast_profit=2_400_000_000.0, forecast_ordinary_profit=3_406_000_000.0
-        )
-        self.assertFalse(snapshot.forecast_special_gain_flag)
-
-    def test_forecast_special_gain_flag_clear_when_either_forecast_missing(self) -> None:
-        # 片方でも欠損なら比較不能なので立てない (誤検出回避)。
-        self.assertFalse(
-            self._forecast_gain_snapshot(
-                forecast_profit=5_464_000_000.0, forecast_ordinary_profit=None
-            ).forecast_special_gain_flag
-        )
-        self.assertFalse(
-            self._forecast_gain_snapshot(
-                forecast_profit=None, forecast_ordinary_profit=3_406_000_000.0
-            ).forecast_special_gain_flag
+    def test_the_forecast_flags_read_the_pair_of_company_forecasts(self) -> None:
+        # 会社予想の (純利益, 経常) の組ごとに、2 つの flag がどうなるかを 1 行で置く。
+        # special gain: 純利益>経常 なら特別益をほぼ確定する (税負担が通常正)。片方でも
+        # 欠損なら比較不能なので立てない。
+        # full-year loss: どちらか一方が負なら立てる。予想が 1 つも無い行は「黒字予想」で
+        # はないので、欠損を黒字へ畳まない。
+        cases: tuple[tuple[str, float | None, float | None, bool, bool], ...] = (
+            ("net_income_above_ordinary", 5_464_000_000.0, 3_406_000_000.0, True, False),
+            ("net_income_below_ordinary", 2_400_000_000.0, 3_406_000_000.0, False, False),
+            # 等しい行は「特別益がある」ではない。> を >= へ緩めた変更をここが止める。
+            ("net_income_equal_to_ordinary", 3_406_000_000.0, 3_406_000_000.0, False, False),
+            ("ordinary_missing", 5_464_000_000.0, None, False, False),
+            ("net_income_missing", None, 3_406_000_000.0, False, False),
+            # 2491 の 2026-07-29 開示は経常 △700 / 純利益 △800。
+            ("both_negative", -800_000_000.0, -700_000_000.0, False, True),
+            ("net_income_negative_alone", -800_000_000.0, None, False, True),
+            ("ordinary_negative_alone", None, -700_000_000.0, False, True),
+            ("both_positive", 480_000_000.0, 1_480_000_000.0, False, False),
+            ("no_forecast_disclosed", None, None, False, False),
         )
 
-    def test_forecast_full_year_loss_flag_set_when_either_forecast_is_negative(self) -> None:
-        # 2491 の 2026-07-29 開示は経常 △700 / 純利益 △800。どちらか一方が負なら立てる。
-        self.assertTrue(
-            self._forecast_gain_snapshot(
-                forecast_profit=-800_000_000.0, forecast_ordinary_profit=-700_000_000.0
-            ).forecast_full_year_loss_flag
-        )
-        self.assertTrue(
-            self._forecast_gain_snapshot(
-                forecast_profit=-800_000_000.0, forecast_ordinary_profit=None
-            ).forecast_full_year_loss_flag
-        )
-        self.assertTrue(
-            self._forecast_gain_snapshot(
-                forecast_profit=None, forecast_ordinary_profit=-700_000_000.0
-            ).forecast_full_year_loss_flag
-        )
+        for name, profit, ordinary, special_gain, full_year_loss in cases:
+            with self.subTest(case=name):
+                snapshot = self._forecast_gain_snapshot(
+                    forecast_profit=profit, forecast_ordinary_profit=ordinary
+                )
 
-    def test_forecast_full_year_loss_flag_clear_when_forecasts_are_positive(self) -> None:
-        snapshot = self._forecast_gain_snapshot(
-            forecast_profit=480_000_000.0, forecast_ordinary_profit=1_480_000_000.0
-        )
-        self.assertFalse(snapshot.forecast_full_year_loss_flag)
-
-    def test_forecast_full_year_loss_flag_clear_when_no_forecast_is_disclosed(self) -> None:
-        # 予想が 1 つも無い行は「黒字予想」ではない。欠損を黒字へ畳まないことを固定する。
-        snapshot = self._forecast_gain_snapshot(forecast_profit=None, forecast_ordinary_profit=None)
-        self.assertFalse(snapshot.forecast_full_year_loss_flag)
+                self.assertEqual(snapshot.forecast_special_gain_flag, special_gain)
+                self.assertEqual(snapshot.forecast_full_year_loss_flag, full_year_loss)
 
     def test_market_cap_adjusts_shares_for_split_after_disclosure(self) -> None:
         """開示後の分割 (権利落ち bar の adjustment_factor) を株数へ補正する。
@@ -2787,10 +2725,6 @@ class ScreeningMetricsTests(unittest.TestCase):
         self.assertFalse(result.derived["130A"].split_adjustment_flag)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class MedianPopulationTests(unittest.TestCase):
     def test_sector_median_uses_only_population_tickers(self) -> None:
         from datetime import date as _date
@@ -4404,3 +4338,40 @@ class TradableShareChangeTest(unittest.TestCase):
         # 発行済側は前年行から答えられるので、旧軸は残る。
         assert financial.net_share_change_yoy is not None
         self.assertAlmostEqual(financial.net_share_change_yoy, 0.0, places=9)
+
+
+def test_the_average_volume_window_is_twenty_sessions() -> None:
+    """The window length is a number the margin figures are divided by.
+
+    Days of trading is a margin balance over this average, so a window one session
+    wider moves every overhang figure without any read failing. The counts here are
+    written out rather than derived from `AVG_VOLUME_SESSIONS`: a fixture built from
+    the constant moves with it and can never say where the edge is.
+    """
+
+    asof = date(2026, 7, 10)
+    # Twenty-one sessions, the oldest carrying a volume nothing else comes near.
+    bars = [
+        JQuantsDailyBar(
+            ticker="130A",
+            traded_at=asof - timedelta(days=20 - offset),
+            open=None,
+            high=None,
+            low=None,
+            close=100.0,
+            volume=(1_000_000.0 if offset == 0 else 1_000.0),
+            turnover_value=None,
+            adjustment_factor=1.0,
+        )
+        for offset in range(21)
+    ]
+
+    # Twenty sessions back from the newest bar leaves the outlier one session outside.
+    assert _avg_daily_volume(bars, asof) == 1_000.0
+    # A window that reached one session further would take it in, which is what makes
+    # this the edge rather than a restatement of the constant.
+    assert _avg_daily_volume(bars, asof, sessions=21) != 1_000.0
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -95,11 +95,10 @@ _PATH_PATTERN_OWNERS = {
     Path("tools/quality/drift/check_legacy_semantics.py"),
 }
 _DOMAIN_IDENTIFIER_ADAPTERS = {
-    # Immutable pre-migration payloads retain these keys. These readers/tools only
-    # translate historical evidence into the canonical vocabulary; they do not emit
-    # the retired identifiers on a new-write surface.
+    # Immutable pre-migration payloads retain these keys. This reader only translates
+    # historical evidence into the canonical vocabulary; it does not emit the retired
+    # identifiers on a new-write surface.
     Path("engine/src/baibai_engine/read_api/shortlist.py"),
-    Path("tools/studies/opportunity_vocabulary_equivalence.py"),
 }
 
 

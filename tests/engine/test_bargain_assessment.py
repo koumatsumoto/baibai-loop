@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import ValidationError
+from tests.helpers.shortlist import rejected_entry, selected_entry, shortlist_payload
 
 from baibai_engine.research.assessment import (
     AssessmentConflictError,
@@ -32,60 +33,16 @@ PUBLISHED_AT = datetime(2026, 7, 22, 15, 0, tzinfo=JST)
 THESIS_ID = "thesis-20260714-2331-r1"
 
 
-def _narrative() -> dict[str, object]:
-    return {
-        "ploss": "中低",
-        "why": "受注端境",
-        "temporary": "翌期に戻る",
-        "structural": "毀損はない",
-        "survive": "net cashで耐える",
-        "unlock": "還元強化",
-        "upside": "正常化でPER12倍相当",
-        "downside": "簿価が床",
-        "rr": "下値が資産で支えられる",
-        "catalyst": "2Q決算",
-        "catalyst_date": None,
-        "macro": "sizing cautionは該当なし",
-        "counter": "構造鈍化",
-        "research": "受注残を確認",
-        "value": "FV乖離が大きい",
-        "prov": "深掘り最優先",
-    }
-
-
 def _publish_shortlist(db_path: Path, *, shortlist_id: str = "shortlist-20260721-test") -> str:
     shortlist = Shortlist.model_validate(
-        {
-            "schema_version": 5,
-            "kind": "shortlist",
-            "shortlist_id": shortlist_id,
-            "selection_id": "selection-test",
-            "run_revision_id": "runrev-test",
-            "as_of": "2026-07-21",
-            "published_at": "2026-07-21T15:00:00+09:00",
-            "profile": "value",
-            "macro_context_id": "macro-context-2026-07-21-test",
-            "attention_policy_id": "value-carry-only-v1",
-            "attention_policy_hash": "a" * 64,
-            "attention_policy_parameters": {"value_carry_limit": 2},
-            "review_basis_shortlist_id": None,
-            "research_gate_contract_id": "research-gate-v1",
-            "entries": [
-                {
-                    "ticker": "2331",
-                    "decision": "selected",
-                    "rank": 1,
-                    "reason": "一次IRへ進める",
-                    "narrative": _narrative(),
-                },
-                {
-                    "ticker": "0001",
-                    "decision": "rejected",
-                    "reason": "根拠が弱い",
-                    "reject_class": "other",
-                },
-            ],
-        }
+        shortlist_payload(
+            shortlist_id=shortlist_id,
+            as_of="2026-07-21",
+            published_at="2026-07-21T15:00:00+09:00",
+            profile="value",
+            macro_context_id="macro-context-2026-07-21-test",
+            entries=[selected_entry("2331"), rejected_entry("0001")],
+        )
     )
     ShortlistService(db_path).publish(
         shortlist,
@@ -398,7 +355,11 @@ def test_scaffold_carries_the_permanent_loss_verdict_and_the_shortlist_question(
     case = draft["cases"][0]
     assert case["machine"]["permanent_loss_conclusion"] in {"acceptable", "elevated", "unknown"}
     assert case["research_questions"] == [
-        {"question": "受注残を確認", "answer": "TODO", "status": "unresolved"}
+        {
+            "question": "受注残と粗利率の推移を一次IRで確認",
+            "answer": "TODO",
+            "status": "unresolved",
+        }
     ]
     assert draft["review"]["draft_sha256"] == UNREVIEWED_DRAFT_SHA256
 

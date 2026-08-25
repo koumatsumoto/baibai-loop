@@ -591,44 +591,50 @@ class ControlEventExitTest(unittest.TestCase):
         assert row.price_return is not None
         self.assertAlmostEqual(row.price_return, 0.18)
 
-    def test_offer_outside_the_window_leaves_the_row_unresolved(self) -> None:
-        exits = (ControlEventExit(delisted_on=date(2024, 12, 20), offer_price_yen=120.0),)
-        row = self._rows(self._delisted_bars(), exits)[0]
-        self.assertFalse(row.resolved)
-        self.assertEqual(row.status, "unresolved_stale_exit")
-
-    def test_two_offers_inside_one_window_leave_the_row_unresolved(self) -> None:
-        exits = (
-            ControlEventExit(delisted_on=self.DELISTED_ON, offer_price_yen=120.0),
-            ControlEventExit(delisted_on=date(2025, 3, 20), offer_price_yen=130.0),
-        )
-        row = self._rows(self._delisted_bars(), exits)[0]
-        self.assertFalse(row.resolved)
-        self.assertEqual(row.status, "unresolved_stale_exit")
-
-    def test_incomplete_adjustment_coverage_leaves_the_row_unresolved(self) -> None:
-        bars = [
-            _bar(self.ASOF, 100.0, factor=1.0),
-            _bar(date(2025, 3, 13), 118.0),
-        ]
-        exits = (ControlEventExit(delisted_on=self.DELISTED_ON, offer_price_yen=120.0),)
-        row = self._rows(bars, exits)[0]
-        self.assertFalse(row.resolved)
-        self.assertEqual(row.status, "unresolved_stale_exit")
-
-    def test_share_split_after_the_delisting_leaves_the_row_unresolved(self) -> None:
-        # The offer is quoted on the share basis of the delisting day while entry closes
-        # are carried to the final bar's basis, so a split in between makes the two
-        # incomparable and the window must stay bracketed.
-        bars = [
+    def test_an_offer_it_cannot_price_against_leaves_the_row_unresolved(self) -> None:
+        # One reason per row why the offer cannot stand in for the missing exit. Each
+        # has to bracket the window rather than produce a return, because a wrong
+        # number here enters the measured distribution as a real observation.
+        split_bars = [
             _bar(self.ASOF, 100.0, factor=1.0),
             _bar(date(2025, 3, 13), 118.0, factor=1.0),
+            # The offer is quoted on the share basis of the delisting day while entry
+            # closes are carried to the final bar's basis, so a split in between makes
+            # the two incomparable.
             _bar(date(2025, 3, 21), 60.0, factor=0.5),
         ]
-        exits = (ControlEventExit(delisted_on=self.DELISTED_ON, offer_price_yen=120.0),)
-        row = self._rows(bars, exits)[0]
-        self.assertFalse(row.resolved)
-        self.assertEqual(row.status, "unresolved_stale_exit")
+        cases: tuple[tuple[str, list[JQuantsDailyBar], tuple[ControlEventExit, ...]], ...] = (
+            (
+                "offer_outside_the_window",
+                self._delisted_bars(),
+                (ControlEventExit(delisted_on=date(2024, 12, 20), offer_price_yen=120.0),),
+            ),
+            (
+                "two_offers_inside_one_window",
+                self._delisted_bars(),
+                (
+                    ControlEventExit(delisted_on=self.DELISTED_ON, offer_price_yen=120.0),
+                    ControlEventExit(delisted_on=date(2025, 3, 20), offer_price_yen=130.0),
+                ),
+            ),
+            (
+                "incomplete_adjustment_coverage",
+                [_bar(self.ASOF, 100.0, factor=1.0), _bar(date(2025, 3, 13), 118.0)],
+                (ControlEventExit(delisted_on=self.DELISTED_ON, offer_price_yen=120.0),),
+            ),
+            (
+                "share_split_after_the_delisting",
+                split_bars,
+                (ControlEventExit(delisted_on=self.DELISTED_ON, offer_price_yen=120.0),),
+            ),
+        )
+
+        for name, bars, exits in cases:
+            with self.subTest(case=name):
+                row = self._rows(bars, exits)[0]
+
+                self.assertFalse(row.resolved)
+                self.assertEqual(row.status, "unresolved_stale_exit")
 
     def test_read_control_event_exits_returns_every_offer_per_ticker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -650,10 +656,6 @@ class ControlEventExitTest(unittest.TestCase):
 
             self.assertEqual(len(exits["1000"]), 2)
             self.assertEqual(sorted(item.offer_price_yen for item in exits["1000"]), [80.0, 120.0])
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class AdjustmentFactorGuardTest(unittest.TestCase):
@@ -777,42 +779,39 @@ class FailureExitTest(unittest.TestCase):
         self.assertAlmostEqual(row.price_return or 0.0, -0.92)
         self.assertEqual(row.exit_date, "2025-03-13")
 
-    def test_the_same_window_without_the_delisting_stays_unresolved(self) -> None:
-        """The negative side of the same window, so a change that fires on everything
-        cannot pass as a working replacement."""
+    def test_a_delisting_it_cannot_price_against_leaves_the_row_unresolved(self) -> None:
+        # The negative side of the same window, one reason per row, so a change that
+        # fires on everything cannot pass as a working replacement.
+        cases: tuple[tuple[str, list[JQuantsDailyBar] | None, tuple[FailureExit, ...]], ...] = (
+            ("no_delisting_at_all", None, ()),
+            (
+                "delisting_outside_the_window",
+                None,
+                (FailureExit(delisted_on=date(2025, 8, 1), reason="破産手続き"),),
+            ),
+            (
+                # A last close later than the removal is not the price trading stopped at.
+                "traded_after_the_delisting",
+                [_bar(self.ASOF, 100.0), _bar(date(2025, 3, 20), 8.0)],
+                self._failure(),
+            ),
+            (
+                "two_delistings_in_one_window",
+                None,
+                (
+                    FailureExit(delisted_on=self.DELISTED_ON, reason="破産手続き"),
+                    FailureExit(delisted_on=date(2025, 3, 20), reason="民事再生手続き"),
+                ),
+            ),
+        )
 
-        row = self._rows()[0]
+        for name, bars, failure_exits in cases:
+            with self.subTest(case=name):
+                row = self._rows(bars=bars, failure_exits=failure_exits)[0]
 
-        self.assertEqual(row.status, "unresolved_stale_exit")
-        self.assertFalse(row.resolved)
-        self.assertIsNone(row.price_return)
-
-    def test_a_delisting_outside_the_window_does_not_price_it(self) -> None:
-        row = self._rows(
-            failure_exits=(FailureExit(delisted_on=date(2025, 8, 1), reason="破産手続き"),)
-        )[0]
-
-        self.assertEqual(row.status, "unresolved_stale_exit")
-
-    def test_a_name_that_traded_after_the_delisting_is_left_unresolved(self) -> None:
-        """A last close later than the removal is not the price trading stopped at."""
-
-        row = self._rows(
-            bars=[_bar(self.ASOF, 100.0), _bar(date(2025, 3, 20), 8.0)],
-            failure_exits=self._failure(),
-        )[0]
-
-        self.assertEqual(row.status, "unresolved_stale_exit")
-
-    def test_two_delistings_in_one_window_are_ambiguous(self) -> None:
-        row = self._rows(
-            failure_exits=(
-                FailureExit(delisted_on=self.DELISTED_ON, reason="破産手続き"),
-                FailureExit(delisted_on=date(2025, 3, 20), reason="民事再生手続き"),
-            )
-        )[0]
-
-        self.assertEqual(row.status, "unresolved_stale_exit")
+                self.assertEqual(row.status, "unresolved_stale_exit")
+                self.assertFalse(row.resolved)
+                self.assertIsNone(row.price_return)
 
     def test_a_window_the_market_closed_is_untouched(self) -> None:
         """Realizing failures must not restate a single window the market itself closed."""
@@ -900,3 +899,7 @@ class FailureReasonClassificationTest(unittest.TestCase):
 
             self.assertEqual(sorted(exits), ["1000"])
             self.assertEqual(len(exits["1000"]), 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -12,11 +12,7 @@ if str(SRC) not in sys.path:
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.screening.render import (
-    RenderError,
-    build_output_path,
-    render_screened_yaml,
-)
+from baibai_engine.screening.render import RenderError, render_screened_yaml
 from baibai_engine.screening.schema import (
     EvidenceHit,
     ScreenedCandidate,
@@ -27,12 +23,6 @@ from baibai_engine.screening.schema import (
 
 
 class ScreeningRenderTests(unittest.TestCase):
-    def test_build_output_path_uses_asof_date(self) -> None:
-        self.assertEqual(
-            build_output_path(date(2026, 4, 24)),
-            Path(".cache/screening/exports/2026/04/2026-04-24.yaml"),
-        )
-
     def test_normalize_ticker_supports_alpha_numeric_codes(self) -> None:
         self.assertEqual(normalize_ticker("130a"), "130A")
         with self.assertRaises(ValueError):

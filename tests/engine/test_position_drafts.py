@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.ledger import load_portfolio_ledger
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.cli import main as position_main
@@ -13,7 +14,6 @@ from baibai_engine.position.drafts import LedgerDraft, apply_draft, build_event_
 from baibai_engine.position.ledger import (
     ContributionEvent,
     PortfolioLedgerError,
-    load_portfolio_ledger,
 )
 from baibai_engine.position.store import LedgerConflictError, LedgerStoreService
 

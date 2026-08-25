@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from tests.helpers.indicator_store import observations, series_definition, store_reader
 
 from baibai_engine.macro.indicators.db import ObservationRecord
 from baibai_engine.macro.indicators.definitions import SeriesDefinition, load_definitions
@@ -47,27 +48,6 @@ def _monthly_ramp(months: int, *, end: date) -> list[tuple[date, float]]:
         )
         for offset in reversed(range(months))
     ]
-
-
-def _definition(
-    series_id: str = "test.series",
-    *,
-    category: str = "rates",
-    frequency: str = "daily",
-    unit: str = "percent",
-) -> SeriesDefinition:
-    return SeriesDefinition(
-        series_id=series_id,
-        name="Test Series",
-        category=category,
-        geography="world",
-        frequency=frequency,
-        unit=unit,
-        provider="fred_csv",
-        provider_series_id="TEST",
-        source_id="test-source",
-        source_url="https://example.com/data.csv",
-    )
 
 
 def _expects_growth_statistic(definition: SeriesDefinition) -> bool:
@@ -117,32 +97,6 @@ def _statistic_assignment_drift(
         actual_yoy - expected_yoy,
         explicit_level - candidates,
     )
-
-
-def _observations(
-    series_id: str, points: Sequence[tuple[date, float]]
-) -> tuple[ObservationRecord, ...]:
-    return tuple(
-        ObservationRecord(
-            series_id=series_id,
-            observed_at=observed_at,
-            value=value,
-            unit="percent",
-            source_url="https://example.com/data.csv",
-        )
-        for observed_at, value in points
-    )
-
-
-def _reader(observations: tuple[ObservationRecord, ...]):  # type: ignore[no-untyped-def]
-    def read(series_id: str, start: date, end: date) -> tuple[ObservationRecord, ...]:
-        return tuple(
-            observation
-            for observation in observations
-            if observation.series_id == series_id and start <= observation.observed_at <= end
-        )
-
-    return read
 
 
 def _daily_points(count: int, *, end: date, step: float) -> list[tuple[date, float]]:
@@ -202,12 +156,12 @@ def test_historical_rules_load_and_omit_the_forward_print_estimate(rules_path: P
         series_id="test.legacy",
         frequency="monthly",
     ).explicit_staleness_warn_days
-    definition = _definition(frequency="monthly")
+    definition = series_definition(frequency="monthly")
     observed_at = date(2026, 6, 1)
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(_observations(definition.series_id, [(observed_at, 1.0)])),
+        reader=store_reader(observations(definition.series_id, [(observed_at, 1.0)])),
         rules=historical,
         rules_revision="historical",
         asof=ASOF,
@@ -241,7 +195,7 @@ def test_reading_rules_statistic_assignments_match_registry_semantics() -> None:
 
 def test_reading_rules_detect_an_unclassified_equity_index() -> None:
     rules = load_reading_rules(DEFAULT_RULES_PATH)
-    added = _definition(
+    added = series_definition(
         "test.unlisted_equity",
         category="equity-index",
         unit="index",
@@ -399,7 +353,7 @@ def test_staleness_warns_only_once_a_publication_has_been_missed(
         observed_at = date.fromordinal(ASOF.toordinal() - age_days)
         snapshot = compute_reading(
             series=[definition],
-            reader=_reader(_observations(series_id, [(observed_at, 1.0)])),
+            reader=store_reader(observations(series_id, [(observed_at, 1.0)])),
             rules=rules,
             rules_revision="test",
             asof=ASOF,
@@ -453,7 +407,7 @@ def test_next_print_estimate_uses_the_series_publication_lag(
     definition = load_definitions().by_id()[series_id]
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(_observations(series_id, [(observed_at, 1.0)])),
+        reader=store_reader(observations(series_id, [(observed_at, 1.0)])),
         rules=load_reading_rules(DEFAULT_RULES_PATH),
         rules_revision="test",
         asof=ASOF,
@@ -478,11 +432,11 @@ def test_publication_cadence_can_differ_from_registry_frequency() -> None:
 
 
 def test_month_end_print_estimate_advances_by_a_calendar_month() -> None:
-    definition = _definition(frequency="monthly")
+    definition = series_definition(frequency="monthly")
     observed_at = date(2026, 1, 31)
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(_observations(definition.series_id, [(observed_at, 1.0)])),
+        reader=store_reader(observations(definition.series_id, [(observed_at, 1.0)])),
         rules=load_reading_rules(DEFAULT_RULES_PATH),
         rules_revision="test",
         asof=date(2026, 2, 1),
@@ -492,14 +446,14 @@ def test_month_end_print_estimate_advances_by_a_calendar_month() -> None:
 
 
 def test_month_end_staleness_uses_the_same_calendar_boundary_as_print_due() -> None:
-    definition = _definition(frequency="monthly")
+    definition = series_definition(frequency="monthly")
     observed_at = date(2026, 1, 31)
     rules = load_reading_rules(DEFAULT_RULES_PATH)
 
     def reading_at(asof: date) -> SeriesReading:
         return compute_reading(
             series=[definition],
-            reader=_reader(_observations(definition.series_id, [(observed_at, 1.0)])),
+            reader=store_reader(observations(definition.series_id, [(observed_at, 1.0)])),
             rules=rules,
             rules_revision="test",
             asof=asof,
@@ -514,11 +468,11 @@ def test_month_end_staleness_uses_the_same_calendar_boundary_as_print_due() -> N
 
 
 def test_daily_print_estimate_skips_a_weekend_without_an_event_calendar() -> None:
-    definition = _definition(frequency="daily")
+    definition = series_definition(frequency="daily")
     observed_at = date(2026, 7, 24)  # Friday
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(_observations(definition.series_id, [(observed_at, 1.0)])),
+        reader=store_reader(observations(definition.series_id, [(observed_at, 1.0)])),
         rules=load_reading_rules(DEFAULT_RULES_PATH),
         rules_revision="test",
         asof=date(2026, 7, 26),
@@ -534,7 +488,7 @@ def test_calendar_daily_print_estimate_keeps_weekend_observations() -> None:
     observed_at = date(2026, 7, 24)  # Friday
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(_observations(definition.series_id, [(observed_at, 1.0)])),
+        reader=store_reader(observations(definition.series_id, [(observed_at, 1.0)])),
         rules=load_reading_rules(DEFAULT_RULES_PATH),
         rules_revision="test",
         asof=observed_at,
@@ -623,14 +577,14 @@ def _decade_of_monthly_points(end: date) -> list[tuple[date, float]]:
 
 
 def test_percentile_and_z_score_match_the_window_statistics() -> None:
-    definition = _definition(frequency="monthly")
+    definition = series_definition(frequency="monthly")
     points = _decade_of_monthly_points(date(2026, 7, 1))
-    observations = _observations(definition.series_id, points)
+    records = observations(definition.series_id, points)
     values = [value for _, value in points]
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(observations),
+        reader=store_reader(records),
         rules=load_reading_rules(DEFAULT_RULES_PATH),
         rules_revision="test",
         asof=ASOF,
@@ -651,18 +605,18 @@ def test_percentile_and_z_score_match_the_window_statistics() -> None:
 
 
 def test_monthly_reading_counts_one_statistic_point_per_calendar_month() -> None:
-    definition = _definition("test.mixed_monthly", frequency="monthly")
+    definition = series_definition("test.mixed_monthly", frequency="monthly")
     points = [
         (date(2016, 7, 29), -1.0),
         *_decade_of_monthly_points(date(2026, 7, 1)),
         (date(2026, 7, 2), 120.0),
         (date(2026, 7, 24), 121.0),
     ]
-    observations = _observations(definition.series_id, points)
+    records = observations(definition.series_id, points)
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(observations),
+        reader=store_reader(records),
         rules=load_reading_rules(DEFAULT_RULES_PATH),
         rules_revision="test",
         asof=ASOF,
@@ -677,7 +631,7 @@ def test_monthly_reading_counts_one_statistic_point_per_calendar_month() -> None
 
 
 def test_daily_source_can_use_a_monthly_statistic_sample() -> None:
-    definition = _definition("test.daily_source_monthly_sample", frequency="daily")
+    definition = series_definition("test.daily_source_monthly_sample", frequency="daily")
     points = [
         *_decade_of_monthly_points(date(2026, 7, 1)),
         (date(2026, 7, 2), 120.0),
@@ -693,7 +647,7 @@ def test_daily_source_can_use_a_monthly_statistic_sample() -> None:
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(_observations(definition.series_id, points)),
+        reader=store_reader(observations(definition.series_id, points)),
         rules=rules,
         rules_revision="test",
         asof=ASOF,
@@ -712,7 +666,7 @@ def test_reading_rules_reject_an_unsupported_weekly_sampling_override() -> None:
 
 
 def test_quarterly_reading_counts_one_statistic_point_per_calendar_quarter() -> None:
-    definition = _definition("test.mixed_quarterly", frequency="quarterly")
+    definition = series_definition("test.mixed_quarterly", frequency="quarterly")
     last_quarter = 2026 * 4 + 2
     points = [
         (
@@ -722,11 +676,11 @@ def test_quarterly_reading_counts_one_statistic_point_per_calendar_quarter() -> 
         for offset in reversed(range(40))
     ]
     points.extend(((date(2026, 7, 2), 40.0), (date(2026, 7, 24), 41.0)))
-    observations = _observations(definition.series_id, points)
+    records = observations(definition.series_id, points)
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(observations),
+        reader=store_reader(records),
         rules=load_reading_rules(DEFAULT_RULES_PATH),
         rules_revision="test",
         asof=ASOF,
@@ -739,17 +693,17 @@ def test_quarterly_reading_counts_one_statistic_point_per_calendar_quarter() -> 
 
 
 def test_daily_reading_keeps_every_stored_statistic_point() -> None:
-    definition = _definition("test.mixed_daily", frequency="daily")
+    definition = series_definition("test.mixed_daily", frequency="daily")
     points = [
         *_decade_of_monthly_points(date(2026, 7, 1)),
         (date(2026, 7, 2), 120.0),
         (date(2026, 7, 24), 121.0),
     ]
-    observations = _observations(definition.series_id, points)
+    records = observations(definition.series_id, points)
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(observations),
+        reader=store_reader(records),
         rules=load_reading_rules(DEFAULT_RULES_PATH),
         rules_revision="test",
         asof=ASOF,
@@ -768,13 +722,13 @@ def test_percentile_ranks_the_year_on_year_change_where_the_level_only_sets_reco
     the window instead of its highest value.
     """
 
-    definition = _definition("test.ramp", frequency="monthly")
+    definition = series_definition("test.ramp", frequency="monthly")
     points = _monthly_ramp(132, end=date(2026, 7, 1))
-    observations = _observations(definition.series_id, points)
+    records = observations(definition.series_id, points)
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(observations),
+        reader=store_reader(records),
         rules=_yoy_rules(definition.series_id),
         rules_revision="test",
         asof=ASOF,
@@ -800,15 +754,15 @@ def test_percentile_ranks_the_year_on_year_change_where_the_level_only_sets_reco
 def test_reading_withholds_a_year_on_year_statistic_with_no_observation_a_year_back() -> None:
     # A thirteen-month change reported as year-on-year would misstate the pace, so the
     # reading withholds the rank instead of stretching the comparison.
-    definition = _definition("test.gap", frequency="monthly")
+    definition = series_definition("test.gap", frequency="monthly")
     points = [
         point for point in _monthly_ramp(132, end=date(2026, 7, 1)) if point[0] != date(2025, 7, 1)
     ]
-    observations = _observations(definition.series_id, points)
+    records = observations(definition.series_id, points)
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(observations),
+        reader=store_reader(records),
         rules=_yoy_rules(definition.series_id),
         rules_revision="test",
         asof=ASOF,
@@ -826,16 +780,16 @@ def test_reading_withholds_a_year_on_year_statistic_with_no_observation_a_year_b
 def test_reading_skips_a_year_on_year_point_whose_partner_is_not_positive() -> None:
     # A ratio against zero has no value to report, so that one point leaves the sample
     # rather than entering it as an infinity.
-    definition = _definition("test.zero_partner", frequency="monthly")
+    definition = series_definition("test.zero_partner", frequency="monthly")
     points = [
         (observed_at, 0.0 if observed_at == date(2024, 7, 1) else value)
         for observed_at, value in _monthly_ramp(132, end=date(2026, 7, 1))
     ]
-    observations = _observations(definition.series_id, points)
+    records = observations(definition.series_id, points)
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(observations),
+        reader=store_reader(records),
         rules=_yoy_rules(definition.series_id),
         rules_revision="test",
         asof=ASOF,
@@ -854,13 +808,13 @@ def test_reading_ranks_a_yoy_series_whose_history_starts_where_the_window_opens(
     start one year inside the window every day.
     """
 
-    definition = _definition("test.rolling", frequency="monthly")
+    definition = series_definition("test.rolling", frequency="monthly")
     points = _monthly_ramp(120, end=date(2026, 7, 1))
-    observations = _observations(definition.series_id, points)
+    records = observations(definition.series_id, points)
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(observations),
+        reader=store_reader(records),
         rules=_yoy_rules(definition.series_id),
         rules_revision="test",
         asof=ASOF,
@@ -874,11 +828,11 @@ def test_reading_ranks_a_yoy_series_whose_history_starts_where_the_window_opens(
 
 
 def test_reading_is_deterministic_for_the_same_inputs() -> None:
-    definition = _definition()
-    observations = _observations(definition.series_id, _daily_points(30, end=ASOF, step=0.5))
+    definition = series_definition()
+    records = observations(definition.series_id, _daily_points(30, end=ASOF, step=0.5))
     arguments = {
         "series": [definition],
-        "reader": _reader(observations),
+        "reader": store_reader(records),
         "rules": load_reading_rules(DEFAULT_RULES_PATH),
         "rules_revision": "test",
         "asof": ASOF,
@@ -890,12 +844,12 @@ def test_reading_is_deterministic_for_the_same_inputs() -> None:
 def test_reading_flags_insufficient_history_instead_of_ranking_a_short_series() -> None:
     # A series that starts inside the window would be ranked against its own short
     # life, which reads as an extreme; the reading must decline instead.
-    definition = _definition("test.young")
-    observations = _observations(definition.series_id, _daily_points(20, end=ASOF, step=1.0))
+    definition = series_definition("test.young")
+    records = observations(definition.series_id, _daily_points(20, end=ASOF, step=1.0))
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(observations),
+        reader=store_reader(records),
         rules=load_reading_rules(DEFAULT_RULES_PATH),
         rules_revision="test",
         asof=ASOF,
@@ -909,16 +863,16 @@ def test_reading_flags_insufficient_history_instead_of_ranking_a_short_series() 
 
 
 def test_reading_declines_statistics_below_the_minimum_observation_count() -> None:
-    definition = _definition("test.sparse", frequency="monthly")
+    definition = series_definition("test.sparse", frequency="monthly")
     # Spans the ten-year window but holds too few points to describe a distribution.
     points = [
         (date(2016 + index, 1, 1), float(index)) for index in range(MIN_WINDOW_OBSERVATIONS - 1)
     ]
-    observations = _observations(definition.series_id, points)
+    records = observations(definition.series_id, points)
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(observations),
+        reader=store_reader(records),
         rules=load_reading_rules(DEFAULT_RULES_PATH),
         rules_revision="test",
         asof=ASOF,
@@ -936,18 +890,18 @@ def test_reading_declines_statistics_for_a_window_with_half_its_periods_missing(
     it is really a recent one.
     """
 
-    definition = _definition("test.sparse_monthly", frequency="monthly")
+    definition = series_definition("test.sparse_monthly", frequency="monthly")
     # Ten years of month-starts, but only every other month is present.
     points = [
         point
         for index, point in enumerate(_decade_of_monthly_points(date(2026, 7, 1)))
         if index % 2 == 0
     ]
-    observations = _observations(definition.series_id, points)
+    records = observations(definition.series_id, points)
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(observations),
+        reader=store_reader(records),
         rules=load_reading_rules(DEFAULT_RULES_PATH),
         rules_revision="test",
         asof=ASOF,
@@ -967,13 +921,13 @@ def test_reading_does_not_hold_a_daily_series_to_an_implied_period_count() -> No
     declare every healthy daily series insufficient.
     """
 
-    definition = _definition("test.business_days", frequency="daily")
+    definition = series_definition("test.business_days", frequency="daily")
     points = _daily_points(200, end=ASOF, step=0.1)
-    observations = _observations(definition.series_id, points)
+    records = observations(definition.series_id, points)
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(observations),
+        reader=store_reader(records),
         rules=load_reading_rules(DEFAULT_RULES_PATH),
         rules_revision="test",
         asof=ASOF,
@@ -983,14 +937,12 @@ def test_reading_does_not_hold_a_daily_series_to_an_implied_period_count() -> No
 
 
 def test_reading_reports_staleness_against_the_asof_date() -> None:
-    definition = _definition("test.stalled")
-    observations = _observations(
-        definition.series_id, _daily_points(30, end=date(2026, 7, 1), step=0.1)
-    )
+    definition = series_definition("test.stalled")
+    records = observations(definition.series_id, _daily_points(30, end=date(2026, 7, 1), step=0.1))
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(observations),
+        reader=store_reader(records),
         rules=load_reading_rules(DEFAULT_RULES_PATH),
         rules_revision="test",
         asof=ASOF,
@@ -1007,13 +959,13 @@ def test_reading_reports_staleness_against_the_asof_date() -> None:
 def test_reading_trend_anchors_on_a_date_not_an_observation_count() -> None:
     # Monthly and daily series must mean the same thing by "3 months", so the anchor
     # is the latest observation on or before the anchor date.
-    definition = _definition("test.monthly", frequency="monthly")
+    definition = series_definition("test.monthly", frequency="monthly")
     points = [(date(2026, month, 1), float(month)) for month in range(1, 8)]
-    observations = _observations(definition.series_id, points)
+    records = observations(definition.series_id, points)
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(observations),
+        reader=store_reader(records),
         rules=load_reading_rules(DEFAULT_RULES_PATH),
         rules_revision="test",
         asof=ASOF,
@@ -1027,12 +979,12 @@ def test_reading_trend_anchors_on_a_date_not_an_observation_count() -> None:
 
 
 def test_reading_omits_a_trend_the_series_does_not_reach_back_for() -> None:
-    definition = _definition("test.new", frequency="monthly")
-    observations = _observations(definition.series_id, [(date(2026, 7, 1), 50.0)])
+    definition = series_definition("test.new", frequency="monthly")
+    records = observations(definition.series_id, [(date(2026, 7, 1), 50.0)])
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(observations),
+        reader=store_reader(records),
         rules=load_reading_rules(DEFAULT_RULES_PATH),
         rules_revision="test",
         asof=ASOF,
@@ -1043,12 +995,12 @@ def test_reading_omits_a_trend_the_series_does_not_reach_back_for() -> None:
 
 
 def test_reading_notes_a_threshold_flag_from_the_rules() -> None:
-    definition = _definition("jp.pmi_manufacturing", frequency="monthly", unit="index")
-    observations = _observations(definition.series_id, [(date(2026, 6, 1), 48.5)])
+    definition = series_definition("jp.pmi_manufacturing", frequency="monthly", unit="index")
+    records = observations(definition.series_id, [(date(2026, 6, 1), 48.5)])
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(observations),
+        reader=store_reader(records),
         rules=load_reading_rules(DEFAULT_RULES_PATH),
         rules_revision="test",
         asof=ASOF,
@@ -1058,11 +1010,11 @@ def test_reading_notes_a_threshold_flag_from_the_rules() -> None:
 
 
 def test_reading_reports_a_series_with_no_observations_without_failing() -> None:
-    definition = _definition("test.empty")
+    definition = series_definition("test.empty")
 
     snapshot = compute_reading(
         series=[definition],
-        reader=_reader(()),
+        reader=store_reader(()),
         rules=load_reading_rules(DEFAULT_RULES_PATH),
         rules_revision="test",
         asof=ASOF,

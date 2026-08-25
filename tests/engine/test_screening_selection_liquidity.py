@@ -4,6 +4,8 @@ import unittest
 from collections.abc import Mapping
 from datetime import date
 
+from tests.helpers.screening_run import evidence_hit, screening_candidate
+
 from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
 from baibai_engine.screening.selection import (
     build_selection_payload,
@@ -15,18 +17,15 @@ _ASOF = date(2026, 6, 8)
 
 def _candidate(ticker: str, **overrides: object) -> Mapping[str, object]:
     base: dict[str, object] = {
-        "ticker": ticker,
         "name": f"name-{ticker}",
         "sector_33": "機械",
         "market_cap_oku": 300,
         "avg_turnover_oku": 2.0,
         "listing_span_days": 1200,
-        "jpx_flags": [],
-        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+        "evidence_hits": [evidence_hit("cashflow-yield-discount")],
         "metrics": {"ocf_yield": 0.11, "er_annual": 0.05},
     }
-    base.update(overrides)
-    return base
+    return screening_candidate(ticker, **(base | overrides))
 
 
 class SelectionLiquidityFilterTests(unittest.TestCase):

@@ -336,22 +336,7 @@ def test_source_ref_rejects_unknown_kind_and_prefix_identity() -> None:
 def test_release_policy_rejects_incomplete_stale_or_missing_inventory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    datasets = tuple(
-        item.model_copy(
-            update={
-                "coverage_start_on_or_before": date(2026, 8, 1),
-                "minimum_rows": 1,
-                "minimum_population_count": 1,
-            }
-        )
-        for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
-        if item.dataset in {"jquants.daily_bars", "jquants.short_sale_reports"}
-    )
-    monkeypatch.setattr(
-        lake_models,
-        "PRODUCTION_RELEASE_POLICY",
-        lake_models.PRODUCTION_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
-    )
+    narrow_release_policy(monkeypatch, coverage_start_on_or_before=date(2026, 8, 1), age_days=None)
     manifest = _load_dataset(_dataset_payload())
     short_sale = _load_dataset(
         _dataset_payload(
@@ -854,11 +839,8 @@ def test_a_forward_only_calendar_uses_its_policy_floor_not_the_previous_snapshot
         for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
         if item.dataset == "jquants.earnings_calendar"
     )
-    monkeypatch.setattr(
-        lake_models,
-        "PRODUCTION_RELEASE_POLICY",
-        lake_models.PRODUCTION_RELEASE_POLICY.model_copy(update={"datasets": (calendar,)}),
-    )
+    # The floors are what this test asserts against, so they are not relaxed.
+    narrow_release_policy(monkeypatch, datasets=("jquants.earnings_calendar",), relax_floors=False)
     payload = _dataset_payload(
         dataset="jquants.earnings_calendar",
         coverage_start="2026-07-03",
@@ -915,6 +897,8 @@ def test_a_forward_only_calendar_uses_its_policy_floor_not_the_previous_snapshot
 
     validate_release_policy(release, manifests, evaluated_at=evaluated_at)
 
+    # Not the shared narrowing: this half moves the very boundary under test, so the
+    # value belongs at the call site rather than behind a helper argument.
     monkeypatch.setattr(
         lake_models,
         "PRODUCTION_RELEASE_POLICY",

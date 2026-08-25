@@ -271,12 +271,12 @@ def first_period_float(record: Mapping[str, Any], *keys: str) -> float | None:
     return None
 
 
-def first_value(record: Mapping[str, Any], *keys: str, default: Any = None) -> Any:
+def first_value(record: Mapping[str, Any], *keys: str) -> Any:
+    """The first key a record actually carries, or a refusal naming all of them."""
+
     for key in keys:
         if key in record and not is_missing_scalar(record[key]):
             return record[key]
-    if default is not None:
-        return default
     joined = ", ".join(keys)
     raise JQuantsProviderError(f"missing required field in payload: {joined}")
 

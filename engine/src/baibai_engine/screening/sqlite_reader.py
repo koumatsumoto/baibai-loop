@@ -275,37 +275,6 @@ def read_eq_master_asof(sqlite_path: Path, asof: date) -> MasterSnapshotRead:
     )
 
 
-def read_eq_master(sqlite_path: Path) -> list[SecurityMaster] | None:
-    """Return only the globally latest operational master snapshot.
-
-    A ticker absent from the latest snapshot is not backfilled from an older
-    date. Historical membership belongs to :func:`read_eq_master_asof`.
-    """
-    if not sqlite_path.exists():
-        return None
-    conn = connect_current(sqlite_path)
-    if conn is None:
-        return None
-    try:
-        if not _has_any_import(conn, "jquants_master_snapshots"):
-            return None
-        snapshot = conn.execute(
-            "SELECT MAX(snapshot_date) FROM jquants_master_snapshots "
-            "WHERE snapshot_date != 'unknown'"
-        ).fetchone()[0]
-        if snapshot is None:
-            return None
-        rows = conn.execute(
-            "SELECT ticker, name, market, sector_33, is_common_stock "
-            "FROM jquants_master_snapshots WHERE snapshot_date = ? ORDER BY ticker",
-            (str(snapshot),),
-        ).fetchall()
-    finally:
-        conn.close()
-
-    return _materialize_masters(rows)
-
-
 def read_weekly_margin(sqlite_path: Path, week_end: date) -> list[JQuantsWeeklyMargin] | None:
     """Return one balance date's rows, or None when it has not been examined.
 
@@ -582,12 +551,14 @@ def published_margin_week_ends(sqlite_path: Path, asof: date) -> list[date]:
                 (WEEKLY_MARGIN_SOURCE,),
             )
         }
+        # Not filtered on `asof` here: the publication-lag test below is the one that
+        # decides usability, and a balance date the market has not reached has no
+        # publication day inside `trading_days`, which stops at `asof`. Filtering twice
+        # would put the point-in-time rule in two places that could disagree.
         week_ends = [
             date.fromisoformat(str(row[0]))
             for row in conn.execute(
-                "SELECT DISTINCT week_end FROM jquants_weekly_margin "
-                "WHERE week_end <= ? ORDER BY week_end",
-                (asof.isoformat(),),
+                "SELECT DISTINCT week_end FROM jquants_weekly_margin ORDER BY week_end"
             )
             if weekly_margin_coverage_key(date.fromisoformat(str(row[0]))) in readable
         ]

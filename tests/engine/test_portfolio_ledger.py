@@ -9,12 +9,12 @@ import pytest
 import yaml
 from hypothesis import given
 from hypothesis import strategies as st
+from tests.helpers.ledger import load_portfolio_ledger
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.ledger import (
     PortfolioLedgerDocument,
     PortfolioLedgerError,
-    load_portfolio_ledger,
     reconcile_portfolio,
     snapshot_to_payload,
 )
