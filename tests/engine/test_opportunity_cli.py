@@ -21,18 +21,13 @@ from pydantic import BaseModel
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.research_gate import research_gate_shortlist, seed_shortlist
+from tests.helpers.screening_sqlite import seed_daily_bars
 
 import baibai_engine.research.opportunity as opportunity_module
 import baibai_engine.research.store as research_store_module
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.market.sqlite.schema import open_connection
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.research.close_source import (
-    _EXPECTED_MARKET_SCHEMA_VERSION,
-    resolve_holding_close_on_basis,
-    resolve_previous_business_day_close,
-)
 from baibai_engine.research.opportunity_cli import main as opportunity_main
 from baibai_engine.research.store import ResearchStoreService
 from baibai_engine.research.thesis import (
@@ -90,23 +85,6 @@ def _app_db(tmp_path: Path, ledger_path: Path = LEDGER_FIXTURE) -> Path:
 def _assert_no_theses(db_path: Path) -> None:
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("SELECT count(*) FROM thesis").fetchone() == (0,)
-
-
-def _seed_bars(
-    sqlite_path: Path,
-    rows: list[tuple[str, str, float | None, float | None]],
-) -> None:
-    """Insert (ticker, traded_at, close, adjustment_factor) rows into the store."""
-    conn = open_connection(sqlite_path)
-    try:
-        conn.executemany(
-            "INSERT OR REPLACE INTO jquants_daily_bars"
-            "(ticker, traded_at, close, adjustment_factor) VALUES (?, ?, ?, ?)",
-            rows,
-        )
-        conn.commit()
-    finally:
-        conn.close()
 
 
 def _ledger_with_observed_at(
@@ -498,155 +476,11 @@ def _run(args: list[str], capsys: pytest.CaptureFixture[str]) -> tuple[int, dict
 # --------------------------------------------------------------------------- #
 
 
-def test_close_source_expected_schema_version_tracks_market() -> None:
-    # A market schema version bump changes SQLITE_SCHEMA_VERSION; this coupling
-    # assertion turns that bump into a red CI check so the boundary-crossing schema
-    # literals in close_source cannot drift silently.
-    from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
-
-    assert _EXPECTED_MARKET_SCHEMA_VERSION == SQLITE_SCHEMA_VERSION
-
-
-def test_close_source_degrades_on_schema_version_mismatch(tmp_path: Path) -> None:
-    sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
-    conn = sqlite3.connect(sqlite_path)
-    try:
-        conn.execute(f"PRAGMA user_version = {_EXPECTED_MARKET_SCHEMA_VERSION + 999}")
-        conn.commit()
-    finally:
-        conn.close()
-    resolved = resolve_previous_business_day_close(
-        sqlite_path=sqlite_path, ticker="2331", target_session=date(2026, 7, 13)
-    )
-    assert resolved is None
-
-
-def test_close_source_never_uses_older_ticker_bar_when_market_wide_date_is_missing(
-    tmp_path: Path,
-) -> None:
-    sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(
-        sqlite_path,
-        [
-            ("2331", "2026-07-09", 990.0, 1.0),
-            ("9999", "2026-07-10", 500.0, 1.0),
-        ],
-    )
-
-    resolved = resolve_previous_business_day_close(
-        sqlite_path=sqlite_path, ticker="2331", target_session=date(2026, 7, 13)
-    )
-
-    assert resolved is None
-
-
-def test_close_source_treats_missing_adjustment_factor_as_unresolved(tmp_path: Path) -> None:
-    sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, None)])
-
-    resolved = resolve_previous_business_day_close(
-        sqlite_path=sqlite_path, ticker="2331", target_session=date(2026, 7, 13)
-    )
-
-    assert resolved is not None
-    assert resolved.corporate_action_unresolved is True
-
-
-def test_close_source_reuses_one_stable_market_snapshot(tmp_path: Path) -> None:
-    sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
-    with sqlite3.connect(sqlite_path) as writer:
-        writer.execute("PRAGMA journal_mode = WAL")
-
-    reader = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
-    try:
-        reader.execute("BEGIN")
-        first = resolve_previous_business_day_close(
-            sqlite_path=sqlite_path,
-            ticker="2331",
-            target_session=date(2026, 7, 13),
-            connection=reader,
-        )
-        with sqlite3.connect(sqlite_path) as writer:
-            writer.execute("UPDATE jquants_daily_bars SET close = 1200 WHERE ticker = '2331'")
-        second = resolve_previous_business_day_close(
-            sqlite_path=sqlite_path,
-            ticker="2331",
-            target_session=date(2026, 7, 13),
-            connection=reader,
-        )
-    finally:
-        reader.close()
-
-    current = resolve_previous_business_day_close(
-        sqlite_path=sqlite_path, ticker="2331", target_session=date(2026, 7, 13)
-    )
-    assert first is not None
-    assert second is not None
-    assert current is not None
-    assert first.close_yen == second.close_yen == 1000.0
-    assert current.close_yen == 1200.0
-
-
-@pytest.mark.parametrize(
-    ("intermediate_close", "intermediate_factor"),
-    [(None, 1.0), (995.0, None), (995.0, 0.5)],
-    ids=("missing-bar", "missing-factor", "non-unit-factor"),
-)
-def test_holding_close_falls_back_when_revaluation_chain_is_incomplete(
-    tmp_path: Path,
-    intermediate_close: float | None,
-    intermediate_factor: float | None,
-) -> None:
-    sqlite_path = tmp_path / "market.sqlite"
-    rows: list[tuple[str, str, float | None, float | None]] = [
-        ("2331", "2026-07-08", 990.0, 1.0),
-        ("2331", "2026-07-10", 1000.0, 1.0),
-    ]
-    if intermediate_close is None:
-        rows.append(("9999", "2026-07-09", 500.0, 1.0))
-    else:
-        rows.append(("2331", "2026-07-09", intermediate_close, intermediate_factor))
-    _seed_bars(sqlite_path, rows)
-
-    resolved = resolve_holding_close_on_basis(
-        sqlite_path=sqlite_path,
-        ticker="2331",
-        ledger_price_observed_on=date(2026, 7, 8),
-        basis_as_of=date(2026, 7, 10),
-    )
-
-    assert resolved is None
-
-
-def test_holding_close_uses_exact_basis_after_complete_raw_chain(tmp_path: Path) -> None:
-    sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(
-        sqlite_path,
-        [
-            ("2331", "2026-07-09", 990.0, 1.0),
-            ("2331", "2026-07-10", 1000.0, 1.0),
-        ],
-    )
-
-    resolved = resolve_holding_close_on_basis(
-        sqlite_path=sqlite_path,
-        ticker="2331",
-        ledger_price_observed_on=date(2026, 7, 9),
-        basis_as_of=date(2026, 7, 10),
-    )
-
-    assert resolved is not None
-    assert resolved.price_as_of == date(2026, 7, 10)
-    assert resolved.close_yen == 1000.0
-
-
 def test_prepare_annotates_held_reserved_without_excluding(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     # 2331 is a holding in the representative ledger.
     workspace = _prepared_workspace(tmp_path, sqlite_path, ticker="2331")
 
@@ -755,7 +589,7 @@ def test_holding_prepare_builds_fixed_one_ticker_workspace(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     ledger = _ledger_with_market_price_date(tmp_path / "ledger", date(2026, 7, 10))
     workspace = tmp_path / "holding-ws"
     code, payload = _run(
@@ -861,7 +695,7 @@ def test_every_gate_re_proves_the_holding_subject_prepare_proved(
     has to survive being written into one by hand.
     """
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [(ticker, "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [(ticker, "2026-07-10", 1000.0, 1.0)])
     ledger = _app_db(tmp_path)
     workspace = tmp_path / "holding-ws"
     assert (
@@ -1009,7 +843,7 @@ def test_rebuilding_a_holding_workspace_reports_the_draft_left_at_the_old_as_of(
     independent review that promote could never accept.
     """
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     ledger_path = tmp_path / "moving-price-ledger.yaml"
     payload = safe_load(LEDGER_FIXTURE.read_text(encoding="utf-8"))
     payload["market_prices"][0]["source_kind"] = "licensed_dataset"
@@ -1341,7 +1175,7 @@ def test_status_allows_intentional_shortlist_edit(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     selection_file = workspace / "selection.yaml"
     selection = safe_load(selection_file.read_text(encoding="utf-8"))
@@ -1355,7 +1189,7 @@ def test_status_waits_for_human_shortlist_before_thesis_scaffold(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     selection_path = workspace / "selection.yaml"
     selection = safe_load(selection_path.read_text(encoding="utf-8"))
@@ -1375,7 +1209,7 @@ def test_status_points_to_first_missing_primary_research_ticker(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     selection_path = workspace / "selection.yaml"
     selection = safe_load(selection_path.read_text(encoding="utf-8"))
@@ -1395,7 +1229,7 @@ def test_status_waits_for_all_lane_checks_before_comparison(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     assert (
         opportunity_main(
@@ -1445,7 +1279,7 @@ def test_status_reports_external_input_hash_drift_as_exit_4(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     manifest = safe_load((workspace / "manifest.yaml").read_text(encoding="utf-8"))
     selection_file = Path(manifest["inputs"]["selection_output"]["path"])
@@ -1461,7 +1295,7 @@ def test_status_rejects_shortlist_ticker_outside_longlist(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     selection_file = workspace / "selection.yaml"
     selection = safe_load(selection_file.read_text(encoding="utf-8"))
@@ -1528,7 +1362,7 @@ def test_research_gate_rejected_ticker_cannot_enter_the_primary_research_set(
     capital-committing artifact already exists.
     """
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("8929", "2026-07-10", 750.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("8929", "2026-07-10", 750.0, 1.0)])
     workspace, _selection, db_path = _gated_workspace(tmp_path, sqlite_path)
     _set_primary_research_set(workspace, ["8929"])
 
@@ -1781,7 +1615,7 @@ def test_hand_edited_manifest_cannot_widen_the_admitted_set(
 ) -> None:
     """Negative 5: the manifest records the binding; the stored shortlist is its authority."""
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("8929", "2026-07-10", 750.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("8929", "2026-07-10", 750.0, 1.0)])
     workspace, _selection, db_path = _gated_workspace(tmp_path, sqlite_path)
 
     manifest_path = workspace / "manifest.yaml"
@@ -1823,7 +1657,7 @@ def test_repointing_the_manifest_at_another_judgment_is_refused(
     the lookup to the workspace's own hash-pinned selection can tell the two apart.
     """
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("8929", "2026-07-10", 750.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("8929", "2026-07-10", 750.0, 1.0)])
     workspace, selection, db_path = _gated_workspace(tmp_path, sqlite_path)
     other = "shortlist-20260703-second-judgment"
     _seed_gate(tmp_path, selection, rejected=["2331"], shortlist_id=other)
@@ -1849,7 +1683,7 @@ def test_prepare_admits_the_selected_subset_and_records_every_gate_decision(
 ) -> None:
     """Negative 6: selected tickers are researchable, and slots bound the admitted set."""
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace, _selection, db_path = _gated_workspace(tmp_path, sqlite_path)
 
     selection = safe_load((workspace / "selection.yaml").read_text(encoding="utf-8"))
@@ -1897,7 +1731,7 @@ def test_holding_review_workspace_needs_no_research_gate(
 ) -> None:
     """Negative 8: the ledger is holding review's source, so no Gate bounds it."""
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     ledger = _ledger_with_market_price_date(tmp_path / "ledger", date(2026, 7, 10))
     workspace = tmp_path / "holding-ws"
     assert (
@@ -1958,7 +1792,7 @@ def test_declaring_holding_review_does_not_opt_a_workspace_out_of_the_gate(
     Otherwise `purpose` is simply the switch that disables the binding.
     """
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("8929", "2026-07-10", 750.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("8929", "2026-07-10", 750.0, 1.0)])
     workspace, _selection, db_path = _gated_workspace(tmp_path, sqlite_path)
 
     manifest_path = workspace / "manifest.yaml"
@@ -2013,7 +1847,7 @@ def test_workspace_prepared_before_the_binding_fails_closed(
 ) -> None:
     """A workspace with no Gate binding is rebuilt, never trusted."""
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace, _selection, db_path = _gated_workspace(tmp_path, sqlite_path)
     manifest_path = workspace / "manifest.yaml"
     manifest = safe_load(manifest_path.read_text(encoding="utf-8"))
@@ -2033,7 +1867,7 @@ def test_thesis_scaffold_requires_primary_research_set_membership(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     selection_path = workspace / "selection.yaml"
     selection = safe_load(selection_path.read_text(encoding="utf-8"))
@@ -2093,7 +1927,7 @@ def test_primary_research_tickers_share_lineage_and_remain_isolated(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(
+    seed_daily_bars(
         sqlite_path,
         [("2331", "2026-07-10", 1000.0, 1.0), ("8929", "2026-07-10", 750.0, 1.0)],
     )
@@ -2193,7 +2027,7 @@ def test_thesis_scaffold_snapshots_raw_close(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(
+    seed_daily_bars(
         sqlite_path, [("2331", "2026-07-09", 990.0, 1.0), ("2331", "2026-07-10", 1005.0, 1.0)]
     )
     workspace = _prepared_workspace(tmp_path, sqlite_path)
@@ -2253,7 +2087,7 @@ def test_thesis_scaffold_transfers_raw_screening_estimate(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
     workspace = _prepared_workspace(
         tmp_path,
         sqlite_path,
@@ -2328,7 +2162,7 @@ def test_thesis_scaffold_reads_hash_bound_selection_not_editable_longlist_values
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
     workspace = _prepared_workspace(
         tmp_path,
         sqlite_path,
@@ -2375,7 +2209,7 @@ def test_thesis_scaffold_keeps_null_fair_value_without_inventing_anchor(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
     workspace = _prepared_workspace(
         tmp_path,
         sqlite_path,
@@ -2405,7 +2239,7 @@ def test_thesis_scaffold_quantizes_screening_anchor_to_thesis_precision(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
     workspace = _prepared_workspace(
         tmp_path,
         sqlite_path,
@@ -2453,7 +2287,7 @@ def test_thesis_scaffold_rejects_malformed_estimate_snapshot(
     row: dict[str, object],
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path, longlist=[row])
     code = opportunity_main(
         [
@@ -2476,7 +2310,7 @@ def test_thesis_scaffold_converts_huge_numeric_overflow_to_data_error(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
     row = _longlist_row_with_estimate("2331")
     row["estimate_snapshot"]["expected_return"]["annual"] = 10**400
     workspace = _prepared_workspace(tmp_path, sqlite_path, longlist=[row])
@@ -2566,7 +2400,7 @@ def test_holding_thesis_scaffold_rejects_raw_close_date_before_workspace_asof(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-09", 990.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-09", 990.0, 1.0)])
     ledger = _ledger_with_market_price_date(tmp_path / "ledger", date(2026, 7, 10))
     workspace = tmp_path / "holding-ws"
     assert (
@@ -2613,7 +2447,7 @@ def test_thesis_scaffold_without_raw_close_exits_3(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     # Only an adjusted-only row (raw close NULL); the scaffold must not guess.
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", None, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", None, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     code = opportunity_main(
         [
@@ -2639,7 +2473,7 @@ def test_thesis_scaffold_defers_when_latest_bar_is_adjusted_only(
     # has a raw close. D5 requires deferring on the missing latest close rather than
     # quietly using the stale older one.
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(
+    seed_daily_bars(
         sqlite_path,
         [("2331", "2026-07-09", 990.0, 1.0), ("2331", "2026-07-10", None, 1.0)],
     )
@@ -2665,7 +2499,7 @@ def test_thesis_scaffold_blocks_checklist_on_corporate_action(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 0.5)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 0.5)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     code, payload = _run(
         [
@@ -2770,7 +2604,7 @@ def test_scaffolded_drafts_promote_without_repairing_their_own_structure(
     sqlite_path = tmp_path / "market.sqlite"
     # A workspace prepared for the next session resolves its close on its own as_of,
     # which is what the snapshot contract requires of the market price fact.
-    _seed_bars(sqlite_path, [("2331", "2026-07-03", 1032.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-03", 1032.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     scaffold_code, _ = _run(
         [
@@ -2885,7 +2719,7 @@ def test_review_scaffold_header_names_the_closed_vocabulary_fields(
     tmp_path: Path,
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
 
@@ -2917,7 +2751,7 @@ def test_review_scaffold_goes_stale_when_thesis_hash_changes(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
     # Bind the review to the current thesis hash.
@@ -2959,7 +2793,7 @@ def test_promote_refuses_when_checklist_pending(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
     # Reintroduce a pending check.
@@ -2988,7 +2822,7 @@ def test_promote_rejects_canonical_ledger_append_head_drift(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
     db_path = tmp_path / "app.sqlite"
@@ -3029,7 +2863,7 @@ def test_promote_rejects_non_complete_checklist_status(
     # A hand-edited typo status ("complet") is not "complete" and must count as
     # unresolved so it cannot slip past the promotion gate.
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
     checklist_path = workspace / "2331" / "research-checklist.yaml"
@@ -3068,7 +2902,7 @@ def test_promote_rejects_thesis_identity_tampering(
     error_text: str,
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
     thesis_path = workspace / "2331/thesis-draft.yaml"
@@ -3111,7 +2945,7 @@ def test_promote_ready_publishes_atomic_thesis_and_review(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
     db_path = tmp_path / "app.sqlite"
@@ -3211,7 +3045,7 @@ def test_promote_publishes_a_researched_lane_with_no_selected_ticker(
     # A cycle that buys nothing still produced the judgment that says why, and the
     # bargain assessment binds every lane's machine values to a stored thesis.
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
     comparison_path = workspace / "research-comparison.yaml"
@@ -3236,7 +3070,7 @@ def test_promote_refuses_a_ticker_outside_the_primary_research_set(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
     selection_path = workspace / "selection.yaml"
@@ -3260,7 +3094,7 @@ def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(
         tmp_path,
         sqlite_path,
@@ -3362,7 +3196,7 @@ def test_plan_limit_close_within_max_plans_limit_at_close(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     thesis = _promoted_thesis(tmp_path, sqlite_path)
     code, payload = _run(
         [
@@ -3404,7 +3238,7 @@ def test_plan_limit_revalues_holding_on_proposal_basis_and_derives_exposure(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(
+    seed_daily_bars(
         sqlite_path,
         [
             ("2331", "2026-07-09", 1100.0, 1.0),
@@ -3486,7 +3320,7 @@ def test_plan_limit_active_candidate_reservation_defers_without_second_order(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(
+    seed_daily_bars(
         sqlite_path,
         [
             ("2331", "2026-07-09", 1100.0, 1.0),
@@ -3531,7 +3365,7 @@ def test_plan_limit_counts_same_scope_reservation_and_order_once(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(
+    seed_daily_bars(
         sqlite_path,
         [
             ("2331", "2026-07-09", 1100.0, 1.0),
@@ -3583,7 +3417,7 @@ def test_plan_limit_ticker_concentration_warning_does_not_change_status_or_limit
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(
+    seed_daily_bars(
         sqlite_path,
         [
             ("2331", "2026-07-09", 1100.0, 1.0),
@@ -3622,7 +3456,7 @@ def test_plan_limit_discloses_other_ticker_with_missing_common_factor_coverage(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(
+    seed_daily_bars(
         sqlite_path,
         [
             ("2331", "2026-07-09", 1100.0, 1.0),
@@ -3660,7 +3494,7 @@ def test_plan_limit_falls_back_when_revalued_holding_is_not_whole_yen(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(
+    seed_daily_bars(
         sqlite_path,
         [
             ("2331", "2026-07-09", 1100.0, 1.0),
@@ -3699,7 +3533,7 @@ def test_plan_limit_close_above_max_defers(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 5000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 5000.0, 1.0)])
     thesis = _promoted_thesis(tmp_path, sqlite_path)
     code, payload = _run(
         [
@@ -3728,7 +3562,7 @@ def test_plan_limit_zero_close_defers_without_crashing(
     # A corrupt zero close must defer (missing close), not raise DivisionByZero in
     # lot sizing and crash with a traceback.
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 0.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 0.0, 1.0)])
     thesis = _promoted_thesis(tmp_path, sqlite_path)
     code, payload = _run(
         [
@@ -3753,7 +3587,7 @@ def test_plan_limit_corporate_action_defers(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 0.5)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 0.5)])
     thesis = _promoted_thesis(tmp_path, sqlite_path)
     code, payload = _run(
         [
@@ -3778,7 +3612,7 @@ def test_plan_limit_missing_adjustment_factor_defers(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, None)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, None)])
     thesis = _promoted_thesis(tmp_path, sqlite_path)
     code, payload = _run(
         [
@@ -3804,7 +3638,7 @@ def test_plan_limit_single_lot_above_budget_max_still_proposes_with_warning(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     thesis = _promoted_thesis(tmp_path, sqlite_path)
     # 1 lot = 1000 * 100 = 100,000 > budget_max 90,000.
     code, payload = _run(
@@ -3837,7 +3671,7 @@ def test_plan_limit_quantity_never_overshoots_budget_max(
     # lot_notional = 500.005 * 100 = 50,000.5; truncating to int (50,000) would let
     # 100,000 // 50,000 = 2 lots overshoot. The exact floor keeps it at one lot.
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 500.005, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 500.005, 1.0)])
     thesis = _promoted_thesis(tmp_path, sqlite_path)
     code, payload = _run(
         [
@@ -3867,7 +3701,7 @@ def test_plan_limit_budget_and_warnings_do_not_change_limit_or_status(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     thesis = _promoted_thesis(tmp_path, sqlite_path)
 
     def run_with_budget(budget_max: str) -> dict[str, object]:
@@ -3901,7 +3735,7 @@ def test_plan_limit_is_deterministic_across_clocks(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     thesis = _promoted_thesis(tmp_path, sqlite_path)
     args = [
         "plan-limit",

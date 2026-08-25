@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime
+from functools import cache
 from pathlib import Path
 from typing import Any, get_args, get_type_hints
 
@@ -155,6 +156,13 @@ def _coerce(value: Any, annotation: Any) -> Any:
     return value
 
 
+@cache
+def _hints(model: type) -> Mapping[str, Any]:
+    """`get_type_hints` resolves the whole module namespace; the answer never moves."""
+
+    return get_type_hints(model)
+
+
 def panel_row(asof: str, ticker: str, **overrides: Any) -> PanelRow:
     """One panel row, with the fields a fixture never varies filled in.
 
@@ -163,7 +171,7 @@ def panel_row(asof: str, ticker: str, **overrides: Any) -> PanelRow:
     fixture cannot describe a ranked row the panel would not have produced.
     """
 
-    hints = get_type_hints(PanelRow)
+    hints = _hints(PanelRow)
     payload: dict[str, Any] = {"asof": asof, "ticker": ticker, **_PANEL_REQUIRED}
     for key, value in overrides.items():
         if key in {"asof", "ticker"}:
@@ -197,7 +205,7 @@ def forward_row(asof: str, ticker: str, horizon: str, **overrides: Any) -> Forwa
     fixture cannot describe a row the store would refuse to read back.
     """
 
-    hints = get_type_hints(ForwardReturnRow)
+    hints = _hints(ForwardReturnRow)
     status = str(overrides.get("status") or "resolved")
     total_status = str(overrides.get("total_return_status") or "unresolved_price_return")
     payload: dict[str, Any] = {

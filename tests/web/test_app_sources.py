@@ -21,9 +21,9 @@ from baibai_web.sources.protocols import (
 )
 
 
-class LedgerSourceContract:
+class TestDbLedgerSource:
     def make_source(self, root: Path) -> LedgerSource:
-        raise NotImplementedError
+        return DbLedgerSource(root / "stores/application/baibai.sqlite")
 
     def test_exists_false_when_absent(self, tmp_path: Path) -> None:
         assert self.make_source(tmp_path).exists() is False
@@ -39,14 +39,9 @@ class LedgerSourceContract:
         assert snapshot.holdings[0].ticker == "2331"
 
 
-class TestDbLedgerSource(LedgerSourceContract):
-    def make_source(self, root: Path) -> LedgerSource:
-        return DbLedgerSource(root / "stores/application/baibai.sqlite")
-
-
-class ResearchSourceContract:
+class TestDbResearchSource:
     def make_source(self, root: Path) -> ResearchSource:
-        raise NotImplementedError
+        return DbResearchSource(root / "stores/application/baibai.sqlite")
 
     def test_revisions_and_thesis_detail(self, app_method_root: Path) -> None:
         source = self.make_source(app_method_root)
@@ -63,14 +58,9 @@ class ResearchSourceContract:
         assert source.holding_reviews(ticker="2331") == []
 
 
-class TestDbResearchSource(ResearchSourceContract):
-    def make_source(self, root: Path) -> ResearchSource:
-        return DbResearchSource(root / "stores/application/baibai.sqlite")
-
-
-class TaskSourceContract:
+class TestDbTaskSource:
     def make_source(self, root: Path) -> TaskSource:
-        raise NotImplementedError
+        return DbTaskSource(root / "stores/application/baibai.sqlite")
 
     def test_exists_false_and_lists_empty_when_absent(self, tmp_path: Path) -> None:
         source = self.make_source(tmp_path)
@@ -88,14 +78,12 @@ class TaskSourceContract:
         assert tasks[0].event_date is not None
 
 
-class TestDbTaskSource(TaskSourceContract):
-    def make_source(self, root: Path) -> TaskSource:
-        return DbTaskSource(root / "stores/application/baibai.sqlite")
-
-
-class CandidatesSourceContract:
+class TestDbCandidatesSource:
     def make_source(self, root: Path) -> CandidatesSource:
-        raise NotImplementedError
+        return DbCandidatesSource(
+            root / "stores/screening/runs.sqlite",
+            root / "stores/application/baibai.sqlite",
+        )
 
     def test_latest_run_is_none_when_absent(self, tmp_path: Path) -> None:
         assert self.make_source(tmp_path).latest_run() is None
@@ -113,14 +101,6 @@ class CandidatesSourceContract:
             load_screening_rules().model_dump_json()
         )
         assert run.er_model_version == "expected-return-v1"
-
-
-class TestDbCandidatesSource(CandidatesSourceContract):
-    def make_source(self, root: Path) -> CandidatesSource:
-        return DbCandidatesSource(
-            root / "stores/screening/runs.sqlite",
-            root / "stores/application/baibai.sqlite",
-        )
 
     def test_latest_run_preserves_method_identity(self, tmp_path: Path) -> None:
         runs_path = tmp_path / "runs.sqlite"
