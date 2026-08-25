@@ -38,9 +38,11 @@ from baibai_engine.screening.calibration.context import (
 )
 from baibai_engine.screening.calibration.evaluation import (
     MIN_AXIS_SAMPLE,
+    _half_split_effect,
     _margin_short_to_adv_adoption_sign,
     _metric_direction_stability,
     _spearman,
+    _stratified_quality_control,
     evaluate_cohorts,
 )
 from baibai_engine.screening.calibration.forward import ForwardReturnRow
@@ -1746,6 +1748,70 @@ class PricedMasterWithoutUniverseSensitivityTests(unittest.TestCase):
         self.assertFalse(sensitivity["direction_stable"])
         self.assertEqual(sensitivity["as_reported"]["recommended_rank_top5"], 0.0)
         self.assertGreater(sensitivity["imputations"]["total_loss"]["recommended_rank_top5"], 0)
+
+
+def test_a_stratum_needs_five_names_on_each_side_before_it_is_matched() -> None:
+    """A stratum with fewer names on one side is skipped, not matched at whatever it has.
+
+    Stratifying is what keeps the comparison about the axis rather than about how the
+    two groups differ in quality. A stratum matched on two names against two carries
+    the noise of four rows into a figure the reader treats as a controlled difference,
+    so the stratum is dropped and its weight leaves the answer. The counts are literal:
+    derived from the constant they would move with it and pin nothing.
+    """
+
+    def _rows(prefix: str, count: int, quality: float) -> list[PanelRow]:
+        return [
+            _panel_row(f"{prefix}{index:03d}", equity_ratio=quality, per_trailing=10.0)
+            for index in range(count)
+        ]
+
+    # One stratum only: every row shares the quality value, so the median split puts
+    # them all on the same side.
+    def _control(per_side: int) -> dict[str, object]:
+        high = _rows("9", per_side, 0.5)
+        low = _rows("1", per_side, 0.5)
+        excess = {
+            **{row.ticker: 0.10 for row in high},
+            **{row.ticker: 0.02 for row in low},
+        }
+        return _stratified_quality_control(high, low, excess, field_name="equity_ratio")
+
+    matched = _control(5)
+    assert matched["strata_used"] == 1
+    assert matched["matched_weight"] == 5
+    assert matched["stratified_median_excess_delta"] is not None
+
+    skipped = _control(4)
+    assert skipped["strata_used"] == 0
+    assert skipped["matched_weight"] == 0
+    assert skipped["stratified_median_excess_delta"] is None
+    assert skipped["stratified_trap_rate_delta"] is None
+
+
+def test_the_half_split_needs_thirty_pairs_before_it_reports_a_difference() -> None:
+    """Below the floor the split is not measured, and says so rather than answering.
+
+    Splitting a group by its own axis value is what separates the axis's effect from
+    how the group was formed, but a split of a dozen rows reports the noise of six
+    against six. The market-fallback groups run 50-80 rows per cohort, which is why the
+    floor sits where it does. The counts are literal: derived from the constant they
+    would move with it and pin nothing.
+    """
+
+    def _pairs(count: int) -> list[tuple[float, float]]:
+        # Cheap names outperform, so a measured split has a non-zero delta.
+        return [(float(index), float(index) * 0.01) for index in range(count)]
+
+    measured = _half_split_effect(_pairs(30))
+    assert measured["n"] == 30
+    assert measured["median_excess_delta"] is not None
+
+    withheld = _half_split_effect(_pairs(29))
+    assert withheld["n"] == 29
+    assert withheld["median_excess_delta"] is None
+    assert withheld["cheap_median_excess"] is None
+    assert withheld["expensive_median_excess"] is None
 
 
 if __name__ == "__main__":
