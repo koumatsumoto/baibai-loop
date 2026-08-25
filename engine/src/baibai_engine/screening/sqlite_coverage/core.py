@@ -15,17 +15,11 @@ from baibai_engine.market.sqlite import (
     validate_current_schema,
 )
 
-from ..margin_publication import (
-    LEGACY_WEEKLY_LAST_BALANCE_DATE,
-    LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
-)
 from ..metrics import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
 )
-from ..sqlite_cache.jquants import WEEKLY_MARGIN_SOURCE, weekly_margin_coverage_key
-from ..sqlite_reader import MARGIN_MAX_STALE_DAYS
 from .edinet import _append_edinet_metrics_coverage_issues
 from .jpx import (
     _append_jpx_earnings_calendar_issues,
@@ -280,7 +274,6 @@ def verify_screening_sqlite_coverage(
                     require_rows=True,
                     enforce_record_count=False,
                 )
-            _append_weekly_margin_issue(conn, issues, asof_date=asof_date)
             jpx_source_coverage_covers_asof = _source_coverage_covers_date(
                 conn, "jpx_regulation_flags", asof_date
             )
@@ -400,98 +393,3 @@ def _schema_shape_issue(conn: sqlite3.Connection, sqlite_path: Path) -> CacheCov
             reason=f"SQLite schema validation failed: {type(exc).__name__}: {exc}",
         )
     return None
-
-
-# The supply/demand axes read the newest balance date already published at the
-# as-of. Requiring a recent one keeps a store that silently stopped fetching the
-# weekly source from producing a screen whose axes are all null without saying so.
-# Three weeks of cadence plus a long closure, with room for one skipped week: the
-# 2020 Golden Week already produced twenty days between balance dates, so a tighter
-# bound would fail the batch on a state the exchange itself created.
-
-
-def _append_weekly_margin_issue(
-    conn: sqlite3.Connection,
-    issues: list[CacheCoverageIssue],
-    *,
-    asof_date: date,
-) -> None:
-    # The join reads a balance date only when its coverage is `ok`, has rows, and is
-    # keyed the way the reader looks it up. The gate has to measure that same
-    # quantity through the same predicate; reading the table, or matching on a
-    # different column, would report fresh while the join comes back blank.
-    readable_dates = [
-        parsed
-        for coverage_start, coverage_key in conn.execute(
-            "SELECT coverage_start, coverage_key FROM source_coverage "
-            "WHERE source = ? AND status = 'ok' AND record_count > 0 AND coverage_start <= ?",
-            (WEEKLY_MARGIN_SOURCE, asof_date.isoformat()),
-        )
-        if (parsed := _parsed_date(coverage_start)) is not None
-        and str(coverage_key) == weekly_margin_coverage_key(parsed)
-    ]
-    if asof_date >= LEGACY_WEEKLY_LAST_PUBLICATION_DATE:
-        if LEGACY_WEEKLY_LAST_BALANCE_DATE not in readable_dates:
-            issues.append(
-                CacheCoverageIssue(
-                    source="jquants_weekly_margin",
-                    requirement=f"legacy-final:{LEGACY_WEEKLY_LAST_BALANCE_DATE.isoformat()}",
-                    reason=(
-                        "final legacy weekly balance is not a readable non-empty clean snapshot"
-                    ),
-                )
-            )
-        # No newer weekly row can exist after the publication regime changes.
-        # Staleness makes the legacy-derived optional axes null; it is not a cache
-        # outage and must not stop unrelated screening inputs.
-        return
-    latest = max(readable_dates).isoformat() if readable_dates else None
-    if latest is None:
-        issues.append(
-            CacheCoverageIssue(
-                source="jquants_weekly_margin",
-                requirement=asof_date.isoformat(),
-                reason="no readable weekly margin balance date at or before the as-of",
-            )
-        )
-        return
-    try:
-        stale_days = (asof_date - date.fromisoformat(latest)).days
-    except ValueError:
-        issues.append(
-            CacheCoverageIssue(
-                source="jquants_weekly_margin",
-                requirement=asof_date.isoformat(),
-                reason=f"stored balance date is not a date: {latest!r}",
-            )
-        )
-        return
-    if stale_days > MARGIN_MAX_STALE_DAYS:
-        # The reader is the authority on how stale this axis may be, and it declines to
-        # answer past its own bound rather than joining silently. Holding a second,
-        # tighter number here said the axes were null while the reader was still using
-        # the balance, and stopped the whole batch to say it. Reporting against the one
-        # bound makes the sentence true and leaves unrelated inputs alone — the same
-        # reasoning the post-transition branch above already states.
-        #
-        # 2026-08-24 is why it must not block: the exchange was four to five weeks
-        # behind and delivered the backlog the next morning, while the batch discarded
-        # a completed day's work.
-        issues.append(
-            CacheCoverageIssue(
-                source="jquants_weekly_margin",
-                requirement=asof_date.isoformat(),
-                reason=(
-                    f"newest balance date {latest} is {stale_days} days before the as-of "
-                    f"(limit {MARGIN_MAX_STALE_DAYS}); the margin axes are null for this run"
-                ),
-                blocking=False,
-            )
-        )
-
-
-def _parsed_date(value: object) -> date | None:
-    try:
-        return date.fromisoformat(str(value))
-    except (TypeError, ValueError):
-        return None

@@ -10,6 +10,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -27,8 +28,6 @@ from baibai_engine.screening.sqlite_coverage import (
     read_required_field_coverage,
     verify_screening_sqlite_coverage,
 )
-from baibai_engine.screening.sqlite_coverage.core import _append_weekly_margin_issue
-from baibai_engine.screening.sqlite_coverage.shared import CacheCoverageIssue
 
 _DATA_TABLES = (
     "jquants_daily_bars",
@@ -51,196 +50,6 @@ def _verify_screening_sqlite_coverage(*args, **kwargs):
 _COMMON_COVERAGE_ASOF = date(2026, 5, 8)
 _COMPLETE_COVERAGE_TEMPLATE_DIR: tempfile.TemporaryDirectory[str] | None = None
 _COMPLETE_COVERAGE_TEMPLATE_PATH: Path | None = None
-
-
-class WeeklyMarginTransitionCoverageTest(unittest.TestCase):
-    def test_final_legacy_week_does_not_become_a_permanent_staleness_failure(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            conn = open_connection(db)
-            final_date = date(2026, 9, 18)
-            conn.execute(
-                "INSERT INTO jquants_weekly_margin(week_end, ticker, long_vol) VALUES (?, ?, ?)",
-                (final_date.isoformat(), "7203", 1.0),
-            )
-            _add_source_coverage(
-                conn,
-                source="jquants_weekly_margin",
-                coverage_key=f"get_mkt_margin_interest:{final_date.isoformat()}"
-                f"..{final_date.isoformat()}",
-                record_count=1,
-                min_date=final_date.isoformat(),
-                max_date=final_date.isoformat(),
-            )
-            conn.commit()
-            issues = []
-
-            _append_weekly_margin_issue(conn, issues, asof_date=date(2026, 12, 1))
-            conn.close()
-
-            self.assertEqual(issues, [])
-
-    def test_post_transition_coverage_requires_the_exact_final_legacy_week(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            conn = open_connection(db)
-            prior = date(2026, 9, 11)
-            _add_source_coverage(
-                conn,
-                source="jquants_weekly_margin",
-                coverage_key=f"get_mkt_margin_interest:{prior.isoformat()}..{prior.isoformat()}",
-                record_count=1,
-                min_date=prior.isoformat(),
-                max_date=prior.isoformat(),
-            )
-            conn.commit()
-            issues = []
-
-            _append_weekly_margin_issue(conn, issues, asof_date=date(2026, 10, 30))
-            conn.close()
-
-            self.assertEqual(len(issues), 1)
-            self.assertEqual(issues[0].requirement, "legacy-final:2026-09-18")
-
-
-class DegradedCoverageExitTest(unittest.TestCase):
-    """A degraded axis must not cost the run, and a real gap must still stop it."""
-
-    def _run(self, issues: list) -> tuple[int, str]:
-        stream = io.StringIO()
-        with (
-            patch(
-                "baibai_engine.screening.cli.cache.verify_screening_sqlite_coverage",
-                return_value=issues,
-            ),
-            patch(
-                "baibai_engine.screening.cli.cache.read_required_field_coverage",
-                return_value=None,
-            ),
-        ):
-            code = verify_cache_coverage_command(
-                sqlite_path=Path("market.sqlite"),
-                asof_date=date(2026, 8, 24),
-                stdout=stream,
-            )
-        return code, stream.getvalue()
-
-    def test_a_degraded_axis_alone_completes_and_says_what_is_missing(self) -> None:
-        code, printed = self._run(
-            [
-                CacheCoverageIssue(
-                    source="jquants_weekly_margin",
-                    requirement="2026-08-24",
-                    reason="newest balance date 2026-07-24 is 31 days before the as-of",
-                    blocking=False,
-                )
-            ]
-        )
-
-        self.assertEqual(code, 0)
-        self.assertIn("coverage degraded", printed)
-        self.assertIn("jquants_weekly_margin", printed)
-        self.assertIn("coverage complete", printed)
-        # The batch reads this marker to tell a cache gap from a crash; a degraded run
-        # is neither, so it must not carry it.
-        self.assertNotIn("SQLite cache coverage incomplete", printed)
-
-    def test_a_blocking_issue_still_stops_and_keeps_the_marker(self) -> None:
-        code, printed = self._run(
-            [
-                CacheCoverageIssue(
-                    source="jquants_weekly_margin",
-                    requirement="2026-08-24",
-                    reason="behind",
-                    blocking=False,
-                ),
-                CacheCoverageIssue(
-                    source="jquants_daily_bars",
-                    requirement="2026-08-24",
-                    reason="no bars at the as-of",
-                ),
-            ]
-        )
-
-        self.assertEqual(code, 1)
-        self.assertIn("SQLite cache coverage incomplete", printed)
-        self.assertIn("jquants_daily_bars", printed)
-        # The degraded one is still named, and not as a cause of the stop.
-        self.assertIn("coverage degraded", printed)
-        self.assertNotIn("coverage complete", printed)
-
-
-class WeeklyMarginStalenessDegradesTest(unittest.TestCase):
-    """2026-08-24 replayed: the exchange was behind, and the batch discarded the day."""
-
-    def _store_with_balance(self, tmp: str, balance: date) -> sqlite3.Connection:
-        conn = open_connection(Path(tmp) / "market.sqlite")
-        conn.execute(
-            "INSERT INTO jquants_weekly_margin(week_end, ticker, long_vol) VALUES (?, ?, ?)",
-            (balance.isoformat(), "7203", 1.0),
-        )
-        _add_source_coverage(
-            conn,
-            source="jquants_weekly_margin",
-            coverage_key=f"get_mkt_margin_interest:{balance.isoformat()}..{balance.isoformat()}",
-            record_count=1,
-            min_date=balance.isoformat(),
-            max_date=balance.isoformat(),
-        )
-        conn.commit()
-        return conn
-
-    def test_a_balance_past_the_readers_bound_is_reported_without_blocking(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            conn = self._store_with_balance(tmp, date(2026, 7, 15))
-            issues: list = []
-
-            _append_weekly_margin_issue(conn, issues, asof_date=date(2026, 8, 24))
-            conn.close()
-
-            self.assertEqual(len(issues), 1)
-            self.assertFalse(issues[0].blocking)
-            self.assertIn("40 days before the as-of", issues[0].reason)
-            self.assertIn("null for this run", issues[0].reason)
-
-    def test_the_bound_is_the_readers_own_so_the_message_is_true(self) -> None:
-        """2026-08-24 sat at 31 days: past the old gate, inside the bound the reader uses.
-
-        A second tighter number here stopped the batch to announce that axes were null
-        while the reader was still joining the balance. One bound, or the sentence lies.
-        """
-
-        with tempfile.TemporaryDirectory() as tmp:
-            conn = self._store_with_balance(tmp, date(2026, 7, 24))
-            issues: list = []
-
-            _append_weekly_margin_issue(conn, issues, asof_date=date(2026, 8, 24))
-            conn.close()
-
-            self.assertEqual(issues, [])
-
-    def test_a_fresh_balance_reports_nothing_at_all(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            conn = self._store_with_balance(tmp, date(2026, 8, 21))
-            issues: list = []
-
-            _append_weekly_margin_issue(conn, issues, asof_date=date(2026, 8, 24))
-            conn.close()
-
-            self.assertEqual(issues, [])
-
-    def test_no_readable_balance_at_all_still_blocks(self) -> None:
-        """Nothing to carry null is a different state from a source running behind."""
-
-        with tempfile.TemporaryDirectory() as tmp:
-            conn = open_connection(Path(tmp) / "market.sqlite")
-            issues: list = []
-
-            _append_weekly_margin_issue(conn, issues, asof_date=date(2026, 8, 24))
-            conn.close()
-
-            self.assertEqual(len(issues), 1)
-            self.assertTrue(issues[0].blocking)
 
 
 def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
@@ -407,6 +216,91 @@ def _complete_coverage_database() -> Iterator[Path]:
         sqlite_path = Path(tmp) / "market.sqlite"
         shutil.copyfile(_complete_coverage_template_path(), sqlite_path)
         yield sqlite_path
+
+
+class StaleWeeklyMarginDoesNotStopTheRunTest(unittest.TestCase):
+    """2026-08-24 replayed at both gates that read the coverage verdict.
+
+    The exchange was four to five weeks behind on the weekly balance. The reader nulls
+    the margin axes past `MARGIN_MAX_STALE_DAYS`; that is the whole degrade, and neither
+    `verify-cache-coverage` nor the `run` preflight has anything to add to it. The
+    preflight is here because an informational verify line once turned into exit 1
+    there — the two gates must read one verdict.
+    """
+
+    _STALE_DAYS = 40
+
+    def _store_with_a_stale_balance(self, tmp: str) -> Path:
+        sqlite_path = Path(tmp) / "market.sqlite"
+        shutil.copyfile(_complete_coverage_template_path(), sqlite_path)
+        conn = open_connection(sqlite_path)
+        conn.execute("DELETE FROM jquants_weekly_margin")
+        conn.execute("DELETE FROM source_coverage WHERE source = 'jquants_weekly_margin'")
+        stale = (_COMMON_COVERAGE_ASOF - timedelta(days=self._STALE_DAYS)).isoformat()
+        conn.execute(
+            "INSERT INTO jquants_weekly_margin("
+            "week_end, ticker, long_vol, short_vol, long_std_vol, long_neg_vol, "
+            "short_std_vol, short_neg_vol, issue_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (stale, "1301", 1.0, 1.0, 1.0, 0.0, 1.0, 0.0, "2"),
+        )
+        _add_source_coverage(
+            conn,
+            source="jquants_weekly_margin",
+            coverage_key=f"get_mkt_margin_interest:{stale}..{stale}",
+            record_count=1,
+            min_date=stale,
+            max_date=stale,
+        )
+        conn.commit()
+        conn.close()
+        return sqlite_path
+
+    def test_verify_completes_without_naming_the_stale_balance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = self._store_with_a_stale_balance(tmp)
+            stream = io.StringIO()
+            with patch("baibai_engine.screening.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100):
+                code = verify_cache_coverage_command(
+                    sqlite_path=sqlite_path,
+                    asof_date=_COMMON_COVERAGE_ASOF,
+                    stdout=stream,
+                )
+
+        self.assertEqual(code, 0, stream.getvalue())
+        self.assertIn("coverage complete", stream.getvalue())
+        self.assertNotIn("weekly_margin", stream.getvalue())
+
+    def test_run_preflight_reaches_the_run(self) -> None:
+        from baibai_engine.screening.cli import app as app_module
+        from baibai_engine.screening.config import ScreeningConfig
+
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = self._store_with_a_stale_balance(tmp)
+            config = ScreeningConfig(
+                "token", None, cache_dir=Path(tmp) / "cache", sqlite_cache_dir=sqlite_path.parent
+            )
+            reached: list[date] = []
+
+            def fake_run(asof_date: date, *args: object, **kwargs: object) -> int:
+                reached.append(asof_date)
+                return 0
+
+            # The production rules require the JPX regulation sources the fixture does
+            # not seed; the gate under test is the weekly balance, not those.
+            rules = SimpleNamespace(universe=SimpleNamespace(required_jpx_flags=()))
+            with (
+                patch.object(ScreeningConfig, "from_env", staticmethod(lambda: config)),
+                patch.object(app_module, "load_screening_rules", lambda _path: rules),
+                patch.object(app_module, "run_command", fake_run),
+                patch.object(app_module, "JQuantsProvider"),
+                patch.object(app_module, "EDINETProvider"),
+                patch.object(app_module, "JPXProvider"),
+                patch("baibai_engine.screening.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100),
+            ):
+                code = app_module.main(["run", "--asof", _COMMON_COVERAGE_ASOF.isoformat()])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(reached, [_COMMON_COVERAGE_ASOF])
 
 
 def tearDownModule() -> None:
@@ -1814,33 +1708,3 @@ class SQLiteCoverageTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
-
-
-def test_only_the_weekly_margin_staleness_declines_to_block() -> None:
-    """Marking an input non-blocking is how a required gap gets waved through.
-
-    The flag defaults to blocking, so reaching this list takes a deliberate edit — and
-    this test makes that edit visible in review rather than only in a green pipeline.
-    """
-
-    import ast
-
-    package = Path(__file__).resolve().parents[2] / (
-        "engine/src/baibai_engine/screening/sqlite_coverage"
-    )
-    non_blocking: list[str] = []
-    for path in sorted(package.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            for keyword in node.keywords:
-                if (
-                    keyword.arg == "blocking"
-                    and isinstance(keyword.value, ast.Constant)
-                    and keyword.value.value is False
-                ):
-                    non_blocking.append(f"{path.name}:{node.lineno}")
-
-    assert len(non_blocking) == 1, non_blocking
-    assert non_blocking[0].startswith("core.py:")
