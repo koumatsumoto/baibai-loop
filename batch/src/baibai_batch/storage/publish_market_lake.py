@@ -94,20 +94,29 @@ def publish_market_lake(
     """Export the changed partitions on top of the serving release and publish them.
 
     ``full_rebuild`` drops the base and re-derives every partition from the store. The
-    export refuses a base manifest whose transform fingerprint differs from the current
-    one — a dependency bump that moves the Parquet writer version is enough — and the
-    only way forward it names is a build without a base. Without this the recovery it
-    demands has no publication path, so the daily batch stays broken until the fingerprint
-    happens to match again.
+    export does the same on its own when the base belongs to an earlier generation, so
+    this flag is for deriving everything on purpose — a schema cutover, or proving the
+    store and the lake still agree — rather than for recovering from one.
+
+    The serving release is resolved either way. Carrying its partitions is what the flag
+    turns off; the history floor it sets for the policy check is not, because a rebuild
+    must not quietly publish less history than the release it replaces.
     """
 
     base_resolve_started = time.perf_counter()
     serving = _serving_pointer(store)
     base = serving.pointer
     expected_store_origin = _pointer_origin(base)
-    fixed_base = (
-        None if full_rebuild or base is None else _resolve_base_release(store, mirror_root, base)
+    serving_release = None if base is None else _resolve_base_release(store, mirror_root, base)
+    published_coverage_start = (
+        {}
+        if serving_release is None
+        else {
+            name: manifest.coverage_start
+            for name, manifest in serving_release.dataset_manifests.items()
+        }
     )
+    fixed_base = None if full_rebuild else serving_release
 
     with _base_manifest_snapshot(fixed_base) as base_manifests:
         export_started = time.perf_counter()
@@ -122,6 +131,7 @@ def publish_market_lake(
     export_finished = time.perf_counter()
     with _export_manifest_snapshot(export.datasets, mirror_root) as manifest_paths:
         release_path, release = create_lake_l1_release(
+            published_coverage_start=published_coverage_start,
             dataset_manifest_paths=manifest_paths,
             mirror_root=mirror_root,
             release_id=release_id,

@@ -765,16 +765,21 @@ class ReleaseDatasetPolicy(BaseModel):
     dataset: str
     required: bool
     accepted_contract_versions: tuple[int, ...] = Field(min_length=1)
-    coverage_start_on_or_before: date | None
-    """How far back this dataset's history must reach, or absent when it has no history.
+    carries_history: bool
+    """Whether this dataset accumulates an archive, so its start must never move forward.
 
     A dataset whose SQLite table is replaced by each fetch holds a current view rather
     than an archive: `jquants.earnings_calendar` is the forward announcement calendar, so
     its earliest row moves forward every time the exchange drops a past announcement.
-    Pinning a start date against a sliding view states a promise the source never made
-    and fails on a schedule — the daily batch stopped on 2026-08-17 because the snapshot
-    had advanced from 2026-06-19 to 2026-07-03. Absent means the dataset carries no
-    history floor; every other check (rows, population, staleness) still applies.
+    False exempts it; every other check (rows, population, staleness) still applies.
+
+    For the rest the floor is the release already serving, not a date written here. A
+    pinned date states the value it had the day it was written, and measured on
+    2026-08-25 every one of them sat at exactly zero days of slack — the first day any
+    archive started later, the batch stopped. That is how `jquants.earnings_calendar`
+    stopped it on 2026-08-17, from 2026-06-19 to 2026-07-03. Comparing against what was
+    published says the thing actually meant — this release must not drop history the last
+    one served — and needs no maintenance to keep saying it.
     """
     minimum_rows: int = Field(gt=0)
     minimum_population_count: int | None = Field(default=None, gt=0)
@@ -851,7 +856,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             dataset="jquants.daily_bars",
             required=True,
             accepted_contract_versions=(1,),
-            coverage_start_on_or_before=date(2016, 8, 1),
+            carries_history=True,
             minimum_rows=9_634_243,
             minimum_population_count=5_097,
             require_complete_coverage=True,
@@ -861,7 +866,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             dataset="jquants.short_sale_reports",
             required=True,
             accepted_contract_versions=(1,),
-            coverage_start_on_or_before=date(2016, 8, 10),
+            carries_history=True,
             minimum_rows=1_342_362,
             minimum_population_count=3_907,
             require_complete_coverage=True,
@@ -871,7 +876,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             dataset="jquants.weekly_margin",
             required=True,
             accepted_contract_versions=(1,),
-            coverage_start_on_or_before=date(2016, 8, 5),
+            carries_history=True,
             minimum_rows=1_960_849,
             minimum_population_count=4_866,
             require_complete_coverage=False,
@@ -881,7 +886,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             dataset="jquants.master_snapshots",
             required=True,
             accepted_contract_versions=(1,),
-            coverage_start_on_or_before=date(2016, 9, 30),
+            carries_history=True,
             minimum_rows=548_341,
             minimum_population_count=5_073,
             require_complete_coverage=False,
@@ -891,7 +896,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             dataset="jquants.fin_summaries",
             required=True,
             accepted_contract_versions=(1,),
-            coverage_start_on_or_before=date(2016, 8, 1),
+            carries_history=True,
             minimum_rows=173_198,
             minimum_population_count=4_425,
             require_complete_coverage=True,
@@ -901,7 +906,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             dataset="jquants.market_calendar",
             required=True,
             accepted_contract_versions=(1,),
-            coverage_start_on_or_before=date(2016, 8, 1),
+            carries_history=True,
             minimum_rows=3_524,
             require_complete_coverage=True,
             max_age_days=31,
@@ -913,7 +918,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             accepted_contract_versions=(1,),
             # Replaced by every snapshot fetch, so its earliest row is whatever the
             # exchange still publishes rather than a history this release keeps.
-            coverage_start_on_or_before=None,
+            carries_history=False,
             # A forward calendar's size is seasonal, so a floor taken from one snapshot
             # bounds the season it was taken in rather than a broken fetch. Measured on
             # actual disclosures 2023-08 onward, the number of companies announcing in
@@ -934,7 +939,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             dataset="jquants.margin_alerts",
             required=True,
             accepted_contract_versions=(1,),
-            coverage_start_on_or_before=date(2026, 8, 3),
+            carries_history=True,
             minimum_rows=1_657,
             minimum_population_count=214,
             require_complete_coverage=True,
@@ -944,7 +949,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             dataset="jquants.all_issues_daily_margin",
             required=False,
             accepted_contract_versions=(1,),
-            coverage_start_on_or_before=date(2026, 9, 25),
+            carries_history=True,
             minimum_rows=1,
             require_complete_coverage=False,
             max_age_days=31,
@@ -953,7 +958,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             dataset="edinet.documents",
             required=True,
             accepted_contract_versions=(1,),
-            coverage_start_on_or_before=date(2024, 7, 31),
+            carries_history=True,
             minimum_rows=160_990,
             require_complete_coverage=True,
             max_age_days=31,
@@ -962,7 +967,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             dataset="edinet.metrics",
             required=True,
             accepted_contract_versions=(1,),
-            coverage_start_on_or_before=date(2026, 5, 8),
+            carries_history=True,
             minimum_rows=131_909,
             minimum_population_count=3_788,
             require_complete_coverage=False,
@@ -972,7 +977,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             dataset="edinet.document_lists",
             required=True,
             accepted_contract_versions=(1,),
-            coverage_start_on_or_before=date(2024, 7, 31),
+            carries_history=True,
             minimum_rows=706,
             require_complete_coverage=False,
             max_age_days=31,
@@ -981,7 +986,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             dataset="edinet.buyback_reports",
             required=True,
             accepted_contract_versions=(1,),
-            coverage_start_on_or_before=date(2024, 6, 30),
+            carries_history=True,
             minimum_rows=5_871,
             minimum_population_count=1_159,
             require_complete_coverage=False,
@@ -991,7 +996,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             dataset="jpx.regulation_flags",
             required=True,
             accepted_contract_versions=(1,),
-            coverage_start_on_or_before=date(2026, 5, 8),
+            carries_history=True,
             minimum_rows=4_534,
             minimum_population_count=141,
             require_complete_coverage=False,
@@ -1003,7 +1008,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             accepted_contract_versions=(1,),
             # Accumulating by construction: the store keeps a delisting that JPX's
             # archive page has since dropped, so its earliest row does not move.
-            coverage_start_on_or_before=date(2017, 1, 16),
+            carries_history=True,
             # Half the 760 rows held on 2026-08-19. A derivation that returned a
             # fraction of the archive breaches it; normal growth never approaches it.
             minimum_rows=380,
@@ -1027,7 +1032,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             # Replaced wholesale by each derivation, so a reclassified offer moves the
             # earliest row. Pinning a start date would refuse exactly the correction the
             # derivation exists to make.
-            coverage_start_on_or_before=None,
+            carries_history=False,
             # Half the 152 rows held on 2026-08-19.
             minimum_rows=76,
             minimum_population_count=76,
@@ -1040,7 +1045,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             dataset="jpx.regulation_sources",
             required=True,
             accepted_contract_versions=(1,),
-            coverage_start_on_or_before=date(2026, 5, 8),
+            carries_history=True,
             minimum_rows=133,
             require_complete_coverage=False,
             max_age_days=31,
@@ -1146,8 +1151,15 @@ def validate_release_policy(
     manifests: Mapping[str, DatasetManifest],
     *,
     evaluated_at: datetime,
+    published_coverage_start: Mapping[str, date] | None = None,
 ) -> None:
-    """Require a release to be complete and fresh for its declared profile."""
+    """Require a release to be complete and fresh for its declared profile.
+
+    ``published_coverage_start`` is what the serving release covers, per dataset. It is
+    the floor an archival dataset must still reach. Absent — a first publication, or a
+    dataset this release introduces — leaves the history check with nothing to compare
+    and the remaining checks unchanged.
+    """
     if evaluated_at.utcoffset() != timedelta(0):
         raise ValueError("release evaluation time must be UTC")
     if release.created_at > evaluated_at:
@@ -1197,13 +1209,15 @@ def validate_release_policy(
                 f"{dataset}: coverage is {manifest.coverage_status}, but its profile requires "
                 "complete"
             )
+        served_start = (published_coverage_start or {}).get(dataset)
         if (
-            dataset_policy.coverage_start_on_or_before is not None
-            and manifest.coverage_start > dataset_policy.coverage_start_on_or_before
+            dataset_policy.carries_history
+            and served_start is not None
+            and manifest.coverage_start > served_start
         ):
             raise ValueError(
-                f"{dataset}: coverage starts {manifest.coverage_start}, later than the profile "
-                f"boundary {dataset_policy.coverage_start_on_or_before}"
+                f"{dataset}: coverage starts {manifest.coverage_start}, later than the "
+                f"{served_start} the serving release already covers"
             )
         if manifest.totals.rows < dataset_policy.minimum_rows:
             raise ValueError(

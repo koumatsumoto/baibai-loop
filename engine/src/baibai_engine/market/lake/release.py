@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from datetime import UTC, datetime
+from collections.abc import Mapping
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -53,6 +54,7 @@ def create_l1_release(
     release_id: str | None = None,
     created_at: datetime | None = None,
     profile: ReleaseProfile = "production",
+    published_coverage_start: Mapping[str, date] | None = None,
 ) -> tuple[Path, ReleaseManifest]:
     if not dataset_manifest_paths:
         raise ValueError("at least one dataset manifest is required")
@@ -95,6 +97,7 @@ def create_l1_release(
         release,
         {item.dataset: item for item in manifests},
         evaluated_at=now,
+        published_coverage_start=published_coverage_start,
     )
     path = (root / release_manifest_key(release_id=actual_release_id)).resolve()
     if not path.is_relative_to(root):

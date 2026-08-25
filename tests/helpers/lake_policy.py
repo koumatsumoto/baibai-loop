@@ -11,7 +11,6 @@ completeness rule un-relaxed where it matters.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import date
 
 import pytest
 
@@ -32,7 +31,7 @@ def narrow_release_policy(
     minimum_rows: int = 1,
     minimum_population_count: int = 1,
     age_days: int | None = 10_000,
-    coverage_start_on_or_before: date = date.max,
+    carries_history: bool = False,
     relax_floors: bool = True,
 ) -> None:
     """Keep only `datasets` in the profile, optionally lowering their floors.
@@ -48,7 +47,7 @@ def narrow_release_policy(
     relaxation: dict[str, object] = {}
     if relax_floors:
         relaxation = {
-            "coverage_start_on_or_before": coverage_start_on_or_before,
+            "carries_history": carries_history,
             "minimum_rows": minimum_rows,
             "minimum_population_count": minimum_population_count,
         }
