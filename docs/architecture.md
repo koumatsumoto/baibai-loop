@@ -50,9 +50,7 @@ baibai-loop/
 | `baibai_web` | Dashboard / Macro / Stocks の read-only UI | `baibai-web` |
 | `baibai_batch` | scheduled/offline job、store transfer、validation、observability | repository-internal `baibai-batch` |
 
-engine は web / batch / tools に依存しない。Web が engine へ触れる経路は `read_api`、batch は `batch_api` と `read_api` に限定し、その不変条件は import-linter で検査する。read-only Web の実行時契約は[Read-only app invariants](#read-only-app-invariants)を正本とする。
-
-`read_api` の store 欠損時の扱いは 1 つの規則で決まる: **publish 済みの内容を答える reader は空 view へ degrade し、書き込みを門番する reader は raise する**。前者は `read_rows` を通し、file 欠損と table 欠損（= writer がこの copy でまだ走っていない）を空として扱う。列名の誤り・構文エラー・store 破損は degrade せず raise するので、壊れた query が同じ沈黙に隠れない。後者は日次 batch の `market_calendar_business_day` と `previous_run_revision_id` で、休場日に見えて run を skip するのでなく故障を名指しして止まる。この規則は `tests/engine/test_read_api_degrade.py` が全 public reader を走査して守る。
+engine は web / batch / tools に依存しない。Web が engine へ触れる経路は `read_api`、batch は `batch_api` と `read_api` に限定し、その不変条件は import-linter で検査する。read-only Web の実行時契約は[Read-only app invariants](#read-only-app-invariants)、store 欠損時に reader が止まるか空を返すかは[Failure policy](#failure-policy)を正本とする。
 
 ## Store contract
 
@@ -219,6 +217,19 @@ views + history + system        Bearer認証 + static UI
 - ローカル`pull`はmachine storeだけを置換し、canonical application DBを上書きしない。ローカル`publish`はSQLite snapshotをstoresへ置き、materializeをdispatchする。
 
 具体的な初期構築、publish/pull、手動再実行、password rotationは[`batch/OPERATIONS.md`](../batch/OPERATIONS.md)を正本とする。
+
+<a id="failure-policy"></a>
+
+## Failure policy
+
+無人で走る経路（日次 batch・hydrate・publish・materialize）と、publish 済みの内容を答える reader が止まってよいのは、次の 2 条件のどちらかに当たるときだけである。
+
+1. **必須入力が無い** — その日の判断に要る行が store に無く、取得もできなかった。screening は cache-only なので、無いものは計算できない。
+2. **出力が壊れる** — 進めると次の読み手が壊れた store・release・view を受け取る。行数・population の床割れ、履歴の後退、schema version の不一致、manifest / object digest の不一致、pointer CAS の競合、httpfs の欠如、壊れた query がこれに当たる。
+
+それ以外では止めない。鮮度（age・staleness・lead）は reader が軸を null にする。producer の identity（fingerprint・revision）の変化は停止理由ではなく作り直しの契機である。1 record の異常（衝突・欠落）は当該 record を落として続ける。publish 済みの内容を答える reader は file / table の欠損を空 view として返し（`read_rows`）、書き込みを門番する reader（`market_calendar_business_day`、`previous_run_revision_id`）は条件 2 に当たるので raise する。この規則は `tests/engine/test_read_api_degrade.py` が全 public reader を走査して守る。
+
+degrade の報告経路は batch の exit 3（Discord `[DEGRADED]` と run summary）の 1 本で、新しい語彙・field・指標・gate を足さない。blocking guard を足す PR は 2 条件のどちらに当たるかを本文で述べ、述べられないなら足さない。guard を消す PR は、窓内の発火を 1 件ずつ原因と修正 PR へ帰属させる — 「自然解消した」は、同日に修正が merge されていないことを確かめてから言う。完走率が要るときは定時 run だけで数える（[`batch/OPERATIONS.md`](../batch/OPERATIONS.md#欠測の検知cloud-batch-watchdog)）。
 
 ## Data layers
 
