@@ -66,7 +66,6 @@ from baibai_engine.market.lake.release import create_l1_release as create_lake_l
 from baibai_engine.market.lake.writer import (
     LakeBuildError,
     LakeBuildReport,
-    LakeTransformFingerprintMismatch,
     export_lake_legacy,
 )
 from baibai_engine.market.sqlite import open_connection as open_market_store
@@ -116,7 +115,6 @@ __all__ = [
     "LakeSQLiteSnapshotSourceRef",
     "LakeStoreOrigin",
     "LakeStoreOriginError",
-    "LakeTransformFingerprintMismatch",
     "LocalMirrorSource",
     "MacroContextDocument",
     "MarketSchemaError",

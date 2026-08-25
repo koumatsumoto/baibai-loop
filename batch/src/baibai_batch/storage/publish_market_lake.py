@@ -34,7 +34,6 @@ from baibai_engine.batch_api import (
     LakeReleaseManifest,
     LakeStoreOrigin,
     LakeStoreOriginError,
-    LakeTransformFingerprintMismatch,
     LocalMirrorSource,
     advance_lake_store_origin,
     canonical_lake_model_bytes,
@@ -67,6 +66,9 @@ class MarketLakePublishReport:
     created_objects: Mapping[str, int]
     uploaded_objects: int
     uploaded_bytes: int
+    # Datasets whose base belonged to an earlier generation of the export and were
+    # derived from the store instead of carried. Empty on an ordinary run.
+    rebuilt_from_source: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -155,6 +157,18 @@ def publish_market_lake(
         f"pointer={published.pointer_seconds:.3f}s",
         file=sys.stderr,
     )
+    rebuilt = tuple(
+        name for name, item in sorted(export.datasets.items()) if item.rebuilt_from_source
+    )
+    if rebuilt:
+        # This run derived every partition of these datasets instead of carrying the
+        # previous release's. It is the batch recovering from a merge that moved the
+        # export, and it is why the run took longer than an ordinary one.
+        print(
+            "lake publish rebuilt from source (base was an earlier generation of the "
+            f"export): {', '.join(rebuilt)}",
+            file=sys.stderr,
+        )
     transfers = published.transfers.as_dict()
     return MarketLakePublishReport(
         release_id=published.release_id,
@@ -169,6 +183,7 @@ def publish_market_lake(
         },
         uploaded_objects=int(transfers.get("uploaded_objects", 0)),
         uploaded_bytes=int(transfers.get("uploaded_bytes", 0)),
+        rebuilt_from_source=rebuilt,
     )
 
 
@@ -321,16 +336,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-RECOVERY_RUNBOOK_SECTION = "fingerprint 変更後の full rebuild"
-"""The `batch/OPERATIONS.md` section that carries the command this failure needs."""
-
-_FULL_REBUILD_RECOVERY = (
-    "no retry clears this: the base release was built under a different export "
-    "fingerprint, and every scheduled batch stops here until a full rebuild is "
-    f'published. Follow "{RECOVERY_RUNBOOK_SECTION}" in batch/OPERATIONS.md.'
-)
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
@@ -341,17 +346,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             release_id=args.release_id,
             full_rebuild=args.full_rebuild,
         )
-    except LakeTransformFingerprintMismatch as error:
-        # The export refuses a base built under a different transform fingerprint. That
-        # is the guard working, but the run log used to end in a traceback that named no
-        # way out — and the state does not clear on its own, so every scheduled batch
-        # stops in the same place until a full rebuild is published. The pointer lives
-        # here rather than in the writer's message because the writer's source is one of
-        # the three files the fingerprint is taken over: editing this wording there would
-        # move the fingerprint and demand the very rebuild it describes.
-        print(f"error: {error}", file=sys.stderr)
-        print(f"error: {_FULL_REBUILD_RECOVERY}", file=sys.stderr)
-        return 1
     except LakeBuildError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

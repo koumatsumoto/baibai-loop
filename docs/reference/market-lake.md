@@ -157,12 +157,9 @@ producer commit=85d3dbdc13c67b05a018448e1be17710ddcb869e、recorded=2026-08-19T2
 hydrate / dehydrate に個別作業は無い。どちらも `LAKE_DATASETS` から従い、積んだ行数が release
 manifest と合わなければ [Store hydration](#store-hydration) が fail-close する。
 
-**`datasets.py` は `transform_fingerprint` の 3 file の 1 つなので、この merge は full rebuild
-release の publish までが 1 つの作業である。**手順は
-[`AGENTS.md`](../../AGENTS.md#store-の正本とクラウド反映) と
-[`batch/OPERATIONS.md`](../../batch/OPERATIONS.md#fingerprint-変更後の-full-rebuild) を正本とする。
-drift gate `check_export_fingerprints` が pin した dataset fingerprint と 3 file の semantic digest を
-実値と突き合わせ、merge 前に動いた file を名指しする。
+**`datasets.py` は `transform_fingerprint` の 3 file の 1 つなので、この merge の翌日の publish は
+base を carry せず全 partition を store から導出し直す。**日次はそれを自動で行い、
+`rebuilt_from_source` に対象 dataset を記録する。作業は要らない。
 
 ## R2 publish
 

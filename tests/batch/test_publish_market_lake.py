@@ -13,7 +13,6 @@ from baibai_batch.storage.lake_publish import LakePublishError
 from baibai_engine.batch_api import (
     L1ReleasePointer,
     LakeBuildError,
-    LakeTransformFingerprintMismatch,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -149,27 +148,11 @@ def test_the_flag_reaches_the_publication(monkeypatch: pytest.MonkeyPatch) -> No
     assert seen["full_rebuild"] is True
 
 
-def test_a_fingerprint_refusal_names_the_full_rebuild_recovery(
+def test_a_build_error_is_reported_without_prescribing_an_operation(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    def _refuse(**_: object) -> object:
-        raise LakeTransformFingerprintMismatch("transform_fingerprint differs")
+    """What is left here cannot be answered by rebuilding, so it names no recovery."""
 
-    monkeypatch.setattr(publish_module, "publish_market_lake", _refuse)
-    monkeypatch.setattr(publish_module, "Boto3R2Store", lambda **_: _UnusedStore())
-
-    exit_code = publish_module.main(["--sqlite", "market.sqlite", "--mirror", "stores"])
-
-    assert exit_code == 1
-    printed = capsys.readouterr().err
-    assert "transform_fingerprint differs" in printed
-    assert "no retry clears this" in printed
-    assert publish_module.RECOVERY_RUNBOOK_SECTION in printed
-
-
-def test_an_unrelated_build_error_does_not_prescribe_a_full_rebuild(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
     def _refuse(**_: object) -> object:
         raise LakeBuildError("invalid date in sealed SQLite snapshot")
 
@@ -182,34 +165,27 @@ def test_an_unrelated_build_error_does_not_prescribe_a_full_rebuild(
     printed = capsys.readouterr().err
     assert "invalid date" in printed
     assert "full rebuild" not in printed
-    assert "no retry clears this" not in printed
 
 
-def test_the_recovery_the_message_names_is_one_the_runbook_carries() -> None:
+def test_the_runbook_states_that_a_moved_export_needs_no_operation() -> None:
+    """The daily rebuilds by itself now, and the runbook must not send anyone to a console."""
+
     runbook = (ROOT / "batch/OPERATIONS.md").read_text(encoding="utf-8")
+    section = runbook.split("### export 意味論を変えた翌日の publish", 1)[1].split("\n### ", 1)[0]
 
-    assert f"### {publish_module.RECOVERY_RUNBOOK_SECTION}" in runbook
-    section = runbook.split(f"### {publish_module.RECOVERY_RUNBOOK_SECTION}", 1)[1].split(
-        "\n### ", 1
-    )[0]
-    assert "--full-rebuild" in section
-    assert "publish_market_lake" in section
+    assert "運用作業は要らない" in section
+    assert "rebuilt_from_source" in section
 
 
-def test_the_runbook_recovery_goes_through_the_standard_wrapper() -> None:
+def test_the_manual_rebuild_the_runbook_offers_goes_through_the_standard_wrapper() -> None:
+    """A cutover still publishes one by hand, and that command has to be the real one."""
+
     runbook = (ROOT / "batch/OPERATIONS.md").read_text(encoding="utf-8")
-    section = runbook.split(f"### {publish_module.RECOVERY_RUNBOOK_SECTION}", 1)[1].split(
-        "\n### ", 1
-    )[0]
+    section = runbook.split("### export 意味論を変えた翌日の publish", 1)[1].split("\n### ", 1)[0]
     transfer = (ROOT / "batch/scripts/r2_transfer.sh").read_text(encoding="utf-8")
-    branch = transfer.split('if [[ "${mode}" == "full-rebuild" ]]; then', 1)[1].split(
-        "\n  fi\n", 1
-    )[0]
 
     assert "batch/scripts/r2_transfer.sh publish-lake full-rebuild" in section
-    assert "標準運用は`r2_transfer.sh`" in section
-    assert "--full-rebuild" in branch
-    assert "record_lake_release" not in transfer
+    assert 'publish_lake "${2:-incremental}"' in transfer
 
 
 def test_publisher_cli_has_no_sidecar_origin_arguments() -> None:

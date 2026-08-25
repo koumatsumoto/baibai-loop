@@ -61,10 +61,6 @@ class LakeBuildError(RuntimeError):
     pass
 
 
-class LakeTransformFingerprintMismatch(LakeBuildError):
-    """A differential build cannot reuse a base made by another transform."""
-
-
 @dataclass(frozen=True)
 class LakeBuildReport:
     manifest_path: Path
@@ -72,6 +68,10 @@ class LakeBuildReport:
     changed_partitions: tuple[str, ...]
     reused_partitions: tuple[str, ...]
     created_objects: int
+    # True when the base belonged to an earlier generation of the export and every
+    # partition was re-derived instead of carried. Recorded because the run costs more
+    # than an ordinary one and the reason is not visible in the partition counts.
+    rebuilt_from_source: bool = False
 
 
 @dataclass(frozen=True)
@@ -201,6 +201,9 @@ def export_legacy_sqlite(
         with _open_immutable(snapshot.path) as connection:
             _validate_sqlite_contract(connection, dataset)
             base = _load_base_manifest(base_manifest_path, dataset, transform=transform)
+            # A base was offered and refused: it belongs to an earlier generation of the
+            # export, so this build derives everything rather than carrying it.
+            rebuilt_from_source = base_manifest_path is not None and base is None
             partitions = _base_partitions(base)
             periods = _build_periods(
                 connection,
@@ -294,6 +297,7 @@ def export_legacy_sqlite(
             changed_partitions=tuple(changed),
             reused_partitions=tuple(reused),
             created_objects=created_objects,
+            rebuilt_from_source=rebuilt_from_source,
         )
     except Exception as exc:
         # The staging tree is left where it is. It is under no manifest, so the collector
@@ -715,24 +719,37 @@ def _load_base_manifest(
     *,
     transform: str,
 ) -> DatasetManifest | None:
+    """The base to carry, or ``None`` when this build must derive every partition.
+
+    Two kinds of disagreement reach here and they are not the same question. Being handed
+    a manifest for another dataset, or for another layer, says the caller wired the wrong
+    file in: nothing downstream can make that right, so it raises.
+
+    A base built under an earlier contract version, partition grain or transform is not a
+    wiring error. It is the ordinary consequence of merging a change to the export, and
+    the answer is the one the operator used to type by hand — derive every partition from
+    the store instead of carrying the old ones. Refusing instead stopped the scheduled
+    batch every morning until someone published a rebuild, and it did so for changes that
+    provably wrote identical bytes: measured over the four firings before 2026-08-25,
+    three were byte-identical and the fourth still needed a rebuild rather than a stop.
+    Rebuilding costs the export of every partition — 448 against 12 on an ordinary day —
+    on the roughly one merge in eight that moves the export, against losing the day.
+    """
+
     if path is None:
         return None
     try:
         value = load_lake_model_json(path.read_bytes(), DatasetManifest)
     except Exception as exc:
         raise LakeBuildError(f"invalid base dataset manifest: {path}: {exc}") from exc
-    if (
-        value.dataset != dataset.name
-        or value.layer != "l1_canonical"
-        or value.contract_version != dataset.contract_version
-        or tuple(value.partition_by) != dataset.partition_by
-    ):
+    if value.dataset != dataset.name or value.layer != "l1_canonical":
         raise LakeBuildError("base manifest does not match the requested dataset contract")
-    if value.transform_fingerprint != transform:
-        raise LakeTransformFingerprintMismatch(
-            "base manifest transform_fingerprint differs; run a full rebuild without "
-            "--base-manifest"
-        )
+    if (
+        value.contract_version != dataset.contract_version
+        or tuple(value.partition_by) != dataset.partition_by
+        or value.transform_fingerprint != transform
+    ):
+        return None
     return value
 
 

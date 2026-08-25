@@ -271,89 +271,31 @@ machine storeの全writerはdownload時のR2 ETagを保持し、backupは同じs
 
 `push-macro`のmergeは`merge_indicator_store.py`である。対象は事実を積み上げるtable（`observations` / `provider_runs`）だけで、主キーで`INSERT OR IGNORE`する。同じ主キーを両側が持つ場合は全payloadの一致をmerge前後に検証し、値・単位・source等が異なれば片方を正本と推測せずtransaction全体を停止する。source / target はschema version・列構成に加えて`schema.sql`由来の全persistent triggerとregistry state contractをcanonical定義へ完全一致させる。targetが保持する全series metadataは両端が有限なplausible rangeを持つことを前提とし、source / target observationをtransaction先頭でtargetのunitとrangeに照合する。いずれかの契約違反があればtargetを変更せず停止する。`series` / `aliases`はsourceから取り込まない。通常のopenは登録外seriesのfacts・metadata・aliasesを保持し、明示的な`macro refresh`だけが現行registryに無いseriesをpruneするため、古いbranchのread後もtargetに残る新系列へcloud factsをmergeできる。source の registry generation が target より新しい場合と、同世代なのに `source.series` membership がtargetから欠ける場合は、facts未取得のseriesでもmergeを拒否する。target が source より新しい世代でmetadataが無いseriesのrowだけを意図した退役としてskip件数に含める。`market.sqlite` / `runs.sqlite`は`push-macro`が触らない。
 
-### fingerprint 変更後の full rebuild
+### export 意味論を変えた翌日の publish
 
 `market/lake/writer.py`・`market/lake/datasets.py`・`market/sqlite/coverage.py` の semantic な変更を
-merge した翌日、日次 batch は publish-lake でこう落ちる。
+merge すると、export の `transform_fingerprint` が動く。前世代の fingerprint で作られた base へ
+新世代の増分を積むことはできないので、**翌日の publish は base を carry せず、全 partition を
+store から導出し直す**。日次 batch はこれを自動で行い、対象 dataset を publish report の
+`rebuilt_from_source` に記録する。**運用作業は要らない。**
 
+`contract_version` と partition grain の変更も同じ扱いになる。一方、別 dataset や別 layer の
+manifest を渡した場合は配線の誤りなので、そのまま停止する。
+
+コストはその日だけ増える。通常日の増分は 12 partition（2026-08-21 実測）、全導出は 448 partition
+（2026-08-25 実測、ローカル export 249 秒）。同一 bytes の Parquet は content-addressed key と
+`If-None-Match: *` で再 upload されないので、転送は新 manifest 群と pointer CAS が中心のままである。
+
+手動で全導出を publish したい場合（schema cutover に合わせるなど）は次を使う。worktree が
+clean であることを要求し、本番 store で export に 7 分強かかる。
+
+```bash
+batch/scripts/r2_transfer.sh publish-lake full-rebuild
+uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores --format json
 ```
-baibai_engine.market.lake.writer.LakeBuildError:
-base manifest transform_fingerprint differs; run a full rebuild without --base-manifest
-```
 
-増分 export は base manifest を継ぎ足すが、その base は前世代の fingerprint で作られている。**guard は
-正しく働いている** — 旧意味論で built した release へ新意味論の増分を積むことを拒んでいる。自然治癒は
-しないので、full rebuild を publish するまで毎日同じ場所で落ちる。当日の実データは失われない
-（publish-lake は push-machine より前なので coverage claim が R2 に出ておらず、復旧後の日次が前方
-再取得する）。
-
-復旧はローカルで完結させる。
-
-1. **store origin を確認する** — `market.sqlite`内の`lake_store_origin`が、ローカル store を
-   hydrateしたrelease IDとmanifest SHA-256を保持する。full rebuildはexport対象と同じsealed snapshotから
-   このidentityを読み、開始時current pointerと照合して、違えばdataset export前に停止する。SQLiteだけを
-   古いbackupへ戻したstoreはembedded originの不一致で通らず、origin確認とsnapshot captureの間に
-   DB pathが差し替わっても通らない。originが無いのを許すのはcurrent pointerも無いfirst publicationだけである。
-   違う場合は推測で補わず、先に`hydrate-market`でcurrent releaseへ揃える
-
-   ```bash
-   uv run python -c 'import sqlite3; print(sqlite3.connect("stores/market/market.sqlite").execute("SELECT release_id, release_manifest_sha256 FROM lake_store_origin WHERE singleton = 1").fetchone())'
-   uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores --format json
-   ```
-
-   全dataset共通の「前release以上」というrow floorは持たない。訂正やsnapshot置換で正常に件数が
-   減るdatasetがあるためである。代わりにrelease時のproduction policyがdatasetごとのhistory境界、
-   minimum rows / population、coverage、freshnessを検査する。historical datasetの大幅欠損はこの固定
-   policyで拒否し、正常なsnapshot縮小は許可する
-
-2. **worktree を clean にする** — publish は `git status --porcelain` が空であることを要求する
-   （`lake publication requires a clean tracked worktree`）。export は本番 store で 7 分強かかるので、
-   その途中で tracked file を触ると最後の commit 検証で全部捨てることになる
-
-3. **full rebuild を publish する**
-
-   ```bash
-   batch/scripts/r2_transfer.sh publish-lake full-rebuild
-   ```
-
-   publisherはoriginを同じ`market.sqlite`から読み、`--full-rebuild`ではbase manifestをcarryせず全
-   partitionをstoreからderiveし直す。同一 bytes の
-   Parquet は content-addressed key と `If-None-Match: *` で再 upload されないので、転送は新 manifest 群と
-   pointer CAS が中心になる。Bucket Lock は新 key の PUT と `lake/pointers/` の CAS を対象にしないので
-   干渉しない。
-
-   標準運用は`r2_transfer.sh`を使う。high-level `publish_market_lake` moduleもcorrectness上は同じ
-   SQLite originを使うが、wrapperがcredentialsと標準操作順を揃える。publisherはpointer成功後に
-   SQLite内originを新releaseへ進め、dehydrateもupload対象SQLite内の同じoriginを読む。
-   low-level `lake_publish` CLIはfirst publicationとexact-target retryだけを許し、currentを別releaseへ
-   直接切り替える用途には使えない
-
-4. **pointer が新 release を指すことを確認する**
-
-   ```bash
-   uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores --format json
-   ```
-
-5. **pin を実値へ揃える**
-
-   ```bash
-   uv run python tools/quality/drift/check_export_fingerprints.py --record
-   ```
-
-   drift gate は pin した fingerprint と実値を突き合わせるので、publish しただけでは gate が赤い
-   ままになる。fingerprint を動かした変更をまだ merge していない場合は、pin の更新を同じ PR に
-   含める。publish せずに pin だけ更新すると gate は緑になるが日次 batch は止まったままなので、
-   この順序（publish が先、pin が後）を崩さない。pin は記録時点の `lake_store_origin` の
-   release ID も持つ。手順どおりなら fingerprint と一緒に新 release へ動くので、diff で
-   fingerprint だけが動いて release が据え置きなら、publish を飛ばしたと読める
-
-6. **翌定時の日次 batch の緑が最終確認**。手動 dispatch はしない — 定時 cron がその日のうちに答える。
-   復旧が定時より後になった日は、その夜の `cloud-batch-watchdog` が `[MISSING]` を正しく報じる
-
-fingerprintだけを変えた通常のfull rebuildでは`push-market`は不要である。この経路が直すのはlakeの
-releaseであって、store側の2 data tableではない。ただしmarket schemaも同時に上げたcutoverでは、
-hydrate済みstoreのschemaと`lake_store_origin`をR2 copyへ運ぶため、full rebuild後に同じ作業で
-`push-market`まで完了する。
+`market.sqlite` 内の `lake_store_origin` は開始時 current pointer と照合され、違えば dataset export
+前に停止する。SQLite だけを古い backup へ戻した store はこの照合を通らない。
 
 ### 部分 push からの復旧
 
