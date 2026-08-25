@@ -161,6 +161,8 @@ manifest と合わなければ [Store hydration](#store-hydration) が fail-clos
 release の publish までが 1 つの作業である。**手順は
 [`AGENTS.md`](../../AGENTS.md#store-の正本とクラウド反映) と
 [`batch/OPERATIONS.md`](../../batch/OPERATIONS.md#fingerprint-変更後の-full-rebuild) を正本とする。
+drift gate `check_export_fingerprints` が pin した dataset fingerprint と 3 file の semantic digest を
+実値と突き合わせ、merge 前に動いた file を名指しする。
 
 ## R2 publish
 

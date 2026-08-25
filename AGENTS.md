@@ -131,6 +131,8 @@ storeごとに正本の所在が違う。ローカルで進めたstoreをクラ�
 **翌定時の日次batchがpublish-lakeでfail-closeする**。自然治癒しないので、full rebuildをpublishする
 まで毎日同じ場所で落ちる。手順は
 [`batch/OPERATIONS.md`](./batch/OPERATIONS.md#fingerprint-変更後の-full-rebuild)を正本とする。
+fingerprintが動いたことはdrift gate `tools/quality/drift/check_export_fingerprints.py`が
+merge前に赤で知らせる。gateはpinした値と実値を突き合わせ、動かしたfileを名指しする。
 
 ## Repository-local skills
 
