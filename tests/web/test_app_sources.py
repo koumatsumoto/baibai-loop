@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 from tests.helpers.screening_run import screening_candidate, screening_run_payload
+from tests.helpers.screening_sqlite import seed_daily_bars
 
+from baibai_engine.market.sqlite import open_connection
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_web.sources.db_sources import (
     DbCandidatesSource,
     DbLedgerSource,
+    DbMarketPriceSource,
     DbResearchSource,
     DbTaskSource,
 )
@@ -119,3 +123,44 @@ class TestDbCandidatesSource:
         assert run is not None
         assert run.screening_rules_hash == "rules-hash-v1"
         assert run.er_model_version == "expected-return-v1"
+
+
+class TestDbMarketPriceSource:
+    """The daily-delta reads, whose behaviour is `test_market_read_api.py`'s.
+
+    What this owns is the wiring: the source has to hand the market store path to the
+    right read. A delegation that lost its argument or called the neighbouring read
+    would still type-check and would still answer, with the wrong number.
+    """
+
+    def _market(self, tmp_path: Path) -> Path:
+        path = tmp_path / "market.sqlite"
+        seed_daily_bars(
+            path,
+            [("2331", "2026-07-28", 100.0, 1.0), ("2331", "2026-07-29", 110.0, 1.0)],
+        )
+        connection = open_connection(path)
+        try:
+            connection.executemany(
+                "INSERT OR REPLACE INTO jquants_market_calendar(day, is_business_day) "
+                "VALUES (?, ?)",
+                [("2026-07-28", 1), ("2026-07-29", 1)],
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        return path
+
+    def test_exists_false_when_absent(self, tmp_path: Path) -> None:
+        assert DbMarketPriceSource(tmp_path / "missing.sqlite").exists() is False
+
+    def test_reads_the_previous_trading_day_and_the_change_since_it(self, tmp_path: Path) -> None:
+        source = DbMarketPriceSource(self._market(tmp_path))
+
+        previous = source.previous_business_day(date(2026, 7, 29))
+
+        assert source.exists() is True
+        assert previous == date(2026, 7, 28)
+        assert previous is not None
+        assert source.close_changes_since(["2331"], since=previous) == {"2331": 10.0}
+        assert source.latest_closes(["2331"]) == {"2331": (110.0, date(2026, 7, 29))}

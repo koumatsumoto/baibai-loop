@@ -86,6 +86,33 @@ def _selection(
     )
 
 
+def test_a_candidate_that_carries_no_metrics_is_stored_and_reads_as_absent(
+    tmp_path: Path,
+) -> None:
+    """`metrics` is optional in the payload the store accepts.
+
+    The store projects two metrics into their own columns for querying. A candidate
+    that reported none is not one reporting zero, and the projection walks every
+    stored candidate, so a row without the key has to answer NULL rather than raise.
+    """
+
+    database = tmp_path / "runs.sqlite"
+    payload = screening_run_payload(candidates=[screening_candidate("1301", metrics=None)])
+    assert "metrics" not in payload["candidates"][0]
+
+    revision = ScreeningRunStore(database).publish_run(payload).publication_id
+
+    run = ScreeningRunReader(database).get_run(revision)
+    assert run is not None
+    assert "metrics" not in run.candidates[0]
+    with sqlite3.connect(database) as connection:
+        columns = connection.execute(
+            "SELECT er_annual, dividend_yield FROM screening_candidate WHERE run_revision_id = ?",
+            (revision,),
+        ).fetchone()
+    assert columns == (None, None)
+
+
 def test_run_store_has_independent_forward_schema(tmp_path: Path) -> None:
     database = tmp_path / "runs.sqlite"
 

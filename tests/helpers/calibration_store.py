@@ -166,9 +166,11 @@ def _hints(model: type) -> Mapping[str, Any]:
 def panel_row(asof: str, ticker: str, **overrides: Any) -> PanelRow:
     """One panel row, with the fields a fixture never varies filled in.
 
-    A selection rank is derived from, not independent of, passing the screen: the
-    builder sets `pass_screen` and mirrors the rank into `recommended_rank` so a
-    fixture cannot describe a ranked row the panel would not have produced.
+    `selection_rank` and `pass_screen` are left independent because the panel builds
+    them independently: the rank is a replay of the full expected-return ordering over
+    every candidate, while `pass_screen` follows from having an evidence hit. A real
+    panel therefore carries ranked rows that did not pass, and a builder that tied the
+    two would make that shape unwritable.
     """
 
     hints = _hints(PanelRow)
@@ -177,12 +179,6 @@ def panel_row(asof: str, ticker: str, **overrides: Any) -> PanelRow:
         if key in {"asof", "ticker"}:
             continue
         payload[key] = _coerce(value, hints[key])
-    rank = payload.get("selection_rank")
-    if rank is not None:
-        payload["pass_screen"] = True
-        payload.setdefault("recommended_rank", rank)
-        if payload.get("recommended_rank") is None:
-            payload["recommended_rank"] = rank
     return PanelRow(**payload)
 
 

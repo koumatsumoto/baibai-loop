@@ -2333,6 +2333,43 @@ def test_thesis_scaffold_converts_huge_numeric_overflow_to_data_error(
     assert code == 3
 
 
+def test_thesis_scaffold_turns_a_contract_violating_estimate_into_a_data_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Which values the thesis contract admits is `test_thesis.py`'s; that a rejection
+    reaches the operator as exit 3 rather than a traceback is this boundary's.
+
+    The scaffold carries the selection's estimate into a thesis draft, so a value the
+    contract refuses arrives here as a `ValidationError` from a model the CLI does not
+    own. Without the translation the command ends in a stack trace and writes nothing,
+    which reads as a broken tool rather than as a run that has to be redone.
+    """
+
+    sqlite_path = tmp_path / "market.sqlite"
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    # Above the contract's ceiling for an annual expected return.
+    row = _longlist_row_with_estimate("2331", annual=10.0001)
+    workspace = _prepared_workspace(tmp_path, sqlite_path, longlist=[row])
+
+    code = opportunity_main(
+        [
+            "thesis-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        now=FIXED_NOW,
+    )
+
+    assert code == 3
+    assert "screening estimate violates thesis contract" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     ("selection_asof", "snapshot_asof"),
     [

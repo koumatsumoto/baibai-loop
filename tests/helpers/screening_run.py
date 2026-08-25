@@ -10,6 +10,13 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+
+class _Omitted:
+    """Distinguishes "not asked for" from an explicit `None`."""
+
+
+OMIT = _Omitted()
+
 RULES_HASH = "rules-fixture"
 MODEL_ID = "expected-return-v1"
 
@@ -44,13 +51,18 @@ def screening_candidate(
     avg_turnover_oku: float = 10.0,
     listing_span_days: int = 1000,
     jpx_flags: Sequence[str] = (),
-    metrics: Mapping[str, Any] | None = None,
+    metrics: Mapping[str, Any] | _Omitted | None = OMIT,
     evidence_hits: Sequence[Mapping[str, Any]] = (),
     **extra: Any,
 ) -> dict[str, Any]:
-    """One candidate row of a run payload."""
+    """One candidate row of a run payload.
 
-    return {
+    `metrics` has three states the store distinguishes and so does this: left out it
+    carries the default reading, `{}` carries none, and `None` leaves the key off the
+    payload entirely — which is a shape the store accepts and a reader has to survive.
+    """
+
+    payload: dict[str, Any] = {
         "ticker": ticker,
         "name": name,
         "sector_33": sector_33,
@@ -58,12 +70,14 @@ def screening_candidate(
         "avg_turnover_oku": avg_turnover_oku,
         "listing_span_days": listing_span_days,
         "jpx_flags": list(jpx_flags),
-        # `{}` means "this candidate has no metrics", which is not the same request
-        # as leaving the argument out.
-        "metrics": dict(metrics if metrics is not None else {"er_annual": 0.13}),
         "evidence_hits": [dict(hit) for hit in evidence_hits],
         **extra,
     }
+    if metrics is OMIT:
+        payload["metrics"] = {"er_annual": 0.13}
+    elif metrics is not None:
+        payload["metrics"] = dict(metrics)
+    return payload
 
 
 def screening_run_payload(

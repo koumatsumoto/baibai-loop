@@ -214,6 +214,30 @@ class SelectionMarketStateTests(unittest.TestCase):
         self.assertIn("deterioration_unmeasurable", by_ticker["1111"]["risk_tags"])
         self.assertNotIn("deterioration_unmeasurable", by_ticker["9999"]["risk_tags"])
 
+    def test_a_scheduled_earnings_date_becomes_a_risk_tag(self) -> None:
+        # 決算日が判明している銘柄は、深掘りの前に event risk を判断面へ出す。
+        # 日付が無い銘柄と同じ tag を付けると「予定が無い」と区別できなくなる。
+        scheduled = {**_CALM_CANDIDATE, "next_earnings_date": "2026-08-06"}
+        payload = build_selection_payload(
+            asof_date=_ASOF,
+            candidates=(
+                candidate_record_from_mapping(scheduled),
+                candidate_record_from_mapping(_DECLINER_CANDIDATE),
+            ),
+            macro_context=None,
+            rules=self.rules,
+            top=10,
+            profile="balanced",
+            candidates_ref="test.yaml",
+            macro_context_ref=None,
+            market_regime=None,
+        )
+
+        by_ticker = {item["ticker"]: item for item in self._recommendations(payload)}
+
+        self.assertIn("earnings_scheduled", by_ticker["1111"]["risk_tags"])
+        self.assertNotIn("earnings_scheduled", by_ticker["9999"]["risk_tags"])
+
     def test_split_adjustment_flag_becomes_risk_tag(self) -> None:
         # 分割・併合直後は market_cap / net_cash 比率が corporate action 未反映で
         # 歪み得るため、triage 段階で risk tag として必ず表面化させる。

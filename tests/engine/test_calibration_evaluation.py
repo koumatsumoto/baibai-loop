@@ -60,7 +60,11 @@ def _panel_row(ticker: str, *, rank: int | None = None, **overrides: object) -> 
     """
 
     if rank is not None:
+        # This file's cohort is one where every ranked name also passed, which is what
+        # its evaluation cases are about; the panel does not require that in general.
         overrides["selection_rank"] = rank
+        overrides["recommended_rank"] = rank
+        overrides.setdefault("pass_screen", True)
     liquid: dict[str, object] = {
         "market_cap_oku": 500.0,
         "avg_turnover_oku": 5.0,
