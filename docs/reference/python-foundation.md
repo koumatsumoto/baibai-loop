@@ -258,6 +258,17 @@ Bandit と pip-audit は ci の 1 job に同居するが `!cancelled()` を付�
 
 全workflowの外部Actionは上流releaseのfull commit SHAへ固定し、同じ行のコメントにrelease tagを残す。repository Actions設定のSHA pin enforcementと`tools/quality/drift/check_workflow_trust.py`を併用し、tag/branch参照、`run:`へのdispatch input直接展開、credentialのjob scope化を拒否する。Dependabotの更新でも、上流releaseとcommitの対応を確認してgateのallowlistとworkflowを同時に更新する。
 
+`lake-acceptance.yml`はacceptance credentialを持つため、gateが文書全体のSHA-256をpinし、どの変更もレビューを通す。この`_LAKE_ACCEPTANCE_WORKFLOW_DIGEST`はworkflowを変更するたびに更新する。gateは型の暗黙変換を避けるため`yaml.BaseLoader`で読むので、digestも同じloaderで算出する。
+
+```bash
+uv run python -c "
+import yaml
+from pathlib import Path
+from tools.quality.drift.check_workflow_trust import _mapping_digest
+print(_mapping_digest(yaml.load(Path('.github/workflows/lake-acceptance.yml').read_text(), Loader=yaml.BaseLoader)))
+"
+```
+
 ## 10. Review rule
 
 Python 基盤を変える PR は、ツール設定だけを見て終わらせない。最低限、次を見る。
