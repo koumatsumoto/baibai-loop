@@ -22,5 +22,6 @@
     "market/lake/datasets.py": "6bcdef27db48cb220e01c31ee7b06e297b87356682e76451fbff6127d0380c29",
     "market/lake/writer.py": "b5cd12fd06555e1f51dd394ab2f16b7f6f3442ecb46c8e530b7961ba5b84b5b3",
     "market/sqlite/coverage.py": "f847d38807057cdf2bca1b4348e796b04f8e8fdd9df0ba86fc568e094e15571a"
-  }
+  },
+  "recorded_for_release": "20260825T094715Z-93ce4743-b9519eb8ae0d"
 }

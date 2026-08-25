@@ -3,6 +3,9 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import sqlite3
+import tempfile
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -17,6 +20,8 @@ from tools.quality.drift import (
     check_repository_paths,
     check_skill_inventory,
 )
+
+from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -650,7 +655,8 @@ def test_export_fingerprint_gate_reports_a_dataset_that_moved_without_an_edited_
     pinned["datasets"]["jquants.daily_bars"] = "sha256:" + "0" * 64
     _write_export_pin(tmp_path, pinned)
     assert check_export_fingerprints.check(tmp_path) == [
-        f"datasets: 1 of {len(pinned['datasets'])} fingerprints moved: jquants.daily_bars"
+        f"datasets: 1 of {len(pinned['datasets'])} fingerprints moved: jquants.daily_bars",
+        "pin was recorded for release None",
     ]
 
 
@@ -658,7 +664,10 @@ def test_export_fingerprint_gate_reports_a_dataset_that_is_not_pinned(tmp_path: 
     pinned = check_export_fingerprints.current()
     del pinned["datasets"]["jquants.daily_bars"]
     _write_export_pin(tmp_path, pinned)
-    assert check_export_fingerprints.check(tmp_path) == ["datasets: not pinned: jquants.daily_bars"]
+    assert check_export_fingerprints.check(tmp_path) == [
+        "datasets: not pinned: jquants.daily_bars",
+        "pin was recorded for release None",
+    ]
 
 
 def test_export_fingerprint_gate_reports_a_pin_for_a_dataset_that_is_gone(tmp_path: Path) -> None:
@@ -666,7 +675,8 @@ def test_export_fingerprint_gate_reports_a_pin_for_a_dataset_that_is_gone(tmp_pa
     pinned["datasets"]["jquants.retired"] = "sha256:" + "0" * 64
     _write_export_pin(tmp_path, pinned)
     assert check_export_fingerprints.check(tmp_path) == [
-        "datasets: pinned but gone: jquants.retired"
+        "datasets: pinned but gone: jquants.retired",
+        "pin was recorded for release None",
     ]
 
 
@@ -711,6 +721,40 @@ def test_export_fingerprint_gate_names_every_file_the_fingerprint_hashes() -> No
                 }
     assert hashed, "writer.py no longer spells its hashed files as literal keys"
     assert hashed == set(check_export_fingerprints._IMPLEMENTATION_FILES)
+
+
+def test_export_fingerprint_gate_reports_the_release_the_pin_was_recorded_for() -> None:
+    """A refusal says which release the pin claims, so a skipped publish is legible."""
+
+    pinned = dict(check_export_fingerprints.current())
+    pinned["recorded_for_release"] = "20260825T094715Z-cafebabe-0123456789ab"
+    pinned["datasets"] = dict(pinned["datasets"]) | {"jquants.daily_bars": "sha256:" + "0" * 64}
+    root = Path(tempfile.mkdtemp())
+    _write_export_pin(root, pinned)
+    assert check_export_fingerprints.check(root)[-1] == (
+        "pin was recorded for release 20260825T094715Z-cafebabe-0123456789ab"
+    )
+
+
+def test_export_fingerprint_record_reads_the_release_from_the_local_store(
+    tmp_path: Path,
+) -> None:
+    store = tmp_path / MARKET_DB_PATH
+    store.parent.mkdir(parents=True)
+    with closing(sqlite3.connect(store)) as connection:
+        connection.execute(
+            "CREATE TABLE lake_store_origin (singleton INTEGER PRIMARY KEY, release_id TEXT)"
+        )
+        connection.execute("INSERT INTO lake_store_origin VALUES (1, 'release-under-test')")
+        connection.commit()
+    assert check_export_fingerprints.hydrated_release(tmp_path) == "release-under-test"
+    check_export_fingerprints.record(tmp_path)
+    written = json.loads((tmp_path / "tools/quality/drift/export_fingerprints.json").read_text())
+    assert written["recorded_for_release"] == "release-under-test"
+
+
+def test_export_fingerprint_record_admits_a_tree_with_no_market_store(tmp_path: Path) -> None:
+    assert check_export_fingerprints.hydrated_release(tmp_path) is None
 
 
 def test_export_fingerprint_record_writes_a_pin_the_gate_accepts(tmp_path: Path) -> None:

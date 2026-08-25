@@ -23,15 +23,24 @@ so they catch everything that can move the published identity: the Arrow schema,
 contract version, the pyarrow release line, the compression settings. The three
 implementation digests are what a human edited, so the refusal can name the file that
 moved instead of only reporting that something did.
+
+The pin also carries the release the local store was hydrated from when it was recorded.
+Nothing here can prove a full rebuild was published — that needs the R2 pointer — but a
+pin recorded after one moves its release along with its fingerprints, and a pin recorded
+instead of one leaves the release standing still. That pair is in the diff, where the
+review reads it.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
 
+from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.source_identity import semantic_source_digest
 from baibai_engine.market.lake.datasets import LAKE_DATASETS
 
@@ -79,6 +88,30 @@ def current() -> dict[str, dict[str, str]]:
     }
 
 
+def hydrated_release(root: Path) -> str | None:
+    """The release the local market store was last hydrated from, or published to.
+
+    A successful publish advances this row after the pointer swap, so recording it beside
+    the fingerprints separates the two ways to reach a green gate. Record after publishing
+    and the release moves with the fingerprints; record instead of publishing and the diff
+    shows the fingerprints moving while the release stands still. The gate cannot decide
+    which happened — that needs the pointer, which is in R2 — so it puts the pair in the
+    diff and lets the review see it.
+    """
+
+    store = root / MARKET_DB_PATH
+    if not store.is_file():
+        return None
+    with closing(sqlite3.connect(f"file:{store}?mode=ro", uri=True)) as connection:
+        try:
+            row = connection.execute(
+                "SELECT release_id FROM lake_store_origin WHERE singleton = 1"
+            ).fetchone()
+        except sqlite3.DatabaseError:
+            return None
+    return None if row is None else str(row[0])
+
+
 def check(root: Path) -> list[str]:
     pin_path = root / _PIN_RELATIVE
     try:
@@ -106,7 +139,7 @@ def check(root: Path) -> list[str]:
         now = actual["implementation"].get(name)
         if now != was:
             errors.append(
-                f"implementation {name}: {was[:16]} -> {'gone' if now is None else now[:16]}"
+                f"implementation {name}: {str(was)[:16]} -> {'gone' if now is None else now[:16]}"
             )
 
     pinned, live = recorded["datasets"], actual["datasets"]
@@ -119,15 +152,19 @@ def check(root: Path) -> list[str]:
         errors.append(f"datasets: not pinned: {', '.join(added)}")
     if removed := sorted(pinned.keys() - live.keys()):
         errors.append(f"datasets: pinned but gone: {', '.join(removed)}")
+    if errors:
+        errors.append(f"pin was recorded for release {recorded.get('recorded_for_release')}")
     return errors
 
 
 def record(root: Path) -> Path:
     """Rewrite the pin from this working tree and return the path written."""
 
+    pinned: dict[str, object] = dict(current())
+    pinned["recorded_for_release"] = hydrated_release(root)
     pin_path = root / _PIN_RELATIVE
     pin_path.parent.mkdir(parents=True, exist_ok=True)
-    pin_path.write_text(json.dumps(current(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    pin_path.write_text(json.dumps(pinned, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return pin_path
 
 
