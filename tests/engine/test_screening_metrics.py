@@ -4409,6 +4409,11 @@ def test_the_average_volume_needs_fifteen_of_the_twenty_sessions_to_report() -> 
     assert _avg_daily_volume(_bars(15), asof) == 1_000.0
     assert _avg_daily_volume(_bars(14), asof) is None
 
+    # The other half of the rule: the twenty sessions have to exist at all. A name
+    # listed last week reports every day it has traded, so the reporting floor alone
+    # would hand it a days-of-volume figure off a handful of sessions.
+    assert _avg_daily_volume(_bars(19)[1:], asof) is None
+
 
 def test_the_share_count_anchor_admits_a_double_and_refuses_past_it() -> None:
     """The filer's own average-share count is what says whether the end-of-period count

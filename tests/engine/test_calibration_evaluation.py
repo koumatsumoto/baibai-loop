@@ -1768,9 +1768,9 @@ def test_a_stratum_needs_five_names_on_each_side_before_it_is_matched() -> None:
 
     # One stratum only: every row shares the quality value, so the median split puts
     # them all on the same side.
-    def _control(per_side: int) -> dict[str, object]:
-        high = _rows("9", per_side, 0.5)
-        low = _rows("1", per_side, 0.5)
+    def _control(high_count: int, low_count: int | None = None) -> dict[str, object]:
+        high = _rows("9", high_count, 0.5)
+        low = _rows("1", high_count if low_count is None else low_count, 0.5)
         excess = {
             **{row.ticker: 0.10 for row in high},
             **{row.ticker: 0.02 for row in low},
@@ -1787,6 +1787,14 @@ def test_a_stratum_needs_five_names_on_each_side_before_it_is_matched() -> None:
     assert skipped["matched_weight"] == 0
     assert skipped["stratified_median_excess_delta"] is None
     assert skipped["stratified_trap_rate_delta"] is None
+
+    # The floor applies to both sides, and to each of them on its own: five names
+    # matched against four is still four names carrying the comparison, whichever side
+    # is the thin one. Checking one side only would let the mirror case through.
+    for high_count, low_count in ((5, 4), (4, 5)):
+        thin = _control(high_count, low_count)
+        assert thin["strata_used"] == 0, (high_count, low_count)
+        assert thin["stratified_median_excess_delta"] is None, (high_count, low_count)
 
 
 def test_the_half_split_needs_thirty_pairs_before_it_reports_a_difference() -> None:

@@ -120,8 +120,11 @@ def test_a_percentile_needs_eight_observations_in_its_window() -> None:
     rules = load_reading_rules(DEFAULT_RULES_PATH)
 
     def ranked(count: int) -> float | None:
-        # Spread across the window: a run of consecutive days would be withheld for not
-        # spanning it, which is the neighbouring rule rather than this floor.
+        # Both calls start at the same observation and differ only in how many points
+        # sit between it and `asof`, so the count is the only thing that can change the
+        # answer. Points have to be spread rather than consecutive: a run of days would
+        # be withheld for not spanning the window, and points before the window are not
+        # counted at all — both are the neighbouring rule rather than this floor.
         points = [(date(2016 + index, 7, 10), 100.0 + index) for index in range(count - 1)]
         points.append((asof, 100.0 + count))
         snapshot = compute_reading(
