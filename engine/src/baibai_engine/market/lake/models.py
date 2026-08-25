@@ -221,7 +221,10 @@ class PartitionManifest(BaseModel):
     values: Mapping[str, PartitionValue] = Field(min_length=1)
     objects: tuple[LakeObject, ...] = Field(min_length=1)
     sources: tuple[SourceRef, ...] = ()
-    source_state_sha256: str
+    source_state_sha256: str | None = None
+    """Left unset by the L1 export, which derives every partition from the store on
+    each run and has no earlier build to compare a source state against. Calibration
+    builds still record theirs; older L1 manifests carry one and remain readable."""
 
     @field_validator("values")
     @classmethod
@@ -242,8 +245,8 @@ class PartitionManifest(BaseModel):
 
     @field_validator("source_state_sha256")
     @classmethod
-    def validate_source_state_sha256(cls, value: str) -> str:
-        return validate_sha256(value)
+    def validate_source_state_sha256(cls, value: str | None) -> str | None:
+        return None if value is None else validate_sha256(value)
 
 
 class ManifestTotals(BaseModel):
@@ -383,8 +386,8 @@ class CalibrationBundleManifest(BaseModel):
     identity of the code that produced its datasets. Each dataset manifest keeps its
     own ``producer_git_commit``, so a bundle that matures forward outcomes on top of
     panels built earlier states both facts instead of restating one as the other.
-    Compatibility between the datasets is decided by their transform fingerprints,
-    cohort sources, and cutoffs — not by a shared commit.
+    Compatibility between the datasets is decided by their cohort sources and cutoffs —
+    not by a shared commit.
 
     There is deliberately no bundle-level compatibility field. Compatibility is a
     per-dataset question and every answer lives in the dataset manifest the bundle
@@ -530,7 +533,10 @@ class DatasetManifest(BaseModel):
     build_id: str
     sources: tuple[SourceRef, ...]
     producer_git_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
-    transform_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    transform_fingerprint: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    """Identity of the code that produced a calibration build. L1 has none: the export
+    derives every partition on every run, so nothing carries between generations and
+    there is no compatibility to decide. Older L1 manifests carry one and remain readable."""
     created_at: datetime
     coverage_start: date
     data_as_of: date

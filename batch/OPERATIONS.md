@@ -271,26 +271,14 @@ machine storeの全writerはdownload時のR2 ETagを保持し、backupは同じs
 
 `push-macro`のmergeは`merge_indicator_store.py`である。対象は事実を積み上げるtable（`observations` / `provider_runs`）だけで、主キーで`INSERT OR IGNORE`する。同じ主キーを両側が持つ場合は全payloadの一致をmerge前後に検証し、値・単位・source等が異なれば片方を正本と推測せずtransaction全体を停止する。source / target はschema version・列構成に加えて`schema.sql`由来の全persistent triggerとregistry state contractをcanonical定義へ完全一致させる。targetが保持する全series metadataは両端が有限なplausible rangeを持つことを前提とし、source / target observationをtransaction先頭でtargetのunitとrangeに照合する。いずれかの契約違反があればtargetを変更せず停止する。`series` / `aliases`はsourceから取り込まない。通常のopenは登録外seriesのfacts・metadata・aliasesを保持し、明示的な`macro refresh`だけが現行registryに無いseriesをpruneするため、古いbranchのread後もtargetに残る新系列へcloud factsをmergeできる。source の registry generation が target より新しい場合と、同世代なのに `source.series` membership がtargetから欠ける場合は、facts未取得のseriesでもmergeを拒否する。target が source より新しい世代でmetadataが無いseriesのrowだけを意図した退役としてskip件数に含める。`market.sqlite` / `runs.sqlite`は`push-macro`が触らない。
 
-### export 意味論を変えた翌日の publish
+### 手動で lake を publish する
 
-`market/lake/writer.py`・`market/lake/datasets.py`・`market/sqlite/coverage.py` の semantic な変更を
-merge すると、export の `transform_fingerprint` が動く。前世代の fingerprint で作られた base へ
-新世代の増分を積むことはできないので、**翌日の publish は base を carry せず、全 partition を
-store から導出し直す**。日次 batch はこれを自動で行い、対象 dataset を publish report の
-`rebuilt_from_source` に記録する。**運用作業は要らない。**
-
-`contract_version` と partition grain の変更も同じ扱いになる。一方、別 dataset や別 layer の
-manifest を渡した場合は配線の誤りなので、そのまま停止する。
-
-コストはその日だけ増える。通常日の増分は 12 partition（2026-08-21 実測）、全導出は 448 partition
-（2026-08-25 実測、ローカル export 249 秒）。同一 bytes の Parquet は content-addressed key と
-`If-None-Match: *` で再 upload されないので、転送は新 manifest 群と pointer CAS が中心のままである。
-
-手動で全導出を publish したい場合（schema cutover に合わせるなど）は次を使う。worktree が
-clean であることを要求し、本番 store で export に 7 分強かかる。
+schema cutover に合わせるなど、定時 batch を待たずにローカル store から publish する場合は次を使う。
+経路は日次と同じ 1 つ（毎回全 partition を導出、serving release から origin 束縛と履歴の床だけを
+読む）で、worktree が clean であることを要求し、本番 store で export に 7 分強かかる。
 
 ```bash
-batch/scripts/r2_transfer.sh publish-lake full-rebuild
+batch/scripts/r2_transfer.sh publish-lake
 uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores --format json
 ```
 

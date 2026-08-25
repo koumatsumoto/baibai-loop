@@ -566,7 +566,7 @@ def render_message(summary: WorkflowRunSummary) -> str:
             # a weekly balance with a publication lag sets it while the bars are current.
             # Printing it as "as-of" beside the run's own as-of reads as a stale lake.
             f"lake: {lake.release_id} min as-of {lake.data_as_of} | "
-            f"changed {lake.changed_partitions} partition(s) | "
+            f"new {lake.changed_partitions} partition(s) | "
             f"uploaded {lake.uploaded_objects} object(s), {lake.uploaded_bytes} bytes"
         )
     lines.extend(_render_delta_tickers(summary))

@@ -215,27 +215,10 @@ hydrate_market() {
 }
 
 publish_lake() {
-  # Export the store on top of the release recorded inside that same SQLite file, seal a
-  # release, and switch the pointer. Incremental publication uses that release as its
-  # base; full rebuild carries no partition from it. Both refuse when the embedded origin
-  # differs from current, so no detached identity file can authorize stale rows.
-  #
-  # `full-rebuild` drops the base and re-derives every partition, which is what the
-  # export transform fingerprint moving requires. The JSON report is stdout only; the
-  # durable identity lives in market.sqlite.
-  local mode="${1:-incremental}"
-  if [[ "${mode}" == "full-rebuild" ]]; then
-    (
-      cd "${repo_root}" || exit 1
-      UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-        uv run python -m baibai_batch.storage.publish_market_lake \
-          --sqlite "$(store_path market.sqlite)" \
-          --mirror "${lake_mirror}" \
-          --bucket "${stores_bucket}" \
-          --full-rebuild
-    )
-    return
-  fi
+  # Derive every partition from the store, seal a release, and switch the pointer. The
+  # publication refuses when the origin embedded in that same SQLite file differs from
+  # current, so no detached identity file can authorize stale rows. The JSON report is
+  # stdout only; the durable identity lives in market.sqlite.
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
@@ -778,7 +761,7 @@ upload_run_summary() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-longlist-history DIR|pull-run-summary FILE|seed-all|hydrate-market|publish-lake [full-rebuild]|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR|upload-run-summary FILE}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-longlist-history DIR|pull-run-summary FILE|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR|upload-run-summary FILE}\n' "$0" >&2
 }
 
 load_credentials
@@ -796,12 +779,8 @@ case "${1:-}" in
     hydrate_market
     ;;
   publish-lake)
-    [[ $# -le 2 ]] || { usage; exit 2; }
-    if [[ $# -eq 2 && "$2" != "full-rebuild" ]]; then
-      usage
-      exit 2
-    fi
-    publish_lake "${2:-incremental}"
+    [[ $# -eq 1 ]] || { usage; exit 2; }
+    publish_lake
     ;;
   # A pass that only writes the market store round-trips the other two for nothing,
   # and pushing them back unchanged after hours would revert whatever else wrote them

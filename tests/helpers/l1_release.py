@@ -70,7 +70,6 @@ def stored_release_source(root: Path) -> tuple[Path, L1ReleaseSourceRef]:
         values={"year": 2026, "month": 1},
         objects=(lake_object,),
         sources=(synthetic_calibration_source(captured_on=date(2026, 1, 31)),),
-        source_state_sha256="d" * 64,
     )
     dataset_manifest = DatasetManifest(
         manifest_version=1,
@@ -80,7 +79,6 @@ def stored_release_source(root: Path) -> tuple[Path, L1ReleaseSourceRef]:
         build_id="20260130T000000Z-legacy-abcdef01-0123456789ab",
         created_at=datetime(2026, 1, 30, tzinfo=UTC),
         producer_git_commit="1" * 40,
-        transform_fingerprint=f"sha256:{'e' * 64}",
         partition_by=dataset.partition_by,
         partitions=(partition,),
         totals=ManifestTotals(objects=1, bytes=len(body), rows=1),

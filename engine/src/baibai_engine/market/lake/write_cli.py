@@ -13,7 +13,7 @@ from ..sqlite.lake_origin import read_lake_store_origin
 from .duck import LakeCredentialError
 from .hydrate import LakeHydrateError, dehydrate_market_store, hydrate_market_store
 from .identity import source_repo_root, verified_git_commit
-from .models import DatasetManifest, L1ReleaseSourceRef, load_lake_model_json
+from .models import L1ReleaseSourceRef, load_lake_model_json
 from .objects import LakeObjectError, LakeObjectSource, open_lake
 from .prefetch import prefetching_hydration_cache
 from .reader import (
@@ -26,11 +26,6 @@ from .reader import (
 from .release import create_l1_release
 from .retention import LakeRetentionError, apply_gc, plan_gc
 from .writer import export_lake_legacy
-
-_AUDIT_HELP = (
-    "re-derive every carried month from SQLite as well as the months this build wrote; "
-    "the default proves this build, this proves the whole store"
-)
 
 WRITE_COMMANDS = frozenset(
     {
@@ -52,12 +47,6 @@ def main(argv: list[str]) -> int:
     )
     export_all.add_argument("--sqlite", type=Path, required=True)
     export_all.add_argument("--mirror", type=Path, required=True)
-    export_all.add_argument("--base-manifest", type=Path, action="append", default=[])
-    export_all.add_argument(
-        "--audit",
-        action="store_true",
-        help=_AUDIT_HELP,
-    )
 
     release = commands.add_parser("release", help="create an immutable L1 release")
     release_commands = release.add_subparsers(dest="release_command", required=True)
@@ -95,19 +84,11 @@ def main(argv: list[str]) -> int:
     if args.command == "dehydrate":
         return _dehydrate(args)
     if args.command == "export-all":
-        bases: dict[str, Path] = {}
-        for path in args.base_manifest:
-            manifest = load_lake_model_json(path.read_bytes(), DatasetManifest)
-            if manifest.dataset in bases:
-                raise RuntimeError(f"duplicate base manifest: {manifest.dataset}")
-            bases[manifest.dataset] = path
         export_report = export_lake_legacy(
             sqlite_path=args.sqlite,
             mirror_root=args.mirror,
             producer_git_commit=_git_commit(),
             expected_store_origin=read_lake_store_origin(args.sqlite),
-            base_manifest_paths=bases,
-            audit_full_history=args.audit,
         )
         print(
             json.dumps(

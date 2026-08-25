@@ -129,26 +129,6 @@ def test_export_manifests_are_frozen_from_the_checked_models_inside_the_mirror(
         assert paths[0].is_relative_to(tmp_path / "mirror")
 
 
-def test_the_flag_reaches_the_publication(monkeypatch: pytest.MonkeyPatch) -> None:
-    """argparse が旗を持つことと、main がそれを渡すことは別の事実である。"""
-
-    seen: dict[str, object] = {}
-
-    def _capture(**kwargs: object) -> object:
-        seen.update(kwargs)
-        raise LakePublishError("stop before touching R2")
-
-    monkeypatch.setattr(publish_module, "publish_market_lake", _capture)
-    monkeypatch.setattr(publish_module, "Boto3R2Store", lambda **_: _UnusedStore())
-
-    exit_code = publish_module.main(
-        ["--sqlite", "market.sqlite", "--mirror", "stores", "--full-rebuild"]
-    )
-
-    assert exit_code == 1
-    assert seen["full_rebuild"] is True
-
-
 def test_a_build_error_is_reported_without_prescribing_an_operation(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -168,27 +148,6 @@ def test_a_build_error_is_reported_without_prescribing_an_operation(
     assert "full rebuild" not in printed
 
 
-def test_the_runbook_states_that_a_moved_export_needs_no_operation() -> None:
-    """The daily rebuilds by itself now, and the runbook must not send anyone to a console."""
-
-    runbook = (ROOT / "batch/OPERATIONS.md").read_text(encoding="utf-8")
-    section = runbook.split("### export 意味論を変えた翌日の publish", 1)[1].split("\n### ", 1)[0]
-
-    assert "運用作業は要らない" in section
-    assert "rebuilt_from_source" in section
-
-
-def test_the_manual_rebuild_the_runbook_offers_goes_through_the_standard_wrapper() -> None:
-    """A cutover still publishes one by hand, and that command has to be the real one."""
-
-    runbook = (ROOT / "batch/OPERATIONS.md").read_text(encoding="utf-8")
-    section = runbook.split("### export 意味論を変えた翌日の publish", 1)[1].split("\n### ", 1)[0]
-    transfer = (ROOT / "batch/scripts/r2_transfer.sh").read_text(encoding="utf-8")
-
-    assert "batch/scripts/r2_transfer.sh publish-lake full-rebuild" in section
-    assert 'publish_lake "${2:-incremental}"' in transfer
-
-
 def test_publisher_cli_has_no_sidecar_origin_arguments() -> None:
     parsed = publish_module.build_parser().parse_args(
         [
@@ -198,20 +157,19 @@ def test_publisher_cli_has_no_sidecar_origin_arguments() -> None:
             "stores",
             "--bucket",
             "baibai-stores",
-            "--full-rebuild",
         ]
     )
 
-    assert parsed.full_rebuild is True
+    assert not hasattr(parsed, "full_rebuild")
     assert parsed.bucket == "baibai-stores"
     assert not hasattr(parsed, "origin_release")
 
 
-def test_a_full_rebuild_is_still_floored_on_what_the_serving_release_covers() -> None:
-    """Carrying partitions is what the flag turns off; the history floor is not.
+def test_the_publication_is_floored_on_what_the_serving_release_covers() -> None:
+    """Nothing is carried from the serving release, but its history floor still applies.
 
-    A rebuild that derived less history than the release it replaces would publish the
-    loss silently, and the automatic rebuild on a moved export made that path ordinary.
+    A publication that derived less history than the release it replaces would publish
+    the loss silently, and every publication derives the whole history.
     """
 
     source = (ROOT / "batch/src/baibai_batch/storage/publish_market_lake.py").read_text(
@@ -226,7 +184,6 @@ def test_a_full_rebuild_is_still_floored_on_what_the_serving_release_covers() ->
         if isinstance(target, ast.Name)
     }
 
-    # The serving release is resolved unconditionally; only the carry is gated.
-    assert "full_rebuild" not in assignments["serving_release"]
-    assert "full_rebuild" in assignments["fixed_base"]
-    assert "full_rebuild" not in assignments["published_coverage_start"]
+    assert "_resolve_serving_release" in assignments["serving_release"]
+    assert "serving_release" in assignments["published_coverage_start"]
+    assert "fixed_base" not in assignments

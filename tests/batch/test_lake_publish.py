@@ -340,7 +340,6 @@ def test_export_manifest_replacement_after_release_creation_never_moves_current(
             mirror_root=mirror,
             store=store,
             release_id="manifest-race",
-            full_rebuild=True,
         )
 
     assert "lake/pointers/l1/current.json" not in store.values
@@ -528,9 +527,8 @@ def test_low_level_cli_refuses_same_release_id_with_different_bytes(
     assert store.values["lake/pointers/l1/current.json"].body == before
 
 
-@pytest.mark.parametrize("full_rebuild", [False, True])
 def test_market_publish_conflicts_if_current_moves_during_export(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, full_rebuild: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     mirror, first_path = _release(tmp_path)
     store = MemoryR2Store()
@@ -558,8 +556,7 @@ def test_market_publish_conflicts_if_current_moves_during_export(
             sqlite_path=tmp_path / "market.sqlite",
             mirror_root=mirror,
             store=store,
-            release_id=f"target-{full_rebuild}",
-            full_rebuild=full_rebuild,
+            release_id="target",
         )
 
     serving = L1ReleasePointer.model_validate_json(
@@ -568,7 +565,7 @@ def test_market_publish_conflicts_if_current_moves_during_export(
     assert serving.release_id == "concurrent-successor"
 
 
-def test_first_full_rebuild_publication_needs_no_store_origin(
+def test_first_publication_needs_no_store_origin(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     mirror, _ = _release(tmp_path)
@@ -579,17 +576,16 @@ def test_first_full_rebuild_publication_needs_no_store_origin(
         sqlite_path=tmp_path / "market.sqlite",
         mirror_root=mirror,
         store=store,
-        release_id="first-full-rebuild",
-        full_rebuild=True,
+        release_id="first-publication",
     )
 
     serving = L1ReleasePointer.model_validate_json(
         store.values["lake/pointers/l1/current.json"].body
     )
-    assert report.release_id == "first-full-rebuild"
-    assert serving.release_id == "first-full-rebuild"
+    assert report.release_id == "first-publication"
+    assert serving.release_id == "first-publication"
     assert read_lake_store_origin(tmp_path / "market.sqlite") == LakeStoreOrigin(
-        release_id="first-full-rebuild",
+        release_id="first-publication",
         release_manifest_sha256=serving.manifest_sha256,
     )
 
@@ -632,7 +628,6 @@ def test_origin_is_checked_from_the_same_sealed_snapshot_that_is_exported(
             mirror_root=mirror,
             store=store,
             release_id="must-not-publish-stale-snapshot",
-            full_rebuild=True,
         )
 
     assert store.values["lake/pointers/l1/current.json"].body == before
@@ -656,7 +651,6 @@ def test_origin_update_failure_reports_that_the_pointer_already_advanced(
             mirror_root=mirror,
             store=store,
             release_id="published-before-local-failure",
-            full_rebuild=True,
         )
 
     serving = L1ReleasePointer.model_validate_json(
@@ -706,32 +700,10 @@ def test_structurally_valid_mirror_replacement_is_healed_from_remote(
     payload["created_at"] = "2026-01-08T00:00:00Z"
     path.write_text(json.dumps(payload), encoding="utf-8")
 
-    fixed = market_publish_module._resolve_base_release(store, mirror, pointer)
+    fixed = market_publish_module._resolve_serving_release(store, mirror, pointer)
 
     assert fixed.release_id == pointer.release_id
     assert path.read_bytes() == expected
-
-
-def test_validated_base_manifest_bytes_are_fixed_before_export(tmp_path: Path) -> None:
-    mirror, release_path = _release(tmp_path)
-    store = MemoryR2Store()
-    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
-    pointer = L1ReleasePointer.model_validate_json(
-        store.values["lake/pointers/l1/current.json"].body
-    )
-    fixed = market_publish_module._resolve_base_release(store, mirror, pointer)
-    shared_path = next((mirror / "lake/manifests/datasets").glob("*/*.json"))
-    shared_path.write_text("{}", encoding="utf-8")
-
-    with market_publish_module._base_manifest_snapshot(fixed) as private_paths:
-        for name, path in private_paths.items():
-            assert path != shared_path
-            assert (
-                hashlib.sha256(path.read_bytes()).hexdigest()
-                == (fixed.dataset_manifest_sha256[name])
-            )
-
-    assert all(not path.exists() for path in private_paths.values())
 
 
 @pytest.mark.parametrize("level", ["release", "dataset"])
@@ -1205,7 +1177,7 @@ def test_operation_timeout_covers_the_object_it_transfers() -> None:
     assert lake_publish_module._operation_timeout(two_gigabytes) > measured_upload_seconds
 
 
-def _two_month_release(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, Path]]:
+def _two_month_release(tmp_path: Path) -> tuple[Path, Path, Path]:
     """A store whose history spans two months, published as one release."""
 
     sqlite_path = tmp_path / "market.sqlite"
@@ -1238,23 +1210,22 @@ def _two_month_release(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, Path
         expected_store_origin=None,
         created_at=datetime(2026, 3, 1, tzinfo=UTC),
     )
-    bases = {name: item.manifest_path for name, item in build.datasets.items()}
     release_path, _ = create_l1_release(
-        dataset_manifest_paths=sorted(bases.values()),
+        dataset_manifest_paths=sorted(item.manifest_path for item in build.datasets.values()),
         mirror_root=mirror,
         release_id="two-month-1",
         created_at=datetime(2026, 3, 1, tzinfo=UTC),
     )
-    return sqlite_path, mirror, release_path, bases
+    return sqlite_path, mirror, release_path
 
 
 def test_a_one_month_correction_moves_only_that_month(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The differential claim, end to end: one changed month, one month of transfer."""
+    """Content addressing, end to end: every month is derived again, one month moves."""
 
     monkeypatch.setattr(lake_publish_module, "_utc_now", lambda: datetime(2026, 3, 2, tzinfo=UTC))
-    sqlite_path, mirror, release_path, bases = _two_month_release(tmp_path)
+    sqlite_path, mirror, release_path = _two_month_release(tmp_path)
     store = MemoryR2Store()
     first = publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
     closure_bytes = sum(
@@ -1272,7 +1243,6 @@ def test_a_one_month_correction_moves_only_that_month(
         mirror_root=mirror,
         producer_git_commit="a" * 40,
         expected_store_origin=None,
-        base_manifest_paths=bases,
         created_at=datetime(2026, 3, 2, tzinfo=UTC),
     )
     successor_path, _ = create_l1_release(
@@ -1287,7 +1257,8 @@ def test_a_one_month_correction_moves_only_that_month(
         mirror_root=mirror, release_manifest_path=successor_path, store=store
     )
 
-    assert corrected.datasets["jquants.daily_bars"].changed_partitions == ("2026-02",)
+    assert corrected.datasets["jquants.daily_bars"].partitions == 2
+    assert corrected.datasets["jquants.daily_bars"].new_objects == 1
     # One rewritten Parquet object plus the manifests that name it — not the history.
     assert second.transfers.uploaded_objects == 4
     assert second.transfers.uploaded_bytes < first.transfers.uploaded_bytes

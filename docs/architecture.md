@@ -115,8 +115,9 @@ profileは`production`ひとつで、要求の集合がひとつだからであ�
 
 version 語彙は `contract_version`（schema・PK・型・partition・意味の互換境界）、`build_id`
 （immutable build）、typed `SourceRef`内のsource側version、`producer_git_commit`（code identity）
-に限定する。同じ contract 内の logic / config / 明示したtransform source codeは
-`transform_fingerprint`で識別する。
+に限定する。L1 に transform identity は無い — 毎回全 partition を導出するので、build 間の互換を
+問う場面が無い。`transform_fingerprint` は L2 calibration だけが持ち、同じ contract 内の logic /
+config / 明示したtransform source codeを識別する。
 L2 calibrationのlineageはdataset全体のsource集合ではなくcohort inventoryの各roleへ置き、panel /
 diagnosticsのcohort cutoffとforwardのobservation cutoffをsource digestと一緒に固定する。
 fingerprintはschema/configだけでなく、そのdatasetの値を決めるsemantic implementation fileのdigestを含む。
