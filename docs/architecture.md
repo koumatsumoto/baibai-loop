@@ -1,6 +1,6 @@
 ---
 title: "Architecture"
-summary: "Baibai Loop の package、store、CLI、read-only app 契約の正本。"
+summary: "Baibai Loop の 5 層モデルと 4 役の判定基準、store authority、package / CLI が仕える工程の正本。"
 doc_type: architecture
 status: active
 ---
@@ -30,152 +30,53 @@ baibai-loop/
 └── .github/
 ```
 
-<a id="repository-map"></a>
+この文書は、システムの意味を上から順に 5 層で固定し（§1）、下の層が上の層に仕えているかを判定する基準（4 役）を置く。§2〜§5 は各層の正本、§6 は無人経路の停止条件、§7 は開発 gate である。
 
-## Package map
+<a id="layers"></a>
 
-| package | responsibility | public surface |
+## 1. 5 層モデルと 4 役
+
+既存の file 構造から出発せず、このシステムの意味を上から順に固定する。下の層は上の層に仕える場合だけ存在してよい。
+
+```mermaid
+flowchart TB
+  L0["L0 目的<br/>1 人・日本株・割安優良を長期積立<br/>AI が観測/分析/提案、人間が裁定/発注"]
+  L1["L1 ループ（工程と人間 gate）<br/>screening → shortlist ‖ research → thesis/review → proposal ‖ ledger → holding review → outcome → calibration"]
+  L2["L2 情報（3 層 + method）<br/>L1 fact（再取得可）/ L2 machine（再計算可）/ L3 judgment（唯一の正本）/ method（Git）"]
+  L3["L3 実行地形<br/>local: 全 judgment write・migration・UI ／ cloud: 日次 batch と serving（一方向）"]
+  L4["L4 機構<br/>provider・store・lake・screening・calibration・macro・research・position・web・batch・gate・docs"]
+  L0 --> L1 --> L2 --> L3 --> L4
+```
+
+**L0 目的** は [`doctrine.md`](./doctrine.md) §1 のとおり。成果は注文数でなく、永久損失を避けながら最も割安な候補を人間が納得して判断できること、その見積り精度を 3 年 / 5 年で改善できること。
+
+<a id="four-roles"></a>
+
+### 4 役の判定基準
+
+L4 の各機構（package・store・gate・workflow・doc）は、L1 のどの工程に対して次の 4 役のどれを担うかを 1 文で名指せなければならない。名指せる機構はその 1 文を module docstring に置く。
+
+| 役 | 意味 | 例 |
 | --- | --- | --- |
-| `foundation` | 共通 primitive と境界 utility | engine 内部 |
-| `market` | market fact の取得、L1 SQLite、immutable lake contract、固定 release からの store hydration | `baibai-engine lake` |
-| `macro` | indicator series（L1）、macro reading（L2）、published macro context（L3） | `baibai-engine macro` |
-| `screening` | screening run、Opportunity Lane selection、Attention Policy、Review Set、Research Gate、shortlist、calibration | `baibai-engine screening` |
-| `research` | opportunity workspace、thesis / thesis review、planning-only limit | `baibai-engine research` |
-| `position` | event replay、draft / apply、holding review、outcome | `baibai-engine position` |
-| `tasks` | task current state | `baibai-engine task` |
-| `operation` | 1 trigger の current workspace と immutable final result | `baibai-engine operation` |
-| `proposals` | trade proposal と人間の current decision | `baibai-engine proposal` |
-| `appdb` | application DB path、migration、backup、writer connection | `baibai-engine db` |
-| `read_api` | app が使う query-only view | engine 内部 |
-| `baibai_web` | Dashboard / Macro / Stocks の read-only UI | `baibai-web` |
-| `baibai_batch` | scheduled/offline job、store transfer、validation、observability | repository-internal `baibai-batch` |
+| **産む** | 工程の成果物を作る。無いと成果物が出ない。成果物を安く作るための cache key もここ | provider 取得、screening run、thesis promote、ledger apply、view export、`extractor_revision` |
+| **止める** | 停止条件 2 つ（[必須入力が無い／出力が壊れる](#failure-policy)）または T2 の誤判断をその場で止める | coverage 検査、hydrate の行数一致、pointer CAS、thesis の evaluate、apply の append head 再検証 |
+| **測る** | 柱 5 の計測経路（見積り vs 実現） | calibration panel / forward / evaluate、shortlist outcome、portfolio outcome |
+| **見せる** | 人間が読む面 | read model、UI、Discord の 1 行、`--help` |
 
-engine は web / batch / tools に依存しない。Web が engine へ触れる経路は `read_api`、batch は `batch_api` と `read_api` に限定し、その不変条件は import-linter で検査する。read-only Web の実行時契約は[Read-only app invariants](#read-only-app-invariants)、store 欠損時に reader が止まるか空を返すかは[Failure policy](#failure-policy)を正本とする。
+4 役のどれでもないもの — provenance・lineage・identity・drift 検査・語彙検査・規則の運用・「将来の安全」 — は既定で持たない（[`doctrine.md#improvement-value-hierarchy`](./doctrine.md#improvement-value-hierarchy) の T4）。持つ場合は人間の実損か T1〜T3 への検証可能な寄与を module docstring に書く。「将来使う」「安全のため」「監査できる」は 4 役ではない。
 
-## Store contract
+## 2. L1 ループと人間 gate
 
-| store | classification | contents | write owner |
-| --- | --- | --- | --- |
-| `stores/application/baibai.sqlite` | canonical application DB | task、macro context、shortlist、thesis revision、holding review、proposal、ledger event / price / meta、outcome、operation session | `baibai-engine` application service |
-| `stores/market/market.sqlite` | mixed authority（lake所有17 data tableはL1 releaseからのruntime copy、残る2 data tableはここがcanonical、`lake_store_origin`はstore-local metadata） | J-Quants / EDINET / JPX の price、calendar、financial input と、取得範囲の帳簿・資本配分・支配権イベントの typed fact | market / screening provider |
-| `stores/screening/runs.sqlite` | rebuildable L2 run store | 最新数世代を保持するprunable screening run / machine selection cache | screening service |
-| `stores/screening/calibration/` | rebuildable L2 analytical bundle | typed Parquet の calibration panel / diagnostics / forward outcome と、3 datasetを原子的に束ねるbundle manifest・pointer | screening calibration service |
-| `stores/macro/macro.sqlite` | rebuildable L1 | provider 別 macro indicator series。manual 観測は git seed から同期 | macro indicator service |
+trigger 起点の運用は 6 つで、それぞれ 1 skill が手順・gate 順・停止条件を持つ（[`AGENTS.md`](../AGENTS.md) の「運用の入口」）。人間 gate は 4 つあり、機械はその手前で止まる。
 
-application DB の default path は `stores/application/baibai.sqlite` で、`BAIBAI_DB` または各 CLI の `--db` で差し替えられる。未適用 migration があるときだけ、最初の文の前に checkpoint を自動で取り、直近 10 世代を残す（手動で取るときは `baibai-engine db backup`）。R2 側は `baibai.sqlite.bak-YYYYMMDD` で 1 日 1 世代を直近 14 世代まで残す。監査 table と transition history は持たない — 復元点は store の copy であって、行ごとの履歴ではない。
-
-Git に残す `method/` は `screening/rules`、`macro/reading`、`research/playbooks` の production methodology である。Macro panel の表示 group は `web/config/macro-panel.yaml` が所有する。application data を GitHub Issue や YAML file に複製しない。
-
-### Market lake publication contract
-
-大規模な market fact は、R2 の不変 object を Parquet で保持し、dataset manifest と L1 release
-manifest で exact input generation を固定する。DuckDB は Parquet の build・validation・analysis
-だけを担い、常駐 server や唯一の永続 DB にしない。SQLite は application state、小規模な関係
-data、固定 release から再構築できる runtime copy に限定する。Web は L1 を直接読まず、
-materialized read model だけを読む。
-
-| layer | canonical form | allowed contents |
+| 運用（skill） | 工程 | 人間 gate |
 | --- | --- | --- |
-| L1 Canonical | Parquet object + dataset / release manifest | typed source fact、source identity、publication / effective / retrieved time、revision semantics |
-| L2 Analytical | Parquet object + dataset manifest + atomic bundle pointer | 再生成可能な panel、feature、forward outcome |
-| L2 Operational / L3 | SQLite | run metadata、selection、thesis、proposal、ledger、operation 等の transaction / point lookup state |
-
-R2 key は `lake/` 以下だけを使い、segment allowlist で path traversal を拒否する。time-series
-partition は `year/month`、file は ZSTD Parquet、object name は content SHA-256 とする。dataset
-manifest は全 partition object と totals を列挙し、L1 release manifest は互換な dataset build の
-組を一つの `release_id` へ固定する。logical object identity は key・SHA-256・bytes・rows・schema
-で決まり、object-store固有のETagはpublish/CASのtransport stateにだけ置く。lineageはtyped `SourceRef`で表す。kindは**bytesを保持するかどうか**の2族に分かれ、
-それが型の違いになる。
-
-- **retained**（`l1_release`）はlake内のkeyを名乗る。resolverはkey・SHA-256・source側versionと
-  release closureを検証する。ただし到達可能性はcurrent releaseのretention policyに従い、分析成果物が
-  過去releaseを名乗っただけで恒久保持されるわけではない。
-- **identity only**（`sqlite_snapshot`）はkeyを持たない。sealed snapshotはbuild中にstoreが動かない
-  ようにするためのもので、その役目はbuildの終わりで終わる。bytesはlegacy store全体（約2GB）なので、
-  buildごとに1つ保持すればlakeはpublishした量ではなくrun回数に比例して育つ。よってschema version・
-  content digest・capture時刻だけを残し、bytesはoperationの終わりで回収する。
-  同じ`source_id`を名乗る2つのbuildは同一入力を読んでおり、rebuildへ差し出されたstore世代はこの
-  digestで照合できる。**保証しないのは、その世代がまだ入手できること**である。
-
-`SourceRef`（buildが自分の入力について述べるunion）に入るのは`sqlite_snapshot`だけである。buildが
-読むのはsealed storeであってreleaseではないからで、closure resolverの有無ではなく何を読んだかが
-決めている。`CohortSourceRef`は既存のimmutable v1 manifestを読むため`l1_release`も受け入れるが、
-calibrationの現行writerはsnapshotだけを記録する。L1は`source_coverage`などの非lake入力を保持しない
-ため、release refをcalibration inputの完全再構築保証には使わない。release manifestはobject graphの
-rootにすぎないので、resolverはdataset manifestとParquet objectまで歩いて全部digestで検証し、
-歩き切れないrefは解決しない。
-
-manifestとpointerを含むlake JSONは、duplicate key拒否とredacted validation errorを持つ
-共通parserだけを通し、wire size上限をparse前に検査する。partition valuesとrelease dataset
-inventoryはparse後に変更できない。
-releaseはprofileを宣言し、そのprofileのmanifest size/object budgetと、dataset ごとのrequired・
-accepted contract・coverage要求・rows / population floor を満たす場合だけcurrent候補になる。
-鮮度窓は持たない（[Failure policy](#failure-policy)）。完全性はdatasetの性質なので、profile単位の
-単一閾値は持たない。
-profileは`production`ひとつで、要求の集合がひとつだからである。登録の無いprofileはfail-closeする。
-
-version 語彙は `contract_version`（schema・PK・型・partition・意味の互換境界）、`build_id`
-（immutable build）、typed `SourceRef`内のsource側version、`producer_git_commit`（code identity）
-に限定する。L1 に transform identity は無い — 毎回全 partition を導出するので、build 間の互換を
-問う場面が無い。`transform_fingerprint` は L2 calibration だけが持ち、同じ contract 内の logic /
-config / 明示したtransform source codeを識別する。
-L2 calibrationのlineageはdataset全体のsource集合ではなくcohort inventoryの各roleへ置き、panel /
-diagnosticsのcohort cutoffとforwardのobservation cutoffをsource digestと一緒に固定する。
-fingerprintはschema/configだけでなく、そのdatasetの値を決めるsemantic implementation fileのdigestを含む。
-production reader は期待する contract 一つだけを受け入れ、schema change は in-place migration
-や `union_by_name` fallback ではなく、新しい contract の immutable rebuild と pointer switch で
-扱う。
-
-一つの dataset が同時に二つの canonical writer を持たない。市場 fact の canonical authority は
-R2 の L1 release にあり、`market.sqlite` はその fixed release から削除・再構築できる runtime copy
-である。lakeが持たない2 data table — 取得範囲の帳簿と、月次snapshotのoperator導出fact — だけが
-SQLiteをcanonicalとする。R2が持つstoreのcopyはその2 data tableと、store-local publication metadata
-`lake_store_origin`を運ぶ。full-file publish は行わない。
-
-読み取り側は実行開始時に current pointer を 1 度だけ解決し、以後は固定した `release_id` と
-immutable object key だけを読む。manifest digest、object digest、dataset contract の不一致は
-fail-close で、prefix listing・glob・`union_by_name` による吸収・provider fallback はいずれも
-持たない。固定 release を SQLite へ実体化するのは `lake hydrate` で、store の sealed copy へ
-lake 所有 table だけを積み直し、single rename で publish する。読み込んだ行数が release manifest の
-publish 行数と一致しなければ fail-close する — 静かに空のまま進んだ store は、screening に空の
-universe を健全な結果として publish させるためである。手順は
-[`reference/market-lake.md`](./reference/market-lake.md#fixed-release-read) を正本とする。
-
-このcustom manifest protocolは、単一writer・小規模catalog・Python中心という現在の制約に対して
-table formatより小さい。次のいずれかが現れた時点で、Apache Iceberg / R2 Data Catalog等への
-置換を再評価する: 同時writerが2以上になる、object数が10万を超える、schema branchを複数同時に
-維持する、dataset横断のsnapshot transactionが要る、remote GCを自前で持つ、row-level mutationが要る。
-どれも現状は無く、無い間は自前protocolの方が状態空間が小さい。
-
-## Stable CLI
-
-安定した利用者向け entry point は次の2本である。
-
-- `baibai-engine <domain> <command>`: query と application service 経由の write
-- `baibai-web`: local read-only UI
-
-`baibai-batch` は GitHub Actions と運用 script が production job を呼ぶための
-repository-internal entry point で、domain の利用者向け surface ではない。
-
-主要 domain は `lake / screening / macro / operation / position / proposal / research / task / db`。
-`lake inventory` は local R2 mirror の metadata だけを読み、`lake validate` は JSON manifest
-contract だけを検査して object の dereference・publish・rewrite をしない。`lake resolve` は
-current pointer を 1 度だけ解決して固定 release の identity を出し、`lake hydrate` はその release
-から market store の lake 所有 table を満たす。どちらも immutable object を書き換えない。
-`lake gc` は root closure から削除候補と plan hash を出す
-（既定は dry-run で、`--apply` は同じ plan hash を要求する）。
-schema field、option、stdout YAML は public `--help` と engine modelを正とする。screening `run /
-select / ticker-profile` の YAML view は AI 向け安定契約であり、保存先が SQLite でも field の
-意味を変えない。
-
-## Application data semantics
-
-- canonical entity の作成・更新は DB transaction 内で current source と domain invariant を検証する。
-- thesis / thesis review と holding review は immutable revision。source thesis revision への束縛を弱めない。
-- proposal は `pending / approved / deferred / rejected` の current stateだけを持つ。broker factは人間報告後だけledger draftへ変換できる。
-- ledger は append-only eventを `(occurred_at, same_instant_order)` でreplayする。既存event IDとlegacy decision referenceは保存し、新規eventを遡及挿入してcurrent snapshotを再計算できる。
-- canonical ledger mutationは draft生成と、人間確認後の `position apply-draft --confirmed` を分離する。applyはexpected append head、proposal / reservation binding、置換対象rowを同一transactionで再検証する。
-- operation sessionは5 kindの全体でactive最大1件。active rowのcurrent payloadを置換し、complete時に同じrowをimmutable final recordにする。checkpoint historyやtransition logは持たない。
+| `shortlist` | screening run → selection → Review Set → Research Gate → Shortlist publish | Shortlist → Primary Research Set の admission |
+| `research` | workspace → thesis / review → bargain assessment → trade proposal | proposal の approve / defer / reject |
+| `ledger-record` | broker fact → ledger draft → apply | `position apply-draft --confirmed` |
+| `holding-review` | 決算・material event → holding review → action | holding review の publish |
+| `macro-context` | indicator refresh → reading → context publish | —（非 gating の ambient 入力。判断層にだけ効く） |
+| `ops-maintenance` | store transfer・publish・復元・定期 maintenance | — |
 
 Opportunity Discoveryからproposalまでの状態遷移は次の責務境界を持つ。
 
@@ -192,13 +93,45 @@ Bargain Assessment → Trade Proposal   human decision input
 
 異なるEconomic Hypothesisを採用するときは別Opportunity Laneとし、同一scoreへ畳まない。Selection PolicyがLane内のnomination / ordering、Attention PolicyがLane間のallocation、Research Gateがresearch-worthiness judgment、人間がPrimary Research Setへのadmissionを所有する。この admission 境界は記述だけでなく機械的に強制する — `research prepare --shortlist-id` がcanonical Shortlistへ束縛し、researchできるのはいずれかのpublished Research Gateが`selected`としたtickerに限られる（[`screening-runtime.md`](./reference/screening-runtime.md)）。現行wireは、採用済みValue / Carry Laneの`longlist`を`value-carry-only-v1`が`review_tickers`へ写す最小構成であり、generic registry・executor・Dynamic Attention Composerは持たない。Earnings Power Laneは固定replayが`inconclusive`だったためproduction wireへ採用していない（[`historical-replay.yaml`](../reports/studies/2026-08-24-earnings-power-v1/historical-replay.yaml)）。
 
-## Read-only app invariants
+<a id="information-layers"></a>
 
-`baibai-web` は `127.0.0.1` にだけbindし、write endpoint、migration、external network clientを持たない。application DB / run store / macro storeをSQLite read-only modeで開く。UIの面は8つで、3タブ（`/` Dashboard、`/macro` Macro、`/stocks` Stocks）、タブなし詳細（`/macro/reports/:contextId` Macro report、`/stocks/shortlist` Shortlist、`/stocks/assessments/:assessmentId` Bargain assessment、`/securities/:ticker` Security detail）、ヘッダーの歯車から入る運用状態画面（`/system` System）である。proposal全state、operation active/completed、portfolio outcomeをquery-only viewで表示する。Dashboardは前営業日の機械実行との差分（候補プールの出入り、機械E[r]の変化、FVに達した保有、macro readingの注記と分布の端の遷移）を観測として1区画に出す。判定・推奨は持たず、答えられなかった区分を明示して空欄と未計測を区別する。Macroは経済分析レポートと、全登録系列を`web/config/macro-panel.yaml`の7 groupへ配した1つのマクロ経済指標一覧（`/api/macro`のチャートと`/api/macro/reading`の記述統計を`series_id`でjoinし、取得失敗・stale・履歴不足・分布の端の件数を上部の要約カードへ畳む）、Stocksは深掘りshortlistと機械screeningのCandidatesを表示する。Shortlist は `reports/published/er-level-calibration-latest.yaml` が有効な間だけ、候補 E[r] の historical quintile と独立した要求利回りhurdle以上帯について、実現 total-return の中央値・下方分位・trap率を文脈表示する。Candidatesはrun storeまたはクラウドの31日履歴から日付を選べる。`/api/meta`はscreening / macro / application DBのas-of鮮度と最新データ時刻をstore内timestampから返し（file mtimeに依存しない）、共通ヘッダーはUI build時刻と最新データ時刻だけを表示する。
+## 3. L2 情報
 
-## Cloud serving layer
+情報は 3 層 + method に分かれ、層が「失ったときにどう戻るか」を決める。
 
-クラウド閲覧と日次機械工程は、ローカルのwriter/read-only境界を変えずに次の一方向経路で構成する。
+| 層 | 正本 | 失っても | 例 |
+| --- | --- | --- | --- |
+| L1 fact | R2 の L1 release（market）、`stores/macro/macro.sqlite` | provider から再取得（購読窓の外は不可 — これが lake を持つ唯一の理由） | 日足・財務・calendar・EDINET・JPX flag・macro series |
+| L2 machine | run store・calibration store・macro reading | 再計算 | screening run・E[r]・FV anchor・machine selection・macro reading・analytical Parquet（panel / forward） |
+| L3 judgment | application DB | **失えない** | macro context・shortlist・thesis / review・assessment・proposal・ledger・holding review・outcome・task・session |
+| method | Git | — | rules・reading rules・playbooks |
+
+帰結: L3 以外は全部 cache であり、cache の identity・lineage・世代管理は「再計算すれば戻る」以上の価値を持たない。L1 fact の保持だけは購読窓の外側で失われるため、L1 release の不変性と差分転送は本質に入る。L2 machine は observed / derived / estimate を区別し、judgment と呼ばない。L3 は人間境界を write-time に検証する。fact / estimate / judgment の語彙と禁止事項は [`doctrine.md#fact-analysis-separation`](./doctrine.md#fact-analysis-separation) を正本とする。
+
+### Store authority
+
+store の所有者はこの表が唯一の正本である。
+
+| store | 層 | contents | write owner |
+| --- | --- | --- | --- |
+| `stores/application/baibai.sqlite` | L3 judgment（canonical application DB） | task、macro context、shortlist、thesis revision、holding review、proposal、ledger event / price / meta、outcome、operation session | `baibai-engine` application service |
+| R2 `lake/`（L1 release） | L1 fact（market の canonical authority） | lake 所有 dataset の immutable Parquet object・dataset manifest・release manifest・current pointer | `publish-lake`（cloud daily batch とローカル） |
+| `stores/market/market.sqlite` | L1 fact の runtime copy + 2 data table の canonical | lake所有17 data tableはL1 releaseからのruntime copy、残る2 data table（取得範囲の帳簿 `source_coverage` と operator 導出の `tse_capital_policy_snapshots`）はここがcanonical、`lake_store_origin`はstore-local metadata | market / screening provider、`lake hydrate` |
+| `stores/screening/runs.sqlite` | L2 machine（rebuildable run store） | 最新数世代を保持するprunable screening run / machine selection cache | screening service |
+| `stores/screening/calibration/` | L2 machine（rebuildable analytical bundle） | typed Parquet の calibration panel / diagnostics / forward outcome と、3 datasetを原子的に束ねるbundle manifest・pointer | screening calibration service |
+| `stores/macro/macro.sqlite` | L1 fact（rebuildable） | provider 別 macro indicator series。manual 観測は git seed から同期 | macro indicator service |
+
+一つの dataset が同時に二つの canonical writer を持たない。市場 fact の canonical authority は R2 の L1 release にあり、`market.sqlite` はその fixed release から削除・再構築できる runtime copy である。lake の publication contract（manifest・pointer・version 語彙・fail-close の条件）は [`reference/market-lake.md`](./reference/market-lake.md#market-lake-publication-contract) を正本とする。
+
+application DB の default path は `stores/application/baibai.sqlite` で、`BAIBAI_DB` または各 CLI の `--db` で差し替えられる。未適用 migration があるときだけ、最初の文の前に checkpoint を自動で取り、直近 10 世代を残す（手動で取るときは `baibai-engine db backup`）。R2 側は `baibai.sqlite.bak-YYYYMMDD` で 1 日 1 世代を直近 14 世代まで残す。監査 table と transition history は持たない — 復元点は store の copy であって、行ごとの履歴ではない。
+
+Git に残す `method/` は `screening/rules`、`macro/reading`、`research/playbooks` の production methodology である。Macro panel の表示 group は `web/config/macro-panel.yaml` が所有する。application data を GitHub Issue や YAML file に複製しない。
+
+<a id="cloud-serving-layer"></a>
+
+## 4. L3 実行地形
+
+judgment を書くのは local だけで、cloud は machine store と serving view だけを書く。judgment は local が書き、cloud へは replica として publish する。クラウド閲覧と日次機械工程は、ローカルのwriter/read-only境界を変えずに次の一方向経路で構成する。
 
 ```text
 local baibai.sqlite ──publish──┐
@@ -211,18 +144,56 @@ R2 baibai-serving ──binding──> Cloudflare Worker ──> browser
 views + history + system        Bearer認証 + static UI
 ```
 
-- `baibai-stores` は `market.sqlite`、`runs.sqlite`、`macro.sqlite` のクラウド正本と、ローカル正本である`baibai.sqlite`のreplicaを保持する。public accessを持たない。
-- `baibai-serving` は材料化済み`views/`、`history/`、`system/`の3 prefixだけを保持する。`system/latest-run.json`が`views/`の外に居るのは、`views/`が毎回のexportで作り直されるためで、exportに到達しなかった失敗runの記録はそこに置くと消える（R2 lifecycleもprefix指定で作り、bucket全体のruleを置かない）。`history/candidate-views/`には機械runをUI用の型付きread modelへ変換した履歴を置き、R2 lifecycleで31日後に削除する。`history/longlists/`には日次の明示的なlonglist membershipを置き、着手遅延計測のため400日保持するがWorker routeでは公開しない。bucket自体はpublic accessを持たず、認証済みWorkerだけがCandidatesの日付一覧と日付指定履歴をread-onlyで返す。
-- WorkerのR2 bindingは`baibai-serving`だけに限定する。`/api/*`は固定Bearer passwordをSHA-256後に定数時間比較し、有限のrouteから`views/`、日付形式を検証した`history/candidate-views/`、および`system/latest-run.json`の3系統のkeyへ写像する。stores と旧形式の`history/candidates/`、`history/longlists/`には到達しない。API応答は`Cache-Control: no-store`で、CORSを有効化しない。
-- Workers Assetsは`web/frontend/dist`を無認証で配信する。bundleは業務データを含まず、実データは認証済みAPIだけから取得する。HTTP navigationはWorkerが認証処理前にHTTPSへredirectし、HTTPS応答はHSTSを持つ。
-- `cloud-materialize`はapplication dataの手動publishを材料化し、`cloud-daily-batch`は平日夕方のcronで機械工程を実行し（時刻の実値と根拠は[`batch/OPERATIONS.md`](../batch/OPERATIONS.md)）、`cloud-history-backfill`は指定窓のmarket履歴を補完する。3 workflowは`cloud-publish`の`queue: max`を共有し、pending writerをFIFOで保持しながらrunning/uploadを1件に限定する。
-- ローカル`pull`はmachine storeだけを置換し、canonical application DBを上書きしない。ローカル`publish`はSQLite snapshotをstoresへ置き、materializeをdispatchする。
+この経路で止まってよい条件は [Failure policy](#failure-policy) の 2 つだけである。bucket と object key の契約、workflow、credential の境界、publish / pull / 復元 / rotation の手順は [`batch/OPERATIONS.md`](../batch/OPERATIONS.md) を正本とする。
 
-具体的な初期構築、publish/pull、手動再実行、password rotationは[`batch/OPERATIONS.md`](../batch/OPERATIONS.md)を正本とする。
+<a id="repository-map"></a>
+
+## 5. L4 機構表
+
+package ごとに、所有する store、public CLI、L1 のどの工程にどの役で仕えるか、何で止まるか（無人経路なら [Failure policy](#failure-policy) の条件 1 / 2、判断の write 経路なら人間 gate）を示す。役は §1 の 4 役の語だけを使う。
+
+| package | store | CLI | 仕える工程と役 | 停止条件 |
+| --- | --- | --- | --- | --- |
+| `foundation` | — | engine 内部 | 全工程の **産む** に共通 primitive（path・時刻・JSON parser・repository layout）を供給する | — |
+| `market` | R2 `lake/`、`stores/market/market.sqlite` | `baibai-engine lake` | L1 保持を **産む**（全 partition 導出の lake export・release manifest・pointer・hydrate）、**止める**（digest 一致・行数一致・pointer CAS・schema version）、**見せる**（`lake resolve`） | 2 |
+| `macro` | `stores/macro/macro.sqlite`、application DB（context） | `baibai-engine macro` | macro を **産む**（indicator refresh・reading・context publish）、**止める**（context の schema 構造・引用解決・確率の合計・head CAS）、**測る**（scorecard 条件の機械照合）、**見せる**（reading・Macro view） | 1（series）、2（context の head） |
+| `screening` | `stores/screening/runs.sqlite`、`stores/screening/calibration/`、application DB（shortlist）、`market.sqlite`（provider cache・typed fact） | `baibai-engine screening` | L1 取得と screening を **産む**（provider 取得・run・metrics・E[r] / FV・selection・Review Set・shortlist publish・capital control / TOB / buyback filing の annotation）、**止める**（`verify-cache-coverage` の必須入力・PIT 述語・record 単位の drop・rules identity・Research Gate 束縛）、**測る**（calibration panel / forward / evaluate・shortlist outcome・TOB exit value）、**見せる**（`select` YAML・Candidates view・shortlist の dated catalyst context） | 1、2 |
+| `research` | application DB | `baibai-engine research` | research を **産む**（workspace・thesis / review・promote・planning-only limit・bargain assessment）、**止める**（evaluate・review hash 束縛・buy の human override 必須・`max_acceptable_price`）、**見せる**（assessment view） | 人間 gate（T2） |
+| `position` | application DB | `baibai-engine position` | ledger と保有を **産む**（draft / apply・holding review・outcome）、**止める**（append head CAS・保有超過拒否・人間確認必須）、**測る**（outcome vs TOPIX）、**見せる**（Dashboard） | 人間 gate（T1） |
+| `proposals` | application DB | `baibai-engine proposal` | trade proposal と人間の decision を **産む**、**止める**（approve / defer / reject の人間 gate）、**見せる**（proposal view） | 人間 gate（T1） |
+| `operation` | application DB | `baibai-engine operation` | trigger ごとの session と checkpoint・human_confirmation を **産む**、**止める**（active 最大 1 件・complete 要件）、**見せる**（Dashboard の「いま何が途中か」） | — |
+| `tasks` | application DB | `baibai-engine task` | 日付つき運用 task を **産む**、**見せる**（`task list`・Dashboard） | — |
+| `appdb` | application DB | `baibai-engine db` | application DB の path・migration・checkpoint・writer connection を **産む**、**止める**（schema version） | 2 |
+| `read_api` | —（read-only） | engine 内部 | 全工程を **見せる**（query-only view）、materialize の前提を **止める** | 2 |
+| `baibai_web` | —（read-only） | `baibai-web` | 判断面を **見せる**（read model・UI・materialize・Worker）、**止める**（read-only・Bearer） | 2 |
+| `baibai_batch` | R2 `baibai-stores` / `baibai-serving`（transfer） | repository-internal `baibai-batch` | 日次機械工程を **産む**（fetch → screen → select → export → publish・materialize・store transfer）、**止める**（exit code・2 条件）、**見せる**（Discord・watchdog） | 1、2 |
+| `tools` | — | — | 開発 gate で **止める**（`quality/drift`）、study で **測る**（`experiments`）、deploy provision と brand asset を **産む**（`diagnostics`・`generators`） | — |
+
+engine は web / batch / tools に依存しない。Web が engine へ触れる経路は `read_api`、batch は `batch_api` と `read_api` に限定し、その不変条件は import-linter で検査する。read-only Web の実行時契約は `web/backend/src/baibai_web/__init__.py` の module docstring、store 欠損時に reader が止まるか空を返すかは [Failure policy](#failure-policy) を正本とする。
+
+### CLI
+
+安定した利用者向け entry point は次の2本である。
+
+- `baibai-engine <domain> <command>`: query と application service 経由の write
+- `baibai-web`: local read-only UI
+
+`baibai-batch` は GitHub Actions と運用 script が production job を呼ぶための repository-internal entry point で、domain の利用者向け surface ではない。
+
+主要 domain は `lake / screening / macro / operation / position / proposal / research / task / db`。`lake inventory` は local R2 mirror の metadata だけを読み、`lake validate` は JSON manifest contract だけを検査して object の dereference・publish・rewrite をしない。`lake resolve` は current pointer を 1 度だけ解決して固定 release の identity を出し、`lake hydrate` はその release から market store の lake 所有 table を満たす。どちらも immutable object を書き換えない。`lake gc` は root closure から削除候補と plan hash を出す（既定は dry-run で、`--apply` は同じ plan hash を要求する）。schema field、option、stdout YAML は public `--help` と engine modelを正とする。screening `run / select / ticker-profile` の YAML view は AI 向け安定契約であり、保存先が SQLite でも field の意味を変えない。
+
+### L3 judgment の write 規則
+
+- canonical entity の作成・更新は DB transaction 内で current source と domain invariant を検証する。
+- thesis / thesis review と holding review は immutable revision。source thesis revision への束縛を弱めない。
+- proposal は `pending / approved / deferred / rejected` の current stateだけを持つ。broker factは人間報告後だけledger draftへ変換できる。
+- ledger は append-only eventを `(occurred_at, same_instant_order)` でreplayする。既存event IDとlegacy decision referenceは保存し、新規eventを遡及挿入してcurrent snapshotを再計算できる。
+- canonical ledger mutationは draft生成と、人間確認後の `position apply-draft --confirmed` を分離する。applyはexpected append head、proposal / reservation binding、置換対象rowを同一transactionで再検証する。
+- operation sessionは5 kindの全体でactive最大1件。active rowのcurrent payloadを置換し、complete時に同じrowをimmutable final recordにする。checkpoint historyやtransition logは持たない。
 
 <a id="failure-policy"></a>
 
-## Failure policy
+## 6. Failure policy
 
 無人で走る経路（日次 batch・hydrate・publish・materialize）と、publish 済みの内容を答える reader が止まってよいのは、次の 2 条件のどちらかに当たるときだけである。
 
@@ -233,17 +204,7 @@ views + history + system        Bearer認証 + static UI
 
 degrade の報告経路は batch の exit 3（Discord `[DEGRADED]` と run summary）の 1 本で、新しい語彙・field・指標・gate を足さない。exit 3 は GHA の job を赤にしないので、GHA の赤はその日の成果物が出なかったことだけを意味する。blocking guard を足す PR は 2 条件のどちらに当たるかを本文で述べ、述べられないなら足さない。guard を消す PR は、窓内の発火を 1 件ずつ原因と修正 PR へ帰属させる — 「自然解消した」は、同日に修正が merge されていないことを確かめてから言う。完走率が要るときは定時 run だけで数える（[`batch/OPERATIONS.md`](../batch/OPERATIONS.md#欠測の検知cloud-batch-watchdog)）。
 
-## Data layers
-
-| layer | examples | rule |
-| --- | --- | --- |
-| L1 fact | market price、calendar、macro series | provider由来とsource identityを保持し、SQLiteまたはimmutable Parquetの一意なauthorityへ置く |
-| L2 machine analysis | screening run、E[r]、FV anchor、machine selection、macro reading、analytical Parquet | observed / derived / estimateを区別し、judgmentと呼ばない |
-| L3 judgment / operation | macro context、shortlist、research、proposal、ledger、task、operation | application DBを正本にし、人間境界をwrite-timeに検証する |
-
-fact / estimate / judgment の語彙と禁止事項は [`doctrine.md#fact-analysis-separation`](./doctrine.md#fact-analysis-separation) を正本とする。
-
-## Development gates
+## 7. Development gates
 
 機械契約はDB constraint、pydantic model、application service validationとnegative testで守る。write 時の検証層は次の4つ:
 

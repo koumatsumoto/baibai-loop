@@ -87,6 +87,8 @@ subsystem、public CLI、schema、persistence、dependency、state、運用手�
 
 検証・防御も同じ基準で測る。現在の判断の誤りをその場で防ぐもの（T1 / T2）だけを置き、監査・再現・将来の安全のためだけのもの（T4）は足さない。無人経路が止まってよい条件は[`docs/architecture.md#failure-policy`](./docs/architecture.md#failure-policy)の2つだけである。実装後のreviewでも効果対複雑性を再判定し、釣り合わなければ一般化を削る、surfaceを縮小する、またはnon-adoptionとする。
 
+機構（package・store・gate・workflow・doc）は、[`docs/architecture.md#four-roles`](./docs/architecture.md#four-roles) の 4 役（産む・止める・測る・見せる）のどれに、L1 のどの工程で仕えるかを 1 文で名指せなければ持たない。名指せる機構はその 1 文を module docstring に置く。
+
 ## サブシステム索引
 
 サブシステム名（macro / screening / research / position など）を指定されたら、この表で src / store / CLI / 品質改善計器を引いて着手する。運用手順は上記 skill、依存構造は [`docs/architecture.md#repository-map`](./docs/architecture.md#repository-map) を正本とする。
