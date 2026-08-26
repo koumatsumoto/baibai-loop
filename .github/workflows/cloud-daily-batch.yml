@@ -112,10 +112,12 @@ jobs:
       # executable code on demand is not one that fails closed. The install happens here,
       # before credentials are present, so a missing extension is a setup failure with
       # nothing published rather than a data failure part-way through a run.
+      # failure policy: 2 — screening cannot read the published L1 release without httpfs.
       - name: Provision DuckDB httpfs extension
         id: duckdb-httpfs
         run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
 
+      # failure policy: 1 — the batch cannot compute without the canonical stores.
       - name: Pull stores
         id: pull
         env:
@@ -131,6 +133,7 @@ jobs:
       # is what makes it the store every reader already expects. It fails closed on the
       # published row counts, so a fill that silently did nothing cannot reach screening
       # as an empty universe.
+      # failure policy: 2 — incomplete hydration would make the screening output invalid.
       - name: Hydrate market store from the L1 release
         id: hydrate
         env:
@@ -139,6 +142,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: batch/scripts/r2_transfer.sh hydrate-market
 
+      # failure policy: 1 — a fatal batch has no publishable screening result.
       - name: Run daily batch
         id: batch
         shell: bash
@@ -178,6 +182,7 @@ jobs:
       # failed would leave the cloud holding a store that claims today's coverage while
       # the rows behind it exist only locally — and coverage saying "already fetched" is
       # exactly what stops the next run from repairing it.
+      # failure policy: 2 — a broken release would corrupt the next hydration input.
       - name: Publish the L1 release
         id: publish-lake
         if: steps.batch.outputs.published == 'true'
@@ -204,6 +209,7 @@ jobs:
       # run whose push fails leaves views the next run replaces. `history/` and
       # `meta.json` are published afterwards, once the store holding this run is
       # persisted, so no permanent record of an unpersisted run is ever written.
+      # failure policy: 2 — views must never describe a run absent from the remote store.
       - name: Upload machine stores and serving views
         id: upload-stores
         if: steps.batch.outputs.published == 'true'
@@ -276,6 +282,7 @@ jobs:
             exit "$views_code"
           fi
 
+      # failure policy: 2 — history must never record a run whose stores were not persisted.
       - name: Publish serving history and freshness
         id: publish-serving
         if: steps.upload-stores.outcome == 'success'

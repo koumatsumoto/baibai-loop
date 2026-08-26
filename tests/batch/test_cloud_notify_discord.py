@@ -351,13 +351,15 @@ def test_main_delivers_the_ok_message_with_the_delta(
 
 
 def test_main_reports_degraded_for_exit_3(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    notice = _notice(tmp_path / "notice.json")
+    notice = _notice(tmp_path / "notice.json", failed_stage="macro-refresh-30d")
 
     _exit_code, transport = _run_main(
         tmp_path, monkeypatch, "--batch-exit-code", "3", notice=notice
     )
 
-    assert _sent(transport).startswith("[DEGRADED] as-of 2026-08-26")
+    assert _sent(transport).startswith(
+        "[DEGRADED] as-of 2026-08-26 — failed step: macro-refresh-30d"
+    )
 
 
 def test_main_names_the_batch_stage_when_the_batch_itself_failed(

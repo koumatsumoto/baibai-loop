@@ -824,7 +824,7 @@ def test_daily_batch_writes_a_skipped_notice_on_a_non_business_day(tmp_path: Pat
     assert notice["failed_stage"] is None
 
 
-def test_daily_batch_exits_3_and_keeps_the_notice_clean_on_a_deferred_macro_failure(
+def test_daily_batch_exits_3_and_names_the_first_deferred_macro_failure(
     tmp_path: Path,
 ) -> None:
     script = _success_script()
@@ -839,10 +839,8 @@ def test_daily_batch_exits_3_and_keeps_the_notice_clean_on_a_deferred_macro_fail
         notice_output=notice_path,
     )
 
-    # The exit code carries the degraded outcome; a deferred failure is not a
-    # failed stage, because the publish stands.
     assert exit_code == 3
-    assert _load_notice(notice_path)["failed_stage"] is None
+    assert _load_notice(notice_path)["failed_stage"].startswith("macro-refresh-")
 
 
 def test_daily_batch_names_the_failed_stage_in_the_notice_on_a_fatal_failure(
@@ -997,4 +995,4 @@ def test_a_reconcile_failure_degrades_the_batch_without_losing_the_publish(
     assert "screening select" in keys
     assert "export" in keys
     assert exit_code == 3
-    assert _load_notice(notice_path)["failed_stage"] is None
+    assert _load_notice(notice_path)["failed_stage"] == "task-reconcile-earnings"

@@ -364,6 +364,8 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
         cancelled=args.cancelled == "true",
         skipped=notice.get("skipped") is True,
     )
+    if outcome == OUTCOME_DEGRADED and not failed_step:
+        failed_step = sanitize_one_line(notice.get("failed_stage") or "")
     message = render_message(
         outcome=outcome,
         asof=sanitize_one_line(notice.get("asof") or ""),

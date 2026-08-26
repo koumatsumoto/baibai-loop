@@ -461,7 +461,7 @@ uv run python -m baibai_batch.jobs.daily --output-dir <dir> --notice-output <not
 ```
 
 `--notice-output` を指定すると、batch が到達した終端 path で、Discord 通知に必要な
-`asof`・`skipped`・`failed_stage`・longlist の出入りだけを持つ JSON を atomic write する。
+`asof`・`skipped`・最初の fatal / deferred `failed_stage`・longlist の出入りだけを持つ JSON を atomic write する。
 schema version や validation round-trip は持たず、各 step の所要時間・metrics・error 本文は
 workflow log を読む。不正な `--asof` など batch 開始前の失敗では notice は無く、workflow の
 step outcome から notifier が `[FAILED]` を出す。
@@ -511,7 +511,7 @@ label は5種。
 | --- | --- |
 | `[OK]` | batch exit 0、upload まで成功 |
 | `[SKIPPED]` | 非営業日 gate で skip（export なし） |
-| `[DEGRADED]` | batch exit 3。screening は publish 済み、繰延べ step（macro / prune / task-reconcile）が失敗 |
+| `[DEGRADED]` | batch exit 3。screening は publish 済みで、見出しに最初の繰延べ失敗 step（macro / prune / task-reconcile）を表示 |
 | `[FAILED]` | batch の致命的失敗（見出しに batch 内の stage 名）、または batch 以外の step の失敗（見出しに step 名） |
 | `[CANCELLED]` | job が中断された（`timeout-minutes` 超過・手動 cancel） |
 
@@ -522,8 +522,8 @@ GitHub は `timeout-minutes` 超過を **cancel として扱う**。hang は日�
 
 失敗 step の名指しは「batch 以外の step で success / skipped 以外の outcome を最初に持つもの」。
 notify が outcome を受け取らない step（checkout / setup-uv / Playwright）の失敗は `pre-batch` と
-書く。batch 自身が失敗した run は、`daily_batch.py` が `--notice-output` に書いた JSON の
-`failed_stage` を名指す。その JSON（as-of・skip の有無・失敗 stage・longlist の出入り）は batch が
+書く。batch 自身が fatal / deferred failure に至った run は、`daily_batch.py` が `--notice-output` に
+書いた JSON の最初の `failed_stage` を名指す。その JSON（as-of・skip の有無・失敗 stage・longlist の出入り）は batch が
 終端 path ごとに 1 回書く素の dict で、schema・validation・語彙表を持たない。読めなければ見出し行と
 run URL だけになる。
 

@@ -139,12 +139,15 @@ def _require_business_day(market_db: Path, day: date) -> bool:
     """
 
     if not market_db.is_file():
+        # failure policy: 1 — the business-day decision has no required calendar store.
         raise CalendarCoverageError(f"market SQLite does not exist: {market_db}")
     try:
         result = market_calendar_business_day(market_db, day)
     except sqlite3.Error as exc:
+        # failure policy: 1 — an unreadable calendar cannot supply the required row.
         raise CalendarCoverageError(f"market calendar is unreadable in {market_db}: {exc}") from exc
     if result is None:
+        # failure policy: 1 — the calendar has no row for the target date.
         raise CalendarCoverageError(
             f"market calendar does not cover {day.isoformat()}; "
             "refresh the calendar cache before running the daily batch",
@@ -167,6 +170,7 @@ def _run_step(
     try:
         result = runner(argv, cwd)
     except FileNotFoundError as exc:
+        # failure policy: 1 — the executable required by this batch step is absent.
         raise BatchStepError(
             f"step {name}: command not found: {argv[0]}",
             stage=name,
@@ -209,8 +213,8 @@ def _delta_ticker_labels(rows: object) -> list[str]:
 
     A day that moves names into or out of the pool is worth acting on that evening,
     and a count alone does not say which names to look at. The list is capped
-    because the reader acts on the top of it; ``delta_entered`` and ``delta_exited``
-    keep carrying the full counts, so a capped list never hides its own remainder.
+    because the reader acts on the top of it. The full entry sets remain in the
+    exported daily-delta view; the notice only carries the names worth opening.
 
     Each field degrades on its own: a row missing a company name or an estimate
     still names its ticker, since a partly-known entry is still the pointer the
@@ -315,6 +319,7 @@ def _read_run_view(run_yaml: Path) -> _RunView:
     """
 
     if not run_yaml.is_file():
+        # failure policy: 2 — select cannot bind to a run without its publication ID.
         raise BatchStepError(
             "screening run did not write the --output-path YAML view",
             stage="screening-run",
@@ -322,6 +327,7 @@ def _read_run_view(run_yaml: Path) -> _RunView:
     try:
         payload = yaml.safe_load(run_yaml.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
+        # failure policy: 2 — an unreadable run view cannot safely identify select input.
         raise BatchStepError(
             f"screening run YAML view is unreadable: {exc}",
             stage="screening-run",
@@ -336,6 +342,7 @@ def _read_run_view(run_yaml: Path) -> _RunView:
             )
             candidate_count = len(candidates) if isinstance(candidates, list) else 0
             return _RunView(run_revision_id, universe_size, candidate_count)
+    # failure policy: 2 — select would otherwise point at an unknown run publication.
     raise BatchStepError(
         "screening run YAML view does not contain run_revision_id",
         stage="screening-run",
@@ -354,6 +361,7 @@ def _parse_selection_view(stdout: str) -> _SelectionView:
     try:
         payload = yaml.safe_load(stdout)
     except yaml.YAMLError as exc:
+        # failure policy: 2 — an unreadable selection result cannot identify the publish.
         raise BatchStepError(
             f"screening select output is not parseable YAML: {exc}",
             stage="screening-select",
@@ -364,6 +372,7 @@ def _parse_selection_view(stdout: str) -> _SelectionView:
             recommendations = payload.get("recommendations")
             selected_count = len(recommendations) if isinstance(recommendations, list) else 0
             return _SelectionView(selection_id, selected_count)
+    # failure policy: 2 — continuing would export a result with no selection identity.
     raise BatchStepError(
         "screening select output does not contain selection_id",
         stage="screening-select",
@@ -463,9 +472,9 @@ def _run_screening_run(runner: CommandRunner, *, root: Path, asof_arg: str) -> _
 class _Notice:
     """What the batch leaves for the Discord notifier on every terminal path.
 
-    The as-of it ran for, whether the business-day gate skipped it, the stage a
-    fatal failure stopped at, and the names that entered or left the longlist.
-    The exit code carries the outcome itself.
+    The as-of it ran for, whether the business-day gate skipped it, the first
+    fatal or deferred failure stage, and the names that entered or left the
+    longlist. The exit code carries the outcome itself.
     """
 
     asof: str = ""
@@ -561,6 +570,7 @@ def _execute_daily_batch(
         allowed_exit_codes=(0, 1),
     )
     if verify.returncode != 0 and _COVERAGE_INCOMPLETE_MARKER not in verify.stdout:
+        # failure policy: 2 — an unclassified verifier crash cannot prove safe input.
         raise BatchStepError(
             "verify-cache-coverage exited 1 without the coverage-incomplete marker; "
             "treating it as a crash (broken rules / unreadable store), not a cache gap\n"
@@ -620,6 +630,7 @@ def _execute_daily_batch(
     try:
         previous_revision = previous_run_revision_id(root / _RUNS_DB_RELPATH, target)
     except sqlite3.Error as exc:
+        # failure policy: 2 — select cannot bind its comparison to an unreadable store.
         raise BatchStepError(
             f"runs store is unreadable for previous-run resolution: {exc}",
             stage="screening-select",
@@ -644,6 +655,8 @@ def _execute_daily_batch(
         # Surface the failure detail immediately so it is not lost if a later
         # step floods the log.
         print(f"deferred failure: {exc}", file=sys.stderr, flush=True)
+        if notice.failed_stage is None:
+            notice.failed_stage = exc.stage or "batch"
         deferred_failures.append(str(exc))
 
     refresh_groups: list[tuple[int, list[str]]] = []
