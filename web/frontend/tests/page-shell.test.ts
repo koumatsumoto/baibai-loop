@@ -15,7 +15,7 @@ const pages = readdirSync(pagesDir)
 
 describe('page skeleton', () => {
   it('finds every page', () => {
-    expect(pages.length).toBeGreaterThanOrEqual(8)
+    expect(pages.length).toBeGreaterThanOrEqual(7)
   })
 
   it.each(pages)('$name renders through PageShell', ({ source }) => {

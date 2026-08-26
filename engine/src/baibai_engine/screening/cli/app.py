@@ -378,14 +378,12 @@ def build_parser() -> argparse.ArgumentParser:
     shortlist_commands = shortlist_parser.add_subparsers(dest="shortlist_command", required=True)
     shortlist_preflight = shortlist_commands.add_parser(
         "preflight",
-        help="choose cloud-result reuse or one current-code rerun before consuming retention",
+        help=(
+            "choose reuse of the pulled run store's publication or one current-code "
+            "rerun before consuming retention"
+        ),
     )
     shortlist_preflight.add_argument("--asof", required=True, help="target date (YYYY-MM-DD)")
-    shortlist_preflight.add_argument(
-        "--cloud-summary",
-        required=True,
-        help="latest workflow run summary downloaded with r2_transfer.sh pull-run-summary",
-    )
     shortlist_preflight.add_argument("--db", help="application DB path")
     shortlist_preflight.add_argument("--runs-db", help="screening run store path")
     shortlist_preflight.add_argument(
@@ -647,7 +645,6 @@ def main(argv: list[str] | None = None) -> int:
         try:
             report = shortlist_preflight(
                 as_of=_parse_iso_date(args.asof),
-                cloud_summary_path=Path(args.cloud_summary),
                 runs_db_path=Path(args.runs_db) if args.runs_db else RUNS_DB_PATH,
                 app_db_path=Path(args.db) if args.db else APPLICATION_DB_PATH,
                 repo_root=Path(args.repo_root),

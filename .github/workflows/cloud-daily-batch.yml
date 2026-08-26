@@ -41,18 +41,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Dependency-free notification scripts must import on the runner's system
-      # python3 (before setup-python), so the final notification step can run
-      # them without uv. The import (not just py_compile) is what guarantees the
-      # stdlib-only / no-3.13-syntax contract. Also captures the run start time.
-      - name: Smoke-check notification scripts
+      # The notification script must import on the runner's system python3
+      # (before setup-python), so the final notification step can run it without
+      # uv. The import is what guarantees the stdlib-only / no-3.13-syntax contract.
+      - name: Smoke-check notification script
         id: smoke
         env:
           PYTHONPATH: batch/src
-        run: |
-          python3 -m py_compile batch/src/baibai_batch/observability/summary.py batch/src/baibai_batch/observability/discord.py
-          python3 -c "import baibai_batch.observability.summary; import baibai_batch.observability.discord"
-          echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" >> "$GITHUB_OUTPUT"
+        run: python3 -c "import baibai_batch.observability.discord"
 
       # Validate the untrusted dispatch value before any credential-bearing step.
       # The scheduled event supplies an empty value, which is valid.
@@ -158,7 +154,7 @@ jobs:
           JPX_DELISTING_WARNING_URL: https://www.jpx.co.jp/listing/stocks/delisted/
           MANUAL_ASOF: ${{ steps.validate-input.outputs.asof }}
         run: |
-          args=(--output-dir "$RUNNER_TEMP/serving" --summary-output "$RUNNER_TEMP/batch-summary.json")
+          args=(--output-dir "$RUNNER_TEMP/serving" --notice-output "$RUNNER_TEMP/batch-notice.json")
           if [[ -n "$MANUAL_ASOF" ]]; then
             args+=(--asof "$MANUAL_ASOF")
           fi
@@ -171,10 +167,8 @@ jobs:
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [[ -f "$RUNNER_TEMP/serving/views/meta.json" ]]; then
             echo "published=true" >> "$GITHUB_OUTPUT"
-            echo "local_export=true" >> "$GITHUB_OUTPUT"
           else
             echo "published=false" >> "$GITHUB_OUTPUT"
-            echo "local_export=false" >> "$GITHUB_OUTPUT"
           fi
           if [[ $code -ne 0 && $code -ne 3 ]]; then
             exit "$code"
@@ -305,48 +299,26 @@ jobs:
       # batch is exactly the silent failure this notification exists to catch —
       # `!cancelled()` would skip it. A manual cancel costs one extra
       # `[CANCELLED]` message, which is far cheaper than losing every timeout.
-      # The webhook secret is scoped to this step only; a delivery failure fails
-      # the run so a successful data run with a broken notification is visible.
+      # The webhook secret is scoped to this step only. A delivery failure never
+      # fails the run: a red job means the day's artefacts were not published
+      # (docs/architecture.md, Failure policy), and a broken webhook is not that.
       - name: "Notify Discord #batch-runs"
         id: notify
         if: ${{ always() }}
+        continue-on-error: true
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          MANUAL_ASOF: ${{ steps.validate-input.outputs.asof }}
           PYTHONPATH: batch/src
         run: |
-          # $MANUAL_ASOF carries the dispatch input safely as a variable;
-          # never interpolate inputs.* into this run block (script injection).
           python3 -m baibai_batch.observability.discord \
-            --summary-path "$RUNNER_TEMP/batch-summary.json" \
+            --notice-path "$RUNNER_TEMP/batch-notice.json" \
             --batch-exit-code "${{ steps.batch.outputs.exit_code }}" \
-            --local-export "${{ steps.batch.outputs.local_export }}" \
             --smoke-outcome "${{ steps.smoke.outcome }}" \
             --setup-outcome "${{ steps.setup.outcome }}" \
             --sync-outcome "${{ steps.sync.outcome }}" \
             --pull-outcome "${{ steps.pull.outcome }}" \
             --hydrate-outcome "${{ steps.hydrate.outcome }}" \
             --publish-lake-outcome "${{ steps.publish-lake.outcome }}" \
-            --lake-publish-report-path "$RUNNER_TEMP/lake-publish-report.json" \
-            --upload-machine-outcome "${{ steps.upload-stores.outputs.machine }}" \
-            --upload-serving-outcome "${{ steps.upload-stores.outputs.views }}" \
-            --upload-step-outcome "${{ steps.upload-stores.outcome }}" \
+            --upload-stores-outcome "${{ steps.upload-stores.outcome }}" \
             --publish-serving-outcome "${{ steps.publish-serving.outcome }}" \
-            --asof "$MANUAL_ASOF" \
-            --run-started-at "${{ steps.smoke.outputs.started_at }}" \
-            --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}" \
-            --output "$RUNNER_TEMP/workflow-run-summary.json"
-
-      # Publish the same summary the notification carries so the System page can
-      # show a run that failed before the export produced anything. Best-effort:
-      # this must not change the run's outcome, which the notification step and
-      # the failure policy above already decided.
-      - name: Upload run summary
-        id: upload-run-summary
-        if: ${{ always() && steps.validate-input.outcome == 'success' }}
-        continue-on-error: true
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: batch/scripts/r2_transfer.sh upload-run-summary "$RUNNER_TEMP/workflow-run-summary.json"
+            --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"

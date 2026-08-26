@@ -34,8 +34,8 @@ from baibai_batch.observability.discord import (
     Transport,
     _urllib_transport,
     deliver,
+    sanitize_one_line,
 )
-from baibai_batch.observability.summary import DELIVERY_DELIVERED, sanitize_one_line
 
 WATCHED_WORKFLOW = "cloud-daily-batch"
 MESSAGE_MAX_CHARS = 2000
@@ -341,11 +341,11 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
         repository=env.get("GITHUB_REPOSITORY", "local/local"),
         watchdog_run_url=_watchdog_run_url(env),
     )
-    delivery = deliver(
+    failure = deliver(
         env.get(WEBHOOK_ENV_VAR, ""), message, timeout=args.timeout, transport=transport
     )
-    if delivery.status != DELIVERY_DELIVERED:
-        print(f"error: watchdog alert failed: {delivery.detail}", file=sys.stderr)
+    if failure is not None:
+        print(f"error: watchdog alert failed: {failure}", file=sys.stderr)
         return 1
     print(
         f"watchdog: alert delivered; no successful run for "

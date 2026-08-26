@@ -45,7 +45,6 @@ from baibai_web.readmodel.builders import (
     build_screening,
     build_screening_history_run,
     build_security_detail,
-    build_system_view,
 )
 from baibai_web.readmodel.models import DashboardView, MetaBatch, ScreeningView
 from baibai_web.sources.db_sources import DbCandidatesSource
@@ -143,10 +142,6 @@ def export_read_models(
 
     written.append(
         _write_model(views_dir / "operations.json", build_operations_view(stores.operations))
-    )
-
-    written.append(
-        _write_model(views_dir / "system.json", build_system_view(stores.system, batch=batch))
     )
 
     as_of = datetime.now(_JST).date()

@@ -19,15 +19,14 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 | `baibai-serving` | `views/*.json` | GitHub Actions materialize |
 | `baibai-serving` | `history/candidate-views/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
 | `baibai-serving` | `history/longlists/<asof>.json` | 日次batch、R2 lifecycleで400日後に削除 |
-| `baibai-serving` | `system/latest-run.json` | 日次batch、毎runで上書き（`views/`外なのでexportの再生成で消えない） |
 
-R2 lifecycle rule は `history/candidate-views/` を31日、`history/longlists/` を400日で削除するよう**prefix指定で**追加する。後者は四半期の着手遅延計測へ1年以上の exact first-seen sourceを供給し、UI routeからは公開しない。**prefixを持たないbucket全体のruleを作らない** — `system/latest-run.json`が静かに失効し、`/system`のrunカードが恒久的に「記録なし」表示へ落ちる（消えたことに気づけない）。
+R2 lifecycle rule は `history/candidate-views/` を31日、`history/longlists/` を400日で削除するよう**prefix指定で**追加する。後者は四半期の着手遅延計測へ1年以上の exact first-seen sourceを供給し、UI routeからは公開しない。**prefixを持たないbucket全体のruleを作らない** — `views/meta.json` のような毎日書き直される object まで期限で消え、消えたことに気づけない。
 
 serving と Worker の境界:
 
 - `baibai-stores` は `market.sqlite`、`runs.sqlite`、`macro.sqlite` のクラウド正本と、ローカル正本である`baibai.sqlite`のreplicaを保持する。public accessを持たない。
-- `baibai-serving` は材料化済み`views/`、`history/`、`system/`の3 prefixだけを保持する。`system/latest-run.json`が`views/`の外に居るのは、`views/`が毎回のexportで作り直されるためで、exportに到達しなかった失敗runの記録はそこに置くと消える（R2 lifecycleもprefix指定で作り、bucket全体のruleを置かない）。`history/candidate-views/`には機械runをUI用の型付きread modelへ変換した履歴を置き、R2 lifecycleで31日後に削除する。`history/longlists/`には日次の明示的なlonglist membershipを置き、着手遅延計測のため400日保持するがWorker routeでは公開しない。bucket自体はpublic accessを持たず、認証済みWorkerだけがCandidatesの日付一覧と日付指定履歴をread-onlyで返す。
-- WorkerのR2 bindingは`baibai-serving`だけに限定する。`/api/*`は固定Bearer passwordをSHA-256後に定数時間比較し、有限のrouteから`views/`、日付形式を検証した`history/candidate-views/`、および`system/latest-run.json`の3系統のkeyへ写像する。stores と旧形式の`history/candidates/`、`history/longlists/`には到達しない。API応答は`Cache-Control: no-store`で、CORSを有効化しない。
+- `baibai-serving` は材料化済み`views/`と`history/`の2 prefixだけを保持する（R2 lifecycleはprefix指定で作り、bucket全体のruleを置かない）。`history/candidate-views/`には機械runをUI用の型付きread modelへ変換した履歴を置き、R2 lifecycleで31日後に削除する。`history/longlists/`には日次の明示的なlonglist membershipを置き、着手遅延計測のため400日保持するがWorker routeでは公開しない。bucket自体はpublic accessを持たず、認証済みWorkerだけがCandidatesの日付一覧と日付指定履歴をread-onlyで返す。
+- WorkerのR2 bindingは`baibai-serving`だけに限定する。`/api/*`は固定Bearer passwordをSHA-256後に定数時間比較し、有限のrouteから`views/`と日付形式を検証した`history/candidate-views/`の2系統のkeyへ写像する。stores と旧形式の`history/candidates/`、`history/longlists/`には到達しない。API応答は`Cache-Control: no-store`で、CORSを有効化しない。
 - Workers Assetsは`web/frontend/dist`を無認証で配信する。bundleは業務データを含まず、実データは認証済みAPIだけから取得する。HTTP navigationはWorkerが認証処理前にHTTPSへredirectし、HTTPS応答はHSTSを持つ。
 - `cloud-materialize`はapplication dataの手動publishを材料化し、`cloud-daily-batch`は平日夕方のcronで機械工程を実行し（時刻の実値と根拠は[`batch/OPERATIONS.md`](../batch/OPERATIONS.md)）、`cloud-history-backfill`は指定窓のmarket履歴を補完する。3 workflowは`cloud-publish`の`queue: max`を共有し、pending writerをFIFOで保持しながらrunning/uploadを1件に限定する。
 - ローカル`pull`はmachine storeだけを置換し、canonical application DBを上書きしない。ローカル`publish`はSQLite snapshotをstoresへ置き、materializeをdispatchする。
@@ -45,7 +44,7 @@ serving と Worker の境界:
 
 R2 S3 endpointは`https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`からscriptが組み立てる。credential、password、endpointの実値をGit、issue、logへ書かない。
 
-R2 API tokenのpermissionはtoken単位で、bucketごとにread/writeを分けられない。ローカルtokenはlonglist historyの取得のためservingをbucket scopeへ含むので、書き込み権も同時に持つ。servingの書き手を日次batch（`cloud-daily-batch`と`cloud-materialize`）だけに保つ境界は`r2_transfer.sh`側にあり、`upload-serving-views`・`publish-serving-tail`・`upload-run-summary`は`GITHUB_ACTIONS=true`以外では拒否する。`upload-serving-views`は`views/`を`--delete`付きで同期するため、部分的なローカルexportでの実行は本番viewの削除になる。
+R2 API tokenのpermissionはtoken単位で、bucketごとにread/writeを分けられない。ローカルtokenはlonglist historyの取得のためservingをbucket scopeへ含むので、書き込み権も同時に持つ。servingの書き手を日次batch（`cloud-daily-batch`と`cloud-materialize`）だけに保つ境界は`r2_transfer.sh`側にあり、`upload-serving-views`・`publish-serving-tail`は`GITHUB_ACTIONS=true`以外では拒否する。`upload-serving-views`は`views/`を`--delete`付きで同期するため、部分的なローカルexportでの実行は本番viewの削除になる。
 
 servingのpublishは2段である。`upload-serving-views`が`views/`を差し替え、`publish-serving-tail`が`history/`と`views/meta.json`を出す。`views/`はほぼ全部が`security--<ticker>.json`で、object数は掲載tickerの数だけ動く（数千件のorder）。`views/`は毎営業日書き換わる揮発物だが、日次batchでは**store pushが成功してからでないと走らない**。並行に走らせると、machine側が失敗したrunでも`views/`だけが差し替わり、remote storeに存在しないrunを表示するviewが次の成功runまで安定露出する。machine側が失敗した日のviews uploadは`skipped`として報告し、「走らなかった」と「step自身が何も言えなかった」を区別する。`history/`は追記のみで消えず、`meta.json`はfreshnessの表明なので、両方がstore永続化の成功後にしか出ない。これによりstore pushが失敗したrunは、storeに存在しないrunの永続記録を残さない。
 
@@ -345,7 +344,7 @@ gh run list --workflow cloud-daily-batch.yml --limit 10
 
 daily batchはcoverageが完全でも`bootstrap-cache`を実行する。財務サマリーの直近7日を再取得するため、同日の先行runより後にJ-Quantsへ反映された開示は後続runで取り込まれる。bootstrap後はcoverageを再検証してからscreeningへ進む。
 
-`daily_batch.py`のexit 3はfresh screening exportを持つため、workflowはstores/serving uploadまで完了させる。job は赤にしない — degrade は Discord `[DEGRADED]` と run summary が運ぶ。exit 1は新しいpublish可能runがないためuploadしない。非営業日skipはexportがないため既存servingを変更しない。
+`daily_batch.py`のexit 3はfresh screening exportを持つため、workflowはstores/serving uploadまで完了させる。job は赤にしない — degrade は Discord `[DEGRADED]` が運ぶ。exit 1は新しいpublish可能runがないためuploadしない。非営業日skipはexportがないため既存servingを変更しない。
 
 ## Actions 使用量の月次確認
 
@@ -411,7 +410,6 @@ uv run python -m baibai_web.materialize --output-dir <dir> [--batch daily|manual
 - `views/dashboard.json` / `views/screening_latest.json` / `views/operations.json`
 - `views/screening_latest.json` は、有効な `reports/published/er-level-calibration-latest.yaml` と表示対象 operative run の method identity が一致する場合だけ、E[r] historical quintile と独立した8.5%以上帯の実現分布文脈を含む。run identity 不明、欠損・不正・期限切れでは field を `null` にして既存 screening 表を維持する
 - `views/daily-delta.json`（前営業日の機械実行との差分。Dashboard の差分区画が読む）
-- `views/system.json`（4 store の as-of / 行数 / サイズと、取得が失敗したままの系列。`/system` が読む。後述の[システム状態の配信](#システム状態の配信--viewssystemjson-と-systemlatest-runjson)）
 - `views/macro--<period>-<granularity>.json`（1y|5y|10y|max × daily|weekly|monthly|yearly）
 - `views/macro-reading.json`（全登録系列の機械読み値。indicator store か reading rules が
   無ければ警告のうえ書かず、Macro タブは該当パネルだけを非表示にする）
@@ -458,15 +456,15 @@ uv run python -m baibai_batch.jobs.daily --output-dir <dir>
 # 手動再実行・過去日（営業日 gate を skip）
 uv run python -m baibai_batch.jobs.daily --asof YYYY-MM-DD --output-dir <dir>
 
-# structured summary を書き出す（workflow の Discord 通知が読む）
-uv run python -m baibai_batch.jobs.daily --output-dir <dir> --summary-output <summary.json>
+# Discord 通知が読む最小 notice を書き出す
+uv run python -m baibai_batch.jobs.daily --output-dir <dir> --notice-output <notice.json>
 ```
 
-`--summary-output` を指定すると、success / skip / deferred / fatal の全終端パスで
-`BatchExecutionSummary` JSON を atomic write する。screening / macro / serving-export / prune の
-論理結果ごとに datasets・所要時間・metrics・typed errors を確定し、不正な `--asof` も
-`invalid_asof` error を持つ fatal summary になる。stdout/stderr の既存診断はそのまま維持し、
-summary には redaction 済みの typed errors だけを渡す。
+`--notice-output` を指定すると、batch が到達した終端 path で、Discord 通知に必要な
+`asof`・`skipped`・`failed_stage`・longlist の出入りだけを持つ JSON を atomic write する。
+schema version や validation round-trip は持たず、各 step の所要時間・metrics・error 本文は
+workflow log を読む。不正な `--asof` など batch 開始前の失敗では notice は無く、workflow の
+step outcome から notifier が `[FAILED]` を出す。
 
 終了コード:
 
@@ -496,57 +494,48 @@ summary には redaction 済みの typed errors だけを渡す。
 
 ## notify_discord.py — 日次 batch 結果の Discord 通知
 
-`cloud-daily-batch` は run ごとに終端結果を Discord チャンネル `#batch-runs` へ1件通知する。
-共通 Logger ではなく workflow 単位の通知 adapter で、チャンネルは code が選ばず repository
-secret `DISCORD_WEBHOOK_URL` が指す webhook で固定する。workflow 末尾の単一 step
-（`if: always()`）が、cancel を含むあらゆる終端状態で1回だけ行う。
+`cloud-daily-batch` は run ごとに終端結果を Discord チャンネル `#batch-runs` へ1件通知する。これが
+無人経路の唯一の観測面で、時系列は Discord と GitHub Actions の run 一覧が保持する。チャンネルは
+code が選ばず repository secret `DISCORD_WEBHOOK_URL` が指す webhook で固定する。workflow 末尾の
+単一 step（`if: always()`）が、cancel を含むあらゆる終端状態で1回だけ行う。
 
-通知する結果は5種。
+message は 3 部からなる。
 
-| label | overall outcome | 意味 | publish state |
-| --- | --- | --- | --- |
-| `[OK]` | succeeded | batch exit 0、local export あり、両 upload 成功 | published |
-| `[SKIPPED]` | skipped_non_business_day | 非営業日 gate で skip（export なし） | not_generated |
-| `[DEGRADED]` | published_with_deferred_failure | batch exit 3。screening は publish 済み、繰延べ step（macro / prune）が失敗 | published |
-| `[FAILED]` | failed | 致命的失敗、batch 以外 step の失敗、summary 欠落・invalid・矛盾、upload 失敗 | upload step の status に従う |
-| `[CANCELLED]` | cancelled | job が中断された（`timeout-minutes` 超過・手動 cancel） | 中断時点の観測値 |
+1. 見出し行 — label・as-of・失敗した step 名（あれば）。`[FAILED] as-of 2026-08-26 — failed step: hydrate`
+2. `🆕 新規 longlist 入り:` / `👋 longlist 退出:` の 2 行 — それぞれ E[r] 降順・最大5件・`<ticker> <社名> E[r]±X.X%`。急落当日の候補と、pool から落ちた銘柄を通知だけで拾えるようにするための行である。**export に到達した run では常に出す** — 0 件の日は `なし`、delta view が読めない日は `計測なし（<理由>）` と書く。行が無いことは「0 件」「計測不能」「通知経路の異常」の3つを同時に意味してしまい、読み手が区別できない。非営業日の skip には pool が無いので出ない
+3. `run:` — GitHub Actions の run URL。所要時間・step ごとの結果・lake release・error の本文はこの run log にある
+
+label は5種。
+
+| label | 意味 |
+| --- | --- |
+| `[OK]` | batch exit 0、upload まで成功 |
+| `[SKIPPED]` | 非営業日 gate で skip（export なし） |
+| `[DEGRADED]` | batch exit 3。screening は publish 済み、繰延べ step（macro / prune / task-reconcile）が失敗 |
+| `[FAILED]` | batch の致命的失敗（見出しに batch 内の stage 名）、または batch 以外の step の失敗（見出しに step 名） |
+| `[CANCELLED]` | job が中断された（`timeout-minutes` 超過・手動 cancel） |
 
 GitHub は `timeout-minutes` 超過を **cancel として扱う**。hang は日次 batch が最も踏みやすい
 静かな失敗なので、notify step は `!cancelled()` ではなく `always()` で走らせ、`cancelled()` の値を
 `--cancelled` で受けて `[CANCELLED]` を出し分ける。手動 cancel で 1 件多く届く代わりに、timeout を
 取りこぼさない。
 
-判定の優先順は「batch 以外の step 失敗 → upload 失敗（`upload_failed`）→ batch summary の
-outcome」。upload 失敗は batch が成功していても `[FAILED]` を優先する。setup/sync/pull/smoke の失敗は
-batch 未到達（`not_started`）の `[FAILED]`、batch 実行後の summary 欠落・invalid は
-`unavailable` の `[FAILED]`。checkout / setup-uv / Playwright のように notify が step outcome を
-受け取らない step の失敗は、成功している `setup` を名指ししないよう stage `pre-batch` として報告する。summary が succeeded / degraded を主張しても observable な publish 状態
-（local export / 両 upload 成功）が一致しない「矛盾」は、`summary_conflict` error を付けて
-`[FAILED]` になる（静かな publish 劣化を `[OK]` として隠蔽しない）。exit 3 は publish 済みの
-`[DEGRADED]`、upload 失敗は `[FAILED]`（`upload_failed`）という契約を README と test で固定する。
+失敗 step の名指しは「batch 以外の step で success / skipped 以外の outcome を最初に持つもの」。
+notify が outcome を受け取らない step（checkout / setup-uv / Playwright）の失敗は `pre-batch` と
+書く。batch 自身が失敗した run は、`daily_batch.py` が `--notice-output` に書いた JSON の
+`failed_stage` を名指す。その JSON（as-of・skip の有無・失敗 stage・longlist の出入り）は batch が
+終端 path ごとに 1 回書く素の dict で、schema・validation・語彙表を持たない。読めなければ見出し行と
+run URL だけになる。
 
-message には workflow 名・repository・trigger・run attempt・overall outcome・as-of・総所要時間・
-batch ごとの status / datasets / metrics・publish state・GitHub Actions run URL を含む。
-`serving-export` の `delta_entered_tickers` / `delta_exited_tickers`（それぞれ E[r] 降順・
-最大5件・`<ticker> <社名> E[r]±X.X%`）は専用行 `🆕 新規 longlist 入り:` / `👋 longlist 退出:`
-として出す。急落当日の候補と、pool から落ちた銘柄を通知だけで拾えるようにするための行である。
-**この2行は batch summary が読めた run では常に出す** — 0 件の日は `なし`、`delta_measured`
-が false の日は `計測なし（<理由>）` と書く。行が無いことは「0 件」「計測不能」「通知経路の
-異常」の3つを同時に意味してしまい、読み手が区別できない。error は
-failed を degraded より先に表示し、4件以上は上位3件 + 残件数へ折りたたむ。error message は固定
-code / stage / impact と検証済み scalar だけから作り、subprocess の stderr・例外本文・provider
-response body は載せない（1行400文字以内、全体2000文字以内）。
+notifier は repository dependency と Python 3.14 固有構文を使わず、checkout 直後の system `python3`
+で import / CLI 実行できる（setup-python 前の smoke step が実 import で検査する）。message は
+stdout にも出るので、run log でそのまま読める。
 
-`daily_batch.py` が `--summary-output` に書いた `BatchExecutionSummary` を読み、GitHub metadata と
-step outcome を合成して `WorkflowRunSummary` を確定し、配送結果（delivered / failed）も記録して
-atomic write してから、同じ model を Discord へ render する。notifier は repository dependency と
-Python 3.14 固有構文を使わず、checkout 直後の system `python3` で import / CLI 実行できる
-（setup-python 前の smoke step が `py_compile` と実 import の両方で検査する）。
-
-通知の配送に失敗した run は、data 処理が成功していても job を失敗にする。`#batch-runs` に届かない
-正常 run は配送失敗を意味するので、GitHub Actions の run log（通知 step の stderr）で data 処理の
-成功と配送の失敗を区別して確認する。webhook URL・response body は log に出ない。未設定・HTTPS 以外・
-Discord 以外の host・timeout・HTTP error はすべて sanitized な理由で non-zero 終了する。
+**通知の配送失敗は job を赤にしない**（`continue-on-error: true`）。GHA の赤は「その日の成果物が
+出なかった」だけを意味する（[Failure policy](../docs/architecture.md#failure-policy)）。配送失敗は
+notify step の stderr に sanitized な理由（未設定・HTTPS 以外・Discord 以外の host・timeout・HTTP
+status）で残り、webhook URL・response body は log に出ない。`#batch-runs` が静かな日は
+`gh run list --workflow cloud-daily-batch.yml` で run 自体の有無と結論を見る。
 
 ### 欠測の検知（`cloud-batch-watchdog`）
 
@@ -586,52 +575,12 @@ CLI 引数・log には出ない）。secret の実値を Git・issue・log へ�
 
 `#batch-runs` への実配送は次で確認する。
 
-- 不正な `asof`（例: `2026-13-99`）の手動 run → `[FAILED]`（`invalid_asof`）が1件届く。
-- 有効な `asof` または次の通常 run → `[OK]` が1件届く。
-- 非営業日が先に来た場合 → reason 付き `[SKIPPED]`（no-publish）が届く。
+- 不正な `asof`（例: `2026-13-99`）の手動 run → validation step で止まり `[FAILED] … failed step: pre-batch` が1件届く。
+- 有効な `asof` または次の通常 run → `[OK]` と 🆕 / 👋 の 2 行が1件届く。
+- 非営業日が先に来た場合 → `[SKIPPED]` が届く。
 
-各 message の batch 名 / datasets / 件数 / 所要時間 / publish 状態 / run URL が正しいことを照合する。
+各 message の as-of / 失敗 step 名 / run URL が正しいことを照合する。
 
 **無通知は「配送失敗」だけを意味しない。** notify step 自体が動かない障害（checkout 失敗、
 runner 未割当、job の強制終了）は通知経路の外側にある。`#batch-runs` が静かなときは、まず
 `gh run list --workflow cloud-daily-batch.yml` で run 自体の有無と結論を見る。
-
-## システム状態の配信 — `views/system.json` と `system/latest-run.json`
-
-Baibai Loop の `/system`（ヘッダ歯車メニュー → システム状態）は、判断用 3 タブから運用状態を
-切り離して置く画面である。材料は 2 つで、更新される時点が違う。
-
-| object | 書く側 | 内容 | 失敗 run での更新 |
-| --- | --- | --- | --- |
-| `views/system.json` | `export_read_models.py` | 4 store の as-of / 行数 / サイズ、直近取得が失敗したままの系列と連続失敗数・失敗開始時刻 | されない（exportに到達しないため、最後にpublishされた時点のまま） |
-| `system/latest-run.json` | `cloud-daily-batch` の upload step | 通知と同じ `WorkflowRunSummary`（outcome / batch別結果 / error / run URL） | される |
-
-失敗した run は export を出さないので、`views/` の中だけでは batch の失敗が UI に届かない。
-`system/latest-run.json` は `views/` の外に置き、`upload-serving-views` の `--delete` 同期と
-lifecycle の対象外にして、次の成功 publish でも消えないようにする。upload は best-effort で、
-失敗しても run の outcome・通知の配送結果・publish 状態を変えない（GitHub Actions の log には残る）。
-
-`views/system.json` に載せるのは「今の読みを変えない運用状態」だけで、判断に影響する staleness
-（macro reading の stale、screening run の stale、store 読み取りエラー）は判断画面に残す。
-provider の取得健全性は両方に出るが役割が違う: `/macro` は「この読みは信用できるか」、`/system` は
-「どの provider をいつから直すべきか」を見る。
-
-run 履歴は 1 件だけ持つ。時系列は Discord `#batch-runs` と GitHub Actions の run 履歴が保持し、
-provider の「いつから失敗しているか」は indicator store の `provider_runs` から導出する。
-
-`system/latest-run.json` は最後に summary を書けた run で止まる。upload は best-effort で、
-notify が summary を書く前に落ちれば更新されない。run カードが `finished_at` と経過日数を出すのは
-このためで、止まった object を最新の run と読み違えないようにしている。
-
-shortlist preflight はこの object を read-only の一時ファイルへ取得してから run store と照合する。既存 path を上書きしないので、1 cycle ごとに新しい一時 path を使う。
-
-```bash
-batch/scripts/r2_transfer.sh pull-run-summary <new-temp-path>/latest-run.json
-uv run baibai-engine screening shortlist preflight \
-  --asof <ASOF> --cloud-summary <new-temp-path>/latest-run.json
-```
-
-`provider_runs` は cloud の日次 batch とローカル実行の両方が書く。ローカルで API key 未設定のまま
-叩けばその失敗が最新行になり、cloud が健全でも `/system` に失敗として出る。逆に cloud で落ちた系列を
-ローカルで手動 refresh すると streak が消える。実行環境を区別する列は持たないので、系列ごとの
-判断は Discord の run 結果と併せて行う。

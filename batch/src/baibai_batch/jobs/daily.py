@@ -22,7 +22,6 @@ warnings and the chain continues.
 from __future__ import annotations
 
 import argparse
-import contextlib
 import json
 import math
 import re
@@ -39,30 +38,12 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from baibai_batch.observability.summary import (
-    BATCH_STATUS_DEGRADED,
-    BATCH_STATUS_FAILED,
-    BATCH_STATUS_OK,
-    BATCH_SUMMARY_SCHEMA_VERSION,
-    ERROR_IMPACT_DEGRADED,
-    ERROR_IMPACT_FAILED,
-    OUTCOME_DEGRADED,
-    OUTCOME_FAILED,
-    OUTCOME_SKIPPED,
-    OUTCOME_SUCCEEDED,
-    BatchError,
-    BatchExecutionSummary,
-    BatchResult,
-    SummaryValidationError,
-    sanitize_one_line,
-    write_json_atomic,
-)
+from baibai_batch.observability.discord import sanitize_one_line, write_json_atomic
 from baibai_engine.batch_api import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
     LATEST_FETCH_LOOKBACK_DAYS,
     MARKET_DB_PATH,
     RUNS_DB_PATH,
-    parse_refresh_failure_count,
     repository_root_error,
 )
 from baibai_engine.read_api import market_calendar_business_day, previous_run_revision_id
@@ -101,14 +82,9 @@ _DELTA_TICKER_LABEL_MAX_CHARS = 48
 class BatchStepError(RuntimeError):
     """A batch step failed or produced output the chain cannot continue from.
 
-    The free-text message stays human-facing (stderr / GitHub Actions log). The
-    optional structured fields let the summary builder derive a redacted typed
-    error without ever feeding the message text into the notification payload.
-
-    ``stderr`` carries the step's unredacted output for a handler that has to read
-    what the step reported. It is deliberately not one of the ``scalars``, which
-    cross into the notification contract: source output can name credentials and
-    paths, and nothing about it is validated for publication.
+    ``stage`` names the step for the notification's "failed step" text. ``stderr``
+    carries the step's unredacted output for a handler that has to read what the
+    step reported; it never reaches the notification.
     """
 
     def __init__(
@@ -117,33 +93,18 @@ class BatchStepError(RuntimeError):
         *,
         stage: str | None = None,
         returncode: int | None = None,
-        error_code: str | None = None,
         stderr: str = "",
-        **scalars: object,
     ) -> None:
         super().__init__(message)
         self.stage = stage
         self.returncode = returncode
-        self.error_code = error_code
         self.stderr = stderr
-        self.scalars = scalars
 
 
 class CalendarCoverageError(RuntimeError):
     """The market calendar cannot answer the business-day question for a date."""
 
-    def __init__(
-        self,
-        message: str,
-        *,
-        error_code: str,
-        stage: str = "calendar",
-        **scalars: object,
-    ) -> None:
-        super().__init__(message)
-        self.error_code = error_code
-        self.stage = stage
-        self.scalars = scalars
+    stage = "calendar"
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,64 +139,17 @@ def _require_business_day(market_db: Path, day: date) -> bool:
     """
 
     if not market_db.is_file():
-        raise CalendarCoverageError(
-            f"market SQLite does not exist: {market_db}", error_code="calendar_store_missing"
-        )
+        raise CalendarCoverageError(f"market SQLite does not exist: {market_db}")
     try:
         result = market_calendar_business_day(market_db, day)
     except sqlite3.Error as exc:
-        raise CalendarCoverageError(
-            f"market calendar is unreadable in {market_db}: {exc}", error_code="calendar_unreadable"
-        ) from exc
+        raise CalendarCoverageError(f"market calendar is unreadable in {market_db}: {exc}") from exc
     if result is None:
         raise CalendarCoverageError(
             f"market calendar does not cover {day.isoformat()}; "
             "refresh the calendar cache before running the daily batch",
-            error_code="calendar_uncovered",
-            asof=day.isoformat(),
         )
     return result
-
-
-def _normalize_stage(name: str) -> str:
-    """Map a display step name to the allowlisted typed-error stage.
-
-    Display names carry suffixes the typed-error vocabulary does not (the
-    ``macro-refresh-14d`` window, the ``verify-cache-coverage(recheck)`` retry);
-    collapse them to their stable stage so redacted errors stay allowlisted.
-    """
-
-    base = name.split("(", 1)[0]
-    if base.startswith("macro-refresh"):
-        return "macro-refresh"
-    return base
-
-
-def _typed_error(
-    exc: BatchStepError | CalendarCoverageError, impact: str = ERROR_IMPACT_FAILED
-) -> BatchError:
-    """Derive a redacted typed error from a structured batch exception.
-
-    Only the allowlisted code / stage / return code / validated scalars cross
-    into the notification contract; the human-facing exception message never does.
-    ``impact`` is "degraded" for deferred failures (the run still publishes) and
-    "failed" for fatal ones.
-    """
-
-    if isinstance(exc, CalendarCoverageError):
-        return BatchError.build(code=exc.error_code, stage=exc.stage, impact=impact, **exc.scalars)
-    if exc.error_code is not None:
-        return BatchError.build(
-            code=exc.error_code,
-            stage=exc.stage or "batch",
-            impact=impact,
-            **exc.scalars,
-        )
-    if exc.stage is not None and exc.returncode is not None:
-        return BatchError.subprocess_failure(
-            stage=exc.stage, returncode=exc.returncode, impact=impact
-        )
-    return BatchError.build(code="batch_failed", stage=exc.stage or "batch", impact=impact)
 
 
 def _run_step(
@@ -255,8 +169,7 @@ def _run_step(
     except FileNotFoundError as exc:
         raise BatchStepError(
             f"step {name}: command not found: {argv[0]}",
-            stage=_normalize_stage(name),
-            error_code="command_not_found",
+            stage=name,
         ) from exc
     elapsed = time.monotonic() - started
     if echo_stdout and result.stdout:
@@ -274,37 +187,13 @@ def _run_step(
         raise BatchStepError(
             f"step {name} failed with exit {result.returncode}\n"
             f"stderr (last {_STDERR_SUMMARY_LINES} lines):\n{_stderr_summary(result.stderr)}",
-            stage=_normalize_stage(name),
+            stage=name,
             returncode=result.returncode,
             stderr=result.stderr,
         )
     if result.stderr:
         print(result.stderr, end="" if result.stderr.endswith("\n") else "\n", file=sys.stderr)
     return result
-
-
-def _failed_series_count(exc: BatchStepError, *, requested: int) -> int:
-    """How many series of a refresh group actually failed.
-
-    One failing source must not be counted as the whole group failing: the group
-    is a batching decision, and reporting its size as the failure count inflates
-    what the run summary and its notification show. The refresh reports its own
-    count, so read that and only fall back to the group size when the step failed
-    before reporting one — over-counting is the safe direction for a health signal.
-
-    Nothing about reading a count is worth failing a run over. This runs inside
-    the handler that keeps a macro failure from blocking the publish, and an
-    exception escaping here would leave the day's screening result unexported,
-    so any trouble reading resolves to the same conservative fallback.
-    """
-
-    try:
-        reported = parse_refresh_failure_count(exc.stderr)
-    except Exception:
-        return requested
-    if reported is None or reported > requested:
-        return requested
-    return reported
 
 
 def _finite_number(value: object) -> float | None:
@@ -357,50 +246,30 @@ def _delta_ticker_labels(rows: object) -> list[str]:
     return [label for *_, label in ranked[:_DELTA_TICKERS_NAMED]]
 
 
-def _daily_delta_metrics(path: Path) -> dict[str, object]:
-    """Read the exported delta counts so the run notification carries them.
+def _read_daily_delta(path: Path, notice: _Notice) -> None:
+    """Carry the day's longlist entries and exits into the notice.
 
     The notification is the only channel that reaches a reader without being
-    opened, so the day's change counts belong in it. Every key is reported on every
-    run because the summary schema requires it, and ``delta_measured`` separates a
-    day with no changes from a view that could not be read — zero counts alone
-    would say the same thing for both. ``delta_entered_tickers`` and
-    ``delta_exited_tickers`` name the tickers behind the two counts; each is empty
-    whenever there is nothing to name, which the schema requires to be a
-    present-but-empty list.
+    opened, so the names that moved belong in it. ``delta_measured`` separates a
+    day with no movement from a view that could not be read: an empty list alone
+    would say the same thing for both. The view is another process's output, so
+    nothing about its shape may cost the run its notification.
     """
 
-    absent: dict[str, object] = {
-        "delta_measured": False,
-        "delta_entered": 0,
-        "delta_entered_tickers": [],
-        "delta_exited": 0,
-        "delta_exited_tickers": [],
-        "delta_er_moves": 0,
-        "delta_holdings": 0,
-        "delta_macro_flags": 0,
-        "delta_macro_extremes": 0,
-        "delta_unavailable": "view_unreadable",
-    }
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return absent
+        return
     if not isinstance(payload, dict):
-        return absent
-    counts: dict[str, object] = {"delta_measured": True}
-    for name in ("entered", "exited", "er_moves", "holdings", "macro_flags", "macro_extremes"):
-        value = payload.get(name)
-        if not isinstance(value, list):
-            return absent
-        counts[f"delta_{name}"] = len(value)
-    counts["delta_entered_tickers"] = _delta_ticker_labels(payload.get("entered"))
-    counts["delta_exited_tickers"] = _delta_ticker_labels(payload.get("exited"))
-    unavailable = payload.get("unavailable")
-    counts["delta_unavailable"] = (
-        ",".join(str(item) for item in unavailable) if isinstance(unavailable, list) else ""
-    )
-    return counts
+        return
+    entered = payload.get("entered")
+    exited = payload.get("exited")
+    if not isinstance(entered, list) or not isinstance(exited, list):
+        return
+    notice.delta_measured = True
+    notice.delta_unmeasured_reason = ""
+    notice.entered = _delta_ticker_labels(entered)
+    notice.exited = _delta_ticker_labels(exited)
 
 
 def _parse_edinet_quarantine_metrics(stdout: str) -> tuple[int, int, str]:
@@ -420,7 +289,6 @@ def _parse_edinet_quarantine_metrics(stdout: str) -> tuple[int, int, str]:
     raise BatchStepError(
         "extract-edinet-metrics succeeded without quarantine counters",
         stage="extract-edinet-metrics",
-        error_code="edinet_summary_invalid",
     )
 
 
@@ -450,7 +318,6 @@ def _read_run_view(run_yaml: Path) -> _RunView:
         raise BatchStepError(
             "screening run did not write the --output-path YAML view",
             stage="screening-run",
-            error_code="run_view_invalid",
         )
     try:
         payload = yaml.safe_load(run_yaml.read_text(encoding="utf-8"))
@@ -458,7 +325,6 @@ def _read_run_view(run_yaml: Path) -> _RunView:
         raise BatchStepError(
             f"screening run YAML view is unreadable: {exc}",
             stage="screening-run",
-            error_code="run_view_invalid",
         ) from exc
     if isinstance(payload, dict):
         run_revision_id = payload.get("run_revision_id")
@@ -473,7 +339,6 @@ def _read_run_view(run_yaml: Path) -> _RunView:
     raise BatchStepError(
         "screening run YAML view does not contain run_revision_id",
         stage="screening-run",
-        error_code="run_view_invalid",
     )
 
 
@@ -492,7 +357,6 @@ def _parse_selection_view(stdout: str) -> _SelectionView:
         raise BatchStepError(
             f"screening select output is not parseable YAML: {exc}",
             stage="screening-select",
-            error_code="select_output_invalid",
         ) from exc
     if isinstance(payload, dict):
         selection_id = payload.get("selection_id")
@@ -503,7 +367,6 @@ def _parse_selection_view(stdout: str) -> _SelectionView:
     raise BatchStepError(
         "screening select output does not contain selection_id",
         stage="screening-select",
-        error_code="select_output_invalid",
     )
 
 
@@ -596,101 +459,45 @@ def _run_screening_run(runner: CommandRunner, *, root: Path, asof_arg: str) -> _
         return _read_run_view(run_yaml)
 
 
-_BATCH_DATASETS: dict[str, tuple[str, ...]] = {
-    "screening": ("screening-run", "screening-selection"),
-    "macro": ("macro-series",),
-    "serving-export": ("views", "history"),
-    "prune": ("runs-store",),
-    "task-reconcile": ("follow-up-tasks",),
-}
-
-
 @dataclass(slots=True)
-class _BatchRecorder:
-    """Accumulates logical batch results so a summary exists on every terminal path.
+class _Notice:
+    """What the batch leaves for the Discord notifier on every terminal path.
 
-    ``section`` / ``section_mono`` mark the logical batch currently running so a
-    fatal failure can be attributed to a failed batch result with its own duration
-    even when the failure aborts the section before its result is built.
+    The as-of it ran for, whether the business-day gate skipped it, the stage a
+    fatal failure stopped at, and the names that entered or left the longlist.
+    The exit code carries the outcome itself.
     """
 
     asof: str = ""
     skipped: bool = False
-    local_export: bool = False
-    section: str = "screening"
-    section_mono: float = field(default_factory=time.monotonic)
-    batches: list[BatchResult] = field(default_factory=list)
+    failed_stage: str | None = None
+    delta_measured: bool = False
+    delta_unmeasured_reason: str = "view_unreadable"
+    entered: list[str] = field(default_factory=list)
+    exited: list[str] = field(default_factory=list)
 
-    def enter_section(self, name: str) -> float:
-        self.section = name
-        self.section_mono = time.monotonic()
-        return self.section_mono
+    def to_json(self) -> dict[str, object]:
+        return {
+            "asof": self.asof,
+            "skipped": self.skipped,
+            "failed_stage": self.failed_stage,
+            "delta_measured": self.delta_measured,
+            "delta_unmeasured_reason": self.delta_unmeasured_reason,
+            "entered": list(self.entered),
+            "exited": list(self.exited),
+        }
 
 
-def _finalize_summary(
-    summary_output: Path | None,
-    *,
-    recorder: _BatchRecorder,
-    outcome: str,
-    started_at: datetime,
-    started_mono: float,
-) -> None:
-    """Validate and atomically write the batch execution summary.
-
-    The round-trip through ``from_json`` validates the composed model; a summary
-    that fails validation raises instead of writing, so a broken summary never
-    lets the run report success.
-    """
-
-    if summary_output is None:
+def _write_notice(path: Path | None, notice: _Notice) -> None:
+    # Writing the notice must not undo a completed publish or replace a real
+    # failure: the data work is already done, and the exit code is what the
+    # workflow reads. A notice that cannot be written costs only the delta lines.
+    if path is None:
         return
-    summary = BatchExecutionSummary(
-        schema_version=BATCH_SUMMARY_SCHEMA_VERSION,
-        asof=recorder.asof,
-        outcome=outcome,
-        started_at=started_at.isoformat(),
-        finished_at=datetime.now(_JST).isoformat(),
-        duration_seconds=time.monotonic() - started_mono,
-        batches=tuple(recorder.batches),
-        local_export=recorder.local_export,
-    )
-    validated = BatchExecutionSummary.from_json(summary.to_json())
-    write_json_atomic(summary_output, validated.to_json())
-
-
-def _finalize_failed_summary(
-    summary_output: Path | None,
-    *,
-    recorder: _BatchRecorder,
-    exc: BatchStepError | CalendarCoverageError,
-    started_at: datetime,
-    started_mono: float,
-) -> None:
-    if summary_output is None:
-        return
-    # A fatal batch failure must stay fatal even if the summary cannot be composed;
-    # the original exception is what the caller reports. Classifying the error is
-    # part of composing the summary — a stage the schema does not know raises there,
-    # so it has to sit inside the guard or an unregistered stage would replace the
-    # real failure with a validation error and lose the summary entirely.
-    with contextlib.suppress(SummaryValidationError):
-        recorder.batches.append(
-            BatchResult(
-                batch_name=recorder.section,
-                datasets=_BATCH_DATASETS[recorder.section],
-                status=BATCH_STATUS_FAILED,
-                duration_seconds=time.monotonic() - recorder.section_mono,
-                metrics={},
-                errors=(_typed_error(exc),),
-            )
-        )
-        _finalize_summary(
-            summary_output,
-            recorder=recorder,
-            outcome=OUTCOME_FAILED,
-            started_at=started_at,
-            started_mono=started_mono,
-        )
+    try:
+        write_json_atomic(path, notice.to_json())
+    except OSError as exc:
+        print(f"error: batch notice could not be written: {exc}", file=sys.stderr)
 
 
 def run_daily_batch(
@@ -699,45 +506,18 @@ def run_daily_batch(
     output_dir: Path,
     asof: date | None,
     runner: CommandRunner,
-    summary_output: Path | None = None,
+    notice_output: Path | None = None,
 ) -> int:
-    started_mono = time.monotonic()
-    started_at = datetime.now(_JST)
-    recorder = _BatchRecorder()
+    notice = _Notice()
     try:
         exit_code = _execute_daily_batch(
-            root=root, output_dir=output_dir, asof=asof, runner=runner, recorder=recorder
+            root=root, output_dir=output_dir, asof=asof, runner=runner, notice=notice
         )
     except (BatchStepError, CalendarCoverageError) as exc:
-        _finalize_failed_summary(
-            summary_output,
-            recorder=recorder,
-            exc=exc,
-            started_at=started_at,
-            started_mono=started_mono,
-        )
+        notice.failed_stage = exc.stage or "batch"
+        _write_notice(notice_output, notice)
         raise
-    if recorder.skipped:
-        outcome = OUTCOME_SKIPPED
-    elif exit_code == _EXIT_DEFERRED_FAILURE:
-        outcome = OUTCOME_DEGRADED
-    else:
-        outcome = OUTCOME_SUCCEEDED
-    # Writing the observability summary must not undo a completed publish: the
-    # data work is already done and the export already wrote views/. A schema
-    # drift here would otherwise exit non-zero, which skips both upload steps and
-    # discards the day's screening result. The notifier reports the missing
-    # summary as [FAILED], so the failure stays visible.
-    try:
-        _finalize_summary(
-            summary_output,
-            recorder=recorder,
-            outcome=outcome,
-            started_at=started_at,
-            started_mono=started_mono,
-        )
-    except SummaryValidationError as exc:
-        print(f"error: batch summary could not be written: {exc}", file=sys.stderr)
+    _write_notice(notice_output, notice)
     return exit_code
 
 
@@ -747,28 +527,24 @@ def _execute_daily_batch(
     output_dir: Path,
     asof: date | None,
     runner: CommandRunner,
-    recorder: _BatchRecorder,
+    notice: _Notice,
 ) -> int:
-    screening_mono = recorder.enter_section("screening")
     if asof is None:
         target = datetime.now(_JST).date()
-        recorder.asof = target.isoformat()
+        notice.asof = target.isoformat()
         if not _require_business_day(root / _MARKET_DB_RELPATH, target):
             print(f"skip: {target.isoformat()} は非営業日", flush=True)
-            recorder.skipped = True
+            notice.skipped = True
             return 0
         print(f"daily batch start: asof={target.isoformat()} (business day)", flush=True)
     else:
         target = asof
-        recorder.asof = target.isoformat()
+        notice.asof = target.isoformat()
         print(
             f"daily batch start: asof={target.isoformat()} (business-day gate skipped by --asof)",
             flush=True,
         )
     asof_arg = target.isoformat()
-    edinet_quarantined_events = 0
-    edinet_quarantined_tickers = 0
-    edinet_quarantine_sample = "none"
 
     _run_step(
         runner,
@@ -811,11 +587,7 @@ def _execute_daily_batch(
         cwd=root,
         echo_stdout_prefixes=("EDINET extraction summary: ",),
     )
-    (
-        edinet_quarantined_events,
-        edinet_quarantined_tickers,
-        edinet_quarantine_sample,
-    ) = _parse_edinet_quarantine_metrics(extract_result.stdout)
+    _parse_edinet_quarantine_metrics(extract_result.stdout)
     # The buyback authorisation state rides the same document list, but reads a
     # different form into a different table. It runs after the metric extraction so a
     # failure here never costs that extraction its work.
@@ -851,7 +623,6 @@ def _execute_daily_batch(
         raise BatchStepError(
             f"runs store is unreadable for previous-run resolution: {exc}",
             stage="screening-select",
-            error_code="runs_store_unreadable",
         ) from exc
     if previous_revision is not None:
         select_argv.extend(("--previous-run-revision-id", previous_revision))
@@ -865,39 +636,15 @@ def _execute_daily_batch(
     selection_view = _parse_selection_view(select_result.stdout)
     print(f"selection_id={selection_view.selection_id}", flush=True)
 
-    recorder.batches.append(
-        BatchResult(
-            batch_name="screening",
-            datasets=_BATCH_DATASETS["screening"],
-            status=BATCH_STATUS_OK,
-            duration_seconds=time.monotonic() - screening_mono,
-            metrics={
-                "asof": asof_arg,
-                "run_revision_id": run_view.run_revision_id,
-                "selection_id": selection_view.selection_id,
-                "universe": run_view.universe_size,
-                "candidates": run_view.candidate_count,
-                "selected": selection_view.selected_count,
-                "edinet_quarantined_events": edinet_quarantined_events,
-                "edinet_quarantined_tickers": edinet_quarantined_tickers,
-                "edinet_quarantine_sample": edinet_quarantine_sample,
-            },
-        )
-    )
-
     # Macro series refresh must not block publishing the fresh screening result:
     # failures here are deferred to the final exit code after the export step.
-    macro_mono = recorder.enter_section("macro")
     deferred_failures: list[str] = []
-    macro_errors: list[BatchError] = []
-    failed_series = 0
 
-    def _record_deferred(exc: BatchStepError, errors: list[BatchError]) -> None:
-        # Surface the failure detail immediately so it is not lost between here
-        # and the final summary if a later step floods the log.
+    def _record_deferred(exc: BatchStepError) -> None:
+        # Surface the failure detail immediately so it is not lost if a later
+        # step floods the log.
         print(f"deferred failure: {exc}", file=sys.stderr, flush=True)
         deferred_failures.append(str(exc))
-        errors.append(_typed_error(exc, impact=ERROR_IMPACT_DEGRADED))
 
     refresh_groups: list[tuple[int, list[str]]] = []
     try:
@@ -910,7 +657,7 @@ def _execute_daily_batch(
         )
         refresh_groups = _macro_refresh_groups(_parse_macro_series(macro_list.stdout))
     except BatchStepError as exc:
-        _record_deferred(exc, macro_errors)
+        _record_deferred(exc)
     for window_days, series_ids in refresh_groups:
         start = target - timedelta(days=window_days)
         try:
@@ -932,26 +679,8 @@ def _execute_daily_batch(
                 echo_stdout_prefixes=("registry-prune-pending\t", "registry-prune\t"),
             )
         except BatchStepError as exc:
-            _record_deferred(exc, macro_errors)
-            failed_series += _failed_series_count(exc, requested=len(series_ids))
+            _record_deferred(exc)
 
-    target_series = sum(len(series_ids) for _, series_ids in refresh_groups)
-    recorder.batches.append(
-        BatchResult(
-            batch_name="macro",
-            datasets=_BATCH_DATASETS["macro"],
-            status=BATCH_STATUS_DEGRADED if macro_errors else BATCH_STATUS_OK,
-            duration_seconds=time.monotonic() - macro_mono,
-            metrics={
-                "target": target_series,
-                "success": target_series - failed_series,
-                "failure": failed_series,
-            },
-            errors=tuple(macro_errors),
-        )
-    )
-
-    export_mono = recorder.enter_section("serving-export")
     _run_step(
         runner,
         name="export-read-models",
@@ -968,47 +697,19 @@ def _execute_daily_batch(
         ),
         cwd=root,
     )
-    recorder.local_export = (output_dir / "views" / "meta.json").is_file()
-    recorder.batches.append(
-        BatchResult(
-            batch_name="serving-export",
-            datasets=_BATCH_DATASETS["serving-export"],
-            status=BATCH_STATUS_OK,
-            duration_seconds=time.monotonic() - export_mono,
-            metrics={
-                "local_output": recorder.local_export,
-                **_daily_delta_metrics(output_dir / "views" / "daily-delta.json"),
-            },
-        )
-    )
+    _read_daily_delta(output_dir / "views" / "daily-delta.json", notice)
 
     # Prune old run generations last so a prune hiccup never blocks the publish.
-    prune_mono = recorder.enter_section("prune")
-    prune_errors: list[BatchError] = []
     try:
         _run_step(runner, name="screening-prune", argv=(_ENGINE, "screening", "prune"), cwd=root)
     except BatchStepError as exc:
-        _record_deferred(exc, prune_errors)
-    recorder.batches.append(
-        BatchResult(
-            batch_name="prune",
-            datasets=_BATCH_DATASETS["prune"],
-            status=BATCH_STATUS_DEGRADED if prune_errors else BATCH_STATUS_OK,
-            duration_seconds=time.monotonic() - prune_mono,
-            metrics={},
-            errors=tuple(prune_errors),
-        )
-    )
+        _record_deferred(exc)
 
     # The exchange publishes its schedule only weeks ahead, so a follow-up task
     # created a quarter out carries an estimate until the real date enters that
     # window. Comparing daily is what surfaces the day it becomes knowable. It
     # reads nothing the publish produced and writes nothing, so it runs after the
-    # publish and a failure degrades rather than blocking it. It gets its own
-    # section: folding it into prune would report prune as degraded when prune
-    # succeeded, and mark the runs store degraded when the runs store is fine.
-    reconcile_mono = recorder.enter_section("task-reconcile")
-    reconcile_errors: list[BatchError] = []
+    # publish and a failure degrades rather than blocking it.
     try:
         _run_step(
             runner,
@@ -1022,17 +723,7 @@ def _execute_daily_batch(
             echo_stdout_prefixes=("reconcile-earnings\t",),
         )
     except BatchStepError as exc:
-        _record_deferred(exc, reconcile_errors)
-    recorder.batches.append(
-        BatchResult(
-            batch_name="task-reconcile",
-            datasets=_BATCH_DATASETS["task-reconcile"],
-            status=BATCH_STATUS_DEGRADED if reconcile_errors else BATCH_STATUS_OK,
-            duration_seconds=time.monotonic() - reconcile_mono,
-            metrics={},
-            errors=tuple(reconcile_errors),
-        )
-    )
+        _record_deferred(exc)
 
     print(
         "daily batch done: "
@@ -1053,38 +744,6 @@ def _execute_daily_batch(
 
 def _root_error(root: Path) -> str | None:
     return repository_root_error(root, label="--repo-root")
-
-
-def _write_invalid_asof_summary(summary_output: Path | None, raw_asof: str) -> None:
-    """Write a fatal summary for an unparseable ``--asof`` before the batch starts."""
-
-    if summary_output is None:
-        return
-    sanitized_asof = " ".join(raw_asof.split())[:80] or "<empty>"
-    now = datetime.now(_JST)
-    error = BatchError.build(
-        code="invalid_asof", stage="input", impact=ERROR_IMPACT_FAILED, value=raw_asof
-    )
-    failed = BatchResult(
-        batch_name="screening",
-        datasets=_BATCH_DATASETS["screening"],
-        status=BATCH_STATUS_FAILED,
-        duration_seconds=0.0,
-        metrics={},
-        errors=(error,),
-    )
-    summary = BatchExecutionSummary(
-        schema_version=BATCH_SUMMARY_SCHEMA_VERSION,
-        asof=sanitized_asof,
-        outcome=OUTCOME_FAILED,
-        started_at=now.isoformat(),
-        finished_at=now.isoformat(),
-        duration_seconds=0.0,
-        batches=(failed,),
-        local_export=False,
-    )
-    validated = BatchExecutionSummary.from_json(summary.to_json())
-    write_json_atomic(summary_output, validated.to_json())
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1111,10 +770,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="serving read-model output directory passed to export_read_models",
     )
     parser.add_argument(
-        "--summary-output",
+        "--notice-output",
         type=Path,
         default=None,
-        help="write a structured BatchExecutionSummary JSON to this path on every terminal path",
+        help="write the JSON notice the Discord notifier reads to this path on every terminal path",
     )
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     return parser
@@ -1127,15 +786,12 @@ def main(argv: list[str] | None = None) -> int:
     if error is not None:
         print(f"error: {error}", file=sys.stderr)
         return 1
-    summary_output = args.summary_output.resolve() if args.summary_output is not None else None
-    # Validate --asof only after the summary output path is resolved so an invalid
-    # input still produces a fatal summary instead of an argparse abort.
+    notice_output = args.notice_output.resolve() if args.notice_output is not None else None
     asof: date | None = None
     if args.asof is not None:
         try:
             asof = date.fromisoformat(args.asof)
         except ValueError:
-            _write_invalid_asof_summary(summary_output, args.asof)
             print(f"error: asof '{args.asof}' is not a valid YYYY-MM-DD date", file=sys.stderr)
             return 1
     try:
@@ -1144,7 +800,7 @@ def main(argv: list[str] | None = None) -> int:
             output_dir=args.output_dir.resolve(),
             asof=asof,
             runner=_run_subprocess,
-            summary_output=summary_output,
+            notice_output=notice_output,
         )
     except (BatchStepError, CalendarCoverageError) as exc:
         print(f"error: {exc}", file=sys.stderr)

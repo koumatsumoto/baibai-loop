@@ -12,4 +12,4 @@ def test_job_help_is_delegated_to_the_selected_batch_command(capsys) -> None:
     assert error.value.code == 0
     output = capsys.readouterr().out
     assert "--asof" in output
-    assert "--summary-output" in output
+    assert "--notice-output" in output

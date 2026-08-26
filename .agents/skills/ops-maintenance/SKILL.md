@@ -11,7 +11,7 @@ description: daily batch、store 同期、配信、障害復旧、定期 mainten
 
 | trigger | action |
 | --- | --- |
-| daily batch の失敗・欠測 | 通知と run summary から失敗した step を特定し、同じ CLI をローカルで再現する。原因を直して local gate を通す。再実行は、必要かつ成功する見込みがある場合の最終確認だけに使う |
+| daily batch の失敗・欠測 | Discord 通知と GitHub Actions の run log から失敗した step を特定し、同じ CLI をローカルで再現する。原因を直して local gate を通す。再実行は、必要かつ成功する見込みがある場合の最終確認だけに使う |
 | research FV への価格到達 | `baibai_engine.research_watch` を実行し、triggered lane を `research` skill へ渡す。価格だけで注文しない |
 | 注文の約定・失効 | `tools.experiments.measure_limit_outcomes` で全体を再計測する。少数結果で policy を変えない |
 | store 読み取り・同期 | 下の authority と no-loss 規律に従う |

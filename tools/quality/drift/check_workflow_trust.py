@@ -60,7 +60,6 @@ _EXPECTED_STEP_CREDENTIALS: dict[tuple[str, str, str], dict[str, str]] = {
     ("cloud-daily-batch.yml", "daily", "Notify Discord #batch-runs"): {
         "DISCORD_WEBHOOK_URL": "${{ secrets.DISCORD_WEBHOOK_URL }}"
     },
-    ("cloud-daily-batch.yml", "daily", "Upload run summary"): _R2,
     (
         "cloud-batch-watchdog.yml",
         "watchdog",
@@ -119,9 +118,6 @@ _EXPECTED_RUN_NAMES: dict[str, str] = {
 }
 _EXPECTED_VALIDATED_OUTPUT_ENV: dict[tuple[str, str, str], dict[str, str]] = {
     ("cloud-daily-batch.yml", "daily", "Run daily batch"): {
-        "MANUAL_ASOF": "${{ steps.validate-input.outputs.asof }}"
-    },
-    ("cloud-daily-batch.yml", "daily", "Notify Discord #batch-runs"): {
         "MANUAL_ASOF": "${{ steps.validate-input.outputs.asof }}"
     },
     (
@@ -192,7 +188,7 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
         "27111a652d3d81932589921f36b4567618c70b61e6fb47f42360bd50b6036197"
     ),
     ("cloud-daily-batch.yml", "daily", "Run daily batch"): (
-        "13b6a705644d75410e7f1b5bc188e38b5064a0eed5c3081c7d1fc9eeaffdb74d"
+        "6e60921708162b8f2d35abd627cfe8ea7c3d8ff040a06fed5c36308ee1fc7809"
     ),
     ("cloud-daily-batch.yml", "daily", "Publish the L1 release"): (
         "27d0b4bbe9b9703ad990fc93776a9f4112acf07dcddc3b440166475cc8f0250e"
@@ -204,10 +200,7 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
         "1d57fc8572d6e924225001484b9aba706f2eb790f4712e1bac7192f9e6bbcd16"
     ),
     ("cloud-daily-batch.yml", "daily", "Notify Discord #batch-runs"): (
-        "b0dbcabdd11eefa066781d6d0e9890330e738a60be0a205e246a9cfd968b9c6a"
-    ),
-    ("cloud-daily-batch.yml", "daily", "Upload run summary"): (
-        "3d7d91775c0ac950577b25c2792bed82e5af551485965a7c3fb6a31311064259"
+        "ee0a92dd0e7645012dc3d4e5a3b0b21c031c30a39973daabefaaee1cf3668606"
     ),
     (
         "cloud-batch-watchdog.yml",

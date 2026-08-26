@@ -49,7 +49,6 @@ _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
         "repository_root_error",  # inspects a directory layout, not a store
         "safe_load",  # a YAML helper re-exported for callers
         "screening_calibration_method_identity",  # reads Git-managed method config
-        "store_stats",  # takes a store name alongside its path
     }
 )
 

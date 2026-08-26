@@ -10,7 +10,6 @@ LOCAL_API_SOURCE = ROOT / "web/backend/src/baibai_web/api/server.py"
 MATERIALIZER_SOURCE = ROOT / "web/backend/src/baibai_web/materialize.py"
 EDGE_SOURCE = ROOT / "web/edge/src/index.ts"
 FRONTEND_SOURCE_ROOT = ROOT / "web/frontend/src"
-TRANSFER_SOURCE = ROOT / "batch/scripts/r2_transfer.sh"
 
 
 def _contract() -> dict[str, object]:
@@ -68,12 +67,8 @@ def test_every_contract_object_key_has_one_production_writer() -> None:
     assert isinstance(patterns, dict)
 
     materializer_source = MATERIALIZER_SOURCE.read_text(encoding="utf-8")
-    transfer_source = TRANSFER_SOURCE.read_text(encoding="utf-8")
     for key in [*routes.values(), *edge_routes.values(), *patterns.values()]:
         assert isinstance(key, str)
-        if key == "system/latest-run.json":
-            assert key in transfer_source
-            continue
         filename = key.rsplit("/", maxsplit=1)[-1]
         static_filename = filename.split("{", maxsplit=1)[0]
         materializer_marker = static_filename or key.rsplit("/", maxsplit=1)[0]

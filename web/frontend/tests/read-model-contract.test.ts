@@ -35,14 +35,4 @@ describe('read-model contract', () => {
 
     expect(Object.keys(schema.$defs).filter((name) => !declared.has(name))).toEqual([])
   })
-
-  it('keeps the run summary out of the generated file', () => {
-    // `system/latest-run.json` is written by the daily batch, not by the read models,
-    // so its types are hand-written next door. A generated copy would go stale the
-    // moment the batch changed the object.
-    const runSummary = readFileSync(resolve(uiRoot, 'src/api/run-summary.ts'), 'utf8')
-
-    expect(declaredNames(types).has('WorkflowRunSummaryView')).toBe(false)
-    expect(declaredNames(runSummary).has('WorkflowRunSummaryView')).toBe(true)
-  })
 })

@@ -1,8 +1,6 @@
 // Generated from web/backend/src/baibai_web/readmodel/models.py.
 // Run `uv run python -m baibai_web.contracts_export` after changing those models;
 // `tools/quality/drift/check_readmodel_contract.py` refuses a stale copy.
-// Types for `system/latest-run.json` are hand-written in ./run-summary.ts: the daily
-// batch writes that object, not the read models.
 
 export interface AssessmentCaseView {
   ticker: string
@@ -827,50 +825,6 @@ export interface SourceCaveatView {
   source_id: string
   status: string
   decision_impact: string
-}
-
-/**
- * A series whose most recent acquisition attempt failed, and for how long.
- */
-export interface SystemProviderView {
-  series_id: string
-  name: string
-  consecutive_failures: number
-  failing_since: string
-  last_error: string | null
-}
-
-export type SystemStoreName = 'market' | 'runs' | 'macro' | 'baibai'
-
-/**
- * One machine store's depth and freshness.
- *
- * ``row_count`` and ``latest_date`` come from the store's representative table,
- * so a retention accident or a feed that stopped landing shows up as a number
- * that moved even when the view it feeds still renders.
- */
-export interface SystemStoreView {
-  store: SystemStoreName
-  exists: boolean
-  size_bytes: number | null
-  row_count: number | null
-  latest_date: string | null
-  updated_at: string | null
-}
-
-/**
- * Operational state of the pipeline, exported as views/system.json.
- *
- * Deliberately carries no judgment input: everything here is about whether the
- * machinery ran, never about what a number means for a holding or a candidate.
- */
-export interface SystemView {
-  generated_at: string
-  batch: MetaBatch | null
-  stores: SystemStoreView[]
-  failing_providers: SystemProviderView[]
-  never_attempted_series: string[]
-  provider_series_total: number
 }
 
 export interface TaskView {

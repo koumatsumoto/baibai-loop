@@ -13,19 +13,12 @@ from baibai_batch.jobs.daily import (
     BatchStepError,
     CalendarCoverageError,
     CommandResult,
-    _daily_delta_metrics,
     _macro_refresh_groups,
+    _Notice,
     _parse_macro_series,
+    _read_daily_delta,
     main,
     run_daily_batch,
-)
-from baibai_batch.observability.summary import (
-    ERROR_STAGES,
-    OUTCOME_DEGRADED,
-    OUTCOME_FAILED,
-    OUTCOME_SKIPPED,
-    OUTCOME_SUCCEEDED,
-    load_batch_execution_summary,
 )
 from baibai_engine.macro.indicators.service import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
@@ -619,7 +612,7 @@ def test_main_requires_method_directory_in_repo_root(tmp_path: Path, capsys) -> 
     assert "does not contain method/" in capsys.readouterr().err
 
 
-# --- structured summary output --------------------------------------------
+# --- notice for the Discord notifier ---------------------------------------
 
 
 def _export_meta_writer(argv: list[str]) -> None:
@@ -631,7 +624,7 @@ def _export_meta_writer(argv: list[str]) -> None:
     (views / "meta.json").write_text("{}\n", encoding="utf-8")
 
 
-def _summary_runner(
+def _notice_runner(
     results: dict[str, list[CommandResult]] | None = None,
 ) -> ScriptedRunner:
     return ScriptedRunner(
@@ -640,60 +633,33 @@ def _summary_runner(
     )
 
 
-def test_daily_batch_writes_succeeded_summary(tmp_path: Path) -> None:
-    runner = _summary_runner()
-    summary_path = tmp_path / "summary.json"
+def _load_notice(path: Path) -> dict[str, object]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_daily_batch_writes_the_notice_with_asof_and_an_unmeasured_delta(tmp_path: Path) -> None:
+    runner = _notice_runner()
+    notice_path = tmp_path / "notice.json"
 
     exit_code = run_daily_batch(
         root=tmp_path,
         output_dir=tmp_path / "serving",
         asof=ASOF,
         runner=runner,
-        summary_output=summary_path,
+        notice_output=notice_path,
     )
 
     assert exit_code == 0
-    summary = load_batch_execution_summary(summary_path)
-    assert summary.outcome == OUTCOME_SUCCEEDED
-    assert summary.asof == "2026-07-21"
-    assert summary.local_export is True
-    assert [batch.batch_name for batch in summary.batches] == [
-        "screening",
-        "macro",
-        "serving-export",
-        "prune",
-        "task-reconcile",
-    ]
-    screening = summary.batches[0]
-    assert screening.metrics == {
+    # The delta view is absent in this fixture, so the notice says "not measured"
+    # rather than empty lists that would read as "nothing changed".
+    assert _load_notice(notice_path) == {
         "asof": "2026-07-21",
-        "run_revision_id": "rev-1",
-        "selection_id": "sel-1",
-        "universe": 3800,
-        "candidates": 2,
-        "selected": 2,
-        "edinet_quarantined_events": 0,
-        "edinet_quarantined_tickers": 0,
-        "edinet_quarantine_sample": "none",
-    }
-    macro = summary.batches[1]
-    assert macro.metrics == {"target": 5, "success": 5, "failure": 0}
-    assert macro.status == "ok"
-    export = summary.batches[2]
-    # The delta view is absent in this fixture, so the export reports "not measured"
-    # rather than zero counts that would read as "nothing changed".
-    assert export.metrics == {
-        "local_output": True,
+        "skipped": False,
+        "failed_stage": None,
         "delta_measured": False,
-        "delta_entered": 0,
-        "delta_entered_tickers": [],
-        "delta_exited": 0,
-        "delta_exited_tickers": [],
-        "delta_er_moves": 0,
-        "delta_holdings": 0,
-        "delta_macro_flags": 0,
-        "delta_macro_extremes": 0,
-        "delta_unavailable": "view_unreadable",
+        "delta_unmeasured_reason": "view_unreadable",
+        "entered": [],
+        "exited": [],
     }
 
 
@@ -720,7 +686,7 @@ def _entry(ticker: str, name: object, er: object) -> dict[str, object]:
     }
 
 
-def test_daily_delta_metrics_names_entered_tickers_by_estimate_descending(
+def test_daily_delta_names_entered_tickers_by_estimate_descending(
     tmp_path: Path,
 ) -> None:
     view = _delta_view(
@@ -735,11 +701,12 @@ def test_daily_delta_metrics_names_entered_tickers_by_estimate_descending(
         ],
     )
 
-    metrics = _daily_delta_metrics(view)
+    notice = _Notice()
+    _read_daily_delta(view, notice)
 
-    assert metrics["delta_entered"] == 6
-    # Capped at five names; the count above still carries the remainder.
-    assert metrics["delta_entered_tickers"] == [
+    assert notice.delta_measured is True
+    # Capped at five names; the notifier says how many more there are.
+    assert notice.entered == [
         "1004 Delta E[r]+30.0%",
         "1002 Bravo E[r]+22.5%",
         "1005 Echo E[r]+15.0%",
@@ -748,7 +715,7 @@ def test_daily_delta_metrics_names_entered_tickers_by_estimate_descending(
     ]
 
 
-def test_daily_delta_metrics_names_a_ticker_whose_name_or_estimate_is_missing(
+def test_daily_delta_names_a_ticker_whose_name_or_estimate_is_missing(
     tmp_path: Path,
 ) -> None:
     view = _delta_view(
@@ -763,41 +730,44 @@ def test_daily_delta_metrics_names_a_ticker_whose_name_or_estimate_is_missing(
     # A partly-known row is still the pointer the reader needs, so the known fields
     # are reported and the unknown ones are left out. Rows without an estimate sort
     # last because the estimate is what ranks them.
-    assert _daily_delta_metrics(view)["delta_entered_tickers"] == [
+    notice = _Notice()
+    _read_daily_delta(view, notice)
+    assert notice.entered == [
         "2001 E[r]+5.0%",
         "2002 Named",
         "2003",
     ]
 
 
-def test_daily_delta_metrics_names_exited_tickers_from_the_other_side(tmp_path: Path) -> None:
+def test_daily_delta_names_exited_tickers_from_the_other_side(tmp_path: Path) -> None:
     view = _delta_view(
         tmp_path / "daily-delta.json",
         [_entry("1001", "Alpha", 8.0)],
         [_entry("9001", "Zulu", 6.0), _entry("9002", "Yankee", 11.0)],
     )
 
-    metrics = _daily_delta_metrics(view)
+    notice = _Notice()
+    _read_daily_delta(view, notice)
 
     # A name leaving the pool is the same kind of fact as one entering it, ranked
     # the same way, and read from the row shape the two sides share.
-    assert metrics["delta_exited"] == 2
-    assert metrics["delta_exited_tickers"] == ["9002 Yankee E[r]+11.0%", "9001 Zulu E[r]+6.0%"]
-    assert metrics["delta_entered_tickers"] == ["1001 Alpha E[r]+8.0%"]
+    assert notice.exited == ["9002 Yankee E[r]+11.0%", "9001 Zulu E[r]+6.0%"]
+    assert notice.entered == ["1001 Alpha E[r]+8.0%"]
 
 
-def test_daily_delta_metrics_reports_an_empty_list_when_nothing_entered(tmp_path: Path) -> None:
+def test_daily_delta_reports_an_empty_list_when_nothing_entered(tmp_path: Path) -> None:
     view = _delta_view(tmp_path / "daily-delta.json", [])
 
-    metrics = _daily_delta_metrics(view)
+    notice = _Notice()
+    _read_daily_delta(view, notice)
 
-    # The key is always present: the summary schema requires it, and an empty list
-    # is what "no new name today" has to look like.
-    assert metrics["delta_entered"] == 0
-    assert metrics["delta_entered_tickers"] == []
+    # Measured and empty is what "no new name today" has to look like; the
+    # notifier renders it as なし rather than as an unmeasured delta.
+    assert notice.delta_measured is True
+    assert notice.entered == []
 
 
-def test_daily_delta_metrics_drops_unreadable_entered_rows_without_failing(
+def test_daily_delta_drops_unreadable_entered_rows_without_failing(
     tmp_path: Path,
 ) -> None:
     view = _delta_view(
@@ -813,7 +783,9 @@ def test_daily_delta_metrics_drops_unreadable_entered_rows_without_failing(
         ],
     )
 
-    labels = _daily_delta_metrics(view)["delta_entered_tickers"]
+    notice = _Notice()
+    _read_daily_delta(view, notice)
+    labels = notice.entered
 
     assert isinstance(labels, list)
     # A row that cannot be identified by ticker is dropped; a value the renderer
@@ -823,192 +795,99 @@ def test_daily_delta_metrics_drops_unreadable_entered_rows_without_failing(
     assert all("\n" not in label and len(label) <= 48 for label in labels)
 
 
-def test_daily_delta_metrics_names_nothing_when_the_view_cannot_be_read(tmp_path: Path) -> None:
-    metrics = _daily_delta_metrics(tmp_path / "missing.json")
+def test_daily_delta_names_nothing_when_the_view_cannot_be_read(tmp_path: Path) -> None:
+    notice = _Notice()
+    _read_daily_delta(tmp_path / "missing.json", notice)
 
-    assert metrics["delta_measured"] is False
-    assert metrics["delta_entered_tickers"] == []
-
-
-def test_daily_batch_carries_edinet_quarantine_counts_when_coverage_is_complete(
-    tmp_path: Path,
-) -> None:
-    script = _success_script()
-    script["screening extract-edinet-metrics"] = [
-        CommandResult(
-            0,
-            "EDINET extraction summary: selected=3970 reused=3965 downloaded=0 "
-            "quarantined_events=47 quarantined_tickers=5 "
-            "quarantine_sample=S100NS9Y:edit:120,S100T65I:edit:120 "
-            "baseline_asof=2026-07-18\n",
-            "EDINET event quarantine: events=47 affected_tickers=5\n",
-        )
-    ]
-    summary_path = tmp_path / "summary.json"
-
-    exit_code = run_daily_batch(
-        root=tmp_path,
-        output_dir=tmp_path / "serving",
-        asof=ASOF,
-        runner=_summary_runner(script),
-        summary_output=summary_path,
-    )
-
-    assert exit_code == 0
-    screening = load_batch_execution_summary(summary_path).batches[0]
-    assert screening.metrics["edinet_quarantined_events"] == 47
-    assert screening.metrics["edinet_quarantined_tickers"] == 5
-    assert screening.metrics["edinet_quarantine_sample"] == ("S100NS9Y:edit:120,S100T65I:edit:120")
+    assert notice.delta_measured is False
+    assert notice.delta_unmeasured_reason == "view_unreadable"
+    assert notice.entered == []
 
 
-def test_daily_batch_writes_skipped_summary(tmp_path: Path) -> None:
+def test_daily_batch_writes_a_skipped_notice_on_a_non_business_day(tmp_path: Path) -> None:
     today = datetime.now(JST).date()
     _seed_calendar(tmp_path, {today: "0"})
-    summary_path = tmp_path / "summary.json"
+    notice_path = tmp_path / "notice.json"
 
     exit_code = run_daily_batch(
         root=tmp_path,
         output_dir=tmp_path / "serving",
         asof=None,
-        runner=_summary_runner({}),
-        summary_output=summary_path,
+        runner=_notice_runner({}),
+        notice_output=notice_path,
     )
 
     assert exit_code == 0
-    summary = load_batch_execution_summary(summary_path)
-    assert summary.outcome == OUTCOME_SKIPPED
-    assert summary.batches == ()
-    assert summary.local_export is False
+    notice = _load_notice(notice_path)
+    assert notice["skipped"] is True
+    assert notice["asof"] == today.isoformat()
+    assert notice["failed_stage"] is None
 
 
-def test_daily_batch_writes_degraded_summary_on_deferred_macro_failure(tmp_path: Path) -> None:
+def test_daily_batch_exits_3_and_keeps_the_notice_clean_on_a_deferred_macro_failure(
+    tmp_path: Path,
+) -> None:
     script = _success_script()
     script["macro refresh"] = [CommandResult(1, "", "provider down\n"), OK, OK]
-    summary_path = tmp_path / "summary.json"
+    notice_path = tmp_path / "notice.json"
 
     exit_code = run_daily_batch(
         root=tmp_path,
         output_dir=tmp_path / "serving",
         asof=ASOF,
-        runner=_summary_runner(script),
-        summary_output=summary_path,
+        runner=_notice_runner(script),
+        notice_output=notice_path,
     )
 
+    # The exit code carries the degraded outcome; a deferred failure is not a
+    # failed stage, because the publish stands.
     assert exit_code == 3
-    summary = load_batch_execution_summary(summary_path)
-    assert summary.outcome == OUTCOME_DEGRADED
-    macro = next(batch for batch in summary.batches if batch.batch_name == "macro")
-    assert macro.status == "degraded"
-    assert macro.metrics == {"target": 5, "success": 4, "failure": 1}
-    assert len(macro.errors) == 1
-    assert macro.errors[0].code == "subprocess_failed"
-    assert macro.errors[0].stage == "macro-refresh"
-    assert macro.errors[0].impact == "degraded"
+    assert _load_notice(notice_path)["failed_stage"] is None
 
 
-def test_daily_batch_counts_only_the_series_the_refresh_reported_as_failed(
+def test_daily_batch_names_the_failed_stage_in_the_notice_on_a_fatal_failure(
     tmp_path: Path,
 ) -> None:
-    script = _success_script()
-    # The last group holds three series; one of them fails.
-    script["macro refresh"] = [
-        OK,
-        OK,
-        CommandResult(
-            1,
-            "",
-            "error: 1 of 3 series failed to refresh:\n"
-            "- jp.gdp: source unavailable\n"
-            "error: refresh failed for 1 of 3 series: jp.gdp\n",
-        ),
-    ]
-    summary_path = tmp_path / "summary.json"
-
-    exit_code = run_daily_batch(
-        root=tmp_path,
-        output_dir=tmp_path / "serving",
-        asof=ASOF,
-        runner=_summary_runner(script),
-        summary_output=summary_path,
-    )
-
-    assert exit_code == 3
-    summary = load_batch_execution_summary(summary_path)
-    macro = next(batch for batch in summary.batches if batch.batch_name == "macro")
-    # Counting the whole group would report 3 failures and 2 successes.
-    assert macro.metrics == {"target": 5, "success": 4, "failure": 1}
-
-
-def test_daily_batch_counts_the_whole_group_when_the_refresh_reports_no_count(
-    tmp_path: Path,
-) -> None:
-    script = _success_script()
-    script["macro refresh"] = [OK, OK, CommandResult(1, "", "Traceback: exploded\n")]
-    summary_path = tmp_path / "summary.json"
-
-    exit_code = run_daily_batch(
-        root=tmp_path,
-        output_dir=tmp_path / "serving",
-        asof=ASOF,
-        runner=_summary_runner(script),
-        summary_output=summary_path,
-    )
-
-    assert exit_code == 3
-    summary = load_batch_execution_summary(summary_path)
-    macro = next(batch for batch in summary.batches if batch.batch_name == "macro")
-    # A step that died before reporting says nothing about which series survived,
-    # so the health signal errs high rather than claiming successes it cannot see.
-    assert macro.metrics == {"target": 5, "success": 2, "failure": 3}
-
-
-def test_daily_batch_writes_failed_summary_on_fatal_screening_failure(tmp_path: Path) -> None:
     script = _success_script()
     script["screening run"] = [CommandResult(1, "", "boom\n")]
-    summary_path = tmp_path / "summary.json"
+    notice_path = tmp_path / "notice.json"
 
     with pytest.raises(BatchStepError):
         run_daily_batch(
             root=tmp_path,
             output_dir=tmp_path / "serving",
             asof=ASOF,
-            runner=_summary_runner(script),
-            summary_output=summary_path,
+            runner=_notice_runner(script),
+            notice_output=notice_path,
         )
 
-    summary = load_batch_execution_summary(summary_path)
-    assert summary.outcome == OUTCOME_FAILED
-    assert [batch.batch_name for batch in summary.batches] == ["screening"]
-    screening = summary.batches[0]
-    assert screening.status == "failed"
-    assert screening.metrics == {}
-    assert screening.errors[0].code == "subprocess_failed"
-    assert screening.errors[0].stage == "screening-run"
-    # The redacted message carries the stage + return code, never the stderr text.
-    assert "boom" not in screening.errors[0].message
+    notice = _load_notice(notice_path)
+    assert notice["failed_stage"] == "screening-run"
+    # The stderr text stays in the log; the notice carries only the stage name.
+    assert "boom" not in json.dumps(notice)
 
 
-def test_daily_batch_failed_summary_redacts_calendar_error(tmp_path: Path) -> None:
-    summary_path = tmp_path / "summary.json"
+def test_daily_batch_names_the_calendar_stage_when_the_market_store_is_missing(
+    tmp_path: Path,
+) -> None:
+    notice_path = tmp_path / "notice.json"
 
     with pytest.raises(CalendarCoverageError):
         run_daily_batch(
             root=tmp_path,
             output_dir=tmp_path / "serving",
             asof=None,
-            runner=_summary_runner({}),
-            summary_output=summary_path,
+            runner=_notice_runner({}),
+            notice_output=notice_path,
         )
 
-    summary = load_batch_execution_summary(summary_path)
-    assert summary.outcome == OUTCOME_FAILED
-    assert summary.batches[0].errors[0].code == "calendar_store_missing"
+    assert _load_notice(notice_path)["failed_stage"] == "calendar"
 
 
-def test_main_writes_invalid_asof_summary(tmp_path: Path, capsys) -> None:
+def test_main_rejects_an_invalid_asof_before_writing_a_notice(tmp_path: Path, capsys) -> None:
     (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     (tmp_path / "method").mkdir()
-    summary_path = tmp_path / "summary.json"
+    notice_path = tmp_path / "notice.json"
 
     exit_code = main(
         [
@@ -1018,16 +897,15 @@ def test_main_writes_invalid_asof_summary(tmp_path: Path, capsys) -> None:
             str(tmp_path / "serving"),
             "--asof",
             "2026-13-99",
-            "--summary-output",
-            str(summary_path),
+            "--notice-output",
+            str(notice_path),
         ]
     )
 
     assert exit_code == 1
     assert "not a valid YYYY-MM-DD date" in capsys.readouterr().err
-    summary = load_batch_execution_summary(summary_path)
-    assert summary.outcome == OUTCOME_FAILED
-    assert summary.batches[0].errors[0].code == "invalid_asof"
+    # No notice: the notifier reports the batch step's failure without one.
+    assert not notice_path.exists()
 
 
 def test_parse_macro_series_reads_json_list() -> None:
@@ -1091,51 +969,6 @@ def test_macro_refresh_groups_orders_derived_after_base() -> None:
     ]
 
 
-def test_every_batch_step_name_is_a_known_error_stage() -> None:
-    """A step whose name the summary schema does not know replaces the real failure.
-
-    `_finalize_failed_summary` classifies the error while composing the summary, so
-    an unregistered stage raises there and the operator gets a validation error
-    instead of the failure that actually happened. The call sites are read with
-    `ast` rather than a regex: several pass a call inside `argv=(...)`, which a
-    paren-counting pattern skips silently — and skipping is indistinguishable from
-    passing.
-    """
-    import ast
-
-    from baibai_batch.jobs.daily import _normalize_stage
-
-    source = (
-        Path(__file__).resolve().parents[2] / "batch/src/baibai_batch/jobs/daily.py"
-    ).read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    names: list[str] = []
-    dynamic: list[str] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        callee = node.func
-        if not (isinstance(callee, ast.Name) and callee.id == "_run_step"):
-            continue
-        keyword = next((item for item in node.keywords if item.arg == "name"), None)
-        assert keyword is not None, "every _run_step call names its step"
-        if isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, str):
-            names.append(keyword.value.value)
-        else:
-            # An f-string name cannot be checked statically; `_normalize_stage`
-            # strips the varying part, so pin the literal prefix instead.
-            dynamic.append(ast.unparse(keyword.value))
-
-    # Guards the scan itself: a parser that silently matches nothing would make
-    # this test pass while checking no step at all.
-    assert len(names) + len(dynamic) == 13, "the scan lost or gained call sites"
-    unregistered = {name for name in names if _normalize_stage(name) not in set(ERROR_STAGES)}
-    assert unregistered == set()
-    assert len(dynamic) == 1
-    assert "macro-refresh" in dynamic[0]
-    assert _normalize_stage("macro-refresh-370d") in set(ERROR_STAGES)
-
-
 def test_a_reconcile_failure_degrades_the_batch_without_losing_the_publish(
     tmp_path: Path,
 ) -> None:
@@ -1150,55 +983,18 @@ def test_a_reconcile_failure_degrades_the_batch_without_losing_the_publish(
     runner = ScriptedRunner(
         script, writers={"screening run": _run_yaml_writer("rev-1"), "export": _export_meta_writer}
     )
-    summary_output = tmp_path / "summary.json"
+    notice_path = tmp_path / "notice.json"
 
     exit_code = run_daily_batch(
         root=tmp_path,
         output_dir=tmp_path / "serving",
         asof=ASOF,
         runner=runner,
-        summary_output=summary_output,
+        notice_output=notice_path,
     )
 
     keys = runner.call_keys()
     assert "screening select" in keys
     assert "export" in keys
-    summary = load_batch_execution_summary(summary_output)
-    assert summary.outcome == OUTCOME_DEGRADED
-    reconcile = next(batch for batch in summary.batches if batch.batch_name == "task-reconcile")
-    assert reconcile.status == "degraded"
-    assert [error.stage for error in reconcile.errors] == ["task-reconcile-earnings"]
-    prune = next(batch for batch in summary.batches if batch.batch_name == "prune")
-    assert prune.status == "ok"
-    assert exit_code != 0
-
-
-def test_a_fatal_failure_still_writes_a_summary_when_its_stage_is_unknown(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Composing the summary must not be able to replace the failure it describes.
-
-    Classifying the error happens while composing, so an unregistered stage raises
-    there. With that work outside the guard the validation error escapes and the
-    real failure is lost; this pins it inside.
-    """
-    import baibai_batch.observability.summary as batch_summary
-
-    monkeypatch.setattr(
-        batch_summary, "ERROR_STAGES", tuple(s for s in ERROR_STAGES if s != "screening-run")
-    )
-    script = _success_script()
-    script["screening run"] = [CommandResult(returncode=1, stdout="", stderr="boom")]
-    runner = ScriptedRunner(
-        script, writers={"screening run": _run_yaml_writer("rev-1"), "export": _export_meta_writer}
-    )
-    summary_output = tmp_path / "summary.json"
-
-    with pytest.raises(BatchStepError):
-        run_daily_batch(
-            root=tmp_path,
-            output_dir=tmp_path / "serving",
-            asof=ASOF,
-            runner=runner,
-            summary_output=summary_output,
-        )
+    assert exit_code == 3
+    assert _load_notice(notice_path)["failed_stage"] is None

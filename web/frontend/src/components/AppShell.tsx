@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router'
-import { Activity, ExternalLink, Settings } from 'lucide-react'
+import { ExternalLink, Settings } from 'lucide-react'
 
 import { fetchJson } from '../api/client'
 import type { MetaView } from '../api/types'
@@ -13,14 +13,13 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu'
 import { ACTIONS_URL, NAV_TABS } from '../lib/nav'
 import { cn } from '../lib/utils'
 
-// Operational surfaces live behind the gear, apart from the judgment tabs: the
-// three tabs answer "what should I do", this menu answers "is the machinery ok".
+// The run history lives behind the gear, apart from the judgment tabs: the three
+// tabs answer "what should I do", this menu answers "is the machinery ok".
 function DevMenu() {
   return (
     <DropdownMenu>
@@ -31,10 +30,6 @@ function DevMenu() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuLabel>開発</DropdownMenuLabel>
-        <DropdownMenuItem asChild>
-          <Link to="/system"><Activity aria-hidden="true" />システム状態</Link>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           <a href={ACTIONS_URL} rel="noreferrer noopener" target="_blank">
             <ExternalLink aria-hidden="true" />GitHub Actions
