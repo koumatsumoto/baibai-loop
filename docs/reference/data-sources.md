@@ -70,7 +70,7 @@ screening L1のcanonical authorityはR2 releaseにあり、`stores/market/market
 releaseから再構築するruntime copyである。取得範囲の帳簿とoperator導出factだけがSQLiteをcanonical
 とする。dual canonical writeを行わない。run storeは`stores/screening/runs.sqlite`を継続する。SQLite layout の正本は
 [`./screening-runtime.md`](./screening-runtime.md)、lake manifest・version・authorityは
-[`../architecture.md`](../architecture.md#market-lake-publication-contract)を正本とする。
+[`./market-lake.md`](./market-lake.md#market-lake-publication-contract)を正本とする。
 
 保存済み canonical fact は、screening 再生成・保有計測・見積り calibration のための入力証跡として扱う。J-Quants の調整後価格、銘柄マスター、JPX 規制情報などは完全な point-in-time snapshot ではないため、publication / effective / retrieved time と revision / coverage semantics が揃わない期間を完全再現可能とは扱わない。zero、complete snapshotでの無報告、coverage不足、parse failure、source unavailableを混同しない。
 

@@ -43,6 +43,8 @@ status: active
 | 投資価値の優先順位、永久損失、5年評価、AI・人間・broker責務 | [`doctrine.md`](./doctrine.md) |
 | 追加資金・注文額目安・資本warning | [`portfolio-management.md`](./portfolio-management.md) |
 | trigger routing、session共通規約、委譲・外部文書の扱い | [`AGENTS.md`](../AGENTS.md) |
+| 5 層モデル・4 役の判定基準、store authority、package / CLI が仕える工程、無人経路の停止条件 | [`architecture.md`](./architecture.md) |
+| lake の publication contract（authority・manifest・version 語彙・fail-close） | [`reference/market-lake.md`](./reference/market-lake.md) |
 | 各運用の手順・gate順・停止条件 | `.agents/skills/<name>/SKILL.md` |
 | thesisの式、lineage、review binding | [`reference/thesis.md`](./reference/thesis.md) |
 | 統合判断（lane横比較・購入方法・content review束縛） | [`reference/bargain-assessment.md`](./reference/bargain-assessment.md) |

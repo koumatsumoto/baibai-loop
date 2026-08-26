@@ -7,8 +7,8 @@ status: active
 
 # Market lake operations
 
-authority、manifest、version 語彙は [`../architecture.md`](../architecture.md#market-lake-publication-contract)
-を正本とする。この文書は publish と read の実操作を持つ。
+authority、manifest、version 語彙はこの文書の [Publication contract](#market-lake-publication-contract)
+が正本である。store の所有者は [`../architecture.md`](../architecture.md#information-layers) の表が正本で、この文書は publish と read の契約と実操作を持つ。
 
 L1は`market.sqlite`の17 data tableを持ち、R2が持つ`market.sqlite`は残る2 data tableと
 store-local metadataの`lake_store_origin`だけを運ぶ
@@ -36,6 +36,89 @@ partition の粒度は dataset 契約が宣言する。行数から導出しな�
 行を持たない dataset は export が飛ばす。`jquants.all_issues_daily_margin` は JPX の公表制度変更
 （2026-09-28、初回は 9/25 残高）を待っているので今は 0 行で、canonical build に partition が無いと
 release 入力にならない。飛ばすことで「まだ始まっていない」と「build が失敗した」を分ける。
+
+<a id="market-lake-publication-contract"></a>
+
+## Publication contract
+
+大規模な market fact は、R2 の不変 object を Parquet で保持し、dataset manifest と L1 release
+manifest で exact input generation を固定する。DuckDB は Parquet の build・validation・analysis
+だけを担い、常駐 server や唯一の永続 DB にしない。SQLite は application state、小規模な関係
+data、固定 release から再構築できる runtime copy に限定する。Web は L1 を直接読まず、
+materialized read model だけを読む。
+
+| layer | canonical form | allowed contents |
+| --- | --- | --- |
+| L1 Canonical | Parquet object + dataset / release manifest | typed source fact、source identity、publication / effective / retrieved time、revision semantics |
+| L2 Analytical | Parquet object + dataset manifest + atomic bundle pointer | 再生成可能な panel、feature、forward outcome |
+| L2 Operational / L3 | SQLite | run metadata、selection、thesis、proposal、ledger、operation 等の transaction / point lookup state |
+
+R2 key は `lake/` 以下だけを使い、segment allowlist で path traversal を拒否する。time-series
+partition は `year/month`、file は ZSTD Parquet、object name は content SHA-256 とする。dataset
+manifest は全 partition object と totals を列挙し、L1 release manifest は互換な dataset build の
+組を一つの `release_id` へ固定する。logical object identity は key・SHA-256・bytes・rows・schema
+で決まり、object-store固有のETagはpublish/CASのtransport stateにだけ置く。lineageはtyped `SourceRef`で表す。kindは**bytesを保持するかどうか**の2族に分かれ、
+それが型の違いになる。
+
+- **retained**（`l1_release`）はlake内のkeyを名乗る。resolverはkey・SHA-256・source側versionと
+  release closureを検証する。ただし到達可能性はcurrent releaseのretention policyに従い、分析成果物が
+  過去releaseを名乗っただけで恒久保持されるわけではない。
+- **identity only**（`sqlite_snapshot`）はkeyを持たない。sealed snapshotはbuild中にstoreが動かない
+  ようにするためのもので、その役目はbuildの終わりで終わる。bytesはlegacy store全体（約2GB）なので、
+  buildごとに1つ保持すればlakeはpublishした量ではなくrun回数に比例して育つ。よってschema version・
+  content digest・capture時刻だけを残し、bytesはoperationの終わりで回収する。
+  同じ`source_id`を名乗る2つのbuildは同一入力を読んでおり、rebuildへ差し出されたstore世代はこの
+  digestで照合できる。**保証しないのは、その世代がまだ入手できること**である。
+
+`SourceRef`（buildが自分の入力について述べるunion）に入るのは`sqlite_snapshot`だけである。buildが
+読むのはsealed storeであってreleaseではないからで、closure resolverの有無ではなく何を読んだかが
+決めている。`CohortSourceRef`は既存のimmutable v1 manifestを読むため`l1_release`も受け入れるが、
+calibrationの現行writerはsnapshotだけを記録する。L1は`source_coverage`などの非lake入力を保持しない
+ため、release refをcalibration inputの完全再構築保証には使わない。release manifestはobject graphの
+rootにすぎないので、resolverはdataset manifestとParquet objectまで歩いて全部digestで検証し、
+歩き切れないrefは解決しない。
+
+manifestとpointerを含むlake JSONは、duplicate key拒否とredacted validation errorを持つ
+共通parserだけを通し、wire size上限をparse前に検査する。partition valuesとrelease dataset
+inventoryはparse後に変更できない。
+releaseはprofileを宣言し、そのprofileのmanifest size/object budgetと、dataset ごとのrequired・
+accepted contract・coverage要求・rows / population floor を満たす場合だけcurrent候補になる。
+鮮度窓は持たない（[Failure policy](../architecture.md#failure-policy)）。完全性はdatasetの性質なので、profile単位の
+単一閾値は持たない。
+profileは`production`ひとつで、要求の集合がひとつだからである。登録の無いprofileはfail-closeする。
+
+version 語彙は `contract_version`（schema・PK・型・partition・意味の互換境界）、`build_id`
+（immutable build）、typed `SourceRef`内のsource側version、`producer_git_commit`（code identity）
+に限定する。L1 に transform identity は無い — 毎回全 partition を導出するので、build 間の互換を
+問う場面が無い。`transform_fingerprint` は L2 calibration だけが持ち、同じ contract 内の logic /
+config / 明示したtransform source codeを識別する。
+L2 calibrationのlineageはdataset全体のsource集合ではなくcohort inventoryの各roleへ置き、panel /
+diagnosticsのcohort cutoffとforwardのobservation cutoffをsource digestと一緒に固定する。
+fingerprintはschema/configだけでなく、そのdatasetの値を決めるsemantic implementation fileのdigestを含む。
+production reader は期待する contract 一つだけを受け入れ、schema change は in-place migration
+や `union_by_name` fallback ではなく、新しい contract の immutable rebuild と pointer switch で
+扱う。
+
+一つの dataset が同時に二つの canonical writer を持たない。市場 fact の canonical authority は
+R2 の L1 release にあり、`market.sqlite` はその fixed release から削除・再構築できる runtime copy
+である。lakeが持たない2 data table — 取得範囲の帳簿と、月次snapshotのoperator導出fact — だけが
+SQLiteをcanonicalとする。R2が持つstoreのcopyはその2 data tableと、store-local publication metadata
+`lake_store_origin`を運ぶ。full-file publish は行わない。
+
+読み取り側は実行開始時に current pointer を 1 度だけ解決し、以後は固定した `release_id` と
+immutable object key だけを読む。manifest digest、object digest、dataset contract の不一致は
+fail-close で、prefix listing・glob・`union_by_name` による吸収・provider fallback はいずれも
+持たない。固定 release を SQLite へ実体化するのは `lake hydrate` で、store の sealed copy へ
+lake 所有 table だけを積み直し、single rename で publish する。読み込んだ行数が release manifest の
+publish 行数と一致しなければ fail-close する — 静かに空のまま進んだ store は、screening に空の
+universe を健全な結果として publish させるためである。手順は
+[Fixed release read](#fixed-release-read) を正本とする。
+
+このcustom manifest protocolは、単一writer・小規模catalog・Python中心という現在の制約に対して
+table formatより小さい。次のいずれかが現れた時点で、Apache Iceberg / R2 Data Catalog等への
+置換を再評価する: 同時writerが2以上になる、object数が10万を超える、schema branchを複数同時に
+維持する、dataset横断のsnapshot transactionが要る、remote GCを自前で持つ、row-level mutationが要る。
+どれも現状は無く、無い間は自前protocolの方が状態空間が小さい。
 
 ## Build
 
