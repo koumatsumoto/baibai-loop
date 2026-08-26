@@ -29,7 +29,6 @@ from baibai_web.sources.db_sources import (
     DbMetaSource,
     DbOperationsSource,
     DbResearchSource,
-    DbSystemSource,
     DbTaskSource,
     load_macro_panel_config,
 )
@@ -48,7 +47,6 @@ class Sources:
     operations: DbOperationsSource
     market: DbMarketPriceSource
     meta: DbMetaSource
-    system: DbSystemSource
     er_level_calibration: ErLevelCalibrationContext | None
     app_db_path: Path
     runs_db_path: Path
@@ -90,7 +88,6 @@ def build_sources(
         operations=DbOperationsSource(resolved_db),
         market=DbMarketPriceSource(resolved_market),
         meta=DbMetaSource(resolved_db, resolved_runs, indicators_db),
-        system=DbSystemSource(resolved_db, resolved_runs, indicators_db, resolved_market),
         er_level_calibration=load_er_level_calibration_context(
             root / ER_LEVEL_CALIBRATION_CONTEXT_PATH,
             expected_method_identity=screening_calibration_method_identity(root),

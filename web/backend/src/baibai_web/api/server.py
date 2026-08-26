@@ -26,7 +26,6 @@ from baibai_web.readmodel.builders import (
     build_screening,
     build_screening_history_run,
     build_security_detail,
-    build_system_view,
 )
 from baibai_web.readmodel.models import (
     BargainAssessmentView,
@@ -41,7 +40,6 @@ from baibai_web.readmodel.models import (
     ScreeningHistoryView,
     ScreeningView,
     SecurityDetailView,
-    SystemView,
 )
 from baibai_web.sources.factory import Sources, build_sources, load_macro_groups
 
@@ -191,10 +189,6 @@ def create_app(
     @app.get("/api/meta", response_model=MetaView)
     def meta(sources: _SourceDependency) -> MetaView:
         return build_meta(sources.meta)
-
-    @app.get("/api/system", response_model=SystemView)
-    def system(sources: _SourceDependency) -> SystemView:
-        return build_system_view(sources.system)
 
     @app.get("/api/securities/{ticker}", response_model=SecurityDetailView)
     def security_detail(

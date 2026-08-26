@@ -38,11 +38,11 @@ def test_every_route_the_worker_serves_has_a_model_in_the_contract() -> None:
 
     assert set(ROOT_VIEWS) == served
     assert set(COMPUTED_VIEWS) == computed
-    # `/api/health` returns a plain dict and `system/latest-run.json` comes from the
-    # batch, so neither belongs to the read models. Naming them keeps a future route
-    # from being dropped silently by widening the exclusion.
+    # `/api/health` returns a plain dict, so it does not belong to the read models.
+    # Naming it keeps a future route from being dropped silently by widening the
+    # exclusion.
     assert "/api/health" in ROUTES["computed_routes"]
-    assert set(ROUTES["edge_routes"].values()) == {"system/latest-run.json"}
+    assert ROUTES["edge_routes"] == {}
 
 
 def _definition(schema: Mapping[str, object], reference: str) -> Mapping[str, object]:

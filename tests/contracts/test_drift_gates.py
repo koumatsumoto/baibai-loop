@@ -497,16 +497,11 @@ def test_documented_command_gate_reads_the_dispatch_the_repository_script_runs()
 
 
 def test_documented_command_gate_resolves_batch_modules(tmp_path: Path) -> None:
-    """`baibai_batch.` は skill に書かれた日まで entry point として解決されなかった。"""
+    """A batch module with no required option is a complete documented command."""
 
     _skill(tmp_path, "```bash\nuv run python -m baibai_batch.observability.discord\n```\n")
 
-    assert check_documented_commands.check(tmp_path) == [
-        (
-            ".agents/skills/demo/SKILL.md: "
-            "`uv run python -m baibai_batch.observability.discord` omits required --output"
-        )
-    ]
+    assert check_documented_commands.check(tmp_path) == []
 
 
 def test_documented_command_gate_reads_inline_code_spans(tmp_path: Path) -> None:

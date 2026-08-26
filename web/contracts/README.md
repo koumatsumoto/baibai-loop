@@ -37,6 +37,4 @@ degrade が扱う（`batch/OPERATIONS.md`）。
 
 ## 生成に含まれないもの
 
-`system/latest-run.json` は daily batch が `baibai_batch.observability` から書くので read model
-ではない。その型は `web/frontend/src/api/run-summary.ts` に手で書く。`/api/health` は plain dict を
-返すので view model を持たない。
+`/api/health` は plain dict を返すので view model を持たない。

@@ -600,51 +600,6 @@ def test_pull_longlist_history_refuses_to_overwrite_a_local_target(tmp_path: Pat
     assert not log.exists()
 
 
-def test_pull_run_summary_reads_one_serving_object_without_overwrite(tmp_path: Path) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-    output = tmp_path / "preflight/latest-run.json"
-
-    subprocess.run(
-        [TRANSFER_SCRIPT, "pull-run-summary", output],
-        cwd=REPO_ROOT,
-        env=_environment(bin_dir, log),
-        check=True,
-    )
-
-    assert output.is_file()
-    commands = _transfer_commands(log)
-    assert len(commands) == 1
-    assert "s3://baibai-serving/system/latest-run.json" in commands[0]
-
-    completed = subprocess.run(
-        [TRANSFER_SCRIPT, "pull-run-summary", output],
-        cwd=REPO_ROOT,
-        env=_environment(bin_dir, log),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert completed.returncode == 2
-    assert "refusing run summary download overwrite" in completed.stderr
-
-
-def test_pull_run_summary_refuses_an_option_like_target(tmp_path: Path) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-
-    completed = subprocess.run(
-        [TRANSFER_SCRIPT, "pull-run-summary", "--profile"],
-        cwd=REPO_ROOT,
-        env=_environment(bin_dir, log),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 2
-    assert "refusing option-like run summary path" in completed.stderr
-    assert not log.exists()
-
-
 APP_STORE = REPO_ROOT / "stores/application/baibai.sqlite"
 
 
@@ -701,7 +656,6 @@ def test_only_the_application_pull_names_the_application_store() -> None:
         "pull-market",
         "pull-runs",
         "pull-longlist-history",
-        "pull-run-summary",
     }
     assert naming_app == {"pull-app"}
 
@@ -748,69 +702,6 @@ def test_serving_publish_is_github_actions_only(tmp_path: Path, subcommand: str)
 
     completed = subprocess.run(
         [TRANSFER_SCRIPT, subcommand, output],
-        cwd=REPO_ROOT,
-        env=_environment(bin_dir, log),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 2
-    assert "outside GitHub Actions" in completed.stderr
-    assert not log.exists()
-
-
-def test_run_summary_upload_writes_one_object_outside_the_views_prefix(
-    tmp_path: Path,
-) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-    summary = tmp_path / "workflow-run-summary.json"
-    summary.write_text('{"schema_version": 1}', encoding="utf-8")
-    env = _environment(bin_dir, log)
-    env["GITHUB_ACTIONS"] = "true"
-
-    subprocess.run(
-        [TRANSFER_SCRIPT, "upload-run-summary", summary],
-        cwd=REPO_ROOT,
-        env=env,
-        check=True,
-    )
-
-    commands = _transfer_commands(log)
-    assert len(commands) == 1
-    assert commands[0].startswith("s3 cp ")
-    # Not under views/, which `upload-serving` mirrors with --delete.
-    assert "s3://baibai-serving/system/latest-run.json" in commands[0]
-
-
-def test_run_summary_upload_reports_a_missing_summary_without_uploading(
-    tmp_path: Path,
-) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-    env = _environment(bin_dir, log)
-    env["GITHUB_ACTIONS"] = "true"
-
-    completed = subprocess.run(
-        [TRANSFER_SCRIPT, "upload-run-summary", tmp_path / "absent.json"],
-        cwd=REPO_ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 2
-    assert "no workflow run summary to upload" in completed.stderr
-    assert not log.exists()
-
-
-def test_run_summary_upload_is_github_actions_only(tmp_path: Path) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-    summary = tmp_path / "workflow-run-summary.json"
-    summary.write_text('{"schema_version": 1}', encoding="utf-8")
-
-    completed = subprocess.run(
-        [TRANSFER_SCRIPT, "upload-run-summary", summary],
         cwd=REPO_ROOT,
         env=_environment(bin_dir, log),
         check=False,

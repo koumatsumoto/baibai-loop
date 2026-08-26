@@ -4,10 +4,10 @@ Read-only app invariants:
 
 `baibai-web` は `127.0.0.1` にだけbindし、write endpoint、migration、external network clientを持
 たない。application DB / run store / macro storeをSQLite read-only modeで開く。
-UIの面は8つで、3タブ (`/` Dashboard、`/macro` Macro、`/stocks` Stocks)、
+UIの面は7つで、3タブ (`/` Dashboard、`/macro` Macro、`/stocks` Stocks) と
 タブなし詳細 (`/macro/reports/:contextId` Macro report、`/stocks/shortlist` Shortlist、
-`/stocks/assessments/:assessmentId` Bargain assessment、`/securities/:ticker` Security detail)、
-ヘッダーの歯車から入る運用状態画面 (`/system` System) である。proposal全state、
+`/stocks/assessments/:assessmentId` Bargain assessment、`/securities/:ticker` Security detail)
+である。ヘッダーの歯車 menu は GitHub Actions の run 一覧へ外部 link する。proposal全state、
 operation active/completed、portfolio outcomeをquery-only viewで表示する。
 Dashboardは前営業日の機械実行との差分 (候補プールの出入り、機械E[r]の変化、
 FVに達した保有、macro readingの注記と分布の端の遷移) を観測として1区画に出す。

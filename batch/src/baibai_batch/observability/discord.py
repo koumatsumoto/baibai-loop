@@ -1,98 +1,87 @@
-"""Discord run-notification adapter for the cloud daily batch.
+"""Discord run notification for the cloud daily batch.
 
-This is a per-workflow notification adapter, not a logging handler and not a
-shared notifier: it composes the terminal ``WorkflowRunSummary`` for one workflow
-run, renders a bounded Discord message, and POSTs it once to the webhook named by
-the ``DISCORD_WEBHOOK_URL`` repository secret. The channel is fixed by the
-webhook (``#batch-runs``); this code never selects a channel.
+One message per terminal state of ``cloud-daily-batch``. It serves the daily
+machine loop's "見せる" role: from one message a reader learns whether the day's
+artefacts were published, which step to open when they were not, and which names
+entered or left the longlist — the only channel that reaches the reader without
+being opened. Everything else about a run (durations, per-batch metrics, the lake
+release) lives in the workflow log the ``run:`` line points at.
 
 Dependency-free by design: only the Python standard library and no 3.13+ syntax,
 so the notification step (and the pre-``setup-python`` smoke check) can import
 and run it on the GitHub-hosted runner's system ``python3``.
 
-Secret handling follows the issue contract: the webhook URL is read only from the
-notification step's environment, never from a CLI argument, and is never echoed.
-Validation failures, timeouts, and HTTP errors exit non-zero with a sanitized
-reason that omits the URL and any response body, so a run whose data processing
-succeeded still fails loudly when delivery fails.
+The webhook URL is read only from the notification step's environment, never from
+a CLI argument, and never echoed. Validation failures, timeouts and HTTP errors
+report a sanitized reason that omits the URL and any response body. A delivery
+failure is printed and the script still exits 0: a red job means the day's
+artefacts were not published (``docs/architecture.md`` §Failure policy), and a
+broken webhook is not that.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import re
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
-from dataclasses import replace
-from datetime import UTC, datetime
 from pathlib import Path
-
-from baibai_batch.observability.summary import (
-    DELIVERY_DELIVERED,
-    DELIVERY_FAILED,
-    DELIVERY_NOT_ATTEMPTED,
-    EXECUTION_AVAILABLE,
-    EXECUTION_NOT_STARTED,
-    EXECUTION_UNAVAILABLE,
-    OUTCOME_CANCELLED,
-    OUTCOME_DEGRADED,
-    OUTCOME_FAILED,
-    OUTCOME_LABELS,
-    OUTCOME_SKIPPED,
-    OUTCOME_SUCCEEDED,
-    PUBLISH_GENERATED,
-    PUBLISH_NOT_GENERATED,
-    PUBLISH_PUBLISHED,
-    PUBLISH_UPLOAD_FAILED,
-    WORKFLOW_SUMMARY_SCHEMA_VERSION,
-    BatchError,
-    Delivery,
-    Execution,
-    LakeReleaseSummary,
-    SummaryValidationError,
-    WorkflowRunSummary,
-    load_batch_execution_summary,
-    order_errors_for_display,
-    sanitize_one_line,
-    write_json_atomic,
-)
 
 WEBHOOK_ENV_VAR = "DISCORD_WEBHOOK_URL"
 DEFAULT_TIMEOUT_SECONDS = 10.0
 MESSAGE_MAX_CHARS = 2000
-ERRORS_SHOWN = 3
-# The metrics that name the tickers which entered and left the machine pool. Both
-# are lists, so each gets a line of its own instead of the scalar metric run; a
-# reader who only sees the notification can start on the day's names from them.
-ENTERED_TICKERS_METRIC = "delta_entered_tickers"
-EXITED_TICKERS_METRIC = "delta_exited_tickers"
-# Whether the export could read the delta view at all, and why not. A zero count and
-# an unreadable view are different facts and the line has to say which one it is.
-DELTA_MEASURED_METRIC = "delta_measured"
-DELTA_UNAVAILABLE_METRIC = "delta_unavailable"
-# Keys the message renders in their own line and must not repeat inside a batch's
-# scalar metric run.
-_METRICS_RENDERED_SEPARATELY = frozenset({ENTERED_TICKERS_METRIC, EXITED_TICKERS_METRIC})
 ENTERED_TICKERS_SHOWN = 5
-# One entry is already bounded by the producer; bounding it again keeps a summary
-# file this process did not write from setting the message's width.
-_ENTERED_ENTRY_MAX_CHARS = 48
-_ENTERED_TICKERS_PREFIX = "🆕 新規 longlist 入り: "
-_EXITED_TICKERS_PREFIX = "👋 longlist 退出: "
+_SCALAR_MAX_CHARS = 120
+_ENTRY_MAX_CHARS = 48
+
+OUTCOME_OK = "ok"
+OUTCOME_SKIPPED = "skipped"
+OUTCOME_DEGRADED = "degraded"
+OUTCOME_FAILED = "failed"
+OUTCOME_CANCELLED = "cancelled"
+OUTCOME_LABELS = {
+    OUTCOME_OK: "[OK]",
+    OUTCOME_SKIPPED: "[SKIPPED]",
+    OUTCOME_DEGRADED: "[DEGRADED]",
+    OUTCOME_FAILED: "[FAILED]",
+    OUTCOME_CANCELLED: "[CANCELLED]",
+}
+# The batch published the screening result but a deferred step (macro / prune)
+# failed afterwards. The job stays green; this label is how the failure reaches
+# the reader.
+EXIT_DEFERRED_FAILURE = "3"
+
+# Non-batch workflow steps in execution order. The first one that neither
+# succeeded nor was skipped names where the reader should look first; a step that
+# was cancelled rather than failed still stopped the publish.
+STEP_ORDER = (
+    "smoke",
+    "setup",
+    "sync",
+    "pull",
+    "hydrate",
+    "publish-lake",
+    "upload-stores",
+    "publish-serving",
+)
+
+_ENTERED_PREFIX = "🆕 新規 longlist 入り: "
+_EXITED_PREFIX = "👋 longlist 退出: "
 _DELTA_EMPTY_TEXT = "なし"
 _DELTA_UNMEASURED_TEXT = "計測なし"
 _DELTA_UNMEASURED_UNKNOWN_REASON = "理由不明"
 _DELTA_UNREADABLE_REASON = "metric_unreadable"
 _DISCORD_HOSTS = ("discord.com", "discordapp.com")
 _WEBHOOK_PATH_PREFIX = "/api/webhooks/"
-# C0 controls, space, and DEL. A URL carrying any of these reaches http.client,
-# which raises InvalidURL with the offending path (and therefore the token) in
-# its message.
+# Any C0 control, space, or DEL: a webhook secret pasted with stray whitespace
+# would otherwise reach http.client and be quoted (token included) in its error.
 _FORBIDDEN_URL_CHARS = re.compile(r"[\x00-\x20\x7f]")
 
 
@@ -108,9 +97,9 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
     ``prepare_webhook_url`` validates the initial URL's host; following a redirect
     would skip that check for the ``Location`` target. A redirect therefore raises
-    ``HTTPError`` (a ``URLError``), which ``deliver`` reports as a sanitized
-    failure. Discord's ``wait=true`` endpoint replies 200 directly, so legitimate
-    delivery never needs a redirect.
+    ``HTTPError``, which ``deliver`` reports as a sanitized failure. Discord's
+    ``wait=true`` endpoint replies 200 directly, so legitimate delivery never
+    needs a redirect.
     """
 
     def redirect_request(
@@ -140,17 +129,42 @@ def _urllib_transport(url: str, body: bytes, timeout: float) -> int:
         return int(response.status)
 
 
+def sanitize_one_line(value: object, max_chars: int = _SCALAR_MAX_CHARS) -> str:
+    """Render a value as bounded single-line text.
+
+    Whitespace runs collapse to one space and braces are stripped, so a value
+    written by another process can never inject a newline or a format
+    placeholder into a rendered message.
+    """
+
+    text = re.sub(r"\s+", " ", str(value)).strip()
+    text = text.replace("{", "").replace("}", "")
+    return text[:max_chars]
+
+
+def write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
+    """Write JSON via a temp file + rename so a reader never sees a partial file."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, tmp_name = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
+            handle.write("\n")
+        tmp_path.replace(path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp_path.unlink()
+        raise
+
+
 def prepare_webhook_url(raw_url: str) -> str:
     """Validate the webhook URL and return it with ``wait=true`` for delivery.
 
     Rejects an unset URL, a non-HTTPS scheme, a non-Discord host, a non-webhook
     path, and any control character or space. The error never includes the URL or
     its token.
-
-    The whitespace check is what keeps the token out of the Actions log: a secret
-    pasted with a stray space survives ``urlsplit`` (which only strips leading C0
-    bytes and ``\\t\\r\\n``) and reaches ``http.client``, whose ``InvalidURL``
-    quotes the offending path — token included.
     """
 
     url = raw_url.strip()
@@ -171,351 +185,64 @@ def prepare_webhook_url(raw_url: str) -> str:
     return urllib.parse.urlunparse(parsed._replace(query=query))
 
 
-def _github_metadata(env: Mapping[str, str]) -> dict[str, str]:
+def run_url(env: Mapping[str, str]) -> str:
     server = env.get("GITHUB_SERVER_URL", "https://github.com")
     repository = env.get("GITHUB_REPOSITORY", "local/local")
     run_id = env.get("GITHUB_RUN_ID", "0")
     attempt = env.get("GITHUB_RUN_ATTEMPT", "1")
-    return {
-        "workflow": env.get("GITHUB_WORKFLOW", "cloud-daily-batch"),
-        "repository": repository,
-        "trigger": env.get("GITHUB_EVENT_NAME", "unknown"),
-        "run_attempt": attempt,
-        "run_url": f"{server}/{repository}/actions/runs/{run_id}/attempts/{attempt}",
-    }
+    return f"{server}/{repository}/actions/runs/{run_id}/attempts/{attempt}"
 
 
-def _load_execution(
-    summary_path: Path | None, batch_exit_code: str, failed_step: str
-) -> tuple[Execution, BatchError | None]:
-    """Build the execution union from the batch step's reachability and summary.
+def load_notice(path: Path | None) -> dict[str, object]:
+    """Read what the batch left for the notifier; anything unreadable reads as absent.
 
-    Returns the execution and, when the summary is unavailable, the contract error
-    describing why.
+    The batch writes the notice on every terminal path it reaches. No notice means
+    the batch never reached one (it was not started, or died before its first
+    line), which the exit code and the step outcomes already say.
     """
 
-    if batch_exit_code == "":
-        # The batch was never reached. Only the tracked steps can be named; a
-        # failure in an untracked one (checkout, setup-uv, the Playwright steps)
-        # must not be attributed to "setup", which sends the reader to a step
-        # that in fact succeeded.
-        return Execution.not_started(failed_step or "pre-batch"), None
-    if summary_path is None:
-        error = BatchError.summary_invalid(reason="summary_missing")
-        return Execution.unavailable(error), error
+    if path is None:
+        return {}
     try:
-        summary = load_batch_execution_summary(summary_path)
-    except SummaryValidationError as exc:
-        error = BatchError.summary_invalid(reason=exc.reason)
-        return Execution.unavailable(error), error
-    return Execution.available(summary), None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def derive_failed_step(step_outcomes: Mapping[str, str]) -> str:
+    """Name the workflow step a reader should open first, or "" when none stands out."""
+
+    for step in STEP_ORDER:
+        if step_outcomes.get(step, "skipped") not in {"success", "skipped"}:
+            return step
+    return ""
 
 
 def decide_outcome(
     *,
-    execution: Execution,
     batch_exit_code: str,
-    publish_state: str,
     failed_step: str,
-) -> tuple[str, str, bool]:
-    """Apply the terminal-outcome decision table.
+    cancelled: bool,
+    skipped: bool,
+) -> str:
+    """Map the observable workflow state to the one label the message carries."""
 
-    Returns ``(overall_outcome, publish_state, conflict)``. ``conflict`` is set
-    when an available batch summary claims a publish state the observable workflow
-    state contradicts (e.g. the summary says succeeded but nothing was published);
-    the caller records a ``summary_conflict`` error and reports ``[FAILED]`` so a
-    silent publish regression cannot be reported as ``[OK]``.
-    """
-
-    if batch_exit_code == "":
-        return OUTCOME_FAILED, PUBLISH_NOT_GENERATED, False
-    if failed_step:
-        return OUTCOME_FAILED, publish_state, False
-    if execution.kind == EXECUTION_UNAVAILABLE:
-        return OUTCOME_FAILED, publish_state, False
-    if publish_state == PUBLISH_UPLOAD_FAILED:
-        return OUTCOME_FAILED, publish_state, False
-    summary = execution.summary
-    if summary is None:
-        return OUTCOME_FAILED, publish_state, False
-    summary_outcome = summary.outcome
-    if summary_outcome == OUTCOME_SKIPPED:
-        return OUTCOME_SKIPPED, PUBLISH_NOT_GENERATED, False
-    if summary_outcome in (OUTCOME_SUCCEEDED, OUTCOME_DEGRADED):
-        # These outcomes assert the run published; the observable publish state
-        # must agree, else the summary contradicts the workflow state.
-        if publish_state != PUBLISH_PUBLISHED:
-            return OUTCOME_FAILED, publish_state, True
-        return summary_outcome, PUBLISH_PUBLISHED, False
-    return OUTCOME_FAILED, publish_state, False
-
-
-# Non-batch steps whose failure is a workflow (not batch) failure, in step order.
-# exit 3 は job を赤にしない。[DEGRADED] は summary が運ぶ。
-_NON_BATCH_STEPS: tuple[tuple[str, str], ...] = (
-    ("smoke", "smoke"),
-    ("setup", "setup"),
-    ("sync", "sync"),
-    ("pull-stores", "pull"),
-    ("hydrate", "hydrate"),
-    ("publish-lake", "publish-lake"),
-    ("upload-machine", "upload-machine"),
-    ("upload-serving", "upload-serving"),
-    ("publish-serving", "publish-serving"),
-)
-
-# The store push and the views mirror run inside one step and report themselves
-# through its outputs. Those outputs are absent whenever the step did not reach its
-# own last lines — a job timeout, a cancel, a dead runner — and the step's GitHub
-# outcome is the only account of that run. Reading the absence as "did not upload"
-# would report a run that may have half-replaced production views as one that
-# published nothing. A mirror the step deliberately did not run says so with
-# `skipped`, which is a measurement and not this absence.
-_UPLOAD_BRANCH_KEYS = ("upload-machine", "upload-serving")
-
-
-def _upload_ended_without_reporting(step_outcomes: Mapping[str, str]) -> bool:
-    step_outcome = step_outcomes.get("upload-stores", "skipped")
-    if step_outcome in {"skipped", "success"}:
-        return False
-    return any(step_outcomes.get(key, "") == "" for key in _UPLOAD_BRANCH_KEYS)
-
-
-def derive_failed_step(step_outcomes: Mapping[str, str]) -> str:
-    """Name the step a reader should open first, or "" when none stands out."""
-
-    for stage, key in _NON_BATCH_STEPS:
-        if step_outcomes.get(key) == "failure":
-            return stage
-    if _upload_ended_without_reporting(step_outcomes):
-        # Neither side reported, so how far the step got is unknown. The step that
-        # runs both is the honest answer; naming one branch would send the reader
-        # after a push that may have been fine while the mirror was mid-delete.
-        return "upload-stores"
-    # A step that was cancelled rather than failed still stopped the publish, and
-    # the reader needs somewhere to start.
-    if step_outcomes.get("publish-serving", "skipped") not in {"skipped", "success"}:
-        return "publish-serving"
-    return ""
-
-
-def derive_publish_state(*, local_export: bool, step_outcomes: Mapping[str, str]) -> str:
-    """Derive the R2 publish state from the upload outcomes + local export.
-
-    An upload failure wins, because the remote may be partially updated; so does an
-    upload step that ended without saying what it managed, for the same reason.
-    Otherwise every stage succeeding means published, a local export that never
-    uploaded is generated, and no export is not_generated.
-    """
-
-    upload_machine = step_outcomes.get("upload-machine", "skipped")
-    upload_serving = step_outcomes.get("upload-serving", "skipped")
-    publish_serving = step_outcomes.get("publish-serving", "skipped")
-    if "failure" in {upload_machine, upload_serving, publish_serving}:
-        return PUBLISH_UPLOAD_FAILED
-    if _upload_ended_without_reporting(step_outcomes):
-        return PUBLISH_UPLOAD_FAILED
-    if upload_machine == "success" and upload_serving == "success":
-        if publish_serving == "success":
-            return PUBLISH_PUBLISHED
-        return PUBLISH_UPLOAD_FAILED
-    if local_export:
-        return PUBLISH_GENERATED
-    return PUBLISH_NOT_GENERATED
-
-
-def _total_duration_seconds(run_started_at: str) -> float:
-    try:
-        started = datetime.fromisoformat(run_started_at)
-    except ValueError:
-        return 0.0
-    now = datetime.now(UTC)
-    if started.tzinfo is None:
-        started = started.replace(tzinfo=UTC)
-    duration = (now - started).total_seconds()
-    return max(duration, 0.0)
-
-
-def read_lake_publish_report(path: Path | None, *, outcome: str) -> LakeReleaseSummary | None:
-    """Read this run's transient publication report after successful publication."""
-
-    if path is None or outcome != "success":
-        return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    if not isinstance(payload, dict):
-        return None
-    changed = payload.get("changed_partitions")
-    total = sum(changed.values()) if isinstance(changed, dict) else 0
-    try:
-        return LakeReleaseSummary.from_json(
-            {
-                "release_id": payload.get("release_id"),
-                "data_as_of": payload.get("data_as_of"),
-                "changed_partitions": total,
-                "uploaded_objects": payload.get("uploaded_objects"),
-                "uploaded_bytes": payload.get("uploaded_bytes"),
-            }
-        )
-    except SummaryValidationError:
-        return None
-
-
-def build_workflow_summary(
-    *,
-    summary_path: Path | None,
-    batch_exit_code: str,
-    local_export: bool,
-    step_outcomes: Mapping[str, str],
-    asof: str,
-    run_started_at: str,
-    env: Mapping[str, str],
-    cancelled: bool = False,
-    lake: LakeReleaseSummary | None = None,
-) -> WorkflowRunSummary:
-    failed_step = derive_failed_step(step_outcomes)
-    publish_state = derive_publish_state(local_export=local_export, step_outcomes=step_outcomes)
-    execution, contract_error = _load_execution(summary_path, batch_exit_code, failed_step)
-    overall_outcome, final_publish_state, conflict = decide_outcome(
-        execution=execution,
-        batch_exit_code=batch_exit_code,
-        publish_state=publish_state,
-        failed_step=failed_step,
-    )
     if cancelled:
-        # An interrupted run never reached a terminal state of its own, so the
-        # step outcomes below describe a partial run. Publish state stays as
-        # observed: the cut can land before or after either upload.
-        overall_outcome = OUTCOME_CANCELLED
-    workflow_errors: list[BatchError] = []
+        return OUTCOME_CANCELLED
     if failed_step:
-        workflow_errors.append(
-            BatchError.build(code="step_failed", stage=failed_step, impact="failed")
-        )
-    elif execution.kind == EXECUTION_NOT_STARTED:
-        # No tracked step reports the failure, so without this the report names a
-        # stage and then shows no error at all.
-        workflow_errors.append(
-            BatchError.build(
-                code="step_failed", stage=execution.stage or "pre-batch", impact="failed"
-            )
-        )
-    if contract_error is not None:
-        workflow_errors.append(contract_error)
-    if conflict:
-        workflow_errors.append(
-            BatchError.build(code="summary_conflict", stage="summary", impact="failed")
-        )
-
-    # The workflow asof is free-text dispatch input; sanitize it before it can
-    # reach the message. The batch summary's asof (when available) is already
-    # validated by daily_batch and takes precedence.
-    summary_asof: str | None = sanitize_one_line(asof) if asof else None
-    if execution.kind == EXECUTION_AVAILABLE and execution.summary is not None:
-        summary_asof = execution.summary.asof
-
-    return WorkflowRunSummary(
-        schema_version=WORKFLOW_SUMMARY_SCHEMA_VERSION,
-        workflow=env.get("GITHUB_WORKFLOW", "cloud-daily-batch"),
-        repository=env.get("GITHUB_REPOSITORY", "local/local"),
-        trigger=env.get("GITHUB_EVENT_NAME", "unknown"),
-        run_attempt=env.get("GITHUB_RUN_ATTEMPT", "1"),
-        run_url=_github_metadata(env)["run_url"],
-        asof=summary_asof,
-        finished_at=datetime.now(UTC).isoformat(),
-        duration_seconds=_total_duration_seconds(run_started_at),
-        overall_outcome=overall_outcome,
-        publish_state=final_publish_state,
-        execution=execution,
-        delivery=Delivery(status=DELIVERY_NOT_ATTEMPTED),
-        workflow_errors=tuple(workflow_errors),
-        lake=lake,
-    )
+        return OUTCOME_FAILED
+    if batch_exit_code == "0":
+        return OUTCOME_SKIPPED if skipped else OUTCOME_OK
+    if batch_exit_code == EXIT_DEFERRED_FAILURE:
+        return OUTCOME_DEGRADED
+    return OUTCOME_FAILED
 
 
-def _collect_errors(summary: WorkflowRunSummary) -> list[BatchError]:
-    errors: list[BatchError] = list(summary.workflow_errors)
-    if summary.execution.kind == EXECUTION_AVAILABLE and summary.execution.summary is not None:
-        for batch in summary.execution.summary.batches:
-            errors.extend(batch.errors)
-    elif summary.execution.kind == EXECUTION_UNAVAILABLE and summary.execution.error is not None:
-        errors.append(summary.execution.error)
-    # The contract error is held by both `execution` and `workflow_errors`, and
-    # only three errors are shown: a duplicate would push a real one out of view.
-    unique: list[BatchError] = []
-    seen: set[tuple[str, str, str, str]] = set()
-    for error in errors:
-        key = (error.code, error.stage, error.impact, error.message)
-        if key not in seen:
-            seen.add(key)
-            unique.append(error)
-    return order_errors_for_display(unique)
-
-
-def _format_metrics(metrics: Mapping[str, object]) -> str:
-    keys = sorted(set(metrics) - _METRICS_RENDERED_SEPARATELY)
-    if not keys:
-        return ""
-    return " ".join(f"{key}={metrics[key]}" for key in keys)
-
-
-def _render_delta_tickers(summary: WorkflowRunSummary) -> list[str]:
-    """Render both sides of the pool delta, one line each, on every run.
-
-    Silence would carry three different facts — nothing entered, the delta could not
-    be measured, and the notification path is broken — and a reader cannot tell them
-    apart. So the lines are always present and say which case it is; what changes
-    between a quiet day and an actionable one is the text, not whether the line
-    exists.
-
-    The lines appear only when the batch summary is available, because that is where
-    the metrics live. A run that never got that far already says so in its own line.
-
-    Entries are sanitized here as well as at the producer because the summary file
-    is another process's output — a newline in it would otherwise forge lines in the
-    message.
-    """
-
-    if summary.execution.kind != EXECUTION_AVAILABLE or summary.execution.summary is None:
-        return []
-    lines: list[str] = []
-    for batch in summary.execution.summary.batches:
-        metrics = batch.metrics
-        if not any(key in metrics for key in (ENTERED_TICKERS_METRIC, EXITED_TICKERS_METRIC)):
-            continue
-        unmeasured = _delta_unmeasured_reason(metrics)
-        lines.append(
-            _ENTERED_TICKERS_PREFIX
-            + _render_delta_side(metrics, ENTERED_TICKERS_METRIC, unmeasured)
-        )
-        lines.append(
-            _EXITED_TICKERS_PREFIX + _render_delta_side(metrics, EXITED_TICKERS_METRIC, unmeasured)
-        )
-    return lines
-
-
-def _delta_unmeasured_reason(metrics: Mapping[str, object]) -> str | None:
-    """Return why the delta is unmeasured, or None when it was measured."""
-
-    measured = metrics.get(DELTA_MEASURED_METRIC)
-    if measured is not False:
-        return None
-    reason = metrics.get(DELTA_UNAVAILABLE_METRIC)
-    text = sanitize_one_line(reason, _ENTERED_ENTRY_MAX_CHARS) if reason is not None else ""
-    return text or _DELTA_UNMEASURED_UNKNOWN_REASON
-
-
-def _render_delta_side(metrics: Mapping[str, object], metric: str, unmeasured: str | None) -> str:
-    if unmeasured is not None:
-        return f"{_DELTA_UNMEASURED_TEXT}（{unmeasured}）"
-    value = metrics.get(metric)
+def _render_side(value: object) -> str:
     if not isinstance(value, list):
         return f"{_DELTA_UNMEASURED_TEXT}（{_DELTA_UNREADABLE_REASON}）"
-    entries = [
-        text for item in value if (text := sanitize_one_line(item, _ENTERED_ENTRY_MAX_CHARS))
-    ]
+    entries = [text for item in value if (text := sanitize_one_line(item, _ENTRY_MAX_CHARS))]
     if not entries:
         return _DELTA_EMPTY_TEXT
     rendered = " / ".join(entries[:ENTERED_TICKERS_SHOWN])
@@ -524,53 +251,44 @@ def _render_delta_side(metrics: Mapping[str, object], metric: str, unmeasured: s
     return rendered
 
 
-def _render_error_overview(errors: list[BatchError]) -> list[str]:
-    if not errors:
+def render_delta(notice: Mapping[str, object]) -> list[str]:
+    """Render both sides of the longlist delta, one line each, whenever a pool exists.
+
+    Silence would carry three different facts — nothing entered, the delta could not
+    be measured, and the notification path is broken — and a reader cannot tell them
+    apart. So on every run that reached the export the two lines are present and say
+    which case it is. A non-business day has no pool and no lines.
+    """
+
+    if not notice or notice.get("skipped") is True:
         return []
-    lines = ["errors:"]
-    for error in errors[:ERRORS_SHOWN]:
-        lines.append(f"- [{error.impact}] {error.message}")
-    if len(errors) > ERRORS_SHOWN:
-        lines.append(f"- +{len(errors) - ERRORS_SHOWN} more")
-    return lines
-
-
-def render_message(summary: WorkflowRunSummary) -> str:
-    """Render a deterministic, bounded (<=2000 char) Discord message."""
-
-    label = OUTCOME_LABELS[summary.overall_outcome]
-    lines = [
-        f"{label} {summary.overall_outcome} — {summary.workflow}",
-        f"repo: {summary.repository} | trigger: {summary.trigger} | attempt: {summary.run_attempt}",
-        (
-            f"as-of: {summary.asof or '-'} | duration: {summary.duration_seconds:.1f}s "
-            f"| publish: {summary.publish_state}"
-        ),
-    ]
-    if summary.execution.kind == EXECUTION_AVAILABLE and summary.execution.summary is not None:
-        lines.append("batches:")
-        for batch in summary.execution.summary.batches:
-            metrics = _format_metrics(batch.metrics)
-            suffix = f": {metrics}" if metrics else ""
-            lines.append(f"- {batch.batch_name} {batch.status}{suffix}")
-    elif summary.execution.kind == EXECUTION_NOT_STARTED:
-        lines.append(f"batch not started (failed at: {summary.execution.stage})")
-    elif summary.execution.kind == EXECUTION_UNAVAILABLE:
-        lines.append("batch summary unavailable")
-    if summary.lake is not None:
-        lake = summary.lake
-        lines.append(
-            # The release as-of is the floor across its datasets, not the newest one:
-            # a weekly balance with a publication lag sets it while the bars are current.
-            # Printing it as "as-of" beside the run's own as-of reads as a stale lake.
-            f"lake: {lake.release_id} min as-of {lake.data_as_of} | "
-            f"new {lake.changed_partitions} partition(s) | "
-            f"uploaded {lake.uploaded_objects} object(s), {lake.uploaded_bytes} bytes"
+    if notice.get("delta_measured") is not True:
+        reason = sanitize_one_line(
+            notice.get("delta_unmeasured_reason") or _DELTA_UNMEASURED_UNKNOWN_REASON,
+            _ENTRY_MAX_CHARS,
         )
-    lines.extend(_render_delta_tickers(summary))
-    lines.extend(_render_error_overview(_collect_errors(summary)))
-    lines.append(f"run: {summary.run_url}")
+        text = f"{_DELTA_UNMEASURED_TEXT}（{reason}）"
+        return [_ENTERED_PREFIX + text, _EXITED_PREFIX + text]
+    return [
+        _ENTERED_PREFIX + _render_side(notice.get("entered")),
+        _EXITED_PREFIX + _render_side(notice.get("exited")),
+    ]
 
+
+def render_message(
+    *,
+    outcome: str,
+    asof: str,
+    failed_step: str,
+    notice: Mapping[str, object],
+    url: str,
+) -> str:
+    """Render the bounded (<= 2000 chars) message: one headline, the delta, the run."""
+
+    headline = f"{OUTCOME_LABELS[outcome]} as-of {asof or '-'}"
+    if failed_step:
+        headline += f" — failed step: {failed_step}"
+    lines = [headline, *render_delta(notice), f"run: {url}"]
     message = "\n".join(lines)
     if len(message) > MESSAGE_MAX_CHARS:
         message = message[: MESSAGE_MAX_CHARS - 1].rstrip() + "…"
@@ -583,13 +301,13 @@ def deliver(
     *,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     transport: Transport = _urllib_transport,
-) -> Delivery:
-    """POST the message once; return a sanitized delivery result (no retry)."""
+) -> str | None:
+    """POST the message once; return None when delivered, else a sanitized reason."""
 
     try:
         url = prepare_webhook_url(raw_url)
     except DeliveryError as exc:
-        return Delivery(status=DELIVERY_FAILED, detail=str(exc))
+        return str(exc)
     body = json.dumps(
         {"content": message, "allowed_mentions": {"parse": []}}, ensure_ascii=False
     ).encode("utf-8")
@@ -599,45 +317,28 @@ def deliver(
         # The HTTP status code is a safe scalar and the one fact that separates a
         # revoked webhook (401/404) from rate limiting (429); nothing else from
         # the response crosses the redaction boundary.
-        return Delivery(status=DELIVERY_FAILED, detail=f"delivery failed: http {exc.code}")
+        return f"delivery failed: http {exc.code}"
     except Exception as exc:
         # Deliberately broad: only the exception's *type name* is ever reported, so
         # widening costs no information and closes the redaction boundary. An
-        # allowlist of exception types is fail-open here — anything not listed
-        # escapes as a traceback carrying the URL (and its token) into the log.
-        reason = type(exc).__name__
-        return Delivery(status=DELIVERY_FAILED, detail=f"delivery failed: {reason}")
+        # allowlist of exception types would be fail-open here — anything not
+        # listed escapes as a traceback carrying the URL (and its token).
+        return f"delivery failed: {type(exc).__name__}"
     if 200 <= status < 300:
-        return Delivery(status=DELIVERY_DELIVERED)
-    return Delivery(status=DELIVERY_FAILED, detail=f"delivery failed: http {status}")
+        return None
+    return f"delivery failed: http {status}"
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="notify_discord",
-        description="compose the terminal workflow summary and notify Discord #batch-runs once",
+        description="notify Discord #batch-runs once about the terminal state of a run",
     )
-    parser.add_argument("--summary-path", type=Path, default=None)
+    parser.add_argument("--notice-path", type=Path, default=None)
     parser.add_argument("--batch-exit-code", type=str, default="")
-    parser.add_argument("--local-export", type=str, default="false")
-    parser.add_argument("--smoke-outcome", type=str, default="skipped")
-    parser.add_argument("--setup-outcome", type=str, default="skipped")
-    parser.add_argument("--sync-outcome", type=str, default="skipped")
-    parser.add_argument("--pull-outcome", type=str, default="skipped")
-    parser.add_argument("--upload-machine-outcome", type=str, default="skipped")
-    parser.add_argument("--upload-serving-outcome", type=str, default="skipped")
-    # The step that runs the two uploads together. Its own outcome is supplied by
-    # GitHub on every terminal state, so it is what stands in when the step ended
-    # before it could report which side got through.
-    parser.add_argument("--upload-step-outcome", type=str, default="skipped")
-    parser.add_argument("--publish-serving-outcome", type=str, default="skipped")
-    parser.add_argument("--hydrate-outcome", type=str, default="skipped")
-    parser.add_argument("--publish-lake-outcome", type=str, default="skipped")
-    parser.add_argument("--lake-publish-report-path", type=Path, default=None)
-    parser.add_argument("--asof", type=str, default="")
-    parser.add_argument("--run-started-at", type=str, default="")
+    for step in STEP_ORDER:
+        parser.add_argument(f"--{step}-outcome", type=str, default="skipped")
     parser.add_argument("--cancelled", type=str, default="false")
-    parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS)
     return parser
 
@@ -645,49 +346,39 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transport) -> int:
     args = build_parser().parse_args(argv)
     env = os.environ
+    notice = load_notice(args.notice_path)
     step_outcomes = {
-        "smoke": args.smoke_outcome,
-        "setup": args.setup_outcome,
-        "sync": args.sync_outcome,
-        "pull": args.pull_outcome,
-        "hydrate": args.hydrate_outcome,
-        "publish-lake": args.publish_lake_outcome,
-        "upload-machine": args.upload_machine_outcome,
-        "upload-serving": args.upload_serving_outcome,
-        "upload-stores": args.upload_step_outcome,
-        "publish-serving": args.publish_serving_outcome,
+        step: getattr(args, f"{step.replace('-', '_')}_outcome") for step in STEP_ORDER
     }
-    try:
-        summary = build_workflow_summary(
-            summary_path=args.summary_path,
-            batch_exit_code=args.batch_exit_code,
-            local_export=args.local_export == "true",
-            step_outcomes=step_outcomes,
-            asof=args.asof,
-            run_started_at=args.run_started_at,
-            env=env,
-            cancelled=args.cancelled == "true",
-            lake=read_lake_publish_report(
-                args.lake_publish_report_path,
-                outcome=args.publish_lake_outcome,
-            ),
-        )
-    except SummaryValidationError as exc:
-        print(f"error: cannot compose workflow summary: {exc}", file=sys.stderr)
-        return 1
-    message = render_message(summary)
-    delivery = deliver(
+    failed_step = derive_failed_step(step_outcomes)
+    if not failed_step:
+        if args.batch_exit_code == "":
+            # The batch was never reached and no tracked step failed: an untracked
+            # one (checkout, setup-uv, the Playwright steps) did.
+            failed_step = "pre-batch"
+        elif args.batch_exit_code not in {"0", EXIT_DEFERRED_FAILURE}:
+            failed_step = sanitize_one_line(notice.get("failed_stage") or "batch")
+    outcome = decide_outcome(
+        batch_exit_code=args.batch_exit_code,
+        failed_step=failed_step,
+        cancelled=args.cancelled == "true",
+        skipped=notice.get("skipped") is True,
+    )
+    if outcome == OUTCOME_DEGRADED and not failed_step:
+        failed_step = sanitize_one_line(notice.get("failed_stage") or "")
+    message = render_message(
+        outcome=outcome,
+        asof=sanitize_one_line(notice.get("asof") or ""),
+        failed_step=failed_step,
+        notice=notice,
+        url=run_url(env),
+    )
+    print(message, flush=True)
+    failure = deliver(
         env.get(WEBHOOK_ENV_VAR, ""), message, timeout=args.timeout, transport=transport
     )
-    final_summary = replace(summary, delivery=delivery)
-    # Validate what is about to be published, the same way the batch validates the
-    # summary it writes. This is also the only production caller of the reader, so
-    # the schema rules it encodes stay exercised rather than test-only.
-    payload = WorkflowRunSummary.from_json(final_summary.to_json()).to_json()
-    write_json_atomic(args.output, payload)
-    if delivery.status != DELIVERY_DELIVERED:
-        print(f"error: discord notification failed: {delivery.detail}", file=sys.stderr)
-        return 1
+    if failure is not None:
+        print(f"error: discord notification failed: {failure}", file=sys.stderr)
     return 0
 
 

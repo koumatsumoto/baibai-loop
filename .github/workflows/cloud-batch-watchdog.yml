@@ -43,9 +43,7 @@ jobs:
         id: smoke
         env:
           PYTHONPATH: batch/src
-        run: |
-          python3 -m py_compile batch/src/baibai_batch/jobs/watchdog.py batch/src/baibai_batch/validation/workflow_inputs.py
-          python3 -c "import baibai_batch.jobs.watchdog; import baibai_batch.validation.workflow_inputs"
+        run: python3 -c "import baibai_batch.jobs.watchdog; import baibai_batch.validation.workflow_inputs"
 
       # Validate the untrusted dispatch value before any credential-bearing step.
       # The scheduled event supplies an empty value, which is valid.

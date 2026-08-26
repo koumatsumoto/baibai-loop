@@ -12,10 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from baibai_engine.read_api import (
     MacroGranularity,
     PortfolioSnapshot,
-    ProviderFailureStreak,
-    StoreStats,
     application_db_updated_at,
-    application_store_stats,
     bargain_assessment_payload,
     close_change_since,
     latest_disclosure_dates_after,
@@ -36,18 +33,15 @@ from baibai_engine.read_api import (
     macro_latest_observed_at,
     macro_reading_snapshot,
     macro_series_fetch_health,
-    never_attempted_series,
     next_earnings_dates,
     portfolio_ledger_document,
     previous_business_day,
-    provider_failure_streaks,
     reconcile_portfolio,
     safe_load,
     screening_latest_asof,
     screening_run_asof_dates,
     screening_run_payload,
     screening_selection_payloads,
-    store_stats,
     task_store_exists,
     thesis_publication,
 )
@@ -332,58 +326,6 @@ class DbMacroSource:
             granularity=granularity,
             limit=None,
         )
-
-
-class DbSystemSource:
-    """Read the operational state of the machine stores for the system view.
-
-    Separate from :class:`DbMetaSource`: that one dates the data a judgment view
-    shows, this one answers whether the pipeline behind those stores is working.
-    """
-
-    def __init__(
-        self,
-        app_db_path: Path,
-        runs_db_path: Path,
-        indicators_db_path: Path,
-        market_db_path: Path,
-    ) -> None:
-        self._app_db_path = app_db_path.resolve()
-        self._runs_db_path = runs_db_path.resolve()
-        self._indicators_db_path = indicators_db_path.resolve()
-        self._market_db_path = market_db_path.resolve()
-
-    def stores(self) -> list[StoreStats]:
-        """Return every store in pipeline order: prices, runs, indicators, judgment."""
-
-        return [
-            store_stats("market", self._market_db_path),
-            store_stats("runs", self._runs_db_path),
-            store_stats("macro", self._indicators_db_path),
-            application_store_stats(self._app_db_path),
-        ]
-
-    def application_updated_at(self) -> datetime | None:
-        return application_db_updated_at(self._app_db_path)
-
-    def macro_asof(self) -> date | None:
-        """Date the macro store the same way the judgment views do.
-
-        Reuses the freshness rule (ok status only, retractions hide the date,
-        registered series only) so the operations view cannot report a newer
-        "latest data" than the header the reader sees on every page.
-        """
-
-        return macro_latest_observed_at(self._indicators_db_path)
-
-    def failing_providers(self) -> list[ProviderFailureStreak]:
-        return provider_failure_streaks(self._indicators_db_path)
-
-    def never_attempted(self) -> list[str]:
-        return never_attempted_series(self._indicators_db_path)
-
-    def fetch_health(self) -> list[dict[str, object]]:
-        return macro_series_fetch_health(self._indicators_db_path)
 
 
 class DbMetaSource:

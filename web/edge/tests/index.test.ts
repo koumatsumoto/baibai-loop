@@ -91,9 +91,6 @@ describe('view routing', () => {
     ['/api/screening/history/2026-07-23', 'history/candidate-views/2026-07-23.json'],
     ['/api/operations', 'views/operations.json'],
     ['/api/meta', 'views/meta.json'],
-    ['/api/system', 'views/system.json'],
-    // Outside views/, which the export recreates from scratch each publish.
-    ['/api/system/latest-run', 'system/latest-run.json'],
     ['/api/macro', 'views/macro--1y-daily.json'],
     ['/api/macro?period=max&granularity=yearly', 'views/macro--max-yearly.json'],
     ['/api/macro/reading', 'views/macro-reading.json'],

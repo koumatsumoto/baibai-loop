@@ -24,7 +24,6 @@ from baibai_web.sources.db_sources import (
     DbMacroSource,
     DbMetaSource,
     DbOperationsSource,
-    DbSystemSource,
 )
 from baibai_web.sources.protocols import (
     CandidatesSource,
@@ -112,9 +111,6 @@ from .models import (
     ShortlistEntryView,
     ShortlistView,
     SourceCaveatView,
-    SystemProviderView,
-    SystemStoreView,
-    SystemView,
     TaskView,
     ThesisDetailView,
     UpcomingEventView,
@@ -187,66 +183,6 @@ def build_meta(source: DbMetaSource, *, batch: MetaBatch | None = None) -> MetaV
         app_db_updated_at=source.app_db_updated_at(),
         batch=batch,
     )
-
-
-def build_system_view(
-    source: DbSystemSource,
-    *,
-    batch: MetaBatch | None = None,
-) -> SystemView:
-    """Report pipeline state: store depth, and which providers stopped answering.
-
-    A failing provider is reported with the run history behind it because the
-    latest-attempt status the macro reading already carries cannot say when the
-    silence started — and for a monthly series that gap is weeks wide.
-    """
-
-    names = macro_series_names()
-    last_errors = {
-        str(row["series_id"]): row["error_message"]
-        for row in source.fetch_health()
-        if row.get("error_message") is not None
-    }
-    application_updated_at = source.application_updated_at()
-    # The macro store's own max(observed_at) counts retracted and retired-series
-    # rows, which the judgment views deliberately exclude. Taking the freshness
-    # rule here keeps the operations view from reporting a newer "latest data"
-    # than the header every page shows.
-    macro_asof = source.macro_asof()
-    stores = [
-        SystemStoreView(
-            store=stats.store,
-            exists=stats.exists,
-            size_bytes=stats.size_bytes,
-            row_count=stats.row_count,
-            latest_date=macro_asof if stats.store == "macro" else stats.latest_date,
-            # Only the judgment store records its own write instants; the machine
-            # stores are dated by the data they hold.
-            updated_at=application_updated_at if stats.store == "baibai" else None,
-        )
-        for stats in source.stores()
-    ]
-    return SystemView(
-        generated_at=datetime.now(_JST),
-        batch=batch,
-        stores=stores,
-        failing_providers=[
-            SystemProviderView(
-                series_id=streak.series_id,
-                name=names.get(streak.series_id, streak.series_id),
-                consecutive_failures=streak.consecutive_failures,
-                failing_since=streak.failing_since,
-                last_error=_optional_str(last_errors.get(streak.series_id)),
-            )
-            for streak in source.failing_providers()
-        ],
-        never_attempted_series=source.never_attempted(),
-        provider_series_total=len(names),
-    )
-
-
-def _optional_str(value: object) -> str | None:
-    return None if value is None else str(value)
 
 
 def build_operations_view(source: DbOperationsSource) -> OperationsView:

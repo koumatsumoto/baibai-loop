@@ -86,7 +86,6 @@ def test_known_steps_have_stable_ids(steps_by_id: dict[str, dict]) -> None:
         "publish-serving",
         "cancellation",
         "notify",
-        "upload-run-summary",
     ):
         assert step_id in steps_by_id, f"missing stable step id: {step_id}"
 
@@ -97,12 +96,8 @@ def test_smoke_check_runs_before_setup_python_on_system_python(
     ids = [step.get("id") for step in steps]
     assert ids.index("smoke") < ids.index("setup")
     smoke_run = steps_by_id["smoke"]["run"]
-    assert "py_compile batch/src/baibai_batch/observability/summary.py" in smoke_run
-    assert "batch/src/baibai_batch/observability/discord.py" in smoke_run
-    # The import (not just py_compile) guarantees the stdlib-only contract.
-    assert "import baibai_batch.observability.summary" in smoke_run
+    # The import is what guarantees the stdlib-only contract.
     assert "import baibai_batch.observability.discord" in smoke_run
-    assert "started_at=" in smoke_run
 
 
 def test_dispatch_input_is_validated_after_smoke_and_before_setup(
@@ -135,15 +130,15 @@ def test_isolated_browser_smoke_runs_before_any_credential_bearing_step(
     assert "data:text/html" in smoke["run"]
 
 
-def test_batch_step_writes_summary_and_finalizes_outputs_before_fatal_exit(
+def test_batch_step_writes_the_notice_and_finalizes_outputs_before_fatal_exit(
     steps_by_id: dict[str, dict],
 ) -> None:
     batch_run = steps_by_id["batch"]["run"]
-    assert "--summary-output" in batch_run
+    assert "--notice-output" in batch_run
     # Outputs are echoed before the fatal exit so the notification step sees them.
     assert batch_run.index('echo "exit_code=$code"') < batch_run.index('exit "$code"')
-    assert 'echo "local_export=true"' in batch_run
-    assert 'echo "local_export=false"' in batch_run
+    assert 'echo "published=true"' in batch_run
+    assert 'echo "published=false"' in batch_run
 
 
 def test_upload_steps_run_only_when_published(steps_by_id: dict[str, dict]) -> None:
@@ -301,9 +296,8 @@ def test_notify_is_the_single_notification_point_running_on_every_terminal_state
     steps: list[dict], steps_by_id: dict[str, dict]
 ) -> None:
     ids = [step.get("id") for step in steps]
-    # Notification stays the last step that decides the run outcome; only the
-    # best-effort summary upload may follow it.
-    assert ids[-2:] == ["notify", "upload-run-summary"]
+    # Notification is the last step.
+    assert ids[-1] == "notify"
     # `always()`, never `!cancelled()`: GitHub reports a `timeout-minutes` expiry
     # as a cancellation, so `!cancelled()` silently skips the notification for a
     # hung batch — the failure this workflow most needs to report.
@@ -311,6 +305,9 @@ def test_notify_is_the_single_notification_point_running_on_every_terminal_state
     # The cancellation state still reaches the notifier, via the step output.
     assert "steps.cancellation.outputs.cancelled" in steps_by_id["notify"]["run"]
     assert steps_by_id["cancellation"]["if"] == "${{ cancelled() }}"
+    # A broken webhook is not "the day's artefacts were not published", so it
+    # never turns the run red.
+    assert steps_by_id["notify"]["continue-on-error"] is True
 
 
 def test_no_run_block_calls_a_status_check_function(steps: list[dict]) -> None:
@@ -330,25 +327,6 @@ def test_notify_step_name_keeps_the_channel_out_of_a_yaml_comment(
     # An unquoted ` #` starts a YAML comment, which would truncate the name to
     # "Notify Discord" in the Actions UI.
     assert steps_by_id["notify"]["name"] == "Notify Discord #batch-runs"
-
-
-def test_run_summary_upload_publishes_the_file_notify_wrote_without_changing_the_outcome(
-    steps: list[dict], steps_by_id: dict[str, dict]
-) -> None:
-    ids = [step.get("id") for step in steps]
-    assert ids.index("notify") < ids.index("upload-run-summary")
-    upload = steps_by_id["upload-run-summary"]
-    # Same reason as notify: a timed-out run must still publish its record.
-    assert upload["if"] == "${{ always() && steps.validate-input.outcome == 'success' }}"
-    # Best-effort: publishing the record must not turn a delivered notification
-    # or a successful publish into a failed run.
-    assert upload["continue-on-error"] is True
-    assert "upload-run-summary" in upload["run"]
-
-    # The two steps must name the same file, or the upload silently publishes nothing.
-    notify_run = steps_by_id["notify"]["run"]
-    summary_path = notify_run.split("--output")[1].split()[0].strip('"')
-    assert summary_path in upload["run"]
 
 
 def test_webhook_secret_is_scoped_to_the_notify_step_alone(
@@ -389,58 +367,30 @@ def test_data_credentials_are_absent_from_job_and_setup_steps(
         "publish-lake": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "upload-stores": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "publish-serving": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
-        "upload-run-summary": {
-            "R2_ACCOUNT_ID",
-            "R2_ACCESS_KEY_ID",
-            "R2_SECRET_ACCESS_KEY",
-        },
     }
 
 
-def test_notify_step_receives_summary_and_step_outcomes(steps_by_id: dict[str, dict]) -> None:
-    notify_run = steps_by_id["notify"]["run"]
-    assert "python3 -m baibai_batch.observability.discord" in notify_run
-    for flag in (
-        "--summary-path",
-        "--batch-exit-code",
-        "--local-export",
-        "--smoke-outcome",
-        "--setup-outcome",
-        "--sync-outcome",
-        "--pull-outcome",
-        "--upload-machine-outcome",
-        "--upload-serving-outcome",
-        # The step's own outcome, which GitHub supplies on every terminal state,
-        # is what stands in when the step died before writing its outputs.
-        "--upload-step-outcome",
-        "--publish-serving-outcome",
-        "--run-started-at",
-        "--output",
-        "--lake-publish-report-path",
-    ):
-        assert flag in notify_run, f"notify step missing {flag}"
-    assert "steps.smoke.outcome" in notify_run
-    assert "steps.setup.outcome" in notify_run
-    # Which side of the parallel upload got through comes from the step's outputs;
-    # whether the step reached the end at all comes from GitHub's own outcome.
-    assert "steps.upload-stores.outputs.machine" in notify_run
-    assert "steps.upload-stores.outputs.views" in notify_run
-    assert "steps.upload-stores.outcome" in notify_run
-    assert "steps.publish-serving.outcome" in notify_run
-    assert "steps.batch.outputs.exit_code" in notify_run
-    assert "steps.batch.outputs.local_export" in notify_run
-
-
-def test_lake_notification_reads_only_this_runs_transient_publish_report(
+def test_notify_step_receives_the_notice_and_every_tracked_step_outcome(
     steps_by_id: dict[str, dict],
 ) -> None:
-    publish_run = steps_by_id["publish-lake"]["run"]
     notify_run = steps_by_id["notify"]["run"]
-
-    assert 'tee "$RUNNER_TEMP/lake-publish-report.json"' in publish_run
-    assert "set -o pipefail" in publish_run
-    assert '"$RUNNER_TEMP/lake-publish-report.json"' in notify_run
-    assert "stores/.r2-generations/lake-release.json" not in notify_run
+    assert "python3 -m baibai_batch.observability.discord" in notify_run
+    assert "--notice-path" in notify_run
+    assert "--batch-exit-code" in notify_run
+    assert "steps.batch.outputs.exit_code" in notify_run
+    for step in (
+        "smoke",
+        "setup",
+        "sync",
+        "pull",
+        "hydrate",
+        "publish-lake",
+        "upload-stores",
+        "publish-serving",
+    ):
+        assert f"--{step}-outcome" in notify_run, f"notify step missing --{step}-outcome"
+        assert f"steps.{step}.outcome" in notify_run
+    assert "--cancelled" in notify_run
 
 
 def test_notify_step_does_not_interpolate_dispatch_input_into_the_run_block(
@@ -451,7 +401,6 @@ def test_notify_step_does_not_interpolate_dispatch_input_into_the_run_block(
     notify_run = steps_by_id["notify"]["run"]
     assert "inputs.asof" not in notify_run
     assert "${{ inputs." not in notify_run
-    assert '--asof "$MANUAL_ASOF"' in notify_run
 
 
 if __name__ == "__main__":

@@ -14,7 +14,6 @@ const AssessmentPage = lazy(() => import('./pages/AssessmentPage').then((module)
 const MacroPage = lazy(() => import('./pages/MacroPage').then((module) => ({ default: module.MacroPage })))
 const MacroReportPage = lazy(() => import('./pages/MacroReportPage').then((module) => ({ default: module.MacroReportPage })))
 const SecurityDetailPage = lazy(() => import('./pages/SecurityDetailPage').then((module) => ({ default: module.SecurityDetailPage })))
-const SystemPage = lazy(() => import('./pages/SystemPage').then((module) => ({ default: module.SystemPage })))
 
 function App() {
   return (
@@ -31,7 +30,6 @@ function App() {
                 <Route path="/stocks/shortlist" element={<ShortlistPage />} />
                 <Route path="/stocks/assessments/:assessmentId" element={<AssessmentPage />} />
                 <Route path="/securities/:ticker" element={<SecurityDetailPage />} />
-                <Route path="/system" element={<SystemPage />} />
               </Route>
             </Routes>
           </RouteErrorBoundary>

@@ -30,7 +30,6 @@ EXPECTED_CREDENTIAL_NAMES = {
     "Upload machine stores and serving views": R2_CREDENTIAL_NAMES,
     "Publish serving history and freshness": R2_CREDENTIAL_NAMES,
     "Upload serving objects": R2_CREDENTIAL_NAMES,
-    "Upload run summary": R2_CREDENTIAL_NAMES,
     "Notify Discord #batch-runs": {"DISCORD_WEBHOOK_URL"},
     "Backfill and publish committed progress": {
         *R2_CREDENTIAL_NAMES,
@@ -41,7 +40,7 @@ EXPECTED_CREDENTIAL_NAMES = {
 EXPECTED_COMMAND_DIGESTS = {
     "Pull stores": "509a1709484d601560ecf758f615372822ffee307542e47efe2ddfb36eae2c9c",
     "Pull the market store": "395ec7ad8ac253d16bdc5db38fc900d56745aac63fd668035ab9c50f9af3c5bf",
-    "Run daily batch": "afc553515df1b1e1e0cfaddbd0c78360ddb7aa6568cf4f3082ae92a4a9859ba1",
+    "Run daily batch": "a87293d22ec25deb2198fe3dcaf89eca0e2a8e307b487a40b4f6973d3786bca7",
     "Upload machine stores and serving views": (
         "8b340d153936088076375788e38f097b7843a45e6c648ac626a0e1e68d2b69e8"
     ),
@@ -49,13 +48,12 @@ EXPECTED_COMMAND_DIGESTS = {
         "b4f7598cddeb3659b4cdb38409f7310d672c871284d42b5e55d307e2b2ac698e"
     ),
     "Upload serving objects": "9d24808d70e44a83714b0467ff39e9d460f2cea82c6c43aac55f074d339643cf",
-    "Upload run summary": "0e82a34f7e5ac9aa09683356fc3324a608e9d18ff9618ff57712564d8b377fe1",
     "Hydrate market store from the L1 release": (
         "9ecafc1d17e20380cde4d1cc37be9876f4ebd3a1162f45005187c7eaabede1c9"
     ),
     "Publish the L1 release": ("8f96c0f144c0d59b60d35603b36bb6b225015f2ae5125ac877a2dec34635cccb"),
     "Notify Discord #batch-runs": (
-        "f8c21b5f2fc4c7c78dd8ea67a3a197b7b545bfe41ad7829b88f42ac80ac07385"
+        "5d00c419be68f7f9ce0e828684d9cdf0eb2e75befa1795b212139422c307d0f2"
     ),
     "Backfill and publish committed progress": (
         "1cf9306ca4460c2c257a41ccfe84d75549729dd4f2e003c235f79885d5e494b3"
@@ -495,7 +493,6 @@ def _credential_invocations(stub: WorkflowCommandStub) -> dict[str, dict[str, st
                 "Upload machine stores and serving views",
                 "Publish serving history and freshness",
                 "Notify Discord #batch-runs",
-                "Upload run summary",
             },
         ),
         (
@@ -511,7 +508,6 @@ def _credential_invocations(stub: WorkflowCommandStub) -> dict[str, dict[str, st
                 "Upload machine stores and serving views",
                 "Publish serving history and freshness",
                 "Notify Discord #batch-runs",
-                "Upload run summary",
             },
         ),
         (
@@ -531,7 +527,6 @@ def _credential_invocations(stub: WorkflowCommandStub) -> dict[str, dict[str, st
                 "Hydrate market store from the L1 release",
                 "Run daily batch",
                 "Notify Discord #batch-runs",
-                "Upload run summary",
             },
         ),
         (

@@ -28,16 +28,16 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The notification scripts run on the runner's system python3, before
+      # The notification script runs on the runner's system python3, before
       # setup-python and uv sync. This preserves failure reporting during setup
-      # while enforcing their stdlib-only import contract before merge.
-      - name: Import notification scripts on the system python3
+      # while enforcing its stdlib-only import contract before merge.
+      - name: Import notification script on the system python3
         env:
           PYTHONPATH: batch/src
         run: |
           python3 --version
-          python3 -m py_compile batch/src/baibai_batch/observability/summary.py batch/src/baibai_batch/observability/discord.py
-          python3 -c "import baibai_batch.observability.summary; import baibai_batch.observability.discord"
+          python3 -m py_compile batch/src/baibai_batch/observability/discord.py
+          python3 -c "import baibai_batch.observability.discord"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:

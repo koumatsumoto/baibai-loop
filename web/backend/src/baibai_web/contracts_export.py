@@ -40,7 +40,6 @@ from baibai_web.readmodel.models import (
     ScreeningHistoryView,
     ScreeningView,
     SecurityDetailView,
-    SystemView,
 )
 
 SCHEMA_PATH = Path("web/contracts/read-model.schema.json")
@@ -50,8 +49,6 @@ CONTRACT_SCHEMA_VERSION = 1
 # Every artifact the UI reads through `/api`, and the model that writes it. The keys are
 # the serving paths `web/contracts/routes.json` maps those routes to, and a test pins
 # the two against each other so a route added there without a model here is caught.
-# `system/latest-run.json` is deliberately absent: the daily batch writes it from
-# `baibai_batch.observability`, not from these models, and its types stay hand-written.
 ROOT_VIEWS: Mapping[str, type[BaseModel]] = {
     "history/candidate-views/{as_of}.json": ScreeningHistoryRunView,
     "views/assessment--{assessment_id}.json": BargainAssessmentView,
@@ -64,7 +61,6 @@ ROOT_VIEWS: Mapping[str, type[BaseModel]] = {
     "views/operations.json": OperationsView,
     "views/screening_latest.json": ScreeningView,
     "views/security--{ticker}.json": SecurityDetailView,
-    "views/system.json": SystemView,
 }
 
 # Routes the Worker answers without a stored artifact. `web/contracts/routes.json`
@@ -78,8 +74,6 @@ _GENERATED_HEADER = """\
 // Generated from web/backend/src/baibai_web/readmodel/models.py.
 // Run `uv run python -m baibai_web.contracts_export` after changing those models;
 // `tools/quality/drift/check_readmodel_contract.py` refuses a stale copy.
-// Types for `system/latest-run.json` are hand-written in ./run-summary.ts: the daily
-// batch writes that object, not the read models.
 """
 
 

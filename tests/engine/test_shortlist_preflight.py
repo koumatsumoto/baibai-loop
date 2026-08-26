@@ -82,61 +82,6 @@ def _selection(
     )
 
 
-def _summary(path: Path, *, run_id: str, selection_id: str, as_of: str) -> None:
-    path.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "workflow": "cloud-daily-batch",
-                "repository": "example/baibai-loop",
-                "trigger": "schedule",
-                "run_attempt": "1",
-                "run_url": "https://github.com/example/actions/runs/1",
-                "finished_at": f"{as_of}T10:00:00+00:00",
-                "duration_seconds": 10.0,
-                "overall_outcome": "succeeded",
-                "publish_state": "published",
-                "asof": as_of,
-                "delivery": {"status": "delivered", "detail": ""},
-                "workflow_errors": [],
-                "execution": {
-                    "kind": "available",
-                    "summary": {
-                        "schema_version": 1,
-                        "asof": as_of,
-                        "outcome": "succeeded",
-                        "started_at": f"{as_of}T09:59:00+00:00",
-                        "finished_at": f"{as_of}T10:00:00+00:00",
-                        "duration_seconds": 60.0,
-                        "local_export": True,
-                        "batches": [
-                            {
-                                "batch_name": "screening",
-                                "datasets": ["screening-run", "screening-selection"],
-                                "status": "ok",
-                                "duration_seconds": 30.0,
-                                "errors": [],
-                                "metrics": {
-                                    "asof": as_of,
-                                    "run_revision_id": run_id,
-                                    "selection_id": selection_id,
-                                    "universe": 1,
-                                    "candidates": 1,
-                                    "selected": 1,
-                                    "edinet_quarantined_events": 0,
-                                    "edinet_quarantined_tickers": 0,
-                                    "edinet_quarantine_sample": "",
-                                },
-                            }
-                        ],
-                    },
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-
 def _canonical_shortlist(
     path: Path,
     *,
@@ -174,12 +119,11 @@ def _canonical_shortlist(
         connection.close()
 
 
-def test_preflight_reuses_exact_cloud_publication_and_resolves_canonical_previous(
+def test_preflight_reuses_the_head_publication_and_resolves_canonical_previous(
     tmp_path: Path,
 ) -> None:
     runs = tmp_path / "runs.sqlite"
     app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
     store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
     old_a = store.publish_run(
         _run("2026-08-06", "2026-08-06T12:00:00+09:00"),
@@ -202,14 +146,12 @@ def test_preflight_reuses_exact_cloud_publication_and_resolves_canonical_previou
         run_id=old_a,
         selection_id="selection-old-a",
     )
-    _summary(summary, run_id=current, selection_id="selection-cloud", as_of="2026-08-07")
     with sqlite3.connect(runs) as connection:
         before = connection.execute("SELECT count(*) FROM screening_run").fetchone()[0]
 
     reports = [
         shortlist_preflight(
             as_of=date(2026, 8, 7),
-            cloud_summary_path=summary,
             runs_db_path=runs,
             app_db_path=app,
             repo_root=tmp_path,
@@ -220,7 +162,6 @@ def test_preflight_reuses_exact_cloud_publication_and_resolves_canonical_previou
 
     assert all(report["decision"] == "reuse" for report in reports)
     assert reports[0]["reusable"] == {
-        "source": "cloud-batch",
         "run_revision_id": "run-cloud",
         "selection_id": "selection-cloud",
         "application_git_commit": COMMIT,
@@ -234,7 +175,6 @@ def test_preflight_reuses_exact_cloud_publication_and_resolves_canonical_previou
 def test_preflight_requests_one_current_code_rerun_when_commit_differs(tmp_path: Path) -> None:
     runs = tmp_path / "runs.sqlite"
     app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
     initialize_database(app)
     store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
     current = store.publish_run(
@@ -242,11 +182,9 @@ def test_preflight_requests_one_current_code_rerun_when_commit_differs(tmp_path:
         run_revision_id="run-cloud",
     ).publication_id
     _selection(store, current, "selection-cloud", datetime.now(UTC).isoformat())
-    _summary(summary, run_id=current, selection_id="selection-cloud", as_of="2026-08-07")
 
     report = shortlist_preflight(
         as_of=date(2026, 8, 7),
-        cloud_summary_path=summary,
         runs_db_path=runs,
         app_db_path=app,
         repo_root=tmp_path,
@@ -255,12 +193,12 @@ def test_preflight_requests_one_current_code_rerun_when_commit_differs(tmp_path:
 
     assert report["decision"] == "rerun-current-code"
     assert report["reasons"] == []
+    assert report["reusable"] is None
 
 
 def test_preflight_reuses_interrupted_current_code_publication_on_resume(tmp_path: Path) -> None:
     runs = tmp_path / "runs.sqlite"
     app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
     initialize_database(app)
     cloud_store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
     cloud_run = cloud_store.publish_run(
@@ -279,11 +217,9 @@ def test_preflight_reuses_interrupted_current_code_publication_on_resume(tmp_pat
         "selection-local-current",
         "2026-08-07T04:10:00+00:00",
     )
-    _summary(summary, run_id=cloud_run, selection_id="selection-cloud", as_of="2026-08-07")
 
     report = shortlist_preflight(
         as_of=date(2026, 8, 7),
-        cloud_summary_path=summary,
         runs_db_path=runs,
         app_db_path=app,
         repo_root=tmp_path,
@@ -292,7 +228,6 @@ def test_preflight_reuses_interrupted_current_code_publication_on_resume(tmp_pat
 
     assert report["decision"] == "reuse"
     assert report["reusable"] == {
-        "source": "local-current-code",
         "run_revision_id": "run-local-current",
         "selection_id": "selection-local-current",
         "application_git_commit": "b" * 40,
@@ -304,7 +239,6 @@ def test_preflight_ignores_non_default_profile_when_resuming_current_code(
 ) -> None:
     runs = tmp_path / "runs.sqlite"
     app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
     initialize_database(app)
     cloud_store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
     cloud_run = cloud_store.publish_run(
@@ -330,11 +264,9 @@ def test_preflight_ignores_non_default_profile_when_resuming_current_code(
         "2026-08-07T04:20:00+00:00",
         profile="experimental",
     )
-    _summary(summary, run_id=cloud_run, selection_id="selection-cloud", as_of="2026-08-07")
 
     report = shortlist_preflight(
         as_of=date(2026, 8, 7),
-        cloud_summary_path=summary,
         runs_db_path=runs,
         app_db_path=app,
         repo_root=tmp_path,
@@ -348,7 +280,6 @@ def test_preflight_ignores_non_default_profile_when_resuming_current_code(
 def test_preflight_resumes_select_only_for_current_code_run(tmp_path: Path) -> None:
     runs = tmp_path / "runs.sqlite"
     app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
     initialize_database(app)
     cloud_store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
     cloud_run = cloud_store.publish_run(
@@ -361,11 +292,9 @@ def test_preflight_resumes_select_only_for_current_code_run(tmp_path: Path) -> N
         _run("2026-08-07", "2026-08-07T13:00:00+09:00"),
         run_revision_id="run-local-current",
     )
-    _summary(summary, run_id=cloud_run, selection_id="selection-cloud", as_of="2026-08-07")
 
     report = shortlist_preflight(
         as_of=date(2026, 8, 7),
-        cloud_summary_path=summary,
         runs_db_path=runs,
         app_db_path=app,
         repo_root=tmp_path,
@@ -377,12 +306,11 @@ def test_preflight_resumes_select_only_for_current_code_run(tmp_path: Path) -> N
     assert report["reusable"]["selection_id"] is None
 
 
-def test_preflight_blocks_multiple_current_code_selections_on_the_same_run(
+def test_preflight_reuses_the_newest_of_several_current_code_selections(
     tmp_path: Path,
 ) -> None:
     runs = tmp_path / "runs.sqlite"
     app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
     initialize_database(app)
     cloud_store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
     cloud = cloud_store.publish_run(
@@ -397,29 +325,28 @@ def test_preflight_blocks_multiple_current_code_selections_on_the_same_run(
     ).publication_id
     _selection(current_store, current, "selection-current-a", "2026-08-07T04:10:00+00:00")
     _selection(current_store, current, "selection-current-b", "2026-08-07T04:20:00+00:00")
-    _summary(summary, run_id=cloud, selection_id="selection-cloud", as_of="2026-08-07")
 
     report = shortlist_preflight(
         as_of=date(2026, 8, 7),
-        cloud_summary_path=summary,
         runs_db_path=runs,
         app_db_path=app,
         repo_root=tmp_path,
         git_state=GitState(commit="b" * 40, clean=True),
     )
 
-    assert report["decision"] == "blocked"
-    assert report["current_code"]["status"] == "ambiguous"
+    # Same commit, same day: the newest publication is reused and every candidate
+    # is still listed, so nothing is hidden and nothing is pushed back to the reader.
+    assert report["decision"] == "reuse"
+    assert report["reusable"]["selection_id"] == "selection-current-b"
     assert {item["selection_id"] for item in report["current_code"]["candidates"]} == {
         "selection-current-a",
         "selection-current-b",
     }
 
 
-def test_preflight_prefers_exact_cloud_publication_when_head_matches(tmp_path: Path) -> None:
+def test_preflight_reuses_the_newest_head_publication_when_two_exist(tmp_path: Path) -> None:
     runs = tmp_path / "runs.sqlite"
     app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
     initialize_database(app)
     store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
     cloud = store.publish_run(
@@ -432,11 +359,9 @@ def test_preflight_prefers_exact_cloud_publication_when_head_matches(tmp_path: P
         run_revision_id="run-local-other",
     ).publication_id
     _selection(store, other, "selection-local-other", "2026-08-07T04:10:00+00:00")
-    _summary(summary, run_id=cloud, selection_id="selection-cloud", as_of="2026-08-07")
 
     report = shortlist_preflight(
         as_of=date(2026, 8, 7),
-        cloud_summary_path=summary,
         runs_db_path=runs,
         app_db_path=app,
         repo_root=tmp_path,
@@ -444,24 +369,20 @@ def test_preflight_prefers_exact_cloud_publication_when_head_matches(tmp_path: P
     )
 
     assert report["decision"] == "reuse"
-    assert report["reusable"]["source"] == "cloud-batch"
-    assert report["reusable"]["selection_id"] == "selection-cloud"
+    assert report["reusable"]["selection_id"] == "selection-local-other"
 
 
-def test_preflight_blocks_dirty_or_missing_local_cloud_publication(tmp_path: Path) -> None:
+def test_preflight_blocks_a_dirty_worktree(tmp_path: Path) -> None:
     app = tmp_path / "app.sqlite"
     runs = tmp_path / "runs.sqlite"
-    summary = tmp_path / "latest-run.json"
     initialize_database(app)
     ScreeningRunStore(runs).publish_run(
         _run("2026-08-06", "2026-08-06T12:00:00+09:00"),
         run_revision_id="unrelated",
     )
-    _summary(summary, run_id="run-cloud", selection_id="selection-cloud", as_of="2026-08-07")
 
     report = shortlist_preflight(
         as_of=date(2026, 8, 7),
-        cloud_summary_path=summary,
         runs_db_path=runs,
         app_db_path=app,
         repo_root=tmp_path,
@@ -469,8 +390,8 @@ def test_preflight_blocks_dirty_or_missing_local_cloud_publication(tmp_path: Pat
     )
 
     assert report["decision"] == "blocked"
-    assert "checked-out worktree is dirty" in report["reasons"]
-    assert any("pull-runs" in reason for reason in report["reasons"])
+    assert report["reasons"] == ["checked-out worktree is dirty"]
+    assert report["reusable"] is None
 
 
 def test_preflight_lists_ambiguous_previous_publications_instead_of_guessing(
@@ -478,7 +399,6 @@ def test_preflight_lists_ambiguous_previous_publications_instead_of_guessing(
 ) -> None:
     runs = tmp_path / "runs.sqlite"
     app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
     initialize_database(app)
     store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
     for suffix, hour in (("a", 12), ("b", 13)):
@@ -497,11 +417,9 @@ def test_preflight_lists_ambiguous_previous_publications_instead_of_guessing(
         run_revision_id="run-cloud",
     ).publication_id
     _selection(store, current, "selection-cloud", "2026-08-07T12:10:00+00:00")
-    _summary(summary, run_id=current, selection_id="selection-cloud", as_of="2026-08-07")
 
     report = shortlist_preflight(
         as_of=date(2026, 8, 7),
-        cloud_summary_path=summary,
         runs_db_path=runs,
         app_db_path=app,
         repo_root=tmp_path,
@@ -520,7 +438,6 @@ def test_preflight_lists_ambiguous_previous_publications_instead_of_guessing(
 
     resolved = shortlist_preflight(
         as_of=date(2026, 8, 7),
-        cloud_summary_path=summary,
         runs_db_path=runs,
         app_db_path=app,
         repo_root=tmp_path,
@@ -536,125 +453,11 @@ def test_preflight_lists_ambiguous_previous_publications_instead_of_guessing(
     ]
 
 
-def test_preflight_rejects_contradictory_cloud_asof_values(tmp_path: Path) -> None:
-    runs = tmp_path / "runs.sqlite"
-    app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
-    initialize_database(app)
-    store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
-    current = store.publish_run(
-        _run("2026-08-07", "2026-08-07T12:00:00+09:00"),
-        run_revision_id="run-cloud",
-    ).publication_id
-    _selection(store, current, "selection-cloud", "2026-08-07T12:10:00+00:00")
-    _summary(summary, run_id=current, selection_id="selection-cloud", as_of="2026-08-07")
-    payload = json.loads(summary.read_text(encoding="utf-8"))
-    payload["execution"]["summary"]["asof"] = "2026-08-06"
-    summary.write_text(json.dumps(payload), encoding="utf-8")
-
-    with pytest.raises(ValueError, match="contradictory as-of"):
-        shortlist_preflight(
-            as_of=date(2026, 8, 7),
-            cloud_summary_path=summary,
-            runs_db_path=runs,
-            app_db_path=app,
-            repo_root=tmp_path,
-            git_state=GitState(commit=COMMIT, clean=True),
-        )
-
-
-def test_preflight_rejects_malformed_or_contradictory_cloud_summary(tmp_path: Path) -> None:
-    runs = tmp_path / "runs.sqlite"
-    app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
-    initialize_database(app)
-    store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
-    current = store.publish_run(
-        _run("2026-08-07", "2026-08-07T12:00:00+09:00"),
-        run_revision_id="run-cloud",
-    ).publication_id
-    _selection(store, current, "selection-cloud", "2026-08-07T12:10:00+00:00")
-    _summary(summary, run_id=current, selection_id="selection-cloud", as_of="2026-08-07")
-    payload = json.loads(summary.read_text(encoding="utf-8"))
-    payload["execution"]["summary"]["outcome"] = "failed"
-    payload["execution"]["summary"]["batches"].append(
-        {**payload["execution"]["summary"]["batches"][0]}
-    )
-    summary.write_text(json.dumps(payload), encoding="utf-8")
-
-    with pytest.raises(ValueError, match="duplicate batch names"):
-        shortlist_preflight(
-            as_of=date(2026, 8, 7),
-            cloud_summary_path=summary,
-            runs_db_path=runs,
-            app_db_path=app,
-            repo_root=tmp_path,
-            git_state=GitState(commit=COMMIT, clean=True),
-        )
-
-
-def test_preflight_rejects_unknown_or_non_scalar_screening_metrics(tmp_path: Path) -> None:
-    runs = tmp_path / "runs.sqlite"
-    app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
-    initialize_database(app)
-    store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
-    current = store.publish_run(
-        _run("2026-08-07", "2026-08-07T12:00:00+09:00"),
-        run_revision_id="run-cloud",
-    ).publication_id
-    _selection(store, current, "selection-cloud", "2026-08-07T12:10:00+00:00")
-    _summary(summary, run_id=current, selection_id="selection-cloud", as_of="2026-08-07")
-    payload = json.loads(summary.read_text(encoding="utf-8"))
-    payload["execution"]["summary"]["batches"][0]["metrics"]["unexpected_nested"] = {
-        "bad": float("nan")
-    }
-    summary.write_text(json.dumps(payload), encoding="utf-8")
-
-    with pytest.raises(ValueError, match="metrics mismatch"):
-        shortlist_preflight(
-            as_of=date(2026, 8, 7),
-            cloud_summary_path=summary,
-            runs_db_path=runs,
-            app_db_path=app,
-            repo_root=tmp_path,
-            git_state=GitState(commit=COMMIT, clean=True),
-        )
-
-
-def test_preflight_rejects_malformed_typed_errors(tmp_path: Path) -> None:
-    runs = tmp_path / "runs.sqlite"
-    app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
-    initialize_database(app)
-    store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
-    current = store.publish_run(
-        _run("2026-08-07", "2026-08-07T12:00:00+09:00"),
-        run_revision_id="run-cloud",
-    ).publication_id
-    _selection(store, current, "selection-cloud", "2026-08-07T12:10:00+00:00")
-    _summary(summary, run_id=current, selection_id="selection-cloud", as_of="2026-08-07")
-    payload = json.loads(summary.read_text(encoding="utf-8"))
-    payload["workflow_errors"] = [{"bogus": 1}]
-    summary.write_text(json.dumps(payload), encoding="utf-8")
-
-    with pytest.raises(ValueError, match="error has an invalid contract"):
-        shortlist_preflight(
-            as_of=date(2026, 8, 7),
-            cloud_summary_path=summary,
-            runs_db_path=runs,
-            app_db_path=app,
-            repo_root=tmp_path,
-            git_state=GitState(commit=COMMIT, clean=True),
-        )
-
-
 def test_preflight_does_not_substitute_when_canonical_previous_was_pruned(
     tmp_path: Path,
 ) -> None:
     runs = tmp_path / "runs.sqlite"
     app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
     store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
     noncanonical = store.publish_run(
         _run("2026-08-06", "2026-08-06T13:00:00+09:00"),
@@ -677,11 +480,9 @@ def test_preflight_does_not_substitute_when_canonical_previous_was_pruned(
         run_id="run-old-pruned",
         selection_id="selection-old-pruned",
     )
-    _summary(summary, run_id=current, selection_id="selection-cloud", as_of="2026-08-07")
 
     report = shortlist_preflight(
         as_of=date(2026, 8, 7),
-        cloud_summary_path=summary,
         runs_db_path=runs,
         app_db_path=app,
         repo_root=tmp_path,
@@ -703,7 +504,6 @@ def test_preflight_uses_the_greatest_prior_run_even_when_it_has_no_selection(
 ) -> None:
     runs = tmp_path / "runs.sqlite"
     app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
     store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
     older = store.publish_run(
         _run("2026-08-05", "2026-08-05T12:00:00+09:00"),
@@ -725,11 +525,9 @@ def test_preflight_uses_the_greatest_prior_run_even_when_it_has_no_selection(
         run_id=older,
         selection_id="selection-older",
     )
-    _summary(summary, run_id=current, selection_id="selection-cloud", as_of="2026-08-07")
 
     report = shortlist_preflight(
         as_of=date(2026, 8, 7),
-        cloud_summary_path=summary,
         runs_db_path=runs,
         app_db_path=app,
         repo_root=tmp_path,
@@ -746,7 +544,6 @@ def test_preflight_does_not_reuse_a_selection_from_an_unproven_commit(
 ) -> None:
     runs = tmp_path / "runs.sqlite"
     app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
     initialize_database(app)
     cloud_store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
     cloud = cloud_store.publish_run(
@@ -761,11 +558,9 @@ def test_preflight_does_not_reuse_a_selection_from_an_unproven_commit(
     ).publication_id
     foreign_selector = ScreeningRunStore(runs, git_commit_factory=lambda: "c" * 40)
     _selection(foreign_selector, current, "selection-foreign", "2026-08-07T04:10:00+00:00")
-    _summary(summary, run_id=cloud, selection_id="selection-cloud", as_of="2026-08-07")
 
     report = shortlist_preflight(
         as_of=date(2026, 8, 7),
-        cloud_summary_path=summary,
         runs_db_path=runs,
         app_db_path=app,
         repo_root=tmp_path,
@@ -781,7 +576,6 @@ def test_preflight_does_not_treat_foreign_selection_as_exact_cloud_output(
 ) -> None:
     runs = tmp_path / "runs.sqlite"
     app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
     initialize_database(app)
     run_store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
     current = run_store.publish_run(
@@ -790,11 +584,9 @@ def test_preflight_does_not_treat_foreign_selection_as_exact_cloud_output(
     ).publication_id
     foreign_selector = ScreeningRunStore(runs, git_commit_factory=lambda: "b" * 40)
     _selection(foreign_selector, current, "selection-cloud", "2026-08-07T03:10:00+00:00")
-    _summary(summary, run_id=current, selection_id="selection-cloud", as_of="2026-08-07")
 
     report = shortlist_preflight(
         as_of=date(2026, 8, 7),
-        cloud_summary_path=summary,
         runs_db_path=runs,
         app_db_path=app,
         repo_root=tmp_path,
@@ -810,7 +602,6 @@ def test_preflight_keeps_newer_canonical_previous_when_all_its_runs_were_pruned(
 ) -> None:
     runs = tmp_path / "runs.sqlite"
     app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
     store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
     older = store.publish_run(
         _run("2026-08-05", "2026-08-05T12:00:00+09:00"),
@@ -828,11 +619,9 @@ def test_preflight_keeps_newer_canonical_previous_when_all_its_runs_were_pruned(
         run_id="run-old-pruned",
         selection_id="selection-old-pruned",
     )
-    _summary(summary, run_id=current, selection_id="selection-cloud", as_of="2026-08-07")
 
     report = shortlist_preflight(
         as_of=date(2026, 8, 7),
-        cloud_summary_path=summary,
         runs_db_path=runs,
         app_db_path=app,
         repo_root=tmp_path,
@@ -842,283 +631,3 @@ def test_preflight_keeps_newer_canonical_previous_when_all_its_runs_were_pruned(
     assert report["previous"]["status"] == "resolved-shortlist"
     assert report["previous"]["as_of"] == "2026-08-06"
     assert report["previous"]["run_revision_id"] == "run-old-pruned"
-
-
-def test_error_vocabulary_matches_the_workflow_summary_producer() -> None:
-    """The preflight re-validates the producer contract without importing it at runtime,
-    so the vocabularies live in two files. This bridge forces a producer addition (a new
-    stage or code) to land in the preflight allowlist in the same change — the drift
-    surfaced as a preflight crash on the first failed run after the lake cutover added
-    the hydrate / publish-lake stages.
-    """
-
-    from baibai_batch.observability import summary as workflow_summary
-
-    assert set(workflow_summary.ERROR_STAGES) == shortlist_preflight_module._ERROR_STAGES
-    assert set(workflow_summary.ERROR_CODES) == shortlist_preflight_module._ERROR_CODES
-    assert set(workflow_summary.ERROR_IMPACTS) == {"failed", "degraded"}
-
-
-def test_preflight_reads_a_failed_lake_publication_run_and_blocks_with_reasons(
-    tmp_path: Path,
-) -> None:
-    """A cloud run that failed at publish-lake is a normal operational state: the
-    summary must parse, and the decision must say what stands in the way rather
-    than refusing the summary itself.
-    """
-
-    runs = tmp_path / "runs.sqlite"
-    app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
-    initialize_database(app)
-    store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
-    store.publish_run(
-        _run("2026-08-18", "2026-08-18T12:00:00+09:00"),
-        run_revision_id="run-previous",
-    )
-    _summary(summary, run_id="run-cloud", selection_id="selection-cloud", as_of="2026-08-19")
-    payload = json.loads(summary.read_text(encoding="utf-8"))
-    payload["overall_outcome"] = "failed"
-    payload["publish_state"] = "generated"
-    payload["workflow_errors"] = [
-        {
-            "code": "step_failed",
-            "stage": "publish-lake",
-            "impact": "failed",
-            "message": "GitHub Actions step failed; open the run log",
-        }
-    ]
-    summary.write_text(json.dumps(payload), encoding="utf-8")
-
-    report = shortlist_preflight(
-        as_of=date(2026, 8, 19),
-        cloud_summary_path=summary,
-        runs_db_path=runs,
-        app_db_path=app,
-        repo_root=tmp_path,
-        git_state=GitState(commit=COMMIT, clean=True),
-    )
-
-    assert report["decision"] == "blocked"
-    assert "cloud batch did not finish with a reusable outcome" in report["reasons"]
-
-
-def _reusable_world(tmp_path: Path) -> tuple[Path, Path, Path]:
-    """A cloud publication the preflight would answer `reuse` for.
-
-    Every case below starts here and breaks exactly one thing, so the reason it
-    produces is attributable to that one change.
-    """
-
-    runs = tmp_path / "runs.sqlite"
-    app = tmp_path / "app.sqlite"
-    summary = tmp_path / "latest-run.json"
-    store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
-    previous = store.publish_run(
-        _run("2026-08-06", "2026-08-06T12:00:00+09:00"), run_revision_id="run-previous"
-    ).publication_id
-    current = store.publish_run(
-        _run("2026-08-07", "2026-08-07T12:00:00+09:00"), run_revision_id="run-cloud"
-    ).publication_id
-    _selection(store, previous, "selection-previous", "2026-08-06T12:10:00+00:00")
-    _selection(store, current, "selection-cloud", "2026-08-07T12:10:00+00:00")
-    _canonical_shortlist(
-        app, as_of="2026-08-06", run_id=previous, selection_id="selection-previous"
-    )
-    _summary(summary, run_id=current, selection_id="selection-cloud", as_of="2026-08-07")
-    return runs, app, summary
-
-
-def _edit_summary(summary: Path, **changes: object) -> None:
-    payload = json.loads(summary.read_text(encoding="utf-8"))
-    payload.update(changes)
-    summary.write_text(json.dumps(payload), encoding="utf-8")
-
-
-def test_every_reason_the_preflight_can_block_on_is_reachable(tmp_path: Path) -> None:
-    """One case per refusal, each producing only its own reason.
-
-    The preflight is the gate that decides whether a cloud publication may be reused
-    instead of rerun, so a reason nothing can produce is a refusal that would never
-    fire when it was needed. Only two of the eleven were exercised before this.
-    """
-
-    def dirty_worktree(runs: Path, app: Path, summary: Path) -> GitState:
-        return GitState(commit=COMMIT, clean=False)
-
-    def wrong_asof(runs: Path, app: Path, summary: Path) -> GitState:
-        # A whole summary for another day, not an edited field: the loader refuses a
-        # summary whose own as-of values disagree before any reason is collected.
-        _summary(summary, run_id="run-cloud", selection_id="selection-cloud", as_of="2026-08-06")
-        return GitState(commit=COMMIT, clean=True)
-
-    def failed_outcome(runs: Path, app: Path, summary: Path) -> GitState:
-        _edit_summary(summary, overall_outcome="failed")
-        return GitState(commit=COMMIT, clean=True)
-
-    def screening_not_ok(runs: Path, app: Path, summary: Path) -> GitState:
-        # `publish_state` cannot be moved on its own — the loader refuses a summary
-        # whose terminal state contradicts it — so the reachable half of this refusal
-        # is the screening batch reporting something other than ok.
-        payload = json.loads(summary.read_text(encoding="utf-8"))
-        payload["overall_outcome"] = "published_with_deferred_failure"
-        payload["execution"]["summary"]["outcome"] = "published_with_deferred_failure"
-        for batch in payload["execution"]["summary"]["batches"]:
-            if batch["batch_name"] == "screening":
-                batch["status"] = "degraded"
-        summary.write_text(json.dumps(payload), encoding="utf-8")
-        return GitState(commit=COMMIT, clean=True)
-
-    def _publish_under_another_commit(connection: sqlite3.Connection) -> None:
-        """Take the cloud run out of the current-code path.
-
-        A run published by this commit is reusable on its own, so a cloud publication
-        broken in some other way would resume from it instead of reporting the break.
-        Attributing a reason needs the run to belong to a commit that is not HEAD.
-        """
-
-        connection.execute(
-            "UPDATE screening_run SET application_git_commit = ? WHERE run_revision_id = ?",
-            ("b" * 40, "run-cloud"),
-        )
-
-    def absent_selection(runs: Path, app: Path, summary: Path) -> GitState:
-        with sqlite3.connect(runs) as connection:
-            connection.execute(
-                "DELETE FROM screening_selection WHERE selection_id = 'selection-cloud'"
-            )
-            _publish_under_another_commit(connection)
-        return GitState(commit=COMMIT, clean=True)
-
-    def unbound_selection(runs: Path, app: Path, summary: Path) -> GitState:
-        with sqlite3.connect(runs) as connection:
-            connection.execute(
-                "UPDATE screening_selection SET run_revision_id = 'run-previous' "
-                "WHERE selection_id = 'selection-cloud'"
-            )
-            _publish_under_another_commit(connection)
-        return GitState(commit=COMMIT, clean=True)
-
-    def run_asof_mismatch(runs: Path, app: Path, summary: Path) -> GitState:
-        with sqlite3.connect(runs) as connection:
-            connection.execute(
-                "UPDATE screening_run SET asof_date = '2026-08-05' "
-                "WHERE run_revision_id = 'run-cloud'"
-            )
-            _publish_under_another_commit(connection)
-        return GitState(commit=COMMIT, clean=True)
-
-    def no_run_provenance(runs: Path, app: Path, summary: Path) -> GitState:
-        with sqlite3.connect(runs) as connection:
-            connection.execute(
-                "UPDATE screening_run SET application_git_commit = NULL "
-                "WHERE run_revision_id = 'run-cloud'"
-            )
-        return GitState(commit=COMMIT, clean=True)
-
-    def absent_run(runs: Path, app: Path, summary: Path) -> GitState:
-        # The selection references the run, so a run that is gone takes its selection
-        # with it: this input produces both absence reasons or neither.
-        with sqlite3.connect(runs) as connection:
-            connection.execute(
-                "DELETE FROM screening_selection WHERE selection_id = 'selection-cloud'"
-            )
-            connection.execute("DELETE FROM screening_run WHERE run_revision_id = 'run-cloud'")
-        return GitState(commit=COMMIT, clean=True)
-
-    def ambiguous_current_code(runs: Path, app: Path, summary: Path) -> GitState:
-        store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
-        for suffix, hour in (("a", "13"), ("b", "14")):
-            run_id = store.publish_run(
-                _run("2026-08-07", f"2026-08-07T{hour}:00:00+09:00"),
-                run_revision_id=f"run-head-{suffix}",
-            ).publication_id
-            _selection(store, run_id, f"selection-head-{suffix}", f"2026-08-07T{hour}:10:00+00:00")
-        with sqlite3.connect(runs) as connection:
-            _publish_under_another_commit(connection)
-        return GitState(commit=COMMIT, clean=True)
-
-    def unresolved_previous(runs: Path, app: Path, summary: Path) -> GitState:
-        store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
-        second = store.publish_run(
-            _run("2026-08-06", "2026-08-06T13:00:00+09:00"), run_revision_id="run-previous-b"
-        ).publication_id
-        _selection(store, second, "selection-previous-b", "2026-08-06T13:10:00+00:00")
-        with sqlite3.connect(app) as connection:
-            connection.execute("DELETE FROM shortlist")
-        with sqlite3.connect(runs) as connection:
-            _publish_under_another_commit(connection)
-        return GitState(commit=COMMIT, clean=True)
-
-    cases: tuple[tuple[str, object, tuple[str, ...]], ...] = (
-        ("dirty_worktree", dirty_worktree, ("checked-out worktree is dirty",)),
-        ("wrong_asof", wrong_asof, ("cloud batch as-of does not match the requested as-of",)),
-        (
-            "failed_outcome",
-            failed_outcome,
-            ("cloud batch did not finish with a reusable outcome",),
-        ),
-        ("screening_not_ok", screening_not_ok, ("cloud screening publication is not complete",)),
-        (
-            "absent_selection",
-            absent_selection,
-            ("cloud selection is absent from the local run store; pull-runs first",),
-        ),
-        (
-            "unbound_selection",
-            unbound_selection,
-            ("cloud selection does not bind the reported run and as-of",),
-        ),
-        (
-            # The selection carries no as-of of its own — it reads the run's — so moving
-            # the run's as-of necessarily unbinds the selection too. These two reasons
-            # are one input, not two.
-            "run_asof_mismatch",
-            run_asof_mismatch,
-            (
-                "cloud selection does not bind the reported run and as-of",
-                "cloud run does not match the requested as-of",
-            ),
-        ),
-        (
-            "no_run_provenance",
-            no_run_provenance,
-            ("cloud run has no application commit provenance",),
-        ),
-        (
-            "absent_run",
-            absent_run,
-            (
-                "cloud run is absent from the local run store; pull-runs first",
-                "cloud selection is absent from the local run store; pull-runs first",
-            ),
-        ),
-        (
-            "ambiguous_current_code",
-            ambiguous_current_code,
-            ("multiple current-code publications require an explicit choice",),
-        ),
-        (
-            "unresolved_previous",
-            unresolved_previous,
-            ("previous publication must be resolved before run or select",),
-        ),
-    )
-
-    for index, (name, break_it, expected) in enumerate(cases):
-        root = tmp_path / f"case-{index}"
-        root.mkdir()
-        runs, app, summary = _reusable_world(root)
-        git_state = break_it(runs, app, summary)  # type: ignore[operator]
-
-        report = shortlist_preflight(
-            as_of=date(2026, 8, 7),
-            cloud_summary_path=summary,
-            runs_db_path=runs,
-            app_db_path=app,
-            repo_root=root,
-            git_state=git_state,
-        )
-
-        assert report["decision"] == "blocked", name
-        assert report["reasons"] == list(expected), name

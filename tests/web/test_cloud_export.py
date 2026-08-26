@@ -36,7 +36,6 @@ from baibai_web.readmodel.models import (
     OperationsView,
     ScreeningView,
     SecurityDetailView,
-    SystemView,
 )
 from baibai_web.sources.db_sources import DbMetaSource
 
@@ -242,7 +241,6 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
         "macro-reading.json",
         "screening_latest.json",
         "operations.json",
-        "system.json",
         "meta.json",
         "security--0001.json",
         "security--0002.json",
@@ -262,9 +260,6 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     assert screening.run.candidate_count == 3
     assert len(screening.selections) == 1
     OperationsView.model_validate_json((views / "operations.json").read_text(encoding="utf-8"))
-    system = SystemView.model_validate_json((views / "system.json").read_text(encoding="utf-8"))
-    assert system.batch == "daily"
-    assert [store.store for store in system.stores] == ["market", "runs", "macro", "baibai"]
     meta = MetaView.model_validate_json((views / "meta.json").read_text(encoding="utf-8"))
     assert meta.batch == "daily"
     assert meta.screening_asof == date(2026, 7, 8)

@@ -21,13 +21,10 @@ description: screening からレビュー済み shortlist を発行し、人間�
    market / runs / macro は `ops-maintenance` skill に従って cloud 上の正本と同期し、market を hydrate する。batch の実行中は pull しない。
 
    ```bash
-   shortlist_preflight_dir=$(mktemp -d /tmp/baibai-shortlist-preflight.XXXXXX)
-   batch/scripts/r2_transfer.sh pull-run-summary "$shortlist_preflight_dir/latest-run.json"
-   uv run baibai-engine screening shortlist preflight \
-     --asof <ASOF> --cloud-summary "$shortlist_preflight_dir/latest-run.json"
+   uv run baibai-engine screening shortlist preflight --asof <ASOF>
    ```
 
-   preflight の指示に従う。`reuse` は既存 selection を読む。`resume-current-code` は select だけ、`rerun-current-code` は run と select を各1回実行する。`ambiguous` は previous run ID を指定して再判定する。`blocked`、HEAD / as-of drift、failed cloud run は解消するまで新しい run を作らない。同一 as-of の試行錯誤で retention を消費しない。
+   preflight は pull 済みの run store だけを読み、同一 as-of・同一 HEAD の publication を探す。`reuse` は既存 selection を読む。`resume-current-code` は select だけ、`rerun-current-code` は run と select を各1回実行する。`previous` が `ambiguous` なら `--previous-run-revision-id` を指定して再判定する。`blocked`（worktree dirty、previous 未解決）は解消するまで新しい run を作らない。同一 as-of の試行錯誤で retention を消費しない。
 
    ```bash
    uv run baibai-engine screening verify-cache-coverage --asof <ASOF>

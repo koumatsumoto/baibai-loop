@@ -10,12 +10,9 @@
     "/api/screening/latest": "views/screening_latest.json",
     "/api/operations": "views/operations.json",
     "/api/meta": "views/meta.json",
-    "/api/system": "views/system.json",
     "/api/macro/reading": "views/macro-reading.json"
   },
-  "edge_routes": {
-    "/api/system/latest-run": "system/latest-run.json"
-  },
+  "edge_routes": {},
   "patterns": {
     "/api/screening/history/{as_of}": "history/candidate-views/{as_of}.json",
     "/api/macro/context/{context_id}": "views/macro-context--{context_id}.json",

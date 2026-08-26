@@ -28,10 +28,8 @@ describe('NAV_TABS active matching', () => {
     expect(activeLabels('/securities/2331')).toEqual(['Stocks'])
   })
 
-  it('leaves every tab inactive on /system', () => {
-    // /system is operational state reached from the gear menu, not a judgment
-    // tab: lighting one of the three would misplace it in the reading order.
-    expect(activeLabels('/system')).toEqual([])
+  it('leaves every tab inactive on an unknown route', () => {
+    expect(activeLabels('/nowhere')).toEqual([])
   })
 })
 

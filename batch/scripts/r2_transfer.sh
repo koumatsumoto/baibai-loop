@@ -733,35 +733,8 @@ pull_longlist_history() {
   aws_s3 sync "s3://${serving_bucket}/history/longlists/" "${output_dir}/"
 }
 
-pull_run_summary() {
-  local output_path="$1"
-  if [[ "${output_path}" == -* ]]; then
-    printf 'refusing option-like run summary path: %s\n' "${output_path}" >&2
-    return 2
-  fi
-  if [[ -e "${output_path}" ]]; then
-    printf 'refusing run summary download overwrite: %s\n' "${output_path}" >&2
-    return 2
-  fi
-  mkdir -p -- "$(dirname -- "${output_path}")"
-  aws_s3 cp "s3://${serving_bucket}/system/latest-run.json" "${output_path}"
-}
-
-upload_run_summary() {
-  # The workflow run summary lives outside `views/`, which `upload_serving_views`
-  # mirrors with `--delete`: a failed run publishes no export, so its record has
-  # to survive the next successful one. One object, always overwritten — the run
-  # timeline stays in Discord and the Actions history.
-  local summary_path="$1"
-  if [[ ! -f "${summary_path}" ]]; then
-    printf 'no workflow run summary to upload: %s\n' "${summary_path}" >&2
-    return 2
-  fi
-  aws_s3 cp "${summary_path}" "s3://${serving_bucket}/system/latest-run.json"
-}
-
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-longlist-history DIR|pull-run-summary FILE|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR|upload-run-summary FILE}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-longlist-history DIR|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -794,10 +767,6 @@ case "${1:-}" in
   pull-longlist-history)
     [[ $# -eq 2 ]] || { usage; exit 2; }
     pull_longlist_history "$2"
-    ;;
-  pull-run-summary)
-    [[ $# -eq 2 ]] || { usage; exit 2; }
-    pull_run_summary "$2"
     ;;
   seed-all)
     seed_keys market.sqlite runs.sqlite macro.sqlite baibai.sqlite
@@ -870,14 +839,6 @@ case "${1:-}" in
       exit 2
     fi
     publish_serving_tail "$2"
-    ;;
-  upload-run-summary)
-    [[ $# -eq 2 ]] || { usage; exit 2; }
-    if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
-      printf 'refusing run-summary upload outside GitHub Actions\n' >&2
-      exit 2
-    fi
-    upload_run_summary "$2"
     ;;
   *)
     usage
