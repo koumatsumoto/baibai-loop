@@ -1,27 +1,33 @@
 ---
-title: "Estimate calibration"
-summary: "point-in-time panelと長期forward returnでE[r]・FV・selection方法を較正するcontract。"
+title: "見積り較正"
+summary: "point-in-time panelと長期forward returnでE[r]・FV・selection方法を較正する契約。"
 doc_type: reference
 status: active
 ---
 
-# estimate-calibration
+<a id="estimate-calibration"></a>
 
-screening の機械見積りと選定順位を過去 as-of で再構成し、価格リターンの実現値へ突き合わせる local-only の較正処理である。portfolio outcome や JPX total-return benchmark とは別の、cross-sectional な estimator diagnostic を所有する。
+# estimate-calibration — 見積り較正
 
-## Horizon authority
+本書は、screeningの機械見積りと選定順位を過去as-ofで再構成し、実現した価格リターンと突き合わせるローカル専用の較正契約を所有する。portfolio outcomeやJPX total-return benchmarkとは別の横断的な見積り診断である。
 
-| horizon | target | authority |
+<a id="horizon-authority"></a>
+
+## Horizonごとの判断権限
+
+| horizon | targetの決め方 | 判断権限 |
 | --- | --- | --- |
-| `3m` / `6m` | calendar month addition | regression alert |
-| `1y` | calendar year addition | leading evidence |
-| `3y` / `5y` | calendar year addition | production decision evidence |
+| `3m` / `6m` | 暦月を加算 | regression alert |
+| `1y` | 暦年を加算 | leading evidence |
+| `3y` / `5y` | 暦年を加算 | production decision evidence |
 
 `calibration-evaluate` の通常実行は全 horizon を diagnostic として出力する。実証的な screen、ranking、E[r] policy parameter の変更候補は、`--run-purpose production_decision` で明示した required as-of と required metric に対して、3y と 5y の双方が eligible のときだけ検討できる。artifact は設定やコードを自動変更しない。
 
 target は cohort の actual as-of date に calendar month を加算する。元の日が calendar month-end の場合は対象月末を保ち、非取引日は target 以下の最終取引日に解決する。
 
-## Data integrity
+<a id="data-integrity"></a>
+
+## データ完全性
 
 panel は cohort as-of 以下の最新 `eq_master` snapshot だけを読む。prior snapshot、snapshot unavailable、survivorship、delisting、corporate-action event coverage の不備は payload に残り、3y/5y evidence を block する。
 
@@ -100,15 +106,27 @@ cache が対象 row を同定できない、diagnostics 件数と row 数が一�
 
 この判定は結論を下へ引く可能性に対しての bracket である。買収による廃止はプレミアム付きで中立代入の上に出るため、上側は挟まない。実値で解決できた行はこの bracket の対象から外れる。
 
+## 較正座標
+
+### 価格収束E[r]
+
 `er_calibration` は価格収束成分 `er_reversion_annual` だけを price-only 実現値へ較正する。予測値は cohort 内の `er_reversion_annual` 中央値、実現値は同じ cohort の price return 中央値をそれぞれ引き、quintile ごとに median の相対値を比較する。`calibration_error` は `realized - predicted` である。配当と buyback の carry は price-only 実現値と同じ basis で観測できないため、この座標で絶対水準を較正しない。carry の妥当性は source と算出 contract を検証し、実現配当を備えた total-return dataset が利用できる場合に別の較正座標で扱う。
+
+### Cohort比較のbasis
 
 cohort 比較（`tools.experiments.measure_signal_cohorts`）は `--basis price|total` の両方を取る。carry は配当と自己株買いでできているので、その効果量を price basis で測ると払われた現金の分だけ小さく出る。ただし total は窓内の FY 配当観測を要し、母数は horizon で変わる（price 側に対し 1y で 95%、3y で 93%、5y で 88%、3m / 6m は半分未満）。出力の `basis_coverage` が horizon ごとの両母数と `bases_comparable` を出し、被覆が足りない horizon で 2 つの中央値を並べて読むことを禁じる。既定は price のままで、これは全 horizon で解決するのが price 側だけであるため。
 
+### 自己株式取得枠
+
 buyback authorization の診断は `tools.experiments.measure_buyback_authorization` が production panel と forward store を read-only で結合する。Form 220 は提出日と報告月末がともに cohort as-of 以下の行だけを使い、`net_share_change_yoy` 単独、直近3報告月の取得ペース単独、終了済み carry を0にする composition を同じ resolved row で比較する。3m / 6m は regression alert、1y は leading evidenceである。3y / 5y双方の全対象 identity が point-in-time source、resolved return、比較両群を満たすことは production 検討の必要条件にすぎず、artifact 自体は採用権限を持たない。production 変更は本書の事前登録・design/confirm・coverage gateを別途通す。処理状況の消却・従業員報酬/持株会・その他再放出は実行済み行を分類し、将来の取得目的とは呼ばない。source ZIP、既知の全 table category、明示的なゼロ行のいずれかが欠ける場合は目的なしでなく未観測にする。
+
+### Evidence Patternの閾値とgate
 
 閾値座標`evidence_pattern_thresholds`は、Evidence Patternが採用した銘柄と、同じEvidence Patternの他条件をすべて満たしながらその閾値1本だけで落ちた銘柄の実現超過を並べる。落ちた側は`rules.threshold_blocks`が決める。判定は閾値を無効化したconfigで同じEvidence Pattern判定関数を呼び直して得るので、条件の意味もnullの扱いも`rules.py`の1か所にとどまり、座標側に書き写さない。2本以上の閾値で落ちた行はどちらの閾値も選んでいないので、どちらの群にも入らない。欠損や除外業種で判定できない行も同様に入らないため、この座標は閾値の水準を測り、null方針は測らない。cohort横断では平均効果量と、採用側が上回ったcohortの比率を出す。
 
 `gates` 座標は deterioration gate を割安 decile 内で通過群と非通過群に分けて測り、cohort 横断で同じ形の集計を持つ。
+
+### 業種中央値basis
 
 `sector_median_basis` 座標は `smg_*` 軸を、業種中央値から作られた行と市場中央値へ落ちた行に分けて測る。素性は `PanelRow.smg_market_fallback` が持つ。落ちる業種は構造的に低倍率へ寄る側に集中するため、分けないと業種の割安と業種構成が同じ数字に混ざる。
 
@@ -116,7 +134,11 @@ buyback authorization の診断は `tools.experiments.measure_buyback_authorizat
 
 2 つの側は母数が違う。母数下限を割る業種は 9 つしかないので、cohort あたり自業種が数千行に対し市場側は 50 行前後になる。50 行の decile は 1 分位 5 件なので decile spread は標本が足りる cohort でのみ併記し、cohort 横断集計は spread を出した cohort 数 (`spread_cohorts`) を cohort 数と別に持つ。spread が出せなかったことと効果が無かったことを混同させないためである。群統計 (n / median / mean / trap rate) はその群が何だったかを記述するが、比較はしない。比較は上記の `axis_effect` が担う。
 
+### E[r]絶対水準
+
 `er_level_calibration` は E[r] 合計の絶対年率と、実績 FY 配当を加えた実現 total return の絶対年率を `er_annual` quintile ごとに比較する。実現配当は `entry_date < fiscal_year_end <= exit_date` の FY 行を対象に、同じ FY の最新 non-null `DivAnn` を forward store の最終 bar 株式基準へ正規化して合算する。対象 FY 行なし、`DivAnn` 欠損、adjustment factor 不完全は 0 円とせず total-return 側を unresolved にする。明示された `DivAnn == 0` は観測済み無配である。端の FY は月割りしないため、この座標は実際の中間・期末配当の権利落ち日を再現する cash-flow ledger ではない。
+
+## 判断面へ渡す較正文脈
 
 Shortlist の判断面が読む最新文脈の正本は `reports/published/er-level-calibration-latest.yaml` である。`calibration-evaluate --context-out` が、production authority の成立した明示的な required scope だけから、3y / 5y の固定 E[r] quintile と独立した starter要求利回りfloor以上帯を生成する。各帯は実績 FY 配当込み total return を主 basis、price-only を副 basis とし、ticker-as-of 等重みの絶対年率 median / q25 / q10 / trap rate / n、cohort 等重みの同じ統計、median n、cohort 数を持つ。trap は同 cohort・同 basis の母集団累積return中央値より20pt以上劣後した観測である。3y / 5y の共通 cohort 窓は期間だけでなく同じ帯別分布も別に記録し、horizon差と期間差を混同しない。
 
@@ -128,6 +150,8 @@ artifact は生成日から45日だけ有効とし、月次の calibration 更�
 
 forward row は price-only の `price_return` / `status` と、`realized_dividend_sum` / `realized_dividend_fy_count` / `total_return` / `total_return_status` / `total_return_basis` を別々に持つ。`total_return_status == resolved` の row だけが level metric に入り、既存 price-only metric の母集団と値は変えない。component 表の realized dividend は annualized(total) − annualized(price) で、予測 carry に含まれる buyback を直接観測しない。
 
+## Methodとcacheの互換性
+
 `er_level_calibration`、`margin_short_to_adv`、`normalized_per_3fy` は production core metricではなくoptionalな既知metricである。各metricをproduction判断に使う事前登録済みrunは、core 3 metricと併せて対象を`--required-metric`へ明示する。
 
 cache schema versionは互換性を決める入力から導出する（panel / diagnostics / forwardのfield、測るEvidence Pattern閾値、gate軸、sector-gap軸）。市場storeの`user_version`と同じく自動で進むので、列の形を変えずに観測の範囲だけ広げた変更でも版が動く。手で宣言する識別子は`VALUATION_CALCULATION_REVISION`だけで、式の意味の変更は内容から導けないためそこだけ人が進める。panelは、productionの730日財務入力を変えずに補助履歴から、3 FYのsplit-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少streakと還元変化composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、PIT-TTMの`operating_profit_to_assets`・`operating_margin`・`asset_turnover`を記録する。収益性levelはcalibration専用で、productionのcandidate、E[r]、FV、rank、gateへ渡さない。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化proxyである。`rules_hash`はrules・variant・入力窓に加えてvaluation calculation revisionを含む。valuationの式・資本分母・価格基準が異なるpanelは、method identityとcache schemaの不一致でfail closedにする。
@@ -138,7 +162,9 @@ cache schema versionは互換性を決める入力から導出する（panel / d
 
 `rules_hash` は `ScreeningRules` の JSON dump 全体から作る。したがって **panel の値を 1 つも変えられない変更（無効な knob の削除・field の並べ替え）でも hash は動き、store 全体が再構築対象になる**。rules model の形を変えるときは、その再構築コストを変更の便益と比べる。
 
-### pre-2019 診断 panel
+<a id="pre-2019-診断-panel"></a>
+
+## pre-2019診断panel
 
 `--panel-variant pre2019_self_range_375` は self-range を 375 sessions、bar 入力を 600 暦日に固定する診断専用 contract である。通常 store と異なる `--calibration-dir` が必須で、variant と窓は `rules_hash` に含まれ、全 row が `self_range_degraded: true` を持つ。この store を `--run-purpose production_decision` で評価すると拒否する。production panel の既定窓、screening rules、authority 条件は変わらない。
 
@@ -185,7 +211,9 @@ logicやrulesを変更した場合は、その時点の完全なmarket storeか�
 measurement generationとして評価する。過去入力の完全保存は、現在のproduction method改善に必要な
 品質ゲートではなく、2GB storeや別ledger objectを世代ごとに保持する複雑性にも見合わない。
 
-## Commands
+<a id="commands"></a>
+
+## コマンド
 
 ```bash
 uv run baibai-engine screening backfill-master --month-end-from 2022-09-01 --month-end-to 2026-06-30
@@ -203,7 +231,7 @@ uv run baibai-engine screening calibration-evaluate \
 
 E[r] 水準 parameter を判断する事前登録済み run では、上の core 3 metric に加えて `--required-metric er_level_calibration` を指定する。判断面の月次文脈も更新する run は、同じ command に `--context-out reports/published/er-level-calibration-latest.yaml` を加える。authority が不成立、required cohort が不足、level metric が未解決の場合は context を書かず exit 1 にする。
 
-The retained diagnostics are selection top-5/top-10 median excess and trap rate, price-reversion E[r] relative calibration, FY-dividend total-return E[r] level calibration, axis/gate/reversion regression diagnostics, and cohort coverage/integrity. They do not establish a track record or statistical significance.
+保持する診断は、selection top-5/top-10のmedian excessとtrap rate、価格収束E[r]の相対較正、FY配当を含むtotal-return E[r]の水準較正、axis/gate/reversionのregression診断、cohortのcoverage/integrityである。これらはtrack recordも統計的有意性も証明しない。
 
 ## 改善サイクルの運用契約
 
