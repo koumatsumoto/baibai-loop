@@ -416,6 +416,11 @@ def prepare_workspace(
     ledger annotations, never hard exclusions. A Gate that selected nothing is a
     normal 'no actionable bargain' outcome and still produces a workspace.
     """
+    if selection_output.resolve().is_relative_to(workspace.resolve()):
+        raise OpportunityDataError(
+            "--selection-output must be outside --workspace; prepare writes generated "
+            "selection.yaml into the workspace"
+        )
     selection = _load_mapping(selection_output, label="selection output")
     try:
         review_tickers, review_rows = resolve_review_set_rows(selection)
@@ -970,7 +975,10 @@ def _resolve_workspace_status(
 def _next_command(workspace_status: str, ticker: str) -> str:
     match workspace_status:
         case "deferred":
-            return "resolve blocked checks or defer the candidate"
+            return (
+                "resolve the blocked investigation, or record its evidence as unknown and "
+                "mark the completed investigation complete before promotion"
+            )
         case "incomplete":
             return f"baibai-engine research thesis-scaffold --ticker {ticker}"
         case "ready_for_review":

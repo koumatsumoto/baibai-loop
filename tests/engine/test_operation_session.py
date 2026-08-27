@@ -22,6 +22,17 @@ from baibai_engine.read_api.operations import list_operation_sessions, operation
 NOW = datetime(2026, 7, 19, 12, 0, tzinfo=JST)
 
 
+@pytest.mark.parametrize("command", ["start", "checkpoint", "complete"])
+def test_operation_payload_help_names_a_file_path(
+    command: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as error:
+        operation_main([command, "--help"])
+
+    assert error.value.code == 0
+    assert "path to an OperationPayload YAML or JSON file" in capsys.readouterr().out
+
+
 def _active_payload(checkpoint: str = "source review") -> OperationPayload:
     return OperationPayload(
         checkpoint=checkpoint,

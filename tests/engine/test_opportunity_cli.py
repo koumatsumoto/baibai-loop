@@ -476,6 +476,47 @@ def _run(args: list[str], capsys: pytest.CaptureFixture[str]) -> tuple[int, dict
 # --------------------------------------------------------------------------- #
 
 
+def test_review_scaffold_help_requires_a_stable_thesis(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as error:
+        opportunity_main(["review-scaffold", "--help"])
+
+    assert error.value.code == 0
+    assert "after the thesis content is stable" in capsys.readouterr().out
+
+
+def test_prepare_rejects_selection_output_inside_generated_workspace(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    selection = workspace / "source-selection.yaml"
+    _write_selection(selection, [_longlist_row("2331")])
+    original = selection.read_text(encoding="utf-8")
+
+    code, _payload = _run(
+        [
+            "prepare",
+            "--asof",
+            "2026-07-03",
+            "--selection-output",
+            str(selection),
+            "--shortlist-id",
+            SHORTLIST_ID,
+            "--db",
+            str(_seed_gate(tmp_path, selection)),
+            "--workspace",
+            str(workspace),
+        ],
+        capsys,
+    )
+
+    assert code == 3
+    assert selection.read_text(encoding="utf-8") == original
+    assert not (workspace / "manifest.yaml").exists()
+
+
 def test_prepare_annotates_held_reserved_without_excluding(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

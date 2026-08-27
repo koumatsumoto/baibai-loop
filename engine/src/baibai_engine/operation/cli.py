@@ -34,14 +34,19 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--kind", choices=SESSION_KINDS, required=True)
     start.add_argument("--as-of", type=date.fromisoformat, required=True)
     start.add_argument("--ticker")
-    start.add_argument("--payload", type=Path)
+    start.add_argument("--payload", type=Path, help="path to an OperationPayload YAML or JSON file")
 
     checkpoint = commands.add_parser(
         "checkpoint",
         help="replace the active session's payload with the current working state",
     )
     checkpoint.add_argument("operation_id")
-    checkpoint.add_argument("--payload", type=Path, required=True)
+    checkpoint.add_argument(
+        "--payload",
+        type=Path,
+        required=True,
+        help="path to an OperationPayload YAML or JSON file",
+    )
 
     show = commands.add_parser(
         "show",
@@ -55,7 +60,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="close an active session once its kind's completion requirements hold",
     )
     complete.add_argument("operation_id")
-    complete.add_argument("--payload", type=Path, required=True)
+    complete.add_argument(
+        "--payload",
+        type=Path,
+        required=True,
+        help="path to an OperationPayload YAML or JSON file",
+    )
     return parser
 
 

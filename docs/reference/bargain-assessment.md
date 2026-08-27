@@ -42,7 +42,7 @@ application DBの`bargain_assessment`が正本で、Baibai LoopのStocks面がin
 - `unknowns` — 未解決の不確実性
 - `source_caveats` — `missing / stale / failed / blocked` sourceと、その欠落が判断に与える影響
 
-`research_questions`は1件以上必須とする。候補がresearch slotを得た理由そのものなので、答えられなかった場合も`unresolved`として残し、黙って落とさない。scaffoldはshortlist narrativeの`research`をquestion欄へ先に置く。
+`research_questions`は1件以上必須とする。候補がresearch slotを得た理由そのものなので、答えられなかった場合も`unresolved`として残し、黙って落とさない。scaffoldはshortlist narrativeの`research`をquestion欄へ先に置く。1つのquestionに回答可能性の異なる論点が混在する場合は分割し、一部未解決のまま全体を`answered`にしない。
 
 `missing / failed / blocked` sourceを観測事実の根拠に使わない。使えなかったなら`source_caveats`と`unknowns`へ出す。
 

@@ -7,6 +7,16 @@ non-emptyにする。同名slugによるimplicit mappingは行わない。mappin
 機械的な閾値・除外条件・選定順はscreening rulesが正本で、この領域はH2見出しの強制や
 runtime loaderを持たない。
 
+## Work state
+
+checklist の `status` は証拠の強さではなく調査の進行状態を表す。
+
+- `pending`: 未着手
+- `blocked`: 判断に必要な調査が終わっていない
+- `complete`: 調査が完了した
+
+期待した証拠が得られなくても、未確認であることと disposition への影響を `note` / thesis に記録すれば調査は `complete` である。事実を verified として扱ってはならない。`promote` は全項目が `complete` の場合だけ許可する。
+
 ## Layout
 
 `method/research/playbooks/<directory-slug>/YYYY-MM-DDTHHMMSS+0900.md`
