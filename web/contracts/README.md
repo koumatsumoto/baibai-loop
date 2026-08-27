@@ -1,40 +1,23 @@
-# web/contracts
+# Web contracts
 
-UI と backend が同じ形を二重管理しないための、check-in された契約。
+backendのread modelとUIの型を同じ正本から生成するための、check-inされた契約です。
 
-| file | 何を決めるか | 誰が書くか |
-| --- | --- | --- |
-| `routes.json` | `/api` の route と serving artifact の対応 | 人間 |
-| `read-model.schema.json` | serving artifact の JSON 構造 | 生成物 |
+| 項目 | 内容 |
+| --- | --- |
+| 所有 | `routes.json`のAPI route / serving artifact対応、生成済み`read-model.schema.json` |
+| 所有しない | domain model、UI独自の手書き型、`/api/health`のplain dict |
+| 入口 | `web/backend/src/baibai_web/readmodel/models.py` → `web/contracts/read-model.schema.json` → `web/frontend/src/api/types.ts` |
+| 依存境界 | backend modelが正本。local API、materialized JSON、UIは同じshapeを使う |
+| 変更先 | route mappingは`routes.json`、read model変更はbackend modelを直してschemaとTypeScriptを再生成 |
+| 正本・test | [web README](../README.md)、`tools/quality/drift/check_readmodel_contract.py`、`npm run build` |
 
-## read-model.schema.json と UI の型
+## 生成と確認
 
-正本は `web/backend/src/baibai_web/readmodel/models.py` の Pydantic model である。`materialize`
-がその model から `views/*.json` を書き、local API が同じ形で答え、UI がそれを読む。UI の型を手で
-書くと 2 つの記述が「誰かが覚えている限り」でしか一致せず、backend の field rename は次の batch で
-本番へ出る一方、UI は無くなった key を読み続ける。
+~~~bash
+uv run python -m baibai_web.contracts_export
+uv run python -m baibai_web.contracts_export --check
+~~~
 
-そこで UI の型は model から生成し、間に置く JSON Schema を review 可能な artifact として
-check-in する。生成するのは次の 2 file:
+modelを変えたら生成物を同じcommitへ含め、`npm run build`でUI consumerを確認します。drift gateは生成忘れを拒否します。
 
-- `web/contracts/read-model.schema.json`
-- `web/frontend/src/api/types.ts`
-
-```bash
-uv run python -m baibai_web.contracts_export          # 生成して書き出す
-uv run python -m baibai_web.contracts_export --check  # 差分があれば exit 1
-```
-
-model を変えたら生成し直して同じ commit に入れる。忘れた場合は
-`tools/quality/drift/check_readmodel_contract.py`（CI の drift gate）が赤くなる。生成し直した後は
-UI が新しい型で compile するかを `npm run build` で確かめる — field rename を読んでいた箇所は
-そこで名指しされる。
-
-`schema` は artifact を記述するので、property は全て `required` である。`model_dump_json` も
-FastAPI の `response_model` も field を省かないため、published JSON には常に全ての key が居る。
-唯一の例外は code deploy と materialize の間の窓で、そこは runbook の順序と UI の graceful
-degrade が扱う（`batch/OPERATIONS.md`）。
-
-## 生成に含まれないもの
-
-`/api/health` は plain dict を返すので view model を持たない。
+schemaのpropertyはすべて`required`です。`model_dump_json`とFastAPIの`response_model`はfieldを省略しません。code deployとmaterializeの間だけ旧artifactが残り得るため、[Batch operations](../../batch/OPERATIONS.md)の順序とUIのgraceful degradationで扱います。

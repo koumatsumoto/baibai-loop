@@ -1,44 +1,14 @@
 # Batch
 
-## Purpose
+requestに起因しないproduction orchestrationを所有します。
 
-request に起因しない production orchestration を所有する。
+| 項目 | 内容 |
+| --- | --- |
+| 所有 | job順序、store転送・merge、workflow input validation、watchdog、summary、notification |
+| 所有しない | 投資domain logic、Web projection logic |
+| 入口 | GitHub Actionsとskillから使う`baibai-batch`、operator用`scripts/` |
+| 依存境界 | batchはengineの`batch_api` / `read_api`だけを使う。web、tools、engine internalへ直接依存しない |
+| 変更先 | jobは`src/baibai_batch/jobs`、転送・mergeは`storage`と`scripts`、通知は`observability`、validationは`validation` |
+| 正本・test | [architecture](../docs/architecture.md)、[store authority](../stores/README.md)、[OPERATIONS](./OPERATIONS.md)、[ops skill](../.agents/skills/ops-maintenance/SKILL.md)、[tests/batch](../tests/batch)、[tests/contracts](../tests/contracts) |
 
-## Owns / Does not own
-
-job sequencing、store transfer/merge、workflow input validation、watchdog、summary、notification を
-所有する。投資 domain logic と Web projection logic は所有しない。
-
-## Public entrypoints
-
-GitHub Actions と ops skill 向けの内部入口は `baibai-batch`。operator shell は `scripts/`。
-
-## Reads / Writes
-
-engine/Web の安定入口を composeし、authority 規則に従って machine store と serving artifact を
-転送する。application DB を cloud copy で上書きしない。
-
-## Allowed / Forbidden dependencies
-
-engine は `batch_api` / `read_api` の狭い境界だけを使う。web と tools、および engine domain
-internal への直接依存は禁止する。
-
-## Stores / Config / Reports
-
-store authority と migration safety は [stores](../stores/README.md)、詳細な operator 手順は
-[OPERATIONS](./OPERATIONS.md)。R2 object key topologyは変更しない。
-
-## Tests
-
-Python/shell/workflow contract は [`tests/batch`](../tests/batch)、依存と trust gate は
-[`tests/contracts`](../tests/contracts)。
-
-## Canonical docs
-
-[architecture](../docs/architecture.md)、[OPERATIONS](./OPERATIONS.md)、
-[ops-maintenance skill](../.agents/skills/ops-maintenance/SKILL.md)。
-
-## Common change scenarios
-
-scheduled job は `src/baibai_batch/jobs`、transfer/merge は `storage` と `scripts`、通知は
-`observability`、入力・store validation は `validation` に置く。
+batchはauthority規則に従ってmachine storeとserving artifactを転送します。application DBをcloud copyで上書きしてはいけません。

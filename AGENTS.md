@@ -9,6 +9,7 @@ Baibai Loop の運用作業を AI エージェントに任せるときの最小�
 - 資本・ポジション管理: [`docs/portfolio-management.md`](./docs/portfolio-management.md)
 - 静的契約（artifact・式・data source・validation）: [`docs/reference/README.md`](./docs/reference/README.md)
 - 失敗パターンと再発防止: [`docs/anti-patterns.md`](./docs/anti-patterns.md)
+- active documentationの書き方: [`docs/README.md#document-writing-contract`](./docs/README.md#document-writing-contract)
 
 ## ローカルで完結させる
 
@@ -85,6 +86,8 @@ subsystem、public CLI、schema、persistence、dependency、state、運用手�
 
 効果に見合う最小で可逆なsurfaceを選ぶ。初期サンプルや単発用途は`tools/`、既存output、operation sessionから始め、反復利用と効果を確認してからstable CLI、model、subsystemへ昇格する。将来の利用を仮定した未使用拡張、汎用化、永続stateは持ち込まない。
 
+新しい機能・surface・規則を足す前に、既存の削除または統合で目的を満たせないか確認する。後方互換、deprecation、migration shim、互換layerは作らない。一人運用ではgit historyを安全網とし、実取引・法務・規制・税務に必要な記録とschema migration logは保持する。
+
 検証・防御も同じ基準で測る。現在の判断の誤りをその場で防ぐもの（T1 / T2）だけを置き、監査・再現・将来の安全のためだけのもの（T4）は足さない。無人経路が止まってよい条件は[`docs/architecture.md#failure-policy`](./docs/architecture.md#failure-policy)の2つだけである。実装後のreviewでも効果対複雑性を再判定し、釣り合わなければ一般化を削る、surfaceを縮小する、またはnon-adoptionとする。
 
 機構（package・store・gate・workflow・doc）は、[`docs/architecture.md#four-roles`](./docs/architecture.md#four-roles) の 4 役（産む・止める・測る・見せる）のどれに、L1 のどの工程で仕えるかを 1 文で名指せなければ持たない。名指せる機構はその 1 文を module docstring に置く。
@@ -138,6 +141,7 @@ repository-local skillの正本は`.agents/skills/<name>/SKILL.md`である（�
 ## 言語運用
 
 人間向けの運用記録、調査メモ、作業メモ、最終報告は原則日本語で書く。ただし、schema field、ticker、tool output、コード/API 名、固有の英語指標名は自然に英語のままでよい。
+active documentationの所有・情報構造・意味保全は[`docs/README.md#document-writing-contract`](./docs/README.md#document-writing-contract)に従う。
 
 ## commit 前 / PR 前の self-review
 
