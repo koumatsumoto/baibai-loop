@@ -21,34 +21,29 @@ description: 人間の判断に必要な full-depth の macro context を新規�
 
    pull 済みの macro store は daily batch が全登録 series を refresh した成果である。まず全 series の `macro reading --asof <asof>` を読み、stale、insufficient history、flag、極値、次回公表を解釈より先に確認する。stale、取得失敗、または結論を左右する最新公表だけを `macro refresh <series...> --start <date> --end <asof>` で再取得し、再度 reading を確認する。context 作成のたびに全 series を無条件 refresh しない。8レンズから force 仮説を立て、各仮説を支持する一次 source と反証する一次 source の両方を確認する。source tier、取得失敗時の代替、単位、公表日、取得日は [`data-sources.md`](../../../docs/reference/data-sources.md) に従う。
 
-4. **今回の report を書く**
+4. **判断内容を確定する**
 
-   同じ as-of の `screening market-snapshot` を machine snapshot として引用する。[`macro.md`](../../../docs/reference/macro.md) が定める固定順の core、3 scenario、monitoring、synthesis、connection を満たす。dominant force は、2つ以上の伝達チャネルを一次情報と series で実証し、counter-evidence を持たせる。connection は core から導出し、個別 thesis を直接変更せず、識別可能な research hint、sizing caution、bargain topography、estimate caveat を渡す。prose は [`macro.md#japanese-writing`](../../../docs/reference/macro.md#japanese-writing) に従い、title / summary / force / scenario / monitoring / connection を標準用語で明示的に書く。
-
-5. **前回 scorecard を接続する**
+   同じ as-of の `screening market-snapshot` を machine snapshot として引用する。[`macro.md`](../../../docs/reference/macro.md) が定める固定順の core、3 scenario、monitoring、synthesis、connection を満たす。dominant force は、2つ以上の伝達チャネルを一次情報と series で実証し、counter-evidence を持たせる。connection は core から導出し、個別 thesis を直接変更せず、識別可能な research hint、sizing caution、bargain topography、estimate caveat を渡す。
 
    今回の評価を確定した後だけ、前回 context と `macro context scorecard` を開く。machine snapshot をそのまま input に束縛し、成立実績と確率の整合、消滅または demote した force を記録する。今回の結論を前回へ寄せない。
 
-6. **反証する**
+5. **fieldの役割を確認する**
+
+   [`macro.md`](../../../docs/reference/macro.md)のschema・深度・日本語表現を参照し、各fieldが固有の役割を果たすか確認する。現況・見通し・scenario・monitoringを時間軸で分け、summary / synthesis / economic connection / coreの重複を除く。`counter_evidence`は反証材料として、弱める力または経路と範囲を明示する。
+
+6. **日本語を編集する**
+
+   [`judgment-writing.md`](../../../docs/reference/judgment-writing.md)と[`macro.md#japanese-writing`](../../../docs/reference/macro.md#japanese-writing)に従い、標準用語、自己完結した見出し、一文の判断単位、確度、数値基準を整える。この段階で新しいsource、因果、対象範囲、判断を追加しない。必要になった場合は第4段階へ戻る。今回のreportで見つけた症例を恒久チェックリストへ追加せず、「主張の対象範囲と観測量を、sourceが支持する範囲から広げない」のような再利用可能な規則へまとめる。
+
+7. **判断内容を再検証する**
 
    publish check の前に [`anti-patterns.md`](../../../docs/anti-patterns.md) の macro 該当項目と [`macro.md`](../../../docs/reference/macro.md) の深度契約を通す。特に、限定表現の下流保持、real / nominal などの量基準、latest source、scenario の算術、monitoring の反証可能性、fact / judgment の分離を照合する。
 
-   author とは別 session の role が、draft と引用 source だけを inputs → facts → judgments → synthesis / summary → connection の順で読む。未確認などの限定表現、量の基準、percentile の窓、消滅または demote した force、`usd_jpy` と原則 `jp.10y` の standing exposure を反証する。続けて、日本語表現について次を確認する。
-
-   - 見出しだけで対象と変化・状態が分かるか。
-   - 一文へ独立した主張を詰め込んでいないか。
-   - 観測・解釈・投資上の含意をfield間で混ぜていないか。
-   - `used_for`を含む全prose fieldに、造語、比喩、raw enum、無説明の英単語が残っていないか。
-   - 推敲で判断の強さ、限定、数値、source、支持・反証関係を変えていないか。
-   - 0〜1のpercentile値を0〜100の表示尺度へ正しく直し、実効窓と量の種類を保っているか。
-   - 株式リスクプレミアムと個別5年E[r]を混同せず、指標の水準を原因として書いていないか。
-   - 対象範囲や観測量を広げていないか（CCC格相当を低格付け全体へ、株価騰落率をバリュエーションへ、など）。
-   - transmissionは確認済みの経路と方向を明示し、counter evidenceは判断を弱める範囲にとどめているか。
-   - monitoringの各条件と、その場合に変更する判断・方向が一対一で読めるか。
+   author とは別 session の role が、draft と引用 sourceだけを inputs → facts → judgments → synthesis / summary → connectionの順で読む。見出しと本文の強さ、時間軸、主張の対象範囲と観測量、数値の単位・期間・表示尺度、transmissionの経路、`counter_evidence`（反証材料）が弱める範囲、monitoring条件ごとの更新方向を反証する。編集前のclaim ledgerと照合し、source、判断の強さ、限定、支持・反証関係、構造化値が不変であることを確認する。
 
    構造 validation を semantic review の代わりにしない。修正後はsource・量基準・文章の同じ観点で影響箇所を再 review する。2巡目も block なら、既知の指摘を直して `publish --check` まで行ったうえで publish せず人間へ上げる。再開には、人間による draft 承認、または追加の独立 review を行う明示指示が必要である。
 
-7. **発行する**
+8. **発行する**
 
    indicator input は `baibai_engine.macro.context.scaffold_inputs` で生成する。反復中は `macro context publish <draft> --check`、確定後は確認済み `macro context head` 出力の `context_id` 値だけを `--expected-head` に渡して publish する。head の YAML 出力全体は渡さない。cloud 反映は `ops-maintenance` skill に従う。
 
