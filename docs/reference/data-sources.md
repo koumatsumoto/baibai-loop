@@ -1,6 +1,6 @@
 ---
-title: "Data sources"
-summary: "データソースの Tier 分類・キャッシュ方針・Tier 1 取得失敗時の扱いの正本。"
+title: "データソース"
+summary: "データソースの選択、Tier、取得失敗、保存境界の正本。"
 doc_type: reference
 status: active
 source_paths:
@@ -10,20 +10,32 @@ related_docs:
   - "./macro.md"
 ---
 
-# データソース一覧とスコアリング
+# データソース
 
-Baibai Loop で使うデータソースを、客観性を優先した基準で選定して記録する。ニュース媒体の意見に偏らないよう **一次統計（中央銀行・政府・国際機関）中心** で構成し、一次統計で拾えない地政学イベントのみを補助ソースで補完する。
+Baibai Loopは、数値と経済事実を中央銀行、政府、国際機関などの一次情報源から取得する。Tier 2は、一次情報源で拾えない地政学事象と速報事実だけを補う。意見記事や論説は判断根拠にしない。
 
-各 artifact（[`../architecture.md`](../architecture.md) の Store contract / Data layers）のデータソース対応:
+## 選択規則
 
-| Artifact | 用途 | 主なソース |
+| 必要な情報 | 選ぶ情報源 | 取得できない場合 |
 | --- | --- | --- |
-| application DB `macro_context` | 必要時の個別調査用material-delta context | Reuters 等の記事 + Tier 1 / Tier 1 準拠統計 + 必要な market data |
+| 数値・経済統計 | Tier 1またはTier 1準拠 | 代替値を埋めず、取得失敗を記録する。後述のTier 2数値例外は全適用条件を満たす場合だけ使える |
+| 地政学事象・速報事実 | Tier 2 | 事実報道中心の補助外情報源を明示して暫定利用できる |
+| screening / researchの企業・市場事実 | 各領域の取得契約 | 本書でprovider仕様を重複定義せず、成果物別の正本へ従う |
+
+情報源を取得できない場合は、別の情報源を探す前に、取得手段による遮断か配信元による遮断かを切り分ける。手順と既知の経路は[「Tier 1の取得失敗」](#tier-1-の取得失敗時の扱い)が所有する。
+
+## 成果物別の情報源
+
+各成果物の情報源を示す。層とstoreのauthorityは、[`architecture.md`の5層モデル](../architecture.md#1-5-層モデルと-4-役)と[Store authority](../architecture.md#store-authority)を正本とする。
+
+| 成果物 | 用途 | 主な情報源 |
+| --- | --- | --- |
+| application DB `macro_context` | 必要時に重要な変化を調べる文脈 | Reuters等の記事 + Tier 1 / Tier 1準拠統計 + 必要な市場データ |
 | screening run store | 銘柄ふるい・valuation 指標 | J-Quants（銘柄一覧・日足・財務サマリー・営業日カレンダ）+ EDINET（財務諸表補完、大量保有・公開買付の提出索引と買付価格）+ JPX（決算発表予定日、特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定、資本コスト対応開示一覧、上場廃止銘柄一覧） |
 | application DB `thesis / thesis_review` | 個別銘柄深掘り | J-Quants + EDINET + TDnet（開示文）+ JPX（資本コスト対応開示一覧）+ 個別期待値へ影響するときだけmacro context参照 |
 | application DB ledger | 執行記録 | 証券会社からの約定情報（人間報告だけを記録） |
 
-本ファイルの主領域は **Tier 1 / Tier 2 一次統計** と macro context で使う補助ソースのスコアリングである。screening / research で使う J-Quants / EDINET / TDnet の詳細仕様は [`./valuation-metrics.md`](./valuation-metrics.md) を参照。
+本書は情報源Tier、取得失敗、保存境界を所有する。screening / researchのJ-Quants、EDINET、TDnet仕様は[`valuation-metrics.md`](./valuation-metrics.md)、macro providerの取得・vintage・retraction契約は[`macro.md`](./macro.md)を正本とする。
 
 ## 保有見直しの価格 fallback
 
@@ -37,7 +49,9 @@ portfolio全体の年次・3年・5年outcomeは、JPXが公表する**TOPIX gro
 
 ## 取得データの保存方針
 
-J-Quants / EDINET から取得したデータは、個人利用・非公開 repository での Baibai Loop 運用に限り、ローカル cache または永続 storeとして保存してよい。外部公開・第三者再配布は行わない。secret、token、認証 header は Raw metadata、manifest、log に保存しない。`method/`は screening rules・macro reading rules・research playbook、`web/config/`は presentation configuration を所有する。
+J-Quants / EDINETから取得したデータは、個人利用・非公開repositoryでのBaibai Loop運用に限り、local cacheまたは永続storeへ保存できる。外部公開・第三者再配布は禁止する。secret、token、認証headerはRaw metadata、manifest、logへ保存しない。
+
+`method/`はscreening rules、macro reading rules、research playbookを所有する。`web/config/`はpresentation configurationを所有する。
 
 大規模な market fact は4つの責務へ分ける。
 
@@ -48,37 +62,27 @@ J-Quants / EDINET から取得したデータは、個人利用・非公開 repo
 | hydrated runtime copy | fixed L1 releaseから満たす`market.sqlite`の17 table | R2 authorityにしない |
 | disposable byproduct | `.cache/` | canonical verification後に削除でき、入力証跡として扱わない |
 
-Canonical manifestのsourceはtyped `SourceRef`で記録する。bytesを保持するkind（provider Raw、
-calibration input archive）は実在するkey、SHA-256、source側schema/manifest versionへ束縛する。
-provider Rawはprovider・dataset・request rangeとmetadata sidecarのkey・SHA-256を固定し、
-ingest ID・object key・content digest・metadata versionを同時に照合する。legacy SQLite snapshotは
-identityだけを持つkindで、keyを名乗らない — sealed copyはbuild中にstoreが動かないようにする
-ためのもので、bytesはoperationの終わりで回収する。残るschema version・content digest・capture
-時刻が、その buildを差し出されたstore世代と照合可能にする。logical manifestへR2 ETagを保存せず、
-release profileのrequired dataset・coverage・freshness gateを通らないgenerationをproduction current
-として扱わない。
+Canonical manifestのsourceはtyped `SourceRef`で記録する。bytesを保持するkind（provider Raw、calibration input archive）は、実在するobject key、SHA-256、source側schema / manifest versionへ束縛する。provider Rawはprovider、dataset、request range、metadata sidecarのkeyとSHA-256を固定し、ingest ID、object key、content digest、metadata versionを同時に照合する。
 
-Raw retention は、再取得が高価または不可能な Premium CSV・EDINET XBRL・JPX 原本を
-`preserve`、routine API response を `buffer` とする。inventoryのsoft budgetはbuffer 50 GiBで、
-重要ingestを停止するhard capではない。`preserve`はGC候補にせず、budget表も持たない — 再取得
-できない原本を「いくらまで」で語ると、超えた日に捨てるか諦めるかしか選べない。`buffer`は
-current closureから未到達でretrieved-atから90日以上の場合だけ、metadata/object pairを通常GCの
-planへ載せ、削除直前にidentityを再検証してlocal mirrorから削除する。R2削除はBucket Lock満了後の
-Delete専用retention finalizerへ分離する。
+legacy SQLite snapshotはidentityだけを持ち、object keyを名乗らない。sealed copyはbuild中のstore変化を防ぐために作り、operation終了時に回収する。schema version、content digest、capture時刻によって、buildへ渡したstore世代を照合できる。logical manifestへR2 ETagを保存しない。
 
-screening L1のcanonical authorityはR2 releaseにあり、`stores/market/market.sqlite`はその固定
-releaseから再構築するruntime copyである。取得範囲の帳簿とoperator導出factだけがSQLiteをcanonical
-とする。dual canonical writeを行わない。run storeは`stores/screening/runs.sqlite`を継続する。SQLite layout の正本は
-[`./screening-runtime.md`](./screening-runtime.md)、lake manifest・version・authorityは
-[`./market-lake.md`](./market-lake.md#market-lake-publication-contract)を正本とする。
+Raw retentionは、再取得が高価または不可能なPremium CSV、EDINET XBRL、JPX原本を`preserve`、routine API responseを`buffer`とする。`preserve`はGC候補にせず、budgetを設けない。`buffer`のsoft budgetは50 GiBであり、重要ingestを止めるhard capではない。current closureから未到達かつretrieved-atから90日以上の`buffer`だけを通常GCのplanへ載せる。削除直前にmetadata / object pairのidentityを再検証してlocal mirrorから削除し、R2の削除はBucket Lock満了後のDelete専用retention finalizerへ分離する。
+
+screening L1のcanonical authorityはR2 releaseである。`stores/market/market.sqlite`のlake所有17 tableは、固定releaseから再構築するruntime copyであり、R2とdual canonical writeを行わない。取得範囲の帳簿とoperator導出factだけはSQLiteがcanonicalとなる。run storeは`stores/screening/runs.sqlite`を継続する。
+
+releaseのrequired dataset、coverage、freshness、canonical objectのretention / GC、manifest version、authorityは[`market-lake.md`](./market-lake.md#market-lake-publication-contract)、SQLite layoutは[`screening-runtime.md`](./screening-runtime.md)を正本とする。provider Rawのretentionは本節が所有する。
 
 保存済み canonical fact は、screening 再生成・保有計測・見積り calibration のための入力証跡として扱う。J-Quants の調整後価格、銘柄マスター、JPX 規制情報などは完全な point-in-time snapshot ではないため、publication / effective / retrieved time と revision / coverage semantics が揃わない期間を完全再現可能とは扱わない。zero、complete snapshotでの無報告、coverage不足、parse failure、source unavailableを混同しない。
 
 J-Quants の非公開レート制限と `bootstrap-cache` の per-asof 長期履歴 re-fetch コストは [`./screening-runtime.md`](./screening-runtime.md) §12 にまとめる。歴史週の生成が遅い / 完了しない場合はまずそこを参照する。
 
-Macro indicators は `baibai-engine macro` で公式 API / CSV から取得し、data API が無い系列だけを機械的な scraper で取得して `stores/macro/macro.sqlite` に保存してよい。AI agent の WebFetch 出力を観測値として取り込まない。この SQLite は macro context の正本ではなく、期間検索・再取得抑制・判断材料確認のための取得 cache として扱う。`refresh --all-history` は provider が現在提供する履歴範囲と registry の source identity を同期する。provider run は取得の成否と件数を記録し、observation vintage は内容が変わる revision だけを保持する。各 series の `plausible_min` / `plausible_max` は経済予測や異常値判定ではなく、明白な列・桁・単位の取り違えを insert 前に止める広い静的 band である。band 内に収まる scale 変更は値だけでは識別できないため、source の系列 ID・header・metadata 検証を provider 側で併用する。取得結果に契約違反が 1 点でもあればその series の全結果を rollback し、provider run を failed にする。J-Quants/JPXの投資部門別売買状況は公表単位の千円を`jpy-thousand`として保持する。data API が無い PMI は `spglobal_pmi` provider が git 管理の release-URL manifest から公式 PDF を live 取得し、headline 値を公式定義域0〜100で検証したうえで store へ入れる。
+Macro indicatorは`baibai-engine macro`で公式API / CSVから取得する。data APIがない系列だけ、機械的なscraperを使える。AI agentのWebFetch出力を観測値として取り込んではならない。`stores/macro/macro.sqlite`はmacro contextの正本ではなく、期間検索、再取得抑制、判断材料確認のためのL1 storeである。
 
-## スコアリング軸
+providerはsource identity、header / metadata、unit、finite、静的bandをstoreへの書き込み前に検証する。契約違反が1点でもあれば、そのseriesの取得結果を全件rollbackし、provider runを`failed`として残す。J-Quants / JPXの投資部門別売買状況は公表単位の千円を`jpy-thousand`として保持する。data APIがないPMIは、`spglobal_pmi` providerがgit管理のrelease URL manifestから公式PDFを取得し、headline値を公式定義域0〜100で検証する。refresh、vintage、retraction、registryの詳細は[`macro.md`](./macro.md)が所有する。
+
+<a id="スコアリング軸"></a>
+
+## 情報源Tierの基準
 
 各軸 10 点満点、合計 30 点で評価する。
 
@@ -160,14 +164,14 @@ Tier 1 / Tier 1 準拠 ソースが作業環境からアクセスできない場
 
 ### 取得失敗の切り分け：まず fetch tool を替える
 
-**取得失敗の多くは host の遮断ではなく fetch tool の遮断である。** WebFetch が 403 を返した host でも、`curl` はそのまま通ることが多い。別の一次 source を探し始める前に、必ず `curl` で 1 回試す（macro context 1 サイクルの実測で、一次 source の取得可否の切り分けが 12 pass 中の最大費目 21 分を占めた。その大半がこの取り違えだった）。
+取得失敗は、配信元の遮断ではなく取得手段だけが遮断されている場合がある。WebFetchが403を返しても、別の一次情報源を探す前に`curl`で1回確認する。
 
 ```bash
 UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
 curl -sSL --max-time 25 -A "$UA" '<URL>' | head -c 2000
 ```
 
-2026-08-18 に本作業環境から実測した結果:
+現在確認済みの経路を次に示す。応答が変わった場合は、同じ順序で取得手段と配信元を切り分け直す。
 
 | host | WebFetch | `curl`（素） | `curl -A '<browser UA>'` | 通る経路 |
 |---|---|---|---|---|
@@ -178,7 +182,7 @@ curl -sSL --max-time 25 -A "$UA" '<URL>' | head -c 2000
 | `www.federalregister.gov` | API のみ 200 | 200 | 200 | WebFetch は HTML が 302 で `unblock.federalregister.gov` へ飛ぶ。`api/v1/documents.json?conditions[term]=<語>` なら WebFetch でも通る |
 | `www.bls.gov` / `download.bls.gov` | 403 | 403 | 403 | **host 側の遮断。** 下記の代替を使う |
 
-**BLS だけは真の遮断**なので、次のどちらかを使う（どちらも 2026-08-18 に 200 を確認）。
+上表の経路でBLSの配信元へ届かない場合は、次のいずれかを使う。
 
 - 数値: `https://api.bls.gov/publicAPI/v2/timeseries/data/<seriesID>`（無認証で直近 3 年。CPI 総合は `CUUR0000SA0`）
 - 本文: Web Archive（下記の手順）
@@ -203,7 +207,7 @@ curl -sSL --max-time 25 -A "$UA" '<URL>' | head -c 2000
 | TOPIX | J-Quants 専用 index bars endpoint（`jquants_indices` provider） | — | — |
 | FedWatch (利下げ確率) | CME FedWatch Tool（HTTP 403 で取得不可） | — | — |
 
-**Web Archive の使い方**: timestamp を推測せず、availability API で実在する snapshot を先に引く。8 桁 `YYYYMMDD` や年だけの短縮形は Wayback 側が最寄りへ redirect する経路で、HTTP 500 を返すことがある（2026-08-18 実測）。
+**Web Archive の使い方**: timestamp を推測せず、availability API で実在する snapshot を先に引く。8 桁 `YYYYMMDD` や年だけの短縮形は Wayback 側が最寄りへ redirect する経路で、HTTP 500 を返すことがある。
 
 ```bash
 TS=$(curl -sS 'https://archive.org/wayback/available?url=<host/path>' \
@@ -211,7 +215,7 @@ TS=$(curl -sS 'https://archive.org/wayback/available?url=<host/path>' \
 curl -sS --compressed "https://web.archive.org/web/${TS}id_/<元 URL>"
 ```
 
-`id_` は書き換えなしの原本を返すので、公表期を含む原題がそのまま残る（BLS CPI なら `Consumer Price Index Summary - 2026 M07 Results`）。**`--compressed` は必須** — 付けないと元の gzip バイト列がそのまま返る。archive.org は短時間の連続アクセスへ HTTP 429 を返すので、JSON でなく HTML が返ったら間を置いて 1 回だけ試し直す（`archived_snapshots` が空なら snapshot 自体が無いので別 source へ移る）。Wayback の snapshot は元ソースのキャッシュであり、引用は元ソース URL（FRED 等）として扱い、Wayback URL を併記する。
+`id_`は書き換えなしの原本を返すため、公表期を含む原題が残る。**`--compressed`は必須**であり、省略すると元のgzip byte列が返る。archive.orgは短時間の連続accessへHTTP 429を返すことがある。JSONでなくHTMLが返った場合は、間を置いて1回だけ再試行する。`archived_snapshots`が空なら別の情報源へ移る。Wayback snapshotは元情報源のcacheであり、引用は元情報源のURLとして扱い、Wayback URLを併記する。
 
 **ECB を使う前提**: ECB FX レートは日次 (CET 16:00) であり、週次の H.10 (米 NY noon) と timing が異なる。両者の差は通常 ±0.5 円以内。短期スパンでは互換とみなしてよいが、macro context 内で USD/JPY を H.10 と ECB で混在させない（同一 macro context 内では基準時刻を揃える）。
 
@@ -219,7 +223,7 @@ curl -sS --compressed "https://web.archive.org/web/${TS}id_/<元 URL>"
 
 ### 一次 source の記事 URL（推測で当てると 404 になる）
 
-macro context の `inputs.articles` で繰り返し使う日本の公表機関は、索引ページから辿らないと当たらない URL 規則を持つ。2026-08-17 の執筆で 10 回の 404 を出したのは全てこの探索で、tool の遮断ではない。確定した規則を置く。
+macro contextの`inputs.articles`で繰り返し使う日本の公表機関には、索引pageから辿らないと解決できないURL規則がある。確認済みの規則を次に示す。
 
 | 公表 | URL 規則 |
 |---|---|
@@ -262,7 +266,7 @@ Tier 2 の Reuters / AP News / NHK は、Web 取得ツール側の制約で直�
 - 連続 2 回 (= 2 つの macro context cycle) で Tier 1 が取れない指標は、本ファイルの Tier 1 表に「個別 release URL 解決困難の運用注記」を追加し、暫定状態を可視化する
 - 一次統計の数値が二次集計と乖離している場合 (=単一二次集計のみの値) は本例外を適用せず、analysis layer で「報道ベースの参考値」として質的に扱う
 
-### 現在の例外運用対象 (2026-05-04 時点)
+### 現在の例外運用対象
 
 | 指標 | Tier 1 | Tier 2 暫定 | 失敗理由 |
 | --- | --- | --- | --- |
