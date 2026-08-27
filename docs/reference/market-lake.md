@@ -7,12 +7,14 @@ status: active
 
 # Market lake operations
 
-authority、manifest、version 語彙はこの文書の [Publication contract](#market-lake-publication-contract)
+authority、manifest、version 語彙はこの文書の[発行契約](#market-lake-publication-contract)
 が正本である。store の所有者は [`../architecture.md`](../architecture.md#information-layers) の表が正本で、この文書は publish と read の契約と実操作を持つ。
+
+## 不変条件
 
 L1は`market.sqlite`の17 data tableを持ち、R2が持つ`market.sqlite`は残る2 data tableと
 store-local metadataの`lake_store_origin`だけを運ぶ
-（[Daily cutover](#daily-cutover)）。その 2 本は L1 に入らない — `tse_capital_policy_snapshots` は
+（[日次切替](#daily-cutover)）。その 2 本は L1 に入らない — `tse_capital_policy_snapshots` は
 operator が導出したもので fetch の蓄積ではなく、key merge すると撤回した行が復活する。
 `source_coverage` は取得範囲の帳簿であって fact ではない。**不足 dataset を store の残り物で暗黙に
 埋めない** — hydrate は積む前に対象 table を空にし、積んだ行数が release manifest の publish 行数と
@@ -38,8 +40,9 @@ partition の粒度は dataset 契約が宣言する。行数から導出しな�
 release 入力にならない。飛ばすことで「まだ始まっていない」と「build が失敗した」を分ける。
 
 <a id="market-lake-publication-contract"></a>
+<a id="publication-contract"></a>
 
-## Publication contract
+## Object modelと発行契約
 
 大規模な market fact は、R2 の不変 object を Parquet で保持し、dataset manifest と L1 release
 manifest で exact input generation を固定する。DuckDB は Parquet の build・validation・analysis
@@ -112,7 +115,7 @@ fail-close で、prefix listing・glob・`union_by_name` による吸収・provi
 lake 所有 table だけを積み直し、single rename で publish する。読み込んだ行数が release manifest の
 publish 行数と一致しなければ fail-close する — 静かに空のまま進んだ store は、screening に空の
 universe を健全な結果として publish させるためである。手順は
-[Fixed release read](#fixed-release-read) を正本とする。
+[解決と読み取り](#fixed-release-read)を正本とする。
 
 このcustom manifest protocolは、単一writer・小規模catalog・Python中心という現在の制約に対して
 table formatより小さい。次のいずれかが現れた時点で、Apache Iceberg / R2 Data Catalog等への
@@ -120,7 +123,9 @@ table formatより小さい。次のいずれかが現れた時点で、Apache I
 維持する、dataset横断のsnapshot transactionが要る、remote GCを自前で持つ、row-level mutationが要る。
 どれも現状は無く、無い間は自前protocolの方が状態空間が小さい。
 
-## Build
+<a id="build"></a>
+
+## 構築
 
 初回 seed は全期間を export する。現行 provider / Premium backfill は coverage を SQLite に
 commit し、lake export はその SQLite を `legacy_sqlite_import` として月 partition へ変換する。
@@ -223,11 +228,13 @@ export が 15 分を超えるようになったら、対処は export の高速�
 | 本書の grain 表と [`../../stores/README.md`](../../stores/README.md) の table 数 | 何も言わない。ここが唯一の備忘 |
 
 hydrate / dehydrate に個別作業は無い。どちらも `LAKE_DATASETS` から従い、積んだ行数が release
-manifest と合わなければ [Store hydration](#store-hydration) が fail-close する。
+manifest と合わなければ[Storeの復元](#store-hydration)がfail-closeする。
 
 merge の翌日の publish は、いつもどおり全 partition を store から導出する。作業は要らない。
 
-## R2 publish
+<a id="r2-publish"></a>
+
+## 発行
 
 publish は immutable object、dataset manifest、release manifest の順に `If-None-Match: *` で
 転送する。各sourceをsealed copyへ固定してR2が検証する`Content-MD5`付きPUTを行い、logical
@@ -313,9 +320,9 @@ uv run python -m baibai_batch.storage.lake_publish \
 `R2_SECRET_ACCESS_KEY` である。実データ backfill と R2 publish は data license と対象 release
 を確認した後にだけ実行する。
 
-<a id="fixed-release-read"></a>
+<a id="daily-cutover"></a>
 
-## Daily cutover
+## 日次切替
 
 日次バッチは lake から store を作り、lake へ publish して終わる。`market.sqlite` 全体の
 GET / backup copy / PUT は発生しない。
@@ -350,7 +357,9 @@ mirror は `stores/lake/` に置く。key が全て `lake/` で始まるので m
 directory 自身であり、`--mirror stores` と渡す。mirror は immutable object の fetch-through cache
 なので、消しても release から作り直せる。
 
-## Fixed release read
+<a id="fixed-release-read"></a>
+
+## 解決と読み取り
 
 読み取りは実行の最初に current pointer を 1 度だけ解決し、以後は固定した `release_id` と
 immutable object key だけを読む。実行途中に pointer が切り替わっても、その実行の入力 release は
@@ -402,7 +411,9 @@ row は bounded batch で読む。dataset は 10 年分の日足であり、全 
 （既定 16 object）へ先読みする。peak memory は dataset の大きさではなく batch 幅と buffer 上限に
 従い、検証・install・transfer 計数は先読みの有無にかかわらず消費側 thread の同じ経路を通る。
 
-## Store hydration
+<a id="store-hydration"></a>
+
+## Storeの復元
 
 固定 release を SQLite へ実体化するのは hydrate である。releaseがpublishするlake所有tableを空にして
 objectから積み直し、他の2 data table、`lake_store_origin`、schemaはそのまま残す。storeは満たされた
@@ -460,12 +471,15 @@ filesystem、Windows native path は未対応であり、market store の置き�
 temporary を除去して直前の store を保持する。
 
 <a id="l2-calibration"></a>
+<a id="l2-calibration-builds"></a>
 
-## L2 calibration builds
+## L2較正store
 
 calibration の cohort（panel・panel diagnostics・forward outcome）は typed Parquet の L2 dataset
 として publish する。Arrow schema は `PanelRow` / `PanelDiagnostics` / `ForwardReturnRow` から
 導くので、行の契約と保存列がずれない。partition は cohort の as-of の `year/month`。
+
+### 構築・発行・採用
 
 cohort を 1 つ書くと3 datasetのimmutable buildを先に完成させ、dataset manifestの
 `cohort_inventory`へ`complete / empty / partial / not_computed`、row数、typed source digest、
@@ -559,6 +573,8 @@ generationに対して行い、canonical currentへ進むのはgeneration adopti
 公開しうる。adoptionの直前に「今serveしている集合」と「これからserveする集合」を比較し、落ちるものが
 あれば名指して拒否する。
 
+### 障害と復旧
+
 **壊れたstoreは、その場では直さない。** 解決できないstoreへのbuildは`--force`の有無にかかわらず
 拒否し、pointerもmanifestも1バイトも動かさない。復旧は別の`--calibration-dir`へfull buildし、読める
 ことを確認してからdirectoryを入れ替える。in-placeで直すには「今serveしている集合」が要るが、それは
@@ -572,6 +588,8 @@ storeへのbuild」の2つの意味を持ち、`--force`の意味・drop guard�
 **pointerを失ったstoreは空のstoreではない。** publishした痕跡（bundle manifest）が残る限り解決は
 fail closeする。両者を同じ「まだ何も無い」として扱うと、次のbuildがstoreを新規扱いして書き潰す。
 retentionは既にこの区別でsweepを止めており、readerだけが「空」と答える状態が食い違いである。
+
+### 世代の採用と読み取り一貫性
 
 adoptionはbundleが閉じているものだけを歩く。bundle manifest → dataset manifest → partition object
 → 保持するcohort sourceとそのfileであり、directory treeではない（treeには追い越された世代も居る）。
@@ -601,6 +619,8 @@ rules・measurement policy identity、3y/5y coverageとrequired metricで判定�
 場合は、その時点の完全なmarket storeから全cohortを再buildして新しいgenerationとして比較する。
 exact replay専用のcoverage ledger objectや2GB snapshot保存は持たない。
 
+### 保証範囲
+
 `L1ReleaseSourceRef`のresolverは、固定releaseを使う一般用途のためrelease manifestからdataset manifest、
 Parquet objectまでdigestで検証する。既存のimmutable v1 calibration manifestにそのrefがあれば読み取れる
 が、現行calibration writerは生成せず、production authorityにも使わない。
@@ -610,6 +630,8 @@ cohortのinput cutoffとsealed snapshot identityが保証するのは**どのsto
 revisionを含み、完全なvintageではない（[`data-sources.md`](./data-sources.md)）。較正結果を
 live deploy可能なhistorical alphaとして読まず、PIT不完全なfieldに依存するmetricはその前提込みで
 保守的に解釈する。
+
+## 保持とGC
 
 retention の root は 2 種類で、そこから到達できる object は齢によらず残す。
 
@@ -678,6 +700,8 @@ panel / forward / diagnosticsをcontent-addressed graphとして保持する。�
 retention rootにはしない。これは「どのgenerationを読んだか」と「現在保持する評価結果が改変されて
 いないか」を保証し、将来codeによる全入力のexact replayまでは保証しない。
 
+## 較正storeの更新と移行
+
 current bundleに問題がある場合、直すのは前へ build することである。local storeで作り直した
 generationを `calibration-build` が publish すれば、bundle pointer は 1 回のCASでそれを指す。
 これは較正 store 内で完結する操作で、R2 は関与しない。
@@ -687,6 +711,8 @@ rulesがその間に動いているため旧storeのcohortは1件もそのまま
 「現行codeが読めないbytesを新store内に保存する」ことだけだった。読み返せず・混ぜられず・
 再計算もできないbytesは、定義上ゼロ価値である。旧rulesで測った過去の計測値は失われるが、
 それは設計自身が「旧rulesのcohortを現行集計に混ぜない」ために拒否していたものである。
+
+## セキュリティと実環境検証
 
 出力へ何を出さないかは、その出力が誰の手に渡るかで決まる。**共有される成果物** — remote publish
 report、Discord通知、CI artifact、そこへ載るerror — にはcredential、bucket URL、
@@ -724,4 +750,3 @@ gh secret list | rg R2_LAKE_ACCEPTANCE
 gh variable list | rg R2_LAKE_ACCEPTANCE
 BAIBAI_R2_ACCEPTANCE=1 uv run pytest -n 0 -vv tests/integration/test_lake_r2_acceptance.py
 ```
-
