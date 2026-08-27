@@ -19,7 +19,7 @@ description: 人間の判断に必要な full-depth の macro context を新規�
 
 3. **データの健全性と一次情報を揃える**
 
-   `macro refresh <series...> --start <date> --end <asof>` の後、全 series の reading を読む。stale、insufficient history、flag、極値、次回公表を解釈より先に確認する。8レンズから force 仮説を2〜5件立て、各仮説を支持する一次 source と反証する一次 source の両方を確認する。source tier、取得失敗時の代替、単位、公表日、取得日は [`data-sources.md`](../../../docs/reference/data-sources.md) に従う。
+   pull 済みの macro store は daily batch が全登録 series を refresh した成果である。まず全 series の `macro reading --asof <asof>` を読み、stale、insufficient history、flag、極値、次回公表を解釈より先に確認する。stale、取得失敗、または結論を左右する最新公表だけを `macro refresh <series...> --start <date> --end <asof>` で再取得し、再度 reading を確認する。context 作成のたびに全 series を無条件 refresh しない。8レンズから force 仮説を2〜5件立て、各仮説を支持する一次 source と反証する一次 source の両方を確認する。source tier、取得失敗時の代替、単位、公表日、取得日は [`data-sources.md`](../../../docs/reference/data-sources.md) に従う。
 
 4. **今回の report を書く**
 
@@ -33,11 +33,11 @@ description: 人間の判断に必要な full-depth の macro context を新規�
 
    publish check の前に [`anti-patterns.md`](../../../docs/anti-patterns.md) の macro 該当項目と [`macro.md`](../../../docs/reference/macro.md) の深度契約を通す。特に、限定表現の下流保持、real / nominal などの量基準、latest source、scenario の算術、機械的 monitoring、fact / judgment の分離を照合する。
 
-   author とは別 session の role が、draft と引用 source だけを inputs → facts → judgments → synthesis / summary → connection の順で読む。未確認などの限定表現、量の基準、percentile の窓、消滅または demote した force、`usd_jpy` と原則 `jp.10y` の standing exposure を反証する。構造 validation を semantic review の代わりにしない。修正後は影響箇所を再 review し、2巡で収束しなければ publish せず人間へ上げる。
+   author とは別 session の role が、draft と引用 source だけを inputs → facts → judgments → synthesis / summary → connection の順で読む。未確認などの限定表現、量の基準、percentile の窓、消滅または demote した force、`usd_jpy` と原則 `jp.10y` の standing exposure を反証する。構造 validation を semantic review の代わりにしない。修正後は影響箇所を再 review する。2巡目も block なら、既知の指摘を直して `publish --check` まで行ったうえで publish せず人間へ上げる。再開には、人間による draft 承認、または追加の独立 review を行う明示指示が必要である。
 
 7. **発行する**
 
-   indicator input は `baibai_engine.macro.context.scaffold_inputs` で生成する。反復中は `macro context publish <draft> --check`、確定後は確認済み head を `--expected-head` に渡して publish する。cloud 反映は `ops-maintenance` skill に従う。
+   indicator input は `baibai_engine.macro.context.scaffold_inputs` で生成する。反復中は `macro context publish <draft> --check`、確定後は確認済み `macro context head` 出力の `context_id` 値だけを `--expected-head` に渡して publish する。head の YAML 出力全体は渡さない。cloud 反映は `ops-maintenance` skill に従う。
 
 ## 禁止・停止条件
 
