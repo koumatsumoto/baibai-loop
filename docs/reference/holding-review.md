@@ -8,12 +8,13 @@ related_docs:
   - "../portfolio-management.md"
   - "./portfolio-ledger.md"
   - "./thesis.md"
-  - "./portfolio-ledger.md"
 ---
 
 # Holding review
 
-## Purpose and activation
+<a id="purpose-and-activation"></a>
+
+## 目的と適用
 
 Holding review は、保有 1 件の売買判断を **thesis health** と **税引後の代替機会費用** から `hold / add / reduce / exit` へ落とす。機械契約は `engine/src/baibai_engine/position/holding_review.py`、canonical revisionはapplication DBの`holding_review_id`で識別する。draft は read-only の判断材料であり、最終判断と broker 操作は人間が行う。
 
@@ -23,7 +24,9 @@ holding reviewはDB ledger、holding thesis、候補thesisをimmutable IDで必�
 
 `holding-review-build`はthesis IDからthesis/review readinessを確認してDB ledgerと結合する。load-bearing scalarはsourceから生成し、運用担当が手入力で変更しない。
 
-## Inputs
+<a id="inputs"></a>
+
+## 入力
 
 | block | responsibility |
 | --- | --- |
@@ -35,7 +38,9 @@ holding reviewはDB ledger、holding thesis、候補thesisをimmutable IDで必�
 
 `thesis_health.permanent_loss_axes` は `funding_liquidity / debt_repayment / cash_flow / dilution / customer_concentration / structural_decline / governance_accounting` の 7 軸を各 1 回ちょうど持つ。1 つでも欠けると review は `incomplete` になる。`permanent_loss_conclusion` は **verified な adverse 軸**があるとき `elevated`、partially verified / unverified な adverse を含むとき `unknown`、それ以外は `acceptable` とする。`elevated` だけが全株 exit の条件であり、未確認の懸念で税負担を伴う全株売却を断定しない。
 
-## After-tax replacement arithmetic
+<a id="after-tax-replacement-arithmetic"></a>
+
+## 税引後の代替算術
 
 税は口座税制 engine を作らず、確定 cash flow（ledger `tax_confirmed`）と設定実効税率 estimate（ledger `estimated_exit_tax_rate_bps` + `estimated_exit_tax_basis: ledger_fifo_gross_unrealized_gain`）を分離したまま扱う。
 
@@ -52,7 +57,9 @@ replacement_edge = switch_terminal - hold_terminal
 
 `tax_basis: unknown`（NISA・損益通算で確定不能）のときは単一の verdict を出さず、感応度を示す：乗換が有利になる **breakeven 税率**（`replacement_edge = 0` となる税率）と、**税ゼロ時の edge** を出す。unknown の edge は `null` にし、reduce / exit を機械的に発火させない。
 
-## Decision table
+<a id="decision-table"></a>
+
+## Actionの決定
 
 価格下落単独は exit の理由にしない。最終判定は人間。
 
@@ -66,7 +73,9 @@ replacement_edge = switch_terminal - hold_terminal
 
 `current_5y_estimate: unresolved` の holding は replacement comparison と add context を持てず、`reduce` / `add` を推定値から発火させない。未確認の永久損失軸（`permanent_loss_conclusion: unknown`）も買い増しを許可しない。記録した `action` は入力から再計算した action と一致しなければならない。不一致は error にし、draft が自分の入力と矛盾しないことを保証する。
 
-## Commands
+<a id="commands"></a>
+
+## Command
 
 ```bash
 uv run baibai-engine position market-price-draft --db stores/application/baibai.sqlite --sqlite stores/market/market.sqlite --asof ASOF_DATE --out /tmp/market-price-draft.yaml
@@ -80,4 +89,22 @@ uv run baibai-engine position holding-review --db stores/application/baibai.sqli
 uv run baibai-engine position holding-review publish /tmp/holding-review.yaml --db stores/application/baibai.sqlite --thesis-id THESIS_ID
 ```
 
-`ASOF_DATE`は価格draftの最新完全営業日、`NEXT_SESSION_DATE`はその次の取引sessionである。`market-price-draft`は全open holdingの`ASOF_DATE` raw closeを同じcalendar dateで揃え、canonical ledgerを直接変更しない。人間がdraftをcanonicalへ反映した後、`holding-prepare`がledger entityとappend headに束縛した1銘柄固定workspaceを作り、holding market-price observationの日付が`--asof`と異なれば停止する。**この前提はworkspaceの各gate（`status` / `thesis-scaffold` / `review-scaffold` / `promote`）でもcanonical ledgerに対して再証明する。**manifestは書き換え可能なfileなので、`purpose: holding_review`を宣言するだけでこの前提を飛ばせないようにするためである。append headはledger eventしか数えず、market priceは別tableへ入れ替わるので、price draftを再適用するとheadが動かないまま観測日だけが動く — その状態のworkspaceはbuildが拒否する（後述）ので既に使えず、gateはそれをresearchを書く前に知らせる。gateが再証明するのは**観測日**であり、同日のまま価格値だけが訂正された場合はbuildが唯一の関門になる。止まったworkspaceは、新しい観測日で`holding-prepare --asof <観測日> --force`し、続けて`thesis-scaffold --force`でticker draftを作り直す — market priceは前進しか許さないので古いas-ofへは戻せない。作り直す前のthesis draftは`status`が`thesis as_of ... does not match workspace as_of ...`として報告するので、独立reviewへ進む前に気づける。`thesis-scaffold`も解決したraw close日がworkspace `as_of`と異なれば停止する。独立reviewをscaffoldして完成させ、`promote`が返す`THESIS_ID`をholding reviewへ渡す。buildはthesis/review missing、revision drift、thesisとholding market-price observationの日付不一致、ledgerにopen holdingなし、raw/unadjusted price basis不一致で停止する。ledgerの非価格eventはmarket closeより新しくてよい。draft生成後は`holding-review --db ... --input`がcanonical DBからscalarとsource revisionを再構築して照合する。人間が確認したdraftだけをcanonical `thesis_id`へ束縛してpublishする。完全な手順は skill [`holding-review`](../../.agents/skills/holding-review/SKILL.md) を正本とする。
+### 判断基準日とworkspaceの束縛
+
+`ASOF_DATE`は価格draftの最新完全営業日、`NEXT_SESSION_DATE`はその次の取引sessionである。`market-price-draft`は、全open holdingの`ASOF_DATE` raw closeを同じcalendar dateで揃え、canonical ledgerを直接変更しない。
+
+人間がdraftをcanonicalへ反映した後、`holding-prepare`はledger entityとappend headに束縛した1銘柄固定workspaceを作る。holding market-price observationの日付が`--asof`と異なる場合は停止する。ledgerの非価格eventはmarket closeより新しくてよい。
+
+### Gateと復旧
+
+workspaceの各gate（`status`、`thesis-scaffold`、`review-scaffold`、`promote`）は、holdingと観測日の前提をcanonical ledgerに対して再証明する。manifestは書き換え可能なため、`purpose: holding_review`の宣言だけで前提を飛ばせないようにする。
+
+append headはledger eventだけを数え、market priceは別tableへ入れ替わる。price draftを再適用すると、headが動かないまま観測日だけが変わり得る。このworkspaceはbuildが拒否するため既に使えず、各gateはresearchを書く前に停止を知らせる。gateが再証明するのは観測日であり、同日のまま価格値だけを訂正した場合はbuildだけが停止できる。
+
+停止したworkspaceは、新しい観測日で`holding-prepare --asof <観測日> --force`を実行し、続けて`thesis-scaffold --force`でticker draftを作り直す。market priceは前進しか許さないため、古いas-ofへ戻してはいけない。作り直す前のthesis draftは、`status`が`thesis as_of ... does not match workspace as_of ...`として報告する。`thesis-scaffold`も、解決したraw close日がworkspaceの`as_of`と異なる場合は停止する。
+
+### Buildとpublish
+
+独立reviewをscaffoldして完成させ、`promote`が返す`THESIS_ID`をholding reviewへ渡す。buildは、thesisまたはreviewの欠落、revision drift、thesisとholding market-price observationの日付不一致、open holdingの欠落、raw/unadjusted price basis不一致で停止する。
+
+draft生成後、`holding-review --db ... --input`はcanonical DBからscalarとsource revisionを再構築して照合する。人間が確認したdraftだけをcanonical `thesis_id`へ束縛してpublishする。完全な手順はskill [`holding-review`](../../.agents/skills/holding-review/SKILL.md)が所有する。

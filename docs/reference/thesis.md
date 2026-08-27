@@ -7,13 +7,17 @@ status: active
 
 # Thesis
 
-## Purpose and activation
+<a id="purpose-and-activation"></a>
+
+## 目的と適用
 
 thesisは、実購入候補の判断根拠を短い要約と再計算可能な詳細へ固定する。機械契約は`engine/src/baibai_engine/research/thesis.py`、canonical revisionはapplication DBの`thesis_id`で識別する。独立reviewは同じpublish transactionで`review_id`を得て、DBの外部キーで対象thesis revisionへ束縛される。
 
 thesisは新規の購入判断と保有見直しの判断根拠を固定する。既存保有に判断根拠が必要になった場合は、その時点の一次情報と現値からthesisを作成する。
 
-## Four namespaces
+<a id="four-namespaces"></a>
+
+## 4つのnamespace
 
 | namespace | responsibility |
 | --- | --- |
@@ -28,7 +32,9 @@ ScreeningのE[r]とFV anchorは決定論的でも事実ではなくestimateで�
 
 `judgment.ai_value_capture`は、AIを企業価値へ変換できるかを企業別に評価する分析層である。roleは`enabler / infrastructure / complement / adopter / disrupted`を使い、value captureの持続性、競争優位、収益化、株主への帰属をsource付きで記述する。`not_material`ならroleも判断weightも持たず、AIだけで採用・順位・投入額を決めない。`disrupted`を記す場合は、同じ根拠で`structural_decline`の永久損失評価へ接続する。
 
-## Input snapshot and lineage
+<a id="input-snapshot-and-lineage"></a>
+
+## Input snapshotとlineage
 
 Candidate YAMLはlocalで再生成する探索成果物であり、thesisから参照しない。採用した入力だけを`input_snapshot`へ値として固定する。これによりthesisはgitignoredなcandidate fileやSQLite fileの存在に依存せず、clean checkout単体で判断時点の入力を検証できる。
 
@@ -38,7 +44,9 @@ Selectionから機械転記するE[r]とFV anchorは観測factではないため
 
 外部sourceはHTTPS URLを持つ。local dataは消失し得るファイルパスを参照せず、`provider`、`dataset`、`retrieved_at`を持つ。`retrieved_at`はAI proposal時刻以前でなければならず、提案後に得た情報を判断時点snapshotへ遡及混入できない。市場価格は`observed_at`と`price_basis`（realtime / 調整済み終値 / 未調整終値）を持つ。すべてのsourceはthesisと同じtickerを明示し、source/fact/scenarioがthesis as-ofより未来の場合、source IDが解決しない場合、価格・valuationのtypeまたはunitが不正な場合は`incomplete`とする。HTML、PR body、operation sessionは説明・ID参照にとどめ、判断入力の正本を複製しない。
 
-## Scenario arithmetic
+<a id="scenario-arithmetic"></a>
+
+## Scenario算術
 
 3年は予測可能性のsanity check、5年は主評価である。各horizonにbear/base/bullを1件ずつ要求する。
 
@@ -53,7 +61,9 @@ total_return_CAGR = ((terminal_price + cumulative_dividend_per_share) / entry_pr
 
 `starting_share_count`は**自己株式を除いた期末実質発行済株式数**を使う。決算短信の「期末発行済株式数（自己株式を含む）」と screening の`shares_outstanding`はどちらも自己株式込みのグロス値で、自己株式が発行済の数%に達する銘柄ではそのまま使うと1株価値を同じ割合だけ過小評価する。会社自身の1株当たり当期純利益および予想EPSが含意する株数と突き合わせて確認する。
 
-### Base terminal multiple
+<a id="base-terminal-multiple"></a>
+
+### Base終端倍率
 
 base scenario の終端倍率は、as-of に観測した正の trailing multiple を据え置くのを既定とする。現観測より高い倍率は、**直近実績にすでに現れ、一次開示で検証した機構**（構造的な margin 改善、事業 mix 転換、継続的な還元機構の変化など）を名指しできる場合に限って置ける。「割安に見える」「業種中央値より低い」「機械 FV anchor が高い」といった相対値や期待だけは機構ではない。
 
@@ -67,7 +77,9 @@ base scenario の終端倍率は、as-of に観測した正の trailing multiple
 
 6088 のように粗利率 44.6% から 49.4% への改善が一次開示で実績化した lane は、3 ガードを満たせば上振れを検討できる。一方、4887 の機械 anchor 21.6 倍のように一過性 EPS の影響を受け、独立した構造機構を示せない値は採用しない。これは機械 anchor の一律採用規則ではなく、base judgment と独立反証の規律であり、engine の readiness validation は変更しない。
 
-### 5-year base break-even
+<a id="5-year-base-break-even"></a>
+
+### 5年base break-even
 
 `baibai-engine research evaluate`は5年base scenarioだけについて、thesis schemaへ値を複製せず`five_year_base_break_even`を派生出力する。要求CAGRを`r`、entry priceを`P`、累積配当を`D`、5年後利益と株数を`E5`、`S5`とすると、境界値は次の式で求める。
 
@@ -85,11 +97,15 @@ break_even_earnings_growth =
 
 観測multipleとの比較は、利益basisが`net_income_attributable_to_owners`で、同一as-ofの`valuation_metric` / `ratio` factのうち、fact IDが`trailing-per`または`trailing-per-`で始まる一意な正値だけを使う。候補なし、複数候補、source未解決はfail-closedでstatusを返し、他のvaluation metricへfallbackしない。この派生出力は仮定感応度をreviewする材料であり、thesis readiness、recommendation、execution policyを変更しない。
 
-### Screening-to-research FV bridge
+<a id="screening-to-research-fv-bridge"></a>
+
+### ScreeningからresearchへのFV bridge
 
 `estimates.screening_fv_bridge`は、screening FV anchorからresearch FVへ修正した主要説明要因1つと短いnoteだけを持つ。全要因の寄与率や乖離率をthesisへ複製しない。`baibai-engine research evaluate`は`screening_fv_revision_pct = (current_fair_value_yen / screening_estimate.fair_value_anchor_yen - 1) * 100`を派生計算し、負値をresearchによるFV引き下げ、正値を引き上げとして返す。bridgeが存在するのにbaseline FVが無い場合は不整合、baselineがあるのにbridgeが無い場合は改善telemetryのwarningであり、投資判断のhard blockではない。
 
-## Planning-only execution pricing
+<a id="planning-only-execution-pricing"></a>
+
+## Planning専用の注文価格
 
 `estimates.required_5y_base_cagr_pct`は、5年base scenarioに対してこの判断が要求する年率を明示する。最大許容価格は表示用の上限価格や終値からの任意率を入力にせず、再計算した5年base terminal priceと累積配当から求める。
 
@@ -112,9 +128,13 @@ max_acceptable_price = floor_to_tick(
 | thesis/review not readyまたはhash mismatch | `defer` |
 | `judgment.position_intent: starter` で1単元の想定約定額が starter の1注文上限を超える | `defer`（`starter_lot_exceeds_notional_cap`）。1単元へ切り上げると縮小lotの意味が消えるため |
 
+<a id="position-intent"></a>
+
 ## Position intent
 
 `judgment.position_intent`は`full`（既定）と`starter`を取る。`starter`は境界にある判断を縮小 lot と bucket 上限つきで建てる宣言で、許される形は 2 つ — (a) 要求利回りが full の水準に届かない境界帯、(b) 要求は full の水準のまま、evidence に不完全な軸（`evidence_exception_axes` — buy gate が override を要求する例外集合と同じ定義）が残る lane。どちらも`sizing_action: reduced`、非`elevated`な永久損失結論、`judgment.starter_catalyst_date`（再評価を発火させる日付）を同時に要求する。evidence が完全で要求も full 水準なら starter は取れない。帯・1注文上限・bucket上限の数値と撤退基準は[`portfolio-management.md`](../portfolio-management.md#starter-band)を正本とし、機械gateは`plan-limit`の数量と`proposal create`が持つ。thesis側で帯を強制しないのは、published済みthesisを後からinvalidにするとholding reviewとassessmentが同時に止まるためである。
+
+<a id="core-hash"></a>
 
 ## Core hash
 
@@ -138,13 +158,17 @@ proposalは人間承認前の判断材料で、brokerを操作しない。AIはf
 
 `plan-limit`出力はproposal作成用のephemeral inputである。`proposal create --thesis-id`はimmutable thesis/review ID、current DB ledger、`--market-db`で指定するcanonical market storeからplanning-limitを再検証し、入力内のpathやhashを正本へ保存しない。`approve`時にも同じmarket snapshot内でpriceとportfolio exposureを再計算し、thesis、price、quantity、expiry、ledgerのいずれかが変わっていればno-writeで新proposalを要求する。
 
-## Permanent-loss axes
+<a id="permanent-loss-axes"></a>
+
+## 永久損失7軸
 
 必須軸は`funding_liquidity / debt_repayment / cash_flow / dilution / customer_concentration / structural_decline / governance_accounting`である。各軸は`acceptable / adverse / unknown`、`verified / partially_verified / unverified`、source、as-ofを持つ。
 
 軸欠落、source/as-of欠落、400日を超える根拠の陳腐化、`adverse`または`unknown`と総合結論の矛盾は`incomplete`である。一次情報不足または`adverse`自体はwarningにできるが、buy提案は`reduced` sizingと有効期限内の理由付きhuman overrideなしにreadyにならない。不完全な証拠で`high` confidenceは許さない。
 
-## Independent second pass
+<a id="independent-second-pass"></a>
+
+## 独立反証
 
 `buy`にはthesisと別ファイルの`independent_review_ref`を必須とする。reviewはcore thesis SHA-256、reviewer identity、review run IDを持ち、別roleが次だけを構造化して返す。
 
@@ -158,7 +182,9 @@ hash不一致、算術不一致、reviewが提案変更を要求した状態はr
 
 hashとrun metadataが保証するのはartifactの整合性であり、reviewerが本当に独立していることの暗号学的証明ではない。運用では初期thesisを作ったagentと異なるagent/sessionへreview artifact作成を割り当てる。reviewは`judgment.proposed_at`以後に行う。human evidence overrideはreview後に別envelopeとして追加し、`approved_by: human`、decision reference、認識したrisk axes、承認/失効時刻、proposal hash、review ID、review artifact hashを持つ。現在評価時刻がexpiry内で、参照するproposal/reviewが完全一致する場合だけbuy gateに使える。
 
-## Commands
+<a id="commands"></a>
+
+## Command
 
 ```bash
 uv run baibai-engine research evaluate /tmp/thesis-draft.yaml

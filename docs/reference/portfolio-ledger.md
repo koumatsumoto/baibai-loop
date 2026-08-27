@@ -7,13 +7,17 @@ status: active
 
 # Portfolio ledger
 
-## Scope and canonical home
+<a id="scope-and-canonical-home"></a>
+
+## 対象範囲と正本
 
 ledgerは`portfolio_scope: repository_only`だけを扱う。application DBの`ledger_event / ledger_market_price / ledger_meta`がcanonical stateであり、`baibai-engine position ledger --db stores/application/baibai.sqlite`はこれらから既存domain modelを再構築してsnapshotを返す。broker残高を自動取得・推定・完全照合する契約ではない。
 
 DB constraint、`baibai_engine.position`のmodel、application serviceのwrite-time validationが機械契約を担う。円総額は整数、単価は許可精度内、数量との積は1円単位に一致しなければ拒否する。
 
-## Events
+<a id="events"></a>
+
+## Event
 
 | event | cash / position effect |
 | --- | --- |
@@ -32,7 +36,9 @@ event ID、reservation ID、order identity、execution IDは再利用しない�
 
 event rowはappend-onlyで、late reportも新規rowとして保存する。replay順は`(occurred_at, same_instant_order)`である。同時刻の既存eventの順序とIDを変更しない。
 
-## Snapshot equations
+<a id="snapshot-equations"></a>
+
+## Snapshotの式
 
 ```text
 available_cash = cash inflows - active reservations - executions - confirmed costs/tax
@@ -44,13 +50,17 @@ total_capital = available_cash + reserved_cash + holdings_market_value
 
 partial fill後は未約定残数だけをreservedに残す。hard errorはcash超過、重複ID、未知reservation、overfill / oversell、guard超過、expiry後buy、future row、metadata不整合。concentrationとdry powderはwarningであり、判断を禁止しない。
 
-## Market price and tax
+<a id="market-price-and-tax"></a>
+
+## Market priceと税
 
 market priceはtickerごとに`observed_at / source_kind / price_basis / source_ref`を持つ。日常更新はJ-Quants raw/unadjusted closeを`market-price-draft`で作り、全open holdingの同日coverageとcalendarを検証する。adjusted closeで補完しない。
 
 `income`とsell proceedsはgross、feeは`cost`、確認済み税は`tax_confirmed`に分離する。estimated exit taxは`ledger_meta`のrateと`ledger_fifo_gross_unrealized_gain` basisから表示だけを計算し、cashやconfirmed taxに混ぜない。
 
-## Draft / apply contract
+<a id="draft--apply-contract"></a>
+
+## Draftとapplyの契約
 
 `record-result`、`event-draft`、`override-draft`、`meta-draft`、`market-price-draft`はcanonical DBを変更しない。draftはsource append headと置換対象rowを持つ。人間が内容を確認した後だけ次を実行する。
 
@@ -62,9 +72,13 @@ applyは1 transactionでsource head、proposal / reservation、event payload、p
 
 `record-result` の apply は event replay、cash / reservation / lot、未解放 expiry を再検証するが、既存 holding の market price freshness は要求しない。broker の注文結果は valuation の更新ではなく、無関係な価格不足で人間報告の記録を止めないためである。価格を使う ledger view や sell 等の valuation 経路では従来どおり freshness を fail-close する。
 
-## Human result semantics
+<a id="human-result-semantics"></a>
+
+## 人間が報告する注文結果
 
 `record-result`は人間の`open / filled / cancelled / expired`報告だけを入力にする。active reservationをIDなしで推定しない。partial fillはremainingがある間だけ後続resultを受理する。full fill / cancel / expire後の完全一致reportはno-change、矛盾reportはhard errorとする。`expired`は人間が未約定を確認し、`occurred_at >= expires_at`の場合だけreleaseを作る。同時刻に複数reservationがterminalになる場合は`--reservation-id`の反復指定を1 transactionで検証・適用する。対象の一部が不正なら全件を拒否する。migration由来で`decision_reference`がnullのactive reservationはterminal resultに限ってproposal rowを要求せず、人間報告のGitHub issue URLを新しいrelease eventへ記録する。bindingを持つreservationはそのproposal ID以外へ付け替えられない。
+
+<a id="historical-outcome"></a>
 
 ## Historical outcome
 
