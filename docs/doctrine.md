@@ -7,23 +7,17 @@ status: active
 
 # Doctrine — Baibai Loop の投資思想と大戦略
 
-このリポジトリが **何を信じ、何を狙い、どの原則と語彙で判断するか** を定める正本。構造（3 層・engine/app package・CLI/SQLite 契約）は [`architecture.md`](./architecture.md)、資本とポジションの管理は [`portfolio-management.md`](./portfolio-management.md)、各運用の手順は [`.agents/skills/`](../.agents/skills/) の各 SKILL.md を参照する。
+この文書は、Baibai Loopが何を狙い、どの原則と語彙で判断するかを定める。3層構造、package、CLI、SQLiteの契約は[`architecture.md`](./architecture.md)、資本とpositionの規律は[`portfolio-management.md`](./portfolio-management.md)、操作手順は[各skill](../.agents/skills/)が所有する。
 
-運用モデルは **AI 主導・人間裁定**：AI がマクロ経済を分析してトレンドを読み、市場で過小評価されているお買い得銘柄を機械抽出し、長期積立・配当還元を前提とした長期保有に耐える銘柄を個別にリサーチして売買提案まで作る。人間はその提案を判断し、発注する。Baibai Loop はこの分業に一貫性を持たせ、判断を後から検証できるようにするための基盤であり、投資助言サービスではない。
+## 1. 目的と人間境界
 
-人間はこの分業を Baibai Loop で消費し、ダッシュボードで portfolio と提案の現状を把握し、macro context を理解し、screening 結果を確認したうえで個別銘柄researchと最終投資判断に進む。
+Baibai Loopは、永久的な資本毀損を抑えながら、一時的に売られすぎた優良銘柄を見つけ、長期で積み立てるための基盤である。予算消化や注文数ではなく、その時点で最も割安な候補を人間が納得して判断できることを最上位成果とする。候補は、永久損失、5年期待総合return/FV乖離、portfolioへの追加価値、購入可能性の順で比較する。資金目安、既存保有、予約は判断材料だが、価値順位を先に変えない。
 
-最上位成果は予算消化や注文数ではなく、永久的な資本毀損を抑えながら、その時点で最も割安な候補を人間が納得して判断できることである。候補は永久損失、5年期待総合return/FV乖離、portfolioへの追加価値、購入可能性の順で比較する。資金目安、既存保有、予約は判断材料だが、価値順位を先に歪めない。
+お買い得を見つける手段は、マクロ経済分析、機械screening、深い個別researchである。各候補のrisk/rewardと期待利回りを見積もり、「本当に割安か」という中核技能を長期の実現結果で磨く。配当は加点材料であり、必須条件ではない。
 
-AIは観測・分析・提案に責任を持ち、人間は`approve / defer / reject`とbroker操作に責任を持つ。repositoryが保持するbroker factは人間が確認して報告したものに限る。AIは未報告の注文状態を補間せず、broker会計の完全再現を目的にしない。候補なし、購入見送り、価格超過によるdeferは正常な判断である。
+購入時は、想定どおりに上がらなくても長期保有できる耐性を必須の関門とする。合格条件は、ネットキャッシュ、または健全な財務に加えて、営業cash flowの黒字、低い有利子負債、借換に耐える体力を持つことである。売却の主因は事業のファンダメンタルズ毀損（thesis break）であり、株価下落だけでは売らない。FV到達は自動売却ではなく保有見直しのtriggerである。具体的な`hold / add / reduce / exit`の規律は[`portfolio-management.md`](./portfolio-management.md#holding-discipline)が所有する。
 
-## 1. 目的（このシステムで達成したいこと）
-
-日々の暮らしの中で **お買い得な優良銘柄を探し、長期で積み立てる**（配当利回りがあればなお良い）。狙いの核心は「一時的に売られすぎた割安株を掴む」ことにあり、想定どおりに上がらなくても **塩漬けを許容できる銘柄だけを選ぶ**。
-
-売却の主因は **事業のファンダメンタルズ毀損（thesis break）** である。**フェアバリュー到達は保有見直しの trigger であって自動の全売り命令ではない**：FV 到達時は thesis health（永久損失兆候・invalidation・証拠鮮度）と、税・費用を引いた代替機会の期待値を比べ、`hold / add / reduce / exit` を判断する。税引後で明確に勝る乗換先が無ければ、割高でも保有を続けてよい。**株価が下がったこと自体では売らない**（価格による損切りは置かない）。だからこそ、採用の時点で **塩漬け耐性**（ネットキャッシュまたは健全な財務・営業キャッシュフローの黒字・低い有利子負債・借換に耐える体力）を必須の関門にする（配当は加点材料であって必須条件ではない）。
-
-お買い得を見つける手段は **マクロ経済分析 × 機械スクリーニング × 深い個別調査** の組み合わせで、そこから **リスクリワードと期待利回りを見積もる**。運用を通じて磨くべき中核の技能は、この **「本当に割安か」の見積りの精度** であり、長期の投資活動を続ける中で継続的に高めていく。
+運用は **AI主導・人間裁定** とする。AIは観測・分析・提案を担い、人間は`approve / defer / reject`とbroker操作を担う。リポジトリが保持するbroker factは、人間が確認して報告したものに限る。AIは未報告の注文状態を補間せず、broker会計を完全再現しない。候補なし、購入見送り、価格超過による`defer`はいずれも正常な判断である。Baibai Loopは投資助言サービスではない。
 
 ## 2. 運用モデル — 単一ループと見積りの改善
 
@@ -95,7 +89,11 @@ validation や hash のように監査にも使える手段でも、現在の候
 
 ### 柱 2: マクロは機械読み値 + material delta、AIは企業別value captureとして扱う
 
-- **(a)** マクロは 2 層に分ける。**macro reading（L2）** は登録全系列の記述統計（水準・方向・percentile・閾値注記・観測の齢）を毎営業日 機械で出す共通の物差しで、regime分類・合成score・売買signalを出さない。**macro context（L3）** は人間が判断するときだけ書く環境認識レポートで、use-case agnosticな環境評価（core）、その上に立つ支配的な力の統合評価（synthesis）、日本株積立ループへの接続（connection）に分ける。synthesis も use-case agnostic であり、core が引用済みの証拠の範囲でのみ経路横断の力と相互作用を名指しする（connection と同じ参照方向の機械契約）。core はリスク選好環境の評価（攻め／守りどちらの環境か）を反証条件付きのjudgmentとして持ち、日本株ループ固有のsector tilt・research優先度ヒント・sizing cautionはconnectionへ隔離する（参照方向を機械契約で強制し、coreの単体完結性を保つ）。どちらも機械screening・ranking・sizingには混入させず、行動指示（売買タイミング・現金比率・配分指示）を出さない。macro contextは人間/AIがresearchの着手優先度を判断するjudgment入力であり、たとえば需要経路が弱いsectorの着手を後ろへ回すために使う。contextがない、または古くても候補抽出は継続し、未来情報だけをhard errorにする。鮮度は書く側が賞味期限を宣言せず、読む側が`as_of`と自分の閾値で判断する。
+- **(a)** マクロは次の2層に分ける。
+  - **macro reading（L2）**：登録全系列の水準、方向、percentile、閾値注記、観測の齢を毎営業日に機械計算する。regime分類、合成score、売買signalは出さない。
+  - **macro context（L3）**：人間が判断するときだけ書く。環境評価（core）、経路横断の支配的な力と相互作用（synthesis）、日本株積立ループへの接続（connection）を分け、coreとsynthesisはuse-case agnosticにする。synthesisとconnectionが引用できるseriesは、依拠するcore sectionが引用済みのものに限り、そのsectionを`core_section_ids`で名指しする。この参照方向は機械契約で強制し、coreを単独で自己完結させる。coreは攻め／守りのどちらの環境かを反証条件付きで判断し、sector tilt、research優先度、sizing cautionはconnectionだけに置く。field単位の契約は[`reference/macro.md`](./reference/macro.md#3-層構成core環境評価synthesis統合評価connection積立ループ接続)が所有する。
+
+  どちらも機械screening、ranking、sizingへ混入させず、売買タイミング、現金比率、配分を指示しない。macro contextはresearchの着手順を決めるjudgment入力として使う。contextがない、または古くても候補抽出は続け、未来情報だけをhard errorにする。鮮度は書き手が賞味期限を宣言せず、読み手が`as_of`と自分の閾値で判断する。
 - **(b)** AIはsectorではなく企業別の構造変化lensである。enabler、infrastructure、complement、adopter、disruptedのどこに位置するかと、競争優位・価格決定力・必要capex・顧客交渉力を通じて株主価値を獲得できるかをthesisで判断する。AI需要が増えてもvalue captureがなければ採用根拠にしない。
 - **(c)** 非AI企業も個別のE[r]と永久損失リスクで同じ土俵に置く。macro/AIの合成score、自動sizing、sector順位は作らない。
 
@@ -113,7 +111,11 @@ validation や hash のように監査にも使える手段でも、現在の候
 
 ### 柱 5: 計測ファーストのデータ基盤
 
-- **(a)** 主軸は、全上場銘柄の実データを保持する **データ層（L1）** と、決定論的なscreen・導出指標・モデル見積りからなる **分析層（L2）** であり、application DBの判断層（L3）はその消費者にあたる（3層の詳細は[`architecture.md`](./architecture.md)）。L2出力は`observed / derived / estimate`を区別し、決定論的に生成されてもE[r]やFV anchorを事実とは呼ばない。人間/AIの解釈は`judgment`としてthesisへ置く。計測手段を持たない機械的機能は追加しない。計測の対象は **長期戦略が依存するもの**（見積り精度・実現利回り・valuation の収束）に限る。**長期 horizon（3 か月以上）の見積り較正リプレイ**（過去 asof の point-in-time 再構成 × 実現リターンの突き合わせ。estimate calibration）はこの正式な計測経路であり、**短期（3 か月未満）horizon の forward-backtest による screen 成績最適化は行わない**。較正リプレイには誠実性の規律を課す: 有意性・統計的優位を主張しない（cohort の窓は重複し独立でないため、効果量と cohort 勝率で判断する）／仮説と採否基準は検証前に事前登録し、時間分割（design/confirm）の両方で整合した変更だけ採用する（grid search をしない）／survivorship・coverage の欠けを計数で開示する／累積リターン・年率・シャープ等を実績（track record）として掲げない。
+- **(a)** 全上場銘柄の実データを持つデータ層（L1）と、決定論的なscreen・導出指標・モデル見積りを作る分析層（L2）を主軸にする。application DBの判断層（L3）はその消費者である。3層の詳細は[`architecture.md`](./architecture.md)が所有する。L2は`observed / derived / estimate`を区別し、決定論で生成してもE[r]やFV anchorを事実と呼ばない。人間とAIの解釈は`judgment`としてthesisへ置く。
+
+  機械的機能には計測手段を持たせ、計測対象は見積り精度、実現利回り、valuationの収束など長期戦略が依存するものに限る。正式な計測経路は、3か月以上の長期horizonで行うestimate calibrationである。過去`as_of`のpoint-in-time状態を再構成し、見積りと実現returnを突き合わせる。3か月未満のforward-backtestによるscreen成績の最適化は行わない。
+
+  較正リプレイでは、有意性や統計的優位を主張せず、効果量とcohort勝率で判断する。cohortの窓が重複し、独立ではないためである。仮説と採否基準は検証前に登録し、時間分割したdesignとconfirmの両方で整合する変更だけを採用する。grid searchは行わない。survivorshipとcoverageの欠けは計数で開示し、累積return、年率、シャープなどをtrack recordとして掲げない。
 - **(b)** スコアは軸ごとの座標（業種相対・自己レンジ相対の percentile）であり、単一の合成点や売買指示には決して畳まない。**単位（%/年）・成分分解（reversion / carry）・前提（anchor・実現率・cap）を持つ機械見積り（E[r]・FV アンカー）は「単一の合成点」とはみなさない** — ただし (i) 出力に成分と前提を必ず併記する、(ii) 較正リプレイで予測と実現を突き合わせ続ける、(iii) 採否と投入額の判断は人間に残る、を必須条件とする。正直な軸別の事実 + 人間の判断という役割分担が、AI の強み（機械可読な事実の整理・統合）を活かしつつ、弱み（判断の責任を負えないこと）を遮断する。
 - **(c)** 機械学習によるスコアリングは、サンプルが 3 桁に満たない 1 人運用では過剰適合が必然で、判断の帰責も壊れる。固定閾値と見積り calibration で改善は十分に回る。外部向けの汎用データ配信（feature store）・MCP server・書き込み API の公開も、1 人・ローカル完結の運用では不要（YAGNI）。
 
