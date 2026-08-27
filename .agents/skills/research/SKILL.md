@@ -76,6 +76,8 @@ description: 人間が選んだ候補を一次情報で深掘りし、thesis、�
 
    `research assessment-scaffold` で全caseを束ね、reject / defer にも `reject_class` を記録する。`assessment-publish --check` の digest を review に束縛してから publish する。dated follow-up を task 化し、canonical artifact を含む final payload で session を complete する。cloud 反映は `ops-maintenance` skill に従う。
 
+   `operation checkpoint` / `operation complete` の `--payload` は JSON 本文ではなく JSON file path を受け取る。research の checkpoint / completion では、`artifacts` は artifact object の配列、`canonical_refs` は string の配列、`human_confirmation` は `request` / `result` を持つ object、`result` は判断結果の string として file に保存して渡す。
+
 ## 停止条件
 
 次の場合は停止する。
