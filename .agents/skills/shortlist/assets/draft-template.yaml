@@ -15,10 +15,10 @@
 # (not "順位が低い" / "予算外"), and summarize its primary cause in
 # `reject_class`. The reason remains canonical; the class is aggregation-only.
 #
-# The RR block (`upside` / `downside` / `rr`), `catalyst` and `macro` decide
-# whether a candidate earns a primary-research slot. Fill them against the
-# depth contract in the shortlist skill (Research Gate) — the schema
-# only checks presence, the 5 RR tests are the author's self-check.
+# Each field has one role under the Shortlist writing contract in
+# docs/reference/screening-runtime.md. Selected means that a candidate earns a
+# primary-research slot; it is not a buy recommendation. The schema checks
+# presence, while the author preserves each claim and field boundary.
 #
 # The published narrative is read by the baibai-web /shortlist review surface.
 
@@ -41,24 +41,24 @@ entries:
   - ticker: "XXXX"
     decision: selected
     rank: 1                                   # 暫定順位。selected 内で 1..N を欠番・重複なく
-    reason: "1 行サマリ（レビュー面のカード見出しに出る）"
+    reason: "Gate判断を先に置いた1行サマリ（一次リサーチへ進める／見送る理由）"
     narrative:
       ploss: "中"                             # 低 / 中低 / 中 / 要精査 / 高
-      why: "なぜ安くなっている可能性があるか"
-      temporary: "一時的な問題である可能性"
-      structural: "構造的な問題である可能性"
-      survive: "財務的に 5 年間耐えられそうか"
-      unlock: "何が改善すれば株主価値が上がるか"
-      upside: "上値の根拠（何が正常化すればどの水準か・その水準の出どころ）"
-      downside: "下値の目安（悪化シナリオでどこまで・その床が何で支えられるか）"
-      rr: "上値と下値の非対称がなぜ買いに値するか"
-      catalyst: "何が起きたら見直すか（dated なら日付も catalyst_date へ）"
+      why: "現値に誤価格が生じている可能性を説明する仮説"
+      temporary: "一時要因が説明する範囲・期間と根拠"
+      structural: "構造要因が説明する範囲・期間と根拠"
+      survive: "悪化シナリオを5年間耐える事業・財務上の根拠と限界"
+      unlock: "価値が収益・cash flow・還元へ伝わる仕組み"
+      upside: "暫定上値の水準・成立前提・anchorの出どころ"
+      downside: "悪化時の暫定下値・前提・根拠（資産だけを株価の床と断定しない）"
+      rr: "上値と下値を比べ、一次リサーチに値する非対称があるか"
+      catalyst: "判断を更新する観測条件（datedなら日付もcatalyst_dateへ）"
       catalyst_date: null                     # or "YYYY-MM-DD"（as_of 以降・as_of + 550 日以内）
-      macro: "macro context connection ヒントの消化（該当なしならその判断）"
-      counter: "最も強い反対仮説"
-      research: "個別リサーチで確認する事項"
-      value: "この候補を深掘りする価値"
-      prov: "暫定判断（1 行）"
+      macro: "Macro Contextのconnectionが判断のどこへ、どちら向きに効くか（非該当なら根拠）"
+      counter: "selected判断と競合する最も強い反対仮説"
+      research: "競合仮説を識別する質問・一次source・判断変更条件"
+      value: "他候補や現金と比べ、一次リサーチ枠を使う追加価値"
+      prov: "全field後の暫定結論・未解決点・次段階へ進む理由"
       sector_label: null                      # optional; defaults to the screen's sector_33
   - ticker: "YYYY"
     decision: rejected

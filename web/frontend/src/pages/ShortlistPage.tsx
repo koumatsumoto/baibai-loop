@@ -35,17 +35,17 @@ import { cn } from '../lib/utils'
 const NARRATIVE_SECTIONS: readonly (readonly [keyof NarrativeText, string])[] = [
   ['upside', '上値の根拠'],
   ['downside', '下値の目安'],
-  ['rr', 'RR が成立する理由'],
+  ['rr', 'リスクリワードが成立する理由'],
   ['why', 'なぜ安い可能性があるか'],
   ['temporary', '一時的な問題の可能性'],
   ['structural', '構造的な問題の可能性'],
-  ['survive', '5 年間の財務耐性'],
-  ['unlock', '株主価値が上がる条件'],
-  ['catalyst', '再評価の catalyst'],
-  ['macro', 'macro context ヒントの消化'],
+  ['survive', '5 年間の事業・財務耐性'],
+  ['unlock', '価値実現の仕組み'],
+  ['catalyst', '再評価条件'],
+  ['macro', 'マクロ環境の反映'],
   ['counter', '最も強い反対仮説'],
   ['research', '個別リサーチで確認する事項'],
-  ['value', '深掘りする価値'],
+  ['value', '一次リサーチ枠を使う価値'],
 ]
 
 type NarrativeText = {
@@ -161,10 +161,10 @@ function MachineFacts({ calibration, longlistEntry, row }: {
         {yen(longlistEntry?.fair_value_anchor_yen ?? row?.fair_value_anchor_yen ?? null)}
         {gap !== null && <span className="ml-2"><PctBadge value={gap} /></span>}
       </FactRow>
-      <FactRow label="FV convergence"><FvConvergenceBadge entry={longlistEntry} /></FactRow>
+      <FactRow label="FVアンカーへの収束"><FvConvergenceBadge entry={longlistEntry} /></FactRow>
       <FactRow label="機械 E[r]"><PctBadge fraction value={row?.er_annual ?? null} /></FactRow>
       <ErLevelContext calibration={calibration} row={row} />
-      <FactRow label="E[r] 分解 (reversion / carry)">
+      <FactRow label="E[r] 分解（reversion〈価格回帰〉/ carry〈配当利回り + 株数縮小利回り〉）">
         <PctBadge fraction value={row?.er_reversion_annual ?? null} />
         <span className="mx-1 text-muted-foreground">/</span>
         <PctBadge fraction value={row?.er_carry_annual ?? null} />
@@ -210,7 +210,7 @@ function MachineFacts({ calibration, longlistEntry, row }: {
           : <span className="text-muted-foreground">なし</span>}
       </FactRow>
       {eventWarnings.length > 0 && (
-        <FactRow label="event warning">
+        <FactRow label="イベント警告">
           <span className="flex flex-wrap justify-end gap-1">{eventWarnings.map((warning) => <Badge className="text-[10px]" key={warning} variant="secondary">{warning}</Badge>)}</span>
         </FactRow>
       )}
@@ -239,17 +239,17 @@ function ComparisonTable({ rows }: { rows: readonly ShortlistComparisonRow[] }) 
           <TableHeader>
             <TableRow>
               <TableHead className="w-12 text-right">順位</TableHead>
-              <TableHead className="w-24">ticker</TableHead>
+              <TableHead className="w-24">銘柄コード</TableHead>
               <TableHead className="min-w-36">銘柄名</TableHead>
-              <TableHead className="w-20 text-right">機械rank</TableHead>
+              <TableHead className="w-20 text-right">機械順位</TableHead>
               <TableHead className="w-20 text-right">乖離</TableHead>
               <TableHead className="w-20 text-right">E[r]</TableHead>
-              <TableHead className="w-28 text-right">reversion / carry</TableHead>
+              <TableHead className="w-28 text-right">価格回帰 / 配当・株数縮小</TableHead>
               <TableHead className="w-20 text-right">FV乖離</TableHead>
               <TableHead className="w-24">FV収束</TableHead>
               <TableHead className="w-24">信用需給</TableHead>
-              <TableHead className="min-w-56">RR が成立する理由</TableHead>
-              <TableHead className="w-28">catalyst</TableHead>
+              <TableHead className="min-w-56">リスクリワードが成立する理由</TableHead>
+              <TableHead className="w-28">再評価条件</TableHead>
               <TableHead className="w-24">永久損失</TableHead>
               <TableHead className="w-24">保有/予約</TableHead>
             </TableRow>
@@ -431,7 +431,7 @@ export function ShortlistPage() {
             <Table className="text-sm">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-28">ticker</TableHead>
+                  <TableHead className="w-28">銘柄コード</TableHead>
                   <TableHead>非選択理由</TableHead>
                 </TableRow>
               </TableHeader>
@@ -448,7 +448,7 @@ export function ShortlistPage() {
       )}
 
       <p className="text-xs text-muted-foreground">
-        機械 E[r]・FV アンカーは screening の機械見積り（reversion + carry）で<strong>事実ではありません</strong>。上値・下値・RR は一次リサーチ前の暫定読みで、7 軸の永久損失評価と FV 確定は個別リサーチ（第 2 段階）で行います。
+        機械 E[r]・FV アンカーは screening の機械見積り（reversion〈価格回帰〉+ carry〈配当利回り + 株数縮小利回り〉）で<strong>事実ではありません</strong>。上値・下値・リスクリワードは一次リサーチ前の暫定読みで、7 軸の永久損失評価と FV 確定は個別リサーチ（第 2 段階）で行います。
       </p>
     </PageShell>
   )
