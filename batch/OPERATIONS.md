@@ -20,15 +20,20 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 | `baibai-serving` | `history/candidate-views/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
 | `baibai-serving` | `history/longlists/<asof>.json` | 日次batch、R2 lifecycleで400日後に削除 |
 
-R2 lifecycle rule は `history/candidate-views/` を31日、`history/longlists/` を400日で削除するよう**prefix指定で**追加する。後者は四半期の着手遅延計測へ1年以上の exact first-seen sourceを供給し、UI routeからは公開しない。**prefixを持たないbucket全体のruleを作らない** — `views/meta.json` のような毎日書き直される object まで期限で消え、消えたことに気づけない。
+R2 lifecycle ruleは表の2 prefixだけに設定する。bucket全体へ設定すると`views/meta.json`まで期限で消え、
+欠落を検知できない。`history/longlists/`は四半期の着手遅延計測に1年以上のexact first-seen sourceを供給するが、
+UI routeからは公開しない。
 
 serving と Worker の境界:
 
-- `baibai-stores` は `market.sqlite`、`runs.sqlite`、`macro.sqlite` のクラウド正本と、ローカル正本である`baibai.sqlite`のreplicaを保持する。public accessを持たない。
-- `baibai-serving` は材料化済み`views/`と`history/`の2 prefixだけを保持する（R2 lifecycleはprefix指定で作り、bucket全体のruleを置かない）。`history/candidate-views/`には機械runをUI用の型付きread modelへ変換した履歴を置き、R2 lifecycleで31日後に削除する。`history/longlists/`には日次の明示的なlonglist membershipを置き、着手遅延計測のため400日保持するがWorker routeでは公開しない。bucket自体はpublic accessを持たず、認証済みWorkerだけがCandidatesの日付一覧と日付指定履歴をread-onlyで返す。
-- WorkerのR2 bindingは`baibai-serving`だけに限定する。`/api/*`は固定Bearer passwordをSHA-256後に定数時間比較し、有限のrouteから`views/`と日付形式を検証した`history/candidate-views/`の2系統のkeyへ写像する。stores と旧形式の`history/candidates/`、`history/longlists/`には到達しない。API応答は`Cache-Control: no-store`で、CORSを有効化しない。
+- 両bucketはpublic accessを持たない。WorkerのR2 bindingは`baibai-serving`だけに限定する。
+- `/api/*`は固定Bearer passwordをSHA-256後に定数時間比較し、有限のrouteから`views/`または日付形式を検証した
+  `history/candidate-views/`へ写像する。stores、旧`history/candidates/`、`history/longlists/`には到達しない。
+  応答は`Cache-Control: no-store`で、CORSを有効化しない。
 - Workers Assetsは`web/frontend/dist`を無認証で配信する。bundleは業務データを含まず、実データは認証済みAPIだけから取得する。HTTP navigationはWorkerが認証処理前にHTTPSへredirectし、HTTPS応答はHSTSを持つ。
-- `cloud-materialize`はapplication dataの手動publishを材料化し、`cloud-daily-batch`は平日夕方のcronで機械工程を実行し（時刻の実値と根拠は[`batch/OPERATIONS.md`](../batch/OPERATIONS.md)）、`cloud-history-backfill`は指定窓のmarket履歴を補完する。3 workflowは`cloud-publish`の`queue: max`を共有し、pending writerをFIFOで保持しながらrunning/uploadを1件に限定する。
+- `cloud-materialize`はapplication data、`cloud-daily-batch`は平日夕方の機械工程、`cloud-history-backfill`は指定窓の
+  market履歴をpublishする。3 workflowは`cloud-publish`の`queue: max`を共有し、pending writerをFIFOで保持して
+  running/uploadを1件に限定する。
 - ローカル`pull`はmachine storeだけを置換し、canonical application DBを上書きしない。ローカル`publish`はSQLite snapshotをstoresへ置き、materializeをdispatchする。
 
 資格情報はprincipalごとに分ける。
@@ -44,25 +49,69 @@ serving と Worker の境界:
 
 R2 S3 endpointは`https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`からscriptが組み立てる。credential、password、endpointの実値をGit、issue、logへ書かない。
 
-R2 API tokenのpermissionはtoken単位で、bucketごとにread/writeを分けられない。ローカルtokenはlonglist historyの取得のためservingをbucket scopeへ含むので、書き込み権も同時に持つ。servingの書き手を日次batch（`cloud-daily-batch`と`cloud-materialize`）だけに保つ境界は`r2_transfer.sh`側にあり、`upload-serving-views`・`publish-serving-tail`は`GITHUB_ACTIONS=true`以外では拒否する。`upload-serving-views`は`views/`を`--delete`付きで同期するため、部分的なローカルexportでの実行は本番viewの削除になる。
+R2 API tokenはbucketごとにread/writeを分けられない。ローカルtokenはlonglist historyを読むためserving scopeを持ち、
+書き込みも可能になる。このため`r2_transfer.sh`は`upload-serving-views`と`publish-serving-tail`を
+`GITHUB_ACTIONS=true`以外で拒否する。前者は`views/`を`--delete`付きで同期するため、部分的なexportで実行すると
+本番viewを削除する。
 
-servingのpublishは2段である。`upload-serving-views`が`views/`を差し替え、`publish-serving-tail`が`history/`と`views/meta.json`を出す。`views/`はほぼ全部が`security--<ticker>.json`で、object数は掲載tickerの数だけ動く（数千件のorder）。`views/`は毎営業日書き換わる揮発物だが、日次batchでは**store pushが成功してからでないと走らない**。並行に走らせると、machine側が失敗したrunでも`views/`だけが差し替わり、remote storeに存在しないrunを表示するviewが次の成功runまで安定露出する。machine側が失敗した日のviews uploadは`skipped`として報告し、「走らなかった」と「step自身が何も言えなかった」を区別する。`history/`は追記のみで消えず、`meta.json`はfreshnessの表明なので、両方がstore永続化の成功後にしか出ない。これによりstore pushが失敗したrunは、storeに存在しないrunの永続記録を残さない。
+serving publishは`upload-serving-views`による`views/`差し替えと、`publish-serving-tail`による`history/`・
+`views/meta.json`発行の2段である。`views/`の大半は数千件規模の`security--<ticker>.json`で、毎営業日書き換わる。
+両段はstore push成功後だけ実行する。先に実行すると、remote storeにないrunを次の成功まで表示するためである。
+machine側が失敗した日のviews uploadは`skipped`と報告する。`history/`は追記のみ、`meta.json`はfreshnessの表明なので、
+いずれもstore永続化の成功後だけ発行する。
 
-provider secretは`JQUANTS_API_KEY` / `ESTAT_APP_ID` / `EDINET_API_KEY`。加えて日次batchが毎回実行する`bootstrap-cache`では、JPX規制provider（`universe.required_jpx_flags`の4 source: 特別注意銘柄 / 整理銘柄 / 取引停止 / 上場廃止警告）が公開JPXページのURLを要求する。これらは非secretのため`cloud-daily-batch.yml`の`Run daily batch` step envにliteralで置く（`JPX_SPECIAL_CAUTION_INDEX_URL` / `JPX_REORGANIZATION_URL` / `JPX_TRADING_HALT_URL` / `JPX_DELISTING_WARNING_URL`。雛形は`.env.sample`）。未配線だとbootstrapのJPX stepがfail-fastし、machine stores / serving uploadはskippedになる。
+provider secretは`JQUANTS_API_KEY` / `ESTAT_APP_ID` / `EDINET_API_KEY`。`bootstrap-cache`はさらに
+`universe.required_jpx_flags`の4 source（特別注意銘柄 / 整理銘柄 / 取引停止 / 上場廃止警告）の公開URLを要求する。
+非secretの`JPX_SPECIAL_CAUTION_INDEX_URL` / `JPX_REORGANIZATION_URL` / `JPX_TRADING_HALT_URL` /
+`JPX_DELISTING_WARNING_URL`を`cloud-daily-batch.yml`の`Run daily batch` step envへliteralで置く（雛形は
+`.env.sample`）。未配線ならJPX stepがfail-fastし、machine stores / serving uploadはskippedになる。
 
-workflow dispatchの日付はfull SHAへ固定したcheckoutの後、credentialを持たないvalidation stepでexact `YYYY-MM-DD`と順序を検証する。`run:`へ`inputs.*`を展開せず、step envからshell変数として渡す。R2・provider・Cloudflare・Discordのcredentialは、それぞれを使うcommandのstep envだけへ渡し、checkout・setup・dependency install・validationへは渡さない。全外部Actionのfull SHA pinとこれらの境界は`tools/quality/drift/check_workflow_trust.py`が検査する。
+workflow dispatchの日付はfull SHA checkout後、credentialを持たないstepでexact `YYYY-MM-DD`と順序を検証する。
+`run:`へ`inputs.*`を展開せず、step envからshell変数として渡す。credentialは使うcommandのstep envだけへ渡し、
+checkout・setup・dependency install・validationへ渡さない。外部Actionのfull SHA pinを含む境界は
+`tools/quality/drift/check_workflow_trust.py`が検査する。
 
 ## 初回seedとWorker deploy
 
-初回だけ、ローカル4 storeのconsistent SQLite snapshotをstores bucketへ送る。4 keyの
+### Storeをseedする
+
+**前提**: 初回だけ、ローカル4 storeのconsistent SQLite snapshotをstores bucketへ送る。4 keyの
 いずれかが既に存在する場合は、古いローカルcopyによる正本の巻き戻しを防ぐため何も
 uploadせず停止する。
+
+**実行**:
 
 ```bash
 batch/scripts/seed.sh
 ```
 
-production deployは`.github/workflows/web.yml`が所有する。workflowは`web/frontend/`・`web/edge/`の変更でだけ起き、PRはUI lint/build/testとWorker types/typecheck/test/dry-runまで、mainの`web/frontend/`または`web/edge/`変更とmainを明示したmanual dispatchは同じgateの後にdeployする。npm auditはこのjobに置かない。advisoryはrepositoryの外で公表されるので、publishの前に立てると無関係な緊急修正を止める（`node-audit.yml`がlockfile変更時に、`security.yml`が週次に問う）。deploy対象jobは共通のproduction concurrency groupで直列化し、deploy直前のremote `main`と`web/frontend/`・`web/edge/`のtreeが一致するrunだけを反映する。docs-only等の後続commitはdeployを失わせず、後続web変更があるrunだけをstaleとしてskipする。Cloudflare API tokenは対象accountだけに絞った`Workers Scripts Write`を使い、repository Actionsのvariable `R2_ACCOUNT_ID`とsecret `CLOUDFLARE_API_TOKEN`を設定する。tokenはdeploy stepだけへ渡す。初回deployはworkflowをmainから手動実行する。
+**成功確認**: commandが4 keyをuploadし、0で終了したことを確認する。4 keyすべてが存在するならseed済みなので、
+再seedせず通常運用へ移る。
+
+**停止と復旧**: 1〜3 keyだけが存在する場合は部分seedであり、通常のpull / merge / pushでは復旧できない。
+まだ供用前で、他のwriterがなく、対象bucketと次のexact keyだけを人間が確認できた場合に限り、部分seedのkeyを
+削除して`seed.sh`をやり直す。供用開始後または状態を確認できない場合は削除せず停止する。prefix削除は禁止する。
+
+```bash
+(set -a; source .env; set +a; \
+ export AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}" AWS_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY}" \
+        AWS_DEFAULT_REGION=auto
+ endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+ aws s3api delete-object --bucket baibai-stores --key market.sqlite --endpoint-url "$endpoint"
+ aws s3api delete-object --bucket baibai-stores --key runs.sqlite --endpoint-url "$endpoint"
+ aws s3api delete-object --bucket baibai-stores --key macro.sqlite --endpoint-url "$endpoint"
+ aws s3api delete-object --bucket baibai-stores --key baibai.sqlite --endpoint-url "$endpoint")
+batch/scripts/seed.sh
+```
+
+### Workerをdeployする
+
+**前提**: repository Actionsにvariable `R2_ACCOUNT_ID`と、対象accountだけに絞った
+`Workers Scripts Write` secret `CLOUDFLARE_API_TOKEN`を設定する。production deployは
+`.github/workflows/web.yml`が所有する。`VIEW_PASSWORD`にはpassword manager等で生成した32文字の
+CSPRNG英数値を使う。
+
+**実行**:
 
 ```bash
 gh workflow run web.yml --ref main
@@ -72,7 +121,12 @@ cd web/edge
 npx wrangler secret put VIEW_PASSWORD
 ```
 
-`VIEW_PASSWORD`はpassword manager等で生成した32文字のCSPRNG英数値を使い、値を引数やshell historyへ書かずpromptへ入力する。
+workflowは`web/frontend/`・`web/edge/`の変更でだけ起き、PRではUI lint/build/testとWorker
+types/typecheck/test/dry-runまで実行する。mainの同変更またはmainを明示したmanual dispatchだけが同じgateの後に
+deployする。deploy対象jobはproduction concurrency groupで直列化し、deploy直前のremote `main`と対象treeが
+一致するrunだけを反映する。後続docs-only commitはdeployを失わせず、後続web変更があるrunはstaleとしてskipする。
+npm auditは、外部advisoryで無関係な緊急修正を止めないようdeploy jobに置かず、`node-audit.yml`のlockfile変更時と
+`security.yml`の週次実行で検査する。Cloudflare tokenはdeploy stepだけへ渡す。
 
 workflowがdefault branchに存在する状態で初回materializeを実行する。
 
@@ -87,15 +141,23 @@ materialize完了後、passwordを画面表示・shell引数化せず、全API r
 web/edge/scripts/verify-deployment.sh
 ```
 
+**成功確認**: web workflowとmaterializeが成功した後、`verify-deployment.sh`で全API routeの未認証・誤認証・
+正認証を確認する。正認証の不存在keyは404になることを確認する。
+
+**停止と復旧**: `VIEW_PASSWORD`未設定では全APIが401になる。passwordは引数やshell historyへ書かずpromptへ
+入力する。TTYのない経路では検査scriptがrequestを送らずexit 2で止まる。失敗時はdeployやR2操作を重ねず、
+workflow logまたは検査結果の原因を直す。
+
 `*.workers.dev`のHTTP requestはWorkerが認証判定より前に308でHTTPSへredirectし、HTTPS responseはHSTSを返す。UI navigationは必ずこの経路を通り、hashed static assetだけをWorker invocationなしで配信する。
 
 ## 日常運用
 
 ### repository store layout の cutover
 
-repository更新でstore layoutが変わるときは、codeだけを切り替えてruntimeを起動しない。
-全local writer（engine CLI、Web backend、batch）を停止し、現在checkoutしている新codeから
-次のone-time commandを実行する。既定はread-onlyのdry-runで、4 SQLiteの
+**前提**: repository更新でstore layoutが変わるときは、codeだけを切り替えてruntimeを起動しない。
+全local writer（engine CLI、Web backend、batch）を停止し、現在checkoutしている新codeを使う。
+
+**実行**: 先にread-onlyのdry-runを行い、成功した場合だけ`--apply`する。dry-runは4 SQLiteの
 `integrity_check` / `foreign_key_check` / schema / required tables、application DBの全table
 row count / ledger append head / logical dump identity、calibration tree manifest、同一filesystem
 を検査する。
@@ -112,15 +174,25 @@ logical identityを確認してから各resourceを同一filesystem内でLinux�
 または検査が失敗した場合は、完了済みrenameを逆順に戻して非0で停止する。sourceとdestination
 が両方存在する場合は片方を推測・merge・削除せず、書き込み前に停止する。
 
-逆方向は無い。repository layout guardは旧pathが1つでも存在する間、通常runtimeを意図的に
+**成功確認**: commandが0で終了し、canonical application DBが片側に1つだけあり、dry-run結果と
+backupを保持できていることを確認する。
+
+**停止と復旧**: 逆方向のcommandはない。repository layout guardは旧pathが1つでも存在する間、通常runtimeを意図的に
 拒否するので、旧layoutはこのcodeが動ける状態ではない。旧revisionへ戻すときは、その
 revision自身のmigrationで移す。SQLite sidecarがある場合はwriter停止・checkpointが完了して
-いないため移行しない。backupを含む実行結果とdry-run結果を保持し、canonical application DBが
-片側に1つだけあることを確認する。
+いないため移行しない。
 
 ### クラウド正本をローカルへ取得する
 
-shortlist / research / macro-context の運用を始める前に、クラウド正本のmachine storeをローカルへ取得する。
+**前提**: shortlist / research / macro-context の運用を始める前に実行する。平日16:43〜22:00 JSTは避ける。
+この窓ではbatch前後のstoreが混ざり、実在しない断面を作り得る。窓内なら、次で当日のrunが`completed`か
+確認してから進む。
+
+```bash
+gh run list --workflow cloud-daily-batch.yml --limit 1
+```
+
+**実行**:
 
 ```bash
 batch/scripts/pull.sh
@@ -128,18 +200,24 @@ uv run baibai-engine screening verify-cache-coverage --asof YYYY-MM-DD
 uv run baibai-engine screening ticker-profile --ticker TICKER
 ```
 
-`verify-cache-coverage` が `required-field:<name>@<asof>` を返した場合は、同じas-ofで
+**成功確認**: `pull.sh`がmarket / runs / macroの全downloadとSQLite `quick_check`を終え、続く
+`verify-cache-coverage`と`ticker-profile`が対象日・対象tickerを返すことを確認する。
+
+**停止と復旧**: `verify-cache-coverage` が `required-field:<name>@<asof>` を返した場合は、同じas-ofで
 `screening bootstrap-cache` を再実行する。bootstrapは表示された`resume_from`と
 `remaining_ranges`に従い、欠損tickerの既知開示日だけをchunk補修する。既存の広い
 `jquants_fin_summaries` coverageを`invalidate-coverage`で外すと正常な履歴まで再取得対象に
 なるため、required-field補修には使わない。補修後は同じverify commandで
 `market_cap_required_fields`と`valuation_required_fields`がminimum以上であることを確認する。
 
-`pull.sh`はmarket/runs/macroの全downloadとSQLite `quick_check`が成功してから3 storeを置換し、`baibai.sqlite`には触れない。**batchが走っている間にpullすると、batch前のstoreとbatch後のstoreが混ざった断面がローカルへ載る**。`quick_check`は各storeを個別に見るのでこれを通し、screeningが読む価格・run・macro seriesの組み合わせが実在しない断面になる。避けるべき窓はcronの実値から導ける — 平日07:43 UTC（16:43 JST）に始まり、schedule遅延（実測median約2時間）とjob実行（`timeout-minutes: 90`）、既存の遅延余裕を含む**16:43〜22:00 JST**である。この窓を外すか、`gh run list --workflow cloud-daily-batch.yml --limit 1`で当日のrunが`completed`であることを確かめてからpullする。
+`pull.sh`は全検査が成功してから3 storeを置換し、`baibai.sqlite`には触れない。途中失敗では既存storeを
+使い続け、原因を解消して全体を引き直す。
 
 ### ローカルからクラウドを更新する
 
-**ローカルで開発してschemaやデータを進めたら、cloud copyを取り込んで包含したものでcloudを更新する。** これが`market.sqlite` / `macro.sqlite`の標準手順で、`push-market` / `push-macro`が3段を1コマンドで行う。
+**前提**: schemaを上げるcodeをmainへ入れ、ローカルの変更と対象storeを確認する。cloud copyを取り込んで
+包含したものだけをcloudへ更新する。`market.sqlite` / `macro.sqlite`では`push-market` / `push-macro`が
+次の3段を1コマンドで行う。
 
 1. **download** — cloud copyをstagingへ取る
 2. **migrate** — `migrate_store.py`がそのcopyを現行schemaへ進める。storeを開くことがmigrationなので、走るのは日次batchが走らせるのと同じcodeである。進めるのはstagingのcopyだけで、R2のobjectはmerge後のuploadまで変わらない
@@ -151,6 +229,9 @@ batch/scripts/r2_transfer.sh push-market
 batch/scripts/r2_transfer.sh push-macro
 gh workflow run cloud-materialize.yml --ref main   # 表示へ反映する場合
 ```
+
+**成功確認**: mergeがcloud側の全行を包含し、CAS uploadが成功したことをcommand outputで確認する。
+表示へ反映する場合は`cloud-materialize`の完了も確認する。
 
 **market storeはlakeへpublishしてからpushする。** lake所有17 tableのcanonicalはR2のL1 releaseに
 あり、`push-market`が送るのはそれを空にした残り2 data tableとstore自身のrelease origin metadataで
@@ -171,11 +252,14 @@ hydrate後にfetch/build/publishへ直列に進み、変更後の再hydrateを�
 
 **pull側にschema検査を置いてはならない。** 検査を置くと、ラグを解消する経路（pull → open → push）がstep 1で落ちて自己修復が止まり、storeを1行も書かない`cloud-materialize`まで道連れになる。schemaがずれている間に妥当域外の値が入る心配も要らない — 書き込み経路は全て`open_connection`を通り、そこで必ずmigrationが先に走る。
 
-`runs.sqlite`はこの手順を持たない。cloudが唯一のwriterなので、ローカルからのuploadは巻き戻しにしかならない。
+**停止と復旧**: mergeの取り残し、origin不一致、schema不一致、CAS failureではuploadしない。
+最新cloud copyからやり直す。`runs.sqlite`はcloudが唯一のwriterであり、この手順を持たない。
 
 ### application DB を反映する
 
-application DBのjudgment更新をクラウド表示へ反映する。
+**前提**: application DBのjudgment更新を完了し、schema migrationを含むcodeはmainへ入れる。
+
+**実行**:
 
 ```bash
 batch/scripts/publish.sh
@@ -183,27 +267,84 @@ batch/scripts/publish.sh
 
 このscriptは`baibai.sqlite`のconsistent snapshotだけをstoresへ送り、`cloud-materialize`をdispatchする。servingへの直接writeは行わない。
 
-application DBのschemaはローカルのCLI実行でmigrateされ、クラウドはこのstoreをread-onlyで読む。schema migrationを含むcodeがmainへ入ったら、次の`cloud-daily-batch`より前に`publish.sh`を実行する。exportはstoreのschemaがcodeと一致しない間viewを1件も書かずexit 1で停止するため、未publishのままではscreening結果も含めて何も更新されない。
+**成功確認**: `publish.sh`とdispatchされた`cloud-materialize`が成功し、表示のas-ofと対象judgmentを確認する。
+
+**停止と復旧**: exportはstoreのschemaがcodeと一致しない間、viewを1件も書かずexit 1で停止する。
+schemaを一致させてから再実行する。未publishのままではscreening結果を含む全viewが更新されない。
+
+application DBのschemaはローカルのCLI実行でmigrateされ、クラウドはこのstoreをread-onlyで読む。schema migrationを
+含むcodeがmainへ入ったら、次の`cloud-daily-batch`より前に反映する。
 
 ### application DB を復元する
 
-application DBは判断とledgerの正本で、何も再生成しない。復元点は2系統ある。
+application DBは判断とledgerの正本で、何も再生成しない。復元点は2系統ある。まずローカルcheckpointを使い、
+それが失われた場合だけR2の世代を使う。
 
-**ローカルのcheckpoint**: `initialize_database`は未適用のmigrationを見つけると、最初の文を実行する前に`stores/application/backups/baibai-<JST stamp>.sqlite`を書く（`sqlite3.Connection.backup`によるWAL込みのsnapshot、`integrity_check`と`foreign_key_check`つき）。直近10世代を残し、それを超えた分はcheckpoint作成に成功した後だけ削除する。手動で取るときは`uv run baibai-engine db backup`。
+**共通前提**: engine CLI、Web backend、batchなどapplication DBを開く全writerを停止する。既存storeがある場合は、
+置換前に次を実行し、出力されたpathを`restore_backup`へ設定する。このbackupはSQLite backup APIで
+未checkpoint WALを含むconsistent snapshotを作り、`integrity_check`と`foreign_key_check`を通った場合だけ成功する。
+
+```bash
+restore_backup="$(uv run baibai-engine db backup | \
+  uv run python -c 'import sys, yaml; print(yaml.safe_load(sys.stdin)["path"])')"
+test "$restore_backup" != None && test -f "$restore_backup" || exit 1
+```
+
+backupに失敗した場合、またはwriter停止を確認できない場合はcanonical fileへ触れない。
+
+#### ローカルcheckpointから復元する
+
+**前提**: 復元対象の時点と、欠陥migrationがmainに残っていないことを確認する。`initialize_database`は
+未適用migrationの最初の文より前に`stores/application/backups/baibai-<JST stamp>.sqlite`を作る。
+これはWAL込みのsnapshotで、`integrity_check`と`foreign_key_check`を通したものだけを直近10世代残す。
+手動checkpointは`uv run baibai-engine db backup`で作る。
+
+**検査**: 候補を配置する前に、次の出力を確認する。`integrity_check`がexact `ok`、
+`foreign_key_check`が0行でなければ停止する。
 
 ```bash
 ls -t stores/application/backups/                      # 世代を新しい順に見る
-target=stores/application/backups/baibai-<stamp>.sqlite
-sqlite3 "$target" 'PRAGMA integrity_check; PRAGMA foreign_key_check;'
+read -r -p '復元するcheckpoint path: ' target
+test -f "$target" || exit 1
+sqlite3 "$target" 'PRAGMA integrity_check;'
+sqlite3 "$target" 'PRAGMA foreign_key_check;'
 sqlite3 "$target" 'PRAGMA user_version;'               # 戻す先のschema版
-mv stores/application/baibai.sqlite stores/application/baibai-before-restore.sqlite
-cp "$target" stores/application/baibai.sqlite
+```
+
+**配置**: 検査合格後、同じshell sessionでだけ実行する。writer停止を再確認し、旧DBのsidecarを除いてから配置する。
+
+```bash
+restore_stage="$(mktemp stores/application/baibai-restore.XXXXXX.sqlite)"
+cp "$target" "$restore_stage" && \
+  rm -f stores/application/baibai.sqlite-wal stores/application/baibai.sqlite-shm && \
+  mv -f "$restore_stage" stores/application/baibai.sqlite
 uv run baibai-engine position ledger | head -20        # ledger headを確認
 ```
 
-戻したstoreはcheckpoint時点のschema版なので、次のCLI実行が未適用のmigrationを（新しいcheckpointを取ってから）適用する。欠陥のあるmigrationがまだmainに居るなら、先に修正を入れてから実行する。
+**成功確認**: `integrity_check` / `foreign_key_check`、`user_version`、復元後のledger headを照合する。
+戻したstoreはcheckpoint時点のschema版なので、次のCLI実行が新しいcheckpointを取ってから未適用migrationを適用する。
 
-**R2の世代**: ローカルのcheckpointが失われた場合に使う。`pull-app`はローカルにfileがあれば止まるので、この経路はstagingへ直接取得する。
+**復旧**: 照合に失敗したら判断を再開しない。同じshell sessionで、失敗copyを一意な名前へ退避し、
+共通前提で作ったconsistent snapshotをcanonical pathへ戻す。
+
+```bash
+restore_stamp="$(date +%Y%m%dT%H%M%S)"
+failed_restore="stores/application/backups/baibai-failed-restore-${restore_stamp}.sqlite"
+test ! -e "$failed_restore" || exit 1
+mv stores/application/baibai.sqlite "$failed_restore"
+rm -f stores/application/baibai.sqlite-wal stores/application/baibai.sqlite-shm
+restore_stage="$(mktemp stores/application/baibai-rollback.XXXXXX.sqlite)"
+cp "$restore_backup" "$restore_stage" && \
+  mv -f "$restore_stage" stores/application/baibai.sqlite
+uv run baibai-engine position ledger | head -20
+```
+
+#### R2の世代から復元する
+
+**前提**: ローカルcheckpointが失われた場合だけ使う。cloud copyはローカルより古い可能性がある。
+`pull-app`はローカルにfileがあれば止まるため、stagingへ直接取得する。
+
+**取得**:
 
 ```bash
 (set -a; source .env; set +a; \
@@ -214,14 +355,40 @@ uv run baibai-engine position ledger | head -20        # ledger headを確認
    --query 'Contents[].[Key,LastModified]' --output text --endpoint-url "$endpoint"
  aws s3api get-object --bucket baibai-stores --key baibai.sqlite.bak-YYYYMMDD \
    --endpoint-url "$endpoint" /tmp/baibai-restore.sqlite)
-sqlite3 /tmp/baibai-restore.sqlite 'PRAGMA integrity_check; PRAGMA user_version;'
 ```
 
-**cloud copyはローカルより古い可能性がある。** publish済みで未pushの窓ではローカルが進んでいるので、R2の世代へ戻すのはローカル側が失われたときだけにする。戻した後は`user_version`とledger headを確認し、次の`publish.sh`まで判断を再開しない。
+**検査**: 取得後、次の出力を確認する。`integrity_check`がexact `ok`、`foreign_key_check`が0行でなければ停止する。
+
+```bash
+sqlite3 /tmp/baibai-restore.sqlite 'PRAGMA integrity_check;'
+sqlite3 /tmp/baibai-restore.sqlite 'PRAGMA foreign_key_check;'
+sqlite3 /tmp/baibai-restore.sqlite 'PRAGMA user_version;'
+```
+
+**配置**: 検査合格後、writer停止を再確認し、同じshell sessionでだけ実行する。
+
+```bash
+restore_stage="$(mktemp stores/application/baibai-restore.XXXXXX.sqlite)"
+cp /tmp/baibai-restore.sqlite "$restore_stage" && \
+  rm -f stores/application/baibai.sqlite-wal stores/application/baibai.sqlite-shm && \
+  mv -f "$restore_stage" stores/application/baibai.sqlite
+uv run baibai-engine position ledger | head -20
+```
+
+**成功確認と停止**: 復元後にledger headを照合し、
+次の`publish.sh`まで判断を再開しない。publish済みで未pushの窓ではローカルが進んでいるため、ローカル側が
+残っているならR2世代へ戻さない。照合に失敗した場合は、ローカルcheckpoint手順の復旧blockで失敗copyを退避し、
+`$restore_backup`が存在する場合はcanonical pathへ戻す。元のstoreが無かった場合は判断を再開せず、
+別のR2世代をstagingで検証する。
 
 ### 履歴を深くする
 
-indicator storeの履歴を深くしてクラウドへ載せる。日次batchはfrequency別のrolling窓しか引き直さないため、cloud正本の履歴は前へ伸びるだけで過去へ伸びない。系列を追加した後や窓を超える取得断の後は、ローカルで全履歴を取得してから`push-macro`する。
+#### Macro履歴
+
+**前提**: 系列追加後またはrolling窓を超える取得断で、indicator storeの過去を補う場合に使う。
+日次batchはfrequency別のrolling窓しか引き直さない。
+
+**実行と成功確認**: ローカルで全履歴を取得し、`reading`で履歴不足・異常値がないことを確認してからpushする。
 
 ```bash
 uv run baibai-engine macro refresh <series_id> ... --all-history --end YYYY-MM-DD
@@ -230,7 +397,13 @@ uv run baibai-engine macro reading --asof YYYY-MM-DD   # 履歴不足・異常�
 batch/scripts/r2_transfer.sh push-macro
 ```
 
-market storeの履歴を深くしてクラウドへ載せる。日次batchは前へしか伸ばさないので、過去へ伸ばす経路は2つある。**ローカルに既にその履歴があるなら取り直さない** — providerを一度も呼ばずに数分で載る。ローカルにも無い履歴だけ`cloud-history-backfill`をdispatchして取る。
+**停止と復旧**: registryを追加した場合はcodeをmainへ入れるまでpushしない。`reading`またはmergeが停止したら
+uploadせず、ローカルで原因を解消する。
+
+#### Market履歴
+
+**前提**: 日次batchが遡らない過去を補う場合に使う。ローカルに履歴があればproviderから取り直さない。
+ローカルにも無い場合だけ`cloud-history-backfill`をdispatchする。
 
 ローカルから載せる手順は、触ったtableがlake所有かどうかで分かれる。`_push_keys`はuploadする複製を`dehydrate_market_snapshot`に通し、**releaseが持たない行をlake所有tableに持つstoreのuploadを拒否する**ので、lake所有17 tableを増やした場合は`push-market`だけでは止まる。
 
@@ -246,6 +419,26 @@ batch/scripts/r2_transfer.sh push-market
 gh workflow run cloud-history-backfill.yml --ref main \
   -f start=YYYY-MM-DD -f end=YYYY-MM-DD
 ```
+
+**成功確認**: ローカル経路は`publish-lake` / `push-market`のno-loss検査を確認する。backfillはrunの
+`conclusion=success`を確認し、cloud copyをpullした後、`source_coverage`の`ok`窓が指定範囲を連続して覆うことを
+照合する。
+
+```bash
+gh run list --workflow cloud-history-backfill.yml --limit 10
+batch/scripts/pull.sh
+history_start=YYYY-MM-DD
+history_end=YYYY-MM-DD
+sqlite3 -header stores/market/market.sqlite \
+  "SELECT source, coverage_start, coverage_end, record_count, status
+   FROM source_coverage
+   WHERE NOT (coverage_end < '${history_start}' OR coverage_start > '${history_end}')
+   ORDER BY source, coverage_start, coverage_end;"
+```
+
+**停止と復旧**: lake所有17 tableを増やしたのに`publish-lake`していない場合、dehydrateが停止する。
+backfillがnonzeroなら完了扱いにせず、保存済み範囲と未完範囲を`source_coverage`で分け、未完範囲だけを再実行する。
+大量欠損は3〜4年に分け、成功しない条件のままdispatchしない。
 
 `cloud-history-backfill`は財務サマリーが律速で、実測は3.4年で2時間32分（うち財務2時間05分）である。job上限は5時間なので、大量欠損は3〜4年ずつに分けてdispatchする。coverageのmergeが繋ぐので分割しても結果は同じになる。source failureまでにcommitされたchunkは、store SHA-256が変わった場合だけ`quick_check`と`push-market`を通してR2へ保存し、workflow自体は元の非0で失敗する。変更が無いfailureはuploadをskipする。3つのcloud writerは`cloud-publish`の`queue: max`を共有し、1件だけを実行しながらpending runをFIFOで保持する。
 
@@ -281,17 +474,23 @@ machine storeの全writerはdownload時のR2 ETagを保持し、backupは同じs
 
 ### 手動で lake を publish する
 
-schema cutover に合わせるなど、定時 batch を待たずにローカル store から publish する場合は次を使う。
-経路は日次と同じ 1 つ（毎回全 partition を導出、serving release から origin 束縛と履歴の床だけを
-読む）で、worktree が clean であることを要求し、本番 store で export に 7 分強かかる。
+**前提**: schema cutoverなど、定時batchを待たずにローカルstoreからpublishする必要があること、worktreeが
+cleanであること、storeの`lake_store_origin`が開始時current pointerと一致することを確認する。本番storeの
+exportには7分強かかる。
+
+**実行**:
+
+経路は日次と同じ1つで、毎回全partitionを導出し、serving releaseからorigin束縛と履歴の床だけを読む。
 
 ```bash
 batch/scripts/r2_transfer.sh publish-lake
 uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores --format json
 ```
 
-`market.sqlite` 内の `lake_store_origin` は開始時 current pointer と照合され、違えば dataset export
-前に停止する。SQLite だけを古い backup へ戻した store はこの照合を通らない。
+**成功確認**: `resolve`のrelease identityがpublish結果と一致することを確認する。
+
+**停止と復旧**: originが違えばdataset export前に停止する。SQLiteだけを古いbackupへ戻したstoreでは
+実行せず、現行releaseからhydrateし直す。
 
 ### 部分 push からの復旧
 
@@ -300,12 +499,17 @@ uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores --forma
 書いていない組合せを持つ。この状態は`pull-machine`のreceipt突合が拒否する（安全側——実在しない
 cross-sectionをscreeningへ渡さない）。
 
-**同じコマンドの再実行では戻らない。** 条件付きPUTは失敗したrunがpullした世代に束ねられており、成功済みの
-1本目がそのkeyのETagを既に変えているので、`push_pulled_keys`の事前照合が「changed on R2 after the pull」で
-拒否する。日次batchのre-dispatchも同じで、pull stepで止まってpushへ到達しない。
+**停止条件**: 同じコマンドや日次batchを再実行しない。条件付きPUTは失敗したrunがpullした世代に束ねられ、
+成功済みkeyのETagは既に変わっている。再実行は`push_pulled_keys`の事前照合で
+`changed on R2 after the pull`となり、日次batchもpull stepで止まる。
 
-**手順 (i)（既定・最軽量）**: receiptを消して、次の完全pushに書き直させる。receiptはbucket直下のmutable
-keyで、Bucket Lockの対象prefix（`lake/l1/canonical/` / `lake/manifests/`）の外にある。
+#### 手順 (i): receiptを再生成する（既定）
+
+**前提**: 失敗runのlogで部分pushとreceipt不一致を確認し、削除対象がbucket直下のexact key
+`machine-manifest.json` 1件であることを確認する。このkeyはmutableで、Bucket Lockの対象prefix
+（`lake/l1/canonical/` / `lake/manifests/`）の外にある。
+
+**実行**:
 
 ```bash
 (set -a; source .env; set +a; \
@@ -318,27 +522,43 @@ keyで、Bucket Lockの対象prefix（`lake/l1/canonical/` / `lake/manifests/`�
    --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com")
 ```
 
-消すのは`machine-manifest.json`のexact key 1件だけである（prefix削除はしない）。この後の`pull-machine`は
-「no machine bundle receipt … taking the store set unverified」と警告して通り、その時点の現行世代を記録
-する。次の日次batchが3 keyを完全にpushして新しいreceiptを書き、以後の突合が再び効く。**receiptが無い1周
-だけcross-sectionの保証が落ちる**——それがこの手順の代価である。
+**成功確認**: 次の`pull-machine`が
+`no machine bundle receipt … taking the store set unverified`と警告しつつ現行世代を記録し、次の日次batchが
+3 keyのpush後に新しいreceiptを書く。以後の`pull-machine`でreceipt一致を確認する。
 
-**手順 (ii)（ローカルの成果も出したいとき）**: `push-market` / `push-macro`はmerge→CAS pushの後に3 keyの
-HEADからreceiptを現在世代へ書き直す。publishしたいローカルの変更があるなら、復旧を兼ねられる。
-`push-market`はhydrate済みのstoreを要求するので先に`hydrate-market`を通す（[ローカルからクラウドを更新する](#ローカルからクラウドを更新する)）。
+**危険と復旧**: prefix削除はしない。receiptが無い1周だけcross-sectionの保証が落ち、削除直後に戻す
+操作はない。新しい完全pushがreceiptを再生成するまでを一つの復旧作業とする。完全pushが失敗したら、
+追加削除や再dispatchをせず、そのrunの失敗をローカルで再現する。
 
-どちらの手順でも`push-machine`をローカルから撃たない——`GITHUB_ACTIONS`の外では拒否される。`runs.sqlite`は
-cloudが唯一のwriterで、ローカルcopyのuploadは巻き戻しにしかならないための境界である。
+#### 手順 (ii): ローカル成果のpushで復旧する
+
+**前提**: publishすべきローカル変更があり、[ローカルからクラウドを更新する](#ローカルからクラウドを更新する)
+のno-loss条件を満たす。`push-market`には、現行releaseからhydrateした後に変更したstoreを使う。変更後に
+hydrateして成果を上書きしない。
+
+**実行と成功確認**: `push-market`または`push-macro`を実行する。mergeとCAS pushの成功後、3 keyのHEADから
+receiptが現在世代へ書き直される。次の`pull-machine`でreceipt一致を確認する。
+
+**停止条件**: どちらの手順でも`push-machine`をローカルから実行しない。`GITHUB_ACTIONS`の外では拒否される。
+`runs.sqlite`はcloudが唯一のwriterで、ローカルcopyのuploadは巻き戻しにしかならない。
 
 ### 日次 workflow を手動実行する
 
-`asof`省略時は当日JSTをmarket calendarで判定し、非営業日は成功扱いでskipする。過去日を指定すると営業日gateをskipする。
+**前提**: 原因調査には使わず、ローカルで修正とgateを完了した後の最終確認に限定する。`asof`省略時は当日JSTを
+market calendarで判定し、非営業日は成功扱いでskipする。過去日を指定すると営業日gateをskipする。
+
+**実行**:
 
 ```bash
 gh workflow run cloud-daily-batch.yml --ref main
 gh workflow run cloud-daily-batch.yml --ref main -f asof=YYYY-MM-DD
 gh run list --workflow cloud-daily-batch.yml --limit 10
 ```
+
+**成功確認**: `gh run list`で対象runのconclusionを確認し、Discord通知、store push、serving freshnessを照合する。
+
+**停止と復旧**: coverage不足やexit 1ではuploadしない。原因をローカルで直す。exit 3はfresh screeningを
+publish済みなので再dispatchせず、Discord `[DEGRADED]`が示す繰延べstepを復旧する。
 
 通常cronは平日07:43 UTC（16:43 JST）。同日必須なのは`asof = today`が依存する株価日足だけで、[J-Quants APIの公式更新時刻](https://jpx-jquants.com/ja/spec/data-update)は16:30頃のため13分の余裕を置く。JPX規制ページはevent駆動のstatus pageでcoverage gateが7営業日まで許容し、信用残は週次なので、いずれも夕方の更新を待つ必要がない（この実行より後に出た指定は翌営業日の実行が拾う）。分を半端にしているのは意図的で、GitHubがscheduleを:00 / :15 / :30 / :45へ集中させるため、その境界に置くとqueue待ちの後ろに並ぶ。schedule遅延自体は許容する（実測でmedian約2時間）。遅延ではなく**欠測**は`cloud-batch-watchdog`がpushで検知し、UIのas-ofとworkflow履歴は裏取りのpull経路として残る。16:43時点で株価日足が未更新ならcoverage gateがpublish前に停止し、復旧は現行mainから手動dispatchする。
 
@@ -348,7 +568,10 @@ daily batchはcoverageが完全でも`bootstrap-cache`を実行する。財務�
 
 ## Actions 使用量の月次確認
 
-GitHub Actions の課金は job 単位の分切り上げで、無料枠は月 2,000 分。定常ペースが枠を超えていないかを月次（calibration panel / PMI manifest の月次維持と同じタイミング）で確認する。
+**前提**: calibration panel / PMI manifestの月次維持と同じタイミングで確認する。GitHub Actionsの無料枠は
+月2,000分で、job単位に分を切り上げる。
+
+**実行**:
 
 ```bash
 gh run list --created ">=$(date -d '14 days ago' +%F)" --limit 1000 \
@@ -359,7 +582,8 @@ gh run list --created ">=$(date -d '14 days ago' +%F)" --limit 1000 \
         | sort_by(-.min)'
 ```
 
-出力は workflow ごとの 14 日間の run 数と wall 分。先頭の select は実行中 run の欠損・ゼロ時刻を落とすためで、外すと集計全体が落ちるか桁違いの値が混ざる。判定は次のとおり。
+**成功確認と判断**: 出力はworkflowごとの14日間のrun数とwall分である。先頭の`select`は実行中runの
+欠損・ゼロ時刻を除くため、外さない。次で判断する。
 
 - 合計 ≤ 1,000 分/14 日（≒ 月 2,000 分ペース）なら枠内。billable は job 単位の分切り上げなので wall 合計に加えて **run 1 件あたり平均 +0.5 分** 程度上に出る（全 workflow が単一 job 構成である間はこの近似でよい。run 数が多い週ほど乖離が増える）
 - 超えているときは上位 workflow の内訳（schedule 分・PR 分・障害復旧 dispatch 分）を分け、非定常 run を除いた定常ペースで判断する
@@ -368,12 +592,21 @@ gh run list --created ">=$(date -d '14 days ago' +%F)" --limit 1000 \
 
 ## Password rotation
 
+**前提**: 新しい32文字CSPRNG値をpassword manager等で生成する。実値をGit、issue、log、引数、shell historyへ
+書かない。
+
+**実行**:
+
 ```bash
 cd web/edge
 npx wrangler secret put VIEW_PASSWORD
 ```
 
-新しい32文字CSPRNG値をpromptへ入力する。次のAPI 401でbrowserの旧値がlocalStorageから削除され、password入力画面へ戻る。Workerの再deploy、R2変更、application data更新は不要。
+**成功確認**: promptへ新しい値を入力し、旧値が401、新値が認証成功になることを確認する。次の401でbrowserの
+旧値はlocalStorageから削除され、password入力画面へ戻る。
+
+**停止と復旧**: 値を表示・引数化しない。失敗時はR2やapplication dataを変更せず、secret設定をやり直す。
+Workerの再deployは不要である。
 
 ## R2 transferの安全境界
 
@@ -390,11 +623,15 @@ npx wrangler secret put VIEW_PASSWORD
 
 ### migrationを戻すとき
 
-**store全体を古いsnapshotへ戻す経路は持たない。** storeは毎営業日伸びるので、過去のschemaで凍結したcopyへ戻すと、そのcopy以降に積んだ事実を全て捨てることになる。migrationが壊したのはschemaであってその日以前の事実ではないので、交換の割に合わない。
+**停止条件**: store全体を古いsnapshotへ戻さない。storeは毎営業日伸びるため、過去schemaのcopyへの交換は
+それ以降の事実を失う。
 
-migrationに欠陥が見つかったときは、**修正migrationを前へ足す**。`BASELINE_VERSION..SQLITE_SCHEMA_VERSION`が受理するのは前進だけで、`open_connection`はこの範囲を外れたstoreをfail-fastで拒否する。誤変換した列を作り直す場合は`rebuild_table`を使う新しいmigrationを足し、日次batchがstoreを開いた時点で適用される。
+**実行**: migrationの欠陥は修正migrationを前へ足す。誤変換した列は`rebuild_table`を使う新しいmigrationで
+作り直す。`BASELINE_VERSION..SQLITE_SCHEMA_VERSION`は前進だけを受理し、範囲外のstoreは
+`open_connection`がfail-fastで拒否する。
 
-直前のpushが壊れた場合の巻き戻しは`<key>.bak`の1世代で、これは上の「R2 transferの安全境界」が扱う範囲である。
+**成功確認と復旧**: 修正migrationをローカルcopyで適用し、integrityと行数を照合してからmainへ入れ、同じ作業で
+storeを反映する。直前のpush自体が壊れた場合だけ、上の「R2 transferの安全境界」に従って`<key>.bak`の1世代を使う。
 
 ## export_read_models.py — read model の材料化
 
