@@ -4,35 +4,23 @@ import json
 import re
 import sqlite3
 from collections.abc import Callable
-from datetime import UTC, date, datetime, time
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 import pytest
 from pydantic import ValidationError
-from tests.helpers.indicator_store import observation, seed_store
 from tests.helpers.macro_context import macro_context_payload
 
 from baibai_engine.appdb.write import initialize_database
-from baibai_engine.macro.context.diagnostics import (
-    MACRO_CONTEXT_STALE_DAYS,
-    MacroContext,
-    macro_context_diagnostics,
-    macro_context_from_payload,
-)
 from baibai_engine.macro.context.models import (
     CORE_SECTION_ORDER,
+    MACRO_CONTEXT_STALE_DAYS,
+    MacroContext,
     MacroContextDocument,
-    scorecard_snapshot_input_id,
-)
-from baibai_engine.macro.context.scorecard import (
-    already_met_conditions_from_stores,
-    evaluate_scorecard_from_stores,
+    macro_context_from_payload,
 )
 from baibai_engine.macro.context.service import MacroContextConflictError, MacroContextService
-from baibai_engine.macro.indicators.db import ObservationRecord
-from baibai_engine.macro.indicators.db import initialize_database as initialize_indicators
-from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH
 from baibai_engine.read_api.macro import latest_macro_context_payload
 from baibai_engine.screening.selection.macro_fit import macro_context_summary
 
@@ -56,47 +44,11 @@ def _context_of(document: MacroContextDocument) -> MacroContext:
     return macro_context_from_payload(document.payload(), source="fixture.yaml")
 
 
-def _with_previous_scorecard_snapshot(
-    document: MacroContextDocument,
-    *,
-    previous_context_id: str,
-    context_db: Path,
-    indicators_db: Path,
-    link_from_regime_summary: bool,
-) -> MacroContextDocument:
-    connection = initialize_indicators(indicators_db)
-    connection.close()
-    evaluation = evaluate_scorecard_from_stores(
-        context_db=context_db,
-        indicators_db_path=indicators_db,
-        context_id=previous_context_id,
-        asof=document.as_of,
-        accessed_at=document.published_at,
-    )
-    payload = document.payload()
-    snapshot = evaluation.machine_snapshot.model_dump(mode="json")
-    payload["inputs"]["machine_snapshots"].append(snapshot)
-    if link_from_regime_summary:
-        payload["core"][0]["previous_scorecard_snapshot_id"] = snapshot["input_id"]
-    return MacroContextDocument.model_validate(payload)
-
-
-def test_document_holds_core_ten_plus_connection_and_flattens_diagnostics() -> None:
+def test_document_holds_core_ten_plus_connection() -> None:
     document = _document()
-    context = _context_of(document)
 
     assert [section.section_id for section in document.core] == list(CORE_SECTION_ORDER)
     assert document.connection.section_id == "japan_equity_loop"
-    diagnostics = macro_context_diagnostics(context, asof_date=date(2026, 7, 19))
-    assert diagnostics["material_deltas"] == [
-        document.core[1].material_deltas[0].model_dump(mode="json")
-    ]
-    # Sizing cautions live only in the connection section now.
-    assert diagnostics["sizing_cautions"] == [
-        document.connection.sizing_cautions[0].model_dump(mode="json")
-    ]
-    assert diagnostics["research_questions"] == ["借換需要の大きい企業を先に確認する"]
-    assert diagnostics["refresh_triggers"] == ["10年金利が現行レンジを外れる"]
 
 
 def test_publish_is_immutable_and_requires_compare_and_swap_head(tmp_path: Path) -> None:
@@ -157,86 +109,6 @@ def test_latest_context_orders_by_publication_not_data_as_of(tmp_path: Path) -> 
     assert payload["context_id"] == later_published.context_id
     # Point-in-time discipline is unchanged: as_of after the query date stays ineligible.
     assert service.latest_for(date(2026, 7, 18)) == later_published
-
-
-def test_later_asof_publish_requires_a_cited_previous_scorecard_snapshot(
-    tmp_path: Path,
-) -> None:
-    context_db = tmp_path / "app.sqlite"
-    indicators_db = tmp_path / "macro.sqlite"
-    service = MacroContextService(context_db)
-    first = _document()
-    service.publish(first, expected_head=None)
-    next_document = _document(
-        context_id="macro-context-2026-07-20-next",
-        as_of="2026-07-20",
-        published_at="2026-07-20T12:00:00+09:00",
-    )
-
-    with pytest.raises(
-        MacroContextConflictError,
-        match="must include exactly one successful scorecard snapshot",
-    ):
-        service.publish(next_document, expected_head=first.context_id)
-
-    uncited = _with_previous_scorecard_snapshot(
-        next_document,
-        previous_context_id=first.context_id,
-        context_db=context_db,
-        indicators_db=indicators_db,
-        link_from_regime_summary=False,
-    )
-    with pytest.raises(
-        MacroContextConflictError,
-        match="previous_scorecard_snapshot_id must reference",
-    ):
-        service.publish(uncited, expected_head=first.context_id)
-
-    noncanonical_payload = _with_previous_scorecard_snapshot(
-        next_document,
-        previous_context_id=first.context_id,
-        context_db=context_db,
-        indicators_db=indicators_db,
-        link_from_regime_summary=True,
-    ).payload()
-    noncanonical_snapshot = noncanonical_payload["inputs"]["machine_snapshots"][-1]
-    noncanonical_snapshot["indicators_db"] = str(
-        indicators_db.parent / "unused" / ".." / indicators_db.name
-    )
-    with pytest.raises(ValidationError, match="canonical and absolute"):
-        MacroContextDocument.model_validate(noncanonical_payload)
-
-    forged_payload = _with_previous_scorecard_snapshot(
-        next_document,
-        previous_context_id=first.context_id,
-        context_db=context_db,
-        indicators_db=indicators_db,
-        link_from_regime_summary=True,
-    ).payload()
-    forged_snapshot = forged_payload["inputs"]["machine_snapshots"][-1]
-    forged_snapshot["result_digest"] = "0" * 64
-    forged_snapshot["input_id"] = scorecard_snapshot_input_id(
-        context_id=forged_snapshot["context_id"],
-        snapshot_asof=date.fromisoformat(forged_snapshot["snapshot_asof"]),
-        rules_revision=forged_snapshot["rules_revision"],
-        context_db=forged_snapshot["context_db"],
-        indicators_db=forged_snapshot["indicators_db"],
-        result_digest=forged_snapshot["result_digest"],
-    )
-    forged_payload["core"][0]["previous_scorecard_snapshot_id"] = forged_snapshot["input_id"]
-    forged = MacroContextDocument.model_validate(forged_payload)
-    with pytest.raises(MacroContextConflictError, match="identity does not match"):
-        service.publish(forged, expected_head=first.context_id)
-
-    cited = _with_previous_scorecard_snapshot(
-        next_document,
-        previous_context_id=first.context_id,
-        context_db=context_db,
-        indicators_db=indicators_db,
-        link_from_regime_summary=True,
-    )
-    service.publish(cited, expected_head=first.context_id)
-    assert service.head_id() == cited.context_id
 
 
 def test_explicit_future_context_is_rejected(tmp_path: Path) -> None:
@@ -313,9 +185,6 @@ def _payload_citing(series_id: str) -> dict[str, Any]:
     for scenario in _risk(payload)["scenarios"]:
         for condition in scenario["scorecard"]:
             condition["series_id"] = series_id
-    for point in _core(payload, "monitoring")["monitoring_points"]:
-        for condition in point.get("machine_conditions", []):
-            condition["series_id"] = series_id
     return payload
 
 
@@ -362,19 +231,17 @@ def test_publish_rejects_a_deadline_too_near_for_the_series_to_print_again(
         MacroContextService(tmp_path / "app.sqlite").publish(document, expected_head=None)
 
 
-def test_publish_requires_a_machine_checkable_invalidation_condition(tmp_path: Path) -> None:
-    """Left optional, the cheapest report to write is one nothing can check between publications."""
-
-    document = MacroContextDocument.model_validate(macro_context_payload(machine_conditions=[]))
-
-    with pytest.raises(ValueError, match="at least one machine-checkable condition"):
-        MacroContextService(tmp_path / "app.sqlite").publish(document, expected_head=None)
+def test_publish_accepts_monitoring_without_retired_machine_conditions(tmp_path: Path) -> None:
+    document = MacroContextDocument.model_validate(macro_context_payload())
+    MacroContextService(tmp_path / "app.sqlite").publish(document, expected_head=None)
 
 
-def test_a_report_written_before_the_field_existed_still_reads() -> None:
-    document = MacroContextDocument.model_validate(macro_context_payload(machine_conditions=[]))
-
-    assert macro_context_from_payload(document.payload(), source="fixture.yaml").context_id
+def test_a_report_carrying_retired_machine_conditions_still_reads() -> None:
+    payload = macro_context_payload()
+    _core(payload, "monitoring")["monitoring_points"][0]["machine_conditions"] = [
+        {"series_id": "us.10y", "comparison": "at_or_above", "threshold": 5.0}
+    ]
+    assert macro_context_from_payload(payload, source="fixture.yaml").context_id
 
 
 def test_published_report_flows_through_db_backed_screening_read_path(tmp_path: Path) -> None:
@@ -800,141 +667,3 @@ def test_document_rejects_failed_series_hidden_by_successful_source(
 
     with pytest.raises(ValidationError):
         MacroContextDocument.model_validate(payload)
-
-
-# --- a condition already true at as_of records no view ---------------------
-
-
-def _us10y(observed_at: date, value: float) -> ObservationRecord:
-    """A 10y reading vintaged at the start of the day it was observed."""
-
-    return observation(
-        "us.10y",
-        observed_at,
-        value,
-        datetime.combine(observed_at, time.min, tzinfo=UTC),
-        source_url="https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10",
-    )
-
-
-def _already_met(document: MacroContextDocument, indicators_db: Path) -> tuple[str, ...]:
-    found = already_met_conditions_from_stores(
-        document,
-        indicators_db_path=indicators_db,
-        rules_path=DEFAULT_RULES_PATH,
-    )
-    return tuple(f"{item.case}[{item.condition_index}]" for item in found)
-
-
-def test_a_condition_the_closing_observation_already_meets_is_found(tmp_path: Path) -> None:
-    """The shape that actually occurred: USD/JPY was already below the base case's
-    threshold when the report was written, so the first observation inside the settlement
-    window scored it `met` without the view having predicted anything."""
-
-    indicators_db = tmp_path / "macro.sqlite"
-    seed_store(indicators_db, _us10y(date(2026, 7, 18), 4.0))
-
-    # base is `at_or_above 3.5` and `at_or_above 3.75`; 4.0 satisfies both already.
-    assert _already_met(_document(), indicators_db) == ("base[1]", "base[2]")
-
-
-def test_a_condition_no_observation_reaches_yet_is_left_alone(tmp_path: Path) -> None:
-    """ "Not measurable yet" is a different answer from "already true"."""
-
-    indicators_db = tmp_path / "macro.sqlite"
-    seed_store(indicators_db, _us10y(date(2026, 7, 18), 3.4))
-
-    # 3.4 clears neither `at_or_above 3.5` nor `below 3.25`.
-    assert _already_met(_document(), indicators_db) == ()
-
-
-def test_a_store_that_holds_nothing_for_the_series_is_not_a_rejection(tmp_path: Path) -> None:
-    indicators_db = tmp_path / "macro.sqlite"
-    seed_store(indicators_db)
-
-    assert _already_met(_document(), indicators_db) == ()
-
-
-def test_an_observation_stale_at_as_of_does_not_decide_the_condition(tmp_path: Path) -> None:
-    """A level the store last saw a year ago does not say where the series stands now,
-    so it cannot say the condition was already true either."""
-
-    indicators_db = tmp_path / "macro.sqlite"
-    seed_store(indicators_db, _us10y(date(2025, 7, 18), 4.0))
-
-    assert _already_met(_document(), indicators_db) == ()
-
-
-def test_the_publish_gate_refuses_a_report_whose_conditions_already_hold(
-    tmp_path: Path,
-) -> None:
-    """The gate has to run on the path reports actually take: a revision after the first,
-    carrying its predecessor's scorecard snapshot."""
-
-    context_db = tmp_path / "app.sqlite"
-    indicators_db = tmp_path / "macro.sqlite"
-    service = MacroContextService(context_db)
-    first = _document()
-    service.publish(first, expected_head=None)
-    seed_store(indicators_db, _us10y(date(2026, 7, 19), 4.0))
-    later = _with_previous_scorecard_snapshot(
-        _document(
-            context_id="macro-context-2026-07-20-next",
-            as_of="2026-07-20",
-            published_at="2026-07-20T12:00:00+09:00",
-        ),
-        previous_context_id=first.context_id,
-        context_db=context_db,
-        indicators_db=indicators_db,
-        link_from_regime_summary=True,
-    )
-
-    with pytest.raises(MacroContextConflictError, match="already hold at as_of"):
-        service.publish(later, expected_head=first.context_id)
-
-    assert service.head_id() == first.context_id
-
-
-def test_the_publish_gate_passes_a_report_whose_conditions_are_all_open(
-    tmp_path: Path,
-) -> None:
-    context_db = tmp_path / "app.sqlite"
-    indicators_db = tmp_path / "macro.sqlite"
-    service = MacroContextService(context_db)
-    first = _document()
-    service.publish(first, expected_head=None)
-    seed_store(indicators_db, _us10y(date(2026, 7, 19), 3.4))
-    later = _with_previous_scorecard_snapshot(
-        _document(
-            context_id="macro-context-2026-07-20-next",
-            as_of="2026-07-20",
-            published_at="2026-07-20T12:00:00+09:00",
-        ),
-        previous_context_id=first.context_id,
-        context_db=context_db,
-        indicators_db=indicators_db,
-        link_from_regime_summary=True,
-    )
-
-    service.publish(later, expected_head=first.context_id)
-
-    assert service.head_id() == later.context_id
-
-
-def test_a_level_that_was_crossed_earlier_but_came_back_is_not_already_met(
-    tmp_path: Path,
-) -> None:
-    """Only where the series stands at `as_of` decides this. A level it touched a month
-    before and left is exactly the change the scorecard is entitled to be written about,
-    so reading anything but the closing observation would refuse a legitimate view."""
-
-    indicators_db = tmp_path / "macro.sqlite"
-    # Both readings are fresh at as_of, so only their order decides the answer. A month
-    # apart, staleness would refuse the earlier one and hide a reader that took it.
-    seed_store(
-        indicators_db,
-        _us10y(date(2026, 7, 16), 4.0),
-        _us10y(date(2026, 7, 18), 3.4),
-    )
-
-    assert _already_met(_document(), indicators_db) == ()

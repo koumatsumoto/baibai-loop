@@ -100,14 +100,6 @@ def test_validate_store_accepts_every_stored_vintage_within_registry_contract(
             "DELETE FROM registry_state",
             "registry state.*must contain exactly singleton=1",
         ),
-        (
-            "DROP TABLE registry_prune_authorizations",
-            "registry table contract mismatch.*registry_prune_authorizations",
-        ),
-        (
-            "INSERT INTO registry_prune_authorizations(series_id) VALUES ('test.series')",
-            "registry prune authorization state.*must be empty",
-        ),
     ],
 )
 def test_validate_store_rejects_invalid_registry_generation_state(
@@ -236,11 +228,6 @@ def test_validate_published_contexts_warns_instead_of_failing_on_a_retired_serie
     assert any("cites retired series: us.10y" in warning for warning in report.warnings)
     assert any(
         "scorecard is unsettleable on retired series (us.10y)" in warning
-        and "cannot be published until they are registered again" in warning
-        for warning in report.warnings
-    )
-    assert any(
-        "monitoring conditions are unmonitorable on retired series: us.10y" in warning
         for warning in report.warnings
     )
 

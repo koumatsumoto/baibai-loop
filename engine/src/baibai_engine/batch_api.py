@@ -18,7 +18,6 @@ from baibai_engine.macro.context.models import (
     MACRO_CONTEXT_SCHEMA_VERSION,
     MacroContextDocument,
     cited_series_ids,
-    monitoring_condition_series_ids,
     scorecard_series_ids,
 )
 from baibai_engine.macro.indicators.cli import parse_refresh_failure_count
@@ -134,7 +133,6 @@ __all__ = [
     "lake_verified_git_commit",
     "load_definitions",
     "load_lake_model_json",
-    "monitoring_condition_series_ids",
     "open_macro_store",
     "open_market_store",
     "parse_refresh_failure_count",

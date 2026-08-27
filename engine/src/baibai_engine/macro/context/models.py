@@ -26,7 +26,8 @@ import hashlib
 import json
 import re
 from calendar import monthrange
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
@@ -84,6 +85,10 @@ CONNECTION_SECTION_ID = "japan_equity_loop"
 # stay in the table as a log and are filtered out of every read path.
 MACRO_CONTEXT_SCHEMA_VERSION = 4
 
+# Consumers warn after a monthly human-authored context misses more than one writing
+# cycle. Staleness remains a display concern and never blocks screening.
+MACRO_CONTEXT_STALE_DAYS = 45
+
 # A scorecard condition exists to be settled by a later report. A deadline beyond this
 # horizon cannot be settled while the scenario is still the operative one, which would
 # leave the scenario unfalsifiable in practice; the bound is wide enough for a quarterly
@@ -102,21 +107,6 @@ MIN_SCORECARD_DAYS_BY_FREQUENCY: Mapping[str, int] = {
 # The reading is recomputable for any as-of, so a report cites the reading of its own
 # as-of. This allowance covers writing across a weekend, not reading an old snapshot.
 MAX_READING_LAG_DAYS = 7
-
-# The bargain topography reads the current tape; a market snapshot older than this
-# describes a different market. Same allowance philosophy as the reading lag: it
-# covers writing across a weekend, not reusing the previous report's snapshot.
-MAX_MARKET_SNAPSHOT_LAG_DAYS = 7
-
-# Anchored on token boundaries so a command merely mentioning the subcommand inside
-# another word (or a future variant subcommand) does not satisfy the topography gate.
-_MARKET_SNAPSHOT_COMMAND = re.compile(r"(?:^|\s)screening market-snapshot(?:\s|$)")
-
-# A dominant force is by definition cross-channel: a story confined to one section is
-# that section's judgment, not a force. Five is the ceiling because a moment with six
-# dominant forces has none.
-MIN_DOMINANT_FORCES = 2
-MAX_DOMINANT_FORCES = 5
 
 # Scenario probabilities live on a 0.05 grid: the grid states the weights honestly at
 # the resolution a sample-of-one judgment can carry, and the integer arithmetic below
@@ -163,6 +153,11 @@ class _TimestampedInput(_StrictModel):
 
 
 class ArticleInput(_TimestampedInput):
+    # Published revisions may carry the retired ``identifiers`` attribution aid.
+    # It is ignored on read: source resolution, not prose-token matching, is the
+    # machine contract.
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
     input_id: str = Field(min_length=1)
     source: str = Field(min_length=1)
     title: str = Field(min_length=1)
@@ -171,37 +166,6 @@ class ArticleInput(_TimestampedInput):
     accessed_at: datetime
     status: Literal["ok", "failed"]
     used_for: str = Field(min_length=1)
-    identifiers: tuple[str, ...] = ()
-    """Distinctive tokens this article is the source of: figures, names, quoted phrases.
-
-    The existing gates ask whether a citation resolves. They cannot ask whether the
-    statement's claim is the one that citation supports, and the difference is not
-    academic: on 2026-08-17 fourteen statements restated a figure from one article while
-    citing only the series input beside it, and `publish --check` returned ok every time.
-
-    Declared rather than extracted. Measured on that report, deriving them from
-    ``used_for`` mechanically reproduced 11 of the 35 tokens the author had to write by
-    hand and added noise of its own (`PDF`, `CSV`, and every generic percentage), because
-    which token is distinctive is a judgement about the source, not about the string.
-    Whoever read the article knows; the machine reading the prose does not.
-
-    An article that declares none is not checked. That is the honest state for one cited
-    as background, and the field is worth nothing if the way to satisfy it is to leave it
-    empty — so a report is measured by how many of its articles carry identifiers, not by
-    a floor that would push authors to invent tokens.
-    """
-
-    @field_validator("identifiers")
-    @classmethod
-    def require_distinctive_identifiers(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        if any(not value.strip() for value in values):
-            raise ValueError("article identifiers must be non-blank")
-        if len(values) != len(set(values)):
-            raise ValueError("article identifiers must be unique")
-        for value in values:
-            if len(value.strip()) < 2:
-                raise ValueError(f"article identifier is too short to be distinctive: {value!r}")
-        return values
 
 
 class IndicatorSeriesInput(_TimestampedInput):
@@ -416,28 +380,15 @@ class MacroScenario(_SourcedStatement):
         return values
 
 
-class TriggerCondition(_StrictModel):
-    """A monitoring condition a machine can check against the L1 history.
-
-    The shape of a scorecard condition without the deadline. A scorecard condition is
-    settled by a later report and therefore expires; a monitoring condition asks whether
-    the ground has moved since this report was written, which has no settlement date —
-    the report stands until someone writes the next one.
-    """
-
-    series_id: str = Field(min_length=1)
-    comparison: Literal["below", "at_or_below", "above", "at_or_above"]
-    threshold: float = Field(allow_inf_nan=False)
-
-
 class MonitoringPoint(_SourcedStatement):
+    # ``machine_conditions`` existed in schema v4 before the trigger subsystem was
+    # retired. Ignoring it keeps immutable revisions readable without retaining a
+    # second machine contract beside scenario scorecards.
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
     event: str = Field(min_length=1)
     condition: str = Field(min_length=1)
     view_change: str = Field(min_length=1)
-    # Optional because not every invalidation is measurable — an election result or a
-    # policy statement is watched in prose. A condition that *is* measurable belongs
-    # here, or nothing checks it between reports.
-    machine_conditions: tuple[TriggerCondition, ...] = ()
 
     @field_validator("event", "condition", "view_change")
     @classmethod
@@ -445,16 +396,6 @@ class MonitoringPoint(_SourcedStatement):
         if not value.strip():
             raise ValueError("monitoring point fields must be non-blank")
         return value
-
-    @field_validator("machine_conditions")
-    @classmethod
-    def require_distinct_conditions(
-        cls, values: tuple[TriggerCondition, ...]
-    ) -> tuple[TriggerCondition, ...]:
-        keys = [(item.series_id, item.comparison, item.threshold) for item in values]
-        if len(keys) != len(set(keys)):
-            raise ValueError("monitoring conditions must differ from each other")
-        return values
 
 
 class DominantForce(_SourcedStatement):
@@ -473,7 +414,7 @@ class DominantForce(_SourcedStatement):
     force_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$")
     title: str = Field(min_length=1)
     transmission: str = Field(min_length=1)
-    core_section_ids: tuple[MacroCoreSectionId, ...] = Field(min_length=2)
+    core_section_ids: tuple[MacroCoreSectionId, ...] = Field(min_length=1)
     series_ids: tuple[str, ...] = Field(min_length=1)
     counter_evidence: str = Field(min_length=1)
     direction: Literal["supportive", "adverse", "mixed"]
@@ -531,10 +472,8 @@ class MacroSynthesis(_StrictModel):
     evidence layer rather than written over it.
     """
 
-    dominant_forces: tuple[DominantForce, ...] = Field(
-        min_length=MIN_DOMINANT_FORCES, max_length=MAX_DOMINANT_FORCES
-    )
-    interactions: tuple[ForceInteraction, ...] = Field(min_length=1)
+    dominant_forces: tuple[DominantForce, ...] = Field(min_length=1)
+    interactions: tuple[ForceInteraction, ...] = ()
 
     @model_validator(mode="after")
     def validate_force_references(self) -> Self:
@@ -575,27 +514,9 @@ class MacroCoreSection(_StrictModel):
         if self.section_id == "monitoring":
             if not self.monitoring_points:
                 raise ValueError("monitoring section requires monitoring points")
-            self._validate_machine_conditions()
         elif self.monitoring_points:
             raise ValueError("monitoring points belong in the monitoring section")
         return self
-
-    def _validate_machine_conditions(self) -> None:
-        # Same discipline as the scorecard: a condition on a series the section never
-        # examined would be a threshold with no reading behind it.
-        cited = set(self.series_ids)
-        unknown = sorted(
-            {
-                condition.series_id
-                for point in self.monitoring_points
-                for condition in point.machine_conditions
-            }
-            - cited
-        )
-        if unknown:
-            raise ValueError(
-                "monitoring conditions must cite series the section cites: " + ", ".join(unknown)
-            )
 
     def _validate_regime_summary_fields(self) -> None:
         if self.section_id == "regime_summary":
@@ -899,10 +820,8 @@ class MacroContextDocument(_StrictModel):
         A force may only cite series its named channel sections already examine, and
         each named section must contribute at least one of the force's series — naming
         a channel that lends no evidence would make the cross-channel claim nominal.
-        Contribution is counted by distinct assignment: one series shared by every
-        named section would otherwise prove the crossing on paper by itself. Every
-        claim resolves to known, successful inputs: the synthesis reads on top of the
-        evidence layer, never around it.
+        Every claim resolves to known, successful inputs: the synthesis reads on top
+        of the evidence layer, never around it.
         """
 
         if self.synthesis is None:
@@ -938,11 +857,6 @@ class MacroContextDocument(_StrictModel):
                 raise ValueError(
                     "a dominant force must cite at least one series from each named section: "
                     + ", ".join(uncovered)
-                )
-            if not _distinct_assignment_exists(contributions):
-                raise ValueError(
-                    "a dominant force must be backed by a distinct cited series for each "
-                    f"named section: {force.force_id}"
                 )
             cited = set(force.source_ids)
             for series_id in force.series_ids:
@@ -1023,6 +937,35 @@ class MacroContextDocument(_StrictModel):
         return self.model_dump(mode="json")
 
 
+@dataclass(frozen=True, slots=True)
+class MacroContext:
+    """Validated context projection consumed by screening selection."""
+
+    document: MacroContextDocument
+
+    @property
+    def context_id(self) -> str:
+        return self.document.context_id
+
+    @property
+    def as_of(self) -> date:
+        return self.document.as_of
+
+    @property
+    def payload(self) -> Mapping[str, object]:
+        return self.document.payload()
+
+
+def macro_context_from_payload(payload: Mapping[str, object], *, source: str) -> MacroContext:
+    """Validate a published payload before selection consumes it."""
+
+    try:
+        document = MacroContextDocument.model_validate(payload)
+    except ValueError as error:
+        raise ValueError(f"macro context schema invalid: {source}: {error}") from error
+    return MacroContext(document=document)
+
+
 def cited_series_ids(document: MacroContextDocument) -> frozenset[str]:
     """Every series the report names, from its inputs and from its sections."""
 
@@ -1043,76 +986,17 @@ def scorecard_series_ids(document: MacroContextDocument) -> frozenset[str]:
     )
 
 
-def require_machine_checkable_monitoring(document: MacroContextDocument) -> None:
-    """Require the report to name at least one condition a machine can check.
-
-    Monitoring is the only part of the report that keeps working between publications,
-    and it only works on conditions something evaluates. Left optional, the cheapest way
-    to satisfy the contract is to write none — and then the report ages by the calendar
-    alone, which is the gap the daily check exists to close. One condition for the whole
-    section is the floor: an invalidation that cannot be measured (an election, a policy
-    statement) still belongs in prose, and this does not ask for it to be forced into a
-    threshold.
-
-    This is a publication gate rather than a document rule because every report written
-    before the field existed is valid and must keep loading.
-    """
-
-    if not any(point.machine_conditions for point in document.monitoring_points):
-        raise ValueError(
-            "the monitoring section must carry at least one machine-checkable condition"
-        )
-
-
-def monitoring_condition_series_ids(document: MacroContextDocument) -> frozenset[str]:
-    """The series the report's own invalidation conditions are checked against."""
-
-    return frozenset(
-        condition.series_id
-        for point in document.monitoring_points
-        for condition in point.machine_conditions
-    )
-
-
 def require_integrated_strategy(document: MacroContextDocument) -> None:
-    """Require the layers that turn channel evidence into a strategy-grade report.
+    """Require the report layers and subjective weights used by current writers.
 
-    Each is optional on the document so that every revision published before the
-    fields existed keeps loading, and required at publication because leaving any of
-    them optional makes "write none" the cheapest way to satisfy the contract — the
-    exact dynamic that left monitoring conditions unwritten until they were gated.
-
-    The bargain topography must cite the repository's own market-internals snapshot.
-    The type check matters: every revision after the first is forced to carry its
-    predecessor's scorecard snapshot, so a gate satisfied by any machine input would
-    be satisfied by that mandatory citation without a single market-internals fact
-    behind it. The freshness bound matters for the same reason: a stale snapshot
-    carried over from the previous draft would satisfy the citation while grounding
-    the topography in a market that no longer exists.
+    Machines enforce presence and numeric shape. Whether the prose is sufficiently
+    integrated or decision-useful belongs to independent semantic review.
     """
 
     if document.synthesis is None:
         raise ValueError("the report must carry a synthesis of dominant forces")
     if any(scenario.probability is None for scenario in document.scenarios):
         raise ValueError("every scenario must carry a probability")
-    if not document.connection.estimate_caveats:
-        raise ValueError("the report must carry at least one estimate caveat")
-    topography = document.connection.bargain_topography
-    if topography is None:
-        raise ValueError("the report must carry the bargain topography")
-    market_snapshot_ids = {
-        snapshot.input_id
-        for snapshot in document.inputs.machine_snapshots
-        if isinstance(snapshot, MachineSnapshotInput)
-        and snapshot.status == "ok"
-        and _MARKET_SNAPSHOT_COMMAND.search(snapshot.command)
-        and (document.as_of - snapshot.snapshot_asof).days <= MAX_MARKET_SNAPSHOT_LAG_DAYS
-    }
-    if not market_snapshot_ids & set(topography.source_ids):
-        raise ValueError(
-            "the bargain topography must cite a successful market-snapshot machine input "
-            f"taken within {MAX_MARKET_SNAPSHOT_LAG_DAYS} days of as_of"
-        )
 
 
 def document_unregistered_series_ids(document: MacroContextDocument) -> tuple[str, ...]:
@@ -1174,134 +1058,6 @@ def _cites_successful_input(
     return bool(ok_input_ids & cited)
 
 
-def _distinct_assignment_exists(candidates: Sequence[set[str]]) -> bool:
-    """Whether each candidate set can be assigned its own distinct element.
-
-    Bipartite matching, exact: a force names at most the seven channel sections, so a
-    backtracking search ordered smallest-set-first is cheap. A per-set non-emptiness check alone
-    would let one series shared by every named section stand in for all of them.
-    """
-
-    ordered = sorted(candidates, key=len)
-
-    def assign(index: int, used: frozenset[str]) -> bool:
-        if index == len(ordered):
-            return True
-        return any(
-            series not in used and assign(index + 1, used | {series})
-            for series in sorted(ordered[index])
-        )
-
-    return assign(0, frozenset())
-
-
-_IDENTIFIER_EDGE = re.compile(r"[0-9A-Za-z]")
-
-
-def _statement_prose(statement: _SourcedStatement) -> str:
-    """Every free-text field of one statement, read from the model rather than a list.
-
-    A per-model list of prose fields would go stale the day a field is added, and
-    silently: the new field would carry claims nothing checks.
-    """
-
-    parts: list[str] = []
-    for name, value in statement:
-        if name == "source_ids":
-            continue
-        if isinstance(value, str):
-            parts.append(value)
-        elif isinstance(value, tuple | list):
-            parts.extend(item for item in value if isinstance(item, str))
-    return "\n".join(parts)
-
-
-def _statement_paths(
-    document: MacroContextDocument,
-) -> tuple[tuple[str, _SourcedStatement], ...]:
-    """Every judgment-bearing statement in the report, with a path a human can find."""
-
-    found: list[tuple[str, _SourcedStatement]] = []
-    for section in document.core:
-        for item in _sourced_items(section):
-            found.append((f"core/{section.section_id}", item))
-    for item in _sourced_items(document.connection):
-        found.append((f"connection/{document.connection.section_id}", item))
-    if document.synthesis is not None:
-        for force in document.synthesis.dominant_forces:
-            found.append((f"synthesis/force/{force.force_id}", force))
-        for index, interaction in enumerate(document.synthesis.interactions):
-            found.append((f"synthesis/interaction[{index}]", interaction))
-    return tuple(found)
-
-
-def _mentions(prose: str, identifier: str) -> bool:
-    """Whether the prose uses this identifier, not merely contains its characters.
-
-    `8-1` sits inside `2026-08-17` and `9-3` inside a date range, which is how the first
-    hand-run sweep returned 33 hits for 14 real gaps. An identifier whose own edge is
-    alphanumeric must not be flanked by another alphanumeric character.
-    """
-
-    start = 0
-    while (index := prose.find(identifier, start)) != -1:
-        before = prose[index - 1] if index else ""
-        after_index = index + len(identifier)
-        after = prose[after_index] if after_index < len(prose) else ""
-        leading_ok = not (
-            _IDENTIFIER_EDGE.match(identifier[0]) and before and _IDENTIFIER_EDGE.match(before)
-        )
-        trailing_ok = not (
-            _IDENTIFIER_EDGE.match(identifier[-1]) and after and _IDENTIFIER_EDGE.match(after)
-        )
-        if leading_ok and trailing_ok:
-            return True
-        start = index + 1
-    return False
-
-
-def unattributed_statements(document: MacroContextDocument) -> tuple[str, ...]:
-    """Statements that use an article's declared identifier without citing that article.
-
-    The existing gates ask whether a citation resolves; this asks whether the claim is
-    the one the citation supports. Both were needed on 2026-08-17: `publish --check`
-    returned ok while fourteen statements restated a figure from one article and cited
-    only the series input beside it.
-    """
-
-    owners: dict[str, set[str]] = {}
-    for article in document.inputs.articles:
-        if article.status != "ok":
-            continue
-        for identifier in article.identifiers:
-            owners.setdefault(identifier, set()).add(article.input_id)
-    if not owners:
-        return ()
-    failures: list[str] = []
-    for path, statement in _statement_paths(document):
-        prose = _statement_prose(statement)
-        cited = set(statement.source_ids)
-        for identifier, article_ids in sorted(owners.items()):
-            if cited & article_ids:
-                continue
-            if _mentions(prose, identifier):
-                failures.append(
-                    f"{path}: uses {identifier!r} without citing "
-                    + " or ".join(sorted(article_ids))
-                )
-    return tuple(failures)
-
-
-def require_attributed_statements(document: MacroContextDocument) -> None:
-    """Reject a report whose claims outrun the inputs they cite."""
-
-    failures = unattributed_statements(document)
-    if failures:
-        raise ValueError(
-            "statements use an article's identifier without citing it: " + "; ".join(failures)
-        )
-
-
 def _sourced_items(
     section: MacroCoreSection | MacroConnectionSection,
 ) -> tuple[_SourcedStatement, ...]:
@@ -1346,16 +1102,17 @@ __all__ = [
     "CONNECTION_SECTION_ID",
     "CORE_SECTION_ORDER",
     "MACRO_CONTEXT_SCHEMA_VERSION",
+    "MACRO_CONTEXT_STALE_DAYS",
     "TRANSMISSION_CHANNEL_SECTION_IDS",
+    "MacroContext",
     "MacroContextDocument",
     "MacroCoreSectionId",
     "MacroSynthesis",
     "ScorecardSnapshotInput",
     "cited_series_ids",
     "document_unregistered_series_ids",
-    "monitoring_condition_series_ids",
+    "macro_context_from_payload",
     "require_integrated_strategy",
-    "require_machine_checkable_monitoring",
     "require_registry_agreement",
     "scorecard_series_ids",
     "scorecard_snapshot_input_id",

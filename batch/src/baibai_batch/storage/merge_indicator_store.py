@@ -65,7 +65,6 @@ REGISTRY_TABLES: tuple[str, ...] = (
     "series",
     "aliases",
     "registry_state",
-    "registry_prune_authorizations",
 )
 
 

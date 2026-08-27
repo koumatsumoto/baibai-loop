@@ -5,10 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import shlex
-import sqlite3
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Sequence
 from contextlib import closing
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Literal, assert_never
 
@@ -21,13 +20,7 @@ from baibai_engine.macro.indicators import db as indicators_db
 from baibai_engine.macro.indicators.db import ObservationRecord
 from baibai_engine.macro.indicators.definitions import load_definitions
 from baibai_engine.macro.reading.reader import ObservationReader, build_store_observation_reader
-from baibai_engine.macro.reading.rules import (
-    DEFAULT_RULES_PATH,
-    ResolvedRule,
-    load_reading_rules,
-    rules_revision,
-    window_start,
-)
+from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH, rules_revision
 
 from .models import (
     MACRO_CONTEXT_SCHEMA_VERSION,
@@ -39,8 +32,6 @@ from .models import (
 
 type ScorecardStatus = Literal["met", "not_met", "pending"]
 type ScenarioCase = Literal["base", "bear", "bull"]
-type ProviderRunChecker = Callable[[str, str, date, date, datetime | None, date], bool]
-type StaleAfterResolver = Callable[[str, date], date]
 
 _VINTAGE_POLICY = (
     "latest eligible vintage per observation; publication-quality vintages "
@@ -72,7 +63,6 @@ class ScorecardResult(_OutputModel):
     comparison: Literal["below", "at_or_below", "above", "at_or_above"]
     threshold: float = Field(allow_inf_nan=False)
     deadline: date
-    settlement_ready_on: date
     evaluated_through: date
     status: ScorecardStatus
     observation: ScorecardObservation | None
@@ -102,9 +92,6 @@ def evaluate_scorecard(
     document: MacroContextDocument,
     *,
     reader: ObservationReader,
-    provider_run_checker: ProviderRunChecker,
-    providers: Mapping[str, str],
-    stale_after: StaleAfterResolver,
     rules_revision: str,
     asof: date,
     accessed_at: datetime,
@@ -124,23 +111,6 @@ def evaluate_scorecard(
         raise ScorecardEvaluationError(
             f"scorecard asof {asof} is in the future at access date {access_date}"
         )
-    # A report stays readable after one of its series is retired, but it cannot be
-    # settled: there is no provider to prove a match against. Say which series, so the
-    # answer is "this scenario is unsettleable" rather than an unexplained lookup failure.
-    retired = sorted(
-        {
-            condition.series_id
-            for scenario in document.scenarios
-            for condition in scenario.scorecard
-            if condition.series_id not in providers
-        }
-    )
-    if retired:
-        raise ScorecardEvaluationError(
-            "cannot settle a scorecard on series the registry no longer defines: "
-            + ", ".join(retired)
-        )
-
     start = document.as_of + timedelta(days=1)
     results: list[ScorecardResult] = []
     for scenario in document.scenarios:
@@ -159,10 +129,6 @@ def evaluate_scorecard(
                     observations=observations,
                     asof=asof,
                     cutoff=cutoff,
-                    start=start,
-                    provider_run_checker=provider_run_checker,
-                    provider=providers[condition.series_id],
-                    stale_after=stale_after,
                 )
             )
 
@@ -212,108 +178,6 @@ def evaluate_scorecard(
     )
 
 
-class AlreadyMetCondition(_OutputModel):
-    """One scorecard condition the report's own closing observation already satisfies."""
-
-    case: ScenarioCase
-    condition_index: int = Field(ge=1)
-    series_id: str
-    comparison: Literal["below", "at_or_below", "above", "at_or_above"]
-    threshold: float = Field(allow_inf_nan=False)
-    observed_at: date
-    value: float = Field(allow_inf_nan=False)
-
-
-def already_met_conditions(
-    document: MacroContextDocument,
-    *,
-    reader: ObservationReader,
-    resolved_rules: Mapping[str, ResolvedRule],
-) -> tuple[AlreadyMetCondition, ...]:
-    """Which scorecard conditions were already true when the report was written.
-
-    Settlement opens the day after ``as_of``, so a condition the closing observation
-    already meets is settled by the first observation inside the window whatever the
-    market does — it reads as `met` without the view having predicted anything. The
-    scorecard exists to bind the report's description quality in advance, and a
-    condition that is already true binds nothing.
-
-    "Not measurable yet" is a different answer from "already true". A series with no
-    observation in its window, or whose latest one is stale at ``as_of``, is left alone:
-    the report cannot be asked to know where a series stands when the store cannot say.
-
-    Eligibility is the reading layer's own — the same window and the same staleness
-    boundary the report's cited reading snapshot was computed under — so the gate cannot
-    drift from the frame the author actually read.
-    """
-
-    found: list[AlreadyMetCondition] = []
-    for scenario in document.scenarios:
-        for index, condition in enumerate(scenario.scorecard, start=1):
-            rule = resolved_rules.get(condition.series_id)
-            if rule is None:
-                continue
-            start = window_start(document.as_of, rule.percentile_window_years)
-            observations = _latest_vintages(reader(condition.series_id, start, document.as_of))
-            if not observations:
-                continue
-            latest = observations[-1]
-            if rule.is_stale(latest.observed_at, asof=document.as_of):
-                continue
-            if not _matches(
-                latest.value, comparison=condition.comparison, threshold=condition.threshold
-            ):
-                continue
-            found.append(
-                AlreadyMetCondition(
-                    case=scenario.case,
-                    condition_index=index,
-                    series_id=condition.series_id,
-                    comparison=condition.comparison,
-                    threshold=condition.threshold,
-                    observed_at=latest.observed_at,
-                    value=latest.value,
-                )
-            )
-    return tuple(found)
-
-
-def already_met_conditions_from_stores(
-    document: MacroContextDocument,
-    *,
-    indicators_db_path: Path,
-    rules_path: Path,
-) -> tuple[AlreadyMetCondition, ...]:
-    """Answer the same question against a read-only indicator store."""
-
-    definitions = load_definitions()
-    rules = load_reading_rules(rules_path)
-    cited = {
-        condition.series_id for scenario in document.scenarios for condition in scenario.scorecard
-    }
-    resolved_rules = {
-        definition.series_id: rules.resolve(
-            series_id=definition.series_id,
-            frequency=definition.frequency,
-        )
-        for definition in definitions.series
-        if definition.series_id in cited
-    }
-    connection = indicators_db.open_read_only_connection(indicators_db_path)
-    try:
-        return already_met_conditions(
-            document,
-            reader=build_store_observation_reader(
-                connection,
-                series=definitions.series,
-                vintage_cutoff=document.as_of,
-            ),
-            resolved_rules=resolved_rules,
-        )
-    finally:
-        connection.close()
-
-
 def evaluate_scorecard_from_stores(
     *,
     context_db: Path | None,
@@ -325,15 +189,7 @@ def evaluate_scorecard_from_stores(
 ) -> ScorecardEvaluation:
     document = load_context_document(context_db, context_id=context_id)
     definitions = load_definitions()
-    rules = load_reading_rules(rules_path)
     revision = rules_revision(rules_path)
-    resolved_rules = {
-        definition.series_id: rules.resolve(
-            series_id=definition.series_id,
-            frequency=definition.frequency,
-        )
-        for definition in definitions.series
-    }
     resolved_context_db = database_path(context_db).resolve()
     resolved_indicators_db = indicators_db_path.resolve()
     stores = ScorecardStores(
@@ -362,9 +218,7 @@ def evaluate_scorecard_from_stores(
     )
     connection = indicators_db.open_read_only_connection(indicators_db_path)
     try:
-        # Observation and provider-run reads jointly define one citable machine
-        # snapshot. An explicit read transaction prevents a concurrent refresh from
-        # moving one side of that evidence boundary between SELECT statements.
+        # One read transaction keeps every condition on the same store snapshot.
         connection.execute("BEGIN")
         return evaluate_scorecard(
             document,
@@ -372,25 +226,6 @@ def evaluate_scorecard_from_stores(
                 connection,
                 series=definitions.series,
                 vintage_cutoff=asof,
-            ),
-            provider_run_checker=(
-                lambda series_id, provider, start, end, completed_after, score_asof: (
-                    _has_provider_run(
-                        connection,
-                        series_id=series_id,
-                        provider=provider,
-                        start=start,
-                        end=end,
-                        completed_on_or_after=completed_after,
-                        asof=score_asof,
-                    )
-                )
-            ),
-            providers={
-                definition.series_id: definition.provider for definition in definitions.series
-            },
-            stale_after=lambda series_id, observed_at: resolved_rules[series_id].stale_after(
-                observed_at
             ),
             rules_revision=revision,
             asof=asof,
@@ -427,10 +262,6 @@ def _evaluate_condition(
     observations: Sequence[ObservationRecord],
     asof: date,
     cutoff: date,
-    start: date,
-    provider_run_checker: ProviderRunChecker,
-    provider: str,
-    stale_after: StaleAfterResolver,
 ) -> ScorecardResult:
     first_met = next(
         (
@@ -445,59 +276,12 @@ def _evaluate_condition(
         None,
     )
     used: ObservationRecord | None
-    settlement_ready_on = stale_after(condition.series_id, condition.deadline)
     if first_met is not None:
-        if first_met.vintage_at is None:
-            raise ScorecardEvaluationError(
-                "cannot prove first scorecard match without vintage_at: "
-                f"{case}[{condition_index}] {condition.series_id} "
-                f"observed_at={first_met.observed_at}"
-            )
-        _require_provider_run(
-            provider_run_checker,
-            case=case,
-            condition_index=condition_index,
-            series_id=condition.series_id,
-            provider=provider,
-            start=start,
-            end=first_met.observed_at,
-            completed_on_or_after=first_met.vintage_at,
-            asof=asof,
-        )
         status: ScorecardStatus = "met"
         used = first_met
-    elif asof >= settlement_ready_on:
+    elif asof >= condition.deadline:
         status = "not_met"
-        if not observations:
-            raise ScorecardEvaluationError(
-                "cannot settle expired scorecard condition without an observation: "
-                f"{case}[{condition_index}] {condition.series_id} "
-                f"through {condition.deadline}"
-            )
-        used = observations[-1]
-        _require_provider_run(
-            provider_run_checker,
-            case=case,
-            condition_index=condition_index,
-            series_id=condition.series_id,
-            provider=provider,
-            start=start,
-            end=condition.deadline,
-            completed_on_or_after=datetime.combine(
-                settlement_ready_on,
-                time.min,
-                tzinfo=JST,
-            ),
-            asof=asof,
-        )
-        observation_stale_after = stale_after(condition.series_id, used.observed_at)
-        if condition.deadline > observation_stale_after:
-            raise ScorecardEvaluationError(
-                "cannot settle expired scorecard condition from stale data: "
-                f"{case}[{condition_index}] {condition.series_id} "
-                f"last_observed_at={used.observed_at} deadline={condition.deadline} "
-                f"stale_after={observation_stale_after}"
-            )
+        used = observations[-1] if observations else None
     else:
         status = "pending"
         used = observations[-1] if observations else None
@@ -509,7 +293,6 @@ def _evaluate_condition(
         comparison=condition.comparison,
         threshold=condition.threshold,
         deadline=condition.deadline,
-        settlement_ready_on=settlement_ready_on,
         evaluated_through=cutoff,
         status=status,
         observation=(
@@ -524,64 +307,6 @@ def _evaluate_condition(
             )
         ),
     )
-
-
-def _require_provider_run(
-    checker: ProviderRunChecker,
-    *,
-    case: ScenarioCase,
-    condition_index: int,
-    series_id: str,
-    provider: str,
-    start: date,
-    end: date,
-    completed_on_or_after: datetime | None,
-    asof: date,
-) -> None:
-    if checker(series_id, provider, start, end, completed_on_or_after, asof):
-        return
-    raise ScorecardEvaluationError(
-        "cannot settle scorecard condition without an eligible successful "
-        f"provider run: {case}[{condition_index}] {series_id} {start}/{end} "
-        f"provider={provider} completed_on_or_after={completed_on_or_after} asof={asof}"
-    )
-
-
-def _has_provider_run(
-    connection: sqlite3.Connection,
-    *,
-    series_id: str,
-    provider: str,
-    start: date,
-    end: date,
-    completed_on_or_after: datetime | None,
-    asof: date,
-) -> bool:
-    """Whether the active provider completed a full-window refresh in the time bounds."""
-
-    rows = connection.execute(
-        "SELECT finished_at FROM provider_runs "
-        "WHERE series_id = ? AND provider = ? AND status = 'ok' "
-        "AND record_count > 0 AND range_start <= ? AND range_end >= ? "
-        "ORDER BY finished_at DESC",
-        (
-            series_id,
-            provider,
-            start.isoformat(),
-            end.isoformat(),
-        ),
-    ).fetchall()
-    upper = datetime.combine(asof + timedelta(days=1), time.min, tzinfo=JST)
-    for row in rows:
-        finished_at = datetime.fromisoformat(str(row[0]))
-        if finished_at.tzinfo is None or finished_at.utcoffset() is None:
-            continue
-        if finished_at >= upper:
-            continue
-        if completed_on_or_after is not None and finished_at < completed_on_or_after:
-            continue
-        return True
-    return False
 
 
 def _latest_vintages(

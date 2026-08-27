@@ -247,7 +247,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
   - [ ] lake Raw lineageはcontent digestだけでなくprovider・dataset・request rangeをmetadataと照合し、対象partitionと交差しないrangeを拒否するか
 - [ ] 人間確認なしで完了できる operation 分岐は、専用の completion reason と canonical artifact evidence を必須にし、`not applicable` 等を human confirmation field へ書く抜け道、別 session kind での流用、evidence 件数の矛盾を negative test で拒否するか
 - [ ] rebuildable publication を再利用する gate は、外部 summary の schema・terminal state・artifact ID を exact に検証し、run と selection の両方を同一の clean application commit に束縛するか。長い計算は開始時 commit を publication 直前に再照合し、dirty tree・HEAD 変更・片方だけ provenance 欠損を current code 扱いしない negative test があるか
-- [ ] macro context の統合層 gate を変更する場合、「義務として同梱される別 input で充足できないか」を必ず疑う（bargain_topography の接地 gate は、2 本目以降の全レポートが必ず持つ前回 scorecard の `ScorecardSnapshotInput` では充足できないよう型と command で絞る。同型の抜け道：presence gate が「常在する別の何か」で満たせる設計）。確率検証は float 等値比較でなく整数化算術で書き、境界（0.00 / 0.95 / 刻み外 / 部分欠落）を negative test で塞ぐ
+- [ ] macro context の確率検証は float 等値比較でなく整数化算術で書き、値がある場合の境界（0.00 / 0.95 / 刻み外 / 部分欠落）を negative test で塞ぐ。散文品質を cardinality や token matching で代理判定する gate を足していないか
 - [ ] ledger eventを導入・変更する場合、reservationとbuy execution、terminal orderとrelease、cash不足、guard超過、expiry後のbuy、保有超過sellをhard errorとして確認したか
 - [ ] concentrationはholding market value + active reservationをledgerの`total_capital_yen`で割り、warning + 期限付きoverrideとして扱うことを確認したか
 - [ ] human result CLIを変更する場合、報告なしでno write、approved proposal ID必須、missing fieldの質問、draft時canonical非変更、stale append head拒否をcontract testで確認したか
@@ -394,12 +394,12 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       全履歴・全 vintage が通ることを機械確認したか。複数行の途中違反を caller が catch 後に
       commit しても先行行が残らず、persistent trigger の欠落・改変・予期しない追加を
       schema version 一致だけで通さないか。`foreign_keys=OFF` の直接writerでもunknown seriesを
-      拒否し、storeは空か現行schemaだけを受けて他は明確なエラーで拒否するか（過去のschemaへ戻る
-      通路は持たない。schemaを進めるときはその1段だけを書く）。cloud mergeは直前schemaのread-only
+      拒否し、storeは空・直前schemaからの一段移行・現行schemaだけを受けるか（複数世代のmigration
+      は持たず、schemaを進めるときは実在storeに必要な1段だけを書く）。cloud mergeは直前schemaのread-only
       sourceをrollout可能にし（schema変更後の最初のpushは必ず1世代前のcloud copyに当たる。
       ただし列集合が一致する変更に限る）、同一fact keyの全payload不一致・source/target域外値を
       transaction前後で拒否するか。撤回済みrowは値についての主張ではないのでband検査の対象外か。
-      registry generation / prune authorization stateの欠損・残留もcurrent-schema検証で止めるか
+      registry generation stateの欠損・改変もcurrent-schema検証で止めるか
 - [ ] 破壊的な運用コマンドは冪等か compare-and-swap で守られているか。2 回流して結果が変わる
       コマンドは、再実行という最も起きやすい操作で正本データを黙って壊す
 - [ ] market storeをcloudからlocalへunionして再発行する場合、cleanな財務range coverageを
@@ -427,8 +427,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       見え続けることを、それぞれ test で固定したか。**撤回した値から計算済みの derived 系列**が
       残らないこと（入力が消えるので再計算では直らない）も確認したか
 - [ ] macro registry の series ID 集合を変更する場合は membership generation digest を追記し、
-      stale generation の refresh / merge 拒否、無許可 series DELETE trigger、件数集計から削除までの
-      writer lock、pending / committed audit の各 negative testを通すか
+      stale generation の refresh / merge 拒否と、件数集計から削除までの writer lock を確認するか
 - [ ] macro reading の計算規則は全登録系列で解決が成立し（解決不能なら fail）、実効窓を満たさない
       履歴で percentile / z-score を黙って計算しないか（開始が遅い・件数不足・**窓の期数に対する
       欠落が多い**の3条件を `insufficient_history` で null にする）。公表lagを変更するときは全系列の
@@ -437,12 +436,9 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       月末の calendar arithmetic・calendar/business daily の土日境界・期限超過の負の
       `print_due_in_days`・margin境界・schema v1 の既発行revision・v1/v2 shape混在の拒否を
       fixtureで検証するか
-- [ ] macro scorecard は未来 asof、`met` までの full-window run / `not_met` の active provider
-      post-watermark run 不足、期限時点の stale 観測を hard error にし、run 完了時刻を JST の score
-      asof 以前に制約するか。`met` 観測の vintage 欠落を拒否するか。観測期限と vintage cutoff を
-      分離し、rules revision と両 store を identity に固定しているか。後続 context は前回 context の
-      structured scorecard snapshot を exactly one で持ち、regime summary の専用 field がその
-      input ID を参照し、publish が digest を再計算するか
+- [ ] macro scorecard は未来 asof を拒否し、観測期限と vintage cutoff を分離しているか。期限内の
+      最初の成立を `met`、期限前の不成立を `pending`、期限到達後の不成立を `not_met` とし、rules
+      revision と両 store を出力 identity に固定しているか
 - [ ] macro series config の `tradingview_symbol` は `EXCHANGE:SYMBOL` 形式を拒否側 fixture で検証し、
       macro read API の未知 period / granularity は 422、期間集約は各 bucket の最終観測値と件数を
       fixture で検証し、月次全履歴を返すproviderは既知の最古月・公表lagを含む最新端・
@@ -450,7 +446,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] macro context は core 固定順10セクション + connection 1、series定義とinputへの参照、source ID、
       reading input の必須（レジーム要約からの引用・実在する rules revision・as_of との日数差）、
       base / bear / bull と各シナリオ2件以上の相異なる scorecard条件（期限は公表間隔以上18か月以内）、
-      monitoring condition、core セクション2〜8内のmaterial delta、connectionのseries参照が
+      monitoring point、core セクション2〜8内のmaterial delta、connectionのseries参照が
       coreの引用範囲内かつ core_section_ids に裏付けられていること、context_id の日付とas_ofの一致を
       negative fixtureで検証するか
 - [ ] **immutable な発行済み文書の検証は、参照先が動くかどうかで層を分ける**。registry membership や

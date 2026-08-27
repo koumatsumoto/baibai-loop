@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import Any
 
 _READING_INPUT_ID = "reading-2026-07-19"
 _SERIES_INPUT_ID = "us-10y"
 _FX_INPUT_ID = "usd-jpy"
 _SNAPSHOT_INPUT_ID = "snapshot-market-2026-07-19"
-_DEFAULT_MACHINE_CONDITIONS: list[dict[str, Any]] = [
-    {"series_id": "us.10y", "comparison": "at_or_above", "threshold": 5.0}
-]
 
 
 def macro_context_payload(
@@ -18,16 +14,10 @@ def macro_context_payload(
     as_of: str = "2026-07-19",
     published_at: str = "2026-07-19T12:00:00+09:00",
     scorecard_deadline: str = "2026-10-31",
-    machine_conditions: list[dict[str, Any]] | None = None,
     strategy_layer: bool = True,
 ) -> dict[str, Any]:
-    # Publication requires at least one machine-checkable condition, so the shared
-    # fixture carries one. Pass an empty list to model a report written before the field.
     # ``strategy_layer=False`` models a report written before the integrated layer
     # (synthesis / scenario probabilities / bargain topography / estimate caveats).
-    conditions = deepcopy(
-        _DEFAULT_MACHINE_CONDITIONS if machine_conditions is None else machine_conditions
-    )
     source_ids = [_SERIES_INPUT_ID]
     core = [
         _core_section(
@@ -84,7 +74,6 @@ def macro_context_payload(
                     "view_change": "discount rate判断を更新する",
                     "summary": "金利レンジの離脱を監視する。",
                     "source_ids": source_ids,
-                    **({"machine_conditions": conditions} if conditions else {}),
                 }
             ],
         ),

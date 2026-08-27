@@ -89,8 +89,6 @@ from .models import (
     MacroSeriesView,
     MacroSizingCautionView,
     MacroSynthesisView,
-    MacroTriggerEvaluationView,
-    MacroTriggerResultView,
     MacroView,
     MetaBatch,
     MetaView,
@@ -845,7 +843,6 @@ def build_macro_context_detail(
         raw_context,
         as_of=as_of,
         series_names=macro_series_names(),
-        raw_triggers=source.context_triggers(context_id=context_id, as_of=as_of),
     )
 
 
@@ -854,7 +851,6 @@ def _build_macro_context_view(
     *,
     as_of: date,
     series_names: Mapping[str, str],
-    raw_triggers: Mapping[str, object] | None = None,
 ) -> MacroContextView:
     context_as_of = date.fromisoformat(str(raw_context["as_of"]))
     age_days = (as_of - context_as_of).days
@@ -874,7 +870,6 @@ def _build_macro_context_view(
             for item in _mapping_items(raw_context["core"])
         ],
         connection=_macro_connection_section_view(connection, series_names=series_names),
-        triggers=_macro_trigger_evaluation_view(raw_triggers),
     )
 
 
@@ -905,49 +900,6 @@ def _macro_synthesis_view(
             for item in _mapping_items(raw.get("interactions"))
         ],
     )
-
-
-def _macro_trigger_evaluation_view(
-    raw: Mapping[str, object] | None,
-) -> MacroTriggerEvaluationView | None:
-    if raw is None:
-        return None
-    results = [
-        MacroTriggerResultView(
-            point_index=int(str(item["point_index"])),
-            event=str(item["event"]),
-            condition_index=int(str(item["condition_index"])),
-            series_id=str(item["series_id"]),
-            comparison=str(item["comparison"]),
-            threshold=float(str(item["threshold"])),
-            status=str(item["status"]),
-            observed_at=(
-                None
-                if not isinstance(item.get("observation"), Mapping)
-                else date.fromisoformat(str(_observation(item)["observed_at"]))
-            ),
-            value=(
-                None
-                if not isinstance(item.get("observation"), Mapping)
-                else float(str(_observation(item)["value"]))
-            ),
-            view_change=str(item["view_change"]),
-        )
-        for item in _mapping_items(raw.get("results"))
-    ]
-    return MacroTriggerEvaluationView(
-        asof=date.fromisoformat(str(raw["asof"])),
-        evaluated=len(results),
-        fired=sum(1 for item in results if item.status == "fired"),
-        results=results,
-    )
-
-
-def _observation(item: Mapping[str, object]) -> Mapping[str, object]:
-    observation = item["observation"]
-    if not isinstance(observation, Mapping):  # pragma: no cover - guarded by the caller
-        raise ValueError("macro trigger observation must be an object")
-    return observation
 
 
 def _build_macro_groups(

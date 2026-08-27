@@ -2240,17 +2240,6 @@
         },
         "connection": {
           "$ref": "#/$defs/MacroConnectionSectionView"
-        },
-        "triggers": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MacroTriggerEvaluationView"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         }
       },
       "required": [
@@ -2262,8 +2251,7 @@
         "stale",
         "synthesis",
         "core",
-        "connection",
-        "triggers"
+        "connection"
       ],
       "title": "MacroContextView",
       "type": "object"
@@ -3377,112 +3365,6 @@
         "interactions"
       ],
       "title": "MacroSynthesisView",
-      "type": "object"
-    },
-    "MacroTriggerEvaluationView": {
-      "description": "Whether the report's own invalidation conditions have been met since it was written.",
-      "properties": {
-        "asof": {
-          "format": "date",
-          "title": "Asof",
-          "type": "string"
-        },
-        "evaluated": {
-          "title": "Evaluated",
-          "type": "integer"
-        },
-        "fired": {
-          "title": "Fired",
-          "type": "integer"
-        },
-        "results": {
-          "items": {
-            "$ref": "#/$defs/MacroTriggerResultView"
-          },
-          "title": "Results",
-          "type": "array"
-        }
-      },
-      "required": [
-        "asof",
-        "evaluated",
-        "fired",
-        "results"
-      ],
-      "title": "MacroTriggerEvaluationView",
-      "type": "object"
-    },
-    "MacroTriggerResultView": {
-      "properties": {
-        "point_index": {
-          "title": "Point Index",
-          "type": "integer"
-        },
-        "event": {
-          "title": "Event",
-          "type": "string"
-        },
-        "condition_index": {
-          "title": "Condition Index",
-          "type": "integer"
-        },
-        "series_id": {
-          "title": "Series Id",
-          "type": "string"
-        },
-        "comparison": {
-          "title": "Comparison",
-          "type": "string"
-        },
-        "threshold": {
-          "title": "Threshold",
-          "type": "number"
-        },
-        "status": {
-          "title": "Status",
-          "type": "string"
-        },
-        "observed_at": {
-          "anyOf": [
-            {
-              "format": "date",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Observed At"
-        },
-        "value": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Value"
-        },
-        "view_change": {
-          "title": "View Change",
-          "type": "string"
-        }
-      },
-      "required": [
-        "point_index",
-        "event",
-        "condition_index",
-        "series_id",
-        "comparison",
-        "threshold",
-        "status",
-        "observed_at",
-        "value",
-        "view_change"
-      ],
-      "title": "MacroTriggerResultView",
       "type": "object"
     },
     "MacroView": {

@@ -13,7 +13,7 @@ from baibai_engine.foundation.repository_layout import MACRO_DB_PATH
 
 from .definitions import IndicatorDefinitions, SeriesDefinition, load_definitions
 
-SQLITE_SCHEMA_VERSION = 6
+SQLITE_SCHEMA_VERSION = 7
 # The acquisition outcome that says "this observation is withdrawn from the reads".
 RETRACTED_STATUS = "retracted"
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
@@ -29,28 +29,24 @@ _SCHEMA_VALIDATION_SQL = {
         "user_version": "PRAGMA main.user_version",
         "registry_tables": (
             "SELECT name, sql FROM main.sqlite_master "
-            "WHERE type = 'table' AND name IN "
-            "('registry_state', 'registry_prune_authorizations')"
+            "WHERE type = 'table' AND name = 'registry_state'"
         ),
         "registry_state": (
             "SELECT singleton, generation, typeof(singleton), typeof(generation) "
             "FROM main.registry_state"
         ),
-        "prune_authorizations": ("SELECT COUNT(*) FROM main.registry_prune_authorizations"),
         "triggers": "SELECT name, sql FROM main.sqlite_master WHERE type = 'trigger'",
     },
     "source": {
         "user_version": "PRAGMA source.user_version",
         "registry_tables": (
             "SELECT name, sql FROM source.sqlite_master "
-            "WHERE type = 'table' AND name IN "
-            "('registry_state', 'registry_prune_authorizations')"
+            "WHERE type = 'table' AND name = 'registry_state'"
         ),
         "registry_state": (
             "SELECT singleton, generation, typeof(singleton), typeof(generation) "
             "FROM source.registry_state"
         ),
-        "prune_authorizations": ("SELECT COUNT(*) FROM source.registry_prune_authorizations"),
         "triggers": "SELECT name, sql FROM source.sqlite_master WHERE type = 'trigger'",
     },
 }
@@ -177,12 +173,6 @@ def _validate_registry_state_contract(conn: sqlite3.Connection, *, schema: str) 
             f"indicator SQLite registry state in {schema} must contain exactly "
             "singleton=1 with a non-negative integer generation"
         )
-    authorizations = int(conn.execute(queries["prune_authorizations"]).fetchone()[0])
-    if authorizations:
-        raise IndicatorsSchemaError(
-            f"indicator SQLite registry prune authorization state in {schema} "
-            f"must be empty; found {authorizations}"
-        )
 
 
 def _validate_trigger_contract(conn: sqlite3.Connection, *, schema: str) -> None:
@@ -231,8 +221,7 @@ def _canonical_registry_table_sql() -> dict[str, str]:
             str(row[0]): _normalize_schema_sql(str(row[1]))
             for row in connection.execute(
                 "SELECT name, sql FROM sqlite_master "
-                "WHERE type = 'table' AND name IN "
-                "('registry_state', 'registry_prune_authorizations')"
+                "WHERE type = 'table' AND name = 'registry_state'"
             )
         }
     finally:
@@ -368,10 +357,6 @@ def prune_definitions(
                 "SELECT COUNT(*) FROM provider_runs WHERE series_id = ?",
                 (series_id,),
             ).fetchone()[0]
-        )
-        conn.execute(
-            "INSERT INTO registry_prune_authorizations(series_id) VALUES (?)",
-            (series_id,),
         )
         conn.execute("DELETE FROM provider_runs WHERE series_id = ?", (series_id,))
         conn.execute("DELETE FROM observations WHERE series_id = ?", (series_id,))
@@ -800,17 +785,27 @@ def _connect(db_path: Path) -> sqlite3.Connection:
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
-    """Create the schema, confirm it, or refuse — there is no third state.
+    """Create, migrate one known predecessor, confirm, or refuse the store.
 
-    A store is either empty or on the current schema. Every store that exists is on the
-    current one, so a path from an older schema would be a route into the past that
-    nothing can travel: dead code that still has to be read, reasoned about, and kept
-    correct. A future schema change writes the one step it actually needs.
+    Only the predecessor occupied by the canonical store gets a migration. Older paths
+    are refused rather than accumulated as permanent compatibility machinery.
     """
 
     version = int(conn.execute("PRAGMA user_version").fetchone()[0])
     if version == SQLITE_SCHEMA_VERSION:
         validate_current_schema(conn)
+        return
+    if version == 6:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.execute("DROP TRIGGER IF EXISTS protect_series_from_implicit_prune")
+            conn.execute("DROP TABLE IF EXISTS registry_prune_authorizations")
+            conn.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION}")
+            validate_current_schema(conn)
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
         return
     if version != 0:
         raise IndicatorsSchemaError(

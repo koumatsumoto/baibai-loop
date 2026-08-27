@@ -34,7 +34,6 @@ from baibai_engine.batch_api import (
     connect_read_only,
     database_path,
     load_definitions,
-    monitoring_condition_series_ids,
     scorecard_series_ids,
     validate_macro_schema,
 )
@@ -178,22 +177,9 @@ def validate_published_contexts(
             warnings.append(f"{context_id}: cites retired series: {', '.join(retired)}")
         unsettleable = sorted(scorecard_series_ids(document) - registry)
         if unsettleable:
-            # Worth its own line because the consequence reaches past this report: a new
-            # revision must cite a successful scorecard snapshot of its predecessor, and
-            # that snapshot cannot be produced for a retired condition series. The head
-            # revision in this state blocks the next publish until the series returns.
             warnings.append(
                 f"{context_id}: scorecard is unsettleable on retired series "
-                f"({', '.join(unsettleable)}); a revision after this one cannot be "
-                "published until they are registered again"
-            )
-        unmonitorable = sorted(monitoring_condition_series_ids(document) - registry)
-        if unmonitorable:
-            # Silent otherwise: a condition on a retired series reads as "not printed
-            # yet", which is what a condition waiting for its next observation looks like.
-            warnings.append(
-                f"{context_id}: monitoring conditions are unmonitorable on retired series: "
-                + ", ".join(unmonitorable)
+                f"({', '.join(unsettleable)})"
             )
     return PublishedContextReport(
         documents=len(rows),

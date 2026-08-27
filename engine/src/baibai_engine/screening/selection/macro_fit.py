@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import date
 
-from baibai_engine.macro.context import MacroContext, macro_context_diagnostics
+from baibai_engine.macro.context import MacroContext
+from baibai_engine.macro.context.models import MACRO_CONTEXT_STALE_DAYS
 
 
 def macro_context_summary(
@@ -25,21 +26,32 @@ def macro_context_summary(
             "sizing_cautions": [],
             "research_questions": [],
             "refresh_triggers": [],
-            "fired_triggers": [],
-            "triggers_checked": False,
             "warnings": ["macro_context_missing"],
         }
-    diagnostics = macro_context_diagnostics(macro_context, asof_date=asof_date)
+    document = macro_context.document
+    age_days = (asof_date - document.as_of).days
+    inputs = (
+        *document.inputs.articles,
+        *document.inputs.indicator_series,
+        *document.inputs.reading_snapshots,
+        *document.inputs.machine_snapshots,
+    )
+    failed_inputs = [item.input_id for item in inputs if item.status == "failed"]
+    warnings: list[str] = []
+    if document.as_of > asof_date:
+        warnings.append("macro_context_future")
+    if age_days > MACRO_CONTEXT_STALE_DAYS:
+        warnings.append("macro_context_stale")
+    if failed_inputs:
+        warnings.append("macro_context_failed_inputs")
     return {
-        "context_id": macro_context.context_id,
-        "as_of": macro_context.as_of.isoformat(),
-        "age_days": diagnostics["age_days"],
-        "failed_inputs": diagnostics["failed_inputs"],
-        "material_deltas": diagnostics["material_deltas"],
-        "sizing_cautions": diagnostics["sizing_cautions"],
-        "research_questions": diagnostics["research_questions"],
-        "refresh_triggers": diagnostics["refresh_triggers"],
-        "fired_triggers": diagnostics["fired_triggers"],
-        "triggers_checked": diagnostics["triggers_checked"],
-        "warnings": diagnostics["warnings"],
+        "context_id": document.context_id,
+        "as_of": document.as_of.isoformat(),
+        "age_days": age_days,
+        "failed_inputs": failed_inputs,
+        "material_deltas": [item.model_dump(mode="json") for item in document.material_deltas],
+        "sizing_cautions": [item.model_dump(mode="json") for item in document.sizing_cautions],
+        "research_questions": list(document.research_questions),
+        "refresh_triggers": list(document.refresh_triggers),
+        "warnings": warnings,
     }
