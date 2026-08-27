@@ -18,6 +18,8 @@ import { SectionCard } from '../components/SectionCard'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
 import { PortfolioStateBadge } from '../components/PortfolioStateBadge'
+import { CountercaseBlock } from '../components/report/CountercaseBlock'
+import { ReportToneBadge } from '../components/report/ReportToneBadge'
 import { StaleBadge } from '../components/StaleBadge'
 import { TradingViewButton } from '../components/TradingViewButton'
 import { Badge } from '../components/ui/badge'
@@ -25,7 +27,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { EMPTY, formatJstDateTime, formatNumber } from '../lib/format'
 import { LABEL } from '../lib/labels'
-import { buildShortlistComparison, rankDivergence, summarize, type ShortlistComparisonRow } from '../lib/shortlist'
+import { buildShortlistComparison, rankDivergence, shortlistPermanentLossTone, summarize, type ShortlistComparisonRow } from '../lib/shortlist'
 import { cn } from '../lib/utils'
 
 // Research Gate narrative sections in render order. The risk-reward block leads because it decides
@@ -60,14 +62,6 @@ type NarrativeText = {
   rr: string | null
   catalyst: string | null
   macro: string | null
-}
-
-const PLOSS_TONE: Record<string, string> = {
-  低: 'bg-positive-surface text-positive-ink',
-  中低: 'bg-positive-surface text-positive-ink',
-  中: 'bg-warning-surface text-warning-ink',
-  要精査: 'bg-destructive-surface text-destructive-ink',
-  高: 'bg-destructive-surface text-destructive-ink',
 }
 
 function yen(value: number | null, digits = 0) {
@@ -170,7 +164,7 @@ function MachineFacts({ calibration, longlistEntry, row }: {
       <FactRow label="FV convergence"><FvConvergenceBadge entry={longlistEntry} /></FactRow>
       <FactRow label="機械 E[r]"><PctBadge fraction value={row?.er_annual ?? null} /></FactRow>
       <ErLevelContext calibration={calibration} row={row} />
-      <FactRow label="E[r] 分解 (rev / carry)">
+      <FactRow label="E[r] 分解 (reversion / carry)">
         <PctBadge fraction value={row?.er_reversion_annual ?? null} />
         <span className="mx-1 text-muted-foreground">/</span>
         <PctBadge fraction value={row?.er_carry_annual ?? null} />
@@ -250,7 +244,7 @@ function ComparisonTable({ rows }: { rows: readonly ShortlistComparisonRow[] }) 
               <TableHead className="w-20 text-right">機械rank</TableHead>
               <TableHead className="w-20 text-right">乖離</TableHead>
               <TableHead className="w-20 text-right">E[r]</TableHead>
-              <TableHead className="w-28 text-right">rev / carry</TableHead>
+              <TableHead className="w-28 text-right">reversion / carry</TableHead>
               <TableHead className="w-20 text-right">FV乖離</TableHead>
               <TableHead className="w-24">FV収束</TableHead>
               <TableHead className="w-24">信用需給</TableHead>
@@ -284,7 +278,7 @@ function ComparisonTable({ rows }: { rows: readonly ShortlistComparisonRow[] }) 
                 <TableCell>
                   {row.ploss === null
                     ? <span className="text-muted-foreground">{EMPTY}</span>
-                    : <Badge className={cn('font-semibold', PLOSS_TONE[row.ploss] ?? 'bg-warning-surface text-warning-ink')}>{row.ploss}</Badge>}
+                    : <ReportToneBadge tone={shortlistPermanentLossTone(row.ploss)}>{row.ploss}</ReportToneBadge>}
                 </TableCell>
                 <TableCell><PortfolioStateBadge state={row.portfolioState} /></TableCell>
               </TableRow>
@@ -315,7 +309,7 @@ function SelectedCard({ calibration, comparison }: {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {narrative && <Badge className={cn('font-semibold', PLOSS_TONE[narrative.ploss] ?? 'bg-warning-surface text-warning-ink')}>永久損失(暫定): {narrative.ploss}</Badge>}
+          {narrative && <ReportToneBadge tone={shortlistPermanentLossTone(narrative.ploss)}>永久損失(暫定): {narrative.ploss}</ReportToneBadge>}
           <TradingViewButton ticker={entry.ticker} />
         </div>
       </CardHeader>
@@ -326,6 +320,7 @@ function SelectedCard({ calibration, comparison }: {
             ? NARRATIVE_SECTIONS.map(([key, heading]) => {
                 const text = narrative[key]
                 if (text === null || text === '') return null
+                if (key === 'counter') return <CountercaseBlock key={key}>{text}</CountercaseBlock>
                 return (
                   <div key={key}>
                     <h4 className="text-sm font-semibold text-accent-foreground/90">

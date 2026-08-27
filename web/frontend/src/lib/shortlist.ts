@@ -5,6 +5,19 @@ import type {
   ShortlistEntryView,
   ShortlistView,
 } from '../api/types'
+import type { ReportTone } from '../components/report/ReportToneBadge'
+
+const PERMANENT_LOSS_TONES: Readonly<Record<string, ReportTone>> = {
+  低: 'positive',
+  中低: 'positive',
+  中: 'warning',
+  要精査: 'destructive',
+  高: 'destructive',
+}
+
+export function shortlistPermanentLossTone(value: string): ReportTone {
+  return PERMANENT_LOSS_TONES[value] ?? 'warning'
+}
 
 // One selected candidate as the review surface compares it: the human's provisional
 // ordering and risk-reward judgment beside the machine coordinates it must survive.
