@@ -11,7 +11,9 @@ opportunity pathでprimary-research setを調べ終えた後の統合判断。�
 
 application DBの`bargain_assessment`が正本で、Baibai LoopのStocks面がindex → 詳細で読む口になる。
 
-## Artifact boundary
+<a id="artifact-boundary"></a>
+
+## Artifact境界
 
 | artifact | 責務 | canonical / ephemeral |
 | --- | --- | --- |
@@ -26,7 +28,9 @@ application DBの`bargain_assessment`が正本で、Baibai LoopのStocks面がin
 
 調査の全文はthesisとoperation session artifactに残り、assessmentには判断に必要な要点だけを置く。
 
-## Case digest の責務
+<a id="case-digest-の責務"></a>
+
+## Case digestの責務
 
 各caseは深掘りの結論を次の要点へ圧縮する。thesisの複製ではなく、**caseを採否した理由が読み取れる最小限**にする。
 
@@ -64,7 +68,9 @@ v3 new writeの`cases[].machine`はpromoted thesisからの導出値で、scaffo
 
 `purchase`はproposal rowからの導出値で、payload hashと`planned_limit`の指値・数量・notional・上限価格・終値・expiryを照合する。proposalはengineの`plan-limit`が書いたcanonical rowなので、exposure比率やwarning閾値をassessment側で再計算しない。cap抵触は`warnings`として運ばれ、レポートへ表示する。
 
-## Publish の fail-closed 条件
+<a id="publish-の-fail-closed-条件"></a>
+
+## Publishのfail-closed条件
 
 `assessment-publish`は次のいずれかで停止する。
 
@@ -81,7 +87,9 @@ v3 new writeの`cases[].machine`はpromoted thesisからの導出値で、scaffo
 
 `result`と`purchase`の整合はschemaが持つ。`proposal`はselected case 1件と`purchase`と`entry_timing`を必須とし、`no_actionable_bargain` / `defer`はselected caseも`purchase`も持てない。
 
-## 独立 content review
+<a id="独立-content-review"></a>
+
+## 独立content review
 
 `review.draft_sha256`は**review以外の全内容のhash**で、`published_at`を除く。review後に散文や機械値を書き換えるとpublishが落ちるので、reviewした内容とpublishされる内容が乖離しない。
 
@@ -123,7 +131,9 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research assessment-publish \
 
 `no_actionable_bargain` / `defer`では`--proposal-id`を省略する。`--check`は`draft_sha256`と`review_binding`（`match` / `stale`）を印字するので、記入した内容に対する期待hashはここから取る。scaffoldが置く`draft_sha256`は全ゼロの番兵で実hashと衝突しないため、review欄を埋めないままpublishすると必ず落ちる。
 
-## Storage and viewing
+<a id="storage-and-viewing"></a>
+
+## 保存と表示
 
 draftとworkspace上のcomparison / non-promoted thesisは`.cache`配下のephemeral artifactでcommitしない。publish後、canonical homeを持たないnon-promoted caseと調査全文だけをoperation sessionの`artifacts`へsnapshotする。promote済みthesis / reviewと作成済みproposalはIDと1〜3行の結果だけを`canonical_refs`へ置き、payloadを複製しない。
 
