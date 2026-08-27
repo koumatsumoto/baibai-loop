@@ -262,6 +262,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] **その修正が案内する復旧手順を実際に最後まで通したか。** 途中までしか復旧しない手順は、operator を最も高コストな工程へ誘導したうえで最後の関門で落とす（`holding-prepare --force` は `<ws>/<ticker>/` を再生成しないので、`thesis-scaffold --force` まで案内し、残った draft を `status` に出す）
 - [ ] その gate に**分岐（purpose / mode / kind）で無効化される経路**がある場合、分岐先も同じ強さで対象を store に対して証明するか。「この分岐には gate が要らない」は、その分岐を宣言するだけで gate を外せる形で残る（`purpose: holding_review` は Shortlist 束縛を持たない代わりに、対象が canonical ledger の保有であることを各 gate で再照合する）
 - [ ] その gate は**下流で最初に不可逆な資源を使う手前**に置いたか。「最後に必ず止まる」検査があっても、その手前で canonical artifact や資本を約束する artifact が作れるなら遅すぎる（Bargain Assessment の `selected` 検査は proposal より後に来るため、research 開始境界の binding を別に置いた）
+- [ ] generator が入力を読み、出力directoryへ固定名のartifactを書く場合、入力pathが出力directory内へ解決されて自分自身を上書きしないことを、書き込み前のvalidationとnegative testで保証したか
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 - [ ] immutable dataset / release manifestを変更する場合、rootとnested objectの未知field、

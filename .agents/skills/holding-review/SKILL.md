@@ -19,7 +19,7 @@ description: 決算、material event、FV 到達、永久損失兆候、優れ�
      --db stores/application/baibai.sqlite --confirmed
    ```
 
-3. `research holding-prepare` で対象 ticker の workspace を作り、`thesis-scaffold` と `review-scaffold` を実行する。
+3. `research holding-prepare` で対象 ticker の workspace を作る。`thesis-scaffold` を作り、`research evaluate` で review 要求以外の error を解消してから `review-scaffold` を実行する。
 4. 直近 thesis から変わった決算実数、guidance、資本政策だけを一次情報で更新する。thesis の算術、source、独立反証、promote は `research` skill と [`thesis.md`](../../../docs/reference/thesis.md) に従う。guidance の据え置きは観測事実としない。当該四半期の経常利益 ÷ 通期 guidance を、過去3期の同四半期経常利益 ÷ 各期通期実績と比較して検証する。
 5. review draft を build し、load-bearing scalar、thesis revision、ledger state、税引後代替価値を確認する。人間が確認した後だけ publish する。
 

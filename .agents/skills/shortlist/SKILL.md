@@ -9,7 +9,7 @@ description: screening からレビュー済み shortlist を発行し、人間�
 
 ## 前提
 
-1. AGENTS.md に従い opportunity session を開始または再開する。
+1. AGENTS.md に従い opportunity session を開始または再開する。全 kind 共通の active session は `uv run baibai-engine operation show --status active` で確認し、0件のときだけ `uv run baibai-engine operation start --kind opportunity --as-of <ASOF>` を1回実行する。
 2. canonical ledger から holding、reservation、cash を読む。
 3. macro context head が古いか、[深度契約](../../../docs/reference/macro.md#depth-contract)を満たさない場合は、先に `macro-context` skill を実行する。
 4. 永久損失、5年期待値と FV 乖離、portfolio 追加価値、購入可能性の順に比較する。cash、集中、保有は annotation であり、hard 除外条件ではない。
@@ -91,11 +91,6 @@ description: screening からレビュー済み shortlist を発行し、人間�
 
    narrative を書ける entry だけを selected にする。件数の下限はなく、0件も正常である。`er_annual` は publisher が bound run から焼き込むため draft に書かない。発行後、全 entry の E[r] と bound run を照合する。dated follow-up は、既存 task との重複を確認してから task 化する。
 
-## 正本
-
-- valuation annotation: [`valuation-metrics.md`](../../../docs/reference/valuation-metrics.md)
-- screening runtime と field semantics: [`screening-runtime.md`](../../../docs/reference/screening-runtime.md)
-
    selected があれば `shortlist_id` と selected 一覧を人間へ提示し、checkpoint を更新して選択を待つ。人間が選べるのは selected の部分集合で、`research prepare --shortlist-id` がその境界を強制する。rejected 候補への異議は、同じ run で `select` を実行し直して新しい Shortlist を publish する経路で扱う。0件なら canonical shortlist を証拠に `completion_reason: no-shortlist-selection` で session を complete する。cloud 反映は `ops-maintenance` skill の application store 手順に従う。
 
 ## 停止条件
@@ -109,6 +104,7 @@ description: screening からレビュー済み shortlist を発行し、人間�
 ## 正本
 
 - 判断境界と CLI: [`screening-runtime.md`](../../../docs/reference/screening-runtime.md)
+- valuation annotation: [`valuation-metrics.md`](../../../docs/reference/valuation-metrics.md)
 - macro depth: [`macro.md`](../../../docs/reference/macro.md)
 - 資本と ranking: [`portfolio-management.md`](../../../docs/portfolio-management.md)
 - store 同期と batch: [`batch/OPERATIONS.md`](../../../batch/OPERATIONS.md)

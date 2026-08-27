@@ -1304,6 +1304,33 @@ def test_read_only_cli_uses_domain_result(
     assert output["decision_readiness"] == "ready"
 
 
+def test_read_only_cli_evaluates_defer_before_review_scaffold(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    raw = _raw()
+    judgment = raw["judgment"]
+    assert isinstance(judgment, dict)
+    judgment["recommendation"] = "defer"
+    path = tmp_path / "2026-07-03-2331-decision.yaml"
+    path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+
+    assert decision_main([str(path)], now=FIXED_NOW) == 0
+    output = yaml.safe_load(capsys.readouterr().out)
+    assert output["decision_readiness"] == "ready"
+    assert output["errors"] == []
+
+
+def test_read_only_cli_reports_review_requirement_when_buy_review_file_is_absent(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tmp_path / "2026-07-03-2331-decision.yaml"
+    path.write_text(FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+
+    assert decision_main([str(path)], now=FIXED_NOW) == 2
+    output = yaml.safe_load(capsys.readouterr().out)
+    assert output["errors"] == ["buy recommendation requires an independent second-pass review"]
+
+
 def test_independent_review_hash_changes_with_initial_proposal() -> None:
     raw = copy.deepcopy(_raw())
     original = thesis_core_hash(_document(raw))

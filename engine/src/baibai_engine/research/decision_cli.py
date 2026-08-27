@@ -38,7 +38,13 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     try:
         document = load_thesis(args.thesis)
         review_path = _review_path(args.thesis, document.independent_review_ref)
-        review = load_independent_review(review_path) if review_path is not None else None
+        # The thesis scaffold reserves a stable review ref before that file exists.
+        # Thesis evaluation is useful first; promotion still requires the review.
+        review = (
+            load_independent_review(review_path)
+            if review_path is not None and review_path.is_file()
+            else None
+        )
         # A draft file: there is no published record to bind to yet.
         result = evaluate_thesis(document, review=review, now=now, identity=UnpublishedThesis.DRAFT)
         payload = result_to_payload(result)

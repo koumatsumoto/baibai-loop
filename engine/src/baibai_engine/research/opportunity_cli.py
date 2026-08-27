@@ -67,7 +67,12 @@ def build_parser() -> argparse.ArgumentParser:
         "prepare", help="build the opportunity workspace from a selection output and ledger"
     )
     prepare_parser.add_argument("--asof", required=True, help="workspace as-of date (YYYY-MM-DD)")
-    prepare_parser.add_argument("--selection-output", required=True, type=Path)
+    prepare_parser.add_argument(
+        "--selection-output",
+        required=True,
+        type=Path,
+        help="canonical selection output; must be outside --workspace",
+    )
     prepare_parser.add_argument(
         "--shortlist-id",
         required=True,
@@ -114,7 +119,9 @@ def build_parser() -> argparse.ArgumentParser:
     thesis_parser.add_argument("--force", action="store_true")
 
     review_parser = subparsers.add_parser(
-        "review-scaffold", help="scaffold an independent review draft bound to the thesis hash"
+        "review-scaffold",
+        help="bind an independent review draft after the thesis content is stable",
+        description="Bind an independent review draft after the thesis content is stable.",
     )
     review_parser.add_argument("--workspace", required=True, type=Path)
     review_parser.add_argument("--db", type=Path)
@@ -175,7 +182,10 @@ def build_parser() -> argparse.ArgumentParser:
     assessment_publish_parser.add_argument(
         "--check",
         action="store_true",
-        help="verify the contract and the machine-value bindings without writing",
+        help=(
+            "verify contract/machine bindings and print the content-review digest; "
+            "review_binding=stale is expected before review"
+        ),
     )
 
     return parser
