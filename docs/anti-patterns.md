@@ -5,17 +5,25 @@ doc_type: governance
 status: active
 ---
 
-# anti-patterns
+# Anti-patterns
 
-baibai-loop での AI agent 作業で観測された失敗パターン集と、再発防止のためのチェックリスト。
-PR で繰り返し指摘される類型は本ドキュメントに集約し、self-review の strict gate として運用する。
+この文書は、繰り返し観測された失敗をcommit前に止めるためのチェックリストである。変更対象に対応する
+`AP-*`を作業前、commit前、PR前に確認する。macro contextまたはresearchを書く場合も、対応する節を先に読む。
 
-このドキュメントは事後分析のためではなく **作業前 / commit 前 / PR 前のチェックリスト** として
-読まれることを意図する。新規 macro context / research を書く前に必ず該当節を読み返すこと。
+各節は次の順で読む。
 
-## 0. 全 anti-pattern 共通の根本原因
+1. `AP-*`見出し: 防ぐRisk
+2. 「異なる失敗類型の代表例」: 同じRiskが現れた実例。網羅一覧ではない
+3. 「発生理由」: checklistが必要な理由
+4. 「Commit前に止める条件」: 変更に該当する項目をすべて確認する
 
-AI agent 作業で繰り返し観測される失敗の共通根本原因は以下:
+個別fieldの厳密な契約は、各節が示すowner、model、testを正本とする。この文書は契約を再定義せず、
+見落としやすい確認観点を所有する。新しいwrite-time validation ruleを追加するときは、同じfailureを
+次回のreviewで止められるようAP-08も更新する。
+
+## 0. 全anti-patternに共通する発生理由
+
+AI agentの作業で繰り返し観測される失敗には、次の発生理由が共通する。
 
 1. **一次情報を確認せずに二次情報・推測で書く**
 2. **数値を機械的に検算しないまま記述する**
@@ -27,13 +35,12 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 8. **schema validator の抜け道を意識しない**
 9. **量の基準 (資本・株式・実体・期間) を確かめずに組み合わせる**
 
-これらは「**作業を雑に進めた結果**」であり、コミット前に該当 anti-pattern checklist を 1 周
-すれば全件防げた性質のもの。**速く書くことより正しく書くことを優先する**のが本リポジトリの
-基本方針 (詳しくは [`doctrine.md`](./doctrine.md))。
+該当する`AP-*`のchecklistをcommit前に通す。速さより正しさを優先する根拠は
+[`doctrine.md`](./doctrine.md)を正本とする。
 
 ## 1. AP-01: 一次情報を直接確認せず二次情報・推測で書く
 
-### 観測された症状
+### 異なる失敗類型の代表例
 - 122 条関税を「13% 上乗せ」と書いた (Federal Register 一次情報は 10% ad valorem)。 <!-- drift: allow-unrelated-policy-literal -->
   trade-weighted estimate の二次情報を引用元なしに断定した
 - TSMC 「Capex $52-56B レンジ」「先端プロセス 70-80% 配分」「2026 年売上 +30%」を
@@ -47,14 +54,14 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
   ない残差の中身は不明」と書きながら、summary と公開 revision では当局介入を発生済み fact として
   断定し、残差を主機構と断じた (macro context 2026-08-12)
 
-### 根本原因
+### 発生理由
 - 自分の事前知識ベースで「だろう」と書く habit
 - 二次情報・分析記事で見た数字を一次情報の数字と区別せず引用する
 - 一次情報 URL の本文を読まず source ID だけ書く
 - 上流で正直に置いた「未確認」が、要約・統合の過程で落ちる。**引用元を持たない断定は URL 検査に
   かからない**ので、source を確かめる checklist だけでは検出できない
 
-### 再発防止チェックリスト (commit 前必須)
+### Commit前に止める条件
 
 - [ ] **すべての数値・固有名詞 (社名・組織名・地名・政策名) について、引用元 URL を文書内に明示しているか**
 - [ ] その URL を実際に WebFetch / curl で取得し、本文に記載があることを確認したか
@@ -76,18 +83,18 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 
 ## 2. AP-02: 数値計算を機械的に検算しない
 
-### 観測された症状
+### 異なる失敗類型の代表例
 - `adv_participation_pct = 0.005 / 85.4 * 100 = 0.00585%` を **0.585** と記述 (100 倍ズレ)
 - 利確 target を「PER 7.35 → 16 への正常化 = entry 価格 +20-30%」と記述。実際は EPS 一定なら
   +118%、+20-30% を狙うなら PER target は 8.8-9.6
 - 為替変動率を %、bp を混同するリスク
 
-### 根本原因
+### 発生理由
 - 数式を頭の中だけで処理して紙 / 電卓 / Python で再計算しない
 - 「だいたい合ってる」感覚で commit する
 - 単位 (%/bp、円/USD、千 / 百万 / 億) の整合性を check しない
 
-### 再発防止チェックリスト
+### Commit前に止める条件
 
 - [ ] **各数値計算について、Python / 電卓で 1 回検算した結果を文書内のコメントまたは
       `(計算: A / B * 100 = C)` の形で残しているか**
@@ -100,17 +107,17 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 
 ## 3. AP-03: データの「異常さ」に対して原因 cross-check を skip する
 
-### 観測された症状
+### 異なる失敗類型の代表例
 - 6590 芝浦メカトロニクス の `price_change_60d: -0.8129` (-81%) を「過剰売り」と解釈し、
   株式分割 (2026-03-01 効力 1:5) の split artifact 可能性を確認しなかった
 
-### 根本原因
+### 発生理由
 - 株価が極端に動いた (>= ±50%) のに「需給」「業績」「セクター回転」のいずれかで説明できる
   と決めつけ、corporate action (split / 合併 / TOB / 上場区分変更) の可能性を忘れる
 - screening runのprice系列が split 調整しているか、`record_date` ベースか `effective_date`
   ベースかを確認しない
 
-### 再発防止チェックリスト
+### Commit前に止める条件
 
 - [ ] screening run出力の `price_change_60d` / `price_change_20d` が **±50% を超える銘柄**は、
       research に進める前に以下を確認:
@@ -129,19 +136,19 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 
 ## 4. AP-04: schema / 実装の意味を読まずに推測で解釈する
 
-### 観測された症状
+### 異なる失敗類型の代表例
 - screening runのcandidate recordにある `sector_relative_strength_percentile: 1.0` を「同業種内で最も強い銘柄」と
   解釈。実装は `_rank_to_percentiles` で sector level の rank (electronics sector が全 33
   業種中で強い) を返す。個別銘柄の同業種内相対強度ではない
 - screening run / macro context schema の追加プロパティ可否を確認せず `note` / `previous_change`
   を勝手に追加 → validate error
 
-### 根本原因
+### 発生理由
 - field 名から意味を「だろう」で推測する
 - engine model / 実装コードを読み直さない
 - 既存サンプルとの diff を意識しない
 
-### 再発防止チェックリスト
+### Commit前に止める条件
 
 - [ ] screening run / macro context / research の field を新規に解釈・記述する前に、対応する
       engine modelとpublic CLI contractを読み返したか
@@ -153,17 +160,17 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 
 ## 5. AP-05: fact 層と分析層の境界を曖昧にする
 
-### 観測された症状
+### 異なる失敗類型の代表例
 - 機械store（market / macro series / screening run）に「FOMC タカ派ホールドの正当化材料」「需要側
   冷却の early evidence hit」「油価高値圏粘着の構造要因」「122 条効果が顕在化」などの解釈・因果
   推論・意味付け表現を書いた (doctrine.md#fact-analysis-separation で禁止)
 
-### 根本原因
+### 発生理由
 - 事実層（機械store）と分析層（macro context / thesis）の境界を意識せず、便利な要約として書く
 - doctrine.md#fact-analysis-separation の禁止表現リスト (「示唆」「背景」「受けて」「意味する」) を
   読み返さない
 
-### 再発防止チェックリスト
+### Commit前に止める条件
 
 - [ ] L1 / L2の機械store（market / macro series / screening run）に [`doctrine.md#fact-analysis-separation`](./doctrine.md#fact-analysis-separation) の禁止表現（因果推論・予測・意味付け・重要度評価）が 1 件も含まれていないか。禁止語リストは doctrine §6 が正本で、ここへ複写しない
 - [ ] 解釈・因果推論・予測は macro context / research の分析層に移したか
@@ -171,18 +178,18 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 
 ## 6. AP-06: macro material delta と個別判断の境界を曖昧にする
 
-### 観測された症状
+### 異なる失敗類型の代表例
 - future の macro context を判断時点の情報として使った
 - stale / missing macro context を理由に、決定論的なscreeningまたは候補比較を停止した
 - macroのmaterial deltaを銘柄別の事実や機械rankingへ混入した
 - material deltaが個別5年期待値へ影響するのに、thesisの根拠・反証へ接続しなかった
 
-### 根本原因
+### 発生理由
 - macro contextを候補選別用のsector/ranking入力だと誤解する
 - stale warningとfuture errorを区別しない
 - doctrine.md の柱（事実層と分析層の物理分離、macroは判断の補助）を運用で守らない
 
-### 再発防止チェックリスト
+### Commit前に止める条件
 
 - [ ] macro contextを使う場合、`as_of`が判断時点より未来ではないか（futureは停止、古さはwarning）
 - [ ] `inputs`のinput_id、各sectionのseries参照、fact / judgment / economic connection / material deltaのsource_ids、statusを照合したか
@@ -193,18 +200,18 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 
 ## 7. AP-07: 公表日 / 期間 / source の最新性確認を skip する
 
-### 観測された症状
+### 異なる失敗類型の代表例
 - 米 4 月 PCE 公表予定を「5/30 前後」と書いた (BEA schedule で確認した正確な日付は
   2026-05-28 8:30 EDT)
 - macro context 5/4 公開時に OPEC+ 5/3 statement を反映しなかった
 - next_events に source_ids を紐付けず、BLS schedule などの一次情報を素通り
 
-### 根本原因
+### 発生理由
 - 「だいたいの日付」感覚で next_events に書いてしまう
 - 発行直前の重要 release (前日・当日) を「まだ早すぎる」と勝手に判断して skip
 - source metadata と確認対象 release の紐付けを必須運用していない
 
-### 再発防止チェックリスト
+### Commit前に止める条件
 
 - [ ] macro context / research 内の **すべての日付** について、source の publish schedule か
       release date を WebFetch で再確認したか
@@ -218,7 +225,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 
 ## 8. AP-08: schema validator の抜け道を意識しない
 
-### 観測された症状
+### 異なる失敗類型の代表例
 - `adv_participation_pct: 0.585` (100 倍ズレ) を validator が catch しなかった
 - 当初の整合チェックを `avg_turnover_oku` 不在時には silently skip するように実装、
   required field 化を忘れた → 抜け道残存
@@ -228,14 +235,16 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
   「構文エラー」なのか「Python 3.14 の PEP 758 による複数例外捕捉」なのかが混乱した。
   本 repo では可読性とレビュー容易性を優先し、複数例外捕捉は `except (A, B):` に統一する
 
-### 根本原因
+### 発生理由
 - validator を「データが揃っている前提」で実装し、欠損時の挙動を「skip」にする
 - corner case (rejected / deferred / 0 値 / null) のテストを書かない
 - unresolved cohort を aggregate から silent drop し、coverage が完全であるかのように扱う
 - ユーザ指摘で初めて抜け道に気付く
 - runtime / formatter target の違いを確認せず、構文レビューと formatter 挙動を推測で判断する
 
-### 再発防止チェックリスト
+### Commit前に止める条件
+
+#### 共通validator
 
 - [ ] validator rule を追加・修正する場合、その rule の corner case を negative test で必ず塞ぐ。thesis の `incomplete` 条件、snapshot source の identity / 時刻 / unit 拒否、execution policy の quote / max price / cash 判定、independent review の hash 束縛、screening E[r] / FV の estimate 扱いといった個別 field の必須・拒否条件は engine model と各 negative test（`test_thesis.py` / `test_proposal_store.py` / `test_execution_policy.py` / `test_portfolio_ledger.py` 等）が正本で、本節へ網羅転記しない。追加時は最低限次の corner case を test する:
   - [ ] 関連 field が **不在** の場合 (skip / error どちらが正しいか)
@@ -244,7 +253,9 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
   - [ ] model 管理している **nested object** が未知 field を許していないか
   - [ ] **既存 thesis** が新 rule で breakage しないか、する場合は同 commit で fix する
   - [ ] decisionに応じて必須・禁止が切り替わる分類fieldは、必須時の欠落・未定義値・禁止時の混入をすべて拒否するか
-  - [ ] lake Raw lineageはcontent digestだけでなくprovider・dataset・request rangeをmetadataと照合し、対象partitionと交差しないrangeを拒否するか
+
+#### 判断・operation境界
+
 - [ ] 人間確認なしで完了できる operation 分岐は、専用の completion reason と canonical artifact evidence を必須にし、`not applicable` 等を human confirmation field へ書く抜け道、別 session kind での流用、evidence 件数の矛盾を negative test で拒否するか
 - [ ] rebuildable publication を再利用する gate は、外部 summary の schema・terminal state・artifact ID を exact に検証し、run と selection の両方を同一の clean application commit に束縛するか。長い計算は開始時 commit を publication 直前に再照合し、dirty tree・HEAD 変更・片方だけ provenance 欠損を current code 扱いしない negative test があるか
 - [ ] macro context の確率検証は float 等値比較でなく整数化算術で書き、値がある場合の境界（0.00 / 0.95 / 刻み外 / 部分欠落）を negative test で塞ぐ。散文品質を cardinality や token matching で代理判定する gate を足していないか
@@ -265,6 +276,10 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] generator が入力を読み、出力directoryへ固定名のartifactを書く場合、入力pathが出力directory内へ解決されて自分自身を上書きしないことを、書き込み前のvalidationとnegative testで保証したか
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
+
+#### Lake・release・generation
+
+- [ ] lake Raw lineageはcontent digestだけでなくprovider・dataset・request rangeをmetadataと照合し、対象partitionと交差しないrangeを拒否するか
 - [ ] immutable dataset / release manifestを変更する場合、rootとnested objectの未知field、
       required fieldの欠落・null・0/負値、layer別source IDの必須/禁止、重複partition/object key、
       contract versionごとのordered partition layoutと各partitionのexact key集合、object keyの
@@ -360,9 +375,15 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] market lakeのcomplete coverageはtable自身の`MIN..MAX`だけで自己充足させず、profileが固定する
       history boundary・row floor・population floorをrelease時に再検証するか。新鮮な1日1row、
       leading history欠損、大幅なrow/population regressionをcurrent候補にしないnegative testがあるか
+
+#### 横断validator
+
 - [ ] task-list validatorを変更する場合、schema違反のstatus・実在しないcalendar date・重複`task_id`をそれぞれnegative fixtureで拒否し、`task_id`一意性以外のcross-field制約や遷移監査を追加していないか
 - [ ] policy literalのdrift gateを追加・変更する場合、正本の値からpatternを導出し、正本doc/codeを
       除外し、桁prefixと単位違い（円 / 株 / 件）のnegative testを持つか
+
+#### Calibration・screening・market data
+
 - [ ] calibration coverage の対象 row は diagnostics の件数だけでなく row identity も保存し、件数不一致・未知 status・感度計算不能を fail closed にするか。diagnostic-only panel は directory と provenance hash を production から分け、`production_decision` では authority flag 単独でなく variant・入力窓・全 row の quality を固定 tuple として照合する negative test を持つか
 - [ ] `priced_master_without_universe` の対象 return が未解決でも値を推定せず、全対象 row への全損 / resolved 母集団中央値の両側代入で結論方向を判定するか。方向 split、diagnostics 件数と row identity の不一致、candidate partition 不一致、未知 unresolved status をそれぞれ fail closed にする negative test があるか
 - [ ] calibration total return は FY 行なし / `DivAnn: null` / `DivAnn: 0` を区別し、前 2 つを 0 円に補完していないか。同一 FY の訂正を重複加算せず、最新 non-null 訂正が負値・非有限なら古い正常値へ fallback せず拒否するか。DPS と entry price を同じ adjustment-factor basis へ揃える split negative test があるか。total-return 欠損が price-only metric を欠損または改変せず、optional metric を required にした run だけが、status 欠落・非 mapping・未知値を含めて fail closed になるか
@@ -385,7 +406,16 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       lookalike host・query・fragmentを拒否し、抽出値を妥当域で検証し、矛盾する複数候補を
       hard errorにするか。manifest が公表カレンダーに追いつかない状態を無音にせず
       取得側だけを失敗させるか（読み取りは既存rowを返す）
+- [ ] calibration panel の信用需給列は、`margin_short_to_adv` を公表週つき非負値、
+      規模帯内 percentile を `[0,1]` かつ `in_population`・時価総額・元軸つき、
+      realized volatility を有限非負として read 時に検証し、列追加時は cache schema を更新する
+
+#### Workflow trust
+
 - [ ] GitHub Actions のtrust gateは`.yml` / `.yaml`の両方を走査し、dispatch inputの`run:`直接展開とvalidation step外の参照、step env外のsecret context、未承認・tag/branch参照の外部Actionを拒否するか。secretを使うpre-merge acceptanceはrepository ownerが付ける固定label、same-repository PR、event-bound exact head SHA、checkout credential非保持、credential-bearing final stepとworkflow/jobの継承execution contextを一体で固定し、owner判定・head repository・SHA source・credential保持・custom shell・container・runnerを緩めるnegative fixtureを持つか。日付の形式・順序、bracket形式のexpression、inline `uses:`、欠落したrelease commentをnegative fixtureで固定したか
+
+#### Indicator・source
+
 - [ ] indicator の取得値は store 書き込み前に非有限値（NaN / ±inf）を拒否し、1 series の失敗が
       同一 pass の他 series を止めず、失敗を `provider_runs` と非0 exit の両方に残すか
 - [ ] indicator registry の `plausible_min` / `plausible_max` は有限かつ順序が正しく、標準の全系列で
@@ -400,6 +430,9 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       ただし列集合が一致する変更に限る）、同一fact keyの全payload不一致・source/target域外値を
       transaction前後で拒否するか。撤回済みrowは値についての主張ではないのでband検査の対象外か。
       registry generation stateの欠損・改変もcurrent-schema検証で止めるか
+
+#### Store publish・lake integrity
+
 - [ ] 破壊的な運用コマンドは冪等か compare-and-swap で守られているか。2 回流して結果が変わる
       コマンドは、再実行という最も起きやすい操作で正本データを黙って壊す
 - [ ] market storeをcloudからlocalへunionして再発行する場合、cleanな財務range coverageを
@@ -426,6 +459,9 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       merge round-trip で両 store に伝播すること、PIT replay では retraction 前の vintage が
       見え続けることを、それぞれ test で固定したか。**撤回した値から計算済みの derived 系列**が
       残らないこと（入力が消えるので再計算では直らない）も確認したか
+
+#### Macro
+
 - [ ] macro registry の series ID 集合を変更する場合は membership generation digest を追記し、
       stale generation の refresh / merge 拒否と、件数集計から削除までの writer lock を確認するか
 - [ ] macro reading の計算規則は全登録系列で解決が成立し（解決不能なら fail）、実効窓を満たさない
@@ -457,9 +493,9 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       対で持つか
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
       required 化する
-- [ ] calibration panel の信用需給列は、`margin_short_to_adv` を公表週つき非負値、
-      規模帯内 percentile を `[0,1]` かつ `in_population`・時価総額・元軸つき、
-      realized volatility を有限非負として read 時に検証し、列追加時は cache schema を更新する
+
+#### 横断変更
+
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。
       commit 前に `rg -n "except [A-Za-z0-9_.]+, [A-Za-z0-9_.]+" src tests` が 0 件であることを確認する
 - [ ] **CLI subcommand / selection 機能を削減する場合、以下を同 commit で揃える**:
@@ -490,7 +526,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 
 ## 9. AP-09: 外部AI・broker事実・canonical stateを無検証で取り込む
 
-### 観測された症状
+### 異なる失敗類型の代表例
 - research 対象銘柄なのに、会社IRを読まず、screening 数値や外部分析だけで採用 / 見送り判断を書く
 - 別AIの分析にある EPS 前提、OpenAI 連携日、AI 関連売上、同業倍率、休場日などを、
   会社IR・取引所・screening run出力で再確認せず research / trade に取り込む
@@ -499,14 +535,14 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
   system output を、override log なしに外部分析で上書きする
 - 祝日中の成行注文を約定済み entry として記録し、entry price を推定で埋める
 
-### 根本原因
+### 発生理由
 - 外部 AI の整った文章を監査済み資料のように扱う
 - research 対象は全銘柄で会社IR確認が必須、という前提が弱い
 - source URL が貼られていても、一次情報か二次情報か、本文中に数値が存在するかを確認しない
 - system output を上書きする行為を一級の decision として記録していない
 - 人間報告、proposal、ledger eventの境界を曖昧にし、未報告broker状態を推定する
 
-### 再発防止チェックリスト
+### Commit前に止める条件
 
 - [ ] research 対象銘柄について、業種を問わず会社IRを確認したか。最低限、直近決算短信 /
       決算説明資料 / Q&A / 有価証券報告書または統合報告書 / 中期経営計画 / 株主還元関連開示を
@@ -537,7 +573,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 
 ## 10. AP-10: hot path の YAML 読み込みを pure-Python loader で書く
 
-### 観測された症状
+### 異なる失敗類型の代表例
 
 - ある CLI の wall time が 17 秒。cProfile を取るまで「ロジックが遅い」と
   思い込み、YAML パースが 93% を占めていることに気付かなかった
@@ -545,14 +581,14 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
   5 倍速くなる事実を見落とした
 - YAML loaderの高速化が個別moduleに閉じ、他のYAML readerがpure-Python loaderへ戻った
 
-### 根本原因
+### 発生理由
 
 - `yaml.safe_load` は安全だが、デフォルトで pure-Python loader を使う。`yaml.CSafeLoader` の
   存在を明示しなければ libyaml の C 実装は呼ばれない
 - hot path の判定を勘で行い、cProfile を取らずに「ロジックの 1 pass 化」「並列化」など
   micro-optimization を先に検討してしまう
 
-### 再発防止チェックリスト
+### Commit前に止める条件
 
 - [ ] **YAML 読み込みは必ず `from baibai_engine.foundation.yaml_io import safe_load` 経由**で書く。
       `yaml.safe_load(...)` / `yaml.load(...)` を直接呼ぶ src コードは書かない
@@ -571,7 +607,7 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
 
 ## 11. AP-11: 外部データの公表ラグを設計に含めないハード必須検査
 
-### 観測された症状
+### 異なる失敗類型の代表例
 
 - multpl の月次履歴表で「当月 1 日」の行を無条件に必須とし、multpl が当月行を月の途中で追加する
   ため、毎月 1〜14 日ごろの daily batch が `us.sp500_cape` / `us.sp500_earnings_yield` /
@@ -582,7 +618,7 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
 - どちらも取得経路そのものは正常で、壊れているのは「その期の行が在るはず」という前提だけ。
   失敗は月初・週初・公表日前へ周期的に集中する
 
-### 根本原因
+### 発生理由
 
 - **完全性検査と鮮度検査の混同**。完全性 (履歴に穴が無いこと) は公表済みの過去期に対してだけ
   確定でき、最新期が在るかどうかは公表スケジュールの関数である。両者を 1 つの必須検査へ畳むと、
@@ -593,7 +629,7 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
   素通りする
 - 周期的な失敗は恒常赤として定着し、「赤 = 見に行く」を壊して本物の障害を埋もれさせる
 
-### 再発防止チェックリスト
+### Commit前に止める条件
 
 - [ ] 定期公表 series の必須範囲を「公表済みであることが保証できる期」までに閉じているか。
       当該期は次のどちらかで扱う:
@@ -614,7 +650,7 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
 
 ## 12. AP-12: 量の基準を確かめずに組み合わせる
 
-### 観測された症状
+### 異なる失敗類型の代表例
 
 - 年間 DPS を分割 factor 1 つで asof 基準へ換算した。DPS は支払ごとの基準日の株式基準で
   書かれるため、会計期間が分割を跨いだ年度は 1 つの係数で換算できず、利回りが 86.6% になった
@@ -649,7 +685,7 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
 - 実質賃金指数の deflator (持家の帰属家賃を除く総合) と `jp.cpi.core_yoy` を同じ量として結び、
   両者の関係を会計恒等として書いた。**0.5pt の許容幅を置いたこと自体が恒等でないことを示していた**
 
-### 根本原因
+### 発生理由
 
 - 量が持つ基準 (**資本基準 / 株式基準 / 実体 / 期間 / 観測の齢**) が field 名にも型にも現れず、
   組み合わせる場所で誰も一致を確かめない
@@ -665,7 +701,7 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
 - source alias の値型だけを合わせ、期末 gross issued と期中平均 ex-treasury の会計概念を
   同じ field へ入れる
 
-### 再発防止チェックリスト
+### Commit前に止める条件
 
 - [ ] 2 つの量を比・差・積にする前に、両方の **資本基準・株式基準・実体・期間** を書き出したか
 - [ ] **per-share 値の和・差を作っていないか。** 合成は円で行い、1 株当たりへの換算は最後に
@@ -715,7 +751,7 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
 
 ## 13. AP-13: 変動が構造的に存在しない値を、変動する値として読む
 
-### 観測された症状
+### 異なる失敗類型の代表例
 
 - `adjustment_factor_coverage` は store の 10,132,436 本すべてで `complete`。総リターンと公開買付け
   価格を守る 2 か所の判定と authority gate がこの値を読むが、**拒否側が一度も観測されていない**ため、
@@ -731,7 +767,7 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
 - corporate-action eventをprice barの一種として読み、`close = NULL`の56 eventを構造的に
   消していた。factorは存在するのに価格が無いという正規の状態がreaderの出力型に無かった
 
-### 根本原因
+### 発生理由
 
 - **型は通り、値は有限で、テストは緑のまま。** どれも例外を出さず、欠損にもならない。コードを読んでも
   「変動しうる値を正しく扱っている」ようにしか見えない
@@ -740,7 +776,7 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
 - 通過側だけが観測される検査は、通過を確認しても働くことを確認したことにならない
 - source の形は世代で動く。field が消えても、fail-open した判定は静かに答えを返し続ける
 
-### 再発防止チェックリスト
+### Commit前に止める条件
 
 - [ ] その値は**実際に 2 通り以上の値を取ったことがあるか。** 全期間の store で `COUNT(DISTINCT)` を
       取る。1 なら、契約検査なのか、届かない分岐なのかを判別してから残すか消すかを決める
@@ -763,7 +799,7 @@ panel 70 列・forward 16 列と、local SQLite 4 store の全 table を 1 回�
 
 ## 14. AP-14: 実装が追い越した記述を、追い越された日に直さない
 
-### 観測された症状
+### 異なる失敗類型の代表例
 
 - `architecture.md` が lineage の retained kind として `l1_release` を挙げた直後に「L1 release は
   この union に入れない。closure resolver が揃うまで kind を戻さない」と書いていた。resolver は
@@ -778,7 +814,7 @@ panel 70 列・forward 16 列と、local SQLite 4 store の全 table を 1 回�
   digest は動いていて、記録は期限切れだった
 - 較正 store の全再構築の所要が reference・skill・実測で 3 通りに分かれていた
 
-### 根本原因
+### 発生理由
 
 - **「将来こうなる」は書いた時点で正しいので、review で誤りとして見えない。**誤りになるのは後日で、
   そのとき誰もその段落を読み返さない
@@ -787,7 +823,7 @@ panel 70 列・forward 16 列と、local SQLite 4 store の全 table を 1 回�
 - 数値は「いつ信じてはいけないか」を併記しないと、古くなったことが誰にも観測できない
 - 同じ事実が 2 か所以上にあると、片方だけが直る。正本を決めていないと、どちらが古いか判らない
 
-### 再発防止チェックリスト
+### Commit前に止める条件
 
 - [ ] 実装の前提・境界・数値を変えたら、その契約を述べている file を**主張の語**で `rg` する。
       触った file の中も端から端まで見る（同じ file の中に古い値が残るのが最頻）
@@ -807,10 +843,26 @@ doc の主張を一般に機械照合することはできない。機械化で�
 gate を置くと、`models.py` のような日常的に触る file を変更するたびに数分の再計測を要求することに
 なり、発生頻度に対して釣り合わない。ここは検査でなくチェックリストで持つ。
 
-## 15. 関連ドキュメント
+## 15. 正本・test・reference
 
-- 思想・基本方針: [`doctrine.md`](./doctrine.md)
-- 事実 / 分析の分離: [`doctrine.md#fact-analysis-separation`](./doctrine.md#fact-analysis-separation)
-- macro context 仕様: [`reference/macro.md`](./reference/macro.md)
-- research 採用判定: [`reference/thesis.md`](./reference/thesis.md) と skill `research`
-- AI agent 規約 (本ドキュメントの参照経路): [`../AGENTS.md`](../AGENTS.md)
+各`AP-*`は確認観点だけを所有する。次の表は、厳密な契約へ到達するための代表的な入口である。
+値、field、処理、停止挙動は、リンク先が示すdomain modelと実装testを正本とする。
+
+| Anti-pattern | Owner / reference | 主な機械確認 |
+| --- | --- | --- |
+| AP-01 | [`reference/judgment-writing.md`](./reference/judgment-writing.md)、[`reference/data-sources.md`](./reference/data-sources.md) | source検証とartifact validator |
+| AP-02 | [`reference/thesis.md`](./reference/thesis.md)、[`portfolio-management.md`](./portfolio-management.md) | model testと数式の再計算 |
+| AP-03 | [`reference/valuation-metrics.md`](./reference/valuation-metrics.md)、[`reference/estimate-calibration.md`](./reference/estimate-calibration.md)、[`reference/portfolio-ledger.md`](./reference/portfolio-ledger.md) | adjustment・return・outcomeのcontract test |
+| AP-04 | [`architecture.md`](./architecture.md)と各domain model | model・CLI contract test |
+| AP-05 | [`doctrine.md#fact-analysis-separation`](./doctrine.md#fact-analysis-separation) | machine storeのschemaとvalidator |
+| AP-06 | [`reference/macro.md`](./reference/macro.md) | macro contextのmodel・source test |
+| AP-07 | [`reference/data-sources.md`](./reference/data-sources.md) | schedule・freshness test |
+| AP-08 | 各domain modelと対応するnegative test | [`tools/quality/drift/`](../tools/quality/drift/)とdomain test |
+| AP-09 | [`reference/thesis.md`](./reference/thesis.md)、[`reference/portfolio-ledger.md`](./reference/portfolio-ledger.md) | research・proposal・ledger contract test |
+| AP-10 | `baibai_engine.foundation.yaml_io` | import checkとprofile実測 |
+| AP-11 | [`reference/data-sources.md`](./reference/data-sources.md) | 公表前・公表後の境界test |
+| AP-12 | [`portfolio-management.md`](./portfolio-management.md)、[`reference/thesis.md`](./reference/thesis.md)、[`reference/valuation-metrics.md`](./reference/valuation-metrics.md)、[`reference/macro.md`](./reference/macro.md) | unit・basis・cross-field test |
+| AP-13 | 各sourceのregistryとreader contract | 時系列変化とsource更新のtest |
+| AP-14 | [`README.md#document-writing-contract`](./README.md#document-writing-contract) | link・CLI・reference・literal drift gate |
+
+AI agentの作業規約と本checklistへの参照経路は[`../AGENTS.md`](../AGENTS.md)が所有する。
