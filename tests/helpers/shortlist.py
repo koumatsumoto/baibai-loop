@@ -19,20 +19,20 @@ def narrative(**overrides: Any) -> dict[str, Any]:
 
     payload: dict[str, Any] = {
         "ploss": "中低",
-        "why": "一時的な受注端境で売られている",
-        "temporary": "翌期の受注残は積み上がっている",
-        "structural": "構造的な需要毀損の証拠はない",
-        "survive": "net cashで5年の下振れに耐えられる",
-        "unlock": "自己株買いと増配で還元余地がある",
-        "upside": "受注が平年並みに戻れば正常利益ベースでPER12倍相当まで",
-        "downside": "受注が半減しても営業黒字を保ち、簿価純資産が下値を支える",
-        "rr": "下値が資産で支えられる一方、正常化の上値が倍近い",
-        "catalyst": "2Q決算で受注残の回復が確認できるか",
-        "macro": "connectionのsizing cautionに該当なし",
+        "why": "受注端境による一時的な減益を市場が恒常化と見ている可能性がある",
+        "temporary": "翌期受注残の積み上がりは端境解消の仮説を支持する",
+        "structural": "顧客集中が続く範囲では需要鈍化が構造要因である可能性も残る",
+        "survive": "営業黒字と現預金余力は5年の調整期間を支えるが、受注半減時の資金流出は未確認",
+        "unlock": "受注回復が粗利改善とcash flowへ波及すれば価値実現へつながる",
+        "upside": "受注が平年並みに戻る場合の正常利益にPER12倍を置いた水準を暫定上値とする",
+        "downside": "受注半減時の営業利益とcash flowから暫定下値を検証し、簿価を株価の床とはしない",
+        "rr": "暫定上値と受注半減時の下値の比較では正の非対称があるが、下値のcash flow根拠は一次研究で確認する",
+        "catalyst": "2Q決算の受注残と粗利率で判断を更新する",
+        "macro": "金利上昇は借入負担を増やす方向に効くため、下値の資金流出検証へ反映する",
         "counter": "受注が構造的に鈍化している可能性",
-        "research": "受注残と粗利率の推移を一次IRで確認",
-        "value": "FV乖離が大きく深掘り価値が高い",
-        "prov": "深掘り最優先",
+        "research": "決算短信と説明資料で受注残・粗利率を確認し、回復が無ければ一時要因仮説を棄却する",
+        "value": "現金保有より優れるかを一時要因と構造要因の識別で判定でき、他候補より一次リサーチ枠の追加価値がある",
+        "prov": "一次リサーチへ進めるが、受注回復が粗利へ波及するかは未解決",
     }
     payload.update(overrides)
     return payload
@@ -45,7 +45,7 @@ def selected_entry(ticker: str = "2331", *, rank: int = 1, **overrides: Any) -> 
         "ticker": ticker,
         "decision": "selected",
         "rank": rank,
-        "reason": "一次IRへ進める",
+        "reason": "一次リサーチへ進める：受注端境と構造鈍化を一次開示で識別できる",
         "narrative": narrative(),
     }
     entry.update(overrides)
@@ -55,7 +55,7 @@ def selected_entry(ticker: str = "2331", *, rank: int = 1, **overrides: Any) -> 
 def rejected_entry(
     ticker: str,
     *,
-    reason: str = "根拠が弱い",
+    reason: str = "見送る：暫定上値が現値を上回らず、一次リサーチで識別する仮説がない",
     reject_class: str = "other",
     **overrides: Any,
 ) -> dict[str, Any]:

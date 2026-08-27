@@ -356,7 +356,7 @@ def test_scaffold_carries_the_permanent_loss_verdict_and_the_shortlist_question(
     assert case["machine"]["permanent_loss_conclusion"] in {"acceptable", "elevated", "unknown"}
     assert case["research_questions"] == [
         {
-            "question": "受注残と粗利率の推移を一次IRで確認",
+            "question": "決算短信と説明資料で受注残・粗利率を確認し、回復が無ければ一時要因仮説を棄却する",
             "answer": "TODO",
             "status": "unresolved",
         }

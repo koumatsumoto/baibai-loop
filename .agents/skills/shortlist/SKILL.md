@@ -61,7 +61,25 @@ description: screening からレビュー済み shortlist を発行し、人間�
 
 4. **候補をレビューする**
 
-   selected 候補の material disclosure を一次情報で確認し、Research Gate narrative の `why`、`counter`、`what_changes_mind` を書く。active contract IDは`research-gate-v1`。次の annotation を必ず判断へ反映する。
+   [`screening-runtime.md#shortlist-writing`](../../../docs/reference/screening-runtime.md#shortlist-writing) と [`judgment-writing.md`](../../../docs/reference/judgment-writing.md) に従い、次の4段階を順に行う。active contract IDは`research-gate-v1`。
+
+   1. **判断内容を確定する**
+
+      selected 候補の material disclosure を一次情報で確認し、Gate 判断、根拠、競合する仮説、判断変更条件を確定する。selected は「一次リサーチ枠を使う価値がある」を意味し、購入すべきという判断ではない。
+
+   2. **fieldの役割を確認する**
+
+      `reason` / `prov`、`temporary` / `structural`、`unlock` / `catalyst`、`counter` / `research` の境界を確認する。Shortlist を mini Thesis にせず、Review Set 内の比較に必要な深さへ留める。
+
+   3. **日本語を編集する**
+
+      確定した判断内容を、各 field が単独で読める日本語へ編集する。この段階で新しい source、因果、見積り、採否判断を追加しない。新しい分析が必要になったら第1段階へ戻る。
+
+   4. **判断内容を再検証する**
+
+      編集前後で selected / rejected、rank、機械 E[r] / FV、数値・期間・qualifier、unknown、競合仮説が変わっていないことを claim ledger で確認する。field間の重複と、見出しが本文より強くなっていないことも確認する。claim ledger は作業用とし、恒久 artifact や validator にしない。
+
+   次の annotation を必ず判断へ反映する。
 
    - FV convergence、full-year loss、stale financials、data-quality / durability warning は、見積りをどの方向へ歪めるかを書く。
    - margin、capital-control、大量保有、TOB、buyback filing は観測の文脈であり、単独で除外や rank 変更に使わない。`null` / `unknown` を否定事実へ変換しない。

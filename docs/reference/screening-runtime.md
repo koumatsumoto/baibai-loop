@@ -295,6 +295,42 @@ EDINET code から ticker への解決は、同じ document list 履歴が観測
 
 ranking を変えるのは versioned screening rules と estimate component だけである。held / reserved・月次予算・cash・集中・macro material delta / staleness は annotation / warning であり、rank・候補抽出を変えない。corporate action が unresolved の候補は rank を都合よく変えず、research / plan-limit を block する。candidate に AI 解釈・因果・採用結論を書かない（observed / derived / estimate の区分を維持する）。
 
+<a id="shortlist-writing"></a>
+
+### Shortlist の文章契約
+
+価値tier: T1 — Research Gate の比較単位を揃え、一次リサーチ枠を誤って配分する確率を下げる。
+
+Shortlist は買い推奨や mini Thesis ではなく、Review Set の各候補に一次リサーチ枠を使うかを決める判断文書である。日本語の共通規則は [`judgment-writing.md`](./judgment-writing.md) に従い、ここでは Shortlist 固有の役割だけを定める。E[r] と FV anchor の定義は [`valuation-metrics.md`](./valuation-metrics.md)、資本配分との関係は [`portfolio-management.md`](../portfolio-management.md) を正本とする。
+
+1. `reason` の冒頭で selected / rejected の Gate 判断を示し、その後に主な根拠を書く。selected は「一次リサーチ枠を使う価値がある」であり、「購入すべき」ではない。
+2. E[r]、FV anchor、価格、機械順位は見積りを含む機械座標として示し、人間の採否・順位・因果判断と分ける。
+3. `why` の誤価格仮説と `temporary` / `structural` の説明仮説を分ける。temporary と structural は排他的ではなく、両方が部分的に成立するなら各仮説が説明する範囲を書く。
+4. `upside`、`downside`、`rr`、`ploss` を分ける。上値と下値は水準・前提・根拠、rr は両者の非対称、ploss は事業・財務・valuation を通じた永久損失の暫定評価を担う。net cash や簿価純資産だけを株価の床と断定しない。
+5. `unlock`、`catalyst`、`counter`、`research` を分ける。Shortlist の `counter` は最も強い反対仮説であり、Macro Context の `counter_evidence`（反証材料）ではない。
+6. `value` は限られた一次リサーチ枠を使う追加価値、`macro` は該当する Macro Context が判断のどこへ効くか、rejected の `reason` は非選択を決めた候補固有の理由を書く。「該当なし」「深掘り価値が高い」「根拠が弱い」だけで判断を終えない。
+
+各 field の役割は次のとおり。field 名や schema key は変更せず、同じ内容を別 field へ複写しない。
+
+| field | 役割 |
+| --- | --- |
+| `reason` | 一覧・カードだけで読める一文の Gate 判断と主因 |
+| `ploss` | 永久損失の暫定的な確度区分 |
+| `why` | 現値に誤価格が生じている可能性を説明する仮説 |
+| `temporary` | 一時要因が説明できる現象・期間と、その仮説の根拠 |
+| `structural` | 構造要因が説明できる現象・期間と、その仮説の根拠 |
+| `survive` | 事業・財務が悪化シナリオを5年間耐える根拠と限界 |
+| `unlock` | 価値が実現する仕組み。誰の何が収益・cash flow・還元へ伝わるか |
+| `upside` | 暫定上値の水準、成立前提、anchor の出どころ |
+| `downside` | 悪化時の暫定下値、その前提と根拠。永久損失評価そのものではない |
+| `rr` | 上値と下値の比較から一次リサーチに値する非対称があるか |
+| `catalyst` | 判断を更新する観測条件または event。価値実現の仕組みではない |
+| `macro` | Macro Context の該当 connection が上値・下値・耐性・着手順のどこへ、どちら向きに効くか。非該当ならその根拠 |
+| `counter` | selected 判断と競合する最も強い反対仮説 |
+| `research` | 競合仮説を識別する質問、確認する一次 source、結果が判断を変える条件 |
+| `value` | 他候補や現金と比べて一次リサーチ枠を使う追加価値 |
+| `prov` | 全 field を読んだ後の暫定結論、未解決点、次段階へ進む理由。`reason` を言い換えない |
+
 ### 供給×機会幅の read-only scorecard
 
 `python -m tools.experiments.measure_supply_context --selection-id <ID>` は、shortlist の判断時に
