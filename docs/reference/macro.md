@@ -64,7 +64,7 @@ uv run baibai-batch validate-macro-stores \
 | `estat` | API（`ESTAT_APP_ID`） | JP 公式マクロ（CPI 総合・サービス、鉱工業生産、機械受注、景気ウォッチャー、消費者態度指数 等） | JP CPI の一次ソース。`statsDataId` と分類 code は e-Stat で確認。**e-Stat の DB 掲載は統計ごとに止まる**（毎月勤労統計は 2021-10 以降更新なし。月次結果は release 毎のファイル資源だけになる）ので、新規系列は `getStatsList` の `UPDATED_DATE` が現在かを先に確認する |
 | `estat_dashboard` | 無認証 JSON API | JP 公式マクロのうち e-Stat DB が持たない系列（完全失業率 季節調整値・名目賃金指数） | 統計ダッシュボード（総務省統計局）の `getData`。1 IndicatorCode が月次/四半期/年 × 原数値/季節調整値を同時に返すため、**`source_url` に `IndicatorCode` と `Cycle=1` / `IsSeasonalAdjustment` / `RegionCode` を書いて 1 本に固定する**（observation に残る provenance が上流系列を名指すので、selector を直せば旧系列の観測が source 違いとして掃除される）。provider は全行の `@indicator` / `@cycle` / `@isSeasonal` / `@regionCode` と宣言 total 行数を照合し、filter が効かなかった応答を混入させない。`@isProvisional` が速報の行は要求した系列そのものなので照合の対象外とし、その月を書かずに skip して series と月を警告に出す。確報が出た日の refresh がその月を埋める（reading rules の `publication_lag_days` は確報基準なので、速報しか無い期間はそもそも公表待ちで stale にならない）。読むのは月次のみで、要求窓に関わらず公表全履歴を取る（指数の基準改定が窓の境目で継ぎ足しにならないため） |
 | `jquants_flows` | 認証（`JQUANTS_API_KEY`） | JP 市場内部（海外投資家フロー） | screening と同じ Light credential。`--all-history` は運用日から5年の契約窓を要求する。JPX/J-Quants の公表単位（千円）を `jpy-thousand` として保持し、集計週末を observation、公表日を vintage として同一公表日の複数週を保持する |
-| `jquants_options` | 認証（`JQUANTS_API_KEY`） | 日経225オプションの恐怖観測（30日IV・スキュー・期間構造） | **他の provider と違い 1 営業日 = 1 呼び出し**で、`--all-history`（10 年）は約 2,600 回の逐次取得になる。1 日 1 万行のチェーンは保存せず取得時に 3 系列へ集計する。429 は client 内部の再試行が尽きたあと `RetryError`（status を持たない）で来るので、型で待避対象を判定する。待避は **1 process あたり** 20 分を上限とし、超えたら待たずに失敗する——1 pass は 3 系列 × service の 2 回再試行 = 6 fetch なので、fetch ごとに配ると上限が 6 倍になり、日次 batch の job timeout を超えて screening の publish ごと失われる。取得は全日を集めてから 1 回書くので、途中の非再試行失敗はそこまでの取得ごと失う——長い窓は年単位に切って回す。**集計式は最初の push までに固める**：新しい式が値を出さない日（実測で 17%）には古い式の観測が残り、`--all-history` でも上書きされないので同じ系列に 2 つの定義が混ざる。cloud へ渡る前ならローカルで行を消して入れ直せばよいが、渡ったあとは merge の no-loss 契約が消した行を戻すので消せない。そのあとで式を変えるなら、registry から 3 系列を外して generation を上げ、日次バッチが cloud 側を prune するのを待ってから入れ直す——日単位の `retract` は数百日になり手段にならない。`iv_30d` と `iv_skew` は SQ 直後に構造的に数日欠ける（実測最大 19 暦日）ので reading rules に staleness override を持つ。**購読窓は運用日から 10 年 rolling で、窓外は HTTP 400**（実測: 2026-08-01 時点で 2016-08-01 は 2,180 行、2016-07-29 は 400）。`--all-history` の始点はこの窓の縁にちょうど乗るので、全期間の入れ直しは `--start` を数日内側に置いて年単位で回す。**緊急取引証拠金が発動した日はチェーンが 2 部返る**（実測: 2016-08-02 は 4,380 行 = 1 契約 2 行、発動時の部は前営業日の原資産と平坦な IV を持つ）。`EmMrgnTrgDiv` が清算値算出時の部を名指すので、読むのはその部だけで、この field を持たない行は読まない |
+| `jquants_options` | 認証（`JQUANTS_API_KEY`） | 日経225オプションの恐怖観測（30日IV・スキュー・期間構造） | 1営業日ごとに取得して3系列へ集計する。rate limit、式変更、購読窓、緊急取引証拠金日の契約は[専用手順](#jquants-options-provider)に従う |
 | `boj` | 無認証 xlsx | BOJ 長期時系列（マネタリーベース・実質輸出・消費活動指数） | 第1 sheetを openpyxl で読み、registry の `provider_series_id` が宣言する値列・英語header・metadata列・基準年または単位metadataを照合する |
 | `boj_timeseries` | 無認証 JSON API | BOJ 無担保コール O/N 平均 | `FM01:STRDCLUCON` の日次値を一括取得する。公表タイミングは BOJ 時系列統計データ検索の更新日に従う |
 | `mof_jgb` | 無認証 CSV | JP 国債金利（主要年限） | `jgbcm_all.csv` と当月 `jgbcm.csv` を CP932 で読み、和暦の基準日を ISO date に正規化する |
@@ -74,9 +74,41 @@ uv run baibai-batch validate-macro-stores \
 | `yahoo` | 無認証 JSON | 金/銀/銅先物・MOVE・Russell2000・SOX 等 | **ブラウザ UA 必須**（default は 429）。`provider_series_id` は Yahoo シンボル |
 | `multpl` | 無認証 HTML | S&P500 バリュエーション（CAPE・GAAP PER・益回り） | current page と public monthly table を機械的に parse する。取得・鮮度の契約は daily を保ち、reading rules の `sampling_cadence: monthly` で統計標本だけを月次化する。HTML 構造変更で壊れるため `--latest` と `--all-history` を live 確認 |
 
+<a id="jquants-options-provider"></a>
+
+### `jquants_options`の取得と復旧
+
+#### 取得とrate limit
+
+`jquants_options`は1営業日につき1回呼び出すため、10年の`--all-history`は約2,600回の逐次取得になる。1日最大約1万行のchainは保存せず、取得時に3系列へ集計する。
+
+HTTP 429はclient内部の再試行が尽きた後、statusを持たない`RetryError`として返る。待避対象は例外の型で判定し、待機は1 processあたり20分を上限とする。1 passは3系列に対するserviceの2回再試行で最大6 fetchになる。fetchごとに20分を与えてはならない。上限が6倍になり、日次batchのjob timeoutによってscreening publishまで失うためである。
+
+全営業日の取得後に1回だけstoreへ書く。途中で再試行しない失敗が起きた場合は、そのpassの取得結果をすべて破棄する。長い窓は年単位に分けて取得する。
+
+#### 集計式の変更
+
+集計式は最初のcloud push前に確定する。新しい式が値を出さない日には古い式の観測が残り、`--all-history`でも上書きされないため、同じ系列へ2つの定義が混ざり得る。
+
+cloudへ渡す前なら、localの対象行を削除して全期間を入れ直せる。cloudへ渡した後は、mergeのno-loss契約がlocalで削除した行を戻すため、この方法を使えない。式を変える場合は次の順序を守る。
+
+1. registryから3系列を外し、generationを上げる。
+2. 日次batchがcloud側の旧系列をpruneするまで待つ。
+3. 新しい定義で3系列をregistryへ戻し、入れ直す。
+
+日単位の`retract`は数百日の操作になるため、この移行には使わない。`iv_30d`と`iv_skew`はSQ直後に構造的に数日欠けるので、reading rulesにstaleness overrideを持つ。
+
+欠測率、最長空白、緊急取引証拠金日の2部返しを測定した履歴は[option IV quantiles study](../../reports/studies/2026-07-31-option-iv-quantiles/report.md)に残す。active contractの閾値はstudyで固定せず、reading rulesを正本とする。
+
+#### 購読窓と緊急取引証拠金日
+
+購読窓は運用日から10年rollingで、窓外の要求はHTTP 400になる。`--all-history`の始点は窓の境界に置かず、数日内側から年単位で取得する。
+
+緊急取引証拠金が発動した日はchainが2部返る。発動時の部は前営業日の原資産と平坦なIVを持つため、`EmMrgnTrgDiv`が名指す清算値算出時の部だけを読む。このfieldを持たない行は読まない。
+
 新ソース追加＝provider モジュールを 1 つ足して（`providers/` に 1 ファイル）`providers/registry.py` に 1 行登録し、series を registry（`indicators/registry/` の region 別 yaml）へ 1 entry 加える。provider の取得能力（all-history 起点・store 書き換え方針・refresh 可否・point-in-time vintage・必要 env）は各 provider の `ProviderSpec` が宣言し、service / store reader は provider 名で分岐しない。point-in-time replay を提供する provider の spec は fetch 実装を import しない read-safe module に置き、provider 実装と reader が同じ spec を参照する。registered provider との drift は test で検出する。1 series_id = 1 provider を厳守する。provider 取得は一時的な `IndicatorsProviderError` を 1 回 retry し、再失敗した場合は `provider_runs` に failed として記録する。
 
-`macro refresh` は複数 series を 1 pass で取得し、1 series の失敗は他 series を止めない。失敗した series は最後にまとめて stderr へ列挙し、exit code は非 0 になる（1 つの壊れたソースが同一グループの残り全系列を stale にしない）。1 pass は 1 つの fetch context を共有するので、複数 series が同じ bulk ファイルを参照しても download は 1 回、browser fallback を要する provider の起動も 1 回で済む。取得値は store へ入る前に有限値であることを検証し、NaN / ±inf は取得失敗として扱う（派生計算・percentile・export を汚染させない）。
+`macro refresh` は複数 series を 1 pass で取得し、1 series の失敗は他 series を止めない。失敗した series は最後にまとめて stderr へ列挙し、exit code は非 0 になる（1 つの壊れたソースが同一グループの残り全系列を stale にしない）。1 pass は 1 つの fetch context を共有するので、複数 series が同じ bulk ファイルを参照しても download は 1 回、browser fallback を要する provider の起動も 1 回で済む。取得値は store へ入る前に有限値であることを検証し、NaN / ±inf は取得失敗として扱う（派生計算・percentile・export を汚染させない）。`provider_runs`は取得の成否と`record_count`を記録する。
 
 PMI は data API が無いため、月次 release URL の manifest（`engine/src/baibai_engine/macro/indicators/providers/pmi_release_urls.yaml`、`schema_version: 2`、PMI stream ごとに `observed_at` → 公式 release URL）を正本とし、`spglobal_pmi` provider が各 URL の公式 PDF を live 取得して headline 値を抽出する。release URL の validator は `https://www.pmi.spglobal.com/Public/Home/PressRelease/<32 hex>` だけを許可する。
 
