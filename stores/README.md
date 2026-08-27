@@ -1,66 +1,25 @@
 # Runtime stores
 
-## Purpose
+実行時の永続stateを、authorityと再構築可否が分かるpathへ置きます。SQLite本体とlake objectはGit管理しません。
 
-実行時の永続 state を authority と rebuildability が見える責務別 path に置く。実データは Git 管理しない。
+| store | 正本 | 書き込み主体 | 復旧・cloud反映 |
+| --- | --- | --- | --- |
+| `application/baibai.sqlite` | local。cloudはreplica | engine application service | `baibai-engine db backup`で`backups/`へ保存。自動再構築は禁止。`batch/scripts/publish.sh`で公開 |
+| `market/market.sqlite` | lake所有17 tableはR2 L1 releaseのruntime copy。残る2 tableはSQLiteが正本 | providerとcontrolled merge | 17 tableはfixed releaseからhydrate。残る2 tableはproviderから再取得可能。push時は17 tableを空にする |
+| R2 `lake/l1/` | lake所有17 datasetのL1正本 | lake publisher | immutable content object、manifest、CAS pointerでpublish |
+| `lake/` | disposable local mirror・staging・object cache | lake build | R2 manifestから再取得。authorityにしない |
+| `macro/macro.sqlite` | cloud rolling window + local full history | macro indicator serviceとcontrolled merge | providerから再取得可能。no-loss merge後だけpush |
+| `screening/runs.sqlite` | cloud only | daily batch screening service | runから再生成可能。localからpushしない |
+| `screening/calibration/` | typed Parquetとatomic bundle pointerからなるrebuildable L2 | engine calibration command | market/ledger evidenceまたはdigest固定archiveから再生成し、3 dataset manifestをbundleでpublish |
 
-## Owns / Does not own
+## 入口と安全境界
 
-canonical application state と machine store を所有する。production methodology、historical evidence、
-一時 cache は所有せず、それぞれ `method`、`reports`、`.cache` に置く。
+store操作には`baibai-engine`のdomain CLIと[`batch/scripts`](../batch/scripts)を使います。`lake inventory`と`lake validate`は書き込みません。`lake resolve`はpointerを1回だけ解決し、`lake hydrate`は固定releaseから17 tableを満たします。
 
-## Public entrypoints
+書き込み主体は上表のownerに限定します。application DBの作成とmigrationはengineのapplication serviceだけが行い、読み取り専用経路は自動初期化しません。cloud copyで上書きする、旧`data/`と現行pathや二つの正本writerを併存させる、repository root以外からstoreを生成する操作は禁止です。起動rootが不正な場合は、storeを作らず停止します。一時cacheは`.cache/`へ置き、storeにしません。
 
-store 操作は `baibai-engine` の domain CLI と [`batch/scripts`](../batch/scripts) を使う。
-`baibai-engine lake inventory` はlocal R2 mirrorのfile metadataだけを読み、`lake validate`は
-manifest contractだけを検査する。どちらもobjectやpointerを書き換えない。`lake resolve`は
-current pointerを1度だけ解決し、`lake hydrate`はその固定releaseから`market.sqlite`のlake所有
-17 tableを満たす。詳細手順は [Batch operations](../batch/OPERATIONS.md) と
-[market lake](../docs/reference/market-lake.md)。
+schema変更は対応codeをmainへ入れてからcloudへ反映します。移行時はbackup、`quick_check`、schema、required table、正本row/head/ledger identityを確認します。layout cutoverは[Batch operationsの専用手順](../batch/OPERATIONS.md#repository-store-layout-の-cutover)を使い、codeだけを先に切り替えてはいけません。lake contractは[market lake](../docs/reference/market-lake.md)を正本とします。
 
-## Reads / Writes
+## 配置と検証
 
-| store | authority | writer | backup / rebuild | cloud sync |
-| --- | --- | --- | --- | --- |
-| `application/baibai.sqlite` | local canonical、cloud replica | engine application service | `baibai-engine db backup`。自動 rebuild 禁止 | `batch/scripts/publish.sh` |
-| `market/market.sqlite` | lake所有17 tableはR2のL1 releaseから再構築されるruntime copy、残る2 tableはここがcanonical | provider + controlled merge | releaseからhydrate、または screening cache command で再取得可能 | lake所有17 tableを空にしてから push |
-| R2 `lake/l1/` | lake所有17 datasetのcanonical L1 | lake publisher | source再取得またはlegacy SQLite seedからimmutable rebuild | content object + manifest + CAS pointer |
-| `lake/` | disposable local R2 mirror / staging / content-addressed object cache | lake build | R2 manifestから再取得可能 | authorityにしない |
-| `macro/macro.sqlite` | cloud rolling + local full history | macro indicator service + controlled merge | provider series から再取得可能 | no-loss merge 後のみ push |
-| `screening/runs.sqlite` | cloud canonical | daily batch screening service | screening run から再生成可能 | local から push 禁止 |
-| `screening/calibration/` | rebuildable L2（typed Parquet + atomic calibration bundle pointer） | engine calibration command | market/ledger evidence またはdigest固定したlegacy archiveから再生成可能 | 3 dataset manifestをbundleとしてpublish |
-
-## Allowed / Forbidden dependencies
-
-writer は上表の owner に限定する。市場 fact の authority は lake にあり、旧 `data/` path、新旧同時
-canonical writer、application DB の自動初期化、cloud copyによるlocal canonical上書きを禁止する。
-上表の path はすべて repository root からの相対で、runtime は起動前に root を確認し、root 以外
-（`engine/` などの部分木）からの起動は store を作らずに停止する。
-`market.sqlite` の lake 所有 17 table は fixed release から再構築できる runtime copy であり、
-R2 が持つ copy はその 17 table を空にしたものになる（[market lake](../docs/reference/market-lake.md#daily-cutover)）。
-
-## Stores / Config / Reports
-
-production rules は [method](../method/README.md)、historical evidence は
-[reports](../reports/README.md)。R2 object keyは`lake/`以下のpath-safe segmentだけで構成し、
-dataset / release manifestがobject inventory、checksum、rows、coverage、producerを固定する。
-manifestのlogical identityはcontent SHA-256で固定し、R2 ETagはpointer CAS等のtransport stateに
-限定する。sourceはtyped `SourceRef`、release completenessはmanifestが宣言したprofileのpolicyで検証する。
-repository path migration とR2 key semanticsを結合しない。
-
-## Tests
-
-schema/write invariants は [`tests/engine`](../tests/engine)、transfer/merge は
-[`tests/batch`](../tests/batch)、path gate は [`tests/contracts`](../tests/contracts)。
-
-## Canonical docs
-
-[architecture](../docs/architecture.md)、[portfolio ledger](../docs/reference/portfolio-ledger.md)、
-[screening runtime](../docs/reference/screening-runtime.md)、[Batch operations](../batch/OPERATIONS.md)。
-
-## Common change scenarios
-
-schema変更は対応codeをmainへ入れてからcloudへ反映する。移行時は backup、`quick_check`、schema、
-required tables、canonical row/head/ledger identity を確認し、旧pathが残る状態ではruntimeを起動しない。
-layoutのcutoverは[Batch operations](../batch/OPERATIONS.md#repository-store-layout-の-cutover)
-のdry-run付きone-time commandを使い、codeだけを先に切り替えない。
+production ruleは[method](../method/README.md)、historical evidenceは[reports](../reports/README.md)が所有します。全体構造は[architecture](../docs/architecture.md)、application eventは[portfolio ledger](../docs/reference/portfolio-ledger.md)、screening storeは[screening runtime](../docs/reference/screening-runtime.md)を参照します。schema/write invariantは[tests/engine](../tests/engine)、transfer/mergeは[tests/batch](../tests/batch)、pathは[tests/contracts](../tests/contracts)で検証します。

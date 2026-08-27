@@ -1,48 +1,27 @@
 # Baibai Loop
 
-Baibai Loopは、一人で日本株を長期運用するための意思決定基盤です。AIが市場観測、割安候補抽出、一次情報確認、3年・5年評価、独立反証、指値・数量提案、保有見直しを行い、人間が最終判断とbroker発注を行います。自動売買システムではありません。
+Baibai Loopは、一人で日本株を長期運用するための意思決定基盤です。AIが市場観測、候補抽出、一次情報調査、投資・保有判断の提案までを担い、人間が最終判断とbroker操作を行います。自動売買システムではありません。
 
-成功は注文数や予算消化では測りません。永久的な資本毀損を抑え、その時点で最もお買い得な候補を納得可能な根拠とともに判断し、税・費用込みの長期総合returnを配当込みTOPIXと比較して、3年・5年単位で見積り能力を改善できることを成果とします。
+目的・判断原則・AIと人間の責任境界は[`docs/doctrine.md`](./docs/doctrine.md)、repository構造・store・CLIの契約は[`docs/architecture.md`](./docs/architecture.md)を正本とします。
 
-## Start here
+## 最初の入口
 
-| 目的 | 入口 |
+| やりたいこと | 入口 |
 | --- | --- |
-| 候補選定〜指値提案 | skill [`shortlist`](./.agents/skills/shortlist/SKILL.md) → [`research`](./.agents/skills/research/SKILL.md) |
-| 注文結果・保有review の記録 | skill [`ledger-record`](./.agents/skills/ledger-record/SKILL.md) / [`holding-review`](./.agents/skills/holding-review/SKILL.md) |
-| screening、FV、E[r]等の方法改善 | [`docs/reference/estimate-calibration.md`](./docs/reference/estimate-calibration.md) の運用契約 |
-| 思想、優先順位、語彙 | [`docs/doctrine.md`](./docs/doctrine.md) |
-| package、CLI、method、store | [`docs/architecture.md`](./docs/architecture.md) |
-| AIへ作業させる | [`AGENTS.md`](./AGENTS.md)から`.agents/skills`を選ぶ |
-| docs全体から探す | [`docs/README.md`](./docs/README.md) |
+| 買い候補を探す | skill [`shortlist`](./.agents/skills/shortlist/SKILL.md)。人間がPrimary Research Setを選んだ後は[`research`](./.agents/skills/research/SKILL.md) |
+| 注文結果を記録する | skill [`ledger-record`](./.agents/skills/ledger-record/SKILL.md) |
+| 保有銘柄を見直す | skill [`holding-review`](./.agents/skills/holding-review/SKILL.md) |
+| Macro Contextを書く | skill [`macro-context`](./.agents/skills/macro-context/SKILL.md) |
+| batch・storeを運用する | skill [`ops-maintenance`](./.agents/skills/ops-maintenance/SKILL.md) |
+| screening・FV・E[r]の方法を改善する | [`estimate-calibration.md`](./docs/reference/estimate-calibration.md)に従うissue → PR |
+| 開発・AI作業を始める | [`AGENTS.md`](./AGENTS.md) |
+| 文書から正本を探す | [`docs/README.md`](./docs/README.md) |
 
-## What success means
+候補なし、価格超過、一次情報不足による見送りは正常な結果です。AIは人間が報告していない注文状態を推定せず、ledgerを更新しません。
 
-候補は次の順で比較します。
+## 読み取り専用UI
 
-1. 永久的資本毀損リスク
-2. 5年期待総合returnとFV乖離
-3. repository portfolioへの追加価値
-4. 購入可能性
-
-追加資金と1回の注文額のplanning baselineは[`docs/portfolio-management.md`](./docs/portfolio-management.md)を正本とします。予算、cash、集中、保有・予約は人間へ見せるwarning/annotationであり、それだけで投資価値順位を変えません。候補がない、価格が最大許容価格を超える、一次情報が足りない場合は、買わずに終了することが正常な判断です。
-
-## Human boundary
-
-AIは提案までを担当し、人間だけが`approve / defer / reject`とbroker操作を行います。寄り前の価格提案にはJPX基盤の最新完全営業日のraw/unadjusted closeを使え、realtime quoteや板は必須ではありません。AIは人間から報告されていない`open / filled / cancelled`を推定せず、ledgerを更新しません。
-
-## Two operating cycles
-
-| cycle | 目的 | 主な成果物 |
-| --- | --- | --- |
-| 継続的な投資判断 | お買い得候補を見つけ、発注判断、結果反映、保有見直しまで進める | operation session、proposal、thesis/review、human-confirmed ledger、holding review、annual outcome |
-| 基盤改善 | 見積り方法を計測し、再現可能な変更だけ採用する | self-contained issue、preregistration、design/confirm評価、PR、dated report |
-
-個別銘柄の判断と基盤方法の改善を同じ作業に混ぜません。日常運用で見つけた基盤不備はIssue化し、[較正の運用契約](./docs/reference/estimate-calibration.md)に従って進めます。
-
-## Read-only 運用 UI
-
-frontend を build して `baibai-web` を起動します。
+frontendをbuildしてlocal UIを起動します。
 
 ```bash
 cd web/frontend
@@ -51,78 +30,38 @@ cd ../..
 uv run baibai-web serve
 ```
 
-ブラウザで `http://127.0.0.1:8712` を開きます。UI と API は application DB と各 store を read-only で参照し、task や portfolio を更新しません。
-
-## Three layers
-
-| layer | 内容 | 例 |
-| --- | --- | --- |
-| L1 observed data | 再取得可能な市場・開示データ | R2 の L1 release（`stores/market/market.sqlite` はそこから満たす runtime copy） |
-| L2 derived / estimate | 決定論的screen、指標、E[r]、FV anchor | screening output、local opportunity workspace |
-| L3 judgment / operation | 一次情報を確認した投資・保有判断 | macro context、thesis/review、proposal、ledger、operation session |
-
-E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補探索のlocal outputを判断の正本にせず、採用した入力と判断だけをapplication DBへpublishします。
+`http://127.0.0.1:8712`を開きます。UIとAPIはapplication DBと各storeを読み取り専用で参照し、正本を更新しません。
 
 ## Repository map
 
 | path | 役割 |
 | --- | --- |
-| `engine/src/baibai_engine/` | domain、application service、application DB、read API |
-| `web/` | read-only backend、frontend、edge、Web contract、presentation config |
-| `batch/` | scheduled/offline production orchestration と store transfer |
-| `method/` | Git 管理の production methodology |
-| `stores/` | canonical application DB と rebuildable runtime store |
-| `reports/` | study 単位の historical evidence と published artifact |
-| `docs/` | doctrine、governance、operations、workflow、reference |
-| `.agents/skills/` | repository-local AI skillの正本 |
-| `.claude/skills/` | canonical skillへのClaude互換symlink |
-| `tools/` | quality、experiment、generator、diagnostic の developer tooling |
-| `tests/` | domain、public CLI、DB/write-time contract test |
+| `engine/` | domain処理、application service、正本への書き込み、read API |
+| `web/` | 読み取り専用backend、frontend、edge、Web contract |
+| `batch/` | 定期・offline処理、store転送、障害対応 |
+| `method/` | Git管理のproduction methodology |
+| `stores/` | application DBと実行時store |
+| `reports/` | historical evidenceとpublished artifact |
+| `docs/` | doctrine、governance、reference、運用入口 |
+| `.agents/skills/` | repository-local skillの正本 |
+| `tools/` | 開発・検証tool |
 
-詳細は[`docs/architecture.md`](./docs/architecture.md)を参照してください。
+詳細な依存関係と配置先は[`docs/architecture.md#repository-map`](./docs/architecture.md#repository-map)および各moduleのREADMEを参照してください。
 
-## Public CLI
+## 開発入口
 
-| command | 役割 |
-| --- | --- |
-| `baibai-engine screening` | run・select・shortlist・ticker-profile・cache 管理・calibration |
-| `baibai-engine research` | opportunity workspace、thesis/review scaffold、promotion、前営業日指値 |
-| `baibai-engine research evaluate` | thesisと既存execution policyの再計算 |
-| `baibai-engine position` | ledger、typed draft/apply、holding review、portfolio outcome |
-| `baibai-engine macro` | macro indicator seriesとcontext publication |
-| `baibai-engine operation` | current operation workspaceとimmutable final result |
-| `baibai-engine proposal` | trade proposalと人間のcurrent decision |
-| `baibai-engine task` | task current state |
-| `baibai-engine db` | application DB init/info/backup |
-| `baibai-web` | 127.0.0.1固定のread-only UI |
+Python 3.14と`uv`を使用します。変更前に[`AGENTS.md`](./AGENTS.md)を読み、push前に[`python-foundation.md` §9](./docs/reference/python-foundation.md#9-ci-and-local-parity)のfull local gateをCIと同じcommandで通します。
 
-production workflow は repository-internal の `baibai-batch` entry point から batch job を呼びます。
-
-日常運用の完全なcommand順は[`.agents/skills/`](./.agents/skills/)の各SKILL.md、各optionはpublic `--help`を正本とします。
-
-## Non-goals
-
-- broker API、自動発注、未報告broker状態の推定
-- realtime quoteや板を通常proposalの必須入力にすること
-- ledgerをbroker会計の完全な複製へ発展させること
-- 予算消化のために候補品質を下げること
-- 短期screen成績の最適化、grid search、機械学習score
-- ETF、投資信託、海外株、口座・税制の完全モデル化
-
-## Development gates
-
-Python 3.14と`uv`を使用します。model、DB、src、docsを変更したら次を実行します。
+代表的なlocal subsetは次のとおりです。
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check .
-UV_CACHE_DIR=/tmp/uv-cache uv run ruff check .
-UV_CACHE_DIR=/tmp/uv-cache uv run mypy
-UV_CACHE_DIR=/tmp/uv-cache uv run pytest
-UV_CACHE_DIR=/tmp/uv-cache uv run lint-imports
+uv run ruff format --check .
+uv run ruff check .
+uv run mypy
+uv run lint-imports
+uv run pytest
 ```
 
-これはローカル用の subset です。Python gate の完全形は [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §9、UI・Worker・security（Bandit / pip-audit / npm audit）を含む全 CI job は `.github/workflows/`（`ci.yml` / `web.yml` / `security.yml`）を正本とします。
+public CLIは`baibai-engine`、`baibai-web`、repository内部の`baibai-batch`です。domain・subcommand・optionは各`--help`を正本とします。
 
-## Issues
-
-feature、bug、基盤改善、PR deliveryは[GitHub Issues](https://github.com/koumatsumoto/baibai-loop/issues)で管理します。運用taskの正本はapplication DBで、`baibai-engine task`から操作します。
+開発作業は[GitHub Issues](https://github.com/koumatsumoto/baibai-loop/issues)、運用taskはapplication DBの`baibai-engine task`で管理します。

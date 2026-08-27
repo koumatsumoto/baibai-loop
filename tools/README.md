@@ -1,43 +1,14 @@
 # Developer tools
 
-## Purpose
+repositoryを開発・検証するための非production toolを置きます。
 
-repository を開発・検証するための非 production tooling。
+| 項目 | 内容 |
+| --- | --- |
+| 所有 | quality gate、experiment、generator、diagnostic |
+| 所有しない | production runtime、domain semantics、定期運用、実行時store |
+| 入口 | stable public CLIは持たず、repository-local moduleまたはscriptを明示的に実行する |
+| 依存境界 | runtime packageへの必要最小限の依存は許可する。engine、web、batchからtoolsへ依存しない |
+| 変更先 | CI・driftは`quality`、改善計測は`experiments`、assetは`generators`、調査補助は`diagnostics` |
+| 正本・test | [architecture](../docs/architecture.md)、[Python foundation](../docs/reference/python-foundation.md)、[tests/tools](../tests/tools)、[tests/contracts](../tests/contracts) |
 
-## Owns / Does not own
-
-quality gate、experiment、generator、diagnostic を所有する。production runtime、domain semantics、
-scheduled operations は所有しない。
-
-## Public entrypoints
-
-stable public CLI は持たない。各 tool は repository-local module/script として明示的に実行する。
-
-## Reads / Writes
-
-必要に応じて engine/web/batch output を読む。生成物は明示された asset/report だけへ書き、runtime
-store の canonical writer にならない。
-
-## Allowed / Forbidden dependencies
-
-tools から runtime package への依存は必要最小限で許容する。engine/web/batch から tools への依存は
-禁止する。
-
-## Stores / Config / Reports
-
-runtime store は所有しない。experiment evidence は [reports](../reports/README.md)、production rule は
-[method](../method/README.md) に明示的な採用 PR で反映する。
-
-## Tests
-
-[`tests/tools`](../tests/tools) と [`tests/contracts`](../tests/contracts)。
-
-## Canonical docs
-
-[architecture](../docs/architecture.md) と
-[Python foundation](../docs/reference/python-foundation.md)。
-
-## Common change scenarios
-
-CI/drift は `quality`、一回または改善計測は `experiments`、asset作成は `generators`、調査補助は
-`diagnostics` に置く。
+生成物は明示されたassetまたはreportだけへ書き、runtime storeの正本を更新しません。experiment evidenceは[reports](../reports/README.md)、採用結果は明示PRで[method](../method/README.md)へ反映します。
