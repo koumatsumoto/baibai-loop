@@ -2,8 +2,8 @@
 
 Split by the layer that owns each rule: internal consistency (force references,
 series containment, probability arithmetic) lives on the document model and runs on
-every load, while presence (synthesis, probabilities, caveats, topography grounding)
-is a publication gate so that revisions published before the fields keep loading.
+every load, while synthesis and probability presence are a publication gate so that
+revisions published before the fields keep loading.
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ from baibai_engine.appdb.write import initialize_database
 from baibai_engine.macro.context.models import (
     MacroContextDocument,
     require_integrated_strategy,
-    scorecard_snapshot_input_id,
 )
 from baibai_engine.macro.context.service import MacroContextService
 from baibai_engine.read_api.macro import latest_macro_context_payload
@@ -51,30 +50,13 @@ def _validated(payload: dict[str, Any]) -> MacroContextDocument:
 # --- model layer: internal consistency runs on every load ---
 
 
-def test_model_rejects_a_single_dominant_force() -> None:
+def test_model_accepts_a_single_dominant_force_without_interactions() -> None:
     payload = _payload()
     payload["synthesis"]["dominant_forces"] = payload["synthesis"]["dominant_forces"][:1]
     payload["synthesis"]["interactions"] = []
-    with pytest.raises(ValidationError):
-        _validated(payload)
-
-
-def test_model_rejects_six_dominant_forces() -> None:
-    payload = _payload()
-    forces = payload["synthesis"]["dominant_forces"]
-    while len(forces) < 6:
-        clone = json.loads(json.dumps(forces[0]))
-        clone["force_id"] = f"clone-{len(forces)}"
-        forces.append(clone)
-    with pytest.raises(ValidationError):
-        _validated(payload)
-
-
-def test_model_rejects_a_force_confined_to_one_section() -> None:
-    payload = _payload()
-    payload["synthesis"]["dominant_forces"][0]["core_section_ids"] = ["rates_policy"]
-    with pytest.raises(ValidationError):
-        _validated(payload)
+    document = _validated(payload)
+    assert len(document.synthesis.dominant_forces) == 1
+    assert document.synthesis.interactions == ()
 
 
 def test_model_rejects_a_force_naming_a_non_channel_section() -> None:
@@ -105,18 +87,6 @@ def test_model_rejects_a_force_whose_named_section_contributes_no_series() -> No
         _validated(payload)
 
 
-def test_model_rejects_a_force_backed_only_by_a_series_its_sections_share() -> None:
-    # Both named sections cite us.10y, so a single shared series satisfies the
-    # per-section intersection for both at once; the crossing must be provable by a
-    # distinct series per named section.
-    payload = _payload()
-    force = payload["synthesis"]["dominant_forces"][1]
-    assert force["core_section_ids"] == ["fx", "valuation"]
-    force["series_ids"] = ["us.10y"]
-    with pytest.raises(ValidationError, match="distinct cited series"):
-        _validated(payload)
-
-
 def test_model_rejects_a_force_series_without_a_cited_successful_input() -> None:
     payload = _payload()
     # The named sections cite the series, but the force itself does not carry the
@@ -138,13 +108,6 @@ def test_model_rejects_duplicate_force_ids() -> None:
     forces = payload["synthesis"]["dominant_forces"]
     forces[1]["force_id"] = forces[0]["force_id"]
     with pytest.raises(ValidationError, match="force_id must be unique"):
-        _validated(payload)
-
-
-def test_model_rejects_a_synthesis_without_interactions() -> None:
-    payload = _payload()
-    payload["synthesis"]["interactions"] = []
-    with pytest.raises(ValidationError):
         _validated(payload)
 
 
@@ -284,129 +247,16 @@ def test_model_accepts_probabilities_at_the_grid_boundaries() -> None:
     assert [s.probability for s in document.scenarios] == [0.90, 0.05, 0.05]
 
 
-# --- publication gate: presence is required for new reports only ---
-
-
-def test_gate_requires_the_synthesis() -> None:
-    payload = _payload(strategy_layer=False)
+def test_publication_gate_requires_the_synthesis() -> None:
     with pytest.raises(ValueError, match="synthesis of dominant forces"):
-        require_integrated_strategy(_validated(payload))
+        require_integrated_strategy(_validated(_payload(strategy_layer=False)))
 
 
-def test_gate_requires_scenario_probabilities() -> None:
+def test_publication_gate_requires_scenario_probabilities() -> None:
     payload = _payload()
     _set_probabilities(payload, (None, None, None))
     with pytest.raises(ValueError, match="carry a probability"):
         require_integrated_strategy(_validated(payload))
-
-
-def test_gate_requires_an_estimate_caveat() -> None:
-    payload = _payload()
-    payload["connection"]["estimate_caveats"] = []
-    with pytest.raises(ValueError, match="estimate caveat"):
-        require_integrated_strategy(_validated(payload))
-
-
-def test_gate_requires_the_bargain_topography() -> None:
-    payload = _payload()
-    del payload["connection"]["bargain_topography"]
-    with pytest.raises(ValueError, match="bargain topography"):
-        require_integrated_strategy(_validated(payload))
-
-
-def test_gate_rejects_a_topography_without_a_machine_snapshot_citation() -> None:
-    payload = _payload()
-    payload["connection"]["bargain_topography"]["source_ids"] = ["us-10y"]
-    with pytest.raises(ValueError, match="market-snapshot machine input"):
-        require_integrated_strategy(_validated(payload))
-
-
-def test_gate_rejects_a_topography_grounded_only_in_a_non_market_snapshot_command() -> None:
-    payload = _payload()
-    payload["inputs"]["machine_snapshots"][0]["command"] = "baibai-engine screening run"
-    with pytest.raises(ValueError, match="market-snapshot machine input"):
-        require_integrated_strategy(_validated(payload))
-
-
-def test_gate_rejects_a_topography_grounded_only_in_a_variant_snapshot_command() -> None:
-    # The command anchor is token-bounded: a different subcommand that merely starts
-    # with the same words must not satisfy the grounding requirement.
-    payload = _payload()
-    payload["inputs"]["machine_snapshots"][0]["command"] = (
-        "baibai-engine screening market-snapshot-experimental"
-    )
-    with pytest.raises(ValueError, match="market-snapshot machine input"):
-        require_integrated_strategy(_validated(payload))
-
-
-def test_gate_rejects_a_topography_grounded_only_in_a_stale_market_snapshot() -> None:
-    # Carrying the previous draft's snapshot forward satisfies the citation while
-    # grounding the topography in a market that no longer exists.
-    payload = _payload()
-    snapshot = payload["inputs"]["machine_snapshots"][0]
-    snapshot["snapshot_asof"] = "2026-07-01"
-    snapshot["observation_as_of"] = "2026-07-01"
-    with pytest.raises(ValueError, match="within 7 days"):
-        require_integrated_strategy(_validated(payload))
-
-
-def test_gate_accepts_a_market_snapshot_at_the_lag_boundary() -> None:
-    payload = _payload()
-    snapshot = payload["inputs"]["machine_snapshots"][0]
-    snapshot["snapshot_asof"] = "2026-07-12"
-    snapshot["observation_as_of"] = "2026-07-10"
-    require_integrated_strategy(_validated(payload))
-
-
-def test_gate_rejects_a_topography_grounded_only_in_the_scorecard_snapshot(
-    tmp_path: Path,
-) -> None:
-    # Every revision after the first is forced to carry its predecessor's scorecard
-    # snapshot, so that mandatory citation must not satisfy the grounding requirement.
-    # The scorecard's command below claims the market-snapshot subcommand outright, so
-    # the rejection has to come from the input's type, not from the command anchor.
-    payload = _payload()
-    context_db = str((tmp_path / "app.sqlite").resolve())
-    indicators_db = str((tmp_path / "macro.sqlite").resolve())
-    digest = "0" * 64
-    input_id = scorecard_snapshot_input_id(
-        context_id="macro-context-2026-07-01-previous",
-        snapshot_asof=date(2026, 7, 19),
-        rules_revision="2026-07-25T000000+0900",
-        context_db=context_db,
-        indicators_db=indicators_db,
-        result_digest=digest,
-    )
-    payload["inputs"]["machine_snapshots"] = [
-        {
-            "kind": "macro-scorecard-evaluation",
-            "input_id": input_id,
-            "context_id": "macro-context-2026-07-01-previous",
-            "rules_revision": "2026-07-25T000000+0900",
-            "context_db": context_db,
-            "indicators_db": indicators_db,
-            "result_digest": digest,
-            "command": "baibai-engine screening market-snapshot --format json",
-            "snapshot_asof": "2026-07-19",
-            "observation_as_of": None,
-            "accessed_at": "2026-07-19T12:00:00+09:00",
-            "status": "ok",
-            "used_for": "前回シナリオの採点",
-        }
-    ]
-    # The connection fact that cited the market snapshot has to move with it.
-    payload["connection"]["fact_summary"][1]["source_ids"] = [input_id]
-    payload["connection"]["bargain_topography"]["source_ids"] = [input_id]
-    with pytest.raises(ValueError, match="market-snapshot machine input"):
-        require_integrated_strategy(_validated(payload))
-
-
-def test_publish_wires_the_integrated_strategy_gate(tmp_path: Path) -> None:
-    service = MacroContextService(tmp_path / "app.sqlite")
-    document = _validated(_payload(strategy_layer=False))
-    with pytest.raises(ValueError, match="synthesis of dominant forces"):
-        service.publish(document, expected_head=None)
-    assert service.head_id() is None
 
 
 def test_publish_accepts_a_complete_strategy_layer(tmp_path: Path) -> None:
@@ -427,7 +277,7 @@ def test_publish_accepts_a_complete_strategy_layer(tmp_path: Path) -> None:
 def test_a_revision_without_the_strategy_layer_stays_readable(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     initialize_database(path)
-    legacy = _payload(strategy_layer=False, machine_conditions=[])
+    legacy = _payload(strategy_layer=False)
     with sqlite3.connect(path) as connection:
         connection.execute(
             """

@@ -352,7 +352,6 @@ export interface MacroContextView {
   synthesis: MacroSynthesisView | null
   core: MacroCoreSectionView[]
   connection: MacroConnectionSectionView
-  triggers: MacroTriggerEvaluationView | null
 }
 
 export interface MacroCoreSectionView {
@@ -588,29 +587,6 @@ export interface MacroSizingCautionView {
 export interface MacroSynthesisView {
   dominant_forces: MacroDominantForceView[]
   interactions: MacroForceInteractionView[]
-}
-
-/**
- * Whether the report's own invalidation conditions have been met since it was written.
- */
-export interface MacroTriggerEvaluationView {
-  asof: string
-  evaluated: number
-  fired: number
-  results: MacroTriggerResultView[]
-}
-
-export interface MacroTriggerResultView {
-  point_index: number
-  event: string
-  condition_index: number
-  series_id: string
-  comparison: string
-  threshold: number
-  status: string
-  observed_at: string | null
-  value: number | null
-  view_change: string
 }
 
 /**

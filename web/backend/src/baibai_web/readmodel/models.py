@@ -560,28 +560,6 @@ class MacroConnectionSectionView(BaseModel):
     estimate_caveats: list[MacroEstimateCaveatView] = []
 
 
-class MacroTriggerResultView(BaseModel):
-    point_index: int
-    event: str
-    condition_index: int
-    series_id: str
-    comparison: str
-    threshold: float
-    status: str
-    observed_at: date | None
-    value: float | None
-    view_change: str
-
-
-class MacroTriggerEvaluationView(BaseModel):
-    """Whether the report's own invalidation conditions have been met since it was written."""
-
-    asof: date
-    evaluated: int
-    fired: int
-    results: list[MacroTriggerResultView]
-
-
 class MacroContextView(BaseModel):
     context_id: str
     as_of: date
@@ -593,9 +571,6 @@ class MacroContextView(BaseModel):
     synthesis: MacroSynthesisView | None = None
     core: list[MacroCoreSectionView]
     connection: MacroConnectionSectionView
-    # Absent when no indicator store could answer, which is a normal state for a
-    # checkout that only carries the application database.
-    triggers: MacroTriggerEvaluationView | None = None
 
 
 class MacroContextRevisionView(BaseModel):

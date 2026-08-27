@@ -89,7 +89,6 @@ _REQUIRED_TABLES = {
             "aliases",
             "observations",
             "provider_runs",
-            "registry_prune_authorizations",
             "registry_state",
             "series",
         }

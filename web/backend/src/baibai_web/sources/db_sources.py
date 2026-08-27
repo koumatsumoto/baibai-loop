@@ -28,7 +28,6 @@ from baibai_engine.read_api import (
     list_thesis_publications,
     list_thesis_review_publications,
     macro_context_payload,
-    macro_context_triggers,
     macro_indicator_series,
     macro_latest_observed_at,
     macro_reading_snapshot,
@@ -301,14 +300,6 @@ class DbMacroSource:
 
     def contexts(self) -> list[dict[str, object]]:
         return list_macro_context_payloads(self._app_db_path)
-
-    def context_triggers(self, *, context_id: str, as_of: date) -> dict[str, object] | None:
-        return macro_context_triggers(
-            self._app_db_path,
-            self._indicators_db_path,
-            context_id=context_id,
-            as_of=as_of,
-        )
 
     def series(
         self,
