@@ -3,8 +3,9 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { MacroContextView, MacroCoreSectionView, MacroScenarioView } from '../src/api/types'
-import { forceTitle, labelMacroValue, orderMacroScenarios, partitionMacroCore, TRANSMISSION_CHANNEL_IDS } from '../src/lib/macro-report'
+import { forceTitle, labelMacroValue, macroTone, orderMacroScenarios, partitionMacroCore, scenarioDistribution, TRANSMISSION_CHANNEL_IDS } from '../src/lib/macro-report'
 import { MacroReportContent } from '../src/pages/macro-report/MacroReportContent'
+import { ScenarioDistribution } from '../src/pages/macro-report/ScenarioDistribution'
 
 const CORE_IDS = ['regime_summary', ...TRANSMISSION_CHANNEL_IDS, 'risk_environment', 'monitoring']
 
@@ -25,10 +26,11 @@ function coreSection(section_id: string): MacroCoreSectionView {
 }
 
 function scenario(caseName: string): MacroScenarioView {
+  const probabilities: Readonly<Record<string, number>> = { base: 0.5, bear: 0.3, bull: 0.2 }
   return {
     case: caseName,
     direction: 'mixed',
-    probability: caseName === 'base' ? 0.55 : null,
+    probability: probabilities[caseName] ?? null,
     summary: `${caseName} scenario`,
     conditions: [`${caseName} condition`],
     scorecard: [{ series_id: `score.${caseName}`, comparison: 'above', threshold: 1, deadline: '2026-12-31' }],
@@ -98,6 +100,43 @@ describe('macro report projection', () => {
     expect(labelMacroValue('new_value')).toBe('new_value')
   })
 
+  it('maps macro judgment and scenario values without destructive tones', () => {
+    expect(macroTone('supportive')).toBe('positive')
+    expect(macroTone('adverse')).toBe('warning')
+    expect(macroTone('mixed')).toBe('muted')
+    expect(macroTone('bull')).toBe('positive')
+    expect(macroTone('bear')).toBe('warning')
+    expect(macroTone('base')).toBe('muted')
+    expect(['supportive', 'adverse', 'mixed', 'risk_seeking', 'risk_averse', 'neutral', 'base', 'bear', 'bull'].map(macroTone)).not.toContain('destructive')
+  })
+
+  it('accepts only one valid base, bear and bull distribution without normalization', () => {
+    const valid = [scenario('bull'), scenario('base'), scenario('bear')]
+    expect(scenarioDistribution(valid)?.map((item) => [item.scenario.case, item.probability])).toEqual([
+      ['base', 0.5], ['bear', 0.3], ['bull', 0.2],
+    ])
+    expect(scenarioDistribution(valid.slice(0, 2))).toBeNull()
+    expect(scenarioDistribution([...valid, scenario('stress')])).toBeNull()
+    expect(scenarioDistribution([...valid, scenario('base')])).toBeNull()
+    for (const invalid of [null, Number.NaN, Number.POSITIVE_INFINITY, 0, 1]) {
+      expect(scenarioDistribution(valid.map((item) => item.case === 'base' ? { ...item, probability: invalid } : item))).toBeNull()
+    }
+    expect(scenarioDistribution(valid.map((item) => item.case === 'base' ? { ...item, probability: 0.4 } : item))).toBeNull()
+  })
+
+  it('renders an aria-hidden 50/30/20 bar with a textual legend', () => {
+    const markup = renderToStaticMarkup(createElement(ScenarioDistribution, { scenarios: [scenario('bull'), scenario('base'), scenario('bear')] }))
+    expect(markup).toContain('見通しの分布（主観ウェイト）')
+    expect(markup).toContain('aria-hidden="true"')
+    expect(markup).toContain('width:50%')
+    expect(markup).toContain('width:30%')
+    expect(markup).toContain('width:20%')
+    expect(markup).toContain('中心')
+    expect(markup).toContain('下振れ')
+    expect(markup).toContain('上振れ')
+    expect(renderToStaticMarkup(createElement(ScenarioDistribution, { scenarios: [scenario('base')] }))).toBe('')
+  })
+
   it('handles absent optional collections and synthesis', () => {
     expect(partitionMacroCore(undefined).channels).toEqual([])
     expect(orderMacroScenarios(undefined)).toEqual([])
@@ -130,15 +169,24 @@ describe('macro report render contract', () => {
     expect(markup).toContain('counter evidence visible')
     expect(markup).toContain('risk falsifier visible')
     expect(markup).toContain('estimate caveat visible')
-    expect(markup).toContain('Fact')
+    expect(markup).toContain('事実')
     expect(markup).toContain('現局面のリスク環境と共通の出典')
     expect(markup).toContain('series.rates_policy')
     expect(markup).toContain('source.fact.rates_policy')
     expect(markup).toContain('score.base')
     expect(markup).toContain('Force One × force.unknown')
     expect(markup.match(/source\.risk/g)).toHaveLength(1)
-    expect(markup).toContain('<h3 class="font-semibold">Judgment</h3>')
-    expect(markup).toContain('<h4 class="font-semibold">Judgment</h4>')
+    expect(markup).toContain('<h3 class="font-semibold">判断</h3>')
+    expect(markup).toContain('<h4 class="font-semibold">判断</h4>')
+    expect(markup).toContain('見通しの分布（主観ウェイト）')
+    expect(markup.indexOf('current macro summary')).toBeLessThan(markup.indexOf('regime changed'))
+    expect(markup.indexOf('regime changed')).toBeLessThan(markup.indexOf('中心像'))
+    expect(markup.indexOf('見通しの分布（主観ウェイト）')).toBeLessThan(markup.indexOf('scorecard reviewed'))
+    expect(markup).toContain('見積り・投入のリスク')
+    expect(markup.indexOf('見積り・投入のリスク')).toBeLessThan(markup.indexOf('機会の地形・調査焦点'))
+    expect(markup).toContain('観測すること')
+    expect(markup).toContain('成立条件')
+    expect(markup).toContain('見方の変更')
   })
 
   it('keeps risk-environment lineage when an old revision has no falsifiers', () => {

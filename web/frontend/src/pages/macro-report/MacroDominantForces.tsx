@@ -1,11 +1,8 @@
-import { CircleAlert } from 'lucide-react'
-
 import type { MacroSynthesisView } from '../../api/types'
+import { CountercaseBlock } from '../../components/report/CountercaseBlock'
 import { SectionCard } from '../../components/SectionCard'
-import { Alert, AlertDescription, AlertTitle } from '../../components/ui/alert'
-import { Badge } from '../../components/ui/badge'
-import { forceTitle, labelMacroSection } from '../../lib/macro-report'
-import { JudgmentBadge, SeriesReferences, SourceIds } from './shared'
+import { forceTitle } from '../../lib/macro-report'
+import { EvidenceDisclosure, JudgmentBadge } from './shared'
 
 export function MacroDominantForces({ synthesis }: { synthesis: MacroSynthesisView }) {
   const forces = synthesis.dominant_forces ?? []
@@ -19,21 +16,16 @@ export function MacroDominantForces({ synthesis }: { synthesis: MacroSynthesisVi
               <div className="flex flex-wrap items-center gap-2"><h3 className="text-base font-semibold">{force.title}</h3><JudgmentBadge confidence={force.confidence} direction={force.direction} /></div>
               <p>{force.summary}</p>
               <p className="text-sm"><span className="font-medium">伝達経路:</span> {force.transmission}</p>
-              <Alert role="note"><CircleAlert /><AlertTitle>この見方への反証</AlertTitle><AlertDescription>{force.counter_evidence}</AlertDescription></Alert>
-              <div className="grid gap-2 border-t pt-3 text-xs text-muted-foreground">
-                <div className="flex flex-wrap gap-1.5">{force.core_section_ids.map((id) => <Badge key={id} variant="outline">{labelMacroSection(id)}</Badge>)}</div>
-                <SeriesReferences series={force.series} />
-                <SourceIds ids={force.source_ids} />
-              </div>
+              <CountercaseBlock label="この見方への反証">{force.counter_evidence}</CountercaseBlock>
+              <EvidenceDisclosure channels={force.core_section_ids} ids={force.source_ids} series={force.series} />
             </article>
           ))}
         </div>
         {interactions.map((interaction, index) => (
-          <Alert key={`interaction-${index}`} role="note">
-            <CircleAlert />
-            <AlertTitle>相互作用 · {interaction.force_ids.map((id) => forceTitle(synthesis, id)).join(' × ')}</AlertTitle>
-            <AlertDescription>{interaction.summary}<SourceIds ids={interaction.source_ids} /></AlertDescription>
-          </Alert>
+          <div className="grid gap-2 rounded-lg bg-muted/45 p-4" key={`interaction-${index}`}>
+            <h3 className="font-semibold">力の相互作用 · {interaction.force_ids.map((id) => forceTitle(synthesis, id)).join(' × ')}</h3>
+            <p>{interaction.summary}</p><EvidenceDisclosure ids={interaction.source_ids} />
+          </div>
         ))}
       </div>
     </SectionCard>

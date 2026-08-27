@@ -1,6 +1,7 @@
 import type { MacroSeriesReferenceView } from '../../api/types'
+import { ReportToneBadge } from '../../components/report/ReportToneBadge'
 import { Badge } from '../../components/ui/badge'
-import { labelMacroValue } from '../../lib/macro-report'
+import { labelMacroSection, labelMacroValue, macroTone } from '../../lib/macro-report'
 
 export function SourceIds({ ids }: { ids: readonly string[] | null | undefined }) {
   if (!ids?.length) return null
@@ -17,7 +18,26 @@ export function SeriesReferences({ series }: { series: readonly MacroSeriesRefer
 }
 
 export function JudgmentBadge({ direction, confidence }: { direction: string; confidence: string }) {
-  return <Badge variant="secondary">{labelMacroValue(direction)} / 確信度 {labelMacroValue(confidence)}</Badge>
+  return <><ReportToneBadge tone={macroTone(direction)}>{labelMacroValue(direction)}</ReportToneBadge><span className="text-xs text-muted-foreground">確信度 {labelMacroValue(confidence)}</span></>
+}
+
+export function EvidenceDisclosure({ channels, ids, series }: { channels?: readonly string[]; ids?: readonly string[] | null; series?: readonly MacroSeriesReferenceView[] | null }) {
+  const sourceCount = ids?.length ?? 0
+  const seriesCount = series?.length ?? 0
+  const channelCount = channels?.length ?? 0
+  if (sourceCount + seriesCount + channelCount === 0) return null
+  return (
+    <details className="group border-t pt-3 text-xs text-muted-foreground">
+      <summary className="w-fit cursor-pointer list-none rounded-sm font-medium outline-none marker:content-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
+        根拠 {sourceCount}件{seriesCount > 0 && `・指標 ${seriesCount}件`}{channelCount > 0 && `・経済チャネル ${channelCount}件`} <span aria-hidden="true" className="inline-block transition-transform group-open:rotate-90">›</span>
+      </summary>
+      <div className="mt-3 grid gap-2">
+        {channelCount > 0 && <p>経済チャネル: {channels!.map(labelMacroSection).join(' / ')}</p>}
+        <SeriesReferences series={series} />
+        <SourceIds ids={ids} />
+      </div>
+    </details>
+  )
 }
 
 export function Disclosure({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {

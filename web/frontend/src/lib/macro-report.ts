@@ -1,4 +1,5 @@
 import type { MacroCoreSectionView, MacroScenarioView, MacroSynthesisView } from '../api/types'
+import type { ReportTone } from '../components/report/ReportToneBadge'
 
 export const TRANSMISSION_CHANNEL_IDS = [
   'rates_policy',
@@ -42,6 +43,26 @@ const VALUE_LABELS: Readonly<Record<string, string>> = {
 
 const SCENARIO_ORDER: Readonly<Record<string, number>> = { base: 0, bear: 1, bull: 2 }
 
+const MACRO_TONES: Readonly<Record<string, ReportTone>> = {
+  supportive: 'positive',
+  adverse: 'warning',
+  mixed: 'muted',
+  risk_seeking: 'positive',
+  risk_averse: 'warning',
+  neutral: 'muted',
+  bull: 'positive',
+  bear: 'warning',
+  base: 'muted',
+}
+
+const ESTIMATE_COMPONENTS: Readonly<Record<string, { label: string; order: number }>> = {
+  fv_anchor: { label: 'FVアンカー', order: 0 },
+  FV: { label: 'FVアンカー', order: 0 },
+  reversion: { label: 'E[r] reversion', order: 1 },
+  carry: { label: 'E[r] carry', order: 2 },
+  resilience: { label: '財務耐性', order: 3 },
+}
+
 export interface MacroCorePartition {
   channels: MacroCoreSectionView[]
   regime: MacroCoreSectionView | null
@@ -56,6 +77,36 @@ export function labelMacroValue(value: string): string {
 
 export function labelMacroSection(sectionId: string): string {
   return SECTION_LABELS[sectionId] ?? sectionId
+}
+
+export function macroTone(value: string): ReportTone {
+  return MACRO_TONES[value] ?? 'muted'
+}
+
+export function estimateComponent(value: string): { label: string; order: number } {
+  return ESTIMATE_COMPONENTS[value] ?? { label: value, order: Number.MAX_SAFE_INTEGER }
+}
+
+export interface ScenarioDistributionItem {
+  scenario: MacroScenarioView
+  probability: number
+}
+
+export function scenarioDistribution(scenarios: readonly MacroScenarioView[] | null | undefined): ScenarioDistributionItem[] | null {
+  const expected = ['base', 'bear', 'bull'] as const
+  const byCase = new Map<string, MacroScenarioView>()
+  for (const scenario of scenarios ?? []) {
+    if (byCase.has(scenario.case)) return null
+    byCase.set(scenario.case, scenario)
+  }
+  if (byCase.size !== expected.length || expected.some((caseName) => !byCase.has(caseName))) return null
+  const items = expected.map((caseName) => {
+    const scenario = byCase.get(caseName)!
+    return { scenario, probability: scenario.probability }
+  })
+  if (items.some(({ probability }) => probability === null || !Number.isFinite(probability) || probability <= 0 || probability >= 1)) return null
+  const valid = items as ScenarioDistributionItem[]
+  return Math.abs(valid.reduce((sum, item) => sum + item.probability, 0) - 1) <= 1e-6 ? valid : null
 }
 
 export function partitionMacroCore(core: readonly MacroCoreSectionView[] | null | undefined): MacroCorePartition {

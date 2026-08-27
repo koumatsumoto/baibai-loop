@@ -9,13 +9,15 @@ import { PageShell } from '../components/PageShell'
 import { SectionCard } from '../components/SectionCard'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
+import { CountercaseBlock } from '../components/report/CountercaseBlock'
+import { ReportToneBadge } from '../components/report/ReportToneBadge'
 import { TradingViewButton } from '../components/TradingViewButton'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
-import { ASSESSMENT_RESULT, ASSESSMENT_TONE_CLASS as TONE_CLASS, CASE_DISPOSITION, headroomToMaxPct, limitVsClosePct, orderCases, PERMANENT_LOSS_LABEL, PERMANENT_LOSS_TONE, purchaseAlerts } from '../lib/assessment'
+import { ASSESSMENT_RESULT, CASE_DISPOSITION, headroomToMaxPct, limitVsClosePct, orderCases, PERMANENT_LOSS_LABEL, PERMANENT_LOSS_TONE, purchaseAlerts } from '../lib/assessment'
 import { EMPTY, formatJstDateTime, formatNumber, formatYen } from '../lib/format'
 import { LABEL } from '../lib/labels'
 import { cn } from '../lib/utils'
@@ -58,7 +60,7 @@ function machineCell(assessmentCase: AssessmentCaseView, key: keyof AssessmentCa
 
 function DispositionBadge({ disposition }: { disposition: string }) {
   const meta = CASE_DISPOSITION[disposition] ?? { label: disposition, tone: 'muted' as const }
-  return <Badge className={cn('font-semibold', TONE_CLASS[meta.tone])}>{meta.label}</Badge>
+  return <ReportToneBadge tone={meta.tone}>{meta.label}</ReportToneBadge>
 }
 
 function PurchaseCard({ purchase }: { purchase: AssessmentPurchaseView }) {
@@ -144,7 +146,7 @@ function CaseComparison({ cases }: { cases: readonly AssessmentCaseView[] }) {
                   <TableCell className="text-right" key={assessmentCase.ticker}>
                     {assessmentCase.permanent_loss_conclusion === null
                       ? <span className="text-muted-foreground">{EMPTY}</span>
-                      : <Badge className={cn('font-semibold', TONE_CLASS[PERMANENT_LOSS_TONE[assessmentCase.permanent_loss_conclusion] ?? 'muted'])}>{PERMANENT_LOSS_LABEL[assessmentCase.permanent_loss_conclusion] ?? assessmentCase.permanent_loss_conclusion}</Badge>}
+                      : <ReportToneBadge tone={PERMANENT_LOSS_TONE[assessmentCase.permanent_loss_conclusion] ?? 'muted'}>{PERMANENT_LOSS_LABEL[assessmentCase.permanent_loss_conclusion] ?? assessmentCase.permanent_loss_conclusion}</ReportToneBadge>}
                     {assessmentCase.adverse_risk_axes.length > 0 && (
                       <p className="mt-1 text-[10px] text-warning">不利: {assessmentCase.adverse_risk_axes.join(', ')}</p>
                     )}
@@ -197,6 +199,7 @@ function CaseCard({ assessmentCase }: { assessmentCase: AssessmentCaseView }) {
         {CASE_SECTIONS.map(([key, heading]) => {
           const text = assessmentCase[key]
           if (typeof text !== 'string' || text === '') return null
+          if (key === 'strongest_countercase') return <CountercaseBlock key={key}>{text}</CountercaseBlock>
           return (
             <div key={key}>
               <h4 className="text-sm font-semibold text-accent-foreground/90">{heading}</h4>
@@ -213,9 +216,9 @@ function CaseCard({ assessmentCase }: { assessmentCase: AssessmentCaseView }) {
               {assessmentCase.research_questions.map((item) => (
                 <div className="rounded-md border p-2.5" key={item.question}>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge className={cn('text-[10px] font-semibold', item.status === 'answered' ? TONE_CLASS.positive : TONE_CLASS.warning)}>
+                    <ReportToneBadge className="text-[10px]" tone={item.status === 'answered' ? 'positive' : 'warning'}>
                       {item.status === 'answered' ? '決着' : '未決着'}
-                    </Badge>
+                    </ReportToneBadge>
                     <span className="text-sm font-medium">{item.question}</span>
                   </div>
                   <p className="mt-1 text-sm text-muted-foreground">{item.answer}</p>
@@ -277,7 +280,7 @@ export function AssessmentPage() {
     // a long sentence reads as a sentence rather than as a heading.
     <PageShell
       above={<div><Button asChild size="sm" variant="ghost"><Link to="/stocks"><ArrowLeft />Stocks に戻る</Link></Button></div>}
-      meta={<Badge className={cn('font-semibold', TONE_CLASS[result.tone])}>{result.label}</Badge>}
+      meta={<ReportToneBadge tone={result.tone}>{result.label}</ReportToneBadge>}
       title="割安機会評価"
       width="reading"
     >
