@@ -44,7 +44,7 @@ status: active
 | screening / selection / SQLite | `reference/screening-runtime.md`、skill `shortlist`、architectureのCLI表 |
 | thesis / review / opportunity | `reference/thesis.md`、`reference/bargain-assessment.md`、skill `research` |
 | ledger / holding / outcome | `reference/portfolio-ledger.md`、`reference/holding-review.md`、対応skill |
-| model / write-time validation / CI | `architecture.md`、`reference/python-foundation.md`、`anti-patterns.md` |
+| model / write-time validation / CI | `architecture.md`、`reference/python-foundation.md`、変更domainに対応する`anti-patterns.md`の`AP-*` |
 | local skill | `AGENTS.md`のskill表、`.agents/skills`、Claude symlink、skill inventory gate |
 
 <a id="document-writing-contract"></a>

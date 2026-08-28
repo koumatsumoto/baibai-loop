@@ -7,8 +7,9 @@ status: active
 
 # Anti-patterns
 
-この文書は、繰り返し観測された失敗をcommit前に止めるためのチェックリストである。変更対象に対応する
-`AP-*`を作業前、commit前、PR前に確認する。macro contextまたはresearchを書く場合も、対応する節を先に読む。
+この文書は、過去に実際に踏んだfailure classから、変更対象に応じたcommit前確認を行う検索可能な
+review checklistである。変更対象に対応する`AP-*`を作業前、commit前、PR前に確認し、全`AP-*`の
+全文読了は要求しない。macro contextまたはresearchを書く場合も、対応する節を先に読む。
 
 各節は次の順で読む。
 

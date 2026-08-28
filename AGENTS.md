@@ -8,8 +8,11 @@ Baibai Loop の運用作業を AI エージェントに任せるときの最小�
 - 構造・repository map・CLI/SQLite 契約: [`docs/architecture.md`](./docs/architecture.md)
 - 資本・ポジション管理: [`docs/portfolio-management.md`](./docs/portfolio-management.md)
 - 静的契約（artifact・式・data source・validation）: [`docs/reference/README.md`](./docs/reference/README.md)
-- 失敗パターンと再発防止: [`docs/anti-patterns.md`](./docs/anti-patterns.md)
 - active documentationの書き方: [`docs/README.md#document-writing-contract`](./docs/README.md#document-writing-contract)
+
+変更対象が確定したら、[`docs/anti-patterns.md`](./docs/anti-patterns.md) から変更domainに対応する
+`AP-*`だけを特定し、作業前・commit前・PR前に確認する。全`AP-*`の全文読了は要求しない。
+新しいdomain、複数domainを跨ぐ変更、またはfailure classを特定できない変更では、関連し得る節を広めに確認する。
 
 ## ローカルで完結させる
 
@@ -145,7 +148,9 @@ active documentationの所有・情報構造・意味保全は[`docs/README.md#d
 
 ## commit 前 / PR 前の self-review
 
-method / src / docs の変更を含む commit を作る前に、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の**全 active anti-pattern** のうち対応するもののチェックリストを通過させること（番号は追加され続けるので、ここでは範囲を列挙しない。`tools/quality/drift/check_anti_pattern_index.py` がこの参照の形を守る）。
+method / src / docs の変更を含む commit とPRの前に、作業前に特定した`AP-*`のchecklistを再確認する。
+該当節は `rg '^## .*AP-' docs/anti-patterns.md` などで探す。`tools/quality/drift/check_anti_pattern_index.py` は
+参照形式を検査するが、全文読了を要求するものではない。
 
 成分別の詳細チェックリスト:
 - macro context 編集時: [`docs/reference/macro.md`](./docs/reference/macro.md)

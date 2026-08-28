@@ -15,7 +15,9 @@ status: active
 - `research` 自動採用判定は対象外
 - `kabuステーション API` と `JPX Market Explorer` は source of truth に使わない
 
-## 2. Runtime
+<a id="2-runtime"></a>
+
+## 2. CLIと実行入口
 
 - Python 3.14（[`./python-foundation.md`](./python-foundation.md)）
 - package root: `engine/src/baibai_engine/screening/`
@@ -44,21 +46,53 @@ uv run baibai-engine screening verify-cache-coverage --asof YYYY-MM-DD [--sqlite
 uv run baibai-engine screening prune [--keep N] [--runs-db PATH]
 ```
 
+### `screening run`
+
+`screening run`は、SQLiteに保存済みの入力と指定したrulesから、immutableなrun revisionを作る。provider APIから入力を取得せず、必要なcoverageがなければ停止する。通常は`--asof`だけを指定し、historical backfillでlatest JPX snapshotを過去日に固定する場合だけ`--allow-stale-jpx`を明示する。exit codeは[§10](#10-exit-codes)を正本とする。
+
+### `select`
+
+出力とrankingの境界は[同commandの詳細](#select-output-ranking)にまとめる。
+
 `select` の `--run-revision-id` は必須で、`screening run` が返した immutable revision を指す。`--macro-context-id` は published macro context の ID（省略時は as-of 以前の latest eligible）で path ではない。`--longlist-top N` は diversity/cap 切断前の上位 N 件を longlist として出す。
+
+### `backfill-history`
 
 `backfill-history` は日次足・財務サマリー・営業日カレンダ・週次信用残高・報告空売り残高を、明示した窓に対して 1 回で取得する。`bootstrap-cache` は窓を as-of から導き、通常指標用の日次足 1200 日・財務サマリー 730 日に加えて、`normalized_per_3fy` の分割基準と 3 FY を確定する両 source の 2200 日 coverage を要求する。窓を 1 度名指しすれば 1 パスで済み、coverage が既存の窓と繋がる。source ごとに独立に取得して行ごとに結果を出し、1 つの失敗が残りを止めない。日次足・財務サマリー・空売り残高報告は暦年で区切って要求する。窓全体を 1 度に読むと 10 年分の行をメモリに載せることになるうえ、区切りを `--start` でなく暦に置けば、開始日の違う実行どうしが同じ chunk を再利用できる。日次足・財務サマリーとも被覆済みの chunk は skip するので、中断した実行は chunk 単位で再開する。被覆の判定材料は違い、日次足は保存行そのもの（DB が SSOT、後述 §11.1）、財務サマリーと空売り残高報告は `source_coverage` を読む。空売り残高報告は訂正を取り込むため直近7日だけ被覆済みでも再取得する。営業日カレンダは provider 呼び出し 1 回なので分割せず、再開の単位にもならない。日次足を先に取るのは、`backfill-master` の月末グリッドが bar store から導出されるためで、bars の無い月の snapshot はまだ要求できない。
 
+### `backfill-master`
+
 `backfill-master` は指定日の断面 master snapshot だけを取得する。較正 cohort が production evidence になるには population がその日の master から来る必要がある一方、`bootstrap-cache` は同時に最長 2200 日の bar / summary coverage も補完するため 1 日あたり数時間かかる。snapshot 自体は 1 request なので、月末グリッドを埋める経路をここに分ける。`--month-end-from/--month-end-to` は較正グリッドと同じ導出（bar store の月末営業日）を使い、cohort 日以外の日付を埋めて非 exact-date のまま残すことを防ぐ。1 日の取得失敗は残りの日付を止めず、失敗件数を stderr に出して非 0 で終わる。
+
+### cloud backfill
 
 `cloud-history-backfill` は pull 直後と backfill 終了後の `market.sqlite` SHA-256 を比較する。source failure があっても commit 済み chunk が増えた場合は `PRAGMA quick_check` 後に `publish-lake` → `push-market` の順で R2へ保存し、その後に元の非0を返す。lake 所有 17 table は、release へ載せる前の store は dehydrate に拒否される。storeが変わらないfailureはGB級objectを再uploadしない。再dispatchはR2へ保存済みのcoverage/rowsをpullするため、既存chunkを再取得しない。
 
+### `bootstrap-cache`
+
+履歴窓とchunk単位の再開は[`backfill-history`](#backfill-history)、JPXとmasterのsnapshot契約は直下の各項、停止条件は[`verify-cache-coverage`](#verify-cache-coverage)を参照する。
+
 `bootstrap-cache --asof` は `run --asof` が要求する source 別 input を自動で補完する。具体的には J-Quants master、通常指標用の日次足 1200 日・財務サマリー 730 日、`normalized_per_3fy` 用の両 source 2200 日 coverage、asof の営業日カレンダ、JPX の決算発表予定 snapshot と規制 snapshot を SQLite に書き込む。財務サマリーは日付 coverage に加え、exact as-of の普通株母集団に対する `shares_outstanding`、`treasury_shares`、`equity_to_asset_ratio` の 730 日窓内 population を検査する。market-cap / valuationの組合せは各fieldを開示日後の`adjustment_factor`でas-of株式基準へ揃え、自己株控除後株式数が正になるtickerだけを数える。各 field と market-cap 用2 field、valuation 用3 fieldの組合せが75%未満なら、欠損tickerが既に持つ開示日だけをrepair rangeとして再取得する。75% floorは銘柄固有の開示欠損を全履歴取得へ拡大せず、母集団規模の未投入を停止させる境界である。各 chunk は即時保存され、開始前に `resume_from` / `remaining_ranges`、保存完了ごとに `chunk i/n`、取得後に同じfield件数を表示するため、中断後は完了済み開示日を再計画から外せる。summary row自体が母集団の75%未満なら欠損tickerの開示日をSQLiteから特定できないため、730日窓を再取得する。
+
+#### earnings calendar snapshot
 
 決算発表予定は固定 90 日 range ではなく、JPX 公式 index に現在掲載されている全 cohort file の既知日程を合成する snapshot である。発表日は上場会社の都合で動くので cohort file 間の食い違いは正常であり、より current な view を持つ file の日付を採る。asof 以後の日付を 1 件も持たない file は forward な予定を持たないので、rolling file であっても最下位へ落とす（更新の止まった rolling file の過去日が、まだ予定として生きている日付を潰さない）。残りは「毎営業日更新の rolling file（`kessan.xlsx`）> 掲載日の新しい dated cohort file（`YYYY年M月D日現在` stamp）> 掲載日を読めない file」の順で、rolling file は stamp の有無でなく file 名で同定する。stamp の書式が変わっても古い cohort が current を騙れない。順位を付けられない file 同士は URL で決め、index の掲載順に依存しない。rolling file が index から消えた場合・複数ある場合と、dated cohort file の stamp を読めなかった場合は警告に出す。採らなかった日付は件数を snapshot の `superseded` として数え、勝った側と負けた側の source を警告に出し、`bootstrap-cache jpx snapshots` 行の `earnings_calendar_superseded` に載せる。SQLite の cache から読み戻した snapshot は merge をしていないので、この key は fetch した run にだけ出る（合成ゼロを印字しない）。同一 file 内で 1 銘柄が別日を持つ場合だけは source 破損として exit 1。`superseded` は正常事象なので coverage の `rejected`（壊れ行 = `partial`）とは別物として扱う。
 
+#### master snapshot
+
 J-Quants master は `get_eq_master(date=asof)` で requested as-of と同日の response だけを受理する。response 全行の `Date`、必須 field、normalized ticker の一意性、普通株 population を SQLite transaction 前に検証し、空・部分・別日 response は保存しない。snapshot は `(snapshot_date, ticker)` の日付別履歴として保持し、同日再取得だけを原子的に置換する。coverage は `get_eq_master:YYYY-MM-DD..YYYY-MM-DD`、`coverage_start == coverage_end == asof`、同日 persisted row count を正本とする。
 
+### `verify-cache-coverage`
+
 `verify-cache-coverage` は SQLite が `run --asof` で必要な全入力をローカルに提供できるかを read-only で検証する。検証対象は J-Quants master、通常指標用の日次足 1200 日・財務サマリー 730 日、`normalized_per_3fy` 用の両 source 2200 日 coverage、asof の営業日カレンダ、JPX の決算発表予定 snapshot と規制 snapshot、rules の `universe.required_jpx_flags` に含まれる source 名、EDINET metrics。財務サマリーは日付 coverage と独立にrequired-field populationを検証し、各field、`market_cap_required_fields`、`valuation_required_fields` の ticker件数を常に出力する。日付rangeがcompleteでもrequired-field floor未満なら `required-field:<name>@<asof>` を具体的な不足件数とともに返し、候補を全件nullのまま組み立てる前にexit 1とする。決算発表予定は論理 source `jpx_earnings_calendar` が `ok`、保存行数と coverage 件数が一致して 1 件以上、実データの最大日が asof 以後、取得が asof から 7 平日以内であることを要求する。`--allow-stale-jpx` は取得時刻だけを緩和し、空・部分保存・全件過去は許可しない。master は requested as-of のexact rowとcanonical coverageだけを照合し、range、status、row count、common-stock populationの一致を要求する。newer/prior snapshotを代用せず、別日snapshotの破損もrequested dateの判定へ混ぜない。日次足は SQLite 実データの行そのものから completeness を判定し（DB が SSOT、後述 §11.1）、財務サマリーは source_coverage の窓で判定する。`normalized_per_3fy` の追加窓も同じ authority で検証し、不足時に `null` や短い履歴へ黙って縮退しない。いずれも ticker/date 密度を追加で確認する。EDINET metrics は常に必須であり、raw JSON の読み込みや provider API 呼び出しは行わず、schema migration も行わない。不足があれば exit 1。
+
+### EDINET関連command
+
+- `extract-edinet-metrics`: この見出し直下の抽出・再利用契約
+- `refresh-buyback-reports`: 続く自己株券買付状況報告書の抽出・停止契約
+- `refresh-capital-control`: [資本配分・支配権イベント](#refresh-capital-control)
+- `backfill-edinet-identity`: [EDINET identityの補完](#backfill-edinet-identity)
+- `build-control-event-exits`: [支配権イベントの実現exit値](#build-control-event-exits)
 
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出して `stores/market/market.sqlite` に保存する。対象日以前の直近正常 snapshot と `(ticker, source_doc_id, document_type, source_submit_datetime, source_period_start, source_period_end, source_document_revision, extractor_revision)` が一致する row は解析済み metric を再利用し、新規・変更候補だけをdownloadする。`source_document_revision` は訂正・取下げ・開示状態を含むcanonical document eventのhashである。`extractor_revision` は抽出 entry point (`screening/cli/edinet_extract.py`) の import closure をfile単位で辿って自動導出する。導出なので、抽出経路が依存を得たり失ったりすると manifest がそれに追随し、依存の追加漏れでstale rowが生き残ることがない。entry point がこの1 commandだけを持つ moduleに居るのは、closureの広さがそのまま再構築の頻度になるためである — `bootstrap-cache` / `verify-cache-coverage` / `backfill-history` と同居していた頃は、それらが引く J-Quants・JPX・coverage の変更でも全件再取得が起きていた。manifestの実体は `tests/engine/test_edinet_revision.py` が両方向に固定する（値を決めうるmoduleが入っていること、決めえないmoduleが入っていないこと）。CSV ZIP 本体は再生成可能な cache として `.cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
@@ -86,6 +120,17 @@ current source state であり point-in-time ledger ではない。既存の
 `edinet_metrics(asof_date, ticker)` snapshot が過去 as-of の正本である。snapshot が
 ない過去 as-of の再抽出は実行時点の EDINET current source state を使い、観測前の
 修正前・取下げ前状態を再現するものではない。
+
+### selectionとread-only command
+
+この節はcommandごとに、`select`の出力・ranking境界、`shortlist outcome`の記述比較、
+`screening shortlist preflight`の再利用判定、`prune`の保持、`ticker-profile`の事実profile、
+`market-snapshot`のregime・sector集計の順で契約を置く。いずれもproviderから取得せず、保存済みの
+storeを読む。
+
+<a id="select-output-ranking"></a>
+
+#### `select`の出力とranking境界
 
 `select` は明示した`run_revision_id`のpublication viewからresearch recommendationsを出力する。macro contextはapplication DBからas-of以前のlatest eligible revisionを読む任意のcontext-level warningで、ranking、candidate facts、採用、投入額を変えない。不在時は`macro_context_missing`、stale時は`macro_context_stale`、future contextはerrorである。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、詳細は `--detail full` で出す。ranking の主キーは機械 E[r]（成分分解付き年率見積り）の降順（E[r] 欠損はValue / Carry Laneのranking対象外・従キーにEvidence Patternの優先順 + 割安強度）で、`candidate_diagnostics.durability`（塩漬け耐性）はannotationとしてResearch Gateへ渡す。`primary_evidence_pattern_id`はevidenceがある候補だけに付く機械annotationで、evidenceがない候補はnullのままLane Longlistへ入り得る。閾値変更は `method/screening/rules/` を編集して新しいrun/select revisionを作る。`research` の選定プロセス（skill `shortlist` / `research`）を支援する。
 
@@ -255,11 +300,15 @@ J-Quants の正確なレート制限は非公開で、挙動は実運用の観�
 
 過去 asof の cache 充足は「rate budget の回復を待つ」問題ではなく、**長期履歴 coverage を一度埋め切る wall-clock** の問題として扱う。1 asof ずつ長時間バックグラウンドで流し、resumable な性質を活かして複数セッションに跨いで充足させる。短い per-step timeout で kill するとその asof の coverage が未充足のまま `run` が fail-fast するため、kill せず完走させるか完了済み chunk から再開する。
 
+<a id="refresh-capital-control"></a>
+
 ## 資本配分・支配権イベントの typed fact
 
 価値実現の経路（いつ・誰が乖離を閉じるか）を機械 fact として持つ層。**ranking・E[r]・gate のいずれにも接続しない。** イベント delta 系の指標は 3y / 5y で negative であり（`reports/studies/2026-08-02-share-return-components-production/`）、東証開示率は Prime 94% / Standard 56% で開示の有無自体の弁別力は既に低い。判断は人間に残し、機械は日付つきの事実だけを供給する。
 
 `refresh-capital-control --asof` は 2 つの JPX source を読み直す。東証「資本コストや株価を意識した経営」開示企業一覧（`list.xlsx`）は当月シートと過去分シートを持つので、月次 point-in-time 系列として全シートを展開する。列位置はシートによって動く（開示内容の列が後から入り、コンタクト希望の列が右へずれた）ため、列は見出し語で解決する。JPX 上場廃止銘柄一覧は index と過去分アーカイブを合成する。両 source とも同じ月・同じ廃止日を再取得すれば同じ行になるので、繰り返し実行してよい。
+
+<a id="backfill-edinet-identity"></a>
 
 ### EDINET 様式コードと対象会社
 
@@ -284,6 +333,8 @@ EDINET code から ticker への解決は、同じ document list 履歴が観測
 - `tender_offer_event_recent` / `tender_offer_event_latest_on` — 同じく公開買付系提出
 
 `*_recent` の `null` は「言えない」状態であり、`false`（窓を観測して提出が無かった）と違う。言えないのは 3 つの場合で、(a) 窓の全日が identity 込みで観測されていない、(b) その銘柄の EDINET code が過去の提出から解決できない、(c) 対象会社を名指さない提出がその種別で窓にある。(c) は種別ごとに効き、もう一方の種別は答えられる。
+
+<a id="build-control-event-exits"></a>
 
 ### 支配権イベントの実現 exit 値
 
