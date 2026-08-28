@@ -1,6 +1,6 @@
 ---
-title: "Business-model research guide"
-summary: "個別銘柄researchでbusiness model固有の問いを選び、claimの一次性とissuerからの独立性を分けて検証するpilot guide。"
+title: "Business-model research"
+summary: "個別銘柄researchで事業モデル固有の問いを選び、claimの一次性とissuerからの独立性を分けて検証するpilot contract。"
 doc_type: reference
 status: active
 related_docs:
@@ -9,35 +9,53 @@ related_docs:
   - "../../method/research/playbooks/README.md"
 ---
 
-# Business-model research guide
+<a id="business-model-research-guide"></a>
 
-このguideは「なぜ安く見えるか」を扱うMachine Evidence Patternとは別に、「企業がどう稼ぎ、どのKPIと制約が5年価値を決めるか」を確認するためのpilot question lensである。business model分類そのものを投資根拠、screening条件、thesis fieldにせず、問いの抜けを減らすためだけに使う。pilot期間はoperation sessionで指定したprimary-research対象だけへ適用し、対象外へ一律に強制しない。
+# Business-model research
+
+## 目的と非目標
+
+この文書は、「企業がどう稼ぎ、どのKPIと制約が5年価値を決めるか」を確認するためのpilot用の質問レンズである。「なぜ安く見えるか」を扱うMachine Evidence Patternとは役割を分ける。
+
+事業モデルの分類そのものを投資根拠、screening条件、thesis fieldにはしない。質問の抜けを減らすためだけに使い、pilot期間はoperation sessionで指定したprimary-research対象だけへ適用する。対象外へ一律には強制しない。
 
 ## 適用手順
 
-1. research開始時に、5年base FVを最も左右するvalue-capture経路からprimary lensを1つ選び、理由を1〜2行で記録する。
-2. 複合modelで別segmentも5年評価を左右する場合だけsecondary lensを1つ選び、その節からmaterialな問いを追加する。売上区分だけで機械分類しない。
-3. primary lensの全required questionsと、secondary lensから選んだ全material questionsを確認し、各問を`answered / unknown / not_applicable`のいずれかにする。`not_applicable`にはbusiness modelの根拠sourceと理由、`unknown`には試したsourceとscenario・permanent-loss判断への影響を残す。
-4. 回答にはsource IDとclaim classを接続し、下記triangulation規約に従う。開示されないKPIを同業平均や推測で埋めない。
-5. どのpilot lensにも適合しない企業を無理に分類せず、skill `research` の共通確認へ戻る。pilot中にlensを追加せず、2〜3件の自然発生run後に維持・修正・撤回・拡張を別Issueで判断する。
+1. research開始時に、5年base FVを最も左右する価値獲得経路から主レンズを一つ選び、理由を1〜2行で記録する。
+2. 複合事業で別segmentも5年評価を左右する場合だけ、副レンズを一つ選ぶ。その節から重要な問いを追加し、売上区分だけで機械分類しない。
+3. 主レンズのrequired questionsをすべて確認する。副レンズでは、選んだmaterial questionsをすべて確認する。各問は`answered / unknown / not_applicable`のいずれかにする。
+4. 回答にはsource IDとclaim classを接続し、後述するsourceの独立性とclaim class別の要求に従う。開示されないKPIを同業平均や推測で埋めない。
+5. どのpilotレンズにも適合しない企業を無理に分類せず、skill `research`の共通確認へ戻る。pilot中にレンズを追加しない。自然に発生した2〜3件のrun後に、維持・修正・撤回・拡張を別Issueで判断する。
 
-findingsでは`answered`を既存の`domain_findings`へ置き、question IDを`heading`、回答とlens適合理由を`conclusion`、根拠を`evidence.statement / kind / source_ids`へ置く。`not_applicable`もbusiness modelの根拠sourceを持つ`domain_findings`として、理由を`conclusion`に明記する。部分回答は確認できた部分だけを`domain_findings`へ置き、未確認部分を`unknowns`へ分ける。source取得不能時は偽のevidenceを作らず、`unknowns`へ`<question_id>: unknown — attempted source / decision impact`として置く。`answered / unknown / not_applicable`、source role、claim class、load-bearing、triangulation statusはguide上のreview語彙であり、新しいYAML field、enum、schema、artifactにしない。必要な区分は既存の`conclusion`、`evidence.statement`、`unknowns`、thesis sourceの`used_for`へ文章で残す。
+## Findingsへの記録
 
-## Claim triangulation
+- `answered`: 既存の`domain_findings`へ置く。question IDは`heading`、回答とレンズの適合理由は`conclusion`、根拠は`evidence.statement / kind / source_ids`へ置く。
+- `not_applicable`: 事業モデルの根拠sourceを持つ`domain_findings`として、理由を`conclusion`に明記する。
+- 部分回答: 確認できた部分だけを`domain_findings`へ置き、未確認部分を`unknowns`へ分ける。
+- `unknown`: 試したsourceと、scenarioおよびpermanent-loss判断への影響を残す。sourceを取得できない場合も偽のevidenceを作らず、`unknowns`へ`<question_id>: unknown — attempted source / decision impact`として置く。
 
-### 一次性と独立性
+`answered / unknown / not_applicable`、source role、claim class、`load-bearing`、triangulation statusは、この文書で使うreview語彙である。新しいYAML field、enum、schema、artifactにはしない。必要な区分は、既存の`conclusion`、`evidence.statement`、`unknowns`、thesis sourceの`used_for`へ文章で残す。
 
-sourceの一次性とissuerからの独立性は別軸である。
+<a id="claim-triangulation"></a>
+<a id="一次性と独立性"></a>
+
+## Sourceの一次性とissuerからの独立性
+
+sourceの一次性とissuerからの独立性は、別々に判定する。
 
 - **issuer-primary**: 有価証券報告書、決算資料、適時開示、製品資料など、対象企業が直接公表したsource。
-- **independent-primary**: 規制当局・取引所自身の調査・認定・処分・統計、政府統計、顧客やpartnerが自身の観測として公表した事実、公共調達記録、platform運営者自身のdataなど、claim対象を対象企業以外が直接作成したsource。URL hostではなくclaimの作成主体・originで判定する。
+- **independent-primary**: 規制当局・取引所自身の調査・認定・処分・統計、政府統計、顧客やpartnerが自身の観測として公表した事実、公共調達記録、platform運営者自身のdataなど、claim対象を対象企業以外が直接作成したsource。URL hostではなく、claimを作成した主体とoriginで判定する。
 - **independent-secondary**: 出所と方法が確認できる業界統計・調査・事実報道。一次sourceの代替ではなく、外部claimの相互検算に使う。
 
-issuerが作成してEDINET/TDnet/JPX経由で配布した文書はissuer-primaryかつ同じissuer familyであり、hostが規制当局・取引所でも独立sourceにならない。対象企業のWeb siteに転載された顧客事例、対象企業が作成・sponsorしたsurvey、販売代理店だけの紹介、共同文面・issuer提供数値・同一press kitの再掲はissuerまたはcoordinated familyとして扱う。customer/partner sourceがindependent-primaryになり得るのは、その組織が直接観測・管理する事実を自身の責任で公表する範囲だけである。競合企業の資料は、その競合自身の価格・製品・行動には一次sourceだが、対象企業の優位性を中立に証明しない。
+issuerが作成し、EDINET / TDnet / JPX経由で配布した文書は`issuer-primary`であり、同じissuer familyに属する。hostが規制当局や取引所でも、独立sourceにはならない。
 
-### Claim class別の要求
+対象企業のWeb siteに転載された顧客事例、対象企業が作成またはsponsorしたsurvey、販売代理店だけの紹介、共同文面、issuer提供数値、同じpress kitの再掲は、issuerまたはcoordinated familyとして扱う。customer / partner sourceを`independent-primary`として扱えるのは、その組織が直接観測・管理する事実を、自身の責任で公表する範囲だけである。競合企業の資料は、その競合自身の価格・製品・行動には一次sourceだが、対象企業の優位性を中立に証明するものではない。
 
-各claimはさらに`load-bearing / supporting`を区別する。claimが変わるとpermanent-loss結論、base scenario/FV、selected ticker、`buy / defer / reject`、sizingまたはhuman override要否のいずれかが変わる場合はload-bearingである。独立裏取りはload-bearingな外部状態・需要・競争優位・因果・pipeline成功claimへ要求し、全記述を機械的に二重source化しない。
+## Claim class別の要求
+
+各claimは`load-bearing / supporting`を区別する。claimが変わることで、permanent-loss結論、base scenario / FV、selected ticker、`buy / defer / reject`、sizing、human overrideの要否のいずれかが変わる場合は`load-bearing`である。
+
+独立した裏取りは、外部状態、需要、競争優位、因果、pipeline成功についての`load-bearing`なclaimに要求する。すべての記述へ機械的に二つのsourceを要求するものではない。
 
 | claim class | issuer-primaryで確定できる範囲 | 独立裏取り | 記録上の境界 |
 | --- | --- | --- | --- |
@@ -56,7 +74,7 @@ issuerが作成してEDINET/TDnet/JPX経由で配布した文書はissuer-primar
 
 独立sourceはclaimとsubject、population、期間、地域、metricが一致する範囲だけを支持する。単一customer事例はそのcustomerでの導入事実、partner公表は関係の存在と公表範囲、platform指標は当該platform・cohort・期間の観測だけをcorroborateできる。複数事例への一般化、継続率、pricing power、市場全体の需要、hit確率は母集団dataが無ければestimateのまま保守的scenarioへ置く。矛盾するsourceは都合のよい方だけを採用せず、解消できなければunknownへ戻す。
 
-### Unknown・blocked・defer
+## Unknown / blocked / defer
 
 - issuer発表を確認できた内容は`management_claim`として残す。独立裏取りを必要とするload-bearing claimに適切な独立sourceが無い場合、claimを削除したり`kind: unknown`を作らず、独立裏取り未了とdecision impactを`conclusion`または`unknowns`へ残す。issuer発表自体も確認できない内容だけをunknownとする。issuer-primaryで確定できる過去の公表値は、その値と因果解釈を分離できていればunknownへ戻さない。
 - required questionに回答できないcheckは`blocked`としてよい。`blocked`は個別checkの状態で、laneのdispositionではない。check未完のlaneは`research`に留め、自動的に`reject`へ変えない。

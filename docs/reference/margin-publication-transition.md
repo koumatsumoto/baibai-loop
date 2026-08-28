@@ -1,3 +1,10 @@
+---
+title: "信用取引残高の公表制度変更"
+summary: "2026-09-28の公表制度変更に伴うsource境界、activation、連続性の契約。"
+doc_type: reference
+status: active
+---
+
 # 信用取引残高の公表制度変更契約（2026-09-28）
 
 ## 1. 目的
@@ -5,6 +12,10 @@
 JPX の信用取引残高は 2026-09-28 に公表粒度が変わる。L1 store は変更前後のデータを別 table・
 別 balance date 域として保持し、指標側は「どちらの series がその balance date を公表したか」を
 明示して読む。本書は公表日、balance date、対象母集団を区別する取込契約の正本である。
+
+本書は§6の固定語義と制度切替の不変条件を恒久的に所有するactive referenceである。#973の全完了条件を
+満たした後に整理できるのはtransition固有の手順だけであり、stableなsource契約を別文書へ移して正本を
+分けない。移行手順をhistorical evidenceへ移すかは、その時点で改めて判断する。
 
 ## 2. 公式日程
 

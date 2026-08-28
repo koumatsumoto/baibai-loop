@@ -44,16 +44,23 @@ Baibai Loop スクリーニングで使う valuation 指標の算出仕様とデ
 
 ### 2.4 会社予想の一時益 data-quality flag
 
-- 会社予想で **予想当期純利益 > 予想経常利益**（両方存在時）なら `forecast_special_gain` flag を立てる。税負担が通常正である以上、純利益>経常は特別益（事業売却益など）の存在をほぼ確定する 1 行チェック。純利益/経常は `forecast_eps` と同一予想期のペアで比較する。
-- 一時益で嵩上げされた forward PER・予想配当利回り・機械 E[r] carry の value trap を判断前に表面化させる **warning annotation** であり、ranking・E[r]・既存指標の計算は変えない（doctrine の warning/annotation 境界）。candidate metrics（`forecast_special_gain_flag`）・selection longlist の `event_warnings`・UI の `一時益予想` badge に出す。持続ベースへの補正（forecast 純利益を経常ベースへ丸める等）は方法変更のため [`estimate-calibration.md`](./estimate-calibration.md) の運用契約で事前登録して評価する。
+**判定:** 会社予想で**予想当期純利益 > 予想経常利益**（両方存在時）なら、`forecast_special_gain` flagを立てる。税負担が通常正である以上、純利益 > 経常利益は特別益（事業売却益など）の存在をほぼ確定する1行checkである。純利益と経常利益は、`forecast_eps`と同じ予想期の組で比較する。
+
+**用途:** 一時益で嵩上げされたforward PER、予想配当利回り、機械E[r] carryによるvalue trapを判断前に表面化するwarning annotationである。candidate metricsの`forecast_special_gain_flag`、selection longlistの`event_warnings`、UIの`一時益予想` badgeに出す。
+
+**非目標:** ranking、E[r]、既存指標の計算は変えない。これはdoctrineのwarning / annotation境界に従う。
+
+**変更する場合:** forecast純利益を経常ベースへ丸めるなど、持続ベースへ補正する場合は方法変更となる。[`estimate-calibration.md`](./estimate-calibration.md)の運用契約で事前登録して評価する。
 
 ### 2.5 会社予想の通期赤字 annotation
 
-- 会社予想の**予想経常利益または予想当期純利益が負**なら `forecast_full_year_loss` flag を立てる。片方しか開示されない期があるので or で見る。予想が 1 つも無い行は False に置き、欠損を黒字予想へ畳まない。
-- 赤字予想は `forecast_eps` を負にするため forward PER が引けず、FV アンカーが**自己履歴 PBR だけ**に落ちる。その PBR レンジは黒字だった時代に市場が許容した倍率なので、収益基盤が構造的に縮んだ銘柄では帳簿だけが残って implied upside が膨らむ。
-- **除外でも減衰でもなく annotation にする。** 一過性の赤字（引当・減損）と構造的な縮小を機械では区別できないためであり、判定は一次開示を読む research が持つ。実測でも上位占有は起きていない — 2026-08-04 / 08-05 の longlist 20 件で該当は各 1 件（母集団 3,709 件中 119 件 = 3.2%）。
-- reversion の機械的な減衰は E[r] を動かす方法変更なので、[`estimate-calibration.md`](./estimate-calibration.md) の運用契約で事前登録し、赤字予想 cohort の forward 成績を較正 panel で測ってから判断する（現行 panel は forecast 系列を持たないため再構築が要る）。
-- candidate metrics（`forecast_full_year_loss_flag`）と selection longlist の `event_warnings` に出す。
+**判定:** 会社予想の**予想経常利益または予想当期純利益が負**なら、`forecast_full_year_loss` flagを立てる。片方しか開示されない期があるためORで判定する。予想が一つもない行はFalseに置き、欠損を黒字予想へ畳まない。
+
+**用途:** candidate metricsの`forecast_full_year_loss_flag`とselection longlistの`event_warnings`に出す。赤字予想は`forecast_eps`を負にするためforward PERが引けず、FV anchorが**自己履歴PBRだけ**に落ちる。そのPBR rangeは黒字だった時代に市場が許容した倍率なので、収益基盤が構造的に縮んだ銘柄では帳簿だけが残り、implied upsideが膨らむ。
+
+**非目標:** 除外にも減衰にも使わず、annotationにする。一過性の赤字（引当・減損）と構造的な縮小を機械では区別できないため、一次開示を読むresearchが判定する。実測でも上位占有は起きていない。2026-08-04 / 08-05のlonglist 20件では該当が各1件だった（母集団3,709件中119件 = 3.2%）。
+
+**変更する場合:** reversionを機械的に減衰する場合はE[r]を動かす方法変更となる。[`estimate-calibration.md`](./estimate-calibration.md)の運用契約で事前登録し、赤字予想cohortのforward成績を較正panelで測ってから判断する。現行panelはforecast系列を持たないため、再構築が必要である。
 
 ## 3. Trailing PER の算出
 
