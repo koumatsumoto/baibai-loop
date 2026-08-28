@@ -21,15 +21,15 @@ related_docs:
 
 ## 適用手順
 
-1. research開始時に、5年base FVを最も左右する価値獲得経路から主レンズを一つ選び、理由を1〜2行で記録する。
-2. 複合事業で別segmentも5年評価を左右する場合だけ、副レンズを一つ選ぶ。その節から重要な問いを追加し、売上区分だけで機械分類しない。
-3. 主レンズのrequired questionsをすべて確認する。副レンズでは、選んだmaterial questionsをすべて確認する。各問は`answered / unknown / not_applicable`のいずれかにする。
+1. research開始時に、5年base FVを最も左右する価値獲得経路から主要観点を一つ選び、理由を1〜2行で記録する。
+2. 複合事業で別segmentも5年評価を左右する場合だけ、補助観点を一つ選ぶ。その節から重要な問いを追加し、売上区分だけで機械分類しない。
+3. 主要観点の必須の確認事項をすべて確認する。補助観点では、選んだ重要な確認事項をすべて確認する。各問は`answered / unknown / not_applicable`のいずれかにする。
 4. 回答にはsource IDとclaim classを接続し、後述するsourceの独立性とclaim class別の要求に従う。開示されないKPIを同業平均や推測で埋めない。
 5. どの試行観点にも適合しない企業を無理に分類せず、skill `research`の共通確認へ戻る。試行中に観点を追加しない。自然に発生した2〜3件のrun後に、維持・修正・撤回・拡張を別Issueで判断する。
 
-## Findingsへの記録
+## 調査結果の記録
 
-- `answered`: 既存の`domain_findings`へ置く。question IDは`heading`、回答とレンズの適合理由は`conclusion`、根拠は`evidence.statement / kind / source_ids`へ置く。
+- `answered`: 既存の`domain_findings`へ置く。question IDは`heading`、回答と観点の適合理由は`conclusion`、根拠は`evidence.statement / kind / source_ids`へ置く。
 - `not_applicable`: 事業モデルの根拠sourceを持つ`domain_findings`として、理由を`conclusion`に明記する。
 - 部分回答: 確認できた部分だけを`domain_findings`へ置き、未確認部分を`unknowns`へ分ける。
 - `unknown`: 試したsourceと、scenarioおよびpermanent-loss判断への影響を残す。sourceを取得できない場合も偽のevidenceを作らず、`unknowns`へ`<question_id>: unknown — attempted source / decision impact`として置く。
@@ -77,7 +77,7 @@ issuerが作成し、EDINET / TDnet / JPX経由で配布した文書は`issuer-p
 ## `unknown` / `blocked` / `defer`の扱い
 
 - issuer発表を確認できた内容は`management_claim`として残す。独立裏取りを必要とするload-bearing claimに適切な独立sourceが無い場合、claimを削除したり`kind: unknown`を作らず、独立裏取り未了とdecision impactを`conclusion`または`unknowns`へ残す。issuer発表自体も確認できない内容だけをunknownとする。issuer-primaryで確定できる過去の公表値は、その値と因果解釈を分離できていればunknownへ戻さない。
-- required questionに回答できないcheckは`blocked`としてよい。`blocked`は個別checkの状態で、laneのdispositionではない。check未完のlaneは`research`に留め、自動的に`reject`へ変えない。
+- 必須の確認事項に回答できないcheckは`blocked`としてよい。`blocked`は個別checkの状態で、laneのdispositionではない。check未完のlaneは`research`に留め、自動的に`reject`へ変えない。
 - 独立裏取りが必要なload-bearing claimをissuer familyだけで支える場合、claimは`management_claim`またはestimateのまま、canonical thesisの`judgment.confidence`は最大`medium`とし、そのpositive claimを無条件にbase/FVへ入れない。sourceが矛盾し未解決なら同confidenceを`low`とする。findingsのconfidenceはthesisを上回らず、HTML前content reviewの`primary source traceability`と`countercase and unknowns`で両者を照合する。
 - unresolved claimが、割安と構造的毀損の区別、永久損失軸、またはrequired 5y returnを満たすscenarioの成立にload-bearingで、保守的な範囲も置けない場合だけ購入判断を`defer`する。
 - unknownをbear caseへ保守的に置いても十分な余裕があり、他の一次sourceでpermanent lossを評価できる場合は、confidenceとmonitoring triggerを明示して比較を続けてよい。
