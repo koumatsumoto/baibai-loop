@@ -13,7 +13,7 @@ status: active
 
 - 対象は screening runの自動生成と、`research` 選定を補助する `select` まで
 - `research` 自動採用判定は対象外
-- `kabuステーション API` と `JPX Market Explorer` は source of truth に使わない
+- `kabuステーション API` と `JPX Market Explorer` は正本に使わない
 
 <a id="2-runtime"></a>
 
@@ -64,7 +64,9 @@ uv run baibai-engine screening prune [--keep N] [--runs-db PATH]
 
 `backfill-master` は指定日の断面 master snapshot だけを取得する。較正 cohort が production evidence になるには population がその日の master から来る必要がある一方、`bootstrap-cache` は同時に最長 2200 日の bar / summary coverage も補完するため 1 日あたり数時間かかる。snapshot 自体は 1 request なので、月末グリッドを埋める経路をここに分ける。`--month-end-from/--month-end-to` は較正グリッドと同じ導出（bar store の月末営業日）を使い、cohort 日以外の日付を埋めて非 exact-date のまま残すことを防ぐ。1 日の取得失敗は残りの日付を止めず、失敗件数を stderr に出して非 0 で終わる。
 
-### cloud backfill
+### cloud backfillのfailure semantics
+
+dispatch、成功確認、部分失敗時の復旧は[`batch/OPERATIONS.md`のMarket履歴手順](../../batch/OPERATIONS.md#market履歴)を正本とする。ここではworkflowがscreening入力用の`market.sqlite`へ与える意味だけを定義する。
 
 `cloud-history-backfill` は pull 直後と backfill 終了後の `market.sqlite` SHA-256 を比較する。source failure があっても commit 済み chunk が増えた場合は `PRAGMA quick_check` 後に `publish-lake` → `push-market` の順で R2へ保存し、その後に元の非0を返す。lake 所有 17 table は、release へ載せる前の store は dehydrate に拒否される。storeが変わらないfailureはGB級objectを再uploadしない。再dispatchはR2へ保存済みのcoverage/rowsをpullするため、既存chunkを再取得しない。
 

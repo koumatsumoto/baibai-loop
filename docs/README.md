@@ -31,6 +31,7 @@ status: active
 | operation | triggerをどの順で進め、どこで停止するか | [`.agents/skills/`](../.agents/skills/) |
 | architecture | layer・責務・依存・store authority・無人経路の停止条件 | [`architecture.md`](./architecture.md)、[`failure policy`](./architecture.md#failure-policy) |
 | reference | artifact・式・artifact固有のerror / warningの意味 | [`reference/README.md`](./reference/README.md) |
+| review checklist | 過去のfailure classと変更対象別のcommit前停止条件 | [`anti-patterns.md`](./anti-patterns.md) |
 | machine contract | field・type・enum・optionの厳密な形 | DB constraint、engine model、public `--help` |
 | historical evidence | 当時の入力・判断・結果 | `reports/studies/`、`reports/operations/` |
 

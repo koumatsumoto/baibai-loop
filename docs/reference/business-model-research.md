@@ -1,6 +1,6 @@
 ---
-title: "Business-model research"
-summary: "個別銘柄researchで事業モデル固有の問いを選び、claimの一次性とissuerからの独立性を分けて検証するpilot contract。"
+title: "事業モデル別リサーチ"
+summary: "個別銘柄のresearchで事業モデル固有の問いを選び、主張の一次性とissuerからの独立性を分けて検証する試行契約。"
 doc_type: reference
 status: active
 related_docs:
@@ -11,13 +11,13 @@ related_docs:
 
 <a id="business-model-research-guide"></a>
 
-# Business-model research
+# 事業モデル別リサーチ
 
 ## 目的と非目標
 
-この文書は、「企業がどう稼ぎ、どのKPIと制約が5年価値を決めるか」を確認するためのpilot用の質問レンズである。「なぜ安く見えるか」を扱うMachine Evidence Patternとは役割を分ける。
+この文書は、「企業がどう稼ぎ、どのKPIと制約が5年価値を決めるか」を確認するための試行用の観点である。「なぜ安く見えるか」を扱う`Evidence Pattern`とは役割を分ける。
 
-事業モデルの分類そのものを投資根拠、screening条件、thesis fieldにはしない。質問の抜けを減らすためだけに使い、pilot期間はoperation sessionで指定したprimary-research対象だけへ適用する。対象外へ一律には強制しない。
+事業モデルの分類そのものを投資根拠、screening条件、thesis fieldにはしない。質問の抜けを減らすためだけに使い、試行期間はoperation sessionで指定したprimary-research対象だけへ適用する。対象外へ一律には強制しない。
 
 ## 適用手順
 
@@ -25,7 +25,7 @@ related_docs:
 2. 複合事業で別segmentも5年評価を左右する場合だけ、副レンズを一つ選ぶ。その節から重要な問いを追加し、売上区分だけで機械分類しない。
 3. 主レンズのrequired questionsをすべて確認する。副レンズでは、選んだmaterial questionsをすべて確認する。各問は`answered / unknown / not_applicable`のいずれかにする。
 4. 回答にはsource IDとclaim classを接続し、後述するsourceの独立性とclaim class別の要求に従う。開示されないKPIを同業平均や推測で埋めない。
-5. どのpilotレンズにも適合しない企業を無理に分類せず、skill `research`の共通確認へ戻る。pilot中にレンズを追加しない。自然に発生した2〜3件のrun後に、維持・修正・撤回・拡張を別Issueで判断する。
+5. どの試行観点にも適合しない企業を無理に分類せず、skill `research`の共通確認へ戻る。試行中に観点を追加しない。自然に発生した2〜3件のrun後に、維持・修正・撤回・拡張を別Issueで判断する。
 
 ## Findingsへの記録
 
@@ -39,7 +39,7 @@ related_docs:
 <a id="claim-triangulation"></a>
 <a id="一次性と独立性"></a>
 
-## Sourceの一次性とissuerからの独立性
+## 情報源の一次性とissuerからの独立性
 
 sourceの一次性とissuerからの独立性は、別々に判定する。
 
@@ -51,7 +51,7 @@ issuerが作成し、EDINET / TDnet / JPX経由で配布した文書は`issuer-p
 
 対象企業のWeb siteに転載された顧客事例、対象企業が作成またはsponsorしたsurvey、販売代理店だけの紹介、共同文面、issuer提供数値、同じpress kitの再掲は、issuerまたはcoordinated familyとして扱う。customer / partner sourceを`independent-primary`として扱えるのは、その組織が直接観測・管理する事実を、自身の責任で公表する範囲だけである。競合企業の資料は、その競合自身の価格・製品・行動には一次sourceだが、対象企業の優位性を中立に証明するものではない。
 
-## Claim class別の要求
+## 主張区分ごとの証拠要件
 
 各claimは`load-bearing / supporting`を区別する。claimが変わることで、permanent-loss結論、base scenario / FV、selected ticker、`buy / defer / reject`、sizing、human overrideの要否のいずれかが変わる場合は`load-bearing`である。
 
@@ -74,7 +74,7 @@ issuerが作成し、EDINET / TDnet / JPX経由で配布した文書は`issuer-p
 
 独立sourceはclaimとsubject、population、期間、地域、metricが一致する範囲だけを支持する。単一customer事例はそのcustomerでの導入事実、partner公表は関係の存在と公表範囲、platform指標は当該platform・cohort・期間の観測だけをcorroborateできる。複数事例への一般化、継続率、pricing power、市場全体の需要、hit確率は母集団dataが無ければestimateのまま保守的scenarioへ置く。矛盾するsourceは都合のよい方だけを採用せず、解消できなければunknownへ戻す。
 
-## Unknown / blocked / defer
+## `unknown` / `blocked` / `defer`の扱い
 
 - issuer発表を確認できた内容は`management_claim`として残す。独立裏取りを必要とするload-bearing claimに適切な独立sourceが無い場合、claimを削除したり`kind: unknown`を作らず、独立裏取り未了とdecision impactを`conclusion`または`unknowns`へ残す。issuer発表自体も確認できない内容だけをunknownとする。issuer-primaryで確定できる過去の公表値は、その値と因果解釈を分離できていればunknownへ戻さない。
 - required questionに回答できないcheckは`blocked`としてよい。`blocked`は個別checkの状態で、laneのdispositionではない。check未完のlaneは`research`に留め、自動的に`reject`へ変えない。
@@ -83,13 +83,13 @@ issuerが作成し、EDINET / TDnet / JPX経由で配布した文書は`issuer-p
 - unknownをbear caseへ保守的に置いても十分な余裕があり、他の一次sourceでpermanent lossを評価できる場合は、confidenceとmonitoring triggerを明示して比較を続けてよい。
 - `reject`は欠損そのものではなく、確認できた事実と保守的scenarioが恒久毀損または必要利回り不足を示す場合に使う。
 
-## Pilot 1 — 継続契約software / data
+## 試行1 — 継続契約software / data
 
-### Value-capture経路
+### 価値獲得の経路
 
 契約継続、利用拡大、価格改定がrecurring revenueと粗利へ届き、獲得・導入・hosting費用を差し引いたcashが一株価値になるmodel。SaaS、期間license、保守、data subscriptionを同一視せず、収益認識と解約可能性を分ける。
 
-### Required questions
+### 必須の確認事項
 
 1. `recurring.revenue_boundary`: 何がsubscription、license、保守、従量課金、導入serviceで、売上・粗利の構成はどう違うか。
 2. `recurring.retention`: 更新率、解約率、NRR/GRR、契約継続年数のどれが開示され、対象customer・期間・分母は一貫しているか。
@@ -109,17 +109,17 @@ recurring売上・粗利比率、ARR/MRR、NRR/GRR、logo/売上churn、ARPU/sea
 - ARR、RPO、受注残、契約負債を同じものとして扱い、将来売上と将来cashを二重計上する。
 - customer数やseat増を、ARPU低下・無償枠・acquisitionを分けずorganic growthとする。
 
-### Blocked / defer条件
+### `blocked` / `defer`の条件
 
 retentionまたはrecurring境界がunknownなのに継続率がFVの主要根拠、serviceとsoftwareのmarginを分けられずoperating leverageを評価不能、大口解約・platform依存がpermanent-loss判断を左右する場合は該当checkをblockedとする。購入判断は、そのunknownがload-bearingで、ゼロ成長・margin低下などの保守的な範囲も置けない場合だけdeferする。
 
-## Pilot 2 — 人員依存project / outsourcing
+## 試行2 — 人員依存project / outsourcing
 
-### Value-capture経路
+### 価値獲得の経路
 
 受注、稼働人員、単価、稼働率、delivery品質が売上とproject marginへ届き、採用・賃上げ・外注・手戻り・運転資金を差し引いたcashが一株価値になるmodel。請負、準委任、派遣、managed service/BPOを分ける。
 
-### Required questions
+### 必須の確認事項
 
 1. `people.contract_mix`: 固定価格、time-and-material、派遣、成果報酬、recurring managed serviceの構成とrisk負担はどう違うか。
 2. `people.orders_conversion`: 受注、backlog、book-to-billはどの期間の売上へ転換し、取消・scope変更・検収条件は何か。
@@ -139,17 +139,17 @@ retentionまたはrecurring境界がunknownなのに継続率がFVの主要根�
 - 人員増を即時の売上capacity増とみなし、採用費、training、bench、離職を落とす。
 - 「DX需要が強い」という市場claimだけで、対象企業の受注・単価・margin・cash conversionを確認せず成長を置く。
 
-### Blocked / defer条件
+### `blocked` / `defer`の条件
 
 受注/backlogと売上のreconciliationが不明、headcount・単価・稼働率・labor costのうちgrowth/marginを説明する材料が無い、契約資産や不採算projectが急増しcash回収と損失上限を評価できない場合は該当checkをblockedとし、5年scenarioを保守的にも置けなければ購入判断をdeferする。
 
-## Pilot 3 — IP / live-service / hit portfolio
+## 試行3 — IP / live-service / hit portfolio
 
-### Value-capture経路
+### 価値獲得の経路
 
 既存IPの継続課金・updateと、新作・新地域・新platformのlaunchが売上へ届き、開発・運営・marketing・platform fee・royaltyを差し引いたportfolio cashが一株価値になるmodel。既存live-serviceのdurabilityと未発売titleのoption valueを分け、単一hitを通常収益力へ外挿しない。
 
-### Required questions
+### 必須の確認事項
 
 1. `content.existing_cohorts`: 既存title/IPごとの売上、payer/active user、retention、ARPU、地域・platform、経過年数をどこまで分けられるか。
 2. `content.flow_durability`: update cadence、content backlog、運営team、community、seasonalityが既存flow収益とmarginを何年支え得るか。
@@ -169,10 +169,10 @@ title/IP別売上、MAU/DAU、payer数・payer率、ARPU/ARPPU、retention、boo
 - test参加者、wishlist、事前登録をpaid userや長期retentionと同一視し、blockbuster成功確率を過大評価する。
 - 単一hitのpeak売上・marginをportfolioの正常収益へ外挿し、既存title減衰と次作失敗を同時に置かない。
 
-### Blocked / defer条件
+### `blocked` / `defer`の条件
 
 既存titleだけのflow収益と固定費耐性を評価できない、未発売pipeline成功を除くとrequired returnを満たさないのにstage・cost・独立需要evidenceがunknown、または上位IP/license/platform契約の終了条件がunknownなら該当checkをblockedとする。購入判断は、そのunknownがload-bearingで、pipeline価値ゼロ・既存title減衰・margin低下などの保守的な範囲も置けない場合だけdeferする。未発売titleを除いた既存flowで事業継続と十分な価値を支えられるなら、pipelineをbull/optionに限定して比較を続けてよい。
 
-## Pilotの見直し
+## 試行の見直し
 
-次回以降の自然発生researchから2〜3件で、共通checklistと比べて新たに立った問い、残ったunknown、scenario/FVまたはdispositionへの影響、追加負担をoperation sessionへ残す。確認のために候補選定、research、売買を強制せず、`buy / reject / defer / no actionable bargain`をすべて正常結果とする。1件だけで投資精度の改善を断定せず、pilot lensが問いを増やすだけで判断を変えない場合は、項目追加より削減・統合・撤回を優先する。
+次回以降の自然発生researchから2〜3件で、共通checklistと比べて新たに立った問い、残ったunknown、scenario/FVまたはdispositionへの影響、追加負担をoperation sessionへ残す。確認のために候補選定、research、売買を強制せず、`buy / reject / defer / no actionable bargain`をすべて正常結果とする。1件だけで投資精度の改善を断定せず、試行観点が問いを増やすだけで判断を変えない場合は、項目追加より削減・統合・撤回を優先する。

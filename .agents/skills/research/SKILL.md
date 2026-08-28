@@ -33,7 +33,7 @@ uv run baibai-engine research prepare \
 各 case で次を行う。
 
 1. `research thesis-scaffold` で thesis を作る。
-2. 会社 IR、EDINET、決算資料などの一次資料で load-bearing claim を調べる。検索 snippet、二次情報、外部 AI 出力を観測事実にしない。playbook は `applies_to_opportunity_lane_ids` / `applies_to_evidence_pattern_ids` の明示 mapping だけを使い、同名 slug から implicitに対応を推測しない。Business Guides は指定 playbook の補助に限る。
+2. 会社 IR、EDINET、決算資料などの一次資料で load-bearing claim を調べる。検索 snippet、二次情報、外部 AI 出力を観測事実にしない。playbook は `applies_to_opportunity_lane_ids` / `applies_to_evidence_pattern_ids` の明示 mapping だけを使い、同名 slug から implicitに対応を推測しない。[事業モデル別リサーチ](../../../docs/reference/business-model-research.md)は指定 playbook の補助に限る。
 3. checklist は [Research Playbooks](../../../method/research/playbooks/README.md#work-state) の作業状態として更新する。証拠が得られなくても調査が終わり、unknown / defer を記録した項目は `complete` であり、verified とは書かない。
 4. scenario arithmetic、seven axes、countercase を埋める。macro と E[r] は context であり単独 gate にしない。採用・適用外・陳腐化の判断を scenario assumption または `screening_fv_bridge.note` に残す。
 5. `research evaluate` を実行し、`buy` で review が未作成の場合の review 要求を除く error を 0 にする。
