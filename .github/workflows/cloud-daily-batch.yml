@@ -8,8 +8,8 @@ run-name: "daily ${{ inputs.asof || '' }}"
 on:
   schedule:
     # 16:43 JST. The only same-day requirement is the J-Quants daily-price update,
-    # published around 16:30 JST, which `asof = today` depends on; the run keeps 13
-    # minutes of margin. The JPX regulation pages are event-driven status pages the
+    # published around 16:30 JST, which the scheduled target day depends on; the run
+    # keeps 13 minutes of margin. The JPX regulation pages are event-driven status pages the
     # coverage gate accepts for 7 business days, and the margin balances are weekly,
     # so neither needs the evening refresh — a designation landing after this run is
     # picked up the next business day.
@@ -159,7 +159,9 @@ jobs:
           MANUAL_ASOF: ${{ steps.validate-input.outputs.asof }}
         run: |
           args=(--output-dir "$RUNNER_TEMP/serving" --notice-output "$RUNNER_TEMP/batch-notice.json")
-          if [[ -n "$MANUAL_ASOF" ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            args+=(--scheduled)
+          elif [[ -n "$MANUAL_ASOF" ]]; then
             args+=(--asof "$MANUAL_ASOF")
           fi
           set +e

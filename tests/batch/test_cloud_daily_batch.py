@@ -17,6 +17,7 @@ from baibai_batch.jobs.daily import (
     _Notice,
     _parse_macro_series,
     _read_daily_delta,
+    build_parser,
     main,
     run_daily_batch,
 )
@@ -564,6 +565,35 @@ def test_daily_batch_proceeds_on_business_day(tmp_path: Path) -> None:
     assert exit_code == 0
     assert runner.calls[0][3:] == ["--asof", today.isoformat()]
     assert runner.call_keys()[-1] == "task reconcile-earnings"
+
+
+def test_scheduled_batch_uses_cron_target_and_keeps_business_day_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scheduled_target = date(2026, 8, 27)
+    _seed_calendar(tmp_path, {scheduled_target: "1"})
+    monkeypatch.setattr(
+        "baibai_batch.jobs.daily.batch_target_date", lambda _instant: scheduled_target
+    )
+    runner = _runner()
+
+    exit_code = run_daily_batch(
+        root=tmp_path,
+        output_dir=tmp_path / "serving",
+        asof=None,
+        runner=runner,
+        scheduled=True,
+    )
+
+    assert exit_code == 0
+    assert runner.calls[0][3:] == ["--asof", "2026-08-27"]
+
+
+def test_scheduled_and_explicit_asof_are_mutually_exclusive() -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            ["--scheduled", "--asof", "2026-08-27", "--output-dir", "/tmp/serving"]
+        )
 
 
 def test_daily_batch_errors_when_calendar_does_not_cover_the_date(tmp_path: Path) -> None:

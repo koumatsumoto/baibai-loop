@@ -7,15 +7,14 @@ from pathlib import Path
 import pytest
 import yaml
 
+from baibai_batch.jobs.schedule import BATCH_SCHEDULED_FIRE_TIME, batch_target_date
 from baibai_batch.jobs.watchdog import (
-    BATCH_SCHEDULED_FIRE_TIME,
     DEFAULT_WINDOW_HOURS,
     RUN_NAME_PREFIX,
     STATE_HEALTHY,
     STATE_IN_FLIGHT,
     STATE_MISSING,
     WatchdogInputError,
-    batch_target_date,
     evaluate,
     main,
     parse_runs,
@@ -301,6 +300,12 @@ def test_the_day_a_run_answers_for_is_anchored_on_the_batch_cron_not_on_midnight
     # still the previous one.
     assert batch_target_date(datetime(2026, 8, 3, 7, 0, tzinfo=UTC)) == date(2026, 8, 2)
     assert batch_target_date(datetime(2026, 8, 3, 7, 43, tzinfo=UTC)) == date(2026, 8, 3)
+
+
+def test_the_observed_cross_midnight_failure_stays_on_its_cron_day() -> None:
+    delayed_start = datetime(2026, 8, 27, 18, 24, 14, tzinfo=UTC)
+
+    assert batch_target_date(delayed_start) == date(2026, 8, 27)
 
 
 def test_the_batch_cron_this_anchors_on_is_the_one_the_workflow_declares() -> None:
