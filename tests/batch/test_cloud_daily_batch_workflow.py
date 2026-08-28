@@ -119,6 +119,14 @@ def test_batch_step_invokes_stable_batch_entrypoint(steps_by_id: dict[str, dict]
     assert "uv run baibai-batch daily" in batch_run
 
 
+def test_scheduled_trigger_uses_cron_target_mode(steps_by_id: dict[str, dict]) -> None:
+    batch_run = steps_by_id["batch"]["run"]
+
+    assert 'if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]' in batch_run
+    assert "args+=(--scheduled)" in batch_run
+    assert 'elif [[ -n "$MANUAL_ASOF" ]]' in batch_run
+
+
 def test_isolated_browser_smoke_runs_before_any_credential_bearing_step(
     steps: list[dict], steps_by_id: dict[str, dict]
 ) -> None:

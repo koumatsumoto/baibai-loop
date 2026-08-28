@@ -25,9 +25,10 @@ import os
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
+from baibai_batch.jobs.schedule import batch_target_date
 from baibai_batch.observability.discord import (
     DEFAULT_TIMEOUT_SECONDS,
     WEBHOOK_ENV_VAR,
@@ -56,16 +57,6 @@ SCHEDULED_FIRE_TIME = time(12, 0, tzinfo=UTC)
 #     more than eight hours of delay.
 DEFAULT_WINDOW_HOURS = 20
 
-_JST = timezone(timedelta(hours=9))
-
-# `cloud-daily-batch`'s own cron, in UTC (16:43 JST). "Which day is this run for" is a
-# question about that schedule, so it is anchored on the cron rather than on JST
-# midnight: both this watchdog and the batch it watches are fired late by GitHub's
-# schedule queue — about two hours at the median — and a firing that slips past
-# midnight JST must keep asking about the same day rather than about a day whose batch
-# is not due yet. A contract test pins this against the workflow.
-BATCH_SCHEDULED_FIRE_TIME = time(7, 43, tzinfo=UTC)
-
 # The `run-name` the batch declares. A scheduled run leaves the date empty; a recovery
 # dispatch carries the `--asof` it was given, which is the only place the target day of
 # a past-dated recovery is visible in the run listing at all.
@@ -74,15 +65,6 @@ RUN_NAME_PREFIX = "daily"
 
 class WatchdogInputError(ValueError):
     """The run listing does not satisfy the shape this adapter reads."""
-
-
-def batch_target_date(instant: datetime) -> date:
-    """The JST day the batch firing at or before ``instant`` is responsible for."""
-
-    fired = datetime.combine(instant.astimezone(UTC).date(), BATCH_SCHEDULED_FIRE_TIME)
-    if fired > instant:
-        fired -= timedelta(days=1)
-    return fired.astimezone(_JST).date()
 
 
 def run_target_date(*, event: str, created_at: datetime, display_title: str) -> date | None:

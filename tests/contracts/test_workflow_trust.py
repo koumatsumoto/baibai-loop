@@ -40,7 +40,7 @@ EXPECTED_CREDENTIAL_NAMES = {
 EXPECTED_COMMAND_DIGESTS = {
     "Pull stores": "509a1709484d601560ecf758f615372822ffee307542e47efe2ddfb36eae2c9c",
     "Pull the market store": "395ec7ad8ac253d16bdc5db38fc900d56745aac63fd668035ab9c50f9af3c5bf",
-    "Run daily batch": "a87293d22ec25deb2198fe3dcaf89eca0e2a8e307b487a40b4f6973d3786bca7",
+    "Run daily batch": "e879afe048bb5539fe7f30aa6100c40d8fd228c1250db85741042eef9c590e6e",
     "Upload machine stores and serving views": (
         "8b340d153936088076375788e38f097b7843a45e6c648ac626a0e1e68d2b69e8"
     ),

@@ -560,7 +560,7 @@ gh run list --workflow cloud-daily-batch.yml --limit 10
 **停止と復旧**: coverage不足やexit 1ではuploadしない。原因をローカルで直す。exit 3はfresh screeningを
 publish済みなので再dispatchせず、Discord `[DEGRADED]`が示す繰延べstepを復旧する。
 
-通常cronは平日07:43 UTC（16:43 JST）。同日必須なのは`asof = today`が依存する株価日足だけで、[J-Quants APIの公式更新時刻](https://jpx-jquants.com/ja/spec/data-update)は16:30頃のため13分の余裕を置く。JPX規制ページはevent駆動のstatus pageでcoverage gateが7営業日まで許容し、信用残は週次なので、いずれも夕方の更新を待つ必要がない（この実行より後に出た指定は翌営業日の実行が拾う）。分を半端にしているのは意図的で、GitHubがscheduleを:00 / :15 / :30 / :45へ集中させるため、その境界に置くとqueue待ちの後ろに並ぶ。schedule遅延自体は許容する（実測でmedian約2時間）。遅延ではなく**欠測**は`cloud-batch-watchdog`がpushで検知し、UIのas-ofとworkflow履歴は裏取りのpull経路として残る。16:43時点で株価日足が未更新ならcoverage gateがpublish前に停止し、復旧は現行mainから手動dispatchする。
+通常cronは平日07:43 UTC（16:43 JST）。scheduled workflowは実行開始時のJST日付ではなく、直近の07:43 UTC cron日を対象にして営業日gateを適用する。GitHubのqueue遅延がJST日付をまたいでも、未公表の翌日データへ対象を進めない。同日必須なのは対象日の株価日足だけで、[J-Quants APIの公式更新時刻](https://jpx-jquants.com/ja/spec/data-update)は16:30頃のため13分の余裕を置く。JPX規制ページはevent駆動のstatus pageでcoverage gateが7営業日まで許容し、信用残は週次なので、いずれも夕方の更新を待つ必要がない（この実行より後に出た指定は翌営業日の実行が拾う）。分を半端にしているのは意図的で、GitHubがscheduleを:00 / :15 / :30 / :45へ集中させるため、その境界に置くとqueue待ちの後ろに並ぶ。schedule遅延自体は許容する（実測でmedian約2時間）。遅延ではなく**欠測**は`cloud-batch-watchdog`がpushで検知し、UIのas-ofとworkflow履歴は裏取りのpull経路として残る。16:43時点で株価日足が未更新ならcoverage gateがpublish前に停止し、復旧は現行mainから手動dispatchする。
 
 daily batchはcoverageが完全でも`bootstrap-cache`を実行する。財務サマリーの直近7日を再取得するため、同日の先行runより後にJ-Quantsへ反映された開示は後続runで取り込まれる。bootstrap後はcoverageを再検証してからscreeningへ進む。
 
@@ -687,8 +687,11 @@ macro series refresh → export → run store prune を順に実行する。
 stdout へ出す（scheduled workflow のログをそのまま読む前提）。
 
 ```bash
-# 通常（当日 JST。market calendar で非営業日なら exit 0 で skip）
+# ローカル通常実行（当日 JST。market calendar で非営業日なら exit 0 で skip）
 uv run python -m baibai_batch.jobs.daily --output-dir <dir>
+
+# scheduled workflow（直近の07:43 UTC cron日。JST日付をまたぐ遅延でも発火日を維持）
+uv run python -m baibai_batch.jobs.daily --scheduled --output-dir <dir>
 
 # 手動再実行・過去日（営業日 gate を skip）
 uv run python -m baibai_batch.jobs.daily --asof YYYY-MM-DD --output-dir <dir>

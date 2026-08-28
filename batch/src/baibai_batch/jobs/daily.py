@@ -32,12 +32,13 @@ import tempfile
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import yaml
 
+from baibai_batch.jobs.schedule import batch_target_date
 from baibai_batch.observability.discord import sanitize_one_line, write_json_atomic
 from baibai_engine.batch_api import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
@@ -515,12 +516,18 @@ def run_daily_batch(
     output_dir: Path,
     asof: date | None,
     runner: CommandRunner,
+    scheduled: bool = False,
     notice_output: Path | None = None,
 ) -> int:
     notice = _Notice()
     try:
         exit_code = _execute_daily_batch(
-            root=root, output_dir=output_dir, asof=asof, runner=runner, notice=notice
+            root=root,
+            output_dir=output_dir,
+            asof=asof,
+            scheduled=scheduled,
+            runner=runner,
+            notice=notice,
         )
     except (BatchStepError, CalendarCoverageError) as exc:
         notice.failed_stage = exc.stage or "batch"
@@ -535,17 +542,19 @@ def _execute_daily_batch(
     root: Path,
     output_dir: Path,
     asof: date | None,
+    scheduled: bool,
     runner: CommandRunner,
     notice: _Notice,
 ) -> int:
     if asof is None:
-        target = datetime.now(_JST).date()
+        target = batch_target_date(datetime.now(UTC)) if scheduled else datetime.now(_JST).date()
         notice.asof = target.isoformat()
         if not _require_business_day(root / _MARKET_DB_RELPATH, target):
             print(f"skip: {target.isoformat()} は非営業日", flush=True)
             notice.skipped = True
             return 0
-        print(f"daily batch start: asof={target.isoformat()} (business day)", flush=True)
+        mode = "scheduled cron" if scheduled else "business day"
+        print(f"daily batch start: asof={target.isoformat()} ({mode})", flush=True)
     else:
         target = asof
         notice.asof = target.isoformat()
@@ -768,12 +777,21 @@ def build_parser() -> argparse.ArgumentParser:
             "read-model export"
         ),
     )
-    parser.add_argument(
+    target_group = parser.add_mutually_exclusive_group()
+    target_group.add_argument(
         "--asof",
         type=str,
         help=(
             "run for this date (YYYY-MM-DD) and skip the business-day gate "
             "(manual rerun / past date); default is today in JST, gated by the market calendar"
+        ),
+    )
+    target_group.add_argument(
+        "--scheduled",
+        action="store_true",
+        help=(
+            "resolve the target from the 07:43 UTC batch cron and apply the business-day gate; "
+            "for the scheduled workflow only"
         ),
     )
     parser.add_argument(
@@ -813,6 +831,7 @@ def main(argv: list[str] | None = None) -> int:
             output_dir=args.output_dir.resolve(),
             asof=asof,
             runner=_run_subprocess,
+            scheduled=args.scheduled,
             notice_output=notice_output,
         )
     except (BatchStepError, CalendarCoverageError) as exc:
