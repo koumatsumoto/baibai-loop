@@ -13,9 +13,9 @@ JPX の信用取引残高は 2026-09-28 に公表粒度が変わる。L1 store �
 別 balance date 域として保持し、指標側は「どちらの series がその balance date を公表したか」を
 明示して読む。本書は公表日、balance date、対象母集団を区別する取込契約の正本である。
 
-本書は§6の固定語義と制度切替の不変条件を恒久的に所有するactive referenceである。#973の全完了条件を
-満たした後に整理できるのはtransition固有の手順だけであり、stableなsource契約を別文書へ移して正本を
-分けない。移行手順をhistorical evidenceへ移すかは、その時点で改めて判断する。
+本書は§6の固定語義と制度切替の不変条件を恒久的に所有するactive referenceである。制度切替のactivationと
+連続性確認が完了した後に整理できるのはtransition固有の手順だけであり、stableなsource契約を別文書へ
+移して正本を分けない。移行手順をhistorical evidenceへ移すかは、その時点で改めて判断する。
 
 ## 2. 公式日程
 
