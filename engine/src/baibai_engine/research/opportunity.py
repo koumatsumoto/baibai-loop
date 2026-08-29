@@ -316,7 +316,7 @@ def _resolve_research_gate(
             f"{shortlist_id} judged run {payload.get('run_revision_id')!r}, not the "
             f"selection's {input_refs.get('candidates_ref')!r}"
         )
-    # Publication already binds entries to the Review Set; re-checking here keeps a
+    # Publication already binds entries to the ranked set; re-checking here keeps a
     # shortlist and a selection that disagree from meeting for the first time inside
     # a research workspace.
     if set(decisions) != set(ranked_tickers):
@@ -409,7 +409,7 @@ def prepare_workspace(
 ) -> PrepareResult:
     """Build the workspace from a selection, its Research Gate judgment, and the ledger.
 
-    The workspace keeps the whole Review Set as comparison context but may only
+    The workspace keeps the whole ranked set as comparison context but may only
     admit the shortlist's ``selected`` tickers into primary research: the Gate has
     already spent this cycle's judgment on the rest. Holdings/reservations stay
     ledger annotations, never hard exclusions. A Gate that selected nothing is a

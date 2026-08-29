@@ -25,6 +25,7 @@ import yaml
 from baibai_engine.screening.calibration.panel import PanelRow as StoredPanelRow
 from baibai_engine.screening.calibration.store import (
     CalibrationCacheError,
+    fixed_current_snapshot,
     published_cohorts,
     read_forward,
     read_panel,
@@ -92,7 +93,6 @@ def _annualized(cumulative_return: float, years: int) -> float:
 
 
 def _load_forward_returns(
-    calibration_dir: Path,
     snapshot: Path,
     horizons: Sequence[str],
     *,
@@ -107,11 +107,11 @@ def _load_forward_returns(
     wanted = set(horizons)
     resolved: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
     counts: dict[str, dict[str, int]] = {horizon: {"price": 0, "total": 0} for horizon in horizons}
-    asofs = published_cohorts(calibration_dir)
+    asofs = published_cohorts(snapshot)
     if not asofs:
-        raise SignalCohortMeasurementError(f"no forward rows under {calibration_dir}")
+        raise SignalCohortMeasurementError(f"no forward rows under {snapshot}")
     for asof in asofs:
-        for row in read_forward(calibration_dir, asof):
+        for row in read_forward(snapshot, asof):
             if row.horizon not in wanted:
                 continue
             price = row.price_return if row.resolved else None
@@ -125,16 +125,6 @@ def _load_forward_returns(
                 continue
             resolved[(row.asof, row.ticker)][row.horizon] = value
     return resolved, counts
-
-
-def current_snapshot(calibration_dir: Path) -> Path:
-    """Validate and return the directory containing the atomic current snapshot."""
-    try:
-        if not published_cohorts(calibration_dir):
-            raise SignalCohortMeasurementError(f"snapshot {calibration_dir} has no cohorts")
-        return calibration_dir
-    except CalibrationCacheError as exc:
-        raise SignalCohortMeasurementError(str(exc)) from exc
 
 
 def require_single_rules_hash(snapshot: Path) -> str:
@@ -159,16 +149,15 @@ def require_single_rules_hash(snapshot: Path) -> str:
 
 
 def _load_panel(
-    calibration_dir: Path,
     snapshot: Path,
     forward: Mapping[tuple[str, str], Mapping[str, float]],
 ) -> list[PanelRow]:
-    asofs = published_cohorts(calibration_dir)
+    asofs = published_cohorts(snapshot)
     if not asofs:
-        raise SignalCohortMeasurementError(f"no panel rows under {calibration_dir}")
+        raise SignalCohortMeasurementError(f"no panel rows under {snapshot}")
     rows: list[PanelRow] = []
     for asof in asofs:
-        for stored in read_panel(calibration_dir, asof):
+        for stored in read_panel(snapshot, asof):
             row = _panel_row(stored, forward)
             if row is not None:
                 rows.append(row)
@@ -414,10 +403,13 @@ def build_measurement(
     for horizon in horizons:
         if horizon not in HORIZON_YEARS:
             raise SignalCohortMeasurementError(f"unsupported horizon: {horizon}")
-    snapshot = current_snapshot(calibration_dir)
-    rules_hash = require_single_rules_hash(snapshot)
-    forward, basis_counts = _load_forward_returns(calibration_dir, snapshot, horizons, basis=basis)
-    rows = _load_panel(calibration_dir, snapshot, forward)
+    try:
+        with fixed_current_snapshot(calibration_dir) as snapshot:
+            rules_hash = require_single_rules_hash(snapshot)
+            forward, basis_counts = _load_forward_returns(snapshot, horizons, basis=basis)
+            rows = _load_panel(snapshot, forward)
+    except CalibrationCacheError as exc:
+        raise SignalCohortMeasurementError(str(exc)) from exc
     if asof_from is not None:
         rows = [row for row in rows if row.asof >= asof_from]
     if asof_to is not None:

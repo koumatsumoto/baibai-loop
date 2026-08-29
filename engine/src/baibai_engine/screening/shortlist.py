@@ -147,7 +147,6 @@ class Shortlist(BaseModel):
     run_revision_id: str = Field(min_length=1)
     as_of: date
     published_at: datetime
-    profile: str = Field(min_length=1)
     macro_context_id: str | None = None
     review_basis_shortlist_id: str | None
     research_gate_contract_id: Literal["research-gate-v1"]
@@ -202,7 +201,6 @@ class SelectionBinding:
     selection_id: str
     run_revision_id: str
     as_of: date
-    profile: str
     macro_context_id: str | None
     ranked_tickers: tuple[str, ...]
     candidate_er: Mapping[str, float]
@@ -242,14 +240,12 @@ class ShortlistService:
             selection.selection_id,
             selection.run_revision_id,
             selection.as_of,
-            selection.profile,
             selection.macro_context_id,
         )
         actual = (
             shortlist.selection_id,
             shortlist.run_revision_id,
             shortlist.as_of,
-            shortlist.profile,
             shortlist.macro_context_id,
         )
         if actual != expected:
@@ -261,14 +257,14 @@ class ShortlistService:
             missing = sorted(set(selection.ranked_tickers) - set(entry_tickers))
             extra = sorted(set(entry_tickers) - set(selection.ranked_tickers))
             raise ShortlistConflictError(
-                f"shortlist entries must equal the Review Set; missing={missing}, extra={extra}"
+                f"shortlist entries must equal the ranked set; missing={missing}, extra={extra}"
             )
         missing_rows = sorted(
             set(selection.ranked_tickers) - selection.candidate_machine_rows.keys()
         )
         if missing_rows:
             raise ShortlistConflictError(
-                f"Review Set source rows are missing: {', '.join(missing_rows)}"
+                f"ranked-set source rows are missing: {', '.join(missing_rows)}"
             )
         # Burn the machine estimate into the judgment before it is persisted, so the
         # later comparison reads what the judgment saw rather than whatever run is

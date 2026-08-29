@@ -1,4 +1,4 @@
-"""Current contract for the single ranked research-review set."""
+"""Current contract for the single ranked candidate set."""
 
 from __future__ import annotations
 

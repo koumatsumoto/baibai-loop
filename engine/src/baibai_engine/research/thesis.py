@@ -411,11 +411,6 @@ class EstimatesNamespace(BaseModel):
     ]
     scenarios: tuple[ScenarioEstimate, ...]
     screening_fv_bridge: ScreeningFVBridge | None = None
-    # published thesis の一部はこの key を持つ。payload は immutable なので、受理をやめると
-    # holding review・proposal・assessment・price watch がその thesis に対して同時に止まる。
-    # 値は null だけを受け、serialize からは外す。identity は publish 時に記録されるので、
-    # この key が hash に影響することはない。
-    deep_discount_bps: None = Field(default=None, exclude=True)
 
     @field_validator("scenarios", "entry_price_source_ids", "fair_value_source_ids", mode="before")
     @classmethod
@@ -965,7 +960,7 @@ def thesis_core_hash(document: ThesisDocument) -> str:
     and every later reader passes that recorded value to `evaluate_thesis`. Deriving it
     again would make the identity a property of the current model — adding or dropping a
     field would move the hash of theses published years earlier, and the review,
-    proposal, holding review, bargain assessment and price watch bound to them would all
+    holding review, bargain assessment and price watch bound to them would all
     stop reading at once. Keeping the derivation for drafts only is what lets this stay a
     plain hash with no per-field special cases.
     """

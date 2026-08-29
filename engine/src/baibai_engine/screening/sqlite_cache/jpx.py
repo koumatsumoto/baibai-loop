@@ -27,27 +27,21 @@ def store_jpx_earnings_calendar_snapshot(
     *,
     fetched_at_utc: str | None = None,
 ) -> int:
-    """Store a JPX snapshot in the compatibility earnings-calendar table.
-
-    The physical table keeps its historical J-Quants name until a coordinated
-    schema migration. Source authority is the logical source_coverage row and
-    the JPX-only writer/reader API, not the table identifier.
-    """
+    """Replace the current JPX earnings-calendar snapshot."""
     if not snapshot.entries:
         raise ValueError("JPX earnings calendar snapshot must contain at least one valid row")
     conn = open_connection(db_path)
     fetched_at = fetched_at_utc or datetime.now(UTC).isoformat()
     try:
-        conn.execute("DELETE FROM jquants_earnings_calendar")
-        delete_source_coverage(conn, "jquants_earnings_calendar")
+        conn.execute("DELETE FROM jpx_earnings_calendar")
         delete_source_coverage(conn, "jpx_earnings_calendar")
         rows = [(entry.announcement_date.isoformat(), entry.ticker) for entry in snapshot.entries]
         conn.executemany(
-            "INSERT INTO jquants_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",
+            "INSERT INTO jpx_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",
             rows,
         )
         persisted_count = int(
-            conn.execute("SELECT COUNT(*) FROM jquants_earnings_calendar").fetchone()[0]
+            conn.execute("SELECT COUNT(*) FROM jpx_earnings_calendar").fetchone()[0]
         )
         record_source_coverage(
             conn,

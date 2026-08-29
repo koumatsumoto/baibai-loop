@@ -84,21 +84,19 @@ def test_obsolete_cache_is_rejected_instead_of_migrated(tmp_path: Path) -> None:
 
 def test_run_and_ranked_set_publish_and_read_atomically(tmp_path: Path) -> None:
     database = tmp_path / "runs.sqlite"
-    store = ScreeningRunStore(database, git_commit_factory=lambda: "a" * 40)
+    store = ScreeningRunStore(database)
     run = _run()
     store.publish_run(run, run_revision_id="run-a")
     selection = _selection(source_candidates=run["candidates"])  # type: ignore[arg-type]
 
     inserted = store.publish_selection(
         run_revision_id="run-a",
-        profile="default",
         macro_context_id=None,
         payload=selection,
         selection_id="selection-a",
     )
     retry = store.publish_selection(
         run_revision_id="run-a",
-        profile="default",
         macro_context_id=None,
         payload=selection,
         selection_id="selection-a",
@@ -108,8 +106,6 @@ def test_run_and_ranked_set_publish_and_read_atomically(tmp_path: Path) -> None:
     assert retry.inserted is False
     publication = ScreeningRunReader(database).get_selection("selection-a")
     assert publication is not None
-    assert publication.entries == tuple(selection["ranked_set"])  # type: ignore[arg-type]
-    assert publication.application_git_commit == "a" * 40
 
 
 def test_ranked_set_must_match_source_candidate_value(tmp_path: Path) -> None:
@@ -124,7 +120,6 @@ def test_ranked_set_must_match_source_candidate_value(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match=r"ranked-set E\[r\]"):
         store.publish_selection(
             run_revision_id="run-a",
-            profile="default",
             macro_context_id=None,
             payload=selection,
         )
@@ -134,7 +129,6 @@ def test_selection_requires_an_existing_run(tmp_path: Path) -> None:
     with pytest.raises(RunStoreNotFoundError):
         ScreeningRunStore(tmp_path / "runs.sqlite").publish_selection(
             run_revision_id="missing",
-            profile="default",
             macro_context_id=None,
             payload=_selection(),
         )
@@ -159,7 +153,6 @@ def test_prune_keeps_only_the_newest_run_and_its_selection(tmp_path: Path) -> No
     store.publish_run(new, run_revision_id="new")
     store.publish_selection(
         run_revision_id="old",
-        profile="default",
         macro_context_id=None,
         payload=_selection(
             asof="2026-07-07", candidates_ref="old", source_candidates=old["candidates"]

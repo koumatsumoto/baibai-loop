@@ -300,7 +300,6 @@ class SelectionRankedSetEntryView(BaseModel):
 class MachineSelectionView(BaseModel):
     selection_id: str
     run_revision_id: str
-    profile: str
     macro_context_id: str | None
     created_at: datetime
     ranked_set: list[SelectionRankedSetEntryView]
@@ -741,7 +740,7 @@ class BargainAssessmentView(BaseModel):
     review: AssessmentReviewView
 
 
-type DeltaPool = Literal["ranked_set", "recommendations"]
+type DeltaPool = Literal["ranked_set"]
 type DeltaUnavailable = Literal[
     "candidates",
     "candidates_estimate",

@@ -93,7 +93,6 @@ def _payload(candidates: tuple[ScreenedCandidate, ...]) -> dict[str, object]:
         ),
         macro_context=None,
         rules=load_screening_rules(DEFAULT_RULES_PATH),
-        profile="balanced",
         candidates_ref="test.yaml",
         macro_context_ref=None,
         review_cap=5,

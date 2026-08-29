@@ -23,7 +23,6 @@ LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 ORDERED_AT = datetime.fromisoformat("2026-07-30T09:00:00+09:00")
 EXPIRES_AT = datetime.fromisoformat("2026-07-31T15:30:00+09:00")
 ASSESSMENT_ID = "bargain-assessment-20260730-2331"
-LEGACY_REPORT = "https://github.com/koumatsumoto/baibai-loop/issues/761"
 
 
 def _services(
@@ -249,20 +248,17 @@ def test_record_result_cli_uses_decision_reference_without_writing_before_apply(
     assert ledger.append_head() == load_draft(tmp_path / "draft.yaml").expected_head
 
 
-def test_legacy_unbound_reservation_can_only_close_with_issue_reference(tmp_path: Path) -> None:
+def test_unbound_reservation_is_not_a_runtime_compatibility_path(tmp_path: Path) -> None:
     ledger, assessments = _services(tmp_path)
     expiry = datetime.fromisoformat("2026-07-31T15:30:00+09:00")
 
-    draft, event_ids = build_result_draft(
-        ledger,
-        assessments,
-        decision_reference=LEGACY_REPORT,
-        status="expired",
-        occurred_at=expiry,
-        reservation_id="reservation-8929-pending",
-        now=expiry + timedelta(days=1),
-    )
-
-    assert draft is not None
-    assert len(event_ids) == 1
-    assert draft.replacement.events[-1].decision_reference == LEGACY_REPORT
+    with pytest.raises(ValueError, match="no canonical decision binding"):
+        build_result_draft(
+            ledger,
+            assessments,
+            decision_reference=ASSESSMENT_ID,
+            status="expired",
+            occurred_at=expiry,
+            reservation_id="reservation-8929-pending",
+            now=expiry + timedelta(days=1),
+        )

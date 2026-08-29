@@ -1,6 +1,6 @@
 """Query-only facade for read paths: :mod:`baibai_web`, the batch, and engine CLIs.
 
-Writable connections, migrations, providers, and CLI composition deliberately
+Writable connections, schema cutovers, providers, and CLI composition deliberately
 remain outside this package. The re-exports expose DB-backed queries and the
 domain models needed to assemble read-only application views. What is re-exported
 here tracks what is imported through the facade; a query with no facade consumer

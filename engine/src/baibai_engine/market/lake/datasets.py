@@ -285,9 +285,9 @@ JQUANTS_MARKET_CALENDAR = LakeDataset(
     ),
 )
 
-JQUANTS_EARNINGS_CALENDAR = LakeDataset(
-    name="jquants.earnings_calendar",
-    sqlite_table="jquants_earnings_calendar",
+JPX_EARNINGS_CALENDAR = LakeDataset(
+    name="jpx.earnings_calendar",
+    sqlite_table="jpx_earnings_calendar",
     date_column="announcement_date",
     partition_grain="year",
     coverage_source="jpx_earnings_calendar",
@@ -478,7 +478,7 @@ LAKE_DATASETS = {
     JQUANTS_MASTER_SNAPSHOTS.name: JQUANTS_MASTER_SNAPSHOTS,
     JQUANTS_FIN_SUMMARIES.name: JQUANTS_FIN_SUMMARIES,
     JQUANTS_MARKET_CALENDAR.name: JQUANTS_MARKET_CALENDAR,
-    JQUANTS_EARNINGS_CALENDAR.name: JQUANTS_EARNINGS_CALENDAR,
+    JPX_EARNINGS_CALENDAR.name: JPX_EARNINGS_CALENDAR,
     JQUANTS_MARGIN_ALERTS.name: JQUANTS_MARGIN_ALERTS,
     EDINET_DOCUMENTS.name: EDINET_DOCUMENTS,
     EDINET_METRICS.name: EDINET_METRICS,

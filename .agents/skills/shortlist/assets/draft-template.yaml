@@ -9,7 +9,7 @@
 #     --db stores/application/baibai.sqlite --runs-db stores/screening/runs.sqlite
 #
 # publish binds the draft to its source selection: selection_id / run_revision_id
-# / as_of / profile / macro_context_id must match the selection, and every ticker
+# / as_of / macro_context_id must match the selection, and every ticker
 # must equal the selection's review-capped ranked set. selected entries require `rank` and
 # `narrative`; rejected entries must omit both, give a concrete reason
 # (not "順位が低い" / "予算外"), and summarize its primary cause in
@@ -29,7 +29,6 @@ selection_id: "<selection_id from `screening select`>"
 run_revision_id: "<run_revision_id from `screening run`>"
 as_of: "YYYY-MM-DD"
 published_at: "YYYY-MM-DDTHH:MM:SS+09:00"    # must carry a timezone
-profile: "<selection profile>"
 macro_context_id: null                        # or the bound published macro context id
 review_basis_shortlist_id: null                # copy judged_through_shortlist_id
 research_gate_contract_id: research-gate-v1

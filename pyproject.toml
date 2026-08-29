@@ -393,12 +393,11 @@ forbidden_modules = [
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
-name = "read_api cannot reach writer migration provider or CLI modules"
+name = "read_api cannot reach writer or CLI modules"
 type = "forbidden"
 source_modules = ["baibai_engine.read_api"]
 forbidden_modules = [
   "baibai_engine.appdb.write",
-  "baibai_engine.appdb.migrations",
   "baibai_engine.cli",
   "baibai_engine.macro.indicators.providers",
   "baibai_engine.position.cli",

@@ -68,7 +68,7 @@ _REQUIRED_TABLES = (
     "jquants_daily_bars",
     "jquants_fin_summaries",
     "jquants_master_snapshots",
-    "jquants_earnings_calendar",
+    "jpx_earnings_calendar",
     "jquants_market_calendar",
     "jquants_weekly_margin",
     "jquants_margin_alerts",
@@ -144,7 +144,7 @@ _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
         "sector_33",
         "is_common_stock",
     ),
-    "jquants_earnings_calendar": ("announcement_date", "ticker"),
+    "jpx_earnings_calendar": ("announcement_date", "ticker"),
     "jquants_market_calendar": ("day", "is_business_day"),
     "jquants_weekly_margin": (
         "week_end",
@@ -398,7 +398,7 @@ CREATE TABLE IF NOT EXISTS jquants_master_snapshots(
   PRIMARY KEY (snapshot_date, ticker)
 );
 
-CREATE TABLE IF NOT EXISTS jquants_earnings_calendar(
+CREATE TABLE IF NOT EXISTS jpx_earnings_calendar(
   announcement_date TEXT NOT NULL,
   ticker TEXT NOT NULL,
   PRIMARY KEY (announcement_date, ticker)

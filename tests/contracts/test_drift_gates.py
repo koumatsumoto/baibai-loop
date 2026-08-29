@@ -71,7 +71,22 @@ def test_legacy_semantics_gate_rejects_obsolete_skill_instruction(tmp_path: Path
 
 @pytest.mark.parametrize(
     "identifier",
-    ["OP3", "AssessmentLane", "durability_lens", "durability_gate", "screening_playbook"],
+    [
+        "OP3",
+        "AssessmentLane",
+        "durability_lens",
+        "durability_gate",
+        "screening_playbook",
+        "default_profile",
+        "recommended_rank",
+        "jquants_earnings_calendar",
+        "deep_discount_bps",
+        "application_git_commit",
+        "selection_entry",
+        "supply_demand_liquidity",
+        "measure_supply_context",
+        "history-backfill",
+    ],
 )
 def test_legacy_semantics_gate_rejects_retired_domain_identifiers(
     tmp_path: Path, identifier: str
@@ -85,12 +100,16 @@ def test_legacy_semantics_gate_rejects_retired_domain_identifiers(
     ]
 
 
-def test_legacy_semantics_gate_allows_historical_payload_adapter(tmp_path: Path) -> None:
-    path = tmp_path / "engine/src/baibai_engine/read_api/shortlist.py"
+def test_legacy_semantics_gate_rejects_selection_profile_in_shortlist_template(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / ".agents" / "skills" / "shortlist" / "assets" / "draft-template.yaml"
     path.parent.mkdir(parents=True)
-    path.write_text('legacy = "screening_playbook"\n', encoding="utf-8")
+    path.write_text('profile: "<selection profile>"\n', encoding="utf-8")
 
-    assert check_legacy_semantics.check(tmp_path) == []
+    expected = ".agents/skills/shortlist/assets/draft-template.yaml: retired domain identifier "
+    expected += "'profile: \"<selection profile>\"'"
+    assert check_legacy_semantics.check(tmp_path) == [expected]
 
 
 def test_legacy_semantics_gate_rejects_the_retired_macro_context_contract(

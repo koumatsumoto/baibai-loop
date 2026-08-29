@@ -43,7 +43,7 @@ flowchart TB
   L0["L0 目的<br/>1 人・日本株・割安優良を長期積立<br/>AI が観測/分析/提案、人間が裁定/発注"]
   L1["L1 ループ（工程と人間 gate）<br/>screening → shortlist ‖ research → thesis/review → assessment ‖ ledger → holding review → outcome → calibration"]
   L2["L2 情報（3 層 + method）<br/>L1 fact（再取得可）/ L2 machine（再計算可）/ L3 judgment（唯一の正本）/ method（Git）"]
-  L3["L3 実行地形<br/>local: 全 judgment write・migration・UI ／ cloud: 日次 batch と serving（一方向）"]
+  L3["L3 実行地形<br/>local: 全 judgment write・schema cutover・UI ／ cloud: 日次 batch と serving（一方向）"]
   L4["L4 機構<br/>provider・store・lake・screening・calibration・macro・research・position・web・batch・gate・docs"]
   L0 --> L1 --> L2 --> L3 --> L4
 ```

@@ -443,14 +443,14 @@ class ReleaseDatasetPolicy(BaseModel):
     """Whether this dataset accumulates an archive, so its start must never move forward.
 
     A dataset whose SQLite table is replaced by each fetch holds a current view rather
-    than an archive: `jquants.earnings_calendar` is the forward announcement calendar, so
+    than an archive: `jpx.earnings_calendar` is the forward announcement calendar, so
     its earliest row moves forward every time the exchange drops a past announcement.
     False exempts it; every other check (rows, population) still applies.
 
     For the rest the floor is the release already serving, not a date written here. A
     pinned date states the value it had the day it was written, and measured on
     2026-08-25 every one of them sat at exactly zero days of slack — the first day any
-    archive started later, the batch stopped. That is how `jquants.earnings_calendar`
+    archive started later, the batch stopped. That is how `jpx.earnings_calendar`
     stopped it on 2026-08-17, from 2026-06-19 to 2026-07-03. Comparing against what was
     published says the thing actually meant — this release must not drop history the last
     one served — and needs no maintenance to keep saying it.
@@ -565,7 +565,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             require_complete_coverage=True,
         ),
         ReleaseDatasetPolicy(
-            dataset="jquants.earnings_calendar",
+            dataset="jpx.earnings_calendar",
             required=True,
             accepted_contract_versions=(1,),
             # Replaced by every snapshot fetch, so its earliest row is whatever the

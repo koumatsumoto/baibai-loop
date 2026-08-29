@@ -38,7 +38,6 @@ def _publish_shortlist(db_path: Path, *, shortlist_id: str = "shortlist-20260721
             shortlist_id=shortlist_id,
             as_of="2026-07-21",
             published_at="2026-07-21T15:00:00+09:00",
-            profile="value",
             macro_context_id="macro-context-2026-07-21-test",
             entries=[selected_entry("2331"), rejected_entry("0001")],
         )
@@ -49,7 +48,6 @@ def _publish_shortlist(db_path: Path, *, shortlist_id: str = "shortlist-20260721
             selection_id=shortlist.selection_id,
             run_revision_id=shortlist.run_revision_id,
             as_of=shortlist.as_of,
-            profile=shortlist.profile,
             macro_context_id=shortlist.macro_context_id,
             ranked_tickers=("2331", "0001"),
             candidate_er={"2331": 0.12, "0001": 0.04},

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from urllib.parse import urlparse
 
 from baibai_engine.position.drafts import LedgerDraft
 from baibai_engine.position.ledger import (
@@ -72,13 +71,8 @@ def build_result_draft(
             item not in reservations_by_id and item not in released_ids for item in requested_ids
         ):
             raise ValueError(f"{status} requires an active reservation")
-        legacy_reservations = tuple(item for item in selected if item.decision_reference is None)
-        if legacy_reservations:
-            if status not in {"cancelled", "expired"}:
-                raise ValueError(
-                    "legacy reservation without decision binding only supports terminal result"
-                )
-            _require_legacy_issue_reference(decision_reference)
+        if any(item.decision_reference is None for item in selected):
+            raise ValueError("active reservation has no canonical decision binding")
         if any(
             item.decision_reference is not None and item.decision_reference != decision_reference
             for item in selected
@@ -131,12 +125,6 @@ def build_result_draft(
         ),
         result.event_ids,
     )
-
-
-def _require_legacy_issue_reference(value: str) -> None:
-    parsed = urlparse(value)
-    if parsed.scheme != "https" or parsed.netloc != "github.com" or "/issues/" not in parsed.path:
-        raise ValueError("legacy terminal result requires an HTTPS GitHub Issue URL")
 
 
 __all__ = ["build_result_draft"]

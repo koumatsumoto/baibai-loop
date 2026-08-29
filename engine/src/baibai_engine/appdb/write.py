@@ -25,10 +25,11 @@ def connect_rw(path: Path | None = None) -> sqlite3.Connection:
 
 
 KEPT_BACKUP_GENERATIONS = 10
-"""How many local checkpoints survive. Ten covers the migrations of several working
-sessions, which is the window in which a migration defect is still being looked for;
-past that the store has been read and written enough that a much older copy would be
-restoring a different portfolio rather than repairing this one."""
+"""How many local checkpoints survive.
+
+Ten covers several judgment-writing sessions, after which an older copy would restore a
+different portfolio rather than repair the current one.
+"""
 
 _BACKUP_GLOB = "baibai-*.sqlite"
 

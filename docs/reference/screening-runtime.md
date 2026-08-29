@@ -31,14 +31,13 @@ uv run baibai-engine screening bootstrap-cache --asof YYYY-MM-DD
 uv run baibai-engine screening backfill-history --start YYYY-MM-DD --end YYYY-MM-DD
 uv run baibai-engine screening backfill-master --asof YYYY-MM-DD [--asof YYYY-MM-DD ...]
 uv run baibai-engine screening backfill-master --month-end-from YYYY-MM-DD --month-end-to YYYY-MM-DD
-uv run baibai-engine screening select --asof YYYY-MM-DD --run-revision-id ID [--macro-context-id ID] [--profile PROFILE] [--detail summary|full] [--review-cap N]
+uv run baibai-engine screening select --asof YYYY-MM-DD --run-revision-id ID [--macro-context-id ID] [--detail summary|full] [--review-cap N]
 uv run baibai-engine screening selection show --selection-id ID [--runs-db PATH] [--output-path PATH] [--force]
 uv run baibai-engine screening shortlist publish DRAFT.yaml [--db PATH]
 uv run baibai-engine screening shortlist outcome [--db PATH] [--runs-db PATH] [--horizon 3m] [--out PATH]
 uv run baibai-engine screening ticker-profile --ticker XXXX [--asof YYYY-MM-DD]
 uv run baibai-engine screening market-snapshot [--asof YYYY-MM-DD] [--weeks N]
 uv run baibai-engine screening extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
-uv run baibai-engine screening refresh-buyback-reports --asof YYYY-MM-DD [--lookback-days N] [--sqlite-path PATH]
 uv run baibai-engine screening refresh-capital-control --asof YYYY-MM-DD [--sqlite-path PATH]
 uv run baibai-engine screening backfill-edinet-identity --start YYYY-MM-DD --end YYYY-MM-DD
 uv run baibai-engine screening build-control-event-exits --asof YYYY-MM-DD [--sqlite-path PATH]
@@ -119,9 +118,8 @@ current source state であり point-in-time ledger ではない。既存の
 ### selectionとread-only command
 
 この節はcommandごとに、`select`の出力・ranking境界、`shortlist outcome`の記述比較、
-`screening shortlist preflight`の再利用判定、`prune`の保持、`ticker-profile`の事実profile、
-`market-snapshot`のregime・sector集計の順で契約を置く。いずれもproviderから取得せず、保存済みの
-storeを読む。
+`prune`の保持、`ticker-profile`の事実profile、`market-snapshot`のregime・sector集計の順で契約を置く。
+いずれもproviderから取得せず、保存済みのstoreを読む。
 
 <a id="select-output-ranking"></a>
 
@@ -130,8 +128,6 @@ storeを読む。
 `select` は明示した`run_revision_id`からE[r]降順の`ranked_set`を出力する。macro contextはapplication DBからas-of以前のlatest eligible revisionを読む任意のwarningで、ranking、candidate facts、採用、投入額を変えない。不在時は`macro_context_missing`、stale時は`macro_context_stale`、future contextはerrorである。E[r]欠損はranking対象外、従キーはEvidence Patternの優先順と割安強度である。durabilityや`primary_evidence_pattern_id`はResearch Gateへ渡すannotationであり、自動判断ではない。
 
 `shortlist outcome` は published shortlist ごとに、その entry 集合を母集団として selected / rejected / 機械 E[r] 上位同数の forward return を母集団中央値と突き合わせ、選定時の `ploss` 別に実現ドローダウンを集計する。E[r] は shortlist が束縛した run から読むので、その run が prune 済みなら機械 cohort は `estimate_missing` として計算しない。割当は無作為化されていないので出力は記述比較であり、payload の `comparison_basis` がそれを明示する。
-
-`screening shortlist preflight` は shortlist cycle が run を作る前の read-only gate である。pull 済みの local run store だけを読み、対象 as-of の run と machine selection のうち `application_git_commit` が checked-out HEAD と一致するものを探して、`reuse` / `resume-current-code` / `rerun-current-code` / `blocked` を 1 つだけ返す。同じ commit・同じ as-of に複数の publication があれば最新のものを再利用する（同じ code が同じ日の data を読んだ結果なので選び直す価値が無い）。`resume-current-code` は同一 as-of・同一 HEAD の run だけがあり selection が未作成の状態を示すため、その run へ select だけを 1 回行う。`blocked` は worktree が dirty か previous publication を解決できないときだけ。実行しても run / selection は増えない。greatest prior as-of は全 run と application DB の canonical shortlist の和集合から決める。複数 run は `--previous-run-revision-id` で preflight 自体を解決し、select へ `previous.selection_arguments` を渡す。canonical run が retention で失われた場合は同日別 revision へ代替せず、`--previous-shortlist-id` で canonical shortlist の焼き込み entries を使う。
 
 `prune --keep N` は as-of、run timestamp、revision ID の新しい順に N 世代を残し、対象 run のcandidateとmachine selectionをtransaction内で削除してから`VACUUM`する。既定は3世代。run storeは再生成可能なcacheであり、canonicalなshortlist、research、assessment、holding reviewはapplication DBを読む。
 
@@ -157,7 +153,7 @@ cache / SQLite の配置先は固定 (env override 廃止):
 任意 / 事前生成:
 
 - `EDINET_API_KEY`: `extract-edinet-metrics` 実行時に必要。`run` は SQLite の EDINET metrics を必須入力として扱うため、標準運用では `run` 前に EDINET metrics を抽出しておく
-- `SCREENING_RULES_PATH`: `select` / `run` が使う screening rules / selection profile YAML の既定 path override。CLI の明示 `--rules-path` を最優先し、次に env、最後に `method/screening/rules/` の既定を解決する
+- `SCREENING_RULES_PATH`: `select` / `run` が使う screening rules YAML の既定 path override。CLI の明示 `--rules-path` を最優先し、次に env、最後に `method/screening/rules/` の既定を解決する
 - JPX 公開規制情報 URL（CSV / Excel / HTML）。現行 rules の `universe.required_jpx_flags` に含まれる source は必須で、未ロード時は fail-fast し screening runをpublishしない:
   - `JPX_SPECIAL_CAUTION_INDEX_URL` 特別注意銘柄の個別銘柄信用取引残高表 index（推奨。日次で変わる `mtdailyk*.xls` を index から解決）
   - `JPX_SPECIAL_CAUTION_URL` 特別注意銘柄の固定 Excel URL
@@ -259,7 +255,7 @@ SQLite は以下のテーブルを `stores/market/market.sqlite` に作成する
 - `jquants_daily_bars(ticker, traded_at, open, high, low, close, volume, turnover_value, adjustment_*, upper_limit, lower_limit)` — 主キー `(ticker, traded_at)`、`traded_at` index 付。取引所が値付けする銘柄をそのまま持ち、証券種別では絞らない。benchmark に使う ETF (`1306`) の系列がここに要るためで、instrument type の判別は universe 構築で行う。**この table は coverage の正本であり、completeness は行データから導出する**（全営業日が全市場分の行を持つので欠損は present date 間のギャップとして観測でき、`source_coverage` の bookkeeping に穴があっても行が揃っていれば re-fetch しない）。`source_coverage` は status / record_count の整合チェックにのみ併用する
 - `jquants_fin_summaries(ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, sales, operating_profit, ordinary_profit, profit, forecast_profit, forecast_ordinary_profit, cfo, cash_eq, total_assets, equity, fiscal_period, fiscal_year_end, period_start, period_end, dps_actual_annual, dps_forecast_annual, treasury_shares, equity_to_asset_ratio, dividend_q1, dividend_interim, dividend_q3, dividend_year_end, dividend_total_annual, average_shares)` — 主キー `(ticker, disclosed_at)`。DPS は `DivAnn`（実績年間・FY 開示）と `FDivAnn`→`NxFDivAnn`（進行期の予想年間）から取る。支払ごとの `Div1Q`/`Div2Q`/`Div3Q`/`DivFY` と配当総額 `DivTotalAnn`（円）、期中平均株式数 `AvgSh` も持つ。年間 DPS は各支払の基準日時点の株式基準で記載されるので、会計期間が分割・併合を跨いだ年度は支払ごとに換算し直し、総額を自己株控除後株式数で割った値で照合する（[valuation-metrics.md §7.2](./valuation-metrics.md#72-配当dpsdividend_yield)）。`shares_outstanding` は `ShOutFY` だけから保存し、EPS の分母である `AvgSh` を gross issued の代替にしない。`AvgSh` は同じ行の株数概念を検証する独立アンカーとして持つ。`forecast_profit` / `forecast_ordinary_profit` は会社予想の当期純利益・経常利益で、`forecast_eps` と同一予想期のペア（当期予想 `FNP`/`FOdP`、本決算開示で FEPS 空なら翌期予想 `NxFNp`/`NxFOdP`）から取り、純利益>経常の一時益 data-quality flag（`forecast_special_gain`）と、どちらかが負のときの通期赤字予想 annotation（`forecast_full_year_loss`）の一次入力にする。ClientV2 の `CurPerType` / `CurFYEn` / `CurPerSt` / `CurPerEn` を含む source alias は、直接 provider と SQLite writer で同じ意味に正規化する。`treasury_shares`（`TrShFY`）と `equity_to_asset_ratio`（`EqAR`）は時価総額と自己資本比率の分母を開示概念へ揃えるために持つ。`ShOutFY` と `TrShFY` の carry は資本状態の互換性を検査してから組み合わせる（[valuation-metrics.md §5.1](./valuation-metrics.md#51-資本の分母)）
 - `jquants_master_snapshots(snapshot_date, ticker, name, market, sector_33, is_common_stock)` — 主キー `(snapshot_date, ticker)`。異なるrequested as-ofをappend-onlyに保持し、同日再取得だけを置換する。`screening run`はrequested as-ofと同日のsnapshotだけを使う。current-state補助出力の`ticker-profile` / `market-snapshot`はDB全体の`MAX(snapshot_date)`に属するrowだけを読み、過去snapshotからtickerを補完しない。calibrationの`read_eq_master_asof`だけはcohort日以下の直前snapshotを`prior_snapshot`として返せる。cohort日以下にsnapshotが無い場合（snapshot収集開始前の歴史cohort）は最古snapshotへfallbackし`future_snapshot`とlabelする — authority契約が`exact_date`以外をproduction evidenceから除外するため、この近似はdiagnostic計測にのみ効く
-- `jquants_earnings_calendar(announcement_date, ticker)` — 主キー `(announcement_date, ticker)`。論理 source と writer/reader の権威は JPX (`jpx_earnings_calendar`) にある
+- `jpx_earnings_calendar(announcement_date, ticker)` — 主キー `(announcement_date, ticker)`。論理 source と writer/reader の権威は JPX (`jpx_earnings_calendar`) にある
 - `disclosures` raw JSON（SQLite 未収録）— 任意 cache。`Code` / `Date` / `Title` などの同義 key も reader 側で受け付ける。title keyword scan のみで金額や財務影響は解釈しない。読み取り coverage は `file_count` / `event_count` / `skipped_record_count` / `unsupported_record_count` / `load_errors` としてscreening runのYAML viewにあるstatus / fallbackへ反映する
 - `jquants_market_calendar(day, is_business_day)` — 主キー `(day)`。`HolidayDivision` "1" / "2" を business day=1、それ以外を 0 として記録
 - `jquants_weekly_margin(week_end, ticker, long_vol, short_vol, long_std_vol, long_neg_vol, short_std_vol, short_neg_vol, issue_type)` — 主キー `(week_end, ticker)`。2026-09-18 残高までの全銘柄週次開示。`margin_*` は 9/18 までの balance date をここから読む。daily bootstrapは第2取引日の公表が到来した週だけを取得し、公表前に保存されたempty coverageは公表後に再取得する。公表後にもemptyだった非公表週は再取得しない
@@ -316,7 +312,7 @@ J-Quants の正確なレート制限は非公開で、挙動は実運用の観�
 | 270 | 公開買付報告書 | `subjectEdinetCode` |
 | 280 | 公開買付報告書の訂正報告書 | `subjectEdinetCode` |
 
-EDINET code から ticker への解決は、同じ document list 履歴が観測した `(edinetCode, secCode)` 対応だけを使う。1 つの code が複数 ticker に対応する場合は解決しない。identity 3 列は後から加わったため、`backfill-edinet-identity --start --end` が保持窓を再取得して既存行へ埋める。coverage を消さずに再取得するのは、coverage を消すと自己株券買付状況報告書の観測窓（§11.1 `edinet_document_lists`）まで同時に失われ、全銘柄の `buyback_authorization_status` が unknown へ落ちるためである。
+EDINET code から ticker への解決は、同じ document list 履歴が観測した `(edinetCode, secCode)` 対応だけを使う。1 つの code が複数 ticker に対応する場合は解決しない。identity 3 列は後から加わったため、`backfill-edinet-identity --start --end` が保持窓を再取得して既存行へ埋める。一覧日の coverage は観測完了の事実なので削除せず、既存行の identity だけを更新する。
 
 ### candidate annotation
 
@@ -376,44 +372,11 @@ Shortlist は買い推奨や mini Thesis ではなく、Ranked Set の各候補�
 | `value` | 他候補や現金と比べて一次リサーチ枠を使う追加価値 |
 | `prov` | 全 field を読んだ後の暫定結論、未解決点、次段階へ進む理由。`reason` を言い換えない |
 
-### 供給×機会幅の read-only scorecard
-
-`python -m tools.experiments.measure_supply_context --selection-id <ID>` は、shortlist の判断時に
-供給と候補集合の幅を別々の座標で出す。calibration panel・run store・application DB は
-read-only で開き、E[r]・FV・rank・gate・selection payload・schema を変更しない。
-
-供給軸は current selection 上位 5 の平均 E[r] と、最新月末 panel の screen・流動性・E[r]
-hurdle 通過件数である。機会幅は次の座標を持つ。
-
-| 座標 | 定義 | 主な読み方 |
-| --- | --- | --- |
-| `temporal_jaccard` | current top-20 と前 cycle top-20 の ticker 集合 Jaccard。歴史分布は連続する月次 panel 同士 | 高いほど候補が持続する。daily の前回側は run store、retention 外では `--ranked-set-history-dir` の R2 ranked-set history |
-| `trailing_12m_unique_top20` | 連続する直近 12 月次 panel の top-20 に現れた unique ticker 数 | slot 240 件に対する銘柄の広がり。月欠損があれば未計測 |
-| `carry_dominant_share` | top-20 のうち `er_carry_annual > er_reversion_annual` の比率 | 高いほど E[r] の経済成分が carry 側へ集中する |
-| `sector_hhi` | top-20 の `sector_33` share の二乗和 | 高いほど sector 集中が強い |
-| `max_cluster_share` | `sector_33 × (carry / reversion 支配)` の最大 cluster 比率 | sector と E[r] 成分を組み合わせた最大の同一 economic bet |
-| `event_wait_share` | 最新 canonical shortlist の rejected 中 `reject_class: event_wait` の比率 | 深掘り済み候補が再評価 trigger 待ちである度合い。歴史分布は application DB の prior shortlist cycle |
-
-panel 由来座標の percentile は同一 rules hash の月次 panel 分布、`event_wait_share` は prior
-shortlist cycle の分布に置く。異なる母集団の percentile を横並びの score へ合成しない。
-前 cycle の run と ranked-set history が無い、連続月 panel が欠ける、shortlist または rejected
-entry が無い場合は `status: unmeasured`・`value: null` と理由を返す。未計測を 0 や
-「異常なし」へ補完しない。
-
-供給 2 座標が同じ方向を示し、幅の各座標も同じ結論を支える場合にだけ、低供給×狭い幅を
-市場側の枯渇、十分な供給×狭い幅を集中した供給、十分な供給×広い幅を広い供給、低供給×
-広い幅を現行 value 軸外の機会として読む。供給内または幅内で方向が割れた場合は四象限を
-断定せず、割れた座標と `research / discovery` の優先判断が未解決であることを報告する。
-percentile に新しい二値閾値を置かず、raw 座標を単一 regime label へ変換しない。ticker の
-新しさ自体を KPI にしない。carry は較正上有効な予測成分でもある
-（[`2026-08-06-bargain-capture-diagnosis`](../../reports/studies/2026-08-06-bargain-capture-diagnosis/report.md)
-§6.3）ため、carry 集中も単独で悪化や除外と読まない。
-
 **判断時の機械行焼き込み**: run storeは短期retentionなので、Shortlist publisherはsource selectionのranked rowからrank、E[r]、FV・価格、warning、estimate snapshotを`machine_snapshot`へ焼き込み、publish後は再計算も上書きもしない。new-writeはsource runのrules/model identity、candidate membership、rank、review capを保存transaction内で検証する。旧selection/shortlist versionをruntimeでprojectしない。
 
 **Research Gate → Primary Research Setの束縛**: `research prepare`はcanonical Shortlistを明示し、selection ID、as-of、run revision、ranked set membershipをfail-closeで照合する。Primary Research SetはShortlist `selected`の部分集合に限る。admission可能集合の正本はstored Shortlistで、workspace manifestの手修正では迂回できない。holding reviewはcanonical ledgerの保有を別境界として使う。旧Shortlistはone-time cutover後のruntime bindingに使わない。
 
-**決算ラグ annotation**: 決算開示と as-of 財務のラグを判断面へ出す。`jquants_earnings_calendar` は ticker あたり 1 行の**予定**表で、`next_earnings_date` は as-of 以降の最短予定日しか持たないため、日付だけでは「これから」と「もう出た」が区別できない。`next_earnings_status` が 4 状態で答える — `announced`（予定日が as-of 以前）/ `scheduled`（予定日が as-of より後）/ `estimated`（カレンダー行が無く、過去の開示周期から推定できる）/ `unknown`（材料なし）。会社が予定日より前に開示してもカレンダー行は残るので、その銘柄は `scheduled` のまま見える —— 予定日直前の開示は前倒しの実績より業績予想修正・再開示であることが多く（実 store の retrospective で前倒し判定は 89% が誤り）、誤って `announced` にすると読み手が目前の決算を event risk から外すため、判定しない側へ倒している。前倒しかどうかは隣の `fin_latest_disclosed_date` が予定日の直前を指すことで読む。`fin_latest_disclosed_date` は機械行の財務が含む最後の開示日。`stale_fin_flag` は「予定日が as-of 以前なのに、その発表に対応する開示が行に無い」で立ち、**原因は区別しない**（延期・決算期変更・provider 欠落のいずれでも立つ。読み手のすべきことはどれでも同じで、一次開示で切り分ける）。判定材料が無い場合は `null` で、`false`（照合して食い違わなかった）と同じ値にしない。`next_earnings_estimated_date` は前年同期の次の開示日を 1 年ずらした推定で、確定日を上書きしない。周期の刻みに数えるのは実績を伴う開示だけで、来期ガイダンス行（`period_end` が開示日より後）・同一期の再開示・実績列を持たない業績予想/配当予想の修正は除く。実 store の過去 4 as-of で**実際の次回開示日**と突合すると誤差 7 日以内 88〜95%・誤差の中央値 1 日（全件）。次回開示までの距離や決算期の分布で帯ごとに 75〜96% まで振れるので、確定日の代わりには使わない —— event risk 判定は確定日だけで行い、推定は着手順の目安に留める。いずれも annotation で、screen pass・自動除外・E[r]・rank・recommendation を変更しない。カレンダー行を持たない universe ticker 数は `run` の進捗行に出す（実測で universe の約 18%。個別企業の未公表を含むので閾値は置かず、急増を provider 欠落として読む）。
+**決算ラグ annotation**: 決算開示と as-of 財務のラグを判断面へ出す。`jpx_earnings_calendar` は ticker あたり 1 行の**予定**表で、`next_earnings_date` は as-of 以降の最短予定日しか持たないため、日付だけでは「これから」と「もう出た」が区別できない。`next_earnings_status` が 4 状態で答える — `announced`（予定日が as-of 以前）/ `scheduled`（予定日が as-of より後）/ `estimated`（カレンダー行が無く、過去の開示周期から推定できる）/ `unknown`（材料なし）。会社が予定日より前に開示してもカレンダー行は残るので、その銘柄は `scheduled` のまま見える —— 予定日直前の開示は前倒しの実績より業績予想修正・再開示であることが多く（実 store の retrospective で前倒し判定は 89% が誤り）、誤って `announced` にすると読み手が目前の決算を event risk から外すため、判定しない側へ倒している。前倒しかどうかは隣の `fin_latest_disclosed_date` が予定日の直前を指すことで読む。`fin_latest_disclosed_date` は機械行の財務が含む最後の開示日。`stale_fin_flag` は「予定日が as-of 以前なのに、その発表に対応する開示が行に無い」で立ち、**原因は区別しない**（延期・決算期変更・provider 欠落のいずれでも立つ。読み手のすべきことはどれでも同じで、一次開示で切り分ける）。判定材料が無い場合は `null` で、`false`（照合して食い違わなかった）と同じ値にしない。`next_earnings_estimated_date` は前年同期の次の開示日を 1 年ずらした推定で、確定日を上書きしない。周期の刻みに数えるのは実績を伴う開示だけで、来期ガイダンス行（`period_end` が開示日より後）・同一期の再開示・実績列を持たない業績予想/配当予想の修正は除く。実 store の過去 4 as-of で**実際の次回開示日**と突合すると誤差 7 日以内 88〜95%・誤差の中央値 1 日（全件）。次回開示までの距離や決算期の分布で帯ごとに 75〜96% まで振れるので、確定日の代わりには使わない —— event risk 判定は確定日だけで行い、推定は着手順の目安に留める。いずれも annotation で、screen pass・自動除外・E[r]・rank・recommendation を変更しない。カレンダー行を持たない universe ticker 数は `run` の進捗行に出す（実測で universe の約 18%。個別企業の未公表を含むので閾値は置かず、急増を provider 欠落として読む）。
 
 **historical backfill では読めない**: カレンダーは fetch 日を持たない単一 snapshot なので、過去 as-of の run は「今日の予定表」を読む。backfill run の `next_earnings_status` / `stale_fin_flag` は as-of 時点の状態ではない。
 

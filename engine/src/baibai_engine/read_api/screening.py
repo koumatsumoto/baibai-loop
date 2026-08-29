@@ -122,11 +122,9 @@ def screening_selection_payloads(
             "selection_id": item.selection_id,
             "run_revision_id": item.run_revision_id,
             "as_of_date": item.as_of_date,
-            "profile": item.profile,
             "macro_context_id": item.macro_context_id,
             "created_at": item.created_at,
             "payload": item.payload,
-            "entries": list(item.entries),
         }
         for item in selections
     ]

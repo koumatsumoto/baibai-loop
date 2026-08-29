@@ -19,7 +19,6 @@ def ranked_selection_payload(
     rules_hash: str,
     model_id: str = "expected-return-v1",
     asof: str = "2026-07-08",
-    profile: str = "default",
     candidates_ref: str = "run-revision-fixture",
     macro_context_ref: str | None = None,
     ranked_set: Sequence[tuple[str, float]] | None = None,
@@ -75,7 +74,6 @@ def ranked_selection_payload(
         "review_basis": {"judged_through_shortlist_id": None},
         "selection": {
             "asof": asof,
-            "profile": profile,
             "input_refs": {
                 "candidates_ref": candidates_ref,
                 "macro_context_ref": macro_context_ref,

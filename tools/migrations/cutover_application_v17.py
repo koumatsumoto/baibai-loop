@@ -16,6 +16,7 @@ from pathlib import Path
 from baibai_engine.appdb.schema import APPLICATION_SCHEMA_VERSION, SCHEMA_SQL
 from baibai_engine.foundation.ranked_set import RESEARCH_GATE_CONTRACT_ID
 from baibai_engine.research.assessment import BargainAssessment
+from baibai_engine.research.thesis import ThesisDocument
 from baibai_engine.screening.shortlist import Shortlist
 
 SOURCE_VERSION = 16
@@ -41,16 +42,6 @@ _UNCHANGED_TABLES: dict[str, tuple[str, ...]] = {
         "payload",
     ),
     "macro_context_head": ("singleton", "context_id"),
-    "thesis": (
-        "thesis_id",
-        "ticker",
-        "as_of",
-        "recommendation",
-        "published_at",
-        "supersedes_id",
-        "payload",
-        "core_sha256",
-    ),
     "thesis_review": ("review_id", "thesis_id", "reviewed_at", "payload"),
     "holding_review": (
         "holding_review_id",
@@ -111,12 +102,13 @@ def _shortlist_payload(raw: str) -> str | None:
     payload = json.loads(raw)
     if not isinstance(payload, dict) or payload.get("schema_version") not in {2, 3, 4, 5, 6}:
         raise CutoverError("shortlist payload is not a supported canonical revision")
-    if payload.get("schema_version") in {2, 3, 4}:
+    if payload.get("schema_version") in {2, 3}:
         return None
     projected = dict(payload)
     projected["schema_version"] = 6
     projected.setdefault("review_basis_shortlist_id", None)
     projected["research_gate_contract_id"] = RESEARCH_GATE_CONTRACT_ID
+    projected.pop("profile", None)
     for key in (
         "attention_policy_id",
         "attention_policy_hash",
@@ -174,6 +166,27 @@ def _assessment_payload(raw: str) -> str | None:
     return _canonical_json(validated.payload())
 
 
+def _thesis_payload(raw: str) -> str:
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise CutoverError("thesis payload must be an object")
+    projected = dict(payload)
+    estimates = projected.get("estimates")
+    if not isinstance(estimates, dict):
+        raise CutoverError("thesis estimates must be an object")
+    estimates = dict(estimates)
+    estimates.pop("deep_discount_bps", None)
+    projected["estimates"] = estimates
+    judgment = projected.get("judgment")
+    if not isinstance(judgment, dict):
+        raise CutoverError("thesis judgment must be an object")
+    judgment = dict(judgment)
+    judgment.pop("position_intent", None)
+    projected["judgment"] = judgment
+    ThesisDocument.model_validate(projected)
+    return _canonical_json(projected)
+
+
 def _copy_rows(destination: sqlite3.Connection, table: str, columns: tuple[str, ...]) -> None:
     names = ", ".join(columns)
     # Names come from _UNCHANGED_TABLES, not operator input.
@@ -221,9 +234,29 @@ def cutover(source: Path, output: Path) -> dict[str, int]:
         if integrity != ("ok",):
             raise CutoverError(f"source integrity_check failed: {integrity!r}")
         connection.executescript(SCHEMA_SQL)
+        # Source tables contain cross-table and self-referential publication links.
+        # Copy order must not decide whether a valid source survives the cutover; the
+        # complete destination is checked before commit below.
+        connection.execute("PRAGMA defer_foreign_keys = ON")
         connection.execute("BEGIN IMMEDIATE")
         for table, columns in _UNCHANGED_TABLES.items():
             _copy_rows(connection, table, columns)
+        thesis_columns = (
+            "thesis_id",
+            "ticker",
+            "as_of",
+            "recommendation",
+            "published_at",
+            "supersedes_id",
+            "payload",
+            "core_sha256",
+        )
+        thesis_placeholders = ", ".join("?" for _ in thesis_columns)
+        connection.executemany(
+            f"INSERT INTO thesis ({', '.join(thesis_columns)}) "  # nosec B608
+            f"VALUES ({thesis_placeholders})",
+            _transformed_rows(connection, "thesis", _thesis_payload),
+        )
         shortlist_columns = (
             "shortlist_id",
             "selection_id",
@@ -271,14 +304,20 @@ def cutover(source: Path, output: Path) -> dict[str, int]:
                     f"SELECT count(*) FROM {table}"  # nosec B608
                 ).fetchone()[0]
             )
-            for table in (*_UNCHANGED_TABLES, "shortlist", "bargain_assessment", "ledger_event")
+            for table in (
+                *_UNCHANGED_TABLES,
+                "thesis",
+                "shortlist",
+                "bargain_assessment",
+                "ledger_event",
+            )
         }
         for table, count in counts.items():
             if table == "shortlist":
                 source_count = int(
                     connection.execute(
                         "SELECT count(*) FROM source.shortlist WHERE "
-                        "json_extract(payload, '$.schema_version') IN (5, 6)"
+                        "json_extract(payload, '$.schema_version') IN (4, 5, 6)"
                     ).fetchone()[0]
                 )
             elif table == "bargain_assessment":

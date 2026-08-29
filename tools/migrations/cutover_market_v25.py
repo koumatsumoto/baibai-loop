@@ -16,6 +16,8 @@ from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION, validate_c
 
 SOURCE_SCHEMA_VERSION = 24
 REMOVED_TABLE = "edinet_buyback_reports"
+SOURCE_EARNINGS_TABLE = "jquants_earnings_calendar"
+CURRENT_EARNINGS_TABLE = "jpx_earnings_calendar"
 
 
 def _tables(connection: sqlite3.Connection) -> set[str]:
@@ -52,22 +54,39 @@ def cutover(path: Path) -> dict[str, int]:
         tables = _tables(connection)
         if REMOVED_TABLE not in tables:
             raise ValueError(f"schema {SOURCE_SCHEMA_VERSION} is missing {REMOVED_TABLE}")
-        retained = tables - {REMOVED_TABLE}
+        if SOURCE_EARNINGS_TABLE not in tables:
+            raise ValueError(f"schema {SOURCE_SCHEMA_VERSION} is missing {SOURCE_EARNINGS_TABLE}")
+        retained = tables - {REMOVED_TABLE, SOURCE_EARNINGS_TABLE}
         before = _row_counts(connection, retained)
+        earnings_count = int(
+            connection.execute(
+                f'SELECT count(*) FROM "{SOURCE_EARNINGS_TABLE}"'  # nosec B608
+            ).fetchone()[0]
+        )
 
         connection.execute("BEGIN IMMEDIATE")
         try:
             connection.execute(f'DROP TABLE "{REMOVED_TABLE}"')
+            connection.execute(
+                f'ALTER TABLE "{SOURCE_EARNINGS_TABLE}" RENAME TO "{CURRENT_EARNINGS_TABLE}"'
+            )
             connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION}")
             validate_current_schema(connection)
             after = _row_counts(connection, retained)
             if after != before:
                 raise RuntimeError("retained market row counts changed during cutover")
+            current_earnings_count = int(
+                connection.execute(
+                    f'SELECT count(*) FROM "{CURRENT_EARNINGS_TABLE}"'  # nosec B608
+                ).fetchone()[0]
+            )
+            if current_earnings_count != earnings_count:
+                raise RuntimeError("earnings-calendar row count changed during cutover")
             connection.commit()
         except Exception:
             connection.rollback()
             raise
-    return before
+    return {**before, CURRENT_EARNINGS_TABLE: earnings_count}
 
 
 def build_parser() -> argparse.ArgumentParser:

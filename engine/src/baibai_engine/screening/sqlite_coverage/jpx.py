@@ -138,9 +138,7 @@ def _append_jpx_earnings_calendar_issues(
                 reason=f"source_coverage status is not ok: {status}: {error or ''}",
             )
         )
-    table_count = int(
-        conn.execute("SELECT COUNT(*) FROM jquants_earnings_calendar").fetchone()[0] or 0
-    )
+    table_count = int(conn.execute("SELECT COUNT(*) FROM jpx_earnings_calendar").fetchone()[0] or 0)
     if table_count <= 0 or table_count != int(record_count or 0):
         issues.append(
             CacheCoverageIssue(
@@ -153,7 +151,7 @@ def _append_jpx_earnings_calendar_issues(
             )
         )
     actual_range = conn.execute(
-        "SELECT MIN(announcement_date), MAX(announcement_date) FROM jquants_earnings_calendar"
+        "SELECT MIN(announcement_date), MAX(announcement_date) FROM jpx_earnings_calendar"
     ).fetchone()
     actual_start_text, actual_end_text = actual_range
     try:

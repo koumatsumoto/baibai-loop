@@ -258,7 +258,6 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 #### 判断・operation境界
 
 - [ ] 人間確認なしで完了できる operation 分岐は、専用の completion reason と canonical artifact evidence を必須にし、`not applicable` 等を human confirmation field へ書く抜け道、別 session kind での流用、evidence 件数の矛盾を negative test で拒否するか
-- [ ] rebuildable publication を再利用する gate は、外部 summary の schema・terminal state・artifact ID を exact に検証し、run と selection の両方を同一の clean application commit に束縛するか。長い計算は開始時 commit を publication 直前に再照合し、dirty tree・HEAD 変更・片方だけ provenance 欠損を current code 扱いしない negative test があるか
 - [ ] macro context の確率検証は float 等値比較でなく整数化算術で書き、値がある場合の境界（0.00 / 0.95 / 刻み外 / 部分欠落）を negative test で塞ぐ。散文品質を cardinality や token matching で代理判定する gate を足していないか
 - [ ] ledger eventを導入・変更する場合、reservationとbuy execution、terminal orderとrelease、cash不足、guard超過、expiry後のbuy、保有超過sellをhard errorとして確認したか
 - [ ] concentrationはholding market value + active reservationをledgerの`total_capital_yen`で割り、warning + 期限付きoverrideとして扱うことを確認したか
@@ -500,8 +499,8 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
   - [ ] 削除根拠は保有 outcome の calibration で示す (安易な削除で有効な割安タイプを失わない)
 - [ ] **domain語彙をrenameする場合、new-write / read projection / behavior assetをatomicに揃える**:
   - [ ] producer、consumer、Web contract、skill、method、current docsから旧identifierを除去する
-  - [ ] immutable historyはrewriteせず、旧keyを読むadapter pathだけを明示allowlistする
-  - [ ] `check_legacy_semantics.py`へ旧identifierのnegative testとadapterのpositive testを追加する
+  - [ ] runtime adapterを残さず、必要なcanonical historyはone-shot cutoverでcurrent形へ変換する。実取引・税務記録と記録済みidentityは保持する
+  - [ ] `check_legacy_semantics.py`へ旧identifierのnegative testを追加し、one-shot cutoverだけを明示allowlistする
 - [ ] selectionのranked setをnew-writeへ追加・変更する場合、run identity / candidate membership / native E[r]、表示E[r]・FV・価格、順位、review capを同じ発行境界で照合するか。不整合なrowをShortlistへ焼き込めないnegative testがあるか
 - [ ] **judgment-gate 系の必須 contract を追加する場合、bypass を test で塞ぐ**:
   - [ ] data 不在 label で hard trigger を回避できないか

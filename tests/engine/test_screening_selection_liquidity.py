@@ -43,7 +43,6 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
             candidates=tuple(candidate_record_from_mapping(item) for item in candidates),
             macro_context=None,
             rules=self.rules,
-            profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
             review_cap=review_cap,
@@ -208,60 +207,6 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         )
         self.assertTrue(all(item["primary_evidence_pattern_id"] is None for item in ranked_set))
 
-    def test_evidence_pattern_cap_does_not_split_the_ranked_set(self) -> None:
-        payload = build_selection_payload(
-            asof_date=_ASOF,
-            candidates=tuple(
-                candidate_record_from_mapping(item)
-                for item in [
-                    _candidate("1111", sector_33="機械"),
-                    _candidate("2222", sector_33="化学"),
-                ]
-            ),
-            macro_context=None,
-            rules=self.rules,
-            review_cap=10,
-            profile="balanced",
-            candidates_ref="test.yaml",
-            macro_context_ref=None,
-            profile_overrides={
-                "balanced": {"diversity": {"max_recommended_per_evidence_pattern": 1}}
-            },
-        )
-        self.assertEqual(self._tickers(payload), {"1111", "2222"})
-
-    def test_evidence_pattern_cap_does_not_bind_candidates_without_evidence_hits(self) -> None:
-        payload = build_selection_payload(
-            asof_date=_ASOF,
-            candidates=tuple(
-                candidate_record_from_mapping(item)
-                for item in [
-                    _candidate(
-                        "1111",
-                        sector_33="機械",
-                        evidence_hits=[],
-                        metrics={"er_annual": 0.07},
-                    ),
-                    _candidate(
-                        "2222",
-                        sector_33="化学",
-                        evidence_hits=[],
-                        metrics={"er_annual": 0.06},
-                    ),
-                ]
-            ),
-            macro_context=None,
-            rules=self.rules,
-            review_cap=10,
-            profile="balanced",
-            candidates_ref="test.yaml",
-            macro_context_ref=None,
-            profile_overrides={
-                "balanced": {"diversity": {"max_recommended_per_evidence_pattern": 1}}
-            },
-        )
-        self.assertEqual(self._tickers(payload), {"1111", "2222"})
-
     def test_er_missing_candidates_are_excluded_from_ranking_population(self) -> None:
         payload = self._payload(
             [
@@ -303,62 +248,28 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         self.assertEqual(counts["er_missing"], 2)
         self.assertEqual(counts["er_missing_unresolved_dividend_basis"], ["2222"])
 
-    def test_profile_config_can_relax_liquidity(self) -> None:
+    def test_rules_can_relax_liquidity(self) -> None:
+        relaxed = self.rules.model_copy(
+            update={
+                "selection": self.rules.selection.model_copy(
+                    update={
+                        "liquidity": self.rules.selection.liquidity.model_copy(
+                            update={"min_market_cap_oku": 10}
+                        )
+                    }
+                )
+            }
+        )
         payload = build_selection_payload(
             asof_date=_ASOF,
             candidates=(candidate_record_from_mapping(_candidate("2222", market_cap_oku=50)),),
             macro_context=None,
-            rules=self.rules,
+            rules=relaxed,
             review_cap=10,
-            profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
-            profile_overrides={"balanced": {"liquidity": {"min_market_cap_oku": 10}}},
         )
         self.assertEqual(self._tickers(payload), {"2222"})
-
-    def test_supply_demand_gate_only_changes_ranked_set_and_passes_missing(self) -> None:
-        payload = build_selection_payload(
-            asof_date=_ASOF,
-            candidates=tuple(
-                candidate_record_from_mapping(item)
-                for item in [
-                    _candidate(
-                        "1111",
-                        metrics={"er_annual": 0.12, "margin_std_long_share": 0.75},
-                    ),
-                    _candidate(
-                        "2222",
-                        sector_33="化学",
-                        metrics={"er_annual": 0.10, "margin_std_long_share": 0.74},
-                    ),
-                    _candidate(
-                        "3333",
-                        sector_33="小売業",
-                        metrics={"er_annual": 0.08, "margin_std_long_share": None},
-                    ),
-                ]
-            ),
-            macro_context=None,
-            rules=self.rules,
-            profile="balanced",
-            candidates_ref="test.yaml",
-            macro_context_ref=None,
-            review_cap=3,
-            profile_overrides={
-                "balanced": {
-                    "supply_demand": {
-                        "margin_std_long_share_exclude_at_or_above": 0.75,
-                    }
-                }
-            },
-        )
-
-        self.assertEqual(self._tickers(payload), {"1111", "2222", "3333"})
-        ranked_set = payload["ranked_set"]
-        assert isinstance(ranked_set, list)
-        self.assertEqual([item["ticker"] for item in ranked_set], ["1111", "2222", "3333"])
-        self.assertEqual(self._diag(payload)["supply_demand_excluded_count"], 1)
 
     def test_short_to_adv_annotation_does_not_change_selection_output(self) -> None:
         candidates = [

@@ -75,7 +75,6 @@ def _binding(machine_rows: dict[str, dict[str, object]] | None = None) -> Select
         selection_id=shortlist.selection_id,
         run_revision_id=shortlist.run_revision_id,
         as_of=shortlist.as_of,
-        profile=shortlist.profile,
         macro_context_id=shortlist.macro_context_id,
         ranked_tickers=("2331", "0001"),
         candidate_er={"2331": 0.12, "0001": 0.04},

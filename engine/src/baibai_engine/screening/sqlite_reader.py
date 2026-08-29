@@ -1205,7 +1205,7 @@ def read_jpx_earnings_calendar_snapshot(
     *,
     allow_stale: bool = False,
 ) -> JPXEarningsCalendarSnapshot | None:
-    """Read the fresh JPX schedule snapshot from compatibility storage."""
+    """Read the fresh JPX schedule snapshot."""
     if not sqlite_path.exists():
         return None
     conn = connect_current(sqlite_path)
@@ -1236,7 +1236,7 @@ def read_jpx_earnings_calendar_snapshot(
         if not allow_stale and weekday_distance(asof_date, fetched_at.astimezone(JST).date()) > 7:
             return None
         rows = conn.execute(
-            "SELECT ticker, announcement_date FROM jquants_earnings_calendar "
+            "SELECT ticker, announcement_date FROM jpx_earnings_calendar "
             "ORDER BY announcement_date, ticker"
         ).fetchall()
         if not rows or len(rows) != int(record_count or 0):

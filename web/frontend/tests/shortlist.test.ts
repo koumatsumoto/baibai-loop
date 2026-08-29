@@ -88,7 +88,6 @@ function selection(rankedSet: SelectionRankedSetEntryView[]): MachineSelectionVi
   return {
     selection_id: 'selection-test',
     run_revision_id: 'runrev-test',
-    profile: 'value',
     macro_context_id: null,
     created_at: '2026-07-21T13:00:00+09:00',
     ranked_set: rankedSet,

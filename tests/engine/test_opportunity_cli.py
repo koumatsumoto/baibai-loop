@@ -170,7 +170,6 @@ def _write_selection(
         selection_metadata["er_model_version"] = er_model_version
     payload = {
         "selection_id": selection_id,
-        "recommendations": [],
         "ranked_set": ranked_set,
         "ranked_tickers": [str(row["ticker"]) for row in ranked_set],
         "selection": selection_metadata,
@@ -189,7 +188,7 @@ def _seed_gate(
     shortlist_id: str = SHORTLIST_ID,
     ledger_path: Path = LEDGER_FIXTURE,
 ) -> Path:
-    """Publish the Research Gate judgment over the Review Set this selection carries.
+    """Publish the Research Gate judgment over the ranked set this selection carries.
 
     Reading the tickers back out of the selection keeps one source for the cycle: a
     shortlist that judged a different set is exactly what prepare must refuse, so a
@@ -1392,11 +1391,10 @@ def _set_primary_research_set(workspace: Path, tickers: Sequence[str]) -> None:
 def test_research_gate_rejected_ticker_cannot_enter_the_primary_research_set(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Negative 1: a Review Set member the Gate rejected is refused before any thesis.
+    """A ranked-set member rejected by the Gate is refused before any thesis.
 
-    Bargain Assessment re-checks this at publication, but a proposal only needs a
-    thesis and a review — so a gate that fires at assessment time fires after the
-    capital-committing artifact already exists.
+    Bargain Assessment re-checks this at publication, but workspace admission must
+    reject it before research creates a capital-allocation judgment.
     """
     sqlite_path = tmp_path / "market.sqlite"
     seed_daily_bars(sqlite_path, [("8929", "2026-07-10", 750.0, 1.0)])

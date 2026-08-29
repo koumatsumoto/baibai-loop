@@ -217,16 +217,23 @@ hydrate後にfetch/build/publishへ直列に進み、変更後の再hydrateを�
 
 **market v24からv25へのcutoverはローカルpublishで完了させる。** `push-market`はdownloadしたstaging copyにも同じ一度限りのcutoverを適用するため、cloud側の増分を捨てずにmergeできる。日次batchにschema移行を吸収させない。v25以外の旧版は推測して変換せず停止する。
 
+**run store v3からv4への一度限りのcutoverもローカルで完了させる。** run / selectionは再生成可能で、canonicalなShortlistと判断はapplication DBにあるため、旧rowを互換変換せず空のv4へ置き換える。日次batchの実行中でないことを確認し、main merge後に次を1回だけ実行する。`cutover-runs`は直前のpullで記録したR2 ETagへ条件付きで書き、旧objectを`runs.sqlite.bak`へ保存してからbundle receiptを更新する。sourceがv3でない、table集合が違う、またはpull後にR2が変わった場合はuploadしない。
+
+```bash
+batch/scripts/r2_transfer.sh pull-runs
+batch/scripts/r2_transfer.sh cutover-runs
+```
+
 **publishするcodeは、cloudが動かすcodeでなければならない。** ローカルのschema versionがmainより先にあると、cloudが知らないversionのstoreを置くことになり、次の日次batchが`open_connection`のbaseline検査で停止する（`supported range`を挙げてfail-fastし、Discordに`[FAILED]`が出る。1世代の`.bak`も残る）。schemaを上げるcodeは**mainへ入れてからpushする**。
 
-**pull側にschema検査を置いてはならない。** 検査を置くと、ラグを解消する経路（pull → open → push）がstep 1で落ちて自己修復が止まり、storeを1行も書かない`cloud-materialize`まで道連れになる。schemaがずれている間に妥当域外の値が入る心配も要らない — 書き込み経路は全て`open_connection`を通り、そこで必ずmigrationが先に走る。
+**pull側にschema検査を置いてはならない。** 検査を置くと、ラグを解消する経路（pull → one-shot cutover → push）がstep 1で落ちて自己修復が止まり、storeを1行も書かない`cloud-materialize`まで道連れになる。writerとreaderはcurrent schemaだけを受理し、旧schemaは明示したcutover以外で開かない。
 
 **停止と復旧**: mergeの取り残し、origin不一致、schema不一致、CAS failureではuploadしない。
-最新cloud copyからやり直す。`runs.sqlite`はcloudが唯一のwriterであり、この手順を持たない。
+最新cloud copyからやり直す。`runs.sqlite`はcloudが唯一の通常writerであり、上記v3→v4の一度限りの置換以外はlocalからpushしない。
 
 ### application DB を反映する
 
-**前提**: application DBのjudgment更新を完了し、schema migrationを含むcodeはmainへ入れる。
+**前提**: application DBのjudgment更新を完了し、schema cutoverを含むcodeはmainへ入れる。
 
 **実行**:
 
@@ -241,8 +248,8 @@ batch/scripts/publish.sh
 **停止と復旧**: exportはstoreのschemaがcodeと一致しない間、viewを1件も書かずexit 1で停止する。
 schemaを一致させてから再実行する。未publishのままではscreening結果を含む全viewが更新されない。
 
-application DBのschemaはローカルのCLI実行でmigrateされ、クラウドはこのstoreをread-onlyで読む。schema migrationを
-含むcodeがmainへ入ったら、次の`cloud-daily-batch`より前に反映する。
+application DBはcurrent schemaだけを開き、クラウドはこのstoreをread-onlyで読む。schemaを上げる場合は
+main merge後に専用one-shot toolでローカルcopyをcutoverし、検証済みstoreを次の`cloud-daily-batch`より前に反映する。
 
 ### application DB を復元する
 
@@ -263,10 +270,9 @@ backupに失敗した場合、またはwriter停止を確認できない場合�
 
 #### ローカルcheckpointから復元する
 
-**前提**: 復元対象の時点と、欠陥migrationがmainに残っていないことを確認する。`initialize_database`は
-未適用migrationの最初の文より前に`stores/application/backups/baibai-<JST stamp>.sqlite`を作る。
-これはWAL込みのsnapshotで、`integrity_check`と`foreign_key_check`を通したものだけを直近10世代残す。
-手動checkpointは`uv run baibai-engine db backup`で作る。
+**前提**: 復元対象の時点を確認する。checkpointは`uv run baibai-engine db backup`で作り、
+WAL込みのsnapshotとして`integrity_check`と`foreign_key_check`を通したものだけを直近10世代残す。
+runtime migrationはないため、復元候補の`user_version`がcurrent schemaと違う場合は直接配置しない。
 
 **検査**: 候補を配置する前に、次の出力を確認する。`integrity_check`がexact `ok`、
 `foreign_key_check`が0行でなければ停止する。
@@ -291,7 +297,7 @@ uv run baibai-engine position ledger | head -20        # ledger headを確認
 ```
 
 **成功確認**: `integrity_check` / `foreign_key_check`、`user_version`、復元後のledger headを照合する。
-戻したstoreはcheckpoint時点のschema版なので、次のCLI実行が新しいcheckpointを取ってから未適用migrationを適用する。
+戻したstoreの`user_version`はcurrent schemaと一致しなければならない。異なる版をCLIに開かせて自動変換しない。
 
 **復旧**: 照合に失敗したら判断を再開しない。同じshell sessionで、失敗copyを一意な名前へ退避し、
 共通前提で作ったconsistent snapshotをcanonical pathへ戻す。
@@ -579,17 +585,17 @@ Workerの再deployは不要である。
 - `views/meta.json`は他のviewとhistoryが全て成功した後に最後にuploadする。
 - bucket名は`R2_STORES_BUCKET` / `R2_SERVING_BUCKET`で明示的にoverrideできるが、通常は固定defaultを使う。
 
-### migrationを戻すとき
+### schema cutoverを修正するとき
 
 **停止条件**: store全体を古いsnapshotへ戻さない。storeは毎営業日伸びるため、過去schemaのcopyへの交換は
 それ以降の事実を失う。
 
-**実行**: migrationの欠陥は修正migrationを前へ足す。誤変換した列は`rebuild_table`を使う新しいmigrationで
-作り直す。`BASELINE_VERSION..SQLITE_SCHEMA_VERSION`は前進だけを受理し、範囲外のstoreは
-`open_connection`がfail-fastで拒否する。
+**実行**: application / market / run storeはruntime migrationを持たない。欠陥のあるone-shot toolを修正し、
+cutover前のlocal copyへ再実行してcurrent schemaの別fileを作る。macro storeだけは実在する直前schemaからの
+一段migrationをstaging copyへ適用する。
 
-**成功確認と復旧**: 修正migrationをローカルcopyで適用し、integrityと行数を照合してからmainへ入れ、同じ作業で
-storeを反映する。直前のpush自体が壊れた場合だけ、上の「R2 transferの安全境界」に従って`<key>.bak`の1世代を使う。
+**成功確認と復旧**: sourceと出力のintegrity・foreign key・必須table・保持対象row/headを照合してからmainへ入れ、
+同じ作業でstoreを反映する。直前のpush自体が壊れた場合だけ、上の「R2 transferの安全境界」に従って`<key>.bak`の1世代を使う。
 
 ## export_read_models.py — read model の材料化
 
@@ -617,7 +623,7 @@ uv run python -m baibai_web.materialize --output-dir <dir> [--batch daily|manual
 
 この一覧と Worker の route 表の対応は `tests/web/test_cloud_export.py` が守る。Worker が写像する view を exporter が書かないと、その route は本番で恒久的に 404 になる。
 
-書き出しの前に application store の `user_version` が code の schema version と一致することを確認し、不一致なら view を 1 件も作らず exit 1 で停止する（読み取り経路は read-only で migrate しないため、不一致は build の途中で素の SQL error になる）。store が無い root は judgment 空の正常状態として export する。
+書き出しの前に application store の `user_version` が code の schema version と一致することを確認し、不一致なら view を 1 件も作らず exit 1 で停止する（読み取り経路は read-only で初期化もcutoverもしないため、不一致は build の途中で素の SQL error になる）。store が無い root は judgment 空の正常状態として export する。
 
 `views/` は毎回 export の完全な像に置換される（実行のたびに一度削除して作り直すので、対象から外れた古い view は残らない）。`history/` は追記のみで、この script は削除を行わない。上記の31日 / 400日削除は serving store（R2 lifecycle）側の保持契約であり、script の挙動ではない。
 

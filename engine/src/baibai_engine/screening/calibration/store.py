@@ -6,13 +6,14 @@ import json
 import shutil
 import sqlite3
 import uuid
-from collections.abc import Mapping
-from contextlib import closing
+from collections.abc import Iterator, Mapping
+from contextlib import closing, contextmanager
 from dataclasses import asdict
 from datetime import date
 from hashlib import sha256
 from math import isfinite
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import cast
 
 from baibai_engine.appdb.json import canonical_json
@@ -136,6 +137,25 @@ def copy_current_snapshot(source: Path, target: Path) -> None:
         return
     target.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source_path, _path(target))
+
+
+@contextmanager
+def fixed_current_snapshot(root: Path) -> Iterator[Path]:
+    """Give one reader a stable copy of the current atomic snapshot.
+
+    Publication replaces ``current.sqlite`` as one filesystem operation, but a reader
+    opens the file once per cohort. Copying the immutable file at entry keeps a
+    publication between those opens from mixing two snapshots in one measurement.
+    """
+    with TemporaryDirectory(prefix="calibration-read-") as raw:
+        fixed = Path(raw)
+        copy_current_snapshot(root, fixed)
+        if not _path(fixed).exists():
+            raise CalibrationCacheError(f"calibration snapshot is missing: {_path(root)}")
+        with closing(_connect(fixed, create=False)) as connection:
+            if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise CalibrationCacheError("calibration snapshot integrity_check failed")
+        yield fixed
 
 
 def publish_current_snapshot(root: Path, built_root: Path) -> None:
@@ -451,6 +471,7 @@ __all__ = [
     "DEFAULT_CALIBRATION_DIR",
     "CalibrationCacheError",
     "copy_current_snapshot",
+    "fixed_current_snapshot",
     "has_cohort",
     "panel_row_from_mapping",
     "publish_current_snapshot",

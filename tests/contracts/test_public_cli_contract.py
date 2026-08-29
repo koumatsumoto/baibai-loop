@@ -358,7 +358,6 @@ def test_select_cli_emits_stable_yaml_shape(
     assert isinstance(selection, dict)
     assert set(selection) == {
         "asof",
-        "profile",
         "input_refs",
         "counts",
         "research_selection_target_max",

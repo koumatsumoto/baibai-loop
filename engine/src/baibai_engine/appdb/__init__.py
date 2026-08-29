@@ -1,7 +1,7 @@
 """Application database infrastructure.
 
-This package owns writable SQLite connections and forward-only schema
-migrations.  Domain packages expose all business mutations.
+This package owns writable SQLite connections and current-schema initialization.
+Domain packages expose all business mutations; older stores require an explicit cutover.
 """
 
 from .schema import APPLICATION_SCHEMA_VERSION as LATEST_VERSION

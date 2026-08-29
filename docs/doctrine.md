@@ -159,7 +159,7 @@ Observed Fact ──────────────┐
 Observed Fact + Metric ─────┴─→ Model ─→ Estimate
 Observed Fact + Metric ───────→ Evidence Pattern ─→ Evidence Hit
 Observed Fact + Metric ───────→ Candidate Diagnostic
-Selection Policy context ─────→ Policy Diagnostic
+Screening rules context ──────→ Rule Diagnostic
 
 Candidates → ranking → Ranked Set
 Ranked Set → Research Gate → Shortlist → human admission → Primary Research Set
@@ -170,7 +170,7 @@ Assessment Cases → Bargain Assessment → buy / defer / no actionable
 authority は次の境界を越えない。
 
 1. Model は Estimate を計算するが、候補順位を直接決めない。
-2. Derived Metric は数値座標であり、Selection Policy が参照しない限り順位authorityを持たない。
+2. Derived Metric は数値座標であり、screening rules が参照しない限り順位authorityを持たない。
 3. Evidence Pattern は Evidence Hit を生成する。単独ではnomination authorityを持たない。
 4. Candidate Diagnostic はannotationであり、eligibility・ordering・capを変えない。
 5. screening rules が候補のeligibilityとorderingを決め、review capが人間へ渡す件数だけを制限する。
@@ -195,7 +195,7 @@ authority は次の境界を越えない。
 | 証拠パターン | evidence pattern | predicate | L2 | opportunity shapeを認識してEvidence Hitを出す機械条件。単独authorityは持たない |
 | 証拠一致 | evidence hit | 機械成果物 | L2 出力 | Evidence Patternとの一致とreason / metric |
 | 候補診断 | candidate diagnostic | annotation | L2 | opportunity typeを問わずrisk・quality・data状態を横断診断するannotation。durabilityはCandidate Diagnostic |
-| Policy診断 | policy diagnostic | annotation | L2 | screening rules固有のfalse-positive class・metric integrity・risk |
+| Rule診断 | rule diagnostic | annotation | L2 | screening rules固有のfalse-positive class・metric integrity・risk |
 | 経済仮説 | economic hypothesis | method concept | L2 | mispricing原因と価値実現経路の金融仮説 |
 | 順位集合 | ranked set | パイプライン状態 | L2 出力 | screening rulesで並べ、review capを適用したResearch Gateへの入力集合。wire表現は`ranked_tickers` |
 | リサーチ候補選定 | select | 機械処理 | L2 | candidatesを順位づけし、Ranked Setを確定する |
@@ -263,14 +263,10 @@ L1 / L2の機械store（market / macro series / screening run）のobserved / de
 
 ### Opportunity Discovery identity grammar
 
-- `opportunity_lane_id`はEconomic Hypothesisのstable kebab-caseで、version・`core`・`alternative`・`pilot`を含めない。
-- `selection_policy_id`はsemantic versionを含み、input・eligibility・ordering・tie-break・depth・利用Model / Metric semanticsが変われば進める。
-- `attention_policy_id`はinput Lane集合とdedupe・freshness・allocation semanticsを識別する。execution parameterだけの変更ではIDを維持する。
+- `method_hash`は、rankingとmembershipを変え得るtyped execution parametersのcanonical SHA-256である。
 - `research_gate_contract_id`はResearch Gate判断契約のsemantic versionである。
-- `selection_policy_hash`と`attention_policy_hash`はcanonical representationとtyped execution parametersのexact SHA-256であり、semantic IDと混同しない。
-- behavior-neutralな表現変更ではsemantic IDを維持できるがexact hashは変わり得る。equivalence reportをbridgeにし、旧hashをaliasしない。
-- Value / Carryは`value-carry` / `value-carry-v1`、Core-only Attentionは`value-carry-only-v1`、Research Gateは`research-gate-v1`を正準IDとする。検証時に固定したEarnings Powerの`earnings-power` / `earnings-power-v1`とbounded pilotの`value-carry-plus-earnings-bounded-v1`は、historical replayが`inconclusive`だったためreserved identityでありproduction artifactへ書かない。
-- `core / alternative`のような複線的なruntime roleは持たず、ranked setを単一路線で作る。
+- behavior-neutralな表現変更ではResearch Gateのsemantic versionを維持できる。旧hashをaliasする互換layerは持たない。
+- ranked setは単一路線で作り、未採用仮説のidentityやruntime roleを予約しない。
 
 ## 9. 参考
 

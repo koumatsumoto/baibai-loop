@@ -164,7 +164,6 @@ _METRIC_FIELDS = (
 # ranking, FV, E[r], or sizing effect.
 _METRIC_TEXT_FIELDS = ("dividend_basis",)
 
-_MARGIN_DEADLINE_SHARE = 0.75
 _STALE_RUN_AGE = timedelta(days=7)
 
 
@@ -558,7 +557,6 @@ def _machine_selection_view(raw: Mapping[str, object]) -> MachineSelectionView:
     return MachineSelectionView(
         selection_id=str(raw["selection_id"]),
         run_revision_id=str(raw["run_revision_id"]),
-        profile=str(raw["profile"]),
         macro_context_id=_text(raw.get("macro_context_id")),
         created_at=datetime.fromisoformat(str(raw["created_at"])),
         ranked_set=[
@@ -1279,22 +1277,6 @@ def _data_quality_flags(row: Mapping[str, object], metrics: Mapping[str, object]
         flags.append("分割補正")
     if metrics.get("forecast_special_gain_flag") is True:
         flags.append("一時益予想")
-    flags.extend(_supply_demand_flags(metrics))
-    return flags
-
-
-def _supply_demand_flags(metrics: Mapping[str, object]) -> list[str]:
-    """Say when the margin long balance is sitting on a settlement clock.
-
-    Positioning is a different question from data quality, but both answer the same
-    reader question — what should make me distrust this row at a glance — so they
-    share the badge list rather than adding a second one to scan. The label carries
-    the distinction.
-    """
-    flags: list[str] = []
-    share = _number(metrics.get("margin_std_long_share"))
-    if share is not None and share >= _MARGIN_DEADLINE_SHARE:
-        flags.append("制度期日偏重")
     return flags
 
 
@@ -1515,11 +1497,9 @@ _DELTA_HOLDING_MOVE_MIN_PCT = 5.0
 # same series oscillating across a single line, not a series reaching the edge.
 _DELTA_MACRO_Z_EDGE = 3.0
 _DELTA_MACRO_Z_REENTRY = 2.7
-# The pool the delta compares, most informative first. ``ranked_set`` is the review
-# input population; ``recommendations`` is the cap-applied machine top-N a run always
-# publishes. The run's own candidate array is the whole evaluated universe, so
-# comparing it would report listings and delistings rather than bargains appearing.
-_DELTA_POOL_ORDER: tuple[DeltaPool, ...] = ("ranked_set", "recommendations")
+# The run's ranked set is the review population. Its candidate array is the whole
+# evaluated universe, so comparing that would report listings and delistings rather
+# than bargains appearing.
 
 
 def build_daily_delta(
@@ -1576,7 +1556,7 @@ def build_daily_delta(
             pool = pools[0]
         else:
             pool, current_pool, previous_pool = pools
-            if not any(_pool_er(row) is not None for row in current_pool.values()):
+            if current_pool and not any(_pool_er(row) is not None for row in current_pool.values()):
                 # A pool whose rows carry no estimate cannot produce a mover, and an
                 # empty mover list would read as "nothing moved". Naming it keeps a
                 # pool shape this reader does not know from silencing the section.
@@ -1653,8 +1633,9 @@ def _pool_rows(
             for row in rows
             if isinstance(row, Mapping) and row.get("ticker")
         }
-        if indexed:
-            return indexed
+        if len(indexed) != len(rows):
+            return None
+        return indexed
     return None
 
 
@@ -1670,31 +1651,17 @@ def _delta_pools(
 
     latest_payloads = candidates.selections(run_revision_id=latest.run_revision_id)
     previous_payloads = candidates.selections(run_revision_id=previous.run_revision_id)
-    for name in _DELTA_POOL_ORDER:
-        current = _pool_rows(latest_payloads, name)
-        earlier = _pool_rows(previous_payloads, name)
-        if current is not None and earlier is not None:
-            return name, current, earlier
-    return None
+    current = _pool_rows(latest_payloads, "ranked_set")
+    earlier = _pool_rows(previous_payloads, "ranked_set")
+    if current is None or earlier is None:
+        return None
+    return "ranked_set", current, earlier
 
 
 def _pool_er(row: Mapping[str, object]) -> float | None:
-    """Read the machine E[r] of a selection row as an annual ratio.
+    """Read the ranked-set E[r] as an annual ratio."""
 
-    The two pools state the same number differently: a recommendation carries the
-    ratio, a ranked_set row carries percent. Each source is converted where it is read,
-    because taking percent for a ratio would report a 10% estimate as 1023%.
-    """
-
-    direct = _number(row.get("er_annual"))
-    if direct is not None:
-        return direct
-    metrics = row.get("metrics")
-    nested = _number((metrics if isinstance(metrics, Mapping) else {}).get("er_annual"))
-    if nested is not None:
-        return nested
-    percent = _number(row.get("expected_return_pct"))
-    return None if percent is None else percent / 100
+    return _number(row.get("er_annual"))
 
 
 def _candidate_entry_delta(

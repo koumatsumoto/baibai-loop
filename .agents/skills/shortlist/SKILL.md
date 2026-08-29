@@ -46,12 +46,11 @@ description: screening からレビュー済み shortlist を発行し、人間�
 3. **比較文脈を作る**
 
    ```bash
-   uv run python -m tools.experiments.measure_supply_context --selection-id <ID>
    uv run python -m baibai_engine.research_watch \
      --db stores/application/baibai.sqlite --sqlite-path stores/market/market.sqlite --asof <ASOF>
    ```
 
-   supply と breadth は別々の軸で報告し、`unmeasured` を 0 や異常なしとみなさない。前回 shortlist と new / continued / exited を比較し、continued も再評価する。previous source が異なる overlap 値は比較せず、`null` を重なり 0 と解釈しない。
+   前回 shortlist と new / continued / exited を比較し、continued も再評価する。
 
 4. **候補をレビューする**
 

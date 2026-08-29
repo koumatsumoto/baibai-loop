@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import date
 from pathlib import Path
@@ -58,6 +57,7 @@ from .store import (
     DEFAULT_CALIBRATION_DIR,
     CalibrationCacheError,
     copy_current_snapshot,
+    fixed_current_snapshot,
     has_cohort,
     publish_current_snapshot,
     published_cohorts,
@@ -180,13 +180,6 @@ def _calibration_build_command(
     if not asofs:
         print("no month-end trading days found in the requested window", file=sys.stderr)
         return 1
-    # Both sides of this comparison are known before a single cohort is computed, and a
-    # full rebuild of this store takes 45 minutes — measured 2026-08-25 over the 81-cohort
-    # production grid, 2019-11-01..2026-07-31. Refusing here rather than only after the
-    # build is what keeps a too-narrow window from costing that time twice.
-    if dropped := _cohorts_a_grid_would_drop(calibration_dir, asofs, force=force):
-        print(_dropped_cohorts_message(dropped), file=sys.stderr)
-        return 1
     tickers_by_asof: dict[date, set[str]] = {}
     built = 0
     expected_rules_hash = rules_content_hash(rules, policy)
@@ -251,10 +244,6 @@ def _calibration_build_command(
     resolved = sum(row.resolved for row in rows)
     control_event = sum(row.status == CONTROL_EVENT_EXIT_STATUS for row in rows)
     failure_exit = sum(row.status == FAILURE_EXIT_STATUS for row in rows)
-    dropped = _cohorts_this_build_would_drop(calibration_dir, work_dir, force=force)
-    if dropped:
-        print(_dropped_cohorts_message(dropped), file=sys.stderr)
-        return 1
     publish_current_snapshot(calibration_dir, work_dir)
     print(
         f"calibration build: done (panels built={built}, forward rows={len(rows)}, "
@@ -264,57 +253,6 @@ def _calibration_build_command(
     )
     print("calibration build: replaced current snapshot atomically", file=out)
     return 0
-
-
-def _dropped_cohorts_message(dropped: Sequence[date]) -> str:
-    return (
-        "calibration build: this run would replace current without "
-        f"{len(dropped)} cohort(s) the store holds: "
-        f"{', '.join(item.isoformat() for item in dropped[:5])}"
-        f"{' …' if len(dropped) > 5 else ''}. "
-        "Widen --start/--end to cover them, or rebuild into a separate "
-        "--calibration-dir if a shorter history is what you want."
-    )
-
-
-def _cohorts_a_grid_would_drop(
-    calibration_dir: Path, asofs: Sequence[date], *, force: bool
-) -> list[date]:
-    """The same refusal as below, decided from the requested grid before anything is built.
-
-    A full rebuild recomputes every cohort from the sealed snapshot, so learning that the
-    window was too narrow only at adoption time throws away the whole run. The grid is not
-    the authority on what the snapshot will hold — a cohort can fail to build — so this
-    predicts rather than decides, and the check on the built snapshot still runs.
-    """
-
-    if not force:
-        return []
-    return sorted(set(published_cohorts(calibration_dir)) - set(asofs))
-
-
-def _cohorts_this_build_would_drop(
-    calibration_dir: Path, work_dir: Path, *, force: bool
-) -> list[date]:
-    """Cohorts the current snapshot serves that the replacement omits.
-
-    A build states the window it recomputes, not the history it intends to keep. Without
-    ``--force`` the current SQLite file is copied into the work directory, so everything
-    outside the window is carried and this is empty by construction. With it the work
-    snapshot starts empty and holds exactly the requested as-ofs — so a run meant to correct one
-    year would publish a current snapshot holding only that year, and the other six would
-    leave the served inventory without anything saying so.
-
-    The check is on the built snapshot rather than on the requested grid: what matters
-    is what is about to become current, whatever produced it.
-
-    The store this runs against always resolves: a build that could not read what it
-    was about to replace stopped before it started.
-    """
-
-    if not force:
-        return []
-    return sorted(set(published_cohorts(calibration_dir)) - set(published_cohorts(work_dir)))
 
 
 def _optional_count(value: object) -> int | None:
@@ -394,31 +332,32 @@ def calibration_evaluate_command(
                 file=sys.stderr,
             )
             return 1
-    all_asofs = published_cohorts(calibration_dir)
-    asofs = sorted(
-        asof
-        for asof in all_asofs
-        if (start is None or asof >= start) and (end is None or asof <= end)
-    )
-    if not asofs:
-        print(f"no panels found under {calibration_dir}", file=sys.stderr)
-        return 1
     try:
-        metas = [read_panel_meta(calibration_dir, asof) for asof in asofs]
-        if len({meta.get("rules_hash") for meta in metas}) != 1:
-            raise CalibrationCacheError(
-                "panel store mixes rules provenance; run calibration-build --force"
+        with fixed_current_snapshot(calibration_dir) as snapshot:
+            all_asofs = published_cohorts(snapshot)
+            asofs = sorted(
+                asof
+                for asof in all_asofs
+                if (start is None or asof >= start) and (end is None or asof <= end)
             )
-        panels = {asof.isoformat(): read_panel(calibration_dir, asof) for asof in asofs}
-        if run_purpose == "production_decision" and not _is_production_panel_contract(
-            metas, panels
-        ):
-            print(
-                "calibration evaluate: diagnostic panel variant has no production authority",
-                file=sys.stderr,
-            )
-            return 1
-        forwards = {asof.isoformat(): read_forward(calibration_dir, asof) for asof in asofs}
+            if not asofs:
+                print(f"no panels found under {calibration_dir}", file=sys.stderr)
+                return 1
+            metas = [read_panel_meta(snapshot, asof) for asof in asofs]
+            if len({meta.get("rules_hash") for meta in metas}) != 1:
+                raise CalibrationCacheError(
+                    "panel store mixes rules provenance; run calibration-build --force"
+                )
+            panels = {asof.isoformat(): read_panel(snapshot, asof) for asof in asofs}
+            if run_purpose == "production_decision" and not _is_production_panel_contract(
+                metas, panels
+            ):
+                print(
+                    "calibration evaluate: diagnostic panel variant has no production authority",
+                    file=sys.stderr,
+                )
+                return 1
+            forwards = {asof.isoformat(): read_forward(snapshot, asof) for asof in asofs}
     except CalibrationCacheError as exc:
         print(f"calibration evaluate: {exc}", file=sys.stderr)
         return 1

@@ -193,7 +193,7 @@ export interface DashboardView {
   research_load_errors: string[]
 }
 
-export type DeltaPool = 'ranked_set' | 'recommendations'
+export type DeltaPool = 'ranked_set'
 
 export type DeltaUnavailable = 'candidates' | 'candidates_estimate' | 'candidates_pool' | 'candidates_previous_run' | 'holdings' | 'holdings_fair_value' | 'macro' | 'market'
 
@@ -297,7 +297,6 @@ export interface HoldingView {
 export interface MachineSelectionView {
   selection_id: string
   run_revision_id: string
-  profile: string
   macro_context_id: string | null
   created_at: string
   ranked_set: SelectionRankedSetEntryView[]

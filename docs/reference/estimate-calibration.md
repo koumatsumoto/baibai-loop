@@ -31,10 +31,10 @@ target は cohort の actual as-of date に calendar month を加算する。元
 
 panel は cohort as-of 以下の最新 `eq_master` snapshot だけを読む。prior snapshot、snapshot unavailable、survivorship、delisting、corporate-action event coverage の不備は payload に残り、3y/5y evidence を block する。
 
-cohort manifest は build が実際に読んだ sealed SQLite snapshot の identity を記録する。snapshot bytes
-自体は保持しない。production decision の可否は、保持している panel / forward / diagnostics の
-integrity、3y/5y coverage、required metric と measurement policy で決める。将来の code で過去入力を
-完全再実行できるという別の保証は要求しない。
+production decision の可否は、現在の snapshot が保持する panel / forward / diagnostics の
+integrity、3y/5y coverage、required metric と measurement policy で決める。過去入力の
+snapshot identity や bytes は保持せず、将来の code で完全再実行できることも別の
+保証として要求しない。
 
 forward row は解決済み status（市場終値による `resolved`、成立した現金公開買付けによる `resolved_control_event_exit`、破綻型の上場廃止による `resolved_failure_exit`）または明示的な unresolved status を持ち、`resolved` flag は前者 3 つと一致する。target と entry はそれぞれ target/as-of 以下の最終取引日で解決し、15 日超の stale exit は resolved return に入れない。価格は as-of basis adjustment factor で正規化するが、metric basis は `price_return_only` であり配当 accrual を加えない。entry 時点の配当利回りを horizon 年数で按分する固定 accrual は、期間中の増配・減配・無配・支払時期を観測した実現配当ではないため、実現値として扱わない。
 
@@ -87,7 +87,7 @@ entry は as-of の 15 日前までの close で解決するので、保有期�
 
 該当 row は必要な入力履歴を欠くため valuation metrics、rank、E[r] を持たず、窓中に価格系列が終われば実現 forward return も持たない。現行 method で選抜対象にならない row へ所属を後付けせず、観測済み return の有無が母集団中央値を通じて production 結論の向きを作っていないかを有界バイアスで判定する。
 
-報告値では観測済み return だけを使い、未解決 return は値なしのまま母集団から除外する。感度計算では resolved / unresolved を問わず該当 row だけを `-1.0` と置換前の resolved 流動性母集団中央値へそれぞれ置換する。`recommended_rank_top5` / `top10` と `er_calibration` の向きは delisting 判定と同じ定義を使い、報告値と両置換の向きがすべて一致するときだけ `direction_stable` とする。`resolved_target_count` と `resolution_complete` は観測できた実現 return の coverage 診断であり、単独では authority を block しない。
+報告値では観測済み return だけを使い、未解決 return は値なしのまま母集団から除外する。感度計算では resolved / unresolved を問わず該当 row だけを `-1.0` と置換前の resolved 流動性母集団中央値へそれぞれ置換する。`selection_rank_top5` / `top10` と `er_calibration` の向きは delisting 判定と同じ定義を使い、報告値と両置換の向きがすべて一致するときだけ `direction_stable` とする。`resolved_target_count` と `resolution_complete` は観測できた実現 return の coverage 診断であり、単独では authority を block しない。
 
 cache が対象 row を同定できない、diagnostics 件数と row 数が一致しない、または両側代入で向きが割れる場合は fail closed で block する。この判定は欠けた実現 return、metrics、rank を復元せず、未評価銘柄が無かったことにもならない。
 
@@ -102,7 +102,7 @@ cache が対象 row を同定できない、diagnostics 件数と row 数が一�
 | 全損 | `price_return = -1.0` |
 | 中立 | 同 cohort の resolved 銘柄の中央値 |
 
-報告値を比較に含めるのは、それが authority gate の読む値そのものだからである。両方の代入で向きが揃っても報告値だけが逆を向くなら、その結論は除外が作ったものになる。向きは `recommended_rank_top5` / `recommended_rank_top10` が group の `median_excess` の符号、`er_calibration` が最上位 quintile の `median_realized_price_excess` − 最下位 quintile の同値の符号で定める。いずれかの場合で値が算出できず他の場合で算出できるときも、除外が「cohort が何か言えるかどうか」を決めているので不安定として扱う。
+報告値を比較に含めるのは、それが authority gate の読む値そのものだからである。両方の代入で向きが揃っても報告値だけが逆を向くなら、その結論は除外が作ったものになる。向きは `selection_rank_top5` / `selection_rank_top10` が group の `median_excess` の符号、`er_calibration` が最上位 quintile の `median_realized_price_excess` − 最下位 quintile の同値の符号で定める。いずれかの場合で値が算出できず他の場合で算出できるときも、除外が「cohort が何か言えるかどうか」を決めているので不安定として扱う。
 
 この判定は結論を下へ引く可能性に対しての bracket である。買収による廃止はプレミアム付きで中立代入の上に出るため、上側は挟まない。実値で解決できた行はこの bracket の対象から外れる。
 
@@ -158,7 +158,7 @@ cache schema versionは互換性を決める入力から導出する（panel / d
 
 報告空売り残高の L1 は disclosure date と calculation date を分け、reporter 名tuple、ratio / shares / units、取消、provider row ordinalを保存する。panel の `reported_short_ratio` / `reported_short_breadth` / `reported_short_latest_disclosed_at` は両日が cohort as-of 以下の最新stateだけを集約する。公式 dataset floor から連続coverageを証明できる場合だけ無報告を明示的0とし、plan floor、coverage gap、同率最新stateの競合では該当値をnullにする。0は「0.5%未満または報告不在」であって空売り不存在を意味しない。この軸も calibration annotation 専用である。
 
-信用需給では、公表済みの直近残高（2026-09-18 まで全銘柄週次、以後は全銘柄日次）を source として、貸借銘柄だけの `margin_short_to_adv` と、交絡確認用の60取引日 realized volatilityを保持する。列の語義は cadence で変わらない（[`margin-publication-transition.md`](./margin-publication-transition.md) §6）。`margin_std_long_share` は判断面へ出す文脈 annotation である。`selection.supply_demand.margin_std_long_share_exclude_at_or_above` は ranked setだけを詰める任意の除外 knob だが、canonical rules は節自体を持たず既定 `None` なので gate は無効であり、candidates・full rank・ranked setは同 knob の設定に関わらず動かない。production判断で空売り残/ADVのraw annotationを使うrunは、`margin_short_to_adv`をcore 3 metricと併せて明示する。missing/mismatch/partial cache は `calibration-build --force` で再構築する。保存形式は[`market-lake.md`](./market-lake.md#較正store)を正本とする。
+信用需給では、公表済みの直近残高（2026-09-18 まで全銘柄週次、以後は全銘柄日次）を source として、貸借銘柄だけの `margin_short_to_adv` と、交絡確認用の60取引日 realized volatilityを保持する。列の語義は cadence で変わらない（[`margin-publication-transition.md`](./margin-publication-transition.md) §6）。`margin_std_long_share` は判断面へ出す文脈 annotation であり、candidates・rank・ranked setを変えない。production判断で空売り残/ADVのraw annotationを使うrunは、`margin_short_to_adv`をcore 3 metricと併せて明示する。missing/mismatch/partial cache は `calibration-build --force` で再構築する。保存形式は[`market-lake.md`](./market-lake.md#較正store)を正本とする。
 
 `rules_hash` は `ScreeningRules` の JSON dump 全体から作る。したがって **panel の値を 1 つも変えられない変更（無効な knob の削除・field の並べ替え）でも hash は動き、store 全体が再構築対象になる**。rules model の形を変えるときは、その再構築コストを変更の便益と比べる。
 
@@ -182,7 +182,7 @@ uv run baibai-engine screening calibration-evaluate \
 
 ## store の再構築
 
-旧 CSV store から L2 lake への移行機構は持たない。**旧 store を捨てて全 cohort を再構築する。**
+旧 CSV / L2 lake store からの移行機構は持たない。**旧 store を捨てて全 cohort を再構築する。**
 rules が動けば cohort は作り直しになるので、移行を作っても運べるのは「現行 code が読める契約で
 書かれた履歴」だけであり、実測ではそれが 0 件だった。
 
@@ -191,25 +191,18 @@ uv run baibai-engine screening calibration-build \
   --start 2019-11-01 --end <latest-month-end>
 ```
 
-**実測（2026-08-19、L1 release を名乗る形での全再構築、実 `market.sqlite` 2.0GB）: 81 cohort を
-43 分。** forward 1,527,240 行（うち resolved 1,060,478、支配権イベント exit 4,686、破綻型 exit 957）、
-closure object 247 件、96.8MB。**同じ履歴が CSV の 507MB から lake の 93MB になる。** bundle manifest は
-81 cohort に対して 1,367 bytes である — 世代の cohort inventory は 3 つの dataset manifest から
-導出するので、bundle 自体は cohort 数に依存しない。
-
-再構築した cohort は、全datasetが共有したsealed SQLite snapshotのidentityをsourceとして述べる。
-calibrationはlake-owned factに加えて`source_coverage`も読むが、L1 releaseはそのledgerを保持せず、
-retentionも過去L1 releaseを恒久的なrootにしない。そのためL1 releaseを併記して「同じ入力を将来も
-再構築できる」とは主張しない。
+再構築は temporary directory の `current.sqlite` に全 cohort を書き、schema・integrity・
+measurement method の一致を検証してから正本を atomic replace する。評価中も開始時の
+snapshot を固定し、途中 publish で cohort が新旧混在しない。
 
 ```bash
 uv run baibai-engine screening calibration-build \
   --start <YYYY-MM-DD> --end <YYYY-MM-DD>
 ```
 
-logicやrulesを変更した場合は、その時点の完全なmarket storeから全cohortを再構築し、新しい
-measurement generationとして評価する。過去入力の完全保存は、現在のproduction method改善に必要な
-品質ゲートではなく、2GB storeや別ledger objectを世代ごとに保持する複雑性にも見合わない。
+logicやrulesを変更した場合は、その時点の完全なmarket storeから全cohortを再構築し、現在の
+measurement snapshotとして評価する。過去入力の完全保存は、現在のproduction method改善に必要な
+品質ゲートではなく、2GB storeや別ledger objectを履歴ごとに保持する複雑性にも見合わない。
 
 <a id="commands"></a>
 
@@ -219,13 +212,11 @@ measurement generationとして評価する。過去入力の完全保存は、�
 uv run baibai-engine screening backfill-master --month-end-from 2022-09-01 --month-end-to 2026-06-30
 uv run baibai-engine screening calibration-build --start 2019-11-01 --end 2026-07-31 --force
 uv run baibai-engine screening calibration-evaluate --out .cache/calibration-eval.yaml
-uv run python -m tools.experiments.measure_buyback_authorization \
-  --out .cache/buyback-authorization-calibration.yaml
 uv run baibai-engine screening calibration-evaluate \
   --run-purpose production_decision \
   --required-asof 2021-06-30 \
-  --required-metric recommended_rank_top5 \
-  --required-metric recommended_rank_top10 \
+  --required-metric selection_rank_top5 \
+  --required-metric selection_rank_top10 \
   --required-metric er_calibration
 ```
 
@@ -242,7 +233,7 @@ E[r] 水準 parameter を判断する事前登録済み run では、上の core
 | レバー | 所在 | 計測経路 |
 | --- | --- | --- |
 | screen の閾値・gate・evidence pattern | `method/screening/rules/*.yaml` | 較正リプレイ（rules variant） |
-| select の順位付け・diversity cap | 同上 + `engine/src/baibai_engine/screening/selection/` | 較正リプレイ（selection replay） |
+| select の順位付け・review cap | 同上 + `engine/src/baibai_engine/screening/selection/` | 較正リプレイ（selection replay） |
 | 機械 E[r]・FV アンカー | `engine/src/baibai_engine/screening/estimates.py` | 較正リプレイ（er 軸 IC / decile / 予測 vs 実現） |
 | valuation 指標の算出 | metrics 系 + [`valuation-metrics.md`](./valuation-metrics.md) | 較正リプレイ（軸別 IC / coverage） |
 | マクロ読みの手順・レンズ | [`macro.md`](./macro.md) + skill `macro-context` | 保有 outcome / 月次の事後検証（N≈1、統計計測はしない） |
@@ -286,7 +277,7 @@ primary-research ticker の research FV と screening FV の bridge は、有効
 - **3m / 6m は alert のみ**。手順・閾値の変更根拠にしない（doctrine 柱 5）。
 - **手順変更の検討に進む条件**: 1y 以上の horizon で、cohort 数 8 以上・rejected の中央超過が selected の中央超過を上回る状態が、時間で 2 分割した両期間に同方向で出ること。片側のみは `inconclusive` とする。
 - **`reject_class` 別の解釈**: 母数が 10 件未満の class は中央超過を算出せず件数だけを並べる。特定の class が上の条件を満たした場合に限り、その class の判定手順を見直す issue を起票する。分類そのものを自動除外・ranking へ入れることはしない。
-- **深掘りまで進んで棄却した lane**（bargain assessment の reject / defer）は母数が桁で少ないので、統計ではなく個票で追う。`baibai_engine.research_watch` が研究 FV と現在価格の位置を毎営業日出すので、価格が研究 FV を下回った lane を再評価の入口にする。
+- **深掘りまで進んで棄却したcase**（bargain assessment の reject / defer）は母数が桁で少ないので、統計ではなく個票で追う。`baibai_engine.research_watch` が研究 FV と現在価格の位置を毎営業日出すので、価格が研究 FV を下回ったcaseを再評価の入口にする。
 - **基準を後から動かさない**。動かす場合は、動かしたことと理由を次の dated report に明記する。
 
 初回の採点可能日は 2026-10-17（最古 shortlist 2026-07-17 + 3m）である。

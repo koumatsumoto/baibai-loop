@@ -48,11 +48,11 @@ RUN_OK = CommandResult(
 SELECT_OK = CommandResult(
     0,
     "selection_id: sel-1\n"
-    "recommendations:\n"
+    "ranked_set:\n"
     '  - ticker: "2331"\n'
     '  - ticker: "0001"\n'
     "selection:\n"
-    "  profile: value_default\n",
+    "  asof: 2026-07-08\n",
     "",
 )
 
@@ -525,7 +525,7 @@ def test_daily_batch_stops_when_run_view_lacks_run_revision_id(tmp_path: Path) -
 
 def test_daily_batch_stops_when_select_output_lacks_selection_id(tmp_path: Path) -> None:
     script = _success_script()
-    script["screening select"] = [CommandResult(0, "selection:\n  profile: value_default\n", "")]
+    script["screening select"] = [CommandResult(0, "selection:\n  asof: 2026-07-08\n", "")]
     runner = _runner(script)
 
     with pytest.raises(BatchStepError, match="selection_id"):

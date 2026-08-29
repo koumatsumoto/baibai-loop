@@ -215,6 +215,7 @@ for argument in "$@"; do
     baibai_batch.storage.merge_market_store) script=merge ;;
     baibai_batch.storage.migrate_store) script=migrate ;;
     tools/migrations/cutover_market_v25.py) script=cutover ;;
+    tools/migrations/cutover_runs_v4.py) script=run_cutover ;;
     baibai_batch.validation.repository_layout) script=layout ;;
     baibai_batch.storage.publish_market_lake) script=publish ;;
   esac
@@ -277,6 +278,10 @@ case "${script}" in
   cutover)
     printf 'cutover %s\\n' "$*" >> "$AWS_LOG"
     exit "${CUTOVER_FAKE_EXIT:-0}"
+    ;;
+  run_cutover)
+    printf 'run-cutover %s\\n' "$*" >> "$AWS_LOG"
+    exit "${RUN_CUTOVER_FAKE_EXIT:-0}"
     ;;
   layout)
     exit "${LAYOUT_FAKE_EXIT:-0}"
@@ -673,6 +678,63 @@ def test_pull_runs_is_scoped_to_the_cloud_authoritative_run_store() -> None:
     assert "pull_keys runs.sqlite" in block
     assert "market.sqlite" not in block
     assert "macro.sqlite" not in block
+
+
+def test_one_time_run_cutover_is_conditional_and_scoped_to_runs(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    root = _fake_repo(tmp_path)
+    environment = _environment(bin_dir, log)
+    environment["AWS_FAKE_EXISTING_KEY"] = "runs.sqlite"
+
+    completed = subprocess.run(
+        [root / "batch/scripts/r2_transfer.sh", "cutover-runs"],
+        cwd=root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    commands = _transfer_commands(log)
+    cutover_index = next(
+        index for index, command in enumerate(commands) if command.startswith("run-cutover ")
+    )
+    upload_index = next(
+        index
+        for index, command in enumerate(commands)
+        if command.startswith("s3api put-object ") and "--key runs.sqlite" in command
+    )
+    assert cutover_index < upload_index
+    assert '--if-match "etag-stable"' in commands[upload_index]
+    assert not any(
+        "--key market.sqlite" in command or "--key macro.sqlite" in command
+        for command in commands
+        if command.startswith("s3api put-object ")
+    )
+    assert "--key machine-manifest.json" in commands[-1]
+
+
+def test_one_time_run_cutover_refuses_remote_drift_before_local_replacement(
+    tmp_path: Path,
+) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    root = _fake_repo(tmp_path)
+    environment = _environment(bin_dir, log)
+    environment["AWS_FAKE_CHANGED_KEY"] = "runs.sqlite"
+
+    completed = subprocess.run(
+        [root / "batch/scripts/r2_transfer.sh", "cutover-runs"],
+        cwd=root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 1
+    assert "changed on R2 after the pull" in completed.stderr
+    assert not any(command.startswith("run-cutover ") for command in _transfer_commands(log))
 
 
 @pytest.mark.parametrize("subcommand", ["upload-serving-views", "publish-serving-tail"])

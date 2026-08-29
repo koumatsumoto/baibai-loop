@@ -216,7 +216,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     # covered payload is treated as incomplete so read-through can repair it.
     earnings_date = asof + timedelta(days=7)
     conn.execute(
-        "INSERT INTO jquants_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",
+        "INSERT INTO jpx_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",
         (
             earnings_date.isoformat(),
             ticker,

@@ -22,7 +22,7 @@ _TABLE_COUNT_SQL = {
     "jquants_daily_bars": "SELECT COUNT(*) FROM jquants_daily_bars",
     "jquants_fin_summaries": "SELECT COUNT(*) FROM jquants_fin_summaries",
     "jquants_master_snapshots": "SELECT COUNT(*) FROM jquants_master_snapshots",
-    "jpx_earnings_calendar": "SELECT COUNT(*) FROM jquants_earnings_calendar",
+    "jpx_earnings_calendar": "SELECT COUNT(*) FROM jpx_earnings_calendar",
     "jquants_market_calendar": "SELECT COUNT(*) FROM jquants_market_calendar",
     "jpx_regulation_flags": "SELECT COUNT(*) FROM jpx_regulation_flags",
 }

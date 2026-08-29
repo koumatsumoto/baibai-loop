@@ -1,3 +1,10 @@
+---
+title: "Bargain assessment"
+summary: "深掘りした候補の横比較、buyまたは見送り、content review束縛を1つのimmutable判断へ固定する契約。"
+doc_type: reference
+status: active
+---
+
 # Bargain Assessment
 
 Bargain Assessment は、1 opportunity cycle で深掘りした候補を比較し、`buy / no_actionable_bargain / defer` の最終結論を固定する canonical judgment である。候補ごとの根拠は promoted thesis と independent review、cycle 全体の比較と見送り理由は assessment が所有する。

@@ -9,16 +9,14 @@ from .horizons import HORIZONS
 RunPurpose = str
 EvidenceStatus = str
 PRODUCTION_REQUIRED_METRICS = (
-    "recommended_rank_top5",
-    "recommended_rank_top10",
+    "selection_rank_top5",
+    "selection_rank_top10",
     "er_calibration",
 )
 KNOWN_METRICS = frozenset(
     (
         *PRODUCTION_REQUIRED_METRICS,
         "er_level_calibration",
-        "selection_rank_top5",
-        "selection_rank_top10",
         "margin_short_to_adv",
         "normalized_per_3fy",
     )

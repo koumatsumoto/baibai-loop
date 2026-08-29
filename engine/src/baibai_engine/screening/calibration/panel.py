@@ -61,9 +61,6 @@ from ..universe import (
 from .horizons import STALE_PRICE_MAX_LAG_DAYS
 from .identity import rules_contract_hash
 
-# select リプレイで記録する production-diversity 推奨順位の深さ。
-RECOMMENDED_RANK_DEPTH = 50
-
 PanelVariant = Literal["production", "pre2019_self_range_375"]
 PopulationCoverageStatus = Literal[
     "evaluated", "priced_master_without_universe", "master_without_universe_unpriced"
@@ -189,7 +186,6 @@ class PanelRow:
     pass_screen: bool
     evidence_patterns: str
     selection_rank: int | None
-    recommended_rank: int | None
     population_coverage_status: PopulationCoverageStatus = "evaluated"
     self_range_degraded: bool = False
     dps_streak_up: bool | None = None
@@ -414,12 +410,7 @@ def build_panel(
             )
         )
 
-    selection_rank = _replay_ranks(
-        asof_date, candidates, rules, mode="full_ranking", depth=len(candidates)
-    )
-    recommended_rank = _replay_ranks(
-        asof_date, candidates, rules, mode="production_diversity", depth=RECOMMENDED_RANK_DEPTH
-    )
+    selection_rank = _replay_ranks(asof_date, candidates, rules, depth=len(candidates))
 
     latest_close_by_ticker = {
         ticker: financial.market_price_yen
@@ -552,7 +543,6 @@ def build_panel(
                 ),
                 threshold_blocks="|".join(blocks_by_ticker.get(ticker, ())),
                 selection_rank=selection_rank.get(ticker),
-                recommended_rank=recommended_rank.get(ticker),
                 self_range_degraded=not policy.production_authority,
                 dps_streak_up=return_change.dps_streak_up,
                 dps_yoy_latest=return_change.dps_yoy_latest,
@@ -725,7 +715,6 @@ def _unresolved_master_member_row(
         pass_screen=False,
         evidence_patterns="",
         selection_rank=None,
-        recommended_rank=None,
         population_coverage_status=(
             "priced_master_without_universe"
             if priced_at_asof
@@ -777,54 +766,30 @@ def _replay_ranks(
     candidates: list[ScreenedCandidate],
     rules: ScreeningRules,
     *,
-    mode: Literal["full_ranking", "production_diversity"],
     depth: int,
 ) -> dict[str, int]:
-    """Replay the production selection and return ticker -> 1-based rank.
-
-    ``full_ranking`` は E[r] 降順の全順位、``production_diversity`` は本番 depth
-    内の推奨順位。どちらも本番の `build_selection_payload` を通す (順位ロジックの
-    複製をしない) 。
-    """
+    """Replay production selection and return ticker -> 1-based rank."""
     if not candidates:
         return {}
     records = [
         candidate_record_from_mapping(candidate_entry(candidate)) for candidate in candidates
     ]
-    profile = rules.selection.default_profile
-    replay_rules = _rules_with_uncapped_target(rules)
-    profile_overrides: dict[str, dict[str, object]] | None = None
-    if mode == "full_ranking":
-        profile_overrides = {
-            profile: {
-                "supply_demand": {
-                    "margin_std_long_share_exclude_at_or_above": None,
-                },
-                "diversity": {
-                    "max_recommended_per_sector": 10**9,
-                    "max_recommended_per_evidence_pattern": 10**9,
-                    "max_previous_candidates_in_recommended": None,
-                },
-            }
-        }
     payload = build_selection_payload(
         asof_date=asof_date,
         candidates=records,
         macro_context=None,
-        rules=replay_rules,
+        rules=rules,
         review_cap=max(depth, 1),
-        profile=profile,
         candidates_ref="calibration-replay",
         macro_context_ref=None,
         previous_candidates=None,
         market_regime=None,
-        profile_overrides=profile_overrides,
         detail="summary",
     )
     ranks: dict[str, int] = {}
-    recommendations = payload.get("ranked_set")
-    if isinstance(recommendations, list):
-        for item in recommendations:
+    ranked_set = payload.get("ranked_set")
+    if isinstance(ranked_set, list):
+        for item in ranked_set:
             if not isinstance(item, dict):
                 continue
             ticker = string_or_none(item.get("ticker"))
@@ -832,15 +797,6 @@ def _replay_ranks(
             if ticker is not None and rank > 0:
                 ranks[ticker] = rank
     return ranks
-
-
-def _rules_with_uncapped_target(rules: ScreeningRules) -> ScreeningRules:
-    """Return rules without the retired recommendation cap for replay."""
-    data = rules.model_dump(mode="python")
-    output = dict(data.get("output") or {})
-    output["research_selection_target_max"] = 0
-    data["output"] = output
-    return ScreeningRules.model_validate(data)
 
 
 def _coverage_floors(sqlite_path: Path, asof_date: date) -> tuple[date, date]:

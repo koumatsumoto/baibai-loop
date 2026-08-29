@@ -429,8 +429,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     try:
         reject_noncanonical_store_paths(root)
-    except StoreLayoutError as legacy_error:
-        print(f"error: {legacy_error}", file=sys.stderr)
+    except StoreLayoutError as layout_error:
+        print(f"error: {layout_error}", file=sys.stderr)
         return 2
     output_dir = args.output_dir.resolve()
     try:

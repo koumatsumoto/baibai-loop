@@ -353,11 +353,10 @@ def _read_run_view(run_yaml: Path) -> _RunView:
 @dataclass(frozen=True, slots=True)
 class _SelectionView:
     selection_id: str
-    selected_count: int
 
 
 def _parse_selection_view(stdout: str) -> _SelectionView:
-    """Read selection_id + selected count from the ``screening select`` YAML output."""
+    """Read the selection identity from the ``screening select`` YAML output."""
 
     try:
         payload = yaml.safe_load(stdout)
@@ -370,9 +369,7 @@ def _parse_selection_view(stdout: str) -> _SelectionView:
     if isinstance(payload, dict):
         selection_id = payload.get("selection_id")
         if isinstance(selection_id, str) and selection_id:
-            recommendations = payload.get("recommendations")
-            selected_count = len(recommendations) if isinstance(recommendations, list) else 0
-            return _SelectionView(selection_id, selected_count)
+            return _SelectionView(selection_id)
     # failure policy: 2 — continuing would export a result with no selection identity.
     raise BatchStepError(
         "screening select output does not contain selection_id",

@@ -32,9 +32,8 @@ def repository_root_error(root: Path, *, label: str) -> str | None:
     return None
 
 
-def reject_noncanonical_store_paths(root: Path = Path(), *, raw_arguments: object = ()) -> None:
+def reject_noncanonical_store_paths(root: Path = Path()) -> None:
     """Fail when a relative store path is resolved outside the repository root."""
-    del raw_arguments
     resolved_root = root.resolve()
     root_error = repository_root_error(resolved_root, label="the store root")
     if root_error is not None:

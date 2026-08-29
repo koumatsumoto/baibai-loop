@@ -444,7 +444,6 @@ def test_screening_checks_calibration_against_selected_fallback_run() -> None:
         {
             "selection_id": "selection-1",
             "run_revision_id": "run-revision-with-selection",
-            "profile": "value",
             "macro_context_id": None,
             "created_at": "2026-07-21T13:00:00+09:00",
             "payload": {"ranked_set": []},
@@ -511,18 +510,6 @@ def test_data_quality_flags_omit_forecast_special_gain_when_false() -> None:
     assert "一時益予想" not in view.data_quality_flags
 
 
-def test_supply_demand_flags_raise_on_a_deadline_heavy_long_balance() -> None:
-    view = _candidate_row({"ticker": "4849", "metrics": {"margin_std_long_share": 0.9}})
-
-    assert "制度期日偏重" in view.data_quality_flags
-
-
-def test_supply_demand_flags_stay_quiet_below_the_measured_decile() -> None:
-    view = _candidate_row({"ticker": "4849", "metrics": {"margin_std_long_share": 0.5}})
-
-    assert "制度期日偏重" not in view.data_quality_flags
-
-
 def test_supply_demand_annotations_reach_the_view_without_becoming_flags() -> None:
     # Raw supply/demand observations remain context. The adoption decision for one
     # axis does not turn its value into a warning or a selection rule.
@@ -544,6 +531,7 @@ def test_supply_demand_annotations_reach_the_view_without_becoming_flags() -> No
     assert view.margin_short_to_adv == 3.5
     assert view.margin_long_share == 1.0
     assert view.margin_long_delta_26w == -0.9
+    assert view.data_quality_flags == []
     assert view.data_quality_flags == []
 
 
@@ -770,7 +758,6 @@ def test_fair_value_reaches_only_ranked_set_members_and_uses_the_newest_selectio
         {
             "selection_id": "selection-old",
             "run_revision_id": "runrev-1",
-            "profile": "value",
             "macro_context_id": None,
             "created_at": "2026-07-21T02:00:00+09:00",
             "payload": {"ranked_set": [{"ticker": "4432", "fair_value_anchor_yen": 5.0}]},
@@ -780,7 +767,6 @@ def test_fair_value_reaches_only_ranked_set_members_and_uses_the_newest_selectio
         {
             "selection_id": "selection-new",
             "run_revision_id": "runrev-1",
-            "profile": "value",
             "macro_context_id": None,
             "created_at": "2026-07-21T13:00:00+09:00",
             "payload": {
@@ -820,7 +806,6 @@ def test_security_detail_shows_the_same_fv_anchor_as_the_stocks_list() -> None:
         {
             "selection_id": "selection-1",
             "run_revision_id": "run-revision-20260708",
-            "profile": "value",
             "macro_context_id": None,
             "created_at": "2026-07-21T13:00:00+09:00",
             "payload": {
@@ -857,7 +842,6 @@ def test_both_screening_surfaces_fall_back_to_the_same_run() -> None:
         {
             "selection_id": "selection-1",
             "run_revision_id": "run-revision-with-selection",
-            "profile": "value",
             "macro_context_id": None,
             "created_at": "2026-07-21T13:00:00+09:00",
             "payload": {
@@ -985,26 +969,15 @@ def _delta_run(*, asof: date, revision: str, rules_ref: str | None = "rules-a") 
 
 
 def _pool(*tickers: tuple[str, float | None]) -> dict[str, list[dict[str, object]]]:
-    """Build a ranked_set the way the selection writes it: percent, and no sector."""
+    """Build a ranked_set in the current selection contract."""
 
     return {
         "ranked_set": [
             {
                 "ticker": ticker,
                 "name": ticker,
-                "expected_return_pct": None if er is None else round(er * 100, 2),
+                "er_annual": er,
             }
-            for ticker, er in tickers
-        ]
-    }
-
-
-def _recommendation_pool(*tickers: tuple[str, float | None]) -> dict[str, list[dict[str, object]]]:
-    """Build a recommendations pool, which states the same estimate as a ratio."""
-
-    return {
-        "recommendations": [
-            {"ticker": ticker, "name": ticker, "sector_33": "情報・通信業", "er_annual": er}
             for ticker, er in tickers
         ]
     }
@@ -1047,25 +1020,22 @@ def test_daily_delta_compares_the_machine_pool_not_the_evaluated_universe() -> N
     assert market.disclosure_afters == [date(2026, 7, 28)]
 
 
-def test_daily_delta_reads_the_two_pools_estimate_units_as_the_same_quantity() -> None:
-    # The ranked_set states percent and a recommendation states the ratio. Reading one
-    # for the other would report an 8% estimate as 800%, or as 0.08%.
-    ranked_set = _delta_pair(_pool(("1111", 0.08)), _pool(("3333", 0.02)))
-    recommendations = _delta_pair(
-        _recommendation_pool(("1111", 0.08)), _recommendation_pool(("3333", 0.02))
+def test_daily_delta_treats_an_empty_ranked_set_as_a_measured_pool() -> None:
+    candidates = _delta_pair({"ranked_set": []}, {"ranked_set": []})
+
+    view = build_daily_delta(
+        candidates,
+        StubLedger(None),
+        StubResearch([]),
+        StubDeltaMarket(),
+        StubDeltaMacro({}),
     )
 
-    from_ranked_set = build_daily_delta(
-        ranked_set, StubLedger(None), StubResearch([]), StubDeltaMarket(), StubDeltaMacro({})
-    )
-    from_recommendations = build_daily_delta(
-        recommendations, StubLedger(None), StubResearch([]), StubDeltaMarket(), StubDeltaMacro({})
-    )
-
-    assert from_ranked_set.pool == "ranked_set"
-    assert from_recommendations.pool == "recommendations"
-    assert from_ranked_set.entered[0].er_annual_pct == 8.0
-    assert from_recommendations.entered[0].er_annual_pct == 8.0
+    assert view.pool == "ranked_set"
+    assert view.entered == []
+    assert view.exited == []
+    assert "candidates_pool" not in view.unavailable
+    assert "candidates_estimate" not in view.unavailable
 
 
 def test_daily_delta_names_the_estimate_gap_when_the_pool_carries_none() -> None:

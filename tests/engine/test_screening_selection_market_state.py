@@ -11,7 +11,6 @@ from baibai_engine.screening.regime import MarketRegime, MarketRegimeSnapshot
 from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
 from baibai_engine.screening.selection import (
     build_selection_payload,
-    build_selection_sweep_payload,
     candidate_record_from_mapping,
 )
 
@@ -75,7 +74,6 @@ class SelectionMarketStateTests(unittest.TestCase):
             candidates=self.candidates,
             macro_context=None,
             rules=self.rules,
-            profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
             market_regime=market_regime,
@@ -167,7 +165,6 @@ class SelectionMarketStateTests(unittest.TestCase):
             ),
             macro_context=None,
             rules=self.rules,
-            profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
             market_regime=None,
@@ -204,7 +201,6 @@ class SelectionMarketStateTests(unittest.TestCase):
             ),
             macro_context=None,
             rules=self.rules,
-            profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
             market_regime=None,
@@ -226,7 +222,6 @@ class SelectionMarketStateTests(unittest.TestCase):
             ),
             macro_context=None,
             rules=self.rules,
-            profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
             market_regime=None,
@@ -248,7 +243,6 @@ class SelectionMarketStateTests(unittest.TestCase):
             candidates=(candidate_record_from_mapping(split_hit),),
             macro_context=None,
             rules=self.rules,
-            profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
             market_regime=None,
@@ -274,7 +268,6 @@ class SelectionMarketStateTests(unittest.TestCase):
             candidates=(candidate_record_from_mapping(gain_hit),),
             macro_context=None,
             rules=self.rules,
-            profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
             market_regime=None,
@@ -301,7 +294,6 @@ class SelectionMarketStateTests(unittest.TestCase):
             candidates=(candidate_record_from_mapping(loss_hit),),
             macro_context=None,
             rules=self.rules,
-            profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
             market_regime=None,
@@ -313,22 +305,6 @@ class SelectionMarketStateTests(unittest.TestCase):
         assert isinstance(ranked_set, list)
         self.assertIn("forecast_full_year_loss", ranked_set[0]["event_warnings"])
 
-    def test_sweep_payload_records_market_regime(self) -> None:
-        payload = build_selection_sweep_payload(
-            asof_date=_ASOF,
-            candidates=self.candidates,
-            macro_context=None,
-            rules=self.rules,
-            profiles=("balanced",),
-            candidates_ref="test.yaml",
-            macro_context_ref=None,
-            market_regime=_snapshot(MarketRegime.RISK_ON_RALLY),
-            top=2,
-        )
-        market_regime = payload["market_regime"]
-        assert isinstance(market_regime, Mapping)
-        self.assertEqual(market_regime["regime"], "risk_on_rally")
-
     def test_all_detail_modes_expose_decision_input_seed_without_candidate_ref(self) -> None:
         for detail in ("summary", "full"):
             with self.subTest(detail=detail):
@@ -337,7 +313,6 @@ class SelectionMarketStateTests(unittest.TestCase):
                     candidates=self.candidates,
                     macro_context=None,
                     rules=self.rules,
-                    profile="balanced",
                     candidates_ref="local-candidates.yaml",
                     macro_context_ref=None,
                     market_regime=None,
@@ -368,7 +343,6 @@ class SelectionMarketStateTests(unittest.TestCase):
             candidates=self.candidates,
             macro_context=None,
             rules=self.rules,
-            profile="balanced",
             candidates_ref="local-candidates.yaml",
             macro_context_ref=None,
             market_regime=None,

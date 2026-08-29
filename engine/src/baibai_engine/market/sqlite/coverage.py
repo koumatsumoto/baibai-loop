@@ -59,7 +59,7 @@ _COUNT_DATE_RANGE_SQL = {
 }
 _COUNT_TABLE_SQL = {
     "jquants_master_snapshots": "SELECT COUNT(*) FROM jquants_master_snapshots",
-    "jquants_earnings_calendar": "SELECT COUNT(*) FROM jquants_earnings_calendar",
+    "jpx_earnings_calendar": "SELECT COUNT(*) FROM jpx_earnings_calendar",
 }
 
 

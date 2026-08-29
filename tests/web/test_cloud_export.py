@@ -206,14 +206,12 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     assert run is not None
     ScreeningRunStore(runs_db).publish_selection(
         run_revision_id=run.run_revision_id,
-        profile="value",
         macro_context_id=None,
         payload=ranked_selection_payload(
             ticker="2331",
             er_annual=0.12,
             rules_hash=str(run.payload["screening_rules_hash"]),
             asof=run.as_of_date,
-            profile="value",
             candidates_ref=run.run_revision_id,
             source_candidates=run.candidates,
         ),
@@ -304,7 +302,6 @@ def test_export_writes_explicit_empty_ranked_set_when_selection_is_missing(
     connection.close()
     ScreeningRunStore(runs_db).publish_selection(
         run_revision_id=runs[1].run_revision_id,
-        profile="value",
         macro_context_id=None,
         payload=ranked_selection_payload(
             ticker="2331",
@@ -312,7 +309,6 @@ def test_export_writes_explicit_empty_ranked_set_when_selection_is_missing(
             rules_hash=str(runs[1].payload["screening_rules_hash"]),
             ranked_set=(),
             asof=runs[1].as_of_date,
-            profile="value",
             candidates_ref=runs[1].run_revision_id,
             source_candidates=runs[1].candidates,
         ),

@@ -730,7 +730,7 @@ def test_every_lake_dataset_states_a_release_policy() -> None:
 def test_a_replaced_snapshot_carries_no_history_floor() -> None:
     """置き換わる view に開始日を固定すると、source が約束していない履歴を課す。
 
-    `jquants.earnings_calendar` の SQLite table は fetch ごとに DELETE されて入れ直る
+    `jpx.earnings_calendar` の SQLite table は fetch ごとに DELETE されて入れ直る
     forward calendar なので、最古の行は取引所がまだ公表している範囲そのものである。
     2026-08-17 の日次バッチは、snapshot が 2026-06-19 始まりから 2026-07-03 始まりへ
     進んだだけで停止した。
@@ -740,7 +740,7 @@ def test_a_replaced_snapshot_carries_no_history_floor() -> None:
 
     policy = {item.dataset: item for item in PRODUCTION_RELEASE_POLICY.datasets}
 
-    assert policy["jquants.earnings_calendar"].carries_history is False
+    assert policy["jpx.earnings_calendar"].carries_history is False
     # 蓄積する dataset は床を持ち続ける。免除は snapshot に限る。
     assert policy["jquants.daily_bars"].carries_history is True
     assert policy["jquants.short_sale_reports"].carries_history is True
@@ -779,7 +779,7 @@ def test_only_a_replaced_table_is_exempt_from_the_history_floor() -> None:
 
     assert snapshot_datasets == {
         "edinet.tender_offer_exit_values",
-        "jquants.earnings_calendar",
+        "jpx.earnings_calendar",
     }
     assert exempt == snapshot_datasets
 
@@ -797,7 +797,7 @@ def test_the_seasonal_calendar_floor_clears_its_measured_trough() -> None:
     from baibai_engine.market.lake.models import PRODUCTION_RELEASE_POLICY
 
     policy = {item.dataset: item for item in PRODUCTION_RELEASE_POLICY.datasets}
-    calendar = policy["jquants.earnings_calendar"]
+    calendar = policy["jpx.earnings_calendar"]
     measured_trough = 978
 
     assert calendar.minimum_rows < measured_trough
@@ -822,12 +822,12 @@ def test_a_forward_only_calendar_uses_its_policy_floor_not_the_previous_snapshot
     calendar = next(
         item
         for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
-        if item.dataset == "jquants.earnings_calendar"
+        if item.dataset == "jpx.earnings_calendar"
     )
     # The floors are what this test asserts against, so they are not relaxed.
-    narrow_release_policy(monkeypatch, datasets=("jquants.earnings_calendar",), relax_floors=False)
+    narrow_release_policy(monkeypatch, datasets=("jpx.earnings_calendar",), relax_floors=False)
     payload = _dataset_payload(
-        dataset="jquants.earnings_calendar",
+        dataset="jpx.earnings_calendar",
         coverage_start="2026-07-03",
         population_count=rows,
         rows=rows,
@@ -842,7 +842,7 @@ def test_a_forward_only_calendar_uses_its_policy_floor_not_the_previous_snapshot
     assert isinstance(objects, list)
     objects[0]["key"] = canonical_object_key(
         layer="l1_canonical",
-        dataset="jquants.earnings_calendar",
+        dataset="jpx.earnings_calendar",
         contract_version=1,
         partition_values={"year": 2026},
         content_sha256="a" * 64,
@@ -893,5 +893,5 @@ def test_a_forward_only_calendar_uses_its_policy_floor_not_the_previous_snapshot
         validate_release_policy(
             release,
             manifests,
-            published_coverage_start={"jquants.earnings_calendar": date(2026, 6, 19)},
+            published_coverage_start={"jpx.earnings_calendar": date(2026, 6, 19)},
         )

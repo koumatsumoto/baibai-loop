@@ -65,7 +65,6 @@ def _panel_row(ticker: str, *, rank: int | None = None, **overrides: object) -> 
         # This file's cohort is one where every ranked name also passed, which is what
         # its evaluation cases are about; the panel does not require that in general.
         overrides["selection_rank"] = rank
-        overrides["recommended_rank"] = rank
         overrides.setdefault("pass_screen", True)
     liquid: dict[str, object] = {
         "market_cap_oku": 500.0,
@@ -696,7 +695,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         # selection replay: 上位 10 銘柄は安い側なので正の超過。
         selection = cohorts[0]["selection"]
         assert isinstance(selection, dict)
-        top10 = selection["recommended_rank_top10"]
+        top10 = selection["selection_rank_top10"]
         assert isinstance(top10, dict)
         self.assertEqual(top10["n"], 10)
         median_excess = top10["median_excess"]
@@ -986,8 +985,8 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             "scope": {
                 "run_purpose": "production_decision",
                 "required_metrics": [
-                    "recommended_rank_top5",
-                    "recommended_rank_top10",
+                    "selection_rank_top5",
+                    "selection_rank_top10",
                     "er_calibration",
                     "er_level_calibration",
                 ],
@@ -1065,10 +1064,10 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         assert isinstance(first_integrity, dict)
         metric_statuses = first_integrity["metric_statuses"]
         assert isinstance(metric_statuses, dict)
-        metric_statuses["recommended_rank_top5"] = "unresolved"
+        metric_statuses["selection_rank_top5"] = "unresolved"
         with self.assertRaises(CalibrationContextError):
             build_er_distribution_context(evaluation, {asof: panel}, {asof: forwards})
-        metric_statuses["recommended_rank_top5"] = "eligible"
+        metric_statuses["selection_rank_top5"] = "eligible"
 
         evaluation["production_decision"] = {
             "evidence_status": "unresolved",
@@ -1575,7 +1574,7 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         return cohort["coverage"]["delisting_exclusion"]  # type: ignore[index]
 
     def test_a_conclusion_that_survives_both_ends_is_not_produced_by_the_exclusion(self) -> None:
-        # The delisted name is not among the recommendations, so the recommended
+        # The delisted name is not in the selected rank window, so that
         # group stays ahead whichever value the delisting is given.
         panel, forwards = self._cohort(delisted_ranks=())
         panel.append(_panel_row("8300", per_trailing=10.0))
@@ -1608,8 +1607,8 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         self.assertEqual(sensitivity["excluded_count"], 2)
         self.assertFalse(sensitivity["direction_stable"])
         imputations = sensitivity["imputations"]
-        self.assertLess(imputations["total_loss"]["recommended_rank_top5"], 0)
-        self.assertGreater(imputations["neutral"]["recommended_rank_top5"], 0)
+        self.assertLess(imputations["total_loss"]["selection_rank_top5"], 0)
+        self.assertGreater(imputations["neutral"]["selection_rank_top5"], 0)
 
     def test_normalized_per_direction_flip_blocks_optional_authority(self) -> None:
         as_reported = {"normalized_per_3fy": 0.1}
@@ -1651,10 +1650,10 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         sensitivity = self._sensitivity(delisted_ranks=(3, 4, 5))
 
         self.assertEqual(sensitivity["excluded_count"], 3)
-        self.assertGreater(sensitivity["as_reported"]["recommended_rank_top5"], 0)
+        self.assertGreater(sensitivity["as_reported"]["selection_rank_top5"], 0)
         imputations = sensitivity["imputations"]
-        self.assertLess(imputations["total_loss"]["recommended_rank_top5"], 0)
-        self.assertEqual(imputations["neutral"]["recommended_rank_top5"], 0.0)
+        self.assertLess(imputations["total_loss"]["selection_rank_top5"], 0)
+        self.assertEqual(imputations["neutral"]["selection_rank_top5"], 0.0)
         self.assertFalse(sensitivity["direction_stable"])
 
     def test_a_cohort_without_delistings_needs_no_imputation(self) -> None:
@@ -1696,8 +1695,8 @@ class PricedMasterWithoutUniverseSensitivityTests(unittest.TestCase):
         self.assertEqual(sensitivity["excluded_count"], 2)
         self.assertEqual(sensitivity["resolved_target_count"], 2)
         self.assertTrue(sensitivity["resolution_complete"])
-        self.assertEqual(sensitivity["as_reported"]["recommended_rank_top5"], 0.0)
-        self.assertGreater(sensitivity["imputations"]["total_loss"]["recommended_rank_top5"], 0)
+        self.assertEqual(sensitivity["as_reported"]["selection_rank_top5"], 0.0)
+        self.assertGreater(sensitivity["imputations"]["total_loss"]["selection_rank_top5"], 0)
         self.assertFalse(sensitivity["direction_stable"])
 
     def test_an_unresolved_target_direction_split_is_not_stable(self) -> None:
@@ -1742,8 +1741,8 @@ class PricedMasterWithoutUniverseSensitivityTests(unittest.TestCase):
         self.assertEqual(sensitivity["resolved_target_count"], 0)
         self.assertFalse(sensitivity["resolution_complete"])
         self.assertFalse(sensitivity["direction_stable"])
-        self.assertEqual(sensitivity["as_reported"]["recommended_rank_top5"], 0.0)
-        self.assertGreater(sensitivity["imputations"]["total_loss"]["recommended_rank_top5"], 0)
+        self.assertEqual(sensitivity["as_reported"]["selection_rank_top5"], 0.0)
+        self.assertGreater(sensitivity["imputations"]["total_loss"]["selection_rank_top5"], 0)
 
 
 def test_a_stratum_needs_five_names_on_each_side_before_it_is_matched() -> None:

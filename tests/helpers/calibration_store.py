@@ -83,7 +83,6 @@ _PANEL_REQUIRED: Mapping[str, Any] = {
     "threshold_blocks": "",
     "smg_market_fallback": "",
     "selection_rank": None,
-    "recommended_rank": None,
 }
 
 _DIAGNOSTICS_REQUIRED: Mapping[str, Any] = {

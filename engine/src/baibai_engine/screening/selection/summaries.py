@@ -36,8 +36,8 @@ _EVENT_RISK_TAGS = frozenset(
 )
 
 # Nikkei に 3pt 以上劣後している候補を事前固定の annotation 閾値で注記する。
-# 割安 (相対劣後) を買うのが本流のため ranking / gate には使わず、entry
-# preflight の情報系列として research 側で参照する。
+# 割安 (相対劣後) を買うのが本流のため ranking / gate には使わず、Research Gate
+# の情報系列として参照する。
 BENCHMARK_LAGGARD_RELATIVE_20D_MAX = -0.03
 
 # 上場 750 暦日以上なのに直近 750 暦日の bar 本数が population 最大の 80% を
@@ -219,8 +219,8 @@ def _selection_candidate_summary(
 def _ranked_set_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str, object]:
     """Render one ranked_set row: the pre-shortlist view of a ranked candidate.
 
-    ranked_set は diversity/cap による recommendation 切断 *前* の rank 済み集合を
-    そのまま監査するための view。ranking も candidate の値も変えず、rank と主要な
+    ranked_set は E[r] 順の候補を review cap までそのまま渡す view。
+    ranking も candidate の値も変えず、rank と主要な
     見積り・warning だけを平らに写す。約定用の price basis はここでは決めない
     (plan-limit が SQLite の raw close を正本にする)ため、market_price は screening
     の参考値であることを field で明示する。
@@ -273,7 +273,7 @@ def _ranked_set_machine_projection(candidate: Mapping[str, object]) -> dict[str,
         # price basis ではなく、plan-limit は SQLite の raw/unadjusted close を再取得する。
         "market_price_yen": _screening_reference_close_yen(metrics),
         # opportunity thesis-scaffold は ranked_set から選ばれた銘柄も扱うため、
-        # recommendation と同じ raw estimate + provenance contract を渡す。flat fields
+        # raw estimate + provenance contract を渡す。flat fields
         # は人間向け表示であり、転記時の正本にはしない。
         "estimate_snapshot": {
             "as_of": decision_input_seed.get("as_of"),
@@ -411,48 +411,3 @@ def _decision_input_seed(candidate: Mapping[str, object], *, asof_date: date) ->
             },
         },
     }
-
-
-def _sweep_candidate_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str, object]:
-    durability_diagnostic = _durability_diagnostic_of(candidate)
-    return {
-        "rank": rank,
-        "ticker": string_or_none(candidate.get("ticker")),
-        "name": string_or_none(candidate.get("name")),
-        "primary_evidence_pattern_id": string_or_none(candidate.get("primary_evidence_pattern_id")),
-        "benchmark_relative_20d": candidate.get("benchmark_relative_20d"),
-        "durability_rating": string_or_none(durability_diagnostic.get("rating")),
-        "previous_candidate": candidate.get("previous_candidate") is True,
-        "reason_tags": list(string_sequence(candidate.get("reason_tags"))),
-        "risk_tags": list(string_sequence(candidate.get("risk_tags"))),
-    }
-
-
-def _sweep_changed_summaries(
-    base_by_ticker: Mapping[str, Mapping[str, object]],
-    current_by_ticker: Mapping[str, Mapping[str, object]],
-) -> list[dict[str, object]]:
-    changed: list[dict[str, object]] = []
-    for ticker in sorted(set(base_by_ticker) & set(current_by_ticker)):
-        base = base_by_ticker[ticker]
-        current = current_by_ticker[ticker]
-        changed_fields = {
-            key
-            for key in (
-                "durability_rating",
-                "primary_evidence_pattern_id",
-                "rank",
-            )
-            if base.get(key) != current.get(key)
-        }
-        if not changed_fields:
-            continue
-        changed.append(
-            {
-                "ticker": ticker,
-                "changed_fields": sorted(changed_fields),
-                "from": {key: base.get(key) for key in sorted(changed_fields)},
-                "to": {key: current.get(key) for key in sorted(changed_fields)},
-            }
-        )
-    return changed

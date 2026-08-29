@@ -88,7 +88,6 @@ mypy strict を CI の主 type gate とする。Pyright の設定ファイルは
 - `disallow_any_unimported = true`: stub 不足による stealth Any を検出する。
 - `plugins = ["pydantic.mypy"]`: Pydantic model の constructor と field 定義を mypy に理解させる。
 - `packages = ["baibai_engine", "baibai_web", "baibai_batch", "tools"]`: 3 runtime package と developer tool を同じ strict gate に置く。file 名の列挙にすると、追加した module が誰かに思い出されるまで無検査で残る。
-- `exclude`: `tools/generators/generate_brand_assets.py` だけを外す。この script は Pillow を PEP 723 の inline metadata で宣言して `uv run --script` で動くため、native image library を shared lock と全 workflow の install から外している。その代償として import が解決できない。
 - `py.typed`: package consumer に型付き package として公開する。
 
 外部 SDK は完全な型を持たないことがある。`jquantsapi.*` などは override で missing import を許容するが、その Any は provider module の中で止める。application 層へは `Protocol` と domain model を通して渡す。

@@ -6,9 +6,6 @@ import json
 import os
 import re
 import sqlite3
-
-# The fixed git invocation reads local application provenance without a shell.
-import subprocess  # nosec B404
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
@@ -100,11 +97,9 @@ class ScreeningRunStore:
         path: Path | None = None,
         *,
         id_factory: Callable[[], uuid.UUID] = uuid.uuid4,
-        git_commit_factory: Callable[[], str | None] | None = None,
     ) -> None:
         self._path = path
         self._id_factory = id_factory
-        self._git_commit_factory = git_commit_factory or application_git_commit
 
     def publish_run(
         self,
@@ -113,7 +108,6 @@ class ScreeningRunStore:
         run_revision_id: str | None = None,
     ) -> PublicationResult:
         prepared = _prepare_run(payload)
-        application_git_commit = _normalize_git_commit(self._git_commit_factory())
         initialize_run_store(self._path)
         with closing(connect_rw(self._path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -122,7 +116,6 @@ class ScreeningRunStore:
                     connection,
                     prepared,
                     run_revision_id=run_revision_id,
-                    application_git_commit=application_git_commit,
                 )
                 connection.commit()
                 return result
@@ -178,14 +171,6 @@ class ScreeningRunStore:
                     )
                     connection.execute(
                         """
-                        DELETE FROM selection_entry WHERE selection_id IN (
-                            SELECT selection_id FROM screening_selection
-                            WHERE run_revision_id IN (SELECT run_revision_id FROM prune_run_id)
-                        )
-                        """
-                    )
-                    connection.execute(
-                        """
                         DELETE FROM screening_selection
                         WHERE run_revision_id IN (SELECT run_revision_id FROM prune_run_id)
                         """
@@ -225,20 +210,17 @@ class ScreeningRunStore:
         self,
         *,
         run_revision_id: str,
-        profile: str,
         macro_context_id: str | None,
         payload: Mapping[str, object],
         selection_id: str | None = None,
         created_at: datetime | None = None,
     ) -> PublicationResult:
-        if not run_revision_id or not profile:
-            raise ValueError("run_revision_id and profile are required")
+        if not run_revision_id:
+            raise ValueError("run_revision_id is required")
         policy_parameters = validate_selection_payload(payload)
-        entries = _selection_entries(payload)
         identifier = selection_id or f"selection-{self._id_factory().hex}"
         timestamp = (created_at or datetime.now(UTC)).isoformat()
         payload_json = canonical_json(payload)
-        application_git_commit = _normalize_git_commit(self._git_commit_factory())
         initialize_run_store(self._path)
         with closing(connect_rw(self._path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -261,7 +243,6 @@ class ScreeningRunStore:
                     payload,
                     run_payload,
                     run_revision_id=run_revision_id,
-                    profile=profile,
                     macro_context_id=macro_context_id,
                     source_candidate_er={str(row[0]): row[1] for row in candidate_rows},
                     expected_ranked_set=expected_ranked_set(
@@ -272,18 +253,15 @@ class ScreeningRunStore:
                 )
                 existing = connection.execute(
                     """
-                    SELECT run_revision_id, profile, macro_context_id,
-                           payload, application_git_commit
+                    SELECT run_revision_id, macro_context_id, payload
                     FROM screening_selection WHERE selection_id = ?
                     """,
                     (identifier,),
                 ).fetchone()
                 expected = (
                     run_revision_id,
-                    profile,
                     macro_context_id,
                     payload_json,
-                    application_git_commit,
                 )
                 if existing is not None:
                     actual = tuple(existing)
@@ -296,36 +274,17 @@ class ScreeningRunStore:
                 connection.execute(
                     """
                     INSERT INTO screening_selection (
-                        selection_id, run_revision_id, profile,
-                        macro_context_id, created_at, payload,
-                        application_git_commit
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        selection_id, run_revision_id, macro_context_id, created_at, payload
+                    ) VALUES (?, ?, ?, ?, ?)
                     """,
                     (
                         identifier,
                         run_revision_id,
-                        profile,
                         macro_context_id,
                         timestamp,
                         payload_json,
-                        application_git_commit,
                     ),
                 )
-                for ordinal, entry in enumerate(entries):
-                    connection.execute(
-                        """
-                        INSERT INTO selection_entry (
-                            selection_id, ordinal, ticker, selected, payload
-                        ) VALUES (?, ?, ?, ?, ?)
-                        """,
-                        (
-                            identifier,
-                            ordinal,
-                            entry.ticker,
-                            int(entry.selected),
-                            canonical_json(entry.payload),
-                        ),
-                    )
                 connection.commit()
                 return PublicationResult(identifier, inserted=True)
             except BaseException:
@@ -338,7 +297,6 @@ class ScreeningRunStore:
         prepared: _PreparedRun,
         *,
         run_revision_id: str | None = None,
-        application_git_commit: str | None,
     ) -> PublicationResult:
         existing = connection.execute(
             """
@@ -383,8 +341,8 @@ class ScreeningRunStore:
             """
             INSERT INTO screening_run (
                 run_revision_id, public_run_id, run_date, asof_date, run_at,
-                universe_size, rules_ref, created_at, payload, application_git_commit
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                universe_size, rules_ref, created_at, payload
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 identifier,
@@ -396,7 +354,6 @@ class ScreeningRunStore:
                 prepared.rules_ref,
                 datetime.now(UTC).isoformat(),
                 prepared.payload_json,
-                application_git_commit,
             ),
         )
         for ordinal, candidate in enumerate(prepared.candidates):
@@ -439,13 +396,6 @@ class _PreparedRun:
     rules_ref: str | None
     candidates: tuple[_Candidate, ...]
     payload_json: str
-
-
-@dataclass(frozen=True, slots=True)
-class _SelectionEntry:
-    ticker: str
-    selected: bool
-    payload: Mapping[str, object]
 
 
 def _prepare_run(payload: Mapping[str, object]) -> _PreparedRun:
@@ -516,29 +466,11 @@ def _prepare_run(payload: Mapping[str, object]) -> _PreparedRun:
     )
 
 
-def _selection_entries(payload: Mapping[str, object]) -> tuple[_SelectionEntry, ...]:
-    raw_entries = payload.get("ranked_set")
-    if not isinstance(raw_entries, Sequence) or isinstance(raw_entries, (str, bytes)):
-        raise ValueError("selection ranked_set must be an array")
-    entries: list[_SelectionEntry] = []
-    tickers: set[str] = set()
-    for raw in raw_entries:
-        if not isinstance(raw, Mapping):
-            raise ValueError("selection ranked-set entry must be a mapping")
-        ticker = _required_string(raw, "ticker")
-        if ticker in tickers:
-            raise RunStoreConflictError(f"duplicate selection ticker: {ticker}")
-        tickers.add(ticker)
-        entries.append(_SelectionEntry(ticker=ticker, selected=True, payload=dict(raw)))
-    return tuple(entries)
-
-
 def _validate_selection_run_binding(
     selection_payload: Mapping[str, object],
     run_payload: Mapping[str, object],
     *,
     run_revision_id: str,
-    profile: str,
     macro_context_id: str | None,
     source_candidate_er: Mapping[str, object],
     expected_ranked_set: Sequence[tuple[str, float, str | None, Mapping[str, object]]],
@@ -555,8 +487,6 @@ def _validate_selection_run_binding(
             raise SelectionContractError(f"selection {key} does not match the source run")
     if selection.get("asof") != run_payload.get("asof_date"):
         raise SelectionContractError("selection asof does not match the source run")
-    if selection.get("profile") != profile:
-        raise SelectionContractError("selection profile does not match the publication")
     input_refs = selection.get("input_refs")
     if not isinstance(input_refs, Mapping):
         raise SelectionContractError("selection input_refs must be an object")
@@ -667,68 +597,6 @@ def decode_payload(value: object) -> Mapping[str, Any]:
     return decoded
 
 
-def application_git_commit() -> str | None:
-    source_root = Path(__file__).resolve().parents[5]
-    if not (
-        (source_root / ".git").exists()
-        and (source_root / "pyproject.toml").is_file()
-        and (source_root / "engine/src/baibai_engine").is_dir()
-    ):
-        return None
-    try:
-        # A commit identifies generated output only when the application tree is
-        # clean. Dirty code can change candidates without changing HEAD, so storing
-        # that HEAD would make a later clean checkout falsely reusable.
-        status = subprocess.run(  # nosec B603, B607
-            [
-                "git",
-                "-C",
-                str(source_root),
-                "status",
-                "--porcelain",
-                "--untracked-files=normal",
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=1,
-        )
-        if status.stdout:
-            return None
-        result = subprocess.run(  # nosec B603, B607
-            ["git", "-C", str(source_root), "rev-parse", "--verify", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=1,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    commit = result.stdout.strip().lower()
-    return commit if re.fullmatch(r"[0-9a-f]{40,64}", commit) else None
-
-
-def unchanged_application_git_commit(initial_commit: str | None) -> str | None:
-    """Return the clean starting commit only while it still identifies the tree."""
-
-    if initial_commit is None:
-        return None
-    return initial_commit if application_git_commit() == initial_commit else None
-
-
-def _application_git_commit() -> str | None:
-    """Compatibility alias for tests and internal callers of the original helper."""
-
-    return application_git_commit()
-
-
-def _normalize_git_commit(value: str | None) -> str | None:
-    if value is None:
-        return None
-    commit = value.strip().lower()
-    return commit if re.fullmatch(r"[0-9a-f]{40,64}", commit) else None
-
-
 __all__ = [
     "DEFAULT_RUN_STORE_PATH",
     "PruneResult",
@@ -737,10 +605,8 @@ __all__ = [
     "RunStoreConflictError",
     "RunStoreNotFoundError",
     "ScreeningRunStore",
-    "application_git_commit",
     "connect_rw",
     "decode_payload",
     "initialize_run_store",
     "run_store_path",
-    "unchanged_application_git_commit",
 ]

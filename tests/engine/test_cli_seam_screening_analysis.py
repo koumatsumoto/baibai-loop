@@ -181,13 +181,10 @@ def test_select_cli_publishes_the_selection_into_the_run_store(
     assert published is not None
     assert published.run_revision_id == RUN_REVISION_ID
     assert published.as_of_date == RUN_ASOF.isoformat()
-    # --review-cap and --review-cap go through the parser's own int conversion; a string
-    # reaching the store would slice nothing and leave both blocks empty.
-    ranked_set = published.payload["ranked_set"]
+    # --review-cap goes through the parser's own int conversion; a string reaching the
+    # store would slice nothing and leave the ranked set empty.
     ranked_set = published.payload["ranked_set"]
     assert isinstance(ranked_set, list)
-    assert isinstance(ranked_set, list)
-    assert 1 <= len(ranked_set) <= 2
     assert 1 <= len(ranked_set) <= 2
 
 

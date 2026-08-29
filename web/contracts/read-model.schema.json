@@ -1368,10 +1368,7 @@
       "type": "object"
     },
     "DeltaPool": {
-      "enum": [
-        "ranked_set",
-        "recommendations"
-      ],
+      "const": "ranked_set",
       "type": "string"
     },
     "DeltaUnavailable": {
@@ -1924,10 +1921,6 @@
           "title": "Run Revision Id",
           "type": "string"
         },
-        "profile": {
-          "title": "Profile",
-          "type": "string"
-        },
         "macro_context_id": {
           "anyOf": [
             {
@@ -1955,7 +1948,6 @@
       "required": [
         "selection_id",
         "run_revision_id",
-        "profile",
         "macro_context_id",
         "created_at",
         "ranked_set"

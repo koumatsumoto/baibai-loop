@@ -75,7 +75,7 @@ base scenario の終端倍率は、as-of に観測した正の trailing multiple
 2. starting earnings と同じ期間について、親会社株主帰属純利益と営業利益・経常利益の比を突き合わせ、特別利益・特別損失の有無を一次開示で確認する。一過性損益の影響を除外できない起点では倍率を上振れさせない。
 3. `judgment.strongest_countercase` に、終端倍率を現観測のまま据え置いて再計算した base CAGR を数値で併記する。再計算には `scenario_arithmetic` を使い、成長・株数・配当の他条件を変えない。
 
-6088 のように粗利率 44.6% から 49.4% への改善が一次開示で実績化した lane は、3 ガードを満たせば上振れを検討できる。一方、4887 の機械 anchor 21.6 倍のように一過性 EPS の影響を受け、独立した構造機構を示せない値は採用しない。これは機械 anchor の一律採用規則ではなく、base judgment と独立反証の規律であり、engine の readiness validation は変更しない。
+6088 のように粗利率 44.6% から 49.4% への改善が一次開示で実績化したcaseは、3 ガードを満たせば上振れを検討できる。一方、4887 の機械 anchor 21.6 倍のように一過性 EPS の影響を受け、独立した構造機構を示せない値は採用しない。これは機械 anchor の一律採用規則ではなく、base judgment と独立反証の規律であり、engine の readiness validation は変更しない。
 
 <a id="5-year-base-break-even"></a>
 
@@ -133,11 +133,9 @@ max_acceptable_price = floor_to_tick(
 
 core hashはthesisの identity であり、review・holding review・bargain assessment・price watchはこれで対象revisionへ束縛される。
 
-**published thesisのidentityは`thesis.core_sha256`が正本である。** promoteが計算した値をそこへ記録し、以後の読み手は再計算せずその値を使う。導出のままにすると identity が「現在のモデルの性質」になり、schemaへfieldを足し引きするだけで何週間も前にpublishしたthesisのhashが動く。束縛が切れると上記5経路が同時に読めなくなり、気づくのは止まった後である。記録が無い行は再計算で埋めず名指しで拒否する（application service以外が書いた行しか到達しない経路で、再計算は現在のモデルのhashを黙って答えることになる）。
+**published thesisのidentityは`thesis.core_sha256`が正本である。** promoteが計算した値をそこへ記録し、以後の読み手は再計算せずその値を使う。導出のままにすると identity が「現在のモデルの性質」になり、schemaへfieldを足し引きするだけで何週間も前にpublishしたthesisのhashが動く。束縛が切れると上記4経路が同時に読めなくなり、気づくのは止まった後である。記録が無い行は再計算で埋めず名指しで拒否する（application service以外が書いた行しか到達しない経路で、再計算は現在のモデルのhashを黙って答えることになる）。
 
 まだpublishしていないdraftのhashはdocumentから計算する。この経路にはfieldごとの特例が1つも無く、`human_evidence_override`を除いた`model_dump`をそのままhashする。draftとreviewの整合は同一cycle内で同じ関数が両方を作ることで保たれる。
-
-`estimates.deep_discount_bps`はschemaに無い退役fieldだが、この keyを持つpublished payloadが存在するため、null限定・非serializeのfieldとして受理を続ける。identityは記録済みなので、この keyがhashに影響することはない。
 
 quantityを考える注文額の目安は[`portfolio-management`](../portfolio-management.md#capital-guidance)を正本とする。1単元が上限を超えても1単元と超過warningを出し、より安い次点へ自動変更しない。cash、dry powder、concentration、既存保有、他tickerのreservationは人間向けwarning/annotationであり、投資価値rankingや最大許容価格を変えない。同一tickerのactive reservationだけは注文の重複を防ぐため`defer`にし、human resultによる約定またはreleaseのledger反映後に再実行する。
 

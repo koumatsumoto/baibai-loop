@@ -20,7 +20,6 @@ class RunPublication:
     run_at: str
     universe_size: int
     rules_ref: str | None
-    application_git_commit: str | None
     payload: dict[str, Any]
     candidates: tuple[dict[str, Any], ...]
 
@@ -30,12 +29,9 @@ class SelectionPublication:
     selection_id: str
     run_revision_id: str
     as_of_date: str
-    profile: str
     macro_context_id: str | None
     created_at: str
-    application_git_commit: str | None
     payload: dict[str, Any]
-    entries: tuple[dict[str, Any], ...]
 
     @property
     def as_of(self) -> str:
@@ -140,14 +136,13 @@ class ScreeningRunReader:
                 """,
                 (selection_id,),
             ).fetchone()
-            return None if row is None else _selection_from_row(connection, row)
+            return None if row is None else _selection_from_row(row)
 
     def list_selections(
         self,
         *,
         run_revision_id: str | None = None,
         as_of_date: str | None = None,
-        profile: str | None = None,
     ) -> list[SelectionPublication]:
         clauses: list[str] = []
         parameters: list[str] = []
@@ -157,9 +152,6 @@ class ScreeningRunReader:
         if as_of_date is not None:
             clauses.append("r.asof_date = ?")
             parameters.append(as_of_date)
-        if profile is not None:
-            clauses.append("s.profile = ?")
-            parameters.append(profile)
         where = "" if not clauses else " WHERE " + " AND ".join(clauses)
         with closing(self._connect()) as connection:
             connection.execute("BEGIN")
@@ -174,7 +166,7 @@ class ScreeningRunReader:
                 + " ORDER BY r.asof_date DESC, s.created_at DESC, s.selection_id DESC",
                 parameters,
             ).fetchall()
-            return [_selection_from_row(connection, row) for row in rows]
+            return [_selection_from_row(row) for row in rows]
 
     def _connect(self) -> sqlite3.Connection:
         path = run_store_path(self._path).resolve()
@@ -201,40 +193,22 @@ def _run_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> RunPublic
         run_at=str(row["run_at"]),
         universe_size=int(row["universe_size"]),
         rules_ref=None if row["rules_ref"] is None else str(row["rules_ref"]),
-        application_git_commit=_application_git_commit(row),
         payload=dict(decode_payload(row["payload"])),
         candidates=tuple(dict(decode_payload(item[0])) for item in candidates),
     )
 
 
-def _selection_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> SelectionPublication:
-    entries = connection.execute(
-        "SELECT payload FROM selection_entry WHERE selection_id = ? ORDER BY ordinal",
-        (row["selection_id"],),
-    ).fetchall()
+def _selection_from_row(row: sqlite3.Row) -> SelectionPublication:
     return SelectionPublication(
         selection_id=str(row["selection_id"]),
         run_revision_id=str(row["run_revision_id"]),
         as_of_date=str(row["asof_date"]),
-        profile=str(row["profile"]),
         macro_context_id=(
             None if row["macro_context_id"] is None else str(row["macro_context_id"])
         ),
         created_at=str(row["created_at"]),
-        application_git_commit=_application_git_commit(row),
         payload=dict(decode_payload(row["payload"])),
-        entries=tuple(dict(decode_payload(item[0])) for item in entries),
     )
-
-
-def _application_git_commit(row: sqlite3.Row) -> str | None:
-    try:
-        value = row["application_git_commit"]
-    except IndexError:
-        return None
-    if value is None:
-        return None
-    return str(value)
 
 
 __all__ = [

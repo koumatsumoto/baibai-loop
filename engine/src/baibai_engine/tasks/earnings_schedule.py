@@ -14,7 +14,7 @@ from datetime import date
 from pathlib import Path
 
 _SCHEDULE_QUERY = (
-    "SELECT ticker, MIN(announcement_date) FROM jquants_earnings_calendar "
+    "SELECT ticker, MIN(announcement_date) FROM jpx_earnings_calendar "
     "WHERE announcement_date >= ? GROUP BY ticker"
 )
 

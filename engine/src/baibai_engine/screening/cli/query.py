@@ -34,8 +34,6 @@ from baibai_engine.screening.rules_identity import production_rules_contract_has
 from baibai_engine.screening.run_store import (
     ScreeningRunReader,
     ScreeningRunStore,
-    application_git_commit,
-    unchanged_application_git_commit,
 )
 from baibai_engine.screening.schema import (
     normalize_ticker,
@@ -132,7 +130,6 @@ def select_command(
     *,
     asof_date: date,
     rules: ScreeningRules | None = None,
-    profile: str | None = None,
     detail: str = "summary",
     review_cap: int = 20,
     output_path: Path | None = None,
@@ -147,7 +144,6 @@ def select_command(
     previous_shortlist_id: str | None = None,
     ranked_set_history_dir: Path | None = None,
 ) -> int:
-    starting_commit = application_git_commit()
     if not 0 <= review_cap <= 100:
         print("--review-cap must be between 0 and 100", file=sys.stderr)
         return 1
@@ -188,7 +184,6 @@ def select_command(
             candidates=inputs.candidates,
             macro_context=inputs.macro_context,
             rules=rules,
-            profile=profile,
             candidates_ref=inputs.candidates_ref,
             macro_context_ref=inputs.macro_context_ref,
             previous_candidates=inputs.previous_candidates,
@@ -205,14 +200,9 @@ def select_command(
     selection = payload.get("selection")
     if not isinstance(selection, Mapping):  # pragma: no cover - builder invariant
         raise AssertionError("selection payload must contain metadata")
-    effective_profile = str(selection["profile"])
     try:
-        publication = ScreeningRunStore(
-            runs_db_path,
-            git_commit_factory=lambda: unchanged_application_git_commit(starting_commit),
-        ).publish_selection(
+        publication = ScreeningRunStore(runs_db_path).publish_selection(
             run_revision_id=run_revision_id,
-            profile=effective_profile,
             macro_context_id=inputs.macro_context_ref,
             payload=payload,
         )

@@ -18,7 +18,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from tests.helpers.calibration_store import publish_panel, store_forward, store_panel
+from tests.helpers.calibration_store import store_forward, store_panel
 from tests.helpers.screening_sqlite import (
     CALIBRATION_FIXTURE_ASOF,
     add_source_coverage,
@@ -314,7 +314,6 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertTrue(cheap.pass_screen)
             self.assertEqual(cheap.evidence_patterns, "cash-rich-asset-discount")
             self.assertEqual(cheap.selection_rank, 1)
-            self.assertEqual(cheap.recommended_rank, 1)
             assert cheap.per_trailing is not None
             self.assertAlmostEqual(cheap.per_trailing, 10.0)
             assert cheap.pbr is not None
@@ -333,7 +332,6 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertTrue(expensive.in_population)
             self.assertFalse(expensive.pass_screen)
             self.assertEqual(expensive.selection_rank, 2)
-            self.assertEqual(expensive.recommended_rank, 2)
 
             diagnostics = result.diagnostics
             self.assertEqual(diagnostics.universe_size, 2)
@@ -729,7 +727,6 @@ class CalibrationPanelTest(unittest.TestCase):
                     forward_row_from_mapping(payload)
 
     def test_store_rejects_a_snapshot_with_a_changed_contract_identity(self) -> None:
-
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             build_calibration_fixture_sqlite(sqlite_path)
@@ -741,6 +738,33 @@ class CalibrationPanelTest(unittest.TestCase):
 
             with self.assertRaisesRegex(CalibrationCacheError, "contract changed"):
                 read_panel(store_dir, ASOF)
+
+    def test_force_replaces_a_snapshot_with_a_changed_contract_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            build_calibration_fixture_sqlite(sqlite_path)
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            store_dir = Path(tmp) / "calibration"
+            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            with sqlite3.connect(store_dir / "current.sqlite") as connection:
+                connection.execute("UPDATE snapshot_meta SET contract_version = ?", ("obsolete",))
+
+            with patch(
+                "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                return_value=[ASOF],
+            ):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    force=True,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(code, 0)
+            self.assertTrue(read_panel(store_dir, ASOF))
 
     def test_store_rejects_unversioned_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -931,8 +955,8 @@ class CalibrationPanelTest(unittest.TestCase):
                     run_purpose="production_decision",
                     required_asofs=[ASOF.isoformat()],
                     required_metrics=[
-                        "recommended_rank_top5",
-                        "recommended_rank_top10",
+                        "selection_rank_top5",
+                        "selection_rank_top10",
                         "er_calibration",
                     ],
                 )
@@ -958,8 +982,8 @@ class CalibrationPanelTest(unittest.TestCase):
                     run_purpose="production_decision",
                     required_asofs=[ASOF.isoformat()],
                     required_metrics=[
-                        "recommended_rank_top5",
-                        "recommended_rank_top10",
+                        "selection_rank_top5",
+                        "selection_rank_top10",
                         "er_calibration",
                     ],
                 )
@@ -1103,51 +1127,6 @@ class DerivedCacheIdentityTests(unittest.TestCase):
             calibration_store._derive_cache_schema_version(),
             calibration_store._derive_cache_schema_version(),
         )
-
-
-class GridDropRefusalTest(unittest.TestCase):
-    """A too-narrow `--force` window is refused from the grid, before anything is built."""
-
-    def _store_with_cohorts(self, directory: Path, asofs: tuple[str, ...]) -> None:
-        for asof in asofs:
-            publish_panel(directory, asof, [{"ticker": "1301"}])
-
-    def test_a_narrow_force_window_is_refused_from_the_grid_alone(self) -> None:
-        from baibai_engine.screening.calibration.cli import _cohorts_a_grid_would_drop
-
-        with tempfile.TemporaryDirectory() as raw:
-            directory = Path(raw)
-            self._store_with_cohorts(directory, ("2024-01-31", "2024-02-29", "2024-03-29"))
-
-            dropped = _cohorts_a_grid_would_drop(directory, [date(2024, 3, 29)], force=True)
-
-        self.assertEqual(dropped, [date(2024, 1, 31), date(2024, 2, 29)])
-
-    def test_a_window_covering_every_stored_cohort_is_allowed(self) -> None:
-        from baibai_engine.screening.calibration.cli import _cohorts_a_grid_would_drop
-
-        with tempfile.TemporaryDirectory() as raw:
-            directory = Path(raw)
-            self._store_with_cohorts(directory, ("2024-01-31", "2024-02-29"))
-
-            dropped = _cohorts_a_grid_would_drop(
-                directory, [date(2024, 1, 31), date(2024, 2, 29)], force=True
-            )
-
-        self.assertEqual(dropped, [])
-
-    def test_an_incremental_build_carries_history_so_nothing_is_dropped(self) -> None:
-        """Without `--force` the store is hard-linked in, so a narrow window keeps history."""
-
-        from baibai_engine.screening.calibration.cli import _cohorts_a_grid_would_drop
-
-        with tempfile.TemporaryDirectory() as raw:
-            directory = Path(raw)
-            self._store_with_cohorts(directory, ("2024-01-31", "2024-02-29"))
-
-            dropped = _cohorts_a_grid_would_drop(directory, [date(2024, 2, 29)], force=False)
-
-        self.assertEqual(dropped, [])
 
 
 if __name__ == "__main__":

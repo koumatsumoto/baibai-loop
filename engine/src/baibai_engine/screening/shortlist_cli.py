@@ -67,7 +67,6 @@ def publish_shortlist(
             selection_id=selection.selection_id,
             run_revision_id=selection.run_revision_id,
             as_of=date.fromisoformat(selection.as_of_date),
-            profile=selection.profile,
             macro_context_id=selection.macro_context_id,
             ranked_tickers=ranked_tickers,
             candidate_er=_machine_estimates(run.candidates),

@@ -65,7 +65,7 @@ schema 変更・store 再構築・全期間再取得・較正 store の作り直
 | trigger | skill |
 | --- | --- |
 | 買い機会の発見・候補提示（screening → shortlist publish → 人間の選択待ち） | `shortlist` |
-| 人間が選んだ候補の深掘り → 指値 proposal / 見送りの統合判断 | `research` |
+| 人間が選んだ候補の深掘り → buy / defer / 見送りの統合判断 | `research` |
 | 決算・material event・FV 到達による保有見直し | `holding-review` |
 | 人間からの注文結果・入出金・売却約定・年次 outcome の記録 | `ledger-record` |
 | 市場環境評価レポート（macro context）の執筆 | `macro-context` |
@@ -105,7 +105,7 @@ subsystem、public CLI、schema、persistence、dependency、state、運用手�
 | screening | `engine/src/baibai_engine/screening/` | `stores/screening/runs.sqlite`（machine）+ `stores/application/baibai.sqlite`（shortlist）+ `method/` | `baibai-engine screening` | 見積り calibration（保有 outcome + 長期 horizon の較正リプレイ `calibration-build/evaluate`。短期 backtest はしない） |
 | research | `engine/src/baibai_engine/research/` | `stores/application/baibai.sqlite` + `method/research/playbooks/` | `baibai-engine research` / `baibai-engine research evaluate` | thesis + planning-only limit + holding-review composition |
 | position | `engine/src/baibai_engine/position/` | `stores/application/baibai.sqlite` | `baibai-engine position` (`ledger` / draft / `apply-draft` / `outcome`) | human-confirmed portfolio ledger + holding review + portfolio outcome |
-| operation / proposal | `engine/src/baibai_engine/operation/`, `engine/src/baibai_engine/proposals/` | `stores/application/baibai.sqlite` | `baibai-engine operation` / `baibai-engine proposal` | current workspace + immutable final result / trade decision current state |
+| operation | `engine/src/baibai_engine/operation/` | `stores/application/baibai.sqlite` | `baibai-engine operation` | current workspace + immutable final result |
 | market | `engine/src/baibai_engine/market/` | （`stores/market/market.sqlite` と lake mirror、git 外） | `baibai-engine lake` | 価格・calendar data 層（screening・保有計測の価格基盤） |
 | foundation | `engine/src/baibai_engine/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
 | task | `engine/src/baibai_engine/tasks/` | `stores/application/baibai.sqlite` | `baibai-engine task` | current task state |

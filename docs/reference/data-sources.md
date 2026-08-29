@@ -62,7 +62,7 @@ J-Quants / EDINETから取得したデータは、個人利用・非公開reposi
 | hydrated runtime copy | fixed L1 releaseから満たす`market.sqlite`の17 table | R2 authorityにしない |
 | disposable byproduct | `.cache/` | canonical verification後に削除でき、入力証跡として扱わない |
 
-Canonical manifestのsourceはtyped `SourceRef`で記録する。bytesを保持するkind（provider Raw、calibration input archive）は、実在するobject key、SHA-256、source側schema / manifest versionへ束縛する。provider Rawはprovider、dataset、request range、metadata sidecarのkeyとSHA-256を固定し、ingest ID、object key、content digest、metadata versionを同時に照合する。
+Canonical manifestのsourceはtyped `SourceRef`で記録する。bytesを保持するprovider Rawは、実在するobject key、SHA-256、source側schema / manifest versionへ束縛する。provider、dataset、request range、metadata sidecarのkeyとSHA-256を固定し、ingest ID、object key、content digest、metadata versionを同時に照合する。
 
 legacy SQLite snapshotはidentityだけを持ち、object keyを名乗らない。sealed copyはbuild中のstore変化を防ぐために作り、operation終了時に回収する。schema version、content digest、capture時刻によって、buildへ渡したstore世代を照合できる。logical manifestへR2 ETagを保存しない。
 

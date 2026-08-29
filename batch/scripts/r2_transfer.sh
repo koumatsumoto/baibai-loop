@@ -204,6 +204,26 @@ cutover_downloaded_market_store() {
   )
 }
 
+cutover_pulled_run_store() {
+  local expected_version current_version path
+  expected_version="$(pulled_version runs.sqlite)"
+  current_version="$(remote_version runs.sqlite)"
+  if [[ "${current_version}" != "${expected_version}" ]]; then
+    printf 'refusing run-store cutover: runs.sqlite changed on R2 after the pull. ' >&2
+    printf 'Pull it again outside the daily batch window.\n' >&2
+    return 1
+  fi
+  path="$(store_path runs.sqlite)"
+  (
+    cd "${repo_root}" || exit 1
+    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+      uv run python tools/migrations/cutover_runs_v4.py --path "${path}"
+  )
+  check_sqlite_schema "${path}" 4
+  push_key_if_version runs.sqlite "${expected_version}"
+  write_machine_manifest
+}
+
 merge_market_store() {
   merge_store baibai_batch.storage.merge_market_store "$1" "$2"
 }
@@ -743,7 +763,7 @@ pull_ranked_set_history() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-ranked-set-history DIR|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|cutover-runs|pull-ranked-set-history DIR|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -772,6 +792,10 @@ case "${1:-}" in
     ;;
   pull-runs)
     pull_keys runs.sqlite
+    ;;
+  cutover-runs)
+    [[ $# -eq 1 ]] || { usage; exit 2; }
+    cutover_pulled_run_store
     ;;
   pull-ranked-set-history)
     [[ $# -eq 2 ]] || { usage; exit 2; }

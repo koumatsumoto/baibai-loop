@@ -269,7 +269,7 @@ def test_basis_coverage_reports_both_denominators(tmp_path: Path) -> None:
 def test_measurement_reads_the_atomic_current_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A newly replaced current snapshot is the only version available to readers."""
+    """One measurement cannot mix a replacement into its fixed current snapshot."""
 
     directory = calibration_root(tmp_path)
     for index in range(24):
@@ -314,5 +314,5 @@ def test_measurement_reads_the_atomic_current_snapshot(
     payload = build_measurement(calibration_dir=directory, horizons=("1y",), er_threshold=0.085)
 
     assert payload["panel_asof_start"] == "2024-01-31"
-    assert payload["panel_asof_end"] == "2024-02-29"
+    assert payload["panel_asof_end"] == "2024-01-31"
     assert payload["calibration_snapshot"] == "current"

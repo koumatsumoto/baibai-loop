@@ -16,7 +16,7 @@
 
 store操作には`baibai-engine`のdomain CLIと[`batch/scripts`](../batch/scripts)を使います。`lake inventory`と`lake validate`は書き込みません。`lake resolve`はpointerを1回だけ解決し、`lake hydrate`は固定releaseから17 tableを満たします。
 
-書き込み主体は上表のownerに限定します。application DBの作成とmigrationはengineのapplication serviceだけが行い、読み取り専用経路は自動初期化しません。cloud copyで上書きする、旧`data/`と現行pathや二つの正本writerを併存させる、repository root以外からstoreを生成する操作は禁止です。起動rootが不正な場合は、storeを作らず停止します。一時cacheは`.cache/`へ置き、storeにしません。
+書き込み主体は上表のownerに限定します。application DBの新規作成はengineのapplication service、schema cutoverは専用one-shot toolだけが行い、読み取り専用経路は自動初期化しません。cloud copyで上書きする、旧`data/`と現行pathや二つの正本writerを併存させる、repository root以外からstoreを生成する操作は禁止です。起動rootが不正な場合は、storeを作らず停止します。一時cacheは`.cache/`へ置き、storeにしません。
 
 schema変更は対応codeをmainへ入れてからcloudへ反映します。cutover時は専用のone-shot toolで新しい出力storeを作り、`integrity_check`、foreign key、required table、正本row/head/ledger identityを確認してから置換します。runtime migrationや旧layoutの自動検出は行いません。lake contractは[market lake](../docs/reference/market-lake.md)を正本とします。
 

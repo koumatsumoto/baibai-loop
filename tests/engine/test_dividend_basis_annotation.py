@@ -48,7 +48,6 @@ def _payload(candidates: list[dict[str, object]]) -> dict[str, object]:
         candidates=tuple(candidate_record_from_mapping(item) for item in candidates),
         macro_context=None,
         rules=load_screening_rules(DEFAULT_RULES_PATH),
-        profile="balanced",
         candidates_ref="test.yaml",
         macro_context_ref=None,
         review_cap=5,

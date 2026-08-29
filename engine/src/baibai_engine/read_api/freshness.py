@@ -71,10 +71,9 @@ def application_db_updated_at(path: Path) -> datetime | None:
     so timezone-aware timestamps and date-only columns compare in one pass.
     """
 
-    # One query per source, not one UNION: a store older than this code is missing a
-    # table, and that is exactly the case this value is asked about. Reading each source
-    # on its own keeps the answer the newest write the store can actually show, instead
-    # of blanking the freshness badge because one table has yet to be migrated in.
+    # One query per source, not one UNION: an unwritten store can be missing a table.
+    # Reading each source on its own keeps the answer at the newest write the store can
+    # actually show instead of blanking the freshness badge during initialization.
     latest: datetime | None = None
     for table, column in _WRITE_INSTANT_COLUMNS:
         rows = read_rows(

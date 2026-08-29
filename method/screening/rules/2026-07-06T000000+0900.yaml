@@ -26,7 +26,6 @@ output:
   - cashflow-yield-discount
   - sales-discount-growth
 selection:
-  default_profile: balanced
   # screen は全普通株を対象にする。規模・流動性・上場期間・JPX 規制の絞り込みは
   # 分析層のパラメータとしてここで適用する(事実は candidates に記録済み)。
   liquidity:
@@ -48,15 +47,6 @@ selection:
       ocf_yield_positive_min: 0.0
       fcf_yield_positive_min: 0.0
       min_avg_turnover_oku: 1.0
-  diversity:
-    # selectはE[r]母集団順位を壊さない。sector / Evidence Pattern集中はranking cap
-    # ではなく診断と entry preflight / position policy で管理する。
-    max_recommended_per_sector: 1000
-    max_recommended_per_evidence_pattern: 1000
-    # E[r] 主キーでは割安上位が月をまたいで持続するのが正常な挙動で、繰越 cap は
-    # 較正リプレイで検証した順位 (previous 中立で計測) を運用で崩す。null = cap なし。
-    max_previous_candidates_in_recommended: null
-    previous_overlap_warning_ratio: 0.6
 evidence_patterns:
   # 金融4業種は規制資本・金利構造の影響により、事業会社向け generic evidence
   # pattern の比較前提が成立しないため除外する。excluded_sectors は evidence

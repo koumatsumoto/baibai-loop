@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import yaml
+
 from baibai_engine.appdb.schema import SCHEMA_SQL
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -62,6 +64,55 @@ def test_cutover_preserves_rows_and_removes_proposal_storage(tmp_path: Path) -> 
                 json.dumps(shortlist),
             ),
         )
+        shortlist_v4 = {
+            **shortlist,
+            "schema_version": 4,
+            "shortlist_id": "shortlist-20260828-cutover-v4",
+            "selection_id": "selection-cutover-v4",
+            "run_revision_id": "run-cutover-v4",
+            "as_of": "2026-08-28",
+            "published_at": "2026-08-28T12:00:00+09:00",
+        }
+        shortlist_v4.pop("review_basis_shortlist_id")
+        shortlist_v4.pop("research_gate_contract_id")
+        connection.execute(
+            "INSERT INTO shortlist VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                shortlist_v4["shortlist_id"],
+                shortlist_v4["selection_id"],
+                shortlist_v4["run_revision_id"],
+                shortlist_v4["as_of"],
+                shortlist_v4["published_at"],
+                json.dumps(shortlist_v4),
+            ),
+        )
+        thesis = yaml.safe_load(
+            (ROOT / "tests/fixtures/thesis/2331-decision.yaml").read_text(encoding="utf-8")
+        )
+        thesis["estimates"]["deep_discount_bps"] = None
+        thesis["judgment"]["position_intent"] = "full"
+        connection.execute(
+            "INSERT INTO thesis VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "thesis-cutover-test",
+                thesis["input_snapshot"]["ticker"],
+                thesis["input_snapshot"]["as_of"],
+                thesis["judgment"]["recommendation"],
+                thesis["judgment"]["proposed_at"],
+                None,
+                json.dumps(thesis),
+                "a" * 64,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO thesis_review VALUES (?, ?, ?, ?)",
+            (
+                "review-cutover-test",
+                "thesis-cutover-test",
+                "2026-07-03T10:00:00+09:00",
+                "{}",
+            ),
+        )
         connection.execute(
             "INSERT INTO ledger_event VALUES (1, 'event-1', '2026-08-29T12:00:00+09:00', "
             "0, 'reservation', '2331', 'proposal-old', '{}')"
@@ -92,6 +143,23 @@ def test_cutover_preserves_rows_and_removes_proposal_storage(tmp_path: Path) -> 
             ).fetchone()
             is None
         )
-        payload = json.loads(connection.execute("SELECT payload FROM shortlist").fetchone()[0])
-        assert payload["schema_version"] == 6
-        assert "attention_policy_id" not in payload
+        shortlist_payloads = [
+            json.loads(row[0])
+            for row in connection.execute("SELECT payload FROM shortlist ORDER BY as_of")
+        ]
+        assert len(shortlist_payloads) == 2
+        assert {payload["schema_version"] for payload in shortlist_payloads} == {6}
+        assert all("attention_policy_id" not in payload for payload in shortlist_payloads)
+        assert all("profile" not in payload for payload in shortlist_payloads)
+        assert shortlist_payloads[0]["review_basis_shortlist_id"] is None
+        assert shortlist_payloads[0]["research_gate_contract_id"] == "research-gate-v1"
+        assert shortlist_payloads[0]["entries"][0]["decision"] == "rejected"
+        assert shortlist_payloads[0]["entries"][0]["er_annual"] == 0.09
+        thesis_payload, core_sha256 = connection.execute(
+            "SELECT payload, core_sha256 FROM thesis WHERE thesis_id = 'thesis-cutover-test'"
+        ).fetchone()
+        current_thesis = json.loads(thesis_payload)
+        assert "deep_discount_bps" not in current_thesis["estimates"]
+        assert "position_intent" not in current_thesis["judgment"]
+        assert core_sha256 == "a" * 64
+        assert connection.execute("SELECT count(*) FROM thesis_review").fetchone() == (1,)

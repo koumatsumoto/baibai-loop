@@ -342,7 +342,7 @@ class ReadJPXEarningsCalendarTests(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
             conn = open_connection(db)
             conn.execute(
-                "INSERT INTO jquants_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",
+                "INSERT INTO jpx_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",
                 ("2026-05-15", "1301"),
             )
             conn.commit()
