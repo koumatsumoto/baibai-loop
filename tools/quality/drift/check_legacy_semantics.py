@@ -109,6 +109,7 @@ _DOMAIN_IDENTIFIER_ADAPTERS = {
     # One-shot operator cutover reads the retired payload and emits only the current schema.
     Path("tools/migrations/cutover_application_v17.py"),
     Path("tools/migrations/cutover_market_v25.py"),
+    Path("tools/migrations/publish_market_lake_v25.py"),
     Path("tools/migrations/cutover_runs_v4.py"),
 }
 
@@ -122,7 +123,12 @@ def check(root: Path) -> list[str]:
             paths = [
                 path
                 for path in sorted(directory.rglob("*"))
-                if path.suffix in _CURRENT_SUFFIXES and not (_IGNORED_PARTS & set(path.parts))
+                if path.suffix in _CURRENT_SUFFIXES
+                and not (_IGNORED_PARTS & set(path.parts))
+                # stores/ contains runtime mirrors and immutable manifests alongside
+                # its tracked README files. Generated JSON is evidence, not current
+                # source, and may legitimately retain the vocabulary of its generation.
+                and (directory_name != "stores" or path.suffix == ".md")
             ]
             current_paths.extend(paths)
             behavior_paths.extend(path for path in paths if path.suffix == ".md")

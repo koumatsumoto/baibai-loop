@@ -22,6 +22,7 @@ import time
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 from baibai_engine.batch_api import (
@@ -79,12 +80,19 @@ class MarketLakePublishReport:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class _ServingCoverageOverride:
+    origin: LakeStoreOrigin
+    coverage_starts: Mapping[str, date]
+
+
 def publish_market_lake(
     *,
     sqlite_path: Path,
     mirror_root: Path,
     store: ObjectStore,
     release_id: str | None = None,
+    serving_coverage_override: _ServingCoverageOverride | None = None,
 ) -> MarketLakePublishReport:
     """Derive every partition from the store, seal a release, and publish it.
 
@@ -97,17 +105,20 @@ def publish_market_lake(
     serving = _serving_pointer(store)
     previous = serving.pointer
     expected_store_origin = _pointer_origin(previous)
-    serving_release = (
-        None if previous is None else _resolve_serving_release(store, mirror_root, previous)
-    )
-    published_coverage_start = (
-        {}
-        if serving_release is None
-        else {
+    if previous is None:
+        if serving_coverage_override is not None:
+            raise LakePublishError("serving coverage override requires a current release")
+        published_coverage_start: Mapping[str, date] = {}
+    elif serving_coverage_override is not None:
+        if _pointer_origin(previous) != serving_coverage_override.origin:
+            raise LakePublishError("serving coverage override identifies a different release")
+        published_coverage_start = serving_coverage_override.coverage_starts
+    else:
+        serving_release = _resolve_serving_release(store, mirror_root, previous)
+        published_coverage_start = {
             name: manifest.coverage_start
             for name, manifest in serving_release.dataset_manifests.items()
         }
-    )
 
     export_started = time.perf_counter()
     export = export_lake_legacy(
