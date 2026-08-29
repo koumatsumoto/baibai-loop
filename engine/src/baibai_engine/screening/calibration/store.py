@@ -1,4 +1,4 @@
-"""Typed calibration rows in one atomically replaceable current snapshot."""
+"""Measure L1 estimate quality in one atomically replaceable current snapshot."""
 
 from __future__ import annotations
 

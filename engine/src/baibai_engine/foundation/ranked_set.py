@@ -1,4 +1,4 @@
-"""Resolve the ranked research input at the domain boundary."""
+"""Produce the ranked input for L1's shortlist-to-research step."""
 
 from __future__ import annotations
 

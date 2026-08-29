@@ -1,4 +1,4 @@
-"""Current schema for the rebuildable screening run cache."""
+"""Store rebuildable machine output that produces L1 shortlist candidates."""
 
 RUN_STORE_SCHEMA_VERSION = 4
 
