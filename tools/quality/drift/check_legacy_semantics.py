@@ -105,6 +105,8 @@ _PATH_PATTERN_OWNERS = {
     Path("engine/src/baibai_engine/foundation/repository_layout.py"),
     Path("tools/quality/drift/check_legacy_semantics.py"),
 }
+
+
 def check(root: Path) -> list[str]:
     behavior_paths = [root / name for name in _ROOT_FILES]
     current_paths = [root / name for name in _PATH_ROOT_FILES if (root / name).is_file()]
