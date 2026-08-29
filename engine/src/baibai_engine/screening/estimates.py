@@ -17,7 +17,8 @@ doctrine 柱 5(b) との整合: E[r] は単位 (%/年) と前提 (anchor・実�
 - reversion (年率) = REALIZATION_RATE_ANNUAL x clip(upside, ±UPSIDE_CAP)
   — model policy parameter により過大な upside を保守側へ制限する。
 - carry (年率) = 配当利回り + clip(自社株買い利回り, ±SHARE_COUNT_CLIP)
-  — 配当利回りは carry 用に解決した将来利回り (予想 DPS を最優先、無ければ
+  — 配当利回りは carry 用に解決した将来利回り (予想 DPS を優先するが、正の直近実績の
+    2 倍を超える跳ねは実績へ倒す。予想を使えなければ
     accrual 期間の分割 factor で調整した実績 DPS。分割前配当と分割後株価の混在で
     利回りが膨らむのを防ぐ。詳細は metrics._resolve_dividend_carry)。
   — 株数縮小利回り = -net_share_change_yoy (株数縮小 = 正)。これは自己株式を含む
@@ -69,7 +70,8 @@ class ExpectedReturnEstimate:
     unit: str = EXPECTED_RETURN_UNIT
     assumptions: str = (
         "reversion=0.10*clip(implied_upside,+/-0.50); "
-        "carry=dividend_yield(forecast_preferred,split_safe)+clip(share_count_yield,+/-0.05)"
+        "carry=dividend_yield(forecast_preferred_unless_gt_2x_actual,split_safe)"
+        "+clip(share_count_yield,+/-0.05)"
     )
 
 

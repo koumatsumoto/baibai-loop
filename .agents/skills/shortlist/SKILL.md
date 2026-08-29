@@ -77,7 +77,7 @@ description: screening からレビュー済み shortlist を発行し、人間�
    - FV convergence、full-year loss、stale financials、data-quality / durability warning は、見積りをどの方向へ歪めるかを書く。
    - margin、capital-control、大量保有、TOB は観測の文脈であり、単独で除外や rank 変更に使わない。`null` / `unknown` を否定事実へ変換しない。
    - TOB は届出書と意見表明を読み、価格収斂を割安と誤認しない。historical share-count signal を将来の自己株取得cashと解釈せず、選んだ銘柄の資本配分は一次開示で確認する。
-   - 配当 carry の異常な跳ねは普通配当と特別配当、split basis、FCF coverage を確認する。special gain を反復収益にしない。
+   - 配当 carry が実績へ倒れた行は、予想の跳ねを普通配当・特別配当・split basisに分け、FCF coverageを確認する。機械が予想を採った2倍以下の跳ねも、一次開示で特別配当と分かれば反復収益にしない。
    - `deterioration_unmeasurable` は「悪化なし」ではない。一次開示で補う。
    - `next_earnings_status` の announced / scheduled / estimated / unknown を区別し、直前の前倒し開示は一次情報で確認する。
    - 既に reject / defer した ticker は、価格が FV 以下、新規 material disclosure、unknown を解消する決算、raw close が前回 thesis の entry から5%以上下落（`current_close_yen <= thesis_entry_price_basis_yen * 0.95`）、`fin_latest_disclosed_date > rows[].thesis_as_of` のいずれかが成立する場合だけ再研究候補にする。それ以外は `event_wait` とする。

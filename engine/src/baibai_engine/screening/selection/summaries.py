@@ -229,13 +229,11 @@ def _ranked_set_summary(candidate: Mapping[str, object], *, rank: int) -> dict[s
     return {
         **_selection_candidate_summary(candidate, rank=rank),
         **_ranked_set_machine_projection(candidate),
-        # carry のもう半分。`dividend_yield` は予想 DPS を現値で割った 1 つの数で、その額が
-        # 反復する普通配当なのか一回性の特別配当なのかを区別しない。特別配当は予想年間 DPS へ
-        # そのまま入るので、carry が E[r] の主キーである以上、一回性の分配は上位へ集中して
-        # 現れる。予想と直近実績を並べて出すのは、その桁の跳ねを判断面で見えるようにするため
-        # である。両者は同じ株式基準へ揃えた後の値で、揃えられなかった年度は実績側が null に
-        # なる (`basis` がどちらを使ったかを言う)。比率にはしない — 実績側は前年度の値なので、
-        # 1 つの数へ畳むと「どの期と比べているか」が消える。
+        # carry の配当側。予想が正の直近実績の 2 倍を超えるときは実績へ倒すが、raw の予想と
+        # 実績は、特別配当・還元転換・split basis を人間が区別できるよう並べて残す。両者は
+        # 同じ株式基準へ揃えた後の値で、揃えられなかった年度は実績側が null になる (`basis`
+        # がどちらを使ったかを言う)。比率にはしない — 実績側は前年度の値なので、1 つの数へ
+        # 畳むと「どの期と比べているか」が消える。
         "dividend_basis": {
             "annual_yield": metrics.get("dividend_yield"),
             "dps_forecast_annual": metrics.get("dps_forecast_annual"),
