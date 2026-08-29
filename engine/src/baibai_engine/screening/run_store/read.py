@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .schema import RUN_STORE_SCHEMA_VERSION
 from .store import RunStoreAmbiguousError, decode_payload, run_store_path
 
 
@@ -174,7 +175,26 @@ class ScreeningRunReader:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA query_only = ON")
         connection.execute("PRAGMA foreign_keys = ON")
-        return connection
+        try:
+            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            has_tables = connection.execute(
+                "SELECT 1 FROM sqlite_schema "
+                "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
+            ).fetchone()
+            if version == 0 and has_tables is None:
+                # An untouched file is the same no-store state as an absent path. The
+                # first domain query raises OperationalError, which read_api degrades to
+                # no publication; it is not an obsolete store accepted as current.
+                return connection
+            if version != RUN_STORE_SCHEMA_VERSION:
+                raise RuntimeError(
+                    "screening run store schema is not current "
+                    f"(found {version}, expected {RUN_STORE_SCHEMA_VERSION}); rebuild it"
+                )
+            return connection
+        except BaseException:
+            connection.close()
+            raise
 
 
 def _run_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> RunPublication:

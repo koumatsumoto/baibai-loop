@@ -239,10 +239,6 @@ case "${script}" in
     exit 0
     ;;
   snapshot)
-    if [[ "$*" == *" version "* ]]; then
-      printf '%s\\n' "${SQLITE_FAKE_VERSION:-13}"
-      exit 0
-    fi
     source=""
     output=""
     while [[ $# -gt 0 ]]; do
@@ -272,14 +268,6 @@ case "${script}" in
   migrate)
     printf 'migrate %s\\n' "$*" >> "$AWS_LOG"
     exit "${MIGRATE_FAKE_EXIT:-0}"
-    ;;
-  cutover)
-    printf 'cutover %s\\n' "$*" >> "$AWS_LOG"
-    exit "${CUTOVER_FAKE_EXIT:-0}"
-    ;;
-  run_cutover)
-    printf 'run-cutover %s\\n' "$*" >> "$AWS_LOG"
-    exit "${RUN_CUTOVER_FAKE_EXIT:-0}"
     ;;
   layout)
     exit "${LAYOUT_FAKE_EXIT:-0}"

@@ -138,14 +138,6 @@ check_sqlite() {
   )
 }
 
-sqlite_schema_version() {
-  (
-    cd "${repo_root}" || exit 1
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run python -m baibai_batch.storage.sqlite_snapshot version --path "$1"
-  )
-}
-
 snapshot_sqlite() {
   (
     cd "${repo_root}" || exit 1

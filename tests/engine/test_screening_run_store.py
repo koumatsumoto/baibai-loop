@@ -82,6 +82,16 @@ def test_obsolete_cache_is_rejected_instead_of_migrated(tmp_path: Path) -> None:
         initialize_run_store(database)
 
 
+def test_reader_rejects_an_obsolete_cache(tmp_path: Path) -> None:
+    database = tmp_path / "runs.sqlite"
+    initialize_run_store(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA user_version = 3")
+
+    with pytest.raises(RuntimeError, match=r"found 3, expected 4.*rebuild it"):
+        ScreeningRunReader(database).latest_run()
+
+
 def test_run_and_ranked_set_publish_and_read_atomically(tmp_path: Path) -> None:
     database = tmp_path / "runs.sqlite"
     store = ScreeningRunStore(database)
