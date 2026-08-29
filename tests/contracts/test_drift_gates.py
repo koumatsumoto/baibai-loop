@@ -100,6 +100,14 @@ def test_legacy_semantics_gate_rejects_retired_domain_identifiers(
     ]
 
 
+def test_legacy_semantics_gate_ignores_generated_store_manifests(tmp_path: Path) -> None:
+    manifest = tmp_path / "stores" / "lake" / "manifests" / "old.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"dataset":"jquants.earnings_calendar"}\n', encoding="utf-8")
+
+    assert check_legacy_semantics.check(tmp_path) == []
+
+
 def test_legacy_semantics_gate_rejects_selection_profile_in_shortlist_template(
     tmp_path: Path,
 ) -> None:

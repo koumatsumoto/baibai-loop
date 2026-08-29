@@ -763,7 +763,7 @@ pull_ranked_set_history() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|cutover-runs|pull-ranked-set-history DIR|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|cutover-runs|pull-ranked-set-history DIR|seed-all|hydrate-market|publish-lake|publish-market-v25-cutover|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -783,6 +783,17 @@ case "${1:-}" in
   publish-lake)
     [[ $# -eq 1 ]] || { usage; exit 2; }
     publish_lake
+    ;;
+  publish-market-v25-cutover)
+    [[ $# -eq 1 ]] || { usage; exit 2; }
+    (
+      cd "${repo_root}" || exit 1
+      UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+        uv run python tools/migrations/publish_market_lake_v25.py \
+          --sqlite "$(store_path market.sqlite)" \
+          --mirror "${lake_mirror}" \
+          --bucket "${stores_bucket}"
+    )
     ;;
   # A pass that only writes the market store round-trips the other two for nothing,
   # and pushing them back unchanged after hours would revert whatever else wrote them

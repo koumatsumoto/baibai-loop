@@ -215,7 +215,13 @@ dehydrateが「releaseが持つ行数と合わない」で停止する。ロー�
 hydrate後にfetch/build/publishへ直列に進み、変更後の再hydrateを行わないため、hot pathへ全partition
 比較や追加lockは置かない。
 
-**market v24からv25へのcutoverはローカルpublishで完了させる。** `push-market`はdownloadしたstaging copyにも同じ一度限りのcutoverを適用するため、cloud側の増分を捨てずにmergeできる。日次batchにschema移行を吸収させない。v25以外の旧版は推測して変換せず停止する。
+**market v24からv25へのcutoverはローカルpublishで完了させる。** 最初のL1 publicationだけは、v24 manifestのdigestと保持datasetのhistory floorを検証する専用経路を使う。通常publisherが削除済みaudit fieldを再受理する互換layerは持たない。`push-market`はdownloadしたstaging copyにも同じ一度限りのstore cutoverを適用するため、cloud側の増分を捨てずにmergeできる。日次batchにschema移行を吸収させない。v25以外の旧版は推測して変換せず停止する。
+
+```bash
+uv run python tools/migrations/cutover_market_v25.py --path stores/market/market.sqlite
+batch/scripts/r2_transfer.sh publish-market-v25-cutover
+batch/scripts/r2_transfer.sh push-market
+```
 
 **run store v3からv4への一度限りのcutoverもローカルで完了させる。** run / selectionは再生成可能で、canonicalなShortlistと判断はapplication DBにあるため、旧rowを互換変換せず空のv4へ置き換える。日次batchの実行中でないことを確認し、main merge後に次を1回だけ実行する。`cutover-runs`は直前のpullで記録したR2 ETagへ条件付きで書き、旧objectを`runs.sqlite.bak`へ保存してからbundle receiptを更新する。sourceがv3でない、table集合が違う、またはpull後にR2が変わった場合はuploadしない。
 
