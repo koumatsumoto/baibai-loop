@@ -9,17 +9,11 @@ fixture states only what its assertion depends on.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import UTC, date, datetime
+from datetime import date
 from functools import cache
 from pathlib import Path
 from typing import Any, get_args, get_type_hints
 
-from baibai_engine.market.lake.models import (
-    CohortSourceRef,
-    SQLiteSnapshotSourceRef,
-)
-from baibai_engine.market.lake.objects import sha256_bytes
-from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 from baibai_engine.screening.calibration.forward import (
     DEFAULT_FORWARD_OBSERVATION_POLICY,
     RESOLVED_STATUSES,
@@ -89,7 +83,6 @@ _PANEL_REQUIRED: Mapping[str, Any] = {
     "threshold_blocks": "",
     "smg_market_fallback": "",
     "selection_rank": None,
-    "recommended_rank": None,
 }
 
 _DIAGNOSTICS_REQUIRED: Mapping[str, Any] = {
@@ -107,30 +100,6 @@ _DIAGNOSTICS_REQUIRED: Mapping[str, Any] = {
     "population_ocf_yield_nonnull": 0,
     "population_per_trailing_exact": 0,
 }
-
-_TEST_PRODUCER_COMMIT = "a" * 40
-
-
-def synthetic_calibration_source(
-    *, label: str = "default", captured_on: date | None = None
-) -> SQLiteSnapshotSourceRef:
-    """Stand in for the sealed store generation a cohort would have been built from.
-
-    Real builds seal the legacy store, read it, and discard the seal, keeping only this
-    identity. A fixture has no store to seal, so it states an identity directly; two
-    labels give two distinguishable generations. ``captured_on`` follows the cohort's
-    cutoff because a cohort cannot have observed data the seal predates.
-    """
-
-    digest = sha256_bytes(f"synthetic calibration test input: {label}\n".encode())
-    capture_date = captured_on or date(2026, 1, 1)
-    return SQLiteSnapshotSourceRef(
-        kind="sqlite_snapshot",
-        source_id=f"market-v{SQLITE_SCHEMA_VERSION}-{digest[:24]}",
-        sha256=digest,
-        schema_version=SQLITE_SCHEMA_VERSION,
-        captured_at=datetime(capture_date.year, capture_date.month, capture_date.day, tzinfo=UTC),
-    )
 
 
 def _coerce(value: Any, annotation: Any) -> Any:
@@ -283,8 +252,6 @@ def store_panel(root: Path, asof: date, *args: Any, **kwargs: Any) -> None:
         root,
         asof,
         *args,
-        sources=(synthetic_calibration_source(captured_on=asof),),
-        input_cutoff=asof,
         **kwargs,
     )
 
@@ -296,8 +263,6 @@ def store_forward(root: Path, asof: date, *args: Any, **kwargs: Any) -> None:
         root,
         asof,
         *args,
-        sources=(synthetic_calibration_source(captured_on=asof),),
-        input_cutoff=asof,
         **kwargs,
     )
 
@@ -309,11 +274,6 @@ def publish_panel(
     *,
     rules_hash: str = "abc123",
     exclusion_counts: Mapping[str, int] | None = None,
-    source_label: str = "default",
-    source: CohortSourceRef | None = None,
-    extra_sources: tuple[CohortSourceRef, ...] = (),
-    l1_mirror: Path | None = None,
-    producer_commit: str = _TEST_PRODUCER_COMMIT,
     forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> None:
     diagnostics = PanelDiagnostics(
@@ -327,16 +287,6 @@ def publish_panel(
         date.fromisoformat(asof),
         tuple(_panel(asof, row) for row in rows),
         diagnostics,
-        sources=(
-            source
-            or synthetic_calibration_source(
-                label=source_label, captured_on=date.fromisoformat(asof)
-            ),
-            *extra_sources,
-        ),
-        l1_mirror=l1_mirror,
-        input_cutoff=date.fromisoformat(asof),
-        producer_commit=producer_commit,
         forward_policy=forward_policy,
     )
 
@@ -346,19 +296,11 @@ def publish_forward(
     asof: str,
     rows: Sequence[Mapping[str, Any]],
     *,
-    source_label: str = "default",
-    source: CohortSourceRef | None = None,
-    input_cutoff: date | None = None,
-    producer_commit: str = _TEST_PRODUCER_COMMIT,
     forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> None:
-    cutoff = input_cutoff or date.fromisoformat(asof)
     write_forward(
         directory,
         date.fromisoformat(asof),
         [_forward(asof, row) for row in rows],
-        sources=(source or synthetic_calibration_source(label=source_label, captured_on=cutoff),),
-        input_cutoff=cutoff,
-        producer_commit=producer_commit,
         forward_policy=forward_policy,
     )

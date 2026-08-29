@@ -23,10 +23,11 @@ from baibai_engine.market.lake.models import (
     PartitionManifest,
     ReleaseDataset,
     ReleaseManifest,
+    SQLiteSnapshotSourceRef,
     canonical_lake_model_bytes,
 )
 from baibai_engine.market.sqlite import open_connection
-from tests.helpers.calibration_store import synthetic_calibration_source
+from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 
 
 def release_source(release_id: str = "20260130T000000Z-release") -> L1ReleaseSourceRef:
@@ -36,6 +37,17 @@ def release_source(release_id: str = "20260130T000000Z-release") -> L1ReleaseSou
         key=release_manifest_key(release_id=release_id),
         sha256="b" * 64,
         manifest_version=1,
+    )
+
+
+def _snapshot_source() -> SQLiteSnapshotSourceRef:
+    digest = hashlib.sha256(b"synthetic L1 test input\n").hexdigest()
+    return SQLiteSnapshotSourceRef(
+        kind="sqlite_snapshot",
+        source_id=f"market-v{SQLITE_SCHEMA_VERSION}-{digest[:24]}",
+        sha256=digest,
+        schema_version=SQLITE_SCHEMA_VERSION,
+        captured_at=datetime(2026, 1, 31, tzinfo=UTC),
     )
 
 
@@ -69,7 +81,7 @@ def stored_release_source(root: Path) -> tuple[Path, L1ReleaseSourceRef]:
     partition = PartitionManifest(
         values={"year": 2026, "month": 1},
         objects=(lake_object,),
-        sources=(synthetic_calibration_source(captured_on=date(2026, 1, 31)),),
+        sources=(_snapshot_source(),),
     )
     dataset_manifest = DatasetManifest(
         manifest_version=1,

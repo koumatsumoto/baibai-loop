@@ -29,7 +29,6 @@ def research_gate_shortlist(
     as_of: str,
     selected: Sequence[str],
     rejected: Sequence[str] = (),
-    profile: str = "default",
     macro_context_id: str | None = None,
 ) -> dict[str, object]:
     """Build one canonical v5 Research Gate judgment over ``selected + rejected``."""
@@ -48,9 +47,7 @@ def research_gate_shortlist(
             run_revision_id=run_revision_id,
             as_of=as_of,
             published_at=f"{as_of}T18:00:00+09:00",
-            profile=profile,
             macro_context_id=macro_context_id,
-            attention_policy_parameters={"value_carry_limit": len(entries)},
             entries=entries,
         )
     ).payload()

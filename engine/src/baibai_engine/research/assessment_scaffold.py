@@ -1,8 +1,8 @@
 """割安機会評価の draft 骨格を、canonical store の値から組み立てる。
 
-数値は promoted thesis と proposal から機械で導出し、判断の散文だけを記入欄として
-残す。publish が同じ導出をやり直して照合するので、ここで埋まった数値を手で書き換え
-ても保存されない。
+数値は promoted thesis から機械で導出し、判断の散文だけを記入欄として残す。
+publish が同じ導出をやり直して照合するので、ここで埋まった数値を手で書き換えても
+保存されない。注文条件は `plan-limit` の ephemeral output とする。
 """
 
 from __future__ import annotations
@@ -11,10 +11,8 @@ import json
 import sqlite3
 from contextlib import closing
 from datetime import date, datetime
-from hashlib import sha256
 from pathlib import Path
 
-from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.paths import database_path
 from baibai_engine.appdb.read import connect_read_only
 
@@ -39,7 +37,6 @@ def scaffold_assessment(
     as_of: date,
     shortlist_id: str,
     thesis_ids: list[str],
-    proposal_id: str | None,
     published_at: datetime,
 ) -> dict[str, object]:
     """記入欄付きの draft payload を返す。書き出しは呼び出し側が行う。"""
@@ -50,7 +47,6 @@ def scaffold_assessment(
         raise AssessmentConflictError(f"application database is unavailable: {path}")
     with closing(connect_read_only(path)) as connection:
         cases = [_case_skeleton(connection, thesis_id) for thesis_id in thesis_ids]
-        purchase = None if proposal_id is None else _purchase_skeleton(connection, proposal_id)
         shortlist = _shortlist_row(connection, shortlist_id)
     questions = _research_questions_by_ticker(shortlist)
     for case in cases:
@@ -63,20 +59,18 @@ def scaffold_assessment(
         ]
     macro_context_id = shortlist.get("macro_context_id")
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "kind": "bargain_assessment",
         "assessment_id": assessment_id,
         "as_of": as_of.isoformat(),
         "published_at": published_at.isoformat(),
-        "result": "proposal" if proposal_id is not None else "no_actionable_bargain",
+        "result": "no_actionable_bargain",
         "headline": _PROSE_PLACEHOLDER,
         "shortlist_id": shortlist_id,
         "macro_context_id": macro_context_id if isinstance(macro_context_id, str) else None,
         "comparison": _PROSE_PLACEHOLDER,
-        "entry_timing": _PROSE_PLACEHOLDER if proposal_id is not None else None,
         "forgone": _PROSE_PLACEHOLDER,
         "cases": cases,
-        "purchase": purchase,
         "review": {
             "attempt": 1,
             "reviewer_identity": _PROSE_PLACEHOLDER,
@@ -143,33 +137,6 @@ def _case_skeleton(connection: sqlite3.Connection, thesis_id: str) -> dict[str, 
 
 def _machine_payload(machine: CaseMachineValues) -> dict[str, object]:
     return machine.model_dump(mode="json")
-
-
-def _purchase_skeleton(connection: sqlite3.Connection, proposal_id: str) -> dict[str, object]:
-    row = _fetch(
-        connection,
-        "SELECT ticker, payload FROM proposal WHERE proposal_id = ?",
-        (proposal_id,),
-    )
-    if row is None:
-        raise AssessmentConflictError(f"proposal is unavailable: {proposal_id}")
-    payload = json.loads(str(row[1]))
-    planned = payload.get("planned_limit")
-    if not isinstance(planned, dict):
-        raise AssessmentConflictError(f"proposal {proposal_id} carries no planned limit")
-    return {
-        "proposal_id": proposal_id,
-        "proposal_sha256": sha256(canonical_json(payload).encode("utf-8")).hexdigest(),
-        "ticker": str(row[0]),
-        "limit_price_yen": planned.get("limit_price_yen"),
-        "quantity": planned.get("quantity"),
-        "notional_yen": planned.get("notional_yen"),
-        "max_acceptable_price_yen": planned.get("max_acceptable_price_yen"),
-        "close_yen": planned.get("close_yen"),
-        "price_as_of": planned.get("price_as_of"),
-        "expires_at": planned.get("expires_at"),
-        "warnings": list(planned.get("warnings") or []),
-    }
 
 
 def _shortlist_row(connection: sqlite3.Connection, shortlist_id: str) -> dict[str, object]:

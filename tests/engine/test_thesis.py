@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-from pydantic import ValidationError
 from tests.helpers.fixed_now import FIXED_NOW
 
 from baibai_engine.foundation.yaml_io import safe_load
@@ -115,7 +114,7 @@ def test_golden_thesis_is_ready_with_explicit_evidence_warning() -> None:
     assert result.warnings == ("permanent-loss evidence incomplete: ['customer_concentration']",)
     assert result.screening_fv_revision_pct is None
     assert (
-        result.thesis_sha256 == "d0d90322ede5fa841257429164d000a4d5f76520742bfb3862b4444333db1761"
+        result.thesis_sha256 == "8bb8272c4241ed9eed7847aab1e2039587a5459e78b030ac713b989d0a7b11ee"
     )
     assert [(item.horizon_years, item.name) for item in result.scenarios] == [
         (3, "bear"),
@@ -188,45 +187,6 @@ def test_optional_screening_fields_preserve_legacy_hash_and_bind_new_values() ->
     assert isinstance(changed_bridge, dict)
     changed_bridge["primary_driver"] = "growth"
     assert thesis_core_hash(_document(changed)) != bridged_hash
-
-
-def test_retired_estimate_field_is_accepted_without_changing_the_draft_hash() -> None:
-    """退役 field は読めるが、hash の規則を 1 つも増やさない。
-
-    published thesis の identity は store の `core_sha256` が持つので、退役 field を
-    hash へ書き戻す必要が無い。draft の hash は field ごとの特例を持たない素の hash で、
-    key の有無で動かない。
-    """
-
-    without_key = _raw()
-    baseline = thesis_core_hash(_document(without_key))
-
-    published = copy.deepcopy(without_key)
-    published_estimates = published["estimates"]
-    assert isinstance(published_estimates, dict)
-    published_estimates["deep_discount_bps"] = None
-
-    assert thesis_core_hash(_document(published)) == baseline
-
-
-def test_retired_estimate_field_is_not_serialized_so_dump_round_trip_keeps_the_hash() -> None:
-    raw = _raw()
-    baseline = thesis_core_hash(_document(raw))
-    dumped = _document(raw).model_dump(mode="json")
-    estimates = dumped["estimates"]
-    assert isinstance(estimates, dict)
-    assert "deep_discount_bps" not in estimates
-    assert thesis_core_hash(ThesisDocument.model_validate(dumped)) == baseline
-
-
-def test_retired_estimate_field_rejects_a_value() -> None:
-    raw = _raw()
-    estimates = raw["estimates"]
-    assert isinstance(estimates, dict)
-    estimates["deep_discount_bps"] = 1200
-
-    with pytest.raises(ValidationError):
-        _document(raw)
 
 
 @pytest.mark.parametrize(
@@ -1095,7 +1055,7 @@ def test_human_override_is_bound_to_exact_review_artifact() -> None:
     assert any("requires a human override" in error for error in result.errors)
 
 
-@pytest.mark.parametrize("field", ["proposal_sha256", "review_id", "review_sha256"])
+@pytest.mark.parametrize("field", ["thesis_sha256", "review_id", "review_sha256"])
 def test_human_override_binding_fields_cannot_be_reused(field: str) -> None:
     raw = _raw()
     override = raw["human_evidence_override"]

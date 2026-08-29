@@ -9,7 +9,6 @@ from baibai_engine.foundation.repository_layout import (
     MACRO_DB_PATH,
     MARKET_DB_PATH,
     RUNS_DB_PATH,
-    STORE_LAYOUT_MAPPINGS,
     StoreLayoutError,
     reject_noncanonical_store_paths,
     repository_root_error,
@@ -84,7 +83,7 @@ from baibai_engine.market.sqlite.schema import (
     validate_current_schema as validate_market_schema,
 )
 from baibai_engine.market.sqlite.snapshot import create_snapshot as create_market_snapshot
-from baibai_engine.screening.run_store.migrations import RUN_STORE_SCHEMA_VERSION
+from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
 
 __all__ = [
     "APPLICATION_DB_PATH",
@@ -101,7 +100,6 @@ __all__ = [
     "MARKET_SCHEMA_VERSION",
     "RUNS_DB_PATH",
     "RUN_STORE_SCHEMA_VERSION",
-    "STORE_LAYOUT_MAPPINGS",
     "IndicatorDefinitions",
     "IndicatorsSchemaError",
     "L1ReleasePointer",

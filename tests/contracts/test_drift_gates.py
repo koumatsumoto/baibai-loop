@@ -71,7 +71,22 @@ def test_legacy_semantics_gate_rejects_obsolete_skill_instruction(tmp_path: Path
 
 @pytest.mark.parametrize(
     "identifier",
-    ["OP3", "AssessmentLane", "durability_lens", "durability_gate", "screening_playbook"],
+    [
+        "OP3",
+        "AssessmentLane",
+        "durability_lens",
+        "durability_gate",
+        "screening_playbook",
+        "default_profile",
+        "recommended_rank",
+        "jquants_earnings_calendar",
+        "deep_discount_bps",
+        "application_git_commit",
+        "selection_entry",
+        "supply_demand_liquidity",
+        "measure_supply_context",
+        "history-backfill",
+    ],
 )
 def test_legacy_semantics_gate_rejects_retired_domain_identifiers(
     tmp_path: Path, identifier: str
@@ -85,12 +100,16 @@ def test_legacy_semantics_gate_rejects_retired_domain_identifiers(
     ]
 
 
-def test_legacy_semantics_gate_allows_historical_payload_adapter(tmp_path: Path) -> None:
-    path = tmp_path / "engine/src/baibai_engine/read_api/shortlist.py"
+def test_legacy_semantics_gate_rejects_selection_profile_in_shortlist_template(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / ".agents" / "skills" / "shortlist" / "assets" / "draft-template.yaml"
     path.parent.mkdir(parents=True)
-    path.write_text('legacy = "screening_playbook"\n', encoding="utf-8")
+    path.write_text('profile: "<selection profile>"\n', encoding="utf-8")
 
-    assert check_legacy_semantics.check(tmp_path) == []
+    expected = ".agents/skills/shortlist/assets/draft-template.yaml: retired domain identifier "
+    expected += "'profile: \"<selection profile>\"'"
+    assert check_legacy_semantics.check(tmp_path) == [expected]
 
 
 def test_legacy_semantics_gate_rejects_the_retired_macro_context_contract(
@@ -518,21 +537,15 @@ def test_documented_command_gate_reads_inline_code_spans(tmp_path: Path) -> None
     ]
 
 
-def test_documented_command_gate_skips_a_parent_option_when_finding_the_subcommand(
+def test_documented_command_gate_rejects_the_removed_proposal_domain(
     tmp_path: Path,
 ) -> None:
-    """domain の option が subcommand より前に来ても、解決先を見失わない。"""
-
     _skill(
         tmp_path,
         "```bash\nuv run baibai-engine proposal --db stores/application/baibai.sqlite decide <ID>\n```\n",
     )
     assert check_documented_commands.check(tmp_path) == [
-        (
-            ".agents/skills/demo/SKILL.md: "
-            "`uv run baibai-engine proposal --db stores/application/baibai.sqlite decide <ID>` "
-            "omits required --decision"
-        )
+        ".agents/skills/demo/SKILL.md: baibai-engine: unknown domain proposal"
     ]
 
 
@@ -583,26 +596,6 @@ def _policy_copy(root: Path) -> None:
         (ROOT / "engine/src/baibai_engine/position/policy.py").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-
-
-def test_duplicate_policy_constant_gate_rejects_a_starter_band_edge(tmp_path: Path) -> None:
-    """帯の実値が skill へ写ると、片方だけ動かしたとき手順が現行の帯を外す。"""
-
-    _policy_copy(tmp_path)
-    path = tmp_path / ".agents" / "skills" / "research" / "SKILL.md"
-    path.parent.mkdir(parents=True)
-    for literal in ("要求 8.5% に届かないが", "7.0 以上"):
-        path.write_text(f"{literal}\n", encoding="utf-8")
-        assert check_duplicate_constants.check(tmp_path) != []
-
-
-def test_duplicate_policy_constant_gate_rejects_the_starter_order_cap(tmp_path: Path) -> None:
-    _policy_copy(tmp_path)
-    path = tmp_path / "docs" / "copied-cap.md"
-    path.parent.mkdir(parents=True)
-    for literal in ("100,000", "10万円"):
-        path.write_text(f"1 注文の上限は {literal} である\n", encoding="utf-8")
-        assert check_duplicate_constants.check(tmp_path) != []
 
 
 def test_duplicate_policy_constant_gate_allows_unrelated_amounts(tmp_path: Path) -> None:

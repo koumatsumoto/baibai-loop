@@ -8,7 +8,6 @@ type RejectClass = Literal[
     "structural_decline",
     "governance_accounting",
     "price_already_converged",
-    "supply_demand_liquidity",
     "data_quality",
     "event_wait",
     "other",

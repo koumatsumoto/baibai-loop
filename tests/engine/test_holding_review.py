@@ -236,7 +236,7 @@ def _write_current_builder_sources(root: Path) -> None:
     )
     review["reviewed_thesis_sha256"] = core_hash
     review_hash = independent_review_hash(IndependentReview.model_validate(review))
-    thesis["human_evidence_override"]["proposal_sha256"] = core_hash
+    thesis["human_evidence_override"]["thesis_sha256"] = core_hash
     thesis["human_evidence_override"]["review_sha256"] = review_hash
     thesis_dir.joinpath("2331-decision.yaml").write_text(
         yaml.safe_dump(thesis, sort_keys=False), encoding="utf-8"

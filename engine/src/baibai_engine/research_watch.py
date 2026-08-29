@@ -104,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        reject_noncanonical_store_paths(raw_arguments=(str(args.db), str(args.sqlite_path)))
+        reject_noncanonical_store_paths()
     except StoreLayoutError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

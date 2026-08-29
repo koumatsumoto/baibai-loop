@@ -15,11 +15,7 @@ from tests.helpers.shortlist import (
     shortlist_from_selection,
 )
 
-from baibai_engine.proposals.cli import main as proposal_main
-from baibai_engine.read_api import (
-    list_proposal_payloads,
-    list_shortlist_payloads,
-)
+from baibai_engine.read_api import list_shortlist_payloads
 from baibai_engine.read_api.research import (
     list_holding_review_payloads,
     list_thesis_payloads,
@@ -44,11 +40,10 @@ def test_select_and_shortlist_publish_from_explicit_run_revision(
         assert (
             select_command(
                 asof_date=date.fromisoformat(run.as_of_date),
-                top=10,
                 run_revision_id=run.run_revision_id,
                 runs_db_path=runs_path,
                 app_db_path=app_path,
-                longlist_top=1,
+                review_cap=1,
                 stdout=stdout,
             )
             == 0
@@ -89,11 +84,10 @@ def test_select_and_shortlist_publish_from_explicit_run_revision(
     assert (
         select_command(
             asof_date=date.fromisoformat(run.as_of_date),
-            top=10,
             run_revision_id=run.run_revision_id,
             runs_db_path=runs_path,
             app_db_path=app_path,
-            longlist_top=1,
+            review_cap=1,
             stdout=current_stdout,
         )
         == 0
@@ -103,11 +97,6 @@ def test_select_and_shortlist_publish_from_explicit_run_revision(
     newer_shortlist["shortlist_id"] = "shortlist-20260708-test-newer"
     newer_shortlist["selection_id"] = current_selection["selection_id"]
     newer_shortlist["published_at"] = "2026-07-08T16:00:00+09:00"
-    newer_shortlist["attention_policy_id"] = current_selection["attention_policy_id"]
-    newer_shortlist["attention_policy_hash"] = current_selection["attention_policy_hash"]
-    newer_shortlist["attention_policy_parameters"] = current_selection[
-        "attention_policy_parameters"
-    ]
     newer_shortlist["review_basis_shortlist_id"] = current_selection["review_basis"][
         "judged_through_shortlist_id"
     ]
@@ -146,11 +135,10 @@ def test_reevaluation_suggestions_leave_stdout_a_single_yaml_document(
     assert (
         select_command(
             asof_date=date.fromisoformat(run.as_of_date),
-            top=10,
             run_revision_id=run.run_revision_id,
             runs_db_path=runs_path,
             app_db_path=app_path,
-            longlist_top=2,
+            review_cap=2,
             stdout=stdout,
         )
         == 0
@@ -199,11 +187,10 @@ def test_screening_api_falls_back_to_selection_bound_run(app_method_root: Path) 
     assert (
         select_command(
             asof_date=date.fromisoformat(run.as_of_date),
-            top=10,
             run_revision_id=run.run_revision_id,
             runs_db_path=runs_path,
             app_db_path=app_path,
-            longlist_top=1,
+            review_cap=1,
             stdout=output,
         )
         == 0
@@ -228,7 +215,6 @@ def test_select_rejects_unknown_run_revision(app_method_root: Path) -> None:
     assert (
         select_command(
             asof_date=date(2026, 7, 8),
-            top=10,
             run_revision_id="run-revision-missing",
             runs_db_path=app_method_root / "stores/screening/runs.sqlite",
             app_db_path=app_method_root / "stores/application/baibai.sqlite",
@@ -255,7 +241,6 @@ def test_select_requires_explicit_previous_revision_when_prior_asof_is_ambiguous
     assert (
         select_command(
             asof_date=date.fromisoformat(current.as_of_date),
-            top=10,
             run_revision_id=current.run_revision_id,
             runs_db_path=runs_path,
             app_db_path=app_method_root / "stores/application/baibai.sqlite",
@@ -266,7 +251,6 @@ def test_select_requires_explicit_previous_revision_when_prior_asof_is_ambiguous
     assert (
         select_command(
             asof_date=date.fromisoformat(current.as_of_date),
-            top=10,
             run_revision_id=current.run_revision_id,
             runs_db_path=runs_path,
             app_db_path=app_method_root / "stores/application/baibai.sqlite",
@@ -290,11 +274,10 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
     assert (
         select_command(
             asof_date=date.fromisoformat(source_run.as_of_date),
-            top=10,
             run_revision_id=source_run.run_revision_id,
             runs_db_path=runs_path,
             app_db_path=app_path,
-            longlist_top=1,
+            review_cap=1,
             stdout=output,
         )
         == 0
@@ -324,14 +307,14 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
     )
     assert publish_shortlist(draft, app_db_path=app_path, runs_db_path=runs_path) == 0
     with sqlite3.connect(app_path) as connection:
-        thesis_id, review_id = connection.execute(
+        thesis_id = connection.execute(
             """
             SELECT p.thesis_id, r.review_id
             FROM thesis AS p
             JOIN thesis_review AS r USING (thesis_id)
             LIMIT 1
             """
-        ).fetchone()
+        ).fetchone()[0]
         connection.execute(
             """
             INSERT INTO holding_review (
@@ -347,28 +330,9 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
                 json.dumps({"action": "hold", "note": "継続監視"}, ensure_ascii=False),
             ),
         )
-        connection.execute(
-            """
-            INSERT INTO proposal (
-                proposal_id, ticker, thesis_id, review_id, created_at,
-                status, decided_at, payload
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                "proposal-weak-ref",
-                "2331",
-                thesis_id,
-                review_id,
-                "2026-07-20T12:00:00+09:00",
-                "pending",
-                None,
-                "{}",
-            ),
-        )
     canonical_before = {
         "shortlists": list_shortlist_payloads(app_path),
         "research": list_thesis_payloads(app_path),
-        "proposals": list_proposal_payloads(app_path),
         "holding_reviews": list_holding_review_payloads(app_path),
     }
     newer = dict(source_run.payload)
@@ -390,24 +354,9 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
     assert canonical_before == {
         "shortlists": list_shortlist_payloads(app_path),
         "research": list_thesis_payloads(app_path),
-        "proposals": list_proposal_payloads(app_path),
         "holding_reviews": list_holding_review_payloads(app_path),
     }
     capsys.readouterr()
-    assert (
-        proposal_main(
-            [
-                "--db",
-                str(app_path),
-                "--market-db",
-                str(app_method_root / "stores/market/market.sqlite"),
-                "show",
-                "proposal-weak-ref",
-            ]
-        )
-        == 0
-    )
-    assert yaml.safe_load(capsys.readouterr().out)["proposal_id"] == "proposal-weak-ref"
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         responses = {
             path: client.get(path)
@@ -425,9 +374,7 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
     assert screening["run"]["run_revision_id"] == "run-newer"
     assert "runs" not in screening
     assert screening["shortlists"][0]["shortlist_id"] == ("shortlist-20260708-weak-ref")
-    assert responses["/api/operations"].json()["proposals"][0]["proposal_id"] == (
-        "proposal-weak-ref"
-    )
+    assert set(responses["/api/operations"].json()) == {"operations", "outcomes"}
     security = responses["/api/securities/2331"].json()
     assert security["revisions"][0]["thesis_id"] == thesis_id
     assert security["holding_reviews"][0]["holding_review_id"] == "holding-review-weak-ref"

@@ -47,10 +47,7 @@ def main(argv: list[str] | None = None) -> int:
     db_path = _resolved_store_path(root, args.db, "BAIBAI_DB", APPLICATION_DB_PATH)
     runs_db_path = _resolved_store_path(root, args.runs_db, "BAIBAI_RUNS_DB", RUNS_DB_PATH)
     try:
-        reject_noncanonical_store_paths(
-            root,
-            raw_arguments=(str(db_path), str(runs_db_path)),
-        )
+        reject_noncanonical_store_paths(root)
     except StoreLayoutError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

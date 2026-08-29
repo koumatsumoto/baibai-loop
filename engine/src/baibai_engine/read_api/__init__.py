@@ -1,6 +1,6 @@
 """Query-only facade for read paths: :mod:`baibai_web`, the batch, and engine CLIs.
 
-Writable connections, migrations, providers, and CLI composition deliberately
+Writable connections, schema cutovers, providers, and CLI composition deliberately
 remain outside this package. The re-exports expose DB-backed queries and the
 domain models needed to assemble read-only application views. What is re-exported
 here tracks what is imported through the facade; a query with no facade consumer
@@ -65,7 +65,6 @@ from .materialization import (
 )
 from .operations import list_operation_sessions
 from .position import list_portfolio_outcome_payloads, portfolio_ledger_document
-from .proposals import list_proposal_payloads
 from .research import (
     list_holding_review_publications,
     list_thesis_publications,
@@ -113,7 +112,6 @@ __all__ = [
     "list_macro_context_payloads",
     "list_operation_sessions",
     "list_portfolio_outcome_payloads",
-    "list_proposal_payloads",
     "list_shortlist_payloads",
     "list_task_payloads",
     "list_thesis_publications",

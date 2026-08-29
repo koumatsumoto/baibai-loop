@@ -4,7 +4,7 @@ Baibai Loopのdomain処理と正本への書き込みを所有します。
 
 | 項目 | 内容 |
 | --- | --- |
-| 所有 | screening、macro、research、position、operation、proposal、task、application DB、query-only `read_api` |
+| 所有 | screening、macro、research、position、operation、task、application DB、query-only `read_api` |
 | 所有しない | Web表示、定期実行、store転送、開発tool |
 | 入口 | `baibai-engine`、`baibai_engine.read_api`、batch向け`baibai_engine.batch_api` |
 | 依存境界 | `baibai_web`、`baibai_batch`、`tools`をimportしない。import-linterが検査する |

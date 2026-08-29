@@ -1,11 +1,11 @@
-import type { AssessmentCaseView, AssessmentPurchaseView } from '../api/types'
+import type { AssessmentCaseView } from '../api/types'
 import type { ReportTone } from '../components/report/ReportToneBadge'
 
 // A bargain assessment answers one question: is there something worth buying right now.
 // The three answers are equally valid conclusions, so each gets its own reading tone
-// rather than treating "no proposal" as a failure state.
+// rather than treating "no buy" as a failure state.
 export const ASSESSMENT_RESULT: Record<string, { readonly label: string; readonly tone: ReportTone }> = {
-  proposal: { label: '買い提案あり', tone: 'positive' },
+  buy: { label: '買い判断', tone: 'positive' },
   no_actionable_bargain: { label: '実行可能な割安なし', tone: 'muted' },
   defer: { label: '判断保留', tone: 'warning' },
 }
@@ -52,38 +52,4 @@ export function orderCases(cases: readonly AssessmentCaseView[]): readonly Asses
       return left.index - right.index
     })
     .map((item) => item.assessmentCase)
-}
-
-export interface PurchaseAlert {
-  readonly severity: 'warning' | 'info'
-  readonly message: string
-}
-
-// An assessment is an immutable judgment; the order it proposes is not. These alerts are
-// the gap between the two — the reader must not act on a plan whose expiry has passed or
-// whose proposal has already moved on.
-export function purchaseAlerts(purchase: AssessmentPurchaseView, now: Date): readonly PurchaseAlert[] {
-  const alerts: PurchaseAlert[] = []
-  if (Number.isFinite(Date.parse(purchase.expires_at)) && Date.parse(purchase.expires_at) < now.getTime()) {
-    alerts.push({ severity: 'warning', message: '発注期限を過ぎています。約定していなければ価格を取り直して再提案してください。' })
-  }
-  if (purchase.superseded) {
-    alerts.push({ severity: 'warning', message: 'この proposal は application DB に見つかりません。判断文書と現状が食い違っています。' })
-  } else if (purchase.current_status !== null && purchase.current_status !== 'pending') {
-    alerts.push({ severity: 'info', message: `publish 後に ${purchase.current_status} へ動いています。` })
-  }
-  return alerts
-}
-
-// Where the limit sits against the close it was struck from, and how much room is left
-// before the price stops being worth paying. Both are ratios of numbers the payload
-// already carries, so no engine estimate is reproduced here.
-export function limitVsClosePct(purchase: AssessmentPurchaseView): number | null {
-  if (purchase.close_yen <= 0) return null
-  return (purchase.limit_price_yen / purchase.close_yen - 1) * 100
-}
-
-export function headroomToMaxPct(purchase: AssessmentPurchaseView): number | null {
-  if (purchase.limit_price_yen <= 0) return null
-  return (purchase.max_acceptable_price_yen / purchase.limit_price_yen - 1) * 100
 }

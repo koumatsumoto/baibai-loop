@@ -88,7 +88,7 @@ class SQLiteCacheTest(unittest.TestCase):
             finally:
                 conn.close()
 
-            with self.assertRaisesRegex(SQLiteSchemaError, "unsupported screening SQLite schema"):
+            with self.assertRaisesRegex(SQLiteSchemaError, "obsolete market SQLite schema"):
                 open_connection(db)
 
     def test_direct_store_writes_minimal_source_coverage(self) -> None:
@@ -874,7 +874,7 @@ class SQLiteCacheTest(unittest.TestCase):
                 for table in (
                     "jquants_fin_summaries",
                     "jquants_master_snapshots",
-                    "jquants_earnings_calendar",
+                    "jpx_earnings_calendar",
                     "jquants_market_calendar",
                     "edinet_documents",
                 ):

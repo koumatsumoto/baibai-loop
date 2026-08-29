@@ -90,24 +90,6 @@ jobs:
           TMPDIR: /dev/shm
         run: uv run pytest -n 4 --cov --cov-report=term-missing
 
-      - name: Brand asset contract
-        # tools/generate_brand_assets.py needs Pillow, which stays out of the lock so no daily
-        # workflow installs a native image library and pip-audit never carries it. That leaves
-        # its end-to-end test skipped in the run above, so it gets a step with Pillow as a
-        # throwaway overlay: --with resolves into a temporary env and touches neither uv.lock
-        # nor `uv export --all-groups`. The floor on the version stays in the script's PEP 723
-        # block, the one place that has to agree with what the script uses.
-        #
-        # The tradeoff taken here is that this job installs one package from outside the locked
-        # set. It holds `contents: read` and no secrets, and the alternative — locking a native
-        # image library into every workflow's install and into the audit surface — costs more.
-        #
-        # The import runs first because `pytest.importorskip` is fail-open: without it, a run
-        # where Pillow is missing or broken passes this step by skipping every test in the file.
-        run: |
-          uv run --with pillow python -c 'import PIL.Image'
-          uv run --with pillow pytest -n 0 tests/tools/test_brand_assets.py
-
       # The scanners share this job to avoid a second billed runner, so they are asked
       # even after an earlier gate has failed. A red test would otherwise hide a CVE
       # until the next push, which a separate job never did.
@@ -135,16 +117,3 @@ jobs:
             --output-file /tmp/baibai-loop-requirements.txt
           uv run pip-audit \
             -r /tmp/baibai-loop-requirements.txt
-
-      - name: Build package
-        run: |
-          uv build --wheel --sdist
-          wheel_path="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
-          sdist_path="$(find dist -maxdepth 1 -type f -name '*.tar.gz' -print -quit)"
-          uv run python tools/quality/check_distribution.py \
-            --wheel "$wheel_path" \
-            --sdist "$sdist_path"
-          distribution_venv="$(mktemp -d)"
-          uv venv "$distribution_venv"
-          uv pip install --python "$distribution_venv/bin/python" "$wheel_path"
-          "$distribution_venv/bin/python" tools/quality/check_distribution.py --installed

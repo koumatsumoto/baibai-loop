@@ -16,15 +16,9 @@ description: screening からレビュー済み shortlist を発行し、人間�
 
 ## 手順
 
-1. **同期と preflight**
+1. **同期とcoverage確認**
 
    market / runs / macro は `ops-maintenance` skill に従って cloud 上の正本と同期し、market を hydrate する。batch の実行中は pull しない。
-
-   ```bash
-   uv run baibai-engine screening shortlist preflight --asof <ASOF>
-   ```
-
-   preflight は pull 済みの run store だけを読み、同一 as-of・同一 HEAD の publication を探す。`reuse` は既存 selection を読む。`resume-current-code` は select だけ、`rerun-current-code` は run と select を各1回実行する。`previous` が `ambiguous` なら `--previous-run-revision-id` を指定して再判定する。`blocked`（worktree dirty、previous 未解決）は解消するまで新しい run を作らない。同一 as-of の試行錯誤で retention を消費しない。
 
    ```bash
    uv run baibai-engine screening verify-cache-coverage --asof <ASOF>
@@ -39,10 +33,10 @@ description: screening からレビュー済み shortlist を発行し、人間�
    ```bash
    uv run baibai-engine screening run --asof <ASOF>
    uv run baibai-engine screening select --asof <ASOF> --run-revision-id <ID> \
-     <PREFLIGHT_PREVIOUS_ARGS> --longlist-top 20 --output-path <workdir>/selection.yaml
+     --review-cap 20 --output-path <workdir>/selection.yaml
    ```
 
-   run の exit 2 は publish 済みの partial warning なので、警告を確認して継続する。select には preflight が返した previous 引数をそのまま渡す。`select` は再実行のたびに新しい selection を作るため、再取得には次を使う。
+   run の exit 2 は publish 済みの partial warning なので、警告を確認して継続する。prior run が曖昧な場合だけ `--previous-run-revision-id`、retention外なら `--previous-shortlist-id` を明示する。`select` は再実行のたびに新しい selection を作るため、再取得には次を使う。
 
    ```bash
    uv run baibai-engine screening selection show --selection-id <ID> \
@@ -52,12 +46,11 @@ description: screening からレビュー済み shortlist を発行し、人間�
 3. **比較文脈を作る**
 
    ```bash
-   uv run python -m tools.experiments.measure_supply_context --selection-id <ID>
    uv run python -m baibai_engine.research_watch \
      --db stores/application/baibai.sqlite --sqlite-path stores/market/market.sqlite --asof <ASOF>
    ```
 
-   supply と breadth は別々の軸で報告し、`unmeasured` を 0 や異常なしとみなさない。前回 shortlist と new / continued / exited を比較し、continued も再評価する。previous source が異なる overlap 値は比較せず、`null` を重なり 0 と解釈しない。
+   前回 shortlist と new / continued / exited を比較し、continued も再評価する。
 
 4. **候補をレビューする**
 
@@ -69,7 +62,7 @@ description: screening からレビュー済み shortlist を発行し、人間�
 
    2. **fieldの役割を確認する**
 
-      `reason` / `prov`、`temporary` / `structural`、`unlock` / `catalyst`、`counter` / `research` の境界を確認する。Shortlist を mini Thesis にせず、Review Set 内の比較に必要な深さへ留める。
+      `reason` / `prov`、`temporary` / `structural`、`unlock` / `catalyst`、`counter` / `research` の境界を確認する。Shortlist を mini Thesis にせず、Ranked Set 内の比較に必要な深さへ留める。
 
    3. **日本語を編集する**
 
@@ -82,8 +75,8 @@ description: screening からレビュー済み shortlist を発行し、人間�
    次の annotation を必ず判断へ反映する。
 
    - FV convergence、full-year loss、stale financials、data-quality / durability warning は、見積りをどの方向へ歪めるかを書く。
-   - margin、capital-control、大量保有、TOB、buyback filing は観測の文脈であり、単独で除外や rank 変更に使わない。`null` / `unknown` を否定事実へ変換しない。
-   - TOB は届出書と意見表明を読み、価格収斂を割安と誤認しない。buyback carry は株数枠と金額枠の小さい残り、取得期間、直近取得、取得目的を一次開示で確認する。
+   - margin、capital-control、大量保有、TOB は観測の文脈であり、単独で除外や rank 変更に使わない。`null` / `unknown` を否定事実へ変換しない。
+   - TOB は届出書と意見表明を読み、価格収斂を割安と誤認しない。historical share-count signal を将来の自己株取得cashと解釈せず、選んだ銘柄の資本配分は一次開示で確認する。
    - 配当 carry の異常な跳ねは普通配当と特別配当、split basis、FCF coverage を確認する。special gain を反復収益にしない。
    - `deterioration_unmeasurable` は「悪化なし」ではない。一次開示で補う。
    - `next_earnings_status` の announced / scheduled / estimated / unknown を区別し、直前の前倒し開示は一次情報で確認する。
@@ -116,7 +109,7 @@ description: screening からレビュー済み shortlist を発行し、人間�
 次の場合は停止する。
 
 - operation session、canonical ledger、必要 store、previous identity に矛盾がある
-- coverage が future / stale、preflight が `blocked`、または判断根拠となる annotation が unresolved である
+- coverage が future / stale、または判断根拠となる annotation が unresolved である
 - 人間が選択していないのに research または broker 操作へ進もうとしている
 
 ## 正本

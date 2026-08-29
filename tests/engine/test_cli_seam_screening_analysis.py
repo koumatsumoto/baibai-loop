@@ -36,17 +36,12 @@ from tests.helpers.shortlist import (
 )
 
 from baibai_engine.read_api import list_shortlist_payloads
-from baibai_engine.screening.calibration.lake import (
-    CALIBRATION_DIAGNOSTICS,
-    CALIBRATION_FORWARD,
-    CALIBRATION_PANEL,
-)
 from baibai_engine.screening.calibration.store import (
+    CURRENT_SNAPSHOT_NAME,
     published_cohorts,
     read_forward,
     read_panel,
     read_panel_meta,
-    resolve_calibration_bundle,
 )
 from baibai_engine.screening.cli import main as screening_main
 from baibai_engine.screening.rule_config import load_screening_rules
@@ -66,14 +61,6 @@ SHORTLIST_ID = "shortlist-20260708-cli-seam"
 # that only holds the two fixture names has no trading days at all. This is the
 # following month, which the grid needs in order to call the target month complete.
 NEXT_MONTH_END = date(2026, 7, 31)
-
-
-@pytest.fixture(autouse=True)
-def _verified_calibration_source(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "baibai_engine.screening.calibration.cli.verified_git_commit",
-        lambda: "a" * 40,
-    )
 
 
 def _candidate(ticker: str, *, name: str, sector: str, er_annual: float) -> dict[str, object]:
@@ -123,9 +110,9 @@ def _select_argv(*, runs_db: Path, market_sqlite: Path, output_path: Path) -> li
         RUN_REVISION_ID,
         "--runs-db",
         str(runs_db),
-        "--top",
+        "--review-cap",
         "2",
-        "--longlist-top",
+        "--review-cap",
         "2",
         "--rules-path",
         str(RULES_PATH),
@@ -194,14 +181,11 @@ def test_select_cli_publishes_the_selection_into_the_run_store(
     assert published is not None
     assert published.run_revision_id == RUN_REVISION_ID
     assert published.as_of_date == RUN_ASOF.isoformat()
-    # --top and --longlist-top go through the parser's own int conversion; a string
-    # reaching the store would slice nothing and leave both blocks empty.
-    recommendations = published.payload["recommendations"]
-    longlist = published.payload["longlist"]
-    assert isinstance(recommendations, list)
-    assert isinstance(longlist, list)
-    assert 1 <= len(recommendations) <= 2
-    assert 1 <= len(longlist) <= 2
+    # --review-cap goes through the parser's own int conversion; a string reaching the
+    # store would slice nothing and leave the ranked set empty.
+    ranked_set = published.payload["ranked_set"]
+    assert isinstance(ranked_set, list)
+    assert 1 <= len(ranked_set) <= 2
 
 
 def test_shortlist_publish_cli_writes_the_judgment_into_the_application_db(
@@ -343,14 +327,7 @@ def test_calibration_build_cli_writes_the_panel_and_forward_store(
     assert read_panel_meta(calibration_dir, PANEL_ASOF)["panel_variant"] == "production"
     assert read_forward(calibration_dir, PANEL_ASOF) != []
     assert "panels built=1" in captured.out
-    # The public bundle resolves all three datasets through one generation. A file
-    # sitting in the tree without that bundle membership is not a published build.
-    bundle = resolve_calibration_bundle(calibration_dir)
-    assert set(bundle.datasets) == {
-        CALIBRATION_PANEL.name,
-        CALIBRATION_DIAGNOSTICS.name,
-        CALIBRATION_FORWARD.name,
-    }
+    assert (calibration_dir / CURRENT_SNAPSHOT_NAME).is_file()
 
 
 def test_calibration_evaluate_cli_writes_the_evaluation_yaml(

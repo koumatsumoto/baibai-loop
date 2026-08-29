@@ -18,7 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     init = subparsers.add_parser(
         "init",
-        help="create or migrate the application database and print its schema version",
+        help="create the application database or confirm its current schema version",
     )
     init.add_argument("--db", type=Path)
     backup = subparsers.add_parser(

@@ -158,7 +158,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     assessment_scaffold_parser = subparsers.add_parser(
         "assessment-scaffold",
-        help="scaffold a bargain-assessment draft from promoted theses and a proposal",
+        help="scaffold a bargain-assessment draft from promoted theses",
     )
     assessment_scaffold_parser.add_argument("--db", type=Path)
     assessment_scaffold_parser.add_argument("--assessment-id", required=True)
@@ -170,7 +170,6 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="one promoted thesis per researched ticker; repeat the flag",
     )
-    assessment_scaffold_parser.add_argument("--proposal-id")
     assessment_scaffold_parser.add_argument("--out", type=Path)
 
     assessment_publish_parser = subparsers.add_parser(
@@ -218,7 +217,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     {
                         "workspace": str(prepared.workspace),
                         "actionable": prepared.actionable,
-                        "longlist_size": prepared.longlist_size,
+                        "ranked_set_size": prepared.ranked_set_size,
                         "shortlist_slots": prepared.shortlist_slots,
                         "shortlist_id": prepared.shortlist_id,
                         "admissible_tickers": list(prepared.admissible_tickers),
@@ -238,7 +237,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     {
                         "workspace": str(prepared.workspace),
                         "actionable": prepared.actionable,
-                        "longlist_size": prepared.longlist_size,
+                        "ranked_set_size": prepared.ranked_set_size,
                         "shortlist_slots": prepared.shortlist_slots,
                     },
                     out,
@@ -312,7 +311,6 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     as_of=_parse_date(args.asof),
                     shortlist_id=args.shortlist_id,
                     thesis_ids=list(args.thesis_id),
-                    proposal_id=args.proposal_id,
                     published_at=resolved_now,
                 )
                 if args.out is not None:

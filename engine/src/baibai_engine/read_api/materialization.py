@@ -29,7 +29,7 @@ def validate_application_store_schema(path: Path) -> None:
         raise MaterializationPreconditionError(
             f"application store schema is {version} but this code expects "
             f"{APPLICATION_SCHEMA_VERSION}: {path} "
-            "(publish a store migrated by the matching application release)"
+            "(publish a store cut over by the matching application release)"
         )
 
 

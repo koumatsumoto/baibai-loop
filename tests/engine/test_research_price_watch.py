@@ -71,7 +71,7 @@ def _thesis_root(
     if override is not None:
         override = override.model_copy(
             update={
-                "proposal_sha256": core_hash,
+                "thesis_sha256": core_hash,
                 "review_sha256": independent_review_hash(review),
             }
         )

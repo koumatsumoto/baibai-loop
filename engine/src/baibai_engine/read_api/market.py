@@ -321,7 +321,7 @@ def next_earnings_dates(path: Path, tickers: Sequence[str], *, asof: date) -> di
     """Return each ticker's earliest scheduled JPX earnings announcement on/after ``asof``.
 
     Reads the licensed market store's JPX earnings calendar read-only (physical table
-    ``jquants_earnings_calendar``, logical source ``jpx_earnings_calendar``). A missing
+    ``jpx_earnings_calendar``, logical source ``jpx_earnings_calendar``). A missing
     file or a ticker with no announcement on/after ``asof`` yields no entry, so callers
     treat the earnings date as unknown rather than surfacing a stale schedule.
     """
@@ -335,7 +335,7 @@ def next_earnings_dates(path: Path, tickers: Sequence[str], *, asof: date) -> di
         path,
         f"""
             SELECT ticker, MIN(announcement_date) AS next_date
-            FROM jquants_earnings_calendar
+            FROM jpx_earnings_calendar
             WHERE ticker IN ({placeholders}) AND announcement_date >= ?
             GROUP BY ticker
             """,  # nosec B608

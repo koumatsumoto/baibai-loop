@@ -1,22 +1,17 @@
-"""Build and evaluate the versioned long-horizon calibration cache."""
+"""Build and evaluate the current long-horizon calibration snapshot."""
 
 from __future__ import annotations
 
 import sys
-import uuid
-from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import date
-from os import link
 from pathlib import Path
-from shutil import copytree, rmtree
+from tempfile import TemporaryDirectory
 from typing import TextIO, cast
 
 import yaml
 
 from baibai_engine.foundation.filesystem import write_text_atomic
-from baibai_engine.market.lake.identity import verified_git_commit
-from baibai_engine.market.lake.models import CohortSourceRef
 from baibai_engine.market.lake.retention import lake_writer_lock
 from baibai_engine.market.lake.writer import (
     LakeBuildError,
@@ -48,7 +43,6 @@ from .forward import (
     read_failure_exits,
 )
 from .grid import month_end_asof_grid
-from .lake import CalibrationBundleRef, CalibrationLakeError
 from .panel import (
     PANEL_BUILD_POLICIES,
     PRODUCTION_PANEL_POLICY,
@@ -62,14 +56,14 @@ from .store import (
     CACHE_SCHEMA_VERSION,
     DEFAULT_CALIBRATION_DIR,
     CalibrationCacheError,
-    adopt_bundle_generation,
-    current_bundle_ref,
+    copy_current_snapshot,
+    fixed_current_snapshot,
     has_cohort,
+    publish_current_snapshot,
     published_cohorts,
     read_forward,
     read_panel,
     read_panel_meta,
-    resolve_calibration_bundle,
     write_forward,
     write_panel,
 )
@@ -88,107 +82,57 @@ def calibration_build_command(
     use_failure_exits: bool = True,
     stdout: TextIO | None = None,
 ) -> int:
+    policy = PANEL_BUILD_POLICIES[panel_variant]
+    is_default_dir = calibration_dir.resolve() == DEFAULT_CALIBRATION_DIR.resolve()
+    if not policy.production_authority and is_default_dir:
+        print(
+            "calibration build: diagnostic panel variant requires a separate --calibration-dir",
+            file=sys.stderr,
+        )
+        return 1
+    if (not use_control_event_exits or not use_failure_exits) and is_default_dir:
+        option = (
+            "--without-control-event-exits"
+            if not use_control_event_exits
+            else "--without-failure-exits"
+        )
+        print(
+            f"calibration build: {option} builds a comparison baseline "
+            "and requires a separate --calibration-dir",
+            file=sys.stderr,
+        )
+        return 1
     unreadable = unreadable_store_reason(sqlite_path)
     if unreadable is not None:
         print(f"calibration build: {unreadable}", file=sys.stderr)
         return 1
     publication = lake_writer_lock(calibration_dir)
     with publication:
+        calibration_dir.parent.mkdir(parents=True, exist_ok=True)
         try:
-            producer_commit = verified_git_commit()
-        except (OSError, RuntimeError) as exc:
-            print(f"calibration build: {exc}", file=sys.stderr)
-            return 1
-        try:
-            expected_current = current_bundle_ref(calibration_dir)
-        except (CalibrationCacheError, CalibrationLakeError) as exc:
-            # A store that cannot describe what it serves is not a store to write into.
-            # Repairing it in place would mean rebuilding over live data from an
-            # inventory nothing can state, so the store stays exactly as it is and the
-            # rebuild goes somewhere else, where it can be read before it replaces
-            # anything.
-            print(
-                f"calibration build: {exc}; rebuild into a separate --calibration-dir "
-                "and swap the directories once the new one reads",
-                file=sys.stderr,
-            )
-            return 1
-        discard_abandoned_generations(calibration_dir, stdout=stdout)
-        work_dir = calibration_dir.with_name(
-            f"{_GENERATION_PREFIX}{calibration_dir.name}.{uuid.uuid4().hex}"
-        )
-        if not force and calibration_dir.exists():
-            copytree(calibration_dir, work_dir, copy_function=link)
-        try:
-            with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=work_dir) as snapshot:
-                return _calibration_build_command(
-                    snapshot=snapshot,
-                    calibration_dir=calibration_dir,
-                    work_dir=work_dir,
-                    expected_current=expected_current,
-                    producer_commit=producer_commit,
-                    rules=rules,
-                    start=start,
-                    end=end,
-                    force=force,
-                    panel_variant=panel_variant,
-                    use_control_event_exits=use_control_event_exits,
-                    use_failure_exits=use_failure_exits,
-                    stdout=stdout,
-                )
+            with TemporaryDirectory(prefix="calibration-build-", dir=calibration_dir.parent) as raw:
+                work_dir = Path(raw)
+                if not force:
+                    copy_current_snapshot(calibration_dir, work_dir)
+                with sealed_sqlite_snapshot(
+                    sqlite_path=sqlite_path, mirror_root=work_dir
+                ) as snapshot:
+                    return _calibration_build_command(
+                        snapshot=snapshot,
+                        calibration_dir=calibration_dir,
+                        work_dir=work_dir,
+                        rules=rules,
+                        start=start,
+                        end=end,
+                        force=force,
+                        panel_variant=panel_variant,
+                        use_control_event_exits=use_control_event_exits,
+                        use_failure_exits=use_failure_exits,
+                        stdout=stdout,
+                    )
         except LakeBuildError as exc:
             print(f"calibration build: {exc}", file=sys.stderr)
             return 1
-        finally:
-            if work_dir.exists():
-                rmtree(work_dir)
-
-
-_GENERATION_PREFIX = ".generation."
-
-
-def discard_abandoned_generations(calibration_dir: Path, *, stdout: TextIO | None = None) -> None:
-    """Remove work generations a killed build left beside the store.
-
-    A generation directory is a sibling of the store rather than a child of it, because
-    it is built by hard-linking the store into it. That places it outside every prefix
-    the lake inventory and the collector walk, so a build killed mid-run leaves several
-    hundred megabytes that no capacity figure accounts for and nothing ever reclaims.
-
-    The writer lock is what makes this safe to do unconditionally: a generation can only
-    be live while its build holds that lock, and this runs holding it.
-    """
-
-    parent = calibration_dir.parent
-    if not parent.is_dir():
-        return
-    prefix = f"{_GENERATION_PREFIX}{calibration_dir.name}."
-    for path in sorted(parent.iterdir()):
-        if not path.name.startswith(prefix) or not path.is_dir():
-            continue
-        # A generation is a hard-link tree, so its apparent size counts bytes the store
-        # still holds; what this reclaims is the tree, not necessarily the blocks. Report
-        # both honestly, and report failure rather than assume the removal happened.
-        linked_bytes = sum(item.stat().st_size for item in path.rglob("*") if item.is_file())
-        rmtree(path, ignore_errors=True)
-        out = stdout if stdout is not None else sys.stdout
-        if path.exists():
-            print(
-                f"calibration build: could not discard abandoned generation {path.name}",
-                file=sys.stderr,
-            )
-            continue
-        print(
-            f"calibration build: discarded abandoned generation {path.name} "
-            f"({linked_bytes} linked bytes)",
-            file=out,
-        )
-
-
-def _cohort_sources(snapshot: LegacySQLiteSnapshot) -> tuple[CohortSourceRef, ...]:
-    """The sealed SQLite generation that supplied every cohort input."""
-
-    return (snapshot.ref,)
 
 
 def _calibration_build_command(
@@ -196,8 +140,6 @@ def _calibration_build_command(
     snapshot: LegacySQLiteSnapshot,
     calibration_dir: Path,
     work_dir: Path,
-    expected_current: CalibrationBundleRef | None,
-    producer_commit: str,
     rules: ScreeningRules,
     start: date,
     end: date,
@@ -238,13 +180,6 @@ def _calibration_build_command(
     if not asofs:
         print("no month-end trading days found in the requested window", file=sys.stderr)
         return 1
-    # Both sides of this comparison are known before a single cohort is computed, and a
-    # full rebuild of this store takes 45 minutes — measured 2026-08-25 over the 81-cohort
-    # production grid, 2019-11-01..2026-07-31. Refusing here rather than only after the
-    # build is what keeps a too-narrow window from costing that time twice.
-    if dropped := _cohorts_a_grid_would_drop(calibration_dir, asofs, force=force):
-        print(_dropped_cohorts_message(dropped), file=sys.stderr)
-        return 1
     tickers_by_asof: dict[date, set[str]] = {}
     built = 0
     expected_rules_hash = rules_content_hash(rules, policy)
@@ -271,10 +206,6 @@ def _calibration_build_command(
                 asof,
                 result.rows,
                 result.diagnostics,
-                sources=_cohort_sources(snapshot),
-                input_cutoff=asof,
-                producer_commit=producer_commit,
-                lock_held=True,
                 forward_policy=forward_policy,
             )
         except (CalibrationError, CalibrationCacheError) as exc:
@@ -304,10 +235,6 @@ def _calibration_build_command(
                 work_dir,
                 asof,
                 by_asof.get(asof.isoformat(), []),
-                sources=_cohort_sources(snapshot),
-                input_cutoff=observation_cutoff,
-                producer_commit=producer_commit,
-                lock_held=True,
                 forward_policy=forward_policy,
             )
         except CalibrationCacheError as exc:
@@ -317,84 +244,15 @@ def _calibration_build_command(
     resolved = sum(row.resolved for row in rows)
     control_event = sum(row.status == CONTROL_EVENT_EXIT_STATUS for row in rows)
     failure_exit = sum(row.status == FAILURE_EXIT_STATUS for row in rows)
-    dropped = _cohorts_this_build_would_drop(calibration_dir, work_dir, force=force)
-    if dropped:
-        print(_dropped_cohorts_message(dropped), file=sys.stderr)
-        return 1
-    adoption = adopt_bundle_generation(
-        calibration_dir,
-        work_dir,
-        expected_current=expected_current,
-        lock_held=True,
-    )
+    publish_current_snapshot(calibration_dir, work_dir)
     print(
         f"calibration build: done (panels built={built}, forward rows={len(rows)}, "
         f"resolved={resolved}, control event exits={control_event}, "
         f"failure exits={failure_exit})",
         file=out,
     )
-    # What making the generation current cost. Printing it is how a run that starts
-    # reinstalling the whole store instead of the month it changed becomes visible
-    # before the wall time does.
-    print(
-        f"calibration build: adopted {adoption.bundle_id} "
-        f"(closure objects={adoption.closure_objects}, hashed bytes={adoption.hashed_bytes}, "
-        f"installed objects={adoption.installed_objects}, "
-        f"installed bytes={adoption.installed_bytes}, reused objects={adoption.reused_objects})",
-        file=out,
-    )
+    print("calibration build: replaced current snapshot atomically", file=out)
     return 0
-
-
-def _dropped_cohorts_message(dropped: Sequence[date]) -> str:
-    return (
-        "calibration build: this run would publish a generation without "
-        f"{len(dropped)} cohort(s) the store holds: "
-        f"{', '.join(item.isoformat() for item in dropped[:5])}"
-        f"{' …' if len(dropped) > 5 else ''}. "
-        "Widen --start/--end to cover them, or rebuild into a separate "
-        "--calibration-dir if a shorter history is what you want."
-    )
-
-
-def _cohorts_a_grid_would_drop(
-    calibration_dir: Path, asofs: Sequence[date], *, force: bool
-) -> list[date]:
-    """The same refusal as below, decided from the requested grid before anything is built.
-
-    A full rebuild recomputes every cohort from the sealed snapshot, so learning that the
-    window was too narrow only at adoption time throws away the whole run. The grid is not
-    the authority on what the generation will hold — a cohort can fail to build — so this
-    predicts rather than decides, and the check on the built generation still runs.
-    """
-
-    if not force:
-        return []
-    return sorted(set(published_cohorts(calibration_dir)) - set(asofs))
-
-
-def _cohorts_this_build_would_drop(
-    calibration_dir: Path, work_dir: Path, *, force: bool
-) -> list[date]:
-    """Cohorts the store serves now that the generation about to be adopted omits.
-
-    A build states the window it recomputes, not the history it intends to keep. Without
-    ``--force`` the store is hard-linked into the work generation, so everything outside
-    the window is carried and this is empty by construction. With it the generation
-    starts empty and holds exactly the requested as-ofs — so a run meant to correct one
-    year would publish a current bundle holding only that year, and the other six would
-    leave the served inventory without anything saying so.
-
-    The check is on the built generation rather than on the requested grid: what matters
-    is what is about to become current, whatever produced it.
-
-    The store this runs against always resolves: a build that could not read what it
-    was about to replace stopped before it started.
-    """
-
-    if not force:
-        return []
-    return sorted(set(published_cohorts(calibration_dir)) - set(published_cohorts(work_dir)))
 
 
 def _optional_count(value: object) -> int | None:
@@ -475,39 +333,31 @@ def calibration_evaluate_command(
             )
             return 1
     try:
-        bundle = resolve_calibration_bundle(calibration_dir)
-    except CalibrationCacheError as exc:
-        print(f"calibration evaluate: {exc}", file=sys.stderr)
-        return 1
-    all_asofs = published_cohorts(calibration_dir, bundle=bundle)
-    asofs = sorted(
-        asof
-        for asof in all_asofs
-        if (start is None or asof >= start) and (end is None or asof <= end)
-    )
-    if not asofs:
-        print(f"no panels found under {calibration_dir}", file=sys.stderr)
-        return 1
-    try:
-        metas = [read_panel_meta(calibration_dir, asof, bundle=bundle) for asof in asofs]
-        if len({meta.get("rules_hash") for meta in metas}) != 1:
-            raise CalibrationCacheError(
-                "panel store mixes rules provenance; run calibration-build --force"
+        with fixed_current_snapshot(calibration_dir) as snapshot:
+            all_asofs = published_cohorts(snapshot)
+            asofs = sorted(
+                asof
+                for asof in all_asofs
+                if (start is None or asof >= start) and (end is None or asof <= end)
             )
-        panels = {
-            asof.isoformat(): read_panel(calibration_dir, asof, bundle=bundle) for asof in asofs
-        }
-        if run_purpose == "production_decision" and not _is_production_panel_contract(
-            metas, panels
-        ):
-            print(
-                "calibration evaluate: diagnostic panel variant has no production authority",
-                file=sys.stderr,
-            )
-            return 1
-        forwards = {
-            asof.isoformat(): read_forward(calibration_dir, asof, bundle=bundle) for asof in asofs
-        }
+            if not asofs:
+                print(f"no panels found under {calibration_dir}", file=sys.stderr)
+                return 1
+            metas = [read_panel_meta(snapshot, asof) for asof in asofs]
+            if len({meta.get("rules_hash") for meta in metas}) != 1:
+                raise CalibrationCacheError(
+                    "panel store mixes rules provenance; run calibration-build --force"
+                )
+            panels = {asof.isoformat(): read_panel(snapshot, asof) for asof in asofs}
+            if run_purpose == "production_decision" and not _is_production_panel_contract(
+                metas, panels
+            ):
+                print(
+                    "calibration evaluate: diagnostic panel variant has no production authority",
+                    file=sys.stderr,
+                )
+                return 1
+            forwards = {asof.isoformat(): read_forward(snapshot, asof) for asof in asofs}
     except CalibrationCacheError as exc:
         print(f"calibration evaluate: {exc}", file=sys.stderr)
         return 1

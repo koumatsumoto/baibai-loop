@@ -75,7 +75,7 @@ from baibai_engine.position.outcome_store import (
 from baibai_engine.position.result_recording import ResultRecordingError
 from baibai_engine.position.result_service import build_result_draft
 from baibai_engine.position.store import LedgerConflictError, LedgerStoreService
-from baibai_engine.proposals.store import ProposalStoreService
+from baibai_engine.research.assessment import BargainAssessmentService
 from baibai_engine.research.holding_review_builder import (
     build_holding_review_from_db,
     validate_holding_review_scalars_from_db,
@@ -191,7 +191,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     result_parser.add_argument("--root", type=Path, default=Path.cwd())
     result_parser.add_argument("--db", type=Path)
-    result_parser.add_argument("--proposal-ref", required=True)
+    result_parser.add_argument("--decision-reference", required=True)
     result_parser.add_argument(
         "--status", choices=("open", "filled", "cancelled", "expired"), required=True
     )
@@ -209,7 +209,7 @@ def build_parser() -> argparse.ArgumentParser:
     result_parser.add_argument("--common-factor", action="append", default=[])
     result_parser.add_argument("--price-guard-yen", type=_decimal_argument)
     result_parser.add_argument("--expires-at", type=_datetime_argument)
-    result_parser.add_argument("--approved-at", type=_datetime_argument)
+    result_parser.add_argument("--ordered-at", type=_datetime_argument)
     result_parser.add_argument("--out", type=Path, required=True)
     sell_parser = subparsers.add_parser(
         "sell-result-draft",
@@ -730,8 +730,8 @@ def _run_record_result(args: argparse.Namespace, *, now: datetime | None) -> int
     try:
         draft, event_ids = build_result_draft(
             LedgerStoreService(args.db),
-            ProposalStoreService(args.db),
-            proposal_id=args.proposal_ref,
+            BargainAssessmentService(args.db),
+            decision_reference=args.decision_reference,
             status=args.status,
             occurred_at=args.occurred_at,
             ticker=args.ticker,
@@ -743,7 +743,7 @@ def _run_record_result(args: argparse.Namespace, *, now: datetime | None) -> int
             common_factors=tuple(sorted(set(args.common_factor))),
             price_guard_yen=args.price_guard_yen,
             expires_at=args.expires_at,
-            approved_at=args.approved_at,
+            ordered_at=args.ordered_at,
             now=now,
         )
         if draft is not None:
@@ -757,7 +757,7 @@ def _run_record_result(args: argparse.Namespace, *, now: datetime | None) -> int
     yaml.safe_dump(
         {
             "status": "draft_created" if draft is not None else "no_change",
-            "proposal_id": args.proposal_ref,
+            "decision_reference": args.decision_reference,
             "output": None if output_path is None else str(output_path),
             "event_ids": list(event_ids),
         },

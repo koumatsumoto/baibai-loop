@@ -43,12 +43,10 @@ def test_active_research_playbooks_have_explicit_versioned_applicability() -> No
         metadata = _frontmatter(active[0])
         assert metadata["research_playbook_id"] == playbook_id
         assert "playbook_id" not in metadata
-        assert metadata["applies_to_opportunity_lane_ids"] == []
         assert metadata["applies_to_evidence_pattern_ids"] == [evidence_pattern_id]
 
 
 def test_research_skill_consumes_only_explicit_playbook_applicability() -> None:
     text = RESEARCH_SKILL.read_text(encoding="utf-8")
-    assert "applies_to_opportunity_lane_ids" in text
     assert "applies_to_evidence_pattern_ids" in text
     assert "implicitに" in text

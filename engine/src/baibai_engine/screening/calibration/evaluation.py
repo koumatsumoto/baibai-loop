@@ -463,8 +463,8 @@ def _cohort_excess_context(
 _DELISTING_IMPUTATIONS: tuple[str, ...] = ("total_loss", "neutral")
 _TOTAL_LOSS_RETURN = -1.0
 _SENSITIVITY_METRICS: tuple[str, ...] = (
-    "recommended_rank_top5",
-    "recommended_rank_top10",
+    "selection_rank_top5",
+    "selection_rank_top10",
     "er_calibration",
 )
 OPTIONAL_SENSITIVITY_METRICS: tuple[str, ...] = (
@@ -504,7 +504,7 @@ def _direction_signs(
     """The sign-bearing quantity of each conclusion the authority gate reads."""
     selection = _evaluate_selection(context.population, context.excess)
     signs: dict[str, float | None] = {}
-    for key in ("recommended_rank_top5", "recommended_rank_top10"):
+    for key in ("selection_rank_top5", "selection_rank_top10"):
         group = selection.get(key)
         value = group.get("median_excess") if isinstance(group, dict) else None
         signs[key] = value if isinstance(value, int | float) else None
@@ -874,15 +874,13 @@ def _evaluate_selection(
     excess: Mapping[str, float],
 ) -> dict[str, object]:
     result: dict[str, object] = {}
-    for rank_field in ("recommended_rank", "selection_rank"):
-        for top_n in SELECTION_TOP_NS:
-            values = [
-                excess[row.ticker]
-                for row in population
-                if (rank := getattr(row, rank_field)) is not None and rank <= top_n
-            ]
-            key = f"{rank_field}_top{top_n}"
-            result[key] = _group_stats(values)
+    for top_n in SELECTION_TOP_NS:
+        values = [
+            excess[row.ticker]
+            for row in population
+            if row.selection_rank is not None and row.selection_rank <= top_n
+        ]
+        result[f"selection_rank_top{top_n}"] = _group_stats(values)
     # 仮想 replay: E[r] 降順の順位付け (H3 の比較対象)。er_ranked は
     # pass_screen かつ er_annual 非 null の集合を並べ替える。er_population は
     # screen gate を外した母集団全体からの選抜 (gate 自体の付加価値の診断)。

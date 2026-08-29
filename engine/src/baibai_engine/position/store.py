@@ -158,9 +158,9 @@ def _event_ticker(event: LedgerEvent) -> str | None:
     return cast(str | None, ticker)
 
 
-def _event_proposal_id(event: LedgerEvent) -> str | None:
+def _event_decision_reference(event: LedgerEvent) -> str | None:
     reference = getattr(event, "decision_reference", None)
-    return reference if isinstance(reference, str) and reference.startswith("prop-") else None
+    return reference if isinstance(reference, str) else None
 
 
 def _event_values(
@@ -173,7 +173,7 @@ def _event_values(
         same_instant_order,
         event.type,
         _event_ticker(event),
-        _event_proposal_id(event),
+        _event_decision_reference(event),
         _event_payload(event),
     )
 
@@ -230,7 +230,7 @@ def _append_events(connection: sqlite3.Connection, events: Sequence[LedgerEvent]
                 """
                 INSERT INTO ledger_event(
                     append_seq, event_id, occurred_at, same_instant_order,
-                    event_type, ticker, proposal_id, payload
+                    event_type, ticker, decision_reference, payload
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 _event_values(append_seq, event, same_order),

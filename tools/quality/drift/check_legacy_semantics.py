@@ -10,7 +10,7 @@ _BEHAVIOR_LEGACY = re.compile(
     r"ai-value-bargain-selection|financial-pro-review|"
     r"durability_gate|execution lifecycle|"
     # Retired domain vocabulary (doctrine #vocabulary is the naming authority):
-    # the judgment artifact is the thesis, the pre-cap rank pool is the longlist,
+    # the judgment artifact is the thesis and the review input is the ranked set,
     # and the Research Gate output is the shortlist. The Git method tree is method/, so
     # reject any records/ path.
     r"decision.packet|packet.scaffold|packet.draft|--packet-id|research_packet|"
@@ -62,7 +62,18 @@ _REPOSITORY_PATH_LEGACY = re.compile(
 _DOMAIN_IDENTIFIER_LEGACY = re.compile(
     r"\bOP3\b|\blenses?\b|AssessmentLane|LaneDisposition|LaneMachineValues|"
     r"candidate_lenses|durability_lens|durability_gate|screening_playbooks?|selection_playbook|"
-    r"research_selection_playbook_order",
+    r"research_selection_playbook_order|opportunity_lane_id|"
+    r"attention_policy_(?:id|hash|parameters)|selection_policy_(?:id|hash)|"
+    r"publication_kind|source_selection_id|position_intent|edinet_buyback_reports|"
+    r"buyback_authorization|buyback_status_|buyback_remaining_|"
+    r"refresh-buyback-reports|measure_buyback_authorization|"
+    r"screening shortlist preflight|baibai-engine proposal|baibai_engine/proposals|"
+    r"profile_overrides|default_profile|build_selection_sweep_payload|recommended_rank|"
+    r"application_git_commit|selection_entry|supply_demand_liquidity|"
+    r"measure_supply_context|history-backfill|"
+    r"(?m:^profile:\s*[\"']<selection profile>[\"'])|"
+    r"jquants_earnings_calendar|jquants\.earnings_calendar|deep_discount_bps|"
+    r"\bReview Set\b|\bSelection Policy\b",
     re.IGNORECASE,
 )
 
@@ -95,10 +106,10 @@ _PATH_PATTERN_OWNERS = {
     Path("tools/quality/drift/check_legacy_semantics.py"),
 }
 _DOMAIN_IDENTIFIER_ADAPTERS = {
-    # Immutable pre-migration payloads retain these keys. This reader only translates
-    # historical evidence into the canonical vocabulary; it does not emit the retired
-    # identifiers on a new-write surface.
-    Path("engine/src/baibai_engine/read_api/shortlist.py"),
+    # One-shot operator cutover reads the retired payload and emits only the current schema.
+    Path("tools/migrations/cutover_application_v17.py"),
+    Path("tools/migrations/cutover_market_v25.py"),
+    Path("tools/migrations/cutover_runs_v4.py"),
 }
 
 

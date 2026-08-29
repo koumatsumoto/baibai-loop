@@ -75,14 +75,12 @@ from baibai_engine.market.lake.release import (
 )
 from baibai_engine.market.lake.retention import LakeRetentionError, exclusive_lock
 from baibai_engine.market.lake.writer import (
-    export_lake_legacy,
     export_legacy_sqlite,
     sealed_sqlite_snapshot,
 )
-from baibai_engine.market.sqlite import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_engine.market.sqlite import SQLITE_SCHEMA_VERSION, SQLiteSchemaError, open_connection
 from baibai_engine.market.sqlite.lake_origin import (
     LakeStoreOrigin,
-    advance_lake_store_origin,
     read_lake_store_origin,
     write_lake_store_origin,
 )
@@ -1595,69 +1593,15 @@ class TestDehydrate:
             dehydrate_market_store(store, release=release)
 
 
-def test_v23_store_migrates_hydrates_exports_and_dehydrates_as_one_cutover(
-    session: LakeSession, lake: Lake, tmp_path: Path
-) -> None:
-    store = tmp_path / "cutover.sqlite"
-    shutil.copyfile(lake.sqlite_path, store)
+def test_obsolete_market_store_is_rejected_before_lake_work(tmp_path: Path) -> None:
+    store = tmp_path / "obsolete.sqlite"
+    connection = open_connection(store)
+    connection.close()
     with sqlite3.connect(store) as connection:
-        connection.execute("DROP TABLE lake_store_origin")
-        connection.execute("PRAGMA user_version = 23")
+        connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
 
-    migrated = open_connection(store)
-    assert migrated.execute("PRAGMA user_version").fetchone()[0] == SQLITE_SCHEMA_VERSION == 24
-    assert migrated.execute("SELECT COUNT(*) FROM lake_store_origin").fetchone()[0] == 0
-    migrated.close()
-
-    source = LocalMirrorSource(lake.mirror)
-    current = resolve_current_release(source)
-    hydrate_market_store(
-        session,
-        release=current,
-        cache=LakeObjectCache(root=tmp_path / "cutover-cache", source=source),
-        store=store,
-        dataset_names=current.dataset_names(),
-    )
-    assert read_lake_store_origin(store) == LakeStoreOrigin(
-        release_id=current.release_id,
-        release_manifest_sha256=current.manifest_sha256,
-    )
-
-    candidate_mirror = tmp_path / "candidate"
-    export = export_lake_legacy(
-        sqlite_path=store,
-        mirror_root=candidate_mirror,
-        producer_git_commit=_COMMIT,
-        expected_store_origin=read_lake_store_origin(store),
-        created_at=_BUILT_AT,
-    )
-    candidate_path, candidate_model = create_l1_release(
-        dataset_manifest_paths=[item.manifest_path for item in export.datasets.values()],
-        mirror_root=candidate_mirror,
-        release_id="cutover-candidate",
-        created_at=_BUILT_AT,
-    )
-    candidate = resolve_release(
-        LocalMirrorSource(candidate_mirror),
-        candidate_model.release_id,
-        manifest_sha256=sha256_file(candidate_path),
-    )
-    advance_lake_store_origin(
-        store,
-        expected=read_lake_store_origin(store),
-        target=LakeStoreOrigin(
-            release_id=candidate.release_id,
-            release_manifest_sha256=candidate.manifest_sha256,
-        ),
-    )
-
-    report = dehydrate_market_store(store, release=candidate)
-
-    assert report.removed_rows == {"jquants.daily_bars": 4, "jquants.short_sale_reports": 2}
-    with sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True) as connection:
-        assert connection.execute("PRAGMA quick_check").fetchone()[0] == "ok"
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 24
-        assert connection.execute("SELECT COUNT(*) FROM lake_store_origin").fetchone()[0] == 1
+    with pytest.raises(SQLiteSchemaError, match="replace it with a current local build"):
+        open_connection(store)
 
 
 class TestOperatorDerivedRetraction:

@@ -11,8 +11,6 @@ from baibai_engine.foundation.yaml_io import safe_load
 
 DEFAULT_RULES_PATH = SCREENING_RULES_PATH
 
-BUILTIN_SELECTION_PROFILES = frozenset({"balanced"})
-
 
 class UniverseRules(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
@@ -151,19 +149,10 @@ class DurabilityDiagnosticRules(BaseModel):
 
 
 class CandidateDiagnosticRules(BaseModel):
-    """Thresholds for shared annotations that never nominate or order a Lane."""
+    """Thresholds for shared annotations that never nominate or order candidates."""
 
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
     durability: DurabilityDiagnosticRules = Field(default_factory=DurabilityDiagnosticRules)
-
-
-class SelectionDiversityRules(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
-
-    max_recommended_per_sector: int = Field(default=1, ge=1)
-    max_recommended_per_evidence_pattern: int = Field(default=10, ge=1)
-    max_previous_candidates_in_recommended: int | None = Field(default=2, ge=0)
-    previous_overlap_warning_ratio: float = Field(default=0.6, ge=0, le=1)
 
 
 class SelectionLiquidityRules(BaseModel):
@@ -211,38 +200,13 @@ class SelectionLiquidityRules(BaseModel):
         )
 
 
-class SelectionSupplyDemandRules(BaseModel):
-    """Optional recommendation-only positioning gate.
-
-    None keeps the gate disabled. Missing candidate facts pass because absence is
-    not evidence that a name sits in the excluded tail.
-    """
-
-    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
-
-    margin_std_long_share_exclude_at_or_above: float | None = Field(default=None, ge=0, le=1)
-
-
 class SelectionRules(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
-    default_profile: str = "balanced"
     liquidity: SelectionLiquidityRules = Field(default_factory=SelectionLiquidityRules)
-    supply_demand: SelectionSupplyDemandRules = Field(default_factory=SelectionSupplyDemandRules)
     candidate_diagnostics: CandidateDiagnosticRules = Field(
         default_factory=CandidateDiagnosticRules
     )
-    diversity: SelectionDiversityRules = Field(default_factory=SelectionDiversityRules)
-
-    @field_validator("default_profile")
-    @classmethod
-    def _known_default_profile(cls, value: str) -> str:
-        if value not in BUILTIN_SELECTION_PROFILES:
-            raise ValueError(
-                "unknown default selection profile: "
-                f"{value}; expected one of {', '.join(sorted(BUILTIN_SELECTION_PROFILES))}"
-            )
-        return value
 
 
 class ScreeningRules(BaseModel):

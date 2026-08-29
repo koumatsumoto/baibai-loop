@@ -1,16 +1,16 @@
 # Shortlist draft (operator-authored, per cycle).
 #
-# The Research Gate: review the exact Review Set and record each judgment
+# The Research Gate: review the exact Ranked Set and record each judgment
 # here, then publish it as the canonical shortlist. Select only candidates with a
 # defensible narrative; selecting zero is valid, and rejected entries may cover
-# the full longlist:
+# the full ranked set:
 #
 #   uv run baibai-engine screening shortlist publish /tmp/shortlist.yaml \
 #     --db stores/application/baibai.sqlite --runs-db stores/screening/runs.sqlite
 #
 # publish binds the draft to its source selection: selection_id / run_revision_id
-# / as_of / profile / macro_context_id must match the selection, and every ticker
-# must equal `review_tickers`. selected entries require `rank` and
+# / as_of / macro_context_id must match the selection, and every ticker
+# must equal the selection's review-capped ranked set. selected entries require `rank` and
 # `narrative`; rejected entries must omit both, give a concrete reason
 # (not "順位が低い" / "予算外"), and summarize its primary cause in
 # `reject_class`. The reason remains canonical; the class is aggregation-only.
@@ -22,19 +22,14 @@
 #
 # The published narrative is read by the baibai-web /shortlist review surface.
 
-schema_version: 5
+schema_version: 6
 kind: shortlist
 shortlist_id: "shortlist-YYYYMMDD-<slug>"   # matches ^shortlist-\d{8}-[a-z0-9-]+$
 selection_id: "<selection_id from `screening select`>"
 run_revision_id: "<run_revision_id from `screening run`>"
 as_of: "YYYY-MM-DD"
 published_at: "YYYY-MM-DDTHH:MM:SS+09:00"    # must carry a timezone
-profile: "<selection profile>"
 macro_context_id: null                        # or the bound published macro context id
-attention_policy_id: value-carry-only-v1      # copy from selection output
-attention_policy_hash: "<copy from selection output>"
-attention_policy_parameters:                  # copy exact typed parameters
-  value_carry_limit: 20
 review_basis_shortlist_id: null                # copy judged_through_shortlist_id
 research_gate_contract_id: research-gate-v1
 entries:

@@ -36,24 +36,22 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         self,
         candidates: list[Mapping[str, object]],
         *,
-        longlist_top: int = 0,
+        review_cap: int = 10,
     ) -> dict[str, object]:
         return build_selection_payload(
             asof_date=_ASOF,
             candidates=tuple(candidate_record_from_mapping(item) for item in candidates),
             macro_context=None,
             rules=self.rules,
-            top=10,
-            profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
-            longlist_top=longlist_top,
+            review_cap=review_cap,
         )
 
     def _tickers(self, payload: dict[str, object]) -> set[str]:
-        recommendations = payload["recommendations"]
-        assert isinstance(recommendations, list)
-        return {item["ticker"] for item in recommendations}
+        ranked_set = payload["ranked_set"]
+        assert isinstance(ranked_set, list)
+        return {item["ticker"] for item in ranked_set}
 
     def _diag(self, payload: dict[str, object]) -> Mapping[str, object]:
         selection = payload["selection"]
@@ -93,9 +91,9 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
                 )
             ]
         )
-        recommendations = payload["recommendations"]
-        assert isinstance(recommendations, list)
-        rec = next(item for item in recommendations if item["ticker"] == "4839")
+        ranked_set = payload["ranked_set"]
+        assert isinstance(ranked_set, list)
+        rec = next(item for item in ranked_set if item["ticker"] == "4839")
         self.assertEqual(rec["per_trailing"], 21.48)
         self.assertEqual(rec["pbr"], 0.4)
         self.assertEqual(rec["ev_ebitda"], 6.5)
@@ -167,10 +165,10 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
             ]
         )
 
-        recommendations = payload["recommendations"]
-        assert isinstance(recommendations, list)
-        self.assertEqual([item["ticker"] for item in recommendations], ["1111", "2222"])
-        self.assertIsNone(recommendations[0]["primary_evidence_pattern_id"])
+        ranked_set = payload["ranked_set"]
+        assert isinstance(ranked_set, list)
+        self.assertEqual([item["ticker"] for item in ranked_set], ["1111", "2222"])
+        self.assertIsNone(ranked_set[0]["primary_evidence_pattern_id"])
         self.assertEqual(payload["selection"]["counts"]["evidence_annotated"], 1)
 
     def test_financial_sectors_without_evidence_remain_in_er_ranking(self) -> None:
@@ -190,84 +188,24 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
                 )
                 for index, sector in enumerate(financial_sectors)
             ],
-            longlist_top=len(financial_sectors),
+            review_cap=len(financial_sectors),
         )
 
-        recommendations = payload["recommendations"]
-        assert isinstance(recommendations, list)
+        ranked_set = payload["ranked_set"]
+        assert isinstance(ranked_set, list)
         self.assertEqual(
-            [item["sector_33"] for item in recommendations],
+            [item["sector_33"] for item in ranked_set],
             list(financial_sectors),
         )
-        self.assertTrue(
-            all(item["primary_evidence_pattern_id"] is None for item in recommendations)
-        )
+        self.assertTrue(all(item["primary_evidence_pattern_id"] is None for item in ranked_set))
         self.assertEqual(payload["selection"]["counts"]["evidence_annotated"], 0)
-        longlist = payload["longlist"]
-        assert isinstance(longlist, list)
+        ranked_set = payload["ranked_set"]
+        assert isinstance(ranked_set, list)
         self.assertEqual(
-            [item["ticker"] for item in longlist],
+            [item["ticker"] for item in ranked_set],
             [str(1001 + index) for index in range(len(financial_sectors))],
         )
-        self.assertTrue(all(item["primary_evidence_pattern_id"] is None for item in longlist))
-
-    def test_evidence_pattern_cap_binds_via_profile_override(self) -> None:
-        """Evidence Pattern cap は E[r] 主キー下でも enforcement が生きている。
-
-        既定rulesは10 (実質無効) だが、overrideで1に絞ると同一Evidence Patternの
-        2 本目が推奨から落ちる。"""
-        payload = build_selection_payload(
-            asof_date=_ASOF,
-            candidates=tuple(
-                candidate_record_from_mapping(item)
-                for item in [
-                    _candidate("1111", sector_33="機械"),
-                    _candidate("2222", sector_33="化学"),
-                ]
-            ),
-            macro_context=None,
-            rules=self.rules,
-            top=10,
-            profile="balanced",
-            candidates_ref="test.yaml",
-            macro_context_ref=None,
-            profile_overrides={
-                "balanced": {"diversity": {"max_recommended_per_evidence_pattern": 1}}
-            },
-        )
-        self.assertEqual(self._tickers(payload), {"1111"})
-
-    def test_evidence_pattern_cap_does_not_bind_candidates_without_evidence_hits(self) -> None:
-        payload = build_selection_payload(
-            asof_date=_ASOF,
-            candidates=tuple(
-                candidate_record_from_mapping(item)
-                for item in [
-                    _candidate(
-                        "1111",
-                        sector_33="機械",
-                        evidence_hits=[],
-                        metrics={"er_annual": 0.07},
-                    ),
-                    _candidate(
-                        "2222",
-                        sector_33="化学",
-                        evidence_hits=[],
-                        metrics={"er_annual": 0.06},
-                    ),
-                ]
-            ),
-            macro_context=None,
-            rules=self.rules,
-            top=10,
-            profile="balanced",
-            candidates_ref="test.yaml",
-            macro_context_ref=None,
-            profile_overrides={
-                "balanced": {"diversity": {"max_recommended_per_evidence_pattern": 1}}
-            },
-        )
-        self.assertEqual(self._tickers(payload), {"1111", "2222"})
+        self.assertTrue(all(item["primary_evidence_pattern_id"] is None for item in ranked_set))
 
     def test_er_missing_candidates_are_excluded_from_ranking_population(self) -> None:
         payload = self._payload(
@@ -310,63 +248,28 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         self.assertEqual(counts["er_missing"], 2)
         self.assertEqual(counts["er_missing_unresolved_dividend_basis"], ["2222"])
 
-    def test_profile_config_can_relax_liquidity(self) -> None:
+    def test_rules_can_relax_liquidity(self) -> None:
+        relaxed = self.rules.model_copy(
+            update={
+                "selection": self.rules.selection.model_copy(
+                    update={
+                        "liquidity": self.rules.selection.liquidity.model_copy(
+                            update={"min_market_cap_oku": 10}
+                        )
+                    }
+                )
+            }
+        )
         payload = build_selection_payload(
             asof_date=_ASOF,
             candidates=(candidate_record_from_mapping(_candidate("2222", market_cap_oku=50)),),
             macro_context=None,
-            rules=self.rules,
-            top=10,
-            profile="balanced",
+            rules=relaxed,
+            review_cap=10,
             candidates_ref="test.yaml",
             macro_context_ref=None,
-            profile_overrides={"balanced": {"liquidity": {"min_market_cap_oku": 10}}},
         )
         self.assertEqual(self._tickers(payload), {"2222"})
-
-    def test_supply_demand_gate_only_changes_recommendations_and_passes_missing(self) -> None:
-        payload = build_selection_payload(
-            asof_date=_ASOF,
-            candidates=tuple(
-                candidate_record_from_mapping(item)
-                for item in [
-                    _candidate(
-                        "1111",
-                        metrics={"er_annual": 0.12, "margin_std_long_share": 0.75},
-                    ),
-                    _candidate(
-                        "2222",
-                        sector_33="化学",
-                        metrics={"er_annual": 0.10, "margin_std_long_share": 0.74},
-                    ),
-                    _candidate(
-                        "3333",
-                        sector_33="小売業",
-                        metrics={"er_annual": 0.08, "margin_std_long_share": None},
-                    ),
-                ]
-            ),
-            macro_context=None,
-            rules=self.rules,
-            top=10,
-            profile="balanced",
-            candidates_ref="test.yaml",
-            macro_context_ref=None,
-            longlist_top=3,
-            profile_overrides={
-                "balanced": {
-                    "supply_demand": {
-                        "margin_std_long_share_exclude_at_or_above": 0.75,
-                    }
-                }
-            },
-        )
-
-        self.assertEqual(self._tickers(payload), {"2222", "3333"})
-        longlist = payload["longlist"]
-        assert isinstance(longlist, list)
-        self.assertEqual([item["ticker"] for item in longlist], ["1111", "2222", "3333"])
-        self.assertEqual(self._diag(payload)["supply_demand_excluded_count"], 1)
 
     def test_short_to_adv_annotation_does_not_change_selection_output(self) -> None:
         candidates = [
@@ -386,8 +289,8 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         ]
 
         self.assertEqual(
-            self._payload(candidates, longlist_top=2),
-            self._payload(annotated, longlist_top=2),
+            self._payload(candidates, review_cap=2),
+            self._payload(annotated, review_cap=2),
         )
 
 

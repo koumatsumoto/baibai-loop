@@ -1,425 +1,117 @@
 ---
 title: "Market lake operations"
-summary: "R2 の immutable object と manifest で market fact を publish し、固定 release から market store を満たす運用契約。"
+summary: "R2のimmutable L1 releaseをpublishし、固定releaseからmarket storeを復元する運用契約。"
 doc_type: reference
 status: active
 ---
 
 # Market lake operations
 
-authority、manifest、version 語彙はこの文書の[発行契約](#market-lake-publication-contract)
-が正本である。store の所有者は [`../architecture.md`](../architecture.md#information-layers) の表が正本で、この文書は publish と read の契約と実操作を持つ。
-
-## 不変条件
-
-L1は`market.sqlite`の17 data tableを持ち、R2が持つ`market.sqlite`は残る2 data tableと
-store-local metadataの`lake_store_origin`だけを運ぶ
-（[日次切替](#daily-cutover)）。その 2 本は L1 に入らない — `tse_capital_policy_snapshots` は
-operator が導出したもので fetch の蓄積ではなく、key merge すると撤回した行が復活する。
-`source_coverage` は取得範囲の帳簿であって fact ではない。**不足 dataset を store の残り物で暗黙に
-埋めない** — hydrate は積む前に対象 table を空にし、積んだ行数が release manifest の publish 行数と
-一致しなければ失敗する。この「空にしてから積む」順序は撤回した行を次世代へ持ち越さないので、
-operator が導出する dataset でも L1 へ載せれば key merge の危険は無くなる。
-
-partition の粒度は dataset 契約が宣言する。行数から導出しない — reader は manifest の layout を
-契約と突き合わせるので、行数由来だと table が育った日に layout が無言で変わり reader が release を
-拒否し始める。行数は粒度を選ぶ根拠であって機構ではない。
-
-| grain | dataset | 月あたり行数 |
-| --- | --- | ---: |
-| month | `jquants.daily_bars` | 84k |
-| month | `edinet.metrics` | 46k |
-| month | `jquants.weekly_margin` | 17k |
-| month | `jquants.short_sale_reports` | 11.7k |
-| month | `edinet.documents` | 6.8k（古い行の lifecycle 更新で書き直しが起きるため細かく） |
-| month | `jquants.all_issues_daily_margin` | 2026-09-28 から全銘柄日次 |
-| year | `jquants.master_snapshots` / `jquants.fin_summaries` / `edinet.buyback_reports` / `edinet.document_lists` / `jquants.market_calendar` / `jquants.earnings_calendar` / `jquants.margin_alerts` / `jpx.regulation_flags` / `jpx.regulation_sources` / `jpx.delistings` / `edinet.tender_offer_exit_values` | 6〜4.9k |
-
-行を持たない dataset は export が飛ばす。`jquants.all_issues_daily_margin` は JPX の公表制度変更
-（2026-09-28、初回は 9/25 残高）を待っているので今は 0 行で、canonical build に partition が無いと
-release 入力にならない。飛ばすことで「まだ始まっていない」と「build が失敗した」を分ける。
+この文書はmarket factのL1 publicationと固定release読みを定める。storeの所有者は
+[`architecture.md`](../architecture.md#information-layers)、providerごとの意味とcoverageは
+[`data-sources.md`](./data-sources.md)を正本とする。較正結果はlakeへ載せず、
+`stores/screening/calibration/current.sqlite`のローカルsnapshotとして扱う。
 
 <a id="market-lake-publication-contract"></a>
 <a id="publication-contract"></a>
 
-## Object modelと発行契約
+## 発行契約
 
-大規模な market fact は、R2 の不変 object を Parquet で保持し、dataset manifest と L1 release
-manifest で exact input generation を固定する。DuckDB は Parquet の build・validation・analysis
-だけを担い、常駐 server や唯一の永続 DB にしない。SQLite は application state、小規模な関係
-data、固定 release から再構築できる runtime copy に限定する。Web は L1 を直接読まず、
-materialized read model だけを読む。
+market factはR2のcontent-addressed Parquet objectとして保持する。dataset manifestはpartition objectと
+row数・schema・digestを列挙し、L1 release manifestは同時に使うdataset buildの集合を固定する。
+`lake/pointers/l1/current.json`だけが可変で、それ以外のobjectとmanifestはimmutableである。
 
-| layer | canonical form | allowed contents |
-| --- | --- | --- |
-| L1 Canonical | Parquet object + dataset / release manifest | typed source fact、source identity、publication / effective / retrieved time、revision semantics |
-| L2 Analytical | Parquet object + dataset manifest + atomic bundle pointer | 再生成可能な panel、feature、forward outcome |
-| L2 Operational / L3 | SQLite | run metadata、selection、thesis、proposal、ledger、operation 等の transaction / point lookup state |
+- partition grainはdataset契約が宣言し、row数から動的に変えない
+- object key、SHA-256、byte数、row数、Arrow schemaを読取時に照合する
+- releaseは`production` profileだけを持ち、required dataset・coverage・row/population floorを満たす
+- prefix listing、glob、`union_by_name`、provider fallbackで欠損を補わない
+- 一つのdatasetへ同時に二つのcanonical writerを持たない
+- readerは開始時にcurrentを一度だけ解決し、以後は固定releaseだけを読む
 
-R2 key は `lake/` 以下だけを使い、segment allowlist で path traversal を拒否する。time-series
-partition は `year/month`、file は ZSTD Parquet、object name は content SHA-256 とする。dataset
-manifest は全 partition object と totals を列挙し、L1 release manifest は互換な dataset build の
-組を一つの `release_id` へ固定する。logical object identity は key・SHA-256・bytes・rows・schema
-で決まり、object-store固有のETagはpublish/CASのtransport stateにだけ置く。lineageはtyped `SourceRef`で表す。kindは**bytesを保持するかどうか**の2族に分かれ、
-それが型の違いになる。
-
-- **retained**（`l1_release`）はlake内のkeyを名乗る。resolverはkey・SHA-256・source側versionと
-  release closureを検証する。ただし到達可能性はcurrent releaseのretention policyに従い、分析成果物が
-  過去releaseを名乗っただけで恒久保持されるわけではない。
-- **identity only**（`sqlite_snapshot`）はkeyを持たない。sealed snapshotはbuild中にstoreが動かない
-  ようにするためのもので、その役目はbuildの終わりで終わる。bytesはlegacy store全体（約2GB）なので、
-  buildごとに1つ保持すればlakeはpublishした量ではなくrun回数に比例して育つ。よってschema version・
-  content digest・capture時刻だけを残し、bytesはoperationの終わりで回収する。
-  同じ`source_id`を名乗る2つのbuildは同一入力を読んでおり、rebuildへ差し出されたstore世代はこの
-  digestで照合できる。**保証しないのは、その世代がまだ入手できること**である。
-
-`SourceRef`（buildが自分の入力について述べるunion）に入るのは`sqlite_snapshot`だけである。buildが
-読むのはsealed storeであってreleaseではないからで、closure resolverの有無ではなく何を読んだかが
-決めている。`CohortSourceRef`は既存のimmutable v1 manifestを読むため`l1_release`も受け入れるが、
-calibrationの現行writerはsnapshotだけを記録する。L1は`source_coverage`などの非lake入力を保持しない
-ため、release refをcalibration inputの完全再構築保証には使わない。release manifestはobject graphの
-rootにすぎないので、resolverはdataset manifestとParquet objectまで歩いて全部digestで検証し、
-歩き切れないrefは解決しない。
-
-manifestとpointerを含むlake JSONは、duplicate key拒否とredacted validation errorを持つ
-共通parserだけを通し、wire size上限をparse前に検査する。partition valuesとrelease dataset
-inventoryはparse後に変更できない。
-releaseはprofileを宣言し、そのprofileのmanifest size/object budgetと、dataset ごとのrequired・
-accepted contract・coverage要求・rows / population floor を満たす場合だけcurrent候補になる。
-鮮度窓は持たない（[Failure policy](../architecture.md#failure-policy)）。完全性はdatasetの性質なので、profile単位の
-単一閾値は持たない。
-profileは`production`ひとつで、要求の集合がひとつだからである。登録の無いprofileはfail-closeする。
-
-version 語彙は `contract_version`（schema・PK・型・partition・意味の互換境界）、`build_id`
-（immutable build）、typed `SourceRef`内のsource側version、`producer_git_commit`（code identity）
-に限定する。L1 に transform identity は無い — 毎回全 partition を導出するので、build 間の互換を
-問う場面が無い。`transform_fingerprint` は L2 calibration だけが持ち、同じ contract 内の logic /
-config / 明示したtransform source codeを識別する。
-L2 calibrationのlineageはdataset全体のsource集合ではなくcohort inventoryの各roleへ置き、panel /
-diagnosticsのcohort cutoffとforwardのobservation cutoffをsource digestと一緒に固定する。
-fingerprintはschema/configだけでなく、そのdatasetの値を決めるsemantic implementation fileのdigestを含む。
-production reader は期待する contract 一つだけを受け入れ、schema change は in-place migration
-や `union_by_name` fallback ではなく、新しい contract の immutable rebuild と pointer switch で
-扱う。
-
-一つの dataset が同時に二つの canonical writer を持たない。市場 fact の canonical authority は
-R2 の L1 release にあり、`market.sqlite` はその fixed release から削除・再構築できる runtime copy
-である。lakeが持たない2 data table — 取得範囲の帳簿と、月次snapshotのoperator導出fact — だけが
-SQLiteをcanonicalとする。R2が持つstoreのcopyはその2 data tableと、store-local publication metadata
-`lake_store_origin`を運ぶ。full-file publish は行わない。
-
-読み取り側は実行開始時に current pointer を 1 度だけ解決し、以後は固定した `release_id` と
-immutable object key だけを読む。manifest digest、object digest、dataset contract の不一致は
-fail-close で、prefix listing・glob・`union_by_name` による吸収・provider fallback はいずれも
-持たない。固定 release を SQLite へ実体化するのは `lake hydrate` で、store の sealed copy へ
-lake 所有 table だけを積み直し、single rename で publish する。読み込んだ行数が release manifest の
-publish 行数と一致しなければ fail-close する — 静かに空のまま進んだ store は、screening に空の
-universe を健全な結果として publish させるためである。手順は
-[解決と読み取り](#fixed-release-read)を正本とする。
-
-このcustom manifest protocolは、単一writer・小規模catalog・Python中心という現在の制約に対して
-table formatより小さい。次のいずれかが現れた時点で、Apache Iceberg / R2 Data Catalog等への
-置換を再評価する: 同時writerが2以上になる、object数が10万を超える、schema branchを複数同時に
-維持する、dataset横断のsnapshot transactionが要る、remote GCを自前で持つ、row-level mutationが要る。
-どれも現状は無く、無い間は自前protocolの方が状態空間が小さい。
-
-<a id="build"></a>
+L1 releaseに含まれないstore-local tableはSQLite側が所有する。hydrateはrelease対象tableを空にしてから
+積み、manifest row数と一致した場合だけatomic replaceする。したがって、撤回済みrowや旧世代の残り物を
+暗黙に引き継がない。
 
 ## 構築
 
-初回 seed は全期間を export する。現行 provider / Premium backfill は coverage を SQLite に
-commit し、lake export はその SQLite を `legacy_sqlite_import` として月 partition へ変換する。
-provider 取得と Parquet writer の二重 canonical write は行わない。contract v1はfixed legacy
-SQLite snapshotからauthorityを移すcompatibility boundaryであり、provider responseにしかないfield、
-decimal precision、publication / effective / retrieved time、revision/cancellation semanticsを完全には
-表さない。これらのmappingを確定しprovider→canonical semantic parityを満たした時点をv2 rebuild
-triggerとする。
-
-`export-all`は開始時にSQLite backup APIでWALを含むsealed snapshotを1回作り、snapshot digest・
-schema version・`quick_check`を確定してから、全datasetのexport、source-state、parityを同じsnapshotから導出する。
-release作成時にも全partitionが全datasetでexactに1 snapshot generationへ閉じることを検証する。snapshotはoperationの一時入力であり、bytesはlakeにもremote closureにも残さない。manifest
-が残すのはschema version・content digest・capture時刻という素性だけで、同じstore世代を持っているか
-どうかはre-sealして digest を突き合わせれば答えられる（unchangedなstoreに対してsealはbyte決定的）。
-
-日次buildごとにfull SQLiteをR2へ再送しない。restore checkpointはlakeのimmutable object graph
-そのものであり、release manifestが全partitionのkey・digest・rowsを列挙するので、release一つから
-storeを組み直せる。
+`export-all`はSQLite backup APIでWALを含むsealed snapshotを一度作り、全datasetを同じsnapshotから
+exportする。毎回全partitionを導出するが、object keyはcontent digestなので変化しないpartitionは同じkeyを
+再利用する。snapshot bytesは一時入力で、lakeや監査archiveへ保存しない。
 
 ```bash
 uv run baibai-engine lake export-all \
   --sqlite stores/market/market.sqlite \
-  --mirror <local-mirror>
+  --mirror stores
 ```
 
-export は毎回、全 dataset の全 partition を sealed snapshot から導出する。前回 build を base に
-した増分・carry・transform identity は持たない — object は自身の bytes の digest で address される
-ので、行が動かなかった月は既にある key に落ちて新 object を生まず、識別機構なしに「変わったか」が
-決まる。中断した Premium CSV / API backfill は既存 `source_coverage` から再開し、次の export が
-それを含めて導出し直す。CLIは実装sourceが属するrepositoryを固定し、tracked worktreeがdirty、
-git identityが取得不能、unknown zero commitの場合にbuildを開始しない。
+dataset追加時は次を同じ変更で揃える。
 
-`coverage_status`は固定値ではない。完全性は多くのsourceで行から導けない — 提出されなかった書類と
-取得しなかった書類は同じ不在を残すので、取得記録が答える。daily barsだけが例外で、全営業日が全市場分の
-行を負うため行自体が答える。どちらも持たないsourceは`unproven`として、持っているものは言えるが全部
-持っているとは言えない状態を表す。dataset契約が`coverage_authority`でこれを宣言する。
+1. `market/lake/datasets.py`のtyped契約
+2. SQLite schemaとingest
+3. release profileのrequired/optional、coverage、floor
+4. export・resolve・hydrateのpositive/negative test
+5. `data-sources.md`のsource意味
 
-release policyはdatasetごとに、必須性・history境界・rows / population floor・完全性要求を持つ。
-鮮度（age・lead・skew）の窓は持たない — watermark の古さは release が object を正しく記述しているか
-と無関係で、stale を気にする reader（週次残高の `MARGIN_MAX_STALE_DAYS`）は自分で軸を null にする。
-policy に窓を置くと、source が止まった日から current release が policy を通らず hydrate が毎日
-落ちる（[Failure policy](../architecture.md#failure-policy)）。
-
-floorは観測rows・populationの95%をregression floorにする。新鮮でも1日・1rowだけのstore、
-leading history欠損、大幅なpopulation縮小はcurrent候補にならない。population floorを持つdatasetが
-populationを報告しなければ、checkをskipせず停止する。日や書類を行とするdatasetにpopulationの問いは
-無いので、そこでは floor も報告も持たない。
-
-検証済み dataset manifest を release に固定する。
-
-```bash
-uv run baibai-engine lake release create \
-  --mirror <local-mirror> \
-  --dataset-manifest <manifest> ...    # export-all が出した manifest すべて
-```
-
-`--dataset-manifest` は release policy が required とする dataset を全て満たす必要がある。欠けた
-まま作ると release 検証が「required dataset を欠く」で停止する。
-
-### local pipeline の実測
-
-remote への転送が差分でも、local 側は毎 run sealed snapshot を作り、全 partition を導出し、
-全 history の SQLite ↔ Parquet parity を検証する。その時間は主張ではなく計測で持つ。
-
-```bash
-uv run python -m tools.diagnostics.benchmark_l1_export \
-  --sqlite stores/market/market.sqlite --report <report.json>
-```
-
-production store（1,812,189,184 bytes、schema v23、snapshot digest `ef791840…`、14,751,189 rows）
-を Linux/WSL2 の一時 directory で実測した結果は次のとおり。
-
-| 局面 | wall time | 生成 object | 生成 bytes |
-| --- | --- | --- | --- |
-| full export（16 dataset・全 partition） | 359.9 秒 | 448 | 300,587,037 |
-| 1 か月訂正後の再 export（全 partition） | 全量と同じ | 1 | 1,144,400 |
-
-peak RSS は 1,030,107,136 bytes（982 MiB）。`jquants.all_issues_daily_margin` は JPX の公表制度
-移行まで行を持たないので、export は 17 dataset のうち 16 を書く。
-
-日次 build も同じ全導出である。日次 window の外側の訂正・削除もその日の export に含まれ、最後の
-rowを失った月はmanifestから消える。parity の Parquet 再導出は毎回全 partition を見る。1か月の訂正は
-上表 2 行目のとおり export 時間は全量と同じで、生成 object だけが 448 分の 1 になる。全導出の
-export が 15 分を超えるようになったら、対処は export の高速化（`_period_rows` の `LIKE` を
-`BETWEEN` に、dataset 単位の並列）であって、増分・identity 機構を戻すことではない。
-
-この計測は commit ではなく実装 digest（writer / models / immutable / snapshot / benchmark tool）へ
-結ぶ。それらに触れない変更では証跡は有効なままで、触れた変更は再計測になる。
-
-## L1 dataset を追加する
-
-新しい table を L1 へ載せる作業が触る場所と、忘れたときに何が言うか。
-
-| 触る場所 | 忘れると |
-| --- | --- |
-| `market/lake/datasets.py` の `LakeDataset` 定義と `LAKE_DATASETS` | 起点なので忘れられない |
-| `market/lake/models.py` の `PRODUCTION_RELEASE_POLICY` へ `ReleaseDatasetPolicy` 1 件 | `test_every_lake_dataset_states_a_release_policy` が落ちる |
-| `market/sqlite/schema.py` と `market/sqlite/migrations.py` の table | `tests/batch/test_cloud_merge_market_store.py` が落ちる。新 table を lake 側か merge 側かに分類するまで通らない |
-| provider が `market/sqlite/coverage.py` へ記録する `source_coverage.source` と dataset の `coverage_authority` | 何も言わない。既定の `source_coverage` はその帳簿を読むので、名前がずれた dataset は `partial` を名乗り続ける（`coverage_source` で宣言できる） |
-| 本書の grain 表と [`../../stores/README.md`](../../stores/README.md) の table 数 | 何も言わない。ここが唯一の備忘 |
-
-hydrate / dehydrate に個別作業は無い。どちらも `LAKE_DATASETS` から従い、積んだ行数が release
-manifest と合わなければ[Storeの復元](#store-hydration)がfail-closeする。
-
-merge の翌日の publish は、いつもどおり全 partition を store から導出する。作業は要らない。
-
-<a id="r2-publish"></a>
+個別dataset専用の移行runnerは作らない。現行storeからreleaseを再構築し、hydrateで現行schemaへ満たす。
 
 ## 発行
 
-publish は immutable object、dataset manifest、release manifest の順に `If-None-Match: *` で
-転送する。各sourceをsealed copyへ固定してR2が検証する`Content-MD5`付きPUTを行い、logical
-SHA-256、transport marker、size、content typeを同じimmutable PUTのmetadataへ固定する。
-
-**このrunが書いたobjectだけをstreaming GETで読み戻す。** 既にstoreにあるobjectは、immutable PUTが
-`Content-MD5`で束ねたidentity metadataで証明する。1 publicationにつき1 keyは1度だけ証明し、pointer
-直前の再走査は行わない — overwriteを拒否するstoreでは、その間にkeyが差し替わることがないので、
-2度目の全streamは同じ結論のためにhistory全体のbytesを動かすだけになる。remote bytesの差し替えを
-探す全stream監査は`--verify-bytes`の別実行が持ち、publication hot pathとはSLOを分ける。
-report は `uploaded_bytes` / `downloaded_bytes` / `head_requests` / `get_requests` を出すので、
-「差分転送になっている」は主張ではなく観測になる。
-
-sealed SQLiteはdigest・schema・capture時刻をmanifestへ記録するだけでbytesを持たないため、
-日次remote bytesはchanged Parquet/manifestへ比例する。最後に`lake/pointers/l1/current.json`を
-開始時に検証したETagの`If-Match`（開始時に不在なら`If-None-Match: *`）で切り替え、終了時に見えた
-successorのETagへ乗り換えない。pointer HEADのidentity metadataとGET bytesも開始時に照合するため、
-export中に別writerがcurrentを動かせば409/412でfail-closeする。remote adapterはin-processのboto3
-S3 clientで接続を再利用し、requestごとのprocess起動を行わない。各attemptのread timeoutはobject sizeから導く
-（botocoreのretryを含むoperation全体のdeadlineではない）。downloadは同一directoryのtemporary fileへ
-書き、expected sizeとfsyncを確認してからatomic replaceする。manifest cacheが期待digestと異なる場合は、
-remote bytesをprivate temporaryへ再取得し、digest一致後だけcacheを置換する。
-（base 120秒 + 実測を下回る4 MiB/秒での転送時間）。成功時はstderrへ
-`lake publish phases: base_resolve=... seal_plan_export=... release_create=... local_graph=... remote_closure=... pointer=...`
-を1行出し、stdoutはrelease recordに使うJSON 1行だけを維持する。
-
-publish は経路が 1 つである。開始時 current pointer と、exportに使う同じsealed SQLite snapshot内の
-`lake_store_origin`を照合し、serving release の dataset manifest からは `coverage_start`（履歴の床）
-だけを読んで、全 partition を store から導出する。serving release の partition は carry しない。
-release identityはSQLite内の`lake_store_origin`だけに置き、分離可能なidentity sidecarは持たない。
-currentとoriginがともに無いfirst publicationだけは照合を省く。
-
-exportが返したin-memory manifestはcanonical bytesにしてmirror配下のpublication-private directoryへ
-固定し、release作成はそのpathだけを読む。releaseも作成時payloadのSHA-256をpublisherへ渡し、pathが
-差し替わっていればpointer切替前に拒否する。全dataset共通のprevious-release row floorは、正常に縮小する
-snapshotや取消・訂正と両立しないため持たない。欠損はdatasetごとのproduction policy（history境界、
-minimum rows / population、coverage）で拒否する。
-
-conditional pointer PUTや直後のHEAD/GETが失敗した場合はcurrentを再読込し、exact targetなら成功、別
-identityならconflict、読めなければunknown outcomeとして停止する。low-level publisher CLIがcurrentを
-変更できるのはfirst publicationだけで、currentとexact targetが一致する場合はretryとして成功する。
-
-**pointerはcurrentだけを名乗る。rollbackは無い。** 修理は前へ publish することであり、store が
-serve をやめた世代へ戻ることではない。pointer が「この世代は復元できる」と名乗れば、それは publish の
-たびに検証し続けなければならない約束になり、実際そうしていた。local mirror が graph 全体を持ち、
-writer が 1 つしかないこの構成では、悪い release を publish したときの復旧は良い release を publish
-することである。同じ release ID の再 publish だけは中断した publication の retry として受け付け、
-identity が違えば拒否する。
-
-**immutable prefix は Bucket Lock で守る。** `lake/l1/canonical/` と `lake/manifests/` へ
-[R2 Bucket Lock](https://developers.cloudflare.com/r2/buckets/bucket-locks/) を age-based で設定し、
-削除と上書きの両方を拒否させる。mutable な `lake/pointers/`、GC が回収する `lake/staging/`、bucket
-直下の store key は対象にしない。lock 期間は「到達不能 object の R2 側削除は満了を待つ」という
-retention 設計と整合する長さにする — lock を外して即時削除する運用は取らない。現在の設定は読み取りで
-確かめる:
-
-```bash
-npx wrangler r2 bucket lock list baibai-stores
-```
-
-R2 の [S3互換checksum](https://developers.cloudflare.com/r2/api/s3/api/#checksum-types)は
-full-object SHA-256 を提供しないため、existing object の再利用は content-addressed key、immutable
-PUT metadata、Bucket Lock、reader の SHA-256 検証、`--verify-bytes` 監査の組合せで閉じる。設定には
-account 単位の権限が要り、日次の publisher token では設定状態を読めない
-（`GetObjectLockConfiguration` が `AccessDenied`）。
+publishはimmutable object、dataset manifest、release manifestの順に転送し、最後にcurrent pointerを
+conditional PUTで切り替える。開始時pointerが動いていればconflictとして停止し、別writerのsuccessorへ
+乗り換えない。pointer切替前にlocal closureをdigest・schema・row数まで検証する。
 
 ```bash
 uv run python -m baibai_batch.storage.lake_publish \
-  --mirror <local-mirror> \
+  --mirror stores \
   --release-manifest <release-manifest>
 ```
 
-remote bytesのtamperを探す監査は別実行として持つ。
+必要な環境変数は`R2_ACCOUNT_ID`、`R2_ACCESS_KEY_ID`、
+`R2_SECRET_ACCESS_KEY`である。remote publishはローカルbuildと検証が成功した後だけ行う。
 
-```bash
-uv run python -m baibai_batch.storage.lake_publish \
-  --mirror <local-mirror> \
-  --release-manifest <release-manifest> \
-  --verify-bytes
-```
-
-必要な環境変数は既存 transfer と同じ `R2_ACCOUNT_ID`、`R2_ACCESS_KEY_ID`、
-`R2_SECRET_ACCESS_KEY` である。実データ backfill と R2 publish は data license と対象 release
-を確認した後にだけ実行する。
+rollback pointerや全履歴bytes監査は持たない。問題のあるreleaseを直すときは、正しいstoreから新しいreleaseを
+前向きにpublishする。immutable prefixはBucket Lockで上書きと削除を防ぎ、mutable pointerとstagingは
+lock対象外にする。
 
 <a id="daily-cutover"></a>
 
 ## 日次切替
 
-日次バッチは lake から store を作り、lake へ publish して終わる。`market.sqlite` 全体の
-GET / backup copy / PUT は発生しない。
+日次batchは次の順序でmarket storeを扱う。
 
-| 段 | 何をするか |
+| 段 | 処理 |
 | --- | --- |
-| `r2_transfer.sh pull-machine` | `market.sqlite` をGETする。R2のcopyはlakeが持たない2 data tableと`lake_store_origin`だけを持つ |
-| `r2_transfer.sh hydrate-market` | pulled storeを現行schemaへmigrateし、current releaseを解決してlake所有17本を積む |
-| `baibai-batch daily` | ingest は store へ書き、screening は store を読む。lake は経路に入らない |
-| `r2_transfer.sh publish-lake` | 変わった partition だけ export → release → pointer を CAS で切り替え |
-| `r2_transfer.sh push-machine` | push 用 copy から lake 所有 17 本を空にして PUT する |
+| `r2_transfer.sh pull-machine` | lake外のstore-local tableとoriginを取得 |
+| `r2_transfer.sh hydrate-market` | current releaseからlake所有tableを復元 |
+| `baibai-batch daily` | ingestとscreeningを実行 |
+| `r2_transfer.sh publish-lake` | 新しいL1 releaseをpublish |
+| `r2_transfer.sh push-machine` | lake所有tableを除いたstore-local copyを反映 |
 
-**publish は push より先に置く。** 逆順で publish に失敗すると、クラウドには「今日の coverage を
-主張する store」だけが残る。coverage が「取得済み」と言う限り次の run はその範囲を取りに行かないので、
-穴が自力で塞がらない唯一の組み合わせになる。
-
-**R2 の key は `market.sqlite` のままにする。** storeの同一性は変わっていない。schema v24では
-19 data tableと1 metadata tableを持ち、17 data tableの権威がlakeへ移り、pullのたびにhydrateが復元する
-という点だけである。
-
-**両側とも行数で fail-close する。** hydrate は release manifest が publish した行数と一致しなければ
-失敗する。積み損ねた store をそのまま screening へ渡すと、空の universe が健全な結果として publish
-されるためで、これが cutover が持ち込む唯一の新しい失敗経路である。dehydrate は逆向きに同じ一致を
-要求し、release が持たない dataset に行があれば拒否する — registry にあるが release にまだ無い
-dataset を空にすると、どの release からも戻せない行を落とすことになる。
-
-dehydrate が走るかどうかは `lake/pointers/l1/current.json` の有無で決まる。権威が lake にあることは
-pointer が宣言しているので、それを読む。pointer が無い bucket（初回 seed）では store がまだ唯一の
-複製であり、pointer がある以上は空にすることが必須になる。
-
-mirror は `stores/lake/` に置く。key が全て `lake/` で始まるので mirror root は store が並ぶ
-directory 自身であり、`--mirror stores` と渡す。mirror は immutable object の fetch-through cache
-なので、消しても release から作り直せる。
+publishはpushより先に行う。逆順ではcoverageだけが進み、factがpublishされない状態を作り得る。
 
 <a id="fixed-release-read"></a>
 
 ## 解決と読み取り
 
-読み取りは実行の最初に current pointer を 1 度だけ解決し、以後は固定した `release_id` と
-immutable object key だけを読む。実行途中に pointer が切り替わっても、その実行の入力 release は
-変わらない。current の read は profile の構造 policy（required dataset・coverage・floor・予算）を
-再検証し、named release の historical read は固定された identity chain だけを検証する。どちらも
-解決時刻に対する鮮度は問わない。
-
 ```bash
-uv run baibai-engine lake resolve --mirror <local-mirror>
-uv run baibai-engine lake resolve --mirror <local-mirror> \
+uv run baibai-engine lake resolve --mirror stores
+uv run baibai-engine lake resolve --mirror stores \
   --release <release-id> --manifest-sha256 <release-manifest-sha256>
 ```
 
-`--release` を渡すとpointerを一切読まないが、`--manifest-sha256`を必須とする。手元のrelease参照は
-typed `L1ReleaseSourceRef`（ID・key・SHA-256）として保存し、`--release-ref`で解決する。IDだけの
-named readは同じkeyの差し替えを検出できないため受理しない。
+named releaseはIDだけでは受理せずmanifest SHA-256を必須とする。次の不一致はすべてfail-closeする。
 
-identity は各辺を digest で閉じる。pointer が release manifest の SHA-256 を、release manifest が
-各 dataset manifest の SHA-256 を、dataset manifest が各 object の SHA-256 を持つ。dataset
-manifest の key は `(dataset, build_id)` から導けるので、この digest を辿らなければ、release を
-一切変えないまま同じ key を差し替えて別のデータを指させられる。
+- pointerとrelease manifestのidentity
+- release entryとdataset manifestのidentity・contract
+- objectのSHA-256、byte数、row数、Arrow schema
+- required dataset、coverage、row/population floor
 
-fail-close する条件は次のとおりで、いずれも degrade しない。
-
-- release manifest の SHA-256 が pointer の値と違う
-- pointer の `manifest_key` が `release_id` から導く key と違う
-- dataset manifest の SHA-256 が release entry の値と違う
-- dataset manifest の `dataset` / `build_id` / `contract_version` が release entry と違う
-- reader が受け入れる `contract_version` と違う contract を dataset が publish している
-- object の SHA-256 / byte 数 / row 数 / Arrow schema が manifest と違う
-- 要求した month を release が publish していない
-
-reader は明示された object key の列だけを `read_parquet` へ渡す。bucket の glob、prefix listing、
-「最新 object を探し直す」処理、`union_by_name` による schema 吸収はどれも使わない。DuckDB は
-渡された path を glob として展開するので、mirror root に glob metacharacter が含まれる場合も
-拒否する。extension の autoload / autoinstall は切ってあり、runtimeは`LOAD httpfs`だけを行う。
-remote lakeを開くhost environmentは、networkを許可したprovisioning stepで同じDuckDB versionの
-`uv run python -m tools.diagnostics.provision_duckdb_httpfs`を一度実行する。このcommandはinstall後に
-autoload / autoinstallを無効にした別connectionで`LOAD httpfs`までsmoke-checkする。
-provisioningを実行するのは実際にremote lakeを読むjobだけとする。lake pathを通らないjobへ入れると、
-extension repositoryの一時障害がそのjobの成功条件になり、lakeの価値を受け取っていない処理を止める。
-runtimeがextensionをdownloadするfallbackは持たず、未installなら
-R2 sessionをfail-closeする。credentialは非 persistent secretとしてbind parameterで渡し、SQL文・
-例外・metadataに残さない。
-
-row は bounded batch で読む。dataset は 10 年分の日足であり、全 row を一度に Python object へ
-変換すると build が終わる前に memory を使い切る。partition（1 か月）ごとに object を検証してから
-その中を batch で流し込み、hydrate の R2 読みでは worker が消費順の先の object を bounded buffer
-（既定 16 object）へ先読みする。peak memory は dataset の大きさではなく batch 幅と buffer 上限に
-従い、検証・install・transfer 計数は先読みの有無にかかわらず消費側 thread の同じ経路を通る。
+readerはmanifestが列挙したobject keyだけをbounded batchで読む。remote readに必要なDuckDB extensionは
+provisioning stepで事前にinstallし、runtime downloadへfallbackしない。
 
 <a id="store-hydration"></a>
 
 ## Storeの復元
-
-固定 release を SQLite へ実体化するのは hydrate である。releaseがpublishするlake所有tableを空にして
-objectから積み直し、他の2 data table、`lake_store_origin`、schemaはそのまま残す。storeは満たされた
-後も ingest が書き続けるので、契約から導いた形ではなく store 自身の schema — 書き込み時の制約と
-index — を運ぶ必要がある。両者は実際に違う（store だけが `week_end` を制約し、契約が宣言しない
-secondary index を持つ）ので、契約側の形で作った store は本物が拒否する行を黙って受け入れる。
 
 ```bash
 uv run baibai-engine lake hydrate \
@@ -427,326 +119,43 @@ uv run baibai-engine lake hydrate \
   --store stores/market/market.sqlite
 ```
 
-current以外は`--release <id> --manifest-sha256 <sha256>`、または typed release ref fileを渡す
-`--release-ref <path>`で固定する。IDだけのhydrateは受理しない。publishしていないlocal mirrorには
-current pointerが無いので、初回のhydrateは必ずこのどれかでreleaseを名指す。
-
-hydrateは常にreleaseがpublishする全datasetを対象とする。store-wideな`lake_store_origin`を別releaseへ
-進めるのもこの全体hydrateだけである。target releaseがpublishしないlake datasetを旧storeが保持する
-場合は、旧世代のrowをlocal変更と誤認しないようorigin更新前に拒否する。先にpublishするか、破棄を
-明示してからhydrateする。
-
-`--bucket baibai-stores` を足すと、mirror に無い object だけを R2 から取得して mirror へ
-content-addressed に格納する。object key は content hash なので、変わらなかった partition は
-既に手元にあり転送量に乗らない。出力の `fetched_bytes` / `reused_bytes` がその内訳になる。
-
-R2 読みは worker（既定 8、各自の DuckDB session）が消費順の先の object を bounded buffer へ
-先読みし、stderr に 2 種類の行を出す。`lake prefetch served X/Y planned objects (Z already
-mirrored)` は毎回出る要約で、cold fill は served ≈ Y、warm fill は served 0 + mirrored ≈ Y と
-読む。`lake prefetch disabled; reads continue sequentially: ...` は worker 側の失敗や待ちの
-超過で逐次読みへ退化したときだけ出る — fill は正しく完走するが遅くなるので、hydrate の
-所要時間が戻った run ではまずこの行の有無を見る。
-
-hydrate は store の sealed copy へ書き、1 回の rename で公開する。途中状態が読まれることはなく、
-失敗しても直前の store は壊れない。current modeでは成功を返す直前にcurrent pointerのfull identityを
-問い直す。identity は名前ではなく digest まで見る — 同じ release ID で別の bytes を再 publish した
-recovery が、名前比較なら通ってしまうためである。
-
-積む前に table の列並びを dataset 契約と突き合わせ、違えば load 前に停止する。契約はこの schema から
-導いたので、両者が一致していることが fill の前提である。secondary index は store 自身の DDL から
-読み取って落とし、load 後に同じ DDL で作り直す — index を張ったまま load すると load 自体の数倍
-かかる一方、契約側から index を発明することも store の index を失うこともない。primary key の
-auto index は DDL を持たず落とせないので残り、それが load の key semantics を保つ。
-
-開始前に同一 filesystem の空き容量を要求する。必要量は 64 MiB、現 store の bytes、published object
-bytes の 8 倍のうち最大で、真ん中の項は「一時 copy は store の複製として始まり満たされて終わる」
-ことから来る。倍率は実測（release 300,587,037 bytes の Parquet に対し store 1,812,189,184 bytes、
-6.03 倍）の上に置く。
-
-hydrate の atomic publication が対応する filesystem は、case-sensitive で hard link、同一 directory
-内の `os.replace`、file fsync、directory fsync を提供する Linux / WSL 上の local POSIX filesystem
-（CI の ext4/overlayfs を含む）である。開始前に小さな probe file でこれらを検査する。temporary と
-destination は必ず同じ directory に置く。NFS/CIFS、FUSE/DrvFS、directory fsync を提供しない
-filesystem、Windows native path は未対応であり、market store の置き場に使わない。replace 失敗時は
-temporary を除去して直前の store を保持する。
-
-<a id="l2-calibration"></a>
-<a id="l2-calibration-builds"></a>
-
-## L2較正store
-
-calibration の cohort（panel・panel diagnostics・forward outcome）は typed Parquet の L2 dataset
-として publish する。Arrow schema は `PanelRow` / `PanelDiagnostics` / `ForwardReturnRow` から
-導くので、行の契約と保存列がずれない。partition は cohort の as-of の `year/month`。
-
-### 構築・発行・採用
-
-cohort を 1 つ書くと3 datasetのimmutable buildを先に完成させ、dataset manifestの
-`cohort_inventory`へ`complete / empty / partial / not_computed`、row数、typed source digest、
-入力cutoff、そしてmeasurement policy（rules hash・panel variant・production authority）を
-cohort・role別に固定する。measurement policyがmanifestに居るのは、どのrulesで測ったかが
-membershipとstatusを決めるからで、これがdiagnostics rowの中にしか無いとconsumerはParquetを
-開かないと世代の正体を知れず、混在したbundleを組み立てても何も反対しない。forwardはpanelの
-policyを継承する — 観測している銘柄はそのpanelが選んだ集合なので、別のrulesを名乗ると使って
-いないcross-sectionを説明することになる。**bundleは1つのpolicyしか持てず、混在は組み立てで
-拒否する。** consumer側で気づく設計だと、誰かが読むまでstoreが混在を抱えたままになる。
-
-**bundle manifestはcohort inventoryを持たない。** 各dataset manifestが自分のbuildが持つcohortを
-既に述べているので、bundleへの複製は同じ事実の2つ目の置き場所であり、両者が一致することを確認する
-3つ目・4つ目の場所を作る。bundleが解決されるときに3つのdataset manifestから合成し、合成できない
-ものを拒否する — 3 datasetのcohort集合が違う、計算済みpanelにdiagnosticsが無い、roleが別のrulesを
-名乗る、panelとdiagnosticsの入力が違う、cohort keyが正規のas-ofでない、panelのcutoffがas-ofと違う、
-forwardの観測がcross-sectionより前、policyが混ざる。同じ合成をassemblerがpublish前に、remote
-publisherがCAS前に通す。複製が無いので、食い違いようがない。panel/diagnosticsのcutoffはcohort as-ofと一致し、forwardは
-実際に観測したmarket data cutoffを持つ。古いpanelを保持したままforwardだけ後日のsnapshotで更新でき、
-dataset全体へ過去の全source世代を累積しない。最後に3 manifestを
-`CalibrationBundleManifest`へ束ね、`lake/pointers/calibration/current.json`を1回だけ切り替える。
-**mutableなstateはこのbundle pointer 1つだけである。** cohort writeは新しいdataset manifestの
-refを値として返し、触っていないdatasetは現行bundleから引き継ぐ。dataset別のpointerを別に持つと、
-公開したgenerationとwriterの継続状態が2つの別々のstateになり、次のwork generationへ運ばれるのは
-片方だけになる。同じas-of範囲を2回目に走らせてforwardだけ成熟させる経路は、まさにその引き継がれ
-なかった側を読む。
-書き換わるのは対象cohortの月partitionだけで、他の月はcontent-addressed objectを引き継ぐ。
-
-bundleは組み立てのtransaction identityとして`assembled_by_git_commit`を持つ。3 datasetのproducer
-commitが一致することは要求しない — 既存panelを再計算せずmatured forwardだけを更新する通常運用が、
-無関係なcommitを1つ挟むだけで止まってしまう。datasetがcarryできるかは、そのdatasetの
-`transform_fingerprint`、cohort source、cutoffで判定する。
-
-forwardの観測規則（control-event exitを使うかなど）は`ForwardObservationPolicy`としてforwardの
-`transform_fingerprint`へ入る。1つのstoreは1つのpolicyしか持てず、別policyで作られた月をcarryする
-buildは拒否される。storeが名乗るpolicyはbundle manifestの中にあり、readerがどのidentityを期待するか
-だけを決める（rowsがそのpolicyで作られた証明はbuild自身のfingerprintが持つので、書き換えは拒否を
-生んでも受理を生まない）。pointerが名乗るmanifestの中に置くのは、世代の切替を1つのatomicな行為に
-するためである — 契約を別fileに置くと、pointerが動かないままそのfileだけが新しくなり、serveして
-いない世代を名乗りながらserveしている世代を読めないstoreができる。比較用baselineの`--without-control-event-exits`はdefault storeでは拒否し、
-別`--calibration-dir`を要求する。
-
-`contract_version`はdatasetごとに持つ。object keyへ入る唯一の互換性表示なので、片方のrow型が
-列を得たときに同じ`contract=v1`が2つの列構成を指すと、versionだけで判断する外部readerが違う形を
-読む。drift gate `check_l2_contract_versions`が記録済みschema signatureと実際のschemaを突き合わせ、
-bumpせずにrow型を変えた変更を落とす。signatureは列・key・partitionに加えreaderが実際に比較する
-`baibai.*` metadataも署名するので、列を変えずrow型名だけを変えた場合も落ちる。**gateが赤いときの
-修復は`contract_version`を上げて新しい版として記録することであり、記録済みsignatureの上書きではない。**
-上書きはgateを緑にしたまま同じ版に2つの列構成を持たせる — 版だけで判断する外部readerが違う形を読む、
-まさにこのgateが防いでいる状態である。failure messageはその修復を名指す。cache identityも
-datasetごとに導く — forwardへ列を1つ足してpanelの81 cohortが再構築になるのは、値を動かせない変更に
-数時間と数百MBを払ううえ、「再構築が要る」という信号の意味を薄める。screening閾値と評価式の意味は
-panel / diagnosticsの値を決めるが、forwardの観測 (entry / exit / 配当) は決めない。
-
-**契約版を問う場所はrowをdecodeする側だけである。** bundleの解決はdigest edgeを閉じる構造的な行為で、
-forwardがv2へ動いた世代もpanelについては真の記述なので、解決時にversionを問うと1 datasetの契約変更が
-bundle全体をunresolveにし、完全にdecodeできるpanelが要求される前に拒否される。generationをcanonicalに
-するadoptionだけが3 dataset全ての契約版を問う。
-
-到達している範囲は**読み取り側**である。契約が動いたdataset自身はbuild全体を作り直す必要が残る
-（`_publish_cohort`が旧契約のpartitionをcarryできず、bundleは3 datasetのcohort集合一致を要求するため、
-build途中で1 datasetだけを作り直せない）。段階的なdataset単位upgradeは別phaseとする。
-
-build identityはcohort別typed `SourceRef`、その dataset を最後に作った`producer_git_commit`、
-semantic dependency closureのAST digestとforward observation policyを含む`transform_fingerprint`、
-`contract_version`、full primary key、partition/object hashである。panelは`(asof,ticker)`、diagnosticsは
-`(asof)`、forwardは`(asof,ticker,horizon)`を一意にし、全rowのyear/month所属をwrite/read両側で
-検査する。
-
-semantic dependency closureは手で並べず、その dataset を作る module（panel / forward）から
-importで到達するengine moduleを辿って求める。手で並べたlistは、載っているmoduleが新しいhelperを
-importした時点で遅れる — 行の値は変わったのにfingerprintが黙るので、旧cohortが新しい意味の行と
-同じidentityで並ぶ。この経路で入ってくるのは`foundation/coerce.py`や`screening/metric_quality.py`の
-ような、どのcalibration moduleも名指していないが値を決めているhelperである。2つのdatasetは別々の
-entryから辿るので、outcomeの観測を変えてもpanelの月は無効化しない（唯一の共有だったentry lagは
-horizon契約が持つ）。
-
-closureの各moduleは、bytesではなく位置とdocstringを落としたASTのdumpをhashする。コメント・
-docstring・整形は行の値を動かせないのに、bytes hashではhash対象の31%を占めて全cohortを捨て
-させる。parseはbytes hashの216倍かかり、fingerprintはpublishするpartitionごとに取られるので、
-digestはsource text自体をkeyにmemoiseする。依存のversionは互換境界（major.minor）までを入れる。
-
-write APIはsource refのclosureを先に解決し、source省略を受け入れない。同じ source を何度
-名指しても検証は operation ごとに 1 回で、writer lock を持つ間は immutable な source が
-動かないことがそれを許す。retired CSV archive のように 1 つの source を全 cohort が指す場合、
-参照ごとに払うと 500MB × 81 cohort が 1 回の migration で数百 GB の hash になる。cohort書き込みは生成中の
-generationに対して行い、canonical currentへ進むのはgeneration adoptionの1経路だけである。
-
-**部分範囲の再計算は、範囲外の既存cohortを黙って落とさない。** `--force`はstoreをhard linkで
-引き継がずgenerationを空から始めるので、1年を直すつもりの実行がその1年だけを持つcurrent bundleを
-公開しうる。adoptionの直前に「今serveしている集合」と「これからserveする集合」を比較し、落ちるものが
-あれば名指して拒否する。
-
-### 障害と復旧
-
-**壊れたstoreは、その場では直さない。** 解決できないstoreへのbuildは`--force`の有無にかかわらず
-拒否し、pointerもmanifestも1バイトも動かさない。復旧は別の`--calibration-dir`へfull buildし、読める
-ことを確認してからdirectoryを入れ替える。in-placeで直すには「今serveしている集合」が要るが、それは
-まさに壊れて読めないものであり、推定で埋めれば破壊的な再構築が推定の上で走る。別directoryなら
-入れ替える前に読めるし、旧directoryはそのまま残るのでrollbackもできる。
-
-これはstate数の判断でもある。in-place復旧を持つと、通常buildは「読めるstoreへのbuild」と「壊れた
-storeへのbuild」の2つの意味を持ち、`--force`の意味・drop guardの比較対象・retryの扱いがその分岐ごとに
-変わる。1人運用でめったに起きない障害のために、毎日の経路が常時その分岐を抱えることになる。
-
-**pointerを失ったstoreは空のstoreではない。** publishした痕跡（bundle manifest）が残る限り解決は
-fail closeする。両者を同じ「まだ何も無い」として扱うと、次のbuildがstoreを新規扱いして書き潰す。
-retentionは既にこの区別でsweepを止めており、readerだけが「空」と答える状態が食い違いである。
-
-### 世代の採用と読み取り一貫性
-
-adoptionはbundleが閉じているものだけを歩く。bundle manifest → dataset manifest → partition object
-→ 保持するcohort sourceとそのfileであり、directory treeではない（treeには追い越された世代も居る）。
-全partition objectのdigest・size・schema・row countをpointerの前に検証する。generationはstoreをhard linkで複製して作るので、carryされたobjectは最初からstore側と
-同じinodeを共有している。同一inodeにinstallもcompareも不要であり、残るのはこのbuildが実際に作った
-ものだけになる。CLIはclosure object数、hashしたbytes、installしたobject数とbytes、再利用した
-object数を出力するので、更新1回のI/Oがstore全体へ広がったことはwall timeより先に見える。
-
-cohortごとのcarry検査がpresence/sizeで止まるのはこのためで、月を1つ触るたびにdataset全体をhashすると
-書き込み回数の二乗に比例する。readerはbundle pointerを開始時に1回だけ固定し、explicit `empty`の
-0 rowsだけを`[]`として返す。inventoryに無いcohortと`partial / not_computed`はfail-closeする。
-
-**固定は呼び手が行う。** `published_cohorts` / `read_panel` / `read_forward` は世代を受け取り、
-渡されなければcurrentを解決する。1つの測定はcohort列挙・forward rows・rules identity・panel rowsの
-4回以上のreadでできているので、それぞれがcurrentを解決すると、途中に入った publication が
-「片方の世代のpanel」と「もう片方の世代のoutcome」を1つの効果量へ入れる。個々のreadは全てvalidで
-digestもschemaも反対しないため、報告だけが何も生成していない数値になる。calibrationを読む分析tool
-（`tools/experiments/measure_*`）は入口で世代を1回固定し、以降のreadへ渡す。
-
-calibration cohortは、全datasetが実際に読んだsealed SQLite snapshotのidentityだけを記録する。
-snapshot bytes自体はbuild終了時に回収する。cohortが読む入力にはL1 factだけでなくlake外の
-`source_coverage`も含まれ、L1 retentionも過去releaseを恒久保持しないため、L1 releaseを併記して
-「同じ入力を将来再構築できる」とは主張しない。
-
-production method変更のauthorityは、保持済みpanel / forward / diagnosticsのdigest closure、producer・
-rules・measurement policy identity、3y/5y coverageとrequired metricで判定する。logicやrulesを変更した
-場合は、その時点の完全なmarket storeから全cohortを再buildして新しいgenerationとして比較する。
-exact replay専用のcoverage ledger objectや2GB snapshot保存は持たない。
-
-### 保証範囲
-
-`L1ReleaseSourceRef`のresolverは、固定releaseを使う一般用途のためrelease manifestからdataset manifest、
-Parquet objectまでdigestで検証する。既存のimmutable v1 calibration manifestにそのrefがあれば読み取れる
-が、現行calibration writerは生成せず、production authorityにも使わない。
-
-cohortのinput cutoffとsealed snapshot identityが保証するのは**どのstore世代を読んだか名指せること**
-であって、その値が当時同じ形で入手できたことではない。J-Quantsのadjusted price、master、JPX flagは
-revisionを含み、完全なvintageではない（[`data-sources.md`](./data-sources.md)）。較正結果を
-live deploy可能なhistorical alphaとして読まず、PIT不完全なfieldに依存するmetricはその前提込みで
-保守的に解釈する。
+hydrateは同一filesystem上のtemporary storeへ書き、`integrity_check`、foreign key、manifest row数を
+確認してから`os.replace`する。途中失敗時は直前のstoreを保持する。current以外を使う場合は
+`--release`と`--manifest-sha256`、またはtyped `--release-ref`で固定する。
 
 ## 保持とGC
 
-retention の root は 2 種類で、そこから到達できる object は齢によらず残す。
-
-- calibration bundle の current（3 datasetの完全closure）
-- L1 の current release
-
-`gc` は mirror の形をした directory であれば何に対しても回せるので、この 2 root はどちらも live で
-ある。**較正 store（`stores/screening/calibration/`）自身が bundle root を持つ mirror** で、
-`lake gc --mirror stores/screening/calibration` は pointer から 3 dataset の closure を辿って全 object を
-到達可能にする。bundle root を「R2 publish 用」と読むと、この store 全体が 30 日の grace の後に
-削除候補へ変わる。検証は下の dry-run で `roots` に pointer が出ることを見る。
+retention rootはL1 current releaseだけである。そこから到達できるmanifest/objectは保持し、未到達objectと
+stagingだけをgrace期間後の候補にする。
 
 ```bash
-uv run baibai-engine lake gc --mirror <local-mirror>
-uv run baibai-engine lake gc --mirror <local-mirror> --apply --plan-hash <hash>
+uv run baibai-engine lake inventory --mirror stores
+uv run baibai-engine lake gc --mirror stores
+uv run baibai-engine lake gc --mirror stores --apply --plan-hash <hash>
 ```
 
-**世代を無期限に到達可能へ留める機構は持たない。** 公開した study をそれが読んだ bytes から再現
-する能力は、この store が提供するものではない — 記録は report であり、report が名指した世代を
-すべて抱えることは、store が「今何を serve しているか」を言えなくなる道筋そのものである。
+`gc`は既定dry-runで、apply時はwriter lock内で再planし、operatorが確認したplan hashと一致した候補だけを
+削除する。較正storeはlake GCの対象外である。
 
-`gc` は既定がdry-runで、pointer exact bytes、全root manifest/object digest、candidate identityを
-plan hashへ閉じる。`--apply`はpublisherと共通のlocal writer lock取得後に再planし、同じ実行の中で
-削除まで終える。plan hashがoperatorの読んだ planへ束縛し、lockが並行publishを排除し、lock内の
-再planがrootの実状態に対して候補を計算し直し、削除直前に各candidateのbytesを再検証する。間に
-到達可能になったcandidateは再planの結果を変えるのでloopに入らない。markして1週間後に消す二段構えは
-何も足さない — 競合は既に排除されており、planner自体の誤りは2回目も同じ答えを計算する。単独運用で
-収集を終えるのに2回の実行が要るだけで、それはretention policyが実行されなくなる道筋である。待つ
-場所はcandidateになるまでの30日grace側にある。rootが未解決、object不足、pointer更新、candidate
-差替えのいずれでも削除を拒否する。publish直後の`--apply`は、前世代を固定して読んでいる実行中の
-runからその世代を外し得る — 結果はfail-closeの一時errorで、再実行すれば新しいcurrentを読む。
+## 較正store
 
-`lake/staging/`もGCの対象domainである。in-flightのstagingとsealed snapshotが置かれる場所で、
-killされたoperationも失敗したbuildも自分の後片付けを実行できないため、7日のgrace後に回収する。
-manifestから到達しないので、age以外に回収の根拠がない。失敗したbuildのstagingを別の場所へ退避して
-長く保持することはしない — 誰も開かない事故調資料である。
-
-calibration storeのwork generationはstoreのsiblingとして作られる（storeをhard linkで複製して
-作るため）。これはlakeのどのprefixにも入らないので、次のbuildが — writer lockを持っている以上、
-live generationは存在しえない — 起動時に破棄し、回収したbytesを出力する。
-
-容量目標は1つのpolicyをclassへ分けて持つ。`lake inventory`の`capacity`が全classを同じ表で出す
-ので、あるclassがdesign上の理由で増えたことを、そのclassが対して測られている目標に対して読める。
-
-| class | 内容 | soft budget |
-| --- | --- | --- |
-| `published` | canonical / analytical Parquet、manifest、pointer。R2が日常的に持つ graph | 10 GiB |
-| `workspace` | in-flight staging と失敗 build が残したもの。どのmanifestにも属さない | 20 GiB |
-
-budget は class ごとに持ち、合算では持たない。単一の数字で報告すると大きい方の budget が小さい方の
-超過を隠すからで、published graph が目標を超えても失敗 build が 2 GB 積んでも、合算では何も
-警告しない。
-
-GC の候補は current closure から未到達な object だけで、grace 期間を過ぎたものを同じ plan hash へ
-固定し、1 回の sweep で local mirror から削除する。R2側の削除はBucket Lock
-満了後にDelete専用retention finalizerが同じcandidate identityを検証する運用境界とする。
-
-**L2 calibration はローカル資産で、R2 へ publish しない。** 較正 store は market/ledger evidence から
-再生成できるローカル成果物で、cloud 側にこれを読む consumer が居ない。R2 に calibration bundle
-pointer は存在せず、bundle を出す publish 経路も持たない。読者が現れた時点で設計し直す。
-
-ローカル資産でいられる理由は、cloud側にconsumerが居ないことである。
-
-**保証の範囲**: cohort manifestは読んだsnapshotのdigestとcapture時刻を残し、L2 bundleは生成済みの
-panel / forward / diagnosticsをcontent-addressed graphとして保持する。元のsnapshotや過去L1 releaseを
-retention rootにはしない。これは「どのgenerationを読んだか」と「現在保持する評価結果が改変されて
-いないか」を保証し、将来codeによる全入力のexact replayまでは保証しない。
-
-## 較正storeの更新と移行
-
-current bundleに問題がある場合、直すのは前へ build することである。local storeで作り直した
-generationを `calibration-build` が publish すれば、bundle pointer は 1 回のCASでそれを指す。
-これは較正 store 内で完結する操作で、R2 は関与しない。
-
-旧CSV storeからの移行機構は持たない。**旧 store を捨てて全 cohort を再構築する。** 実測では、
-rulesがその間に動いているため旧storeのcohortは1件もそのまま使えず、移行を作っても達成するのは
-「現行codeが読めないbytesを新store内に保存する」ことだけだった。読み返せず・混ぜられず・
-再計算もできないbytesは、定義上ゼロ価値である。旧rulesで測った過去の計測値は失われるが、
-それは設計自身が「旧rulesのcohortを現行集計に混ぜない」ために拒否していたものである。
-
-## セキュリティと実環境検証
-
-出力へ何を出さないかは、その出力が誰の手に渡るかで決まる。**共有される成果物** — remote publish
-report、Discord通知、CI artifact、そこへ載るerror — にはcredential、bucket URL、
-そしてlocal filesystem pathを出さない。publish reportがrelease ID・pointer ETag・転送counterだけで
-できているのはこのためである。**operator-local CLI**（`inventory`、`release`、`hydrate`、
-`dehydrate`、immutable installのerror）はlocal pathを出す。operatorが次に触るのはその
-pathそのものであり、隠すとdebug可能性を失うだけで誰も守らない。共有される場所へこれらのoutputを
-そのまま貼る運用にしない。
-
-R2 credentialはroleを分ける。readerはGet/Headだけ、publisherはGet/Head/Putだけ（Deleteなし）、
-retention finalizerだけがDeleteを持つ。Bucket Locksはimmutable object/manifest/archive prefixへ適用し、
-mutableな`lake/pointers/`と`lake/staging/`は対象外にする。
-
-merge gateは各stack headの通常CIに加え、`.github/workflows/lake-acceptance.yml`を実行する。
-workflowがdefault branchへ入る前はrepository ownerがsame-repository PRへ
-`lake-acceptance-approved` labelを付け、eventのexact head SHAをcheckoutして検証する。default branchへ
-入った後の再検証はexact 40文字SHAでmanual dispatchする。workflowは`acceptance`を名前に含む
-排他専用bucket以外を拒否する。全caseがcanonical pointer keyを操作するためpytestは`-n 0`で直列実行する。
-実R2で確認するのはconditional PUTのstale `If-Match` / existing `If-None-Match`、PUT直後のHEAD/GET、
-tiny L1 publish→remote closure download→reader→hydrate、commit後errorのexact target / different
-successor / unreadable reconciliation、wrong credential errorのredactionである。partial cache、wrong
-digest、concurrent healerはR2 protocolではないのでdeterministic unit testで検証する。
-credentialはvalidation/setupへ渡さず、actual R2 stepだけが専用publisher tokenを持つ。production-size
-exportは上記reference acceptance reportをhead SHAと一緒に保存する。production bucketとcanonical storeをacceptanceに使わない。
-
-**acceptanceは専用bucketと専用tokenだけで走る。** workflowは `R2_LAKE_ACCEPTANCE_BUCKET`
-variableと `R2_LAKE_ACCEPTANCE_ACCESS_KEY_ID` / `R2_LAKE_ACCEPTANCE_SECRET_ACCESS_KEY` の 2 secretを
-読む。tokenはその bucket だけへ Get/Head/Put/Delete を持つ。**日次のpublisher tokenで代用しない** —
-acceptance bucketへは403を返すうえ、role分離の設計がその代用を禁じている。secretが揃っているかは
-dispatchで分かる: `Validate exact head without credentials`までは通り、揃っていなければactual R2 stepが
-`required environment variable is missing: R2_ACCESS_KEY_ID`で停止する。
+calibrationは再生成可能なローカルSQLite snapshotである。panel、diagnostics、forward outcomeを
+`current.sqlite`へまとめ、build完了後に一度だけatomic replaceする。generation graph、manifest、
+pointer、CAS、remote publish、過去generation保持は行わない。
 
 ```bash
-gh secret list | rg R2_LAKE_ACCEPTANCE
-gh variable list | rg R2_LAKE_ACCEPTANCE
-BAIBAI_R2_ACCEPTANCE=1 uv run pytest -n 0 -vv tests/integration/test_lake_r2_acceptance.py
+uv run baibai-engine screening calibration-build \
+  --start <YYYY-MM-DD> --end <YYYY-MM-DD> \
+  --sqlite-path stores/market/market.sqlite \
+  --calibration-dir stores/screening/calibration
 ```
+
+`--force`は対象cohortを現行入力で再計算する。snapshot contractが変わった場合は旧storeを移行せず、
+完全なmarket storeから再構築する。
+
+## セキュリティ
+
+共有されるpublish report、通知、CI artifactへcredential、bucket URL、local pathを出さない。
+operator-local CLIは復旧に必要なlocal pathを表示してよい。R2 tokenはreader、publisher、retention
+finalizerで権限を分け、production bucketを試験用途に使わない。remote実装のprotocol確認はdeterministic
+unit testとlocal fakeで行い、専用acceptance workflowやexact workflow auditを運用条件にしない。

@@ -7,7 +7,7 @@ Read-only app invariants:
 UIの面は7つで、3タブ (`/` Dashboard、`/macro` Macro、`/stocks` Stocks) と
 タブなし詳細 (`/macro/reports/:contextId` Macro report、`/stocks/shortlist` Shortlist、
 `/stocks/assessments/:assessmentId` Bargain assessment、`/securities/:ticker` Security detail)
-である。ヘッダーの歯車 menu は GitHub Actions の run 一覧へ外部 link する。proposal全state、
+である。ヘッダーの歯車 menu は GitHub Actions の run 一覧へ外部 link する。assessment全state、
 operation active/completed、portfolio outcomeをquery-only viewで表示する。
 Dashboardは前営業日の機械実行との差分 (候補プールの出入り、機械E[r]の変化、
 FVに達した保有、macro readingの注記と分布の端の遷移) を観測として1区画に出す。

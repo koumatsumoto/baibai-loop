@@ -41,7 +41,6 @@ from .cache import (
     backfill_master_command,
     bootstrap_cache_command,
     invalidate_coverage_command,
-    refresh_buyback_reports_command,
     refresh_edinet_documents_command,
     verify_cache_coverage_command,
 )
@@ -173,27 +172,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="EDINET document-list lookback window in calendar days (default 540)",
     )
 
-    buyback_parser = subparsers.add_parser(
-        "refresh-buyback-reports",
-        help="read the buyback authorization state out of listed form-220 filings",
-    )
-    buyback_parser.add_argument(
-        "--asof",
-        required=True,
-        help="latest reporting date to consider (YYYY-MM-DD)",
-    )
-    buyback_parser.add_argument(
-        "--lookback-days",
-        type=int,
-        default=540,
-        help="how far back to read filings from --asof, in calendar days (default 540)",
-    )
-    buyback_parser.add_argument(
-        "--sqlite-path",
-        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
-        help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
-    )
-
     capital_control_parser = subparsers.add_parser(
         "refresh-capital-control",
         help="re-read the TSE capital-policy disclosure list and the JPX delisting record",
@@ -299,9 +277,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="canonical shortlist whose retained entries replace a pruned previous run",
     )
     select_parser.add_argument(
-        "--longlist-history-dir",
+        "--ranked-set-history-dir",
         help=(
-            "persisted daily longlist records, used as the previous candidate set "
+            "persisted daily ranked_set records, used as the previous candidate set "
             "when the prior as-of has been pruned out of the run store"
         ),
     )
@@ -311,19 +289,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="published macro context ID (default: latest eligible context)",
     )
     select_parser.add_argument(
-        "--top",
-        type=int,
-        default=10,
-        help="maximum number of candidates to emit (default 10)",
-    )
-    select_parser.add_argument(
         "--rules-path",
         default=os.environ.get("SCREENING_RULES_PATH") or str(DEFAULT_RULES_PATH),
         help=f"screening rules path (default: SCREENING_RULES_PATH or {DEFAULT_RULES_PATH})",
-    )
-    select_parser.add_argument(
-        "--profile",
-        help="selection profile to apply (default: rules.selection.default_profile)",
     )
     select_parser.add_argument(
         "--detail",
@@ -332,12 +300,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="selection output detail (default: summary)",
     )
     select_parser.add_argument(
-        "--longlist-top",
+        "--review-cap",
         type=int,
         default=20,
-        help=(
-            "emit the Value / Carry Lane Longlist before Attention allocation (0-100; default 20)"
-        ),
+        help="maximum ranked candidates sent to human review (0-100; default 20)",
     )
     select_parser.add_argument(
         "--output-path",
@@ -376,23 +342,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="publish a shortlist judgment",
     )
     shortlist_commands = shortlist_parser.add_subparsers(dest="shortlist_command", required=True)
-    shortlist_preflight = shortlist_commands.add_parser(
-        "preflight",
-        help=(
-            "choose reuse of the pulled run store's publication or one current-code "
-            "rerun before consuming retention"
-        ),
-    )
-    shortlist_preflight.add_argument("--asof", required=True, help="target date (YYYY-MM-DD)")
-    shortlist_preflight.add_argument("--db", help="application DB path")
-    shortlist_preflight.add_argument("--runs-db", help="screening run store path")
-    shortlist_preflight.add_argument(
-        "--previous-run-revision-id",
-        help="explicit greatest-prior run when preflight reports ambiguous previous publications",
-    )
-    shortlist_preflight.add_argument(
-        "--repo-root", default=".", help="repository root whose checked-out commit is evaluated"
-    )
     shortlist_publish = shortlist_commands.add_parser(
         "publish",
         help="publish a shortlist draft as an immutable judgment bound to a screening run",
@@ -593,11 +542,9 @@ def main(argv: list[str] | None = None) -> int:
         # no provider credentials are needed.
         return select_command(
             asof_date=_parse_iso_date(args.asof),
-            top=args.top,
             rules=load_screening_rules(Path(args.rules_path)),
-            profile=args.profile,
             detail=args.detail,
-            longlist_top=args.longlist_top,
+            review_cap=args.review_cap,
             output_path=Path(args.output_path) if args.output_path else None,
             force=args.force,
             regime_sqlite_path=Path(args.sqlite_path),
@@ -607,8 +554,8 @@ def main(argv: list[str] | None = None) -> int:
             macro_context_id=args.macro_context_id,
             previous_run_revision_id=args.previous_run_revision_id,
             previous_shortlist_id=args.previous_shortlist_id,
-            longlist_history_dir=(
-                Path(args.longlist_history_dir) if args.longlist_history_dir else None
+            ranked_set_history_dir=(
+                Path(args.ranked_set_history_dir) if args.ranked_set_history_dir else None
             ),
         )
 
@@ -634,27 +581,6 @@ def main(argv: list[str] | None = None) -> int:
             horizons=args.horizons,
             output_path=Path(args.out) if args.out else None,
         )
-
-    if args.command == "shortlist" and args.shortlist_command == "preflight":
-        import sqlite3
-
-        import yaml
-
-        from baibai_engine.screening.shortlist_preflight import shortlist_preflight
-
-        try:
-            report = shortlist_preflight(
-                as_of=_parse_iso_date(args.asof),
-                runs_db_path=Path(args.runs_db) if args.runs_db else RUNS_DB_PATH,
-                app_db_path=Path(args.db) if args.db else APPLICATION_DB_PATH,
-                repo_root=Path(args.repo_root),
-                previous_run_revision_id=args.previous_run_revision_id,
-            )
-        except (OSError, ValueError, sqlite3.Error) as error:
-            print(f"shortlist preflight failed: {error}", file=sys.stderr)
-            return 1
-        yaml.safe_dump(report, sys.stdout, sort_keys=False, allow_unicode=True)
-        return 1 if report["decision"] == "blocked" else 0
 
     if args.command == "shortlist":
         from baibai_engine.screening.shortlist_cli import publish_shortlist
@@ -829,14 +755,6 @@ def main(argv: list[str] | None = None) -> int:
             sqlite_path=Path(args.sqlite_path),
             asof_date=_parse_iso_date(args.asof),
             providers=providers,
-        )
-
-    if args.command == "refresh-buyback-reports":
-        return refresh_buyback_reports_command(
-            asof_date=_parse_iso_date(args.asof),
-            lookback_days=args.lookback_days,
-            providers=providers,
-            sqlite_path=Path(args.sqlite_path),
         )
 
     if args.command == "backfill-history":

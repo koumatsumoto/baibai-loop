@@ -9,10 +9,8 @@ from .store import (
     RunStoreConflictError,
     RunStoreNotFoundError,
     ScreeningRunStore,
-    application_git_commit,
     initialize_run_store,
     run_store_path,
-    unchanged_application_git_commit,
 )
 
 __all__ = [
@@ -26,8 +24,6 @@ __all__ = [
     "ScreeningRunReader",
     "ScreeningRunStore",
     "SelectionPublication",
-    "application_git_commit",
     "initialize_run_store",
     "run_store_path",
-    "unchanged_application_git_commit",
 ]

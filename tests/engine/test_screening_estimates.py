@@ -11,8 +11,8 @@ if str(SRC) not in sys.path:
 
 from baibai_engine.screening.candidate_build import _close_from_snapshot
 from baibai_engine.screening.estimates import (
-    BUYBACK_CLIP,
     REALIZATION_RATE_ANNUAL,
+    SHARE_COUNT_CLIP,
     UPSIDE_CAP,
     estimate_expected_return,
 )
@@ -139,7 +139,7 @@ class EstimateExpectedReturnTest(unittest.TestCase):
         estimate = estimate_expected_return(financial, derived, close=1000.0)
         assert estimate is not None
         # 希薄化 30% は clip で -5% まで。carry = 0.02 - 0.05 = -0.03
-        self.assertAlmostEqual(estimate.carry_annual, 0.02 - BUYBACK_CLIP)
+        self.assertAlmostEqual(estimate.carry_annual, 0.02 - SHARE_COUNT_CLIP)
 
     def test_returns_none_without_any_anchor(self) -> None:
         estimate = estimate_expected_return(_financial(), _derived(), close=1000.0)

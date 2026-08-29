@@ -107,12 +107,9 @@ def canonical_object_key(
     validate_dataset_name(dataset)
     version = _positive_version(contract_version)
     digest = validate_sha256(content_sha256)
-    if layer == "l1_canonical":
-        base = f"lake/l1/canonical/{dataset}"
-    elif layer == "l2_analytical":
-        base = f"lake/l2/{dataset}"
-    else:
-        raise ValueError("layer must be l1_canonical or l2_analytical")
+    if layer != "l1_canonical":
+        raise ValueError("layer must be l1_canonical")
+    base = f"lake/l1/canonical/{dataset}"
     partitions = "/".join(partition_segments(partition_values, partition_by=partition_by))
     return validate_lake_object_key(
         f"{base}/contract=v{version}/{partitions}/part-{digest}.parquet"
@@ -136,12 +133,3 @@ def release_manifest_key(*, release_id: str) -> str:
 
 def current_l1_pointer_key() -> str:
     return "lake/pointers/l1/current.json"
-
-
-def calibration_bundle_manifest_key(*, bundle_id: str) -> str:
-    validate_identifier(bundle_id, label="bundle_id")
-    return validate_lake_object_key(f"lake/manifests/calibration-bundles/{bundle_id}.json")
-
-
-def current_calibration_bundle_pointer_key() -> str:
-    return "lake/pointers/calibration/current.json"

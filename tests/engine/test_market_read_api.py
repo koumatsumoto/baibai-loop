@@ -64,12 +64,12 @@ def _seed_earnings(path: Path, rows: list[tuple[str, str]]) -> None:
     connection = sqlite3.connect(path)
     try:
         connection.execute(
-            "CREATE TABLE jquants_earnings_calendar("
+            "CREATE TABLE jpx_earnings_calendar("
             "announcement_date TEXT NOT NULL, ticker TEXT NOT NULL, "
             "PRIMARY KEY (announcement_date, ticker))"
         )
         connection.executemany(
-            "INSERT INTO jquants_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",
+            "INSERT INTO jpx_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",
             [(announcement_date, ticker) for ticker, announcement_date in rows],
         )
         connection.commit()

@@ -155,13 +155,6 @@ no_implicit_optional = true
 packages = ["baibai_engine", "baibai_web", "baibai_batch", "tools"]
 plugins = ["pydantic.mypy"]
 enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
-# generate_brand_assets.py declares Pillow in PEP 723 inline metadata and runs under
-# `uv run --script`, so the native image library stays out of the shared lock and out of
-# every workflow's install. It is therefore the one file whose imports this run cannot
-# resolve; everything else added under tools/ is checked without touching this list. A
-# second entry belongs here only for the same reason — a file whose dependencies this
-# environment deliberately does not have. Anything else is a type error to fix.
-exclude = ["^tools/generators/generate_brand_assets\\.py$"]
 
 [[tool.mypy.overrides]]
 module = [
@@ -317,8 +310,8 @@ ignore_imports = [
   # remain independent of research.
   "baibai_engine.position.cli -> baibai_engine.research.holding_review_builder",
   "baibai_engine.position.cli -> baibai_engine.research.store",
-  "baibai_engine.position.cli -> baibai_engine.proposals.store",
-  "baibai_engine.position.result_service -> baibai_engine.proposals.store",
+  "baibai_engine.position.cli -> baibai_engine.research.assessment",
+  "baibai_engine.position.result_service -> baibai_engine.research.assessment",
 ]
 
 [[tool.importlinter.contracts]]
@@ -362,7 +355,6 @@ forbidden_modules = [
   "baibai_engine.macro",
   "baibai_engine.market",
   "baibai_engine.position",
-  "baibai_engine.proposals",
   "baibai_engine.research",
   "baibai_engine.screening",
   "baibai_engine.tasks",
@@ -392,7 +384,6 @@ forbidden_modules = [
   "baibai_engine.market",
   "baibai_engine.operation",
   "baibai_engine.position",
-  "baibai_engine.proposals",
   "baibai_engine.research",
   "baibai_engine.screening",
   "baibai_engine.tasks",
@@ -402,12 +393,11 @@ forbidden_modules = [
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
-name = "read_api cannot reach writer migration provider or CLI modules"
+name = "read_api cannot reach writer or CLI modules"
 type = "forbidden"
 source_modules = ["baibai_engine.read_api"]
 forbidden_modules = [
   "baibai_engine.appdb.write",
-  "baibai_engine.appdb.migrations",
   "baibai_engine.cli",
   "baibai_engine.macro.indicators.providers",
   "baibai_engine.position.cli",

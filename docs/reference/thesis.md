@@ -24,9 +24,9 @@ thesisは新規の購入判断と保有見直しの判断根拠を固定する�
 | `input_snapshot` | ticker、判断基準日、判断時price、主要財務・valuation、source provenanceを固定した最小fact snapshot |
 | `derived` | formula ID、input fact IDs、version、as-of、unit、assumptionを持つ機械再計算値 |
 | `estimates` | 判断時に観測した入口価格、要求5年CAGR、model version・仮定を持つ3年/5年bear/base/bull |
-| `judgment` | buy/defer/rejectのAI initial proposal、提案時刻、確信度、永久損失結論、最強反対仮説、sizing、AI value captureの企業別評価 |
+| `judgment` | buy/defer/rejectのAI initial judgment、判断時刻、確信度、永久損失結論、最強反対仮説、sizing、AI value captureの企業別評価 |
 
-この4つはdata/judgment namespaceである。`permanent_loss_risks`はjudgmentを構成する軸別評価、`independent_review_ref`は別artifactのsecond-pass review envelopeへの参照、`human_evidence_override`はreview後の人間によるrisk受容としてtop-levelに置く。最終発注判断はexecution contractの別artifactであり、AI proposalへ混ぜない。
+この4つはdata/judgment namespaceである。`permanent_loss_risks`はjudgmentを構成する軸別評価、`independent_review_ref`は別artifactのsecond-pass review envelopeへの参照、`human_evidence_override`はreview後の人間によるrisk受容としてtop-levelに置く。最終発注判断はbroker操作として人間が所有し、AI judgmentへ混ぜない。
 
 ScreeningのE[r]とFV anchorは決定論的でも事実ではなくestimateである。candidate出力は`origin: estimate`、model version、unit、assumptionsを併記し、thesisへ採用する値はscenario modelのsourceとして固定する。
 
@@ -40,9 +40,9 @@ Candidate YAMLはlocalで再生成する探索成果物であり、thesisから�
 
 `input_snapshot`は`snapshot_version`と`producer_model_version`、ticker、as-of、source、factを持つ。判断時市場価格は`market_price`を正確に1件、valuationは`valuation_metric`を1件以上要求する。factはunit、as-of、`source_ids`を持ち、scenarioの起点となる利益・株数も同じsnapshotに置く。`estimates.market_price_fact_id`は判断時市場価格へjoinする。
 
-Selectionから機械転記するE[r]とFV anchorは観測factではないため、`facts`へ混ぜず`input_snapshot.screening_estimate`へ置く。このobjectは`origin: estimate`、model version、unit、assumptions、as-of、source IDsを保持し、E[r]は`annual_ratio`、FVは`JPY_per_share`で固定する。値はworkspaceの外部inputとしてhashで束縛したselection outputのlonglist rowから転記し、編集可能なshortlistや表示用percent・丸め済みFVから逆算しない。selection、estimate snapshot、workspaceのas-ofは一致を必須とする。転記元が無い旧selectionやFV欠損を推測で埋めず、bridge telemetryの欠損だけでresearch・promotionを停止しない。
+Selectionから機械転記するE[r]とFV anchorは観測factではないため、`facts`へ混ぜず`input_snapshot.screening_estimate`へ置く。このobjectは`origin: estimate`、model version、unit、assumptions、as-of、source IDsを保持し、E[r]は`annual_ratio`、FVは`JPY_per_share`で固定する。値はworkspaceの外部inputとしてhashで束縛したselection outputのranked-set rowから転記し、編集可能なshortlistや表示用percent・丸め済みFVから逆算しない。selection、estimate snapshot、workspaceのas-ofは一致を必須とする。転記元が無い旧selectionやFV欠損を推測で埋めない。
 
-外部sourceはHTTPS URLを持つ。local dataは消失し得るファイルパスを参照せず、`provider`、`dataset`、`retrieved_at`を持つ。`retrieved_at`はAI proposal時刻以前でなければならず、提案後に得た情報を判断時点snapshotへ遡及混入できない。市場価格は`observed_at`と`price_basis`（realtime / 調整済み終値 / 未調整終値）を持つ。すべてのsourceはthesisと同じtickerを明示し、source/fact/scenarioがthesis as-ofより未来の場合、source IDが解決しない場合、価格・valuationのtypeまたはunitが不正な場合は`incomplete`とする。HTML、PR body、operation sessionは説明・ID参照にとどめ、判断入力の正本を複製しない。
+外部sourceはHTTPS URLを持つ。local dataは消失し得るファイルパスを参照せず、`provider`、`dataset`、`retrieved_at`を持つ。`retrieved_at`はAI judgment時刻以前でなければならず、判断後に得た情報を判断時点snapshotへ遡及混入できない。市場価格は`observed_at`と`price_basis`（realtime / 調整済み終値 / 未調整終値）を持つ。すべてのsourceはthesisと同じtickerを明示し、source/fact/scenarioがthesis as-ofより未来の場合、source IDが解決しない場合、価格・valuationのtypeまたはunitが不正な場合は`incomplete`とする。HTML、PR body、operation sessionは説明・ID参照にとどめ、判断入力の正本を複製しない。
 
 <a id="scenario-arithmetic"></a>
 
@@ -75,7 +75,7 @@ base scenario の終端倍率は、as-of に観測した正の trailing multiple
 2. starting earnings と同じ期間について、親会社株主帰属純利益と営業利益・経常利益の比を突き合わせ、特別利益・特別損失の有無を一次開示で確認する。一過性損益の影響を除外できない起点では倍率を上振れさせない。
 3. `judgment.strongest_countercase` に、終端倍率を現観測のまま据え置いて再計算した base CAGR を数値で併記する。再計算には `scenario_arithmetic` を使い、成長・株数・配当の他条件を変えない。
 
-6088 のように粗利率 44.6% から 49.4% への改善が一次開示で実績化した lane は、3 ガードを満たせば上振れを検討できる。一方、4887 の機械 anchor 21.6 倍のように一過性 EPS の影響を受け、独立した構造機構を示せない値は採用しない。これは機械 anchor の一律採用規則ではなく、base judgment と独立反証の規律であり、engine の readiness validation は変更しない。
+6088 のように粗利率 44.6% から 49.4% への改善が一次開示で実績化したcaseは、3 ガードを満たせば上振れを検討できる。一方、4887 の機械 anchor 21.6 倍のように一過性 EPS の影響を受け、独立した構造機構を示せない値は採用しない。これは機械 anchor の一律採用規則ではなく、base judgment と独立反証の規律であり、engine の readiness validation は変更しない。
 
 <a id="5-year-base-break-even"></a>
 
@@ -117,7 +117,7 @@ max_acceptable_price = floor_to_tick(
 )
 ```
 
-日常の寄り前proposalは`baibai-engine research plan-limit`を使う。target session直前の最新完全営業日のJPX raw/unadjusted closeをSQLiteから読み、thesisの最大許容価格とboard lotへ接続する。regular session、realtime quote、板、5分freshnessは要求しない。
+日常の寄り前注文案は`baibai-engine research plan-limit`を使う。target session直前の最新完全営業日のJPX raw/unadjusted closeをSQLiteから読み、thesisの最大許容価格とboard lotへ接続する。regular session、realtime quote、板、5分freshnessは要求しない。
 
 | condition | result |
 | --- | --- |
@@ -126,37 +126,26 @@ max_acceptable_price = floor_to_tick(
 | adjusted-only、non-1 adjustment factor、価格basis不明 | `defer` |
 | 同一tickerのactive reservationあり | `defer`。元注文の再表示と追加注文を区別できないため新規注文を作らない |
 | thesis/review not readyまたはhash mismatch | `defer` |
-| `judgment.position_intent: starter` で1単元の想定約定額が starter の1注文上限を超える | `defer`（`starter_lot_exceeds_notional_cap`）。1単元へ切り上げると縮小lotの意味が消えるため |
-
-<a id="position-intent"></a>
-
-## Position intent
-
-`judgment.position_intent`は`full`（既定）と`starter`を取る。`starter`は境界にある判断を縮小 lot と bucket 上限つきで建てる宣言で、許される形は 2 つ — (a) 要求利回りが full の水準に届かない境界帯、(b) 要求は full の水準のまま、evidence に不完全な軸（`evidence_exception_axes` — buy gate が override を要求する例外集合と同じ定義）が残る lane。どちらも`sizing_action: reduced`、非`elevated`な永久損失結論、`judgment.starter_catalyst_date`（再評価を発火させる日付）を同時に要求する。evidence が完全で要求も full 水準なら starter は取れない。帯・1注文上限・bucket上限の数値と撤退基準は[`portfolio-management.md`](../portfolio-management.md#starter-band)を正本とし、機械gateは`plan-limit`の数量と`proposal create`が持つ。thesis側で帯を強制しないのは、published済みthesisを後からinvalidにするとholding reviewとassessmentが同時に止まるためである。
 
 <a id="core-hash"></a>
 
 ## Core hash
 
-core hashはthesisの identity であり、review・proposal・holding review・bargain assessment・price watchはこれで対象revisionへ束縛される。
+core hashはthesisの identity であり、review・holding review・bargain assessment・price watchはこれで対象revisionへ束縛される。
 
-**published thesisのidentityは`thesis.core_sha256`が正本である。** promoteが計算した値をそこへ記録し、以後の読み手は再計算せずその値を使う。導出のままにすると identity が「現在のモデルの性質」になり、schemaへfieldを足し引きするだけで何週間も前にpublishしたthesisのhashが動く。束縛が切れると上記5経路が同時に読めなくなり、気づくのは止まった後である。記録が無い行は再計算で埋めず名指しで拒否する（application service以外が書いた行しか到達しない経路で、再計算は現在のモデルのhashを黙って答えることになる）。
+**published thesisのidentityは`thesis.core_sha256`が正本である。** promoteが計算した値をそこへ記録し、以後の読み手は再計算せずその値を使う。導出のままにすると identity が「現在のモデルの性質」になり、schemaへfieldを足し引きするだけで何週間も前にpublishしたthesisのhashが動く。束縛が切れると上記4経路が同時に読めなくなり、気づくのは止まった後である。記録が無い行は再計算で埋めず名指しで拒否する（application service以外が書いた行しか到達しない経路で、再計算は現在のモデルのhashを黙って答えることになる）。
 
 まだpublishしていないdraftのhashはdocumentから計算する。この経路にはfieldごとの特例が1つも無く、`human_evidence_override`を除いた`model_dump`をそのままhashする。draftとreviewの整合は同一cycle内で同じ関数が両方を作ることで保たれる。
 
-`estimates.deep_discount_bps`はschemaに無い退役fieldだが、この keyを持つpublished payloadが存在するため、null限定・非serializeのfieldとして受理を続ける。identityは記録済みなので、この keyがhashに影響することはない。
-
 quantityを考える注文額の目安は[`portfolio-management`](../portfolio-management.md#capital-guidance)を正本とする。1単元が上限を超えても1単元と超過warningを出し、より安い次点へ自動変更しない。cash、dry powder、concentration、既存保有、他tickerのreservationは人間向けwarning/annotationであり、投資価値rankingや最大許容価格を変えない。同一tickerのactive reservationだけは注文の重複を防ぐため`defer`にし、human resultによる約定またはreleaseのledger反映後に再実行する。
 
-`planned_limit`のportfolio exposureは、proposalの`price_as_of`を全保有の共通評価日とし、同日のJPX raw/unadjusted close × 保有数量で一時的に再評価する。分母は、再評価した保有時価とavailable / reserved cashから同じbasisで再計算する。active reservationは市場価格ではなく`reserved_yen`を現在exposureに1回だけ加え、今回注文はprospective exposureの分子に1回だけ加える。注文はcashと保有の資産振替えなので分母に加算しない。
+`planned_limit`のportfolio exposureは、`price_as_of`を全保有の共通評価日とし、同日のJPX raw/unadjusted close × 保有数量で一時的に再評価する。分母は、再評価した保有時価とavailable / reserved cashから同じbasisで再計算する。active reservationは市場価格ではなく`reserved_yen`を現在exposureに1回だけ加え、今回注文はprospective exposureの分子に1回だけ加える。注文はcashと保有の資産振替えなので分母に加算しない。
 
 共通評価日のcloseがない、ledger評価日から共通評価日までの営業日barが欠ける、または`adjustment_factor`が未確認・非1の保有はledger評価額へfallbackする。出力はその銘柄を`ledger_fallback_tickers`とwarningの両方で明示し、`holding_valuation_status: mixed_with_ledger_fallback`としてraw closeとledger値の混在を黙示しない。fallbackやconcentration warningは人間のsizing判断に渡すが、`planned_limit`、投資価値ranking、最大許容価格を変えない。canonical ledgerも書き換えない。
 
 common-factor exposureは、選定銘柄にthesisの現行classification、その他にledgerの宣言済みtagを使う。選定銘柄以外で`common_factors`が空の銘柄は`common_factor_empty_tickers`に列挙し、その場合のcommon-factor円額・比率は宣言済みtagだけに基づく下限値である。coverage warningを併記し、閾値未満を完全なfactor分散の保証として扱わない。
 
-proposalは人間承認前の判断材料で、brokerを操作しない。AIはfill probability、当日価格方向、未報告broker状態を推定しない。人間から結果が報告された後だけledger draftを作る。指値は`plan-limit`が前営業日rawcloseから1本だけ出し、live quoteからtacticを選ぶ経路は持たない。`baibai-engine research evaluate`はthesis評価（5年base break-even）専用である。
-
-`plan-limit`出力はproposal作成用のephemeral inputである。`proposal create --thesis-id`はimmutable thesis/review ID、current DB ledger、`--market-db`で指定するcanonical market storeからplanning-limitを再検証し、入力内のpathやhashを正本へ保存しない。`approve`時にも同じmarket snapshot内でpriceとportfolio exposureを再計算し、thesis、price、quantity、expiry、ledgerのいずれかが変わっていればno-writeで新proposalを要求する。
+AIはfill probability、当日価格方向、未報告broker状態を推定しない。人間から結果が報告された後だけledger draftを作る。指値は`plan-limit`が前営業日raw closeから1本だけ出し、live quoteからtacticを選ぶ経路は持たない。`plan-limit`出力は保存しないephemeralな注文案で、判断の正本は`buy` caseを持つbargain assessment、注文・約定の正本はhuman-confirmed ledgerである。`baibai-engine research evaluate`はthesis評価（5年base break-even）専用である。
 
 <a id="permanent-loss-axes"></a>
 
@@ -180,7 +169,7 @@ proposalは人間承認前の判断材料で、brokerを操作しない。AIはf
 
 hash不一致、算術不一致、reviewが提案変更を要求した状態はreadyにしない。変更後の初期thesisを再生成し、新しいhashへreviewを取り直す。
 
-hashとrun metadataが保証するのはartifactの整合性であり、reviewerが本当に独立していることの暗号学的証明ではない。運用では初期thesisを作ったagentと異なるagent/sessionへreview artifact作成を割り当てる。reviewは`judgment.proposed_at`以後に行う。human evidence overrideはreview後に別envelopeとして追加し、`approved_by: human`、decision reference、認識したrisk axes、承認/失効時刻、proposal hash、review ID、review artifact hashを持つ。現在評価時刻がexpiry内で、参照するproposal/reviewが完全一致する場合だけbuy gateに使える。
+hashとrun metadataが保証するのはartifactの整合性であり、reviewerが本当に独立していることの暗号学的証明ではない。運用では初期thesisを作ったagentと異なるagent/sessionへreview artifact作成を割り当てる。reviewは`judgment.proposed_at`以後に行う。human evidence overrideはreview後に別envelopeとして追加し、`approved_by: human`、decision reference、認識したrisk axes、承認/失効時刻、thesis hash、review ID、review artifact hashを持つ。現在評価時刻がexpiry内で、参照するthesis/reviewが完全一致する場合だけbuy gateに使える。
 
 <a id="commands"></a>
 

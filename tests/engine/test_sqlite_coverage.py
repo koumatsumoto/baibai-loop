@@ -33,7 +33,7 @@ _DATA_TABLES = (
     "jquants_daily_bars",
     "jquants_fin_summaries",
     "jquants_master_snapshots",
-    "jquants_earnings_calendar",
+    "jpx_earnings_calendar",
     "jquants_market_calendar",
     "edinet_documents",
     "edinet_metrics",
@@ -133,7 +133,7 @@ def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
         max_date=asof.isoformat(),
     )
     conn.execute(
-        "INSERT OR REPLACE INTO jquants_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",
+        "INSERT OR REPLACE INTO jpx_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",
         (
             earnings_date.isoformat(),
             "1301",
@@ -367,7 +367,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             )
             earnings_range = conn.execute(
                 "SELECT MIN(announcement_date), MAX(announcement_date), COUNT(*) "
-                "FROM jquants_earnings_calendar"
+                "FROM jpx_earnings_calendar"
             ).fetchone()
             conn.execute(
                 "UPDATE source_coverage SET coverage_start = ?, coverage_end = ?, "
@@ -1140,7 +1140,7 @@ class SQLiteCoverageTests(unittest.TestCase):
         with _complete_coverage_database() as sqlite_path:
             conn = sqlite3.connect(sqlite_path)
             conn.execute(
-                "UPDATE jquants_earnings_calendar SET announcement_date = ?",
+                "UPDATE jpx_earnings_calendar SET announcement_date = ?",
                 ((asof - timedelta(days=1)).isoformat(),),
             )
             conn.execute(
@@ -1168,7 +1168,7 @@ class SQLiteCoverageTests(unittest.TestCase):
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
             conn = sqlite3.connect(sqlite_path)
-            conn.execute("DELETE FROM jquants_earnings_calendar")
+            conn.execute("DELETE FROM jpx_earnings_calendar")
             conn.execute(
                 "UPDATE source_coverage SET record_count = ? WHERE source = ?",
                 (0, "jpx_earnings_calendar"),

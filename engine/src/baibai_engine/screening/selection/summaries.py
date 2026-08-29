@@ -18,7 +18,7 @@ from baibai_engine.foundation.coerce import (
 from ..metrics import PRICE_HISTORY_WINDOW_DAYS
 from .candidate_diagnostics import _durability_diagnostic_of
 
-# longlist の event_warnings は、価格・EPS・配当の fact を歪め得る
+# ranked_set の event_warnings は、価格・EPS・配当の fact を歪め得る
 # corporate action / 決算跨ぎ / 開示鮮度の risk tag だけを写す。需給系
 # (previous_candidate / benchmark_laggard) は event ではないので除く。
 _EVENT_RISK_TAGS = frozenset(
@@ -29,15 +29,15 @@ _EVENT_RISK_TAGS = frozenset(
         "forecast_special_gain",
         "forecast_full_year_loss",
         "stale_financials",
-        # 悪化ゲートを判定材料なしで通ったこと。longlist 20 件は点検 view で、
+        # 悪化ゲートを判定材料なしで通ったこと。ranked_set 20 件は点検 view で、
         # `risk_tags` を持つのは推奨行だけなので、ここに入れないと点検面の半分に出ない。
         "deterioration_unmeasurable",
     }
 )
 
 # Nikkei に 3pt 以上劣後している候補を事前固定の annotation 閾値で注記する。
-# 割安 (相対劣後) を買うのが本流のため ranking / gate には使わず、entry
-# preflight の情報系列として research 側で参照する。
+# 割安 (相対劣後) を買うのが本流のため ranking / gate には使わず、Research Gate
+# の情報系列として参照する。
 BENCHMARK_LAGGARD_RELATIVE_20D_MAX = -0.03
 
 # 上場 750 暦日以上なのに直近 750 暦日の bar 本数が population 最大の 80% を
@@ -177,23 +177,6 @@ def _selection_candidate_summary(
         # dividend_split_factor は会計期間に起きた累積 factor (期間内に何も無ければ null)。
         "dividend_basis": metrics.get("dividend_basis"),
         "dividend_split_factor": metrics.get("dividend_split_factor"),
-        # 自己株券買付状況報告書の提出観測 (buyback_authorization.py が判定し、ここは転記
-        # だけ)。carry の buyback 成分は過去 1 年の株数変化なので、その carry を forward の
-        # 現金還元として narrative に書くなら取得期間の終了日と残枠を一次開示で確認する。
-        # recent_filing は提出の齢が浅いだけで枠が今も在ることではない。unknown は観測窓が
-        # 届いていない状態で、no_filing (窓の中に提出が無い) と違う。
-        "buyback_authorization_status": metrics.get("buyback_authorization_status"),
-        "buyback_status_latest_filing_date": metrics.get("buyback_status_latest_filing_date"),
-        "buyback_status_filing_age_days": metrics.get("buyback_status_filing_age_days"),
-        "buyback_status_observed_from": metrics.get("buyback_status_observed_from"),
-        # 枠の中身。提出の齢だけでは carry が forward の還元かを答えられないので、決議した
-        # 株数・金額のうち未取得の割合・直近 3 報告月の取得割合・取得期間の終了日を同じ面へ
-        # 出す。終了日が as-of より前なら、提出が新しくても forward の還元は無い。
-        "buyback_remaining_share_ratio": metrics.get("buyback_remaining_share_ratio"),
-        "buyback_remaining_amount_ratio": metrics.get("buyback_remaining_amount_ratio"),
-        "buyback_trailing_3m_acquired_ratio": metrics.get("buyback_trailing_3m_acquired_ratio"),
-        "buyback_authorization_window_end": metrics.get("buyback_authorization_window_end"),
-        "buyback_report_month_end": metrics.get("buyback_report_month_end"),
         # 資本配分・支配権イベントの typed fact (capital_control.py が読み、ここは転記だけ)。
         # 価値実現の経路がいつ・誰から来るかの文脈であり、単独で採否を決める材料ではない。
         # None は観測できていない状態で、"none" / false (観測して該当なし) と違う。
@@ -233,37 +216,19 @@ def _selection_candidate_summary(
     return summary
 
 
-def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str, object]:
-    """Render one longlist row: the pre-shortlist view of a ranked candidate.
+def _ranked_set_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str, object]:
+    """Render one ranked_set row: the pre-shortlist view of a ranked candidate.
 
-    longlist は diversity/cap による recommendation 切断 *前* の rank 済み集合を
-    そのまま監査するための view。ranking も candidate の値も変えず、rank と主要な
+    ranked_set は E[r] 順の候補を review cap までそのまま渡す view。
+    ranking も candidate の値も変えず、rank と主要な
     見積り・warning だけを平らに写す。約定用の price basis はここでは決めない
     (plan-limit が SQLite の raw close を正本にする)ため、market_price は screening
     の参考値であることを field で明示する。
     """
     metrics = mapping_or_empty(candidate.get("metrics"))
     return {
-        "rank": rank,
-        "ticker": string_or_none(candidate.get("ticker")),
-        "primary_evidence_pattern_id": string_or_none(candidate.get("primary_evidence_pattern_id")),
-        **_longlist_machine_projection(candidate),
-        # 自己株券買付状況報告書の提出観測。longlistはResearch Gateが20件を点検するviewなので、
-        # carry を forward の現金還元として narrative に書けるかの判断材料をここに置く。
-        # 提出の齢だけでは答えられない — 枠が満了していれば新しい提出でも forward の還元は
-        # 無いので、決議した株数・金額のうち未取得の割合・直近 3 報告月の取得割合・取得期間の
-        # 終了日を同じ面へ出す。`window_end` が as-of より前なら carry は過去の記録である。
-        "buyback_authorization": {
-            "status": metrics.get("buyback_authorization_status"),
-            "latest_filing_date": metrics.get("buyback_status_latest_filing_date"),
-            "filing_age_days": metrics.get("buyback_status_filing_age_days"),
-            "observed_from": metrics.get("buyback_status_observed_from"),
-            "remaining_share_ratio": metrics.get("buyback_remaining_share_ratio"),
-            "remaining_amount_ratio": metrics.get("buyback_remaining_amount_ratio"),
-            "trailing_3m_acquired_ratio": metrics.get("buyback_trailing_3m_acquired_ratio"),
-            "authorization_window_end": metrics.get("buyback_authorization_window_end"),
-            "report_month_end": metrics.get("buyback_report_month_end"),
-        },
+        **_selection_candidate_summary(candidate, rank=rank),
+        **_ranked_set_machine_projection(candidate),
         # carry のもう半分。`dividend_yield` は予想 DPS を現値で割った 1 つの数で、その額が
         # 反復する普通配当なのか一回性の特別配当なのかを区別しない。特別配当は予想年間 DPS へ
         # そのまま入るので、carry が E[r] の主キーである以上、一回性の分配は上位へ集中して
@@ -278,7 +243,7 @@ def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str
             "basis": metrics.get("dividend_basis"),
             "split_factor": metrics.get("dividend_split_factor"),
         },
-        # longlistはResearch Gateが20件を点検するviewなので、価値実現の経路を示すdated factも
+        # ranked_setはResearch Gateが20件を点検するviewなので、価値実現の経路を示すdated factも
         # ここに置く。rank へは接続しない。
         "capital_control": {
             "tse_capital_policy_status": metrics.get("tse_capital_policy_status"),
@@ -291,7 +256,7 @@ def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str
     }
 
 
-def _longlist_machine_projection(candidate: Mapping[str, object]) -> dict[str, object]:
+def _ranked_set_machine_projection(candidate: Mapping[str, object]) -> dict[str, object]:
     """Project every source-derived coordinate burned into a shortlist snapshot."""
 
     metrics = mapping_or_empty(candidate.get("metrics"))
@@ -301,14 +266,14 @@ def _longlist_machine_projection(candidate: Mapping[str, object]) -> dict[str, o
     seed_estimates = mapping_or_empty(decision_input_seed.get("estimates"))
     return {
         "name": string_or_none(candidate.get("name")),
-        # er_annual は annual_ratio (0.1 = 10%/年)。longlist view は pct で読むので x100。
+        # er_annual は annual_ratio (0.1 = 10%/年)。ranked_set view は pct で読むので x100。
         "expected_return_pct": _ratio_to_pct(optional_float(metrics.get("er_annual"))),
         "fair_value_anchor_yen": _conservative_fair_value_yen(metrics),
         # 最後の raw close を as-of の株式基準へ換算した screening 参考値。約定 limit の
         # price basis ではなく、plan-limit は SQLite の raw/unadjusted close を再取得する。
         "market_price_yen": _screening_reference_close_yen(metrics),
-        # opportunity thesis-scaffold は longlist から選ばれた銘柄も扱うため、
-        # recommendation と同じ raw estimate + provenance contract を渡す。flat fields
+        # opportunity thesis-scaffold は ranked_set から選ばれた銘柄も扱うため、
+        # raw estimate + provenance contract を渡す。flat fields
         # は人間向け表示であり、転記時の正本にはしない。
         "estimate_snapshot": {
             "as_of": decision_input_seed.get("as_of"),
@@ -446,48 +411,3 @@ def _decision_input_seed(candidate: Mapping[str, object], *, asof_date: date) ->
             },
         },
     }
-
-
-def _sweep_candidate_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str, object]:
-    durability_diagnostic = _durability_diagnostic_of(candidate)
-    return {
-        "rank": rank,
-        "ticker": string_or_none(candidate.get("ticker")),
-        "name": string_or_none(candidate.get("name")),
-        "primary_evidence_pattern_id": string_or_none(candidate.get("primary_evidence_pattern_id")),
-        "benchmark_relative_20d": candidate.get("benchmark_relative_20d"),
-        "durability_rating": string_or_none(durability_diagnostic.get("rating")),
-        "previous_candidate": candidate.get("previous_candidate") is True,
-        "reason_tags": list(string_sequence(candidate.get("reason_tags"))),
-        "risk_tags": list(string_sequence(candidate.get("risk_tags"))),
-    }
-
-
-def _sweep_changed_summaries(
-    base_by_ticker: Mapping[str, Mapping[str, object]],
-    current_by_ticker: Mapping[str, Mapping[str, object]],
-) -> list[dict[str, object]]:
-    changed: list[dict[str, object]] = []
-    for ticker in sorted(set(base_by_ticker) & set(current_by_ticker)):
-        base = base_by_ticker[ticker]
-        current = current_by_ticker[ticker]
-        changed_fields = {
-            key
-            for key in (
-                "durability_rating",
-                "primary_evidence_pattern_id",
-                "rank",
-            )
-            if base.get(key) != current.get(key)
-        }
-        if not changed_fields:
-            continue
-        changed.append(
-            {
-                "ticker": ticker,
-                "changed_fields": sorted(changed_fields),
-                "from": {key: base.get(key) for key in sorted(changed_fields)},
-                "to": {key: current.get(key) for key in sorted(changed_fields)},
-            }
-        )
-    return changed

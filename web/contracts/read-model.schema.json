@@ -263,86 +263,6 @@
       "title": "AssessmentCaseView",
       "type": "object"
     },
-    "AssessmentPurchaseView": {
-      "properties": {
-        "proposal_id": {
-          "title": "Proposal Id",
-          "type": "string"
-        },
-        "ticker": {
-          "title": "Ticker",
-          "type": "string"
-        },
-        "limit_price_yen": {
-          "title": "Limit Price Yen",
-          "type": "number"
-        },
-        "quantity": {
-          "title": "Quantity",
-          "type": "integer"
-        },
-        "notional_yen": {
-          "title": "Notional Yen",
-          "type": "number"
-        },
-        "max_acceptable_price_yen": {
-          "title": "Max Acceptable Price Yen",
-          "type": "number"
-        },
-        "close_yen": {
-          "title": "Close Yen",
-          "type": "number"
-        },
-        "price_as_of": {
-          "format": "date",
-          "title": "Price As Of",
-          "type": "string"
-        },
-        "expires_at": {
-          "format": "date-time",
-          "title": "Expires At",
-          "type": "string"
-        },
-        "warnings": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Warnings",
-          "type": "array"
-        },
-        "current_status": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Current Status"
-        },
-        "superseded": {
-          "title": "Superseded",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "proposal_id",
-        "ticker",
-        "limit_price_yen",
-        "quantity",
-        "notional_yen",
-        "max_acceptable_price_yen",
-        "close_yen",
-        "price_as_of",
-        "expires_at",
-        "warnings",
-        "current_status",
-        "superseded"
-      ],
-      "title": "AssessmentPurchaseView",
-      "type": "object"
-    },
     "AssessmentReviewView": {
       "properties": {
         "attempt": {
@@ -480,17 +400,6 @@
           "title": "Comparison",
           "type": "string"
         },
-        "entry_timing": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Entry Timing"
-        },
         "forgone": {
           "title": "Forgone",
           "type": "string"
@@ -501,16 +410,6 @@
           },
           "title": "Cases",
           "type": "array"
-        },
-        "purchase": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/AssessmentPurchaseView"
-            },
-            {
-              "type": "null"
-            }
-          ]
         },
         "review": {
           "$ref": "#/$defs/AssessmentReviewView"
@@ -525,10 +424,8 @@
         "shortlist_id",
         "macro_context_id",
         "comparison",
-        "entry_timing",
         "forgone",
         "cases",
-        "purchase",
         "review"
       ],
       "title": "BargainAssessmentView",
@@ -1471,10 +1368,7 @@
       "type": "object"
     },
     "DeltaPool": {
-      "enum": [
-        "longlist",
-        "recommendations"
-      ],
+      "const": "ranked_set",
       "type": "string"
     },
     "DeltaUnavailable": {
@@ -2027,10 +1921,6 @@
           "title": "Run Revision Id",
           "type": "string"
         },
-        "profile": {
-          "title": "Profile",
-          "type": "string"
-        },
         "macro_context_id": {
           "anyOf": [
             {
@@ -2047,21 +1937,20 @@
           "title": "Created At",
           "type": "string"
         },
-        "longlist": {
+        "ranked_set": {
           "items": {
-            "$ref": "#/$defs/SelectionLonglistEntryView"
+            "$ref": "#/$defs/SelectionRankedSetEntryView"
           },
-          "title": "Longlist",
+          "title": "Ranked Set",
           "type": "array"
         }
       },
       "required": [
         "selection_id",
         "run_revision_id",
-        "profile",
         "macro_context_id",
         "created_at",
-        "longlist"
+        "ranked_set"
       ],
       "title": "MachineSelectionView",
       "type": "object"
@@ -3580,13 +3469,6 @@
           "title": "Operations",
           "type": "array"
         },
-        "proposals": {
-          "items": {
-            "$ref": "#/$defs/ProposalView"
-          },
-          "title": "Proposals",
-          "type": "array"
-        },
         "outcomes": {
           "items": {
             "$ref": "#/$defs/PortfolioOutcomeView"
@@ -3597,7 +3479,6 @@
       },
       "required": [
         "operations",
-        "proposals",
         "outcomes"
       ],
       "title": "OperationsView",
@@ -3685,64 +3566,6 @@
         "held_and_reserved"
       ],
       "type": "string"
-    },
-    "ProposalView": {
-      "properties": {
-        "proposal_id": {
-          "title": "Proposal Id",
-          "type": "string"
-        },
-        "ticker": {
-          "title": "Ticker",
-          "type": "string"
-        },
-        "thesis_id": {
-          "title": "Thesis Id",
-          "type": "string"
-        },
-        "review_id": {
-          "title": "Review Id",
-          "type": "string"
-        },
-        "created_at": {
-          "format": "date-time",
-          "title": "Created At",
-          "type": "string"
-        },
-        "status": {
-          "title": "Status",
-          "type": "string"
-        },
-        "decided_at": {
-          "anyOf": [
-            {
-              "format": "date-time",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Decided At"
-        },
-        "payload": {
-          "additionalProperties": true,
-          "title": "Payload",
-          "type": "object"
-        }
-      },
-      "required": [
-        "proposal_id",
-        "ticker",
-        "thesis_id",
-        "review_id",
-        "created_at",
-        "status",
-        "decided_at",
-        "payload"
-      ],
-      "title": "ProposalView",
-      "type": "object"
     },
     "ResearchQuestionView": {
       "properties": {
@@ -4150,7 +3973,7 @@
       "title": "SecurityDetailView",
       "type": "object"
     },
-    "SelectionLonglistEntryView": {
+    "SelectionRankedSetEntryView": {
       "description": "機械 rank 上位の候補 1 件。FV アンカーと E[r] はここだけが持つ。",
       "properties": {
         "rank": {
@@ -4285,7 +4108,7 @@
         "event_warnings",
         "fv_convergence"
       ],
-      "title": "SelectionLonglistEntryView",
+      "title": "SelectionRankedSetEntryView",
       "type": "object"
     },
     "ShortlistEntryView": {
@@ -4328,7 +4151,7 @@
         "machine_snapshot": {
           "anyOf": [
             {
-              "$ref": "#/$defs/SelectionLonglistEntryView"
+              "$ref": "#/$defs/SelectionRankedSetEntryView"
             },
             {
               "type": "null"

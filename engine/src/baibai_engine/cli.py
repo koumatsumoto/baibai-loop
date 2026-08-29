@@ -64,10 +64,6 @@ DOMAINS: Mapping[str, Domain] = {
         module="baibai_engine.position.cli",
         summary="portfolio ledger, holding reviews, and the drafts that record their results",
     ),
-    "proposal": Domain(
-        module="baibai_engine.proposals.cli",
-        summary="order proposals bound to a published thesis, and the owner's decision on them",
-    ),
     "research": Domain(
         module="baibai_engine.research.opportunity_cli",
         summary="research workspaces: thesis, independent review, promotion, bargain assessment",
@@ -107,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _usage().parse_args(argv)
     if not {"-h", "--help"}.intersection(args.arguments):
         try:
-            reject_noncanonical_store_paths(raw_arguments=args.arguments)
+            reject_noncanonical_store_paths()
         except StoreLayoutError as error:
             print(f"error: {error}", file=sys.stderr)
             return 2

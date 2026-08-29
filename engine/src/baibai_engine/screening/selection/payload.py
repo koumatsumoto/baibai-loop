@@ -1,8 +1,7 @@
-"""Selection payload assembly: ranking, recommendation, diagnostics."""
+"""Selection payload assembly: ranking, review cap, and diagnostics."""
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import date
 
@@ -11,7 +10,6 @@ from baibai_engine.foundation.coerce import (
     mapping_or_empty,
     optional_float,
     string_or_none,
-    string_sequence,
 )
 from baibai_engine.macro.context import MacroContext
 from baibai_engine.screening.estimates import EXPECTED_RETURN_MODEL_VERSION
@@ -19,26 +17,18 @@ from baibai_engine.screening.estimates import EXPECTED_RETURN_MODEL_VERSION
 from ..regime import MarketRegimeSnapshot
 from ..rule_config import (
     ScreeningRules,
-    SelectionDiversityRules,
     SelectionLiquidityRules,
-    SelectionRules,
 )
 from ..schema import UNRESOLVED_DIVIDEND_BASIS
 from ..tiers import position_tier
 from .candidate_diagnostics import _candidate_diagnostics
 from .contracts import (
-    VALUE_CARRY_ONLY_ATTENTION_POLICY_ID,
-    VALUE_CARRY_OPPORTUNITY_LANE_ID,
-    VALUE_CARRY_SELECTION_POLICY_ID,
-    ValueCarryOnlyAttentionParameters,
-    ValueCarrySelectionPolicyParameters,
-    value_carry_only_attention_policy_hash,
-    value_carry_selection_policy_hash,
+    SelectionMethodParameters,
+    selection_method_hash,
 )
 from .macro_fit import (
     macro_context_summary,
 )
-from .profiles import resolve_selection_rules
 from .ranking import (
     _best_selection_evidence,
     _evidence_pattern_order_rank,
@@ -56,10 +46,7 @@ from .summaries import (
     _decision_input_seed,
     _durability_counts,
     _fair_value_anchors,
-    _longlist_summary,
-    _selection_candidate_summary,
-    _sweep_candidate_summary,
-    _sweep_changed_summaries,
+    _ranked_set_summary,
 )
 
 
@@ -69,38 +56,26 @@ def build_selection_payload(
     candidates: Sequence[CandidateRecord],
     macro_context: MacroContext | None,
     rules: ScreeningRules,
-    top: int,
-    profile: str | None,
+    review_cap: int,
     candidates_ref: str,
     macro_context_ref: str | None,
     previous_candidates: PreviousCandidates | None = None,
     market_regime: MarketRegimeSnapshot | None = None,
-    profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
     detail: str = "summary",
-    longlist_top: int = 0,
     screening_rules_hash: str | None = None,
     er_model_version: str | None = None,
     review_basis_shortlist_id: str | None = None,
 ) -> dict[str, object]:
     if detail not in {"summary", "full"}:
         raise ValueError("detail must be summary or full")
-    if longlist_top < 0:
-        raise ValueError("longlist_top must be zero or greater")
-    effective_profile = profile or rules.selection.default_profile
-    selection_rules = resolve_selection_rules(
-        rules.selection,
-        profile=effective_profile,
-        profile_overrides=profile_overrides,
-    )
-    recommendation_limit = _research_recommendation_limit(
-        top=top,
-        configured_max=rules.output.research_selection_target_max,
-    )
+    if review_cap < 0:
+        raise ValueError("review_cap must be non-negative")
+    selection_rules = rules.selection
     previous_candidates = previous_candidates or PreviousCandidates(
         ref_path=None, source=None, tickers=()
     )
     previous_tickers = set(previous_candidates.tickers)
-    # Entry preflight は候補の対 benchmark 20 日相対リターンを情報として使うため、
+    # Research Gate は候補の対 benchmark 20 日相対リターンを参考にするため、
     # market regime snapshot が持つ benchmark return を候補へ機械転記する。
     # snapshot が無ければ null に degrade する。
     benchmark_return_20d = market_regime.benchmark_return_20d if market_regime else None
@@ -159,38 +134,18 @@ def build_selection_payload(
 
     ranked_entries.sort(key=lambda item: item[0])
     ranked_candidates = [candidate for _, candidate in ranked_entries]
-    recommendation_candidates = [
-        candidate
-        for candidate in ranked_candidates
-        if _passes_supply_demand(candidate, selection_rules)
-    ]
-    recommended = _recommended_research_candidates(
-        ranked_candidates=recommendation_candidates,
-        diversity_rules=selection_rules.diversity,
-        limit=recommendation_limit,
-    )
+    ranked_set_candidates = ranked_candidates[:review_cap]
     diagnostics = _diagnostics(
-        recommended=recommended,
+        ranked_set=ranked_set_candidates,
         ranked_candidates=ranked_candidates,
         previous_candidates=previous_candidates,
-        diversity_warning_ratio=selection_rules.diversity.previous_overlap_warning_ratio,
-        profile=effective_profile,
         market_regime=market_regime,
         liquidity_excluded_count=liquidity_excluded_count,
         liquidity_fact_missing_count=liquidity_fact_missing_count,
-        supply_demand_excluded_count=len(ranked_candidates) - len(recommendation_candidates),
-    )
-    recommendations = (
-        recommended
-        if detail == "full"
-        else [
-            _selection_candidate_summary(candidate, rank=rank)
-            for rank, candidate in enumerate(recommended, start=1)
-        ]
     )
     expected_return_model_id = er_model_version or EXPECTED_RETURN_MODEL_VERSION
-    selection_policy_parameters = ValueCarrySelectionPolicyParameters(
-        lane_longlist_depth=longlist_top,
+    method_parameters = SelectionMethodParameters(
+        review_cap=review_cap,
         expected_return_model_id=expected_return_model_id,
         screening_rules_hash=screening_rules_hash,
         required_jpx_flags=tuple(sorted(required_jpx_flags)),
@@ -198,59 +153,29 @@ def build_selection_payload(
         candidate_diagnostic_parameters=selection_rules.candidate_diagnostics,
         evidence_pattern_order=tuple(evidence_pattern_order),
     )
-    selection_policy_hash = value_carry_selection_policy_hash(
-        **selection_policy_parameters.model_dump(mode="python")
-    )
-    attention_parameters = ValueCarryOnlyAttentionParameters(value_carry_limit=longlist_top)
-    attention_policy_hash = value_carry_only_attention_policy_hash(
-        selection_policy_hash=selection_policy_hash,
-        parameters=attention_parameters,
-    )
+    method_hash = selection_method_hash(method_parameters)
+    ranked_set = [
+        {
+            **_ranked_set_summary(candidate, rank=rank),
+            "er_annual": optional_float(
+                mapping_or_empty(candidate.get("metrics")).get("er_annual")
+            ),
+            "primary_evidence_pattern_id": string_or_none(
+                candidate.get("primary_evidence_pattern_id")
+            ),
+        }
+        for rank, candidate in enumerate(ranked_candidates[:review_cap], start=1)
+    ]
     payload: dict[str, object] = {
-        "recommendations": recommendations,
-        "longlist_origin": {
-            "opportunity_lane_id": VALUE_CARRY_OPPORTUNITY_LANE_ID,
-            "selection_policy_id": VALUE_CARRY_SELECTION_POLICY_ID,
-            "selection_policy_hash": selection_policy_hash,
-        },
-        "selection_policy_parameters": selection_policy_parameters.model_dump(mode="json"),
-        "attention_policy_id": VALUE_CARRY_ONLY_ATTENTION_POLICY_ID,
-        "attention_policy_hash": attention_policy_hash,
-        "attention_policy_parameters": attention_parameters.model_dump(mode="json"),
+        "ranked_set": ranked_set,
+        "method_hash": method_hash,
+        "method_parameters": method_parameters.model_dump(mode="json"),
         "review_basis": {
             "judged_through_shortlist_id": review_basis_shortlist_id,
         },
     }
-    # longlist は監査用の追加 view。--longlist-top 省略 (0) では既存 output 互換のため
-    # key 自体を出さない。出す場合は同じ rank 済み集合 (diversity/cap 切断前) の先頭
-    # N 件で、recommendation の production cap とは独立に監査できるようにする。
-    if longlist_top > 0:
-        longlist = [
-            {
-                **_longlist_summary(candidate, rank=rank),
-                "opportunity_lane_id": VALUE_CARRY_OPPORTUNITY_LANE_ID,
-                "selection_policy_id": VALUE_CARRY_SELECTION_POLICY_ID,
-                "selection_policy_hash": selection_policy_hash,
-                "lane_rank": rank,
-                "lane_native_value": optional_float(
-                    mapping_or_empty(candidate.get("metrics")).get("er_annual")
-                ),
-                "lane_native_unit": "annual_ratio",
-                "baseline_er_rank": rank,
-                "primary_evidence_pattern_id": string_or_none(
-                    candidate.get("primary_evidence_pattern_id")
-                ),
-                "policy_diagnostic_ids": [],
-            }
-            for rank, candidate in enumerate(ranked_candidates[:longlist_top], start=1)
-        ]
-        payload["longlist"] = longlist
-        payload["review_tickers"] = [str(row["ticker"]) for row in longlist]
-    else:
-        payload["review_tickers"] = []
     payload["selection"] = {
         "asof": asof_date.isoformat(),
-        "profile": effective_profile,
         "input_refs": {
             "candidates_ref": candidates_ref,
             "macro_context_ref": macro_context_ref,
@@ -273,84 +198,6 @@ def build_selection_payload(
         "er_model_version": expected_return_model_id,
     }
     return payload
-
-
-def build_selection_sweep_payload(
-    *,
-    asof_date: date,
-    candidates: Sequence[CandidateRecord],
-    macro_context: MacroContext | None,
-    rules: ScreeningRules,
-    top: int,
-    profiles: Sequence[str],
-    candidates_ref: str,
-    macro_context_ref: str | None,
-    previous_candidates: PreviousCandidates | None = None,
-    market_regime: MarketRegimeSnapshot | None = None,
-) -> dict[str, object]:
-    profile_results: list[dict[str, object]] = []
-    for profile in profiles:
-        payload = build_selection_payload(
-            asof_date=asof_date,
-            candidates=candidates,
-            macro_context=macro_context,
-            rules=rules,
-            top=top,
-            profile=profile,
-            candidates_ref=candidates_ref,
-            macro_context_ref=macro_context_ref,
-            previous_candidates=previous_candidates,
-            market_regime=market_regime,
-            detail="full",
-        )
-        selection = mapping_or_empty(payload.get("selection"))
-        diagnostics = mapping_or_empty(selection.get("diagnostics"))
-        recommended = dict_sequence(payload.get("recommendations"))
-        profile_results.append(
-            {
-                "profile": profile,
-                "recommended": [
-                    _sweep_candidate_summary(item, rank=index)
-                    for index, item in enumerate(recommended, start=1)
-                ],
-                "recommended_tickers": [string_or_none(item.get("ticker")) for item in recommended],
-                "recommended_count": len(recommended),
-                "durability_counts": dict(mapping_or_empty(diagnostics.get("durability_counts"))),
-                "warnings": diagnostics.get("warnings"),
-            }
-        )
-    if profile_results:
-        base_tickers = set(string_sequence(profile_results[0].get("recommended_tickers")))
-        base_by_ticker = {
-            ticker: item
-            for item in dict_sequence(profile_results[0].get("recommended"))
-            if (ticker := string_or_none(item.get("ticker"))) is not None
-        }
-        for result in profile_results:
-            tickers = set(string_sequence(result.get("recommended_tickers")))
-            current_by_ticker = {
-                ticker: item
-                for item in dict_sequence(result.get("recommended"))
-                if (ticker := string_or_none(item.get("ticker"))) is not None
-            }
-            result["recommended_diff_vs_first_profile"] = {
-                "added": sorted(tickers - base_tickers),
-                "removed": sorted(base_tickers - tickers),
-                "changed": _sweep_changed_summaries(base_by_ticker, current_by_ticker),
-            }
-    return {
-        "asof": asof_date.isoformat(),
-        "input_refs": {
-            "candidates_ref": candidates_ref,
-            "macro_context_ref": macro_context_ref,
-            "previous_candidates_ref": previous_candidates.ref_path
-            if previous_candidates is not None
-            else None,
-        },
-        "macro_context_summary": macro_context_summary(macro_context, asof_date=asof_date),
-        "market_regime": market_regime.to_dict() if market_regime is not None else None,
-        "profiles": profile_results,
-    }
 
 
 def _selection_candidate(
@@ -416,70 +263,6 @@ def _selection_candidate(
     return output
 
 
-def _recommended_research_candidates(
-    *,
-    ranked_candidates: Sequence[dict[str, object]],
-    diversity_rules: SelectionDiversityRules,
-    limit: int,
-) -> list[dict[str, object]]:
-    if limit < 1:
-        return []
-    selected: list[dict[str, object]] = []
-    selected_tickers: set[str] = set()
-    sector_counts: Counter[str] = Counter()
-    evidence_pattern_counts: Counter[str] = Counter()
-    previous_candidate_count = 0
-
-    def can_add(candidate: Mapping[str, object], *, enforce_diversity: bool) -> bool:
-        ticker = string_or_none(candidate.get("ticker"))
-        if ticker is None or ticker in selected_tickers:
-            return False
-        if not enforce_diversity:
-            return True
-        sector = string_or_none(candidate.get("sector_33")) or ""
-        # The ranking pass already chose this candidate's Evidence Pattern from the same
-        # order; re-deriving it here would let the two disagree on which screen a
-        # candidate counts against for the per-pattern diversity cap.
-        evidence_pattern = string_or_none(candidate.get("primary_evidence_pattern_id"))
-        max_sector = diversity_rules.max_recommended_per_sector
-        max_evidence_pattern = diversity_rules.max_recommended_per_evidence_pattern
-        max_previous = diversity_rules.max_previous_candidates_in_recommended
-        if (
-            max_previous is not None
-            and candidate.get("previous_candidate") is True
-            and previous_candidate_count >= max_previous
-        ):
-            return False
-        if sector_counts[sector] >= max_sector:
-            return False
-        return (
-            evidence_pattern is None
-            or evidence_pattern_counts[evidence_pattern] < max_evidence_pattern
-        )
-
-    def add(candidate: Mapping[str, object]) -> None:
-        nonlocal previous_candidate_count
-        ticker = string_or_none(candidate.get("ticker"))
-        if ticker is None:
-            return
-        selected.append(dict(candidate))
-        selected_tickers.add(ticker)
-        sector_counts[string_or_none(candidate.get("sector_33")) or ""] += 1
-        if (
-            evidence_pattern := string_or_none(candidate.get("primary_evidence_pattern_id"))
-        ) is not None:
-            evidence_pattern_counts[evidence_pattern] += 1
-        if candidate.get("previous_candidate") is True:
-            previous_candidate_count += 1
-
-    for candidate in ranked_candidates:
-        if len(selected) >= limit:
-            break
-        if can_add(candidate, enforce_diversity=True):
-            add(candidate)
-    return selected
-
-
 def _passes_liquidity(
     item: CandidateRecord,
     liquidity: SelectionLiquidityRules,
@@ -508,48 +291,32 @@ def _passes_liquidity(
     return passes, facts_missing
 
 
-def _passes_supply_demand(candidate: Mapping[str, object], rules: SelectionRules) -> bool:
-    threshold = rules.supply_demand.margin_std_long_share_exclude_at_or_above
-    if threshold is None:
-        return True
-    metrics = mapping_or_empty(candidate.get("metrics"))
-    value = optional_float(metrics.get("margin_std_long_share"))
-    return value is None or value < threshold
-
-
 def _diagnostics(
     *,
-    recommended: Sequence[dict[str, object]],
+    ranked_set: Sequence[dict[str, object]],
     ranked_candidates: Sequence[dict[str, object]],
     previous_candidates: PreviousCandidates,
-    diversity_warning_ratio: float,
-    profile: str,
     market_regime: MarketRegimeSnapshot | None = None,
     liquidity_excluded_count: int = 0,
     liquidity_fact_missing_count: int = 0,
-    supply_demand_excluded_count: int = 0,
 ) -> dict[str, object]:
-    recommended_tickers = {
-        ticker for item in recommended if (ticker := string_or_none(item.get("ticker"))) is not None
+    ranked_tickers = {
+        ticker for item in ranked_set if (ticker := string_or_none(item.get("ticker"))) is not None
     }
     previous_tickers = set(previous_candidates.tickers)
-    overlap_tickers = sorted(recommended_tickers & previous_tickers)
-    overlap_ratio = len(overlap_tickers) / len(recommended_tickers) if recommended_tickers else 0.0
-    warnings = []
-    if overlap_ratio >= diversity_warning_ratio and recommended_tickers:
-        warnings.append("recommendations_high_previous_overlap")
+    overlap_tickers = sorted(ranked_tickers & previous_tickers)
+    overlap_ratio = len(overlap_tickers) / len(ranked_tickers) if ranked_tickers else 0.0
     metric_type_warning_count = sum(
         len(dict_sequence(candidate.get("metric_type_warnings"))) for candidate in ranked_candidates
     )
+    warnings: list[str] = []
     if metric_type_warning_count:
         warnings.append("invalid_numeric_metric_values")
     return {
-        "profile": profile,
         "warnings": warnings,
         "market_regime": market_regime.to_dict() if market_regime is not None else None,
         "liquidity_excluded_count": liquidity_excluded_count,
         "liquidity_fact_missing_count": liquidity_fact_missing_count,
-        "supply_demand_excluded_count": supply_demand_excluded_count,
         "previous_overlap": {
             "previous_candidates_ref": previous_candidates.ref_path,
             # The two sources have different population sizes, so the ratio below is
@@ -557,18 +324,12 @@ def _diagnostics(
             "previous_candidates_source": previous_candidates.source,
             "previous_candidates_count": len(previous_tickers),
             # The count is against the previous set and the ratio is against this run's
-            # recommendations, so the two divide by different things. Printing the
-            # recommendation count and naming the denominator in the key is what keeps a
-            # reader from dividing the count by the number directly above it: 4 of 5
-            # recommendations repeating reads as 0.2 against a previous set of 20.
-            "recommended_count": len(recommended_tickers),
+            # ranked set, so the two divide by different things. Naming both
+            # denominators keeps them from being compared as the same fraction.
+            "ranked_count": len(ranked_tickers),
             "overlap_count": len(overlap_tickers),
-            "overlap_share_of_recommendations": round(overlap_ratio, 4),
+            "overlap_share_of_ranked_set": round(overlap_ratio, 4),
         },
         "durability_counts": _durability_counts(ranked_candidates),
         "invalid_numeric_metric_value_count": metric_type_warning_count,
     }
-
-
-def _research_recommendation_limit(*, top: int, configured_max: int) -> int:
-    return min(top, configured_max) if configured_max > 0 else top

@@ -16,15 +16,13 @@ doctrine 柱 5(b) との整合: E[r] は単位 (%/年) と前提 (anchor・実�
 - implied upside = anchor / current - 1 (signed。割高なら負)
 - reversion (年率) = REALIZATION_RATE_ANNUAL x clip(upside, ±UPSIDE_CAP)
   — model policy parameter により過大な upside を保守側へ制限する。
-- carry (年率) = 配当利回り + clip(自社株買い利回り, ±BUYBACK_CLIP)
+- carry (年率) = 配当利回り + clip(自社株買い利回り, ±SHARE_COUNT_CLIP)
   — 配当利回りは carry 用に解決した将来利回り (予想 DPS を最優先、無ければ
     accrual 期間の分割 factor で調整した実績 DPS。分割前配当と分割後株価の混在で
     利回りが膨らむのを防ぐ。詳細は metrics._resolve_dividend_carry)。
   — 株数縮小利回り = -net_share_change_yoy (株数縮小 = 正)。これは自己株式を含む
-    グロス発行済株式数の前年比であり、自社株買いそのものではない。日本の自社株買いは
-    取得した株式を自己株式へ入れるだけで、発行済株式総数は消却するまで減らない
-    (EDINET 自己株券買付状況報告書との突合で、実買付のあった 556 期のうちこの量が
-    捉えるのは 36.3%)。
+    グロス発行済株式数の前年比であり、過去の株数縮小・希薄化を表す。将来の自社株買い
+    cash や未消化枠ではない。
 - E[r] (年率) = reversion + carry
 """
 
@@ -41,7 +39,7 @@ from .schema import UNRESOLVED_DIVIDEND_BASIS, DerivedMetrics, FinancialSnapshot
 # artifact と人間レビューを経て code で明示的に変更し、自動更新はしない。
 REALIZATION_RATE_ANNUAL = 0.10
 UPSIDE_CAP = 0.50
-BUYBACK_CLIP = 0.05
+SHARE_COUNT_CLIP = 0.05
 EXPECTED_RETURN_MODEL_VERSION = "expected-return-v1"
 EXPECTED_RETURN_UNIT = "annual_ratio"
 
@@ -63,7 +61,7 @@ class ExpectedReturnEstimate:
     upside_capped: float
     anchor_metrics: str
     dividend_yield: float | None
-    buyback_yield: float | None
+    share_count_yield: float | None
     fv_sector_median_yen: float | None
     fv_self_range_yen: float | None
     origin: Literal["estimate"] = "estimate"
@@ -71,7 +69,7 @@ class ExpectedReturnEstimate:
     unit: str = EXPECTED_RETURN_UNIT
     assumptions: str = (
         "reversion=0.10*clip(implied_upside,+/-0.50); "
-        "carry=dividend_yield(forecast_preferred,split_safe)+clip(buyback_yield,+/-0.05)"
+        "carry=dividend_yield(forecast_preferred,split_safe)+clip(share_count_yield,+/-0.05)"
     )
 
 
@@ -121,10 +119,10 @@ def estimate_expected_return(
     reversion_annual = REALIZATION_RATE_ANNUAL * upside_capped
 
     dividend_yield = financial.dividend_yield
-    buyback_yield = (
+    share_count_yield = (
         -financial.net_share_change_yoy if financial.net_share_change_yoy is not None else None
     )
-    carry_annual = (dividend_yield or 0.0) + _clip(buyback_yield or 0.0, BUYBACK_CLIP)
+    carry_annual = (dividend_yield or 0.0) + _clip(share_count_yield or 0.0, SHARE_COUNT_CLIP)
 
     return ExpectedReturnEstimate(
         er_annual=reversion_annual + carry_annual,
@@ -134,7 +132,7 @@ def estimate_expected_return(
         upside_capped=upside_capped,
         anchor_metrics=",".join(sorted(upsides)),
         dividend_yield=dividend_yield,
-        buyback_yield=buyback_yield,
+        share_count_yield=share_count_yield,
         fv_sector_median_yen=(
             close * fmean(sector_ratios) if close is not None and sector_ratios else None
         ),

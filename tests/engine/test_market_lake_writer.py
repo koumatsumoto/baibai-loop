@@ -126,8 +126,6 @@ def test_every_run_derives_every_partition_and_only_moved_bytes_make_new_objects
     assert before[(2026, 2)] != after[(2026, 2)]
     assert second.partitions == 2
     assert second.new_objects == 1
-    assert all(item.source_state_sha256 is None for item in second.manifest.partitions)
-    assert second.manifest.transform_fingerprint is None
     # Both months were written and read back for parity, not only the corrected one.
     assert len(read) >= 2 * 2
     validate_legacy_parity(

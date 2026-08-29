@@ -43,7 +43,7 @@ def _insert_reference_rows(sqlite_path: Path) -> None:
             " VALUES ('2026-05-28', 'BBBB', '同業ペア', 'プライム', '機械', 1)"
         )
         conn.execute(
-            "INSERT OR REPLACE INTO jquants_earnings_calendar"
+            "INSERT OR REPLACE INTO jpx_earnings_calendar"
             "(announcement_date, ticker) VALUES ('2026-06-10', 'AAAA')"
         )
         conn.execute(
@@ -113,13 +113,13 @@ class BuildTickerProfileTests(unittest.TestCase):
             sqlite_path = root / "market.sqlite"
             conn = open_connection(sqlite_path)
             conn.execute(
-                "INSERT INTO jquants_earnings_calendar(announcement_date, ticker) "
+                "INSERT INTO jpx_earnings_calendar(announcement_date, ticker) "
                 "VALUES ('2026-06-10', 'AAAA')"
             )
             conn.execute(
                 "INSERT INTO source_coverage(source, coverage_key, coverage_start, "
                 "coverage_end, fetched_at_utc, record_count, status) "
-                "VALUES ('jquants_earnings_calendar', 'legacy', '2026-05-29', "
+                "VALUES ('jpx_earnings_calendar', 'legacy', '2026-05-29', "
                 "'2026-08-27', '2026-05-29T00:00:00+09:00', 1, 'ok')"
             )
             conn.commit()

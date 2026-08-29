@@ -1,4 +1,4 @@
-"""Decision composition for theses, execution proposals, and holding reviews.
+"""Decision composition for theses, bargain assessments, and holding reviews.
 
 This package evaluates theses and proposes human-operated execution.
 It also composes a source-bound holding-review draft from a thesis and

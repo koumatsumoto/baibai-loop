@@ -12,15 +12,15 @@ from tests.helpers.shortlist import rejected_entry, shortlist_payload
 from baibai_engine.appdb.write import connect_rw
 from baibai_engine.screening.cli.query import select_command
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
-from baibai_engine.screening.selection import PreviousLonglistError, load_previous_longlist
+from baibai_engine.screening.selection import PreviousRankedSetError, load_previous_ranked_set
 
 
-def _write_longlist_history(
+def _write_ranked_set_history(
     directory: Path,
     *,
     as_of: str,
     tickers: tuple[str, ...],
-    kind: str = "daily-longlist-membership",
+    kind: str = "daily-ranked-set-membership",
     schema_version: int = 1,
     record_as_of: str | None = None,
 ) -> Path:
@@ -68,18 +68,17 @@ def _select(
     *,
     run_revision_id: str,
     asof: str,
-    longlist_history_dir: Path | None = None,
+    ranked_set_history_dir: Path | None = None,
     previous_shortlist_id: str | None = None,
 ) -> tuple[int, dict[str, object]]:
     stdout = io.StringIO()
     code = select_command(
         asof_date=date.fromisoformat(asof),
-        top=10,
         run_revision_id=run_revision_id,
         runs_db_path=root / "stores/screening/runs.sqlite",
         app_db_path=root / "stores/application/baibai.sqlite",
         previous_shortlist_id=previous_shortlist_id,
-        longlist_history_dir=longlist_history_dir,
+        ranked_set_history_dir=ranked_set_history_dir,
         stdout=stdout,
     )
     if code != 0:
@@ -99,24 +98,24 @@ def _previous_overlap(payload: dict[str, object]) -> dict[str, object]:
     return overlap
 
 
-def test_select_reads_previous_candidates_from_longlist_history_when_the_run_store_has_none(
+def test_select_reads_previous_candidates_from_ranked_set_history_when_the_run_store_has_none(
     app_method_root: Path,
 ) -> None:
     run_revision_id, asof = _pruned_to_latest_run(app_method_root / "stores/screening/runs.sqlite")
-    history_dir = app_method_root / "history/longlists"
-    record = _write_longlist_history(history_dir, as_of="2026-07-07", tickers=("2331", "0001"))
+    history_dir = app_method_root / "history/ranked_sets"
+    record = _write_ranked_set_history(history_dir, as_of="2026-07-07", tickers=("2331", "0001"))
 
     code, payload = _select(
         app_method_root,
         run_revision_id=run_revision_id,
         asof=asof,
-        longlist_history_dir=history_dir,
+        ranked_set_history_dir=history_dir,
     )
 
     assert code == 0
     overlap = _previous_overlap(payload)
     assert overlap["previous_candidates_ref"] == record.as_posix()
-    assert overlap["previous_candidates_source"] == "longlist_history"
+    assert overlap["previous_candidates_source"] == "ranked_set_history"
     assert overlap["previous_candidates_count"] == 2
 
 
@@ -164,7 +163,7 @@ def test_select_reads_pruned_canonical_previous_from_shortlist(
     assert overlap["previous_candidates_count"] == 2
 
 
-def test_select_reports_no_previous_candidates_without_a_longlist_history_directory(
+def test_select_reports_no_previous_candidates_without_a_ranked_set_history_directory(
     app_method_root: Path,
 ) -> None:
     run_revision_id, asof = _pruned_to_latest_run(app_method_root / "stores/screening/runs.sqlite")
@@ -178,21 +177,21 @@ def test_select_reports_no_previous_candidates_without_a_longlist_history_direct
     assert overlap["previous_candidates_count"] == 0
 
 
-def test_select_prefers_the_run_store_over_the_longlist_history(
+def test_select_prefers_the_run_store_over_the_ranked_set_history(
     app_method_root: Path,
 ) -> None:
     runs_path = app_method_root / "stores/screening/runs.sqlite"
     run_revision_id, asof = _latest_run(runs_path)
     previous = ScreeningRunReader(runs_path).previous_run(before_as_of_date=asof)
     assert previous is not None
-    history_dir = app_method_root / "history/longlists"
-    _write_longlist_history(history_dir, as_of="2026-07-07", tickers=("2331",))
+    history_dir = app_method_root / "history/ranked_sets"
+    _write_ranked_set_history(history_dir, as_of="2026-07-07", tickers=("2331",))
 
     code, payload = _select(
         app_method_root,
         run_revision_id=run_revision_id,
         asof=asof,
-        longlist_history_dir=history_dir,
+        ranked_set_history_dir=history_dir,
     )
 
     assert code == 0
@@ -201,52 +200,52 @@ def test_select_prefers_the_run_store_over_the_longlist_history(
     assert overlap["previous_candidates_ref"] == previous.run_revision_id
 
 
-def test_select_fails_loudly_on_a_longlist_history_with_an_unsupported_contract(
+def test_select_fails_loudly_on_a_ranked_set_history_with_an_unsupported_contract(
     app_method_root: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     run_revision_id, asof = _pruned_to_latest_run(app_method_root / "stores/screening/runs.sqlite")
-    history_dir = app_method_root / "history/longlists"
-    _write_longlist_history(history_dir, as_of="2026-07-07", tickers=("2331",), schema_version=2)
+    history_dir = app_method_root / "history/ranked_sets"
+    _write_ranked_set_history(history_dir, as_of="2026-07-07", tickers=("2331",), schema_version=2)
 
     code, _ = _select(
         app_method_root,
         run_revision_id=run_revision_id,
         asof=asof,
-        longlist_history_dir=history_dir,
+        ranked_set_history_dir=history_dir,
     )
 
     assert code == 1
     assert "unsupported contract" in capsys.readouterr().err
 
 
-def test_load_previous_longlist_skips_a_day_that_published_no_longlist(tmp_path: Path) -> None:
-    _write_longlist_history(tmp_path, as_of="2026-07-30", tickers=())
-    older = _write_longlist_history(tmp_path, as_of="2026-07-29", tickers=("2331", "0001"))
+def test_load_previous_ranked_set_skips_a_day_that_published_no_ranked_set(tmp_path: Path) -> None:
+    _write_ranked_set_history(tmp_path, as_of="2026-07-30", tickers=())
+    older = _write_ranked_set_history(tmp_path, as_of="2026-07-29", tickers=("2331", "0001"))
 
-    previous = load_previous_longlist(tmp_path, asof_date=date(2026, 7, 31))
+    previous = load_previous_ranked_set(tmp_path, asof_date=date(2026, 7, 31))
 
     assert previous.ref_path == older.as_posix()
     assert previous.tickers == ("2331", "0001")
 
 
-def test_load_previous_longlist_rejects_a_record_whose_as_of_contradicts_its_name(
+def test_load_previous_ranked_set_rejects_a_record_whose_as_of_contradicts_its_name(
     tmp_path: Path,
 ) -> None:
-    _write_longlist_history(
+    _write_ranked_set_history(
         tmp_path, as_of="2026-07-30", tickers=("2331",), record_as_of="2026-07-29"
     )
 
-    with pytest.raises(PreviousLonglistError, match="does not match its name"):
-        load_previous_longlist(tmp_path, asof_date=date(2026, 7, 31))
+    with pytest.raises(PreviousRankedSetError, match="does not match its name"):
+        load_previous_ranked_set(tmp_path, asof_date=date(2026, 7, 31))
 
 
-def test_load_previous_longlist_ignores_records_at_or_after_the_target_as_of(
+def test_load_previous_ranked_set_ignores_records_at_or_after_the_target_as_of(
     tmp_path: Path,
 ) -> None:
-    _write_longlist_history(tmp_path, as_of="2026-07-31", tickers=("2331",))
+    _write_ranked_set_history(tmp_path, as_of="2026-07-31", tickers=("2331",))
 
-    previous = load_previous_longlist(tmp_path, asof_date=date(2026, 7, 31))
+    previous = load_previous_ranked_set(tmp_path, asof_date=date(2026, 7, 31))
 
     assert previous.ref_path is None
     assert previous.source is None

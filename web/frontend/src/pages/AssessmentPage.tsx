@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { ArrowLeft, CircleAlert } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 
 import { fetchJson } from '../api/client'
-import type { AssessmentCaseView, AssessmentPurchaseView, BargainAssessmentView } from '../api/types'
+import type { AssessmentCaseView, BargainAssessmentView } from '../api/types'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
 import { SectionCard } from '../components/SectionCard'
@@ -12,13 +12,12 @@ import { PctBadge } from '../components/PctBadge'
 import { CountercaseBlock } from '../components/report/CountercaseBlock'
 import { ReportToneBadge } from '../components/report/ReportToneBadge'
 import { TradingViewButton } from '../components/TradingViewButton'
-import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
-import { ASSESSMENT_RESULT, CASE_DISPOSITION, headroomToMaxPct, limitVsClosePct, orderCases, PERMANENT_LOSS_LABEL, PERMANENT_LOSS_TONE, purchaseAlerts } from '../lib/assessment'
-import { EMPTY, formatJstDateTime, formatNumber, formatYen } from '../lib/format'
+import { ASSESSMENT_RESULT, CASE_DISPOSITION, orderCases, PERMANENT_LOSS_LABEL, PERMANENT_LOSS_TONE } from '../lib/assessment'
+import { EMPTY, formatJstDateTime, formatNumber } from '../lib/format'
 import { LABEL } from '../lib/labels'
 import { cn } from '../lib/utils'
 
@@ -61,62 +60,6 @@ function machineCell(assessmentCase: AssessmentCaseView, key: keyof AssessmentCa
 function DispositionBadge({ disposition }: { disposition: string }) {
   const meta = CASE_DISPOSITION[disposition] ?? { label: disposition, tone: 'muted' as const }
   return <ReportToneBadge tone={meta.tone}>{meta.label}</ReportToneBadge>
-}
-
-function PurchaseCard({ purchase }: { purchase: AssessmentPurchaseView }) {
-  const alerts = purchaseAlerts(purchase, new Date())
-  const limitGap = limitVsClosePct(purchase)
-  const headroom = headroomToMaxPct(purchase)
-  return (
-    <SectionCard
-      description={<>指値 {formatYen(purchase.limit_price_yen)} × {purchase.quantity.toLocaleString('ja-JP')} 株 · {LABEL.published}時点 proposal <span className="font-mono">{purchase.proposal_id}</span></>}
-      meta={(
-        <div className="flex flex-wrap items-center gap-3">
-          <Link className="font-mono text-sm font-semibold underline-offset-4 hover:underline" to={`/securities/${purchase.ticker}`}>{purchase.ticker}</Link>
-          <TradingViewButton ticker={purchase.ticker} />
-        </div>
-      )}
-      padded
-      title="購入方法"
-    >
-      <div className="grid gap-4">
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-6">
-          {[
-            ['指値', formatYen(purchase.limit_price_yen)],
-            ['数量', `${purchase.quantity.toLocaleString('ja-JP')} 株`],
-            ['約定金額', formatYen(purchase.notional_yen)],
-            ['上限価格', formatYen(purchase.max_acceptable_price_yen)],
-            [`終値（${purchase.price_as_of}）`, formatYen(purchase.close_yen)],
-            ['発注期限', formatJstDateTime(purchase.expires_at)],
-          ].map(([label, value]) => (
-            <div key={label}>
-              <dt className="text-[10px] font-semibold tracking-wide text-muted-foreground">{label}</dt>
-              <dd className="mt-1 font-mono text-sm font-medium tabular-nums">{value}</dd>
-            </div>
-          ))}
-        </dl>
-        <div className="flex flex-wrap gap-x-6 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
-          <span>終値に対する指値: {limitGap === null ? EMPTY : <PctBadge value={limitGap} />}</span>
-          <span>上限までの余地: {headroom === null ? EMPTY : <PctBadge value={headroom} />}</span>
-          <span>proposal の現在状態: <strong className="text-foreground">{purchase.current_status ?? '見つかりません'}</strong></span>
-        </div>
-        {purchase.warnings.length > 0 && (
-          <div className="grid gap-1.5">
-            {purchase.warnings.map((warning) => (
-              <p className="text-sm text-warning" key={warning}>publish 時点の warning: {warning}</p>
-            ))}
-          </div>
-        )}
-        {alerts.map((alert) => (
-          <Alert key={alert.message} role="note" variant={alert.severity === 'warning' ? 'destructive' : 'default'}>
-            <CircleAlert />
-            <AlertTitle>{alert.severity === 'warning' ? '発注前に確認' : '公表後の変化'}</AlertTitle>
-            <AlertDescription>{alert.message}</AlertDescription>
-          </Alert>
-        ))}
-      </div>
-    </SectionCard>
-  )
 }
 
 function CaseComparison({ cases }: { cases: readonly AssessmentCaseView[] }) {
@@ -299,14 +242,6 @@ export function AssessmentPage() {
         </CardHeader>
       </Card>
 
-      {data.purchase !== null && <PurchaseCard purchase={data.purchase} />}
-
-      {data.entry_timing !== null && (
-        <SectionCard description="いま買う理由と、待つ場合に何を待つのか" padded title="entry timing">
-          <p className="text-sm">{data.entry_timing}</p>
-        </SectionCard>
-      )}
-
       <SectionCard description="case 間の比較で何が決め手になったか" padded title="なぜこの結論か">
         <p className="text-sm whitespace-pre-line">{data.comparison}</p>
       </SectionCard>
@@ -337,9 +272,7 @@ export function AssessmentPage() {
         </div>
       </SectionCard>
 
-      <p className="text-xs text-muted-foreground">
-        この文書は publish 時点で確定した判断で、以後書き換わりません。指値・数量は proposal に紐づく発注計画で、現在の proposal 状態は上のカードに表示しています。
-      </p>
+      <p className="text-xs text-muted-foreground">この文書は publish 時点で確定した判断で、以後書き換わりません。発注条件は当日に再計算します。</p>
     </PageShell>
   )
 }

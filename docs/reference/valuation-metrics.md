@@ -46,7 +46,7 @@ Baibai Loop スクリーニングで使う valuation 指標の算出仕様とデ
 
 **判定:** 会社予想で**予想当期純利益 > 予想経常利益**（両方存在時）なら、`forecast_special_gain` flagを立てる。税負担が通常正である以上、純利益 > 経常利益は特別益（事業売却益など）の存在をほぼ確定する1行checkである。純利益と経常利益は、`forecast_eps`と同じ予想期の組で比較する。
 
-**用途:** 一時益で嵩上げされたforward PER、予想配当利回り、機械E[r] carryによるvalue trapを判断前に表面化するwarning annotationである。candidate metricsの`forecast_special_gain_flag`、selection longlistの`event_warnings`、UIの`一時益予想` badgeに出す。
+**用途:** 一時益で嵩上げされたforward PER、予想配当利回り、機械E[r] carryによるvalue trapを判断前に表面化するwarning annotationである。candidate metricsの`forecast_special_gain_flag`、selection ranked setの`event_warnings`、UIの`一時益予想` badgeに出す。
 
 **非目標:** ranking、E[r]、既存指標の計算は変えない。これはdoctrineのwarning / annotation境界に従う。
 
@@ -56,9 +56,9 @@ Baibai Loop スクリーニングで使う valuation 指標の算出仕様とデ
 
 **判定:** 会社予想の**予想経常利益または予想当期純利益が負**なら、`forecast_full_year_loss` flagを立てる。片方しか開示されない期があるためORで判定する。予想が一つもない行はFalseに置き、欠損を黒字予想へ畳まない。
 
-**用途:** candidate metricsの`forecast_full_year_loss_flag`とselection longlistの`event_warnings`に出す。赤字予想は`forecast_eps`を負にするためforward PERが引けず、FV anchorが**自己履歴PBRだけ**に落ちる。そのPBR rangeは黒字だった時代に市場が許容した倍率なので、収益基盤が構造的に縮んだ銘柄では帳簿だけが残り、implied upsideが膨らむ。
+**用途:** candidate metricsの`forecast_full_year_loss_flag`とselection ranked setの`event_warnings`に出す。赤字予想は`forecast_eps`を負にするためforward PERが引けず、FV anchorが**自己履歴PBRだけ**に落ちる。そのPBR rangeは黒字だった時代に市場が許容した倍率なので、収益基盤が構造的に縮んだ銘柄では帳簿だけが残り、implied upsideが膨らむ。
 
-**非目標:** 除外にも減衰にも使わず、annotationにする。一過性の赤字（引当・減損）と構造的な縮小を機械では区別できないため、一次開示を読むresearchが判定する。実測でも上位占有は起きていない。2026-08-04 / 08-05のlonglist 20件では該当が各1件だった（母集団3,709件中119件 = 3.2%）。
+**非目標:** 除外にも減衰にも使わず、annotationにする。一過性の赤字（引当・減損）と構造的な縮小を機械では区別できないため、一次開示を読むresearchが判定する。
 
 **変更する場合:** reversionを機械的に減衰する場合はE[r]を動かす方法変更となる。[`estimate-calibration.md`](./estimate-calibration.md)の運用契約で事前登録し、赤字予想cohortのforward成績を較正panelで測ってから判断する。現行panelはforecast系列を持たないため、再構築が必要である。
 
@@ -188,26 +188,11 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 `dividend_split_factor` は会計期間に起きた累積 factor で、期間内に何も無ければ `null`。
 - この利回りは将来 carry の機械 E[r] anchor に使う。較正リプレイの実現値は price-only であり、entry 時点の利回りを保有年数で按分する疑似配当 accrual は加えない。
 
-## 7.3 自己株式取得枠の状態（buyback_authorization_status）
+## 7.3 過去の株数変化
 
-機械 E[r] の carry は `dividend_yield + clip(-net_share_change_yoy, ±5%)` で、buyback 側は過去 1 年の**グロス発行済株式数**（自己株式を含む）の変化である。日本の自社株買いは取得した株式を自己株式へ入れるだけなので、発行済株式総数は**消却するまで減らない** — この量が動くのは主に消却年であって取得年ではない。取得枠を消化し終えた会社もこの成分を持つため、carry を「これから受け取る現金還元」と読むと過大評価になる。
+機械 E[r] の carry は `dividend_yield + clip(-net_share_change_yoy, ±5%)` で、後半は過去 1 年の**グロス発行済株式数**（自己株式を含む）の変化である。日本の自社株買いは取得した株式を自己株式へ入れるだけなので、発行済株式総数は消却するまで減らない。したがってこの成分は過去の株数縮小・希薄化 signal であり、将来の自社株買い cash や未消化枠ではない。
 
-EDINET の自己株券買付状況報告書（様式コード 220、訂正 230）は金商法 24 条の 6 第 1 項により取得期間中は毎月提出されるので、提出の有無と齢が、取得枠がいつまで在ったかの観測になる。`buyback_authorization_status` は次の 4 値を取り、併記する `buyback_status_latest_filing_date` / `buyback_status_filing_age_days` / `buyback_status_observed_from` を読み手が自分の閾値で使う。
-
-値は**観測そのもの**を表し、枠が今も在るかの推論ではない。
-
-| 値 | 意味 |
-| --- | --- |
-| `recent_filing` | 直近 45 日以内に提出がある。報告月の翌月 15 日までという提出期限に対し、月初の as-of で前月分が未提出でも前々月分が窓に入る幅である。**取得期間が終了した月の報告書もここに入る** |
-| `stale_filing` | 観測窓に提出はあるが 45 日より古い |
-| `no_filing` | 観測窓 365 日に提出が 1 件も無い |
-| `unknown` | 提出が見つからず、store の提出観測も as-of から 365 日を覆えていない。観測済みの提出は no-filing 窓が未成熟でも `recent_filing` / `stale_filing` として残る |
-
-**`recent_filing` は「今も枠が在る」を意味しない。** 提出は報告月の翌月に出るので、取得期間が終了した月の報告書も期間終了後に提出される。`buyback_remaining_share_ratio` / `buyback_remaining_amount_ratio` と `buyback_authorization_window_end` が、直近報告月末の残枠と取得期間を別々に示す。取締役会決議は取得し得る株式の総数と取得価額の総額の 2 本を上限に持ち、先に到達した方で取得が終わるので、**残枠は 2 つの比率のうち小さい方**である。決議後に株価が上がった銘柄は金額側を先に使い切り、株数側だけが残る。提出日と報告月末の双方が as-of 以下の報告だけを使い、提出前の内容を historical 診断へ混ぜない。残枠・期間が欠損なら、使い切りとも継続中とも推定しない。
-
-`no_filing` の観測窓は、EDINET の全様式を含む日次一覧について `is_final`、一覧 metadata 件数、永続行数、`source_coverage` の status・件数が一致し、as-of から日単位で連続する範囲だけを使う。Form 220 / 230 が1件ある日はその提出の positive evidence にはなるが、universe 全体の「提出なし」を証明しない。途中の欠落・partial・件数不一致・未確定日はそこで窓を切る。
-
-**この annotation は ranking・gate・E[r] を変えない。** 3m / 6m の authorization 診断は正方向だが、1y 以上の同一母集団比較と 3y / 5y の完全な point-in-time evidence が存在しないため、終了済み枠を自動除外や carry 減衰へ接続しない（[診断](../../reports/studies/2026-08-09-buyback-authorization-calibration/report.md)）。shortlist は期間満了・残枠消化・取得目的・消却を一次開示で確認し、終了済み carry を forward 還元として narrative に残さない。
+将来の資本配分は機械 annotation で推定せず、shortlist で選ばれた銘柄だけを research で一次開示から確認する。
 
 ## 8. 業種中央値の算出
 

@@ -85,10 +85,9 @@
 }
 
 :root {
-    /* The mark's own two colors. Both are measured from web/frontend/brand/logo.png — running
-       `tools/generate_brand_assets.py` reports the values that belong here, and
-       `web/frontend/tests/brand.test.ts` holds these two to that measurement — so the palette states
-       what the artwork is painted in rather than what someone remembers it as.
+    /* The mark's own two colors. web/frontend/brand/measured-colors.json records the
+       colors measured from logo.png, and brand.test.ts binds these tokens to that
+       record, so the palette states what the artwork is painted in.
 
        Neither one paints an interaction. The mark's green is 2.99 on --surface and 2.85 on
        --canvas, under the 3:1 that a state indicator needs to be seen at all, so the greens

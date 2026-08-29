@@ -7,13 +7,13 @@ import pytest
 from tools.experiments.measure_daily_delta_effect import (
     build_candidate_measurement,
     build_holding_measurement,
-    load_longlist_history,
+    load_ranked_set_history,
 )
 
 
 def _history(day: str, selection_id: str | None, tickers: list[str]) -> dict[str, object]:
     return {
-        "kind": "daily-longlist-membership",
+        "kind": "daily-ranked-set-membership",
         "schema_version": 1,
         "as_of": day,
         "selection_status": "available" if selection_id is not None else "selection_missing",
@@ -54,7 +54,7 @@ def _bar(day: str, close: float, factor: float = 1.0) -> dict[str, object]:
 
 def test_candidate_latency_separates_exact_first_seen_from_left_censoring() -> None:
     result = build_candidate_measurement(
-        longlist_history=[
+        ranked_set_history=[
             _history("2026-07-01", "selection-1", ["1111"]),
             _history("2026-07-02", "selection-2", ["1111", "2222"]),
         ],
@@ -93,9 +93,9 @@ def test_candidate_latency_separates_exact_first_seen_from_left_censoring() -> N
     assert by_ticker["2222"]["delay_days"] == 1
 
 
-def test_missing_longlist_snapshot_keeps_later_first_seen_censored() -> None:
+def test_missing_ranked_set_snapshot_keeps_later_first_seen_censored() -> None:
     result = build_candidate_measurement(
-        longlist_history=[
+        ranked_set_history=[
             _history("2026-07-01", None, []),
             _history("2026-07-02", "selection-2", ["2222"]),
         ],
@@ -110,9 +110,9 @@ def test_missing_longlist_snapshot_keeps_later_first_seen_censored() -> None:
     assert result["tickers"][0]["evaluation_status"] == "right_censored"
 
 
-def test_empty_longlist_is_a_complete_daily_observation() -> None:
+def test_empty_ranked_set_is_a_complete_daily_observation() -> None:
     result = build_candidate_measurement(
-        longlist_history=[
+        ranked_set_history=[
             _history("2026-07-01", "selection-1", []),
             _history("2026-07-02", "selection-2", ["2222"]),
         ],
@@ -121,14 +121,14 @@ def test_empty_longlist_is_a_complete_daily_observation() -> None:
         asof=date(2026, 7, 3),
     )
 
-    assert result["coverage"]["complete_longlist_snapshot_count"] == 2
+    assert result["coverage"]["complete_ranked_set_snapshot_count"] == 2
     assert result["coverage"]["missing_selection_snapshot_count"] == 0
     assert result["tickers"][0]["first_seen_status"] == "exact"
 
 
 def test_missing_history_record_keeps_later_first_seen_censored() -> None:
     result = build_candidate_measurement(
-        longlist_history=[
+        ranked_set_history=[
             _history("2026-07-01", "selection-1", []),
             _history("2026-07-03", "selection-3", ["2222"]),
         ],
@@ -142,17 +142,17 @@ def test_missing_history_record_keeps_later_first_seen_censored() -> None:
     assert result["tickers"][0]["first_seen_status"] == "left_censored"
 
 
-def test_longlist_history_loader_rejects_filename_asof_mismatch(tmp_path: Path) -> None:
+def test_ranked_set_history_loader_rejects_filename_asof_mismatch(tmp_path: Path) -> None:
     path = tmp_path / "2026-07-01.json"
     path.write_text(
-        '{"kind":"daily-longlist-membership","schema_version":1,'
+        '{"kind":"daily-ranked-set-membership","schema_version":1,'
         '"as_of":"2026-07-02","selection_status":"selection_missing",'
         '"selection_id":null,"members":[]}',
         encoding="utf-8",
     )
 
     with pytest.raises(ValueError, match="filename and as_of differ"):
-        load_longlist_history(tmp_path)
+        load_ranked_set_history(tmp_path)
 
 
 def test_holding_latency_starts_at_fv_reach_and_ignores_an_earlier_review() -> None:

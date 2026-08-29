@@ -13,13 +13,6 @@ from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.screening.buyback_authorization import (
-    ACQUISITION_PACE_MONTHS,
-    build_buyback_authorization,
-    read_buyback_status_filings,
-    with_authorization_state,
-)
-from baibai_engine.screening.buyback_store import read_buyback_reports
 from baibai_engine.screening.candidate_build import build_screened_candidate
 from baibai_engine.screening.capital_control import read_capital_control_annotations
 from baibai_engine.screening.config import (
@@ -63,11 +56,7 @@ from baibai_engine.screening.rule_config import (
 )
 from baibai_engine.screening.rules import evaluate_screening
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
-from baibai_engine.screening.run_store import (
-    ScreeningRunStore,
-    application_git_commit,
-    unchanged_application_git_commit,
-)
+from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_engine.screening.schema import (
     FinancialSnapshot,
     ScreenedCandidate,
@@ -97,7 +86,6 @@ def run_command(
     run_store_path: Path | None = None,
     stdout: TextIO | None = None,
 ) -> int:
-    starting_commit = application_git_commit()
     out = stdout if stdout is not None else sys.stdout
     rules = rules or load_screening_rules(config.rules_path)
     if output_path is not None and output_path.exists() and not force:
@@ -273,24 +261,12 @@ def run_command(
     margin_latest, margin_prior_26w = read_margin_supply_demand_inputs(
         config.sqlite_cache_dir / "market.sqlite", asof_date
     )
-    buyback_filings = read_buyback_status_filings(
-        config.sqlite_cache_dir / "market.sqlite", through=asof_date
-    )
     # 価値実現の経路の annotation。ranking・gate・E[r] へは接続しない。
     capital_control_by_ticker = read_capital_control_annotations(
         config.sqlite_cache_dir / "market.sqlite",
         asof=asof_date,
         tickers=sorted(securities_by_ticker),
     )
-    # 枠の中身は別 table から読む。提出の有無と枠の状態は別の観測なので、片方が欠けても
-    # もう片方は出る。
-    buyback_read = read_buyback_reports(
-        config.sqlite_cache_dir / "market.sqlite",
-        tickers=sorted(securities_by_ticker),
-        asof=asof_date,
-        months=ACQUISITION_PACE_MONTHS,
-    )
-    buyback_reports = buyback_read.reports
     metric_result = build_metrics(
         asof_date=asof_date,
         securities_by_ticker=securities_by_ticker,
@@ -349,20 +325,6 @@ def run_command(
                     summaries=summaries_by_ticker.get(ticker, ()),
                 ),
                 normalized_per_3fy=normalized_profit.normalized_per_3fy,
-                buyback_authorization=with_authorization_state(
-                    build_buyback_authorization(
-                        asof=asof_date,
-                        latest_filing_date=(
-                            None
-                            if buyback_filings is None
-                            else buyback_filings.latest_filing_by_ticker.get(ticker)
-                        ),
-                        observed_from=None
-                        if buyback_filings is None
-                        else buyback_filings.observed_from,
-                    ),
-                    buyback_reports.get(ticker, ()),
-                ),
                 capital_control=capital_control_by_ticker.get(ticker),
             )
         )
@@ -412,14 +374,6 @@ def run_command(
     if population_yoy_missing:
         fallback_lines.append(
             f"業績悪化フィルタ入力欠損(流動性母集団): {population_yoy_missing} 銘柄"
-        )
-    if buyback_read.inconsistent_rows:
-        # 落とした行を数に残さないと、判断面では「様式が読めなかった」と「そもそも提出が
-        # 無い」が同じ null になる。単価の上限は普通株の実勢 (実測最大 68,185 円) を前提に
-        # 置いた固定値なので、その前提が崩れたときはここの件数が先に動く。
-        fallback_lines.append(
-            f"自己株券買付の様式が読めず field を落とした報告: "
-            f"{buyback_read.inconsistent_rows} 行 / {buyback_read.inconsistent_tickers} 銘柄"
         )
     if edinet_load_error is not None:
         fallback_lines.append(f"EDINET 読み込み失敗: {edinet_load_error}")
@@ -505,10 +459,7 @@ def run_command(
     if not isinstance(raw_payload, Mapping):  # pragma: no cover - renderer invariant
         raise AssertionError("screening renderer must produce a mapping")
     try:
-        publication = ScreeningRunStore(
-            run_store_path,
-            git_commit_factory=lambda: unchanged_application_git_commit(starting_commit),
-        ).publish_run(raw_payload)
+        publication = ScreeningRunStore(run_store_path).publish_run(raw_payload)
     except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
         print(f"screening run publication failed: {exc}", file=sys.stderr)
         return 1

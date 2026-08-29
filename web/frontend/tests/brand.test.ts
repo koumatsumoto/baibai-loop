@@ -193,8 +193,7 @@ function pairs<T>(items: readonly T[]): [T, T][] {
   return items.flatMap((first, index) => items.slice(index + 1).map((second): [T, T] => [first, second]))
 }
 
-// What `tools/generate_brand_assets.py` read out of web/frontend/brand/logo.png, keyed by the palette
-// entry each color belongs to. Regenerating the brand assets rewrites it.
+// Colors measured from web/frontend/brand/logo.png, keyed by the palette entry each color belongs to.
 const measuredColors = JSON.parse(source('brand/measured-colors.json')) as Record<string, string>
 
 describe('brand palette', () => {

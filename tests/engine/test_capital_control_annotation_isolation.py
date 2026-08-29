@@ -93,11 +93,9 @@ def _payload(candidates: tuple[ScreenedCandidate, ...]) -> dict[str, object]:
         ),
         macro_context=None,
         rules=load_screening_rules(DEFAULT_RULES_PATH),
-        top=10,
-        profile="balanced",
         candidates_ref="test.yaml",
         macro_context_ref=None,
-        longlist_top=5,
+        review_cap=5,
     )
 
 
@@ -140,7 +138,7 @@ def test_selection_rank_expected_return_and_gate_do_not_move() -> None:
     with_annotation = _payload(annotated)
 
     def _comparable(payload: dict[str, object]) -> list[tuple[object, ...]]:
-        rows = payload["longlist"]
+        rows = payload["ranked_set"]
         assert isinstance(rows, list)
         return [
             (row["rank"], row["ticker"], row["expected_return_pct"], row["liquidity_status"])
@@ -148,19 +146,19 @@ def test_selection_rank_expected_return_and_gate_do_not_move() -> None:
         ]
 
     assert _comparable(baseline) == _comparable(with_annotation)
-    assert [row["ticker"] for row in baseline["recommendations"]] == [  # type: ignore[union-attr]
+    assert [row["ticker"] for row in baseline["ranked_set"]] == [  # type: ignore[union-attr]
         row["ticker"]
-        for row in with_annotation["recommendations"]  # type: ignore[union-attr]
+        for row in with_annotation["ranked_set"]  # type: ignore[union-attr]
     ]
 
 
 def test_the_annotation_reaches_the_judgment_surface() -> None:
     payload = _payload((_candidate("1111", 0.6, capital_control=_ANNOTATION),))
 
-    recommendation = payload["recommendations"][0]  # type: ignore[index]
-    longlist = payload["longlist"][0]  # type: ignore[index]
+    ranked = payload["ranked_set"][0]  # type: ignore[index]
+    ranked_set = payload["ranked_set"][0]  # type: ignore[index]
 
-    assert recommendation["tse_capital_policy_status"] == "disclosed"
-    assert recommendation["large_holding_event_latest_on"] == "2026-07-01"
-    assert recommendation["tender_offer_event_latest_on"] == "2026-05-20"
-    assert longlist["capital_control"]["tse_capital_policy_updated_on"] == "2026-06-23"
+    assert ranked["tse_capital_policy_status"] == "disclosed"
+    assert ranked["large_holding_event_latest_on"] == "2026-07-01"
+    assert ranked["tender_offer_event_latest_on"] == "2026-05-20"
+    assert ranked_set["capital_control"]["tse_capital_policy_updated_on"] == "2026-06-23"

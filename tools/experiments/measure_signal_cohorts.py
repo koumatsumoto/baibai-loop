@@ -1,8 +1,8 @@
 """Compare realized forward returns across machine-estimate cohorts.
 
 較正 store の point-in-time panel と forward return を突き合わせ、「機械が上位と見た
-群」「buyback carry が clip に貼り付いた群」「PBR 単独 anchor で reversion が cap に
-当たった群」が母集団に対してどう実現したかを as-of cohort 単位で出す。
+群」「historical share-count contribution が clip に貼り付いた群」「PBR 単独 anchor で
+reversion が cap に当たった群」が母集団に対してどう実現したかを as-of cohort 単位で出す。
 
 E[r] policy parameter の変更を提案する artifact ではない。screening rules も E[r] も
 変えず、判断の前提が実データで支持されるかだけを測る。窓は重複するので有意性は
@@ -22,14 +22,14 @@ from typing import Literal, TextIO
 
 import yaml
 
-from baibai_engine.screening.calibration.lake import FixedCalibrationBundle
 from baibai_engine.screening.calibration.panel import PanelRow as StoredPanelRow
 from baibai_engine.screening.calibration.store import (
     CalibrationCacheError,
+    fixed_current_snapshot,
     published_cohorts,
     read_forward,
     read_panel,
-    resolve_calibration_bundle,
+    read_panel_meta,
 )
 
 DEFAULT_CALIBRATION_DIR = Path("stores/screening/calibration")
@@ -40,7 +40,7 @@ HORIZON_YEARS: Mapping[str, int] = {"1y": 1, "3y": 3, "5y": 5}
 MIN_MARKET_CAP_OKU = 100.0
 MIN_AVG_TURNOVER_OKU = 1.0
 MIN_LISTING_SPAN_DAYS = 182.0
-BUYBACK_CLIP = 0.05
+SHARE_COUNT_YIELD_CLIP = 0.05
 UPSIDE_CAP = 0.50
 DEFAULT_ER_THRESHOLD = 0.085
 # `price` は終値だけ、`total` は窓内に実現した配当を足したもの。carry は配当と自己株買いで
@@ -70,7 +70,7 @@ class PanelRow:
     reversion_annual: float
     carry_annual: float
     dividend_yield: float
-    buyback_yield: float | None
+    share_count_yield: float | None
     upside_capped: float | None
     earnings_anchor_available: bool
     reduction_streak: int | None
@@ -93,8 +93,7 @@ def _annualized(cumulative_return: float, years: int) -> float:
 
 
 def _load_forward_returns(
-    calibration_dir: Path,
-    bundle: FixedCalibrationBundle,
+    snapshot: Path,
     horizons: Sequence[str],
     *,
     basis: MetricBasis,
@@ -108,11 +107,11 @@ def _load_forward_returns(
     wanted = set(horizons)
     resolved: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
     counts: dict[str, dict[str, int]] = {horizon: {"price": 0, "total": 0} for horizon in horizons}
-    asofs = published_cohorts(calibration_dir, bundle=bundle)
+    asofs = published_cohorts(snapshot)
     if not asofs:
-        raise SignalCohortMeasurementError(f"no forward rows under {calibration_dir}")
+        raise SignalCohortMeasurementError(f"no forward rows under {snapshot}")
     for asof in asofs:
-        for row in read_forward(calibration_dir, asof, bundle=bundle):
+        for row in read_forward(snapshot, asof):
             if row.horizon not in wanted:
                 continue
             price = row.price_return if row.resolved else None
@@ -128,35 +127,20 @@ def _load_forward_returns(
     return resolved, counts
 
 
-def fixed_generation(calibration_dir: Path) -> FixedCalibrationBundle:
-    """Fix the generation a measurement reads, before it reads anything.
-
-    A measurement is one statement about one series. Resolving current separately for
-    the cohort list, the forward rows, the rules identity, and the panel rows lets a
-    publication landing mid-run put panel rows from one generation and outcomes from
-    another into the same effect size — and every individual read is valid, so no
-    digest or schema check has anything to object to. The report would carry a number
-    nothing produced.
-    """
-
-    try:
-        return resolve_calibration_bundle(calibration_dir)
-    except CalibrationCacheError as exc:
-        raise SignalCohortMeasurementError(str(exc)) from exc
-
-
-def require_single_rules_hash(bundle: FixedCalibrationBundle) -> str:
+def require_single_rules_hash(snapshot: Path) -> str:
     """この世代が名乗る screening rules の identity。
 
     rules を動かした後に一部だけ再構築すると、別の母集団定義で作られた月が混ざる。混ぜて
     平均しても値は出てしまい、しかも権威ありげな percentile として報告へ載る。混在の拒否は
-    bundle の組み立てが持つので、ここは manifest が名乗る identity をそのまま読む — 各 cohort
+    snapshot の組み立てが持つので、ここは manifest が名乗る identity をそのまま読む — 各 cohort
     の行を開き直して数え直すと、authority ではない側で同じ判断をやり直すことになる。
     """
 
-    hashes = {entry.panel.measurement_policy.rules_hash for entry in bundle.cohorts.values()}
+    hashes = {
+        str(read_panel_meta(snapshot, asof)["rules_hash"]) for asof in published_cohorts(snapshot)
+    }
     if not hashes:
-        raise SignalCohortMeasurementError(f"generation {bundle.ref.bundle_id} has no cohorts")
+        raise SignalCohortMeasurementError(f"snapshot {snapshot} has no cohorts")
     if len(hashes) > 1:
         raise SignalCohortMeasurementError(
             f"panels mix screening rules revisions: {', '.join(sorted(hashes))}"
@@ -165,16 +149,15 @@ def require_single_rules_hash(bundle: FixedCalibrationBundle) -> str:
 
 
 def _load_panel(
-    calibration_dir: Path,
-    bundle: FixedCalibrationBundle,
+    snapshot: Path,
     forward: Mapping[tuple[str, str], Mapping[str, float]],
 ) -> list[PanelRow]:
-    asofs = published_cohorts(calibration_dir, bundle=bundle)
+    asofs = published_cohorts(snapshot)
     if not asofs:
-        raise SignalCohortMeasurementError(f"no panel rows under {calibration_dir}")
+        raise SignalCohortMeasurementError(f"no panel rows under {snapshot}")
     rows: list[PanelRow] = []
     for asof in asofs:
-        for stored in read_panel(calibration_dir, asof, bundle=bundle):
+        for stored in read_panel(snapshot, asof):
             row = _panel_row(stored, forward)
             if row is not None:
                 rows.append(row)
@@ -200,8 +183,15 @@ def _panel_row(
         return None
     share_change = stored.net_share_change_yoy
     # 欠測を 0 と読むと「株数が動かなかった」と「株数変化が分からない」が control 群へ
-    # 一緒に入る。buyback 比較では欠測を None のまま持ち、どちらの群にも入れない。
-    buyback = None if share_change is None else max(-BUYBACK_CLIP, min(BUYBACK_CLIP, -share_change))
+    # 一緒に入る。株数変化の比較では欠測を None のまま持ち、どちらの群にも入れない。
+    share_count_yield = (
+        None
+        if share_change is None
+        else max(
+            -SHARE_COUNT_YIELD_CLIP,
+            min(SHARE_COUNT_YIELD_CLIP, -share_change),
+        )
+    )
     return PanelRow(
         asof=stored.asof,
         ticker=stored.ticker,
@@ -209,7 +199,7 @@ def _panel_row(
         reversion_annual=stored.er_reversion_annual or 0.0,
         carry_annual=stored.er_carry_annual or 0.0,
         dividend_yield=stored.dividend_yield or 0.0,
-        buyback_yield=buyback,
+        share_count_yield=share_count_yield,
         upside_capped=stored.er_upside_capped,
         earnings_anchor_available=bool(
             (stored.per_forward is not None and stored.per_forward > 0)
@@ -290,18 +280,22 @@ def _high_estimate_comparison(
     }
 
 
-def _buyback_comparison(rows: Sequence[PanelRow], horizon: str) -> Mapping[str, object]:
-    known = [row for row in rows if row.buyback_yield is not None]
-    clipped = [row for row in known if (row.buyback_yield or 0.0) >= BUYBACK_CLIP - 1e-9]
-    partial = [row for row in known if 0.0 < (row.buyback_yield or 0.0) < BUYBACK_CLIP - 1e-9]
-    non_positive = [row for row in known if (row.buyback_yield or 0.0) <= 0.0]
-    unknown = [row for row in rows if row.buyback_yield is None]
+def _share_count_comparison(rows: Sequence[PanelRow], horizon: str) -> Mapping[str, object]:
+    known = [row for row in rows if row.share_count_yield is not None]
+    clipped = [
+        row for row in known if (row.share_count_yield or 0.0) >= SHARE_COUNT_YIELD_CLIP - 1e-9
+    ]
+    partial = [
+        row for row in known if 0.0 < (row.share_count_yield or 0.0) < SHARE_COUNT_YIELD_CLIP - 1e-9
+    ]
+    non_positive = [row for row in known if (row.share_count_yield or 0.0) <= 0.0]
+    unknown = [row for row in rows if row.share_count_yield is None]
     return {
         "horizon": horizon,
         "groups": [
-            _group_summary(clipped, horizon, label="buyback_yield_at_clip"),
-            _group_summary(partial, horizon, label="buyback_yield_partial"),
-            _group_summary(non_positive, horizon, label="buyback_yield_non_positive"),
+            _group_summary(clipped, horizon, label="share_count_yield_at_clip"),
+            _group_summary(partial, horizon, label="share_count_yield_partial"),
+            _group_summary(non_positive, horizon, label="share_count_yield_non_positive"),
             _group_summary(unknown, horizon, label="share_change_unobserved"),
         ],
         "cohort_agreement": _cohort_win_rate(
@@ -333,13 +327,15 @@ def _anchor_comparison(rows: Sequence[PanelRow], horizon: str) -> Mapping[str, o
     }
 
 
-def _buyback_continuity_comparison(rows: Sequence[PanelRow], horizon: str) -> Mapping[str, object]:
+def _share_count_continuity_comparison(
+    rows: Sequence[PanelRow], horizon: str
+) -> Mapping[str, object]:
     """株数減少が単発か継続かで forward が変わるかを見る。
 
     EDINET の取得枠状態は 2025-08 以降しか観測できないので、連続 FY 数を代理変数にして
     80 か月へ広げる。単発 = 枠を消化し終えた状態に近い。
     """
-    reducing = [row for row in rows if (row.buyback_yield or 0.0) > 0.005]
+    reducing = [row for row in rows if (row.share_count_yield or 0.0) > 0.005]
     single = [row for row in reducing if row.reduction_streak == 1]
     repeated = [
         row for row in reducing if row.reduction_streak is not None and row.reduction_streak >= 2
@@ -360,7 +356,7 @@ def _buyback_continuity_comparison(rows: Sequence[PanelRow], horizon: str) -> Ma
 
 
 ComparisonName = Literal[
-    "high_estimate", "buyback_component", "buyback_continuity", "equity_anchor"
+    "high_estimate", "share_count_component", "share_count_continuity", "equity_anchor"
 ]
 
 
@@ -407,12 +403,13 @@ def build_measurement(
     for horizon in horizons:
         if horizon not in HORIZON_YEARS:
             raise SignalCohortMeasurementError(f"unsupported horizon: {horizon}")
-    generation = fixed_generation(calibration_dir)
-    rules_hash = require_single_rules_hash(generation)
-    forward, basis_counts = _load_forward_returns(
-        calibration_dir, generation, horizons, basis=basis
-    )
-    rows = _load_panel(calibration_dir, generation, forward)
+    try:
+        with fixed_current_snapshot(calibration_dir) as snapshot:
+            rules_hash = require_single_rules_hash(snapshot)
+            forward, basis_counts = _load_forward_returns(snapshot, horizons, basis=basis)
+            rows = _load_panel(snapshot, forward)
+    except CalibrationCacheError as exc:
+        raise SignalCohortMeasurementError(str(exc)) from exc
     if asof_from is not None:
         rows = [row for row in rows if row.asof >= asof_from]
     if asof_to is not None:
@@ -423,7 +420,7 @@ def build_measurement(
     return {
         "kind": "signal-cohort-measurement",
         "calibration_dir": str(calibration_dir),
-        "calibration_bundle_id": generation.ref.bundle_id,
+        "calibration_snapshot": "current",
         "metric_basis": _METRIC_BASIS_LABEL[basis],
         "basis_coverage": _basis_coverage(basis_counts, horizons),
         "population": "liquidity_passing_panel_rows",
@@ -444,9 +441,11 @@ def build_measurement(
                 _high_estimate_comparison(rows, horizon, er_threshold=er_threshold)
                 for horizon in horizons
             ],
-            "buyback_component": [_buyback_comparison(rows, horizon) for horizon in horizons],
-            "buyback_continuity": [
-                _buyback_continuity_comparison(rows, horizon) for horizon in horizons
+            "share_count_component": [
+                _share_count_comparison(rows, horizon) for horizon in horizons
+            ],
+            "share_count_continuity": [
+                _share_count_continuity_comparison(rows, horizon) for horizon in horizons
             ],
             "equity_anchor": [_anchor_comparison(rows, horizon) for horizon in horizons],
         },

@@ -195,6 +195,35 @@ migrate_downloaded_store() {
   )
 }
 
+cutover_downloaded_market_store() {
+  local path="$1"
+  (
+    cd "${repo_root}" || exit 1
+    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+      uv run python tools/migrations/cutover_market_v25.py --path "${path}"
+  )
+}
+
+cutover_pulled_run_store() {
+  local expected_version current_version path
+  expected_version="$(pulled_version runs.sqlite)"
+  current_version="$(remote_version runs.sqlite)"
+  if [[ "${current_version}" != "${expected_version}" ]]; then
+    printf 'refusing run-store cutover: runs.sqlite changed on R2 after the pull. ' >&2
+    printf 'Pull it again outside the daily batch window.\n' >&2
+    return 1
+  fi
+  path="$(store_path runs.sqlite)"
+  (
+    cd "${repo_root}" || exit 1
+    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+      uv run python tools/migrations/cutover_runs_v4.py --path "${path}"
+  )
+  check_sqlite_schema "${path}" 4
+  push_key_if_version runs.sqlite "${expected_version}"
+  write_machine_manifest
+}
+
 merge_market_store() {
   merge_store baibai_batch.storage.merge_market_store "$1" "$2"
 }
@@ -203,7 +232,7 @@ hydrate_market() {
   # The store arrives from R2 holding only what the lake does not own. Filling it is
   # what makes it the store every reader already expects, and it fails closed on the
   # published row counts, so a fill that silently did nothing cannot reach screening.
-  migrate_downloaded_store market "$(store_path market.sqlite)"
+  cutover_downloaded_market_store "$(store_path market.sqlite)"
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
@@ -700,9 +729,9 @@ publish_serving_tail() {
     aws_s3 sync "${output_dir}/history/candidate-views/" \
       "s3://${serving_bucket}/history/candidate-views/"
   fi
-  if [[ -d "${output_dir}/history/longlists" ]]; then
-    aws_s3 sync "${output_dir}/history/longlists/" \
-      "s3://${serving_bucket}/history/longlists/"
+  if [[ -d "${output_dir}/history/ranked_sets" ]]; then
+    aws_s3 sync "${output_dir}/history/ranked_sets/" \
+      "s3://${serving_bucket}/history/ranked_sets/"
   fi
   # Freshness is published only after every view and history upload succeeds.
   aws_s3 cp "${output_dir}/views/meta.json" "s3://${serving_bucket}/views/meta.json"
@@ -723,18 +752,18 @@ pull_app() {
   pull_keys baibai.sqlite
 }
 
-pull_longlist_history() {
+pull_ranked_set_history() {
   local output_dir="$1"
   if [[ -e "${output_dir}" ]]; then
-    printf 'refusing longlist history download overwrite: %s\n' "${output_dir}" >&2
+    printf 'refusing ranked-set history download overwrite: %s\n' "${output_dir}" >&2
     return 2
   fi
   mkdir -p "${output_dir}"
-  aws_s3 sync "s3://${serving_bucket}/history/longlists/" "${output_dir}/"
+  aws_s3 sync "s3://${serving_bucket}/history/ranked_sets/" "${output_dir}/"
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-longlist-history DIR|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|cutover-runs|pull-ranked-set-history DIR|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -764,9 +793,13 @@ case "${1:-}" in
   pull-runs)
     pull_keys runs.sqlite
     ;;
-  pull-longlist-history)
+  cutover-runs)
+    [[ $# -eq 1 ]] || { usage; exit 2; }
+    cutover_pulled_run_store
+    ;;
+  pull-ranked-set-history)
     [[ $# -eq 2 ]] || { usage; exit 2; }
-    pull_longlist_history "$2"
+    pull_ranked_set_history "$2"
     ;;
   seed-all)
     seed_keys market.sqlite runs.sqlite macro.sqlite baibai.sqlite
@@ -789,7 +822,7 @@ case "${1:-}" in
     market_version="$(remote_version market.sqlite)"
     aws_s3 cp "s3://${stores_bucket}/market.sqlite" "${transfer_staging}/market.sqlite"
     check_sqlite "${transfer_staging}/market.sqlite"
-    migrate_downloaded_store market "${transfer_staging}/market.sqlite"
+    cutover_downloaded_market_store "${transfer_staging}/market.sqlite"
     merge_market_store "${transfer_staging}/market.sqlite" "$(store_path market.sqlite)"
     cleanup_staging
     transfer_staging=""

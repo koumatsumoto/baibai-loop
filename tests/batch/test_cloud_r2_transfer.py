@@ -214,6 +214,8 @@ for argument in "$@"; do
     baibai_batch.storage.merge_indicator_store) script=merge ;;
     baibai_batch.storage.merge_market_store) script=merge ;;
     baibai_batch.storage.migrate_store) script=migrate ;;
+    tools/migrations/cutover_market_v25.py) script=cutover ;;
+    tools/migrations/cutover_runs_v4.py) script=run_cutover ;;
     baibai_batch.validation.repository_layout) script=layout ;;
     baibai_batch.storage.publish_market_lake) script=publish ;;
   esac
@@ -272,6 +274,14 @@ case "${script}" in
   migrate)
     printf 'migrate %s\\n' "$*" >> "$AWS_LOG"
     exit "${MIGRATE_FAKE_EXIT:-0}"
+    ;;
+  cutover)
+    printf 'cutover %s\\n' "$*" >> "$AWS_LOG"
+    exit "${CUTOVER_FAKE_EXIT:-0}"
+    ;;
+  run_cutover)
+    printf 'run-cutover %s\\n' "$*" >> "$AWS_LOG"
+    exit "${RUN_CUTOVER_FAKE_EXIT:-0}"
     ;;
   layout)
     exit "${LAYOUT_FAKE_EXIT:-0}"
@@ -377,7 +387,7 @@ def test_sqlite_helpers_run_from_the_repository_when_called_elsewhere(tmp_path: 
     assert completed.returncode == 0, completed.stderr
 
 
-def test_hydrate_migrates_a_pulled_store_before_writing_the_origin(tmp_path: Path) -> None:
+def test_hydrate_cuts_over_a_pulled_store_before_writing_the_origin(tmp_path: Path) -> None:
     bin_dir, log = _fake_aws(tmp_path)
     root = _fake_repo(tmp_path)
     environment = _environment(bin_dir, log)
@@ -393,14 +403,14 @@ def test_hydrate_migrates_a_pulled_store_before_writing_the_origin(tmp_path: Pat
 
     assert completed.returncode == 0, completed.stderr
     commands = log.read_text(encoding="utf-8").splitlines()
-    migration = next(
-        index for index, command in enumerate(commands) if command.startswith("migrate ")
+    cutover = next(
+        index for index, command in enumerate(commands) if command.startswith("cutover ")
     )
     hydration = next(
         index for index, command in enumerate(commands) if command.startswith("hydrate ")
     )
-    assert migration < hydration
-    assert "--store market" in commands[migration]
+    assert cutover < hydration
+    assert "cutover_market_v25.py" in commands[cutover]
 
 
 def _serving_export(tmp_path: Path) -> Path:
@@ -410,8 +420,8 @@ def _serving_export(tmp_path: Path) -> Path:
     (output / "views/meta.json").write_text("{}", encoding="utf-8")
     (output / "history/candidate-views").mkdir(parents=True)
     (output / "history/candidate-views/2026-07-21.json").write_text("{}", encoding="utf-8")
-    (output / "history/longlists").mkdir(parents=True)
-    (output / "history/longlists/2026-07-21.json").write_text("{}", encoding="utf-8")
+    (output / "history/ranked_sets").mkdir(parents=True)
+    (output / "history/ranked_sets/2026-07-21.json").write_text("{}", encoding="utf-8")
     return output
 
 
@@ -460,7 +470,7 @@ def test_serving_tail_appends_history_and_writes_meta_last(tmp_path: Path) -> No
     assert len(commands) == 3
     assert "s3://baibai-serving/history/candidate-views/" in commands[0]
     assert "--delete" not in commands[0]
-    assert "s3://baibai-serving/history/longlists/" in commands[1]
+    assert "s3://baibai-serving/history/ranked_sets/" in commands[1]
     assert "--delete" not in commands[1]
     assert commands[2].startswith("s3 cp ")
     assert commands[2].endswith(
@@ -564,12 +574,12 @@ def test_two_concurrent_publishes_do_not_share_a_transfer_config(tmp_path: Path)
     assert not list(scratch.glob("baibai-r2-transfer.*"))
 
 
-def test_pull_longlist_history_uses_the_dedicated_serving_prefix(tmp_path: Path) -> None:
+def test_pull_ranked_set_history_uses_the_dedicated_serving_prefix(tmp_path: Path) -> None:
     bin_dir, log = _fake_aws(tmp_path)
-    output = tmp_path / "longlist-history"
+    output = tmp_path / "ranked-set-history"
 
     subprocess.run(
-        [TRANSFER_SCRIPT, "pull-longlist-history", output],
+        [TRANSFER_SCRIPT, "pull-ranked-set-history", output],
         cwd=REPO_ROOT,
         env=_environment(bin_dir, log),
         check=True,
@@ -577,17 +587,17 @@ def test_pull_longlist_history_uses_the_dedicated_serving_prefix(tmp_path: Path)
 
     commands = _transfer_commands(log)
     assert len(commands) == 1
-    assert commands[0].startswith("s3 sync s3://baibai-serving/history/longlists/")
+    assert commands[0].startswith("s3 sync s3://baibai-serving/history/ranked_sets/")
     assert output.is_dir()
 
 
-def test_pull_longlist_history_refuses_to_overwrite_a_local_target(tmp_path: Path) -> None:
+def test_pull_ranked_set_history_refuses_to_overwrite_a_local_target(tmp_path: Path) -> None:
     bin_dir, log = _fake_aws(tmp_path)
-    output = tmp_path / "longlist-history"
+    output = tmp_path / "ranked-set-history"
     output.mkdir()
 
     completed = subprocess.run(
-        [TRANSFER_SCRIPT, "pull-longlist-history", output],
+        [TRANSFER_SCRIPT, "pull-ranked-set-history", output],
         cwd=REPO_ROOT,
         env=_environment(bin_dir, log),
         check=False,
@@ -596,7 +606,7 @@ def test_pull_longlist_history_refuses_to_overwrite_a_local_target(tmp_path: Pat
     )
 
     assert completed.returncode == 2
-    assert "refusing longlist history download overwrite" in completed.stderr
+    assert "refusing ranked-set history download overwrite" in completed.stderr
     assert not log.exists()
 
 
@@ -655,7 +665,7 @@ def test_only_the_application_pull_names_the_application_store() -> None:
         "pull-machine",
         "pull-market",
         "pull-runs",
-        "pull-longlist-history",
+        "pull-ranked-set-history",
     }
     assert naming_app == {"pull-app"}
 
@@ -668,6 +678,63 @@ def test_pull_runs_is_scoped_to_the_cloud_authoritative_run_store() -> None:
     assert "pull_keys runs.sqlite" in block
     assert "market.sqlite" not in block
     assert "macro.sqlite" not in block
+
+
+def test_one_time_run_cutover_is_conditional_and_scoped_to_runs(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    root = _fake_repo(tmp_path)
+    environment = _environment(bin_dir, log)
+    environment["AWS_FAKE_EXISTING_KEY"] = "runs.sqlite"
+
+    completed = subprocess.run(
+        [root / "batch/scripts/r2_transfer.sh", "cutover-runs"],
+        cwd=root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    commands = _transfer_commands(log)
+    cutover_index = next(
+        index for index, command in enumerate(commands) if command.startswith("run-cutover ")
+    )
+    upload_index = next(
+        index
+        for index, command in enumerate(commands)
+        if command.startswith("s3api put-object ") and "--key runs.sqlite" in command
+    )
+    assert cutover_index < upload_index
+    assert '--if-match "etag-stable"' in commands[upload_index]
+    assert not any(
+        "--key market.sqlite" in command or "--key macro.sqlite" in command
+        for command in commands
+        if command.startswith("s3api put-object ")
+    )
+    assert "--key machine-manifest.json" in commands[-1]
+
+
+def test_one_time_run_cutover_refuses_remote_drift_before_local_replacement(
+    tmp_path: Path,
+) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    root = _fake_repo(tmp_path)
+    environment = _environment(bin_dir, log)
+    environment["AWS_FAKE_CHANGED_KEY"] = "runs.sqlite"
+
+    completed = subprocess.run(
+        [root / "batch/scripts/r2_transfer.sh", "cutover-runs"],
+        cwd=root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 1
+    assert "changed on R2 after the pull" in completed.stderr
+    assert not any(command.startswith("run-cutover ") for command in _transfer_commands(log))
 
 
 @pytest.mark.parametrize("subcommand", ["upload-serving-views", "publish-serving-tail"])
@@ -1399,7 +1466,7 @@ def test_market_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> 
         for index, command in enumerate(commands)
         if command.startswith("s3api put-object ") and "--key market.sqlite" in command
     ]
-    migrations = [index for index, command in enumerate(commands) if command.startswith("migrate ")]
+    cutovers = [index for index, command in enumerate(commands) if command.startswith("cutover ")]
     assert len(downloads) == 1
     assert len(merges) == 1
     assert len(uploads) == 1
@@ -1407,9 +1474,9 @@ def test_market_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> 
     # R2 holds. Without this step a store published before a migration landed could only
     # be moved forward by the daily batch, so every schema change would block publishing
     # from a developer machine until the cloud had run.
-    assert len(migrations) == 1
-    assert downloads[0] < migrations[0] < merges[0] < uploads[0]
-    assert "--store market" in commands[migrations[0]]
+    assert len(cutovers) == 1
+    assert downloads[0] < cutovers[0] < merges[0] < uploads[0]
+    assert "cutover_market_v25.py" in commands[cutovers[0]]
     assert "stores/market/market.sqlite" in commands[merges[0]]
     assert '--if-match "etag-stable"' in commands[uploads[0]]
     # Only the market store is published. The receipt that follows reads the other two

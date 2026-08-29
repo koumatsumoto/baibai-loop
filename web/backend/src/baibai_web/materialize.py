@@ -69,21 +69,21 @@ _ASSESSMENT_ID_FORMAT = re.compile(r"[A-Za-z0-9._-]{1,128}")
 ExportPreconditionError = MaterializationPreconditionError
 
 
-class _LonglistHistoryMember(BaseModel):
+class _RankedSetHistoryMember(BaseModel):
     ticker: str
     rank: int | None
     er_annual: float | None
 
 
-class _LonglistHistoryRecord(BaseModel):
-    kind: Literal["daily-longlist-membership"] = "daily-longlist-membership"
+class _RankedSetHistoryRecord(BaseModel):
+    kind: Literal["daily-ranked-set-membership"] = "daily-ranked-set-membership"
     schema_version: Literal[1] = 1
     as_of: date
     run_revision_id: str
     selection_status: Literal["available", "selection_missing"]
     selection_id: str | None
     selection_created_at: datetime | None
-    members: list[_LonglistHistoryMember]
+    members: list[_RankedSetHistoryMember]
 
 
 def export_read_models(
@@ -210,12 +210,12 @@ def export_read_models(
             runs_db_path=stores.runs_db_path,
         )
     )
-    longlist_history = _longlist_history_record(stores.candidates)
-    if longlist_history is not None:
+    ranked_set_history = _ranked_set_history_record(stores.candidates)
+    if ranked_set_history is not None:
         written.append(
             _write_model(
-                output_dir / "history/longlists" / f"{longlist_history.as_of.isoformat()}.json",
-                longlist_history,
+                output_dir / "history/ranked_sets" / f"{ranked_set_history.as_of.isoformat()}.json",
+                ranked_set_history,
             )
         )
 
@@ -302,8 +302,8 @@ def _write_history(
     return written
 
 
-def _longlist_history_record(candidates: DbCandidatesSource) -> _LonglistHistoryRecord | None:
-    """Freeze the latest run's longlist without applying the UI fallback run."""
+def _ranked_set_history_record(candidates: DbCandidatesSource) -> _RankedSetHistoryRecord | None:
+    """Freeze the latest run's ranked_set without applying the UI fallback run."""
 
     run = candidates.latest_run()
     if run is None:
@@ -317,28 +317,32 @@ def _longlist_history_record(candidates: DbCandidatesSource) -> _LonglistHistory
         ),
         default=None,
     )
-    members: list[_LonglistHistoryMember] = []
+    members: list[_RankedSetHistoryMember] = []
     if selection is not None:
         payload = selection.get("payload")
-        raw_longlist = payload.get("longlist") if isinstance(payload, dict) else None
-        if raw_longlist is not None and (
-            not isinstance(raw_longlist, list)
-            or not all(isinstance(item, dict) for item in raw_longlist)
+        raw_ranked_set = payload.get("ranked_set") if isinstance(payload, dict) else None
+        if raw_ranked_set is not None and (
+            not isinstance(raw_ranked_set, list)
+            or not all(isinstance(item, dict) for item in raw_ranked_set)
         ):
-            raise ExportPreconditionError("machine selection longlist must be an array of objects")
-        for item in raw_longlist or []:
+            raise ExportPreconditionError(
+                "machine selection ranked_set must be an array of objects"
+            )
+        for item in raw_ranked_set or []:
             ticker = str(item.get("ticker", ""))
             if _TICKER_FORMAT.fullmatch(ticker) is None:
-                raise ExportPreconditionError(f"longlist ticker has an invalid format: {ticker!r}")
+                raise ExportPreconditionError(
+                    f"ranked_set ticker has an invalid format: {ticker!r}"
+                )
             expected_return_pct = _history_number(item.get("expected_return_pct"))
             members.append(
-                _LonglistHistoryMember(
+                _RankedSetHistoryMember(
                     ticker=ticker,
                     rank=_history_rank(item.get("rank")),
                     er_annual=(None if expected_return_pct is None else expected_return_pct / 100),
                 )
             )
-    return _LonglistHistoryRecord(
+    return _RankedSetHistoryRecord(
         as_of=run.asof_date,
         run_revision_id=run.run_revision_id,
         selection_status="selection_missing" if selection is None else "available",
@@ -354,13 +358,13 @@ def _history_rank(value: object) -> int | None:
     if value is None:
         return None
     if isinstance(value, bool):
-        raise ExportPreconditionError("longlist rank must be an integer or null")
+        raise ExportPreconditionError("ranked_set rank must be an integer or null")
     try:
         parsed = int(str(value))
     except ValueError as error:
-        raise ExportPreconditionError("longlist rank must be an integer or null") from error
+        raise ExportPreconditionError("ranked_set rank must be an integer or null") from error
     if parsed < 1:
-        raise ExportPreconditionError("longlist rank must be positive")
+        raise ExportPreconditionError("ranked_set rank must be positive")
     return parsed
 
 
@@ -368,13 +372,15 @@ def _history_number(value: object) -> float | None:
     if value is None:
         return None
     if isinstance(value, bool):
-        raise ExportPreconditionError("longlist expected return must be finite or null")
+        raise ExportPreconditionError("ranked_set expected return must be finite or null")
     try:
         parsed = float(str(value))
     except ValueError as error:
-        raise ExportPreconditionError("longlist expected return must be finite or null") from error
+        raise ExportPreconditionError(
+            "ranked_set expected return must be finite or null"
+        ) from error
     if not math.isfinite(parsed):
-        raise ExportPreconditionError("longlist expected return must be finite or null")
+        raise ExportPreconditionError("ranked_set expected return must be finite or null")
     return parsed
 
 
@@ -423,8 +429,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     try:
         reject_noncanonical_store_paths(root)
-    except StoreLayoutError as legacy_error:
-        print(f"error: {legacy_error}", file=sys.stderr)
+    except StoreLayoutError as layout_error:
+        print(f"error: {layout_error}", file=sys.stderr)
         return 2
     output_dir = args.output_dir.resolve()
     try:

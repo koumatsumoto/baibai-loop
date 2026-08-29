@@ -1,13 +1,13 @@
 # Research playbooks
 
-Opportunity LaneまたはEvidence Patternに適用する、人間向けresearch checklistを所有します。機械的な閾値・除外・選定順はscreening rulesの責務です。
+Evidence Patternに適用する、人間向けresearch checklistを所有します。機械的な閾値・除外・選定順はscreening rulesの責務です。
 
 | 項目 | 内容 |
 | --- | --- |
 | 所有 | 問うべきclaim、確認するsource、調査進捗 |
 | 所有しない | screening閾値、候補選定順、runtime loader、Thesisの最終判断 |
 | 入口 | `method/research/playbooks/<directory-slug>/YYYY-MM-DDTHHMMSS+0900.md` |
-| 依存境界 | 各revisionは`research_playbook_id`と、non-emptyな`applies_to_opportunity_lane_ids`または`applies_to_evidence_pattern_ids`を持つ。slugによるimplicit mappingは禁止 |
+| 依存境界 | 各revisionは`research_playbook_id`とnon-emptyな`applies_to_evidence_pattern_ids`を持つ。slugによるimplicit mappingは禁止 |
 | 変更先 | mappingを含む変更は既存dated methodを編集せず、新しいtimestamp版を作る |
 | 正本・test | [research skill](../../../.agents/skills/research/SKILL.md)、[Thesis](../../../docs/reference/thesis.md)、[playbook contract test](../../../tests/contracts/test_research_playbook_contract.py) |
 

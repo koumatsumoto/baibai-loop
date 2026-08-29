@@ -19,6 +19,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.position.policy import PORTFOLIO_POLICY
 
 _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=False)
 _TICKER = r"^[0-9A-Z]{4}$"
@@ -410,11 +411,6 @@ class EstimatesNamespace(BaseModel):
     ]
     scenarios: tuple[ScenarioEstimate, ...]
     screening_fv_bridge: ScreeningFVBridge | None = None
-    # published thesis の一部はこの key を持つ。payload は immutable なので、受理をやめると
-    # holding review・proposal・assessment・price watch がその thesis に対して同時に止まる。
-    # 値は null だけを受け、serialize からは外す。identity は publish 時に記録されるので、
-    # この key が hash に影響することはない。
-    deep_discount_bps: None = Field(default=None, exclude=True)
 
     @field_validator("scenarios", "entry_price_source_ids", "fair_value_source_ids", mode="before")
     @classmethod
@@ -454,7 +450,7 @@ class EvidenceOverride(BaseModel):
     override_id: Annotated[str, Field(min_length=1)]
     reason: Annotated[str, Field(min_length=1)]
     decision_reference: Annotated[str, Field(min_length=1)]
-    proposal_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    thesis_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
     review_id: Annotated[str, Field(min_length=1)]
     review_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
     approved_by: Literal["human"]
@@ -536,37 +532,11 @@ class JudgmentNamespace(BaseModel):
     strongest_countercase: Annotated[str, Field(min_length=1)]
     sizing_action: Literal["normal", "reduced", "none"]
     ai_value_capture: AIValueCaptureJudgment
-    # `starter` は要求利回りが full の下限に届かない境界帯を、縮小 lot と bucket 上限つきで
-    # 建てる宣言である。閾値は position policy が持ち、資本を約束する gate は proposal 側に
-    # 置く。ここで宣言だけを固定するのは、後から「どの判断が緩和経路だったか」を実現結果と
-    # 突き合わせるためである。
-    position_intent: Literal["full", "starter"] = "full"
-    # starter の再評価を発火させる日付。band を開く条件そのものなので starter では必須。
-    starter_catalyst_date: date | None = None
 
     @field_validator("proposed_at", mode="before")
     @classmethod
     def _parse_time(cls, value: object) -> datetime:
         return _datetime(value)
-
-    @field_validator("starter_catalyst_date", mode="before")
-    @classmethod
-    def _parse_catalyst_date(cls, value: object) -> object:
-        return None if value is None else _date(value)
-
-    @model_validator(mode="after")
-    def _coherent_starter(self) -> JudgmentNamespace:
-        if self.position_intent == "full":
-            if self.starter_catalyst_date is not None:
-                raise ValueError("starter_catalyst_date belongs to a starter position intent")
-            return self
-        if self.starter_catalyst_date is None:
-            raise ValueError("starter position intent requires a dated catalyst")
-        if self.sizing_action != "reduced":
-            raise ValueError("starter position intent requires reduced sizing")
-        if self.permanent_loss_conclusion == "elevated":
-            raise ValueError("starter position intent requires a non-elevated permanent loss")
-        return self
 
 
 class ReviewedScenario(BaseModel):
@@ -736,12 +706,7 @@ def _adverse_axes(document: ThesisDocument) -> list[RiskAxis]:
 
 
 def evidence_exception_axes(document: ThesisDocument) -> tuple[RiskAxis, ...]:
-    """buy gate の例外集合 — evidence 不完全(未検証・unknown・一次 source 欠落)か adverse な軸。
-
-    `evaluate_thesis` の override 要求と、proposal 側の starter 帯判定(evidence-gap 型の
-    starter を帯外の要求利回りでも受理する条件)が同じ集合を見るための共有述語。ここが
-    二重実装になると、gate ごとに「不完全」の定義がずれて fail-open の隙間を作る。
-    """
+    """Return every risk axis that requires explicit human acceptance before a buy."""
 
     return tuple(sorted(set(_evidence_gap_axes(document) + _adverse_axes(document))))
 
@@ -858,6 +823,16 @@ def evaluate_thesis(
 
     core_hash = thesis_core_hash(document) if identity is UnpublishedThesis.DRAFT else identity
     if document.judgment.recommendation == "buy":
+        minimum_return = PORTFOLIO_POLICY["valuation"]["minimum_required_5y_base_cagr_pct"]
+        if document.estimates.required_5y_base_cagr_pct < minimum_return:
+            errors.append(
+                "buy recommendation requires a 5y base CAGR requirement of at least "
+                f"{minimum_return}"
+            )
+        if document.judgment.permanent_loss_conclusion == "elevated":
+            errors.append("buy recommendation cannot carry elevated permanent loss")
+        if document.judgment.sizing_action == "none":
+            errors.append("buy recommendation requires normal or reduced sizing")
         if review is None or document.independent_review_ref is None:
             errors.append("buy recommendation requires an independent second-pass review")
         else:
@@ -880,6 +855,8 @@ def evaluate_thesis(
                 errors.append(_INCOMPLETE_EVIDENCE_OVERRIDE_REQUIRED)
             if review.primary_source_check != "verified" and not valid_evidence_override:
                 errors.append(_PRIMARY_REVIEW_OVERRIDE_REQUIRED)
+            if not exception_axes and document.judgment.sizing_action == "reduced":
+                errors.append("reduced sizing is reserved for a human-accepted evidence gap")
     elif review is not None:
         _check_review(
             review,
@@ -983,7 +960,7 @@ def thesis_core_hash(document: ThesisDocument) -> str:
     and every later reader passes that recorded value to `evaluate_thesis`. Deriving it
     again would make the identity a property of the current model — adding or dropping a
     field would move the hash of theses published years earlier, and the review,
-    proposal, holding review, bargain assessment and price watch bound to them would all
+    holding review, bargain assessment and price watch bound to them would all
     stop reading at once. Keeping the derivation for drafts only is what lets this stay a
     plain hash with no per-field special cases.
     """
@@ -1667,7 +1644,7 @@ def _evidence_override_status(
         return "absent"
     bindings_valid = (
         document.judgment.proposed_at <= review.reviewed_at <= override.approved_at
-        and override.proposal_sha256 == core_sha256
+        and override.thesis_sha256 == core_sha256
         and override.review_id == review.review_id
         and override.review_sha256 == independent_review_hash(review)
         and document.judgment.sizing_action == "reduced"

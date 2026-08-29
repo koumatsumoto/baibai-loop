@@ -1,7 +1,7 @@
 """Seam coverage for the writer commands a human types by hand.
 
 Every test here drives ``main([...])`` with a real argv list. The layer under
-test is the one between argparse and the store: ``--approved-at`` /
+test is the one between argparse and the store: ``--ordered-at`` /
 ``--expires-at`` / ``--as-of`` arrive as text and reach the model as
 ``datetime`` or ``date``, and ``--estimated-exit-tax-rate-bps`` reaches it as
 ``int``. A test that constructs those values itself never crosses that layer, so
@@ -12,35 +12,22 @@ from __future__ import annotations
 
 import copy
 import sqlite3
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
 import yaml
 from tests.helpers.db_seed import seed_ledger
-from tests.helpers.fixed_now import FIXED_NOW
 from tests.helpers.ledger import load_portfolio_ledger
 
 from baibai_engine.cli import main as engine_main
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 from baibai_engine.operation.cli import main as operation_main
 from baibai_engine.position.cli import main as position_main
-from baibai_engine.position.ledger import reconcile_portfolio
-from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.proposals.cli import main as proposal_main
-from baibai_engine.proposals.store import PlannedLimitInput, ProposalStoreService
-from baibai_engine.research.opportunity import plan_limit
-from baibai_engine.research.store import ResearchStoreService
 from baibai_engine.tasks.cli import main as task_main
 
 ROOT = Path(__file__).resolve().parents[2]
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
-THESIS = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
-REVIEW = ROOT / "tests/fixtures/thesis/2331-decision-review.yaml"
-THESIS_ID = "thesis-20260711-2331-r1"
-CREATED_AT = datetime.fromisoformat("2026-07-11T10:02:00+09:00")
-DECIDED_AT = CREATED_AT + timedelta(hours=1)
 OPERATION_NOW = datetime.fromisoformat("2026-07-19T12:00:00+09:00")
 
 
@@ -191,77 +178,6 @@ def test_operation_checkpoint_cli_replaces_the_active_payload(
             (operation_id,),
         ).fetchone()
     assert tuple(row) == ("active", "shortlist reviewed")
-
-
-def _pending_proposal(tmp_path: Path) -> tuple[Path, Path, str]:
-    """Seed one pending proposal the way the store's own tests build it."""
-
-    ResearchStoreService(
-        tmp_path / "app.sqlite", clock=lambda: FIXED_NOW
-    ).publish_thesis_with_review(THESIS_ID, _mapping(THESIS), _mapping(REVIEW))
-    db = _ledger_db(tmp_path)
-    market = tmp_path / "market.sqlite"
-    with sqlite3.connect(market) as connection:
-        connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION}")
-        connection.execute(
-            "CREATE TABLE jquants_daily_bars "
-            "(ticker TEXT, traded_at TEXT, close REAL, adjustment_factor REAL)"
-        )
-        connection.execute("INSERT INTO jquants_daily_bars VALUES ('2331', '2026-07-10', 1000, 1)")
-    planned = PlannedLimitInput.model_validate(
-        plan_limit(
-            thesis=THESIS,
-            db_path=db,
-            sqlite_path=market,
-            target_session=date(2026, 7, 13),
-            budget_min_yen=200_000,
-            budget_max_yen=300_000,
-            now=CREATED_AT,
-        )
-    )
-    ledger = LedgerStoreService(db)
-    proposal = ProposalStoreService(
-        db, market_db_path=market, clock=lambda: CREATED_AT + timedelta(minutes=30)
-    ).create(
-        THESIS_ID,
-        planned,
-        reconcile_portfolio(ledger.load()),
-        snapshot_append_head=ledger.append_head(),
-        created_at=CREATED_AT,
-    )
-    return db, market, proposal.proposal_id
-
-
-def test_proposal_decide_cli_approves_against_the_current_ledger(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    db, market, proposal_id = _pending_proposal(tmp_path)
-
-    code = proposal_main(
-        [
-            "--db",
-            str(db),
-            "--market-db",
-            str(market),
-            "decide",
-            proposal_id,
-            "--decision",
-            "approve",
-        ],
-        now=DECIDED_AT,
-    )
-
-    assert code == 0
-    emitted = _emitted(capsys)
-    assert emitted["status"] == "approved"
-    # The command reconciles the ledger itself for an approval; the stored row is
-    # the only proof that path ran rather than the pending row being echoed back.
-    with sqlite3.connect(db) as connection:
-        row = connection.execute(
-            "SELECT status, decided_at FROM proposal WHERE proposal_id = ?",
-            (proposal_id,),
-        ).fetchone()
-    assert tuple(row) == ("approved", DECIDED_AT.isoformat())
 
 
 def test_task_drop_cli_closes_the_row_on_the_operation_date(
