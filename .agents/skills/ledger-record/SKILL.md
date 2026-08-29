@@ -17,8 +17,7 @@ session kind は注文結果 `pending-result`、資金 `monthly-contribution`、
 
 ## 記録対象
 
-- **proposal decision**: 人間の `approve / defer / reject` を `proposal ... decide` で記録する。approve 時に thesis、price、quantity、expiry、portfolio constraint が一致しなければ書き込まない。ledger event が参照済みの proposal を approved 以外へ変えない。
-- **open / filled / cancelled / expired**: `record-result` を使う。approved proposal ID と、人間が報告した時刻、数量、価格などが必須である。新規 open と reservation のない fill には current approved proposal が必要である。open は reservation、fill は execution と remaining、terminal report は remaining release を作る。partial fill は remaining がある間だけ継続し、矛盾する report は拒否する。
+- **open / filled / cancelled / expired**: `record-result` を使う。新規 buy は canonical `result=buy` assessment ID と、人間が報告した時刻、数量、価格などが必須である。open は reservation、fill は execution と remaining、terminal report は remaining release を作る。partial fill は remaining がある間だけ継続し、矛盾する report は拒否する。
 - **sell**: holding review 後に `sell-result-draft` を使い、`decision-reference` を review ID に束縛する。market price が stale なら先に price draft を適用する。保有超過 sell は拒否する。
 - **資金・income・cost・税**: `position event-draft` で確認した事実ごとに1 event を作る。risk override は `override-draft`、tax estimate は `meta-draft`。入金だけで screening や購入を起動しない。
 - **年次 outcome**: ledger を JPX 営業日 close まで再生し、同期間・同 basis の配当込み TOPIX と比較する。`unresolved` は保存せず、不足を解消して再実行する。
@@ -27,7 +26,8 @@ CLI option と required field は public `--help`、状態遷移、replay、warn
 
 ```bash
 uv run baibai-engine position record-result --db stores/application/baibai.sqlite \
-  --proposal-ref <PROPOSAL_ID> --status <STATUS> --occurred-at <ISO8601> --out <draft>
+  --decision-reference <ASSESSMENT_ID> --status <STATUS> \
+  --occurred-at <ISO8601> --ordered-at <ISO8601> --out <draft>
 uv run baibai-engine position sell-result-draft --db stores/application/baibai.sqlite \
   --ticker XXXX --quantity <QTY> --price-yen <PRICE> --occurred-at <ISO8601> \
   --decision-reference <HOLDING_REVIEW_ID> --out <draft>
@@ -37,8 +37,8 @@ uv run baibai-engine position sell-result-draft --db stores/application/baibai.s
 
 次の場合は停止する。
 
-- 人間報告、approved proposal、required field、decision reference がない
-- draft 作成後に append head、proposal、reservation、price / meta row が変わった
+- 人間報告、buy assessment、required field、decision reference がない
+- draft 作成後に append head、assessment、reservation、price / meta row が変わった
 - event が future-dated、reservation と矛盾する、または broker 状態が推定である
 
 ## 正本

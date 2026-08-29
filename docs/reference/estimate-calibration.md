@@ -118,7 +118,7 @@ cohort 比較（`tools.experiments.measure_signal_cohorts`）は `--basis price|
 
 ### 自己株式取得枠
 
-buyback authorization の診断は `tools.experiments.measure_buyback_authorization` が production panel と forward store を read-only で結合する。Form 220 は提出日と報告月末がともに cohort as-of 以下の行だけを使い、`net_share_change_yoy` 単独、直近3報告月の取得ペース単独、終了済み carry を0にする composition を同じ resolved row で比較する。3m / 6m は regression alert、1y は leading evidenceである。3y / 5y双方の全対象 identity が point-in-time source、resolved return、比較両群を満たすことは production 検討の必要条件にすぎず、artifact 自体は採用権限を持たない。production 変更は本書の事前登録・design/confirm・coverage gateを別途通す。処理状況の消却・従業員報酬/持株会・その他再放出は実行済み行を分類し、将来の取得目的とは呼ばない。source ZIP、既知の全 table category、明示的なゼロ行のいずれかが欠ける場合は目的なしでなく未観測にする。
+自己株取得を含む資本配分は、選ばれた銘柄のresearchで一次開示を読む。production rankingが使う`net_share_change_yoy`は過去の株数変化・希薄化signalであり、将来のbuyback cashや未消化枠とは呼ばない。
 
 ### Evidence Patternの閾値とgate
 
@@ -140,9 +140,9 @@ buyback authorization の診断は `tools.experiments.measure_buyback_authorizat
 
 ## 判断面へ渡す較正文脈
 
-Shortlist の判断面が読む最新文脈の正本は `reports/published/er-level-calibration-latest.yaml` である。`calibration-evaluate --context-out` が、production authority の成立した明示的な required scope だけから、3y / 5y の固定 E[r] quintile と独立した starter要求利回りfloor以上帯を生成する。各帯は実績 FY 配当込み total return を主 basis、price-only を副 basis とし、ticker-as-of 等重みの絶対年率 median / q25 / q10 / trap rate / n、cohort 等重みの同じ統計、median n、cohort 数を持つ。trap は同 cohort・同 basis の母集団累積return中央値より20pt以上劣後した観測である。3y / 5y の共通 cohort 窓は期間だけでなく同じ帯別分布も別に記録し、horizon差と期間差を混同しない。
+Shortlist の判断面が読む最新文脈の正本は `reports/published/er-level-calibration-latest.yaml` である。`calibration-evaluate --context-out` が、production authority の成立した明示的な required scope だけから、3y / 5y の固定 E[r] quintileを生成する。各帯は実績 FY 配当込み total return を主 basis、price-only を副 basis とし、ticker-as-of 等重みの絶対年率 median / q25 / q10 / trap rate / n、cohort 等重みの同じ統計、median n、cohort 数を持つ。
 
-UI と research workspace は、artifact の `screening_rules_hash` と `er_model_version` が実際に表示・調査する operative run / selection の不変 identity と一致するときだけ、候補 E[r] を該当 quintile と重複するstarter要求利回りfloor以上帯へ対応づける。research workspace は参照artifactのSHAをmanifestへ固定する。E[r]、順位、gate、FV は変更しない。値は個別銘柄の予測ではなく historical distribution であり、重複する月次窓を独立標本と呼ばない。
+UI と research workspace は、artifact の `screening_rules_hash` と `er_model_version` が実際に表示・調査する operative run / selection の identity と一致するときだけ、候補 E[r] を該当 quintileへ対応づける。E[r]、順位、gate、FV は変更しない。値は個別銘柄の予測ではなく historical distribution であり、重複する月次窓を独立標本と呼ばない。
 
 artifact は生成日から45日だけ有効とし、月次の calibration 更新後に同じ production scope の評価から再生成する。欠損、schema / basis / quintile 境界不正、現在 method または operative run との identity 不一致、run identity 不明、未来日、45日を超える期限、期限切れでは read model が文脈全体を非表示にする。YAML を手編集して更新しない。
 
@@ -158,7 +158,7 @@ cache schema versionは互換性を決める入力から導出する（panel / d
 
 報告空売り残高の L1 は disclosure date と calculation date を分け、reporter 名tuple、ratio / shares / units、取消、provider row ordinalを保存する。panel の `reported_short_ratio` / `reported_short_breadth` / `reported_short_latest_disclosed_at` は両日が cohort as-of 以下の最新stateだけを集約する。公式 dataset floor から連続coverageを証明できる場合だけ無報告を明示的0とし、plan floor、coverage gap、同率最新stateの競合では該当値をnullにする。0は「0.5%未満または報告不在」であって空売り不存在を意味しない。この軸も calibration annotation 専用である。
 
-信用需給では、公表済みの直近残高（2026-09-18 まで全銘柄週次、以後は全銘柄日次）を source として、貸借銘柄だけの `margin_short_to_adv` と、交絡確認用の60取引日 realized volatilityを保持する。列の語義は cadence で変わらない（[`margin-publication-transition.md`](./margin-publication-transition.md) §6）。`margin_std_long_share` は判断面へ出す文脈 annotation である。`selection.supply_demand.margin_std_long_share_exclude_at_or_above` は recommendation だけを詰める任意の除外 knob だが、canonical rules は節自体を持たず既定 `None` なので gate は無効であり、candidates・full rank・longlist は同 knob の設定に関わらず動かない。production判断で空売り残/ADVのraw annotationを使うrunは、`margin_short_to_adv`をcore 3 metricと併せて明示する。missing/mismatch/partial cache は `calibration-build --force` で再構築する。cohort の保存形式と retention は [`market-lake.md`](./market-lake.md#l2-calibration) を正本とする。
+信用需給では、公表済みの直近残高（2026-09-18 まで全銘柄週次、以後は全銘柄日次）を source として、貸借銘柄だけの `margin_short_to_adv` と、交絡確認用の60取引日 realized volatilityを保持する。列の語義は cadence で変わらない（[`margin-publication-transition.md`](./margin-publication-transition.md) §6）。`margin_std_long_share` は判断面へ出す文脈 annotation である。`selection.supply_demand.margin_std_long_share_exclude_at_or_above` は ranked setだけを詰める任意の除外 knob だが、canonical rules は節自体を持たず既定 `None` なので gate は無効であり、candidates・full rank・ranked setは同 knob の設定に関わらず動かない。production判断で空売り残/ADVのraw annotationを使うrunは、`margin_short_to_adv`をcore 3 metricと併せて明示する。missing/mismatch/partial cache は `calibration-build --force` で再構築する。保存形式は[`market-lake.md`](./market-lake.md#較正store)を正本とする。
 
 `rules_hash` は `ScreeningRules` の JSON dump 全体から作る。したがって **panel の値を 1 つも変えられない変更（無効な knob の削除・field の並べ替え）でも hash は動き、store 全体が再構築対象になる**。rules model の形を変えるときは、その再構築コストを変更の便益と比べる。
 
@@ -267,21 +267,10 @@ matched 比較の被覆率・membership 数・集中度など、forward outcome 
 - rules variant の計測は本番 rules を変えず `SCREENING_RULES_PATH` で variant を指し、別 store（`stores/screening/calibration/variants/<variant>/`）へ panel を構築する。rules_hash provenance が混線を機械検出する。
 - 機械レバー（screen / select / E[r]）の実証的改訂は 3y/5y eligible evidence を必須の関門にし、判断レバー（macro / research 手順）は保有 outcome と運用の事後検証で改める。
 
-#### 別 Opportunity Lane を検証する study の最小 artifact
-
-新しい Opportunity Lane を固定 replay で検証する study は、成果物から `(as_of, ticker)` 単位で次を追えるようにする: `opportunity_lane_id` / `lane_rank` / native metric の値と単位 / champion Lane との overlap / `alt_only` / sector / `policy_diagnostic_ids`（読めないなら `diagnostic_observability: not_observable`）/ metric integrity block の status と observability / forward resolution status（outcome を読む study のみ）。cohort ごとの件数と集中度だけでは、後から「どの銘柄が効果を作ったか」も「diagnostic が実際に効いたか」も再構成できない。
-
-- study dataset に Diagnostic の必要 Fact が無い場合、推定 tag を作らず `not_observable` を明示する。Diagnostic のためだけに panel schema を広げたり再構築したりしない。
-- point-in-time で再現できない共通 gate fact（例: 過去 as-of の JPX 規制フラグ）は、**「0 件として扱った」ではなく「再現不能」**と limitation に書く。
-- production へ実際に追加される `alt-only` / incremental 候補を primary にするか明示的 secondary にするかを事前登録で決める。Lane 全体の成績だけを見て、結果が出てから incremental を判定軸へ昇格させない。
-- generic な study framework / registry / replay DSL / 新 store は作らない。不足は次の study contract へ反映し、既存の frozen artifact は immutable evidence として扱う。
-
-この節は [`2026-08-24-earnings-power-v1`](../../reports/studies/2026-08-24-earnings-power-v1/result.md) の完成監査で不足が観測されたことによる。
-
 ### 採用後
 
 - 通過した変更だけを本番へ反映し、計測した構成と本番構成を一致させる。rules 改訂後は panel を `--force` 再構築する。
-- 現 asof で `screening run` → `select --longlist-top 20` を回し、意図した挙動を実銘柄で確認する（運用テスト）。
+- 現 asof で `screening run` → `select --review-cap 20` を回し、意図した挙動を実銘柄で確認する（運用テスト）。
 - `reports/YYYY-MM-DD-<slug>.md` に再現手順・データ窓・coverage / survivorship 開示・判定表・検算・採用後の監視事項を固定する（一次計測記録。別の監査ファイルは作らない）。マージ前 gate は [`python-foundation.md`](./python-foundation.md) §9 が正本。マージ後は report の監視事項を次の replay 計測で追う。
 
 ### 判断コホートの集計

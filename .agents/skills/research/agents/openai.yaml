@@ -1,6 +1,6 @@
 interface:
   display_name: "Baibai Research"
-  short_description: "深掘りから proposal / assessment・session complete まで"
+  short_description: "深掘りから buy / assessment・session complete まで"
   default_prompt: "Use $research to run this Baibai Loop operation."
 policy:
   allow_implicit_invocation: true

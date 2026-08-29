@@ -247,7 +247,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 
 #### 共通validator
 
-- [ ] validator rule を追加・修正する場合、その rule の corner case を negative test で必ず塞ぐ。thesis の `incomplete` 条件、snapshot source の identity / 時刻 / unit 拒否、execution policy の quote / max price / cash 判定、independent review の hash 束縛、screening E[r] / FV の estimate 扱いといった個別 field の必須・拒否条件は engine model と各 negative test（`test_thesis.py` / `test_proposal_store.py` / `test_execution_policy.py` / `test_portfolio_ledger.py` 等）が正本で、本節へ網羅転記しない。追加時は最低限次の corner case を test する:
+- [ ] validator rule を追加・修正する場合、その rule の corner case を negative test で必ず塞ぐ。thesis の `incomplete` 条件、snapshot source の identity / 時刻 / unit 拒否、planning limitの価格 / cash 判定、independent review の hash 束縛、screening E[r] / FV の estimate 扱いといった個別 field の必須・拒否条件は engine model と各 negative test（`test_thesis.py` / `test_position_result_service.py` / `test_portfolio_ledger.py` 等）が正本で、本節へ網羅転記しない。追加時は最低限次の corner case を test する:
   - [ ] 関連 field が **不在** の場合 (skip / error どちらが正しいか)
   - [ ] 関連 field が **null** の場合
   - [ ] 関連 field が **0 / 負値** の場合 (decision との整合性)
@@ -262,10 +262,10 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] macro context の確率検証は float 等値比較でなく整数化算術で書き、値がある場合の境界（0.00 / 0.95 / 刻み外 / 部分欠落）を negative test で塞ぐ。散文品質を cardinality や token matching で代理判定する gate を足していないか
 - [ ] ledger eventを導入・変更する場合、reservationとbuy execution、terminal orderとrelease、cash不足、guard超過、expiry後のbuy、保有超過sellをhard errorとして確認したか
 - [ ] concentrationはholding market value + active reservationをledgerの`total_capital_yen`で割り、warning + 期限付きoverrideとして扱うことを確認したか
-- [ ] human result CLIを変更する場合、報告なしでno write、approved proposal ID必須、missing fieldの質問、draft時canonical非変更、stale append head拒否をcontract testで確認したか
+- [ ] human result CLIを変更する場合、報告なしでno write、buy assessmentのdecision reference必須、missing fieldの質問、draft時canonical非変更、stale append head拒否をcontract testで確認したか
 - [ ] thesisがapprovedの場合、source snapshot、scenario、independent review、execution inputが同一thesis hashに束縛されるか
-- [ ] current decision の eligibility clock はoperation入口で1回だけ取得したtimezone-aware instantを全validationへ渡し、proposal/review等のevent timestampやartifactのas-ofへ差し替えていないか。naive clock、expiry直前・exact expiry・直後をnegative testで固定したか
-- [ ] 統合reportはHTMLをreview対象にせず、findings / comparison / thesis / proposalへ別roleのcontent reviewを行い、manifest・全thesis raw/core・proposal hashの変更をstaleとして拒否するか
+- [ ] current decision の eligibility clock はoperation入口で1回だけ取得したtimezone-aware instantを全validationへ渡し、review等のevent timestampやartifactのas-ofへ差し替えていないか。naive clock、expiry直前・exact expiry・直後をnegative testで固定したか
+- [ ] 統合判断はHTMLをreview対象にせず、comparison / thesis / assessmentへ別roleのcontent reviewを行い、全thesis core hashとreviewの変更をstaleとして拒否するか
 - [ ] `planned_limit / defer / no actionable bargain`の全経路で、購入方法または注文なしが比較結論と矛盾せず、未知source IDと手書き注文数値を拒否するか
 - [ ] `planned_limit`のportfolio exposureは、共通as-of・分母・current / prospective円額・比率・閾値・fallback銘柄が必須かつ機械整合し、欠損 / null / 0 / 負値 / nested未知field / 閾値warningの過不足 / fallback warningの過不足を拒否するか
 - [ ] machine judgment が下流の作業範囲を決める gate は、その集合を**判断artifactからDBで再解決**して検査し、workspace / manifest / draft の自由編集で広げられないことを negative test で塞いだか。手書き側は読み取り用の記録に留め、authorization source にしない（`research prepare --shortlist-id` は Shortlist `selected` を admission 可能集合とし、各 gate が stored shortlist から再解決する）
@@ -273,7 +273,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] 鮮度の pin は、**その purpose が実際に依存する field を覆っているか**。`append_head` は `ledger_event` しか数えず、market price は別 table を丸ごと入れ替えるので、pin が一致したまま価格観測日だけが動く。覆えない残りは「最後の関門だけが見る」と正直に書き、gate が見ていない範囲を over-claim しない
 - [ ] **その修正が案内する復旧手順を実際に最後まで通したか。** 途中までしか復旧しない手順は、operator を最も高コストな工程へ誘導したうえで最後の関門で落とす（`holding-prepare --force` は `<ws>/<ticker>/` を再生成しないので、`thesis-scaffold --force` まで案内し、残った draft を `status` に出す）
 - [ ] その gate に**分岐（purpose / mode / kind）で無効化される経路**がある場合、分岐先も同じ強さで対象を store に対して証明するか。「この分岐には gate が要らない」は、その分岐を宣言するだけで gate を外せる形で残る（`purpose: holding_review` は Shortlist 束縛を持たない代わりに、対象が canonical ledger の保有であることを各 gate で再照合する）
-- [ ] その gate は**下流で最初に不可逆な資源を使う手前**に置いたか。「最後に必ず止まる」検査があっても、その手前で canonical artifact や資本を約束する artifact が作れるなら遅すぎる（Bargain Assessment の `selected` 検査は proposal より後に来るため、research 開始境界の binding を別に置いた）
+- [ ] その gate は**下流で最初に不可逆な資源を使う手前**に置いたか。Research Gateのadmissionはresearch開始前、buy assessmentの検証はhuman-confirmed ledger draft作成前に置く
 - [ ] generator が入力を読み、出力directoryへ固定名のartifactを書く場合、入力pathが出力directory内へ解決されて自分自身を上書きしないことを、書き込み前のvalidationとnegative testで保証したか
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
@@ -304,17 +304,9 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
       testで固定したか。store-wide originを進めるhydrateはtarget releaseの全datasetを対象とし、partial
       hydrateはsame-origin repairだけに限定したか。cross-release hydrateでtargetが持たないlake datasetの
       rowを旧storeから引き継がず、origin更新前に拒否するnegative testがあるか
-- [ ] L2 analytical buildを変更する場合、schemaを行のcontractから導き、transform fingerprint /
-      source release / schema / object digestの不一致をそれぞれfail closeにするnegative testを
-      持つか。full primary keyの重複・null・partition外as-ofをwrite/read両側で拒否するか。0-rowを
-      row不在から推測せず、cohort inventoryのexplicit emptyと未計算/partialを区別するか。複数datasetを
-      1 generationとして使う場合は全manifestをbundleへ閉じ、最後のpointer 1回だけで公開するか。
-      calibration sourceはdataset全体へ世代を累積せずcohort・role別のdigest/cutoffを持ち、panel as-ofと
-      forward observation horizonを区別するか。transform fingerprintは値を決める実装digestを含むか。
-      current / previous / digest付きpinから到達できるobjectがGC候補にならず、共通writer lock下の
-      再plan、root/object digest再検証、candidate identity不一致で削除を拒否する
-      negative testがあるか。Raw bufferはpreserveと分離し、90日minimum age・source closure・
-      metadata/object pairを同じdelete gateで検証するか
+- [ ] calibration snapshotを変更する場合、panel / diagnostics / forwardのrow contract、primary key、
+      as-of、measurement policyをwrite/read両側で検証し、全cohortが同じrules hashを持つことを確認してから
+      `current.sqlite`をatomic replaceするか。旧snapshotはruntime migrationせず再構築するか
 - [ ] dataset registryへdatasetを足す、または dataset ごとの契約項目を増やす場合、契約値が
       「行数などデータの現状」から導出されていないか（reader が manifest の layout を契約と
       突き合わせるので、データ由来の契約は table が育った日に無言で変わり release を拒否し始める）。
@@ -329,7 +321,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
       確認するか。開示値は全run purposeで実測し、未計測を「欠けなし」に見える既定値で埋めないか。purpose限定の
       blockerが他のpurposeへ漏れていないか。retained panel + trace-only forward、archiveのみ、archive削除・改変、
       diagnosticでの非block、空sourceをそれぞれnegative testで固定したか
-- [ ] 固定した世代（fixed release / fixed bundle）を渡して読ませるAPIを追加・変更する場合、渡された世代だけで
+- [ ] 固定したL1 releaseを渡して読ませるAPIを追加・変更する場合、渡されたreleaseだけで
       答えを閉じるか。rowだけでなく、rowの検証に使う policy / contract / identity も渡された世代から取るか。
       current pointerを別世代へ動かした後、および pointer を削除した後に同じ結果が読めることをtestで固定したか。
       **consumer側もそのAPIを使っているか** — 世代を渡せるようにしただけで呼び手がdirectory渡しのままなら、
@@ -341,9 +333,6 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
       比較対象が読めない状態（壊れたroot等）では、推定で埋めずにその場での置換自体を拒否したか。
       **稀な障害の復旧経路を通常経路の分岐として持つと、毎日の経路が常時その分岐を抱える。**
       復旧は別の出力先へ作り直して入れ替える手順に寄せ、通常経路の状態数を増やさないか
-- [ ] 合成generationの解決を変更する場合、構造（digest edge）と契約版のどちらを問うているか区別したか。
-      解決時に契約版を問うと1 datasetの版上げが全datasetをunresolveにする。契約版はrowをdecodeする側と
-      canonical化するadoptionだけが問い、非変更datasetが読めることをtestで固定したか
 - [ ] wireへ出す集約値は、参照先から導出して検証するか、出さないか。writeされるだけで誰も読まない
       summary fieldは、alternate writerが任意の値を名乗れて誰も誤りと言えないので削除する
 - [ ] 可用性・充足性の観測値は「非該当」「充足」「不足」を区別するか。検証対象が無い場合を「充足」と
@@ -353,16 +342,10 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
       無関係なpinがunresolvedになりGCが恒久停止する。**rootを退避したstoreが「未公開のstore」と同じ姿に
       なっていないか** — 両者が同じ答えを返すなら、次の通常実行はそれを空のstoreと読んで書き潰す。
       publish済みの痕跡（manifest等）が残る限りfail closeし、退避が失敗しても壊れたままへ収束するか
-- [ ] bundle等の合成generationをreaderやremote closureで検証する場合、包含ではなく両方向のset equalityを要求するか。
-      bundleが列挙しないcohortを内部datasetが保持する状態をnegative testで拒否したか
 - [ ] wireのschema契約をdrift gateで固定する場合、readerが実際に比較する要素（Arrow metadataのdataset /
       contract version / row type stamp等）を署名へ入れたか。列を変えずrow型名だけを変えるmutationでgateが赤くなるか。
       失敗メッセージが実測値をそのまま出して「記録値を上書きすれば緑になる」と読める形になっていないか
       （記録は版ごとの意味なので、上書きは同じ版に2つの形を持たせる。正しい修復は版を上げて追記する側である）
-- [ ] 再利用identityを持つ成果物（calibration bundle等）は、値を決めるruntime（DuckDB / SQLite等）の
-      versionをfingerprintへ入れたか。入れるのは互換境界（major.minor）までで、出力形式を変えないpatch
-      まで入れると健全な再利用を毎回捨てる。境界を跨ぐupgradeが再利用させないことと、境界の内側の
-      releaseが再利用を保つことを、両方testで固定したか
 - [ ] 実装のdigestをfingerprintへ入れる場合、値を動かさない差分（コメント・docstring・整形）で
       動かないか。bytesのhashは31%が提示の差で、1行のdocstringが全cohortを捨てさせる。またその
       digestが1 partitionごとに取られるなら、コストを旧実装と比べたか（AST parseはbytes hashの216倍）
@@ -390,7 +373,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] calibration total return は FY 行なし / `DivAnn: null` / `DivAnn: 0` を区別し、前 2 つを 0 円に補完していないか。同一 FY の訂正を重複加算せず、最新 non-null 訂正が負値・非有限なら古い正常値へ fallback せず拒否するか。DPS と entry price を同じ adjustment-factor basis へ揃える split negative test があるか。total-return 欠損が price-only metric を欠損または改変せず、optional metric を required にした run だけが、status 欠落・非 mapping・未知値を含めて fail closed になるか
 - [ ] E[r] 水準の表示 artifact は eligible な production required scope からだけ生成し、quintile 境界・basis・rules hash・E[r] model version・timezone・固定45日期限を検証するか。表示対象 operative run の不変 method identity も照合し、run identity 不明、欠損・不正・method不一致・期限切れを古い値や手書き値へ fallback せず文脈全体を非表示にし、表示値を個別予測または ranking input として扱わないか
 - [ ] 報告空売り残高は disclosure / calculation の両日、provider row ordinal、取消rowをlossなく保存し、完全重複や同率最新stateを勝手に合算・上書きしないか。PandasのNaN / NaTを文字列factへ変換せず、公式dataset floorからの連続coverageがないtickerを無報告0へ補完しないnegative testがあるか
-- [ ] 日次longlist履歴はselection欠損と空longlistを別statusの空recordとして発行し、FV有無やcandidate全件からmembershipを推定しないか。as-of / filename不一致、重複日、invalid member、欠損recordをcomplete coverageへ補完せず、first-seenのleft censoringを維持するnegative testがあるか
+- [ ] 日次ranked-set履歴はselection欠損と空ranked setを別statusの空recordとして発行し、FV有無やcandidate全件からmembershipを推定しないか。as-of / filename不一致、重複日、invalid memberをnegative testで拒否するか
 - [ ] calibration quality condition は current/prior の開示時点を混ぜず、欠損を不充足へ補完していないか。6成分未満の composite を null にし、cache の optional boolean が空欄 / `true` / `false` 以外なら fail closed にする negative test があるか
 - [ ] calibration の株主還元変化列は同一 FY の最新 revision を選んでから null を判定し、DPS・株数を同じ split basis へ揃えているか。3 FY 不足、DPS YoY の非有限値、株数減少 streak の範囲外、optional boolean の不正 token、change composite と成分の矛盾を cache read で fail closed にする negative test があるか
 - [ ] calibration の利益正規化列は同一 FY の最新 revision を選び、最新 null から旧値へ fallbackせず、赤字年を含む連続3/5 FYとsplit basisを固定しているか。平均EPS非正、FY不足・不連続、PER非正・非有限、cycle percentile範囲外・flag矛盾、不正bool、self-range session負値、variant provenance混在をfail closedまたは明示nullにするnegative testがあるか
@@ -519,7 +502,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
   - [ ] producer、consumer、Web contract、skill、method、current docsから旧identifierを除去する
   - [ ] immutable historyはrewriteせず、旧keyを読むadapter pathだけを明示allowlistする
   - [ ] `check_legacy_semantics.py`へ旧identifierのnegative testとadapterのpositive testを追加する
-- [ ] Selection / Attention Policy provenanceをnew-writeへ追加・変更する場合、select時のrulesから独立再計算したrun identity / Model identity / candidate membership / native E[r]、表示E[r]・FV・価格・estimate snapshot、top-level origin、各Lane Longlist row、strict typed Policy parameters、Policy / Attention hash、Review Setのmembership / order / capを同じ発行境界で照合するか。不整合なprovenanceを後段draftが反復しただけで`exact`としてShortlistへ焼き込めないnegative testがあるか
+- [ ] selectionのranked setをnew-writeへ追加・変更する場合、run identity / candidate membership / native E[r]、表示E[r]・FV・価格、順位、review capを同じ発行境界で照合するか。不整合なrowをShortlistへ焼き込めないnegative testがあるか
 - [ ] **judgment-gate 系の必須 contract を追加する場合、bypass を test で塞ぐ**:
   - [ ] data 不在 label で hard trigger を回避できないか
   - [ ] label と根拠数値の不整合が catch されるか
@@ -541,7 +524,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - research 対象は全銘柄で会社IR確認が必須、という前提が弱い
 - source URL が貼られていても、一次情報か二次情報か、本文中に数値が存在するかを確認しない
 - system output を上書きする行為を一級の decision として記録していない
-- 人間報告、proposal、ledger eventの境界を曖昧にし、未報告broker状態を推定する
+- bargain assessment、人間報告、ledger eventの境界を曖昧にし、未報告broker状態を推定する
 
 ### Commit前に止める条件
 
@@ -561,7 +544,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] canonical ledgerの資本・集中度はcurrent + reserved exposureから再計算したか
 - [ ] brokerの`open / filled / cancelled`を人間報告なしに推定していないか
 - [ ] 同一tickerのactive reservationがある間は、元注文の再表示と追加注文を区別できない`planned_limit`を新たに作っていないか
-- [ ] proposal/approval URLへ辿れないresultをledgerへ入れていないか
+- [ ] buy assessmentのdecision referenceへ辿れないresultをledgerへ入れていないか
 - [ ] holdings/reservationsをcanonical ledgerから読み、削除済みMarkdown globを使っていないか
 - [ ] 予算、保有、予約だけを理由に、より割安な候補をscreening/research前にhard除外していないか
 - [ ] ledger精密化、二重記録、realtime取得を、お買い得候補の一次情報・5年評価より優先していないか
@@ -859,7 +842,7 @@ gate を置くと、`models.py` のような日常的に触る file を変更す
 | AP-06 | [`reference/macro.md`](./reference/macro.md) | macro contextのmodel・source test |
 | AP-07 | [`reference/data-sources.md`](./reference/data-sources.md) | schedule・freshness test |
 | AP-08 | 各domain modelと対応するnegative test | [`tools/quality/drift/`](../tools/quality/drift/)とdomain test |
-| AP-09 | [`reference/thesis.md`](./reference/thesis.md)、[`reference/portfolio-ledger.md`](./reference/portfolio-ledger.md) | research・proposal・ledger contract test |
+| AP-09 | [`reference/thesis.md`](./reference/thesis.md)、[`reference/portfolio-ledger.md`](./reference/portfolio-ledger.md) | research・assessment・ledger contract test |
 | AP-10 | `baibai_engine.foundation.yaml_io` | import checkとprofile実測 |
 | AP-11 | [`reference/data-sources.md`](./reference/data-sources.md) | 公表前・公表後の境界test |
 | AP-12 | [`portfolio-management.md`](./portfolio-management.md)、[`reference/thesis.md`](./reference/thesis.md)、[`reference/valuation-metrics.md`](./reference/valuation-metrics.md)、[`reference/macro.md`](./reference/macro.md) | unit・basis・cross-field test |

@@ -41,7 +41,7 @@ baibai-loop/
 ```mermaid
 flowchart TB
   L0["L0 目的<br/>1 人・日本株・割安優良を長期積立<br/>AI が観測/分析/提案、人間が裁定/発注"]
-  L1["L1 ループ（工程と人間 gate）<br/>screening → shortlist ‖ research → thesis/review → proposal ‖ ledger → holding review → outcome → calibration"]
+  L1["L1 ループ（工程と人間 gate）<br/>screening → shortlist ‖ research → thesis/review → assessment ‖ ledger → holding review → outcome → calibration"]
   L2["L2 情報（3 層 + method）<br/>L1 fact（再取得可）/ L2 machine（再計算可）/ L3 judgment（唯一の正本）/ method（Git）"]
   L3["L3 実行地形<br/>local: 全 judgment write・migration・UI ／ cloud: 日次 batch と serving（一方向）"]
   L4["L4 機構<br/>provider・store・lake・screening・calibration・macro・research・position・web・batch・gate・docs"]
@@ -71,27 +71,27 @@ trigger 起点の運用は 6 つで、それぞれ 1 skill が手順・gate 順�
 
 | 運用（skill） | 工程 | 人間 gate |
 | --- | --- | --- |
-| `shortlist` | screening run → selection → Review Set → Research Gate → Shortlist publish | Shortlist → Primary Research Set の admission |
-| `research` | workspace → thesis / review → bargain assessment → trade proposal | proposal の approve / defer / reject |
+| `shortlist` | screening run → ranked set → Research Gate → Shortlist publish | Shortlist → Primary Research Set の admission |
+| `research` | workspace → thesis / review → bargain assessment → ephemeral plan-limit | buy / defer / reject と broker 操作 |
 | `ledger-record` | broker fact → ledger draft → apply | `position apply-draft --confirmed` |
 | `holding-review` | 決算・material event → holding review → action | holding review の publish |
 | `macro-context` | indicator refresh → reading → context publish | —（非 gating の ambient 入力。判断層にだけ効く） |
 | `ops-maintenance` | store transfer・publish・復元・定期 maintenance | — |
 
-Opportunity Discoveryからproposalまでの状態遷移は次の責務境界を持つ。
+Opportunity Discoveryからhuman-confirmed ledgerまでの責務境界は次のとおり。
 
 ```text
 universe → candidates                 screening
-candidates → Lane Longlists           Selection Policies
-Lane Longlists → Review Set           Attention Policy
-Review Set → Shortlist                Research Gate
+candidates → ranked_set               E[r] ranking + review cap
+ranked_set → Shortlist                Research Gate
 Shortlist → Primary Research Set      human admission
 Primary Research Set → Thesis         research + review
 Theses → Bargain Assessment           Assessment Casesの統合判断
-Bargain Assessment → Trade Proposal   human decision input
+Bargain Assessment → plan-limit       ephemeral decision input
+human report → Ledger                 broker fact
 ```
 
-異なるEconomic Hypothesisを採用するときは別Opportunity Laneとし、同一scoreへ畳まない。Selection PolicyがLane内のnomination / ordering、Attention PolicyがLane間のallocation、Research Gateがresearch-worthiness judgment、人間がPrimary Research Setへのadmissionを所有する。この admission 境界は記述だけでなく機械的に強制する — `research prepare --shortlist-id` がcanonical Shortlistへ束縛し、researchできるのはいずれかのpublished Research Gateが`selected`としたtickerに限られる（[`screening-runtime.md`](./reference/screening-runtime.md)）。現行wireは、採用済みValue / Carry Laneの`longlist`を`value-carry-only-v1`が`review_tickers`へ写す最小構成であり、generic registry・executor・Dynamic Attention Composerは持たない。Earnings Power Laneは固定replayが`inconclusive`だったためproduction wireへ採用していない（[`historical-replay.yaml`](../reports/studies/2026-08-24-earnings-power-v1/historical-replay.yaml)）。
+machine selectionはE[r]順の`ranked_set`を一度だけ作り、review capで人間が読む量を制限する。Research Gateがresearch-worthiness judgment、人間がPrimary Research Setへのadmissionを所有する。`research prepare --shortlist-id`はcanonical Shortlistへ束縛し、published Research Gateが`selected`としたtickerだけをresearch可能にする。未採用仮説のためのlane registry、Attention state、派生selection DAGは持たない。
 
 <a id="information-layers"></a>
 
@@ -102,8 +102,8 @@ Bargain Assessment → Trade Proposal   human decision input
 | 層 | 正本 | 失っても | 例 |
 | --- | --- | --- | --- |
 | L1 fact | R2 の L1 release（market）、`stores/macro/macro.sqlite` | provider から再取得（購読窓の外は不可 — これが lake を持つ唯一の理由） | 日足・財務・calendar・EDINET・JPX flag・macro series |
-| L2 machine | run store・calibration store・macro reading | 再計算 | screening run・E[r]・FV anchor・machine selection・macro reading・analytical Parquet（panel / forward） |
-| L3 judgment | application DB | **失えない** | macro context・shortlist・thesis / review・assessment・proposal・ledger・holding review・outcome・task・session |
+| L2 machine | run store・calibration store・macro reading | 再計算 | screening run・E[r]・FV anchor・machine selection・macro reading・current calibration snapshot |
+| L3 judgment | application DB | **失えない** | macro context・shortlist・thesis / review・assessment・ledger・holding review・outcome・task・session |
 | method | Git | — | rules・reading rules・playbooks |
 
 帰結: L3 以外は全部 cache であり、cache の identity・lineage・世代管理は「再計算すれば戻る」以上の価値を持たない。L1 fact の保持だけは購読窓の外側で失われるため、L1 release の不変性と差分転送は本質に入る。L2 machine は observed / derived / estimate を区別し、judgment と呼ばない。L3 は人間境界を write-time に検証する。fact / estimate / judgment の語彙と禁止事項は [`doctrine.md#fact-analysis-separation`](./doctrine.md#fact-analysis-separation) を正本とする。
@@ -114,16 +114,16 @@ store の所有者はこの表が唯一の正本である。
 
 | store | 層 | contents | write owner |
 | --- | --- | --- | --- |
-| `stores/application/baibai.sqlite` | L3 judgment（canonical application DB） | task、macro context、shortlist、thesis revision、holding review、proposal、ledger event / price / meta、outcome、operation session | `baibai-engine` application service |
+| `stores/application/baibai.sqlite` | L3 judgment（canonical application DB） | task、macro context、shortlist、thesis revision、assessment、holding review、ledger event / price / meta、outcome、operation session | `baibai-engine` application service |
 | R2 `lake/`（L1 release） | L1 fact（market の canonical authority） | lake 所有 dataset の immutable Parquet object・dataset manifest・release manifest・current pointer | `publish-lake`（cloud daily batch とローカル） |
 | `stores/market/market.sqlite` | L1 fact の runtime copy + 2 data table の canonical | lake所有17 data tableはL1 releaseからのruntime copy、残る2 data table（取得範囲の帳簿 `source_coverage` と operator 導出の `tse_capital_policy_snapshots`）はここがcanonical、`lake_store_origin`はstore-local metadata | market / screening provider、`lake hydrate` |
 | `stores/screening/runs.sqlite` | L2 machine（rebuildable run store） | 最新数世代を保持するprunable screening run / machine selection cache | screening service |
-| `stores/screening/calibration/` | L2 machine（rebuildable analytical bundle） | typed Parquet の calibration panel / diagnostics / forward outcome と、3 datasetを原子的に束ねるbundle manifest・pointer | screening calibration service |
+| `stores/screening/calibration/current.sqlite` | L2 machine（rebuildable current snapshot） | typed calibration panel / diagnostics / forward outcome | screening calibration service |
 | `stores/macro/macro.sqlite` | L1 fact（rebuildable） | provider 別 macro indicator series。manual 観測は git seed から同期 | macro indicator service |
 
 一つの dataset が同時に二つの canonical writer を持たない。市場 fact の canonical authority は R2 の L1 release にあり、`market.sqlite` はその fixed release から削除・再構築できる runtime copy である。lake の publication contract（manifest・pointer・version 語彙・fail-close の条件）は [`reference/market-lake.md`](./reference/market-lake.md#market-lake-publication-contract) を正本とする。
 
-application DB の default path は `stores/application/baibai.sqlite` で、`BAIBAI_DB` または各 CLI の `--db` で差し替えられる。未適用 migration があるときだけ、最初の文の前に checkpoint を自動で取り、直近 10 世代を残す（手動で取るときは `baibai-engine db backup`）。R2 側は `baibai.sqlite.bak-YYYYMMDD` で 1 日 1 世代を直近 14 世代まで残す。監査 table と transition history は持たない — 復元点は store の copy であって、行ごとの履歴ではない。
+application DB の default path は `stores/application/baibai.sqlite` で、`BAIBAI_DB` または各 CLI の `--db` で差し替えられる。runtimeはcurrent schemaを新規作成するか、異なるversionを拒否する。semantic cutoverはbackupから明示的に行う。監査tableとtransition historyは持たない。
 
 Git に残す `method/` は `screening/rules`、`macro/reading`、`research/playbooks` の production methodology である。Macro panel の表示 group は `web/config/macro-panel.yaml` が所有する。application data を GitHub Issue や YAML file に複製しない。
 
@@ -157,17 +157,16 @@ package ごとに、所有する store、public CLI、L1 のどの工程にど�
 | `foundation` | — | engine 内部 | 全工程の **産む** に共通 primitive（path・時刻・JSON parser・repository layout）を供給する | — |
 | `market` | R2 `lake/`、`stores/market/market.sqlite` | `baibai-engine lake` | L1 保持を **産む**（全 partition 導出の lake export・release manifest・pointer・hydrate）、**止める**（digest 一致・行数一致・pointer CAS・schema version）、**見せる**（`lake resolve`） | 2 |
 | `macro` | `stores/macro/macro.sqlite`、application DB（context） | `baibai-engine macro` | macro を **産む**（indicator refresh・reading・context publish）、**止める**（context の schema 構造・引用解決・確率の合計・head CAS）、**測る**（scorecard 条件の機械照合）、**見せる**（reading・Macro view） | 1（series）、2（context の head） |
-| `screening` | `stores/screening/runs.sqlite`、`stores/screening/calibration/`、application DB（shortlist）、`market.sqlite`（provider cache・typed fact） | `baibai-engine screening` | L1 取得と screening を **産む**（provider 取得・run・metrics・E[r] / FV・selection・Review Set・shortlist publish・capital control / TOB / buyback filing の annotation）、**止める**（`verify-cache-coverage` の必須入力・PIT 述語・record 単位の drop・rules identity・Research Gate 束縛）、**測る**（calibration panel / forward / evaluate・shortlist outcome・TOB exit value）、**見せる**（`select` YAML・Candidates view・shortlist の dated catalyst context） | 1、2 |
+| `screening` | `stores/screening/runs.sqlite`、`stores/screening/calibration/`、application DB（shortlist）、`market.sqlite` | `baibai-engine screening` | L1取得とscreeningを **産む**（provider取得・run・E[r] / FV・ranked set・shortlist publish）、**止める**（coverage・PIT・rules identity・Research Gate束縛）、**測る**（current calibration panel / forward / evaluate・shortlist outcome）、**見せる**（selection YAML・Candidates view） | 1、2 |
 | `research` | application DB | `baibai-engine research` | research を **産む**（workspace・thesis / review・promote・planning-only limit・bargain assessment）、**止める**（evaluate・review hash 束縛・buy の human override 必須・`max_acceptable_price`）、**見せる**（assessment view） | 人間 gate（T2） |
 | `position` | application DB | `baibai-engine position` | ledger と保有を **産む**（draft / apply・holding review・outcome）、**止める**（append head CAS・保有超過拒否・人間確認必須）、**測る**（outcome vs TOPIX）、**見せる**（Dashboard） | 人間 gate（T1） |
-| `proposals` | application DB | `baibai-engine proposal` | trade proposal と人間の decision を **産む**、**止める**（approve / defer / reject の人間 gate）、**見せる**（proposal view） | 人間 gate（T1） |
 | `operation` | application DB | `baibai-engine operation` | trigger ごとの session と checkpoint・human_confirmation を **産む**、**止める**（active 最大 1 件・complete 要件）、**見せる**（Dashboard の「いま何が途中か」） | — |
 | `tasks` | application DB | `baibai-engine task` | 日付つき運用 task を **産む**、**見せる**（`task list`・Dashboard） | — |
-| `appdb` | application DB | `baibai-engine db` | application DB の path・migration・checkpoint・writer connection を **産む**、**止める**（schema version） | 2 |
+| `appdb` | application DB | `baibai-engine db` | application DB のpath・current schema・writer connectionを **産む**、**止める**（schema version） | 2 |
 | `read_api` | —（read-only） | engine 内部 | 全工程を **見せる**（query-only view）、materialize の前提を **止める** | 2 |
 | `baibai_web` | —（read-only） | `baibai-web` | 判断面を **見せる**（read model・UI・materialize・Worker）、**止める**（read-only・Bearer） | 2 |
 | `baibai_batch` | R2 `baibai-stores` / `baibai-serving`（transfer） | repository-internal `baibai-batch` | 日次機械工程を **産む**（fetch → screen → select → export → publish・materialize・store transfer）、**止める**（exit code・2 条件）、**見せる**（Discord・watchdog） | 1、2 |
-| `tools` | — | — | 開発 gate で **止める**（`quality/drift`）、study で **測る**（`experiments`）、deploy provision と brand asset を **産む**（`diagnostics`・`generators`） | — |
+| `tools` | — | — | 開発 gate で **止める**（`quality/drift`）、一時的studyで **測る**（`experiments`）、deploy診断を **産む**（`diagnostics`） | — |
 
 engine は web / batch / tools に依存しない。Web が engine へ触れる経路は `read_api`、batch は `batch_api` と `read_api` に限定し、その不変条件は import-linter で検査する。read-only Web の実行時契約は `web/backend/src/baibai_web/__init__.py` の module docstring、store 欠損時に reader が止まるか空を返すかは [Failure policy](#failure-policy) を正本とする。
 
@@ -180,15 +179,15 @@ engine は web / batch / tools に依存しない。Web が engine へ触れる�
 
 `baibai-batch` は GitHub Actions と運用 script が production job を呼ぶための repository-internal entry point で、domain の利用者向け surface ではない。
 
-主要 domain は `lake / screening / macro / operation / position / proposal / research / task / db`。`lake inventory` は local R2 mirror の metadata だけを読み、`lake validate` は JSON manifest contract だけを検査して object の dereference・publish・rewrite をしない。`lake resolve` は current pointer を 1 度だけ解決して固定 release の identity を出し、`lake hydrate` はその release から market store の lake 所有 table を満たす。どちらも immutable object を書き換えない。`lake gc` は root closure から削除候補と plan hash を出す（既定は dry-run で、`--apply` は同じ plan hash を要求する）。schema field、option、stdout YAML は public `--help` と engine modelを正とする。screening `run / select / ticker-profile` の YAML view は AI 向け安定契約であり、保存先が SQLite でも field の意味を変えない。
+主要 domain は `lake / screening / macro / operation / position / research / task / db`。lake CLIはcurrent L1 releaseのpublish・resolve・hydrate・retentionだけを扱う。schema field、option、stdout YAML は public `--help` と engine modelを正とする。
 
 ### L3 judgment の write 規則
 
 - canonical entity の作成・更新は DB transaction 内で current source と domain invariant を検証する。
 - thesis / thesis review と holding review は immutable revision。source thesis revision への束縛を弱めない。
-- proposal は `pending / approved / deferred / rejected` の current stateだけを持つ。broker factは人間報告後だけledger draftへ変換できる。
+- buy assessmentは判断根拠だけを持ち、価格・数量・expiryは保存しない。broker factは人間報告後だけledger draftへ変換できる。
 - ledger は append-only eventを `(occurred_at, same_instant_order)` でreplayする。既存event IDとlegacy decision referenceは保存し、新規eventを遡及挿入してcurrent snapshotを再計算できる。
-- canonical ledger mutationは draft生成と、人間確認後の `position apply-draft --confirmed` を分離する。applyはexpected append head、proposal / reservation binding、置換対象rowを同一transactionで再検証する。
+- canonical ledger mutationは draft生成と、人間確認後の `position apply-draft --confirmed` を分離する。applyはexpected append head、assessment / reservation binding、置換対象rowを同一transactionで再検証する。
 - operation sessionは5 kindの全体でactive最大1件。active rowのcurrent payloadを置換し、complete時に同じrowをimmutable final recordにする。checkpoint historyやtransition logは持たない。
 
 <a id="failure-policy"></a>
@@ -212,7 +211,7 @@ degrade の報告経路は batch の exit 3（Discord `[DEGRADED]`）の 1 本�
 | --- | --- |
 | SQLite constraint / trigger | required identity、enum、foreign key、immutable row、active最大1件 |
 | pydantic / domain model | field type、shape、cross-field invariant |
-| application service | current source、revision、proposal / reservation、人間確認、stale no-write |
+| application service | current source、revision、assessment / reservation、人間確認、stale no-write |
 | config loader | Git管理のscreening rules、Macro panel config、playbookの構造 |
 
 高影響のDB変更では正常系だけでなく、conflicting ID、invalid enum、missing reference、revision drift、stale draft、人間確認なし、read-only appからのwrite不能をtestする。ledgerはevent順序、snapshot全field、market price / override / metaをfixtureと比較する。schema fileやlive YAML treeを横断するvalidator CLIは置かず、保持すべきruleは各write pathのnegative testで反証する。

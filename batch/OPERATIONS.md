@@ -11,28 +11,27 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 
 | bucket | object | owner |
 | --- | --- | --- |
-| `baibai-stores` | `market.sqlite`（lakeが持たない2 data table + `lake_store_origin` metadata） | `cloud-daily-batch` + `cloud-history-backfill`（手動 dispatch。窓を名指しして履歴を遡る）+ ローカル`push-market`（cloud copyのmerge後だけupload） |
+| `baibai-stores` | `market.sqlite`（lakeが持たない2 data table + `lake_store_origin` metadata） | `cloud-daily-batch` + ローカル`push-market`（cloud copyのmerge後だけupload） |
 | `baibai-stores` | `lake/`（lake所有17 datasetのcanonical L1） | `cloud-daily-batch`の`publish-lake` + ローカル`r2_transfer.sh publish-lake` |
 | `baibai-stores` | `runs.sqlite` | `cloud-daily-batch` |
 | `baibai-stores` | `macro.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-macro`（全履歴。cloud copyのmerge後だけupload） |
 | `baibai-stores` | `baibai.sqlite` | ローカル`publish.sh`（replica） |
 | `baibai-serving` | `views/*.json` | GitHub Actions materialize |
 | `baibai-serving` | `history/candidate-views/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
-| `baibai-serving` | `history/longlists/<asof>.json` | 日次batch、R2 lifecycleで400日後に削除 |
+| `baibai-serving` | `history/ranked_sets/<asof>.json` | 日次batch、R2 lifecycleで400日後に削除 |
 
 R2 lifecycle ruleは表の2 prefixだけに設定する。bucket全体へ設定すると`views/meta.json`まで期限で消え、
-欠落を検知できない。`history/longlists/`は四半期の着手遅延計測に1年以上のexact first-seen sourceを供給するが、
+欠落を検知できない。`history/ranked_sets/`は四半期の着手遅延計測に1年以上の候補履歴を供給するが、
 UI routeからは公開しない。
 
 serving と Worker の境界:
 
 - 両bucketはpublic accessを持たない。WorkerのR2 bindingは`baibai-serving`だけに限定する。
 - `/api/*`は固定Bearer passwordをSHA-256後に定数時間比較し、有限のrouteから`views/`または日付形式を検証した
-  `history/candidate-views/`へ写像する。stores、旧`history/candidates/`、`history/longlists/`には到達しない。
+  `history/candidate-views/`へ写像する。stores、旧`history/candidates/`、`history/ranked_sets/`には到達しない。
   応答は`Cache-Control: no-store`で、CORSを有効化しない。
 - Workers Assetsは`web/frontend/dist`を無認証で配信する。bundleは業務データを含まず、実データは認証済みAPIだけから取得する。HTTP navigationはWorkerが認証処理前にHTTPSへredirectし、HTTPS応答はHSTSを持つ。
-- `cloud-materialize`はapplication data、`cloud-daily-batch`は平日夕方の機械工程、`cloud-history-backfill`は指定窓の
-  market履歴をpublishする。3 workflowは`cloud-publish`の`queue: max`を共有し、pending writerをFIFOで保持して
+- `cloud-materialize`はapplication data、`cloud-daily-batch`は平日夕方の機械工程をpublishする。2 workflowは`cloud-publish`の`queue: max`を共有し、pending writerをFIFOで保持して
   running/uploadを1件に限定する。
 - ローカル`pull`はmachine storeだけを置換し、canonical application DBを上書きしない。ローカル`publish`はSQLite snapshotをstoresへ置き、materializeをdispatchする。
 
@@ -43,13 +42,13 @@ serving と Worker の境界:
 | GitHub Actions | variable `R2_ACCOUNT_ID`、secrets `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / provider 3本、公開 JPX 規制 URL 4本 | 必要なtransfer/provider stepだけ、stores + serving read-write |
 | GitHub Actions（通知） | secret `DISCORD_WEBHOOK_URL` | `cloud-daily-batch` の通知 step と `cloud-batch-watchdog` の警報 step のみ（job env に出さない） |
 | GitHub Actions（Worker deploy） | variable `R2_ACCOUNT_ID`、secret `CLOUDFLARE_API_TOKEN` | 対象accountの`Workers Scripts Write`、`web`のdeploy stepのみ |
-| ローカル`.env` | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | stores + serving read-write（bucket scopeにserving を含む。longlist history取得用） |
+| ローカル`.env` | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | stores + serving read-write（bucket scopeにserving を含む。ranked-set history取得用） |
 | Wrangler OAuth | `wrangler login` | bucket初期設定、Worker secretの手動設定 |
 | Worker secret | `VIEW_PASSWORD` | Worker runtimeだけ |
 
 R2 S3 endpointは`https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`からscriptが組み立てる。credential、password、endpointの実値をGit、issue、logへ書かない。
 
-R2 API tokenはbucketごとにread/writeを分けられない。ローカルtokenはlonglist historyを読むためserving scopeを持ち、
+R2 API tokenはbucketごとにread/writeを分けられない。ローカルtokenはranked-set historyを読むためserving scopeを持ち、
 書き込みも可能になる。このため`r2_transfer.sh`は`upload-serving-views`と`publish-serving-tail`を
 `GITHUB_ACTIONS=true`以外で拒否する。前者は`views/`を`--delete`付きで同期するため、部分的なexportで実行すると
 本番viewを削除する。
@@ -152,36 +151,6 @@ workflow logまたは検査結果の原因を直す。
 
 ## 日常運用
 
-### repository store layout の cutover
-
-**前提**: repository更新でstore layoutが変わるときは、codeだけを切り替えてruntimeを起動しない。
-全local writer（engine CLI、Web backend、batch）を停止し、現在checkoutしている新codeを使う。
-
-**実行**: 先にread-onlyのdry-runを行い、成功した場合だけ`--apply`する。dry-runは4 SQLiteの
-`integrity_check` / `foreign_key_check` / schema / required tables、application DBの全table
-row count / ledger append head / logical dump identity、calibration tree manifest、同一filesystem
-を検査する。
-
-```bash
-uv run python -m baibai_batch.storage.store_layout_migration --dry-run
-uv run python -m baibai_batch.storage.store_layout_migration --apply
-```
-
-`--apply`はapplication DBのSQLite snapshotを`stores/application/backups/`へ作り、その
-logical identityを確認してから各resourceを同一filesystem内でLinuxのatomic no-replace rename
-で移動する。rename後も
-移動前と同じinode・schema・table・row/head/ledger identityであることを検査する。途中のmove
-または検査が失敗した場合は、完了済みrenameを逆順に戻して非0で停止する。sourceとdestination
-が両方存在する場合は片方を推測・merge・削除せず、書き込み前に停止する。
-
-**成功確認**: commandが0で終了し、canonical application DBが片側に1つだけあり、dry-run結果と
-backupを保持できていることを確認する。
-
-**停止と復旧**: 逆方向のcommandはない。repository layout guardは旧pathが1つでも存在する間、通常runtimeを意図的に
-拒否するので、旧layoutはこのcodeが動ける状態ではない。旧revisionへ戻すときは、その
-revision自身のmigrationで移す。SQLite sidecarがある場合はwriter停止・checkpointが完了して
-いないため移行しない。
-
 ### クラウド正本をローカルへ取得する
 
 **前提**: shortlist / research / macro-context の運用を始める前に実行する。平日16:43〜22:00 JSTは避ける。
@@ -220,7 +189,7 @@ uv run baibai-engine screening ticker-profile --ticker TICKER
 次の3段を1コマンドで行う。
 
 1. **download** — cloud copyをstagingへ取る
-2. **migrate** — `migrate_store.py`がそのcopyを現行schemaへ進める。storeを開くことがmigrationなので、走るのは日次batchが走らせるのと同じcodeである。進めるのはstagingのcopyだけで、R2のobjectはmerge後のuploadまで変わらない
+2. **schema確認** — market はv24からv25への一度限りのcutover toolで廃止tableだけを落とし、macroは現行migrationで進める。どちらもstaging copyだけを変更し、R2 objectはmerge後のuploadまで変わらない
 3. **merge → upload** — cloud copyをローカルstoreへmergeし、cloud側の行が1行でも取り残されるなら停止する。全て取り込めた場合だけuploadする
 
 ```bash
@@ -246,7 +215,7 @@ dehydrateが「releaseが持つ行数と合わない」で停止する。ロー�
 hydrate後にfetch/build/publishへ直列に進み、変更後の再hydrateを行わないため、hot pathへ全partition
 比較や追加lockは置かない。
 
-**cloud copyがcodeより古いのは正常な過渡状態である。** cloud copyのschemaは日次batchがstoreを開いたときに上がるので、schema bumpから次の実行までラグが残る。cronは平日だけなので、週末にschemaを上げると月曜まで続く。この間もmigrate段があるためpushは通り、日次batchを起こす必要はない。
+**market v24からv25へのcutoverはローカルpublishで完了させる。** `push-market`はdownloadしたstaging copyにも同じ一度限りのcutoverを適用するため、cloud側の増分を捨てずにmergeできる。日次batchにschema移行を吸収させない。v25以外の旧版は推測して変換せず停止する。
 
 **publishするcodeは、cloudが動かすcodeでなければならない。** ローカルのschema versionがmainより先にあると、cloudが知らないversionのstoreを置くことになり、次の日次batchが`open_connection`のbaseline検査で停止する（`supported range`を挙げてfail-fastし、Discordに`[FAILED]`が出る。1世代の`.bak`も残る）。schemaを上げるcodeは**mainへ入れてからpushする**。
 
@@ -402,8 +371,7 @@ uploadせず、ローカルで原因を解消する。
 
 #### Market履歴
 
-**前提**: 日次batchが遡らない過去を補う場合に使う。ローカルに履歴があればproviderから取り直さない。
-ローカルにも無い場合だけ`cloud-history-backfill`をdispatchする。
+**前提**: 日次batchが遡らない過去を補う場合に使う。local providerで必要範囲を取得し、完全なstoreを作ってからcloudへ反映する。
 
 ローカルから載せる手順は、触ったtableがlake所有かどうかで分かれる。`_push_keys`はuploadする複製を`dehydrate_market_snapshot`に通し、**releaseが持たない行をlake所有tableに持つstoreのuploadを拒否する**ので、lake所有17 tableを増やした場合は`push-market`だけでは止まる。
 
@@ -415,17 +383,11 @@ batch/scripts/r2_transfer.sh push-market
 # (b) lakeが持たない2 table（source_coverageとtse_capital_policy_snapshots）だけを変えた場合
 batch/scripts/r2_transfer.sh push-market
 
-# (c) ローカルにも無い履歴を取る場合
-gh workflow run cloud-history-backfill.yml --ref main \
-  -f start=YYYY-MM-DD -f end=YYYY-MM-DD
 ```
 
-**成功確認**: ローカル経路は`publish-lake` / `push-market`のno-loss検査を確認する。backfillはrunの
-`conclusion=success`を確認し、cloud copyをpullした後、`source_coverage`の`ok`窓が指定範囲を連続して覆うことを
-照合する。
+**成功確認**: `publish-lake` / `push-market`のno-loss検査を確認し、cloud copyをpullした後、`source_coverage`の`ok`窓が指定範囲を連続して覆うことを照合する。
 
 ```bash
-gh run list --workflow cloud-history-backfill.yml --limit 10
 batch/scripts/pull.sh
 history_start=YYYY-MM-DD
 history_end=YYYY-MM-DD
@@ -436,11 +398,7 @@ sqlite3 -header stores/market/market.sqlite \
    ORDER BY source, coverage_start, coverage_end;"
 ```
 
-**停止と復旧**: lake所有17 tableを増やしたのに`publish-lake`していない場合、dehydrateが停止する。
-backfillがnonzeroなら完了扱いにせず、保存済み範囲と未完範囲を`source_coverage`で分け、未完範囲だけを再実行する。
-大量欠損は3〜4年に分け、成功しない条件のままdispatchしない。
-
-`cloud-history-backfill`は財務サマリーが律速で、実測は3.4年で2時間32分（うち財務2時間05分）である。job上限は5時間なので、大量欠損は3〜4年ずつに分けてdispatchする。coverageのmergeが繋ぐので分割しても結果は同じになる。source failureまでにcommitされたchunkは、store SHA-256が変わった場合だけ`quick_check`と`push-market`を通してR2へ保存し、workflow自体は元の非0で失敗する。変更が無いfailureはuploadをskipする。3つのcloud writerは`cloud-publish`の`queue: max`を共有し、1件だけを実行しながらpending runをFIFOで保持する。
+**停止と復旧**: lake所有17 tableを増やしたのに`publish-lake`していない場合、dehydrateが停止する。local取得がnonzeroならuploadせず、保存済み範囲と未完範囲を`source_coverage`で分け、未完範囲だけを再実行する。
 
 ### merge が検査するもの
 
@@ -655,7 +613,7 @@ uv run python -m baibai_web.materialize --output-dir <dir> [--batch daily|manual
 - `views/security--<ticker>.json`（保有 + 最新 run 掲載 + shortlist の ticker）
 - `views/meta.json`（生成時刻・実データ更新時刻・store 別 as-of・batch 種別。UI の鮮度表示と同じ契約）
 - `history/candidate-views/<asof>.json`（run とCandidates全件を型付きUI read modelへ変換した履歴。31 日で削除）
-- `history/longlists/<asof>.json`（latest runに束縛されたmachine selectionの `ticker` / `rank` / `er_annual`。selection欠損日と空longlistも空recordとして発行し、400日で削除）
+- `history/ranked_sets/<asof>.json`（latest runに束縛されたmachine selectionの `ticker` / `rank` / `er_annual`。selection欠損日と空ranked setも空recordとして発行し、400日で削除）
 
 この一覧と Worker の route 表の対応は `tests/web/test_cloud_export.py` が守る。Worker が写像する view を exporter が書かないと、その route は本番で恒久的に 404 になる。
 
@@ -670,13 +628,13 @@ views の JSON は `baibai-web` の対応 API response と同形（pydantic `mod
 四半期の着手遅延計測では、既存targetを上書きしない download と専用 source を使う。
 
 ```bash
-batch/scripts/r2_transfer.sh pull-longlist-history /tmp/baibai-longlist-history
+batch/scripts/r2_transfer.sh pull-ranked-set-history /tmp/baibai-ranked-set-history
 .venv/bin/python -m tools.experiments.measure_daily_delta_effect \
-  --longlist-history-dir /tmp/baibai-longlist-history \
+  --ranked-set-history-dir /tmp/baibai-ranked-set-history \
   --as-of YYYY-MM-DD
 ```
 
-同じ dir を `screening select --longlist-history-dir` へ渡すと、run store の retention で前 as-of が消えた日でも差分診断の前回側を復元できる。run store に前 as-of が残っていればそちらが優先され、母数は `selection.diagnostics.previous_overlap.previous_candidates_source` に出る。
+同じ dir を `screening select --ranked-set-history-dir` へ渡すと、run store の retention で前 as-of が消えた日でも差分診断の前回側を復元できる。run store に前 as-of が残っていればそちらが優先され、母数は `selection.diagnostics.previous_overlap.previous_candidates_source` に出る。
 
 ## daily_batch.py — 日次機械工程の 1 コマンド実行
 
@@ -701,7 +659,7 @@ uv run python -m baibai_batch.jobs.daily --output-dir <dir> --notice-output <not
 ```
 
 `--notice-output` を指定すると、batch が到達した終端 path で、Discord 通知に必要な
-`asof`・`skipped`・最初の fatal / deferred `failed_stage`・longlist の出入りだけを持つ JSON を atomic write する。
+`asof`・`skipped`・最初の fatal / deferred `failed_stage`・ranked setの出入りだけを持つ JSON を atomic write する。
 schema version や validation round-trip は持たず、各 step の所要時間・metrics・error 本文は
 workflow log を読む。不正な `--asof` など batch 開始前の失敗では notice は無く、workflow の
 step outcome から notifier が `[FAILED]` を出す。
@@ -742,7 +700,7 @@ code が選ばず repository secret `DISCORD_WEBHOOK_URL` が指す webhook で�
 message は 3 部からなる。
 
 1. 見出し行 — label・as-of・失敗した step 名（あれば）。`[FAILED] as-of 2026-08-26 — failed step: hydrate`
-2. `🆕 新規 longlist 入り:` / `👋 longlist 退出:` の 2 行 — それぞれ E[r] 降順・最大5件・`<ticker> <社名> E[r]±X.X%`。急落当日の候補と、pool から落ちた銘柄を通知だけで拾えるようにするための行である。**export に到達した run では常に出す** — 0 件の日は `なし`、delta view が読めない日は `計測なし（<理由>）` と書く。行が無いことは「0 件」「計測不能」「通知経路の異常」の3つを同時に意味してしまい、読み手が区別できない。非営業日の skip には pool が無いので出ない
+2. `🆕 新規 ranked set 入り:` / `👋 ranked set 退出:` の 2 行 — それぞれ E[r] 降順・最大5件・`<ticker> <社名> E[r]±X.X%`。急落当日の候補と、pool から落ちた銘柄を通知だけで拾えるようにするための行である。**export に到達した run では常に出す** — 0 件の日は `なし`、delta view が読めない日は `計測なし（<理由>）` と書く。行が無いことは「0 件」「計測不能」「通知経路の異常」の3つを同時に意味してしまい、読み手が区別できない。非営業日の skip には pool が無いので出ない
 3. `run:` — GitHub Actions の run URL。所要時間・step ごとの結果・lake release・error の本文はこの run log にある
 
 label は5種。
@@ -763,7 +721,7 @@ GitHub は `timeout-minutes` 超過を **cancel として扱う**。hang は日�
 失敗 step の名指しは「batch 以外の step で success / skipped 以外の outcome を最初に持つもの」。
 notify が outcome を受け取らない step（checkout / setup-uv / Playwright）の失敗は `pre-batch` と
 書く。batch 自身が fatal / deferred failure に至った run は、`daily_batch.py` が `--notice-output` に
-書いた JSON の最初の `failed_stage` を名指す。その JSON（as-of・skip の有無・失敗 stage・longlist の出入り）は batch が
+書いた JSON の最初の `failed_stage` を名指す。その JSON（as-of・skip の有無・失敗 stage・ranked setの出入り）は batch が
 終端 path ごとに 1 回書く素の dict で、schema・validation・語彙表を持たない。読めなければ見出し行と
 run URL だけになる。
 

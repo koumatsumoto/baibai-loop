@@ -196,23 +196,10 @@ uv run mypy
 uv run lint-imports
 for gate in tools/quality/drift/check_*.py; do uv run python -m "tools.quality.drift.$(basename "$gate" .py)"; done
 TMPDIR=/dev/shm uv run pytest -n 4 --cov --cov-report=term-missing
-uv run --with pillow python -c 'import PIL.Image'
-uv run --with pillow pytest -n 0 tests/tools/test_brand_assets.py
 uv run bandit -c pyproject.toml -q -r engine/src/baibai_engine web/backend/src/baibai_web batch/src/baibai_batch tools
 uv export --format requirements.txt --locked --all-groups --no-emit-project --no-hashes --output-file /tmp/baibai-loop-requirements.txt
 uv run pip-audit -r /tmp/baibai-loop-requirements.txt
-distribution_dir="$(mktemp -d)"
-uv build --wheel --sdist --out-dir "$distribution_dir"
-wheel_path="$(find "$distribution_dir" -maxdepth 1 -type f -name '*.whl' -print -quit)"
-sdist_path="$(find "$distribution_dir" -maxdepth 1 -type f -name '*.tar.gz' -print -quit)"
-uv run python tools/quality/check_distribution.py --wheel "$wheel_path" --sdist "$sdist_path"
-distribution_venv="$(mktemp -d)"
-uv venv "$distribution_venv"
-uv pip install --python "$distribution_venv/bin/python" "$wheel_path"
-"$distribution_venv/bin/python" tools/quality/check_distribution.py --installed
 ```
-
-brand asset の 2 行が `--with pillow` を挟むのは、Pillow を lock の外に置いているためである。通常の `pytest` では `tests/tools/test_brand_assets.py` が `importorskip` で丸ごと skip され、破れが緑のまま通る。import できることを先に確かめてから走らせて、この fail-open を塞ぐ。
 
 Node dependency gate は各 lockfile を直接監査する。
 
@@ -257,17 +244,6 @@ Bandit と pip-audit は ci の 1 job に同居するが `!cancelled()` を付�
 - https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#filtering-and-diff-limits
 
 全workflowの外部Actionは上流releaseのfull commit SHAへ固定し、同じ行のコメントにrelease tagを残す。repository Actions設定のSHA pin enforcementと`tools/quality/drift/check_workflow_trust.py`を併用し、tag/branch参照、`run:`へのdispatch input直接展開、credentialのjob scope化を拒否する。Dependabotの更新でも、上流releaseとcommitの対応を確認してgateのallowlistとworkflowを同時に更新する。
-
-`lake-acceptance.yml`はacceptance credentialを持つため、gateが文書全体のSHA-256をpinし、どの変更もレビューを通す。この`_LAKE_ACCEPTANCE_WORKFLOW_DIGEST`はworkflowを変更するたびに更新する。gateは型の暗黙変換を避けるため`yaml.BaseLoader`で読むので、digestも同じloaderで算出する。
-
-```bash
-uv run python -c "
-import yaml
-from pathlib import Path
-from tools.quality.drift.check_workflow_trust import _mapping_digest
-print(_mapping_digest(yaml.load(Path('.github/workflows/lake-acceptance.yml').read_text(), Loader=yaml.BaseLoader)))
-"
-```
 
 ## 10. Review rule
 
