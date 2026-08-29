@@ -1415,7 +1415,7 @@ class ScreeningMetricsTests(unittest.TestCase):
         # 直近 1Q 行に実績が無くても carry-forward される。
         assert financial.dps_actual_annual is not None
         self.assertAlmostEqual(financial.dps_actual_annual, 20.0, places=6)
-        # carry 用配当利回りは予想 DPS を最優先する。FY 行 (分割跨ぎ) の予想は
+        # carry 用配当利回りは跳ねではない予想 DPS を優先する。FY 行 (分割跨ぎ) の予想は
         # None 化されるが、分割後 1Q 行の 22 円が最新の予想として使われる。
         assert financial.dividend_yield is not None
         self.assertAlmostEqual(financial.dividend_yield, 22.0 / 50.0, places=6)
@@ -2913,10 +2913,10 @@ def _split_bar(code: str, traded_at: date, factor: float) -> JQuantsDailyBar:
 
 
 class DividendCarryResolverTests(unittest.TestCase):
-    """carry 用配当利回りの基準解決 (予想優先・基準が確定できない年度の拒否) を検証する。"""
+    """carry 用配当利回りの基準解決 (予想の跳ね・株式基準) を検証する。"""
 
     def test_prefers_forecast_over_actual(self) -> None:
-        # 予想 DPS があれば実績より優先し、分割後基準の予想で利回りを出す。
+        # 上限内の予想 DPS は実績より優先し、分割後基準の予想で利回りを出す。
         summaries = [
             _summary("5445", date(2026, 5, 7), dps_actual_annual=300.0, dps_forecast_annual=100.0),
             _summary("5445", date(2025, 5, 7), dps_actual_annual=375.0),
@@ -2930,6 +2930,37 @@ class DividendCarryResolverTests(unittest.TestCase):
         self.assertEqual(carry.basis, "forecast_annual")
         assert carry.dividend_yield is not None
         self.assertAlmostEqual(carry.dividend_yield, 100.0 / 1911.0, places=6)
+
+    def test_a_forecast_above_twice_actual_uses_actual_carry(self) -> None:
+        """3659 型: 一回性の分配を 5 年反復する収益として順位へ入れない。"""
+        summaries = [
+            _summary("3659", date(2026, 8, 13), dps_forecast_annual=475.0),
+            _summary("3659", date(2026, 2, 12), dps_actual_annual=45.0),
+        ]
+
+        carry = _resolve_dividend_carry(
+            summaries, [], latest_price=3148.0, asof_date=date(2026, 8, 28)
+        )
+
+        self.assertEqual(carry.basis, "actual_reported")
+        self.assertEqual(carry.dps_forecast_annual, 475.0)
+        self.assertEqual(carry.dps_actual_annual, 45.0)
+        assert carry.dividend_yield is not None
+        self.assertAlmostEqual(carry.dividend_yield, 45.0 / 3148.0, places=9)
+
+    def test_a_forecast_exactly_twice_actual_stays_forecast_carry(self) -> None:
+        summaries = [
+            _summary("1111", date(2026, 8, 13), dps_forecast_annual=90.0),
+            _summary("1111", date(2026, 2, 12), dps_actual_annual=45.0),
+        ]
+
+        carry = _resolve_dividend_carry(
+            summaries, [], latest_price=1000.0, asof_date=date(2026, 8, 28)
+        )
+
+        self.assertEqual(carry.basis, "forecast_annual")
+        assert carry.dividend_yield is not None
+        self.assertAlmostEqual(carry.dividend_yield, 90.0 / 1000.0, places=9)
 
     def test_a_withdrawn_forecast_does_not_outrank_a_newer_actual(self) -> None:
         """8798 型の再現: 無配化した会社に、取り下げ前の予想の利回りを付けない。
@@ -2992,6 +3023,30 @@ class DividendCarryResolverTests(unittest.TestCase):
         self.assertIsNone(carry.dps_actual_annual)
         assert carry.split_factor is not None
         self.assertAlmostEqual(carry.split_factor, 1.0 / 3.0, places=6)
+
+    def test_an_unresolved_actual_basis_does_not_suppress_a_valid_forecast(self) -> None:
+        """実績を同じ株式基準へ揃えられなければ、倍率guardを適用しない。"""
+        summaries = [
+            _summary(
+                "5445",
+                date(2026, 5, 7),
+                dps_actual_annual=300.0,
+                dps_forecast_annual=100.0,
+            )
+        ]
+
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("5445", date(2026, 3, 30), 1.0 / 3.0)],
+            latest_price=1911.0,
+            asof_date=date(2026, 7, 10),
+        )
+
+        self.assertEqual(carry.basis, "forecast_annual")
+        self.assertIsNone(carry.dps_actual_annual)
+        self.assertEqual(carry.dps_forecast_annual, 100.0)
+        assert carry.dividend_yield is not None
+        self.assertAlmostEqual(carry.dividend_yield, 100.0 / 1911.0, places=9)
 
     def test_refuses_the_actual_yield_when_a_consolidation_falls_in_the_accrual_window(
         self,

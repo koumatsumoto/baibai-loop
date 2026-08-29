@@ -97,8 +97,9 @@ class FinancialSnapshot:
     ocf_ttm: float | None
     edinet_ocf_ttm: float | None = None
     # 直近実績の年間 DPS (asof の株式基準)・進行期の予想年間 DPS・carry 用配当利回り。
-    # dividend_yield は将来 carry なので予想 DPS を最優先する (forecast_annual)。無ければ
-    # 実績を使い、会計期間に分割・併合が無ければ報告値をそのまま (actual_reported)、あれば
+    # dividend_yield は将来 carry なので予想 DPS を優先する (forecast_annual)。ただし正の
+    # 実績 DPS の 2 倍を超える予想は実績へ倒す。予想を使えなければ実績を使い、会計期間に
+    # 分割・併合が無ければ報告値をそのまま (actual_reported)、あれば
     # 支払ごとに基準日より後の調整を掛け直した値を使う (actual_record_date_resolved)。
     # 掛け直せない年度は利回りを出さず (unresolved_split_basis)、E[r] も付けない。
     # dividend_split_factor は会計期間に起きた累積 factor で、期間内に何も無ければ None。

@@ -71,7 +71,7 @@ MIN_SECTOR_MEDIAN_POPULATION = 10
 # 割る。純資産は普通株主に帰属する側を採り、円経路と 1 株当たり経路が食い違う会社では
 # 後者を使う。株式基準は行ごとに決め、期末と開示日の間に権利落ちがある行は申告基準を
 # 判定してから換算し、判定できない行は株数と per-share を答えない。
-VALUATION_CALCULATION_REVISION = "capital-equity-action-basis-v19"
+VALUATION_CALCULATION_REVISION = "capital-equity-action-basis-v20"
 
 # 自己レンジ / sigma gap が前提にする約 3 年の価格履歴窓(暦日)。listing 起点の
 # short_history_flag では検出できない「上場は古いが bar 履歴に長期ギャップがある」
@@ -103,6 +103,11 @@ NORMALIZED_EPS_HISTORY_WINDOW_DAYS = 2200
 # 無い (実績が 1 期分しか無い) ときのフォールバックで、開示日から約 1 年遡って
 # その期間内・開示前の分割を carry へ反映するために使う。
 DIVIDEND_ACCRUAL_LOOKBACK_DAYS = 400
+
+# 5 年 carry へ反復させる会社予想の上限。直近実績の 2 倍を超える進行期予想は、
+# 特別配当か未実現の還元転換かを機械入力から区別できない。実績が正なら既存の実績経路へ
+# 倒し、実績 0 / 未観測は初配当を消さないため予想を使う。
+_DIVIDEND_FORECAST_SPIKE_MULTIPLE = 2.0
 
 
 @dataclass(frozen=True)
@@ -1397,12 +1402,15 @@ def _resolve_dividend_carry(
     開示日より後の分割を掛けて asof 基準へ寄せている。残るのは会計期間の中で起きた
     分割・併合で、報告された年間値は支払ごとに基準が分かれるためそのままでは株価と
     比べられない。その年度は支払ごとに換算し直し (`_asof_basis_dividend`)、換算できな
-    ければ実績側の利回りを出さない。carry は予想 DPS か buyback だけで組む。予想 DPS は
-    分割を跨ぐ行で正規化が None へ落としているので、同じ規律が既に効いている。
+    ければ実績側の利回りを出さない。carry の配当側は予想 DPS または基準を解決できた実績
+    DPS だけで組む。予想 DPS は分割を跨ぐ行で正規化が None へ落としているので、同じ規律が
+    既に効いている。
 
-    予想は実績より優先するが、優先できるのは実績より新しいときだけである。会社が予想を
-    取り下げた後も過去の予想を引き当て続けると、無配化した会社に当時の配当額の利回りが
-    付き、E[r] の reversion 上限 (5%/年) を単独で超える carry を作る。
+    予想は実績より優先するが、優先できるのは実績より新しく、かつ正の実績 DPS の 2 倍
+    以下のときだけである。2 倍を超える跳ねは特別配当か未実現の還元転換かを機械入力から
+    区別できないので、5 年反復する carry には実績を使う。会社が予想を取り下げた後も過去の
+    予想を引き当て続けると、無配化した会社に当時の配当額の利回りが付き、E[r] の reversion
+    上限 (5%/年) を単独で超える carry を作る。
     """
     actual_rows = _actual_dps_rows(summaries)
     latest_actual = _latest_summary(summaries)
@@ -1425,9 +1433,19 @@ def _resolve_dividend_carry(
 
     recorded_factor = basis_factor if basis_factor != 1.0 else None
 
+    forecast_is_usable_for_carry = (
+        forecast is not None
+        and forecast > 0
+        and (
+            actual_annual is None
+            or actual_annual <= 0
+            or forecast <= _DIVIDEND_FORECAST_SPIKE_MULTIPLE * actual_annual
+        )
+    )
+
     if latest_price <= 0:
         basis = "unavailable"
-    elif forecast is not None and forecast > 0:
+    elif forecast_is_usable_for_carry and forecast is not None:
         return _DividendCarry(
             dividend_yield=forecast / latest_price,
             dps_actual_annual=actual_annual,
@@ -1719,8 +1737,9 @@ def _build_financial_snapshot(
     bs_carry_forward_lag_days = max(
         (lag for lag in carried_lags.values() if lag is not None), default=None
     )
-    # carry 用の配当利回りは予想 DPS (分割後基準・特別配当を含まない前提) を最優先し、
-    # 無ければ accrual 期間の分割 factor で調整した実績 DPS を使う。実績 DPS は
+    # carry 用の配当利回りは予想 DPS を優先する。ただし正の実績 DPS の 2 倍を超える
+    # 跳ねは 5 年反復させず、実績へ倒す。予想を使えなければ accrual 期間の分割 factor で
+    # 調整した実績 DPS を使う。実績 DPS は
     # FY 開示にしか載らないため直近の非 null 行から取り、split-safe 化した値を
     # snapshot の実績 DPS として記録する (株価と同じ分割後基準で表示・比較できる)。
     dividend = _resolve_dividend_carry(summaries, adjustment_events, latest_price, asof_date)
