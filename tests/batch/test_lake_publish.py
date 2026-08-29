@@ -11,7 +11,6 @@ from botocore.exceptions import ClientError, ReadTimeoutError
 from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.r2_store import MemoryR2Store
-from tools.migrations import publish_market_lake_v25 as market_v25_cutover
 
 from baibai_batch.storage import lake_publish as lake_publish_module
 from baibai_batch.storage import publish_market_lake as market_publish_module
@@ -111,34 +110,6 @@ def _release(tmp_path: Path) -> tuple[Path, Path]:
         created_at=datetime(2026, 1, 7, tzinfo=UTC),
     )
     return mirror, release_path
-
-
-def test_v24_cutover_reads_only_exact_retired_manifest_fields(tmp_path: Path) -> None:
-    mirror, _ = _release(tmp_path)
-    manifest_path = next((mirror / "lake/manifests/datasets").glob("*/*.json"))
-    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    payload["cohort_inventory"] = {}
-    payload["transform_fingerprint"] = None
-    for partition in payload["partitions"]:
-        partition["source_state_sha256"] = None
-
-    manifest = market_v25_cutover._load_old_dataset_manifest(json.dumps(payload).encode())
-
-    assert manifest.dataset == payload["dataset"]
-    assert manifest.coverage_start.isoformat() == payload["coverage_start"]
-
-
-def test_v24_cutover_rejects_a_manifest_missing_its_exact_audit_shape(
-    tmp_path: Path,
-) -> None:
-    mirror, _ = _release(tmp_path)
-    manifest_path = next((mirror / "lake/manifests/datasets").glob("*/*.json"))
-    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    payload["cohort_inventory"] = {}
-    payload["transform_fingerprint"] = None
-
-    with pytest.raises(LakePublishError, match="old dataset manifest is invalid"):
-        market_v25_cutover._load_old_dataset_manifest(json.dumps(payload).encode())
 
 
 def _successor_release(mirror: Path, release_id: str) -> Path:
@@ -607,70 +578,6 @@ def test_first_publication_needs_no_store_origin(
         release_id="first-publication",
         release_manifest_sha256=serving.manifest_sha256,
     )
-
-
-def test_v24_cutover_uses_the_one_shot_coverage_override(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    mirror, release_path = _release(tmp_path)
-    store = MemoryR2Store()
-    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
-    pointer = L1ReleasePointer.model_validate_json(
-        store.values["lake/pointers/l1/current.json"].body
-    )
-    _bind_market_store_to_pointer(tmp_path / "market.sqlite", pointer)
-    monkeypatch.setattr(
-        market_publish_module,
-        "_resolve_serving_release",
-        lambda *_: pytest.fail("the normal resolver must not read the retired release"),
-    )
-    monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
-
-    market_publish_module.publish_market_lake(
-        sqlite_path=tmp_path / "market.sqlite",
-        mirror_root=mirror,
-        store=store,
-        release_id="v25-cutover",
-        serving_coverage_override=market_publish_module._ServingCoverageOverride(
-            origin=LakeStoreOrigin(
-                release_id=pointer.release_id,
-                release_manifest_sha256=pointer.manifest_sha256,
-            ),
-            coverage_starts={},
-        ),
-    )
-
-
-def test_v24_cutover_rejects_a_coverage_override_from_another_release(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    mirror, release_path = _release(tmp_path)
-    store = MemoryR2Store()
-    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
-    export_called = False
-
-    def unexpected_export(**_: object) -> object:
-        nonlocal export_called
-        export_called = True
-        raise AssertionError("export must not start")
-
-    monkeypatch.setattr(market_publish_module, "export_lake_legacy", unexpected_export)
-
-    with pytest.raises(LakePublishError, match="identifies a different release"):
-        market_publish_module.publish_market_lake(
-            sqlite_path=tmp_path / "market.sqlite",
-            mirror_root=mirror,
-            store=store,
-            serving_coverage_override=market_publish_module._ServingCoverageOverride(
-                origin=LakeStoreOrigin(
-                    release_id="other-release",
-                    release_manifest_sha256="0" * 64,
-                ),
-                coverage_starts={},
-            ),
-        )
-
-    assert export_called is False
 
 
 def test_origin_is_checked_from_the_same_sealed_snapshot_that_is_exported(

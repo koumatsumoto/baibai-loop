@@ -80,19 +80,12 @@ class MarketLakePublishReport:
         }
 
 
-@dataclass(frozen=True, slots=True)
-class _ServingCoverageOverride:
-    origin: LakeStoreOrigin
-    coverage_starts: Mapping[str, date]
-
-
 def publish_market_lake(
     *,
     sqlite_path: Path,
     mirror_root: Path,
     store: ObjectStore,
     release_id: str | None = None,
-    serving_coverage_override: _ServingCoverageOverride | None = None,
 ) -> MarketLakePublishReport:
     """Derive every partition from the store, seal a release, and publish it.
 
@@ -106,13 +99,7 @@ def publish_market_lake(
     previous = serving.pointer
     expected_store_origin = _pointer_origin(previous)
     if previous is None:
-        if serving_coverage_override is not None:
-            raise LakePublishError("serving coverage override requires a current release")
         published_coverage_start: Mapping[str, date] = {}
-    elif serving_coverage_override is not None:
-        if _pointer_origin(previous) != serving_coverage_override.origin:
-            raise LakePublishError("serving coverage override identifies a different release")
-        published_coverage_start = serving_coverage_override.coverage_starts
     else:
         serving_release = _resolve_serving_release(store, mirror_root, previous)
         published_coverage_start = {
