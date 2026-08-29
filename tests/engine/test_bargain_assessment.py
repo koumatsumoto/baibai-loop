@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import json
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
@@ -52,25 +51,17 @@ def _publish_shortlist(db_path: Path, *, shortlist_id: str = "shortlist-20260721
             as_of=shortlist.as_of,
             profile=shortlist.profile,
             macro_context_id=shortlist.macro_context_id,
-            review_tickers=("2331", "0001"),
+            ranked_tickers=("2331", "0001"),
             candidate_er={"2331": 0.12, "0001": 0.04},
             candidate_machine_rows={
                 ticker: {
                     "ticker": ticker,
-                    "opportunity_lane_id": "value-carry",
-                    "selection_policy_id": "value-carry-v1",
-                    "selection_policy_hash": "b" * 64,
-                    "lane_rank": rank,
-                    "lane_native_value": value,
-                    "lane_native_unit": "annual_ratio",
-                    "baseline_er_rank": rank,
+                    "rank": rank,
+                    "er_annual": value,
                     "primary_evidence_pattern_id": None,
-                    "policy_diagnostic_ids": [],
                 }
                 for rank, (ticker, value) in enumerate((("2331", 0.12), ("0001", 0.04)), start=1)
             },
-            attention_policy_hash="a" * 64,
-            attention_policy_parameters={"value_carry_limit": 2},
         ),
     )
     return shortlist_id
@@ -83,7 +74,6 @@ def _draft(db_path: Path, shortlist_id: str) -> dict[str, Any]:
         as_of=date(2026, 7, 22),
         shortlist_id=shortlist_id,
         thesis_ids=[THESIS_ID],
-        proposal_id=None,
         published_at=PUBLISHED_AT,
     )
     case = draft["cases"][0]
@@ -129,7 +119,6 @@ def test_scaffold_fills_machine_values_from_the_thesis_and_leaves_judgment_blank
         as_of=date(2026, 7, 22),
         shortlist_id=shortlist_id,
         thesis_ids=[THESIS_ID],
-        proposal_id=None,
         published_at=PUBLISHED_AT,
     )
 
@@ -191,10 +180,8 @@ def test_selected_case_forbids_reject_class(app_method_root: Path) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
     shortlist_id = _publish_shortlist(db_path)
     payload = _draft(db_path, shortlist_id)
-    payload["result"] = "proposal"
+    payload["result"] = "buy"
     payload["cases"][0]["disposition"] = "selected"
-    payload["entry_timing"] = "決算前に買う理由"
-    payload["purchase"] = _purchase_payload(db_path, _seed_proposal(db_path))
 
     with pytest.raises(ValidationError, match="must not include a reject_class"):
         BargainAssessment.model_validate(payload)
@@ -270,21 +257,21 @@ def test_publish_conflicts_when_the_same_id_carries_different_content(
         service.publish(_bound(changed))
 
 
-def test_a_proposal_result_requires_a_purchase_plan_and_entry_timing(
+def test_a_buy_result_requires_an_independent_review(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
     shortlist_id = _publish_shortlist(db_path)
     payload = _draft(db_path, shortlist_id)
-    payload["result"] = "proposal"
+    payload["result"] = "buy"
     payload["cases"][0]["disposition"] = "selected"
     payload["cases"][0]["reject_class"] = None
 
-    with pytest.raises(ValidationError, match="requires a purchase plan"):
+    with pytest.raises(ValidationError, match="requires the selected independent review"):
         BargainAssessment.model_validate(payload)
 
 
-def test_a_selected_case_cannot_appear_without_a_proposal_result(
+def test_a_selected_case_cannot_appear_without_a_buy_result(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
@@ -293,47 +280,32 @@ def test_a_selected_case_cannot_appear_without_a_proposal_result(
     payload["cases"][0]["disposition"] = "selected"
     payload["cases"][0]["reject_class"] = None
 
-    with pytest.raises(ValidationError, match="only a proposal result"):
+    with pytest.raises(ValidationError, match="only a buy result"):
         BargainAssessment.model_validate(payload)
 
 
-def test_publish_rejects_a_purchase_plan_that_does_not_match_the_proposal(
+def test_publish_accepts_a_buy_bound_to_the_ready_thesis_and_review(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
     shortlist_id = _publish_shortlist(db_path)
-    proposal_id = _seed_proposal(db_path)
     payload = _draft(db_path, shortlist_id)
-    payload["result"] = "proposal"
-    payload["cases"][0]["disposition"] = "selected"
-    payload["cases"][0]["reject_class"] = None
-    payload["entry_timing"] = "決算前に買う理由"
-    payload["purchase"] = _purchase_payload(db_path, proposal_id)
-    payload["purchase"]["limit_price_yen"] = 1.0
-    assessment = _bound(payload)
-
-    with pytest.raises(AssessmentConflictError, match="limit_price_yen"):
-        BargainAssessmentService(db_path).publish(assessment)
-
-
-def test_publish_accepts_a_proposal_round_bound_to_the_stored_proposal(
-    app_method_root: Path,
-) -> None:
-    db_path = app_method_root / "stores/application/baibai.sqlite"
-    shortlist_id = _publish_shortlist(db_path)
-    proposal_id = _seed_proposal(db_path)
-    payload = _draft(db_path, shortlist_id)
-    payload["result"] = "proposal"
+    payload["result"] = "buy"
     payload["cases"][0]["disposition"] = "selected"
     payload["cases"][0]["reject_class"] = None
     payload["cases"][0]["disposition_reason"] = "要求利回りを上回る"
-    payload["entry_timing"] = "決算前に買う理由"
-    payload["purchase"] = _purchase_payload(db_path, proposal_id)
+    with sqlite3.connect(db_path) as connection:
+        payload["cases"][0]["review_id"] = connection.execute(
+            "SELECT review_id FROM thesis_review WHERE thesis_id = ?", (THESIS_ID,)
+        ).fetchone()[0]
 
     published = BargainAssessmentService(db_path).publish(_bound(payload))
 
-    assert published.purchase is not None
-    assert published.purchase.quantity == 100
+    assert published.result == "buy"
+    assert published.cases[0].review_id is not None
+    assert (
+        BargainAssessmentService(db_path).require_buy_case(published.assessment_id).ticker == "2331"
+    )
 
 
 def test_scaffold_carries_the_permanent_loss_verdict_and_the_shortlist_question(
@@ -348,7 +320,6 @@ def test_scaffold_carries_the_permanent_loss_verdict_and_the_shortlist_question(
         as_of=date(2026, 7, 22),
         shortlist_id=shortlist_id,
         thesis_ids=[THESIS_ID],
-        proposal_id=None,
         published_at=PUBLISHED_AT,
     )
 
@@ -433,47 +404,3 @@ def test_a_case_cannot_drop_the_question_that_earned_it_a_research_slot(
 
     with pytest.raises(ValidationError, match="research_questions"):
         BargainAssessment.model_validate(payload)
-
-
-def _purchase_payload(db_path: Path, proposal_id: str) -> dict[str, Any]:
-    draft = scaffold_assessment(
-        db_path=db_path,
-        assessment_id="bargain-assessment-20260722-purchase",
-        as_of=date(2026, 7, 22),
-        shortlist_id="shortlist-20260721-test",
-        thesis_ids=[THESIS_ID],
-        proposal_id=proposal_id,
-        published_at=PUBLISHED_AT,
-    )
-    purchase = draft["purchase"]
-    assert isinstance(purchase, dict)
-    return purchase
-
-
-def _seed_proposal(db_path: Path) -> str:
-    proposal_id = "proposal-20260722-2331"
-    payload = {
-        "planned_limit": {
-            "limit_price_yen": 1030.0,
-            "quantity": 100,
-            "notional_yen": 103000.0,
-            "max_acceptable_price_yen": 1300.0,
-            "close_yen": 1030.0,
-            "price_as_of": "2026-07-21",
-            "expires_at": "2026-07-23T15:30:00+09:00",
-            "warnings": [],
-        }
-    }
-    with sqlite3.connect(db_path) as connection:
-        review_id = connection.execute(
-            "SELECT review_id FROM thesis_review WHERE thesis_id = ?", (THESIS_ID,)
-        ).fetchone()[0]
-        connection.execute(
-            """
-            INSERT INTO proposal(
-                proposal_id, ticker, thesis_id, review_id, created_at, status, payload
-            ) VALUES (?, '2331', ?, ?, '2026-07-22T14:00:00+09:00', 'pending', ?)
-            """,
-            (proposal_id, THESIS_ID, review_id, json.dumps(payload, sort_keys=True)),
-        )
-    return proposal_id

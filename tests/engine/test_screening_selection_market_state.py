@@ -75,17 +75,17 @@ class SelectionMarketStateTests(unittest.TestCase):
             candidates=self.candidates,
             macro_context=None,
             rules=self.rules,
-            top=10,
             profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
             market_regime=market_regime,
+            review_cap=2,
         )
 
     def _recommended_tickers(self, payload: dict[str, object]) -> list[str]:
-        recommendations = payload["recommendations"]
-        assert isinstance(recommendations, list)
-        return [item["ticker"] for item in recommendations]
+        ranked_set = payload["ranked_set"]
+        assert isinstance(ranked_set, list)
+        return [item["ticker"] for item in ranked_set]
 
     def _diagnostics(self, payload: dict[str, object]) -> Mapping[str, object]:
         selection = payload["selection"]
@@ -94,10 +94,10 @@ class SelectionMarketStateTests(unittest.TestCase):
         assert isinstance(diagnostics, Mapping)
         return diagnostics
 
-    def _recommendations(self, payload: dict[str, object]) -> list[Mapping[str, object]]:
-        recommendations = payload["recommendations"]
-        assert isinstance(recommendations, list)
-        return recommendations
+    def _ranked_set_rows(self, payload: dict[str, object]) -> list[Mapping[str, object]]:
+        ranked_set = payload["ranked_set"]
+        assert isinstance(ranked_set, list)
+        return ranked_set
 
     def test_ranking_follows_er_not_price_decline(self) -> None:
         # 直近の急落は順位を押し上げない: E[r] が高い calm value が
@@ -129,7 +129,7 @@ class SelectionMarketStateTests(unittest.TestCase):
 
     def test_snapshot_supplies_benchmark_relative_20d_and_laggard_tag(self) -> None:
         payload = self._payload(_snapshot(MarketRegime.NEUTRAL_RANGE))
-        by_ticker = {item["ticker"]: item for item in self._recommendations(payload)}
+        by_ticker = {item["ticker"]: item for item in self._ranked_set_rows(payload)}
         decliner = by_ticker["9999"]
         self.assertAlmostEqual(float(str(decliner["benchmark_relative_20d"])), -0.17)
         self.assertIn("benchmark_laggard_20d", decliner["risk_tags"])
@@ -139,7 +139,7 @@ class SelectionMarketStateTests(unittest.TestCase):
 
     def test_without_snapshot_benchmark_relative_20d_degrades_to_none(self) -> None:
         payload = self._payload(None)
-        for item in self._recommendations(payload):
+        for item in self._ranked_set_rows(payload):
             self.assertIsNone(item["benchmark_relative_20d"])
             self.assertNotIn("benchmark_laggard_20d", item["risk_tags"])
 
@@ -149,7 +149,7 @@ class SelectionMarketStateTests(unittest.TestCase):
         durability_counts = diagnostics["durability_counts"]
         assert isinstance(durability_counts, Mapping)
         self.assertEqual(sum(durability_counts.values()), 2)
-        for item in self._recommendations(payload):
+        for item in self._ranked_set_rows(payload):
             self.assertIn("durability_rating", item)
 
     def test_price_history_gap_tag_marks_old_listing_with_sparse_bars(self) -> None:
@@ -167,13 +167,13 @@ class SelectionMarketStateTests(unittest.TestCase):
             ),
             macro_context=None,
             rules=self.rules,
-            top=10,
             profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
             market_regime=None,
+            review_cap=2,
         )
-        by_ticker = {item["ticker"]: item for item in self._recommendations(payload)}
+        by_ticker = {item["ticker"]: item for item in self._ranked_set_rows(payload)}
         self.assertIn("price_history_gap", by_ticker["1111"]["risk_tags"])
         # A genuinely new listing is short_history territory, not a gap.
         self.assertNotIn("price_history_gap", by_ticker["9999"]["risk_tags"])
@@ -204,13 +204,13 @@ class SelectionMarketStateTests(unittest.TestCase):
             ),
             macro_context=None,
             rules=self.rules,
-            top=10,
             profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
             market_regime=None,
+            review_cap=2,
         )
-        by_ticker = {item["ticker"]: item for item in self._recommendations(payload)}
+        by_ticker = {item["ticker"]: item for item in self._ranked_set_rows(payload)}
         self.assertIn("deterioration_unmeasurable", by_ticker["1111"]["risk_tags"])
         self.assertNotIn("deterioration_unmeasurable", by_ticker["9999"]["risk_tags"])
 
@@ -226,14 +226,14 @@ class SelectionMarketStateTests(unittest.TestCase):
             ),
             macro_context=None,
             rules=self.rules,
-            top=10,
             profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
             market_regime=None,
+            review_cap=2,
         )
 
-        by_ticker = {item["ticker"]: item for item in self._recommendations(payload)}
+        by_ticker = {item["ticker"]: item for item in self._ranked_set_rows(payload)}
 
         self.assertIn("earnings_scheduled", by_ticker["1111"]["risk_tags"])
         self.assertNotIn("earnings_scheduled", by_ticker["9999"]["risk_tags"])
@@ -248,13 +248,13 @@ class SelectionMarketStateTests(unittest.TestCase):
             candidates=(candidate_record_from_mapping(split_hit),),
             macro_context=None,
             rules=self.rules,
-            top=10,
             profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
             market_regime=None,
+            review_cap=1,
         )
-        item = self._recommendations(payload)[0]
+        item = self._ranked_set_rows(payload)[0]
         self.assertTrue(item["split_adjustment_flag"])
         self.assertIn("split_adjustment_recent", item["risk_tags"])
 
@@ -274,18 +274,17 @@ class SelectionMarketStateTests(unittest.TestCase):
             candidates=(candidate_record_from_mapping(gain_hit),),
             macro_context=None,
             rules=self.rules,
-            top=10,
             profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
             market_regime=None,
-            longlist_top=10,
+            review_cap=10,
         )
-        item = self._recommendations(payload)[0]
+        item = self._ranked_set_rows(payload)[0]
         self.assertIn("forecast_special_gain", item["risk_tags"])
-        longlist = payload["longlist"]
-        assert isinstance(longlist, list)
-        self.assertIn("forecast_special_gain", longlist[0]["event_warnings"])
+        ranked_set = payload["ranked_set"]
+        assert isinstance(ranked_set, list)
+        self.assertIn("forecast_special_gain", ranked_set[0]["event_warnings"])
 
     def test_forecast_full_year_loss_flag_becomes_risk_tag(self) -> None:
         # 会社自身の通期赤字予想は forward PER を落として FV アンカーを自己履歴 PBR だけに
@@ -302,18 +301,17 @@ class SelectionMarketStateTests(unittest.TestCase):
             candidates=(candidate_record_from_mapping(loss_hit),),
             macro_context=None,
             rules=self.rules,
-            top=10,
             profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
             market_regime=None,
-            longlist_top=10,
+            review_cap=10,
         )
-        item = self._recommendations(payload)[0]
+        item = self._ranked_set_rows(payload)[0]
         self.assertIn("forecast_full_year_loss", item["risk_tags"])
-        longlist = payload["longlist"]
-        assert isinstance(longlist, list)
-        self.assertIn("forecast_full_year_loss", longlist[0]["event_warnings"])
+        ranked_set = payload["ranked_set"]
+        assert isinstance(ranked_set, list)
+        self.assertIn("forecast_full_year_loss", ranked_set[0]["event_warnings"])
 
     def test_sweep_payload_records_market_regime(self) -> None:
         payload = build_selection_sweep_payload(
@@ -321,11 +319,11 @@ class SelectionMarketStateTests(unittest.TestCase):
             candidates=self.candidates,
             macro_context=None,
             rules=self.rules,
-            top=10,
             profiles=("balanced",),
             candidates_ref="test.yaml",
             macro_context_ref=None,
             market_regime=_snapshot(MarketRegime.RISK_ON_RALLY),
+            top=2,
         )
         market_regime = payload["market_regime"]
         assert isinstance(market_regime, Mapping)
@@ -339,15 +337,15 @@ class SelectionMarketStateTests(unittest.TestCase):
                     candidates=self.candidates,
                     macro_context=None,
                     rules=self.rules,
-                    top=10,
                     profile="balanced",
                     candidates_ref="local-candidates.yaml",
                     macro_context_ref=None,
                     market_regime=None,
                     detail=detail,
+                    review_cap=2,
                 )
 
-                seed = self._recommendations(payload)[0]["decision_input_seed"]
+                seed = self._ranked_set_rows(payload)[0]["decision_input_seed"]
                 assert isinstance(seed, Mapping)
                 self.assertEqual(seed["snapshot_version"], 1)
                 self.assertEqual(seed["producer_model_version"], "screening-selection-v1")
@@ -364,29 +362,28 @@ class SelectionMarketStateTests(unittest.TestCase):
                 self.assertIn("assumptions", fair_value)
                 self.assertNotIn("candidate_ref", seed)
 
-    def test_longlist_copies_the_decision_seed_estimates(self) -> None:
+    def test_ranked_set_copies_the_decision_seed_estimates(self) -> None:
         payload = build_selection_payload(
             asof_date=_ASOF,
             candidates=self.candidates,
             macro_context=None,
             rules=self.rules,
-            top=10,
             profile="balanced",
             candidates_ref="local-candidates.yaml",
             macro_context_ref=None,
             market_regime=None,
-            longlist_top=2,
+            review_cap=2,
         )
-        recommendations = {item["ticker"]: item for item in self._recommendations(payload)}
-        longlist = payload["longlist"]
-        assert isinstance(longlist, list)
-        for row in longlist:
+        ranked_rows = {item["ticker"]: item for item in self._ranked_set_rows(payload)}
+        ranked_set = payload["ranked_set"]
+        assert isinstance(ranked_set, list)
+        for row in ranked_set:
             snapshot = row["estimate_snapshot"]
             assert isinstance(snapshot, Mapping)
             self.assertEqual(snapshot["as_of"], _ASOF.isoformat())
             self.assertEqual(
                 {key: value for key, value in snapshot.items() if key != "as_of"},
-                recommendations[row["ticker"]]["decision_input_seed"]["estimates"],
+                ranked_rows[row["ticker"]]["decision_input_seed"]["estimates"],
             )
 
 

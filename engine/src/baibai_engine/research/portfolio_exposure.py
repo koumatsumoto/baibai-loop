@@ -3,7 +3,7 @@
 Concentration is a ratio, so its denominator decides whether a warning fires. Every
 holding is revalued at the same session's raw close rather than at whatever price the
 ledger happened to record per ticker, which keeps the whole portfolio on one price
-basis and matches the planning-only limit the proposal is built from. This module is
+basis and matches the planning-only limit shown to the operator. This module is
 the single implementation: the planning path and the execution decision must not
 disagree about whether a purchase breaches a concentration cap.
 """

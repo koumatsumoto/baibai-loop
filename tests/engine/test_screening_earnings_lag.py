@@ -279,11 +279,10 @@ class EarningsLagAnnotationIsolationTests(unittest.TestCase):
             candidates=tuple(candidate_record_from_mapping(item) for item in candidates),
             macro_context=None,
             rules=self.rules,
-            top=10,
             profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
-            longlist_top=10,
+            review_cap=10,
         )
 
     def test_annotations_do_not_change_the_selection_outcome(self) -> None:
@@ -306,9 +305,9 @@ class EarningsLagAnnotationIsolationTests(unittest.TestCase):
         after = self._payload(annotated)
 
         def outcome(payload: dict[str, object]) -> list[tuple[object, object, object]]:
-            recommendations = payload["recommendations"]
-            assert isinstance(recommendations, list)
-            return [(item["rank"], item["ticker"], item["er_annual"]) for item in recommendations]
+            ranked_set = payload["ranked_set"]
+            assert isinstance(ranked_set, list)
+            return [(item["rank"], item["ticker"], item["er_annual"]) for item in ranked_set]
 
         self.assertEqual(outcome(before), outcome(after))
         self.assertEqual(before["selection"], after["selection"])
@@ -325,31 +324,31 @@ class EarningsLagAnnotationIsolationTests(unittest.TestCase):
                 )
             ]
         )
-        recommendations = payload["recommendations"]
-        assert isinstance(recommendations, list)
-        row = recommendations[0]
+        ranked_set = payload["ranked_set"]
+        assert isinstance(ranked_set, list)
+        row = ranked_set[0]
 
         self.assertEqual(row["next_earnings_status"], "announced")
         self.assertIs(row["stale_fin_flag"], True)
         self.assertEqual(row["fin_latest_disclosed_date"], "2026-05-07")
         self.assertIn("stale_financials", row["risk_tags"])
 
-    def test_a_flagged_row_reaches_the_longlist_event_warnings(self) -> None:
-        # The longlist is the wider triage view the human reads; an annotation that
+    def test_a_flagged_row_reaches_the_ranked_set_event_warnings(self) -> None:
+        # The ranked_set is the wider triage view the human reads; an annotation that
         # stops at the recommendation row never reaches the review surface.
         payload = self._payload([_candidate("1111", stale_fin_flag=True)])
-        longlist = payload["longlist"]
-        assert isinstance(longlist, list)
+        ranked_set = payload["ranked_set"]
+        assert isinstance(ranked_set, list)
 
-        self.assertIn("stale_financials", longlist[0]["event_warnings"])
+        self.assertIn("stale_financials", ranked_set[0]["event_warnings"])
 
     def test_an_unevaluated_row_is_not_reported_as_clean(self) -> None:
         payload = self._payload([_candidate("1111")])
-        recommendations = payload["recommendations"]
-        assert isinstance(recommendations, list)
+        ranked_set = payload["ranked_set"]
+        assert isinstance(ranked_set, list)
 
-        self.assertIsNone(recommendations[0]["stale_fin_flag"])
-        self.assertIsNone(recommendations[0]["next_earnings_status"])
+        self.assertIsNone(ranked_set[0]["stale_fin_flag"])
+        self.assertIsNone(ranked_set[0]["next_earnings_status"])
 
 
 if __name__ == "__main__":

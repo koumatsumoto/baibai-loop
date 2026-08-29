@@ -83,7 +83,7 @@ def _research_payloads(
     core_hash = thesis_core_hash(ThesisDocument.model_validate(thesis))
     review["reviewed_thesis_sha256"] = core_hash
     parsed_review = IndependentReview.model_validate(review)
-    evidence_override["proposal_sha256"] = core_hash
+    evidence_override["thesis_sha256"] = core_hash
     evidence_override["review_id"] = parsed_review.review_id
     evidence_override["review_sha256"] = independent_review_hash(parsed_review)
     return thesis, review

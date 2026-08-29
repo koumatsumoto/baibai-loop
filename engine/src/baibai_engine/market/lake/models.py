@@ -22,9 +22,7 @@ from pydantic import (
 from .datasets import LAKE_DATASETS
 from .keys import (
     PartitionValue,
-    calibration_bundle_manifest_key,
     canonical_object_key,
-    dataset_manifest_key,
     release_manifest_key,
     validate_dataset_name,
     validate_identifier,
@@ -33,14 +31,10 @@ from .keys import (
     validate_sha256,
 )
 
-ManifestLayer = Literal["l1_canonical", "l2_analytical"]
+ManifestLayer = Literal["l1_canonical"]
 CoverageStatus = Literal["complete", "partial"]
-CohortStatus = Literal["complete", "empty", "partial", "not_computed"]
 ReleaseProfile = Literal["production"]
 MAX_LAKE_JSON_BYTES = 16 * 1024 * 1024
-CALIBRATION_DATASETS = frozenset(
-    {"calibration.panel", "calibration.panel_diagnostics", "calibration.forward"}
-)
 
 
 class _SourceRefBase(BaseModel):
@@ -149,14 +143,6 @@ type SourceRef = Annotated[SQLiteSnapshotSourceRef, Field(discriminator="kind")]
 # names a key, and resolving one walks the whole closure it roots.
 type RetainedSourceRef = L1ReleaseSourceRef
 
-# What an analytical cohort may state. Current writers record the sealed SQLite
-# generation they actually read. L1 release refs remain readable because immutable v1
-# bundle manifests may already contain them, but a release does not retain non-lake
-# inputs such as source_coverage and therefore is not a rebuildability claim.
-type CohortSourceRef = Annotated[
-    SQLiteSnapshotSourceRef | L1ReleaseSourceRef, Field(discriminator="kind")
-]
-
 
 def _source_identity(source: SourceRef | RetainedSourceRef) -> tuple[str, str, str]:
     """What makes two lineage references the same generation.
@@ -221,10 +207,6 @@ class PartitionManifest(BaseModel):
     values: Mapping[str, PartitionValue] = Field(min_length=1)
     objects: tuple[LakeObject, ...] = Field(min_length=1)
     sources: tuple[SourceRef, ...] = ()
-    source_state_sha256: str | None = None
-    """Left unset by the L1 export, which derives every partition from the store on
-    each run and has no earlier build to compare a source state against. Calibration
-    builds still record theirs; older L1 manifests carry one and remain readable."""
 
     @field_validator("values")
     @classmethod
@@ -243,11 +225,6 @@ class PartitionManifest(BaseModel):
             raise ValueError("partition sources cannot contain duplicates")
         return values
 
-    @field_validator("source_state_sha256")
-    @classmethod
-    def validate_source_state_sha256(cls, value: str | None) -> str | None:
-        return None if value is None else validate_sha256(value)
-
 
 class ManifestTotals(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
@@ -255,272 +232,6 @@ class ManifestTotals(BaseModel):
     objects: int = Field(ge=0)
     bytes: int = Field(ge=0)
     rows: int = Field(ge=0)
-
-
-class MeasurementPolicyRef(BaseModel):
-    """Under which screening rules and panel contract a cohort was measured.
-
-    The rules a cohort was screened under decide which names are in it and what each
-    row's status is, so two cohorts measured under different rules are not one series
-    even though their columns line up. That fact lived only inside a diagnostics row,
-    which means a consumer had to read Parquet to learn it and a bundle could be
-    assembled from a mixture without anything in the manifest disagreeing.
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    rules_hash: str
-    panel_variant: str
-    production_authority: bool
-
-    @field_validator("rules_hash", "panel_variant")
-    @classmethod
-    def validate_identifier_field(cls, value: str) -> str:
-        if not value:
-            raise ValueError("measurement policy fields cannot be empty")
-        return value
-
-
-class CohortInventoryEntry(BaseModel):
-    """Manifest-only proof that one analytical cohort was evaluated."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    status: CohortStatus
-    rows: int = Field(ge=0)
-    sources: tuple[CohortSourceRef, ...] = Field(min_length=1)
-    input_cutoff: date
-    measurement_policy: MeasurementPolicyRef
-
-    @field_validator("sources")
-    @classmethod
-    def validate_sources(cls, values: tuple[CohortSourceRef, ...]) -> tuple[CohortSourceRef, ...]:
-        identities = {_source_identity(item) for item in values}
-        if len(identities) != len(values):
-            raise ValueError("cohort sources cannot contain duplicates")
-        return values
-
-    @model_validator(mode="after")
-    def validate_status(self) -> CohortInventoryEntry:
-        if self.status == "complete" and self.rows == 0:
-            raise ValueError("complete cohort must contain rows")
-        if self.status in {"empty", "not_computed"} and self.rows != 0:
-            raise ValueError(f"{self.status} cohort cannot contain rows")
-        # Only the sealed snapshot carries a capture instant. A release names a
-        # generation the store was filled from, and its own creation time says nothing
-        # about which rows the cohort read — the snapshot already answers that.
-        if any(
-            self.input_cutoff > source.captured_at.date()
-            for source in self.sources
-            if isinstance(source, SQLiteSnapshotSourceRef)
-        ):
-            raise ValueError("cohort input cutoff cannot follow SQLite snapshot capture")
-        if not any(isinstance(source, SQLiteSnapshotSourceRef) for source in self.sources):
-            raise ValueError("cohort must state the sealed store generation it read")
-        return self
-
-
-class CalibrationDatasetRef(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    dataset: str
-    build_id: str
-    manifest_key: str
-    manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    rows: int = Field(ge=0)
-
-    @model_validator(mode="after")
-    def validate_identity(self) -> CalibrationDatasetRef:
-        if self.dataset not in CALIBRATION_DATASETS:
-            raise ValueError("bundle references an unsupported calibration dataset")
-        if self.manifest_key != dataset_manifest_key(dataset=self.dataset, build_id=self.build_id):
-            raise ValueError("bundle dataset key does not match its identity")
-        return self
-
-
-class CalibrationCohortInventory(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    panel: CohortInventoryEntry
-    diagnostics: CohortInventoryEntry
-    forward: CohortInventoryEntry
-
-    @model_validator(mode="after")
-    def validate_composition(self) -> CalibrationCohortInventory:
-        if self.diagnostics.status not in {"complete", "partial"}:
-            raise ValueError("computed panel cohort requires diagnostics")
-        if self.diagnostics.status == "complete" and self.diagnostics.rows != 1:
-            raise ValueError("complete diagnostics cohort must contain exactly one row")
-        if self.panel.status == "not_computed":
-            raise ValueError("a bundle cannot publish an uncomputed panel cohort")
-        if (
-            self.panel.sources != self.diagnostics.sources
-            or self.panel.input_cutoff != self.diagnostics.input_cutoff
-        ):
-            raise ValueError("panel and diagnostics must use the same cohort input")
-        # The rules decide which names are in the cohort and what each row's status is,
-        # so the outcome half and the cross-section half have to have been measured the
-        # same way. Leaving this to whichever writer assembled the bundle means an
-        # alternate producer can state the inconsistency in the wire format itself.
-        if not (
-            self.panel.measurement_policy
-            == self.diagnostics.measurement_policy
-            == self.forward.measurement_policy
-        ):
-            raise ValueError("cohort roles disagree about the rules they were measured under")
-        return self
-
-
-class ForwardObservationPolicyRef(BaseModel):
-    """The runtime observation rules a bundle's forward cohorts were measured under."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    use_control_event_exits: bool
-
-
-class CalibrationBundleManifest(BaseModel):
-    """One externally visible calibration generation across all three datasets.
-
-    ``assembled_by_git_commit`` is the transaction identity of the bundle, not the
-    identity of the code that produced its datasets. Each dataset manifest keeps its
-    own ``producer_git_commit``, so a bundle that matures forward outcomes on top of
-    panels built earlier states both facts instead of restating one as the other.
-    Compatibility between the datasets is decided by their cohort sources and cutoffs —
-    not by a shared commit.
-
-    There is deliberately no bundle-level compatibility field. Compatibility is a
-    per-dataset question and every answer lives in the dataset manifest the bundle
-    already names, so a summary here would be a second statement of the same fact that
-    nothing derives, verifies, or reads: an alternate writer could record any value and
-    every reader would still be right. A generation says what it is by naming its three
-    builds.
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    manifest_version: Literal[1] = 1
-    bundle_id: str
-    created_at: datetime
-    assembled_by_git_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
-    # The contract a reader has to know before it can decide whether this generation is
-    # the one it wants. It rides in the manifest the pointer names so that switching
-    # generations is one atomic act: a separate file stating the contract could land
-    # while the pointer did not, leaving a store that describes a generation it is not
-    # serving and refuses to read the one it is.
-    forward_observation_policy: ForwardObservationPolicyRef
-    datasets: Mapping[str, CalibrationDatasetRef]
-
-    @field_validator("bundle_id")
-    @classmethod
-    def validate_bundle_id(cls, value: str) -> str:
-        return validate_identifier(value, label="bundle_id")
-
-    @field_validator("created_at")
-    @classmethod
-    def validate_created_at(cls, value: datetime) -> datetime:
-        if value.utcoffset() != timedelta(0):
-            raise ValueError("created_at must be UTC")
-        return value
-
-    @field_validator("datasets")
-    @classmethod
-    def freeze_datasets(
-        cls, values: Mapping[str, CalibrationDatasetRef]
-    ) -> Mapping[str, CalibrationDatasetRef]:
-        if set(values) != CALIBRATION_DATASETS:
-            raise ValueError("bundle must reference the complete calibration dataset set")
-        if any(name != item.dataset for name, item in values.items()):
-            raise ValueError("bundle dataset mapping keys must match their references")
-        return MappingProxyType(dict(values))
-
-    @field_serializer("datasets")
-    def serialize_datasets(
-        self, values: Mapping[str, CalibrationDatasetRef]
-    ) -> dict[str, CalibrationDatasetRef]:
-        return dict(values)
-
-
-def require_calibration_generation(
-    manifests: Mapping[str, DatasetManifest],
-) -> Mapping[str, CalibrationCohortInventory]:
-    """Compose three dataset manifests into one generation's cohort inventory.
-
-    Each dataset manifest already states which cohorts its build holds and what each one
-    is. Deriving the bundle's view from them means the two cannot disagree, so there is
-    nothing to keep in step and nothing to check in three places. What the bundle asserts
-    that a dataset manifest cannot is that these three are one series, and that is what
-    this refuses to compose when it is false.
-    """
-
-    if set(manifests) != CALIBRATION_DATASETS:
-        raise ValueError("a calibration generation is exactly its three datasets")
-    inventories = {name: manifests[name].cohort_inventory for name in CALIBRATION_DATASETS}
-    asofs = set(inventories["calibration.panel"])
-    for name, inventory in inventories.items():
-        if set(inventory) != asofs:
-            raise ValueError(f"calibration datasets publish different cohorts: {name}")
-    cohorts = {
-        asof: CalibrationCohortInventory(
-            panel=inventories["calibration.panel"][asof],
-            diagnostics=inventories["calibration.panel_diagnostics"][asof],
-            forward=inventories["calibration.forward"][asof],
-        )
-        for asof in sorted(asofs)
-    }
-    require_one_generation(cohorts)
-    return MappingProxyType(cohorts)
-
-
-def require_one_generation(cohorts: Mapping[str, CalibrationCohortInventory]) -> None:
-    """Refuse a cohort set that is not one series measured one way.
-
-    The bundle manifest does not carry the inventory — each dataset manifest already
-    states which cohorts its build holds, and a second copy is a second place for the
-    same fact to be written and a third place to check that the two agree. What the
-    bundle *is* is the claim that these three datasets are one generation, and that
-    claim has cross-cohort content: keys are canonical as-ofs, a panel is measured as of
-    its own cohort date, an outcome is observed no earlier than the cross-section it
-    describes, and every cohort was screened under the same rules. Cohorts measured
-    under different rules answer different questions, so aggregating them reports a
-    change in the rules as a change in the market — and the aggregate is what a decision
-    reads.
-    """
-
-    for asof, cohort in cohorts.items():
-        if date.fromisoformat(asof).isoformat() != asof:
-            raise ValueError("bundle cohort keys must be canonical ISO dates")
-        cohort_asof = date.fromisoformat(asof)
-        if cohort.panel.input_cutoff != cohort_asof:
-            raise ValueError("panel input cutoff must equal its cohort as-of")
-        if cohort.forward.input_cutoff < cohort_asof:
-            raise ValueError("forward input cutoff cannot precede its cohort as-of")
-    if not cohorts:
-        raise ValueError("a calibration generation publishes at least one cohort")
-    policies = {cohort.panel.measurement_policy for cohort in cohorts.values()}
-    if len(policies) > 1:
-        raise ValueError("bundle cohorts mix measurement policies")
-
-
-class CalibrationBundleRef(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    bundle_id: str
-    manifest_key: str
-    manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-
-    @model_validator(mode="after")
-    def validate_identity(self) -> CalibrationBundleRef:
-        if self.manifest_key != calibration_bundle_manifest_key(bundle_id=self.bundle_id):
-            raise ValueError("bundle ref key does not match its identity")
-        return self
-
-
-class CalibrationBundlePointer(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    pointer_version: Literal[1] = 1
-    current: CalibrationBundleRef
 
 
 class DatasetManifest(BaseModel):
@@ -533,10 +244,6 @@ class DatasetManifest(BaseModel):
     build_id: str
     sources: tuple[SourceRef, ...]
     producer_git_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
-    transform_fingerprint: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
-    """Identity of the code that produced a calibration build. L1 has none: the export
-    derives every partition on every run, so nothing carries between generations and
-    there is no compatibility to decide. Older L1 manifests carry one and remain readable."""
     created_at: datetime
     coverage_start: date
     data_as_of: date
@@ -550,12 +257,7 @@ class DatasetManifest(BaseModel):
     """
     coverage_status: CoverageStatus
     partition_by: tuple[str, ...] = Field(min_length=1)
-    cohort_inventory: Mapping[str, CohortInventoryEntry] = Field(default_factory=dict)
-    # An analytical build can legitimately publish nothing — a forward cohort where
-    # no observation has resolved yet is a real state, and representing it as an
-    # absent build would make "not computed" indistinguishable from "computed and
-    # empty". A canonical L1 build with no partition is not a usable release input.
-    partitions: tuple[PartitionManifest, ...] = ()
+    partitions: tuple[PartitionManifest, ...] = Field(min_length=1)
     totals: ManifestTotals
 
     @field_validator("dataset")
@@ -595,54 +297,24 @@ class DatasetManifest(BaseModel):
     def validate_partition_by(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return validate_partition_layout(value)
 
-    @field_validator("cohort_inventory")
-    @classmethod
-    def freeze_cohort_inventory(
-        cls, values: Mapping[str, CohortInventoryEntry]
-    ) -> Mapping[str, CohortInventoryEntry]:
-        for asof in values:
-            if date.fromisoformat(asof).isoformat() != asof:
-                raise ValueError("cohort inventory keys must be canonical ISO dates")
-        return MappingProxyType(dict(values))
-
-    @field_serializer("cohort_inventory")
-    def serialize_cohort_inventory(
-        self, values: Mapping[str, CohortInventoryEntry]
-    ) -> dict[str, CohortInventoryEntry]:
-        return dict(values)
-
     @model_validator(mode="after")
     def validate_semantics(self) -> DatasetManifest:
         if self.coverage_start > self.data_as_of:
             raise ValueError("coverage_start cannot be after data_as_of")
         if self.population_count is not None and self.population_count > self.totals.rows:
             raise ValueError("population_count cannot exceed total rows")
-        if self.layer == "l1_canonical":
-            if self.population_count is not None and self.population_count == 0:
-                raise ValueError("l1_canonical population_count must be positive")
-            if self.cohort_inventory:
-                raise ValueError("l1_canonical cannot contain analytical cohort inventory")
-            if self.sources:
-                raise ValueError("l1_canonical keeps lineage on each partition")
-            if not self.partitions:
-                raise ValueError("l1_canonical requires at least one partition")
-            if any(not partition.sources for partition in self.partitions):
-                raise ValueError("each L1 partition requires source lineage")
-            if any(
-                source.kind != "sqlite_snapshot"
-                for partition in self.partitions
-                for source in partition.sources
-            ):
-                raise ValueError("L1 partitions accept SQLite snapshot sources only")
-        else:
-            if self.sources:
-                raise ValueError("L2 lineage belongs to each analytical cohort")
-            if not self.cohort_inventory:
-                raise ValueError("l2_analytical requires computed cohort inventory")
-            if any(not item.sources for item in self.cohort_inventory.values()):
-                raise ValueError("each L2 cohort requires a fixed input generation source")
-            if any(partition.sources for partition in self.partitions):
-                raise ValueError("L2 lineage belongs to each cohort, not each partition")
+        if self.population_count is not None and self.population_count == 0:
+            raise ValueError("l1_canonical population_count must be positive")
+        if self.sources:
+            raise ValueError("l1_canonical keeps lineage on each partition")
+        if any(not partition.sources for partition in self.partitions):
+            raise ValueError("each L1 partition requires source lineage")
+        if any(
+            source.kind != "sqlite_snapshot"
+            for partition in self.partitions
+            for source in partition.sources
+        ):
+            raise ValueError("L1 partitions accept SQLite snapshot sources only")
         # A contract version pins the layout it was written under. Readers resolve
         # partitions by the layout the manifest declares, so a build that changed grain
         # under an unchanged version would be read with the old expectation and silently
@@ -686,10 +358,6 @@ class DatasetManifest(BaseModel):
         actual_totals = (self.totals.objects, self.totals.bytes, self.totals.rows)
         if actual_totals != expected_totals:
             raise ValueError("totals must equal the manifest object inventory")
-        if self.layer == "l2_analytical":
-            inventory_rows = sum(item.rows for item in self.cohort_inventory.values())
-            if inventory_rows != self.totals.rows:
-                raise ValueError("L2 cohort inventory rows must equal manifest totals")
         return self
 
 
@@ -960,15 +628,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
-            dataset="edinet.buyback_reports",
-            required=True,
-            accepted_contract_versions=(1,),
-            carries_history=True,
-            minimum_rows=5_871,
-            minimum_population_count=1_159,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
             dataset="jpx.regulation_flags",
             required=True,
             accepted_contract_versions=(1,),
@@ -1156,7 +815,7 @@ def validate_release_policy(
     for dataset, release_dataset in release.datasets.items():
         manifest = manifests[dataset]
         dataset_policy = policy_by_dataset[dataset]
-        if manifest.layer != "l1_canonical" or manifest.dataset != dataset:
+        if manifest.dataset != dataset:
             raise ValueError(f"{dataset}: release accepts matching L1 dataset manifests only")
         if manifest.created_at > release.created_at:
             raise ValueError(f"{dataset}: release cannot predate a referenced dataset manifest")

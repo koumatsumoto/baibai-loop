@@ -812,7 +812,7 @@ def _replay_ranks(
         candidates=records,
         macro_context=None,
         rules=replay_rules,
-        top=max(depth, 1),
+        review_cap=max(depth, 1),
         profile=profile,
         candidates_ref="calibration-replay",
         macro_context_ref=None,
@@ -822,7 +822,7 @@ def _replay_ranks(
         detail="summary",
     )
     ranks: dict[str, int] = {}
-    recommendations = payload.get("recommendations")
+    recommendations = payload.get("ranked_set")
     if isinstance(recommendations, list):
         for item in recommendations:
             if not isinstance(item, dict):
@@ -835,12 +835,7 @@ def _replay_ranks(
 
 
 def _rules_with_uncapped_target(rules: ScreeningRules) -> ScreeningRules:
-    """research_selection_target_max=0 (=uncapped) のコピーを返す。
-
-    本番の推奨は 5 件で切られるが、リプレイでは top-10/20 の評価と全順位の
-    記録が要るため、`_research_recommendation_limit` の cap を外して `top` で
-    深さを制御する。
-    """
+    """Return rules without the retired recommendation cap for replay."""
     data = rules.model_dump(mode="python")
     output = dict(data.get("output") or {})
     output["research_selection_target_max"] = 0

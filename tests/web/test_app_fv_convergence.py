@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from baibai_web.readmodel.builders import _selection_longlist_entry_view
+from baibai_web.readmodel.builders import _selection_ranked_set_entry_view
 
 
 def _raw_entry(**overrides: object) -> dict[str, object]:
@@ -10,14 +10,14 @@ def _raw_entry(**overrides: object) -> dict[str, object]:
 
 
 def test_old_selection_payload_degrades_to_not_evaluable() -> None:
-    view = _selection_longlist_entry_view(_raw_entry())
+    view = _selection_ranked_set_entry_view(_raw_entry())
 
     assert view.fv_convergence.status == "not_evaluable"
     assert view.fv_convergence.anchors_yen == {}
 
 
 def test_warning_provenance_is_exposed_and_invalid_anchor_is_ignored() -> None:
-    view = _selection_longlist_entry_view(
+    view = _selection_ranked_set_entry_view(
         _raw_entry(
             fv_convergence={
                 "status": "warning",

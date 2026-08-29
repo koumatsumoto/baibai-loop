@@ -115,7 +115,7 @@ def test_golden_thesis_is_ready_with_explicit_evidence_warning() -> None:
     assert result.warnings == ("permanent-loss evidence incomplete: ['customer_concentration']",)
     assert result.screening_fv_revision_pct is None
     assert (
-        result.thesis_sha256 == "d0d90322ede5fa841257429164d000a4d5f76520742bfb3862b4444333db1761"
+        result.thesis_sha256 == "8bb8272c4241ed9eed7847aab1e2039587a5459e78b030ac713b989d0a7b11ee"
     )
     assert [(item.horizon_years, item.name) for item in result.scenarios] == [
         (3, "bear"),
@@ -1095,7 +1095,7 @@ def test_human_override_is_bound_to_exact_review_artifact() -> None:
     assert any("requires a human override" in error for error in result.errors)
 
 
-@pytest.mark.parametrize("field", ["proposal_sha256", "review_id", "review_sha256"])
+@pytest.mark.parametrize("field", ["thesis_sha256", "review_id", "review_sha256"])
 def test_human_override_binding_fields_cannot_be_reused(field: str) -> None:
     raw = _raw()
     override = raw["human_evidence_override"]

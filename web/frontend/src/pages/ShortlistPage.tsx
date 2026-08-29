@@ -7,7 +7,7 @@ import type {
   ErLevelCalibrationContextView,
   MachineSelectionView,
   ScreeningView,
-  SelectionLonglistEntryView,
+  SelectionRankedSetEntryView,
   ShortlistEntryView,
 } from '../api/types'
 import { AsOfBadge } from '../components/AsOfBadge'
@@ -129,7 +129,7 @@ function SupplyDemandCompact({ row }: { row: CandidateRowView | null }) {
   )
 }
 
-function FvConvergenceBadge({ entry }: { entry: SelectionLonglistEntryView | null }) {
+function FvConvergenceBadge({ entry }: { entry: SelectionRankedSetEntryView | null }) {
   const convergence = entry?.fv_convergence
   if (!convergence || convergence.status === 'not_evaluable') {
     return <Badge className="text-[10px]" variant="outline">判定不能</Badge>
@@ -140,28 +140,28 @@ function FvConvergenceBadge({ entry }: { entry: SelectionLonglistEntryView | nul
   return <span className="text-muted-foreground">—</span>
 }
 
-function MachineFacts({ calibration, longlistEntry, row }: {
+function MachineFacts({ calibration, rankedSetEntry, row }: {
   calibration: ErLevelCalibrationContextView | null
-  longlistEntry: SelectionLonglistEntryView | null
+  rankedSetEntry: SelectionRankedSetEntryView | null
   row: CandidateRowView | null
 }) {
-  if (longlistEntry === null && row === null) {
+  if (rankedSetEntry === null && row === null) {
     return (
       <p className="rounded-md border border-dashed p-3 text-sm text-warning">
         この判断は機械座標を焼き込む前に publish されており、source run 世代も cache から prune 済みです。機械値は再現できないため narrative のみ表示しています。
       </p>
     )
   }
-  const gap = longlistEntry?.fair_value_gap_pct ?? row?.fair_value_gap_pct ?? null
-  const eventWarnings = longlistEntry?.event_warnings ?? []
+  const gap = rankedSetEntry?.fair_value_gap_pct ?? row?.fair_value_gap_pct ?? null
+  const eventWarnings = rankedSetEntry?.event_warnings ?? []
   return (
     <dl>
-      <FactRow label="screening 参考価格">{yen(longlistEntry?.market_price_yen ?? null, 1)}</FactRow>
+      <FactRow label="screening 参考価格">{yen(rankedSetEntry?.market_price_yen ?? null, 1)}</FactRow>
       <FactRow label="FV アンカー / 乖離">
-        {yen(longlistEntry?.fair_value_anchor_yen ?? row?.fair_value_anchor_yen ?? null)}
+        {yen(rankedSetEntry?.fair_value_anchor_yen ?? row?.fair_value_anchor_yen ?? null)}
         {gap !== null && <span className="ml-2"><PctBadge value={gap} /></span>}
       </FactRow>
-      <FactRow label="FVアンカーへの収束"><FvConvergenceBadge entry={longlistEntry} /></FactRow>
+      <FactRow label="FVアンカーへの収束"><FvConvergenceBadge entry={rankedSetEntry} /></FactRow>
       <FactRow label="機械 E[r]"><PctBadge fraction value={row?.er_annual ?? null} /></FactRow>
       <ErLevelContext calibration={calibration} row={row} />
       <FactRow label="E[r] 分解（reversion〈価格回帰〉/ carry〈配当利回り + 株数縮小利回り〉）">
@@ -269,7 +269,7 @@ function ComparisonTable({ rows }: { rows: readonly ShortlistComparisonRow[] }) 
                   <PctBadge fraction value={row.erCarryAnnual} />
                 </TableCell>
                 <TableCell className="text-right"><PctBadge value={row.fairValueGapPct} /></TableCell>
-                <TableCell><FvConvergenceBadge entry={row.longlistEntry} /></TableCell>
+                <TableCell><FvConvergenceBadge entry={row.rankedSetEntry} /></TableCell>
                 <TableCell><SupplyDemandCompact row={row.row} /></TableCell>
                 <TableCell className="text-muted-foreground" title={row.rr ?? undefined}>{summarize(row.rr) ?? EMPTY}</TableCell>
                 <TableCell className="font-mono text-xs tabular-nums" title={row.catalyst ?? undefined}>
@@ -314,7 +314,7 @@ function SelectedCard({ calibration, comparison }: {
         </div>
       </CardHeader>
       <CardContent className="grid gap-0 px-5 py-4 lg:grid-cols-[minmax(0,20rem)_1fr] lg:gap-6">
-        <MachineFacts calibration={calibration} longlistEntry={comparison.longlistEntry} row={comparison.row} />
+        <MachineFacts calibration={calibration} rankedSetEntry={comparison.rankedSetEntry} row={comparison.row} />
         <div className="mt-4 grid gap-3 lg:mt-0">
           {narrative
             ? NARRATIVE_SECTIONS.map(([key, heading]) => {
@@ -375,15 +375,15 @@ export function ShortlistPage() {
   const rejected = shortlist.entries.filter((entry) => entry.decision === 'rejected')
   // 焼き込み済みの判断は selection が消えても機械値を持つ。警告は本当に何も無い場合だけ。
   const machineMissing =
-    selection === null && comparison.every((item) => item.longlistEntry === null)
+    selection === null && comparison.every((item) => item.rankedSetEntry === null)
 
   return (
     <PageShell
       // The lead states what this cycle concluded. Promising "2〜4 銘柄を選んで進む" on a
       // cycle that selected none would contradict the card directly below it.
       lead={comparison.length === 0
-        ? <>longlist を人間が review した結果。<strong>最終 buy 提案ではありません。</strong>このサイクルは深掘り候補を選ばず、shortlist が判断の記録になります。</>
-        : <>longlist を人間が review して選んだ深掘り候補。<strong>最終 buy 提案ではありません。</strong>推奨 2〜4 銘柄を選んで個別リサーチへ進みます。</>}
+        ? <>ranked_set を人間が review した結果。<strong>最終 buy 提案ではありません。</strong>このサイクルは深掘り候補を選ばず、shortlist が判断の記録になります。</>
+        : <>ranked_set を人間が review して選んだ深掘り候補。<strong>最終 buy 提案ではありません。</strong>推奨 2〜4 銘柄を選んで個別リサーチへ進みます。</>}
       meta={(
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground tabular-nums">
           <AsOfBadge value={shortlist.as_of} />
@@ -410,11 +410,11 @@ export function ShortlistPage() {
           same table without anyone having concluded anything. */}
       {comparison.length === 0 && shortlist.unreadable_entries === 0 && (
         <SectionCard
-          description="longlist を review したが、一次リサーチの枠を使う価値のある候補が無かったサイクル。銘柄ごとの見送り理由は下表に残る。"
+          description="ranked_set を review したが、一次リサーチの枠を使う価値のある候補が無かったサイクル。銘柄ごとの見送り理由は下表に残る。"
           padded
           title="深掘り候補なし"
         >
-          <p className="text-sm text-muted-foreground">次の longlist を待つか、条件を変えて再 screening する。</p>
+          <p className="text-sm text-muted-foreground">次の ranked_set を待つか、条件を変えて再 screening する。</p>
         </SectionCard>
       )}
 
@@ -427,7 +427,7 @@ export function ShortlistPage() {
       </div>
 
       {rejected.length > 0 && (
-        <SectionCard description="review したが shortlist へ残さなかった理由" padded title="longlist から非選択">
+        <SectionCard description="review したが shortlist へ残さなかった理由" padded title="ranked_set から非選択">
             <Table className="text-sm">
               <TableHeader>
                 <TableRow>

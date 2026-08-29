@@ -40,12 +40,6 @@ from .coverage import (
     table_row_count,
 )
 from .jquants import store_jquants_daily_bars, store_jquants_market_calendar
-from .migrations import (
-    BASELINE_VERSION,
-    LATEST_VERSION,
-    Migration,
-    rebuild_table,
-)
 from .schema import (
     SCHEMA_VERSION,
     SQLITE_SCHEMA_VERSION,
@@ -56,12 +50,9 @@ from .schema import (
 )
 
 __all__ = [
-    "BASELINE_VERSION",
-    "LATEST_VERSION",
     "SCHEMA_VERSION",
     "SQLITE_SCHEMA_VERSION",
     "EmptyRangeReplacementError",
-    "Migration",
     "NormalizedRows",
     "SQLiteSchemaError",
     "code_quality",
@@ -83,7 +74,6 @@ __all__ = [
     "optional_date",
     "optional_float",
     "range_covered",
-    "rebuild_table",
     "record_range_source_coverage",
     "record_source_coverage",
     "source_coverage_sources",

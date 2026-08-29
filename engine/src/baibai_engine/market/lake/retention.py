@@ -1,26 +1,14 @@
 """What the lake keeps and what it may delete.
 
-Retention is decided by reachability, never by age alone. The roots are the current L1
-release and the current calibration bundle. Everything the closure of those roots does
+Retention is decided by reachability, never by age alone. The root is the current L1
+release. Everything the closure of that root does
 not reach is a deletion candidate; everything it reaches is kept regardless of how old
 it is.
-
-Both roots are live, and the bundle one is not about R2. This runs against any directory
-shaped like a mirror, and the local calibration store is one: it writes `lake/l2/` objects
-and switches its own bundle pointer inside its own root. Dropping the bundle root because
-no publication carries L2 content to R2 would leave that store with no roots at all, and
-every object in it a candidate once the grace period passes.
 
 There is no rollback root. Repair here means publishing forward from a local mirror that
 holds the whole graph, not stepping backwards to a generation the store was asked to
 stop serving — and a pointer that names a generation as restorable is a promise someone
 has to keep verifying on every publication.
-
-There is deliberately no per-dataset L2 head among them. An L2 dataset is published as
-part of a bundle and reached through it, so a second pointer naming the same builds
-would be a second mutable statement of what the store serves, and only one of the two
-can be carried into the next generation. An L2 dataset that is not part of the
-calibration bundle needs its own authority designed before it can be a root.
 
 There is no mechanism to keep a generation reachable indefinitely. Reproducing a
 published study from the exact bytes it read is not a capability this store offers:
@@ -45,20 +33,10 @@ from pathlib import Path
 
 from .keys import (
     L1_RELEASE_PREFIX,
-    current_calibration_bundle_pointer_key,
     current_l1_pointer_key,
     dataset_manifest_key,
     release_manifest_key,
     validate_lake_object_key,
-)
-from .models import (
-    CalibrationBundleManifest as _BundleRootManifest,
-)
-from .models import (
-    CalibrationBundlePointer as _BundlePointer,
-)
-from .models import (
-    CalibrationBundleRef as _BundleRef,
 )
 from .models import (
     DatasetManifest,
@@ -75,9 +53,6 @@ from .sources import resolve_source_ref, sha256_file, verified_source_scope
 _GRACE_DAYS = 30
 _STAGING_GRACE_DAYS = 7
 _CANDIDATE_GRACE_DAYS = {"abandoned_staging": _STAGING_GRACE_DAYS}
-_CALIBRATION_DATASETS = frozenset(
-    {"calibration.panel", "calibration.panel_diagnostics", "calibration.forward"}
-)
 
 
 class LakeRetentionError(RuntimeError):
@@ -163,20 +138,6 @@ class GcPlan:
         }
 
 
-def _has_calibration_builds(mirror_root: Path) -> bool:
-    """Whether the store holds calibration dataset manifests at all.
-
-    Used only to decide whether a missing bundle pointer is "nothing published yet" or
-    "the one root that protects published builds is gone". Treating the second as the
-    first is the single way a reachability sweep deletes live data.
-    """
-
-    return any(
-        _has_objects_under(mirror_root, f"lake/manifests/datasets/{dataset}")
-        for dataset in sorted(_CALIBRATION_DATASETS)
-    )
-
-
 def plan_gc(
     mirror_root: Path,
     *,
@@ -187,9 +148,6 @@ def plan_gc(
     A root that cannot be resolved is reported rather than skipped. Treating an
     unreadable pointer as "no root" would make everything it protects look
     unreferenced, which is the one way a reachability GC can delete live data. The
-    same reasoning is why a store that holds calibration builds but no bundle pointer
-    leaves the plan unappliable rather than treating those builds as unreferenced.
-
     Planning opens its own source verification scope. Reachability walks the same
     archive once per cohort that names it — 81 cohorts over three datasets against one
     500 MB archive is over 100 GB of hashing — and a dry run is the form of this command
@@ -228,18 +186,6 @@ def _plan_gc(mirror_root: Path, *, now: datetime | None) -> GcPlan:
         # Canonical L1 objects exist but nothing points at them. Every one of them
         # would be unreferenced by construction, so the plan is not safe to apply.
         unresolved.append(current_l1_pointer_key())
-
-    bundle_pointer_path = mirror_path(mirror_root, current_calibration_bundle_pointer_key())
-    if bundle_pointer_path.is_file():
-        roots.append(current_calibration_bundle_pointer_key())
-        reachable.add(current_calibration_bundle_pointer_key())
-        try:
-            bundle_pointer = load_lake_model_json(bundle_pointer_path.read_bytes(), _BundlePointer)
-        except ValueError as exc:
-            raise LakeRetentionError(f"calibration bundle pointer is invalid: {exc}") from exc
-        _reach_bundle(mirror_root, bundle_pointer.current, reachable, unresolved)
-    elif _has_calibration_builds(mirror_root):
-        unresolved.append(current_calibration_bundle_pointer_key())
 
     candidates = _unreachable(mirror_root, reachable=reachable, now=moment)
     plan_hash = hashlib.sha256(
@@ -302,35 +248,6 @@ def _reach_release(
         )
 
 
-def _reach_bundle(
-    mirror_root: Path,
-    reference: _BundleRef,
-    reachable: set[str],
-    unresolved: list[str],
-) -> None:
-    path = mirror_path(mirror_root, reference.manifest_key)
-    if not path.is_file() or sha256_file(path) != reference.manifest_sha256:
-        unresolved.append(reference.manifest_key)
-        return
-    reachable.add(reference.manifest_key)
-    try:
-        manifest = load_lake_model_json(path.read_bytes(), _BundleRootManifest)
-    except ValueError as exc:
-        raise LakeRetentionError(f"calibration bundle manifest is invalid: {exc}") from exc
-    if manifest.bundle_id != reference.bundle_id or set(manifest.datasets) != _CALIBRATION_DATASETS:
-        unresolved.append(reference.manifest_key)
-        return
-    for dataset, entry in manifest.datasets.items():
-        _reach_dataset(
-            mirror_root,
-            dataset,
-            entry.build_id,
-            reachable,
-            unresolved,
-            expected_manifest_sha256=entry.manifest_sha256,
-        )
-
-
 def _reach_dataset(
     mirror_root: Path,
     dataset: str,
@@ -369,8 +286,6 @@ def _reach_dataset(
             else:
                 reachable.add(item.key)
     _reach_sources(mirror_root, manifest.sources, reachable, unresolved)
-    for cohort in manifest.cohort_inventory.values():
-        _reach_sources(mirror_root, cohort.sources, reachable, unresolved)
 
 
 def _reach_sources(
@@ -381,15 +296,7 @@ def _reach_sources(
 ) -> None:
     """Mark what this mirror keeps for these sources, and only what it keeps.
 
-    A cohort in the calibration store names the L1 release its rows came from, and that
-    release is in the market mirror. This planner speaks for one mirror: calling a key
-    it has never published "unresolved" would stop the calibration sweep on a fact about
-    a different store, and calling it "reachable" would claim to protect bytes it does
-    not hold. It is neither — the market mirror's own sweep answers for it.
-
-    Absence alone does not decide that. A key under a namespace this mirror does publish
-    is its own business, and a missing one there is the loss the unresolved list exists
-    to report.
+    A retained source is reachable only when this mirror publishes its namespace.
     """
 
     for source in retained_sources(sources):
@@ -461,14 +368,10 @@ def _candidate_reason(key: str) -> str | None:
         return "abandoned_staging"
     if key.startswith("lake/l1/canonical/"):
         return "unreferenced_l1_object"
-    if key.startswith("lake/l2/"):
-        return "unreferenced_l2_object"
     if key.startswith("lake/manifests/datasets/"):
         return "unreferenced_dataset_manifest"
     if key.startswith("lake/manifests/releases/"):
         return "unreferenced_release_manifest"
-    if key.startswith("lake/manifests/calibration-bundles/"):
-        return "unreferenced_calibration_bundle"
     return None
 
 

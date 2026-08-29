@@ -306,7 +306,7 @@ function deltaCount(delta: DailyDeltaView) {
 }
 
 const deltaPoolLabel: Record<DeltaPool, string> = {
-  longlist: '機械順位上位 20',
+  ranked_set: '機械順位上位 20',
   recommendations: '機械推奨上位',
 }
 

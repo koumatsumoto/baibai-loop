@@ -10,7 +10,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date
 
-from .buyback_authorization import BuybackAuthorization
 from .capital_control import CapitalControlAnnotation
 from .earnings_lag import EarningsLag
 from .estimates import ExpectedReturnEstimate, estimate_expected_return
@@ -37,7 +36,6 @@ def build_screened_candidate(
     next_earnings_date: date | None = None,
     earnings_lag: EarningsLag | None = None,
     normalized_per_3fy: float | None = None,
-    buyback_authorization: BuybackAuthorization | None = None,
     capital_control: CapitalControlAnnotation | None = None,
 ) -> ScreenedCandidate:
     return ScreenedCandidate(
@@ -83,7 +81,6 @@ def build_screened_candidate(
             ),
             normalized_per_3fy=normalized_per_3fy,
             earnings_lag=earnings_lag,
-            buyback_authorization=buyback_authorization,
             capital_control=capital_control,
         ),
         next_earnings_date=next_earnings_date,
@@ -100,7 +97,6 @@ def candidate_metrics_map(
     estimate: ExpectedReturnEstimate | None = None,
     normalized_per_3fy: float | None = None,
     earnings_lag: EarningsLag | None = None,
-    buyback_authorization: BuybackAuthorization | None = None,
     capital_control: CapitalControlAnnotation | None = None,
 ) -> Mapping[str, float | int | bool | str | None]:
     return {
@@ -194,50 +190,6 @@ def candidate_metrics_map(
         "er_model_version": estimate.model_version if estimate else None,
         "er_unit": estimate.unit if estimate else None,
         "er_assumptions": estimate.assumptions if estimate else None,
-        # 自己株券買付状況報告書の提出観測 (buyback_authorization.py)。carry の buyback 成分は
-        # 過去 1 年の株数変化なので、枠がいつまで在ったかは別の観測でしか分からない。値は提出の
-        # 有無と齢そのものであり、枠が今も在るかの推論ではない。annotation であり
-        # ranking・gate・E[r] へは入らない。
-        "buyback_authorization_status": (
-            None if buyback_authorization is None else buyback_authorization.status
-        ),
-        "buyback_status_latest_filing_date": (
-            None
-            if buyback_authorization is None
-            else _date_iso(buyback_authorization.latest_filing_date)
-        ),
-        "buyback_status_filing_age_days": (
-            None if buyback_authorization is None else buyback_authorization.latest_filing_age_days
-        ),
-        "buyback_status_observed_from": (
-            None
-            if buyback_authorization is None
-            else _date_iso(buyback_authorization.observed_from)
-        ),
-        # 様式そのものが出している枠の中身。提出の有無だけでは「枠が 99.99% 消化済み」と
-        # 「枠が始まったばかり」が同じ表示になる。欠損は「読めなかった」であって
-        # 「残っていない」ではない。
-        "buyback_remaining_share_ratio": (
-            None if buyback_authorization is None else buyback_authorization.remaining_share_ratio
-        ),
-        "buyback_remaining_amount_ratio": (
-            None if buyback_authorization is None else buyback_authorization.remaining_amount_ratio
-        ),
-        "buyback_trailing_3m_acquired_ratio": (
-            None
-            if buyback_authorization is None
-            else buyback_authorization.trailing_3m_acquired_ratio
-        ),
-        "buyback_authorization_window_end": (
-            None
-            if buyback_authorization is None
-            else _date_iso(buyback_authorization.authorization_window_end)
-        ),
-        "buyback_report_month_end": (
-            None
-            if buyback_authorization is None
-            else _date_iso(buyback_authorization.report_month_end)
-        ),
         # 資本配分・支配権イベントの typed fact (capital_control.py)。TSE の開示状況は
         # 月次スナップショットの point-in-time 参照で、"none" は「その月の一覧に居ない」、
         # None は「参照できる月次スナップショットが無い」。イベントは対象会社側から見た

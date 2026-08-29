@@ -145,7 +145,6 @@ def _success_script() -> dict[str, list[CommandResult]]:
         "screening refresh-edinet-documents": [OK],
         "screening verify-cache-coverage": [OK, OK],
         "screening bootstrap-cache": [OK],
-        "screening refresh-buyback-reports": [OK],
         "screening extract-edinet-metrics": [EXTRACT_OK],
         "screening run": [RUN_OK],
         "task reconcile-earnings": [OK],
@@ -220,7 +219,6 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "screening verify-cache-coverage",
         "screening bootstrap-cache",
         "screening extract-edinet-metrics",
-        "screening refresh-buyback-reports",
         "screening verify-cache-coverage",
         "screening run",
         "screening select",
@@ -244,7 +242,7 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "2026-07-21",
         "--run-revision-id",
         "rev-1",
-        "--longlist-top",
+        "--review-cap",
         "20",
     ]
 
@@ -302,12 +300,11 @@ def test_daily_batch_bootstraps_cache_when_coverage_is_incomplete(tmp_path: Path
     )
 
     assert exit_code == 0
-    assert runner.call_keys()[:7] == [
+    assert runner.call_keys()[:6] == [
         "screening refresh-edinet-documents",
         "screening verify-cache-coverage",
         "screening bootstrap-cache",
         "screening extract-edinet-metrics",
-        "screening refresh-buyback-reports",
         "screening verify-cache-coverage",
         "screening run",
     ]
@@ -323,12 +320,11 @@ def test_daily_batch_bootstraps_cache_when_coverage_is_complete(tmp_path: Path) 
     )
 
     assert exit_code == 0
-    assert runner.call_keys()[:7] == [
+    assert runner.call_keys()[:6] == [
         "screening refresh-edinet-documents",
         "screening verify-cache-coverage",
         "screening bootstrap-cache",
         "screening extract-edinet-metrics",
-        "screening refresh-buyback-reports",
         "screening verify-cache-coverage",
         "screening run",
     ]
@@ -374,7 +370,6 @@ def test_daily_batch_stops_when_coverage_stays_incomplete_after_bootstrap(tmp_pa
         "screening refresh-edinet-documents": [OK],
         "screening verify-cache-coverage": [incomplete, incomplete],
         "screening bootstrap-cache": [OK],
-        "screening refresh-buyback-reports": [OK],
         "screening extract-edinet-metrics": [EXTRACT_OK],
     }
     runner = _runner(script)

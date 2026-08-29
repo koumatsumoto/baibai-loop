@@ -162,7 +162,7 @@ def _runs_db(path: Path, *, estimates: list[float]) -> None:
             "2024-06-28T00:00:00+09:00",
             json.dumps(
                 {
-                    "longlist": [
+                    "ranked_set": [
                         {
                             "ticker": f"{2000 + ordinal}",
                             "rank": ordinal + 1,
@@ -198,12 +198,12 @@ def _runs_db(path: Path, *, estimates: list[float]) -> None:
     connection.close()
 
 
-def _longlist_history(directory: Path, *, asof: str, tickers: list[str]) -> None:
+def _ranked_set_history(directory: Path, *, asof: str, tickers: list[str]) -> None:
     directory.mkdir(exist_ok=True)
     (directory / f"{asof}.json").write_text(
         json.dumps(
             {
-                "kind": "daily-longlist-membership",
+                "kind": "daily-ranked-set-membership",
                 "schema_version": 1,
                 "as_of": asof,
                 "selection_status": "available" if tickers else "selection_missing",
@@ -560,14 +560,14 @@ def test_pruned_previous_run_does_not_claim_zero_temporal_overlap(
     assert "retention" in temporal["reason"]
 
 
-def test_longlist_history_recovers_previous_top20_after_run_pruning(
+def test_ranked_set_history_recovers_previous_top20_after_run_pruning(
     tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
 ) -> None:
     calibration = _history(tmp_path, tmp_path_factory, levels=[0.05, 0.06])
     runs = tmp_path / "runs.sqlite"
     _runs_db(runs, estimates=[0.1] * 20)
-    history = tmp_path / "longlists"
-    _longlist_history(
+    history = tmp_path / "ranked_sets"
+    _ranked_set_history(
         history,
         asof="2024-06-27",
         tickers=[f"{2000 + index}" for index in range(20)],
@@ -577,7 +577,7 @@ def test_longlist_history_recovers_previous_top20_after_run_pruning(
         calibration_dir=calibration,
         runs_db=runs,
         application_db=tmp_path / "absent.sqlite",
-        longlist_history_dir=history,
+        ranked_set_history_dir=history,
         selection_id=None,
         hurdle=0.085,
     )
@@ -588,29 +588,29 @@ def test_longlist_history_recovers_previous_top20_after_run_pruning(
     assert isinstance(temporal, dict)
     assert temporal["status"] == "measured"
     assert temporal["value"] == 1.0
-    assert temporal["previous_source"] == "longlist_history"
+    assert temporal["previous_source"] == "ranked_set_history"
 
 
-def test_longlist_history_skips_selection_missing_day_to_last_available_top20(
+def test_ranked_set_history_skips_selection_missing_day_to_last_available_top20(
     tmp_path: Path,
     tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
     calibration = _history(tmp_path, tmp_path_factory, levels=[0.05, 0.06])
     runs = tmp_path / "runs.sqlite"
     _runs_db(runs, estimates=[0.1] * 20)
-    history = tmp_path / "longlists"
-    _longlist_history(
+    history = tmp_path / "ranked_sets"
+    _ranked_set_history(
         history,
         asof="2024-06-26",
         tickers=[f"{2000 + index}" for index in range(20)],
     )
-    _longlist_history(history, asof="2024-06-27", tickers=[])
+    _ranked_set_history(history, asof="2024-06-27", tickers=[])
 
     payload = build_supply_context(
         calibration_dir=calibration,
         runs_db=runs,
         application_db=tmp_path / "absent.sqlite",
-        longlist_history_dir=history,
+        ranked_set_history_dir=history,
         selection_id=None,
         hurdle=0.085,
     )

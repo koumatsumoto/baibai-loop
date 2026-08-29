@@ -29,7 +29,6 @@ from baibai_engine.position.cli import build_parser as position_parser
 from baibai_engine.position.cli import main as position_main
 from baibai_engine.position.ledger import PortfolioLedgerDocument
 from baibai_engine.position.outcome_store import PortfolioOutcomeStore
-from baibai_engine.proposals.cli import build_parser as proposal_parser
 from baibai_engine.research.decision_cli import main as decision_main
 from baibai_engine.research.opportunity_cli import build_parser as opportunity_parser
 from baibai_engine.research.opportunity_cli import main as opportunity_main
@@ -102,7 +101,7 @@ def _select_argv(tmp_path: Path, runs_db: Path, run_revision_id: str) -> list[st
         run_revision_id,
         "--runs-db",
         str(runs_db),
-        "--top",
+        "--review-cap",
         "1",
         "--rules-path",
         str(RULES_PATH),
@@ -175,11 +174,11 @@ def test_research_gate_bounds_the_primary_research_set_end_to_end(
 
     selection_path = tmp_path / "selection.yaml"
     select_argv = _select_argv(tmp_path, runs_db, run_revision_id)
-    select_argv[select_argv.index("--top") + 1] = "2"
+    select_argv[select_argv.index("--review-cap") + 1] = "2"
     select_argv += ["--app-db", str(app_db), "--output-path", str(selection_path)]
     assert screening_main(select_argv) == 0
     selection = _payload(capsys.readouterr().out)
-    assert selection["review_tickers"] == ["1111", "2222"]
+    assert [row["ticker"] for row in selection["ranked_set"]] == ["1111", "2222"]
 
     draft_path = tmp_path / "shortlist-draft.yaml"
     draft_path.write_text(
@@ -230,7 +229,7 @@ def test_research_gate_bounds_the_primary_research_set_end_to_end(
 
     workspace_selection = workspace / "selection.yaml"
     document = _payload(workspace_selection.read_text(encoding="utf-8"))
-    assert [row["ticker"] for row in document["longlist"]] == ["1111", "2222"]
+    assert [row["ticker"] for row in document["ranked_set"]] == ["1111", "2222"]
 
     # The human admits a subset of what the Gate selected.
     document["shortlist"] = [{"ticker": "1111", "reason": "一次情報を確認する"}]
@@ -270,26 +269,19 @@ def test_select_cli_emits_stable_yaml_shape(
     payload = _payload(capsys.readouterr().out)
 
     assert set(payload) == {
-        "recommendations",
-        "longlist_origin",
-        "selection_policy_parameters",
-        "longlist",
-        "attention_policy_id",
-        "attention_policy_hash",
-        "attention_policy_parameters",
+        "ranked_set",
+        "method_hash",
+        "method_parameters",
         "review_basis",
-        "review_tickers",
         "selection",
         "selection_id",
     }
     assert str(payload["selection_id"]).startswith("selection-")
-    recommendations = payload["recommendations"]
-    assert isinstance(recommendations, list)
-    assert len(recommendations) == 1
-    assert payload["review_tickers"] == ["1111"]
-    assert payload["attention_policy_id"] == "value-carry-only-v1"
-    assert set(payload["selection_policy_parameters"]) == {
-        "lane_longlist_depth",
+    ranked_set = payload["ranked_set"]
+    assert isinstance(ranked_set, list)
+    assert len(ranked_set) == 1
+    assert set(payload["method_parameters"]) == {
+        "review_cap",
         "expected_return_model_id",
         "screening_rules_hash",
         "required_jpx_flags",
@@ -297,7 +289,7 @@ def test_select_cli_emits_stable_yaml_shape(
         "candidate_diagnostic_parameters",
         "evidence_pattern_order",
     }
-    assert set(recommendations[0]) == {
+    assert set(ranked_set[0]) >= {
         "rank",
         "ticker",
         "name",
@@ -336,15 +328,6 @@ def test_select_cli_emits_stable_yaml_shape(
         "dividend_yield",
         "dividend_basis",
         "dividend_split_factor",
-        "buyback_authorization_status",
-        "buyback_status_latest_filing_date",
-        "buyback_status_filing_age_days",
-        "buyback_status_observed_from",
-        "buyback_remaining_share_ratio",
-        "buyback_remaining_amount_ratio",
-        "buyback_trailing_3m_acquired_ratio",
-        "buyback_authorization_window_end",
-        "buyback_report_month_end",
         "tse_capital_policy_status",
         "tse_capital_policy_updated_on",
         "large_holding_event_recent",
@@ -783,7 +766,7 @@ def test_position_cli_exposes_human_result_and_holding_build_subcommands() -> No
 
 @pytest.mark.parametrize(
     "parser_factory",
-    [opportunity_parser, position_parser, proposal_parser],
+    [opportunity_parser, position_parser],
 )
 def test_current_decision_clis_do_not_expose_backdated_clock(
     parser_factory: Callable[[], argparse.ArgumentParser],

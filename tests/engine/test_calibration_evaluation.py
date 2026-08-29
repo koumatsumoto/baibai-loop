@@ -1247,13 +1247,11 @@ class MarginSizeNormalizationTest(unittest.TestCase):
                 date(2025, 6, 30),
                 tuple(panel),
                 _panel_diagnostics(),
-                producer_commit="a" * 40,
             )
             store_forward(
                 root,
                 date(2025, 6, 30),
                 forwards,
-                producer_commit="a" * 40,
             )
             output_path = root / "evaluation.yaml"
 
@@ -1333,13 +1331,11 @@ class MarginSizeNormalizationTest(unittest.TestCase):
                     master_snapshot_status="exact_date",
                     priced_master_without_universe_count=priced_master_without_universe_count,
                 ),
-                producer_commit="a" * 40,
             )
             store_forward(
                 root,
                 date(2025, 6, 30),
                 forwards,
-                producer_commit="a" * 40,
             )
             output_path = root / "evaluation.yaml"
             exit_code = calibration_evaluate_command(

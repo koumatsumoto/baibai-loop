@@ -43,7 +43,6 @@ from baibai_web.sources.types import (
 
 from .models import (
     AssessmentCaseView,
-    AssessmentPurchaseView,
     AssessmentReviewView,
     BargainAssessmentSummaryView,
     BargainAssessmentView,
@@ -96,7 +95,6 @@ from .models import (
     OperationsView,
     PortfolioOutcomeView,
     PortfolioState,
-    ProposalView,
     ResearchQuestionView,
     ResearchRevisionView,
     ReservationView,
@@ -105,7 +103,7 @@ from .models import (
     ScreeningRunView,
     ScreeningView,
     SecurityDetailView,
-    SelectionLonglistEntryView,
+    SelectionRankedSetEntryView,
     ShortlistEntryView,
     ShortlistView,
     SourceCaveatView,
@@ -186,7 +184,6 @@ def build_meta(source: DbMetaSource, *, batch: MetaBatch | None = None) -> MetaV
 def build_operations_view(source: DbOperationsSource) -> OperationsView:
     return OperationsView(
         operations=[OperationSessionView.model_validate(item) for item in source.operations()],
-        proposals=[ProposalView.model_validate(item) for item in source.proposals()],
         outcomes=[PortfolioOutcomeView.model_validate(item) for item in source.outcomes()],
     )
 
@@ -416,16 +413,16 @@ def _operative_run(
 
 def _fair_value_by_ticker(
     selections: list[MachineSelectionView],
-) -> Mapping[str, SelectionLonglistEntryView]:
-    """FV アンカーを持つのは longlist だけなので、その範囲を ticker で引けるようにする。
+) -> Mapping[str, SelectionRankedSetEntryView]:
+    """FV アンカーを持つのは ranked_set だけなので、その範囲を ticker で引けるようにする。
 
-    複数 selection が同じ run に束縛される場合は最新の selection を採る。longlist の
+    複数 selection が同じ run に束縛される場合は最新の selection を採る。ranked_set の
     外にいる候補は FV を持たないまま残る。
     """
     if not selections:
         return {}
     newest = max(selections, key=lambda item: item.created_at)
-    return {entry.ticker: entry for entry in newest.longlist}
+    return {entry.ticker: entry for entry in newest.ranked_set}
 
 
 def build_screening_history_run(
@@ -473,7 +470,7 @@ def build_assessment_detail(
     raw = candidates.assessment(assessment_id)
     if raw is None:
         return None
-    return _assessment_view(raw, proposal_states=candidates.proposal_states())
+    return _assessment_view(raw)
 
 
 def _assessment_summary_view(raw: Mapping[str, object]) -> BargainAssessmentSummaryView:
@@ -496,8 +493,6 @@ def _assessment_summary_view(raw: Mapping[str, object]) -> BargainAssessmentSumm
 
 def _assessment_view(
     raw: Mapping[str, object],
-    *,
-    proposal_states: Mapping[str, str],
 ) -> BargainAssessmentView:
     return BargainAssessmentView(
         assessment_id=str(raw["assessment_id"]),
@@ -508,10 +503,8 @@ def _assessment_view(
         shortlist_id=str(raw["shortlist_id"]),
         macro_context_id=_text(raw.get("macro_context_id")),
         comparison=str(raw["comparison"]),
-        entry_timing=_text(raw.get("entry_timing")),
         forgone=str(raw["forgone"]),
         cases=[_assessment_case_view(item) for item in _mapping_items_optional(raw.get("cases"))],
-        purchase=_assessment_purchase_view(raw.get("purchase"), proposal_states=proposal_states),
         review=AssessmentReviewView.model_validate(raw["review"]),
     )
 
@@ -558,31 +551,6 @@ def _assessment_case_view(raw: Mapping[str, object]) -> AssessmentCaseView:
     )
 
 
-def _assessment_purchase_view(
-    raw: object,
-    *,
-    proposal_states: Mapping[str, str],
-) -> AssessmentPurchaseView | None:
-    if not isinstance(raw, Mapping):
-        return None
-    proposal_id = str(raw["proposal_id"])
-    current = proposal_states.get(proposal_id)
-    return AssessmentPurchaseView(
-        proposal_id=proposal_id,
-        ticker=str(raw["ticker"]),
-        limit_price_yen=float(str(raw["limit_price_yen"])),
-        quantity=int(str(raw["quantity"])),
-        notional_yen=float(str(raw["notional_yen"])),
-        max_acceptable_price_yen=float(str(raw["max_acceptable_price_yen"])),
-        close_yen=float(str(raw["close_yen"])),
-        price_as_of=date.fromisoformat(str(raw["price_as_of"])),
-        expires_at=datetime.fromisoformat(str(raw["expires_at"])),
-        warnings=_string_list(raw.get("warnings")),
-        current_status=current,
-        superseded=current is None,
-    )
-
-
 def _machine_selection_view(raw: Mapping[str, object]) -> MachineSelectionView:
     payload = raw.get("payload")
     if not isinstance(payload, Mapping):
@@ -593,17 +561,17 @@ def _machine_selection_view(raw: Mapping[str, object]) -> MachineSelectionView:
         profile=str(raw["profile"]),
         macro_context_id=_text(raw.get("macro_context_id")),
         created_at=datetime.fromisoformat(str(raw["created_at"])),
-        longlist=[
-            _selection_longlist_entry_view(item)
-            for item in _mapping_items_optional(payload.get("longlist"))
+        ranked_set=[
+            _selection_ranked_set_entry_view(item)
+            for item in _mapping_items_optional(payload.get("ranked_set"))
         ],
     )
 
 
-def _selection_longlist_entry_view(raw: Mapping[str, object]) -> SelectionLonglistEntryView:
+def _selection_ranked_set_entry_view(raw: Mapping[str, object]) -> SelectionRankedSetEntryView:
     price = _number(raw.get("market_price_yen"))
     anchor = _number(raw.get("fair_value_anchor_yen"))
-    return SelectionLonglistEntryView(
+    return SelectionRankedSetEntryView(
         rank=_integer(raw.get("rank")),
         ticker=str(raw.get("ticker", "")),
         name=_text(raw.get("name")),
@@ -647,9 +615,9 @@ def _fair_value_gap_pct(anchor: float | None, price: float | None) -> float | No
 
 
 def _shortlist_entry_view(raw: Mapping[str, object]) -> ShortlistEntryView:
-    """判断 1 件。焼き込み済みの機械座標は longlist 行と同じ view へ通す。
+    """判断 1 件。焼き込み済みの機械座標は ranked_set 行と同じ view へ通す。
 
-    レビュー面は source selection が生きていれば longlist から、prune 後は
+    レビュー面は source selection が生きていれば ranked_set から、prune 後は
     この焼き込みから同じ形を読む。形を揃えるので join 側に分岐が増えない。
     """
 
@@ -659,7 +627,9 @@ def _shortlist_entry_view(raw: Mapping[str, object]) -> ShortlistEntryView:
         return view
     return view.model_copy(
         update={
-            "machine_snapshot": _selection_longlist_entry_view({**snapshot, "ticker": view.ticker})
+            "machine_snapshot": _selection_ranked_set_entry_view(
+                {**snapshot, "ticker": view.ticker}
+            )
         }
     )
 
@@ -1347,7 +1317,7 @@ def _candidate_row_view(
     held: set[str],
     reserved: set[str],
     researched: set[str],
-    fair_value: Mapping[str, SelectionLonglistEntryView] | None = None,
+    fair_value: Mapping[str, SelectionRankedSetEntryView] | None = None,
     er_level_calibration: ErLevelCalibrationContext | None = None,
 ) -> CandidateRowView:
     ticker = str(row.get("ticker", ""))
@@ -1545,11 +1515,11 @@ _DELTA_HOLDING_MOVE_MIN_PCT = 5.0
 # same series oscillating across a single line, not a series reaching the edge.
 _DELTA_MACRO_Z_EDGE = 3.0
 _DELTA_MACRO_Z_REENTRY = 2.7
-# The pool the delta compares, most informative first. ``longlist`` is the review
+# The pool the delta compares, most informative first. ``ranked_set`` is the review
 # input population; ``recommendations`` is the cap-applied machine top-N a run always
 # publishes. The run's own candidate array is the whole evaluated universe, so
 # comparing it would report listings and delistings rather than bargains appearing.
-_DELTA_POOL_ORDER: tuple[DeltaPool, ...] = ("longlist", "recommendations")
+_DELTA_POOL_ORDER: tuple[DeltaPool, ...] = ("ranked_set", "recommendations")
 
 
 def build_daily_delta(
@@ -1674,8 +1644,6 @@ def _pool_rows(
     """Index one pool of a run's machine selection by ticker, or None when absent."""
 
     for payload in payloads:
-        if payload.get("publication_kind") != "machine":
-            continue
         body = payload.get("payload")
         rows = body.get(name) if isinstance(body, Mapping) else None
         if not isinstance(rows, list):
@@ -1714,7 +1682,7 @@ def _pool_er(row: Mapping[str, object]) -> float | None:
     """Read the machine E[r] of a selection row as an annual ratio.
 
     The two pools state the same number differently: a recommendation carries the
-    ratio, a longlist row carries percent. Each source is converted where it is read,
+    ratio, a ranked_set row carries percent. Each source is converted where it is read,
     because taking percent for a ratio would report a 10% estimate as 1023%.
     """
 

@@ -19,13 +19,13 @@ from baibai_engine.foundation.coerce import (
     string_sequence,
 )
 
-# Contract of the daily longlist records the serving export persists.
-_LONGLIST_HISTORY_KIND = "daily-longlist-membership"
-_LONGLIST_HISTORY_SCHEMA_VERSION = 1
+# Contract of the daily ranked_set records the serving export persists.
+_RANKED_SET_HISTORY_KIND = "daily-ranked-set-membership"
+_RANKED_SET_HISTORY_SCHEMA_VERSION = 1
 
 
-class PreviousLonglistError(ValueError):
-    """A persisted longlist record cannot be read as the previous candidate set."""
+class PreviousRankedSetError(ValueError):
+    """A persisted ranked_set record cannot be read as the previous candidate set."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +62,7 @@ class CandidateRecord:
 
 type PreviousCandidatesSource = Literal[
     "run_revision",
-    "longlist_history",
+    "ranked_set_history",
     "canonical_shortlist",
 ]
 
@@ -73,7 +73,7 @@ class PreviousCandidates:
 
     ``source`` states which population ``tickers`` came from because their sizes
     differ: a run revision carries every candidate of the prior as-of, a persisted
-    daily longlist carries its top-N, and a canonical shortlist carries the retained
+    daily ranked_set carries its top-N, and a canonical shortlist carries the retained
     entries reviewed by the human. The overlap ratio and previous-candidate cap read
     differently under each, so the selection reports the source instead of leaving
     the denominator implicit.
@@ -144,8 +144,8 @@ _EXPECTED_NUMERIC_EVIDENCE_METRICS = _EXPECTED_NUMERIC_METRICS | frozenset(
 )
 
 
-def load_previous_longlist(history_dir: Path, *, asof_date: date) -> PreviousCandidates:
-    """Resolve the newest persisted longlist strictly before ``asof_date``.
+def load_previous_ranked_set(history_dir: Path, *, asof_date: date) -> PreviousCandidates:
+    """Resolve the newest persisted ranked_set strictly before ``asof_date``.
 
     The run store keeps three generations, so repeating one as-of evicts the prior
     as-of and leaves the selection with no earlier side: every candidate then looks
@@ -153,7 +153,7 @@ def load_previous_longlist(history_dir: Path, *, asof_date: date) -> PreviousCan
     per day and retained independently of that pruning, so they still name a
     predecessor when the store no longer does.
 
-    A day whose record carries no longlist is skipped rather than treated as an
+    A day whose record carries no ranked_set is skipped rather than treated as an
     empty predecessor, since "nobody was on the list" and "everything is new" are
     not the same statement. A record whose contract does not match raises, so a
     changed writer surfaces as a failure instead of as zero overlap.
@@ -166,40 +166,40 @@ def load_previous_longlist(history_dir: Path, *, asof_date: date) -> PreviousCan
         if parsed is not None and parsed < asof_date:
             dated.append((parsed, path))
     for record_date, path in sorted(dated, reverse=True):
-        tickers = _longlist_history_tickers(path, record_date=record_date)
+        tickers = _ranked_set_history_tickers(path, record_date=record_date)
         if tickers:
             return PreviousCandidates(
                 ref_path=path.as_posix(),
-                source="longlist_history",
+                source="ranked_set_history",
                 tickers=tickers,
             )
     return PreviousCandidates(ref_path=None, source=None, tickers=())
 
 
-def _longlist_history_tickers(path: Path, *, record_date: date) -> tuple[str, ...]:
+def _ranked_set_history_tickers(path: Path, *, record_date: date) -> tuple[str, ...]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, JSONDecodeError) as exc:
-        raise PreviousLonglistError(f"longlist history is unreadable: {path}") from exc
+        raise PreviousRankedSetError(f"ranked_set history is unreadable: {path}") from exc
     if not isinstance(payload, Mapping):
-        raise PreviousLonglistError(f"longlist history is not an object: {path}")
+        raise PreviousRankedSetError(f"ranked_set history is not an object: {path}")
     if (
-        payload.get("kind") != _LONGLIST_HISTORY_KIND
-        or payload.get("schema_version") != _LONGLIST_HISTORY_SCHEMA_VERSION
+        payload.get("kind") != _RANKED_SET_HISTORY_KIND
+        or payload.get("schema_version") != _RANKED_SET_HISTORY_SCHEMA_VERSION
     ):
-        raise PreviousLonglistError(f"longlist history has an unsupported contract: {path}")
+        raise PreviousRankedSetError(f"ranked_set history has an unsupported contract: {path}")
     if parse_iso_date(str(payload.get("as_of"))) != record_date:
-        raise PreviousLonglistError(f"longlist history as-of does not match its name: {path}")
+        raise PreviousRankedSetError(f"ranked_set history as-of does not match its name: {path}")
     members = payload.get("members")
     if not isinstance(members, list):
-        raise PreviousLonglistError(f"longlist history members must be an array: {path}")
+        raise PreviousRankedSetError(f"ranked_set history members must be an array: {path}")
     tickers: list[str] = []
     for item in members:
         if not isinstance(item, Mapping):
-            raise PreviousLonglistError(f"longlist history member is not an object: {path}")
+            raise PreviousRankedSetError(f"ranked_set history member is not an object: {path}")
         ticker = string_or_none(item.get("ticker"))
         if ticker is None:
-            raise PreviousLonglistError(f"longlist history member has no ticker: {path}")
+            raise PreviousRankedSetError(f"ranked_set history member has no ticker: {path}")
         tickers.append(ticker)
     return tuple(tickers)
 

@@ -45,7 +45,7 @@ from baibai_engine.screening.selection import (
     PreviousCandidates,
     build_selection_payload,
     candidate_record_from_mapping,
-    load_previous_longlist,
+    load_previous_ranked_set,
 )
 from baibai_engine.screening.ticker_profile import build_ticker_profile
 
@@ -131,11 +131,10 @@ def market_snapshot_command(
 def select_command(
     *,
     asof_date: date,
-    top: int,
     rules: ScreeningRules | None = None,
     profile: str | None = None,
     detail: str = "summary",
-    longlist_top: int = 0,
+    review_cap: int = 20,
     output_path: Path | None = None,
     force: bool = False,
     regime_sqlite_path: Path | None = None,
@@ -146,14 +145,11 @@ def select_command(
     macro_context_id: str | None = None,
     previous_run_revision_id: str | None = None,
     previous_shortlist_id: str | None = None,
-    longlist_history_dir: Path | None = None,
+    ranked_set_history_dir: Path | None = None,
 ) -> int:
     starting_commit = application_git_commit()
-    if top < 1:
-        print("--top must be greater than zero", file=sys.stderr)
-        return 1
-    if not 0 <= longlist_top <= 100:
-        print("--longlist-top must be between 0 and 100", file=sys.stderr)
+    if not 0 <= review_cap <= 100:
+        print("--review-cap must be between 0 and 100", file=sys.stderr)
         return 1
     if output_path is not None and output_path.exists() and not force:
         print(f"output already exists: {output_path}", file=sys.stderr)
@@ -172,7 +168,7 @@ def select_command(
             macro_context_id=macro_context_id,
             previous_run_revision_id=previous_run_revision_id,
             previous_shortlist_id=previous_shortlist_id,
-            longlist_history_dir=longlist_history_dir,
+            ranked_set_history_dir=ranked_set_history_dir,
         )
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
@@ -192,14 +188,13 @@ def select_command(
             candidates=inputs.candidates,
             macro_context=inputs.macro_context,
             rules=rules,
-            top=top,
             profile=profile,
             candidates_ref=inputs.candidates_ref,
             macro_context_ref=inputs.macro_context_ref,
             previous_candidates=inputs.previous_candidates,
             market_regime=_load_market_regime(regime_sqlite_path, asof_date),
             detail=detail,
-            longlist_top=longlist_top,
+            review_cap=review_cap,
             screening_rules_hash=inputs.screening_rules_hash,
             er_model_version=inputs.er_model_version,
             review_basis_shortlist_id=inputs.review_basis_shortlist_id,
@@ -306,7 +301,7 @@ def _load_selection_inputs_db(
     macro_context_id: str | None,
     previous_run_revision_id: str | None,
     previous_shortlist_id: str | None,
-    longlist_history_dir: Path | None,
+    ranked_set_history_dir: Path | None,
 ) -> _SelectionInputs:
     reader = ScreeningRunReader(runs_db_path)
     run = reader.get_run(run_revision_id)
@@ -349,11 +344,11 @@ def _load_selection_inputs_db(
             source="run_revision",
             tickers=tuple(str(item["ticker"]) for item in previous.candidates),
         )
-    elif longlist_history_dir is not None:
+    elif ranked_set_history_dir is not None:
         # The prior as-of has been pruned out of the run store. The persisted daily
-        # longlists outlive that retention, so they can still supply an earlier side
+        # ranked-set records outlive that retention, so they can still supply an earlier side
         # for the overlap diagnostic and the previous-candidate cap.
-        previous_candidates = load_previous_longlist(longlist_history_dir, asof_date=asof_date)
+        previous_candidates = load_previous_ranked_set(ranked_set_history_dir, asof_date=asof_date)
     else:
         previous_candidates = PreviousCandidates(ref_path=None, source=None, tickers=())
     if macro_context_id is None:

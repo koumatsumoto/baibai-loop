@@ -1,15 +1,13 @@
 """割安機会評価 (bargain assessment) — 1 opportunity cycle の統合判断。
 
-深掘りした候補を横に並べ、「今どれが最もお買い得か」と「どう買うか / なぜ買わないか」
-までを 1 つの immutable revision へ固定する。shortlist が「どれを調べるか」の判断で
-あるのに対し、これは「調べ終えて何を結論したか」の判断であり、proposal を作らない
-サイクル — `no_actionable_bargain` と `defer` — にも成立する。
+深掘りした候補を横に並べ、「今どれが最もお買い得か / なぜ買わないか」を 1 つの
+immutable revision へ固定する。shortlist が「どれを調べるか」の判断であるのに対し、
+これは「調べ終えて何を結論したか」の判断である。
 
 判断の散文はここが正本だが、**数値は正本ではない**: 5 年 base CAGR・FV・乖離・
-break-even・指値・数量・想定約定額は promoted thesis と proposal から機械で導出する。
-publish は同じ導出をやり直して draft の値と照合するので、scaffold 後に手で書き換えた
-数値は保存されない。詳細な調査全文は thesis と operation session artifacts に残り、
-ここには判断に必要な要点だけを置く。
+break-even は promoted thesis から機械で導出する。publish は同じ導出をやり直して
+draft の値と照合するので、scaffold 後に手で書き換えた数値は保存されない。注文数量と
+指値は判断時の `plan-limit` だけが出し、ここへ永続化しない。
 """
 
 from __future__ import annotations
@@ -35,6 +33,7 @@ from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.foundation.reject_classification import RejectClass
 
 from .thesis import (
+    IndependentReview,
     ThesisDocument,
     ThesisError,
     UnpublishedThesis,
@@ -42,13 +41,13 @@ from .thesis import (
     require_recorded_identity,
 )
 
-BARGAIN_ASSESSMENT_SCHEMA_VERSION = 3
+BARGAIN_ASSESSMENT_SCHEMA_VERSION = 4
 
 # 機械値の照合許容差。thesis 評価は Decimal、YAML 往復は float を通るので、
 # 表示桁の丸めだけを許し、書き換えは許さない幅にする。
 _NUMERIC_TOLERANCE = Decimal("0.005")
 
-type AssessmentResult = Literal["proposal", "no_actionable_bargain", "defer"]
+type AssessmentResult = Literal["buy", "no_actionable_bargain", "defer"]
 type CaseDisposition = Literal["selected", "reject", "defer"]
 
 
@@ -137,29 +136,6 @@ class AssessmentCase(BaseModel):
         return self
 
 
-class PurchasePlan(BaseModel):
-    """proposal から再導出する購入方法。何を・いくらで・何株・いつまで。"""
-
-    model_config = ConfigDict(extra="forbid")
-    proposal_id: str = Field(min_length=1)
-    proposal_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    ticker: str = Field(pattern=r"^[0-9A-Z]{4}$")
-    limit_price_yen: float
-    quantity: int = Field(gt=0)
-    notional_yen: float
-    max_acceptable_price_yen: float
-    close_yen: float
-    price_as_of: date
-    expires_at: datetime
-    warnings: tuple[str, ...] = ()
-
-    @model_validator(mode="after")
-    def validate_expiry_carries_a_timezone(self) -> Self:
-        if self.expires_at.tzinfo is None:
-            raise ValueError("expires_at must include a timezone")
-        return self
-
-
 class ContentReviewBinding(BaseModel):
     """独立 content review の結論を、review した draft の内容そのものへ束縛する。
 
@@ -184,7 +160,7 @@ class ContentReviewBinding(BaseModel):
 
 class BargainAssessment(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     kind: Literal["bargain_assessment"]
     assessment_id: str
     as_of: date
@@ -194,10 +170,8 @@ class BargainAssessment(BaseModel):
     shortlist_id: str = Field(min_length=1)
     macro_context_id: str | None = None
     comparison: str = Field(min_length=1)
-    entry_timing: str | None = None
     forgone: str = Field(min_length=1)
     cases: tuple[AssessmentCase, ...] = Field(min_length=1)
-    purchase: PurchasePlan | None = None
     review: ContentReviewBinding
 
     @model_validator(mode="after")
@@ -211,21 +185,15 @@ class BargainAssessment(BaseModel):
             raise ValueError("assessment case ticker must be unique")
         selected = [case for case in self.cases if case.disposition == "selected"]
         if len(selected) > 1:
-            raise ValueError("at most one case can be selected in one proposal round")
-        if self.result == "proposal":
+            raise ValueError("at most one case can be selected in one assessment")
+        if self.result == "buy":
             if not selected:
-                raise ValueError("a proposal result requires exactly one selected case")
-            if self.purchase is None:
-                raise ValueError("a proposal result requires a purchase plan")
-            if self.purchase.ticker != selected[0].ticker:
-                raise ValueError("purchase plan ticker must match the selected case")
-            if self.entry_timing is None or not self.entry_timing.strip():
-                raise ValueError("a proposal result requires entry_timing")
+                raise ValueError("a buy result requires exactly one selected case")
+            if selected[0].review_id is None:
+                raise ValueError("a buy result requires the selected independent review")
         else:
             if selected:
-                raise ValueError("only a proposal result can carry a selected case")
-            if self.purchase is not None:
-                raise ValueError("a purchase plan requires a proposal result")
+                raise ValueError("only a buy result can carry a selected case")
         return self
 
     def payload(self) -> dict[str, object]:
@@ -322,35 +290,63 @@ class BargainAssessmentService:
                     f"thesis {case.thesis_id} has moved since the draft was written"
                 )
             _require_matching_machine_values(case, derive_case_machine_values(stored.document))
-        if assessment.purchase is not None:
-            self._verify_purchase(assessment.purchase, assessment.cases)
+            if case.disposition == "selected":
+                self._require_buy_case_ready(assessment, case, stored)
 
-    def _verify_purchase(self, purchase: PurchasePlan, cases: tuple[AssessmentCase, ...]) -> None:
+    def require_buy_case(self, assessment_id: str) -> AssessmentCase:
+        """Resolve the sole selected case for a canonical buy decision."""
         row = self._row(
-            "SELECT ticker, thesis_id, payload FROM proposal WHERE proposal_id = ?",
-            (purchase.proposal_id,),
+            "SELECT result, payload FROM bargain_assessment WHERE assessment_id = ?",
+            (assessment_id,),
         )
         if row is None:
-            raise AssessmentConflictError(f"proposal is unavailable: {purchase.proposal_id}")
-        ticker = str(row[0])
-        thesis_id = str(row[1])
-        payload = json.loads(str(row[2]))
-        if ticker != purchase.ticker:
+            raise AssessmentConflictError(f"assessment is unavailable: {assessment_id}")
+        try:
+            assessment = BargainAssessment.model_validate(json.loads(str(row[1])))
+        except (ValueError, TypeError) as error:
             raise AssessmentConflictError(
-                f"proposal {purchase.proposal_id} belongs to {ticker}, not {purchase.ticker}"
-            )
-        selected = next(case for case in cases if case.disposition == "selected")
-        if selected.thesis_id != thesis_id:
+                f"assessment cannot be read: {assessment_id}: {error}"
+            ) from error
+        if str(row[0]) != "buy" or assessment.result != "buy":
+            raise AssessmentConflictError(f"assessment is not a buy decision: {assessment_id}")
+        return next(case for case in assessment.cases if case.disposition == "selected")
+
+    def _require_buy_case_ready(
+        self,
+        assessment: BargainAssessment,
+        case: AssessmentCase,
+        stored: _StoredThesis,
+    ) -> None:
+        if stored.document.judgment.recommendation != "buy":
             raise AssessmentConflictError(
-                f"proposal {purchase.proposal_id} binds thesis {thesis_id}, "
-                f"not the selected case's {selected.thesis_id}"
+                f"selected thesis is not a buy recommendation: {case.thesis_id}"
             )
-        digest = _sha256_json(payload)
-        if digest != purchase.proposal_sha256:
+        assert case.review_id is not None
+        row = self._row(
+            "SELECT thesis_id, payload FROM thesis_review WHERE review_id = ?",
+            (case.review_id,),
+        )
+        if row is None or str(row[0]) != case.thesis_id:
             raise AssessmentConflictError(
-                f"proposal {purchase.proposal_id} has moved since the draft was written"
+                f"review {case.review_id} does not bind selected thesis {case.thesis_id}"
             )
-        _require_matching_purchase(purchase, payload)
+        try:
+            review = IndependentReview.model_validate(json.loads(str(row[1])))
+        except (ValueError, TypeError) as error:
+            raise AssessmentConflictError(
+                f"review {case.review_id} cannot be read: {error}"
+            ) from error
+        result = evaluate_thesis(
+            stored.document,
+            review=review,
+            now=assessment.published_at,
+            identity=stored.core_sha256,
+        )
+        if result.decision_readiness not in {"ready", "ready_with_warnings"}:
+            raise AssessmentConflictError(
+                f"selected thesis is not decision-ready: {case.thesis_id}: "
+                + "; ".join(result.errors)
+            )
 
     def _shortlist(self, shortlist_id: str) -> dict[str, object]:
         row = self._row(
@@ -501,31 +497,6 @@ def _require_matching_machine_values(case: AssessmentCase, derived: CaseMachineV
         )
 
 
-def _require_matching_purchase(purchase: PurchasePlan, payload: dict[str, object]) -> None:
-    planned = payload.get("planned_limit")
-    if not isinstance(planned, dict):
-        raise AssessmentConflictError(
-            f"proposal {purchase.proposal_id} carries no planned limit to bind"
-        )
-    expected: dict[str, object] = {
-        "limit_price_yen": purchase.limit_price_yen,
-        "quantity": purchase.quantity,
-        "notional_yen": purchase.notional_yen,
-        "max_acceptable_price_yen": purchase.max_acceptable_price_yen,
-        "close_yen": purchase.close_yen,
-    }
-    drifted = [
-        name for name, value in expected.items() if not _numbers_agree(value, planned.get(name))
-    ]
-    if str(planned.get("expires_at", "")) != purchase.expires_at.isoformat():
-        drifted.append("expires_at")
-    if drifted:
-        raise AssessmentConflictError(
-            f"purchase plan does not match proposal {purchase.proposal_id}: "
-            f"{', '.join(sorted(drifted))}"
-        )
-
-
 def _values_agree(left: object, right: object) -> bool:
     """機械値の一致判定。数値は表示桁の丸めだけ許し、それ以外は完全一致を求める。"""
     if isinstance(left, str) or isinstance(right, str):
@@ -561,7 +532,6 @@ __all__ = [
     "CaseDisposition",
     "CaseMachineValues",
     "ContentReviewBinding",
-    "PurchasePlan",
     "ResearchQuestion",
     "SourceCaveat",
     "assessment_draft_sha256",

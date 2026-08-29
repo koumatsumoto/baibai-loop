@@ -20,12 +20,12 @@ from typing import Any
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.foundation.repository_layout import RUNS_DB_PATH
 from baibai_engine.screening.selection.contracts import (
-    ValueCarrySelectionContractError,
-    validate_value_carry_selection_payload,
-    value_carry_expected_longlist,
+    SelectionContractError,
+    expected_ranked_set,
+    validate_selection_payload,
 )
 
-from .migrations import MIGRATIONS
+from .schema import RUN_STORE_SCHEMA_VERSION, SCHEMA_SQL
 
 DEFAULT_RUN_STORE_PATH = RUNS_DB_PATH
 
@@ -76,35 +76,20 @@ def connect_rw(path: Path | None = None) -> sqlite3.Connection:
 
 def initialize_run_store(path: Path | None = None) -> int:
     with closing(connect_rw(path)) as connection:
-        while True:
-            connection.execute("BEGIN IMMEDIATE")
-            try:
-                current = int(connection.execute("PRAGMA user_version").fetchone()[0])
-                migration = next(
-                    (item for item in MIGRATIONS if item.version > current),
-                    None,
-                )
-                if migration is None:
-                    connection.commit()
-                    return current
-                if migration.version != current + 1:
-                    raise RuntimeError(
-                        "run store migration sequence gap: "
-                        f"database={current}, next={migration.version}"
-                    )
-                for statement in migration.statements:
-                    connection.execute(statement)
-                if migration.transform is not None:
-                    migration.transform(connection)
-                if connection.execute("PRAGMA foreign_key_check").fetchall():
-                    raise sqlite3.IntegrityError(
-                        f"foreign key check failed during run store migration {migration.version}"
-                    )
-                connection.execute(f"PRAGMA user_version = {migration.version}")
-                connection.commit()
-            except BaseException:
-                connection.rollback()
-                raise
+        current = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        if current == RUN_STORE_SCHEMA_VERSION:
+            return current
+        tables = connection.execute(
+            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
+        ).fetchone()
+        if current != 0 or tables is not None:
+            raise RuntimeError(
+                "screening run cache uses an obsolete schema; rebuild it "
+                f"(found user_version={current}, expected={RUN_STORE_SCHEMA_VERSION})"
+            )
+        connection.executescript(SCHEMA_SQL)
+        connection.execute(f"PRAGMA user_version = {RUN_STORE_SCHEMA_VERSION}")
+        return RUN_STORE_SCHEMA_VERSION
 
 
 class ScreeningRunStore:
@@ -199,36 +184,12 @@ class ScreeningRunStore:
                         )
                         """
                     )
-                    while True:
-                        remaining = int(
-                            connection.execute(
-                                """
-                                SELECT count(*) FROM screening_selection
-                                WHERE run_revision_id IN (
-                                    SELECT run_revision_id FROM prune_run_id
-                                )
-                                """
-                            ).fetchone()[0]
-                        )
-                        if remaining == 0:
-                            break
-                        cursor = connection.execute(
-                            """
-                            DELETE FROM screening_selection
-                            WHERE run_revision_id IN (
-                                SELECT run_revision_id FROM prune_run_id
-                            )
-                              AND NOT EXISTS (
-                                  SELECT 1 FROM screening_selection AS child
-                                  WHERE child.source_selection_id =
-                                        screening_selection.selection_id
-                              )
-                            """
-                        )
-                        if cursor.rowcount == 0:
-                            raise sqlite3.IntegrityError(
-                                "screening selection dependency cycle blocks prune"
-                            )
+                    connection.execute(
+                        """
+                        DELETE FROM screening_selection
+                        WHERE run_revision_id IN (SELECT run_revision_id FROM prune_run_id)
+                        """
+                    )
                     connection.execute(
                         """
                         DELETE FROM screening_candidate
@@ -267,14 +228,12 @@ class ScreeningRunStore:
         profile: str,
         macro_context_id: str | None,
         payload: Mapping[str, object],
-        publication_kind: str = "machine",
         selection_id: str | None = None,
-        source_selection_id: str | None = None,
         created_at: datetime | None = None,
     ) -> PublicationResult:
-        if not run_revision_id or not profile or not publication_kind:
-            raise ValueError("run_revision_id, profile, and publication_kind are required")
-        policy_parameters = validate_value_carry_selection_payload(payload)
+        if not run_revision_id or not profile:
+            raise ValueError("run_revision_id and profile are required")
+        policy_parameters = validate_selection_payload(payload)
         entries = _selection_entries(payload)
         identifier = selection_id or f"selection-{self._id_factory().hex}"
         timestamp = (created_at or datetime.now(UTC)).isoformat()
@@ -305,39 +264,24 @@ class ScreeningRunStore:
                     profile=profile,
                     macro_context_id=macro_context_id,
                     source_candidate_er={str(row[0]): row[1] for row in candidate_rows},
-                    expected_longlist=value_carry_expected_longlist(
+                    expected_ranked_set=expected_ranked_set(
                         [decode_payload(row[2]) for row in candidate_rows],
                         parameters=policy_parameters,
                         asof_date=str(run_payload.get("asof_date")),
                     ),
                 )
-                if source_selection_id is not None:
-                    source = connection.execute(
-                        "SELECT run_revision_id FROM screening_selection WHERE selection_id = ?",
-                        (source_selection_id,),
-                    ).fetchone()
-                    if source is None:
-                        raise RunStoreNotFoundError(
-                            f"unknown source_selection_id: {source_selection_id}"
-                        )
-                    if str(source[0]) != run_revision_id:
-                        raise RunStoreConflictError(
-                            "source selection must refer to the same run revision"
-                        )
                 existing = connection.execute(
                     """
-                    SELECT run_revision_id, publication_kind, profile, macro_context_id,
-                           source_selection_id, payload, application_git_commit
+                    SELECT run_revision_id, profile, macro_context_id,
+                           payload, application_git_commit
                     FROM screening_selection WHERE selection_id = ?
                     """,
                     (identifier,),
                 ).fetchone()
                 expected = (
                     run_revision_id,
-                    publication_kind,
                     profile,
                     macro_context_id,
-                    source_selection_id,
                     payload_json,
                     application_git_commit,
                 )
@@ -352,19 +296,17 @@ class ScreeningRunStore:
                 connection.execute(
                     """
                     INSERT INTO screening_selection (
-                        selection_id, run_revision_id, publication_kind, profile,
-                        macro_context_id, created_at, source_selection_id, payload,
+                        selection_id, run_revision_id, profile,
+                        macro_context_id, created_at, payload,
                         application_git_commit
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         identifier,
                         run_revision_id,
-                        publication_kind,
                         profile,
                         macro_context_id,
                         timestamp,
-                        source_selection_id,
                         payload_json,
                         application_git_commit,
                     ),
@@ -575,14 +517,14 @@ def _prepare_run(payload: Mapping[str, object]) -> _PreparedRun:
 
 
 def _selection_entries(payload: Mapping[str, object]) -> tuple[_SelectionEntry, ...]:
-    raw_entries = payload.get("recommendations")
+    raw_entries = payload.get("ranked_set")
     if not isinstance(raw_entries, Sequence) or isinstance(raw_entries, (str, bytes)):
-        raise ValueError("selection recommendations must be an array")
+        raise ValueError("selection ranked_set must be an array")
     entries: list[_SelectionEntry] = []
     tickers: set[str] = set()
     for raw in raw_entries:
         if not isinstance(raw, Mapping):
-            raise ValueError("selection recommendation must be a mapping")
+            raise ValueError("selection ranked-set entry must be a mapping")
         ticker = _required_string(raw, "ticker")
         if ticker in tickers:
             raise RunStoreConflictError(f"duplicate selection ticker: {ticker}")
@@ -599,80 +541,59 @@ def _validate_selection_run_binding(
     profile: str,
     macro_context_id: str | None,
     source_candidate_er: Mapping[str, object],
-    expected_longlist: Sequence[tuple[str, float, str | None, Mapping[str, object]]],
+    expected_ranked_set: Sequence[tuple[str, float, str | None, Mapping[str, object]]],
 ) -> None:
     selection = selection_payload.get("selection")
     if not isinstance(selection, Mapping):
-        raise ValueCarrySelectionContractError("selection metadata must be an object")
+        raise SelectionContractError("selection metadata must be an object")
     for key in ("screening_rules_hash", "er_model_version"):
         run_value = run_payload.get(key)
         selection_value = selection.get(key)
         if not isinstance(run_value, str) or not run_value.strip():
-            raise ValueCarrySelectionContractError(f"source run has no exact {key}")
+            raise SelectionContractError(f"source run has no exact {key}")
         if selection_value != run_value:
-            raise ValueCarrySelectionContractError(f"selection {key} does not match the source run")
+            raise SelectionContractError(f"selection {key} does not match the source run")
     if selection.get("asof") != run_payload.get("asof_date"):
-        raise ValueCarrySelectionContractError("selection asof does not match the source run")
+        raise SelectionContractError("selection asof does not match the source run")
     if selection.get("profile") != profile:
-        raise ValueCarrySelectionContractError("selection profile does not match the publication")
+        raise SelectionContractError("selection profile does not match the publication")
     input_refs = selection.get("input_refs")
     if not isinstance(input_refs, Mapping):
-        raise ValueCarrySelectionContractError("selection input_refs must be an object")
+        raise SelectionContractError("selection input_refs must be an object")
     if input_refs.get("candidates_ref") != run_revision_id:
-        raise ValueCarrySelectionContractError(
-            "selection candidates_ref does not match the source run"
-        )
+        raise SelectionContractError("selection candidates_ref does not match the source run")
     if input_refs.get("macro_context_ref") != macro_context_id:
-        raise ValueCarrySelectionContractError(
-            "selection macro_context_ref does not match the publication"
-        )
-    raw_recommendations = selection_payload.get("recommendations")
-    if not isinstance(raw_recommendations, Sequence) or isinstance(
-        raw_recommendations, str | bytes
-    ):
-        raise ValueCarrySelectionContractError("recommendations must be an array")
-    for recommendation in raw_recommendations:
-        if not isinstance(recommendation, Mapping):
-            raise ValueCarrySelectionContractError("recommendation must be an object")
-        ticker = recommendation.get("ticker")
-        if not isinstance(ticker, str) or ticker not in source_candidate_er:
-            raise ValueCarrySelectionContractError(
-                "recommendation ticker does not belong to the source run"
-            )
-    raw_longlist = selection_payload.get("longlist", ())
-    if not isinstance(raw_longlist, Sequence) or isinstance(raw_longlist, str | bytes):
-        raise ValueCarrySelectionContractError("longlist must be an array")
-    actual_longlist: list[tuple[str, float, str | None]] = []
-    validated_longlist: list[Mapping[str, object]] = []
-    for row in raw_longlist:
+        raise SelectionContractError("selection macro_context_ref does not match the publication")
+    raw_ranked_set = selection_payload.get("ranked_set")
+    if not isinstance(raw_ranked_set, Sequence) or isinstance(raw_ranked_set, str | bytes):
+        raise SelectionContractError("ranked_set must be an array")
+    actual: list[tuple[str, float, str | None]] = []
+    validated: list[Mapping[str, object]] = []
+    for row in raw_ranked_set:
         if not isinstance(row, Mapping):  # pragma: no cover - checked by contract validation
-            raise ValueCarrySelectionContractError("longlist row must be an object")
+            raise SelectionContractError("ranked-set row must be an object")
         ticker = row.get("ticker")
         if not isinstance(ticker, str) or ticker not in source_candidate_er:
-            raise ValueCarrySelectionContractError(
-                "longlist ticker does not belong to the source run"
-            )
-        if row.get("lane_native_value") != source_candidate_er[ticker]:
-            raise ValueCarrySelectionContractError(
-                "longlist native value does not match the source run E[r]"
-            )
+            raise SelectionContractError("ranked-set ticker does not belong to the source run")
+        if row.get("er_annual") != source_candidate_er[ticker]:
+            raise SelectionContractError("ranked-set E[r] does not match the source run")
         primary_pattern = row.get("primary_evidence_pattern_id")
         if primary_pattern is not None and not isinstance(primary_pattern, str):
-            raise ValueCarrySelectionContractError(
-                "longlist primary Evidence Pattern ID must be a string or null"
+            raise SelectionContractError(
+                "ranked-set primary Evidence Pattern ID must be a string or null"
             )
-        actual_longlist.append((ticker, float(row["lane_native_value"]), primary_pattern))
-        validated_longlist.append(row)
-    expected_rank_coordinates = tuple(row[:3] for row in expected_longlist)
-    if tuple(actual_longlist) != expected_rank_coordinates:
-        raise ValueCarrySelectionContractError(
-            "longlist order or Evidence Pattern does not match the Selection Policy"
+        actual.append((ticker, float(row["er_annual"]), primary_pattern))
+        validated.append(row)
+    expected_rank_coordinates = tuple(row[:3] for row in expected_ranked_set)
+    if tuple(actual) != expected_rank_coordinates:
+        raise SelectionContractError(
+            "ranked-set order or Evidence Pattern does not match the selection method"
         )
-    for row, expected in zip(validated_longlist, expected_longlist, strict=True):
+    for row, expected in zip(validated, expected_ranked_set, strict=True):
         for key, expected_value in expected[3].items():
             if row.get(key) != expected_value:
-                raise ValueCarrySelectionContractError(
-                    f"longlist {key} does not match the source candidate"
+                raise SelectionContractError(
+                    f"ranked-set {key} does not match the source candidate"
                 )
 
 

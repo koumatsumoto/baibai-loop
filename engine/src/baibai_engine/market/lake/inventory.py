@@ -37,7 +37,7 @@ def _capacity_class(key: str) -> str | None:
     """The budget a stored key counts against, or ``None`` when another class holds it."""
     if key.startswith("lake/staging/"):
         return "workspace"
-    if key.startswith(("lake/l1/", "lake/l2/", "lake/manifests/", "lake/pointers/")):
+    if key.startswith(("lake/l1/", "lake/manifests/", "lake/pointers/")):
         return "published"
     return None
 

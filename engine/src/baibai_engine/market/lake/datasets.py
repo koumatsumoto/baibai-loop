@@ -410,30 +410,6 @@ EDINET_DOCUMENT_LISTS = LakeDataset(
     ),
 )
 
-EDINET_BUYBACK_REPORTS = LakeDataset(
-    name="edinet.buyback_reports",
-    sqlite_table="edinet_buyback_reports",
-    date_column="report_month_end",
-    partition_grain="year",
-    coverage_authority="unproven",
-    columns=(
-        LakeColumn("ticker", "TEXT", _TEXT, False, 1),
-        LakeColumn("report_month_end", "TEXT", _TEXT, False, 2),
-        LakeColumn("doc_id", "TEXT", _TEXT, False),
-        LakeColumn("filed_on", "TEXT", _TEXT, False),
-        LakeColumn("window_start", "TEXT", _TEXT, True),
-        LakeColumn("window_end", "TEXT", _TEXT, True),
-        LakeColumn("resolved_shares", "INTEGER", _INTEGER, True),
-        LakeColumn("resolved_amount_yen", "INTEGER", _INTEGER, True),
-        LakeColumn("cumulative_shares", "INTEGER", _INTEGER, True),
-        LakeColumn("cumulative_amount_yen", "INTEGER", _INTEGER, True),
-        LakeColumn("month_shares", "INTEGER", _INTEGER, True),
-        LakeColumn("month_amount_yen", "INTEGER", _INTEGER, True),
-        LakeColumn("issued_shares", "INTEGER", _INTEGER, True),
-        LakeColumn("treasury_shares", "INTEGER", _INTEGER, True),
-    ),
-)
-
 JPX_REGULATION_FLAGS = LakeDataset(
     name="jpx.regulation_flags",
     sqlite_table="jpx_regulation_flags",
@@ -507,7 +483,6 @@ LAKE_DATASETS = {
     EDINET_DOCUMENTS.name: EDINET_DOCUMENTS,
     EDINET_METRICS.name: EDINET_METRICS,
     EDINET_DOCUMENT_LISTS.name: EDINET_DOCUMENT_LISTS,
-    EDINET_BUYBACK_REPORTS.name: EDINET_BUYBACK_REPORTS,
     JPX_REGULATION_FLAGS.name: JPX_REGULATION_FLAGS,
     JPX_REGULATION_SOURCES.name: JPX_REGULATION_SOURCES,
     JPX_DELISTINGS.name: JPX_DELISTINGS,

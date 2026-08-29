@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type {
   CandidateRowView,
   MachineSelectionView,
-  SelectionLonglistEntryView,
+  SelectionRankedSetEntryView,
   ShortlistEntryView,
   ShortlistNarrativeView,
   ShortlistView,
@@ -57,9 +57,9 @@ function shortlist(entries: ShortlistEntryView[]): ShortlistView {
   }
 }
 
-function longlistEntry(
-  overrides: Partial<SelectionLonglistEntryView> = {},
-): SelectionLonglistEntryView {
+function rankedSetEntry(
+  overrides: Partial<SelectionRankedSetEntryView> = {},
+): SelectionRankedSetEntryView {
   return {
     rank: 3,
     ticker: '2331',
@@ -84,14 +84,14 @@ function longlistEntry(
   }
 }
 
-function selection(longlist: SelectionLonglistEntryView[]): MachineSelectionView {
+function selection(rankedSet: SelectionRankedSetEntryView[]): MachineSelectionView {
   return {
     selection_id: 'selection-test',
     run_revision_id: 'runrev-test',
     profile: 'value',
     macro_context_id: null,
     created_at: '2026-07-21T13:00:00+09:00',
-    longlist,
+    ranked_set: rankedSet,
   }
 }
 
@@ -139,7 +139,7 @@ describe('machine coordinates after the bound run is evicted', () => {
     // Three run generations outlive a shortlist by days; the horizon it will be
     // scored over takes months. Without the burned copy the review surface loses
     // every machine column it compares the human ordering against.
-    const burned = longlistEntry({ rank: 4, fair_value_gap_pct: 18 })
+    const burned = rankedSetEntry({ rank: 4, fair_value_gap_pct: 18 })
     const rows = buildShortlistComparison(
       shortlist([entry({ machine_snapshot: burned })]),
       null,
@@ -148,13 +148,13 @@ describe('machine coordinates after the bound run is evicted', () => {
 
     expect(rows[0].machineRank).toBe(4)
     expect(rows[0].fairValueGapPct).toBe(18)
-    expect(rows[0].longlistEntry).toEqual(burned)
+    expect(rows[0].rankedSetEntry).toEqual(burned)
   })
 
   it('prefers the live selection over the burned copy while the run is still there', () => {
     const rows = buildShortlistComparison(
-      shortlist([entry({ machine_snapshot: longlistEntry({ rank: 4 }) })]),
-      selection([longlistEntry({ rank: 3 })]),
+      shortlist([entry({ machine_snapshot: rankedSetEntry({ rank: 4 }) })]),
+      selection([rankedSetEntry({ rank: 3 })]),
       [],
     )
 
@@ -164,7 +164,7 @@ describe('machine coordinates after the bound run is evicted', () => {
   it('has no machine coordinates for a judgment published before they were burned', () => {
     const rows = buildShortlistComparison(shortlist([entry()]), null, [])
 
-    expect(rows[0].longlistEntry).toBeNull()
+    expect(rows[0].rankedSetEntry).toBeNull()
     expect(rows[0].machineRank).toBeNull()
   })
 })
@@ -201,7 +201,7 @@ describe('buildShortlistComparison', () => {
   it('joins the machine coordinates by ticker and leaves them blank when the run is unavailable', () => {
     const rows = buildShortlistComparison(
       shortlist([entry({ ticker: '2331', rank: 1 }), entry({ ticker: '0001', rank: 2 })]),
-      selection([longlistEntry()]),
+      selection([rankedSetEntry()]),
       [candidateRow()],
     )
 
@@ -214,7 +214,7 @@ describe('buildShortlistComparison', () => {
     expect(rows[1].name).toBe('0001')
   })
 
-  it('falls back to the candidate row fair value when the ticker left the longlist', () => {
+  it('falls back to the candidate row fair value when the ticker left the ranked set', () => {
     const rows = buildShortlistComparison(
       shortlist([entry({ ticker: '2331', rank: 1 })]),
       selection([]),
@@ -227,7 +227,7 @@ describe('buildShortlistComparison', () => {
   it('keeps nullable short-interest context on the joined candidate row', () => {
     const [row] = buildShortlistComparison(
       shortlist([entry({ ticker: '2331', rank: 1 })]),
-      selection([longlistEntry()]),
+      selection([rankedSetEntry()]),
       [candidateRow({ margin_short_to_adv: 3.5, margin_week_end: '2026-07-24' })],
     )
 
@@ -261,7 +261,7 @@ describe('rankDivergence', () => {
   it('reports how far the human ordering departs from the machine ordering', () => {
     const [row] = buildShortlistComparison(
       shortlist([entry({ ticker: '2331', rank: 1 })]),
-      selection([longlistEntry({ rank: 3 })]),
+      selection([rankedSetEntry({ rank: 3 })]),
       [candidateRow()],
     )
 
@@ -271,7 +271,7 @@ describe('rankDivergence', () => {
   it('withholds the divergence when either ordering is unavailable', () => {
     const [unranked] = buildShortlistComparison(
       shortlist([entry({ ticker: '2331', rank: null })]),
-      selection([longlistEntry({ rank: 3 })]),
+      selection([rankedSetEntry({ rank: 3 })]),
       [],
     )
     const [unlisted] = buildShortlistComparison(

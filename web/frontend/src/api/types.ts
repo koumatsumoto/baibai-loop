@@ -32,21 +32,6 @@ export interface AssessmentCaseView {
   source_caveats: SourceCaveatView[]
 }
 
-export interface AssessmentPurchaseView {
-  proposal_id: string
-  ticker: string
-  limit_price_yen: number
-  quantity: number
-  notional_yen: number
-  max_acceptable_price_yen: number
-  close_yen: number
-  price_as_of: string
-  expires_at: string
-  warnings: string[]
-  current_status: string | null
-  superseded: boolean
-}
-
 export interface AssessmentReviewView {
   attempt: number
   reviewer_identity: string
@@ -75,10 +60,8 @@ export interface BargainAssessmentView {
   shortlist_id: string
   macro_context_id: string | null
   comparison: string
-  entry_timing: string | null
   forgone: string
   cases: AssessmentCaseView[]
-  purchase: AssessmentPurchaseView | null
   review: AssessmentReviewView
 }
 
@@ -210,7 +193,7 @@ export interface DashboardView {
   research_load_errors: string[]
 }
 
-export type DeltaPool = 'longlist' | 'recommendations'
+export type DeltaPool = 'ranked_set' | 'recommendations'
 
 export type DeltaUnavailable = 'candidates' | 'candidates_estimate' | 'candidates_pool' | 'candidates_previous_run' | 'holdings' | 'holdings_fair_value' | 'macro' | 'market'
 
@@ -317,7 +300,7 @@ export interface MachineSelectionView {
   profile: string
   macro_context_id: string | null
   created_at: string
-  longlist: SelectionLonglistEntryView[]
+  ranked_set: SelectionRankedSetEntryView[]
 }
 
 export interface MacroConnectionSectionView {
@@ -630,7 +613,6 @@ export interface OperationSessionView {
 
 export interface OperationsView {
   operations: OperationSessionView[]
-  proposals: ProposalView[]
   outcomes: PortfolioOutcomeView[]
 }
 
@@ -646,17 +628,6 @@ export interface PortfolioOutcomeView {
 }
 
 export type PortfolioState = 'unheld' | 'held' | 'reserved' | 'held_and_reserved'
-
-export interface ProposalView {
-  proposal_id: string
-  ticker: string
-  thesis_id: string
-  review_id: string
-  created_at: string
-  status: string
-  decided_at: string | null
-  payload: Record<string, unknown>
-}
 
 export interface ResearchQuestionView {
   question: string
@@ -736,7 +707,7 @@ export interface SecurityDetailView {
 /**
  * 機械 rank 上位の候補 1 件。FV アンカーと E[r] はここだけが持つ。
  */
-export interface SelectionLonglistEntryView {
+export interface SelectionRankedSetEntryView {
   rank: number | null
   ticker: string
   name: string | null
@@ -758,7 +729,7 @@ export interface ShortlistEntryView {
   reason: string
   rank: number | null
   narrative: ShortlistNarrativeView | null
-  machine_snapshot: SelectionLonglistEntryView | null
+  machine_snapshot: SelectionRankedSetEntryView | null
 }
 
 /**

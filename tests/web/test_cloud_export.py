@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
 from tests.helpers.macro_context import macro_context_payload
-from tests.helpers.screening_selection import value_carry_selection_payload
+from tests.helpers.screening_selection import ranked_selection_payload
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
 from tests.helpers.shortlist import rejected_entry, shortlist_payload
 
@@ -208,11 +208,10 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
         run_revision_id=run.run_revision_id,
         profile="value",
         macro_context_id=None,
-        payload=value_carry_selection_payload(
+        payload=ranked_selection_payload(
             ticker="2331",
             er_annual=0.12,
             rules_hash=str(run.payload["screening_rules_hash"]),
-            recommendations=[{"ticker": "2331", "er_annual": 0.12}],
             asof=run.as_of_date,
             profile="value",
             candidates_ref=run.run_revision_id,
@@ -283,16 +282,16 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     assert pool["run"]["asof_date"] == "2026-07-01"
     latest_pool = json.loads(pool_files[1].read_text(encoding="utf-8"))
     assert latest_pool["run"]["run_revision_id"] == run.run_revision_id
-    longlist_record = json.loads(
-        (output_dir / "history/longlists/2026-07-08.json").read_text(encoding="utf-8")
+    ranked_set_record = json.loads(
+        (output_dir / "history/ranked_sets/2026-07-08.json").read_text(encoding="utf-8")
     )
-    assert longlist_record["kind"] == "daily-longlist-membership"
-    assert longlist_record["selection_status"] == "available"
-    assert longlist_record["selection_id"] == screening.selections[0].selection_id
-    assert longlist_record["members"] == [{"ticker": "2331", "rank": 1, "er_annual": 0.12}]
+    assert ranked_set_record["kind"] == "daily-ranked-set-membership"
+    assert ranked_set_record["selection_status"] == "available"
+    assert ranked_set_record["selection_id"] == screening.selections[0].selection_id
+    assert ranked_set_record["members"] == [{"ticker": "2331", "rank": 1, "er_annual": 0.12}]
 
 
-def test_export_writes_explicit_empty_longlist_when_selection_is_missing(
+def test_export_writes_explicit_empty_ranked_set_when_selection_is_missing(
     app_method_root: Path, tmp_path: Path
 ) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
@@ -307,11 +306,11 @@ def test_export_writes_explicit_empty_longlist_when_selection_is_missing(
         run_revision_id=runs[1].run_revision_id,
         profile="value",
         macro_context_id=None,
-        payload=value_carry_selection_payload(
+        payload=ranked_selection_payload(
             ticker="2331",
             er_annual=0.12,
             rules_hash=str(runs[1].payload["screening_rules_hash"]),
-            recommendations=[],
+            ranked_set=(),
             asof=runs[1].as_of_date,
             profile="value",
             candidates_ref=runs[1].run_revision_id,
@@ -324,7 +323,7 @@ def test_export_writes_explicit_empty_longlist_when_selection_is_missing(
     assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
 
     payload = json.loads(
-        (output_dir / "history/longlists/2026-07-08.json").read_text(encoding="utf-8")
+        (output_dir / "history/ranked_sets/2026-07-08.json").read_text(encoding="utf-8")
     )
     assert payload["selection_status"] == "selection_missing"
     assert payload["selection_id"] is None

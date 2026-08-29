@@ -23,7 +23,6 @@ from baibai_engine.read_api import (
     list_macro_context_payloads,
     list_operation_sessions,
     list_portfolio_outcome_payloads,
-    list_proposal_payloads,
     list_task_payloads,
     list_thesis_publications,
     list_thesis_review_publications,
@@ -96,16 +95,13 @@ class DbMarketPriceSource:
 
 
 class DbOperationsSource:
-    """Read proposal, operation, and outcome state for the read-only UI."""
+    """Read operation and outcome state for the read-only UI."""
 
     def __init__(self, db_path: Path) -> None:
         self._path = db_path.resolve()
 
     def operations(self) -> list[dict[str, object]]:
         return list_operation_sessions(self._path)
-
-    def proposals(self) -> list[dict[str, object]]:
-        return list_proposal_payloads(self._path)
 
     def outcomes(self) -> list[dict[str, object]]:
         return list_portfolio_outcome_payloads(self._path)
@@ -414,13 +410,6 @@ class DbCandidatesSource:
 
     def assessment(self, assessment_id: str) -> dict[str, object] | None:
         return bargain_assessment_payload(self._app_path, assessment_id=assessment_id)
-
-    def proposal_states(self) -> dict[str, str]:
-        """Current proposal state by id, so a report can show what moved after publication."""
-        return {
-            str(item["proposal_id"]): str(item["status"])
-            for item in list_proposal_payloads(self._app_path)
-        }
 
     @staticmethod
     def _parse_run(raw: dict[str, object]) -> CandidatesRun:

@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
-from urllib.parse import urlparse
 
 from baibai_engine.position.ledger import (
     ExecutionEvent,
@@ -37,7 +35,7 @@ class ResultRecordingResult:
 def record_result(
     document: PortfolioLedgerDocument,
     *,
-    proposal_ref: str,
+    decision_reference: str,
     status: ResultStatus,
     occurred_at: datetime,
     ticker: str | None = None,
@@ -49,7 +47,7 @@ def record_result(
     common_factors: tuple[str, ...] = (),
     price_guard_yen: Decimal | None = None,
     expires_at: datetime | None = None,
-    approved_at: datetime | None = None,
+    ordered_at: datetime | None = None,
     now: datetime | None = None,
 ) -> ResultRecordingResult:
     """Append only facts explicitly supplied by the human operator.
@@ -60,25 +58,25 @@ def record_result(
     draft for separate review.
     """
 
-    _validate_proposal_ref(proposal_ref)
+    _validate_decision_reference(decision_reference)
     effective_now = _validate_report_time(occurred_at, now=now)
-    if approved_at is not None:
-        if approved_at.tzinfo is None:
-            raise ResultRecordingError("approved_at must include a timezone")
-        if approved_at > effective_now:
-            raise ResultRecordingError("approved_at must not be in the future")
+    if ordered_at is not None:
+        if ordered_at.tzinfo is None:
+            raise ResultRecordingError("ordered_at must include a timezone")
+        if ordered_at > effective_now:
+            raise ResultRecordingError("ordered_at must not be in the future")
     if status == "expired" and reservation_id is None:
         raise ResultRecordingError("expired requires reservation_id")
 
     existing_by_id = {event.event_id: event for event in document.events}
     if ticker is not None and status in {"open", "filled"}:
-        suffix = _event_suffix(proposal_ref, status, ticker, occurred_at)
+        suffix = _event_suffix(decision_reference, status, ticker, occurred_at)
         prefix = "human-open" if status == "open" else "human-fill"
         existing = existing_by_id.get(f"{prefix}-{suffix}")
         if existing is not None and status == "filled":
             if not isinstance(existing, ExecutionEvent) or not _same_fill_report(
                 existing,
-                proposal_ref=proposal_ref,
+                decision_reference=decision_reference,
                 occurred_at=occurred_at,
                 ticker=ticker,
                 quantity=quantity,
@@ -95,7 +93,7 @@ def record_result(
             document,
             reservation_id=reservation_id,
             reason=release_reason,
-            proposal_ref=proposal_ref,
+            decision_reference=decision_reference,
             occurred_at=occurred_at,
         ):
             return ResultRecordingResult(document=document, changed=False, event_ids=())
@@ -127,7 +125,7 @@ def record_result(
             raise ResultRecordingError("open requires price_guard_yen and expires_at")
         if expires_at <= occurred_at:
             raise ResultRecordingError("open expires_at must be after occurred_at")
-        suffix = _event_suffix(proposal_ref, status, ticker, occurred_at)
+        suffix = _event_suffix(decision_reference, status, ticker, occurred_at)
         additions.append(
             {
                 "event_id": f"human-open-{suffix}",
@@ -138,7 +136,7 @@ def record_result(
                 "ticker": ticker,
                 "sector": resolved_sector,
                 "common_factors": sorted(resolved_common_factors),
-                "decision_reference": proposal_ref,
+                "decision_reference": decision_reference,
                 "quantity": quantity,
                 "price_guard_yen": str(price_guard_yen),
                 "expires_at": expires_at.isoformat(),
@@ -151,30 +149,30 @@ def record_result(
             raise ResultRecordingError("filled requires price_yen")
         if reservation is None:
             if (
-                approved_at is None
+                ordered_at is None
                 or price_guard_yen is None
                 or expires_at is None
                 or resolved_sector is None
             ):
                 raise ResultRecordingError(
-                    "filled without an active reservation requires approved_at, "
+                    "filled without an active reservation requires ordered_at, "
                     "price_guard_yen, expires_at, and sector"
                 )
-            if not approved_at < occurred_at < expires_at:
-                raise ResultRecordingError("filled requires approved_at < occurred_at < expires_at")
-            suffix = _event_suffix(proposal_ref, "open", ticker, approved_at)
+            if not ordered_at < occurred_at < expires_at:
+                raise ResultRecordingError("filled requires ordered_at < occurred_at < expires_at")
+            suffix = _event_suffix(decision_reference, "open", ticker, ordered_at)
             resolved_reservation_id = reservation_id or f"reservation-{suffix}"
             additions.append(
                 {
                     "event_id": f"human-open-{suffix}",
                     "type": "reservation",
-                    "occurred_at": approved_at.isoformat(),
+                    "occurred_at": ordered_at.isoformat(),
                     "reservation_id": resolved_reservation_id,
                     "order_id": order_id or f"repository-order-{suffix}",
                     "ticker": ticker,
                     "sector": resolved_sector,
                     "common_factors": sorted(resolved_common_factors),
-                    "decision_reference": proposal_ref,
+                    "decision_reference": decision_reference,
                     "quantity": quantity,
                     "price_guard_yen": str(price_guard_yen),
                     "expires_at": expires_at.isoformat(),
@@ -185,13 +183,13 @@ def record_result(
                 raise ResultRecordingError("filled ticker does not match reservation")
             if (
                 reservation.decision_reference is not None
-                and proposal_ref != reservation.decision_reference
+                and decision_reference != reservation.decision_reference
             ):
                 raise ResultRecordingError(
-                    "filled proposal_ref does not match the active reservation"
+                    "filled decision_reference does not match the active reservation"
                 )
             resolved_reservation_id = reservation.reservation_id
-        suffix = _event_suffix(proposal_ref, status, ticker, occurred_at)
+        suffix = _event_suffix(decision_reference, status, ticker, occurred_at)
         additions.append(
             {
                 "event_id": f"human-fill-{suffix}",
@@ -203,7 +201,7 @@ def record_result(
                 "side": "buy",
                 "quantity": quantity,
                 "price_yen": str(price_yen),
-                "decision_reference": proposal_ref,
+                "decision_reference": decision_reference,
             }
         )
     else:
@@ -211,7 +209,7 @@ def record_result(
         additions.append(
             _release_addition(
                 reservation,
-                proposal_ref=proposal_ref,
+                decision_reference=decision_reference,
                 status=status,
                 occurred_at=occurred_at,
                 event_identity=reservation.ticker,
@@ -224,7 +222,7 @@ def record_result(
 def record_terminal_results(
     document: PortfolioLedgerDocument,
     *,
-    proposal_ref: str,
+    decision_reference: str,
     status: Literal["cancelled", "expired"],
     occurred_at: datetime,
     reservation_ids: tuple[str, ...],
@@ -232,7 +230,7 @@ def record_terminal_results(
 ) -> ResultRecordingResult:
     """Append simultaneous terminal reports as one reconciled ledger change."""
 
-    _validate_proposal_ref(proposal_ref)
+    _validate_decision_reference(decision_reference)
     _validate_report_time(occurred_at, now=now)
     if len(reservation_ids) < 2:
         raise ResultRecordingError("batch terminal result requires multiple reservation_ids")
@@ -246,7 +244,7 @@ def record_terminal_results(
             document,
             reservation_id=reservation_id,
             reason=status,
-            proposal_ref=proposal_ref,
+            decision_reference=decision_reference,
             occurred_at=occurred_at,
         )
     ]
@@ -263,7 +261,7 @@ def record_terminal_results(
         additions.append(
             _release_addition(
                 reservation,
-                proposal_ref=proposal_ref,
+                decision_reference=decision_reference,
                 status=status,
                 occurred_at=occurred_at,
                 event_identity=f"{reservation.ticker}:{reservation.reservation_id}",
@@ -289,7 +287,7 @@ def _release_already_recorded(
     *,
     reservation_id: str,
     reason: Literal["cancelled", "expired"],
-    proposal_ref: str,
+    decision_reference: str,
     occurred_at: datetime,
 ) -> bool:
     releases = [
@@ -302,7 +300,7 @@ def _release_already_recorded(
     if len(releases) != 1 or not _same_release_report(
         releases[0],
         reason=reason,
-        proposal_ref=proposal_ref,
+        decision_reference=decision_reference,
         occurred_at=occurred_at,
     ):
         raise ResultRecordingError("conflicting human report for released reservation")
@@ -312,19 +310,21 @@ def _release_already_recorded(
 def _release_addition(
     reservation: ReservationSnapshot,
     *,
-    proposal_ref: str,
+    decision_reference: str,
     status: Literal["cancelled", "expired"],
     occurred_at: datetime,
     event_identity: str,
 ) -> dict[str, object]:
     if (
         reservation.decision_reference is not None
-        and proposal_ref != reservation.decision_reference
+        and decision_reference != reservation.decision_reference
     ):
-        raise ResultRecordingError(f"{status} proposal_ref does not match the active reservation")
+        raise ResultRecordingError(
+            f"{status} decision_reference does not match the active reservation"
+        )
     if status == "expired" and occurred_at < reservation.expires_at:
         raise ResultRecordingError("expired occurred_at must be at or after expires_at")
-    suffix = _event_suffix(proposal_ref, status, event_identity, occurred_at)
+    suffix = _event_suffix(decision_reference, status, event_identity, occurred_at)
     prefix = "human-cancel" if status == "cancelled" else "human-expire"
     return {
         "event_id": f"{prefix}-{suffix}",
@@ -332,7 +332,7 @@ def _release_addition(
         "occurred_at": occurred_at.isoformat(),
         "reservation_id": reservation.reservation_id,
         "reason": status,
-        "decision_reference": proposal_ref,
+        "decision_reference": decision_reference,
     }
 
 
@@ -400,23 +400,20 @@ def _require(**values: object) -> None:
         raise ResultRecordingError("missing required human report fields: " + ", ".join(missing))
 
 
-def _event_suffix(proposal_ref: str, status: str, ticker: str, occurred_at: datetime) -> str:
-    raw = f"{proposal_ref}|{status}|{ticker}|{occurred_at.isoformat()}"
+def _event_suffix(decision_reference: str, status: str, ticker: str, occurred_at: datetime) -> str:
+    raw = f"{decision_reference}|{status}|{ticker}|{occurred_at.isoformat()}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-def _validate_proposal_ref(value: str) -> None:
-    if re.fullmatch(r"prop-[0-9]{8}-[0-9A-Z]{4,5}-[0-9]+", value):
-        return
-    parsed = urlparse(value)
-    if parsed.scheme != "https" or parsed.netloc != "github.com" or "/issues/" not in parsed.path:
-        raise ResultRecordingError("proposal_ref must be an HTTPS GitHub Issue URL")
+def _validate_decision_reference(value: str) -> None:
+    if not value.strip():
+        raise ResultRecordingError("decision_reference must be non-empty")
 
 
 def _same_fill_report(
     event: ExecutionEvent,
     *,
-    proposal_ref: str,
+    decision_reference: str,
     occurred_at: datetime,
     ticker: str,
     quantity: int | None,
@@ -424,7 +421,7 @@ def _same_fill_report(
     reservation_id: str | None,
 ) -> bool:
     return (
-        event.decision_reference == proposal_ref
+        event.decision_reference == decision_reference
         and event.occurred_at == occurred_at
         and event.ticker == ticker
         and event.quantity == quantity
@@ -437,11 +434,11 @@ def _same_release_report(
     event: ReleaseEvent,
     *,
     reason: Literal["cancelled", "expired"],
-    proposal_ref: str,
+    decision_reference: str,
     occurred_at: datetime,
 ) -> bool:
     return (
         event.reason == reason
-        and event.decision_reference == proposal_ref
+        and event.decision_reference == decision_reference
         and event.occurred_at == occurred_at
     )

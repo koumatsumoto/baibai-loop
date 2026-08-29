@@ -32,9 +32,7 @@ class SelectionPublication:
     as_of_date: str
     profile: str
     macro_context_id: str | None
-    publication_kind: str
     created_at: str
-    source_selection_id: str | None
     application_git_commit: str | None
     payload: dict[str, Any]
     entries: tuple[dict[str, Any], ...]
@@ -222,11 +220,7 @@ def _selection_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> Sel
         macro_context_id=(
             None if row["macro_context_id"] is None else str(row["macro_context_id"])
         ),
-        publication_kind=str(row["publication_kind"]),
         created_at=str(row["created_at"]),
-        source_selection_id=(
-            None if row["source_selection_id"] is None else str(row["source_selection_id"])
-        ),
         application_git_commit=_application_git_commit(row),
         payload=dict(decode_payload(row["payload"])),
         entries=tuple(dict(decode_payload(item[0])) for item in entries),

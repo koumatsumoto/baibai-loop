@@ -70,7 +70,6 @@ def _dataset_payload(
         "build_id": "20260812T123456Z-58d3057a-build",
         "sources": [],
         "producer_git_commit": "b" * 40,
-        "transform_fingerprint": f"sha256:{'c' * 64}",
         "created_at": "2026-08-12T12:34:56Z",
         "coverage_start": coverage_start,
         "data_as_of": data_as_of,
@@ -81,7 +80,6 @@ def _dataset_payload(
             {
                 "values": {"year": 2026, "month": 8},
                 "sources": [_snapshot_source_payload()],
-                "source_state_sha256": "b" * 64,
                 "objects": [
                     {
                         "key": key,
@@ -106,7 +104,6 @@ def _load_dataset(payload: dict[str, object]) -> DatasetManifest:
 
 def test_dataset_manifest_is_strict_and_round_trips() -> None:
     payload = _dataset_payload()
-    payload["cohort_inventory"] = {}
     manifest = _load_dataset(payload)
 
     reparsed = load_lake_model_json(manifest.model_dump_json(), DatasetManifest)
@@ -562,7 +559,6 @@ def test_a_release_reference_is_not_admissible_as_partition_lineage() -> None:
                             "manifest_version": 1,
                         }
                     ],
-                    "source_state_sha256": "f" * 64,
                 }
             ),
             PartitionManifest,

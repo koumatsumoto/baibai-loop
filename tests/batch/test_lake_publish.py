@@ -24,10 +24,7 @@ from baibai_batch.storage.lake_publish import (
 )
 from baibai_engine.market.lake import models as lake_models
 from baibai_engine.market.lake import writer as lake_writer_module
-from baibai_engine.market.lake.keys import (
-    current_calibration_bundle_pointer_key,
-    dataset_manifest_key,
-)
+from baibai_engine.market.lake.keys import dataset_manifest_key
 from baibai_engine.market.lake.release import (
     L1ReleasePointer,
     canonical_lake_model_bytes,
@@ -47,13 +44,6 @@ from baibai_engine.market.sqlite.lake_origin import (
     write_lake_store_origin,
 )
 from baibai_engine.market.sqlite.snapshot import create_snapshot
-from baibai_engine.screening.calibration.lake import CalibrationBundlePointer
-
-
-def _local_bundle(mirror: Path) -> CalibrationBundlePointer:
-    return CalibrationBundlePointer.model_validate_json(
-        (mirror / current_calibration_bundle_pointer_key()).read_bytes()
-    )
 
 
 @pytest.fixture(autouse=True)

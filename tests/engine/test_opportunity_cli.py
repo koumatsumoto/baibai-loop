@@ -148,7 +148,7 @@ def _ledger_with_observed_at(
 
 def _write_selection(
     path: Path,
-    longlist: list[dict[str, object]],
+    ranked_set: list[dict[str, object]],
     *,
     research_selection_target_max: object = 5,
     selection_asof: str | None = "2026-07-03",
@@ -171,8 +171,8 @@ def _write_selection(
     payload = {
         "selection_id": selection_id,
         "recommendations": [],
-        "longlist": longlist,
-        "review_tickers": [str(row["ticker"]) for row in longlist],
+        "ranked_set": ranked_set,
+        "ranked_tickers": [str(row["ticker"]) for row in ranked_set],
         "selection": selection_metadata,
     }
     path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
@@ -197,7 +197,7 @@ def _seed_gate(
     """
 
     selection = safe_load(selection_path.read_text(encoding="utf-8"))
-    review_tickers = [str(ticker) for ticker in selection.get("review_tickers") or []]
+    ranked_tickers = [str(ticker) for ticker in selection.get("ranked_tickers") or []]
     excluded = set(rejected)
     db_path = _app_db(tmp_path, ledger_path)
     seed_shortlist(
@@ -209,14 +209,14 @@ def _seed_gate(
                 run_revision_id or str(selection["selection"]["input_refs"]["candidates_ref"])
             ),
             as_of=as_of,
-            selected=[ticker for ticker in review_tickers if ticker not in excluded],
-            rejected=[ticker for ticker in review_tickers if ticker in excluded],
+            selected=[ticker for ticker in ranked_tickers if ticker not in excluded],
+            rejected=[ticker for ticker in ranked_tickers if ticker in excluded],
         ),
     )
     return db_path
 
 
-def _longlist_row(ticker: str, rank: int = 1) -> dict[str, object]:
+def _ranked_set_row(ticker: str, rank: int = 1) -> dict[str, object]:
     return {
         "rank": rank,
         "ticker": ticker,
@@ -232,7 +232,7 @@ def _longlist_row(ticker: str, rank: int = 1) -> dict[str, object]:
     }
 
 
-def _longlist_row_with_estimate(
+def _ranked_set_row_with_estimate(
     ticker: str,
     rank: int = 1,
     *,
@@ -241,7 +241,7 @@ def _longlist_row_with_estimate(
     sector_anchor: object = 1350.0,
     self_anchor: object = 1300.0,
 ) -> dict[str, object]:
-    row = _longlist_row(ticker, rank)
+    row = _ranked_set_row(ticker, rank)
     row["estimate_snapshot"] = {
         "as_of": "2026-07-03",
         "expected_return": {
@@ -279,10 +279,10 @@ def _prepared_workspace(
     sqlite_path: Path,
     ticker: str = "2331",
     *,
-    longlist: list[dict[str, object]] | None = None,
+    ranked_set: list[dict[str, object]] | None = None,
 ) -> Path:
     selection = tmp_path / "selection.yaml"
-    _write_selection(selection, longlist or [_longlist_row(ticker)])
+    _write_selection(selection, ranked_set or [_ranked_set_row(ticker)])
     workspace = tmp_path / "ws"
     assert (
         opportunity_main(
@@ -318,12 +318,12 @@ def _rewrite_holding_workspace(workspace: Path, *, ticker: str, asof: str) -> No
     manifest alone trips the draft as_of check first, which is not the same gate.
     """
 
-    for name, key in (("selection.yaml", "longlist"), ("research-comparison.yaml", "candidates")):
+    for name, key in (("selection.yaml", "ranked_set"), ("research-comparison.yaml", "candidates")):
         path = workspace / name
         document = safe_load(path.read_text(encoding="utf-8"))
         document["as_of"] = asof
         document[key] = [{**row, "ticker": ticker} for row in document[key]]
-        if key == "longlist":
+        if key == "ranked_set":
             document["shortlist"] = [{**row, "ticker": ticker} for row in document["shortlist"]]
         else:
             document["selected_ticker"] = ticker
@@ -385,6 +385,7 @@ def _ready_thesis_and_review() -> tuple[dict[str, object], dict[str, object], st
         risk["assessment"] = "acceptable"
         risk["evidence_status"] = "verified"
     thesis["judgment"]["permanent_loss_conclusion"] = "acceptable"
+    thesis["judgment"]["sizing_action"] = "normal"
     thesis.pop("human_evidence_override", None)
     review_filename = LANE_REVIEW_NAME
     thesis["independent_review_ref"] = review_filename
@@ -492,7 +493,7 @@ def test_prepare_rejects_selection_output_inside_generated_workspace(
     workspace = tmp_path / "ws"
     workspace.mkdir()
     selection = workspace / "source-selection.yaml"
-    _write_selection(selection, [_longlist_row("2331")])
+    _write_selection(selection, [_ranked_set_row("2331")])
     original = selection.read_text(encoding="utf-8")
 
     code, _payload = _run(
@@ -526,9 +527,9 @@ def test_prepare_annotates_held_reserved_without_excluding(
     workspace = _prepared_workspace(tmp_path, sqlite_path, ticker="2331")
 
     selection = safe_load((workspace / "selection.yaml").read_text(encoding="utf-8"))
-    tickers = [row["ticker"] for row in selection["longlist"]]
+    tickers = [row["ticker"] for row in selection["ranked_set"]]
     assert "2331" in tickers  # annotated, never excluded
-    assert selection["longlist"][0]["portfolio_annotation"] in {
+    assert selection["ranked_set"][0]["portfolio_annotation"] in {
         "held",
         "reserved",
         "held_and_reserved",
@@ -544,7 +545,7 @@ def test_prepare_selecting_nothing_is_no_actionable_bargain(
     looked at — but nothing can be admitted, so no thesis can start.
     """
     selection = tmp_path / "selection.yaml"
-    _write_selection(selection, [_longlist_row("2331"), _longlist_row("8929", rank=2)])
+    _write_selection(selection, [_ranked_set_row("2331"), _ranked_set_row("8929", rank=2)])
     workspace = tmp_path / "ws"
     code, payload = _run(
         [
@@ -570,8 +571,8 @@ def test_prepare_selecting_nothing_is_no_actionable_bargain(
 
     workspace_selection = safe_load((workspace / "selection.yaml").read_text(encoding="utf-8"))
     # Rejected candidates stay as comparison context and carry the Gate's answer.
-    assert [row["ticker"] for row in workspace_selection["longlist"]] == ["2331", "8929"]
-    assert {row["research_gate_decision"] for row in workspace_selection["longlist"]} == {
+    assert [row["ticker"] for row in workspace_selection["ranked_set"]] == ["2331", "8929"]
+    assert {row["research_gate_decision"] for row in workspace_selection["ranked_set"]} == {
         "rejected"
     }
 
@@ -595,15 +596,10 @@ def test_prepare_selecting_nothing_is_no_actionable_bargain(
     assert not (workspace / "2331").exists()
 
 
-def test_prepare_rejects_a_review_set_no_research_gate_judged(
+def test_prepare_rejects_selection_without_ranked_set(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """An empty Review Set has no Research Gate judgment, so research cannot start.
-
-    A shortlist requires at least one entry, so this state is not a shortlist that
-    selected nothing — it is a cycle whose Gate never ran. Failing here says so once,
-    instead of producing a workspace that no session could ever complete.
-    """
+    """Research cannot start when the source selection has no ranked set."""
     selection = tmp_path / "selection.yaml"
     _write_selection(selection, [])
     code = opportunity_main(
@@ -622,7 +618,7 @@ def test_prepare_rejects_a_review_set_no_research_gate_judged(
         ]
     )
     assert code == 3
-    assert "no canonical Research Gate judgment for selection" in capsys.readouterr().err
+    assert "source selection has no ranked set" in capsys.readouterr().err
     assert not (tmp_path / "ws").exists()
 
 
@@ -649,14 +645,14 @@ def test_holding_prepare_builds_fixed_one_ticker_workspace(
     )
 
     assert code == 0
-    assert payload["longlist_size"] == 1
+    assert payload["ranked_set_size"] == 1
     manifest = safe_load((workspace / "manifest.yaml").read_text(encoding="utf-8"))
     selection = safe_load((workspace / "selection.yaml").read_text(encoding="utf-8"))
     comparison = safe_load((workspace / "research-comparison.yaml").read_text(encoding="utf-8"))
     assert manifest["purpose"] == "holding_review"
     assert manifest["holding_ticker"] == "2331"
     assert set(manifest["inputs"]) == {"ledger"}
-    assert [row["ticker"] for row in selection["longlist"]] == ["2331"]
+    assert [row["ticker"] for row in selection["ranked_set"]] == ["2331"]
     assert [row["ticker"] for row in selection["shortlist"]] == ["2331"]
     assert comparison["selected_ticker"] == "2331"
     assert [row["ticker"] for row in comparison["candidates"]] == ["2331"]
@@ -981,7 +977,7 @@ def test_prepare_derives_shortlist_slots_from_selection_output(
     selection = tmp_path / "selection.yaml"
     _write_selection(
         selection,
-        [_longlist_row(str(1000 + index), rank=index + 1) for index in range(4)],
+        [_ranked_set_row(str(1000 + index), rank=index + 1) for index in range(4)],
         research_selection_target_max=configured_max,
     )
     code, payload = _run(
@@ -1017,7 +1013,7 @@ def test_prepare_binds_matching_er_distribution_context(
     selection = tmp_path / "selection.yaml"
     _write_selection(
         selection,
-        [_longlist_row("2331")],
+        [_ranked_set_row("2331")],
         screening_rules_hash="rules-hash",
         er_model_version="expected-return-v1",
     )
@@ -1146,7 +1142,7 @@ def test_prepare_degrades_when_optional_er_context_is_malformed(
     selection = tmp_path / "selection.yaml"
     _write_selection(
         selection,
-        [_longlist_row("2331")],
+        [_ranked_set_row("2331")],
         screening_rules_hash="rules-hash",
         er_model_version="expected-return-v1",
     )
@@ -1188,7 +1184,7 @@ def test_prepare_rejects_invalid_research_selection_target_max(
     selection = tmp_path / "selection.yaml"
     _write_selection(
         selection,
-        [_longlist_row("2331")],
+        [_ranked_set_row("2331")],
         research_selection_target_max=invalid_max,
     )
     code = opportunity_main(
@@ -1332,7 +1328,7 @@ def test_status_reports_external_input_hash_drift_as_exit_4(
     assert code == 4
 
 
-def test_status_rejects_shortlist_ticker_outside_longlist(
+def test_status_rejects_shortlist_ticker_outside_ranked_set(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
@@ -1340,7 +1336,7 @@ def test_status_rejects_shortlist_ticker_outside_longlist(
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     selection_file = workspace / "selection.yaml"
     selection = safe_load(selection_file.read_text(encoding="utf-8"))
-    selection["shortlist"] = [{"ticker": "9999", "reason": "not in longlist"}]
+    selection["shortlist"] = [{"ticker": "9999", "reason": "not in ranked_set"}]
     selection_file.write_text(yaml.safe_dump(selection, sort_keys=False), encoding="utf-8")
     code = opportunity_main(["status", "--workspace", str(workspace)], now=FIXED_NOW)
     assert code == 3
@@ -1360,7 +1356,7 @@ def _gated_workspace(
     """Prepare a two-ticker workspace whose Gate selected some and rejected others."""
 
     selection = tmp_path / "selection.yaml"
-    _write_selection(selection, [_longlist_row("2331"), _longlist_row("8929", rank=2)])
+    _write_selection(selection, [_ranked_set_row("2331"), _ranked_set_row("8929", rank=2)])
     db_path = _seed_gate(tmp_path, selection, rejected=rejected)
     workspace = tmp_path / "ws"
     assert (
@@ -1444,7 +1440,7 @@ def test_prepare_rejects_a_shortlist_that_judged_another_selection(
     not merely mismatched — for this cycle it does not exist.
     """
     selection = tmp_path / "selection.yaml"
-    _write_selection(selection, [_longlist_row("2331")])
+    _write_selection(selection, [_ranked_set_row("2331")])
     db_path = _seed_gate(tmp_path, selection, selection_id="selection-somewhere-else")
     workspace = tmp_path / "ws"
 
@@ -1485,7 +1481,7 @@ def test_prepare_rejects_a_shortlist_from_another_cycle(
 ) -> None:
     """Negative 3: same selection ID is not enough — as-of and run must agree too."""
     selection = tmp_path / "selection.yaml"
-    _write_selection(selection, [_longlist_row("2331")])
+    _write_selection(selection, [_ranked_set_row("2331")])
     db_path = _seed_gate(
         tmp_path,
         selection,
@@ -1514,12 +1510,12 @@ def test_prepare_rejects_a_shortlist_from_another_cycle(
     assert not workspace.exists()
 
 
-def test_prepare_rejects_a_shortlist_over_a_different_review_set(
+def test_prepare_rejects_a_shortlist_over_a_different_ranked_set(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The judgment has to cover this cycle's Review Set, member for member."""
+    """The judgment has to cover this cycle's ranked set, member for member."""
     selection = tmp_path / "selection.yaml"
-    _write_selection(selection, [_longlist_row("2331"), _longlist_row("8929", rank=2)])
+    _write_selection(selection, [_ranked_set_row("2331"), _ranked_set_row("8929", rank=2)])
     db_path = _app_db(tmp_path)
     seed_shortlist(
         db_path,
@@ -1550,7 +1546,7 @@ def test_prepare_rejects_a_shortlist_over_a_different_review_set(
     )
     error = capsys.readouterr().err
     assert code == 3
-    assert "must equal the selection Review Set" in error
+    assert "must equal the selection ranked set" in error
     assert "missing=['8929']" in error
     assert not workspace.exists()
 
@@ -1558,7 +1554,7 @@ def test_prepare_rejects_a_shortlist_over_a_different_review_set(
 @pytest.mark.parametrize(
     ("mutation", "expected"),
     [
-        ({"schema_version": 4}, "is schema_version 4"),
+        ({"schema_version": 4}, "unsupported shortlist schema_version"),
         ({"research_gate_contract_id": "research-gate-v2"}, "unsupported Research Gate contract"),
     ],
 )
@@ -1568,14 +1564,9 @@ def test_prepare_rejects_a_shortlist_without_a_supported_research_gate(
     mutation: dict[str, object],
     expected: str,
 ) -> None:
-    """Negative 4: only a judgment this build understands may bound research.
-
-    A v4 shortlist predates the Research Gate contract, so its entries carry no
-    judgment research can honour. It stays readable as history; it just cannot
-    authorize spending research capacity.
-    """
+    """Negative 4: only the current judgment contract may bound research."""
     selection = tmp_path / "selection.yaml"
-    _write_selection(selection, [_longlist_row("2331")])
+    _write_selection(selection, [_ranked_set_row("2331")])
     payload = research_gate_shortlist(
         shortlist_id=SHORTLIST_ID,
         selection_id=SELECTION_ID,
@@ -1612,7 +1603,7 @@ def test_prepare_rejects_an_unknown_shortlist_id(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     selection = tmp_path / "selection.yaml"
-    _write_selection(selection, [_longlist_row("2331")])
+    _write_selection(selection, [_ranked_set_row("2331")])
     _seed_gate(tmp_path, selection)
     workspace = tmp_path / "ws"
 
@@ -1731,7 +1722,7 @@ def test_prepare_admits_the_selected_subset_and_records_every_gate_decision(
     assert selection["research_gate_shortlist_id"] == SHORTLIST_ID
     assert selection["admissible_tickers"] == ["2331"]
     assert selection["shortlist_slots"] == 1
-    assert {row["ticker"]: row["research_gate_decision"] for row in selection["longlist"]} == {
+    assert {row["ticker"]: row["research_gate_decision"] for row in selection["ranked_set"]} == {
         "2331": "selected",
         "8929": "rejected",
     }
@@ -1845,7 +1836,7 @@ def test_declaring_holding_review_does_not_opt_a_workspace_out_of_the_gate(
     )
     selection_path = workspace / "selection.yaml"
     selection = safe_load(selection_path.read_text(encoding="utf-8"))
-    selection["longlist"] = [
+    selection["ranked_set"] = [
         {"rank": 1, "ticker": "8929", "sector": "サービス業", "portfolio_annotation": "held"}
     ]
     selection["shortlist"] = [{"ticker": "8929", "reason": "open holding review"}]
@@ -1936,11 +1927,11 @@ def test_thesis_scaffold_requires_primary_research_set_membership(
     assert not (workspace / "2331").exists()
 
 
-def test_prepare_rejects_noncanonical_review_set_ticker_before_workspace_write(
+def test_prepare_rejects_noncanonical_ranked_set_ticker_before_workspace_write(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     selection_output = tmp_path / "selection.yaml"
-    _write_selection(selection_output, [_longlist_row("../outside")])
+    _write_selection(selection_output, [_ranked_set_row("../outside")])
     workspace = tmp_path / "ws"
     code = opportunity_main(
         [
@@ -1959,7 +1950,7 @@ def test_prepare_rejects_noncanonical_review_set_ticker_before_workspace_write(
     )
 
     assert code == 3
-    assert "invalid ticker" in capsys.readouterr().err
+    assert "ranked set is invalid" in capsys.readouterr().err.lower()
     assert not workspace.exists()
     assert not (tmp_path / "outside").exists()
 
@@ -1973,7 +1964,7 @@ def test_primary_research_tickers_share_lineage_and_remain_isolated(
         [("2331", "2026-07-10", 1000.0, 1.0), ("8929", "2026-07-10", 750.0, 1.0)],
     )
     selection_output = tmp_path / "selection.yaml"
-    _write_selection(selection_output, [_longlist_row("2331"), _longlist_row("8929", rank=2)])
+    _write_selection(selection_output, [_ranked_set_row("2331"), _ranked_set_row("8929", rank=2)])
     workspace = tmp_path / "ws"
     assert (
         opportunity_main(
@@ -2132,7 +2123,7 @@ def test_thesis_scaffold_transfers_raw_screening_estimate(
     workspace = _prepared_workspace(
         tmp_path,
         sqlite_path,
-        longlist=[_longlist_row_with_estimate("2331")],
+        ranked_set=[_ranked_set_row_with_estimate("2331")],
     )
     code, payload = _run(
         [
@@ -2199,7 +2190,7 @@ def test_thesis_scaffold_transfers_raw_screening_estimate(
     assert regenerated["input_snapshot"]["screening_estimate"] == snapshot["screening_estimate"]
 
 
-def test_thesis_scaffold_reads_hash_bound_selection_not_editable_longlist_values(
+def test_thesis_scaffold_reads_hash_bound_selection_not_editable_ranked_set_values(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
@@ -2207,11 +2198,11 @@ def test_thesis_scaffold_reads_hash_bound_selection_not_editable_longlist_values
     workspace = _prepared_workspace(
         tmp_path,
         sqlite_path,
-        longlist=[_longlist_row_with_estimate("2331")],
+        ranked_set=[_ranked_set_row_with_estimate("2331")],
     )
     workspace_selection_path = workspace / "selection.yaml"
     editable = safe_load(workspace_selection_path.read_text(encoding="utf-8"))
-    editable_row = editable["longlist"][0]
+    editable_row = editable["ranked_set"][0]
     editable_row["expected_return_pct"] = 50.0
     editable_row["fair_value_anchor_yen"] = 9999.0
     editable_row["estimate_snapshot"]["expected_return"]["annual"] = 0.5
@@ -2254,7 +2245,7 @@ def test_thesis_scaffold_keeps_null_fair_value_without_inventing_anchor(
     workspace = _prepared_workspace(
         tmp_path,
         sqlite_path,
-        longlist=[_longlist_row_with_estimate("2331", sector_anchor=None, self_anchor=None)],
+        ranked_set=[_ranked_set_row_with_estimate("2331", sector_anchor=None, self_anchor=None)],
     )
     code, payload = _run(
         [
@@ -2284,8 +2275,8 @@ def test_thesis_scaffold_quantizes_screening_anchor_to_thesis_precision(
     workspace = _prepared_workspace(
         tmp_path,
         sqlite_path,
-        longlist=[
-            _longlist_row_with_estimate("2331", sector_anchor=1350.0, self_anchor=1300.123456)
+        ranked_set=[
+            _ranked_set_row_with_estimate("2331", sector_anchor=1350.0, self_anchor=1300.123456)
         ],
     )
 
@@ -2315,9 +2306,9 @@ def test_thesis_scaffold_quantizes_screening_anchor_to_thesis_precision(
 @pytest.mark.parametrize(
     "row",
     [
-        _longlist_row_with_estimate("2331", expected_return_unit="percent"),
+        _ranked_set_row_with_estimate("2331", expected_return_unit="percent"),
         {
-            **_longlist_row_with_estimate("2331"),
+            **_ranked_set_row_with_estimate("2331"),
             "expected_return_pct": 0.095,
         },
     ],
@@ -2329,7 +2320,7 @@ def test_thesis_scaffold_rejects_malformed_estimate_snapshot(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
-    workspace = _prepared_workspace(tmp_path, sqlite_path, longlist=[row])
+    workspace = _prepared_workspace(tmp_path, sqlite_path, ranked_set=[row])
     code = opportunity_main(
         [
             "thesis-scaffold",
@@ -2352,9 +2343,9 @@ def test_thesis_scaffold_converts_huge_numeric_overflow_to_data_error(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
-    row = _longlist_row_with_estimate("2331")
+    row = _ranked_set_row_with_estimate("2331")
     row["estimate_snapshot"]["expected_return"]["annual"] = 10**400
-    workspace = _prepared_workspace(tmp_path, sqlite_path, longlist=[row])
+    workspace = _prepared_workspace(tmp_path, sqlite_path, ranked_set=[row])
 
     code = opportunity_main(
         [
@@ -2389,8 +2380,8 @@ def test_thesis_scaffold_turns_a_contract_violating_estimate_into_a_data_error(
     sqlite_path = tmp_path / "market.sqlite"
     seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
     # Above the contract's ceiling for an annual expected return.
-    row = _longlist_row_with_estimate("2331", annual=10.0001)
-    workspace = _prepared_workspace(tmp_path, sqlite_path, longlist=[row])
+    row = _ranked_set_row_with_estimate("2331", annual=10.0001)
+    workspace = _prepared_workspace(tmp_path, sqlite_path, ranked_set=[row])
 
     code = opportunity_main(
         [
@@ -2424,7 +2415,7 @@ def test_prepare_rejects_selection_estimate_asof_mismatch(
     snapshot_asof: str,
 ) -> None:
     selection = tmp_path / "selection.yaml"
-    row = _longlist_row_with_estimate("2331")
+    row = _ranked_set_row_with_estimate("2331")
     row["estimate_snapshot"]["as_of"] = snapshot_asof
     _write_selection(selection, [row], selection_asof=selection_asof)
 
@@ -2448,13 +2439,13 @@ def test_prepare_rejects_selection_estimate_asof_mismatch(
     assert code == 3
 
 
-def test_prepare_rejects_duplicate_review_set_ticker(
+def test_prepare_rejects_duplicate_ranked_set_ticker(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     selection = tmp_path / "selection.yaml"
     _write_selection(
         selection,
-        [_longlist_row("2331", 1), _longlist_row("2331", 2)],
+        [_ranked_set_row("2331", 1), _ranked_set_row("2331", 2)],
     )
     code = opportunity_main(
         [
@@ -2909,7 +2900,7 @@ def test_promote_rejects_canonical_ledger_append_head_drift(
             """
             INSERT INTO ledger_event(
                 append_seq, event_id, occurred_at, same_instant_order,
-                event_type, ticker, proposal_id, payload
+                event_type, ticker, decision_reference, payload
             )
             SELECT max(append_seq) + 1, 'drift-test', '2099-01-01T00:00:00+00:00',
                    0, event_type, ticker, NULL, payload
@@ -3176,8 +3167,8 @@ def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
     workspace = _prepared_workspace(
         tmp_path,
         sqlite_path,
-        longlist=[
-            _longlist_row_with_estimate(
+        ranked_set=[
+            _ranked_set_row_with_estimate(
                 "2331",
                 sector_anchor=1507.0856,
                 self_anchor=1484.5,

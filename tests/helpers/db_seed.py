@@ -50,7 +50,7 @@ def seed_ledger(path: Path, document: PortfolioLedgerDocument) -> None:
             """
             INSERT INTO ledger_event(
                 append_seq, event_id, occurred_at, same_instant_order,
-                event_type, ticker, proposal_id, payload
+                event_type, ticker, decision_reference, payload
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             _event_values(1, document.events[0], 0),

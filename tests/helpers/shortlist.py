@@ -78,13 +78,10 @@ def shortlist_payload(
     published_at: str | None = None,
     profile: str = "default",
     macro_context_id: str | None = None,
-    attention_policy_id: str = "value-carry-only-v1",
-    attention_policy_hash: str = "a" * 64,
-    attention_policy_parameters: Mapping[str, Any] | None = None,
     review_basis_shortlist_id: str | None = None,
     research_gate_contract_id: str = RESEARCH_GATE_CONTRACT_ID,
     entries: Sequence[Mapping[str, Any]] | None = None,
-    schema_version: int = 5,
+    schema_version: int = 6,
     **extra: Any,
 ) -> dict[str, Any]:
     """A publishable shortlist document at the current schema version."""
@@ -99,11 +96,6 @@ def shortlist_payload(
         "published_at": published_at or f"{as_of}T14:00:00+09:00",
         "profile": profile,
         "macro_context_id": macro_context_id,
-        "attention_policy_id": attention_policy_id,
-        "attention_policy_hash": attention_policy_hash,
-        "attention_policy_parameters": dict(
-            attention_policy_parameters or {"value_carry_limit": 2}
-        ),
         "review_basis_shortlist_id": review_basis_shortlist_id,
         "research_gate_contract_id": research_gate_contract_id,
         "entries": [dict(entry) for entry in (entries or [selected_entry()])],
@@ -124,9 +116,7 @@ def shortlist_from_selection(
 ) -> dict[str, Any]:
     """The draft an operator writes against one published selection.
 
-    Six fields are copied from the selection rather than chosen: the publisher
-    refuses a draft whose attention policy or review basis is not the one the
-    selection it names was produced under.
+    Source identity and review basis are copied from the selection.
     """
 
     block = selection["selection"]
@@ -139,9 +129,6 @@ def shortlist_from_selection(
         published_at=published_at or f"{as_of}T15:00:00+09:00",
         profile=str(block["profile"]),
         macro_context_id=macro_context_id,
-        attention_policy_id=str(selection["attention_policy_id"]),
-        attention_policy_hash=str(selection["attention_policy_hash"]),
-        attention_policy_parameters=selection["attention_policy_parameters"],
         review_basis_shortlist_id=selection["review_basis"]["judged_through_shortlist_id"],
         entries=entries,
     )

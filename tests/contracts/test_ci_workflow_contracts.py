@@ -75,10 +75,8 @@ def test_every_python_gate_shares_the_one_billed_runner() -> None:
         "Import contracts",
         "Drift gates",
         "Tests with coverage",
-        "Brand asset contract",
         "Bandit",
         "Dependency audit",
-        "Build package",
     } <= names
 
 

@@ -58,33 +58,20 @@ def _policy_patterns(root: Path) -> tuple[re.Pattern[str], ...]:
                     rf"(?:月|毎月)\s*{man_yen}万(?![円株件人]))"
                 ),
             )
-    starter = policy["starter_band"]
-    # bucket 上限は concentration と同じ「N%」の形なので同じ pattern に合流させる。帯の
-    # 両端は「N% に届かない / N 以上」のように単位を伴わずにも書かれるので、半角と全角の
-    # パーセント記号に加えて日本語の比較表現も拾う。
     concentrations = (
         risk["max_ticker_concentration_pct"],
         risk["max_sector_concentration_pct"],
         risk["max_common_factor_concentration_pct"],
-        starter["max_bucket_pct"],
     )
     concentration_pattern = "|".join(
         re.escape(_number(value)) for value in dict.fromkeys(concentrations)
     )
-    band_pattern = "|".join(
-        # `7.0 以上` と `7 以上` は同じ帯の下限。整数側だけを拾うと片方の書き方が抜ける。
-        rf"{re.escape(_number(starter[key]))}(?:\.0)?"
-        for key in ("required_return_floor_pct", "required_return_ceiling_pct")
-    )
-    order_notional = _yen_patterns(starter["max_order_notional_yen"])
     board_lot = re.escape(_number(order["board_lot"]))
     dry_powder = re.escape(_number(cash["dry_powder_warning_pct"]))
     return (
         re.compile(rf"(?<!\d){monthly_pattern}(?!\d)"),
         *japanese_monthly_patterns,
         re.compile(rf"(?<![\d.])(?:{concentration_pattern})(?:\.0)?\s*%"),
-        re.compile(rf"(?<![\d.])(?:{band_pattern})\s*(?:%|％|以上|以下|未満)"),
-        *order_notional,
         re.compile(rf"\b{board_lot}\s*株"),
         re.compile(rf"board[ _-]?lot.{{0,30}}\b{board_lot}\b", re.IGNORECASE),
         re.compile(rf"dry[ _-]?powder.{{0,30}}\b{dry_powder}(?:\.0)?\s*%", re.IGNORECASE),

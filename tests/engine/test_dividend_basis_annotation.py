@@ -48,11 +48,10 @@ def _payload(candidates: list[dict[str, object]]) -> dict[str, object]:
         candidates=tuple(candidate_record_from_mapping(item) for item in candidates),
         macro_context=None,
         rules=load_screening_rules(DEFAULT_RULES_PATH),
-        top=5,
         profile="balanced",
         candidates_ref="test.yaml",
         macro_context_ref=None,
-        longlist_top=5,
+        review_cap=5,
     )
 
 
@@ -71,7 +70,7 @@ def test_the_forecast_and_the_last_actual_appear_together() -> None:
         ]
     )
 
-    row = payload["longlist"][0]
+    row = payload["ranked_set"][0]
 
     assert row["dividend_basis"] == {
         "annual_yield": 0.1572,
@@ -99,7 +98,7 @@ def test_an_unresolvable_share_basis_stays_null_rather_than_reading_as_no_divide
         ]
     )
 
-    row = payload["longlist"][0]
+    row = payload["ranked_set"][0]
 
     assert row["dividend_basis"]["dps_actual_annual"] is None
     assert row["dividend_basis"]["split_factor"] == 5.0
@@ -125,6 +124,6 @@ def test_the_annotation_does_not_move_the_rank() -> None:
         dividend_basis="forecast_annual",
     )
 
-    ranked = [row["ticker"] for row in _payload([spiked, steady])["longlist"]]
+    ranked = [row["ticker"] for row in _payload([spiked, steady])["ranked_set"]]
 
     assert ranked == ["2222", "1111"]

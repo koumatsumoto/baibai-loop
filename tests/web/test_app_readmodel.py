@@ -447,7 +447,7 @@ def test_screening_checks_calibration_against_selected_fallback_run() -> None:
             "profile": "value",
             "macro_context_id": None,
             "created_at": "2026-07-21T13:00:00+09:00",
-            "payload": {"longlist": []},
+            "payload": {"ranked_set": []},
         }
     ]
     rerun = replace(_run(), run_revision_id="run-revision-rerun-without-selection")
@@ -694,69 +694,18 @@ def test_holding_keeps_ledger_price_when_market_close_is_not_newer() -> None:
     assert view.total_capital_yen == 2000
 
 
-def _v2_narrative() -> dict[str, str]:
-    """RR block と rank を持たない、schema v3 以前の発行済み entry。"""
-    return {
-        "ploss": "中低",
-        "why": "受注端境",
-        "temporary": "翌期に戻る",
-        "structural": "毀損はない",
-        "survive": "net cashで耐える",
-        "unlock": "還元強化",
-        "counter": "構造鈍化",
-        "research": "受注残を確認",
-        "value": "FV乖離が大きい",
-        "prov": "深掘り",
-    }
-
-
-def test_shortlist_view_keeps_reading_entries_published_before_the_risk_reward_block() -> None:
-    # What `read_api` hands the builder: a v2 row after the legacy projection, which
-    # stamps a provenance status onto an entry that has no machine snapshot to infer
-    # a lane from.
-    view = _shortlist_view(
-        {
-            "schema_version": 2,
-            "shortlist_id": "shortlist-20260717-legacy",
-            "selection_id": "selection-legacy",
-            "run_revision_id": "runrev-legacy",
-            "as_of": "2026-07-17",
-            "published_at": "2026-07-17T15:00:00+09:00",
-            "attention_provenance_status": "unresolved",
-            "entries": [
-                {
-                    "ticker": "2331",
-                    "decision": "selected",
-                    "reason": "深掘りへ",
-                    "narrative": _v2_narrative(),
-                    "lane_provenance_status": "unresolved",
-                }
-            ],
-        }
-    )
-
-    assert view.unreadable_entries == 0
-    entry = view.entries[0]
-    assert entry.rank is None
-    assert entry.narrative is not None
-    assert entry.narrative.why == "受注端境"
-    assert entry.narrative.upside is None
-    assert entry.narrative.catalyst_date is None
-
-
-def test_shortlist_view_reads_the_burned_machine_snapshot_as_a_longlist_row() -> None:
+def test_shortlist_view_reads_the_burned_machine_snapshot_as_a_ranked_set_row() -> None:
     # After the bound run is pruned the selection is gone, so this is the only place
     # the review surface can read the coordinates from. It has to arrive in the same
     # shape the live join produces, or the surface needs a second code path.
     view = _shortlist_view(
         {
-            "schema_version": 5,
+            "schema_version": 6,
             "shortlist_id": "shortlist-20260731-burned",
             "selection_id": "selection-burned",
             "run_revision_id": "runrev-burned",
             "as_of": "2026-07-31",
             "published_at": "2026-07-31T18:00:00+09:00",
-            "attention_provenance_status": "exact",
             "entries": [
                 {
                     "ticker": "2331",
@@ -765,8 +714,6 @@ def test_shortlist_view_reads_the_burned_machine_snapshot_as_a_longlist_row() ->
                     "reject_class": "price_already_converged",
                     "machine_snapshot": {
                         "rank": 3,
-                        "lane_provenance_status": "exact",
-                        "opportunity_lane_id": "value-carry",
                         "name": "ALSOK",
                         "market_price_yen": 1000.0,
                         "fair_value_anchor_yen": 1250.0,
@@ -798,34 +745,10 @@ def test_shortlist_view_reads_the_burned_machine_snapshot_as_a_longlist_row() ->
     assert snapshot.event_warnings == ["stale_financials"]
 
 
-def test_shortlist_view_leaves_the_snapshot_empty_when_the_judgment_predates_it() -> None:
-    view = _shortlist_view(
-        {
-            "schema_version": 2,
-            "shortlist_id": "shortlist-20260717-legacy",
-            "selection_id": "selection-legacy",
-            "run_revision_id": "runrev-legacy",
-            "as_of": "2026-07-17",
-            "published_at": "2026-07-17T18:00:00+09:00",
-            "attention_provenance_status": "unresolved",
-            "entries": [
-                {
-                    "ticker": "2331",
-                    "decision": "rejected",
-                    "reason": "見送り",
-                    "lane_provenance_status": "unresolved",
-                },
-            ],
-        }
-    )
-
-    assert view.entries[0].machine_snapshot is None
-
-
 def test_shortlist_view_counts_unreadable_entries_instead_of_dropping_the_surface() -> None:
     view = _shortlist_view(
         {
-            "schema_version": 5,
+            "schema_version": 6,
             "shortlist_id": "shortlist-20260717-mixed",
             "selection_id": "selection-mixed",
             "run_revision_id": "runrev-mixed",
@@ -842,7 +765,7 @@ def test_shortlist_view_counts_unreadable_entries_instead_of_dropping_the_surfac
     assert view.unreadable_entries == 1
 
 
-def test_fair_value_reaches_only_longlist_members_and_uses_the_newest_selection() -> None:
+def test_fair_value_reaches_only_ranked_set_members_and_uses_the_newest_selection() -> None:
     older = _machine_selection_view(
         {
             "selection_id": "selection-old",
@@ -850,7 +773,7 @@ def test_fair_value_reaches_only_longlist_members_and_uses_the_newest_selection(
             "profile": "value",
             "macro_context_id": None,
             "created_at": "2026-07-21T02:00:00+09:00",
-            "payload": {"longlist": [{"ticker": "4432", "fair_value_anchor_yen": 5.0}]},
+            "payload": {"ranked_set": [{"ticker": "4432", "fair_value_anchor_yen": 5.0}]},
         }
     )
     newer = _machine_selection_view(
@@ -861,7 +784,7 @@ def test_fair_value_reaches_only_longlist_members_and_uses_the_newest_selection(
             "macro_context_id": None,
             "created_at": "2026-07-21T13:00:00+09:00",
             "payload": {
-                "longlist": [
+                "ranked_set": [
                     {
                         "ticker": "4432",
                         "rank": 1,
@@ -876,8 +799,8 @@ def test_fair_value_reaches_only_longlist_members_and_uses_the_newest_selection(
     )
     fair_value = _fair_value_by_ticker([older, newer])
 
-    assert newer.longlist[0].fair_value_gap_pct == 25.0
-    assert newer.longlist[0].event_warnings == ["earnings_scheduled"]
+    assert newer.ranked_set[0].fair_value_gap_pct == 25.0
+    assert newer.ranked_set[0].event_warnings == ["earnings_scheduled"]
 
     member = _candidate_row_view(
         {"ticker": "4432"}, held=set(), reserved=set(), researched=set(), fair_value=fair_value
@@ -901,7 +824,7 @@ def test_security_detail_shows_the_same_fv_anchor_as_the_stocks_list() -> None:
             "macro_context_id": None,
             "created_at": "2026-07-21T13:00:00+09:00",
             "payload": {
-                "longlist": [
+                "ranked_set": [
                     {"ticker": "4432", "market_price_yen": 10.0, "fair_value_anchor_yen": 12.5}
                 ]
             },
@@ -938,7 +861,7 @@ def test_both_screening_surfaces_fall_back_to_the_same_run() -> None:
             "macro_context_id": None,
             "created_at": "2026-07-21T13:00:00+09:00",
             "payload": {
-                "longlist": [
+                "ranked_set": [
                     {"ticker": "4432", "market_price_yen": 10.0, "fair_value_anchor_yen": 12.5}
                 ]
             },
@@ -994,7 +917,6 @@ class StubDeltaCandidates:
             {
                 "selection_id": f"selection-{run_revision_id}",
                 "run_revision_id": run_revision_id,
-                "publication_kind": "machine",
                 "payload": payload,
             }
         ]
@@ -1063,10 +985,10 @@ def _delta_run(*, asof: date, revision: str, rules_ref: str | None = "rules-a") 
 
 
 def _pool(*tickers: tuple[str, float | None]) -> dict[str, list[dict[str, object]]]:
-    """Build a longlist the way the selection writes it: percent, and no sector."""
+    """Build a ranked_set the way the selection writes it: percent, and no sector."""
 
     return {
-        "longlist": [
+        "ranked_set": [
             {
                 "ticker": ticker,
                 "name": ticker,
@@ -1116,7 +1038,7 @@ def test_daily_delta_compares_the_machine_pool_not_the_evaluated_universe() -> N
         candidates, StubLedger(None), StubResearch([]), market, StubDeltaMacro({})
     )
 
-    assert view.pool == "longlist"
+    assert view.pool == "ranked_set"
     assert [item.ticker for item in view.entered] == ["1111"]
     assert view.entered[0].disclosed_since_previous is True
     assert view.entered[0].er_annual_pct == 8.0
@@ -1126,23 +1048,23 @@ def test_daily_delta_compares_the_machine_pool_not_the_evaluated_universe() -> N
 
 
 def test_daily_delta_reads_the_two_pools_estimate_units_as_the_same_quantity() -> None:
-    # The longlist states percent and a recommendation states the ratio. Reading one
+    # The ranked_set states percent and a recommendation states the ratio. Reading one
     # for the other would report an 8% estimate as 800%, or as 0.08%.
-    longlist = _delta_pair(_pool(("1111", 0.08)), _pool(("3333", 0.02)))
+    ranked_set = _delta_pair(_pool(("1111", 0.08)), _pool(("3333", 0.02)))
     recommendations = _delta_pair(
         _recommendation_pool(("1111", 0.08)), _recommendation_pool(("3333", 0.02))
     )
 
-    from_longlist = build_daily_delta(
-        longlist, StubLedger(None), StubResearch([]), StubDeltaMarket(), StubDeltaMacro({})
+    from_ranked_set = build_daily_delta(
+        ranked_set, StubLedger(None), StubResearch([]), StubDeltaMarket(), StubDeltaMacro({})
     )
     from_recommendations = build_daily_delta(
         recommendations, StubLedger(None), StubResearch([]), StubDeltaMarket(), StubDeltaMacro({})
     )
 
-    assert from_longlist.pool == "longlist"
+    assert from_ranked_set.pool == "ranked_set"
     assert from_recommendations.pool == "recommendations"
-    assert from_longlist.entered[0].er_annual_pct == 8.0
+    assert from_ranked_set.entered[0].er_annual_pct == 8.0
     assert from_recommendations.entered[0].er_annual_pct == 8.0
 
 
@@ -1150,8 +1072,8 @@ def test_daily_delta_names_the_estimate_gap_when_the_pool_carries_none() -> None
     # A pool this reader cannot take an estimate from produces no mover, and an empty
     # mover list is indistinguishable from a quiet day unless the gap is named.
     candidates = _delta_pair(
-        {"longlist": [{"ticker": "1111", "name": "1111"}, {"ticker": "2222", "name": "2222"}]},
-        {"longlist": [{"ticker": "2222", "name": "2222"}, {"ticker": "3333", "name": "3333"}]},
+        {"ranked_set": [{"ticker": "1111", "name": "1111"}, {"ticker": "2222", "name": "2222"}]},
+        {"ranked_set": [{"ticker": "2222", "name": "2222"}, {"ticker": "3333", "name": "3333"}]},
     )
 
     view = build_daily_delta(

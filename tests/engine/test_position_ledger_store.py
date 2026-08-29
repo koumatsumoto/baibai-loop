@@ -129,46 +129,19 @@ def test_stale_apply_and_event_rewrite_are_no_write(tmp_path: Path) -> None:
     assert service.load() == source
 
 
-def test_proposal_id_is_relational_only_for_db_native_reference(tmp_path: Path) -> None:
+def test_decision_reference_is_indexed_without_domain_specific_foreign_key(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     _create_schema(path)
     source = _store_fixture()
     service = LedgerStoreService(path)
     seed_ledger(path, source)
-    with sqlite3.connect(path) as connection:
-        connection.execute(
-            """
-            INSERT INTO thesis(
-                thesis_id, ticker, as_of, recommendation, published_at,
-                supersedes_id, payload
-            ) VALUES ('thesis-proposal-test', '2331', '2026-07-19', 'buy',
-                      '2026-07-19T09:00:00+09:00', NULL, '{}')
-            """
-        )
-        connection.execute(
-            """
-            INSERT INTO thesis_review(review_id, thesis_id, reviewed_at, payload)
-            VALUES ('review-proposal-test', 'thesis-proposal-test',
-                    '2026-07-19T09:00:00+09:00', '{}')
-            """
-        )
-        connection.execute(
-            """
-            INSERT INTO proposal(
-                proposal_id, ticker, thesis_id, review_id, created_at,
-                status, decided_at, payload
-            ) VALUES ('prop-20260719-2331-1', '2331', 'thesis-proposal-test',
-                      'review-proposal-test', '2026-07-19T09:00:00+09:00',
-                      'approved', '2026-07-19T09:01:00+09:00', '{}')
-            """
-        )
     template = next(item for item in source.events if isinstance(item, ReservationEvent))
     native = template.model_copy(
         update={
-            "event_id": "human-open-proposal",
-            "reservation_id": "reservation-proposal",
-            "order_id": "order-proposal",
-            "decision_reference": "prop-20260719-2331-1",
+            "event_id": "human-open-assessment",
+            "reservation_id": "reservation-assessment",
+            "order_id": "order-assessment",
+            "decision_reference": "bargain-assessment-20260719-2331",
             "occurred_at": source.as_of,
             "expires_at": source.as_of + timedelta(days=1),
         }
@@ -183,16 +156,16 @@ def test_proposal_id_is_relational_only_for_db_native_reference(tmp_path: Path) 
     with sqlite3.connect(path) as connection:
         assert (
             connection.execute(
-                "SELECT proposal_id FROM ledger_event WHERE event_id = ?",
+                "SELECT decision_reference FROM ledger_event WHERE event_id = ?",
                 (native.event_id,),
             ).fetchone()[0]
-            == "prop-20260719-2331-1"
+            == "bargain-assessment-20260719-2331"
         )
         assert (
             connection.execute(
                 "SELECT count(*) FROM ledger_event "
                 "WHERE json_extract(payload, '$.decision_reference') LIKE 'https://%' "
-                "AND proposal_id IS NOT NULL"
+                "AND decision_reference IS NULL"
             ).fetchone()[0]
             == 0
         )

@@ -10,7 +10,7 @@ _BEHAVIOR_LEGACY = re.compile(
     r"ai-value-bargain-selection|financial-pro-review|"
     r"durability_gate|execution lifecycle|"
     # Retired domain vocabulary (doctrine #vocabulary is the naming authority):
-    # the judgment artifact is the thesis, the pre-cap rank pool is the longlist,
+    # the judgment artifact is the thesis and the review input is the ranked set,
     # and the Research Gate output is the shortlist. The Git method tree is method/, so
     # reject any records/ path.
     r"decision.packet|packet.scaffold|packet.draft|--packet-id|research_packet|"
@@ -99,6 +99,8 @@ _DOMAIN_IDENTIFIER_ADAPTERS = {
     # historical evidence into the canonical vocabulary; it does not emit the retired
     # identifiers on a new-write surface.
     Path("engine/src/baibai_engine/read_api/shortlist.py"),
+    # One-shot operator cutover reads the retired payload and emits only the current schema.
+    Path("tools/migrations/cutover_application_v17.py"),
 }
 
 

@@ -11,7 +11,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from baibai_engine.foundation.review_set import resolve_review_set_rows
+from baibai_engine.foundation.ranked_set import resolve_ranked_set_rows
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.screening.run_store import ScreeningRunReader
@@ -59,25 +59,19 @@ def publish_shortlist(
         run = reader.get_run(selection.run_revision_id)
         if run is None:  # pragma: no cover - run-store FK invariant
             raise ShortlistConflictError(f"source run is unavailable: {selection.run_revision_id}")
-        review_tickers, review_rows = resolve_review_set_rows(selection.payload)
+        ranked_tickers, ranked_rows = resolve_ranked_set_rows(selection.payload)
         review_basis = selection.payload.get("review_basis")
         if not isinstance(review_basis, Mapping):
             raise ShortlistConflictError("source selection has no Review Basis")
-        attention_parameters = selection.payload.get("attention_policy_parameters")
-        if not isinstance(attention_parameters, Mapping):
-            raise ShortlistConflictError("source selection has invalid Attention parameters")
         binding = SelectionBinding(
             selection_id=selection.selection_id,
             run_revision_id=selection.run_revision_id,
             as_of=date.fromisoformat(selection.as_of_date),
             profile=selection.profile,
             macro_context_id=selection.macro_context_id,
-            review_tickers=review_tickers,
+            ranked_tickers=ranked_tickers,
             candidate_er=_machine_estimates(run.candidates),
-            candidate_machine_rows=review_rows,
-            attention_policy_id=str(selection.payload.get("attention_policy_id", "")),
-            attention_policy_hash=str(selection.payload.get("attention_policy_hash", "")),
-            attention_policy_parameters=dict(attention_parameters),
+            candidate_machine_rows=ranked_rows,
             review_basis_shortlist_id=(
                 str(review_basis["judged_through_shortlist_id"])
                 if review_basis.get("judged_through_shortlist_id") is not None

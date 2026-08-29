@@ -62,7 +62,7 @@ _COVERAGE_INCOMPLETE_MARKER = "SQLite cache coverage incomplete"
 # (macro / prune) step failed afterwards.
 _EXIT_DEFERRED_FAILURE = 3
 # The Research Gate input population size the opportunity path uses.
-_SELECT_LONGLIST_TOP = 20
+_SELECT_REVIEW_CAP = 20
 _EDINET_QUARANTINE_RE = re.compile(
     r"\bquarantined_events=(?P<events>\d+)\s+"
     r"quarantined_tickers=(?P<tickers>\d+)\s+"
@@ -252,7 +252,7 @@ def _delta_ticker_labels(rows: object) -> list[str]:
 
 
 def _read_daily_delta(path: Path, notice: _Notice) -> None:
-    """Carry the day's longlist entries and exits into the notice.
+    """Carry the day's ranked-set entries and exits into the notice.
 
     The notification is the only channel that reaches a reader without being
     opened, so the names that moved belong in it. ``delta_measured`` separates a
@@ -475,7 +475,7 @@ class _Notice:
 
     The as-of it ran for, whether the business-day gate skipped it, the first
     fatal or deferred failure stage, and the names that entered or left the
-    longlist. The exit code carries the outcome itself.
+    ranked set. The exit code carries the outcome itself.
     """
 
     asof: str = ""
@@ -607,17 +607,6 @@ def _execute_daily_batch(
         echo_stdout_prefixes=("EDINET extraction summary: ",),
     )
     _parse_edinet_quarantine_metrics(extract_result.stdout)
-    # The buyback authorisation state rides the same document list, but reads a
-    # different form into a different table. It runs after the metric extraction so a
-    # failure here never costs that extraction its work.
-    _run_step(
-        runner,
-        name="refresh-buyback-reports",
-        argv=(_ENGINE, "screening", "refresh-buyback-reports", "--asof", asof_arg),
-        cwd=root,
-        echo_stdout_prefixes=("refresh-buyback-reports: ",),
-    )
-
     _run_step(runner, name="verify-cache-coverage(recheck)", argv=verify_argv, cwd=root)
 
     run_view = _run_screening_run(runner, root=root, asof_arg=asof_arg)
@@ -630,11 +619,11 @@ def _execute_daily_batch(
         asof_arg,
         "--run-revision-id",
         run_view.run_revision_id,
-        # The longlist is the review input population, and the daily delta compares
+        # The ranked set is the review input population, and the daily delta compares
         # it across runs. Publishing it every day keeps that comparison on the pool a
         # human would actually review instead of the cap-applied top-N.
-        "--longlist-top",
-        str(_SELECT_LONGLIST_TOP),
+        "--review-cap",
+        str(_SELECT_REVIEW_CAP),
     ]
     try:
         previous_revision = previous_run_revision_id(root / _RUNS_DB_RELPATH, target)

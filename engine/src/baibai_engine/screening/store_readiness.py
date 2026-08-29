@@ -6,8 +6,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.market.sqlite.migrations import LATEST_VERSION
-from baibai_engine.market.sqlite.schema import connect_current
+from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION, connect_current
 
 
 def unreadable_store_reason(sqlite_path: Path) -> str | None:
@@ -36,11 +35,11 @@ def unreadable_store_reason(sqlite_path: Path) -> str | None:
     except sqlite3.Error as exc:
         version = f"unreadable ({type(exc).__name__})"
     detail = (
-        "migrate it by opening it with a write path such as `bootstrap-cache`"
-        if version != str(LATEST_VERSION)
+        "replace it with a current local build"
+        if version != str(SQLITE_SCHEMA_VERSION)
         else "the schema version matches, so check the file for corruption or a lock"
     )
     return (
         f"SQLite store {sqlite_path} cannot be read at the current schema "
-        f"(user_version {version}, expected {LATEST_VERSION}); {detail}"
+        f"(user_version {version}, expected {SQLITE_SCHEMA_VERSION}); {detail}"
     )

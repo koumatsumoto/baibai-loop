@@ -124,9 +124,7 @@ def screening_selection_payloads(
             "as_of_date": item.as_of_date,
             "profile": item.profile,
             "macro_context_id": item.macro_context_id,
-            "publication_kind": item.publication_kind,
             "created_at": item.created_at,
-            "source_selection_id": item.source_selection_id,
             "payload": item.payload,
             "entries": list(item.entries),
         }

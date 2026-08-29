@@ -4,7 +4,7 @@ The scorecard separates supply (how much expected return is available) from brea
 (how many distinct tickers and economic clusters carry it).  It is a read-only
 diagnostic, not a screening signal, regime label, or selection input.
 
-Missing panel months, retained runs, longlist history, and shortlist judgments are
+Missing panel months, retained runs, ranked-set history, and shortlist judgments are
 reported as unmeasured.  A missing observation is never imputed as zero.
 """
 
@@ -27,11 +27,10 @@ from typing import TextIO
 import yaml
 from tools.experiments.measure_signal_cohorts import (
     SignalCohortMeasurementError,
-    fixed_generation,
+    current_snapshot,
     require_single_rules_hash,
 )
 
-from baibai_engine.screening.calibration.lake import FixedCalibrationBundle
 from baibai_engine.screening.calibration.store import published_cohorts, read_panel
 
 DEFAULT_CALIBRATION_DIR = Path("stores/screening/calibration")
@@ -168,7 +167,7 @@ def _breadth_snapshot(
 
 
 def _panel_history(
-    calibration_dir: Path, bundle: FixedCalibrationBundle, *, hurdle: float
+    calibration_dir: Path, market_snapshot: Path, *, hurdle: float
 ) -> tuple[
     list[tuple[str, float]], list[tuple[str, int]], list[BreadthSnapshot], list[dict[str, str]]
 ]:
@@ -176,7 +175,7 @@ def _panel_history(
     counts: list[tuple[str, int]] = []
     breadth: list[BreadthSnapshot] = []
     degraded: list[dict[str, str]] = []
-    asofs = published_cohorts(calibration_dir, bundle=bundle)
+    asofs = published_cohorts(calibration_dir)
     if not asofs:
         raise SupplyContextError(f"no panel rows under {calibration_dir}")
     previous_asof: date | None = None
@@ -192,9 +191,7 @@ def _panel_history(
         previous_asof = asof
         ranked: list[tuple[int, float]] = []
         clearing = 0
-        rows: list[dict[str, object]] = [
-            asdict(row) for row in read_panel(calibration_dir, asof, bundle=bundle)
-        ]
+        rows: list[dict[str, object]] = [asdict(row) for row in read_panel(calibration_dir, asof)]
         for row in rows:
             estimate = _optional_float(row.get("er_annual"))
             if estimate is None:
@@ -215,26 +212,26 @@ def _panel_history(
             top5.append((asof_text, fmean(estimate for _, estimate in ranked[:SUPPLY_TOP_N])))
         counts.append((asof_text, clearing))
         population_count = sum(row.get("in_population") is True for row in rows)
-        snapshot: BreadthSnapshot | None
+        breadth_snapshot: BreadthSnapshot | None
         breadth_reason: str | None
         if population_count < MIN_PANEL_POPULATION:
-            snapshot = None
+            breadth_snapshot = None
             breadth_reason = f"in_population_below_{MIN_PANEL_POPULATION}"
         else:
-            snapshot, breadth_reason = _breadth_snapshot(asof, rows)
-        if snapshot is None:
+            breadth_snapshot, breadth_reason = _breadth_snapshot(asof, rows)
+        if breadth_snapshot is None:
             degraded.append({"as_of": asof_text, "reason": breadth_reason or "breadth_unmeasured"})
         else:
-            breadth.append(snapshot)
+            breadth.append(breadth_snapshot)
     if not top5:
         raise SupplyContextError("no panel carries a selection ranking")
     return top5, counts, breadth, degraded
 
 
-def _selection_longlist(payload: object) -> list[dict[str, object]]:
+def _selection_ranked_set(payload: object) -> list[dict[str, object]]:
     if not isinstance(payload, Mapping):
         return []
-    raw = payload.get("longlist")
+    raw = payload.get("ranked_set")
     if not isinstance(raw, list) or not all(isinstance(item, Mapping) for item in raw):
         return []
     return [dict(item) for item in raw]
@@ -244,10 +241,10 @@ def _candidate_breadth_rows(
     connection: sqlite3.Connection,
     *,
     run_revision_id: str,
-    longlist: Sequence[Mapping[str, object]],
+    ranked_set: Sequence[Mapping[str, object]],
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    for item in longlist:
+    for item in ranked_set:
         ticker = str(item.get("ticker") or "")
         rank = _optional_rank(item.get("rank"))
         if not ticker or rank is None or rank > BREADTH_TOP_N:
@@ -298,9 +295,9 @@ def _current_selection(runs_db: Path, *, selection_id: str | None) -> CurrentSel
             ).fetchone()
         if row is None:
             raise SupplyContextError("run store carries no matching selection")
-        longlist = _selection_longlist(json.loads(str(row["payload"])))
+        ranked_set = _selection_ranked_set(json.loads(str(row["payload"])))
         estimates: list[float | None] = []
-        for item in longlist[:SUPPLY_TOP_N]:
+        for item in ranked_set[:SUPPLY_TOP_N]:
             candidate = connection.execute(
                 "SELECT er_annual FROM screening_candidate "
                 "WHERE run_revision_id = ? AND ticker = ?",
@@ -317,7 +314,7 @@ def _current_selection(runs_db: Path, *, selection_id: str | None) -> CurrentSel
             _candidate_breadth_rows(
                 connection,
                 run_revision_id=str(row["run_revision_id"]),
-                longlist=longlist,
+                ranked_set=ranked_set,
             ),
         )
         return CurrentSelection(
@@ -347,10 +344,10 @@ def _previous_top20_from_runs(
         connection.close()
     if row is None:
         return None
-    longlist = _selection_longlist(json.loads(str(row["payload"])))
+    ranked_set = _selection_ranked_set(json.loads(str(row["payload"])))
     ranked = {
         rank: str(item.get("ticker") or "")
-        for item in longlist
+        for item in ranked_set
         if (rank := _optional_rank(item.get("rank"))) is not None and rank <= BREADTH_TOP_N
     }
     if set(ranked) != set(range(1, BREADTH_TOP_N + 1)) or not all(ranked.values()):
@@ -369,19 +366,19 @@ def _previous_top20_from_history(
             file_asof = date.fromisoformat(path.stem)
             payload = yaml.safe_load(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, ValueError, yaml.YAMLError) as error:
-            raise SupplyContextError(f"longlist history is unreadable: {path}") from error
+            raise SupplyContextError(f"ranked-set history is unreadable: {path}") from error
         if not isinstance(payload, Mapping) or str(payload.get("as_of")) != path.stem:
-            raise SupplyContextError(f"longlist history filename and as_of differ: {path}")
+            raise SupplyContextError(f"ranked-set history filename and as_of differ: {path}")
         if file_asof < before_asof:
             records.append((file_asof, payload))
     for record_asof, record in reversed(records):
-        if record.get("kind") != "daily-longlist-membership" or record.get("schema_version") != 1:
-            raise SupplyContextError("longlist history has an unsupported contract")
+        if record.get("kind") != "daily-ranked-set-membership" or record.get("schema_version") != 1:
+            raise SupplyContextError("ranked-set history has an unsupported contract")
         selection_status = record.get("selection_status")
         if selection_status == "selection_missing":
             continue
         if selection_status != "available":
-            raise SupplyContextError("longlist history has an invalid selection status")
+            raise SupplyContextError("ranked-set history has an invalid selection status")
         members = record.get("members")
         if not isinstance(members, list) or not all(isinstance(item, Mapping) for item in members):
             continue
@@ -594,16 +591,16 @@ def build_supply_context(
     calibration_dir: Path,
     runs_db: Path,
     application_db: Path = DEFAULT_APPLICATION_DB,
-    longlist_history_dir: Path | None = None,
+    ranked_set_history_dir: Path | None = None,
     selection_id: str | None,
     hurdle: float,
 ) -> dict[str, object]:
-    generation = fixed_generation(calibration_dir)
+    snapshot = current_snapshot(calibration_dir)
     top5_history, count_history, panel_breadth, panel_degraded = _panel_history(
-        calibration_dir, generation, hurdle=hurdle
+        calibration_dir, snapshot, hurdle=hurdle
     )
     current = _current_selection(runs_db, selection_id=selection_id)
-    rules_hash = require_single_rules_hash(generation)
+    rules_hash = require_single_rules_hash(snapshot)
     latest_count_asof, latest_count = count_history[-1]
     top5_values = [value for _, value in top5_history]
     count_values = [float(value) for _, value in count_history[:-1]]
@@ -617,8 +614,10 @@ def build_supply_context(
     previous = _previous_top20_from_runs(runs_db, before_asof=current.run_asof)
     previous_source = "run_store"
     if previous is None:
-        previous = _previous_top20_from_history(longlist_history_dir, before_asof=current.run_asof)
-        previous_source = "longlist_history"
+        previous = _previous_top20_from_history(
+            ranked_set_history_dir, before_asof=current.run_asof
+        )
+        previous_source = "ranked_set_history"
     if current.breadth is None or previous is None:
         temporal = _metric(
             value=None,
@@ -734,7 +733,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--calibration-dir", type=Path, default=DEFAULT_CALIBRATION_DIR)
     parser.add_argument("--runs-db", type=Path, default=DEFAULT_RUNS_DB)
     parser.add_argument("--application-db", type=Path, default=DEFAULT_APPLICATION_DB)
-    parser.add_argument("--longlist-history-dir", type=Path)
+    parser.add_argument("--ranked-set-history-dir", type=Path)
     parser.add_argument("--selection-id")
     parser.add_argument("--hurdle", type=float, default=DEFAULT_HURDLE)
     parser.add_argument("--out", type=Path)
@@ -748,7 +747,7 @@ def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> 
             calibration_dir=args.calibration_dir,
             runs_db=args.runs_db,
             application_db=args.application_db,
-            longlist_history_dir=args.longlist_history_dir,
+            ranked_set_history_dir=args.ranked_set_history_dir,
             selection_id=args.selection_id,
             hurdle=args.hurdle,
         )

@@ -44,8 +44,7 @@ _EXPECTED_MANIFEST = (
 # never imports it" is not the safety criterion — "the extraction never references a
 # symbol from it" is. These are referenced and deliberately untracked:
 #
-# - `market.sqlite.schema` / `.migrations`: connections and schema version. A schema
-#   change is already visible as a migration, not as a silently different row value.
+# - `market.sqlite.schema`: connections and the current schema version.
 # - `market.sqlite.coverage`: coverage bookkeeping the store write records. The baseline
 #   read validates coverage with its own SQL (`edinet_store`), so a change here cannot
 #   make a row's values wrong without also making the snapshot unreadable.
@@ -60,7 +59,6 @@ _UNTRACKED_REACHED_MODULES = frozenset(
         "baibai_engine.market.bars",
         "baibai_engine.market.sqlite",
         "baibai_engine.market.sqlite.coverage",
-        "baibai_engine.market.sqlite.migrations",
         "baibai_engine.market.sqlite.schema",
     }
 )

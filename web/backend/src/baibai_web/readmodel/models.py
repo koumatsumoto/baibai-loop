@@ -120,17 +120,6 @@ class OperationSessionView(BaseModel):
     payload: dict[str, object]
 
 
-class ProposalView(BaseModel):
-    proposal_id: str
-    ticker: str
-    thesis_id: str
-    review_id: str
-    created_at: datetime
-    status: str
-    decided_at: datetime | None
-    payload: dict[str, object]
-
-
 class PortfolioOutcomeView(BaseModel):
     outcome_id: str
     horizon: str
@@ -144,7 +133,6 @@ class PortfolioOutcomeView(BaseModel):
 
 class OperationsView(BaseModel):
     operations: list[OperationSessionView]
-    proposals: list[ProposalView]
     outcomes: list[PortfolioOutcomeView]
 
 
@@ -207,7 +195,7 @@ class CandidateRowView(BaseModel):
     data_quality_flags: list[str]
     portfolio_state: PortfolioState
     has_research: bool
-    # FV アンカーは machine selection の longlist だけが持つので、longlist へ入らな
+    # FV アンカーは machine selection の ranked_set だけが持つので、ranked_set へ入らな
     # かった候補では空になる。read-only app は FV を導出しない。
     fair_value_anchor_yen: float | None = None
     fair_value_gap_pct: float | None = None
@@ -291,7 +279,7 @@ class FvConvergenceView(BaseModel):
     er_reversion_annual: float | None
 
 
-class SelectionLonglistEntryView(BaseModel):
+class SelectionRankedSetEntryView(BaseModel):
     """機械 rank 上位の候補 1 件。FV アンカーと E[r] はここだけが持つ。"""
 
     rank: int | None
@@ -315,7 +303,7 @@ class MachineSelectionView(BaseModel):
     profile: str
     macro_context_id: str | None
     created_at: datetime
-    longlist: list[SelectionLonglistEntryView]
+    ranked_set: list[SelectionRankedSetEntryView]
 
 
 class ShortlistNarrativeView(BaseModel):
@@ -352,7 +340,7 @@ class ShortlistEntryView(BaseModel):
     narrative: ShortlistNarrativeView | None = None
     # 判断時の機械座標。source run が prune された後もレビュー面が読めるよう、
     # publish 時に judgment へ焼き込まれた値をそのまま返す。
-    machine_snapshot: SelectionLonglistEntryView | None = None
+    machine_snapshot: SelectionRankedSetEntryView | None = None
 
 
 class ShortlistView(BaseModel):
@@ -720,23 +708,6 @@ class AssessmentCaseView(BaseModel):
     source_caveats: list[SourceCaveatView]
 
 
-class AssessmentPurchaseView(BaseModel):
-    proposal_id: str
-    ticker: str
-    limit_price_yen: float
-    quantity: int
-    notional_yen: float
-    max_acceptable_price_yen: float
-    close_yen: float
-    price_as_of: date
-    expires_at: datetime
-    warnings: list[str]
-    # publish 時点の proposal に対する、現在の proposal の状態。immutable な判断文書と
-    # current state の差は読む側が解釈する。
-    current_status: str | None
-    superseded: bool
-
-
 class AssessmentReviewView(BaseModel):
     attempt: int
     reviewer_identity: str
@@ -765,14 +736,12 @@ class BargainAssessmentView(BaseModel):
     shortlist_id: str
     macro_context_id: str | None
     comparison: str
-    entry_timing: str | None
     forgone: str
     cases: list[AssessmentCaseView]
-    purchase: AssessmentPurchaseView | None
     review: AssessmentReviewView
 
 
-type DeltaPool = Literal["longlist", "recommendations"]
+type DeltaPool = Literal["ranked_set", "recommendations"]
 type DeltaUnavailable = Literal[
     "candidates",
     "candidates_estimate",

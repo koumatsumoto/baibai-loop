@@ -1,7 +1,7 @@
 import type {
   CandidateRowView,
   MachineSelectionView,
-  SelectionLonglistEntryView,
+  SelectionRankedSetEntryView,
   ShortlistEntryView,
   ShortlistView,
 } from '../api/types'
@@ -42,7 +42,7 @@ export interface ShortlistComparisonRow {
   readonly portfolioState: CandidateRowView['portfolio_state'] | null
   readonly dataQualityFlags: readonly string[]
   readonly entry: ShortlistEntryView
-  readonly longlistEntry: SelectionLonglistEntryView | null
+  readonly rankedSetEntry: SelectionRankedSetEntryView | null
   readonly row: CandidateRowView | null
 }
 
@@ -54,30 +54,30 @@ export function buildShortlistComparison(
   selection: MachineSelectionView | null,
   rows: readonly CandidateRowView[],
 ): readonly ShortlistComparisonRow[] {
-  const longlistByTicker = new Map(selection?.longlist.map((item) => [item.ticker, item]) ?? [])
+  const ranked_setByTicker = new Map(selection?.ranked_set.map((item) => [item.ticker, item]) ?? [])
   const rowByTicker = new Map(rows.map((item) => [item.ticker, item]))
   return shortlist.entries
     .filter((entry) => entry.decision === 'selected')
-    .map((entry, index) => toComparisonRow(entry, index, longlistByTicker, rowByTicker))
+    .map((entry, index) => toComparisonRow(entry, index, ranked_setByTicker, rowByTicker))
     .sort(byRankThenPublishedOrder)
 }
 
 function toComparisonRow(
   entry: ShortlistEntryView,
   publishedIndex: number,
-  longlistByTicker: ReadonlyMap<string, SelectionLonglistEntryView>,
+  ranked_setByTicker: ReadonlyMap<string, SelectionRankedSetEntryView>,
   rowByTicker: ReadonlyMap<string, CandidateRowView>,
 ): ShortlistComparisonRow & { readonly publishedIndex: number } {
   // The live selection first, then the coordinates burned into the judgment. Once
   // the bound run is pruned only the burned copy is left, and it is the same shape.
-  const longlistEntry = longlistByTicker.get(entry.ticker) ?? entry.machine_snapshot ?? null
+  const rankedSetEntry = ranked_setByTicker.get(entry.ticker) ?? entry.machine_snapshot ?? null
   const row = rowByTicker.get(entry.ticker) ?? null
   const narrative = entry.narrative
   return {
     publishedIndex,
     rank: entry.rank,
     ticker: entry.ticker,
-    name: row?.name ?? longlistEntry?.name ?? entry.ticker,
+    name: row?.name ?? rankedSetEntry?.name ?? entry.ticker,
     sector: narrative?.sector_label ?? row?.sector_33 ?? '—',
     ploss: narrative?.ploss ?? null,
     rr: narrative?.rr ?? null,
@@ -85,15 +85,15 @@ function toComparisonRow(
     downside: narrative?.downside ?? null,
     catalyst: narrative?.catalyst ?? null,
     catalystDate: narrative?.catalyst_date ?? null,
-    machineRank: longlistEntry?.rank ?? null,
+    machineRank: rankedSetEntry?.rank ?? null,
     erAnnual: row?.er_annual ?? null,
     erReversionAnnual: row?.er_reversion_annual ?? null,
     erCarryAnnual: row?.er_carry_annual ?? null,
-    fairValueGapPct: longlistEntry?.fair_value_gap_pct ?? row?.fair_value_gap_pct ?? null,
+    fairValueGapPct: rankedSetEntry?.fair_value_gap_pct ?? row?.fair_value_gap_pct ?? null,
     portfolioState: row?.portfolio_state ?? null,
     dataQualityFlags: row?.data_quality_flags ?? [],
     entry,
-    longlistEntry,
+    rankedSetEntry,
     row,
   }
 }

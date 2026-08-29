@@ -106,22 +106,22 @@ def _delay_summary(values: Sequence[int]) -> dict[str, object]:
 
 def build_candidate_measurement(
     *,
-    longlist_history: Sequence[Mapping[str, object]],
+    ranked_set_history: Sequence[Mapping[str, object]],
     expected_dates: Sequence[date],
     shortlists: Sequence[Mapping[str, object]],
     asof: date,
 ) -> dict[str, object]:
-    """Measure first-observed membership from durable daily longlist records."""
+    """Measure first-observed membership from durable daily ranked-set records."""
 
     by_date: dict[date, Mapping[str, object]] = {}
-    for record in longlist_history:
-        if record.get("kind") != "daily-longlist-membership" or record.get("schema_version") != 1:
-            raise DailyDeltaMeasurementError("longlist history has an unsupported contract")
+    for record in ranked_set_history:
+        if record.get("kind") != "daily-ranked-set-membership" or record.get("schema_version") != 1:
+            raise DailyDeltaMeasurementError("ranked-set history has an unsupported contract")
         day = _as_date(record["as_of"])
         if day > asof:
             continue
         if day in by_date:
-            raise DailyDeltaMeasurementError(f"duplicate longlist history date: {day}")
+            raise DailyDeltaMeasurementError(f"duplicate ranked-set history date: {day}")
         by_date[day] = record
     dates = sorted({day for day in expected_dates if day <= asof} | set(by_date))
     snapshots: list[dict[str, object]] = []
@@ -134,36 +134,36 @@ def build_candidate_measurement(
                     "as_of": day.isoformat(),
                     "status": "record_missing",
                     "selection_id": None,
-                    "longlist_size": None,
+                    "ranked_set_size": None,
                 }
             )
             continue
         status = daily_record.get("selection_status")
         members = daily_record.get("members")
         if status not in {"available", "selection_missing"} or not isinstance(members, list):
-            raise DailyDeltaMeasurementError(f"invalid longlist history record: {day}")
+            raise DailyDeltaMeasurementError(f"invalid ranked-set history record: {day}")
         parsed_members = _mapping_rows(members)
         if len(parsed_members) != len(members):
-            raise DailyDeltaMeasurementError(f"invalid longlist history members: {day}")
+            raise DailyDeltaMeasurementError(f"invalid ranked-set history members: {day}")
         if status == "selection_missing" and (
             parsed_members or daily_record.get("selection_id") is not None
         ):
             raise DailyDeltaMeasurementError(
-                f"selection-missing longlist history must be explicitly empty: {day}"
+                f"selection-missing ranked-set history must be explicitly empty: {day}"
             )
         if status == "available" and not daily_record.get("selection_id"):
             raise DailyDeltaMeasurementError(
-                f"available longlist history must identify its selection: {day}"
+                f"available ranked-set history must identify its selection: {day}"
             )
         tickers = {str(row["ticker"]) for row in parsed_members if row.get("ticker")}
         if len(tickers) != len(parsed_members):
-            raise DailyDeltaMeasurementError(f"longlist history has invalid ticker rows: {day}")
+            raise DailyDeltaMeasurementError(f"ranked-set history has invalid ticker rows: {day}")
         snapshots.append(
             {
                 "as_of": day.isoformat(),
                 "status": status,
                 "selection_id": daily_record.get("selection_id"),
-                "longlist_size": len(tickers),
+                "ranked_set_size": len(tickers),
             }
         )
         if status == "available":
@@ -215,14 +215,14 @@ def build_candidate_measurement(
         )
     denominator = len(first_observed)
     return {
-        "source_basis": "r2_history_longlists_v1",
+        "source_basis": "r2_history_ranked_sets_v1",
         "evaluation_time_basis": "shortlist.published_at_jst_date_proxy",
         "coverage": {
             "coverage_start": None if not dates else dates[0].isoformat(),
             "coverage_end": None if not dates else dates[-1].isoformat(),
             "expected_session_count": len(dates),
             "history_record_count": len(by_date),
-            "complete_longlist_snapshot_count": len(pools),
+            "complete_ranked_set_snapshot_count": len(pools),
             "missing_history_record_count": len(set(dates) - set(by_date)),
             "missing_selection_snapshot_count": sum(
                 record.get("selection_status") == "selection_missing" for record in by_date.values()
@@ -476,16 +476,18 @@ def _history_sha256(path: Path, *, asof: date) -> str:
     return digest.hexdigest()
 
 
-def load_longlist_history(path: Path) -> list[Mapping[str, object]]:
+def load_ranked_set_history(path: Path) -> list[Mapping[str, object]]:
     records: list[Mapping[str, object]] = []
     for item in sorted(path.glob("*.json")):
         try:
             date.fromisoformat(item.stem)
             payload = yaml.safe_load(item.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, ValueError, yaml.YAMLError) as error:
-            raise DailyDeltaMeasurementError(f"longlist history is unreadable: {item}") from error
+            raise DailyDeltaMeasurementError(f"ranked-set history is unreadable: {item}") from error
         if not isinstance(payload, Mapping) or str(payload.get("as_of")) != item.stem:
-            raise DailyDeltaMeasurementError(f"longlist history filename and as_of differ: {item}")
+            raise DailyDeltaMeasurementError(
+                f"ranked-set history filename and as_of differ: {item}"
+            )
         records.append(payload)
     return records
 
@@ -493,7 +495,7 @@ def load_longlist_history(path: Path) -> list[Mapping[str, object]]:
 def build_measurement(
     *,
     db_path: Path,
-    longlist_history_dir: Path,
+    ranked_set_history_dir: Path,
     market_db_path: Path,
     asof: date,
 ) -> dict[str, object]:
@@ -507,10 +509,10 @@ def build_measurement(
         ticker for ticker, lots in state.lots.items() if any(lot.quantity > 0 for lot in lots)
     ]
     shortlists = list_shortlist_payloads(db_path)
-    longlist_history = load_longlist_history(longlist_history_dir)
+    ranked_set_history = load_ranked_set_history(ranked_set_history_dir)
     retained_days = [
         _as_date(record["as_of"])
-        for record in longlist_history
+        for record in ranked_set_history
         if _as_date(record["as_of"]) <= asof
     ]
     expected_dates = (
@@ -524,11 +526,11 @@ def build_measurement(
         "day_basis": "jst_calendar_days",
         "input_sha256": {
             "application_db": _sha256(db_path),
-            "longlist_history": _history_sha256(longlist_history_dir, asof=asof),
+            "ranked_set_history": _history_sha256(ranked_set_history_dir, asof=asof),
             "market_db": _sha256(market_db_path),
         },
         "candidate": build_candidate_measurement(
-            longlist_history=longlist_history,
+            ranked_set_history=ranked_set_history,
             expected_dates=expected_dates,
             shortlists=shortlists,
             asof=asof,
@@ -547,7 +549,7 @@ def build_measurement(
 def measure_command(
     *,
     db_path: Path,
-    longlist_history_dir: Path,
+    ranked_set_history_dir: Path,
     market_db_path: Path,
     asof: date,
     output_path: Path | None,
@@ -557,9 +559,9 @@ def measure_command(
     if not db_path.is_file():
         print(f"daily-delta-baseline: application store is missing: {db_path}", file=sys.stderr)
         return 1
-    if not longlist_history_dir.is_dir():
+    if not ranked_set_history_dir.is_dir():
         print(
-            f"daily-delta-baseline: longlist history is missing: {longlist_history_dir}",
+            f"daily-delta-baseline: ranked-set history is missing: {ranked_set_history_dir}",
             file=sys.stderr,
         )
         return 1
@@ -570,7 +572,7 @@ def measure_command(
     try:
         payload = build_measurement(
             db_path=db_path,
-            longlist_history_dir=longlist_history_dir,
+            ranked_set_history_dir=ranked_set_history_dir,
             market_db_path=market_db_path,
             asof=asof,
         )
@@ -590,7 +592,7 @@ def measure_command(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, default=Path("stores/application/baibai.sqlite"))
-    parser.add_argument("--longlist-history-dir", type=Path, required=True)
+    parser.add_argument("--ranked-set-history-dir", type=Path, required=True)
     parser.add_argument("--market-db", type=Path, default=Path("stores/market/market.sqlite"))
     parser.add_argument("--as-of", type=_parse_date, default=DEFAULT_ASOF)
     parser.add_argument("--out", type=Path)
@@ -601,7 +603,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     return measure_command(
         db_path=args.db,
-        longlist_history_dir=args.longlist_history_dir,
+        ranked_set_history_dir=args.ranked_set_history_dir,
         market_db_path=args.market_db,
         asof=args.as_of,
         output_path=args.out,

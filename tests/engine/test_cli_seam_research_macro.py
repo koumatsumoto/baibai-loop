@@ -82,25 +82,17 @@ def _publish_shortlist(db_path: Path) -> str:
             as_of=shortlist.as_of,
             profile=shortlist.profile,
             macro_context_id=shortlist.macro_context_id,
-            review_tickers=("2331", "0001"),
+            ranked_tickers=("2331", "0001"),
             candidate_er={"2331": 0.12, "0001": 0.04},
             candidate_machine_rows={
                 ticker: {
                     "ticker": ticker,
-                    "opportunity_lane_id": "value-carry",
-                    "selection_policy_id": "value-carry-v1",
-                    "selection_policy_hash": "b" * 64,
-                    "lane_rank": rank,
-                    "lane_native_value": value,
-                    "lane_native_unit": "annual_ratio",
-                    "baseline_er_rank": rank,
+                    "rank": rank,
+                    "er_annual": value,
                     "primary_evidence_pattern_id": None,
-                    "policy_diagnostic_ids": [],
                 }
                 for rank, (ticker, value) in enumerate((("2331", 0.12), ("0001", 0.04)), start=1)
             },
-            attention_policy_hash="a" * 64,
-            attention_policy_parameters={"value_carry_limit": 2},
         ),
     )
     return SHORTLIST_ID

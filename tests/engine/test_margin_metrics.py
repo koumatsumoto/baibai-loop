@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 from dataclasses import asdict, fields
 from datetime import date, timedelta
 from pathlib import Path
-from unittest import mock
 
 from baibai_engine.screening.calibration import store as calibration_store
 from baibai_engine.screening.calibration.store import CalibrationCacheError, read_panel
@@ -147,28 +147,17 @@ class CalibrationCacheVersionTest(unittest.TestCase):
     """A panel written under an older field set must be refused up front."""
 
     def test_a_panel_from_an_older_cache_version_is_refused_before_it_is_read(self) -> None:
-        # Adding a column to PanelRow without bumping the cache version leaves the
-        # stored rows readable-looking; the failure then surfaces mid-build as a
-        # missing-column error on one cohort instead of as "rebuild the cache".
         from tests.helpers.calibration_store import publish_panel
-
-        from baibai_engine.screening.calibration.lake import CALIBRATION_PANEL
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             publish_panel(root, "2020-01-31", [{"ticker": "7203"}])
-            read_panel(root, date(2020, 1, 31))
-
-            with (
-                mock.patch.dict(
-                    calibration_store.CACHE_SCHEMA_VERSIONS,
-                    {CALIBRATION_PANEL.name: "0" * 16},
-                ),
-                self.assertRaises(CalibrationCacheError) as caught,
-            ):
+            with sqlite3.connect(root / calibration_store.CURRENT_SNAPSHOT_NAME) as connection:
+                connection.execute("UPDATE snapshot_meta SET contract_version = ?", ("0" * 16,))
+            with self.assertRaises(CalibrationCacheError) as caught:
                 read_panel(root, date(2020, 1, 31))
 
-            self.assertIn("different transform", str(caught.exception))
+            self.assertIn("contract changed", str(caught.exception))
 
 
 class PublishedWeekReadabilityTest(unittest.TestCase):

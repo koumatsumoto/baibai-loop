@@ -19,8 +19,6 @@ from tools.experiments.measure_signal_cohorts import (
     main,
 )
 
-from baibai_engine.screening.calibration.store import resolve_calibration_bundle
-
 FORWARD_COLUMNS = (
     "asof",
     "ticker",
@@ -101,7 +99,9 @@ def test_unresolved_forward_rows_do_not_enter_the_median(tmp_path: Path) -> None
     assert population["median_annualized_pct"] == pytest.approx(20.0)
 
 
-def test_buyback_group_uses_the_clip_and_reports_the_cohort_difference(tmp_path: Path) -> None:
+def test_share_count_group_uses_the_clip_and_reports_the_cohort_difference(
+    tmp_path: Path,
+) -> None:
     directory = calibration_root(tmp_path)
     rows = []
     forward = []
@@ -131,16 +131,16 @@ def test_buyback_group_uses_the_clip_and_reports_the_cohort_difference(tmp_path:
 
     comparisons = payload["comparisons"]
     assert isinstance(comparisons, dict)
-    buyback = comparisons["buyback_component"][0]
-    at_clip, partial, non_positive, unknown = buyback["groups"]
+    share_count = comparisons["share_count_component"][0]
+    at_clip, partial, non_positive, unknown = share_count["groups"]
     assert at_clip["resolved_rows"] == 12
     assert partial["resolved_rows"] == 0
     assert non_positive["resolved_rows"] == 12
     assert unknown["group"] == "share_change_unobserved"
     assert unknown["resolved_rows"] == 0
-    assert buyback["cohort_agreement"]["cohorts_compared"] == 1
-    assert buyback["cohort_agreement"]["cohorts_treatment_ahead"] == 1
-    assert buyback["cohort_agreement"]["median_difference_pct_points"] == pytest.approx(20.0)
+    assert share_count["cohort_agreement"]["cohorts_compared"] == 1
+    assert share_count["cohort_agreement"]["cohorts_treatment_ahead"] == 1
+    assert share_count["cohort_agreement"]["median_difference_pct_points"] == pytest.approx(20.0)
 
 
 def test_missing_store_fails_instead_of_reporting_an_empty_comparison(tmp_path: Path) -> None:
@@ -266,16 +266,10 @@ def test_basis_coverage_reports_both_denominators(tmp_path: Path) -> None:
     assert coverage["bases_comparable"] is False
 
 
-def test_a_publication_landing_mid_run_does_not_enter_the_measurement(
+def test_measurement_reads_the_atomic_current_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """One measurement is one statement about one generation.
-
-    The cohort list, the forward rows, the rules identity and the panel rows are four
-    reads. Resolving current for each of them lets a publication landing between two of
-    them put one generation's panel rows against another's outcomes — and every read is
-    valid on its own, so nothing downstream has anything to object to.
-    """
+    """A newly replaced current snapshot is the only version available to readers."""
 
     directory = calibration_root(tmp_path)
     for index in range(24):
@@ -295,7 +289,6 @@ def test_a_publication_landing_mid_run_does_not_enter_the_measurement(
             ],
         )
 
-    fixed_before = resolve_calibration_bundle(directory)
     real = measure_signal_cohorts.require_single_rules_hash
 
     def publish_then_continue(bundle: Any) -> str:
@@ -321,5 +314,5 @@ def test_a_publication_landing_mid_run_does_not_enter_the_measurement(
     payload = build_measurement(calibration_dir=directory, horizons=("1y",), er_threshold=0.085)
 
     assert payload["panel_asof_start"] == "2024-01-31"
-    assert payload["panel_asof_end"] == "2024-01-31"
-    assert payload["calibration_bundle_id"] == fixed_before.ref.bundle_id
+    assert payload["panel_asof_end"] == "2024-02-29"
+    assert payload["calibration_snapshot"] == "current"

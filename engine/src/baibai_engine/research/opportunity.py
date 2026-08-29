@@ -10,8 +10,7 @@ comparison only and are never used for a limit.
 Design boundaries (Issue #359 Milestone A):
 
 - Investment value is decided before budget rounding. The 20-30万円 guide is a
-  sizing annotation, never a hard gate: a single board lot above the guide still
-  produces a proposal with a warning rather than an auto-reject.
+  sizing annotation for a normal position. Reduced sizing is exactly one board lot.
 - ``promote`` is the only command that publishes a canonical thesis/review;
   every other command writes only to the rebuildable ``.cache/opportunity/<asof>/``
   workspace.
@@ -34,12 +33,12 @@ from pydantic import BaseModel, ValidationError
 
 from baibai_engine.appdb.paths import database_path
 from baibai_engine.foundation.filesystem import write_text_atomic
-from baibai_engine.foundation.repository_layout import ER_LEVEL_CALIBRATION_CONTEXT_PATH
-from baibai_engine.foundation.review_set import (
+from baibai_engine.foundation.ranked_set import (
     RESEARCH_GATE_CONTRACT_ID,
-    ReviewSetResolutionError,
-    resolve_review_set_rows,
+    RankedSetResolutionError,
+    resolve_ranked_set_rows,
 )
+from baibai_engine.foundation.repository_layout import ER_LEVEL_CALIBRATION_CONTEXT_PATH
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.ledger import (
@@ -79,12 +78,9 @@ from .thesis import (
 
 TOOL_VERSION = "opportunity-v1"
 # Research reads the Research Gate judgment, so it only accepts the shortlist schema
-# that carries one. Older canonical shortlists stay readable as history; they simply
-# cannot bound a research workspace, and `read_api` keeps projecting them for the
-# history views.
-RESEARCH_GATE_SHORTLIST_SCHEMA_VERSION = 5
+# that carries the current ranked-set snapshot.
+RESEARCH_GATE_SHORTLIST_SCHEMA_VERSION = 6
 BOARD_LOT: int = PORTFOLIO_POLICY["order_constraints"]["board_lot"]
-STARTER_MAX_ORDER_NOTIONAL_YEN: int = PORTFOLIO_POLICY["starter_band"]["max_order_notional_yen"]
 # 対象 sizing 帯 (20-30万円 / 100株 = ¥2000-3000/株) はちょうど JPX 現物の ¥1 tick 帯。
 # max acceptable price の ceiling floor 丸めはこの帯で正確な ¥1 を使う。
 PLANNING_TICK_SIZE_YEN = Decimal("1")
@@ -193,7 +189,7 @@ class PrepareResult:
     workspace: Path
     actionable: bool
     shortlist_slots: int
-    longlist_size: int
+    ranked_set_size: int
     shortlist_id: str | None = None
     admissible_tickers: tuple[str, ...] = ()
 
@@ -259,7 +255,7 @@ def _resolve_research_gate(
     selection: Mapping[str, object],
     selection_output: Path,
     asof: date,
-    review_tickers: Sequence[str],
+    ranked_tickers: Sequence[str],
 ) -> _ResearchGate:
     """Resolve the canonical judgment for this selection, and check it is the named one.
 
@@ -283,7 +279,10 @@ def _resolve_research_gate(
     """
 
     selection_id = _nonempty_string(selection.get("selection_id"), label="selection_id")
-    payloads = shortlist_payloads_for_selection(database_path(db_path), selection_id)
+    try:
+        payloads = shortlist_payloads_for_selection(database_path(db_path), selection_id)
+    except ValueError as exc:
+        raise OpportunityDataError(str(exc)) from exc
     if not payloads:
         raise OpportunityDataError(
             f"no canonical Research Gate judgment for selection {selection_id} "
@@ -320,11 +319,11 @@ def _resolve_research_gate(
     # Publication already binds entries to the Review Set; re-checking here keeps a
     # shortlist and a selection that disagree from meeting for the first time inside
     # a research workspace.
-    if set(decisions) != set(review_tickers):
-        missing = sorted(set(review_tickers) - set(decisions))
-        extra = sorted(set(decisions) - set(review_tickers))
+    if set(decisions) != set(ranked_tickers):
+        missing = sorted(set(ranked_tickers) - set(decisions))
+        extra = sorted(set(decisions) - set(ranked_tickers))
         raise OpportunityDataError(
-            f"{shortlist_id} entries must equal the selection Review Set; "
+            f"{shortlist_id} entries must equal the selection ranked set; "
             f"missing={missing}, extra={extra}"
         )
     return _ResearchGate(
@@ -370,9 +369,9 @@ def _verify_research_gate(
     )
     selection = _load_mapping(selection_output, label="selection output")
     try:
-        review_tickers, _rows = resolve_review_set_rows(selection)
-    except ReviewSetResolutionError as error:
-        raise OpportunityDataError(f"selection Review Set is invalid: {error}") from error
+        ranked_tickers, _rows = resolve_ranked_set_rows(selection)
+    except RankedSetResolutionError as error:
+        raise OpportunityDataError(f"selection ranked set is invalid: {error}") from error
     asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     try:
         gate = _resolve_research_gate(
@@ -381,7 +380,7 @@ def _verify_research_gate(
             selection=selection,
             selection_output=selection_output,
             asof=asof,
-            review_tickers=review_tickers,
+            ranked_tickers=ranked_tickers,
         )
     except OpportunityDataError as error:
         raise OpportunityConflictError(
@@ -423,18 +422,18 @@ def prepare_workspace(
         )
     selection = _load_mapping(selection_output, label="selection output")
     try:
-        review_tickers, review_rows = resolve_review_set_rows(selection)
-    except ReviewSetResolutionError as error:
-        raise OpportunityDataError(f"selection Review Set is invalid: {error}") from error
-    longlist = [dict(review_rows[ticker]) for ticker in review_tickers]
-    _validate_selection_estimate_asof(selection=selection, longlist=longlist, asof=asof)
+        ranked_tickers, review_rows = resolve_ranked_set_rows(selection)
+    except RankedSetResolutionError as error:
+        raise OpportunityDataError(f"selection ranked set is invalid: {error}") from error
+    ranked_set = [dict(review_rows[ticker]) for ticker in ranked_tickers]
+    _validate_selection_estimate_asof(selection=selection, ranked_set=ranked_set, asof=asof)
     gate = _resolve_research_gate(
         db_path=db_path,
         expected_shortlist_id=shortlist_id,
         selection=selection,
         selection_output=selection_output,
         asof=asof,
-        review_tickers=review_tickers,
+        ranked_tickers=ranked_tickers,
     )
     snapshot, append_head = _load_snapshot(db_path)
 
@@ -448,11 +447,11 @@ def prepare_workspace(
     reserved = {reservation.ticker for reservation in snapshot.active_reservations}
     annotated = [
         _annotate_candidate(row, held=held, reserved=reserved, decisions=gate.decision_by_ticker)
-        for row in longlist
+        for row in ranked_set
     ]
     research_selection_target_max = _research_selection_target_max(selection)
     # Slots bound the admitted set, not the comparison set: rejected rows stay in the
-    # longlist as context and can never occupy a research slot.
+    # ranked_set as context and can never occupy a research slot.
     shortlist_slots = (
         min(research_selection_target_max, len(gate.admissible))
         if research_selection_target_max > 0
@@ -463,7 +462,7 @@ def prepare_workspace(
         "as_of": asof.isoformat(),
         "research_gate_shortlist_id": gate.shortlist_id,
         "admissible_tickers": list(gate.admissible),
-        "longlist": annotated,
+        "ranked_set": annotated,
         "shortlist_slots": shortlist_slots,
         "shortlist": [],
         "actionable": bool(gate.admissible),
@@ -513,7 +512,7 @@ def prepare_workspace(
         workspace=workspace,
         actionable=bool(gate.admissible),
         shortlist_slots=shortlist_slots,
-        longlist_size=len(annotated),
+        ranked_set_size=len(annotated),
         shortlist_id=gate.shortlist_id,
         admissible_tickers=gate.admissible,
     )
@@ -553,7 +552,7 @@ def prepare_holding_workspace(
     """Build a one-ticker research workspace for an actual open holding.
 
     Holding review bypasses screening selection because the canonical ledger is
-    the source of its research target. The fixed longlist, shortlist, and
+    the source of its research target. The fixed ranked_set, shortlist, and
     selected ticker keep the existing thesis/review/promotion gates usable
     without weakening the normal opportunity-selection contract.
     """
@@ -569,7 +568,7 @@ def prepare_holding_workspace(
             f"workspace already prepared (use --force to rebuild): {workspace}"
         )
 
-    longlist = [
+    ranked_set = [
         {
             "rank": 1,
             "ticker": holding.ticker,
@@ -580,12 +579,12 @@ def prepare_holding_workspace(
     ]
     selection_doc = {
         "as_of": asof.isoformat(),
-        "longlist": longlist,
+        "ranked_set": ranked_set,
         "shortlist_slots": 1,
         "shortlist": [{"ticker": ticker, "reason": "open holding review"}],
         "actionable": True,
     }
-    comparison_doc = _research_comparison(asof, longlist)
+    comparison_doc = _research_comparison(asof, ranked_set)
     comparison_doc["selected_ticker"] = ticker
     comparison_doc["ranking_rationale"] = "research target fixed by the canonical open holding"
 
@@ -611,7 +610,7 @@ def prepare_holding_workspace(
         workspace=workspace,
         actionable=True,
         shortlist_slots=1,
-        longlist_size=1,
+        ranked_set_size=1,
     )
 
 
@@ -1124,19 +1123,19 @@ def _validate_editable_drafts(
     if purpose != "opportunity":
         raise OpportunityDataError(f"manifest purpose is invalid: {purpose}")
 
-    longlist = _dict_list(selection.get("longlist"))
-    longlist_tickers = [str(row.get("ticker") or "") for row in longlist]
-    if (not longlist_tickers or any(not ticker for ticker in longlist_tickers)) and selection.get(
-        "actionable"
-    ):
-        raise OpportunityDataError("workspace longlist is invalid")
+    ranked_set = _dict_list(selection.get("ranked_set"))
+    ranked_set_tickers = [str(row.get("ticker") or "") for row in ranked_set]
+    if (
+        not ranked_set_tickers or any(not ticker for ticker in ranked_set_tickers)
+    ) and selection.get("actionable"):
+        raise OpportunityDataError("workspace ranked_set is invalid")
     shortlist = _dict_list(selection.get("shortlist"))
     shortlist_slots = selection.get("shortlist_slots")
     if not isinstance(shortlist_slots, int) or shortlist_slots < 0:
         raise OpportunityDataError("workspace shortlist_slots is invalid")
     shortlist_tickers = [str(row.get("ticker") or "") for row in shortlist]
     if len(shortlist_tickers) != len(set(shortlist_tickers)) or any(
-        ticker not in longlist_tickers for ticker in shortlist_tickers
+        ticker not in ranked_set_tickers for ticker in shortlist_tickers
     ):
         raise OpportunityDataError("workspace shortlist is invalid")
     # Narrowing guard, not a reachable state: `_verify_external_inputs` reads purpose
@@ -1158,8 +1157,8 @@ def _validate_editable_drafts(
 
     candidates = _dict_list(comparison.get("candidates"))
     comparison_tickers = [str(row.get("ticker") or "") for row in candidates]
-    if comparison_tickers != longlist_tickers:
-        raise OpportunityDataError("research comparison candidates do not match longlist")
+    if comparison_tickers != ranked_set_tickers:
+        raise OpportunityDataError("research comparison candidates do not match ranked_set")
     selected = _string_or_none(comparison.get("selected_ticker"))
     if selected is not None and selected not in shortlist_tickers:
         raise OpportunityDataError("selected_ticker is not present in shortlist")
@@ -1173,8 +1172,8 @@ def _validate_holding_review_drafts(
     ticker = _string_or_none(manifest.get("holding_ticker"))
     if ticker is None:
         raise OpportunityDataError("holding-review manifest is missing holding_ticker")
-    longlist_tickers = [
-        str(row.get("ticker") or "") for row in _dict_list(selection.get("longlist"))
+    ranked_set_tickers = [
+        str(row.get("ticker") or "") for row in _dict_list(selection.get("ranked_set"))
     ]
     shortlist_tickers = [
         str(row.get("ticker") or "") for row in _dict_list(selection.get("shortlist"))
@@ -1183,7 +1182,7 @@ def _validate_holding_review_drafts(
         str(row.get("ticker") or "") for row in _dict_list(comparison.get("candidates"))
     ]
     if (
-        longlist_tickers != [ticker]
+        ranked_set_tickers != [ticker]
         or shortlist_tickers != [ticker]
         or comparison_tickers != [ticker]
         or selection.get("shortlist_slots") != 1
@@ -1191,7 +1190,8 @@ def _validate_holding_review_drafts(
         or comparison.get("selected_ticker") != ticker
     ):
         raise OpportunityDataError(
-            "holding-review workspace must keep its longlist, shortlist, and selected ticker fixed"
+            "holding-review workspace must keep its ranked set, shortlist, "
+            "and selected ticker fixed"
         )
 
 
@@ -1426,14 +1426,14 @@ def _screening_estimate_from_selection_output(
         selection_ref.get("path"), label="manifest.inputs.selection_output.path"
     )
     selection = _load_mapping(Path(selection_path), label="selection output")
-    longlist = _dict_list(selection.get("longlist"))
-    longlist_tickers = [str(row.get("ticker") or "") for row in longlist]
-    if len(longlist_tickers) != len(set(longlist_tickers)):
-        raise OpportunityDataError("selection output longlist tickers must be unique")
-    matching_rows = [row for row in longlist if str(row.get("ticker") or "") == ticker]
+    ranked_set = _dict_list(selection.get("ranked_set"))
+    ranked_set_tickers = [str(row.get("ticker") or "") for row in ranked_set]
+    if len(ranked_set_tickers) != len(set(ranked_set_tickers)):
+        raise OpportunityDataError("selection output ranked_set tickers must be unique")
+    matching_rows = [row for row in ranked_set if str(row.get("ticker") or "") == ticker]
     if len(matching_rows) != 1:
         raise OpportunityDataError(
-            f"selection output longlist must contain ticker exactly once: {ticker}"
+            f"selection output ranked_set must contain ticker exactly once: {ticker}"
         )
     row = matching_rows[0]
     if "estimate_snapshot" not in row:
@@ -1474,10 +1474,12 @@ def _screening_estimate_from_selection_output(
         raise OpportunityDataError("estimate_snapshot model version and assumptions must agree")
 
     displayed_er_pct = _finite_number(
-        row.get("expected_return_pct"), label="longlist.expected_return_pct"
+        row.get("expected_return_pct"), label="ranked_set.expected_return_pct"
     )
     if displayed_er_pct != round(annual * 100, 4):
-        raise OpportunityDataError("estimate_snapshot expected return does not match longlist row")
+        raise OpportunityDataError(
+            "estimate_snapshot expected return does not match ranked_set row"
+        )
 
     anchors = _required_mapping(
         fair_value.get("anchors"), label="estimate_snapshot.fair_value.anchors"
@@ -1497,13 +1499,15 @@ def _screening_estimate_from_selection_output(
     displayed_fair_value = row.get("fair_value_anchor_yen")
     if raw_fair_value_anchor_yen is None:
         if displayed_fair_value is not None:
-            raise OpportunityDataError("null estimate anchors do not match longlist row fair value")
+            raise OpportunityDataError(
+                "null estimate anchors do not match ranked_set row fair value"
+            )
     else:
         displayed_anchor = _finite_number(
-            displayed_fair_value, label="longlist.fair_value_anchor_yen"
+            displayed_fair_value, label="ranked_set.fair_value_anchor_yen"
         )
         if displayed_anchor != round(raw_fair_value_anchor_yen, 4):
-            raise OpportunityDataError("estimate_snapshot fair value does not match longlist row")
+            raise OpportunityDataError("estimate_snapshot fair value does not match ranked_set row")
 
     fair_value_anchor_yen = (
         None
@@ -1559,9 +1563,9 @@ def _finite_number(value: object, *, label: str) -> float:
 
 
 def _validate_selection_estimate_asof(
-    *, selection: Mapping[str, object], longlist: Sequence[Mapping[str, object]], asof: date
+    *, selection: Mapping[str, object], ranked_set: Sequence[Mapping[str, object]], asof: date
 ) -> None:
-    snapshots = [row["estimate_snapshot"] for row in longlist if "estimate_snapshot" in row]
+    snapshots = [row["estimate_snapshot"] for row in ranked_set if "estimate_snapshot" in row]
     if not snapshots:
         return
     selection_metadata = _required_mapping(selection.get("selection"), label="selection.selection")
@@ -1770,7 +1774,7 @@ def promote(
         )
 
     result = evaluate_thesis(document, review=review, now=now, identity=UnpublishedThesis.DRAFT)
-    if result.decision_readiness != "ready":
+    if result.decision_readiness not in {"ready", "ready_with_warnings"}:
         raise OpportunityDataError(f"thesis is not decision-ready: {list(result.errors)}")
 
     stable_review_name = _review_filename(asof=document.input_snapshot.as_of, ticker=ticker)
@@ -1860,13 +1864,6 @@ def plan_limit(
         defer_reasons.append("active_reservation_exists")
     expires_at = datetime.combine(target_session, time(15, 30), tzinfo=JST)
 
-    if document.judgment.position_intent == "starter":
-        # 有効な金額枠を output へ書く。proposal 側は保存された budget から数量を再計算して
-        # 突き合わせるので、渡された枠のまま書くと starter の数量が再現できず approve が
-        # 落ちる。下限も同時に下げないと budget_min <= budget_max の不変条件が壊れる。
-        budget_max_yen = min(budget_max_yen, STARTER_MAX_ORDER_NOTIONAL_YEN)
-        budget_min_yen = min(budget_min_yen, budget_max_yen)
-
     base_output: dict[str, object] = {
         "ticker": ticker,
         "thesis_ref": str(thesis),
@@ -1906,9 +1903,7 @@ def plan_limit(
     assert price is not None  # close_decimal is derived only from a resolved price
     warnings: list[str] = []
     lot_notional = close_decimal * BOARD_LOT
-    if document.judgment.position_intent == "starter" and lot_notional > budget_max_yen:
-        # starter は「観測をゼロから非ゼロにする」ための枠なので、1 単元が上限を超える
-        # 銘柄は 1 単元へ切り上げず defer にする。切り上げると縮小 lot の意味が消える。
+    if document.judgment.sizing_action == "reduced" and lot_notional > budget_max_yen:
         return {
             "status": "defer",
             **base_output,
@@ -1916,9 +1911,11 @@ def plan_limit(
             "quantity": 0,
             "notional_yen": 0,
             "warnings": [],
-            "defer_reasons": ["starter_lot_exceeds_notional_cap"],
+            "defer_reasons": ["reduced_lot_exceeds_budget"],
         }
-    if lot_notional <= budget_max_yen:
+    if document.judgment.sizing_action == "reduced":
+        quantity = BOARD_LOT
+    elif lot_notional <= budget_max_yen:
         # floor(budget_max / lot_notional) on the exact Decimal notional; truncating
         # the notional to int first could select one lot too many and overshoot.
         lots = int(budget_max_yen // lot_notional)

@@ -27,13 +27,8 @@ from ..schema import UNRESOLVED_DIVIDEND_BASIS
 from ..tiers import position_tier
 from .candidate_diagnostics import _candidate_diagnostics
 from .contracts import (
-    VALUE_CARRY_ONLY_ATTENTION_POLICY_ID,
-    VALUE_CARRY_OPPORTUNITY_LANE_ID,
-    VALUE_CARRY_SELECTION_POLICY_ID,
-    ValueCarryOnlyAttentionParameters,
-    ValueCarrySelectionPolicyParameters,
-    value_carry_only_attention_policy_hash,
-    value_carry_selection_policy_hash,
+    SelectionMethodParameters,
+    selection_method_hash,
 )
 from .macro_fit import (
     macro_context_summary,
@@ -56,8 +51,7 @@ from .summaries import (
     _decision_input_seed,
     _durability_counts,
     _fair_value_anchors,
-    _longlist_summary,
-    _selection_candidate_summary,
+    _ranked_set_summary,
     _sweep_candidate_summary,
     _sweep_changed_summaries,
 )
@@ -69,7 +63,7 @@ def build_selection_payload(
     candidates: Sequence[CandidateRecord],
     macro_context: MacroContext | None,
     rules: ScreeningRules,
-    top: int,
+    review_cap: int,
     profile: str | None,
     candidates_ref: str,
     macro_context_ref: str | None,
@@ -77,24 +71,19 @@ def build_selection_payload(
     market_regime: MarketRegimeSnapshot | None = None,
     profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
     detail: str = "summary",
-    longlist_top: int = 0,
     screening_rules_hash: str | None = None,
     er_model_version: str | None = None,
     review_basis_shortlist_id: str | None = None,
 ) -> dict[str, object]:
     if detail not in {"summary", "full"}:
         raise ValueError("detail must be summary or full")
-    if longlist_top < 0:
-        raise ValueError("longlist_top must be zero or greater")
+    if review_cap < 0:
+        raise ValueError("review_cap must be non-negative")
     effective_profile = profile or rules.selection.default_profile
     selection_rules = resolve_selection_rules(
         rules.selection,
         profile=effective_profile,
         profile_overrides=profile_overrides,
-    )
-    recommendation_limit = _research_recommendation_limit(
-        top=top,
-        configured_max=rules.output.research_selection_target_max,
     )
     previous_candidates = previous_candidates or PreviousCandidates(
         ref_path=None, source=None, tickers=()
@@ -164,11 +153,7 @@ def build_selection_payload(
         for candidate in ranked_candidates
         if _passes_supply_demand(candidate, selection_rules)
     ]
-    recommended = _recommended_research_candidates(
-        ranked_candidates=recommendation_candidates,
-        diversity_rules=selection_rules.diversity,
-        limit=recommendation_limit,
-    )
+    recommended = ranked_candidates[:review_cap]
     diagnostics = _diagnostics(
         recommended=recommended,
         ranked_candidates=ranked_candidates,
@@ -180,17 +165,9 @@ def build_selection_payload(
         liquidity_fact_missing_count=liquidity_fact_missing_count,
         supply_demand_excluded_count=len(ranked_candidates) - len(recommendation_candidates),
     )
-    recommendations = (
-        recommended
-        if detail == "full"
-        else [
-            _selection_candidate_summary(candidate, rank=rank)
-            for rank, candidate in enumerate(recommended, start=1)
-        ]
-    )
     expected_return_model_id = er_model_version or EXPECTED_RETURN_MODEL_VERSION
-    selection_policy_parameters = ValueCarrySelectionPolicyParameters(
-        lane_longlist_depth=longlist_top,
+    method_parameters = SelectionMethodParameters(
+        review_cap=review_cap,
         expected_return_model_id=expected_return_model_id,
         screening_rules_hash=screening_rules_hash,
         required_jpx_flags=tuple(sorted(required_jpx_flags)),
@@ -198,56 +175,27 @@ def build_selection_payload(
         candidate_diagnostic_parameters=selection_rules.candidate_diagnostics,
         evidence_pattern_order=tuple(evidence_pattern_order),
     )
-    selection_policy_hash = value_carry_selection_policy_hash(
-        **selection_policy_parameters.model_dump(mode="python")
-    )
-    attention_parameters = ValueCarryOnlyAttentionParameters(value_carry_limit=longlist_top)
-    attention_policy_hash = value_carry_only_attention_policy_hash(
-        selection_policy_hash=selection_policy_hash,
-        parameters=attention_parameters,
-    )
+    method_hash = selection_method_hash(method_parameters)
+    ranked_set = [
+        {
+            **_ranked_set_summary(candidate, rank=rank),
+            "er_annual": optional_float(
+                mapping_or_empty(candidate.get("metrics")).get("er_annual")
+            ),
+            "primary_evidence_pattern_id": string_or_none(
+                candidate.get("primary_evidence_pattern_id")
+            ),
+        }
+        for rank, candidate in enumerate(ranked_candidates[:review_cap], start=1)
+    ]
     payload: dict[str, object] = {
-        "recommendations": recommendations,
-        "longlist_origin": {
-            "opportunity_lane_id": VALUE_CARRY_OPPORTUNITY_LANE_ID,
-            "selection_policy_id": VALUE_CARRY_SELECTION_POLICY_ID,
-            "selection_policy_hash": selection_policy_hash,
-        },
-        "selection_policy_parameters": selection_policy_parameters.model_dump(mode="json"),
-        "attention_policy_id": VALUE_CARRY_ONLY_ATTENTION_POLICY_ID,
-        "attention_policy_hash": attention_policy_hash,
-        "attention_policy_parameters": attention_parameters.model_dump(mode="json"),
+        "ranked_set": ranked_set,
+        "method_hash": method_hash,
+        "method_parameters": method_parameters.model_dump(mode="json"),
         "review_basis": {
             "judged_through_shortlist_id": review_basis_shortlist_id,
         },
     }
-    # longlist は監査用の追加 view。--longlist-top 省略 (0) では既存 output 互換のため
-    # key 自体を出さない。出す場合は同じ rank 済み集合 (diversity/cap 切断前) の先頭
-    # N 件で、recommendation の production cap とは独立に監査できるようにする。
-    if longlist_top > 0:
-        longlist = [
-            {
-                **_longlist_summary(candidate, rank=rank),
-                "opportunity_lane_id": VALUE_CARRY_OPPORTUNITY_LANE_ID,
-                "selection_policy_id": VALUE_CARRY_SELECTION_POLICY_ID,
-                "selection_policy_hash": selection_policy_hash,
-                "lane_rank": rank,
-                "lane_native_value": optional_float(
-                    mapping_or_empty(candidate.get("metrics")).get("er_annual")
-                ),
-                "lane_native_unit": "annual_ratio",
-                "baseline_er_rank": rank,
-                "primary_evidence_pattern_id": string_or_none(
-                    candidate.get("primary_evidence_pattern_id")
-                ),
-                "policy_diagnostic_ids": [],
-            }
-            for rank, candidate in enumerate(ranked_candidates[:longlist_top], start=1)
-        ]
-        payload["longlist"] = longlist
-        payload["review_tickers"] = [str(row["ticker"]) for row in longlist]
-    else:
-        payload["review_tickers"] = []
     payload["selection"] = {
         "asof": asof_date.isoformat(),
         "profile": effective_profile,
@@ -295,7 +243,7 @@ def build_selection_sweep_payload(
             candidates=candidates,
             macro_context=macro_context,
             rules=rules,
-            top=top,
+            review_cap=top,
             profile=profile,
             candidates_ref=candidates_ref,
             macro_context_ref=macro_context_ref,
@@ -305,7 +253,7 @@ def build_selection_sweep_payload(
         )
         selection = mapping_or_empty(payload.get("selection"))
         diagnostics = mapping_or_empty(selection.get("diagnostics"))
-        recommended = dict_sequence(payload.get("recommendations"))
+        recommended = dict_sequence(payload.get("ranked_set"))
         profile_results.append(
             {
                 "profile": profile,

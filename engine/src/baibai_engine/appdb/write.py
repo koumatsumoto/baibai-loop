@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Sequence
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
 from baibai_engine.foundation.time import JST
 
-from .migrations import MIGRATIONS, Migration
 from .paths import DEFAULT_DB_PATH as DEFAULT_DB_PATH
 from .paths import database_path as database_path
+from .schema import APPLICATION_SCHEMA_VERSION, SCHEMA_SQL
 
 
 def connect_rw(path: Path | None = None) -> sqlite3.Connection:
@@ -36,49 +35,29 @@ _BACKUP_GLOB = "baibai-*.sqlite"
 
 def initialize_database(
     path: Path | None = None,
-    *,
-    migrations: Sequence[Migration] = MIGRATIONS,
 ) -> int:
-    """Apply pending migrations, each as one immediate transaction.
-
-    A checkpoint is taken first whenever there is anything to apply. The transaction
-    around each migration only undoes statements that failed; a migration that runs
-    exactly as written and means the wrong thing commits, and this store is the only
-    copy of the judgments and the ledger. Routine writers call this on every command,
-    so the point a defect is introduced is also the last point a copy can be taken —
-    and the copy has to exist before the first statement rather than after it.
-    """
+    """Create the current schema or reject a store that needs an explicit cutover."""
     with closing(connect_rw(path)) as connection:
         current = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if current > 0 and any(migration.version > current for migration in migrations):
-            # Fails closed: a checkpoint that could not be written leaves the migration
-            # unapplied, because the alternative is applying it with no way back. A store
-            # still at version 0 is a file `connect_rw` has just created and holds nothing
-            # a copy could give back.
-            backup_database(path)
-        for migration in migrations:
-            if migration.version <= current:
-                continue
-            if migration.version != current + 1:
-                raise RuntimeError(
-                    f"migration sequence gap: database={current}, next={migration.version}"
-                )
-            connection.execute("BEGIN IMMEDIATE")
-            try:
-                for statement in migration.statements:
-                    connection.execute(statement)
-                violations = connection.execute("PRAGMA foreign_key_check").fetchall()
-                if violations:
-                    raise sqlite3.IntegrityError(
-                        f"foreign key check failed during migration {migration.version}"
-                    )
-                connection.execute(f"PRAGMA user_version = {migration.version}")
-                connection.commit()
-            except BaseException:
-                connection.rollback()
-                raise
-            current = migration.version
-        return current
+        if current == APPLICATION_SCHEMA_VERSION:
+            return current
+        tables = connection.execute(
+            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
+        ).fetchone()
+        if current != 0 or tables is not None:
+            raise RuntimeError(
+                "application database requires an explicit semantic cutover "
+                f"(found user_version={current}, expected={APPLICATION_SCHEMA_VERSION})"
+            )
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            connection.executescript(SCHEMA_SQL)
+            connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+        return APPLICATION_SCHEMA_VERSION
 
 
 def backup_database(

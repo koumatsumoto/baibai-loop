@@ -518,21 +518,15 @@ def test_documented_command_gate_reads_inline_code_spans(tmp_path: Path) -> None
     ]
 
 
-def test_documented_command_gate_skips_a_parent_option_when_finding_the_subcommand(
+def test_documented_command_gate_rejects_the_removed_proposal_domain(
     tmp_path: Path,
 ) -> None:
-    """domain の option が subcommand より前に来ても、解決先を見失わない。"""
-
     _skill(
         tmp_path,
         "```bash\nuv run baibai-engine proposal --db stores/application/baibai.sqlite decide <ID>\n```\n",
     )
     assert check_documented_commands.check(tmp_path) == [
-        (
-            ".agents/skills/demo/SKILL.md: "
-            "`uv run baibai-engine proposal --db stores/application/baibai.sqlite decide <ID>` "
-            "omits required --decision"
-        )
+        ".agents/skills/demo/SKILL.md: baibai-engine: unknown domain proposal"
     ]
 
 
@@ -583,26 +577,6 @@ def _policy_copy(root: Path) -> None:
         (ROOT / "engine/src/baibai_engine/position/policy.py").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-
-
-def test_duplicate_policy_constant_gate_rejects_a_starter_band_edge(tmp_path: Path) -> None:
-    """帯の実値が skill へ写ると、片方だけ動かしたとき手順が現行の帯を外す。"""
-
-    _policy_copy(tmp_path)
-    path = tmp_path / ".agents" / "skills" / "research" / "SKILL.md"
-    path.parent.mkdir(parents=True)
-    for literal in ("要求 8.5% に届かないが", "7.0 以上"):
-        path.write_text(f"{literal}\n", encoding="utf-8")
-        assert check_duplicate_constants.check(tmp_path) != []
-
-
-def test_duplicate_policy_constant_gate_rejects_the_starter_order_cap(tmp_path: Path) -> None:
-    _policy_copy(tmp_path)
-    path = tmp_path / "docs" / "copied-cap.md"
-    path.parent.mkdir(parents=True)
-    for literal in ("100,000", "10万円"):
-        path.write_text(f"1 注文の上限は {literal} である\n", encoding="utf-8")
-        assert check_duplicate_constants.check(tmp_path) != []
 
 
 def test_duplicate_policy_constant_gate_allows_unrelated_amounts(tmp_path: Path) -> None:

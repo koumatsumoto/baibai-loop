@@ -6,8 +6,6 @@ import { fetchJson } from '../api/client'
 import type {
   BargainAssessmentSummaryView,
   CandidateRowView,
-  OperationsView,
-  ProposalView,
   ScreeningHistoryRunView,
   ScreeningHistoryView,
   ScreeningRunView,
@@ -30,7 +28,7 @@ import { Input } from '../components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { ASSESSMENT_RESULT, ASSESSMENT_TONE_CLASS } from '../lib/assessment'
-import { EMPTY, formatJstDate, formatJstDateTime, formatNumber, formatYen } from '../lib/format'
+import { EMPTY, formatJstDateTime, formatNumber } from '../lib/format'
 import { LABEL } from '../lib/labels'
 import { cn } from '../lib/utils'
 
@@ -179,58 +177,6 @@ function AssessmentIndex({ assessments }: { assessments: readonly BargainAssessm
   )
 }
 
-const PROPOSAL_STATUS_LABEL: Record<string, string> = {
-  pending: '判断待ち',
-  approved: '承認',
-  deferred: '保留',
-  rejected: '見送り',
-}
-
-function planField(payload: Record<string, unknown>, key: string): unknown {
-  const plan = payload.planned_limit
-  if (typeof plan !== 'object' || plan === null) return undefined
-  return (plan as Record<string, unknown>)[key]
-}
-
-// The bargain assessment shows the proposal it published with, but a proposal exists
-// from the moment research concludes — before any assessment, and in cycles that end
-// with no purchase at all. This is where that state is readable on its own.
-function ProposalList({ proposals }: { proposals: readonly ProposalView[] }) {
-  if (proposals.length === 0) {
-    return (
-      <Card className="py-5 shadow-sm">
-        <CardContent className="px-5 text-sm text-muted-foreground">
-          売買提案はありません。research の結論が proposal になると、指値・数量・期限とその判断状況がここに出ます。
-        </CardContent>
-      </Card>
-    )
-  }
-  return (
-    <Card className="divide-y py-0 shadow-sm">
-      {proposals.map((item) => {
-        const limit = planField(item.payload, 'limit_price_yen')
-        const quantity = planField(item.payload, 'quantity')
-        const expiresAt = planField(item.payload, 'expires_at')
-        return (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-5 py-3 sm:px-6" key={item.proposal_id}>
-            <Link className="min-w-[4rem] shrink-0 font-mono font-semibold underline-offset-4 hover:underline" to={`/securities/${item.ticker}`}>{item.ticker}</Link>
-            <Badge className="shrink-0" variant="outline">{PROPOSAL_STATUS_LABEL[item.status] ?? item.status}</Badge>
-            <div className="flex min-w-[16rem] flex-1 flex-wrap gap-x-4 gap-y-1 text-xs">
-              <span>指値 <span className="font-mono tabular-nums text-foreground">{typeof limit === 'string' || typeof limit === 'number' ? formatYen(Number(limit)) : EMPTY}</span></span>
-              <span>数量 <span className="font-mono tabular-nums text-foreground">{typeof quantity === 'number' ? `${quantity.toLocaleString('ja-JP')} 株` : EMPTY}</span></span>
-              <span>期限 <span className="font-mono tabular-nums text-foreground">{typeof expiresAt === 'string' ? formatJstDate(expiresAt.slice(0, 10)) : EMPTY}</span></span>
-            </div>
-            <div className="flex shrink-0 flex-wrap gap-x-3 text-[11px] text-muted-foreground">
-              <span>作成 {formatJstDate(item.created_at.slice(0, 10))}</span>
-              {item.decided_at !== null && <span>決定 {formatJstDate(item.decided_at.slice(0, 10))}</span>}
-            </div>
-          </div>
-        )
-      })}
-    </Card>
-  )
-}
-
 export function StocksPage() {
   const [data, setData] = useState<ScreeningView | null>(null)
   const [historyDates, setHistoryDates] = useState<string[]>([])
@@ -249,9 +195,6 @@ export function StocksPage() {
   const [sortKey, setSortKey] = useState<SortKey>('er_annual')
   const [direction, setDirection] = useState<SortDirection>('desc')
   const [showAll, setShowAll] = useState(false)
-  // Proposals live in the operations view, which the page reads on its own rather than
-  // widening the screening projection with state that does not come from a run.
-  const [proposals, setProposals] = useState<readonly ProposalView[]>([])
 
   useEffect(() => {
     Promise.all([
@@ -265,10 +208,6 @@ export function StocksPage() {
     }).catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.message : 'Stocks を読み込めませんでした')
     })
-    // A missing operations view leaves the section empty rather than failing the page.
-    fetchJson<OperationsView>('/api/operations')
-      .then((operations) => setProposals(operations.proposals))
-      .catch(() => setProposals([]))
   }, [])
 
   const activeRun: ScreeningRunView | null = historicalRun === null
@@ -357,21 +296,13 @@ export function StocksPage() {
       </section>
 
       <section className="grid gap-3">
-        <div className="flex items-center gap-2">
-          <h2 className="text-xl font-semibold tracking-tight">売買提案</h2>
-          <Badge variant="secondary">{proposals.length} 件</Badge>
-        </div>
-        <ProposalList proposals={proposals} />
-      </section>
-
-      <section className="grid gap-3">
         <h2 className="text-xl font-semibold tracking-tight">リサーチ候補選定</h2>
         <div className="grid gap-4 lg:grid-cols-2">
           <SectionCard description="Research Gateで選んだ深掘り候補" padded title="Shortlist">
             <div className="grid gap-3">{data.shortlists.length === 0 ? <p className="text-sm font-medium text-warning">Shortlist 未作成</p> : data.shortlists.map((shortlist) => { const selectedCount = shortlist.entries.filter((entry) => entry.decision === 'selected').length; return <div className="rounded-lg border p-3" key={shortlist.shortlist_id}><p className="mb-2 font-mono text-xs text-muted-foreground">{shortlist.shortlist_id}</p><div className="mb-3 flex flex-wrap gap-1.5">{shortlist.entries.filter((entry) => entry.decision === 'selected').map((entry) => <Link key={entry.ticker} to={`/securities/${entry.ticker}`}><Badge>{entry.ticker}</Badge></Link>)}</div><p className="text-xs text-muted-foreground">選定 {selectedCount} 件・見送り {shortlist.entries.length - selectedCount} 件</p></div> })}<Button asChild className="w-full" size="sm" variant="outline"><Link to="/stocks/shortlist">Shortlist の詳細を見る →</Link></Button></div>
           </SectionCard>
-          <SectionCard description="E[r] rankingによるResearch Gateの入力母集団" padded title="Longlist">
-            <div className="grid gap-3">{data.selections.length === 0 ? <p className="text-sm text-muted-foreground">Longlist はありません</p> : data.selections.map((selection) => <div className="rounded-lg border p-3" key={selection.selection_id}><div className="mb-2 flex flex-wrap gap-2"><Badge>{selection.profile}</Badge><span className="font-mono text-xs text-muted-foreground">{selection.selection_id}</span></div><div className="flex flex-wrap gap-2">{selection.longlist.map((item, index) => <Badge key={String(item.ticker ?? index)} variant="secondary">{String(item.ticker ?? 'unknown')}</Badge>)}</div><p className="mt-2 text-xs text-muted-foreground">{selection.longlist.length} 件</p></div>)}</div>
+          <SectionCard description="E[r] rankingによるResearch Gateの入力母集団" padded title="RankedSet">
+            <div className="grid gap-3">{data.selections.length === 0 ? <p className="text-sm text-muted-foreground">RankedSet はありません</p> : data.selections.map((selection) => <div className="rounded-lg border p-3" key={selection.selection_id}><div className="mb-2 flex flex-wrap gap-2"><Badge>{selection.profile}</Badge><span className="font-mono text-xs text-muted-foreground">{selection.selection_id}</span></div><div className="flex flex-wrap gap-2">{selection.ranked_set.map((item, index) => <Badge key={String(item.ticker ?? index)} variant="secondary">{String(item.ticker ?? 'unknown')}</Badge>)}</div><p className="mt-2 text-xs text-muted-foreground">{selection.ranked_set.length} 件</p></div>)}</div>
           </SectionCard>
         </div>
       </section>
@@ -467,7 +398,7 @@ export function StocksPage() {
                   <TableCell className="max-w-40 truncate text-muted-foreground" title={row.sector_33 ?? undefined}>{row.sector_33 ?? '—'}</TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.er_annual} /></TableCell>
                   <TableCell className="text-right"><ErSplitCell carry={row.er_carry_annual} reversion={row.er_reversion_annual} /></TableCell>
-                  <TableCell className="text-right" title={row.fair_value_anchor_yen === null ? 'longlist 外のため FV アンカーなし' : `FV アンカー ${formatNumber(row.fair_value_anchor_yen, 0)} 円`}><PctBadge value={row.fair_value_gap_pct} /></TableCell>
+                  <TableCell className="text-right" title={row.fair_value_anchor_yen === null ? 'ranked_set 外のため FV アンカーなし' : `FV アンカー ${formatNumber(row.fair_value_anchor_yen, 0)} 円`}><PctBadge value={row.fair_value_gap_pct} /></TableCell>
                   <TableCell className="text-right"><Metric value={row.per_forward} /></TableCell>
                   <TableCell className="text-right"><Metric value={row.per_trailing} /></TableCell>
                   <TableCell className="text-right"><Metric value={row.pbr} /></TableCell>

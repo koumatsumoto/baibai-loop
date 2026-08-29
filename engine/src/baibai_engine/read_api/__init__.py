@@ -65,7 +65,6 @@ from .materialization import (
 )
 from .operations import list_operation_sessions
 from .position import list_portfolio_outcome_payloads, portfolio_ledger_document
-from .proposals import list_proposal_payloads
 from .research import (
     list_holding_review_publications,
     list_thesis_publications,
@@ -113,7 +112,6 @@ __all__ = [
     "list_macro_context_payloads",
     "list_operation_sessions",
     "list_portfolio_outcome_payloads",
-    "list_proposal_payloads",
     "list_shortlist_payloads",
     "list_task_payloads",
     "list_thesis_publications",

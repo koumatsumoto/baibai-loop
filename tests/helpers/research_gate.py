@@ -50,7 +50,6 @@ def research_gate_shortlist(
             published_at=f"{as_of}T18:00:00+09:00",
             profile=profile,
             macro_context_id=macro_context_id,
-            attention_policy_parameters={"value_carry_limit": len(entries)},
             entries=entries,
         )
     ).payload()

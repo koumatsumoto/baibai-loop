@@ -92,15 +92,14 @@ def test_observed_price_survives_candidate_serialization_and_selection() -> None
         candidates=(candidate_record_from_mapping(serialized),),
         macro_context=None,
         rules=load_screening_rules(DEFAULT_RULES_PATH),
-        top=10,
         profile="balanced",
         candidates_ref="test.yaml",
         macro_context_ref=None,
-        longlist_top=1,
+        review_cap=1,
     )
-    assert payload["longlist"][0]["market_price_yen"] == 100.0
-    assert payload["longlist"][0]["fair_value_anchor_yen"] == 150.0
-    assert payload["longlist"][0]["fv_convergence"]["market_price_yen"] == 100.0
+    assert payload["ranked_set"][0]["market_price_yen"] == 100.0
+    assert payload["ranked_set"][0]["fair_value_anchor_yen"] == 150.0
+    assert payload["ranked_set"][0]["fv_convergence"]["market_price_yen"] == 100.0
 
     old_metrics = serialized["metrics"]
     assert isinstance(old_metrics, dict)
@@ -112,42 +111,19 @@ def test_observed_price_survives_candidate_serialization_and_selection() -> None
         candidates=(candidate_record_from_mapping(serialized),),
         macro_context=None,
         rules=load_screening_rules(DEFAULT_RULES_PATH),
-        top=10,
         profile="balanced",
         candidates_ref="old-test.yaml",
         macro_context_ref=None,
-        longlist_top=1,
+        review_cap=1,
     )
-    assert old_payload["longlist"][0]["market_price_yen"] is None
-    assert old_payload["longlist"][0]["fair_value_anchor_yen"] is None
-    assert old_payload["longlist"][0]["fv_convergence"]["status"] == "not_evaluable"
-    assert old_payload["longlist"][0]["fv_convergence"]["anchors_yen"] == {}
-    assert old_payload["longlist"][0]["estimate_snapshot"]["fair_value"]["anchors"] == {}
-    assert old_payload["recommendations"][0]["fv_sector_median_yen"] is None
+    assert old_payload["ranked_set"][0]["market_price_yen"] is None
+    assert old_payload["ranked_set"][0]["fair_value_anchor_yen"] is None
+    assert old_payload["ranked_set"][0]["fv_convergence"]["status"] == "not_evaluable"
+    assert old_payload["ranked_set"][0]["fv_convergence"]["anchors_yen"] == {}
+    assert old_payload["ranked_set"][0]["estimate_snapshot"]["fair_value"]["anchors"] == {}
+    assert old_payload["ranked_set"][0]["fv_sector_median_yen"] is None
     assert (
-        old_payload["recommendations"][0]["decision_input_seed"]["estimates"]["fair_value"][
-            "anchors"
-        ]
-        == {}
-    )
-
-    old_full_payload = build_selection_payload(
-        asof_date=_ASOF,
-        candidates=(candidate_record_from_mapping(serialized),),
-        macro_context=None,
-        rules=load_screening_rules(DEFAULT_RULES_PATH),
-        top=10,
-        profile="balanced",
-        candidates_ref="old-test.yaml",
-        macro_context_ref=None,
-        detail="full",
-        longlist_top=1,
-    )
-    assert old_full_payload["recommendations"][0]["metrics"]["fv_sector_median_yen"] is None
-    assert (
-        old_full_payload["recommendations"][0]["decision_input_seed"]["estimates"]["fair_value"][
-            "anchors"
-        ]
+        old_payload["ranked_set"][0]["decision_input_seed"]["estimates"]["fair_value"]["anchors"]
         == {}
     )
 
@@ -218,7 +194,7 @@ def _candidate(
     }
 
 
-def test_warning_is_longlist_annotation_and_does_not_change_er_ranking() -> None:
+def test_warning_is_ranked_set_annotation_and_does_not_change_er_ranking() -> None:
     payload = build_selection_payload(
         asof_date=_ASOF,
         candidates=tuple(
@@ -230,22 +206,18 @@ def test_warning_is_longlist_annotation_and_does_not_change_er_ranking() -> None
         ),
         macro_context=None,
         rules=load_screening_rules(DEFAULT_RULES_PATH),
-        top=10,
         profile="balanced",
         candidates_ref="test.yaml",
         macro_context_ref=None,
-        longlist_top=2,
+        review_cap=2,
     )
 
-    recommendations = payload["recommendations"]
-    longlist = payload["longlist"]
-    assert isinstance(recommendations, list)
-    assert isinstance(longlist, list)
-    assert [item["ticker"] for item in recommendations] == ["1111", "2222"]
-    assert [item["ticker"] for item in longlist] == ["1111", "2222"]
-    assert [item["expected_return_pct"] for item in longlist] == [12.0, 8.0]
-    assert longlist[0]["fv_convergence"]["status"] == "warning"
-    assert longlist[1]["fv_convergence"]["status"] == "clear"
+    ranked_set = payload["ranked_set"]
+    assert isinstance(ranked_set, list)
+    assert [item["ticker"] for item in ranked_set] == ["1111", "2222"]
+    assert [item["expected_return_pct"] for item in ranked_set] == [12.0, 8.0]
+    assert ranked_set[0]["fv_convergence"]["status"] == "warning"
+    assert ranked_set[1]["fv_convergence"]["status"] == "clear"
 
 
 @pytest.mark.parametrize(
