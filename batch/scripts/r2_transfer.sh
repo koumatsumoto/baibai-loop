@@ -138,23 +138,6 @@ check_sqlite() {
   )
 }
 
-check_sqlite_schema() {
-  (
-    cd "${repo_root}" || exit 1
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run python -m baibai_batch.storage.sqlite_snapshot check \
-        --path "$1" --schema-version "$2"
-  )
-}
-
-sqlite_schema_version() {
-  (
-    cd "${repo_root}" || exit 1
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run python -m baibai_batch.storage.sqlite_snapshot version --path "$1"
-  )
-}
-
 snapshot_sqlite() {
   (
     cd "${repo_root}" || exit 1
@@ -195,35 +178,6 @@ migrate_downloaded_store() {
   )
 }
 
-cutover_downloaded_market_store() {
-  local path="$1"
-  (
-    cd "${repo_root}" || exit 1
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run python tools/migrations/cutover_market_v25.py --path "${path}"
-  )
-}
-
-cutover_pulled_run_store() {
-  local expected_version current_version path
-  expected_version="$(pulled_version runs.sqlite)"
-  current_version="$(remote_version runs.sqlite)"
-  if [[ "${current_version}" != "${expected_version}" ]]; then
-    printf 'refusing run-store cutover: runs.sqlite changed on R2 after the pull. ' >&2
-    printf 'Pull it again outside the daily batch window.\n' >&2
-    return 1
-  fi
-  path="$(store_path runs.sqlite)"
-  (
-    cd "${repo_root}" || exit 1
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run python tools/migrations/cutover_runs_v4.py --path "${path}"
-  )
-  check_sqlite_schema "${path}" 4
-  push_key_if_version runs.sqlite "${expected_version}"
-  write_machine_manifest
-}
-
 merge_market_store() {
   merge_store baibai_batch.storage.merge_market_store "$1" "$2"
 }
@@ -232,7 +186,6 @@ hydrate_market() {
   # The store arrives from R2 holding only what the lake does not own. Filling it is
   # what makes it the store every reader already expects, and it fails closed on the
   # published row counts, so a fill that silently did nothing cannot reach screening.
-  cutover_downloaded_market_store "$(store_path market.sqlite)"
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
@@ -763,7 +716,7 @@ pull_ranked_set_history() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|cutover-runs|pull-ranked-set-history DIR|seed-all|hydrate-market|publish-lake|publish-market-v25-cutover|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-ranked-set-history DIR|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -784,17 +737,6 @@ case "${1:-}" in
     [[ $# -eq 1 ]] || { usage; exit 2; }
     publish_lake
     ;;
-  publish-market-v25-cutover)
-    [[ $# -eq 1 ]] || { usage; exit 2; }
-    (
-      cd "${repo_root}" || exit 1
-      UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-        uv run python tools/migrations/publish_market_lake_v25.py \
-          --sqlite "$(store_path market.sqlite)" \
-          --mirror "${lake_mirror}" \
-          --bucket "${stores_bucket}"
-    )
-    ;;
   # A pass that only writes the market store round-trips the other two for nothing,
   # and pushing them back unchanged after hours would revert whatever else wrote them
   # meanwhile. These two move the market store alone.
@@ -803,10 +745,6 @@ case "${1:-}" in
     ;;
   pull-runs)
     pull_keys runs.sqlite
-    ;;
-  cutover-runs)
-    [[ $# -eq 1 ]] || { usage; exit 2; }
-    cutover_pulled_run_store
     ;;
   pull-ranked-set-history)
     [[ $# -eq 2 ]] || { usage; exit 2; }
@@ -833,7 +771,6 @@ case "${1:-}" in
     market_version="$(remote_version market.sqlite)"
     aws_s3 cp "s3://${stores_bucket}/market.sqlite" "${transfer_staging}/market.sqlite"
     check_sqlite "${transfer_staging}/market.sqlite"
-    cutover_downloaded_market_store "${transfer_staging}/market.sqlite"
     merge_market_store "${transfer_staging}/market.sqlite" "$(store_path market.sqlite)"
     cleanup_staging
     transfer_staging=""

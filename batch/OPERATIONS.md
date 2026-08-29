@@ -189,7 +189,7 @@ uv run baibai-engine screening ticker-profile --ticker TICKER
 次の3段を1コマンドで行う。
 
 1. **download** — cloud copyをstagingへ取る
-2. **schema確認** — market はv24からv25への一度限りのcutover toolで廃止tableだけを落とし、macroは現行migrationで進める。どちらもstaging copyだけを変更し、R2 objectはmerge後のuploadまで変わらない
+2. **schema確認** — market は現行schemaだけを受理し、macroは現行migrationでstaging copyを進める。R2 objectはmerge後のuploadまで変わらない
 3. **merge → upload** — cloud copyをローカルstoreへmergeし、cloud側の行が1行でも取り残されるなら停止する。全て取り込めた場合だけuploadする
 
 ```bash
@@ -215,27 +215,12 @@ dehydrateが「releaseが持つ行数と合わない」で停止する。ロー�
 hydrate後にfetch/build/publishへ直列に進み、変更後の再hydrateを行わないため、hot pathへ全partition
 比較や追加lockは置かない。
 
-**market v24からv25へのcutoverはローカルpublishで完了させる。** 最初のL1 publicationだけは、v24 manifestのdigestと保持datasetのhistory floorを検証する専用経路を使う。通常publisherが削除済みaudit fieldを再受理する互換layerは持たない。`push-market`はdownloadしたstaging copyにも同じ一度限りのstore cutoverを適用するため、cloud側の増分を捨てずにmergeできる。日次batchにschema移行を吸収させない。v25以外の旧版は推測して変換せず停止する。
-
-```bash
-uv run python tools/migrations/cutover_market_v25.py --path stores/market/market.sqlite
-batch/scripts/r2_transfer.sh publish-market-v25-cutover
-batch/scripts/r2_transfer.sh push-market
-```
-
-**run store v3からv4への一度限りのcutoverもローカルで完了させる。** run / selectionは再生成可能で、canonicalなShortlistと判断はapplication DBにあるため、旧rowを互換変換せず空のv4へ置き換える。日次batchの実行中でないことを確認し、main merge後に次を1回だけ実行する。`cutover-runs`は直前のpullで記録したR2 ETagへ条件付きで書き、旧objectを`runs.sqlite.bak`へ保存してからbundle receiptを更新する。sourceがv3でない、table集合が違う、またはpull後にR2が変わった場合はuploadしない。
-
-```bash
-batch/scripts/r2_transfer.sh pull-runs
-batch/scripts/r2_transfer.sh cutover-runs
-```
-
 **publishするcodeは、cloudが動かすcodeでなければならない。** ローカルのschema versionがmainより先にあると、cloudが知らないversionのstoreを置くことになり、次の日次batchが`open_connection`のbaseline検査で停止する（`supported range`を挙げてfail-fastし、Discordに`[FAILED]`が出る。1世代の`.bak`も残る）。schemaを上げるcodeは**mainへ入れてからpushする**。
 
-**pull側にschema検査を置いてはならない。** 検査を置くと、ラグを解消する経路（pull → one-shot cutover → push）がstep 1で落ちて自己修復が止まり、storeを1行も書かない`cloud-materialize`まで道連れになる。writerとreaderはcurrent schemaだけを受理し、旧schemaは明示したcutover以外で開かない。
+**pull側にschema検査を置いてはならない。** pullは転送とSQLite整合性確認に限定し、writerとreaderがcurrent schemaだけを受理する。これにより、storeを1行も書かない転送までschema不一致へ過剰に結合しない。
 
 **停止と復旧**: mergeの取り残し、origin不一致、schema不一致、CAS failureではuploadしない。
-最新cloud copyからやり直す。`runs.sqlite`はcloudが唯一の通常writerであり、上記v3→v4の一度限りの置換以外はlocalからpushしない。
+最新cloud copyからやり直す。`runs.sqlite`はcloudが唯一のwriterであり、localからpushしない。
 
 ### application DB を反映する
 

@@ -105,13 +105,6 @@ _PATH_PATTERN_OWNERS = {
     Path("engine/src/baibai_engine/foundation/repository_layout.py"),
     Path("tools/quality/drift/check_legacy_semantics.py"),
 }
-_DOMAIN_IDENTIFIER_ADAPTERS = {
-    # One-shot operator cutover reads the retired payload and emits only the current schema.
-    Path("tools/migrations/cutover_application_v17.py"),
-    Path("tools/migrations/cutover_market_v25.py"),
-    Path("tools/migrations/publish_market_lake_v25.py"),
-    Path("tools/migrations/cutover_runs_v4.py"),
-}
 
 
 def check(root: Path) -> list[str]:
@@ -143,7 +136,7 @@ def check(root: Path) -> list[str]:
     for path in current_paths:
         relative_path = path.relative_to(root)
         text = path.read_text(encoding="utf-8")
-        if relative_path not in _PATH_PATTERN_OWNERS | _DOMAIN_IDENTIFIER_ADAPTERS and (
+        if relative_path not in _PATH_PATTERN_OWNERS and (
             match := _DOMAIN_IDENTIFIER_LEGACY.search(text)
         ):
             errors.append(f"{relative_path}: retired domain identifier {match.group(0)!r}")
