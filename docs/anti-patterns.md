@@ -255,6 +255,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
   - [ ] model 管理している **nested object** が未知 field を許していないか
   - [ ] **既存 thesis** が新 rule で breakage しないか、する場合は同 commit で fix する
   - [ ] decisionに応じて必須・禁止が切り替わる分類fieldは、必須時の欠落・未定義値・禁止時の混入をすべて拒否するか
+  - [ ] 判断draftのscaffoldが`TODO`や未定義decisionを出す場合、publisherはplaceholderを必ず拒否し、scaffoldは判断元のmachine座標を同じentryへ転記して自由記述との照合を1回で行えるか
 
 #### 判断・operation境界
 

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import yaml
 
 from baibai_engine.read_api import list_research_triage_payloads
+from baibai_engine.research.opportunity import _screening_estimate_from_review_set_output
 from baibai_engine.screening.cli import main as screening_main
+from baibai_engine.screening.research_triage import ResearchTriageMachineSnapshot
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
@@ -46,6 +49,10 @@ def _analysis(ticker: str) -> dict[str, object]:
             "debt": 20.0,
             "cash": 30.0,
             "er_annual": 0.13,
+            "er_origin": "estimate",
+            "er_model_version": "v1",
+            "er_unit": "annual_ratio",
+            "er_assumptions": "fixture assumptions",
         },
     }
 
@@ -169,3 +176,114 @@ def test_research_triage_publish_cli_binds_every_review_set_entry(tmp_path: Path
         == 0
     )
     assert list_research_triage_payloads(app_db)[0]["review_set_id"] == review_set["review_set_id"]
+
+
+def test_research_triage_scaffold_carries_machine_coordinates_and_fails_closed(
+    tmp_path: Path,
+) -> None:
+    runs_db = tmp_path / "runs.sqlite"
+    review_set_output = tmp_path / "review-set.yaml"
+    draft_output = tmp_path / "research-triage.yaml"
+    _publish_run(runs_db)
+    assert (
+        screening_main(
+            [
+                "review-set",
+                "publish",
+                "--asof",
+                "2026-07-08",
+                "--run-revision-id",
+                "run-revision-cli-seam",
+                "--runs-db",
+                str(runs_db),
+                "--rules-path",
+                str(RULES_PATH),
+                "--review-cap",
+                "20",
+                "--output-path",
+                str(review_set_output),
+            ]
+        )
+        == 0
+    )
+    assert (
+        screening_main(
+            [
+                "research-triage",
+                "scaffold",
+                str(review_set_output),
+                "--output-path",
+                str(draft_output),
+            ]
+        )
+        == 0
+    )
+
+    review_set = yaml.safe_load(review_set_output.read_text(encoding="utf-8"))
+    draft = yaml.safe_load(draft_output.read_text(encoding="utf-8"))
+    assert [entry["ticker"] for entry in draft["entries"]] == [
+        entry["ticker"] for entry in review_set["entries"]
+    ]
+    assert draft["entries"][0]["decision"] == "TODO"
+    assert draft["entries"][0]["rationale"].startswith("TODO")
+    assert (
+        draft["entries"][0]["machine_snapshot"]["nominations"]
+        == review_set["entries"][0]["nominations"]
+    )
+    parsed_snapshot = ResearchTriageMachineSnapshot.model_validate(
+        draft["entries"][0]["machine_snapshot"]
+    )
+    assert parsed_snapshot.nominations == tuple(review_set["entries"][0]["nominations"])
+    assert (
+        screening_main(
+            [
+                "research-triage",
+                "publish",
+                str(draft_output),
+                "--db",
+                str(tmp_path / "app.sqlite"),
+                "--runs-db",
+                str(runs_db),
+            ]
+        )
+        == 1
+    )
+
+
+def test_thesis_scaffold_screening_estimate_names_its_local_source(tmp_path: Path) -> None:
+    runs_db = tmp_path / "runs.sqlite"
+    review_set_output = tmp_path / "review-set.yaml"
+    _publish_run(runs_db)
+    assert (
+        screening_main(
+            [
+                "review-set",
+                "publish",
+                "--asof",
+                "2026-07-08",
+                "--run-revision-id",
+                "run-revision-cli-seam",
+                "--runs-db",
+                str(runs_db),
+                "--rules-path",
+                str(RULES_PATH),
+                "--review-cap",
+                "20",
+                "--output-path",
+                str(review_set_output),
+            ]
+        )
+        == 0
+    )
+    review_set = yaml.safe_load(review_set_output.read_text(encoding="utf-8"))
+    ticker = review_set["entries"][0]["ticker"]
+
+    estimate, reason = _screening_estimate_from_review_set_output(
+        manifest={"inputs": {"review_set_output": {"path": str(review_set_output)}}},
+        ticker=ticker,
+        asof=date(2026, 7, 8),
+    )
+
+    assert reason is None
+    assert estimate is not None
+    assert estimate["source_ids"] == ["screening_analysis"]

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import sqlite3
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 import yaml
 from pydantic import ValidationError
 
+from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.screening.run_store import ScreeningRunReader
 
@@ -46,4 +48,89 @@ def publish_research_triage(
     return 0
 
 
-__all__ = ["publish_research_triage"]
+def scaffold_research_triage(
+    review_set_path: Path,
+    *,
+    output_path: Path,
+    force: bool = False,
+) -> int:
+    """Create one fail-closed draft with every Review Set coordinate in place."""
+
+    if output_path.exists() and not force:
+        print(f"output already exists: {output_path}", file=sys.stderr)
+        return 1
+    try:
+        review_set = safe_load(review_set_path.read_text(encoding="utf-8"))
+        if not isinstance(review_set, Mapping):
+            raise ValueError("Review Set output must be a mapping")
+        entries = review_set.get("entries")
+        if not isinstance(entries, list) or not entries:
+            raise ValueError("Review Set output must contain entries")
+        as_of = str(review_set.get("as_of") or "")
+        compact_as_of = as_of.replace("-", "")
+        review_basis = review_set.get("review_basis")
+        judged_through = (
+            review_basis.get("judged_through_research_triage_id")
+            if isinstance(review_basis, Mapping)
+            else None
+        )
+        draft_entries: list[dict[str, object]] = []
+        for source in entries:
+            if not isinstance(source, Mapping):
+                raise ValueError("Review Set entry must be a mapping")
+            analysis = source.get("analysis")
+            analysis_map = analysis if isinstance(analysis, Mapping) else {}
+            nominations = source.get("nominations")
+            if not isinstance(nominations, list):
+                raise ValueError("Review Set nominations must be a list")
+            approaches = ",".join(
+                str(item.get("valuation_approach_id"))
+                for item in nominations
+                if isinstance(item, Mapping)
+            )
+            draft_entries.append(
+                {
+                    "ticker": source.get("ticker"),
+                    "decision": "TODO",
+                    "priority": None,
+                    "rationale": (
+                        "TODO — "
+                        f"review_position={source.get('review_position')}; "
+                        f"support_count={source.get('support_count')}; "
+                        f"approaches={approaches}"
+                    ),
+                    "research_question": None,
+                    "key_risk": None,
+                    "machine_snapshot": {
+                        "review_position": source.get("review_position"),
+                        "nominations": nominations,
+                        "support_count": source.get("support_count"),
+                        "expected_return": analysis_map.get("expected_return"),
+                        "fair_value": None,
+                        "data_quality": analysis_map.get("data_quality"),
+                    },
+                }
+            )
+        draft = {
+            "schema_version": 1,
+            "kind": "research_triage",
+            "research_triage_id": f"research-triage-{compact_as_of}-<slug>",
+            "review_set_id": review_set.get("review_set_id"),
+            "run_revision_id": review_set.get("run_revision_id"),
+            "as_of": as_of,
+            "published_at": "<JST publication timestamp>",
+            "macro_context_id": None,
+            "review_basis_research_triage_id": judged_through,
+            "triage_contract_id": "research-triage-v1",
+            "entries": draft_entries,
+        }
+        rendered = yaml.safe_dump(draft, sort_keys=False, allow_unicode=True)
+        write_text_atomic(output_path, rendered)
+    except (OSError, ValueError, sqlite3.Error) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    print(rendered, end="")
+    return 0
+
+
+__all__ = ["publish_research_triage", "scaffold_research_triage"]
