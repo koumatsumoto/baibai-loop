@@ -9,7 +9,7 @@ from typing import Protocol
 from baibai_engine.read_api import PortfolioSnapshot
 from baibai_web.sources.types import (
     CandidatesRun,
-    HoldingReviewSummary,
+    PositionReviewSummary,
     ResearchRevision,
     TaskRecord,
     ThesisDetail,
@@ -43,7 +43,7 @@ class ResearchSource(Protocol):
 
     def thesis_detail(self, thesis_id: str) -> ThesisDetail: ...
 
-    def holding_reviews(self, *, ticker: str | None = None) -> list[HoldingReviewSummary]: ...
+    def position_reviews(self, *, ticker: str | None = None) -> list[PositionReviewSummary]: ...
 
     def load_errors(self) -> list[str]: ...
 
@@ -61,4 +61,4 @@ class CandidatesSource(Protocol):
 
     def run(self, run_revision_id: str) -> CandidatesRun | None: ...
 
-    def selections(self, *, run_revision_id: str | None = None) -> list[dict[str, object]]: ...
+    def review_sets(self, *, run_revision_id: str | None = None) -> list[dict[str, object]]: ...

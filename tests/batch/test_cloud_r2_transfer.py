@@ -380,8 +380,6 @@ def _serving_export(tmp_path: Path) -> Path:
     (output / "views/meta.json").write_text("{}", encoding="utf-8")
     (output / "history/candidate-views").mkdir(parents=True)
     (output / "history/candidate-views/2026-07-21.json").write_text("{}", encoding="utf-8")
-    (output / "history/ranked_sets").mkdir(parents=True)
-    (output / "history/ranked_sets/2026-07-21.json").write_text("{}", encoding="utf-8")
     return output
 
 
@@ -427,17 +425,15 @@ def test_serving_tail_appends_history_and_writes_meta_last(tmp_path: Path) -> No
     )
 
     commands = _transfer_commands(log)
-    assert len(commands) == 3
+    assert len(commands) == 2
     assert "s3://baibai-serving/history/candidate-views/" in commands[0]
     assert "--delete" not in commands[0]
-    assert "s3://baibai-serving/history/ranked_sets/" in commands[1]
-    assert "--delete" not in commands[1]
-    assert commands[2].startswith("s3 cp ")
-    assert commands[2].endswith(
+    assert commands[1].startswith("s3 cp ")
+    assert commands[1].endswith(
         "s3://baibai-serving/views/meta.json --endpoint-url "
         "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
     )
-    assert "serving tail: objects=3 elapsed=" in result.stdout
+    assert "serving tail: objects=2 elapsed=" in result.stdout
 
 
 def test_serving_transfer_raises_concurrency_without_touching_the_caller_config(
@@ -534,42 +530,6 @@ def test_two_concurrent_publishes_do_not_share_a_transfer_config(tmp_path: Path)
     assert not list(scratch.glob("baibai-r2-transfer.*"))
 
 
-def test_pull_ranked_set_history_uses_the_dedicated_serving_prefix(tmp_path: Path) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-    output = tmp_path / "ranked-set-history"
-
-    subprocess.run(
-        [TRANSFER_SCRIPT, "pull-ranked-set-history", output],
-        cwd=REPO_ROOT,
-        env=_environment(bin_dir, log),
-        check=True,
-    )
-
-    commands = _transfer_commands(log)
-    assert len(commands) == 1
-    assert commands[0].startswith("s3 sync s3://baibai-serving/history/ranked_sets/")
-    assert output.is_dir()
-
-
-def test_pull_ranked_set_history_refuses_to_overwrite_a_local_target(tmp_path: Path) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-    output = tmp_path / "ranked-set-history"
-    output.mkdir()
-
-    completed = subprocess.run(
-        [TRANSFER_SCRIPT, "pull-ranked-set-history", output],
-        cwd=REPO_ROOT,
-        env=_environment(bin_dir, log),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 2
-    assert "refusing ranked-set history download overwrite" in completed.stderr
-    assert not log.exists()
-
-
 APP_STORE = REPO_ROOT / "stores/application/baibai.sqlite"
 
 
@@ -625,7 +585,6 @@ def test_only_the_application_pull_names_the_application_store() -> None:
         "pull-machine",
         "pull-market",
         "pull-runs",
-        "pull-ranked-set-history",
     }
     assert naming_app == {"pull-app"}
 

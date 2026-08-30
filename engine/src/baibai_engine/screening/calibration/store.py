@@ -20,7 +20,6 @@ from baibai_engine.appdb.json import canonical_json
 from baibai_engine.foundation.repository_layout import CALIBRATION_DIR
 
 from ..metrics import VALUATION_CALCULATION_REVISION
-from ..rules import _RELAXED_THRESHOLDS as _RELAXED_TABLE
 from .forward import (
     DEFAULT_FORWARD_OBSERVATION_POLICY,
     FORWARD_FIELD_NAMES,
@@ -40,7 +39,7 @@ from .panel import (
 
 DEFAULT_CALIBRATION_DIR = CALIBRATION_DIR
 CURRENT_SNAPSHOT_NAME = "current.sqlite"
-RELAXED = _RELAXED_TABLE
+RELAXED: tuple[()] = ()
 
 
 def _digest(*parts: str) -> str:

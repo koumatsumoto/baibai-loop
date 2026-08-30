@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 JST = ZoneInfo("Asia/Tokyo")
 OCCURRED_AT = datetime(2026, 7, 12, 10, 0, tzinfo=JST)
-DECISION_REF = "holding-review-20260711-2331-position-2331"
+DECISION_REF = "position-review-20260711-2331-position-2331"
 
 
 def _seed(db: Path) -> LedgerStoreService:

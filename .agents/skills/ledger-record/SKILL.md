@@ -18,7 +18,7 @@ application DB が portfolio ledger の正本である。人間の報告だけ�
 ## 記録対象
 
 - **open / filled / cancelled / expired**: `record-result` を使う。新規 buy は canonical `result=buy` assessment ID と、人間が報告した時刻、数量、価格などが必須である。open は reservation、fill は execution と remaining、terminal report は remaining release を作る。partial fill は remaining がある間だけ継続し、矛盾する report は拒否する。
-- **sell**: holding review 後に `sell-result-draft` を使い、`decision-reference` を review ID に束縛する。market price が stale なら先に price draft を適用する。保有超過 sell は拒否する。
+- **sell**: Position Review 後に `sell-result-draft` を使い、`decision-reference` を review ID に束縛する。market price が stale なら先に price draft を適用する。保有超過 sell は拒否する。
 - **資金・income・cost・税**: `position event-draft` で確認した事実ごとに1 event を作る。risk override は `override-draft`、tax estimate は `meta-draft`。入金だけで screening や購入を起動しない。
 - **年次 outcome**: ledger を JPX 営業日 close まで再生し、同期間・同 basis の配当込み TOPIX と比較する。`unresolved` は保存せず、不足を解消して再実行する。
 
@@ -30,7 +30,7 @@ uv run baibai-engine position record-result --db stores/application/baibai.sqlit
   --occurred-at <ISO8601> --ordered-at <ISO8601> --out <draft>
 uv run baibai-engine position sell-result-draft --db stores/application/baibai.sqlite \
   --ticker XXXX --quantity <QTY> --price-yen <PRICE> --occurred-at <ISO8601> \
-  --decision-reference <HOLDING_REVIEW_ID> --out <draft>
+  --decision-reference <POSITION_REVIEW_ID> --out <draft>
 ```
 
 ## 停止条件
@@ -45,4 +45,4 @@ uv run baibai-engine position sell-result-draft --db stores/application/baibai.s
 
 - ledger event と replay: [`portfolio-ledger.md`](../../../docs/reference/portfolio-ledger.md)
 - 人間境界と資本規律: [`portfolio-management.md`](../../../docs/portfolio-management.md)
-- holding action: [`holding-review.md`](../../../docs/reference/holding-review.md)
+- holding action: [`position-review.md`](../../../docs/reference/position-review.md)

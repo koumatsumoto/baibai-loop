@@ -9,9 +9,9 @@ import yaml
 
 EXPECTED = frozenset(
     {
-        "shortlist",
+        "research-triage",
         "research",
-        "holding-review",
+        "position-review",
         "ledger-record",
         "macro-context",
         "ops-maintenance",

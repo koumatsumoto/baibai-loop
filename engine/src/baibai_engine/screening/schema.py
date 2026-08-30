@@ -118,7 +118,7 @@ class FinancialSnapshot:
     cash_eq: float | None = None
     total_assets: float | None = None
     # 最後の raw close を as-of の株式基準へ換算した screening 参考価格。時価総額・E[r]・
-    # selection 表示は同じ基準の株数と組み合わせる。約定価格ではなく、plan-limit は SQLite
+    # Review Set表示は同じ基準の株数と組み合わせる。約定価格ではなく、plan-limit は SQLite
     # の raw/unadjusted close を再取得する。
     market_price_yen: float | None = None
     # 市場が値付けする株式数 (発行済 - 自己株式)。valuation history も現在倍率と同じ
@@ -323,19 +323,6 @@ class DerivedMetrics:
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
-class EvidenceHit:
-    name: NonEmptyString
-    evidence_pattern_id: NonEmptyString
-    reasons: tuple[str, ...]
-    metrics: MetricValueMap = Field(default_factory=dict)
-
-    @field_validator("reasons", mode="before")
-    @classmethod
-    def _tuple_reasons(cls, value: Sequence[str]) -> tuple[str, ...]:
-        return tuple(value)
-
-
-@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class FreshnessWarning:
     source_family: NonEmptyString
     stale_metric: NonEmptyString
@@ -349,28 +336,7 @@ class FreshnessWarning:
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
-class ScreeningResult:
-    pass_fail: bool
-    evidence_hits: tuple[EvidenceHit, ...] = ()
-    failure_reasons: tuple[str, ...] = ()
-    null_reasons: tuple[str, ...] = ()
-
-    @field_validator("evidence_hits", "failure_reasons", "null_reasons", mode="before")
-    @classmethod
-    def _tuple_sequence(cls, value: Sequence[Any]) -> tuple[Any, ...]:
-        return tuple(value)
-
-    @model_validator(mode="after")
-    def _consistent_result(self) -> ScreeningResult:
-        if self.pass_fail and not self.evidence_hits:
-            raise ValueError("pass_fail=True requires at least one evidence_hit")
-        if not self.pass_fail and not self.failure_reasons:
-            raise ValueError("pass_fail=False requires at least one failure_reasons")
-        return self
-
-
-@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
-class ScreenedCandidate:
+class SecurityAnalysis:
     ticker: Ticker
     name: NonEmptyString
     per_forward: float | None
@@ -380,7 +346,6 @@ class ScreenedCandidate:
     p_s: float | None
     pcfr: float | None
     sector_33: NonEmptyString
-    evidence_hits: tuple[EvidenceHit, ...]
     ttm_quality: Mapping[str, TTMQuality]
     market_cap_oku: int | None = None
     avg_turnover_oku: float | None = None
@@ -400,7 +365,7 @@ class ScreenedCandidate:
     split_adjustment_flag: bool = False
     freshness_warnings: tuple[FreshnessWarning, ...] = ()
 
-    @field_validator("evidence_hits", "freshness_warnings", "jpx_flags", mode="before")
+    @field_validator("freshness_warnings", "jpx_flags", mode="before")
     @classmethod
     def _tuple_sequence(cls, value: Sequence[Any]) -> tuple[Any, ...]:
         return tuple(value)
@@ -433,12 +398,12 @@ class ScreenedCandidate:
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
-class ScreenedRunDocument:
+class ScreeningRunDocument:
     run_date: date
     asof_date: date
     universe_size: NonNegativeInt
     filters: Mapping[str, Any]
-    candidates: tuple[ScreenedCandidate, ...]
+    security_analyses: tuple[SecurityAnalysis, ...]
     run_at: datetime
     run_id: NonEmptyString
     screening_rules_hash: NonEmptyString
@@ -452,11 +417,10 @@ class ScreenedRunDocument:
     provider_status_lines: tuple[str, ...] = ()
     universe_exclusion_lines: tuple[str, ...] = ()
     ttm_quality_counts: Mapping[str, int] = Field(default_factory=dict)
-    evidence_hits_summary: Mapping[str, int] = Field(default_factory=dict)
     fallback_lines: tuple[str, ...] = ()
 
     @field_validator(
-        "candidates",
+        "security_analyses",
         "data_sources",
         "provider_status_lines",
         "universe_exclusion_lines",
@@ -468,7 +432,7 @@ class ScreenedRunDocument:
         return tuple(value)
 
     @model_validator(mode="after")
-    def _consistent_dates(self) -> ScreenedRunDocument:
+    def _consistent_dates(self) -> ScreeningRunDocument:
         if self.run_date != self.asof_date:
             raise ValueError("run_date must equal asof_date")
         if self.run_at.tzinfo is None:

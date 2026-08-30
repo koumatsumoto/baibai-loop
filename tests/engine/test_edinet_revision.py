@@ -70,8 +70,7 @@ _UNTRACKED_REACHED_MODULES = frozenset(
 # `screening/cli/__init__.py`; what keeps them out of the manifest is that no symbol of
 # theirs is named on the value path.
 _UNREFERENCED_ARTIFACTS = (
-    "screening/shortlist.py",
-    "screening/shortlist_outcome.py",
+    "screening/research_triage.py",
     "screening/earnings_lag.py",
     "screening/cli/app.py",
     "screening/cli/cache.py",
@@ -79,8 +78,7 @@ _UNREFERENCED_ARTIFACTS = (
     "screening/cli/query.py",
     "screening/cli/run.py",
     "screening/cli/prune.py",
-    "screening/selection/payload.py",
-    "screening/selection/candidate_diagnostics.py",
+    "screening/discovery/review_set.py",
     "screening/calibration/evaluation.py",
     "screening/calibration/panel.py",
     # The candidate row model and the metrics computed from EDINET rows. Both read the
@@ -202,7 +200,7 @@ def test_extractor_revision_changes_when_any_manifest_artifact_changes() -> None
 
 def test_extractor_revision_rejects_a_source_outside_the_manifest() -> None:
     artifacts = _artifacts()
-    artifacts["screening/shortlist.py"] = b"source:screening/shortlist.py"
+    artifacts["screening/research_triage.py"] = b"source:screening/research_triage.py"
     with pytest.raises(ValueError, match="manifest mismatch"):
         compute_extractor_revision(artifacts)
 

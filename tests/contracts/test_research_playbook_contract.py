@@ -9,22 +9,10 @@ PLAYBOOK_ROOT = ROOT / "method/research/playbooks"
 RESEARCH_SKILL = ROOT / ".agents/skills/research/SKILL.md"
 
 EXPECTED_ACTIVE_MAPPINGS = {
-    "cash-rich-asset-discount": (
-        "cash-rich-asset-discount-research-v1",
-        "cash-rich-asset-discount",
-    ),
-    "cashflow-yield-discount": (
-        "cashflow-yield-discount-research-v1",
-        "cashflow-yield-discount",
-    ),
-    "sales-discount-growth": (
-        "sales-discount-growth-research-v1",
-        "sales-discount-growth",
-    ),
-    "valuation-reversion": (
-        "valuation-reversion-research-v1",
-        "valuation-reversion",
-    ),
+    "current-earnings-power": "current-earnings-power-research-v1",
+    "normalized-earnings-power": "normalized-earnings-power-research-v1",
+    "asset-value": "asset-value-research-v1",
+    "reinvestment-value": "reinvestment-value-research-v1",
 }
 
 
@@ -35,18 +23,22 @@ def _frontmatter(path: Path) -> dict[str, object]:
     return payload
 
 
-def test_active_research_playbooks_have_explicit_versioned_applicability() -> None:
-    for directory_slug, (playbook_id, evidence_pattern_id) in EXPECTED_ACTIVE_MAPPINGS.items():
-        versions = sorted((PLAYBOOK_ROOT / directory_slug).glob("*.md"))
-        active = [path for path in versions if _frontmatter(path).get("status") == "active"]
-        assert len(active) == 1
-        metadata = _frontmatter(active[0])
+def test_active_research_playbooks_map_explicitly_to_valuation_approaches() -> None:
+    active: dict[str, dict[str, object]] = {}
+    for path in PLAYBOOK_ROOT.glob("*/*.md"):
+        metadata = _frontmatter(path)
+        if metadata.get("status") == "active":
+            active[path.parent.name] = metadata
+
+    assert set(active) == set(EXPECTED_ACTIVE_MAPPINGS)
+    for approach_id, playbook_id in EXPECTED_ACTIVE_MAPPINGS.items():
+        metadata = active[approach_id]
         assert metadata["research_playbook_id"] == playbook_id
-        assert "playbook_id" not in metadata
-        assert metadata["applies_to_evidence_pattern_ids"] == [evidence_pattern_id]
+        assert metadata["applies_to_valuation_approach_ids"] == [approach_id]
+        assert "applies_to_evidence_pattern_ids" not in metadata
 
 
-def test_research_skill_consumes_only_explicit_playbook_applicability() -> None:
+def test_research_skill_consumes_only_explicit_approach_applicability() -> None:
     text = RESEARCH_SKILL.read_text(encoding="utf-8")
-    assert "applies_to_evidence_pattern_ids" in text
+    assert "applies_to_valuation_approach_ids" in text
     assert "implicitに" in text

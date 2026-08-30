@@ -16,52 +16,40 @@ from baibai_engine.position.cli import main
 from baibai_engine.position.drafts import apply_draft, load_draft
 from baibai_engine.position.result_service import build_result_draft
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.research.assessment_service import BargainAssessmentService
+from baibai_engine.research.capital_allocation_service import CapitalAllocationAssessmentService
 
 ROOT = Path(__file__).parents[2]
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 ORDERED_AT = datetime.fromisoformat("2026-07-30T09:00:00+09:00")
 EXPIRES_AT = datetime.fromisoformat("2026-07-31T15:30:00+09:00")
-ASSESSMENT_ID = "bargain-assessment-20260730-2331"
+ASSESSMENT_ID = "capital-allocation-assessment-20260730-2331"
 
 
 def _services(
-    tmp_path: Path, *, result: str = "buy"
-) -> tuple[LedgerStoreService, BargainAssessmentService]:
+    tmp_path: Path, *, result: str = "allocate"
+) -> tuple[LedgerStoreService, CapitalAllocationAssessmentService]:
     db = tmp_path / "app.sqlite"
     initialize_database(db)
     payload = {
-        "schema_version": 5,
-        "kind": "bargain_assessment",
-        "assessment_id": ASSESSMENT_ID,
+        "schema_version": 1,
+        "kind": "capital_allocation_assessment",
+        "capital_allocation_assessment_id": ASSESSMENT_ID,
         "as_of": "2026-07-30",
         "published_at": "2026-07-30T08:30:00+09:00",
         "result": result,
-        "headline": "2331 を選択" if result == "buy" else "買わない",
-        "shortlist_id": "shortlist-20260730-test",
+        "headline": "2331 へ配分" if result == "allocate" else "配分しない",
+        "research_triage_id": "research_triage-20260730-test",
         "macro_context_id": None,
         "comparison": "要求利回りと永久損失を比較した",
         "forgone": "次回決算で再評価する",
-        "cases": [
+        "alternatives": [
             {
                 "ticker": "2331",
-                "name": "テスト銘柄",
-                "disposition": "selected" if result == "buy" else "reject",
-                "disposition_reason": "要求利回りを上回る",
                 "thesis_id": "thesis-20260730-2331-r1",
                 "thesis_core_sha256": "a" * 64,
-                "review_id": "review-20260730-2331-r1" if result == "buy" else None,
-                "business_model": "継続課金",
-                "value_capture": "価格決定力",
-                "growth_quality": "再投資可能",
-                "financial_resilience": "無借金",
-                "strongest_countercase": "成長鈍化",
-                "catalyst": "次回決算",
-                "research_questions": [
-                    {"question": "粗利率を確認", "answer": "維持", "status": "answered"}
-                ],
-                "unknowns": [],
-                "source_caveats": [],
+                "thesis_review_id": ("review-20260730-2331-r1" if result == "allocate" else None),
+                "disposition": "allocate" if result == "allocate" else "decline",
+                "rationale": "要求利回りと永久損失を比較した",
             }
         ],
         "review": {
@@ -75,10 +63,10 @@ def _services(
     }
     with sqlite3.connect(db) as connection:
         connection.execute(
-            "INSERT INTO shortlist VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO research_triage VALUES (?, ?, ?, ?, ?, ?)",
             (
-                "shortlist-20260730-test",
-                "selection-test",
+                "research_triage-20260730-test",
+                "review-set-test",
                 "run-test",
                 "2026-07-30",
                 "2026-07-30T08:00:00+09:00",
@@ -86,13 +74,13 @@ def _services(
             ),
         )
         connection.execute(
-            "INSERT INTO bargain_assessment VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO capital_allocation_assessment VALUES (?, ?, ?, ?, ?, ?)",
             (
                 ASSESSMENT_ID,
                 "2026-07-30",
                 "2026-07-30T08:30:00+09:00",
                 result,
-                "shortlist-20260730-test",
+                "research_triage-20260730-test",
                 json.dumps(payload, ensure_ascii=False),
             ),
         )
@@ -107,10 +95,10 @@ def _services(
         }
     )
     seed_ledger(db, source)
-    return LedgerStoreService(db), BargainAssessmentService(db)
+    return LedgerStoreService(db), CapitalAllocationAssessmentService(db)
 
 
-def _open_draft(ledger: LedgerStoreService, assessments: BargainAssessmentService):
+def _open_draft(ledger: LedgerStoreService, assessments: CapitalAllocationAssessmentService):
     return build_result_draft(
         ledger,
         assessments,
@@ -126,7 +114,7 @@ def _open_draft(ledger: LedgerStoreService, assessments: BargainAssessmentServic
     )
 
 
-def test_buy_assessment_builds_and_persists_bound_open_result(tmp_path: Path) -> None:
+def test_allocated_assessment_builds_and_persists_bound_open_result(tmp_path: Path) -> None:
     ledger, assessments = _services(tmp_path)
     draft, event_ids = _open_draft(ledger, assessments)
 
@@ -139,9 +127,9 @@ def test_buy_assessment_builds_and_persists_bound_open_result(tmp_path: Path) ->
     assert row == (ASSESSMENT_ID,)
 
 
-def test_non_buy_assessment_and_ticker_mismatch_are_rejected(tmp_path: Path) -> None:
-    ledger, assessments = _services(tmp_path, result="no_actionable_bargain")
-    with pytest.raises(ValueError, match="not a buy decision"):
+def test_non_allocation_assessment_and_ticker_mismatch_are_rejected(tmp_path: Path) -> None:
+    ledger, assessments = _services(tmp_path, result="no_allocation")
+    with pytest.raises(ValueError, match="not an allocate decision"):
         _open_draft(ledger, assessments)
 
     ledger, assessments = _services(tmp_path / "other")

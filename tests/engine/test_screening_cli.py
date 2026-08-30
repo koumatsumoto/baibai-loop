@@ -432,11 +432,10 @@ class ScreeningCliTests(unittest.TestCase):
                 )
                 self.assertEqual(payload["run_id"], "screening-20260424")
                 self.assertEqual(payload["filters"]["scope"], "all-common-stocks")
-                self.assertEqual(len(payload["candidates"]), 1)
-                self.assertEqual(payload["candidates"][0]["ticker"], "130A")
-                self.assertEqual(payload["candidates"][0]["evidence_hits"], [])
+                self.assertEqual(len(payload["security_analyses"]), 1)
+                self.assertEqual(payload["security_analyses"][0]["ticker"], "130A")
                 self.assertAlmostEqual(
-                    payload["candidates"][0]["metrics"]["normalized_per_3fy"],
+                    payload["security_analyses"][0]["metrics"]["normalized_per_3fy"],
                     44.95,
                 )
                 manifest_path = Path(".cache/screening/manifests") / f"{payload['run_id']}.json"
@@ -622,11 +621,11 @@ class ScreeningCliTests(unittest.TestCase):
                     "(skipped=0, unsupported=0, errors=0)",
                     payload["provider_status_lines"],
                 )
-                warnings = payload["candidates"][0]["freshness_warnings"]
+                warnings = payload["security_analyses"][0]["freshness_warnings"]
                 self.assertEqual(warnings[0]["event_kind"], "borrowing")
                 self.assertEqual(warnings[0]["stale_metric"], "edinet_metrics")
                 self.assertEqual(
-                    payload["candidates"][0]["metrics"]["edinet_freshness_warning_count"], 1
+                    payload["security_analyses"][0]["metrics"]["edinet_freshness_warning_count"], 1
                 )
             finally:
                 os.chdir(cwd)

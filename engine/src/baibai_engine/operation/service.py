@@ -129,11 +129,8 @@ class OperationService:
                     raise OperationConflictError(
                         f"completed operation session is immutable: {operation_id}"
                     )
-                if (
-                    completed_at is not None
-                    and payload.completion_reason == "no-shortlist-selection"
-                ):
-                    _validate_zero_selection_publication(
+                if completed_at is not None and payload.completion_reason == "no-research":
+                    _validate_zero_research_publication(
                         connection,
                         payload,
                         as_of=before.as_of,
@@ -178,49 +175,49 @@ def _validate_complete(session_kind: SessionKind, payload: OperationPayload) -> 
     if payload.next is None:
         missing.append("next")
 
-    no_shortlist_selection = (
-        session_kind == "opportunity" and payload.completion_reason == "no-shortlist-selection"
+    no_research_selection = (
+        session_kind == "capital-allocation" and payload.completion_reason == "no-research"
     )
-    if payload.completion_reason is not None and not no_shortlist_selection:
+    if payload.completion_reason is not None and not no_research_selection:
         missing.append("completion_reason valid for this session kind")
-    if no_shortlist_selection:
+    if no_research_selection:
         if payload.human_confirmation is not None:
-            missing.append("human_confirmation omitted for no-shortlist-selection")
-        if not _has_zero_selection_shortlist(payload):
-            missing.append("shortlist artifact with selected_count=0")
+            missing.append("human_confirmation omitted for no-research")
+        if not _has_zero_research_triage(payload):
+            missing.append("research_triage artifact with research_count=0")
         if not payload.canonical_refs:
             missing.append("canonical_refs")
 
-    requires_confirmation = not no_shortlist_selection
+    requires_confirmation = not no_research_selection
     if requires_confirmation and (
         payload.human_confirmation is None
         or payload.human_confirmation.request is None
         or payload.human_confirmation.result is None
     ):
         missing.append("human_confirmation.request/result")
-    if session_kind in {"opportunity", "earnings-material-event"} and (
+    if session_kind in {"capital-allocation", "position-review"} and (
         not payload.artifacts or any(not artifact for artifact in payload.artifacts)
     ):
         missing.append("artifacts")
-    if session_kind == "earnings-material-event" and not payload.canonical_refs:
+    if session_kind == "position-review" and not payload.canonical_refs:
         missing.append("canonical_refs")
     if missing:
         raise OperationCompletionError(f"{session_kind} completion requires: {', '.join(missing)}")
 
 
-def _has_zero_selection_shortlist(payload: OperationPayload) -> bool:
-    return _zero_selection_reference(payload) is not None
+def _has_zero_research_triage(payload: OperationPayload) -> bool:
+    return _zero_research_reference(payload) is not None
 
 
-def _zero_selection_reference(payload: OperationPayload) -> str | None:
+def _zero_research_reference(payload: OperationPayload) -> str | None:
     for artifact in payload.artifacts:
-        selected_count = artifact.get("selected_count")
-        reference = artifact.get("ref", artifact.get("shortlist_id"))
+        research_count = artifact.get("research_count")
+        reference = artifact.get("ref", artifact.get("research_triage_id"))
         if (
-            artifact.get("kind") == "shortlist"
-            and isinstance(selected_count, int)
-            and not isinstance(selected_count, bool)
-            and selected_count == 0
+            artifact.get("kind") == "research_triage"
+            and isinstance(research_count, int)
+            and not isinstance(research_count, bool)
+            and research_count == 0
             and isinstance(reference, str)
             and reference in payload.canonical_refs
         ):
@@ -228,60 +225,61 @@ def _zero_selection_reference(payload: OperationPayload) -> str | None:
     return None
 
 
-def _validate_zero_selection_publication(
+def _validate_zero_research_publication(
     connection: sqlite3.Connection,
     payload: OperationPayload,
     *,
     as_of: date,
 ) -> None:
-    reference = _zero_selection_reference(payload)
+    reference = _zero_research_reference(payload)
     if reference is None:  # structural validation reports the field-level error
         return
     canonical = connection.execute(
         """
-        SELECT shortlist_id FROM shortlist
+        SELECT research_triage_id FROM research_triage
         WHERE as_of = ?
-        ORDER BY published_at DESC, shortlist_id DESC
+        ORDER BY published_at DESC, research_triage_id DESC
         LIMIT 1
         """,
         (as_of.isoformat(),),
     ).fetchone()
-    if canonical is None or str(canonical["shortlist_id"]) != reference:
+    if canonical is None or str(canonical["research_triage_id"]) != reference:
         raise OperationCompletionError(
-            f"opportunity completion requires the canonical shortlist at {as_of}: {reference}"
+            "capital-allocation completion requires the canonical ResearchTriage "
+            f"at {as_of}: {reference}"
         )
     row = connection.execute(
-        "SELECT as_of, payload FROM shortlist WHERE shortlist_id = ?",
+        "SELECT as_of, payload FROM research_triage WHERE research_triage_id = ?",
         (reference,),
     ).fetchone()
     if row is None:
         raise OperationCompletionError(
-            f"opportunity completion requires published shortlist: {reference}"
+            f"capital-allocation completion requires published ResearchTriage: {reference}"
         )
     document = json.loads(str(row["payload"]))
     entries = document.get("entries") if isinstance(document, dict) else None
     if (
         str(row["as_of"]) != as_of.isoformat()
         or not isinstance(document, dict)
-        or document.get("kind") != "shortlist"
-        or document.get("shortlist_id") != reference
+        or document.get("kind") != "research_triage"
+        or document.get("research_triage_id") != reference
         or document.get("as_of") != as_of.isoformat()
     ):
         raise OperationCompletionError(
-            f"opportunity completion requires {reference} at session as-of {as_of}"
+            f"capital-allocation completion requires {reference} at session as-of {as_of}"
         )
     if (
         not isinstance(entries, list)
         or not entries
         or any(
             not isinstance(entry, dict)
-            or entry.get("decision") not in {"selected", "rejected"}
-            or entry.get("decision") == "selected"
+            or entry.get("decision") not in {"research", "skip"}
+            or entry.get("decision") == "research"
             for entry in entries
         )
     ):
         raise OperationCompletionError(
-            f"opportunity completion requires zero selected entries in {reference}"
+            f"capital-allocation completion requires zero research entries in {reference}"
         )
 
 

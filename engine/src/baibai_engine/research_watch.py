@@ -140,7 +140,7 @@ def build_watch(
 ) -> dict[str, object]:
     latest = _load_latest_promoted_theses(app_db_path, asof=asof)
     # reject も watch する。深掘りの結論は「この価格では買わない」であって「二度と見ない」
-    # ではなく、bargain assessment は研究 FV を再評価条件として名指ししている。除外すると
+    # ではなく、Capital Allocation Assessment は研究 FV を再評価条件として名指ししている。除外すると
     # 一次情報まで降りて出した FV が、価格が降りてきたときに誰も読まない値になる。
     watched = dict(latest)
 
@@ -192,7 +192,7 @@ def build_watch(
         },
         # 買い直しの合図は未保有 case だけに出す。保有中の「FV 未満」は value 保有の
         # 定常状態で毎日出続けるので、混ぜると本命の 1 行が恒常ノイズに埋もれる。
-        # 保有側の FV 到達は holding review が close >= FV で判定する別 trigger である。
+        # 保有側の FV 到達は Position Review が close >= FV で判定する別 trigger である。
         "triggered": [
             {
                 "ticker": row["ticker"],
@@ -477,7 +477,7 @@ def _watch_row(
         "thesis_fv_gap_pct": gap,
         # 終値が研究 FV 以下か。未保有 case では買い直しを考える合図になるが、保有中は
         # FV 未満が value 保有の定常状態なので、これ単独では事象にならない。保有側の
-        # 「FV 到達」は holding review の定義 close >= FV であって逆向きである。
+        # 「FV 到達」は Position Review の定義 close >= FV であって逆向きである。
         "close_at_or_below_research_fv": (
             None if unresolved is not None or gap is None else gap >= 0
         ),

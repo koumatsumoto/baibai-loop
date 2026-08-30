@@ -1,11 +1,11 @@
-"""Point-in-time panel: 過去 asof で全銘柄の指標・screen 判定・select 順位を再構成する。
+"""Point-in-time panel for Security Analysis and Review Set replay.
 
-本番 run と同じ部品 (`build_metrics` / `evaluate_screening` / `candidate_entry` /
-`build_selection_payload`) をそのまま呼ぶことで、リプレイと本番のロジック一致を
+本番 run と同じ部品 (`build_metrics` / `security_analysis_entry` /
+`build_nomination_ranks` / `build_review_set`) をそのまま呼ぶことで、リプレイと本番のロジック一致を
 実装の単一性で担保する。相違点は入力の中立化だけ:
 
 - macro_context=None (macro は annotation であり順位に使わない)
-- previous_candidates=None (現在の候補履歴を過去 cohort の順位へ混入させない)
+- 過去のReview Setや判断を過去cohortの順位へ混入させない
 - JPX 規制 flag は過去断面が cache に無いため空 (除外は annotation 数銘柄規模)
 """
 
@@ -17,10 +17,10 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal
 
-from baibai_engine.foundation.coerce import int_or, string_or_none
 from baibai_engine.market.store import read_adjustment_factor_bars, read_daily_bars
 
-from ..candidate_build import build_screened_candidate
+from ..candidate_build import build_security_analysis
+from ..discovery.review_set import build_nomination_ranks, build_review_set
 from ..estimates import estimate_expected_return
 from ..metrics import (
     BARS_INPUT_WINDOW_DAYS,
@@ -39,12 +39,9 @@ from ..metrics import (
     group_bars_by_ticker,
     group_summaries_by_ticker,
 )
-from ..render import candidate_entry
+from ..render import security_analysis_entry
 from ..rule_config import ScreeningRules
-from ..rules import evaluate_screening, threshold_blocks
-from ..schema import SECTOR_MEDIAN_BASIS_MARKET, ScreenedCandidate, TTMQuality
-from ..selection import build_selection_payload
-from ..selection.records import candidate_record_from_mapping
+from ..schema import SECTOR_MEDIAN_BASIS_MARKET, SecurityAnalysis, TTMQuality
 from ..sqlite_reader import (
     fin_summaries_readable_from,
     read_edinet_metrics,
@@ -183,9 +180,10 @@ class PanelRow:
     margin_long_share: float | None
     margin_long_delta_26w: float | None
     margin_std_long_share: float | None
-    pass_screen: bool
-    evidence_patterns: str
-    selection_rank: int | None
+    in_review_set: bool
+    valuation_approaches: str
+    valuation_approach_ranks: str
+    review_position: int | None
     population_coverage_status: PopulationCoverageStatus = "evaluated"
     self_range_degraded: bool = False
     dps_streak_up: bool | None = None
@@ -208,10 +206,6 @@ class PanelRow:
     # と同じ語彙。空文字は「自業種から答えた」と「そもそも軸を評価していない」の
     # 両方を取るので、素性は対応する `smg_*` が非 null の行でだけ意味を持つ。
     smg_market_fallback: str = ""
-    # `<evidence-pattern>:<threshold>`を`|`で並べる。そのEvidence Patternの他条件をすべて満たし、
-    # この閾値だけで落ちた行にだけ入る。閾値が選んだ相手はこの行なので、通した群と
-    # 並べれば閾値の水準そのものを実現値で測れる。判定は `rules.threshold_blocks`。
-    threshold_blocks: str = ""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -223,8 +217,8 @@ class PanelDiagnostics:
     rules_hash: str
     universe_size: int
     population_size: int
-    candidates: int
-    evidence_candidates: int
+    security_analyses: int
+    nominated_candidates: int
     bars_tickers_not_in_master: int
     effective_bars_start: str
     effective_fin_start: str
@@ -377,40 +371,44 @@ def build_panel(
         adjustment_events_by_ticker=normalized_profit_split_bars_by_ticker,
     )
 
-    evidence_by_ticker: dict[str, tuple[str, ...]] = {}
-    blocks_by_ticker: dict[str, tuple[str, ...]] = {}
-    candidates: list[ScreenedCandidate] = []
+    normalized_profit_by_ticker = {
+        ticker: build_normalized_profit_signals(
+            history_summaries_by_ticker.get(ticker, ()),
+            normalized_profit_split_bars_by_ticker.get(ticker, ()),
+            asof_date,
+            close=metric_result.financials[ticker].market_price_yen,
+        )
+        for ticker in universe_result.snapshots
+    }
+    candidates: list[SecurityAnalysis] = []
     for ticker in sorted(universe_result.snapshots):
-        result = evaluate_screening(
-            metric_result.financials[ticker],
-            metric_result.derived[ticker],
-            rules,
-            sector_33=securities_by_ticker[ticker].sector_33,
-        )
-
-        if result.pass_fail:
-            evidence_by_ticker[ticker] = tuple(hit.name for hit in result.evidence_hits)
-        # Every row, not just the rejected ones: a name the screen took on one Evidence Pattern
-        # can still be the counterfactual another Evidence Pattern's threshold removed, and that
-        # is the row that says what the threshold chose against.
-        blocks_by_ticker[ticker] = threshold_blocks(
-            metric_result.financials[ticker],
-            metric_result.derived[ticker],
-            rules,
-            sector_33=securities_by_ticker[ticker].sector_33,
-        )
         candidates.append(
-            build_screened_candidate(
+            build_security_analysis(
                 ticker=ticker,
                 security=securities_by_ticker[ticker],
                 financial=metric_result.financials[ticker],
                 derived=metric_result.derived[ticker],
                 universe_snapshot=universe_result.snapshots[ticker],
-                evidence_hits=result.evidence_hits if result.pass_fail else (),
+                normalized_per_3fy=normalized_profit_by_ticker[ticker].normalized_per_3fy,
             )
         )
 
-    selection_rank = _replay_ranks(asof_date, candidates, rules, depth=len(candidates))
+    analysis_payloads = [security_analysis_entry(candidate) for candidate in candidates]
+    nomination_ranks = build_nomination_ranks(
+        analysis_payloads,
+        rules=rules.candidate_discovery,
+    )
+    review_set = build_review_set(
+        analysis_payloads,
+        rules=rules.candidate_discovery,
+    )
+    entries = review_set["entries"]
+    assert isinstance(entries, list)
+    review_position = {
+        str(entry["ticker"]): int(entry["review_position"])
+        for entry in entries
+        if isinstance(entry, dict)
+    }
 
     latest_close_by_ticker = {
         ticker: financial.market_price_yen
@@ -431,12 +429,7 @@ def build_panel(
             normalized_profit_split_bars_by_ticker.get(ticker, ()),
             asof_date,
         )
-        normalized_profit = build_normalized_profit_signals(
-            history_summaries_by_ticker.get(ticker, ()),
-            normalized_profit_split_bars_by_ticker.get(ticker, ()),
-            asof_date,
-            close=latest_close_by_ticker.get(ticker),
-        )
+        normalized_profit = normalized_profit_by_ticker[ticker]
         profitability = build_profitability_level_signals(
             summaries_by_ticker.get(ticker, ()), asof_date, rules.ttm
         )
@@ -534,15 +527,20 @@ def build_panel(
                 operating_profit_to_assets=profitability.operating_profit_to_assets,
                 operating_margin=profitability.operating_margin,
                 asset_turnover=profitability.asset_turnover,
-                pass_screen=ticker in evidence_by_ticker,
-                evidence_patterns="|".join(evidence_by_ticker.get(ticker, ())),
+                in_review_set=ticker in review_position,
+                valuation_approaches="|".join(
+                    item.valuation_approach_id for item in nomination_ranks.get(ticker, ())
+                ),
+                valuation_approach_ranks="|".join(
+                    f"{item.valuation_approach_id}:{item.rank}"
+                    for item in nomination_ranks.get(ticker, ())
+                ),
                 smg_market_fallback="|".join(
                     metric
                     for metric in VALUATION_METRICS
                     if derived.sector_median_basis.get(metric) == SECTOR_MEDIAN_BASIS_MARKET
                 ),
-                threshold_blocks="|".join(blocks_by_ticker.get(ticker, ())),
-                selection_rank=selection_rank.get(ticker),
+                review_position=review_position.get(ticker),
                 self_range_degraded=not policy.production_authority,
                 dps_streak_up=return_change.dps_streak_up,
                 dps_yoy_latest=return_change.dps_yoy_latest,
@@ -598,8 +596,8 @@ def build_panel(
         rules_hash=rules_content_hash(rules, policy),
         universe_size=len(universe_result.snapshots),
         population_size=len(median_population),
-        candidates=len(candidates),
-        evidence_candidates=len(evidence_by_ticker),
+        security_analyses=len(candidates),
+        nominated_candidates=len(nomination_ranks),
         bars_tickers_not_in_master=sum(
             1 for ticker in bars_by_ticker if ticker not in securities_by_ticker
         ),
@@ -712,9 +710,10 @@ def _unresolved_master_member_row(
         margin_long_delta_26w=None,
         margin_std_long_share=None,
         realized_volatility_60d=None,
-        pass_screen=False,
-        evidence_patterns="",
-        selection_rank=None,
+        in_review_set=False,
+        valuation_approaches="",
+        valuation_approach_ranks="",
+        review_position=None,
         population_coverage_status=(
             "priced_master_without_universe"
             if priced_at_asof
@@ -737,8 +736,8 @@ def _unavailable_master_panel(
         rules_hash=rules_content_hash(rules, policy),
         universe_size=0,
         population_size=0,
-        candidates=0,
-        evidence_candidates=0,
+        security_analyses=0,
+        nominated_candidates=0,
         bars_tickers_not_in_master=0,
         effective_bars_start=asof_date.isoformat(),
         effective_fin_start=asof_date.isoformat(),
@@ -759,44 +758,6 @@ def _unavailable_master_panel(
         bars_input_window_days=policy.bars_input_window_days,
     )
     return PanelBuildResult(rows=(), diagnostics=diagnostics)
-
-
-def _replay_ranks(
-    asof_date: date,
-    candidates: list[ScreenedCandidate],
-    rules: ScreeningRules,
-    *,
-    depth: int,
-) -> dict[str, int]:
-    """Replay production selection and return ticker -> 1-based rank."""
-    if not candidates:
-        return {}
-    records = [
-        candidate_record_from_mapping(candidate_entry(candidate)) for candidate in candidates
-    ]
-    payload = build_selection_payload(
-        asof_date=asof_date,
-        candidates=records,
-        macro_context=None,
-        rules=rules,
-        review_cap=max(depth, 1),
-        candidates_ref="calibration-replay",
-        macro_context_ref=None,
-        previous_candidates=None,
-        market_regime=None,
-        detail="summary",
-    )
-    ranks: dict[str, int] = {}
-    ranked_set = payload.get("ranked_set")
-    if isinstance(ranked_set, list):
-        for item in ranked_set:
-            if not isinstance(item, dict):
-                continue
-            ticker = string_or_none(item.get("ticker"))
-            rank = int_or(item.get("rank"), 0)
-            if ticker is not None and rank > 0:
-                ranks[ticker] = rank
-    return ranks
 
 
 def _coverage_floors(sqlite_path: Path, asof_date: date) -> tuple[date, date]:

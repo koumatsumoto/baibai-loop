@@ -41,10 +41,10 @@ class ThesisDetail:
 
 
 @dataclass(frozen=True, slots=True)
-class HoldingReviewSummary:
-    """Summary of one published holding-review revision."""
+class PositionReviewSummary:
+    """Summary of one published position-review revision."""
 
-    holding_review_id: str
+    position_review_id: str
     ticker: str
     as_of: date
     thesis_id: str
@@ -76,7 +76,7 @@ class CandidatesRun:
     asof_date: date
     run_at: datetime
     universe_size: int
-    # The revision the judgment publications (selection / shortlist) bind to;
+    # The revision the judgment publications (review_set / research_triage) bind to;
     # ``run_id`` is the public identifier shown to a reader.
     run_revision_id: str
     # The screening rules the run was built from. A pair of runs with different

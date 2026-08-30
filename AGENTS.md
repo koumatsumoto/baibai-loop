@@ -48,14 +48,14 @@ CLI を叩くだけなので、失敗した step はローカルで実行でき�
 schema 変更・store 再構築・全期間再取得・較正 store の作り直しは、ローカルで完結させ、
 **その成果をローカルからクラウドへ反映する**。
 
-- 移行を含む merge 後にやること: ローカルで store を完全にし、判断成果物（run / selection / serving view /
+- 移行を含む merge 後にやること: ローカルで store を完全にし、判断成果物（run / Review Set / serving view /
   application DB）までローカルで作り、`r2_transfer.sh` の push 系と `batch/scripts/publish.sh` でクラウドへ出す
 - やらないこと: 日次 batch を dispatch して移行を吸収させる、その完走を待つ、クラウドに再取得させる
 - 理由は 3 つある。(a) 完全なデータはローカルに在るので、クラウドの再取得は同じ行をもう一度買うだけになる。
   (b) 日次 batch はその日の増分のために組まれており、移行の入力（深い履歴・再構築済み cache）を持たない。
   (c) 移行がクラウドで途中失敗すると、正本が新旧混在のまま残る
 
-判断（`screening run` / `select` / shortlist publish）も同じで、**ローカルの store が完全なら、
+判断（`screening run` / `review-set publish` / research-triage publish）も同じで、**ローカルの store が完全なら、
 クラウドの run を待つ理由は無い**。
 
 ## 運用の入口（trigger → skill）
@@ -64,9 +64,9 @@ schema 変更・store 再構築・全期間再取得・較正 store の作り直
 
 | trigger | skill |
 | --- | --- |
-| 買い機会の発見・候補提示（screening → shortlist publish → 人間の選択待ち） | `shortlist` |
+| 買い機会の発見・候補提示（screening → research-triage publish → 人間の選択待ち） | `research-triage` |
 | 人間が選んだ候補の深掘り → buy / defer / 見送りの統合判断 | `research` |
-| 決算・material event・FV 到達による保有見直し | `holding-review` |
+| 決算・material event・FV 到達による保有見直し | `position-review` |
 | 人間からの注文結果・入出金・売却約定・年次 outcome の記録 | `ledger-record` |
 | 市場環境評価レポート（macro context）の執筆 | `macro-context` |
 | daily batch 監視・store 同期・障害対応・月次維持 | `ops-maintenance` |
@@ -74,7 +74,7 @@ schema 変更・store 再構築・全期間再取得・較正 store の作り直
 
 ### Operation session の共通規約
 
-投資判断の trigger（shortlist / research / holding-review / ledger-record）は `baibai-engine operation` の session で進める。active session は全 kind を通じて最大 1 件。既存 active があれば同じ row を resume し、無ければ 1 件だけ start する。checkpoint は payload 全置換で、completed row は immutable。kind 別の complete 要件は各 skill の完了節が持つ。開始時は `git status --short --branch` と `position ledger` を確認し、dirty worktree の所有不明・public `--help` 不明・入力矛盾では停止して人間へ質問する。
+投資判断の trigger（research-triage / research / position-review / ledger-record）は `baibai-engine operation` の session で進める。active session は全 kind を通じて最大 1 件。既存 active があれば同じ row を resume し、無ければ 1 件だけ start する。checkpoint は payload 全置換で、completed row は immutable。kind 別の complete 要件は各 skill の完了節が持つ。開始時は `git status --short --branch` と `position ledger` を確認し、dirty worktree の所有不明・public `--help` 不明・入力矛盾では停止して人間へ質問する。
 
 ### 委譲と外部文書の扱い
 
@@ -102,9 +102,9 @@ subsystem、public CLI、schema、persistence、dependency、state、運用手�
 | subsystem | src | store | CLI | 品質改善計器 |
 | --- | --- | --- | --- | --- |
 | macro | `engine/src/baibai_engine/macro/` | `stores/application/baibai.sqlite`（context）+ `stores/macro/macro.sqlite`（series） | `baibai-engine macro` | 見積り calibration（[`reference/macro.md`](./docs/reference/macro.md)、formal loop にしない） |
-| screening | `engine/src/baibai_engine/screening/` | `stores/screening/runs.sqlite`（machine）+ `stores/application/baibai.sqlite`（shortlist）+ `method/` | `baibai-engine screening` | 見積り calibration（保有 outcome + 長期 horizon の較正リプレイ `calibration-build/evaluate`。短期 backtest はしない） |
-| research | `engine/src/baibai_engine/research/` | `stores/application/baibai.sqlite` + `method/research/playbooks/` | `baibai-engine research` / `baibai-engine research evaluate` | thesis + planning-only limit + holding-review composition |
-| position | `engine/src/baibai_engine/position/` | `stores/application/baibai.sqlite` | `baibai-engine position` (`ledger` / draft / `apply-draft` / `outcome`) | human-confirmed portfolio ledger + holding review + portfolio outcome |
+| screening | `engine/src/baibai_engine/screening/` | `stores/screening/runs.sqlite`（machine）+ `stores/application/baibai.sqlite`（research_triage）+ `method/` | `baibai-engine screening` | 見積り calibration（保有 outcome + 長期 horizon の較正リプレイ `calibration-build/evaluate`。短期 backtest はしない） |
+| research | `engine/src/baibai_engine/research/` | `stores/application/baibai.sqlite` + `method/research/playbooks/` | `baibai-engine research` / `baibai-engine research evaluate` | thesis + planning-only limit + position-review composition |
+| position | `engine/src/baibai_engine/position/` | `stores/application/baibai.sqlite` | `baibai-engine position` (`ledger` / draft / `apply-draft` / `outcome`) | human-confirmed portfolio ledger + Position Review + portfolio outcome |
 | operation | `engine/src/baibai_engine/operation/` | `stores/application/baibai.sqlite` | `baibai-engine operation` | current workspace + immutable final result |
 | market | `engine/src/baibai_engine/market/` | （`stores/market/market.sqlite` と lake mirror、git 外） | `baibai-engine lake` | 価格・calendar data 層（screening・保有計測の価格基盤） |
 | foundation | `engine/src/baibai_engine/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
@@ -134,9 +134,9 @@ repository-local skillの正本は`.agents/skills/<name>/SKILL.md`である（�
 
 | skill | path |
 | --- | --- |
-| shortlist | [`.agents/skills/shortlist/SKILL.md`](./.agents/skills/shortlist/SKILL.md) |
+| research_triage | [`.agents/skills/research-triage/SKILL.md`](./.agents/skills/research-triage/SKILL.md) |
 | research | [`.agents/skills/research/SKILL.md`](./.agents/skills/research/SKILL.md) |
-| holding-review | [`.agents/skills/holding-review/SKILL.md`](./.agents/skills/holding-review/SKILL.md) |
+| position-review | [`.agents/skills/position-review/SKILL.md`](./.agents/skills/position-review/SKILL.md) |
 | ledger-record | [`.agents/skills/ledger-record/SKILL.md`](./.agents/skills/ledger-record/SKILL.md) |
 | macro-context | [`.agents/skills/macro-context/SKILL.md`](./.agents/skills/macro-context/SKILL.md) |
 | ops-maintenance | [`.agents/skills/ops-maintenance/SKILL.md`](./.agents/skills/ops-maintenance/SKILL.md) |
@@ -163,7 +163,7 @@ method / src / docs の変更を含む commit とPRの前に、作業前に特�
 
 ## 事実と分析の分離
 
-screening run storeはobserved / derived / estimateを区別する機械出力層、application DB のmacro context・shortlist・thesisはjudgment層。candidatesにAI解釈・因果・相場観を書かず、E[r] / FV anchorを事実と呼ばない。詳細は[`docs/doctrine.md#fact-analysis-separation`](./docs/doctrine.md#fact-analysis-separation)。
+screening run storeはobserved / derived / estimateを区別する機械出力層、application DB のmacro context・research_triage・thesisはjudgment層。candidatesにAI解釈・因果・相場観を書かず、E[r] / FV anchorを事実と呼ばない。詳細は[`docs/doctrine.md#fact-analysis-separation`](./docs/doctrine.md#fact-analysis-separation)。
 
 ## shell 経由の gh 操作
 

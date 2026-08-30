@@ -13,9 +13,9 @@ status: active
 
 | やりたいこと | 最初に読む | 詳細 |
 | --- | --- | --- |
-| 買い候補を探す | skill [`shortlist`](../.agents/skills/shortlist/SKILL.md) | 人間の選択後は[`research`](../.agents/skills/research/SKILL.md) |
+| 買い候補を探す | skill [`research_triage`](../.agents/skills/research-triage/SKILL.md) | 人間の選択後は[`research`](../.agents/skills/research/SKILL.md) |
 | 注文結果を記録する | skill [`ledger-record`](../.agents/skills/ledger-record/SKILL.md) | [`portfolio-ledger.md`](./reference/portfolio-ledger.md) |
-| 保有銘柄を見直す | skill [`holding-review`](../.agents/skills/holding-review/SKILL.md) | [`holding-review.md`](./reference/holding-review.md) |
+| 保有銘柄を見直す | skill [`position-review`](../.agents/skills/position-review/SKILL.md) | [`position-review.md`](./reference/position-review.md) |
 | Macro Contextを書く | skill [`macro-context`](../.agents/skills/macro-context/SKILL.md) | [`macro.md`](./reference/macro.md) |
 | batch・storeを運用する | skill [`ops-maintenance`](../.agents/skills/ops-maintenance/SKILL.md) | [`batch/OPERATIONS.md`](../batch/OPERATIONS.md) |
 | 見積り方法を改善する | [`estimate-calibration.md`](./reference/estimate-calibration.md) | 対象referenceとhistorical study |
@@ -42,9 +42,9 @@ status: active
 | 変更 | 同時に確認する正本 |
 | --- | --- |
 | macro context / provider | `reference/macro.md`、`reference/data-sources.md`、skill `macro-context` |
-| screening / selection / SQLite | `reference/screening-runtime.md`、skill `shortlist`、architectureのCLI表 |
-| thesis / review / opportunity | `reference/thesis.md`、`reference/bargain-assessment.md`、skill `research` |
-| ledger / holding / outcome | `reference/portfolio-ledger.md`、`reference/holding-review.md`、対応skill |
+| screening / Candidate Discovery / SQLite | `reference/screening-runtime.md`、skill `research-triage`、architectureのCLI表 |
+| thesis / review / opportunity | `reference/thesis.md`、`reference/capital-allocation-assessment.md`、skill `research` |
+| ledger / holding / outcome | `reference/portfolio-ledger.md`、`reference/position-review.md`、対応skill |
 | model / write-time validation / CI | `architecture.md`、`reference/python-foundation.md`、変更domainに対応する`anti-patterns.md`の`AP-*` |
 | local skill | `AGENTS.md`のskill表、`.agents/skills`、Claude symlink、skill inventory gate |
 
@@ -72,7 +72,7 @@ status: active
 
 ### 5. 日本語説明とidentifierを分ける
 
-自然文は日本語で書きます。command、field、enum、ID、path、class、function、`Shortlist`や`Thesis`などの正準artifact名はcode表記を維持します。日本語化率は目的にしません。
+自然文は日本語で書きます。command、field、enum、ID、path、class、function、`Research Triage`や`Thesis`などの正準artifact名はcode表記を維持します。日本語化率は目的にしません。
 
 ### 6. 情報の型に合う構造を使う
 

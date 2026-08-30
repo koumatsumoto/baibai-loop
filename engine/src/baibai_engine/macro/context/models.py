@@ -939,7 +939,7 @@ class MacroContextDocument(_StrictModel):
 
 @dataclass(frozen=True, slots=True)
 class MacroContext:
-    """Validated context projection consumed by screening selection."""
+    """Validated context projection consumed by screening review-set publishion."""
 
     document: MacroContextDocument
 
@@ -957,7 +957,7 @@ class MacroContext:
 
 
 def macro_context_from_payload(payload: Mapping[str, object], *, source: str) -> MacroContext:
-    """Validate a published payload before selection consumes it."""
+    """Validate a published payload before Research Triage consumes it."""
 
     try:
         document = MacroContextDocument.model_validate(payload)

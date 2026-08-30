@@ -40,7 +40,7 @@ Candidate YAMLはlocalで再生成する探索成果物であり、thesisから�
 
 `input_snapshot`は`snapshot_version`と`producer_model_version`、ticker、as-of、source、factを持つ。判断時市場価格は`market_price`を正確に1件、valuationは`valuation_metric`を1件以上要求する。factはunit、as-of、`source_ids`を持ち、scenarioの起点となる利益・株数も同じsnapshotに置く。`estimates.market_price_fact_id`は判断時市場価格へjoinする。
 
-Selectionから機械転記するE[r]とFV anchorは観測factではないため、`facts`へ混ぜず`input_snapshot.screening_estimate`へ置く。このobjectは`origin: estimate`、model version、unit、assumptions、as-of、source IDsを保持し、E[r]は`annual_ratio`、FVは`JPY_per_share`で固定する。値はworkspaceの外部inputとしてhashで束縛したselection outputのranked-set rowから転記し、編集可能なshortlistや表示用percent・丸め済みFVから逆算しない。selection、estimate snapshot、workspaceのas-ofは一致を必須とする。転記元が無い旧selectionやFV欠損を推測で埋めない。
+Review Setから機械転記するE[r]とFV anchorは観測factではないため、`facts`へ混ぜず`input_snapshot.screening_estimate`へ置く。このobjectは`origin: estimate`、model version、unit、assumptions、as-of、source IDsを保持し、E[r]は`annual_ratio`、FVは`JPY_per_share`で固定する。値はworkspaceの外部inputとしてhashで束縛したReview Set rowから転記し、編集可能なResearch Triageや表示用percent・丸め済みFVから逆算しない。Review Set、estimate snapshot、workspaceのas-ofは一致を必須とする。転記元が無いhistorical judgmentやFV欠損を推測で埋めない。
 
 外部sourceはHTTPS URLを持つ。local dataは消失し得るファイルパスを参照せず、`provider`、`dataset`、`retrieved_at`を持つ。`retrieved_at`はAI judgment時刻以前でなければならず、判断後に得た情報を判断時点snapshotへ遡及混入できない。市場価格は`observed_at`と`price_basis`（realtime / 調整済み終値 / 未調整終値）を持つ。すべてのsourceはthesisと同じtickerを明示し、source/fact/scenarioがthesis as-ofより未来の場合、source IDが解決しない場合、価格・valuationのtypeまたはunitが不正な場合は`incomplete`とする。HTML、PR body、operation sessionは説明・ID参照にとどめ、判断入力の正本を複製しない。
 
@@ -131,7 +131,7 @@ max_acceptable_price = floor_to_tick(
 
 ## Core hash
 
-core hashはthesisの identity であり、review・holding review・bargain assessment・price watchはこれで対象revisionへ束縛される。
+core hashはthesisの identity であり、review・Position Review・Capital Allocation Assessment・price watchはこれで対象revisionへ束縛される。
 
 **published thesisのidentityは`thesis.core_sha256`が正本である。** promoteが計算した値をそこへ記録し、以後の読み手は再計算せずその値を使う。導出のままにすると identity が「現在のモデルの性質」になり、schemaへfieldを足し引きするだけで何週間も前にpublishしたthesisのhashが動く。束縛が切れると上記4経路が同時に読めなくなり、気づくのは止まった後である。記録が無い行は再計算で埋めず名指しで拒否する（application service以外が書いた行しか到達しない経路で、再計算は現在のモデルのhashを黙って答えることになる）。
 
@@ -145,7 +145,7 @@ quantityを考える注文額の目安は[`portfolio-management`](../portfolio-m
 
 common-factor exposureは、選定銘柄にthesisの現行classification、その他にledgerの宣言済みtagを使う。選定銘柄以外で`common_factors`が空の銘柄は`common_factor_empty_tickers`に列挙し、その場合のcommon-factor円額・比率は宣言済みtagだけに基づく下限値である。coverage warningを併記し、閾値未満を完全なfactor分散の保証として扱わない。
 
-AIはfill probability、当日価格方向、未報告broker状態を推定しない。人間から結果が報告された後だけledger draftを作る。指値は`plan-limit`が前営業日raw closeから1本だけ出し、live quoteからtacticを選ぶ経路は持たない。`plan-limit`出力は保存しないephemeralな注文案で、判断の正本は`buy` caseを持つbargain assessment、注文・約定の正本はhuman-confirmed ledgerである。`baibai-engine research evaluate`はthesis評価（5年base break-even）専用である。
+AIはfill probability、当日価格方向、未報告broker状態を推定しない。人間から結果が報告された後だけledger draftを作る。指値は`plan-limit`が前営業日raw closeから1本だけ出し、live quoteからtacticを選ぶ経路は持たない。`plan-limit`出力は保存しないephemeralな注文案で、判断の正本は`buy` caseを持つCapital Allocation Assessment、注文・約定の正本はhuman-confirmed ledgerである。`baibai-engine research evaluate`はthesis評価（5年base break-even）専用である。
 
 <a id="permanent-loss-axes"></a>
 
@@ -177,6 +177,6 @@ hashとrun metadataが保証するのはartifactの整合性であり、reviewer
 
 ```bash
 uv run baibai-engine research evaluate /tmp/thesis-draft.yaml
-uv run baibai-engine research status --workspace .cache/opportunity/YYYY-MM-DD
+uv run baibai-engine research status --workspace .cache/research/YYYY-MM-DD
 uv run baibai-engine research plan-limit --help
 ```

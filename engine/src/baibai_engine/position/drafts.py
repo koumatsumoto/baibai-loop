@@ -133,7 +133,7 @@ def build_sell_execution_draft(
     and any confirmed fee or tax that overdraws available cash. Broker fees and
     the confirmed capital-gain tax are recorded as their own cost / tax events so
     realized proceeds and cost stay separable in replay. ``decision_reference``
-    binds the sell to the holding review that judged the reduce / exit.
+    binds the sell to the Position Review that judged the reduce / exit.
     """
 
     source = service.load()

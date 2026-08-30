@@ -22,15 +22,14 @@ class RunPublication:
     universe_size: int
     rules_ref: str | None
     payload: dict[str, Any]
-    candidates: tuple[dict[str, Any], ...]
+    security_analyses: tuple[dict[str, Any], ...]
 
 
 @dataclass(frozen=True, slots=True)
-class SelectionPublication:
-    selection_id: str
+class ReviewSetPublication:
+    review_set_id: str
     run_revision_id: str
     as_of_date: str
-    macro_context_id: str | None
     created_at: str
     payload: dict[str, Any]
 
@@ -154,26 +153,26 @@ class ScreeningRunReader:
                 )
             return _run_from_row(connection, rows[0])
 
-    def get_selection(self, selection_id: str) -> SelectionPublication | None:
+    def get_review_set(self, review_set_id: str) -> ReviewSetPublication | None:
         with closing(self._connect()) as connection:
             connection.execute("BEGIN")
             row = connection.execute(
                 """
                 SELECT s.*, r.asof_date
-                FROM screening_selection AS s
+                FROM review_set AS s
                 JOIN screening_run AS r USING (run_revision_id)
-                WHERE s.selection_id = ?
+                WHERE s.review_set_id = ?
                 """,
-                (selection_id,),
+                (review_set_id,),
             ).fetchone()
-            return None if row is None else _selection_from_row(row)
+            return None if row is None else _review_set_from_row(row)
 
-    def list_selections(
+    def list_review_sets(
         self,
         *,
         run_revision_id: str | None = None,
         as_of_date: str | None = None,
-    ) -> list[SelectionPublication]:
+    ) -> list[ReviewSetPublication]:
         clauses: list[str] = []
         parameters: list[str] = []
         if run_revision_id is not None:
@@ -189,23 +188,23 @@ class ScreeningRunReader:
             rows = connection.execute(
                 """
                 SELECT s.*, r.asof_date
-                FROM screening_selection AS s
+                FROM review_set AS s
                 JOIN screening_run AS r USING (run_revision_id)
                 """  # nosec B608
                 + where
-                + " ORDER BY r.asof_date DESC, s.created_at DESC, s.selection_id DESC",
+                + " ORDER BY r.asof_date DESC, s.created_at DESC, s.review_set_id DESC",
                 parameters,
             ).fetchall()
-            return [_selection_from_row(row) for row in rows]
+            return [_review_set_from_row(row) for row in rows]
 
     def _connect(self) -> sqlite3.Connection:
         return connect_read_only(self._path)
 
 
 def _run_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> RunPublication:
-    candidates = connection.execute(
+    security_analyses = connection.execute(
         """
-        SELECT payload FROM screening_candidate
+        SELECT payload FROM security_analysis
         WHERE run_revision_id = ? ORDER BY ordinal
         """,
         (row["run_revision_id"],),
@@ -219,25 +218,22 @@ def _run_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> RunPublic
         universe_size=int(row["universe_size"]),
         rules_ref=None if row["rules_ref"] is None else str(row["rules_ref"]),
         payload=dict(decode_payload(row["payload"])),
-        candidates=tuple(dict(decode_payload(item[0])) for item in candidates),
+        security_analyses=tuple(dict(decode_payload(item[0])) for item in security_analyses),
     )
 
 
-def _selection_from_row(row: sqlite3.Row) -> SelectionPublication:
-    return SelectionPublication(
-        selection_id=str(row["selection_id"]),
+def _review_set_from_row(row: sqlite3.Row) -> ReviewSetPublication:
+    return ReviewSetPublication(
+        review_set_id=str(row["review_set_id"]),
         run_revision_id=str(row["run_revision_id"]),
         as_of_date=str(row["asof_date"]),
-        macro_context_id=(
-            None if row["macro_context_id"] is None else str(row["macro_context_id"])
-        ),
         created_at=str(row["created_at"]),
         payload=dict(decode_payload(row["payload"])),
     )
 
 
 __all__ = [
+    "ReviewSetPublication",
     "RunPublication",
     "ScreeningRunReader",
-    "SelectionPublication",
 ]

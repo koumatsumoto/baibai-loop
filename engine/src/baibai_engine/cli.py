@@ -50,7 +50,7 @@ DOMAINS: Mapping[str, Domain] = {
     ),
     "screening": Domain(
         module="baibai_engine.screening.cli.app",
-        summary="machine screening: refresh the market store, run, select, publish a shortlist",
+        summary="machine screening: analyze securities and publish a Review Set",
     ),
     "macro": Domain(
         module="baibai_engine.macro.indicators.cli",
@@ -62,11 +62,14 @@ DOMAINS: Mapping[str, Domain] = {
     ),
     "position": Domain(
         module="baibai_engine.position.cli",
-        summary="portfolio ledger, holding reviews, and the drafts that record their results",
+        summary="portfolio ledger, Position Reviews, and the drafts that record their results",
     ),
     "research": Domain(
         module="baibai_engine.research.opportunity_cli",
-        summary="research workspaces: thesis, independent review, promotion, bargain assessment",
+        summary=(
+            "research workspaces: thesis, independent review, promotion, "
+            "Capital Allocation Assessment"
+        ),
     ),
     "task": Domain(
         module="baibai_engine.tasks.cli",

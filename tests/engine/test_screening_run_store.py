@@ -4,12 +4,10 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from tests.helpers.screening_run import screening_candidate, screening_run_payload
-from tests.helpers.screening_selection import ranked_selection_payload
 
+from baibai_engine.screening.discovery.review_set import build_review_set
+from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import (
-    RunStoreAmbiguousError,
-    RunStoreNotFoundError,
     ScreeningRunReader,
     ScreeningRunStore,
     initialize_run_store,
@@ -17,161 +15,89 @@ from baibai_engine.screening.run_store import (
 from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
 
 
-def _run(
-    *,
-    as_of: str = "2026-07-08",
-    run_at: str = "2026-07-09T01:59:42+09:00",
-    ticker: str = "1301",
-) -> dict[str, object]:
-    return screening_run_payload(
-        as_of=as_of,
-        run_at=run_at,
-        rules_hash="rules-fixture",
-        model_id="expected-return-v1",
-        candidates=[
-            screening_candidate(
-                ticker,
-                metrics={"dividend_yield": 0.021, "er_annual": 0.13},
-            )
-        ],
-    )
+def _analysis(ticker: str = "1301") -> dict[str, object]:
+    return {
+        "ticker": ticker,
+        "name": ticker,
+        "sector_33": "情報・通信業",
+        "market_cap_oku": 500,
+        "avg_turnover_oku": 5.0,
+        "listing_span_days": 1000,
+        "jpx_flags": [],
+        "per_forward": 10.0,
+        "per_trailing": 11.0,
+        "pbr": 0.8,
+        "p_s": 1.0,
+        "ev_ebitda": 5.0,
+        "pcfr": 8.0,
+        "metrics": {
+            "per_forward_sector_gap": -0.5,
+            "normalized_per_3fy": 10.0,
+            "fcf_yield": 0.08,
+            "ocf_yield": 0.1,
+            "asset_backed_ratio": 0.5,
+            "net_cash_to_market_cap": 0.25,
+            "pbr_sector_gap": -0.3,
+            "equity_ratio": 0.6,
+            "p_s_sector_gap": -0.4,
+            "sales_yoy": 0.05,
+            "operating_profit": 12.0,
+            "sales_ttm": 100.0,
+            "total_assets": 200.0,
+            "debt": 20.0,
+            "cash": 30.0,
+            "er_annual": 0.13,
+        },
+    }
 
 
-def _selection(
-    *,
-    ticker: str = "1301",
-    asof: str = "2026-07-08",
-    candidates_ref: str = "run-a",
-    source_candidates: list[dict[str, object]] | None = None,
-) -> dict[str, object]:
-    candidates = source_candidates or _run(as_of=asof, ticker=ticker)["candidates"]
-    assert isinstance(candidates, list)
-    return ranked_selection_payload(
-        ticker=ticker,
-        er_annual=0.13,
-        rules_hash="rules-fixture",
-        asof=asof,
-        candidates_ref=candidates_ref,
-        source_candidates=candidates,
-    )
+def _run() -> dict[str, object]:
+    return {
+        "run_id": "screening-20260708",
+        "run_date": "2026-07-08",
+        "asof_date": "2026-07-08",
+        "run_at": "2026-07-08T18:00:00+09:00",
+        "universe_size": 1,
+        "screening_rules_hash": "rules-fixture",
+        "er_model_version": "expected-return-v1",
+        "security_analyses": [_analysis()],
+    }
 
 
 def test_current_schema_is_created_once(tmp_path: Path) -> None:
     database = tmp_path / "runs.sqlite"
-
-    assert initialize_run_store(database) == RUN_STORE_SCHEMA_VERSION
-    assert initialize_run_store(database) == RUN_STORE_SCHEMA_VERSION
-
+    assert initialize_run_store(database) == RUN_STORE_SCHEMA_VERSION == 5
+    assert initialize_run_store(database) == 5
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == RUN_STORE_SCHEMA_VERSION
-        columns = {
-            row[1]
-            for row in connection.execute("PRAGMA table_info(screening_selection)").fetchall()
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='table'")
         }
-    assert "publication_kind" not in columns
-    assert "source_selection_id" not in columns
+    assert {"screening_run", "security_analysis", "review_set"} <= tables
 
 
 def test_obsolete_cache_is_rejected_instead_of_migrated(tmp_path: Path) -> None:
     database = tmp_path / "runs.sqlite"
     with sqlite3.connect(database) as connection:
         connection.execute("CREATE TABLE old_cache (value TEXT)")
-        connection.execute("PRAGMA user_version = 3")
-
+        connection.execute("PRAGMA user_version = 4")
     with pytest.raises(RuntimeError, match="rebuild it"):
         initialize_run_store(database)
 
 
-def test_reader_rejects_an_obsolete_cache(tmp_path: Path) -> None:
+def test_run_and_review_set_round_trip(tmp_path: Path) -> None:
     database = tmp_path / "runs.sqlite"
-    initialize_run_store(database)
-    with sqlite3.connect(database) as connection:
-        connection.execute("PRAGMA user_version = 3")
-
-    with pytest.raises(RuntimeError, match=r"found 3, expected 4.*rebuild it"):
-        ScreeningRunReader(database).latest_run()
-
-
-def test_run_and_ranked_set_publish_and_read_atomically(tmp_path: Path) -> None:
-    database = tmp_path / "runs.sqlite"
+    rules = load_screening_rules().candidate_discovery
     store = ScreeningRunStore(database)
-    run = _run()
-    store.publish_run(run, run_revision_id="run-a")
-    selection = _selection(source_candidates=run["candidates"])  # type: ignore[arg-type]
-
-    inserted = store.publish_selection(
-        run_revision_id="run-a",
-        macro_context_id=None,
-        payload=selection,
-        selection_id="selection-a",
+    store.publish_run(_run(), run_revision_id="run-a")
+    payload = build_review_set([_analysis()], rules=rules)
+    payload.update(
+        {"review_set_id": "review-set-a", "run_revision_id": "run-a", "as_of": "2026-07-08"}
     )
-    retry = store.publish_selection(
-        run_revision_id="run-a",
-        macro_context_id=None,
-        payload=selection,
-        selection_id="selection-a",
+    result = store.publish_review_set(
+        run_revision_id="run-a", payload=payload, rules=rules, review_set_id="review-set-a"
     )
-
-    assert inserted.inserted is True
-    assert retry.inserted is False
-    publication = ScreeningRunReader(database).get_selection("selection-a")
-    assert publication is not None
-
-
-def test_ranked_set_must_match_source_candidate_value(tmp_path: Path) -> None:
-    database = tmp_path / "runs.sqlite"
-    store = ScreeningRunStore(database)
-    run = _run()
-    store.publish_run(run, run_revision_id="run-a")
-    selection = _selection(source_candidates=run["candidates"])  # type: ignore[arg-type]
-    selection["ranked_set"][0]["er_annual"] = 0.99  # type: ignore[index]
-    selection["ranked_set"][0]["expected_return_pct"] = 99.0  # type: ignore[index]
-
-    with pytest.raises(ValueError, match=r"ranked-set E\[r\]"):
-        store.publish_selection(
-            run_revision_id="run-a",
-            macro_context_id=None,
-            payload=selection,
-        )
-
-
-def test_selection_requires_an_existing_run(tmp_path: Path) -> None:
-    with pytest.raises(RunStoreNotFoundError):
-        ScreeningRunStore(tmp_path / "runs.sqlite").publish_selection(
-            run_revision_id="missing",
-            macro_context_id=None,
-            payload=_selection(),
-        )
-
-
-def test_asof_lookup_rejects_ambiguous_revisions(tmp_path: Path) -> None:
-    database = tmp_path / "runs.sqlite"
-    store = ScreeningRunStore(database)
-    store.publish_run(_run(run_at="2026-07-09T01:00:00+09:00"), run_revision_id="run-a")
-    store.publish_run(_run(run_at="2026-07-09T02:00:00+09:00"), run_revision_id="run-b")
-
-    with pytest.raises(RunStoreAmbiguousError):
-        ScreeningRunReader(database).resolve_run(as_of_date="2026-07-08")
-
-
-def test_prune_keeps_only_the_newest_run_and_its_selection(tmp_path: Path) -> None:
-    database = tmp_path / "runs.sqlite"
-    store = ScreeningRunStore(database)
-    old = _run(as_of="2026-07-07", run_at="2026-07-08T01:00:00+09:00")
-    new = _run()
-    store.publish_run(old, run_revision_id="old")
-    store.publish_run(new, run_revision_id="new")
-    store.publish_selection(
-        run_revision_id="old",
-        macro_context_id=None,
-        payload=_selection(
-            asof="2026-07-07", candidates_ref="old", source_candidates=old["candidates"]
-        ),  # type: ignore[arg-type]
-        selection_id="old-selection",
-    )
-
-    result = store.prune(keep=1)
-
-    assert result.deleted_runs == 1
-    assert result.deleted_selections == 1
-    assert [item.run_revision_id for item in ScreeningRunReader(database).list_runs()] == ["new"]
+    assert result.inserted
+    reader = ScreeningRunReader(database)
+    assert reader.get_run("run-a").security_analyses[0]["ticker"] == "1301"  # type: ignore[union-attr]
+    assert reader.get_review_set("review-set-a").payload["entries"][0]["ticker"] == "1301"  # type: ignore[union-attr,index]

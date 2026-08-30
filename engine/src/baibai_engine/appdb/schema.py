@@ -4,7 +4,7 @@ Runtime code creates the current shape or rejects a different version; semantic
 cutovers are explicit operator work against a verified backup.
 """
 
-APPLICATION_SCHEMA_VERSION = 18
+APPLICATION_SCHEMA_VERSION = 19
 
 SCHEMA_SQL = """
 CREATE TABLE task (
@@ -35,16 +35,16 @@ CREATE TABLE macro_context_head (
 ) STRICT;
 CREATE INDEX macro_context_asof_idx ON macro_context(as_of, published_at, context_id);
 
-CREATE TABLE shortlist (
-    shortlist_id TEXT PRIMARY KEY,
-    selection_id TEXT NOT NULL,
+CREATE TABLE research_triage (
+    research_triage_id TEXT PRIMARY KEY,
+    review_set_id TEXT NOT NULL,
     run_revision_id TEXT NOT NULL,
     as_of TEXT NOT NULL,
     published_at TEXT NOT NULL,
     payload TEXT NOT NULL CHECK (json_valid(payload))
 ) STRICT;
-CREATE INDEX shortlist_asof_idx ON shortlist(as_of, published_at);
-CREATE INDEX shortlist_selection_idx ON shortlist(selection_id);
+CREATE INDEX research_triage_asof_idx ON research_triage(as_of, published_at);
+CREATE INDEX research_triage_review_set_idx ON research_triage(review_set_id);
 
 CREATE TABLE thesis (
     thesis_id TEXT PRIMARY KEY,
@@ -73,8 +73,8 @@ CREATE TABLE thesis_review (
 ) STRICT;
 CREATE INDEX thesis_review_thesis_idx ON thesis_review(thesis_id, reviewed_at, review_id);
 
-CREATE TABLE holding_review (
-    holding_review_id TEXT PRIMARY KEY,
+CREATE TABLE position_review (
+    position_review_id TEXT PRIMARY KEY,
     ticker TEXT NOT NULL,
     as_of TEXT NOT NULL,
     thesis_id TEXT NOT NULL REFERENCES thesis(thesis_id),
@@ -82,24 +82,24 @@ CREATE TABLE holding_review (
     payload TEXT NOT NULL CHECK (json_valid(payload)),
     CHECK (candidate_thesis_id IS NULL OR candidate_thesis_id <> thesis_id)
 ) STRICT;
-CREATE INDEX holding_review_ticker_idx ON holding_review(ticker, as_of, holding_review_id);
-CREATE INDEX holding_review_thesis_idx ON holding_review(thesis_id);
+CREATE INDEX position_review_ticker_idx ON position_review(ticker, as_of, position_review_id);
+CREATE INDEX position_review_thesis_idx ON position_review(thesis_id);
 
-CREATE TABLE bargain_assessment (
-    assessment_id TEXT PRIMARY KEY,
+CREATE TABLE capital_allocation_assessment (
+    capital_allocation_assessment_id TEXT PRIMARY KEY,
     as_of TEXT NOT NULL,
     published_at TEXT NOT NULL,
-    result TEXT NOT NULL CHECK (result IN ('buy', 'no_actionable_bargain', 'defer')),
-    shortlist_id TEXT NOT NULL REFERENCES shortlist(shortlist_id),
+    result TEXT NOT NULL CHECK (result IN ('allocate', 'no_allocation', 'defer')),
+    research_triage_id TEXT NOT NULL REFERENCES research_triage(research_triage_id),
     payload TEXT NOT NULL CHECK (json_valid(payload))
 ) STRICT;
-CREATE INDEX bargain_assessment_asof_idx
-ON bargain_assessment(as_of, published_at, assessment_id);
+CREATE INDEX capital_allocation_assessment_asof_idx
+ON capital_allocation_assessment(as_of, published_at, capital_allocation_assessment_id);
 
 CREATE TABLE operation_session (
     operation_id TEXT PRIMARY KEY,
     session_kind TEXT NOT NULL CHECK (
-        session_kind IN ('opportunity', 'earnings-material-event')
+        session_kind IN ('capital-allocation', 'position-review')
     ),
     status TEXT NOT NULL CHECK (status IN ('active', 'completed')),
     as_of TEXT NOT NULL,

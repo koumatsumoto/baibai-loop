@@ -156,15 +156,15 @@ function resolveMacroContext(pathname: string): RouteResult | null {
 }
 
 function resolveAssessment(pathname: string): RouteResult | null {
-  const prefix = '/api/assessments/'
+  const prefix = '/api/capital-allocation-assessments/'
   if (!pathname.startsWith(prefix)) {
     return null
   }
   const assessmentId = pathname.slice(prefix.length)
   if (!ASSESSMENT_ID_PATTERN.test(assessmentId)) {
-    return { kind: 'error', status: 404, detail: 'unknown bargain assessment' }
+    return { kind: 'error', status: 404, detail: 'unknown capital allocation assessment' }
   }
-  return view(`assessment--${assessmentId}.json`)
+  return view(`capital-allocation-assessment--${assessmentId}.json`)
 }
 
 function resolveMacro(params: URLSearchParams): RouteResult {

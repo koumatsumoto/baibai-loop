@@ -21,8 +21,8 @@ from baibai_engine.macro.context.models import (
     macro_context_from_payload,
 )
 from baibai_engine.macro.context.service import MacroContextConflictError, MacroContextService
+from baibai_engine.macro.context.summary import macro_context_summary
 from baibai_engine.read_api.macro import latest_macro_context_payload
-from baibai_engine.screening.selection.macro_fit import macro_context_summary
 
 
 def _document(

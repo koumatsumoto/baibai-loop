@@ -1,0 +1,25 @@
+{
+  "source_schema": 4,
+  "target_schema": 5,
+  "counts": {
+    "screening_run": {
+      "source": 1,
+      "target": 1
+    },
+    "screening_candidate->security_analysis": {
+      "source": 3705,
+      "target": 3705
+    },
+    "screening_selection->archive": {
+      "source": 2,
+      "target": 2
+    },
+    "review_set": {
+      "source": 0,
+      "target": 0
+    }
+  },
+  "run_partition_equal": true,
+  "integrity_check": "ok",
+  "foreign_key_violation_count": 0
+}

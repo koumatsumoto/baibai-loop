@@ -34,7 +34,7 @@ from baibai_web.readmodel.builders import (
     build_security_detail,
 )
 from baibai_web.readmodel.models import (
-    BargainAssessmentView,
+    CapitalAllocationAssessmentView,
     DailyDeltaView,
     DashboardView,
     MacroContextView,
@@ -142,11 +142,18 @@ def create_app(
             raise HTTPException(status_code=404, detail="screening history not found")
         return view
 
-    @app.get("/api/assessments/{assessment_id}", response_model=BargainAssessmentView)
-    def assessment(assessment_id: str, sources: _SourceDependency) -> BargainAssessmentView:
-        view = build_assessment_detail(sources.candidates, assessment_id=assessment_id)
+    @app.get(
+        "/api/capital-allocation-assessments/{capital_allocation_assessment_id}",
+        response_model=CapitalAllocationAssessmentView,
+    )
+    def assessment(
+        capital_allocation_assessment_id: str, sources: _SourceDependency
+    ) -> CapitalAllocationAssessmentView:
+        view = build_assessment_detail(
+            sources.candidates, capital_allocation_assessment_id=capital_allocation_assessment_id
+        )
         if view is None:
-            raise HTTPException(status_code=404, detail="bargain assessment not found")
+            raise HTTPException(status_code=404, detail="capital allocation assessment not found")
         return view
 
     @app.get("/api/macro", response_model=MacroView)

@@ -8,9 +8,9 @@ Baibai Loopは、一人で日本株を長期運用するための意思決定基
 
 | やりたいこと | 入口 |
 | --- | --- |
-| 買い候補を探す | skill [`shortlist`](./.agents/skills/shortlist/SKILL.md)。人間がPrimary Research Setを選んだ後は[`research`](./.agents/skills/research/SKILL.md) |
+| 買い候補を探す | skill [`research-triage`](./.agents/skills/research-triage/SKILL.md)。人間がResearch Setを選んだ後は[`research`](./.agents/skills/research/SKILL.md) |
 | 注文結果を記録する | skill [`ledger-record`](./.agents/skills/ledger-record/SKILL.md) |
-| 保有銘柄を見直す | skill [`holding-review`](./.agents/skills/holding-review/SKILL.md) |
+| 保有銘柄を見直す | skill [`position-review`](./.agents/skills/position-review/SKILL.md) |
 | Macro Contextを書く | skill [`macro-context`](./.agents/skills/macro-context/SKILL.md) |
 | batch・storeを運用する | skill [`ops-maintenance`](./.agents/skills/ops-maintenance/SKILL.md) |
 | screening・FV・E[r]の方法を改善する | [`estimate-calibration.md`](./docs/reference/estimate-calibration.md)に従うissue → PR |

@@ -1,6 +1,6 @@
-"""Store rebuildable machine output that produces L1 shortlist candidates."""
+"""Store rebuildable Security Analyses and Review Sets."""
 
-RUN_STORE_SCHEMA_VERSION = 4
+RUN_STORE_SCHEMA_VERSION = 5
 
 SCHEMA_SQL = """
 CREATE TABLE screening_run (
@@ -17,7 +17,7 @@ CREATE TABLE screening_run (
 ) STRICT;
 CREATE INDEX screening_run_asof_idx
 ON screening_run (asof_date, run_at, run_revision_id);
-CREATE TABLE screening_candidate (
+CREATE TABLE security_analysis (
     run_revision_id TEXT NOT NULL REFERENCES screening_run(run_revision_id) ON DELETE RESTRICT,
     ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
     ticker TEXT NOT NULL,
@@ -31,17 +31,16 @@ CREATE TABLE screening_candidate (
     PRIMARY KEY (run_revision_id, ticker),
     UNIQUE (run_revision_id, ordinal)
 ) STRICT, WITHOUT ROWID;
-CREATE INDEX screening_candidate_ticker_idx
-ON screening_candidate (ticker, run_revision_id);
-CREATE TABLE screening_selection (
-    selection_id TEXT PRIMARY KEY,
+CREATE INDEX security_analysis_ticker_idx
+ON security_analysis (ticker, run_revision_id);
+CREATE TABLE review_set (
+    review_set_id TEXT PRIMARY KEY,
     run_revision_id TEXT NOT NULL REFERENCES screening_run(run_revision_id) ON DELETE RESTRICT,
-    macro_context_id TEXT,
     created_at TEXT NOT NULL,
     payload TEXT NOT NULL
 ) STRICT;
-CREATE INDEX screening_selection_lookup_idx
-ON screening_selection (run_revision_id, created_at, selection_id);
+CREATE INDEX review_set_lookup_idx
+ON review_set (run_revision_id, created_at, review_set_id);
 """
 
 __all__ = ["RUN_STORE_SCHEMA_VERSION", "SCHEMA_SQL"]

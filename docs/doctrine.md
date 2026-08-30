@@ -28,7 +28,7 @@ flowchart LR
   policy["運用方針<br/>資本・積立・余力"] --> screen["割安 screening<br/>valuation ranking"]
   macro["マクロ分析<br/>material delta / common risk"] -.補助context.-> research
   macro -.judgment 入力.-> select
-  screen --> select["候補選定<br/>ranked set"]
+  screen --> select["候補選定<br/>Review Set"]
   select --> research["深い個別調査<br/>FV・RR・期待利回りを見積る"]
   research --> decision["割安機会評価<br/>buy / defer / no actionable"]
   decision -- approve --> buy["割安を長期で積立て買い"]
@@ -104,7 +104,7 @@ validation や hash のように監査にも使える手段でも、現在の候
 
 ### 柱 4: application DB 正本、Git は method / config
 
-- **(a)** task、macro context、shortlist、research、bargain assessment、portfolio ledger / outcome、operation session という application data は application DB を正本とする。再生成可能な screening run は専用 run store、market / macro series は各 L1 store に分離する。method、設定、playbook、コード、docs は Git に置く。機械契約は DB constraint、engine 内の model、application service の write-time validation が担う。
+- **(a)** task、macro context、research_triage、research、Capital Allocation Assessment、portfolio ledger / outcome、operation session という application data は application DB を正本とする。再生成可能な screening run は専用 run store、market / macro series は各 L1 store に分離する。method、設定、playbook、コード、docs は Git に置く。機械契約は DB constraint、engine 内の model、application service の write-time validation が担う。
 - **(b)** 書き込みは AI との会話を入口に `baibai-engine` CLI が行う。`baibai-web` は application DB と各 read store を読むだけの UI で、閲覧専用 read model への publish も同じ読み取り側にあり、正本を書き換えない。この分業により、同じ判断や運用状態の第二の正本を作らず、CLI と UI の意味を揃えられる。
 - **(c)** GitHub Issue や Markdown / YAML を application data の正本にはしない。GitHub は開発作業に使い、運用 workspace は `operation_session`、確定した entity は各 DB table に置く。外部 SaaS を正本にすると local-first の運用と application service の境界が崩れるため採用しない。
 
@@ -126,9 +126,9 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 
 ### 命名文法
 
-1. **パイプライン状態**は銘柄集合を表す普通名詞で命名する（candidates, ranked set, shortlist, position, outcome）
-2. **判断文書**は内容・役割で命名し、形式（packet / record / report）で命名しない（macro context, thesis, thesis review, holding review）
-3. **機械成果物**は工程 + 出力で命名し、judgment と呼ばない（screening run, selection, ranked set）
+1. **パイプライン状態**は銘柄集合を表す普通名詞で命名する（candidates, Review Set, research_triage, position, outcome）
+2. **判断文書**は内容・役割で命名し、形式（packet / record / report）で命名しない（macro context, thesis, thesis review, Position Review）
+3. **機械成果物**は工程 + 出力で命名し、judgment と呼ばない（screening run, Security Analysis, Review Set）
 4. **活動・工程名**（screening, research, macro analysis）は workflow doc と CLI domain・package 名に使い、artifact 名には使わない
 5. **表示物（projection）**は canonical ではない（Baibai Loop の画面、cloud serving の view JSON）
 6. **UI タブは分析対象**で命名する（Macro = 市場環境の top-down 分析対象、Stocks = 個別銘柄の bottom-up 分析対象）
@@ -140,16 +140,16 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 
 | 状態遷移 | gate 主体 | 判断文書（L3） | 機械成果物（L2） |
 | --- | --- | --- | --- |
-| universe → candidates | 機械（screening rules） | — | screening run |
-| candidates → ranked set | 機械（screening rules） | — | selection（順位とreview cap） |
-| ranked set → shortlist | AI（Research Gate） | shortlist（selected narrative + rejected理由） | — |
-| shortlist → primary research set | 人間（admission） | operationのhuman confirmation | — |
-| primary research set → buy / defer / no actionable | AI research → 独立レビュー → 人間 | thesis（採否付き投資仮説）+ thesis review + bargain assessment（Assessment Caseの統合判断） | evaluate 派生値 |
-| buy → position | 人間（broker 執行 → 報告） | ledger events | — |
-| position → hold / add / reduce / exit | AI draft + 人間確認 | holding review（thesis health 判定） | — |
+| universe → Security Analyses | 機械（screening） | — | screening run |
+| Security Analyses → Review Set | 4 Valuation Approaches + composer | — | Nominations + Review Set |
+| Review Set → Research Triage | AI | Research Triage（`research / skip`と理由） | — |
+| Research Triage → Research Set | 人間（admission） | operationのhuman confirmation | — |
+| Research Set → allocate / no allocation / defer | AI research → 独立レビュー → 人間 | thesis + thesis review + Capital Allocation Assessment | evaluate 派生値 |
+| allocate → position | 人間（broker 執行 → 報告） | ledger events | — |
+| position → hold / add / reduce / exit | AI draft + 人間確認 | Position Review（thesis health 判定） | — |
 | position → outcome | 機械計測 + 年次評価 | outcome | calibration replay |
 
-`macro reading` と `macro context` はどの遷移にも属さない ambient 入力であり、reading は macro context 執筆の必須入力、macro context は Research Gate と thesis 執筆の判断材料になる（screening は macro-blind のまま）。shortlist・ledger は「状態」と「その canonical record」が同一物であり、thesis・holding review は状態ではなく遷移の理由書である。
+`macro reading` と `macro context` はどの遷移にも属さない ambient 入力であり、reading は macro context 執筆の必須入力、macro context は Research Triage と thesis 執筆の判断材料になる（screening は macro-blind のまま）。Research Triage・ledger は「状態」と「その canonical record」が同一物であり、thesis・Position Review は状態ではなく遷移の理由書である。
 
 ### Opportunity Discovery の概念と authority
 
@@ -157,25 +157,23 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 Observed Fact ──────────────┐
                             ├─→ Derived Metric
 Observed Fact + Metric ─────┴─→ Model ─→ Estimate
-Observed Fact + Metric ───────→ Evidence Pattern ─→ Evidence Hit
-Observed Fact + Metric ───────→ Candidate Diagnostic
-Screening rules context ──────→ Rule Diagnostic
-
-Candidates → ranking → Ranked Set
-Ranked Set → Research Gate → Shortlist → human admission → Primary Research Set
-Primary Research Set → Research → Thesis → Assessment Case
-Assessment Cases → Bargain Assessment → buy / defer / no actionable
+Observed Fact + Metric ───────→ Security Analysis
+Security Analysis ────────────→ 4 Valuation Approaches ─→ Nominations
+Nominations ──────────────────→ overlap-first composer ─→ Review Set
+Review Set → Research Triage → human admission → Research Set
+Research Set → Research → Thesis + Independent Review
+reviewed Theses → Capital Allocation Assessment → allocate / no allocation / defer
 ```
 
 authority は次の境界を越えない。
 
 1. Model は Estimate を計算するが、候補順位を直接決めない。
 2. Derived Metric は数値座標であり、screening rules が参照しない限り順位authorityを持たない。
-3. Evidence Pattern は Evidence Hit を生成する。単独ではnomination authorityを持たない。
-4. Candidate Diagnostic はannotationであり、eligibility・ordering・capを変えない。
-5. screening rules が候補のeligibilityとorderingを決め、review capが人間へ渡す件数だけを制限する。
-6. Research GateはRanked Setをselected / rejectedへ分類し、canonical Shortlistを作る。
-7. ShortlistからPrimary Research Setへのadmissionと、最終的なbroker執行は人間が所有する。
+3. 各Valuation Approachは自分のNomination eligibilityと方法内順位だけを所有する。
+4. Review Set composerは複数支持、方法内順位、representation target、最大20件だけを所有する。
+5. E[r]、macro、event、portfolio state、過去判断はReview Set membership/orderを変えない。
+6. Research TriageはReview Set全件を`research / skip`へ分類するがFVや買付可否を確定しない。
+7. Research Setへのadmissionと、最終的なbroker執行は人間が所有する。
 
 ### 語彙表
 
@@ -185,33 +183,26 @@ authority は次の境界を越えない。
 | マクロ機械読み値 | macro reading | 機械成果物 | L2 出力 | 全登録系列の水準・方向・percentile・閾値注記・観測の齢を毎営業日 決定論で出す共通の物差し |
 | マクロ環境分析 | macro context | 判断文書 | L3 | use-case agnosticな環境評価（core）・支配的な力の統合評価（synthesis）・日本株積立ループ接続（connection）を持つ補助context |
 | 市場データ基盤 | market.sqlite | データ store | L1 | 全上場銘柄の実データの正本 |
-| 機械スクリーニング | screening | 機械処理 | L2 | valuation ranking で割安ゾーンを機械抽出 |
+| 機械スクリーニング | screening | 機械処理 | L2 | 4つの価値評価法で調査候補を機械抽出 |
 | スクリーニング実行結果 | screening run | 機械成果物 | L2 出力 | run storeに保存する再生成可能なobserved / derived / estimateのsnapshot |
-| 候補 | candidate | パイプライン状態 | L2 出力 | Universe各tickerへFact・Metric・Estimate・Evidence Hit・Diagnosticを付けた比較row。Evidence Hitの有無を問わない |
+| 銘柄分析 | security analysis | 機械成果物 | L2 出力 | Universe各tickerへFact・Metric・Estimateを付けた比較row。まだCandidateではない |
+| 価値評価法 | valuation approach | method | L2 | 企業価値の1源泉についてNomination eligibilityと方法内順位を決める |
+| 候補推薦 | nomination | 機械成果物 | L2 出力 | 1つのValuation Approachが1銘柄を調査候補として推薦した事実 |
+| 候補 | candidate | パイプライン状態 | L2 出力 | 1つ以上のNominationを持つsecurity。独立tableは持たない |
 | 観測事実 | observed fact | observation | L1 | source identityとtime semanticsを持つ観測値 |
 | 導出指標 | derived metric | derived | L2 | Factから決定論的に計算しforwardな経済主張を持たない座標。`normalized_per_3fy`はDerived Metric |
 | 見積り | estimate | estimate | L2 | assumptions・unit・必要ならcomponentを持つ経済量推定。E[r]はEstimate |
 | モデル | model | method | L2 | Fact / MetricからEstimateまたは明示したpredictionを作るversioned algorithm。`expected-return-v1`はModel |
-| 証拠パターン | evidence pattern | predicate | L2 | opportunity shapeを認識してEvidence Hitを出す機械条件。単独authorityは持たない |
-| 証拠一致 | evidence hit | 機械成果物 | L2 出力 | Evidence Patternとの一致とreason / metric |
-| 候補診断 | candidate diagnostic | annotation | L2 | opportunity typeを問わずrisk・quality・data状態を横断診断するannotation。durabilityはCandidate Diagnostic |
-| Rule診断 | rule diagnostic | annotation | L2 | screening rules固有のfalse-positive class・metric integrity・risk |
-| 経済仮説 | economic hypothesis | method concept | L2 | mispricing原因と価値実現経路の金融仮説 |
-| 順位集合 | ranked set | パイプライン状態 | L2 出力 | screening rulesで並べ、review capを適用したResearch Gateへの入力集合。wire表現は`ranked_tickers` |
-| リサーチ候補選定 | select | 機械処理 | L2 | candidatesを順位づけし、Ranked Setを確定する |
-| Research Gate | research gate | 判断工程 | L3 | AIがRanked Setをresearch-worthyなselected / rejectedへ分類する工程 |
-| Research Gate契約 | research gate contract | method identity | L3 | Research Gateの比較順・required narrative・selected条件を識別するversioned contract |
-| 深掘り候補一覧 | shortlist | パイプライン状態 + 判断 | L3 | Research Gateのselected narrativeとrejected理由を持つcanonical snapshot |
-| 一次リサーチ集合 | primary research set | パイプライン状態 | L3 | Shortlist selectedから人間が深掘り対象としてadmitした集合 |
-| 棄却理由分類 | reject class | 判断要約 | L3 | shortlist rejected entryとbargain assessment reject / defer caseの主因を共通enumで集計する。自由記述が判断の正本であり、分類は自動除外・ranking・売買判断に使わない |
+| レビュー対象集合 | Review Set | パイプライン状態 | L2 出力 | 複数approachの支持と方法内順位を優先し、最大20件へ構成した集合 |
+| 調査優先度判定 | Research Triage | パイプライン状態 + 判断 | L3 | Review Set全件を`research / skip`へ分類し、理由・調査質問・主要riskを持つcanonical snapshot |
+| リサーチ対象集合 | Research Set | パイプライン状態 | L3 | Research Triageの`research`から人間がadmitした部分集合。専用tableは持たない |
 | 個別銘柄リサーチ | research | 活動 | L3 | 一次情報、FV、RR、期待利回り、耐性、反証を調べる工程 |
 | 投資仮説 | thesis | 判断文書 | L3 | 3年/5年scenario、永久損失、source、採否を固定するcanonical artifact。保有中は thesis health を問い、thesis break が売却の主因になる |
 | 独立反証レビュー | thesis review | 判断文書 | L3 | 別 agent による thesis の second-pass 反証。hash で対象 revision へ束縛する |
-| Research Playbook | research playbook | method | L3 | Evidence Patternに応じて一次情報を調べるhuman checklist |
-| 評価ケース | assessment case | 判断component | L3 | research済み1 tickerの結論をBargain Assessment内で表すcase |
-| 割安機会評価 | bargain assessment | 判断文書 | L3 | Assessment Caseの横比較・研究要点digest・`buy / defer / no_actionable_opportunity`を固定する1サイクルの統合判断 |
-| portfolio状態・保有判断 | position | 執行/保有 | L3 | human-confirmed ledger、holding review、outcome |
-| 購入機会サイクル | opportunity | 運転（operation kind） | — | screening → ranked set → shortlist → thesis → assessment を 1 trigger で進める operation session の kind |
+| Research Playbook | research playbook | method | L3 | Valuation Approachに応じて一次情報を調べるhuman checklist |
+| 資本配分評価 | Capital Allocation Assessment | 判断文書 | L3 | reviewed thesis alternativesを横比較し、`allocate / no_allocation / defer`を固定する統合判断 |
+| portfolio状態・保有判断 | position | 執行/保有 | L3 | human-confirmed ledger、Position Review、outcome |
+| 調査サイクル | research | 運転（operation kind） | — | Review Set → Research Triage → Research Set → thesis → Capital Allocation Assessmentを進めるoperation sessionのkind |
 
 `research`は個別銘柄を調べる活動（workflow・CLI domain・package 名）、`thesis`はその canonical 成果物である。`thesis break`と`thesis health`は保有判断の正準な投資概念であり、thesis artifact の状態を指す。Git tree は authoritative business system の `engine/`、read-only presentation の `web/`、non-request orchestration の `batch/`、developer tooling の `tools/` と、production methodology の `method/`、runtime state の `stores/`、historical evidence の `reports/` を責務ごとに読む。
 
@@ -225,16 +216,16 @@ thesisで見積りの根拠を検証するときの分析レンズ / return源�
 - **マクロ機械読み値 (macro reading)**：L1 の指標 store だけを入力に、全登録系列の記述統計と観測の齢を決定論で計算する。解釈・因果・行動指示を持たない。
 - **マクロ環境分析 (macro context)**：macro reading と外部記事・指標データを参照し、環境評価（core：レジーム・経路別のfactとjudgment・リスク選好環境の評価・確率と機械照合可能な条件を持つシナリオ・監視ポイント）、統合評価（synthesis：経路横断の支配的な力とその相互作用）、日本株積立ループ接続（connection：research優先度・sector tilt・sizing caution・バーゲン地形・機械見積りの歪み注意）を分析階層（§7）に沿った構造化レポートとして残す。記事本文や取得ログは保存しない。
 - **スクリーニング実行結果 (screening run)**：run storeに保存する再生成可能な機械出力。observed、derived、estimateを由来付きで残し、judgment・因果解釈・相場観を書かない。
-- **深掘り候補一覧 (shortlist)**：Research GateがRanked Setをselected / rejectedへ分類したcanonical snapshot。application DBに置き、run revisionとRanked Setへの束縛を保つ。
+- **調査優先度判定 (Research Triage)**：Review Set全件を`research / skip`へ分類したcanonical snapshot。application DBに置き、run revisionとReview Setへの束縛を保つ。
 - **個別銘柄research / thesis**：一次情報、FV、3年/5年scenario、risk/reward、期待return、永久損失、countercaseを検証し、採否をcanonical thesisへ固定する。
-- **割安機会評価 (bargain assessment)**：research済み候補を横比較し、`buy / defer / no_actionable_opportunity`を確定する。`buy`はthesisと独立reviewへ束縛し、注文数量はassessmentを変えず`plan-limit`でその都度計算する。
+- **資本配分評価 (Capital Allocation Assessment)**：research済みalternativeを横比較し、`allocate / no_allocation / defer`を確定する。`allocate`はthesisと独立reviewへ束縛し、注文数量は判断を変えず`plan-limit`でその都度計算する。
 - **売買執行記録 (position)**：実際に発注・entry した判断の注文・約定・保有・全売り決済と、見積り vs 実現の calibration を記録する。
 
 <a id="fact-analysis-separation"></a>
 
 ## 6. 事実と分析の分離（禁止表現）
 
-L1 / L2の機械store（market / macro series / screening run）のobserved / derived / estimateと、macro context・shortlist・thesisのjudgmentは物理的・構造的に分ける。機械storeにAI judgment・因果解釈・相場観を書かず、estimateをobserved factと呼ばない。**この節はAP-05が根拠として引く正本**であり、アンカー`#fact-analysis-separation`を変更しない。
+L1 / L2の機械store（market / macro series / screening run）のobserved / derived / estimateと、macro context・research_triage・thesisのjudgmentは物理的・構造的に分ける。機械storeにAI judgment・因果解釈・相場観を書かず、estimateをobserved factと呼ばない。**この節はAP-05が根拠として引く正本**であり、アンカー`#fact-analysis-separation`を変更しない。
 
 事実層で禁止する表現：
 
@@ -261,16 +252,16 @@ L1 / L2の機械store（market / macro series / screening run）のobserved / de
 - broker状態の自動推定、broker会計の完全複製、ledger精密化の目的化。
 - 外部向けの汎用データ配信（feature store）・MCP server・書き込み API の公開（`baibai-web` の read-only API と閲覧専用 read model への publish は柱 4 (b) の読み取り側であり、範囲内）。SQLite は market data のローカル正本とし、AI は CLI と SQL で直接読む。
 
-### Opportunity Discovery identity grammar
+### Candidate Discovery identity grammar
 
-- `method_hash`は、rankingとmembershipを変え得るtyped execution parametersのcanonical SHA-256である。
-- `research_gate_contract_id`はResearch Gate判断契約のsemantic versionである。
-- behavior-neutralな表現変更ではResearch Gateのsemantic versionを維持できる。旧hashをaliasする互換layerは持たない。
-- ranked setは単一路線で作り、未採用仮説のidentityやruntime roleを予約しない。
+- `candidate_discovery_method_id`はapproach集合・representation target・composition規則を束ねるversioned IDである。
+- `method_hash`は4つのmethod ID、ordering、common eligibility、nomination depth、targets、composition規則のcanonical SHA-256である。
+- `triage_contract_id`はResearch Triage判断契約のsemantic versionである。
+- behavior-neutralな表現変更ではsemantic versionを維持できる。旧hashをaliasする互換layerは持たない。
 
 ## 9. 参考
 
 - [`architecture.md`](./architecture.md)：3 層インフラ・engine/app package・CLI / SQLite 安定契約・repository map
 - [`portfolio-management.md`](./portfolio-management.md)：資本・ポジション管理・cap・積立・余力・kill switch 仕様
-- [`../.agents/skills/`](../.agents/skills/)：単一ループ各運用の手順（shortlist / research / holding-review / ledger-record / macro-context / ops-maintenance）
+- [`../.agents/skills/`](../.agents/skills/)：単一ループ各運用の手順（research_triage / research / position-review / ledger-record / macro-context / ops-maintenance）
 - [`anti-patterns.md`](./anti-patterns.md)：失敗パターンと commit 前チェックリスト

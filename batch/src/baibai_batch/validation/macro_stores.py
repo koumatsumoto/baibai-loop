@@ -144,7 +144,7 @@ def validate_published_contexts(
 ) -> PublishedContextReport:
     """Load every current-contract report the way its consumers do, then look for drift.
 
-    Loading is the forward instrument: `screening select` and the scorecard read reports
+    Loading is the forward instrument: `screening review-set publish` and the scorecard read reports
     through exactly this path, so a report that fails here is a report the daily batch
     cannot use. Registry drift is reported next to it because a retired series makes a
     scorecard unsettleable long before anyone notices from the report itself.

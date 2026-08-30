@@ -21,27 +21,6 @@ RULES_HASH = "rules-fixture"
 MODEL_ID = "expected-return-v1"
 
 
-def evidence_hit(
-    name: str = "valuation-reversion",
-    *,
-    evidence_pattern_id: str = "cashflow-yield-discount",
-    source_status: str = "ok",
-    sizing_eligible: bool = True,
-) -> dict[str, Any]:
-    """One evidence hit with the four keys `run_store` requires of every hit.
-
-    A hit carrying only its name is a shape the store refuses, so a fixture that
-    builds one is describing a run that could never have been published.
-    """
-
-    return {
-        "name": name,
-        "evidence_pattern_id": evidence_pattern_id,
-        "source_status": source_status,
-        "sizing_eligible": sizing_eligible,
-    }
-
-
 def screening_candidate(
     ticker: str = "1301",
     *,
@@ -52,7 +31,6 @@ def screening_candidate(
     listing_span_days: int = 1000,
     jpx_flags: Sequence[str] = (),
     metrics: Mapping[str, Any] | _Omitted | None = OMIT,
-    evidence_hits: Sequence[Mapping[str, Any]] = (),
     **extra: Any,
 ) -> dict[str, Any]:
     """One candidate row of a run payload.
@@ -70,7 +48,6 @@ def screening_candidate(
         "avg_turnover_oku": avg_turnover_oku,
         "listing_span_days": listing_span_days,
         "jpx_flags": list(jpx_flags),
-        "evidence_hits": [dict(hit) for hit in evidence_hits],
         **extra,
     }
     if metrics is OMIT:
@@ -101,7 +78,9 @@ def screening_run_payload(
         "universe_size": universe_size,
         "screening_rules_hash": rules_hash,
         "er_model_version": model_id,
-        "candidates": [dict(candidate) for candidate in (candidates or [screening_candidate()])],
+        "security_analyses": [
+            dict(candidate) for candidate in (candidates or [screening_candidate()])
+        ],
     }
     payload.update(extra)
     return payload

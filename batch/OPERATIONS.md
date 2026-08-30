@@ -5,6 +5,18 @@ script は GitHub Actions とローカル運用から呼ぶ orchestration で、
 （安定契約は `baibai-engine` / `baibai-web` 側にある）。read model の生成と日次 batch は
 ローカル単体でも実行でき、転送 script だけが R2 を使う。
 
+## Calibration 全期間 rebuild の所要時間
+
+`screening calibration-build` の全期間 rebuild は同期commandとして完了まで待つ。agentやwrapperは
+短い固定間隔でpollせず、process/sessionの終了通知を待って次工程を開始する。外部timeoutは60分を確保する。
+
+2026-08-30の実測は、`2019-11-01..2026-07-31`の81 cohort、305,367 panel row、
+1,527,240 forward rowを、ローカルmarket storeから再構築して約38分だった。通常の作業見積りは45分とし、
+同規模なら途中確認を挟まない。60分を超えた場合だけCPU使用、process状態、stderrを1回確認する。
+method/rules変更後は旧snapshotやlake partitionを変換せず、
+[`docs/reference/estimate-calibration.md`](../docs/reference/estimate-calibration.md#store-の再構築)どおり
+全cohortを再構築する。
+
 ## Cloudflare / GitHub Actions 構成
 
 R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPublic Development URLとcustom domainを無効にする。
@@ -18,17 +30,14 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 | `baibai-stores` | `baibai.sqlite` | ローカル`publish.sh`（replica） |
 | `baibai-serving` | `views/*.json` | GitHub Actions materialize |
 | `baibai-serving` | `history/candidate-views/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
-| `baibai-serving` | `history/ranked_sets/<asof>.json` | 日次batch、R2 lifecycleで400日後に削除 |
 
-R2 lifecycle ruleは表の2 prefixだけに設定する。bucket全体へ設定すると`views/meta.json`まで期限で消え、
-欠落を検知できない。`history/ranked_sets/`は四半期の着手遅延計測に1年以上の候補履歴を供給するが、
-UI routeからは公開しない。
+R2 lifecycle ruleは`history/candidate-views/`だけに設定する。bucket全体へ設定すると`views/meta.json`まで期限で消え、欠落を検知できない。Review Set membershipの長期履歴は保持しない。
 
 serving と Worker の境界:
 
 - 両bucketはpublic accessを持たない。WorkerのR2 bindingは`baibai-serving`だけに限定する。
 - `/api/*`は固定Bearer passwordをSHA-256後に定数時間比較し、有限のrouteから`views/`または日付形式を検証した
-  `history/candidate-views/`へ写像する。stores、旧`history/candidates/`、`history/ranked_sets/`には到達しない。
+  `history/candidate-views/`へ写像する。storesや任意のhistory keyには到達しない。
   応答は`Cache-Control: no-store`で、CORSを有効化しない。
 - Workers Assetsは`web/frontend/dist`を無認証で配信する。bundleは業務データを含まず、実データは認証済みAPIだけから取得する。HTTP navigationはWorkerが認証処理前にHTTPSへredirectし、HTTPS応答はHSTSを持つ。
 - `cloud-materialize`はapplication data、`cloud-daily-batch`は平日夕方の機械工程をpublishする。2 workflowは`cloud-publish`の`queue: max`を共有し、pending writerをFIFOで保持して
@@ -42,14 +51,13 @@ serving と Worker の境界:
 | GitHub Actions | variable `R2_ACCOUNT_ID`、secrets `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / provider 3本、公開 JPX 規制 URL 4本 | 必要なtransfer/provider stepだけ、stores + serving read-write |
 | GitHub Actions（通知） | secret `DISCORD_WEBHOOK_URL` | `cloud-daily-batch` の通知 step と `cloud-batch-watchdog` の警報 step のみ（job env に出さない） |
 | GitHub Actions（Worker deploy） | variable `R2_ACCOUNT_ID`、secret `CLOUDFLARE_API_TOKEN` | 対象accountの`Workers Scripts Write`、`web`のdeploy stepのみ |
-| ローカル`.env` | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | stores + serving read-write（bucket scopeにserving を含む。ranked-set history取得用） |
+| ローカル`.env` | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | stores read-write |
 | Wrangler OAuth | `wrangler login` | bucket初期設定、Worker secretの手動設定 |
 | Worker secret | `VIEW_PASSWORD` | Worker runtimeだけ |
 
 R2 S3 endpointは`https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`からscriptが組み立てる。credential、password、endpointの実値をGit、issue、logへ書かない。
 
-R2 API tokenはbucketごとにread/writeを分けられない。ローカルtokenはranked-set historyを読むためserving scopeを持ち、
-書き込みも可能になる。このため`r2_transfer.sh`は`upload-serving-views`と`publish-serving-tail`を
+R2 API tokenはbucketごとにread/writeを分けられない。このため`r2_transfer.sh`は`upload-serving-views`と`publish-serving-tail`を
 `GITHUB_ACTIONS=true`以外で拒否する。前者は`views/`を`--delete`付きで同期するため、部分的なexportで実行すると
 本番viewを削除する。
 
@@ -153,7 +161,7 @@ workflow logまたは検査結果の原因を直す。
 
 ### クラウド正本をローカルへ取得する
 
-**前提**: shortlist / research / macro-context の運用を始める前に実行する。平日16:43〜22:00 JSTは避ける。
+**前提**: research-triage / research / macro-context の運用を始める前に実行する。平日16:43〜22:00 JSTは避ける。
 この窓ではbatch前後のstoreが混ざり、実在しない断面を作り得る。窓内なら、次で当日のrunが`completed`か
 確認してから進む。
 
@@ -606,37 +614,25 @@ uv run python -m baibai_web.materialize --output-dir <dir> [--batch daily|manual
 - `views/macro-reading.json`（全登録系列の機械読み値。indicator store か reading rules が
   無ければ警告のうえ書かず、Macro タブは該当パネルだけを非表示にする）
 - `views/macro-context--<context_id>.json`（published macro context の本文。Macro report 画面が読む）
-- `views/assessment--<assessment_id>.json`（published bargain assessment の本文。Assessment 画面が読む）
-- `views/security--<ticker>.json`（保有 + 最新 run 掲載 + shortlist の ticker）
+- `views/capital-allocation-assessment--<capital_allocation_assessment_id>.json`（published Capital Allocation Assessment の本文。Assessment 画面が読む）
+- `views/security--<ticker>.json`（保有 + 最新 run 掲載 + Review Set and Research Triage の ticker）
 - `views/meta.json`（生成時刻・実データ更新時刻・store 別 as-of・batch 種別。UI の鮮度表示と同じ契約）
 - `history/candidate-views/<asof>.json`（run とCandidates全件を型付きUI read modelへ変換した履歴。31 日で削除）
-- `history/ranked_sets/<asof>.json`（latest runに束縛されたmachine selectionの `ticker` / `rank` / `er_annual`。selection欠損日と空ranked setも空recordとして発行し、400日で削除）
 
 この一覧と Worker の route 表の対応は `tests/web/test_cloud_export.py` が守る。Worker が写像する view を exporter が書かないと、その route は本番で恒久的に 404 になる。
 
 書き出しの前に application store の `user_version` とmarket storeの完全なschema shapeがcodeのcurrent schemaと一致することを確認し、不一致ならviewを1件も作らずexit 1で停止する。その後、market storeがhydrate済みかを判定する。読み取り経路はread-onlyで初期化もcutoverもしない。storeが無いrootまたはtableを一つも持たないunwritten storeは空の正常状態としてexportする。
 
-`views/` は毎回 export の完全な像に置換される（実行のたびに一度削除して作り直すので、対象から外れた古い view は残らない）。`history/` は追記のみで、この script は削除を行わない。上記の31日 / 400日削除は serving store（R2 lifecycle）側の保持契約であり、script の挙動ではない。
+`views/` は毎回 export の完全な像に置換される（実行のたびに一度削除して作り直すので、対象から外れた古い view は残らない）。`history/` は追記のみで、この script は削除を行わない。上記の31日削除は serving store（R2 lifecycle）側の保持契約であり、script の挙動ではない。
 
 Workerは認証後の`/api/screening/history`でCandidates履歴の日付一覧を返し、`/api/screening/history/YYYY-MM-DD`だけを`history/candidate-views/`へ写像する。任意key、旧形式の`history/candidates/`、store bucketは公開しない。
 
 views の JSON は `baibai-web` の対応 API response と同形（pydantic `model_dump_json`）。`meta.json` は全 view / history の書き込み成功後に最後に書くので、途中失敗した出力 dir が新鮮さを主張する事態を避ける。
 
-四半期の着手遅延計測では、既存targetを上書きしない download と専用 source を使う。
-
-```bash
-batch/scripts/r2_transfer.sh pull-ranked-set-history /tmp/baibai-ranked-set-history
-.venv/bin/python -m tools.experiments.measure_daily_delta_effect \
-  --ranked-set-history-dir /tmp/baibai-ranked-set-history \
-  --as-of YYYY-MM-DD
-```
-
-同じ dir を `screening select --ranked-set-history-dir` へ渡すと、run store の retention で前 as-of が消えた日でも差分診断の前回側を復元できる。run store に前 as-of が残っていればそちらが優先され、母数は `selection.diagnostics.previous_overlap.previous_candidates_source` に出る。
-
 ## daily_batch.py — 日次機械工程の 1 コマンド実行
 
 営業日判定 → screening cache coverageの事前検証 → bootstrap（財務サマリーの直近7日を再取得）→ EDINET incremental extraction →
-coverage再検証 → run → select →
+coverage再検証 → run → review-set →
 macro series refresh → export → run store prune を順に実行する。
 全 step は public CLI の subprocess で、step ごとにコマンドライン・exit code・所要秒を
 stdout へ出す（scheduled workflow のログをそのまま読む前提）。
@@ -656,7 +652,7 @@ uv run python -m baibai_batch.jobs.daily --output-dir <dir> --notice-output <not
 ```
 
 `--notice-output` を指定すると、batch が到達した終端 path で、Discord 通知に必要な
-`asof`・`skipped`・最初の fatal / deferred `failed_stage`・ranked setの出入りだけを持つ JSON を atomic write する。
+`asof`・`skipped`・最初の fatal / deferred `failed_stage`・Review Setの出入りだけを持つ JSON を atomic write する。
 schema version や validation round-trip は持たず、各 step の所要時間・metrics・error 本文は
 workflow log を読む。不正な `--asof` など batch 開始前の失敗では notice は無く、workflow の
 step outcome から notifier が `[FAILED]` を出す。
@@ -671,7 +667,7 @@ step outcome から notifier が `[FAILED]` を出す。
 
 失敗ポリシー:
 
-- screening 系（coverage / run / select）の失敗は致命的で即停止する（publish できる新しい
+- screening 系（coverage / run / review-set）の失敗は致命的で即停止する（publish できる新しい
   run が無いため exit 1）。ただし `screening run` の exit 2 は品質警告つきの published run で
   あり、警告理由を表示して続行する。`verify-cache-coverage` の exit 1 は cache 不足マーカーが
   ある場合だけ bootstrap へ進み、マーカー無しの exit 1（rules 破損等の crash）は即停止する
@@ -681,9 +677,6 @@ step outcome から notifier が `[FAILED]` を出す。
 - macro series refresh の失敗は繰延べる: export まで完走して screening 結果は publish し、
   最後に exit 3 で終了する（job は緑のまま Discord に `[DEGRADED]` が出て、鮮度は meta の
   `macro_asof` に現れる）。繰延べた失敗の詳細は発生時点で stderr にも出す
-- `select` の前回 run 比較は、runs store の「target より前の最大 as-of の最新 revision」を
-  この script が決定論的に解決して `--previous-run-revision-id` で渡す（同一日の再実行が
-  複数 revision を作っても停止しない）
 - 営業日判定は market store の `jquants_market_calendar` が情報源。対象日をカバーして
   いない場合は黙って続行せず明示エラーで停止する
 
@@ -697,7 +690,7 @@ code が選ばず repository secret `DISCORD_WEBHOOK_URL` が指す webhook で�
 message は 3 部からなる。
 
 1. 見出し行 — label・as-of・失敗した step 名（あれば）。`[FAILED] as-of 2026-08-26 — failed step: hydrate`
-2. `🆕 新規 ranked set 入り:` / `👋 ranked set 退出:` の 2 行 — それぞれ E[r] 降順・最大5件・`<ticker> <社名> E[r]±X.X%`。急落当日の候補と、pool から落ちた銘柄を通知だけで拾えるようにするための行である。**export に到達した run では常に出す** — 0 件の日は `なし`、delta view が読めない日は `計測なし（<理由>）` と書く。行が無いことは「0 件」「計測不能」「通知経路の異常」の3つを同時に意味してしまい、読み手が区別できない。非営業日の skip には pool が無いので出ない
+2. `🆕 新規 Review Set 入り:` / `👋 Review Set 退出:` の 2 行 — それぞれ E[r] 降順・最大5件・`<ticker> <社名> E[r]±X.X%`。急落当日の候補と、pool から落ちた銘柄を通知だけで拾えるようにするための行である。**export に到達した run では常に出す** — 0 件の日は `なし`、delta view が読めない日は `計測なし（<理由>）` と書く。行が無いことは「0 件」「計測不能」「通知経路の異常」の3つを同時に意味してしまい、読み手が区別できない。非営業日の skip には pool が無いので出ない
 3. `run:` — GitHub Actions の run URL。所要時間・step ごとの結果・lake release・error の本文はこの run log にある
 
 label は5種。
@@ -718,7 +711,7 @@ GitHub は `timeout-minutes` 超過を **cancel として扱う**。hang は日�
 失敗 step の名指しは「batch 以外の step で success / skipped 以外の outcome を最初に持つもの」。
 notify が outcome を受け取らない step（checkout / setup-uv / Playwright）の失敗は `pre-batch` と
 書く。batch 自身が fatal / deferred failure に至った run は、`daily_batch.py` が `--notice-output` に
-書いた JSON の最初の `failed_stage` を名指す。その JSON（as-of・skip の有無・失敗 stage・ranked setの出入り）は batch が
+書いた JSON の最初の `failed_stage` を名指す。その JSON（as-of・skip の有無・失敗 stage・Review Setの出入り）は batch が
 終端 path ごとに 1 回書く素の dict で、schema・validation・語彙表を持たない。読めなければ見出し行と
 run URL だけになる。
 

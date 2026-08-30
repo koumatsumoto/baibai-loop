@@ -1,7 +1,7 @@
 """Run the local daily machine batch as one command.
 
 Order: business-day gate -> screening cache coverage (bootstrap on demand) ->
-``screening run`` -> ``screening select`` -> macro series refresh ->
+``screening run`` -> ``screening review-set publish`` -> macro series refresh ->
 read-model export -> run-store prune. Every heavy step goes
 through the public ``baibai-engine`` CLI (or the Web materializer module) as a subprocess,
 so the stable CLI contract carries the business logic. The only in-process reads
@@ -47,7 +47,7 @@ from baibai_engine.batch_api import (
     RUNS_DB_PATH,
     repository_root_error,
 )
-from baibai_engine.read_api import market_calendar_business_day, previous_run_revision_id
+from baibai_engine.read_api import market_calendar_business_day
 
 _JST = ZoneInfo("Asia/Tokyo")
 _ENGINE = "baibai-engine"
@@ -61,7 +61,7 @@ _COVERAGE_INCOMPLETE_MARKER = "SQLite cache coverage incomplete"
 # Exit 3 means the screening result was published and exported, but a deferred
 # (macro / prune) step failed afterwards.
 _EXIT_DEFERRED_FAILURE = 3
-# The Research Gate input population size the opportunity path uses.
+# Maximum Review Set size for the daily machine path.
 _SELECT_REVIEW_CAP = 20
 _EDINET_QUARANTINE_RE = re.compile(
     r"\bquarantined_events=(?P<events>\d+)\s+"
@@ -252,7 +252,7 @@ def _delta_ticker_labels(rows: object) -> list[str]:
 
 
 def _read_daily_delta(path: Path, notice: _Notice) -> None:
-    """Carry the day's ranked-set entries and exits into the notice.
+    """Carry the day's review-set entries and exits into the notice.
 
     The notification is the only channel that reaches a reader without being
     opened, so the names that moved belong in it. ``delta_measured`` separates a
@@ -308,13 +308,13 @@ def _stderr_summary(stderr: str) -> str:
 class _RunView:
     run_revision_id: str
     universe_size: int
-    candidate_count: int
+    analyzed_security_count: int
 
 
 def _read_run_view(run_yaml: Path) -> _RunView:
-    """Read run_revision_id + universe/candidate counts from the run YAML view.
+    """Read run identity and Security Analysis counts from the run YAML view.
 
-    ``screening run --output-path`` writes ``universe_size`` and ``candidates``
+    ``screening run --output-path`` writes ``universe_size`` and ``security_analyses``
     alongside ``run_revision_id``; the counts default to 0 when a view omits them
     so a minimal view still surfaces the stable ``run_revision_id`` contract.
     """
@@ -337,12 +337,12 @@ def _read_run_view(run_yaml: Path) -> _RunView:
         run_revision_id = payload.get("run_revision_id")
         if isinstance(run_revision_id, str) and run_revision_id:
             universe = payload.get("universe_size")
-            candidates = payload.get("candidates")
+            analyses = payload.get("security_analyses")
             universe_size = (
                 universe if isinstance(universe, int) and not isinstance(universe, bool) else 0
             )
-            candidate_count = len(candidates) if isinstance(candidates, list) else 0
-            return _RunView(run_revision_id, universe_size, candidate_count)
+            analyzed_security_count = len(analyses) if isinstance(analyses, list) else 0
+            return _RunView(run_revision_id, universe_size, analyzed_security_count)
     # failure policy: 2 — select would otherwise point at an unknown run publication.
     raise BatchStepError(
         "screening run YAML view does not contain run_revision_id",
@@ -351,29 +351,29 @@ def _read_run_view(run_yaml: Path) -> _RunView:
 
 
 @dataclass(frozen=True, slots=True)
-class _SelectionView:
-    selection_id: str
+class _ReviewSetView:
+    review_set_id: str
 
 
-def _parse_selection_view(stdout: str) -> _SelectionView:
-    """Read the selection identity from the ``screening select`` YAML output."""
+def _parse_review_set_view(stdout: str) -> _ReviewSetView:
+    """Read the Review Set identity from publication YAML."""
 
     try:
         payload = yaml.safe_load(stdout)
     except yaml.YAMLError as exc:
-        # failure policy: 2 — an unreadable selection result cannot identify the publish.
+        # failure policy: 2 — an unreadable Review Set cannot identify the publish.
         raise BatchStepError(
-            f"screening select output is not parseable YAML: {exc}",
-            stage="screening-select",
+            f"screening review-set output is not parseable YAML: {exc}",
+            stage="screening-review-set",
         ) from exc
     if isinstance(payload, dict):
-        selection_id = payload.get("selection_id")
-        if isinstance(selection_id, str) and selection_id:
-            return _SelectionView(selection_id)
-    # failure policy: 2 — continuing would export a result with no selection identity.
+        review_set_id = payload.get("review_set_id")
+        if isinstance(review_set_id, str) and review_set_id:
+            return _ReviewSetView(review_set_id)
+    # failure policy: 2 — continuing would export a result with no Review Set identity.
     raise BatchStepError(
-        "screening select output does not contain selection_id",
-        stage="screening-select",
+        "screening review-set output does not contain review_set_id",
+        stage="screening-review-set",
     )
 
 
@@ -436,7 +436,7 @@ def _run_screening_run(runner: CommandRunner, *, root: Path, asof_arg: str) -> _
 
     The run publishes to the store either way; ``--output-path`` mirrors that
     publication to a throwaway file whose ``run_revision_id`` key is the stable
-    contract (the same field ``select`` echoes as ``selection_id``). Exit 2 is a
+    contract. Exit 2 is a
     published run with partial-quality warnings, so the chain continues.
     """
 
@@ -472,7 +472,7 @@ class _Notice:
 
     The as-of it ran for, whether the business-day gate skipped it, the first
     fatal or deferred failure stage, and the names that entered or left the
-    ranked set. The exit code carries the outcome itself.
+    Review Set. The exit code carries the outcome itself.
     """
 
     asof: str = ""
@@ -608,39 +608,27 @@ def _execute_daily_batch(
 
     run_view = _run_screening_run(runner, root=root, asof_arg=asof_arg)
 
-    select_argv: list[str] = [
+    review_set_argv: list[str] = [
         _ENGINE,
         "screening",
-        "select",
+        "review-set",
+        "publish",
         "--asof",
         asof_arg,
         "--run-revision-id",
         run_view.run_revision_id,
-        # The ranked set is the review input population, and the daily delta compares
-        # it across runs. Publishing it every day keeps that comparison on the pool a
-        # human would actually review instead of the cap-applied top-N.
         "--review-cap",
         str(_SELECT_REVIEW_CAP),
     ]
-    try:
-        previous_revision = previous_run_revision_id(root / _RUNS_DB_RELPATH, target)
-    except sqlite3.Error as exc:
-        # failure policy: 2 — select cannot bind its comparison to an unreadable store.
-        raise BatchStepError(
-            f"runs store is unreadable for previous-run resolution: {exc}",
-            stage="screening-select",
-        ) from exc
-    if previous_revision is not None:
-        select_argv.extend(("--previous-run-revision-id", previous_revision))
-    select_result = _run_step(
+    review_set_result = _run_step(
         runner,
-        name="screening-select",
-        argv=select_argv,
+        name="screening-review-set",
+        argv=review_set_argv,
         cwd=root,
         echo_stdout=False,
     )
-    selection_view = _parse_selection_view(select_result.stdout)
-    print(f"selection_id={selection_view.selection_id}", flush=True)
+    review_set_view = _parse_review_set_view(review_set_result.stdout)
+    print(f"review_set_id={review_set_view.review_set_id}", flush=True)
 
     # Macro series refresh must not block publishing the fresh screening result:
     # failures here are deferred to the final exit code after the export step.
@@ -736,7 +724,7 @@ def _execute_daily_batch(
     print(
         "daily batch done: "
         f"asof={asof_arg}; run_revision_id={run_view.run_revision_id}; "
-        f"selection_id={selection_view.selection_id}",
+        f"review_set_id={review_set_view.review_set_id}",
         flush=True,
     )
     if deferred_failures:
@@ -759,7 +747,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="daily_batch",
         description=(
             "run the daily machine batch in one command: business-day gate -> "
-            "screening cache coverage/run/select -> macro refresh -> "
+            "screening cache coverage/run/review-set -> macro refresh -> "
             "read-model export"
         ),
     )

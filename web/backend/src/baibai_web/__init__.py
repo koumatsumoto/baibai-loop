@@ -5,8 +5,9 @@ Read-only app invariants:
 `baibai-web` は `127.0.0.1` にだけbindし、write endpoint、migration、external network clientを持
 たない。application DB / run store / macro storeをSQLite read-only modeで開く。
 UIの面は7つで、3タブ (`/` Dashboard、`/macro` Macro、`/stocks` Stocks) と
-タブなし詳細 (`/macro/reports/:contextId` Macro report、`/stocks/shortlist` Shortlist、
-`/stocks/assessments/:assessmentId` Bargain assessment、`/securities/:ticker` Security detail)
+タブなし詳細 (`/macro/reports/:contextId` Macro report、`/research-triage` ResearchTriage、
+`/stocks/capital-allocation-assessments/:capitalAllocationAssessmentId`
+Capital Allocation Assessment、`/securities/:ticker` Security detail)
 である。ヘッダーの歯車 menu は GitHub Actions の run 一覧へ外部 link する。assessment全state、
 operation active/completed、portfolio outcomeをquery-only viewで表示する。
 Dashboardは前営業日の機械実行との差分 (候補プールの出入り、機械E[r]の変化、
@@ -14,8 +15,8 @@ FVに達した保有、macro readingの注記と分布の端の遷移) を観測
 判定・推奨は持たず、答えられなかった区分を明示して空欄と未計測を区別する。
 Macroは経済分析レポートと、全登録系列を`web/config/macro-panel.yaml`の7 groupへ配した1つのマクロ
 経済指標一覧 (`/api/macro`のチャートと`/api/macro/reading`の記述統計を`series_id`でjoinし、
-取得失敗・stale・履歴不足・分布の端の件数を上部の要約カードへ畳む)、Stocksは深掘りshortlistと機
-械screeningのCandidatesを表示する。Shortlist は
+取得失敗・stale・履歴不足・分布の端の件数を上部の要約カードへ畳む)、Stocksは深掘りresearch_triageと機
+械screeningのCandidatesを表示する。ResearchTriage は
 `reports/published/er-level-calibration-latest.yaml` が有効な間だけ、候補 E[r] の historical
 quintile と独立した要求利回りhurdle以上帯について、実現 total-return の中央値・下方分位・trap率
 を文脈表示する。Candidatesはrun storeまたはクラウドの31日履歴から日付を選べる。

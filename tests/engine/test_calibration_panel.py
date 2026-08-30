@@ -6,7 +6,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import asdict, replace
 from datetime import date, timedelta
@@ -61,14 +61,6 @@ from baibai_engine.screening.sqlite_reader import ReportedShortMetric
 from baibai_engine.screening.store_readiness import unreadable_store_reason
 
 ASOF = CALIBRATION_FIXTURE_ASOF
-
-
-def _retuned_relaxed(relaxed: Mapping[str, Mapping[str, object]]) -> dict[str, object]:
-    """The same threshold set with one value measured differently."""
-
-    name, fields = next(iter(relaxed.items()))
-    field = next(iter(fields))
-    return {**relaxed, name: {**fields, field: "retuned-sentinel"}}
 
 
 class CalibrationPanelTest(unittest.TestCase):
@@ -299,7 +291,7 @@ class CalibrationPanelTest(unittest.TestCase):
 
         self.assertNotEqual(rules_content_hash(rules), previous_identity)
 
-    def test_build_panel_replays_screen_and_selection_point_in_time(self) -> None:
+    def test_build_panel_replays_valuation_approaches_point_in_time(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             build_calibration_fixture_sqlite(sqlite_path)
@@ -311,9 +303,9 @@ class CalibrationPanelTest(unittest.TestCase):
 
             cheap = rows_by_ticker["9001"]
             self.assertTrue(cheap.in_population)
-            self.assertTrue(cheap.pass_screen)
-            self.assertEqual(cheap.evidence_patterns, "cash-rich-asset-discount")
-            self.assertEqual(cheap.selection_rank, 1)
+            self.assertTrue(cheap.in_review_set)
+            self.assertEqual(cheap.valuation_approaches, "current-earnings-power|asset-value")
+            self.assertEqual(cheap.review_position, 1)
             assert cheap.per_trailing is not None
             self.assertAlmostEqual(cheap.per_trailing, 10.0)
             assert cheap.pbr is not None
@@ -330,14 +322,14 @@ class CalibrationPanelTest(unittest.TestCase):
 
             expensive = rows_by_ticker["9002"]
             self.assertTrue(expensive.in_population)
-            self.assertFalse(expensive.pass_screen)
-            self.assertEqual(expensive.selection_rank, 2)
+            self.assertTrue(expensive.in_review_set)
+            self.assertEqual(expensive.review_position, 2)
 
             diagnostics = result.diagnostics
             self.assertEqual(diagnostics.universe_size, 2)
             self.assertEqual(diagnostics.population_size, 2)
-            self.assertEqual(diagnostics.candidates, 2)
-            self.assertEqual(diagnostics.evidence_candidates, 1)
+            self.assertEqual(diagnostics.security_analyses, 2)
+            self.assertEqual(diagnostics.nominated_candidates, 2)
             self.assertEqual(diagnostics.population_per_trailing_nonnull, 2)
 
     def test_panel_reads_three_fy_return_history_without_widening_metric_window(self) -> None:
@@ -955,8 +947,8 @@ class CalibrationPanelTest(unittest.TestCase):
                     run_purpose="production_decision",
                     required_asofs=[ASOF.isoformat()],
                     required_metrics=[
-                        "selection_rank_top5",
-                        "selection_rank_top10",
+                        "review_set_top5",
+                        "review_set_top10",
                         "er_calibration",
                     ],
                 )
@@ -982,8 +974,8 @@ class CalibrationPanelTest(unittest.TestCase):
                     run_purpose="production_decision",
                     required_asofs=[ASOF.isoformat()],
                     required_metrics=[
-                        "selection_rank_top5",
-                        "selection_rank_top10",
+                        "review_set_top5",
+                        "review_set_top10",
                         "er_calibration",
                     ],
                 )
@@ -1071,26 +1063,8 @@ class DerivedCacheIdentityTests(unittest.TestCase):
                 True,
             ),
             (
-                # 列の形を変えずに観測の範囲だけ広げた変更が、実際に進め忘れを起こした形。
-                "measuring_one_more_threshold",
-                lambda: patch.object(
-                    calibration_store,
-                    "RELAXED",
-                    {
-                        name: {**fields, "newly_measured_threshold": None}
-                        for name, fields in calibration_store.RELAXED.items()
-                    },
-                ),
-                True,
-            ),
-            (
-                # 同じ閾値を別の値で測った cohort は互換でない。名前だけ見ると気付けない。
-                "changing_a_relaxed_value",
-                lambda: patch.object(
-                    calibration_store,
-                    "RELAXED",
-                    _retuned_relaxed(calibration_store.RELAXED),
-                ),
+                "adding_a_replay_variant",
+                lambda: patch.object(calibration_store, "RELAXED", ("approach-top5",)),
                 True,
             ),
             (

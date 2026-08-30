@@ -28,7 +28,7 @@ from pydantic import BaseModel
 from pydantic.json_schema import models_json_schema
 
 from baibai_web.readmodel.models import (
-    BargainAssessmentView,
+    CapitalAllocationAssessmentView,
     DailyDeltaView,
     DashboardView,
     MacroContextView,
@@ -51,7 +51,9 @@ CONTRACT_SCHEMA_VERSION = 1
 # the two against each other so a route added there without a model here is caught.
 ROOT_VIEWS: Mapping[str, type[BaseModel]] = {
     "history/candidate-views/{as_of}.json": ScreeningHistoryRunView,
-    "views/assessment--{assessment_id}.json": BargainAssessmentView,
+    (
+        "views/capital-allocation-assessment--{capital_allocation_assessment_id}.json"
+    ): CapitalAllocationAssessmentView,
     "views/daily-delta.json": DailyDeltaView,
     "views/dashboard.json": DashboardView,
     "views/macro--{period}-{granularity}.json": MacroView,

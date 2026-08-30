@@ -4,7 +4,7 @@ The data platform keeps facts for the whole market, so the screen evaluates
 all common stocks in the eligible market segments. Size and liquidity are not
 scope conditions: market cap, average turnover, listing span, and JPX
 regulation flags are recorded as facts on each snapshot and applied as
-analysis-layer parameters by selection. The only structural exclusions are
+analysis-layer parameters by Candidate Discovery. The only structural exclusions are
 instrument type, market segment, and a minimal bar-history requirement that the
 metric pipeline needs to compute short-horizon fields.
 
@@ -218,15 +218,15 @@ def liquid_median_population(
     snapshots: Mapping[str, UniverseSnapshot],
     rules: ScreeningRules,
 ) -> frozenset[str]:
-    """Tickers whose facts satisfy the selection liquidity parameters.
+    """Tickers whose facts satisfy the Candidate Discovery liquidity parameters.
 
     Sector / market medians and sector relative strength compare against this
     investable population so the screen's relative-valuation judgments stay
     anchored to liquid comparables while every common stock is evaluated. Uses
     the base-config liquidity rules directly; programmatic in-process overrides
-    apply only to the selection filter, not to this population.
+    apply only to Candidate Discovery eligibility, not to this population.
     """
-    liquidity = rules.selection.liquidity
+    liquidity = rules.candidate_discovery.common_eligibility
     required_jpx = frozenset(rules.universe.required_jpx_flags)
     return frozenset(
         ticker

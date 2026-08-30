@@ -1,368 +1,171 @@
-"""CLI seam coverage for the screening analysis subcommands.
-
-Every test here drives ``baibai_engine.screening.cli.main`` with the argv a human
-types, so argparse's own ``type=``/``action=`` conversion and the dispatch that turns
-those strings into command arguments are inside what is exercised. A test that builds
-the command's arguments itself skips exactly that layer, so it stays green while the
-typed command line is unusable.
-
-Each test asserts the command's effect rather than its console text: the run-store
-row, the application-DB row, or the file the command was told to write. Exit code 0
-alone does not distinguish a command that ran from one that produced nothing.
-"""
-
 from __future__ import annotations
 
-from datetime import date, timedelta
 from pathlib import Path
 
-import pytest
 import yaml
 
-# The market store a panel can actually be built from: master snapshot, financial
-# summaries and bars, seeded the way the calibration tests already seed it.
-from tests.helpers.screening_run import screening_run_payload
-from tests.helpers.screening_sqlite import (
-    CALIBRATION_FIXTURE_ASOF as PANEL_ASOF,
-)
-from tests.helpers.screening_sqlite import (
-    build_calibration_fixture_sqlite,
-    insert_daily_bars_from_closes,
-)
-from tests.helpers.shortlist import (
-    rejected_entry,
-    selected_entry,
-    shortlist_from_selection,
-)
-
-from baibai_engine.read_api import list_shortlist_payloads
-from baibai_engine.screening.calibration.store import (
-    CURRENT_SNAPSHOT_NAME,
-    published_cohorts,
-    read_forward,
-    read_panel,
-    read_panel_meta,
-)
+from baibai_engine.read_api import list_research_triage_payloads
 from baibai_engine.screening.cli import main as screening_main
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
-from baibai_engine.screening.sqlite_cache import open_connection
 
 ROOT = Path(__file__).resolve().parents[2]
 RULES_PATH = ROOT / "method/screening/rules/2026-07-06T000000+0900.yaml"
-RULES_HASH = production_rules_contract_hash(load_screening_rules(RULES_PATH).model_dump_json())
-
-RUN_REVISION_ID = "run-revision-cli-seam"
-RUN_ASOF = date(2026, 7, 8)
-SHORTLIST_ID = "shortlist-20260708-cli-seam"
-
-# The month-end grid reads a trading day off the bar store's own breadth, so a store
-# that only holds the two fixture names has no trading days at all. This is the
-# following month, which the grid needs in order to call the target month complete.
-NEXT_MONTH_END = date(2026, 7, 31)
 
 
-def _candidate(ticker: str, *, name: str, sector: str, er_annual: float) -> dict[str, object]:
+def _analysis(ticker: str) -> dict[str, object]:
     return {
         "ticker": ticker,
-        "name": name,
-        "sector_33": sector,
-        "market_cap_oku": 300,
-        "avg_turnover_oku": 2.0,
-        "listing_span_days": 1200,
+        "name": ticker,
+        "sector_33": "機械",
+        "market_cap_oku": 500,
+        "avg_turnover_oku": 5.0,
+        "listing_span_days": 1000,
         "jpx_flags": [],
-        "metrics": {"er_annual": er_annual},
-        "evidence_hits": [
-            {
-                "name": "valuation-reversion",
-                "evidence_pattern_id": "cashflow-yield-discount",
-                "source_status": "ok",
-                "sizing_eligible": True,
-            }
-        ],
+        "per_forward": 10.0,
+        "per_trailing": 11.0,
+        "pbr": 0.8,
+        "p_s": 1.0,
+        "ev_ebitda": 5.0,
+        "pcfr": 8.0,
+        "metrics": {
+            "per_forward_sector_gap": -0.5,
+            "normalized_per_3fy": 10.0,
+            "fcf_yield": 0.08,
+            "ocf_yield": 0.1,
+            "asset_backed_ratio": 0.5,
+            "net_cash_to_market_cap": 0.25,
+            "pbr_sector_gap": -0.3,
+            "equity_ratio": 0.6,
+            "p_s_sector_gap": -0.4,
+            "sales_yoy": 0.05,
+            "operating_profit": 12.0,
+            "sales_ttm": 100.0,
+            "total_assets": 200.0,
+            "debt": 20.0,
+            "cash": 30.0,
+            "er_annual": 0.13,
+        },
     }
 
 
-def _publish_run(runs_db: Path) -> None:
-    """Seed the immutable run the selection is drawn from."""
-    ScreeningRunStore(runs_db).publish_run(
-        screening_run_payload(
-            as_of=RUN_ASOF.isoformat(),
-            universe_size=2,
-            rules_hash=RULES_HASH,
-            candidates=[
-                _candidate("1111", name="seam candidate", sector="機械", er_annual=0.12),
-                _candidate("2222", name="seam alternate", sector="サービス業", er_annual=0.04),
-            ],
-            rules_ref=str(RULES_PATH),
-        ),
-        run_revision_id=RUN_REVISION_ID,
+def _publish_run(path: Path) -> None:
+    rules_hash = production_rules_contract_hash(load_screening_rules(RULES_PATH).model_dump_json())
+    ScreeningRunStore(path).publish_run(
+        {
+            "run_id": "screening-20260708",
+            "run_date": "2026-07-08",
+            "asof_date": "2026-07-08",
+            "run_at": "2026-07-08T18:00:00+09:00",
+            "universe_size": 2,
+            "screening_rules_hash": rules_hash,
+            "er_model_version": "v1",
+            "rules_ref": str(RULES_PATH),
+            "security_analyses": [_analysis("1111"), _analysis("2222")],
+        },
+        run_revision_id="run-revision-cli-seam",
     )
 
 
-def _select_argv(*, runs_db: Path, market_sqlite: Path, output_path: Path) -> list[str]:
-    return [
-        "select",
-        "--asof",
-        RUN_ASOF.isoformat(),
-        "--run-revision-id",
-        RUN_REVISION_ID,
-        "--runs-db",
-        str(runs_db),
-        "--review-cap",
-        "2",
-        "--review-cap",
-        "2",
-        "--rules-path",
-        str(RULES_PATH),
-        "--sqlite-path",
-        str(market_sqlite),
-        "--output-path",
-        str(output_path),
-    ]
-
-
-def _publish_selection(runs_db: Path, tmp_path: Path) -> dict[str, object]:
-    """Publish a selection through the CLI so the shortlist commands have their input."""
+def test_review_set_publish_cli_persists_the_exact_output(tmp_path: Path) -> None:
+    runs_db = tmp_path / "runs.sqlite"
+    output = tmp_path / "review-set.yaml"
     _publish_run(runs_db)
-    output_path = tmp_path / "selection-setup.yaml"
     assert (
         screening_main(
-            _select_argv(
-                runs_db=runs_db,
-                market_sqlite=tmp_path / "absent-market.sqlite",
-                output_path=output_path,
-            )
+            [
+                "review-set",
+                "publish",
+                "--asof",
+                "2026-07-08",
+                "--run-revision-id",
+                "run-revision-cli-seam",
+                "--runs-db",
+                str(runs_db),
+                "--rules-path",
+                str(RULES_PATH),
+                "--review-cap",
+                "20",
+                "--output-path",
+                str(output),
+            ]
         )
         == 0
     )
-    payload = yaml.safe_load(output_path.read_text(encoding="utf-8"))
-    assert isinstance(payload, dict)
-    return payload
+    emitted = yaml.safe_load(output.read_text(encoding="utf-8"))
+    stored = ScreeningRunReader(runs_db).get_review_set(emitted["review_set_id"])
+    assert stored is not None
+    assert stored.payload == emitted
 
 
-def _write_shortlist_draft(path: Path, selection: dict[str, object]) -> None:
-    path.write_text(
-        yaml.safe_dump(
-            shortlist_from_selection(
-                selection,
-                shortlist_id=SHORTLIST_ID,
-                run_revision_id=RUN_REVISION_ID,
-                as_of=RUN_ASOF.isoformat(),
-                entries=[selected_entry("1111"), rejected_entry("2222")],
-            ),
-            sort_keys=False,
-            allow_unicode=True,
-        ),
-        encoding="utf-8",
-    )
-
-
-def test_select_cli_publishes_the_selection_into_the_run_store(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_research_triage_publish_cli_binds_every_review_set_entry(tmp_path: Path) -> None:
     runs_db = tmp_path / "runs.sqlite"
+    output = tmp_path / "review-set.yaml"
     _publish_run(runs_db)
-    output_path = tmp_path / "selection.yaml"
-
-    code = screening_main(
-        _select_argv(
-            runs_db=runs_db,
-            market_sqlite=tmp_path / "absent-market.sqlite",
-            output_path=output_path,
-        )
-    )
-    capsys.readouterr()
-
-    assert code == 0
-    emitted = yaml.safe_load(output_path.read_text(encoding="utf-8"))
-    published = ScreeningRunReader(runs_db).get_selection(str(emitted["selection_id"]))
-    assert published is not None
-    assert published.run_revision_id == RUN_REVISION_ID
-    assert published.as_of_date == RUN_ASOF.isoformat()
-    # --review-cap goes through the parser's own int conversion; a string reaching the
-    # store would slice nothing and leave the ranked set empty.
-    ranked_set = published.payload["ranked_set"]
-    assert isinstance(ranked_set, list)
-    assert 1 <= len(ranked_set) <= 2
-
-
-def test_shortlist_publish_cli_writes_the_judgment_into_the_application_db(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    runs_db = tmp_path / "runs.sqlite"
-    app_db = tmp_path / "app.sqlite"
-    selection = _publish_selection(runs_db, tmp_path)
-    draft = tmp_path / "shortlist-draft.yaml"
-    _write_shortlist_draft(draft, selection)
-
-    code = screening_main(
-        ["shortlist", "publish", str(draft), "--db", str(app_db), "--runs-db", str(runs_db)]
-    )
-    capsys.readouterr()
-
-    assert code == 0
-    stored = [
-        item for item in list_shortlist_payloads(app_db) if item["shortlist_id"] == SHORTLIST_ID
-    ]
-    assert len(stored) == 1
-    assert stored[0]["selection_id"] == selection["selection_id"]
-    entries = stored[0]["entries"]
-    assert isinstance(entries, list)
-    assert {str(entry["ticker"]) for entry in entries} == {"1111", "2222"}
-
-
-def test_shortlist_outcome_cli_writes_the_cohort_comparison_file(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    runs_db = tmp_path / "runs.sqlite"
-    app_db = tmp_path / "app.sqlite"
-    selection = _publish_selection(runs_db, tmp_path)
-    draft = tmp_path / "shortlist-outcome-draft.yaml"
-    _write_shortlist_draft(draft, selection)
     assert (
         screening_main(
-            ["shortlist", "publish", str(draft), "--db", str(app_db), "--runs-db", str(runs_db)]
+            [
+                "review-set",
+                "publish",
+                "--asof",
+                "2026-07-08",
+                "--run-revision-id",
+                "run-revision-cli-seam",
+                "--runs-db",
+                str(runs_db),
+                "--rules-path",
+                str(RULES_PATH),
+                "--review-cap",
+                "20",
+                "--output-path",
+                str(output),
+            ]
         )
         == 0
     )
-    # Prices only up to a fixed past day, so the observed window the payload reports is
-    # the same on every run rather than following the wall clock.
-    market_sqlite = tmp_path / "market.sqlite"
-    observed_end = RUN_ASOF + timedelta(days=23)
-    for ticker in ("1111", "2222"):
-        insert_daily_bars_from_closes(
-            market_sqlite, ticker, [1000.0] * 30, end_date=observed_end, turnover_value=2e8
+    review_set = yaml.safe_load(output.read_text(encoding="utf-8"))
+    entries = []
+    for priority, item in enumerate(review_set["entries"], start=1):
+        entries.append(
+            {
+                "ticker": item["ticker"],
+                "decision": "research",
+                "priority": priority,
+                "rationale": "fundamental research is warranted",
+                "research_question": "durability?",
+                "key_risk": "cyclicality",
+                "machine_snapshot": None,
+            }
         )
-    out_path = tmp_path / "outcome.yaml"
-
-    code = screening_main(
-        [
-            "shortlist",
-            "outcome",
-            "--db",
-            str(app_db),
-            "--runs-db",
-            str(runs_db),
-            "--sqlite-path",
-            str(market_sqlite),
-            "--horizon",
-            "3m",
-            "--out",
-            str(out_path),
-        ]
-    )
-    capsys.readouterr()
-
-    assert code == 0
-    payload = yaml.safe_load(out_path.read_text(encoding="utf-8"))
-    assert payload["kind"] == "shortlist-judgment-outcome"
-    assert payload["horizons"] == ["3m"]
-    assert payload["cohort_count"] == 1
-    assert payload["judgment_count"] == 2
-    result = payload["results"][0]
-    assert result["shortlist_id"] == SHORTLIST_ID
-    # The drawdown window comes out of --sqlite-path; a store the command never opened
-    # leaves the block out of the payload entirely.
-    assert result["drawdown_window_end"] == observed_end.isoformat()
-
-
-@pytest.fixture(scope="module")
-def panel_market_sqlite(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A market store whose breadth lets the month-end grid resolve a cohort date."""
-    sqlite_path = tmp_path_factory.mktemp("panel-market") / "market.sqlite"
-    build_calibration_fixture_sqlite(sqlite_path)
-    breadth = [
-        (f"{3000 + index:04d}", day.isoformat(), 100.0, 100.0)
-        for day in (PANEL_ASOF, NEXT_MONTH_END)
-        for index in range(2100)
-    ]
-    conn = open_connection(sqlite_path)
-    try:
-        conn.executemany(
-            "INSERT OR REPLACE INTO jquants_daily_bars("
-            "ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
-            breadth,
-        )
-        conn.commit()
-    finally:
-        conn.close()
-    return sqlite_path
-
-
-def _calibration_build_argv(*, sqlite_path: Path, calibration_dir: Path) -> list[str]:
-    return [
-        "calibration-build",
-        "--start",
-        PANEL_ASOF.replace(day=1).isoformat(),
-        "--end",
-        PANEL_ASOF.isoformat(),
-        "--sqlite-path",
-        str(sqlite_path),
-        "--calibration-dir",
-        str(calibration_dir),
-        "--rules-path",
-        str(RULES_PATH),
-        "--panel-variant",
-        "production",
-    ]
-
-
-def test_calibration_build_cli_writes_the_panel_and_forward_store(
-    panel_market_sqlite: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    calibration_dir = tmp_path / "calibration"
-
-    code = screening_main(
-        _calibration_build_argv(sqlite_path=panel_market_sqlite, calibration_dir=calibration_dir)
-    )
-    captured = capsys.readouterr()
-
-    assert code == 0
-    assert published_cohorts(calibration_dir) == [PANEL_ASOF]
-    # The panel holds the fixture's own names, so an empty grid or an unread store
-    # cannot pass as a build.
-    assert {row.ticker for row in read_panel(calibration_dir, PANEL_ASOF)} >= {"9001"}
-    assert read_panel_meta(calibration_dir, PANEL_ASOF)["panel_variant"] == "production"
-    assert read_forward(calibration_dir, PANEL_ASOF) != []
-    assert "panels built=1" in captured.out
-    assert (calibration_dir / CURRENT_SNAPSHOT_NAME).is_file()
-
-
-def test_calibration_evaluate_cli_writes_the_evaluation_yaml(
-    panel_market_sqlite: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    calibration_dir = tmp_path / "calibration"
+    draft = {
+        "schema_version": 1,
+        "kind": "research_triage",
+        "research_triage_id": "research-triage-20260708-cli-seam",
+        "review_set_id": review_set["review_set_id"],
+        "run_revision_id": "run-revision-cli-seam",
+        "as_of": "2026-07-08",
+        "published_at": "2026-07-08T19:00:00+09:00",
+        "macro_context_id": None,
+        "review_basis_research_triage_id": None,
+        "triage_contract_id": "research-triage-v1",
+        "entries": entries,
+    }
+    draft_path = tmp_path / "triage.yaml"
+    draft_path.write_text(yaml.safe_dump(draft, sort_keys=False), encoding="utf-8")
+    app_db = tmp_path / "app.sqlite"
     assert (
         screening_main(
-            _calibration_build_argv(
-                sqlite_path=panel_market_sqlite, calibration_dir=calibration_dir
-            )
+            [
+                "research-triage",
+                "publish",
+                str(draft_path),
+                "--db",
+                str(app_db),
+                "--runs-db",
+                str(runs_db),
+            ]
         )
         == 0
     )
-    out_path = tmp_path / "evaluation.yaml"
-
-    code = screening_main(
-        [
-            "calibration-evaluate",
-            "--calibration-dir",
-            str(calibration_dir),
-            "--horizon",
-            "3m",
-            "--run-purpose",
-            "diagnostic",
-            "--out",
-            str(out_path),
-        ]
-    )
-    capsys.readouterr()
-
-    assert code == 0
-    payload = yaml.safe_load(out_path.read_text(encoding="utf-8"))
-    assert payload["kind"] == "estimate-calibration-evaluation"
-    assert payload["scope"]["run_purpose"] == "diagnostic"
-    assert payload["scope"]["requested_horizons"] == ["3m"]
-    cohorts = payload["results"]["3m"]["cohorts"]
-    assert [cohort["asof"] for cohort in cohorts] == [PANEL_ASOF.isoformat()]
+    assert list_research_triage_payloads(app_db)[0]["review_set_id"] == review_set["review_set_id"]

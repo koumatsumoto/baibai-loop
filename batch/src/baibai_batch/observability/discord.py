@@ -3,7 +3,7 @@
 One message per terminal state of ``cloud-daily-batch``. It serves the daily
 machine loop's "見せる" role: from one message a reader learns whether the day's
 artefacts were published, which step to open when they were not, and which names
-entered or left the ranked set — the only channel that reaches the reader without
+entered or left the Review Set — the only channel that reaches the reader without
 being opened. Everything else about a run (durations, per-batch metrics, the lake
 release) lives in the workflow log the ``run:`` line points at.
 
@@ -72,8 +72,8 @@ STEP_ORDER = (
     "publish-serving",
 )
 
-_ENTERED_PREFIX = "🆕 新規 ranked set 入り: "
-_EXITED_PREFIX = "👋 ranked set 退出: "
+_ENTERED_PREFIX = "🆕 新規 Review Set 入り: "
+_EXITED_PREFIX = "👋 Review Set 退出: "
 _DELTA_EMPTY_TEXT = "なし"
 _DELTA_UNMEASURED_TEXT = "計測なし"
 _DELTA_UNMEASURED_UNKNOWN_REASON = "理由不明"
@@ -252,7 +252,7 @@ def _render_side(value: object) -> str:
 
 
 def render_delta(notice: Mapping[str, object]) -> list[str]:
-    """Render both sides of the ranked-set delta, one line each, whenever a pool exists.
+    """Render both sides of the review-set delta, one line each, whenever a pool exists.
 
     Silence would carry three different facts — nothing entered, the delta could not
     be measured, and the notification path is broken — and a reader cannot tell them

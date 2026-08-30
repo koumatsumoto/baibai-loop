@@ -40,7 +40,7 @@ def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
         assert dashboard.json()["total_capital_yen"] == 10_419_500
         assert len(dashboard.json()["open_tasks"]) == 2
         assert screening.status_code == 200
-        assert screening.json()["run"]["candidate_count"] == 3
+        assert screening.json()["run"]["analyzed_security_count"] == 3
         assert screening.json()["run"]["run_at"] == "2026-07-08T12:00:00+09:00"
         assert screening_history.json() == {"dates": ["2026-07-08", "2026-07-01"]}
         assert previous_screening.status_code == 200

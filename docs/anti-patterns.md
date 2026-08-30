@@ -157,7 +157,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
       で計算ロジックを確認したか
 - [ ] DB publication viewとmodelに従い、独自構造を勝手に追加していないか
 - [ ] `extra: forbid` の model に独自 key を追加していないか
-- [ ] holding review / portfolio outcomeがledger・thesis・benchmark observationのimmutable IDとscalar driftを検証しているか
+- [ ] Position Review / portfolio outcomeがledger・thesis・benchmark observationのimmutable IDとscalar driftを検証しているか
 
 ## 5. AP-05: fact 層と分析層の境界を曖昧にする
 
@@ -266,14 +266,14 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] thesisがapprovedの場合、source snapshot、scenario、independent review、execution inputが同一thesis hashに束縛されるか
 - [ ] current decision の eligibility clock はoperation入口で1回だけ取得したtimezone-aware instantを全validationへ渡し、review等のevent timestampやartifactのas-ofへ差し替えていないか。naive clock、expiry直前・exact expiry・直後をnegative testで固定したか
 - [ ] 統合判断はHTMLをreview対象にせず、comparison / thesis / assessmentへ別roleのcontent reviewを行い、全thesis core hashとreviewの変更をstaleとして拒否するか
-- [ ] `planned_limit / defer / no actionable bargain`の全経路で、購入方法または注文なしが比較結論と矛盾せず、未知source IDと手書き注文数値を拒否するか
+- [ ] `planned_limit / defer / no_allocation`の全経路で、購入方法または注文なしが比較結論と矛盾せず、未知source IDと手書き注文数値を拒否するか
 - [ ] `planned_limit`のportfolio exposureは、共通as-of・分母・current / prospective円額・比率・閾値・fallback銘柄が必須かつ機械整合し、欠損 / null / 0 / 負値 / nested未知field / 閾値warningの過不足 / fallback warningの過不足を拒否するか
-- [ ] machine judgment が下流の作業範囲を決める gate は、その集合を**判断artifactからDBで再解決**して検査し、workspace / manifest / draft の自由編集で広げられないことを negative test で塞いだか。手書き側は読み取り用の記録に留め、authorization source にしない（`research prepare --shortlist-id` は Shortlist `selected` を admission 可能集合とし、各 gate が stored shortlist から再解決する）
+- [ ] machine judgment が下流の作業範囲を決める gate は、その集合を**判断artifactからDBで再解決**して検査し、workspace / manifest / draft の自由編集で広げられないことを negative test で塞いだか。手書き側は読み取り用の記録に留め、authorization source にしない（`research prepare --research_triage-id` は Research Triage `selected` を admission 可能集合とし、各 gate が stored research_triage から再解決する）
 - [ ] 前提を再証明する gate は、**入口が課した前提集合の全体**を見ているか。部分集合しか見ない再証明は、残りの前提を宣言で飛ばす経路として残る（`holding-prepare` は保有と as-of の 2 つを課すので、gate も同じ 2 つを 1 つの共有 helper から見る）
 - [ ] 鮮度の pin は、**その purpose が実際に依存する field を覆っているか**。`append_head` は `ledger_event` しか数えず、market price は別 table を丸ごと入れ替えるので、pin が一致したまま価格観測日だけが動く。覆えない残りは「最後の関門だけが見る」と正直に書き、gate が見ていない範囲を over-claim しない
 - [ ] **その修正が案内する復旧手順を実際に最後まで通したか。** 途中までしか復旧しない手順は、operator を最も高コストな工程へ誘導したうえで最後の関門で落とす（`holding-prepare --force` は `<ws>/<ticker>/` を再生成しないので、`thesis-scaffold --force` まで案内し、残った draft を `status` に出す）
-- [ ] その gate に**分岐（purpose / mode / kind）で無効化される経路**がある場合、分岐先も同じ強さで対象を store に対して証明するか。「この分岐には gate が要らない」は、その分岐を宣言するだけで gate を外せる形で残る（`purpose: holding_review` は Shortlist 束縛を持たない代わりに、対象が canonical ledger の保有であることを各 gate で再照合する）
-- [ ] その gate は**下流で最初に不可逆な資源を使う手前**に置いたか。Research Gateのadmissionはresearch開始前、buy assessmentの検証はhuman-confirmed ledger draft作成前に置く
+- [ ] その gate に**分岐（purpose / mode / kind）で無効化される経路**がある場合、分岐先も同じ強さで対象を store に対して証明するか。「この分岐には gate が要らない」は、その分岐を宣言するだけで gate を外せる形で残る（`purpose: position_review` は Research Triage 束縛を持たない代わりに、対象が canonical ledger の保有であることを各 gate で再照合する）
+- [ ] その gate は**下流で最初に不可逆な資源を使う手前**に置いたか。Research Setのadmissionはresearch開始前、Capital Allocation Assessmentの検証はhuman-confirmed ledger draft作成前に置く
 - [ ] generator が入力を読み、出力directoryへ固定名のartifactを書く場合、入力pathが出力directory内へ解決されて自分自身を上書きしないことを、書き込み前のvalidationとnegative testで保証したか
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
@@ -373,7 +373,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] calibration total return は FY 行なし / `DivAnn: null` / `DivAnn: 0` を区別し、前 2 つを 0 円に補完していないか。同一 FY の訂正を重複加算せず、最新 non-null 訂正が負値・非有限なら古い正常値へ fallback せず拒否するか。DPS と entry price を同じ adjustment-factor basis へ揃える split negative test があるか。total-return 欠損が price-only metric を欠損または改変せず、optional metric を required にした run だけが、status 欠落・非 mapping・未知値を含めて fail closed になるか
 - [ ] E[r] 水準の表示 artifact は eligible な production required scope からだけ生成し、quintile 境界・basis・rules hash・E[r] model version・timezone・固定45日期限を検証するか。表示対象 operative run の不変 method identity も照合し、run identity 不明、欠損・不正・method不一致・期限切れを古い値や手書き値へ fallback せず文脈全体を非表示にし、表示値を個別予測または ranking input として扱わないか
 - [ ] 報告空売り残高は disclosure / calculation の両日、provider row ordinal、取消rowをlossなく保存し、完全重複や同率最新stateを勝手に合算・上書きしないか。PandasのNaN / NaTを文字列factへ変換せず、公式dataset floorからの連続coverageがないtickerを無報告0へ補完しないnegative testがあるか
-- [ ] 日次ranked-set履歴はselection欠損と空ranked setを別statusの空recordとして発行し、FV有無やcandidate全件からmembershipを推定しないか。as-of / filename不一致、重複日、invalid memberをnegative testで拒否するか
+- [ ] 日次Review Set履歴は未発行と空Review Setを別statusの空recordとして発行し、FV有無やSecurity Analysis全件からmembershipを推定しないか。as-of / filename不一致、重複日、invalid memberをnegative testで拒否するか
 - [ ] calibration quality condition は current/prior の開示時点を混ぜず、欠損を不充足へ補完していないか。6成分未満の composite を null にし、cache の optional boolean が空欄 / `true` / `false` 以外なら fail closed にする negative test があるか
 - [ ] calibration の株主還元変化列は同一 FY の最新 revision を選んでから null を判定し、DPS・株数を同じ split basis へ揃えているか。3 FY 不足、DPS YoY の非有限値、株数減少 streak の範囲外、optional boolean の不正 token、change composite と成分の矛盾を cache read で fail closed にする negative test があるか
 - [ ] calibration の利益正規化列は同一 FY の最新 revision を選び、最新 null から旧値へ fallbackせず、赤字年を含む連続3/5 FYとsplit basisを固定しているか。平均EPS非正、FY不足・不連続、PER非正・非有限、cycle percentile範囲外・flag矛盾、不正bool、self-range session負値、variant provenance混在をfail closedまたは明示nullにするnegative testがあるか
@@ -472,7 +472,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] **immutable な発行済み文書の検証は、参照先が動くかどうかで層を分ける**。registry membership や
       系列の公表頻度のように後から変わる環境状態は publish 時だけ検証し、read / load 時は文書内の
       整合だけを検証する。read でも環境と照合すると、系列の退役・改名という正常な運用が過去の
-      全レポートを遡って invalid にし、それを読む下流（daily batch の `screening select`）ごと
+      全レポートを遡って invalid にし、それを読む下流（daily batch の `screening review-set publish`）ごと
       止まる。publish が拒否する negative test と、環境が動いても read が通る positive test を
       対で持つか
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
@@ -482,27 +482,24 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。
       commit 前に `rg -n "except [A-Za-z0-9_.]+, [A-Za-z0-9_.]+" src tests` が 0 件であることを確認する
-- [ ] **CLI subcommand / selection 機能を削減する場合、以下を同 commit で揃える**:
+- [ ] **CLI subcommand / Review Set 機能を削減する場合、以下を同 commit で揃える**:
   - [ ] `engine/src/baibai_engine/screening/cli/app.py` の subparser + `add_argument` 引数 + `main()` の dispatch
   - [ ] `engine/src/baibai_engine/screening/cli/{__init__.py,query.py,cache.py,run.py}` の関数 / import
   - [ ] `engine/src/baibai_engine/screening/cli/common.py` の専用 helper (`_parse_profiles_arg` のような callers が消えた helper)
   - [ ] `docs/` 全 grep (`rg <subcommand> docs/ method/ reports/`): runbook の bash example、reference の CLI 表、components / screening の説明文、`docs/reference/screening-runtime.md` の subcommand 一覧
   - [ ] `.agents/skills/`と`.claude/skills/`全grep: canonical skillとsymlinkが当該CLIを参照していないか
-  - [ ] `docs/reference/screening-runtime.md` §3 (env var) / §8 (rules baseline) / §select の判断境界
+  - [ ] `docs/reference/screening-runtime.md` §3 (env var) / §8 (rules baseline) / Review Set の判断境界
   - [ ] 関連 test fixture (test_screening_cli の sweep / scorecard テスト等)
-- [ ] **screening evidence pattern を削減する場合、以下を同 commit で揃える**:
-  - [ ] `method/screening/rules/*.yaml` の `evidence_patterns.<pattern>` と
-        `evidence_pattern_order` から削除
-  - [ ] `engine/src/baibai_engine/screening/rules.py` の `match` 句 / EVIDENCE_PATTERN_* / REASON_* / `_<pattern>_*` 関数
-  - [ ] `engine/src/baibai_engine/screening/rule_config.py` の `<Name>EvidencePattern` class と Union 型
-        (`evidence_patterns: Mapping[..., A | B | C]`) と `match` 句
-  - [ ] `engine/src/baibai_engine/screening/selection/ranking.py` の sort key match arm
+- [ ] **screening Valuation Approach を削減する場合、以下を同 commit で揃える**:
+  - [ ] `method/screening/rules/*.yaml` の `candidate_discovery.approaches` とrepresentation targetから削除
+  - [ ] `engine/src/baibai_engine/screening/discovery/review_set.py` のeligibility/order/compositionを更新
+  - [ ] `engine/src/baibai_engine/screening/rule_config.py` のstrict configとmethod hashを更新
   - [ ] 削除根拠は保有 outcome の calibration で示す (安易な削除で有効な割安タイプを失わない)
 - [ ] **domain語彙をrenameする場合、new-write / read projection / behavior assetをatomicに揃える**:
   - [ ] producer、consumer、Web contract、skill、method、current docsから旧identifierを除去する
   - [ ] runtime adapterを残さず、必要なcanonical historyはone-shot cutoverでcurrent形へ変換する。実取引・税務記録と記録済みidentityは保持する
   - [ ] active code、Web contract、skill、method、docs、open Issueを横断検索し、旧identifierがcurrent operationとして残っていないか。退役語を守るだけのblacklistは追加しない
-- [ ] selectionのranked setをnew-writeへ追加・変更する場合、run identity / candidate membership / native E[r]、表示E[r]・FV・価格、順位、review capを同じ発行境界で照合するか。不整合なrowをShortlistへ焼き込めないnegative testがあるか
+- [ ] Review Setをnew-writeへ追加・変更する場合、run identity / Candidate membership / native E[r]、表示E[r]・FV・価格、順位、review capを同じ発行境界で照合するか。不整合なrowをResearch Triageへ焼き込めないnegative testがあるか
 - [ ] **judgment-gate 系の必須 contract を追加する場合、bypass を test で塞ぐ**:
   - [ ] data 不在 label で hard trigger を回避できないか
   - [ ] label と根拠数値の不整合が catch されるか
@@ -524,7 +521,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - research 対象は全銘柄で会社IR確認が必須、という前提が弱い
 - source URL が貼られていても、一次情報か二次情報か、本文中に数値が存在するかを確認しない
 - system output を上書きする行為を一級の decision として記録していない
-- bargain assessment、人間報告、ledger eventの境界を曖昧にし、未報告broker状態を推定する
+- Capital Allocation Assessment、人間報告、ledger eventの境界を曖昧にし、未報告broker状態を推定する
 
 ### Commit前に止める条件
 
@@ -744,7 +741,7 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
   判定関数が入力欠落で `True` へ fail-open していた。instrument type の除外は一度も発火せず、
   診断 `exclusion_counts["non_common_stock"]` は常に 0 で「弾いた」と読めた。適格市場区分に ETF と
   優先出資証券が残り、片方は 80 cohort すべてで screen を 28 回通過していた
-- `price_to_equity`はcash-richの第2整列キーだが、**どのEvidence Patternも書き込まない**。全候補で既定値
+- `price_to_equity`はcash-richの第2整列キーだが、**どのValuation Approachも書き込まない**。全候補で既定値
   99.0 に落ち、同点は ticker 順へ抜けていた。銘柄横断の順位キーなのに順位を付けていない
 - 業種中央値は母数 10 未満で市場中央値へ落ちるが、落ちた事実がどこにも残らない。同じ field が
   「業種との差」と「市場との差」の 2 つの量を指し、(asof, sector) の 26.4% で後者だった

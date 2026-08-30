@@ -142,8 +142,8 @@ class ScreeningRunView(BaseModel):
     asof_date: date
     run_at: datetime
     universe_size: int
-    candidate_count: int
-    # The revision the selections in the same payload bind to; ``run_id`` is the
+    analyzed_security_count: int
+    # The revision the review_sets in the same payload bind to; ``run_id`` is the
     # public identifier a reader sees.
     run_revision_id: str
     stale: bool
@@ -152,7 +152,7 @@ class ScreeningRunView(BaseModel):
 type PortfolioState = Literal["unheld", "held", "reserved", "held_and_reserved"]
 
 
-class CandidateRowView(BaseModel):
+class SecurityAnalysisRowView(BaseModel):
     ticker: str
     name: str | None
     sector_33: str | None
@@ -195,11 +195,11 @@ class CandidateRowView(BaseModel):
     data_quality_flags: list[str]
     portfolio_state: PortfolioState
     has_research: bool
-    # FV アンカーは machine selection の ranked_set だけが持つので、ranked_set へ入らな
+    # FV アンカーは machine review_set の entries だけが持つので、entries へ入らな
     # かった候補では空になる。read-only app は FV を導出しない。
     fair_value_anchor_yen: float | None = None
     fair_value_gap_pct: float | None = None
-    # Historical calibration context only. It never alters E[r], rank, or selection.
+    # Historical calibration context only. It never alters E[r], rank, or review_set.
     er_level_quintile: int | None = None
     er_meets_8_5pct_band: bool = False
 
@@ -251,10 +251,10 @@ class ErLevelCalibrationContextView(BaseModel):
 
 class ScreeningView(BaseModel):
     run: ScreeningRunView | None
-    rows: list[CandidateRowView]
-    selections: list[MachineSelectionView]
-    shortlists: list[ShortlistView]
-    assessments: list[BargainAssessmentSummaryView]
+    security_analyses: list[SecurityAnalysisRowView]
+    review_sets: list[ReviewSetView]
+    research_triages: list[ResearchTriageView]
+    capital_allocation_assessments: list[CapitalAllocationAssessmentSummaryView]
     er_level_calibration: ErLevelCalibrationContextView | None = None
 
 
@@ -266,11 +266,11 @@ class ScreeningHistoryRunView(BaseModel):
     """Stable UI projection of one retained screening run."""
 
     run: ScreeningRunView
-    rows: list[CandidateRowView]
+    rows: list[SecurityAnalysisRowView]
 
 
 class FvConvergenceView(BaseModel):
-    """Read-only warning provenance; it never carries selection authority."""
+    """Read-only warning provenance; it never carries review_set authority."""
 
     status: Literal["warning", "clear", "not_evaluable"]
     warning_code: str | None
@@ -279,76 +279,45 @@ class FvConvergenceView(BaseModel):
     er_reversion_annual: float | None
 
 
-class SelectionRankedSetEntryView(BaseModel):
-    """機械 rank 上位の候補 1 件。FV アンカーと E[r] はここだけが持つ。"""
+class ReviewSetEntryView(BaseModel):
+    """One nominated security in deterministic multi-approach review order."""
 
-    rank: int | None
+    review_position: int
     ticker: str
     name: str | None
-    market_price_yen: float | None
-    fair_value_anchor_yen: float | None
-    fair_value_gap_pct: float | None
-    expected_return_pct: float | None
-    primary_evidence_pattern_id: str | None
-    liquidity_status: str | None
-    selection_reasons: list[str]
-    durability_warnings: list[str]
-    event_warnings: list[str]
-    fv_convergence: FvConvergenceView
+    sector_33: str | None
+    nominations: list[dict[str, object]]
+    support_count: int
+    rank_vector: list[int]
+    analysis: dict[str, object]
 
 
-class MachineSelectionView(BaseModel):
-    selection_id: str
+class ReviewSetView(BaseModel):
+    review_set_id: str
     run_revision_id: str
-    macro_context_id: str | None
     created_at: datetime
-    ranked_set: list[SelectionRankedSetEntryView]
+    entries: list[ReviewSetEntryView]
 
 
-class ShortlistNarrativeView(BaseModel):
-    """発行済み shortlist の判断。read 側は欠けた field を空欄として通す。
-
-    必須性を強制するのは publish の write path だけであり、read model が同じ必須を
-    課すと、schema を進めた瞬間に旧 revision を読む export と API が落ちる。
-    """
-
-    ploss: str
-    why: str
-    temporary: str
-    structural: str
-    survive: str
-    unlock: str
-    counter: str
-    research: str
-    value: str
-    prov: str
-    upside: str | None = None
-    downside: str | None = None
-    rr: str | None = None
-    catalyst: str | None = None
-    catalyst_date: date | None = None
-    macro: str | None = None
-    sector_label: str | None = None
-
-
-class ShortlistEntryView(BaseModel):
+class ResearchTriageEntryView(BaseModel):
     ticker: str
     decision: str
-    reason: str
-    rank: int | None = None
-    narrative: ShortlistNarrativeView | None = None
+    priority: int | None = None
+    rationale: str
+    research_question: str | None = None
+    key_risk: str | None = None
     # 判断時の機械座標。source run が prune された後もレビュー面が読めるよう、
     # publish 時に judgment へ焼き込まれた値をそのまま返す。
-    machine_snapshot: SelectionRankedSetEntryView | None = None
+    machine_snapshot: ReviewSetEntryView | None = None
 
 
-class ShortlistView(BaseModel):
-    shortlist_id: str
-    selection_id: str
+class ResearchTriageView(BaseModel):
+    research_triage_id: str
+    review_set_id: str
     run_revision_id: str
     as_of: date
     published_at: datetime
-    entries: list[ShortlistEntryView]
+    entries: list[ResearchTriageEntryView]
     # 読めなかった entry の件数。0 でないレビュー面は不完全なので、そう表示する。
     unreadable_entries: int = 0
 
@@ -379,8 +348,8 @@ class ThesisDetailView(BaseModel):
     sizing_action: str | None
 
 
-class HoldingReviewView(BaseModel):
-    holding_review_id: str
+class PositionReviewView(BaseModel):
+    position_review_id: str
     as_of: date
     thesis_id: str
     candidate_thesis_id: str | None
@@ -395,8 +364,8 @@ class SecurityDetailView(BaseModel):
     holding: HoldingView | None
     revisions: list[ResearchRevisionView]
     latest_thesis: ThesisDetailView | None
-    holding_reviews: list[HoldingReviewView]
-    candidate_row: CandidateRowView | None
+    position_reviews: list[PositionReviewView]
+    candidate_row: SecurityAnalysisRowView | None
     candidate_run: ScreeningRunView | None
 
 
@@ -677,34 +646,16 @@ class ResearchQuestionView(BaseModel):
     status: str
 
 
-class AssessmentCaseView(BaseModel):
+class AllocationAlternativeView(BaseModel):
     ticker: str
-    name: str | None
     disposition: str
-    disposition_reason: str
+    rationale: str
     thesis_id: str
-    review_id: str | None
+    thesis_review_id: str | None
     permanent_loss_conclusion: str | None
-    adverse_risk_axes: list[str]
     five_year_base_cagr_pct: float | None
-    required_return_pct: float | None
     fair_value_yen: float | None
     fv_gap_pct: float | None
-    base_terminal_multiple: float | None
-    break_even_terminal_multiple: float | None
-    terminal_multiple_buffer: float | None
-    break_even_earnings_growth_pct: float | None
-    earnings_growth_buffer_pp: float | None
-    observed_trailing_multiple: float | None
-    business_model: str
-    value_capture: str
-    growth_quality: str
-    financial_resilience: str
-    strongest_countercase: str
-    catalyst: str
-    research_questions: list[ResearchQuestionView]
-    unknowns: list[str]
-    source_caveats: list[SourceCaveatView]
 
 
 class AssessmentReviewView(BaseModel):
@@ -715,32 +666,32 @@ class AssessmentReviewView(BaseModel):
     open_findings: list[str]
 
 
-class BargainAssessmentSummaryView(BaseModel):
-    assessment_id: str
+class CapitalAllocationAssessmentSummaryView(BaseModel):
+    capital_allocation_assessment_id: str
     as_of: date
     published_at: datetime
     result: str
     headline: str
-    shortlist_id: str
-    case_count: int
-    selected_ticker: str | None
+    research_triage_id: str
+    alternative_count: int
+    allocated_ticker: str | None
 
 
-class BargainAssessmentView(BaseModel):
-    assessment_id: str
+class CapitalAllocationAssessmentView(BaseModel):
+    capital_allocation_assessment_id: str
     as_of: date
     published_at: datetime
     result: str
     headline: str
-    shortlist_id: str
+    research_triage_id: str
     macro_context_id: str | None
     comparison: str
     forgone: str
-    cases: list[AssessmentCaseView]
+    alternatives: list[AllocationAlternativeView]
     review: AssessmentReviewView
 
 
-type DeltaPool = Literal["ranked_set"]
+type DeltaPool = Literal["review_set"]
 type DeltaUnavailable = Literal[
     "candidates",
     "candidates_estimate",
@@ -815,7 +766,7 @@ class DailyDeltaView(BaseModel):
 
     Every field is an observation or a comparison of observations. The view names no
     cause and carries no recommendation: it tells the reader where to look, and the
-    decision to start an opportunity cycle or a holding review stays human.
+    decision to start an opportunity cycle or a Position Review stays human.
 
     ``unavailable`` lists the sections no store could answer, so an empty section is
     never read as "nothing changed". ``pool`` names which machine pool the comparison

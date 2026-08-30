@@ -46,7 +46,7 @@ Baibai Loop スクリーニングで使う valuation 指標の算出仕様とデ
 
 **判定:** 会社予想で**予想当期純利益 > 予想経常利益**（両方存在時）なら、`forecast_special_gain` flagを立てる。税負担が通常正である以上、純利益 > 経常利益は特別益（事業売却益など）の存在をほぼ確定する1行checkである。純利益と経常利益は、`forecast_eps`と同じ予想期の組で比較する。
 
-**用途:** 一時益で嵩上げされたforward PER、予想配当利回り、機械E[r] carryによるvalue trapを判断前に表面化するwarning annotationである。candidate metricsの`forecast_special_gain_flag`、selection ranked setの`event_warnings`、UIの`一時益予想` badgeに出す。
+**用途:** 一時益で嵩上げされたforward PER、予想配当利回り、機械E[r] carryによるvalue trapを判断前に表面化するwarning annotationである。Security Analysisの`forecast_special_gain_flag`、Review Setのdata quality、UIの`一時益予想` badgeに出す。
 
 **非目標:** ranking、E[r]、既存指標の計算は変えない。これはdoctrineのwarning / annotation境界に従う。
 
@@ -56,7 +56,7 @@ Baibai Loop スクリーニングで使う valuation 指標の算出仕様とデ
 
 **判定:** 会社予想の**予想経常利益または予想当期純利益が負**なら、`forecast_full_year_loss` flagを立てる。片方しか開示されない期があるためORで判定する。予想が一つもない行はFalseに置き、欠損を黒字予想へ畳まない。
 
-**用途:** candidate metricsの`forecast_full_year_loss_flag`とselection ranked setの`event_warnings`に出す。赤字予想は`forecast_eps`を負にするためforward PERが引けず、FV anchorが**自己履歴PBRだけ**に落ちる。そのPBR rangeは黒字だった時代に市場が許容した倍率なので、収益基盤が構造的に縮んだ銘柄では帳簿だけが残り、implied upsideが膨らむ。
+**用途:** Security Analysisの`forecast_full_year_loss_flag`とReview Setのdata qualityに出す。赤字予想は`forecast_eps`を負にするためforward PERが引けず、FV anchorが**自己履歴PBRだけ**に落ちる。そのPBR rangeは黒字だった時代に市場が許容した倍率なので、収益基盤が構造的に縮んだ銘柄では帳簿だけが残り、implied upsideが膨らむ。
 
 **非目標:** 除外にも減衰にも使わず、annotationにする。一過性の赤字（引当・減損）と構造的な縮小を機械では区別できないため、一次開示を読むresearchが判定する。
 
@@ -77,7 +77,7 @@ Baibai Loop スクリーニングで使う valuation 指標の算出仕様とデ
 
 `normalized_per_3fy` は、as-of 以前に開示された直近 3 FY の EPS を現在の株式数基準へ分割補正し、その単純平均で現在株価を割る raw Derived Metric である。3 FY が揃わない、補正後 EPS 平均が正でない、または価格・分割係数を確定できない場合は `null` とし、別指標へのフォールバックは行わない。
 
-shortlist UI では trailing PER と並べて表示するが、warning、除外条件、ranking、FV、E[r] の入力には使わない。一時損益の中身を判定する指標ではなく、単年 EPS への依存度を人間が確認するための annotation として扱う。
+research_triage UI では trailing PER と並べて表示するが、warning、除外条件、ranking、FV、E[r] の入力には使わない。一時損益の中身を判定する指標ではなく、単年 EPS への依存度を人間が確認するための annotation として扱う。
 
 ## 4. PBR の算出
 
@@ -108,7 +108,7 @@ shortlist UI では trailing PER と並べて表示するが、warning、除外�
 
 自己株式は議決権も配当請求権も持たないので、時価総額に含めると過大になり、現金比率・利回りが薄く、倍率が割高に出る。**歪みが最大になるのは自己株式を積み上げた企業、つまり buyback を実行した企業**で、機械 E[r] の carry が上位へ押し上げる群と重なる。
 
-**PBRはoutputを1つだけ持つ。** 普通株basisとの照合に通り、かつ最新`BPS`以上に新しい同一行の`TA × EqAR`があれば、その鮮度を使う。照合できない場合は`BPS × 自己株控除後株式数`へfallbackする。`EqAR`の小数第3位・`BPS`の小数第2位という公表精度は丸め区間として比較し、near-zero比率を相対誤差だけで拒否しない。`cash-rich-asset-discount` Evidence Patternのgate（`pbr_max`）もこの単一outputを使う。
+**PBRはoutputを1つだけ持つ。** 普通株basisとの照合に通り、かつ最新`BPS`以上に新しい同一行の`TA × EqAR`があれば、その鮮度を使う。照合できない場合は`BPS × 自己株控除後株式数`へfallbackする。`EqAR`の小数第3位・`BPS`の小数第2位という公表精度は丸め区間として比較し、near-zero比率を相対誤差だけで拒否しない。`cash-rich-asset-discount` Valuation Approachのgate（`pbr_max`）もこの単一outputを使う。
 
 **欠損を代用で埋めない。** 観測済みの資本状態から現在の自己株式数を安全に解決できない場合は**時価総額を出さない** — 発行済だけで代用すると、どれだけ過大か分からない値が現金比率・利回り・流動性 gate へ入る。発行済を超える自己株式数のような破損値も同じく答えない。自己資本比率が観測できない行は `equity_ratio` を `null` にし、純資産比率で代用しない（代用は少数株主持分の大きい銘柄で比率を数 pt 過大にし、`equity_ratio_min` の gate を通しやすくする向きに効く）。いずれも該当銘柄は流動性母集団から外れる。
 
@@ -122,7 +122,7 @@ shortlist UI では trailing PER と並べて表示するが、warning、除外�
 
 EDINET `type=5` CSV から抽出する。raw XBRL 直接 parse は現時点の非スコープとし、EDINET API が返す CSV ZIP を deterministic な中間データとして使う。J-Quants Light の財務サマリーで取れる項目は優先使用し、不足分を EDINET CSV-derived metrics で補完する。
 
-EV がゼロ以下、または EBITDA がゼロ以下の場合、EV/EBITDA は `null` として valuation-reversion から除外する。負の EV は net cash / cash-rich evidence pattern で扱うべき balance sheet evidence であり、負の EBITDA は倍率が「低い」ほど割安という解釈が成立しないため。
+EV がゼロ以下、または EBITDA がゼロ以下の場合、EV/EBITDA は `null` として valuation-reversion から除外する。負の EV は net cash / cash-rich valuation approach で扱うべき balance sheet evidence であり、負の EBITDA は倍率が「低い」ほど割安という解釈が成立しないため。
 
 ## 6. P/S の算出
 
@@ -192,7 +192,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 機械 E[r] の carry は `dividend_yield + clip(-net_share_change_yoy, ±5%)` で、後半は過去 1 年の**グロス発行済株式数**（自己株式を含む）の変化である。日本の自社株買いは取得した株式を自己株式へ入れるだけなので、発行済株式総数は消却するまで減らない。したがってこの成分は過去の株数縮小・希薄化 signal であり、将来の自社株買い cash や未消化枠ではない。
 
-将来の資本配分は機械 annotation で推定せず、shortlist で選ばれた銘柄だけを research で一次開示から確認する。
+将来の資本配分は機械 annotation で推定せず、research_triage で選ばれた銘柄だけを research で一次開示から確認する。
 
 ## 8. 業種中央値の算出
 
@@ -206,7 +206,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 - 各業種内の銘柄の valuation 指標から中央値を算出
 - 集計タイミング: screening 実行時（日次）
-- 集計対象（比較母集団）: `selection.liquidity` を満たす流動性母集団（時価総額・売買代金・上場期間・JPX 規制の条件を満たす銘柄）。screen は全普通株を評価するが、相対 valuation の基準は投資可能な比較対象に固定し、小型・低流動性銘柄の混入で判定が歪まないようにする。sector relative strength と市場全体 fallback も同じ母集団で算出する
+- 集計対象（比較母集団）: `candidate_discovery.common_eligibility` を満たす流動性母集団（時価総額・売買代金・上場期間・JPX 規制の条件を満たす銘柄）。screen は全普通株を評価するが、相対 valuation の基準は投資可能な比較対象に固定し、小型・低流動性銘柄の混入で判定が歪まないようにする。sector relative strength と市場全体 fallback も同じ母集団で算出する
 
 ### 8.3 サンプル数下限
 
@@ -224,7 +224,7 @@ fallback した値も `sector_median_gap` / `sector_median_value` に入るた�
 
 - `PanelRow.smg_market_fallback` — market から作られた軸を `|` で並べる。対応する `smg_*` が非 null の行でだけ意味を持つ
 - 較正の `sector_median_basis` 座標 — `smg_*` 軸ごとに own_sector / market_fallback の効果量、cohort 勝率、screen 通過数を分けて出す
-- selection evidence の `condition_a_sector_median_basis` / `ps_sector_median_basis`
+- Security Analysis の `condition_a_sector_median_basis` / `ps_sector_median_basis`
 
 ## 9. 過去自己比較（過去 3 年レンジ）
 
@@ -285,7 +285,7 @@ return ではない)。これ以外のコーポレートアクション (合併�
 - 2024 年以降、EDINET 単体では旧来の四半期報告書に依存した TTM 再構成ができない期間がある
 - TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - `EV/EBITDA` は `ttm_quality_ev_ebitda = exact` かつ EV / EBITDA がどちらも正のときのみ valuation-reversion 判定に使用する
-- `P/S` / `PCFR` / `OCF yield` / `FCF yield` / `Net cash` は、それぞれ evidence pattern が要求する品質条件を満たすときのみ mechanical 判定に使う。`Asset-backed ratio` は mechanical 判定に使わない
+- `P/S` / `PCFR` / `OCF yield` / `FCF yield` / `Net cash` は、それぞれ valuation approach が要求する品質条件を満たすときのみ mechanical 判定に使う。`Asset-backed ratio` は mechanical 判定に使わない
 
 ## 12. 営業利益相当の fallback
 
@@ -312,5 +312,5 @@ non-null field を選ぶ。部分訂正に営業利益が無いという理由�
 
 ## 15. 参考
 
-- [`./screening-runtime.md`](./screening-runtime.md): universe / evidence pattern screen / screening run
+- [`./screening-runtime.md`](./screening-runtime.md): universe / valuation approach screen / screening run
 - [`./data-sources.md`](./data-sources.md): データソース Tier 一覧

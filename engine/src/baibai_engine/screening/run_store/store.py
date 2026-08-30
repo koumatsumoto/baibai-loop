@@ -16,11 +16,8 @@ from typing import Any
 
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.foundation.repository_layout import RUNS_DB_PATH
-from baibai_engine.screening.selection.contracts import (
-    SelectionContractError,
-    expected_ranked_set,
-    validate_selection_payload,
-)
+from baibai_engine.screening.discovery.review_set import validate_review_set_payload
+from baibai_engine.screening.rule_config import CandidateDiscoveryRules
 
 from .schema import RUN_STORE_SCHEMA_VERSION, SCHEMA_SQL
 
@@ -49,8 +46,8 @@ class PublicationResult:
 class PruneResult:
     kept_runs: int
     deleted_runs: int
-    deleted_candidates: int
-    deleted_selections: int
+    deleted_security_analyses: int
+    deleted_review_sets: int
     bytes_before: int
     bytes_after: int
 
@@ -129,8 +126,8 @@ class ScreeningRunStore:
         initialize_run_store(self._path)
         path = run_store_path(self._path)
         bytes_before = path.stat().st_size
-        deleted_candidates = 0
-        deleted_selections = 0
+        deleted_security_analyses = 0
+        deleted_review_sets = 0
         with closing(connect_rw(self._path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
@@ -153,31 +150,31 @@ class ScreeningRunStore:
                         "INSERT INTO prune_run_id (run_revision_id) VALUES (?)",
                         ((run_revision_id,) for run_revision_id in deleted_ids),
                     )
-                    deleted_candidates = int(
+                    deleted_security_analyses = int(
                         connection.execute(
                             """
-                            SELECT count(*) FROM screening_candidate
+                            SELECT count(*) FROM security_analysis
                             WHERE run_revision_id IN (SELECT run_revision_id FROM prune_run_id)
                             """
                         ).fetchone()[0]
                     )
-                    deleted_selections = int(
+                    deleted_review_sets = int(
                         connection.execute(
                             """
-                            SELECT count(*) FROM screening_selection
+                            SELECT count(*) FROM review_set
                             WHERE run_revision_id IN (SELECT run_revision_id FROM prune_run_id)
                             """
                         ).fetchone()[0]
                     )
                     connection.execute(
                         """
-                        DELETE FROM screening_selection
+                        DELETE FROM review_set
                         WHERE run_revision_id IN (SELECT run_revision_id FROM prune_run_id)
                         """
                     )
                     connection.execute(
                         """
-                        DELETE FROM screening_candidate
+                        DELETE FROM security_analysis
                         WHERE run_revision_id IN (SELECT run_revision_id FROM prune_run_id)
                         """
                     )
@@ -200,25 +197,24 @@ class ScreeningRunStore:
         return PruneResult(
             kept_runs=min(keep, len(ordered)),
             deleted_runs=len(deleted_ids),
-            deleted_candidates=deleted_candidates,
-            deleted_selections=deleted_selections,
+            deleted_security_analyses=deleted_security_analyses,
+            deleted_review_sets=deleted_review_sets,
             bytes_before=bytes_before,
             bytes_after=path.stat().st_size,
         )
 
-    def publish_selection(
+    def publish_review_set(
         self,
         *,
         run_revision_id: str,
-        macro_context_id: str | None,
         payload: Mapping[str, object],
-        selection_id: str | None = None,
+        rules: CandidateDiscoveryRules,
+        review_set_id: str | None = None,
         created_at: datetime | None = None,
     ) -> PublicationResult:
         if not run_revision_id:
             raise ValueError("run_revision_id is required")
-        policy_parameters = validate_selection_payload(payload)
-        identifier = selection_id or f"selection-{self._id_factory().hex}"
+        identifier = review_set_id or f"review-set-{self._id_factory().hex}"
         timestamp = (created_at or datetime.now(UTC)).isoformat()
         payload_json = canonical_json(payload)
         initialize_run_store(self._path)
@@ -232,55 +228,47 @@ class ScreeningRunStore:
                 if run_row is None:
                     raise RunStoreNotFoundError(f"unknown run_revision_id: {run_revision_id}")
                 run_payload = decode_payload(run_row[0])
-                candidate_rows = connection.execute(
+                analysis_rows = connection.execute(
                     """
-                    SELECT ticker, er_annual, payload FROM screening_candidate
+                    SELECT payload FROM security_analysis
                     WHERE run_revision_id = ?
                     """,
                     (run_revision_id,),
                 ).fetchall()
-                _validate_selection_run_binding(
+                validate_review_set_payload(
                     payload,
-                    run_payload,
-                    run_revision_id=run_revision_id,
-                    macro_context_id=macro_context_id,
-                    source_candidate_er={str(row[0]): row[1] for row in candidate_rows},
-                    expected_ranked_set=expected_ranked_set(
-                        [decode_payload(row[2]) for row in candidate_rows],
-                        parameters=policy_parameters,
-                        asof_date=str(run_payload.get("asof_date")),
-                    ),
+                    security_analyses=[decode_payload(row[0]) for row in analysis_rows],
+                    rules=rules,
                 )
+                if payload.get("run_revision_id") != run_revision_id:
+                    raise ValueError("review set run revision does not match its source")
+                if payload.get("as_of") != run_payload.get("asof_date"):
+                    raise ValueError("review set as-of does not match its source")
                 existing = connection.execute(
                     """
-                    SELECT run_revision_id, macro_context_id, payload
-                    FROM screening_selection WHERE selection_id = ?
+                    SELECT run_revision_id, payload
+                    FROM review_set WHERE review_set_id = ?
                     """,
                     (identifier,),
                 ).fetchone()
-                expected = (
-                    run_revision_id,
-                    macro_context_id,
-                    payload_json,
-                )
+                expected = (run_revision_id, payload_json)
                 if existing is not None:
                     actual = tuple(existing)
                     if actual != expected:
                         raise RunStoreConflictError(
-                            f"selection differs from existing publication: {identifier}"
+                            f"review set differs from existing publication: {identifier}"
                         )
                     connection.rollback()
                     return PublicationResult(identifier, inserted=False)
                 connection.execute(
                     """
-                    INSERT INTO screening_selection (
-                        selection_id, run_revision_id, macro_context_id, created_at, payload
-                    ) VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO review_set (
+                        review_set_id, run_revision_id, created_at, payload
+                    ) VALUES (?, ?, ?, ?)
                     """,
                     (
                         identifier,
                         run_revision_id,
-                        macro_context_id,
                         timestamp,
                         payload_json,
                     ),
@@ -311,23 +299,20 @@ class ScreeningRunStore:
                 raise RunStoreConflictError(
                     "run identity already belongs to a different run_revision_id"
                 )
-            stored_candidates = tuple(
+            stored_analyses = tuple(
                 str(row[0])
                 for row in connection.execute(
                     """
-                    SELECT payload FROM screening_candidate
+                    SELECT payload FROM security_analysis
                     WHERE run_revision_id = ? ORDER BY ordinal
                     """,
                     (identifier,),
                 ).fetchall()
             )
-            expected_candidates = tuple(
-                canonical_json(candidate.payload) for candidate in prepared.candidates
+            expected_analyses = tuple(
+                canonical_json(analysis.payload) for analysis in prepared.security_analyses
             )
-            if (
-                str(existing[1]) != prepared.payload_json
-                or stored_candidates != expected_candidates
-            ):
+            if str(existing[1]) != prepared.payload_json or stored_analyses != expected_analyses:
                 raise RunStoreConflictError(
                     f"run differs from existing immutable publication: {identifier}"
                 )
@@ -356,10 +341,10 @@ class ScreeningRunStore:
                 prepared.payload_json,
             ),
         )
-        for ordinal, candidate in enumerate(prepared.candidates):
+        for ordinal, analysis in enumerate(prepared.security_analyses):
             connection.execute(
                 """
-                INSERT INTO screening_candidate (
+                INSERT INTO security_analysis (
                     run_revision_id, ordinal, ticker, sector_33, per_forward,
                     per_trailing, pbr, dividend_yield, er_annual, payload
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -367,21 +352,21 @@ class ScreeningRunStore:
                 (
                     identifier,
                     ordinal,
-                    candidate.ticker,
-                    _optional_string(candidate.payload.get("sector_33")),
-                    _optional_number(candidate.payload.get("per_forward")),
-                    _optional_number(candidate.payload.get("per_trailing")),
-                    _optional_number(candidate.payload.get("pbr")),
-                    _metric(candidate.payload, "dividend_yield"),
-                    _metric(candidate.payload, "er_annual"),
-                    canonical_json(candidate.payload),
+                    analysis.ticker,
+                    _optional_string(analysis.payload.get("sector_33")),
+                    _optional_number(analysis.payload.get("per_forward")),
+                    _optional_number(analysis.payload.get("per_trailing")),
+                    _optional_number(analysis.payload.get("pbr")),
+                    _metric(analysis.payload, "dividend_yield"),
+                    _metric(analysis.payload, "er_annual"),
+                    canonical_json(analysis.payload),
                 ),
             )
         return PublicationResult(identifier, inserted=True)
 
 
 @dataclass(frozen=True, slots=True)
-class _Candidate:
+class _SecurityAnalysis:
     ticker: str
     payload: Mapping[str, object]
 
@@ -394,7 +379,7 @@ class _PreparedRun:
     run_at: str
     universe_size: int
     rules_ref: str | None
-    candidates: tuple[_Candidate, ...]
+    security_analyses: tuple[_SecurityAnalysis, ...]
     payload_json: str
 
 
@@ -413,23 +398,22 @@ def _prepare_run(payload: Mapping[str, object]) -> _PreparedRun:
     universe_size = payload.get("universe_size")
     if isinstance(universe_size, bool) or not isinstance(universe_size, int) or universe_size < 0:
         raise ValueError("universe_size must be a non-negative integer")
-    raw_candidates = payload.get("candidates")
-    if not isinstance(raw_candidates, Sequence) or isinstance(raw_candidates, (str, bytes)):
-        raise ValueError("candidates must be an array")
-    candidates: list[_Candidate] = []
+    raw_analyses = payload.get("security_analyses")
+    if not isinstance(raw_analyses, Sequence) or isinstance(raw_analyses, (str, bytes)):
+        raise ValueError("security_analyses must be an array")
+    security_analyses: list[_SecurityAnalysis] = []
     tickers: set[str] = set()
-    for raw in raw_candidates:
+    for raw in raw_analyses:
         if not isinstance(raw, Mapping):
-            raise ValueError("candidate must be a mapping")
+            raise ValueError("security analysis must be a mapping")
         ticker = _required_string(raw, "ticker")
         if re.fullmatch(r"[0-9A-Z]{4}", ticker) is None:
-            raise ValueError(f"candidate ticker has invalid format: {ticker}")
+            raise ValueError(f"security analysis ticker has invalid format: {ticker}")
         if ticker in tickers:
-            raise RunStoreConflictError(f"duplicate candidate ticker: {ticker}")
+            raise RunStoreConflictError(f"duplicate security analysis ticker: {ticker}")
         _required_string(raw, "name")
-        _validate_evidence_hits(raw, ticker=ticker)
         tickers.add(ticker)
-        candidates.append(_Candidate(ticker=ticker, payload=dict(raw)))
+        security_analyses.append(_SecurityAnalysis(ticker=ticker, payload=dict(raw)))
     rules_ref = payload.get("rules_ref")
     if rules_ref is not None and not isinstance(rules_ref, str):
         raise ValueError("rules_ref must be a string or null")
@@ -439,19 +423,6 @@ def _prepare_run(payload: Mapping[str, object]) -> _PreparedRun:
             not isinstance(identity_value, str) or not identity_value.strip()
         ):
             raise ValueError(f"{identity_key} must be a non-empty string or null")
-    evidence_summary = payload.get("evidence_hits_summary")
-    if evidence_summary is not None:
-        if not isinstance(evidence_summary, Mapping):
-            raise ValueError("evidence_hits_summary must be an object")
-        for name, count in evidence_summary.items():
-            if (
-                not isinstance(name, str)
-                or not name
-                or isinstance(count, bool)
-                or not isinstance(count, int)
-                or count < 0
-            ):
-                raise ValueError("evidence_hits_summary values must be non-negative integers")
     return _PreparedRun(
         public_run_id=public_run_id,
         run_date=run_date,
@@ -459,94 +430,11 @@ def _prepare_run(payload: Mapping[str, object]) -> _PreparedRun:
         run_at=run_at,
         universe_size=universe_size,
         rules_ref=rules_ref,
-        candidates=tuple(candidates),
+        security_analyses=tuple(security_analyses),
         payload_json=canonical_json(
-            {key: value for key, value in payload.items() if key != "candidates"}
+            {key: value for key, value in payload.items() if key != "security_analyses"}
         ),
     )
-
-
-def _validate_selection_run_binding(
-    selection_payload: Mapping[str, object],
-    run_payload: Mapping[str, object],
-    *,
-    run_revision_id: str,
-    macro_context_id: str | None,
-    source_candidate_er: Mapping[str, object],
-    expected_ranked_set: Sequence[tuple[str, float, str | None, Mapping[str, object]]],
-) -> None:
-    selection = selection_payload.get("selection")
-    if not isinstance(selection, Mapping):
-        raise SelectionContractError("selection metadata must be an object")
-    for key in ("screening_rules_hash", "er_model_version"):
-        run_value = run_payload.get(key)
-        selection_value = selection.get(key)
-        if not isinstance(run_value, str) or not run_value.strip():
-            raise SelectionContractError(f"source run has no exact {key}")
-        if selection_value != run_value:
-            raise SelectionContractError(f"selection {key} does not match the source run")
-    if selection.get("asof") != run_payload.get("asof_date"):
-        raise SelectionContractError("selection asof does not match the source run")
-    input_refs = selection.get("input_refs")
-    if not isinstance(input_refs, Mapping):
-        raise SelectionContractError("selection input_refs must be an object")
-    if input_refs.get("candidates_ref") != run_revision_id:
-        raise SelectionContractError("selection candidates_ref does not match the source run")
-    if input_refs.get("macro_context_ref") != macro_context_id:
-        raise SelectionContractError("selection macro_context_ref does not match the publication")
-    raw_ranked_set = selection_payload.get("ranked_set")
-    if not isinstance(raw_ranked_set, Sequence) or isinstance(raw_ranked_set, str | bytes):
-        raise SelectionContractError("ranked_set must be an array")
-    actual: list[tuple[str, float, str | None]] = []
-    validated: list[Mapping[str, object]] = []
-    for row in raw_ranked_set:
-        if not isinstance(row, Mapping):  # pragma: no cover - checked by contract validation
-            raise SelectionContractError("ranked-set row must be an object")
-        ticker = row.get("ticker")
-        if not isinstance(ticker, str) or ticker not in source_candidate_er:
-            raise SelectionContractError("ranked-set ticker does not belong to the source run")
-        if row.get("er_annual") != source_candidate_er[ticker]:
-            raise SelectionContractError("ranked-set E[r] does not match the source run")
-        primary_pattern = row.get("primary_evidence_pattern_id")
-        if primary_pattern is not None and not isinstance(primary_pattern, str):
-            raise SelectionContractError(
-                "ranked-set primary Evidence Pattern ID must be a string or null"
-            )
-        actual.append((ticker, float(row["er_annual"]), primary_pattern))
-        validated.append(row)
-    expected_rank_coordinates = tuple(row[:3] for row in expected_ranked_set)
-    if tuple(actual) != expected_rank_coordinates:
-        raise SelectionContractError(
-            "ranked-set order or Evidence Pattern does not match the selection method"
-        )
-    for row, expected in zip(validated, expected_ranked_set, strict=True):
-        for key, expected_value in expected[3].items():
-            if row.get(key) != expected_value:
-                raise SelectionContractError(
-                    f"ranked-set {key} does not match the source candidate"
-                )
-
-
-def _validate_evidence_hits(candidate: Mapping[str, object], *, ticker: str) -> None:
-    hits = candidate.get("evidence_hits")
-    if not isinstance(hits, Sequence) or isinstance(hits, (str, bytes)):
-        raise ValueError(f"candidate evidence_hits must be an array: {ticker}")
-    allowed_statuses = {"ok", "warning", "stale", "missing"}
-    for hit in hits:
-        if not isinstance(hit, Mapping):
-            raise ValueError(f"candidate evidence hit must be an object: {ticker}")
-        _required_string(hit, "name")
-        evidence_pattern_id = hit.get("evidence_pattern_id")
-        if not isinstance(evidence_pattern_id, str) or not evidence_pattern_id.strip():
-            raise ValueError(f"evidence pattern ID is missing: {ticker}")
-        status = hit.get("source_status")
-        eligible = hit.get("sizing_eligible")
-        if status not in allowed_statuses:
-            raise ValueError(f"evidence source_status is invalid: {ticker}")
-        if not isinstance(eligible, bool):
-            raise ValueError(f"evidence sizing_eligible must be boolean: {ticker}")
-        if status != "ok" and eligible:
-            raise ValueError(f"non-ok evidence cannot be sizing eligible: {ticker}")
 
 
 def _required_string(payload: Mapping[str, object], key: str) -> str:

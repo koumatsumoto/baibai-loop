@@ -960,7 +960,7 @@ def thesis_core_hash(document: ThesisDocument) -> str:
     and every later reader passes that recorded value to `evaluate_thesis`. Deriving it
     again would make the identity a property of the current model — adding or dropping a
     field would move the hash of theses published years earlier, and the review,
-    holding review, bargain assessment and price watch bound to them would all
+    Position Review, Capital Allocation Assessment and price watch bound to them would all
     stop reading at once. Keeping the derivation for drafts only is what lets this stay a
     plain hash with no per-field special cases.
     """

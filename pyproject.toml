@@ -306,19 +306,19 @@ source_modules = [
 forbidden_modules = ["baibai_engine.research"]
 ignore_imports = [
   # The public CLI is the repository composition boundary for building a
-  # holding review from research and position artifacts. Position domain modules
+  # Position Review from research and position artifacts. Position domain modules
   # remain independent of research.
-  "baibai_engine.position.cli -> baibai_engine.research.holding_review_builder",
+  "baibai_engine.position.cli -> baibai_engine.research.capital_allocation_service",
+  "baibai_engine.position.cli -> baibai_engine.research.position_review_builder",
   "baibai_engine.position.cli -> baibai_engine.research.store",
-  "baibai_engine.position.cli -> baibai_engine.research.assessment_service",
-  "baibai_engine.position.result_service -> baibai_engine.research.assessment_service",
+  "baibai_engine.position.result_service -> baibai_engine.research.capital_allocation_service",
 ]
 
 [[tool.importlinter.contracts]]
 name = "research only composes foundation and position domains"
 type = "forbidden"
 # Current research behavior is decision composition plus portfolio-aware execution
-# and holding-review construction.  It has no direct macro, market, screening,
+# and Position Review construction. It has no direct macro, market, screening,
 # dependency; keep that surface narrow.
 source_modules = ["baibai_engine.research"]
 forbidden_modules = [
