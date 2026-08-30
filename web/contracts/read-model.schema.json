@@ -2951,7 +2951,7 @@
         "machine_snapshot": {
           "anyOf": [
             {
-              "$ref": "#/$defs/ReviewSetEntryView"
+              "$ref": "#/$defs/ResearchTriageMachineSnapshotView"
             },
             {
               "type": "null"
@@ -2970,6 +2970,87 @@
         "machine_snapshot"
       ],
       "title": "ResearchTriageEntryView",
+      "type": "object"
+    },
+    "ResearchTriageMachineSnapshotView": {
+      "description": "Machine coordinates frozen into one Research Triage judgment entry.",
+      "properties": {
+        "review_position": {
+          "title": "Review Position",
+          "type": "integer"
+        },
+        "nominations": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Nominations"
+        },
+        "support_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Support Count"
+        },
+        "expected_return": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Return"
+        },
+        "fair_value": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fair Value"
+        },
+        "data_quality": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Data Quality"
+        }
+      },
+      "required": [
+        "review_position",
+        "nominations",
+        "support_count",
+        "expected_return",
+        "fair_value",
+        "data_quality"
+      ],
+      "title": "ResearchTriageMachineSnapshotView",
       "type": "object"
     },
     "ResearchTriageView": {

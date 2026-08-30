@@ -564,7 +564,19 @@ export interface ResearchTriageEntryView {
   rationale: string
   research_question: string | null
   key_risk: string | null
-  machine_snapshot: ReviewSetEntryView | null
+  machine_snapshot: ResearchTriageMachineSnapshotView | null
+}
+
+/**
+ * Machine coordinates frozen into one Research Triage judgment entry.
+ */
+export interface ResearchTriageMachineSnapshotView {
+  review_position: number
+  nominations: Record<string, unknown>[] | null
+  support_count: number | null
+  expected_return: Record<string, unknown> | null
+  fair_value: Record<string, unknown> | null
+  data_quality: Record<string, unknown> | null
 }
 
 export interface ResearchTriageView {
