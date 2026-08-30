@@ -27,6 +27,11 @@ class ResearchTriageMachineSnapshot(BaseModel):
     fair_value: Mapping[str, object] | None = None
     data_quality: Mapping[str, object] | None = None
 
+    @field_validator("nominations", mode="before")
+    @classmethod
+    def _tuple_nominations(cls, value: object) -> object:
+        return tuple(value) if isinstance(value, list) else value
+
 
 class ResearchTriageEntry(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
@@ -38,6 +43,13 @@ class ResearchTriageEntry(BaseModel):
     research_question: str | None = None
     key_risk: str | None = None
     machine_snapshot: ResearchTriageMachineSnapshot | None = None
+
+    @field_validator("rationale", "research_question", "key_risk")
+    @classmethod
+    def _reject_scaffold_placeholder(cls, value: str | None) -> str | None:
+        if value is not None and value.strip().upper().startswith("TODO"):
+            raise ValueError("replace scaffold TODO text before publication")
+        return value
 
     @model_validator(mode="after")
     def _decision_shape(self) -> Self:

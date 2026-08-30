@@ -35,13 +35,21 @@ description: screening runからReview Setを発行し、全entryをresearch / s
 
    再表示は`screening review-set show --review-set-id <ID>`を使う。E[r]・FV・macro・portfolio stateは参考文脈であり、entryの採否や順序を変えない。
 
-3. Review Set全entryを、[`assets/draft-template.yaml`](./assets/draft-template.yaml)で`research`または`skip`へ分類する。
+3. Review Setの出力から、評価法座標を転記済みのfail-closed draftを作り、全entryを`research`または`skip`へ分類する。
+
+   ```bash
+   uv run baibai-engine screening research-triage scaffold <review-set.yaml> \
+     --output-path <workdir>/research-triage.yaml
+   ```
+
+   手書きで全ticker・評価法を転記しない。出力の`decision`と`TODO`散文はpublish前にすべて置換する。構造の参照は[`assets/draft-template.yaml`](./assets/draft-template.yaml)を使う。
 
    - `research`: contiguousな`priority`、具体的な`rationale`、`research_question`、`key_risk`を必須とする。
    - `skip`: `priority`、`research_question`、`key_risk`を持たず、具体的な`rationale`を必須とする。
    - `null`や`unknown`を否定事実へ変換しない。
    - material disclosure、TOB、決算日、data-quality warningは一次情報で確認する。
    - E[r]はestimateとしてのみ読み、個別予測やResearch判断の自動gateにしない。
+   - rationaleで評価法を名指す場合は、同じentryの`machine_snapshot.nominations`と一致させる。
 
 4. canonical Research Triageを発行する。
 

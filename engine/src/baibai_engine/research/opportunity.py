@@ -1464,7 +1464,12 @@ def _screening_estimate_from_review_set_output(
         "fair_value_anchor_yen": fair_value_anchor_yen,
         "fair_value_unit": "JPY_per_share",
         "assumptions": assumptions,
-        "source_ids": [f"review-set:{review_set.get('review_set_id')}"],
+        # The manifest hash binds the workspace to the immutable Review Set.  The
+        # thesis contract, however, requires every source_id to resolve inside
+        # input_snapshot.sources and requires this estimate to name a local-data
+        # source.  `screening_analysis` is the source emitted by the scaffold for
+        # exactly that purpose.
+        "source_ids": ["screening_analysis"],
     }
     try:
         ScreeningEstimate.model_validate(screening_estimate)

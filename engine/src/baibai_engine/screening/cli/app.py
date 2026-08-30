@@ -325,6 +325,17 @@ def build_parser() -> argparse.ArgumentParser:
     triage_publish.add_argument("draft")
     triage_publish.add_argument("--db", help="application DB path")
     triage_publish.add_argument("--runs-db", help="screening run store path")
+    triage_scaffold = triage_commands.add_parser(
+        "scaffold",
+        help="create a fail-closed draft with Review Set machine coordinates",
+    )
+    triage_scaffold.add_argument("review_set_output")
+    triage_scaffold.add_argument("--output-path", required=True)
+    triage_scaffold.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite an existing --output-path file",
+    )
 
     profile_parser = subparsers.add_parser(
         "ticker-profile",
@@ -504,8 +515,17 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if args.command == "research-triage":
-        from baibai_engine.screening.research_triage_cli import publish_research_triage
+        from baibai_engine.screening.research_triage_cli import (
+            publish_research_triage,
+            scaffold_research_triage,
+        )
 
+        if args.research_triage_command == "scaffold":
+            return scaffold_research_triage(
+                Path(args.review_set_output),
+                output_path=Path(args.output_path),
+                force=args.force,
+            )
         return publish_research_triage(
             Path(args.draft),
             app_db_path=Path(args.db) if args.db else None,
