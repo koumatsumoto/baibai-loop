@@ -202,7 +202,7 @@ authority は次の境界を越えない。
 | Research Playbook | research playbook | method | L3 | Valuation Approachに応じて一次情報を調べるhuman checklist |
 | 資本配分評価 | Capital Allocation Assessment | 判断文書 | L3 | reviewed thesis alternativesを横比較し、`allocate / no_allocation / defer`を固定する統合判断 |
 | portfolio状態・保有判断 | position | 執行/保有 | L3 | human-confirmed ledger、Position Review、outcome |
-| 調査サイクル | research | 運転（operation kind） | — | Review Set → Research Triage → Research Set → thesis → Capital Allocation Assessmentを進めるoperation sessionのkind |
+| 資本配分サイクル | capital-allocation | 運転（operation kind） | — | Review Set → Research Triage → Research Set → thesis → Capital Allocation Assessmentを同じrowで進めるoperation sessionのkind |
 
 `research`は個別銘柄を調べる活動（workflow・CLI domain・package 名）、`thesis`はその canonical 成果物である。`thesis break`と`thesis health`は保有判断の正準な投資概念であり、thesis artifact の状態を指す。Git tree は authoritative business system の `engine/`、read-only presentation の `web/`、non-request orchestration の `batch/`、developer tooling の `tools/` と、production methodology の `method/`、runtime state の `stores/`、historical evidence の `reports/` を責務ごとに読む。
 

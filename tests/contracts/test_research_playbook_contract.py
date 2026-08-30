@@ -42,3 +42,10 @@ def test_research_skill_consumes_only_explicit_approach_applicability() -> None:
     text = RESEARCH_SKILL.read_text(encoding="utf-8")
     assert "applies_to_valuation_approach_ids" in text
     assert "implicitに" in text
+
+
+def test_research_skill_continues_the_capital_allocation_session() -> None:
+    text = RESEARCH_SKILL.read_text(encoding="utf-8")
+    assert "activeな`capital-allocation` operation session" in text
+    assert "別sessionを開始しない" in text
+    assert "active な `research` operation session" not in text
