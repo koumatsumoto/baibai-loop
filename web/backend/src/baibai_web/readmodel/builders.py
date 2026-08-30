@@ -95,6 +95,7 @@ from .models import (
     PositionReviewView,
     ResearchRevisionView,
     ResearchTriageEntryView,
+    ResearchTriageMachineSnapshotView,
     ResearchTriageView,
     ReservationView,
     ReviewSetEntryView,
@@ -606,20 +607,14 @@ def _required_int(value: object, *, field: str) -> int:
 
 
 def _research_triage_entry_view(raw: Mapping[str, object]) -> ResearchTriageEntryView:
-    """判断 1 件。焼き込み済みの機械座標は entries 行と同じ view へ通す。
-
-    レビュー面は source review_set が生きていれば entries から、prune 後は
-    この焼き込みから同じ形を読む。形を揃えるので join 側に分岐が増えない。
-    """
+    """判断 1 件と、publish時に焼き込まれた部分的な機械座標を読む。"""
 
     snapshot = raw.get("machine_snapshot")
     view = ResearchTriageEntryView.model_validate({**raw, "machine_snapshot": None})
     if not isinstance(snapshot, Mapping):
         return view
     return view.model_copy(
-        update={
-            "machine_snapshot": _review_set_entries_entry_view({**snapshot, "ticker": view.ticker})
-        }
+        update={"machine_snapshot": ResearchTriageMachineSnapshotView.model_validate(snapshot)}
     )
 
 

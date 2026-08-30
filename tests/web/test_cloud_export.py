@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from collections.abc import Mapping
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -50,6 +51,25 @@ def _meta_source(root: Path) -> DbMetaSource:
         root / "stores/screening/runs.sqlite",
         root / "stores/macro/macro.sqlite",
     )
+
+
+def _insert_research_triage(root: Path, payload: Mapping[str, object]) -> None:
+    with sqlite3.connect(root / "stores/application/baibai.sqlite") as connection:
+        connection.execute(
+            """
+            INSERT INTO research_triage(
+                research_triage_id, review_set_id, run_revision_id, as_of, published_at, payload
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["research_triage_id"],
+                payload["review_set_id"],
+                payload["run_revision_id"],
+                payload["as_of"],
+                payload["published_at"],
+                canonical_json(dict(payload)),
+            ),
+        )
 
 
 def _seed_macro_observations(root: Path) -> None:
@@ -382,22 +402,7 @@ def test_export_skips_security_view_for_ticker_no_source_knows(
         published_at="2026-07-08T13:00:00+09:00",
         entries=[skip_entry("9999", reason="決算後に再評価")],
     )
-    with sqlite3.connect(app_method_root / "stores/application/baibai.sqlite") as connection:
-        connection.execute(
-            """
-            INSERT INTO research_triage(
-                research_triage_id, review_set_id, run_revision_id, as_of, published_at, payload
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                payload["research_triage_id"],
-                payload["review_set_id"],
-                payload["run_revision_id"],
-                payload["as_of"],
-                payload["published_at"],
-                canonical_json(payload),
-            ),
-        )
+    _insert_research_triage(app_method_root, payload)
     output_dir = tmp_path / "export"
 
     assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
@@ -405,6 +410,71 @@ def test_export_skips_security_view_for_ticker_no_source_knows(
     assert not (output_dir / "views/security--9999.json").exists()
     assert (output_dir / "views/security--2331.json").exists()
     assert "9999" in capsys.readouterr().err
+
+
+def test_export_projects_research_triage_partial_machine_snapshot(
+    app_method_root: Path, tmp_path: Path
+) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    snapshot = {
+        "review_position": 4,
+        "nominations": [
+            {
+                "valuation_approach_id": "asset-value",
+                "valuation_method_id": "asset-value-v1",
+                "rank": 5,
+            }
+        ],
+        "support_count": 1,
+        "expected_return": {"er_annual": 0.0443},
+        "fair_value": None,
+        "data_quality": {"stale_fin_flag": False},
+    }
+    payload = research_triage_payload(entries=[skip_entry("2331", machine_snapshot=snapshot)])
+    _insert_research_triage(app_method_root, payload)
+    output_dir = tmp_path / "export"
+
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
+
+    screening = ScreeningView.model_validate_json(
+        (output_dir / "views/screening_latest.json").read_text(encoding="utf-8")
+    )
+    triage = screening.research_triages[0]
+    assert triage.unreadable_entries == 0
+    assert triage.entries[0].machine_snapshot is not None
+    assert triage.entries[0].machine_snapshot.model_dump(mode="json") == snapshot
+
+
+def test_export_counts_malformed_research_triage_snapshot_as_unreadable(
+    app_method_root: Path, tmp_path: Path
+) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    payload = research_triage_payload(
+        entries=[
+            skip_entry(
+                "2331",
+                machine_snapshot={
+                    "review_position": "not-an-integer",
+                    "nominations": [],
+                    "support_count": 1,
+                    "expected_return": None,
+                    "fair_value": None,
+                    "data_quality": None,
+                },
+            )
+        ]
+    )
+    _insert_research_triage(app_method_root, payload)
+    output_dir = tmp_path / "export"
+
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
+
+    screening = ScreeningView.model_validate_json(
+        (output_dir / "views/screening_latest.json").read_text(encoding="utf-8")
+    )
+    triage = screening.research_triages[0]
+    assert triage.entries == []
+    assert triage.unreadable_entries == 1
 
 
 def test_export_replaces_views_but_keeps_history(app_method_root: Path, tmp_path: Path) -> None:
