@@ -52,7 +52,7 @@ SHORTLIST_ID = "shortlist-20260703-opportunity-test"
 
 FIXED_NOW = datetime(2026, 7, 12, 10, 0, tzinfo=JST)
 TARGET_SESSION = "2026-07-13"
-# The stable review filename a 2026-07-03 lane for 2331 scaffolds and promotes under.
+# The stable review filename a 2026-07-03 case for 2331 scaffolds and promotes under.
 LANE_REVIEW_NAME = "2026-07-03-2331-decision-review.yaml"
 
 
@@ -3110,7 +3110,7 @@ def test_promote_publishes_a_researched_lane_with_no_selected_ticker(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     # A cycle that buys nothing still produced the judgment that says why, and the
-    # bargain assessment binds every lane's machine values to a stored thesis.
+    # bargain assessment binds every case's machine values to a stored thesis.
     sqlite_path = tmp_path / "market.sqlite"
     seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
@@ -3242,7 +3242,7 @@ def _promoted_thesis(tmp_path: Path, sqlite_path: Path) -> Path:
         )
         == 0
     )
-    # plan-limit accepts an ephemeral thesis file; copy the lane's thesis and its
+    # plan-limit accepts an ephemeral thesis file; copy the case's thesis and its
     # adjacent review out of the workspace without creating a canonical record.
     ephemeral = tmp_path / "ephemeral-thesis"
     ephemeral.mkdir()

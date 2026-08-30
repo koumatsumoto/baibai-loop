@@ -8,23 +8,10 @@ from pathlib import Path
 
 _BEHAVIOR_LEGACY = re.compile(
     r"ai-value-bargain-selection|financial-pro-review|"
-    r"durability_gate|execution lifecycle|"
-    # Retired domain vocabulary (doctrine #vocabulary is the naming authority):
-    # the judgment artifact is the thesis and the review input is the ranked set,
-    # and the Research Gate output is the shortlist. The Git method tree is method/, so
-    # reject any records/ path.
-    r"decision.packet|packet.scaffold|packet.draft|--packet-id|research_packet|"
-    r"audit.pool|--audit-top|reviewed.shortlist|cockpit|"
     # The single human-facing product name is Baibai Loop. `baibai-loop` (the
     # distribution) stays lowercase, so the hyphenated brand form is matched
     # case-sensitively while the rest of this pattern keeps IGNORECASE.
     r"Baibai App|(?-i:Baibai-Loop)|"
-    # Retired macro context contract: the report declares no shelf life
-    # (`valid_until`), core sections carry an economic connection rather than an
-    # investment one, and there is one full-depth report instead of a
-    # decision-grade / delta pair.
-    r"valid_until|investment_connection|scenarios_connections|japan_specific|"
-    r"fx_liquidity|decision-grade|delta 更新|delta更新|"
     # `(?<!/)` keeps retired path references (`records/`, `` `records/` ``) while
     # skipping `/records/` fragments inside external URLs.
     r"(?<!/)\brecords/|macro-dashboard|"
@@ -56,24 +43,6 @@ _REPOSITORY_PATH_LEGACY = re.compile(
     r"build_projection|projection\.sqlite|projection_meta|projection_fingerprint|"
     r"projection_indexes|lake projection build|"
     r"method/(?:macro-panel|screening-rules|macro-reading|playbooks)",
-    re.IGNORECASE,
-)
-
-_DOMAIN_IDENTIFIER_LEGACY = re.compile(
-    r"\bOP3\b|\blenses?\b|AssessmentLane|LaneDisposition|LaneMachineValues|"
-    r"candidate_lenses|durability_lens|durability_gate|screening_playbooks?|selection_playbook|"
-    r"research_selection_playbook_order|opportunity_lane_id|"
-    r"attention_policy_(?:id|hash|parameters)|selection_policy_(?:id|hash)|"
-    r"publication_kind|source_selection_id|position_intent|edinet_buyback_reports|"
-    r"buyback_authorization|buyback_status_|buyback_remaining_|"
-    r"refresh-buyback-reports|measure_buyback_authorization|"
-    r"screening shortlist preflight|baibai-engine proposal|baibai_engine/proposals|"
-    r"profile_overrides|default_profile|build_selection_sweep_payload|recommended_rank|"
-    r"application_git_commit|selection_entry|supply_demand_liquidity|"
-    r"measure_supply_context|history-backfill|"
-    r"(?m:^profile:\s*[\"']<selection profile>[\"'])|"
-    r"jquants_earnings_calendar|jquants\.earnings_calendar|deep_discount_bps|"
-    r"\bReview Set\b|\bSelection Policy\b",
     re.IGNORECASE,
 )
 
@@ -136,10 +105,6 @@ def check(root: Path) -> list[str]:
     for path in current_paths:
         relative_path = path.relative_to(root)
         text = path.read_text(encoding="utf-8")
-        if relative_path not in _PATH_PATTERN_OWNERS and (
-            match := _DOMAIN_IDENTIFIER_LEGACY.search(text)
-        ):
-            errors.append(f"{relative_path}: retired domain identifier {match.group(0)!r}")
         if relative_path in _PATH_PATTERN_OWNERS:
             continue
         if match := _REPOSITORY_PATH_LEGACY.search(text):

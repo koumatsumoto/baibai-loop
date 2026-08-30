@@ -6,9 +6,11 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.appdb.schema import APPLICATION_SCHEMA_VERSION
+from baibai_engine.appdb.read import connect_read_only as connect_application_read_only
 from baibai_engine.macro.indicators.definitions import load_definitions
 from baibai_engine.macro.reading.rules import ReadingRulesError, load_reading_rules
+from baibai_engine.market.sqlite.read import connect_read_only as connect_market_read_only
+from baibai_engine.market.sqlite.schema import SQLiteSchemaError
 
 from .sqlite import is_unwritten_store
 
@@ -22,15 +24,23 @@ def validate_application_store_schema(path: Path) -> None:
 
     if not path.is_file():
         return
-    uri = f"{path.resolve().as_uri()}?mode=ro"
-    with closing(sqlite3.connect(uri, uri=True)) as connection:
-        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-    if version != APPLICATION_SCHEMA_VERSION:
-        raise MaterializationPreconditionError(
-            f"application store schema is {version} but this code expects "
-            f"{APPLICATION_SCHEMA_VERSION}: {path} "
-            "(publish a store cut over by the matching application release)"
-        )
+    try:
+        with closing(connect_application_read_only(path)):
+            pass
+    except RuntimeError as error:
+        raise MaterializationPreconditionError(str(error)) from error
+
+
+def validate_market_store_schema(path: Path) -> None:
+    """Require a present market store to match the complete current read contract."""
+
+    if not path.is_file():
+        return
+    try:
+        with closing(connect_market_read_only(path)):
+            pass
+    except SQLiteSchemaError as error:
+        raise MaterializationPreconditionError(str(error)) from error
 
 
 def validate_market_store_hydration(path: Path) -> None:
@@ -72,8 +82,7 @@ def validate_market_store_hydration(path: Path) -> None:
             }
         except sqlite3.OperationalError as error:
             # A store with no fetch ledger has claimed nothing, so there is nothing this
-            # check can compare. Views over it render empty, which is the documented
-            # degrade for a store older than the code reading it. Anything else — a
+            # check can compare. Views over an unwritten store render empty. Anything else — a
             # renamed column, a malformed query — keeps raising rather than reading as
             # "nothing claimed", which is the shape a hole in this check would take.
             if not is_unwritten_store(error):
@@ -120,4 +129,5 @@ __all__ = [
     "validate_application_store_schema",
     "validate_macro_reading_rules",
     "validate_market_store_hydration",
+    "validate_market_store_schema",
 ]

@@ -69,69 +69,12 @@ def test_legacy_semantics_gate_rejects_obsolete_skill_instruction(tmp_path: Path
     ]
 
 
-@pytest.mark.parametrize(
-    "identifier",
-    [
-        "OP3",
-        "AssessmentLane",
-        "durability_lens",
-        "durability_gate",
-        "screening_playbook",
-        "default_profile",
-        "recommended_rank",
-        "jquants_earnings_calendar",
-        "deep_discount_bps",
-        "application_git_commit",
-        "selection_entry",
-        "supply_demand_liquidity",
-        "measure_supply_context",
-        "history-backfill",
-    ],
-)
-def test_legacy_semantics_gate_rejects_retired_domain_identifiers(
-    tmp_path: Path, identifier: str
-) -> None:
-    path = tmp_path / "engine" / "current.py"
-    path.parent.mkdir(parents=True)
-    path.write_text(f"name = {identifier!r}\n", encoding="utf-8")
-
-    assert check_legacy_semantics.check(tmp_path) == [
-        f"engine/current.py: retired domain identifier {identifier!r}"
-    ]
-
-
 def test_legacy_semantics_gate_ignores_generated_store_manifests(tmp_path: Path) -> None:
     manifest = tmp_path / "stores" / "lake" / "manifests" / "old.json"
     manifest.parent.mkdir(parents=True)
     manifest.write_text('{"dataset":"jquants.earnings_calendar"}\n', encoding="utf-8")
 
     assert check_legacy_semantics.check(tmp_path) == []
-
-
-def test_legacy_semantics_gate_rejects_selection_profile_in_shortlist_template(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / ".agents" / "skills" / "shortlist" / "assets" / "draft-template.yaml"
-    path.parent.mkdir(parents=True)
-    path.write_text('profile: "<selection profile>"\n', encoding="utf-8")
-
-    expected = ".agents/skills/shortlist/assets/draft-template.yaml: retired domain identifier "
-    expected += "'profile: \"<selection profile>\"'"
-    assert check_legacy_semantics.check(tmp_path) == [expected]
-
-
-def test_legacy_semantics_gate_rejects_the_retired_macro_context_contract(
-    tmp_path: Path,
-) -> None:
-    """The report declares no shelf life, so `valid_until` must not return to a doc."""
-
-    path = tmp_path / "docs" / "workflow" / "macro.md"
-    path.parent.mkdir(parents=True)
-    path.write_text("`valid_until`はwarningの材料である。\n", encoding="utf-8")
-
-    assert check_legacy_semantics.check(tmp_path) == [
-        "docs/workflow/macro.md: obsolete operation instruction 'valid_until'"
-    ]
 
 
 def test_legacy_semantics_gate_rejects_the_retired_lake_comparison_vocabulary(

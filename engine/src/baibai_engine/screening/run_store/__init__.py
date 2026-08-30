@@ -1,6 +1,6 @@
 """Screening run-store public interfaces."""
 
-from .read import RunPublication, ScreeningRunReader, SelectionPublication
+from .read import RunPublication, ScreeningRunReader, SelectionPublication, connect_read_only
 from .store import (
     DEFAULT_RUN_STORE_PATH,
     PruneResult,
@@ -24,6 +24,7 @@ __all__ = [
     "ScreeningRunReader",
     "ScreeningRunStore",
     "SelectionPublication",
+    "connect_read_only",
     "initialize_run_store",
     "run_store_path",
 ]

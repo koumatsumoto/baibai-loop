@@ -61,13 +61,14 @@ conditional PUTで切り替える。開始時pointerが動いていればconflic
 乗り換えない。pointer切替前にlocal closureをdigest・schema・row数まで検証する。
 
 ```bash
-uv run python -m baibai_batch.storage.lake_publish \
-  --mirror stores \
-  --release-manifest <release-manifest>
+batch/scripts/r2_transfer.sh publish-lake
 ```
 
 必要な環境変数は`R2_ACCOUNT_ID`、`R2_ACCESS_KEY_ID`、
 `R2_SECRET_ACCESS_KEY`である。remote publishはローカルbuildと検証が成功した後だけ行う。
+このcommandがcurrent pointerの解決、現行market storeのseal/export、CAS publish、local
+`lake_store_origin`の更新を一続きで行う。個別release manifestを転送するlow-level moduleは、pointerが
+未作成のbootstrapまたはcurrentと同一releaseのretryに限る内部primitiveであり、forward publicationには使わない。
 
 rollback pointerや全履歴bytes監査は持たない。問題のあるreleaseを直すときは、正しいstoreから新しいreleaseを
 前向きにpublishする。immutable prefixはBucket Lockで上書きと削除を防ぎ、mutable pointerとstagingは

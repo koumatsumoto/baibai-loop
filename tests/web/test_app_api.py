@@ -8,14 +8,18 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pytest
 from fastapi.testclient import TestClient
 from tests.helpers.macro_context import macro_context_payload
 
 from baibai_engine.appdb.json import canonical_json
+from baibai_engine.appdb.schema import APPLICATION_SCHEMA_VERSION
 from baibai_engine.appdb.write import initialize_database
 from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
 from baibai_engine.macro.indicators.definitions import load_definitions
+from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_engine.read_api import MaterializationPreconditionError
 from baibai_web.api.server import PUBLIC_ASSETS, create_app
 from baibai_web.cli import main
 
@@ -392,6 +396,28 @@ def test_api_rejects_non_loopback_host(app_method_root: Path) -> None:
         response = client.get("/api/dashboard")
 
     assert response.status_code == 400
+
+
+def test_api_startup_rejects_an_obsolete_application_store(
+    app_method_root: Path, tmp_path: Path
+) -> None:
+    obsolete = tmp_path / "application-v16.sqlite"
+    initialize_database(obsolete)
+    with sqlite3.connect(obsolete) as connection:
+        connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION - 1}")
+
+    with pytest.raises(MaterializationPreconditionError, match="obsolete application"):
+        create_app(app_method_root, db_path=obsolete)
+
+
+def test_api_startup_rejects_an_obsolete_market_store(app_method_root: Path) -> None:
+    obsolete = app_method_root / "stores/market/market.sqlite"
+    open_connection(obsolete).close()
+    with sqlite3.connect(obsolete) as connection:
+        connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
+
+    with pytest.raises(MaterializationPreconditionError, match="obsolete market"):
+        create_app(app_method_root)
 
 
 def test_cli_rejects_wrong_root_without_starting_server(tmp_path: Path, mocker) -> None:

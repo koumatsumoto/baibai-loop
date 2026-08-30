@@ -8,15 +8,56 @@ tree to observe one comparison.
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
 
+from baibai_engine.appdb.schema import APPLICATION_SCHEMA_VERSION
+from baibai_engine.appdb.write import initialize_database
+from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION, open_connection
 from baibai_engine.read_api.materialization import (
     MaterializationPreconditionError,
+    validate_application_store_schema,
     validate_market_store_hydration,
+    validate_market_store_schema,
 )
+
+
+def test_current_application_and_market_schemas_are_accepted(tmp_path: Path) -> None:
+    application = tmp_path / "application.sqlite"
+    initialize_database(application)
+    market = tmp_path / "market.sqlite"
+    open_connection(market).close()
+
+    validate_application_store_schema(application)
+    validate_market_store_schema(market)
+
+
+def test_obsolete_application_and_market_schemas_are_rejected(tmp_path: Path) -> None:
+    application = tmp_path / "application-v16.sqlite"
+    initialize_database(application)
+    with sqlite3.connect(application) as connection:
+        connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION - 1}")
+    market = tmp_path / "market-v24.sqlite"
+    open_connection(market).close()
+    with sqlite3.connect(market) as connection:
+        connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
+
+    with pytest.raises(MaterializationPreconditionError, match="obsolete application"):
+        validate_application_store_schema(application)
+    with pytest.raises(MaterializationPreconditionError, match="obsolete market"):
+        validate_market_store_schema(market)
+
+
+def test_versioned_market_store_without_tables_is_rejected(tmp_path: Path) -> None:
+    incomplete = tmp_path / "market-incomplete.sqlite"
+    with sqlite3.connect(incomplete) as connection:
+        connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION}")
+
+    with pytest.raises(MaterializationPreconditionError, match="missing tables"):
+        validate_market_store_schema(incomplete)
 
 
 def test_an_emptied_table_under_a_positive_claim_is_refused(tmp_path: Path) -> None:

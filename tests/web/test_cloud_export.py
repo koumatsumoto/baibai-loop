@@ -533,8 +533,9 @@ def test_export_refuses_an_app_store_on_a_different_schema(
     # reaches the serving upload.
     assert not output_dir.exists()
     message = capsys.readouterr().err
-    assert f"schema is {LATEST_VERSION - 1}" in message
-    assert f"expects {LATEST_VERSION}" in message
+    assert "obsolete application database schema" in message
+    assert f"found user_version={LATEST_VERSION - 1}" in message
+    assert f"expected={LATEST_VERSION}" in message
     assert "matching application release" in message
 
 

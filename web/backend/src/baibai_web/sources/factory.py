@@ -18,6 +18,8 @@ from baibai_engine.read_api import (
     MARKET_DB_PATH,
     RUNS_DB_PATH,
     screening_calibration_method_identity,
+    validate_application_store_schema,
+    validate_market_store_schema,
 )
 from baibai_web.repository_layout import MACRO_PANEL_CONFIG_PATH
 from baibai_web.sources.calibration_context import load_er_level_calibration_context
@@ -79,6 +81,8 @@ def build_sources(
     resolved_market = (root / MARKET_DB_PATH).resolve()
     indicators_db = root / MACRO_DB_PATH
     groups = macro_groups if macro_groups is not None else load_macro_groups(root)
+    validate_application_store_schema(resolved_db)
+    validate_market_store_schema(resolved_market)
     return Sources(
         ledger=DbLedgerSource(resolved_db),
         research=DbResearchSource(resolved_db),

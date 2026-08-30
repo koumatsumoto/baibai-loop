@@ -122,7 +122,7 @@ validation や hash のように監査にも使える手段でも、現在の候
 
 ## 4. 語彙と構成要素
 
-domain 語彙はこの節を正本とする。新しい domain 語は、まず命名文法に照らしてこの節へ行を追加してから使う（文法にない語を schema・CLI・UI・docs へ直接持ち込まない。退役語の再侵入は `tools/quality/drift/check_legacy_semantics.py` が拒否する）。
+domain 語彙はこの節を正本とする。新しい domain 語は、まず命名文法に照らしてこの節へ行を追加してから使う（文法にない語を schema・CLI・UI・docs へ直接持ち込まない）。退役語のblacklistは保持せず、変更時にactive surfaceを横断確認する。
 
 ### 命名文法
 

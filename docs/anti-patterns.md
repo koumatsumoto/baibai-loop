@@ -247,6 +247,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 
 #### 共通validator
 
+- [ ] current-only storeのread経路はownerのschema validatorを通し、path不在 / `user_version = 0`かつtableなしのunwritten storeだけを空へdegradeするか。obsolete versionやcurrent schemaのtable / column / index欠落を「データなし」に変換していないか
 - [ ] validator rule を追加・修正する場合、その rule の corner case を negative test で必ず塞ぐ。thesis の `incomplete` 条件、snapshot source の identity / 時刻 / unit 拒否、planning limitの価格 / cash 判定、independent review の hash 束縛、screening E[r] / FV の estimate 扱いといった個別 field の必須・拒否条件は engine model と各 negative test（`test_thesis.py` / `test_position_result_service.py` / `test_portfolio_ledger.py` 等）が正本で、本節へ網羅転記しない。追加時は最低限次の corner case を test する:
   - [ ] 関連 field が **不在** の場合 (skip / error どちらが正しいか)
   - [ ] 関連 field が **null** の場合
@@ -500,7 +501,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] **domain語彙をrenameする場合、new-write / read projection / behavior assetをatomicに揃える**:
   - [ ] producer、consumer、Web contract、skill、method、current docsから旧identifierを除去する
   - [ ] runtime adapterを残さず、必要なcanonical historyはone-shot cutoverでcurrent形へ変換する。実取引・税務記録と記録済みidentityは保持する
-  - [ ] `check_legacy_semantics.py`へ旧identifierのnegative testを追加し、one-shot cutoverだけを明示allowlistする
+  - [ ] active code、Web contract、skill、method、docs、open Issueを横断検索し、旧identifierがcurrent operationとして残っていないか。退役語を守るだけのblacklistは追加しない
 - [ ] selectionのranked setをnew-writeへ追加・変更する場合、run identity / candidate membership / native E[r]、表示E[r]・FV・価格、順位、review capを同じ発行境界で照合するか。不整合なrowをShortlistへ焼き込めないnegative testがあるか
 - [ ] **judgment-gate 系の必須 contract を追加する場合、bypass を test で塞ぐ**:
   - [ ] data 不在 label で hard trigger を回避できないか

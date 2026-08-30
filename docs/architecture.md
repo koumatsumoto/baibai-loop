@@ -199,7 +199,7 @@ engine は web / batch / tools に依存しない。Web が engine へ触れる�
 1. **必須入力が無い** — その日の判断に要る行が store に無く、取得もできなかった。screening は cache-only なので、無いものは計算できない。
 2. **出力が壊れる** — 進めると次の読み手が壊れた store・release・view を受け取る。行数・population の床割れ、履歴の後退、schema version の不一致、manifest / object digest の不一致、pointer CAS の競合、httpfs の欠如、壊れた query がこれに当たる。
 
-それ以外では止めない。鮮度（age・staleness・lead）は reader が軸を null にする。producer の identity（fingerprint・revision）の変化は停止理由ではなく作り直しの契機である。1 record の異常（衝突・欠落）は当該 record を落として続ける。publish 済みの内容を答える reader は file / table の欠損を空 view として返し（`read_rows`）、書き込みを門番する reader（`market_calendar_business_day`、`previous_run_revision_id`）は条件 2 に当たるので raise する。この規則は `tests/engine/test_read_api_degrade.py` が全 public reader を走査して守る。
+それ以外では止めない。鮮度（age・staleness・lead）は reader が軸を null にする。producer の identity（fingerprint・revision）の変化は停止理由ではなく作り直しの契機である。1 record の異常（衝突・欠落）は当該 record を落として続ける。publish 済みの内容を答える reader は未作成fileまたはtableを一つも持たないunwritten storeを空 viewとして返す。既存storeのschema version不一致とcurrent schemaのtable欠損は壊れた出力を防ぐためraiseする。書き込みを門番する reader（`market_calendar_business_day`、`previous_run_revision_id`）はunwritten storeも条件2としてraiseする。この規則は `tests/engine/test_read_api_degrade.py` が全 public reader を走査して守る。
 
 degrade の報告経路は batch の exit 3（Discord `[DEGRADED]`）の 1 本で、新しい語彙・field・指標・gate を足さない。exit 3 は GHA の job を赤にしないので、GHA の赤はその日の成果物が出なかったことだけを意味する。blocking guard を足す PR は 2 条件のどちらに当たるかを本文で述べ、述べられないなら足さない。guard を消す PR は、窓内の発火を 1 件ずつ原因と修正 PR へ帰属させる — 「自然解消した」は、同日に修正が merge されていないことを確かめてから言う。完走率が要るときは定時 run だけで数える（[`batch/OPERATIONS.md`](../batch/OPERATIONS.md#欠測の検知cloud-batch-watchdog)）。
 
