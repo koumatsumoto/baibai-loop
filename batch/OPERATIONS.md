@@ -17,6 +17,14 @@ method/rules変更後は旧snapshotやlake partitionを変換せず、
 [`docs/reference/estimate-calibration.md`](../docs/reference/estimate-calibration.md#store-の再構築)どおり
 全cohortを再構築する。
 
+## cloud-materialize の所要時間
+
+`cloud-materialize`もworkflow runの完了通知まで待ち、固定間隔の手動確認を挟まない。2026-08-31の
+実測は合計10分20秒で、内訳はmachine/app pull 29秒、L1 hydrate 3分35秒、3,738 filesのmaterialize
+1分9秒、serving views 3,736 objectsのupload 4分28秒、tail 2 objectsのpublish 5秒だった
+（`R2_SERVING_UPLOAD_CONCURRENCY=10`）。同規模の通常見積りは12分、外部timeoutは20分とする。
+20分を超えた場合だけrunのcurrent stepとstderrを1回確認し、未完了なら再びrunの終了通知を待つ。
+
 ## Cloudflare / GitHub Actions 構成
 
 R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPublic Development URLとcustom domainを無効にする。
@@ -247,8 +255,10 @@ batch/scripts/publish.sh
 **停止と復旧**: exportはstoreのschemaがcodeと一致しない間、viewを1件も書かずexit 1で停止する。
 schemaを一致させてから再実行する。未publishのままではscreening結果を含む全viewが更新されない。
 
-application DBはcurrent schemaだけを開き、クラウドはこのstoreをread-onlyで読む。schemaを上げる場合は
-main merge後に専用one-shot toolでローカルcopyをcutoverし、検証済みstoreを次の`cloud-daily-batch`より前に反映する。
+application DBはcurrent schemaだけを開き、クラウドはこのstoreをread-onlyで読む。schemaを上げるPRは、
+source versionを限定したtemporary one-shot toolとexact commandを用意し、main merge後のattended cutover・検証・
+cloud反映が終わるまで保持する。完了証拠を残してから同じdeliveryのcleanupで削除する。現在のtreeに汎用cutover
+commandはないため、version不一致を見つけたoperatorは手書きSQLで進めず、schema変更issueへtoolを再構築する。
 
 ### application DB を復元する
 
@@ -589,9 +599,10 @@ Workerの再deployは不要である。
 **停止条件**: store全体を古いsnapshotへ戻さない。storeは毎営業日伸びるため、過去schemaのcopyへの交換は
 それ以降の事実を失う。
 
-**実行**: application / market / run storeはruntime migrationを持たない。欠陥のあるone-shot toolを修正し、
-cutover前のlocal copyへ再実行してcurrent schemaの別fileを作る。macro storeだけは実在する直前schemaからの
-一段migrationをstaging copyへ適用する。
+**実行**: application / market / run storeはruntime migrationを持たない。schema変更PRが保持しているtemporary
+one-shot toolを修正し、cutover前のlocal copyへ再実行してcurrent schemaの別fileを作る。toolがcleanup済みなら、
+過去commandを推測せず、修正issueでexact source version・変換・検証を固定したtemporary toolを再構築する。
+macro storeだけは実在する直前schemaからの一段migrationをstaging copyへ適用する。
 
 **成功確認と復旧**: sourceと出力のintegrity・foreign key・必須table・保持対象row/headを照合してからmainへ入れ、
 同じ作業でstoreを反映する。直前のpush自体が壊れた場合だけ、上の「R2 transferの安全境界」に従って`<key>.bak`の1世代を使う。

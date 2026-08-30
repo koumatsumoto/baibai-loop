@@ -1502,7 +1502,7 @@ def build_daily_delta(
     reports observations only: which tickers entered or left the machine pool, which
     machine estimates moved, which holdings stand at or above their recorded fair
     value, and which macro threshold notes appeared. Whether any of that is worth an
-    opportunity cycle or a Position Review is the reader's call.
+    research cycle or a Position Review is the reader's call.
 
     Sections degrade independently. A store that cannot answer is named in
     ``unavailable`` rather than reported as an empty result, because "no store" and

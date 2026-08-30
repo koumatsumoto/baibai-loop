@@ -76,7 +76,7 @@ export interface CapitalAllocationAssessmentView {
  *
  * Every field is an observation or a comparison of observations. The view names no
  * cause and carries no recommendation: it tells the reader where to look, and the
- * decision to start an opportunity cycle or a Position Review stays human.
+ * decision to start a research cycle or a Position Review stays human.
  *
  * ``unavailable`` lists the sections no store could answer, so an empty section is
  * never read as "nothing changed". ``pool`` names which machine pool the comparison

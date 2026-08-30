@@ -7,9 +7,28 @@ import pytest
 from baibai_engine.screening.discovery.review_set import (
     ReviewSetContractError,
     build_review_set,
+    candidate_discovery_method_hash,
     validate_review_set_payload,
+    validate_review_set_shape,
 )
 from baibai_engine.screening.rule_config import load_screening_rules
+
+SCREENING_RULES = load_screening_rules()
+RULES = SCREENING_RULES.candidate_discovery
+REQUIRED_JPX_FLAGS = SCREENING_RULES.universe.required_jpx_flags
+
+
+def _build_review_set(
+    rows: list[dict[str, object]],
+    *,
+    judged_through_research_triage_id: str | None = None,
+) -> dict[str, object]:
+    return build_review_set(
+        rows,
+        rules=RULES,
+        required_jpx_flags=REQUIRED_JPX_FLAGS,
+        judged_through_research_triage_id=judged_through_research_triage_id,
+    )
 
 
 def _analysis(
@@ -56,10 +75,9 @@ def _analysis(
 
 
 def test_overlap_is_selected_once_and_covers_every_supported_target() -> None:
-    rules = load_screening_rules().candidate_discovery
     rows = [_analysis(str(1000 + index), per=5.0 + index) for index in range(20)]
 
-    payload = build_review_set(rows, rules=rules)
+    payload = _build_review_set(rows)
 
     entries = payload["entries"]
     assert isinstance(entries, list)
@@ -76,15 +94,14 @@ def test_overlap_is_selected_once_and_covers_every_supported_target() -> None:
 
 
 def test_expected_return_and_context_do_not_change_membership_or_order() -> None:
-    rules = load_screening_rules().candidate_discovery
     rows = [_analysis(str(1000 + index), per=5.0 + index) for index in range(21)]
-    baseline = build_review_set(rows, rules=rules)
+    baseline = _build_review_set(rows)
     changed = deepcopy(rows)
     for index, row in enumerate(changed):
         row["metrics"]["er_annual"] = -99.0 + index  # type: ignore[index]
         row["metrics"]["tender_offer_event_recent"] = index % 2 == 0  # type: ignore[index]
 
-    result = build_review_set(changed, rules=rules)
+    result = _build_review_set(changed)
 
     assert [entry["ticker"] for entry in result["entries"]] == [
         entry["ticker"] for entry in baseline["entries"]
@@ -92,13 +109,11 @@ def test_expected_return_and_context_do_not_change_membership_or_order() -> None
 
 
 def test_research_triage_head_does_not_change_membership_or_order() -> None:
-    rules = load_screening_rules().candidate_discovery
     rows = [_analysis(str(1000 + index), per=5.0 + index) for index in range(20)]
-    baseline = build_review_set(rows, rules=rules)
+    baseline = _build_review_set(rows)
 
-    result = build_review_set(
+    result = _build_review_set(
         rows,
-        rules=rules,
         judged_through_research_triage_id="research-triage-head",
     )
 
@@ -108,17 +123,20 @@ def test_research_triage_head_does_not_change_membership_or_order() -> None:
 
 
 def test_recomputed_validation_rejects_changed_membership() -> None:
-    rules = load_screening_rules().candidate_discovery
     rows = [_analysis(str(1000 + index), per=5.0 + index) for index in range(20)]
-    payload = build_review_set(rows, rules=rules)
+    payload = _build_review_set(rows)
     payload["entries"] = list(reversed(payload["entries"]))
 
     with pytest.raises(ReviewSetContractError):
-        validate_review_set_payload(payload, security_analyses=rows, rules=rules)
+        validate_review_set_payload(
+            payload,
+            security_analyses=rows,
+            rules=RULES,
+            required_jpx_flags=REQUIRED_JPX_FLAGS,
+        )
 
 
 def test_null_and_nonpositive_primary_coordinates_do_not_nominate() -> None:
-    rules = load_screening_rules().candidate_discovery
     row = _analysis("1111")
     row["per_forward"] = None
     row["per_trailing"] = -1.0
@@ -127,13 +145,12 @@ def test_null_and_nonpositive_primary_coordinates_do_not_nominate() -> None:
     row["metrics"]["net_cash_to_market_cap"] = 0.0  # type: ignore[index]
     row["metrics"]["sales_yoy"] = 0.0  # type: ignore[index]
 
-    payload = build_review_set([row], rules=rules)
+    payload = _build_review_set([row])
 
     assert payload["entries"] == []
 
 
 def test_normalized_gap_uses_the_shared_sector_population_boundary() -> None:
-    rules = load_screening_rules().candidate_discovery
     rows = [
         {
             **_analysis(str(1000 + index), normalized_per=100.0 + index),
@@ -149,7 +166,7 @@ def test_normalized_gap_uses_the_shared_sector_population_boundary() -> None:
         for index in range(10)
     )
 
-    payload = build_review_set(rows, rules=rules)
+    payload = _build_review_set(rows)
 
     entries = payload["entries"]
     thin = next(entry for entry in entries if entry["ticker"] == "1000")
@@ -162,3 +179,58 @@ def test_normalized_gap_uses_the_shared_sector_population_boundary() -> None:
     assert thick["analysis"]["normalized_earnings"][
         "normalized_per_3fy_sector_gap"
     ] == pytest.approx(10.0 / 14.5 - 1.0)
+
+
+@pytest.mark.parametrize(
+    ("flags", "expected"),
+    [
+        ([], True),
+        (["特別注意銘柄"], False),
+        (["情報提供のみ"], True),
+        (None, False),
+    ],
+)
+def test_review_set_uses_the_shared_required_jpx_flag_contract(
+    flags: list[str] | None,
+    expected: bool,
+) -> None:
+    row = _analysis("1111")
+    row["jpx_flags"] = flags
+
+    payload = _build_review_set([row])
+
+    assert bool(payload["entries"]) is expected
+
+
+def test_candidate_discovery_hash_binds_the_required_jpx_flag_set() -> None:
+    baseline = candidate_discovery_method_hash(
+        RULES,
+        required_jpx_flags=("整理銘柄", "取引停止"),
+    )
+
+    assert baseline == candidate_discovery_method_hash(
+        RULES,
+        required_jpx_flags=("取引停止", "整理銘柄"),
+    )
+    assert baseline != candidate_discovery_method_hash(
+        RULES,
+        required_jpx_flags=("整理銘柄",),
+    )
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda analysis: analysis.update({"unknown_group": {}}),
+        lambda analysis: analysis.pop("current_earnings"),
+        lambda analysis: analysis["identity_liquidity"].update({"market_cap_oku": "500"}),
+        lambda analysis: analysis["valuation"].update({"unknown_metric": 1.0}),
+    ],
+)
+def test_review_set_analysis_rejects_nested_contract_drift(mutate) -> None:
+    payload = _build_review_set([_analysis("1111")])
+    entry = payload["entries"][0]
+    mutate(entry["analysis"])
+
+    with pytest.raises(ReviewSetContractError, match="review set entry is invalid"):
+        validate_review_set_shape(payload)

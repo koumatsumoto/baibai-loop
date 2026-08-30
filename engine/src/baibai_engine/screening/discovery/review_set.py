@@ -45,6 +45,100 @@ class ReviewSetMethod(BaseModel):
     representation_targets: Mapping[str, int]
 
 
+class _StrictAnalysisGroup(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+
+class IdentityLiquidityAnalysis(_StrictAnalysisGroup):
+    market_cap_oku: float | int | None
+    avg_turnover_oku: float | int | None
+    listing_span_days: float | int | None
+    jpx_flags: tuple[str, ...] | None
+
+    @field_validator("jpx_flags", mode="before")
+    @classmethod
+    def _tuple_jpx_flags(cls, value: object) -> object:
+        return tuple(value) if isinstance(value, list) else value
+
+
+class ValuationAnalysis(_StrictAnalysisGroup):
+    per_forward: float | int | None
+    per_trailing: float | int | None
+    pbr: float | int | None
+    ev_ebitda: float | int | None
+    p_s: float | int | None
+    pcfr: float | int | None
+
+
+class CurrentEarningsAnalysis(_StrictAnalysisGroup):
+    fcf_yield: float | int | None
+    ocf_yield: float | int | None
+    forecast_special_gain_flag: bool | None
+    forecast_full_year_loss_flag: bool | None
+
+
+class NormalizedEarningsAnalysis(_StrictAnalysisGroup):
+    normalized_per_3fy: float | int | None
+    normalized_per_3fy_sector_gap: float | int | None
+
+
+class AssetValueAnalysis(_StrictAnalysisGroup):
+    asset_backed_ratio: float | int | None
+    net_cash_to_market_cap: float | int | None
+    investment_securities: float | int | None
+    equity_ratio: float | int | None
+
+
+class ReinvestmentAnalysis(_StrictAnalysisGroup):
+    p_s_sector_gap: float | int
+    operating_return_on_capital_proxy: float | int
+    sales_yoy: float | int
+    operating_margin: float | int
+    fcf_yield: float | int
+
+
+class ExpectedReturnAnalysis(_StrictAnalysisGroup):
+    er_annual: float | int | None
+    er_reversion_annual: float | int | None
+    er_carry_annual: float | int | None
+    fv_sector_median_yen: float | int | None
+    fv_self_range_yen: float | int | None
+    er_origin: str | None
+    er_model_version: str | None
+    er_unit: str | None
+    er_assumptions: str | None
+
+
+class DataQualityAnalysis(_StrictAnalysisGroup):
+    bs_carry_forward_fields: str | None
+    bs_carry_forward_lag_days: float | int | None
+    edinet_failure_reasons: str | None
+    stale_fin_flag: bool | None
+
+
+class ContextAnalysis(_StrictAnalysisGroup):
+    next_earnings_status: str | None
+    next_earnings_estimated_date: str | None
+    margin_short_to_adv: float | int | None
+    tse_capital_policy_status: str | None
+    large_holding_event_recent: bool | None
+    tender_offer_event_recent: bool | None
+
+
+class ReviewSetAnalysis(_StrictAnalysisGroup):
+    """Typed machine coordinates embedded in one current Review Set entry."""
+
+    identity_liquidity: IdentityLiquidityAnalysis
+    valuation: ValuationAnalysis
+    current_earnings: CurrentEarningsAnalysis
+    normalized_earnings: NormalizedEarningsAnalysis
+    asset_value: AssetValueAnalysis
+    reinvestment: ReinvestmentAnalysis | None
+    expected_return: ExpectedReturnAnalysis
+    data_quality: DataQualityAnalysis
+    context: ContextAnalysis
+
+
 class ReviewSetEntry(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -55,7 +149,7 @@ class ReviewSetEntry(BaseModel):
     nominations: tuple[Nomination, ...]
     support_count: int = Field(ge=1, le=4)
     rank_vector: tuple[int, int, int, int]
-    analysis: Mapping[str, object]
+    analysis: ReviewSetAnalysis
 
     @field_validator("nominations", mode="before")
     @classmethod
@@ -63,6 +157,11 @@ class ReviewSetEntry(BaseModel):
         if not isinstance(value, list | tuple):
             raise ValueError("nominations must be an array")
         return tuple(value)
+
+    @field_validator("rank_vector", mode="before")
+    @classmethod
+    def _tuple_rank_vector(cls, value: object) -> object:
+        return tuple(value) if isinstance(value, list) else value
 
     @model_validator(mode="after")
     def _validate_support(self) -> ReviewSetEntry:
@@ -74,13 +173,18 @@ class ReviewSetEntry(BaseModel):
         return self
 
 
-def candidate_discovery_method_hash(rules: CandidateDiscoveryRules) -> str:
+def candidate_discovery_method_hash(
+    rules: CandidateDiscoveryRules,
+    *,
+    required_jpx_flags: Sequence[str],
+) -> str:
     representation = {
         "method_id": rules.method_id,
         "review_capacity": rules.review_capacity,
         "nomination_depth": rules.nomination_depth,
         "normalized_sector_median_min_population": MIN_SECTOR_MEDIAN_POPULATION,
         "common_eligibility": rules.common_eligibility.model_dump(mode="json"),
+        "required_jpx_flags": sorted(set(required_jpx_flags)),
         "representation_targets": dict(rules.representation_targets),
         "approaches": {
             key: value.model_dump(mode="json") for key, value in rules.approaches.items()
@@ -133,13 +237,22 @@ def build_review_set(
     security_analyses: Sequence[Mapping[str, object]],
     *,
     rules: CandidateDiscoveryRules,
+    required_jpx_flags: Sequence[str],
     judged_through_research_triage_id: str | None = None,
 ) -> dict[str, object]:
-    eligible = [row for row in security_analyses if _common_eligible(row, rules)]
+    eligible = [
+        row
+        for row in security_analyses
+        if _common_eligible(row, rules, required_jpx_flags=required_jpx_flags)
+    ]
     normalized_gaps = _normalized_sector_gaps(eligible)
     nominations_by_ticker = {
         ticker: list(nominations)
-        for ticker, nominations in build_nomination_ranks(security_analyses, rules=rules).items()
+        for ticker, nominations in build_nomination_ranks(
+            security_analyses,
+            rules=rules,
+            required_jpx_flags=required_jpx_flags,
+        ).items()
     }
     nomination_counts = {
         approach: sum(
@@ -211,7 +324,9 @@ def build_review_set(
                 nominations=tuple(nominations),
                 support_count=len(nominations),
                 rank_vector=rank_vector(ticker),
-                analysis=_analysis(row, normalized_gap=normalized_gaps.get(ticker)),
+                analysis=ReviewSetAnalysis.model_validate(
+                    _analysis(row, normalized_gap=normalized_gaps.get(ticker))
+                ),
             ).model_dump(mode="json")
         )
     return {
@@ -219,7 +334,10 @@ def build_review_set(
         "kind": "review_set",
         "method": {
             "method_id": rules.method_id,
-            "method_hash": candidate_discovery_method_hash(rules),
+            "method_hash": candidate_discovery_method_hash(
+                rules,
+                required_jpx_flags=required_jpx_flags,
+            ),
             "review_capacity": rules.review_capacity,
             "nomination_depth": rules.nomination_depth,
             "representation_targets": dict(rules.representation_targets),
@@ -241,6 +359,7 @@ def build_nomination_ranks(
     security_analyses: Sequence[Mapping[str, object]],
     *,
     rules: CandidateDiscoveryRules,
+    required_jpx_flags: Sequence[str],
 ) -> dict[str, tuple[Nomination, ...]]:
     """Return the ephemeral approach nominations used by the composer and replay.
 
@@ -249,7 +368,11 @@ def build_nomination_ranks(
     do not fit within the finite Review Set.
     """
 
-    eligible = [row for row in security_analyses if _common_eligible(row, rules)]
+    eligible = [
+        row
+        for row in security_analyses
+        if _common_eligible(row, rules, required_jpx_flags=required_jpx_flags)
+    ]
     normalized_gaps = _normalized_sector_gaps(eligible)
     ordered = {
         approach: _ordered_eligible(approach, eligible, normalized_gaps=normalized_gaps)
@@ -282,7 +405,9 @@ def validate_review_set_payload(
     *,
     security_analyses: Sequence[Mapping[str, object]],
     rules: CandidateDiscoveryRules,
+    required_jpx_flags: Sequence[str],
 ) -> None:
+    validate_review_set_shape(payload)
     review_basis = payload.get("review_basis")
     if not isinstance(review_basis, Mapping):
         raise ReviewSetContractError("review set Review Basis must be an object")
@@ -292,6 +417,7 @@ def validate_review_set_payload(
     expected = build_review_set(
         security_analyses,
         rules=rules,
+        required_jpx_flags=required_jpx_flags,
         judged_through_research_triage_id=judged_through,
     )
     comparable = {key: payload.get(key) for key in expected}
@@ -299,8 +425,31 @@ def validate_review_set_payload(
         raise ReviewSetContractError("review set does not match its source analyses and method")
 
 
-def _common_eligible(row: Mapping[str, object], rules: CandidateDiscoveryRules) -> bool:
-    required_flags: frozenset[str] = frozenset()
+def validate_review_set_shape(payload: Mapping[str, object]) -> None:
+    method = payload.get("method")
+    if not isinstance(method, Mapping):
+        raise ReviewSetContractError("review set method must be an object")
+    try:
+        ReviewSetMethod.model_validate(method)
+    except ValueError as error:
+        raise ReviewSetContractError(f"review set method is invalid: {error}") from error
+    entries = payload.get("entries")
+    if not isinstance(entries, list):
+        raise ReviewSetContractError("review set entries must be an array")
+    try:
+        for entry in entries:
+            ReviewSetEntry.model_validate(entry)
+    except ValueError as error:
+        raise ReviewSetContractError(f"review set entry is invalid: {error}") from error
+
+
+def _common_eligible(
+    row: Mapping[str, object],
+    rules: CandidateDiscoveryRules,
+    *,
+    required_jpx_flags: Sequence[str],
+) -> bool:
+    required_flags = frozenset(required_jpx_flags)
     flags = row.get("jpx_flags")
     jpx_flags = tuple(str(value) for value in flags) if isinstance(flags, list | tuple) else None
     return rules.common_eligibility.matches(
@@ -310,7 +459,7 @@ def _common_eligible(row: Mapping[str, object], rules: CandidateDiscoveryRules) 
         jpx_flags=jpx_flags,
         required_jpx_flags=required_flags,
         require_facts=True,
-    ) and not (rules.common_eligibility.exclude_jpx_flagged and bool(jpx_flags))
+    )
 
 
 def _ordered_eligible(
@@ -558,10 +707,12 @@ def _desc_null(value: object) -> tuple[bool, float]:
 __all__ = [
     "APPROACH_IDS",
     "Nomination",
+    "ReviewSetAnalysis",
     "ReviewSetContractError",
     "ReviewSetEntry",
     "build_nomination_ranks",
     "build_review_set",
     "candidate_discovery_method_hash",
     "validate_review_set_payload",
+    "validate_review_set_shape",
 ]

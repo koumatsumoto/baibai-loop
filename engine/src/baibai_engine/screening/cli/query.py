@@ -117,7 +117,6 @@ def review_set_publish_command(
     *,
     asof_date: date,
     rules: ScreeningRules | None = None,
-    review_cap: int = 20,
     output_path: Path | None = None,
     force: bool = False,
     stdout: TextIO | None = None,
@@ -133,9 +132,6 @@ def review_set_publish_command(
     rules = rules or load_screening_rules(_rules_path_from_env())
     if run_revision_id is None:
         print("run_revision_id is required", file=sys.stderr)
-        return 1
-    if review_cap != rules.candidate_discovery.review_capacity:
-        print("--review-cap must equal the candidate-discovery review capacity", file=sys.stderr)
         return 1
     try:
         run = ScreeningRunReader(runs_db_path).get_run(run_revision_id)
@@ -163,6 +159,7 @@ def review_set_publish_command(
             **build_review_set(
                 run.security_analyses,
                 rules=rules.candidate_discovery,
+                required_jpx_flags=rules.universe.required_jpx_flags,
                 judged_through_research_triage_id=judged_through,
             ),
         }
@@ -170,6 +167,7 @@ def review_set_publish_command(
             run_revision_id=run_revision_id,
             payload=payload,
             rules=rules.candidate_discovery,
+            required_jpx_flags=rules.universe.required_jpx_flags,
             review_set_id=review_set_id,
             created_at=created_at,
         )

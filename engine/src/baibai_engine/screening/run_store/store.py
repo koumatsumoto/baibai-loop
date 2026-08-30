@@ -209,6 +209,7 @@ class ScreeningRunStore:
         run_revision_id: str,
         payload: Mapping[str, object],
         rules: CandidateDiscoveryRules,
+        required_jpx_flags: Sequence[str],
         review_set_id: str | None = None,
         created_at: datetime | None = None,
     ) -> PublicationResult:
@@ -239,6 +240,7 @@ class ScreeningRunStore:
                     payload,
                     security_analyses=[decode_payload(row[0]) for row in analysis_rows],
                     rules=rules,
+                    required_jpx_flags=required_jpx_flags,
                 )
                 if payload.get("run_revision_id") != run_revision_id:
                     raise ValueError("review set run revision does not match its source")

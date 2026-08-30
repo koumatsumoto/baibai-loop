@@ -43,7 +43,7 @@ status: active
 | --- | --- |
 | macro context / provider | `reference/macro.md`、`reference/data-sources.md`、skill `macro-context` |
 | screening / Candidate Discovery / SQLite | `reference/screening-runtime.md`、skill `research-triage`、architectureのCLI表 |
-| thesis / review / opportunity | `reference/thesis.md`、`reference/capital-allocation-assessment.md`、skill `research` |
+| thesis / review / capital allocation | `reference/thesis.md`、`reference/capital-allocation-assessment.md`、skill `research` |
 | ledger / holding / outcome | `reference/portfolio-ledger.md`、`reference/position-review.md`、対応skill |
 | model / write-time validation / CI | `architecture.md`、`reference/python-foundation.md`、変更domainに対応する`anti-patterns.md`の`AP-*` |
 | local skill | `AGENTS.md`のskill表、`.agents/skills`、Claude symlink、skill inventory gate |

@@ -223,12 +223,16 @@ def _run_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> RunPublic
 
 
 def _review_set_from_row(row: sqlite3.Row) -> ReviewSetPublication:
+    from baibai_engine.screening.discovery.review_set import validate_review_set_shape
+
+    payload = dict(decode_payload(row["payload"]))
+    validate_review_set_shape(payload)
     return ReviewSetPublication(
         review_set_id=str(row["review_set_id"]),
         run_revision_id=str(row["run_revision_id"]),
         as_of_date=str(row["asof_date"]),
         created_at=str(row["created_at"]),
-        payload=dict(decode_payload(row["payload"])),
+        payload=payload,
     )
 
 

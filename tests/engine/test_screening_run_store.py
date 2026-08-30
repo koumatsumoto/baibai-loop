@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.screening.discovery.review_set import build_review_set
+from baibai_engine.screening.discovery.review_set import ReviewSetContractError, build_review_set
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import (
     ScreeningRunReader,
@@ -87,17 +87,35 @@ def test_obsolete_cache_is_rejected_instead_of_migrated(tmp_path: Path) -> None:
 
 def test_run_and_review_set_round_trip(tmp_path: Path) -> None:
     database = tmp_path / "runs.sqlite"
-    rules = load_screening_rules().candidate_discovery
+    screening_rules = load_screening_rules()
+    rules = screening_rules.candidate_discovery
+    required_jpx_flags = screening_rules.universe.required_jpx_flags
     store = ScreeningRunStore(database)
     store.publish_run(_run(), run_revision_id="run-a")
-    payload = build_review_set([_analysis()], rules=rules)
+    payload = build_review_set(
+        [_analysis()],
+        rules=rules,
+        required_jpx_flags=required_jpx_flags,
+    )
     payload.update(
         {"review_set_id": "review-set-a", "run_revision_id": "run-a", "as_of": "2026-07-08"}
     )
     result = store.publish_review_set(
-        run_revision_id="run-a", payload=payload, rules=rules, review_set_id="review-set-a"
+        run_revision_id="run-a",
+        payload=payload,
+        rules=rules,
+        required_jpx_flags=required_jpx_flags,
+        review_set_id="review-set-a",
     )
     assert result.inserted
     reader = ScreeningRunReader(database)
     assert reader.get_run("run-a").security_analyses[0]["ticker"] == "1301"  # type: ignore[union-attr]
     assert reader.get_review_set("review-set-a").payload["entries"][0]["ticker"] == "1301"  # type: ignore[union-attr,index]
+
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE review_set SET payload = json_set("
+            "payload, '$.entries[0].analysis.identity_liquidity.market_cap_oku', '500')"
+        )
+    with pytest.raises(ReviewSetContractError, match="review set entry is invalid"):
+        reader.get_review_set("review-set-a")

@@ -284,12 +284,6 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"screening rules path (default: SCREENING_RULES_PATH or {DEFAULT_RULES_PATH})",
     )
     review_set_publish.add_argument(
-        "--review-cap",
-        type=int,
-        default=20,
-        help="Review Set capacity; must equal the versioned method (default 20)",
-    )
-    review_set_publish.add_argument(
         "--output-path",
         help="also write the Review Set YAML to this path (stdout is unchanged)",
     )
@@ -498,7 +492,6 @@ def main(argv: list[str] | None = None) -> int:
         return review_set_publish_command(
             asof_date=_parse_iso_date(args.asof),
             rules=load_screening_rules(Path(args.rules_path)),
-            review_cap=args.review_cap,
             output_path=Path(args.output_path) if args.output_path else None,
             force=args.force,
             run_revision_id=args.run_revision_id,

@@ -134,19 +134,19 @@ _REVIEW_DRAFT_HEADER = """\
 """
 
 
-class OpportunityError(Exception):
+class ResearchWorkspaceError(Exception):
     """Base error carrying the CLI exit code for the failure class."""
 
     exit_code = 3
 
 
-class OpportunityDataError(OpportunityError):
+class ResearchWorkspaceDataError(ResearchWorkspaceError):
     """Missing source / checklist / schema / hash makes the request unprocessable."""
 
     exit_code = 3
 
 
-class OpportunityConflictError(OpportunityError):
+class ResearchWorkspaceConflictError(ResearchWorkspaceError):
     """Output collision, input hash drift, or path-confinement violation."""
 
     exit_code = 4
@@ -172,10 +172,10 @@ def _write_workspace_file(path: Path, payload: object) -> str:
 
 def _load_mapping(path: Path, *, label: str) -> dict[str, object]:
     if not path.exists():
-        raise OpportunityDataError(f"{label} not found: {path}")
+        raise ResearchWorkspaceDataError(f"{label} not found: {path}")
     raw = safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(raw, Mapping):
-        raise OpportunityDataError(f"{label} root must be a mapping: {path}")
+        raise ResearchWorkspaceDataError(f"{label} root must be a mapping: {path}")
     return dict(raw)
 
 
@@ -218,31 +218,31 @@ def _research_triage_decisions(
 
     version = payload.get("schema_version")
     if version != RESEARCH_TRIAGE_SCHEMA_VERSION:
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             f"research requires a ResearchTriage v{RESEARCH_TRIAGE_SCHEMA_VERSION} "
             f"ResearchTriage judgment: {research_triage_id} is schema_version {version!r}"
         )
     contract_id = payload.get("triage_contract_id")
     if contract_id != RESEARCH_TRIAGE_CONTRACT_ID:
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             f"unsupported ResearchTriage contract on {research_triage_id}: {contract_id!r} "
             f"(this build admits {RESEARCH_TRIAGE_CONTRACT_ID!r})"
         )
     entries = _dict_list(payload.get("entries"))
     if not entries:
-        raise OpportunityDataError(f"{research_triage_id} carries no ResearchTriage entries")
+        raise ResearchWorkspaceDataError(f"{research_triage_id} carries no ResearchTriage entries")
     decisions: dict[str, str] = {}
     ordered: list[str] = []
     for entry in entries:
         ticker = _nonempty_string(entry.get("ticker"), label=f"{research_triage_id} entry ticker")
         decision = entry.get("decision")
         if decision not in {"research", "skip"}:
-            raise OpportunityDataError(
+            raise ResearchWorkspaceDataError(
                 f"{research_triage_id} entry {ticker} has an unknown "
                 f"ResearchTriage decision: {decision!r}"
             )
         if ticker in decisions:
-            raise OpportunityDataError(f"{research_triage_id} judged {ticker} more than once")
+            raise ResearchWorkspaceDataError(f"{research_triage_id} judged {ticker} more than once")
         decisions[ticker] = str(decision)
         if decision == "research":
             ordered.append(ticker)
@@ -283,15 +283,15 @@ def _resolve_research_triage(
     try:
         payloads = research_triage_payloads_for_review_set(database_path(db_path), review_set_id)
     except ValueError as exc:
-        raise OpportunityDataError(str(exc)) from exc
+        raise ResearchWorkspaceDataError(str(exc)) from exc
     if not payloads:
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             f"no canonical ResearchTriage judgment for Review Set {review_set_id} "
             f"({review_set_output}); publish the research_triage before starting research"
         )
     if len(payloads) > 1:
         named = ", ".join(sorted(str(payload.get("research_triage_id")) for payload in payloads))
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             f"Review Set {review_set_id} carries more than one canonical judgment: {named}"
         )
     payload = payloads[0]
@@ -299,7 +299,7 @@ def _resolve_research_triage(
         payload.get("research_triage_id"), label="research_triage_id"
     )
     if research_triage_id != expected_research_triage_id:
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             f"Review Set {review_set_id} was judged by {research_triage_id}, "
             f"not {expected_research_triage_id}"
         )
@@ -309,11 +309,11 @@ def _resolve_research_triage(
 
     expected_asof = asof.isoformat()
     if payload.get("as_of") != expected_asof or review_set.get("as_of") != expected_asof:
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             f"{research_triage_id} and its Review Set must both have as_of {expected_asof}"
         )
     if payload.get("run_revision_id") != review_set.get("run_revision_id"):
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             f"{research_triage_id} judged run {payload.get('run_revision_id')!r}, not the "
             f"Review Set run {review_set.get('run_revision_id')!r}"
         )
@@ -323,7 +323,7 @@ def _resolve_research_triage(
     if set(decisions) != set(review_tickers):
         missing = sorted(set(review_tickers) - set(decisions))
         extra = sorted(set(decisions) - set(review_tickers))
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             f"{research_triage_id} entries must equal the Review Set; "
             f"missing={missing}, extra={extra}"
         )
@@ -348,7 +348,7 @@ def _verify_research_triage(
 
     binding = inputs.get("research_triage")
     if not isinstance(binding, Mapping):
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             "workspace has no ResearchTriage binding; rebuild it with "
             "`research prepare --research-triage-id <RESEARCH_TRIAGE_ID> --force`"
         )
@@ -361,7 +361,7 @@ def _verify_research_triage(
     )
     recorded_tickers = binding.get("researchable_tickers")
     if not isinstance(recorded_tickers, Sequence) or isinstance(recorded_tickers, str | bytes):
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             "manifest.inputs.research_triage.researchable_tickers must be an array"
         )
     review_set_ref = _required_mapping(
@@ -374,7 +374,7 @@ def _verify_research_triage(
     try:
         review_tickers, _rows = resolve_review_set_entries(review_set)
     except ReviewSetResolutionError as error:
-        raise OpportunityDataError(f"Review Set is invalid: {error}") from error
+        raise ResearchWorkspaceDataError(f"Review Set is invalid: {error}") from error
     asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     try:
         gate = _resolve_research_triage(
@@ -385,8 +385,8 @@ def _verify_research_triage(
             asof=asof,
             review_tickers=review_tickers,
         )
-    except OpportunityDataError as error:
-        raise OpportunityConflictError(
+    except ResearchWorkspaceDataError as error:
+        raise ResearchWorkspaceConflictError(
             "workspace ResearchTriage binding does not match the canonical research_triage "
             f"{recorded_research_triage_id}; rebuild the workspace with "
             f"`research prepare --force` ({error})"
@@ -394,7 +394,7 @@ def _verify_research_triage(
     if gate.review_set_id != recorded_review_set_id or list(gate.researchable) != [
         str(value) for value in recorded_tickers
     ]:
-        raise OpportunityConflictError(
+        raise ResearchWorkspaceConflictError(
             "workspace ResearchTriage binding does not match the canonical research_triage "
             f"{gate.research_triage_id}; rebuild the workspace with `research prepare --force`"
         )
@@ -418,7 +418,7 @@ def prepare_workspace(
     with no ``research`` entries is normal and still produces a workspace.
     """
     if review_set_output.resolve().is_relative_to(workspace.resolve()):
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             "--review-set-output must be outside --workspace; prepare writes generated "
             "review-set.yaml into the workspace"
         )
@@ -426,7 +426,7 @@ def prepare_workspace(
     try:
         review_tickers, review_rows = resolve_review_set_entries(review_set)
     except ReviewSetResolutionError as error:
-        raise OpportunityDataError(f"Review Set is invalid: {error}") from error
+        raise ResearchWorkspaceDataError(f"Review Set is invalid: {error}") from error
     review_set_entries = [dict(review_rows[ticker]) for ticker in review_tickers]
     _validate_review_set_estimate_asof(
         review_set=review_set, review_set_entries=review_set_entries, asof=asof
@@ -443,7 +443,7 @@ def prepare_workspace(
 
     manifest_path = workspace / "manifest.yaml"
     if manifest_path.exists() and not force:
-        raise OpportunityConflictError(
+        raise ResearchWorkspaceConflictError(
             f"workspace already prepared (use --force to rebuild): {workspace}"
         )
 
@@ -551,12 +551,12 @@ def prepare_holding_workspace(
     snapshot, append_head = _load_snapshot(db_path)
     problem = _holding_subject_problem(snapshot, ticker=ticker, asof=asof)
     if problem is not None:
-        raise OpportunityDataError(f"cannot prepare Position Review: {problem}")
+        raise ResearchWorkspaceDataError(f"cannot prepare Position Review: {problem}")
     holding = next(item for item in snapshot.holdings if item.ticker == ticker)
 
     manifest_path = workspace / "manifest.yaml"
     if manifest_path.exists() and not force:
-        raise OpportunityConflictError(
+        raise ResearchWorkspaceConflictError(
             f"workspace already prepared (use --force to rebuild): {workspace}"
         )
 
@@ -850,7 +850,7 @@ def _draft_status(workspace: Path, manifest: Mapping[str, object]) -> dict[str, 
     if not isinstance(research_set, list) or not all(
         isinstance(ticker, str) for ticker in research_set
     ):
-        raise OpportunityDataError("workspace research_set must be an array of tickers")
+        raise ResearchWorkspaceDataError("workspace research_set must be an array of tickers")
     research_set_tickers = [str(ticker) for ticker in research_set]
     comparison = _load_mapping(workspace / "research-comparison.yaml", label="research comparison")
     selected_ticker = _string_or_none(comparison.get("selected_ticker"))
@@ -1025,7 +1025,7 @@ def _verify_external_inputs(
 
     inputs = manifest.get("inputs")
     if not isinstance(inputs, Mapping):
-        raise OpportunityDataError("manifest is missing external input hashes")
+        raise ResearchWorkspaceDataError("manifest is missing external input hashes")
     purpose = str(manifest.get("purpose") or "fundamental_research")
     required_inputs: tuple[str, ...]
     if purpose == "fundamental_research":
@@ -1035,37 +1035,37 @@ def _verify_external_inputs(
     elif purpose == "position_review":
         required_inputs = ("ledger",)
     else:
-        raise OpportunityDataError(f"manifest purpose is invalid: {purpose}")
+        raise ResearchWorkspaceDataError(f"manifest purpose is invalid: {purpose}")
     for name in required_inputs:
         input_ref = inputs.get(name)
         if not isinstance(input_ref, Mapping):
-            raise OpportunityDataError(f"manifest is missing input hash: {name}")
+            raise ResearchWorkspaceDataError(f"manifest is missing input hash: {name}")
         if name == "ledger":
             entity_id = input_ref.get("entity_id")
             expected_head = input_ref.get("append_head")
             if entity_id != "portfolio-ledger" or not isinstance(expected_head, int):
-                raise OpportunityDataError("manifest ledger revision is invalid")
+                raise ResearchWorkspaceDataError("manifest ledger revision is invalid")
             try:
                 current_head = LedgerStoreService(db_path).append_head()
             except (OSError, RuntimeError, ValueError) as error:
-                raise OpportunityDataError(
+                raise ResearchWorkspaceDataError(
                     f"cannot read canonical ledger revision: {error}"
                 ) from error
             if current_head != expected_head:
-                raise OpportunityConflictError(
+                raise ResearchWorkspaceConflictError(
                     "canonical ledger changed since workspace prepare (append head drift)"
                 )
             continue
         path_value = input_ref.get("path")
         expected = input_ref.get("sha256")
         if not isinstance(path_value, str) or not isinstance(expected, str):
-            raise OpportunityDataError(f"manifest input ref is invalid: {name}")
+            raise ResearchWorkspaceDataError(f"manifest input ref is invalid: {name}")
         path = Path(path_value)
         if not path.is_file():
-            raise OpportunityConflictError(f"workspace external input is missing: {name}")
+            raise ResearchWorkspaceConflictError(f"workspace external input is missing: {name}")
         actual = _sha256_file(path)
         if actual != expected:
-            raise OpportunityConflictError(
+            raise ResearchWorkspaceConflictError(
                 f"workspace external input changed since prepare (input hash drift): {name}"
             )
     if purpose == "position_review":
@@ -1092,12 +1092,12 @@ def _require_holding_subject(manifest: Mapping[str, object], *, db_path: Path | 
 
     ticker = _string_or_none(manifest.get("holding_ticker"))
     if ticker is None:
-        raise OpportunityDataError("position-review manifest is missing holding_ticker")
+        raise ResearchWorkspaceDataError("position-review manifest is missing holding_ticker")
     asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     snapshot, _append_head = _load_snapshot(db_path)
     problem = _holding_subject_problem(snapshot, ticker=ticker, asof=asof)
     if problem is not None:
-        raise OpportunityConflictError(
+        raise ResearchWorkspaceConflictError(
             f"position-review workspace subject is invalid: {problem}; a Position Review "
             "runs at the as-of its ledger market price was observed, so rebuild at that "
             "date with `research position-prepare --asof <observed> --force` and "
@@ -1115,14 +1115,14 @@ def _validate_editable_drafts(
     comparison = _load_mapping(workspace / "research-comparison.yaml", label="research comparison")
     manifest_asof = str(manifest.get("as_of") or "")
     if research_workspace.get("as_of") != manifest_asof or comparison.get("as_of") != manifest_asof:
-        raise OpportunityDataError("workspace draft as_of does not match manifest")
+        raise ResearchWorkspaceDataError("workspace draft as_of does not match manifest")
 
     purpose = str(manifest.get("purpose") or "fundamental_research")
     if purpose == "position_review":
         _validate_position_review_drafts(research_workspace, comparison, manifest)
         return
     if purpose != "fundamental_research":
-        raise OpportunityDataError(f"manifest purpose is invalid: {purpose}")
+        raise ResearchWorkspaceDataError(f"manifest purpose is invalid: {purpose}")
 
     review_set = _required_mapping(
         research_workspace.get("review_set"), label="workspace.review_set"
@@ -1130,43 +1130,45 @@ def _validate_editable_drafts(
     try:
         review_set_tickers, _ = resolve_review_set_entries(review_set)
     except ReviewSetResolutionError as error:
-        raise OpportunityDataError(f"workspace Review Set is invalid: {error}") from error
+        raise ResearchWorkspaceDataError(f"workspace Review Set is invalid: {error}") from error
     research_set = research_workspace.get("research_set")
     research_capacity = research_workspace.get("research_capacity")
     if not isinstance(research_capacity, int) or research_capacity < 0:
-        raise OpportunityDataError("workspace research_capacity is invalid")
+        raise ResearchWorkspaceDataError("workspace research_capacity is invalid")
     if not isinstance(research_set, list) or not all(
         isinstance(ticker, str) and ticker for ticker in research_set
     ):
-        raise OpportunityDataError("workspace research_set must be an array of tickers")
+        raise ResearchWorkspaceDataError("workspace research_set must be an array of tickers")
     research_set_tickers = [str(ticker) for ticker in research_set]
     if len(research_set_tickers) != len(set(research_set_tickers)) or any(
         ticker not in review_set_tickers for ticker in research_set_tickers
     ):
-        raise OpportunityDataError("workspace research_set is invalid")
+        raise ResearchWorkspaceDataError("workspace research_set is invalid")
     # Narrowing guard, not a reachable state: `_verify_external_inputs` reads purpose
     # from this same manifest and returns None only for Position Review, which left
     # above. A missing binding is refused there, with the command that rebuilds it.
     if gate is None:  # pragma: no cover - unreachable by construction
-        raise OpportunityDataError("Fundamental Research workspace has no ResearchTriage binding")
+        raise ResearchWorkspaceDataError(
+            "Fundamental Research workspace has no ResearchTriage binding"
+        )
     # Named before the slot count: over-filling and reaching past the Gate both show
     # up as "too many tickers", and only one of them is a capacity question.
     forbidden = [ticker for ticker in research_set_tickers if ticker not in gate.researchable]
     if forbidden:
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             f"workspace Research Set includes {', '.join(forbidden)}, which "
             f"{gate.research_triage_id} did not mark research"
         )
     if len(research_set_tickers) > research_capacity:
-        raise OpportunityDataError("workspace Research Set exceeds research_capacity")
+        raise ResearchWorkspaceDataError("workspace Research Set exceeds research_capacity")
 
     candidates = _dict_list(comparison.get("candidates"))
     comparison_tickers = [str(row.get("ticker") or "") for row in candidates]
     if comparison_tickers != list(review_set_tickers):
-        raise OpportunityDataError("research comparison candidates do not match Review Set")
+        raise ResearchWorkspaceDataError("research comparison candidates do not match Review Set")
     selected = _string_or_none(comparison.get("selected_ticker"))
     if selected is not None and selected not in research_set_tickers:
-        raise OpportunityDataError("selected_ticker is not present in Research Set")
+        raise ResearchWorkspaceDataError("selected_ticker is not present in Research Set")
 
 
 def _validate_position_review_drafts(
@@ -1176,7 +1178,7 @@ def _validate_position_review_drafts(
 ) -> None:
     ticker = _string_or_none(manifest.get("holding_ticker"))
     if ticker is None:
-        raise OpportunityDataError("position-review manifest is missing holding_ticker")
+        raise ResearchWorkspaceDataError("position-review manifest is missing holding_ticker")
     subject_tickers = [
         str(row.get("ticker") or "")
         for row in _dict_list(research_workspace.get("position_review_subject"))
@@ -1191,7 +1193,7 @@ def _validate_position_review_drafts(
         or comparison_tickers != [ticker]
         or comparison.get("selected_ticker") != ticker
     ):
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             "position-review workspace must keep its subject and comparison fixed"
         )
 
@@ -1202,7 +1204,7 @@ def _research_ticker_dir(workspace: Path, ticker: str) -> Path:
     workspace_root = workspace.resolve()
     ticker_dir = (workspace_root / ticker).resolve()
     if ticker_dir.parent != workspace_root:
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             f"research ticker directory must be a direct child of the workspace: {ticker}"
         )
     return ticker_dir
@@ -1232,11 +1234,11 @@ def _require_primary_research_ticker(
     )
     research_set = research_workspace.get("research_set")
     if not isinstance(research_set, list) or ticker not in research_set:
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             f"cannot {action} for {ticker}: ticker is not in the Research Set"
         )
     if gate is not None and ticker not in gate.researchable:
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             f"cannot {action} for {ticker}: {gate.research_triage_id} did not mark it research"
         )
 
@@ -1284,19 +1286,19 @@ def scaffold_thesis(
         sqlite_path=sqlite_path, ticker=ticker, target_session=target_session
     )
     if price is None:
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             f"no raw/unadjusted close available for {ticker} before {target_session.isoformat()}; "
             "an adjusted-only series is not substituted"
         )
     if purpose == "position_review" and price.price_as_of != asof:
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             f"raw close date {price.price_as_of.isoformat()} does not match workspace manifest "
             f"as_of {asof.isoformat()}; --target-session must be the next trading session"
         )
 
     thesis_path = ticker_dir / "thesis-draft.yaml"
     if thesis_path.exists() and not force:
-        raise OpportunityConflictError(
+        raise ResearchWorkspaceConflictError(
             f"thesis draft already exists (use --force to regenerate): {thesis_path}"
         )
     ticker_dir.mkdir(parents=True, exist_ok=True)
@@ -1430,12 +1432,12 @@ def _screening_estimate_from_review_set_output(
     try:
         _tickers, rows = resolve_review_set_entries(review_set)
     except ReviewSetResolutionError as error:
-        raise OpportunityDataError(f"Review Set is invalid: {error}") from error
+        raise ResearchWorkspaceDataError(f"Review Set is invalid: {error}") from error
     row = rows.get(ticker)
     if row is None:
-        raise OpportunityDataError(f"Review Set must contain ticker exactly once: {ticker}")
+        raise ResearchWorkspaceDataError(f"Review Set must contain ticker exactly once: {ticker}")
     if review_set.get("as_of") != asof.isoformat():
-        raise OpportunityDataError("Review Set as_of does not match manifest as_of")
+        raise ResearchWorkspaceDataError("Review Set as_of does not match manifest as_of")
     analysis = _required_mapping(row.get("analysis"), label="Review Set analysis")
     estimate = analysis.get("expected_return")
     if not isinstance(estimate, Mapping) or estimate.get("er_annual") is None:
@@ -1453,7 +1455,7 @@ def _screening_estimate_from_review_set_output(
         if (value := estimate.get(key)) is not None
     ]
     if any(value <= 0 for value in anchors):
-        raise OpportunityDataError("Review Set fair-value anchors must be positive")
+        raise ResearchWorkspaceDataError("Review Set fair-value anchors must be positive")
     fair_value_anchor_yen = min(anchors) if anchors else None
     screening_estimate = {
         "origin": "estimate",
@@ -1474,7 +1476,7 @@ def _screening_estimate_from_review_set_output(
     try:
         ScreeningEstimate.model_validate(screening_estimate)
     except (ValidationError, ValueError) as error:
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             f"screening estimate violates thesis contract: {error}"
         ) from error
     return screening_estimate, None
@@ -1482,25 +1484,25 @@ def _screening_estimate_from_review_set_output(
 
 def _required_mapping(value: object, *, label: str) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
-        raise OpportunityDataError(f"{label} must be a mapping")
+        raise ResearchWorkspaceDataError(f"{label} must be a mapping")
     return value
 
 
 def _nonempty_string(value: object, *, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
-        raise OpportunityDataError(f"{label} must be a non-empty string")
+        raise ResearchWorkspaceDataError(f"{label} must be a non-empty string")
     return value
 
 
 def _finite_number(value: object, *, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
-        raise OpportunityDataError(f"{label} must be a number")
+        raise ResearchWorkspaceDataError(f"{label} must be a number")
     try:
         number = float(value)
     except (OverflowError, ValueError) as error:
-        raise OpportunityDataError(f"{label} must be finite") from error
+        raise ResearchWorkspaceDataError(f"{label} must be finite") from error
     if not isfinite(number):
-        raise OpportunityDataError(f"{label} must be finite")
+        raise ResearchWorkspaceDataError(f"{label} must be finite")
     return number
 
 
@@ -1512,9 +1514,9 @@ def _validate_review_set_estimate_asof(
 ) -> None:
     expected_asof = asof.isoformat()
     if review_set.get("as_of") != expected_asof:
-        raise OpportunityDataError("Review Set as_of does not match prepare as_of")
+        raise ResearchWorkspaceDataError("Review Set as_of does not match prepare as_of")
     if len(review_set_entries) > 20:
-        raise OpportunityDataError("Review Set exceeds capacity 20")
+        raise ResearchWorkspaceDataError("Review Set exceeds capacity 20")
 
 
 def _checklist_skeleton(*, price: PreviousClose) -> dict[str, object]:
@@ -1566,12 +1568,12 @@ def scaffold_review(
     ticker_dir = _research_ticker_dir(workspace, ticker)
     thesis_path = ticker_dir / "thesis-draft.yaml"
     if not thesis_path.exists():
-        raise OpportunityDataError(f"thesis draft not found for {ticker}: {thesis_path}")
+        raise ResearchWorkspaceDataError(f"thesis draft not found for {ticker}: {thesis_path}")
 
     core_hash = _thesis_core_hash_if_valid(thesis_path)
     review_path = _review_draft_path(workspace, ticker, asof)
     if review_path.exists() and not force:
-        raise OpportunityConflictError(
+        raise ResearchWorkspaceConflictError(
             f"review draft already exists (use --force to regenerate): {review_path}"
         )
 
@@ -1668,7 +1670,7 @@ def promote(
     thesis_path = ticker_dir / "thesis-draft.yaml"
     review_path = _review_draft_path(workspace, ticker, manifest_asof)
     if not thesis_path.exists() or not review_path.exists():
-        raise OpportunityDataError(f"thesis or review draft missing for {ticker}")
+        raise ResearchWorkspaceDataError(f"thesis or review draft missing for {ticker}")
 
     checklist = _load_checklist(workspace, ticker)
     # Allowlist gate: every check must be explicitly "complete". Any other status
@@ -1680,9 +1682,9 @@ def promote(
         if item.get("status") != "complete"
     )
     if not checklist:
-        raise OpportunityDataError(f"cannot promote {ticker}: checklist is empty")
+        raise ResearchWorkspaceDataError(f"cannot promote {ticker}: checklist is empty")
     if unresolved:
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             f"cannot promote {ticker}: checklist has unresolved checks: {unresolved}"
         )
 
@@ -1690,38 +1692,38 @@ def promote(
         document = load_thesis(thesis_path)
         review = load_independent_review(review_path)
     except ThesisError as error:
-        raise OpportunityDataError(f"draft is not schema-valid: {error}") from error
+        raise ResearchWorkspaceDataError(f"draft is not schema-valid: {error}") from error
 
     if document.input_snapshot.ticker != ticker:
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             f"cannot promote {ticker}: thesis ticker is {document.input_snapshot.ticker}"
         )
     if document.input_snapshot.as_of != manifest_asof:
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             f"cannot promote {ticker}: thesis as_of {document.input_snapshot.as_of.isoformat()} "
             f"does not match workspace manifest as_of {manifest_asof.isoformat()}"
         )
 
     core_hash = thesis_core_hash(document)
     if review.reviewed_thesis_sha256 != core_hash:
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             "review is stale: reviewed_thesis_sha256 does not match the thesis core hash"
         )
     if review.proposal_changed:
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             "review changed the proposal; regenerate the thesis and re-review before promotion"
         )
 
     result = evaluate_thesis(document, review=review, now=now, identity=UnpublishedThesis.DRAFT)
     if result.decision_readiness not in {"ready", "ready_with_warnings"}:
-        raise OpportunityDataError(f"thesis is not decision-ready: {list(result.errors)}")
+        raise ResearchWorkspaceDataError(f"thesis is not decision-ready: {list(result.errors)}")
 
     stable_review_name = _review_filename(asof=document.input_snapshot.as_of, ticker=ticker)
     # The ref stays inside the thesis payload and its core hash so a stored thesis
     # still names the review it was decided against; the canonical binding in the DB
     # is the thesis_id FK.
     if document.independent_review_ref != stable_review_name:
-        raise OpportunityDataError(
+        raise ResearchWorkspaceDataError(
             "thesis independent_review_ref must equal the stable review filename "
             f"{stable_review_name!r} before promotion"
         )
@@ -1736,9 +1738,9 @@ def promote(
             supersedes_id=supersedes_id,
         )
     except ResearchConflictError as error:
-        raise OpportunityConflictError(str(error)) from error
+        raise ResearchWorkspaceConflictError(str(error)) from error
     except (ResearchValidationError, ValidationError) as error:
-        raise OpportunityDataError(str(error)) from error
+        raise ResearchWorkspaceDataError(str(error)) from error
     return PromoteResult(
         thesis_id=resolved_thesis_id,
         review_id=review.review_id,
@@ -1791,7 +1793,7 @@ def plan_limit(
     try:
         max_price = max_acceptable_price(document, tick_size_yen=PLANNING_TICK_SIZE_YEN)
     except ExecutionPolicyError as error:
-        raise OpportunityDataError(f"cannot derive max acceptable price: {error}") from error
+        raise ResearchWorkspaceDataError(f"cannot derive max acceptable price: {error}") from error
 
     close_decimal = Decimal(str(price.close_yen)) if price is not None else None
     if close_decimal is not None and close_decimal > max_price:
@@ -1901,7 +1903,7 @@ def _load_snapshot(db_path: Path | None) -> tuple[PortfolioSnapshot, int]:
         document, append_head = service.load_with_head()
         return reconcile_portfolio(document), append_head
     except (OSError, ValueError) as error:
-        raise OpportunityDataError(f"cannot reconcile ledger: {error}") from error
+        raise ResearchWorkspaceDataError(f"cannot reconcile ledger: {error}") from error
 
 
 def _load_checklist(workspace: Path, ticker: str) -> list[dict[str, object]]:
@@ -1959,9 +1961,9 @@ def _adjacent_review_path(thesis_path: Path, review_ref: str | None) -> Path | N
     root = thesis_path.resolve().parent
     resolved = (root / review_ref).resolve()
     if not resolved.is_relative_to(root):
-        raise OpportunityDataError("independent_review_ref must stay beside the thesis")
+        raise ResearchWorkspaceDataError("independent_review_ref must stay beside the thesis")
     if not resolved.exists():
-        raise OpportunityDataError(f"independent review not found beside thesis: {resolved}")
+        raise ResearchWorkspaceDataError(f"independent review not found beside thesis: {resolved}")
     return resolved
 
 
@@ -1979,16 +1981,16 @@ def _parse_date(value: str, *, label: str) -> date:
     try:
         return date.fromisoformat(value)
     except ValueError as error:
-        raise OpportunityDataError(f"invalid {label}: {value}") from error
+        raise ResearchWorkspaceDataError(f"invalid {label}: {value}") from error
 
 
 __all__ = [
-    "OpportunityConflictError",
-    "OpportunityDataError",
-    "OpportunityError",
     "PrepareResult",
     "PreviousClose",
     "PromoteResult",
+    "ResearchWorkspaceConflictError",
+    "ResearchWorkspaceDataError",
+    "ResearchWorkspaceError",
     "compute_status",
     "plan_limit",
     "prepare_workspace",
