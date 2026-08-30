@@ -16,7 +16,7 @@ from baibai_engine.position.cli import main
 from baibai_engine.position.drafts import apply_draft, load_draft
 from baibai_engine.position.result_service import build_result_draft
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.research.assessment import BargainAssessmentService
+from baibai_engine.research.assessment_service import BargainAssessmentService
 
 ROOT = Path(__file__).parents[2]
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
@@ -31,7 +31,7 @@ def _services(
     db = tmp_path / "app.sqlite"
     initialize_database(db)
     payload = {
-        "schema_version": 4,
+        "schema_version": 5,
         "kind": "bargain_assessment",
         "assessment_id": ASSESSMENT_ID,
         "as_of": "2026-07-30",
@@ -48,11 +48,9 @@ def _services(
                 "name": "テスト銘柄",
                 "disposition": "selected" if result == "buy" else "reject",
                 "disposition_reason": "要求利回りを上回る",
-                "reject_class": None if result == "buy" else "price_already_converged",
                 "thesis_id": "thesis-20260730-2331-r1",
                 "thesis_core_sha256": "a" * 64,
                 "review_id": "review-20260730-2331-r1" if result == "buy" else None,
-                "machine": {},
                 "business_model": "継続課金",
                 "value_capture": "価格決定力",
                 "growth_quality": "再投資可能",

@@ -75,7 +75,7 @@ from baibai_engine.position.outcome_store import (
 from baibai_engine.position.result_recording import ResultRecordingError
 from baibai_engine.position.result_service import build_result_draft
 from baibai_engine.position.store import LedgerConflictError, LedgerStoreService
-from baibai_engine.research.assessment import BargainAssessmentService
+from baibai_engine.research.assessment_service import BargainAssessmentService
 from baibai_engine.research.holding_review_builder import (
     build_holding_review_from_db,
     validate_holding_review_scalars_from_db,

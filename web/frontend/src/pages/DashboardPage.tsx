@@ -497,10 +497,7 @@ function UpcomingEventsCard({ events }: { events: UpcomingEventView[] }) {
 
 const OPERATION_KIND_LABEL: Record<string, string> = {
   opportunity: '購入候補の選定',
-  'pending-result': '注文結果の反映',
-  'monthly-contribution': '入出金の反映',
   'earnings-material-event': '決算・重要イベント',
-  'annual-outcome': '年次評価',
   improvement: '手法改善',
 }
 

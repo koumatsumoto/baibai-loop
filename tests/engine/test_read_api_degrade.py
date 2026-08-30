@@ -323,7 +323,7 @@ def test_shortlist_list_and_latest_agree_on_the_newest_row(tmp_path: Path) -> No
                     shortlist_id,
                     "2026-07-29",
                     "2026-07-29T14:00:00+09:00",
-                    f'{{"schema_version": 6, "entries": [], "shortlist_id": "{shortlist_id}"}}',
+                    f'{{"schema_version": 7, "entries": [], "shortlist_id": "{shortlist_id}"}}',
                 ),
             )
 
@@ -383,7 +383,7 @@ def test_shortlist_payloads_for_selection_answers_by_the_selection_it_judged(
             "published_at TEXT, payload TEXT)"
         )
         for shortlist_id, selection_id, schema_version, published_at in (
-            ("shortlist-20260729-current", "selection-20260729-a", 6, "2026-07-29T14:00:00+09:00"),
+            ("shortlist-20260729-current", "selection-20260729-a", 7, "2026-07-29T14:00:00+09:00"),
         ):
             connection.execute(
                 "INSERT INTO shortlist VALUES (?, ?, ?, ?, ?)",
@@ -405,7 +405,7 @@ def test_shortlist_payloads_for_selection_answers_by_the_selection_it_judged(
 
     current = read_api.shortlist_payloads_for_selection(store, "selection-20260729-a")
     assert [payload["shortlist_id"] for payload in current] == ["shortlist-20260729-current"]
-    assert current[0]["schema_version"] == 6
+    assert current[0]["schema_version"] == 7
 
     assert read_api.shortlist_payloads_for_selection(store, "selection-absent") == []
 
@@ -439,7 +439,7 @@ def test_shortlist_payloads_for_selection_returns_every_judgment_newest_first(
                     published_at,
                     json.dumps(
                         {
-                            "schema_version": 6,
+                            "schema_version": 7,
                             "entries": [],
                             "shortlist_id": shortlist_id,
                             "selection_id": "selection-20260729-a",

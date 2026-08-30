@@ -9,10 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 SessionKind = Literal[
     "opportunity",
-    "pending-result",
-    "monthly-contribution",
     "earnings-material-event",
-    "annual-outcome",
 ]
 OperationStatus = Literal["active", "completed"]
 CompletionReason = Literal["no-shortlist-selection"]
@@ -69,10 +66,7 @@ class OperationSession(BaseModel):
 
 SESSION_KINDS: tuple[SessionKind, ...] = (
     "opportunity",
-    "pending-result",
-    "monthly-contribution",
     "earnings-material-event",
-    "annual-outcome",
 )
 
 

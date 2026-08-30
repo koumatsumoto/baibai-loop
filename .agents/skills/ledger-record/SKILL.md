@@ -13,7 +13,7 @@ application DB が portfolio ledger の正本である。人間の報告だけ�
 2. 人間が event payload、binding、cash / reservation / holding 差分を確認する。
 3. `position apply-draft <draft> --db stores/application/baibai.sqlite --confirmed` で append head と invariant を再検証して適用する。stale の場合は書き込まず、draft を作り直す。
 
-session kind は注文結果 `pending-result`、資金 `monthly-contribution`、年次 `annual-outcome`。`pending-result` を無関係な market / macro 不足で止めない。
+注文結果、資金、年次 outcome は Operation Session を介さず、対応する typed draft command と confirmed apply / publication を直接の human boundary とする。注文結果を無関係な market / macro 不足で止めない。
 
 ## 記録対象
 

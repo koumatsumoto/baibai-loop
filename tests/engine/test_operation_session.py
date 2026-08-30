@@ -22,6 +22,15 @@ from baibai_engine.read_api.operations import list_operation_sessions, operation
 NOW = datetime(2026, 7, 19, 12, 0, tzinfo=JST)
 
 
+def test_operation_kinds_are_limited_to_multi_step_workflows(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert SESSION_KINDS == ("opportunity", "earnings-material-event")
+    with pytest.raises(SystemExit):
+        operation_main(["start", "--kind", "pending-result", "--as-of", "2026-07-19"], now=NOW)
+    assert "invalid choice" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("command", ["start", "checkpoint", "complete"])
 def test_operation_payload_help_names_a_file_path(
     command: str, capsys: pytest.CaptureFixture[str]
@@ -48,24 +57,12 @@ def _complete_payload(kind: SessionKind) -> OperationPayload:
         "result": "trigger work completed",
         "next": "wait for the next trigger",
     }
-    if kind in {
-        "opportunity",
-        "pending-result",
-        "monthly-contribution",
-        "earnings-material-event",
-    }:
-        values["human_confirmation"] = {
-            "request": "confirm",
-            "result": "human confirmed",
-        }
-    if kind in {"opportunity", "earnings-material-event"}:
-        values["artifacts"] = ({"kind": "review", "summary": "reviewed"},)
-    if kind in {
-        "pending-result",
-        "monthly-contribution",
-        "earnings-material-event",
-        "annual-outcome",
-    }:
+    values["human_confirmation"] = {
+        "request": "confirm",
+        "result": "human confirmed",
+    }
+    values["artifacts"] = ({"kind": "review", "summary": "reviewed"},)
+    if kind == "earnings-material-event":
         values["canonical_refs"] = ("canonical-entity-1",)
     return OperationPayload.model_validate(values)
 
@@ -113,7 +110,7 @@ def test_all_kinds_share_one_active_slot_and_no_checkpoint_history(tmp_path: Pat
 
     with pytest.raises(OperationConflictError, match="active operation already exists"):
         service.start(
-            session_kind="pending-result",
+            session_kind="earnings-material-event",
             as_of=date(2026, 7, 19),
             started_at=NOW,
             payload=_active_payload(),
@@ -246,7 +243,7 @@ def test_no_shortlist_selection_completion_rejects_false_evidence(
 def test_no_shortlist_selection_reason_is_opportunity_only(tmp_path: Path) -> None:
     service = OperationService(tmp_path / "app.sqlite")
     operation = service.start(
-        session_kind="annual-outcome",
+        session_kind="earnings-material-event",
         as_of=date(2026, 7, 19),
         started_at=NOW,
         payload=_active_payload(),
@@ -434,12 +431,12 @@ def test_completed_row_is_immutable_through_service_and_database(tmp_path: Path)
     db = tmp_path / "app.sqlite"
     service = OperationService(db)
     operation = service.start(
-        session_kind="annual-outcome",
+        session_kind="opportunity",
         as_of=date(2026, 7, 19),
         started_at=NOW,
         payload=_active_payload(),
     )
-    service.complete(operation.operation_id, _complete_payload("annual-outcome"), completed_at=NOW)
+    service.complete(operation.operation_id, _complete_payload("opportunity"), completed_at=NOW)
 
     with pytest.raises(OperationConflictError, match="immutable"):
         service.checkpoint(operation.operation_id, _active_payload("late update"))
@@ -476,10 +473,10 @@ def test_database_constraint_rejects_a_second_active_row(tmp_path: Path) -> None
                 INSERT INTO operation_session (
                     operation_id, session_kind, status, as_of, ticker,
                     started_at, completed_at, payload
-                ) VALUES (?, 'annual-outcome', 'active', '2026-07-19', NULL, ?, NULL, ?)
+                ) VALUES (?, 'earnings-material-event', 'active', '2026-07-19', NULL, ?, NULL, ?)
                 """,
                 (
-                    "op-20260719-annual-outcome-1",
+                    "op-20260719-earnings-material-event-1",
                     NOW.isoformat(),
                     operation.payload.model_dump_json(),
                 ),
@@ -500,7 +497,7 @@ def test_cli_and_read_facade_expose_current_and_completed_payloads(
                 str(db),
                 "start",
                 "--kind",
-                "annual-outcome",
+                "earnings-material-event",
                 "--as-of",
                 "2026-07-19",
             ],
@@ -513,7 +510,7 @@ def test_cli_and_read_facade_expose_current_and_completed_payloads(
 
     final_path = tmp_path / "final.yaml"
     final_path.write_text(
-        yaml.safe_dump(_complete_payload("annual-outcome").model_dump(mode="json")),
+        yaml.safe_dump(_complete_payload("earnings-material-event").model_dump(mode="json")),
         encoding="utf-8",
     )
     assert (

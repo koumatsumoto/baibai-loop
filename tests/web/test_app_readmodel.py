@@ -688,7 +688,7 @@ def test_shortlist_view_reads_the_burned_machine_snapshot_as_a_ranked_set_row() 
     # shape the live join produces, or the surface needs a second code path.
     view = _shortlist_view(
         {
-            "schema_version": 6,
+            "schema_version": 7,
             "shortlist_id": "shortlist-20260731-burned",
             "selection_id": "selection-burned",
             "run_revision_id": "runrev-burned",
@@ -699,7 +699,6 @@ def test_shortlist_view_reads_the_burned_machine_snapshot_as_a_ranked_set_row() 
                     "ticker": "2331",
                     "decision": "rejected",
                     "reason": "価格が収束済み",
-                    "reject_class": "price_already_converged",
                     "machine_snapshot": {
                         "rank": 3,
                         "name": "ALSOK",
@@ -736,7 +735,7 @@ def test_shortlist_view_reads_the_burned_machine_snapshot_as_a_ranked_set_row() 
 def test_shortlist_view_counts_unreadable_entries_instead_of_dropping_the_surface() -> None:
     view = _shortlist_view(
         {
-            "schema_version": 6,
+            "schema_version": 7,
             "shortlist_id": "shortlist-20260717-mixed",
             "selection_id": "selection-mixed",
             "run_revision_id": "runrev-mixed",

@@ -1,8 +1,7 @@
 """割安機会評価の draft 骨格を、canonical store の値から組み立てる。
 
-数値は promoted thesis から機械で導出し、判断の散文だけを記入欄として残す。
-publish が同じ導出をやり直して照合するので、ここで埋まった数値を手で書き換えても
-保存されない。注文条件は `plan-limit` の ephemeral output とする。
+判断の散文だけを記入欄として残す。表示用の数値は read 時に promoted thesis から
+機械で導出する。注文条件は `plan-limit` の ephemeral output とする。
 """
 
 from __future__ import annotations
@@ -16,11 +15,7 @@ from pathlib import Path
 from baibai_engine.appdb.paths import database_path
 from baibai_engine.appdb.read import connect_read_only
 
-from .assessment import (
-    AssessmentConflictError,
-    CaseMachineValues,
-    derive_case_machine_values,
-)
+from .assessment import AssessmentConflictError
 from .thesis import ThesisDocument, require_recorded_identity
 
 _PROSE_PLACEHOLDER = "TODO"
@@ -59,7 +54,7 @@ def scaffold_assessment(
         ]
     macro_context_id = shortlist.get("macro_context_id")
     return {
-        "schema_version": 4,
+        "schema_version": 5,
         "kind": "bargain_assessment",
         "assessment_id": assessment_id,
         "as_of": as_of.isoformat(),
@@ -113,17 +108,14 @@ def _case_skeleton(connection: sqlite3.Connection, thesis_id: str) -> dict[str, 
     if row is None:
         raise AssessmentConflictError(f"thesis is unavailable: {thesis_id}")
     document = ThesisDocument.model_validate(json.loads(str(row[2])))
-    machine = derive_case_machine_values(document)
     return {
         "ticker": str(row[0]),
         "name": document.input_snapshot.company_name,
         "disposition": _PROSE_PLACEHOLDER,
         "disposition_reason": _PROSE_PLACEHOLDER,
-        "reject_class": _PROSE_PLACEHOLDER,
         "thesis_id": thesis_id,
         "thesis_core_sha256": require_recorded_identity(row[1], thesis_id),
         "review_id": None,
-        "machine": _machine_payload(machine),
         "business_model": _PROSE_PLACEHOLDER,
         "value_capture": _PROSE_PLACEHOLDER,
         "growth_quality": _PROSE_PLACEHOLDER,
@@ -133,10 +125,6 @@ def _case_skeleton(connection: sqlite3.Connection, thesis_id: str) -> dict[str, 
         "unknowns": [],
         "source_caveats": [],
     }
-
-
-def _machine_payload(machine: CaseMachineValues) -> dict[str, object]:
-    return machine.model_dump(mode="json")
 
 
 def _shortlist_row(connection: sqlite3.Connection, shortlist_id: str) -> dict[str, object]:
