@@ -7,12 +7,12 @@ related_docs:
   - "./doctrine.md"
   - "../AGENTS.md"
   - "./reference/portfolio-ledger.md"
-  - "./reference/holding-review.md"
+  - "./reference/position-review.md"
 ---
 
 # Portfolio management
 
-この文書は、資本とpositionの運用方針を定める。個別銘柄のFV、entry、limit、exitは、thesis、assessment、holding reviewが所有する。versioned config、engine model、DB constraintが機械契約を所有するため、数値fieldはここへ網羅転記しない。
+この文書は、資本とpositionの運用方針を定める。個別銘柄のFV、entry、limit、exitは、thesis、assessment、Position Reviewが所有する。versioned config、engine model、DB constraintが機械契約を所有するため、数値fieldはここへ網羅転記しない。
 
 ## 目的と人間境界
 
@@ -103,5 +103,5 @@ FV到達はreview triggerで、自動売却ではない。含み損は単独のe
 - 思想と優先順位: [`doctrine.md`](./doctrine.md)
 - e2e運用: [`AGENTS.md`](../AGENTS.md) の trigger → skill 表
 - ledger式とerror/warning: [`reference/portfolio-ledger.md`](./reference/portfolio-ledger.md)
-- holding action: [`reference/holding-review.md`](./reference/holding-review.md)
+- holding action: [`reference/position-review.md`](./reference/position-review.md)
 - 機械的なcap/lot/warning値: `engine/src/baibai_engine/position/policy.py`とwrite-time validation

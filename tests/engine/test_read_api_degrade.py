@@ -59,16 +59,16 @@ _ARGUMENTS: dict[str, object] = {
     "after": date(2026, 7, 28),
     "as_of": date(2026, 7, 29),
     "asof": date(2026, 7, 29),
-    "assessment_id": "assessment-20260729-a",
+    "capital_allocation_assessment_id": "assessment-20260729-a",
     "context_id": "macro-context-2026-07-29-a",
     "day": date(2026, 7, 29),
     "end": date(2026, 7, 29),
     "operation_id": "op-20260729-a-1",
     "run_revision_id": "run-revision-20260729",
-    "selection_id": "selection-20260729-a",
+    "review_set_id": "review-set-20260729-a",
     "series_id": "jp.cpi",
     "since": date(2026, 7, 28),
-    "shortlist_id": "shortlist-20260729-a",
+    "research_triage_id": "research_triage-20260729-a",
     "start": date(2026, 7, 1),
     "thesis_id": "thesis-20260729-1234-r1",
     "ticker": "1234",
@@ -276,14 +276,14 @@ def test_every_table_read_api_reads_exists_in_a_migrated_store(tmp_path: Path) -
 def test_read_rows_still_raises_for_a_broken_query(tmp_path: Path) -> None:
     store = tmp_path / "store.sqlite"
     with sqlite3.connect(store) as connection:
-        connection.execute("CREATE TABLE shortlist (payload TEXT)")
+        connection.execute("CREATE TABLE research_triage (payload TEXT)")
 
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
         read_rows(store, "SELECT payload FROM absent_table")
     with pytest.raises(sqlite3.OperationalError, match="no such column"):
-        read_rows(store, "SELECT absent_column FROM shortlist")
+        read_rows(store, "SELECT absent_column FROM research_triage")
     with pytest.raises(sqlite3.OperationalError, match="syntax error"):
-        read_rows(store, "SELEKT payload FROM shortlist")
+        read_rows(store, "SELEKT payload FROM research_triage")
 
 
 def test_application_reader_rejects_an_obsolete_store_before_querying(tmp_path: Path) -> None:
@@ -293,7 +293,7 @@ def test_application_reader_rejects_an_obsolete_store_before_querying(tmp_path: 
         connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION - 1}")
 
     with pytest.raises(RuntimeError, match="obsolete application database schema"):
-        read_api.list_shortlist_payloads(store)
+        read_api.list_research_triage_payloads(store)
 
 
 def test_market_reader_rejects_an_obsolete_store_instead_of_degrading(tmp_path: Path) -> None:
@@ -306,45 +306,45 @@ def test_market_reader_rejects_an_obsolete_store_instead_of_degrading(tmp_path: 
         read_api.next_earnings_dates(store, ["2331"], asof=date(2026, 8, 30))
 
 
-def test_shortlist_list_and_latest_agree_on_the_newest_row(tmp_path: Path) -> None:
+def test_research_triage_list_and_latest_agree_on_the_newest_row(tmp_path: Path) -> None:
     """Same as-of and same published_at: the two queries must not disagree."""
 
     store = tmp_path / "app.sqlite"
     with sqlite3.connect(store) as connection:
         connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
         connection.execute(
-            "CREATE TABLE shortlist (shortlist_id TEXT, as_of TEXT, published_at TEXT, "
+            "CREATE TABLE research_triage (research_triage_id TEXT, as_of TEXT, published_at TEXT, "
             "payload TEXT)"
         )
-        for shortlist_id in ("shortlist-20260729-a", "shortlist-20260729-b"):
+        for research_triage_id in ("research_triage-20260729-a", "research_triage-20260729-b"):
             connection.execute(
-                "INSERT INTO shortlist VALUES (?, ?, ?, ?)",
+                "INSERT INTO research_triage VALUES (?, ?, ?, ?)",
                 (
-                    shortlist_id,
+                    research_triage_id,
                     "2026-07-29",
                     "2026-07-29T14:00:00+09:00",
-                    f'{{"schema_version": 7, "entries": [], "shortlist_id": "{shortlist_id}"}}',
+                    f'{{"schema_version": 1, "entries": [], "research_triage_id": "{research_triage_id}"}}',
                 ),
             )
 
-    payloads = read_api.list_shortlist_payloads(store)
-    latest = read_api.latest_shortlist_payload(store)
+    payloads = read_api.list_research_triage_payloads(store)
+    latest = read_api.latest_research_triage_payload(store)
 
     assert latest is not None
-    assert payloads[0]["shortlist_id"] == latest["shortlist_id"]
+    assert payloads[0]["research_triage_id"] == latest["research_triage_id"]
 
 
-def _store_with_shortlist(store: Path, payload: dict[str, object]) -> None:
+def _store_with_research_triage(store: Path, payload: dict[str, object]) -> None:
     with sqlite3.connect(store) as connection:
         connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
         connection.execute(
-            "CREATE TABLE shortlist (shortlist_id TEXT, as_of TEXT, published_at TEXT, "
+            "CREATE TABLE research_triage (research_triage_id TEXT, as_of TEXT, published_at TEXT, "
             "payload TEXT)"
         )
         connection.execute(
-            "INSERT INTO shortlist VALUES (?, ?, ?, ?)",
+            "INSERT INTO research_triage VALUES (?, ?, ?, ?)",
             (
-                str(payload["shortlist_id"]),
+                str(payload["research_triage_id"]),
                 "2026-07-01",
                 "2026-07-01T14:00:00+09:00",
                 json.dumps(payload),
@@ -353,24 +353,26 @@ def _store_with_shortlist(store: Path, payload: dict[str, object]) -> None:
 
 
 @pytest.mark.parametrize("schema_version", [2, 3, 4])
-def test_shortlist_reader_rejects_each_retired_version(tmp_path: Path, schema_version: int) -> None:
-    """Runtime readers do not infer fields for retired shortlist payloads."""
+def test_research_triage_reader_rejects_each_retired_version(
+    tmp_path: Path, schema_version: int
+) -> None:
+    """Runtime readers do not infer fields for retired research_triage payloads."""
 
     store = tmp_path / "app.sqlite"
-    _store_with_shortlist(
+    _store_with_research_triage(
         store,
         {
             "schema_version": schema_version,
-            "shortlist_id": f"shortlist-legacy-v{schema_version}",
+            "research_triage_id": f"research_triage-legacy-v{schema_version}",
             "entries": [],
         },
     )
 
-    with pytest.raises(ValueError, match="unsupported shortlist schema_version"):
-        read_api.latest_shortlist_payload(store)
+    with pytest.raises(ValueError, match="unsupported research triage schema_version"):
+        read_api.latest_research_triage_payload(store)
 
 
-def test_shortlist_payloads_for_selection_answers_by_the_selection_it_judged(
+def test_research_triage_payloads_for_review_set_answers_by_the_review_set_it_judged(
     tmp_path: Path,
 ) -> None:
     """`research prepare` asks which judgment covers a cycle, not which ID exists."""
@@ -379,41 +381,48 @@ def test_shortlist_payloads_for_selection_answers_by_the_selection_it_judged(
     with sqlite3.connect(store) as connection:
         connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
         connection.execute(
-            "CREATE TABLE shortlist (shortlist_id TEXT, selection_id TEXT, as_of TEXT, "
+            "CREATE TABLE research_triage (research_triage_id TEXT, review_set_id TEXT, as_of TEXT, "
             "published_at TEXT, payload TEXT)"
         )
-        for shortlist_id, selection_id, schema_version, published_at in (
-            ("shortlist-20260729-current", "selection-20260729-a", 7, "2026-07-29T14:00:00+09:00"),
+        for research_triage_id, review_set_id, schema_version, published_at in (
+            (
+                "research_triage-20260729-current",
+                "review-set-20260729-a",
+                1,
+                "2026-07-29T14:00:00+09:00",
+            ),
         ):
             connection.execute(
-                "INSERT INTO shortlist VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO research_triage VALUES (?, ?, ?, ?, ?)",
                 (
-                    shortlist_id,
-                    selection_id,
+                    research_triage_id,
+                    review_set_id,
                     "2026-07-29",
                     published_at,
                     json.dumps(
                         {
                             "schema_version": schema_version,
                             "entries": [],
-                            "shortlist_id": shortlist_id,
-                            "selection_id": selection_id,
+                            "research_triage_id": research_triage_id,
+                            "review_set_id": review_set_id,
                         }
                     ),
                 ),
             )
 
-    current = read_api.shortlist_payloads_for_selection(store, "selection-20260729-a")
-    assert [payload["shortlist_id"] for payload in current] == ["shortlist-20260729-current"]
-    assert current[0]["schema_version"] == 7
+    current = read_api.research_triage_payloads_for_review_set(store, "review-set-20260729-a")
+    assert [payload["research_triage_id"] for payload in current] == [
+        "research_triage-20260729-current"
+    ]
+    assert current[0]["schema_version"] == 1
 
-    assert read_api.shortlist_payloads_for_selection(store, "selection-absent") == []
+    assert read_api.research_triage_payloads_for_review_set(store, "review-set-absent") == []
 
 
-def test_shortlist_payloads_for_selection_returns_every_judgment_newest_first(
+def test_research_triage_payloads_for_review_set_returns_every_judgment_newest_first(
     tmp_path: Path,
 ) -> None:
-    """Two judgments over one selection is a store the caller must refuse, not pick from.
+    """Two judgments over one Review Set is a store the caller must refuse, not pick from.
 
     Publication cannot produce this state, so the query reports what it found and
     leaves the refusal to the boundary that knows one judgment is required.
@@ -423,62 +432,62 @@ def test_shortlist_payloads_for_selection_returns_every_judgment_newest_first(
     with sqlite3.connect(store) as connection:
         connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
         connection.execute(
-            "CREATE TABLE shortlist (shortlist_id TEXT, selection_id TEXT, as_of TEXT, "
+            "CREATE TABLE research_triage (research_triage_id TEXT, review_set_id TEXT, as_of TEXT, "
             "published_at TEXT, payload TEXT)"
         )
-        for shortlist_id, published_at in (
-            ("shortlist-20260729-first", "2026-07-29T14:00:00+09:00"),
-            ("shortlist-20260729-second", "2026-07-29T15:00:00+09:00"),
+        for research_triage_id, published_at in (
+            ("research_triage-20260729-first", "2026-07-29T14:00:00+09:00"),
+            ("research_triage-20260729-second", "2026-07-29T15:00:00+09:00"),
         ):
             connection.execute(
-                "INSERT INTO shortlist VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO research_triage VALUES (?, ?, ?, ?, ?)",
                 (
-                    shortlist_id,
-                    "selection-20260729-a",
+                    research_triage_id,
+                    "review-set-20260729-a",
                     "2026-07-29",
                     published_at,
                     json.dumps(
                         {
-                            "schema_version": 7,
+                            "schema_version": 1,
                             "entries": [],
-                            "shortlist_id": shortlist_id,
-                            "selection_id": "selection-20260729-a",
+                            "research_triage_id": research_triage_id,
+                            "review_set_id": "review-set-20260729-a",
                         }
                     ),
                 ),
             )
 
-    payloads = read_api.shortlist_payloads_for_selection(store, "selection-20260729-a")
+    payloads = read_api.research_triage_payloads_for_review_set(store, "review-set-20260729-a")
 
-    assert [payload["shortlist_id"] for payload in payloads] == [
-        "shortlist-20260729-second",
-        "shortlist-20260729-first",
+    assert [payload["research_triage_id"] for payload in payloads] == [
+        "research_triage-20260729-second",
+        "research_triage-20260729-first",
     ]
 
 
-def test_shortlist_reader_rejects_an_unknown_version(tmp_path: Path) -> None:
+def test_research_triage_reader_rejects_an_unknown_version(tmp_path: Path) -> None:
     store = tmp_path / "app.sqlite"
     with sqlite3.connect(store) as connection:
         connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
         connection.execute(
-            "CREATE TABLE shortlist (shortlist_id TEXT, as_of TEXT, published_at TEXT, "
+            "CREATE TABLE research_triage (research_triage_id TEXT, as_of TEXT, published_at TEXT, "
             "payload TEXT)"
         )
         connection.execute(
-            "INSERT INTO shortlist VALUES (?, ?, ?, ?)",
+            "INSERT INTO research_triage VALUES (?, ?, ?, ?)",
             (
                 "unknown",
                 "2026-07-01",
                 "2026-07-01T14:00:00+09:00",
-                json.dumps({"schema_version": 99, "entries": [], "shortlist_id": "unknown"}),
+                json.dumps({"schema_version": 99, "entries": [], "research_triage_id": "unknown"}),
             ),
         )
 
-    with pytest.raises(ValueError, match="unsupported shortlist schema_version"):
-        read_api.latest_shortlist_payload(store)
+    with pytest.raises(ValueError, match="unsupported research triage schema_version"):
+        read_api.latest_research_triage_payload(store)
 
 
-@pytest.mark.parametrize("schema_version", [1, 2])
+@pytest.mark.parametrize("schema_version", [2])
 def test_assessment_reader_rejects_each_retired_version(
     tmp_path: Path, schema_version: int
 ) -> None:
@@ -486,11 +495,11 @@ def test_assessment_reader_rejects_each_retired_version(
     with sqlite3.connect(store) as connection:
         connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
         connection.execute(
-            "CREATE TABLE bargain_assessment (assessment_id TEXT, as_of TEXT, "
+            "CREATE TABLE capital_allocation_assessment (capital_allocation_assessment_id TEXT, as_of TEXT, "
             "published_at TEXT, payload TEXT)"
         )
         connection.execute(
-            "INSERT INTO bargain_assessment VALUES (?, ?, ?, ?)",
+            "INSERT INTO capital_allocation_assessment VALUES (?, ?, ?, ?)",
             (
                 f"assessment-legacy-v{schema_version}",
                 "2026-07-01",
@@ -498,15 +507,15 @@ def test_assessment_reader_rejects_each_retired_version(
                 json.dumps(
                     {
                         "schema_version": schema_version,
-                        "assessment_id": f"assessment-legacy-v{schema_version}",
+                        "capital_allocation_assessment_id": f"assessment-legacy-v{schema_version}",
                         "lanes": [{"ticker": "2331"}],
                     }
                 ),
             ),
         )
 
-    with pytest.raises(ValueError, match="unsupported bargain assessment schema_version"):
-        read_api.list_bargain_assessment_payloads(store)
+    with pytest.raises(ValueError, match="unsupported capital allocation schema_version"):
+        read_api.list_capital_allocation_assessment_payloads(store)
 
 
 def test_assessment_reader_rejects_an_unknown_version(tmp_path: Path) -> None:
@@ -514,18 +523,20 @@ def test_assessment_reader_rejects_an_unknown_version(tmp_path: Path) -> None:
     with sqlite3.connect(store) as connection:
         connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
         connection.execute(
-            "CREATE TABLE bargain_assessment (assessment_id TEXT, as_of TEXT, "
+            "CREATE TABLE capital_allocation_assessment (capital_allocation_assessment_id TEXT, as_of TEXT, "
             "published_at TEXT, payload TEXT)"
         )
         connection.execute(
-            "INSERT INTO bargain_assessment VALUES (?, ?, ?, ?)",
+            "INSERT INTO capital_allocation_assessment VALUES (?, ?, ?, ?)",
             (
                 "assessment-unknown",
                 "2026-07-01",
                 "2026-07-01T14:00:00+09:00",
-                json.dumps({"schema_version": 99, "assessment_id": "assessment-unknown"}),
+                json.dumps(
+                    {"schema_version": 99, "capital_allocation_assessment_id": "assessment-unknown"}
+                ),
             ),
         )
 
-    with pytest.raises(ValueError, match="unsupported bargain assessment schema_version"):
-        read_api.list_bargain_assessment_payloads(store)
+    with pytest.raises(ValueError, match="unsupported capital allocation schema_version"):
+        read_api.list_capital_allocation_assessment_payloads(store)

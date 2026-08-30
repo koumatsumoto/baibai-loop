@@ -55,8 +55,8 @@ from .providers import ProviderBundle
 from .prune import prune_command
 from .query import (
     market_snapshot_command,
-    select_command,
-    selection_show_command,
+    review_set_publish_command,
+    review_set_show_command,
     ticker_profile_command,
 )
 from .run import run_command
@@ -257,116 +257,74 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    select_parser = subparsers.add_parser(
-        "select",
-        help="rank research candidates and optionally summarize macro material deltas",
+    review_set_parser = subparsers.add_parser(
+        "review-set",
+        help="publish or read multi-valuation Review Sets",
     )
-    select_parser.add_argument("--asof", required=True, help="screening target date (YYYY-MM-DD)")
-    select_parser.add_argument(
+    review_set_commands = review_set_parser.add_subparsers(dest="review_set_command", required=True)
+    review_set_publish = review_set_commands.add_parser(
+        "publish", help="compose and publish a Review Set from one immutable run"
+    )
+    review_set_publish.add_argument(
+        "--asof", required=True, help="screening target date (YYYY-MM-DD)"
+    )
+    review_set_publish.add_argument(
         "--run-revision-id",
         required=True,
-        help="immutable screening run revision to select from",
+        help="immutable screening run revision to compose",
     )
-    select_parser.add_argument("--runs-db", help="screening run store path")
-    select_parser.add_argument(
-        "--previous-run-revision-id",
-        help="explicit previous revision when the greatest prior as-of is ambiguous",
+    review_set_publish.add_argument("--runs-db", help="screening run store path")
+    review_set_publish.add_argument(
+        "--app-db",
+        help="application DB whose latest Research Triage defines the Review Basis",
     )
-    select_parser.add_argument(
-        "--previous-shortlist-id",
-        help="canonical shortlist whose retained entries replace a pruned previous run",
-    )
-    select_parser.add_argument(
-        "--ranked-set-history-dir",
-        help=(
-            "persisted daily ranked_set records, used as the previous candidate set "
-            "when the prior as-of has been pruned out of the run store"
-        ),
-    )
-    select_parser.add_argument("--app-db", help="application DB path")
-    select_parser.add_argument(
-        "--macro-context-id",
-        help="published macro context ID (default: latest eligible context)",
-    )
-    select_parser.add_argument(
+    review_set_publish.add_argument(
         "--rules-path",
         default=os.environ.get("SCREENING_RULES_PATH") or str(DEFAULT_RULES_PATH),
         help=f"screening rules path (default: SCREENING_RULES_PATH or {DEFAULT_RULES_PATH})",
     )
-    select_parser.add_argument(
-        "--detail",
-        choices=("summary", "full"),
-        default="summary",
-        help="selection output detail (default: summary)",
-    )
-    select_parser.add_argument(
+    review_set_publish.add_argument(
         "--review-cap",
         type=int,
         default=20,
-        help="maximum ranked candidates sent to human review (0-100; default 20)",
+        help="Review Set capacity; must equal the versioned method (default 20)",
     )
-    select_parser.add_argument(
+    review_set_publish.add_argument(
         "--output-path",
-        help="also write the selection YAML to this path (stdout is unchanged)",
+        help="also write the Review Set YAML to this path (stdout is unchanged)",
     )
-    select_parser.add_argument(
+    review_set_publish.add_argument(
         "--force",
         action="store_true",
         help="overwrite an existing --output-path file",
     )
-    _add_market_state_arguments(select_parser)
-
-    selection_parser = subparsers.add_parser(
-        "selection",
-        help="read published selections",
+    review_set_show = review_set_commands.add_parser(
+        "show", help="re-emit a published Review Set without publishing a new one"
     )
-    selection_commands = selection_parser.add_subparsers(dest="selection_command", required=True)
-    selection_show = selection_commands.add_parser(
-        "show",
-        help="re-emit a published selection output without publishing a new one",
-    )
-    selection_show.add_argument("--selection-id", required=True)
-    selection_show.add_argument("--runs-db", help="screening run store path")
-    selection_show.add_argument(
+    review_set_show.add_argument("--review-set-id", required=True)
+    review_set_show.add_argument("--runs-db", help="screening run store path")
+    review_set_show.add_argument(
         "--output-path",
-        help="also write the selection YAML to this path (stdout is unchanged)",
+        help="also write the Review Set YAML to this path (stdout is unchanged)",
     )
-    selection_show.add_argument(
+    review_set_show.add_argument(
         "--force",
         action="store_true",
         help="overwrite an existing --output-path file",
     )
 
-    shortlist_parser = subparsers.add_parser(
-        "shortlist",
-        help="publish a shortlist judgment",
+    triage_parser = subparsers.add_parser(
+        "research-triage",
+        help="publish a ResearchTriage judgment",
     )
-    shortlist_commands = shortlist_parser.add_subparsers(dest="shortlist_command", required=True)
-    shortlist_publish = shortlist_commands.add_parser(
+    triage_commands = triage_parser.add_subparsers(dest="research_triage_command", required=True)
+    triage_publish = triage_commands.add_parser(
         "publish",
-        help="publish a shortlist draft as an immutable judgment bound to a screening run",
+        help="publish a ResearchTriage draft bound to an immutable Review Set",
     )
-    shortlist_publish.add_argument("draft")
-    shortlist_publish.add_argument("--db", help="application DB path")
-    shortlist_publish.add_argument("--runs-db", help="screening run store path")
-    shortlist_outcome = shortlist_commands.add_parser(
-        "outcome",
-        help="compare each published shortlist's selected / rejected / machine cohorts",
-    )
-    shortlist_outcome.add_argument("--db", help="application DB path")
-    shortlist_outcome.add_argument("--runs-db", help="screening run store path")
-    shortlist_outcome.add_argument(
-        "--sqlite-path",
-        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
-        help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
-    )
-    shortlist_outcome.add_argument(
-        "--horizon",
-        action="append",
-        dest="horizons",
-        help="horizon to evaluate (3m/6m/1y/3y/5y; repeatable)",
-    )
-    shortlist_outcome.add_argument("--out", help="write the YAML payload to this path")
+    triage_publish.add_argument("draft")
+    triage_publish.add_argument("--db", help="application DB path")
+    triage_publish.add_argument("--runs-db", help="screening run store path")
 
     profile_parser = subparsers.add_parser(
         "ticker-profile",
@@ -452,7 +410,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     calibration_evaluate_parser = subparsers.add_parser(
         "calibration-evaluate",
-        help="evaluate stored calibration cohorts (rank IC / decile / selection replay)",
+        help="evaluate stored calibration cohorts (rank IC / decile / Review Set replay)",
     )
     calibration_evaluate_parser.add_argument(
         "--calibration-dir",
@@ -514,18 +472,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _add_market_state_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--sqlite-path",
-        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
-        help=(
-            "SQLite cache used to compute the market state fact "
-            "(benchmark return / regime label; absence degrades to null) "
-            f"(default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)"
-        ),
-    )
-
-
 def main(argv: list[str] | None = None) -> int:
     load_project_env()
     parser = build_parser()
@@ -537,55 +483,30 @@ def main(argv: list[str] | None = None) -> int:
             runs_db_path=Path(args.runs_db) if args.runs_db else None,
         )
 
-    if args.command == "select":
-        # select reads immutable run/context publications and local rule config;
-        # no provider credentials are needed.
-        return select_command(
+    if args.command == "review-set" and args.review_set_command == "publish":
+        return review_set_publish_command(
             asof_date=_parse_iso_date(args.asof),
             rules=load_screening_rules(Path(args.rules_path)),
-            detail=args.detail,
             review_cap=args.review_cap,
             output_path=Path(args.output_path) if args.output_path else None,
             force=args.force,
-            regime_sqlite_path=Path(args.sqlite_path),
             run_revision_id=args.run_revision_id,
             runs_db_path=Path(args.runs_db) if args.runs_db else None,
             app_db_path=Path(args.app_db) if args.app_db else None,
-            macro_context_id=args.macro_context_id,
-            previous_run_revision_id=args.previous_run_revision_id,
-            previous_shortlist_id=args.previous_shortlist_id,
-            ranked_set_history_dir=(
-                Path(args.ranked_set_history_dir) if args.ranked_set_history_dir else None
-            ),
         )
 
-    if args.command == "selection":
-        # selection show reads the immutable run store only; no provider
-        # credentials and no writes.
-        return selection_show_command(
-            selection_id=args.selection_id,
+    if args.command == "review-set" and args.review_set_command == "show":
+        return review_set_show_command(
+            review_set_id=args.review_set_id,
             runs_db_path=Path(args.runs_db) if args.runs_db else None,
             output_path=Path(args.output_path) if args.output_path else None,
             force=args.force,
         )
 
-    if args.command == "shortlist" and args.shortlist_command == "outcome":
-        from baibai_engine.appdb import database_path
+    if args.command == "research-triage":
+        from baibai_engine.screening.research_triage_cli import publish_research_triage
 
-        from .shortlist_outcome_cli import shortlist_outcome_command
-
-        return shortlist_outcome_command(
-            db_path=Path(args.db) if args.db else database_path(),
-            runs_db_path=Path(args.runs_db) if args.runs_db else None,
-            sqlite_path=Path(args.sqlite_path),
-            horizons=args.horizons,
-            output_path=Path(args.out) if args.out else None,
-        )
-
-    if args.command == "shortlist":
-        from baibai_engine.screening.shortlist_cli import publish_shortlist
-
-        return publish_shortlist(
+        return publish_research_triage(
             Path(args.draft),
             app_db_path=Path(args.db) if args.db else None,
             runs_db_path=Path(args.runs_db) if args.runs_db else None,

@@ -38,7 +38,7 @@ def screening_calibration_method_identity(root: Path) -> tuple[str, str] | None:
 def previous_run_revision_id(path: Path, asof: date) -> str | None:
     """Return the newest revision of the greatest prior as-of, or None when none exists.
 
-    Resolves the ambiguity ``screening select`` raises when the greatest prior
+    Resolves the ambiguity ``screening review-set publish`` raises when the greatest prior
     as-of holds more than one revision: the store's canonical ordering
     (``asof_date``, ``run_at``, ``run_revision_id`` descending) picks one
     deterministically. This answer feeds a run that is about to be written, so
@@ -110,26 +110,25 @@ def screening_run_asof_dates(path: Path, *, limit: int = 31) -> list[date]:
     return [date.fromisoformat(str(row[0])) for row in rows]
 
 
-def screening_selection_payloads(
+def screening_review_set_payloads(
     path: Path,
     *,
     run_revision_id: str | None = None,
 ) -> list[dict[str, object]]:
-    selections = _absent_as_none(
-        path, lambda: ScreeningRunReader(path).list_selections(run_revision_id=run_revision_id)
+    review_sets = _absent_as_none(
+        path, lambda: ScreeningRunReader(path).list_review_sets(run_revision_id=run_revision_id)
     )
-    if selections is None:
+    if review_sets is None:
         return []
     return [
         {
-            "selection_id": item.selection_id,
+            "review_set_id": item.review_set_id,
             "run_revision_id": item.run_revision_id,
             "as_of_date": item.as_of_date,
-            "macro_context_id": item.macro_context_id,
             "created_at": item.created_at,
             "payload": item.payload,
         }
-        for item in selections
+        for item in review_sets
     ]
 
 
@@ -169,14 +168,14 @@ def _run_payload(run: object) -> dict[str, object]:
         "screening_rules_hash": screening_rules_hash,
         "er_model_version": er_model_version,
         "payload": run.payload,
-        "candidates": list(run.candidates),
+        "security_analyses": list(run.security_analyses),
     }
 
 
 __all__ = [
     "previous_run_revision_id",
     "screening_calibration_method_identity",
+    "screening_review_set_payloads",
     "screening_run_asof_dates",
     "screening_run_payload",
-    "screening_selection_payloads",
 ]

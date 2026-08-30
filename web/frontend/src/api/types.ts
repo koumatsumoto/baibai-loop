@@ -2,34 +2,16 @@
 // Run `uv run python -m baibai_web.contracts_export` after changing those models;
 // `tools/quality/drift/check_readmodel_contract.py` refuses a stale copy.
 
-export interface AssessmentCaseView {
+export interface AllocationAlternativeView {
   ticker: string
-  name: string | null
   disposition: string
-  disposition_reason: string
+  rationale: string
   thesis_id: string
-  review_id: string | null
+  thesis_review_id: string | null
   permanent_loss_conclusion: string | null
-  adverse_risk_axes: string[]
   five_year_base_cagr_pct: number | null
-  required_return_pct: number | null
   fair_value_yen: number | null
   fv_gap_pct: number | null
-  base_terminal_multiple: number | null
-  break_even_terminal_multiple: number | null
-  terminal_multiple_buffer: number | null
-  break_even_earnings_growth_pct: number | null
-  earnings_growth_buffer_pp: number | null
-  observed_trailing_multiple: number | null
-  business_model: string
-  value_capture: string
-  growth_quality: string
-  financial_resilience: string
-  strongest_countercase: string
-  catalyst: string
-  research_questions: ResearchQuestionView[]
-  unknowns: string[]
-  source_caveats: SourceCaveatView[]
 }
 
 export interface AssessmentReviewView {
@@ -38,31 +20,6 @@ export interface AssessmentReviewView {
   reviewed_at: string
   conclusion: string
   open_findings: string[]
-}
-
-export interface BargainAssessmentSummaryView {
-  assessment_id: string
-  as_of: string
-  published_at: string
-  result: string
-  headline: string
-  shortlist_id: string
-  case_count: number
-  selected_ticker: string | null
-}
-
-export interface BargainAssessmentView {
-  assessment_id: string
-  as_of: string
-  published_at: string
-  result: string
-  headline: string
-  shortlist_id: string
-  macro_context_id: string | null
-  comparison: string
-  forgone: string
-  cases: AssessmentCaseView[]
-  review: AssessmentReviewView
 }
 
 /**
@@ -89,48 +46,29 @@ export interface CandidateMoveDeltaView {
   change_pp: number
 }
 
-export interface CandidateRowView {
-  ticker: string
-  name: string | null
-  sector_33: string | null
-  market_cap_oku: number | null
-  avg_turnover_oku: number | null
-  per_trailing: number | null
-  normalized_per_3fy: number | null
-  per_forward: number | null
-  pbr: number | null
-  ev_ebitda: number | null
-  p_s: number | null
-  pcfr: number | null
-  dividend_yield: number | null
-  dividend_basis: string | null
-  dividend_split_factor: number | null
-  er_annual: number | null
-  er_reversion_annual: number | null
-  er_carry_annual: number | null
-  net_cash_to_market_cap: number | null
-  fcf_yield: number | null
-  ocf_yield: number | null
-  equity_ratio: number | null
-  sales_yoy: number | null
-  operating_profit_yoy: number | null
-  sector_relative_strength_percentile: number | null
-  price_change_20d: number | null
-  gap_from_52w_low: number | null
-  next_earnings_date: string | null
-  margin_week_end: string | null
-  margin_long_to_adv: number | null
-  margin_short_to_adv: number | null
-  margin_long_share: number | null
-  margin_long_delta_26w: number | null
-  margin_std_long_share: number | null
-  data_quality_flags: string[]
-  portfolio_state: PortfolioState
-  has_research: boolean
-  fair_value_anchor_yen: number | null
-  fair_value_gap_pct: number | null
-  er_level_quintile: number | null
-  er_meets_8_5pct_band: boolean
+export interface CapitalAllocationAssessmentSummaryView {
+  capital_allocation_assessment_id: string
+  as_of: string
+  published_at: string
+  result: string
+  headline: string
+  research_triage_id: string
+  alternative_count: number
+  allocated_ticker: string | null
+}
+
+export interface CapitalAllocationAssessmentView {
+  capital_allocation_assessment_id: string
+  as_of: string
+  published_at: string
+  result: string
+  headline: string
+  research_triage_id: string
+  macro_context_id: string | null
+  comparison: string
+  forgone: string
+  alternatives: AllocationAlternativeView[]
+  review: AssessmentReviewView
 }
 
 /**
@@ -138,7 +76,7 @@ export interface CandidateRowView {
  *
  * Every field is an observation or a comparison of observations. The view names no
  * cause and carries no recommendation: it tells the reader where to look, and the
- * decision to start an opportunity cycle or a holding review stays human.
+ * decision to start an opportunity cycle or a Position Review stays human.
  *
  * ``unavailable`` lists the sections no store could answer, so an empty section is
  * never read as "nothing changed". ``pool`` names which machine pool the comparison
@@ -193,7 +131,7 @@ export interface DashboardView {
   research_load_errors: string[]
 }
 
-export type DeltaPool = 'ranked_set'
+export type DeltaPool = 'review_set'
 
 export type DeltaUnavailable = 'candidates' | 'candidates_estimate' | 'candidates_pool' | 'candidates_previous_run' | 'holdings' | 'holdings_fair_value' | 'macro' | 'market'
 
@@ -243,17 +181,6 @@ export interface ErLevelCalibrationStatsView {
 }
 
 /**
- * Read-only warning provenance; it never carries selection authority.
- */
-export interface FvConvergenceView {
-  status: 'warning' | 'clear' | 'not_evaluable'
-  warning_code: string | null
-  market_price_yen: number | null
-  anchors_yen: Record<string, number>
-  er_reversion_annual: number | null
-}
-
-/**
  * One open holding whose observation crossed a threshold worth reading.
  *
  * ``at_or_above_fair_value`` is the comparison of two numbers, not a decision:
@@ -265,15 +192,6 @@ export interface HoldingDeltaView {
   at_or_above_fair_value: boolean | null
   change_since_previous_pct: number | null
   days_to_next_earnings: number | null
-}
-
-export interface HoldingReviewView {
-  holding_review_id: string
-  as_of: string
-  thesis_id: string
-  candidate_thesis_id: string | null
-  action: string
-  note: string | null
 }
 
 export interface HoldingView {
@@ -292,14 +210,6 @@ export interface HoldingView {
   latest_thesis_id: string | null
   recommendation: string | null
   next_earnings_date: string | null
-}
-
-export interface MachineSelectionView {
-  selection_id: string
-  run_revision_id: string
-  macro_context_id: string | null
-  created_at: string
-  ranked_set: SelectionRankedSetEntryView[]
 }
 
 export interface MacroConnectionSectionView {
@@ -628,10 +538,13 @@ export interface PortfolioOutcomeView {
 
 export type PortfolioState = 'unheld' | 'held' | 'reserved' | 'held_and_reserved'
 
-export interface ResearchQuestionView {
-  question: string
-  answer: string
-  status: string
+export interface PositionReviewView {
+  position_review_id: string
+  as_of: string
+  thesis_id: string
+  candidate_thesis_id: string | null
+  action: string
+  note: string | null
 }
 
 export interface ResearchRevisionView {
@@ -644,6 +557,26 @@ export interface ResearchRevisionView {
   review_id: string | null
 }
 
+export interface ResearchTriageEntryView {
+  ticker: string
+  decision: string
+  priority: number | null
+  rationale: string
+  research_question: string | null
+  key_risk: string | null
+  machine_snapshot: ReviewSetEntryView | null
+}
+
+export interface ResearchTriageView {
+  research_triage_id: string
+  review_set_id: string
+  run_revision_id: string
+  as_of: string
+  published_at: string
+  entries: ResearchTriageEntryView[]
+  unreadable_entries: number
+}
+
 export interface ReservationView {
   reservation_id: string
   ticker: string
@@ -652,6 +585,27 @@ export interface ReservationView {
   price_guard_yen: string
   reserved_yen: number
   expires_at: string
+}
+
+/**
+ * One nominated security in deterministic multi-approach review order.
+ */
+export interface ReviewSetEntryView {
+  review_position: number
+  ticker: string
+  name: string | null
+  sector_33: string | null
+  nominations: Record<string, unknown>[]
+  support_count: number
+  rank_vector: number[]
+  analysis: Record<string, unknown>
+}
+
+export interface ReviewSetView {
+  review_set_id: string
+  run_revision_id: string
+  created_at: string
+  entries: ReviewSetEntryView[]
 }
 
 export interface ScenarioView {
@@ -664,7 +618,7 @@ export interface ScenarioView {
  */
 export interface ScreeningHistoryRunView {
   run: ScreeningRunView
-  rows: CandidateRowView[]
+  rows: SecurityAnalysisRowView[]
 }
 
 export interface ScreeningHistoryView {
@@ -677,18 +631,62 @@ export interface ScreeningRunView {
   asof_date: string
   run_at: string
   universe_size: number
-  candidate_count: number
+  analyzed_security_count: number
   run_revision_id: string
   stale: boolean
 }
 
 export interface ScreeningView {
   run: ScreeningRunView | null
-  rows: CandidateRowView[]
-  selections: MachineSelectionView[]
-  shortlists: ShortlistView[]
-  assessments: BargainAssessmentSummaryView[]
+  security_analyses: SecurityAnalysisRowView[]
+  review_sets: ReviewSetView[]
+  research_triages: ResearchTriageView[]
+  capital_allocation_assessments: CapitalAllocationAssessmentSummaryView[]
   er_level_calibration: ErLevelCalibrationContextView | null
+}
+
+export interface SecurityAnalysisRowView {
+  ticker: string
+  name: string | null
+  sector_33: string | null
+  market_cap_oku: number | null
+  avg_turnover_oku: number | null
+  per_trailing: number | null
+  normalized_per_3fy: number | null
+  per_forward: number | null
+  pbr: number | null
+  ev_ebitda: number | null
+  p_s: number | null
+  pcfr: number | null
+  dividend_yield: number | null
+  dividend_basis: string | null
+  dividend_split_factor: number | null
+  er_annual: number | null
+  er_reversion_annual: number | null
+  er_carry_annual: number | null
+  net_cash_to_market_cap: number | null
+  fcf_yield: number | null
+  ocf_yield: number | null
+  equity_ratio: number | null
+  sales_yoy: number | null
+  operating_profit_yoy: number | null
+  sector_relative_strength_percentile: number | null
+  price_change_20d: number | null
+  gap_from_52w_low: number | null
+  next_earnings_date: string | null
+  margin_week_end: string | null
+  margin_long_to_adv: number | null
+  margin_short_to_adv: number | null
+  margin_long_share: number | null
+  margin_long_delta_26w: number | null
+  margin_std_long_share: number | null
+  data_quality_flags: string[]
+  portfolio_state: PortfolioState
+  has_research: boolean
+  fair_value_anchor_yen: number | null
+  fair_value_gap_pct: number | null
+  er_level_quintile: number | null
+  er_meets_8_5pct_band: boolean
 }
 
 export interface SecurityDetailView {
@@ -698,79 +696,9 @@ export interface SecurityDetailView {
   holding: HoldingView | null
   revisions: ResearchRevisionView[]
   latest_thesis: ThesisDetailView | null
-  holding_reviews: HoldingReviewView[]
-  candidate_row: CandidateRowView | null
+  position_reviews: PositionReviewView[]
+  candidate_row: SecurityAnalysisRowView | null
   candidate_run: ScreeningRunView | null
-}
-
-/**
- * 機械 rank 上位の候補 1 件。FV アンカーと E[r] はここだけが持つ。
- */
-export interface SelectionRankedSetEntryView {
-  rank: number | null
-  ticker: string
-  name: string | null
-  market_price_yen: number | null
-  fair_value_anchor_yen: number | null
-  fair_value_gap_pct: number | null
-  expected_return_pct: number | null
-  primary_evidence_pattern_id: string | null
-  liquidity_status: string | null
-  selection_reasons: string[]
-  durability_warnings: string[]
-  event_warnings: string[]
-  fv_convergence: FvConvergenceView
-}
-
-export interface ShortlistEntryView {
-  ticker: string
-  decision: string
-  reason: string
-  rank: number | null
-  narrative: ShortlistNarrativeView | null
-  machine_snapshot: SelectionRankedSetEntryView | null
-}
-
-/**
- * 発行済み shortlist の判断。read 側は欠けた field を空欄として通す。
- *
- * 必須性を強制するのは publish の write path だけであり、read model が同じ必須を
- * 課すと、schema を進めた瞬間に旧 revision を読む export と API が落ちる。
- */
-export interface ShortlistNarrativeView {
-  ploss: string
-  why: string
-  temporary: string
-  structural: string
-  survive: string
-  unlock: string
-  counter: string
-  research: string
-  value: string
-  prov: string
-  upside: string | null
-  downside: string | null
-  rr: string | null
-  catalyst: string | null
-  catalyst_date: string | null
-  macro: string | null
-  sector_label: string | null
-}
-
-export interface ShortlistView {
-  shortlist_id: string
-  selection_id: string
-  run_revision_id: string
-  as_of: string
-  published_at: string
-  entries: ShortlistEntryView[]
-  unreadable_entries: number
-}
-
-export interface SourceCaveatView {
-  source_id: string
-  status: string
-  decision_impact: string
 }
 
 export interface TaskView {

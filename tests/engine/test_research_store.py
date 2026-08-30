@@ -11,7 +11,7 @@ import baibai_engine.research.store as research_store_module
 import baibai_engine.research.thesis as thesis_module
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.read_api import (
-    list_holding_review_publications,
+    list_position_review_publications,
     list_thesis_publications,
     list_thesis_review_publications,
     thesis_publication,
@@ -148,7 +148,7 @@ def test_research_read_facade_returns_ids_and_uses_read_only_connection(
     assert isinstance(theses[0]["payload"], dict)
     assert thesis_publication(path, thesis_id=THESIS_ID) == theses[0]
     assert list_thesis_review_publications(path, thesis_id=str(theses[0]["thesis_id"]))
-    assert list_holding_review_publications(path, ticker="2331") == []
+    assert list_position_review_publications(path, ticker="2331") == []
     assert not (tmp_path / "missing.sqlite").exists()
     assert list_thesis_publications(tmp_path / "missing.sqlite") == []
     assert not (tmp_path / "missing.sqlite").exists()
@@ -175,7 +175,7 @@ def test_schema_evolution_does_not_move_a_published_thesis_identity(
 
     Deriving the identity from the current model is what broke it once: a retired
     `estimates` key moved the hash of theses published weeks earlier, and the review,
-    proposal, holding review, assessment and price watch bound to them stopped reading
+    proposal, Position Review, allocation assessment and price watch bound to them stopped reading
     together. Here the derivation is replaced wholesale — the strongest form of "the
     schema changed" — and the published thesis must still read.
     """

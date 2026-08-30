@@ -8,11 +8,7 @@ from datetime import date
 from pathlib import Path
 
 from tests.helpers.db_seed import seed_ledger
-from tests.helpers.screening_run import (
-    evidence_hit,
-    screening_candidate,
-    screening_run_payload,
-)
+from tests.helpers.screening_run import screening_candidate, screening_run_payload
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.foundation.yaml_io import safe_load
@@ -80,7 +76,6 @@ def _write_candidates(runs_db_path: Path) -> None:
                 screening_candidate(
                     "AAAA",
                     name="テスト製作所",
-                    evidence_hits=[evidence_hit("cashflow-yield-discount")],
                     metrics={"ocf_yield": 0.11},
                 )
             ],

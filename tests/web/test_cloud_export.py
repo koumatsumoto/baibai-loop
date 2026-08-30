@@ -3,15 +3,14 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
 from tests.helpers.macro_context import macro_context_payload
-from tests.helpers.screening_selection import ranked_selection_payload
+from tests.helpers.research_triage import research_triage_payload, skip_entry
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
-from tests.helpers.shortlist import rejected_entry, shortlist_payload
 
 from baibai_engine.appdb import LATEST_VERSION
 from baibai_engine.appdb.json import canonical_json
@@ -23,7 +22,7 @@ from baibai_engine.macro.indicators.db import (
     open_connection,
 )
 from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH
-from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
+from baibai_engine.screening.run_store import ScreeningRunReader
 from baibai_web import materialize as export_module
 from baibai_web.api.server import create_app
 from baibai_web.materialize import main
@@ -174,13 +173,13 @@ def test_build_meta_reflects_a_newly_written_operation_session(
             INSERT INTO operation_session(
                 operation_id, session_kind, status, as_of, ticker,
                 started_at, completed_at, payload
-            ) VALUES (?, 'opportunity', 'active', ?, NULL, ?, NULL, ?)
+            ) VALUES (?, 'capital-allocation', 'active', ?, NULL, ?, NULL, ?)
             """,
             (
-                "operation-20260801-opportunity",
+                "operation-20260801-capital-allocation",
                 "2026-08-01",
                 started_at.isoformat(),
-                canonical_json({"kind": "opportunity"}),
+                canonical_json({"kind": "capital-allocation"}),
             ),
         )
 
@@ -204,19 +203,6 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     runs_db = app_method_root / "stores/screening/runs.sqlite"
     run = ScreeningRunReader(runs_db).latest_run()
     assert run is not None
-    ScreeningRunStore(runs_db).publish_selection(
-        run_revision_id=run.run_revision_id,
-        macro_context_id=None,
-        payload=ranked_selection_payload(
-            ticker="2331",
-            er_annual=0.12,
-            rules_hash=str(run.payload["screening_rules_hash"]),
-            asof=run.as_of_date,
-            candidates_ref=run.run_revision_id,
-            source_candidates=run.candidates,
-        ),
-        created_at=datetime(2026, 7, 8, 4, 0, tzinfo=UTC),
-    )
     output_dir = tmp_path / "export"
 
     exit_code = main(
@@ -254,8 +240,8 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
         (views / "screening_latest.json").read_text(encoding="utf-8")
     )
     assert screening.run is not None
-    assert screening.run.candidate_count == 3
-    assert len(screening.selections) == 1
+    assert screening.run.analyzed_security_count == 3
+    assert screening.review_sets == []
     OperationsView.model_validate_json((views / "operations.json").read_text(encoding="utf-8"))
     meta = MetaView.model_validate_json((views / "meta.json").read_text(encoding="utf-8"))
     assert meta.batch == "daily"
@@ -280,50 +266,6 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     assert pool["run"]["asof_date"] == "2026-07-01"
     latest_pool = json.loads(pool_files[1].read_text(encoding="utf-8"))
     assert latest_pool["run"]["run_revision_id"] == run.run_revision_id
-    ranked_set_record = json.loads(
-        (output_dir / "history/ranked_sets/2026-07-08.json").read_text(encoding="utf-8")
-    )
-    assert ranked_set_record["kind"] == "daily-ranked-set-membership"
-    assert ranked_set_record["selection_status"] == "available"
-    assert ranked_set_record["selection_id"] == screening.selections[0].selection_id
-    assert ranked_set_record["members"] == [{"ticker": "2331", "rank": 1, "er_annual": 0.12}]
-
-
-def test_export_writes_explicit_empty_ranked_set_when_selection_is_missing(
-    app_method_root: Path, tmp_path: Path
-) -> None:
-    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-    runs_db = app_method_root / "stores/screening/runs.sqlite"
-    runs = ScreeningRunReader(runs_db).list_runs()
-    assert len(runs) >= 2
-    connection = sqlite3.connect(runs_db)
-    with connection:
-        connection.execute("DELETE FROM screening_selection")
-    connection.close()
-    ScreeningRunStore(runs_db).publish_selection(
-        run_revision_id=runs[1].run_revision_id,
-        macro_context_id=None,
-        payload=ranked_selection_payload(
-            ticker="2331",
-            er_annual=0.12,
-            rules_hash=str(runs[1].payload["screening_rules_hash"]),
-            ranked_set=(),
-            asof=runs[1].as_of_date,
-            candidates_ref=runs[1].run_revision_id,
-            source_candidates=runs[1].candidates,
-        ),
-        created_at=datetime(2026, 7, 1, 4, 0, tzinfo=UTC),
-    )
-    output_dir = tmp_path / "export"
-
-    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
-
-    payload = json.loads(
-        (output_dir / "history/ranked_sets/2026-07-08.json").read_text(encoding="utf-8")
-    )
-    assert payload["selection_status"] == "selection_missing"
-    assert payload["selection_id"] is None
-    assert payload["members"] == []
 
 
 def test_export_writes_macro_context_detail_views(app_method_root: Path, tmp_path: Path) -> None:
@@ -432,24 +374,24 @@ def test_export_skips_security_view_for_ticker_no_source_knows(
     app_method_root: Path, tmp_path: Path, capsys
 ) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-    payload = shortlist_payload(
-        shortlist_id="shortlist-20260708-value",
-        selection_id="selection-old",
+    payload = research_triage_payload(
+        research_triage_id="research_triage-20260708-value",
+        review_set_id="selection-old",
         run_revision_id="run-revision-old",
         as_of="2026-07-08",
         published_at="2026-07-08T13:00:00+09:00",
-        entries=[rejected_entry("9999", reason="決算後に再評価")],
+        entries=[skip_entry("9999", reason="決算後に再評価")],
     )
     with sqlite3.connect(app_method_root / "stores/application/baibai.sqlite") as connection:
         connection.execute(
             """
-            INSERT INTO shortlist(
-                shortlist_id, selection_id, run_revision_id, as_of, published_at, payload
+            INSERT INTO research_triage(
+                research_triage_id, review_set_id, run_revision_id, as_of, published_at, payload
             ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
-                payload["shortlist_id"],
-                payload["selection_id"],
+                payload["research_triage_id"],
+                payload["review_set_id"],
                 payload["run_revision_id"],
                 payload["as_of"],
                 payload["published_at"],

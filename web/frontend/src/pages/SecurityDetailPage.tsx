@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 
 import { ApiError, fetchJson } from '../api/client'
-import type { CandidateRowView, SecurityDetailView } from '../api/types'
+import type { SecurityAnalysisRowView, SecurityDetailView } from '../api/types'
 import { AsOfBadge } from '../components/AsOfBadge'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
@@ -30,7 +30,7 @@ function FractionMetric({ value }: { value: number | null }) {
   return <PctBadge fraction value={value} />
 }
 
-function ScreeningMetrics({ row }: { row: CandidateRowView }) {
+function ScreeningMetrics({ row }: { row: SecurityAnalysisRowView }) {
   return (
     <dl className="grid gap-6 sm:grid-cols-2 lg:grid-cols-5">
       <Field label="時価総額"><span className="font-mono tabular-nums">{row.market_cap_oku === null ? '—' : `${row.market_cap_oku.toLocaleString('ja-JP')} 億円`}</span></Field>
@@ -197,15 +197,15 @@ export function SecurityDetailPage() {
         )}
       </SectionCard>
 
-      <SectionCard description="人間確認後に publish された保有判断" meta={<Badge variant="secondary">{data.holding_reviews.length} 件</Badge>} title="Holding review 履歴">
-        {data.holding_reviews.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">holding review 記録なし</p>
+      <SectionCard description="人間確認後に publish された保有判断" meta={<Badge variant="secondary">{data.position_reviews.length} 件</Badge>} title="Position Review 履歴">
+        {data.position_reviews.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">Position Review 記録なし</p>
         ) : (
           <Table>
             <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>{LABEL.asOf}</TableHead><TableHead>action</TableHead><TableHead>thesis</TableHead><TableHead>note</TableHead></TableRow></TableHeader>
             <TableBody>
-              {data.holding_reviews.map((review) => (
-                <TableRow key={review.holding_review_id}>
+              {data.position_reviews.map((review) => (
+                <TableRow key={review.position_review_id}>
                   <TableCell className="font-mono tabular-nums">{review.as_of}</TableCell>
                   <TableCell><Badge className="font-mono uppercase" variant="outline">{review.action}</Badge></TableCell>
                   <TableCell><code className="text-xs">{review.thesis_id}</code></TableCell>

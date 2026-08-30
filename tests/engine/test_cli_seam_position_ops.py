@@ -78,7 +78,7 @@ def test_override_draft_cli_writes_the_typed_approval_window(
             "--reason",
             "reviewed concentration is intentional",
             "--decision-reference",
-            "holding-review-20260710-2331",
+            "position-review-20260710-2331",
             "--approved-at",
             "2026-07-10T09:00:00+09:00",
             "--expires-at",
@@ -146,7 +146,7 @@ def test_operation_checkpoint_cli_replaces_the_active_payload(
     db = tmp_path / "app.sqlite"
     assert (
         operation_main(
-            ["--db", str(db), "start", "--kind", "opportunity", "--as-of", "2026-07-19"],
+            ["--db", str(db), "start", "--kind", "capital-allocation", "--as-of", "2026-07-19"],
             now=OPERATION_NOW,
         )
         == 0
@@ -156,8 +156,8 @@ def test_operation_checkpoint_cli_replaces_the_active_payload(
     payload.write_text(
         yaml.safe_dump(
             {
-                "checkpoint": "shortlist reviewed",
-                "next": "wait for the primary research set",
+                "checkpoint": "research_triage reviewed",
+                "next": "wait for Research Set admission",
             }
         ),
         encoding="utf-8",
@@ -170,14 +170,14 @@ def test_operation_checkpoint_cli_replaces_the_active_payload(
 
     assert code == 0
     emitted = _emitted(capsys)
-    assert emitted["payload"]["checkpoint"] == "shortlist reviewed"
+    assert emitted["payload"]["checkpoint"] == "research_triage reviewed"
     with sqlite3.connect(db) as connection:
         row = connection.execute(
             "SELECT status, json_extract(payload, '$.checkpoint') "
             "FROM operation_session WHERE operation_id = ?",
             (operation_id,),
         ).fetchone()
-    assert tuple(row) == ("active", "shortlist reviewed")
+    assert tuple(row) == ("active", "research_triage reviewed")
 
 
 def test_task_drop_cli_closes_the_row_on_the_operation_date(

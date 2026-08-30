@@ -1,6 +1,0 @@
-interface:
-  display_name: "Baibai Holding Review"
-  short_description: "決算・event 後の保有見直しと hold/add/reduce/exit 判定"
-  default_prompt: "Use $holding-review to run this Baibai Loop operation."
-policy:
-  allow_implicit_invocation: true

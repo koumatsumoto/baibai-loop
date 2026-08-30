@@ -4,7 +4,7 @@ Three primary sources describe who might close a valuation gap and when: the TSE
 "management conscious of cost of capital" disclosure list, the EDINET filing index for
 large-holding and tender-offer events, and the JPX delisting record. None of them feeds
 ranking, E[r] or any gate — event deltas measured negative over 3y/5y, and the disclosure
-rate alone no longer separates companies. They exist so a human reading a shortlist can
+rate alone no longer separates companies. They exist so a human reading a research_triage can
 see the dated catalyst context, and so a completed tender offer can price a delisted name
 in the calibration forward window.
 
@@ -37,7 +37,7 @@ TSE_CAPITAL_POLICY_URL = "https://www.jpx.co.jp/equities/follow-up/jr4eth0000004
 JPX_DELISTING_INDEX_URL = "https://www.jpx.co.jp/listing/stocks/delisted/"
 
 # Six months of filings. A large-holding position or a tender offer older than that is
-# no longer the "recent" context the shortlist reader is asking about, and the window
+# no longer the "recent" context the research_triage reader is asking about, and the window
 # has to be short enough that the identity coverage behind it is provable.
 EVENT_RECENT_DAYS = 183
 

@@ -59,7 +59,7 @@ class TestDbResearchSource:
         assert detail.revision == revisions[0]
         assert detail.permanent_loss_risk_count == 7
         assert len(detail.scenarios) == 6
-        assert source.holding_reviews(ticker="2331") == []
+        assert source.position_reviews(ticker="2331") == []
 
 
 class TestDbTaskSource:

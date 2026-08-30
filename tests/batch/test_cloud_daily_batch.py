@@ -26,7 +26,6 @@ from baibai_engine.macro.indicators.service import (
     LATEST_FETCH_LOOKBACK_DAYS,
 )
 from baibai_engine.market.sqlite import store_jquants_market_calendar
-from baibai_engine.screening.run_store import ScreeningRunStore
 
 JST = ZoneInfo("Asia/Tokyo")
 ASOF = date(2026, 7, 21)
@@ -45,13 +44,13 @@ RUN_OK = CommandResult(
     "universe=3800; candidates=42\n",
     "",
 )
-SELECT_OK = CommandResult(
+REVIEW_SET_OK = CommandResult(
     0,
-    "selection_id: sel-1\n"
-    "ranked_set:\n"
+    "review_set_id: review-set-1\n"
+    "entries:\n"
     '  - ticker: "2331"\n'
     '  - ticker: "0001"\n'
-    "selection:\n"
+    "review_set:\n"
     "  asof: 2026-07-08\n",
     "",
 )
@@ -148,7 +147,7 @@ def _success_script() -> dict[str, list[CommandResult]]:
         "screening extract-edinet-metrics": [EXTRACT_OK],
         "screening run": [RUN_OK],
         "task reconcile-earnings": [OK],
-        "screening select": [SELECT_OK],
+        "screening review-set": [REVIEW_SET_OK],
         "macro list": [MACRO_LIST_OK],
         "macro refresh": [OK, OK, OK],
         "export": [OK],
@@ -164,21 +163,6 @@ def _runner(
     return ScriptedRunner(
         results or _success_script(),
         writers={"screening run": _run_yaml_writer(run_revision_id)},
-    )
-
-
-def _publish_run(root: Path, *, asof: str, run_at: str, revision_id: str) -> None:
-    store = ScreeningRunStore(root / "stores/screening/runs.sqlite")
-    store.publish_run(
-        {
-            "run_id": f"screening-{asof.replace('-', '')}",
-            "run_date": asof,
-            "asof_date": asof,
-            "run_at": run_at,
-            "universe_size": 0,
-            "candidates": [],
-        },
-        run_revision_id=revision_id,
     )
 
 
@@ -221,7 +205,7 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "screening extract-edinet-metrics",
         "screening verify-cache-coverage",
         "screening run",
-        "screening select",
+        "screening review-set",
         "macro list",
         "macro refresh",
         "macro refresh",
@@ -236,8 +220,9 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
     assert run_argv[3:5] == ["--asof", "2026-07-21"]
     assert "--output-path" in run_argv
 
-    select_argv = _call(runner, "screening select")
+    select_argv = _call(runner, "screening review-set")
     assert select_argv[3:] == [
+        "publish",
         "--asof",
         "2026-07-21",
         "--run-revision-id",
@@ -392,7 +377,7 @@ def test_daily_batch_stops_on_step_failure_with_stderr_summary(tmp_path: Path) -
     assert "screening-run" in message
     assert "exit 1" in message
     assert "provider unavailable" in message
-    assert "screening select" not in runner.call_keys()
+    assert "screening review-set" not in runner.call_keys()
 
 
 def test_daily_batch_continues_when_run_reports_partial_warning(tmp_path: Path, capsys) -> None:
@@ -470,35 +455,6 @@ def test_daily_batch_always_echoes_registry_prune_audit_lines(
     assert exit_code == (3 if returncode else 0)
 
 
-def test_daily_batch_passes_previous_run_revision_when_resolvable(tmp_path: Path) -> None:
-    _publish_run(
-        tmp_path, asof="2026-07-17", run_at="2026-07-17T18:00:00+09:00", revision_id="old-1"
-    )
-    _publish_run(
-        tmp_path, asof="2026-07-17", run_at="2026-07-17T19:00:00+09:00", revision_id="old-2"
-    )
-    _publish_run(tmp_path, asof="2026-07-21", run_at="2026-07-21T18:00:00+09:00", revision_id="cur")
-    runner = _runner()
-
-    exit_code = run_daily_batch(
-        root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
-    )
-
-    assert exit_code == 0
-    select_argv = next(argv for argv in runner.calls if _key(argv) == "screening select")
-    assert select_argv[-2:] == ["--previous-run-revision-id", "old-2"]
-
-
-def test_daily_batch_stops_with_message_when_runs_store_is_corrupt(tmp_path: Path) -> None:
-    runs_db = tmp_path / "stores/screening/runs.sqlite"
-    runs_db.parent.mkdir(parents=True, exist_ok=True)
-    runs_db.write_bytes(b"this is not a sqlite database")
-    runner = _runner()
-
-    with pytest.raises(BatchStepError, match="runs store is unreadable"):
-        run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
-
-
 def test_daily_batch_defers_macro_list_failure_and_still_exports(tmp_path: Path) -> None:
     script = _success_script()
     script["macro list"] = [CommandResult(1, "", "boom\n")]
@@ -520,15 +476,15 @@ def test_daily_batch_stops_when_run_view_lacks_run_revision_id(tmp_path: Path) -
     with pytest.raises(BatchStepError, match="run_revision_id"):
         run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
 
-    assert "screening select" not in runner.call_keys()
+    assert "screening review-set" not in runner.call_keys()
 
 
-def test_daily_batch_stops_when_select_output_lacks_selection_id(tmp_path: Path) -> None:
+def test_daily_batch_stops_when_review_set_output_lacks_id(tmp_path: Path) -> None:
     script = _success_script()
-    script["screening select"] = [CommandResult(0, "selection:\n  asof: 2026-07-08\n", "")]
+    script["screening review-set"] = [CommandResult(0, "review_set:\n  asof: 2026-07-08\n", "")]
     runner = _runner(script)
 
-    with pytest.raises(BatchStepError, match="selection_id"):
+    with pytest.raises(BatchStepError, match="review_set_id"):
         run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
 
     assert "macro list" not in runner.call_keys()
@@ -1017,7 +973,7 @@ def test_a_reconcile_failure_degrades_the_batch_without_losing_the_publish(
     )
 
     keys = runner.call_keys()
-    assert "screening select" in keys
+    assert "screening review-set" in keys
     assert "export" in keys
     assert exit_code == 3
     assert _load_notice(notice_path)["failed_stage"] == "task-reconcile-earnings"

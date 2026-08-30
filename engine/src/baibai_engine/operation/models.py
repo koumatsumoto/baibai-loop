@@ -8,11 +8,11 @@ from typing import Literal, cast
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 SessionKind = Literal[
-    "opportunity",
-    "earnings-material-event",
+    "capital-allocation",
+    "position-review",
 ]
 OperationStatus = Literal["active", "completed"]
-CompletionReason = Literal["no-shortlist-selection"]
+CompletionReason = Literal["no-research"]
 
 
 class HumanConfirmation(BaseModel):
@@ -65,8 +65,8 @@ class OperationSession(BaseModel):
 
 
 SESSION_KINDS: tuple[SessionKind, ...] = (
-    "opportunity",
-    "earnings-material-event",
+    "capital-allocation",
+    "position-review",
 )
 
 

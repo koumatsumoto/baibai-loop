@@ -13,7 +13,7 @@ from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.screening.candidate_build import build_screened_candidate
+from baibai_engine.screening.candidate_build import build_security_analysis
 from baibai_engine.screening.capital_control import read_capital_control_annotations
 from baibai_engine.screening.config import (
     ScreeningConfig,
@@ -48,19 +48,13 @@ from baibai_engine.screening.providers.jquants import (
     JQuantsProviderError,
 )
 from baibai_engine.screening.render import render_screened_yaml
-from baibai_engine.screening.rule_config import (
-    CashflowYieldEvidencePattern,
-    SalesDiscountGrowthEvidencePattern,
-    ScreeningRules,
-    load_screening_rules,
-)
-from baibai_engine.screening.rules import evaluate_screening
+from baibai_engine.screening.rule_config import ScreeningRules, load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_engine.screening.schema import (
     FinancialSnapshot,
-    ScreenedCandidate,
-    ScreenedRunDocument,
+    ScreeningRunDocument,
+    SecurityAnalysis,
     TTMQuality,
 )
 from baibai_engine.screening.universe import (
@@ -284,14 +278,8 @@ def run_command(
         asof_date=asof_date,
     )
 
-    screened_candidates: list[ScreenedCandidate] = []
+    security_analyses: list[SecurityAnalysis] = []
     for ticker in sorted(universe_result.snapshots):
-        result = evaluate_screening(
-            metric_result.financials[ticker],
-            metric_result.derived[ticker],
-            rules,
-            sector_33=securities_by_ticker[ticker].sector_33,
-        )
         financial = metric_result.financials[ticker]
         derived = metric_result.derived[ticker]
         universe_snapshot = universe_result.snapshots[ticker]
@@ -308,14 +296,13 @@ def run_command(
             asof_date,
             close=financial.market_price_yen,
         )
-        screened_candidates.append(
-            build_screened_candidate(
+        security_analyses.append(
+            build_security_analysis(
                 ticker=ticker,
                 security=security,
                 financial=financial,
                 derived=derived,
                 universe_snapshot=universe_snapshot,
-                evidence_hits=result.evidence_hits if result.pass_fail else (),
                 freshness_warnings=freshness_warnings,
                 next_earnings_date=next_earnings_by_ticker.get(ticker),
                 earnings_lag=build_earnings_lag(
@@ -369,7 +356,8 @@ def run_command(
         fallback_lines.append(f"ttm_quality 非 exact 件数: {approx_total}")
     if required_ttm_non_exact:
         fallback_lines.append(
-            f"有効Evidence Pattern必須TTM metric非exact件数(流動性母集団): {required_ttm_non_exact}"
+            "有効Valuation Approach必須TTM metric非exact件数(流動性母集団): "
+            f"{required_ttm_non_exact}"
         )
     if population_yoy_missing:
         fallback_lines.append(
@@ -427,11 +415,12 @@ def run_command(
         1 for snapshot in universe_result.snapshots.values() if snapshot.avg_turnover_oku is None
     )
     provider_status_lines.append(
-        f"Median population (selection.liquidity): {population_size} of {universe_size} in scope "
+        f"Median population (candidate-discovery eligibility): {population_size} of "
+        f"{universe_size} in scope "
         f"(market_cap null={cap_null_count}, turnover null={turnover_null_count})"
     )
 
-    document = ScreenedRunDocument(
+    document = ScreeningRunDocument(
         run_date=asof_date,
         asof_date=asof_date,
         universe_size=universe_size,
@@ -440,7 +429,7 @@ def run_command(
             "markets": "prime/standard/growth",
             "min_bar_history": MIN_BAR_HISTORY,
         },
-        candidates=tuple(screened_candidates),
+        security_analyses=tuple(security_analyses),
         run_at=run_now,
         run_id=run_id,
         screening_rules_hash=production_rules_contract_hash(rules.model_dump_json()),
@@ -451,7 +440,6 @@ def run_command(
             f"{reason}: {count} 件" for reason, count in universe_result.exclusion_counts.items()
         ),
         ttm_quality_counts=metric_result.ttm_quality_counts,
-        evidence_hits_summary=_evidence_hits_summary(screened_candidates, rules),
         fallback_lines=tuple(fallback_lines),
     )
     publication_yaml = render_screened_yaml(document)
@@ -471,7 +459,7 @@ def run_command(
         "screening run done: "
         f"status={status}; run_revision_id={publication.publication_id}; "
         f"output={output_path}; "
-        f"universe={universe_size}; candidates={len(screened_candidates)}",
+        f"universe={universe_size}; analyzed_securities={len(security_analyses)}",
         file=out,
         flush=True,
     )
@@ -487,28 +475,16 @@ def run_command(
     return 2 if partial_warning else 0
 
 
-def _evidence_hits_summary(
-    candidates: Sequence[ScreenedCandidate],
-    rules: ScreeningRules,
-) -> dict[str, int]:
-    summary = dict.fromkeys(rules.evidence_pattern_order, 0)
-    for candidate in candidates:
-        for evidence_hit in candidate.evidence_hits:
-            summary[evidence_hit.name] = summary.get(evidence_hit.name, 0) + 1
-    return summary
-
-
 def _required_ttm_non_exact_count(
     financials: Iterable[FinancialSnapshot],
-    rules: ScreeningRules,
+    _rules: ScreeningRules,
 ) -> int:
     snapshots = tuple(financials)
-    required_qualities: list[TTMQuality] = []
-    for pattern in rules.evidence_patterns.values():
-        if isinstance(pattern, CashflowYieldEvidencePattern) and pattern.ttm_cfo_required:
-            required_qualities.extend(snapshot.ttm_quality_ocf_yield for snapshot in snapshots)
-        if isinstance(pattern, SalesDiscountGrowthEvidencePattern):
-            required_qualities.extend(snapshot.ttm_quality_p_s for snapshot in snapshots)
+    required_qualities = [
+        quality
+        for snapshot in snapshots
+        for quality in (snapshot.ttm_quality_ocf_yield, snapshot.ttm_quality_p_s)
+    ]
     return sum(1 for quality in required_qualities if quality != TTMQuality.EXACT)
 
 

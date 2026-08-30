@@ -25,7 +25,7 @@ NOW = datetime(2026, 7, 19, 12, 0, tzinfo=JST)
 def test_operation_kinds_are_limited_to_multi_step_workflows(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert SESSION_KINDS == ("opportunity", "earnings-material-event")
+    assert SESSION_KINDS == ("capital-allocation", "position-review")
     with pytest.raises(SystemExit):
         operation_main(["start", "--kind", "pending-result", "--as-of", "2026-07-19"], now=NOW)
     assert "invalid choice" in capsys.readouterr().err
@@ -62,7 +62,7 @@ def _complete_payload(kind: SessionKind) -> OperationPayload:
         "result": "human confirmed",
     }
     values["artifacts"] = ({"kind": "review", "summary": "reviewed"},)
-    if kind == "earnings-material-event":
+    if kind == "position-review":
         values["canonical_refs"] = ("canonical-entity-1",)
     return OperationPayload.model_validate(values)
 
@@ -102,7 +102,7 @@ def test_all_kinds_share_one_active_slot_and_no_checkpoint_history(tmp_path: Pat
     db = tmp_path / "app.sqlite"
     service = OperationService(db)
     operation = service.start(
-        session_kind="opportunity",
+        session_kind="capital-allocation",
         as_of=date(2026, 7, 19),
         started_at=NOW,
         payload=_active_payload("one"),
@@ -110,7 +110,7 @@ def test_all_kinds_share_one_active_slot_and_no_checkpoint_history(tmp_path: Pat
 
     with pytest.raises(OperationConflictError, match="active operation already exists"):
         service.start(
-            session_kind="earnings-material-event",
+            session_kind="position-review",
             as_of=date(2026, 7, 19),
             started_at=NOW,
             payload=_active_payload(),
@@ -153,12 +153,12 @@ def test_complete_rejects_missing_kind_specific_final_fields(
     assert service.get(operation.operation_id).status == "active"
 
 
-def test_opportunity_with_no_shortlist_selection_completes_without_human_confirmation(
+def test_opportunity_with_no_research_triage_selection_completes_without_human_confirmation(
     tmp_path: Path,
 ) -> None:
     service = OperationService(tmp_path / "app.sqlite")
     operation = service.start(
-        session_kind="opportunity",
+        session_kind="capital-allocation",
         as_of=date(2026, 7, 19),
         started_at=NOW,
         payload=_active_payload(),
@@ -166,32 +166,32 @@ def test_opportunity_with_no_shortlist_selection_completes_without_human_confirm
     with connect_rw(tmp_path / "app.sqlite") as connection:
         connection.execute(
             """
-            INSERT INTO shortlist (
-                shortlist_id, selection_id, run_revision_id, as_of, published_at, payload
+            INSERT INTO research_triage (
+                research_triage_id, review_set_id, run_revision_id, as_of, published_at, payload
             ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
-                "shortlist-1",
-                "selection-1",
+                "research_triage-1",
+                "review-set-1",
                 "run-1",
                 "2026-07-19",
                 NOW.isoformat(),
                 json.dumps(
                     {
-                        "kind": "shortlist",
-                        "shortlist_id": "shortlist-1",
+                        "kind": "research_triage",
+                        "research_triage_id": "research_triage-1",
                         "as_of": "2026-07-19",
-                        "entries": [{"ticker": "2331", "decision": "rejected"}],
+                        "entries": [{"ticker": "2331", "decision": "skip"}],
                     }
                 ),
             ),
         )
     payload = OperationPayload(
-        checkpoint="shortlist cycle complete",
-        artifacts=({"kind": "shortlist", "ref": "shortlist-1", "selected_count": 0},),
-        canonical_refs=("shortlist-1",),
-        completion_reason="no-shortlist-selection",
-        result="no candidate qualified for primary research",
+        checkpoint="research_triage cycle complete",
+        artifacts=({"kind": "research_triage", "ref": "research_triage-1", "research_count": 0},),
+        canonical_refs=("research_triage-1",),
+        completion_reason="no-research",
+        result="no candidate was admitted to the Research Set",
         next="wait for the next opportunity trigger",
     )
 
@@ -199,7 +199,7 @@ def test_opportunity_with_no_shortlist_selection_completes_without_human_confirm
 
     assert completed.status == "completed"
     assert completed.payload.human_confirmation is None
-    assert completed.payload.completion_reason == "no-shortlist-selection"
+    assert completed.payload.completion_reason == "no-research"
 
 
 @pytest.mark.parametrize(
@@ -207,30 +207,34 @@ def test_opportunity_with_no_shortlist_selection_completes_without_human_confirm
     [
         OperationPayload(
             checkpoint="final",
-            artifacts=({"kind": "shortlist", "ref": "shortlist-1", "selected_count": 1},),
-            canonical_refs=("shortlist-1",),
-            completion_reason="no-shortlist-selection",
+            artifacts=(
+                {"kind": "research_triage", "ref": "research_triage-1", "research_count": 1},
+            ),
+            canonical_refs=("research_triage-1",),
+            completion_reason="no-research",
             result="done",
             next="wait",
         ),
         OperationPayload(
             checkpoint="final",
-            artifacts=({"kind": "shortlist", "ref": "shortlist-1", "selected_count": 0},),
-            canonical_refs=("shortlist-1",),
+            artifacts=(
+                {"kind": "research_triage", "ref": "research_triage-1", "research_count": 0},
+            ),
+            canonical_refs=("research_triage-1",),
             human_confirmation={"request": "confirm", "result": "not applicable"},
-            completion_reason="no-shortlist-selection",
+            completion_reason="no-research",
             result="done",
             next="wait",
         ),
     ],
 )
-def test_no_shortlist_selection_completion_rejects_false_evidence(
+def test_no_research_triage_selection_completion_rejects_false_evidence(
     tmp_path: Path,
     payload: OperationPayload,
 ) -> None:
     service = OperationService(tmp_path / "app.sqlite")
     operation = service.start(
-        session_kind="opportunity",
+        session_kind="capital-allocation",
         as_of=date(2026, 7, 19),
         started_at=NOW,
         payload=_active_payload(),
@@ -240,19 +244,19 @@ def test_no_shortlist_selection_completion_rejects_false_evidence(
         service.complete(operation.operation_id, payload, completed_at=NOW)
 
 
-def test_no_shortlist_selection_reason_is_opportunity_only(tmp_path: Path) -> None:
+def test_no_research_triage_selection_reason_is_opportunity_only(tmp_path: Path) -> None:
     service = OperationService(tmp_path / "app.sqlite")
     operation = service.start(
-        session_kind="earnings-material-event",
+        session_kind="position-review",
         as_of=date(2026, 7, 19),
         started_at=NOW,
         payload=_active_payload(),
     )
     payload = OperationPayload(
         checkpoint="final",
-        artifacts=({"kind": "shortlist", "selected_count": 0},),
-        canonical_refs=("shortlist-1",),
-        completion_reason="no-shortlist-selection",
+        artifacts=({"kind": "research_triage", "research_count": 0},),
+        canonical_refs=("research_triage-1",),
+        completion_reason="no-research",
         result="done",
         next="wait",
     )
@@ -262,46 +266,46 @@ def test_no_shortlist_selection_reason_is_opportunity_only(tmp_path: Path) -> No
 
 
 @pytest.mark.parametrize(
-    ("shortlist_as_of", "decision", "message"),
+    ("research_triage_as_of", "decision", "message"),
     [
-        (None, None, "canonical shortlist"),
-        ("2026-07-18", "rejected", "canonical shortlist"),
-        ("2026-07-19", "selected", "zero selected entries"),
+        (None, None, "canonical ResearchTriage"),
+        ("2026-07-18", "skip", "canonical ResearchTriage"),
+        ("2026-07-19", "research", "zero research entries"),
     ],
 )
-def test_no_shortlist_selection_completion_checks_the_canonical_publication(
+def test_no_research_triage_selection_completion_checks_the_canonical_publication(
     tmp_path: Path,
-    shortlist_as_of: str | None,
+    research_triage_as_of: str | None,
     decision: str | None,
     message: str,
 ) -> None:
     db = tmp_path / "app.sqlite"
     service = OperationService(db)
     operation = service.start(
-        session_kind="opportunity",
+        session_kind="capital-allocation",
         as_of=date(2026, 7, 19),
         started_at=NOW,
         payload=_active_payload(),
     )
-    if shortlist_as_of is not None and decision is not None:
+    if research_triage_as_of is not None and decision is not None:
         with connect_rw(db) as connection:
             connection.execute(
                 """
-                INSERT INTO shortlist (
-                    shortlist_id, selection_id, run_revision_id, as_of, published_at, payload
+                INSERT INTO research_triage (
+                    research_triage_id, review_set_id, run_revision_id, as_of, published_at, payload
                 ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    "shortlist-1",
-                    "selection-1",
+                    "research_triage-1",
+                    "review-set-1",
                     "run-1",
-                    shortlist_as_of,
+                    research_triage_as_of,
                     NOW.isoformat(),
                     json.dumps(
                         {
-                            "kind": "shortlist",
-                            "shortlist_id": "shortlist-1",
-                            "as_of": shortlist_as_of,
+                            "kind": "research_triage",
+                            "research_triage_id": "research_triage-1",
+                            "as_of": research_triage_as_of,
                             "entries": [{"ticker": "2331", "decision": decision}],
                         }
                     ),
@@ -309,9 +313,9 @@ def test_no_shortlist_selection_completion_checks_the_canonical_publication(
             )
     payload = OperationPayload(
         checkpoint="final",
-        artifacts=({"kind": "shortlist", "ref": "shortlist-1", "selected_count": 0},),
-        canonical_refs=("shortlist-1",),
-        completion_reason="no-shortlist-selection",
+        artifacts=({"kind": "research_triage", "ref": "research_triage-1", "research_count": 0},),
+        canonical_refs=("research_triage-1",),
+        completion_reason="no-research",
         result="none",
         next="wait",
     )
@@ -321,13 +325,13 @@ def test_no_shortlist_selection_completion_checks_the_canonical_publication(
     assert service.get(operation.operation_id).status == "active"
 
 
-def test_no_shortlist_selection_checks_the_canonical_artifact_reference(
+def test_no_research_triage_selection_checks_the_canonical_artifact_reference(
     tmp_path: Path,
 ) -> None:
     db = tmp_path / "app.sqlite"
     service = OperationService(db)
     operation = service.start(
-        session_kind="opportunity",
+        session_kind="capital-allocation",
         as_of=date(2026, 7, 19),
         started_at=NOW,
         payload=_active_payload(),
@@ -335,22 +339,22 @@ def test_no_shortlist_selection_checks_the_canonical_artifact_reference(
     with connect_rw(db) as connection:
         connection.execute(
             """
-            INSERT INTO shortlist (
-                shortlist_id, selection_id, run_revision_id, as_of, published_at, payload
+            INSERT INTO research_triage (
+                research_triage_id, review_set_id, run_revision_id, as_of, published_at, payload
             ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
-                "shortlist-real",
-                "selection-1",
+                "research_triage-real",
+                "review-set-1",
                 "run-1",
                 "2026-07-19",
                 NOW.isoformat(),
                 json.dumps(
                     {
-                        "kind": "shortlist",
-                        "shortlist_id": "shortlist-real",
+                        "kind": "research_triage",
+                        "research_triage_id": "research_triage-real",
                         "as_of": "2026-07-19",
-                        "entries": [{"ticker": "2331", "decision": "rejected"}],
+                        "entries": [{"ticker": "2331", "decision": "skip"}],
                     }
                 ),
             ),
@@ -358,52 +362,52 @@ def test_no_shortlist_selection_checks_the_canonical_artifact_reference(
     payload = OperationPayload(
         checkpoint="final",
         artifacts=(
-            {"kind": "shortlist", "ref": "shortlist-real", "selected_count": 0},
-            {"kind": "shortlist", "ref": "shortlist-fake", "selected_count": 0},
+            {"kind": "research_triage", "ref": "research_triage-real", "research_count": 0},
+            {"kind": "research_triage", "ref": "research_triage-fake", "research_count": 0},
         ),
-        canonical_refs=("shortlist-fake",),
-        completion_reason="no-shortlist-selection",
+        canonical_refs=("research_triage-fake",),
+        completion_reason="no-research",
         result="none",
         next="wait",
     )
 
-    with pytest.raises(OperationCompletionError, match="shortlist-fake"):
+    with pytest.raises(OperationCompletionError, match="research_triage-fake"):
         service.complete(operation.operation_id, payload, completed_at=NOW)
     assert service.get(operation.operation_id).status == "active"
 
 
-def test_no_shortlist_selection_rejects_an_older_zero_selection_revision(
+def test_no_research_triage_selection_rejects_an_older_zero_selection_revision(
     tmp_path: Path,
 ) -> None:
     db = tmp_path / "app.sqlite"
     service = OperationService(db)
     operation = service.start(
-        session_kind="opportunity",
+        session_kind="capital-allocation",
         as_of=date(2026, 7, 19),
         started_at=NOW,
         payload=_active_payload(),
     )
     with connect_rw(db) as connection:
-        for shortlist_id, published_at, decision in (
-            ("shortlist-zero", NOW.replace(hour=10), "rejected"),
-            ("shortlist-selected", NOW.replace(hour=11), "selected"),
+        for research_triage_id, published_at, decision in (
+            ("research_triage-zero", NOW.replace(hour=10), "skip"),
+            ("research_triage-selected", NOW.replace(hour=11), "research"),
         ):
             connection.execute(
                 """
-                INSERT INTO shortlist (
-                    shortlist_id, selection_id, run_revision_id, as_of, published_at, payload
+                INSERT INTO research_triage (
+                    research_triage_id, review_set_id, run_revision_id, as_of, published_at, payload
                 ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    shortlist_id,
-                    f"selection-{shortlist_id}",
-                    f"run-{shortlist_id}",
+                    research_triage_id,
+                    f"review-set-{research_triage_id}",
+                    f"run-{research_triage_id}",
                     "2026-07-19",
                     published_at.isoformat(),
                     json.dumps(
                         {
-                            "kind": "shortlist",
-                            "shortlist_id": shortlist_id,
+                            "kind": "research_triage",
+                            "research_triage_id": research_triage_id,
                             "as_of": "2026-07-19",
                             "entries": [{"ticker": "2331", "decision": decision}],
                         }
@@ -413,16 +417,16 @@ def test_no_shortlist_selection_rejects_an_older_zero_selection_revision(
     payload = OperationPayload(
         checkpoint="final",
         artifacts=(
-            {"kind": "shortlist", "ref": "shortlist-zero", "selected_count": 0},
-            {"kind": "shortlist", "ref": "shortlist-selected", "selected_count": 1},
+            {"kind": "research_triage", "ref": "research_triage-zero", "research_count": 0},
+            {"kind": "research_triage", "ref": "research_triage-selected", "research_count": 1},
         ),
-        canonical_refs=("shortlist-zero", "shortlist-selected"),
-        completion_reason="no-shortlist-selection",
+        canonical_refs=("research_triage-zero", "research_triage-selected"),
+        completion_reason="no-research",
         result="none",
         next="wait",
     )
 
-    with pytest.raises(OperationCompletionError, match="canonical shortlist"):
+    with pytest.raises(OperationCompletionError, match="canonical ResearchTriage"):
         service.complete(operation.operation_id, payload, completed_at=NOW)
     assert service.get(operation.operation_id).status == "active"
 
@@ -431,12 +435,14 @@ def test_completed_row_is_immutable_through_service_and_database(tmp_path: Path)
     db = tmp_path / "app.sqlite"
     service = OperationService(db)
     operation = service.start(
-        session_kind="opportunity",
+        session_kind="capital-allocation",
         as_of=date(2026, 7, 19),
         started_at=NOW,
         payload=_active_payload(),
     )
-    service.complete(operation.operation_id, _complete_payload("opportunity"), completed_at=NOW)
+    service.complete(
+        operation.operation_id, _complete_payload("capital-allocation"), completed_at=NOW
+    )
 
     with pytest.raises(OperationConflictError, match="immutable"):
         service.checkpoint(operation.operation_id, _active_payload("late update"))
@@ -460,7 +466,7 @@ def test_database_constraint_rejects_a_second_active_row(tmp_path: Path) -> None
     initialize_database(db)
     service = OperationService(db)
     operation = service.start(
-        session_kind="opportunity",
+        session_kind="capital-allocation",
         as_of=date(2026, 7, 19),
         started_at=NOW,
         payload=_active_payload(),
@@ -473,10 +479,10 @@ def test_database_constraint_rejects_a_second_active_row(tmp_path: Path) -> None
                 INSERT INTO operation_session (
                     operation_id, session_kind, status, as_of, ticker,
                     started_at, completed_at, payload
-                ) VALUES (?, 'earnings-material-event', 'active', '2026-07-19', NULL, ?, NULL, ?)
+                ) VALUES (?, 'position-review', 'active', '2026-07-19', NULL, ?, NULL, ?)
                 """,
                 (
-                    "op-20260719-earnings-material-event-1",
+                    "op-20260719-position-review-1",
                     NOW.isoformat(),
                     operation.payload.model_dump_json(),
                 ),
@@ -497,7 +503,7 @@ def test_cli_and_read_facade_expose_current_and_completed_payloads(
                 str(db),
                 "start",
                 "--kind",
-                "earnings-material-event",
+                "position-review",
                 "--as-of",
                 "2026-07-19",
             ],
@@ -510,7 +516,7 @@ def test_cli_and_read_facade_expose_current_and_completed_payloads(
 
     final_path = tmp_path / "final.yaml"
     final_path.write_text(
-        yaml.safe_dump(_complete_payload("earnings-material-event").model_dump(mode="json")),
+        yaml.safe_dump(_complete_payload("position-review").model_dump(mode="json")),
         encoding="utf-8",
     )
     assert (

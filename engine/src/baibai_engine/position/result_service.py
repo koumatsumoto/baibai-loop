@@ -17,12 +17,14 @@ from baibai_engine.position.result_recording import (
     record_terminal_results,
 )
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.research.assessment_service import BargainAssessmentService
+from baibai_engine.research.capital_allocation_service import (
+    CapitalAllocationAssessmentService,
+)
 
 
 def build_result_draft(
     ledger_service: LedgerStoreService,
-    assessment_service: BargainAssessmentService,
+    assessment_service: CapitalAllocationAssessmentService,
     *,
     decision_reference: str,
     status: ResultStatus,
@@ -81,9 +83,9 @@ def build_result_draft(
     else:
         if status in {"cancelled", "expired"}:
             raise ValueError(f"{status} requires an active reservation")
-        selected_case = assessment_service.require_buy_case(decision_reference)
-        if ticker != selected_case.ticker:
-            raise ValueError("broker result ticker does not match the buy assessment")
+        allocated = assessment_service.require_allocated_alternative(decision_reference)
+        if ticker != allocated.ticker:
+            raise ValueError("broker result ticker does not match the allocation assessment")
 
     if len(requested_ids) > 1:
         assert status in {"cancelled", "expired"}

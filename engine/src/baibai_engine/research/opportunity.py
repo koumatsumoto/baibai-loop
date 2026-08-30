@@ -1,4 +1,4 @@
-"""Opportunity authoring: prepare a workspace, scaffold thesis/review drafts, and
+"""Fundamental Research authoring: prepare a workspace, scaffold thesis/review drafts, and
 derive a planning-only limit from the previous business day's raw close.
 
 This module is pure logic behind ``baibai-engine research``. It never submits an
@@ -12,9 +12,9 @@ Design boundaries (Issue #359 Milestone A):
 - Investment value is decided before budget rounding. The 20-30万円 guide is a
   sizing annotation for a normal position. Reduced sizing is exactly one board lot.
 - ``promote`` is the only command that publishes a canonical thesis/review;
-  every other command writes only to the rebuildable ``.cache/opportunity/<asof>/``
+  every other command writes only to a rebuildable workspace chosen by the caller.
   workspace.
-- ``defer`` and "no actionable bargain" are normal investment judgments and exit 0.
+- ``defer`` and ``no_allocation`` are normal investment judgments and exit 0.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from math import isfinite
 from pathlib import Path
 from typing import get_args
@@ -33,12 +33,11 @@ from pydantic import BaseModel, ValidationError
 
 from baibai_engine.appdb.paths import database_path
 from baibai_engine.foundation.filesystem import write_text_atomic
-from baibai_engine.foundation.ranked_set import (
-    RESEARCH_GATE_CONTRACT_ID,
-    RankedSetResolutionError,
-    resolve_ranked_set_rows,
-)
 from baibai_engine.foundation.repository_layout import ER_LEVEL_CALIBRATION_CONTEXT_PATH
+from baibai_engine.foundation.review_set import (
+    ReviewSetResolutionError,
+    resolve_review_set_entries,
+)
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.ledger import (
@@ -47,7 +46,7 @@ from baibai_engine.position.ledger import (
 )
 from baibai_engine.position.policy import PORTFOLIO_POLICY
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.read_api.shortlist import shortlist_payloads_for_selection
+from baibai_engine.read_api.research_triage import research_triage_payloads_for_review_set
 
 from .close_source import (
     PreviousClose,
@@ -76,10 +75,11 @@ from .thesis import (
     thesis_core_hash,
 )
 
-TOOL_VERSION = "opportunity-v1"
-# Research reads the Research Gate judgment, so it only accepts the shortlist schema
-# that carries the current ranked-set snapshot.
-RESEARCH_GATE_SHORTLIST_SCHEMA_VERSION = 7
+TOOL_VERSION = "fundamental-research-v1"
+# Research reads the ResearchTriage judgment, so it only accepts the research_triage schema
+# that carries the current review-set snapshot.
+RESEARCH_TRIAGE_SCHEMA_VERSION = 1
+RESEARCH_TRIAGE_CONTRACT_ID = "research-triage-v1"
 BOARD_LOT: int = PORTFOLIO_POLICY["order_constraints"]["board_lot"]
 # 対象 sizing 帯 (20-30万円 / 100株 = ¥2000-3000/株) はちょうど JPX 現物の ¥1 tick 帯。
 # max acceptable price の ceiling floor 丸めはこの帯で正確な ¥1 を使う。
@@ -188,87 +188,88 @@ def _load_mapping(path: Path, *, label: str) -> dict[str, object]:
 class PrepareResult:
     workspace: Path
     actionable: bool
-    shortlist_slots: int
-    ranked_set_size: int
-    shortlist_id: str | None = None
-    admissible_tickers: tuple[str, ...] = ()
+    research_capacity: int
+    review_set_size: int
+    research_triage_id: str | None = None
+    researchable_tickers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class _ResearchGate:
-    """The canonical Research Gate judgment a research workspace is bound to.
+class _ResearchTriageBinding:
+    """The canonical ResearchTriage judgment a research workspace is bound to.
 
-    ``admissible`` is the Shortlist's ``selected`` set in judgment order: the exact
-    set a human may admit into the Primary Research Set. The human still chooses
+    ``researchable`` is the Research Triage's ``research`` set in judgment order: the exact
+    set a human may admit into the Research Set. The human still chooses
     which of those to research; what they cannot do is widen the set from the
     workspace, because research capacity and a canonical thesis are spent per
     ticker and the Gate already decided this cycle's answer for each one.
     """
 
-    shortlist_id: str
-    selection_id: str
-    admissible: tuple[str, ...]
+    research_triage_id: str
+    review_set_id: str
+    researchable: tuple[str, ...]
     decision_by_ticker: dict[str, str]
 
 
-def _research_gate_decisions(
-    payload: Mapping[str, object], *, shortlist_id: str
+def _research_triage_decisions(
+    payload: Mapping[str, object], *, research_triage_id: str
 ) -> tuple[tuple[str, ...], dict[str, str]]:
-    """Read one shortlist payload as a Research Gate judgment, or fail closed."""
+    """Read one research_triage payload as a ResearchTriage judgment, or fail closed."""
 
     version = payload.get("schema_version")
-    if version != RESEARCH_GATE_SHORTLIST_SCHEMA_VERSION:
+    if version != RESEARCH_TRIAGE_SCHEMA_VERSION:
         raise OpportunityDataError(
-            f"research requires a Shortlist v{RESEARCH_GATE_SHORTLIST_SCHEMA_VERSION} "
-            f"Research Gate judgment: {shortlist_id} is schema_version {version!r}"
+            f"research requires a ResearchTriage v{RESEARCH_TRIAGE_SCHEMA_VERSION} "
+            f"ResearchTriage judgment: {research_triage_id} is schema_version {version!r}"
         )
-    contract_id = payload.get("research_gate_contract_id")
-    if contract_id != RESEARCH_GATE_CONTRACT_ID:
+    contract_id = payload.get("triage_contract_id")
+    if contract_id != RESEARCH_TRIAGE_CONTRACT_ID:
         raise OpportunityDataError(
-            f"unsupported Research Gate contract on {shortlist_id}: {contract_id!r} "
-            f"(this build admits {RESEARCH_GATE_CONTRACT_ID!r})"
+            f"unsupported ResearchTriage contract on {research_triage_id}: {contract_id!r} "
+            f"(this build admits {RESEARCH_TRIAGE_CONTRACT_ID!r})"
         )
     entries = _dict_list(payload.get("entries"))
     if not entries:
-        raise OpportunityDataError(f"{shortlist_id} carries no Research Gate entries")
+        raise OpportunityDataError(f"{research_triage_id} carries no ResearchTriage entries")
     decisions: dict[str, str] = {}
     ordered: list[str] = []
     for entry in entries:
-        ticker = _nonempty_string(entry.get("ticker"), label=f"{shortlist_id} entry ticker")
+        ticker = _nonempty_string(entry.get("ticker"), label=f"{research_triage_id} entry ticker")
         decision = entry.get("decision")
-        if decision not in {"selected", "rejected"}:
+        if decision not in {"research", "skip"}:
             raise OpportunityDataError(
-                f"{shortlist_id} entry {ticker} has an unknown Research Gate decision: {decision!r}"
+                f"{research_triage_id} entry {ticker} has an unknown "
+                f"ResearchTriage decision: {decision!r}"
             )
         if ticker in decisions:
-            raise OpportunityDataError(f"{shortlist_id} judged {ticker} more than once")
+            raise OpportunityDataError(f"{research_triage_id} judged {ticker} more than once")
         decisions[ticker] = str(decision)
-        if decision == "selected":
+        if decision == "research":
             ordered.append(ticker)
     return tuple(ordered), decisions
 
 
-def _resolve_research_gate(
+def _resolve_research_triage(
     *,
     db_path: Path | None,
-    expected_shortlist_id: str,
-    selection: Mapping[str, object],
-    selection_output: Path,
+    expected_research_triage_id: str,
+    review_set: Mapping[str, object],
+    review_set_output: Path,
     asof: date,
-    ranked_tickers: Sequence[str],
-) -> _ResearchGate:
-    """Resolve the canonical judgment for this selection, and check it is the named one.
+    review_tickers: Sequence[str],
+) -> _ResearchTriageBinding:
+    """Resolve the canonical judgment for this Review Set and verify its binding.
 
-    The lookup is by ``selection_id``, never by the ID a caller hands in, so
-    renaming the bound shortlist cannot hand a workspace some other cycle's Gate:
-    the judgment a selection carries is a property of the store, not of the
+    The lookup is by ``review_set_id``, never by the ID a caller hands in, so
+    renaming the bound research_triage cannot hand a workspace some other cycle's Gate:
+    the judgment a Review Set carries is a property of the store, not of the
     request. What this does not claim is immutability of the whole binding — the
-    selection a workspace points at is named in the same editable manifest as its
-    hash, so re-pointing both together moves the workspace to that selection's
-    Gate. The property that holds either way is the one that matters here: a
-    workspace can only admit what some published Research Gate selected.
+    Review Set a workspace points at is named in the same editable manifest as its
+    hash, so re-pointing both together moves the workspace to that Review Set's
+    Triage. The property that holds either way is the one that matters here: a
+    workspace can only admit what canonical Research Triage marked ``research``.
 
-    Publication permits only one judgment per selection — a second one carries a
+    Publication permits only one judgment per Review Set — a second one carries a
     Review Basis that is stale by then — so any other count is a store this must
     not interpret.
 
@@ -278,122 +279,124 @@ def _resolve_research_gate(
     research capacity is spent.
     """
 
-    selection_id = _nonempty_string(selection.get("selection_id"), label="selection_id")
+    review_set_id = _nonempty_string(review_set.get("review_set_id"), label="review_set_id")
     try:
-        payloads = shortlist_payloads_for_selection(database_path(db_path), selection_id)
+        payloads = research_triage_payloads_for_review_set(database_path(db_path), review_set_id)
     except ValueError as exc:
         raise OpportunityDataError(str(exc)) from exc
     if not payloads:
         raise OpportunityDataError(
-            f"no canonical Research Gate judgment for selection {selection_id} "
-            f"({selection_output}); publish the shortlist before starting research"
+            f"no canonical ResearchTriage judgment for Review Set {review_set_id} "
+            f"({review_set_output}); publish the research_triage before starting research"
         )
     if len(payloads) > 1:
-        named = ", ".join(sorted(str(payload.get("shortlist_id")) for payload in payloads))
+        named = ", ".join(sorted(str(payload.get("research_triage_id")) for payload in payloads))
         raise OpportunityDataError(
-            f"selection {selection_id} carries more than one canonical judgment: {named}"
+            f"Review Set {review_set_id} carries more than one canonical judgment: {named}"
         )
     payload = payloads[0]
-    shortlist_id = _nonempty_string(payload.get("shortlist_id"), label="shortlist_id")
-    if shortlist_id != expected_shortlist_id:
+    research_triage_id = _nonempty_string(
+        payload.get("research_triage_id"), label="research_triage_id"
+    )
+    if research_triage_id != expected_research_triage_id:
         raise OpportunityDataError(
-            f"selection {selection_id} was judged by {shortlist_id}, not {expected_shortlist_id}"
+            f"Review Set {review_set_id} was judged by {research_triage_id}, "
+            f"not {expected_research_triage_id}"
         )
-    admissible, decisions = _research_gate_decisions(payload, shortlist_id=shortlist_id)
+    researchable, decisions = _research_triage_decisions(
+        payload, research_triage_id=research_triage_id
+    )
 
     expected_asof = asof.isoformat()
-    metadata = _required_mapping(selection.get("selection"), label="selection.selection")
-    if payload.get("as_of") != expected_asof or metadata.get("asof") != expected_asof:
+    if payload.get("as_of") != expected_asof or review_set.get("as_of") != expected_asof:
         raise OpportunityDataError(
-            f"{shortlist_id} as_of {payload.get('as_of')!r} and selection as_of "
-            f"{metadata.get('asof')!r} must both equal {expected_asof}"
+            f"{research_triage_id} and its Review Set must both have as_of {expected_asof}"
         )
-    input_refs = _required_mapping(
-        metadata.get("input_refs"), label="selection.selection.input_refs"
-    )
-    if payload.get("run_revision_id") != input_refs.get("candidates_ref"):
+    if payload.get("run_revision_id") != review_set.get("run_revision_id"):
         raise OpportunityDataError(
-            f"{shortlist_id} judged run {payload.get('run_revision_id')!r}, not the "
-            f"selection's {input_refs.get('candidates_ref')!r}"
+            f"{research_triage_id} judged run {payload.get('run_revision_id')!r}, not the "
+            f"Review Set run {review_set.get('run_revision_id')!r}"
         )
-    # Publication already binds entries to the ranked set; re-checking here keeps a
-    # shortlist and a selection that disagree from meeting for the first time inside
+    # Publication already binds entries to the Review Set; re-checking here keeps a
+    # research_triage and a Review Set that disagree from meeting for the first time inside
     # a research workspace.
-    if set(decisions) != set(ranked_tickers):
-        missing = sorted(set(ranked_tickers) - set(decisions))
-        extra = sorted(set(decisions) - set(ranked_tickers))
+    if set(decisions) != set(review_tickers):
+        missing = sorted(set(review_tickers) - set(decisions))
+        extra = sorted(set(decisions) - set(review_tickers))
         raise OpportunityDataError(
-            f"{shortlist_id} entries must equal the selection ranked set; "
+            f"{research_triage_id} entries must equal the Review Set; "
             f"missing={missing}, extra={extra}"
         )
-    return _ResearchGate(
-        shortlist_id=shortlist_id,
-        selection_id=selection_id,
-        admissible=admissible,
+    return _ResearchTriageBinding(
+        research_triage_id=research_triage_id,
+        review_set_id=review_set_id,
+        researchable=researchable,
         decision_by_ticker=decisions,
     )
 
 
-def _verify_research_gate(
+def _verify_research_triage(
     manifest: Mapping[str, object], inputs: Mapping[str, object], *, db_path: Path | None
-) -> _ResearchGate:
+) -> _ResearchTriageBinding:
     """Re-resolve the bound judgment on every workspace gate, from the pinned inputs.
 
     The manifest names the judgment so an operator can read it, but the identity is
-    re-derived from the selection each time, so a hand-written ticker list is never
-    what a gate reads. Renaming the bound shortlist stops matching the judgment the
-    selection carries; what an edit cannot do at all is admit a ticker no published
-    Research Gate selected.
+    re-derived from the Review Set each time, so a hand-written ticker list is never
+    what a gate reads. Renaming the bound Research Triage stops matching the judgment;
+    an edit cannot admit a ticker that canonical Research Triage marked ``skip``.
     """
 
-    binding = inputs.get("shortlist")
+    binding = inputs.get("research_triage")
     if not isinstance(binding, Mapping):
         raise OpportunityDataError(
-            "workspace has no Research Gate binding; rebuild it with "
-            "`research prepare --shortlist-id <SHORTLIST_ID> --force`"
+            "workspace has no ResearchTriage binding; rebuild it with "
+            "`research prepare --research-triage-id <RESEARCH_TRIAGE_ID> --force`"
         )
-    recorded_shortlist_id = _nonempty_string(
-        binding.get("shortlist_id"), label="manifest.inputs.shortlist.shortlist_id"
+    recorded_research_triage_id = _nonempty_string(
+        binding.get("research_triage_id"),
+        label="manifest.inputs.research_triage.research_triage_id",
     )
-    recorded_selection_id = _nonempty_string(
-        binding.get("selection_id"), label="manifest.inputs.shortlist.selection_id"
+    recorded_review_set_id = _nonempty_string(
+        binding.get("review_set_id"), label="manifest.inputs.research_triage.review_set_id"
     )
-    recorded_tickers = binding.get("selected_tickers")
+    recorded_tickers = binding.get("researchable_tickers")
     if not isinstance(recorded_tickers, Sequence) or isinstance(recorded_tickers, str | bytes):
-        raise OpportunityDataError("manifest.inputs.shortlist.selected_tickers must be an array")
-    selection_ref = _required_mapping(
-        inputs.get("selection_output"), label="manifest.inputs.selection_output"
+        raise OpportunityDataError(
+            "manifest.inputs.research_triage.researchable_tickers must be an array"
+        )
+    review_set_ref = _required_mapping(
+        inputs.get("review_set_output"), label="manifest.inputs.review_set_output"
     )
-    selection_output = Path(
-        _nonempty_string(selection_ref.get("path"), label="manifest.inputs.selection_output.path")
+    review_set_output = Path(
+        _nonempty_string(review_set_ref.get("path"), label="manifest.inputs.review_set_output.path")
     )
-    selection = _load_mapping(selection_output, label="selection output")
+    review_set = _load_mapping(review_set_output, label="Review Set output")
     try:
-        ranked_tickers, _rows = resolve_ranked_set_rows(selection)
-    except RankedSetResolutionError as error:
-        raise OpportunityDataError(f"selection ranked set is invalid: {error}") from error
+        review_tickers, _rows = resolve_review_set_entries(review_set)
+    except ReviewSetResolutionError as error:
+        raise OpportunityDataError(f"Review Set is invalid: {error}") from error
     asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     try:
-        gate = _resolve_research_gate(
+        gate = _resolve_research_triage(
             db_path=db_path,
-            expected_shortlist_id=recorded_shortlist_id,
-            selection=selection,
-            selection_output=selection_output,
+            expected_research_triage_id=recorded_research_triage_id,
+            review_set=review_set,
+            review_set_output=review_set_output,
             asof=asof,
-            ranked_tickers=ranked_tickers,
+            review_tickers=review_tickers,
         )
     except OpportunityDataError as error:
         raise OpportunityConflictError(
-            "workspace Research Gate binding does not match the canonical shortlist "
-            f"{recorded_shortlist_id}; rebuild the workspace with "
+            "workspace ResearchTriage binding does not match the canonical research_triage "
+            f"{recorded_research_triage_id}; rebuild the workspace with "
             f"`research prepare --force` ({error})"
         ) from error
-    if gate.selection_id != recorded_selection_id or list(gate.admissible) != [
+    if gate.review_set_id != recorded_review_set_id or list(gate.researchable) != [
         str(value) for value in recorded_tickers
     ]:
         raise OpportunityConflictError(
-            "workspace Research Gate binding does not match the canonical shortlist "
-            f"{gate.shortlist_id}; rebuild the workspace with `research prepare --force`"
+            "workspace ResearchTriage binding does not match the canonical research_triage "
+            f"{gate.research_triage_id}; rebuild the workspace with `research prepare --force`"
         )
     return gate
 
@@ -401,39 +404,40 @@ def _verify_research_gate(
 def prepare_workspace(
     *,
     asof: date,
-    selection_output: Path,
-    shortlist_id: str,
+    review_set_output: Path,
+    research_triage_id: str,
     db_path: Path | None,
     workspace: Path,
     force: bool = False,
 ) -> PrepareResult:
-    """Build the workspace from a selection, its Research Gate judgment, and the ledger.
+    """Build a workspace from a Review Set, ResearchTriage, and the ledger.
 
-    The workspace keeps the whole ranked set as comparison context but may only
-    admit the shortlist's ``selected`` tickers into primary research: the Gate has
-    already spent this cycle's judgment on the rest. Holdings/reservations stay
-    ledger annotations, never hard exclusions. A Gate that selected nothing is a
-    normal 'no actionable bargain' outcome and still produces a workspace.
+    The workspace keeps the whole Review Set as comparison context but may only
+    admit the Research Triage's ``research`` tickers into the Research Set.
+    Holdings/reservations stay ledger annotations, never hard exclusions. A triage
+    with no ``research`` entries is normal and still produces a workspace.
     """
-    if selection_output.resolve().is_relative_to(workspace.resolve()):
+    if review_set_output.resolve().is_relative_to(workspace.resolve()):
         raise OpportunityDataError(
-            "--selection-output must be outside --workspace; prepare writes generated "
-            "selection.yaml into the workspace"
+            "--review-set-output must be outside --workspace; prepare writes generated "
+            "review-set.yaml into the workspace"
         )
-    selection = _load_mapping(selection_output, label="selection output")
+    review_set = _load_mapping(review_set_output, label="Review Set output")
     try:
-        ranked_tickers, review_rows = resolve_ranked_set_rows(selection)
-    except RankedSetResolutionError as error:
-        raise OpportunityDataError(f"selection ranked set is invalid: {error}") from error
-    ranked_set = [dict(review_rows[ticker]) for ticker in ranked_tickers]
-    _validate_selection_estimate_asof(selection=selection, ranked_set=ranked_set, asof=asof)
-    gate = _resolve_research_gate(
+        review_tickers, review_rows = resolve_review_set_entries(review_set)
+    except ReviewSetResolutionError as error:
+        raise OpportunityDataError(f"Review Set is invalid: {error}") from error
+    review_set_entries = [dict(review_rows[ticker]) for ticker in review_tickers]
+    _validate_review_set_estimate_asof(
+        review_set=review_set, review_set_entries=review_set_entries, asof=asof
+    )
+    gate = _resolve_research_triage(
         db_path=db_path,
-        expected_shortlist_id=shortlist_id,
-        selection=selection,
-        selection_output=selection_output,
+        expected_research_triage_id=research_triage_id,
+        review_set=review_set,
+        review_set_output=review_set_output,
         asof=asof,
-        ranked_tickers=ranked_tickers,
+        review_tickers=review_tickers,
     )
     snapshot, append_head = _load_snapshot(db_path)
 
@@ -447,48 +451,39 @@ def prepare_workspace(
     reserved = {reservation.ticker for reservation in snapshot.active_reservations}
     annotated = [
         _annotate_candidate(row, held=held, reserved=reserved, decisions=gate.decision_by_ticker)
-        for row in ranked_set
+        for row in review_set_entries
     ]
-    research_selection_target_max = _research_selection_target_max(selection)
-    # Slots bound the admitted set, not the comparison set: rejected rows stay in the
-    # ranked_set as context and can never occupy a research slot.
-    shortlist_slots = (
-        min(research_selection_target_max, len(gate.admissible))
-        if research_selection_target_max > 0
-        else len(gate.admissible)
-    )
+    research_capacity = len(gate.researchable)
 
-    selection_doc = {
+    workspace_doc = {
         "as_of": asof.isoformat(),
-        "research_gate_shortlist_id": gate.shortlist_id,
-        "admissible_tickers": list(gate.admissible),
-        "ranked_set": annotated,
-        "shortlist_slots": shortlist_slots,
-        "shortlist": [],
-        "actionable": bool(gate.admissible),
+        "review_set": review_set,
+        "researchable_tickers": list(gate.researchable),
+        "research_set": [],
+        "research_capacity": research_capacity,
     }
     er_context, er_context_ref = _load_er_distribution_context(
-        selection=selection,
+        review_set=review_set,
         candidates=annotated,
         asof=asof,
     )
     comparison_doc = _research_comparison(asof, annotated, er_context=er_context)
 
     workspace.mkdir(parents=True, exist_ok=True)
-    _write_workspace_file(workspace / "selection.yaml", selection_doc)
+    _write_workspace_file(workspace / "research-workspace.yaml", workspace_doc)
     _write_workspace_file(workspace / "research-comparison.yaml", comparison_doc)
 
     manifest_inputs: dict[str, object] = {
-        "selection_output": {
-            "path": selection_output.as_posix(),
-            "sha256": _sha256_file(selection_output),
+        "review_set_output": {
+            "path": review_set_output.as_posix(),
+            "sha256": _sha256_file(review_set_output),
         },
         # A readable record of the binding, not its authority: every gate re-resolves
-        # these tickers from the stored shortlist before trusting them.
-        "shortlist": {
-            "shortlist_id": gate.shortlist_id,
-            "selection_id": gate.selection_id,
-            "selected_tickers": list(gate.admissible),
+        # these tickers from the stored research_triage before trusting them.
+        "research_triage": {
+            "research_triage_id": gate.research_triage_id,
+            "review_set_id": gate.review_set_id,
+            "researchable_tickers": list(gate.researchable),
         },
         "ledger": {
             "entity_id": "portfolio-ledger",
@@ -501,30 +496,27 @@ def prepare_workspace(
         "as_of": asof.isoformat(),
         "tool_version": TOOL_VERSION,
         "inputs": manifest_inputs,
-        "rules": {
-            "research_selection_target_max": research_selection_target_max,
-            "evidence_pattern_order": _evidence_pattern_order(selection),
-        },
+        "rules": {"research_capacity": research_capacity},
     }
     _write_workspace_file(manifest_path, manifest)
     _write_status(workspace, db_path=db_path)
     return PrepareResult(
         workspace=workspace,
-        actionable=bool(gate.admissible),
-        shortlist_slots=shortlist_slots,
-        ranked_set_size=len(annotated),
-        shortlist_id=gate.shortlist_id,
-        admissible_tickers=gate.admissible,
+        actionable=bool(gate.researchable),
+        research_capacity=research_capacity,
+        review_set_size=len(annotated),
+        research_triage_id=gate.research_triage_id,
+        researchable_tickers=gate.researchable,
     )
 
 
 def _holding_subject_problem(snapshot: PortfolioSnapshot, *, ticker: str, asof: date) -> str | None:
-    """Say why ``ticker`` cannot be a holding-review subject at ``asof``, or ``None``.
+    """Say why ``ticker`` cannot be a position-review subject at ``asof``, or ``None``.
 
-    Holding review has no Research Gate because the ledger is its source, so this is
+    Position Review has no Research Triage because the ledger is its source, so this is
     the whole of what makes a subject legitimate — and it has to be one statement,
-    because ``holding-prepare`` and every later gate must not be able to disagree
-    about it. The as-of half is not decoration: the canonical holding review is
+    because ``position-prepare`` and every later gate must not be able to disagree
+    about it. The as-of half is not decoration: the canonical Position Review is
     built against the ledger's own price observation, so a review that runs at any
     other as-of cannot become one.
     """
@@ -551,15 +543,15 @@ def prepare_holding_workspace(
 ) -> PrepareResult:
     """Build a one-ticker research workspace for an actual open holding.
 
-    Holding review bypasses screening selection because the canonical ledger is
-    the source of its research target. The fixed ranked_set, shortlist, and
-    selected ticker keep the existing thesis/review/promotion gates usable
-    without weakening the normal opportunity-selection contract.
+    Position Review bypasses Review Set publication because the canonical ledger is
+    the source of its research target. The fixed Review Set entries, Research Triage,
+    and subject ticker keep the thesis/review/promotion gates usable without weakening
+    the normal Research Set boundary.
     """
     snapshot, append_head = _load_snapshot(db_path)
     problem = _holding_subject_problem(snapshot, ticker=ticker, asof=asof)
     if problem is not None:
-        raise OpportunityDataError(f"cannot prepare holding review: {problem}")
+        raise OpportunityDataError(f"cannot prepare Position Review: {problem}")
     holding = next(item for item in snapshot.holdings if item.ticker == ticker)
 
     manifest_path = workspace / "manifest.yaml"
@@ -568,7 +560,7 @@ def prepare_holding_workspace(
             f"workspace already prepared (use --force to rebuild): {workspace}"
         )
 
-    ranked_set = [
+    subject = [
         {
             "rank": 1,
             "ticker": holding.ticker,
@@ -577,22 +569,20 @@ def prepare_holding_workspace(
             "portfolio_annotation": "held",
         }
     ]
-    selection_doc = {
+    workspace_doc = {
         "as_of": asof.isoformat(),
-        "ranked_set": ranked_set,
-        "shortlist_slots": 1,
-        "shortlist": [{"ticker": ticker, "reason": "open holding review"}],
-        "actionable": True,
+        "position_review_subject": subject,
+        "research_set": [ticker],
     }
-    comparison_doc = _research_comparison(asof, ranked_set)
+    comparison_doc = _research_comparison(asof, subject)
     comparison_doc["selected_ticker"] = ticker
     comparison_doc["ranking_rationale"] = "research target fixed by the canonical open holding"
 
     workspace.mkdir(parents=True, exist_ok=True)
-    _write_workspace_file(workspace / "selection.yaml", selection_doc)
+    _write_workspace_file(workspace / "research-workspace.yaml", workspace_doc)
     _write_workspace_file(workspace / "research-comparison.yaml", comparison_doc)
     manifest = {
-        "purpose": "holding_review",
+        "purpose": "position_review",
         "holding_ticker": ticker,
         "as_of": asof.isoformat(),
         "tool_version": TOOL_VERSION,
@@ -609,8 +599,8 @@ def prepare_holding_workspace(
     return PrepareResult(
         workspace=workspace,
         actionable=True,
-        shortlist_slots=1,
-        ranked_set_size=1,
+        research_capacity=1,
+        review_set_size=1,
     )
 
 
@@ -625,7 +615,7 @@ def _annotate_candidate(
     annotation = _portfolio_annotation(ticker, held=held, reserved=reserved)
     output = dict(row)
     output["portfolio_annotation"] = annotation
-    output["research_gate_decision"] = decisions[ticker]
+    output["research_triage_decision"] = decisions[ticker]
     return output
 
 
@@ -681,11 +671,11 @@ def _research_comparison(
 
 def _load_er_distribution_context(
     *,
-    selection: Mapping[str, object],
+    review_set: Mapping[str, object],
     candidates: Sequence[Mapping[str, object]],
     asof: date,
 ) -> tuple[dict[str, object] | None, dict[str, str] | None]:
-    metadata = selection.get("selection")
+    metadata = review_set.get("method")
     if not isinstance(metadata, Mapping):
         return None, None
     rules_hash = metadata.get("screening_rules_hash")
@@ -831,40 +821,50 @@ def compute_status(workspace: Path, *, db_path: Path | None = None) -> dict[str,
     gate = _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest, gate=gate)
     status = _draft_status(workspace, manifest)
-    status["research_gate"] = _research_gate_view(gate)
+    status["research_triage"] = _research_triage_view(gate)
     return status
 
 
-def _research_gate_view(gate: _ResearchGate | None) -> dict[str, object]:
+def _research_triage_view(gate: _ResearchTriageBinding | None) -> dict[str, object]:
     """Name the judgment bounding this workspace and what it lets a human admit."""
 
     if gate is None:
-        return {"purpose": "holding_review", "shortlist_id": None, "admissible_tickers": []}
+        return {
+            "purpose": "position_review",
+            "research_triage_id": None,
+            "researchable_tickers": [],
+        }
     return {
-        "purpose": "opportunity",
-        "shortlist_id": gate.shortlist_id,
-        "admissible_tickers": list(gate.admissible),
+        "purpose": "fundamental_research",
+        "research_triage_id": gate.research_triage_id,
+        "researchable_tickers": list(gate.researchable),
     }
 
 
 def _draft_status(workspace: Path, manifest: Mapping[str, object]) -> dict[str, object]:
     manifest_asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
-    selection = _load_mapping(workspace / "selection.yaml", label="workspace selection")
-    shortlist = _dict_list(selection.get("shortlist"))
-    shortlist_tickers = [str(row.get("ticker") or "") for row in shortlist]
+    research_workspace = _load_mapping(
+        workspace / "research-workspace.yaml", label="research workspace"
+    )
+    research_set = research_workspace.get("research_set")
+    if not isinstance(research_set, list) or not all(
+        isinstance(ticker, str) for ticker in research_set
+    ):
+        raise OpportunityDataError("workspace research_set must be an array of tickers")
+    research_set_tickers = [str(ticker) for ticker in research_set]
     comparison = _load_mapping(workspace / "research-comparison.yaml", label="research comparison")
     selected_ticker = _string_or_none(comparison.get("selected_ticker"))
 
-    if not shortlist_tickers:
+    if not research_set_tickers:
         return _status_payload(
-            workspace_status="awaiting_primary_research_selection",
+            workspace_status="awaiting_research_set_admission",
             selected_ticker=None,
-            next_command="review the /shortlist gate and fill selection.yaml shortlist",
+            next_command="review the ResearchTriage and fill research-workspace.yaml research_set",
         )
 
     missing_research = [
         ticker
-        for ticker in shortlist_tickers
+        for ticker in research_set_tickers
         if not (_research_ticker_dir(workspace, ticker) / "thesis-draft.yaml").is_file()
     ]
     if missing_research:
@@ -877,7 +877,7 @@ def _draft_status(workspace: Path, manifest: Mapping[str, object]) -> dict[str, 
     research_pending: list[str] = []
     research_blocked: list[str] = []
     research_thesis_errors: list[str] = []
-    for ticker in shortlist_tickers:
+    for ticker in research_set_tickers:
         checklist = _load_checklist(workspace, ticker)
         research_pending.extend(
             f"{ticker}:{check_id}"
@@ -903,7 +903,7 @@ def _draft_status(workspace: Path, manifest: Mapping[str, object]) -> dict[str, 
             pending_checks=research_pending,
             blocked_checks=research_blocked,
             thesis_validation_errors=research_thesis_errors,
-            next_command=f"complete primary research for {first_ticker}",
+            next_command=f"complete Fundamental Research for {first_ticker}",
         )
 
     if selected_ticker is None:
@@ -912,8 +912,7 @@ def _draft_status(workspace: Path, manifest: Mapping[str, object]) -> dict[str, 
             selected_ticker=None,
             blocked_checks=research_blocked,
             next_command=(
-                "complete research-comparison.yaml and set selected_ticker, "
-                "or record no actionable bargain"
+                "complete research-comparison.yaml and set selected_ticker, or record no_allocation"
             ),
         )
 
@@ -1011,29 +1010,29 @@ def _status_payload(
 
 def _verify_external_inputs(
     manifest: Mapping[str, object], *, db_path: Path | None = None
-) -> _ResearchGate | None:
-    """Re-check every external input, and return the Research Gate that bounds this workspace.
+) -> _ResearchTriageBinding | None:
+    """Re-check every external input, and return the ResearchTriage that bounds this workspace.
 
     Returning the gate rather than reading it later is what keeps the two in step:
     a caller cannot validate drafts without having first proved, against the store,
     which tickers the Gate admits.
 
-    Holding review has no Gate — the ledger is its source — so it gets ``None``, and
+    Position Review has no Research Triage — the ledger is its source — so it gets ``None``, and
     its subject and as-of are re-proved against that ledger here. Both purposes
     therefore prove their subject against a store: without that, declaring
-    ``holding_review`` in the manifest would be a way to opt out of the Gate.
+    ``position_review`` in the manifest would be a way to opt out of the Gate.
     """
 
     inputs = manifest.get("inputs")
     if not isinstance(inputs, Mapping):
         raise OpportunityDataError("manifest is missing external input hashes")
-    purpose = str(manifest.get("purpose") or "opportunity")
+    purpose = str(manifest.get("purpose") or "fundamental_research")
     required_inputs: tuple[str, ...]
-    if purpose == "opportunity":
-        required_inputs = ("selection_output", "ledger")
+    if purpose == "fundamental_research":
+        required_inputs = ("review_set_output", "ledger")
         if "er_distribution_context" in inputs:
             required_inputs += ("er_distribution_context",)
-    elif purpose == "holding_review":
+    elif purpose == "position_review":
         required_inputs = ("ledger",)
     else:
         raise OpportunityDataError(f"manifest purpose is invalid: {purpose}")
@@ -1069,14 +1068,14 @@ def _verify_external_inputs(
             raise OpportunityConflictError(
                 f"workspace external input changed since prepare (input hash drift): {name}"
             )
-    if purpose == "holding_review":
+    if purpose == "position_review":
         _require_holding_subject(manifest, db_path=db_path)
         return None
-    return _verify_research_gate(manifest, inputs, db_path=db_path)
+    return _verify_research_triage(manifest, inputs, db_path=db_path)
 
 
 def _require_holding_subject(manifest: Mapping[str, object], *, db_path: Path | None) -> None:
-    """Re-prove a holding-review workspace's subject against the canonical ledger.
+    """Re-prove a position-review workspace's subject against the canonical ledger.
 
     ``holding-prepare`` proves the subject once, but the manifest recording that
     answer is an editable file, so the purpose would otherwise be a way to research
@@ -1085,7 +1084,7 @@ def _require_holding_subject(manifest: Mapping[str, object], *, db_path: Path | 
     The pinned ``append_head`` does not cover this: it counts ``ledger_event`` rows,
     while market prices live in their own table and are replaced wholesale, so a
     re-applied price draft moves the observation date under an unchanged head. That
-    is exactly the drift worth catching — the canonical holding review is built
+    is exactly the drift worth catching — the canonical Position Review is built
     against the ledger's own observation, so a workspace whose price date has moved
     can no longer produce one. Failing here says so before the research is written
     rather than after.
@@ -1093,110 +1092,112 @@ def _require_holding_subject(manifest: Mapping[str, object], *, db_path: Path | 
 
     ticker = _string_or_none(manifest.get("holding_ticker"))
     if ticker is None:
-        raise OpportunityDataError("holding-review manifest is missing holding_ticker")
+        raise OpportunityDataError("position-review manifest is missing holding_ticker")
     asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     snapshot, _append_head = _load_snapshot(db_path)
     problem = _holding_subject_problem(snapshot, ticker=ticker, asof=asof)
     if problem is not None:
         raise OpportunityConflictError(
-            f"holding-review workspace subject is invalid: {problem}; a holding review "
+            f"position-review workspace subject is invalid: {problem}; a Position Review "
             "runs at the as-of its ledger market price was observed, so rebuild at that "
-            "date with `research holding-prepare --asof <observed> --force` and "
+            "date with `research position-prepare --asof <observed> --force` and "
             "regenerate the ticker drafts with `research thesis-scaffold --force` "
             "(market prices only move forward, so the old as-of cannot be restored)"
         )
 
 
 def _validate_editable_drafts(
-    workspace: Path, manifest: Mapping[str, object], *, gate: _ResearchGate | None
+    workspace: Path, manifest: Mapping[str, object], *, gate: _ResearchTriageBinding | None
 ) -> None:
-    selection = _load_mapping(workspace / "selection.yaml", label="workspace selection")
+    research_workspace = _load_mapping(
+        workspace / "research-workspace.yaml", label="research workspace"
+    )
     comparison = _load_mapping(workspace / "research-comparison.yaml", label="research comparison")
     manifest_asof = str(manifest.get("as_of") or "")
-    if selection.get("as_of") != manifest_asof or comparison.get("as_of") != manifest_asof:
+    if research_workspace.get("as_of") != manifest_asof or comparison.get("as_of") != manifest_asof:
         raise OpportunityDataError("workspace draft as_of does not match manifest")
 
-    purpose = str(manifest.get("purpose") or "opportunity")
-    if purpose == "holding_review":
-        _validate_holding_review_drafts(selection, comparison, manifest)
+    purpose = str(manifest.get("purpose") or "fundamental_research")
+    if purpose == "position_review":
+        _validate_position_review_drafts(research_workspace, comparison, manifest)
         return
-    if purpose != "opportunity":
+    if purpose != "fundamental_research":
         raise OpportunityDataError(f"manifest purpose is invalid: {purpose}")
 
-    ranked_set = _dict_list(selection.get("ranked_set"))
-    ranked_set_tickers = [str(row.get("ticker") or "") for row in ranked_set]
-    if (
-        not ranked_set_tickers or any(not ticker for ticker in ranked_set_tickers)
-    ) and selection.get("actionable"):
-        raise OpportunityDataError("workspace ranked_set is invalid")
-    shortlist = _dict_list(selection.get("shortlist"))
-    shortlist_slots = selection.get("shortlist_slots")
-    if not isinstance(shortlist_slots, int) or shortlist_slots < 0:
-        raise OpportunityDataError("workspace shortlist_slots is invalid")
-    shortlist_tickers = [str(row.get("ticker") or "") for row in shortlist]
-    if len(shortlist_tickers) != len(set(shortlist_tickers)) or any(
-        ticker not in ranked_set_tickers for ticker in shortlist_tickers
+    review_set = _required_mapping(
+        research_workspace.get("review_set"), label="workspace.review_set"
+    )
+    try:
+        review_set_tickers, _ = resolve_review_set_entries(review_set)
+    except ReviewSetResolutionError as error:
+        raise OpportunityDataError(f"workspace Review Set is invalid: {error}") from error
+    research_set = research_workspace.get("research_set")
+    research_capacity = research_workspace.get("research_capacity")
+    if not isinstance(research_capacity, int) or research_capacity < 0:
+        raise OpportunityDataError("workspace research_capacity is invalid")
+    if not isinstance(research_set, list) or not all(
+        isinstance(ticker, str) and ticker for ticker in research_set
     ):
-        raise OpportunityDataError("workspace shortlist is invalid")
+        raise OpportunityDataError("workspace research_set must be an array of tickers")
+    research_set_tickers = [str(ticker) for ticker in research_set]
+    if len(research_set_tickers) != len(set(research_set_tickers)) or any(
+        ticker not in review_set_tickers for ticker in research_set_tickers
+    ):
+        raise OpportunityDataError("workspace research_set is invalid")
     # Narrowing guard, not a reachable state: `_verify_external_inputs` reads purpose
-    # from this same manifest and returns None only for holding review, which left
+    # from this same manifest and returns None only for Position Review, which left
     # above. A missing binding is refused there, with the command that rebuilds it.
     if gate is None:  # pragma: no cover - unreachable by construction
-        raise OpportunityDataError("opportunity workspace has no Research Gate binding")
+        raise OpportunityDataError("Fundamental Research workspace has no ResearchTriage binding")
     # Named before the slot count: over-filling and reaching past the Gate both show
     # up as "too many tickers", and only one of them is a capacity question.
-    rejected = [ticker for ticker in shortlist_tickers if ticker not in gate.admissible]
-    if rejected:
+    forbidden = [ticker for ticker in research_set_tickers if ticker not in gate.researchable]
+    if forbidden:
         raise OpportunityDataError(
-            f"workspace shortlist admits {', '.join(rejected)}, which "
-            f"{gate.shortlist_id} rejected at the Research Gate; to research a rejected "
-            "candidate, publish a new Research Gate judgment and re-prepare"
+            f"workspace Research Set includes {', '.join(forbidden)}, which "
+            f"{gate.research_triage_id} did not mark research"
         )
-    if len(shortlist) > shortlist_slots:
-        raise OpportunityDataError("workspace shortlist is invalid")
+    if len(research_set_tickers) > research_capacity:
+        raise OpportunityDataError("workspace Research Set exceeds research_capacity")
 
     candidates = _dict_list(comparison.get("candidates"))
     comparison_tickers = [str(row.get("ticker") or "") for row in candidates]
-    if comparison_tickers != ranked_set_tickers:
-        raise OpportunityDataError("research comparison candidates do not match ranked_set")
+    if comparison_tickers != list(review_set_tickers):
+        raise OpportunityDataError("research comparison candidates do not match Review Set")
     selected = _string_or_none(comparison.get("selected_ticker"))
-    if selected is not None and selected not in shortlist_tickers:
-        raise OpportunityDataError("selected_ticker is not present in shortlist")
+    if selected is not None and selected not in research_set_tickers:
+        raise OpportunityDataError("selected_ticker is not present in Research Set")
 
 
-def _validate_holding_review_drafts(
-    selection: Mapping[str, object],
+def _validate_position_review_drafts(
+    research_workspace: Mapping[str, object],
     comparison: Mapping[str, object],
     manifest: Mapping[str, object],
 ) -> None:
     ticker = _string_or_none(manifest.get("holding_ticker"))
     if ticker is None:
-        raise OpportunityDataError("holding-review manifest is missing holding_ticker")
-    ranked_set_tickers = [
-        str(row.get("ticker") or "") for row in _dict_list(selection.get("ranked_set"))
+        raise OpportunityDataError("position-review manifest is missing holding_ticker")
+    subject_tickers = [
+        str(row.get("ticker") or "")
+        for row in _dict_list(research_workspace.get("position_review_subject"))
     ]
-    shortlist_tickers = [
-        str(row.get("ticker") or "") for row in _dict_list(selection.get("shortlist"))
-    ]
+    research_set = research_workspace.get("research_set")
     comparison_tickers = [
         str(row.get("ticker") or "") for row in _dict_list(comparison.get("candidates"))
     ]
     if (
-        ranked_set_tickers != [ticker]
-        or shortlist_tickers != [ticker]
+        subject_tickers != [ticker]
+        or research_set != [ticker]
         or comparison_tickers != [ticker]
-        or selection.get("shortlist_slots") != 1
-        or selection.get("actionable") is not True
         or comparison.get("selected_ticker") != ticker
     ):
         raise OpportunityDataError(
-            "holding-review workspace must keep its ranked set, shortlist, "
-            "and selected ticker fixed"
+            "position-review workspace must keep its subject and comparison fixed"
         )
 
 
 def _research_ticker_dir(workspace: Path, ticker: str) -> Path:
-    """Return a path-confined ticker directory inside the shared opportunity workspace."""
+    """Return a path-confined ticker directory inside the shared research workspace."""
 
     workspace_root = workspace.resolve()
     ticker_dir = (workspace_root / ticker).resolve()
@@ -1224,19 +1225,19 @@ def _review_draft_path(workspace: Path, ticker: str, asof: date) -> Path:
 
 
 def _require_primary_research_ticker(
-    workspace: Path, ticker: str, *, action: str, gate: _ResearchGate | None
+    workspace: Path, ticker: str, *, action: str, gate: _ResearchTriageBinding | None
 ) -> None:
-    selection = _load_mapping(workspace / "selection.yaml", label="workspace selection")
-    shortlist_tickers = {
-        str(row.get("ticker") or "") for row in _dict_list(selection.get("shortlist"))
-    }
-    if ticker not in shortlist_tickers:
+    research_workspace = _load_mapping(
+        workspace / "research-workspace.yaml", label="research workspace"
+    )
+    research_set = research_workspace.get("research_set")
+    if not isinstance(research_set, list) or ticker not in research_set:
         raise OpportunityDataError(
-            f"cannot {action} for {ticker}: ticker is not in the primary-research set"
+            f"cannot {action} for {ticker}: ticker is not in the Research Set"
         )
-    if gate is not None and ticker not in gate.admissible:
+    if gate is not None and ticker not in gate.researchable:
         raise OpportunityDataError(
-            f"cannot {action} for {ticker}: {gate.shortlist_id} rejected it at the Research Gate"
+            f"cannot {action} for {ticker}: {gate.research_triage_id} did not mark it research"
         )
 
 
@@ -1266,13 +1267,13 @@ def scaffold_thesis(
     _validate_editable_drafts(workspace, manifest, gate=gate)
     _require_primary_research_ticker(workspace, ticker, action="scaffold research", gate=gate)
     asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
-    purpose = str(manifest.get("purpose") or "opportunity")
+    purpose = str(manifest.get("purpose") or "fundamental_research")
     screening_estimate: dict[str, object] | None
     transfer_reason: str | None
-    if purpose == "holding_review":
-        screening_estimate, transfer_reason = None, "not_applicable_holding_review"
+    if purpose == "position_review":
+        screening_estimate, transfer_reason = None, "not_applicable_position_review"
     else:
-        screening_estimate, transfer_reason = _screening_estimate_from_selection_output(
+        screening_estimate, transfer_reason = _screening_estimate_from_review_set_output(
             manifest=manifest,
             ticker=ticker,
             asof=asof,
@@ -1287,7 +1288,7 @@ def scaffold_thesis(
             f"no raw/unadjusted close available for {ticker} before {target_session.isoformat()}; "
             "an adjusted-only series is not substituted"
         )
-    if purpose == "holding_review" and price.price_as_of != asof:
+    if purpose == "position_review" and price.price_as_of != asof:
         raise OpportunityDataError(
             f"raw close date {price.price_as_of.isoformat()} does not match workspace manifest "
             f"as_of {asof.isoformat()}; --target-session must be the next trading session"
@@ -1358,11 +1359,11 @@ def _thesis_draft_skeleton(
     if screening_estimate is not None:
         sources.append(
             {
-                "source_id": "screening_selection",
+                "source_id": "screening_analysis",
                 "ticker": ticker,
                 "source_tier": "local_data",
                 "provider": "baibai-loop",
-                "dataset": "screening-selection",
+                "dataset": "security-analysis",
                 "retrieved_at": screening_retrieved_at.isoformat(),
                 "as_of": asof.isoformat(),
                 "used_for": "screening expected return and fair value anchor",
@@ -1370,7 +1371,7 @@ def _thesis_draft_skeleton(
         )
     input_snapshot = {
         "snapshot_version": 1,
-        "producer_model_version": "screening-selection-v1",
+        "producer_model_version": "security-analysis-v1",
         "ticker": ticker,
         "company_name": None,
         "sector": None,
@@ -1415,109 +1416,45 @@ def _thesis_draft_skeleton(
     }
 
 
-def _screening_estimate_from_selection_output(
+def _screening_estimate_from_review_set_output(
     *, manifest: Mapping[str, object], ticker: str, asof: date
 ) -> tuple[dict[str, object] | None, str | None]:
     inputs = _required_mapping(manifest.get("inputs"), label="manifest.inputs")
-    selection_ref = _required_mapping(
-        inputs.get("selection_output"), label="manifest.inputs.selection_output"
+    review_set_ref = _required_mapping(
+        inputs.get("review_set_output"), label="manifest.inputs.review_set_output"
     )
-    selection_path = _nonempty_string(
-        selection_ref.get("path"), label="manifest.inputs.selection_output.path"
+    review_set_path = _nonempty_string(
+        review_set_ref.get("path"), label="manifest.inputs.review_set_output.path"
     )
-    selection = _load_mapping(Path(selection_path), label="selection output")
-    ranked_set = _dict_list(selection.get("ranked_set"))
-    ranked_set_tickers = [str(row.get("ticker") or "") for row in ranked_set]
-    if len(ranked_set_tickers) != len(set(ranked_set_tickers)):
-        raise OpportunityDataError("selection output ranked_set tickers must be unique")
-    matching_rows = [row for row in ranked_set if str(row.get("ticker") or "") == ticker]
-    if len(matching_rows) != 1:
-        raise OpportunityDataError(
-            f"selection output ranked_set must contain ticker exactly once: {ticker}"
-        )
-    row = matching_rows[0]
-    if "estimate_snapshot" not in row:
-        return None, "estimate_snapshot_missing"
-
-    snapshot = _required_mapping(row["estimate_snapshot"], label="estimate_snapshot")
-    selection_metadata = _required_mapping(selection.get("selection"), label="selection.selection")
-    expected_asof = asof.isoformat()
-    if selection_metadata.get("asof") != expected_asof or snapshot.get("as_of") != expected_asof:
-        raise OpportunityDataError("selection, estimate snapshot, and manifest as_of must match")
-    expected_return = _required_mapping(
-        snapshot.get("expected_return"), label="estimate_snapshot.expected_return"
-    )
-    fair_value = _required_mapping(snapshot.get("fair_value"), label="estimate_snapshot.fair_value")
-    annual = _finite_number(
-        expected_return.get("annual"), label="estimate_snapshot.expected_return.annual"
-    )
-    if expected_return.get("origin") != "estimate" or fair_value.get("origin") != "estimate":
-        raise OpportunityDataError("estimate_snapshot origin must be estimate")
-    if expected_return.get("unit") != "annual_ratio":
-        raise OpportunityDataError("estimate_snapshot expected return unit must be annual_ratio")
-    if fair_value.get("unit") != "JPY_per_share":
-        raise OpportunityDataError("estimate_snapshot fair value unit must be JPY_per_share")
+    review_set = _load_mapping(Path(review_set_path), label="Review Set output")
+    try:
+        _tickers, rows = resolve_review_set_entries(review_set)
+    except ReviewSetResolutionError as error:
+        raise OpportunityDataError(f"Review Set is invalid: {error}") from error
+    row = rows.get(ticker)
+    if row is None:
+        raise OpportunityDataError(f"Review Set must contain ticker exactly once: {ticker}")
+    if review_set.get("as_of") != asof.isoformat():
+        raise OpportunityDataError("Review Set as_of does not match manifest as_of")
+    analysis = _required_mapping(row.get("analysis"), label="Review Set analysis")
+    estimate = analysis.get("expected_return")
+    if not isinstance(estimate, Mapping) or estimate.get("er_annual") is None:
+        return None, "screening_estimate_missing"
+    annual = _finite_number(estimate.get("er_annual"), label="expected_return.er_annual")
     model_version = _nonempty_string(
-        expected_return.get("model_version"),
-        label="estimate_snapshot.expected_return.model_version",
-    )
-    fair_value_model_version = _nonempty_string(
-        fair_value.get("model_version"), label="estimate_snapshot.fair_value.model_version"
+        estimate.get("er_model_version"), label="expected_return.er_model_version"
     )
     assumptions = _nonempty_string(
-        expected_return.get("assumptions"), label="estimate_snapshot.expected_return.assumptions"
+        estimate.get("er_assumptions"), label="expected_return.er_assumptions"
     )
-    fair_value_assumptions = _nonempty_string(
-        fair_value.get("assumptions"), label="estimate_snapshot.fair_value.assumptions"
-    )
-    if model_version != fair_value_model_version or assumptions != fair_value_assumptions:
-        raise OpportunityDataError("estimate_snapshot model version and assumptions must agree")
-
-    displayed_er_pct = _finite_number(
-        row.get("expected_return_pct"), label="ranked_set.expected_return_pct"
-    )
-    if displayed_er_pct != round(annual * 100, 4):
-        raise OpportunityDataError(
-            "estimate_snapshot expected return does not match ranked_set row"
-        )
-
-    anchors = _required_mapping(
-        fair_value.get("anchors"), label="estimate_snapshot.fair_value.anchors"
-    )
-    positive_anchors: list[float] = []
-    for key in ("fv_sector_median_yen", "fv_self_range_yen"):
-        value = anchors.get(key)
-        if value is None:
-            continue
-        number = _finite_number(value, label=f"estimate_snapshot.fair_value.anchors.{key}")
-        if number <= 0:
-            raise OpportunityDataError(
-                f"estimate_snapshot fair value anchor must be positive: {key}"
-            )
-        positive_anchors.append(number)
-    raw_fair_value_anchor_yen = min(positive_anchors) if positive_anchors else None
-    displayed_fair_value = row.get("fair_value_anchor_yen")
-    if raw_fair_value_anchor_yen is None:
-        if displayed_fair_value is not None:
-            raise OpportunityDataError(
-                "null estimate anchors do not match ranked_set row fair value"
-            )
-    else:
-        displayed_anchor = _finite_number(
-            displayed_fair_value, label="ranked_set.fair_value_anchor_yen"
-        )
-        if displayed_anchor != round(raw_fair_value_anchor_yen, 4):
-            raise OpportunityDataError("estimate_snapshot fair value does not match ranked_set row")
-
-    fair_value_anchor_yen = (
-        None
-        if raw_fair_value_anchor_yen is None
-        else float(
-            Decimal(str(raw_fair_value_anchor_yen)).quantize(
-                Decimal("0.0001"), rounding=ROUND_HALF_UP
-            )
-        )
-    )
+    anchors = [
+        _finite_number(value, label=f"expected_return.{key}")
+        for key in ("fv_sector_median_yen", "fv_self_range_yen")
+        if (value := estimate.get(key)) is not None
+    ]
+    if any(value <= 0 for value in anchors):
+        raise OpportunityDataError("Review Set fair-value anchors must be positive")
+    fair_value_anchor_yen = min(anchors) if anchors else None
     screening_estimate = {
         "origin": "estimate",
         "model_version": model_version,
@@ -1527,7 +1464,7 @@ def _screening_estimate_from_selection_output(
         "fair_value_anchor_yen": fair_value_anchor_yen,
         "fair_value_unit": "JPY_per_share",
         "assumptions": assumptions,
-        "source_ids": ["screening_selection"],
+        "source_ids": [f"review-set:{review_set.get('review_set_id')}"],
     }
     try:
         ScreeningEstimate.model_validate(screening_estimate)
@@ -1562,20 +1499,17 @@ def _finite_number(value: object, *, label: str) -> float:
     return number
 
 
-def _validate_selection_estimate_asof(
-    *, selection: Mapping[str, object], ranked_set: Sequence[Mapping[str, object]], asof: date
+def _validate_review_set_estimate_asof(
+    *,
+    review_set: Mapping[str, object],
+    review_set_entries: Sequence[Mapping[str, object]],
+    asof: date,
 ) -> None:
-    snapshots = [row["estimate_snapshot"] for row in ranked_set if "estimate_snapshot" in row]
-    if not snapshots:
-        return
-    selection_metadata = _required_mapping(selection.get("selection"), label="selection.selection")
     expected_asof = asof.isoformat()
-    if selection_metadata.get("asof") != expected_asof:
-        raise OpportunityDataError("selection as_of does not match prepare as_of")
-    for snapshot_value in snapshots:
-        snapshot = _required_mapping(snapshot_value, label="estimate_snapshot")
-        if snapshot.get("as_of") != expected_asof:
-            raise OpportunityDataError("estimate_snapshot as_of does not match prepare as_of")
+    if review_set.get("as_of") != expected_asof:
+        raise OpportunityDataError("Review Set as_of does not match prepare as_of")
+    if len(review_set_entries) > 20:
+        raise OpportunityDataError("Review Set exceeds capacity 20")
 
 
 def _checklist_skeleton(*, price: PreviousClose) -> dict[str, object]:
@@ -1721,7 +1655,7 @@ def promote(
     _validate_editable_drafts(workspace, manifest, gate=gate)
     # Every researched ticker earns a canonical thesis, not only the one being bought.
     # A cycle that buys nothing still produced the judgment that says why, and the
-    # bargain assessment binds each case to a stored immutable thesis.
+    # Capital Allocation Assessment binds each case to a stored immutable thesis.
     _require_primary_research_ticker(workspace, ticker, action="promote", gate=gate)
 
     manifest_asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
@@ -2034,23 +1968,6 @@ def _dict_list(value: object) -> list[dict[str, object]]:
 
 def _string_or_none(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
-
-
-def _research_selection_target_max(selection: Mapping[str, object]) -> int:
-    block = selection.get("selection")
-    value = block.get("research_selection_target_max") if isinstance(block, Mapping) else None
-    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-        raise OpportunityDataError(
-            "selection output research_selection_target_max must be a non-negative integer"
-        )
-    return value
-
-
-def _evidence_pattern_order(selection: Mapping[str, object]) -> object:
-    block = selection.get("selection")
-    if isinstance(block, Mapping):
-        return block.get("evidence_pattern_order")
-    return None
 
 
 def _parse_date(value: str, *, label: str) -> date:

@@ -5,7 +5,7 @@ doc_type: reference
 status: active
 related_docs:
   - "./thesis.md"
-  - "./bargain-assessment.md"
+  - "./capital-allocation-assessment.md"
   - "../../method/research/playbooks/README.md"
 ---
 
@@ -15,7 +15,7 @@ related_docs:
 
 ## 目的と非目標
 
-この文書は、「企業がどう稼ぎ、どのKPIと制約が5年価値を決めるか」を確認するための試行用の観点である。「なぜ安く見えるか」を扱う`Evidence Pattern`とは役割を分ける。
+この文書は、「企業がどう稼ぎ、どのKPIと制約が5年価値を決めるか」を確認するための試行用の観点である。「なぜ安く見えるか」を扱う`Valuation Approach`とは役割を分ける。
 
 事業モデルの分類そのものを投資根拠、screening条件、thesis fieldにはしない。質問の抜けを減らすためだけに使い、試行期間はoperation sessionで指定したprimary-research対象だけへ適用する。対象外へ一律には強制しない。
 
@@ -175,4 +175,4 @@ title/IP別売上、MAU/DAU、payer数・payer率、ARPU/ARPPU、retention、boo
 
 ## 試行の見直し
 
-次回以降の自然発生researchから2〜3件で、共通checklistと比べて新たに立った問い、残ったunknown、scenario/FVまたはdispositionへの影響、追加負担をoperation sessionへ残す。確認のために候補選定、research、売買を強制せず、`buy / reject / defer / no actionable bargain`をすべて正常結果とする。1件だけで投資精度の改善を断定せず、試行観点が問いを増やすだけで判断を変えない場合は、項目追加より削減・統合・撤回を優先する。
+次回以降の自然発生researchから2〜3件で、共通checklistと比べて新たに立った問い、残ったunknown、scenario/FVまたはdispositionへの影響、追加負担をoperation sessionへ残す。確認のために候補選定、research、売買を強制せず、`buy / reject / defer / no_allocation`をすべて正常結果とする。1件だけで投資精度の改善を断定せず、試行観点が問いを増やすだけで判断を変えない場合は、項目追加より削減・統合・撤回を優先する。

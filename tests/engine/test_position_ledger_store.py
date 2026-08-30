@@ -141,7 +141,7 @@ def test_decision_reference_is_indexed_without_domain_specific_foreign_key(tmp_p
             "event_id": "human-open-assessment",
             "reservation_id": "reservation-assessment",
             "order_id": "order-assessment",
-            "decision_reference": "bargain-assessment-20260719-2331",
+            "decision_reference": "capital-allocation-assessment-20260719-2331",
             "occurred_at": source.as_of,
             "expires_at": source.as_of + timedelta(days=1),
         }
@@ -159,7 +159,7 @@ def test_decision_reference_is_indexed_without_domain_specific_foreign_key(tmp_p
                 "SELECT decision_reference FROM ledger_event WHERE event_id = ?",
                 (native.event_id,),
             ).fetchone()[0]
-            == "bargain-assessment-20260719-2331"
+            == "capital-allocation-assessment-20260719-2331"
         )
         assert (
             connection.execute(

@@ -16,7 +16,7 @@ def _scope(*, purpose: str = "production_decision") -> EvaluationScope:
         requested_horizons=("3m", "6m", "1y", "3y", "5y"),
         cohort_window={"start": "2020-01-31", "end": "2020-01-31"},
         required_asofs=("2020-01-31",),
-        required_metrics=("selection_rank_top5", "selection_rank_top10", "er_calibration"),
+        required_metrics=("review_set_top5", "review_set_top10", "er_calibration"),
     )
 
 
@@ -26,8 +26,8 @@ def _cohort(horizon: str, status: str = "eligible") -> CohortIntegrity:
         horizon=horizon,
         integrity_status=status,
         metric_statuses={
-            "selection_rank_top5": status,
-            "selection_rank_top10": status,
+            "review_set_top5": status,
+            "review_set_top10": status,
             "er_calibration": status,
         },
     )
@@ -59,7 +59,7 @@ def test_pure_production_gate_requires_all_core_metrics() -> None:
         requested_horizons=("3y", "5y"),
         cohort_window={"start": None, "end": None},
         required_asofs=("2020-01-31",),
-        required_metrics=("selection_rank_top5", "er_calibration"),
+        required_metrics=("review_set_top5", "er_calibration"),
     )
     decision = decide_authority(scope, (_cohort("3y"), _cohort("5y")))
     assert decision.production_change_allowed is False
@@ -72,8 +72,8 @@ def test_required_metric_must_be_resolved_for_each_long_cohort() -> None:
         horizon="5y",
         integrity_status="eligible",
         metric_statuses={
-            "selection_rank_top5": "eligible",
-            "selection_rank_top10": "eligible",
+            "review_set_top5": "eligible",
+            "review_set_top10": "eligible",
             "er_calibration": "unresolved",
         },
     )
@@ -88,14 +88,14 @@ def test_missing_required_metric_status_is_unresolved() -> None:
         horizon="5y",
         integrity_status="eligible",
         metric_statuses={
-            "selection_rank_top5": "eligible",
-            "selection_rank_top10": "eligible",
+            "review_set_top5": "eligible",
+            "review_set_top10": "eligible",
             "er_calibration": "eligible",
         },
     )
     required = (
-        "selection_rank_top5",
-        "selection_rank_top10",
+        "review_set_top5",
+        "review_set_top10",
         "er_calibration",
         "er_level_calibration",
     )
@@ -121,8 +121,8 @@ def test_missing_required_metric_status_is_unresolved() -> None:
 
 def test_optional_er_level_metric_can_be_explicitly_required() -> None:
     required = (
-        "selection_rank_top5",
-        "selection_rank_top10",
+        "review_set_top5",
+        "review_set_top10",
         "er_calibration",
         "er_level_calibration",
     )
@@ -150,8 +150,8 @@ def test_optional_er_level_metric_can_be_explicitly_required() -> None:
 
 def test_normalized_per_metric_can_be_explicitly_required() -> None:
     required = (
-        "selection_rank_top5",
-        "selection_rank_top10",
+        "review_set_top5",
+        "review_set_top10",
         "er_calibration",
         "normalized_per_3fy",
     )
@@ -179,8 +179,8 @@ def test_normalized_per_metric_can_be_explicitly_required() -> None:
 
 def test_margin_short_metric_can_be_explicitly_required() -> None:
     required = (
-        "selection_rank_top5",
-        "selection_rank_top10",
+        "review_set_top5",
+        "review_set_top10",
         "er_calibration",
         "margin_short_to_adv",
     )
@@ -215,7 +215,7 @@ def test_blocking_reasons_stay_bounded_as_the_panel_count_grows() -> None:
         requested_horizons=("3y", "5y"),
         cohort_window={"start": None, "end": None},
         required_asofs=asofs,
-        required_metrics=("selection_rank_top5", "selection_rank_top10", "er_calibration"),
+        required_metrics=("review_set_top5", "review_set_top10", "er_calibration"),
     )
     cohorts = tuple(
         CohortIntegrity(
@@ -234,8 +234,8 @@ def test_blocking_reasons_stay_bounded_as_the_panel_count_grows() -> None:
     assert set(decision.blocking_reasons) == {
         "integrity_blocked",
         "survivorship",
-        "metric_unresolved:selection_rank_top5",
-        "metric_unresolved:selection_rank_top10",
+        "metric_unresolved:review_set_top5",
+        "metric_unresolved:review_set_top10",
         "metric_unresolved:er_calibration",
     }
     assert decision.missing_cohorts == ()

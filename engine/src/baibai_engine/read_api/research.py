@@ -21,16 +21,16 @@ def list_thesis_payloads(
     )
 
 
-def list_holding_review_payloads(
+def list_position_review_payloads(
     path: Path,
     *,
     ticker: str | None = None,
 ) -> list[dict[str, object]]:
     return _many(
         path,
-        "holding_review",
+        "position_review",
         where=None if ticker is None else ("ticker = ?", (ticker,)),
-        order="as_of DESC, holding_review_id DESC",
+        order="as_of DESC, position_review_id DESC",
     )
 
 
@@ -93,17 +93,17 @@ def list_thesis_review_publications(
     )
 
 
-def list_holding_review_publications(
+def list_position_review_publications(
     path: Path,
     *,
     ticker: str | None = None,
 ) -> list[dict[str, object]]:
     return _publications(
         path,
-        "holding_review",
-        ("holding_review_id", "ticker", "as_of", "thesis_id", "candidate_thesis_id"),
+        "position_review",
+        ("position_review_id", "ticker", "as_of", "thesis_id", "candidate_thesis_id"),
         where=None if ticker is None else ("ticker = ?", (ticker,)),
-        order="as_of DESC, holding_review_id DESC",
+        order="as_of DESC, position_review_id DESC",
     )
 
 
@@ -154,8 +154,8 @@ def _publications(
 
 
 __all__ = [
-    "list_holding_review_payloads",
-    "list_holding_review_publications",
+    "list_position_review_payloads",
+    "list_position_review_publications",
     "list_thesis_payloads",
     "list_thesis_publications",
     "list_thesis_review_publications",

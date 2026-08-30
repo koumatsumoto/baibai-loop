@@ -1,5 +1,5 @@
-"""CLI for opportunity authoring: prepare / status / thesis-scaffold /
-review-scaffold / promote / plan-limit / assessment-scaffold / assessment-publish.
+"""CLI for Fundamental Research authoring: prepare / status / thesis-scaffold /
+review-scaffold / promote / plan-limit / capital-allocation-scaffold / capital-allocation-publish.
 
 This is also the `baibai-engine research` help surface, so the read-only `evaluate`
 command is declared here and forwarded to :mod:`decision_cli`, which keeps its own
@@ -8,7 +8,7 @@ arguments and its own exit codes.
 Machine output is YAML on stdout only; human explanation and errors go to stderr.
 Exit codes:
 
-- 0 success (``defer`` and "no actionable bargain" are normal judgments)
+- 0 success (``defer`` and ``no_allocation`` are normal judgments)
 - 2 argparse / CLI usage error
 - 3 missing source / checklist / schema / hash makes the request unprocessable
 - 4 output collision, input hash drift, or path-confinement violation
@@ -28,13 +28,13 @@ from pydantic import ValidationError
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 
-from .assessment import (
-    AssessmentError,
-    BargainAssessment,
-    assessment_draft_sha256,
+from .capital_allocation import (
+    CapitalAllocationAssessment,
+    CapitalAllocationError,
+    capital_allocation_draft_sha256,
 )
-from .assessment_scaffold import scaffold_assessment
-from .assessment_service import BargainAssessmentService
+from .capital_allocation_scaffold import scaffold_capital_allocation
+from .capital_allocation_service import CapitalAllocationAssessmentService
 from .opportunity import (
     OpportunityError,
     compute_status,
@@ -64,19 +64,19 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     prepare_parser = subparsers.add_parser(
-        "prepare", help="build the opportunity workspace from a selection output and ledger"
+        "prepare", help="build a research workspace from a Review Set and ResearchTriage"
     )
     prepare_parser.add_argument("--asof", required=True, help="workspace as-of date (YYYY-MM-DD)")
     prepare_parser.add_argument(
-        "--selection-output",
+        "--review-set-output",
         required=True,
         type=Path,
-        help="canonical selection output; must be outside --workspace",
+        help="canonical Review Set output; must be outside --workspace",
     )
     prepare_parser.add_argument(
-        "--shortlist-id",
+        "--research-triage-id",
         required=True,
-        help="canonical Shortlist whose Research Gate judgment bounds this workspace",
+        help="canonical ResearchTriage that bounds the human-admitted Research Set",
     )
     prepare_parser.add_argument("--db", type=Path)
     prepare_parser.add_argument("--workspace", required=True, type=Path)
@@ -85,7 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     holding_prepare_parser = subparsers.add_parser(
-        "holding-prepare", help="build a one-ticker workspace for an open holding"
+        "position-prepare", help="build a one-ticker workspace for an open holding"
     )
     holding_prepare_parser.add_argument(
         "--asof", required=True, help="workspace as-of date (YYYY-MM-DD)"
@@ -157,13 +157,13 @@ def build_parser() -> argparse.ArgumentParser:
     plan_parser.add_argument("--output", type=Path)
 
     assessment_scaffold_parser = subparsers.add_parser(
-        "assessment-scaffold",
-        help="scaffold a bargain-assessment draft from promoted theses",
+        "capital-allocation-scaffold",
+        help="scaffold a capital-allocation-assessment draft from promoted theses",
     )
     assessment_scaffold_parser.add_argument("--db", type=Path)
-    assessment_scaffold_parser.add_argument("--assessment-id", required=True)
+    assessment_scaffold_parser.add_argument("--capital-allocation-assessment-id", required=True)
     assessment_scaffold_parser.add_argument("--asof", required=True)
-    assessment_scaffold_parser.add_argument("--shortlist-id", required=True)
+    assessment_scaffold_parser.add_argument("--research-triage-id", required=True)
     assessment_scaffold_parser.add_argument(
         "--thesis-id",
         action="append",
@@ -173,8 +173,8 @@ def build_parser() -> argparse.ArgumentParser:
     assessment_scaffold_parser.add_argument("--out", type=Path)
 
     assessment_publish_parser = subparsers.add_parser(
-        "assessment-publish",
-        help="publish the bargain assessment to the application DB",
+        "capital-allocation-publish",
+        help="publish the capital-allocation assessment to the application DB",
     )
     assessment_publish_parser.add_argument("draft", type=Path)
     assessment_publish_parser.add_argument("--db", type=Path)
@@ -207,8 +207,8 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             case "prepare":
                 prepared = prepare_workspace(
                     asof=_parse_date(args.asof),
-                    selection_output=args.selection_output,
-                    shortlist_id=args.shortlist_id,
+                    review_set_output=args.review_set_output,
+                    research_triage_id=args.research_triage_id,
                     db_path=args.db,
                     workspace=args.workspace,
                     force=args.force,
@@ -217,15 +217,15 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     {
                         "workspace": str(prepared.workspace),
                         "actionable": prepared.actionable,
-                        "ranked_set_size": prepared.ranked_set_size,
-                        "shortlist_slots": prepared.shortlist_slots,
-                        "shortlist_id": prepared.shortlist_id,
-                        "admissible_tickers": list(prepared.admissible_tickers),
-                        "note": None if prepared.actionable else "no actionable bargain",
+                        "review_set_size": prepared.review_set_size,
+                        "research_capacity": prepared.research_capacity,
+                        "research_triage_id": prepared.research_triage_id,
+                        "researchable_tickers": list(prepared.researchable_tickers),
+                        "note": None if prepared.actionable else "no_allocation",
                     },
                     out,
                 )
-            case "holding-prepare":
+            case "position-prepare":
                 prepared = prepare_holding_workspace(
                     asof=_parse_date(args.asof),
                     db_path=args.db,
@@ -237,8 +237,8 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     {
                         "workspace": str(prepared.workspace),
                         "actionable": prepared.actionable,
-                        "ranked_set_size": prepared.ranked_set_size,
-                        "shortlist_slots": prepared.shortlist_slots,
+                        "review_set_size": prepared.review_set_size,
+                        "research_capacity": prepared.research_capacity,
                     },
                     out,
                 )
@@ -304,12 +304,12 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         ),
                     )
                 _emit(payload, out)
-            case "assessment-scaffold":
-                draft = scaffold_assessment(
+            case "capital-allocation-scaffold":
+                draft = scaffold_capital_allocation(
                     db_path=args.db,
-                    assessment_id=args.assessment_id,
+                    capital_allocation_assessment_id=args.capital_allocation_assessment_id,
                     as_of=_parse_date(args.asof),
-                    shortlist_id=args.shortlist_id,
+                    research_triage_id=args.research_triage_id,
                     thesis_ids=list(args.thesis_id),
                     published_at=resolved_now,
                 )
@@ -323,17 +323,19 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         ),
                     )
                 _emit(draft, out)
-            case "assessment-publish":
-                assessment = BargainAssessment.model_validate(
+            case "capital-allocation-publish":
+                assessment = CapitalAllocationAssessment.model_validate(
                     safe_load(args.draft.read_text(encoding="utf-8"))
                 )
-                service = BargainAssessmentService(args.db)
+                service = CapitalAllocationAssessmentService(args.db)
                 if args.check:
                     service.check(assessment)
-                    expected = assessment_draft_sha256(assessment)
+                    expected = capital_allocation_draft_sha256(assessment)
                     _emit(
                         {
-                            "assessment_id": assessment.assessment_id,
+                            "capital_allocation_assessment_id": (
+                                assessment.capital_allocation_assessment_id
+                            ),
                             "check": "pass",
                             "draft_sha256": expected,
                             "review_binding": (
@@ -346,7 +348,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     _emit(service.publish(assessment).payload(), out)
             case _:  # pragma: no cover - argparse enforces the command set
                 raise AssertionError(f"unreachable command: {args.command!r}")
-    except (AssessmentError, ValidationError) as error:
+    except (CapitalAllocationError, ValidationError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 3
     except OpportunityError as error:

@@ -11,7 +11,7 @@ tasks:
     body_md: |
       - 確認: Q1 実績で base scenario が維持されるか
       - Primary sources: 会社 IR / TDnet
-      - 更新先: holding review
+      - 更新先: Position Review
     related_refs:
       - https://github.com/koumatsumoto/baibai-loop/issues/406
     created_at: "2026-07-18"

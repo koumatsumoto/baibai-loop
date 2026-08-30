@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -41,121 +40,7 @@ class QualityRules(BaseModel):
     yoy_deterioration_threshold: float
 
 
-class ValuationReversionEvidencePattern(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=True)
-
-    evidence_pattern_id: str
-    excluded_sectors: tuple[str, ...] = ()
-    sector_median_gap_max: float
-    self_range_percentile_max: float = Field(ge=0, le=1)
-    sigma_gap_max: float
-    metrics: tuple[str, ...]
-
-    @field_validator("metrics", mode="before")
-    @classmethod
-    def _tuple_metrics(cls, value: list[str] | tuple[str, ...]) -> tuple[str, ...]:
-        return tuple(value)
-
-    @field_validator("excluded_sectors", mode="before")
-    @classmethod
-    def _tuple_excluded_sectors(cls, value: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
-        return tuple(value or ())
-
-
-class CashRichEvidencePattern(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=True)
-
-    evidence_pattern_id: str
-    excluded_sectors: tuple[str, ...] = ()
-    cash_to_market_cap_min: float = Field(ge=0)
-    edinet_net_cash_to_market_cap_min_if_available: float | None = None
-    pbr_max: float = Field(ge=0)
-    equity_ratio_min: float = Field(ge=0, le=1)
-    operating_profit_positive_required: bool
-    operating_profit_yoy_deterioration_threshold: float | None = None
-
-    @field_validator("excluded_sectors", mode="before")
-    @classmethod
-    def _tuple_excluded_sectors(cls, value: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
-        return tuple(value or ())
-
-
-class CashflowYieldEvidencePattern(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=True)
-
-    evidence_pattern_id: str
-    excluded_sectors: tuple[str, ...] = ()
-    ocf_yield_min: float = Field(ge=0)
-    ttm_cfo_required: bool
-    cfo_yoy_min: float
-    cfo_yoy_required: bool
-    operating_profit_yoy_deterioration_threshold: float | None = None
-    fcf_yield_required_positive: bool = False
-
-    @field_validator("excluded_sectors", mode="before")
-    @classmethod
-    def _tuple_excluded_sectors(cls, value: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
-        return tuple(value or ())
-
-
-class SalesDiscountGrowthEvidencePattern(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=True)
-
-    evidence_pattern_id: str
-    excluded_sectors: tuple[str, ...] = ()
-    ps_sector_gap_max: float
-    sales_yoy_min: float
-    allow_operating_loss_if_cfo_positive_or_loss_narrowing: bool
-    operating_margin_min: float | None = None
-
-    @field_validator("excluded_sectors", mode="before")
-    @classmethod
-    def _tuple_excluded_sectors(cls, value: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
-        return tuple(value or ())
-
-
-class OutputRules(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
-
-    research_selection_target_max: int = Field(ge=0)
-    evidence_pattern_order: tuple[str, ...]
-
-    @field_validator("evidence_pattern_order", mode="before")
-    @classmethod
-    def _tuple_evidence_pattern_order(cls, value: list[str] | tuple[str, ...]) -> tuple[str, ...]:
-        return tuple(value)
-
-
-class DurabilityDiagnosticRules(BaseModel):
-    """塩漬け耐性 (durability) annotation の事前固定閾値。
-
-    価格 stop を置かない long-hold の前提を成立させる耐性シグナル
-    (balance sheet・現金・CF・流動性) を candidates に注記する。
-    ranking / gate には使わず、research の必須ゲート判定の機械入力になる。
-    """
-
-    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
-
-    high_min_support_count: int = Field(default=4, ge=1)
-    medium_min_support_count: int = Field(default=2, ge=1)
-    equity_ratio_high_min: float = Field(default=0.5, ge=0, le=1)
-    equity_ratio_medium_min: float = Field(default=0.35, ge=0, le=1)
-    net_cash_to_market_cap_high_min: float = 0.2
-    net_cash_to_market_cap_medium_min: float = 0.0
-    cash_to_market_cap_high_min: float = Field(default=0.3, ge=0)
-    ocf_yield_positive_min: float = 0.0
-    fcf_yield_positive_min: float = 0.0
-    min_avg_turnover_oku: float = Field(default=1.0, ge=0)
-
-
-class CandidateDiagnosticRules(BaseModel):
-    """Thresholds for shared annotations that never nominate or order candidates."""
-
-    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
-    durability: DurabilityDiagnosticRules = Field(default_factory=DurabilityDiagnosticRules)
-
-
-class SelectionLiquidityRules(BaseModel):
+class CommonEligibilityRules(BaseModel):
     """Analysis-layer scope parameters applied when ranking research candidates.
 
     The screen itself covers every common stock; size, liquidity, seasoning,
@@ -183,7 +68,7 @@ class SelectionLiquidityRules(BaseModel):
         """Single predicate for the investable set.
 
         ``require_facts=True`` disqualifies rows with missing liquidity facts.
-        Selection uses this mode so the ranked population matches the
+        Candidate Discovery uses this mode so the eligible population matches the
         calibration population; diagnostics separately count missing facts.
         """
         facts = (market_cap_oku, avg_turnover_oku, listing_span_days, jpx_flags)
@@ -200,13 +85,41 @@ class SelectionLiquidityRules(BaseModel):
         )
 
 
-class SelectionRules(BaseModel):
+class ValuationApproachRules(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
-    liquidity: SelectionLiquidityRules = Field(default_factory=SelectionLiquidityRules)
-    candidate_diagnostics: CandidateDiagnosticRules = Field(
-        default_factory=CandidateDiagnosticRules
-    )
+    method_id: str = Field(min_length=1)
+
+
+class CandidateDiscoveryRules(BaseModel):
+    """The explicit multi-valuation method that produces the finite Review Set."""
+
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+
+    method_id: str = Field(min_length=1)
+    review_capacity: int = Field(gt=0)
+    nomination_depth: int = Field(gt=0)
+    common_eligibility: CommonEligibilityRules
+    representation_targets: Mapping[str, int]
+    approaches: Mapping[str, ValuationApproachRules]
+
+    @model_validator(mode="after")
+    def _validate_method(self) -> CandidateDiscoveryRules:
+        expected = {
+            "current-earnings-power",
+            "normalized-earnings-power",
+            "asset-value",
+            "reinvestment-value",
+        }
+        if set(self.approaches) != expected:
+            raise ValueError("candidate discovery must define the four valuation approaches")
+        if set(self.representation_targets) != expected:
+            raise ValueError("representation targets must cover the four valuation approaches")
+        if any(value <= 0 for value in self.representation_targets.values()):
+            raise ValueError("representation targets must be positive")
+        if sum(self.representation_targets.values()) != self.review_capacity:
+            raise ValueError("review capacity must equal the representation target sum")
+        return self
 
 
 class ScreeningRules(BaseModel):
@@ -215,50 +128,7 @@ class ScreeningRules(BaseModel):
     universe: UniverseRules
     ttm: TTMRules
     quality: QualityRules
-    evidence_patterns: Mapping[
-        str,
-        ValuationReversionEvidencePattern
-        | CashRichEvidencePattern
-        | CashflowYieldEvidencePattern
-        | SalesDiscountGrowthEvidencePattern,
-    ]
-    output: OutputRules
-    selection: SelectionRules = Field(default_factory=SelectionRules)
-
-    @field_validator("evidence_patterns", mode="before")
-    @classmethod
-    def _coerce_evidence_patterns(cls, value: Mapping[str, Any]) -> dict[str, Any]:
-        if not isinstance(value, Mapping):
-            raise ValueError("evidence_patterns must be a mapping")
-        patterns: dict[str, Any] = {}
-        for name, raw in value.items():
-            if not isinstance(raw, Mapping):
-                raise ValueError(f"evidence pattern {name!r} must be a mapping")
-            data = dict(raw)
-            match name:
-                case "valuation-reversion":
-                    patterns[name] = ValuationReversionEvidencePattern.model_validate(data)
-                case "cash-rich-asset-discount":
-                    patterns[name] = CashRichEvidencePattern.model_validate(data)
-                case "cashflow-yield-discount":
-                    patterns[name] = CashflowYieldEvidencePattern.model_validate(data)
-                case "sales-discount-growth":
-                    patterns[name] = SalesDiscountGrowthEvidencePattern.model_validate(data)
-                case _:
-                    raise ValueError(f"unknown evidence pattern: {name}")
-        return patterns
-
-    @property
-    def evidence_pattern_order(self) -> tuple[str, ...]:
-        return tuple(self.evidence_patterns.keys())
-
-    @model_validator(mode="after")
-    def _validate_output_evidence_pattern_order(self) -> ScreeningRules:
-        unknown = set(self.output.evidence_pattern_order) - set(self.evidence_patterns)
-        if unknown:
-            joined = ", ".join(sorted(unknown))
-            raise ValueError(f"unknown Evidence Pattern(s): {joined}")
-        return self
+    candidate_discovery: CandidateDiscoveryRules
 
 
 def load_screening_rules(path: Path = DEFAULT_RULES_PATH) -> ScreeningRules:

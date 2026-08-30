@@ -8,8 +8,8 @@ from baibai_engine.foundation.time import JST
 
 from .schema import (
     FreshnessWarning,
-    ScreenedCandidate,
-    ScreenedRunDocument,
+    ScreeningRunDocument,
+    SecurityAnalysis,
     TTMQuality,
 )
 
@@ -43,7 +43,7 @@ _QuotedDumper.add_representer(QuotedString, _quoted_scalar_representer)
 
 
 def render_screened_yaml(
-    document: ScreenedRunDocument,
+    document: ScreeningRunDocument,
     *,
     run_revision_id: str | None = None,
 ) -> str:
@@ -67,7 +67,7 @@ def render_screened_yaml(
     return f"{yaml_text}\n"
 
 
-def _build_front_matter(document: ScreenedRunDocument) -> dict[str, object]:
+def _build_front_matter(document: ScreeningRunDocument) -> dict[str, object]:
     front_matter: dict[str, object] = {}
     front_matter["run_date"] = QuotedString(document.run_date.isoformat())
     front_matter["asof_date"] = QuotedString(document.asof_date.isoformat())
@@ -79,7 +79,9 @@ def _build_front_matter(document: ScreenedRunDocument) -> dict[str, object]:
     front_matter["run_id"] = QuotedString(document.run_id)
     front_matter["screening_rules_hash"] = QuotedString(document.screening_rules_hash)
     front_matter["er_model_version"] = QuotedString(document.er_model_version)
-    front_matter["candidates"] = [candidate_entry(candidate) for candidate in document.candidates]
+    front_matter["security_analyses"] = [
+        security_analysis_entry(analysis) for analysis in document.security_analyses
+    ]
     front_matter["provider_status_lines"] = [
         QuotedString(line) for line in document.provider_status_lines
     ]
@@ -87,17 +89,15 @@ def _build_front_matter(document: ScreenedRunDocument) -> dict[str, object]:
         QuotedString(line) for line in document.universe_exclusion_lines
     ]
     front_matter["ttm_quality_counts"] = dict(document.ttm_quality_counts)
-    front_matter["evidence_hits_summary"] = dict(document.evidence_hits_summary)
     front_matter["fallback_lines"] = [QuotedString(line) for line in document.fallback_lines]
     return front_matter
 
 
-def candidate_entry(candidate: ScreenedCandidate) -> dict[str, object]:
-    """Serialize one candidate to its YAML entry shape.
+def security_analysis_entry(candidate: SecurityAnalysis) -> dict[str, object]:
+    """Serialize one analyzed security to its YAML entry shape.
 
-    calibration の選定リプレイもこの entry を経由して CandidateRecord を作る。
-    本番 select が読む YAML と同じ丸め・同じ key 集合を単一実装で保証するため、
-    ここを迂回して候補 dict を組み立てない。
+    Production and calibration use the same rounded coordinates so a valuation
+    approach cannot observe a different row in replay.
     """
     entry: dict[str, object] = {}
     entry["ticker"] = QuotedString(candidate.ticker)
@@ -146,17 +146,6 @@ def candidate_entry(candidate: ScreenedCandidate) -> dict[str, object]:
         "fcf_yield": candidate.ttm_quality.get("fcf_yield", TTMQuality.UNAVAILABLE).value,
         "net_cash": candidate.ttm_quality.get("net_cash", TTMQuality.UNAVAILABLE).value,
     }
-    entry["evidence_hits"] = [
-        {
-            "name": QuotedString(evidence_hit.name),
-            "evidence_pattern_id": QuotedString(evidence_hit.evidence_pattern_id),
-            "source_status": "warning" if candidate.freshness_warnings else "ok",
-            "sizing_eligible": not candidate.freshness_warnings,
-            "reasons": [QuotedString(reason) for reason in evidence_hit.reasons],
-            "metrics": _round_metrics(evidence_hit.metrics),
-        }
-        for evidence_hit in candidate.evidence_hits
-    ]
     return entry
 
 

@@ -42,13 +42,12 @@ from baibai_web.sources.types import (
 )
 
 from .models import (
-    AssessmentCaseView,
+    AllocationAlternativeView,
     AssessmentReviewView,
-    BargainAssessmentSummaryView,
-    BargainAssessmentView,
     CandidateEntryDeltaView,
     CandidateMoveDeltaView,
-    CandidateRowView,
+    CapitalAllocationAssessmentSummaryView,
+    CapitalAllocationAssessmentView,
     DailyDeltaView,
     DashboardView,
     DeltaPool,
@@ -60,9 +59,7 @@ from .models import (
     ErLevelCalibrationStatsView,
     FvConvergenceView,
     HoldingDeltaView,
-    HoldingReviewView,
     HoldingView,
-    MachineSelectionView,
     MacroConnectionSectionView,
     MacroContextRevisionView,
     MacroContextView,
@@ -95,18 +92,19 @@ from .models import (
     OperationsView,
     PortfolioOutcomeView,
     PortfolioState,
-    ResearchQuestionView,
+    PositionReviewView,
     ResearchRevisionView,
+    ResearchTriageEntryView,
+    ResearchTriageView,
     ReservationView,
+    ReviewSetEntryView,
+    ReviewSetView,
     ScenarioView,
     ScreeningHistoryRunView,
     ScreeningRunView,
     ScreeningView,
+    SecurityAnalysisRowView,
     SecurityDetailView,
-    SelectionRankedSetEntryView,
-    ShortlistEntryView,
-    ShortlistView,
-    SourceCaveatView,
     TaskView,
     ThesisDetailView,
     UpcomingEventView,
@@ -320,20 +318,20 @@ def build_screening(
 ) -> ScreeningView:
     """Build the latest candidates table with portfolio/research annotations."""
 
-    run, selections = _operative_run(candidates)
+    run, review_sets = _operative_run(candidates)
     applicable_calibration = _calibration_for_run(run, er_level_calibration)
-    shortlists: list[ShortlistView] = []
-    assessments: list[BargainAssessmentSummaryView] = []
+    research_triages: list[ResearchTriageView] = []
+    assessments: list[CapitalAllocationAssessmentSummaryView] = []
     if isinstance(candidates, DbCandidatesSource):
-        shortlists = [_shortlist_view(item) for item in candidates.shortlists()]
+        research_triages = [_research_triage_view(item) for item in candidates.research_triages()]
         assessments = [_assessment_summary_view(item) for item in candidates.assessments()]
     if run is None:
         return ScreeningView(
             run=None,
-            rows=[],
-            selections=selections,
-            shortlists=shortlists,
-            assessments=assessments,
+            security_analyses=[],
+            review_sets=review_sets,
+            research_triages=research_triages,
+            capital_allocation_assessments=assessments,
             er_level_calibration=None,
         )
     held, reserved = _held_and_reserved_tickers(ledger)
@@ -341,20 +339,20 @@ def build_screening(
     today = datetime.now(_JST).date()
     return ScreeningView(
         run=_screening_run_view(run, today=today),
-        rows=[
+        security_analyses=[
             _candidate_row_view(
                 row,
                 held=held,
                 reserved=reserved,
                 researched=researched,
-                fair_value=_fair_value_by_ticker(selections),
+                fair_value=_fair_value_by_ticker(review_sets),
                 er_level_calibration=applicable_calibration,
             )
             for row in run.rows
         ],
-        selections=selections,
-        shortlists=shortlists,
-        assessments=assessments,
+        review_sets=review_sets,
+        research_triages=research_triages,
+        capital_allocation_assessments=assessments,
         er_level_calibration=_er_level_calibration_view(applicable_calibration),
     )
 
@@ -377,14 +375,14 @@ def _calibration_for_run(
 
 def _operative_run(
     candidates: CandidatesSource,
-) -> tuple[CandidatesRun | None, list[MachineSelectionView]]:
-    """Resolve the run every screening surface reads, with its own selections.
+) -> tuple[CandidatesRun | None, list[ReviewSetView]]:
+    """Resolve the run every screening surface reads, with its own review_sets.
 
-    Judgment publications (selection / shortlist) bind to a specific run revision.
+    Judgment publications (review_set / research_triage) bind to a specific run revision.
     A newer revision of the same as-of — a determinism re-run, say — carries no
-    selection of its own, so presenting it would blank the machine-selection view
-    and the FV anchors that hang off it. Falling back to the newest selection's run
-    keeps the candidates table, its selections, and the shortlist join on one run.
+    review_set of its own, so presenting it would blank the machine-review_set view
+    and the FV anchors that hang off it. Falling back to the newest review_set's run
+    keeps the candidates table, its review_sets, and the research_triage join on one run.
 
     Every surface that shows a candidate resolves the run here, so the list and the
     security page cannot end up describing the same ticker from different runs.
@@ -393,35 +391,44 @@ def _operative_run(
     run = candidates.latest_run()
     if run is None:
         return None, []
-    # Ask for this run's selections first: the whole published history is only needed to
+    # Ask for this run's review_sets first: the whole published history is only needed to
     # find a fallback, which is the uncommon case, and a security page reads this on
     # every request.
-    run_selections = candidates.selections(run_revision_id=run.run_revision_id)
-    if not run_selections and (all_selections := candidates.selections()):
-        newest = max(all_selections, key=lambda item: str(item["created_at"]))
+    run_review_sets = candidates.review_sets(run_revision_id=run.run_revision_id)
+    if not run_review_sets and (all_review_sets := candidates.review_sets()):
+        newest = max(all_review_sets, key=lambda item: str(item["created_at"]))
         fallback_run = candidates.run(str(newest["run_revision_id"]))
         if fallback_run is not None:
             run = fallback_run
-            run_selections = [
+            run_review_sets = [
                 item
-                for item in all_selections
+                for item in all_review_sets
                 if str(item["run_revision_id"]) == run.run_revision_id
             ]
-    return run, [_machine_selection_view(item) for item in run_selections]
+    return run, [_machine_review_set_view(item) for item in run_review_sets]
 
 
 def _fair_value_by_ticker(
-    selections: list[MachineSelectionView],
-) -> Mapping[str, SelectionRankedSetEntryView]:
-    """FV アンカーを持つのは ranked_set だけなので、その範囲を ticker で引けるようにする。
+    review_sets: list[ReviewSetView],
+) -> Mapping[str, ReviewSetEntryView]:
+    """FV アンカーを持つのは entries だけなので、その範囲を ticker で引けるようにする。
 
-    複数 selection が同じ run に束縛される場合は最新の selection を採る。ranked_set の
+    複数 review_set が同じ run に束縛される場合は最新の review_set を採る。entries の
     外にいる候補は FV を持たないまま残る。
     """
-    if not selections:
+    if not review_sets:
         return {}
-    newest = max(selections, key=lambda item: item.created_at)
-    return {entry.ticker: entry for entry in newest.ranked_set}
+    newest = max(review_sets, key=lambda item: item.created_at)
+    return {entry.ticker: entry for entry in newest.entries}
+
+
+def _review_entry_fair_value(entry: ReviewSetEntryView | None) -> float | None:
+    """Project the existing sector-median FV estimate without giving it membership authority."""
+
+    if entry is None:
+        return None
+    expected = entry.analysis.get("expected_return")
+    return _number(expected.get("fv_sector_median_yen")) if isinstance(expected, Mapping) else None
 
 
 def build_screening_history_run(
@@ -440,8 +447,8 @@ def build_screening_history_run(
     researched = {item.ticker for item in research.revisions()}
     fair_value = _fair_value_by_ticker(
         [
-            _machine_selection_view(item)
-            for item in candidates.selections(run_revision_id=run.run_revision_id)
+            _machine_review_set_view(item)
+            for item in candidates.review_sets(run_revision_id=run.run_revision_id)
         ]
     )
     return ScreeningHistoryRunView(
@@ -462,127 +469,107 @@ def build_screening_history_run(
 def build_assessment_detail(
     candidates: DbCandidatesSource,
     *,
-    assessment_id: str,
-) -> BargainAssessmentView | None:
-    """Build one published bargain assessment for the detail page."""
+    capital_allocation_assessment_id: str,
+) -> CapitalAllocationAssessmentView | None:
+    """Build one published capital-allocation assessment for the detail page."""
 
-    raw = candidates.assessment(assessment_id)
+    raw = candidates.assessment(capital_allocation_assessment_id)
     if raw is None:
         return None
     return _assessment_view(raw)
 
 
-def _assessment_summary_view(raw: Mapping[str, object]) -> BargainAssessmentSummaryView:
-    cases = _mapping_items_optional(raw.get("cases"))
-    selected = next(
-        (str(case["ticker"]) for case in cases if case.get("disposition") == "selected"),
+def _assessment_summary_view(raw: Mapping[str, object]) -> CapitalAllocationAssessmentSummaryView:
+    alternatives = _mapping_items_optional(raw.get("alternatives"))
+    allocated = next(
+        (
+            str(alternative["ticker"])
+            for alternative in alternatives
+            if alternative.get("disposition") == "allocate"
+        ),
         None,
     )
-    return BargainAssessmentSummaryView(
-        assessment_id=str(raw["assessment_id"]),
+    return CapitalAllocationAssessmentSummaryView(
+        capital_allocation_assessment_id=str(raw["capital_allocation_assessment_id"]),
         as_of=date.fromisoformat(str(raw["as_of"])),
         published_at=datetime.fromisoformat(str(raw["published_at"])),
         result=str(raw["result"]),
         headline=str(raw["headline"]),
-        shortlist_id=str(raw["shortlist_id"]),
-        case_count=len(cases),
-        selected_ticker=selected,
+        research_triage_id=str(raw["research_triage_id"]),
+        alternative_count=len(alternatives),
+        allocated_ticker=allocated,
     )
 
 
 def _assessment_view(
     raw: Mapping[str, object],
-) -> BargainAssessmentView:
-    return BargainAssessmentView(
-        assessment_id=str(raw["assessment_id"]),
+) -> CapitalAllocationAssessmentView:
+    return CapitalAllocationAssessmentView(
+        capital_allocation_assessment_id=str(raw["capital_allocation_assessment_id"]),
         as_of=date.fromisoformat(str(raw["as_of"])),
         published_at=datetime.fromisoformat(str(raw["published_at"])),
         result=str(raw["result"]),
         headline=str(raw["headline"]),
-        shortlist_id=str(raw["shortlist_id"]),
+        research_triage_id=str(raw["research_triage_id"]),
         macro_context_id=_text(raw.get("macro_context_id")),
         comparison=str(raw["comparison"]),
         forgone=str(raw["forgone"]),
-        cases=[_assessment_case_view(item) for item in _mapping_items_optional(raw.get("cases"))],
+        alternatives=[
+            _allocation_alternative_view(item)
+            for item in _mapping_items_optional(raw.get("alternatives"))
+        ],
         review=AssessmentReviewView.model_validate(raw["review"]),
     )
 
 
-def _assessment_case_view(raw: Mapping[str, object]) -> AssessmentCaseView:
-    machine = raw.get("machine")
-    machine_values = machine if isinstance(machine, Mapping) else {}
-    return AssessmentCaseView(
+def _allocation_alternative_view(raw: Mapping[str, object]) -> AllocationAlternativeView:
+    projection = raw.get("thesis_projection")
+    machine_values = projection if isinstance(projection, Mapping) else {}
+    return AllocationAlternativeView(
         ticker=str(raw["ticker"]),
-        name=_text(raw.get("name")),
         disposition=str(raw["disposition"]),
-        disposition_reason=str(raw["disposition_reason"]),
+        rationale=str(raw["rationale"]),
         thesis_id=str(raw["thesis_id"]),
-        review_id=_text(raw.get("review_id")),
+        thesis_review_id=_text(raw.get("thesis_review_id")),
         permanent_loss_conclusion=_text(machine_values.get("permanent_loss_conclusion")),
-        adverse_risk_axes=_string_list(machine_values.get("adverse_risk_axes")),
         five_year_base_cagr_pct=_number(machine_values.get("five_year_base_cagr_pct")),
-        required_return_pct=_number(machine_values.get("required_return_pct")),
         fair_value_yen=_number(machine_values.get("fair_value_yen")),
         fv_gap_pct=_number(machine_values.get("fv_gap_pct")),
-        base_terminal_multiple=_number(machine_values.get("base_terminal_multiple")),
-        break_even_terminal_multiple=_number(machine_values.get("break_even_terminal_multiple")),
-        terminal_multiple_buffer=_number(machine_values.get("terminal_multiple_buffer")),
-        break_even_earnings_growth_pct=_number(
-            machine_values.get("break_even_earnings_growth_pct")
-        ),
-        earnings_growth_buffer_pp=_number(machine_values.get("earnings_growth_buffer_pp")),
-        observed_trailing_multiple=_number(machine_values.get("observed_trailing_multiple")),
-        business_model=str(raw["business_model"]),
-        value_capture=str(raw["value_capture"]),
-        growth_quality=str(raw["growth_quality"]),
-        financial_resilience=str(raw["financial_resilience"]),
-        strongest_countercase=str(raw["strongest_countercase"]),
-        catalyst=str(raw["catalyst"]),
-        research_questions=[
-            ResearchQuestionView.model_validate(item)
-            for item in _mapping_items_optional(raw.get("research_questions"))
-        ],
-        unknowns=_string_list(raw.get("unknowns")),
-        source_caveats=[
-            SourceCaveatView.model_validate(item)
-            for item in _mapping_items_optional(raw.get("source_caveats"))
-        ],
     )
 
 
-def _machine_selection_view(raw: Mapping[str, object]) -> MachineSelectionView:
+def _machine_review_set_view(raw: Mapping[str, object]) -> ReviewSetView:
     payload = raw.get("payload")
     if not isinstance(payload, Mapping):
-        raise ValueError("machine selection payload must be an object")
-    return MachineSelectionView(
-        selection_id=str(raw["selection_id"]),
+        raise ValueError("machine review_set payload must be an object")
+    return ReviewSetView(
+        review_set_id=str(raw["review_set_id"]),
         run_revision_id=str(raw["run_revision_id"]),
-        macro_context_id=_text(raw.get("macro_context_id")),
         created_at=datetime.fromisoformat(str(raw["created_at"])),
-        ranked_set=[
-            _selection_ranked_set_entry_view(item)
-            for item in _mapping_items_optional(payload.get("ranked_set"))
+        entries=[
+            _review_set_entries_entry_view(item)
+            for item in _mapping_items_optional(payload.get("entries"))
         ],
     )
 
 
-def _selection_ranked_set_entry_view(raw: Mapping[str, object]) -> SelectionRankedSetEntryView:
-    price = _number(raw.get("market_price_yen"))
-    anchor = _number(raw.get("fair_value_anchor_yen"))
-    return SelectionRankedSetEntryView(
-        rank=_integer(raw.get("rank")),
+def _review_set_entries_entry_view(raw: Mapping[str, object]) -> ReviewSetEntryView:
+    nominations = _mapping_items_optional(raw.get("nominations"))
+    analysis = raw.get("analysis")
+    if not isinstance(analysis, Mapping):
+        raise ValueError("Review Set entry analysis must be an object")
+    rank_vector = raw.get("rank_vector")
+    if not isinstance(rank_vector, list) or not all(isinstance(item, int) for item in rank_vector):
+        raise ValueError("Review Set rank_vector must be an integer array")
+    return ReviewSetEntryView(
+        review_position=_required_int(raw["review_position"], field="review_position"),
         ticker=str(raw.get("ticker", "")),
         name=_text(raw.get("name")),
-        market_price_yen=price,
-        fair_value_anchor_yen=anchor,
-        fair_value_gap_pct=_fair_value_gap_pct(anchor, price),
-        expected_return_pct=_number(raw.get("expected_return_pct")),
-        primary_evidence_pattern_id=_text(raw.get("primary_evidence_pattern_id")),
-        liquidity_status=_text(raw.get("liquidity_status")),
-        selection_reasons=_string_list(raw.get("selection_reasons")),
-        durability_warnings=_string_list(raw.get("durability_warnings")),
-        event_warnings=_string_list(raw.get("event_warnings")),
-        fv_convergence=_fv_convergence_view(raw.get("fv_convergence")),
+        sector_33=_text(raw.get("sector_33")),
+        nominations=[dict(item) for item in nominations],
+        support_count=_required_int(raw["support_count"], field="support_count"),
+        rank_vector=[int(item) for item in rank_vector],
+        analysis=dict(analysis),
     )
 
 
@@ -612,39 +599,43 @@ def _fair_value_gap_pct(anchor: float | None, price: float | None) -> float | No
     return round((anchor / price - 1) * 100, 4)
 
 
-def _shortlist_entry_view(raw: Mapping[str, object]) -> ShortlistEntryView:
-    """判断 1 件。焼き込み済みの機械座標は ranked_set 行と同じ view へ通す。
+def _required_int(value: object, *, field: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{field} must be an integer")
+    return value
 
-    レビュー面は source selection が生きていれば ranked_set から、prune 後は
+
+def _research_triage_entry_view(raw: Mapping[str, object]) -> ResearchTriageEntryView:
+    """判断 1 件。焼き込み済みの機械座標は entries 行と同じ view へ通す。
+
+    レビュー面は source review_set が生きていれば entries から、prune 後は
     この焼き込みから同じ形を読む。形を揃えるので join 側に分岐が増えない。
     """
 
     snapshot = raw.get("machine_snapshot")
-    view = ShortlistEntryView.model_validate({**raw, "machine_snapshot": None})
+    view = ResearchTriageEntryView.model_validate({**raw, "machine_snapshot": None})
     if not isinstance(snapshot, Mapping):
         return view
     return view.model_copy(
         update={
-            "machine_snapshot": _selection_ranked_set_entry_view(
-                {**snapshot, "ticker": view.ticker}
-            )
+            "machine_snapshot": _review_set_entries_entry_view({**snapshot, "ticker": view.ticker})
         }
     )
 
 
-def _shortlist_view(raw: Mapping[str, object]) -> ShortlistView:
-    entries: list[ShortlistEntryView] = []
+def _research_triage_view(raw: Mapping[str, object]) -> ResearchTriageView:
+    entries: list[ResearchTriageEntryView] = []
     unreadable = 0
     for item in _mapping_items(raw.get("entries")):
         try:
-            entries.append(_shortlist_entry_view(item))
+            entries.append(_research_triage_entry_view(item))
         except ValidationError:
             # 発行済み revision は immutable なので、read 経路が形の違いで落ちると
             # export ごと止まる。読めない entry は数えて面へ出し、黙って消さない。
             unreadable += 1
-    return ShortlistView(
-        shortlist_id=str(raw["shortlist_id"]),
-        selection_id=str(raw["selection_id"]),
+    return ResearchTriageView(
+        research_triage_id=str(raw["research_triage_id"]),
+        review_set_id=str(raw["review_set_id"]),
         run_revision_id=str(raw["run_revision_id"]),
         as_of=date.fromisoformat(str(raw["as_of"])),
         published_at=datetime.fromisoformat(str(raw["published_at"])),
@@ -671,7 +662,7 @@ def build_security_detail(
     today = datetime.now(_JST).date()
     revisions = [item for item in research.revisions() if item.ticker == ticker]
     latest_revision = revisions[0] if revisions else None
-    run, selections = _operative_run(candidates)
+    run, review_sets = _operative_run(candidates)
     raw_candidate = (
         next(
             (row for row in run.rows if str(row.get("ticker", "")) == ticker),
@@ -719,7 +710,7 @@ def build_security_detail(
             held={ticker} if holding_snapshot is not None else set(),
             reserved=reserved_here,
             researched={ticker} if revisions else set(),
-            fair_value=_fair_value_by_ticker(selections),
+            fair_value=_fair_value_by_ticker(review_sets),
         )
         if raw_candidate is not None
         else None
@@ -738,16 +729,16 @@ def build_security_detail(
         holding=holding,
         revisions=[_research_revision_view(item) for item in revisions],
         latest_thesis=latest_thesis,
-        holding_reviews=[
-            HoldingReviewView(
-                holding_review_id=item.holding_review_id,
+        position_reviews=[
+            PositionReviewView(
+                position_review_id=item.position_review_id,
                 as_of=item.as_of,
                 thesis_id=item.thesis_id,
                 candidate_thesis_id=item.candidate_thesis_id,
                 action=item.action,
                 note=item.note,
             )
-            for item in research.holding_reviews(ticker=ticker)
+            for item in research.position_reviews(ticker=ticker)
         ],
         candidate_row=candidate_row,
         candidate_run=(_screening_run_view(run, today=today) if run is not None else None),
@@ -1287,7 +1278,7 @@ def _screening_run_view(run: CandidatesRun, *, today: date) -> ScreeningRunView:
         asof_date=run.asof_date,
         run_at=run.run_at,
         universe_size=run.universe_size,
-        candidate_count=len(run.rows),
+        analyzed_security_count=len(run.rows),
         run_revision_id=run.run_revision_id,
         stale=run.asof_date <= today - _STALE_RUN_AGE,
     )
@@ -1299,9 +1290,9 @@ def _candidate_row_view(
     held: set[str],
     reserved: set[str],
     researched: set[str],
-    fair_value: Mapping[str, SelectionRankedSetEntryView] | None = None,
+    fair_value: Mapping[str, ReviewSetEntryView] | None = None,
     er_level_calibration: ErLevelCalibrationContext | None = None,
-) -> CandidateRowView:
+) -> SecurityAnalysisRowView:
     ticker = str(row.get("ticker", ""))
     metrics_raw = row.get("metrics")
     metrics = metrics_raw if isinstance(metrics_raw, Mapping) else {}
@@ -1312,8 +1303,9 @@ def _candidate_row_view(
     # unresolved_split_basis を無配と読み違えないために候補表まで届ける必要がある。
     text_values = {name: _text(metrics.get(name)) for name in _METRIC_TEXT_FIELDS}
     flags = _data_quality_flags(row, metrics)
-    anchor = (fair_value or {}).get(ticker)
-    return CandidateRowView(
+    review_entry = (fair_value or {}).get(ticker)
+    anchor = _review_entry_fair_value(review_entry)
+    return SecurityAnalysisRowView(
         ticker=ticker,
         name=_text(row.get("name")),
         sector_33=_text(row.get("sector_33")),
@@ -1322,8 +1314,8 @@ def _candidate_row_view(
         data_quality_flags=flags,
         portfolio_state=_portfolio_state(ticker, held=held, reserved=reserved),
         has_research=ticker in researched,
-        fair_value_anchor_yen=None if anchor is None else anchor.fair_value_anchor_yen,
-        fair_value_gap_pct=None if anchor is None else anchor.fair_value_gap_pct,
+        fair_value_anchor_yen=anchor,
+        fair_value_gap_pct=None,
         er_level_quintile=_er_level_quintile(values.get("er_annual"), er_level_calibration),
         er_meets_8_5pct_band=_er_meets_hurdle(values.get("er_annual"), er_level_calibration),
         **values,
@@ -1485,7 +1477,7 @@ _DELTA_ROWS_SHOWN = 10
 _DELTA_ER_MOVERS_SHOWN = 5
 # Report a machine E[r] move only past this size in percentage points. Measured on
 # the live store, adjacent runs move 30-40 names by at least 1pp and 3-4 by at least
-# this much, so a lower bar would leave the row cap doing all the selection and drop
+# this much, so a lower bar would leave the row cap doing all the review_set and drop
 # the rest without saying so.
 _DELTA_ER_MOVE_MIN_PP = 3.0
 # Report a holding's move only past this size. Daily noise is not a change worth a
@@ -1497,7 +1489,7 @@ _DELTA_HOLDING_MOVE_MIN_PCT = 5.0
 # same series oscillating across a single line, not a series reaching the edge.
 _DELTA_MACRO_Z_EDGE = 3.0
 _DELTA_MACRO_Z_REENTRY = 2.7
-# The run's ranked set is the review population. Its candidate array is the whole
+# The run's Review Set is the review population. Its candidate array is the whole
 # evaluated universe, so comparing that would report listings and delistings rather
 # than bargains appearing.
 
@@ -1515,7 +1507,7 @@ def build_daily_delta(
     reports observations only: which tickers entered or left the machine pool, which
     machine estimates moved, which holdings stand at or above their recorded fair
     value, and which macro threshold notes appeared. Whether any of that is worth an
-    opportunity cycle or a holding review is the reader's call.
+    opportunity cycle or a Position Review is the reader's call.
 
     Sections degrade independently. A store that cannot answer is named in
     ``unavailable`` rather than reported as an empty result, because "no store" and
@@ -1621,7 +1613,7 @@ def build_daily_delta(
 def _pool_rows(
     payloads: list[dict[str, object]], name: str
 ) -> dict[str, Mapping[str, object]] | None:
-    """Index one pool of a run's machine selection by ticker, or None when absent."""
+    """Index one pool of a run's machine review_set by ticker, or None when absent."""
 
     for payload in payloads:
         body = payload.get("payload")
@@ -1649,19 +1641,21 @@ def _delta_pools(
     definition and compare the whole universe.
     """
 
-    latest_payloads = candidates.selections(run_revision_id=latest.run_revision_id)
-    previous_payloads = candidates.selections(run_revision_id=previous.run_revision_id)
-    current = _pool_rows(latest_payloads, "ranked_set")
-    earlier = _pool_rows(previous_payloads, "ranked_set")
+    latest_payloads = candidates.review_sets(run_revision_id=latest.run_revision_id)
+    previous_payloads = candidates.review_sets(run_revision_id=previous.run_revision_id)
+    current = _pool_rows(latest_payloads, "entries")
+    earlier = _pool_rows(previous_payloads, "entries")
     if current is None or earlier is None:
         return None
-    return "ranked_set", current, earlier
+    return "review_set", current, earlier
 
 
 def _pool_er(row: Mapping[str, object]) -> float | None:
-    """Read the ranked-set E[r] as an annual ratio."""
+    """Read contextual E[r] from a Review Set entry."""
 
-    return _number(row.get("er_annual"))
+    analysis = row.get("analysis")
+    expected = analysis.get("expected_return") if isinstance(analysis, Mapping) else None
+    return _number(expected.get("er_annual")) if isinstance(expected, Mapping) else None
 
 
 def _candidate_entry_delta(
@@ -1694,7 +1688,7 @@ def _candidate_deltas(
     entered_tickers = by_er(set(current) - set(earlier), current)[:_DELTA_ROWS_SHOWN]
     exited_tickers = by_er(set(earlier) - set(current), earlier)[:_DELTA_ROWS_SHOWN]
     # A name that reported between the two runs entered on new numbers, not on a price
-    # move alone. The selection output carries no disclosure date, so it is read from
+    # move alone. The review_set output carries no disclosure date, so it is read from
     # the market store for the tickers that actually changed side. When that store
     # cannot answer, the fact stays unknown instead of reading as "no disclosure".
     disclosed: set[str] | None = None

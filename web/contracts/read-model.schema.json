@@ -5,7 +5,7 @@
   "roots": {
     "/api/screening/history": "#/$defs/ScreeningHistoryView",
     "history/candidate-views/{as_of}.json": "#/$defs/ScreeningHistoryRunView",
-    "views/assessment--{assessment_id}.json": "#/$defs/BargainAssessmentView",
+    "views/capital-allocation-assessment--{capital_allocation_assessment_id}.json": "#/$defs/CapitalAllocationAssessmentView",
     "views/daily-delta.json": "#/$defs/DailyDeltaView",
     "views/dashboard.json": "#/$defs/DashboardView",
     "views/macro--{period}-{granularity}.json": "#/$defs/MacroView",
@@ -17,36 +17,25 @@
     "views/security--{ticker}.json": "#/$defs/SecurityDetailView"
   },
   "$defs": {
-    "AssessmentCaseView": {
+    "AllocationAlternativeView": {
       "properties": {
         "ticker": {
           "title": "Ticker",
           "type": "string"
         },
-        "name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Name"
-        },
         "disposition": {
           "title": "Disposition",
           "type": "string"
         },
-        "disposition_reason": {
-          "title": "Disposition Reason",
+        "rationale": {
+          "title": "Rationale",
           "type": "string"
         },
         "thesis_id": {
           "title": "Thesis Id",
           "type": "string"
         },
-        "review_id": {
+        "thesis_review_id": {
           "anyOf": [
             {
               "type": "string"
@@ -55,7 +44,7 @@
               "type": "null"
             }
           ],
-          "title": "Review Id"
+          "title": "Thesis Review Id"
         },
         "permanent_loss_conclusion": {
           "anyOf": [
@@ -68,13 +57,6 @@
           ],
           "title": "Permanent Loss Conclusion"
         },
-        "adverse_risk_axes": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Adverse Risk Axes",
-          "type": "array"
-        },
         "five_year_base_cagr_pct": {
           "anyOf": [
             {
@@ -85,17 +67,6 @@
             }
           ],
           "title": "Five Year Base Cagr Pct"
-        },
-        "required_return_pct": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Required Return Pct"
         },
         "fair_value_yen": {
           "anyOf": [
@@ -118,149 +89,20 @@
             }
           ],
           "title": "Fv Gap Pct"
-        },
-        "base_terminal_multiple": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Base Terminal Multiple"
-        },
-        "break_even_terminal_multiple": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Break Even Terminal Multiple"
-        },
-        "terminal_multiple_buffer": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Terminal Multiple Buffer"
-        },
-        "break_even_earnings_growth_pct": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Break Even Earnings Growth Pct"
-        },
-        "earnings_growth_buffer_pp": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Earnings Growth Buffer Pp"
-        },
-        "observed_trailing_multiple": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Observed Trailing Multiple"
-        },
-        "business_model": {
-          "title": "Business Model",
-          "type": "string"
-        },
-        "value_capture": {
-          "title": "Value Capture",
-          "type": "string"
-        },
-        "growth_quality": {
-          "title": "Growth Quality",
-          "type": "string"
-        },
-        "financial_resilience": {
-          "title": "Financial Resilience",
-          "type": "string"
-        },
-        "strongest_countercase": {
-          "title": "Strongest Countercase",
-          "type": "string"
-        },
-        "catalyst": {
-          "title": "Catalyst",
-          "type": "string"
-        },
-        "research_questions": {
-          "items": {
-            "$ref": "#/$defs/ResearchQuestionView"
-          },
-          "title": "Research Questions",
-          "type": "array"
-        },
-        "unknowns": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Unknowns",
-          "type": "array"
-        },
-        "source_caveats": {
-          "items": {
-            "$ref": "#/$defs/SourceCaveatView"
-          },
-          "title": "Source Caveats",
-          "type": "array"
         }
       },
       "required": [
         "ticker",
-        "name",
         "disposition",
-        "disposition_reason",
+        "rationale",
         "thesis_id",
-        "review_id",
+        "thesis_review_id",
         "permanent_loss_conclusion",
-        "adverse_risk_axes",
         "five_year_base_cagr_pct",
-        "required_return_pct",
         "fair_value_yen",
-        "fv_gap_pct",
-        "base_terminal_multiple",
-        "break_even_terminal_multiple",
-        "terminal_multiple_buffer",
-        "break_even_earnings_growth_pct",
-        "earnings_growth_buffer_pp",
-        "observed_trailing_multiple",
-        "business_model",
-        "value_capture",
-        "growth_quality",
-        "financial_resilience",
-        "strongest_countercase",
-        "catalyst",
-        "research_questions",
-        "unknowns",
-        "source_caveats"
+        "fv_gap_pct"
       ],
-      "title": "AssessmentCaseView",
+      "title": "AllocationAlternativeView",
       "type": "object"
     },
     "AssessmentReviewView": {
@@ -298,137 +140,6 @@
         "open_findings"
       ],
       "title": "AssessmentReviewView",
-      "type": "object"
-    },
-    "BargainAssessmentSummaryView": {
-      "properties": {
-        "assessment_id": {
-          "title": "Assessment Id",
-          "type": "string"
-        },
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "published_at": {
-          "format": "date-time",
-          "title": "Published At",
-          "type": "string"
-        },
-        "result": {
-          "title": "Result",
-          "type": "string"
-        },
-        "headline": {
-          "title": "Headline",
-          "type": "string"
-        },
-        "shortlist_id": {
-          "title": "Shortlist Id",
-          "type": "string"
-        },
-        "case_count": {
-          "title": "Case Count",
-          "type": "integer"
-        },
-        "selected_ticker": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Selected Ticker"
-        }
-      },
-      "required": [
-        "assessment_id",
-        "as_of",
-        "published_at",
-        "result",
-        "headline",
-        "shortlist_id",
-        "case_count",
-        "selected_ticker"
-      ],
-      "title": "BargainAssessmentSummaryView",
-      "type": "object"
-    },
-    "BargainAssessmentView": {
-      "properties": {
-        "assessment_id": {
-          "title": "Assessment Id",
-          "type": "string"
-        },
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "published_at": {
-          "format": "date-time",
-          "title": "Published At",
-          "type": "string"
-        },
-        "result": {
-          "title": "Result",
-          "type": "string"
-        },
-        "headline": {
-          "title": "Headline",
-          "type": "string"
-        },
-        "shortlist_id": {
-          "title": "Shortlist Id",
-          "type": "string"
-        },
-        "macro_context_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Macro Context Id"
-        },
-        "comparison": {
-          "title": "Comparison",
-          "type": "string"
-        },
-        "forgone": {
-          "title": "Forgone",
-          "type": "string"
-        },
-        "cases": {
-          "items": {
-            "$ref": "#/$defs/AssessmentCaseView"
-          },
-          "title": "Cases",
-          "type": "array"
-        },
-        "review": {
-          "$ref": "#/$defs/AssessmentReviewView"
-        }
-      },
-      "required": [
-        "assessment_id",
-        "as_of",
-        "published_at",
-        "result",
-        "headline",
-        "shortlist_id",
-        "macro_context_id",
-        "comparison",
-        "forgone",
-        "cases",
-        "review"
-      ],
-      "title": "BargainAssessmentView",
       "type": "object"
     },
     "CandidateEntryDeltaView": {
@@ -536,13 +247,39 @@
       "title": "CandidateMoveDeltaView",
       "type": "object"
     },
-    "CandidateRowView": {
+    "CapitalAllocationAssessmentSummaryView": {
       "properties": {
-        "ticker": {
-          "title": "Ticker",
+        "capital_allocation_assessment_id": {
+          "title": "Capital Allocation Assessment Id",
           "type": "string"
         },
-        "name": {
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "published_at": {
+          "format": "date-time",
+          "title": "Published At",
+          "type": "string"
+        },
+        "result": {
+          "title": "Result",
+          "type": "string"
+        },
+        "headline": {
+          "title": "Headline",
+          "type": "string"
+        },
+        "research_triage_id": {
+          "title": "Research Triage Id",
+          "type": "string"
+        },
+        "alternative_count": {
+          "title": "Alternative Count",
+          "type": "integer"
+        },
+        "allocated_ticker": {
           "anyOf": [
             {
               "type": "string"
@@ -551,469 +288,98 @@
               "type": "null"
             }
           ],
-          "title": "Name"
-        },
-        "sector_33": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Sector 33"
-        },
-        "market_cap_oku": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Market Cap Oku"
-        },
-        "avg_turnover_oku": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Avg Turnover Oku"
-        },
-        "per_trailing": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Per Trailing"
-        },
-        "normalized_per_3fy": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Normalized Per 3Fy"
-        },
-        "per_forward": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Per Forward"
-        },
-        "pbr": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Pbr"
-        },
-        "ev_ebitda": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Ev Ebitda"
-        },
-        "p_s": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "P S"
-        },
-        "pcfr": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Pcfr"
-        },
-        "dividend_yield": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Dividend Yield"
-        },
-        "dividend_basis": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Dividend Basis"
-        },
-        "dividend_split_factor": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Dividend Split Factor"
-        },
-        "er_annual": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Er Annual"
-        },
-        "er_reversion_annual": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Er Reversion Annual"
-        },
-        "er_carry_annual": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Er Carry Annual"
-        },
-        "net_cash_to_market_cap": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Net Cash To Market Cap"
-        },
-        "fcf_yield": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Fcf Yield"
-        },
-        "ocf_yield": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Ocf Yield"
-        },
-        "equity_ratio": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Equity Ratio"
-        },
-        "sales_yoy": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Sales Yoy"
-        },
-        "operating_profit_yoy": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Operating Profit Yoy"
-        },
-        "sector_relative_strength_percentile": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Sector Relative Strength Percentile"
-        },
-        "price_change_20d": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Price Change 20D"
-        },
-        "gap_from_52w_low": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Gap From 52W Low"
-        },
-        "next_earnings_date": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Next Earnings Date"
-        },
-        "margin_week_end": {
-          "anyOf": [
-            {
-              "format": "date",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Margin Week End"
-        },
-        "margin_long_to_adv": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Margin Long To Adv"
-        },
-        "margin_short_to_adv": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Margin Short To Adv"
-        },
-        "margin_long_share": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Margin Long Share"
-        },
-        "margin_long_delta_26w": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Margin Long Delta 26W"
-        },
-        "margin_std_long_share": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Margin Std Long Share"
-        },
-        "data_quality_flags": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Data Quality Flags",
-          "type": "array"
-        },
-        "portfolio_state": {
-          "$ref": "#/$defs/PortfolioState"
-        },
-        "has_research": {
-          "title": "Has Research",
-          "type": "boolean"
-        },
-        "fair_value_anchor_yen": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Fair Value Anchor Yen"
-        },
-        "fair_value_gap_pct": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Fair Value Gap Pct"
-        },
-        "er_level_quintile": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Er Level Quintile"
-        },
-        "er_meets_8_5pct_band": {
-          "default": false,
-          "title": "Er Meets 8 5Pct Band",
-          "type": "boolean"
+          "title": "Allocated Ticker"
         }
       },
       "required": [
-        "ticker",
-        "name",
-        "sector_33",
-        "market_cap_oku",
-        "avg_turnover_oku",
-        "per_trailing",
-        "normalized_per_3fy",
-        "per_forward",
-        "pbr",
-        "ev_ebitda",
-        "p_s",
-        "pcfr",
-        "dividend_yield",
-        "dividend_basis",
-        "dividend_split_factor",
-        "er_annual",
-        "er_reversion_annual",
-        "er_carry_annual",
-        "net_cash_to_market_cap",
-        "fcf_yield",
-        "ocf_yield",
-        "equity_ratio",
-        "sales_yoy",
-        "operating_profit_yoy",
-        "sector_relative_strength_percentile",
-        "price_change_20d",
-        "gap_from_52w_low",
-        "next_earnings_date",
-        "margin_week_end",
-        "margin_long_to_adv",
-        "margin_short_to_adv",
-        "margin_long_share",
-        "margin_long_delta_26w",
-        "margin_std_long_share",
-        "data_quality_flags",
-        "portfolio_state",
-        "has_research",
-        "fair_value_anchor_yen",
-        "fair_value_gap_pct",
-        "er_level_quintile",
-        "er_meets_8_5pct_band"
+        "capital_allocation_assessment_id",
+        "as_of",
+        "published_at",
+        "result",
+        "headline",
+        "research_triage_id",
+        "alternative_count",
+        "allocated_ticker"
       ],
-      "title": "CandidateRowView",
+      "title": "CapitalAllocationAssessmentSummaryView",
+      "type": "object"
+    },
+    "CapitalAllocationAssessmentView": {
+      "properties": {
+        "capital_allocation_assessment_id": {
+          "title": "Capital Allocation Assessment Id",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "published_at": {
+          "format": "date-time",
+          "title": "Published At",
+          "type": "string"
+        },
+        "result": {
+          "title": "Result",
+          "type": "string"
+        },
+        "headline": {
+          "title": "Headline",
+          "type": "string"
+        },
+        "research_triage_id": {
+          "title": "Research Triage Id",
+          "type": "string"
+        },
+        "macro_context_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Macro Context Id"
+        },
+        "comparison": {
+          "title": "Comparison",
+          "type": "string"
+        },
+        "forgone": {
+          "title": "Forgone",
+          "type": "string"
+        },
+        "alternatives": {
+          "items": {
+            "$ref": "#/$defs/AllocationAlternativeView"
+          },
+          "title": "Alternatives",
+          "type": "array"
+        },
+        "review": {
+          "$ref": "#/$defs/AssessmentReviewView"
+        }
+      },
+      "required": [
+        "capital_allocation_assessment_id",
+        "as_of",
+        "published_at",
+        "result",
+        "headline",
+        "research_triage_id",
+        "macro_context_id",
+        "comparison",
+        "forgone",
+        "alternatives",
+        "review"
+      ],
+      "title": "CapitalAllocationAssessmentView",
       "type": "object"
     },
     "DailyDeltaView": {
-      "description": "What changed between the latest machine run and the one before it.\n\nEvery field is an observation or a comparison of observations. The view names no\ncause and carries no recommendation: it tells the reader where to look, and the\ndecision to start an opportunity cycle or a holding review stays human.\n\n``unavailable`` lists the sections no store could answer, so an empty section is\nnever read as \"nothing changed\". ``pool`` names which machine pool the comparison\nused, and ``rules_changed`` marks a pair of runs built from different screening\nrules — the pool difference is then a method change, so no rows are reported.\nHoldings that cannot be compared are counts rather than rows: repeating the same\nlist every day would bury the day's actual changes. ``er_moves_total`` says how\nmany names cleared the threshold before the row cap, so a capped list does not\nhide its own remainder.",
+      "description": "What changed between the latest machine run and the one before it.\n\nEvery field is an observation or a comparison of observations. The view names no\ncause and carries no recommendation: it tells the reader where to look, and the\ndecision to start an opportunity cycle or a Position Review stays human.\n\n``unavailable`` lists the sections no store could answer, so an empty section is\nnever read as \"nothing changed\". ``pool`` names which machine pool the comparison\nused, and ``rules_changed`` marks a pair of runs built from different screening\nrules — the pool difference is then a method change, so no rows are reported.\nHoldings that cannot be compared are counts rather than rows: repeating the same\nlist every day would bury the day's actual changes. ``er_moves_total`` says how\nmany names cleared the threshold before the row cap, so a capped list does not\nhide its own remainder.",
       "properties": {
         "generated_at": {
           "format": "date-time",
@@ -1368,7 +734,7 @@
       "type": "object"
     },
     "DeltaPool": {
-      "const": "ranked_set",
+      "const": "review_set",
       "type": "string"
     },
     "DeltaUnavailable": {
@@ -1606,69 +972,6 @@
       "title": "ErLevelCalibrationStatsView",
       "type": "object"
     },
-    "FvConvergenceView": {
-      "description": "Read-only warning provenance; it never carries selection authority.",
-      "properties": {
-        "status": {
-          "enum": [
-            "warning",
-            "clear",
-            "not_evaluable"
-          ],
-          "title": "Status",
-          "type": "string"
-        },
-        "warning_code": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Warning Code"
-        },
-        "market_price_yen": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Market Price Yen"
-        },
-        "anchors_yen": {
-          "additionalProperties": {
-            "type": "number"
-          },
-          "title": "Anchors Yen",
-          "type": "object"
-        },
-        "er_reversion_annual": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Er Reversion Annual"
-        }
-      },
-      "required": [
-        "status",
-        "warning_code",
-        "market_price_yen",
-        "anchors_yen",
-        "er_reversion_annual"
-      ],
-      "title": "FvConvergenceView",
-      "type": "object"
-    },
     "HoldingDeltaView": {
       "description": "One open holding whose observation crossed a threshold worth reading.\n\n``at_or_above_fair_value`` is the comparison of two numbers, not a decision:\nreaching fair value is a review trigger the human owns.",
       "properties": {
@@ -1729,59 +1032,6 @@
         "days_to_next_earnings"
       ],
       "title": "HoldingDeltaView",
-      "type": "object"
-    },
-    "HoldingReviewView": {
-      "properties": {
-        "holding_review_id": {
-          "title": "Holding Review Id",
-          "type": "string"
-        },
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "thesis_id": {
-          "title": "Thesis Id",
-          "type": "string"
-        },
-        "candidate_thesis_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Candidate Thesis Id"
-        },
-        "action": {
-          "title": "Action",
-          "type": "string"
-        },
-        "note": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Note"
-        }
-      },
-      "required": [
-        "holding_review_id",
-        "as_of",
-        "thesis_id",
-        "candidate_thesis_id",
-        "action",
-        "note"
-      ],
-      "title": "HoldingReviewView",
       "type": "object"
     },
     "HoldingView": {
@@ -1909,50 +1159,6 @@
         "next_earnings_date"
       ],
       "title": "HoldingView",
-      "type": "object"
-    },
-    "MachineSelectionView": {
-      "properties": {
-        "selection_id": {
-          "title": "Selection Id",
-          "type": "string"
-        },
-        "run_revision_id": {
-          "title": "Run Revision Id",
-          "type": "string"
-        },
-        "macro_context_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Macro Context Id"
-        },
-        "created_at": {
-          "format": "date-time",
-          "title": "Created At",
-          "type": "string"
-        },
-        "ranked_set": {
-          "items": {
-            "$ref": "#/$defs/SelectionRankedSetEntryView"
-          },
-          "title": "Ranked Set",
-          "type": "array"
-        }
-      },
-      "required": [
-        "selection_id",
-        "run_revision_id",
-        "macro_context_id",
-        "created_at",
-        "ranked_set"
-      ],
-      "title": "MachineSelectionView",
       "type": "object"
     },
     "MacroConnectionSectionView": {
@@ -3567,27 +2773,57 @@
       ],
       "type": "string"
     },
-    "ResearchQuestionView": {
+    "PositionReviewView": {
       "properties": {
-        "question": {
-          "title": "Question",
+        "position_review_id": {
+          "title": "Position Review Id",
           "type": "string"
         },
-        "answer": {
-          "title": "Answer",
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
           "type": "string"
         },
-        "status": {
-          "title": "Status",
+        "thesis_id": {
+          "title": "Thesis Id",
           "type": "string"
+        },
+        "candidate_thesis_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Candidate Thesis Id"
+        },
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Note"
         }
       },
       "required": [
-        "question",
-        "answer",
-        "status"
+        "position_review_id",
+        "as_of",
+        "thesis_id",
+        "candidate_thesis_id",
+        "action",
+        "note"
       ],
-      "title": "ResearchQuestionView",
+      "title": "PositionReviewView",
       "type": "object"
     },
     "ResearchRevisionView": {
@@ -3662,6 +2898,129 @@
       "title": "ResearchRevisionView",
       "type": "object"
     },
+    "ResearchTriageEntryView": {
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "decision": {
+          "title": "Decision",
+          "type": "string"
+        },
+        "priority": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Priority"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "research_question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Question"
+        },
+        "key_risk": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Key Risk"
+        },
+        "machine_snapshot": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReviewSetEntryView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "ticker",
+        "decision",
+        "priority",
+        "rationale",
+        "research_question",
+        "key_risk",
+        "machine_snapshot"
+      ],
+      "title": "ResearchTriageEntryView",
+      "type": "object"
+    },
+    "ResearchTriageView": {
+      "properties": {
+        "research_triage_id": {
+          "title": "Research Triage Id",
+          "type": "string"
+        },
+        "review_set_id": {
+          "title": "Review Set Id",
+          "type": "string"
+        },
+        "run_revision_id": {
+          "title": "Run Revision Id",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "published_at": {
+          "format": "date-time",
+          "title": "Published At",
+          "type": "string"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/ResearchTriageEntryView"
+          },
+          "title": "Entries",
+          "type": "array"
+        },
+        "unreadable_entries": {
+          "default": 0,
+          "title": "Unreadable Entries",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "research_triage_id",
+        "review_set_id",
+        "run_revision_id",
+        "as_of",
+        "published_at",
+        "entries",
+        "unreadable_entries"
+      ],
+      "title": "ResearchTriageView",
+      "type": "object"
+    },
     "ReservationView": {
       "properties": {
         "reservation_id": {
@@ -3706,6 +3065,109 @@
       "title": "ReservationView",
       "type": "object"
     },
+    "ReviewSetEntryView": {
+      "description": "One nominated security in deterministic multi-approach review order.",
+      "properties": {
+        "review_position": {
+          "title": "Review Position",
+          "type": "integer"
+        },
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Name"
+        },
+        "sector_33": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sector 33"
+        },
+        "nominations": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Nominations",
+          "type": "array"
+        },
+        "support_count": {
+          "title": "Support Count",
+          "type": "integer"
+        },
+        "rank_vector": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Rank Vector",
+          "type": "array"
+        },
+        "analysis": {
+          "additionalProperties": true,
+          "title": "Analysis",
+          "type": "object"
+        }
+      },
+      "required": [
+        "review_position",
+        "ticker",
+        "name",
+        "sector_33",
+        "nominations",
+        "support_count",
+        "rank_vector",
+        "analysis"
+      ],
+      "title": "ReviewSetEntryView",
+      "type": "object"
+    },
+    "ReviewSetView": {
+      "properties": {
+        "review_set_id": {
+          "title": "Review Set Id",
+          "type": "string"
+        },
+        "run_revision_id": {
+          "title": "Run Revision Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/ReviewSetEntryView"
+          },
+          "title": "Entries",
+          "type": "array"
+        }
+      },
+      "required": [
+        "review_set_id",
+        "run_revision_id",
+        "created_at",
+        "entries"
+      ],
+      "title": "ReviewSetView",
+      "type": "object"
+    },
     "ScenarioView": {
       "properties": {
         "name": {
@@ -3732,7 +3194,7 @@
         },
         "rows": {
           "items": {
-            "$ref": "#/$defs/CandidateRowView"
+            "$ref": "#/$defs/SecurityAnalysisRowView"
           },
           "title": "Rows",
           "type": "array"
@@ -3787,8 +3249,8 @@
           "title": "Universe Size",
           "type": "integer"
         },
-        "candidate_count": {
-          "title": "Candidate Count",
+        "analyzed_security_count": {
+          "title": "Analyzed Security Count",
           "type": "integer"
         },
         "run_revision_id": {
@@ -3806,7 +3268,7 @@
         "asof_date",
         "run_at",
         "universe_size",
-        "candidate_count",
+        "analyzed_security_count",
         "run_revision_id",
         "stale"
       ],
@@ -3825,32 +3287,32 @@
             }
           ]
         },
-        "rows": {
+        "security_analyses": {
           "items": {
-            "$ref": "#/$defs/CandidateRowView"
+            "$ref": "#/$defs/SecurityAnalysisRowView"
           },
-          "title": "Rows",
+          "title": "Security Analyses",
           "type": "array"
         },
-        "selections": {
+        "review_sets": {
           "items": {
-            "$ref": "#/$defs/MachineSelectionView"
+            "$ref": "#/$defs/ReviewSetView"
           },
-          "title": "Selections",
+          "title": "Review Sets",
           "type": "array"
         },
-        "shortlists": {
+        "research_triages": {
           "items": {
-            "$ref": "#/$defs/ShortlistView"
+            "$ref": "#/$defs/ResearchTriageView"
           },
-          "title": "Shortlists",
+          "title": "Research Triages",
           "type": "array"
         },
-        "assessments": {
+        "capital_allocation_assessments": {
           "items": {
-            "$ref": "#/$defs/BargainAssessmentSummaryView"
+            "$ref": "#/$defs/CapitalAllocationAssessmentSummaryView"
           },
-          "title": "Assessments",
+          "title": "Capital Allocation Assessments",
           "type": "array"
         },
         "er_level_calibration": {
@@ -3867,13 +3329,489 @@
       },
       "required": [
         "run",
-        "rows",
-        "selections",
-        "shortlists",
-        "assessments",
+        "security_analyses",
+        "review_sets",
+        "research_triages",
+        "capital_allocation_assessments",
         "er_level_calibration"
       ],
       "title": "ScreeningView",
+      "type": "object"
+    },
+    "SecurityAnalysisRowView": {
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Name"
+        },
+        "sector_33": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sector 33"
+        },
+        "market_cap_oku": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Market Cap Oku"
+        },
+        "avg_turnover_oku": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Avg Turnover Oku"
+        },
+        "per_trailing": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Per Trailing"
+        },
+        "normalized_per_3fy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Normalized Per 3Fy"
+        },
+        "per_forward": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Per Forward"
+        },
+        "pbr": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pbr"
+        },
+        "ev_ebitda": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ev Ebitda"
+        },
+        "p_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "P S"
+        },
+        "pcfr": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pcfr"
+        },
+        "dividend_yield": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dividend Yield"
+        },
+        "dividend_basis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dividend Basis"
+        },
+        "dividend_split_factor": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dividend Split Factor"
+        },
+        "er_annual": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Er Annual"
+        },
+        "er_reversion_annual": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Er Reversion Annual"
+        },
+        "er_carry_annual": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Er Carry Annual"
+        },
+        "net_cash_to_market_cap": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Net Cash To Market Cap"
+        },
+        "fcf_yield": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fcf Yield"
+        },
+        "ocf_yield": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ocf Yield"
+        },
+        "equity_ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Equity Ratio"
+        },
+        "sales_yoy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sales Yoy"
+        },
+        "operating_profit_yoy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Operating Profit Yoy"
+        },
+        "sector_relative_strength_percentile": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sector Relative Strength Percentile"
+        },
+        "price_change_20d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Price Change 20D"
+        },
+        "gap_from_52w_low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Gap From 52W Low"
+        },
+        "next_earnings_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Earnings Date"
+        },
+        "margin_week_end": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Margin Week End"
+        },
+        "margin_long_to_adv": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Margin Long To Adv"
+        },
+        "margin_short_to_adv": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Margin Short To Adv"
+        },
+        "margin_long_share": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Margin Long Share"
+        },
+        "margin_long_delta_26w": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Margin Long Delta 26W"
+        },
+        "margin_std_long_share": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Margin Std Long Share"
+        },
+        "data_quality_flags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Data Quality Flags",
+          "type": "array"
+        },
+        "portfolio_state": {
+          "$ref": "#/$defs/PortfolioState"
+        },
+        "has_research": {
+          "title": "Has Research",
+          "type": "boolean"
+        },
+        "fair_value_anchor_yen": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fair Value Anchor Yen"
+        },
+        "fair_value_gap_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fair Value Gap Pct"
+        },
+        "er_level_quintile": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Er Level Quintile"
+        },
+        "er_meets_8_5pct_band": {
+          "default": false,
+          "title": "Er Meets 8 5Pct Band",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ticker",
+        "name",
+        "sector_33",
+        "market_cap_oku",
+        "avg_turnover_oku",
+        "per_trailing",
+        "normalized_per_3fy",
+        "per_forward",
+        "pbr",
+        "ev_ebitda",
+        "p_s",
+        "pcfr",
+        "dividend_yield",
+        "dividend_basis",
+        "dividend_split_factor",
+        "er_annual",
+        "er_reversion_annual",
+        "er_carry_annual",
+        "net_cash_to_market_cap",
+        "fcf_yield",
+        "ocf_yield",
+        "equity_ratio",
+        "sales_yoy",
+        "operating_profit_yoy",
+        "sector_relative_strength_percentile",
+        "price_change_20d",
+        "gap_from_52w_low",
+        "next_earnings_date",
+        "margin_week_end",
+        "margin_long_to_adv",
+        "margin_short_to_adv",
+        "margin_long_share",
+        "margin_long_delta_26w",
+        "margin_std_long_share",
+        "data_quality_flags",
+        "portfolio_state",
+        "has_research",
+        "fair_value_anchor_yen",
+        "fair_value_gap_pct",
+        "er_level_quintile",
+        "er_meets_8_5pct_band"
+      ],
+      "title": "SecurityAnalysisRowView",
       "type": "object"
     },
     "SecurityDetailView": {
@@ -3931,17 +3869,17 @@
             }
           ]
         },
-        "holding_reviews": {
+        "position_reviews": {
           "items": {
-            "$ref": "#/$defs/HoldingReviewView"
+            "$ref": "#/$defs/PositionReviewView"
           },
-          "title": "Holding Reviews",
+          "title": "Position Reviews",
           "type": "array"
         },
         "candidate_row": {
           "anyOf": [
             {
-              "$ref": "#/$defs/CandidateRowView"
+              "$ref": "#/$defs/SecurityAnalysisRowView"
             },
             {
               "type": "null"
@@ -3966,432 +3904,11 @@
         "holding",
         "revisions",
         "latest_thesis",
-        "holding_reviews",
+        "position_reviews",
         "candidate_row",
         "candidate_run"
       ],
       "title": "SecurityDetailView",
-      "type": "object"
-    },
-    "SelectionRankedSetEntryView": {
-      "description": "機械 rank 上位の候補 1 件。FV アンカーと E[r] はここだけが持つ。",
-      "properties": {
-        "rank": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Rank"
-        },
-        "ticker": {
-          "title": "Ticker",
-          "type": "string"
-        },
-        "name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Name"
-        },
-        "market_price_yen": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Market Price Yen"
-        },
-        "fair_value_anchor_yen": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Fair Value Anchor Yen"
-        },
-        "fair_value_gap_pct": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Fair Value Gap Pct"
-        },
-        "expected_return_pct": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Expected Return Pct"
-        },
-        "primary_evidence_pattern_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Primary Evidence Pattern Id"
-        },
-        "liquidity_status": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Liquidity Status"
-        },
-        "selection_reasons": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Selection Reasons",
-          "type": "array"
-        },
-        "durability_warnings": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Durability Warnings",
-          "type": "array"
-        },
-        "event_warnings": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Event Warnings",
-          "type": "array"
-        },
-        "fv_convergence": {
-          "$ref": "#/$defs/FvConvergenceView"
-        }
-      },
-      "required": [
-        "rank",
-        "ticker",
-        "name",
-        "market_price_yen",
-        "fair_value_anchor_yen",
-        "fair_value_gap_pct",
-        "expected_return_pct",
-        "primary_evidence_pattern_id",
-        "liquidity_status",
-        "selection_reasons",
-        "durability_warnings",
-        "event_warnings",
-        "fv_convergence"
-      ],
-      "title": "SelectionRankedSetEntryView",
-      "type": "object"
-    },
-    "ShortlistEntryView": {
-      "properties": {
-        "ticker": {
-          "title": "Ticker",
-          "type": "string"
-        },
-        "decision": {
-          "title": "Decision",
-          "type": "string"
-        },
-        "reason": {
-          "title": "Reason",
-          "type": "string"
-        },
-        "rank": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Rank"
-        },
-        "narrative": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ShortlistNarrativeView"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "machine_snapshot": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SelectionRankedSetEntryView"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        }
-      },
-      "required": [
-        "ticker",
-        "decision",
-        "reason",
-        "rank",
-        "narrative",
-        "machine_snapshot"
-      ],
-      "title": "ShortlistEntryView",
-      "type": "object"
-    },
-    "ShortlistNarrativeView": {
-      "description": "発行済み shortlist の判断。read 側は欠けた field を空欄として通す。\n\n必須性を強制するのは publish の write path だけであり、read model が同じ必須を\n課すと、schema を進めた瞬間に旧 revision を読む export と API が落ちる。",
-      "properties": {
-        "ploss": {
-          "title": "Ploss",
-          "type": "string"
-        },
-        "why": {
-          "title": "Why",
-          "type": "string"
-        },
-        "temporary": {
-          "title": "Temporary",
-          "type": "string"
-        },
-        "structural": {
-          "title": "Structural",
-          "type": "string"
-        },
-        "survive": {
-          "title": "Survive",
-          "type": "string"
-        },
-        "unlock": {
-          "title": "Unlock",
-          "type": "string"
-        },
-        "counter": {
-          "title": "Counter",
-          "type": "string"
-        },
-        "research": {
-          "title": "Research",
-          "type": "string"
-        },
-        "value": {
-          "title": "Value",
-          "type": "string"
-        },
-        "prov": {
-          "title": "Prov",
-          "type": "string"
-        },
-        "upside": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Upside"
-        },
-        "downside": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Downside"
-        },
-        "rr": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Rr"
-        },
-        "catalyst": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Catalyst"
-        },
-        "catalyst_date": {
-          "anyOf": [
-            {
-              "format": "date",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Catalyst Date"
-        },
-        "macro": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Macro"
-        },
-        "sector_label": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Sector Label"
-        }
-      },
-      "required": [
-        "ploss",
-        "why",
-        "temporary",
-        "structural",
-        "survive",
-        "unlock",
-        "counter",
-        "research",
-        "value",
-        "prov",
-        "upside",
-        "downside",
-        "rr",
-        "catalyst",
-        "catalyst_date",
-        "macro",
-        "sector_label"
-      ],
-      "title": "ShortlistNarrativeView",
-      "type": "object"
-    },
-    "ShortlistView": {
-      "properties": {
-        "shortlist_id": {
-          "title": "Shortlist Id",
-          "type": "string"
-        },
-        "selection_id": {
-          "title": "Selection Id",
-          "type": "string"
-        },
-        "run_revision_id": {
-          "title": "Run Revision Id",
-          "type": "string"
-        },
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "published_at": {
-          "format": "date-time",
-          "title": "Published At",
-          "type": "string"
-        },
-        "entries": {
-          "items": {
-            "$ref": "#/$defs/ShortlistEntryView"
-          },
-          "title": "Entries",
-          "type": "array"
-        },
-        "unreadable_entries": {
-          "default": 0,
-          "title": "Unreadable Entries",
-          "type": "integer"
-        }
-      },
-      "required": [
-        "shortlist_id",
-        "selection_id",
-        "run_revision_id",
-        "as_of",
-        "published_at",
-        "entries",
-        "unreadable_entries"
-      ],
-      "title": "ShortlistView",
-      "type": "object"
-    },
-    "SourceCaveatView": {
-      "properties": {
-        "source_id": {
-          "title": "Source Id",
-          "type": "string"
-        },
-        "status": {
-          "title": "Status",
-          "type": "string"
-        },
-        "decision_impact": {
-          "title": "Decision Impact",
-          "type": "string"
-        }
-      },
-      "required": [
-        "source_id",
-        "status",
-        "decision_impact"
-      ],
-      "title": "SourceCaveatView",
       "type": "object"
     },
     "TaskView": {

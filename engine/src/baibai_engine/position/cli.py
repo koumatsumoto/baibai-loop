@@ -1,6 +1,6 @@
 """Command-line entry for application-DB portfolio records.
 
-Composes ledger, holding-review, and outcome inputs. This entry point owns
+Composes ledger, position-review, and outcome inputs. This entry point owns
 SQLite composition while position core modules remain free of screening
 dependencies.
 """
@@ -43,13 +43,6 @@ from baibai_engine.position.drafts import (
     load_draft,
     write_draft,
 )
-from baibai_engine.position.holding_review import (
-    HoldingReviewDocument,
-    HoldingReviewError,
-    evaluate_holding_review,
-    load_holding_review,
-    result_to_payload,
-)
 from baibai_engine.position.ledger import (
     ConfirmedTaxEvent,
     ContributionEvent,
@@ -72,13 +65,22 @@ from baibai_engine.position.outcome_store import (
     PortfolioOutcomePublication,
     PortfolioOutcomeStore,
 )
+from baibai_engine.position.position_review import (
+    PositionReviewDocument,
+    PositionReviewError,
+    evaluate_position_review,
+    load_position_review,
+    result_to_payload,
+)
 from baibai_engine.position.result_recording import ResultRecordingError
 from baibai_engine.position.result_service import build_result_draft
 from baibai_engine.position.store import LedgerConflictError, LedgerStoreService
-from baibai_engine.research.assessment_service import BargainAssessmentService
-from baibai_engine.research.holding_review_builder import (
-    build_holding_review_from_db,
-    validate_holding_review_scalars_from_db,
+from baibai_engine.research.capital_allocation_service import (
+    CapitalAllocationAssessmentService,
+)
+from baibai_engine.research.position_review_builder import (
+    build_position_review_from_db,
+    validate_position_review_scalars_from_db,
 )
 
 
@@ -139,36 +141,36 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="write an optional outcome YAML export; existing paths are never overwritten",
     )
-    holding_review_parser = subparsers.add_parser(
-        "holding-review",
+    position_review_parser = subparsers.add_parser(
+        "position-review",
         description=(
-            "Recompute a holding review draft's hold/add/reduce/exit from thesis "
+            "Recompute a Position Review draft's hold/add/reduce/exit from thesis "
             "health and the after-tax replacement comparison, and emit a YAML "
             "summary. A broken thesis is the priority sell candidate; fair value is "
             "a review trigger; price decline alone is never an exit reason."
         ),
-        help="recompute hold/add/reduce/exit from a holding review draft YAML",
+        help="recompute hold/add/reduce/exit from a Position Review draft YAML",
     )
-    holding_review_parser.add_argument(
+    position_review_parser.add_argument(
         "--input",
         type=Path,
-        help="holding review draft YAML path",
+        help="Position Review draft YAML path",
     )
-    holding_review_parser.add_argument(
+    position_review_parser.add_argument(
         "operation",
         nargs="?",
         choices=("publish",),
         help="publish a human-confirmed draft to the application DB",
     )
-    holding_review_parser.add_argument("draft", nargs="?", type=Path)
-    holding_review_parser.add_argument("--root", type=Path, default=Path.cwd())
-    holding_review_parser.add_argument("--db", type=Path)
-    holding_review_parser.add_argument("--holding-review-id")
-    holding_review_parser.add_argument("--thesis-id")
-    holding_review_parser.add_argument("--candidate-thesis-id")
+    position_review_parser.add_argument("draft", nargs="?", type=Path)
+    position_review_parser.add_argument("--root", type=Path, default=Path.cwd())
+    position_review_parser.add_argument("--db", type=Path)
+    position_review_parser.add_argument("--position-review-id")
+    position_review_parser.add_argument("--thesis-id")
+    position_review_parser.add_argument("--candidate-thesis-id")
     holding_build_parser = subparsers.add_parser(
-        "holding-review-build",
-        help="build a holding review draft from a ready thesis, its review, and the ledger",
+        "position-review-build",
+        help="build a Position Review draft from a ready thesis, its review, and the ledger",
     )
     holding_build_parser.add_argument("--root", type=Path, default=Path.cwd())
     holding_build_parser.add_argument("--db", type=Path)
@@ -284,22 +286,22 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         except (LedgerConflictError, PortfolioLedgerError) as error:
             print(f"error: {error}", file=sys.stderr)
             return 2
-    if args.command == "holding-review":
+    if args.command == "position-review":
         if args.operation == "publish":
             if args.draft is None or args.thesis_id is None:
                 print(
-                    "error: holding-review publish requires <draft> and --thesis-id",
+                    "error: position-review publish requires <draft> and --thesis-id",
                     file=sys.stderr,
                 )
                 return 2
-            return _run_holding_review_publish(args, now=now)
+            return _run_position_review_publish(args, now=now)
         if args.input is None:
-            print("error: holding-review validation requires --input", file=sys.stderr)
+            print("error: position-review validation requires --input", file=sys.stderr)
             return 2
         input_path = args.input if args.input.is_absolute() else args.root / args.input
-        return _run_holding_review(input_path, db_path=args.db, now=now)
-    if args.command == "holding-review-build":
-        return _run_holding_review_build_db(
+        return _run_position_review(input_path, db_path=args.db, now=now)
+    if args.command == "position-review-build":
+        return _run_position_review_build_db(
             db_path=args.db,
             thesis_id=args.thesis_id,
             candidate_thesis_id=args.candidate_thesis_id,
@@ -612,28 +614,28 @@ def _market_data_fingerprint(bars: list[JQuantsDailyBar]) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def _run_holding_review(
+def _run_position_review(
     path: Path,
     *,
     db_path: Path | None,
     now: datetime | None,
 ) -> int:
     try:
-        document = load_holding_review(path)
-    except HoldingReviewError as error:
+        document = load_position_review(path)
+    except PositionReviewError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     try:
-        operation_now = _holding_review_instant(now)
-        validate_holding_review_scalars_from_db(
+        operation_now = _position_review_instant(now)
+        validate_position_review_scalars_from_db(
             document,
             db_path=db_path,
             now=operation_now,
         )
-    except HoldingReviewError as error:
+    except PositionReviewError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    result = evaluate_holding_review(document)
+    result = evaluate_position_review(document)
     yaml.safe_dump(
         result_to_payload(document, result),
         sys.stdout,
@@ -648,7 +650,7 @@ def _run_holding_review(
     return 2 if result.errors else 0
 
 
-def _run_holding_review_publish(
+def _run_position_review_publish(
     args: argparse.Namespace,
     *,
     now: datetime | None,
@@ -660,14 +662,14 @@ def _run_holding_review_publish(
     try:
         raw = safe_load(draft_path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
-            raise ResearchValidationError("holding review draft must be a mapping")
-        document = HoldingReviewDocument.model_validate(raw)
-        holding_review_id = args.holding_review_id or (
-            f"holding-review-{document.as_of:%Y%m%d}-{document.ticker}-{document.position_id}"
+            raise ResearchValidationError("Position Review draft must be a mapping")
+        document = PositionReviewDocument.model_validate(raw)
+        position_review_id = args.position_review_id or (
+            f"position-review-{document.as_of:%Y%m%d}-{document.ticker}-{document.position_id}"
         )
-        operation_now = _holding_review_instant(now)
-        ResearchStoreService(args.db, clock=lambda: operation_now).publish_holding_review(
-            holding_review_id,
+        operation_now = _position_review_instant(now)
+        ResearchStoreService(args.db, clock=lambda: operation_now).publish_position_review(
+            position_review_id,
             args.thesis_id,
             raw,
             candidate_thesis_id=args.candidate_thesis_id,
@@ -677,7 +679,7 @@ def _run_holding_review_publish(
         return 2
     yaml.safe_dump(
         {
-            "holding_review_id": holding_review_id,
+            "position_review_id": position_review_id,
             "thesis_id": args.thesis_id,
             "candidate_thesis_id": args.candidate_thesis_id,
         },
@@ -688,7 +690,7 @@ def _run_holding_review_publish(
     return 0
 
 
-def _run_holding_review_build_db(
+def _run_position_review_build_db(
     *,
     db_path: Path | None,
     thesis_id: str,
@@ -699,30 +701,30 @@ def _run_holding_review_build_db(
     now: datetime | None,
 ) -> int:
     try:
-        output_path = _draft_output_path(root, out, label="holding review")
-        document = build_holding_review_from_db(
+        output_path = _draft_output_path(root, out, label="Position Review")
+        document = build_position_review_from_db(
             db_path=db_path,
             holding_thesis_id=thesis_id,
             candidate_thesis_id=candidate_thesis_id,
             position_id=position_id,
-            now=_holding_review_instant(now),
+            now=_position_review_instant(now),
         )
-        result = evaluate_holding_review(document)
+        result = evaluate_position_review(document)
         if result.errors:
-            raise HoldingReviewError("; ".join(result.errors))
+            raise PositionReviewError("; ".join(result.errors))
         payload = document.model_dump(mode="json")
         _write_yaml_exclusive(output_path, payload)
-    except (OSError, HoldingReviewError, PortfolioLedgerError, ValueError) as error:
-        print(f"error: failed to build DB holding review: {error}", file=sys.stderr)
+    except (OSError, PositionReviewError, PortfolioLedgerError, ValueError) as error:
+        print(f"error: failed to build DB Position Review: {error}", file=sys.stderr)
         return 2
     yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
     return 0
 
 
-def _holding_review_instant(now: datetime | None) -> datetime:
+def _position_review_instant(now: datetime | None) -> datetime:
     resolved = now or datetime.now(JST)
     if resolved.tzinfo is None or resolved.utcoffset() is None:
-        raise HoldingReviewError("operation clock must be timezone-aware")
+        raise PositionReviewError("operation clock must be timezone-aware")
     return resolved
 
 
@@ -730,7 +732,7 @@ def _run_record_result(args: argparse.Namespace, *, now: datetime | None) -> int
     try:
         draft, event_ids = build_result_draft(
             LedgerStoreService(args.db),
-            BargainAssessmentService(args.db),
+            CapitalAllocationAssessmentService(args.db),
             decision_reference=args.decision_reference,
             status=args.status,
             occurred_at=args.occurred_at,

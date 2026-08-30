@@ -837,7 +837,7 @@ def test_watch_survives_session_completion_and_task_cleanup(
 
     operations = OperationService(db_path)
     session = operations.start(
-        session_kind="opportunity",
+        session_kind="capital-allocation",
         as_of=ASOF,
         started_at=FIXED_NOW,
         payload=OperationPayload(checkpoint="case closed as reject"),
@@ -846,9 +846,9 @@ def test_watch_survives_session_completion_and_task_cleanup(
         session.operation_id,
         OperationPayload(
             checkpoint="closed",
-            artifacts=({"kind": "shortlist", "ref": "shortlist-test"},),
+            artifacts=({"kind": "research_triage", "ref": "research_triage-test"},),
             human_confirmation=HumanConfirmation(request="confirm", result="no order"),
-            result="no actionable bargain",
+            result="no_allocation",
             next="await the price watch",
         ),
         completed_at=FIXED_NOW,

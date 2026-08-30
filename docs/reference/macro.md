@@ -47,7 +47,7 @@ generation は refresh のたびに store へ書かれるので、**series を�
 
 registry の band を追加・変更する前後は、git 管理外の live store を read-only validator で全履歴・全 vintage 検査する。validator は store を書き込みで開かず、canonical trigger 契約も併せて検証する。登録外系列、band 未宣言、unit 不一致、非有限値、band 外値のいずれかがあれば observation identity を出して非 0 で終了する。
 
-同じ validator が **application store の発行済み macro context revision を全件 load** する。code / registry が不変の発行済みレポートより先へ進む drift は CI では検出できず（workflow には application store が無い）、両 store が揃うのは local だけなので、この検査は push 前の運用計器として置く。現行契約の revision が 1 件でも read 経路で load できなければ非 0 で終了する（`screening select` と scorecard が使うのと同じ経路であり、落ちれば日次バッチが止まる）。**registry の系列を退役・改名する前後は必ず回す**。退役系列を引用するレポートは load できる限り warning で報告し、fail にはしない——退役は正常な運用であり、履歴の書き換えは選択肢に無い。scorecard 条件の系列が退役している場合はそのレポートが今後採点不能になるため、warning でその旨を明示する。application store が無い checkout（fresh clone）は skip する。
+同じ validator が **application store の発行済み macro context revision を全件 load** する。code / registry が不変の発行済みレポートより先へ進む drift は CI では検出できず（workflow には application store が無い）、両 store が揃うのは local だけなので、この検査は push 前の運用計器として置く。現行契約の revision が 1 件でも read 経路で load できなければ非 0 で終了する（`screening review-set publish` と scorecard が使うのと同じ経路であり、落ちれば日次バッチが止まる）。**registry の系列を退役・改名する前後は必ず回す**。退役系列を引用するレポートは load できる限り warning で報告し、fail にはしない——退役は正常な運用であり、履歴の書き換えは選択肢に無い。scorecard 条件の系列が退役している場合はそのレポートが今後採点不能になるため、warning でその旨を明示する。application store が無い checkout（fresh clone）は skip する。
 
 ```bash
 uv run baibai-batch validate-macro-stores \
@@ -210,7 +210,7 @@ uv run baibai-engine macro context show --latest --asof 2026-07-19
 
 レポートは **1 種類だけ**で、常に下記の深度契約を満たす full 深度で書く。軽い事実確認のための軽量版は持たない（その用途は §② が毎営業日 機械で果たす）。レポートの中心的な価値は **統合**にある: チャネル別の評価を並べるだけでは投資戦略の土台にならないため、複数チャネルを横断する支配的な力（synthesis）・確率付きシナリオ・機械見積りの歪み補正（estimate caveats）・バーゲン地形を、後述の機械契約と publish gate で必須にしている。
 
-**作成のきっかけは人間の判断だけ**である。定例義務・monitoring 発火時の更新義務・賞味期限の宣言は持たない。推奨リズムは (a) 米雇用統計の翌週、(b) スポットの資産運用判断の前、(c) opportunity cycleのResearch Gate前にheadが古いとき、の3つで、書かない月があっても壊れるものは無い。鮮度の判断は読む側が持つ（後述の consumer 側鮮度規則）。
+**作成のきっかけは人間の判断だけ**である。定例義務・monitoring 発火時の更新義務・賞味期限の宣言は持たない。推奨リズムは (a) 米雇用統計の翌週、(b) スポットの資産運用判断の前、(c) Research Triage前にheadが古いとき、の3つで、書かない月があっても壊れるものは無い。鮮度の判断は読む側が持つ（後述の consumer 側鮮度規則）。
 
 ### 3 層構成：core（環境評価）・synthesis（統合評価）・connection（積立ループ接続）
 
@@ -247,7 +247,7 @@ force の候補は §② reading の flags・|z| 極値・percentile 端・ト�
 
 共通 field：
 
-- `context_id` / `as_of` / `published_at`。`as_of`は**市場データの最終完全営業日**にする（著述日ではない）。screening selectはpoint-in-time整合のため`as_of ≤ selection ASOF`のcontextだけをbindするので、週末・祝日に書くcontextの`as_of`を著述日にすると直近ASOFのselectへ恒常的にbindされない
+- `context_id` / `as_of` / `published_at`。`as_of`は**市場データの最終完全営業日**にする（著述日ではない）。screening review-set publishはpoint-in-time整合のため`as_of ≤ Review Set ASOF`のcontextだけをbindするので、週末・祝日に書くcontextの`as_of`を著述日にすると直近Review Setへ恒常的にbindされない
 - `inputs.articles`：外部記事の一意な`input_id`、source / title / url / published_at / accessed_at / status / used_for（記事本文や監査ログは保存しない）。statement の `source_ids` は既知の正常取得 input へ解決する。引用が主張を十分に裏づけるかは独立 review で確認する
 - `inputs.indicator_series`：一意な`input_id`、`baibai-engine macro`で確認したprovider / series / window / observation_as_of / status / used_for
 - `inputs.machine_snapshots`：引用した自前コマンドの決定論出力（`screening market-snapshot` 等）。一意な `input_id`、`command` / `snapshot_asof` / `observation_as_of` / `accessed_at` / `status` / `used_for`。**自前出力は記事ではない**ので `inputs.articles` へ入れない：発行者も URL も無く、コマンドと訊ねた日付が identity である（記事枠へ入れると定義 doc の URL が数値の出所として読まれる）。`snapshot_asof` は as_of より未来にできず、`observation_as_of`（実際に使った最終市場日）はその as_of を超えられない。scorecard は専用 snapshot 契約で context / rules revision / 両 store / result digest も固定し、観測を 1 件も使わない pending-only 結果だけ `observation_as_of: null` を許す
@@ -312,8 +312,8 @@ scorecard はレポート `as_of` の翌日から各条件の期限日までを�
 
 レポートは自分の賞味期限を宣言しない。鮮度の扱いは consumer が自分の規則として持つ。
 
-- **screening select**: head レポートの `as_of` が判断 asof から 45 日より古ければ `macro_context_stale` warning を出す。warning は context-level summary の材料であり、E[r]順位・candidateの事実層・候補抽出のいずれも変えない。`as_of` が判断 asof より未来のときだけ hard error にする
-- **opportunity cycleのResearch Gate / スポット判断**: headが古い、または深度契約を満たさないと判断したら、shortlist作成の前に書き直す。判断の前提が古いままかは判断する人が決める
+- **screening review-set publish**: head レポートの `as_of` が判断 asof から 45 日より古ければ `macro_context_stale` warning を出す。warning は context-level summary の材料であり、E[r]順位・candidateの事実層・候補抽出のいずれも変えない。`as_of` が判断 asof より未来のときだけ hard error にする
+- **Research Triage / スポット判断**: headが古い、または深度契約を満たさないと判断したら、research_triage作成の前に書き直す。判断の前提が古いままかは判断する人が決める
 - **Baibai Loop**: Macro タブが head の `as_of` を表示し、読む人が古さを目で確認できる
 
 ### 分析の独立性
@@ -368,7 +368,7 @@ macro contextはdiscount rate、需要、資金調達、共通tail risk、sizing
 
 - **select**（[`./screening-runtime.md`](./screening-runtime.md)）：material deltaと`as_of`鮮度warningをcontext-level summaryとして出す。E[r]順位とcandidateの事実層は変えない。
 - **research**：material deltaが個別5年期待値へ影響する場合だけ、thesisのjudgmentへその因果と根拠を残す。マクロを数値ドライバー、採用gate、投入額ルールにはしない。
-- **connection セクション**：Research Gateがresearch優先度ヒントとsizing cautionを消化する入口になる（skill `shortlist`）。
+- **connection セクション**：Research Triageがresearch優先度ヒントとsizing cautionを消化する入口になる（skill `research-triage`）。
 
 行動指示（売買タイミング・現金比率・配分指示）はcore にもconnection にも書かない。sector tiltとresearch優先度ヒントは着手順位を判断するjudgment入力であり、機械ranking・hard gate・自動sizingへは接続しない。
 

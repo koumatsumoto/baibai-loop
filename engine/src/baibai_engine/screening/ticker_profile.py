@@ -305,7 +305,7 @@ def _load_candidates_entry(
             "in_candidates": False,
             "note": "no screening run on or before asof",
         }
-    entries = run.candidates
+    entries = run.security_analyses
     entry = None
     if isinstance(entries, Sequence):
         entry = next(
@@ -322,7 +322,7 @@ def _load_candidates_entry(
     else:
         block["note"] = (
             "ticker not present in the recorded candidates output "
-            "(outside the screen scope or no Evidence Pattern hit at that date)"
+            "(outside the screen scope or no Valuation Approach hit at that date)"
         )
     return block
 

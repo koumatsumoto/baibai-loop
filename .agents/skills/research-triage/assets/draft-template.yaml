@@ -1,0 +1,26 @@
+# Research Triage v1 draft. Include every Review Set entry exactly once.
+schema_version: 1
+kind: research_triage
+research_triage_id: research-triage-YYYYMMDD-<slug>
+review_set_id: <review_set_id>
+run_revision_id: <run_revision_id>
+as_of: YYYY-MM-DD
+published_at: YYYY-MM-DDTHH:MM:SS+09:00
+macro_context_id: null
+review_basis_research_triage_id: null
+triage_contract_id: research-triage-v1
+entries:
+  - ticker: XXXX
+    decision: research
+    priority: 1
+    rationale: 一次リサーチ枠を使う理由
+    research_question: 一次情報で解く質問
+    key_risk: 判断を覆す主要リスク
+    machine_snapshot: null
+  - ticker: YYYY
+    decision: skip
+    priority: null
+    rationale: 今回は一次リサーチ枠を使わない理由
+    research_question: null
+    key_risk: null
+    machine_snapshot: null

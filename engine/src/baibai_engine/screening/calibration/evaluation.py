@@ -1,4 +1,4 @@
-"""較正の評価指標: rank IC・decile・selection replay・トラップ率・gate 条件付き spread・収束実現。
+"""較正の評価指標: rank IC・decile・Review Set replay・trap・条件付きspread・収束実現。
 
 統計の誠実性 (docs/doctrine.md の計測経路):
 - cohort (月次 asof) は forward 窓が重複し独立でないため、有意性検定は行わず
@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from math import isfinite, sqrt
@@ -42,7 +41,19 @@ MIN_THRESHOLD_REMOVED_SAMPLE = 20
 
 DECILES = 10
 
-SELECTION_TOP_NS: tuple[int, ...] = (5, 10, 20)
+REVIEW_SET_TOP_NS: tuple[int, ...] = (5, 10, 20)
+VALUATION_APPROACH_IDS: tuple[str, ...] = (
+    "current-earnings-power",
+    "normalized-earnings-power",
+    "asset-value",
+    "reinvestment-value",
+)
+REPRESENTATION_TARGETS: dict[str, int] = {
+    "current-earnings-power": 6,
+    "normalized-earnings-power": 5,
+    "asset-value": 5,
+    "reinvestment-value": 4,
+}
 
 # gate 条件付き spread の対象 gate (業績悪化 gate。rule_config の deterioration
 # threshold と同じ -0.3 を事前固定で用いる) 。
@@ -319,10 +330,9 @@ def _evaluate_cohort(
             "coverage": coverage,
             "metric_calculation_status": "unresolved",
             "axes": {},
-            "selection": {},
+            "candidate_discovery": {},
             "gates": {},
             "sector_median_basis": {},
-            "evidence_pattern_thresholds": {},
             "reversion": {},
             "shareholder_return_change": {},
             "margin_supply_demand_hypotheses": {},
@@ -339,7 +349,7 @@ def _evaluate_cohort(
         axes_result = _evaluate_axis(spec, population, excess)
         if axes_result is not None:
             axes[spec.name] = axes_result
-    selection = _evaluate_selection(population, excess)
+    candidate_discovery = _evaluate_candidate_discovery(population, excess)
     margin_hypotheses = _evaluate_margin_supply_demand_hypotheses(population, excess)
     profit_hypotheses = _evaluate_profit_normalization_hypotheses(population, excess)
     asset_backed_hypotheses = _evaluate_asset_backed_hypotheses(population, excess)
@@ -350,7 +360,7 @@ def _evaluate_cohort(
     er_level_calibration = _evaluate_er_level_calibration(population, forward_rows, horizon=horizon)
     metric_statuses = {
         key: ("eligible" if isinstance(value, dict) and value.get("n", 0) else "unresolved")
-        for key, value in selection.items()
+        for key, value in candidate_discovery.items()
     }
     metric_statuses["er_calibration"] = "eligible" if er_calibration else "unresolved"
     metric_statuses["er_level_calibration"] = "eligible" if er_level_calibration else "unresolved"
@@ -381,10 +391,9 @@ def _evaluate_cohort(
         ),
         "stale_price_count": context.stale_price_count,
         "axes": axes,
-        "selection": selection,
+        "candidate_discovery": candidate_discovery,
         "gates": _evaluate_gates(population, excess),
         "sector_median_basis": _evaluate_sector_median_basis(population, excess),
-        "evidence_pattern_thresholds": _evaluate_evidence_pattern_thresholds(population, excess),
         "reversion": _evaluate_reversion(population, excess),
         "shareholder_return_change": return_change,
         "margin_supply_demand_hypotheses": margin_hypotheses,
@@ -463,8 +472,8 @@ def _cohort_excess_context(
 _DELISTING_IMPUTATIONS: tuple[str, ...] = ("total_loss", "neutral")
 _TOTAL_LOSS_RETURN = -1.0
 _SENSITIVITY_METRICS: tuple[str, ...] = (
-    "selection_rank_top5",
-    "selection_rank_top10",
+    "review_set_top5",
+    "review_set_top10",
     "er_calibration",
 )
 OPTIONAL_SENSITIVITY_METRICS: tuple[str, ...] = (
@@ -502,10 +511,10 @@ def _direction_signs(
     horizon: str,
 ) -> dict[str, float | None]:
     """The sign-bearing quantity of each conclusion the authority gate reads."""
-    selection = _evaluate_selection(context.population, context.excess)
+    candidate_discovery = _evaluate_candidate_discovery(context.population, context.excess)
     signs: dict[str, float | None] = {}
-    for key in ("selection_rank_top5", "selection_rank_top10"):
-        group = selection.get(key)
+    for key in ("review_set_top5", "review_set_top10"):
+        group = candidate_discovery.get(key)
         value = group.get("median_excess") if isinstance(group, dict) else None
         signs[key] = value if isinstance(value, int | float) else None
     calibration = _evaluate_er_calibration(
@@ -869,39 +878,96 @@ def _evaluate_shareholder_return_change(
     }
 
 
-def _evaluate_selection(
+def _evaluate_candidate_discovery(
     population: Sequence[PanelRow],
     excess: Mapping[str, float],
 ) -> dict[str, object]:
     result: dict[str, object] = {}
-    for top_n in SELECTION_TOP_NS:
+    review_set_rows = sorted(
+        (row for row in population if row.review_position is not None),
+        key=lambda row: (row.review_position or 0, row.ticker),
+    )
+    for top_n in REVIEW_SET_TOP_NS:
         values = [
             excess[row.ticker]
             for row in population
-            if row.selection_rank is not None and row.selection_rank <= top_n
+            if row.review_position is not None and row.review_position <= top_n
         ]
-        result[f"selection_rank_top{top_n}"] = _group_stats(values)
-    # 仮想 replay: E[r] 降順の順位付け (H3 の比較対象)。er_ranked は
-    # pass_screen かつ er_annual 非 null の集合を並べ替える。er_population は
-    # screen gate を外した母集団全体からの選抜 (gate 自体の付加価値の診断)。
-    screen_passers = sorted(
-        (row for row in population if row.pass_screen and row.er_annual is not None),
-        key=lambda row: row.er_annual or 0.0,
-        reverse=True,
+        result[f"review_set_top{top_n}"] = _group_stats(values)
+    result["review_set_all"] = _group_stats([excess[row.ticker] for row in review_set_rows])
+
+    approach_ranks = {row.ticker: _valuation_approach_rank_map(row) for row in population}
+    for approach in VALUATION_APPROACH_IDS:
+        slug = approach.replace("-", "_")
+        for top_n in REVIEW_SET_TOP_NS:
+            result[f"approach_{slug}_top{top_n}"] = _group_stats(
+                [
+                    excess[row.ticker]
+                    for row in population
+                    if (rank := approach_ranks[row.ticker].get(approach)) is not None
+                    and rank <= top_n
+                ]
+            )
+
+    supported = [row for row in population if approach_ranks[row.ticker]]
+    result["support_count_ge2"] = _group_stats(
+        [excess[row.ticker] for row in supported if len(approach_ranks[row.ticker]) >= 2]
     )
+    result["support_count_ge3"] = _group_stats(
+        [excess[row.ticker] for row in supported if len(approach_ranks[row.ticker]) >= 3]
+    )
+    result["single_support"] = _group_stats(
+        [excess[row.ticker] for row in supported if len(approach_ranks[row.ticker]) == 1]
+    )
+
+    represented_counts = {
+        approach: sum(approach in approach_ranks[row.ticker] for row in review_set_rows)
+        for approach in VALUATION_APPROACH_IDS
+    }
+    result["representation"] = {
+        "targets": REPRESENTATION_TARGETS,
+        "represented_counts": represented_counts,
+        "fulfilled": {
+            approach: represented_counts[approach] >= target
+            for approach, target in REPRESENTATION_TARGETS.items()
+        },
+    }
+
+    # Pure E[r] is a benchmark only; it neither gates nor fills the Review Set.
     population_by_er = sorted(
         (row for row in population if row.er_annual is not None),
-        key=lambda row: row.er_annual or 0.0,
-        reverse=True,
+        key=lambda row: (-(row.er_annual or 0.0), row.ticker),
     )
-    for top_n in SELECTION_TOP_NS:
-        result[f"er_ranked_top{top_n}"] = _group_stats(
-            [excess[row.ticker] for row in screen_passers[:top_n]]
-        )
-        result[f"er_population_top{top_n}"] = _group_stats(
+    for top_n in REVIEW_SET_TOP_NS:
+        er_rows = population_by_er[:top_n]
+        result[f"pure_er_top{top_n}"] = _group_stats(
             [excess[row.ticker] for row in population_by_er[:top_n]]
         )
+        review_tickers = {row.ticker for row in review_set_rows[:top_n]}
+        er_tickers = {row.ticker for row in er_rows}
+        result[f"review_set_vs_er_top{top_n}"] = {
+            "review_set_n": len(review_tickers),
+            "pure_er_n": len(er_tickers),
+            "overlap_n": len(review_tickers & er_tickers),
+            "displaced_from_er_n": len(er_tickers - review_tickers),
+        }
     return result
+
+
+def _valuation_approach_rank_map(row: PanelRow) -> dict[str, int]:
+    ranks: dict[str, int] = {}
+    for token in row.valuation_approach_ranks.split("|"):
+        if not token:
+            continue
+        approach, separator, raw_rank = token.rpartition(":")
+        if separator and approach in VALUATION_APPROACH_IDS:
+            try:
+                rank = int(raw_rank)
+            except ValueError:
+                continue
+            if 1 <= rank <= 20:
+                ranks[approach] = rank
+    return ranks
 
 
 def _evaluate_margin_supply_demand_hypotheses(
@@ -1173,47 +1239,6 @@ def _evaluate_gates(
     return result
 
 
-def _evaluate_evidence_pattern_thresholds(
-    population: Sequence[PanelRow],
-    excess: Mapping[str, float],
-) -> dict[str, object]:
-    """What each Evidence Pattern threshold admitted, against what it alone removed.
-
-    The axes say which signals order returns. They do not say whether the numbers that
-    decide admission are set where they should be, because a threshold is not a ranking:
-    it is one cut, and the only rows that speak to it are the ones that satisfied every
-    other condition of the same Evidence Pattern. `rules.threshold_blocks` names those rows, so
-    the comparison here is between the names an Evidence Pattern took and the names one of its
-    thresholds turned away.
-    """
-    admitted: dict[str, list[float]] = defaultdict(list)
-    removed: dict[str, list[float]] = defaultdict(list)
-    for row in population:
-        value = excess.get(row.ticker)
-        if value is None:
-            continue
-        for evidence_pattern in row.evidence_patterns.split("|"):
-            if evidence_pattern:
-                admitted[evidence_pattern].append(value)
-        for block in row.threshold_blocks.split("|"):
-            if block:
-                removed[block].append(value)
-    result: dict[str, object] = {}
-    for block, removed_values in removed.items():
-        evidence_pattern = block.split(":", 1)[0]
-        admitted_values = admitted.get(evidence_pattern, [])
-        if not admitted_values:
-            continue
-        result[block] = {
-            "admitted": _group_stats(admitted_values),
-            "removed": _group_stats(removed_values),
-            "median_excess_delta": _rounded_difference(
-                median(admitted_values), median(removed_values)
-            ),
-        }
-    return result
-
-
 def _evaluate_sector_median_basis(
     population: Sequence[PanelRow],
     excess: Mapping[str, float],
@@ -1254,7 +1279,7 @@ def _evaluate_sector_median_basis(
                 "market_fallback" if metric in row.smg_market_fallback.split("|") else "own_sector"
             )
             groups[basis].append((value * spec.direction, excess[row.ticker]))
-            screened[basis] += row.pass_screen
+            screened[basis] += row.in_review_set
         entry: dict[str, object] = {}
         for basis, pairs in groups.items():
             decile_values = _decile_values(pairs) if len(pairs) >= MIN_AXIS_SAMPLE else None
@@ -1610,23 +1635,99 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
             ),
         }
 
-    selection_summary: dict[str, object] = {}
-    selection_key_set: set[str] = set()
+    candidate_discovery_summary: dict[str, object] = {}
+    candidate_discovery_key_set: set[str] = set()
     for cohort in cohorts:
-        selection = cohort.get("selection")
-        if isinstance(selection, dict):
-            selection_key_set.update(selection)
-    selection_keys = sorted(selection_key_set)
-    for key in selection_keys:
+        candidate_discovery = cohort.get("candidate_discovery")
+        if isinstance(candidate_discovery, dict):
+            candidate_discovery_key_set.update(candidate_discovery)
+    candidate_discovery_keys = sorted(candidate_discovery_key_set)
+    for key in candidate_discovery_keys:
+        if key == "representation":
+            rows = [
+                candidate_discovery[key]
+                for cohort in cohorts
+                if isinstance((candidate_discovery := cohort.get("candidate_discovery")), dict)
+                and isinstance(candidate_discovery.get(key), dict)
+            ]
+            fulfilled_counts = [
+                sum(bool(value) for value in row.get("fulfilled", {}).values())
+                for row in rows
+                if isinstance(row.get("fulfilled"), dict)
+            ]
+            candidate_discovery_summary[key] = {
+                "cohorts": len(rows),
+                "fully_fulfilled_cohorts": sum(
+                    count == len(REPRESENTATION_TARGETS) for count in fulfilled_counts
+                ),
+                "fully_fulfilled_share": (
+                    round(
+                        sum(count == len(REPRESENTATION_TARGETS) for count in fulfilled_counts)
+                        / len(fulfilled_counts),
+                        4,
+                    )
+                    if fulfilled_counts
+                    else None
+                ),
+                "targets": REPRESENTATION_TARGETS,
+                "mean_represented_counts": {
+                    approach: round(
+                        fmean(
+                            float(counts.get(approach, 0))
+                            for row in rows
+                            if isinstance((counts := row.get("represented_counts")), dict)
+                        ),
+                        1,
+                    )
+                    if rows
+                    else 0
+                    for approach in VALUATION_APPROACH_IDS
+                },
+            }
+            continue
+        if key.startswith("review_set_vs_er_top"):
+            rows = [
+                candidate_discovery[key]
+                for cohort in cohorts
+                if isinstance((candidate_discovery := cohort.get("candidate_discovery")), dict)
+                and isinstance(candidate_discovery.get(key), dict)
+            ]
+            candidate_discovery_summary[key] = {
+                "cohorts": len(rows),
+                **{
+                    f"mean_{field}": (
+                        round(fmean(float(row[field]) for row in rows), 1) if rows else 0
+                    )
+                    for field in (
+                        "review_set_n",
+                        "pure_er_n",
+                        "overlap_n",
+                        "displaced_from_er_n",
+                    )
+                },
+                "mean_overlap_share": (
+                    round(
+                        fmean(
+                            float(row["overlap_n"]) / float(row["pure_er_n"])
+                            for row in rows
+                            if row.get("pure_er_n")
+                        ),
+                        4,
+                    )
+                    if any(row.get("pure_er_n") for row in rows)
+                    else None
+                ),
+            }
+            continue
         medians: list[float] = []
         means: list[float] = []
         traps: list[float] = []
         ns: list[int] = []
         for cohort in cohorts:
-            selection = cohort.get("selection")
-            if not isinstance(selection, dict):
+            candidate_discovery = cohort.get("candidate_discovery")
+            if not isinstance(candidate_discovery, dict):
                 continue
-            stats = selection.get(key)
+            stats = candidate_discovery.get(key)
             if not isinstance(stats, dict) or not stats.get("n"):
                 continue
             ns.append(int(stats["n"]))
@@ -1636,7 +1737,7 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
                 means.append(float(stats["mean_excess"]))
             if isinstance(stats.get("trap_rate"), int | float):
                 traps.append(float(stats["trap_rate"]))
-        selection_summary[key] = {
+        candidate_discovery_summary[key] = {
             "cohorts": len(ns),
             "mean_n": round(fmean(ns), 1) if ns else 0,
             "mean_median_excess": round(fmean(medians), 6) if medians else None,
@@ -1652,10 +1753,9 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
     return {
         "cohort_count": len(cohorts),
         "axes": axis_summary,
-        "selection": selection_summary,
+        "candidate_discovery": candidate_discovery_summary,
         "gates": _aggregate_gates(cohorts),
         "sector_median_basis": _aggregate_sector_median_basis(cohorts),
-        "evidence_pattern_thresholds": _aggregate_evidence_pattern_thresholds(cohorts),
         "shareholder_return_change": _aggregate_shareholder_return_change(cohorts),
         "margin_supply_demand_hypotheses": _aggregate_margin_hypotheses(cohorts),
         "profit_normalization_hypotheses": _aggregate_profit_normalization(cohorts),
@@ -1722,67 +1822,6 @@ def _aggregate_gates(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
             ),
         }
     return result
-
-
-def _aggregate_evidence_pattern_thresholds(
-    cohorts: Sequence[dict[str, object]],
-) -> dict[str, object]:
-    """Cross-cohort verdict per threshold: the effect and how often it holds.
-
-    A single as-of can favour any cut. What a threshold is worth is whether the same sign
-    survives the cohorts, so the share of cohorts where the admitted side led is reported
-    beside the mean effect rather than instead of it.
-
-    **A cohort only speaks about a threshold when the threshold removed enough names.**
-    The thresholds differ by two orders of magnitude in how many rows they turn away --
-    one takes a few hundred per cohort, another a couple -- and a median over two rows is
-    one company's year. Those cohorts are left out of the mean and counted separately, so
-    a threshold nobody can measure reports no effect instead of a loud one. The spread
-    across cohorts rides along for the same reason: cohorts overlap heavily at monthly
-    as-of dates, so a mean without its dispersion reads far more settled than it is.
-    """
-    deltas: dict[str, list[float]] = defaultdict(list)
-    thin_cohorts: dict[str, int] = defaultdict(int)
-    admitted_n: dict[str, int] = defaultdict(int)
-    removed_n: dict[str, int] = defaultdict(int)
-    for cohort in cohorts:
-        node = cohort.get("evidence_pattern_thresholds")
-        if not isinstance(node, dict):
-            continue
-        for block, entry in node.items():
-            if not isinstance(entry, dict):
-                continue
-            admitted = entry.get("admitted")
-            removed = entry.get("removed")
-            if isinstance(admitted, dict):
-                admitted_n[block] += int(admitted.get("n") or 0)
-            removed_count = int(removed.get("n") or 0) if isinstance(removed, dict) else 0
-            removed_n[block] += removed_count
-            delta = entry.get("median_excess_delta")
-            if not isinstance(delta, int | float):
-                continue
-            if removed_count < MIN_THRESHOLD_REMOVED_SAMPLE:
-                thin_cohorts[block] += 1
-                continue
-            deltas[block].append(float(delta))
-    return {
-        block: {
-            "cohorts": len(deltas[block]) + thin_cohorts[block],
-            "eligible_cohorts": len(deltas[block]),
-            "admitted_n": admitted_n[block],
-            "removed_n": removed_n[block],
-            "mean_median_excess_delta": (round(fmean(deltas[block]), 6) if deltas[block] else None),
-            "stdev_median_excess_delta": (
-                round(stdev(deltas[block]), 6) if len(deltas[block]) > 1 else None
-            ),
-            "positive_share": (
-                round(sum(1 for value in deltas[block] if value > 0) / len(deltas[block]), 4)
-                if deltas[block]
-                else None
-            ),
-        }
-        for block in sorted(set(deltas) | set(thin_cohorts))
-    }
 
 
 def _aggregate_sector_median_basis(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:

@@ -100,8 +100,8 @@ describe('view routing', () => {
     ],
     ['/api/securities/7203', 'views/security--7203.json'],
     [
-      '/api/assessments/bargain-assessment-20260728-example',
-      'views/assessment--bargain-assessment-20260728-example.json',
+      '/api/capital-allocation-assessments/capital-allocation-assessment-20260728-example',
+      'views/capital-allocation-assessment--capital-allocation-assessment-20260728-example.json',
     ],
   ])('maps %s to the fixed key %s', async (path, expectedKey) => {
     const get = vi.fn().mockResolvedValue(objectBody())
@@ -129,8 +129,8 @@ describe('view routing', () => {
     '/api/screening/history/not-a-date',
     '/api/macro/context/bad!id',
     '/api/macro/context/nested/id',
-    '/api/assessments/bad!id',
-    '/api/assessments/nested/id',
+    '/api/capital-allocation-assessments/bad!id',
+    '/api/capital-allocation-assessments/nested/id',
     '/api/unknown',
     '/api',
   ])('does not let request input escape the view-key whitelist: %s', async (path) => {

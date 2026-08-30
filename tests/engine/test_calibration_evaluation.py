@@ -64,8 +64,8 @@ def _panel_row(ticker: str, *, rank: int | None = None, **overrides: object) -> 
     if rank is not None:
         # This file's cohort is one where every ranked name also passed, which is what
         # its evaluation cases are about; the panel does not require that in general.
-        overrides["selection_rank"] = rank
-        overrides.setdefault("pass_screen", True)
+        overrides["review_position"] = rank
+        overrides.setdefault("in_review_set", True)
     liquid: dict[str, object] = {
         "market_cap_oku": 500.0,
         "avg_turnover_oku": 5.0,
@@ -209,114 +209,6 @@ class DeteriorationGateTest(unittest.TestCase):
         self.assertEqual(entry["blocked_n"], 5)
 
 
-class EvidencePatternThresholdTest(unittest.TestCase):
-    """A threshold is judged against the names it alone turned away."""
-
-    def _cohort(self) -> dict[str, object]:
-        panel = []
-        forwards = []
-        for index in range(120):
-            taken = _panel_row(
-                f"{4000 + index}",
-                per_trailing=10.0,
-                evidence_patterns="cash-rich-asset-discount",
-                pass_screen=True,
-            )
-            turned_away = _panel_row(
-                f"{5000 + index}",
-                per_trailing=10.0,
-                threshold_blocks="cash-rich-asset-discount:equity_ratio_min",
-            )
-            panel.extend((taken, turned_away))
-            # The rows the floor removed did better, which is the shape that says a
-            # threshold costs return rather than saving it.
-            forwards.append(_forward_row(taken.ticker, 0.05))
-            forwards.append(_forward_row(turned_away.ticker, 0.25))
-        return evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])[
-            "6m"
-        ]
-
-    def test_the_cohort_reports_both_sides_of_the_cut(self) -> None:
-        cohort = self._cohort()["cohorts"][0]
-        assert isinstance(cohort, dict)
-        node = cohort["evidence_pattern_thresholds"]
-        assert isinstance(node, dict)
-        entry = node["cash-rich-asset-discount:equity_ratio_min"]
-        assert isinstance(entry, dict)
-        admitted = entry["admitted"]
-        removed = entry["removed"]
-        assert isinstance(admitted, dict)
-        assert isinstance(removed, dict)
-        self.assertEqual(admitted["n"], 120)
-        self.assertEqual(removed["n"], 120)
-        # Admitted minus removed: negative means the floor gave up return.
-        assert isinstance(entry["median_excess_delta"], float)
-        self.assertLess(entry["median_excess_delta"], 0.0)
-
-    def test_the_aggregate_reports_how_often_the_cut_held(self) -> None:
-        aggregate = self._cohort()["aggregate"]
-        assert isinstance(aggregate, dict)
-        node = aggregate["evidence_pattern_thresholds"]
-        assert isinstance(node, dict)
-        entry = node["cash-rich-asset-discount:equity_ratio_min"]
-        assert isinstance(entry, dict)
-        self.assertEqual(entry["cohorts"], 1)
-        self.assertEqual(entry["eligible_cohorts"], 1)
-        self.assertEqual(entry["positive_share"], 0.0)
-        self.assertEqual(entry["admitted_n"], 120)
-        self.assertEqual(entry["removed_n"], 120)
-
-    def test_a_threshold_too_few_rows_speak_for_reports_no_effect(self) -> None:
-        """Thresholds differ by two orders of magnitude in how many rows they remove.
-
-        A median over a couple of rows is one company's year, and averaging it beside a
-        threshold that removed hundreds reads as the same kind of evidence. The thin
-        cohort is counted and left out of the mean instead.
-        """
-        panel = []
-        forwards = []
-        for index in range(120):
-            taken = _panel_row(
-                f"{4000 + index}",
-                per_trailing=10.0,
-                evidence_patterns="cash-rich-asset-discount",
-                pass_screen=True,
-            )
-            panel.append(taken)
-            forwards.append(_forward_row(taken.ticker, 0.05))
-        # Three rows: far below the floor, and all of them extreme.
-        for index in range(3):
-            turned_away = _panel_row(
-                f"{5000 + index}",
-                per_trailing=10.0,
-                threshold_blocks="cash-rich-asset-discount:equity_ratio_min",
-            )
-            panel.append(turned_away)
-            forwards.append(_forward_row(turned_away.ticker, 0.90))
-        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])[
-            "6m"
-        ]
-        cohort = result["cohorts"][0]
-        assert isinstance(cohort, dict)
-        node = cohort["evidence_pattern_thresholds"]
-        assert isinstance(node, dict)
-        # The cohort still records what it saw; the aggregate decides what it can average.
-        self.assertIn("cash-rich-asset-discount:equity_ratio_min", node)
-
-        aggregate = result["aggregate"]
-        assert isinstance(aggregate, dict)
-        entry = aggregate["evidence_pattern_thresholds"][
-            "cash-rich-asset-discount:equity_ratio_min"
-        ]
-        assert isinstance(entry, dict)
-        self.assertEqual(entry["cohorts"], 1)
-        self.assertEqual(entry["eligible_cohorts"], 0)
-        self.assertIsNone(entry["mean_median_excess_delta"])
-        self.assertIsNone(entry["positive_share"])
-        # The row count is still reported, so a reader sees why nothing was averaged.
-        self.assertEqual(entry["removed_n"], 3)
-
-
 class SectorMedianBasisThinSideTest(unittest.TestCase):
     """The market side is a fraction of the cohort, so it has to report without deciles.
 
@@ -341,7 +233,7 @@ class SectorMedianBasisThinSideTest(unittest.TestCase):
                 per_trailing=10.0,
                 smg_p_s=-index / 100,
                 smg_market_fallback="p_s",
-                pass_screen=True,
+                in_review_set=True,
             )
             panel.append(row)
             # The group sits well above the population and the axis orders it inside:
@@ -448,7 +340,7 @@ class SectorMedianBasisTest(unittest.TestCase):
                 per_trailing=10.0,
                 smg_p_s=-index / 100,
                 smg_market_fallback="p_s",
-                pass_screen=True,
+                in_review_set=True,
             )
             panel.extend((own, market))
             # own_sector: the cheapest end wins. market_fallback: it loses.
@@ -518,8 +410,8 @@ class EvaluateCohortsTest(unittest.TestCase):
         result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
         cohort = result["6m"]["cohorts"][0]
         assert isinstance(cohort, dict)
-        selection = cohort["selection"]
-        assert isinstance(selection, dict)
+        candidate_discovery = cohort["candidate_discovery"]
+        assert isinstance(candidate_discovery, dict)
 
         # An unresolved cohort emits none of these keys either, so the absences
         # below only mean something once the cohort has actually been computed.
@@ -528,7 +420,7 @@ class EvaluateCohortsTest(unittest.TestCase):
             self.assertNotIn(key, cohort)
             self.assertNotIn(key, result["6m"]["aggregate"])
         for key in ("reversion_ranked_top5", "reversion_carry_ranked_top5"):
-            self.assertNotIn(key, selection)
+            self.assertNotIn(key, candidate_discovery)
         self.assertNotIn("margin_deadline_gate_top10", cohort["metric_statuses"])
 
     def test_new_margin_axes_and_every_registered_control_are_reported(self) -> None:
@@ -692,10 +584,10 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         spread = per_axis["decile_spread_median"]
         assert isinstance(spread, float)
         self.assertGreater(spread, 0.0)
-        # selection replay: 上位 10 銘柄は安い側なので正の超過。
-        selection = cohorts[0]["selection"]
-        assert isinstance(selection, dict)
-        top10 = selection["selection_rank_top10"]
+        # candidate_discovery replay: 上位 10 銘柄は安い側なので正の超過。
+        candidate_discovery = cohorts[0]["candidate_discovery"]
+        assert isinstance(candidate_discovery, dict)
+        top10 = candidate_discovery["review_set_top10"]
         assert isinstance(top10, dict)
         self.assertEqual(top10["n"], 10)
         median_excess = top10["median_excess"]
@@ -810,8 +702,8 @@ class MarginSizeNormalizationTest(unittest.TestCase):
 
     def test_er_ranked_virtual_replay_orders_by_er_within_screen_passers(self) -> None:
         # screen 通過 20 銘柄に er_annual を 0.01..0.20 で与え、er と forward return を
-        # 逆相関にする → er_ranked_top5 は er 上位 = 低リターン側を選ぶので
-        # er_population_top5 と一致し、excess は選抜どおりの値になる。
+        # 逆相関にする → pure_er_top5 は er 上位 = 低リターン側を選ぶので
+        # pure_er_top5 と一致し、excess は選抜どおりの値になる。
         panel: list[PanelRow] = []
         forwards: list[ForwardReturnRow] = []
         n = 120
@@ -819,7 +711,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             ticker = f"{3000 + i}"
             row = _panel_row(ticker, per_trailing=10.0, rank=(i + 1 if i < 20 else None))
             # PanelRow は frozen なので必要 field を差し替えた新 instance を作る。
-            row = replace(row, er_annual=0.20 - 0.001 * i, pass_screen=i < 20)
+            row = replace(row, er_annual=0.20 - 0.001 * i, in_review_set=i < 20)
             panel.append(row)
             forwards.append(_forward_row(ticker, 0.001 * i))
         result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
@@ -827,19 +719,24 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         assert isinstance(horizon, dict)
         cohorts = horizon["cohorts"]
         assert isinstance(cohorts, list)
-        selection = cohorts[0]["selection"]
-        assert isinstance(selection, dict)
-        er_top5 = selection["er_ranked_top5"]
+        candidate_discovery = cohorts[0]["candidate_discovery"]
+        assert isinstance(candidate_discovery, dict)
+        er_top5 = candidate_discovery["pure_er_top5"]
         assert isinstance(er_top5, dict)
         # er 最上位 5 銘柄 = i=0..4 = return 最低群 → 負の excess
         self.assertEqual(er_top5["n"], 5)
         median_excess = er_top5["median_excess"]
         assert isinstance(median_excess, float)
         self.assertLess(median_excess, 0.0)
-        # er_population は pass_screen に依らないが、er 順は同じ i=0..4。
-        pop_top5 = selection["er_population_top5"]
+        # er_population は in_review_set に依らないが、er 順は同じ i=0..4。
+        pop_top5 = candidate_discovery["pure_er_top5"]
         assert isinstance(pop_top5, dict)
         self.assertEqual(pop_top5["median_excess"], er_top5["median_excess"])
+        aggregate = horizon["aggregate"]["candidate_discovery"]
+        self.assertEqual(aggregate["review_set_vs_er_top5"]["cohorts"], 1)
+        self.assertEqual(aggregate["review_set_vs_er_top5"]["mean_overlap_n"], 5.0)
+        self.assertEqual(aggregate["review_set_vs_er_top5"]["mean_overlap_share"], 1.0)
+        self.assertEqual(aggregate["representation"]["cohorts"], 1)
 
     def test_er_calibration_compares_centered_reversion_with_centered_price_return(self) -> None:
         panel: list[PanelRow] = []
@@ -985,8 +882,8 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             "scope": {
                 "run_purpose": "production_decision",
                 "required_metrics": [
-                    "selection_rank_top5",
-                    "selection_rank_top10",
+                    "review_set_top5",
+                    "review_set_top10",
                     "er_calibration",
                     "er_level_calibration",
                 ],
@@ -1064,10 +961,10 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         assert isinstance(first_integrity, dict)
         metric_statuses = first_integrity["metric_statuses"]
         assert isinstance(metric_statuses, dict)
-        metric_statuses["selection_rank_top5"] = "unresolved"
+        metric_statuses["review_set_top5"] = "unresolved"
         with self.assertRaises(CalibrationContextError):
             build_er_distribution_context(evaluation, {asof: panel}, {asof: forwards})
-        metric_statuses["selection_rank_top5"] = "eligible"
+        metric_statuses["review_set_top5"] = "eligible"
 
         evaluation["production_decision"] = {
             "evidence_status": "unresolved",
@@ -1202,10 +1099,10 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertNotIn("unknown required metrics", message)
 
     def test_the_full_rank_replay_metrics_stay_registered_for_authority(self) -> None:
-        # `selection_rank_top*` is emitted by every cohort, so leaving it out of the
+        # `review_set_top*` is emitted by every cohort, so leaving it out of the
         # registry would reject a preregistration that names an output it can see.
         self.assertLessEqual(
-            {"selection_rank_top5", "selection_rank_top10"},
+            {"review_set_top5", "review_set_top10"},
             KNOWN_METRICS,
         )
 
@@ -1607,8 +1504,8 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         self.assertEqual(sensitivity["excluded_count"], 2)
         self.assertFalse(sensitivity["direction_stable"])
         imputations = sensitivity["imputations"]
-        self.assertLess(imputations["total_loss"]["selection_rank_top5"], 0)
-        self.assertGreater(imputations["neutral"]["selection_rank_top5"], 0)
+        self.assertLess(imputations["total_loss"]["review_set_top5"], 0)
+        self.assertGreater(imputations["neutral"]["review_set_top5"], 0)
 
     def test_normalized_per_direction_flip_blocks_optional_authority(self) -> None:
         as_reported = {"normalized_per_3fy": 0.1}
@@ -1650,10 +1547,10 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         sensitivity = self._sensitivity(delisted_ranks=(3, 4, 5))
 
         self.assertEqual(sensitivity["excluded_count"], 3)
-        self.assertGreater(sensitivity["as_reported"]["selection_rank_top5"], 0)
+        self.assertGreater(sensitivity["as_reported"]["review_set_top5"], 0)
         imputations = sensitivity["imputations"]
-        self.assertLess(imputations["total_loss"]["selection_rank_top5"], 0)
-        self.assertEqual(imputations["neutral"]["selection_rank_top5"], 0.0)
+        self.assertLess(imputations["total_loss"]["review_set_top5"], 0)
+        self.assertEqual(imputations["neutral"]["review_set_top5"], 0.0)
         self.assertFalse(sensitivity["direction_stable"])
 
     def test_a_cohort_without_delistings_needs_no_imputation(self) -> None:
@@ -1695,8 +1592,8 @@ class PricedMasterWithoutUniverseSensitivityTests(unittest.TestCase):
         self.assertEqual(sensitivity["excluded_count"], 2)
         self.assertEqual(sensitivity["resolved_target_count"], 2)
         self.assertTrue(sensitivity["resolution_complete"])
-        self.assertEqual(sensitivity["as_reported"]["selection_rank_top5"], 0.0)
-        self.assertGreater(sensitivity["imputations"]["total_loss"]["selection_rank_top5"], 0)
+        self.assertEqual(sensitivity["as_reported"]["review_set_top5"], 0.0)
+        self.assertGreater(sensitivity["imputations"]["total_loss"]["review_set_top5"], 0)
         self.assertFalse(sensitivity["direction_stable"])
 
     def test_an_unresolved_target_direction_split_is_not_stable(self) -> None:
@@ -1741,8 +1638,8 @@ class PricedMasterWithoutUniverseSensitivityTests(unittest.TestCase):
         self.assertEqual(sensitivity["resolved_target_count"], 0)
         self.assertFalse(sensitivity["resolution_complete"])
         self.assertFalse(sensitivity["direction_stable"])
-        self.assertEqual(sensitivity["as_reported"]["selection_rank_top5"], 0.0)
-        self.assertGreater(sensitivity["imputations"]["total_loss"]["selection_rank_top5"], 0)
+        self.assertEqual(sensitivity["as_reported"]["review_set_top5"], 0.0)
+        self.assertGreater(sensitivity["imputations"]["total_loss"]["review_set_top5"], 0)
 
 
 def test_a_stratum_needs_five_names_on_each_side_before_it_is_matched() -> None:

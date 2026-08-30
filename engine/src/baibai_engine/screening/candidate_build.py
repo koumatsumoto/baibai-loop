@@ -1,4 +1,4 @@
-"""Shared ScreenedCandidate assembly for the screen run and the calibration replay.
+"""Shared SecurityAnalysis assembly for the screen run and calibration replay.
 
 candidates YAML (本番 run) と較正リプレイ (calibration) が同一の候補行を組み立てる
 ための単一実装。ここが分岐すると「リプレイで測った select 順」と「本番の select 順」が
@@ -15,30 +15,28 @@ from .earnings_lag import EarningsLag
 from .estimates import ExpectedReturnEstimate, estimate_expected_return
 from .schema import (
     DerivedMetrics,
-    EvidenceHit,
     FinancialSnapshot,
     FreshnessWarning,
-    ScreenedCandidate,
+    SecurityAnalysis,
     SecurityMaster,
     UniverseSnapshot,
 )
 
 
-def build_screened_candidate(
+def build_security_analysis(
     *,
     ticker: str,
     security: SecurityMaster,
     financial: FinancialSnapshot,
     derived: DerivedMetrics,
     universe_snapshot: UniverseSnapshot,
-    evidence_hits: tuple[EvidenceHit, ...],
     freshness_warnings: tuple[FreshnessWarning, ...] = (),
     next_earnings_date: date | None = None,
     earnings_lag: EarningsLag | None = None,
     normalized_per_3fy: float | None = None,
     capital_control: CapitalControlAnnotation | None = None,
-) -> ScreenedCandidate:
-    return ScreenedCandidate(
+) -> SecurityAnalysis:
+    return SecurityAnalysis(
         ticker=ticker,
         name=security.name,
         per_forward=financial.per_forward,
@@ -48,7 +46,6 @@ def build_screened_candidate(
         p_s=financial.p_s,
         pcfr=financial.pcfr,
         sector_33=security.sector_33,
-        evidence_hits=evidence_hits,
         ttm_quality={
             "ev_ebitda": financial.ttm_quality_ev_ebitda,
             "per_trailing": financial.ttm_quality_per_trailing,
@@ -100,6 +97,16 @@ def candidate_metrics_map(
     capital_control: CapitalControlAnnotation | None = None,
 ) -> Mapping[str, float | int | bool | str | None]:
     return {
+        # Approach-native relative valuation coordinates. These are L2 derived
+        # measurements; Review Set composition reads them directly.
+        "per_forward_sector_gap": derived.sector_median_gap.get("per_forward"),
+        "per_trailing_sector_gap": derived.sector_median_gap.get("per_trailing"),
+        "pbr_sector_gap": derived.sector_median_gap.get("pbr"),
+        "p_s_sector_gap": derived.sector_median_gap.get("p_s"),
+        "per_forward_sector_median_basis": derived.sector_median_basis.get("per_forward"),
+        "per_trailing_sector_median_basis": derived.sector_median_basis.get("per_trailing"),
+        "pbr_sector_median_basis": derived.sector_median_basis.get("pbr"),
+        "p_s_sector_median_basis": derived.sector_median_basis.get("p_s"),
         "sales_ttm": financial.sales_ttm,
         "ocf_ttm": financial.ocf_ttm,
         "edinet_ocf_ttm": financial.edinet_ocf_ttm,
@@ -160,7 +167,7 @@ def candidate_metrics_map(
             and financial.operating_profit_yoy is None
         ),
         "shares_outstanding": financial.shares_outstanding,
-        # D2 / D3 academic signals — surface in candidate metrics so the
+        # D2 / D3 academic signals — surface in Security Analysis so the
         # research layer can read them without a second cache fetch.
         "accruals_to_assets": financial.accruals_to_assets,
         "net_share_change_yoy": financial.net_share_change_yoy,

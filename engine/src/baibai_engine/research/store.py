@@ -13,12 +13,12 @@ from typing import cast
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.foundation.time import JST
-from baibai_engine.position.holding_review import (
-    HoldingReviewDocument,
-    evaluate_holding_review,
+from baibai_engine.position.position_review import (
+    PositionReviewDocument,
+    evaluate_position_review,
 )
-from baibai_engine.research.holding_review_builder import (
-    _validate_holding_review_scalars_in_transaction,
+from baibai_engine.research.position_review_builder import (
+    _validate_position_review_scalars_in_transaction,
 )
 from baibai_engine.research.thesis import (
     IndependentReview,
@@ -55,8 +55,8 @@ class ReviewPublication:
 
 
 @dataclass(frozen=True, slots=True)
-class HoldingReviewPublication:
-    holding_review_id: str
+class PositionReviewPublication:
+    position_review_id: str
     thesis_id: str
     payload: Mapping[str, object]
     candidate_thesis_id: str | None = None
@@ -158,31 +158,31 @@ class ResearchStoreService:
                 raise
         return review
 
-    def publish_holding_review(
+    def publish_position_review(
         self,
-        holding_review_id: str,
+        position_review_id: str,
         thesis_id: str,
         payload: Mapping[str, object],
         *,
         candidate_thesis_id: str | None = None,
-    ) -> HoldingReviewDocument:
+    ) -> PositionReviewDocument:
         """Recheck canonical DB revision bindings inside the write transaction."""
         operation_now = self._operation_now()
-        publication = HoldingReviewPublication(
-            holding_review_id, thesis_id, payload, candidate_thesis_id
+        publication = PositionReviewPublication(
+            position_review_id, thesis_id, payload, candidate_thesis_id
         )
         document = _validate_holding_document(payload)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
-                _validate_holding_review_scalars_in_transaction(
+                _validate_position_review_scalars_in_transaction(
                     document,
                     connection=connection,
                     now=operation_now,
                 )
                 _validate_canonical_holding_sources(connection, publication, document)
-                _insert_holding_review(connection, publication, document)
+                _insert_position_review(connection, publication, document)
                 connection.commit()
             except BaseException:
                 connection.rollback()
@@ -216,9 +216,9 @@ def _require_valid(result: ThesisResult) -> None:
         raise ResearchValidationError("; ".join(result.errors))
 
 
-def _validate_holding_document(payload: Mapping[str, object]) -> HoldingReviewDocument:
-    document = HoldingReviewDocument.model_validate(payload)
-    result = evaluate_holding_review(document)
+def _validate_holding_document(payload: Mapping[str, object]) -> PositionReviewDocument:
+    document = PositionReviewDocument.model_validate(payload)
+    result = evaluate_position_review(document)
     if result.errors:
         raise ResearchValidationError("; ".join(result.errors))
     return document
@@ -323,16 +323,16 @@ def _insert_review(
     return True
 
 
-def _insert_holding_review(
+def _insert_position_review(
     connection: sqlite3.Connection,
-    publication: HoldingReviewPublication,
-    document: HoldingReviewDocument,
+    publication: PositionReviewPublication,
+    document: PositionReviewDocument,
 ) -> bool:
     thesis = _thesis_row(connection, publication.thesis_id)
     if document.ticker != str(thesis["ticker"]):
-        raise ResearchConflictError("holding review ticker does not match thesis revision")
+        raise ResearchConflictError("Position Review ticker does not match thesis revision")
     if document.as_of < date.fromisoformat(str(thesis["as_of"])):
-        raise ResearchConflictError("holding review predates thesis revision")
+        raise ResearchConflictError("Position Review predates thesis revision")
     candidate_source = document.sources.candidate_thesis
     if (candidate_source is None) != (publication.candidate_thesis_id is None):
         raise ResearchConflictError(
@@ -343,7 +343,7 @@ def _insert_holding_review(
         candidate = document.replacement_comparison.candidate
         if candidate is None or candidate.ticker != str(candidate_thesis["ticker"]):
             raise ResearchConflictError(
-                "holding review candidate ticker does not match candidate thesis revision"
+                "Position Review candidate ticker does not match candidate thesis revision"
             )
     payload = canonical_json(publication.payload)
     expected = (
@@ -356,32 +356,32 @@ def _insert_holding_review(
     existing = connection.execute(
         """
         SELECT ticker, as_of, thesis_id, candidate_thesis_id, payload
-        FROM holding_review WHERE holding_review_id = ?
+        FROM position_review WHERE position_review_id = ?
         """,
-        (publication.holding_review_id,),
+        (publication.position_review_id,),
     ).fetchone()
     if existing is not None:
         if tuple(existing) == expected:
             return False
         raise ResearchConflictError(
-            "holding review differs from existing immutable publication: "
-            f"{publication.holding_review_id}"
+            "Position Review differs from existing immutable publication: "
+            f"{publication.position_review_id}"
         )
     connection.execute(
         """
-        INSERT INTO holding_review (
-            holding_review_id, ticker, as_of, thesis_id, candidate_thesis_id, payload
+        INSERT INTO position_review (
+            position_review_id, ticker, as_of, thesis_id, candidate_thesis_id, payload
         ) VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (publication.holding_review_id, *expected),
+        (publication.position_review_id, *expected),
     )
     return True
 
 
 def _validate_canonical_holding_sources(
     connection: sqlite3.Connection,
-    publication: HoldingReviewPublication,
-    document: HoldingReviewDocument,
+    publication: PositionReviewPublication,
+    document: PositionReviewDocument,
 ) -> None:
     ledger_source = document.sources.ledger
     thesis_source = document.sources.holding_thesis
@@ -390,9 +390,9 @@ def _validate_canonical_holding_sources(
         connection.execute("SELECT coalesce(max(append_seq), 0) FROM ledger_event").fetchone()[0]
     )
     if ledger_source.entity_id != "portfolio-ledger" or ledger_source.append_head != current_head:
-        raise ResearchConflictError("holding review ledger revision changed")
+        raise ResearchConflictError("Position Review ledger revision changed")
     if thesis_source.entity_id != publication.thesis_id:
-        raise ResearchConflictError("holding review thesis revision binding differs")
+        raise ResearchConflictError("Position Review thesis revision binding differs")
     if candidate_source is None:
         if publication.candidate_thesis_id is not None:
             raise ResearchConflictError("candidate thesis revision binding is missing")
@@ -401,7 +401,7 @@ def _validate_canonical_holding_sources(
 
 
 __all__ = [
-    "HoldingReviewPublication",
+    "PositionReviewPublication",
     "ResearchConflictError",
     "ResearchStoreService",
     "ResearchValidationError",

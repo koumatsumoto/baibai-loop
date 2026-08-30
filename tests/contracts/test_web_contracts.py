@@ -34,7 +34,7 @@ def test_web_route_inventory_is_present_at_both_serving_boundaries() -> None:
     route_templates = [*computed, *routes, *patterns]
     local_routes = {
         route
-        for route in re.findall(r'@app\.get\("([^"?]+)', local_source)
+        for route in re.findall(r'@app\.get\(\s*"([^"?]+)', local_source)
         if route.startswith("/api/")
     }
     expected_local_routes = {template.split("?", maxsplit=1)[0] for template in route_templates}
@@ -114,10 +114,10 @@ def test_dynamic_routes_map_to_exact_edge_keys_and_materializer_outputs() -> Non
             "`macro-context--${contextId}.json`",
             'f"macro-context--{context_id}.json"',
         ),
-        "/api/assessments/{assessment_id}": (
+        "/api/capital-allocation-assessments/{capital_allocation_assessment_id}": (
             "resolveAssessment",
-            "`assessment--${assessmentId}.json`",
-            'f"assessment--{assessment_id}.json"',
+            "`capital-allocation-assessment--${assessmentId}.json`",
+            'f"capital-allocation-assessment--{assessment_id}.json"',
         ),
         "/api/securities/{ticker}": (
             "resolveSecurity",
@@ -134,7 +134,7 @@ def test_dynamic_routes_map_to_exact_edge_keys_and_materializer_outputs() -> Non
     expected_contract_keys = {
         "/api/screening/history/{as_of}": "history/candidate-views/{as_of}.json",
         "/api/macro/context/{context_id}": "views/macro-context--{context_id}.json",
-        "/api/assessments/{assessment_id}": "views/assessment--{assessment_id}.json",
+        "/api/capital-allocation-assessments/{capital_allocation_assessment_id}": "views/capital-allocation-assessment--{capital_allocation_assessment_id}.json",
         "/api/securities/{ticker}": "views/security--{ticker}.json",
         "/api/macro?period={period}&granularity={granularity}": (
             "views/macro--{period}-{granularity}.json"
@@ -170,7 +170,11 @@ def test_every_frontend_api_route_is_in_the_contract_inventory() -> None:
     normalized = {
         route.replace("${value}", "{as_of}")
         .replace("${encodeURIComponent(contextId)}", "{context_id}")
-        .replace("${encodeURIComponent(assessmentId)}", "{assessment_id}")
+        .replace("${encodeURIComponent(assessmentId)}", "{capital_allocation_assessment_id}")
+        .replace(
+            "${encodeURIComponent(capitalAllocationAssessmentId)}",
+            "{capital_allocation_assessment_id}",
+        )
         .replace("${encodeURIComponent(ticker)}", "{ticker}")
         .replace("${query}", "period={period}&granularity={granularity}")
         for route in frontend_routes

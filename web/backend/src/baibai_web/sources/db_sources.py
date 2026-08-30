@@ -13,16 +13,16 @@ from baibai_engine.read_api import (
     MacroGranularity,
     PortfolioSnapshot,
     application_db_updated_at,
-    bargain_assessment_payload,
+    capital_allocation_assessment_payload,
     close_change_since,
     latest_disclosure_dates_after,
-    latest_shortlist_payload,
+    latest_research_triage_payload,
     latest_unadjusted_closes,
-    list_bargain_assessment_payloads,
-    list_holding_review_publications,
+    list_capital_allocation_assessment_payloads,
     list_macro_context_payloads,
     list_operation_sessions,
     list_portfolio_outcome_payloads,
+    list_position_review_publications,
     list_task_payloads,
     list_thesis_publications,
     list_thesis_review_publications,
@@ -37,17 +37,17 @@ from baibai_engine.read_api import (
     reconcile_portfolio,
     safe_load,
     screening_latest_asof,
+    screening_review_set_payloads,
     screening_run_asof_dates,
     screening_run_payload,
-    screening_selection_payloads,
     task_store_exists,
     thesis_publication,
 )
 from baibai_web.sources.types import (
     CandidatesRun,
-    HoldingReviewSummary,
     MacroGroupConfig,
     MacroSeriesConfig,
+    PositionReviewSummary,
     ResearchRevision,
     ScenarioSummary,
     TaskRecord,
@@ -159,13 +159,13 @@ class DbResearchSource:
             sizing_action=_optional_text(judgment.get("sizing_action")),
         )
 
-    def holding_reviews(self, *, ticker: str | None = None) -> list[HoldingReviewSummary]:
-        result: list[HoldingReviewSummary] = []
-        for publication in list_holding_review_publications(self._path, ticker=ticker):
-            payload = _mapping(publication["payload"], label="holding review")
+    def position_reviews(self, *, ticker: str | None = None) -> list[PositionReviewSummary]:
+        result: list[PositionReviewSummary] = []
+        for publication in list_position_review_publications(self._path, ticker=ticker):
+            payload = _mapping(publication["payload"], label="Position Review")
             result.append(
-                HoldingReviewSummary(
-                    holding_review_id=str(publication["holding_review_id"]),
+                PositionReviewSummary(
+                    position_review_id=str(publication["position_review_id"]),
                     ticker=str(publication["ticker"]),
                     as_of=date.fromisoformat(str(publication["as_of"])),
                     thesis_id=str(publication["thesis_id"]),
@@ -395,29 +395,29 @@ class DbCandidatesSource:
         raw = screening_run_payload(self._runs_path, as_of_date=as_of)
         return None if raw is None else self._parse_run(raw)
 
-    def selections(self, *, run_revision_id: str | None = None) -> list[dict[str, object]]:
-        return screening_selection_payloads(
+    def review_sets(self, *, run_revision_id: str | None = None) -> list[dict[str, object]]:
+        return screening_review_set_payloads(
             self._runs_path,
             run_revision_id=run_revision_id,
         )
 
-    def shortlists(self) -> list[dict[str, object]]:
-        latest = latest_shortlist_payload(self._app_path)
+    def research_triages(self) -> list[dict[str, object]]:
+        latest = latest_research_triage_payload(self._app_path)
         return [] if latest is None else [latest]
 
     def assessments(self) -> list[dict[str, object]]:
-        return list_bargain_assessment_payloads(self._app_path)
+        return list_capital_allocation_assessment_payloads(self._app_path)
 
-    def assessment(self, assessment_id: str) -> dict[str, object] | None:
-        return bargain_assessment_payload(self._app_path, assessment_id=assessment_id)
+    def assessment(self, capital_allocation_assessment_id: str) -> dict[str, object] | None:
+        return capital_allocation_assessment_payload(
+            self._app_path, capital_allocation_assessment_id=capital_allocation_assessment_id
+        )
 
     @staticmethod
     def _parse_run(raw: dict[str, object]) -> CandidatesRun:
-        candidates = raw["candidates"]
-        if not isinstance(candidates, list) or not all(
-            isinstance(item, dict) for item in candidates
-        ):
-            raise ValueError("screening candidates must be an array of objects")
+        analyses = raw["security_analyses"]
+        if not isinstance(analyses, list) or not all(isinstance(item, dict) for item in analyses):
+            raise ValueError("screening security analyses must be an array of objects")
         return CandidatesRun(
             run_id=str(raw["public_run_id"]),
             run_date=date.fromisoformat(str(raw["run_date"])),
@@ -434,7 +434,7 @@ class DbCandidatesSource:
             er_model_version=(
                 None if raw.get("er_model_version") is None else str(raw["er_model_version"])
             ),
-            rows=tuple(candidates),
+            rows=tuple(analyses),
         )
 
 

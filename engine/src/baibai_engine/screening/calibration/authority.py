@@ -9,8 +9,8 @@ from .horizons import HORIZONS
 RunPurpose = str
 EvidenceStatus = str
 PRODUCTION_REQUIRED_METRICS = (
-    "selection_rank_top5",
-    "selection_rank_top10",
+    "review_set_top5",
+    "review_set_top10",
     "er_calibration",
 )
 KNOWN_METRICS = frozenset(

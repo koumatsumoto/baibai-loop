@@ -682,10 +682,6 @@ publish_serving_tail() {
     aws_s3 sync "${output_dir}/history/candidate-views/" \
       "s3://${serving_bucket}/history/candidate-views/"
   fi
-  if [[ -d "${output_dir}/history/ranked_sets" ]]; then
-    aws_s3 sync "${output_dir}/history/ranked_sets/" \
-      "s3://${serving_bucket}/history/ranked_sets/"
-  fi
   # Freshness is published only after every view and history upload succeeds.
   aws_s3 cp "${output_dir}/views/meta.json" "s3://${serving_bucket}/views/meta.json"
   printf 'serving tail: objects=%s elapsed=%ss\n' "$((objects + 1))" "$((SECONDS - started))"
@@ -705,18 +701,8 @@ pull_app() {
   pull_keys baibai.sqlite
 }
 
-pull_ranked_set_history() {
-  local output_dir="$1"
-  if [[ -e "${output_dir}" ]]; then
-    printf 'refusing ranked-set history download overwrite: %s\n' "${output_dir}" >&2
-    return 2
-  fi
-  mkdir -p "${output_dir}"
-  aws_s3 sync "s3://${serving_bucket}/history/ranked_sets/" "${output_dir}/"
-}
-
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-ranked-set-history DIR|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -745,10 +731,6 @@ case "${1:-}" in
     ;;
   pull-runs)
     pull_keys runs.sqlite
-    ;;
-  pull-ranked-set-history)
-    [[ $# -eq 2 ]] || { usage; exit 2; }
-    pull_ranked_set_history "$2"
     ;;
   seed-all)
     seed_keys market.sqlite runs.sqlite macro.sqlite baibai.sqlite

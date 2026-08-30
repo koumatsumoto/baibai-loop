@@ -21,19 +21,16 @@ import pytest
 import yaml
 from tests.helpers.fixed_now import FIXED_NOW
 from tests.helpers.macro_context import macro_context_payload
-from tests.helpers.shortlist import (
-    narrative,
-    rejected_entry,
-    selected_entry,
-    shortlist_payload,
-)
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.macro.indicators.cli import main as macro_main
-from baibai_engine.research.assessment import BargainAssessment, assessment_draft_sha256
+from baibai_engine.research.capital_allocation import (
+    CapitalAllocationAssessment,
+    capital_allocation_draft_sha256,
+)
 from baibai_engine.research.opportunity_cli import main as opportunity_main
-from baibai_engine.screening.shortlist import SelectionBinding, Shortlist, ShortlistService
+from baibai_engine.screening.research_triage import ResearchTriage, ResearchTriageService
 
 ROOT = Path(__file__).resolve().parents[2]
 THESIS_FIXTURE = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
@@ -41,8 +38,8 @@ REVIEW_FIXTURE = ROOT / "tests/fixtures/thesis/2331-decision-review.yaml"
 
 # The thesis the `app_method_root` fixture publishes into the seeded application DB.
 SEEDED_THESIS_ID = "thesis-20260714-2331-r1"
-SHORTLIST_ID = "shortlist-20260721-cli-seam"
-ASSESSMENT_ID = "bargain-assessment-20260722-cli-seam"
+RESEARCH_TRIAGE_ID = "research_triage-20260721-cli-seam"
+ASSESSMENT_ID = "capital-allocation-assessment-20260722-cli-seam"
 ASSESSMENT_ASOF = "2026-07-22"
 PUBLISHED_AT = datetime(2026, 7, 22, 15, 0, tzinfo=JST)
 RESEARCH_QUESTION = "受注残を確認"
@@ -57,57 +54,74 @@ def _app_db(app_method_root: Path) -> Path:
     return app_method_root / "stores/application/baibai.sqlite"
 
 
-def _publish_shortlist(db_path: Path) -> str:
+def _publish_research_triage(db_path: Path) -> str:
     """Seed the selected case an assessment round is scaffolded and published against."""
-    shortlist = Shortlist.model_validate(
-        shortlist_payload(
-            shortlist_id=SHORTLIST_ID,
-            selection_id="selection-cli-seam",
-            run_revision_id="runrev-cli-seam",
-            as_of="2026-07-21",
-            published_at="2026-07-21T15:00:00+09:00",
-            macro_context_id="macro-context-2026-07-21-cli-seam",
-            entries=[
-                selected_entry("2331", narrative=narrative(research=RESEARCH_QUESTION)),
-                rejected_entry("0001"),
+    research_triage = ResearchTriage.model_validate(
+        {
+            "schema_version": 1,
+            "kind": "research_triage",
+            "research_triage_id": RESEARCH_TRIAGE_ID,
+            "review_set_id": "review-set-cli-seam",
+            "run_revision_id": "runrev-cli-seam",
+            "as_of": "2026-07-21",
+            "published_at": "2026-07-21T15:00:00+09:00",
+            "macro_context_id": "macro-context-2026-07-21-cli-seam",
+            "review_basis_research_triage_id": None,
+            "triage_contract_id": "research-triage-v1",
+            "entries": [
+                {
+                    "ticker": "2331",
+                    "decision": "research",
+                    "priority": 1,
+                    "rationale": "deep research",
+                    "research_question": RESEARCH_QUESTION,
+                    "key_risk": "demand",
+                },
+                {
+                    "ticker": "0001",
+                    "decision": "skip",
+                    "priority": None,
+                    "rationale": "insufficient evidence",
+                    "research_question": None,
+                    "key_risk": None,
+                },
             ],
-        )
+        }
     )
-    ShortlistService(db_path).publish(
-        shortlist,
-        selection=SelectionBinding(
-            selection_id=shortlist.selection_id,
-            run_revision_id=shortlist.run_revision_id,
-            as_of=shortlist.as_of,
-            macro_context_id=shortlist.macro_context_id,
-            ranked_tickers=("2331", "0001"),
-            candidate_er={"2331": 0.12, "0001": 0.04},
-            candidate_machine_rows={
-                ticker: {
+    ResearchTriageService(db_path).publish(
+        research_triage,
+        review_set={
+            "review_set_id": research_triage.review_set_id,
+            "run_revision_id": research_triage.run_revision_id,
+            "as_of": research_triage.as_of.isoformat(),
+            "review_basis": {"judged_through_research_triage_id": None},
+            "entries": [
+                {
                     "ticker": ticker,
-                    "rank": rank,
-                    "er_annual": value,
-                    "primary_evidence_pattern_id": None,
+                    "review_position": position,
+                    "nominations": [{"valuation_approach_id": "current-earnings-power"}],
+                    "support_count": 1,
+                    "analysis": {"expected_return": {"er_annual": er}, "data_quality": {}},
                 }
-                for rank, (ticker, value) in enumerate((("2331", 0.12), ("0001", 0.04)), start=1)
-            },
-        ),
+                for position, (ticker, er) in enumerate((("2331", 0.12), ("0001", 0.04)), start=1)
+            ],
+        },
     )
-    return SHORTLIST_ID
+    return RESEARCH_TRIAGE_ID
 
 
-def _scaffold_assessment_draft(db_path: Path, out: Path, shortlist_id: str) -> int:
+def _scaffold_capital_allocation_draft(db_path: Path, out: Path, research_triage_id: str) -> int:
     return opportunity_main(
         [
-            "assessment-scaffold",
+            "capital-allocation-scaffold",
             "--db",
             str(db_path),
-            "--assessment-id",
+            "--capital-allocation-assessment-id",
             ASSESSMENT_ID,
             "--asof",
             ASSESSMENT_ASOF,
-            "--shortlist-id",
-            shortlist_id,
+            "--research-triage-id",
+            research_triage_id,
             "--thesis-id",
             SEEDED_THESIS_ID,
             "--out",
@@ -125,24 +139,12 @@ def _fill_judgment(draft: dict[str, Any]) -> dict[str, Any]:
     draft["headline"] = "現時点で買うに値する候補はない"
     draft["comparison"] = "唯一の深掘り候補が要求利回りを満たさなかった"
     draft["forgone"] = "2331 は決算後に再評価する"
-    case = draft["cases"][0]
-    case["disposition"] = "reject"
-    case["disposition_reason"] = "5年期待値が要求利回りに届かない"
-    for field in (
-        "business_model",
-        "value_capture",
-        "growth_quality",
-        "financial_resilience",
-        "strongest_countercase",
-        "catalyst",
-    ):
-        case[field] = f"{field} の判断"
-    for question in case["research_questions"]:
-        question["answer"] = "翌期の受注残は横ばい"
-        question["status"] = "answered"
+    alternative = draft["alternatives"][0]
+    alternative["disposition"] = "decline"
+    alternative["rationale"] = "5年期待値が要求利回りに届かない"
     draft["review"]["reviewer_identity"] = "independent-reviewer"
-    draft["review"]["draft_sha256"] = assessment_draft_sha256(
-        BargainAssessment.model_validate(draft)
+    draft["review"]["draft_sha256"] = capital_allocation_draft_sha256(
+        CapitalAllocationAssessment.model_validate(draft, strict=False)
     )
     return draft
 
@@ -180,63 +182,69 @@ def test_research_evaluate_routes_argv_to_the_decision_gate(
 
 
 # --------------------------------------------------------------------------- #
-# research assessment-scaffold
+# research capital-allocation-scaffold
 # --------------------------------------------------------------------------- #
 
 
 def test_assessment_scaffold_writes_a_draft_from_argv(
     app_method_root: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """`assessment-scaffold` must turn its flags into a draft file on disk.
+    """`capital-allocation-scaffold` must turn its flags into a draft file on disk.
 
     `--asof` is a string on the command line and a `date` in the call, and
     `--thesis-id` is a repeatable flag that has to arrive as a list; both only
     meet the scaffold through this command.
     """
     db_path = _app_db(app_method_root)
-    shortlist_id = _publish_shortlist(db_path)
+    research_triage_id = _publish_research_triage(db_path)
     out = app_method_root / "assessment-draft.yaml"
 
-    assert _scaffold_assessment_draft(db_path, out, shortlist_id) == 0
+    assert _scaffold_capital_allocation_draft(db_path, out, research_triage_id) == 0
 
     draft = safe_load(out.read_text(encoding="utf-8"))
-    assert draft["assessment_id"] == ASSESSMENT_ID
+    assert draft["capital_allocation_assessment_id"] == ASSESSMENT_ID
     assert draft["as_of"] == ASSESSMENT_ASOF
     assert draft["published_at"] == PUBLISHED_AT.isoformat()
-    assert draft["shortlist_id"] == shortlist_id
-    assert [case["ticker"] for case in draft["cases"]] == ["2331"]
-    assert draft["cases"][0]["research_questions"][0]["question"] == RESEARCH_QUESTION
-    assert yaml.safe_load(capsys.readouterr().out)["assessment_id"] == ASSESSMENT_ID
+    assert draft["research_triage_id"] == research_triage_id
+    assert [alternative["ticker"] for alternative in draft["alternatives"]] == ["2331"]
+    assert "research_questions" not in draft["alternatives"][0]
+    assert (
+        yaml.safe_load(capsys.readouterr().out)["capital_allocation_assessment_id"] == ASSESSMENT_ID
+    )
 
 
 # --------------------------------------------------------------------------- #
-# research assessment-publish
+# research capital-allocation-publish
 # --------------------------------------------------------------------------- #
 
 
 def test_assessment_publish_stores_the_round_from_argv(
     app_method_root: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """`assessment-publish <draft>` must land the round in the application DB.
+    """`capital-allocation-publish <draft>` must land the round in the application DB.
 
     The draft reaches the store as a positional path, so the command owns reading
     the file, validating it against the contract, and writing the row.
     """
     db_path = _app_db(app_method_root)
-    shortlist_id = _publish_shortlist(db_path)
+    research_triage_id = _publish_research_triage(db_path)
     draft_path = app_method_root / "assessment-draft.yaml"
-    assert _scaffold_assessment_draft(db_path, draft_path, shortlist_id) == 0
+    assert _scaffold_capital_allocation_draft(db_path, draft_path, research_triage_id) == 0
     capsys.readouterr()
     _write_yaml(draft_path, _fill_judgment(safe_load(draft_path.read_text(encoding="utf-8"))))
 
-    assert opportunity_main(["assessment-publish", str(draft_path), "--db", str(db_path)]) == 0
+    assert (
+        opportunity_main(["capital-allocation-publish", str(draft_path), "--db", str(db_path)]) == 0
+    )
 
-    assert yaml.safe_load(capsys.readouterr().out)["assessment_id"] == ASSESSMENT_ID
+    assert (
+        yaml.safe_load(capsys.readouterr().out)["capital_allocation_assessment_id"] == ASSESSMENT_ID
+    )
     with sqlite3.connect(db_path) as connection:
         rows = connection.execute(
-            "SELECT assessment_id, result, shortlist_id FROM bargain_assessment"
+            "SELECT capital_allocation_assessment_id, result, research_triage_id FROM capital_allocation_assessment"
         ).fetchall()
-    assert rows == [(ASSESSMENT_ID, "no_actionable_bargain", shortlist_id)]
+    assert rows == [(ASSESSMENT_ID, "no_allocation", research_triage_id)]
 
 
 # --------------------------------------------------------------------------- #

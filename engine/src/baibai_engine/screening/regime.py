@@ -4,7 +4,7 @@ Classifies the market state from price facts only (benchmark trend) as a
 fact-layer artifact: `market-snapshot` の週次履歴、`ticker-profile` の事実
 thesis、`select` diagnostics の市場状態 fact として出力し、macro context
 作成の機械入力になる。thresholds are fixed up front and never fitted to past
-data; the label annotates facts and never gates or re-ranks selection
+data; the label annotates facts and never gates or re-ranks the Review Set
 (期間ではなく valuation と耐性で判断するため、docs/reference/screening-runtime.md)。
 
 The classification is trend-only by design: breadth や他の内部指標は label を

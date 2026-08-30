@@ -16,7 +16,7 @@
   "patterns": {
     "/api/screening/history/{as_of}": "history/candidate-views/{as_of}.json",
     "/api/macro/context/{context_id}": "views/macro-context--{context_id}.json",
-    "/api/assessments/{assessment_id}": "views/assessment--{assessment_id}.json",
+    "/api/capital-allocation-assessments/{capital_allocation_assessment_id}": "views/capital-allocation-assessment--{capital_allocation_assessment_id}.json",
     "/api/securities/{ticker}": "views/security--{ticker}.json",
     "/api/macro?period={period}&granularity={granularity}": "views/macro--{period}-{granularity}.json"
   }
