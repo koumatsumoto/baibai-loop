@@ -6,7 +6,7 @@ from pathlib import Path
 import yaml
 
 from baibai_engine.read_api import list_research_triage_payloads
-from baibai_engine.research.opportunity import _screening_estimate_from_review_set_output
+from baibai_engine.research.workspace import _screening_estimate_from_review_set_output
 from baibai_engine.screening.cli import main as screening_main
 from baibai_engine.screening.research_triage import ResearchTriageMachineSnapshot
 from baibai_engine.screening.rule_config import load_screening_rules
@@ -14,7 +14,7 @@ from baibai_engine.screening.rules_identity import production_rules_contract_has
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
 
 ROOT = Path(__file__).resolve().parents[2]
-RULES_PATH = ROOT / "method/screening/rules/2026-07-06T000000+0900.yaml"
+RULES_PATH = ROOT / "method/screening/rules/2026-08-30T215359+0900.yaml"
 
 
 def _analysis(ticker: str) -> dict[str, object]:
@@ -92,8 +92,6 @@ def test_review_set_publish_cli_persists_the_exact_output(tmp_path: Path) -> Non
                 str(runs_db),
                 "--rules-path",
                 str(RULES_PATH),
-                "--review-cap",
-                "20",
                 "--output-path",
                 str(output),
             ]
@@ -123,8 +121,6 @@ def test_research_triage_publish_cli_binds_every_review_set_entry(tmp_path: Path
                 str(runs_db),
                 "--rules-path",
                 str(RULES_PATH),
-                "--review-cap",
-                "20",
                 "--output-path",
                 str(output),
             ]
@@ -198,8 +194,6 @@ def test_research_triage_scaffold_carries_machine_coordinates_and_fails_closed(
                 str(runs_db),
                 "--rules-path",
                 str(RULES_PATH),
-                "--review-cap",
-                "20",
                 "--output-path",
                 str(review_set_output),
             ]
@@ -267,8 +261,6 @@ def test_thesis_scaffold_screening_estimate_names_its_local_source(tmp_path: Pat
                 str(runs_db),
                 "--rules-path",
                 str(RULES_PATH),
-                "--review-cap",
-                "20",
                 "--output-path",
                 str(review_set_output),
             ]

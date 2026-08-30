@@ -65,7 +65,7 @@ DOMAINS: Mapping[str, Domain] = {
         summary="portfolio ledger, Position Reviews, and the drafts that record their results",
     ),
     "research": Domain(
-        module="baibai_engine.research.opportunity_cli",
+        module="baibai_engine.research.workspace_cli",
         summary=(
             "research workspaces: thesis, independent review, promotion, "
             "Capital Allocation Assessment"

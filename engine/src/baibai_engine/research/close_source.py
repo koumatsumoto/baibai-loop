@@ -1,6 +1,6 @@
 """Read the previous business-day raw close directly from the L1 SQLite store.
 
-Opportunity authoring lives in ``thesis``, which the import DAG keeps off the
+Research authoring lives in ``thesis``, which the import DAG keeps off the
 ``baibai_engine.market`` package. The market SQLite schema is a stable platform
 contract (architecture 安定契約 contract 2: full-universe ``jquants_daily_bars``,
 version-managed, AI may issue read-only SQL directly), so this reader opens the

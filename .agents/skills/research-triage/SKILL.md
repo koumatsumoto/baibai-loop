@@ -29,7 +29,7 @@ description: screening runからReview Setを発行し、全entryをresearch / s
 
    ```bash
    uv run baibai-engine screening review-set publish --asof <ASOF> \
-     --run-revision-id <RUN_REVISION_ID> --review-cap 20 \
+     --run-revision-id <RUN_REVISION_ID> \
      --output-path <workdir>/review-set.yaml
    ```
 

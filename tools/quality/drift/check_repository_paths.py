@@ -19,7 +19,7 @@ _OWNERS = {
     "stores/screening/calibration": Path(
         "engine/src/baibai_engine/foundation/repository_layout.py"
     ),
-    "method/screening/rules/2026-07-06T000000+0900.yaml": Path(
+    "method/screening/rules/2026-08-30T215359+0900.yaml": Path(
         "engine/src/baibai_engine/foundation/repository_layout.py"
     ),
     "method/macro/reading/2026-08-01T100000+0900.yaml": Path(

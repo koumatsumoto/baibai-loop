@@ -151,7 +151,7 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 
 `macro reading` と `macro context` はどの遷移にも属さない ambient 入力であり、reading は macro context 執筆の必須入力、macro context は Research Triage と thesis 執筆の判断材料になる（screening は macro-blind のまま）。Research Triage・ledger は「状態」と「その canonical record」が同一物であり、thesis・Position Review は状態ではなく遷移の理由書である。
 
-### Opportunity Discovery の概念と authority
+### Candidate Discovery の概念と authority
 
 ```text
 Observed Fact ──────────────┐

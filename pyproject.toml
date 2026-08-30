@@ -402,6 +402,6 @@ forbidden_modules = [
   "baibai_engine.macro.indicators.providers",
   "baibai_engine.position.cli",
   "baibai_engine.research.decision_cli",
-  "baibai_engine.research.opportunity_cli",
+  "baibai_engine.research.workspace_cli",
   "baibai_engine.screening.cli",
 ]

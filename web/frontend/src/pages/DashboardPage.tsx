@@ -496,9 +496,8 @@ function UpcomingEventsCard({ events }: { events: UpcomingEventView[] }) {
 }
 
 const OPERATION_KIND_LABEL: Record<string, string> = {
-  opportunity: '購入候補の選定',
-  'earnings-material-event': '決算・重要イベント',
-  improvement: '手法改善',
+  'capital-allocation': '資本配分評価',
+  'position-review': 'ポジション評価',
 }
 
 const STATUS_LABEL: Record<string, string> = {

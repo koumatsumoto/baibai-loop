@@ -153,7 +153,7 @@ def test_complete_rejects_missing_kind_specific_final_fields(
     assert service.get(operation.operation_id).status == "active"
 
 
-def test_opportunity_with_no_research_triage_selection_completes_without_human_confirmation(
+def test_capital_allocation_with_no_research_triage_selection_completes_without_human_confirmation(
     tmp_path: Path,
 ) -> None:
     service = OperationService(tmp_path / "app.sqlite")
@@ -192,7 +192,7 @@ def test_opportunity_with_no_research_triage_selection_completes_without_human_c
         canonical_refs=("research_triage-1",),
         completion_reason="no-research",
         result="no candidate was admitted to the Research Set",
-        next="wait for the next opportunity trigger",
+        next="wait for the next capital-allocation trigger",
     )
 
     completed = service.complete(operation.operation_id, payload, completed_at=NOW)
@@ -244,7 +244,7 @@ def test_no_research_triage_selection_completion_rejects_false_evidence(
         service.complete(operation.operation_id, payload, completed_at=NOW)
 
 
-def test_no_research_triage_selection_reason_is_opportunity_only(tmp_path: Path) -> None:
+def test_no_research_triage_selection_reason_is_capital_allocation_only(tmp_path: Path) -> None:
     service = OperationService(tmp_path / "app.sqlite")
     operation = service.start(
         session_kind="position-review",

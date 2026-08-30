@@ -227,8 +227,6 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "2026-07-21",
         "--run-revision-id",
         "rev-1",
-        "--review-cap",
-        "20",
     ]
 
     export_argv = _call(runner, "export")

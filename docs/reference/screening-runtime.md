@@ -19,7 +19,7 @@ E[r]、FV、macro context、portfolio stateは参考文脈である。Review Set
 ```bash
 uv run baibai-engine screening run --asof YYYY-MM-DD [--runs-db PATH]
 uv run baibai-engine screening review-set publish --asof YYYY-MM-DD \
-  --run-revision-id ID --review-cap 20 [--runs-db PATH] [--output-path PATH]
+  --run-revision-id ID [--runs-db PATH] [--output-path PATH]
 uv run baibai-engine screening review-set show --review-set-id ID \
   [--runs-db PATH] [--output-path PATH] [--force]
 uv run baibai-engine screening research-triage publish DRAFT.yaml \

@@ -29,7 +29,7 @@ from baibai_engine.research.capital_allocation import (
     CapitalAllocationAssessment,
     capital_allocation_draft_sha256,
 )
-from baibai_engine.research.opportunity_cli import main as opportunity_main
+from baibai_engine.research.workspace_cli import main as research_main
 from baibai_engine.screening.research_triage import ResearchTriage, ResearchTriageService
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -111,7 +111,7 @@ def _publish_research_triage(db_path: Path) -> str:
 
 
 def _scaffold_capital_allocation_draft(db_path: Path, out: Path, research_triage_id: str) -> int:
-    return opportunity_main(
+    return research_main(
         [
             "capital-allocation-scaffold",
             "--db",
@@ -174,7 +174,7 @@ def test_research_evaluate_routes_argv_to_the_decision_gate(
         REVIEW_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8"
     )
 
-    assert opportunity_main(["evaluate", str(thesis)], now=FIXED_NOW) == 0
+    assert research_main(["evaluate", str(thesis)], now=FIXED_NOW) == 0
 
     payload = yaml.safe_load(capsys.readouterr().out)
     assert payload["decision_readiness"] == "ready"
@@ -233,9 +233,7 @@ def test_assessment_publish_stores_the_round_from_argv(
     capsys.readouterr()
     _write_yaml(draft_path, _fill_judgment(safe_load(draft_path.read_text(encoding="utf-8"))))
 
-    assert (
-        opportunity_main(["capital-allocation-publish", str(draft_path), "--db", str(db_path)]) == 0
-    )
+    assert research_main(["capital-allocation-publish", str(draft_path), "--db", str(db_path)]) == 0
 
     assert (
         yaml.safe_load(capsys.readouterr().out)["capital_allocation_assessment_id"] == ASSESSMENT_ID

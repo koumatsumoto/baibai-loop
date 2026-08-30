@@ -62,7 +62,6 @@ _COVERAGE_INCOMPLETE_MARKER = "SQLite cache coverage incomplete"
 # (macro / prune) step failed afterwards.
 _EXIT_DEFERRED_FAILURE = 3
 # Maximum Review Set size for the daily machine path.
-_SELECT_REVIEW_CAP = 20
 _EDINET_QUARANTINE_RE = re.compile(
     r"\bquarantined_events=(?P<events>\d+)\s+"
     r"quarantined_tickers=(?P<tickers>\d+)\s+"
@@ -617,8 +616,6 @@ def _execute_daily_batch(
         asof_arg,
         "--run-revision-id",
         run_view.run_revision_id,
-        "--review-cap",
-        str(_SELECT_REVIEW_CAP),
     ]
     review_set_result = _run_step(
         runner,

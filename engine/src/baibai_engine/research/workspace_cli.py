@@ -35,8 +35,9 @@ from .capital_allocation import (
 )
 from .capital_allocation_scaffold import scaffold_capital_allocation
 from .capital_allocation_service import CapitalAllocationAssessmentService
-from .opportunity import (
-    OpportunityError,
+from .thesis import ThesisError
+from .workspace import (
+    ResearchWorkspaceError,
     compute_status,
     plan_limit,
     prepare_holding_workspace,
@@ -45,7 +46,6 @@ from .opportunity import (
     scaffold_review,
     scaffold_thesis,
 )
-from .thesis import ThesisError
 
 
 def _parse_date(raw: str) -> date:
@@ -351,7 +351,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     except (CapitalAllocationError, ValidationError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 3
-    except OpportunityError as error:
+    except ResearchWorkspaceError as error:
         print(f"error: {error}", file=sys.stderr)
         return error.exit_code
     except ThesisError as error:

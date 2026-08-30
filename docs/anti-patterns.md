@@ -501,6 +501,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
   - [ ] runtime adapterを残さず、必要なcanonical historyはone-shot cutoverでcurrent形へ変換する。実取引・税務記録と記録済みidentityは保持する
   - [ ] active code、Web contract、skill、method、docs、open Issueを横断検索し、旧identifierがcurrent operationとして残っていないか。退役語を守るだけのblacklistは追加しない
 - [ ] Review Setをnew-writeへ追加・変更する場合、run identity / Candidate membership / native E[r]、表示E[r]・FV・価格、順位、review capを同じ発行境界で照合するか。不整合なrowをResearch Triageへ焼き込めないnegative testがあるか
+- [ ] Review Setの`analysis`は全groupとnested fieldをstrict typed modelでwrite/read両境界に検証し、required group欠落・未知key・numeric fieldへのstringをnegative testで拒否するか。`context`をNomination入力へ接続していないか
 - [ ] **judgment-gate 系の必須 contract を追加する場合、bypass を test で塞ぐ**:
   - [ ] data 不在 label で hard trigger を回避できないか
   - [ ] label と根拠数値の不整合が catch されるか

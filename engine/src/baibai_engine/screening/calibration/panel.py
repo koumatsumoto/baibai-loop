@@ -397,10 +397,12 @@ def build_panel(
     nomination_ranks = build_nomination_ranks(
         analysis_payloads,
         rules=rules.candidate_discovery,
+        required_jpx_flags=rules.universe.required_jpx_flags,
     )
     review_set = build_review_set(
         analysis_payloads,
         rules=rules.candidate_discovery,
+        required_jpx_flags=rules.universe.required_jpx_flags,
     )
     entries = review_set["entries"]
     assert isinstance(entries, list)

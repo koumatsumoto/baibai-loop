@@ -261,7 +261,7 @@ matched 比較の被覆率・membership 数・集中度など、forward outcome 
 ### 採用後
 
 - 通過した変更だけを本番へ反映し、計測した構成と本番構成を一致させる。rules 改訂後は panel を `--force` 再構築する。
-- 現 asof で `screening run` → `review-set publish --review-cap 20` を回し、意図した挙動を実銘柄で確認する（運用テスト）。
+- 現 asof で `screening run` → `review-set publish` を回し、dated method revisionのcapacityで意図した挙動を実銘柄で確認する（運用テスト）。
 - `reports/YYYY-MM-DD-<slug>.md` に再現手順・データ窓・coverage / survivorship 開示・判定表・検算・採用後の監視事項を固定する（一次計測記録。別の監査ファイルは作らない）。マージ前 gate は [`python-foundation.md`](./python-foundation.md) §9 が正本。マージ後は report の監視事項を次の replay 計測で追う。
 
 ### 判断コホートの集計

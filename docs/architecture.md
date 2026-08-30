@@ -78,7 +78,7 @@ trigger 起点の運用は 6 つで、それぞれ 1 skill が手順・gate 順�
 | `macro-context` | indicator refresh → reading → context publish | —（非 gating の ambient 入力。判断層にだけ効く） |
 | `ops-maintenance` | store transfer・publish・復元・定期 maintenance | — |
 
-Opportunity Discoveryからhuman-confirmed ledgerまでの責務境界は次のとおり。
+Candidate Discoveryからhuman-confirmed ledgerまでの責務境界は次のとおり。
 
 ```text
 Universe → Security Analyses                 screening
