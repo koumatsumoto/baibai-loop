@@ -49,7 +49,7 @@ uv run baibai-engine research prepare \
 
 ## 5. Assessment と独立 review を公開する
 
-`research assessment-scaffold` で promote 済みの全 case を assessment に含め、`defer` / `reject` には `reject_class` を付ける。research question が複数論点を含む場合は分割し、一部未解決のまま全体を `answered` にしない。
+`research assessment-scaffold` で promote 済みの全 case を assessment に含め、`disposition_reason` に具体的な判断理由を書く。research question が複数論点を含む場合は分割し、一部未解決のまま全体を `answered` にしない。
 
 1. `research assessment-publish --check` で digest を確認する。review 前の `review_binding=stale` は正常。
 2. assessment author と別の役が独立 review を作る。

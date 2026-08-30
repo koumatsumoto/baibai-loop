@@ -31,10 +31,10 @@ from baibai_engine.foundation.yaml_io import safe_load
 from .assessment import (
     AssessmentError,
     BargainAssessment,
-    BargainAssessmentService,
     assessment_draft_sha256,
 )
 from .assessment_scaffold import scaffold_assessment
+from .assessment_service import BargainAssessmentService
 from .opportunity import (
     OpportunityError,
     compute_status,

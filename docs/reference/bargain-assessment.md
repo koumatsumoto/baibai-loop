@@ -16,13 +16,13 @@ Bargain Assessment は、1 opportunity cycle で深掘りした候補を比較�
 - 指値、数量、notional、expiryはassessmentへ保存しない。必要時に `research plan-limit` がcurrent ledgerと前営業日raw closeから計算するephemeral outputである。
 - broker操作は人間だけが行う。human-confirmed order resultはassessment IDを`decision_reference`としてledger draftへ変換する。
 
-判断の散文はassessmentが正本だが、5年base CAGR、要求リターン、FV、FV乖離、break-even、永久損失結論は正本ではない。publishはpromoted thesisから再導出し、draftのmachine値と照合する。
+判断の散文はassessmentが正本だが、5年base CAGR、要求リターン、FV、FV乖離、break-even、永久損失結論は正本ではない。read surfaceはbound immutable thesisから再導出し、assessment payloadへ複写しない。
 
-## Schema v4
+## Schema v5
 
-top-levelは`schema_version / kind / assessment_id / as_of / published_at / result / headline / shortlist_id / macro_context_id / comparison / forgone / cases / review`を持つ。caseはticker、disposition、理由、thesis/review binding、machine値、事業・価値獲得・成長品質・財務耐性・countercase・catalyst・research question・unknown・source caveatを持つ。
+top-levelは`schema_version / kind / assessment_id / as_of / published_at / result / headline / shortlist_id / macro_context_id / comparison / forgone / cases / review`を持つ。caseはticker、disposition、具体的理由、thesis/review binding、事業・価値獲得・成長品質・財務耐性・countercase・catalyst・research question・unknown・source caveatを持つ。
 
-旧schemaをruntimeでprojectしない。one-time application DB cutoverはv3のcurrent assessmentをv4へ変換し、監査だけに使われたv1/v2 historyはcurrent storeへ移さない。未知versionは明示errorにする。
+旧schemaをruntimeでprojectせず、未知versionは明示errorにする。
 
 ## Publish gate
 
@@ -31,9 +31,8 @@ publishは少なくとも次を拒否する。
 1. source shortlistに含まれないticker
 2. thesis ID、ticker、recorded core hashの不一致
 3. thesisに束縛されないreview、またはbuy caseのreview欠損
-4. thesisから再導出したmachine値との差
-5. buy gate未達、永久損失結論elevated、必要なhuman evidence override欠損
-6. review済みdraft digestとの不一致
+4. buy gate未達、永久損失結論elevated、必要なhuman evidence override欠損
+5. review済みdraft digestとの不一致
 
 ## 手順
 

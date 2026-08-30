@@ -310,8 +310,8 @@ ignore_imports = [
   # remain independent of research.
   "baibai_engine.position.cli -> baibai_engine.research.holding_review_builder",
   "baibai_engine.position.cli -> baibai_engine.research.store",
-  "baibai_engine.position.cli -> baibai_engine.research.assessment",
-  "baibai_engine.position.result_service -> baibai_engine.research.assessment",
+  "baibai_engine.position.cli -> baibai_engine.research.assessment_service",
+  "baibai_engine.position.result_service -> baibai_engine.research.assessment_service",
 ]
 
 [[tool.importlinter.contracts]]

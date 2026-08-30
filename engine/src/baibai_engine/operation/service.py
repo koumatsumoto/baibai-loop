@@ -191,12 +191,7 @@ def _validate_complete(session_kind: SessionKind, payload: OperationPayload) -> 
         if not payload.canonical_refs:
             missing.append("canonical_refs")
 
-    requires_confirmation = not no_shortlist_selection and session_kind in {
-        "opportunity",
-        "pending-result",
-        "monthly-contribution",
-        "earnings-material-event",
-    }
+    requires_confirmation = not no_shortlist_selection
     if requires_confirmation and (
         payload.human_confirmation is None
         or payload.human_confirmation.request is None
@@ -207,16 +202,7 @@ def _validate_complete(session_kind: SessionKind, payload: OperationPayload) -> 
         not payload.artifacts or any(not artifact for artifact in payload.artifacts)
     ):
         missing.append("artifacts")
-    if (
-        session_kind
-        in {
-            "pending-result",
-            "monthly-contribution",
-            "earnings-material-event",
-            "annual-outcome",
-        }
-        and not payload.canonical_refs
-    ):
+    if session_kind == "earnings-material-event" and not payload.canonical_refs:
         missing.append("canonical_refs")
     if missing:
         raise OperationCompletionError(f"{session_kind} completion requires: {', '.join(missing)}")

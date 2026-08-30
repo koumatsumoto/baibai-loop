@@ -82,7 +82,7 @@ description: screening からレビュー済み shortlist を発行し、人間�
    - `next_earnings_status` の announced / scheduled / estimated / unknown を区別し、直前の前倒し開示は一次情報で確認する。
    - 既に reject / defer した ticker は、価格が FV 以下、新規 material disclosure、unknown を解消する決算、raw close が前回 thesis の entry から5%以上下落（`current_close_yen <= thesis_entry_price_basis_yen * 0.95`）、`fin_latest_disclosed_date > rows[].thesis_as_of` のいずれかが成立する場合だけ再研究候補にする。それ以外は `event_wait` とする。
    - E[r] 履歴帯は集団の記述統計としてだけ使い、個別予測にしない。
-   - 機械 E[r] 順から rank を変える場合は理由を書く。rejected 全件に具体的理由と `reject_class` を付ける。
+   - 機械 E[r] 順から rank を変える場合は理由を書く。rejected 全件に具体的理由を付ける。
 
    selected は次の全条件を満たさなければならない。
 

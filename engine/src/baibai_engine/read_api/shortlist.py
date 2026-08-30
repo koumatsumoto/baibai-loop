@@ -43,7 +43,7 @@ def _payload(raw: object) -> dict[str, object]:
     payload = json.loads(str(raw))
     if not isinstance(payload, dict):
         raise ValueError("shortlist payload must be an object")
-    if payload.get("schema_version") != 6:
+    if payload.get("schema_version") != 7:
         raise ValueError(f"unsupported shortlist schema_version: {payload.get('schema_version')!r}")
     return payload
 

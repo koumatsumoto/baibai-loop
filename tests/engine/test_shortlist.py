@@ -209,8 +209,8 @@ def test_a_published_snapshot_is_not_recomputed_by_a_later_run(tmp_path: Path) -
 def test_shortlist_rejects_duplicate_ticker() -> None:
     payload = _shortlist().payload()
     payload["entries"] = [
-        {"ticker": "2331", "decision": "rejected", "reason": "a", "reject_class": "other"},
-        {"ticker": "2331", "decision": "rejected", "reason": "b", "reject_class": "other"},
+        {"ticker": "2331", "decision": "rejected", "reason": "a"},
+        {"ticker": "2331", "decision": "rejected", "reason": "b"},
     ]
     with pytest.raises(ValidationError):
         Shortlist.model_validate(payload)
@@ -223,13 +223,11 @@ def _no_selected_shortlist() -> Shortlist:
             "ticker": "2331",
             "decision": "rejected",
             "reason": "正常利益ベースでも割高",
-            "reject_class": "price_already_converged",
         },
         {
             "ticker": "0001",
             "decision": "rejected",
             "reason": "一時益で見かけ上安いだけ",
-            "reject_class": "one_off_earnings",
         },
     ]
     return Shortlist.model_validate(payload)
@@ -287,7 +285,6 @@ def test_shortlist_rejected_entry_forbids_narrative() -> None:
             "ticker": "0001",
             "decision": "rejected",
             "reason": "弱い",
-            "reject_class": "other",
             "narrative": _narrative(),
         },
     ]
@@ -295,22 +292,18 @@ def test_shortlist_rejected_entry_forbids_narrative() -> None:
         Shortlist.model_validate(payload)
 
 
-def test_shortlist_rejected_entry_requires_a_known_reject_class() -> None:
+def test_shortlist_rejects_the_retired_reject_class_field() -> None:
     payload = _shortlist().payload()
     rejected = payload["entries"][1]
-    del rejected["reject_class"]
-    with pytest.raises(ValidationError, match="must include a reject_class"):
-        Shortlist.model_validate(payload)
-
-    rejected["reject_class"] = "future_guess"
-    with pytest.raises(ValidationError, match="Input should be"):
+    rejected["reject_class"] = "other"
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         Shortlist.model_validate(payload)
 
 
-def test_shortlist_selected_entry_forbids_reject_class() -> None:
+def test_shortlist_selected_entry_also_forbids_retired_reject_class() -> None:
     payload = _shortlist().payload()
     payload["entries"][0]["reject_class"] = "other"
-    with pytest.raises(ValidationError, match="must not include a reject_class"):
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         Shortlist.model_validate(payload)
 
 
@@ -364,7 +357,6 @@ def test_shortlist_rejected_entry_forbids_provisional_rank() -> None:
             "decision": "rejected",
             "rank": 2,
             "reason": "弱い",
-            "reject_class": "other",
         },
     ]
     with pytest.raises(ValidationError):

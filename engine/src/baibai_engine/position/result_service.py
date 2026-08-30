@@ -17,7 +17,7 @@ from baibai_engine.position.result_recording import (
     record_terminal_results,
 )
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.research.assessment import BargainAssessmentService
+from baibai_engine.research.assessment_service import BargainAssessmentService
 
 
 def build_result_draft(

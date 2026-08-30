@@ -14,8 +14,6 @@ if str(SRC) not in sys.path:
 from baibai_engine.screening.calibration.forward import ForwardReturnRow
 from baibai_engine.screening.cli.shortlist_outcome_cli import shortlist_outcome_command
 from baibai_engine.screening.shortlist_outcome import (
-    ShortlistCohort,
-    ShortlistJudgment,
     cohort_from_payload,
     evaluate_cohort,
     evaluate_machine_counterfactual,
@@ -322,64 +320,6 @@ def test_the_command_refuses_a_market_store_that_is_absent(tmp_path: Path) -> No
     assert code == 1
     assert "not found" in errors.getvalue()
     assert not output.exists()
-
-
-def test_rejected_names_are_also_grouped_by_the_reject_class_they_were_given() -> None:
-    """全体の中央値では「どの棄却理由が高くついたか」が見えない。"""
-
-    cohort = ShortlistCohort(
-        shortlist_id="shortlist-20260717-test",
-        as_of=AS_OF,
-        run_revision_id="run-revision-test",
-        judgments=(
-            ShortlistJudgment(
-                ticker="1111",
-                decision="selected",
-                reject_class=None,
-                ploss=None,
-                catalyst_date=None,
-                er_annual=0.10,
-            ),
-            ShortlistJudgment(
-                ticker="2222",
-                decision="rejected",
-                reject_class="event_wait",
-                ploss=None,
-                catalyst_date=None,
-                er_annual=0.09,
-            ),
-            ShortlistJudgment(
-                ticker="3333",
-                decision="rejected",
-                reject_class="price_already_converged",
-                ploss=None,
-                catalyst_date=None,
-                er_annual=0.08,
-            ),
-            ShortlistJudgment(
-                ticker="4444",
-                decision="rejected",
-                reject_class=None,
-                ploss=None,
-                catalyst_date=None,
-                er_annual=0.07,
-            ),
-        ),
-    )
-    rows = [
-        _forward("1111", 0.10),
-        _forward("2222", 0.30),
-        _forward("3333", -0.10),
-        _forward("4444", 0.05),
-    ]
-
-    payload = evaluate_cohort(cohort, rows, horizon="3m")
-
-    grouped = payload["rejected_by_class"]
-    assert set(grouped) == {"event_wait", "price_already_converged", "unclassified"}
-    assert grouped["event_wait"]["n"] == 1
-    # 分類が無い棄却も落とさず、`unclassified` として数える。
-    assert grouped["unclassified"]["n"] == 1
 
 
 def test_the_catalyst_split_stays_inside_the_selected_cohort() -> None:

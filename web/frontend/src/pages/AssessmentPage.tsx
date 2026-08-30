@@ -33,7 +33,7 @@ const CASE_SECTIONS: readonly (readonly [keyof AssessmentCaseView, string])[] = 
   ['catalyst', 'catalyst'],
 ]
 
-// Per-case machine values, all derived by the engine from the thesis and verified against
+// Per-case machine values, all derived by the engine from the bound immutable thesis.
 // it at publish time. The buffers are what decide the case, so they lead.
 const MACHINE_ROWS: readonly (readonly [keyof AssessmentCaseView, string, 'pct' | 'pp' | 'yen' | 'x'])[] = [
   ['five_year_base_cagr_pct', '5年 base CAGR', 'pct'],

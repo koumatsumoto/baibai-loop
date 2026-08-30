@@ -5,47 +5,29 @@ immutable revision へ固定する。shortlist が「どれを調べるか」の
 これは「調べ終えて何を結論したか」の判断である。
 
 判断の散文はここが正本だが、**数値は正本ではない**: 5 年 base CAGR・FV・乖離・
-break-even は promoted thesis から機械で導出する。publish は同じ導出をやり直して
-draft の値と照合するので、scaffold 後に手で書き換えた数値は保存されない。注文数量と
-指値は判断時の `plan-limit` だけが出し、ここへ永続化しない。
+break-even は promoted thesis から read 時に機械で導出する。注文数量と指値は判断時の
+`plan-limit` だけが出し、ここへ永続化しない。
 """
 
 from __future__ import annotations
 
-import json
 import re
-import sqlite3
-from collections.abc import Mapping
-from contextlib import closing
-from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from hashlib import sha256
-from pathlib import Path
 from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from baibai_engine.appdb.json import canonical_json
-from baibai_engine.appdb.paths import database_path
-from baibai_engine.appdb.read import connect_read_only
-from baibai_engine.appdb.write import connect_rw, initialize_database
-from baibai_engine.foundation.reject_classification import RejectClass
 
 from .thesis import (
-    IndependentReview,
     ThesisDocument,
-    ThesisError,
     UnpublishedThesis,
     evaluate_thesis,
-    require_recorded_identity,
 )
 
-BARGAIN_ASSESSMENT_SCHEMA_VERSION = 4
-
-# 機械値の照合許容差。thesis 評価は Decimal、YAML 往復は float を通るので、
-# 表示桁の丸めだけを許し、書き換えは許さない幅にする。
-_NUMERIC_TOLERANCE = Decimal("0.005")
+BARGAIN_ASSESSMENT_SCHEMA_VERSION = 5
 
 type AssessmentResult = Literal["buy", "no_actionable_bargain", "defer"]
 type CaseDisposition = Literal["selected", "reject", "defer"]
@@ -57,28 +39,6 @@ class AssessmentError(ValueError):
 
 class AssessmentConflictError(AssessmentError):
     pass
-
-
-class CaseMachineValues(BaseModel):
-    """promoted thesis から再導出する値。scaffold が書き、publish が照合する。
-
-    リターン側の数値だけでなく永久損失の結論も含める。リスクリワードは片側だけでは
-    読めないので、レポートは両側を同じ機械経路から供給する。
-    """
-
-    model_config = ConfigDict(extra="forbid")
-    five_year_base_cagr_pct: float | None = None
-    required_return_pct: float | None = None
-    fair_value_yen: float | None = None
-    fv_gap_pct: float | None = None
-    base_terminal_multiple: float | None = None
-    break_even_terminal_multiple: float | None = None
-    terminal_multiple_buffer: float | None = None
-    break_even_earnings_growth_pct: float | None = None
-    earnings_growth_buffer_pp: float | None = None
-    observed_trailing_multiple: float | None = None
-    permanent_loss_conclusion: Literal["acceptable", "elevated", "unknown"] | None = None
-    adverse_risk_axes: tuple[str, ...] = ()
 
 
 class ResearchQuestion(BaseModel):
@@ -104,19 +64,16 @@ class SourceCaveat(BaseModel):
 
 
 class AssessmentCase(BaseModel):
-    """深掘りした 1 銘柄の結論。判断の要点と、thesis へ束縛した機械値を持つ。"""
+    """深掘りした 1 銘柄の結論。判断の要点を immutable thesis へ束縛する。"""
 
     model_config = ConfigDict(extra="forbid")
     ticker: str = Field(pattern=r"^[0-9A-Z]{4}$")
     name: str | None = None
     disposition: CaseDisposition
     disposition_reason: str = Field(min_length=1)
-    # disposition_reason が判断の正本。class は棄却理由の頻度集計にだけ使う。
-    reject_class: RejectClass | None = None
     thesis_id: str = Field(min_length=1)
     thesis_core_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     review_id: str | None = None
-    machine: CaseMachineValues = CaseMachineValues()
     business_model: str = Field(min_length=1)
     value_capture: str = Field(min_length=1)
     growth_quality: str = Field(min_length=1)
@@ -126,14 +83,6 @@ class AssessmentCase(BaseModel):
     research_questions: tuple[ResearchQuestion, ...] = Field(min_length=1)
     unknowns: tuple[str, ...] = ()
     source_caveats: tuple[SourceCaveat, ...] = ()
-
-    @model_validator(mode="after")
-    def validate_reject_class_matches_disposition(self) -> Self:
-        if self.disposition in {"reject", "defer"} and self.reject_class is None:
-            raise ValueError("reject/defer assessment case must include a reject_class")
-        if self.disposition == "selected" and self.reject_class is not None:
-            raise ValueError("selected assessment case must not include a reject_class")
-        return self
 
 
 class ContentReviewBinding(BaseModel):
@@ -160,7 +109,7 @@ class ContentReviewBinding(BaseModel):
 
 class BargainAssessment(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    schema_version: Literal[4]
+    schema_version: Literal[5]
     kind: Literal["bargain_assessment"]
     assessment_id: str
     as_of: date
@@ -200,198 +149,11 @@ class BargainAssessment(BaseModel):
         return self.model_dump(mode="json")
 
 
-@dataclass(frozen=True, slots=True)
-class _StoredThesis:
-    ticker: str
-    core_sha256: str
-    document: ThesisDocument
-
-
-class BargainAssessmentService:
-    """canonical store への publish と、機械値の再導出照合。"""
-
-    def __init__(self, db_path: Path | None = None) -> None:
-        self._db_path = db_path
-
-    def check(self, assessment: BargainAssessment) -> None:
-        """store へ書かずに、参照束縛と機械値の再導出を検証する。
-
-        content review の hash 束縛だけは求めない。review 前の draft を検証して
-        期待 hash を知るための経路であり、束縛は publish が求める。
-        """
-        self._verify_bindings(assessment, require_review_binding=False)
-
-    def publish(self, assessment: BargainAssessment) -> BargainAssessment:
-        self._verify_bindings(assessment, require_review_binding=True)
-        initialize_database(self._db_path)
-        payload = canonical_json(assessment.payload())
-        with closing(connect_rw(self._db_path)) as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            try:
-                row = connection.execute(
-                    "SELECT payload FROM bargain_assessment WHERE assessment_id = ?",
-                    (assessment.assessment_id,),
-                ).fetchone()
-                if row is not None:
-                    if str(row[0]) == payload:
-                        connection.rollback()
-                        return assessment
-                    raise AssessmentConflictError(
-                        f"assessment differs from existing publication: {assessment.assessment_id}"
-                    )
-                connection.execute(
-                    """
-                    INSERT INTO bargain_assessment (
-                        assessment_id, as_of, published_at, result, shortlist_id, payload
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        assessment.assessment_id,
-                        assessment.as_of.isoformat(),
-                        assessment.published_at.isoformat(),
-                        assessment.result,
-                        assessment.shortlist_id,
-                        payload,
-                    ),
-                )
-                connection.commit()
-            except BaseException:
-                connection.rollback()
-                raise
-        return assessment
-
-    def _verify_bindings(
-        self, assessment: BargainAssessment, *, require_review_binding: bool
-    ) -> None:
-        expected_draft = assessment_draft_sha256(assessment)
-        if require_review_binding and assessment.review.draft_sha256 != expected_draft:
-            raise AssessmentConflictError(
-                f"content review binds a different draft, expected {expected_draft}"
-            )
-        shortlist = self._shortlist(assessment.shortlist_id)
-        shortlist_as_of = str(shortlist.get("as_of", ""))
-        if shortlist_as_of and assessment.as_of < date.fromisoformat(shortlist_as_of):
-            raise AssessmentConflictError(
-                f"assessment as_of {assessment.as_of} precedes shortlist {shortlist_as_of}"
-            )
-        shortlist_tickers = _selected_tickers(shortlist, assessment.shortlist_id)
-        for case in assessment.cases:
-            if case.ticker not in shortlist_tickers:
-                raise AssessmentConflictError(
-                    f"case {case.ticker} is not a selected candidate of {assessment.shortlist_id}"
-                )
-            stored = self._stored_thesis(case.thesis_id)
-            if stored.ticker != case.ticker:
-                raise AssessmentConflictError(
-                    f"thesis {case.thesis_id} belongs to {stored.ticker}, not {case.ticker}"
-                )
-            if stored.core_sha256 != case.thesis_core_sha256:
-                raise AssessmentConflictError(
-                    f"thesis {case.thesis_id} has moved since the draft was written"
-                )
-            _require_matching_machine_values(case, derive_case_machine_values(stored.document))
-            if case.disposition == "selected":
-                self._require_buy_case_ready(assessment, case, stored)
-
-    def require_buy_case(self, assessment_id: str) -> AssessmentCase:
-        """Resolve the sole selected case for a canonical buy decision."""
-        row = self._row(
-            "SELECT result, payload FROM bargain_assessment WHERE assessment_id = ?",
-            (assessment_id,),
-        )
-        if row is None:
-            raise AssessmentConflictError(f"assessment is unavailable: {assessment_id}")
-        try:
-            assessment = BargainAssessment.model_validate(json.loads(str(row[1])))
-        except (ValueError, TypeError) as error:
-            raise AssessmentConflictError(
-                f"assessment cannot be read: {assessment_id}: {error}"
-            ) from error
-        if str(row[0]) != "buy" or assessment.result != "buy":
-            raise AssessmentConflictError(f"assessment is not a buy decision: {assessment_id}")
-        return next(case for case in assessment.cases if case.disposition == "selected")
-
-    def _require_buy_case_ready(
-        self,
-        assessment: BargainAssessment,
-        case: AssessmentCase,
-        stored: _StoredThesis,
-    ) -> None:
-        if stored.document.judgment.recommendation != "buy":
-            raise AssessmentConflictError(
-                f"selected thesis is not a buy recommendation: {case.thesis_id}"
-            )
-        assert case.review_id is not None
-        row = self._row(
-            "SELECT thesis_id, payload FROM thesis_review WHERE review_id = ?",
-            (case.review_id,),
-        )
-        if row is None or str(row[0]) != case.thesis_id:
-            raise AssessmentConflictError(
-                f"review {case.review_id} does not bind selected thesis {case.thesis_id}"
-            )
-        try:
-            review = IndependentReview.model_validate(json.loads(str(row[1])))
-        except (ValueError, TypeError) as error:
-            raise AssessmentConflictError(
-                f"review {case.review_id} cannot be read: {error}"
-            ) from error
-        result = evaluate_thesis(
-            stored.document,
-            review=review,
-            now=assessment.published_at,
-            identity=stored.core_sha256,
-        )
-        if result.decision_readiness not in {"ready", "ready_with_warnings"}:
-            raise AssessmentConflictError(
-                f"selected thesis is not decision-ready: {case.thesis_id}: "
-                + "; ".join(result.errors)
-            )
-
-    def _shortlist(self, shortlist_id: str) -> dict[str, object]:
-        row = self._row(
-            "SELECT payload FROM shortlist WHERE shortlist_id = ?",
-            (shortlist_id,),
-        )
-        if row is None:
-            raise AssessmentConflictError(f"shortlist is unavailable: {shortlist_id}")
-        payload = json.loads(str(row[0]))
-        if not isinstance(payload, dict):
-            raise AssessmentConflictError(f"shortlist payload is not an object: {shortlist_id}")
-        return payload
-
-    def _stored_thesis(self, thesis_id: str) -> _StoredThesis:
-        row = self._row(
-            "SELECT ticker, core_sha256, payload FROM thesis WHERE thesis_id = ?",
-            (thesis_id,),
-        )
-        if row is None:
-            raise AssessmentConflictError(f"thesis is unavailable: {thesis_id}")
-        payload = json.loads(str(row[2]))
-        try:
-            document = ThesisDocument.model_validate(payload)
-        except (ThesisError, ValueError) as error:
-            raise AssessmentConflictError(f"thesis {thesis_id} cannot be read: {error}") from error
-        return _StoredThesis(
-            ticker=str(row[0]),
-            core_sha256=require_recorded_identity(row[1], thesis_id),
-            document=document,
-        )
-
-    def _row(self, sql: str, parameters: tuple[str, ...]) -> sqlite3.Row | None:
-        path = database_path(self._db_path)
-        if not path.is_file():
-            raise AssessmentConflictError(f"application database is unavailable: {path}")
-        with closing(connect_read_only(path)) as connection:
-            row: sqlite3.Row | None = connection.execute(sql, parameters).fetchone()
-            return row
-
-
 def assessment_draft_sha256(assessment: BargainAssessment) -> str:
     """content review が束縛する対象 — 判断内容そのもの — の hash。
 
     `review` 自身と、判断内容ではない `published_at` を除く。review 後に publish
-    時刻が動いても hash は変わらず、散文や機械値が動けば変わる。
+    時刻が動いても hash は変わらず、判断の散文が動けば変わる。
     """
     payload = assessment.payload()
     payload.pop("review", None)
@@ -399,19 +161,8 @@ def assessment_draft_sha256(assessment: BargainAssessment) -> str:
     return _sha256_json(payload)
 
 
-def _selected_tickers(payload: Mapping[str, object], shortlist_id: str) -> frozenset[str]:
-    entries = payload.get("entries")
-    if not isinstance(entries, list):
-        raise AssessmentConflictError(f"shortlist has no entries: {shortlist_id}")
-    return frozenset(
-        str(entry["ticker"])
-        for entry in entries
-        if isinstance(entry, dict) and entry.get("decision") == "selected"
-    )
-
-
-def derive_case_machine_values(document: ThesisDocument) -> CaseMachineValues:
-    """thesis から case の機械値を導出する。scaffold と publish が同じ経路を使う。"""
+def derive_case_machine_values(document: ThesisDocument) -> dict[str, object]:
+    """read surface に必要な case の機械値を immutable thesis から導出する。"""
     # Only the scenarios are read here; the identity never leaves this call.
     result = evaluate_thesis(document, identity=UnpublishedThesis.DRAFT)
     base = next(
@@ -426,40 +177,38 @@ def derive_case_machine_values(document: ThesisDocument) -> CaseMachineValues:
     estimates = document.estimates
     fair_value = estimates.current_fair_value_yen
     entry_price = estimates.entry_price_basis_yen
-    return CaseMachineValues(
-        five_year_base_cagr_pct=(None if base is None else round(base.total_return_cagr_pct, 4)),
-        required_return_pct=_float(estimates.required_5y_base_cagr_pct),
-        fair_value_yen=_float(fair_value),
-        fv_gap_pct=_fv_gap_pct(fair_value, entry_price),
-        base_terminal_multiple=(
+    return {
+        "five_year_base_cagr_pct": (None if base is None else round(base.total_return_cagr_pct, 4)),
+        "required_return_pct": _float(estimates.required_5y_base_cagr_pct),
+        "fair_value_yen": _float(fair_value),
+        "fv_gap_pct": _fv_gap_pct(fair_value, entry_price),
+        "base_terminal_multiple": (
             None if break_even is None else _float(break_even.base_terminal_valuation_multiple)
         ),
-        break_even_terminal_multiple=(
+        "break_even_terminal_multiple": (
             None
             if break_even is None
             else _float(break_even.break_even_terminal_valuation_multiple)
         ),
-        terminal_multiple_buffer=(
+        "terminal_multiple_buffer": (
             None if break_even is None else _float(break_even.terminal_multiple_downside_buffer)
         ),
-        break_even_earnings_growth_pct=(
+        "break_even_earnings_growth_pct": (
             None if break_even is None else _float(break_even.break_even_annual_earnings_growth_pct)
         ),
-        earnings_growth_buffer_pp=(
+        "earnings_growth_buffer_pp": (
             None
             if break_even is None
             else _float(break_even.earnings_growth_downside_buffer_pct_points)
         ),
-        observed_trailing_multiple=(
+        "observed_trailing_multiple": (
             None if break_even is None else _float(break_even.observed_trailing_multiple)
         ),
-        permanent_loss_conclusion=document.judgment.permanent_loss_conclusion,
-        adverse_risk_axes=tuple(
-            sorted(
-                risk.axis for risk in document.permanent_loss_risks if risk.assessment == "adverse"
-            )
+        "permanent_loss_conclusion": document.judgment.permanent_loss_conclusion,
+        "adverse_risk_axes": sorted(
+            risk.axis for risk in document.permanent_loss_risks if risk.assessment == "adverse"
         ),
-    )
+    }
 
 
 def _fv_gap_pct(fair_value: object, entry_price: object) -> float | None:
@@ -480,43 +229,6 @@ def _float(value: object) -> float | None:
     return None
 
 
-def _require_matching_machine_values(case: AssessmentCase, derived: CaseMachineValues) -> None:
-    """draft の機械値が thesis からの再導出と一致することを求める。
-
-    scaffold が書いた値を手で書き換えても、publish は保存しない。散文は判断だが、
-    数値は thesis の従属変数である。
-    """
-    drifted = [
-        name
-        for name in CaseMachineValues.model_fields
-        if not _values_agree(getattr(case.machine, name), getattr(derived, name))
-    ]
-    if drifted:
-        raise AssessmentConflictError(
-            f"{case.ticker} machine values do not match the thesis: {', '.join(sorted(drifted))}"
-        )
-
-
-def _values_agree(left: object, right: object) -> bool:
-    """機械値の一致判定。数値は表示桁の丸めだけ許し、それ以外は完全一致を求める。"""
-    if isinstance(left, str) or isinstance(right, str):
-        return left == right
-    if isinstance(left, list | tuple) and isinstance(right, list | tuple):
-        return list(left) == list(right)
-    if isinstance(left, list | tuple) or isinstance(right, list | tuple):
-        return False
-    return _numbers_agree(left, right)
-
-
-def _numbers_agree(left: object, right: object) -> bool:
-    if left is None or right is None:
-        return left is None and right is None
-    try:
-        return abs(Decimal(str(left)) - Decimal(str(right))) <= _NUMERIC_TOLERANCE
-    except (ArithmeticError, ValueError):
-        return False
-
-
 def _sha256_json(payload: object) -> str:
     return sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
@@ -528,9 +240,7 @@ __all__ = [
     "AssessmentError",
     "AssessmentResult",
     "BargainAssessment",
-    "BargainAssessmentService",
     "CaseDisposition",
-    "CaseMachineValues",
     "ContentReviewBinding",
     "ResearchQuestion",
     "SourceCaveat",

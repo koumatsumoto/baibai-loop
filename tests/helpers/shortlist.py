@@ -1,4 +1,4 @@
-"""The v5 shortlist payload and the narrative every selected entry carries.
+"""The current shortlist payload and the narrative every selected entry carries.
 
 Five files were each writing the fifteen-key narrative and the shortlist envelope,
 so a schema move had to be applied five times — and two of them were still writing
@@ -56,14 +56,12 @@ def rejected_entry(
     ticker: str,
     *,
     reason: str = "見送る：暫定上値が現値を上回らず、一次リサーチで識別する仮説がない",
-    reject_class: str = "other",
     **overrides: Any,
 ) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "ticker": ticker,
         "decision": "rejected",
         "reason": reason,
-        "reject_class": reject_class,
     }
     entry.update(overrides)
     return entry
@@ -80,7 +78,7 @@ def shortlist_payload(
     review_basis_shortlist_id: str | None = None,
     research_gate_contract_id: str = RESEARCH_GATE_CONTRACT_ID,
     entries: Sequence[Mapping[str, Any]] | None = None,
-    schema_version: int = 6,
+    schema_version: int = 7,
     **extra: Any,
 ) -> dict[str, Any]:
     """A publishable shortlist document at the current schema version."""

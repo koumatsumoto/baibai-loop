@@ -128,7 +128,6 @@ def _fill_judgment(draft: dict[str, Any]) -> dict[str, Any]:
     case = draft["cases"][0]
     case["disposition"] = "reject"
     case["disposition_reason"] = "5年期待値が要求利回りに届かない"
-    case["reject_class"] = "price_already_converged"
     for field in (
         "business_model",
         "value_capture",

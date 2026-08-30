@@ -13,7 +13,6 @@
 # must equal the selection's review-capped ranked set. selected entries require `rank` and
 # `narrative`; rejected entries must omit both, give a concrete reason
 # (not "順位が低い" / "予算外"), and summarize its primary cause in
-# `reject_class`. The reason remains canonical; the class is aggregation-only.
 #
 # Each field has one role under the Shortlist writing contract in
 # docs/reference/screening-runtime.md. Selected means that a candidate earns a
@@ -22,7 +21,7 @@
 #
 # The published narrative is read by the baibai-web /shortlist review surface.
 
-schema_version: 6
+schema_version: 7
 kind: shortlist
 shortlist_id: "shortlist-YYYYMMDD-<slug>"   # matches ^shortlist-\d{8}-[a-z0-9-]+$
 selection_id: "<selection_id from `screening select`>"
@@ -58,4 +57,3 @@ entries:
   - ticker: "YYYY"
     decision: rejected
     reason: "非選択の具体的理由"
-    reject_class: price_already_converged   # 未定義値は publish が許容値を列挙して拒否する

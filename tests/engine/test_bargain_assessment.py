@@ -11,16 +11,17 @@ import pytest
 from pydantic import ValidationError
 from tests.helpers.shortlist import rejected_entry, selected_entry, shortlist_payload
 
+from baibai_engine.read_api import bargain_assessment_payload
 from baibai_engine.research.assessment import (
     AssessmentConflictError,
     BargainAssessment,
-    BargainAssessmentService,
     assessment_draft_sha256,
 )
 from baibai_engine.research.assessment_scaffold import (
     UNREVIEWED_DRAFT_SHA256,
     scaffold_assessment,
 )
+from baibai_engine.research.assessment_service import BargainAssessmentService
 from baibai_engine.screening.shortlist import (
     SelectionBinding,
     Shortlist,
@@ -77,7 +78,6 @@ def _draft(db_path: Path, shortlist_id: str) -> dict[str, Any]:
     case = draft["cases"][0]
     case["disposition"] = "reject"
     case["disposition_reason"] = "5年期待値が要求利回りに届かない"
-    case["reject_class"] = "price_already_converged"
     for field in (
         "business_model",
         "value_capture",
@@ -105,7 +105,7 @@ def _bound(payload: dict[str, Any]) -> BargainAssessment:
     return BargainAssessment.model_validate(payload)
 
 
-def test_scaffold_fills_machine_values_from_the_thesis_and_leaves_judgment_blank(
+def test_scaffold_binds_the_thesis_without_copying_machine_values(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
@@ -122,9 +122,7 @@ def test_scaffold_fills_machine_values_from_the_thesis_and_leaves_judgment_blank
 
     case = draft["cases"][0]
     assert case["ticker"] == "2331"
-    assert case["machine"]["five_year_base_cagr_pct"] == pytest.approx(9.57)
-    assert case["machine"]["required_return_pct"] == pytest.approx(8.5)
-    assert case["machine"]["fair_value_yen"] == pytest.approx(1300.0)
+    assert "machine" not in case
     assert case["business_model"] == "TODO"
     assert draft["macro_context_id"] == "macro-context-2026-07-21-test"
     assert draft["result"] == "no_actionable_bargain"
@@ -157,31 +155,21 @@ def test_check_verifies_the_bindings_without_writing(app_method_root: Path) -> N
         assert connection.execute("SELECT count(*) FROM bargain_assessment").fetchone()[0] == 0
 
 
-@pytest.mark.parametrize("disposition", ["reject", "defer"])
-def test_reject_or_defer_case_requires_a_known_reject_class(
-    app_method_root: Path, disposition: str
-) -> None:
+def test_assessment_rejects_the_retired_reject_class_field(app_method_root: Path) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
     shortlist_id = _publish_shortlist(db_path)
     payload = _draft(db_path, shortlist_id)
-    payload["cases"][0]["disposition"] = disposition
-    del payload["cases"][0]["reject_class"]
-    with pytest.raises(ValidationError, match="must include a reject_class"):
-        BargainAssessment.model_validate(payload)
-
-    payload["cases"][0]["reject_class"] = "future_guess"
-    with pytest.raises(ValidationError, match="Input should be"):
+    payload["cases"][0]["reject_class"] = "other"
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         BargainAssessment.model_validate(payload)
 
 
-def test_selected_case_forbids_reject_class(app_method_root: Path) -> None:
+def test_assessment_rejects_the_retired_machine_copy(app_method_root: Path) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
     shortlist_id = _publish_shortlist(db_path)
     payload = _draft(db_path, shortlist_id)
-    payload["result"] = "buy"
-    payload["cases"][0]["disposition"] = "selected"
-
-    with pytest.raises(ValidationError, match="must not include a reject_class"):
+    payload["cases"][0]["machine"] = {}
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         BargainAssessment.model_validate(payload)
 
 
@@ -195,23 +183,6 @@ def test_publish_rejects_a_case_that_the_shortlist_did_not_select(
     assessment = _bound(payload)
 
     with pytest.raises(AssessmentConflictError, match="not a selected candidate"):
-        BargainAssessmentService(db_path).publish(assessment)
-
-
-@pytest.mark.parametrize(
-    "field",
-    ["five_year_base_cagr_pct", "fair_value_yen", "break_even_terminal_multiple"],
-)
-def test_publish_rejects_machine_values_edited_after_the_scaffold(
-    app_method_root: Path, field: str
-) -> None:
-    db_path = app_method_root / "stores/application/baibai.sqlite"
-    shortlist_id = _publish_shortlist(db_path)
-    payload = _draft(db_path, shortlist_id)
-    payload["cases"][0]["machine"][field] = 99.0
-    assessment = _bound(payload)
-
-    with pytest.raises(AssessmentConflictError, match=field):
         BargainAssessmentService(db_path).publish(assessment)
 
 
@@ -263,7 +234,6 @@ def test_a_buy_result_requires_an_independent_review(
     payload = _draft(db_path, shortlist_id)
     payload["result"] = "buy"
     payload["cases"][0]["disposition"] = "selected"
-    payload["cases"][0]["reject_class"] = None
 
     with pytest.raises(ValidationError, match="requires the selected independent review"):
         BargainAssessment.model_validate(payload)
@@ -276,7 +246,6 @@ def test_a_selected_case_cannot_appear_without_a_buy_result(
     shortlist_id = _publish_shortlist(db_path)
     payload = _draft(db_path, shortlist_id)
     payload["cases"][0]["disposition"] = "selected"
-    payload["cases"][0]["reject_class"] = None
 
     with pytest.raises(ValidationError, match="only a buy result"):
         BargainAssessment.model_validate(payload)
@@ -290,7 +259,6 @@ def test_publish_accepts_a_buy_bound_to_the_ready_thesis_and_review(
     payload = _draft(db_path, shortlist_id)
     payload["result"] = "buy"
     payload["cases"][0]["disposition"] = "selected"
-    payload["cases"][0]["reject_class"] = None
     payload["cases"][0]["disposition_reason"] = "要求利回りを上回る"
     with sqlite3.connect(db_path) as connection:
         payload["cases"][0]["review_id"] = connection.execute(
@@ -306,7 +274,7 @@ def test_publish_accepts_a_buy_bound_to_the_ready_thesis_and_review(
     )
 
 
-def test_scaffold_carries_the_permanent_loss_verdict_and_the_shortlist_question(
+def test_scaffold_carries_the_shortlist_question_without_a_machine_copy(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
@@ -322,7 +290,7 @@ def test_scaffold_carries_the_permanent_loss_verdict_and_the_shortlist_question(
     )
 
     case = draft["cases"][0]
-    assert case["machine"]["permanent_loss_conclusion"] in {"acceptable", "elevated", "unknown"}
+    assert "machine" not in case
     assert case["research_questions"] == [
         {
             "question": "決算短信と説明資料で受注残・粗利率を確認し、回復が無ければ一時要因仮説を棄却する",
@@ -333,18 +301,22 @@ def test_scaffold_carries_the_permanent_loss_verdict_and_the_shortlist_question(
     assert draft["review"]["draft_sha256"] == UNREVIEWED_DRAFT_SHA256
 
 
-def test_publish_rejects_a_permanent_loss_verdict_edited_after_the_scaffold(
+def test_read_surface_derives_machine_values_from_the_bound_thesis(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
     shortlist_id = _publish_shortlist(db_path)
-    payload = _draft(db_path, shortlist_id)
-    payload["cases"][0]["machine"]["permanent_loss_conclusion"] = "acceptable"
-    payload["cases"][0]["machine"]["adverse_risk_axes"] = []
-    assessment = _bound(payload)
+    assessment = _bound(_draft(db_path, shortlist_id))
+    BargainAssessmentService(db_path).publish(assessment)
 
-    with pytest.raises(AssessmentConflictError, match="permanent_loss_conclusion"):
-        BargainAssessmentService(db_path).publish(assessment)
+    payload = bargain_assessment_payload(db_path, assessment_id=assessment.assessment_id)
+
+    assert payload is not None
+    machine = payload["cases"][0]["machine"]
+    assert machine["five_year_base_cagr_pct"] == pytest.approx(9.57)
+    assert machine["required_return_pct"] == pytest.approx(8.5)
+    assert machine["fair_value_yen"] == pytest.approx(1300.0)
+    assert machine["permanent_loss_conclusion"] in {"acceptable", "elevated", "unknown"}
 
 
 def test_publish_rejects_a_draft_edited_after_the_content_review(

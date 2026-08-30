@@ -4,7 +4,7 @@ Runtime code creates the current shape or rejects a different version; semantic
 cutovers are explicit operator work against a verified backup.
 """
 
-APPLICATION_SCHEMA_VERSION = 17
+APPLICATION_SCHEMA_VERSION = 18
 
 SCHEMA_SQL = """
 CREATE TABLE task (
@@ -99,10 +99,7 @@ ON bargain_assessment(as_of, published_at, assessment_id);
 CREATE TABLE operation_session (
     operation_id TEXT PRIMARY KEY,
     session_kind TEXT NOT NULL CHECK (
-        session_kind IN (
-            'opportunity', 'pending-result', 'monthly-contribution',
-            'earnings-material-event', 'annual-outcome'
-        )
+        session_kind IN ('opportunity', 'earnings-material-event')
     ),
     status TEXT NOT NULL CHECK (status IN ('active', 'completed')),
     as_of TEXT NOT NULL,

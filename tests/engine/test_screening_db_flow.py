@@ -154,7 +154,7 @@ def test_reevaluation_suggestions_leave_stdout_a_single_yaml_document(
                 as_of=run.as_of_date,
                 entries=[
                     selected_entry("2331"),
-                    rejected_entry("0001", reason="決算前で見送り", reject_class="event_wait"),
+                    rejected_entry("0001", reason="決算前で見送り"),
                 ],
             ),
             sort_keys=False,

@@ -38,8 +38,6 @@ class ShortlistJudgment:
 
     ticker: str
     decision: str
-    # 棄却の主因分類。自由記述の disposition_reason が正本で、この分類は集計専用である。
-    reject_class: str | None
     ploss: str | None
     catalyst_date: date | None
     er_annual: float | None
@@ -82,7 +80,6 @@ def cohort_from_payload(payload: Mapping[str, object]) -> ShortlistCohort | None
             ShortlistJudgment(
                 ticker=str(entry["ticker"]),
                 decision=str(entry.get("decision", "")),
-                reject_class=_optional_str(entry.get("reject_class")),
                 ploss=_optional_str(narrative.get("ploss")),
                 catalyst_date=_optional_date(narrative.get("catalyst_date")),
                 er_annual=_optional_float(entry.get("er_annual")),
@@ -117,7 +114,6 @@ def with_machine_estimates(
             ShortlistJudgment(
                 ticker=item.ticker,
                 decision=item.decision,
-                reject_class=item.reject_class,
                 ploss=item.ploss,
                 catalyst_date=item.catalyst_date,
                 er_annual=item.er_annual
@@ -271,9 +267,6 @@ def evaluate_cohort(
         "pool_median_return_pct": round(benchmark * 100, 1),
         "selected": _cohort_summary(selected, resolved, benchmark),
         "rejected": _cohort_summary([item.ticker for item in cohort.rejected], resolved, benchmark),
-        # 棄却の型ごとの成績。どの棄却理由が高くついたかは、全体の中央値では見えない。
-        # 分類は集計専用であり、自動除外や ranking には使わない。
-        "rejected_by_class": _rejected_by_class(cohort, resolved, benchmark),
         # 日付つきカタリストを持つ選定と持たない選定の差。棄却行は narrative を持たない
         # ため、pool 全体で切ると選定そのものと交絡する。選定内で切ることでその交絡を
         # 避ける。分類は集計専用で、選定や ranking には使わない。
@@ -309,20 +302,6 @@ def _selected_by_catalyst(
         "basis": "selected_only",
         "dated_catalyst": _cohort_summary(dated, resolved, benchmark),
         "no_dated_catalyst": _cohort_summary(undated, resolved, benchmark),
-    }
-
-
-def _rejected_by_class(
-    cohort: ShortlistCohort,
-    resolved: Mapping[str, float],
-    benchmark: float,
-) -> dict[str, object]:
-    grouped: dict[str, list[str]] = {}
-    for item in cohort.rejected:
-        grouped.setdefault(item.reject_class or "unclassified", []).append(item.ticker)
-    return {
-        reject_class: _cohort_summary(tickers, resolved, benchmark)
-        for reject_class, tickers in sorted(grouped.items())
     }
 
 

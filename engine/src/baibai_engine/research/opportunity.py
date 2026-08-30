@@ -79,7 +79,7 @@ from .thesis import (
 TOOL_VERSION = "opportunity-v1"
 # Research reads the Research Gate judgment, so it only accepts the shortlist schema
 # that carries the current ranked-set snapshot.
-RESEARCH_GATE_SHORTLIST_SCHEMA_VERSION = 6
+RESEARCH_GATE_SHORTLIST_SCHEMA_VERSION = 7
 BOARD_LOT: int = PORTFOLIO_POLICY["order_constraints"]["board_lot"]
 # 対象 sizing 帯 (20-30万円 / 100株 = ¥2000-3000/株) はちょうど JPX 現物の ¥1 tick 帯。
 # max acceptable price の ceiling floor 丸めはこの帯で正確な ¥1 を使う。
@@ -1721,7 +1721,7 @@ def promote(
     _validate_editable_drafts(workspace, manifest, gate=gate)
     # Every researched ticker earns a canonical thesis, not only the one being bought.
     # A cycle that buys nothing still produced the judgment that says why, and the
-    # bargain assessment binds each case's machine values to a stored thesis.
+    # bargain assessment binds each case to a stored immutable thesis.
     _require_primary_research_ticker(workspace, ticker, action="promote", gate=gate)
 
     manifest_asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
