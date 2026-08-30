@@ -72,6 +72,42 @@ def _insert_research_triage(root: Path, payload: Mapping[str, object]) -> None:
         )
 
 
+def _insert_review_set(root: Path, *, review_set_id: str) -> str:
+    runs_db = root / "stores/screening/runs.sqlite"
+    run = ScreeningRunReader(runs_db).latest_run()
+    assert run is not None
+    payload = {
+        "review_set_id": review_set_id,
+        "run_revision_id": run.run_revision_id,
+        "as_of": run.as_of_date,
+        "method": {
+            "method_id": "multi-valuation-v1",
+            "method_hash": "0" * 64,
+            "review_capacity": 20,
+            "nomination_depth": 20,
+            "representation_targets": {
+                "current-earnings-power": 6,
+                "normalized-earnings-power": 5,
+                "asset-value": 5,
+                "reinvestment-value": 4,
+            },
+        },
+        "entries": [],
+    }
+    with sqlite3.connect(runs_db) as connection:
+        connection.execute(
+            "INSERT INTO review_set(review_set_id, run_revision_id, created_at, payload) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                review_set_id,
+                run.run_revision_id,
+                "2026-07-08T12:01:00+09:00",
+                canonical_json(payload),
+            ),
+        )
+    return run.run_revision_id
+
+
 def _seed_macro_observations(root: Path) -> None:
     conn = open_connection(root / "stores/macro/macro.sqlite")
     try:
@@ -394,10 +430,14 @@ def test_export_skips_security_view_for_ticker_no_source_knows(
     app_method_root: Path, tmp_path: Path, capsys
 ) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    run_revision_id = _insert_review_set(
+        app_method_root,
+        review_set_id="review-set-current",
+    )
     payload = research_triage_payload(
         research_triage_id="research_triage-20260708-value",
-        review_set_id="selection-old",
-        run_revision_id="run-revision-old",
+        review_set_id="review-set-current",
+        run_revision_id=run_revision_id,
         as_of="2026-07-08",
         published_at="2026-07-08T13:00:00+09:00",
         entries=[skip_entry("9999", reason="決算後に再評価")],
@@ -416,6 +456,7 @@ def test_export_projects_research_triage_partial_machine_snapshot(
     app_method_root: Path, tmp_path: Path
 ) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    run_revision_id = _insert_review_set(app_method_root, review_set_id="review_set-test")
     snapshot = {
         "review_position": 4,
         "nominations": [
@@ -430,7 +471,10 @@ def test_export_projects_research_triage_partial_machine_snapshot(
         "fair_value": None,
         "data_quality": {"stale_fin_flag": False},
     }
-    payload = research_triage_payload(entries=[skip_entry("2331", machine_snapshot=snapshot)])
+    payload = research_triage_payload(
+        run_revision_id=run_revision_id,
+        entries=[skip_entry("2331", machine_snapshot=snapshot)],
+    )
     _insert_research_triage(app_method_root, payload)
     output_dir = tmp_path / "export"
 
@@ -449,7 +493,9 @@ def test_export_counts_malformed_research_triage_snapshot_as_unreadable(
     app_method_root: Path, tmp_path: Path
 ) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    run_revision_id = _insert_review_set(app_method_root, review_set_id="review_set-test")
     payload = research_triage_payload(
+        run_revision_id=run_revision_id,
         entries=[
             skip_entry(
                 "2331",
@@ -462,7 +508,7 @@ def test_export_counts_malformed_research_triage_snapshot_as_unreadable(
                     "data_quality": None,
                 },
             )
-        ]
+        ],
     )
     _insert_research_triage(app_method_root, payload)
     output_dir = tmp_path / "export"

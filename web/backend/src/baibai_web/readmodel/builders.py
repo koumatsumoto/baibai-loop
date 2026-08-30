@@ -324,8 +324,10 @@ def build_screening(
     research_triages: list[ResearchTriageView] = []
     assessments: list[CapitalAllocationAssessmentSummaryView] = []
     if isinstance(candidates, DbCandidatesSource):
-        research_triages = [_research_triage_view(item) for item in candidates.research_triages()]
-        assessments = [_assessment_summary_view(item) for item in candidates.assessments()]
+        research_triages, assessments = _current_screening_judgments(
+            candidates,
+            review_sets=review_sets,
+        )
     if run is None:
         return ScreeningView(
             run=None,
@@ -355,6 +357,38 @@ def build_screening(
         research_triages=research_triages,
         capital_allocation_assessments=assessments,
         er_level_calibration=_er_level_calibration_view(applicable_calibration),
+    )
+
+
+def _current_screening_judgments(
+    candidates: DbCandidatesSource,
+    *,
+    review_sets: list[ReviewSetView],
+) -> tuple[list[ResearchTriageView], list[CapitalAllocationAssessmentSummaryView]]:
+    """Show only the Research Triage -> allocation judgments for the displayed Review Set."""
+
+    review_set_sources = {
+        (review_set.review_set_id, review_set.run_revision_id) for review_set in review_sets
+    }
+    current_triages = [
+        item
+        for item in candidates.research_triages(
+            review_set_ids=[review_set.review_set_id for review_set in review_sets]
+        )
+        if (str(item.get("review_set_id")), str(item.get("run_revision_id"))) in review_set_sources
+    ]
+    triage_ids = {str(item["research_triage_id"]) for item in current_triages}
+    triage_views = [_research_triage_view(item) for item in current_triages]
+    if not triage_ids:
+        return triage_views, []
+    current_assessments = [
+        item
+        for item in candidates.assessments()
+        if str(item.get("research_triage_id")) in triage_ids
+    ]
+    return (
+        triage_views,
+        [_assessment_summary_view(item) for item in current_assessments],
     )
 
 

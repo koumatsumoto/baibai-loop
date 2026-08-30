@@ -35,6 +35,7 @@ from baibai_engine.read_api import (
     portfolio_ledger_document,
     previous_business_day,
     reconcile_portfolio,
+    research_triage_payloads_for_review_set,
     safe_load,
     screening_latest_asof,
     screening_review_set_payloads,
@@ -401,9 +402,27 @@ class DbCandidatesSource:
             run_revision_id=run_revision_id,
         )
 
-    def research_triages(self) -> list[dict[str, object]]:
-        latest = latest_research_triage_payload(self._app_path)
-        return [] if latest is None else [latest]
+    def research_triages(
+        self,
+        *,
+        review_set_ids: Sequence[str] | None = None,
+    ) -> list[dict[str, object]]:
+        if review_set_ids is None:
+            latest = latest_research_triage_payload(self._app_path)
+            return [] if latest is None else [latest]
+        latest_by_review_set: list[dict[str, object]] = []
+        for review_set_id in dict.fromkeys(review_set_ids):
+            payloads = research_triage_payloads_for_review_set(
+                self._app_path,
+                review_set_id,
+            )
+            if payloads:
+                latest_by_review_set.append(payloads[0])
+        return sorted(
+            latest_by_review_set,
+            key=lambda item: str(item["published_at"]),
+            reverse=True,
+        )
 
     def assessments(self) -> list[dict[str, object]]:
         return list_capital_allocation_assessment_payloads(self._app_path)

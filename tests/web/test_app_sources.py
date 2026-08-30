@@ -124,6 +124,39 @@ class TestDbCandidatesSource:
         assert run.screening_rules_hash == "rules-hash-v1"
         assert run.er_model_version == "expected-return-v1"
 
+    def test_research_triages_returns_the_latest_judgment_for_each_review_set(
+        self,
+        tmp_path: Path,
+        mocker,
+    ) -> None:
+        read = mocker.patch(
+            "baibai_web.sources.db_sources.research_triage_payloads_for_review_set",
+            side_effect=[
+                [
+                    {
+                        "research_triage_id": "triage-a",
+                        "published_at": "2026-08-28T14:00:00+09:00",
+                    },
+                    {
+                        "research_triage_id": "triage-a-old",
+                        "published_at": "2026-08-28T13:00:00+09:00",
+                    },
+                ],
+                [
+                    {
+                        "research_triage_id": "triage-b",
+                        "published_at": "2026-08-28T15:00:00+09:00",
+                    }
+                ],
+            ],
+        )
+        source = DbCandidatesSource(tmp_path / "runs.sqlite", tmp_path / "app.sqlite")
+
+        triages = source.research_triages(review_set_ids=["review-set-a", "review-set-b"])
+
+        assert [item["research_triage_id"] for item in triages] == ["triage-b", "triage-a"]
+        assert [call.args[1] for call in read.call_args_list] == ["review-set-a", "review-set-b"]
+
 
 class TestDbMarketPriceSource:
     """The daily-delta reads, whose behaviour is `test_market_read_api.py`'s.
