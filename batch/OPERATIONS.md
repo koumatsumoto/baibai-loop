@@ -25,6 +25,18 @@ method/rules変更後は旧snapshotやlake partitionを変換せず、
 （`R2_SERVING_UPLOAD_CONCURRENCY=10`）。同規模の通常見積りは12分、外部timeoutは20分とする。
 20分を超えた場合だけrunのcurrent stepとstderrを1回確認し、未完了なら再びrunの終了通知を待つ。
 
+## cloud-daily-batch の所要時間
+
+`cloud-daily-batch`はdispatch後に対象runを特定し、`gh run watch <run-id> --exit-status --compact --interval 60`
+でworkflowの終了通知まで待つ。固定時刻を決めた再確認や、短い間隔での手動pollは挟まない。
+
+2026-08-31に`asof=2026-08-28`で実行した実測は合計28分30秒だった。内訳はsetupとpreflightが約38秒、
+machine store pullが31秒、L1 hydrateが3分41秒、daily batchが5分25秒、L1 publishが10分15秒、
+machine storeとserving viewのuploadが7分46秒、tail publishが5秒だった。同規模の通常見積りは35分、
+外部timeoutは60分とする。60分を超えた場合だけrunのcurrent stepとstderrを1回確認し、workflow自体が
+activeなら再dispatchせず、再び終了通知を待つ。workflowのhard timeoutは90分であり、外部timeout到達だけを
+失敗やcancelの根拠にしない。
+
 ## Cloudflare / GitHub Actions 構成
 
 R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPublic Development URLとcustom domainを無効にする。
@@ -526,9 +538,11 @@ market calendarで判定し、非営業日は成功扱いでskipする。過去�
 gh workflow run cloud-daily-batch.yml --ref main
 gh workflow run cloud-daily-batch.yml --ref main -f asof=YYYY-MM-DD
 gh run list --workflow cloud-daily-batch.yml --limit 10
+gh run watch RUN_ID --exit-status --compact --interval 60
 ```
 
-**成功確認**: `gh run list`で対象runのconclusionを確認し、Discord通知、store push、serving freshnessを照合する。
+**成功確認**: 対象runの終了通知を受けてconclusionを確認し、Discord通知、store push、serving freshnessを照合する。
+所要時間の見積りと待機契約は[cloud-daily-batch の所要時間](#cloud-daily-batch-の所要時間)に従う。
 
 **停止と復旧**: coverage不足やexit 1ではuploadしない。原因をローカルで直す。exit 3はfresh screeningを
 publish済みなので再dispatchせず、Discord `[DEGRADED]`が示す繰延べstepを復旧する。
