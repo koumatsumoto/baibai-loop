@@ -707,14 +707,13 @@ def _validate_current_schema(conn: sqlite3.Connection, tables: set[str]) -> None
     user_version = int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
     if user_version != SQLITE_SCHEMA_VERSION:
         raise SQLiteSchemaError(
-            "unsupported screening SQLite schema; remove the SQLite file and rebuild it with "
-            "`bootstrap-cache --asof` and `extract-edinet-metrics` "
+            "obsolete market SQLite schema; replace it with a current local build "
             f"(found user_version={user_version}, expected={SQLITE_SCHEMA_VERSION})"
         )
     missing = sorted(set(_REQUIRED_TABLES) - tables)
     if missing:
         raise SQLiteSchemaError(
-            "screening SQLite schema is incomplete; remove the SQLite file and rebuild it "
+            "market SQLite schema is incomplete; replace it with a current local build "
             f"(missing tables: {', '.join(missing)})"
         )
     expected_tables, expected_indexes = _expected_schema_shape()
@@ -724,25 +723,25 @@ def _validate_current_schema(conn: sqlite3.Connection, tables: set[str]) -> None
         missing_columns = sorted(set(required_columns) - existing_columns)
         if missing_columns:
             raise SQLiteSchemaError(
-                "screening SQLite schema is incomplete; remove the SQLite file and rebuild it "
+                "market SQLite schema is incomplete; replace it with a current local build "
                 f"(missing columns in {table}: {', '.join(missing_columns)})"
             )
         if existing_info != expected_tables[table]:
             raise SQLiteSchemaError(
-                "screening SQLite schema is incomplete; remove the SQLite file and rebuild it "
+                "market SQLite schema is incomplete; replace it with a current local build "
                 f"(table shape mismatch: {table})"
             )
     for index_name, expected_index in expected_indexes.items():
         existing_index = _index_info(conn, expected_index[0], index_name)
         if existing_index != expected_index:
             raise SQLiteSchemaError(
-                "screening SQLite schema is incomplete; remove the SQLite file and rebuild it "
+                "market SQLite schema is incomplete; replace it with a current local build "
                 f"(index shape mismatch: {index_name})"
             )
 
 
 def validate_current_schema(conn: sqlite3.Connection) -> None:
-    """Validate that an existing screening SQLite connection has the current schema."""
+    """Validate that an existing market SQLite connection has the current schema."""
     _validate_current_schema(conn, _existing_tables(conn))
 
 

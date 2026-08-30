@@ -9,8 +9,9 @@ from datetime import date
 from pathlib import Path
 
 from baibai_engine.screening.run_store import ScreeningRunReader
+from baibai_engine.screening.run_store import connect_read_only as connect_run_store_read_only
 
-from .sqlite import connect_read_only, is_unwritten_store, read_rows
+from .sqlite import is_unwritten_store, read_rows
 
 
 def screening_calibration_method_identity(root: Path) -> tuple[str, str] | None:
@@ -49,7 +50,7 @@ def previous_run_revision_id(path: Path, asof: date) -> str | None:
 
     if not path.is_file():
         return None
-    with closing(connect_read_only(path)) as connection:
+    with closing(connect_run_store_read_only(path)) as connection:
         row = connection.execute(
             "SELECT run_revision_id FROM screening_run WHERE asof_date < ? "
             "ORDER BY asof_date DESC, run_at DESC, run_revision_id DESC LIMIT 1",
@@ -82,6 +83,7 @@ def screening_run_payload(
             LIMIT 1
             """,
             (as_of_date.isoformat(),),
+            connector=connect_run_store_read_only,
         )
         run = _absent_as_none(path, lambda: reader.get_run(str(rows[0][0]))) if rows else None
     else:
@@ -103,6 +105,7 @@ def screening_run_asof_dates(path: Path, *, limit: int = 31) -> list[date]:
         LIMIT ?
         """,
         (limit,),
+        connector=connect_run_store_read_only,
     )
     return [date.fromisoformat(str(row[0])) for row in rows]
 

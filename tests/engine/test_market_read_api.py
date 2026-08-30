@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import sqlite3
 from datetime import date
 from pathlib import Path
 
+from baibai_engine.market.sqlite.schema import open_connection
 from baibai_engine.read_api.market import (
     close_change_since,
     latest_disclosure_dates_after,
@@ -15,13 +15,8 @@ from baibai_engine.read_api.market import (
 
 
 def _seed_bars(path: Path, rows: list[tuple[str, str, float | None]]) -> None:
-    connection = sqlite3.connect(path)
+    connection = open_connection(path)
     try:
-        connection.execute(
-            "CREATE TABLE jquants_daily_bars("
-            "ticker TEXT NOT NULL, traded_at TEXT NOT NULL, close REAL, "
-            "PRIMARY KEY (ticker, traded_at))"
-        )
         connection.executemany(
             "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
             rows,
@@ -61,13 +56,8 @@ def test_latest_unadjusted_closes_is_empty_without_file_or_tickers(tmp_path: Pat
 
 
 def _seed_earnings(path: Path, rows: list[tuple[str, str]]) -> None:
-    connection = sqlite3.connect(path)
+    connection = open_connection(path)
     try:
-        connection.execute(
-            "CREATE TABLE jpx_earnings_calendar("
-            "announcement_date TEXT NOT NULL, ticker TEXT NOT NULL, "
-            "PRIMARY KEY (announcement_date, ticker))"
-        )
         connection.executemany(
             "INSERT INTO jpx_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",
             [(announcement_date, ticker) for ticker, announcement_date in rows],
@@ -115,13 +105,8 @@ def test_next_earnings_dates_is_empty_without_file_tickers_or_future_dates(
 def _seed_bars_with_factors(
     path: Path, rows: list[tuple[str, str, float | None, float | None]]
 ) -> None:
-    connection = sqlite3.connect(path)
+    connection = open_connection(path)
     try:
-        connection.execute(
-            "CREATE TABLE jquants_daily_bars("
-            "ticker TEXT NOT NULL, traded_at TEXT NOT NULL, close REAL, "
-            "adjustment_factor REAL, PRIMARY KEY (ticker, traded_at))"
-        )
         connection.executemany(
             "INSERT INTO jquants_daily_bars(ticker, traded_at, close, adjustment_factor) "
             "VALUES (?, ?, ?, ?)",
@@ -133,12 +118,8 @@ def _seed_bars_with_factors(
 
 
 def _seed_calendar(path: Path, rows: list[tuple[str, int]]) -> None:
-    connection = sqlite3.connect(path)
+    connection = open_connection(path)
     try:
-        connection.execute(
-            "CREATE TABLE jquants_market_calendar("
-            "day TEXT NOT NULL PRIMARY KEY, is_business_day INTEGER NOT NULL)"
-        )
         connection.executemany(
             "INSERT INTO jquants_market_calendar(day, is_business_day) VALUES (?, ?)", rows
         )
@@ -234,12 +215,8 @@ def test_close_change_since_is_empty_without_file_or_tickers(tmp_path: Path) -> 
 
 def test_latest_disclosure_dates_after_excludes_the_boundary_day(tmp_path: Path) -> None:
     database = tmp_path / "market.sqlite"
-    connection = sqlite3.connect(database)
+    connection = open_connection(database)
     try:
-        connection.execute(
-            "CREATE TABLE jquants_fin_summaries("
-            "ticker TEXT NOT NULL, disclosed_at TEXT NOT NULL, PRIMARY KEY (ticker, disclosed_at))"
-        )
         connection.executemany(
             "INSERT INTO jquants_fin_summaries(ticker, disclosed_at) VALUES (?, ?)",
             [

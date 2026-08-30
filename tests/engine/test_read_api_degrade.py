@@ -8,6 +8,7 @@ import inspect
 import json
 import re
 import sqlite3
+from collections.abc import Callable
 from contextlib import closing
 from datetime import date
 from pathlib import Path
@@ -15,11 +16,14 @@ from pathlib import Path
 import pytest
 
 import baibai_engine.read_api as read_api
+from baibai_engine.appdb.schema import APPLICATION_SCHEMA_VERSION
 from baibai_engine.appdb.write import initialize_database
 from baibai_engine.macro.indicators.db import initialize_database as initialize_macro_database
 from baibai_engine.market.sqlite.schema import _SCHEMA_SQL as MARKET_SCHEMA_SQL
+from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 from baibai_engine.read_api.sqlite import read_rows
 from baibai_engine.screening.run_store import initialize_run_store
+from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
 
 # These parse Git-managed YAML paths, not runtime stores.
 _NOT_STORE_READERS = frozenset(
@@ -39,7 +43,6 @@ _WRITE_GATES = frozenset({"market_calendar_business_day", "previous_run_revision
 _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
     {
         *_NOT_STORE_READERS,
-        "connect_read_only",  # opens the connection the queries run on, not a query
         "is_unwritten_store",  # classifies an exception, not a store
         "macro_registered_series",  # reads the bundled definitions, not a store
         "macro_series_names",  # reads the bundled definitions, not a store
@@ -186,6 +189,36 @@ def test_the_daily_batch_gates_report_an_unwritten_store_instead_of_degrading(
         read_api.previous_run_revision_id(empty, date(2026, 7, 29))
 
 
+def test_screening_read_helpers_accept_the_current_run_store(tmp_path: Path) -> None:
+    current = tmp_path / "runs.sqlite"
+    initialize_run_store(current)
+
+    assert read_api.screening_run_asof_dates(current) == []
+    assert read_api.previous_run_revision_id(current, date(2026, 7, 29)) is None
+
+
+@pytest.mark.parametrize(
+    "reader",
+    [
+        lambda path: read_api.screening_run_asof_dates(path),
+        lambda path: read_api.previous_run_revision_id(path, date(2026, 7, 29)),
+    ],
+)
+def test_screening_read_helpers_reject_an_obsolete_run_store(
+    tmp_path: Path, reader: Callable[[Path], object]
+) -> None:
+    obsolete = tmp_path / "runs.sqlite"
+    initialize_run_store(obsolete)
+    with sqlite3.connect(obsolete) as connection:
+        connection.execute(f"PRAGMA user_version = {RUN_STORE_SCHEMA_VERSION - 1}")
+
+    with pytest.raises(
+        RuntimeError,
+        match=rf"found {RUN_STORE_SCHEMA_VERSION - 1}, expected {RUN_STORE_SCHEMA_VERSION}",
+    ):
+        reader(obsolete)
+
+
 def _tables_named_in_read_api_sql() -> set[str]:
     """Every table read_api's own SQL names, taken from the source rather than a list."""
 
@@ -245,11 +278,32 @@ def test_read_rows_still_raises_for_a_broken_query(tmp_path: Path) -> None:
     with sqlite3.connect(store) as connection:
         connection.execute("CREATE TABLE shortlist (payload TEXT)")
 
-    assert read_rows(store, "SELECT payload FROM absent_table") == []
+    with pytest.raises(sqlite3.OperationalError, match="no such table"):
+        read_rows(store, "SELECT payload FROM absent_table")
     with pytest.raises(sqlite3.OperationalError, match="no such column"):
         read_rows(store, "SELECT absent_column FROM shortlist")
     with pytest.raises(sqlite3.OperationalError, match="syntax error"):
         read_rows(store, "SELEKT payload FROM shortlist")
+
+
+def test_application_reader_rejects_an_obsolete_store_before_querying(tmp_path: Path) -> None:
+    store = tmp_path / "application-v16.sqlite"
+    initialize_database(store)
+    with sqlite3.connect(store) as connection:
+        connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION - 1}")
+
+    with pytest.raises(RuntimeError, match="obsolete application database schema"):
+        read_api.list_shortlist_payloads(store)
+
+
+def test_market_reader_rejects_an_obsolete_store_instead_of_degrading(tmp_path: Path) -> None:
+    store = tmp_path / "market-v24.sqlite"
+    with sqlite3.connect(store) as connection:
+        connection.executescript(MARKET_SCHEMA_SQL)
+        connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
+
+    with pytest.raises(RuntimeError, match="obsolete market SQLite schema"):
+        read_api.next_earnings_dates(store, ["2331"], asof=date(2026, 8, 30))
 
 
 def test_shortlist_list_and_latest_agree_on_the_newest_row(tmp_path: Path) -> None:
@@ -257,6 +311,7 @@ def test_shortlist_list_and_latest_agree_on_the_newest_row(tmp_path: Path) -> No
 
     store = tmp_path / "app.sqlite"
     with sqlite3.connect(store) as connection:
+        connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
         connection.execute(
             "CREATE TABLE shortlist (shortlist_id TEXT, as_of TEXT, published_at TEXT, "
             "payload TEXT)"
@@ -281,6 +336,7 @@ def test_shortlist_list_and_latest_agree_on_the_newest_row(tmp_path: Path) -> No
 
 def _store_with_shortlist(store: Path, payload: dict[str, object]) -> None:
     with sqlite3.connect(store) as connection:
+        connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
         connection.execute(
             "CREATE TABLE shortlist (shortlist_id TEXT, as_of TEXT, published_at TEXT, "
             "payload TEXT)"
@@ -321,6 +377,7 @@ def test_shortlist_payloads_for_selection_answers_by_the_selection_it_judged(
 
     store = tmp_path / "app.sqlite"
     with sqlite3.connect(store) as connection:
+        connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
         connection.execute(
             "CREATE TABLE shortlist (shortlist_id TEXT, selection_id TEXT, as_of TEXT, "
             "published_at TEXT, payload TEXT)"
@@ -364,6 +421,7 @@ def test_shortlist_payloads_for_selection_returns_every_judgment_newest_first(
 
     store = tmp_path / "app.sqlite"
     with sqlite3.connect(store) as connection:
+        connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
         connection.execute(
             "CREATE TABLE shortlist (shortlist_id TEXT, selection_id TEXT, as_of TEXT, "
             "published_at TEXT, payload TEXT)"
@@ -401,6 +459,7 @@ def test_shortlist_payloads_for_selection_returns_every_judgment_newest_first(
 def test_shortlist_reader_rejects_an_unknown_version(tmp_path: Path) -> None:
     store = tmp_path / "app.sqlite"
     with sqlite3.connect(store) as connection:
+        connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
         connection.execute(
             "CREATE TABLE shortlist (shortlist_id TEXT, as_of TEXT, published_at TEXT, "
             "payload TEXT)"
@@ -425,6 +484,7 @@ def test_assessment_reader_rejects_each_retired_version(
 ) -> None:
     store = tmp_path / "app.sqlite"
     with sqlite3.connect(store) as connection:
+        connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
         connection.execute(
             "CREATE TABLE bargain_assessment (assessment_id TEXT, as_of TEXT, "
             "published_at TEXT, payload TEXT)"
@@ -452,6 +512,7 @@ def test_assessment_reader_rejects_each_retired_version(
 def test_assessment_reader_rejects_an_unknown_version(tmp_path: Path) -> None:
     store = tmp_path / "app.sqlite"
     with sqlite3.connect(store) as connection:
+        connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
         connection.execute(
             "CREATE TABLE bargain_assessment (assessment_id TEXT, as_of TEXT, "
             "published_at TEXT, payload TEXT)"

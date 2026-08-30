@@ -91,7 +91,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python -m baibai_engine.research_watch",
         description=(
             "Emit a read-only YAML watch for the latest promoted research thesis of every "
-            "ticker, whichever lane it ended in — buy, defer, or reject. This command never "
+            "ticker, whichever assessment result it ended in — buy, defer, or reject. "
+            "This command never "
             "proposes an order or updates canonical records."
         ),
     )
@@ -189,7 +190,7 @@ def build_watch(
             "resolved_count": len(resolved),
             "unresolved_count": len(unresolved),
         },
-        # 買い直しの合図は未保有 lane だけに出す。保有中の「FV 未満」は value 保有の
+        # 買い直しの合図は未保有 case だけに出す。保有中の「FV 未満」は value 保有の
         # 定常状態で毎日出続けるので、混ぜると本命の 1 行が恒常ノイズに埋もれる。
         # 保有側の FV 到達は holding review が close >= FV で判定する別 trigger である。
         "triggered": [
@@ -474,7 +475,7 @@ def _watch_row(
         "close_as_of": observation.close_as_of.isoformat() if observation.close_as_of else None,
         "thesis_fair_value_yen": _decimal_number(fair_value),
         "thesis_fv_gap_pct": gap,
-        # 終値が研究 FV 以下か。未保有 lane では買い直しを考える合図になるが、保有中は
+        # 終値が研究 FV 以下か。未保有 case では買い直しを考える合図になるが、保有中は
         # FV 未満が value 保有の定常状態なので、これ単独では事象にならない。保有側の
         # 「FV 到達」は holding review の定義 close >= FV であって逆向きである。
         "close_at_or_below_research_fv": (

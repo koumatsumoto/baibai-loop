@@ -1,18 +1,17 @@
-"""Read-only SQLite connections for domain queries and application views."""
+"""Fail-close read connections keep obsolete market stores out of judgment views."""
 
 from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
 
-from .paths import database_path
-from .schema import APPLICATION_SCHEMA_VERSION
+from .schema import validate_current_schema
 
 
-def connect_read_only(path: Path | None = None) -> sqlite3.Connection:
-    """Open an unwritten or current application store without mutating it."""
+def connect_read_only(path: Path) -> sqlite3.Connection:
+    """Open an unwritten or current market store without initializing it."""
 
-    resolved = database_path(path).resolve()
+    resolved = path.resolve()
     connection = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
     try:
         connection.row_factory = sqlite3.Row
@@ -28,13 +27,7 @@ def connect_read_only(path: Path | None = None) -> sqlite3.Connection:
         )
         if version == 0 and not has_tables:
             return connection
-        if version != APPLICATION_SCHEMA_VERSION:
-            raise RuntimeError(
-                "obsolete application database schema; publish a store cut over by the "
-                "matching application release "
-                f"(found user_version={version}, expected={APPLICATION_SCHEMA_VERSION}): "
-                f"{resolved}"
-            )
+        validate_current_schema(connection)
         return connection
     except Exception:
         connection.close()

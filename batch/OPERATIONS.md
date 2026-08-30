@@ -614,7 +614,7 @@ uv run python -m baibai_web.materialize --output-dir <dir> [--batch daily|manual
 
 この一覧と Worker の route 表の対応は `tests/web/test_cloud_export.py` が守る。Worker が写像する view を exporter が書かないと、その route は本番で恒久的に 404 になる。
 
-書き出しの前に application store の `user_version` が code の schema version と一致することを確認し、不一致なら view を 1 件も作らず exit 1 で停止する（読み取り経路は read-only で初期化もcutoverもしないため、不一致は build の途中で素の SQL error になる）。store が無い root は judgment 空の正常状態として export する。
+書き出しの前に application store の `user_version` とmarket storeの完全なschema shapeがcodeのcurrent schemaと一致することを確認し、不一致ならviewを1件も作らずexit 1で停止する。その後、market storeがhydrate済みかを判定する。読み取り経路はread-onlyで初期化もcutoverもしない。storeが無いrootまたはtableを一つも持たないunwritten storeは空の正常状態としてexportする。
 
 `views/` は毎回 export の完全な像に置換される（実行のたびに一度削除して作り直すので、対象から外れた古い view は残らない）。`history/` は追記のみで、この script は削除を行わない。上記の31日 / 400日削除は serving store（R2 lifecycle）側の保持契約であり、script の挙動ではない。
 

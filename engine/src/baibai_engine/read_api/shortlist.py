@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .sqlite import read_rows
+from .sqlite import read_application_rows as read_rows
 
 # Both queries must name the same newest shortlist, so they share one total order.
 _SELECT = "SELECT payload FROM shortlist ORDER BY as_of DESC, published_at DESC, shortlist_id DESC"

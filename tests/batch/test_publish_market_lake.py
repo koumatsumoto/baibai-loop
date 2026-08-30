@@ -187,3 +187,10 @@ def test_the_publication_is_floored_on_what_the_serving_release_covers() -> None
     assert "_resolve_serving_release" in assignments["serving_release"]
     assert "serving_release" in assignments["published_coverage_start"]
     assert "fixed_base" not in assignments
+
+
+def test_active_reference_names_the_sole_forward_publication_command() -> None:
+    reference = (ROOT / "docs/reference/market-lake.md").read_text(encoding="utf-8")
+
+    assert "batch/scripts/r2_transfer.sh publish-lake" in reference
+    assert "python -m baibai_batch.storage.lake_publish" not in reference

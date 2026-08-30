@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Sequence
 from contextlib import closing
 from datetime import date, timedelta
@@ -12,12 +13,17 @@ from baibai_engine.market.bars import (
     JQuantsDailyBar,
     asof_basis_closes,
 )
+from baibai_engine.market.sqlite.read import connect_read_only
 
-from .sqlite import connect_read_only, read_rows
+from .sqlite import read_rows as _read_rows
 
 # How far before the requested start a bar may sit: the market is closed for up to
 # a week around the New Year, so a shorter window would drop the comparison端.
 _CHANGE_START_LOOKBACK_DAYS = 15
+
+
+def read_rows(path: Path, sql: str, parameters: Sequence[object] = ()) -> list[sqlite3.Row]:
+    return _read_rows(path, sql, parameters, connector=connect_read_only)
 
 
 def market_calendar_business_day(path: Path, day: date) -> bool | None:

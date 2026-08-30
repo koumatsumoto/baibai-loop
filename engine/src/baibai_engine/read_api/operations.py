@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 from typing import Literal
 
-from .sqlite import read_rows
+from .sqlite import read_application_rows as read_rows
 
 OperationStatus = Literal["active", "completed"]
 

@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 from baibai_engine.macro.indicators.definitions import load_definitions
 
-from .sqlite import read_rows
+from .sqlite import read_application_rows, read_rows
 
 # Judgment-layer stores are all JST-domain records. Date-only columns
 # (task dates, holding-review as-of) and any timezone-naive value are read at JST
@@ -76,7 +76,7 @@ def application_db_updated_at(path: Path) -> datetime | None:
     # actually show instead of blanking the freshness badge during initialization.
     latest: datetime | None = None
     for table, column in _WRITE_INSTANT_COLUMNS:
-        rows = read_rows(
+        rows = read_application_rows(
             path,
             # Fixed pairs from the tuple below; no caller input reaches this string.
             f"SELECT max({column}) FROM {table}",  # nosec B608

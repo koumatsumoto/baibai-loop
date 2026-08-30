@@ -1,4 +1,4 @@
-"""Publish validated lake graphs to R2, switching their mutable pointer last by CAS."""
+"""Bootstrap or retry one sealed lake graph; forward publication uses publish-lake."""
 
 from __future__ import annotations
 
@@ -914,8 +914,8 @@ def main(argv: list[str] | None = None) -> int:
             or serving.pointer.manifest_sha256 != release_sha256
         ):
             raise LakePublishError(
-                "low-level publication cannot replace current; use publish_market_lake "
-                "for a forward publication"
+                "low-level publication cannot replace current; use "
+                "batch/scripts/r2_transfer.sh publish-lake for a forward publication"
             )
         release_report = publish_l1_release(
             mirror_root=args.mirror,

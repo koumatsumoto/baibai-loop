@@ -39,6 +39,35 @@ class SelectionPublication:
         return self.as_of_date
 
 
+def connect_read_only(path: Path | None = None) -> sqlite3.Connection:
+    """Open the run store read-only and require its current schema."""
+
+    resolved = run_store_path(path).resolve()
+    connection = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA query_only = ON")
+    connection.execute("PRAGMA foreign_keys = ON")
+    try:
+        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        has_tables = connection.execute(
+            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
+        ).fetchone()
+        if version == 0 and has_tables is None:
+            # An untouched file is the same no-store state as an absent path. The
+            # first domain query raises OperationalError, which read_api degrades to
+            # no publication; it is not an obsolete store accepted as current.
+            return connection
+        if version != RUN_STORE_SCHEMA_VERSION:
+            raise RuntimeError(
+                "screening run store schema is not current "
+                f"(found {version}, expected {RUN_STORE_SCHEMA_VERSION}); rebuild it"
+            )
+        return connection
+    except BaseException:
+        connection.close()
+        raise
+
+
 class ScreeningRunReader:
     def __init__(self, path: Path | None = None) -> None:
         self._path = path
@@ -170,31 +199,7 @@ class ScreeningRunReader:
             return [_selection_from_row(row) for row in rows]
 
     def _connect(self) -> sqlite3.Connection:
-        path = run_store_path(self._path).resolve()
-        connection = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA query_only = ON")
-        connection.execute("PRAGMA foreign_keys = ON")
-        try:
-            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-            has_tables = connection.execute(
-                "SELECT 1 FROM sqlite_schema "
-                "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
-            ).fetchone()
-            if version == 0 and has_tables is None:
-                # An untouched file is the same no-store state as an absent path. The
-                # first domain query raises OperationalError, which read_api degrades to
-                # no publication; it is not an obsolete store accepted as current.
-                return connection
-            if version != RUN_STORE_SCHEMA_VERSION:
-                raise RuntimeError(
-                    "screening run store schema is not current "
-                    f"(found {version}, expected {RUN_STORE_SCHEMA_VERSION}); rebuild it"
-                )
-            return connection
-        except BaseException:
-            connection.close()
-            raise
+        return connect_read_only(self._path)
 
 
 def _run_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> RunPublication:

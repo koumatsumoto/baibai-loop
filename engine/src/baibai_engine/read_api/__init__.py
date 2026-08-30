@@ -62,6 +62,7 @@ from .materialization import (
     validate_application_store_schema,
     validate_macro_reading_rules,
     validate_market_store_hydration,
+    validate_market_store_schema,
 )
 from .operations import list_operation_sessions
 from .position import list_portfolio_outcome_payloads, portfolio_ledger_document
@@ -143,5 +144,6 @@ __all__ = [
     "validate_application_store_schema",
     "validate_macro_reading_rules",
     "validate_market_store_hydration",
+    "validate_market_store_schema",
     "worst_close_drawdown",
 ]

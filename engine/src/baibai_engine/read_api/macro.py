@@ -23,7 +23,12 @@ from baibai_engine.macro.reading.rules import (
 )
 from baibai_engine.macro.reading.rules import load_reading_rules, rules_revision
 
-from .sqlite import connect_read_only, is_unwritten_store, read_rows
+from .sqlite import (
+    connect_read_only,
+    is_unwritten_store,
+    read_application_rows,
+    read_rows,
+)
 
 type MacroGranularity = Literal["daily", "weekly", "monthly", "yearly"]
 
@@ -132,7 +137,7 @@ def macro_registered_series(series_id: str) -> dict[str, str | None] | None:
 
 
 def latest_macro_context_payload(path: Path, *, as_of: date) -> dict[str, object] | None:
-    rows = read_rows(
+    rows = read_application_rows(
         path,
         """
         SELECT payload FROM macro_context
@@ -146,7 +151,7 @@ def latest_macro_context_payload(path: Path, *, as_of: date) -> dict[str, object
 
 
 def list_macro_context_payloads(path: Path) -> list[dict[str, object]]:
-    rows = read_rows(
+    rows = read_application_rows(
         path,
         "SELECT payload FROM macro_context WHERE schema_version = ? "
         "ORDER BY published_at DESC, as_of DESC, context_id DESC",
@@ -172,7 +177,7 @@ def macro_context_payload(
     # this reader names which one it hit rather than reporting the id as wrong.
     if not path.is_file():
         raise ValueError(f"application database not found: {path}")
-    rows = read_rows(
+    rows = read_application_rows(
         path,
         "SELECT as_of, payload FROM macro_context WHERE context_id = ? AND schema_version = ?",
         (context_id, MACRO_CONTEXT_SCHEMA_VERSION),

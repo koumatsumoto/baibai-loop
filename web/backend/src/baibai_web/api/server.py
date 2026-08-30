@@ -13,7 +13,13 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from baibai_engine.read_api import screening_run_asof_dates
+from baibai_engine.read_api import (
+    APPLICATION_DB_PATH,
+    MARKET_DB_PATH,
+    screening_run_asof_dates,
+    validate_application_store_schema,
+    validate_market_store_schema,
+)
 from baibai_web.readmodel.builders import (
     build_assessment_detail,
     build_daily_delta,
@@ -81,6 +87,8 @@ def create_app(
     app.state.runs_db_path = runs_db_path
     # Load once at startup so a broken dashboard config fails app creation, not a request.
     app.state.macro_groups = load_macro_groups(resolved_root)
+    validate_application_store_schema((db_path or resolved_root / APPLICATION_DB_PATH).resolve())
+    validate_market_store_schema((resolved_root / MARKET_DB_PATH).resolve())
 
     @app.get("/api/health")
     def health() -> dict[str, str]:

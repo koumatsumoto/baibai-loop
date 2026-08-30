@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .sqlite import read_rows
+from .sqlite import read_application_rows as read_rows
 
 
 def list_thesis_payloads(

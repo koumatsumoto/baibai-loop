@@ -813,7 +813,7 @@ def test_watch_survives_session_completion_and_task_cleanup(
 
     再研究の trigger を session artifact や task payload に置くと、cycle を閉じる整理が
     trigger ごと消す。ここで固定するのは、閉じた session と dropped な task を跨いでも
-    lane が watch に残り、価格が FV へ降りた日に発火することである。
+    case が watch に残り、価格が FV へ降りた日に発火することである。
     """
 
     sqlite_path = tmp_path / "market.sqlite"
@@ -840,7 +840,7 @@ def test_watch_survives_session_completion_and_task_cleanup(
         session_kind="opportunity",
         as_of=ASOF,
         started_at=FIXED_NOW,
-        payload=OperationPayload(checkpoint="lane closed as reject"),
+        payload=OperationPayload(checkpoint="case closed as reject"),
     )
     operations.complete(
         session.operation_id,
