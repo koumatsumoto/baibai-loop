@@ -39,7 +39,7 @@ pull は batch の実行中を避ける。世代が途中で変わった場合�
 
 ## 定期 maintenance
 
-- calibration panel: 月初に前月完全月末まで `calibration-build` → `calibration-evaluate`。`--force` は保持全 cohort を覆う全再構築だけに使う。契約は [`estimate-calibration.md`](../../../docs/reference/estimate-calibration.md)。
+- calibration panel: 月初に前月完全月末まで、同じ `--rules-path` で `calibration-build` → `calibration-evaluate`。`--force` は保持全 cohort を覆う全再構築だけに使う。契約は [`estimate-calibration.md`](../../../docs/reference/estimate-calibration.md)。
 - PMI manifest: 公表翌週に dry-run、本実行、対象月の `macro refresh`、公表値照合、commit の順。
 - lake audit: 前回から7日後に full-history audit。command は [`market-lake.md`](../../../docs/reference/market-lake.md) を正本とする。
 - capital-control: 翌月15日以降に refresh と exit build を行い、hydrate 済み store から `publish-lake` → `push-market` で反映する。

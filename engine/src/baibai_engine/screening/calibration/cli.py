@@ -289,6 +289,7 @@ def _required_metric_statuses(
 def calibration_evaluate_command(
     *,
     calibration_dir: Path,
+    rules: ScreeningRules,
     horizons: list[str] | None = None,
     run_purpose: str = "diagnostic",
     required_asofs: list[str] | None = None,
@@ -343,11 +344,32 @@ def calibration_evaluate_command(
             if not asofs:
                 print(f"no panels found under {calibration_dir}", file=sys.stderr)
                 return 1
-            metas = [read_panel_meta(snapshot, asof) for asof in asofs]
-            if len({meta.get("rules_hash") for meta in metas}) != 1:
+            meta_by_asof = {asof: read_panel_meta(snapshot, asof) for asof in all_asofs}
+            snapshot_rules_hashes = {meta.get("rules_hash") for meta in meta_by_asof.values()}
+            if len(snapshot_rules_hashes) != 1:
                 raise CalibrationCacheError(
                     "panel store mixes rules provenance; run calibration-build --force"
                 )
+            panel_variants = {meta.get("panel_variant") for meta in meta_by_asof.values()}
+            if len(panel_variants) != 1:
+                raise CalibrationCacheError(
+                    "panel store mixes panel variants; run calibration-build --force"
+                )
+            panel_variant = next(iter(panel_variants))
+            if not isinstance(panel_variant, str) or panel_variant not in PANEL_BUILD_POLICIES:
+                raise CalibrationCacheError(
+                    f"panel store has unknown panel variant: {panel_variant!r}; "
+                    "run calibration-build --force"
+                )
+            expected_rules_hash = rules_content_hash(rules, PANEL_BUILD_POLICIES[panel_variant])
+            snapshot_rules_hash = next(iter(snapshot_rules_hashes))
+            if snapshot_rules_hash != expected_rules_hash:
+                raise CalibrationCacheError(
+                    "panel rules_hash does not match --rules-path for "
+                    f"variant {panel_variant}: snapshot={snapshot_rules_hash!r}, "
+                    f"current={expected_rules_hash!r}; run calibration-build --force"
+                )
+            metas = [meta_by_asof[asof] for asof in asofs]
             panels = {asof.isoformat(): read_panel(snapshot, asof) for asof in asofs}
             if run_purpose == "production_decision" and not _is_production_panel_contract(
                 metas, panels
@@ -361,7 +383,12 @@ def calibration_evaluate_command(
     except CalibrationCacheError as exc:
         print(f"calibration evaluate: {exc}", file=sys.stderr)
         return 1
-    results = evaluate_cohorts(panels, forwards, horizons=horizons)
+    results = evaluate_cohorts(
+        panels,
+        forwards,
+        horizons=horizons,
+        candidate_discovery_rules=rules.candidate_discovery,
+    )
     scope = EvaluationScope(
         run_purpose=run_purpose,
         requested_horizons=tuple(horizons),

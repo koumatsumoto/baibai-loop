@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import sqlite3
 import sys
 import unittest
 from contextlib import redirect_stderr
@@ -30,7 +32,9 @@ from baibai_engine.screening.calibration.authority import (
 )
 from baibai_engine.screening.calibration.cli import (
     _required_metric_statuses,
-    calibration_evaluate_command,
+)
+from baibai_engine.screening.calibration.cli import (
+    calibration_evaluate_command as _calibration_evaluate_command,
 )
 from baibai_engine.screening.calibration.context import (
     CalibrationContextError,
@@ -43,15 +47,41 @@ from baibai_engine.screening.calibration.evaluation import (
     _metric_direction_stability,
     _spearman,
     _stratified_quality_control,
-    evaluate_cohorts,
+)
+from baibai_engine.screening.calibration.evaluation import (
+    evaluate_cohorts as _evaluate_cohorts,
 )
 from baibai_engine.screening.calibration.forward import ForwardReturnRow
 from baibai_engine.screening.calibration.panel import (
+    PRODUCTION_PANEL_POLICY,
     PanelDiagnostics,
     PanelRow,
+    rules_content_hash,
 )
+from baibai_engine.screening.rule_config import ScreeningRules, load_screening_rules
 
 _ASOF = "2025-06-30"
+_RULES = load_screening_rules()
+_RULES_HASH = rules_content_hash(_RULES, PRODUCTION_PANEL_POLICY)
+
+
+def evaluate_cohorts(
+    panels: object,
+    forwards: object,
+    *,
+    horizons: list[str],
+    rules: ScreeningRules = _RULES,
+) -> dict[str, object]:
+    return _evaluate_cohorts(  # type: ignore[arg-type]
+        panels,
+        forwards,
+        horizons=horizons,
+        candidate_discovery_rules=rules.candidate_discovery,
+    )
+
+
+def calibration_evaluate_command(*, rules: ScreeningRules = _RULES, **kwargs: object) -> int:
+    return _calibration_evaluate_command(rules=rules, **kwargs)  # type: ignore[arg-type]
 
 
 def _panel_row(ticker: str, *, rank: int | None = None, **overrides: object) -> PanelRow:
@@ -110,7 +140,7 @@ def _panel_diagnostics(
 
     return panel_diagnostics(
         _ASOF,
-        rules_hash="rules-hash",
+        rules_hash=_RULES_HASH,
         universe_size=240,
         population_size=240,
         effective_bars_start="2024-01-01",
@@ -388,6 +418,179 @@ class SectorMedianBasisTest(unittest.TestCase):
 
 
 class EvaluateCohortsTest(unittest.TestCase):
+    @staticmethod
+    def _rules_with_alternate_representation_targets() -> ScreeningRules:
+        candidate_discovery = _RULES.candidate_discovery.model_copy(
+            update={
+                "representation_targets": {
+                    "current-earnings-power": 7,
+                    "normalized-earnings-power": 5,
+                    "asset-value": 4,
+                    "reinvestment-value": 4,
+                }
+            }
+        )
+        return _RULES.model_copy(update={"candidate_discovery": candidate_discovery})
+
+    @staticmethod
+    def _rules_with_alternate_common_eligibility() -> ScreeningRules:
+        eligibility = _RULES.candidate_discovery.common_eligibility.model_copy(
+            update={"min_market_cap_oku": 101}
+        )
+        candidate_discovery = _RULES.candidate_discovery.model_copy(
+            update={"common_eligibility": eligibility}
+        )
+        return _RULES.model_copy(update={"candidate_discovery": candidate_discovery})
+
+    @staticmethod
+    def _rules_with_alternate_approach_method() -> ScreeningRules:
+        approaches = dict(_RULES.candidate_discovery.approaches)
+        current = approaches["current-earnings-power"]
+        approaches["current-earnings-power"] = current.model_copy(
+            update={"method_id": "current-earnings-power-v2"}
+        )
+        candidate_discovery = _RULES.candidate_discovery.model_copy(
+            update={"approaches": approaches}
+        )
+        return _RULES.model_copy(update={"candidate_discovery": candidate_discovery})
+
+    def test_representation_targets_come_from_candidate_discovery_rules(self) -> None:
+        rules = self._rules_with_alternate_representation_targets()
+        panel = [
+            _panel_row(
+                f"1{index:03d}",
+                rank=index + 1,
+                valuation_approach_ranks=(
+                    "current-earnings-power:1|normalized-earnings-power:1|"
+                    "asset-value:1|reinvestment-value:1"
+                ),
+            )
+            for index in range(120)
+        ]
+        forwards = [_forward_row(row.ticker, 0.1) for row in panel]
+
+        result = evaluate_cohorts({_ASOF: panel}, {_ASOF: forwards}, horizons=["6m"], rules=rules)[
+            "6m"
+        ]
+
+        assert isinstance(result, dict)
+        cohort = result["cohorts"][0]
+        assert isinstance(cohort, dict)
+        representation = cohort["candidate_discovery"]["representation"]
+        aggregate = result["aggregate"]
+        assert isinstance(aggregate, dict)
+        aggregate_representation = aggregate["candidate_discovery"]["representation"]
+        self.assertEqual(
+            representation["targets"], rules.candidate_discovery.representation_targets
+        )
+        self.assertEqual(
+            aggregate_representation["targets"], rules.candidate_discovery.representation_targets
+        )
+
+    def test_approach_rank_parser_uses_candidate_discovery_nomination_depth(self) -> None:
+        candidate_discovery = _RULES.candidate_discovery.model_copy(update={"nomination_depth": 3})
+        rules = _RULES.model_copy(update={"candidate_discovery": candidate_discovery})
+        panel = [
+            _panel_row(
+                f"2{index:03d}",
+                rank=index + 1,
+                valuation_approach_ranks="current-earnings-power:4",
+            )
+            for index in range(120)
+        ]
+        forwards = [_forward_row(row.ticker, 0.1) for row in panel]
+
+        result = evaluate_cohorts({_ASOF: panel}, {_ASOF: forwards}, horizons=["6m"], rules=rules)[
+            "6m"
+        ]
+
+        assert isinstance(result, dict)
+        cohort = result["cohorts"][0]
+        assert isinstance(cohort, dict)
+        representation = cohort["candidate_discovery"]["representation"]
+        self.assertEqual(representation["represented_counts"]["current-earnings-power"], 0)
+
+    def test_calibration_evaluate_rejects_any_method_mismatch_before_writing_metrics(self) -> None:
+        panel = [_panel_row("1111", per_trailing=10.0)]
+        forwards = [_forward_row("1111", 0.1)]
+        cases = {
+            "representation targets": self._rules_with_alternate_representation_targets(),
+            "common eligibility": self._rules_with_alternate_common_eligibility(),
+            "approach method": self._rules_with_alternate_approach_method(),
+        }
+        for label, rules in cases.items():
+            with self.subTest(label=label):
+                errors = StringIO()
+                with TemporaryDirectory() as temp_dir, redirect_stderr(errors):
+                    root = Path(temp_dir)
+                    store_panel(root, date(2025, 6, 30), panel, _panel_diagnostics())
+                    store_forward(root, date(2025, 6, 30), forwards)
+                    output_path = root / "evaluation.yaml"
+
+                    exit_code = calibration_evaluate_command(
+                        calibration_dir=root,
+                        rules=rules,
+                        horizons=["6m"],
+                        output_path=output_path,
+                        stdout=StringIO(),
+                    )
+
+                    self.assertEqual(exit_code, 1)
+                    self.assertFalse(output_path.exists())
+                self.assertIn("rules_hash does not match --rules-path", errors.getvalue())
+
+    def test_calibration_evaluate_rejects_unknown_panel_variant(self) -> None:
+        errors = StringIO()
+        with TemporaryDirectory() as temp_dir, redirect_stderr(errors):
+            root = Path(temp_dir)
+            diagnostics = replace(_panel_diagnostics(), panel_variant="unknown")  # type: ignore[arg-type]
+            store_panel(root, date(2025, 6, 30), [_panel_row("1111")], diagnostics)
+            store_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
+
+            exit_code = calibration_evaluate_command(
+                calibration_dir=root,
+                horizons=["6m"],
+                stdout=StringIO(),
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("unknown panel variant", errors.getvalue())
+
+    def test_date_filter_cannot_hide_mixed_rules_in_the_current_snapshot(self) -> None:
+        errors = StringIO()
+        with TemporaryDirectory() as temp_dir, redirect_stderr(errors):
+            root = Path(temp_dir)
+            store_panel(root, date(2025, 6, 30), [_panel_row("1111")], _panel_diagnostics())
+            store_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
+            later = date(2025, 7, 31)
+            store_panel(
+                root,
+                later,
+                [replace(_panel_row("2222"), asof=later.isoformat())],
+                replace(_panel_diagnostics(), asof=later.isoformat()),
+            )
+            store_forward(root, later, [])
+            with sqlite3.connect(root / "current.sqlite") as connection:
+                raw_diagnostics = connection.execute(
+                    "SELECT diagnostics FROM cohort WHERE asof = ?", (later.isoformat(),)
+                ).fetchone()[0]
+                diagnostics = json.loads(raw_diagnostics)
+                diagnostics["rules_hash"] = "different-rules-hash"
+                connection.execute(
+                    "UPDATE cohort SET diagnostics = ? WHERE asof = ?",
+                    (json.dumps(diagnostics), later.isoformat()),
+                )
+
+            exit_code = calibration_evaluate_command(
+                calibration_dir=root,
+                horizons=["6m"],
+                end=date(2025, 6, 30),
+                stdout=StringIO(),
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("mixes rules provenance", errors.getvalue())
+
     def test_replays_whose_verdict_was_negative_stay_out_of_the_payload(self) -> None:
         # Each name below has a dated negative verdict. Recomputing one would put a
         # rejected hypothesis back into the artifact the authority gate reads.

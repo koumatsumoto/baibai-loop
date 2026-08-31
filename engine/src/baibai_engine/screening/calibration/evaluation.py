@@ -17,6 +17,8 @@ from statistics import fmean, median, stdev
 
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
+from ..discovery.review_set import APPROACH_IDS
+from ..rule_config import CandidateDiscoveryRules
 from .forward import (
     CONTROL_EVENT_EXIT_STATUS,
     FAILURE_EXIT_STATUS,
@@ -42,18 +44,6 @@ MIN_THRESHOLD_REMOVED_SAMPLE = 20
 DECILES = 10
 
 REVIEW_SET_TOP_NS: tuple[int, ...] = (5, 10, 20)
-VALUATION_APPROACH_IDS: tuple[str, ...] = (
-    "current-earnings-power",
-    "normalized-earnings-power",
-    "asset-value",
-    "reinvestment-value",
-)
-REPRESENTATION_TARGETS: dict[str, int] = {
-    "current-earnings-power": 6,
-    "normalized-earnings-power": 5,
-    "asset-value": 5,
-    "reinvestment-value": 4,
-}
 
 # gate 条件付き spread の対象 gate (業績悪化 gate。rule_config の deterioration
 # threshold と同じ -0.3 を事前固定で用いる) 。
@@ -208,6 +198,7 @@ def evaluate_cohorts(
     forwards: Mapping[str, Sequence[ForwardReturnRow]],
     *,
     horizons: Sequence[str],
+    candidate_discovery_rules: CandidateDiscoveryRules,
 ) -> dict[str, object]:
     """Evaluate all cohorts and aggregate per horizon.
 
@@ -219,12 +210,20 @@ def evaluate_cohorts(
         cohort_results: list[dict[str, object]] = []
         for asof in sorted(panels):
             cohort_results.append(
-                _evaluate_cohort(panels[asof], forwards.get(asof, ()), asof=asof, horizon=horizon)
+                _evaluate_cohort(
+                    panels[asof],
+                    forwards.get(asof, ()),
+                    asof=asof,
+                    horizon=horizon,
+                    candidate_discovery_rules=candidate_discovery_rules,
+                )
             )
         per_horizon[horizon] = {
             "authority": require_horizon(horizon).authority,
             "cohorts": cohort_results,
-            "aggregate": _aggregate(cohort_results),
+            "aggregate": _aggregate(
+                cohort_results, candidate_discovery_rules=candidate_discovery_rules
+            ),
         }
     return per_horizon
 
@@ -235,6 +234,7 @@ def _evaluate_cohort(
     *,
     asof: str,
     horizon: str,
+    candidate_discovery_rules: CandidateDiscoveryRules,
 ) -> dict[str, object]:
     context = _cohort_excess_context(panel, forward_rows, horizon=horizon)
     all_rows = [row for row in forward_rows if row.horizon == horizon]
@@ -295,10 +295,16 @@ def _evaluate_cohort(
         "unpriced_exit_count": len(unpriced_exit),
         # Whether those exclusions could have produced the cohort's conclusions.
         "delisting_exclusion": delisting_exclusion_sensitivity(
-            panel, forward_rows, horizon=horizon
+            panel,
+            forward_rows,
+            horizon=horizon,
+            candidate_discovery_rules=candidate_discovery_rules,
         ),
         "priced_master_without_universe": priced_master_without_universe_sensitivity(
-            panel, forward_rows, horizon=horizon
+            panel,
+            forward_rows,
+            horizon=horizon,
+            candidate_discovery_rules=candidate_discovery_rules,
         ),
         "future_horizon_count": len(future_horizon),
         # The classes above are an allowlist, so a status none of them names would
@@ -349,7 +355,9 @@ def _evaluate_cohort(
         axes_result = _evaluate_axis(spec, population, excess)
         if axes_result is not None:
             axes[spec.name] = axes_result
-    candidate_discovery = _evaluate_candidate_discovery(population, excess)
+    candidate_discovery = _evaluate_candidate_discovery(
+        population, excess, candidate_discovery_rules=candidate_discovery_rules
+    )
     margin_hypotheses = _evaluate_margin_supply_demand_hypotheses(population, excess)
     profit_hypotheses = _evaluate_profit_normalization_hypotheses(population, excess)
     asset_backed_hypotheses = _evaluate_asset_backed_hypotheses(population, excess)
@@ -509,9 +517,14 @@ def _direction_signs(
     panel: Sequence[PanelRow],
     *,
     horizon: str,
+    candidate_discovery_rules: CandidateDiscoveryRules,
 ) -> dict[str, float | None]:
     """The sign-bearing quantity of each conclusion the authority gate reads."""
-    candidate_discovery = _evaluate_candidate_discovery(context.population, context.excess)
+    candidate_discovery = _evaluate_candidate_discovery(
+        context.population,
+        context.excess,
+        candidate_discovery_rules=candidate_discovery_rules,
+    )
     signs: dict[str, float | None] = {}
     for key in ("review_set_top5", "review_set_top10"):
         group = candidate_discovery.get(key)
@@ -558,11 +571,17 @@ def _signs_for_returns(
     *,
     horizon: str,
     stale_count: int,
+    candidate_discovery_rules: CandidateDiscoveryRules,
 ) -> dict[str, float | None]:
     context = _context_from_returns(panel, price_returns, horizon=horizon, stale_count=stale_count)
     if context is None:
         return dict.fromkeys(_ALL_SENSITIVITY_METRICS)
-    return _direction_signs(context, panel, horizon=horizon)
+    return _direction_signs(
+        context,
+        panel,
+        horizon=horizon,
+        candidate_discovery_rules=candidate_discovery_rules,
+    )
 
 
 def delisting_exclusion_sensitivity(
@@ -570,6 +589,7 @@ def delisting_exclusion_sensitivity(
     forward_rows: Sequence[ForwardReturnRow],
     *,
     horizon: str,
+    candidate_discovery_rules: CandidateDiscoveryRules,
 ) -> dict[str, object]:
     """Say whether the names without an exit value could have produced the conclusions.
 
@@ -600,7 +620,13 @@ def delisting_exclusion_sensitivity(
         }
 
     neutral = median(price_returns.values()) if price_returns else 0.0
-    as_reported = _signs_for_returns(panel, price_returns, horizon=horizon, stale_count=stale_count)
+    as_reported = _signs_for_returns(
+        panel,
+        price_returns,
+        horizon=horizon,
+        stale_count=stale_count,
+        candidate_discovery_rules=candidate_discovery_rules,
+    )
     imputed: dict[str, dict[str, float | None]] = {}
     for name in _DELISTING_IMPUTATIONS:
         value = _TOTAL_LOSS_RETURN if name == "total_loss" else neutral
@@ -608,7 +634,11 @@ def delisting_exclusion_sensitivity(
         for ticker in excluded:
             augmented[ticker] = value
         imputed[name] = _signs_for_returns(
-            panel, augmented, horizon=horizon, stale_count=stale_count
+            panel,
+            augmented,
+            horizon=horizon,
+            stale_count=stale_count,
+            candidate_discovery_rules=candidate_discovery_rules,
         )
 
     metric_stability = _metric_direction_stability(as_reported, imputed)
@@ -628,6 +658,7 @@ def priced_master_without_universe_sensitivity(
     forward_rows: Sequence[ForwardReturnRow],
     *,
     horizon: str,
+    candidate_discovery_rules: CandidateDiscoveryRules,
 ) -> dict[str, object]:
     """Bound the conclusions' sensitivity to priced rows the screen could not evaluate.
 
@@ -658,14 +689,24 @@ def priced_master_without_universe_sensitivity(
         value for ticker, value in price_returns.items() if ticker in population_tickers
     ]
     neutral = median(population_returns) if population_returns else 0.0
-    as_reported = _signs_for_returns(panel, price_returns, horizon=horizon, stale_count=stale_count)
+    as_reported = _signs_for_returns(
+        panel,
+        price_returns,
+        horizon=horizon,
+        stale_count=stale_count,
+        candidate_discovery_rules=candidate_discovery_rules,
+    )
     imputed: dict[str, dict[str, float | None]] = {}
     for name, value in (("total_loss", _TOTAL_LOSS_RETURN), ("neutral", neutral)):
         augmented = dict(price_returns)
         for ticker in targets:
             augmented[ticker] = value
         imputed[name] = _signs_for_returns(
-            panel, augmented, horizon=horizon, stale_count=stale_count
+            panel,
+            augmented,
+            horizon=horizon,
+            stale_count=stale_count,
+            candidate_discovery_rules=candidate_discovery_rules,
         )
 
     metric_stability = _metric_direction_stability(as_reported, imputed)
@@ -881,6 +922,8 @@ def _evaluate_shareholder_return_change(
 def _evaluate_candidate_discovery(
     population: Sequence[PanelRow],
     excess: Mapping[str, float],
+    *,
+    candidate_discovery_rules: CandidateDiscoveryRules,
 ) -> dict[str, object]:
     result: dict[str, object] = {}
     review_set_rows = sorted(
@@ -896,8 +939,13 @@ def _evaluate_candidate_discovery(
         result[f"review_set_top{top_n}"] = _group_stats(values)
     result["review_set_all"] = _group_stats([excess[row.ticker] for row in review_set_rows])
 
-    approach_ranks = {row.ticker: _valuation_approach_rank_map(row) for row in population}
-    for approach in VALUATION_APPROACH_IDS:
+    approach_ranks = {
+        row.ticker: _valuation_approach_rank_map(
+            row, nomination_depth=candidate_discovery_rules.nomination_depth
+        )
+        for row in population
+    }
+    for approach in APPROACH_IDS:
         slug = approach.replace("-", "_")
         for top_n in REVIEW_SET_TOP_NS:
             result[f"approach_{slug}_top{top_n}"] = _group_stats(
@@ -922,14 +970,15 @@ def _evaluate_candidate_discovery(
 
     represented_counts = {
         approach: sum(approach in approach_ranks[row.ticker] for row in review_set_rows)
-        for approach in VALUATION_APPROACH_IDS
+        for approach in APPROACH_IDS
     }
+    representation_targets = dict(candidate_discovery_rules.representation_targets)
     result["representation"] = {
-        "targets": REPRESENTATION_TARGETS,
+        "targets": representation_targets,
         "represented_counts": represented_counts,
         "fulfilled": {
             approach: represented_counts[approach] >= target
-            for approach, target in REPRESENTATION_TARGETS.items()
+            for approach, target in representation_targets.items()
         },
     }
 
@@ -954,18 +1003,18 @@ def _evaluate_candidate_discovery(
     return result
 
 
-def _valuation_approach_rank_map(row: PanelRow) -> dict[str, int]:
+def _valuation_approach_rank_map(row: PanelRow, *, nomination_depth: int) -> dict[str, int]:
     ranks: dict[str, int] = {}
     for token in row.valuation_approach_ranks.split("|"):
         if not token:
             continue
         approach, separator, raw_rank = token.rpartition(":")
-        if separator and approach in VALUATION_APPROACH_IDS:
+        if separator and approach in APPROACH_IDS:
             try:
                 rank = int(raw_rank)
             except ValueError:
                 continue
-            if 1 <= rank <= 20:
+            if 1 <= rank <= nomination_depth:
                 ranks[approach] = rank
     return ranks
 
@@ -1571,7 +1620,11 @@ def _average_ranks(values: Sequence[float]) -> list[float]:
     return ranks
 
 
-def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
+def _aggregate(
+    cohorts: Sequence[dict[str, object]],
+    *,
+    candidate_discovery_rules: CandidateDiscoveryRules,
+) -> dict[str, object]:
     """cohort 横断の集計: 効果量の平均と cohort 勝率 (有意性は主張しない) 。"""
     if not cohorts:
         return {"cohort_count": 0}
@@ -1636,6 +1689,7 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
         }
 
     candidate_discovery_summary: dict[str, object] = {}
+    representation_targets = dict(candidate_discovery_rules.representation_targets)
     candidate_discovery_key_set: set[str] = set()
     for cohort in cohorts:
         candidate_discovery = cohort.get("candidate_discovery")
@@ -1658,18 +1712,18 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
             candidate_discovery_summary[key] = {
                 "cohorts": len(rows),
                 "fully_fulfilled_cohorts": sum(
-                    count == len(REPRESENTATION_TARGETS) for count in fulfilled_counts
+                    count == len(representation_targets) for count in fulfilled_counts
                 ),
                 "fully_fulfilled_share": (
                     round(
-                        sum(count == len(REPRESENTATION_TARGETS) for count in fulfilled_counts)
+                        sum(count == len(representation_targets) for count in fulfilled_counts)
                         / len(fulfilled_counts),
                         4,
                     )
                     if fulfilled_counts
                     else None
                 ),
-                "targets": REPRESENTATION_TARGETS,
+                "targets": representation_targets,
                 "mean_represented_counts": {
                     approach: round(
                         fmean(
@@ -1681,7 +1735,7 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
                     )
                     if rows
                     else 0
-                    for approach in VALUATION_APPROACH_IDS
+                    for approach in APPROACH_IDS
                 },
             }
             continue

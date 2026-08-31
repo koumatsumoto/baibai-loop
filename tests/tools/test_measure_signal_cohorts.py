@@ -30,16 +30,17 @@ FORWARD_COLUMNS = (
 )
 
 
-def test_illiquid_rows_are_excluded_from_every_group(tmp_path: Path) -> None:
+def test_stored_population_flag_is_the_only_population_authority(tmp_path: Path) -> None:
     directory = calibration_root(tmp_path)
     publish_panel(
         directory,
         "2024-01-31",
         [
-            liquid_panel_row("1111", "2024-01-31"),
-            liquid_panel_row("2222", "2024-01-31", market_cap_oku=50),
-            liquid_panel_row("3333", "2024-01-31", avg_turnover_oku=0.2),
-            liquid_panel_row("4444", "2024-01-31", listing_span_days=30),
+            liquid_panel_row("1111", "2024-01-31", market_cap_oku=50),
+            liquid_panel_row("2222", "2024-01-31", in_population=False),
+            liquid_panel_row("3333", "2024-01-31", in_population=False),
+            liquid_panel_row("4444", "2024-01-31", in_population=False),
+            liquid_panel_row("5555", "2024-01-31", er_annual=None),
         ],
     )
     publish_forward(
@@ -53,7 +54,7 @@ def test_illiquid_rows_are_excluded_from_every_group(tmp_path: Path) -> None:
                 "price_return": "0.1",
                 "status": "resolved",
             }
-            for ticker in ("1111", "2222", "3333", "4444")
+            for ticker in ("1111", "2222", "3333", "4444", "5555")
         ],
     )
 

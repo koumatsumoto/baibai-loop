@@ -114,15 +114,13 @@ cache が対象 row を同定できない、diagnostics 件数と row 数が一�
 
 ### Cohort比較のbasis
 
-cohort 比較（`tools.experiments.measure_signal_cohorts`）は `--basis price|total` の両方を取る。carry は配当と自己株買いでできているので、その効果量を price basis で測ると払われた現金の分だけ小さく出る。ただし total は窓内の FY 配当観測を要し、母数は horizon で変わる（price 側に対し 1y で 95%、3y で 93%、5y で 88%、3m / 6m は半分未満）。出力の `basis_coverage` が horizon ごとの両母数と `bases_comparable` を出し、被覆が足りない horizon で 2 つの中央値を並べて読むことを禁じる。既定は price のままで、これは全 horizon で解決するのが price 側だけであるため。
+cohort 比較（`tools.experiments.measure_signal_cohorts`）は `--basis price|total` の両方を取る。母集団は panel に保存された `PanelRow.in_population` を正本とし、measurement tool は market cap・turnover・listing span の閾値を再実装しない。carry は配当と自己株買いでできているので、その効果量を price basis で測ると払われた現金の分だけ小さく出る。ただし total は窓内の FY 配当観測を要し、母数は horizon で変わる（price 側に対し 1y で 95%、3y で 93%、5y で 88%、3m / 6m は半分未満）。出力の `basis_coverage` が horizon ごとの両母数と `bases_comparable` を出し、被覆が足りない horizon で 2 つの中央値を並べて読むことを禁じる。既定は price のままで、これは全 horizon で解決するのが price 側だけであるため。
 
 ### 自己株式取得枠
 
 自己株取得を含む資本配分は、選ばれた銘柄のresearchで一次開示を読む。production rankingが使う`net_share_change_yoy`は過去の株数変化・希薄化signalであり、将来のbuyback cashや未消化枠とは呼ばない。
 
-### Valuation Approachの閾値とgate
-
-閾値座標`valuation_approach_thresholds`は、Valuation Approachが採用した銘柄と、同じValuation Approachの他条件をすべて満たしながらその閾値1本だけで落ちた銘柄の実現超過を並べる。落ちた側は`rules.threshold_blocks`が決める。判定は閾値を無効化したconfigで同じValuation Approach判定関数を呼び直して得るので、条件の意味もnullの扱いも`rules.py`の1か所にとどまり、座標側に書き写さない。2本以上の閾値で落ちた行はどちらの閾値も選んでいないので、どちらの群にも入らない。欠損や除外業種で判定できない行も同様に入らないため、この座標は閾値の水準を測り、null方針は測らない。cohort横断では平均効果量と、採用側が上回ったcohortの比率を出す。
+### Deterioration gate
 
 `gates` 座標は deterioration gate を割安 decile 内で通過群と非通過群に分けて測り、cohort 横断で同じ形の集計を持つ。
 
@@ -154,13 +152,15 @@ forward row は price-only の `price_return` / `status` と、`realized_dividen
 
 `er_level_calibration`、`margin_short_to_adv`、`normalized_per_3fy` は production core metricではなくoptionalな既知metricである。各metricをproduction判断に使う事前登録済みrunは、core 3 metricと併せて対象を`--required-metric`へ明示する。
 
-cache schema versionは互換性を決める入力から導出する（panel / diagnostics / forwardのfield、測るValuation Approach閾値、gate軸、sector-gap軸）。市場storeの`user_version`と同じく自動で進むので、列の形を変えずに観測の範囲だけ広げた変更でも版が動く。手で宣言する識別子は`VALUATION_CALCULATION_REVISION`だけで、式の意味の変更は内容から導けないためそこだけ人が進める。panelは、productionの730日財務入力を変えずに補助履歴から、3 FYのsplit-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少streakと還元変化composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、PIT-TTMの`operating_profit_to_assets`・`operating_margin`・`asset_turnover`を記録する。収益性levelはcalibration専用で、productionのcandidate、E[r]、FV、rank、gateへ渡さない。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化proxyである。`rules_hash`はrules・variant・入力窓に加えてvaluation calculation revisionを含む。valuationの式・資本分母・価格基準が異なるpanelは、method identityとcache schemaの不一致でfail closedにする。
+cache schema versionは互換性を決める入力から導出する（panel / diagnostics / forwardのfield、gate軸、sector-gap軸）。市場storeの`user_version`と同じく自動で進むので、列の形を変えずに観測の範囲だけ広げた変更でも版が動く。手で宣言する識別子は`VALUATION_CALCULATION_REVISION`だけで、式の意味の変更は内容から導けないためそこだけ人が進める。panelは、productionの730日財務入力を変えずに補助履歴から、3 FYのsplit-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少streakと還元変化composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、PIT-TTMの`operating_profit_to_assets`・`operating_margin`・`asset_turnover`を記録する。収益性levelはcalibration専用で、productionのcandidate、E[r]、FV、rank、gateへ渡さない。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化proxyである。`rules_hash`はrules・variant・入力窓に加えてvaluation calculation revisionを含む。valuationの式・資本分母・価格基準が異なるpanelは、method identityとcache schemaの不一致でfail closedにする。
 
 報告空売り残高の L1 は disclosure date と calculation date を分け、reporter 名tuple、ratio / shares / units、取消、provider row ordinalを保存する。panel の `reported_short_ratio` / `reported_short_breadth` / `reported_short_latest_disclosed_at` は両日が cohort as-of 以下の最新stateだけを集約する。公式 dataset floor から連続coverageを証明できる場合だけ無報告を明示的0とし、plan floor、coverage gap、同率最新stateの競合では該当値をnullにする。0は「0.5%未満または報告不在」であって空売り不存在を意味しない。この軸も calibration annotation 専用である。
 
 信用需給では、公表済みの直近残高（2026-09-18 まで全銘柄週次、以後は全銘柄日次）を source として、貸借銘柄だけの `margin_short_to_adv` と、交絡確認用の60取引日 realized volatilityを保持する。列の語義は cadence で変わらない（[`margin-publication-transition.md`](./margin-publication-transition.md) §6）。`margin_std_long_share` は判断面へ出す文脈 annotation であり、candidates・rank・Review Setを変えない。production判断で空売り残/ADVのraw annotationを使うrunは、`margin_short_to_adv`をcore 3 metricと併せて明示する。missing/mismatch/partial cache は `calibration-build --force` で再構築する。保存形式は[`market-lake.md`](./market-lake.md#較正store)を正本とする。
 
 `rules_hash` は `ScreeningRules` の JSON dump 全体から作る。したがって **panel の値を 1 つも変えられない変更（無効な knob の削除・field の並べ替え）でも hash は動き、store 全体が再構築対象になる**。rules model の形を変えるときは、その再構築コストを変更の便益と比べる。
+
+`calibration-build` と `calibration-evaluate` は同じ `--rules-path`（既定は `SCREENING_RULES_PATH` または current rules）を読む。evaluate は snapshot の `panel_variant` を含めて同じ方法で `rules_hash` を計算し、保存値との完全一致を metrics 計算前に要求する。Candidate Discovery の representation target と nomination depth は、その一致を確認した `CandidateDiscoveryRules` だけを正本とし、evaluator に別値を持たない。不一致では `calibration-build --force` で current rules から再構築する。
 
 <a id="pre-2019-診断-panel"></a>
 
