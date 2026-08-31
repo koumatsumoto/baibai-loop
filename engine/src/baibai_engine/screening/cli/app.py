@@ -423,6 +423,11 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"panel / forward store directory (default: {DEFAULT_CALIBRATION_DIR})",
     )
     calibration_evaluate_parser.add_argument(
+        "--rules-path",
+        default=os.environ.get("SCREENING_RULES_PATH") or str(DEFAULT_RULES_PATH),
+        help=f"screening rules path (default: SCREENING_RULES_PATH or {DEFAULT_RULES_PATH})",
+    )
+    calibration_evaluate_parser.add_argument(
         "--horizon",
         action="append",
         dest="horizons",
@@ -562,6 +567,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "calibration-evaluate":
         return calibration_evaluate_command(
             calibration_dir=Path(args.calibration_dir),
+            rules=load_screening_rules(Path(args.rules_path)),
             horizons=args.horizons,
             run_purpose=args.run_purpose,
             required_asofs=args.required_asofs,

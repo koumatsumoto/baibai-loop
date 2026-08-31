@@ -35,11 +35,6 @@ from baibai_engine.screening.calibration.store import (
 DEFAULT_CALIBRATION_DIR = Path("stores/screening/calibration")
 DEFAULT_HORIZONS = ("1y", "3y", "5y")
 HORIZON_YEARS: Mapping[str, int] = {"1y": 1, "3y": 3, "5y": 5}
-# selection.liquidity と同じ関門。screening rules を読まずにここへ写すと乖離するので、
-# 変更時は method/screening/rules の selection.liquidity と突き合わせる。
-MIN_MARKET_CAP_OKU = 100.0
-MIN_AVG_TURNOVER_OKU = 1.0
-MIN_LISTING_SPAN_DAYS = 182.0
 SHARE_COUNT_YIELD_CLIP = 0.05
 UPSIDE_CAP = 0.50
 DEFAULT_ER_THRESHOLD = 0.085
@@ -162,7 +157,7 @@ def _load_panel(
             if row is not None:
                 rows.append(row)
     if not rows:
-        raise SignalCohortMeasurementError("panel rows carry no liquidity-passing candidates")
+        raise SignalCohortMeasurementError("panel rows carry no stored population candidates")
     return rows
 
 
@@ -170,14 +165,7 @@ def _panel_row(
     stored: StoredPanelRow,
     forward: Mapping[tuple[str, str], Mapping[str, float]],
 ) -> PanelRow | None:
-    market_cap = stored.market_cap_oku
-    turnover = stored.avg_turnover_oku
-    listing_span = stored.listing_span_days
-    if market_cap is None or market_cap < MIN_MARKET_CAP_OKU:
-        return None
-    if turnover is None or turnover < MIN_AVG_TURNOVER_OKU:
-        return None
-    if listing_span is None or listing_span < MIN_LISTING_SPAN_DAYS:
+    if not stored.in_population:
         return None
     if stored.er_annual is None:
         return None
@@ -423,7 +411,7 @@ def build_measurement(
         "calibration_snapshot": "current",
         "metric_basis": _METRIC_BASIS_LABEL[basis],
         "basis_coverage": _basis_coverage(basis_counts, horizons),
-        "population": "liquidity_passing_panel_rows",
+        "population": "stored_in_population_panel_rows",
         "rules_hash": rules_hash,
         # cohort 比較は両群がこの件数を満たす as-of だけを数える。候補が薄い月は
         # treatment が痩せて落ちるため、閾値そのものが標本を選ぶ。読むときは併記する。

@@ -943,6 +943,7 @@ class CalibrationPanelTest(unittest.TestCase):
             with contextlib.redirect_stderr(errors):
                 code = calibration_evaluate_command(
                     calibration_dir=store_dir,
+                    rules=load_screening_rules(),
                     horizons=["3y", "5y"],
                     run_purpose="production_decision",
                     required_asofs=[ASOF.isoformat()],
@@ -970,6 +971,7 @@ class CalibrationPanelTest(unittest.TestCase):
             with contextlib.redirect_stderr(errors):
                 code = calibration_evaluate_command(
                     calibration_dir=store_dir,
+                    rules=load_screening_rules(),
                     horizons=["3y", "5y"],
                     run_purpose="production_decision",
                     required_asofs=[ASOF.isoformat()],
