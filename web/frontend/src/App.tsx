@@ -14,6 +14,7 @@ const CapitalAllocationAssessmentPage = lazy(() => import('./pages/CapitalAlloca
 const MacroPage = lazy(() => import('./pages/MacroPage').then((module) => ({ default: module.MacroPage })))
 const MacroReportPage = lazy(() => import('./pages/MacroReportPage').then((module) => ({ default: module.MacroReportPage })))
 const SecurityDetailPage = lazy(() => import('./pages/SecurityDetailPage').then((module) => ({ default: module.SecurityDetailPage })))
+const TasksPage = lazy(() => import('./pages/TasksPage').then((module) => ({ default: module.TasksPage })))
 
 function App() {
   return (
@@ -27,6 +28,7 @@ function App() {
                 <Route path="/macro" element={<MacroPage />} />
                 <Route path="/macro/reports/:contextId" element={<MacroReportPage />} />
                 <Route path="/stocks" element={<StocksPage />} />
+                <Route path="/tasks" element={<TasksPage />} />
                 <Route path="/research-triage" element={<ResearchTriagePage />} />
                 <Route path="/stocks/capital-allocation-assessments/:capitalAllocationAssessmentId" element={<CapitalAllocationAssessmentPage />} />
                 <Route path="/securities/:ticker" element={<SecurityDetailPage />} />

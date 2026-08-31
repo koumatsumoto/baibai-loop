@@ -10,11 +10,8 @@ import type {
   DeltaUnavailable,
   DashboardView,
   HoldingView,
-  OperationSessionView,
   OperationsView,
   PortfolioOutcomeView,
-  TaskView,
-  UpcomingEventView,
   WarningView,
 } from '../api/types'
 import { AsOfBadge } from '../components/AsOfBadge'
@@ -24,7 +21,6 @@ import { PageShell } from '../components/PageShell'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
 import { SectionCard } from '../components/SectionCard'
-import { StaleBadge } from '../components/StaleBadge'
 import { TradingViewButton } from '../components/TradingViewButton'
 import { YenAmount } from '../components/YenAmount'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
@@ -32,7 +28,7 @@ import { Badge } from '../components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
-import { EMPTY, formatJstDate, formatJstDateShort, formatPct, formatYen, isOlderThanDays } from '../lib/format'
+import { EMPTY, formatJstDateShort, formatPct, formatYen } from '../lib/format'
 import { totalUnrealizedPnl } from '../lib/portfolio'
 import { cn } from '../lib/utils'
 
@@ -40,13 +36,9 @@ import { cn } from '../lib/utils'
 // repeats what the numbers already say.
 const HINT = {
   allocation: '次の買いに動かせる資金がどれだけ残っているかと、これまでの判断が実際に効いているかを 1 か所で確かめる。配分は判断材料であり、比率を目安へ近づけること自体は目的ではない。',
-  nextTask: '期限が最も近い未完了タスク。下の一覧の先頭と同じもので、開いて最初に目に入る位置に置いている。',
-  events: '決算と予約期限は、保有の見直しと資金の解放が起きる日。判断より先に日付を押さえておくために置いている。',
-  delta: '前回の機械実行と比べた候補プールへの出入り、機械 E[r] の変化、FV に達した保有を並べる。Macro の変化と環境判断は専用の日次ブリーフで読む。売買の指示ではなく、次にどこを見るかを決める材料。答えられなかった区分は明示するので、空欄と「計測できなかった」を混同しない。',
-  operations: '判断は trigger ごとに 1 件の operation session として進み、active は常に最大 1 件。いま何が途中で、次にどこから再開するのかをここで確かめる。',
+  delta: '前回の機械実行と比べた候補プールへの出入り、機械 E[r] の変化、FV に達した保有を並べる。Macro の現在局面と指標は専用画面で読む。売買の指示ではなく、次にどこを見るかを決める材料。答えられなかった区分は明示するので、空欄と「計測できなかった」を混同しない。',
   holdings: '保有中の各銘柄の取得原価・現値・FV との乖離。売買判断そのものではなく、どの銘柄を次に見直すかを決めるための現状。',
   reservations: '発注済みで未約定の指値が押さえている現金。購入余力から差し引かれているので、次の提案の上限に効く。',
-  tasks: '決算日や再評価日など、日付が来たら判断を始める合図。task が trigger 発火の正本で、期限超過は放置している判断を意味する。',
   outcomes: '税・費用込みの総合 return を、同じ期間の配当込み TOPIX と同じ basis で比べた結果。短期の数字で方針を変えるためではなく、見積りが実現と合っているかを年単位で確かめるために置いている。',
 } as const
 
@@ -55,23 +47,6 @@ const allocationConfig = {
   available: { label: '購入余力', color: 'var(--chart-2)' },
   reserved: { label: '予約', color: 'var(--chart-3)' },
 } satisfies ChartConfig
-
-function NextTaskCard({ task }: { task: TaskView | null }) {
-  return (
-    <SectionCard hint={HINT.nextTask} meta={task?.overdue === true && <Badge variant="destructive">期限超過</Badge>} padded title="次のタスク">
-      {task ? (
-        // Date and title side by side: one line of content fills the row rather than
-        // stacking into a tall, mostly empty card.
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <time className="shrink-0 font-mono text-sm font-semibold tabular-nums" dateTime={task.due_date}>{formatJstDate(task.due_date)}</time>
-          <p className="min-w-[16rem] flex-1 font-medium leading-snug">{task.title}</p>
-        </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">未完了のタスクはありません。</p>
-      )}
-    </SectionCard>
-  )
-}
 
 function PortfolioAllocationCard({ data }: { data: DashboardView }) {
   const allocation = [
@@ -283,17 +258,6 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
   )
 }
 
-const eventKindLabel: Record<UpcomingEventView['kind'], string> = {
-  earnings: '決算',
-  reservation_expiry: '予約期限',
-}
-
-function eventCountdownLabel(daysUntil: number) {
-  if (daysUntil <= 0) return '本日'
-  if (daysUntil === 1) return '明日'
-  return `あと ${daysUntil} 日`
-}
-
 function deltaCount(delta: DailyDeltaView) {
   return (
     delta.entered.length +
@@ -434,7 +398,7 @@ function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null; faile
               <p className="py-8 text-center text-sm text-muted-foreground">閾値に触れる変化はありません。</p>
             )}
           <div className="px-5 py-3 sm:px-6">
-            <Link className="text-sm font-medium underline underline-offset-4" to="/macro">Macro の日次ブリーフを見る</Link>
+            <Link className="text-sm font-medium underline underline-offset-4" to="/macro">現在のマクロ局面を見る</Link>
           </div>
         </div>
       )}
@@ -442,87 +406,11 @@ function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null; faile
   )
 }
 
-function UpcomingEventsCard({ events }: { events: UpcomingEventView[] }) {
-  return (
-    <SectionCard
-      description="決算・予約期限"
-      hint={HINT.events}
-      meta={<Badge variant="secondary">{events.length} 件</Badge>}
-      title="今後 14 日のイベント"
-    >
-      {events.length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">今後 14 日のイベントはありません。</p>
-      ) : (
-        // The row wraps instead of scrolling sideways. `flex-1` alone would not wrap —
-        // its basis is 0, so the security would shrink to an unreadable sliver rather
-        // than reach a second line; the minimum width is what makes the wrap happen.
-        <div className="divide-y">
-          {events.map((event) => (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 py-3 sm:px-6" key={`${event.kind}-${event.event_date}-${event.ticker ?? ''}`}>
-              {/* A minimum, not a fixed width: the dates line up across rows and a wider
-                  one still renders in full. */}
-              <time className="min-w-[5.5rem] shrink-0 font-mono text-sm tabular-nums" dateTime={event.event_date}>{formatJstDateShort(event.event_date)}</time>
-              <Badge className="shrink-0" variant={event.days_until <= 1 ? 'destructive' : 'outline'}>{eventCountdownLabel(event.days_until)}</Badge>
-              <div className="flex min-w-[13rem] flex-1 items-center gap-2">
-                <Badge className="shrink-0 font-mono text-[10px]" variant="secondary">{eventKindLabel[event.kind]}</Badge>
-                {event.ticker ? (
-                  <Link className="min-w-0 truncate font-medium underline-offset-4 hover:underline" to={`/securities/${event.ticker}`}>
-                    <span className="font-mono">{event.ticker}</span>{event.label !== event.ticker && <span className="ml-2 text-muted-foreground">{event.label}</span>}
-                  </Link>
-                ) : (
-                  <span className="min-w-0 truncate text-muted-foreground">{event.label}</span>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </SectionCard>
-  )
-}
-
-const OPERATION_KIND_LABEL: Record<string, string> = {
-  'capital-allocation': '資本配分評価',
-  'position-review': 'ポジション評価',
-}
-
 const STATUS_LABEL: Record<string, string> = {
   active: '進行中',
   completed: '完了',
   resolved: '評価済み',
   unresolved: '未確定',
-}
-
-function OperationCard({ operations }: { operations: OperationSessionView[] }) {
-  return (
-    <SectionCard
-      hint={HINT.operations}
-      meta={<Badge variant="secondary">{operations.length} 件</Badge>}
-      title="運用状況"
-    >
-      {operations.length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">進行中または完了済みの運用はありません。</p>
-      ) : (
-        <div className="divide-y">
-          {operations.map((item) => (
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-3 sm:px-6" key={item.operation_id}>
-              <div className="min-w-0">
-                <p className="font-medium">
-                  {OPERATION_KIND_LABEL[item.session_kind] ?? item.session_kind}
-                  {item.ticker && <span className="ml-2 font-mono text-xs text-muted-foreground">{item.ticker}</span>}
-                </p>
-                <p className="truncate font-mono text-xs text-muted-foreground">{item.operation_id}</p>
-              </div>
-              <div className="flex shrink-0 items-center gap-3">
-                <AsOfBadge compact value={item.started_at} />
-                <Badge variant="outline">{STATUS_LABEL[item.status] ?? item.status}</Badge>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </SectionCard>
-  )
 }
 
 // Performance belongs on the dashboard because the portfolio has one owner asking one
@@ -564,12 +452,6 @@ function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
   )
 }
 
-function dashboardValuationAsOf(data: DashboardView): string | null {
-  if (data.valuation_as_of) return data.valuation_as_of
-  const holdingDates = data.holdings.map((holding) => holding.market_price_as_of)
-  return holdingDates.sort().at(0) ?? data.ledger_as_of
-}
-
 export function DashboardPage() {
   const [data, setData] = useState<DashboardView | null>(null)
   const [operations, setOperations] = useState<OperationsView | null>(null)
@@ -594,18 +476,8 @@ export function DashboardPage() {
 
   if (error) return <PageState message={error} title="Dashboard read error" />
   if (!data) return <LoadingPage label="資産状況を読み込んでいます" />
-  const valuationAsOf = dashboardValuationAsOf(data)
-
   return (
-    <PageShell
-      meta={(
-        <div className="flex items-center gap-2">
-          {valuationAsOf !== null && isOlderThanDays(valuationAsOf, 7) && <StaleBadge />}
-          <AsOfBadge value={valuationAsOf} />
-        </div>
-      )}
-      title="Dashboard"
-    >
+    <PageShell title="Dashboard">
       {data.ledger_error && (
         <Alert variant="destructive"><CircleAlert /><AlertTitle>Ledger error</AlertTitle><AlertDescription>{data.ledger_error}</AlertDescription></Alert>
       )}
@@ -614,10 +486,6 @@ export function DashboardPage() {
       )}
 
       <PortfolioAllocationCard data={data} />
-
-      <NextTaskCard task={data.next_task} />
-
-      <UpcomingEventsCard events={data.upcoming_events} />
 
       <DailyDeltaCard delta={delta} failed={deltaFailed} />
 
@@ -662,31 +530,7 @@ export function DashboardPage() {
         </SectionCard>
       )}
 
-      {operations && <OperationCard operations={operations.operations} />}
-
       {operations && <OutcomeCard outcomes={operations.outcomes} />}
-
-      <SectionCard hint={HINT.tasks} meta={<Badge variant="secondary">未完了 {data.open_tasks.length} 件</Badge>} title="タスク">
-        {!data.tasks_exist ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">タスクはまだ登録されていません。</p>
-        ) : data.open_tasks.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">未完了のタスクはありません。</p>
-        ) : (
-          // Same row shape as the event list: a date column wide enough to align, the
-          // badge that qualifies it, then the title, which takes a second line on a
-          // phone rather than being squeezed to a ribbon. A due date can be months out,
-          // so this one keeps its year.
-          <div className="divide-y">
-            {data.open_tasks.map((task) => (
-              <article className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 py-3 sm:px-6" key={task.task_id}>
-                <time className="min-w-[10rem] shrink-0 font-mono text-sm tabular-nums" dateTime={task.due_date}>{formatJstDate(task.due_date)}</time>
-                {task.overdue && <Badge className="shrink-0" variant="destructive">期限超過</Badge>}
-                <span className="min-w-[16rem] flex-1 text-sm font-medium">{task.title}</span>
-              </article>
-            ))}
-          </div>
-        )}
-      </SectionCard>
     </PageShell>
   )
 }

@@ -32,6 +32,7 @@ from baibai_web.readmodel.builders import (
     build_screening,
     build_screening_history_run,
     build_security_detail,
+    build_tasks,
 )
 from baibai_web.readmodel.models import (
     CapitalAllocationAssessmentView,
@@ -46,6 +47,7 @@ from baibai_web.readmodel.models import (
     ScreeningHistoryView,
     ScreeningView,
     SecurityDetailView,
+    TasksView,
 )
 from baibai_web.sources.factory import Sources, build_sources, load_macro_groups
 
@@ -99,7 +101,16 @@ def create_app(
         return build_dashboard(
             sources.ledger,
             sources.research,
+            sources.candidates,
+            sources.market,
+        )
+
+    @app.get("/api/tasks", response_model=TasksView)
+    def tasks(sources: _SourceDependency) -> TasksView:
+        return build_tasks(
             sources.tasks,
+            sources.ledger,
+            sources.research,
             sources.candidates,
             sources.market,
         )

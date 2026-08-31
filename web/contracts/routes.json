@@ -9,6 +9,7 @@
     "/api/daily-delta": "views/daily-delta.json",
     "/api/screening/latest": "views/screening_latest.json",
     "/api/operations": "views/operations.json",
+    "/api/tasks": "views/tasks.json",
     "/api/meta": "views/meta.json",
     "/api/macro": "views/macro.json"
   },

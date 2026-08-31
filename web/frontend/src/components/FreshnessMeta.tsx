@@ -23,7 +23,7 @@ export function FreshnessMeta({ meta, deployedAt, className }: FreshnessMetaProp
   return (
     <div className={cn('flex items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground', className)}>
       <Field label="デプロイ" value={formatJstStamp(deployedAt)} />
-      <Field label="データ更新" value={formatJstStamp(meta.data_updated_at ?? meta.generated_at)} />
+      <Field label="データ更新" value={meta.data_updated_at === null ? '—' : formatJstStamp(meta.data_updated_at)} />
     </div>
   )
 }

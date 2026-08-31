@@ -37,6 +37,7 @@ from baibai_web.readmodel.models import (
     OperationsView,
     ScreeningView,
     SecurityDetailView,
+    TasksView,
 )
 from baibai_web.sources.db_sources import DbMetaSource
 
@@ -278,6 +279,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
         "macro.json",
         "screening_latest.json",
         "operations.json",
+        "tasks.json",
         "meta.json",
         "security--0001.json",
         "security--0002.json",
@@ -293,11 +295,12 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     assert screening.run.analyzed_security_count == 3
     assert screening.review_sets == []
     OperationsView.model_validate_json((views / "operations.json").read_text(encoding="utf-8"))
+    TasksView.model_validate_json((views / "tasks.json").read_text(encoding="utf-8"))
     meta = MetaView.model_validate_json((views / "meta.json").read_text(encoding="utf-8"))
     assert meta.batch == "daily"
     assert meta.screening_asof == date(2026, 7, 8)
     macro = MacroView.model_validate_json((views / "macro.json").read_text(encoding="utf-8"))
-    assert macro.requested_as_of
+    assert macro.reading.asof == date(2026, 8, 31)
     assert sum(len(series.points) for group in macro.groups for series in group.series) == 0
     for name in ("security--0001.json", "security--0002.json", "security--2331.json"):
         detail = SecurityDetailView.model_validate_json((views / name).read_text(encoding="utf-8"))
@@ -404,6 +407,7 @@ def test_exported_views_match_api_responses(app_method_root: Path, tmp_path: Pat
         api_screening = client.get("/api/screening/latest").json()
         api_macro = client.get("/api/macro").json()
         api_dashboard = client.get("/api/dashboard").json()
+        api_tasks = client.get("/api/tasks").json()
     exported_screening = json.loads(
         (output_dir / "views/screening_latest.json").read_text(encoding="utf-8")
     )
@@ -415,6 +419,9 @@ def test_exported_views_match_api_responses(app_method_root: Path, tmp_path: Pat
     )
     del exported_dashboard["generated_at"], api_dashboard["generated_at"]
     assert exported_dashboard == api_dashboard
+    exported_tasks = json.loads((output_dir / "views/tasks.json").read_text(encoding="utf-8"))
+    del exported_tasks["generated_at"], api_tasks["generated_at"]
+    assert exported_tasks == api_tasks
 
 
 def test_export_skips_security_view_for_ticker_no_source_knows(

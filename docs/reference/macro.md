@@ -134,9 +134,9 @@ uv run baibai-engine macro get jp.pmi_manufacturing --start 2023-01-01 --end 202
 
 `macro.sqlite` は schema / series registry と各 provider（PDF / API / CSV）から再構築する L1 store であり、定期 backup は持たない。ただし PMI 履歴のように publisher が古い URL を落とすと再取得できない部分があるため、R2 への push は上書き対象の 1 世代を `<key>.bak` として残す（[`batch/OPERATIONS.md`](../../batch/OPERATIONS.md)）。
 
-### Baibai Loop で日次ブリーフと系列履歴を読む
+### Baibai Loop で現在局面と系列履歴を読む
 
-`baibai-web` の `/api/macro` は `requested_as_of`、L1 の最終観測日 `data_as_of`、その前の観測日 `previous_data_as_of`、最新 L3 の `context_as_of` を分け、前データ日および Context 日からの L2 差分、standing state、最新 Context の判断抜粋、全系列の現在読み値を返す非 canonical projection である。日次系列の表示は `|Δz|` 順で上限を持つが、重要度や銘柄 ranking ではなく、総数と省略数を併記する。週次・月次・四半期は `observed_at` または値が変わった全系列を載せ、「当日公表」とは呼ばない。
+`baibai-web` の `/api/macro` は最新 L3 Context の判断抜粋、指定基準日の L2 reading、全系列の現在読み値を返す非 canonical projection である。画面は Context の `summary`、`risk_environment`、`synthesis.dominant_forces`、`synthesis.interactions`、`scenarios` を現在局面として最初に示し、新しい要約やscoreを生成しない。Contextの更新日時は `published_at`、readingの基準は `asof`、系列の観測日は `observed_at` として別々に表示する。
 
 初期 response は full chart history を持たず、一覧用に各系列の約1年・月次 period-end を最大13 pointだけ返す。これは方向を走査する固定windowで、期間・粒度selectorの対象ではない。行を開いた時だけ `/api/macro/series/<series_id>` がその 1 系列の daily 全履歴を返し、詳細chartの期間 `1y | 5y | 10y | max` と粒度 `daily | weekly | monthly | yearly` は browser 内で絞る。`series.yaml` に `tradingview_symbol` がある系列だけ TradingView の該当 symbol を新規 tab で開く。
 
@@ -189,11 +189,11 @@ uv run baibai-engine macro reading --asof 2026-07-24 --format json   # 機械読
 
 percentile の実効窓を短縮した系列は、provider の履歴が伸びて default に届いたら override を外す（`window_years` が default と一致しているかを規則改版時に確認する）。
 
-reading は L1 store を読むだけの純関数で、provider を呼ばず DB へ書かない。したがって過去日の asof でも同じ入力から同じ snapshot を再計算できる。CLI・read API・indicator chart は共通の store reader を使い、`ProviderSpec.point_in_time_vintage` を宣言する source だけを `vintage_at <= asof` へ clamp する。宣言のない bulk history の `vintage_at` は取得日時であって当時の公表日時ではないため、一律 clamp して取得前の過去 snapshot から既知だった履歴を消さない。専用 store は持たず、日次バッチが `baibai-web` 向けの日次ブリーフ（`/api/macro`・`views/macro.json`）へ投影し、L3 レポートは引用した snapshot を `inputs.reading_snapshots` に記録する。ブリーフの current / previous / context reading は request-local cache で系列ごとに観測を 1 回だけ読み、canonical snapshot を増やさない。
+reading は L1 store を読むだけの純関数で、provider を呼ばず DB へ書かない。したがって過去日の asof でも同じ入力から同じ snapshot を再計算できる。CLI・read API・indicator chart は共通の store reader を使い、`ProviderSpec.point_in_time_vintage` を宣言する source だけを `vintage_at <= asof` へ clamp する。宣言のない bulk history の `vintage_at` は取得日時であって当時の公表日時ではないため、一律 clamp して取得前の過去 snapshot から既知だった履歴を消さない。専用 store は持たず、日次バッチが `baibai-web` 向けの現在読み値（`/api/macro`・`views/macro.json`）へ投影し、L3 レポートは引用した snapshot を `inputs.reading_snapshots` に記録する。Web projectionは指定asofのreadingを1回組み立て、canonical snapshotを増やさない。
 
-Baibai Loop の Macro タブは、上から **今日の日付・health → Context 以後の差分（前データ日を折り畳み）→ 現在の L3 環境判断と Research 接続 → 全系列の現在読み値 → 折り畳んだ過去レポート**の順に表示する。現在読み値は `web/config/macro-panel.yaml` の 7 group 順に `series_id` で join し、最新値・観測日・短期/長期トレンド・`statistic`・percentile・`z_score`・実効窓・注記を並べる。行を開いた後だけ拡大チャートを取得する。**チャートの期間・粒度と percentile の実効窓は別物**なので、列見出しの ⓘ で明示する。
+Baibai Loop の Macro タブは、上から **現在のマクロ局面 → マクロ経済指標 → 過去の経済分析レポート**の順に表示する。現在読み値は `web/config/macro-panel.yaml` の 7 group 順に `series_id` で join し、最新値・観測日・短期/長期トレンド・`statistic`・percentile・`z_score`・実効窓・注記を並べる。行を開いた後だけ拡大チャートを取得する。**チャートの期間・粒度と percentile の実効窓は別物**なので、列見出しの ⓘ で明示する。
 
-行に出る状態は 4 つで、**取得失敗・`stale`・`insufficient_history` の 3 つは取得側の問題**（percentile の解釈可能性を壊す）、**`|z_score|` ≥ 3 の分布の端は読み値そのもの**である。極端な z を health に混ぜない：端にいることは reading が測った位置そのもので、panel の結論に最も近い情報である（誤値でないことの確認は L3 が一次情報と突き合わせて行う）。今日の状態は 4 分類の件数を持ち、同じ分類が一覧の絞り込みでもある。indicator store が無いときも日次ブリーフと report index は表示し、読み値だけを unavailable にする。
+行に出る状態は 4 つで、**取得失敗・`stale`・`insufficient_history` の 3 つは取得側の問題**（percentile の解釈可能性を壊す）、**`|z_score|` ≥ 3 の分布の端は読み値そのもの**である。極端な z を health に混ぜない：端にいることは reading が測った位置そのもので、panel の結論に最も近い情報である（誤値でないことの確認は L3 が一次情報と突き合わせて行う）。現在読み値は 4 分類の件数を持ち、同じ分類が一覧の絞り込みでもある。indicator store が無いときも現在局面と report index は表示し、読み値だけを unavailable にする。
 
 ## ③ 環境認識：macro context report を publish する
 
@@ -316,7 +316,7 @@ scorecard はレポート `as_of` の翌日から各条件の期限日までを�
 
 - **Research Triage**: scaffold は判断 asof 以下の最新 revision を束縛する。eligible revision があるのに `null`、未知 ID、future は publish error。古さは warning で、Review Set・ranking・machine snapshotを変えない。明示的に古い eligible revision を選ぶ場合は既存の判断文へ理由を残す
 - **Fundamental Research**: 束縛 Context の estimate caveat を scenario / FV の前に読み、material なものを既存 assumption と source ID へ接続する。適用外・stale・low materiality は既存 note に理由を残す
-- **Baibai Loop**: Macro タブが `requested_as_of` / `data_as_of` / `previous_data_as_of` / `context_as_of` と staleness warning を別々に表示する
+- **Baibai Loop**: Macro タブは Context の更新日時 `published_at` を主要metaにし、Contextの基準日 `as_of`、readingの `asof`、系列の `observed_at`、staleness warningをそれぞれのsection/detailで分けて表示する
 
 ### 分析の独立性
 

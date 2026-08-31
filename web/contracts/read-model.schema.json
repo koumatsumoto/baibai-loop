@@ -14,7 +14,8 @@
     "views/meta.json": "#/$defs/MetaView",
     "views/operations.json": "#/$defs/OperationsView",
     "views/screening_latest.json": "#/$defs/ScreeningView",
-    "views/security--{ticker}.json": "#/$defs/SecurityDetailView"
+    "views/security--{ticker}.json": "#/$defs/SecurityDetailView",
+    "views/tasks.json": "#/$defs/TasksView"
   },
   "$defs": {
     "AllocationAlternativeView": {
@@ -653,34 +654,6 @@
           "title": "Warnings",
           "type": "array"
         },
-        "upcoming_events": {
-          "items": {
-            "$ref": "#/$defs/UpcomingEventView"
-          },
-          "title": "Upcoming Events",
-          "type": "array"
-        },
-        "open_tasks": {
-          "items": {
-            "$ref": "#/$defs/TaskView"
-          },
-          "title": "Open Tasks",
-          "type": "array"
-        },
-        "next_task": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/TaskView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "tasks_exist": {
-          "title": "Tasks Exist",
-          "type": "boolean"
-        },
         "research_load_errors": {
           "items": {
             "type": "string"
@@ -708,10 +681,6 @@
         "holdings",
         "reservations",
         "warnings",
-        "upcoming_events",
-        "open_tasks",
-        "next_task",
-        "tasks_exist",
         "research_load_errors"
       ],
       "title": "DashboardView",
@@ -1144,65 +1113,6 @@
       "title": "HoldingView",
       "type": "object"
     },
-    "MacroComparisonView": {
-      "properties": {
-        "from_as_of": {
-          "format": "date",
-          "title": "From As Of",
-          "type": "string"
-        },
-        "to_as_of": {
-          "format": "date",
-          "title": "To As Of",
-          "type": "string"
-        },
-        "changed_total": {
-          "title": "Changed Total",
-          "type": "integer"
-        },
-        "daily_changed_total": {
-          "title": "Daily Changed Total",
-          "type": "integer"
-        },
-        "daily_moves": {
-          "items": {
-            "$ref": "#/$defs/MacroSeriesChangeView"
-          },
-          "title": "Daily Moves",
-          "type": "array"
-        },
-        "daily_moves_omitted": {
-          "title": "Daily Moves Omitted",
-          "type": "integer"
-        },
-        "non_daily_updates": {
-          "items": {
-            "$ref": "#/$defs/MacroSeriesChangeView"
-          },
-          "title": "Non Daily Updates",
-          "type": "array"
-        },
-        "state_changes": {
-          "items": {
-            "$ref": "#/$defs/MacroStateChangeView"
-          },
-          "title": "State Changes",
-          "type": "array"
-        }
-      },
-      "required": [
-        "from_as_of",
-        "to_as_of",
-        "changed_total",
-        "daily_changed_total",
-        "daily_moves",
-        "daily_moves_omitted",
-        "non_daily_updates",
-        "state_changes"
-      ],
-      "title": "MacroComparisonView",
-      "type": "object"
-    },
     "MacroConnectionSectionView": {
       "properties": {
         "section_id": {
@@ -1290,7 +1200,7 @@
       "type": "object"
     },
     "MacroContextExcerptView": {
-      "description": "The L3 fields needed to judge today's L2 changes without opening the full report.",
+      "description": "Existing L3 judgment fields shown before the current L2 readings.",
       "properties": {
         "context_id": {
           "title": "Context Id",
@@ -1804,55 +1714,6 @@
         "series"
       ],
       "title": "MacroGroupView",
-      "type": "object"
-    },
-    "MacroMachineUpdateView": {
-      "properties": {
-        "series_total": {
-          "title": "Series Total",
-          "type": "integer"
-        },
-        "fetch_ok_count": {
-          "title": "Fetch Ok Count",
-          "type": "integer"
-        },
-        "fetch_failed_count": {
-          "title": "Fetch Failed Count",
-          "type": "integer"
-        },
-        "previous_day": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MacroComparisonView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "since_context": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MacroComparisonView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "standing": {
-          "$ref": "#/$defs/MacroStandingView"
-        }
-      },
-      "required": [
-        "series_total",
-        "fetch_ok_count",
-        "fetch_failed_count",
-        "previous_day",
-        "since_context",
-        "standing"
-      ],
-      "title": "MacroMachineUpdateView",
       "type": "object"
     },
     "MacroMaterialDeltaView": {
@@ -2458,109 +2319,6 @@
       "title": "MacroSectorTiltView",
       "type": "object"
     },
-    "MacroSeriesChangeView": {
-      "description": "One observed series value that differs between two L2 readings.",
-      "properties": {
-        "series_id": {
-          "title": "Series Id",
-          "type": "string"
-        },
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
-        "frequency": {
-          "title": "Frequency",
-          "type": "string"
-        },
-        "unit": {
-          "title": "Unit",
-          "type": "string"
-        },
-        "previous_observed_at": {
-          "anyOf": [
-            {
-              "format": "date",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Previous Observed At"
-        },
-        "observed_at": {
-          "anyOf": [
-            {
-              "format": "date",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Observed At"
-        },
-        "previous_value": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Previous Value"
-        },
-        "value": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Value"
-        },
-        "value_change": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Value Change"
-        },
-        "z_score_delta": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Z Score Delta"
-        }
-      },
-      "required": [
-        "series_id",
-        "name",
-        "frequency",
-        "unit",
-        "previous_observed_at",
-        "observed_at",
-        "previous_value",
-        "value",
-        "value_change",
-        "z_score_delta"
-      ],
-      "title": "MacroSeriesChangeView",
-      "type": "object"
-    },
     "MacroSeriesFetchHealthView": {
       "description": "The latest acquisition attempt for one series (not part of the reading itself).",
       "properties": {
@@ -2694,83 +2452,6 @@
       "title": "MacroSizingCautionView",
       "type": "object"
     },
-    "MacroStandingView": {
-      "properties": {
-        "fetch_failed": {
-          "items": {
-            "$ref": "#/$defs/MacroSeriesFetchHealthView"
-          },
-          "title": "Fetch Failed",
-          "type": "array"
-        },
-        "stale_series_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Stale Series Ids",
-          "type": "array"
-        },
-        "flagged_series_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Flagged Series Ids",
-          "type": "array"
-        },
-        "extreme_series_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Extreme Series Ids",
-          "type": "array"
-        }
-      },
-      "required": [
-        "fetch_failed",
-        "stale_series_ids",
-        "flagged_series_ids",
-        "extreme_series_ids"
-      ],
-      "title": "MacroStandingView",
-      "type": "object"
-    },
-    "MacroStateChangeView": {
-      "properties": {
-        "series_id": {
-          "title": "Series Id",
-          "type": "string"
-        },
-        "kind": {
-          "enum": [
-            "flag",
-            "stale",
-            "extreme"
-          ],
-          "title": "Kind",
-          "type": "string"
-        },
-        "state": {
-          "enum": [
-            "raised",
-            "cleared"
-          ],
-          "title": "State",
-          "type": "string"
-        },
-        "detail": {
-          "title": "Detail",
-          "type": "string"
-        }
-      },
-      "required": [
-        "series_id",
-        "kind",
-        "state",
-        "detail"
-      ],
-      "title": "MacroStateChangeView",
-      "type": "object"
-    },
     "MacroSynthesisView": {
       "description": "The integrated layer: named cross-channel forces and how they combine.",
       "properties": {
@@ -2797,63 +2478,8 @@
       "type": "object"
     },
     "MacroView": {
-      "description": "One daily decision entrance: L2 change facts plus the latest L3 judgment.",
+      "description": "Current L3 judgment first, followed by current L2 readings.",
       "properties": {
-        "requested_as_of": {
-          "format": "date",
-          "title": "Requested As Of",
-          "type": "string"
-        },
-        "data_as_of": {
-          "anyOf": [
-            {
-              "format": "date",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Data As Of"
-        },
-        "previous_data_as_of": {
-          "anyOf": [
-            {
-              "format": "date",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Previous Data As Of"
-        },
-        "context_as_of": {
-          "anyOf": [
-            {
-              "format": "date",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Context As Of"
-        },
-        "rules_revision": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Rules Revision"
-        },
-        "machine_update": {
-          "$ref": "#/$defs/MacroMachineUpdateView"
-        },
         "latest_context": {
           "anyOf": [
             {
@@ -2890,12 +2516,6 @@
         }
       },
       "required": [
-        "requested_as_of",
-        "data_as_of",
-        "previous_data_as_of",
-        "context_as_of",
-        "rules_revision",
-        "machine_update",
         "latest_context",
         "reading",
         "reports",
@@ -3535,6 +3155,305 @@
       "title": "ReservationView",
       "type": "object"
     },
+    "ReviewSetAnalysisView": {
+      "properties": {
+        "identity_liquidity": {
+          "$ref": "#/$defs/ReviewSetIdentityLiquidityView"
+        },
+        "valuation": {
+          "$ref": "#/$defs/ReviewSetValuationView"
+        },
+        "current_earnings": {
+          "$ref": "#/$defs/ReviewSetCurrentEarningsView"
+        },
+        "normalized_earnings": {
+          "$ref": "#/$defs/ReviewSetNormalizedEarningsView"
+        },
+        "asset_value": {
+          "$ref": "#/$defs/ReviewSetAssetValueView"
+        },
+        "reinvestment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReviewSetReinvestmentView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expected_return": {
+          "$ref": "#/$defs/ReviewSetExpectedReturnView"
+        },
+        "data_quality": {
+          "$ref": "#/$defs/ReviewSetDataQualityView"
+        },
+        "context": {
+          "$ref": "#/$defs/ReviewSetContextView"
+        }
+      },
+      "required": [
+        "identity_liquidity",
+        "valuation",
+        "current_earnings",
+        "normalized_earnings",
+        "asset_value",
+        "reinvestment",
+        "expected_return",
+        "data_quality",
+        "context"
+      ],
+      "title": "ReviewSetAnalysisView",
+      "type": "object"
+    },
+    "ReviewSetAssetValueView": {
+      "properties": {
+        "asset_backed_ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Asset Backed Ratio"
+        },
+        "net_cash_to_market_cap": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Net Cash To Market Cap"
+        },
+        "investment_securities": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Investment Securities"
+        },
+        "equity_ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Equity Ratio"
+        }
+      },
+      "required": [
+        "asset_backed_ratio",
+        "net_cash_to_market_cap",
+        "investment_securities",
+        "equity_ratio"
+      ],
+      "title": "ReviewSetAssetValueView",
+      "type": "object"
+    },
+    "ReviewSetContextView": {
+      "properties": {
+        "next_earnings_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Earnings Status"
+        },
+        "next_earnings_estimated_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Earnings Estimated Date"
+        },
+        "margin_short_to_adv": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Margin Short To Adv"
+        },
+        "tse_capital_policy_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tse Capital Policy Status"
+        },
+        "large_holding_event_recent": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Large Holding Event Recent"
+        },
+        "tender_offer_event_recent": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tender Offer Event Recent"
+        }
+      },
+      "required": [
+        "next_earnings_status",
+        "next_earnings_estimated_date",
+        "margin_short_to_adv",
+        "tse_capital_policy_status",
+        "large_holding_event_recent",
+        "tender_offer_event_recent"
+      ],
+      "title": "ReviewSetContextView",
+      "type": "object"
+    },
+    "ReviewSetCurrentEarningsView": {
+      "properties": {
+        "fcf_yield": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fcf Yield"
+        },
+        "ocf_yield": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ocf Yield"
+        },
+        "forecast_special_gain_flag": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Forecast Special Gain Flag"
+        },
+        "forecast_full_year_loss_flag": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Forecast Full Year Loss Flag"
+        }
+      },
+      "required": [
+        "fcf_yield",
+        "ocf_yield",
+        "forecast_special_gain_flag",
+        "forecast_full_year_loss_flag"
+      ],
+      "title": "ReviewSetCurrentEarningsView",
+      "type": "object"
+    },
+    "ReviewSetDataQualityView": {
+      "properties": {
+        "bs_carry_forward_fields": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Bs Carry Forward Fields"
+        },
+        "bs_carry_forward_lag_days": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Bs Carry Forward Lag Days"
+        },
+        "edinet_failure_reasons": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Edinet Failure Reasons"
+        },
+        "stale_fin_flag": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stale Fin Flag"
+        }
+      },
+      "required": [
+        "bs_carry_forward_fields",
+        "bs_carry_forward_lag_days",
+        "edinet_failure_reasons",
+        "stale_fin_flag"
+      ],
+      "title": "ReviewSetDataQualityView",
+      "type": "object"
+    },
     "ReviewSetEntryView": {
       "description": "One nominated security in deterministic multi-approach review order.",
       "properties": {
@@ -3570,8 +3489,7 @@
         },
         "nominations": {
           "items": {
-            "additionalProperties": true,
-            "type": "object"
+            "$ref": "#/$defs/ReviewSetNominationView"
           },
           "title": "Nominations",
           "type": "array"
@@ -3588,9 +3506,7 @@
           "type": "array"
         },
         "analysis": {
-          "additionalProperties": true,
-          "title": "Analysis",
-          "type": "object"
+          "$ref": "#/$defs/ReviewSetAnalysisView"
         }
       },
       "required": [
@@ -3604,6 +3520,349 @@
         "analysis"
       ],
       "title": "ReviewSetEntryView",
+      "type": "object"
+    },
+    "ReviewSetExpectedReturnView": {
+      "properties": {
+        "er_annual": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Er Annual"
+        },
+        "er_reversion_annual": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Er Reversion Annual"
+        },
+        "er_carry_annual": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Er Carry Annual"
+        },
+        "fv_sector_median_yen": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fv Sector Median Yen"
+        },
+        "fv_self_range_yen": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fv Self Range Yen"
+        },
+        "er_origin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Er Origin"
+        },
+        "er_model_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Er Model Version"
+        },
+        "er_unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Er Unit"
+        },
+        "er_assumptions": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Er Assumptions"
+        }
+      },
+      "required": [
+        "er_annual",
+        "er_reversion_annual",
+        "er_carry_annual",
+        "fv_sector_median_yen",
+        "fv_self_range_yen",
+        "er_origin",
+        "er_model_version",
+        "er_unit",
+        "er_assumptions"
+      ],
+      "title": "ReviewSetExpectedReturnView",
+      "type": "object"
+    },
+    "ReviewSetIdentityLiquidityView": {
+      "properties": {
+        "market_cap_oku": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Market Cap Oku"
+        },
+        "avg_turnover_oku": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Avg Turnover Oku"
+        },
+        "listing_span_days": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Listing Span Days"
+        },
+        "jpx_flags": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Jpx Flags"
+        }
+      },
+      "required": [
+        "market_cap_oku",
+        "avg_turnover_oku",
+        "listing_span_days",
+        "jpx_flags"
+      ],
+      "title": "ReviewSetIdentityLiquidityView",
+      "type": "object"
+    },
+    "ReviewSetNominationView": {
+      "properties": {
+        "valuation_approach_id": {
+          "title": "Valuation Approach Id",
+          "type": "string"
+        },
+        "valuation_method_id": {
+          "title": "Valuation Method Id",
+          "type": "string"
+        },
+        "rank": {
+          "title": "Rank",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "valuation_approach_id",
+        "valuation_method_id",
+        "rank"
+      ],
+      "title": "ReviewSetNominationView",
+      "type": "object"
+    },
+    "ReviewSetNormalizedEarningsView": {
+      "properties": {
+        "normalized_per_3fy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Normalized Per 3Fy"
+        },
+        "normalized_per_3fy_sector_gap": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Normalized Per 3Fy Sector Gap"
+        }
+      },
+      "required": [
+        "normalized_per_3fy",
+        "normalized_per_3fy_sector_gap"
+      ],
+      "title": "ReviewSetNormalizedEarningsView",
+      "type": "object"
+    },
+    "ReviewSetReinvestmentView": {
+      "properties": {
+        "p_s_sector_gap": {
+          "title": "P S Sector Gap",
+          "type": "number"
+        },
+        "operating_return_on_capital_proxy": {
+          "title": "Operating Return On Capital Proxy",
+          "type": "number"
+        },
+        "sales_yoy": {
+          "title": "Sales Yoy",
+          "type": "number"
+        },
+        "operating_margin": {
+          "title": "Operating Margin",
+          "type": "number"
+        },
+        "fcf_yield": {
+          "title": "Fcf Yield",
+          "type": "number"
+        }
+      },
+      "required": [
+        "p_s_sector_gap",
+        "operating_return_on_capital_proxy",
+        "sales_yoy",
+        "operating_margin",
+        "fcf_yield"
+      ],
+      "title": "ReviewSetReinvestmentView",
+      "type": "object"
+    },
+    "ReviewSetValuationView": {
+      "properties": {
+        "per_forward": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Per Forward"
+        },
+        "per_trailing": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Per Trailing"
+        },
+        "pbr": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pbr"
+        },
+        "ev_ebitda": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ev Ebitda"
+        },
+        "p_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "P S"
+        },
+        "pcfr": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pcfr"
+        }
+      },
+      "required": [
+        "per_forward",
+        "per_trailing",
+        "pbr",
+        "ev_ebitda",
+        "p_s",
+        "pcfr"
+      ],
+      "title": "ReviewSetValuationView",
       "type": "object"
     },
     "ReviewSetView": {
@@ -4455,6 +4714,65 @@
         "overdue"
       ],
       "title": "TaskView",
+      "type": "object"
+    },
+    "TasksView": {
+      "description": "Task/event workflow projection, separate from portfolio presentation.",
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "tasks_exist": {
+          "title": "Tasks Exist",
+          "type": "boolean"
+        },
+        "open_tasks": {
+          "items": {
+            "$ref": "#/$defs/TaskView"
+          },
+          "title": "Open Tasks",
+          "type": "array"
+        },
+        "next_task": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "upcoming_events": {
+          "items": {
+            "$ref": "#/$defs/UpcomingEventView"
+          },
+          "title": "Upcoming Events",
+          "type": "array"
+        },
+        "ledger_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ledger Error"
+        }
+      },
+      "required": [
+        "generated_at",
+        "tasks_exist",
+        "open_tasks",
+        "next_task",
+        "upcoming_events",
+        "ledger_error"
+      ],
+      "title": "TasksView",
       "type": "object"
     },
     "ThesisDetailView": {

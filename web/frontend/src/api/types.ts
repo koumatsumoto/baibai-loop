@@ -122,10 +122,6 @@ export interface DashboardView {
   holdings: HoldingView[]
   reservations: ReservationView[]
   warnings: WarningView[]
-  upcoming_events: UpcomingEventView[]
-  open_tasks: TaskView[]
-  next_task: TaskView | null
-  tasks_exist: boolean
   research_load_errors: string[]
 }
 
@@ -210,17 +206,6 @@ export interface HoldingView {
   next_earnings_date: string | null
 }
 
-export interface MacroComparisonView {
-  from_as_of: string
-  to_as_of: string
-  changed_total: number
-  daily_changed_total: number
-  daily_moves: MacroSeriesChangeView[]
-  daily_moves_omitted: number
-  non_daily_updates: MacroSeriesChangeView[]
-  state_changes: MacroStateChangeView[]
-}
-
 export interface MacroConnectionSectionView {
   section_id: string
   series: MacroSeriesReferenceView[]
@@ -235,7 +220,7 @@ export interface MacroConnectionSectionView {
 }
 
 /**
- * The L3 fields needed to judge today's L2 changes without opening the full report.
+ * Existing L3 judgment fields shown before the current L2 readings.
  */
 export interface MacroContextExcerptView {
   context_id: string
@@ -330,15 +315,6 @@ export interface MacroForceInteractionView {
 export interface MacroGroupView {
   title: string
   series: MacroSeriesView[]
-}
-
-export interface MacroMachineUpdateView {
-  series_total: number
-  fetch_ok_count: number
-  fetch_failed_count: number
-  previous_day: MacroComparisonView | null
-  since_context: MacroComparisonView | null
-  standing: MacroStandingView
 }
 
 export interface MacroMaterialDeltaView {
@@ -461,22 +437,6 @@ export interface MacroSectorTiltView {
 }
 
 /**
- * One observed series value that differs between two L2 readings.
- */
-export interface MacroSeriesChangeView {
-  series_id: string
-  name: string
-  frequency: string
-  unit: string
-  previous_observed_at: string | null
-  observed_at: string | null
-  previous_value: number | null
-  value: number | null
-  value_change: number | null
-  z_score_delta: number | null
-}
-
-/**
  * The latest acquisition attempt for one series (not part of the reading itself).
  */
 export interface MacroSeriesFetchHealthView {
@@ -507,20 +467,6 @@ export interface MacroSizingCautionView {
   source_ids: string[]
 }
 
-export interface MacroStandingView {
-  fetch_failed: MacroSeriesFetchHealthView[]
-  stale_series_ids: string[]
-  flagged_series_ids: string[]
-  extreme_series_ids: string[]
-}
-
-export interface MacroStateChangeView {
-  series_id: string
-  kind: 'flag' | 'stale' | 'extreme'
-  state: 'raised' | 'cleared'
-  detail: string
-}
-
 /**
  * The integrated layer: named cross-channel forces and how they combine.
  */
@@ -530,15 +476,9 @@ export interface MacroSynthesisView {
 }
 
 /**
- * One daily decision entrance: L2 change facts plus the latest L3 judgment.
+ * Current L3 judgment first, followed by current L2 readings.
  */
 export interface MacroView {
-  requested_as_of: string
-  data_as_of: string | null
-  previous_data_as_of: string | null
-  context_as_of: string | null
-  rules_revision: string | null
-  machine_update: MacroMachineUpdateView
   latest_context: MacroContextExcerptView | null
   reading: MacroReadingView | null
   reports: MacroContextRevisionView[]
@@ -649,6 +589,48 @@ export interface ReservationView {
   expires_at: string
 }
 
+export interface ReviewSetAnalysisView {
+  identity_liquidity: ReviewSetIdentityLiquidityView
+  valuation: ReviewSetValuationView
+  current_earnings: ReviewSetCurrentEarningsView
+  normalized_earnings: ReviewSetNormalizedEarningsView
+  asset_value: ReviewSetAssetValueView
+  reinvestment: ReviewSetReinvestmentView | null
+  expected_return: ReviewSetExpectedReturnView
+  data_quality: ReviewSetDataQualityView
+  context: ReviewSetContextView
+}
+
+export interface ReviewSetAssetValueView {
+  asset_backed_ratio: number | null
+  net_cash_to_market_cap: number | null
+  investment_securities: number | null
+  equity_ratio: number | null
+}
+
+export interface ReviewSetContextView {
+  next_earnings_status: string | null
+  next_earnings_estimated_date: string | null
+  margin_short_to_adv: number | null
+  tse_capital_policy_status: string | null
+  large_holding_event_recent: boolean | null
+  tender_offer_event_recent: boolean | null
+}
+
+export interface ReviewSetCurrentEarningsView {
+  fcf_yield: number | null
+  ocf_yield: number | null
+  forecast_special_gain_flag: boolean | null
+  forecast_full_year_loss_flag: boolean | null
+}
+
+export interface ReviewSetDataQualityView {
+  bs_carry_forward_fields: string | null
+  bs_carry_forward_lag_days: number | null
+  edinet_failure_reasons: string | null
+  stale_fin_flag: boolean | null
+}
+
 /**
  * One nominated security in deterministic multi-approach review order.
  */
@@ -657,10 +639,57 @@ export interface ReviewSetEntryView {
   ticker: string
   name: string | null
   sector_33: string | null
-  nominations: Record<string, unknown>[]
+  nominations: ReviewSetNominationView[]
   support_count: number
   rank_vector: number[]
-  analysis: Record<string, unknown>
+  analysis: ReviewSetAnalysisView
+}
+
+export interface ReviewSetExpectedReturnView {
+  er_annual: number | null
+  er_reversion_annual: number | null
+  er_carry_annual: number | null
+  fv_sector_median_yen: number | null
+  fv_self_range_yen: number | null
+  er_origin: string | null
+  er_model_version: string | null
+  er_unit: string | null
+  er_assumptions: string | null
+}
+
+export interface ReviewSetIdentityLiquidityView {
+  market_cap_oku: number | null
+  avg_turnover_oku: number | null
+  listing_span_days: number | null
+  jpx_flags: string[] | null
+}
+
+export interface ReviewSetNominationView {
+  valuation_approach_id: string
+  valuation_method_id: string
+  rank: number
+}
+
+export interface ReviewSetNormalizedEarningsView {
+  normalized_per_3fy: number | null
+  normalized_per_3fy_sector_gap: number | null
+}
+
+export interface ReviewSetReinvestmentView {
+  p_s_sector_gap: number
+  operating_return_on_capital_proxy: number
+  sales_yoy: number
+  operating_margin: number
+  fcf_yield: number
+}
+
+export interface ReviewSetValuationView {
+  per_forward: number | null
+  per_trailing: number | null
+  pbr: number | null
+  ev_ebitda: number | null
+  p_s: number | null
+  pcfr: number | null
 }
 
 export interface ReviewSetView {
@@ -773,6 +802,18 @@ export interface TaskView {
   event_label: string | null
   event_date: string | null
   overdue: boolean
+}
+
+/**
+ * Task/event workflow projection, separate from portfolio presentation.
+ */
+export interface TasksView {
+  generated_at: string
+  tasks_exist: boolean
+  open_tasks: TaskView[]
+  next_task: TaskView | null
+  upcoming_events: UpcomingEventView[]
+  ledger_error: string | null
 }
 
 export interface ThesisDetailView {

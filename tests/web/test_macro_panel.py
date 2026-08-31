@@ -16,12 +16,7 @@ from baibai_engine.macro.indicators.db import (
 )
 from baibai_engine.macro.indicators.definitions import IndicatorDefinitions, load_definitions
 from baibai_engine.read_api import MACRO_READING_RULES_PATH
-from baibai_web.readmodel.builders import (
-    _macro_comparison,
-    _macro_machine_update,
-    build_macro,
-    build_macro_series,
-)
+from baibai_web.readmodel.builders import build_macro, build_macro_series
 from baibai_web.sources.db_sources import DbMacroSource, load_macro_panel_config
 from baibai_web.sources.types import MacroGroupConfig, MacroSeriesConfig
 
@@ -94,7 +89,7 @@ def test_panel_keeps_a_configured_series_the_store_has_not_fetched(tmp_path: Pat
 
     rows = {series.series_id: series for group in view.groups for series in group.series}
     assert list(rows) == ["us.10y", "jp.2y"]
-    # The initial daily brief carries only a compact monthly sparkline, not full history.
+    # The overview carries only a compact monthly sparkline, not full history.
     assert [point.observed_at for point in rows["us.10y"].points] == [date(2026, 7, 15)]
     # The row survives with no observations and keeps its registry name, so a store that
     # lags the registry shows the gap instead of dropping the series or failing the view.
@@ -170,144 +165,3 @@ def test_panel_rejects_a_configured_series_no_registry_defines(tmp_path: Path) -
 
     with pytest.raises(ValueError, match=r"not registered: jp\.no_such_series"):
         build_macro(source, as_of=_AS_OF)
-
-
-def test_context_newer_than_data_is_zero_change_not_unavailable() -> None:
-    reading = {
-        "asof": "2026-07-18",
-        "series": [
-            {
-                "series_id": "us.10y",
-                "name": "US 10-Year Treasury Yield",
-                "frequency": "daily",
-                "unit": "percent",
-                "observed_at": "2026-07-18",
-                "latest_value": 4.2,
-                "z_score": 0.5,
-                "flags": [],
-                "stale": False,
-            }
-        ],
-    }
-
-    update = _macro_machine_update(
-        current=reading,
-        previous=None,
-        context=reading,
-        context_asof=date(2026, 7, 19),
-        fetch_health=[],
-    )
-
-    assert update.since_context is not None
-    assert update.since_context.changed_total == 0
-    assert update.since_context.daily_moves == []
-
-
-def test_macro_comparison_separates_updates_and_state_transitions() -> None:
-    earlier = {
-        "asof": "2026-07-17",
-        "series": [
-            _reading_row(
-                "daily.changed",
-                frequency="daily",
-                value=1.0,
-                z_score=2.9,
-                flags=["old"],
-                stale=True,
-            ),
-            _reading_row("monthly.changed", frequency="monthly", value=1.0, z_score=None),
-            _reading_row("weekly.changed", frequency="weekly", value=1.0, z_score=None),
-            _reading_row("daily.no-z", frequency="daily", value=1.0, z_score=None),
-            _reading_row("edge.cleared", frequency="daily", value=1.0, z_score=-3.0),
-        ],
-    }
-    current = {
-        "asof": "2026-07-18",
-        "series": [
-            _reading_row("daily.changed", frequency="daily", value=2.0, z_score=3.1, flags=["new"]),
-            _reading_row("monthly.changed", frequency="monthly", value=2.0, z_score=None),
-            _reading_row(
-                "weekly.changed",
-                frequency="weekly",
-                value=1.0,
-                z_score=None,
-                observed_at="2026-07-18",
-            ),
-            _reading_row("daily.no-z", frequency="daily", value=2.0, z_score=None),
-            _reading_row("edge.cleared", frequency="daily", value=1.0, z_score=-2.9),
-        ],
-    }
-
-    comparison = _macro_comparison(current=current, earlier=earlier)
-
-    assert comparison is not None
-    assert comparison.changed_total == 4
-    assert [item.series_id for item in comparison.daily_moves] == ["daily.changed", "daily.no-z"]
-    assert [item.series_id for item in comparison.non_daily_updates] == [
-        "monthly.changed",
-        "weekly.changed",
-    ]
-    states = {
-        (item.series_id, item.kind, item.state, item.detail) for item in comparison.state_changes
-    }
-    assert ("daily.changed", "flag", "raised", "new") in states
-    assert ("daily.changed", "flag", "cleared", "old") in states
-    assert ("daily.changed", "stale", "cleared", "stale") in states
-    assert ("daily.changed", "extreme", "raised", "|z| >= 3") in states
-    assert ("edge.cleared", "extreme", "cleared", "|z| >= 3") in states
-
-
-def test_macro_comparison_distinguishes_missing_baseline_from_no_change() -> None:
-    reading = {"asof": "2026-07-18", "series": [_reading_row("us.10y")]}
-
-    assert _macro_comparison(current=reading, earlier=None) is None
-    comparison = _macro_comparison(current=reading, earlier=reading)
-    assert comparison is not None
-    assert comparison.changed_total == 0
-    assert comparison.state_changes == []
-
-
-def test_daily_moves_are_bounded_and_deterministic() -> None:
-    series_ids = [f"daily.{index:02d}" for index in range(14)]
-    earlier = {
-        "asof": "2026-07-17",
-        "series": [_reading_row(series_id, value=0.0, z_score=0.0) for series_id in series_ids],
-    }
-    current = {
-        "asof": "2026-07-18",
-        "series": [
-            _reading_row(series_id, value=1.0, z_score=float(index // 2))
-            for index, series_id in enumerate(series_ids)
-        ],
-    }
-
-    comparison = _macro_comparison(current=current, earlier=earlier)
-
-    assert comparison is not None
-    assert comparison.daily_changed_total == 14
-    assert len(comparison.daily_moves) == 12
-    assert comparison.daily_moves_omitted == 2
-    assert [item.series_id for item in comparison.daily_moves[:2]] == ["daily.12", "daily.13"]
-
-
-def _reading_row(
-    series_id: str,
-    *,
-    frequency: str = "daily",
-    value: float = 1.0,
-    z_score: float | None = 0.0,
-    observed_at: str = "2026-07-17",
-    flags: list[str] | None = None,
-    stale: bool = False,
-) -> dict[str, object]:
-    return {
-        "series_id": series_id,
-        "name": series_id,
-        "frequency": frequency,
-        "unit": "index",
-        "observed_at": observed_at,
-        "latest_value": value,
-        "z_score": z_score,
-        "flags": [] if flags is None else flags,
-        "stale": stale,
-    }
