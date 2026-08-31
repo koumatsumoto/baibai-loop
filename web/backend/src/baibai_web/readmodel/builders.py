@@ -166,6 +166,12 @@ _METRIC_TEXT_FIELDS = ("dividend_basis",)
 
 _STALE_RUN_AGE = timedelta(days=7)
 
+# A list row needs enough shape to show direction without restoring the 53k-point
+# overview retired by #1152.  Four hundred days covers thirteen monthly buckets even
+# around short months and leap years; the explicit cap is the payload contract.
+_MACRO_SPARKLINE_LOOKBACK = timedelta(days=400)
+_MACRO_SPARKLINE_MAX_POINTS = 13
+
 
 def build_meta(source: DbMetaSource, *, batch: MetaBatch | None = None) -> MetaView:
     """Report per-store as-of freshness so a consumer can judge view staleness."""
@@ -780,7 +786,7 @@ def build_macro(
     *,
     as_of: date,
 ) -> MacroView:
-    """Build the daily L2-change/L3-judgment entrance without indicator history."""
+    """Build the daily entrance with bounded sparklines, never full indicator history."""
 
     latest_context_raw = source.latest_context(as_of=as_of)
     context_asof = (
@@ -833,7 +839,7 @@ def build_macro(
         ),
         reading=reading,
         reports=reports,
-        groups=_build_macro_group_metadata(source),
+        groups=_build_macro_group_metadata(source, as_of=as_of),
     )
 
 
@@ -1099,18 +1105,42 @@ def _macro_synthesis_view(
     )
 
 
-def _build_macro_group_metadata(source: DbMacroSource) -> list[MacroGroupView]:
-    """Return the configured rows with no history points for the initial brief."""
+def _build_macro_group_metadata(source: DbMacroSource, *, as_of: date) -> list[MacroGroupView]:
+    """Return configured rows with a fixed, bounded monthly sparkline sample."""
 
     groups: list[MacroGroupView] = []
     for group in source.groups:
         groups.append(
             MacroGroupView(
                 title=group.title,
-                series=[_unfetched_macro_series_view(item) for item in group.series],
+                series=[
+                    _build_macro_sparkline_series(source, configured=item, as_of=as_of)
+                    for item in group.series
+                ],
             )
         )
     return groups
+
+
+def _build_macro_sparkline_series(
+    source: DbMacroSource,
+    *,
+    configured: MacroSeriesConfig,
+    as_of: date,
+) -> MacroSeriesView:
+    raw_series = source.series(
+        configured.series_id,
+        start=as_of - _MACRO_SPARKLINE_LOOKBACK,
+        end=as_of,
+        granularity="monthly",
+    )
+    if raw_series is None:
+        return _unfetched_macro_series_view(configured)
+    return _macro_series_view(
+        configured,
+        raw_series,
+        points_limit=_MACRO_SPARKLINE_MAX_POINTS,
+    )
 
 
 def build_macro_series(
@@ -1135,9 +1165,21 @@ def build_macro_series(
     )
     if raw_series is None:
         return _unfetched_macro_series_view(configured)
+    return _macro_series_view(configured, raw_series)
+
+
+def _macro_series_view(
+    configured: MacroSeriesConfig,
+    raw_series: Mapping[str, object],
+    *,
+    points_limit: int | None = None,
+) -> MacroSeriesView:
     name = str(raw_series["name"])
+    points = [MacroPointView.model_validate(item) for item in _mapping_items(raw_series["points"])]
+    if points_limit is not None:
+        points = points[-points_limit:]
     return MacroSeriesView(
-        series_id=series_id,
+        series_id=configured.series_id,
         label=configured.label or name,
         name=name,
         unit=str(raw_series["unit"]),
@@ -1146,9 +1188,7 @@ def build_macro_series(
             if raw_series.get("tradingview_symbol") is not None
             else None
         ),
-        points=[
-            MacroPointView.model_validate(item) for item in _mapping_items(raw_series["points"])
-        ],
+        points=points,
     )
 
 

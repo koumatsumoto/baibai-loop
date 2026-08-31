@@ -37,7 +37,7 @@ const GRANULARITY_LABEL: Readonly<Record<MacroGranularity, string>> = { daily: '
 // their own label behind an ⓘ, so the numbers are never fenced off by a paragraph.
 const HINT = {
   panel: '登録全系列の記述統計と鮮度。regime 分類も売買 signal も含まない。行をクリックすると拡大チャートと全項目が開く。',
-  chart: 'チャートは画面右上の期間・粒度で描く。percentile と z の実効窓は系列ごとに決まっており、この期間とは一致しない。',
+  chart: '一覧は約1年・月次・最大13点の軽量推移。画面右上の期間・粒度は、行を開いた詳細チャートだけに適用する。percentile と z の実効窓は系列ごとに決まり、どちらの表示期間とも一致しない。',
   statistic: 'percentile と z が順位づける値。水準はその系列の値そのもの、前年比は 12 か月前比の変化率で、水準に位置の意味がない系列に使う。',
   percentile: '実効窓の分布のうち、統計の値以下だった観測の割合。窓は系列ごと（3y / 10y など）で、左のチャートの期間とは一致しない。',
   zScore: `実効窓の平均から標準偏差いくつ離れているか。|z| ≥ ${EXTREME_Z_SCORE} は分布の端という読み値で、値の否定ではない。`,
@@ -123,7 +123,7 @@ function Sparkline({ points }: { points: readonly MacroPointView[] }) {
   const fillId = useId()
   // A fixed size instead of a responsive container: the column is a fixed width and the
   // table draws a hundred of these, so measuring each one buys nothing.
-  if (points.length === 0) return <div aria-hidden="true" className="h-8 w-24" />
+  if (points.length === 0) return <div aria-label="観測なし" className="grid h-8 w-24 place-items-center text-xs text-muted-foreground">{EMPTY}</div>
   return (
     <AreaChart data={points as MacroPointView[]} height={32} margin={{ top: 2, right: 2, bottom: 2, left: 2 }} width={96}>
       <defs>
@@ -447,8 +447,8 @@ export function MacroPage() {
             <Badge variant="secondary">{formatNumber(summary.seriesCount)} 系列</Badge>
           </div>
           <div className="flex flex-wrap items-end gap-3">
-            <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">期間</span><Select onValueChange={(value) => setPeriod(value as MacroPeriod)} value={period}><SelectTrigger aria-label="表示期間" className="w-24"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(PERIOD_LABEL).map(([value, text]) => <SelectItem key={value} value={value}>{text}</SelectItem>)}</SelectContent></Select></label>
-            <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">粒度</span><Select onValueChange={(value) => setGranularity(value as MacroGranularity)} value={granularity}><SelectTrigger aria-label="表示粒度" className="w-28"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(GRANULARITY_LABEL).map(([value, text]) => <SelectItem key={value} value={value}>{text}</SelectItem>)}</SelectContent></Select></label>
+            <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">詳細期間</span><Select onValueChange={(value) => setPeriod(value as MacroPeriod)} value={period}><SelectTrigger aria-label="詳細チャートの表示期間" className="w-24"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(PERIOD_LABEL).map(([value, text]) => <SelectItem key={value} value={value}>{text}</SelectItem>)}</SelectContent></Select></label>
+            <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">詳細粒度</span><Select onValueChange={(value) => setGranularity(value as MacroGranularity)} value={granularity}><SelectTrigger aria-label="詳細チャートの表示粒度" className="w-28"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(GRANULARITY_LABEL).map(([value, text]) => <SelectItem key={value} value={value}>{text}</SelectItem>)}</SelectContent></Select></label>
             {loading && <LoadingIndicator className="self-end pb-2" label="マクロ経済指標を更新しています" size={24} />}
           </div>
         </div>
@@ -489,7 +489,7 @@ export function MacroPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="pl-5 sm:pl-6"><span className="inline-flex items-center gap-1">推移<InfoHint label="推移">{HINT.chart}</InfoHint></span></TableHead>
+                    <TableHead className="pl-5 sm:pl-6"><span className="inline-flex items-center gap-1">推移（約1年）<InfoHint label="推移">{HINT.chart}</InfoHint></span></TableHead>
                     <TableHead>系列</TableHead>
                     <TableHead className="text-right">最新値</TableHead>
                     <TableHead className="hidden sm:table-cell">観測日</TableHead>

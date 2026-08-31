@@ -138,7 +138,7 @@ uv run baibai-engine macro get jp.pmi_manufacturing --start 2023-01-01 --end 202
 
 `baibai-web` の `/api/macro` は `requested_as_of`、L1 の最終観測日 `data_as_of`、その前の観測日 `previous_data_as_of`、最新 L3 の `context_as_of` を分け、前データ日および Context 日からの L2 差分、standing state、最新 Context の判断抜粋、全系列の現在読み値を返す非 canonical projection である。日次系列の表示は `|Δz|` 順で上限を持つが、重要度や銘柄 ranking ではなく、総数と省略数を併記する。週次・月次・四半期は `observed_at` または値が変わった全系列を載せ、「当日公表」とは呼ばない。
 
-初期 response の chart history は 0 point とする。行を開いた時だけ `/api/macro/series/<series_id>` がその 1 系列の daily 全履歴を返し、期間 `1y | 5y | 10y | max` と粒度 `daily | weekly | monthly | yearly` は browser 内で絞る。`series.yaml` に `tradingview_symbol` がある系列だけ TradingView の該当 symbol を新規 tab で開く。
+初期 response は full chart history を持たず、一覧用に各系列の約1年・月次 period-end を最大13 pointだけ返す。これは方向を走査する固定windowで、期間・粒度selectorの対象ではない。行を開いた時だけ `/api/macro/series/<series_id>` がその 1 系列の daily 全履歴を返し、詳細chartの期間 `1y | 5y | 10y | max` と粒度 `daily | weekly | monthly | yearly` は browser 内で絞る。`series.yaml` に `tradingview_symbol` がある系列だけ TradingView の該当 symbol を新規 tab で開く。
 
 ### 運用テスト（series / provider を変更したら必ず回す）
 

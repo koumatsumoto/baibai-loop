@@ -713,8 +713,8 @@ class MacroView(BaseModel):
     reading: MacroReadingView | None
     # Older revisions only; the latest revision is the structured excerpt above.
     reports: list[MacroContextRevisionView]
-    # Registry/group metadata only. Initial responses carry zero history points;
-    # one series history is requested only when its dialog opens.
+    # Group rows carry at most thirteen monthly period-end points for their fixed
+    # overview sparkline. Full daily history remains one-series-only and lazy.
     groups: list[MacroGroupView]
 
 
