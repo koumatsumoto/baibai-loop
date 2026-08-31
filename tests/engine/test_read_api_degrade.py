@@ -64,6 +64,8 @@ _ARGUMENTS: dict[str, object] = {
     "day": date(2026, 7, 29),
     "end": date(2026, 7, 29),
     "operation_id": "op-20260729-a-1",
+    "context_asof": date(2026, 7, 28),
+    "requested_asof": date(2026, 7, 29),
     "run_revision_id": "run-revision-20260729",
     "review_set_id": "review-set-20260729-a",
     "series_id": "jp.cpi",

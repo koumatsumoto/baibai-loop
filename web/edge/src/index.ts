@@ -5,13 +5,12 @@ const API_HEADERS = {
 } as const
 const HSTS_HEADER = API_HEADERS['Strict-Transport-Security']
 
-const MACRO_PERIODS = new Set(['1y', '5y', '10y', 'max'])
-const MACRO_GRANULARITIES = new Set(['daily', 'weekly', 'monthly', 'yearly'])
 const TICKER_PATTERN = /^[0-9A-Z]{4}$/
 const SCREENING_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 // Mirrors _MACRO_CONTEXT_ID_FORMAT in baibai_web.materialize; excludes
 // path separators so the id maps to exactly one serving key.
 const MACRO_CONTEXT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/
+const MACRO_SERIES_ID_PATTERN = /^[a-z0-9._-]{1,128}$/
 const ASSESSMENT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/
 
 type RouteResult =
@@ -102,17 +101,28 @@ function resolveRoute(url: URL): RouteResult {
     case '/api/meta':
       return view('meta.json')
     case '/api/macro':
-      return resolveMacro(url.searchParams)
-    case '/api/macro/reading':
-      return view('macro-reading.json')
+      return view('macro.json')
     default:
       return (
         resolveScreeningHistory(url.pathname) ??
+        resolveMacroSeries(url.pathname) ??
         resolveMacroContext(url.pathname) ??
         resolveAssessment(url.pathname) ??
         resolveSecurity(url.pathname)
       )
   }
+}
+
+function resolveMacroSeries(pathname: string): RouteResult | null {
+  const prefix = '/api/macro/series/'
+  if (!pathname.startsWith(prefix)) {
+    return null
+  }
+  const seriesId = pathname.slice(prefix.length)
+  if (!MACRO_SERIES_ID_PATTERN.test(seriesId)) {
+    return { kind: 'error', status: 404, detail: 'unknown macro series' }
+  }
+  return view(`macro-series--${seriesId}.json`)
 }
 
 function resolveScreeningHistory(pathname: string): RouteResult | null {
@@ -165,15 +175,6 @@ function resolveAssessment(pathname: string): RouteResult | null {
     return { kind: 'error', status: 404, detail: 'unknown capital allocation assessment' }
   }
   return view(`capital-allocation-assessment--${assessmentId}.json`)
-}
-
-function resolveMacro(params: URLSearchParams): RouteResult {
-  const period = params.get('period') ?? '1y'
-  const granularity = params.get('granularity') ?? 'daily'
-  if (!MACRO_PERIODS.has(period) || !MACRO_GRANULARITIES.has(granularity)) {
-    return { kind: 'error', status: 422, detail: 'invalid macro period or granularity' }
-  }
-  return view(`macro--${period}-${granularity}.json`)
 }
 
 function resolveSecurity(pathname: string): RouteResult {

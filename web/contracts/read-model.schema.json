@@ -8,9 +8,9 @@
     "views/capital-allocation-assessment--{capital_allocation_assessment_id}.json": "#/$defs/CapitalAllocationAssessmentView",
     "views/daily-delta.json": "#/$defs/DailyDeltaView",
     "views/dashboard.json": "#/$defs/DashboardView",
-    "views/macro--{period}-{granularity}.json": "#/$defs/MacroView",
     "views/macro-context--{context_id}.json": "#/$defs/MacroContextView",
-    "views/macro-reading.json": "#/$defs/MacroReadingView",
+    "views/macro-series--{series_id}.json": "#/$defs/MacroSeriesView",
+    "views/macro.json": "#/$defs/MacroView",
     "views/meta.json": "#/$defs/MetaView",
     "views/operations.json": "#/$defs/OperationsView",
     "views/screening_latest.json": "#/$defs/ScreeningView",
@@ -464,20 +464,6 @@
           "title": "Holdings Without Price",
           "type": "integer"
         },
-        "macro_flags": {
-          "items": {
-            "$ref": "#/$defs/MacroFlagDeltaView"
-          },
-          "title": "Macro Flags",
-          "type": "array"
-        },
-        "macro_extremes": {
-          "items": {
-            "$ref": "#/$defs/MacroExtremeDeltaView"
-          },
-          "title": "Macro Extremes",
-          "type": "array"
-        },
         "unavailable": {
           "items": {
             "$ref": "#/$defs/DeltaUnavailable"
@@ -499,8 +485,6 @@
         "holdings",
         "holdings_without_fair_value",
         "holdings_without_price",
-        "macro_flags",
-        "macro_extremes",
         "unavailable"
       ],
       "title": "DailyDeltaView",
@@ -745,7 +729,6 @@
         "candidates_previous_run",
         "holdings",
         "holdings_fair_value",
-        "macro",
         "market"
       ],
       "type": "string"
@@ -1161,6 +1144,65 @@
       "title": "HoldingView",
       "type": "object"
     },
+    "MacroComparisonView": {
+      "properties": {
+        "from_as_of": {
+          "format": "date",
+          "title": "From As Of",
+          "type": "string"
+        },
+        "to_as_of": {
+          "format": "date",
+          "title": "To As Of",
+          "type": "string"
+        },
+        "changed_total": {
+          "title": "Changed Total",
+          "type": "integer"
+        },
+        "daily_changed_total": {
+          "title": "Daily Changed Total",
+          "type": "integer"
+        },
+        "daily_moves": {
+          "items": {
+            "$ref": "#/$defs/MacroSeriesChangeView"
+          },
+          "title": "Daily Moves",
+          "type": "array"
+        },
+        "daily_moves_omitted": {
+          "title": "Daily Moves Omitted",
+          "type": "integer"
+        },
+        "non_daily_updates": {
+          "items": {
+            "$ref": "#/$defs/MacroSeriesChangeView"
+          },
+          "title": "Non Daily Updates",
+          "type": "array"
+        },
+        "state_changes": {
+          "items": {
+            "$ref": "#/$defs/MacroStateChangeView"
+          },
+          "title": "State Changes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "from_as_of",
+        "to_as_of",
+        "changed_total",
+        "daily_changed_total",
+        "daily_moves",
+        "daily_moves_omitted",
+        "non_daily_updates",
+        "state_changes"
+      ],
+      "title": "MacroComparisonView",
+      "type": "object"
+    },
     "MacroConnectionSectionView": {
       "properties": {
         "section_id": {
@@ -1245,6 +1287,128 @@
         "estimate_caveats"
       ],
       "title": "MacroConnectionSectionView",
+      "type": "object"
+    },
+    "MacroContextExcerptView": {
+      "description": "The L3 fields needed to judge today's L2 changes without opening the full report.",
+      "properties": {
+        "context_id": {
+          "title": "Context Id",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "published_at": {
+          "format": "date-time",
+          "title": "Published At",
+          "type": "string"
+        },
+        "age_days": {
+          "title": "Age Days",
+          "type": "integer"
+        },
+        "stale": {
+          "title": "Stale",
+          "type": "boolean"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "synthesis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MacroSynthesisView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "risk_environment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MacroRiskEnvironmentView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scenarios": {
+          "items": {
+            "$ref": "#/$defs/MacroScenarioView"
+          },
+          "title": "Scenarios",
+          "type": "array"
+        },
+        "material_deltas": {
+          "items": {
+            "$ref": "#/$defs/MacroMaterialDeltaView"
+          },
+          "title": "Material Deltas",
+          "type": "array"
+        },
+        "research_priority_hints": {
+          "items": {
+            "$ref": "#/$defs/MacroResearchPriorityHintView"
+          },
+          "title": "Research Priority Hints",
+          "type": "array"
+        },
+        "bargain_topography": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MacroFactSummaryView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "estimate_caveats": {
+          "items": {
+            "$ref": "#/$defs/MacroEstimateCaveatView"
+          },
+          "title": "Estimate Caveats",
+          "type": "array"
+        },
+        "sizing_cautions": {
+          "items": {
+            "$ref": "#/$defs/MacroSizingCautionView"
+          },
+          "title": "Sizing Cautions",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "context_id",
+        "as_of",
+        "published_at",
+        "age_days",
+        "stale",
+        "summary",
+        "synthesis",
+        "risk_environment",
+        "scenarios",
+        "material_deltas",
+        "research_priority_hints",
+        "bargain_topography",
+        "estimate_caveats",
+        "sizing_cautions",
+        "warnings"
+      ],
+      "title": "MacroContextExcerptView",
       "type": "object"
     },
     "MacroContextRevisionView": {
@@ -1571,37 +1735,6 @@
       "title": "MacroEstimateCaveatView",
       "type": "object"
     },
-    "MacroExtremeDeltaView": {
-      "description": "A series whose |z-score| arrived at the distribution edge.\n\n``previous_z_score`` is what it was on the earlier reading, so the reader can see\nhow far it came rather than only that it is past the line.",
-      "properties": {
-        "series_id": {
-          "title": "Series Id",
-          "type": "string"
-        },
-        "z_score": {
-          "title": "Z Score",
-          "type": "number"
-        },
-        "previous_z_score": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Previous Z Score"
-        }
-      },
-      "required": [
-        "series_id",
-        "z_score",
-        "previous_z_score"
-      ],
-      "title": "MacroExtremeDeltaView",
-      "type": "object"
-    },
     "MacroFactSummaryView": {
       "properties": {
         "summary": {
@@ -1621,34 +1754,6 @@
         "source_ids"
       ],
       "title": "MacroFactSummaryView",
-      "type": "object"
-    },
-    "MacroFlagDeltaView": {
-      "description": "A threshold note that appeared or disappeared between two readings.",
-      "properties": {
-        "series_id": {
-          "title": "Series Id",
-          "type": "string"
-        },
-        "flag": {
-          "title": "Flag",
-          "type": "string"
-        },
-        "state": {
-          "enum": [
-            "raised",
-            "cleared"
-          ],
-          "title": "State",
-          "type": "string"
-        }
-      },
-      "required": [
-        "series_id",
-        "flag",
-        "state"
-      ],
-      "title": "MacroFlagDeltaView",
       "type": "object"
     },
     "MacroForceInteractionView": {
@@ -1699,6 +1804,55 @@
         "series"
       ],
       "title": "MacroGroupView",
+      "type": "object"
+    },
+    "MacroMachineUpdateView": {
+      "properties": {
+        "series_total": {
+          "title": "Series Total",
+          "type": "integer"
+        },
+        "fetch_ok_count": {
+          "title": "Fetch Ok Count",
+          "type": "integer"
+        },
+        "fetch_failed_count": {
+          "title": "Fetch Failed Count",
+          "type": "integer"
+        },
+        "previous_day": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MacroComparisonView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "since_context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MacroComparisonView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "standing": {
+          "$ref": "#/$defs/MacroStandingView"
+        }
+      },
+      "required": [
+        "series_total",
+        "fetch_ok_count",
+        "fetch_failed_count",
+        "previous_day",
+        "since_context",
+        "standing"
+      ],
+      "title": "MacroMachineUpdateView",
       "type": "object"
     },
     "MacroMaterialDeltaView": {
@@ -2304,6 +2458,109 @@
       "title": "MacroSectorTiltView",
       "type": "object"
     },
+    "MacroSeriesChangeView": {
+      "description": "One observed series value that differs between two L2 readings.",
+      "properties": {
+        "series_id": {
+          "title": "Series Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "frequency": {
+          "title": "Frequency",
+          "type": "string"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "previous_observed_at": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Previous Observed At"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Observed At"
+        },
+        "previous_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Previous Value"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        },
+        "value_change": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value Change"
+        },
+        "z_score_delta": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Z Score Delta"
+        }
+      },
+      "required": [
+        "series_id",
+        "name",
+        "frequency",
+        "unit",
+        "previous_observed_at",
+        "observed_at",
+        "previous_value",
+        "value",
+        "value_change",
+        "z_score_delta"
+      ],
+      "title": "MacroSeriesChangeView",
+      "type": "object"
+    },
     "MacroSeriesFetchHealthView": {
       "description": "The latest acquisition attempt for one series (not part of the reading itself).",
       "properties": {
@@ -2437,6 +2694,83 @@
       "title": "MacroSizingCautionView",
       "type": "object"
     },
+    "MacroStandingView": {
+      "properties": {
+        "fetch_failed": {
+          "items": {
+            "$ref": "#/$defs/MacroSeriesFetchHealthView"
+          },
+          "title": "Fetch Failed",
+          "type": "array"
+        },
+        "stale_series_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Stale Series Ids",
+          "type": "array"
+        },
+        "flagged_series_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Flagged Series Ids",
+          "type": "array"
+        },
+        "extreme_series_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Extreme Series Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "fetch_failed",
+        "stale_series_ids",
+        "flagged_series_ids",
+        "extreme_series_ids"
+      ],
+      "title": "MacroStandingView",
+      "type": "object"
+    },
+    "MacroStateChangeView": {
+      "properties": {
+        "series_id": {
+          "title": "Series Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "flag",
+            "stale",
+            "extreme"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "raised",
+            "cleared"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        }
+      },
+      "required": [
+        "series_id",
+        "kind",
+        "state",
+        "detail"
+      ],
+      "title": "MacroStateChangeView",
+      "type": "object"
+    },
     "MacroSynthesisView": {
       "description": "The integrated layer: named cross-channel forces and how they combine.",
       "properties": {
@@ -2463,32 +2797,82 @@
       "type": "object"
     },
     "MacroView": {
-      "description": "Macro overview: the report index (summaries) plus the indicator panel.\n\nFull report sections are served per revision by ``MacroContextView`` at\n``/api/macro/context/{context_id}`` so the overview stays a lightweight index.",
+      "description": "One daily decision entrance: L2 change facts plus the latest L3 judgment.",
       "properties": {
-        "as_of": {
+        "requested_as_of": {
           "format": "date",
-          "title": "As Of",
+          "title": "Requested As Of",
           "type": "string"
         },
-        "period": {
-          "enum": [
-            "1y",
-            "5y",
-            "10y",
-            "max"
+        "data_as_of": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Period",
-          "type": "string"
+          "title": "Data As Of"
         },
-        "granularity": {
-          "enum": [
-            "daily",
-            "weekly",
-            "monthly",
-            "yearly"
+        "previous_data_as_of": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Granularity",
-          "type": "string"
+          "title": "Previous Data As Of"
+        },
+        "context_as_of": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Context As Of"
+        },
+        "rules_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Rules Revision"
+        },
+        "machine_update": {
+          "$ref": "#/$defs/MacroMachineUpdateView"
+        },
+        "latest_context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MacroContextExcerptView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reading": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MacroReadingView"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "reports": {
           "items": {
@@ -2506,9 +2890,14 @@
         }
       },
       "required": [
-        "as_of",
-        "period",
-        "granularity",
+        "requested_as_of",
+        "data_as_of",
+        "previous_data_as_of",
+        "context_as_of",
+        "rules_revision",
+        "machine_update",
+        "latest_context",
+        "reading",
         "reports",
         "groups"
       ],

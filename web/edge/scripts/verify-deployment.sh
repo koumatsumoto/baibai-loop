@@ -86,14 +86,10 @@ paths=(
   /api/screening/history
   /api/operations
   /api/meta
-  /api/macro/reading
+  /api/macro
+  /api/macro/series/us.10y
   "/api/securities/${ticker}"
 )
-for period in 1y 5y 10y max; do
-  for granularity in daily weekly monthly yearly; do
-    paths+=("/api/macro?period=${period}&granularity=${granularity}")
-  done
-done
 
 # Keyed routes, checked with a well-formed key that serving does not carry. The
 # credential still decides the response, and a correct one resolves to a clean 404, so
@@ -101,6 +97,7 @@ done
 absent_key_paths=(
   /api/screening/history/2000-01-01
   /api/macro/context/no-such-context
+  /api/macro/series/no.such.series
   /api/assessments/no-such-assessment
   /api/securities/ZZZZ
 )

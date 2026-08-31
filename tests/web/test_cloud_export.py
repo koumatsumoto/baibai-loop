@@ -22,6 +22,7 @@ from baibai_engine.macro.indicators.db import (
     insert_observations,
     open_connection,
 )
+from baibai_engine.macro.indicators.definitions import load_definitions
 from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH
 from baibai_engine.screening.run_store import ScreeningRunReader
 from baibai_web import materialize as export_module
@@ -40,9 +41,6 @@ from baibai_web.readmodel.models import (
 from baibai_web.sources.db_sources import DbMetaSource
 
 JST = ZoneInfo("Asia/Tokyo")
-
-MACRO_PERIODS = ("1y", "5y", "10y", "max")
-MACRO_GRANULARITIES = ("daily", "weekly", "monthly", "yearly")
 
 
 def _meta_source(root: Path) -> DbMetaSource:
@@ -277,18 +275,14 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     expected = {
         "daily-delta.json",
         "dashboard.json",
-        "macro-reading.json",
+        "macro.json",
         "screening_latest.json",
         "operations.json",
         "meta.json",
         "security--0001.json",
         "security--0002.json",
         "security--2331.json",
-    } | {
-        f"macro--{period}-{granularity}.json"
-        for period in MACRO_PERIODS
-        for granularity in MACRO_GRANULARITIES
-    }
+    } | {f"macro-series--{item.series_id}.json" for item in load_definitions().series}
     assert {item.name for item in views.iterdir()} == expected
 
     DashboardView.model_validate_json((views / "dashboard.json").read_text(encoding="utf-8"))
@@ -302,13 +296,9 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     meta = MetaView.model_validate_json((views / "meta.json").read_text(encoding="utf-8"))
     assert meta.batch == "daily"
     assert meta.screening_asof == date(2026, 7, 8)
-    for period in MACRO_PERIODS:
-        for granularity in MACRO_GRANULARITIES:
-            macro = MacroView.model_validate_json(
-                (views / f"macro--{period}-{granularity}.json").read_text(encoding="utf-8")
-            )
-            assert macro.period == period
-            assert macro.granularity == granularity
+    macro = MacroView.model_validate_json((views / "macro.json").read_text(encoding="utf-8"))
+    assert macro.requested_as_of
+    assert sum(len(series.points) for group in macro.groups for series in group.series) == 0
     for name in ("security--0001.json", "security--0002.json", "security--2331.json"):
         detail = SecurityDetailView.model_validate_json((views / name).read_text(encoding="utf-8"))
         assert detail.candidate_row is not None
@@ -339,11 +329,14 @@ def test_export_writes_macro_context_detail_views(app_method_root: Path, tmp_pat
     assert detail.context_id == document.context_id
     assert len(detail.core) == 10
     assert detail.connection.section_id == "japan_equity_loop"
-    # The overview view indexes the same report (summary only, no full sections).
+    # The current report is carried by the structured excerpt, not duplicated in
+    # the collapsed past-revision index.
     overview = MacroView.model_validate_json(
-        (output_dir / "views/macro--1y-daily.json").read_text(encoding="utf-8")
+        (output_dir / "views/macro.json").read_text(encoding="utf-8")
     )
-    assert [report.context_id for report in overview.reports] == [document.context_id]
+    assert overview.latest_context is not None
+    assert overview.latest_context.context_id == document.context_id
+    assert overview.reports == []
 
 
 def test_export_fails_before_writing_when_reading_rules_are_absent(
@@ -409,15 +402,13 @@ def test_exported_views_match_api_responses(app_method_root: Path, tmp_path: Pat
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         api_screening = client.get("/api/screening/latest").json()
-        api_macro = client.get("/api/macro?period=1y&granularity=daily").json()
+        api_macro = client.get("/api/macro").json()
         api_dashboard = client.get("/api/dashboard").json()
     exported_screening = json.loads(
         (output_dir / "views/screening_latest.json").read_text(encoding="utf-8")
     )
     assert exported_screening == api_screening
-    exported_macro = json.loads(
-        (output_dir / "views/macro--1y-daily.json").read_text(encoding="utf-8")
-    )
+    exported_macro = json.loads((output_dir / "views/macro.json").read_text(encoding="utf-8"))
     assert exported_macro == api_macro
     exported_dashboard = json.loads(
         (output_dir / "views/dashboard.json").read_text(encoding="utf-8")

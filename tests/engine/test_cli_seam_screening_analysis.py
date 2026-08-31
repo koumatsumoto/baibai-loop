@@ -226,6 +226,8 @@ def test_research_triage_scaffold_carries_machine_coordinates_and_fails_closed(
                 str(review_set_output),
                 "--output-path",
                 str(draft_output),
+                "--db",
+                str(tmp_path / "app.sqlite"),
             ]
         )
         == 0

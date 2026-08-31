@@ -77,7 +77,7 @@ application DB schema v19の`research_triage`はReview Set全entryをexactly onc
 - `research`: contiguousな`priority`、`rationale`、`research_question`、`key_risk`が必須
 - `skip`: `rationale`が必須で、`priority`、`research_question`、`key_risk`は禁止
 
-publisherは`review_set_id`、`run_revision_id`、`as_of`、全ticker、Review Basisを検証し、`review_position`、non-empty `nominations`、support、E[r] / FV / data-quality文脈を`machine_snapshot`へ焼き込む。発行後payloadはimmutableである。
+scaffold は Review Set の as-of 以下で最新の Macro Context を application DB から選び、`macro_context_id`へ束縛する。Context が無ければ `null` は正常、古ければ warning であり、どちらも Review Set の nomination、membership、orderを変えない。publisherは`review_set_id`、`run_revision_id`、`as_of`、全ticker、Review Basisに加え、Contextの存在と未来参照を検証する。eligible Contextがあるのに`null`は拒否する。明示的に古いeligible revisionを選ぶことはできるが、選択理由を既存の判断文へ残す。`review_position`、non-empty `nominations`、support、E[r] / FV / data-quality文脈を`machine_snapshot`へ焼き込み、発行後payloadはimmutableである。
 
 Research TriageはResearch Setのadmission可能範囲を定める。人間は`research` entryの部分集合だけをResearch Setとして確定でき、`research prepare`はapplication DBから毎回再解決してこの境界を検証する。
 

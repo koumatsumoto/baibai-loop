@@ -11,7 +11,9 @@ from typing import Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from baibai_engine.appdb.json import canonical_json
+from baibai_engine.appdb.paths import database_path
 from baibai_engine.appdb.write import connect_rw, initialize_database
+from baibai_engine.read_api.macro import latest_macro_context_payload, macro_context_payload
 
 RESEARCH_TRIAGE_SCHEMA_VERSION = 1
 RESEARCH_TRIAGE_CONTRACT_ID = "research-triage-v1"
@@ -127,6 +129,22 @@ class ResearchTriageService:
         *,
         review_set: Mapping[str, object],
     ) -> ResearchTriage:
+        app_db_path = database_path(self._db_path)
+        latest_context = latest_macro_context_payload(app_db_path, as_of=triage.as_of)
+        if triage.macro_context_id is None:
+            if latest_context is not None:
+                raise ResearchTriageConflictError(
+                    f"latest eligible macro context must be bound: {latest_context['context_id']}"
+                )
+        else:
+            try:
+                macro_context_payload(
+                    app_db_path,
+                    context_id=triage.macro_context_id,
+                    as_of=triage.as_of,
+                )
+            except ValueError as error:
+                raise ResearchTriageConflictError(str(error)) from error
         if triage.review_set_id != review_set.get("review_set_id"):
             raise ResearchTriageConflictError("research triage review-set binding differs")
         if triage.run_revision_id != review_set.get("run_revision_id"):

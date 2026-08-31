@@ -114,6 +114,11 @@ def test_dynamic_routes_map_to_exact_edge_keys_and_materializer_outputs() -> Non
             "`macro-context--${contextId}.json`",
             'f"macro-context--{context_id}.json"',
         ),
+        "/api/macro/series/{series_id}": (
+            "resolveMacroSeries",
+            "`macro-series--${seriesId}.json`",
+            'f"macro-series--{series_id}.json"',
+        ),
         "/api/capital-allocation-assessments/{capital_allocation_assessment_id}": (
             "resolveAssessment",
             "`capital-allocation-assessment--${assessmentId}.json`",
@@ -124,21 +129,14 @@ def test_dynamic_routes_map_to_exact_edge_keys_and_materializer_outputs() -> Non
             "`security--${ticker}.json`",
             'f"security--{ticker}.json"',
         ),
-        "/api/macro?period={period}&granularity={granularity}": (
-            "resolveMacro",
-            "`macro--${period}-${granularity}.json`",
-            'f"macro--{period}-{granularity}.json"',
-        ),
     }
     assert set(patterns) == set(expected)
     expected_contract_keys = {
         "/api/screening/history/{as_of}": "history/candidate-views/{as_of}.json",
         "/api/macro/context/{context_id}": "views/macro-context--{context_id}.json",
+        "/api/macro/series/{series_id}": "views/macro-series--{series_id}.json",
         "/api/capital-allocation-assessments/{capital_allocation_assessment_id}": "views/capital-allocation-assessment--{capital_allocation_assessment_id}.json",
         "/api/securities/{ticker}": "views/security--{ticker}.json",
-        "/api/macro?period={period}&granularity={granularity}": (
-            "views/macro--{period}-{granularity}.json"
-        ),
     }
     assert patterns == expected_contract_keys
 
@@ -176,6 +174,8 @@ def test_every_frontend_api_route_is_in_the_contract_inventory() -> None:
             "{capital_allocation_assessment_id}",
         )
         .replace("${encodeURIComponent(ticker)}", "{ticker}")
+        .replace("${encodeURIComponent(openSeriesId)}", "{series_id}")
+        .replace("${encodeURIComponent(seriesId)}", "{series_id}")
         .replace("${query}", "period={period}&granularity={granularity}")
         for route in frontend_routes
     }

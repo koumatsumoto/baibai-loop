@@ -39,10 +39,20 @@ description: screening runからReview Setを発行し、全entryをresearch / s
 
    ```bash
    uv run baibai-engine screening research-triage scaffold <review-set.yaml> \
+     --db stores/application/baibai.sqlite \
      --output-path <workdir>/research-triage.yaml
    ```
 
    手書きで全ticker・評価法を転記しない。出力の`decision`と`TODO`散文はpublish前にすべて置換する。構造の参照は[`assets/draft-template.yaml`](./assets/draft-template.yaml)を使う。
+
+   scaffold は Review Set の as-of 以下で最新の Macro Context を `macro_context_id` へ自動束縛する。非 `null` なら、draft の ID を使って Context を読む。
+
+   ```bash
+   uv run baibai-engine macro context --db stores/application/baibai.sqlite show \
+     --context-id <MACRO_CONTEXT_ID> --asof <ASOF>
+   ```
+
+   connection のうち各 entry に実際に該当する `research_priority_hints`、`bargain_topography`、`sizing_cautions` だけを既存の `rationale` / `research_question` / `key_risk` へ接続する。macro prose を全 entry へ一律に複写せず、Review Set の nomination・membership・orderも変えない。
 
    - `research`: contiguousな`priority`、具体的な`rationale`、`research_question`、`key_risk`を必須とする。
    - `skip`: `priority`、`research_question`、`key_risk`を持たず、具体的な`rationale`を必須とする。
@@ -59,7 +69,7 @@ description: screening runからReview Setを発行し、全entryをresearch / s
      --db stores/application/baibai.sqlite --runs-db stores/screening/runs.sqlite
    ```
 
-   publisherがReview SetとのID、run revision、as-of、全ticker一致、Review Basisをfail-closeで検証し、機械座標をsnapshotへ焼き込む。
+   publisherがReview SetとのID、run revision、as-of、全ticker一致、Review Basisに加え、Macro Context の存在と未来参照をfail-closeで検証し、機械座標をsnapshotへ焼き込む。as-of 以下の Context があるのに `null` は許さない。最新より古い eligible Context を明示選択する場合は、選択理由を該当 entry の既存判断文へ書く。Context が無いことは正常な `null`、古いことは warning であり、どちらも候補選定の gate にしない。
 
 5. `research` entryを人間へ提示し、人間がその部分集合をResearch Setとして確定する。確定結果をoperation checkpointへ記録する。0件なら`completion_reason: no-research`でsessionを完了できる。
 

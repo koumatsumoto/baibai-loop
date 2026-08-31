@@ -648,8 +648,6 @@ def _delta_view(path: Path, entered: list[object], exited: list[object] | None =
         "exited": [] if exited is None else exited,
         "er_moves": [],
         "holdings": [],
-        "macro_flags": [],
-        "macro_extremes": [],
         "unavailable": [],
     }
     path.write_text(json.dumps(payload), encoding="utf-8")

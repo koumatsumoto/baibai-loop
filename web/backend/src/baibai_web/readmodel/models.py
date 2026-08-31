@@ -612,6 +612,75 @@ class MacroReadingView(BaseModel):
     fetch_health: list[MacroSeriesFetchHealthView]
 
 
+class MacroSeriesChangeView(BaseModel):
+    """One observed series value that differs between two L2 readings."""
+
+    series_id: str
+    name: str
+    frequency: str
+    unit: str
+    previous_observed_at: date | None
+    observed_at: date | None
+    previous_value: float | None
+    value: float | None
+    value_change: float | None
+    z_score_delta: float | None
+
+
+class MacroStateChangeView(BaseModel):
+    series_id: str
+    kind: Literal["flag", "stale", "extreme"]
+    state: Literal["raised", "cleared"]
+    detail: str
+
+
+class MacroComparisonView(BaseModel):
+    from_as_of: date
+    to_as_of: date
+    changed_total: int
+    daily_changed_total: int
+    daily_moves: list[MacroSeriesChangeView]
+    daily_moves_omitted: int
+    non_daily_updates: list[MacroSeriesChangeView]
+    state_changes: list[MacroStateChangeView]
+
+
+class MacroStandingView(BaseModel):
+    fetch_failed: list[MacroSeriesFetchHealthView]
+    stale_series_ids: list[str]
+    flagged_series_ids: list[str]
+    extreme_series_ids: list[str]
+
+
+class MacroMachineUpdateView(BaseModel):
+    series_total: int
+    fetch_ok_count: int
+    fetch_failed_count: int
+    previous_day: MacroComparisonView | None
+    since_context: MacroComparisonView | None
+    standing: MacroStandingView
+
+
+class MacroContextExcerptView(BaseModel):
+    """The L3 fields needed to judge today's L2 changes without opening the full report."""
+
+    context_id: str
+    as_of: date
+    published_at: datetime
+    age_days: int
+    stale: bool
+    summary: str
+    synthesis: MacroSynthesisView | None
+    risk_environment: MacroRiskEnvironmentView | None
+    scenarios: list[MacroScenarioView]
+    material_deltas: list[MacroMaterialDeltaView]
+    research_priority_hints: list[MacroResearchPriorityHintView]
+    bargain_topography: MacroFactSummaryView | None
+    estimate_caveats: list[MacroEstimateCaveatView]
+    sizing_cautions: list[MacroSizingCautionView]
+    warnings: list[str]
+
+
 class MacroPointView(BaseModel):
     observed_at: date
     value: float
@@ -632,16 +701,20 @@ class MacroGroupView(BaseModel):
 
 
 class MacroView(BaseModel):
-    """Macro overview: the report index (summaries) plus the indicator panel.
+    """One daily decision entrance: L2 change facts plus the latest L3 judgment."""
 
-    Full report sections are served per revision by ``MacroContextView`` at
-    ``/api/macro/context/{context_id}`` so the overview stays a lightweight index.
-    """
-
-    as_of: date
-    period: Literal["1y", "5y", "10y", "max"]
-    granularity: Literal["daily", "weekly", "monthly", "yearly"]
+    requested_as_of: date
+    data_as_of: date | None
+    previous_data_as_of: date | None
+    context_as_of: date | None
+    rules_revision: str | None
+    machine_update: MacroMachineUpdateView
+    latest_context: MacroContextExcerptView | None
+    reading: MacroReadingView | None
+    # Older revisions only; the latest revision is the structured excerpt above.
     reports: list[MacroContextRevisionView]
+    # Registry/group metadata only. Initial responses carry zero history points;
+    # one series history is requested only when its dialog opens.
     groups: list[MacroGroupView]
 
 
@@ -710,7 +783,6 @@ type DeltaUnavailable = Literal[
     "candidates_previous_run",
     "holdings",
     "holdings_fair_value",
-    "macro",
     "market",
 ]
 
@@ -752,26 +824,6 @@ class HoldingDeltaView(BaseModel):
     days_to_next_earnings: int | None
 
 
-class MacroFlagDeltaView(BaseModel):
-    """A threshold note that appeared or disappeared between two readings."""
-
-    series_id: str
-    flag: str
-    state: Literal["raised", "cleared"]
-
-
-class MacroExtremeDeltaView(BaseModel):
-    """A series whose |z-score| arrived at the distribution edge.
-
-    ``previous_z_score`` is what it was on the earlier reading, so the reader can see
-    how far it came rather than only that it is past the line.
-    """
-
-    series_id: str
-    z_score: float
-    previous_z_score: float | None
-
-
 class DailyDeltaView(BaseModel):
     """What changed between the latest machine run and the one before it.
 
@@ -801,6 +853,4 @@ class DailyDeltaView(BaseModel):
     holdings: list[HoldingDeltaView]
     holdings_without_fair_value: int
     holdings_without_price: int
-    macro_flags: list[MacroFlagDeltaView]
-    macro_extremes: list[MacroExtremeDeltaView]
     unavailable: list[DeltaUnavailable]

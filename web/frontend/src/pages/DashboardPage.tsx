@@ -42,7 +42,7 @@ const HINT = {
   allocation: '次の買いに動かせる資金がどれだけ残っているかと、これまでの判断が実際に効いているかを 1 か所で確かめる。配分は判断材料であり、比率を目安へ近づけること自体は目的ではない。',
   nextTask: '期限が最も近い未完了タスク。下の一覧の先頭と同じもので、開いて最初に目に入る位置に置いている。',
   events: '決算と予約期限は、保有の見直しと資金の解放が起きる日。判断より先に日付を押さえておくために置いている。',
-  delta: '前回の機械実行と比べて何が動いたか。候補はその 2 run、マクロは reading の前営業日を比較端にする。候補プールへの出入り、機械 E[r] の変化、FV に達した保有、マクロ注記の点灯を観測として並べる。売買の指示ではなく、次にどこを見るかを決める材料。答えられなかった区分は明示するので、空欄と「計測できなかった」を混同しない。',
+  delta: '前回の機械実行と比べた候補プールへの出入り、機械 E[r] の変化、FV に達した保有を並べる。Macro の変化と環境判断は専用の日次ブリーフで読む。売買の指示ではなく、次にどこを見るかを決める材料。答えられなかった区分は明示するので、空欄と「計測できなかった」を混同しない。',
   operations: '判断は trigger ごとに 1 件の operation session として進み、active は常に最大 1 件。いま何が途中で、次にどこから再開するのかをここで確かめる。',
   holdings: '保有中の各銘柄の取得原価・現値・FV との乖離。売買判断そのものではなく、どの銘柄を次に見直すかを決めるための現状。',
   reservations: '発注済みで未約定の指値が押さえている現金。購入余力から差し引かれているので、次の提案の上限に効く。',
@@ -299,9 +299,7 @@ function deltaCount(delta: DailyDeltaView) {
     delta.entered.length +
     delta.exited.length +
     delta.er_moves.length +
-    delta.holdings.length +
-    delta.macro_flags.length +
-    delta.macro_extremes.length
+    delta.holdings.length
   )
 }
 
@@ -317,7 +315,6 @@ const deltaUnavailableLabel: Record<DeltaUnavailable, string> = {
   candidates_previous_run: '候補（比較する前 run なし）',
   holdings: '保有（ledger なし）',
   holdings_fair_value: '保有の FV（thesis を読めない）',
-  macro: 'マクロ（読み値なし）',
   market: '市場データ（store なし）',
 }
 
@@ -419,20 +416,6 @@ function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null; faile
               {item.days_to_next_earnings !== null && <span className="text-sm text-muted-foreground">決算まで {item.days_to_next_earnings} 日</span>}
             </DeltaRow>
           ))}
-          {delta.macro_flags.map((item) => (
-            <DeltaRow key={`flag-${item.series_id}-${item.flag}`} label={item.state === 'raised' ? '注記点灯' : '注記解消'}>
-              <span className="font-mono text-sm">{item.series_id}</span>
-              <span className="text-sm text-muted-foreground">{item.flag}</span>
-            </DeltaRow>
-          ))}
-          {delta.macro_extremes.map((item) => (
-            <DeltaRow key={`extreme-${item.series_id}`} label="分布の端">
-              <span className="font-mono text-sm">{item.series_id}</span>
-              <span className="font-mono text-sm tabular-nums">
-                z {item.previous_z_score === null ? EMPTY : item.previous_z_score.toFixed(2)} → {item.z_score.toFixed(2)}
-              </span>
-            </DeltaRow>
-          ))}
           {delta.holdings_without_fair_value > 0 && (
             <DeltaRow label="FV 未記録">
               <span className="text-sm text-muted-foreground">保有 {delta.holdings_without_fair_value} 件は thesis の FV が無く、到達判定ができない。</span>
@@ -450,6 +433,9 @@ function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null; faile
             delta.holdings_without_price === 0 && (
               <p className="py-8 text-center text-sm text-muted-foreground">閾値に触れる変化はありません。</p>
             )}
+          <div className="px-5 py-3 sm:px-6">
+            <Link className="text-sm font-medium underline underline-offset-4" to="/macro">Macro の日次ブリーフを見る</Link>
+          </div>
         </div>
       )}
     </SectionCard>

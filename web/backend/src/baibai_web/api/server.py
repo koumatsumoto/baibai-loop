@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -26,7 +26,7 @@ from baibai_web.readmodel.builders import (
     build_dashboard,
     build_macro,
     build_macro_context_detail,
-    build_macro_reading,
+    build_macro_series,
     build_meta,
     build_operations_view,
     build_screening,
@@ -38,7 +38,7 @@ from baibai_web.readmodel.models import (
     DailyDeltaView,
     DashboardView,
     MacroContextView,
-    MacroReadingView,
+    MacroSeriesView,
     MacroView,
     MetaView,
     OperationsView,
@@ -111,7 +111,6 @@ def create_app(
             sources.ledger,
             sources.research,
             sources.market,
-            sources.macro,
         )
 
     @app.get("/api/screening/latest", response_model=ScreeningView)
@@ -160,24 +159,25 @@ def create_app(
     def macro(
         sources: _SourceDependency,
         as_of: date | None = None,
-        period: Literal["1y", "5y", "10y", "max"] = "1y",
-        granularity: Literal["daily", "weekly", "monthly", "yearly"] = "daily",
     ) -> MacroView:
         return build_macro(
             sources.macro,
             as_of=as_of or datetime.now(_JST).date(),
-            period=period,
-            granularity=granularity,
         )
 
-    @app.get("/api/macro/reading", response_model=MacroReadingView)
-    def macro_reading(
+    @app.get("/api/macro/series/{series_id}", response_model=MacroSeriesView)
+    def macro_series(
+        series_id: str,
         sources: _SourceDependency,
-        asof: date | None = None,
-    ) -> MacroReadingView:
-        view = build_macro_reading(sources.macro, asof=asof or datetime.now(_JST).date())
+        as_of: date | None = None,
+    ) -> MacroSeriesView:
+        view = build_macro_series(
+            sources.macro,
+            series_id=series_id,
+            as_of=as_of or datetime.now(_JST).date(),
+        )
         if view is None:
-            raise HTTPException(status_code=404, detail="macro reading is unavailable")
+            raise HTTPException(status_code=404, detail="macro series is unavailable")
         return view
 
     @app.get("/api/macro/context/{context_id}", response_model=MacroContextView)

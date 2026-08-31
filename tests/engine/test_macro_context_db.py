@@ -15,13 +15,11 @@ from tests.helpers.macro_context import macro_context_payload
 from baibai_engine.appdb.write import initialize_database
 from baibai_engine.macro.context.models import (
     CORE_SECTION_ORDER,
-    MACRO_CONTEXT_STALE_DAYS,
     MacroContext,
     MacroContextDocument,
     macro_context_from_payload,
 )
 from baibai_engine.macro.context.service import MacroContextConflictError, MacroContextService
-from baibai_engine.macro.context.summary import macro_context_summary
 from baibai_engine.read_api.macro import latest_macro_context_payload
 
 
@@ -251,88 +249,7 @@ def test_published_report_flows_through_db_backed_screening_read_path(tmp_path: 
 
     payload = latest_macro_context_payload(path, as_of=document.as_of)
     assert payload is not None
-    context = macro_context_from_payload(payload, source=str(path))
-    summary = macro_context_summary(context, asof_date=document.as_of)
-
-    assert summary["context_id"] == document.context_id
-    assert summary["age_days"] == 0
-    assert summary["material_deltas"] == [
-        document.core[1].material_deltas[0].model_dump(mode="json")
-    ]
-    assert summary["sizing_cautions"] == [
-        document.connection.sizing_cautions[0].model_dump(mode="json")
-    ]
-    assert summary["research_questions"] == ["借換需要の大きい企業を先に確認する"]
-    assert summary["refresh_triggers"] == ["10年金利が現行レンジを外れる"]
-    assert summary["warnings"] == []
-
-
-def test_selection_warns_when_the_head_report_is_older_than_the_policy_threshold() -> None:
-    """Freshness is the reader's rule: the report never declares its own shelf life."""
-
-    document = _document()
-    context = _context_of(document)
-    edge = date.fromordinal(document.as_of.toordinal() + MACRO_CONTEXT_STALE_DAYS)
-    past_edge = date.fromordinal(edge.toordinal() + 1)
-
-    assert macro_context_summary(context, asof_date=edge)["warnings"] == []
-    stale = macro_context_summary(context, asof_date=past_edge)
-    assert stale["warnings"] == ["macro_context_stale"]
-    assert stale["age_days"] == MACRO_CONTEXT_STALE_DAYS + 1
-
-
-def test_selection_surfaces_an_input_the_report_declares_as_failed() -> None:
-    """Honest disclosure must reach the reader, or omitting the input is the easier path."""
-
-    payload = macro_context_payload()
-    payload["inputs"]["articles"].append(
-        {
-            "input_id": "unreachable-source",
-            "source": "official",
-            "title": "取得できなかった一次情報",
-            "url": "https://example.com/source",
-            "published_at": "2026-07-19T09:00:00+09:00",
-            "accessed_at": "2026-07-19T12:00:00+09:00",
-            "status": "failed",
-            "used_for": "取得を試みたが到達できなかった",
-        }
-    )
-    context = macro_context_from_payload(payload, source="fixture.yaml")
-
-    summary = macro_context_summary(context, asof_date=date(2026, 7, 19))
-
-    assert summary["failed_inputs"] == ["unreachable-source"]
-    assert summary["warnings"] == ["macro_context_failed_inputs"]
-
-
-def test_selection_surfaces_a_machine_snapshot_the_report_declares_as_failed() -> None:
-    """Every input type must reach the reader, not only the ones added first."""
-
-    payload = macro_context_payload()
-    payload["inputs"]["machine_snapshots"].append(
-        {
-            "input_id": "snapshot-unavailable",
-            "command": "baibai-engine screening market-snapshot",
-            "snapshot_asof": "2026-07-19",
-            "observation_as_of": "2026-07-17",
-            "accessed_at": "2026-07-19T12:00:00+09:00",
-            "status": "failed",
-            "used_for": "市場内部を確認しようとしたが cache が無かった",
-        }
-    )
-    context = macro_context_from_payload(payload, source="fixture.yaml")
-
-    summary = macro_context_summary(context, asof_date=date(2026, 7, 19))
-
-    assert summary["failed_inputs"] == ["snapshot-unavailable"]
-    assert summary["warnings"] == ["macro_context_failed_inputs"]
-
-
-def test_missing_context_summary_keeps_the_same_keys_as_a_present_one() -> None:
-    asof = date(2026, 7, 19)
-    present = set(macro_context_summary(_context_of(_document()), asof_date=asof))
-
-    assert set(macro_context_summary(None, asof_date=asof)) == present
+    assert macro_context_from_payload(payload, source=str(path)).context_id == document.context_id
 
 
 @pytest.mark.parametrize(
