@@ -239,7 +239,7 @@ E[r] 水準 parameter を判断する事前登録済み run では、上の core
 | マクロ読みの手順・レンズ | [`macro.md`](./macro.md) + skill `macro-context` | 保有 outcome / 月次の事後検証（N≈1、統計計測はしない） |
 | research の見積り手順 | [`thesis.md`](./thesis.md) + skill `research` | portfolio outcome と長期 horizon calibration |
 | 資本・cap・sizing | [`portfolio-management.md`](../portfolio-management.md) + `position/policy.py` | 保有 outcome |
-| research triageの選定判断 | skill `research-triage`の深度契約 | 判断コホート比較（`screening research-triage outcome`）+ 機会費用計測tools |
+| research triageの選定判断 | skill `research-triage`の深度契約 | Review SetからResearch Setまでの実運用の個票検証 |
 
 Valuation Approachを追加・変更・削除するときは、screening rules・対応Research Playbook checklist・Review Setの構成・testを同じ変更で整合させ、根拠を較正結果に置く。
 
@@ -267,32 +267,6 @@ matched 比較の被覆率・membership 数・集中度など、forward outcome 
 ### 判断コホートの集計
 
 primary-research ticker の research FV と screening FV の bridge は、有効観測（同一 thesis 再実行・scaffold-only・未 review・遡及記入を除く）が 5 件以上になったら乖離率の中央値・範囲・要因件数・coverage を記述集計する。この集計だけで screening 式を変えず、変更仮説は別 issue で事前登録して design/confirm へ進める。
-
-<a id="rejection-cost-preregistration"></a>
-
-#### 棄却のコストに関する事前登録
-
-`screening research-triage outcome` は research / skip / machine top-N を集計する。**次の判定基準を計測の実行前にここへ固定する。**
-
-- **3m / 6m は alert のみ**。手順・閾値の変更根拠にしない（doctrine 柱 5）。
-- **手順変更の検討に進む条件**: 1y 以上の horizon で、cohort 数 8 以上・skip の中央超過が research の中央超過を上回る状態が、時間で 2 分割した両期間に同方向で出ること。片側のみは `inconclusive` とする。
-- **深掘りまで進んで棄却したcase**（Capital Allocation Assessment の reject / defer）は母数が桁で少ないので、統計ではなく個票で追う。`baibai_engine.research_watch` が研究 FV と現在価格の位置を毎営業日出すので、価格が研究 FV を下回ったcaseを再評価の入口にする。
-- **基準を後から動かさない**。動かす場合は、動かしたことと理由を次の dated report に明記する。
-
-初回の採点可能日は 2026-10-17（最古 research_triage 2026-07-17 + 3m）である。
-
-<a id="catalyst-axis-preregistration"></a>
-
-#### カタリスト軸の事前登録
-
-`screening research-triage outcome`はresearchを、research triage narrativeが日付つきカタリストを持つか否かで2分する（`research_by_catalyst`）。**次を計測の実行前に固定する。**
-
-- **切る場所は research の内側だけ**。skip は narrative を持たないので、pool 全体で切ると research / skip の差をカタリストの差として報告することになる。
-- **判定基準は棄却コストと同じ**（1y 以上・cohort 8 以上・時間 2 分割で同方向）。満たすまで方向を主張しない。
-- **母数が 10 件未満の側は中央超過を算出せず件数だけを並べる。**
-- **この軸は選定にもrankingにも入れない。** 満たした場合に起票できるのはresearch triage深度契約（カタリストの日付要求）の見直しだけであり、`tse_capital_policy_status`などのannotationを機械の入力へ昇格させる根拠にはしない。
-
-初回の採点可能日は棄却コストと同じ 2026-10-17 である。
 
 ### 支配権イベントの実現 exit 値
 

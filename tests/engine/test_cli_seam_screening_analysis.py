@@ -17,7 +17,12 @@ ROOT = Path(__file__).resolve().parents[2]
 RULES_PATH = ROOT / "method/screening/rules/2026-08-30T215359+0900.yaml"
 
 
-def _analysis(ticker: str) -> dict[str, object]:
+def _analysis(
+    ticker: str,
+    *,
+    er_annual: float | None = 0.13,
+    stale_fin_flag: bool | None = None,
+) -> dict[str, object]:
     return {
         "ticker": ticker,
         "name": ticker,
@@ -48,16 +53,17 @@ def _analysis(ticker: str) -> dict[str, object]:
             "total_assets": 200.0,
             "debt": 20.0,
             "cash": 30.0,
-            "er_annual": 0.13,
+            "er_annual": er_annual,
             "er_origin": "estimate",
             "er_model_version": "v1",
             "er_unit": "annual_ratio",
             "er_assumptions": "fixture assumptions",
+            "stale_fin_flag": stale_fin_flag,
         },
     }
 
 
-def _publish_run(path: Path) -> None:
+def _publish_run(path: Path, *, include_unknown_triage_input: bool = False) -> None:
     rules_hash = production_rules_contract_hash(load_screening_rules(RULES_PATH).model_dump_json())
     ScreeningRunStore(path).publish_run(
         {
@@ -69,7 +75,14 @@ def _publish_run(path: Path) -> None:
             "screening_rules_hash": rules_hash,
             "er_model_version": "v1",
             "rules_ref": str(RULES_PATH),
-            "security_analyses": [_analysis("1111"), _analysis("2222")],
+            "security_analyses": [
+                _analysis(
+                    "1111",
+                    er_annual=None if include_unknown_triage_input else 0.13,
+                    stale_fin_flag=True if include_unknown_triage_input else None,
+                ),
+                _analysis("2222"),
+            ],
         },
         run_revision_id="run-revision-cli-seam",
     )
@@ -107,7 +120,7 @@ def test_review_set_publish_cli_persists_the_exact_output(tmp_path: Path) -> Non
 def test_research_triage_publish_cli_binds_every_review_set_entry(tmp_path: Path) -> None:
     runs_db = tmp_path / "runs.sqlite"
     output = tmp_path / "review-set.yaml"
-    _publish_run(runs_db)
+    _publish_run(runs_db, include_unknown_triage_input=True)
     assert (
         screening_main(
             [
@@ -171,7 +184,12 @@ def test_research_triage_publish_cli_binds_every_review_set_entry(tmp_path: Path
         )
         == 0
     )
-    assert list_research_triage_payloads(app_db)[0]["review_set_id"] == review_set["review_set_id"]
+    published = list_research_triage_payloads(app_db)[0]
+    assert published["review_set_id"] == review_set["review_set_id"]
+    unknown_entry = next(entry for entry in published["entries"] if entry["ticker"] == "1111")
+    assert unknown_entry["decision"] == "research"
+    assert unknown_entry["machine_snapshot"]["expected_return"]["er_annual"] is None
+    assert unknown_entry["machine_snapshot"]["data_quality"]["stale_fin_flag"] is True
 
 
 def test_research_triage_scaffold_carries_machine_coordinates_and_fails_closed(

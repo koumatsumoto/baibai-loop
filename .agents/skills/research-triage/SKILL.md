@@ -5,7 +5,7 @@ description: screening runからReview Setを発行し、全entryをresearch / s
 
 # Research Triage
 
-4つの価値評価法から有限のReview Setを作り、一次リサーチ枠を使う対象を判断する。Researchは買い推奨ではなく、Skipも正常な結論である。AIはbroker操作へ進まない。
+4つの価値評価法から有限のReview Setを作り、Fundamental Researchの時間を使う価値がある対象を判断する。Researchは買い推奨ではなく、Skipも正常な結論である。AIはbroker操作へ進まない。
 
 ## 前提
 
@@ -47,7 +47,8 @@ description: screening runからReview Setを発行し、全entryをresearch / s
    - `research`: contiguousな`priority`、具体的な`rationale`、`research_question`、`key_risk`を必須とする。
    - `skip`: `priority`、`research_question`、`key_risk`を持たず、具体的な`rationale`を必須とする。
    - `null`や`unknown`を否定事実へ変換しない。
-   - material disclosure、TOB、決算日、data-quality warningは一次情報で確認する。
+   - economic factの`unknown` / stale / data-quality warningはsystem failureではない。調査価値があるなら`research_question`または`key_risk`へ渡し、unknownだけで`skip`を強制しない。
+   - 原則はReview Setのmachine facts / contextで判断する。Research時間を使うかだけを安価に決める限定された1事実（現在のTOB・上場状態、直近開示で仮説が既に消滅したか等）は一次資料で確認できるが、正常利益、FV、scenario、business model、permanent lossの分析へ展開しない。限定確認後も不明ならunknownとしてResearchへ渡せる。
    - E[r]はestimateとしてのみ読み、個別予測やResearch判断の自動gateにしない。
    - rationaleで評価法を名指す場合は、同じentryの`machine_snapshot.nominations`と一致させる。
 
@@ -65,7 +66,7 @@ description: screening runからReview Setを発行し、全entryをresearch / s
 ## 停止条件
 
 - operation、ledger、store、Review Basisに矛盾がある
-- coverageがfuture / stale、または判断に必要な一次情報がunresolvedである
+- coverageがfuture、required storeがunreadable / corrupt、またはReview Set・run・as-of・Review Basis・machine snapshotのbindingが成立しない
 - 人間がResearch Setを確定していないのにresearchまたはbroker操作へ進もうとしている
 
 ## 正本
