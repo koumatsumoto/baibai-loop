@@ -10,7 +10,7 @@ from statistics import median
 from typing import cast
 from zoneinfo import ZoneInfo
 
-from .authority import PRODUCTION_REQUIRED_METRICS
+from .authority import ESTIMATOR_POLICY_SUBJECT, PRODUCTION_REQUIRED_METRICS
 from .evaluation import MIN_AXIS_SAMPLE, TRAP_EXCESS_THRESHOLD
 from .forward import TOTAL_RETURN_BASIS, ForwardReturnRow
 from .horizons import require_horizon
@@ -243,6 +243,8 @@ def build_er_distribution_context(
         raise CalibrationContextError("production authority is not eligible")
     if not isinstance(scope, Mapping) or scope.get("run_purpose") != "production_decision":
         raise CalibrationContextError("context requires a production_decision evaluation")
+    if scope.get("decision_subject") != ESTIMATOR_POLICY_SUBJECT:
+        raise CalibrationContextError("E[r] context requires estimator_policy authority")
     required_metrics = scope.get("required_metrics")
     required = {*PRODUCTION_REQUIRED_METRICS, "er_level_calibration"}
     if not isinstance(required_metrics, list) or not required.issubset(required_metrics):

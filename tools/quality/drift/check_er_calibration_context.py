@@ -10,9 +10,9 @@ from baibai_engine.screening.calibration.context import (
     CONTEXT_SCHEMA_VERSION,
     validate_er_distribution_context_payload,
 )
-from baibai_engine.screening.calibration.panel import rules_content_hash
 from baibai_engine.screening.estimates import EXPECTED_RETURN_MODEL_VERSION
 from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
+from baibai_engine.screening.rules_identity import production_rules_contract_hash
 
 _ROOT = Path(__file__).resolve().parents[3]
 _CONTEXT = _ROOT / "reports/published/er-level-calibration-latest.yaml"
@@ -27,7 +27,9 @@ def check() -> tuple[str, ...]:
         return (f"unable to read {_CONTEXT.relative_to(_ROOT)}: {exc}",)
     if not isinstance(raw, dict):
         return ("published E[r] calibration context root must be a mapping",)
-    expected_rules_hash = rules_content_hash(load_screening_rules(_ROOT / DEFAULT_RULES_PATH))
+    expected_rules_hash = production_rules_contract_hash(
+        load_screening_rules(_ROOT / DEFAULT_RULES_PATH).model_dump_json()
+    )
     failures: list[str] = []
     if not validate_er_distribution_context_payload(raw):
         failures.append("published E[r] context does not satisfy the schema v2 contract")

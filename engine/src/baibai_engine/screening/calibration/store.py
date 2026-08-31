@@ -89,6 +89,7 @@ _POPULATION_COVERAGE_STATUSES = {
     "priced_master_without_universe",
     "master_without_universe_unpriced",
 }
+_CANDIDATE_DISCOVERY_INPUT_STATUSES = {"complete", "incomplete", "unavailable"}
 
 
 class CalibrationCacheError(RuntimeError):
@@ -309,6 +310,11 @@ def read_panel_meta(root: Path, asof: date) -> dict[str, object]:
     payload = json.loads(row[0])
     if not isinstance(payload, dict) or not isinstance(payload.get("rules_hash"), str):
         raise CalibrationCacheError("calibration diagnostics are invalid")
+    if (
+        payload.get("candidate_discovery_jpx_input_status")
+        not in _CANDIDATE_DISCOVERY_INPUT_STATUSES
+    ):
+        raise CalibrationCacheError("calibration Candidate Discovery input status is invalid")
     return payload
 
 

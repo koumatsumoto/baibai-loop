@@ -6,8 +6,8 @@ from pathlib import Path
 import yaml
 
 from baibai_engine.read_api import screening_calibration_method_identity
-from baibai_engine.screening.calibration.panel import rules_content_hash
 from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
+from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_web.sources.calibration_context import load_er_level_calibration_context
 
 _IDENTITY = ("rules-hash-v1", "expected-return-v1")
@@ -122,11 +122,13 @@ def test_context_loader_accepts_current_generated_artifact(tmp_path: Path) -> No
     assert context.horizons[0].bands[4].upper_er_annual is None
 
 
-def test_current_method_identity_matches_production_panel_contract() -> None:
+def test_current_method_identity_matches_production_screening_contract() -> None:
     identity = screening_calibration_method_identity(_ROOT)
 
     assert identity is not None
-    assert identity[0] == rules_content_hash(load_screening_rules(_ROOT / DEFAULT_RULES_PATH))
+    assert identity[0] == production_rules_contract_hash(
+        load_screening_rules(_ROOT / DEFAULT_RULES_PATH).model_dump_json()
+    )
 
 
 def test_context_loader_hides_missing_stale_or_invalid_artifact(tmp_path: Path) -> None:

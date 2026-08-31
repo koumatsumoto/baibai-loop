@@ -10,6 +10,7 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import asdict, replace
 from datetime import date, timedelta
+from hashlib import sha256
 from pathlib import Path
 from unittest.mock import patch
 
@@ -51,6 +52,7 @@ from baibai_engine.screening.calibration.store import (
 )
 from baibai_engine.screening.metrics import (
     BARS_INPUT_WINDOW_DAYS,
+    VALUATION_CALCULATION_REVISION,
     VALUATION_HISTORY_SESSIONS,
     build_profitability_level_signals,
 )
@@ -290,6 +292,102 @@ class CalibrationPanelTest(unittest.TestCase):
         )
 
         self.assertNotEqual(rules_content_hash(rules), previous_identity)
+
+    def test_candidate_discovery_method_hash_is_part_of_panel_identity(self) -> None:
+        rules = load_screening_rules()
+
+        with patch(
+            "baibai_engine.screening.calibration.panel.candidate_discovery_method_hash",
+            return_value="a" * 64,
+        ):
+            first = rules_content_hash(rules)
+        with patch(
+            "baibai_engine.screening.calibration.panel.candidate_discovery_method_hash",
+            return_value="b" * 64,
+        ):
+            second = rules_content_hash(rules)
+
+        self.assertNotEqual(first, second)
+
+    def test_candidate_discovery_identity_does_not_change_production_hash(self) -> None:
+        rules = load_screening_rules()
+        rules_json = rules.model_dump_json()
+        expected_contract = (
+            f"{rules_json}|{VALUATION_CALCULATION_REVISION}|production|"
+            f"{VALUATION_HISTORY_SESSIONS}|{BARS_INPUT_WINDOW_DAYS}|True"
+        )
+
+        actual = rules_contract_hash(
+            rules_json,
+            valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
+            variant="production",
+            valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
+            bars_input_window_days=BARS_INPUT_WINDOW_DAYS,
+            production_authority=True,
+        )
+
+        self.assertEqual(actual, sha256(expected_contract.encode("utf-8")).hexdigest()[:16])
+
+    def test_panel_records_complete_and_incomplete_jpx_method_inputs(self) -> None:
+        rules = load_screening_rules()
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            build_calibration_fixture_sqlite(sqlite_path)
+            conn = open_connection(sqlite_path)
+            try:
+                conn.executemany(
+                    "INSERT INTO jpx_regulation_sources"
+                    "(asof_date, source_name, fetched_at_utc) VALUES (?, ?, ?)",
+                    [
+                        (ASOF.isoformat(), source, None)
+                        for source in rules.universe.required_jpx_flags
+                    ],
+                )
+                conn.execute(
+                    "INSERT INTO jpx_regulation_flags"
+                    "(asof_date, source_name, ticker, flag, fetched_at_utc) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (ASOF.isoformat(), "整理銘柄", "9001", "整理銘柄", None),
+                )
+                add_source_coverage(
+                    conn,
+                    source="jpx_regulation_flags",
+                    coverage_key=ASOF.isoformat(),
+                    min_date=ASOF.isoformat(),
+                    max_date=ASOF.isoformat(),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            complete = build_panel(ASOF, sqlite_path=sqlite_path, rules=rules)
+            rows = {row.ticker: row for row in complete.rows}
+
+            self.assertEqual(
+                complete.diagnostics.candidate_discovery_jpx_input_status,
+                "complete",
+            )
+            self.assertEqual(rows["9001"].valuation_approach_ranks, "")
+
+            conn = open_connection(sqlite_path)
+            try:
+                conn.execute(
+                    "DELETE FROM jpx_regulation_sources WHERE source_name = ?",
+                    (rules.universe.required_jpx_flags[0],),
+                )
+                conn.execute(
+                    "DELETE FROM jpx_regulation_flags WHERE source_name = ?",
+                    (rules.universe.required_jpx_flags[0],),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            incomplete = build_panel(ASOF, sqlite_path=sqlite_path, rules=rules)
+            self.assertEqual(
+                incomplete.diagnostics.candidate_discovery_jpx_input_status,
+                "incomplete",
+            )
 
     def test_build_panel_replays_valuation_approaches_point_in_time(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

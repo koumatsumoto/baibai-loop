@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 
 from baibai_engine.screening.calibration.authority import (
+    CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
+    CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC,
+    CANDIDATE_DISCOVERY_COMPOSER_SUBJECT,
     CohortIntegrity,
     EvaluationScope,
+    candidate_discovery_approach_fidelity_metric,
     decide_authority,
 )
 from baibai_engine.screening.calibration.horizons import add_months_clamped
@@ -45,6 +50,79 @@ def test_only_complete_long_horizon_scope_is_eligible() -> None:
     decision = decide_authority(_scope(), (_cohort("3y"), _cohort("5y")))
     assert decision.production_change_allowed is True
     assert decision.evidence_status == "eligible"
+
+
+def test_approach_subject_adds_fidelity_metric_operator_did_not_name() -> None:
+    scope = replace(
+        _scope(),
+        decision_subject=CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
+        candidate_discovery_approaches=("asset-value",),
+    )
+
+    decision = decide_authority(scope, (_cohort("3y"), _cohort("5y")))
+
+    assert decision.production_change_allowed is False
+    assert (
+        "metric_unresolved:"
+        f"{candidate_discovery_approach_fidelity_metric('asset-value')}"
+        in decision.blocking_reasons
+    )
+
+
+def test_complete_approach_fidelity_can_authorize_that_approach_only() -> None:
+    metric = candidate_discovery_approach_fidelity_metric("asset-value")
+    scope = EvaluationScope(
+        run_purpose="production_decision",
+        requested_horizons=("3y", "5y"),
+        cohort_window={"start": None, "end": None},
+        required_asofs=("2020-01-31",),
+        required_metrics=("review_set_top5", "review_set_top10", "er_calibration"),
+        decision_subject=CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
+        candidate_discovery_approaches=("asset-value",),
+    )
+    cohorts = tuple(
+        CohortIntegrity(
+            asof="2020-01-31",
+            horizon=horizon,
+            integrity_status="eligible",
+            metric_statuses={
+                "review_set_top5": "eligible",
+                "review_set_top10": "eligible",
+                "er_calibration": "eligible",
+                metric: "eligible",
+            },
+        )
+        for horizon in ("3y", "5y")
+    )
+
+    assert decide_authority(scope, cohorts).production_change_allowed is True
+
+
+def test_composer_subject_requires_full_composer_fidelity() -> None:
+    scope = EvaluationScope(
+        run_purpose="production_decision",
+        requested_horizons=("3y", "5y"),
+        cohort_window={"start": None, "end": None},
+        required_asofs=("2020-01-31",),
+        required_metrics=("review_set_top5", "review_set_top10", "er_calibration"),
+        decision_subject=CANDIDATE_DISCOVERY_COMPOSER_SUBJECT,
+    )
+    incomplete = (_cohort("3y"), _cohort("5y"))
+    complete = tuple(
+        CohortIntegrity(
+            asof=item.asof,
+            horizon=item.horizon,
+            integrity_status=item.integrity_status,
+            metric_statuses={
+                **item.metric_statuses,
+                CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC: "eligible",
+            },
+        )
+        for item in incomplete
+    )
+
+    assert decide_authority(scope, incomplete).production_change_allowed is False
+    assert decide_authority(scope, complete).production_change_allowed is True
 
 
 def test_diagnostic_run_never_has_production_authority() -> None:

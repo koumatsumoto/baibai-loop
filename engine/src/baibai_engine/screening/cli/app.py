@@ -12,6 +12,7 @@ from typing import cast
 from baibai_engine.foundation.env import load_project_env
 from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH, RUNS_DB_PATH
 from baibai_engine.foundation.time import JST
+from baibai_engine.screening.calibration.authority import DECISION_SUBJECTS
 from baibai_engine.screening.calibration.cli import (
     calibration_build_command,
     calibration_evaluate_command,
@@ -443,6 +444,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--required-metric", action="append", dest="required_metrics"
     )
     calibration_evaluate_parser.add_argument(
+        "--decision-subject",
+        choices=DECISION_SUBJECTS,
+        default="estimator_policy",
+        help="production decision target whose method fidelity cannot be omitted",
+    )
+    calibration_evaluate_parser.add_argument(
+        "--candidate-discovery-approach",
+        help="one valuation approach when decision subject is candidate_discovery_approach",
+    )
+    calibration_evaluate_parser.add_argument(
         "--out",
         help="write the evaluation YAML to this path instead of stdout",
     )
@@ -572,6 +583,8 @@ def main(argv: list[str] | None = None) -> int:
             run_purpose=args.run_purpose,
             required_asofs=args.required_asofs,
             required_metrics=args.required_metrics,
+            decision_subject=args.decision_subject,
+            candidate_discovery_approach=args.candidate_discovery_approach,
             output_path=Path(args.out) if args.out else None,
             context_output_path=Path(args.context_out) if args.context_out else None,
             start=_parse_iso_date(args.start) if args.start else None,
