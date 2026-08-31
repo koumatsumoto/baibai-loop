@@ -3,6 +3,7 @@ tolerates a store that has not caught up with the registry."""
 
 from __future__ import annotations
 
+from calendar import monthrange
 from datetime import date
 from pathlib import Path
 
@@ -93,8 +94,8 @@ def test_panel_keeps_a_configured_series_the_store_has_not_fetched(tmp_path: Pat
 
     rows = {series.series_id: series for group in view.groups for series in group.series}
     assert list(rows) == ["us.10y", "jp.2y"]
-    # The initial daily brief carries metadata/current readings but no chart history.
-    assert rows["us.10y"].points == []
+    # The initial daily brief carries only a compact monthly sparkline, not full history.
+    assert [point.observed_at for point in rows["us.10y"].points] == [date(2026, 7, 15)]
     # The row survives with no observations and keeps its registry name, so a store that
     # lags the registry shows the gap instead of dropping the series or failing the view.
     assert rows["jp.2y"].points == []
@@ -104,6 +105,64 @@ def test_panel_keeps_a_configured_series_the_store_has_not_fetched(tmp_path: Pat
     history = build_macro_series(source, series_id="us.10y", as_of=_AS_OF)
     assert history is not None
     assert history.points
+
+
+def test_panel_sparkline_uses_month_end_observations_and_is_bounded(tmp_path: Path) -> None:
+    store = tmp_path / "macro.sqlite"
+    definition = load_definitions().by_id()["us.10y"]
+    connection = initialize_database(
+        store,
+        definitions=IndicatorDefinitions(series=(definition,)),
+    )
+    try:
+        observations: list[ObservationRecord] = []
+        # Fifteen calendar months with two observations each.  The overview must retain
+        # only the final observation in each month and at most thirteen months.
+        for offset in range(15):
+            month_index = 2023 * 12 + 11 + offset  # December 2023 is zero-based month 11.
+            year, zero_based_month = divmod(month_index, 12)
+            month = zero_based_month + 1
+            for day in (1, monthrange(year, month)[1]):
+                observations.append(
+                    ObservationRecord(
+                        series_id="us.10y",
+                        observed_at=date(year, month, day),
+                        value=3.0 + offset / 100 + day / 1000,
+                        unit=definition.unit,
+                        source_url="https://example.com/series",
+                    )
+                )
+        insert_observations(connection, observations)
+        connection.commit()
+    finally:
+        connection.close()
+    groups = (
+        MacroGroupConfig(
+            title="金利・金融政策",
+            series=(MacroSeriesConfig(series_id="us.10y", label=None),),
+        ),
+    )
+    source = DbMacroSource(
+        tmp_path / "absent.sqlite",
+        store,
+        groups,
+        MACRO_READING_RULES_PATH,
+    )
+
+    as_of = date(2025, 2, 28)
+    view = build_macro(source, as_of=as_of)
+
+    points = view.groups[0].series[0].points
+    assert len(points) == 13
+    assert points[0].observed_at == date(2024, 2, 29)
+    assert points[-1].observed_at == as_of
+    assert all(
+        point.observed_at.day == monthrange(point.observed_at.year, point.observed_at.month)[1]
+        for point in points
+    )
+    history = build_macro_series(source, series_id="us.10y", as_of=as_of)
+    assert history is not None
+    assert len(history.points) == 30
 
 
 def test_panel_rejects_a_configured_series_no_registry_defines(tmp_path: Path) -> None:

@@ -462,7 +462,8 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
       最初の成立を `met`、期限前の不成立を `pending`、期限到達後の不成立を `not_met` とし、rules
       revision と両 store を出力 identity に固定しているか
 - [ ] macro series config の `tradingview_symbol` は `EXCHANGE:SYMBOL` 形式を拒否側 fixture で検証し、
-      Macro overview は chart history 0 point、系列を開いた後の endpoint はその1系列だけを返すか。
+      Macro overview は各系列最大13 pointの月次Sparklineだけ、系列を開いた後の endpoint はその1系列の
+      daily全履歴だけを返すか。
       browser の期間集約は各 bucket の最終観測値をfixtureで検証し、月次全履歴を返すproviderは既知の最古月・公表lagを含む最新端・
       途中月の欠落をhard errorにするか
 - [ ] macro context は core 固定順10セクション + connection 1、series定義とinputへの参照、source ID、

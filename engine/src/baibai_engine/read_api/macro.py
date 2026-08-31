@@ -324,6 +324,10 @@ def macro_indicator_series(
             start or date.min,
             end or date.max,
         )
+    except sqlite3.OperationalError as error:
+        if not is_unwritten_store(error):
+            raise
+        return None
     finally:
         connection.close()
     points = [
