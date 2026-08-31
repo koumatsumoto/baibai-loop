@@ -147,7 +147,7 @@ EDINET `type=5` CSV-derived metrics から以下を抽出する。
 - `asset_backed_ratio = (net_cash + investment_securities) / market_cap`
 - `fcf_ttm = edinet_ocf_ttm - capex_ttm`
 
-`asset_backed_ratio` は投資有価証券の帳簿価額を加えた gross proxy である。上場株式だけでなく非上場・低流動性の保有を含み得て、含み損益、売却税、持合い・契約上の売却制約、事業上必要な保有を反映しない。このため marketable / liquid / fair value の指標とは呼ばず、candidate context と較正 panel の調査入口に限定する。`net_cash`、`investment_securities`、正の時価総額のいずれかが欠ける場合は `null` とし、net debt が投資有価証券を上回る場合の負値はそのまま保持する。screening rule、E[r]、FV、ranking、warning は変更しない。
+`asset_backed_ratio` は投資有価証券の帳簿価額を加えた gross proxy である。上場株式だけでなく非上場・低流動性の保有を含み得て、含み損益、売却税、持合い・契約上の売却制約、事業上必要な保有を反映しない。このため marketable / liquid / fair value の指標とは呼ばない。非金融企業だけを対象とするCandidate DiscoveryのAsset Valueと較正panelの調査入口に限定し、E[r]、FV、Security Analysis全体の順位、warningには使わない。銀行業、保険業、その他金融業、証券・商品先物取引業は、cash / debt / securitiesが事業そのものなのでAsset Valueのeligibilityから除外する。`net_cash`、`investment_securities`、正の時価総額のいずれかが欠ける場合は`null`とし、net debtが投資有価証券を上回る場合の負値はそのまま保持する。`net_cash_to_market_cap`はReview analysis contextへ残すが、Asset Valueのeligibility / orderには使わない。
 
 J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定に使う。
 

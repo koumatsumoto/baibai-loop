@@ -21,6 +21,14 @@ APPROACH_IDS = (
     "asset-value",
     "reinvestment-value",
 )
+_ASSET_VALUE_EXCLUDED_SECTORS = frozenset(
+    {
+        "銀行業",
+        "保険業",
+        "その他金融業",
+        "証券・商品先物取引業",
+    }
+)
 
 
 class ReviewSetContractError(ValueError):
@@ -189,6 +197,30 @@ def candidate_discovery_method_hash(
         "approaches": {
             key: value.model_dump(mode="json") for key, value in rules.approaches.items()
         },
+        "approach_eligibility": {
+            "asset-value": {
+                "asset_backed_ratio": "positive_required",
+                "excluded_sectors": sorted(_ASSET_VALUE_EXCLUDED_SECTORS),
+                "net_cash_to_market_cap": "analysis_only",
+            },
+            "reinvestment-value": {
+                "positive_inputs": [
+                    "p_s",
+                    "sales_yoy",
+                    "fcf_yield",
+                    "operating_profit",
+                    "sales_ttm",
+                    "total_assets",
+                    "equity_ratio",
+                ],
+                "finite_inputs": ["p_s_sector_gap", "debt", "cash"],
+                "p_s_sector_gap": "negative_required",
+                "operating_margin": "sector_median_or_market_fallback_inclusive",
+                "operating_return_on_capital_proxy": ("sector_median_or_market_fallback_inclusive"),
+                "median_population": "common_eligible_with_positive_reinvestment_inputs",
+                "sector_median_min_population": MIN_SECTOR_MEDIAN_POPULATION,
+            },
+        },
         "ordering": {
             "current-earnings-power": [
                 "chosen_per_sector_gap_asc",
@@ -206,8 +238,7 @@ def candidate_discovery_method_hash(
                 "ticker_asc",
             ],
             "asset-value": [
-                "asset_backed_ratio_desc_null_last",
-                "net_cash_to_market_cap_desc_null_last",
+                "asset_backed_ratio_desc",
                 "pbr_sector_gap_asc_null_last",
                 "pbr_asc_null_last",
                 "equity_ratio_desc_null_last",
@@ -374,8 +405,14 @@ def build_nomination_ranks(
         if _common_eligible(row, rules, required_jpx_flags=required_jpx_flags)
     ]
     normalized_gaps = _normalized_sector_gaps(eligible)
+    reinvestment_floors = _reinvestment_quality_floors(eligible)
     ordered = {
-        approach: _ordered_eligible(approach, eligible, normalized_gaps=normalized_gaps)
+        approach: _ordered_eligible(
+            approach,
+            eligible,
+            normalized_gaps=normalized_gaps,
+            reinvestment_floors=reinvestment_floors,
+        )
         for approach in APPROACH_IDS
     }
     nominations_by_ticker: dict[str, list[Nomination]] = defaultdict(list)
@@ -467,6 +504,7 @@ def _ordered_eligible(
     rows: Sequence[Mapping[str, object]],
     *,
     normalized_gaps: Mapping[str, float | None],
+    reinvestment_floors: Mapping[str, tuple[float, float]],
 ) -> list[Mapping[str, object]]:
     eligible: list[tuple[tuple[object, ...], Mapping[str, object]]] = []
     for row in rows:
@@ -506,13 +544,13 @@ def _ordered_eligible(
                 ticker,
             )
         elif approach == "asset-value":
+            if string_or_none(row.get("sector_33")) in _ASSET_VALUE_EXCLUDED_SECTORS:
+                continue
             asset = _positive(metrics.get("asset_backed_ratio"))
-            net_cash = _positive(metrics.get("net_cash_to_market_cap"))
-            if asset is None and net_cash is None:
+            if asset is None:
                 continue
             key = (
-                _desc_null(asset),
-                _desc_null(net_cash),
+                -asset,
                 _asc_null(metrics.get("pbr_sector_gap")),
                 _asc_null(row.get("pbr")),
                 _desc_null(metrics.get("equity_ratio")),
@@ -520,9 +558,17 @@ def _ordered_eligible(
             )
         else:
             values = _reinvestment_values(row)
-            if values is None:
+            floors = reinvestment_floors.get(ticker)
+            if values is None or floors is None:
                 continue
             p_s_gap, capital_return, sales_yoy, operating_margin, fcf_yield = values
+            capital_return_floor, operating_margin_floor = floors
+            if (
+                p_s_gap >= 0
+                or capital_return < capital_return_floor
+                or operating_margin < operating_margin_floor
+            ):
+                continue
             key = (p_s_gap, -capital_return, -sales_yoy, -operating_margin, -fcf_yield, ticker)
         eligible.append((key, row))
     eligible.sort(key=lambda item: item[0])
@@ -546,6 +592,30 @@ def _normalized_sector_gaps(rows: Sequence[Mapping[str, object]]) -> dict[str, f
         center = median(baseline) if baseline else None
         output[ticker] = (
             value / center - 1 if value is not None and center not in (None, 0) else None
+        )
+    return output
+
+
+def _reinvestment_quality_floors(
+    rows: Sequence[Mapping[str, object]],
+) -> dict[str, tuple[float, float]]:
+    """Return inclusive quality floors from the existing reinvestment cross-section."""
+    observed: list[tuple[Mapping[str, object], tuple[float, float, float, float, float]]] = []
+    by_sector: dict[str, list[tuple[float, float, float, float, float]]] = defaultdict(list)
+    for row in rows:
+        values = _reinvestment_values(row)
+        if values is None:
+            continue
+        observed.append((row, values))
+        by_sector[string_or_none(row.get("sector_33")) or ""].append(values)
+    market = [values for _, values in observed]
+    output: dict[str, tuple[float, float]] = {}
+    for row, _values in observed:
+        sector_values = by_sector[string_or_none(row.get("sector_33")) or ""]
+        baseline = sector_values if len(sector_values) >= MIN_SECTOR_MEDIAN_POPULATION else market
+        output[_ticker(row)] = (
+            median(value[1] for value in baseline),
+            median(value[3] for value in baseline),
         )
     return output
 

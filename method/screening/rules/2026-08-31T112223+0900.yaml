@@ -1,0 +1,39 @@
+universe:
+  required_jpx_flags:
+  - 特別注意銘柄
+  - 整理銘柄
+  - 取引停止
+  - 上場廃止警告
+ttm:
+  full_year_min_days: 330
+  full_year_max_days: 370
+  period_length_tolerance_ratio: 0.1
+  period_end_tolerance_days: 45
+quality:
+  partial_warning_ttm_ratio: 0.05
+  partial_warning_ttm_count: 20
+  partial_warning_yoy_missing_ratio: 0.1
+  yoy_deterioration_threshold: -0.3
+candidate_discovery:
+  method_id: multi-valuation-v2
+  review_capacity: 20
+  nomination_depth: 20
+  common_eligibility:
+    min_market_cap_oku: 100
+    min_avg_turnover_oku: 1.0
+    min_listing_span_days: 182
+    exclude_jpx_flagged: true
+  representation_targets:
+    current-earnings-power: 6
+    normalized-earnings-power: 5
+    asset-value: 5
+    reinvestment-value: 4
+  approaches:
+    current-earnings-power:
+      method_id: current-earnings-power-v1
+    normalized-earnings-power:
+      method_id: normalized-earnings-power-v1
+    asset-value:
+      method_id: asset-value-v2
+    reinvestment-value:
+      method_id: reinvestment-value-v2

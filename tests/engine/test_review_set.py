@@ -4,8 +4,10 @@ from copy import deepcopy
 
 import pytest
 
+from baibai_engine.screening.discovery import review_set as review_set_module
 from baibai_engine.screening.discovery.review_set import (
     ReviewSetContractError,
+    build_nomination_ranks,
     build_review_set,
     candidate_discovery_method_hash,
     validate_review_set_payload,
@@ -150,6 +152,144 @@ def test_null_and_nonpositive_primary_coordinates_do_not_nominate() -> None:
     assert payload["entries"] == []
 
 
+@pytest.mark.parametrize(
+    "financial_sector",
+    ["銀行業", "保険業", "その他金融業", "証券・商品先物取引業"],
+)
+def test_asset_value_excludes_financial_sectors_and_net_cash_only_rows(
+    financial_sector: str,
+) -> None:
+    financial = _analysis("1111", asset_ratio=9.0)
+    financial["sector_33"] = financial_sector
+    net_cash_only = _analysis("2222", asset_ratio=0.0)
+    net_cash_only["metrics"]["net_cash_to_market_cap"] = 9.0  # type: ignore[index]
+    native = _analysis("3333", asset_ratio=0.5)
+
+    payload = _build_review_set([financial, net_cash_only, native])
+    entries = {entry["ticker"]: entry for entry in payload["entries"]}
+
+    assert not any(
+        nomination["valuation_approach_id"] == "asset-value"
+        for nomination in entries["1111"]["nominations"]
+    )
+    assert not any(
+        nomination["valuation_approach_id"] == "asset-value"
+        for nomination in entries["2222"]["nominations"]
+    )
+    assert entries["2222"]["analysis"]["asset_value"]["net_cash_to_market_cap"] == 9.0
+    assert any(
+        nomination["valuation_approach_id"] == "asset-value"
+        for nomination in entries["3333"]["nominations"]
+    )
+
+
+def test_asset_value_order_uses_pbr_before_net_cash_context() -> None:
+    cheaper_pbr = _analysis("1111", asset_ratio=0.5)
+    cheaper_pbr["metrics"]["pbr_sector_gap"] = -0.5  # type: ignore[index]
+    cheaper_pbr["metrics"]["net_cash_to_market_cap"] = 0.01  # type: ignore[index]
+    higher_net_cash = _analysis("2222", asset_ratio=0.5)
+    higher_net_cash["metrics"]["pbr_sector_gap"] = -0.1  # type: ignore[index]
+    higher_net_cash["metrics"]["net_cash_to_market_cap"] = 10.0  # type: ignore[index]
+
+    nominations = build_nomination_ranks(
+        [higher_net_cash, cheaper_pbr],
+        rules=RULES,
+        required_jpx_flags=REQUIRED_JPX_FLAGS,
+    )
+
+    asset_ranks = {
+        ticker: next(
+            item.rank for item in ticker_nominations if item.valuation_approach_id == "asset-value"
+        )
+        for ticker, ticker_nominations in nominations.items()
+    }
+    assert asset_ranks == {"1111": 1, "2222": 2}
+
+
+def test_reinvestment_requires_cheap_ps_and_both_sector_quality_floors() -> None:
+    rows = [_analysis(str(1000 + index)) for index in range(10)]
+    expensive = _analysis("2001")
+    expensive["metrics"]["p_s_sector_gap"] = 0.0  # type: ignore[index]
+    low_margin = _analysis("2002")
+    low_margin["metrics"]["sales_ttm"] = 1000.0  # type: ignore[index]
+    low_capital_return = _analysis("2003")
+    low_capital_return["metrics"]["total_assets"] = 2000.0  # type: ignore[index]
+    rows.extend((expensive, low_margin, low_capital_return))
+
+    nominations = build_nomination_ranks(
+        rows,
+        rules=RULES,
+        required_jpx_flags=REQUIRED_JPX_FLAGS,
+    )
+
+    for ticker in ("2001", "2002", "2003"):
+        assert not any(
+            item.valuation_approach_id == "reinvestment-value" for item in nominations[ticker]
+        )
+
+
+def test_reinvestment_sector_floor_uses_inclusive_shared_population_boundary() -> None:
+    low_sector = [
+        {
+            **_analysis(str(1000 + index)),
+            "sector_33": "boundary-sector",
+        }
+        for index in range(10)
+    ]
+    high_sector = []
+    for index in range(10):
+        row = _analysis(str(2000 + index))
+        row["sector_33"] = "high-sector"
+        row["metrics"]["operating_profit"] = 100.0  # type: ignore[index]
+        high_sector.append(row)
+
+    at_boundary = build_nomination_ranks(
+        [*low_sector, *high_sector],
+        rules=RULES,
+        required_jpx_flags=REQUIRED_JPX_FLAGS,
+    )
+    below_boundary = build_nomination_ranks(
+        [*low_sector[:-1], *high_sector],
+        rules=RULES,
+        required_jpx_flags=REQUIRED_JPX_FLAGS,
+    )
+
+    assert all(
+        any(
+            item.valuation_approach_id == "reinvestment-value"
+            for item in at_boundary[row["ticker"]]
+        )
+        for row in low_sector
+    )
+    assert all(
+        not any(
+            item.valuation_approach_id == "reinvestment-value"
+            for item in below_boundary[row["ticker"]]
+        )
+        for row in low_sector[:-1]
+    )
+
+
+def test_current_rules_name_only_the_two_revised_approaches() -> None:
+    method_ids = {key: value.method_id for key, value in RULES.approaches.items()}
+
+    assert RULES.method_id == "multi-valuation-v2"
+    assert method_ids == {
+        "current-earnings-power": "current-earnings-power-v1",
+        "normalized-earnings-power": "normalized-earnings-power-v1",
+        "asset-value": "asset-value-v2",
+        "reinvestment-value": "reinvestment-value-v2",
+    }
+    assert RULES.review_capacity == 20
+    assert RULES.nomination_depth == 20
+    assert dict(RULES.representation_targets) == {
+        "current-earnings-power": 6,
+        "normalized-earnings-power": 5,
+        "asset-value": 5,
+        "reinvestment-value": 4,
+    }
+
+
 def test_normalized_gap_uses_the_shared_sector_population_boundary() -> None:
     rows = [
         {
@@ -215,6 +355,28 @@ def test_candidate_discovery_hash_binds_the_required_jpx_flag_set() -> None:
     assert baseline != candidate_discovery_method_hash(
         RULES,
         required_jpx_flags=("整理銘柄",),
+    )
+
+
+def test_candidate_discovery_hash_binds_v2_sector_and_median_policy(monkeypatch) -> None:
+    baseline = candidate_discovery_method_hash(
+        RULES,
+        required_jpx_flags=REQUIRED_JPX_FLAGS,
+    )
+    sectors = review_set_module._ASSET_VALUE_EXCLUDED_SECTORS
+    minimum = review_set_module.MIN_SECTOR_MEDIAN_POPULATION
+
+    monkeypatch.setattr(review_set_module, "_ASSET_VALUE_EXCLUDED_SECTORS", frozenset())
+    assert baseline != candidate_discovery_method_hash(
+        RULES,
+        required_jpx_flags=REQUIRED_JPX_FLAGS,
+    )
+
+    monkeypatch.setattr(review_set_module, "_ASSET_VALUE_EXCLUDED_SECTORS", sectors)
+    monkeypatch.setattr(review_set_module, "MIN_SECTOR_MEDIAN_POPULATION", minimum + 1)
+    assert baseline != candidate_discovery_method_hash(
+        RULES,
+        required_jpx_flags=REQUIRED_JPX_FLAGS,
     )
 
 

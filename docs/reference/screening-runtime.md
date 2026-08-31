@@ -3,7 +3,7 @@ title: "Screening runtime reference"
 description: "Security Analysis、4つの価値評価法、Review Set、Research Triageの実行契約"
 doc_type: reference
 owners: [screening]
-last_reviewed: 2026-08-30
+last_reviewed: 2026-08-31
 ---
 
 # Screening runtime
@@ -39,7 +39,7 @@ run store schema v5は次を保持する。
 
 Security Analysisは`observed / derived / estimate`を混同しない。欠損を0へ補完せず、解釈・因果・売買判断を書かない。
 
-## Candidate Discovery v1
+## Candidate Discovery v2
 
 共通eligibilityは時価総額、売買代金、上場期間、JPX flag、必須factの有無だけを扱う。その後、各approachが独立に上位20件をnominateする。
 
@@ -47,10 +47,14 @@ Security Analysisは`observed / derived / estimate`を混同しない。欠損�
 | --- | --- | ---: |
 | `current-earnings-power` | sector-relative current PER、current cash-flow yield | 6 |
 | `normalized-earnings-power` | 3FY normalized PERのsector gap | 5 |
-| `asset-value` | asset-backed ratio、net cash、PBR | 5 |
-| `reinvestment-value` | sector-relative P/S、capital-return proxy、growth、margin、FCF yield | 4 |
+| `asset-value` | 正のasset-backed ratio、PBR context | 5 |
+| `reinvestment-value` | 割安なsector-relative P/S、sector-relative capital-return proxy / margin、growth、FCF yield | 4 |
 
-primary coordinateがnull、非有限、またはapproachの正値要件を満たさない銘柄は、そのapproachでnominateしない。従キーとtickerまでmethod hashに含め、同じSecurity Analysisとrulesから同じ結果を再構成する。
+Asset Valueは`asset_backed_ratio > 0`だけをnative eligibilityとし、銀行業、保険業、その他金融業、証券・商品先物取引業を除外する。金融業ではcash、debt、securitiesが事業上のasset / fundingそのものなので、非金融企業向けgross asset proxyを残余価値として適用しない。`net_cash_to_market_cap`は`analysis.asset_value`へ残すが、eligibilityとorderには使わない。orderはasset-backed ratio降順、PBR sector gap昇順、PBR昇順、equity ratio降順、ticker昇順である。
+
+Reinvestment Valueは正のP/S、sales growth、FCF yield、operating profit、sales、assets、equity ratioと、有限のdebt / cashを要求する。さらに`p_s_sector_gap < 0`、`operating_margin`と`operating_return_on_capital_proxy`がそれぞれ同じsector 33のmedian以上であることを要求する。median populationは、この共通eligible母集団のうち既存のReinvestment入力がすべて成立する行である。sector母数が`MIN_SECTOR_MEDIAN_POPULATION`未満の場合だけ同じpopulationのmarket medianへfallbackし、境界件数はsector medianを使う。通過後のorderはP/S gap昇順、capital return降順、sales growth降順、margin降順、FCF yield降順、ticker昇順である。
+
+primary coordinateがnull、非有限、またはapproachの要件を満たさない銘柄は、そのapproachでnominateしない。金融sector除外、quality threshold、median population / fallback、従キー、tickerまでmethod hashに含め、同じSecurity Analysisとrulesから同じ結果を再構成する。
 
 ## Review Set v1
 
