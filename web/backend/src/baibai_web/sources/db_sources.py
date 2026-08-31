@@ -16,6 +16,7 @@ from baibai_engine.read_api import (
     capital_allocation_assessment_payload,
     close_change_since,
     latest_disclosure_dates_after,
+    latest_macro_context_payload,
     latest_research_triage_payload,
     latest_unadjusted_closes,
     list_capital_allocation_assessment_payloads,
@@ -27,9 +28,9 @@ from baibai_engine.read_api import (
     list_thesis_publications,
     list_thesis_review_publications,
     macro_context_payload,
+    macro_daily_readings,
     macro_indicator_series,
     macro_latest_observed_at,
-    macro_reading_snapshot,
     macro_series_fetch_health,
     next_earnings_dates,
     portfolio_ledger_document,
@@ -284,9 +285,14 @@ class DbMacroSource:
         self._reading_rules_path = reading_rules_path
         self.groups = groups
 
-    def reading(self, *, asof: date) -> dict[str, object] | None:
-        return macro_reading_snapshot(
-            self._indicators_db_path, asof=asof, rules_path=self._reading_rules_path
+    def daily_readings(
+        self, *, requested_asof: date, context_asof: date | None
+    ) -> dict[str, object] | None:
+        return macro_daily_readings(
+            self._indicators_db_path,
+            requested_asof=requested_asof,
+            context_asof=context_asof,
+            rules_path=self._reading_rules_path,
         )
 
     def fetch_health(self) -> list[dict[str, object]]:
@@ -297,6 +303,9 @@ class DbMacroSource:
 
     def contexts(self) -> list[dict[str, object]]:
         return list_macro_context_payloads(self._app_db_path)
+
+    def latest_context(self, *, as_of: date) -> dict[str, object] | None:
+        return latest_macro_context_payload(self._app_db_path, as_of=as_of)
 
     def series(
         self,

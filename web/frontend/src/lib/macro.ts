@@ -15,6 +15,47 @@ export interface SeriesWindowSummary {
   readonly delta: number | null
 }
 
+export type MacroHistoryPeriod = '1y' | '5y' | '10y' | 'max'
+export type MacroHistoryGranularity = 'daily' | 'weekly' | 'monthly' | 'yearly'
+
+export function macroSeriesHistoryUrl(seriesId: string | null): string | null {
+  return seriesId === null ? null : `/api/macro/series/${encodeURIComponent(seriesId)}`
+}
+
+export function transformSeriesHistory(
+  series: MacroSeriesView,
+  period: MacroHistoryPeriod,
+  granularity: MacroHistoryGranularity,
+): MacroSeriesView {
+  const latest = series.points.at(-1)?.observed_at
+  let points = series.points
+  if (latest !== undefined && period !== 'max') {
+    const cutoff = new Date(`${latest}T00:00:00Z`)
+    cutoff.setUTCFullYear(cutoff.getUTCFullYear() - Number.parseInt(period, 10))
+    const cutoffText = cutoff.toISOString().slice(0, 10)
+    points = points.filter((point) => point.observed_at >= cutoffText)
+  }
+  if (granularity !== 'daily') {
+    const byPeriod = new Map<string, MacroPointView>()
+    for (const point of points) {
+      const day = new Date(`${point.observed_at}T00:00:00Z`)
+      let key: string
+      if (granularity === 'weekly') {
+        const weekday = day.getUTCDay() || 7
+        const thursday = new Date(day)
+        thursday.setUTCDate(day.getUTCDate() + 4 - weekday)
+        const yearStart = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 1))
+        const week = Math.ceil((((thursday.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+        key = `${thursday.getUTCFullYear()}-${week}`
+      } else if (granularity === 'monthly') key = point.observed_at.slice(0, 7)
+      else key = point.observed_at.slice(0, 4)
+      byPeriod.set(key, point)
+    }
+    points = [...byPeriod.values()]
+  }
+  return { ...series, points }
+}
+
 // At-a-glance summary for a sparkline: latest level plus the change across the
 // displayed window. Direction is not interpreted as good/bad here — macro series
 // have no universal sign — so callers show a neutral arrow, not a semantic color.

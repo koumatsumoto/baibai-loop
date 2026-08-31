@@ -326,6 +326,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     triage_scaffold.add_argument("review_set_output")
     triage_scaffold.add_argument("--output-path", required=True)
+    triage_scaffold.add_argument("--db", help="application DB path")
     triage_scaffold.add_argument(
         "--force",
         action="store_true",
@@ -533,6 +534,7 @@ def main(argv: list[str] | None = None) -> int:
             return scaffold_research_triage(
                 Path(args.review_set_output),
                 output_path=Path(args.output_path),
+                app_db_path=Path(args.db) if args.db else None,
                 force=args.force,
             )
         return publish_research_triage(

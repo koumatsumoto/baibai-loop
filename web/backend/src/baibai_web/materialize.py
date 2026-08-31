@@ -14,14 +14,12 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import get_args
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
 
 from baibai_engine.read_api import (
     MACRO_READING_RULES_PATH,
-    MacroGranularity,
     MaterializationPreconditionError,
     StoreLayoutError,
     reject_noncanonical_store_paths,
@@ -33,13 +31,12 @@ from baibai_engine.read_api import (
     validate_market_store_schema,
 )
 from baibai_web.readmodel.builders import (
-    MacroPeriod,
     build_assessment_detail,
     build_daily_delta,
     build_dashboard,
     build_macro,
     build_macro_context_detail,
-    build_macro_reading,
+    build_macro_series,
     build_meta,
     build_operations_view,
     build_screening,
@@ -53,16 +50,13 @@ from baibai_web.sources.protocols import LedgerSource, ResearchSource
 from baibai_web.sources.types import CandidatesRun
 
 _JST = ZoneInfo("Asia/Tokyo")
-# Read off the builder's own literals rather than restated here: a window added there is
-# exported by the same edit, instead of becoming a view file the UI asks for and never finds.
-_MACRO_PERIODS: tuple[MacroPeriod, ...] = get_args(MacroPeriod.__value__)
-_MACRO_GRANULARITIES: tuple[MacroGranularity, ...] = get_args(MacroGranularity.__value__)
 # Same shape the ledger and run store enforce at write time; re-checked here so a
 # store-derived string never reaches filename composition unvalidated.
 _TICKER_FORMAT = re.compile(r"[0-9A-Z]{4}")
 # macro context_id charset; excludes path separators so it is safe in a filename
 # and mirrors the Worker route validation for the same key.
 _MACRO_CONTEXT_ID_FORMAT = re.compile(r"[A-Za-z0-9._-]{1,128}")
+_MACRO_SERIES_ID_FORMAT = re.compile(r"[a-z0-9._-]{1,128}")
 _ASSESSMENT_ID_FORMAT = re.compile(r"[A-Za-z0-9._-]{1,128}")
 
 
@@ -119,7 +113,6 @@ def export_read_models(
                 stores.ledger,
                 stores.research,
                 stores.market,
-                stores.macro,
             ),
         )
     )
@@ -129,18 +122,19 @@ def export_read_models(
     )
 
     as_of = datetime.now(_JST).date()
-    reading = build_macro_reading(stores.macro, asof=as_of)
-    if reading is None:
-        # The Macro tab degrades to hiding the panel; a missing indicator store must not
-        # fail the whole export.
-        _warn("macro reading is unavailable; views/macro-reading.json skipped")
-    else:
-        written.append(_write_model(views_dir / "macro-reading.json", reading))
-
-    for period in _MACRO_PERIODS:
-        for granularity in _MACRO_GRANULARITIES:
-            macro = build_macro(stores.macro, as_of=as_of, period=period, granularity=granularity)
-            written.append(_write_model(views_dir / f"macro--{period}-{granularity}.json", macro))
+    macro = build_macro(stores.macro, as_of=as_of)
+    written.append(_write_model(views_dir / "macro.json", macro))
+    for group in stores.macro.groups:
+        for configured in group.series:
+            series_id = configured.series_id
+            if _MACRO_SERIES_ID_FORMAT.fullmatch(series_id) is None:
+                _warn(f"macro series_id has an unexpected format: {series_id!r}; view skipped")
+                continue
+            series = build_macro_series(stores.macro, series_id=series_id, as_of=as_of)
+            if series is None:  # pragma: no cover - group entries come from the registry
+                _warn(f"macro series view is unavailable for {series_id!r}; skipped")
+                continue
+            written.append(_write_model(views_dir / f"macro-series--{series_id}.json", series))
 
     for context in stores.macro.contexts():
         context_id = str(context["context_id"])

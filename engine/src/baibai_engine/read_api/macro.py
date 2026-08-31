@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -17,7 +17,10 @@ from baibai_engine.macro.context.models import (
 from baibai_engine.macro.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.macro.reading.compute import compute_reading
 from baibai_engine.macro.reading.models import snapshot_payload
-from baibai_engine.macro.reading.reader import build_store_observation_reader
+from baibai_engine.macro.reading.reader import (
+    build_multi_asof_store_observation_reader,
+    build_store_observation_reader,
+)
 from baibai_engine.macro.reading.rules import (
     DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH,
 )
@@ -72,6 +75,97 @@ def macro_reading_snapshot(
     finally:
         connection.close()
     return snapshot_payload(snapshot)
+
+
+def macro_daily_readings(
+    path: Path,
+    *,
+    requested_asof: date,
+    context_asof: date | None,
+    rules_path: Path = MACRO_READING_RULES_PATH,
+) -> dict[str, object] | None:
+    """Build the request-local L2 readings needed by one daily brief.
+
+    The current, prior-data-day, and context-date snapshots share one observation
+    reader. Each series is loaded from SQLite once and replayed at the three cutoffs;
+    the result remains a derived projection and is never persisted as canonical state.
+    """
+
+    if not path.is_file():
+        return None
+    rules = load_reading_rules(rules_path)
+    connection = connect_read_only(path)
+    try:
+        definitions = load_definitions()
+        revision = rules_revision(rules_path)
+        reader = build_multi_asof_store_observation_reader(
+            connection,
+            series=definitions.series,
+            max_asof=requested_asof,
+        )
+
+        def snapshot(asof: date) -> dict[str, object]:
+            return snapshot_payload(
+                compute_reading(
+                    series=definitions.series,
+                    reader=reader,
+                    rules=rules,
+                    rules_revision=revision,
+                    asof=asof,
+                )
+            )
+
+        requested = snapshot(requested_asof)
+        data_asof = _latest_daily_observation_date(requested)
+        # With a valid but empty store the reading still names every registered series
+        # as unavailable. ``data_as_of`` remains null so this cannot be mistaken for an
+        # observed date.
+        current = requested if data_asof is None else snapshot(data_asof)
+        previous_data_asof: date | None = None
+        previous: dict[str, object] | None = None
+        if data_asof is not None:
+            previous_probe = snapshot(data_asof - timedelta(days=1))
+            previous_data_asof = _latest_daily_observation_date(previous_probe)
+            if previous_data_asof is not None:
+                previous = snapshot(previous_data_asof)
+        context = None
+        if context_asof is not None and context_asof <= requested_asof:
+            # A Context can be newer than the latest observed daily data. Compare
+            # against the facts available at that Context without making a later
+            # analysis date look like an unavailable or backwards data interval.
+            context = snapshot(min(context_asof, data_asof or requested_asof))
+        return {
+            "requested_as_of": requested_asof.isoformat(),
+            "data_as_of": None if data_asof is None else data_asof.isoformat(),
+            "previous_data_as_of": (
+                None if previous_data_asof is None else previous_data_asof.isoformat()
+            ),
+            "context_as_of": None if context_asof is None else context_asof.isoformat(),
+            "rules_revision": revision,
+            "current": current,
+            "previous": previous,
+            "context": context,
+        }
+    except sqlite3.OperationalError as error:
+        if not is_unwritten_store(error):
+            raise
+        return None
+    finally:
+        connection.close()
+
+
+def _latest_daily_observation_date(payload: dict[str, object]) -> date | None:
+    raw_series = payload.get("series")
+    if not isinstance(raw_series, list):
+        return None
+    dates = [
+        date.fromisoformat(str(item["observed_at"]))
+        for item in raw_series
+        if isinstance(item, dict)
+        and item.get("frequency") == "daily"
+        and item.get("observed_at") is not None
+    ]
+    return max(dates, default=None)
 
 
 def macro_series_fetch_health(path: Path) -> list[dict[str, object]]:
@@ -301,6 +395,7 @@ __all__ = [
     "latest_macro_context_payload",
     "list_macro_context_payloads",
     "macro_context_payload",
+    "macro_daily_readings",
     "macro_indicator_series",
     "macro_reading_snapshot",
     "macro_registered_series",

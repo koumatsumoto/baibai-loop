@@ -5,13 +5,16 @@ from __future__ import annotations
 import sqlite3
 import sys
 from collections.abc import Mapping
+from datetime import date
 from pathlib import Path
 
 import yaml
 from pydantic import ValidationError
 
 from baibai_engine.foundation.filesystem import write_text_atomic
+from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.read_api.macro import MACRO_CONTEXT_STALE_DAYS, latest_macro_context_payload
 from baibai_engine.screening.run_store import ScreeningRunReader
 
 from .research_triage import (
@@ -52,6 +55,7 @@ def scaffold_research_triage(
     review_set_path: Path,
     *,
     output_path: Path,
+    app_db_path: Path | None = None,
     force: bool = False,
 ) -> int:
     """Create one fail-closed draft with every Review Set coordinate in place."""
@@ -67,6 +71,19 @@ def scaffold_research_triage(
         if not isinstance(entries, list) or not entries:
             raise ValueError("Review Set output must contain entries")
         as_of = str(review_set.get("as_of") or "")
+        latest_context = latest_macro_context_payload(
+            app_db_path or APPLICATION_DB_PATH,
+            as_of=date.fromisoformat(as_of),
+        )
+        if latest_context is not None:
+            context_asof = date.fromisoformat(str(latest_context["as_of"]))
+            age_days = (date.fromisoformat(as_of) - context_asof).days
+            if age_days > MACRO_CONTEXT_STALE_DAYS:
+                print(
+                    "warning: latest eligible macro context is stale: "
+                    f"{latest_context['context_id']} age_days={age_days}",
+                    file=sys.stderr,
+                )
         compact_as_of = as_of.replace("-", "")
         review_basis = review_set.get("review_basis")
         judged_through = (
@@ -119,7 +136,9 @@ def scaffold_research_triage(
             "run_revision_id": review_set.get("run_revision_id"),
             "as_of": as_of,
             "published_at": "<JST publication timestamp>",
-            "macro_context_id": None,
+            "macro_context_id": (
+                None if latest_context is None else str(latest_context["context_id"])
+            ),
             "review_basis_research_triage_id": judged_through,
             "triage_contract_id": "research-triage-v1",
             "entries": draft_entries,

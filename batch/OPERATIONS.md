@@ -635,9 +635,10 @@ uv run python -m baibai_web.materialize --output-dir <dir> [--batch daily|manual
 - `views/dashboard.json` / `views/screening_latest.json` / `views/operations.json`
 - `views/screening_latest.json` は、有効な `reports/published/er-level-calibration-latest.yaml` と表示対象 operative run の method identity が一致する場合だけ、E[r] historical quintile と独立した8.5%以上帯の実現分布文脈を含む。run identity 不明、欠損・不正・期限切れでは field を `null` にして既存 screening 表を維持する
 - `views/daily-delta.json`（前営業日の機械実行との差分。Dashboard の差分区画が読む）
-- `views/macro--<period>-<granularity>.json`（1y|5y|10y|max × daily|weekly|monthly|yearly）
-- `views/macro-reading.json`（全登録系列の機械読み値。indicator store か reading rules が
-  無ければ警告のうえ書かず、Macro タブは該当パネルだけを非表示にする）
+- `views/macro.json`（requested/data/previous/context の日付、L2 差分、standing state、最新 L3
+  Context 抜粋、全登録系列の現在読み値。履歴 point は含めない）
+- `views/macro-series--<series_id>.json`（Macro タブで系列 dialog を開いた時だけ読む、1 系列の
+  daily 全履歴。期間・粒度は browser 内で絞る）
 - `views/macro-context--<context_id>.json`（published macro context の本文。Macro report 画面が読む）
 - `views/capital-allocation-assessment--<capital_allocation_assessment_id>.json`（published Capital Allocation Assessment の本文。Assessment 画面が読む）
 - `views/security--<ticker>.json`（保有 + 最新 run 掲載 + Review Set and Research Triage の ticker）

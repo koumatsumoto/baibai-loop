@@ -100,8 +100,6 @@ export interface DailyDeltaView {
   holdings: HoldingDeltaView[]
   holdings_without_fair_value: number
   holdings_without_price: number
-  macro_flags: MacroFlagDeltaView[]
-  macro_extremes: MacroExtremeDeltaView[]
   unavailable: DeltaUnavailable[]
 }
 
@@ -133,7 +131,7 @@ export interface DashboardView {
 
 export type DeltaPool = 'review_set'
 
-export type DeltaUnavailable = 'candidates' | 'candidates_estimate' | 'candidates_pool' | 'candidates_previous_run' | 'holdings' | 'holdings_fair_value' | 'macro' | 'market'
+export type DeltaUnavailable = 'candidates' | 'candidates_estimate' | 'candidates_pool' | 'candidates_previous_run' | 'holdings' | 'holdings_fair_value' | 'market'
 
 export interface ErLevelCalibrationBandView {
   band_id: string
@@ -212,6 +210,17 @@ export interface HoldingView {
   next_earnings_date: string | null
 }
 
+export interface MacroComparisonView {
+  from_as_of: string
+  to_as_of: string
+  changed_total: number
+  daily_changed_total: number
+  daily_moves: MacroSeriesChangeView[]
+  daily_moves_omitted: number
+  non_daily_updates: MacroSeriesChangeView[]
+  state_changes: MacroStateChangeView[]
+}
+
 export interface MacroConnectionSectionView {
   section_id: string
   series: MacroSeriesReferenceView[]
@@ -223,6 +232,27 @@ export interface MacroConnectionSectionView {
   sizing_cautions: MacroSizingCautionView[]
   bargain_topography: MacroFactSummaryView | null
   estimate_caveats: MacroEstimateCaveatView[]
+}
+
+/**
+ * The L3 fields needed to judge today's L2 changes without opening the full report.
+ */
+export interface MacroContextExcerptView {
+  context_id: string
+  as_of: string
+  published_at: string
+  age_days: number
+  stale: boolean
+  summary: string
+  synthesis: MacroSynthesisView | null
+  risk_environment: MacroRiskEnvironmentView | null
+  scenarios: MacroScenarioView[]
+  material_deltas: MacroMaterialDeltaView[]
+  research_priority_hints: MacroResearchPriorityHintView[]
+  bargain_topography: MacroFactSummaryView | null
+  estimate_caveats: MacroEstimateCaveatView[]
+  sizing_cautions: MacroSizingCautionView[]
+  warnings: string[]
 }
 
 export interface MacroContextRevisionView {
@@ -286,30 +316,9 @@ export interface MacroEstimateCaveatView {
   source_ids: string[]
 }
 
-/**
- * A series whose |z-score| arrived at the distribution edge.
- *
- * ``previous_z_score`` is what it was on the earlier reading, so the reader can see
- * how far it came rather than only that it is past the line.
- */
-export interface MacroExtremeDeltaView {
-  series_id: string
-  z_score: number
-  previous_z_score: number | null
-}
-
 export interface MacroFactSummaryView {
   summary: string
   source_ids: string[]
-}
-
-/**
- * A threshold note that appeared or disappeared between two readings.
- */
-export interface MacroFlagDeltaView {
-  series_id: string
-  flag: string
-  state: 'raised' | 'cleared'
 }
 
 export interface MacroForceInteractionView {
@@ -321,6 +330,15 @@ export interface MacroForceInteractionView {
 export interface MacroGroupView {
   title: string
   series: MacroSeriesView[]
+}
+
+export interface MacroMachineUpdateView {
+  series_total: number
+  fetch_ok_count: number
+  fetch_failed_count: number
+  previous_day: MacroComparisonView | null
+  since_context: MacroComparisonView | null
+  standing: MacroStandingView
 }
 
 export interface MacroMaterialDeltaView {
@@ -443,6 +461,22 @@ export interface MacroSectorTiltView {
 }
 
 /**
+ * One observed series value that differs between two L2 readings.
+ */
+export interface MacroSeriesChangeView {
+  series_id: string
+  name: string
+  frequency: string
+  unit: string
+  previous_observed_at: string | null
+  observed_at: string | null
+  previous_value: number | null
+  value: number | null
+  value_change: number | null
+  z_score_delta: number | null
+}
+
+/**
  * The latest acquisition attempt for one series (not part of the reading itself).
  */
 export interface MacroSeriesFetchHealthView {
@@ -473,6 +507,20 @@ export interface MacroSizingCautionView {
   source_ids: string[]
 }
 
+export interface MacroStandingView {
+  fetch_failed: MacroSeriesFetchHealthView[]
+  stale_series_ids: string[]
+  flagged_series_ids: string[]
+  extreme_series_ids: string[]
+}
+
+export interface MacroStateChangeView {
+  series_id: string
+  kind: 'flag' | 'stale' | 'extreme'
+  state: 'raised' | 'cleared'
+  detail: string
+}
+
 /**
  * The integrated layer: named cross-channel forces and how they combine.
  */
@@ -482,15 +530,17 @@ export interface MacroSynthesisView {
 }
 
 /**
- * Macro overview: the report index (summaries) plus the indicator panel.
- *
- * Full report sections are served per revision by ``MacroContextView`` at
- * ``/api/macro/context/{context_id}`` so the overview stays a lightweight index.
+ * One daily decision entrance: L2 change facts plus the latest L3 judgment.
  */
 export interface MacroView {
-  as_of: string
-  period: '1y' | '5y' | '10y' | 'max'
-  granularity: 'daily' | 'weekly' | 'monthly' | 'yearly'
+  requested_as_of: string
+  data_as_of: string | null
+  previous_data_as_of: string | null
+  context_as_of: string | null
+  rules_revision: string | null
+  machine_update: MacroMachineUpdateView
+  latest_context: MacroContextExcerptView | null
+  reading: MacroReadingView | null
   reports: MacroContextRevisionView[]
   groups: MacroGroupView[]
 }

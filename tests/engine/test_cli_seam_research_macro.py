@@ -24,6 +24,8 @@ from tests.helpers.macro_context import macro_context_payload
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.macro.context.models import MacroContextDocument
+from baibai_engine.macro.context.service import MacroContextService
 from baibai_engine.macro.indicators.cli import main as macro_main
 from baibai_engine.research.capital_allocation import (
     CapitalAllocationAssessment,
@@ -56,6 +58,17 @@ def _app_db(app_method_root: Path) -> Path:
 
 def _publish_research_triage(db_path: Path) -> str:
     """Seed the selected case an assessment round is scaffolded and published against."""
+    context_id = "macro-context-2026-07-21-cli-seam"
+    MacroContextService(db_path).publish(
+        MacroContextDocument.model_validate(
+            macro_context_payload(
+                context_id=context_id,
+                as_of="2026-07-21",
+                published_at="2026-07-21T12:00:00+09:00",
+            )
+        ),
+        expected_head=None,
+    )
     research_triage = ResearchTriage.model_validate(
         {
             "schema_version": 1,
@@ -65,7 +78,7 @@ def _publish_research_triage(db_path: Path) -> str:
             "run_revision_id": "runrev-cli-seam",
             "as_of": "2026-07-21",
             "published_at": "2026-07-21T15:00:00+09:00",
-            "macro_context_id": "macro-context-2026-07-21-cli-seam",
+            "macro_context_id": context_id,
             "review_basis_research_triage_id": None,
             "triage_contract_id": "research-triage-v1",
             "entries": [

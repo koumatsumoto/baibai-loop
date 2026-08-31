@@ -10,14 +10,14 @@
     "/api/screening/latest": "views/screening_latest.json",
     "/api/operations": "views/operations.json",
     "/api/meta": "views/meta.json",
-    "/api/macro/reading": "views/macro-reading.json"
+    "/api/macro": "views/macro.json"
   },
   "edge_routes": {},
   "patterns": {
     "/api/screening/history/{as_of}": "history/candidate-views/{as_of}.json",
+    "/api/macro/series/{series_id}": "views/macro-series--{series_id}.json",
     "/api/macro/context/{context_id}": "views/macro-context--{context_id}.json",
     "/api/capital-allocation-assessments/{capital_allocation_assessment_id}": "views/capital-allocation-assessment--{capital_allocation_assessment_id}.json",
-    "/api/securities/{ticker}": "views/security--{ticker}.json",
-    "/api/macro?period={period}&granularity={granularity}": "views/macro--{period}-{granularity}.json"
+    "/api/securities/{ticker}": "views/security--{ticker}.json"
   }
 }

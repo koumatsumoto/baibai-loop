@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
@@ -13,7 +12,6 @@ from pydantic import ValidationError
 from baibai_engine.read_api import (
     MACRO_CONTEXT_STALE_DAYS,
     HoldingSnapshot,
-    MacroGranularity,
     PortfolioLedgerError,
     PortfolioSnapshot,
     macro_registered_series,
@@ -60,18 +58,19 @@ from .models import (
     FvConvergenceView,
     HoldingDeltaView,
     HoldingView,
+    MacroComparisonView,
     MacroConnectionSectionView,
+    MacroContextExcerptView,
     MacroContextRevisionView,
     MacroContextView,
     MacroCoreSectionView,
     MacroDominantForceView,
     MacroEconomicConnectionView,
     MacroEstimateCaveatView,
-    MacroExtremeDeltaView,
     MacroFactSummaryView,
-    MacroFlagDeltaView,
     MacroForceInteractionView,
     MacroGroupView,
+    MacroMachineUpdateView,
     MacroMaterialDeltaView,
     MacroMonitoringPointView,
     MacroPointView,
@@ -81,9 +80,13 @@ from .models import (
     MacroScenarioView,
     MacroSectionJudgmentView,
     MacroSectorTiltView,
+    MacroSeriesChangeView,
+    MacroSeriesFetchHealthView,
     MacroSeriesReferenceView,
     MacroSeriesView,
     MacroSizingCautionView,
+    MacroStandingView,
+    MacroStateChangeView,
     MacroSynthesisView,
     MacroView,
     MetaBatch,
@@ -116,8 +119,6 @@ _EVENT_WINDOW_DAYS = 14
 # Order same-day events so the read most likely to gate an imminent action leads:
 # an earnings print, then a reservation lapse.
 _EVENT_KIND_ORDER = {"earnings": 0, "reservation_expiry": 1}
-
-type MacroPeriod = Literal["1y", "5y", "10y", "max"]
 
 _JST = ZoneInfo("Asia/Tokyo")
 # Daily bars carry a trade date only; stamp the display timestamp at the TSE close so
@@ -778,45 +779,253 @@ def build_macro(
     source: DbMacroSource,
     *,
     as_of: date,
-    period: MacroPeriod = "1y",
-    granularity: MacroGranularity = "daily",
 ) -> MacroView:
-    """Macro overview: the published-report index plus the indicator panel.
+    """Build the daily L2-change/L3-judgment entrance without indicator history."""
 
-    Full report sections are served per revision by :func:`build_macro_context_detail`;
-    the overview only carries summaries so it stays a lightweight index.
-    """
+    latest_context_raw = source.latest_context(as_of=as_of)
+    context_asof = (
+        None if latest_context_raw is None else date.fromisoformat(str(latest_context_raw["as_of"]))
+    )
+    daily = source.daily_readings(requested_asof=as_of, context_asof=context_asof)
+    fetch_health = source.fetch_health()
+    current_payload = _optional_mapping(None if daily is None else daily.get("current"))
+    previous_payload = _optional_mapping(None if daily is None else daily.get("previous"))
+    context_payload = _optional_mapping(None if daily is None else daily.get("context"))
+    reading = (
+        None
+        if current_payload is None
+        else MacroReadingView.model_validate({**current_payload, "fetch_health": fetch_health})
+    )
+    latest_context_id = (
+        None if latest_context_raw is None else str(latest_context_raw["context_id"])
+    )
     reports = [
         MacroContextRevisionView(
             context_id=str(item["context_id"]),
-            as_of=(context_as_of := date.fromisoformat(str(item["as_of"]))),
+            as_of=(report_asof := date.fromisoformat(str(item["as_of"]))),
             published_at=datetime.fromisoformat(str(item["published_at"])),
             summary=str(item["summary"]),
-            age_days=(age_days := (as_of - context_as_of).days),
+            age_days=(age_days := (as_of - report_asof).days),
             stale=age_days > MACRO_CONTEXT_STALE_DAYS,
         )
         for item in source.contexts()
+        if str(item["context_id"]) != latest_context_id
     ]
     return MacroView(
-        as_of=as_of,
-        period=period,
-        granularity=granularity,
+        requested_as_of=as_of,
+        data_as_of=_optional_iso_date(None if daily is None else daily.get("data_as_of")),
+        previous_data_as_of=_optional_iso_date(
+            None if daily is None else daily.get("previous_data_as_of")
+        ),
+        context_as_of=context_asof,
+        rules_revision=None if daily is None else str(daily["rules_revision"]),
+        machine_update=_macro_machine_update(
+            current=current_payload,
+            previous=previous_payload,
+            context=context_payload,
+            context_asof=context_asof,
+            fetch_health=fetch_health,
+        ),
+        latest_context=(
+            None
+            if latest_context_raw is None
+            else _macro_context_excerpt(latest_context_raw, as_of=as_of)
+        ),
+        reading=reading,
         reports=reports,
-        groups=_build_macro_groups(source, as_of=as_of, period=period, granularity=granularity),
+        groups=_build_macro_group_metadata(source),
     )
 
 
-def build_macro_reading(source: DbMacroSource, *, asof: date) -> MacroReadingView | None:
-    """Project the machine reading for the Macro tab, or None when it is unavailable.
+def _macro_machine_update(
+    *,
+    current: Mapping[str, object] | None,
+    previous: Mapping[str, object] | None,
+    context: Mapping[str, object] | None,
+    context_asof: date | None,
+    fetch_health: list[dict[str, object]],
+) -> MacroMachineUpdateView:
+    current_by_series = {} if current is None else _reading_by_series(current)
+    failed = [
+        MacroSeriesFetchHealthView.model_validate(item)
+        for item in fetch_health
+        if item.get("status") == "failed"
+    ]
+    stale = sorted(
+        series_id for series_id, item in current_by_series.items() if item.get("stale") is True
+    )
+    flagged = sorted(series_id for series_id, item in current_by_series.items() if _flag_set(item))
+    extremes = sorted(
+        series_id
+        for series_id, item in current_by_series.items()
+        if (z_score := _number(item.get("z_score"))) is not None
+        and abs(z_score) >= _DELTA_MACRO_Z_EDGE
+    )
+    return MacroMachineUpdateView(
+        series_total=len(current_by_series),
+        fetch_ok_count=sum(item.get("status") == "ok" for item in fetch_health),
+        fetch_failed_count=len(failed),
+        previous_day=_macro_comparison(current=current, earlier=previous),
+        since_context=(
+            None
+            if context_asof is None or current is None
+            else _macro_comparison(current=current, earlier=context)
+        ),
+        standing=MacroStandingView(
+            fetch_failed=failed,
+            stale_series_ids=stale,
+            flagged_series_ids=flagged,
+            extreme_series_ids=extremes,
+        ),
+    )
 
-    None is a normal state (no indicator store yet), and the consumer hides the panel
-    rather than failing the page.
-    """
 
-    payload = source.reading(asof=asof)
-    if payload is None:
+def _macro_comparison(
+    *,
+    current: Mapping[str, object] | None,
+    earlier: Mapping[str, object] | None,
+) -> MacroComparisonView | None:
+    if current is None or earlier is None:
         return None
-    return MacroReadingView.model_validate({**payload, "fetch_health": source.fetch_health()})
+    current_series = _reading_by_series(current)
+    earlier_series = _reading_by_series(earlier)
+    changes: list[MacroSeriesChangeView] = []
+    states: list[MacroStateChangeView] = []
+    for series_id in sorted(set(current_series) | set(earlier_series)):
+        now = current_series.get(series_id, {})
+        before = earlier_series.get(series_id, {})
+        if (now.get("latest_value"), now.get("observed_at")) != (
+            before.get("latest_value"),
+            before.get("observed_at"),
+        ):
+            now_value = _number(now.get("latest_value"))
+            before_value = _number(before.get("latest_value"))
+            now_z = _number(now.get("z_score"))
+            before_z = _number(before.get("z_score"))
+            changes.append(
+                MacroSeriesChangeView(
+                    series_id=series_id,
+                    name=str(now.get("name") or before.get("name") or series_id),
+                    frequency=str(now.get("frequency") or before.get("frequency") or ""),
+                    unit=str(now.get("unit") or before.get("unit") or ""),
+                    previous_observed_at=_optional_iso_date(before.get("observed_at")),
+                    observed_at=_optional_iso_date(now.get("observed_at")),
+                    previous_value=before_value,
+                    value=now_value,
+                    value_change=(
+                        None
+                        if now_value is None or before_value is None
+                        else now_value - before_value
+                    ),
+                    z_score_delta=(None if now_z is None or before_z is None else now_z - before_z),
+                )
+            )
+        now_flags = _flag_set(now)
+        before_flags = _flag_set(before)
+        states.extend(
+            MacroStateChangeView(series_id=series_id, kind="flag", state="raised", detail=flag)
+            for flag in sorted(now_flags - before_flags)
+        )
+        states.extend(
+            MacroStateChangeView(series_id=series_id, kind="flag", state="cleared", detail=flag)
+            for flag in sorted(before_flags - now_flags)
+        )
+        if bool(now.get("stale")) != bool(before.get("stale")):
+            states.append(
+                MacroStateChangeView(
+                    series_id=series_id,
+                    kind="stale",
+                    state="raised" if bool(now.get("stale")) else "cleared",
+                    detail="stale",
+                )
+            )
+        now_z = _number(now.get("z_score"))
+        before_z = _number(before.get("z_score"))
+        now_extreme = now_z is not None and abs(now_z) >= _DELTA_MACRO_Z_EDGE
+        before_extreme = before_z is not None and abs(before_z) >= _DELTA_MACRO_Z_EDGE
+        if now_extreme != before_extreme:
+            states.append(
+                MacroStateChangeView(
+                    series_id=series_id,
+                    kind="extreme",
+                    state="raised" if now_extreme else "cleared",
+                    detail=f"|z| >= {_DELTA_MACRO_Z_EDGE:g}",
+                )
+            )
+    daily = [item for item in changes if item.frequency == "daily"]
+    daily.sort(
+        key=lambda item: (
+            -(abs(item.z_score_delta) if item.z_score_delta is not None else -1.0),
+            item.series_id,
+        )
+    )
+    displayed_daily = daily[:_MACRO_DAILY_MOVE_LIMIT]
+    return MacroComparisonView(
+        from_as_of=date.fromisoformat(str(earlier["asof"])),
+        to_as_of=date.fromisoformat(str(current["asof"])),
+        changed_total=len(changes),
+        daily_changed_total=len(daily),
+        daily_moves=displayed_daily,
+        daily_moves_omitted=len(daily) - len(displayed_daily),
+        non_daily_updates=[item for item in changes if item.frequency != "daily"],
+        state_changes=states,
+    )
+
+
+def _macro_context_excerpt(
+    raw_context: Mapping[str, object], *, as_of: date
+) -> MacroContextExcerptView:
+    context = _build_macro_context_view(
+        raw_context,
+        as_of=as_of,
+        series_names=macro_series_names(),
+    )
+    risk_section = next(
+        (section for section in context.core if section.section_id == "risk_environment"),
+        None,
+    )
+    warnings = ["context_stale"] if context.stale else []
+    raw_inputs = raw_context.get("inputs")
+    if isinstance(raw_inputs, Mapping):
+        for input_group in (
+            "articles",
+            "indicator_series",
+            "reading_snapshots",
+            "machine_snapshots",
+        ):
+            items = raw_inputs.get(input_group)
+            if not isinstance(items, list):
+                continue
+            warnings.extend(
+                f"failed_input:{item.get('input_id')}"
+                for item in items
+                if isinstance(item, Mapping) and item.get("status") == "failed"
+            )
+    return MacroContextExcerptView(
+        context_id=context.context_id,
+        as_of=context.as_of,
+        published_at=context.published_at,
+        age_days=context.age_days,
+        stale=context.stale,
+        summary=context.summary,
+        synthesis=context.synthesis,
+        risk_environment=None if risk_section is None else risk_section.risk_environment,
+        scenarios=[] if risk_section is None else risk_section.scenarios,
+        material_deltas=[delta for section in context.core for delta in section.material_deltas],
+        research_priority_hints=context.connection.research_priority_hints,
+        bargain_topography=context.connection.bargain_topography,
+        estimate_caveats=context.connection.estimate_caveats,
+        sizing_cautions=context.connection.sizing_cautions,
+        warnings=warnings,
+    )
+
+
+def _optional_mapping(value: object) -> Mapping[str, object] | None:
+    return value if isinstance(value, Mapping) else None
+
+
+def _optional_iso_date(value: object) -> date | None:
+    return None if value is None else date.fromisoformat(str(value))
 
 
 def build_macro_context_detail(
@@ -890,47 +1099,57 @@ def _macro_synthesis_view(
     )
 
 
-def _build_macro_groups(
+def _build_macro_group_metadata(source: DbMacroSource) -> list[MacroGroupView]:
+    """Return the configured rows with no history points for the initial brief."""
+
+    groups: list[MacroGroupView] = []
+    for group in source.groups:
+        groups.append(
+            MacroGroupView(
+                title=group.title,
+                series=[_unfetched_macro_series_view(item) for item in group.series],
+            )
+        )
+    return groups
+
+
+def build_macro_series(
     source: DbMacroSource,
     *,
+    series_id: str,
     as_of: date,
-    period: MacroPeriod,
-    granularity: MacroGranularity,
-) -> list[MacroGroupView]:
-    groups: list[MacroGroupView] = []
-    period_start = _macro_period_start(as_of, period=period)
-    for group in source.groups:
-        series_views: list[MacroSeriesView] = []
-        for configured in group.series:
-            raw_series = source.series(
-                configured.series_id,
-                start=period_start,
-                end=as_of,
-                granularity=granularity,
-            )
-            if raw_series is None:
-                series_views.append(_unfetched_macro_series_view(configured))
-                continue
-            name = str(raw_series["name"])
-            series_views.append(
-                MacroSeriesView(
-                    series_id=configured.series_id,
-                    label=configured.label or name,
-                    name=name,
-                    unit=str(raw_series["unit"]),
-                    tradingview_symbol=(
-                        str(raw_series["tradingview_symbol"])
-                        if raw_series.get("tradingview_symbol") is not None
-                        else None
-                    ),
-                    points=[
-                        MacroPointView.model_validate(item)
-                        for item in _mapping_items(raw_series["points"])
-                    ],
-                )
-            )
-        groups.append(MacroGroupView(title=group.title, series=series_views))
-    return groups
+) -> MacroSeriesView | None:
+    """Materialize the full daily history of exactly one configured series."""
+
+    configured = next(
+        (item for group in source.groups for item in group.series if item.series_id == series_id),
+        None,
+    )
+    if configured is None:
+        return None
+    raw_series = source.series(
+        series_id,
+        start=None,
+        end=as_of,
+        granularity="daily",
+    )
+    if raw_series is None:
+        return _unfetched_macro_series_view(configured)
+    name = str(raw_series["name"])
+    return MacroSeriesView(
+        series_id=series_id,
+        label=configured.label or name,
+        name=name,
+        unit=str(raw_series["unit"]),
+        tradingview_symbol=(
+            str(raw_series["tradingview_symbol"])
+            if raw_series.get("tradingview_symbol") is not None
+            else None
+        ),
+        points=[
+            MacroPointView.model_validate(item) for item in _mapping_items(raw_series["points"])
+        ],
+    )
 
 
 def _unfetched_macro_series_view(configured: MacroSeriesConfig) -> MacroSeriesView:
@@ -954,16 +1173,6 @@ def _unfetched_macro_series_view(configured: MacroSeriesConfig) -> MacroSeriesVi
         tradingview_symbol=registered["tradingview_symbol"],
         points=[],
     )
-
-
-def _macro_period_start(as_of: date, *, period: MacroPeriod) -> date | None:
-    if period == "max":
-        return None
-    years = {"1y": 1, "5y": 5, "10y": 10}[period]
-    try:
-        return as_of.replace(year=as_of.year - years)
-    except ValueError:
-        return as_of.replace(year=as_of.year - years, day=28)
 
 
 def _mapping_items(value: object) -> list[Mapping[str, object]]:
@@ -1517,7 +1726,10 @@ _DELTA_HOLDING_MOVE_MIN_PCT = 5.0
 # store, 45 sessions produced 8 crossings and every one came from 2.86-2.99 — the
 # same series oscillating across a single line, not a series reaching the edge.
 _DELTA_MACRO_Z_EDGE = 3.0
-_DELTA_MACRO_Z_REENTRY = 2.7
+# Twelve keeps the busiest observed day (35 changed daily series) to one scannable
+# desktop block and a bounded mobile scroll. The total/omitted counts preserve the
+# complete fact, and the full current-reading table remains directly below it.
+_MACRO_DAILY_MOVE_LIMIT = 12
 # The run's Review Set is the review population. Its candidate array is the whole
 # evaluated universe, so comparing that would report listings and delistings rather
 # than bargains appearing.
@@ -1528,15 +1740,14 @@ def build_daily_delta(
     ledger: LedgerSource,
     research: ResearchSource,
     market: MarketPriceSource,
-    macro: DbMacroSource,
 ) -> DailyDeltaView:
     """Compare the latest machine run with the one before it.
 
     The view exists so that a change does not wait for someone to go looking. It
     reports observations only: which tickers entered or left the machine pool, which
-    machine estimates moved, which holdings stand at or above their recorded fair
-    value, and which macro threshold notes appeared. Whether any of that is worth an
-    research cycle or a Position Review is the reader's call.
+    machine estimates moved, and which holdings stand at or above their recorded fair
+    value. Whether any of that is worth a research cycle or a Position Review is the
+    reader's call. Macro changes belong to the dedicated daily brief.
 
     Sections degrade independently. A store that cannot answer is named in
     ``unavailable`` rather than reported as an empty result, because "no store" and
@@ -1606,20 +1817,6 @@ def build_daily_delta(
             previous_asof=None if previous is None else previous.asof_date,
         )
 
-    macro_flags: list[MacroFlagDeltaView] = []
-    macro_extremes: list[MacroExtremeDeltaView] = []
-    macro_asof = today if latest is None else latest.asof_date
-    macro_previous = market.previous_business_day(macro_asof) if market_ready else None
-    if macro_previous is None:
-        unavailable.append("macro")
-    else:
-        current_reading = macro.reading(asof=macro_asof)
-        previous_reading = macro.reading(asof=macro_previous)
-        if current_reading is None or previous_reading is None:
-            unavailable.append("macro")
-        else:
-            macro_flags, macro_extremes = _macro_deltas(current_reading, previous_reading)
-
     return DailyDeltaView(
         generated_at=now,
         asof=None if latest is None else latest.asof_date,
@@ -1633,8 +1830,6 @@ def build_daily_delta(
         holdings=holdings,
         holdings_without_fair_value=holdings_without_fair_value,
         holdings_without_price=holdings_without_price,
-        macro_flags=macro_flags,
-        macro_extremes=macro_extremes,
         unavailable=sorted(dict.fromkeys(unavailable)),
     )
 
@@ -1823,40 +2018,6 @@ def _reading_by_series(payload: Mapping[str, object]) -> dict[str, Mapping[str, 
         for item in series
         if isinstance(item, Mapping) and item.get("series_id")
     }
-
-
-def _macro_deltas(
-    current: Mapping[str, object], previous: Mapping[str, object]
-) -> tuple[list[MacroFlagDeltaView], list[MacroExtremeDeltaView]]:
-    current_series = _reading_by_series(current)
-    previous_series = _reading_by_series(previous)
-    flags: list[MacroFlagDeltaView] = []
-    extremes: list[MacroExtremeDeltaView] = []
-    for series_id in sorted(set(current_series) | set(previous_series)):
-        now_flags = _flag_set(current_series.get(series_id))
-        before_flags = _flag_set(previous_series.get(series_id))
-        flags.extend(
-            MacroFlagDeltaView(series_id=series_id, flag=flag, state="raised")
-            for flag in sorted(now_flags - before_flags)
-        )
-        flags.extend(
-            MacroFlagDeltaView(series_id=series_id, flag=flag, state="cleared")
-            for flag in sorted(before_flags - now_flags)
-        )
-        now_z = _number((current_series.get(series_id) or {}).get("z_score"))
-        before_z = _number((previous_series.get(series_id) or {}).get("z_score"))
-        if now_z is None or abs(now_z) < _DELTA_MACRO_Z_EDGE:
-            continue
-        if before_z is not None and abs(before_z) >= _DELTA_MACRO_Z_REENTRY:
-            continue
-        extremes.append(
-            MacroExtremeDeltaView(
-                series_id=series_id,
-                z_score=round(now_z, 2),
-                previous_z_score=None if before_z is None else round(before_z, 2),
-            )
-        )
-    return flags, extremes
 
 
 def _flag_set(reading: Mapping[str, object] | None) -> set[str]:

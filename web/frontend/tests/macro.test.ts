@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { MacroGroupView, MacroReadingSeriesView, MacroReadingView, MacroSeriesFetchHealthView, MacroSeriesView } from '../src/api/types'
-import { buildIndicatorGroups, filterIndicatorGroups, readingStatistics, seriesWindowSummary, statisticName, summarizeIndicators } from '../src/lib/macro'
+import { buildIndicatorGroups, filterIndicatorGroups, macroSeriesHistoryUrl, readingStatistics, seriesWindowSummary, statisticName, summarizeIndicators, transformSeriesHistory } from '../src/lib/macro'
 
 function readingSeries(overrides: Partial<MacroReadingSeriesView> = {}): MacroReadingSeriesView {
   return {
@@ -91,6 +91,29 @@ describe('seriesWindowSummary', () => {
     const summary = seriesWindowSummary(points)
     expect(summary.latest).toBe(3.6)
     expect(summary.delta).toBeCloseTo(-0.4, 10)
+  })
+})
+
+describe('lazy series history', () => {
+  it('has no history request until a series is opened', () => {
+    expect(macroSeriesHistoryUrl(null)).toBeNull()
+    expect(macroSeriesHistoryUrl('us.10y')).toBe('/api/macro/series/us.10y')
+  })
+
+  it('filters and aggregates one daily history in the browser', () => {
+    const series = panelSeries({
+      points: [
+        { observed_at: '2024-12-31', value: 1 },
+        { observed_at: '2025-01-02', value: 2 },
+        { observed_at: '2025-01-31', value: 3 },
+        { observed_at: '2026-01-31', value: 4 },
+      ],
+    })
+
+    expect(transformSeriesHistory(series, '1y', 'monthly').points).toEqual([
+      { observed_at: '2025-01-31', value: 3 },
+      { observed_at: '2026-01-31', value: 4 },
+    ])
   })
 })
 

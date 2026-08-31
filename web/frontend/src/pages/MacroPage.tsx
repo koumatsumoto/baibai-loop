@@ -4,7 +4,7 @@ import { ArrowDown, ArrowRight, ArrowUp, CircleAlert, Minus, Search } from 'luci
 import { Area, AreaChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
 
 import { fetchJson } from '../api/client'
-import type { MacroPointView, MacroReadingSeriesView, MacroReadingTrendView, MacroReadingView, MacroSeriesView, MacroView } from '../api/types'
+import type { MacroComparisonView, MacroContextExcerptView, MacroPointView, MacroReadingSeriesView, MacroReadingTrendView, MacroSeriesChangeView, MacroSeriesView, MacroView } from '../api/types'
 import { AsOfBadge } from '../components/AsOfBadge'
 import { InfoHint } from '../components/InfoHint'
 import { LoadingIndicator, LoadingPage } from '../components/LoadingIndicator'
@@ -24,11 +24,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { EMPTY, formatJstDateTime, formatNumber, formatPct } from '../lib/format'
 import { LABEL } from '../lib/labels'
-import { EXTREME_Z_SCORE, INDICATOR_STATUSES, INDICATOR_STATUS_LABEL, buildIndicatorGroups, filterIndicatorGroups, readingStatistics, seriesWindowSummary, statisticName, summarizeIndicators, type MacroIndicatorRow, type MacroIndicatorStatus } from '../lib/macro'
+import { EXTREME_Z_SCORE, INDICATOR_STATUSES, INDICATOR_STATUS_LABEL, buildIndicatorGroups, filterIndicatorGroups, macroSeriesHistoryUrl, readingStatistics, seriesWindowSummary, statisticName, summarizeIndicators, transformSeriesHistory, type MacroHistoryGranularity, type MacroHistoryPeriod, type MacroIndicatorRow, type MacroIndicatorStatus } from '../lib/macro'
 import { cn } from '../lib/utils'
 
-type MacroPeriod = MacroView['period']
-type MacroGranularity = MacroView['granularity']
+type MacroPeriod = MacroHistoryPeriod
+type MacroGranularity = MacroHistoryGranularity
 
 const PERIOD_LABEL: Readonly<Record<MacroPeriod, string>> = { '1y': '1年', '5y': '5年', '10y': '10年', max: '全期間' }
 const GRANULARITY_LABEL: Readonly<Record<MacroGranularity, string>> = { daily: '日次', weekly: '週次', monthly: '月次', yearly: '年次' }
@@ -224,9 +224,10 @@ function DetailField({ label, children }: { label: string; children: ReactNode }
   )
 }
 
-function IndicatorDialog({ row, period, granularity, onClose }: { row: MacroIndicatorRow | null; period: MacroPeriod; granularity: MacroGranularity; onClose: () => void }) {
+function IndicatorDialog({ row, history, historyLoading, period, granularity, onClose }: { row: MacroIndicatorRow | null; history: MacroSeriesView | null; historyLoading: boolean; period: MacroPeriod; granularity: MacroGranularity; onClose: () => void }) {
   if (row === null) return null
-  const { series, reading, failedFetch } = row
+  const { reading, failedFetch } = row
+  const series = history === null ? row.series : transformSeriesHistory(history, period, granularity)
   const stats = reading === null ? null : readingStatistics(reading)
   return (
     <Dialog onOpenChange={(open) => { if (!open) onClose() }} open>
@@ -247,7 +248,7 @@ function IndicatorDialog({ row, period, granularity, onClose }: { row: MacroIndi
           </Alert>
         )}
         <div className="grid gap-1">
-          <FullChart series={series} />
+          {historyLoading ? <div className="grid h-56 place-items-center"><LoadingIndicator label="系列履歴を読み込んでいます" /></div> : <FullChart series={series} />}
           <p className="text-xs text-muted-foreground">
             チャートは {PERIOD_LABEL[period]} / {GRANULARITY_LABEL[granularity]}
             {reading !== null && `。percentile と z の実効窓は ${reading.window_years}y で、この期間とは別`}。
@@ -270,9 +271,77 @@ function IndicatorDialog({ row, period, granularity, onClose }: { row: MacroIndi
   )
 }
 
+function ChangeLine({ change }: { change: MacroSeriesChangeView }) {
+  return (
+    <li className="grid gap-0.5 border-b py-2 last:border-b-0 sm:grid-cols-[minmax(12rem,1fr)_auto] sm:gap-4">
+      <span><span className="font-medium">{change.name}</span> <span className="font-mono text-xs text-muted-foreground">{change.series_id}</span></span>
+      <span className="font-mono text-sm tabular-nums">
+        {change.previous_value === null ? EMPTY : fmtValue(change.previous_value)} → {change.value === null ? EMPTY : fmtValue(change.value)} {change.unit}
+        {change.z_score_delta !== null && <span className="ml-2 text-muted-foreground">Δz {change.z_score_delta.toFixed(2)}</span>}
+      </span>
+    </li>
+  )
+}
+
+function ComparisonBlock({ comparison, emptyText }: { comparison: MacroComparisonView | null; emptyText: string }) {
+  if (comparison === null) return <p className="text-sm text-muted-foreground">{emptyText}</p>
+  return (
+    <div className="grid gap-3">
+      <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+        <span>{comparison.from_as_of} → {comparison.to_as_of}</span>
+        <Badge variant="secondary">変更 {comparison.changed_total} 系列</Badge>
+        <Badge variant="outline">日次 {comparison.daily_changed_total}</Badge>
+        <Badge variant="outline">非日次 {comparison.non_daily_updates.length}</Badge>
+      </div>
+      {comparison.non_daily_updates.length > 0 && (
+        <div><h4 className="text-sm font-semibold">新しい週次・月次・四半期観測</h4><ul><>{comparison.non_daily_updates.map((item) => <ChangeLine change={item} key={item.series_id} />)}</></ul></div>
+      )}
+      {comparison.daily_moves.length > 0 && (
+        <div><h4 className="text-sm font-semibold">日次系列の大きな動き（|Δz| 順）</h4><ul><>{comparison.daily_moves.map((item) => <ChangeLine change={item} key={item.series_id} />)}</></ul>{comparison.daily_moves_omitted > 0 && <p className="mt-1 text-xs text-muted-foreground">ほか {comparison.daily_moves_omitted} 系列。これは重要度順位ではなく、分布上の移動量による表示上限です。</p>}</div>
+      )}
+      {comparison.state_changes.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">{comparison.state_changes.map((item) => <Badge key={`${item.series_id}-${item.kind}-${item.detail}`} variant="outline">{item.series_id} · {item.kind} {item.state === 'raised' ? '点灯' : '解消'} · {item.detail}</Badge>)}</div>
+      )}
+    </div>
+  )
+}
+
+function LatestContext({ context }: { context: MacroContextExcerptView | null }) {
+  if (context === null) return <Alert><CircleAlert /><AlertTitle>Macro Context なし</AlertTitle><AlertDescription>機械読み値は確認できますが、現在の環境判断はまだ発行されていません。</AlertDescription></Alert>
+  return (
+    <SectionCard
+      description={`${context.as_of} / ${context.age_days} 日前`}
+      meta={<div className="flex gap-2">{context.stale && <StaleBadge />}<Link className="text-sm underline underline-offset-4" to={`/macro/reports/${context.context_id}`}>詳細レポート</Link></div>}
+      title="現在の環境判断"
+    >
+      <div className="grid gap-5 px-5 py-4 sm:px-6">
+        {context.warnings.length > 0 && <div className="flex flex-wrap gap-1.5">{context.warnings.map((warning) => <Badge key={warning} variant="outline">{warning}</Badge>)}</div>}
+        <p className="whitespace-pre-wrap text-sm leading-7">{context.summary}</p>
+        {context.synthesis !== null && (
+          <div className="grid gap-3 md:grid-cols-2">
+            <div><h4 className="text-sm font-semibold">支配的な力</h4><ul className="mt-1 grid gap-2">{context.synthesis.dominant_forces.map((force) => <li key={force.force_id}><p className="text-sm font-medium">{force.title}</p><p className="text-sm text-muted-foreground">{force.summary}</p><p className="text-xs text-muted-foreground">伝播: {force.transmission}</p></li>)}</ul></div>
+            <div><h4 className="text-sm font-semibold">相互作用</h4><ul className="mt-1 grid gap-2">{context.synthesis.interactions.map((item, index) => <li className="text-sm text-muted-foreground" key={`${item.force_ids.join('-')}-${index}`}>{item.summary}</li>)}</ul></div>
+          </div>
+        )}
+        {context.risk_environment !== null && <div><h4 className="text-sm font-semibold">リスク環境 · {context.risk_environment.stance} / {context.risk_environment.confidence}</h4><p className="mt-1 text-sm text-muted-foreground">{context.risk_environment.summary}</p><ul className="mt-1 list-disc pl-5 text-sm text-muted-foreground">{context.risk_environment.falsifiers.map((item) => <li key={item}>{item}</li>)}</ul></div>}
+        {context.scenarios.length > 0 && <div><h4 className="text-sm font-semibold">シナリオ</h4><div className="mt-1 grid gap-2 sm:grid-cols-3">{context.scenarios.map((scenario) => <Card className="p-3" key={scenario.case}><p className="text-sm font-medium">{scenario.case}{scenario.probability === null ? '' : ` · ${formatPct(scenario.probability * 100)}`}</p><p className="mt-1 text-xs text-muted-foreground">{scenario.summary}</p></Card>)}</div></div>}
+        {context.material_deltas.length > 0 && <div><h4 className="text-sm font-semibold">Material delta</h4><ul className="mt-1 grid gap-1">{context.material_deltas.map((item, index) => <li className="text-sm text-muted-foreground" key={`${item.channel}-${index}`}>{item.channel} · {item.materiality}: {item.summary}</li>)}</ul></div>}
+        <details className="rounded-md border p-3" open={false}>
+          <summary className="cursor-pointer text-sm font-semibold">Research への接続</summary>
+          <div className="mt-3 grid gap-4">
+            <div><h5 className="text-xs font-semibold">優先確認</h5><ul className="mt-1 list-disc pl-5 text-sm text-muted-foreground">{context.research_priority_hints.map((item) => <li key={`${item.applies_to}-${item.summary}`}>{item.summary}（{item.applies_to}）</li>)}</ul></div>
+            {context.bargain_topography !== null && <div><h5 className="text-xs font-semibold">割安地形</h5><p className="text-sm text-muted-foreground">{context.bargain_topography.summary}</p></div>}
+            <div><h5 className="text-xs font-semibold">見積り上の注意</h5><ul className="mt-1 list-disc pl-5 text-sm text-muted-foreground">{context.estimate_caveats.map((item) => <li key={`${item.applies_to}-${item.affected_component}`}>{item.summary}（{item.affected_component} / {item.applies_to} / {item.materiality}）</li>)}</ul></div>
+            {context.sizing_cautions.length > 0 && <div><h5 className="text-xs font-semibold">Sizing caution</h5><ul className="mt-1 list-disc pl-5 text-sm text-muted-foreground">{context.sizing_cautions.map((item) => <li key={item.summary}>{item.summary}</li>)}</ul></div>}
+          </div>
+        </details>
+      </div>
+    </SectionCard>
+  )
+}
+
 export function MacroPage() {
   const [data, setData] = useState<MacroView | null>(null)
-  const [reading, setReading] = useState<MacroReadingView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [period, setPeriod] = useState<MacroPeriod>('max')
   const [granularity, setGranularity] = useState<MacroGranularity>('monthly')
@@ -280,27 +349,14 @@ export function MacroPage() {
   const [query, setQuery] = useState('')
   const [statuses, setStatuses] = useState<ReadonlySet<MacroIndicatorStatus>>(new Set())
   const [openSeriesId, setOpenSeriesId] = useState<string | null>(null)
-
-  // The reading is recomputed from the indicator store for one as-of date, so it does not
-  // depend on the panel's period / granularity and is fetched once. An unavailable reading
-  // (404 with no indicator store) leaves the table drawing charts with blank statistics
-  // rather than failing the whole tab.
-  useEffect(() => {
-    const controller = new AbortController()
-    fetchJson<MacroReadingView>('/api/macro/reading', { signal: controller.signal })
-      .then(setReading)
-      .catch(() => {
-        setReading(null)
-      })
-    return () => controller.abort()
-  }, [])
+  const [history, setHistory] = useState<MacroSeriesView | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
     setError(null)
     setLoading(true)
-    const query = new URLSearchParams({ period, granularity })
-    fetchJson<MacroView>(`/api/macro?${query}`, { signal: controller.signal })
+    fetchJson<MacroView>('/api/macro', { signal: controller.signal })
       .then(setData)
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === 'AbortError') return
@@ -310,7 +366,24 @@ export function MacroPage() {
         if (!controller.signal.aborted) setLoading(false)
       })
     return () => controller.abort()
-  }, [period, granularity])
+  }, [])
+
+  useEffect(() => {
+    const historyUrl = macroSeriesHistoryUrl(openSeriesId)
+    if (historyUrl === null) {
+      setHistory(null)
+      setHistoryLoading(false)
+      return
+    }
+    const controller = new AbortController()
+    setHistory(null)
+    setHistoryLoading(true)
+    fetchJson<MacroSeriesView>(historyUrl, { signal: controller.signal })
+      .then(setHistory)
+      .catch(() => setHistory(null))
+      .finally(() => { if (!controller.signal.aborted) setHistoryLoading(false) })
+    return () => controller.abort()
+  }, [openSeriesId])
 
   if (error) return <PageState message={error} />
   if (!data) return <LoadingPage label="Macro を読み込んでいます" />
@@ -318,7 +391,7 @@ export function MacroPage() {
   // Degrade gracefully rather than white-screen if a served view is ever missing a
   // field (e.g. a stale view during a deploy that precedes its re-materialization).
   const reports = data.reports ?? []
-  const groups = buildIndicatorGroups(data.groups ?? [], reading)
+  const groups = buildIndicatorGroups(data.groups ?? [], data.reading)
   const summary = summarizeIndicators(groups)
   const visibleGroups = filterIndicatorGroups(groups, { query, statuses })
   const openRow = groups.flatMap((group) => group.rows).find((row) => row.series.series_id === openSeriesId) ?? null
@@ -333,32 +406,38 @@ export function MacroPage() {
   }
 
   return (
-    // The counts this page's header used to carry are the same four the table filters
-    // by, so they live on those buttons alone. What is left is the date every number on
-    // the page is read against.
-    <PageShell meta={<AsOfBadge value={reading?.asof ?? data.as_of} />} title="マクロ環境">
-      <section className="grid gap-3">
-        <h2 className="text-xl font-semibold tracking-tight">経済分析レポート</h2>
-        {reports.length === 0
-          ? <Alert><CircleAlert /><AlertTitle>経済分析レポートなし</AlertTitle><AlertDescription>マクロ経済指標は下段で確認できます。分析レポートは publish 後に表示されます。</AlertDescription></Alert>
-          : (
-            <Card className="divide-y py-0 shadow-sm">
-              {reports.map((report) => (
-                <Link className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-3 transition-colors hover:bg-muted/40" key={report.context_id} to={`/macro/reports/${report.context_id}`}>
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-sm font-medium">{report.summary}</span>
-                    {report.stale && <StaleBadge />}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-3 font-mono text-xs text-muted-foreground tabular-nums">
-                    <span>{LABEL.asOf} {report.as_of}（{report.age_days} 日前）</span>
-                    <span className="hidden sm:inline">{LABEL.published} {formatJstDateTime(report.published_at)}</span>
-                    <ArrowRight aria-hidden="true" className="size-4" />
-                  </div>
-                </Link>
-              ))}
-            </Card>
+    <PageShell meta={<AsOfBadge value={data.data_as_of ?? data.requested_as_of} />} title="Today's Macro">
+      <SectionCard title="今日の状態">
+        <div className="grid gap-4 px-5 py-4 sm:grid-cols-2 sm:px-6 lg:grid-cols-4">
+          <DetailField label="REQUESTED">{data.requested_as_of}</DetailField>
+          <DetailField label="DATA">{data.data_as_of ?? EMPTY}</DetailField>
+          <DetailField label="PREVIOUS DATA">{data.previous_data_as_of ?? EMPTY}</DetailField>
+          <DetailField label="CONTEXT">{data.context_as_of ?? EMPTY}</DetailField>
+        </div>
+        <div className="flex flex-wrap gap-2 border-t px-5 py-3 sm:px-6">
+          <Badge variant="secondary">{data.machine_update.series_total} 系列</Badge>
+          <Badge variant={data.machine_update.fetch_failed_count > 0 ? 'destructive' : 'outline'}>取得成功 {data.machine_update.fetch_ok_count} / 失敗 {data.machine_update.fetch_failed_count}</Badge>
+          <Badge variant="outline">stale {data.machine_update.standing.stale_series_ids.length}</Badge>
+          <Badge variant="outline">flag {data.machine_update.standing.flagged_series_ids.length}</Badge>
+          <Badge variant="outline">|z| ≥ 3 {data.machine_update.standing.extreme_series_ids.length}</Badge>
+          {data.rules_revision !== null && <span className="self-center font-mono text-[10px] text-muted-foreground">rules {data.rules_revision}</span>}
+        </div>
+      </SectionCard>
+
+      <SectionCard description="重要度順位ではなく、観測値と L2 state の差分" title="分析後に何が変わったか">
+        <div className="grid gap-5 px-5 py-4 sm:px-6">
+          <ComparisonBlock comparison={data.machine_update.since_context} emptyText="Context と data の間に比較可能な差分はありません。" />
+          <details className="rounded-md border p-3">
+            <summary className="cursor-pointer text-sm font-semibold">前データ日との差分</summary>
+            <div className="mt-3"><ComparisonBlock comparison={data.machine_update.previous_day} emptyText="比較可能な前データ日がありません。" /></div>
+          </details>
+          {(data.machine_update.standing.fetch_failed.length > 0 || data.machine_update.standing.stale_series_ids.length > 0 || data.machine_update.standing.flagged_series_ids.length > 0 || data.machine_update.standing.extreme_series_ids.length > 0) && (
+            <div><h4 className="text-sm font-semibold">現在も残る注記</h4><div className="mt-2 flex flex-wrap gap-1.5">{data.machine_update.standing.fetch_failed.map((item) => <Badge key={`failed-${item.series_id}`} variant="destructive">{item.series_id} 取得失敗</Badge>)}{data.machine_update.standing.stale_series_ids.map((id) => <Badge key={`stale-${id}`} variant="outline">{id} stale</Badge>)}{data.machine_update.standing.flagged_series_ids.map((id) => <Badge key={`flag-${id}`} variant="outline">{id} flag</Badge>)}{data.machine_update.standing.extreme_series_ids.map((id) => <Badge key={`extreme-${id}`} variant="outline">{id} 分布の端</Badge>)}</div></div>
           )}
-      </section>
+        </div>
+      </SectionCard>
+
+      <LatestContext context={data.latest_context} />
 
       <section className="grid gap-4">
         <div className="flex flex-wrap items-end justify-between gap-4">
@@ -431,7 +510,19 @@ export function MacroPage() {
           ))}
       </section>
 
-      <IndicatorDialog granularity={granularity} onClose={() => setOpenSeriesId(null)} period={period} row={openRow} />
+      <details className="rounded-lg border bg-card shadow-sm">
+        <summary className="cursor-pointer px-5 py-4 text-lg font-semibold sm:px-6">過去の経済分析レポート（{reports.length}）</summary>
+        {reports.length === 0
+          ? <p className="border-t px-5 py-4 text-sm text-muted-foreground sm:px-6">発行済みレポートはありません。</p>
+          : <div className="divide-y border-t">{reports.map((report) => (
+            <Link className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-3 transition-colors hover:bg-muted/40 sm:px-6" key={report.context_id} to={`/macro/reports/${report.context_id}`}>
+              <div className="flex min-w-0 items-center gap-2"><span className="truncate text-sm font-medium">{report.summary}</span>{report.stale && <StaleBadge />}</div>
+              <div className="flex shrink-0 items-center gap-3 font-mono text-xs text-muted-foreground tabular-nums"><span>{LABEL.asOf} {report.as_of}</span><span className="hidden sm:inline">{LABEL.published} {formatJstDateTime(report.published_at)}</span><ArrowRight aria-hidden="true" className="size-4" /></div>
+            </Link>
+          ))}</div>}
+      </details>
+
+      <IndicatorDialog granularity={granularity} history={history} historyLoading={historyLoading} onClose={() => setOpenSeriesId(null)} period={period} row={openRow} />
     </PageShell>
   )
 }

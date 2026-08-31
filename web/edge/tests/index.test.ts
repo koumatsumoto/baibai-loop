@@ -91,9 +91,8 @@ describe('view routing', () => {
     ['/api/screening/history/2026-07-23', 'history/candidate-views/2026-07-23.json'],
     ['/api/operations', 'views/operations.json'],
     ['/api/meta', 'views/meta.json'],
-    ['/api/macro', 'views/macro--1y-daily.json'],
-    ['/api/macro?period=max&granularity=yearly', 'views/macro--max-yearly.json'],
-    ['/api/macro/reading', 'views/macro-reading.json'],
+    ['/api/macro', 'views/macro.json'],
+    ['/api/macro/series/us.10y', 'views/macro-series--us.10y.json'],
     [
       '/api/macro/context/macro-context-2026-07-01-example',
       'views/macro-context--macro-context-2026-07-01-example.json',
@@ -112,23 +111,14 @@ describe('view routing', () => {
   })
 
   it.each([
-    '/api/macro?period=../../history&granularity=daily',
-    '/api/macro?period=1y&granularity=hourly',
-  ])('rejects an invalid macro key without reading R2: %s', async (path) => {
-    const get = vi.fn()
-    const response = await handleRequest(request(path), environment(get))
-
-    expect(response.status).toBe(422)
-    expect(get).not.toHaveBeenCalled()
-  })
-
-  it.each([
     '/api/securities/7203/extra',
     '/api/securities/%2e%2e%2fhistory',
     '/api/screening/history/2026-07-23/extra',
     '/api/screening/history/not-a-date',
     '/api/macro/context/bad!id',
     '/api/macro/context/nested/id',
+    '/api/macro/series/bad!id',
+    '/api/macro/series/nested/id',
     '/api/capital-allocation-assessments/bad!id',
     '/api/capital-allocation-assessments/nested/id',
     '/api/unknown',

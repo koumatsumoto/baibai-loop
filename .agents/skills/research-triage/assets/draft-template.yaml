@@ -7,7 +7,8 @@ review_set_id: <review_set_id>
 run_revision_id: <run_revision_id>
 as_of: YYYY-MM-DD
 published_at: YYYY-MM-DDTHH:MM:SS+09:00
-macro_context_id: null
+# scaffold が as_of 以下の最新 eligible Context を入れる。存在しない場合だけ null。
+macro_context_id: <macro_context_id-or-null>
 review_basis_research_triage_id: null
 triage_contract_id: research-triage-v1
 entries:
