@@ -4,10 +4,21 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
+from ..discovery.review_set import APPROACH_IDS
 from .horizons import HORIZONS
 
 RunPurpose = str
 EvidenceStatus = str
+DecisionSubject = str
+ESTIMATOR_POLICY_SUBJECT = "estimator_policy"
+CANDIDATE_DISCOVERY_APPROACH_SUBJECT = "candidate_discovery_approach"
+CANDIDATE_DISCOVERY_COMPOSER_SUBJECT = "candidate_discovery_composer"
+DECISION_SUBJECTS = (
+    ESTIMATOR_POLICY_SUBJECT,
+    CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
+    CANDIDATE_DISCOVERY_COMPOSER_SUBJECT,
+)
+CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC = "candidate_discovery_composer_fidelity"
 PRODUCTION_REQUIRED_METRICS = (
     "review_set_top5",
     "review_set_top10",
@@ -30,6 +41,8 @@ class EvaluationScope:
     cohort_window: dict[str, str | None]
     required_asofs: tuple[str, ...]
     required_metrics: tuple[str, ...]
+    decision_subject: DecisionSubject = ESTIMATOR_POLICY_SUBJECT
+    candidate_discovery_approaches: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +74,27 @@ class AuthorityDecision:
         return asdict(self)
 
 
+def candidate_discovery_approach_fidelity_metric(approach: str) -> str:
+    """Return the internal metric that proves one production approach was replayed."""
+    return f"candidate_discovery_approach_{approach.replace('-', '_')}_fidelity"
+
+
+def effective_required_metrics(scope: EvaluationScope) -> tuple[str, ...]:
+    """Add subject-mandatory fidelity metrics that an operator cannot omit."""
+    metrics = list(scope.required_metrics)
+    if (
+        scope.decision_subject == CANDIDATE_DISCOVERY_APPROACH_SUBJECT
+        and len(scope.candidate_discovery_approaches) == 1
+        and scope.candidate_discovery_approaches[0] in APPROACH_IDS
+    ):
+        metrics.append(
+            candidate_discovery_approach_fidelity_metric(scope.candidate_discovery_approaches[0])
+        )
+    elif scope.decision_subject == CANDIDATE_DISCOVERY_COMPOSER_SUBJECT:
+        metrics.append(CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC)
+    return tuple(dict.fromkeys(metrics))
+
+
 def decide_authority(
     scope: EvaluationScope, cohorts: tuple[CohortIntegrity, ...]
 ) -> AuthorityDecision:
@@ -83,6 +117,20 @@ def decide_authority(
     if not scope.required_metrics:
         reasons.append("missing_required_metrics")
     if scope.run_purpose == "production_decision":
+        if scope.decision_subject not in DECISION_SUBJECTS:
+            reasons.append(f"unknown_decision_subject:{scope.decision_subject}")
+        elif scope.decision_subject == CANDIDATE_DISCOVERY_APPROACH_SUBJECT:
+            if len(scope.candidate_discovery_approaches) != 1:
+                reasons.append("candidate_discovery_approach_must_be_exactly_one")
+            else:
+                unknown_approaches = set(scope.candidate_discovery_approaches) - set(APPROACH_IDS)
+                if unknown_approaches:
+                    reasons.append(
+                        "unknown_candidate_discovery_approach:"
+                        f"{','.join(sorted(unknown_approaches))}"
+                    )
+        elif scope.candidate_discovery_approaches:
+            reasons.append("candidate_discovery_approach_not_allowed_for_subject")
         unknown_metrics = set(scope.required_metrics) - KNOWN_METRICS
         missing_core_metrics = set(PRODUCTION_REQUIRED_METRICS) - set(scope.required_metrics)
         if unknown_metrics:
@@ -90,6 +138,7 @@ def decide_authority(
         if missing_core_metrics:
             reasons.append(f"missing_core_metrics:{','.join(sorted(missing_core_metrics))}")
 
+    required_metrics = effective_required_metrics(scope)
     index = {(item.asof, item.horizon): item for item in cohorts}
     missing: list[str] = []
     for asof in scope.required_asofs:
@@ -102,7 +151,7 @@ def decide_authority(
             if item.integrity_status != "eligible":
                 reasons.append(f"integrity_{item.integrity_status}")
             reasons.extend(item.blocking_reasons)
-            for metric in scope.required_metrics:
+            for metric in required_metrics:
                 if item.metric_statuses.get(metric) != "eligible":
                     reasons.append(f"metric_unresolved:{metric}")
     if not reasons:

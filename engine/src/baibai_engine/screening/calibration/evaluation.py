@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date
 from math import isfinite, sqrt
 from statistics import fmean, median, stdev
 
@@ -19,13 +20,17 @@ from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
 from ..discovery.review_set import APPROACH_IDS
 from ..rule_config import CandidateDiscoveryRules
+from .authority import (
+    CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC,
+    candidate_discovery_approach_fidelity_metric,
+)
 from .forward import (
     CONTROL_EVENT_EXIT_STATUS,
     FAILURE_EXIT_STATUS,
     TOTAL_RETURN_BASIS,
     ForwardReturnRow,
 )
-from .horizons import require_horizon
+from .horizons import add_months_clamped, require_horizon
 from .panel import PanelRow
 
 # 割安 decile / top-N の「バリュートラップ」判定: 母集団中央値に 20pt 以上劣後。
@@ -199,12 +204,14 @@ def evaluate_cohorts(
     *,
     horizons: Sequence[str],
     candidate_discovery_rules: CandidateDiscoveryRules,
+    candidate_discovery_input_statuses: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
     """Evaluate all cohorts and aggregate per horizon.
 
     ``panels`` / ``forwards`` は asof (ISO 文字列) を key にする。
     """
     per_horizon: dict[str, object] = {}
+    input_statuses = candidate_discovery_input_statuses or {}
     for horizon in horizons:
         require_horizon(horizon)
         cohort_results: list[dict[str, object]] = []
@@ -216,11 +223,13 @@ def evaluate_cohorts(
                     asof=asof,
                     horizon=horizon,
                     candidate_discovery_rules=candidate_discovery_rules,
+                    candidate_discovery_jpx_input_status=input_statuses.get(asof, "unavailable"),
                 )
             )
         per_horizon[horizon] = {
             "authority": require_horizon(horizon).authority,
             "cohorts": cohort_results,
+            "observation_dependence": _observation_dependence(cohort_results, horizon=horizon),
             "aggregate": _aggregate(
                 cohort_results, candidate_discovery_rules=candidate_discovery_rules
             ),
@@ -235,6 +244,7 @@ def _evaluate_cohort(
     asof: str,
     horizon: str,
     candidate_discovery_rules: CandidateDiscoveryRules,
+    candidate_discovery_jpx_input_status: str,
 ) -> dict[str, object]:
     context = _cohort_excess_context(panel, forward_rows, horizon=horizon)
     all_rows = [row for row in forward_rows if row.horizon == horizon]
@@ -328,6 +338,13 @@ def _evaluate_cohort(
         ),
     }
     if context is None:
+        fidelity = _candidate_discovery_fidelity(
+            panel,
+            {},
+            {},
+            candidate_discovery_rules=candidate_discovery_rules,
+            jpx_input_status=candidate_discovery_jpx_input_status,
+        )
         return {
             "asof": asof,
             "horizon": horizon,
@@ -337,6 +354,7 @@ def _evaluate_cohort(
             "metric_calculation_status": "unresolved",
             "axes": {},
             "candidate_discovery": {},
+            "candidate_discovery_fidelity": fidelity,
             "gates": {},
             "sector_median_basis": {},
             "reversion": {},
@@ -357,6 +375,13 @@ def _evaluate_cohort(
             axes[spec.name] = axes_result
     candidate_discovery = _evaluate_candidate_discovery(
         population, excess, candidate_discovery_rules=candidate_discovery_rules
+    )
+    candidate_discovery_fidelity = _candidate_discovery_fidelity(
+        panel,
+        excess,
+        candidate_discovery,
+        candidate_discovery_rules=candidate_discovery_rules,
+        jpx_input_status=candidate_discovery_jpx_input_status,
     )
     margin_hypotheses = _evaluate_margin_supply_demand_hypotheses(population, excess)
     profit_hypotheses = _evaluate_profit_normalization_hypotheses(population, excess)
@@ -381,6 +406,17 @@ def _evaluate_cohort(
     metric_statuses["normalized_per_3fy"] = (
         "eligible" if "normalized_per_3fy" in axes else "unresolved"
     )
+    approaches = candidate_discovery_fidelity["approaches"]
+    assert isinstance(approaches, dict)
+    for approach in APPROACH_IDS:
+        approach_fidelity = approaches[approach]
+        assert isinstance(approach_fidelity, dict)
+        metric_statuses[candidate_discovery_approach_fidelity_metric(approach)] = (
+            "eligible" if approach_fidelity["eligible"] is True else "unresolved"
+        )
+    metric_statuses[CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC] = (
+        "eligible" if candidate_discovery_fidelity["composer_eligible"] is True else "unresolved"
+    )
 
     return {
         "asof": asof,
@@ -400,6 +436,7 @@ def _evaluate_cohort(
         "stale_price_count": context.stale_price_count,
         "axes": axes,
         "candidate_discovery": candidate_discovery,
+        "candidate_discovery_fidelity": candidate_discovery_fidelity,
         "gates": _evaluate_gates(population, excess),
         "sector_median_basis": _evaluate_sector_median_basis(population, excess),
         "reversion": _evaluate_reversion(population, excess),
@@ -1001,6 +1038,95 @@ def _evaluate_candidate_discovery(
             "displaced_from_er_n": len(er_tickers - review_tickers),
         }
     return result
+
+
+def _candidate_discovery_fidelity(
+    panel: Sequence[PanelRow],
+    excess: Mapping[str, float],
+    candidate_discovery: Mapping[str, object],
+    *,
+    candidate_discovery_rules: CandidateDiscoveryRules,
+    jpx_input_status: str,
+) -> dict[str, object]:
+    """Prove which production method roles one cohort actually replayed."""
+    input_complete = jpx_input_status == "complete"
+    approach_ranks = {
+        row.ticker: _valuation_approach_rank_map(
+            row, nomination_depth=candidate_discovery_rules.nomination_depth
+        )
+        for row in panel
+        if row.in_population
+    }
+    approaches: dict[str, dict[str, object]] = {}
+    for approach in APPROACH_IDS:
+        nomination_count = sum(approach in ranks for ranks in approach_ranks.values())
+        resolved_nomination_count = sum(
+            approach in ranks and ticker in excess for ticker, ranks in approach_ranks.items()
+        )
+        approaches[approach] = {
+            "nomination_depth": candidate_discovery_rules.nomination_depth,
+            "nomination_count": nomination_count,
+            "resolved_nomination_count": resolved_nomination_count,
+            "eligible": (
+                input_complete
+                and nomination_count == candidate_discovery_rules.nomination_depth
+                and resolved_nomination_count == candidate_discovery_rules.nomination_depth
+            ),
+        }
+
+    review_rows = [row for row in panel if row.in_population and row.review_position is not None]
+    resolved_review_count = sum(row.ticker in excess for row in review_rows)
+    representation = candidate_discovery.get("representation")
+    fulfilled = representation.get("fulfilled") if isinstance(representation, dict) else None
+    representation_fulfilled = (
+        isinstance(fulfilled, dict)
+        and set(fulfilled) == set(APPROACH_IDS)
+        and all(fulfilled.get(approach) is True for approach in APPROACH_IDS)
+    )
+    composer_eligible = (
+        input_complete
+        and all(approaches[approach]["eligible"] is True for approach in APPROACH_IDS)
+        and len(review_rows) == candidate_discovery_rules.review_capacity
+        and resolved_review_count == candidate_discovery_rules.review_capacity
+        and representation_fulfilled
+    )
+    return {
+        "jpx_regulation_input_status": jpx_input_status,
+        "approaches": approaches,
+        "review_capacity": candidate_discovery_rules.review_capacity,
+        "review_count": len(review_rows),
+        "resolved_review_count": resolved_review_count,
+        "representation_fulfilled": representation_fulfilled,
+        "composer_eligible": composer_eligible,
+    }
+
+
+def _observation_dependence(
+    cohorts: Sequence[Mapping[str, object]], *, horizon: str
+) -> dict[str, object]:
+    """Disclose overlap without pretending monthly forward windows are independent."""
+    resolved_asofs = sorted(
+        date.fromisoformat(str(cohort["asof"]))
+        for cohort in cohorts
+        if cohort.get("metric_calculation_status") == "resolved"
+    )
+    entry_year_counts: dict[str, int] = {}
+    for asof in resolved_asofs:
+        year = str(asof.year)
+        entry_year_counts[year] = entry_year_counts.get(year, 0) + 1
+    non_overlapping = 0
+    next_available: date | None = None
+    for asof in resolved_asofs:
+        if next_available is not None and asof < next_available:
+            continue
+        non_overlapping += 1
+        next_available = add_months_clamped(asof, require_horizon(horizon).months)
+    return {
+        "resolved_cohort_count": len(resolved_asofs),
+        "forward_months": require_horizon(horizon).months,
+        "entry_year_counts": entry_year_counts,
+        "greedy_non_overlapping_window_count": non_overlapping,
+    }
 
 
 def _valuation_approach_rank_map(row: PanelRow, *, nomination_depth: int) -> dict[str, int]:

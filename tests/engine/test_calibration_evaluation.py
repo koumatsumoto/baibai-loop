@@ -27,8 +27,11 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from baibai_engine.screening.calibration.authority import (
+    CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
+    CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC,
     KNOWN_METRICS,
     PRODUCTION_REQUIRED_METRICS,
+    candidate_discovery_approach_fidelity_metric,
 )
 from baibai_engine.screening.calibration.cli import (
     _required_metric_statuses,
@@ -45,6 +48,7 @@ from baibai_engine.screening.calibration.evaluation import (
     _half_split_effect,
     _margin_short_to_adv_adoption_sign,
     _metric_direction_stability,
+    _observation_dependence,
     _spearman,
     _stratified_quality_control,
 )
@@ -59,6 +63,7 @@ from baibai_engine.screening.calibration.panel import (
     rules_content_hash,
 )
 from baibai_engine.screening.rule_config import ScreeningRules, load_screening_rules
+from baibai_engine.screening.rules_identity import production_rules_contract_hash
 
 _ASOF = "2025-06-30"
 _RULES = load_screening_rules()
@@ -71,12 +76,14 @@ def evaluate_cohorts(
     *,
     horizons: list[str],
     rules: ScreeningRules = _RULES,
+    candidate_discovery_input_statuses: dict[str, str] | None = None,
 ) -> dict[str, object]:
     return _evaluate_cohorts(  # type: ignore[arg-type]
         panels,
         forwards,
         horizons=horizons,
         candidate_discovery_rules=rules.candidate_discovery,
+        candidate_discovery_input_statuses=candidate_discovery_input_statuses,
     )
 
 
@@ -510,6 +517,106 @@ class EvaluateCohortsTest(unittest.TestCase):
         representation = cohort["candidate_discovery"]["representation"]
         self.assertEqual(representation["represented_counts"]["current-earnings-power"], 0)
 
+    def test_full_candidate_discovery_fidelity_requires_complete_input_and_outcomes(
+        self,
+    ) -> None:
+        panel = []
+        for index in range(120):
+            ranked = index < 20
+            panel.append(
+                _panel_row(
+                    f"3{index:03d}",
+                    rank=index + 1 if ranked else None,
+                    **(
+                        {
+                            "valuation_approach_ranks": "|".join(
+                                f"{approach}:{index + 1}"
+                                for approach in _RULES.candidate_discovery.approaches
+                            )
+                        }
+                        if ranked
+                        else {}
+                    ),
+                )
+            )
+        forwards = [_forward_row(row.ticker, 0.1) for row in panel]
+
+        cohort = evaluate_cohorts(
+            {_ASOF: panel},
+            {_ASOF: forwards},
+            horizons=["6m"],
+            candidate_discovery_input_statuses={_ASOF: "complete"},
+        )["6m"]["cohorts"][0]
+
+        assert isinstance(cohort, dict)
+        fidelity = cohort["candidate_discovery_fidelity"]
+        assert isinstance(fidelity, dict)
+        self.assertTrue(fidelity["composer_eligible"])
+        statuses = cohort["metric_statuses"]
+        assert isinstance(statuses, dict)
+        self.assertEqual(statuses[CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC], "eligible")
+        for approach in _RULES.candidate_discovery.approaches:
+            self.assertEqual(
+                statuses[candidate_discovery_approach_fidelity_metric(approach)],
+                "eligible",
+            )
+
+        missing_input = evaluate_cohorts(
+            {_ASOF: panel},
+            {_ASOF: forwards},
+            horizons=["6m"],
+        )["6m"]["cohorts"][0]
+        assert isinstance(missing_input, dict)
+        missing_statuses = missing_input["metric_statuses"]
+        assert isinstance(missing_statuses, dict)
+        self.assertEqual(
+            missing_statuses[CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC],
+            "unresolved",
+        )
+
+    def test_approach_fidelity_rejects_one_unresolved_nomination(self) -> None:
+        panel = []
+        for index in range(120):
+            ranked = index < 20
+            panel.append(
+                _panel_row(
+                    f"4{index:03d}",
+                    rank=index + 1 if ranked else None,
+                    **({"valuation_approach_ranks": f"asset-value:{index + 1}"} if ranked else {}),
+                )
+            )
+        forwards = [_forward_row(row.ticker, 0.1) for index, row in enumerate(panel) if index != 19]
+
+        cohort = evaluate_cohorts(
+            {_ASOF: panel},
+            {_ASOF: forwards},
+            horizons=["6m"],
+            candidate_discovery_input_statuses={_ASOF: "complete"},
+        )["6m"]["cohorts"][0]
+
+        assert isinstance(cohort, dict)
+        statuses = cohort["metric_statuses"]
+        assert isinstance(statuses, dict)
+        self.assertEqual(
+            statuses[candidate_discovery_approach_fidelity_metric("asset-value")],
+            "unresolved",
+        )
+
+    def test_observation_dependence_reports_entry_years_and_nonoverlap(self) -> None:
+        dependence = _observation_dependence(
+            [
+                {"asof": "2020-01-31", "metric_calculation_status": "resolved"},
+                {"asof": "2020-02-29", "metric_calculation_status": "resolved"},
+                {"asof": "2021-01-31", "metric_calculation_status": "resolved"},
+                {"asof": "2021-02-28", "metric_calculation_status": "unresolved"},
+            ],
+            horizon="1y",
+        )
+
+        self.assertEqual(dependence["resolved_cohort_count"], 3)
+        self.assertEqual(dependence["entry_year_counts"], {"2020": 2, "2021": 1})
+        self.assertEqual(dependence["greedy_non_overlapping_window_count"], 2)
+
     def test_calibration_evaluate_rejects_any_method_mismatch_before_writing_metrics(self) -> None:
         panel = [_panel_row("1111", per_trailing=10.0)]
         forwards = [_forward_row("1111", 0.1)]
@@ -555,6 +662,30 @@ class EvaluateCohortsTest(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertIn("unknown panel variant", errors.getvalue())
+
+    def test_calibration_evaluate_rejects_unknown_candidate_input_status(self) -> None:
+        errors = StringIO()
+        with TemporaryDirectory() as temp_dir, redirect_stderr(errors):
+            root = Path(temp_dir)
+            store_panel(root, date(2025, 6, 30), [_panel_row("1111")], _panel_diagnostics())
+            store_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
+            with sqlite3.connect(root / "current.sqlite") as connection:
+                raw = connection.execute("SELECT diagnostics FROM cohort").fetchone()[0]
+                diagnostics = json.loads(raw)
+                diagnostics["candidate_discovery_jpx_input_status"] = "claimed"
+                connection.execute(
+                    "UPDATE cohort SET diagnostics = ?",
+                    (json.dumps(diagnostics),),
+                )
+
+            exit_code = calibration_evaluate_command(
+                calibration_dir=root,
+                horizons=["6m"],
+                stdout=StringIO(),
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("Candidate Discovery input status is invalid", errors.getvalue())
 
     def test_date_filter_cannot_hide_mixed_rules_in_the_current_snapshot(self) -> None:
         errors = StringIO()
@@ -1084,6 +1215,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             "er_model_version": "expected-return-v1",
             "scope": {
                 "run_purpose": "production_decision",
+                "decision_subject": "estimator_policy",
                 "required_metrics": [
                     "review_set_top5",
                     "review_set_top10",
@@ -1169,6 +1301,15 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             build_er_distribution_context(evaluation, {asof: panel}, {asof: forwards})
         metric_statuses["review_set_top5"] = "eligible"
 
+        scope = evaluation["scope"]
+        assert isinstance(scope, dict)
+        scope["decision_subject"] = "candidate_discovery_approach"
+        with self.assertRaisesRegex(
+            CalibrationContextError, r"E\[r\] context requires estimator_policy authority"
+        ):
+            build_er_distribution_context(evaluation, {asof: panel}, {asof: forwards})
+        scope["decision_subject"] = "estimator_policy"
+
         evaluation["production_decision"] = {
             "evidence_status": "unresolved",
             "production_change_allowed": False,
@@ -1252,7 +1393,10 @@ class MarginSizeNormalizationTest(unittest.TestCase):
 
         horizon = result["6m"]
         assert isinstance(horizon, dict)
-        self.assertEqual(set(horizon), {"authority", "cohorts", "aggregate"})
+        self.assertEqual(
+            set(horizon),
+            {"authority", "cohorts", "aggregate", "observation_dependence"},
+        )
 
     def test_horizon_output_has_only_current_contract_sections(self) -> None:
         panel: list[PanelRow] = []
@@ -1266,7 +1410,10 @@ class MarginSizeNormalizationTest(unittest.TestCase):
 
         horizon = result["6m"]
         assert isinstance(horizon, dict)
-        self.assertEqual(set(horizon), {"authority", "cohorts", "aggregate"})
+        self.assertEqual(
+            set(horizon),
+            {"authority", "cohorts", "aggregate", "observation_dependence"},
+        )
 
     def _rejected_metrics_message(self, required_metrics: list[str]) -> tuple[int, str]:
         errors = StringIO()
@@ -1300,6 +1447,22 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertIn("must include", message)
         self.assertNotIn("unknown required metrics", message)
+
+    def test_candidate_discovery_approach_subject_requires_one_known_approach(self) -> None:
+        errors = StringIO()
+        with TemporaryDirectory() as temp_dir, redirect_stderr(errors):
+            exit_code = calibration_evaluate_command(
+                calibration_dir=Path(temp_dir),
+                horizons=["3y", "5y"],
+                run_purpose="production_decision",
+                required_asofs=["2021-06-30"],
+                required_metrics=list(PRODUCTION_REQUIRED_METRICS),
+                decision_subject=CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
+                stdout=StringIO(),
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("requires one --candidate-discovery-approach", errors.getvalue())
 
     def test_the_full_rank_replay_metrics_stay_registered_for_authority(self) -> None:
         # `review_set_top*` is emitted by every cohort, so leaving it out of the
@@ -1365,6 +1528,11 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             payload = yaml.safe_load(output_path.read_text(encoding="utf-8"))
             assert isinstance(payload, dict)
             self.assertEqual(payload["metric_basis"], "price_return_only")
+            self.assertEqual(
+                payload["screening_rules_hash"],
+                production_rules_contract_hash(_RULES.model_dump_json()),
+            )
+            self.assertEqual(payload["calibration_method_hash"], _RULES_HASH)
             decision = payload["production_decision"]
             assert isinstance(decision, dict)
             self.assertFalse(decision["production_change_allowed"])

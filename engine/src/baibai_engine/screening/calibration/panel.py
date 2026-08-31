@@ -6,12 +6,13 @@
 
 - macro_context=None (macro は annotation であり順位に使わない)
 - 過去のReview Setや判断を過去cohortの順位へ混入させない
-- JPX 規制 flag は過去断面が cache に無いため空 (除外は annotation 数銘柄規模)
+- JPX 規制 flag は保存済みの同日snapshotだけを使い、source不足はdiagnosticsへ残す
 """
 
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from datetime import date, timedelta
 from pathlib import Path
@@ -20,7 +21,11 @@ from typing import Literal
 from baibai_engine.market.store import read_adjustment_factor_bars, read_daily_bars
 
 from ..candidate_build import build_security_analysis
-from ..discovery.review_set import build_nomination_ranks, build_review_set
+from ..discovery.review_set import (
+    build_nomination_ranks,
+    build_review_set,
+    candidate_discovery_method_hash,
+)
 from ..estimates import estimate_expected_return
 from ..metrics import (
     BARS_INPUT_WINDOW_DAYS,
@@ -47,6 +52,7 @@ from ..sqlite_reader import (
     read_edinet_metrics,
     read_eq_master_asof,
     read_fin_summaries,
+    read_jpx_regulations,
     read_margin_supply_demand_inputs,
     read_reported_short_metrics,
 )
@@ -59,6 +65,7 @@ from .horizons import STALE_PRICE_MAX_LAG_DAYS
 from .identity import rules_contract_hash
 
 PanelVariant = Literal["production", "pre2019_self_range_375"]
+CandidateDiscoveryInputStatus = Literal["complete", "incomplete", "unavailable"]
 PopulationCoverageStatus = Literal[
     "evaluated", "priced_master_without_universe", "master_without_universe_unpriced"
 ]
@@ -101,6 +108,10 @@ def rules_content_hash(
     """screening rules と panel input contract の semantic identity。"""
     return rules_contract_hash(
         rules.model_dump_json(),
+        candidate_discovery_method_hash=candidate_discovery_method_hash(
+            rules.candidate_discovery,
+            required_jpx_flags=rules.universe.required_jpx_flags,
+        ),
         valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
         variant=policy.variant,
         valuation_history_sessions=policy.valuation_history_sessions,
@@ -233,6 +244,9 @@ class PanelDiagnostics:
     # production は同じ軸を銘柄の 53〜64% で持つ。判定は読み手が件数から導く。
     population_edinet_axis_nonnull: int = 0
     population_per_trailing_exact: int
+    # Candidate Discoveryがproductionと同じJPX除外を再現できたか。flagged rowが
+    # 0件でも全required sourceが観測済みならcompleteであり、snapshot不在とは分ける。
+    candidate_discovery_jpx_input_status: CandidateDiscoveryInputStatus = "unavailable"
     master_snapshot_date: str | None = None
     master_snapshot_status: str = "unavailable"
     master_population_count: int = 0
@@ -341,12 +355,24 @@ def build_panel(
         asof_date,
         adjustment_events_by_ticker=normalized_profit_split_bars_by_ticker,
     )
+    jpx_snapshot = read_jpx_regulations(sqlite_path, asof_date)
+    required_jpx_sources = frozenset(rules.universe.required_jpx_flags)
+    jpx_flags_by_ticker: Mapping[str, tuple[str, ...]]
+    if jpx_snapshot is None:
+        jpx_input_status: CandidateDiscoveryInputStatus = "unavailable"
+        jpx_flags_by_ticker = {}
+    else:
+        observed_jpx_sources = frozenset(jpx_snapshot.source_names)
+        jpx_input_status = (
+            "complete" if required_jpx_sources <= observed_jpx_sources else "incomplete"
+        )
+        jpx_flags_by_ticker = jpx_snapshot.flags_by_ticker
     universe_result = build_universe(
         asof_date=asof_date,
         securities=securities,
         bars_by_ticker=bars_by_ticker,
         shares_outstanding_by_ticker=shares_by_ticker,
-        jpx_flags_by_ticker={},
+        jpx_flags_by_ticker=jpx_flags_by_ticker,
         adjustment_events_by_ticker=normalized_profit_split_bars_by_ticker,
     )
     securities_by_ticker = {
@@ -623,6 +649,7 @@ def build_panel(
         population_per_trailing_exact=sum(
             1 for row in population_rows if row.ttm_quality_per_trailing == TTMQuality.EXACT.value
         ),
+        candidate_discovery_jpx_input_status=jpx_input_status,
         master_snapshot_date=(
             master_read.snapshot_date.isoformat() if master_read.snapshot_date is not None else None
         ),

@@ -19,15 +19,21 @@ from baibai_engine.market.lake.writer import (
     sealed_sqlite_snapshot,
 )
 
+from ..discovery.review_set import APPROACH_IDS
 from ..estimates import EXPECTED_RETURN_MODEL_VERSION
 from ..rule_config import ScreeningRules
+from ..rules_identity import production_rules_contract_hash
 from ..store_readiness import unreadable_store_reason
 from .authority import (
+    CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
+    DECISION_SUBJECTS,
+    ESTIMATOR_POLICY_SUBJECT,
     KNOWN_METRICS,
     PRODUCTION_REQUIRED_METRICS,
     CohortIntegrity,
     EvaluationScope,
     decide_authority,
+    effective_required_metrics,
 )
 from .context import CalibrationContextError, build_er_distribution_context
 from .evaluation import OPTIONAL_SENSITIVITY_METRICS, evaluate_cohorts
@@ -294,6 +300,8 @@ def calibration_evaluate_command(
     run_purpose: str = "diagnostic",
     required_asofs: list[str] | None = None,
     required_metrics: list[str] | None = None,
+    decision_subject: str = ESTIMATOR_POLICY_SUBJECT,
+    candidate_discovery_approach: str | None = None,
     output_path: Path | None = None,
     context_output_path: Path | None = None,
     start: date | None = None,
@@ -308,6 +316,27 @@ def calibration_evaluate_command(
         return 1
     if run_purpose not in {"diagnostic", "production_decision"}:
         print("--run-purpose must be diagnostic or production_decision", file=sys.stderr)
+        return 1
+    if decision_subject not in DECISION_SUBJECTS:
+        print(
+            f"--decision-subject must be one of {', '.join(DECISION_SUBJECTS)}",
+            file=sys.stderr,
+        )
+        return 1
+    if decision_subject == CANDIDATE_DISCOVERY_APPROACH_SUBJECT:
+        if candidate_discovery_approach not in APPROACH_IDS:
+            print(
+                "candidate_discovery_approach requires one "
+                f"--candidate-discovery-approach from {', '.join(APPROACH_IDS)}",
+                file=sys.stderr,
+            )
+            return 1
+    elif candidate_discovery_approach is not None:
+        print(
+            "--candidate-discovery-approach is only valid for "
+            "--decision-subject candidate_discovery_approach",
+            file=sys.stderr,
+        )
         return 1
     if run_purpose == "production_decision":
         if not required_asofs or not required_metrics:
@@ -388,6 +417,10 @@ def calibration_evaluate_command(
         forwards,
         horizons=horizons,
         candidate_discovery_rules=rules.candidate_discovery,
+        candidate_discovery_input_statuses={
+            asof.isoformat(): str(meta_by_asof[asof]["candidate_discovery_jpx_input_status"])
+            for asof in asofs
+        },
     )
     scope = EvaluationScope(
         run_purpose=run_purpose,
@@ -398,7 +431,12 @@ def calibration_evaluate_command(
         },
         required_asofs=tuple(required_asofs or [asof.isoformat() for asof in asofs]),
         required_metrics=tuple(required_metrics or PRODUCTION_REQUIRED_METRICS),
+        decision_subject=decision_subject,
+        candidate_discovery_approaches=(
+            (candidate_discovery_approach,) if candidate_discovery_approach is not None else ()
+        ),
     )
+    effective_metrics = effective_required_metrics(scope)
     integrity: list[CohortIntegrity] = []
     integrity_reason_counts: dict[str, int] = {}
     for horizon, result in results.items():
@@ -435,6 +473,9 @@ def calibration_evaluate_command(
                     # `null` は計測前に書かれた panel で、0 (観測して 1 件も無い) と違う。
                     "edinet_axis_population_count": _optional_count(
                         meta.get("population_edinet_axis_nonnull")
+                    ),
+                    "candidate_discovery_jpx_input_status": meta.get(
+                        "candidate_discovery_jpx_input_status"
                     ),
                     # Survivorship belongs to the population the panel drew, so the
                     # panel measures it and the reader turns the counts into the
@@ -527,7 +568,7 @@ def calibration_evaluate_command(
                     horizon=horizon,
                     integrity_status=("blocked" if blockers else metric_status),
                     metric_statuses=_required_metric_statuses(
-                        cohort.get("metric_statuses"), scope.required_metrics
+                        cohort.get("metric_statuses"), effective_metrics
                     ),
                     blocking_reasons=tuple(blockers),
                 )
@@ -541,7 +582,7 @@ def calibration_evaluate_command(
         (item.asof, item.horizon)
         for item in required_integrity
         if item.integrity_status == "eligible"
-        and all(item.metric_statuses.get(metric) == "eligible" for metric in scope.required_metrics)
+        and all(item.metric_statuses.get(metric) == "eligible" for metric in effective_metrics)
     }
     # The histogram answers "how many required cohorts show this", so the per-cohort
     # verdicts are counted here rather than taken from the decision's deduped classes.
@@ -549,7 +590,7 @@ def calibration_evaluate_command(
         if item.integrity_status != "eligible":
             key = f"integrity_{item.integrity_status}"
             integrity_reason_counts[key] = integrity_reason_counts.get(key, 0) + 1
-        for metric in scope.required_metrics:
+        for metric in effective_metrics:
             if item.metric_statuses.get(metric) != "eligible":
                 key = f"metric_unresolved:{metric}"
                 integrity_reason_counts[key] = integrity_reason_counts.get(key, 0) + 1
@@ -559,7 +600,10 @@ def calibration_evaluate_command(
     payload = {
         "kind": "estimate-calibration-evaluation",
         "cache_schema_version": CACHE_SCHEMA_VERSION,
-        "screening_rules_hash": metas[0].get("rules_hash"),
+        # Serving consumers compare this identity with an operative screening run.
+        # Calibration replay fidelity has a stricter identity of its own below.
+        "screening_rules_hash": production_rules_contract_hash(rules.model_dump_json()),
+        "calibration_method_hash": metas[0].get("rules_hash"),
         "er_model_version": EXPECTED_RETURN_MODEL_VERSION,
         "metric_basis": "price_return_only",
         "metric_bases": ["price_return_only", "fy_actual_dividend_total_return"],
@@ -569,6 +613,11 @@ def calibration_evaluate_command(
             "cohort_window": scope.cohort_window,
             "required_asofs": list(scope.required_asofs),
             "required_metrics": list(scope.required_metrics),
+            "decision_subject": scope.decision_subject,
+            "candidate_discovery_approaches": list(scope.candidate_discovery_approaches),
+            "mandatory_fidelity_metrics": [
+                metric for metric in effective_metrics if metric not in scope.required_metrics
+            ],
         },
         "production_decision": decision.payload(),
         "authority_coverage": {
