@@ -67,7 +67,7 @@ class TaskView(BaseModel):
     # When to act. This is what fires the trigger and what the task list orders by.
     due_date: date
     # What the task is waiting on — a distinct concept from the deadline, kept even
-    # where the two happen to hold the same date. The Dashboard renders the deadline
+    # where the two happen to hold the same date. The Tasks view renders the deadline
     # alone today; the event stays in the projection because it answers "why is this
     # dated" and is the task's own context, not a display leftover.
     event_label: str | None
@@ -102,11 +102,18 @@ class DashboardView(BaseModel):
     holdings: list[HoldingView]
     reservations: list[ReservationView]
     warnings: list[WarningView]
-    upcoming_events: list[UpcomingEventView]
+    research_load_errors: list[str]
+
+
+class TasksView(BaseModel):
+    """Task/event workflow projection, separate from portfolio presentation."""
+
+    generated_at: datetime
+    tasks_exist: bool
     open_tasks: list[TaskView]
     next_task: TaskView | None
-    tasks_exist: bool
-    research_load_errors: list[str]
+    upcoming_events: list[UpcomingEventView]
+    ledger_error: str | None
 
 
 class OperationSessionView(BaseModel):
@@ -279,6 +286,95 @@ class FvConvergenceView(BaseModel):
     er_reversion_annual: float | None
 
 
+class ReviewSetNominationView(BaseModel):
+    valuation_approach_id: str
+    valuation_method_id: str
+    rank: int
+
+
+class ReviewSetIdentityLiquidityView(BaseModel):
+    market_cap_oku: float | None
+    avg_turnover_oku: float | None
+    listing_span_days: float | None
+    jpx_flags: list[str] | None
+
+
+class ReviewSetValuationView(BaseModel):
+    per_forward: float | None
+    per_trailing: float | None
+    pbr: float | None
+    ev_ebitda: float | None
+    p_s: float | None
+    pcfr: float | None
+
+
+class ReviewSetCurrentEarningsView(BaseModel):
+    fcf_yield: float | None
+    ocf_yield: float | None
+    forecast_special_gain_flag: bool | None
+    forecast_full_year_loss_flag: bool | None
+
+
+class ReviewSetNormalizedEarningsView(BaseModel):
+    normalized_per_3fy: float | None
+    normalized_per_3fy_sector_gap: float | None
+
+
+class ReviewSetAssetValueView(BaseModel):
+    asset_backed_ratio: float | None
+    net_cash_to_market_cap: float | None
+    investment_securities: float | None
+    equity_ratio: float | None
+
+
+class ReviewSetReinvestmentView(BaseModel):
+    p_s_sector_gap: float
+    operating_return_on_capital_proxy: float
+    sales_yoy: float
+    operating_margin: float
+    fcf_yield: float
+
+
+class ReviewSetExpectedReturnView(BaseModel):
+    er_annual: float | None
+    er_reversion_annual: float | None
+    er_carry_annual: float | None
+    fv_sector_median_yen: float | None
+    fv_self_range_yen: float | None
+    er_origin: str | None
+    er_model_version: str | None
+    er_unit: str | None
+    er_assumptions: str | None
+
+
+class ReviewSetDataQualityView(BaseModel):
+    bs_carry_forward_fields: str | None
+    bs_carry_forward_lag_days: float | None
+    edinet_failure_reasons: str | None
+    stale_fin_flag: bool | None
+
+
+class ReviewSetContextView(BaseModel):
+    next_earnings_status: str | None
+    next_earnings_estimated_date: str | None
+    margin_short_to_adv: float | None
+    tse_capital_policy_status: str | None
+    large_holding_event_recent: bool | None
+    tender_offer_event_recent: bool | None
+
+
+class ReviewSetAnalysisView(BaseModel):
+    identity_liquidity: ReviewSetIdentityLiquidityView
+    valuation: ReviewSetValuationView
+    current_earnings: ReviewSetCurrentEarningsView
+    normalized_earnings: ReviewSetNormalizedEarningsView
+    asset_value: ReviewSetAssetValueView
+    reinvestment: ReviewSetReinvestmentView | None
+    expected_return: ReviewSetExpectedReturnView
+    data_quality: ReviewSetDataQualityView
+    context: ReviewSetContextView
+
+
 class ReviewSetEntryView(BaseModel):
     """One nominated security in deterministic multi-approach review order."""
 
@@ -286,10 +382,10 @@ class ReviewSetEntryView(BaseModel):
     ticker: str
     name: str | None
     sector_33: str | None
-    nominations: list[dict[str, object]]
+    nominations: list[ReviewSetNominationView]
     support_count: int
     rank_vector: list[int]
-    analysis: dict[str, object]
+    analysis: ReviewSetAnalysisView
 
 
 class ReviewSetView(BaseModel):
@@ -612,57 +708,8 @@ class MacroReadingView(BaseModel):
     fetch_health: list[MacroSeriesFetchHealthView]
 
 
-class MacroSeriesChangeView(BaseModel):
-    """One observed series value that differs between two L2 readings."""
-
-    series_id: str
-    name: str
-    frequency: str
-    unit: str
-    previous_observed_at: date | None
-    observed_at: date | None
-    previous_value: float | None
-    value: float | None
-    value_change: float | None
-    z_score_delta: float | None
-
-
-class MacroStateChangeView(BaseModel):
-    series_id: str
-    kind: Literal["flag", "stale", "extreme"]
-    state: Literal["raised", "cleared"]
-    detail: str
-
-
-class MacroComparisonView(BaseModel):
-    from_as_of: date
-    to_as_of: date
-    changed_total: int
-    daily_changed_total: int
-    daily_moves: list[MacroSeriesChangeView]
-    daily_moves_omitted: int
-    non_daily_updates: list[MacroSeriesChangeView]
-    state_changes: list[MacroStateChangeView]
-
-
-class MacroStandingView(BaseModel):
-    fetch_failed: list[MacroSeriesFetchHealthView]
-    stale_series_ids: list[str]
-    flagged_series_ids: list[str]
-    extreme_series_ids: list[str]
-
-
-class MacroMachineUpdateView(BaseModel):
-    series_total: int
-    fetch_ok_count: int
-    fetch_failed_count: int
-    previous_day: MacroComparisonView | None
-    since_context: MacroComparisonView | None
-    standing: MacroStandingView
-
-
 class MacroContextExcerptView(BaseModel):
-    """The L3 fields needed to judge today's L2 changes without opening the full report."""
+    """Existing L3 judgment fields shown before the current L2 readings."""
 
     context_id: str
     as_of: date
@@ -701,14 +748,8 @@ class MacroGroupView(BaseModel):
 
 
 class MacroView(BaseModel):
-    """One daily decision entrance: L2 change facts plus the latest L3 judgment."""
+    """Current L3 judgment first, followed by current L2 readings."""
 
-    requested_as_of: date
-    data_as_of: date | None
-    previous_data_as_of: date | None
-    context_as_of: date | None
-    rules_revision: str | None
-    machine_update: MacroMachineUpdateView
     latest_context: MacroContextExcerptView | None
     reading: MacroReadingView | None
     # Older revisions only; the latest revision is the structured excerpt above.

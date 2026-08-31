@@ -58,7 +58,6 @@ from .models import (
     FvConvergenceView,
     HoldingDeltaView,
     HoldingView,
-    MacroComparisonView,
     MacroConnectionSectionView,
     MacroContextExcerptView,
     MacroContextRevisionView,
@@ -70,7 +69,6 @@ from .models import (
     MacroFactSummaryView,
     MacroForceInteractionView,
     MacroGroupView,
-    MacroMachineUpdateView,
     MacroMaterialDeltaView,
     MacroMonitoringPointView,
     MacroPointView,
@@ -80,13 +78,9 @@ from .models import (
     MacroScenarioView,
     MacroSectionJudgmentView,
     MacroSectorTiltView,
-    MacroSeriesChangeView,
-    MacroSeriesFetchHealthView,
     MacroSeriesReferenceView,
     MacroSeriesView,
     MacroSizingCautionView,
-    MacroStandingView,
-    MacroStateChangeView,
     MacroSynthesisView,
     MacroView,
     MetaBatch,
@@ -101,7 +95,9 @@ from .models import (
     ResearchTriageMachineSnapshotView,
     ResearchTriageView,
     ReservationView,
+    ReviewSetAnalysisView,
     ReviewSetEntryView,
+    ReviewSetNominationView,
     ReviewSetView,
     ScenarioView,
     ScreeningHistoryRunView,
@@ -109,6 +105,7 @@ from .models import (
     ScreeningView,
     SecurityAnalysisRowView,
     SecurityDetailView,
+    TasksView,
     TaskView,
     ThesisDetailView,
     UpcomingEventView,
@@ -196,7 +193,6 @@ def build_operations_view(source: DbOperationsSource) -> OperationsView:
 def build_dashboard(
     ledger: LedgerSource,
     research: ResearchSource,
-    tasks: TaskSource,
     candidates: CandidatesSource,
     market: MarketPriceSource,
 ) -> DashboardView:
@@ -208,8 +204,6 @@ def build_dashboard(
     latest_research = _latest_research_by_ticker(revisions)
     latest_run = candidates.latest_run()
     candidate_names = _candidate_names(latest_run)
-    open_tasks, next_task = _task_views(tasks.list_tasks(), today=today)
-    tasks_exist = tasks.exists()
     research_load_errors = research.load_errors()
 
     if not ledger.exists():
@@ -217,11 +211,7 @@ def build_dashboard(
             generated_at=now,
             ledger_exists=False,
             ledger_error=None,
-            open_tasks=open_tasks,
-            next_task=next_task,
-            tasks_exist=tasks_exist,
             research_load_errors=research_load_errors,
-            upcoming_events=_upcoming_events(today=today, holdings=[], reservations=[]),
         )
     try:
         snapshot = ledger.snapshot()
@@ -230,11 +220,7 @@ def build_dashboard(
             generated_at=now,
             ledger_exists=True,
             ledger_error=str(error),
-            open_tasks=open_tasks,
-            next_task=next_task,
-            tasks_exist=tasks_exist,
             research_load_errors=research_load_errors,
-            upcoming_events=_upcoming_events(today=today, holdings=[], reservations=[]),
         )
 
     holding_tickers = [holding.ticker for holding in snapshot.holdings]
@@ -306,15 +292,81 @@ def build_dashboard(
         holdings=holdings,
         reservations=reservations,
         warnings=warnings,
+        research_load_errors=research_load_errors,
+    )
+
+
+def build_tasks(
+    tasks: TaskSource,
+    ledger: LedgerSource,
+    research: ResearchSource,
+    candidates: CandidatesSource,
+    market: MarketPriceSource,
+) -> TasksView:
+    """Build task workflow independently from Dashboard portfolio presentation."""
+
+    now = datetime.now(_JST)
+    today = now.date()
+    open_tasks, next_task = _task_views(tasks.list_tasks(), today=today)
+    tasks_exist = tasks.exists()
+    if not ledger.exists():
+        return TasksView(
+            generated_at=now,
+            tasks_exist=tasks_exist,
+            open_tasks=open_tasks,
+            next_task=next_task,
+            upcoming_events=[],
+            ledger_error=None,
+        )
+    try:
+        snapshot = ledger.snapshot()
+    except PortfolioLedgerError as error:
+        return TasksView(
+            generated_at=now,
+            tasks_exist=tasks_exist,
+            open_tasks=open_tasks,
+            next_task=next_task,
+            upcoming_events=[],
+            ledger_error=str(error),
+        )
+
+    latest_research = _latest_research_by_ticker(research.revisions())
+    candidate_names = _candidate_names(candidates.latest_run())
+    holding_tickers = [holding.ticker for holding in snapshot.holdings]
+    earnings_dates = market.next_earnings_dates(holding_tickers, asof=today)
+    holdings = [
+        _holding_view(
+            holding,
+            revision=latest_research.get(holding.ticker),
+            candidate_name=candidate_names.get(holding.ticker),
+            market_close=None,
+            next_earnings_date=earnings_dates.get(holding.ticker),
+        )
+        for holding in snapshot.holdings
+    ]
+    reservations = [
+        ReservationView(
+            reservation_id=item.reservation_id,
+            ticker=item.ticker,
+            sector=item.sector,
+            remaining_quantity=item.remaining_quantity,
+            price_guard_yen=str(item.price_guard_yen),
+            reserved_yen=item.reserved_yen,
+            expires_at=item.expires_at,
+        )
+        for item in snapshot.active_reservations
+    ]
+    return TasksView(
+        generated_at=now,
+        tasks_exist=tasks_exist,
+        open_tasks=open_tasks,
+        next_task=next_task,
         upcoming_events=_upcoming_events(
             today=today,
             holdings=holdings,
             reservations=reservations,
         ),
-        open_tasks=open_tasks,
-        next_task=next_task,
-        tasks_exist=tasks_exist,
-        research_load_errors=research_load_errors,
+        ledger_error=None,
     )
 
 
@@ -469,8 +521,7 @@ def _review_entry_fair_value(entry: ReviewSetEntryView | None) -> float | None:
 
     if entry is None:
         return None
-    expected = entry.analysis.get("expected_return")
-    return _number(expected.get("fv_sector_median_yen")) if isinstance(expected, Mapping) else None
+    return entry.analysis.expected_return.fv_sector_median_yen
 
 
 def build_screening_history_run(
@@ -608,10 +659,10 @@ def _review_set_entries_entry_view(raw: Mapping[str, object]) -> ReviewSetEntryV
         ticker=str(raw.get("ticker", "")),
         name=_text(raw.get("name")),
         sector_33=_text(raw.get("sector_33")),
-        nominations=[dict(item) for item in nominations],
+        nominations=[ReviewSetNominationView.model_validate(item) for item in nominations],
         support_count=_required_int(raw["support_count"], field="support_count"),
         rank_vector=[int(item) for item in rank_vector],
-        analysis=dict(analysis),
+        analysis=ReviewSetAnalysisView.model_validate(analysis),
     )
 
 
@@ -789,14 +840,8 @@ def build_macro(
     """Build the daily entrance with bounded sparklines, never full indicator history."""
 
     latest_context_raw = source.latest_context(as_of=as_of)
-    context_asof = (
-        None if latest_context_raw is None else date.fromisoformat(str(latest_context_raw["as_of"]))
-    )
-    daily = source.daily_readings(requested_asof=as_of, context_asof=context_asof)
     fetch_health = source.fetch_health()
-    current_payload = _optional_mapping(None if daily is None else daily.get("current"))
-    previous_payload = _optional_mapping(None if daily is None else daily.get("previous"))
-    context_payload = _optional_mapping(None if daily is None else daily.get("context"))
+    current_payload = source.reading(as_of=as_of)
     reading = (
         None
         if current_payload is None
@@ -818,20 +863,6 @@ def build_macro(
         if str(item["context_id"]) != latest_context_id
     ]
     return MacroView(
-        requested_as_of=as_of,
-        data_as_of=_optional_iso_date(None if daily is None else daily.get("data_as_of")),
-        previous_data_as_of=_optional_iso_date(
-            None if daily is None else daily.get("previous_data_as_of")
-        ),
-        context_as_of=context_asof,
-        rules_revision=None if daily is None else str(daily["rules_revision"]),
-        machine_update=_macro_machine_update(
-            current=current_payload,
-            previous=previous_payload,
-            context=context_payload,
-            context_asof=context_asof,
-            fetch_health=fetch_health,
-        ),
         latest_context=(
             None
             if latest_context_raw is None
@@ -840,141 +871,6 @@ def build_macro(
         reading=reading,
         reports=reports,
         groups=_build_macro_group_metadata(source, as_of=as_of),
-    )
-
-
-def _macro_machine_update(
-    *,
-    current: Mapping[str, object] | None,
-    previous: Mapping[str, object] | None,
-    context: Mapping[str, object] | None,
-    context_asof: date | None,
-    fetch_health: list[dict[str, object]],
-) -> MacroMachineUpdateView:
-    current_by_series = {} if current is None else _reading_by_series(current)
-    failed = [
-        MacroSeriesFetchHealthView.model_validate(item)
-        for item in fetch_health
-        if item.get("status") == "failed"
-    ]
-    stale = sorted(
-        series_id for series_id, item in current_by_series.items() if item.get("stale") is True
-    )
-    flagged = sorted(series_id for series_id, item in current_by_series.items() if _flag_set(item))
-    extremes = sorted(
-        series_id
-        for series_id, item in current_by_series.items()
-        if (z_score := _number(item.get("z_score"))) is not None
-        and abs(z_score) >= _DELTA_MACRO_Z_EDGE
-    )
-    return MacroMachineUpdateView(
-        series_total=len(current_by_series),
-        fetch_ok_count=sum(item.get("status") == "ok" for item in fetch_health),
-        fetch_failed_count=len(failed),
-        previous_day=_macro_comparison(current=current, earlier=previous),
-        since_context=(
-            None
-            if context_asof is None or current is None
-            else _macro_comparison(current=current, earlier=context)
-        ),
-        standing=MacroStandingView(
-            fetch_failed=failed,
-            stale_series_ids=stale,
-            flagged_series_ids=flagged,
-            extreme_series_ids=extremes,
-        ),
-    )
-
-
-def _macro_comparison(
-    *,
-    current: Mapping[str, object] | None,
-    earlier: Mapping[str, object] | None,
-) -> MacroComparisonView | None:
-    if current is None or earlier is None:
-        return None
-    current_series = _reading_by_series(current)
-    earlier_series = _reading_by_series(earlier)
-    changes: list[MacroSeriesChangeView] = []
-    states: list[MacroStateChangeView] = []
-    for series_id in sorted(set(current_series) | set(earlier_series)):
-        now = current_series.get(series_id, {})
-        before = earlier_series.get(series_id, {})
-        if (now.get("latest_value"), now.get("observed_at")) != (
-            before.get("latest_value"),
-            before.get("observed_at"),
-        ):
-            now_value = _number(now.get("latest_value"))
-            before_value = _number(before.get("latest_value"))
-            now_z = _number(now.get("z_score"))
-            before_z = _number(before.get("z_score"))
-            changes.append(
-                MacroSeriesChangeView(
-                    series_id=series_id,
-                    name=str(now.get("name") or before.get("name") or series_id),
-                    frequency=str(now.get("frequency") or before.get("frequency") or ""),
-                    unit=str(now.get("unit") or before.get("unit") or ""),
-                    previous_observed_at=_optional_iso_date(before.get("observed_at")),
-                    observed_at=_optional_iso_date(now.get("observed_at")),
-                    previous_value=before_value,
-                    value=now_value,
-                    value_change=(
-                        None
-                        if now_value is None or before_value is None
-                        else now_value - before_value
-                    ),
-                    z_score_delta=(None if now_z is None or before_z is None else now_z - before_z),
-                )
-            )
-        now_flags = _flag_set(now)
-        before_flags = _flag_set(before)
-        states.extend(
-            MacroStateChangeView(series_id=series_id, kind="flag", state="raised", detail=flag)
-            for flag in sorted(now_flags - before_flags)
-        )
-        states.extend(
-            MacroStateChangeView(series_id=series_id, kind="flag", state="cleared", detail=flag)
-            for flag in sorted(before_flags - now_flags)
-        )
-        if bool(now.get("stale")) != bool(before.get("stale")):
-            states.append(
-                MacroStateChangeView(
-                    series_id=series_id,
-                    kind="stale",
-                    state="raised" if bool(now.get("stale")) else "cleared",
-                    detail="stale",
-                )
-            )
-        now_z = _number(now.get("z_score"))
-        before_z = _number(before.get("z_score"))
-        now_extreme = now_z is not None and abs(now_z) >= _DELTA_MACRO_Z_EDGE
-        before_extreme = before_z is not None and abs(before_z) >= _DELTA_MACRO_Z_EDGE
-        if now_extreme != before_extreme:
-            states.append(
-                MacroStateChangeView(
-                    series_id=series_id,
-                    kind="extreme",
-                    state="raised" if now_extreme else "cleared",
-                    detail=f"|z| >= {_DELTA_MACRO_Z_EDGE:g}",
-                )
-            )
-    daily = [item for item in changes if item.frequency == "daily"]
-    daily.sort(
-        key=lambda item: (
-            -(abs(item.z_score_delta) if item.z_score_delta is not None else -1.0),
-            item.series_id,
-        )
-    )
-    displayed_daily = daily[:_MACRO_DAILY_MOVE_LIMIT]
-    return MacroComparisonView(
-        from_as_of=date.fromisoformat(str(earlier["asof"])),
-        to_as_of=date.fromisoformat(str(current["asof"])),
-        changed_total=len(changes),
-        daily_changed_total=len(daily),
-        daily_moves=displayed_daily,
-        daily_moves_omitted=len(daily) - len(displayed_daily),
-        non_daily_updates=[item for item in changes if item.frequency != "daily"],
-        state_changes=states,
     )
 
 
@@ -1024,14 +920,6 @@ def _macro_context_excerpt(
         sizing_cautions=context.connection.sizing_cautions,
         warnings=warnings,
     )
-
-
-def _optional_mapping(value: object) -> Mapping[str, object] | None:
-    return value if isinstance(value, Mapping) else None
-
-
-def _optional_iso_date(value: object) -> date | None:
-    return None if value is None else date.fromisoformat(str(value))
 
 
 def build_macro_context_detail(
@@ -1315,11 +1203,7 @@ def _empty_dashboard(
     generated_at: datetime,
     ledger_exists: bool,
     ledger_error: str | None,
-    open_tasks: list[TaskView],
-    next_task: TaskView | None,
-    tasks_exist: bool,
     research_load_errors: list[str],
-    upcoming_events: list[UpcomingEventView],
 ) -> DashboardView:
     return DashboardView(
         generated_at=generated_at,
@@ -1340,10 +1224,6 @@ def _empty_dashboard(
         holdings=[],
         reservations=[],
         warnings=[],
-        upcoming_events=upcoming_events,
-        open_tasks=open_tasks,
-        next_task=next_task,
-        tasks_exist=tasks_exist,
         research_load_errors=research_load_errors,
     )
 
@@ -1546,6 +1426,13 @@ def _data_quality_flags(row: Mapping[str, object], metrics: Mapping[str, object]
         flags.append("分割補正")
     if metrics.get("forecast_special_gain_flag") is True:
         flags.append("一時益予想")
+    if metrics.get("stale_fin_flag") is True:
+        flags.append("stale_fin")
+    dividend_basis = metrics.get("dividend_basis")
+    if isinstance(dividend_basis, str) and (
+        dividend_basis.startswith("unresolved_") or dividend_basis == "unavailable"
+    ):
+        flags.append(dividend_basis)
     return flags
 
 
@@ -1583,6 +1470,7 @@ def _candidate_row_view(
     flags = _data_quality_flags(row, metrics)
     review_entry = (fair_value or {}).get(ticker)
     anchor = _review_entry_fair_value(review_entry)
+    market_price = _number(metrics.get("market_price_yen"))
     return SecurityAnalysisRowView(
         ticker=ticker,
         name=_text(row.get("name")),
@@ -1593,7 +1481,7 @@ def _candidate_row_view(
         portfolio_state=_portfolio_state(ticker, held=held, reserved=reserved),
         has_research=ticker in researched,
         fair_value_anchor_yen=anchor,
-        fair_value_gap_pct=None,
+        fair_value_gap_pct=_fair_value_gap_pct(anchor, market_price),
         er_level_quintile=_er_level_quintile(values.get("er_annual"), er_level_calibration),
         er_meets_8_5pct_band=_er_meets_hurdle(values.get("er_annual"), er_level_calibration),
         **values,
@@ -1761,15 +1649,6 @@ _DELTA_ER_MOVE_MIN_PP = 3.0
 # Report a holding's move only past this size. Daily noise is not a change worth a
 # reader's attention; a move this large is.
 _DELTA_HOLDING_MOVE_MIN_PCT = 5.0
-# The distribution edge the macro reading itself treats as the edge, and the band a
-# series has to come from to count as newly arriving there. Measured on the live
-# store, 45 sessions produced 8 crossings and every one came from 2.86-2.99 — the
-# same series oscillating across a single line, not a series reaching the edge.
-_DELTA_MACRO_Z_EDGE = 3.0
-# Twelve keeps the busiest observed day (35 changed daily series) to one scannable
-# desktop block and a bounded mobile scroll. The total/omitted counts preserve the
-# complete fact, and the full current-reading table remains directly below it.
-_MACRO_DAILY_MOVE_LIMIT = 12
 # The run's Review Set is the review population. Its candidate array is the whole
 # evaluated universe, so comparing that would report listings and delistings rather
 # than bargains appearing.
@@ -1787,7 +1666,7 @@ def build_daily_delta(
     reports observations only: which tickers entered or left the machine pool, which
     machine estimates moved, and which holdings stand at or above their recorded fair
     value. Whether any of that is worth a research cycle or a Position Review is the
-    reader's call. Macro changes belong to the dedicated daily brief.
+    reader's call. Macro context and readings belong to the dedicated Macro view.
 
     Sections degrade independently. A store that cannot answer is named in
     ``unavailable`` rather than reported as an empty result, because "no store" and
@@ -2047,24 +1926,6 @@ def _holding_deltas(
             )
         )
     return rows, without_fair_value, without_price
-
-
-def _reading_by_series(payload: Mapping[str, object]) -> dict[str, Mapping[str, object]]:
-    series = payload.get("series")
-    if not isinstance(series, list):
-        return {}
-    return {
-        str(item.get("series_id")): item
-        for item in series
-        if isinstance(item, Mapping) and item.get("series_id")
-    }
-
-
-def _flag_set(reading: Mapping[str, object] | None) -> set[str]:
-    if reading is None:
-        return set()
-    raw = reading.get("flags")
-    return {str(item) for item in raw} if isinstance(raw, list) else set()
 
 
 def _percent(value: float | None) -> float | None:

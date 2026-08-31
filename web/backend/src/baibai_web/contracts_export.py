@@ -40,6 +40,7 @@ from baibai_web.readmodel.models import (
     ScreeningHistoryView,
     ScreeningView,
     SecurityDetailView,
+    TasksView,
 )
 
 SCHEMA_PATH = Path("web/contracts/read-model.schema.json")
@@ -63,6 +64,7 @@ ROOT_VIEWS: Mapping[str, type[BaseModel]] = {
     "views/operations.json": OperationsView,
     "views/screening_latest.json": ScreeningView,
     "views/security--{ticker}.json": SecurityDetailView,
+    "views/tasks.json": TasksView,
 }
 
 # Routes the Worker answers without a stored artifact. `web/contracts/routes.json`

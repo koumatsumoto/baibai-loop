@@ -98,6 +98,8 @@ function resolveRoute(url: URL): RouteResult {
       return { kind: 'screening-history-index' }
     case '/api/operations':
       return view('operations.json')
+    case '/api/tasks':
+      return view('tasks.json')
     case '/api/meta':
       return view('meta.json')
     case '/api/macro':

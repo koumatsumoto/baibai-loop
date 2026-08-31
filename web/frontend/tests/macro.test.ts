@@ -1,7 +1,26 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import type { MacroGroupView, MacroReadingSeriesView, MacroReadingView, MacroSeriesFetchHealthView, MacroSeriesView } from '../src/api/types'
 import { buildIndicatorGroups, filterIndicatorGroups, macroSeriesHistoryUrl, readingStatistics, seriesWindowSummary, statisticName, summarizeIndicators, transformSeriesHistory } from '../src/lib/macro'
+
+const macroPageSource = readFileSync(resolve(import.meta.dirname, '../src/pages/MacroPage.tsx'), 'utf8')
+
+describe('Macro information architecture', () => {
+  it('puts current context before indicators and history', () => {
+    const headings = ['現在のマクロ局面', 'マクロ経済指標', '過去の経済分析レポート']
+    expect(macroPageSource).toContain('title="マクロ経済分析"')
+    expect(macroPageSource.indexOf(headings[0])).toBeLessThan(macroPageSource.indexOf(headings[1]))
+    expect(macroPageSource.indexOf(headings[1])).toBeLessThan(macroPageSource.indexOf(headings[2]))
+  })
+
+  it('does not restore the retired daily comparison presentation', () => {
+    expect(macroPageSource).not.toContain('machine_update')
+    expect(macroPageSource).not.toContain('前回からの変化')
+    expect(macroPageSource).not.toContain('分析後に何が変わったか')
+  })
+})
 
 function readingSeries(overrides: Partial<MacroReadingSeriesView> = {}): MacroReadingSeriesView {
   return {

@@ -28,9 +28,9 @@ from baibai_engine.read_api import (
     list_thesis_publications,
     list_thesis_review_publications,
     macro_context_payload,
-    macro_daily_readings,
     macro_indicator_series,
     macro_latest_observed_at,
+    macro_reading_snapshot,
     macro_series_fetch_health,
     next_earnings_dates,
     portfolio_ledger_document,
@@ -285,13 +285,10 @@ class DbMacroSource:
         self._reading_rules_path = reading_rules_path
         self.groups = groups
 
-    def daily_readings(
-        self, *, requested_asof: date, context_asof: date | None
-    ) -> dict[str, object] | None:
-        return macro_daily_readings(
+    def reading(self, *, as_of: date) -> dict[str, object] | None:
+        return macro_reading_snapshot(
             self._indicators_db_path,
-            requested_asof=requested_asof,
-            context_asof=context_asof,
+            asof=as_of,
             rules_path=self._reading_rules_path,
         )
 

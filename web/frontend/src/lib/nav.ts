@@ -3,7 +3,7 @@
 export const ACTIONS_URL =
   'https://github.com/koumatsumoto/baibai-loop/actions/workflows/cloud-daily-batch.yml'
 
-// The three top-level tabs. A tab is "active" for its own routes and for the
+// The four top-level tabs. A tab is "active" for its own routes and for the
 // tab-less detail routes that belong to it (report detail under Macro; Research Triage,
 // Capital Allocation Assessment and security detail under Stocks), so the header reflects the
 // current section.
@@ -29,4 +29,5 @@ export const NAV_TABS: readonly NavTab[] = [
       pathname.startsWith('/stocks/') ||
       pathname.startsWith('/securities/'),
   },
+  { to: '/tasks', label: 'Tasks', match: (pathname) => pathname === '/tasks' },
 ]

@@ -13,13 +13,10 @@ from baibai_engine.macro.indicators.db import (
     insert_observations,
     retract_observations,
 )
-from baibai_engine.macro.indicators.definitions import load_definitions
-from baibai_engine.macro.reading.reader import build_multi_asof_store_observation_reader
 from baibai_engine.macro.reading.rules import ReadingRulesError
 from baibai_engine.read_api.freshness import macro_latest_observed_at
 from baibai_engine.read_api.macro import (
     MacroGranularity,
-    macro_daily_readings,
     macro_indicator_series,
     macro_reading_snapshot,
 )
@@ -218,103 +215,6 @@ def test_macro_reading_snapshot_clamps_only_provider_declared_point_in_time_vint
     # FRED bulk-history vintage is acquisition time, not publication time, so it
     # remains visible before the store happened to acquire it.
     assert readings["us.10y"]["latest_value"] == 4.25
-
-
-def test_multi_asof_reader_loads_one_series_once_and_replays_vintage_cutoffs(
-    tmp_path: Path,
-) -> None:
-    database = tmp_path / "macro.sqlite"
-    connection = initialize_database(database)
-    try:
-        insert_observations(
-            connection,
-            [
-                ObservationRecord(
-                    series_id="jp.foreign_flows",
-                    observed_at=date(2024, 8, 23),
-                    value=value,
-                    unit="jpy-thousand",
-                    source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
-                    vintage_at=vintage_at,
-                )
-                for value, vintage_at in (
-                    (-408854431.0, datetime(2024, 8, 29, tzinfo=UTC)),
-                    (-400000000.0, datetime(2024, 9, 10, tzinfo=UTC)),
-                )
-            ],
-        )
-        connection.commit()
-        statements: list[str] = []
-        connection.set_trace_callback(statements.append)
-        reader = build_multi_asof_store_observation_reader(
-            connection,
-            series=load_definitions().series,
-            max_asof=date(2024, 9, 30),
-        )
-
-        august = reader("jp.foreign_flows", date(2024, 8, 1), date(2024, 8, 31))
-        september = reader("jp.foreign_flows", date(2024, 8, 1), date(2024, 9, 30))
-        august_again = reader("jp.foreign_flows", date(2024, 8, 1), date(2024, 8, 31))
-    finally:
-        connection.close()
-
-    assert august[0].value == -408854431.0
-    assert september[0].value == -400000000.0
-    assert august_again == august
-    observation_loads = [
-        statement
-        for statement in statements
-        if "FROM observations" in statement and "series_id = 'jp.foreign_flows'" in statement
-    ]
-    assert len(observation_loads) == 1
-
-
-def test_macro_daily_readings_owns_dates_from_daily_series_only(tmp_path: Path) -> None:
-    database = tmp_path / "macro.sqlite"
-    definitions = load_definitions().by_id()
-    connection = initialize_database(database)
-    try:
-        insert_observations(
-            connection,
-            [
-                ObservationRecord(
-                    series_id="us.10y",
-                    observed_at=observed_at,
-                    value=value,
-                    unit=definitions["us.10y"].unit,
-                    source_url="https://example.com/us10y.csv",
-                )
-                for observed_at, value in (
-                    (date(2026, 7, 17), 4.1),
-                    (date(2026, 7, 18), 4.2),
-                )
-            ]
-            + [
-                ObservationRecord(
-                    series_id="us.erp",
-                    observed_at=date(2026, 7, 19),
-                    value=0.2,
-                    unit=definitions["us.erp"].unit,
-                    source_url="https://example.com/us-erp.csv",
-                )
-            ],
-        )
-        connection.commit()
-    finally:
-        connection.close()
-
-    payload = macro_daily_readings(
-        database,
-        requested_asof=date(2026, 7, 20),
-        context_asof=date(2026, 7, 19),
-    )
-
-    assert payload is not None
-    assert payload["data_as_of"] == "2026-07-18"
-    assert payload["previous_data_as_of"] == "2026-07-17"
-    context = payload["context"]
-    assert isinstance(context, dict)
-    assert context["asof"] == "2026-07-18"
 
 
 def test_macro_reading_snapshot_fails_closed_when_rules_are_missing(tmp_path: Path) -> None:

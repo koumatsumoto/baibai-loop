@@ -42,6 +42,7 @@ from baibai_web.readmodel.builders import (
     build_screening,
     build_screening_history_run,
     build_security_detail,
+    build_tasks,
 )
 from baibai_web.readmodel.models import DashboardView, MetaBatch, ScreeningView
 from baibai_web.sources.db_sources import DbCandidatesSource
@@ -91,11 +92,23 @@ def export_read_models(
     dashboard = build_dashboard(
         stores.ledger,
         stores.research,
-        stores.tasks,
         stores.candidates,
         stores.market,
     )
     written.append(_write_model(views_dir / "dashboard.json", dashboard))
+
+    written.append(
+        _write_model(
+            views_dir / "tasks.json",
+            build_tasks(
+                stores.tasks,
+                stores.ledger,
+                stores.research,
+                stores.candidates,
+                stores.market,
+            ),
+        )
+    )
 
     screening = build_screening(
         stores.candidates,

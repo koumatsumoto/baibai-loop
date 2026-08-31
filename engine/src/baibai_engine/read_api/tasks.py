@@ -11,7 +11,7 @@ from .sqlite import read_application_rows as read_rows
 def task_store_exists(path: Path) -> bool:
     """Tell "no task store here" from "a store with no open task in it".
 
-    The Dashboard says nothing about tasks when the store is absent and says
+    The Tasks view says nothing about tasks when the store is absent and says
     "no open task" when it is present but empty, so the two must stay distinct.
     """
 

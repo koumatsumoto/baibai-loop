@@ -8,7 +8,7 @@ function activeLabels(pathname: string): string[] {
 
 describe('NAV_TABS active matching', () => {
   it('activates exactly one tab per route', () => {
-    for (const pathname of ['/', '/macro', '/macro/reports/x', '/stocks', '/research-triage', '/stocks/capital-allocation-assessments/x', '/securities/2331']) {
+    for (const pathname of ['/', '/macro', '/macro/reports/x', '/stocks', '/research-triage', '/stocks/capital-allocation-assessments/x', '/securities/2331', '/tasks']) {
       expect(activeLabels(pathname)).toHaveLength(1)
     }
   })
@@ -26,6 +26,11 @@ describe('NAV_TABS active matching', () => {
     expect(activeLabels('/research-triage')).toEqual(['Stocks'])
     expect(activeLabels('/stocks/capital-allocation-assessments/capital-allocation-assessment-20260728-cycle')).toEqual(['Stocks'])
     expect(activeLabels('/securities/2331')).toEqual(['Stocks'])
+  })
+
+  it('keeps Tasks isolated from Dashboard', () => {
+    expect(activeLabels('/tasks')).toEqual(['Tasks'])
+    expect(activeLabels('/')).toEqual(['Dashboard'])
   })
 
   it('leaves every tab inactive on an unknown route', () => {

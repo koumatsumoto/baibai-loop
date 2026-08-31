@@ -28,6 +28,7 @@ def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         health = client.get("/api/health")
         dashboard = client.get("/api/dashboard")
+        tasks = client.get("/api/tasks")
         screening = client.get("/api/screening/latest")
         screening_history = client.get("/api/screening/history")
         previous_screening = client.get("/api/screening/history/2026-07-01")
@@ -38,7 +39,9 @@ def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
         assert health.json() == {"status": "ok", "root": str(app_method_root.resolve())}
         assert dashboard.status_code == 200
         assert dashboard.json()["total_capital_yen"] == 10_419_500
-        assert len(dashboard.json()["open_tasks"]) == 2
+        assert "open_tasks" not in dashboard.json()
+        assert tasks.status_code == 200
+        assert len(tasks.json()["open_tasks"]) == 2
         assert screening.status_code == 200
         assert screening.json()["run"]["analyzed_security_count"] == 3
         assert screening.json()["run"]["run_at"] == "2026-07-08T12:00:00+09:00"
@@ -49,8 +52,7 @@ def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
         assert previous_screening.json()["rows"][0]["portfolio_state"] == "held"
         assert previous_screening.json()["rows"][0]["has_research"] is True
         assert macro.status_code == 200
-        assert macro.json()["requested_as_of"] == "2026-07-19"
-        assert macro.json()["data_as_of"] is None
+        assert macro.json()["reading"]["asof"] == "2026-07-19"
         assert macro.json()["reports"] == []
         assert [group["title"] for group in macro.json()["groups"]] == [
             "金利・金融政策",
@@ -223,7 +225,12 @@ def test_macro_api_indexes_published_reports_without_full_sections(
             published_at="2026-07-18T12:00:00+09:00",
         )
     )
-    document = MacroContextDocument.model_validate(macro_context_payload())
+    document = MacroContextDocument.model_validate(
+        macro_context_payload(
+            as_of="2026-07-19",
+            published_at="2026-07-20T12:00:00+09:00",
+        )
+    )
     MacroContextService(db_path).publish(previous, expected_head=None)
     MacroContextService(db_path).publish(document, expected_head=previous.context_id)
 
@@ -234,6 +241,8 @@ def test_macro_api_indexes_published_reports_without_full_sections(
     body = response.json()
     # The brief keeps a bounded decision excerpt; the full ten sections stay in detail.
     assert body["latest_context"]["context_id"] == document.context_id
+    assert body["latest_context"]["as_of"] == "2026-07-19"
+    assert body["latest_context"]["published_at"] == "2026-07-20T12:00:00+09:00"
     assert "core" not in body["latest_context"]
     excerpt = body["latest_context"]
     assert excerpt["synthesis"]["dominant_forces"]
