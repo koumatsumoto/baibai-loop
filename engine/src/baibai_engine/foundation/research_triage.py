@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from .candidate_discovery import Nomination, ReviewSetAnalysis, ReviewSetMethod
 
@@ -41,9 +41,13 @@ class ResearchTriageEntry(BaseModel):
 
     @field_validator("rationale", "research_question", "key_risk")
     @classmethod
-    def _reject_scaffold_placeholder(cls, value: str | None) -> str | None:
-        if value is not None and value.strip().upper().startswith("TODO"):
-            raise ValueError("replace scaffold TODO text before publication")
+    def _validate_judgment_prose(cls, value: str | None, info: ValidationInfo) -> str | None:
+        if value is not None:
+            stripped = value.strip()
+            if not stripped:
+                raise ValueError(f"{info.field_name} must contain non-whitespace text")
+            if stripped.upper().startswith("TODO"):
+                raise ValueError("replace scaffold TODO text before publication")
         return value
 
     @model_validator(mode="after")
@@ -92,7 +96,7 @@ class ResearchTriage(BaseModel):
 
     @model_validator(mode="after")
     def _publication_shape(self) -> Self:
-        if self.published_at.tzinfo is None:
+        if self.published_at.tzinfo is None or self.published_at.utcoffset() is None:
             raise ValueError("published_at must include a timezone")
         tickers = [entry.ticker for entry in self.entries]
         if len(tickers) != len(set(tickers)):

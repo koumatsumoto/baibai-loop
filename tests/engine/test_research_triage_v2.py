@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
+import sqlite3
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import ValidationError
@@ -25,6 +29,9 @@ from baibai_engine.screening.research_triage import (
     ResearchTriageConflictError,
     ResearchTriageService,
 )
+
+_JST = ZoneInfo("Asia/Tokyo")
+_NOW = datetime(2026, 7, 22, 12, tzinfo=_JST)
 
 
 def _contracts() -> tuple[ResearchTriage, PublishedReviewSet]:
@@ -185,6 +192,205 @@ def test_publish_rejects_non_increasing_published_at(tmp_path: Path, published_a
 
 
 @pytest.mark.parametrize(
+    ("current_as_of", "current_time", "next_as_of", "next_time"),
+    [
+        (
+            "2026-07-19",
+            "2026-07-19T10:00:00+09:00",
+            "2026-07-20",
+            "2026-07-20T10:00:00+09:00",
+        ),
+        (
+            "2026-07-20",
+            "2026-07-20T10:00:00+09:00",
+            "2026-07-20",
+            "2026-07-20T10:00:01+09:00",
+        ),
+    ],
+    ids=["later-as-of", "same-as-of-later-publication"],
+)
+def test_publish_accepts_monotonic_head_progression(
+    tmp_path: Path,
+    current_as_of: str,
+    current_time: str,
+    next_as_of: str,
+    next_time: str,
+) -> None:
+    db_path = tmp_path / "app.sqlite"
+    initialize_database(db_path)
+    current, current_review_set = _publication(
+        as_of=current_as_of,
+        published_at=current_time,
+        research_triage_id="triage-current",
+        expected_prior=None,
+    )
+    following, following_review_set = _publication(
+        as_of=next_as_of,
+        published_at=next_time,
+        research_triage_id="triage-following",
+        expected_prior=current.research_triage_id,
+    )
+    service = ResearchTriageService(db_path)
+
+    assert (
+        service.publish(current, review_set=current_review_set, now=_NOW).research_triage_id
+        == current.research_triage_id
+    )
+    assert (
+        service.publish(following, review_set=following_review_set, now=_NOW).research_triage_id
+        == following.research_triage_id
+    )
+
+
+def test_first_v2_publish_can_follow_historical_v1_without_rewriting_it(tmp_path: Path) -> None:
+    db_path = tmp_path / "app.sqlite"
+    initialize_database(db_path)
+    historical_payload = {
+        "schema_version": 1,
+        "research_triage_id": "triage-historical-v1",
+        "entries": [],
+    }
+    historical_bytes = json.dumps(historical_payload, separators=(",", ":"))
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "INSERT INTO research_triage "
+            "(research_triage_id, review_set_id, run_revision_id, as_of, published_at, payload) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                "triage-historical-v1",
+                "review-set-historical-v1",
+                "run-historical-v1",
+                "2026-07-18",
+                "2026-07-18T10:00:00+09:00",
+                historical_bytes,
+            ),
+        )
+    triage, review_set = _publication(
+        as_of="2026-07-19",
+        published_at="2026-07-19T10:00:00+09:00",
+        research_triage_id="triage-first-v2",
+        expected_prior="triage-historical-v1",
+    )
+
+    assert (
+        ResearchTriageService(db_path)
+        .publish(triage, review_set=review_set, now=_NOW)
+        .research_triage_id
+        == triage.research_triage_id
+    )
+    with sqlite3.connect(db_path) as connection:
+        stored = connection.execute(
+            "SELECT payload FROM research_triage WHERE research_triage_id = ?",
+            ("triage-historical-v1",),
+        ).fetchone()
+    assert stored is not None
+    assert stored[0] == historical_bytes
+
+
+def test_same_prior_branch_is_rejected_after_the_first_draft_advances_head(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "app.sqlite"
+    initialize_database(db_path)
+    current, current_review_set = _publication(
+        as_of="2026-07-19",
+        published_at="2026-07-19T10:00:00+09:00",
+        research_triage_id="triage-current",
+        expected_prior=None,
+    )
+    first, first_review_set = _publication(
+        as_of="2026-07-20",
+        published_at="2026-07-20T10:00:00+09:00",
+        research_triage_id="triage-first-branch",
+        expected_prior=current.research_triage_id,
+    )
+    second, second_review_set = _publication(
+        as_of="2026-07-20",
+        published_at="2026-07-20T11:00:00+09:00",
+        research_triage_id="triage-second-branch",
+        expected_prior=current.research_triage_id,
+    )
+    service = ResearchTriageService(db_path)
+    service.publish(current, review_set=current_review_set, now=_NOW)
+    service.publish(first, review_set=first_review_set, now=_NOW)
+
+    with pytest.raises(ResearchTriageConflictError, match="expected prior ID is stale"):
+        service.publish(second, review_set=second_review_set, now=_NOW)
+
+
+def test_same_payload_remains_idempotent_after_a_later_head_exists(tmp_path: Path) -> None:
+    db_path = tmp_path / "app.sqlite"
+    initialize_database(db_path)
+    first, first_review_set = _publication(
+        as_of="2026-07-19",
+        published_at="2026-07-19T10:00:00+09:00",
+        research_triage_id="triage-first",
+        expected_prior=None,
+    )
+    later, later_review_set = _publication(
+        as_of="2026-07-20",
+        published_at="2026-07-20T10:00:00+09:00",
+        research_triage_id="triage-later",
+        expected_prior=first.research_triage_id,
+    )
+    service = ResearchTriageService(db_path)
+    first_published = service.publish(first, review_set=first_review_set, now=_NOW)
+    service.publish(later, review_set=later_review_set, now=_NOW)
+
+    assert service.publish(first, review_set=first_review_set, now=_NOW) == first_published
+
+
+@pytest.mark.parametrize(
+    ("published_at", "now", "message"),
+    [
+        (
+            "2026-07-20T12:00:01+09:00",
+            datetime(2026, 7, 20, 12, tzinfo=_JST),
+            "published-at must not be future",
+        ),
+        (
+            "2026-07-19T14:59:59+00:00",
+            _NOW,
+            "JST publication date must not precede as-of",
+        ),
+    ],
+    ids=["future", "JST-date-before-as-of"],
+)
+def test_publish_rejects_invalid_publication_clock(
+    tmp_path: Path, published_at: str, now: datetime, message: str
+) -> None:
+    db_path = tmp_path / "app.sqlite"
+    initialize_database(db_path)
+    triage, review_set = _publication(
+        as_of="2026-07-20",
+        published_at=published_at,
+        research_triage_id="triage-invalid-clock",
+        expected_prior=None,
+    )
+
+    with pytest.raises(ResearchTriageConflictError, match=message):
+        ResearchTriageService(db_path).publish(triage, review_set=review_set, now=now)
+
+
+def test_publish_rejects_a_naive_injected_clock(tmp_path: Path) -> None:
+    db_path = tmp_path / "app.sqlite"
+    initialize_database(db_path)
+    triage, review_set = _publication(
+        as_of="2026-07-20",
+        published_at="2026-07-20T10:00:00+09:00",
+        research_triage_id="triage-naive-clock",
+        expected_prior=None,
+    )
+
+    with pytest.raises(ResearchTriageConflictError, match="clock must include a timezone"):
+        ResearchTriageService(db_path).publish(
+            triage,
+            review_set=review_set,
+            now=datetime(2026, 7, 20, 12),  # noqa: DTZ001 - rejected naive clock fixture
+        )
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("rationale", " "),
@@ -203,6 +409,27 @@ def test_research_triage_entry_rejects_blank_judgment_prose(field: str, value: s
 def test_skip_entry_rejects_blank_rationale() -> None:
     with pytest.raises(ValidationError, match="rationale must contain non-whitespace text"):
         ResearchTriageEntry.model_validate(skip_entry("2331", reason=" \n\t"))
+
+
+def test_judgment_prose_is_validated_without_rewriting_whitespace() -> None:
+    rationale = "  業績回復の持続性を\n一次開示で確認する  "
+    entry = ResearchTriageEntry.model_validate(research_entry(rationale=rationale))
+
+    assert entry.rationale == rationale
+
+
+def test_leading_whitespace_does_not_bypass_todo_rejection() -> None:
+    with pytest.raises(ValidationError, match="replace scaffold TODO"):
+        ResearchTriageEntry.model_validate(research_entry(rationale="   TODO — 判断を書く"))
+
+
+def test_research_priorities_remain_contiguous() -> None:
+    payload = research_triage_payload(
+        entries=[research_entry("2331", rank=1), research_entry("0001", rank=3)]
+    )
+
+    with pytest.raises(ValidationError, match="priorities must be contiguous"):
+        ResearchTriage.model_validate(payload)
 
 
 @pytest.mark.parametrize("location", ["root", "band", "stats"])

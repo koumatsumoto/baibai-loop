@@ -266,6 +266,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] human result CLIを変更する場合、報告なしでno write、buy assessmentのdecision reference必須、missing fieldの質問、draft時canonical非変更、stale append head拒否をcontract testで確認したか
 - [ ] thesisがapprovedの場合、source snapshot、scenario、independent review、execution inputが同一thesis hashに束縛されるか
 - [ ] current decision の eligibility clock はoperation入口で1回だけ取得したtimezone-aware instantを全validationへ渡し、review等のevent timestampやartifactのas-ofへ差し替えていないか。naive clock、expiry直前・exact expiry・直後をnegative testで固定したか
+- [ ] immutable judgmentのglobal headをderived orderで持つ場合、全readerとwriter CASが同じ実時刻total orderを使い、新規publicationが`as_of`とtimestampの両方でheadを前進させるか。未来時刻、JST日付の逆行、同priorの分岐、空白だけの必須proseをnegative testで拒否し、same-ID idempotencyをprogression検査より先に処理するか
 - [ ] 統合判断はHTMLをreview対象にせず、comparison / thesis / assessmentへ別roleのcontent reviewを行い、全thesis core hashとreviewの変更をstaleとして拒否するか
 - [ ] `planned_limit / defer / no_allocation`の全経路で、購入方法または注文なしが比較結論と矛盾せず、未知source IDと手書き注文数値を拒否するか
 - [ ] `planned_limit`のportfolio exposureは、共通as-of・分母・current / prospective円額・比率・閾値・fallback銘柄が必須かつ機械整合し、欠損 / null / 0 / 負値 / nested未知field / 閾値warningの過不足 / fallback warningの過不足を拒否するか

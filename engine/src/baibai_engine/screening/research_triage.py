@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from contextlib import closing
+from datetime import UTC, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.paths import database_path
@@ -16,7 +18,10 @@ from baibai_engine.foundation.research_triage import (
     ResearchTriageEntry,
 )
 from baibai_engine.read_api.macro import latest_macro_context_payload, macro_context_payload
-from baibai_engine.read_api.research_triage import research_triage_payload_hash
+from baibai_engine.read_api.research_triage import (
+    _research_triage_head,
+    research_triage_payload_hash,
+)
 from baibai_engine.screening.discovery.review_set import PublishedReviewSet
 
 
@@ -43,6 +48,7 @@ class ResearchTriageService:
         triage: ResearchTriage,
         *,
         review_set: PublishedReviewSet,
+        now: datetime | None = None,
     ) -> ResearchTriage:
         app_db_path = database_path(self._db_path)
         latest_context = latest_macro_context_payload(app_db_path, as_of=triage.as_of)
@@ -104,13 +110,27 @@ class ResearchTriageService:
                         connection.rollback()
                         return triage
                     raise ResearchTriageConflictError("research triage identity already differs")
-                latest = connection.execute(
-                    "SELECT research_triage_id FROM research_triage "
-                    "ORDER BY as_of DESC, published_at DESC, research_triage_id DESC LIMIT 1"
-                ).fetchone()
-                latest_id = str(latest[0]) if latest is not None else None
-                if triage.expected_prior_research_triage_id != latest_id:
+                publication_clock = datetime.now(UTC) if now is None else now
+                if publication_clock.tzinfo is None or publication_clock.utcoffset() is None:
+                    raise ResearchTriageConflictError("publication clock must include a timezone")
+                if triage.published_at > publication_clock:
+                    raise ResearchTriageConflictError(
+                        "research triage published-at must not be future"
+                    )
+                if triage.published_at.astimezone(ZoneInfo("Asia/Tokyo")).date() < triage.as_of:
+                    raise ResearchTriageConflictError(
+                        "research triage JST publication date must not precede as-of"
+                    )
+                head = _research_triage_head(connection)
+                head_id = None if head is None else head.research_triage_id
+                if triage.expected_prior_research_triage_id != head_id:
                     raise ResearchTriageConflictError("research triage expected prior ID is stale")
+                if head is not None and triage.as_of < head.as_of:
+                    raise ResearchTriageConflictError(
+                        "research triage as-of must not move backward"
+                    )
+                if head is not None and triage.published_at <= head.published_at:
+                    raise ResearchTriageConflictError("research triage published-at must advance")
                 connection.execute(
                     "INSERT INTO research_triage "
                     "(research_triage_id, review_set_id, run_revision_id, "
