@@ -81,7 +81,8 @@ latest-main v2 rolloutはbaseline 2 cycleとは別のlive runであり、20件�
 ## Downstream explicit linkage
 
 - `capital_allocation_assessment.research_triage_id`という明示FKで接続できたのは2 Triage / 2 assessmentで、resultはいずれも`no_allocation`
-- Triageからthesisへの明示foreign/referenceは現行25 thesisに存在しないため、Triage→Thesis件数・buy件数・outcomeは`unavailable`
+- assessmentの`alternatives[].thesis_id`という明示referenceを介して2 Triage / 2 thesisへ接続できた。2 assessmentとも`no_allocation`なので、この明示chain上で新規allocationは0件
+- portfolio outcomeへの明示foreign/referenceはないため、Triage起点の3y/5y outcomeは`unavailable`
 - tickerと日付の近さでは補完していない。したがって`unavailable`を0件と解釈しない
 
 この断面から「買付0だからscreening失敗」「skipが多いから成功」「多様性があるから低E[r]でも問題なし」のいずれも結論できない。T1/T2には3y/5yのmethod-faithful cohortと明示downstream linkageが必要である。
