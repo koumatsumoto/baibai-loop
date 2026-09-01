@@ -54,7 +54,7 @@ class PublishedReviewSet(BaseModel):
     run_revision_id: str = Field(min_length=1)
     as_of: date
     created_at: datetime
-    screening_rules_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    screening_rules_hash: str = Field(min_length=1)
     method: ReviewSetMethod
     entries: tuple[ReviewSetEntry, ...]
     diagnostics: Mapping[str, object]
