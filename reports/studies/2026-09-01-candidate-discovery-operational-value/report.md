@@ -38,10 +38,10 @@ same-universe challengerの再検証対象とprovenance:
 
 | run / Review Set / Triage | matching rules | immutable payload SHA-256 |
 | --- | --- | --- |
-| `run-revision-6fe887f90b5b4868a12df56f802ae47a` / `review-set-20260828-548f88dc3560` / `research-triage-20260828-current-method-operational-validation` | `496360cbb831f965` / `method/screening/rules/2026-08-30T215359+0900.yaml` | run `12651dea614d7b944b9403df9a54148374ecd8d13ec7a28ccf9636549ac44780`; Review Set `1e30bdc21ab4261bdb96a573436e7eced3125bd096d8c461537af878ecce7d8c`; Triage `5c89e6839c54de36498ec94c9e0746bdfbf570ba791ed2ef4cab0758fab67121` |
-| `run-revision-174755085cd4454bb859428fc222c1cb` / `review-set-20260828-54b964d7791d` / `research-triage-20260828-v2-rollout-validation` | `d7afca967682ed39` / `method/screening/rules/2026-08-31T112223+0900.yaml` | run `9478b6e7259fb75c92fc2c4a87adac56f9481a8082a895eb08aeea1c16ecaedd`; Review Set `a86345b4112bf610e760294257e9328d88391586c4af2b3bc69ec6ebb8d32f9d`; Triage `615a7127a9fdb31ffb1ccff9cdd1b14912a3aeedbce89674db6e4ea393a4a33d` |
+| `run-revision-6fe887f90b5b4868a12df56f802ae47a` / `review-set-20260828-548f88dc3560` / `research-triage-20260828-current-method-operational-validation` | `496360cbb831f965` / `method/screening/rules/2026-08-30T215359+0900.yaml` | run `9b541facafe79041ee8b2390052ba56a2f69be7736dbd3f1c3d600a5e09969d3`; Review Set `91f895c6dd426e7af89de8f2b4be741c661f5ed5e5ecaa505825c49d9eb19291`; Triage `0772b1c18001442c21d754b6b4a1877afd4058f665d9ff80eec84207c28b1b4a` |
+| `run-revision-174755085cd4454bb859428fc222c1cb` / `review-set-20260828-54b964d7791d` / `research-triage-20260828-v2-rollout-validation` | `d7afca967682ed39` / `method/screening/rules/2026-08-31T112223+0900.yaml` | run `398f8a2802a8ace71efbd389d1c0bd1a8c62a5f9c570e8cb3ec13d37c806d272`; Review Set `de782e8251fb4e1f0ef978be0b3a0f5939b9bf3e6f6502d84144b6db77432278`; Triage `19350b31bc42d46060aaf517b8f05821ef581aaee7ac92b45039ca251865d357` |
 
-historical v1 15 payloadのordered aggregate SHA-256は`01e7208a570c9a28910a7e0f44eb35bbcacdeeadd5e2d6215773e0fed3088d29`。このstudyではstoreを書き換えていない。
+historical v1 15 payloadのordered aggregate SHA-256は`41f1ae0ed03e3c3385a3d593ffe683d91a1e2d1e0c5f855fd2872cf9cd4ff8cd`。このstudyではstoreを書き換えていない。
 
 ## Candidate supply
 
