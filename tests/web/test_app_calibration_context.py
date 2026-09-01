@@ -6,6 +6,10 @@ from pathlib import Path
 import yaml
 
 from baibai_engine.read_api import screening_calibration_method_identity
+from baibai_engine.read_api.er_calibration_context import (
+    candidate_er_band_context,
+    load_er_calibration_context,
+)
 from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_web.sources.calibration_context import load_er_level_calibration_context
@@ -120,6 +124,60 @@ def test_context_loader_accepts_current_generated_artifact(tmp_path: Path) -> No
     assert context is not None
     assert context.reference_horizon == "3y"
     assert context.horizons[0].bands[4].upper_er_annual is None
+
+    shared = load_er_calibration_context(
+        path,
+        expected_rules_hash=_IDENTITY[0],
+        expected_er_model_version=_IDENTITY[1],
+        as_of=date(2026, 8, 31),
+    )
+    assert shared.artifact is not None
+    allocations = candidate_er_band_context(shared.artifact, 0.1)
+    assert allocations[0]["bands"][0]["band_id"] == "q5"  # type: ignore[index]
+    assert allocations[0]["bands"][1]["band_id"] == "er_gte_8_5pct"  # type: ignore[index]
+
+
+def test_shared_loader_names_each_unavailable_reason(tmp_path: Path) -> None:
+    missing = load_er_calibration_context(
+        tmp_path / "missing.yaml",
+        expected_rules_hash=_IDENTITY[0],
+        expected_er_model_version=_IDENTITY[1],
+        as_of=date(2026, 8, 31),
+    )
+    assert missing.unavailable_reason == "missing_artifact"
+
+    path = tmp_path / "context.yaml"
+    _write(path, _artifact())
+    expired = load_er_calibration_context(
+        path,
+        expected_rules_hash=_IDENTITY[0],
+        expected_er_model_version=_IDENTITY[1],
+        as_of=date(2026, 9, 17),
+    )
+    assert expired.unavailable_reason == "expired"
+    rules = load_er_calibration_context(
+        path,
+        expected_rules_hash="different",
+        expected_er_model_version=_IDENTITY[1],
+        as_of=date(2026, 8, 31),
+    )
+    assert rules.unavailable_reason == "rules_identity_mismatch"
+    model = load_er_calibration_context(
+        path,
+        expected_rules_hash=_IDENTITY[0],
+        expected_er_model_version="different",
+        as_of=date(2026, 8, 31),
+    )
+    assert model.unavailable_reason == "er_model_identity_mismatch"
+
+    path.write_text("not: [valid", encoding="utf-8")
+    invalid = load_er_calibration_context(
+        path,
+        expected_rules_hash=_IDENTITY[0],
+        expected_er_model_version=_IDENTITY[1],
+        as_of=date(2026, 8, 31),
+    )
+    assert invalid.unavailable_reason == "invalid_artifact"
 
 
 def test_current_method_identity_matches_production_screening_contract() -> None:

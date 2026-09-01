@@ -70,6 +70,8 @@ Review Setの上限は20件、representation targetは`6 / 5 / 5 / 4`である�
 
 publisherはsource run、as-of、rules hash、method hash、全Security Analysisからpayloadを再計算し、不一致を拒否する。published rootは`screening_rules_hash`をprovenanceとして持つ。Review Setはapplication DBやResearch Triageを読まず、同じrun・rules・implementationから同じcompositionを再構築するL2である。短期run cacheに置き、日次membership履歴を別保存しない。
 
+Normalized Earnings Powerのnative eligibility/orderは`normalized_per_3fy`と同sector gapを使う。FV/E[r] estimatorは`normalized_per_3fy`を入力にしない。この境界はReview Set composerの変更ではない。
+
 ## Research Triage v2
 
 application DB schema v19の`research_triage`はReview Set全entryをexactly onceで保持する。current writerはv2だけを発行し、既存v1 rowはimmutable historyとしてread modelだけが投影する。
@@ -82,6 +84,8 @@ scaffold はReview Set IDからrun storeのcanonical publicationを解決し、R
 `expected_prior_research_triage_id`はpublish transaction内でlatest headとCASし、古いdraftの分岐を拒否する。Contextが無ければ`null`は正常、古ければwarningであり、どちらもReview Setのnomination、membership、orderを変えない。eligible Contextがあるのに`null`は拒否する。明示的に古いeligible revisionを選ぶことはできるが、選択理由を既存の判断文へ残す。発行後payloadはimmutableである。
 
 Research TriageはResearch Setのadmission可能範囲を定める。人間は`research` entryの部分集合だけをResearch Setとして確定できる。`research prepare --research-triage-id`はas-ofと比較snapshotをv2 payloadから導出し、Review Set fileやrun storeを要求しない。manifestはTriage ID、canonical payload hash、ledger append headを持ち、status・scaffold・promoteを含む各gateがapplication DBを再読してhashとresearchable ticker集合を検証する。
+
+E[r] calibration contextは共有read contractがartifact schema、generated/expiry、3y/5y、quantile/band、rules hash、E[r] model versionを検証する。ResearchはTriage rootのrules hashとcandidate `analysis.expected_return`のmodel/version・ratio-valued `er_annual`を使い、利用不能理由を明示する。これはhistorical contextで、membership/order、Triage、FV、buy judgmentへ伝播しない。
 
 ## Daily batch
 

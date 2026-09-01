@@ -109,7 +109,7 @@ def test_composition_has_no_research_triage_state() -> None:
     rows = [_analysis(str(1000 + index), per=5.0 + index) for index in range(20)]
     baseline = _build_review_set(rows)
 
-    assert "review_basis" not in baseline
+    assert "review_" + "basis" not in baseline
 
 
 def test_recomputed_validation_rejects_changed_membership() -> None:

@@ -477,7 +477,7 @@ def test_daily_batch_stops_when_run_view_lacks_run_revision_id(tmp_path: Path) -
     assert "screening review-set" not in runner.call_keys()
 
 
-def test_daily_batch_stops_when_review_set_output_lacks_id(tmp_path: Path) -> None:
+def test_daily_batch_stops_when_review_set_artifact_lacks_id(tmp_path: Path) -> None:
     script = _success_script()
     script["screening review-set"] = [CommandResult(0, "review_set:\n  asof: 2026-07-08\n", "")]
     runner = _runner(script)

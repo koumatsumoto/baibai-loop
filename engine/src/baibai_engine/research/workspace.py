@@ -44,6 +44,10 @@ from baibai_engine.position.ledger import (
 )
 from baibai_engine.position.policy import PORTFOLIO_POLICY
 from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.read_api.er_calibration_context import (
+    candidate_er_band_context,
+    load_er_calibration_context,
+)
 from baibai_engine.read_api.research_triage import (
     current_research_triage,
     research_triage_payload_hash,
@@ -54,10 +58,6 @@ from .close_source import (
     resolve_previous_business_day_close,
 )
 from .decimal_number import decimal_to_number
-from .er_distribution_context import (
-    HURDLE_ER_ANNUAL,
-    valid_er_distribution_context_payload,
-)
 from .execution_policy import ExecutionPolicyError, max_acceptable_price
 from .portfolio_exposure import (
     planned_order_cash_warnings,
@@ -205,6 +205,7 @@ class _ResearchTriageBinding:
     research_triage_id: str
     asof: date
     payload_hash: str
+    screening_rules_hash: str
     researchable: tuple[str, ...]
     decision_by_ticker: dict[str, str]
     candidates: tuple[dict[str, object], ...]
@@ -259,6 +260,7 @@ def _resolve_research_triage(
         research_triage_id=triage.research_triage_id,
         asof=triage.as_of,
         payload_hash=research_triage_payload_hash(triage),
+        screening_rules_hash=triage.screening_rules_hash,
         researchable=researchable,
         decision_by_ticker=decisions,
         candidates=_triage_candidates(triage),
@@ -362,7 +364,7 @@ def prepare_workspace(
         "research_capacity": research_capacity,
     }
     er_context, er_context_ref = _load_er_distribution_context(
-        review_set={},
+        screening_rules_hash=gate.screening_rules_hash,
         candidates=annotated,
         asof=asof,
     )
@@ -538,7 +540,7 @@ def _research_comparison(
     candidates = [
         {
             "ticker": str(row.get("ticker") or ""),
-            "screening_rank": row.get("rank"),
+            "review_position": row.get("review_position"),
             "portfolio_annotation": row.get("portfolio_annotation"),
             "temporary_mispricing_hypothesis": None,
             "permanent_loss_conclusion": None,
@@ -566,133 +568,72 @@ def _research_comparison(
 
 def _load_er_distribution_context(
     *,
-    review_set: Mapping[str, object],
+    screening_rules_hash: str,
     candidates: Sequence[Mapping[str, object]],
     asof: date,
 ) -> tuple[dict[str, object] | None, dict[str, str] | None]:
-    metadata = review_set.get("method")
-    if not isinstance(metadata, Mapping):
-        return None, None
-    rules_hash = metadata.get("screening_rules_hash")
-    er_model_version = metadata.get("er_model_version")
-    if not isinstance(rules_hash, str) or not isinstance(er_model_version, str):
-        return None, None
+    versions: set[str] = set()
+    for candidate in candidates:
+        analysis = candidate.get("analysis")
+        expected_return = analysis.get("expected_return") if isinstance(analysis, Mapping) else None
+        if isinstance(expected_return, Mapping) and isinstance(
+            expected_return.get("er_model_version"), str
+        ):
+            versions.add(str(expected_return["er_model_version"]))
+    if len(versions) != 1:
+        return {"status": "unavailable", "reason": "er_model_identity_mismatch"}, None
+    er_model_version = next(iter(versions))
     path = ER_LEVEL_CALIBRATION_CONTEXT_PATH
-    if not path.is_file():
-        return None, None
-    try:
-        raw = safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, yaml.YAMLError):
-        return None, None
-    if (
-        not isinstance(raw, Mapping)
-        or not valid_er_distribution_context_payload(raw)
-        or raw.get("kind") != "er-level-calibration-context"
-        or raw.get("schema_version") != 2
-        or raw.get("screening_rules_hash") != rules_hash
-        or raw.get("er_model_version") != er_model_version
-    ):
-        return None, None
-    generated_at = raw.get("generated_at")
-    valid_through = raw.get("valid_through")
-    if not isinstance(generated_at, str) or not isinstance(valid_through, str):
-        return None, None
-    try:
-        generated_on = datetime.fromisoformat(generated_at).date()
-        expires_on = date.fromisoformat(valid_through)
-    except ValueError:
-        return None, None
-    if generated_on > asof or expires_on < asof:
-        return None, None
-    horizons = _dict_list(raw.get("horizons"))
+    loaded = load_er_calibration_context(
+        path,
+        expected_rules_hash=screening_rules_hash,
+        expected_er_model_version=er_model_version,
+        as_of=asof,
+    )
+    artifact = loaded.artifact
+    if artifact is None:
+        return {"status": "unavailable", "reason": loaded.unavailable_reason}, None
     candidate_context: dict[str, object] = {}
     for candidate in candidates:
         ticker = str(candidate.get("ticker") or "")
-        er_pct = candidate.get("expected_return_pct")
-        if isinstance(er_pct, bool) or not isinstance(er_pct, int | float):
+        analysis = candidate.get("analysis")
+        expected_return = analysis.get("expected_return") if isinstance(analysis, Mapping) else None
+        if not isinstance(expected_return, Mapping):
+            candidate_context[ticker] = {"status": "unavailable", "reason": "candidate_er_missing"}
             continue
-        er_annual = float(er_pct) / 100.0
-        matched_horizons: list[dict[str, object]] = []
-        for horizon in horizons:
-            bands = _dict_list(horizon.get("bands"))
-            quintile = next(
-                (
-                    band
-                    for band in bands
-                    if band.get("quintile") is not None and _quintile_contains(er_annual, band)
-                ),
-                None,
-            )
-            hurdle = next(
-                (
-                    band
-                    for band in bands
-                    if band.get("band_id") == "er_gte_8_5pct" and er_annual >= HURDLE_ER_ANNUAL
-                ),
-                None,
-            )
-            matched = [
-                _context_band_summary(band) for band in (quintile, hurdle) if band is not None
-            ]
-            matched = [band for band in matched if band is not None]
-            matched_horizons.append(
-                {
-                    "horizon": horizon.get("horizon"),
-                    "cohort_count": horizon.get("cohort_count"),
-                    "bands": matched,
-                }
-            )
+        if expected_return.get("er_model_version") != artifact.er_model_version:
+            candidate_context[ticker] = {
+                "status": "unavailable",
+                "reason": "er_model_identity_mismatch",
+            }
+            continue
+        er_value = expected_return.get("er_annual")
+        if (
+            isinstance(er_value, bool)
+            or not isinstance(er_value, int | float)
+            or not isfinite(float(er_value))
+        ):
+            candidate_context[ticker] = {"status": "unavailable", "reason": "candidate_er_missing"}
+            continue
+        er_annual = float(er_value)
         candidate_context[ticker] = {
+            "status": "historical_context_only",
             "er_annual": er_annual,
-            "horizons": matched_horizons,
+            "horizons": list(candidate_er_band_context(artifact, er_annual)),
         }
-    context = {
+    context: dict[str, object] = {
         "status": "historical_context_only",
         "artifact": path.as_posix(),
-        "generated_at": generated_at,
-        "valid_through": valid_through,
-        "screening_rules_hash": rules_hash,
-        "er_model_version": er_model_version,
-        "primary_realized_basis": raw.get("primary_realized_basis"),
+        "generated_at": artifact.generated_at.isoformat(),
+        "valid_through": artifact.valid_through.isoformat(),
+        "screening_rules_hash": screening_rules_hash,
+        "er_model_version": artifact.er_model_version,
+        "primary_realized_basis": artifact.primary_realized_basis,
         "primary_weighting": "ticker_asof_observation_equal",
         "interpretation": "historical distribution; not an individual security forecast",
         "candidates": candidate_context,
     }
     return context, {"path": path.as_posix(), "sha256": _sha256_file(path)}
-
-
-def _quintile_contains(er_annual: float, band: Mapping[str, object]) -> bool:
-    upper = band.get("upper_er_annual")
-    return upper is None or (
-        not isinstance(upper, bool) and isinstance(upper, int | float) and er_annual <= float(upper)
-    )
-
-
-def _context_band_summary(band: Mapping[str, object]) -> dict[str, object] | None:
-    primary = next(
-        (
-            basis
-            for basis in _dict_list(band.get("bases"))
-            if basis.get("basis") == "fy_actual_dividend_total_return"
-        ),
-        None,
-    )
-    if primary is None:
-        return None
-    stats = primary.get("ticker_equal")
-    if not isinstance(stats, Mapping):
-        return None
-    return {
-        "band_id": band.get("band_id"),
-        "lower_er_annual": band.get("lower_er_annual"),
-        "upper_er_annual": band.get("upper_er_annual"),
-        "median_predicted_er_annual": band.get("median_predicted_er_annual"),
-        "cohort_count": band.get("cohort_count"),
-        "median_n": band.get("median_n"),
-        "realized_total_return_ticker_equal": {
-            key: stats.get(key) for key in ("median", "q25", "q10", "trap_rate", "n")
-        },
-    }
 
 
 # --------------------------------------------------------------------------- #

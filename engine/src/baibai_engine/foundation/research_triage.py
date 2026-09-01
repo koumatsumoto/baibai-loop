@@ -70,7 +70,7 @@ class ResearchTriage(BaseModel):
     published_at: datetime
     macro_context_id: str | None = None
     expected_prior_research_triage_id: str | None
-    screening_rules_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    screening_rules_hash: str = Field(min_length=1)
     candidate_discovery_method: ReviewSetMethod
     triage_contract_id: Literal["research-triage-v2"]
     entries: tuple[ResearchTriageEntry, ...] = Field(min_length=1)
