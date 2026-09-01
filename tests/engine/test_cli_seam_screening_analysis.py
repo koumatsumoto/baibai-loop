@@ -6,9 +6,9 @@ from pathlib import Path
 import yaml
 
 from baibai_engine.read_api import list_research_triage_payloads
-from baibai_engine.research.workspace import _screening_estimate_from_review_set_output
+from baibai_engine.research.workspace import _screening_estimate_from_triage_snapshot
 from baibai_engine.screening.cli import main as screening_main
-from baibai_engine.screening.research_triage import ResearchTriageMachineSnapshot
+from baibai_engine.screening.research_triage import ResearchTriageCandidateSnapshot
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
@@ -117,6 +117,43 @@ def test_review_set_publish_cli_persists_the_exact_output(tmp_path: Path) -> Non
     assert stored.payload == emitted
 
 
+def test_review_set_composition_is_independent_of_application_state(tmp_path: Path) -> None:
+    runs_db = tmp_path / "runs.sqlite"
+    _publish_run(runs_db)
+
+    def publish() -> dict[str, object]:
+        output = tmp_path / f"review-set-{len(list(tmp_path.glob('review-set-*.yaml')))}.yaml"
+        assert (
+            screening_main(
+                [
+                    "review-set",
+                    "publish",
+                    "--asof",
+                    "2026-07-08",
+                    "--run-revision-id",
+                    "run-revision-cli-seam",
+                    "--runs-db",
+                    str(runs_db),
+                    "--rules-path",
+                    str(RULES_PATH),
+                    "--output-path",
+                    str(output),
+                ]
+            )
+            == 0
+        )
+        return yaml.safe_load(output.read_text(encoding="utf-8"))
+
+    first = publish()
+    app_db = tmp_path / "application.sqlite"
+    app_db.write_bytes(b"unrelated application state")
+    second = publish()
+
+    assert {
+        key: first[key] for key in ("method", "entries", "screening_rules_hash", "diagnostics")
+    } == {key: second[key] for key in ("method", "entries", "screening_rules_hash", "diagnostics")}
+
+
 def test_research_triage_publish_cli_binds_every_review_set_entry(tmp_path: Path) -> None:
     runs_db = tmp_path / "runs.sqlite"
     output = tmp_path / "review-set.yaml"
@@ -141,35 +178,39 @@ def test_research_triage_publish_cli_binds_every_review_set_entry(tmp_path: Path
         == 0
     )
     review_set = yaml.safe_load(output.read_text(encoding="utf-8"))
-    entries = []
-    for priority, item in enumerate(review_set["entries"], start=1):
-        entries.append(
+    draft_path = tmp_path / "triage.yaml"
+    app_db = tmp_path / "app.sqlite"
+    assert (
+        screening_main(
+            [
+                "research-triage",
+                "scaffold",
+                "--review-set-id",
+                review_set["review_set_id"],
+                "--runs-db",
+                str(runs_db),
+                "--output-path",
+                str(draft_path),
+                "--db",
+                str(app_db),
+            ]
+        )
+        == 0
+    )
+    draft = yaml.safe_load(draft_path.read_text(encoding="utf-8"))
+    draft["research_triage_id"] = "research-triage-20260708-cli-seam"
+    draft["published_at"] = "2026-07-08T19:00:00+09:00"
+    for priority, entry in enumerate(draft["entries"], start=1):
+        entry.update(
             {
-                "ticker": item["ticker"],
                 "decision": "research",
                 "priority": priority,
                 "rationale": "fundamental research is warranted",
                 "research_question": "durability?",
                 "key_risk": "cyclicality",
-                "machine_snapshot": None,
             }
         )
-    draft = {
-        "schema_version": 1,
-        "kind": "research_triage",
-        "research_triage_id": "research-triage-20260708-cli-seam",
-        "review_set_id": review_set["review_set_id"],
-        "run_revision_id": "run-revision-cli-seam",
-        "as_of": "2026-07-08",
-        "published_at": "2026-07-08T19:00:00+09:00",
-        "macro_context_id": None,
-        "review_basis_research_triage_id": None,
-        "triage_contract_id": "research-triage-v1",
-        "entries": entries,
-    }
-    draft_path = tmp_path / "triage.yaml"
     draft_path.write_text(yaml.safe_dump(draft, sort_keys=False), encoding="utf-8")
-    app_db = tmp_path / "app.sqlite"
     assert (
         screening_main(
             [
@@ -188,8 +229,9 @@ def test_research_triage_publish_cli_binds_every_review_set_entry(tmp_path: Path
     assert published["review_set_id"] == review_set["review_set_id"]
     unknown_entry = next(entry for entry in published["entries"] if entry["ticker"] == "1111")
     assert unknown_entry["decision"] == "research"
-    assert unknown_entry["machine_snapshot"]["expected_return"]["er_annual"] is None
-    assert unknown_entry["machine_snapshot"]["data_quality"]["stale_fin_flag"] is True
+    snapshot = unknown_entry["candidate_snapshot"]
+    assert snapshot["analysis"]["expected_return"]["er_annual"] is None
+    assert snapshot["analysis"]["data_quality"]["stale_fin_flag"] is True
 
 
 def test_research_triage_scaffold_carries_machine_coordinates_and_fails_closed(
@@ -223,7 +265,10 @@ def test_research_triage_scaffold_carries_machine_coordinates_and_fails_closed(
             [
                 "research-triage",
                 "scaffold",
-                str(review_set_output),
+                "--review-set-id",
+                yaml.safe_load(review_set_output.read_text(encoding="utf-8"))["review_set_id"],
+                "--runs-db",
+                str(runs_db),
                 "--output-path",
                 str(draft_output),
                 "--db",
@@ -241,13 +286,15 @@ def test_research_triage_scaffold_carries_machine_coordinates_and_fails_closed(
     assert draft["entries"][0]["decision"] == "TODO"
     assert draft["entries"][0]["rationale"].startswith("TODO")
     assert (
-        draft["entries"][0]["machine_snapshot"]["nominations"]
+        draft["entries"][0]["candidate_snapshot"]["nominations"]
         == review_set["entries"][0]["nominations"]
     )
-    parsed_snapshot = ResearchTriageMachineSnapshot.model_validate(
-        draft["entries"][0]["machine_snapshot"]
+    parsed_snapshot = ResearchTriageCandidateSnapshot.model_validate(
+        draft["entries"][0]["candidate_snapshot"]
     )
-    assert parsed_snapshot.nominations == tuple(review_set["entries"][0]["nominations"])
+    assert [item.model_dump(mode="json") for item in parsed_snapshot.nominations] == review_set[
+        "entries"
+    ][0]["nominations"]
     assert (
         screening_main(
             [
@@ -290,8 +337,16 @@ def test_thesis_scaffold_screening_estimate_names_its_local_source(tmp_path: Pat
     review_set = yaml.safe_load(review_set_output.read_text(encoding="utf-8"))
     ticker = review_set["entries"][0]["ticker"]
 
-    estimate, reason = _screening_estimate_from_review_set_output(
-        manifest={"inputs": {"review_set_output": {"path": str(review_set_output)}}},
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "research-workspace.yaml").write_text(
+        yaml.safe_dump(
+            {"as_of": "2026-07-08", "candidates": review_set["entries"]}, sort_keys=False
+        ),
+        encoding="utf-8",
+    )
+    estimate, reason = _screening_estimate_from_triage_snapshot(
+        workspace=workspace,
         ticker=ticker,
         asof=date(2026, 7, 8),
     )

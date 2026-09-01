@@ -19,14 +19,12 @@ Research Triage から人間が選んだ候補を一次情報で検証し、buy 
 
 ```bash
 uv run baibai-engine research prepare \
-  --asof <ASOF> \
-  --review-set-output <REVIEW_SET_OUTPUT> \
   --research-triage-id <RESEARCH_TRIAGE_ID> \
   --db stores/application/baibai.sqlite \
   --workspace .cache/research/<ASOF>
 ```
 
-`--review-set-output` は workspace 外の canonical Review Set output を指定する。場所が不明なら `baibai-engine screening review-set show` で取得し、`review-set publish` は再実行しない。生成された `research-workspace.yaml` の `research_triage` には、人間が選んだ ticker のうち `admissible_tickers` に含まれるものだけを書く。
+as-of、20件の比較snapshot、Researchへ進められるtickerはapplication DBのpublished Research Triage v2から導出する。Review Set fileやrun storeはResearch開始後のauthorityではない。生成された`research-workspace.yaml`の`research_set`には、人間が選んだtickerのうちTriageが`research`としたものだけを書く。
 
 ## 2. Case ごとの thesis を確定する
 

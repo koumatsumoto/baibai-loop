@@ -68,22 +68,20 @@ Review Setの上限は20件、representation targetは`6 / 5 / 5 / 4`である�
 
 同じtickerは1entryだけ持つ。各entryは`review_position`、identity、`nominations`、`support_count`、`rank_vector`、grouped `analysis`を持つ。`analysis.expected_return`はestimate snapshotであり、構成権限を持たない。
 
-publisherはsource run、as-of、rules hash、method hash、全Security Analysisからpayloadを再計算し、不一致を拒否する。Review Setは短期run cacheに置き、日次membership履歴を別保存しない。
+publisherはsource run、as-of、rules hash、method hash、全Security Analysisからpayloadを再計算し、不一致を拒否する。published rootは`screening_rules_hash`をprovenanceとして持つ。Review Setはapplication DBやResearch Triageを読まず、同じrun・rules・implementationから同じcompositionを再構築するL2である。短期run cacheに置き、日次membership履歴を別保存しない。
 
-## Review Basis
+## Research Triage v2
 
-Review Setは`review_basis.judged_through_research_triage_id`を持つ。Research Triage publisherはこの値とapplication DBのheadを照合する。古いbasisからの分岐、別runへの付け替え、entryの追加・削除を拒否する。
-
-## Research Triage v1
-
-application DB schema v19の`research_triage`はReview Set全entryをexactly onceで保持する。
+application DB schema v19の`research_triage`はReview Set全entryをexactly onceで保持する。current writerはv2だけを発行し、既存v1 rowはimmutable historyとしてread modelだけが投影する。
 
 - `research`: contiguousな`priority`、`rationale`、`research_question`、`key_risk`が必須
 - `skip`: `rationale`が必須で、`priority`、`research_question`、`key_risk`は禁止
 
-scaffold は Review Set の as-of 以下で最新の Macro Context を application DB から選び、`macro_context_id`へ束縛する。Context が無ければ `null` は正常、古ければ warning であり、どちらも Review Set の nomination、membership、orderを変えない。publisherは`review_set_id`、`run_revision_id`、`as_of`、全ticker、Review Basisに加え、Contextの存在と未来参照を検証する。eligible Contextがあるのに`null`は拒否する。明示的に古いeligible revisionを選ぶことはできるが、選択理由を既存の判断文へ残す。`review_position`、non-empty `nominations`、support、E[r] / FV / data-quality文脈を`machine_snapshot`へ焼き込み、発行後payloadはimmutableである。
+scaffold はReview Set IDからrun storeのcanonical publicationを解決し、Review Setのas-of以下で最新のMacro Contextと、application DBのlatest Triage IDを取得する。publisherは`review_set_id`、`run_revision_id`、`as_of`、`screening_rules_hash`、Candidate Discovery method、全tickerを検証し、draftの`candidate_snapshot`をsource Review Setから上書きする。snapshotはidentity、`review_position`、`nominations`、grouped `analysis`を持ち、`support_count`はnominations数から導出する。`rank_vector`や単独`fair_value`は複写しない。
 
-Research TriageはResearch Setのadmission可能範囲を定める。人間は`research` entryの部分集合だけをResearch Setとして確定でき、`research prepare`はapplication DBから毎回再解決してこの境界を検証する。
+`expected_prior_research_triage_id`はpublish transaction内でlatest headとCASし、古いdraftの分岐を拒否する。Contextが無ければ`null`は正常、古ければwarningであり、どちらもReview Setのnomination、membership、orderを変えない。eligible Contextがあるのに`null`は拒否する。明示的に古いeligible revisionを選ぶことはできるが、選択理由を既存の判断文へ残す。発行後payloadはimmutableである。
+
+Research TriageはResearch Setのadmission可能範囲を定める。人間は`research` entryの部分集合だけをResearch Setとして確定できる。`research prepare --research-triage-id`はas-ofと比較snapshotをv2 payloadから導出し、Review Set fileやrun storeを要求しない。manifestはTriage ID、canonical payload hash、ledger append headを持ち、status・scaffold・promoteを含む各gateがapplication DBを再読してhashとresearchable ticker集合を検証する。
 
 ## Daily batch
 
@@ -129,6 +127,6 @@ screeningが読むmarket storeのtableとidentityは次のとおり。列の意�
 - 同一入力でReview Setがbyte-equivalent
 - E[r]だけを変更してもmembership/order不変
 - target未充足をdiagnosticsへ明示
-- Research Triageの全entry一致、priority、Review Basis
+- Research Triageの全entry一致、priority、rules/method identity、expected prior ID
 - run store schema 5、application DB schema 19
 - Web/APIがReview Set、Research Triage、Capital Allocation Assessmentを同じbindingで表示

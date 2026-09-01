@@ -16,8 +16,7 @@ from baibai_engine.appdb import database_path
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.store import latest_daily_bar_date
-from baibai_engine.read_api.research_triage import latest_research_triage_payload
-from baibai_engine.screening.discovery import build_review_set
+from baibai_engine.screening.discovery import PublishedReviewSet, build_review_set
 from baibai_engine.screening.market_snapshot import build_market_snapshot
 from baibai_engine.screening.rule_config import (
     DEFAULT_RULES_PATH,
@@ -122,7 +121,6 @@ def review_set_publish_command(
     stdout: TextIO | None = None,
     run_revision_id: str | None = None,
     runs_db_path: Path | None = None,
-    app_db_path: Path | None = None,
 ) -> int:
     if output_path is not None and output_path.exists() and not force:
         print(f"output already exists: {output_path}", file=sys.stderr)
@@ -142,34 +140,28 @@ def review_set_publish_command(
         current_rules_hash = production_rules_contract_hash(rules.model_dump_json())
         if run.payload.get("screening_rules_hash") != current_rules_hash:
             raise ValueError("source run rules do not match current candidate discovery rules")
-        resolved_app_db = database_path(app_db_path)
-        latest_triage = (
-            latest_research_triage_payload(resolved_app_db) if resolved_app_db.is_file() else None
-        )
-        judged_through = (
-            str(latest_triage["research_triage_id"]) if latest_triage is not None else None
-        )
         review_set_id = f"review-set-{asof_date:%Y%m%d}-{uuid4().hex[:12]}"
         created_at = datetime.now(UTC)
-        payload = {
-            "review_set_id": review_set_id,
-            "run_revision_id": run_revision_id,
-            "as_of": asof_date.isoformat(),
-            "created_at": created_at.isoformat(),
-            **build_review_set(
-                run.security_analyses,
-                rules=rules.candidate_discovery,
-                required_jpx_flags=rules.universe.required_jpx_flags,
-                judged_through_research_triage_id=judged_through,
-            ),
-        }
+        payload = PublishedReviewSet.model_validate(
+            {
+                "review_set_id": review_set_id,
+                "run_revision_id": run_revision_id,
+                "as_of": asof_date,
+                "created_at": created_at,
+                "screening_rules_hash": current_rules_hash,
+                **build_review_set(
+                    run.security_analyses,
+                    rules=rules.candidate_discovery,
+                    required_jpx_flags=rules.universe.required_jpx_flags,
+                ),
+            }
+        ).model_dump(mode="json")
         publication = ScreeningRunStore(runs_db_path).publish_review_set(
             run_revision_id=run_revision_id,
             payload=payload,
             rules=rules.candidate_discovery,
             required_jpx_flags=rules.universe.required_jpx_flags,
             review_set_id=review_set_id,
-            created_at=created_at,
         )
     except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
         print(f"screening review-set publication failed: {exc}", file=sys.stderr)

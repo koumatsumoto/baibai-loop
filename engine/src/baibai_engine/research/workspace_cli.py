@@ -64,14 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     prepare_parser = subparsers.add_parser(
-        "prepare", help="build a research workspace from a Review Set and ResearchTriage"
-    )
-    prepare_parser.add_argument("--asof", required=True, help="workspace as-of date (YYYY-MM-DD)")
-    prepare_parser.add_argument(
-        "--review-set-output",
-        required=True,
-        type=Path,
-        help="canonical Review Set output; must be outside --workspace",
+        "prepare", help="build a research workspace from a self-contained ResearchTriage"
     )
     prepare_parser.add_argument(
         "--research-triage-id",
@@ -206,8 +199,6 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         match args.command:
             case "prepare":
                 prepared = prepare_workspace(
-                    asof=_parse_date(args.asof),
-                    review_set_output=args.review_set_output,
                     research_triage_id=args.research_triage_id,
                     db_path=args.db,
                     workspace=args.workspace,

@@ -91,8 +91,8 @@ from .models import (
     PortfolioState,
     PositionReviewView,
     ResearchRevisionView,
+    ResearchTriageCandidateSnapshotView,
     ResearchTriageEntryView,
-    ResearchTriageMachineSnapshotView,
     ResearchTriageView,
     ReservationView,
     ReviewSetAnalysisView,
@@ -699,14 +699,39 @@ def _required_int(value: object, *, field: str) -> int:
 
 
 def _research_triage_entry_view(raw: Mapping[str, object]) -> ResearchTriageEntryView:
-    """判断 1 件と、publish時に焼き込まれた部分的な機械座標を読む。"""
+    """v1 history and current v2を同じjudgment-time snapshot viewへ投影する。"""
 
+    snapshot = raw.get("candidate_snapshot")
+    view = ResearchTriageEntryView.model_validate(
+        {**raw, "machine_snapshot": None, "candidate_snapshot": None}
+    )
+    if isinstance(snapshot, Mapping):
+        analysis = snapshot.get("analysis")
+        analysis = analysis if isinstance(analysis, Mapping) else {}
+        nominations = snapshot.get("nominations")
+        normalized = {
+            "name": snapshot.get("name"),
+            "sector_33": snapshot.get("sector_33"),
+            "review_position": snapshot.get("review_position"),
+            "nominations": nominations,
+            "support_count": len(nominations) if isinstance(nominations, list) else None,
+            "expected_return": analysis.get("expected_return"),
+            "data_quality": analysis.get("data_quality"),
+        }
+        return view.model_copy(
+            update={
+                "candidate_snapshot": ResearchTriageCandidateSnapshotView.model_validate(normalized)
+            }
+        )
     snapshot = raw.get("machine_snapshot")
-    view = ResearchTriageEntryView.model_validate({**raw, "machine_snapshot": None})
     if not isinstance(snapshot, Mapping):
         return view
     return view.model_copy(
-        update={"machine_snapshot": ResearchTriageMachineSnapshotView.model_validate(snapshot)}
+        update={
+            "candidate_snapshot": ResearchTriageCandidateSnapshotView.model_validate(
+                {key: value for key, value in snapshot.items() if key != "fair_value"}
+            )
+        }
     )
 
 

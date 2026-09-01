@@ -21,6 +21,12 @@ import pytest
 import yaml
 from tests.helpers.fixed_now import FIXED_NOW
 from tests.helpers.macro_context import macro_context_payload
+from tests.helpers.research_triage import (
+    published_review_set,
+    research_entry,
+    research_triage_payload,
+    skip_entry,
+)
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
@@ -32,6 +38,7 @@ from baibai_engine.research.capital_allocation import (
     capital_allocation_draft_sha256,
 )
 from baibai_engine.research.workspace_cli import main as research_main
+from baibai_engine.screening.discovery.review_set import PublishedReviewSet
 from baibai_engine.screening.research_triage import ResearchTriage, ResearchTriageService
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -70,55 +77,33 @@ def _publish_research_triage(db_path: Path) -> str:
         expected_head=None,
     )
     research_triage = ResearchTriage.model_validate(
-        {
-            "schema_version": 1,
-            "kind": "research_triage",
-            "research_triage_id": RESEARCH_TRIAGE_ID,
-            "review_set_id": "review-set-cli-seam",
-            "run_revision_id": "runrev-cli-seam",
-            "as_of": "2026-07-21",
-            "published_at": "2026-07-21T15:00:00+09:00",
-            "macro_context_id": context_id,
-            "review_basis_research_triage_id": None,
-            "triage_contract_id": "research-triage-v1",
-            "entries": [
-                {
-                    "ticker": "2331",
-                    "decision": "research",
-                    "priority": 1,
-                    "rationale": "deep research",
-                    "research_question": RESEARCH_QUESTION,
-                    "key_risk": "demand",
-                },
-                {
-                    "ticker": "0001",
-                    "decision": "skip",
-                    "priority": None,
-                    "rationale": "insufficient evidence",
-                    "research_question": None,
-                    "key_risk": None,
-                },
+        research_triage_payload(
+            research_triage_id=RESEARCH_TRIAGE_ID,
+            review_set_id="review-set-cli-seam",
+            run_revision_id="runrev-cli-seam",
+            as_of="2026-07-21",
+            macro_context_id=context_id,
+            entries=[
+                research_entry(
+                    "2331",
+                    rank=1,
+                    rationale="deep research",
+                    research_question=RESEARCH_QUESTION,
+                    key_risk="demand",
+                ),
+                skip_entry("0001", rationale="insufficient evidence"),
             ],
-        }
+        )
+    )
+    review_set = published_review_set(
+        as_of="2026-07-21",
+        review_set_id="review-set-cli-seam",
+        run_revision_id="runrev-cli-seam",
+        tickers=("2331", "0001"),
     )
     ResearchTriageService(db_path).publish(
         research_triage,
-        review_set={
-            "review_set_id": research_triage.review_set_id,
-            "run_revision_id": research_triage.run_revision_id,
-            "as_of": research_triage.as_of.isoformat(),
-            "review_basis": {"judged_through_research_triage_id": None},
-            "entries": [
-                {
-                    "ticker": ticker,
-                    "review_position": position,
-                    "nominations": [{"valuation_approach_id": "current-earnings-power"}],
-                    "support_count": 1,
-                    "analysis": {"expected_return": {"er_annual": er}, "data_quality": {}},
-                }
-                for position, (ticker, er) in enumerate((("2331", 0.12), ("0001", 0.04)), start=1)
-            ],
-        },
+        review_set=PublishedReviewSet.model_validate(review_set),
     )
     return RESEARCH_TRIAGE_ID
 

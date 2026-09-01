@@ -547,6 +547,19 @@ export interface ResearchRevisionView {
   review_id: string | null
 }
 
+/**
+ * Machine coordinates frozen into one Research Triage judgment entry.
+ */
+export interface ResearchTriageCandidateSnapshotView {
+  name: string | null
+  sector_33: string | null
+  review_position: number
+  nominations: Record<string, unknown>[] | null
+  support_count: number | null
+  expected_return: Record<string, unknown> | null
+  data_quality: Record<string, unknown> | null
+}
+
 export interface ResearchTriageEntryView {
   ticker: string
   decision: string
@@ -554,19 +567,7 @@ export interface ResearchTriageEntryView {
   rationale: string
   research_question: string | null
   key_risk: string | null
-  machine_snapshot: ResearchTriageMachineSnapshotView | null
-}
-
-/**
- * Machine coordinates frozen into one Research Triage judgment entry.
- */
-export interface ResearchTriageMachineSnapshotView {
-  review_position: number
-  nominations: Record<string, unknown>[] | null
-  support_count: number | null
-  expected_return: Record<string, unknown> | null
-  fair_value: Record<string, unknown> | null
-  data_quality: Record<string, unknown> | null
+  candidate_snapshot: ResearchTriageCandidateSnapshotView | null
 }
 
 export interface ResearchTriageView {

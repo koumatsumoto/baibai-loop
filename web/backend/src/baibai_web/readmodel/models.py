@@ -395,14 +395,15 @@ class ReviewSetView(BaseModel):
     entries: list[ReviewSetEntryView]
 
 
-class ResearchTriageMachineSnapshotView(BaseModel):
+class ResearchTriageCandidateSnapshotView(BaseModel):
     """Machine coordinates frozen into one Research Triage judgment entry."""
 
+    name: str | None = None
+    sector_33: str | None = None
     review_position: int
     nominations: list[dict[str, object]] | None
     support_count: int | None
     expected_return: dict[str, object] | None
-    fair_value: dict[str, object] | None
     data_quality: dict[str, object] | None
 
 
@@ -415,7 +416,7 @@ class ResearchTriageEntryView(BaseModel):
     key_risk: str | None = None
     # 判断時の機械座標。source run が prune された後もレビュー面が読めるよう、
     # publish 時に judgment へ焼き込まれた値をそのまま返す。
-    machine_snapshot: ResearchTriageMachineSnapshotView | None = None
+    candidate_snapshot: ResearchTriageCandidateSnapshotView | None = None
 
 
 class ResearchTriageView(BaseModel):
