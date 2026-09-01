@@ -9,6 +9,8 @@ description: 人間が選んだ候補を一次情報で深掘りし、thesis、�
 
 Research Triage から人間が選んだ候補を一次情報で検証し、buy または理由付きの見送りへ確定する。broker 操作と発注は人間が行う。
 
+`normalized_per_3fy`はNormalized Earnings Powerのnative eligibility/order座標であり、ResearchのFV/E[r] estimator入力へ転用しない。
+
 ## 開始条件
 
 - Research Triageから継続中のactiveな`capital-allocation` operation sessionと、人間が確認したResearch Setがある。Research用に別sessionを開始しない。

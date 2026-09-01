@@ -238,7 +238,7 @@ def test_research_triage_scaffold_carries_machine_coordinates_and_fails_closed(
     tmp_path: Path,
 ) -> None:
     runs_db = tmp_path / "runs.sqlite"
-    review_set_output = tmp_path / "review-set.yaml"
+    review_set_path = tmp_path / "review-set.yaml"
     draft_output = tmp_path / "research-triage.yaml"
     _publish_run(runs_db)
     assert (
@@ -255,7 +255,7 @@ def test_research_triage_scaffold_carries_machine_coordinates_and_fails_closed(
                 "--rules-path",
                 str(RULES_PATH),
                 "--output-path",
-                str(review_set_output),
+                str(review_set_path),
             ]
         )
         == 0
@@ -266,7 +266,7 @@ def test_research_triage_scaffold_carries_machine_coordinates_and_fails_closed(
                 "research-triage",
                 "scaffold",
                 "--review-set-id",
-                yaml.safe_load(review_set_output.read_text(encoding="utf-8"))["review_set_id"],
+                yaml.safe_load(review_set_path.read_text(encoding="utf-8"))["review_set_id"],
                 "--runs-db",
                 str(runs_db),
                 "--output-path",
@@ -278,7 +278,7 @@ def test_research_triage_scaffold_carries_machine_coordinates_and_fails_closed(
         == 0
     )
 
-    review_set = yaml.safe_load(review_set_output.read_text(encoding="utf-8"))
+    review_set = yaml.safe_load(review_set_path.read_text(encoding="utf-8"))
     draft = yaml.safe_load(draft_output.read_text(encoding="utf-8"))
     assert [entry["ticker"] for entry in draft["entries"]] == [
         entry["ticker"] for entry in review_set["entries"]
@@ -313,7 +313,7 @@ def test_research_triage_scaffold_carries_machine_coordinates_and_fails_closed(
 
 def test_thesis_scaffold_screening_estimate_names_its_local_source(tmp_path: Path) -> None:
     runs_db = tmp_path / "runs.sqlite"
-    review_set_output = tmp_path / "review-set.yaml"
+    review_set_path = tmp_path / "review-set.yaml"
     _publish_run(runs_db)
     assert (
         screening_main(
@@ -329,12 +329,12 @@ def test_thesis_scaffold_screening_estimate_names_its_local_source(tmp_path: Pat
                 "--rules-path",
                 str(RULES_PATH),
                 "--output-path",
-                str(review_set_output),
+                str(review_set_path),
             ]
         )
         == 0
     )
-    review_set = yaml.safe_load(review_set_output.read_text(encoding="utf-8"))
+    review_set = yaml.safe_load(review_set_path.read_text(encoding="utf-8"))
     ticker = review_set["entries"][0]["ticker"]
 
     workspace = tmp_path / "workspace"

@@ -154,6 +154,8 @@ forward row は price-only の `price_return` / `status` と、`realized_dividen
 
 `er_level_calibration`、`margin_short_to_adv`、`normalized_per_3fy`はsubject必須metricではなくoptionalな既知metricである。事前登録固有の追加guardrailにする場合だけ`--required-metric`へ明示する。
 
+`normalized_per_3fy`がcalibrationのsubject mandatory metricではないことは、Candidate Discoveryで未使用という意味ではない。Normalized Earnings Powerのnative eligibility/orderには使い、FV/E[r] estimator入力には使わない。
+
 cache schema versionは互換性を決める入力から導出する（panel / diagnostics / forwardのfield、gate軸、sector-gap軸）。市場storeの`user_version`と同じく自動で進むので、列の形を変えずに観測の範囲だけ広げた変更でも版が動く。手で宣言する識別子は`VALUATION_CALCULATION_REVISION`だけで、式の意味の変更は内容から導けないためそこだけ人が進める。panelは、productionの730日財務入力を変えずに補助履歴から、3 FYのsplit-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少streakと還元変化composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、PIT-TTMの`operating_profit_to_assets`・`operating_margin`・`asset_turnover`を記録する。収益性levelはcalibration専用で、productionのcandidate、E[r]、FV、rank、gateへ渡さない。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化proxyである。`rules_hash`はrules・variant・入力窓・valuation calculation revision・Candidate Discovery method hashを含む。valuationの式・資本分母・価格基準またはCandidate Discoveryのeligibility・order・composer contractが異なるpanelは、method identityとcache schemaの不一致でfail closedにする。
 
 報告空売り残高の L1 は disclosure date と calculation date を分け、reporter 名tuple、ratio / shares / units、取消、provider row ordinalを保存する。panel の `reported_short_ratio` / `reported_short_breadth` / `reported_short_latest_disclosed_at` は両日が cohort as-of 以下の最新stateだけを集約する。公式 dataset floor から連続coverageを証明できる場合だけ無報告を明示的0とし、plan floor、coverage gap、同率最新stateの競合では該当値をnullにする。0は「0.5%未満または報告不在」であって空売り不存在を意味しない。この軸も calibration annotation 専用である。

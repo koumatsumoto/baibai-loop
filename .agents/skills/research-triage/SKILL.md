@@ -7,6 +7,8 @@ description: screening runからReview Setを発行し、全entryをresearch / s
 
 4つの価値評価法から有限のReview Setを作り、Fundamental Researchの時間を使う価値がある対象を判断する。Researchは買い推奨ではなく、Skipも正常な結論である。AIはbroker操作へ進まない。
 
+Normalized Earnings Powerは`normalized_per_3fy`をnative eligibility/orderに使う。Research Triageはこの機械順位を再評価せず、FV/E[r] estimator入力にも転用しない。
+
 ## 前提
 
 1. AGENTS.mdに従い`capital-allocation` sessionを開始または再開する。

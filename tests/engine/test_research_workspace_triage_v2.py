@@ -13,6 +13,7 @@ from tests.helpers.research_triage import (
     skip_entry,
 )
 
+from baibai_engine.research import workspace as workspace_module
 from baibai_engine.research.workspace import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
@@ -66,8 +67,11 @@ def _publish_triage(db_path: Path, *, research: bool = True) -> ResearchTriage:
 
 
 def test_prepare_and_status_need_only_published_triage_id(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(
+        workspace_module, "ER_LEVEL_CALIBRATION_CONTEXT_PATH", tmp_path / "missing-context.yaml"
+    )
     db_path = tmp_path / "app.sqlite"
     triage = _publish_triage(db_path)
     workspace = tmp_path / "workspace"
@@ -91,6 +95,11 @@ def test_prepare_and_status_need_only_published_triage_id(
     assert prepared_output["actionable"] is True
     assert prepared_output["researchable_tickers"] == ["2331"]
     assert not (workspace / "review-set.yaml").exists()
+    comparison = yaml.safe_load((workspace / "research-comparison.yaml").read_text())
+    assert comparison["er_realized_distribution_context"] == {
+        "status": "unavailable",
+        "reason": "missing_artifact",
+    }
     assert compute_status(workspace, db_path=db_path)["research_triage"] == {
         "purpose": "fundamental_research",
         "research_triage_id": triage.research_triage_id,
