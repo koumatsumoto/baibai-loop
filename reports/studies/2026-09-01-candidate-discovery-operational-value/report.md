@@ -2,9 +2,26 @@
 
 ## 結論
 
-このstudyはCandidate Discoveryのalphaやmethod superiorityを証明しない。既存artifactから観測できるのは、16 cycle・320 judgmentが57 tickerへ集中し、Researchへ進めたのは18件（5.6%）、既観測tickerの再判断263件のうち直前も今回もskipだったものが240件（91.3%）という運用実態である。latest-mainのv2 rollout cycleでは、Review Setとpure E[r] top20のoverlapは0/20、Review Set E[r]中央値は1.685%、負値は7/20だった。これはCandidate Discoveryが高E[r]順ではないという既存境界を測った結果であり、その良否を確定するものではない。
+このstudyはCandidate Discoveryのalphaやmethod superiorityを証明しない。application DBには16件・320 judgmentのimmutableなpublished Triage revisionsがあるが、これらを16 independent operation cyclesとは数えない。current contractで明示接続できるv2 operation cycleは1件で、human Research Set確定待ちのcheckpointにある。したがって、全revisionを使ったResearch yieldやrepeat-skipはpublication履歴の記述統計であり、独立した運用performance標本ではない。
 
-T1（良い候補供給）は未確定、T2（高値・permanent loss・data defectを止めたか）はjudgment yieldとskipまでは観測可能だがoutcome未接続、T3（人間時間・運用負荷）は低いResearch yieldと高いrepeat-skip、および今回の入力削減から改善余地と改善内容を観測できる。method tuningの開始条件であるv2 6 cycle / 60 unique tickerは、rollout後も1 / 20であり未達である。
+T1（良い候補供給）は未確定、T2（高値・permanent loss・data defectを止めたか）はpublication上のjudgmentとskipまでは観測可能だがoutcome未接続、T3（人間時間・運用負荷）は今回の入力削減を観測できる。method tuningの開始条件であるexplicit linked v2 operation cycle 6件 / v2 judged unique ticker 60件は、rollout後も1 / 20であり未達である。
+
+## 2026-09-01 correction — comparison universeとcycle分母
+
+初版には2つの測定誤りがあった。過去値は削除せず、以下を正本へ訂正する。
+
+| 指標 | 旧値 | 補正後値 | 差が出た理由 |
+| --- | ---: | ---: | --- |
+| pure E[r]母集団 | all Security Analysis 3,705件（finite 3,635件） | production eligibilityを満たすcommon eligible population 1,592件（finite E[r] 1,591件） | 旧値はReview Setが選択できない銘柄をchallengerへ含めていた |
+| pure E[r] top20 lower bound | 8.55% | 7.45% | 同じrunにmatchingするrules identityでeligibilityを再適用した |
+| pure E[r] top20 range / median | 8.55–10.92% / 8.96% | 7.45–9.10% / 8.46% | comparison universeを揃えたため |
+| pure E[r] top20 negative count | 0 | 0 | 両母集団ともtop20には負値なし |
+| Review Set overlap | 0/20 | current-method v1: 0/20、v2 rollout: 1/20 | v2 Review Setでは5021がsame-universe challengerにも入る |
+| operation cycle分母 | 16 | explicit linked v2 operation cycle 1 | 16はDB上のpublished revisionsであり、v2 Triage・distinct Review Set・human checkpoint/completionの接続を要求していなかった |
+
+all Security Analysis版は`all Security Analysis diagnostic`としてのみ残す。feasible challenger、opportunity cost、Candidate Discovery performance comparisonには使わない。補正後のpure E[r]は、各runの`screening_rules_hash`に一致するproduction rulesを解決し、market cap・turnover・listing span・required JPX flags・required factsを同じproduction eligibility contractで検査してから、finite `metrics.er_annual`を`er_annual DESC, ticker ASC`で並べた。対象2 runはいずれもmatching rulesを解決でき、common eligible populationとtop20は同一だった。
+
+この補正はmethod採否を意味しない。pure E[r]はReview Set membership/orderのauthorityではなく、同一feasible universeでopportunity costを測るdiagnosticに限る。3y / 5yのmethod-faithful outcomeもまだない。
 
 ## 対象と再現条件
 
@@ -12,24 +29,36 @@ T1（良い候補供給）は未確定、T2（高値・permanent loss・data def
 - application DB: schema 19、SHA-256 `c7d2582b9713670d87f67b5eb2fffdf944d77dc27914490b67a964f5aaa64c28`
 - run store: schema 5、SHA-256 `ffc50b4dfc8a3a284f7b9caece1577b079b8ff317fa440689b5757f7c8e15a9d`
 - 両storeとも`integrity_check=ok`、`foreign_key_check`違反0
-- application DBの全Research Triage 16件を対象とした。historical v1 15件は変更せず、latest-main rolloutでv2を1件追加した
-- approach/support/E[r] opportunity-costのfull-fidelity集計は、nominationsとsource Security Analysisが残るbaseline 2 cycleとlatest-main v2 rollout 1 cycleだけを対象とした。run prune済みの13 cycleを推測で補完しない
+- application DBの全Research Triage 16 revisionsを対象とした。historical v1 15件は変更せず、v2は1件
+- operation cycleはdistinct Review Set、v2 Research Triage、human checkpoint/completionをexplicit referenceで接続できるものだけとした。該当するのは`op-20260828-capital-allocation-2`の1件で、現在はhuman Research Set確定待ち。ticker/date近接では補完しない
+- approach/supportのfull-fidelity集計はsourceが残るvalidation revisionsの記述に限定し、duplicate observationを独立performance sampleに数えない。run prune済みのrevisionを別runから補完しない
 - 集計はread-only SQLite/JSON projectionで一時実行し、新table、event、job、dashboard、stable CLI、集計scriptを残していない
+
+same-universe challengerの再検証対象とprovenance:
+
+| run / Review Set / Triage | matching rules | immutable payload SHA-256 |
+| --- | --- | --- |
+| `run-revision-6fe887f90b5b4868a12df56f802ae47a` / `review-set-20260828-548f88dc3560` / `research-triage-20260828-current-method-operational-validation` | `496360cbb831f965` / `method/screening/rules/2026-08-30T215359+0900.yaml` | run `12651dea614d7b944b9403df9a54148374ecd8d13ec7a28ccf9636549ac44780`; Review Set `1e30bdc21ab4261bdb96a573436e7eced3125bd096d8c461537af878ecce7d8c`; Triage `5c89e6839c54de36498ec94c9e0746bdfbf570ba791ed2ef4cab0758fab67121` |
+| `run-revision-174755085cd4454bb859428fc222c1cb` / `review-set-20260828-54b964d7791d` / `research-triage-20260828-v2-rollout-validation` | `d7afca967682ed39` / `method/screening/rules/2026-08-31T112223+0900.yaml` | run `9478b6e7259fb75c92fc2c4a87adac56f9481a8082a895eb08aeea1c16ecaedd`; Review Set `a86345b4112bf610e760294257e9328d88391586c4af2b3bc69ec6ebb8d32f9d`; Triage `615a7127a9fdb31ffb1ccff9cdd1b14912a3aeedbce89674db6e4ea393a4a33d` |
+
+historical v1 15 payloadのordered aggregate SHA-256は`01e7208a570c9a28910a7e0f44eb35bbcacdeeadd5e2d6215773e0fed3088d29`。このstudyではstoreを書き換えていない。
 
 ## Candidate supply
 
 | 指標 | 観測値 | 読み方 |
 | --- | ---: | --- |
-| published Triage cycle | 16 | v1 history 15件 + v2 rollout 1件 |
-| judged entries | 320 | 各cycle 20件 |
+| published Triage revisions | 16 | v1 history 15件 + v2 rollout 1件。operation cycle数ではない |
+| effective linked v2 operation cycles | 1 | distinct Review Set + v2 Triage + human checkpointをexplicit referenceで接続。activeであり完了標本ではない |
+| validation revisions | 3 | 2026-08-28のoperational-validation-corrected / current-method-operational-validation / v2-rollout-validation。独立sampleとして合算しない |
+| judged entries | 320 | revision上は各20件。独立judgment標本とは扱わない |
 | unique ticker | 57 | 263件は再登場観測 |
-| 隣接cycle再登場率 | 平均84.0% | 15 transition、最小0/20、最大20/20 |
-| research / skip | 18 / 302 | research yield 5.6% |
-| repeat-skip | 240 / 263 = 91.3% | tickerの前回観測も今回もskip。自由文理由の自動分類はしていない |
+| 隣接revision再登場率 | 平均84.0% | 15 publication transition、最小0/20、最大20/20 |
+| research / skip | 18 / 302 | all published revisions上の5.6%。operation yieldではない |
+| repeat-skip | 240 / 263 = 91.3% | revision間の重複観測。独立cycleのrepeat-skip率には使わない |
 | 全320件 E[r]中央値 | 8.450% | 異なるhistorical methodを混ぜた記述統計で、performance比較には使わない |
-| 全320件 E[r]負値 | 23 | baseline current 2 cycleで16、v2 rolloutで7 |
+| 全320件 E[r]負値 | 23 | current-method validation 2 revisionsで16、v2 rollout revisionで7 |
 
-### cycle別human judgment
+### revision別human judgment
 
 | as-of / Triage | research | skip | yield | Review Set E[r] median | E[r]負値 |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -52,9 +81,9 @@ T1（良い候補供給）は未確定、T2（高値・permanent loss・data def
 
 ## current 4-approach contractの断面
 
-full-fidelity 2 cycleは同じ20 ticker・同じcompositionなので、以下は「1 cycleあたり / 2 cycle合計」で示す。
+full-fidelityで残る2 validation revisionsは同じ20 ticker・同じcompositionを再利用しているため、以下はpublication payloadの断面であり、2 independent performance samplesではない。旧集計との照合のため「1 revisionあたり / 2 revisions合計」で示す。
 
-| 指標 | 1 cycle | 2 cycle合計 |
+| 指標 | 1 revision | 2 revisions合計 |
 | --- | ---: | ---: |
 | single-support | 14 | 28 |
 | multi-support | 6 | 12 |
@@ -72,11 +101,13 @@ approachごとのReview Set contributionとjudgment:
 | Asset Value | 5 / 10 | 4 / 8 | 2 | 8 |
 | Reinvestment Value | 6 / 12 | 3 / 6 | 0 | 12 |
 
-pair overlapは1 cycleあたり、Current+Normalized 3、Current+Reinvestment 2、Normalized+Reinvestment 2、Asset+Normalized 1。3-support entryは各pairへ1件ずつ含めた。support-count別ではsingle-support 28件がすべてskip、support=2はresearch 2 / skip 8、support=3はskip 2だった。標本は2 duplicate cycleだけなので、approach採否やtarget変更の根拠にはしない。
+pair overlapは1 revisionあたり、Current+Normalized 3、Current+Reinvestment 2、Normalized+Reinvestment 2、Asset+Normalized 1。3-support entryは各pairへ1件ずつ含めた。support-count別ではsingle-support 28件がすべてskip、support=2はresearch 2 / skip 8、support=3はskip 2だった。duplicate validation revisionsなので、approach採否やtarget変更の根拠にはしない。
 
-pure E[r] top20はsource Security Analysis 3,705件を`er_annual DESC, ticker`で並べたdiagnosticで、両cycleともReview Set overlap 0/20、pure E[r] top20下限は8.55%だった。Review Set membership/orderへE[r]を使わない境界をそのまま測ったものであり、E[r]側を正解ラベルとは扱わない。
+`all Security Analysis diagnostic`はsource Security Analysis 3,705件（finite E[r] 3,635件）を`er_annual DESC, ticker ASC`で並べ、top20下限8.55%、range 8.55–10.92%、median 8.96%、negative 0だった。この値はReview Setが選択不能な銘柄を含むため、feasible challengerやopportunity costには使用しない。
 
-latest-main v2 rolloutはbaseline 2 cycleとは別のlive runであり、20件中16件が直前cycleから再登場した。support構成はsingle 13、support=2が6、support=3が1。approach別のsupported / unique contribution / research / skipは、Current Earnings Power `7 / 2 / 0 / 7`、Normalized Earnings Power `9 / 4 / 0 / 9`、Asset Value `6 / 4 / 0 / 6`、Reinvestment Value `6 / 3 / 1 / 5`だった。pure E[r] top20とのoverlapは0/20、下限は8.55%である。live inputの変化によるcycle差を、cleanupによるselection変更とは扱っていない。同一frozen runに対する回帰testではmembership / order / nominations / analysisが不変である。
+same-universe pure E[r] challengerはcommon eligible 1,592件（finite E[r] 1,591件）から作り、top20下限7.45%、range 7.45–9.10%、median 8.46%、negative 0だった。`review-set-20260828-548f88dc3560`とのoverlapは0/20、`review-set-20260828-54b964d7791d`とのoverlapは1/20（5021）である。
+
+latest-main v2 rollout revisionは別のlive run / distinct Review Setへ明示接続され、20件中16件が直前revisionから再登場した。support構成はsingle 13、support=2が6、support=3が1。approach別のsupported / unique contribution / research / skipは、Current Earnings Power `7 / 2 / 0 / 7`、Normalized Earnings Power `9 / 4 / 0 / 9`、Asset Value `6 / 4 / 0 / 6`、Reinvestment Value `6 / 3 / 1 / 5`だった。validation publicationでhuman checkpointは未完了のため、独立performance sampleには数えない。同一frozen runに対する回帰testではmembership / order / nominations / analysisが不変である。
 
 ## Downstream explicit linkage
 
@@ -100,13 +131,13 @@ workspaceはauthorityではなく、canonical Triage ID/hash/researchable ticker
 
 ## T1 / T2 / T3の読み分け
 
-- **T1 candidate quality**: v2 rollout Review Setがpure E[r] top20と0件overlapし、中央値1.685%だった事実はopportunity costを示す。しかし1 v2 cycleと未成熟outcomeでは、どちらが良い候補集合かは未確定
-- **T2 stop quality**: 302/320 skipとv2 cycleの7/20 negative E[r]は人間gateが多くを止めた事実。永久損失・高値・data defectを正しく止めたかは自由文分類や推測をせず、3y/5y outcomeまで未確定
-- **T3 operating value**: research yield 5.6%、repeat-skip 91.3%は人間時間の重複可能性を示す。今回のcutoverはResearch prepare required inputsを4→2、source file pathを1→0、publish後cross-store dependencyを2→1へ減らす
+- **T1 candidate quality**: v2 rollout Review Setはsame-universe pure E[r] top20と1件overlapし、Review Set E[r]中央値は1.685%だった。しかし1 linked v2 operation checkpointと未成熟outcomeでは、どちらが良い候補集合かは未確定
+- **T2 stop quality**: 302/320 skipとv2 revisionの7/20 negative E[r]はpublication上で人間gateが多くを止めた事実。永久損失・高値・data defectを正しく止めたかは自由文分類や推測をせず、3y/5y outcomeまで未確定
+- **T3 operating value**: all revisions上のresearch 5.6%、repeat-skip 91.3%は重複publicationの影響を含むため、operation performance値には使わない。今回のcutoverで直接観測できたのはResearch prepare required inputs 4→2、source file path 1→0、publish後cross-store dependency 2→1である
 
 ## 次の判断条件
 
-performance tuningはv2 Research Triage 6 cycle以上かつv2 judged unique ticker 60件以上になるまで開始しない。production tuningはさらにcurrent methodを忠実に再現する3y/5y cohortを要求する。rollout後は同じ既存artifact projectionを更新し、novelty単独や1 cycleの結果をsuccess判定にしない。
+performance tuningはexplicit linked v2 operation cycle 6件以上かつv2 judged unique ticker 60件以上になるまで開始しない。production tuningはさらにcurrent methodを忠実に再現する3y/5y cohortを要求する。published revision数やvalidation publicationをcycle分母へ足さず、novelty単独や1 cycleの結果をsuccess判定にしない。
 
 ## Rollout validation
 
