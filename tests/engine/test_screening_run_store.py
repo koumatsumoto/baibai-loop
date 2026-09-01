@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from baibai_engine.read_api import screening_review_set_payloads
 from baibai_engine.screening.discovery.review_set import ReviewSetContractError, build_review_set
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import (
@@ -125,3 +126,57 @@ def test_run_and_review_set_round_trip(tmp_path: Path) -> None:
         )
     with pytest.raises(ReviewSetContractError, match="published review set is invalid"):
         reader.get_review_set("review-set-a")
+
+
+def test_web_projection_reads_retained_pre_cutover_review_set_without_weakening_point_read(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "runs.sqlite"
+    screening_rules = load_screening_rules()
+    rules = screening_rules.candidate_discovery
+    required_jpx_flags = screening_rules.universe.required_jpx_flags
+    store = ScreeningRunStore(database)
+    store.publish_run(_run(), run_revision_id="run-a")
+    payload = build_review_set(
+        [_analysis()],
+        rules=rules,
+        required_jpx_flags=required_jpx_flags,
+    )
+    payload.update(
+        {
+            "review_set_id": "review-set-a",
+            "run_revision_id": "run-a",
+            "as_of": "2026-07-08",
+            "created_at": "2026-07-08T18:30:00+09:00",
+            "screening_rules_hash": "a" * 64,
+        }
+    )
+    store.publish_review_set(
+        run_revision_id="run-a",
+        payload=payload,
+        rules=rules,
+        required_jpx_flags=required_jpx_flags,
+        review_set_id="review-set-a",
+    )
+    assert len(screening_review_set_payloads(database, run_revision_id="run-a")) == 1
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE review_set SET payload = json_set("
+            "json_remove(payload, '$.screening_rules_hash'), "
+            "'$.historical_context', json('{}'))"
+        )
+
+    with pytest.raises(ReviewSetContractError, match="published review set is invalid"):
+        ScreeningRunReader(database).get_review_set("review-set-a")
+
+    publications = screening_review_set_payloads(database, run_revision_id="run-a")
+
+    assert [item["review_set_id"] for item in publications] == ["review-set-a"]
+    assert "screening_rules_hash" not in publications[0]["payload"]  # type: ignore[operator]
+
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE review_set SET payload = json_remove(payload, '$.historical_context')"
+        )
+    with pytest.raises(ReviewSetContractError, match="published review set is invalid"):
+        screening_review_set_payloads(database, run_revision_id="run-a")
