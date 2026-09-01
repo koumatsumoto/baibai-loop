@@ -35,15 +35,17 @@ description: screening runからReview Setを発行し、全entryをresearch / s
 
    再表示は`screening review-set show --review-set-id <ID>`を使う。E[r]・FV・macro・portfolio stateは参考文脈であり、entryの採否や順序を変えない。
 
-3. Review Setの出力から、評価法座標を転記済みのfail-closed draftを作り、全entryを`research`または`skip`へ分類する。
+3. Review Set IDから、評価法座標を転記済みのfail-closed draftを作り、全entryを`research`または`skip`へ分類する。
 
    ```bash
-   uv run baibai-engine screening research-triage scaffold <review-set.yaml> \
+   uv run baibai-engine screening research-triage scaffold \
+     --review-set-id <REVIEW_SET_ID> \
+     --runs-db stores/screening/runs.sqlite \
      --db stores/application/baibai.sqlite \
      --output-path <workdir>/research-triage.yaml
    ```
 
-   手書きで全ticker・評価法を転記しない。出力の`decision`と`TODO`散文はpublish前にすべて置換する。構造の参照は[`assets/draft-template.yaml`](./assets/draft-template.yaml)を使う。
+   手書きで全ticker・評価法を転記しない。出力の`decision`と`TODO`散文はpublish前にすべて置換する。scaffold出力がcurrent write contractの正本である。
 
    scaffold は Review Set の as-of 以下で最新の Macro Context を `macro_context_id` へ自動束縛する。非 `null` なら、draft の ID を使って Context を読む。
 
@@ -60,7 +62,7 @@ description: screening runからReview Setを発行し、全entryをresearch / s
    - economic factの`unknown` / stale / data-quality warningはsystem failureではない。調査価値があるなら`research_question`または`key_risk`へ渡し、unknownだけで`skip`を強制しない。
    - 原則はReview Setのmachine facts / contextで判断する。Research時間を使うかだけを安価に決める限定された1事実（現在のTOB・上場状態、直近開示で仮説が既に消滅したか等）は一次資料で確認できるが、正常利益、FV、scenario、business model、permanent lossの分析へ展開しない。限定確認後も不明ならunknownとしてResearchへ渡せる。
    - E[r]はestimateとしてのみ読み、個別予測やResearch判断の自動gateにしない。
-   - rationaleで評価法を名指す場合は、同じentryの`machine_snapshot.nominations`と一致させる。
+   - rationaleで評価法を名指す場合は、同じentryの`candidate_snapshot.nominations`と一致させる。
 
 4. canonical Research Triageを発行する。
 
@@ -69,14 +71,14 @@ description: screening runからReview Setを発行し、全entryをresearch / s
      --db stores/application/baibai.sqlite --runs-db stores/screening/runs.sqlite
    ```
 
-   publisherがReview SetとのID、run revision、as-of、全ticker一致、Review Basisに加え、Macro Context の存在と未来参照をfail-closeで検証し、機械座標をsnapshotへ焼き込む。as-of 以下の Context があるのに `null` は許さない。最新より古い eligible Context を明示選択する場合は、選択理由を該当 entry の既存判断文へ書く。Context が無いことは正常な `null`、古いことは warning であり、どちらも候補選定の gate にしない。
+   publisherがReview SetとのID、run revision、as-of、rules hash、method、全ticker一致を検証し、draft内のsnapshotをsource Review Setから上書きする。`expected_prior_research_triage_id`はpublish transaction内でheadとCASし、stale draftを拒否する。Macro Contextの存在と未来参照もfail-closeで検証する。as-of 以下の Context があるのに `null` は許さない。最新より古い eligible Context を明示選択する場合は、選択理由を該当 entry の既存判断文へ書く。Context が無いことは正常な `null`、古いことは warning であり、どちらも候補選定の gate にしない。
 
 5. `research` entryを人間へ提示し、人間がその部分集合をResearch Setとして確定する。確定結果をoperation checkpointへ記録する。0件なら`completion_reason: no-research`でsessionを完了できる。
 
 ## 停止条件
 
-- operation、ledger、store、Review Basisに矛盾がある
-- coverageがfuture、required storeがunreadable / corrupt、またはReview Set・run・as-of・Review Basis・machine snapshotのbindingが成立しない
+- operation、ledger、store、expected prior Triageに矛盾がある
+- coverageがfuture、required storeがunreadable / corrupt、またはReview Set・run・as-of・rules・method・candidate snapshotのbindingが成立しない
 - 人間がResearch Setを確定していないのにresearchまたはbroker操作へ進もうとしている
 
 ## 正本

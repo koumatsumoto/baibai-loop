@@ -92,7 +92,7 @@ Capital Allocation Assessment → plan-limit   ephemeral decision input
 human report → Ledger                        broker fact
 ```
 
-4つのValuation Approachは固有の企業価値座標でNominationを作る。Review Set composerは複数approachの支持、方法内順位、6/5/5/4のrepresentation target、最大20件だけを所有し、E[r]をmembership/orderへ使わない。Research Triageが`research / skip`を判断し、人間が`research`の部分集合をResearch Setへadmitする。`research prepare --research-triage-id`はcanonical Research Triageへ束縛する。
+4つのValuation Approachは固有の企業価値座標でNominationを作る。Review Set composerは複数approachの支持、方法内順位、6/5/5/4のrepresentation target、最大20件だけを所有し、E[r]をmembership/orderへ使わない。Review SetはSecurity Analysis runとCandidate Discovery methodだけから再構築するL2で、application DBを読まない。Research Triageが`research / skip`を判断し、判断時の20件snapshotを持つL3となる。人間が`research`の部分集合をResearch Setへadmitし、`research prepare --research-triage-id`はapplication DBのcanonical Triageだけから再開する。
 
 <a id="information-layers"></a>
 

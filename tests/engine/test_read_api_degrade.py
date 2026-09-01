@@ -50,6 +50,7 @@ _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
         "reconcile_portfolio",  # takes a document, not a path
         "reject_noncanonical_store_paths",  # startup layout guard, not a query
         "repository_root_error",  # inspects a directory layout, not a store
+        "research_triage_payload_hash",  # hashes a typed payload, not a store
         "safe_load",  # a YAML helper re-exported for callers
         "screening_calibration_method_identity",  # reads Git-managed method config
     }
@@ -354,7 +355,7 @@ def _store_with_research_triage(store: Path, payload: dict[str, object]) -> None
         )
 
 
-@pytest.mark.parametrize("schema_version", [2, 3, 4])
+@pytest.mark.parametrize("schema_version", [3, 4])
 def test_research_triage_reader_rejects_each_retired_version(
     tmp_path: Path, schema_version: int
 ) -> None:

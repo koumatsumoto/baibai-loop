@@ -276,10 +276,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     review_set_publish.add_argument("--runs-db", help="screening run store path")
     review_set_publish.add_argument(
-        "--app-db",
-        help="application DB whose latest Research Triage defines the Review Basis",
-    )
-    review_set_publish.add_argument(
         "--rules-path",
         default=os.environ.get("SCREENING_RULES_PATH") or str(DEFAULT_RULES_PATH),
         help=f"screening rules path (default: SCREENING_RULES_PATH or {DEFAULT_RULES_PATH})",
@@ -324,7 +320,8 @@ def build_parser() -> argparse.ArgumentParser:
         "scaffold",
         help="create a fail-closed draft with Review Set machine coordinates",
     )
-    triage_scaffold.add_argument("review_set_output")
+    triage_scaffold.add_argument("--review-set-id", required=True)
+    triage_scaffold.add_argument("--runs-db", help="screening run store path")
     triage_scaffold.add_argument("--output-path", required=True)
     triage_scaffold.add_argument("--db", help="application DB path")
     triage_scaffold.add_argument(
@@ -515,7 +512,6 @@ def main(argv: list[str] | None = None) -> int:
             force=args.force,
             run_revision_id=args.run_revision_id,
             runs_db_path=Path(args.runs_db) if args.runs_db else None,
-            app_db_path=Path(args.app_db) if args.app_db else None,
         )
 
     if args.command == "review-set" and args.review_set_command == "show":
@@ -534,9 +530,10 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.research_triage_command == "scaffold":
             return scaffold_research_triage(
-                Path(args.review_set_output),
+                args.review_set_id,
                 output_path=Path(args.output_path),
                 app_db_path=Path(args.db) if args.db else None,
+                runs_db_path=Path(args.runs_db) if args.runs_db else None,
                 force=args.force,
             )
         return publish_research_triage(

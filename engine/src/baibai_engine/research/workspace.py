@@ -31,13 +31,11 @@ from typing import get_args
 import yaml
 from pydantic import BaseModel, ValidationError
 
+from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.paths import database_path
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.repository_layout import ER_LEVEL_CALIBRATION_CONTEXT_PATH
-from baibai_engine.foundation.review_set import (
-    ReviewSetResolutionError,
-    resolve_review_set_entries,
-)
+from baibai_engine.foundation.research_triage import ResearchTriage
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.ledger import (
@@ -46,7 +44,10 @@ from baibai_engine.position.ledger import (
 )
 from baibai_engine.position.policy import PORTFOLIO_POLICY
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.read_api.research_triage import research_triage_payloads_for_review_set
+from baibai_engine.read_api.research_triage import (
+    current_research_triage,
+    research_triage_payload_hash,
+)
 
 from .close_source import (
     PreviousClose,
@@ -75,11 +76,7 @@ from .thesis import (
     thesis_core_hash,
 )
 
-TOOL_VERSION = "fundamental-research-v1"
-# Research reads the ResearchTriage judgment, so it only accepts the research_triage schema
-# that carries the current review-set snapshot.
-RESEARCH_TRIAGE_SCHEMA_VERSION = 1
-RESEARCH_TRIAGE_CONTRACT_ID = "research-triage-v1"
+TOOL_VERSION = "fundamental-research-v2"
 BOARD_LOT: int = PORTFOLIO_POLICY["order_constraints"]["board_lot"]
 # 対象 sizing 帯 (20-30万円 / 100株 = ¥2000-3000/株) はちょうど JPX 現物の ¥1 tick 帯。
 # max acceptable price の ceiling floor 丸めはこの帯で正確な ¥1 を使う。
@@ -206,132 +203,65 @@ class _ResearchTriageBinding:
     """
 
     research_triage_id: str
-    review_set_id: str
+    asof: date
+    payload_hash: str
     researchable: tuple[str, ...]
     decision_by_ticker: dict[str, str]
+    candidates: tuple[dict[str, object], ...]
 
 
 def _research_triage_decisions(
-    payload: Mapping[str, object], *, research_triage_id: str
+    triage: ResearchTriage,
 ) -> tuple[tuple[str, ...], dict[str, str]]:
     """Read one research_triage payload as a ResearchTriage judgment, or fail closed."""
 
-    version = payload.get("schema_version")
-    if version != RESEARCH_TRIAGE_SCHEMA_VERSION:
-        raise ResearchWorkspaceDataError(
-            f"research requires a ResearchTriage v{RESEARCH_TRIAGE_SCHEMA_VERSION} "
-            f"ResearchTriage judgment: {research_triage_id} is schema_version {version!r}"
-        )
-    contract_id = payload.get("triage_contract_id")
-    if contract_id != RESEARCH_TRIAGE_CONTRACT_ID:
-        raise ResearchWorkspaceDataError(
-            f"unsupported ResearchTriage contract on {research_triage_id}: {contract_id!r} "
-            f"(this build admits {RESEARCH_TRIAGE_CONTRACT_ID!r})"
-        )
-    entries = _dict_list(payload.get("entries"))
-    if not entries:
-        raise ResearchWorkspaceDataError(f"{research_triage_id} carries no ResearchTriage entries")
     decisions: dict[str, str] = {}
-    ordered: list[str] = []
-    for entry in entries:
-        ticker = _nonempty_string(entry.get("ticker"), label=f"{research_triage_id} entry ticker")
-        decision = entry.get("decision")
-        if decision not in {"research", "skip"}:
-            raise ResearchWorkspaceDataError(
-                f"{research_triage_id} entry {ticker} has an unknown "
-                f"ResearchTriage decision: {decision!r}"
-            )
-        if ticker in decisions:
-            raise ResearchWorkspaceDataError(f"{research_triage_id} judged {ticker} more than once")
-        decisions[ticker] = str(decision)
-        if decision == "research":
-            ordered.append(ticker)
-    return tuple(ordered), decisions
+    for entry in triage.entries:
+        decisions[entry.ticker] = entry.decision
+    return triage.researchable_tickers(), decisions
+
+
+def _triage_candidates(triage: ResearchTriage) -> tuple[dict[str, object], ...]:
+    rows = []
+    for entry in sorted(triage.entries, key=lambda item: item.candidate_snapshot.review_position):
+        snapshot = entry.candidate_snapshot
+        rows.append(
+            {
+                "ticker": entry.ticker,
+                "name": snapshot.name,
+                "sector_33": snapshot.sector_33,
+                "review_position": snapshot.review_position,
+                "nominations": [item.model_dump(mode="json") for item in snapshot.nominations],
+                "support_count": len(snapshot.nominations),
+                "analysis": snapshot.analysis.model_dump(mode="json"),
+            }
+        )
+    return tuple(rows)
 
 
 def _resolve_research_triage(
     *,
     db_path: Path | None,
     expected_research_triage_id: str,
-    review_set: Mapping[str, object],
-    review_set_output: Path,
-    asof: date,
-    review_tickers: Sequence[str],
 ) -> _ResearchTriageBinding:
-    """Resolve the canonical judgment for this Review Set and verify its binding.
+    """Resolve one current v2 judgment directly from the application DB."""
 
-    The lookup is by ``review_set_id``, never by the ID a caller hands in, so
-    renaming the bound research_triage cannot hand a workspace some other cycle's Gate:
-    the judgment a Review Set carries is a property of the store, not of the
-    request. What this does not claim is immutability of the whole binding — the
-    Review Set a workspace points at is named in the same editable manifest as its
-    hash, so re-pointing both together moves the workspace to that Review Set's
-    Triage. The property that holds either way is the one that matters here: a
-    workspace can only admit what canonical Research Triage marked ``research``.
-
-    Publication permits only one judgment per Review Set — a second one carries a
-    Review Basis that is stale by then — so any other count is a store this must
-    not interpret.
-
-    A workspace researching a different cycle than the judgment it names is not a
-    lesser form of the same operation: the E[r], the prices, and the rejection
-    reasons all belong to another as-of. Every mismatch is fail-close, before any
-    research capacity is spent.
-    """
-
-    review_set_id = _nonempty_string(review_set.get("review_set_id"), label="review_set_id")
     try:
-        payloads = research_triage_payloads_for_review_set(database_path(db_path), review_set_id)
-    except ValueError as exc:
+        triage = current_research_triage(database_path(db_path), expected_research_triage_id)
+        if triage is None:
+            raise ResearchWorkspaceDataError(
+                f"research triage is unavailable: {expected_research_triage_id}"
+            )
+    except (RuntimeError, ValueError, ValidationError) as exc:
         raise ResearchWorkspaceDataError(str(exc)) from exc
-    if not payloads:
-        raise ResearchWorkspaceDataError(
-            f"no canonical ResearchTriage judgment for Review Set {review_set_id} "
-            f"({review_set_output}); publish the research_triage before starting research"
-        )
-    if len(payloads) > 1:
-        named = ", ".join(sorted(str(payload.get("research_triage_id")) for payload in payloads))
-        raise ResearchWorkspaceDataError(
-            f"Review Set {review_set_id} carries more than one canonical judgment: {named}"
-        )
-    payload = payloads[0]
-    research_triage_id = _nonempty_string(
-        payload.get("research_triage_id"), label="research_triage_id"
-    )
-    if research_triage_id != expected_research_triage_id:
-        raise ResearchWorkspaceDataError(
-            f"Review Set {review_set_id} was judged by {research_triage_id}, "
-            f"not {expected_research_triage_id}"
-        )
-    researchable, decisions = _research_triage_decisions(
-        payload, research_triage_id=research_triage_id
-    )
-
-    expected_asof = asof.isoformat()
-    if payload.get("as_of") != expected_asof or review_set.get("as_of") != expected_asof:
-        raise ResearchWorkspaceDataError(
-            f"{research_triage_id} and its Review Set must both have as_of {expected_asof}"
-        )
-    if payload.get("run_revision_id") != review_set.get("run_revision_id"):
-        raise ResearchWorkspaceDataError(
-            f"{research_triage_id} judged run {payload.get('run_revision_id')!r}, not the "
-            f"Review Set run {review_set.get('run_revision_id')!r}"
-        )
-    # Publication already binds entries to the Review Set; re-checking here keeps a
-    # research_triage and a Review Set that disagree from meeting for the first time inside
-    # a research workspace.
-    if set(decisions) != set(review_tickers):
-        missing = sorted(set(review_tickers) - set(decisions))
-        extra = sorted(set(decisions) - set(review_tickers))
-        raise ResearchWorkspaceDataError(
-            f"{research_triage_id} entries must equal the Review Set; "
-            f"missing={missing}, extra={extra}"
-        )
+    researchable, decisions = _research_triage_decisions(triage)
     return _ResearchTriageBinding(
-        research_triage_id=research_triage_id,
-        review_set_id=review_set_id,
+        research_triage_id=triage.research_triage_id,
+        asof=triage.as_of,
+        payload_hash=research_triage_payload_hash(triage),
         researchable=researchable,
         decision_by_ticker=decisions,
+        candidates=_triage_candidates(triage),
     )
 
 
@@ -341,7 +271,7 @@ def _verify_research_triage(
     """Re-resolve the bound judgment on every workspace gate, from the pinned inputs.
 
     The manifest names the judgment so an operator can read it, but the identity is
-    re-derived from the Review Set each time, so a hand-written ticker list is never
+    re-derived from the canonical Research Triage each time, so a hand-written ticker list is never
     what a gate reads. Renaming the bound Research Triage stops matching the judgment;
     an edit cannot admit a ticker that canonical Research Triage marked ``skip``.
     """
@@ -356,34 +286,19 @@ def _verify_research_triage(
         binding.get("research_triage_id"),
         label="manifest.inputs.research_triage.research_triage_id",
     )
-    recorded_review_set_id = _nonempty_string(
-        binding.get("review_set_id"), label="manifest.inputs.research_triage.review_set_id"
+    recorded_payload_hash = _nonempty_string(
+        binding.get("payload_sha256"),
+        label="manifest.inputs.research_triage.payload_sha256",
     )
     recorded_tickers = binding.get("researchable_tickers")
     if not isinstance(recorded_tickers, Sequence) or isinstance(recorded_tickers, str | bytes):
         raise ResearchWorkspaceDataError(
             "manifest.inputs.research_triage.researchable_tickers must be an array"
         )
-    review_set_ref = _required_mapping(
-        inputs.get("review_set_output"), label="manifest.inputs.review_set_output"
-    )
-    review_set_output = Path(
-        _nonempty_string(review_set_ref.get("path"), label="manifest.inputs.review_set_output.path")
-    )
-    review_set = _load_mapping(review_set_output, label="Review Set output")
-    try:
-        review_tickers, _rows = resolve_review_set_entries(review_set)
-    except ReviewSetResolutionError as error:
-        raise ResearchWorkspaceDataError(f"Review Set is invalid: {error}") from error
-    asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     try:
         gate = _resolve_research_triage(
             db_path=db_path,
             expected_research_triage_id=recorded_research_triage_id,
-            review_set=review_set,
-            review_set_output=review_set_output,
-            asof=asof,
-            review_tickers=review_tickers,
         )
     except ResearchWorkspaceDataError as error:
         raise ResearchWorkspaceConflictError(
@@ -391,9 +306,11 @@ def _verify_research_triage(
             f"{recorded_research_triage_id}; rebuild the workspace with "
             f"`research prepare --force` ({error})"
         ) from error
-    if gate.review_set_id != recorded_review_set_id or list(gate.researchable) != [
-        str(value) for value in recorded_tickers
-    ]:
+    if (
+        gate.payload_hash != recorded_payload_hash
+        or gate.asof.isoformat() != str(manifest.get("as_of"))
+        or list(gate.researchable) != [str(value) for value in recorded_tickers]
+    ):
         raise ResearchWorkspaceConflictError(
             "workspace ResearchTriage binding does not match the canonical research_triage "
             f"{gate.research_triage_id}; rebuild the workspace with `research prepare --force`"
@@ -403,42 +320,24 @@ def _verify_research_triage(
 
 def prepare_workspace(
     *,
-    asof: date,
-    review_set_output: Path,
     research_triage_id: str,
     db_path: Path | None,
     workspace: Path,
     force: bool = False,
 ) -> PrepareResult:
-    """Build a workspace from a Review Set, ResearchTriage, and the ledger.
+    """Build a workspace from one self-contained ResearchTriage and the ledger.
 
     The workspace keeps the whole Review Set as comparison context but may only
     admit the Research Triage's ``research`` tickers into the Research Set.
     Holdings/reservations stay ledger annotations, never hard exclusions. A triage
     with no ``research`` entries is normal and still produces a workspace.
     """
-    if review_set_output.resolve().is_relative_to(workspace.resolve()):
-        raise ResearchWorkspaceDataError(
-            "--review-set-output must be outside --workspace; prepare writes generated "
-            "review-set.yaml into the workspace"
-        )
-    review_set = _load_mapping(review_set_output, label="Review Set output")
-    try:
-        review_tickers, review_rows = resolve_review_set_entries(review_set)
-    except ReviewSetResolutionError as error:
-        raise ResearchWorkspaceDataError(f"Review Set is invalid: {error}") from error
-    review_set_entries = [dict(review_rows[ticker]) for ticker in review_tickers]
-    _validate_review_set_estimate_asof(
-        review_set=review_set, review_set_entries=review_set_entries, asof=asof
-    )
     gate = _resolve_research_triage(
         db_path=db_path,
         expected_research_triage_id=research_triage_id,
-        review_set=review_set,
-        review_set_output=review_set_output,
-        asof=asof,
-        review_tickers=review_tickers,
     )
+    asof = gate.asof
+    review_set_entries = list(gate.candidates)
     snapshot, append_head = _load_snapshot(db_path)
 
     manifest_path = workspace / "manifest.yaml"
@@ -457,13 +356,13 @@ def prepare_workspace(
 
     workspace_doc = {
         "as_of": asof.isoformat(),
-        "review_set": review_set,
+        "candidates": annotated,
         "researchable_tickers": list(gate.researchable),
         "research_set": [],
         "research_capacity": research_capacity,
     }
     er_context, er_context_ref = _load_er_distribution_context(
-        review_set=review_set,
+        review_set={},
         candidates=annotated,
         asof=asof,
     )
@@ -474,15 +373,11 @@ def prepare_workspace(
     _write_workspace_file(workspace / "research-comparison.yaml", comparison_doc)
 
     manifest_inputs: dict[str, object] = {
-        "review_set_output": {
-            "path": review_set_output.as_posix(),
-            "sha256": _sha256_file(review_set_output),
-        },
         # A readable record of the binding, not its authority: every gate re-resolves
         # these tickers from the stored research_triage before trusting them.
         "research_triage": {
             "research_triage_id": gate.research_triage_id,
-            "review_set_id": gate.review_set_id,
+            "payload_sha256": gate.payload_hash,
             "researchable_tickers": list(gate.researchable),
         },
         "ledger": {
@@ -856,6 +751,12 @@ def _draft_status(workspace: Path, manifest: Mapping[str, object]) -> dict[str, 
     selected_ticker = _string_or_none(comparison.get("selected_ticker"))
 
     if not research_set_tickers:
+        if research_workspace.get("research_capacity") == 0:
+            return _status_payload(
+                workspace_status="no_research",
+                selected_ticker=None,
+                next_command=None,
+            )
         return _status_payload(
             workspace_status="awaiting_research_set_admission",
             selected_ticker=None,
@@ -994,7 +895,7 @@ def _status_payload(
     blocked_checks: Sequence[str] | None = None,
     thesis_validation_errors: Sequence[str] | None = None,
     review_validation_errors: Sequence[str] | None = None,
-    next_command: str,
+    next_command: str | None,
 ) -> dict[str, object]:
     return {
         "workspace_status": workspace_status,
@@ -1029,7 +930,7 @@ def _verify_external_inputs(
     purpose = str(manifest.get("purpose") or "fundamental_research")
     required_inputs: tuple[str, ...]
     if purpose == "fundamental_research":
-        required_inputs = ("review_set_output", "ledger")
+        required_inputs = ("ledger",)
         if "er_distribution_context" in inputs:
             required_inputs += ("er_distribution_context",)
     elif purpose == "position_review":
@@ -1124,13 +1025,29 @@ def _validate_editable_drafts(
     if purpose != "fundamental_research":
         raise ResearchWorkspaceDataError(f"manifest purpose is invalid: {purpose}")
 
-    review_set = _required_mapping(
-        research_workspace.get("review_set"), label="workspace.review_set"
-    )
-    try:
-        review_set_tickers, _ = resolve_review_set_entries(review_set)
-    except ReviewSetResolutionError as error:
-        raise ResearchWorkspaceDataError(f"workspace Review Set is invalid: {error}") from error
+    workspace_candidates = _dict_list(research_workspace.get("candidates"))
+    review_set_tickers = tuple(str(row.get("ticker") or "") for row in workspace_candidates)
+    expected_candidates = list(gate.candidates) if gate is not None else []
+    machine_candidates = [
+        {
+            key: row.get(key)
+            for key in (
+                "ticker",
+                "name",
+                "sector_33",
+                "review_position",
+                "nominations",
+                "support_count",
+                "analysis",
+            )
+        }
+        for row in workspace_candidates
+    ]
+    if canonical_json(machine_candidates) != canonical_json(expected_candidates):
+        raise ResearchWorkspaceConflictError(
+            "workspace candidate snapshot differs from canonical ResearchTriage; "
+            "rebuild the workspace with `research prepare --force`"
+        )
     research_set = research_workspace.get("research_set")
     research_capacity = research_workspace.get("research_capacity")
     if not isinstance(research_capacity, int) or research_capacity < 0:
@@ -1275,8 +1192,8 @@ def scaffold_thesis(
     if purpose == "position_review":
         screening_estimate, transfer_reason = None, "not_applicable_position_review"
     else:
-        screening_estimate, transfer_reason = _screening_estimate_from_review_set_output(
-            manifest=manifest,
+        screening_estimate, transfer_reason = _screening_estimate_from_triage_snapshot(
+            workspace=workspace,
             ticker=ticker,
             asof=asof,
         )
@@ -1418,26 +1335,18 @@ def _thesis_draft_skeleton(
     }
 
 
-def _screening_estimate_from_review_set_output(
-    *, manifest: Mapping[str, object], ticker: str, asof: date
+def _screening_estimate_from_triage_snapshot(
+    *, workspace: Path, ticker: str, asof: date
 ) -> tuple[dict[str, object] | None, str | None]:
-    inputs = _required_mapping(manifest.get("inputs"), label="manifest.inputs")
-    review_set_ref = _required_mapping(
-        inputs.get("review_set_output"), label="manifest.inputs.review_set_output"
+    research_workspace = _load_mapping(
+        workspace / "research-workspace.yaml", label="research workspace"
     )
-    review_set_path = _nonempty_string(
-        review_set_ref.get("path"), label="manifest.inputs.review_set_output.path"
-    )
-    review_set = _load_mapping(Path(review_set_path), label="Review Set output")
-    try:
-        _tickers, rows = resolve_review_set_entries(review_set)
-    except ReviewSetResolutionError as error:
-        raise ResearchWorkspaceDataError(f"Review Set is invalid: {error}") from error
+    rows = {str(row.get("ticker")): row for row in _dict_list(research_workspace.get("candidates"))}
     row = rows.get(ticker)
     if row is None:
         raise ResearchWorkspaceDataError(f"Review Set must contain ticker exactly once: {ticker}")
-    if review_set.get("as_of") != asof.isoformat():
-        raise ResearchWorkspaceDataError("Review Set as_of does not match manifest as_of")
+    if research_workspace.get("as_of") != asof.isoformat():
+        raise ResearchWorkspaceDataError("candidate snapshot as_of does not match manifest as_of")
     analysis = _required_mapping(row.get("analysis"), label="Review Set analysis")
     estimate = analysis.get("expected_return")
     if not isinstance(estimate, Mapping) or estimate.get("er_annual") is None:

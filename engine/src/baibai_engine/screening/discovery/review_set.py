@@ -4,13 +4,21 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
+from datetime import date, datetime
 from hashlib import sha256
 from math import isfinite
 from statistics import median
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from baibai_engine.appdb.json import canonical_json
+from baibai_engine.foundation.candidate_discovery import (
+    Nomination,
+    ReviewSetAnalysis,
+    ReviewSetEntry,
+    ReviewSetMethod,
+)
 from baibai_engine.foundation.coerce import metric_map, optional_float, string_or_none
 from baibai_engine.screening.metrics import MIN_SECTOR_MEDIAN_POPULATION
 from baibai_engine.screening.rule_config import CandidateDiscoveryRules
@@ -35,149 +43,44 @@ class ReviewSetContractError(ValueError):
     """Raised when a Review Set cannot be reproduced from its source analyses."""
 
 
-class Nomination(BaseModel):
+class PublishedReviewSet(BaseModel):
+    """Typed L2 publication rebuilt only from a screening run and its rules."""
+
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    valuation_approach_id: str = Field(min_length=1)
-    valuation_method_id: str = Field(min_length=1)
-    rank: int = Field(ge=1)
+    schema_version: Literal[1]
+    kind: Literal["review_set"]
+    review_set_id: str = Field(min_length=1)
+    run_revision_id: str = Field(min_length=1)
+    as_of: date
+    created_at: datetime
+    screening_rules_hash: str = Field(min_length=1)
+    method: ReviewSetMethod
+    entries: tuple[ReviewSetEntry, ...]
+    diagnostics: Mapping[str, object]
 
-
-class ReviewSetMethod(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    method_id: str = Field(min_length=1)
-    method_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
-    review_capacity: int = Field(gt=0)
-    nomination_depth: int = Field(gt=0)
-    representation_targets: Mapping[str, int]
-
-
-class _StrictAnalysisGroup(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-
-class IdentityLiquidityAnalysis(_StrictAnalysisGroup):
-    market_cap_oku: float | int | None
-    avg_turnover_oku: float | int | None
-    listing_span_days: float | int | None
-    jpx_flags: tuple[str, ...] | None
-
-    @field_validator("jpx_flags", mode="before")
+    @field_validator("as_of", mode="before")
     @classmethod
-    def _tuple_jpx_flags(cls, value: object) -> object:
-        return tuple(value) if isinstance(value, list) else value
+    def _parse_as_of(cls, value: object) -> object:
+        return date.fromisoformat(value) if isinstance(value, str) else value
 
-
-class ValuationAnalysis(_StrictAnalysisGroup):
-    per_forward: float | int | None
-    per_trailing: float | int | None
-    pbr: float | int | None
-    ev_ebitda: float | int | None
-    p_s: float | int | None
-    pcfr: float | int | None
-
-
-class CurrentEarningsAnalysis(_StrictAnalysisGroup):
-    fcf_yield: float | int | None
-    ocf_yield: float | int | None
-    forecast_special_gain_flag: bool | None
-    forecast_full_year_loss_flag: bool | None
-
-
-class NormalizedEarningsAnalysis(_StrictAnalysisGroup):
-    normalized_per_3fy: float | int | None
-    normalized_per_3fy_sector_gap: float | int | None
-
-
-class AssetValueAnalysis(_StrictAnalysisGroup):
-    asset_backed_ratio: float | int | None
-    net_cash_to_market_cap: float | int | None
-    investment_securities: float | int | None
-    equity_ratio: float | int | None
-
-
-class ReinvestmentAnalysis(_StrictAnalysisGroup):
-    p_s_sector_gap: float | int
-    operating_return_on_capital_proxy: float | int
-    sales_yoy: float | int
-    operating_margin: float | int
-    fcf_yield: float | int
-
-
-class ExpectedReturnAnalysis(_StrictAnalysisGroup):
-    er_annual: float | int | None
-    er_reversion_annual: float | int | None
-    er_carry_annual: float | int | None
-    fv_sector_median_yen: float | int | None
-    fv_self_range_yen: float | int | None
-    er_origin: str | None
-    er_model_version: str | None
-    er_unit: str | None
-    er_assumptions: str | None
-
-
-class DataQualityAnalysis(_StrictAnalysisGroup):
-    bs_carry_forward_fields: str | None
-    bs_carry_forward_lag_days: float | int | None
-    edinet_failure_reasons: str | None
-    stale_fin_flag: bool | None
-
-
-class ContextAnalysis(_StrictAnalysisGroup):
-    next_earnings_status: str | None
-    next_earnings_estimated_date: str | None
-    margin_short_to_adv: float | int | None
-    tse_capital_policy_status: str | None
-    large_holding_event_recent: bool | None
-    tender_offer_event_recent: bool | None
-
-
-class ReviewSetAnalysis(_StrictAnalysisGroup):
-    """Typed machine coordinates embedded in one current Review Set entry."""
-
-    identity_liquidity: IdentityLiquidityAnalysis
-    valuation: ValuationAnalysis
-    current_earnings: CurrentEarningsAnalysis
-    normalized_earnings: NormalizedEarningsAnalysis
-    asset_value: AssetValueAnalysis
-    reinvestment: ReinvestmentAnalysis | None
-    expected_return: ExpectedReturnAnalysis
-    data_quality: DataQualityAnalysis
-    context: ContextAnalysis
-
-
-class ReviewSetEntry(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    review_position: int = Field(ge=1)
-    ticker: str = Field(pattern=r"^[0-9A-Z]{4}$")
-    name: str
-    sector_33: str
-    nominations: tuple[Nomination, ...]
-    support_count: int = Field(ge=1, le=4)
-    rank_vector: tuple[int, int, int, int]
-    analysis: ReviewSetAnalysis
-
-    @field_validator("nominations", mode="before")
+    @field_validator("created_at", mode="before")
     @classmethod
-    def _tuple_nominations(cls, value: object) -> tuple[object, ...]:
-        if not isinstance(value, list | tuple):
-            raise ValueError("nominations must be an array")
-        return tuple(value)
+    def _parse_created_at(cls, value: object) -> object:
+        return datetime.fromisoformat(value) if isinstance(value, str) else value
 
-    @field_validator("rank_vector", mode="before")
+    @field_validator("entries", mode="before")
     @classmethod
-    def _tuple_rank_vector(cls, value: object) -> object:
+    def _tuple_entries(cls, value: object) -> object:
         return tuple(value) if isinstance(value, list) else value
 
     @model_validator(mode="after")
-    def _validate_support(self) -> ReviewSetEntry:
-        if not self.nominations or len(self.nominations) != self.support_count:
-            raise ValueError("support count must equal the non-empty nominations")
-        approaches = [item.valuation_approach_id for item in self.nominations]
-        if len(approaches) != len(set(approaches)):
-            raise ValueError("a ticker cannot have duplicate approach nominations")
+    def _validate_publication(self) -> Self:
+        if self.created_at.tzinfo is None:
+            raise ValueError("created_at must include a timezone")
+        positions = [entry.review_position for entry in self.entries]
+        if positions != list(range(1, len(positions) + 1)):
+            raise ValueError("review positions must be contiguous from 1")
         return self
 
 
@@ -269,7 +172,6 @@ def build_review_set(
     *,
     rules: CandidateDiscoveryRules,
     required_jpx_flags: Sequence[str],
-    judged_through_research_triage_id: str | None = None,
 ) -> dict[str, object]:
     eligible = [
         row
@@ -373,7 +275,6 @@ def build_review_set(
             "nomination_depth": rules.nomination_depth,
             "representation_targets": dict(rules.representation_targets),
         },
-        "review_basis": {"judged_through_research_triage_id": judged_through_research_triage_id},
         "entries": entries,
         "diagnostics": {
             "common_eligible_count": len(eligible),
@@ -445,17 +346,10 @@ def validate_review_set_payload(
     required_jpx_flags: Sequence[str],
 ) -> None:
     validate_review_set_shape(payload)
-    review_basis = payload.get("review_basis")
-    if not isinstance(review_basis, Mapping):
-        raise ReviewSetContractError("review set Review Basis must be an object")
-    judged_through = review_basis.get("judged_through_research_triage_id")
-    if judged_through is not None and not isinstance(judged_through, str):
-        raise ReviewSetContractError("review set Research Triage basis must be a string or null")
     expected = build_review_set(
         security_analyses,
         rules=rules,
         required_jpx_flags=required_jpx_flags,
-        judged_through_research_triage_id=judged_through,
     )
     comparable = {key: payload.get(key) for key in expected}
     if canonical_json(comparable) != canonical_json(expected):
@@ -463,21 +357,10 @@ def validate_review_set_payload(
 
 
 def validate_review_set_shape(payload: Mapping[str, object]) -> None:
-    method = payload.get("method")
-    if not isinstance(method, Mapping):
-        raise ReviewSetContractError("review set method must be an object")
     try:
-        ReviewSetMethod.model_validate(method)
+        PublishedReviewSet.model_validate(payload)
     except ValueError as error:
-        raise ReviewSetContractError(f"review set method is invalid: {error}") from error
-    entries = payload.get("entries")
-    if not isinstance(entries, list):
-        raise ReviewSetContractError("review set entries must be an array")
-    try:
-        for entry in entries:
-            ReviewSetEntry.model_validate(entry)
-    except ValueError as error:
-        raise ReviewSetContractError(f"review set entry is invalid: {error}") from error
+        raise ReviewSetContractError(f"published review set is invalid: {error}") from error
 
 
 def _common_eligible(
@@ -777,6 +660,7 @@ def _desc_null(value: object) -> tuple[bool, float]:
 __all__ = [
     "APPROACH_IDS",
     "Nomination",
+    "PublishedReviewSet",
     "ReviewSetAnalysis",
     "ReviewSetContractError",
     "ReviewSetEntry",

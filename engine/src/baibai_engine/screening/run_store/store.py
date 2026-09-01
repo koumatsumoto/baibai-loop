@@ -16,7 +16,10 @@ from typing import Any
 
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.foundation.repository_layout import RUNS_DB_PATH
-from baibai_engine.screening.discovery.review_set import validate_review_set_payload
+from baibai_engine.screening.discovery.review_set import (
+    PublishedReviewSet,
+    validate_review_set_payload,
+)
 from baibai_engine.screening.rule_config import CandidateDiscoveryRules
 
 from .schema import RUN_STORE_SCHEMA_VERSION, SCHEMA_SQL
@@ -211,12 +214,10 @@ class ScreeningRunStore:
         rules: CandidateDiscoveryRules,
         required_jpx_flags: Sequence[str],
         review_set_id: str | None = None,
-        created_at: datetime | None = None,
     ) -> PublicationResult:
         if not run_revision_id:
             raise ValueError("run_revision_id is required")
         identifier = review_set_id or f"review-set-{self._id_factory().hex}"
-        timestamp = (created_at or datetime.now(UTC)).isoformat()
         payload_json = canonical_json(payload)
         initialize_run_store(self._path)
         with closing(connect_rw(self._path)) as connection:
@@ -242,10 +243,16 @@ class ScreeningRunStore:
                     rules=rules,
                     required_jpx_flags=required_jpx_flags,
                 )
+                publication = PublishedReviewSet.model_validate(payload)
+                timestamp = publication.created_at.isoformat()
+                if publication.review_set_id != identifier:
+                    raise ValueError("review set identity does not match its publication ID")
                 if payload.get("run_revision_id") != run_revision_id:
                     raise ValueError("review set run revision does not match its source")
                 if payload.get("as_of") != run_payload.get("asof_date"):
                     raise ValueError("review set as-of does not match its source")
+                if publication.screening_rules_hash != run_payload.get("screening_rules_hash"):
+                    raise ValueError("review set rules identity does not match its source")
                 existing = connection.execute(
                     """
                     SELECT run_revision_id, payload

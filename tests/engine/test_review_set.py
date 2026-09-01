@@ -20,16 +20,11 @@ RULES = SCREENING_RULES.candidate_discovery
 REQUIRED_JPX_FLAGS = SCREENING_RULES.universe.required_jpx_flags
 
 
-def _build_review_set(
-    rows: list[dict[str, object]],
-    *,
-    judged_through_research_triage_id: str | None = None,
-) -> dict[str, object]:
+def _build_review_set(rows: list[dict[str, object]]) -> dict[str, object]:
     return build_review_set(
         rows,
         rules=RULES,
         required_jpx_flags=REQUIRED_JPX_FLAGS,
-        judged_through_research_triage_id=judged_through_research_triage_id,
     )
 
 
@@ -110,18 +105,11 @@ def test_expected_return_and_context_do_not_change_membership_or_order() -> None
     ]
 
 
-def test_research_triage_head_does_not_change_membership_or_order() -> None:
+def test_composition_has_no_research_triage_state() -> None:
     rows = [_analysis(str(1000 + index), per=5.0 + index) for index in range(20)]
     baseline = _build_review_set(rows)
 
-    result = _build_review_set(
-        rows,
-        judged_through_research_triage_id="research-triage-head",
-    )
-
-    assert result["review_basis"] == {"judged_through_research_triage_id": "research-triage-head"}
-    assert result["entries"] == baseline["entries"]
-    assert result["diagnostics"] == baseline["diagnostics"]
+    assert "review_basis" not in baseline
 
 
 def test_recomputed_validation_rejects_changed_membership() -> None:
@@ -391,8 +379,17 @@ def test_candidate_discovery_hash_binds_v2_sector_and_median_policy(monkeypatch)
 )
 def test_review_set_analysis_rejects_nested_contract_drift(mutate) -> None:
     payload = _build_review_set([_analysis("1111")])
+    payload.update(
+        {
+            "review_set_id": "review-set-test",
+            "run_revision_id": "run-test",
+            "as_of": "2026-07-19",
+            "created_at": "2026-07-19T15:00:00+09:00",
+            "screening_rules_hash": "a" * 64,
+        }
+    )
     entry = payload["entries"][0]
     mutate(entry["analysis"])
 
-    with pytest.raises(ReviewSetContractError, match="review set entry is invalid"):
+    with pytest.raises(ReviewSetContractError, match="published review set is invalid"):
         validate_review_set_shape(payload)

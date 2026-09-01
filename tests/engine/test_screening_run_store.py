@@ -58,7 +58,7 @@ def _run() -> dict[str, object]:
         "asof_date": "2026-07-08",
         "run_at": "2026-07-08T18:00:00+09:00",
         "universe_size": 1,
-        "screening_rules_hash": "rules-fixture",
+        "screening_rules_hash": "a" * 64,
         "er_model_version": "expected-return-v1",
         "security_analyses": [_analysis()],
     }
@@ -98,7 +98,13 @@ def test_run_and_review_set_round_trip(tmp_path: Path) -> None:
         required_jpx_flags=required_jpx_flags,
     )
     payload.update(
-        {"review_set_id": "review-set-a", "run_revision_id": "run-a", "as_of": "2026-07-08"}
+        {
+            "review_set_id": "review-set-a",
+            "run_revision_id": "run-a",
+            "as_of": "2026-07-08",
+            "created_at": "2026-07-08T18:30:00+09:00",
+            "screening_rules_hash": "a" * 64,
+        }
     )
     result = store.publish_review_set(
         run_revision_id="run-a",
@@ -117,5 +123,5 @@ def test_run_and_review_set_round_trip(tmp_path: Path) -> None:
             "UPDATE review_set SET payload = json_set("
             "payload, '$.entries[0].analysis.identity_liquidity.market_cap_oku', '500')"
         )
-    with pytest.raises(ReviewSetContractError, match="review set entry is invalid"):
+    with pytest.raises(ReviewSetContractError, match="published review set is invalid"):
         reader.get_review_set("review-set-a")

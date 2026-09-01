@@ -2,121 +2,36 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from contextlib import closing
-from datetime import date, datetime
 from pathlib import Path
-from typing import Literal, Self
-
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.paths import database_path
 from baibai_engine.appdb.write import connect_rw, initialize_database
+from baibai_engine.foundation.research_triage import (
+    RESEARCH_TRIAGE_CONTRACT_ID,
+    RESEARCH_TRIAGE_SCHEMA_VERSION,
+    ResearchTriage,
+    ResearchTriageCandidateSnapshot,
+    ResearchTriageEntry,
+)
 from baibai_engine.read_api.macro import latest_macro_context_payload, macro_context_payload
-
-RESEARCH_TRIAGE_SCHEMA_VERSION = 1
-RESEARCH_TRIAGE_CONTRACT_ID = "research-triage-v1"
-
-
-class ResearchTriageMachineSnapshot(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    review_position: int = Field(ge=1)
-    nominations: tuple[Mapping[str, object], ...] | None
-    support_count: int | None = Field(default=None, ge=1, le=4)
-    expected_return: Mapping[str, object] | None = None
-    fair_value: Mapping[str, object] | None = None
-    data_quality: Mapping[str, object] | None = None
-
-    @field_validator("nominations", mode="before")
-    @classmethod
-    def _tuple_nominations(cls, value: object) -> object:
-        return tuple(value) if isinstance(value, list) else value
-
-
-class ResearchTriageEntry(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    ticker: str = Field(pattern=r"^[0-9A-Z]{4}$")
-    decision: Literal["research", "skip"]
-    priority: int | None = Field(default=None, ge=1)
-    rationale: str = Field(min_length=1)
-    research_question: str | None = None
-    key_risk: str | None = None
-    machine_snapshot: ResearchTriageMachineSnapshot | None = None
-
-    @field_validator("rationale", "research_question", "key_risk")
-    @classmethod
-    def _reject_scaffold_placeholder(cls, value: str | None) -> str | None:
-        if value is not None and value.strip().upper().startswith("TODO"):
-            raise ValueError("replace scaffold TODO text before publication")
-        return value
-
-    @model_validator(mode="after")
-    def _decision_shape(self) -> Self:
-        if self.decision == "research":
-            if self.priority is None or not self.research_question or not self.key_risk:
-                raise ValueError("research requires priority, research_question, and key_risk")
-        elif any(
-            value is not None for value in (self.priority, self.research_question, self.key_risk)
-        ):
-            raise ValueError("skip forbids priority, research_question, and key_risk")
-        return self
-
-
-class ResearchTriage(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    schema_version: Literal[1]
-    kind: Literal["research_triage"]
-    research_triage_id: str = Field(min_length=1)
-    review_set_id: str = Field(min_length=1)
-    run_revision_id: str = Field(min_length=1)
-    as_of: date
-    published_at: datetime
-    macro_context_id: str | None = None
-    review_basis_research_triage_id: str | None
-    triage_contract_id: Literal["research-triage-v1"]
-    entries: tuple[ResearchTriageEntry, ...] = Field(min_length=1)
-
-    @field_validator("as_of", mode="before")
-    @classmethod
-    def _parse_as_of(cls, value: object) -> object:
-        return date.fromisoformat(value) if isinstance(value, str) else value
-
-    @field_validator("published_at", mode="before")
-    @classmethod
-    def _parse_published_at(cls, value: object) -> object:
-        return datetime.fromisoformat(value) if isinstance(value, str) else value
-
-    @field_validator("entries", mode="before")
-    @classmethod
-    def _tuple_entries(cls, value: object) -> object:
-        return tuple(value) if isinstance(value, list) else value
-
-    @model_validator(mode="after")
-    def _publication_shape(self) -> Self:
-        if self.published_at.tzinfo is None:
-            raise ValueError("published_at must include a timezone")
-        tickers = [entry.ticker for entry in self.entries]
-        if len(tickers) != len(set(tickers)):
-            raise ValueError("research triage tickers must be unique")
-        priorities = sorted(entry.priority for entry in self.entries if entry.priority is not None)
-        if priorities != list(range(1, len(priorities) + 1)):
-            raise ValueError("research priorities must be contiguous from 1")
-        return self
-
-    def researchable_tickers(self) -> tuple[str, ...]:
-        return tuple(
-            entry.ticker
-            for entry in sorted(self.entries, key=lambda item: item.priority or 10**9)
-            if entry.decision == "research"
-        )
+from baibai_engine.read_api.research_triage import research_triage_payload_hash
+from baibai_engine.screening.discovery.review_set import PublishedReviewSet
 
 
 class ResearchTriageConflictError(ValueError):
     pass
+
+
+def latest_research_triage_id(db_path: Path | None = None) -> str | None:
+    app_db_path = database_path(db_path)
+    if not app_db_path.is_file():
+        return None
+    from baibai_engine.read_api.research_triage import latest_research_triage_payload
+
+    payload = latest_research_triage_payload(app_db_path)
+    return str(payload["research_triage_id"]) if payload is not None else None
 
 
 class ResearchTriageService:
@@ -127,7 +42,7 @@ class ResearchTriageService:
         self,
         triage: ResearchTriage,
         *,
-        review_set: Mapping[str, object],
+        review_set: PublishedReviewSet,
     ) -> ResearchTriage:
         app_db_path = database_path(self._db_path)
         latest_context = latest_macro_context_payload(app_db_path, as_of=triage.as_of)
@@ -145,45 +60,31 @@ class ResearchTriageService:
                 )
             except ValueError as error:
                 raise ResearchTriageConflictError(str(error)) from error
-        if triage.review_set_id != review_set.get("review_set_id"):
+        if triage.review_set_id != review_set.review_set_id:
             raise ResearchTriageConflictError("research triage review-set binding differs")
-        if triage.run_revision_id != review_set.get("run_revision_id"):
+        if triage.run_revision_id != review_set.run_revision_id:
             raise ResearchTriageConflictError("research triage run binding differs")
-        if triage.as_of.isoformat() != review_set.get("as_of"):
+        if triage.as_of != review_set.as_of:
             raise ResearchTriageConflictError("research triage as-of differs")
-        review_entries = review_set.get("entries")
-        if not isinstance(review_entries, list):
-            raise ResearchTriageConflictError("source Review Set entries are unavailable")
-        by_ticker = {
-            str(entry.get("ticker")): entry
-            for entry in review_entries
-            if isinstance(entry, Mapping) and isinstance(entry.get("ticker"), str)
-        }
+        if triage.screening_rules_hash != review_set.screening_rules_hash:
+            raise ResearchTriageConflictError("research triage rules identity differs")
+        if triage.candidate_discovery_method != review_set.method:
+            raise ResearchTriageConflictError("research triage method identity differs")
+        by_ticker = {entry.ticker: entry for entry in review_set.entries}
         if {entry.ticker for entry in triage.entries} != set(by_ticker):
             raise ResearchTriageConflictError("triage entries must equal the Review Set")
-        review_basis = review_set.get("review_basis")
-        expected_basis = (
-            review_basis.get("judged_through_research_triage_id")
-            if isinstance(review_basis, Mapping)
-            else None
-        )
-        if triage.review_basis_research_triage_id != expected_basis:
-            raise ResearchTriageConflictError("research triage Review Basis differs")
         entries = []
         for entry in triage.entries:
             source = by_ticker[entry.ticker]
-            analysis = source.get("analysis")
-            analysis_map = analysis if isinstance(analysis, Mapping) else {}
             entries.append(
                 entry.model_copy(
                     update={
-                        "machine_snapshot": ResearchTriageMachineSnapshot(
-                            review_position=int(source["review_position"]),
-                            nominations=tuple(source.get("nominations", ())),
-                            support_count=int(source["support_count"]),
-                            expected_return=_mapping_or_none(analysis_map.get("expected_return")),
-                            fair_value=None,
-                            data_quality=_mapping_or_none(analysis_map.get("data_quality")),
+                        "candidate_snapshot": ResearchTriageCandidateSnapshot(
+                            name=source.name,
+                            sector_33=source.sector_33,
+                            review_position=source.review_position,
+                            nominations=source.nominations,
+                            analysis=source.analysis,
                         )
                     }
                 )
@@ -208,8 +109,8 @@ class ResearchTriageService:
                     "ORDER BY as_of DESC, published_at DESC, research_triage_id DESC LIMIT 1"
                 ).fetchone()
                 latest_id = str(latest[0]) if latest is not None else None
-                if triage.review_basis_research_triage_id != latest_id:
-                    raise ResearchTriageConflictError("research triage Review Basis is stale")
+                if triage.expected_prior_research_triage_id != latest_id:
+                    raise ResearchTriageConflictError("research triage expected prior ID is stale")
                 connection.execute(
                     "INSERT INTO research_triage "
                     "(research_triage_id, review_set_id, run_revision_id, "
@@ -231,16 +132,14 @@ class ResearchTriageService:
         return triage
 
 
-def _mapping_or_none(value: object) -> Mapping[str, object] | None:
-    return value if isinstance(value, Mapping) else None
-
-
 __all__ = [
     "RESEARCH_TRIAGE_CONTRACT_ID",
     "RESEARCH_TRIAGE_SCHEMA_VERSION",
     "ResearchTriage",
+    "ResearchTriageCandidateSnapshot",
     "ResearchTriageConflictError",
     "ResearchTriageEntry",
-    "ResearchTriageMachineSnapshot",
     "ResearchTriageService",
+    "latest_research_triage_id",
+    "research_triage_payload_hash",
 ]

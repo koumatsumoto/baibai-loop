@@ -76,9 +76,13 @@ def _insert_review_set(root: Path, *, review_set_id: str) -> str:
     run = ScreeningRunReader(runs_db).latest_run()
     assert run is not None
     payload = {
+        "schema_version": 1,
+        "kind": "review_set",
         "review_set_id": review_set_id,
         "run_revision_id": run.run_revision_id,
         "as_of": run.as_of_date,
+        "created_at": "2026-07-08T12:01:00+09:00",
+        "screening_rules_hash": "1" * 64,
         "method": {
             "method_id": "multi-valuation-v1",
             "method_hash": "0" * 64,
@@ -92,6 +96,7 @@ def _insert_review_set(root: Path, *, review_set_id: str) -> str:
             },
         },
         "entries": [],
+        "diagnostics": {},
     }
     with sqlite3.connect(runs_db) as connection:
         connection.execute(
@@ -469,9 +474,13 @@ def test_export_projects_research_triage_partial_machine_snapshot(
         "fair_value": None,
         "data_quality": {"stale_fin_flag": False},
     }
+    entry = skip_entry("2331", machine_snapshot=snapshot)
+    entry.pop("candidate_snapshot")
     payload = research_triage_payload(
         run_revision_id=run_revision_id,
-        entries=[skip_entry("2331", machine_snapshot=snapshot)],
+        schema_version=1,
+        triage_contract_id="research-triage-v1",
+        entries=[entry],
     )
     _insert_research_triage(app_method_root, payload)
     output_dir = tmp_path / "export"
@@ -483,8 +492,10 @@ def test_export_projects_research_triage_partial_machine_snapshot(
     )
     triage = screening.research_triages[0]
     assert triage.unreadable_entries == 0
-    assert triage.entries[0].machine_snapshot is not None
-    assert triage.entries[0].machine_snapshot.model_dump(mode="json") == snapshot
+    assert triage.entries[0].candidate_snapshot is not None
+    assert triage.entries[0].candidate_snapshot.model_dump(mode="json") == {
+        key: value for key, value in snapshot.items() if key != "fair_value"
+    } | {"name": None, "sector_33": None}
 
 
 def test_export_counts_malformed_research_triage_snapshot_as_unreadable(
@@ -492,21 +503,23 @@ def test_export_counts_malformed_research_triage_snapshot_as_unreadable(
 ) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     run_revision_id = _insert_review_set(app_method_root, review_set_id="review_set-test")
+    entry = skip_entry(
+        "2331",
+        machine_snapshot={
+            "review_position": "not-an-integer",
+            "nominations": [],
+            "support_count": 1,
+            "expected_return": None,
+            "fair_value": None,
+            "data_quality": None,
+        },
+    )
+    entry.pop("candidate_snapshot")
     payload = research_triage_payload(
         run_revision_id=run_revision_id,
-        entries=[
-            skip_entry(
-                "2331",
-                machine_snapshot={
-                    "review_position": "not-an-integer",
-                    "nominations": [],
-                    "support_count": 1,
-                    "expected_return": None,
-                    "fair_value": None,
-                    "data_quality": None,
-                },
-            )
-        ],
+        schema_version=1,
+        triage_contract_id="research-triage-v1",
+        entries=[entry],
     )
     _insert_research_triage(app_method_root, payload)
     output_dir = tmp_path / "export"

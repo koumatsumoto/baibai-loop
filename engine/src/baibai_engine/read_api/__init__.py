@@ -73,8 +73,11 @@ from .research import (
     thesis_publication,
 )
 from .research_triage import (
+    current_research_triage,
     latest_research_triage_payload,
     list_research_triage_payloads,
+    research_triage_payload,
+    research_triage_payload_hash,
     research_triage_payloads_for_review_set,
 )
 from .screening import (
@@ -103,6 +106,7 @@ __all__ = [
     "application_db_updated_at",
     "capital_allocation_assessment_payload",
     "close_change_since",
+    "current_research_triage",
     "latest_disclosure_dates_after",
     "latest_macro_context_payload",
     "latest_market_bar_date",
@@ -132,6 +136,8 @@ __all__ = [
     "reconcile_portfolio",
     "reject_noncanonical_store_paths",
     "repository_root_error",
+    "research_triage_payload",
+    "research_triage_payload_hash",
     "research_triage_payloads_for_review_set",
     "safe_load",
     "screening_calibration_method_identity",
