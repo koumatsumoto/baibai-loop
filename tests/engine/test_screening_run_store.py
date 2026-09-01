@@ -158,6 +158,7 @@ def test_web_projection_reads_retained_pre_cutover_review_set_without_weakening_
         required_jpx_flags=required_jpx_flags,
         review_set_id="review-set-a",
     )
+    assert len(screening_review_set_payloads(database, run_revision_id="run-a")) == 1
     with sqlite3.connect(database) as connection:
         connection.execute(
             "UPDATE review_set SET payload = json_set("
