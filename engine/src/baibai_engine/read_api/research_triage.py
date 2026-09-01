@@ -17,10 +17,11 @@ from .sqlite import read_application_rows as read_rows
 # Every global head consumer shares this real-instant total order. Raw ISO text order
 # is not chronological when published_at values use different UTC offsets.
 RESEARCH_TRIAGE_HEAD_ORDER = "as_of DESC, julianday(published_at) DESC, research_triage_id DESC"
-_SELECT = f"SELECT payload FROM research_triage ORDER BY {RESEARCH_TRIAGE_HEAD_ORDER}"
+# The interpolated order is a fixed module constant, never caller input.
+_SELECT = f"SELECT payload FROM research_triage ORDER BY {RESEARCH_TRIAGE_HEAD_ORDER}"  # nosec B608
 _SELECT_BY_REVIEW_SET = (
     "SELECT payload FROM research_triage WHERE review_set_id = ? "
-    f"ORDER BY {RESEARCH_TRIAGE_HEAD_ORDER}"
+    f"ORDER BY {RESEARCH_TRIAGE_HEAD_ORDER}"  # nosec B608
 )
 _SELECT_BY_ID = "SELECT payload FROM research_triage WHERE research_triage_id = ?"
 
@@ -37,7 +38,7 @@ def _research_triage_head(connection: sqlite3.Connection) -> _ResearchTriageHead
 
     row = connection.execute(
         "SELECT research_triage_id, as_of, published_at FROM research_triage "
-        f"ORDER BY {RESEARCH_TRIAGE_HEAD_ORDER} LIMIT 1"
+        f"ORDER BY {RESEARCH_TRIAGE_HEAD_ORDER} LIMIT 1"  # nosec B608
     ).fetchone()
     if row is None:
         return None
