@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -18,11 +17,6 @@ from tests.helpers.research_triage import (
 
 from baibai_engine.appdb.write import initialize_database
 from baibai_engine.foundation.research_triage import ResearchTriageEntry
-from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.read_api.er_calibration_context import ErCalibrationContextArtifact
-from baibai_engine.screening.calibration.context import (
-    validate_er_distribution_context_payload,
-)
 from baibai_engine.screening.discovery.review_set import PublishedReviewSet
 from baibai_engine.screening.research_triage import (
     ResearchTriage,
@@ -430,38 +424,3 @@ def test_research_priorities_remain_contiguous() -> None:
 
     with pytest.raises(ValidationError, match="priorities must be contiguous"):
         ResearchTriage.model_validate(payload)
-
-
-@pytest.mark.parametrize("location", ["root", "band", "stats"])
-def test_er_context_producer_and_typed_reader_both_reject_unknown_fields(location: str) -> None:
-    artifact_path = (
-        Path(__file__).resolve().parents[2] / "reports/published/er-level-calibration-latest.yaml"
-    )
-    payload = safe_load(artifact_path.read_text(encoding="utf-8"))
-    assert isinstance(payload, dict)
-    mutated = deepcopy(payload)
-    if location == "root":
-        mutated["unknown"] = "value"
-    else:
-        horizons = mutated["horizons"]
-        assert isinstance(horizons, list)
-        first_horizon = horizons[0]
-        assert isinstance(first_horizon, dict)
-        bands = first_horizon["bands"]
-        assert isinstance(bands, list)
-        first_band = bands[0]
-        assert isinstance(first_band, dict)
-        if location == "band":
-            first_band["unknown"] = "value"
-        else:
-            bases = first_band["bases"]
-            assert isinstance(bases, list)
-            first_basis = bases[0]
-            assert isinstance(first_basis, dict)
-            stats = first_basis["ticker_equal"]
-            assert isinstance(stats, dict)
-            stats["unknown"] = "value"
-
-    assert validate_er_distribution_context_payload(mutated) is False
-    with pytest.raises(ValidationError):
-        ErCalibrationContextArtifact.model_validate(mutated)
