@@ -595,9 +595,10 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
 
 ### 異なる失敗類型の代表例
 
-- multpl の月次履歴表で「当月 1 日」の行を無条件に必須とし、multpl が当月行を月の途中で追加する
-  ため、毎月 1〜14 日ごろの daily batch が `us.sp500_cape` / `us.sp500_earnings_yield` /
-  `us.sp500_pe` の 3 系列で必ず失敗した (#795)
+- multpl の月次履歴表で「当月 1 日」の行を無条件に必須とし、multpl が先頭の current level を
+  実日付、確定済み月次標本を月初日で返すことを区別しなかった。このため、`Aug 31` の current
+  row と `Jul 1` までの月次列を持つ正常な表へ `Aug 1` を要求し、`us.sp500_cape` /
+  `us.sp500_earnings_yield` / `us.sp500_pe` の 3 系列が月跨ぎに失敗した (#795, #1170)
 - `jp.cpi.*` の staleness 境界を monthly default (`publication_lag_days` + `staleness_margin_days`)
   で解決し、e-Stat の実掲載日 (観測月 + 53〜61 日) を超えたため、次の公表を待っている平常時が
   毎月 `stale: true` になった (#594)
@@ -628,6 +629,8 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
       で確認した値になっているか
 - [ ] 検査対象期間の端に、データが存在すると保証できない日 (未公表期・非取引日・休場日) を
       置いていないか
+- [ ] current row と確定済みperiod rowを同じ表から読むproviderで、currentの実日付をperiod開始日へ
+      丸めて必須検査していないか。確定済みperiodの連続性はcurrent rowより前だけを検査するか
 - [ ] 日次 job がその provider を呼ぶ窓 (`--start` / `--end`) を月初・週初・公表前日について
       書き出し、必須範囲がその全ての日で満たせることを確認したか
 - [ ] 新しい完全性検査を足したら、**公表直前の日付を today に固定した negative test** で正しい

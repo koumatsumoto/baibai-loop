@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Container
+from collections.abc import Collection
 from datetime import UTC, date, datetime
 from html.parser import HTMLParser
 from zoneinfo import ZoneInfo
@@ -198,20 +198,23 @@ class _MultplHistoryParser(HTMLParser):
             self._in_table = False
 
 
-def _required_latest_month(*, end: date, today: date, available: Container[date]) -> date:
+def _required_latest_month(*, end: date, today: date, available: Collection[date]) -> date:
     """Latest month the history table must carry for the range to be complete.
 
-    multpl adds a month's row partway through that month, so at the start of every
-    month the current row does not exist yet. Requiring it unconditionally turns an
-    ordinary publication lag into a fetch failure on every run until the row lands,
-    so the current month is only required once it is actually there. Every earlier
-    month stays mandatory, which is what detects a truncated or holed history;
-    whether the series is fresh enough to read is decided by the staleness rule.
+    The first row is a current level carrying its actual observation date, while the
+    completed monthly history uses month-start dates. Around a month boundary that
+    current row can therefore be dated in the prior month without an accompanying
+    month-start row. Require continuity only through the month before that current
+    observation; whether the latest observation is fresh enough is decided by the
+    staleness rule.
     """
-    anchor = min(end, today).replace(day=1)
-    if anchor < today.replace(day=1) or anchor in available:
-        return anchor
-    return _previous_month(anchor)
+    cutoff = min(end, today)
+    eligible = [observed_at for observed_at in available if observed_at <= cutoff]
+    if not eligible:
+        return cutoff.replace(day=1)
+    latest = max(eligible)
+    anchor = latest.replace(day=1)
+    return anchor if latest.day == 1 else _previous_month(anchor)
 
 
 def _next_month(value: date) -> date:
