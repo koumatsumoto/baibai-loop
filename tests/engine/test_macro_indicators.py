@@ -3744,6 +3744,60 @@ class IndicatorsProviderParserTests(unittest.TestCase):
             [(date(2026, 8, 3), 37.80)],
         )
 
+    def test_parse_multpl_history_accepts_prior_month_current_row_after_rollover(self) -> None:
+        series = _series("multpl", "shiller-pe")
+        html = """
+        <table id="datatable">
+          <tr><th>Date</th><th>Value</th></tr>
+          <tr><td>Aug 31, 2026</td><td>42.04</td></tr>
+          <tr><td>Jul 1, 2026</td><td>40.73</td></tr>
+          <tr><td>Jun 1, 2026</td><td>40.50</td></tr>
+        </table>
+        """
+
+        with patch(
+            "baibai_engine.macro.indicators.providers.multpl._today_jst",
+            return_value=date(2026, 9, 1),
+        ):
+            observations = parse_multpl_history(
+                series,
+                html,
+                start=date(2026, 8, 18),
+                end=date(2026, 9, 1),
+            )
+
+        self.assertEqual(
+            [(item.observed_at, item.value) for item in observations],
+            [(date(2026, 8, 31), 42.04)],
+        )
+
+    def test_parse_multpl_history_accepts_delayed_prior_month_asof(self) -> None:
+        series = _series("multpl", "shiller-pe")
+        html = """
+        <table id="datatable">
+          <tr><th>Date</th><th>Value</th></tr>
+          <tr><td>Aug 31, 2026</td><td>42.04</td></tr>
+          <tr><td>Jul 1, 2026</td><td>40.73</td></tr>
+          <tr><td>Jun 1, 2026</td><td>40.50</td></tr>
+        </table>
+        """
+
+        with patch(
+            "baibai_engine.macro.indicators.providers.multpl._today_jst",
+            return_value=date(2026, 9, 1),
+        ):
+            observations = parse_multpl_history(
+                series,
+                html,
+                start=date(2026, 8, 17),
+                end=date(2026, 8, 31),
+            )
+
+        self.assertEqual(
+            [(item.observed_at, item.value) for item in observations],
+            [(date(2026, 8, 31), 42.04)],
+        )
+
     def test_parse_multpl_history_rejects_history_ending_before_previous_month(self) -> None:
         series = _series("multpl", "shiller-pe")
         html = """
