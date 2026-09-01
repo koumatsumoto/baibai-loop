@@ -300,7 +300,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     assert meta.batch == "daily"
     assert meta.screening_asof == date(2026, 7, 8)
     macro = MacroView.model_validate_json((views / "macro.json").read_text(encoding="utf-8"))
-    assert macro.reading.asof == date(2026, 8, 31)
+    assert macro.reading.asof == datetime.now(JST).date()
     assert sum(len(series.points) for group in macro.groups for series in group.series) == 0
     for name in ("security--0001.json", "security--0002.json", "security--2331.json"):
         detail = SecurityDetailView.model_validate_json((views / name).read_text(encoding="utf-8"))

@@ -1018,7 +1018,7 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("separate --calibration-dir", errors.getvalue())
 
-    def test_pre2019_variant_is_rejected_for_production_decision(self) -> None:
+    def test_pre2019_variant_is_rejected_for_empirical_change_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             build_calibration_fixture_sqlite(sqlite_path)
@@ -1043,7 +1043,7 @@ class CalibrationPanelTest(unittest.TestCase):
                     calibration_dir=store_dir,
                     rules=load_screening_rules(),
                     horizons=["3y", "5y"],
-                    run_purpose="production_decision",
+                    run_purpose="empirical_change_evidence",
                     required_asofs=[ASOF.isoformat()],
                     required_metrics=[
                         "review_set_top5",
@@ -1053,7 +1053,7 @@ class CalibrationPanelTest(unittest.TestCase):
                 )
 
             self.assertEqual(code, 1)
-            self.assertIn("no production authority", errors.getvalue())
+            self.assertIn("cannot support empirical evidence", errors.getvalue())
 
     def test_degraded_row_is_rejected_even_with_production_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1071,7 +1071,7 @@ class CalibrationPanelTest(unittest.TestCase):
                     calibration_dir=store_dir,
                     rules=load_screening_rules(),
                     horizons=["3y", "5y"],
-                    run_purpose="production_decision",
+                    run_purpose="empirical_change_evidence",
                     required_asofs=[ASOF.isoformat()],
                     required_metrics=[
                         "review_set_top5",
@@ -1081,7 +1081,7 @@ class CalibrationPanelTest(unittest.TestCase):
                 )
 
             self.assertEqual(code, 1)
-            self.assertIn("no production authority", errors.getvalue())
+            self.assertIn("cannot support empirical evidence", errors.getvalue())
 
     def test_missing_master_snapshot_becomes_unresolved_panel(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

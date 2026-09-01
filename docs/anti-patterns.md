@@ -369,8 +369,8 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 
 #### Calibration・screening・market data
 
-- [ ] Candidate Discoveryのproduction authorityはdecision subjectを明示し、単一approachなら対象approachの同日JPX入力・nomination depth・resolved outcome、composer / capacity / representation変更なら4 approachすべてとReview Set構成を必須条件としてgate自身から導出するか。`--required-metric`の手入力で省略できず、JPX snapshotの不在・partial、method hash不一致、nomination不足、unresolved outcome、representation未充足をnegative testでfail closedにするか
-- [ ] calibration coverage の対象 row は diagnostics の件数だけでなく row identity も保存し、件数不一致・未知 status・感度計算不能を fail closed にするか。diagnostic-only panel は directory と provenance hash を production から分け、`production_decision` では authority flag 単独でなく variant・入力窓・全 row の quality を固定 tuple として照合する negative test を持つか
+- [ ] Candidate Discoveryのevidence readinessはdecision subjectを明示し、単一approachなら対象approach top20、Review Set all20、pure E[r] top20、approach/composer fidelity、composerならall20、pure E[r] top20、composer fidelityをgate自身から導出するか。`--required-metric`の手入力で省略できず、top5/top10を必須にせず、JPX snapshotの不在・partial、method hash不一致、nomination不足、unresolved outcome、representation未充足をnegative testでfail closedにするか
+- [ ] calibration coverage の対象 row は diagnostics の件数だけでなく row identity も保存し、件数不一致・未知 status・感度計算不能を fail closed にするか。diagnostic-only panel は directory と provenance hash を production から分け、`empirical_change_evidence`ではvariant・入力窓・全rowのqualityを固定tupleとして照合するnegative testを持つか
 - [ ] `priced_master_without_universe` の対象 return が未解決でも値を推定せず、全対象 row への全損 / resolved 母集団中央値の両側代入で結論方向を判定するか。方向 split、diagnostics 件数と row identity の不一致、candidate partition 不一致、未知 unresolved status をそれぞれ fail closed にする negative test があるか
 - [ ] calibration total return は FY 行なし / `DivAnn: null` / `DivAnn: 0` を区別し、前 2 つを 0 円に補完していないか。同一 FY の訂正を重複加算せず、最新 non-null 訂正が負値・非有限なら古い正常値へ fallback せず拒否するか。DPS と entry price を同じ adjustment-factor basis へ揃える split negative test があるか。total-return 欠損が price-only metric を欠損または改変せず、optional metric を required にした run だけが、status 欠落・非 mapping・未知値を含めて fail closed になるか
 - [ ] E[r] 水準の表示 artifact は eligible な production required scope からだけ生成し、quintile 境界・basis・rules hash・E[r] model version・timezone・固定45日期限を検証するか。表示対象 operative run の不変 method identity も照合し、run identity 不明、欠損・不正・method不一致・期限切れを古い値や手書き値へ fallback せず文脈全体を非表示にし、表示値を個別予測または ranking input として扱わないか
@@ -739,7 +739,7 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
 ### 異なる失敗類型の代表例
 
 - `adjustment_factor_coverage` は store の 10,132,436 本すべてで `complete`。総リターンと公開買付け
-  価格を守る 2 か所の判定と authority gate がこの値を読むが、**拒否側が一度も観測されていない**ため、
+  価格を守る 2 か所の判定と evidence readiness がこの値を読むが、**拒否側が一度も観測されていない**ため、
   働くことが示されていなかった
 - `is_common_stock` は master の 568,329 行すべてで 1。証券種別の field を source が返さないので、
   判定関数が入力欠落で `True` へ fail-open していた。instrument type の除外は一度も発火せず、

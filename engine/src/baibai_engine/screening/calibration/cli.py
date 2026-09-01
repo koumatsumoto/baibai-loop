@@ -24,19 +24,19 @@ from ..estimates import EXPECTED_RETURN_MODEL_VERSION
 from ..rule_config import ScreeningRules
 from ..rules_identity import production_rules_contract_hash
 from ..store_readiness import unreadable_store_reason
-from .authority import (
+from .context import CalibrationContextError, build_er_distribution_context
+from .evaluation import OPTIONAL_SENSITIVITY_METRICS, evaluate_cohorts
+from .evidence import (
     CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
     DECISION_SUBJECTS,
     ESTIMATOR_POLICY_SUBJECT,
     KNOWN_METRICS,
-    PRODUCTION_REQUIRED_METRICS,
     CohortIntegrity,
     EvaluationScope,
-    decide_authority,
     effective_required_metrics,
+    evaluate_evidence_readiness,
+    subject_mandatory_metrics,
 )
-from .context import CalibrationContextError, build_er_distribution_context
-from .evaluation import OPTIONAL_SENSITIVITY_METRICS, evaluate_cohorts
 from .forward import (
     CONTROL_EVENT_EXIT_STATUS,
     FAILURE_EXIT_STATUS,
@@ -314,8 +314,8 @@ def calibration_evaluate_command(
     if unknown:
         print(f"unknown horizon(s): {', '.join(unknown)}", file=sys.stderr)
         return 1
-    if run_purpose not in {"diagnostic", "production_decision"}:
-        print("--run-purpose must be diagnostic or production_decision", file=sys.stderr)
+    if run_purpose not in {"diagnostic", "empirical_change_evidence"}:
+        print("--run-purpose must be diagnostic or empirical_change_evidence", file=sys.stderr)
         return 1
     if decision_subject not in DECISION_SUBJECTS:
         print(
@@ -338,27 +338,20 @@ def calibration_evaluate_command(
             file=sys.stderr,
         )
         return 1
-    if run_purpose == "production_decision":
-        if not required_asofs or not required_metrics:
+    if run_purpose == "empirical_change_evidence":
+        if not required_asofs:
             print(
-                "production_decision requires explicit --required-asof and --required-metric",
+                "empirical_change_evidence requires explicit --required-asof",
                 file=sys.stderr,
             )
             return 1
         # The two rejections have different fixes, so they get different messages:
         # an operator who passed the core three and one unregistered name is told to
         # add the core three unless the unregistered name is stated.
-        unknown_metrics = set(required_metrics) - KNOWN_METRICS
+        unknown_metrics = set(required_metrics or ()) - KNOWN_METRICS
         if unknown_metrics:
             print(
                 f"unknown required metrics: {', '.join(sorted(unknown_metrics))}",
-                file=sys.stderr,
-            )
-            return 1
-        if set(PRODUCTION_REQUIRED_METRICS) - set(required_metrics):
-            print(
-                "production_decision required metrics must include "
-                f"{', '.join(PRODUCTION_REQUIRED_METRICS)}",
                 file=sys.stderr,
             )
             return 1
@@ -400,11 +393,12 @@ def calibration_evaluate_command(
                 )
             metas = [meta_by_asof[asof] for asof in asofs]
             panels = {asof.isoformat(): read_panel(snapshot, asof) for asof in asofs}
-            if run_purpose == "production_decision" and not _is_production_panel_contract(
+            if run_purpose == "empirical_change_evidence" and not _is_production_panel_contract(
                 metas, panels
             ):
                 print(
-                    "calibration evaluate: diagnostic panel variant has no production authority",
+                    "calibration evaluate: diagnostic panel variant cannot support "
+                    "empirical evidence",
                     file=sys.stderr,
                 )
                 return 1
@@ -430,7 +424,7 @@ def calibration_evaluate_command(
             "end": end.isoformat() if end else None,
         },
         required_asofs=tuple(required_asofs or [asof.isoformat() for asof in asofs]),
-        required_metrics=tuple(required_metrics or PRODUCTION_REQUIRED_METRICS),
+        required_metrics=tuple(required_metrics or ()),
         decision_subject=decision_subject,
         candidate_discovery_approaches=(
             (candidate_discovery_approach,) if candidate_discovery_approach is not None else ()
@@ -575,7 +569,11 @@ def calibration_evaluate_command(
             )
             for reason in blockers:
                 integrity_reason_counts[reason] = integrity_reason_counts.get(reason, 0) + 1
-    decision = decide_authority(scope, tuple(integrity))
+    readiness = (
+        evaluate_evidence_readiness(scope, tuple(integrity))
+        if scope.run_purpose == "empirical_change_evidence"
+        else None
+    )
     required_pairs = {(asof, horizon) for asof in scope.required_asofs for horizon in ("3y", "5y")}
     required_integrity = [item for item in integrity if (item.asof, item.horizon) in required_pairs]
     eligible_pairs = {
@@ -595,8 +593,9 @@ def calibration_evaluate_command(
                 key = f"metric_unresolved:{metric}"
                 integrity_reason_counts[key] = integrity_reason_counts.get(key, 0) + 1
     # Scope-level reasons hold for the run as a whole, so they count once.
-    for reason in decision.blocking_reasons:
-        integrity_reason_counts.setdefault(reason, 1)
+    if readiness is not None:
+        for reason in readiness.blocking_reasons:
+            integrity_reason_counts.setdefault(reason, 1)
     payload = {
         "kind": "estimate-calibration-evaluation",
         "cache_schema_version": CACHE_SCHEMA_VERSION,
@@ -613,14 +612,11 @@ def calibration_evaluate_command(
             "cohort_window": scope.cohort_window,
             "required_asofs": list(scope.required_asofs),
             "required_metrics": list(scope.required_metrics),
+            "mandatory_metrics": list(subject_mandatory_metrics(scope)),
             "decision_subject": scope.decision_subject,
             "candidate_discovery_approaches": list(scope.candidate_discovery_approaches),
-            "mandatory_fidelity_metrics": [
-                metric for metric in effective_metrics if metric not in scope.required_metrics
-            ],
         },
-        "production_decision": decision.payload(),
-        "authority_coverage": {
+        "evidence_coverage": {
             "required_cohort_count": len(required_pairs),
             "eligible_metric_cohort_count": len(eligible_pairs),
             "blocked_or_unresolved_count": len(required_pairs - eligible_pairs),
@@ -629,6 +625,8 @@ def calibration_evaluate_command(
         "cohort_integrity": [asdict(item) for item in integrity],
         "results": results,
     }
+    if readiness is not None:
+        payload["evidence_readiness"] = readiness.payload()
     context_payload: dict[str, object] | None = None
     if context_output_path is not None:
         try:
