@@ -1,4 +1,4 @@
-"""Pure authority gate for empirical estimator-policy changes."""
+"""Measure whether empirical-change evidence is complete enough for human review."""
 
 from __future__ import annotations
 
@@ -19,17 +19,40 @@ DECISION_SUBJECTS = (
     CANDIDATE_DISCOVERY_COMPOSER_SUBJECT,
 )
 CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC = "candidate_discovery_composer_fidelity"
-PRODUCTION_REQUIRED_METRICS = (
-    "review_set_top5",
-    "review_set_top10",
-    "er_calibration",
+ESTIMATOR_POLICY_MANDATORY_METRICS = ("er_calibration",)
+COMPOSER_MANDATORY_METRICS = (
+    "review_set_all",
+    "pure_er_top20",
+    CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC,
 )
+
+
+def candidate_discovery_approach_top20_metric(approach: str) -> str:
+    """Return the outcome metric for one approach's complete nomination depth."""
+    return f"approach_{approach.replace('-', '_')}_top20"
+
+
+def candidate_discovery_approach_fidelity_metric(approach: str) -> str:
+    """Return the internal metric that proves one production approach was replayed."""
+    return f"candidate_discovery_approach_{approach.replace('-', '_')}_fidelity"
+
+
 KNOWN_METRICS = frozenset(
     (
-        *PRODUCTION_REQUIRED_METRICS,
+        "review_set_top5",
+        "review_set_top10",
+        "review_set_top20",
+        "review_set_all",
+        "pure_er_top5",
+        "pure_er_top10",
+        "pure_er_top20",
+        "er_calibration",
         "er_level_calibration",
         "margin_short_to_adv",
         "normalized_per_3fy",
+        CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC,
+        *(candidate_discovery_approach_top20_metric(item) for item in APPROACH_IDS),
+        *(candidate_discovery_approach_fidelity_metric(item) for item in APPROACH_IDS),
     )
 )
 
@@ -55,8 +78,8 @@ class CohortIntegrity:
 
 
 @dataclass(frozen=True, slots=True)
-class AuthorityDecision:
-    """Why production authority is or is not granted.
+class EvidenceReadiness:
+    """Why evidence is or is not complete enough for a human decision.
 
     ``blocking_reasons`` names classes of problem, never single cohorts: one entry per
     cohort would grow with the panel count and bury the handful of causes a reader can
@@ -64,9 +87,8 @@ class AuthorityDecision:
     is the exception, because a cohort with no result has nowhere else to be named.
     """
 
-    authority: str
     evidence_status: EvidenceStatus
-    production_change_allowed: bool
+    evidence_complete: bool
     blocking_reasons: tuple[str, ...]
     missing_cohorts: tuple[str, ...] = ()
 
@@ -74,39 +96,50 @@ class AuthorityDecision:
         return asdict(self)
 
 
-def candidate_discovery_approach_fidelity_metric(approach: str) -> str:
-    """Return the internal metric that proves one production approach was replayed."""
-    return f"candidate_discovery_approach_{approach.replace('-', '_')}_fidelity"
-
-
-def effective_required_metrics(scope: EvaluationScope) -> tuple[str, ...]:
-    """Add subject-mandatory fidelity metrics that an operator cannot omit."""
-    metrics = list(scope.required_metrics)
+def subject_mandatory_metrics(scope: EvaluationScope) -> tuple[str, ...]:
+    """Return the evidence metrics an operator cannot omit for this subject."""
+    metrics: list[str]
+    if scope.decision_subject == ESTIMATOR_POLICY_SUBJECT:
+        metrics = list(ESTIMATOR_POLICY_MANDATORY_METRICS)
+    elif scope.decision_subject == CANDIDATE_DISCOVERY_COMPOSER_SUBJECT:
+        metrics = list(COMPOSER_MANDATORY_METRICS)
+    else:
+        metrics = []
     if (
         scope.decision_subject == CANDIDATE_DISCOVERY_APPROACH_SUBJECT
         and len(scope.candidate_discovery_approaches) == 1
         and scope.candidate_discovery_approaches[0] in APPROACH_IDS
     ):
-        metrics.append(
-            candidate_discovery_approach_fidelity_metric(scope.candidate_discovery_approaches[0])
+        approach = scope.candidate_discovery_approaches[0]
+        metrics.extend(
+            (
+                "review_set_all",
+                "pure_er_top20",
+                CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC,
+                candidate_discovery_approach_top20_metric(approach),
+                candidate_discovery_approach_fidelity_metric(approach),
+            )
         )
-    elif scope.decision_subject == CANDIDATE_DISCOVERY_COMPOSER_SUBJECT:
-        metrics.append(CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC)
     return tuple(dict.fromkeys(metrics))
 
 
-def decide_authority(
+def effective_required_metrics(scope: EvaluationScope) -> tuple[str, ...]:
+    """Combine subject-mandatory evidence with optional preregistered guardrails."""
+    return tuple(dict.fromkeys((*subject_mandatory_metrics(scope), *scope.required_metrics)))
+
+
+def evaluate_evidence_readiness(
     scope: EvaluationScope, cohorts: tuple[CohortIntegrity, ...]
-) -> AuthorityDecision:
-    """Allow empirical production changes only for complete 3y/5y evidence."""
+) -> EvidenceReadiness:
+    """Report completeness without deciding whether a method should change."""
     reasons: list[str] = []
     unknown = [name for name in scope.requested_horizons if name not in HORIZONS]
     if unknown:
         reasons.append(f"unknown_horizon:{','.join(sorted(unknown))}")
-    if scope.run_purpose != "production_decision":
-        reasons.append("diagnostic_run_has_no_production_authority")
+    if scope.run_purpose != "empirical_change_evidence":
+        reasons.append("diagnostic_run_has_no_evidence_readiness")
     required_horizons = ("3y", "5y")
-    if scope.run_purpose == "production_decision":
+    if scope.run_purpose == "empirical_change_evidence":
         missing_horizons = [
             name for name in required_horizons if name not in scope.requested_horizons
         ]
@@ -114,9 +147,7 @@ def decide_authority(
             reasons.append(f"missing_required_horizons:{','.join(missing_horizons)}")
     if not scope.required_asofs:
         reasons.append("missing_required_asofs")
-    if not scope.required_metrics:
-        reasons.append("missing_required_metrics")
-    if scope.run_purpose == "production_decision":
+    if scope.run_purpose == "empirical_change_evidence":
         if scope.decision_subject not in DECISION_SUBJECTS:
             reasons.append(f"unknown_decision_subject:{scope.decision_subject}")
         elif scope.decision_subject == CANDIDATE_DISCOVERY_APPROACH_SUBJECT:
@@ -132,11 +163,8 @@ def decide_authority(
         elif scope.candidate_discovery_approaches:
             reasons.append("candidate_discovery_approach_not_allowed_for_subject")
         unknown_metrics = set(scope.required_metrics) - KNOWN_METRICS
-        missing_core_metrics = set(PRODUCTION_REQUIRED_METRICS) - set(scope.required_metrics)
         if unknown_metrics:
             reasons.append(f"unknown_required_metrics:{','.join(sorted(unknown_metrics))}")
-        if missing_core_metrics:
-            reasons.append(f"missing_core_metrics:{','.join(sorted(missing_core_metrics))}")
 
     required_metrics = effective_required_metrics(scope)
     index = {(item.asof, item.horizon): item for item in cohorts}
@@ -155,19 +183,17 @@ def decide_authority(
                 if item.metric_statuses.get(metric) != "eligible":
                     reasons.append(f"metric_unresolved:{metric}")
     if not reasons:
-        return AuthorityDecision(
-            authority="production_decision_evidence",
+        return EvidenceReadiness(
             evidence_status="eligible",
-            production_change_allowed=True,
+            evidence_complete=True,
             blocking_reasons=(),
         )
     status: EvidenceStatus = (
         "unresolved" if all("missing_" in item for item in reasons) else "blocked"
     )
-    return AuthorityDecision(
-        authority="production_decision_evidence",
+    return EvidenceReadiness(
         evidence_status=status,
-        production_change_allowed=False,
+        evidence_complete=False,
         blocking_reasons=tuple(dict.fromkeys(reasons)),
         missing_cohorts=tuple(missing),
     )

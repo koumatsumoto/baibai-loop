@@ -20,7 +20,7 @@ from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
 from ..discovery.review_set import APPROACH_IDS
 from ..rule_config import CandidateDiscoveryRules
-from .authority import (
+from .evidence import (
     CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC,
     candidate_discovery_approach_fidelity_metric,
 )
@@ -227,7 +227,7 @@ def evaluate_cohorts(
                 )
             )
         per_horizon[horizon] = {
-            "authority": require_horizon(horizon).authority,
+            "evidence_role": require_horizon(horizon).evidence_role,
             "cohorts": cohort_results,
             "observation_dependence": _observation_dependence(cohort_results, horizon=horizon),
             "aggregate": _aggregate(
@@ -298,7 +298,7 @@ def _evaluate_cohort(
         # at asof is a correct exclusion; a name priced earlier but absent at
         # asof would be a silently dropped tradeable name; a name whose series
         # ends inside the window is the survivorship exposure that needs an exit
-        # value. Only the last two can bias a cohort, so the authority gate
+        # value. Only the last two can bias a cohort, so the evidence readiness
         # reads these counts rather than the undivided total.
         "entry_not_listed_count": len(entry_not_listed),
         "entry_price_gap_count": len(entry_price_gap),
@@ -556,7 +556,7 @@ def _direction_signs(
     horizon: str,
     candidate_discovery_rules: CandidateDiscoveryRules,
 ) -> dict[str, float | None]:
-    """The sign-bearing quantity of each conclusion the authority gate reads."""
+    """The sign-bearing quantity of each conclusion the evidence readiness reads."""
     candidate_discovery = _evaluate_candidate_discovery(
         context.population,
         context.excess,

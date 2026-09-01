@@ -10,8 +10,8 @@ from statistics import median
 from typing import cast
 from zoneinfo import ZoneInfo
 
-from .authority import ESTIMATOR_POLICY_SUBJECT, PRODUCTION_REQUIRED_METRICS
 from .evaluation import MIN_AXIS_SAMPLE, TRAP_EXCESS_THRESHOLD
+from .evidence import ESTIMATOR_POLICY_MANDATORY_METRICS, ESTIMATOR_POLICY_SUBJECT
 from .forward import TOTAL_RETURN_BASIS, ForwardReturnRow
 from .horizons import require_horizon
 from .panel import PanelRow
@@ -233,21 +233,25 @@ def build_er_distribution_context(
 ) -> dict[str, object]:
     """Build schema v2 from every horizon-specific eligible cohort."""
 
-    decision = evaluation.get("production_decision")
+    readiness = evaluation.get("evidence_readiness")
     scope = evaluation.get("scope")
     if (
-        not isinstance(decision, Mapping)
-        or decision.get("evidence_status") != "eligible"
-        or decision.get("production_change_allowed") is not True
+        not isinstance(readiness, Mapping)
+        or readiness.get("evidence_status") != "eligible"
+        or readiness.get("evidence_complete") is not True
     ):
-        raise CalibrationContextError("production authority is not eligible")
-    if not isinstance(scope, Mapping) or scope.get("run_purpose") != "production_decision":
-        raise CalibrationContextError("context requires a production_decision evaluation")
+        raise CalibrationContextError("evidence is not complete")
+    if not isinstance(scope, Mapping) or scope.get("run_purpose") != "empirical_change_evidence":
+        raise CalibrationContextError("context requires an empirical_change_evidence evaluation")
     if scope.get("decision_subject") != ESTIMATOR_POLICY_SUBJECT:
-        raise CalibrationContextError("E[r] context requires estimator_policy authority")
+        raise CalibrationContextError("E[r] context requires estimator_policy evidence")
     required_metrics = scope.get("required_metrics")
-    required = {*PRODUCTION_REQUIRED_METRICS, "er_level_calibration"}
-    if not isinstance(required_metrics, list) or not required.issubset(required_metrics):
+    mandatory_metrics = scope.get("mandatory_metrics")
+    required = {*ESTIMATOR_POLICY_MANDATORY_METRICS, "er_level_calibration"}
+    declared = set(required_metrics) if isinstance(required_metrics, list) else set()
+    if isinstance(mandatory_metrics, list):
+        declared.update(mandatory_metrics)
+    if not required.issubset(declared):
         raise CalibrationContextError("context required metrics are incomplete")
     rules_hash = evaluation.get("screening_rules_hash")
     er_model_version = evaluation.get("er_model_version")
@@ -321,7 +325,7 @@ def build_er_distribution_context(
 def _eligible_asofs(evaluation: Mapping[str, object]) -> dict[str, list[str]]:
     result: dict[str, list[str]] = {"3y": [], "5y": []}
     level_eligible = _level_eligible_pairs(evaluation.get("results"))
-    required_metrics = {*PRODUCTION_REQUIRED_METRICS, "er_level_calibration"}
+    required_metrics = {*ESTIMATOR_POLICY_MANDATORY_METRICS, "er_level_calibration"}
     raw = evaluation.get("cohort_integrity")
     if not isinstance(raw, list):
         raise CalibrationContextError("cohort integrity is missing")

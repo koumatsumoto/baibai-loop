@@ -12,11 +12,11 @@ from typing import cast
 from baibai_engine.foundation.env import load_project_env
 from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH, RUNS_DB_PATH
 from baibai_engine.foundation.time import JST
-from baibai_engine.screening.calibration.authority import DECISION_SUBJECTS
 from baibai_engine.screening.calibration.cli import (
     calibration_build_command,
     calibration_evaluate_command,
 )
+from baibai_engine.screening.calibration.evidence import DECISION_SUBJECTS
 from baibai_engine.screening.calibration.grid import days_with_bars, month_end_asof_grid
 from baibai_engine.screening.calibration.panel import PANEL_BUILD_POLICIES, PanelVariant
 from baibai_engine.screening.calibration.store import (
@@ -436,7 +436,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="horizon to evaluate (3m/6m/1y/3y/5y; repeatable; default: all)",
     )
     calibration_evaluate_parser.add_argument(
-        "--run-purpose", choices=("diagnostic", "production_decision"), default="diagnostic"
+        "--run-purpose",
+        choices=("diagnostic", "empirical_change_evidence"),
+        default="diagnostic",
     )
     calibration_evaluate_parser.add_argument(
         "--required-asof", action="append", dest="required_asofs"
@@ -448,7 +450,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--decision-subject",
         choices=DECISION_SUBJECTS,
         default="estimator_policy",
-        help="production decision target whose method fidelity cannot be omitted",
+        help="evidence subject whose mandatory metrics cannot be omitted",
     )
     calibration_evaluate_parser.add_argument(
         "--candidate-discovery-approach",

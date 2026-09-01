@@ -26,13 +26,6 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_engine.screening.calibration.authority import (
-    CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
-    CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC,
-    KNOWN_METRICS,
-    PRODUCTION_REQUIRED_METRICS,
-    candidate_discovery_approach_fidelity_metric,
-)
 from baibai_engine.screening.calibration.cli import (
     _required_metric_statuses,
 )
@@ -54,6 +47,13 @@ from baibai_engine.screening.calibration.evaluation import (
 )
 from baibai_engine.screening.calibration.evaluation import (
     evaluate_cohorts as _evaluate_cohorts,
+)
+from baibai_engine.screening.calibration.evidence import (
+    CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
+    CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC,
+    ESTIMATOR_POLICY_MANDATORY_METRICS,
+    KNOWN_METRICS,
+    candidate_discovery_approach_fidelity_metric,
 )
 from baibai_engine.screening.calibration.forward import ForwardReturnRow
 from baibai_engine.screening.calibration.panel import (
@@ -724,7 +724,7 @@ class EvaluateCohortsTest(unittest.TestCase):
 
     def test_replays_whose_verdict_was_negative_stay_out_of_the_payload(self) -> None:
         # Each name below has a dated negative verdict. Recomputing one would put a
-        # rejected hypothesis back into the artifact the authority gate reads.
+        # rejected hypothesis back into the artifact the evidence readiness reads.
         panel = [
             replace(
                 _panel_row(
@@ -1188,7 +1188,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertEqual(first["median_realized_dividend_contribution_annual"], 0.04)
         self.assertEqual(cohort["metric_statuses"]["er_level_calibration"], "eligible")
 
-    def test_er_level_context_materializes_authority_eligible_cohorts(self) -> None:
+    def test_er_level_context_materializes_evidence_complete_cohorts(self) -> None:
         asof = "2020-01-31"
         panel = [
             _panel_row(
@@ -1214,18 +1214,16 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             "screening_rules_hash": "rules-hash-v1",
             "er_model_version": "expected-return-v1",
             "scope": {
-                "run_purpose": "production_decision",
+                "run_purpose": "empirical_change_evidence",
                 "decision_subject": "estimator_policy",
                 "required_metrics": [
-                    "review_set_top5",
-                    "review_set_top10",
-                    "er_calibration",
                     "er_level_calibration",
                 ],
+                "mandatory_metrics": ["er_calibration", "er_level_calibration"],
             },
-            "production_decision": {
+            "evidence_readiness": {
                 "evidence_status": "eligible",
-                "production_change_allowed": True,
+                "evidence_complete": True,
             },
             "cohort_integrity": [
                 {
@@ -1233,7 +1231,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
                     "horizon": horizon,
                     "integrity_status": "eligible",
                     "metric_statuses": dict.fromkeys(
-                        (*PRODUCTION_REQUIRED_METRICS, "er_level_calibration"), "eligible"
+                        (*ESTIMATOR_POLICY_MANDATORY_METRICS, "er_level_calibration"), "eligible"
                     ),
                 }
                 for horizon in ("3y", "5y")
@@ -1296,23 +1294,23 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         assert isinstance(first_integrity, dict)
         metric_statuses = first_integrity["metric_statuses"]
         assert isinstance(metric_statuses, dict)
-        metric_statuses["review_set_top5"] = "unresolved"
+        metric_statuses["er_calibration"] = "unresolved"
         with self.assertRaises(CalibrationContextError):
             build_er_distribution_context(evaluation, {asof: panel}, {asof: forwards})
-        metric_statuses["review_set_top5"] = "eligible"
+        metric_statuses["er_calibration"] = "eligible"
 
         scope = evaluation["scope"]
         assert isinstance(scope, dict)
         scope["decision_subject"] = "candidate_discovery_approach"
         with self.assertRaisesRegex(
-            CalibrationContextError, r"E\[r\] context requires estimator_policy authority"
+            CalibrationContextError, r"E\[r\] context requires estimator_policy evidence"
         ):
             build_er_distribution_context(evaluation, {asof: panel}, {asof: forwards})
         scope["decision_subject"] = "estimator_policy"
 
-        evaluation["production_decision"] = {
+        evaluation["evidence_readiness"] = {
             "evidence_status": "unresolved",
-            "production_change_allowed": False,
+            "evidence_complete": False,
         }
         with self.assertRaises(CalibrationContextError):
             build_er_distribution_context(evaluation, {asof: panel}, {asof: forwards})
@@ -1395,7 +1393,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         assert isinstance(horizon, dict)
         self.assertEqual(
             set(horizon),
-            {"authority", "cohorts", "aggregate", "observation_dependence"},
+            {"evidence_role", "cohorts", "aggregate", "observation_dependence"},
         )
 
     def test_horizon_output_has_only_current_contract_sections(self) -> None:
@@ -1412,7 +1410,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         assert isinstance(horizon, dict)
         self.assertEqual(
             set(horizon),
-            {"authority", "cohorts", "aggregate", "observation_dependence"},
+            {"evidence_role", "cohorts", "aggregate", "observation_dependence"},
         )
 
     def _rejected_metrics_message(self, required_metrics: list[str]) -> tuple[int, str]:
@@ -1423,7 +1421,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
                 horizons=["3y", "5y"],
                 output_path=Path(temp_dir) / "evaluation.yaml",
                 stdout=StringIO(),
-                run_purpose="production_decision",
+                run_purpose="empirical_change_evidence",
                 required_asofs=["2021-06-30"],
                 required_metrics=required_metrics,
             )
@@ -1435,17 +1433,18 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         # This operator passed all three core metrics, so telling them to add the
         # core three names nothing they can act on.
         exit_code, message = self._rejected_metrics_message(
-            [*PRODUCTION_REQUIRED_METRICS, "not_a_registered_metric"]
+            [*ESTIMATOR_POLICY_MANDATORY_METRICS, "not_a_registered_metric"]
         )
 
         self.assertEqual(exit_code, 1)
         self.assertIn("unknown required metrics: not_a_registered_metric", message)
 
-    def test_a_missing_core_metric_still_names_the_core_three(self) -> None:
+    def test_subject_metrics_do_not_need_to_be_repeated_on_the_cli(self) -> None:
         exit_code, message = self._rejected_metrics_message(["er_calibration"])
 
         self.assertEqual(exit_code, 1)
-        self.assertIn("must include", message)
+        self.assertIn("calibration snapshot is missing", message)
+        self.assertNotIn("must include", message)
         self.assertNotIn("unknown required metrics", message)
 
     def test_candidate_discovery_approach_subject_requires_one_known_approach(self) -> None:
@@ -1454,9 +1453,9 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             exit_code = calibration_evaluate_command(
                 calibration_dir=Path(temp_dir),
                 horizons=["3y", "5y"],
-                run_purpose="production_decision",
+                run_purpose="empirical_change_evidence",
                 required_asofs=["2021-06-30"],
-                required_metrics=list(PRODUCTION_REQUIRED_METRICS),
+                required_metrics=list(ESTIMATOR_POLICY_MANDATORY_METRICS),
                 decision_subject=CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
                 stdout=StringIO(),
             )
@@ -1464,7 +1463,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertIn("requires one --candidate-discovery-approach", errors.getvalue())
 
-    def test_the_full_rank_replay_metrics_stay_registered_for_authority(self) -> None:
+    def test_top_rank_diagnostics_stay_registered(self) -> None:
         # `review_set_top*` is emitted by every cohort, so leaving it out of the
         # registry would reject a preregistration that names an output it can see.
         self.assertLessEqual(
@@ -1533,9 +1532,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
                 production_rules_contract_hash(_RULES.model_dump_json()),
             )
             self.assertEqual(payload["calibration_method_hash"], _RULES_HASH)
-            decision = payload["production_decision"]
-            assert isinstance(decision, dict)
-            self.assertFalse(decision["production_change_allowed"])
+            self.assertNotIn("evidence_readiness", payload)
             results = payload["results"]
             assert isinstance(results, dict)
             horizon = results["6m"]
@@ -1614,9 +1611,9 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(output_path.read_text(encoding="utf-8"))
         assert isinstance(payload, dict)
-        authority = payload["authority_coverage"]
-        assert isinstance(authority, dict)
-        counts = authority["reason_counts"]
+        coverage_summary = payload["evidence_coverage"]
+        assert isinstance(coverage_summary, dict)
+        counts = coverage_summary["reason_counts"]
         assert isinstance(counts, dict)
         cohorts = payload["results"]["3y"]["cohorts"]
         assert isinstance(cohorts, list)
@@ -1627,7 +1624,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             cohort_integrity[0]["metric_statuses"],
             {
                 metric: cohorts[0]["metric_statuses"][metric]
-                for metric in PRODUCTION_REQUIRED_METRICS
+                for metric in ESTIMATOR_POLICY_MANDATORY_METRICS
             },
         )
         coverage = cohorts[0]["coverage"]
@@ -1790,11 +1787,11 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertNotIn("priced_master_without_universe_return_unresolved", counts)
         self.assertNotIn("priced_master_without_universe_flips_direction", counts)
 
-    def test_production_decision_requires_explicit_core_scope(self) -> None:
+    def test_empirical_change_evidence_requires_explicit_core_scope(self) -> None:
         with TemporaryDirectory() as temp_dir:
             exit_code = calibration_evaluate_command(
                 calibration_dir=Path(temp_dir),
-                run_purpose="production_decision",
+                run_purpose="empirical_change_evidence",
                 stdout=StringIO(),
             )
         self.assertEqual(exit_code, 1)
@@ -1878,7 +1875,7 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         self.assertLess(imputations["total_loss"]["review_set_top5"], 0)
         self.assertGreater(imputations["neutral"]["review_set_top5"], 0)
 
-    def test_normalized_per_direction_flip_blocks_optional_authority(self) -> None:
+    def test_normalized_per_direction_flip_blocks_optional_evidence(self) -> None:
         as_reported = {"normalized_per_3fy": 0.1}
         imputed = {
             "total_loss": as_reported,
@@ -1887,7 +1884,7 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         stability = _metric_direction_stability(as_reported, imputed)
         self.assertFalse(stability["normalized_per_3fy"])
 
-    def test_margin_short_trap_flip_blocks_optional_authority(self) -> None:
+    def test_margin_short_trap_flip_blocks_optional_evidence(self) -> None:
         passing = {
             "decile_spread_median": 0.03,
             "best_decile_trap_rate": 0.1,
