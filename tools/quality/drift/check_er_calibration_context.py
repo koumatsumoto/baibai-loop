@@ -5,11 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
+from pydantic import ValidationError
 
-from baibai_engine.screening.calibration.context import (
-    CONTEXT_SCHEMA_VERSION,
-    validate_er_distribution_context_payload,
+from baibai_engine.foundation.er_calibration_context import (
+    ER_CALIBRATION_CONTEXT_SCHEMA_VERSION,
+    ErCalibrationContextArtifact,
 )
+from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.screening.estimates import EXPECTED_RETURN_MODEL_VERSION
 from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
@@ -22,7 +24,7 @@ def check() -> tuple[str, ...]:
     """Return every identity mismatch; artifact freshness stays an operations concern."""
 
     try:
-        raw = yaml.safe_load(_CONTEXT.read_text(encoding="utf-8"))
+        raw = safe_load(_CONTEXT.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, yaml.YAMLError) as exc:
         return (f"unable to read {_CONTEXT.relative_to(_ROOT)}: {exc}",)
     if not isinstance(raw, dict):
@@ -31,12 +33,14 @@ def check() -> tuple[str, ...]:
         load_screening_rules(_ROOT / DEFAULT_RULES_PATH).model_dump_json()
     )
     failures: list[str] = []
-    if not validate_er_distribution_context_payload(raw):
+    try:
+        ErCalibrationContextArtifact.model_validate(raw)
+    except ValidationError:
         failures.append("published E[r] context does not satisfy the schema v2 contract")
-    if raw.get("schema_version") != CONTEXT_SCHEMA_VERSION:
+    if raw.get("schema_version") != ER_CALIBRATION_CONTEXT_SCHEMA_VERSION:
         failures.append(
             "published E[r] context schema does not match the current reader: "
-            f"{raw.get('schema_version')!r} != {CONTEXT_SCHEMA_VERSION}"
+            f"{raw.get('schema_version')!r} != {ER_CALIBRATION_CONTEXT_SCHEMA_VERSION}"
         )
     if raw.get("screening_rules_hash") != expected_rules_hash:
         failures.append(

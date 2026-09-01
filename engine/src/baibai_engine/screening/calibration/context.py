@@ -3,12 +3,28 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from itertools import pairwise
-from math import ceil, isclose, isfinite
+from math import ceil, isfinite
 from statistics import median
 from typing import cast
 from zoneinfo import ZoneInfo
+
+from pydantic import ValidationError
+
+from baibai_engine.foundation.er_calibration_context import (
+    ER_CALIBRATION_CONTEXT_KIND,
+    ER_CALIBRATION_CONTEXT_SCHEMA_VERSION,
+    ER_CALIBRATION_CONTEXT_VALID_DAYS,
+    ER_CALIBRATION_PRIMARY_REALIZED_BASIS,
+    ER_CALIBRATION_PRIMARY_WEIGHTING,
+    ER_CALIBRATION_REFERENCE_HORIZON,
+    ER_CALIBRATION_SECONDARY_REALIZED_BASIS,
+    ER_CALIBRATION_SECONDARY_WEIGHTING,
+    ER_CALIBRATION_TRAP_BASIS,
+    HURDLE_ER_ANNUAL,
+    ErCalibrationContextArtifact,
+)
 
 from .evaluation import MIN_AXIS_SAMPLE, TRAP_EXCESS_THRESHOLD
 from .evidence import ESTIMATOR_POLICY_MANDATORY_METRICS, ESTIMATOR_POLICY_SUBJECT
@@ -16,212 +32,9 @@ from .forward import TOTAL_RETURN_BASIS, ForwardReturnRow
 from .horizons import require_horizon
 from .panel import PanelRow
 
-CONTEXT_KIND = "er-level-calibration-context"
-CONTEXT_SCHEMA_VERSION = 2
-CONTEXT_VALID_DAYS = 45
-PRIMARY_REALIZED_BASIS = "fy_actual_dividend_total_return"
-SECONDARY_REALIZED_BASIS = "price_return_only"
-HURDLE_ER_ANNUAL = 0.085
-
 
 class CalibrationContextError(ValueError):
     """Raised when eligible evidence cannot materialize a safe context artifact."""
-
-
-def validate_er_distribution_context_payload(raw: Mapping[str, object]) -> bool:
-    """Validate the versioned artifact before a judgment surface consumes it."""
-
-    try:
-        if (
-            raw.get("kind") != CONTEXT_KIND
-            or raw.get("schema_version") != CONTEXT_SCHEMA_VERSION
-            or raw.get("primary_realized_basis") != PRIMARY_REALIZED_BASIS
-            or raw.get("secondary_realized_basis") != SECONDARY_REALIZED_BASIS
-            or raw.get("trap_basis") != "cohort_population_cumulative_return_excess_lte_minus_0_20"
-            or raw.get("reference_horizon") != "3y"
-        ):
-            return False
-        weighting = raw.get("weighting")
-        if not isinstance(weighting, Mapping) or dict(weighting) != {
-            "primary": "ticker_asof_observation_equal",
-            "secondary": "cohort_equal",
-        }:
-            return False
-        generated_at = raw.get("generated_at")
-        valid_through = raw.get("valid_through")
-        if not isinstance(generated_at, str) or not isinstance(valid_through, str):
-            return False
-        generated = datetime.fromisoformat(generated_at)
-        if generated.tzinfo is None or generated.utcoffset() is None:
-            return False
-        expires = date.fromisoformat(valid_through)
-        if expires != generated.astimezone(ZoneInfo("Asia/Tokyo")).date() + timedelta(
-            days=CONTEXT_VALID_DAYS
-        ):
-            return False
-        common = raw.get("common_window")
-        if not isinstance(common, Mapping) or not _valid_common_window(common):
-            return False
-        horizons = raw.get("horizons")
-        if (
-            not isinstance(horizons, list)
-            or len(horizons) != 2
-            or not all(isinstance(item, Mapping) for item in horizons)
-        ):
-            return False
-        typed_horizons = cast(list[Mapping[object, object]], horizons)
-        if [item.get("horizon") for item in typed_horizons] != ["3y", "5y"]:
-            return False
-        return all(_valid_horizon_payload(item) for item in typed_horizons)
-    except (TypeError, ValueError):
-        return False
-
-
-def _valid_common_window(raw: Mapping[object, object]) -> bool:
-    count = raw.get("cohort_count")
-    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
-        return False
-    start = raw.get("asof_start")
-    end = raw.get("asof_end")
-    horizons = raw.get("horizons")
-    if not isinstance(horizons, list) or not all(isinstance(item, Mapping) for item in horizons):
-        return False
-    typed_horizons = cast(list[Mapping[object, object]], horizons)
-    if count == 0:
-        return start is None and end is None and not typed_horizons
-    if not isinstance(start, str) or not isinstance(end, str):
-        return False
-    return (
-        date.fromisoformat(start) <= date.fromisoformat(end)
-        and [item.get("horizon") for item in typed_horizons] == ["3y", "5y"]
-        and all(item.get("cohort_count") == count for item in typed_horizons)
-        and all(_valid_horizon_payload(item) for item in typed_horizons)
-    )
-
-
-def _valid_horizon_payload(raw: Mapping[object, object]) -> bool:
-    cohort_count = raw.get("cohort_count")
-    start = raw.get("asof_start")
-    end = raw.get("asof_end")
-    bands = raw.get("bands")
-    if (
-        isinstance(cohort_count, bool)
-        or not isinstance(cohort_count, int)
-        or cohort_count <= 0
-        or not isinstance(start, str)
-        or not isinstance(end, str)
-        or date.fromisoformat(start) > date.fromisoformat(end)
-        or not isinstance(bands, list)
-        or len(bands) != 6
-        or not all(isinstance(item, Mapping) for item in bands)
-    ):
-        return False
-    typed_bands = cast(list[Mapping[object, object]], bands)
-    if [item.get("band_id") for item in typed_bands] != [
-        "q1",
-        "q2",
-        "q3",
-        "q4",
-        "q5",
-        "er_gte_8_5pct",
-    ]:
-        return False
-    cutoffs = [item.get("upper_er_annual") for item in typed_bands[:4]]
-    if not all(_finite_number(value) for value in cutoffs):
-        return False
-    numeric_cutoffs = [float(cast(float | int, value)) for value in cutoffs]
-    if any(right <= left for left, right in pairwise(numeric_cutoffs)):
-        return False
-    expected_bounds: list[tuple[float | None, float | None]] = [
-        (None, numeric_cutoffs[0]),
-        (numeric_cutoffs[0], numeric_cutoffs[1]),
-        (numeric_cutoffs[1], numeric_cutoffs[2]),
-        (numeric_cutoffs[2], numeric_cutoffs[3]),
-        (numeric_cutoffs[3], None),
-        (HURDLE_ER_ANNUAL, None),
-    ]
-    return all(
-        _valid_band_payload(
-            item,
-            expected_quintile=index if index <= 5 else None,
-            expected_bounds=expected_bounds[index - 1],
-            cohort_count=cohort_count,
-        )
-        for index, item in enumerate(typed_bands, start=1)
-    )
-
-
-def _valid_band_payload(
-    raw: Mapping[object, object],
-    *,
-    expected_quintile: int | None,
-    expected_bounds: tuple[float | None, float | None],
-    cohort_count: int,
-) -> bool:
-    if (
-        raw.get("quintile") != expected_quintile
-        or not _same_optional_number(raw.get("lower_er_annual"), expected_bounds[0])
-        or not _same_optional_number(raw.get("upper_er_annual"), expected_bounds[1])
-        or raw.get("cohort_count") != cohort_count
-        or not _finite_number(raw.get("median_predicted_er_annual"))
-        or isinstance(raw.get("median_n"), bool)
-        or not isinstance(raw.get("median_n"), int)
-        or cast(int, raw.get("median_n")) <= 0
-    ):
-        return False
-    bases = raw.get("bases")
-    if (
-        not isinstance(bases, list)
-        or len(bases) != 2
-        or not all(isinstance(item, Mapping) for item in bases)
-    ):
-        return False
-    typed_bases = cast(list[Mapping[object, object]], bases)
-    if [item.get("basis") for item in typed_bases] != [
-        PRIMARY_REALIZED_BASIS,
-        SECONDARY_REALIZED_BASIS,
-    ]:
-        return False
-    return all(
-        _valid_stats_payload(basis.get(weighting))
-        for basis in typed_bases
-        for weighting in ("ticker_equal", "cohort_equal")
-    )
-
-
-def _valid_stats_payload(raw: object) -> bool:
-    if not isinstance(raw, Mapping):
-        return False
-    median_value = raw.get("median")
-    q25 = raw.get("q25")
-    q10 = raw.get("q10")
-    trap_rate = raw.get("trap_rate")
-    n = raw.get("n")
-    return (
-        _finite_number(median_value)
-        and _finite_number(q25)
-        and _finite_number(q10)
-        and float(cast(float | int, q10))
-        <= float(cast(float | int, q25))
-        <= float(cast(float | int, median_value))
-        and _finite_number(trap_rate)
-        and 0 <= float(cast(float | int, trap_rate)) <= 1
-        and not isinstance(n, bool)
-        and isinstance(n, int)
-        and n > 0
-    )
-
-
-def _finite_number(value: object) -> bool:
-    return not isinstance(value, bool) and isinstance(value, int | float) and isfinite(value)
-
-
-def _same_optional_number(value: object, expected: float | None) -> bool:
-    if expected is None:
-        return value is None
-    return _finite_number(value) and isclose(
-        float(cast(float | int, value)), expected, abs_tol=1e-12
-    )
 
 
 def build_er_distribution_context(
@@ -295,22 +108,23 @@ def build_er_distribution_context(
         if common_asofs
         else []
     )
-    return {
-        "kind": CONTEXT_KIND,
-        "schema_version": CONTEXT_SCHEMA_VERSION,
+    payload: dict[str, object] = {
+        "kind": ER_CALIBRATION_CONTEXT_KIND,
+        "schema_version": ER_CALIBRATION_CONTEXT_SCHEMA_VERSION,
         "generated_at": now.isoformat(timespec="seconds"),
         "valid_through": (
-            now.astimezone(ZoneInfo("Asia/Tokyo")).date() + timedelta(days=45)
+            now.astimezone(ZoneInfo("Asia/Tokyo")).date()
+            + timedelta(days=ER_CALIBRATION_CONTEXT_VALID_DAYS)
         ).isoformat(),
-        "reference_horizon": "3y",
+        "reference_horizon": ER_CALIBRATION_REFERENCE_HORIZON,
         "screening_rules_hash": rules_hash,
         "er_model_version": er_model_version,
-        "primary_realized_basis": PRIMARY_REALIZED_BASIS,
-        "secondary_realized_basis": SECONDARY_REALIZED_BASIS,
-        "trap_basis": "cohort_population_cumulative_return_excess_lte_minus_0_20",
+        "primary_realized_basis": ER_CALIBRATION_PRIMARY_REALIZED_BASIS,
+        "secondary_realized_basis": ER_CALIBRATION_SECONDARY_REALIZED_BASIS,
+        "trap_basis": ER_CALIBRATION_TRAP_BASIS,
         "weighting": {
-            "primary": "ticker_asof_observation_equal",
-            "secondary": "cohort_equal",
+            "primary": ER_CALIBRATION_PRIMARY_WEIGHTING,
+            "secondary": ER_CALIBRATION_SECONDARY_WEIGHTING,
         },
         "common_window": {
             "asof_start": common_asofs[0] if common_asofs else None,
@@ -320,6 +134,13 @@ def build_er_distribution_context(
         },
         "horizons": horizons,
     }
+    try:
+        ErCalibrationContextArtifact.model_validate(payload)
+    except ValidationError as exc:
+        raise CalibrationContextError(
+            "generated E[r] context violates the shared contract"
+        ) from exc
+    return payload
 
 
 def _eligible_asofs(evaluation: Mapping[str, object]) -> dict[str, list[str]]:
@@ -538,14 +359,14 @@ def _band_context(
         ),
         "bases": [
             _basis_context(
-                PRIMARY_REALIZED_BASIS,
+                ER_CALIBRATION_PRIMARY_REALIZED_BASIS,
                 cohort_bands,
                 band_id=band_id,
                 value_field="total_annual",
                 trap_field="total_trap",
             ),
             _basis_context(
-                SECONDARY_REALIZED_BASIS,
+                ER_CALIBRATION_SECONDARY_REALIZED_BASIS,
                 cohort_bands,
                 band_id=band_id,
                 value_field="price_annual",

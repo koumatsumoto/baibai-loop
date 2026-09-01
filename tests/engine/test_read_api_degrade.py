@@ -337,6 +337,40 @@ def test_research_triage_list_and_latest_agree_on_the_newest_row(tmp_path: Path)
     assert payloads[0]["research_triage_id"] == latest["research_triage_id"]
 
 
+def test_research_triage_head_orders_offset_timestamps_by_real_instant(tmp_path: Path) -> None:
+    store = tmp_path / "app.sqlite"
+    with sqlite3.connect(store) as connection:
+        connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
+        connection.execute(
+            "CREATE TABLE research_triage (research_triage_id TEXT, as_of TEXT, published_at TEXT, "
+            "payload TEXT)"
+        )
+        for research_triage_id, published_at in (
+            ("triage-earlier-instant", "2026-07-20T10:00:00+09:00"),
+            ("triage-later-instant", "2026-07-20T02:30:00+00:00"),
+        ):
+            connection.execute(
+                "INSERT INTO research_triage VALUES (?, ?, ?, ?)",
+                (
+                    research_triage_id,
+                    "2026-07-20",
+                    published_at,
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "entries": [],
+                            "research_triage_id": research_triage_id,
+                        }
+                    ),
+                ),
+            )
+
+    latest = read_api.latest_research_triage_payload(store)
+
+    assert latest is not None
+    assert latest["research_triage_id"] == "triage-later-instant"
+
+
 def _store_with_research_triage(store: Path, payload: dict[str, object]) -> None:
     with sqlite3.connect(store) as connection:
         connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")

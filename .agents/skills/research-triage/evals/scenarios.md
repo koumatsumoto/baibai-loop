@@ -3,8 +3,8 @@
 ## Review Set with zero research entries
 
 - **対象層** — Review Set確認、Research Triage、`research` 0件の正常完了
-- **題材** — canonical Review Set全件について、調査質問を具体化できないため`skip`とする。Review Setを再生成せず、Research Triage v1を1回だけpublishする。
-- **期待品質** — 全entryが`research / skip`のどちらかを持ち、`skip`のrationaleが具体的である。Research Setやhuman confirmationを捏造しない。
+- **題材** — canonical Review Set IDからResearch Triage v2 scaffoldを生成し、全entryを具体的なrationale付きの`skip`としてv2を1回だけpublishする。
+- **期待品質** — `research_count=0`を確認し、operationを`no-research`で完了する。Research Setやhuman confirmationを捏造しない。
 
 ## Human admission remains pending
 

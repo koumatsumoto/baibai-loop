@@ -26,6 +26,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from baibai_engine.foundation.er_calibration_context import ErCalibrationContextArtifact
 from baibai_engine.screening.calibration.cli import (
     _required_metric_statuses,
 )
@@ -1255,6 +1256,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             {asof: forwards},
             generated_at=datetime(2026, 8, 2, 12, 0, tzinfo=ZoneInfo("Asia/Tokyo")),
         )
+        ErCalibrationContextArtifact.model_validate(context)
 
         self.assertEqual(context["reference_horizon"], "3y")
         self.assertEqual(context["valid_through"], "2026-09-16")

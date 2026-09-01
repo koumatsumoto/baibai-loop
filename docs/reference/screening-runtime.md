@@ -81,7 +81,9 @@ application DB schema v19の`research_triage`はReview Set全entryをexactly onc
 
 scaffold はReview Set IDからrun storeのcanonical publicationを解決し、Review Setのas-of以下で最新のMacro Contextと、application DBのlatest Triage IDを取得する。publisherは`review_set_id`、`run_revision_id`、`as_of`、`screening_rules_hash`、Candidate Discovery method、全tickerを検証し、draftの`candidate_snapshot`をsource Review Setから上書きする。snapshotはidentity、`review_position`、`nominations`、grouped `analysis`を持ち、`support_count`はnominations数から導出する。`rank_vector`や単独`fair_value`は複写しない。
 
-`expected_prior_research_triage_id`はpublish transaction内でlatest headとCASし、古いdraftの分岐を拒否する。Contextが無ければ`null`は正常、古ければwarningであり、どちらもReview Setのnomination、membership、orderを変えない。eligible Contextがあるのに`null`は拒否する。明示的に古いeligible revisionを選ぶことはできるが、選択理由を既存の判断文へ残す。発行後payloadはimmutableである。
+global headは`as_of DESC, julianday(published_at) DESC, research_triage_id DESC`の実時刻total orderで決める。`expected_prior_research_triage_id`はpublish transaction内でこのheadとCASする。新規publicationは`as_of`を後退させず、awareな`published_at`を現headより進め、未来時刻またはJST換算日が`as_of`より前の時刻を使わない。同じIDと同じcanonical payloadの再送だけは、後続headの有無にかかわらず冪等に成功する。これにより全てのnon-idempotent publicationが新headになり、同じpriorから分岐したdraftを拒否する。
+
+Contextが無ければ`null`は正常、古ければwarningであり、どちらもReview Setのnomination、membership、orderを変えない。eligible Contextがあるのに`null`は拒否する。明示的に古いeligible revisionを選ぶことはできるが、選択理由を既存の判断文へ残す。発行後payloadはimmutableである。`rationale`、および非`null`の`research_question` / `key_risk`は空白だけの値を拒否するが、検証時に前後空白を書き換えない。
 
 Research TriageはResearch Setのadmission可能範囲を定める。人間は`research` entryの部分集合だけをResearch Setとして確定できる。`research prepare --research-triage-id`はas-ofと比較snapshotをv2 payloadから導出し、Review Set fileやrun storeを要求しない。manifestはTriage ID、canonical payload hash、ledger append headを持ち、status・scaffold・promoteを含む各gateがapplication DBを再読してhashとresearchable ticker集合を検証する。
 
