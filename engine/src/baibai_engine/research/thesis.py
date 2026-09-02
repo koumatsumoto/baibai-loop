@@ -477,51 +477,6 @@ class EvidenceOverride(BaseModel):
         return self
 
 
-class AIValueCaptureJudgment(BaseModel):
-    """Company-specific assessment of whether AI change reaches shareholders."""
-
-    model_config = _CONFIG
-
-    assessment_status: Literal["material", "not_material", "unknown"]
-    roles: tuple[Literal["enabler", "infrastructure", "complement", "adopter", "disrupted"], ...]
-    competitive_advantage: Literal["favorable", "neutral", "adverse", "unknown"]
-    pricing_power: Literal["favorable", "neutral", "adverse", "unknown"]
-    capex_burden: Literal["favorable", "neutral", "adverse", "unknown"]
-    customer_bargaining_power: Literal["favorable", "neutral", "adverse", "unknown"]
-    value_capture_conclusion: Literal["captured", "uncertain", "not_captured", "adverse"]
-    decision_weight: Literal["none", "supporting", "material"]
-    rationale: Annotated[str, Field(min_length=1)]
-    source_ids: Annotated[tuple[Annotated[str, Field(min_length=1)], ...], Field(min_length=1)]
-
-    @field_validator("roles", "source_ids", mode="before")
-    @classmethod
-    def _parse_sequences(cls, value: object) -> object:
-        return _tuple(value)
-
-    @model_validator(mode="after")
-    def _valid_decision_weight(self) -> AIValueCaptureJudgment:
-        if len(set(self.roles)) != len(self.roles) or self.roles != tuple(sorted(self.roles)):
-            raise ValueError("ai_value_capture.roles must be unique and sorted")
-        if self.assessment_status == "material" and not self.roles:
-            raise ValueError("material AI value-capture assessment requires at least one role")
-        if self.assessment_status == "not_material" and (
-            self.roles or self.decision_weight != "none"
-        ):
-            raise ValueError(
-                "not_material AI value-capture assessment requires no roles and none weight"
-            )
-        if (
-            self.assessment_status == "unknown"
-            or self.value_capture_conclusion in {"uncertain", "not_captured", "adverse"}
-        ) and self.decision_weight != "none":
-            raise ValueError("uncertain or uncaptured AI value cannot carry decision weight")
-        if self.decision_weight != "none" and (
-            self.assessment_status != "material" or self.value_capture_conclusion != "captured"
-        ):
-            raise ValueError("AI decision weight requires material captured value")
-        return self
-
-
 class JudgmentNamespace(BaseModel):
     model_config = _CONFIG
 
@@ -531,7 +486,6 @@ class JudgmentNamespace(BaseModel):
     permanent_loss_conclusion: Literal["acceptable", "elevated", "unknown"]
     strongest_countercase: Annotated[str, Field(min_length=1)]
     sizing_action: Literal["normal", "reduced", "none"]
-    ai_value_capture: AIValueCaptureJudgment
 
     @field_validator("proposed_at", mode="before")
     @classmethod
@@ -586,7 +540,7 @@ class ThesisDocument(BaseModel):
 
     model_config = _CONFIG
 
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     input_snapshot: InputSnapshot
     derived: DerivedNamespace
     estimates: EstimatesNamespace
@@ -768,7 +722,6 @@ def evaluate_thesis(
         required_review_source_ids.update(scenario.source_ids)
     for risk in document.permanent_loss_risks:
         required_review_source_ids.update(risk.source_ids)
-    required_review_source_ids.update(document.judgment.ai_value_capture.source_ids)
 
     try:
         scenarios = tuple(
@@ -806,7 +759,6 @@ def evaluate_thesis(
     expected_conclusion = _risk_conclusion(document.permanent_loss_risks)
     if document.judgment.permanent_loss_conclusion != expected_conclusion:
         errors.append("judgment.permanent_loss_conclusion contradicts permanent-loss risk axes")
-    _check_ai_value_capture(document, source_ids, risk_by_axis, errors)
     evidence_gaps = _evidence_gap_axes(document)
     if evidence_gaps:
         warnings.append(f"permanent-loss evidence incomplete: {sorted(evidence_gaps)}")
@@ -1559,13 +1511,6 @@ def _check_lineage(document: ThesisDocument, source_ids: set[str], errors: list[
     rows.extend(
         (f"risk {item.axis}", item.as_of, item.source_ids) for item in document.permanent_loss_risks
     )
-    rows.append(
-        (
-            "AI value capture",
-            document.input_snapshot.as_of,
-            document.judgment.ai_value_capture.source_ids,
-        )
-    )
     sources = {source.source_id: source for source in document.input_snapshot.sources}
     for label, as_of, references in rows:
         if not references:
@@ -1581,29 +1526,6 @@ def _check_lineage(document: ThesisDocument, source_ids: set[str], errors: list[
             source = sources.get(source_id)
             if source is not None and (as_of - source.as_of).days > 400:
                 errors.append(f"{label} source {source_id} is more than 400 days old")
-
-
-def _check_ai_value_capture(
-    document: ThesisDocument,
-    source_ids: set[str],
-    risk_by_axis: Mapping[RiskAxis, PermanentLossRisk],
-    errors: list[str],
-) -> None:
-    assessment = document.judgment.ai_value_capture
-    unknown = sorted(set(assessment.source_ids) - source_ids)
-    if unknown:
-        errors.append(f"AI value capture references unknown sources: {unknown}")
-    if not assessment.source_ids:
-        errors.append("AI value capture requires source_ids")
-    if "disrupted" not in assessment.roles:
-        return
-    structural_decline = risk_by_axis.get("structural_decline")
-    if structural_decline is None:
-        return
-    if structural_decline.assessment not in {"adverse", "unknown"}:
-        errors.append("disrupted AI role requires adverse or unknown structural_decline risk")
-    if not set(assessment.source_ids) & set(structural_decline.source_ids):
-        errors.append("disrupted AI role requires a shared structural_decline source")
 
 
 def _risk_conclusion(risks: tuple[PermanentLossRisk, ...]) -> str:
