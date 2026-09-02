@@ -22,7 +22,7 @@ uv run baibai-batch analysis run --asof YYYY-MM-DD  # 手動再実行
 4. Review Set全体、短い[`TRIAGE_POLICY`](../../batch/src/baibai_batch/analysis/policy.py)、利用可能なMacro Contextの共有projectionを1つのstdin payloadにする。
 5. local `codex exec`を原則1 process・1 requestで実行し、strict JSONだけを受け取る。
 6. ticker集合、重複、欠落、field shape、長さを検証する。
-7. `baibai_engine.batch_api`経由で既存`ResearchTriageService`へ委譲し、binding、candidate snapshot、head CAS、same-ID idempotencyを再検証してpublishする。
+7. AI入力へ載せたMacro Context IDを保持したまま`baibai_engine.batch_api`経由で既存`ResearchTriageService`へ委譲し、binding、candidate snapshot、head CAS、same-ID idempotencyを再検証してpublishする。
 8. `research`が1件以上なら、そのcanonical Triageだけを参照する`capital-allocation` Operationを開始する。全件`skip`なら開始しない。
 
 AIはfilesystem path、command、run / Review Set ID、CAS、digest、publish操作を受け取らない。repository、skill、runbook、CLI help、raw logを読まず、出力は`ticker / verdict / rationale / research_question / key_risk`に限定する。priorityはReview Set順からmachineが付ける。
@@ -45,7 +45,7 @@ AI result不正、adapter failure、binding / CAS conflictでは新しいResearc
 
 ## 出力とlocal artifact
 
-stdoutはstatus、as-of、model process / request数、input bytes、actual token（取得できる場合）、research / skip数、human action、log pathだけをcompactに出す。`summary.json`にはAI durationとtool / file read数も残す。通常成功時にlogを読む必要はない。
+stdoutはstatus、as-of、model process / request数、input bytes、actual token（取得できる場合）、research / skip数、human action、log pathだけをcompactに出す。`summary.json`にはAI durationとtool / file read数に加え、`daily_exit_code`と`daily_deferred_failure_count`を残す。dailyのdeferred failureがあってもResearch Triageまで正常terminalへ到達した`analysis run`はexit 0とし、required input、AI result、binding、CAS、canonical writeのfailureはnon-zeroを維持する。`daily` command単体のexit 3は変更しない。通常成功時にlogを読む必要はない。
 
 各runは`${XDG_STATE_HOME:-~/.local/state}/baibai-loop/analysis/<timestamp>/`に最大4 artifactを置く。
 

@@ -1,6 +1,6 @@
 ---
 title: "Daily analysis token optimization baseline and implementation evidence"
-summary: "Issue #1172時点の運用surfaceとdeterministic fixtureによるhistorical evidence。"
+summary: "Issue #1172の運用surfaceとIssue #1183の固定20候補実測によるhistorical evidence。"
 doc_type: historical-evidence
 status: completed
 as_of: 2026-09-02
@@ -8,7 +8,7 @@ as_of: 2026-09-02
 
 # Daily analysis token optimization baseline and implementation evidence
 
-> **Historical scope:** この文書はIssue #1172時点の実装証拠であり、現行のdaily analysis契約や再現手順ではない。現行契約は[`analysis-operations.md`](../../../docs/reference/analysis-operations.md)を参照する。
+> **Historical scope:** この文書は各Issue時点の実装・計測証拠であり、現行のdaily analysis契約や再現手順ではない。現行契約は[`analysis-operations.md`](../../../docs/reference/analysis-operations.md)を参照する。
 
 ## 結論
 
@@ -60,3 +60,22 @@ skill本文の長さはtoken成果の代理にせず、model processを起動し
 dailyの工程順、screening exit 2、deferred exit 3、Review Set publisher、Research Triage publisher、human Research Set gateは変更していない。structured outputとhuman outputは同じ`DailyBatchResult`から生成し、volatile ID/time以外のidentityとexit semanticsを同じfixtureで検証する。
 
 実運用10 runのactual token P50 70%削減は、baseline usageが存在しないため本reportでは証明していない。merge後は`metrics.json`のmodel invocation / packet bytes / actual usage availabilityを10ケースで採り、未達でもevidenceや独立反証を削らず残存costを分解する。
+
+## Issue #1183 固定20候補の実測
+
+`main@dc69f952295dd5063d585393586a11c06e5c3e21`を基点とするIssue #1183実装treeで、canonical storeへ書かない固定20候補fixtureを現在の`codex exec`へ1回渡した。Review Set相当の全候補を1 requestにまとめ、AIのtool callは許可していない。
+
+| metric | observed |
+| --- | ---: |
+| candidate count | 20 |
+| model input + output schema | 32,753 bytes |
+| model requests | 1 |
+| actual input tokens | 27,424 |
+| actual output tokens | 4,282 |
+| AI duration | 119.831837 seconds |
+| tool calls | 0 |
+| decisions | 20 |
+
+測定runtimeは`codex-cli 0.152.1`である。business payloadとschemaのbyte量だけではactual input tokenを説明できず、fixed overheadが残ることは確認できた。一方、1回のfixtureだけでは現在のtoken使用量が運用上の問題だとは判定できないため、別provider adapter、cache、queue、direct API wrapperは追加しない。
+
+既存のlocal `analysis run` artifactは無かったため、同じ`export-read-models` commandをcurrent canonical storeへのread-only入力とtemporary outputで1回測定した。exit 0、3,851 files、20.406288 secondsだった。end-to-end dailyに占める割合をこの単独測定から判定できないため、optional materialize skipは追加しない。
