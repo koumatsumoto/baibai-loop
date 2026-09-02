@@ -203,7 +203,7 @@ def test_empty_review_set_writes_no_triage_or_operation(
     publish_calls: list[object] = []
     operation_calls: list[object] = []
     monkeypatch.setattr(analysis_cli, "run_daily_batch_structured", lambda **_kwargs: _daily())
-    monkeypatch.setattr(analysis_cli, "load_daily_analysis_context", lambda _id: context)
+    monkeypatch.setattr(analysis_cli, "load_daily_analysis_context", lambda _id, **_kwargs: context)
     monkeypatch.setattr(
         analysis_cli,
         "publish_daily_research_triage",
@@ -236,7 +236,9 @@ def test_missing_review_set_or_oversized_input_launches_no_model(
 
     second_root = tmp_path / "second"
     monkeypatch.setattr(analysis_cli, "run_daily_batch_structured", lambda **_kwargs: _daily())
-    monkeypatch.setattr(analysis_cli, "load_daily_analysis_context", lambda _id: _context())
+    monkeypatch.setattr(
+        analysis_cli, "load_daily_analysis_context", lambda _id, **_kwargs: _context()
+    )
     monkeypatch.setattr(analysis_cli, "_MAX_MODEL_INPUT_BYTES", 1)
     assert analysis_cli._run(_args(second_root), model_runner=model) == 1
     assert _summary(second_root)["model_process_launches"] == 0
@@ -250,7 +252,7 @@ def test_active_operation_stops_before_model_without_adopting_same_asof(
     unrelated_triage = _triage(review_set)
     context = _context(active=_operation(unrelated_triage))
     monkeypatch.setattr(analysis_cli, "run_daily_batch_structured", lambda **_kwargs: _daily())
-    monkeypatch.setattr(analysis_cli, "load_daily_analysis_context", lambda _id: context)
+    monkeypatch.setattr(analysis_cli, "load_daily_analysis_context", lambda _id, **_kwargs: context)
     model, calls = _model_runner({})
 
     assert analysis_cli._run(_args(tmp_path), model_runner=model) == 0
@@ -274,10 +276,18 @@ def test_one_model_request_publishes_and_only_research_starts_operation(
 ) -> None:
     context = _context()
     monkeypatch.setattr(analysis_cli, "run_daily_batch_structured", lambda **_kwargs: _daily())
-    monkeypatch.setattr(analysis_cli, "load_daily_analysis_context", lambda _id: context)
+    loaded: list[dict[str, object]] = []
+
+    def load(_review_set_id, **paths):
+        loaded.append(paths)
+        return context
+
+    monkeypatch.setattr(analysis_cli, "load_daily_analysis_context", load)
     published: list[ResearchTriage] = []
 
-    def publish(_review_set_id, decisions, *, published_at):
+    def publish(_review_set_id, decisions, *, app_db_path, runs_db_path, published_at):
+        assert app_db_path == tmp_path / "stores/application/baibai.sqlite"
+        assert runs_db_path == tmp_path / "stores/screening/runs.sqlite"
         del published_at
         selected = tuple(item.ticker for item in decisions if item.verdict == "research")
         triage = _triage(context.review_set, research=selected)
@@ -287,7 +297,8 @@ def test_one_model_request_publishes_and_only_research_starts_operation(
     monkeypatch.setattr(analysis_cli, "publish_daily_research_triage", publish)
     operation_calls: list[ResearchTriage] = []
 
-    def ensure(triage, *, started_at):
+    def ensure(triage, *, app_db_path, started_at):
+        assert app_db_path == tmp_path / "stores/application/baibai.sqlite"
         del started_at
         operation_calls.append(triage)
         return _operation(triage) if triage.researchable_tickers() else None
@@ -304,6 +315,12 @@ def test_one_model_request_publishes_and_only_research_starts_operation(
     assert summary["actual_input_tokens"] == 120
     assert summary["ai_file_reads"] == summary["ai_tool_calls"] == 0
     assert len(calls) == len(published) == len(operation_calls) == 1
+    assert loaded == [
+        {
+            "app_db_path": tmp_path / "stores/application/baibai.sqlite",
+            "runs_db_path": tmp_path / "stores/screening/runs.sqlite",
+        }
+    ]
     assert (summary["human_action"] is not None) is operation_exists
     input_payload = read_json(Path(str(summary["run_dir"])) / "input.json", root=tmp_path / "state")
     rendered = json.dumps(input_payload, ensure_ascii=False)
@@ -329,7 +346,7 @@ def test_existing_exact_triage_launches_no_model_and_reuses_only_exact_operation
     triage = _triage(review_set)
     context = DailyAnalysisContext(review_set, triage, None, _operation(triage))
     monkeypatch.setattr(analysis_cli, "run_daily_batch_structured", lambda **_kwargs: _daily())
-    monkeypatch.setattr(analysis_cli, "load_daily_analysis_context", lambda _id: context)
+    monkeypatch.setattr(analysis_cli, "load_daily_analysis_context", lambda _id, **_kwargs: context)
     publish_calls: list[object] = []
     monkeypatch.setattr(
         analysis_cli,
@@ -360,7 +377,7 @@ def test_failure_before_or_at_canonical_boundary_writes_no_operation(
 ) -> None:
     context = _context()
     monkeypatch.setattr(analysis_cli, "run_daily_batch_structured", lambda **_kwargs: _daily())
-    monkeypatch.setattr(analysis_cli, "load_daily_analysis_context", lambda _id: context)
+    monkeypatch.setattr(analysis_cli, "load_daily_analysis_context", lambda _id, **_kwargs: context)
     operation_calls: list[object] = []
     monkeypatch.setattr(
         analysis_cli,
@@ -391,7 +408,7 @@ def test_adapter_failure_can_be_retried_as_a_fresh_run(
 ) -> None:
     context = _context()
     monkeypatch.setattr(analysis_cli, "run_daily_batch_structured", lambda **_kwargs: _daily())
-    monkeypatch.setattr(analysis_cli, "load_daily_analysis_context", lambda _id: context)
+    monkeypatch.setattr(analysis_cli, "load_daily_analysis_context", lambda _id, **_kwargs: context)
     triage = _triage(context.review_set, research=())
     monkeypatch.setattr(
         analysis_cli, "publish_daily_research_triage", lambda *_args, **_kwargs: triage

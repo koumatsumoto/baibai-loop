@@ -48,7 +48,9 @@ from baibai_batch.jobs.daily import (
     run_daily_batch_structured,
 )
 from baibai_engine.batch_api import (
+    APPLICATION_DB_PATH,
     MACRO_CONTEXT_STALE_DAYS,
+    RUNS_DB_PATH,
     DailyAnalysisContext,
     ResearchTriageCandidateSnapshot,
     ensure_daily_research_operation,
@@ -384,6 +386,8 @@ def _execute(
     summary: dict[str, object],
     model_runner: ModelRunner,
 ) -> int:
+    app_db_path = root / APPLICATION_DB_PATH
+    runs_db_path = root / RUNS_DB_PATH
     with tempfile.TemporaryDirectory(prefix="analysis-serving-", dir=state_root) as temporary:
         daily = run_daily_batch_structured(
             root=root,
@@ -401,7 +405,11 @@ def _execute(
     if daily.review_set_id is None:
         summary["status"] = "no_review_set"
         return 1
-    context = load_daily_analysis_context(daily.review_set_id)
+    context = load_daily_analysis_context(
+        daily.review_set_id,
+        app_db_path=app_db_path,
+        runs_db_path=runs_db_path,
+    )
     summary["candidate_count"] = len(context.review_set.entries)
     if not context.review_set.entries:
         summary["status"] = "empty_review_set"
@@ -417,6 +425,7 @@ def _execute(
                 return daily.exit_code
             ensure_daily_research_operation(
                 context.existing_triage,
+                app_db_path=app_db_path,
                 started_at=datetime.now(_JST),
             )
         _existing_triage_summary(context, summary)
@@ -456,9 +465,15 @@ def _execute(
     triage = publish_daily_research_triage(
         context.review_set.review_set_id,
         output.decisions,
+        app_db_path=app_db_path,
+        runs_db_path=runs_db_path,
         published_at=datetime.now(_JST),
     )
-    operation = ensure_daily_research_operation(triage, started_at=datetime.now(_JST))
+    operation = ensure_daily_research_operation(
+        triage,
+        app_db_path=app_db_path,
+        started_at=datetime.now(_JST),
+    )
     research_count = len(triage.researchable_tickers())
     summary.update(
         status="published_awaiting_human" if operation is not None else "published_all_skip",
