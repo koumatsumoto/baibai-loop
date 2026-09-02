@@ -54,6 +54,8 @@ def test_publish_is_immutable_and_requires_compare_and_swap_head(tmp_path: Path)
     service = MacroContextService(path)
     first = _document()
     service.publish(first, expected_head=None)
+    # A response-loss retry reconciles the exact caller-owned ID and payload.
+    assert service.publish(first, expected_head=None) == first
 
     with pytest.raises(MacroContextConflictError):
         service.publish(
