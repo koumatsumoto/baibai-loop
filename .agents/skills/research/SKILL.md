@@ -35,7 +35,7 @@ as-of、20件の比較snapshot、Researchへ進められるtickerはapplication 
 1. `research thesis-scaffold` で thesis を作る。
 2. 会社 IR、EDINET、決算資料などの一次資料で load-bearing claim を調べる。検索 snippet、二次情報、外部 AI 出力を観測事実にしない。playbook は `applies_to_valuation_approach_ids` の明示 mapping だけを使い、同名 slug から implicitに対応を推測しない。[事業モデル別リサーチ](../../../docs/reference/business-model-research.md)は指定 playbook の補助に限る。
 3. checklist は [Research Playbooks](../../../method/research/playbooks/README.md#work-state) の作業状態として更新する。証拠が得られなくても調査が終わり、unknown / defer を記録した項目は `complete` であり、verified とは書かない。
-4. Research Triage に束縛された Macro Context を開き、scenario arithmetic と FV の前に `connection.estimate_caveats` を確認する。対象企業・評価法に material な caveat は既存 scenario assumption の文章と `source_ids` へ接続する。適用外、stale、または low materiality なら、その理由を `screening_fv_bridge.note` に残す。新しい macro field は足さない。そのうえで seven axes、countercase を埋める。macro と E[r] は context であり単独 gate にしない。
+4. Research Triage に束縛された Macro Context を開き、scenario arithmetic と FV の前に `connection.estimate_caveats` を確認する。対象企業・評価法に material な caveat は既存 scenario assumption の文章と `source_ids` へ接続する。適用外、stale、または low materiality なら、その理由を `screening_fv_bridge.note` に残す。新しい macro field は足さない。そのうえで seven axes、countercase を埋める。macro と E[r] は context であり単独 gate にしない。AIを含む技術・産業構造変化も、materialな場合だけ通常Researchの既存scenario、FV、risk、countercase、assessmentへ接続し、専用checkを作らない。
 5. `research evaluate` を実行し、`buy` で review が未作成の場合の review 要求を除く error を 0 にする。
 6. thesis が安定してから `research review-scaffold` を作り、独立した反証役が review する。独立 review は、束縛 Context の material な estimate caveat が scenario assumptionへ接続されたか、または適用外 / stale / low materiality の理由が既存 note にあるかを反証する。thesis を変えたら `--force` で review を再生成し、core hash を更新する。
 

@@ -24,13 +24,13 @@ thesisは新規の購入判断と保有見直しの判断根拠を固定する�
 | `input_snapshot` | ticker、判断基準日、判断時price、主要財務・valuation、source provenanceを固定した最小fact snapshot |
 | `derived` | formula ID、input fact IDs、version、as-of、unit、assumptionを持つ機械再計算値 |
 | `estimates` | 判断時に観測した入口価格、要求5年CAGR、model version・仮定を持つ3年/5年bear/base/bull |
-| `judgment` | buy/defer/rejectのAI initial judgment、判断時刻、確信度、永久損失結論、最強反対仮説、sizing、AI value captureの企業別評価 |
+| `judgment` | buy/defer/rejectのAI initial judgment、判断時刻、確信度、永久損失結論、最強反対仮説、sizing |
 
 この4つはdata/judgment namespaceである。`permanent_loss_risks`はjudgmentを構成する軸別評価、`independent_review_ref`は別artifactのsecond-pass review envelopeへの参照、`human_evidence_override`はreview後の人間によるrisk受容としてtop-levelに置く。最終発注判断はbroker操作として人間が所有し、AI judgmentへ混ぜない。
 
 ScreeningのE[r]とFV anchorは決定論的でも事実ではなくestimateである。candidate出力は`origin: estimate`、model version、unit、assumptionsを併記し、thesisへ採用する値はscenario modelのsourceとして固定する。
 
-`judgment.ai_value_capture`は、AIを企業価値へ変換できるかを企業別に評価する分析層である。roleは`enabler / infrastructure / complement / adopter / disrupted`を使い、value captureの持続性、競争優位、収益化、株主への帰属をsource付きで記述する。`not_material`ならroleも判断weightも持たず、AIだけで採用・順位・投入額を決めない。`disrupted`を記す場合は、同じ根拠で`structural_decline`の永久損失評価へ接続する。
+AIを含む技術・産業構造変化は、企業価値または永久損失にmaterialな場合だけ通常Researchで扱う。正の影響は一次情報と必要な独立裏取りからscenario assumption、FV、Capital Allocation Assessmentの比較理由へ接続し、負の影響は`permanent_loss_risks.structural_decline`、`judgment.strongest_countercase`、必要ならscenarioとFVへ接続する。これらを変えない場合は、専用の記述、source、reviewを要求しない。
 
 <a id="input-snapshot-and-lineage"></a>
 
