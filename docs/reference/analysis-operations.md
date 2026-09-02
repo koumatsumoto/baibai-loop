@@ -16,6 +16,7 @@ status: active
 - AIはpacket indexと`reused=false`のtask payloadだけを読み、command、path、ID、CAS、publish controlを返さない。
 - machineはexact Review Set、run revision、operation、Macro Context、Research Triage headをmanifestへ固定し、既存engine validator / CASで再検証する。
 - Research Triage発行後は人間のResearch Set選択を待つ。Macro Contextは自動publishしない。
+- 別as-ofのResearch Set選択待ちoperationがあるmanual Macro triggerは、そのoperationを変更せずMacro taskだけを進める。statusは同じ`awaiting_human`でも、`task_types.macro-context`と`macro_phase=independent_complete`がfull-depth第二phase待ちを表し、Research Set選択待ちとは区別する。
 
 既定rootは`${XDG_STATE_HOME:-~/.local/state}/baibai-loop`で、testとschedulerは`--state-dir`で差し替えられる。repository配下へlog、packet、AI resultを作らない。
 

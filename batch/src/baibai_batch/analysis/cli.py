@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
-import re
 import shutil
 import signal
 import subprocess  # nosec B404
@@ -407,7 +407,23 @@ def _publish_locked(args: argparse.Namespace, workspace: Workspace) -> int:
         return _business_exit(workspace)
     if manifest.get("state") != "checked":
         raise ValueError("workspace must pass analysis check before publish")
+    if manifest.get("macro_phase") == "independent_complete":
+        macro_path = workspace.path / "assembled" / "macro-independent.json"
+        expected_macro_digest = manifest.get("macro_independent_sha256")
+        if (
+            not macro_path.is_file()
+            or not isinstance(expected_macro_digest, str)
+            or hashlib.sha256(macro_path.read_bytes()).hexdigest() != expected_macro_digest
+        ):
+            raise ValueError("Macro independent handoff is missing or changed")
     draft = workspace.path / "assembled" / "research-triage.yaml"
+    if not draft.is_file():
+        if manifest.get("macro_phase") != "independent_complete":
+            raise ValueError("checked workspace has neither Research Triage nor Macro handoff")
+        workspace.update(state="awaiting_human", status="awaiting_human", current_stage="complete")
+        _write_metrics(workspace)
+        _emit(_summary(workspace), args.format)
+        return _business_exit(workspace)
     draft_value = yaml.safe_load(draft.read_text(encoding="utf-8"))
     entries = draft_value.get("entries", []) if isinstance(draft_value, dict) else []
     research_count = sum(
@@ -597,16 +613,41 @@ def _publish_reused_tasks(
 
 def _logs(args: argparse.Namespace) -> int:
     workspace = resolve_workspace(args.workspace)
-    if re.fullmatch(r"[a-z0-9][a-z0-9-]{0,79}", args.stage) is None:
-        raise ValueError("stage must contain only lowercase letters, digits, and hyphens")
+    if (
+        not args.stage
+        or len(args.stage) > 120
+        or any(character in args.stage for character in ("/", "\\", "\x00", "\r", "\n"))
+    ):
+        raise ValueError("stage must be a bounded name without path or control characters")
     if args.tail < 0 or args.tail > 10_000:
         raise ValueError("tail must be between 0 and 10000")
-    candidates = sorted((workspace.path / "steps").glob(f"*-{args.stage}"))
+    stages = workspace.manifest().get("stages")
+    candidates = (
+        [stage for stage in stages if isinstance(stage, dict) and stage.get("name") == args.stage]
+        if isinstance(stages, list)
+        else []
+    )
     if not candidates:
         raise ValueError(f"stage log is unavailable: {args.stage}")
-    selected = candidates[-1]
+    selected = max(
+        enumerate(candidates),
+        key=lambda item: (
+            item[1].get("attempt") if isinstance(item[1].get("attempt"), int) else -1,
+            item[0],
+        ),
+    )[1]
     for stream in ("stdout.log", "stderr.log"):
-        lines = read_text_bounded(selected / stream, root=workspace.state_root).splitlines()
+        relative = selected.get(stream.replace(".log", "_path"))
+        if (
+            not isinstance(relative, str)
+            or Path(relative).is_absolute()
+            or Path(relative).parts[:1] != ("steps",)
+            or ".." in Path(relative).parts
+        ):
+            raise ValueError(f"registered stage has an invalid {stream} path")
+        lines = read_text_bounded(
+            workspace.path / relative, root=workspace.path / "steps"
+        ).splitlines()
         print(f"[{stream}]")
         print("\n".join(lines[-args.tail :]))
     return 0

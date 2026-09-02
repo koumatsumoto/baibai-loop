@@ -11,7 +11,7 @@ import socket
 import subprocess  # nosec B404
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from types import TracebackType
 from typing import TextIO
@@ -30,6 +30,7 @@ from baibai_batch.jobs.daily import CommandResult, DailyBatchResult, StepResult
 
 _PIPELINE = "daily-analysis"
 _SCHEMA_VERSION = 1
+_JST = timezone(timedelta(hours=9))
 
 
 def default_state_dir() -> Path:
@@ -206,6 +207,7 @@ def create_workspace(
     ):
         ensure_private_dir(path / relative, root=state_root)
     now = datetime.now(UTC).isoformat()
+    publication_time = datetime.now(_JST).isoformat()
     manifest: dict[str, object] = {
         "schema_version": _SCHEMA_VERSION,
         "run_id": run_id,
@@ -227,7 +229,7 @@ def create_workspace(
         "prompt_policy_version": fingerprint["prompt_policy_version"],
         "daily_run_revision_id": run_revision_id,
         "review_set_id": review_set_id,
-        "publication_time": now,
+        "publication_time": publication_time,
         "macro_context_revision": None,
         "operation_session_id": None,
         "research_triage_expected_head": None,

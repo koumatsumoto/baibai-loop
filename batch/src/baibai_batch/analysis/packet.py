@@ -45,6 +45,10 @@ _BATCH_MAX_BYTES = 512_000
 _JST = ZoneInfo("Asia/Tokyo")
 
 
+class _OperationAsOfConflict(ValueError):
+    """Keep a prior human Triage gate while allowing an independent Macro trigger."""
+
+
 def _source_binding(manifest: dict[str, object]) -> dict[str, object]:
     keys = (
         "run_id",
@@ -95,7 +99,9 @@ def _bind_operation(root: Path, asof: str) -> str:
         if not isinstance(operation, dict) or operation.get("session_kind") != "capital-allocation":
             raise ValueError("an active non-capital-allocation operation blocks daily analysis")
         if operation.get("as_of") != asof:
-            raise ValueError("active capital-allocation operation belongs to a different asof")
+            raise _OperationAsOfConflict(
+                "active capital-allocation operation belongs to a different asof"
+            )
     else:
         operation = _run_json(
             [
@@ -300,8 +306,39 @@ def prepare_packet(
         return index
     _review_set(root, review_set_id)
     scaffold = _scaffold(root, workspace, review_set_id)
-    operation_id = _bind_operation(root, str(manifest["asof"]))
     scaffold_path = workspace.path / "assembled" / "research-triage-scaffold.yaml"
+    try:
+        operation_id = _bind_operation(root, str(manifest["asof"]))
+    except _OperationAsOfConflict as exc:
+        if not macro_review:
+            raise
+        monitor = _macro_monitor(root, asof=str(manifest["asof"]), manual=True)
+        workspace.update(
+            macro_monitor=monitor,
+            triage_deferred_reason="active_operation_binding",
+        )
+        if monitor["status"] != "review":
+            raise
+        scaffold_path.unlink(missing_ok=True)
+        try:
+            macro_task, macro_bytes = _prepare_macro_task(workspace, root=root, manifest=manifest)
+        except ValueError as macro_exc:
+            return _finalize_packet(
+                workspace,
+                manifest=manifest,
+                tasks=[],
+                task_sizes={},
+                total_bytes=0,
+                machine_failure=str(macro_exc),
+            )
+        return _finalize_packet(
+            workspace,
+            manifest=manifest,
+            tasks=[macro_task],
+            task_sizes={macro_task.task_id: macro_bytes},
+            total_bytes=macro_bytes,
+            warning=f"research_triage_deferred: {exc}",
+        )
     scaffold_digest = hashlib.sha256(scaffold_path.read_bytes()).hexdigest()
     workspace.update(
         macro_context_revision=scaffold.get("macro_context_id"),
@@ -374,10 +411,31 @@ def prepare_packet(
             tasks.append(macro_task)
             task_sizes[macro_task.task_id] = macro_bytes
             total_bytes += macro_bytes
+    return _finalize_packet(
+        workspace,
+        manifest=manifest,
+        tasks=tasks,
+        task_sizes=task_sizes,
+        total_bytes=total_bytes,
+        machine_failure=macro_failure,
+    )
+
+
+def _finalize_packet(
+    workspace: Workspace,
+    *,
+    manifest: dict[str, object],
+    tasks: list[TaskReference],
+    task_sizes: dict[str, int],
+    total_bytes: int,
+    machine_failure: str | None = None,
+    warning: str | None = None,
+) -> PacketIndex:
     if total_bytes > _PACKET_MAX_BYTES:
         raise ValueError(f"packet_budget_exceeded: packet exceeds {_PACKET_MAX_BYTES} bytes")
+    rules_digest = str(manifest["rules_digest"])
     status: Literal["ai_required", "no_ai", "machine_incomplete"]
-    if macro_failure is not None:
+    if machine_failure is not None:
         status = "machine_incomplete"
     else:
         status = "ai_required" if any(not task.reused for task in tasks) else "no_ai"
@@ -395,7 +453,7 @@ def prepare_packet(
         status=status,
         tasks=tuple(tasks),
         batches=_stable_batches(tasks, task_sizes),
-        warning=macro_failure,
+        warning=machine_failure or warning,
         required_human_action=(
             "repair macro machine inputs before AI judgment"
             if status == "machine_incomplete"
@@ -692,13 +750,16 @@ def check_results(
         raise ValueError(f"AI result contains unexpected task(s): {sorted(unexpected)}")
     draft = _assemble_triage(workspace, resolved)
     has_macro = any(task.type == "macro-context" for task in index.tasks)
+    macro_digest: str | None = None
     if has_macro:
         macro = resolved["macro-context:independent-current"]
+        macro_path = workspace.path / "assembled" / "macro-independent.json"
         write_json_atomic(
-            workspace.path / "assembled" / "macro-independent.json",
+            macro_path,
             macro.model_dump(mode="json"),
             root=workspace.state_root,
         )
+        macro_digest = hashlib.sha256(macro_path.read_bytes()).hexdigest()
     status = "checked"
     # Cache only after every packet/result/scaffold validation and assembly write succeeds.
     for result in resolved.values():
@@ -715,6 +776,7 @@ def check_results(
         current_stage="publish",
         model_invocation_count=len(index.batches),
         macro_phase="independent_complete" if has_macro else None,
+        macro_independent_sha256=macro_digest,
     )
     return status, draft
 
