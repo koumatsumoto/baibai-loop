@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import ValidationError
+from tests.helpers.macro_context import macro_context_payload
 from tests.helpers.research_triage import published_review_set, research_triage_payload
 
 import baibai_batch.analysis.cli as analysis_cli
@@ -17,6 +18,7 @@ from baibai_batch.analysis.models import ModelOutput, ModelUsage
 from baibai_batch.jobs.daily import DailyBatchResult
 from baibai_engine.batch_api import DailyAnalysisContext
 from baibai_engine.foundation.research_triage import ResearchTriage
+from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.operation.models import OperationPayload, OperationSession
 from baibai_engine.screening.discovery.review_set import PublishedReviewSet
 
@@ -103,11 +105,12 @@ def _context(
     tickers: tuple[str, ...] = ("2331", "0001"),
     existing: ResearchTriage | None = None,
     active: OperationSession | None = None,
+    macro_context: MacroContextDocument | None = None,
 ) -> DailyAnalysisContext:
     return DailyAnalysisContext(
         review_set=_review_set(tickers=tickers),
         existing_triage=existing,
-        macro_context=None,
+        macro_context=macro_context,
         active_operation=active,
     )
 
@@ -121,15 +124,31 @@ def _args(tmp_path: Path) -> SimpleNamespace:
     )
 
 
-def _daily(*, status: str = "machine_complete") -> DailyBatchResult:
+def _macro_context() -> MacroContextDocument:
+    return MacroContextDocument.model_validate(
+        macro_context_payload(
+            context_id="macro-context-2026-09-01-analysis",
+            as_of="2026-09-01",
+            published_at="2026-09-01T10:00:00+09:00",
+        )
+    )
+
+
+def _daily(
+    *,
+    status: str = "machine_complete",
+    exit_code: int = 0,
+    deferred_failure_count: int = 0,
+) -> DailyBatchResult:
     if status == "skipped_non_business_day":
         return DailyBatchResult(status, _ASOF.isoformat(), 0)
     return DailyBatchResult(
         status,
         _ASOF.isoformat(),
-        0,
+        exit_code,
         run_revision_id="run-daily",
         review_set_id="review-set-daily",
+        deferred_failure_count=deferred_failure_count,
     )
 
 
@@ -202,7 +221,11 @@ def test_empty_review_set_writes_no_triage_or_operation(
     context = _context(tickers=())
     publish_calls: list[object] = []
     operation_calls: list[object] = []
-    monkeypatch.setattr(analysis_cli, "run_daily_batch_structured", lambda **_kwargs: _daily())
+    monkeypatch.setattr(
+        analysis_cli,
+        "run_daily_batch_structured",
+        lambda **_kwargs: _daily(status="deferred", exit_code=3, deferred_failure_count=1),
+    )
     monkeypatch.setattr(analysis_cli, "load_daily_analysis_context", lambda _id, **_kwargs: context)
     monkeypatch.setattr(
         analysis_cli,
@@ -217,7 +240,10 @@ def test_empty_review_set_writes_no_triage_or_operation(
     model, calls = _model_runner({})
 
     assert analysis_cli._run(_args(tmp_path), model_runner=model) == 0
-    assert _summary(tmp_path)["status"] == "empty_review_set"
+    summary = _summary(tmp_path)
+    assert summary["status"] == "empty_review_set"
+    assert summary["daily_exit_code"] == 3
+    assert summary["daily_deferred_failure_count"] == 1
     assert calls == publish_calls == operation_calls == []
 
 
@@ -274,7 +300,7 @@ def test_one_model_request_publishes_and_only_research_starts_operation(
     expected_status: str,
     operation_exists: bool,
 ) -> None:
-    context = _context()
+    context = _context(macro_context=_macro_context())
     monkeypatch.setattr(analysis_cli, "run_daily_batch_structured", lambda **_kwargs: _daily())
     loaded: list[dict[str, object]] = []
 
@@ -285,9 +311,19 @@ def test_one_model_request_publishes_and_only_research_starts_operation(
     monkeypatch.setattr(analysis_cli, "load_daily_analysis_context", load)
     published: list[ResearchTriage] = []
 
-    def publish(_review_set_id, decisions, *, app_db_path, runs_db_path, published_at):
+    def publish(
+        _review_set_id,
+        decisions,
+        *,
+        macro_context_id,
+        app_db_path,
+        runs_db_path,
+        published_at,
+    ):
         assert app_db_path == tmp_path / "stores/application/baibai.sqlite"
         assert runs_db_path == tmp_path / "stores/screening/runs.sqlite"
+        assert context.macro_context is not None
+        assert macro_context_id == context.macro_context.context_id
         del published_at
         selected = tuple(item.ticker for item in decisions if item.verdict == "research")
         triage = _triage(context.review_set, research=selected)
@@ -337,6 +373,127 @@ def test_one_model_request_publishes_and_only_research_starts_operation(
             "workspace",
         )
     )
+
+
+@pytest.mark.parametrize(
+    ("existing", "active", "publish_research", "expected_status"),
+    [
+        (None, None, False, "published_all_skip"),
+        (None, None, True, "published_awaiting_human"),
+        ("skip", None, False, "already_published"),
+        ("research", "exact", False, "awaiting_human"),
+        (None, "unrelated", False, "blocked_by_active_operation"),
+    ],
+)
+def test_daily_deferred_failure_preserves_successful_analysis_terminal_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    existing: str | None,
+    active: str | None,
+    publish_research: bool,
+    expected_status: str,
+) -> None:
+    review_set = _review_set()
+    triage = None
+    if existing is not None:
+        triage = _triage(
+            review_set,
+            research=("2331",) if existing == "research" else (),
+        )
+    operation = None
+    if active == "exact":
+        assert triage is not None
+        operation = _operation(triage)
+    elif active == "unrelated":
+        operation = _operation(_triage(review_set))
+    context = DailyAnalysisContext(review_set, triage, None, operation)
+    monkeypatch.setattr(
+        analysis_cli,
+        "run_daily_batch_structured",
+        lambda **_kwargs: _daily(
+            status="deferred",
+            exit_code=3,
+            deferred_failure_count=2,
+        ),
+    )
+    monkeypatch.setattr(
+        analysis_cli, "load_daily_analysis_context", lambda *_args, **_kwargs: context
+    )
+    if existing is None and active is None:
+        research = ("2331",) if publish_research else ()
+        published = _triage(review_set, research=research)
+        monkeypatch.setattr(
+            analysis_cli,
+            "publish_daily_research_triage",
+            lambda *_args, **_kwargs: published,
+        )
+        monkeypatch.setattr(
+            analysis_cli,
+            "ensure_daily_research_operation",
+            lambda *_args, **_kwargs: _operation(published) if publish_research else None,
+        )
+        model, _calls = _model_runner(
+            {
+                "2331": "research" if publish_research else "skip",
+                "0001": "skip",
+            }
+        )
+    else:
+        monkeypatch.setattr(
+            analysis_cli,
+            "ensure_daily_research_operation",
+            lambda *_args, **_kwargs: operation,
+        )
+        model, _calls = _model_runner({})
+
+    assert analysis_cli._run(_args(tmp_path), model_runner=model) == 0
+    summary = _summary(tmp_path)
+    assert summary["status"] == expected_status
+    assert summary["daily_exit_code"] == 3
+    assert summary["daily_deferred_failure_count"] == 2
+
+
+@pytest.mark.parametrize("failure", ["adapter", "publish"])
+def test_daily_deferred_failure_does_not_mask_model_or_publish_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    monkeypatch.setattr(
+        analysis_cli,
+        "run_daily_batch_structured",
+        lambda **_kwargs: _daily(
+            status="deferred",
+            exit_code=3,
+            deferred_failure_count=1,
+        ),
+    )
+    monkeypatch.setattr(
+        analysis_cli,
+        "load_daily_analysis_context",
+        lambda *_args, **_kwargs: _context(),
+    )
+
+    if failure == "adapter":
+
+        def model(*_args):
+            raise analysis_cli.ModelAdapterError("adapter unavailable")
+
+    else:
+        model, _calls = _model_runner({"2331": "research", "0001": "skip"})
+        monkeypatch.setattr(
+            analysis_cli,
+            "publish_daily_research_triage",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                ValueError("macro context binding changed")
+            ),
+        )
+
+    assert analysis_cli._run(_args(tmp_path), model_runner=model) == 1
+    summary = _summary(tmp_path)
+    assert summary["status"] == "failed"
+    assert summary["daily_exit_code"] == 3
+    assert summary["daily_deferred_failure_count"] == 1
 
 
 def test_existing_exact_triage_launches_no_model_and_reuses_only_exact_operation(
