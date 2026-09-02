@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import tempfile
 import unittest
 from datetime import date
@@ -173,6 +174,22 @@ class MarketSnapshotCliTests(unittest.TestCase):
             payload = safe_load(buffer.getvalue())
             self.assertEqual(payload["asof"], _ASOF.isoformat())
             self.assertEqual(len(payload["points"]), 2)
+
+    def test_command_emits_one_json_value(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            _insert_bars(sqlite_path, "1321", [100.0] * 120, end=_ASOF)
+            buffer = io.StringIO()
+            exit_code = market_snapshot_command(
+                asof=_ASOF.isoformat(),
+                weeks=2,
+                sqlite_path=sqlite_path,
+                stdout=buffer,
+                output_format="json",
+            )
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(buffer.getvalue())
+            self.assertEqual(payload["asof"], _ASOF.isoformat())
 
     def test_command_rejects_non_positive_weeks(self) -> None:
         exit_code = market_snapshot_command(

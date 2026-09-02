@@ -277,6 +277,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] その gate に**分岐（purpose / mode / kind）で無効化される経路**がある場合、分岐先も同じ強さで対象を store に対して証明するか。「この分岐には gate が要らない」は、その分岐を宣言するだけで gate を外せる形で残る（`purpose: position_review` は Research Triage 束縛を持たない代わりに、対象が canonical ledger の保有であることを各 gate で再照合する）
 - [ ] その gate は**下流で最初に不可逆な資源を使う手前**に置いたか。Research Setのadmissionはresearch開始前、Capital Allocation Assessmentの検証はhuman-confirmed ledger draft作成前に置く
 - [ ] generator が入力を読み、出力directoryへ固定名のartifactを書く場合、入力pathが出力directory内へ解決されて自分自身を上書きしないことを、書き込み前のvalidationとnegative testで保証したか
+- [ ] AI task/result validatorを変更する場合、unknown control field、missing / duplicate task、task ID / input digest mismatch、decision別の必須・禁止field、length超過をnegative testで拒否し、workspace/cacheの編集をcanonical authorizationにしていないか
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 

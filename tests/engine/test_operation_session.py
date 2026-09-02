@@ -42,6 +42,33 @@ def test_operation_payload_help_names_a_file_path(
     assert "path to an OperationPayload YAML or JSON file" in capsys.readouterr().out
 
 
+def test_operation_json_format_emits_one_machine_object(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db = tmp_path / "app.sqlite"
+
+    assert (
+        operation_main(
+            [
+                "--db",
+                str(db),
+                "--format",
+                "json",
+                "start",
+                "--kind",
+                "capital-allocation",
+                "--as-of",
+                "2026-07-19",
+            ],
+            now=NOW,
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["session_kind"] == "capital-allocation"
+
+
 def _active_payload(checkpoint: str = "source review") -> OperationPayload:
     return OperationPayload(
         checkpoint=checkpoint,

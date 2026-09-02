@@ -6,6 +6,7 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 
+from baibai_batch.analysis.cli import main as analysis_main
 from baibai_batch.jobs.daily import main as daily_main
 from baibai_batch.validation.macro_stores import main as validate_macro_stores_main
 from baibai_engine.batch_api import StoreLayoutError, reject_noncanonical_store_paths
@@ -13,6 +14,7 @@ from baibai_engine.batch_api import StoreLayoutError, reject_noncanonical_store_
 Command = Callable[[list[str] | None], int]
 
 _COMMANDS: dict[str, Command] = {
+    "analysis": analysis_main,
     "daily": daily_main,
     "validate-macro-stores": validate_macro_stores_main,
 }

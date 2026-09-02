@@ -166,7 +166,7 @@ package ごとに、所有する store、public CLI、L1 のどの工程にど�
 | `appdb` | application DB | `baibai-engine db` | application DB のpath・current schema・writer connectionを **産む**、**止める**（schema version） | 2 |
 | `read_api` | —（read-only） | engine 内部 | 全工程を **見せる**（query-only view）、materialize の前提を **止める** | 2 |
 | `baibai_web` | —（read-only） | `baibai-web` | 判断面を **見せる**（read model・UI・materialize・Worker）、**止める**（read-only・Bearer） | 2 |
-| `baibai_batch` | R2 `baibai-stores` / `baibai-serving`（transfer） | repository-internal `baibai-batch` | 日次機械工程を **産む**（fetch → screen → Review Set → export → publish・materialize・store transfer）、**止める**（exit code・2 条件）、**見せる**（Discord・watchdog） | 1、2 |
+| `baibai_batch` | R2 `baibai-stores` / `baibai-serving`（transfer）、local noncanonical analysis state | repository-internal `baibai-batch` | 日次機械工程と判断taskを **産む**（fetch → screen → Review Set → packet → export・transfer）、**止める**（exit code・binding・strict AI result）、**測る**（task / token / duration）、**見せる**（bounded status・log・Discord・watchdog） | 1、2、判断writeの既存CAS |
 | `tools` | — | — | 開発 gate で **止める**（`quality/drift`）、一時的studyで **測る**（`experiments`）、deploy診断を **産む**（`diagnostics`） | — |
 
 engine は web / batch / tools に依存しない。Web が engine へ触れる経路は `read_api`、batch は `batch_api` と `read_api` に限定し、その不変条件は import-linter で検査する。read-only Web の実行時契約は `web/backend/src/baibai_web/__init__.py` の module docstring、store 欠損時に reader が止まるか空を返すかは [Failure policy](#failure-policy) を正本とする。
@@ -178,9 +178,9 @@ engine は web / batch / tools に依存しない。Web が engine へ触れる�
 - `baibai-engine <domain> <command>`: query と application service 経由の write
 - `baibai-web`: local read-only UI
 
-`baibai-batch` は GitHub Actions と運用 script が production job を呼ぶための repository-internal entry point で、domain の利用者向け surface ではない。
+`baibai-batch` は GitHub Actions と運用 script がproduction jobを呼び、local agentへnoncanonical analysis packetを渡すrepository-internal entry pointで、domainの利用者向けsurfaceではない。analysis workspace契約は[`reference/analysis-operations.md`](./reference/analysis-operations.md)を正本とする。
 
-主要 domain は `lake / screening / macro / operation / position / research / task / db`。lake CLIはcurrent L1 releaseのpublish・resolve・hydrate・retentionだけを扱う。schema field、option、stdout YAML は public `--help` と engine modelを正とする。
+主要 domain は `lake / screening / macro / operation / position / research / task / db`。lake CLIはcurrent L1 releaseのpublish・resolve・hydrate・retentionだけを扱う。schema field、option、stdoutのYAML / JSON形式はpublic `--help`とengine modelを正とする。
 
 ### L3 judgment の write 規則
 

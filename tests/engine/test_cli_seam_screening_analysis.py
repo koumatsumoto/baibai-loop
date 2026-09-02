@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 from pathlib import Path
 
@@ -115,6 +116,86 @@ def test_review_set_publish_cli_persists_the_exact_output(tmp_path: Path) -> Non
     stored = ScreeningRunReader(runs_db).get_review_set(emitted["review_set_id"])
     assert stored is not None
     assert stored.payload == emitted
+
+
+def test_review_set_show_json_is_one_machine_readable_object(tmp_path: Path, capsys) -> None:
+    runs_db = tmp_path / "runs.sqlite"
+    output = tmp_path / "review-set.yaml"
+    _publish_run(runs_db)
+    assert (
+        screening_main(
+            [
+                "review-set",
+                "publish",
+                "--asof",
+                "2026-07-08",
+                "--run-revision-id",
+                "run-revision-cli-seam",
+                "--runs-db",
+                str(runs_db),
+                "--rules-path",
+                str(RULES_PATH),
+                "--output-path",
+                str(output),
+            ]
+        )
+        == 0
+    )
+    review_set_id = yaml.safe_load(output.read_text(encoding="utf-8"))["review_set_id"]
+    capsys.readouterr()
+
+    assert (
+        screening_main(
+            [
+                "review-set",
+                "show",
+                "--review-set-id",
+                review_set_id,
+                "--runs-db",
+                str(runs_db),
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["review_set_id"] == review_set_id
+
+
+def test_review_set_preallocated_identity_is_idempotent_for_resume(tmp_path: Path, capsys) -> None:
+    runs_db = tmp_path / "runs.sqlite"
+    _publish_run(runs_db)
+    argv = [
+        "review-set",
+        "publish",
+        "--asof",
+        "2026-07-08",
+        "--run-revision-id",
+        "run-revision-cli-seam",
+        "--runs-db",
+        str(runs_db),
+        "--rules-path",
+        str(RULES_PATH),
+        "--review-set-id",
+        "review-set-20260708-resume",
+        "--created-at",
+        "2026-07-08T10:00:00+00:00",
+        "--format",
+        "json",
+    ]
+
+    assert screening_main(argv) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert screening_main(argv) == 0
+    second = json.loads(capsys.readouterr().out)
+
+    assert first == second
+    assert (
+        len(ScreeningRunReader(runs_db).list_review_sets(run_revision_id="run-revision-cli-seam"))
+        == 1
+    )
 
 
 def test_review_set_composition_is_independent_of_application_state(tmp_path: Path) -> None:

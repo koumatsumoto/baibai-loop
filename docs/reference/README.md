@@ -21,6 +21,7 @@ referenceは「artifact・式・error/warningは何を意味するか」を持�
 | long-horizon estimate calibration | [`estimate-calibration.md`](./estimate-calibration.md) |
 | valuation指標 | [`valuation-metrics.md`](./valuation-metrics.md) |
 | screening CLI、SQLite、provider、Review Set / Research Triageの判断境界 | [`screening-runtime.md`](./screening-runtime.md) |
+| daily analysis workspace、packet、resume、strict AI result、log | [`analysis-operations.md`](./analysis-operations.md) |
 | macro layer（L1/L2/L3・深度契約・8レンズ・scorecard） | [`macro.md`](./macro.md) |
 | source tierと取得失敗 | [`data-sources.md`](./data-sources.md) |
 | 信用残高の公表制度変更（2026-09-28）前後の語義と取込契約 | [`margin-publication-transition.md`](./margin-publication-transition.md) |

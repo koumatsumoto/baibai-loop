@@ -22,7 +22,12 @@ from baibai_engine.macro.indicators.db import (
 )
 from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH
 
-from .models import MacroContextDocument, require_integrated_strategy, require_registry_agreement
+from .models import (
+    MACRO_CONTEXT_STALE_DAYS,
+    MacroContextDocument,
+    require_integrated_strategy,
+    require_registry_agreement,
+)
 from .scorecard import (
     ScorecardEvaluation,
     ScorecardEvaluationError,
@@ -61,10 +66,17 @@ def build_parser() -> argparse.ArgumentParser:
     selection.add_argument("--latest", action="store_true")
     selection.add_argument("--context-id")
     show.add_argument("--asof", required=True, type=date.fromisoformat)
+    show.add_argument("--format", choices=("yaml", "json"), default="yaml")
     commands.add_parser(
         "head",
         help="print the current head id, for the compare-and-swap on the next publish",
     )
+    monitor = commands.add_parser(
+        "monitor",
+        help="measure whether the existing consumer freshness policy requests human review",
+    )
+    monitor.add_argument("--asof", required=True, type=date.fromisoformat)
+    monitor.add_argument("--format", choices=("yaml", "json"), default="yaml")
     scorecard = commands.add_parser(
         "scorecard",
         help="score a report's machine-checkable claims against the indicator store",
@@ -101,11 +113,43 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         elif args.command == "show":
             if args.latest:
                 latest_document = service.latest_for(args.asof)
-                _emit(None if latest_document is None else latest_document.payload())
+                _emit(
+                    None if latest_document is None else latest_document.payload(),
+                    output_format=args.format,
+                )
             else:
-                _emit(service.get_for(args.context_id, as_of=args.asof).payload())
+                _emit(
+                    service.get_for(args.context_id, as_of=args.asof).payload(),
+                    output_format=args.format,
+                )
         elif args.command == "head":
             _emit({"context_id": service.head_id()})
+        elif args.command == "monitor":
+            latest_document = service.latest_for(args.asof)
+            age_days = None if latest_document is None else (args.asof - latest_document.as_of).days
+            stale = age_days is not None and age_days > MACRO_CONTEXT_STALE_DAYS
+            _emit(
+                {
+                    "status": "no_ai",
+                    "reason": (
+                        "missing_context"
+                        if age_days is None
+                        else (
+                            "consumer_freshness_exceeded" if stale else "consumer_freshness_current"
+                        )
+                    ),
+                    "asof": args.asof.isoformat(),
+                    "context_id": (None if latest_document is None else latest_document.context_id),
+                    "context_asof": (
+                        None if latest_document is None else latest_document.as_of.isoformat()
+                    ),
+                    "age_days": age_days,
+                    "stale_after_days": MACRO_CONTEXT_STALE_DAYS,
+                    "consumer_stale": stale,
+                    "human_action_recommended": age_days is None or stale,
+                },
+                output_format=args.format,
+            )
         elif args.command == "scorecard":
             evaluation = evaluate_scorecard_from_stores(
                 context_db=args.db,
@@ -136,8 +180,11 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     return 0
 
 
-def _emit(payload: object) -> None:
-    yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
+def _emit(payload: object, *, output_format: str = "yaml") -> None:
+    if output_format == "json":
+        print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+    else:
+        yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
 
 
 def _print_scorecard(evaluation: ScorecardEvaluation) -> None:

@@ -79,6 +79,7 @@ def run_command(
     force: bool = False,
     run_store_path: Path | None = None,
     stdout: TextIO | None = None,
+    run_revision_id: str | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
     rules = rules or load_screening_rules(config.rules_path)
@@ -87,8 +88,11 @@ def run_command(
         return 1
 
     run_now = now or datetime.now(JST)
+    if run_now.tzinfo is None or run_now.utcoffset() is None:
+        print("--run-at must include a UTC offset", file=sys.stderr)
+        return 1
     run_id = f"screening-{asof_date:%Y%m%d}"
-    today = run_now.date()
+    today = run_now.astimezone(JST).date()
     if (
         not allow_stale_jpx
         and asof_date < today
@@ -447,7 +451,9 @@ def run_command(
     if not isinstance(raw_payload, Mapping):  # pragma: no cover - renderer invariant
         raise AssertionError("screening renderer must produce a mapping")
     try:
-        publication = ScreeningRunStore(run_store_path).publish_run(raw_payload)
+        publication = ScreeningRunStore(run_store_path).publish_run(
+            raw_payload, run_revision_id=run_revision_id
+        )
     except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
         print(f"screening run publication failed: {exc}", file=sys.stderr)
         return 1

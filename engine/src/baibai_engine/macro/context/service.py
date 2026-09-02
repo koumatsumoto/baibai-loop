@@ -51,6 +51,24 @@ class MacroContextService:
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
+                payload = canonical_json(document.payload())
+                existing = connection.execute(
+                    "SELECT payload, supersedes_id FROM macro_context WHERE context_id = ?",
+                    (document.context_id,),
+                ).fetchone()
+                if existing is not None:
+                    current = _current_head_id(connection)
+                    if (
+                        str(existing[0]) == payload
+                        and existing[1] == expected_head
+                        and current == document.context_id
+                    ):
+                        connection.rollback()
+                        return document
+                    raise MacroContextConflictError(
+                        f"context_id already exists with different publication state: "
+                        f"{document.context_id}"
+                    )
                 # The head means "the operative revision under the current contract", so
                 # the compare-and-swap reads it through the same filter as `head_id`. A
                 # head left behind by an earlier contract reads as absent, and the first
@@ -60,12 +78,6 @@ class MacroContextService:
                     raise MacroContextConflictError(
                         "macro context head changed: "
                         f"expected={expected_head!r}, actual={current!r}"
-                    )
-                if connection.execute(
-                    "SELECT 1 FROM macro_context WHERE context_id = ?", (document.context_id,)
-                ).fetchone():
-                    raise MacroContextConflictError(
-                        f"context_id already exists: {document.context_id}"
                     )
                 connection.execute(
                     """
@@ -79,7 +91,7 @@ class MacroContextService:
                         document.as_of.isoformat(),
                         document.published_at.isoformat(),
                         current,
-                        canonical_json(document.payload()),
+                        payload,
                     ),
                 )
                 connection.execute(
