@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from collections.abc import Callable
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -280,85 +280,6 @@ def test_structured_and_human_daily_paths_have_normalized_equivalent_results(
         "screening-prune",
         "task-reconcile-earnings",
     ]
-
-
-def test_structured_daily_passes_preallocated_publication_identity_for_resume(
-    tmp_path: Path,
-) -> None:
-    script = _success_script()
-    script["screening review-set"] = [
-        CommandResult(0, '{"review_set_id":"review-set-resume"}\n', "")
-    ]
-    runner = _runner(script, run_revision_id="run-revision-resume")
-    publication_time = datetime(2026, 7, 21, 9, 0, tzinfo=UTC)
-
-    run_daily_batch_structured(
-        root=tmp_path,
-        output_dir=tmp_path / "serving",
-        asof=ASOF,
-        runner=runner,
-        quiet=True,
-        run_revision_id="run-revision-resume",
-        review_set_id="review-set-resume",
-        publication_time=publication_time,
-    )
-
-    run_argv = _call(runner, "screening run")
-    assert run_argv[-4:] == [
-        "--run-revision-id",
-        "run-revision-resume",
-        "--run-at",
-        publication_time.isoformat(),
-    ]
-    review_argv = _call(runner, "screening review-set")
-    assert review_argv[-4:] == [
-        "--review-set-id",
-        "review-set-resume",
-        "--created-at",
-        publication_time.isoformat(),
-    ]
-
-
-@pytest.mark.parametrize(
-    ("resume_after_stage", "expected_review_publish"),
-    [("screening-run", True), ("screening-review-set", False)],
-)
-def test_structured_daily_resume_never_reexecutes_published_machine_steps(
-    tmp_path: Path, resume_after_stage: str, expected_review_publish: bool
-) -> None:
-    script = _success_script()
-    for key in (
-        "screening refresh-edinet-documents",
-        "screening verify-cache-coverage",
-        "screening bootstrap-cache",
-        "screening extract-edinet-metrics",
-        "screening run",
-    ):
-        script.pop(key)
-    if not expected_review_publish:
-        script.pop("screening review-set")
-    else:
-        script["screening review-set"] = [
-            CommandResult(0, '{"review_set_id":"review-set-resume"}\n', "")
-        ]
-    runner = _runner(script, run_revision_id="run-revision-resume")
-
-    result = run_daily_batch_structured(
-        root=tmp_path,
-        output_dir=tmp_path / "serving",
-        asof=ASOF,
-        runner=runner,
-        quiet=True,
-        run_revision_id="run-revision-resume",
-        review_set_id="review-set-resume",
-        publication_time=datetime(2026, 7, 21, 9, 0, tzinfo=UTC),
-        resume_after_stage=resume_after_stage,
-    )
-
-    assert result.exit_code == 0
-    assert "screening run" not in runner.call_keys()
-    assert ("screening review-set" in runner.call_keys()) is expected_review_publish
-    assert "export" in runner.call_keys()
 
 
 def test_daily_batch_refreshes_registered_series_by_frequency_window(tmp_path: Path) -> None:

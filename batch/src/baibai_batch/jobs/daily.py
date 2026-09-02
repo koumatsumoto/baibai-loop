@@ -502,8 +502,6 @@ def _run_screening_run(
     asof_arg: str,
     quiet: bool = False,
     step_sink: StepSink | None = None,
-    run_revision_id: str | None = None,
-    run_at: datetime | None = None,
 ) -> _RunView:
     """Run screening and read the run view (revision id + counts) it writes.
 
@@ -524,10 +522,6 @@ def _run_screening_run(
             "--output-path",
             str(run_yaml),
         ]
-        if run_revision_id is not None:
-            argv.extend(("--run-revision-id", run_revision_id))
-        if run_at is not None:
-            argv.extend(("--run-at", run_at.isoformat()))
         result = _run_step(
             runner,
             name="screening-run",
@@ -543,13 +537,7 @@ def _run_screening_run(
                 "(run is published; reasons above)",
                 flush=True,
             )
-        view = _read_run_view(run_yaml)
-        if run_revision_id is not None and view.run_revision_id != run_revision_id:
-            raise BatchStepError(
-                "screening run output differs from the preallocated run_revision_id",
-                stage="screening-run",
-            )
-        return view
+        return _read_run_view(run_yaml)
 
 
 @dataclass(slots=True)
@@ -622,11 +610,7 @@ def run_daily_batch_structured(
     notice_output: Path | None = None,
     quiet: bool = False,
     step_sink: StepSink | None = None,
-    run_revision_id: str | None = None,
-    review_set_id: str | None = None,
-    publication_time: datetime | None = None,
     gate_explicit_asof: bool = False,
-    resume_after_stage: str | None = None,
 ) -> DailyBatchResult:
     notice = _Notice()
     steps: list[StepResult] = []
@@ -646,11 +630,7 @@ def run_daily_batch_structured(
             notice=notice,
             quiet=quiet,
             step_sink=record,
-            run_revision_id=run_revision_id,
-            review_set_id=review_set_id,
-            publication_time=publication_time,
             gate_explicit_asof=gate_explicit_asof,
-            resume_after_stage=resume_after_stage,
         )
     except (BatchStepError, CalendarCoverageError) as exc:
         notice.failed_stage = exc.stage or "batch"
@@ -678,16 +658,8 @@ def _execute_daily_batch(
     notice: _Notice,
     quiet: bool = False,
     step_sink: StepSink | None = None,
-    run_revision_id: str | None = None,
-    review_set_id: str | None = None,
-    publication_time: datetime | None = None,
     gate_explicit_asof: bool = False,
-    resume_after_stage: str | None = None,
 ) -> DailyBatchResult:
-    if resume_after_stage not in {None, "screening-run", "screening-review-set"}:
-        raise ValueError(f"unsupported daily resume stage: {resume_after_stage}")
-    if resume_after_stage is not None and (run_revision_id is None or review_set_id is None):
-        raise ValueError("daily resume requires preallocated run and Review Set identities")
     if asof is None:
         target = batch_target_date(datetime.now(UTC)) if scheduled else datetime.now(_JST).date()
         notice.asof = target.isoformat()
@@ -713,26 +685,23 @@ def _execute_daily_batch(
     asof_arg = target.isoformat()
 
     verify_argv = (_ENGINE, "screening", "verify-cache-coverage", "--asof", asof_arg)
-    if resume_after_stage is None:
-        _run_step(
-            runner,
-            name="refresh-edinet-documents",
-            argv=(_ENGINE, "screening", "refresh-edinet-documents", "--asof", asof_arg),
-            cwd=root,
-            quiet=quiet,
-            step_sink=step_sink,
-        )
-        verify = _run_step(
-            runner,
-            name="verify-cache-coverage",
-            argv=verify_argv,
-            cwd=root,
-            allowed_exit_codes=(0, 1),
-            quiet=quiet,
-            step_sink=step_sink,
-        )
-    else:
-        verify = CommandResult(0, "", "")
+    _run_step(
+        runner,
+        name="refresh-edinet-documents",
+        argv=(_ENGINE, "screening", "refresh-edinet-documents", "--asof", asof_arg),
+        cwd=root,
+        quiet=quiet,
+        step_sink=step_sink,
+    )
+    verify = _run_step(
+        runner,
+        name="verify-cache-coverage",
+        argv=verify_argv,
+        cwd=root,
+        allowed_exit_codes=(0, 1),
+        quiet=quiet,
+        step_sink=step_sink,
+    )
     if verify.returncode != 0 and _COVERAGE_INCOMPLETE_MARKER not in verify.stdout:
         # failure policy: 2 — an unclassified verifier crash cannot prove safe input.
         raise BatchStepError(
@@ -745,48 +714,43 @@ def _execute_daily_batch(
     # Coverage proves that a date was requested, not that a provider had already
     # published every filing for that date. Bootstrap always re-reads its bounded
     # financial-summary overlap so a later run can pick up delayed disclosures.
-    if resume_after_stage is None:
-        _run_step(
-            runner,
-            name="bootstrap-cache",
-            argv=(_ENGINE, "screening", "bootstrap-cache", "--asof", asof_arg),
-            cwd=root,
-            quiet=quiet,
-            step_sink=step_sink,
-        )
-        # Document events are mutable throughout the day. Re-extract even when the
-        # target-day snapshot already exists so a retry reports and stores the same
-        # current quarantine state instead of publishing synthetic zero counters.
-        extract_result = _run_step(
-            runner,
-            name="extract-edinet-metrics",
-            argv=(_ENGINE, "screening", "extract-edinet-metrics", "--asof", asof_arg),
-            cwd=root,
-            echo_stdout_prefixes=("EDINET extraction summary: ",),
-            quiet=quiet,
-            step_sink=step_sink,
-        )
-        _parse_edinet_quarantine_metrics(extract_result.stdout)
-        _run_step(
-            runner,
-            name="verify-cache-coverage(recheck)",
-            argv=verify_argv,
-            cwd=root,
-            quiet=quiet,
-            step_sink=step_sink,
-        )
+    _run_step(
+        runner,
+        name="bootstrap-cache",
+        argv=(_ENGINE, "screening", "bootstrap-cache", "--asof", asof_arg),
+        cwd=root,
+        quiet=quiet,
+        step_sink=step_sink,
+    )
+    # Document events are mutable throughout the day. Re-extract even when the
+    # target-day snapshot already exists so a retry reports and stores the same
+    # current quarantine state instead of publishing synthetic zero counters.
+    extract_result = _run_step(
+        runner,
+        name="extract-edinet-metrics",
+        argv=(_ENGINE, "screening", "extract-edinet-metrics", "--asof", asof_arg),
+        cwd=root,
+        echo_stdout_prefixes=("EDINET extraction summary: ",),
+        quiet=quiet,
+        step_sink=step_sink,
+    )
+    _parse_edinet_quarantine_metrics(extract_result.stdout)
+    _run_step(
+        runner,
+        name="verify-cache-coverage(recheck)",
+        argv=verify_argv,
+        cwd=root,
+        quiet=quiet,
+        step_sink=step_sink,
+    )
 
-        run_view = _run_screening_run(
-            runner,
-            root=root,
-            asof_arg=asof_arg,
-            quiet=quiet,
-            step_sink=step_sink,
-            run_revision_id=run_revision_id,
-            run_at=publication_time,
-        )
-    else:
-        run_view = _RunView(str(run_revision_id), 0, 0)
+    run_view = _run_screening_run(
+        runner,
+        root=root,
+        asof_arg=asof_arg,
+        quiet=quiet,
+        step_sink=step_sink,
+    )
 
     review_set_argv: list[str] = [
         _ENGINE,
@@ -800,28 +764,16 @@ def _execute_daily_batch(
         "--format",
         "json",
     ]
-    if review_set_id is not None:
-        review_set_argv.extend(("--review-set-id", review_set_id))
-    if publication_time is not None:
-        review_set_argv.extend(("--created-at", publication_time.isoformat()))
-    if resume_after_stage == "screening-review-set":
-        review_set_view = _ReviewSetView(str(review_set_id))
-    else:
-        review_set_result = _run_step(
-            runner,
-            name="screening-review-set",
-            argv=review_set_argv,
-            cwd=root,
-            echo_stdout=False,
-            quiet=quiet,
-            step_sink=step_sink,
-        )
-        review_set_view = _parse_review_set_view(review_set_result.stdout)
-    if review_set_id is not None and review_set_view.review_set_id != review_set_id:
-        raise BatchStepError(
-            "screening Review Set output differs from the preallocated review_set_id",
-            stage="screening-review-set",
-        )
+    review_set_result = _run_step(
+        runner,
+        name="screening-review-set",
+        argv=review_set_argv,
+        cwd=root,
+        echo_stdout=False,
+        quiet=quiet,
+        step_sink=step_sink,
+    )
+    review_set_view = _parse_review_set_view(review_set_result.stdout)
     if not quiet:
         print(f"review_set_id={review_set_view.review_set_id}", flush=True)
 

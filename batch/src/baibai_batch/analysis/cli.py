@@ -1,863 +1,561 @@
-"""Expose one deterministic entrypoint for the noncanonical analysis workspace."""
+"""Run daily machine work and one bounded Research Triage request end to end."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
+import fcntl
 import json
 import os
-import shutil
-import signal
 import subprocess  # nosec B404
-import sys
-from datetime import UTC, date, datetime, timedelta
+import tempfile
+import time
+import traceback
+from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
+from datetime import date, datetime
 from pathlib import Path
-from types import FrameType
+from types import TracebackType
+from typing import TextIO
+from uuid import uuid4
+from zoneinfo import ZoneInfo
 
-import yaml
+from pydantic import ValidationError
 
 from baibai_batch.analysis.io import (
-    digest_json,
+    canonical_json,
+    ensure_private_dir,
     read_json,
-    read_text_bounded,
     redact,
+    redact_argv,
     resolve_executable,
     write_json_atomic,
+    write_log,
 )
-from baibai_batch.analysis.models import DailyManifest, PacketIndex
-from baibai_batch.analysis.packet import check_results, prepare_packet, validate_packet
-from baibai_batch.analysis.workspace import (
-    PipelineLock,
-    StepLogger,
-    Workspace,
-    create_workspace,
-    default_state_dir,
-    rebind_bootstrap,
-    record_daily_result,
-    resolve_workspace,
-    validate_workspace,
+from baibai_batch.analysis.models import (
+    MacroProjection,
+    ModelInput,
+    ModelOutput,
+    ModelUsage,
+    TriageCandidate,
 )
+from baibai_batch.analysis.policy import TRIAGE_POLICY
 from baibai_batch.jobs.daily import (
     BatchStepError,
     CalendarCoverageError,
+    CommandResult,
+    StepResult,
     _run_subprocess,
     run_daily_batch_structured,
 )
+from baibai_engine.batch_api import (
+    MACRO_CONTEXT_STALE_DAYS,
+    DailyAnalysisContext,
+    ResearchTriageCandidateSnapshot,
+    ensure_daily_research_operation,
+    load_daily_analysis_context,
+    publish_daily_research_triage,
+)
+
+_JST = ZoneInfo("Asia/Tokyo")
+_MAX_MODEL_INPUT_BYTES = 1_000_000
+_MAX_MODEL_OUTPUT_BYTES = 256_000
+_MODEL_TIMEOUT_SECONDS = 900
+_TOOL_ITEM_TYPES = frozenset(
+    {"command_execution", "mcp_tool_call", "web_search", "file_read", "file_write"}
+)
 
 
-def _summary(workspace: Workspace, *, status: str | None = None) -> dict[str, object]:
-    manifest = workspace.manifest()
-    index_path = workspace.path / "packet" / "index.json"
-    index = read_json(index_path, root=workspace.state_root) if index_path.is_file() else {}
-    tasks: object = index.get("tasks", []) if isinstance(index, dict) else []
-    return {
-        "status": status or manifest.get("status"),
-        "asof": manifest.get("asof"),
-        "run_id": manifest.get("run_id"),
-        "ai_tasks": manifest.get("ai_task_count", 0),
-        "reused_tasks": manifest.get("reused_task_count", 0),
-        "task_types": _task_counts(tasks),
-        "workspace": str(workspace.path),
-        "manifest": str(workspace.manifest_path),
-        "log_dir": str(workspace.path / "steps"),
+def default_state_dir() -> Path:
+    configured = os.environ.get("XDG_STATE_HOME")
+    base = Path(configured) if configured else Path.home() / ".local" / "state"
+    return base / "baibai-loop"
+
+
+class PipelineLock(AbstractContextManager["PipelineLock"]):
+    """Use the kernel as the only authority for one local analysis execution."""
+
+    def __init__(self, state_root: Path) -> None:
+        lock_dir = ensure_private_dir(state_root / "locks", root=state_root)
+        self.path = lock_dir / "daily-analysis.lock"
+        self._handle: TextIO = self.path.open("a+", encoding="utf-8")
+        self.path.chmod(0o600)
+
+    def acquire(self) -> bool:
+        try:
+            fcntl.flock(self._handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False
+        return True
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback_value: TracebackType | None,
+    ) -> None:
+        fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
+        self._handle.close()
+
+
+class RunLog:
+    """Keep one private, redacted, bounded detail log outside normal stdout."""
+
+    def __init__(self, path: Path, *, state_root: Path) -> None:
+        self.path = path
+        self._state_root = state_root
+        self._parts: list[str] = []
+        self.append("analysis run started")
+
+    def append(self, text: str) -> None:
+        self._parts.append(redact(text).rstrip())
+        write_log(self.path, "\n\n".join(self._parts) + "\n", root=self._state_root)
+
+    def step(self, step: StepResult, command: CommandResult) -> None:
+        argv = " ".join(str(value) for value in redact_argv(list(step.argv)))
+        self.append(
+            f"step={step.name} exit={step.returncode} duration={step.duration_seconds:.6f}s\n"
+            f"argv={argv}\nstdout:\n{command.stdout}\nstderr:\n{command.stderr}"
+        )
+
+
+class ModelAdapterError(RuntimeError):
+    pass
+
+
+type ModelRunner = Callable[[ModelInput, Path, Path, RunLog], tuple[ModelOutput, ModelUsage, int]]
+
+
+def _create_run(state_root: Path) -> Path:
+    stamp = datetime.now(_JST).strftime("%Y%m%dT%H%M%S%z")
+    return ensure_private_dir(
+        state_root / "analysis" / f"{stamp}-{uuid4().hex[:8]}", root=state_root
+    )
+
+
+def _macro_projection(context: DailyAnalysisContext) -> MacroProjection:
+    document = context.macro_context
+    if document is None:
+        return MacroProjection(status="missing")
+    age_days = (context.review_set.as_of - document.as_of).days
+    return MacroProjection(
+        status="stale" if age_days > MACRO_CONTEXT_STALE_DAYS else "current",
+        as_of=document.as_of.isoformat(),
+        age_days=age_days,
+        summary=document.summary,
+        synthesis=(
+            None if document.synthesis is None else document.synthesis.model_dump(mode="json")
+        ),
+        connection=document.connection.model_dump(mode="json"),
+    )
+
+
+def _model_input(context: DailyAnalysisContext) -> ModelInput:
+    candidates = tuple(
+        TriageCandidate(
+            ticker=entry.ticker,
+            snapshot=ResearchTriageCandidateSnapshot(
+                name=entry.name,
+                sector_33=entry.sector_33,
+                review_position=entry.review_position,
+                nominations=entry.nominations,
+                analysis=entry.analysis,
+            ),
+        )
+        for entry in context.review_set.entries
+    )
+    return ModelInput(
+        schema_version=1,
+        task="research-triage",
+        instruction=(
+            "Use only this JSON. Do not call tools or read files. Compare every candidate and "
+            "return exactly one strict decision for each ticker."
+        ),
+        policy=TRIAGE_POLICY,
+        as_of=context.review_set.as_of.isoformat(),
+        macro_context=_macro_projection(context),
+        candidates=candidates,
+    )
+
+
+def _adapter_environment() -> dict[str, str]:
+    allowed = {
+        "CODEX_HOME",
+        "HOME",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "LANG",
+        "LC_ALL",
+        "NO_PROXY",
+        "OPENAI_API_KEY",
+        "PATH",
+        "SSL_CERT_DIR",
+        "SSL_CERT_FILE",
+        "TERM",
+        "TZ",
     }
+    return {key: value for key, value in os.environ.items() if key in allowed}
 
 
-def _task_counts(tasks: object) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    if not isinstance(tasks, list):
-        return counts
-    for task in tasks:
-        if isinstance(task, dict) and isinstance(task.get("type"), str):
-            counts[task["type"]] = counts.get(task["type"], 0) + 1
-    return counts
-
-
-def _business_exit(workspace: Workspace, successful_exit: int = 0) -> int:
-    """Preserve the daily job's degraded-success notification contract."""
-
-    if successful_exit != 0:
-        return successful_exit
-    manifest = workspace.manifest()
-    exit_code = manifest.get("business_exit_code", 0)
-    return exit_code if exit_code == 3 else 0
-
-
-def _daily_resume_stage(logger: StepLogger) -> str | None:
-    successful = {
-        result.get("name") for result in logger.results if result.get("returncode") in {0, 2}
-    }
-    if "screening-review-set" in successful:
-        return "screening-review-set"
-    if "screening-run" in successful:
-        return "screening-run"
-    return None
-
-
-def _show_bound_review_set(root: Path, manifest: dict[str, object]) -> dict[str, object]:
-    review_set_id = manifest.get("review_set_id")
-    if not isinstance(review_set_id, str) or not review_set_id:
-        raise ValueError("workspace has no bound Review Set identity")
-    completed = subprocess.run(  # nosec B603
-        [
-            resolve_executable("baibai-engine"),
-            "screening",
-            "review-set",
-            "show",
-            "--review-set-id",
-            review_set_id,
-            "--format",
-            "json",
-        ],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
+def _run_model(
+    model_input: ModelInput,
+    run_dir: Path,
+    state_root: Path,
+    log: RunLog,
+) -> tuple[ModelOutput, ModelUsage, int]:
+    payload = canonical_json(model_input.model_dump(mode="json")) + b"\n"
+    schema = canonical_json(ModelOutput.model_json_schema()) + b"\n"
+    adapter_input_bytes = _model_input_bytes(model_input)
+    if adapter_input_bytes > _MAX_MODEL_INPUT_BYTES:
+        raise ModelAdapterError(f"model input exceeds the {_MAX_MODEL_INPUT_BYTES} byte hard limit")
+    result_path = run_dir / "result.json"
+    schema_path = run_dir / ".output-schema.json"
+    schema_path.write_bytes(schema)
+    schema_path.chmod(0o600)
+    argv = [
+        resolve_executable("codex"),
+        "exec",
+        "--ephemeral",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--skip-git-repo-check",
+        "--sandbox",
+        "read-only",
+        "--output-schema",
+        str(schema_path),
+        "--output-last-message",
+        str(result_path),
+        "--json",
+        "-",
+    ]
+    started = time.monotonic()
+    try:
+        completed = subprocess.run(  # nosec B603
+            argv,
+            cwd=run_dir,
+            env=_adapter_environment(),
+            input=payload.decode("utf-8"),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+            timeout=_MODEL_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise ModelAdapterError("model adapter timed out") from error
+    finally:
+        schema_path.unlink(missing_ok=True)
+    duration = time.monotonic() - started
+    log.append(
+        "model adapter\n"
+        f"argv={' '.join(str(value) for value in redact_argv(argv[:-1]))}\n"
+        f"exit={completed.returncode} duration={duration:.6f}s\n"
+        f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+    )
+    requests, input_tokens, output_tokens, tool_calls = _codex_usage(completed.stdout)
+    usage = ModelUsage(
+        model_requests=requests,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        duration_seconds=duration,
+        tool_calls=tool_calls,
     )
     if completed.returncode != 0:
-        raise ValueError("bound Review Set could not be reconciled for daily resume")
-    value = json.loads(completed.stdout)
-    if not isinstance(value, dict) or value.get("review_set_id") != review_set_id:
-        raise ValueError("bound Review Set reconciliation returned a different identity")
-    return value
+        raise ModelAdapterError(f"model adapter exited {completed.returncode}")
+    if tool_calls:
+        raise ModelAdapterError("model used a tool even though the task forbids tool use")
+    if not result_path.is_file() or result_path.is_symlink():
+        raise ModelAdapterError("model adapter did not produce result.json")
+    if result_path.stat().st_size > _MAX_MODEL_OUTPUT_BYTES:
+        raise ModelAdapterError(
+            f"model output exceeds the {_MAX_MODEL_OUTPUT_BYTES} byte hard limit"
+        )
+    try:
+        output = ModelOutput.model_validate(read_json(result_path, root=state_root))
+    except (OSError, ValueError, ValidationError) as error:
+        raise ModelAdapterError(f"invalid model result: {error}") from error
+    write_json_atomic(result_path, output.model_dump(mode="json"), root=state_root)
+    return output, usage, adapter_input_bytes
 
 
-def _emit(payload: dict[str, object], output_format: str) -> None:
+def _model_input_bytes(model_input: ModelInput) -> int:
+    payload = canonical_json(model_input.model_dump(mode="json")) + b"\n"
+    schema = canonical_json(ModelOutput.model_json_schema()) + b"\n"
+    return len(payload) + len(schema)
+
+
+def _codex_usage(stdout: str) -> tuple[int | None, int | None, int | None, int]:
+    requests = 0
+    input_tokens = 0
+    output_tokens = 0
+    saw_usage = False
+    tool_calls = 0
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "turn.completed":
+            requests += 1
+            usage = event.get("usage")
+            if isinstance(usage, dict):
+                current_input = usage.get("input_tokens")
+                current_output = usage.get("output_tokens")
+                if isinstance(current_input, int) and isinstance(current_output, int):
+                    input_tokens += current_input
+                    output_tokens += current_output
+                    saw_usage = True
+        item = event.get("item")
+        if isinstance(item, dict) and item.get("type") in _TOOL_ITEM_TYPES:
+            tool_calls += 1
+    return (
+        requests if requests else None,
+        input_tokens if saw_usage else None,
+        output_tokens if saw_usage else None,
+        tool_calls,
+    )
+
+
+def _triage_matches_operation(context: DailyAnalysisContext) -> bool:
+    triage = context.existing_triage
+    operation = context.active_operation
+    if triage is None or operation is None:
+        return False
+    return (
+        operation.session_kind == "capital-allocation"
+        and triage.research_triage_id in operation.payload.canonical_refs
+        and any(
+            artifact.get("kind") == "research_triage"
+            and artifact.get("ref") == triage.research_triage_id
+            for artifact in operation.payload.artifacts
+        )
+    )
+
+
+def _base_summary(asof: date, run_dir: Path, log: RunLog) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "status": "started",
+        "as_of": asof.isoformat(),
+        "operator_commands": 1,
+        "machine_commands": 0,
+        "model_process_launches": 0,
+        "model_requests": 0,
+        "model_input_bytes": 0,
+        "actual_input_tokens": None,
+        "actual_output_tokens": None,
+        "ai_duration_seconds": 0.0,
+        "ai_file_reads": 0,
+        "ai_tool_calls": 0,
+        "candidate_count": 0,
+        "research_count": 0,
+        "skip_count": 0,
+        "human_action": None,
+        "run_dir": str(run_dir),
+        "log_path": str(log.path),
+    }
+
+
+def _existing_triage_summary(
+    context: DailyAnalysisContext,
+    summary: dict[str, object],
+) -> None:
+    triage = context.existing_triage
+    if triage is None:
+        raise AssertionError("existing Triage summary requires a Triage")
+    research_count = len(triage.researchable_tickers())
+    summary.update(
+        status="awaiting_human" if research_count else "already_published",
+        candidate_count=len(triage.entries),
+        research_count=research_count,
+        skip_count=len(triage.entries) - research_count,
+        human_action="Research Setを選択" if research_count else None,
+    )
+
+
+def _execute(
+    *,
+    asof: date,
+    root: Path,
+    state_root: Path,
+    run_dir: Path,
+    log: RunLog,
+    summary: dict[str, object],
+    model_runner: ModelRunner,
+) -> int:
+    with tempfile.TemporaryDirectory(prefix="analysis-serving-", dir=state_root) as temporary:
+        daily = run_daily_batch_structured(
+            root=root,
+            output_dir=Path(temporary),
+            asof=asof,
+            runner=_run_subprocess,
+            quiet=True,
+            step_sink=log.step,
+            gate_explicit_asof=True,
+        )
+    summary["machine_commands"] = len(daily.steps)
+    if daily.status == "skipped_non_business_day":
+        summary["status"] = "skipped_non_business_day"
+        return 0
+    if daily.review_set_id is None:
+        summary["status"] = "no_review_set"
+        return 1
+    context = load_daily_analysis_context(daily.review_set_id)
+    summary["candidate_count"] = len(context.review_set.entries)
+    if not context.review_set.entries:
+        summary["status"] = "empty_review_set"
+        return daily.exit_code
+    if context.existing_triage is not None:
+        if context.existing_triage.researchable_tickers():
+            if context.active_operation is not None and not _triage_matches_operation(context):
+                _existing_triage_summary(context, summary)
+                summary.update(
+                    status="blocked_by_active_operation",
+                    human_action="進行中Operationを完了",
+                )
+                return daily.exit_code
+            ensure_daily_research_operation(
+                context.existing_triage,
+                started_at=datetime.now(_JST),
+            )
+        _existing_triage_summary(context, summary)
+        return daily.exit_code
+    if context.active_operation is not None:
+        summary.update(
+            status="blocked_by_active_operation",
+            human_action="進行中Operationを完了",
+        )
+        return daily.exit_code
+
+    model_input = _model_input(context)
+    write_json_atomic(run_dir / "input.json", model_input.model_dump(mode="json"), root=state_root)
+    preflight_bytes = _model_input_bytes(model_input)
+    summary["model_input_bytes"] = preflight_bytes
+    if preflight_bytes > _MAX_MODEL_INPUT_BYTES:
+        raise ValueError(f"model input exceeds the {_MAX_MODEL_INPUT_BYTES} byte hard limit")
+    summary["model_process_launches"] = 1
+    summary["model_requests"] = None
+    summary["ai_file_reads"] = None
+    summary["ai_tool_calls"] = None
+    output, usage, input_bytes = model_runner(model_input, run_dir, state_root, log)
+    write_json_atomic(run_dir / "result.json", output.model_dump(mode="json"), root=state_root)
+    expected_tickers = {candidate.ticker for candidate in model_input.candidates}
+    actual_tickers = {decision.ticker for decision in output.decisions}
+    if len(output.decisions) != len(model_input.candidates) or actual_tickers != expected_tickers:
+        raise ValueError("AI decisions must contain every Review Set ticker exactly once")
+    summary.update(
+        model_requests=usage.model_requests,
+        model_input_bytes=input_bytes,
+        actual_input_tokens=usage.input_tokens,
+        actual_output_tokens=usage.output_tokens,
+        ai_duration_seconds=round(usage.duration_seconds, 6),
+        ai_file_reads=usage.tool_calls,
+        ai_tool_calls=usage.tool_calls,
+    )
+    triage = publish_daily_research_triage(
+        context.review_set.review_set_id,
+        output.decisions,
+        published_at=datetime.now(_JST),
+    )
+    operation = ensure_daily_research_operation(triage, started_at=datetime.now(_JST))
+    research_count = len(triage.researchable_tickers())
+    summary.update(
+        status="published_awaiting_human" if operation is not None else "published_all_skip",
+        research_count=research_count,
+        skip_count=len(triage.entries) - research_count,
+        human_action="Research Setを選択" if operation is not None else None,
+    )
+    return daily.exit_code
+
+
+def _emit(summary: dict[str, object], output_format: str) -> None:
     if output_format == "json":
-        print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+        print(json.dumps(summary, ensure_ascii=False, separators=(",", ":")))
         return
     for key in (
         "status",
-        "asof",
-        "run_id",
-        "ai_tasks",
-        "reused_tasks",
-        "workspace",
-        "manifest",
-        "log_dir",
+        "as_of",
+        "model_process_launches",
+        "model_requests",
+        "model_input_bytes",
+        "actual_input_tokens",
+        "actual_output_tokens",
+        "research_count",
+        "skip_count",
+        "human_action",
+        "log_path",
     ):
-        if key in payload:
-            print(f"{key}={payload[key]}")
+        print(f"{key}={summary.get(key)}")
 
 
-def _start(args: argparse.Namespace) -> int:
-    asof = date.fromisoformat(args.asof)
-    state_dir = args.state_dir.absolute()
-    lock = PipelineLock(state_dir, asof.isoformat())
+def _run(args: argparse.Namespace, *, model_runner: ModelRunner = _run_model) -> int:
+    asof = args.asof or datetime.now(_JST).date()
+    state_root = ensure_private_dir(args.state_dir.absolute())
+    lock = PipelineLock(state_root)
     with lock:
         if not lock.acquire():
-            _emit({"status": "already_running", "asof": asof.isoformat()}, args.format)
-            return 0
-        workspace = create_workspace(
-            state_dir=state_dir,
-            root=args.repo_root,
-            asof=asof,
-            force_new=args.force_new_workspace,
-        )
-
-        def interrupted(signum: int, _frame: FrameType | None) -> None:
-            workspace.update(
-                state="interrupted",
-                status="interrupted",
-                failure_reason_code=f"signal:{signum}",
+            _emit(
+                {
+                    "status": "already_running",
+                    "as_of": asof.isoformat(),
+                    "model_process_launches": 0,
+                },
+                args.format,
             )
-            raise InterruptedError(f"analysis interrupted by signal {signum}")
-
-        signal.signal(signal.SIGINT, interrupted)
-        signal.signal(signal.SIGTERM, interrupted)
-        manifest = workspace.manifest()
-        if manifest.get("state") == "interrupted":
-            resume_count = manifest.get("resume_count", 0)
-            if not isinstance(resume_count, int) or isinstance(resume_count, bool):
-                raise ValueError("workspace resume_count must be an integer")
-            workspace.update(resume_count=resume_count + 1)
-            manifest = workspace.manifest()
-        if manifest.get("state") in {"published", "awaiting_human", "no_ai"}:
-            _emit(_summary(workspace, status="already_complete"), args.format)
-            return _business_exit(workspace)
-        if manifest.get("state") in {"ai_required", "machine_incomplete"}:
-            _emit(_summary(workspace), args.format)
-            return 1 if manifest.get("state") == "machine_incomplete" else _business_exit(workspace)
-        if manifest.get("state") == "checked":
-            return _publish_locked(args, workspace)
-        if manifest.get("state") == "failed":
-            _emit(_summary(workspace), args.format)
-            return 1
-        daily_manifest = workspace.path / "inputs" / "daily-manifest.json"
-        if daily_manifest.is_file():
-            result_status = manifest.get("status")
-            if result_status == "deferred":
-                _emit(_summary(workspace), args.format)
-                return 3
-        else:
-            logger = StepLogger(workspace)
-            resume_after_stage = _daily_resume_stage(logger)
-            if resume_after_stage == "screening-review-set":
-                publication = _show_bound_review_set(args.repo_root, manifest)
-                if publication.get("run_revision_id") != manifest.get("daily_run_revision_id"):
-                    raise ValueError("published Review Set differs from the bound run revision")
-                if publication.get("as_of") != manifest.get("asof"):
-                    raise ValueError("published Review Set differs from the workspace asof")
-            try:
-                result = run_daily_batch_structured(
-                    root=args.repo_root,
-                    output_dir=workspace.path / "assembled" / "serving",
-                    asof=asof,
-                    runner=_run_subprocess,
-                    quiet=not args.verbose,
-                    step_sink=logger,
-                    run_revision_id=str(manifest["daily_run_revision_id"]),
-                    review_set_id=str(manifest["review_set_id"]),
-                    publication_time=datetime.fromisoformat(str(manifest["publication_time"])),
-                    gate_explicit_asof=True,
-                    resume_after_stage=resume_after_stage,
-                )
-            except (BatchStepError, CalendarCoverageError) as exc:
-                workspace.update(
-                    state="failed",
-                    status="failed",
-                    failure_reason_code=f"daily:{exc.stage or 'batch'}",
-                )
-                _record_failure(
-                    workspace,
-                    stage=exc.stage or "daily",
-                    reason_code=f"daily:{exc.stage or 'batch'}",
-                    error=exc,
-                )
-                raise
-            try:
-                record_daily_result(workspace, result)
-            except (OSError, ValueError) as exc:
-                if not logger.canonical_published:
-                    raise
-                print(
-                    f"observability_degraded: canonical Review Set is published but "
-                    f"workspace finalization failed: {redact(str(exc))[-4000:]}",
-                    file=sys.stderr,
-                )
-                _emit(
-                    {
-                        "status": "observability_degraded",
-                        "asof": asof.isoformat(),
-                        "workspace": str(workspace.path),
-                    },
-                    args.format,
-                )
-                return result.exit_code
-            if logger.observability_degraded:
-                workspace.update(observability_degraded=True)
-            if result.exit_code not in (0, 3):
-                return result.exit_code
+            return 0
+        run_dir = _create_run(state_root)
+        log = RunLog(run_dir / "run.log", state_root=state_root)
+        summary = _base_summary(asof, run_dir, log)
         try:
-            index = prepare_packet(
-                workspace,
+            exit_code = _execute(
+                asof=asof,
                 root=args.repo_root,
-                macro_review=args.macro_review,
-                re_evaluate=args.re_evaluate,
+                state_root=state_root,
+                run_dir=run_dir,
+                log=log,
+                summary=summary,
+                model_runner=model_runner,
             )
-        except (OSError, ValueError) as exc:
-            workspace.update(state="failed", status="failed", failure_reason_code="packet")
-            _record_failure(workspace, stage="packet", reason_code="packet", error=exc)
-            raise
-        machine_exit = _publish_reused_tasks(workspace, index=index, args=args)
-        if machine_exit is not None:
-            return _business_exit(workspace, machine_exit)
-        _write_metrics(workspace)
-        _emit(_summary(workspace), args.format)
-        if index.status == "machine_incomplete":
-            return 1
-        return _business_exit(workspace)
-
-
-def _prepare(args: argparse.Namespace) -> int:
-    if args.daily_manifest.is_symlink() or not args.daily_manifest.is_file():
-        raise ValueError("daily manifest must be a regular non-symlink file")
-    if args.daily_manifest.stat().st_size > 2_000_000:
-        raise ValueError("daily manifest exceeds the 2000000 byte input limit")
-    value = DailyManifest.model_validate_json(
-        args.daily_manifest.read_text(encoding="utf-8")
-    ).model_dump(mode="json")
-    asof = date.fromisoformat(value["asof"])
-    state_dir = args.state_dir.absolute()
-    lock = PipelineLock(state_dir, asof.isoformat())
-    with lock:
-        if not lock.acquire():
-            _emit({"status": "already_running", "asof": asof.isoformat()}, args.format)
-            return 0
-        workspace = create_workspace(
-            state_dir=state_dir,
-            root=args.repo_root,
-            asof=asof,
-            force_new=args.force_new_workspace,
-        )
-        target = workspace.path / "inputs" / "daily-manifest.json"
-        manifest = workspace.manifest()
-        if manifest.get("state") == "started":
-            write_json_atomic(target, value, root=workspace.state_root)
-            rebind_bootstrap(
-                workspace,
-                run_revision_id=value.get("run_revision_id"),
-                review_set_id=value.get("review_set_id"),
-            )
-            workspace.update(
-                state="machine_complete",
-                status=str(value.get("status", "machine_complete")),
-                current_stage="prepare",
-                daily_run_revision_id=value.get("run_revision_id"),
-                review_set_id=value.get("review_set_id"),
-                business_exit_code=value.get("exit_code", 0),
-                deferred_failure_count=value.get("deferred_failure_count", 0),
-                deferred_reason_code=(
-                    "daily_deferred" if value.get("deferred_failure_count") else None
-                ),
-            )
-        else:
-            existing = read_json(target, root=workspace.state_root)
-            if digest_json(existing) != digest_json(value):
-                raise ValueError("daily manifest differs from the exact active workspace input")
-            if manifest.get("state") in {"no_ai", "published", "awaiting_human"}:
-                _emit(_summary(workspace, status="already_complete"), args.format)
-                return _business_exit(workspace)
-            if manifest.get("state") in {"ai_required", "machine_incomplete", "checked"}:
-                if manifest.get("state") == "checked":
-                    return _publish_locked(args, workspace)
-                _emit(_summary(workspace), args.format)
-                return (
-                    1
-                    if manifest.get("state") == "machine_incomplete"
-                    else _business_exit(workspace)
-                )
-            if manifest.get("state") == "failed":
-                _emit(_summary(workspace), args.format)
-                return 1
-        try:
-            index = prepare_packet(
-                workspace,
-                root=args.repo_root,
-                macro_review=args.macro_review,
-                re_evaluate=args.re_evaluate,
-            )
-        except (OSError, ValueError) as exc:
-            workspace.update(state="failed", status="failed", failure_reason_code="packet")
-            _record_failure(workspace, stage="packet", reason_code="packet", error=exc)
-            raise
-        machine_exit = _publish_reused_tasks(workspace, index=index, args=args)
-        if machine_exit is not None:
-            return _business_exit(workspace, machine_exit)
-        _write_metrics(workspace)
-        _emit(_summary(workspace), args.format)
-        if index.status == "machine_incomplete":
-            return 1
-        return _business_exit(workspace)
-
-
-def _status(args: argparse.Namespace) -> int:
-    workspace = resolve_workspace(args.workspace)
-    validate_workspace(workspace, root=args.repo_root, require_supported_schema=False)
-    if workspace.manifest().get("schema_version") != 1:
-        _emit(_summary(workspace, status="unsupported_workspace_schema"), args.format)
-        return 0
-    if (workspace.path / "packet" / "index.json").is_file():
-        validate_packet(workspace)
-    _emit(_summary(workspace), args.format)
-    return 0
-
-
-def _check(args: argparse.Namespace) -> int:
-    workspace = resolve_workspace(args.workspace)
-    lock = PipelineLock(workspace.state_root, str(workspace.manifest()["asof"]))
-    with lock:
-        if not lock.acquire():
-            _emit(_summary(workspace, status="already_running"), args.format)
-            return 0
-        validate_workspace(workspace, root=args.repo_root)
-        state = workspace.manifest().get("state")
-        if state in {"published", "awaiting_human"}:
-            _emit(_summary(workspace, status="already_complete"), args.format)
-            return _business_exit(workspace)
-        if state == "checked":
-            _emit(_summary(workspace, status="checked"), args.format)
-            return _business_exit(workspace)
-        if state != "ai_required":
-            raise ValueError("workspace must be ai_required before analysis check")
-        status, draft = check_results(workspace, results_path=args.ai_results, root=args.repo_root)
-        payload = _summary(workspace, status=status)
-        if draft is not None:
-            payload["assembled_draft"] = str(draft)
-        _write_metrics(workspace)
-        _emit(payload, args.format)
-        return _business_exit(workspace)
-
-
-def _publish(args: argparse.Namespace) -> int:
-    workspace = resolve_workspace(args.workspace)
-    lock = PipelineLock(workspace.state_root, str(workspace.manifest()["asof"]))
-    with lock:
-        if not lock.acquire():
-            _emit(_summary(workspace, status="already_running"), args.format)
-            return 0
-        return _publish_locked(args, workspace)
-
-
-def _publish_locked(args: argparse.Namespace, workspace: Workspace) -> int:
-    validate_workspace(workspace, root=args.repo_root)
-    manifest = workspace.manifest()
-    if manifest.get("state") in {"published", "awaiting_human"}:
-        _emit(_summary(workspace, status="already_complete"), args.format)
-        return _business_exit(workspace)
-    if manifest.get("state") != "checked":
-        raise ValueError("workspace must pass analysis check before publish")
-    if manifest.get("macro_phase") == "independent_complete":
-        macro_path = workspace.path / "assembled" / "macro-independent.json"
-        expected_macro_digest = manifest.get("macro_independent_sha256")
-        if (
-            not macro_path.is_file()
-            or not isinstance(expected_macro_digest, str)
-            or hashlib.sha256(macro_path.read_bytes()).hexdigest() != expected_macro_digest
-        ):
-            raise ValueError("Macro independent handoff is missing or changed")
-    draft = workspace.path / "assembled" / "research-triage.yaml"
-    if not draft.is_file():
-        if manifest.get("macro_phase") != "independent_complete":
-            raise ValueError("checked workspace has neither Research Triage nor Macro handoff")
-        workspace.update(state="awaiting_human", status="awaiting_human", current_stage="complete")
-        _write_metrics(workspace)
-        _emit(_summary(workspace), args.format)
-        return _business_exit(workspace)
-    draft_value = yaml.safe_load(draft.read_text(encoding="utf-8"))
-    entries = draft_value.get("entries", []) if isinstance(draft_value, dict) else []
-    research_count = sum(
-        isinstance(entry, dict) and entry.get("decision") == "research" for entry in entries
-    )
-    triage_id = draft_value.get("research_triage_id") if isinstance(draft_value, dict) else None
-    if not isinstance(triage_id, str) or not triage_id:
-        raise ValueError("assembled Research Triage has no publication identity")
-    draft_digest = digest_json(draft_value)
-    intent_path = workspace.path / "publish-intents" / "research-triage.json"
-    intent = {
-        "schema_version": 1,
-        "classification": "create-once-idempotent-cas",
-        "status": "prepared",
-        "target_id": triage_id,
-        "content_digest": draft_digest,
-        "review_set_id": manifest.get("review_set_id"),
-        "expected_head": manifest.get("research_triage_expected_head"),
-    }
-    if intent_path.is_file():
-        existing_intent = read_json(intent_path, root=workspace.state_root)
-        if existing_intent not in (intent, {**intent, "status": "confirmed"}):
-            raise ValueError("Research Triage publish intent differs on resume")
-    else:
-        write_json_atomic(intent_path, intent, root=workspace.state_root)
-    completed = subprocess.run(  # nosec B603
-        [
-            resolve_executable("baibai-engine"),
-            "screening",
-            "research-triage",
-            "publish",
-            str(draft),
-        ],
-        cwd=args.repo_root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 0:
-        workspace.update(state="failed", status="failed", failure_reason_code="triage_publish")
-        _record_failure(
-            workspace,
-            stage="triage-publish",
-            reason_code="triage_publish",
-            error=ValueError(completed.stderr.rstrip() or "publisher returned a non-zero exit"),
-        )
-        print(redact(completed.stderr.rstrip())[-4000:], file=sys.stderr)
-        return completed.returncode
-    if research_count == 0 and manifest.get("macro_phase") != "independent_complete":
-        _complete_no_research_operation(
-            args.repo_root,
-            workspace,
-            operation_id=manifest.get("operation_session_id"),
-            research_triage_id=triage_id,
-        )
-    status = (
-        "awaiting_human"
-        if research_count or manifest.get("macro_phase") == "independent_complete"
-        else "published"
-    )
-    try:
-        write_json_atomic(intent_path, {**intent, "status": "confirmed"}, root=workspace.state_root)
-        workspace.update(state=status, status=status, current_stage="complete")
-        _write_metrics(workspace)
-    except (OSError, ValueError) as exc:
-        print(
-            f"observability_degraded: canonical Research Triage is published but "
-            f"workspace finalization failed: {redact(str(exc))[-4000:]}",
-            file=sys.stderr,
-        )
-        _emit({"status": "observability_degraded", "workspace": str(workspace.path)}, args.format)
-        return _business_exit(workspace)
-    _emit(_summary(workspace), args.format)
-    return _business_exit(workspace)
-
-
-def _complete_no_research_operation(
-    root: Path,
-    workspace: Workspace,
-    *,
-    operation_id: object,
-    research_triage_id: str,
-) -> None:
-    if not isinstance(operation_id, str) or not operation_id:
-        raise ValueError("zero-research completion requires the bound operation session")
-    payload = {
-        "checkpoint": "research_triage cycle complete",
-        "artifacts": [
-            {
-                "kind": "research_triage",
-                "ref": research_triage_id,
-                "research_count": 0,
-            }
-        ],
-        "canonical_refs": [research_triage_id],
-        "human_confirmation": None,
-        "completion_reason": "no-research",
-        "result": "no candidate was admitted to the Research Set",
-        "next": "wait for the next capital-allocation trigger",
-    }
-    operation = _operation_show(root, operation_id)
-    if operation.get("status") == "completed":
-        if operation.get("payload") != payload:
-            raise ValueError("completed operation payload differs from zero-research intent")
-        return
-    if operation.get("status") != "active":
-        raise ValueError("bound operation is neither active nor completed")
-    payload_path = workspace.path / "assembled" / "operation-no-research.json"
-    write_json_atomic(payload_path, payload, root=workspace.state_root)
-    completed = subprocess.run(  # nosec B603
-        [
-            resolve_executable("baibai-engine"),
-            "operation",
-            "--format",
-            "json",
-            "complete",
-            operation_id,
-            "--payload",
-            str(payload_path),
-        ],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise ValueError("zero-research operation completion failed")
-    try:
-        result = json.loads(completed.stdout)
-    except json.JSONDecodeError as exc:
-        raise ValueError("operation completion did not return JSON") from exc
-    if (
-        not isinstance(result, dict)
-        or result.get("operation_id") != operation_id
-        or result.get("status") != "completed"
-        or result.get("payload") != payload
-    ):
-        raise ValueError("operation completion returned a different canonical result")
-
-
-def _operation_show(root: Path, operation_id: str) -> dict[str, object]:
-    completed = subprocess.run(  # nosec B603
-        [
-            resolve_executable("baibai-engine"),
-            "operation",
-            "--format",
-            "json",
-            "show",
-            operation_id,
-        ],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise ValueError("bound operation could not be reconciled")
-    try:
-        value = json.loads(completed.stdout)
-    except json.JSONDecodeError as exc:
-        raise ValueError("operation reconciliation did not return JSON") from exc
-    if not isinstance(value, dict) or value.get("operation_id") != operation_id:
-        raise ValueError("operation reconciliation returned a different identity")
-    return value
-
-
-def _publish_reused_tasks(
-    workspace: Workspace, *, index: PacketIndex, args: argparse.Namespace
-) -> int | None:
-    if (
-        index.status != "no_ai"
-        or not index.tasks
-        or any(task.type != "research-triage" or not task.reused for task in index.tasks)
-    ):
-        return None
-    results = workspace.path / "ai/results.json"
-    write_json_atomic(
-        results,
-        {"schema_version": 1, "packet_id": index.packet_id, "results": []},
-        root=workspace.state_root,
-    )
-    status, _draft = check_results(workspace, results_path=results, root=args.repo_root)
-    if status != "checked":
-        raise ValueError("reused Research Triage tasks did not assemble to checked state")
-    return _publish_locked(args, workspace)
-
-
-def _logs(args: argparse.Namespace) -> int:
-    workspace = resolve_workspace(args.workspace)
-    if (
-        not args.stage
-        or len(args.stage) > 120
-        or any(character in args.stage for character in ("/", "\\", "\x00", "\r", "\n"))
-    ):
-        raise ValueError("stage must be a bounded name without path or control characters")
-    if args.tail < 0 or args.tail > 10_000:
-        raise ValueError("tail must be between 0 and 10000")
-    stages = workspace.manifest().get("stages")
-    candidates = (
-        [stage for stage in stages if isinstance(stage, dict) and stage.get("name") == args.stage]
-        if isinstance(stages, list)
-        else []
-    )
-    if not candidates:
-        raise ValueError(f"stage log is unavailable: {args.stage}")
-    selected = max(
-        enumerate(candidates),
-        key=lambda item: (
-            item[1].get("attempt") if isinstance(item[1].get("attempt"), int) else -1,
-            item[0],
-        ),
-    )[1]
-    for stream in ("stdout.log", "stderr.log"):
-        relative = selected.get(stream.replace(".log", "_path"))
-        if (
-            not isinstance(relative, str)
-            or Path(relative).is_absolute()
-            or Path(relative).parts[:1] != ("steps",)
-            or ".." in Path(relative).parts
-        ):
-            raise ValueError(f"registered stage has an invalid {stream} path")
-        lines = read_text_bounded(
-            workspace.path / relative, root=workspace.path / "steps"
-        ).splitlines()
-        print(f"[{stream}]")
-        print("\n".join(lines[-args.tail :]))
-    return 0
-
-
-def _prune(args: argparse.Namespace) -> int:
-    if args.older_than_days < 0 or args.failed_older_than_days < 0:
-        raise ValueError("retention days must be zero or greater")
-    state_dir = args.state_dir.resolve(strict=True)
-    cutoff = datetime.now(UTC) - timedelta(days=args.older_than_days)
-    failed_cutoff = datetime.now(UTC) - timedelta(days=args.failed_older_than_days)
-    removed = 0
-    for asof_dir in sorted((state_dir / "runs" / "analysis").glob("????-??-??")):
-        lock = PipelineLock(state_dir, asof_dir.name)
-        with lock:
-            if not lock.acquire():
-                continue
-            active_id: str | None = None
-            active_path = asof_dir / "active.json"
-            if active_path.is_file():
-                active = read_json(active_path, root=state_dir)
-                active_id = active.get("run_id") if isinstance(active, dict) else None
-            for workspace_path in sorted(
-                path for path in asof_dir.iterdir() if path.is_dir() and not path.is_symlink()
-            ):
-                manifest_path = workspace_path / "manifest.json"
-                if not manifest_path.is_file():
-                    continue
-                manifest = read_json(manifest_path, root=state_dir)
-                if not isinstance(manifest, dict) or not isinstance(
-                    manifest.get("updated_at"), str
-                ):
-                    continue
-                state = manifest.get("state")
-                if workspace_path.name == active_id:
-                    continue
-                relevant_cutoff = (
-                    failed_cutoff
-                    if state
-                    in {
-                        "failed",
-                        "started",
-                        "machine_complete",
-                        "ai_required",
-                        "checked",
-                        "interrupted",
-                    }
-                    else cutoff
-                )
-                if datetime.fromisoformat(manifest["updated_at"]) >= relevant_cutoff:
-                    continue
-                shutil.rmtree(workspace_path)
-                if workspace_path.name == active_id:
-                    active_path.unlink(missing_ok=True)
-                removed += 1
-    _emit({"status": "pruned", "removed": removed}, args.format)
-    return 0
-
-
-def _write_metrics(workspace: Workspace) -> None:
-    manifest = workspace.manifest()
-    stages = manifest.get("stages", [])
-    machine_time = 0.0
-    log_bytes = 0
-    stdout_bytes = 0
-    retry_count = 0
-    if isinstance(stages, list):
-        for stage in stages:
-            if isinstance(stage, dict):
-                value = stage.get("duration_seconds")
-                if isinstance(value, (int, float)) and not isinstance(value, bool):
-                    machine_time += float(value)
-                attempt = stage.get("attempt")
-                if isinstance(attempt, int) and attempt > 1:
-                    retry_count += 1
-        log_bytes = sum(path.stat().st_size for path in (workspace.path / "steps").rglob("*.log"))
-        stdout_bytes = sum(
-            path.stat().st_size for path in (workspace.path / "steps").rglob("stdout.log")
-        )
-    index_path = workspace.path / "packet" / "index.json"
-    packet = read_json(index_path, root=workspace.state_root) if index_path.is_file() else {}
-    metrics = {
-        "schema_version": 1,
-        "machine_commands": len(stages) if isinstance(stages, list) else 0,
-        "model_invocation_count": manifest.get("model_invocation_count", 0),
-        "ai_turns": manifest.get("model_invocation_count", 0),
-        "task_total": (len(packet.get("tasks", [])) if isinstance(packet, dict) else 0),
-        "reused_tasks": manifest.get("reused_task_count", 0),
-        "newly_evaluated": manifest.get("ai_task_count", 0),
-        "packet_bytes": packet.get("packet_bytes", 0) if isinstance(packet, dict) else 0,
-        "packet_index_bytes": index_path.stat().st_size if index_path.is_file() else 0,
-        "task_bytes": packet.get("packet_bytes", 0) if isinstance(packet, dict) else 0,
-        "estimated_input_tokens": packet.get("estimated_tokens", 0)
-        if isinstance(packet, dict)
-        else 0,
-        "actual_input_tokens": None,
-        "actual_output_tokens": None,
-        "wall_clock_seconds": round(
-            (
-                datetime.now(UTC) - datetime.fromisoformat(str(manifest["created_at"]))
-            ).total_seconds(),
-            6,
-        ),
-        "machine_time_seconds": round(machine_time, 6),
-        "ai_time_seconds": None,
-        "stdout_bytes": stdout_bytes,
-        "log_bytes": log_bytes,
-        "retry_count": retry_count,
-        "resume_count": manifest.get("resume_count", 0),
-        "final_status": manifest.get("status"),
-    }
-    write_json_atomic(workspace.path / "metrics.json", metrics, root=workspace.state_root)
-
-
-def _record_failure(
-    workspace: Workspace, *, stage: str, reason_code: str, error: BaseException
-) -> None:
-    write_json_atomic(
-        workspace.path / "failure_packet.json",
-        {
-            "schema_version": 1,
-            "status": "failed",
-            "stage": stage,
-            "reason_code": reason_code,
-            "hint": redact(str(error))[-4000:],
-            "log_dir": "steps",
-        },
-        root=workspace.state_root,
-    )
+        except (
+            BatchStepError,
+            CalendarCoverageError,
+            ModelAdapterError,
+            OSError,
+            ValueError,
+        ) as error:
+            summary["status"] = "failed"
+            summary["failure"] = redact(str(error))[-500:]
+            log.append(traceback.format_exc())
+            exit_code = 1
+        write_json_atomic(run_dir / "summary.json", summary, root=state_root)
+        _emit(summary, args.format)
+        return exit_code
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-batch analysis")
     commands = parser.add_subparsers(dest="analysis_command", required=True)
-
-    start = commands.add_parser("start")
-    start.add_argument("--asof", required=True)
-    _state_args(start)
-    start.add_argument("--macro-review", action="store_true")
-    start.add_argument("--re-evaluate", action="store_true")
-    start.add_argument(
-        "--verbose", action="store_true", help="mirror step progress while retaining full logs"
+    run = commands.add_parser(
+        "run", help="run daily machine work and Research Triage as one non-interactive command"
     )
-
-    prepare = commands.add_parser("prepare")
-    prepare.add_argument("--daily-manifest", type=Path, required=True)
-    _state_args(prepare)
-    prepare.add_argument("--macro-review", action="store_true")
-    prepare.add_argument("--re-evaluate", action="store_true")
-
-    status = commands.add_parser("status")
-    status.add_argument("--workspace", type=Path, required=True)
-    status.add_argument("--repo-root", type=Path, default=Path.cwd())
-    status.add_argument("--format", choices=("text", "json"), default="text")
-
-    check = commands.add_parser("check")
-    check.add_argument("--workspace", type=Path, required=True)
-    check.add_argument("--ai-results", type=Path, required=True)
-    check.add_argument("--repo-root", type=Path, default=Path.cwd())
-    check.add_argument("--format", choices=("text", "json"), default="text")
-
-    publish = commands.add_parser("publish")
-    publish.add_argument("--workspace", type=Path, required=True)
-    publish.add_argument("--repo-root", type=Path, default=Path.cwd())
-    publish.add_argument("--format", choices=("text", "json"), default="text")
-
-    logs = commands.add_parser("logs")
-    logs.add_argument("--workspace", type=Path, required=True)
-    logs.add_argument("--stage", required=True)
-    logs.add_argument("--tail", type=int, default=100)
-
-    prune = commands.add_parser("prune-runs")
-    prune.add_argument("--state-dir", type=Path, default=default_state_dir())
-    prune.add_argument("--older-than-days", type=int, required=True)
-    prune.add_argument(
-        "--failed-older-than-days",
-        type=int,
-        default=60,
-        help="retain failed runs longer than successful runs",
+    run.add_argument(
+        "--asof",
+        type=date.fromisoformat,
+        help="JST date for a manual rerun; the default is today's JST date",
     )
-    prune.add_argument("--format", choices=("text", "json"), default="text")
+    run.add_argument("--state-dir", type=Path, default=default_state_dir())
+    run.add_argument("--repo-root", type=Path, default=Path.cwd())
+    run.add_argument("--format", choices=("text", "json"), default="text")
     return parser
 
 
-def _state_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--state-dir", type=Path, default=default_state_dir())
-    parser.add_argument("--repo-root", type=Path, default=Path.cwd())
-    parser.add_argument("--format", choices=("text", "json"), default="text")
-    parser.add_argument("--force-new-workspace", action="store_true")
-
-
-def main(argv: list[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if hasattr(args, "repo_root"):
-        args.repo_root = args.repo_root.resolve()
+    args.repo_root = args.repo_root.resolve()
     previous_umask = os.umask(0o077)
     try:
-        try:
-            return {
-                "start": _start,
-                "prepare": _prepare,
-                "status": _status,
-                "check": _check,
-                "publish": _publish,
-                "logs": _logs,
-                "prune-runs": _prune,
-            }[args.analysis_command](args)
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
-            print(f"error: {redact(str(exc))[-4000:]}", file=sys.stderr)
-            return 1
+        return _run(args)
     finally:
         os.umask(previous_umask)
 
@@ -866,4 +564,4 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ["build_parser", "main"]
+__all__ = ["PipelineLock", "build_parser", "default_state_dir", "main"]

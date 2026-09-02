@@ -1,4 +1,4 @@
-"""Produce, stop, measure, and expose noncanonical daily analysis workspaces."""
+"""Produce, stop, measure, and expose the one-command daily analysis run."""
 
 from .cli import main
 

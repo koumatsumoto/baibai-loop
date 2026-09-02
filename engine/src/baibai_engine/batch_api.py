@@ -1,4 +1,16 @@
-"""Explicit engine boundary used by production batch orchestration."""
+"""Supply engine-owned facts and writes that let batch produce and stop loop outputs."""
+
+from __future__ import annotations
+
+import sqlite3
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from datetime import datetime
+from hashlib import sha256
+from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from baibai_engine.appdb.paths import database_path
 from baibai_engine.appdb.read import connect_read_only
@@ -15,6 +27,7 @@ from baibai_engine.foundation.repository_layout import (
 )
 from baibai_engine.macro.context.models import (
     MACRO_CONTEXT_SCHEMA_VERSION,
+    MACRO_CONTEXT_STALE_DAYS,
     MacroContextDocument,
     cited_series_ids,
     scorecard_series_ids,
@@ -83,7 +96,262 @@ from baibai_engine.market.sqlite.schema import (
     validate_current_schema as validate_market_schema,
 )
 from baibai_engine.market.sqlite.snapshot import create_snapshot as create_market_snapshot
+from baibai_engine.operation.models import OperationPayload, OperationSession
+from baibai_engine.operation.service import OperationService
+from baibai_engine.read_api.macro import latest_macro_context_payload
+from baibai_engine.read_api.operations import list_operation_sessions
+from baibai_engine.read_api.research_triage import research_triage_payloads_for_review_set
+from baibai_engine.screening.discovery.review_set import PublishedReviewSet
+from baibai_engine.screening.research_triage import (
+    ResearchTriage,
+    ResearchTriageCandidateSnapshot,
+    ResearchTriageConflictError,
+    ResearchTriageEntry,
+    ResearchTriageService,
+    latest_research_triage_id,
+)
+from baibai_engine.screening.run_store import ScreeningRunReader
 from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
+
+
+class DailyTriageDecision(BaseModel):
+    """Strict judgment-only boundary between the local model and engine writer."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    ticker: str = Field(pattern=r"^[0-9A-Z]{4}$")
+    verdict: Literal["research", "skip"]
+    rationale: str = Field(min_length=1, max_length=1200)
+    research_question: str | None = Field(max_length=600)
+    key_risk: str | None = Field(max_length=600)
+
+    @model_validator(mode="after")
+    def _decision_shape(self) -> DailyTriageDecision:
+        if self.verdict == "research" and (not self.research_question or not self.key_risk):
+            raise ValueError("research requires research_question and key_risk")
+        if self.verdict == "skip" and (
+            self.research_question is not None or self.key_risk is not None
+        ):
+            raise ValueError("skip forbids research_question and key_risk")
+        return self
+
+
+@dataclass(frozen=True, slots=True)
+class DailyAnalysisContext:
+    """Current machine and canonical inputs resolved before a model can run."""
+
+    review_set: PublishedReviewSet
+    existing_triage: ResearchTriage | None
+    macro_context: MacroContextDocument | None
+    active_operation: OperationSession | None
+
+
+def load_daily_analysis_context(
+    review_set_id: str,
+    *,
+    app_db_path: Path | None = None,
+    runs_db_path: Path | None = None,
+) -> DailyAnalysisContext:
+    """Resolve one exact Review Set and all pre-model no-op inputs."""
+
+    publication = ScreeningRunReader(runs_db_path).get_review_set(review_set_id)
+    if publication is None:
+        raise ValueError(f"source Review Set is unavailable: {review_set_id}")
+    review_set = PublishedReviewSet.model_validate(publication.payload)
+    if review_set.review_set_id != review_set_id:
+        raise ValueError("Review Set reader returned a different identity")
+    app_path = database_path(app_db_path)
+    exact_triages = research_triage_payloads_for_review_set(app_path, review_set_id)
+    existing_triage: ResearchTriage | None = None
+    if exact_triages:
+        existing_triage = ResearchTriage.model_validate(exact_triages[0])
+        if existing_triage.run_revision_id != review_set.run_revision_id:
+            raise ValueError("canonical Research Triage run binding differs from the Review Set")
+    macro_payload = latest_macro_context_payload(app_path, as_of=review_set.as_of)
+    macro_context = (
+        None if macro_payload is None else MacroContextDocument.model_validate(macro_payload)
+    )
+    active_rows = list_operation_sessions(app_path, status="active")
+    if len(active_rows) > 1:
+        raise ValueError("operation store violates the one-active-session contract")
+    active_operation = None if not active_rows else OperationSession.model_validate(active_rows[0])
+    return DailyAnalysisContext(
+        review_set=review_set,
+        existing_triage=existing_triage,
+        macro_context=macro_context,
+        active_operation=active_operation,
+    )
+
+
+def publish_daily_research_triage(
+    review_set_id: str,
+    decisions: Sequence[DailyTriageDecision | Mapping[str, object]],
+    *,
+    app_db_path: Path | None = None,
+    runs_db_path: Path | None = None,
+    published_at: datetime,
+) -> ResearchTriage:
+    """Build a canonical Triage from strict judgments and delegate every invariant."""
+
+    publication = ScreeningRunReader(runs_db_path).get_review_set(review_set_id)
+    if publication is None:
+        raise ValueError(f"source Review Set is unavailable: {review_set_id}")
+    review_set = PublishedReviewSet.model_validate(publication.payload)
+    if review_set.review_set_id != review_set_id:
+        raise ValueError("Review Set reader returned a different identity")
+    validated = tuple(
+        item if isinstance(item, DailyTriageDecision) else DailyTriageDecision.model_validate(item)
+        for item in decisions
+    )
+    by_ticker = {item.ticker: item for item in validated}
+    expected_tickers = [entry.ticker for entry in review_set.entries]
+    if len(by_ticker) != len(validated) or set(by_ticker) != set(expected_tickers):
+        raise ValueError("AI decisions must contain every Review Set ticker exactly once")
+    app_path = database_path(app_db_path)
+    requested_decisions = {
+        item.ticker: (
+            item.verdict,
+            item.rationale,
+            item.research_question,
+            item.key_risk,
+        )
+        for item in validated
+    }
+    existing = _matching_daily_triage(app_path, review_set, requested_decisions)
+    if existing is not None:
+        return existing
+    priority = 0
+    entries: list[ResearchTriageEntry] = []
+    for source in review_set.entries:
+        decision = by_ticker[source.ticker]
+        if decision.verdict == "research":
+            priority += 1
+        entries.append(
+            ResearchTriageEntry(
+                ticker=source.ticker,
+                decision=decision.verdict,
+                priority=priority if decision.verdict == "research" else None,
+                rationale=decision.rationale,
+                research_question=decision.research_question,
+                key_risk=decision.key_risk,
+                candidate_snapshot=ResearchTriageCandidateSnapshot(
+                    name=source.name,
+                    sector_33=source.sector_33,
+                    review_position=source.review_position,
+                    nominations=source.nominations,
+                    analysis=source.analysis,
+                ),
+            )
+        )
+    latest_context = latest_macro_context_payload(app_path, as_of=review_set.as_of)
+    context_id = None if latest_context is None else str(latest_context["context_id"])
+    identifier_digest = sha256(review_set.review_set_id.encode()).hexdigest()[:16]
+    triage = ResearchTriage(
+        schema_version=2,
+        kind="research_triage",
+        research_triage_id=(
+            f"research-triage-{review_set.as_of.strftime('%Y%m%d')}-{identifier_digest}"
+        ),
+        review_set_id=review_set.review_set_id,
+        run_revision_id=review_set.run_revision_id,
+        as_of=review_set.as_of,
+        published_at=published_at,
+        macro_context_id=context_id,
+        expected_prior_research_triage_id=latest_research_triage_id(app_db_path),
+        screening_rules_hash=review_set.screening_rules_hash,
+        candidate_discovery_method=review_set.method,
+        triage_contract_id="research-triage-v2",
+        entries=tuple(entries),
+    )
+    try:
+        return ResearchTriageService(app_db_path).publish(triage, review_set=review_set)
+    except (OSError, ResearchTriageConflictError, sqlite3.Error):
+        # A commit response can be ambiguous. Reconcile only this exact Review Set once;
+        # every unrelated head/binding conflict still fails closed.
+        reconciled = _matching_daily_triage(app_path, review_set, requested_decisions)
+        if reconciled is not None:
+            return reconciled
+        raise
+
+
+def _matching_daily_triage(
+    app_path: Path,
+    review_set: PublishedReviewSet,
+    requested_decisions: Mapping[
+        str, tuple[Literal["research", "skip"], str, str | None, str | None]
+    ],
+) -> ResearchTriage | None:
+    payloads = research_triage_payloads_for_review_set(app_path, review_set.review_set_id)
+    if not payloads:
+        return None
+    existing = ResearchTriage.model_validate(payloads[0])
+    existing_decisions = {
+        entry.ticker: (
+            entry.decision,
+            entry.rationale,
+            entry.research_question,
+            entry.key_risk,
+        )
+        for entry in existing.entries
+    }
+    if (
+        existing.run_revision_id == review_set.run_revision_id
+        and existing_decisions == requested_decisions
+    ):
+        return existing
+    raise ResearchTriageConflictError(
+        "canonical Research Triage already differs for the exact Review Set"
+    )
+
+
+def ensure_daily_research_operation(
+    triage: ResearchTriage,
+    *,
+    app_db_path: Path | None = None,
+    started_at: datetime,
+) -> OperationSession | None:
+    """Start the human Research Set gate only for an exact Triage with research work."""
+
+    research_count = len(triage.researchable_tickers())
+    if research_count == 0:
+        return None
+    service = OperationService(app_db_path)
+    active = service.active()
+    if active is not None:
+        if _operation_references_triage(active, triage.research_triage_id):
+            return active
+        raise ValueError(f"active operation already exists: {active.operation_id}")
+    payload = OperationPayload(
+        checkpoint="Research Triage published; awaiting Research Set confirmation",
+        artifacts=(
+            {
+                "kind": "research_triage",
+                "ref": triage.research_triage_id,
+                "research_count": research_count,
+            },
+        ),
+        canonical_refs=(triage.research_triage_id,),
+        human_confirmation={"request": "confirm the Research Set", "result": None},
+        next="wait for human Research Set confirmation",
+    )
+    return service.start(
+        session_kind="capital-allocation",
+        as_of=triage.as_of,
+        started_at=started_at,
+        payload=payload,
+    )
+
+
+def _operation_references_triage(operation: OperationSession, triage_id: str) -> bool:
+    return (
+        operation.session_kind == "capital-allocation"
+        and triage_id in operation.payload.canonical_refs
+        and any(
+            artifact.get("kind") == "research_triage" and artifact.get("ref") == triage_id
+            for artifact in operation.payload.artifacts
+        )
+    )
+
 
 __all__ = [
     "APPLICATION_DB_PATH",
@@ -94,12 +362,15 @@ __all__ = [
     "LAKE_DATASETS",
     "LATEST_FETCH_LOOKBACK_DAYS",
     "MACRO_CONTEXT_SCHEMA_VERSION",
+    "MACRO_CONTEXT_STALE_DAYS",
     "MACRO_DB_PATH",
     "MACRO_SCHEMA_VERSION",
     "MARKET_DB_PATH",
     "MARKET_SCHEMA_VERSION",
     "RUNS_DB_PATH",
     "RUN_STORE_SCHEMA_VERSION",
+    "DailyAnalysisContext",
+    "DailyTriageDecision",
     "IndicatorDefinitions",
     "IndicatorsSchemaError",
     "L1ReleasePointer",
@@ -115,6 +386,7 @@ __all__ = [
     "LocalMirrorSource",
     "MacroContextDocument",
     "MarketSchemaError",
+    "ResearchTriageCandidateSnapshot",
     "StoreLayoutError",
     "advance_lake_store_origin",
     "canonical_lake_model_bytes",
@@ -123,17 +395,20 @@ __all__ = [
     "create_lake_l1_release",
     "create_market_snapshot",
     "database_path",
+    "ensure_daily_research_operation",
     "export_lake_legacy",
     "lake_current_l1_pointer_key",
     "lake_dataset_manifest_key",
     "lake_mirror_path",
     "lake_release_manifest_key",
     "lake_verified_git_commit",
+    "load_daily_analysis_context",
     "load_definitions",
     "load_lake_model_json",
     "open_macro_store",
     "open_market_store",
     "parse_refresh_failure_count",
+    "publish_daily_research_triage",
     "read_lake_store_origin",
     "reject_noncanonical_store_paths",
     "repository_root_error",
