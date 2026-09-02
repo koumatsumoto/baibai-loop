@@ -80,6 +80,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_parser.add_argument("--runs-db", help="screening run store path")
     run_parser.add_argument(
+        "--run-revision-id",
+        help="preallocated immutable revision for idempotent machine resume",
+    )
+    run_parser.add_argument(
+        "--run-at",
+        type=datetime.fromisoformat,
+        help="fixed timezone-aware publication clock for idempotent machine resume",
+    )
+    run_parser.add_argument(
         "--force",
         action="store_true",
         help="overwrite an existing candidates YAML output path",
@@ -276,6 +285,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     review_set_publish.add_argument("--runs-db", help="screening run store path")
     review_set_publish.add_argument(
+        "--review-set-id",
+        help="preallocated immutable ID for idempotent machine resume",
+    )
+    review_set_publish.add_argument(
+        "--created-at",
+        type=datetime.fromisoformat,
+        help="fixed timezone-aware publication clock for idempotent machine resume",
+    )
+    review_set_publish.add_argument(
         "--rules-path",
         default=os.environ.get("SCREENING_RULES_PATH") or str(DEFAULT_RULES_PATH),
         help=f"screening rules path (default: SCREENING_RULES_PATH or {DEFAULT_RULES_PATH})",
@@ -289,6 +307,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="overwrite an existing --output-path file",
     )
+    review_set_publish.add_argument("--format", choices=("yaml", "json"), default="yaml")
     review_set_show = review_set_commands.add_parser(
         "show", help="re-emit a published Review Set without publishing a new one"
     )
@@ -303,6 +322,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="overwrite an existing --output-path file",
     )
+    review_set_show.add_argument("--format", choices=("yaml", "json"), default="yaml")
 
     triage_parser = subparsers.add_parser(
         "research-triage",
@@ -489,6 +509,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
         help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
     )
+    snapshot_parser.add_argument(
+        "--format",
+        choices=("yaml", "json"),
+        default="yaml",
+        help="output format (default: yaml)",
+    )
 
     return parser
 
@@ -512,6 +538,9 @@ def main(argv: list[str] | None = None) -> int:
             force=args.force,
             run_revision_id=args.run_revision_id,
             runs_db_path=Path(args.runs_db) if args.runs_db else None,
+            output_format=args.format,
+            review_set_id=args.review_set_id,
+            created_at=args.created_at,
         )
 
     if args.command == "review-set" and args.review_set_command == "show":
@@ -520,6 +549,7 @@ def main(argv: list[str] | None = None) -> int:
             runs_db_path=Path(args.runs_db) if args.runs_db else None,
             output_path=Path(args.output_path) if args.output_path else None,
             force=args.force,
+            output_format=args.format,
         )
 
     if args.command == "research-triage":
@@ -559,6 +589,7 @@ def main(argv: list[str] | None = None) -> int:
             asof=args.asof,
             weeks=args.weeks,
             sqlite_path=Path(args.sqlite_path),
+            output_format=args.format,
         )
 
     if args.command == "calibration-build":
@@ -672,10 +703,12 @@ def main(argv: list[str] | None = None) -> int:
             config,
             providers,
             rules=run_rules,
+            now=args.run_at,
             allow_stale_jpx=args.allow_stale_jpx,
             output_path=Path(args.output_path) if args.output_path else None,
             force=args.force,
             run_store_path=Path(args.runs_db) if args.runs_db else None,
+            run_revision_id=args.run_revision_id,
         )
 
     if args.command == "bootstrap-cache":

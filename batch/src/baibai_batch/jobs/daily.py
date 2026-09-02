@@ -22,6 +22,7 @@ warnings and the chain continues.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -117,6 +118,56 @@ class CommandResult:
 type CommandRunner = Callable[[Sequence[str], Path], CommandResult]
 
 
+@dataclass(frozen=True, slots=True)
+class StepResult:
+    """One observed public-CLI step without changing its business semantics."""
+
+    name: str
+    argv: tuple[str, ...]
+    returncode: int
+    duration_seconds: float
+    stdout_sha256: str
+    stderr_sha256: str
+
+    def to_json(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "argv": list(self.argv),
+            "returncode": self.returncode,
+            "duration_seconds": round(self.duration_seconds, 6),
+            "stdout_sha256": self.stdout_sha256,
+            "stderr_sha256": self.stderr_sha256,
+        }
+
+
+type StepSink = Callable[[StepResult, CommandResult], None]
+
+
+@dataclass(frozen=True, slots=True)
+class DailyBatchResult:
+    """Machine-readable identity and outcome of the existing daily chain."""
+
+    status: str
+    asof: str
+    exit_code: int
+    run_revision_id: str | None = None
+    review_set_id: str | None = None
+    deferred_failure_count: int = 0
+    steps: tuple[StepResult, ...] = ()
+
+    def to_json(self) -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "status": self.status,
+            "asof": self.asof,
+            "exit_code": self.exit_code,
+            "run_revision_id": self.run_revision_id,
+            "review_set_id": self.review_set_id,
+            "deferred_failure_count": self.deferred_failure_count,
+            "steps": [step.to_json() for step in self.steps],
+        }
+
+
 def _run_subprocess(argv: Sequence[str], cwd: Path) -> CommandResult:
     # Fixed argv list, shell=False: the command line never passes through a shell.
     completed = subprocess.run(  # nosec B603
@@ -164,8 +215,11 @@ def _run_step(
     allowed_exit_codes: Sequence[int] = (0,),
     echo_stdout: bool = True,
     echo_stdout_prefixes: Sequence[str] = (),
+    quiet: bool = False,
+    step_sink: StepSink | None = None,
 ) -> CommandResult:
-    print(f"$ {' '.join(argv)}", flush=True)
+    if not quiet:
+        print(f"$ {' '.join(argv)}", flush=True)
     started = time.monotonic()
     try:
         result = runner(argv, cwd)
@@ -176,9 +230,19 @@ def _run_step(
             stage=name,
         ) from exc
     elapsed = time.monotonic() - started
-    if echo_stdout and result.stdout:
+    step_result = StepResult(
+        name=name,
+        argv=tuple(argv),
+        returncode=result.returncode,
+        duration_seconds=elapsed,
+        stdout_sha256=hashlib.sha256(result.stdout.encode()).hexdigest(),
+        stderr_sha256=hashlib.sha256(result.stderr.encode()).hexdigest(),
+    )
+    if step_sink is not None:
+        step_sink(step_result, result)
+    if not quiet and echo_stdout and result.stdout:
         print(result.stdout, end="" if result.stdout.endswith("\n") else "\n", flush=True)
-    elif result.stdout and echo_stdout_prefixes:
+    elif not quiet and result.stdout and echo_stdout_prefixes:
         selected = [
             line
             for line in result.stdout.splitlines()
@@ -186,7 +250,8 @@ def _run_step(
         ]
         if selected:
             print("\n".join(selected), flush=True)
-    print(f"step {name}: exit {result.returncode} ({elapsed:.1f}s)", flush=True)
+    if not quiet:
+        print(f"step {name}: exit {result.returncode} ({elapsed:.1f}s)", flush=True)
     if result.returncode not in allowed_exit_codes:
         raise BatchStepError(
             f"step {name} failed with exit {result.returncode}\n"
@@ -195,7 +260,7 @@ def _run_step(
             returncode=result.returncode,
             stderr=result.stderr,
         )
-    if result.stderr:
+    if not quiet and result.stderr:
         print(result.stderr, end="" if result.stderr.endswith("\n") else "\n", file=sys.stderr)
     return result
 
@@ -355,14 +420,14 @@ class _ReviewSetView:
 
 
 def _parse_review_set_view(stdout: str) -> _ReviewSetView:
-    """Read the Review Set identity from publication YAML."""
+    """Read the Review Set identity from the public JSON output contract."""
 
     try:
-        payload = yaml.safe_load(stdout)
-    except yaml.YAMLError as exc:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
         # failure policy: 2 — an unreadable Review Set cannot identify the publish.
         raise BatchStepError(
-            f"screening review-set output is not parseable YAML: {exc}",
+            f"screening review-set --format json output is not parseable JSON: {exc}",
             stage="screening-review-set",
         ) from exc
     if isinstance(payload, dict):
@@ -430,7 +495,16 @@ def _macro_refresh_groups(series: Sequence[_MacroSeries]) -> list[tuple[int, lis
     return [(window, series_ids) for (_kind_order, window), series_ids in sorted(groups.items())]
 
 
-def _run_screening_run(runner: CommandRunner, *, root: Path, asof_arg: str) -> _RunView:
+def _run_screening_run(
+    runner: CommandRunner,
+    *,
+    root: Path,
+    asof_arg: str,
+    quiet: bool = False,
+    step_sink: StepSink | None = None,
+    run_revision_id: str | None = None,
+    run_at: datetime | None = None,
+) -> _RunView:
     """Run screening and read the run view (revision id + counts) it writes.
 
     The run publishes to the store either way; ``--output-path`` mirrors that
@@ -441,28 +515,41 @@ def _run_screening_run(runner: CommandRunner, *, root: Path, asof_arg: str) -> _
 
     with tempfile.TemporaryDirectory() as tmp:
         run_yaml = Path(tmp) / "screening-run.yaml"
+        argv = [
+            _ENGINE,
+            "screening",
+            "run",
+            "--asof",
+            asof_arg,
+            "--output-path",
+            str(run_yaml),
+        ]
+        if run_revision_id is not None:
+            argv.extend(("--run-revision-id", run_revision_id))
+        if run_at is not None:
+            argv.extend(("--run-at", run_at.isoformat()))
         result = _run_step(
             runner,
             name="screening-run",
-            argv=(
-                _ENGINE,
-                "screening",
-                "run",
-                "--asof",
-                asof_arg,
-                "--output-path",
-                str(run_yaml),
-            ),
+            argv=argv,
             cwd=root,
             allowed_exit_codes=(0, 2),
+            quiet=quiet,
+            step_sink=step_sink,
         )
-        if result.returncode == 2:
+        if result.returncode == 2 and not quiet:
             print(
                 "note: screening run finished with partial warning "
                 "(run is published; reasons above)",
                 flush=True,
             )
-        return _read_run_view(run_yaml)
+        view = _read_run_view(run_yaml)
+        if run_revision_id is not None and view.run_revision_id != run_revision_id:
+            raise BatchStepError(
+                "screening run output differs from the preallocated run_revision_id",
+                stage="screening-run",
+            )
+        return view
 
 
 @dataclass(slots=True)
@@ -515,22 +602,70 @@ def run_daily_batch(
     scheduled: bool = False,
     notice_output: Path | None = None,
 ) -> int:
+    return run_daily_batch_structured(
+        root=root,
+        output_dir=output_dir,
+        asof=asof,
+        runner=runner,
+        scheduled=scheduled,
+        notice_output=notice_output,
+    ).exit_code
+
+
+def run_daily_batch_structured(
+    *,
+    root: Path,
+    output_dir: Path,
+    asof: date | None,
+    runner: CommandRunner,
+    scheduled: bool = False,
+    notice_output: Path | None = None,
+    quiet: bool = False,
+    step_sink: StepSink | None = None,
+    run_revision_id: str | None = None,
+    review_set_id: str | None = None,
+    publication_time: datetime | None = None,
+    gate_explicit_asof: bool = False,
+    resume_after_stage: str | None = None,
+) -> DailyBatchResult:
     notice = _Notice()
+    steps: list[StepResult] = []
+
+    def record(step: StepResult, command: CommandResult) -> None:
+        steps.append(step)
+        if step_sink is not None:
+            step_sink(step, command)
+
     try:
-        exit_code = _execute_daily_batch(
+        result = _execute_daily_batch(
             root=root,
             output_dir=output_dir,
             asof=asof,
             scheduled=scheduled,
             runner=runner,
             notice=notice,
+            quiet=quiet,
+            step_sink=record,
+            run_revision_id=run_revision_id,
+            review_set_id=review_set_id,
+            publication_time=publication_time,
+            gate_explicit_asof=gate_explicit_asof,
+            resume_after_stage=resume_after_stage,
         )
     except (BatchStepError, CalendarCoverageError) as exc:
         notice.failed_stage = exc.stage or "batch"
         _write_notice(notice_output, notice)
         raise
     _write_notice(notice_output, notice)
-    return exit_code
+    return DailyBatchResult(
+        status=result.status,
+        asof=result.asof,
+        exit_code=result.exit_code,
+        run_revision_id=result.run_revision_id,
+        review_set_id=result.review_set_id,
+        deferred_failure_count=result.deferred_failure_count,
+        steps=tuple(steps),
+    )
 
 
 def _execute_daily_batch(
@@ -541,39 +676,63 @@ def _execute_daily_batch(
     scheduled: bool,
     runner: CommandRunner,
     notice: _Notice,
-) -> int:
+    quiet: bool = False,
+    step_sink: StepSink | None = None,
+    run_revision_id: str | None = None,
+    review_set_id: str | None = None,
+    publication_time: datetime | None = None,
+    gate_explicit_asof: bool = False,
+    resume_after_stage: str | None = None,
+) -> DailyBatchResult:
+    if resume_after_stage not in {None, "screening-run", "screening-review-set"}:
+        raise ValueError(f"unsupported daily resume stage: {resume_after_stage}")
+    if resume_after_stage is not None and (run_revision_id is None or review_set_id is None):
+        raise ValueError("daily resume requires preallocated run and Review Set identities")
     if asof is None:
         target = batch_target_date(datetime.now(UTC)) if scheduled else datetime.now(_JST).date()
         notice.asof = target.isoformat()
         if not _require_business_day(root / _MARKET_DB_RELPATH, target):
-            print(f"skip: {target.isoformat()} は非営業日", flush=True)
+            if not quiet:
+                print(f"skip: {target.isoformat()} は非営業日", flush=True)
             notice.skipped = True
-            return 0
+            return DailyBatchResult("skipped_non_business_day", target.isoformat(), 0)
         mode = "scheduled cron" if scheduled else "business day"
-        print(f"daily batch start: asof={target.isoformat()} ({mode})", flush=True)
+        if not quiet:
+            print(f"daily batch start: asof={target.isoformat()} ({mode})", flush=True)
     else:
         target = asof
         notice.asof = target.isoformat()
-        print(
-            f"daily batch start: asof={target.isoformat()} (business-day gate skipped by --asof)",
-            flush=True,
-        )
+        if gate_explicit_asof and not _require_business_day(root / _MARKET_DB_RELPATH, target):
+            if not quiet:
+                print(f"skip: {target.isoformat()} は非営業日", flush=True)
+            notice.skipped = True
+            return DailyBatchResult("skipped_non_business_day", target.isoformat(), 0)
+        if not quiet:
+            mode = "business day" if gate_explicit_asof else "business-day gate skipped by --asof"
+            print(f"daily batch start: asof={target.isoformat()} ({mode})", flush=True)
     asof_arg = target.isoformat()
 
-    _run_step(
-        runner,
-        name="refresh-edinet-documents",
-        argv=(_ENGINE, "screening", "refresh-edinet-documents", "--asof", asof_arg),
-        cwd=root,
-    )
     verify_argv = (_ENGINE, "screening", "verify-cache-coverage", "--asof", asof_arg)
-    verify = _run_step(
-        runner,
-        name="verify-cache-coverage",
-        argv=verify_argv,
-        cwd=root,
-        allowed_exit_codes=(0, 1),
-    )
+    if resume_after_stage is None:
+        _run_step(
+            runner,
+            name="refresh-edinet-documents",
+            argv=(_ENGINE, "screening", "refresh-edinet-documents", "--asof", asof_arg),
+            cwd=root,
+            quiet=quiet,
+            step_sink=step_sink,
+        )
+        verify = _run_step(
+            runner,
+            name="verify-cache-coverage",
+            argv=verify_argv,
+            cwd=root,
+            allowed_exit_codes=(0, 1),
+            quiet=quiet,
+            step_sink=step_sink,
+        )
+    else:
+        verify = CommandResult(0, "", "")
     if verify.returncode != 0 and _COVERAGE_INCOMPLETE_MARKER not in verify.stdout:
         # failure policy: 2 — an unclassified verifier crash cannot prove safe input.
         raise BatchStepError(
@@ -586,26 +745,48 @@ def _execute_daily_batch(
     # Coverage proves that a date was requested, not that a provider had already
     # published every filing for that date. Bootstrap always re-reads its bounded
     # financial-summary overlap so a later run can pick up delayed disclosures.
-    _run_step(
-        runner,
-        name="bootstrap-cache",
-        argv=(_ENGINE, "screening", "bootstrap-cache", "--asof", asof_arg),
-        cwd=root,
-    )
-    # Document events are mutable throughout the day. Re-extract even when the
-    # target-day snapshot already exists so a retry reports and stores the same
-    # current quarantine state instead of publishing synthetic zero counters.
-    extract_result = _run_step(
-        runner,
-        name="extract-edinet-metrics",
-        argv=(_ENGINE, "screening", "extract-edinet-metrics", "--asof", asof_arg),
-        cwd=root,
-        echo_stdout_prefixes=("EDINET extraction summary: ",),
-    )
-    _parse_edinet_quarantine_metrics(extract_result.stdout)
-    _run_step(runner, name="verify-cache-coverage(recheck)", argv=verify_argv, cwd=root)
+    if resume_after_stage is None:
+        _run_step(
+            runner,
+            name="bootstrap-cache",
+            argv=(_ENGINE, "screening", "bootstrap-cache", "--asof", asof_arg),
+            cwd=root,
+            quiet=quiet,
+            step_sink=step_sink,
+        )
+        # Document events are mutable throughout the day. Re-extract even when the
+        # target-day snapshot already exists so a retry reports and stores the same
+        # current quarantine state instead of publishing synthetic zero counters.
+        extract_result = _run_step(
+            runner,
+            name="extract-edinet-metrics",
+            argv=(_ENGINE, "screening", "extract-edinet-metrics", "--asof", asof_arg),
+            cwd=root,
+            echo_stdout_prefixes=("EDINET extraction summary: ",),
+            quiet=quiet,
+            step_sink=step_sink,
+        )
+        _parse_edinet_quarantine_metrics(extract_result.stdout)
+        _run_step(
+            runner,
+            name="verify-cache-coverage(recheck)",
+            argv=verify_argv,
+            cwd=root,
+            quiet=quiet,
+            step_sink=step_sink,
+        )
 
-    run_view = _run_screening_run(runner, root=root, asof_arg=asof_arg)
+        run_view = _run_screening_run(
+            runner,
+            root=root,
+            asof_arg=asof_arg,
+            quiet=quiet,
+            step_sink=step_sink,
+            run_revision_id=run_revision_id,
+            run_at=publication_time,
+        )
+    else:
+        run_view = _RunView(str(run_revision_id), 0, 0)
 
     review_set_argv: list[str] = [
         _ENGINE,
@@ -616,16 +797,33 @@ def _execute_daily_batch(
         asof_arg,
         "--run-revision-id",
         run_view.run_revision_id,
+        "--format",
+        "json",
     ]
-    review_set_result = _run_step(
-        runner,
-        name="screening-review-set",
-        argv=review_set_argv,
-        cwd=root,
-        echo_stdout=False,
-    )
-    review_set_view = _parse_review_set_view(review_set_result.stdout)
-    print(f"review_set_id={review_set_view.review_set_id}", flush=True)
+    if review_set_id is not None:
+        review_set_argv.extend(("--review-set-id", review_set_id))
+    if publication_time is not None:
+        review_set_argv.extend(("--created-at", publication_time.isoformat()))
+    if resume_after_stage == "screening-review-set":
+        review_set_view = _ReviewSetView(str(review_set_id))
+    else:
+        review_set_result = _run_step(
+            runner,
+            name="screening-review-set",
+            argv=review_set_argv,
+            cwd=root,
+            echo_stdout=False,
+            quiet=quiet,
+            step_sink=step_sink,
+        )
+        review_set_view = _parse_review_set_view(review_set_result.stdout)
+    if review_set_id is not None and review_set_view.review_set_id != review_set_id:
+        raise BatchStepError(
+            "screening Review Set output differs from the preallocated review_set_id",
+            stage="screening-review-set",
+        )
+    if not quiet:
+        print(f"review_set_id={review_set_view.review_set_id}", flush=True)
 
     # Macro series refresh must not block publishing the fresh screening result:
     # failures here are deferred to the final exit code after the export step.
@@ -634,7 +832,8 @@ def _execute_daily_batch(
     def _record_deferred(exc: BatchStepError) -> None:
         # Surface the failure detail immediately so it is not lost if a later
         # step floods the log.
-        print(f"deferred failure: {exc}", file=sys.stderr, flush=True)
+        if not quiet:
+            print(f"deferred failure: {exc}", file=sys.stderr, flush=True)
         if notice.failed_stage is None:
             notice.failed_stage = exc.stage or "batch"
         deferred_failures.append(str(exc))
@@ -647,6 +846,8 @@ def _execute_daily_batch(
             argv=(_ENGINE, "macro", "list", "--format", "json"),
             cwd=root,
             echo_stdout=False,
+            quiet=quiet,
+            step_sink=step_sink,
         )
         refresh_groups = _macro_refresh_groups(_parse_macro_series(macro_list.stdout))
     except BatchStepError as exc:
@@ -670,6 +871,8 @@ def _execute_daily_batch(
                 cwd=root,
                 echo_stdout=False,
                 echo_stdout_prefixes=("registry-prune-pending\t", "registry-prune\t"),
+                quiet=quiet,
+                step_sink=step_sink,
             )
         except BatchStepError as exc:
             _record_deferred(exc)
@@ -689,12 +892,21 @@ def _execute_daily_batch(
             str(root),
         ),
         cwd=root,
+        quiet=quiet,
+        step_sink=step_sink,
     )
     _read_daily_delta(output_dir / "views" / "daily-delta.json", notice)
 
     # Prune old run generations last so a prune hiccup never blocks the publish.
     try:
-        _run_step(runner, name="screening-prune", argv=(_ENGINE, "screening", "prune"), cwd=root)
+        _run_step(
+            runner,
+            name="screening-prune",
+            argv=(_ENGINE, "screening", "prune"),
+            cwd=root,
+            quiet=quiet,
+            step_sink=step_sink,
+        )
     except BatchStepError as exc:
         _record_deferred(exc)
 
@@ -714,16 +926,19 @@ def _execute_daily_batch(
             # the log. Confirmations are the normal case and would be ~100 lines a
             # day of noise, so only the rows that need a human are echoed.
             echo_stdout_prefixes=("reconcile-earnings\t",),
+            quiet=quiet,
+            step_sink=step_sink,
         )
     except BatchStepError as exc:
         _record_deferred(exc)
 
-    print(
-        "daily batch done: "
-        f"asof={asof_arg}; run_revision_id={run_view.run_revision_id}; "
-        f"review_set_id={review_set_view.review_set_id}",
-        flush=True,
-    )
+    if not quiet:
+        print(
+            "daily batch done: "
+            f"asof={asof_arg}; run_revision_id={run_view.run_revision_id}; "
+            f"review_set_id={review_set_view.review_set_id}",
+            flush=True,
+        )
     if deferred_failures:
         print(
             f"error: export published, but {len(deferred_failures)} deferred step(s) failed:",
@@ -731,8 +946,21 @@ def _execute_daily_batch(
         )
         for failure in deferred_failures:
             print(f"- {failure}", file=sys.stderr)
-        return _EXIT_DEFERRED_FAILURE
-    return 0
+        return DailyBatchResult(
+            "deferred",
+            asof_arg,
+            _EXIT_DEFERRED_FAILURE,
+            run_view.run_revision_id,
+            review_set_view.review_set_id,
+            len(deferred_failures),
+        )
+    return DailyBatchResult(
+        "machine_complete",
+        asof_arg,
+        0,
+        run_view.run_revision_id,
+        review_set_view.review_set_id,
+    )
 
 
 def _root_error(root: Path) -> str | None:
@@ -777,6 +1005,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="write the JSON notice the Discord notifier reads to this path on every terminal path",
     )
+    parser.add_argument(
+        "--manifest-out",
+        type=Path,
+        help="write the structured daily result as JSON without changing the existing chain",
+    )
+    parser.add_argument(
+        "--state-dir",
+        type=Path,
+        help="state root used for the default daily-manifest.json path",
+    )
+    parser.add_argument("--format", choices=("text", "json"), default="text")
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="suppress step output; use the manifest/log files for detail",
+    )
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     return parser
 
@@ -797,14 +1041,29 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: asof '{args.asof}' is not a valid YYYY-MM-DD date", file=sys.stderr)
             return 1
     try:
-        return run_daily_batch(
+        result = run_daily_batch_structured(
             root=root,
             output_dir=args.output_dir.resolve(),
             asof=asof,
             runner=_run_subprocess,
             scheduled=args.scheduled,
             notice_output=notice_output,
+            quiet=args.quiet or args.format == "json",
         )
+        manifest_out = args.manifest_out
+        if manifest_out is None and args.state_dir is not None:
+            manifest_out = args.state_dir / "daily-manifest.json"
+        if manifest_out is not None:
+            try:
+                write_json_atomic(manifest_out.resolve(), result.to_json())
+            except OSError as exc:
+                print(
+                    f"observability_degraded: daily manifest could not be written: {exc}",
+                    file=sys.stderr,
+                )
+        if args.format == "json":
+            print(json.dumps(result.to_json(), ensure_ascii=False, separators=(",", ":")))
+        return result.exit_code
     except (BatchStepError, CalendarCoverageError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

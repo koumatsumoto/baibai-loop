@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import sys
@@ -86,6 +87,7 @@ def market_snapshot_command(
     weeks: int,
     sqlite_path: Path,
     stdout: TextIO | None = None,
+    output_format: str = "yaml",
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
     if weeks < 1:
@@ -108,7 +110,10 @@ def market_snapshot_command(
         asof_date=asof_date,
         history_weeks=weeks,
     )
-    yaml.dump(payload, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
+    if output_format == "json":
+        print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), file=out)
+    else:
+        yaml.dump(payload, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
     return 0
 
 
@@ -121,6 +126,9 @@ def review_set_publish_command(
     stdout: TextIO | None = None,
     run_revision_id: str | None = None,
     runs_db_path: Path | None = None,
+    output_format: str = "yaml",
+    review_set_id: str | None = None,
+    created_at: datetime | None = None,
 ) -> int:
     if output_path is not None and output_path.exists() and not force:
         print(f"output already exists: {output_path}", file=sys.stderr)
@@ -140,8 +148,10 @@ def review_set_publish_command(
         current_rules_hash = production_rules_contract_hash(rules.model_dump_json())
         if run.payload.get("screening_rules_hash") != current_rules_hash:
             raise ValueError("source run rules do not match current candidate discovery rules")
-        review_set_id = f"review-set-{asof_date:%Y%m%d}-{uuid4().hex[:12]}"
-        created_at = datetime.now(UTC)
+        review_set_id = review_set_id or f"review-set-{asof_date:%Y%m%d}-{uuid4().hex[:12]}"
+        created_at = created_at or datetime.now(UTC)
+        if created_at.tzinfo is None or created_at.utcoffset() is None:
+            raise ValueError("created_at must include a UTC offset")
         payload = PublishedReviewSet.model_validate(
             {
                 "review_set_id": review_set_id,
@@ -168,7 +178,11 @@ def review_set_publish_command(
         return 1
     if publication.publication_id != payload["review_set_id"]:  # pragma: no cover
         raise AssertionError("review set publication identity drift")
-    rendered = yaml.dump(payload, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
+    rendered = (
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+        if output_format == "json"
+        else yaml.dump(payload, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
+    )
     # --output-path 指定時は同じ内容を file と stdout の両方へ出す。file は
     # local/rebuildable な保存先で、canonical 判断は thesis だけが担う。
     if output_path is not None:
@@ -184,6 +198,7 @@ def review_set_show_command(
     output_path: Path | None = None,
     force: bool = False,
     stdout: TextIO | None = None,
+    output_format: str = "yaml",
 ) -> int:
     """Re-emit one immutable Review Set without publishing a replacement."""
     if output_path is not None and output_path.exists() and not force:
@@ -203,7 +218,11 @@ def review_set_show_command(
         return 1
 
     payload = publication.payload
-    rendered = yaml.dump(payload, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
+    rendered = (
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+        if output_format == "json"
+        else yaml.dump(payload, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
+    )
     if output_path is not None:
         write_text_atomic(output_path, rendered)
     out.write(rendered)

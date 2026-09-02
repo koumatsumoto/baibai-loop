@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -25,6 +26,7 @@ from .service import (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine operation")
     parser.add_argument("--db", type=Path)
+    parser.add_argument("--format", choices=("yaml", "json"), default="yaml")
     commands = parser.add_subparsers(dest="command", required=True)
 
     start = commands.add_parser(
@@ -87,29 +89,34 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 started_at=current_time,
                 payload=payload,
             )
-            _emit(operation.public())
+            _emit(operation.public(), output_format=args.format)
         elif args.command == "checkpoint":
-            _emit(service.checkpoint(args.operation_id, _load_payload(args.payload)).public())
+            _emit(
+                service.checkpoint(args.operation_id, _load_payload(args.payload)).public(),
+                output_format=args.format,
+            )
         elif args.command == "complete":
             _emit(
                 service.complete(
                     args.operation_id,
                     _load_payload(args.payload),
                     completed_at=current_time,
-                ).public()
+                ).public(),
+                output_format=args.format,
             )
         elif args.command == "show":
             if args.operation_id is not None:
                 if args.status is not None:
                     raise ValueError("--status cannot be combined with operation_id")
-                _emit(service.get(args.operation_id).public())
+                _emit(service.get(args.operation_id).public(), output_format=args.format)
             else:
                 _emit(
                     {
                         "operations": [
                             operation.public() for operation in service.list(status=args.status)
                         ]
-                    }
+                    },
+                    output_format=args.format,
                 )
         else:  # pragma: no cover
             raise AssertionError(f"unreachable operation command: {args.command}")
@@ -133,8 +140,11 @@ def _load_payload(path: Path) -> OperationPayload:
     return OperationPayload.model_validate(loaded)
 
 
-def _emit(payload: object) -> None:
-    yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
+def _emit(payload: object, *, output_format: str) -> None:
+    if output_format == "json":
+        print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+    else:
+        yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
 
 
 if __name__ == "__main__":

@@ -56,6 +56,7 @@ from baibai_engine.screening.providers.jquants import (
     JQuantsWeeklyMargin,
 )
 from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.screening.run_store import ScreeningRunReader
 from baibai_engine.screening.schema import SecurityMaster, TTMQuality
 from baibai_engine.screening.sqlite_cache import (
     open_connection,
@@ -484,6 +485,35 @@ class ScreeningCliTests(unittest.TestCase):
                     force=True,
                 )
                 self.assertEqual(overwritten, 2)
+            finally:
+                os.chdir(cwd)
+
+    def test_run_command_preallocated_revision_is_idempotent_for_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            try:
+                import os
+
+                os.chdir(Path(tmpdir))
+                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                providers = ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=FakeEDINETProvider(),
+                    jpx=FakeJPXProvider(),
+                )
+                kwargs = {
+                    "now": datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    "run_store_path": Path("stores/screening/runs.sqlite"),
+                    "run_revision_id": "run-revision-resume",
+                }
+
+                first = run_command(date(2026, 4, 24), config, providers, **kwargs)
+                second = run_command(date(2026, 4, 24), config, providers, **kwargs)
+
+                self.assertEqual(first, 2)
+                self.assertEqual(second, 2)
+                reader = ScreeningRunReader(Path("stores/screening/runs.sqlite"))
+                self.assertIsNotNone(reader.get_run("run-revision-resume"))
             finally:
                 os.chdir(cwd)
 
