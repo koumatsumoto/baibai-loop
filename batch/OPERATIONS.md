@@ -710,20 +710,18 @@ step outcome から notifier が `[FAILED]` を出す。
 - 営業日判定は market store の `jquants_market_calendar` が情報源。対象日をカバーして
   いない場合は黙って続行せず明示エラーで停止する
 
-## analysis workspace — 判断taskだけをAIへ渡す
+## local daily analysis — machine処理とResearch Triageの1 command実行
 
-local daily analysisは`baibai-batch analysis start --asof YYYY-MM-DD --format json`を入口にする。同じdaily job APIを実行し、exact run / Review Set / operation / Macro / Triage head、step結果、redacted log、packetを`${XDG_STATE_HOME:-~/.local/state}/baibai-loop`へ残す。これはlocal noncanonical stateで、cloud workflowとcanonical store authorityを変えない。詳細契約は[`docs/reference/analysis-operations.md`](../docs/reference/analysis-operations.md)を正本とする。
-
-成功時は返されたexact `workspace`をdispatcherからagentへ渡す。agentはpacket indexと`reused=false`のtaskだけを読み、成功logを読まない。failure調査は次の順で行う。
+localで日次判断まで進める入口は次の1本だけである。
 
 ```bash
-uv run baibai-batch analysis status --workspace <workspace> --format json
-uv run baibai-batch analysis logs --workspace <workspace> --stage <stage> --tail 100
+uv run baibai-batch analysis run
+uv run baibai-batch analysis run --asof YYYY-MM-DD  # 手動再実行
 ```
 
-同じASOFの競合は`already_running`、完了workspaceの再実行は`already_complete`で、どちらも新しいdaily / publishを起動しない。daily manifest前のinterruptは事前配分した同じrun / Review Set IDとpublication clockで再開し、同一publicationだけをidempotentに受け入れる。fingerprint driftや入力差分では、最新artifactを検索せず停止する。`--force-new-workspace`はcanonical CASを迂回しない。
+同じdaily job APIを実行し、AI不要条件を先に判定してから、必要な場合だけReview Set全体を1回のlocal AI requestへ渡す。AI resultのstrict検証、Research Triage publish、`research`がある場合のOperation開始までmachineが行う。full-depth Macro Contextはこのcommandへ含めず、manualの`macro-context` skillから実行する。
 
-retentionは`analysis prune-runs`を使う。active / locked / interrupted workspaceは削除せず、failed runは`--failed-older-than-days`で成功runより長く保持する。timerのinstall / enableは行わない。
+通常stdoutはstatus、model / token計測、research / skip数、human action、private log pathだけを返す。成功log、CLI help、runbook、local artifactをAIやoperatorが読む必要はない。失敗時は表示された`log_path`だけを確認し、同じcommandをfreshに再実行する。active pointer、resume、candidate cache、`prepare / status / check / publish`の分散操作は使わない。詳細は[`analysis-operations.md`](../docs/reference/analysis-operations.md)を正本とする。
 
 ## notify_discord.py — 日次 batch 結果の Discord 通知
 

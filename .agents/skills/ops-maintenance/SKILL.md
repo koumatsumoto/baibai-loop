@@ -1,29 +1,27 @@
 ---
 name: ops-maintenance
-description: daily batch、analysis workspace、store同期、配信、障害復旧、定期maintenanceを扱い、機械事実の再現性を守る。投資判断には使わない。
+description: daily batch、local analysis、store同期、配信、障害復旧、定期maintenanceを扱い、機械事実の再現性を守る。投資判断には使わない。
 ---
 
 # Ops Maintenance
 
 操作前に [`batch/OPERATIONS.md`](../../../batch/OPERATIONS.md) の該当節とpublic `--help`を読む。調査、移行、再構築はローカルで完結させ、cloud batchを試行錯誤に使わない。
 
-## Analysis workspaceの調査順
+## Local analysisの調査順
 
-daily analysisではdirectory scanや「latest」探索をしない。schedulerまたは通知が示したexact `workspace`を使い、次の順で必要な範囲だけ読む。
+`baibai-batch analysis run`は1 commandでfreshに実行する。通常成功時はartifactやlogを読まない。失敗時だけstdoutのexact `log_path`を使い、次の順で必要な範囲だけ読む。
 
-1. `baibai-batch analysis status --workspace <workspace> --format json`
-2. `manifest.json`の`state`、`current_stage`、stable reason code
-3. failure時だけ`failure_packet.json`のsanitized hint
-4. `baibai-batch analysis logs --workspace <workspace> --stage <stage> --tail 100`
-5. bounded tailで原因を特定できない場合だけ、そのstageのredacted full log
+1. compactなstdout / `summary.json`のstatusとreason
+2. `run.log`のboundedなredacted内容
+3. daily machine stageの失敗なら、そのstageのlocal reproductionに必要なstoreとcommand
 
-成功runのfull logは読まない。random retry、別ASOFへの置換、「最新Review Set」の再検索をしない。fingerprint / digest / binding driftでは既存workspaceを書き換えず、表示されたrecoveryに従う。`--force-new-workspace`はworkspaceだけを新設し、CASやcanonical bindingを迂回しない。
+random retry、別as-ofへの置換、「最新Review Set」の再検索をしない。AI result不正やbinding / CAS conflictではcanonical write 0を確認し、原因を直して同じcommandをfreshに再実行する。旧runのresume、active pointer、force-new、candidate cacheは使わない。
 
 ## 操作の選択
 
 | trigger | action |
 | --- | --- |
-| daily batch / analysisの失敗・欠測 | exact manifestから失敗stageを特定し、同じCLIをローカルで再現する。原因を直してlocal gateを通す。再実行は成功する見込みがある最終確認だけに使う |
+| daily batch / analysisの失敗・欠測 | stdout / summaryから失敗stageを特定し、同じCLIをローカルで再現する。原因を直してlocal gateを通す。再実行は成功する見込みがある最終確認だけに使う |
 | research FVへの価格到達 | `baibai_engine.research_watch`を実行し、triggered caseを`research` skillへ渡す。価格だけで注文しない |
 | 注文の約定・失効 | `tools.experiments.measure_limit_outcomes`で全体を再計測する。少数結果でpolicyを変えない |
 | store読み取り・同期 | 下のauthorityとno-loss規律に従う |

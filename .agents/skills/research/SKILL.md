@@ -13,7 +13,7 @@ Research Triage から人間が選んだ候補を一次情報で検証し、buy 
 
 ## 開始条件
 
-- Research Triageから継続中のactiveな`capital-allocation` operation sessionと、人間が確認したResearch Setがある。Research用に別sessionを開始しない。
+- canonical Research Triageをartifact / canonical refに持つactiveな`capital-allocation` Operationと、人間が確認したResearch Setがある。同じ`as_of`だけの別Operationを採用せず、Research用に別sessionを開始しない。
 - 依頼が subset を指定した場合は、その範囲だけを扱う。
 - 開始時の人間確認を operation checkpoint に記録する。
 

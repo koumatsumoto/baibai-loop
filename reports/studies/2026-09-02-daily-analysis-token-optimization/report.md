@@ -1,12 +1,14 @@
 ---
 title: "Daily analysis token optimization baseline and implementation evidence"
-summary: "main@757753dの運用surfaceとdeterministic fixtureを比較し、model起動・task再利用・packet/log境界を評価した。"
+summary: "Issue #1172時点の運用surfaceとdeterministic fixtureによるhistorical evidence。"
 doc_type: historical-evidence
 status: completed
 as_of: 2026-09-02
 ---
 
 # Daily analysis token optimization baseline and implementation evidence
+
+> **Historical scope:** この文書はIssue #1172時点の実装証拠であり、現行のdaily analysis契約や再現手順ではない。現行契約は[`analysis-operations.md`](../../../docs/reference/analysis-operations.md)を参照する。
 
 ## 結論
 
@@ -19,7 +21,7 @@ historical provider usage、実input/output token、AI wall timeは従来保存�
 - baseline code / skills: `main@757753d5bcdc5deae47a83fc6ededc05cd962455`
 - after: Issue #1172 implementation tree
 - deterministic evidence: `tests/batch/test_analysis_ops.py`と`tests/batch/test_cloud_daily_batch.py`
-- fast reproduction: `uv run python tools/verification/run_analysis_ops.py --profile fast`
+- fast reproduction: 当時の`tools/verification/run_analysis_ops.py --profile fast`（現行treeでは削除済み）
 - runtime metrics: workspaceの`metrics.json`
 
 tokenはprovider usageが得られる場合だけactualを記録する。得られない場合はUTF-8 packet bytesを4で割った明示的概算を使う。raw log、skill全文、CLI helpはafter packet bytesへ含めない。

@@ -1,13 +1,13 @@
-"""Stop unsafe workspace writes and expose bounded, redacted operational logs."""
+"""Keep local analysis artifacts private, atomic, bounded, and redacted."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
 import shutil
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 
 _AUTHORIZATION = re.compile(r"(?im)(authorization\s*:\s*)(?:bearer\s+)?[^\r\n]+")
@@ -25,10 +25,6 @@ def canonical_json(value: object) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
 
 
-def digest_json(value: object) -> str:
-    return hashlib.sha256(canonical_json(value)).hexdigest()
-
-
 def resolve_executable(name: str) -> str:
     resolved = shutil.which(name)
     if resolved is None:
@@ -42,7 +38,7 @@ def redact(text: str) -> str:
     return _SECRET.sub(r"\1\2[REDACTED]", text)
 
 
-def redact_argv(argv: list[object]) -> list[object]:
+def redact_argv(argv: Sequence[object]) -> list[object]:
     rendered: list[object] = []
     redact_next = False
     for value in argv:
@@ -136,39 +132,19 @@ def read_json(path: Path, *, root: Path) -> object:
     return json.loads(resolved.read_text(encoding="utf-8"))
 
 
-def read_text_bounded(path: Path, *, root: Path, max_bytes: int = _MAX_LOG_BYTES) -> str:
-    lexical_root = root.absolute()
-    lexical = path.absolute()
-    if not lexical.is_relative_to(lexical_root):
-        raise ValueError(f"path escapes state root: {path}")
-    cursor = lexical_root
-    for part in lexical.relative_to(lexical_root).parts:
-        cursor /= part
-        if cursor.is_symlink():
-            raise ValueError(f"refusing to read symlink path: {cursor}")
-    resolved = path.resolve(strict=True)
-    if not resolved.is_relative_to(root.resolve(strict=True)):
-        raise ValueError(f"path escapes state root: {path}")
-    if resolved.stat().st_size > max_bytes:
-        raise ValueError(f"file exceeds the {max_bytes} byte read limit: {path}")
-    return resolved.read_text(encoding="utf-8")
-
-
-def write_log(path: Path, text: str, *, root: Path) -> tuple[str, bool]:
+def write_log(path: Path, text: str, *, root: Path) -> bool:
     payload = redact(text).encode()
     truncated = len(payload) > _MAX_LOG_BYTES
     if truncated:
         payload = payload[-_MAX_LOG_BYTES:]
     write_bytes_atomic(path, payload, root=root)
-    return hashlib.sha256(payload).hexdigest(), truncated
+    return truncated
 
 
 __all__ = [
     "canonical_json",
-    "digest_json",
     "ensure_private_dir",
     "read_json",
-    "read_text_bounded",
     "redact",
     "redact_argv",
     "resolve_executable",
