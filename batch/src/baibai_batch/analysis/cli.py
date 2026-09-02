@@ -342,6 +342,8 @@ def _base_summary(asof: date, run_dir: Path, log: RunLog) -> dict[str, object]:
         "as_of": asof.isoformat(),
         "operator_commands": 1,
         "machine_commands": 0,
+        "daily_exit_code": None,
+        "daily_deferred_failure_count": 0,
         "model_process_launches": 0,
         "model_requests": 0,
         "model_input_bytes": 0,
@@ -399,6 +401,8 @@ def _execute(
             gate_explicit_asof=True,
         )
     summary["machine_commands"] = len(daily.steps)
+    summary["daily_exit_code"] = daily.exit_code
+    summary["daily_deferred_failure_count"] = daily.deferred_failure_count
     if daily.status == "skipped_non_business_day":
         summary["status"] = "skipped_non_business_day"
         return 0
@@ -413,7 +417,7 @@ def _execute(
     summary["candidate_count"] = len(context.review_set.entries)
     if not context.review_set.entries:
         summary["status"] = "empty_review_set"
-        return daily.exit_code
+        return 0
     if context.existing_triage is not None:
         if context.existing_triage.researchable_tickers():
             if context.active_operation is not None and not _triage_matches_operation(context):
@@ -422,20 +426,20 @@ def _execute(
                     status="blocked_by_active_operation",
                     human_action="進行中Operationを完了",
                 )
-                return daily.exit_code
+                return 0
             ensure_daily_research_operation(
                 context.existing_triage,
                 app_db_path=app_db_path,
                 started_at=datetime.now(_JST),
             )
         _existing_triage_summary(context, summary)
-        return daily.exit_code
+        return 0
     if context.active_operation is not None:
         summary.update(
             status="blocked_by_active_operation",
             human_action="進行中Operationを完了",
         )
-        return daily.exit_code
+        return 0
 
     model_input = _model_input(context)
     write_json_atomic(run_dir / "input.json", model_input.model_dump(mode="json"), root=state_root)
@@ -465,6 +469,9 @@ def _execute(
     triage = publish_daily_research_triage(
         context.review_set.review_set_id,
         output.decisions,
+        macro_context_id=(
+            None if context.macro_context is None else context.macro_context.context_id
+        ),
         app_db_path=app_db_path,
         runs_db_path=runs_db_path,
         published_at=datetime.now(_JST),
@@ -481,7 +488,7 @@ def _execute(
         skip_count=len(triage.entries) - research_count,
         human_action="Research Setを選択" if operation is not None else None,
     )
-    return daily.exit_code
+    return 0
 
 
 def _emit(summary: dict[str, object], output_format: str) -> None:

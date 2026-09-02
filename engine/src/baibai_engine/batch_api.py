@@ -187,6 +187,7 @@ def publish_daily_research_triage(
     review_set_id: str,
     decisions: Sequence[DailyTriageDecision | Mapping[str, object]],
     *,
+    macro_context_id: str | None,
     app_db_path: Path | None = None,
     runs_db_path: Path | None = None,
     published_at: datetime,
@@ -217,7 +218,12 @@ def publish_daily_research_triage(
         )
         for item in validated
     }
-    existing = _matching_daily_triage(app_path, review_set, requested_decisions)
+    existing = _matching_daily_triage(
+        app_path,
+        review_set,
+        requested_decisions,
+        macro_context_id=macro_context_id,
+    )
     if existing is not None:
         return existing
     priority = 0
@@ -243,8 +249,6 @@ def publish_daily_research_triage(
                 ),
             )
         )
-    latest_context = latest_macro_context_payload(app_path, as_of=review_set.as_of)
-    context_id = None if latest_context is None else str(latest_context["context_id"])
     identifier_digest = sha256(review_set.review_set_id.encode()).hexdigest()[:16]
     triage = ResearchTriage(
         schema_version=2,
@@ -256,7 +260,7 @@ def publish_daily_research_triage(
         run_revision_id=review_set.run_revision_id,
         as_of=review_set.as_of,
         published_at=published_at,
-        macro_context_id=context_id,
+        macro_context_id=macro_context_id,
         expected_prior_research_triage_id=latest_research_triage_id(app_db_path),
         screening_rules_hash=review_set.screening_rules_hash,
         candidate_discovery_method=review_set.method,
@@ -268,7 +272,12 @@ def publish_daily_research_triage(
     except (OSError, ResearchTriageConflictError, sqlite3.Error):
         # A commit response can be ambiguous. Reconcile only this exact Review Set once;
         # every unrelated head/binding conflict still fails closed.
-        reconciled = _matching_daily_triage(app_path, review_set, requested_decisions)
+        reconciled = _matching_daily_triage(
+            app_path,
+            review_set,
+            requested_decisions,
+            macro_context_id=macro_context_id,
+        )
         if reconciled is not None:
             return reconciled
         raise
@@ -280,6 +289,8 @@ def _matching_daily_triage(
     requested_decisions: Mapping[
         str, tuple[Literal["research", "skip"], str, str | None, str | None]
     ],
+    *,
+    macro_context_id: str | None,
 ) -> ResearchTriage | None:
     payloads = research_triage_payloads_for_review_set(app_path, review_set.review_set_id)
     if not payloads:
@@ -296,6 +307,7 @@ def _matching_daily_triage(
     }
     if (
         existing.run_revision_id == review_set.run_revision_id
+        and existing.macro_context_id == macro_context_id
         and existing_decisions == requested_decisions
     ):
         return existing
