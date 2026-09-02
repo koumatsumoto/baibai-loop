@@ -29,7 +29,7 @@ uv run baibai-engine screening research-triage publish DRAFT.yaml \
 uv run baibai-engine screening prune --keep N [--runs-db PATH]
 ```
 
-`run`のexit 2はpublication済みpartial warningである。warningを確認してから同じ`run_revision_id`で後続へ進む。Review Setの再表示に再発行を使わない。`--run-revision-id` + `--run-at`と`--review-set-id` + `--created-at`は、analysis workspaceがprocess interruption後も同じimmutable publicationをidempotentに再確認するmachine resume用である。IDとtimezone-aware clockはworkspaceが事前配分し、AI outputから受け取らない。既存の対話・cloud経路は省略して従来どおりserver-generated identityを使う。
+`run`のexit 2はpublication済みpartial warningである。warningを確認してから同じ`run_revision_id`で後続へ進む。Review Setの再表示に再発行を使わない。`--run-revision-id` + `--run-at`と`--review-set-id` + `--created-at`はcallerがidentityを固定する場合のsame-ID idempotencyを提供する。通常のcloud dailyとlocal `analysis run`はserver-generated identityを使い、AI outputからIDやclockを受け取らない。
 
 ## Security Analysis
 
@@ -81,7 +81,7 @@ application DB schema v19の`research_triage`はReview Set全entryをexactly onc
 - `research`: contiguousな`priority`、`rationale`、`research_question`、`key_risk`が必須
 - `skip`: `rationale`が必須で、`priority`、`research_question`、`key_risk`は禁止
 
-scaffold はReview Set IDからrun storeのcanonical publicationを解決し、Review Setのas-of以下で最新のMacro Contextと、application DBのlatest Triage IDを取得する。publisherは`review_set_id`、`run_revision_id`、`as_of`、`screening_rules_hash`、Candidate Discovery method、全tickerを検証し、draftの`candidate_snapshot`をsource Review Setから上書きする。snapshotはidentity、`review_position`、`nominations`、grouped `analysis`を持ち、`support_count`はnominations数から導出する。`rank_vector`や単独`fair_value`は複写しない。
+manual scaffoldはReview Set IDからrun storeのcanonical publicationを解決し、Review Setのas-of以下で最新のMacro Contextと、application DBのlatest Triage IDを取得する。通常の`analysis run`はeditable scaffoldを介さず、strictなjudgment fieldから同じdomain objectを組み立てる。publisherは`review_set_id`、`run_revision_id`、`as_of`、`screening_rules_hash`、Candidate Discovery method、全tickerを検証し、`candidate_snapshot`をsource Review Setから上書きする。snapshotはidentity、`review_position`、`nominations`、grouped `analysis`を持ち、`support_count`はnominations数から導出する。`rank_vector`や単独`fair_value`は複写しない。
 
 global headは`as_of DESC, julianday(published_at) DESC, research_triage_id DESC`の実時刻total orderで決める。`expected_prior_research_triage_id`はpublish transaction内でこのheadとCASする。新規publicationは`as_of`を後退させず、awareな`published_at`を現headより進め、未来時刻またはJST換算日が`as_of`より前の時刻を使わない。同じIDと同じcanonical payloadの再送だけは、後続headの有無にかかわらず冪等に成功する。これにより全てのnon-idempotent publicationが新headになり、同じpriorから分岐したdraftを拒否する。
 
@@ -91,15 +91,15 @@ Research TriageはResearch Setのadmission可能範囲を定める。人間は`r
 
 E[r] calibration contextは共有read contractがartifact schema、generated/expiry、3y/5y、quantile/band、rules hash、E[r] model versionを検証する。ResearchはTriage rootのrules hashとcandidate `analysis.expected_return`のmodel/version・ratio-valued `er_annual`を使い、利用不能理由を明示する。これはhistorical contextで、membership/order、Triage、FV、buy judgmentへ伝播しない。
 
-## Daily batch
+## Daily batchとlocal analysis
 
-定常日次経路は次だけを自動実行する。
+cloud dailyはL1 / L2 machine処理だけを自動実行する。
 
 ```text
 screening run -> review-set publish -> web materialize -> publish
 ```
 
-Research Triageは人間判断なので自動発行しない。migration、全期間再取得、Research Set確定、Capital Allocation Assessmentもdaily batchへ載せない。
+cloudからL3 Research Triageを発行しない。local `baibai-batch analysis run`は同じdaily jobを再利用した後、AI不要条件をmachineで確定し、必要な場合だけReview Set全体を原則1 requestで分類してResearch Triageを発行する。Research Set確定とCapital Allocation Assessmentは人間gateの後に残す。full-depth Macro Context、migration、全期間再取得はどちらの日次経路にも載せない。
 
 ## Pruneと履歴
 
@@ -136,5 +136,8 @@ screeningが読むmarket storeのtableとidentityは次のとおり。列の意�
 - E[r]だけを変更してもmembership/order不変
 - target未充足をdiagnosticsへ明示
 - Research Triageの全entry一致、priority、rules/method identity、expected prior ID
+- 非営業日、空Review Set、active Operation、exact既存Triageでmodel process 0
+- 通常Review Setは共有Macro projectionを1回だけ含む1 AI request、invalid resultはcanonical write 0
+- 全件skipはOperation 0、researchありはexact Triageを参照するOperation 1
 - run store schema 5、application DB schema 19
 - Web/APIがReview Set、Research Triage、Capital Allocation Assessmentを同じbindingで表示
