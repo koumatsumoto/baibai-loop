@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
 from tests.helpers.macro_context import macro_context_payload
-from tests.helpers.research_triage import research_triage_payload, skip_entry
+from tests.helpers.research_triage import research_entry, research_triage_payload, skip_entry
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
 
 from baibai_engine.appdb import LATEST_VERSION
@@ -24,12 +24,21 @@ from baibai_engine.macro.indicators.db import (
 )
 from baibai_engine.macro.indicators.definitions import load_definitions
 from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH
+from baibai_engine.research.capital_allocation import (
+    CapitalAllocationAssessment,
+    capital_allocation_draft_sha256,
+)
+from baibai_engine.research.capital_allocation_scaffold import scaffold_capital_allocation
+from baibai_engine.research.capital_allocation_service import (
+    CapitalAllocationAssessmentService,
+)
 from baibai_engine.screening.run_store import ScreeningRunReader
 from baibai_web import materialize as export_module
 from baibai_web.api.server import create_app
 from baibai_web.materialize import main
 from baibai_web.readmodel.builders import build_meta
 from baibai_web.readmodel.models import (
+    CapitalAllocationAssessmentView,
     DashboardView,
     MacroContextView,
     MacroView,
@@ -69,6 +78,36 @@ def _insert_research_triage(root: Path, payload: Mapping[str, object]) -> None:
                 canonical_json(dict(payload)),
             ),
         )
+
+
+def _publish_assessment(root: Path, *, assessment_id: str, research_triage_id: str) -> None:
+    db_path = root / "stores/application/baibai.sqlite"
+    draft = scaffold_capital_allocation(
+        db_path=db_path,
+        capital_allocation_assessment_id=assessment_id,
+        as_of=date(2026, 7, 9),
+        research_triage_id=research_triage_id,
+        thesis_ids=["thesis-20260714-2331-r1"],
+        published_at=datetime(2026, 7, 9, 12, tzinfo=JST),
+    )
+    draft["headline"] = "要求利回り未達のため配分しない"
+    draft["comparison"] = "調査済み候補は要求利回りを満たさない"
+    draft["forgone"] = "現金を維持する"
+    alternatives = draft["alternatives"]
+    assert isinstance(alternatives, list)
+    alternative = alternatives[0]
+    assert isinstance(alternative, dict)
+    alternative["rationale"] = "独立review済みthesisの期待値が不足する"
+    review = draft["review"]
+    assert isinstance(review, dict)
+    review["reviewer_identity"] = "independent-reviewer"
+    review["reviewed_at"] = "2026-07-09T11:00:00+09:00"
+    review["draft_sha256"] = capital_allocation_draft_sha256(
+        CapitalAllocationAssessment.model_validate(draft)
+    )
+    CapitalAllocationAssessmentService(db_path).publish(
+        CapitalAllocationAssessment.model_validate(draft)
+    )
 
 
 def _insert_review_set(root: Path, *, review_set_id: str) -> str:
@@ -345,6 +384,52 @@ def test_export_writes_macro_context_detail_views(app_method_root: Path, tmp_pat
     assert overview.latest_context is not None
     assert overview.latest_context.context_id == document.context_id
     assert overview.reports == []
+
+
+def test_export_keeps_historical_assessment_detail_outside_current_screening_index(
+    app_method_root: Path, tmp_path: Path
+) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    current_revision_id = _insert_review_set(app_method_root, review_set_id="review-set-current")
+    current_triage = research_triage_payload(
+        research_triage_id="research-triage-current",
+        review_set_id="review-set-current",
+        run_revision_id=current_revision_id,
+        as_of="2026-07-08",
+        entries=[skip_entry("2331")],
+    )
+    historical_triage = research_triage_payload(
+        research_triage_id="research-triage-historical",
+        review_set_id="review-set-historical",
+        run_revision_id="run-revision-historical",
+        as_of="2026-07-01",
+        entries=[research_entry("2331")],
+    )
+    _insert_research_triage(app_method_root, historical_triage)
+    _insert_research_triage(app_method_root, current_triage)
+    assessment_id = "capital-allocation-assessment-20260709-historical"
+    _publish_assessment(
+        app_method_root,
+        assessment_id=assessment_id,
+        research_triage_id="research-triage-historical",
+    )
+    output_dir = tmp_path / "export"
+
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
+
+    screening = ScreeningView.model_validate_json(
+        (output_dir / "views/screening_latest.json").read_text(encoding="utf-8")
+    )
+    assert screening.capital_allocation_assessments == []
+    detail_path = output_dir / "views" / f"capital-allocation-assessment--{assessment_id}.json"
+    detail = CapitalAllocationAssessmentView.model_validate_json(
+        detail_path.read_text(encoding="utf-8")
+    )
+    assert detail.capital_allocation_assessment_id == assessment_id
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        api_detail = client.get(f"/api/capital-allocation-assessments/{assessment_id}")
+    assert api_detail.status_code == 200
+    assert json.loads(detail_path.read_text(encoding="utf-8")) == api_detail.json()
 
 
 def test_export_fails_before_writing_when_reading_rules_are_absent(

@@ -163,8 +163,11 @@ def export_read_models(
             continue
         written.append(_write_model(views_dir / f"macro-context--{context_id}.json", detail))
 
-    for summary in screening.capital_allocation_assessments:
-        capital_allocation_assessment_id = summary.capital_allocation_assessment_id
+    # The screening index is deliberately current-only, but the detail API accepts
+    # every immutable assessment ID. Export from the canonical assessment store so a
+    # completed cycle stays addressable after a newer screening run becomes current.
+    for raw_assessment in stores.candidates.assessments():
+        capital_allocation_assessment_id = str(raw_assessment["capital_allocation_assessment_id"])
         if _ASSESSMENT_ID_FORMAT.fullmatch(capital_allocation_assessment_id) is None:
             _warn(
                 "capital_allocation_assessment_id has an unexpected format: "
