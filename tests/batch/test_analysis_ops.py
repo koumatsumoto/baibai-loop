@@ -23,6 +23,7 @@ from baibai_batch.analysis.io import (
 from baibai_batch.analysis.models import AIResultEnvelope, DailyManifest
 from baibai_batch.analysis.packet import (
     _bind_operation,
+    _OperationAsOfConflict,
     check_results,
     prepare_packet,
     validate_packet,
@@ -288,6 +289,7 @@ def test_active_workspace_resume_rejects_publication_identity_edit(tmp_path: Pat
     state = tmp_path / "state"
     workspace = create_workspace(state_dir=state, root=root, asof=date(2026, 9, 1))
     manifest = workspace.manifest()
+    assert manifest["publication_time"].endswith("+09:00")
     manifest["review_set_id"] = "review-set-edited"
     write_json_atomic(workspace.manifest_path, manifest, root=workspace.state_root)
 
@@ -349,6 +351,75 @@ def test_log_drilldown_rejects_symlinked_stream(tmp_path: Path) -> None:
     stdout = workspace.path / "steps/01-screening-run/stdout.log"
     stdout.unlink()
     stdout.symlink_to(outside)
+
+    assert (
+        analysis_main(["logs", "--workspace", str(workspace.path), "--stage", "screening-run"]) == 1
+    )
+
+
+def test_log_drilldown_accepts_exact_manifest_stage_name(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    workspace = _workspace(tmp_path)
+    step = StepResult(
+        "verify-cache-coverage(recheck)",
+        ("fixed",),
+        1,
+        0.1,
+        "a" * 64,
+        "b" * 64,
+    )
+    StepLogger(workspace)(step, CommandResult(1, "coverage detail", ""))
+
+    assert (
+        analysis_main(
+            [
+                "logs",
+                "--workspace",
+                str(workspace.path),
+                "--stage",
+                "verify-cache-coverage(recheck)",
+            ]
+        )
+        == 0
+    )
+    assert "coverage detail" in capsys.readouterr().out
+
+
+def test_log_drilldown_uses_latest_registered_attempt_not_lexical_or_orphan(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    workspace = _workspace(tmp_path)
+    for attempt in range(1, 101):
+        step = StepResult("screening-run", ("fixed",), 1, 0.1, "a" * 64, "b" * 64)
+        StepLogger(workspace)(step, CommandResult(1, f"attempt {attempt}", ""))
+    orphan = workspace.path / "steps/999-screening-run"
+    orphan.mkdir()
+    (orphan / "meta.json").write_text('{"name":"screening-run","attempt":999}\n')
+    (orphan / "stdout.log").write_text("orphan\n")
+    (orphan / "stderr.log").write_text("")
+
+    assert (
+        analysis_main(["logs", "--workspace", str(workspace.path), "--stage", "screening-run"]) == 0
+    )
+    output = capsys.readouterr().out
+    assert "attempt 100" in output
+    assert "orphan" not in output
+
+
+def test_log_drilldown_rejects_registered_cross_workspace_path(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    StepLogger(workspace)(
+        StepResult("screening-run", ("fixed",), 1, 0.1, "a" * 64, "b" * 64),
+        CommandResult(1, "safe", ""),
+    )
+    outside = workspace.path.parent / "other-run/secret.log"
+    outside.parent.mkdir()
+    outside.write_text("other workspace secret\n")
+    manifest = workspace.manifest()
+    assert isinstance(manifest["stages"], list)
+    manifest["stages"][0]["stdout_path"] = "steps/../../other-run/secret.log"
+    write_json_atomic(workspace.manifest_path, manifest, root=workspace.state_root)
 
     assert (
         analysis_main(["logs", "--workspace", str(workspace.path), "--stage", "screening-run"]) == 1
@@ -774,6 +845,81 @@ def test_manual_macro_trigger_adds_isolated_phase_task(
     reading.write_text('{"changed":true}\n', encoding="utf-8")
     with pytest.raises(ValueError, match="reading digest mismatch"):
         validate_packet(workspace)
+
+
+def test_manual_macro_trigger_proceeds_when_other_asof_triage_is_active(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = _workspace(tmp_path)
+    _patch_sources(monkeypatch, _entries())
+    monkeypatch.setattr(
+        "baibai_batch.analysis.packet._bind_operation",
+        lambda _root, _asof: (_ for _ in ()).throw(
+            _OperationAsOfConflict(
+                "active capital-allocation operation belongs to a different asof"
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "baibai_batch.analysis.packet._run_json",
+        lambda _argv, root: {"asof": "2026-09-01", "series": []},
+    )
+
+    index = prepare_packet(workspace, root=tmp_path, macro_review=True)
+
+    assert [task.type for task in index.tasks] == ["macro-context"]
+    assert index.warning is not None
+    assert index.warning.startswith("research_triage_deferred:")
+    assert workspace.manifest().get("operation_session_id") is None
+    macro = index.tasks[0]
+    results = {
+        "schema_version": 1,
+        "packet_id": index.packet_id,
+        "results": [
+            {
+                "task_id": macro.task_id,
+                "input_digest": macro.input_digest,
+                "judgment": {
+                    "phase": "independent_current",
+                    "current_assessment": "現在の主要forceと反証を独立に評価した",
+                    "counter_evidence": ["反対方向の一次情報を確認した"],
+                    "source_ids": ["primary-source-1"],
+                },
+            }
+        ],
+    }
+    results_path = workspace.path / "ai/results.json"
+    results_path.write_text(json.dumps(results), encoding="utf-8")
+    assert check_results(workspace, results_path=results_path, root=tmp_path)[0] == "checked"
+
+    monkeypatch.setattr(analysis_cli, "validate_workspace", lambda *_args, **_kwargs: None)
+    macro_path = workspace.path / "assembled/macro-independent.json"
+    original = macro_path.read_bytes()
+    macro_path.write_text('{"changed":true}\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="handoff is missing or changed"):
+        analysis_cli._publish_locked(SimpleNamespace(repo_root=tmp_path, format="json"), workspace)
+    macro_path.write_bytes(original)
+    assert (
+        analysis_cli._publish_locked(SimpleNamespace(repo_root=tmp_path, format="json"), workspace)
+        == 0
+    )
+    assert workspace.manifest()["state"] == "awaiting_human"
+
+
+def test_manual_macro_trigger_does_not_hide_other_operation_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = _workspace(tmp_path)
+    _patch_sources(monkeypatch, _entries())
+    monkeypatch.setattr(
+        "baibai_batch.analysis.packet._bind_operation",
+        lambda _root, _asof: (_ for _ in ()).throw(
+            ValueError("operation store violates the one-active-session contract")
+        ),
+    )
+
+    with pytest.raises(ValueError, match="one-active-session"):
+        prepare_packet(workspace, root=tmp_path, macro_review=True)
 
 
 def test_mixed_macro_and_triage_check_publishes_triage_then_awaits_macro_handoff(
