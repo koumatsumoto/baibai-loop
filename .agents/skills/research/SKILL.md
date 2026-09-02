@@ -59,6 +59,7 @@ as-of、20件の比較snapshot、Researchへ進められるtickerはapplication 
 ## 6. Operation を完了する
 
 `baibai-engine operation checkpoint|complete --payload <FILE>` の `<FILE>` は OperationPayload の YAML / JSON ファイルである。`artifacts` は object の配列、`canonical_refs` は string の配列、`human_confirmation` は `request` / `result` の object、`result` は判断結果の string として記録する。cloud 反映が必要なら `ops-maintenance` に従う。
+YAML では日付・日時に見える scalar が string 以外へ暗黙変換されるため、OperationPayload で JSON string として渡す日付・日時は必ず引用符で囲む。
 
 ## 停止条件
 
