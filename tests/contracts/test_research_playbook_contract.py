@@ -46,6 +46,8 @@ def test_research_skill_consumes_only_explicit_approach_applicability() -> None:
 
 def test_research_skill_continues_the_capital_allocation_session() -> None:
     text = RESEARCH_SKILL.read_text(encoding="utf-8")
-    assert "activeな`capital-allocation` operation session" in text
+    assert "activeな`capital-allocation` Operation" in text
+    assert "canonical Research Triageをartifact / canonical refに持つ" in text
+    assert "同じ`as_of`だけの別Operationを採用せず" in text
     assert "別sessionを開始しない" in text
     assert "active な `research` operation session" not in text
