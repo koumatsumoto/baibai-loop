@@ -15,8 +15,8 @@ dependencies = [
   "playwright>=1.62.0",
   "pydantic>=2.13.4",
   "pyarrow>=25.0.1",
-  # CVE-2026-71852 は 6.15.0 で修正されている。floor はその advisory が要求する版。
-  "pypdf[crypto]>=6.15.0",
+  # CVE-2026-84309/84310/84311 は 6.16.1 で解消される。floor は最も遅い修正版。
+  "pypdf[crypto]>=6.16.1",
   "python-dotenv>=1.0.0",
   "pyyaml>=6.0.0",
   "requests>=2.34.2",

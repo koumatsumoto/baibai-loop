@@ -675,6 +675,10 @@ uv run python -m baibai_batch.jobs.daily --asof YYYY-MM-DD --output-dir <dir>
 
 # Discord 通知が読む最小 notice を書き出す
 uv run python -m baibai_batch.jobs.daily --output-dir <dir> --notice-output <notice.json>
+
+# 同じ工程のmachine resultを1 JSON objectとatomic manifestで受け取る
+uv run baibai-batch daily --asof YYYY-MM-DD --output-dir <dir> \
+  --format json --quiet --manifest-out <daily-manifest.json>
 ```
 
 `--notice-output` を指定すると、batch が到達した終端 path で、Discord 通知に必要な
@@ -705,6 +709,21 @@ step outcome から notifier が `[FAILED]` を出す。
   `macro_asof` に現れる）。繰延べた失敗の詳細は発生時点で stderr にも出す
 - 営業日判定は market store の `jquants_market_calendar` が情報源。対象日をカバーして
   いない場合は黙って続行せず明示エラーで停止する
+
+## analysis workspace — 判断taskだけをAIへ渡す
+
+local daily analysisは`baibai-batch analysis start --asof YYYY-MM-DD --format json`を入口にする。同じdaily job APIを実行し、exact run / Review Set / operation / Macro / Triage head、step結果、redacted log、packetを`${XDG_STATE_HOME:-~/.local/state}/baibai-loop`へ残す。これはlocal noncanonical stateで、cloud workflowとcanonical store authorityを変えない。詳細契約は[`docs/reference/analysis-operations.md`](../docs/reference/analysis-operations.md)を正本とする。
+
+成功時は返されたexact `workspace`をdispatcherからagentへ渡す。agentはpacket indexと`reused=false`のtaskだけを読み、成功logを読まない。failure調査は次の順で行う。
+
+```bash
+uv run baibai-batch analysis status --workspace <workspace> --format json
+uv run baibai-batch analysis logs --workspace <workspace> --stage <stage> --tail 100
+```
+
+同じASOFの競合は`already_running`、完了workspaceの再実行は`already_complete`で、どちらも新しいdaily / publishを起動しない。daily manifest前のinterruptは事前配分した同じrun / Review Set IDとpublication clockで再開し、同一publicationだけをidempotentに受け入れる。fingerprint driftや入力差分では、最新artifactを検索せず停止する。`--force-new-workspace`はcanonical CASを迂回しない。
+
+retentionは`analysis prune-runs`を使う。active / locked / interrupted workspaceは削除せず、failed runは`--failed-older-than-days`で成功runより長く保持する。timerのinstall / enableは行わない。
 
 ## notify_discord.py — 日次 batch 結果の Discord 通知
 
