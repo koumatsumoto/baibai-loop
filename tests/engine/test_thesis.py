@@ -573,12 +573,11 @@ def test_thesis_requires_an_explicit_positive_5y_base_return(value: object) -> N
         _document(raw)
 
 
-def test_thesis_v3_rejects_retired_judgment_field() -> None:
+def test_thesis_rejects_unknown_judgment_field() -> None:
     raw = _raw()
     judgment = raw["judgment"]
     assert isinstance(judgment, dict)
-    retired_field = "ai_" + "value_capture"
-    judgment[retired_field] = {"assessment_status": "not_material"}
+    judgment["unexpected_field"] = "unexpected"
 
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         _document(raw)

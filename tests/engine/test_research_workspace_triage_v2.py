@@ -97,6 +97,8 @@ def test_prepare_and_status_need_only_published_triage_id(
     assert prepared_output["actionable"] is True
     assert prepared_output["researchable_tickers"] == ["2331"]
     assert not (workspace / "review-set.yaml").exists()
+    manifest = yaml.safe_load((workspace / "manifest.yaml").read_text())
+    assert "tool_version" not in manifest
     comparison = yaml.safe_load((workspace / "research-comparison.yaml").read_text())
     assert comparison["er_realized_distribution_context"] == {
         "status": "unavailable",
