@@ -4,7 +4,7 @@ Runtime code creates the current shape or rejects a different version; semantic
 cutovers are explicit operator work against a verified backup.
 """
 
-APPLICATION_SCHEMA_VERSION = 19
+APPLICATION_SCHEMA_VERSION = 20
 
 SCHEMA_SQL = """
 CREATE TABLE task (

@@ -114,7 +114,7 @@ def test_golden_thesis_is_ready_with_explicit_evidence_warning() -> None:
     assert result.warnings == ("permanent-loss evidence incomplete: ['customer_concentration']",)
     assert result.screening_fv_revision_pct is None
     assert (
-        result.thesis_sha256 == "8bb8272c4241ed9eed7847aab1e2039587a5459e78b030ac713b989d0a7b11ee"
+        result.thesis_sha256 == "99a42521538122c534f6f2cc7893da88a2fc9888b79d4e74d31f2447280e8f7b"
     )
     assert [(item.horizon_years, item.name) for item in result.scenarios] == [
         (3, "bear"),
@@ -573,70 +573,13 @@ def test_thesis_requires_an_explicit_positive_5y_base_return(value: object) -> N
         _document(raw)
 
 
-def test_ai_value_capture_rejects_uncaptured_material_weight() -> None:
+def test_thesis_v3_rejects_retired_ai_value_capture_field() -> None:
     raw = _raw()
     judgment = raw["judgment"]
     assert isinstance(judgment, dict)
-    ai_value_capture = judgment["ai_value_capture"]
-    assert isinstance(ai_value_capture, dict)
-    ai_value_capture["value_capture_conclusion"] = "not_captured"
+    judgment["ai_value_capture"] = {"assessment_status": "not_material"}
 
-    with pytest.raises(ValueError, match="cannot carry decision weight"):
-        _document(raw)
-
-
-def test_ai_value_capture_rejects_not_material_role() -> None:
-    raw = _raw()
-    judgment = raw["judgment"]
-    assert isinstance(judgment, dict)
-    ai_value_capture = judgment["ai_value_capture"]
-    assert isinstance(ai_value_capture, dict)
-    ai_value_capture["assessment_status"] = "not_material"
-
-    with pytest.raises(ValueError, match="requires no roles and none weight"):
-        _document(raw)
-
-
-def test_disrupted_ai_role_requires_structural_decline_risk_and_shared_source() -> None:
-    raw = _raw()
-    judgment = raw["judgment"]
-    assert isinstance(judgment, dict)
-    ai_value_capture = judgment["ai_value_capture"]
-    assert isinstance(ai_value_capture, dict)
-    ai_value_capture["roles"] = ["disrupted"]
-    risks = raw["permanent_loss_risks"]
-    assert isinstance(risks, list)
-    structural_decline = next(item for item in risks if item["axis"] == "structural_decline")
-    assert isinstance(structural_decline, dict)
-    structural_decline["assessment"] = "acceptable"
-
-    result = _evaluate(raw)
-
-    assert "disrupted AI role requires adverse or unknown structural_decline risk" in result.errors
-
-
-def test_ai_value_capture_requires_known_source() -> None:
-    raw = _raw()
-    judgment = raw["judgment"]
-    assert isinstance(judgment, dict)
-    ai_value_capture = judgment["ai_value_capture"]
-    assert isinstance(ai_value_capture, dict)
-    ai_value_capture["source_ids"] = ["missing-source"]
-
-    result = _evaluate(raw)
-
-    assert any("AI value capture references unknown sources" in error for error in result.errors)
-
-
-def test_ai_value_capture_requires_a_source() -> None:
-    raw = _raw()
-    judgment = raw["judgment"]
-    assert isinstance(judgment, dict)
-    ai_value_capture = judgment["ai_value_capture"]
-    assert isinstance(ai_value_capture, dict)
-    ai_value_capture["source_ids"] = []
-
-    with pytest.raises(ValueError, match="at least 1 item"):
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         _document(raw)
 
 

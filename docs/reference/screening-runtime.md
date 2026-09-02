@@ -76,7 +76,7 @@ Normalized Earnings Powerのnative eligibility/orderは`normalized_per_3fy`と�
 
 ## Research Triage v2
 
-application DB schema v19の`research_triage`はReview Set全entryをexactly onceで保持する。current writerはv2だけを発行し、既存v1 rowはimmutable historyとしてread modelだけが投影する。
+application DB schema v20の`research_triage`はReview Set全entryをexactly onceで保持する。current writerはv2だけを発行し、既存v1 rowはimmutable historyとしてread modelだけが投影する。
 
 - `research`: contiguousな`priority`、`rationale`、`research_question`、`key_risk`が必須
 - `skip`: `rationale`が必須で、`priority`、`research_question`、`key_risk`は禁止
@@ -139,5 +139,5 @@ screeningが読むmarket storeのtableとidentityは次のとおり。列の意�
 - 非営業日、空Review Set、active Operation、exact既存Triageでmodel process 0
 - 通常Review Setは共有Macro projectionを1回だけ含む1 AI request、invalid resultはcanonical write 0
 - 全件skipはOperation 0、researchありはexact Triageを参照するOperation 1
-- run store schema 5、application DB schema 19
+- run store schema 5、application DB schema 20
 - Web/APIがReview Set、Research Triage、Capital Allocation Assessmentを同じbindingで表示

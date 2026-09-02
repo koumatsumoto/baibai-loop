@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from tests.helpers.research_triage import (
 )
 
 from baibai_engine.research import workspace as workspace_module
+from baibai_engine.research.close_source import PreviousClose
 from baibai_engine.research.workspace import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
@@ -147,3 +149,39 @@ def test_zero_research_is_a_normal_prepared_workspace(tmp_path: Path) -> None:
     assert prepared.research_capacity == 0
     assert prepared.researchable_tickers == ()
     assert compute_status(workspace, db_path=db_path)["workspace_status"] == "no_research"
+
+
+def test_thesis_scaffold_uses_v3_and_only_general_research_checks() -> None:
+    price = PreviousClose(
+        close_yen=1000,
+        price_as_of=date(2026, 7, 2),
+        adjustment_factor=1,
+        corporate_action_unresolved=False,
+    )
+
+    draft = workspace_module._thesis_draft_skeleton(
+        ticker="2331",
+        asof=date(2026, 7, 3),
+        price=price,
+        sqlite_path=Path("unused.sqlite"),
+        screening_estimate=None,
+        screening_retrieved_at=datetime.fromisoformat("2026-07-03T08:00:00+09:00"),
+    )
+    checklist = workspace_module._checklist_skeleton(price=price)
+
+    assert draft["schema_version"] == 3
+    assert [item["check_id"] for item in checklist["checks"]] == [
+        "source.latest_results",
+        "source.financial_position",
+        "source.cash_flow",
+        "source.share_count_and_dilution",
+        "source.customer_concentration",
+        "source.structural_decline",
+        "source.management_accounting_warning",
+        "source.corporate_action",
+        "scenario.bear_3y_5y",
+        "scenario.base_3y_5y",
+        "scenario.bull_3y_5y",
+        "valuation.fair_value_and_required_cagr",
+        "judgment.strongest_countercase",
+    ]

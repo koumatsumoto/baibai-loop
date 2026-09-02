@@ -98,7 +98,6 @@ CHECKLIST_IDS: tuple[str, ...] = (
     "scenario.bull_3y_5y",
     "valuation.fair_value_and_required_cagr",
     "judgment.strongest_countercase",
-    "judgment.ai_value_capture",
 )
 
 # 観測 trailing multiple の fact ID。thesis の 5y base break-even check は、この ID
@@ -1266,7 +1265,7 @@ def _thesis_draft_skeleton(
     if screening_estimate is not None:
         input_snapshot["screening_estimate"] = screening_estimate
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "input_snapshot": input_snapshot,
         "derived": {"metrics": []},
         "estimates": None,
