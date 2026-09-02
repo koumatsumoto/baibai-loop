@@ -17,17 +17,19 @@ E[r]、FV、macro context、portfolio stateは参考文脈である。Review Set
 ## Public CLI
 
 ```bash
-uv run baibai-engine screening run --asof YYYY-MM-DD [--runs-db PATH]
+uv run baibai-engine screening run --asof YYYY-MM-DD [--runs-db PATH] \
+  [--run-revision-id ID --run-at TIMESTAMP]
 uv run baibai-engine screening review-set publish --asof YYYY-MM-DD \
-  --run-revision-id ID [--runs-db PATH] [--output-path PATH]
+  --run-revision-id ID [--runs-db PATH] [--output-path PATH] [--format yaml|json] \
+  [--review-set-id ID --created-at TIMESTAMP]
 uv run baibai-engine screening review-set show --review-set-id ID \
-  [--runs-db PATH] [--output-path PATH] [--force]
+  [--runs-db PATH] [--output-path PATH] [--force] [--format yaml|json]
 uv run baibai-engine screening research-triage publish DRAFT.yaml \
   [--db PATH] [--runs-db PATH]
 uv run baibai-engine screening prune --keep N [--runs-db PATH]
 ```
 
-`run`のexit 2はpublication済みpartial warningである。warningを確認してから同じ`run_revision_id`で後続へ進む。Review Setの再表示に再発行を使わない。
+`run`のexit 2はpublication済みpartial warningである。warningを確認してから同じ`run_revision_id`で後続へ進む。Review Setの再表示に再発行を使わない。`--run-revision-id` + `--run-at`と`--review-set-id` + `--created-at`は、analysis workspaceがprocess interruption後も同じimmutable publicationをidempotentに再確認するmachine resume用である。IDとtimezone-aware clockはworkspaceが事前配分し、AI outputから受け取らない。既存の対話・cloud経路は省略して従来どおりserver-generated identityを使う。
 
 ## Security Analysis
 
