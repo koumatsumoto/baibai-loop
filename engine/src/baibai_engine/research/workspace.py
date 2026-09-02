@@ -76,7 +76,6 @@ from .thesis import (
     thesis_core_hash,
 )
 
-TOOL_VERSION = "fundamental-research-v2"
 BOARD_LOT: int = PORTFOLIO_POLICY["order_constraints"]["board_lot"]
 # 対象 sizing 帯 (20-30万円 / 100株 = ¥2000-3000/株) はちょうど JPX 現物の ¥1 tick 帯。
 # max acceptable price の ceiling floor 丸めはこの帯で正確な ¥1 を使う。
@@ -390,7 +389,6 @@ def prepare_workspace(
         manifest_inputs["er_distribution_context"] = er_context_ref
     manifest = {
         "as_of": asof.isoformat(),
-        "tool_version": TOOL_VERSION,
         "inputs": manifest_inputs,
         "rules": {"research_capacity": research_capacity},
     }
@@ -481,7 +479,6 @@ def prepare_holding_workspace(
         "purpose": "position_review",
         "holding_ticker": ticker,
         "as_of": asof.isoformat(),
-        "tool_version": TOOL_VERSION,
         "inputs": {
             "ledger": {
                 "entity_id": "portfolio-ledger",
