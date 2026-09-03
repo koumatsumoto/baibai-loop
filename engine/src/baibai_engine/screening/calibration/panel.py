@@ -59,7 +59,7 @@ from ..sqlite_reader import (
 from ..universe import (
     POLICY_EXCLUSION_REASONS,
     build_universe,
-    liquid_median_population,
+    candidate_comparison_population,
 )
 from .horizons import STALE_PRICE_MAX_LAG_DAYS
 from .identity import rules_contract_hash
@@ -379,7 +379,7 @@ def build_panel(
         for security in securities
         if security.is_common_stock and security.code in universe_result.snapshots
     }
-    median_population = liquid_median_population(universe_result.snapshots, rules)
+    median_population = candidate_comparison_population(universe_result.snapshots, rules)
     margin_latest, margin_prior_26w = read_margin_supply_demand_inputs(sqlite_path, asof_date)
     reported_short = read_reported_short_metrics(sqlite_path, asof_date)
     metric_result = build_metrics(

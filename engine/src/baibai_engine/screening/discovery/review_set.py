@@ -324,7 +324,6 @@ def _common_eligible(
     jpx_flags = tuple(str(value) for value in flags) if isinstance(flags, list | tuple) else None
     return rules.common_eligibility.matches(
         market_cap_oku=optional_float(row.get("market_cap_oku")),
-        avg_turnover_oku=optional_float(row.get("avg_turnover_oku")),
         listing_span_days=optional_float(row.get("listing_span_days")),
         jpx_flags=jpx_flags,
         required_jpx_flags=required_flags,

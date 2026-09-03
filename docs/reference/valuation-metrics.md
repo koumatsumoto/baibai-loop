@@ -112,7 +112,7 @@ Candidate Discoveryのprimary authorityは4 Valuation Approachesのnative eligib
 
 **PBRはoutputを1つだけ持つ。** 普通株basisとの照合に通り、かつ最新`BPS`以上に新しい同一行の`TA × EqAR`があれば、その鮮度を使う。照合できない場合は`BPS × 自己株控除後株式数`へfallbackする。`EqAR`の小数第3位・`BPS`の小数第2位という公表精度は丸め区間として比較し、near-zero比率を相対誤差だけで拒否しない。`cash-rich-asset-discount` Valuation Approachのgate（`pbr_max`）もこの単一outputを使う。
 
-**欠損を代用で埋めない。** 観測済みの資本状態から現在の自己株式数を安全に解決できない場合は**時価総額を出さない** — 発行済だけで代用すると、どれだけ過大か分からない値が現金比率・利回り・流動性 gate へ入る。発行済を超える自己株式数のような破損値も同じく答えない。自己資本比率が観測できない行は `equity_ratio` を `null` にし、純資産比率で代用しない（代用は少数株主持分の大きい銘柄で比率を数 pt 過大にし、`equity_ratio_min` の gate を通しやすくする向きに効く）。いずれも該当銘柄は流動性母集団から外れる。
+**欠損を代用で埋めない。** 観測済みの資本状態から現在の自己株式数を安全に解決できない場合は**時価総額を出さない** — 発行済だけで代用すると、どれだけ過大か分からない値が現金比率・利回り・時価総額gateへ入る。発行済を超える自己株式数のような破損値も同じく答えない。自己資本比率が観測できない行は `equity_ratio` を `null` にし、純資産比率で代用しない（代用は少数株主持分の大きい銘柄で比率を数 pt 過大にし、`equity_ratio_min` の gate を通しやすくする向きに効く）。時価総額が欠ける銘柄はcommon eligible母集団から外れるが、ADV欠損は外す理由にしない。
 
 `TA × EqAR` で普通株自己資本の円経路を組むときは、両方を同時に観測した最新の開示行を使う。個々の最新値は staleness fact と表示には carry できるが、別開示日の `TA` と `EqAR` を掛けると、その間の資産変動を自己資本へ混入させる。両方を持つ行が無い場合、またはその同一行が最新`BPS`より古い場合は円経路を答えず、普通株基準の`BPS`経路を使う。同一状態へ揃えるために、より新しい資本状態を古い値へ巻き戻さない。
 
@@ -208,7 +208,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 - 各業種内の銘柄の valuation 指標から中央値を算出
 - 集計タイミング: screening 実行時（日次）
-- 集計対象（比較母集団）: `candidate_discovery.common_eligibility` を満たす流動性母集団（時価総額・売買代金・上場期間・JPX 規制の条件を満たす銘柄）。screen は全普通株を評価するが、相対 valuation の基準は投資可能な比較対象に固定し、小型・低流動性銘柄の混入で判定が歪まないようにする。sector relative strength と市場全体 fallback も同じ母集団で算出する
+- 集計対象（比較母集団）: `candidate_discovery.common_eligibility` を満たす母集団（時価総額・上場期間・JPX規制の条件を満たす銘柄）。screenは全普通株を評価し、ADVは比較母集団のmembershipを変えない。sector relative strengthと市場全体fallbackも同じ母集団で算出する
 
 ### 8.3 サンプル数下限
 

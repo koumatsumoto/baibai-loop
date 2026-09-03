@@ -60,7 +60,7 @@ from baibai_engine.screening.schema import (
 from baibai_engine.screening.universe import (
     MIN_BAR_HISTORY,
     build_universe,
-    liquid_median_population,
+    candidate_comparison_population,
 )
 
 from ..sqlite_reader import read_margin_supply_demand_inputs
@@ -255,7 +255,7 @@ def run_command(
         for security in securities
         if security.is_common_stock and security.code in universe_result.snapshots
     }
-    median_population = liquid_median_population(universe_result.snapshots, rules)
+    median_population = candidate_comparison_population(universe_result.snapshots, rules)
     margin_latest, margin_prior_26w = read_margin_supply_demand_inputs(
         config.sqlite_cache_dir / "market.sqlite", asof_date
     )
@@ -360,12 +360,12 @@ def run_command(
         fallback_lines.append(f"ttm_quality 非 exact 件数: {approx_total}")
     if required_ttm_non_exact:
         fallback_lines.append(
-            "有効Valuation Approach必須TTM metric非exact件数(流動性母集団): "
+            "有効Valuation Approach必須TTM metric非exact件数(common eligible母集団): "
             f"{required_ttm_non_exact}"
         )
     if population_yoy_missing:
         fallback_lines.append(
-            f"業績悪化フィルタ入力欠損(流動性母集団): {population_yoy_missing} 銘柄"
+            f"業績悪化フィルタ入力欠損(common eligible母集団): {population_yoy_missing} 銘柄"
         )
     if edinet_load_error is not None:
         fallback_lines.append(f"EDINET 読み込み失敗: {edinet_load_error}")

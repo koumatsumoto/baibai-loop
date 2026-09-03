@@ -92,7 +92,7 @@ Capital Allocation Assessment → plan-limit   ephemeral decision input
 human report → Ledger                        broker fact
 ```
 
-4つのValuation Approachは固有の企業価値座標でNominationを作る。Normalized Earnings Powerは`normalized_per_3fy`をnative eligibility/orderに使うが、FV/E[r] estimatorは入力にしない。Review Setは4 Approachのtop20 Nominationのexact union（最大80件）であり、global scoreや追加の絞り込みを持たない。E[r]はmembership/orderを変えないsecondary return priorである。Review SetはSecurity Analysis runとCandidate Discovery methodだけから再構築するL2で、application DBを読まない。Research Triageが全件の`research / skip`とresearch priorityを判断するL3となる。人間が`research`の部分集合をResearch Setへadmitし、`research prepare --research-triage-id --ticker ...`がcanonical Triageへ束縛したOperationをResearch開始時にだけ作る。
+4つのValuation Approachは固有の企業価値座標でNominationを作る。共通eligibilityは時価総額、上場期間、JPX規制状態だけを扱い、ADVの値・欠損はmembershipを変えない。Normalized Earnings Powerは`normalized_per_3fy`をnative eligibility/orderに使うが、FV/E[r] estimatorは入力にしない。Review Setは4 Approachのtop20 Nominationのexact union（最大80件）であり、global scoreや追加の絞り込みを持たない。E[r]はmembership/orderを変えないsecondary return prior、ADVは執行可能性のsecondary contextである。Review SetはSecurity Analysis runとCandidate Discovery methodだけから再構築するL2で、application DBを読まない。Research Triageが全件の`research / skip`とresearch priorityを判断するL3となる。人間が`research`の部分集合をResearch Setへadmitし、`research prepare --research-triage-id --ticker ...`がcanonical Triageへ束縛したOperationをResearch開始時にだけ作る。
 
 <a id="information-layers"></a>
 
