@@ -65,4 +65,5 @@ def test_manual_and_scheduled_research_triage_share_the_short_policy() -> None:
     assert "from baibai_batch.analysis.policy import TRIAGE_POLICY" in cli
     assert "policy=TRIAGE_POLICY" in cli
     assert "具体的な未解決問い" in policy
-    assert "現在のmachine factsから特定できない" in policy
+    assert "machine factsがApproach仮説を明確に崩す" in policy
+    assert "secondary machine return prior" in policy

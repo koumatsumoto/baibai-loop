@@ -10,12 +10,12 @@ from baibai_engine.read_api import list_research_triage_payloads
 from baibai_engine.research.workspace import _screening_estimate_from_triage_snapshot
 from baibai_engine.screening.cli import main as screening_main
 from baibai_engine.screening.research_triage import ResearchTriageCandidateSnapshot
-from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
 
 ROOT = Path(__file__).resolve().parents[2]
-RULES_PATH = ROOT / "method/screening/rules/2026-08-30T215359+0900.yaml"
+RULES_PATH = ROOT / DEFAULT_RULES_PATH
 
 
 def _analysis(

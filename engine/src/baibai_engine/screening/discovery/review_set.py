@@ -1,4 +1,4 @@
-"""Compose the finite Review Set without making an investment judgment."""
+"""Produce the exact nomination union consumed by Research Triage."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ class PublishedReviewSet(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     kind: Literal["review_set"]
     review_set_id: str = Field(min_length=1)
     run_revision_id: str = Field(min_length=1)
@@ -78,9 +78,22 @@ class PublishedReviewSet(BaseModel):
     def _validate_publication(self) -> Self:
         if self.created_at.tzinfo is None:
             raise ValueError("created_at must include a timezone")
-        positions = [entry.review_position for entry in self.entries]
-        if positions != list(range(1, len(positions) + 1)):
-            raise ValueError("review positions must be contiguous from 1")
+        tickers = [entry.ticker for entry in self.entries]
+        if tickers != sorted(tickers) or len(tickers) != len(set(tickers)):
+            raise ValueError("review set entries must be unique and ordered by ticker")
+        if len(self.entries) > len(APPROACH_IDS) * self.method.nomination_depth:
+            raise ValueError("review set exceeds the four-Approach Nomination union bound")
+        ranks_by_approach: dict[str, list[int]] = {approach: [] for approach in APPROACH_IDS}
+        for entry in self.entries:
+            for nomination in entry.nominations:
+                if nomination.valuation_approach_id not in ranks_by_approach:
+                    raise ValueError("review set contains an unknown valuation Approach")
+                ranks_by_approach[nomination.valuation_approach_id].append(nomination.rank)
+        for approach, ranks in ranks_by_approach.items():
+            if sorted(ranks) != list(range(1, len(ranks) + 1)):
+                raise ValueError(f"{approach} nomination ranks must be contiguous from 1")
+            if len(ranks) > self.method.nomination_depth:
+                raise ValueError(f"{approach} exceeds nomination_depth")
         return self
 
 
@@ -91,12 +104,10 @@ def candidate_discovery_method_hash(
 ) -> str:
     representation = {
         "method_id": rules.method_id,
-        "review_capacity": rules.review_capacity,
         "nomination_depth": rules.nomination_depth,
         "normalized_sector_median_min_population": MIN_SECTOR_MEDIAN_POPULATION,
         "common_eligibility": rules.common_eligibility.model_dump(mode="json"),
         "required_jpx_flags": sorted(set(required_jpx_flags)),
-        "representation_targets": dict(rules.representation_targets),
         "approaches": {
             key: value.model_dump(mode="json") for key, value in rules.approaches.items()
         },
@@ -156,13 +167,8 @@ def candidate_discovery_method_hash(
                 "ticker_asc",
             ],
         },
-        "composition": [
-            "unfilled_approach_coverage_desc",
-            "support_count_desc",
-            "rank_vector_asc",
-            "ticker_asc",
-            "capacity_fill_support_count_desc",
-        ],
+        "review_set_membership": "exact_nomination_union",
+        "review_set_ordering": "ticker_asc_non_economic",
     }
     return sha256(canonical_json(representation).encode()).hexdigest()
 
@@ -195,75 +201,28 @@ def build_review_set(
         for approach in APPROACH_IDS
     }
     by_ticker = {_ticker(row): row for row in eligible}
-    padding = rules.nomination_depth + 1
-
-    def rank_vector(ticker: str) -> tuple[int, int, int, int]:
-        ranks = sorted(item.rank for item in nominations_by_ticker[ticker])
-        return tuple((ranks + [padding] * 4)[:4])  # type: ignore[return-value]
-
-    remaining = dict(rules.representation_targets)
-    selected: list[str] = []
     pool = set(nominations_by_ticker)
-    while any(value > 0 for value in remaining.values()):
-        candidates = [
-            ticker
-            for ticker in pool - set(selected)
-            if any(
-                remaining[item.valuation_approach_id] > 0 for item in nominations_by_ticker[ticker]
-            )
-        ]
-        if not candidates:
-            break
-        ticker = min(
-            candidates,
-            key=lambda item: (
-                -sum(
-                    remaining[nomination.valuation_approach_id] > 0
-                    for nomination in nominations_by_ticker[item]
-                ),
-                -len(nominations_by_ticker[item]),
-                rank_vector(item),
-                item,
-            ),
-        )
-        selected.append(ticker)
-        for nomination in nominations_by_ticker[ticker]:
-            approach = nomination.valuation_approach_id
-            remaining[approach] = max(0, remaining[approach] - 1)
-    for ticker in sorted(
-        pool - set(selected),
-        key=lambda item: (-len(nominations_by_ticker[item]), rank_vector(item), item),
-    ):
-        if len(selected) >= rules.review_capacity:
-            break
-        selected.append(ticker)
 
     entries: list[dict[str, object]] = []
-    represented_counts = dict.fromkeys(APPROACH_IDS, 0)
-    for position, ticker in enumerate(selected, start=1):
+    for ticker in sorted(pool):
         nominations = sorted(
             nominations_by_ticker[ticker],
             key=lambda item: APPROACH_IDS.index(item.valuation_approach_id),
         )
-        for nomination in nominations:
-            represented_counts[nomination.valuation_approach_id] += 1
         row = by_ticker[ticker]
         entries.append(
             ReviewSetEntry(
-                review_position=position,
                 ticker=ticker,
                 name=string_or_none(row.get("name")) or "",
                 sector_33=string_or_none(row.get("sector_33")) or "",
                 nominations=tuple(nominations),
-                support_count=len(nominations),
-                rank_vector=rank_vector(ticker),
                 analysis=ReviewSetAnalysis.model_validate(
                     _analysis(row, normalized_gap=normalized_gaps.get(ticker))
                 ),
             ).model_dump(mode="json")
         )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "review_set",
         "method": {
             "method_id": rules.method_id,
@@ -271,9 +230,7 @@ def build_review_set(
                 rules,
                 required_jpx_flags=required_jpx_flags,
             ),
-            "review_capacity": rules.review_capacity,
             "nomination_depth": rules.nomination_depth,
-            "representation_targets": dict(rules.representation_targets),
         },
         "entries": entries,
         "diagnostics": {
@@ -281,8 +238,6 @@ def build_review_set(
             "nomination_counts": nomination_counts,
             "unique_candidate_count": len(pool),
             "review_set_count": len(entries),
-            "represented_counts": represented_counts,
-            "unfilled_representation_targets": remaining,
         },
     }
 
@@ -293,12 +248,7 @@ def build_nomination_ranks(
     rules: CandidateDiscoveryRules,
     required_jpx_flags: Sequence[str],
 ) -> dict[str, tuple[Nomination, ...]]:
-    """Return the ephemeral approach nominations used by the composer and replay.
-
-    Nominations remain embedded in Review Set rows in persistence. This projection
-    exists so calibration can measure every approach top-N, including nominees that
-    do not fit within the finite Review Set.
-    """
+    """Return every approach nomination used by the union and calibration replay."""
 
     eligible = [
         row

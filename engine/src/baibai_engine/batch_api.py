@@ -96,10 +96,7 @@ from baibai_engine.market.sqlite.schema import (
     validate_current_schema as validate_market_schema,
 )
 from baibai_engine.market.sqlite.snapshot import create_snapshot as create_market_snapshot
-from baibai_engine.operation.models import OperationPayload, OperationSession
-from baibai_engine.operation.service import OperationService
 from baibai_engine.read_api.macro import latest_macro_context_payload
-from baibai_engine.read_api.operations import list_operation_sessions
 from baibai_engine.read_api.research_triage import research_triage_payloads_for_review_set
 from baibai_engine.screening.discovery.review_set import PublishedReviewSet
 from baibai_engine.screening.research_triage import (
@@ -121,18 +118,23 @@ class DailyTriageDecision(BaseModel):
 
     ticker: str = Field(pattern=r"^[0-9A-Z]{4}$")
     verdict: Literal["research", "skip"]
+    priority: int | None = Field(ge=1)
     rationale: str = Field(min_length=1, max_length=1200)
     research_question: str | None = Field(max_length=600)
     key_risk: str | None = Field(max_length=600)
 
     @model_validator(mode="after")
     def _decision_shape(self) -> DailyTriageDecision:
-        if self.verdict == "research" and (not self.research_question or not self.key_risk):
-            raise ValueError("research requires research_question and key_risk")
-        if self.verdict == "skip" and (
-            self.research_question is not None or self.key_risk is not None
+        if self.verdict == "research" and (
+            self.priority is None or not self.research_question or not self.key_risk
         ):
-            raise ValueError("skip forbids research_question and key_risk")
+            raise ValueError("research requires priority, research_question, and key_risk")
+        if self.verdict == "skip" and (
+            self.priority is not None
+            or self.research_question is not None
+            or self.key_risk is not None
+        ):
+            raise ValueError("skip forbids priority, research_question, and key_risk")
         return self
 
 
@@ -143,7 +145,6 @@ class DailyAnalysisContext:
     review_set: PublishedReviewSet
     existing_triage: ResearchTriage | None
     macro_context: MacroContextDocument | None
-    active_operation: OperationSession | None
 
 
 def load_daily_analysis_context(
@@ -171,15 +172,10 @@ def load_daily_analysis_context(
     macro_context = (
         None if macro_payload is None else MacroContextDocument.model_validate(macro_payload)
     )
-    active_rows = list_operation_sessions(app_path, status="active")
-    if len(active_rows) > 1:
-        raise ValueError("operation store violates the one-active-session contract")
-    active_operation = None if not active_rows else OperationSession.model_validate(active_rows[0])
     return DailyAnalysisContext(
         review_set=review_set,
         existing_triage=existing_triage,
         macro_context=macro_context,
-        active_operation=active_operation,
     )
 
 
@@ -212,6 +208,7 @@ def publish_daily_research_triage(
     requested_decisions = {
         item.ticker: (
             item.verdict,
+            item.priority,
             item.rationale,
             item.research_question,
             item.key_risk,
@@ -226,24 +223,20 @@ def publish_daily_research_triage(
     )
     if existing is not None:
         return existing
-    priority = 0
     entries: list[ResearchTriageEntry] = []
     for source in review_set.entries:
         decision = by_ticker[source.ticker]
-        if decision.verdict == "research":
-            priority += 1
         entries.append(
             ResearchTriageEntry(
                 ticker=source.ticker,
                 decision=decision.verdict,
-                priority=priority if decision.verdict == "research" else None,
+                priority=decision.priority,
                 rationale=decision.rationale,
                 research_question=decision.research_question,
                 key_risk=decision.key_risk,
                 candidate_snapshot=ResearchTriageCandidateSnapshot(
                     name=source.name,
                     sector_33=source.sector_33,
-                    review_position=source.review_position,
                     nominations=source.nominations,
                     analysis=source.analysis,
                 ),
@@ -251,7 +244,7 @@ def publish_daily_research_triage(
         )
     identifier_digest = sha256(review_set.review_set_id.encode()).hexdigest()[:16]
     triage = ResearchTriage(
-        schema_version=2,
+        schema_version=3,
         kind="research_triage",
         research_triage_id=(
             f"research-triage-{review_set.as_of.strftime('%Y%m%d')}-{identifier_digest}"
@@ -264,7 +257,7 @@ def publish_daily_research_triage(
         expected_prior_research_triage_id=latest_research_triage_id(app_db_path),
         screening_rules_hash=review_set.screening_rules_hash,
         candidate_discovery_method=review_set.method,
-        triage_contract_id="research-triage-v2",
+        triage_contract_id="research-triage-v3",
         entries=tuple(entries),
     )
     try:
@@ -287,7 +280,7 @@ def _matching_daily_triage(
     app_path: Path,
     review_set: PublishedReviewSet,
     requested_decisions: Mapping[
-        str, tuple[Literal["research", "skip"], str, str | None, str | None]
+        str, tuple[Literal["research", "skip"], int | None, str, str | None, str | None]
     ],
     *,
     macro_context_id: str | None,
@@ -299,6 +292,7 @@ def _matching_daily_triage(
     existing_decisions = {
         entry.ticker: (
             entry.decision,
+            entry.priority,
             entry.rationale,
             entry.research_question,
             entry.key_risk,
@@ -313,55 +307,6 @@ def _matching_daily_triage(
         return existing
     raise ResearchTriageConflictError(
         "canonical Research Triage already differs for the exact Review Set"
-    )
-
-
-def ensure_daily_research_operation(
-    triage: ResearchTriage,
-    *,
-    app_db_path: Path | None = None,
-    started_at: datetime,
-) -> OperationSession | None:
-    """Start the human Research Set gate only for an exact Triage with research work."""
-
-    research_count = len(triage.researchable_tickers())
-    if research_count == 0:
-        return None
-    service = OperationService(app_db_path)
-    active = service.active()
-    if active is not None:
-        if _operation_references_triage(active, triage.research_triage_id):
-            return active
-        raise ValueError(f"active operation already exists: {active.operation_id}")
-    payload = OperationPayload(
-        checkpoint="Research Triage published; awaiting Research Set confirmation",
-        artifacts=(
-            {
-                "kind": "research_triage",
-                "ref": triage.research_triage_id,
-                "research_count": research_count,
-            },
-        ),
-        canonical_refs=(triage.research_triage_id,),
-        human_confirmation={"request": "confirm the Research Set", "result": None},
-        next="wait for human Research Set confirmation",
-    )
-    return service.start(
-        session_kind="capital-allocation",
-        as_of=triage.as_of,
-        started_at=started_at,
-        payload=payload,
-    )
-
-
-def _operation_references_triage(operation: OperationSession, triage_id: str) -> bool:
-    return (
-        operation.session_kind == "capital-allocation"
-        and triage_id in operation.payload.canonical_refs
-        and any(
-            artifact.get("kind") == "research_triage" and artifact.get("ref") == triage_id
-            for artifact in operation.payload.artifacts
-        )
     )
 
 
@@ -407,7 +352,6 @@ __all__ = [
     "create_lake_l1_release",
     "create_market_snapshot",
     "database_path",
-    "ensure_daily_research_operation",
     "export_lake_legacy",
     "lake_current_l1_pointer_key",
     "lake_dataset_manifest_key",

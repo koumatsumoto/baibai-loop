@@ -21,7 +21,7 @@ from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 from ..discovery.review_set import APPROACH_IDS
 from ..rule_config import CandidateDiscoveryRules
 from .evidence import (
-    CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC,
+    CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
     candidate_discovery_approach_fidelity_metric,
 )
 from .forward import (
@@ -48,7 +48,7 @@ MIN_THRESHOLD_REMOVED_SAMPLE = 20
 
 DECILES = 10
 
-REVIEW_SET_TOP_NS: tuple[int, ...] = (5, 10, 20)
+COMPARISON_TOP_NS: tuple[int, ...] = (5, 10, 20)
 
 # gate 条件付き spread の対象 gate (業績悪化 gate。rule_config の deterioration
 # threshold と同じ -0.3 を事前固定で用いる) 。
@@ -414,8 +414,10 @@ def _evaluate_cohort(
         metric_statuses[candidate_discovery_approach_fidelity_metric(approach)] = (
             "eligible" if approach_fidelity["eligible"] is True else "unresolved"
         )
-    metric_statuses[CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC] = (
-        "eligible" if candidate_discovery_fidelity["composer_eligible"] is True else "unresolved"
+    metric_statuses[CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC] = (
+        "eligible"
+        if candidate_discovery_fidelity["nomination_union_eligible"] is True
+        else "unresolved"
     )
 
     return {
@@ -517,8 +519,7 @@ def _cohort_excess_context(
 _DELISTING_IMPUTATIONS: tuple[str, ...] = ("total_loss", "neutral")
 _TOTAL_LOSS_RETURN = -1.0
 _SENSITIVITY_METRICS: tuple[str, ...] = (
-    "review_set_top5",
-    "review_set_top10",
+    "review_set_all",
     "er_calibration",
 )
 OPTIONAL_SENSITIVITY_METRICS: tuple[str, ...] = (
@@ -563,7 +564,7 @@ def _direction_signs(
         candidate_discovery_rules=candidate_discovery_rules,
     )
     signs: dict[str, float | None] = {}
-    for key in ("review_set_top5", "review_set_top10"):
+    for key in ("review_set_all",):
         group = candidate_discovery.get(key)
         value = group.get("median_excess") if isinstance(group, dict) else None
         signs[key] = value if isinstance(value, int | float) else None
@@ -964,16 +965,8 @@ def _evaluate_candidate_discovery(
 ) -> dict[str, object]:
     result: dict[str, object] = {}
     review_set_rows = sorted(
-        (row for row in population if row.review_position is not None),
-        key=lambda row: (row.review_position or 0, row.ticker),
+        (row for row in population if row.in_review_set), key=lambda row: row.ticker
     )
-    for top_n in REVIEW_SET_TOP_NS:
-        values = [
-            excess[row.ticker]
-            for row in population
-            if row.review_position is not None and row.review_position <= top_n
-        ]
-        result[f"review_set_top{top_n}"] = _group_stats(values)
     result["review_set_all"] = _group_stats([excess[row.ticker] for row in review_set_rows])
 
     approach_ranks = {
@@ -984,7 +977,7 @@ def _evaluate_candidate_discovery(
     }
     for approach in APPROACH_IDS:
         slug = approach.replace("-", "_")
-        for top_n in REVIEW_SET_TOP_NS:
+        for top_n in COMPARISON_TOP_NS:
             result[f"approach_{slug}_top{top_n}"] = _group_stats(
                 [
                     excess[row.ticker]
@@ -994,44 +987,19 @@ def _evaluate_candidate_discovery(
                 ]
             )
 
-    supported = [row for row in population if approach_ranks[row.ticker]]
-    result["support_count_ge2"] = _group_stats(
-        [excess[row.ticker] for row in supported if len(approach_ranks[row.ticker]) >= 2]
-    )
-    result["support_count_ge3"] = _group_stats(
-        [excess[row.ticker] for row in supported if len(approach_ranks[row.ticker]) >= 3]
-    )
-    result["single_support"] = _group_stats(
-        [excess[row.ticker] for row in supported if len(approach_ranks[row.ticker]) == 1]
-    )
-
-    represented_counts = {
-        approach: sum(approach in approach_ranks[row.ticker] for row in review_set_rows)
-        for approach in APPROACH_IDS
-    }
-    representation_targets = dict(candidate_discovery_rules.representation_targets)
-    result["representation"] = {
-        "targets": representation_targets,
-        "represented_counts": represented_counts,
-        "fulfilled": {
-            approach: represented_counts[approach] >= target
-            for approach, target in representation_targets.items()
-        },
-    }
-
     # Pure E[r] is a benchmark only; it neither gates nor fills the Review Set.
     population_by_er = sorted(
         (row for row in population if row.er_annual is not None),
         key=lambda row: (-(row.er_annual or 0.0), row.ticker),
     )
-    for top_n in REVIEW_SET_TOP_NS:
+    for top_n in COMPARISON_TOP_NS:
         er_rows = population_by_er[:top_n]
         result[f"pure_er_top{top_n}"] = _group_stats(
             [excess[row.ticker] for row in population_by_er[:top_n]]
         )
-        review_tickers = {row.ticker for row in review_set_rows[:top_n]}
+        review_tickers = {row.ticker for row in review_set_rows}
         er_tickers = {row.ticker for row in er_rows}
-        result[f"review_set_vs_er_top{top_n}"] = {
+        result[f"nomination_union_vs_er_top{top_n}"] = {
             "review_set_n": len(review_tickers),
             "pure_er_n": len(er_tickers),
             "overlap_n": len(review_tickers & er_tickers),
@@ -1074,30 +1042,22 @@ def _candidate_discovery_fidelity(
             ),
         }
 
-    review_rows = [row for row in panel if row.in_population and row.review_position is not None]
+    review_rows = [row for row in panel if row.in_population and row.in_review_set]
     resolved_review_count = sum(row.ticker in excess for row in review_rows)
-    representation = candidate_discovery.get("representation")
-    fulfilled = representation.get("fulfilled") if isinstance(representation, dict) else None
-    representation_fulfilled = (
-        isinstance(fulfilled, dict)
-        and set(fulfilled) == set(APPROACH_IDS)
-        and all(fulfilled.get(approach) is True for approach in APPROACH_IDS)
-    )
-    composer_eligible = (
+    nominated_tickers = {ticker for ticker, ranks in approach_ranks.items() if ranks}
+    review_tickers = {row.ticker for row in review_rows}
+    nomination_union_eligible = (
         input_complete
         and all(approaches[approach]["eligible"] is True for approach in APPROACH_IDS)
-        and len(review_rows) == candidate_discovery_rules.review_capacity
-        and resolved_review_count == candidate_discovery_rules.review_capacity
-        and representation_fulfilled
+        and review_tickers == nominated_tickers
+        and resolved_review_count == len(review_rows)
     )
     return {
         "jpx_regulation_input_status": jpx_input_status,
         "approaches": approaches,
-        "review_capacity": candidate_discovery_rules.review_capacity,
         "review_count": len(review_rows),
         "resolved_review_count": resolved_review_count,
-        "representation_fulfilled": representation_fulfilled,
-        "composer_eligible": composer_eligible,
+        "nomination_union_eligible": nomination_union_eligible,
     }
 
 
@@ -1815,7 +1775,6 @@ def _aggregate(
         }
 
     candidate_discovery_summary: dict[str, object] = {}
-    representation_targets = dict(candidate_discovery_rules.representation_targets)
     candidate_discovery_key_set: set[str] = set()
     for cohort in cohorts:
         candidate_discovery = cohort.get("candidate_discovery")
@@ -1823,49 +1782,7 @@ def _aggregate(
             candidate_discovery_key_set.update(candidate_discovery)
     candidate_discovery_keys = sorted(candidate_discovery_key_set)
     for key in candidate_discovery_keys:
-        if key == "representation":
-            rows = [
-                candidate_discovery[key]
-                for cohort in cohorts
-                if isinstance((candidate_discovery := cohort.get("candidate_discovery")), dict)
-                and isinstance(candidate_discovery.get(key), dict)
-            ]
-            fulfilled_counts = [
-                sum(bool(value) for value in row.get("fulfilled", {}).values())
-                for row in rows
-                if isinstance(row.get("fulfilled"), dict)
-            ]
-            candidate_discovery_summary[key] = {
-                "cohorts": len(rows),
-                "fully_fulfilled_cohorts": sum(
-                    count == len(representation_targets) for count in fulfilled_counts
-                ),
-                "fully_fulfilled_share": (
-                    round(
-                        sum(count == len(representation_targets) for count in fulfilled_counts)
-                        / len(fulfilled_counts),
-                        4,
-                    )
-                    if fulfilled_counts
-                    else None
-                ),
-                "targets": representation_targets,
-                "mean_represented_counts": {
-                    approach: round(
-                        fmean(
-                            float(counts.get(approach, 0))
-                            for row in rows
-                            if isinstance((counts := row.get("represented_counts")), dict)
-                        ),
-                        1,
-                    )
-                    if rows
-                    else 0
-                    for approach in APPROACH_IDS
-                },
-            }
-            continue
-        if key.startswith("review_set_vs_er_top"):
+        if key.startswith("nomination_union_vs_er_top"):
             rows = [
                 candidate_discovery[key]
                 for cohort in cohorts

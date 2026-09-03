@@ -278,6 +278,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] その gate は**下流で最初に不可逆な資源を使う手前**に置いたか。Research Setのadmissionはresearch開始前、Capital Allocation Assessmentの検証はhuman-confirmed ledger draft作成前に置く
 - [ ] generator が入力を読み、出力directoryへ固定名のartifactを書く場合、入力pathが出力directory内へ解決されて自分自身を上書きしないことを、書き込み前のvalidationとnegative testで保証したか
 - [ ] AI task/result validatorを変更する場合、unknown control field、missing / duplicate task、task ID / input digest mismatch、decision別の必須・禁止field、length超過をnegative testで拒否し、workspace/cacheの編集をcanonical authorizationにしていないか
+- [ ] exact Nomination unionのpublicationを変更する場合、未知Approach、Approach別rankの欠番・重複、`nomination_depth`超過、4 Approach上限超過をcurrent readerでも拒否するか
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 
@@ -371,7 +372,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 
 #### Calibration・screening・market data
 
-- [ ] Candidate Discoveryのevidence readinessはdecision subjectを明示し、単一approachなら対象approach top20、Review Set all20、pure E[r] top20、approach/composer fidelity、composerならall20、pure E[r] top20、composer fidelityをgate自身から導出するか。`--required-metric`の手入力で省略できず、top5/top10を必須にせず、JPX snapshotの不在・partial、method hash不一致、nomination不足、unresolved outcome、representation未充足をnegative testでfail closedにするか
+- [ ] Candidate Discoveryのevidence readinessはdecision subjectを明示し、単一approachなら対象approach top20、Nomination union全体、approach/union fidelity、unionならunion全体と全4 Approach fidelityをgate自身から導出するか。pure E[r]をCandidate authorityの必須metricへ戻さず、`--required-metric`の手入力で省略できず、JPX snapshotの不在・partial、method hash不一致、nomination不足、unresolved outcome、union不一致をnegative testでfail closedにするか
 - [ ] calibration coverage の対象 row は diagnostics の件数だけでなく row identity も保存し、件数不一致・未知 status・感度計算不能を fail closed にするか。diagnostic-only panel は directory と provenance hash を production から分け、`empirical_change_evidence`ではvariant・入力窓・全rowのqualityを固定tupleとして照合するnegative testを持つか
 - [ ] `priced_master_without_universe` の対象 return が未解決でも値を推定せず、全対象 row への全損 / resolved 母集団中央値の両側代入で結論方向を判定するか。方向 split、diagnostics 件数と row identity の不一致、candidate partition 不一致、未知 unresolved status をそれぞれ fail closed にする negative test があるか
 - [ ] calibration total return は FY 行なし / `DivAnn: null` / `DivAnn: 0` を区別し、前 2 つを 0 円に補完していないか。同一 FY の訂正を重複加算せず、最新 non-null 訂正が負値・非有限なら古い正常値へ fallback せず拒否するか。DPS と entry price を同じ adjustment-factor basis へ揃える split negative test があるか。total-return 欠損が price-only metric を欠損または改変せず、optional metric を required にした run だけが、status 欠落・非 mapping・未知値を含めて fail closed になるか
@@ -496,15 +497,15 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
   - [ ] `docs/reference/screening-runtime.md` §3 (env var) / §8 (rules baseline) / Review Set の判断境界
   - [ ] 関連 test fixture (test_screening_cli の sweep / scorecard テスト等)
 - [ ] **screening Valuation Approach を削減する場合、以下を同 commit で揃える**:
-  - [ ] `method/screening/rules/*.yaml` の `candidate_discovery.approaches` とrepresentation targetから削除
-  - [ ] `engine/src/baibai_engine/screening/discovery/review_set.py` のeligibility/order/compositionを更新
+  - [ ] `method/screening/rules/*.yaml` の `candidate_discovery.approaches` から削除
+  - [ ] `engine/src/baibai_engine/screening/discovery/review_set.py` のeligibility/order/unionを更新
   - [ ] `engine/src/baibai_engine/screening/rule_config.py` のstrict configとmethod hashを更新
   - [ ] 削除根拠は保有 outcome の calibration で示す (安易な削除で有効な割安タイプを失わない)
 - [ ] **domain語彙をrenameする場合、new-write / read projection / behavior assetをatomicに揃える**:
   - [ ] producer、consumer、Web contract、skill、method、current docsから旧identifierを除去する
   - [ ] runtime adapterを残さず、必要なcanonical historyはone-shot cutoverでcurrent形へ変換する。実取引・税務記録と記録済みidentityは保持する
   - [ ] active code、Web contract、skill、method、docs、open Issueを横断検索し、旧identifierがcurrent operationとして残っていないか。退役語を守るだけのblacklistは追加しない
-- [ ] Review Setをnew-writeへ追加・変更する場合、run identity / Candidate membership / native E[r]、表示E[r]・FV・価格、順位、review capを同じ発行境界で照合するか。不整合なrowをResearch Triageへ焼き込めないnegative testがあるか
+- [ ] Review Setをnew-writeへ追加・変更する場合、run identity / exact Nomination union / native metric、secondary E[r]・FV・価格を同じ発行境界で照合するか。global rankを作らず、不整合なrowをResearch Triageへ焼き込めないnegative testがあるか
 - [ ] Review Setの`analysis`は全groupとnested fieldをstrict typed modelでwrite/read両境界に検証し、required group欠落・未知key・numeric fieldへのstringをnegative testで拒否するか。`context`をNomination入力へ接続していないか
 - [ ] **judgment-gate 系の必須 contract を追加する場合、bypass を test で塞ぐ**:
   - [ ] data 不在 label で hard trigger を回避できないか

@@ -18,12 +18,21 @@ from .sqlite import read_application_rows as read_rows
 # is not chronological when published_at values use different UTC offsets.
 RESEARCH_TRIAGE_HEAD_ORDER = "as_of DESC, julianday(published_at) DESC, research_triage_id DESC"
 # The interpolated order is a fixed module constant, never caller input.
-_SELECT = f"SELECT payload FROM research_triage ORDER BY {RESEARCH_TRIAGE_HEAD_ORDER}"  # nosec B608
+_CURRENT_SCHEMA = 3
+_SELECT = (  # nosec B608
+    "SELECT payload FROM research_triage "
+    f"WHERE json_extract(payload, '$.schema_version') = {_CURRENT_SCHEMA} "  # nosec B608
+    f"ORDER BY {RESEARCH_TRIAGE_HEAD_ORDER}"
+)
 _SELECT_BY_REVIEW_SET = (
     "SELECT payload FROM research_triage WHERE review_set_id = ? "
+    f"AND json_extract(payload, '$.schema_version') = {_CURRENT_SCHEMA} "
     f"ORDER BY {RESEARCH_TRIAGE_HEAD_ORDER}"  # nosec B608
 )
-_SELECT_BY_ID = "SELECT payload FROM research_triage WHERE research_triage_id = ?"
+_SELECT_BY_ID = (
+    "SELECT payload FROM research_triage WHERE research_triage_id = ? "
+    f"AND json_extract(payload, '$.schema_version') = {_CURRENT_SCHEMA}"  # nosec B608
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +47,7 @@ def _research_triage_head(connection: sqlite3.Connection) -> _ResearchTriageHead
 
     row = connection.execute(
         "SELECT research_triage_id, as_of, published_at FROM research_triage "
+        f"WHERE json_extract(payload, '$.schema_version') = {_CURRENT_SCHEMA} "
         f"ORDER BY {RESEARCH_TRIAGE_HEAD_ORDER} LIMIT 1"  # nosec B608
     ).fetchone()
     if row is None:
@@ -59,12 +69,7 @@ def list_research_triage_payloads(path: Path) -> list[dict[str, object]]:
 def research_triage_payloads_for_review_set(
     path: Path, review_set_id: str
 ) -> list[dict[str, object]]:
-    """Return every canonical judgment for one Review Set, newest first.
-
-    Historical views may include more than one judgment for a Review Set. The
-    ordered projection lets read models choose the newest while preserving every
-    immutable publication.
-    """
+    """Return every current-contract judgment for one Review Set, newest first."""
 
     return [_payload(row[0]) for row in read_rows(path, _SELECT_BY_REVIEW_SET, (review_set_id,))]
 
@@ -82,14 +87,14 @@ def research_triage_payload(path: Path, research_triage_id: str) -> dict[str, ob
 
 
 def current_research_triage(path: Path, research_triage_id: str) -> ResearchTriage | None:
-    """Return one current v2 judgment; historical v1 remains a read-model concern."""
+    """Return one current-contract judgment."""
 
     payload = research_triage_payload(path, research_triage_id)
     return ResearchTriage.model_validate(payload) if payload is not None else None
 
 
 def research_triage_payload_hash(triage: ResearchTriage) -> str:
-    """Hash the canonical persisted v2 payload exactly once for workspace binding."""
+    """Hash the canonical persisted current payload exactly once for workspace binding."""
 
     payload = canonical_json(triage.model_dump(mode="json"))
     return sha256(payload.encode("utf-8")).hexdigest()
@@ -99,7 +104,7 @@ def _payload(raw: object) -> dict[str, object]:
     payload = json.loads(str(raw))
     if not isinstance(payload, dict):
         raise ValueError("research_triage payload must be an object")
-    if payload.get("schema_version") not in {1, 2}:
+    if payload.get("schema_version") != _CURRENT_SCHEMA:
         raise ValueError(
             f"unsupported research triage schema_version: {payload.get('schema_version')!r}"
         )

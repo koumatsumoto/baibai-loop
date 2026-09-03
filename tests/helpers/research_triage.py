@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-TRIAGE_CONTRACT_ID = "research-triage-v2"
+TRIAGE_CONTRACT_ID = "research-triage-v3"
 RULES_HASH = "a" * 64
 METHOD_HASH = "b" * 64
 
@@ -14,14 +14,7 @@ def candidate_method() -> dict[str, Any]:
     return {
         "method_id": "candidate-discovery-v1",
         "method_hash": METHOD_HASH,
-        "review_capacity": 20,
         "nomination_depth": 20,
-        "representation_targets": {
-            "current-earnings-power": 6,
-            "normalized-earnings-power": 5,
-            "asset-value": 5,
-            "reinvestment-value": 4,
-        },
     }
 
 
@@ -96,7 +89,6 @@ def candidate_snapshot(ticker: str, *, position: int, er_annual: float = 0.1) ->
     return {
         "name": f"Company {ticker}",
         "sector_33": "情報・通信業",
-        "review_position": position,
         "nominations": [
             {
                 "valuation_approach_id": "current-earnings-power",
@@ -116,22 +108,19 @@ def published_review_set(
     tickers: Sequence[str] = ("2331",),
 ) -> dict[str, Any]:
     entries = []
-    for position, ticker in enumerate(tickers, start=1):
+    for position, ticker in enumerate(sorted(tickers), start=1):
         snapshot = candidate_snapshot(ticker, position=position)
         entries.append(
             {
-                "review_position": position,
                 "ticker": ticker,
                 "name": snapshot["name"],
                 "sector_33": snapshot["sector_33"],
                 "nominations": snapshot["nominations"],
-                "support_count": len(snapshot["nominations"]),
-                "rank_vector": [position, 21, 21, 21],
                 "analysis": snapshot["analysis"],
             }
         )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "review_set",
         "review_set_id": review_set_id,
         "run_revision_id": run_revision_id,
@@ -190,7 +179,7 @@ def research_triage_payload(
     expected_prior_research_triage_id: str | None = None,
     triage_contract_id: str = TRIAGE_CONTRACT_ID,
     entries: Sequence[Mapping[str, Any]] | None = None,
-    schema_version: int = 2,
+    schema_version: int = 3,
     **extra: Any,
 ) -> dict[str, Any]:
     """A publishable research_triage document at the current schema version."""

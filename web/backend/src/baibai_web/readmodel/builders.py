@@ -7,8 +7,6 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
-from pydantic import ValidationError
-
 from baibai_engine.read_api import (
     MACRO_CONTEXT_STALE_DAYS,
     HoldingSnapshot,
@@ -651,17 +649,11 @@ def _review_set_entries_entry_view(raw: Mapping[str, object]) -> ReviewSetEntryV
     analysis = raw.get("analysis")
     if not isinstance(analysis, Mapping):
         raise ValueError("Review Set entry analysis must be an object")
-    rank_vector = raw.get("rank_vector")
-    if not isinstance(rank_vector, list) or not all(isinstance(item, int) for item in rank_vector):
-        raise ValueError("Review Set rank_vector must be an integer array")
     return ReviewSetEntryView(
-        review_position=_required_int(raw["review_position"], field="review_position"),
         ticker=str(raw.get("ticker", "")),
         name=_text(raw.get("name")),
         sector_33=_text(raw.get("sector_33")),
         nominations=[ReviewSetNominationView.model_validate(item) for item in nominations],
-        support_count=_required_int(raw["support_count"], field="support_count"),
-        rank_vector=[int(item) for item in rank_vector],
         analysis=ReviewSetAnalysisView.model_validate(analysis),
     )
 
@@ -692,59 +684,34 @@ def _fair_value_gap_pct(anchor: float | None, price: float | None) -> float | No
     return round((anchor / price - 1) * 100, 4)
 
 
-def _required_int(value: object, *, field: str) -> int:
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise ValueError(f"{field} must be an integer")
-    return value
-
-
 def _research_triage_entry_view(raw: Mapping[str, object]) -> ResearchTriageEntryView:
-    """v1 history and current v2を同じjudgment-time snapshot viewへ投影する。"""
+    """Project one current Research Triage entry and its judgment-time snapshot."""
 
     snapshot = raw.get("candidate_snapshot")
+    if not isinstance(snapshot, Mapping):
+        raise ValueError("Research Triage candidate_snapshot must be an object")
     view = ResearchTriageEntryView.model_validate(
         {**raw, "machine_snapshot": None, "candidate_snapshot": None}
     )
-    if isinstance(snapshot, Mapping):
-        analysis = snapshot.get("analysis")
-        analysis = analysis if isinstance(analysis, Mapping) else {}
-        nominations = snapshot.get("nominations")
-        normalized = {
-            "name": snapshot.get("name"),
-            "sector_33": snapshot.get("sector_33"),
-            "review_position": snapshot.get("review_position"),
-            "nominations": nominations,
-            "support_count": len(nominations) if isinstance(nominations, list) else None,
-            "expected_return": analysis.get("expected_return"),
-            "data_quality": analysis.get("data_quality"),
-        }
-        return view.model_copy(
-            update={
-                "candidate_snapshot": ResearchTriageCandidateSnapshotView.model_validate(normalized)
-            }
-        )
-    snapshot = raw.get("machine_snapshot")
-    if not isinstance(snapshot, Mapping):
-        return view
+    analysis = snapshot.get("analysis")
+    if not isinstance(analysis, Mapping):
+        raise ValueError("Research Triage candidate analysis must be an object")
+    normalized = {
+        "name": snapshot.get("name"),
+        "sector_33": snapshot.get("sector_33"),
+        "nominations": snapshot.get("nominations"),
+        "expected_return": analysis.get("expected_return"),
+        "data_quality": analysis.get("data_quality"),
+    }
     return view.model_copy(
         update={
-            "candidate_snapshot": ResearchTriageCandidateSnapshotView.model_validate(
-                {key: value for key, value in snapshot.items() if key != "fair_value"}
-            )
+            "candidate_snapshot": ResearchTriageCandidateSnapshotView.model_validate(normalized)
         }
     )
 
 
 def _research_triage_view(raw: Mapping[str, object]) -> ResearchTriageView:
-    entries: list[ResearchTriageEntryView] = []
-    unreadable = 0
-    for item in _mapping_items(raw.get("entries")):
-        try:
-            entries.append(_research_triage_entry_view(item))
-        except ValidationError:
-            # 発行済み revision は immutable なので、read 経路が形の違いで落ちると
-            # export ごと止まる。読めない entry は数えて面へ出し、黙って消さない。
-            unreadable += 1
+    entries = [_research_triage_entry_view(item) for item in _mapping_items(raw.get("entries"))]
     return ResearchTriageView(
         research_triage_id=str(raw["research_triage_id"]),
         review_set_id=str(raw["review_set_id"]),
@@ -752,7 +719,6 @@ def _research_triage_view(raw: Mapping[str, object]) -> ResearchTriageView:
         as_of=date.fromisoformat(str(raw["as_of"])),
         published_at=datetime.fromisoformat(str(raw["published_at"])),
         entries=entries,
-        unreadable_entries=unreadable,
     )
 
 
@@ -1668,7 +1634,7 @@ _DELTA_ROWS_SHOWN = 10
 _DELTA_ER_MOVERS_SHOWN = 5
 # Report a machine E[r] move only past this size in percentage points. Measured on
 # the live store, adjacent runs move 30-40 names by at least 1pp and 3-4 by at least
-# this much, so a lower bar would leave the row cap doing all the review_set and drop
+# this much, so a lower bar would leave the row cap doing all the pool filtering and drop
 # the rest without saying so.
 _DELTA_ER_MOVE_MIN_PP = 3.0
 # Report a holding's move only past this size. Daily noise is not a change worth a

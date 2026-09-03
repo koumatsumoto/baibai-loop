@@ -115,7 +115,7 @@ def _insert_review_set(root: Path, *, review_set_id: str) -> str:
     run = ScreeningRunReader(runs_db).latest_run()
     assert run is not None
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "review_set",
         "review_set_id": review_set_id,
         "run_revision_id": run.run_revision_id,
@@ -123,16 +123,9 @@ def _insert_review_set(root: Path, *, review_set_id: str) -> str:
         "created_at": "2026-07-08T12:01:00+09:00",
         "screening_rules_hash": "1" * 64,
         "method": {
-            "method_id": "multi-valuation-v1",
+            "method_id": "multi-valuation-v3",
             "method_hash": "0" * 64,
-            "review_capacity": 20,
             "nomination_depth": 20,
-            "representation_targets": {
-                "current-earnings-power": 6,
-                "normalized-earnings-power": 5,
-                "asset-value": 5,
-                "reinvestment-value": 4,
-            },
         },
         "entries": [],
         "diagnostics": {},
@@ -540,26 +533,12 @@ def test_export_skips_security_view_for_ticker_no_source_knows(
     assert "9999" in capsys.readouterr().err
 
 
-def test_export_projects_research_triage_partial_machine_snapshot(
+def test_export_excludes_retired_research_triage_shape(
     app_method_root: Path, tmp_path: Path
 ) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     run_revision_id = _insert_review_set(app_method_root, review_set_id="review_set-test")
-    snapshot = {
-        "review_position": 4,
-        "nominations": [
-            {
-                "valuation_approach_id": "asset-value",
-                "valuation_method_id": "asset-value-v1",
-                "rank": 5,
-            }
-        ],
-        "support_count": 1,
-        "expected_return": {"er_annual": 0.0443},
-        "fair_value": None,
-        "data_quality": {"stale_fin_flag": False},
-    }
-    entry = skip_entry("2331", machine_snapshot=snapshot)
+    entry = skip_entry("2331", machine_snapshot={"review_position": 4})
     entry.pop("candidate_snapshot")
     payload = research_triage_payload(
         run_revision_id=run_revision_id,
@@ -575,48 +554,7 @@ def test_export_projects_research_triage_partial_machine_snapshot(
     screening = ScreeningView.model_validate_json(
         (output_dir / "views/screening_latest.json").read_text(encoding="utf-8")
     )
-    triage = screening.research_triages[0]
-    assert triage.unreadable_entries == 0
-    assert triage.entries[0].candidate_snapshot is not None
-    assert triage.entries[0].candidate_snapshot.model_dump(mode="json") == {
-        key: value for key, value in snapshot.items() if key != "fair_value"
-    } | {"name": None, "sector_33": None}
-
-
-def test_export_counts_malformed_research_triage_snapshot_as_unreadable(
-    app_method_root: Path, tmp_path: Path
-) -> None:
-    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-    run_revision_id = _insert_review_set(app_method_root, review_set_id="review_set-test")
-    entry = skip_entry(
-        "2331",
-        machine_snapshot={
-            "review_position": "not-an-integer",
-            "nominations": [],
-            "support_count": 1,
-            "expected_return": None,
-            "fair_value": None,
-            "data_quality": None,
-        },
-    )
-    entry.pop("candidate_snapshot")
-    payload = research_triage_payload(
-        run_revision_id=run_revision_id,
-        schema_version=1,
-        triage_contract_id="research-triage-v1",
-        entries=[entry],
-    )
-    _insert_research_triage(app_method_root, payload)
-    output_dir = tmp_path / "export"
-
-    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
-
-    screening = ScreeningView.model_validate_json(
-        (output_dir / "views/screening_latest.json").read_text(encoding="utf-8")
-    )
-    triage = screening.research_triages[0]
-    assert triage.entries == []
-    assert triage.unreadable_entries == 1
+    assert screening.research_triages == []
 
 
 def test_export_replaces_views_but_keeps_history(app_method_root: Path, tmp_path: Path) -> None:

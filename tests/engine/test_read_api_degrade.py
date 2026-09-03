@@ -326,7 +326,7 @@ def test_research_triage_list_and_latest_agree_on_the_newest_row(tmp_path: Path)
                     research_triage_id,
                     "2026-07-29",
                     "2026-07-29T14:00:00+09:00",
-                    f'{{"schema_version": 1, "entries": [], "research_triage_id": "{research_triage_id}"}}',
+                    f'{{"schema_version": 3, "entries": [], "research_triage_id": "{research_triage_id}"}}',
                 ),
             )
 
@@ -357,7 +357,7 @@ def test_research_triage_head_orders_offset_timestamps_by_real_instant(tmp_path:
                     published_at,
                     json.dumps(
                         {
-                            "schema_version": 1,
+                            "schema_version": 3,
                             "entries": [],
                             "research_triage_id": research_triage_id,
                         }
@@ -389,8 +389,8 @@ def _store_with_research_triage(store: Path, payload: dict[str, object]) -> None
         )
 
 
-@pytest.mark.parametrize("schema_version", [3, 4])
-def test_research_triage_reader_rejects_each_retired_version(
+@pytest.mark.parametrize("schema_version", [1, 2])
+def test_research_triage_reader_excludes_each_retired_version(
     tmp_path: Path, schema_version: int
 ) -> None:
     """Runtime readers do not infer fields for retired research_triage payloads."""
@@ -405,8 +405,7 @@ def test_research_triage_reader_rejects_each_retired_version(
         },
     )
 
-    with pytest.raises(ValueError, match="unsupported research triage schema_version"):
-        read_api.latest_research_triage_payload(store)
+    assert read_api.latest_research_triage_payload(store) is None
 
 
 def test_research_triage_payloads_for_review_set_answers_by_the_review_set_it_judged(
@@ -425,7 +424,7 @@ def test_research_triage_payloads_for_review_set_answers_by_the_review_set_it_ju
             (
                 "research_triage-20260729-current",
                 "review-set-20260729-a",
-                1,
+                3,
                 "2026-07-29T14:00:00+09:00",
             ),
         ):
@@ -451,7 +450,7 @@ def test_research_triage_payloads_for_review_set_answers_by_the_review_set_it_ju
     assert [payload["research_triage_id"] for payload in current] == [
         "research_triage-20260729-current"
     ]
-    assert current[0]["schema_version"] == 1
+    assert current[0]["schema_version"] == 3
 
     assert read_api.research_triage_payloads_for_review_set(store, "review-set-absent") == []
 
@@ -485,7 +484,7 @@ def test_research_triage_payloads_for_review_set_returns_every_judgment_newest_f
                     published_at,
                     json.dumps(
                         {
-                            "schema_version": 1,
+                            "schema_version": 3,
                             "entries": [],
                             "research_triage_id": research_triage_id,
                             "review_set_id": "review-set-20260729-a",
@@ -502,7 +501,7 @@ def test_research_triage_payloads_for_review_set_returns_every_judgment_newest_f
     ]
 
 
-def test_research_triage_reader_rejects_an_unknown_version(tmp_path: Path) -> None:
+def test_research_triage_reader_excludes_an_unknown_version(tmp_path: Path) -> None:
     store = tmp_path / "app.sqlite"
     with sqlite3.connect(store) as connection:
         connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
@@ -520,8 +519,7 @@ def test_research_triage_reader_rejects_an_unknown_version(tmp_path: Path) -> No
             ),
         )
 
-    with pytest.raises(ValueError, match="unsupported research triage schema_version"):
-        read_api.latest_research_triage_payload(store)
+    assert read_api.latest_research_triage_payload(store) is None
 
 
 @pytest.mark.parametrize("schema_version", [2])

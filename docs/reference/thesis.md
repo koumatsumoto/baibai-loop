@@ -28,7 +28,7 @@ thesisは新規の購入判断と保有見直しの判断根拠を固定する�
 
 この4つはdata/judgment namespaceである。`permanent_loss_risks`はjudgmentを構成する軸別評価、`independent_review_ref`は別artifactのsecond-pass review envelopeへの参照、`human_evidence_override`はreview後の人間によるrisk受容としてtop-levelに置く。最終発注判断はbroker操作として人間が所有し、AI judgmentへ混ぜない。
 
-ScreeningのE[r]とFV anchorは決定論的でも事実ではなくestimateである。candidate出力は`origin: estimate`、model version、unit、assumptionsを併記し、thesisへ採用する値はscenario modelのsourceとして固定する。
+ScreeningのE[r]とFV anchorは決定論的でも事実ではなく、Candidate Discovery後に参照するsecondary machine priorである。candidate出力は`origin: estimate`、model version、unit、assumptionsを併記する。Research後のscenario FVと5年CAGRだけがinvestment judgmentのestimateであり、machine priorを自動採用しない。
 
 AIを含む技術・産業構造変化は、企業価値または永久損失にmaterialな場合だけ通常Researchで扱う。正の影響は一次情報と必要な独立裏取りからscenario assumption、FV、Capital Allocation Assessmentの比較理由へ接続し、負の影響は`permanent_loss_risks.structural_decline`、`judgment.strongest_countercase`、必要ならscenarioとFVへ接続する。これらを変えない場合は、専用の記述、source、reviewを要求しない。
 
@@ -40,7 +40,7 @@ Candidate YAMLはlocalで再生成する探索成果物であり、thesisから�
 
 `input_snapshot`は`snapshot_version`と`producer_model_version`、ticker、as-of、source、factを持つ。判断時市場価格は`market_price`を正確に1件、valuationは`valuation_metric`を1件以上要求する。factはunit、as-of、`source_ids`を持ち、scenarioの起点となる利益・株数も同じsnapshotに置く。`estimates.market_price_fact_id`は判断時市場価格へjoinする。
 
-Review Setから機械転記するE[r]とFV anchorは観測factではないため、`facts`へ混ぜず`input_snapshot.screening_estimate`へ置く。このobjectは`origin: estimate`、model version、unit、assumptions、as-of、source IDsを保持し、E[r]は`annual_ratio`、FVは`JPY_per_share`で固定する。値はworkspaceの外部inputとしてhashで束縛したReview Set rowから転記し、編集可能なResearch Triageや表示用percent・丸め済みFVから逆算しない。Review Set、estimate snapshot、workspaceのas-ofは一致を必須とする。転記元が無いhistorical judgmentやFV欠損を推測で埋めない。
+Review Setから機械転記するE[r]とFV anchorは観測factではないため、`facts`へ混ぜず`input_snapshot.screening_estimate`へ置く。このobjectはResearch後の値との差分を説明するbaselineであり、最終FVや買い順位ではない。`origin: estimate`、model version、unit、assumptions、as-of、source IDsを保持し、E[r]は`annual_ratio`、FVは`JPY_per_share`で固定する。値はworkspaceの外部inputとしてhashで束縛したReview Set rowから転記し、編集可能なResearch Triageや表示用percent・丸め済みFVから逆算しない。Review Set、estimate snapshot、workspaceのas-ofは一致を必須とする。転記元が無いhistorical judgmentやFV欠損を推測で埋めない。
 
 外部sourceはHTTPS URLを持つ。local dataは消失し得るファイルパスを参照せず、`provider`、`dataset`、`retrieved_at`を持つ。`retrieved_at`はAI judgment時刻以前でなければならず、判断後に得た情報を判断時点snapshotへ遡及混入できない。市場価格は`observed_at`と`price_basis`（realtime / 調整済み終値 / 未調整終値）を持つ。すべてのsourceはthesisと同じtickerを明示し、source/fact/scenarioがthesis as-ofより未来の場合、source IDが解決しない場合、価格・valuationのtypeまたはunitが不正な場合は`incomplete`とする。HTML、PR body、operation sessionは説明・ID参照にとどめ、判断入力の正本を複製しない。
 
@@ -101,7 +101,7 @@ break_even_earnings_growth =
 
 ### ScreeningからresearchへのFV bridge
 
-`estimates.screening_fv_bridge`は、screening FV anchorからresearch FVへ修正した主要説明要因1つと短いnoteだけを持つ。全要因の寄与率や乖離率をthesisへ複製しない。`baibai-engine research evaluate`は`screening_fv_revision_pct = (current_fair_value_yen / screening_estimate.fair_value_anchor_yen - 1) * 100`を派生計算し、負値をresearchによるFV引き下げ、正値を引き上げとして返す。bridgeが存在するのにbaseline FVが無い場合は不整合、baselineがあるのにbridgeが無い場合は改善telemetryのwarningであり、投資判断のhard blockではない。
+`estimates.screening_fv_bridge`は、screening時点のmachine priorとResearch後のFVとの差を説明する主要要因1つと短いnoteだけを持つ。Research値をmachine値へ近づける機構ではなく、不一致は正常である。全要因の寄与率や乖離率をthesisへ複製しない。`baibai-engine research evaluate`は`screening_fv_revision_pct = (current_fair_value_yen / screening_estimate.fair_value_anchor_yen - 1) * 100`を派生計算し、負値をresearchによるFV引き下げ、正値を引き上げとして返す。bridgeが存在するのにbaseline FVが無い場合は不整合、baselineがあるのにbridgeが無い場合は改善telemetryのwarningであり、投資判断のhard blockではない。
 
 <a id="planning-only-execution-pricing"></a>
 

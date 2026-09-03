@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -36,6 +36,7 @@ def _decisions(*, research: bool = True) -> list[dict[str, object]]:
         {
             "ticker": "2331",
             "verdict": "research" if research else "skip",
+            "priority": 1 if research else None,
             "rationale": "一次開示で収益持続性を確認する"
             if research
             else "追加調査で識別する仮説がない",
@@ -177,7 +178,7 @@ def test_batch_api_rejects_reader_identity_mismatch_before_write(
     assert research_triage_payloads_for_review_set(app_db, "review-set-daily") == []
 
 
-def test_operation_starts_after_research_triage_and_reuses_only_exact_reference(
+def test_daily_triage_publishes_while_research_operation_is_active(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     app_db = tmp_path / "app.sqlite"
@@ -189,6 +190,12 @@ def test_operation_starts_after_research_triage_and_reuses_only_exact_reference(
         tickers=("2331",),
     )
     monkeypatch.setattr(batch_api, "ScreeningRunReader", _Reader)
+    operation = OperationService(app_db).start(
+        session_kind="capital-allocation",
+        as_of=date(2026, 8, 31),
+        started_at=datetime(2026, 8, 31, 18, 1, tzinfo=_JST),
+        payload=OperationPayload(checkpoint="research in progress", next="continue"),
+    )
     triage = batch_api.publish_daily_research_triage(
         "review-set-daily",
         _decisions(),
@@ -197,64 +204,8 @@ def test_operation_starts_after_research_triage_and_reuses_only_exact_reference(
         published_at=_NOW,
     )
 
-    first = batch_api.ensure_daily_research_operation(
-        triage,
-        app_db_path=app_db,
-        started_at=datetime(2026, 9, 1, 18, 1, tzinfo=_JST),
-    )
-    repeated = batch_api.ensure_daily_research_operation(
-        triage,
-        app_db_path=app_db,
-        started_at=datetime(2026, 9, 1, 18, 2, tzinfo=_JST),
-    )
-
-    assert first is not None
-    assert repeated == first
-    assert first.payload.canonical_refs == (triage.research_triage_id,)
-
-    service = OperationService(tmp_path / "other.sqlite")
-    unrelated = service.start(
-        session_kind="capital-allocation",
-        as_of=triage.as_of,
-        started_at=datetime(2026, 9, 1, 18, 1, tzinfo=_JST),
-        payload=OperationPayload(checkpoint="unrelated", next="wait"),
-    )
-    assert unrelated.as_of == triage.as_of
-    with pytest.raises(ValueError, match="active operation already exists"):
-        batch_api.ensure_daily_research_operation(
-            triage,
-            app_db_path=tmp_path / "other.sqlite",
-            started_at=datetime(2026, 9, 1, 18, 2, tzinfo=_JST),
-        )
-
-
-def test_all_skip_creates_no_operation(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    app_db = tmp_path / "app.sqlite"
-    initialize_database(app_db)
-    _Reader.payload = published_review_set(
-        as_of="2026-09-01",
-        review_set_id="review-set-daily",
-        run_revision_id="run-daily",
-        tickers=("2331",),
-    )
-    monkeypatch.setattr(batch_api, "ScreeningRunReader", _Reader)
-    triage = batch_api.publish_daily_research_triage(
-        "review-set-daily",
-        _decisions(research=False),
-        macro_context_id=None,
-        app_db_path=app_db,
-        published_at=_NOW,
-    )
-
-    assert (
-        batch_api.ensure_daily_research_operation(
-            triage,
-            app_db_path=app_db,
-            started_at=datetime(2026, 9, 1, 18, 1, tzinfo=_JST),
-        )
-        is None
-    )
-    assert OperationService(app_db).active() is None
+    assert triage.review_set_id == "review-set-daily"
+    assert OperationService(app_db).active() == operation
 
 
 def test_batch_api_binds_the_macro_context_loaded_before_a_new_head(

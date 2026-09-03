@@ -16,24 +16,24 @@ uv run baibai-batch analysis run
 # 過去日の手動再実行だけ --asof YYYY-MM-DD
 ```
 
-この1 commandが営業日判定、daily machine job、AI不要条件、Research Triage入力、strict AI result、engine publisher、必要なOperation開始を所有する。ID転記、workspace探索、`status / check / publish`の選択、成功logの確認は行わない。
+この1 commandが営業日判定、daily machine job、AI不要条件、Research Triage入力、strict AI result、engine publisherを所有する。ID転記、workspace探索、`status / check / publish`の選択、成功logの確認は行わない。Triage publishではOperationを開始しない。
 
 次はmodel process 0で終了する。
 
 - 非営業日、Review Setなし、Review Set 0件
-- 進行中の別Operation
 - exact Review Setのcanonical Research Triageが既に存在する
 - 必須machine inputの欠損・破損
 
-`awaiting_human`または`published_awaiting_human`なら、表示された`research`候補から人間がResearch Setを確定するまで`research` skillへ進まない。`published_all_skip`と空Review SetではOperationを作らない。
+`awaiting_human`または`published_awaiting_human`なら、表示された`research`候補から人間がResearch Setを確定するまで`research` skillへ進まない。active Operationはdaily Triageを止めず、新しいResearch開始だけを止める。Triage結果にかかわらず、このskillはOperationを作らない。
 
 ## 判断契約
 
 判断規則のSSOTは[`TRIAGE_POLICY`](../../../batch/src/baibai_batch/analysis/policy.py)である。manualに意味確認が必要な場合もこの短い定数だけを読み、scheduled runnerへ本skill、runbook、CLI help、raw logを渡さない。
 
-- AI出力は`ticker`、`verdict`、`rationale`、`research_question`、`key_risk`だけとする。
+- AI出力は`ticker`、`verdict`、`priority`、`rationale`、`research_question`、`key_risk`だけとする。
 - machine ranking、Review Set membership/order、Nomination、candidate snapshotを変更しない。
-- Macro ContextとE[r]は参考文脈であり、単独gateにしない。
+- 4 Approachの仮説をprimary authorityとし、relative weaknessは低priorityで表す。絶対的なResearch価値が無い場合だけskipにする。
+- Macro ContextとE[r]は参考文脈であり、単独gateにしない。E[r]はsecondary return priorで、高低・負値・欠損だけからverdictやpriorityを決めない。
 - unknownを否定事実へ変換しない。
 
 ## 失敗時

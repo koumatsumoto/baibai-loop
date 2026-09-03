@@ -94,25 +94,19 @@ def scaffold_research_triage(
                     "ticker": source.ticker,
                     "decision": "TODO",
                     "priority": None,
-                    "rationale": (
-                        "TODO — "
-                        f"review_position={source.review_position}; "
-                        f"support_count={len(nominations)}; "
-                        f"approaches={approaches}"
-                    ),
+                    "rationale": f"TODO — approaches={approaches}",
                     "research_question": None,
                     "key_risk": None,
                     "candidate_snapshot": {
                         "name": source.name,
                         "sector_33": source.sector_33,
-                        "review_position": source.review_position,
                         "nominations": [item.model_dump(mode="json") for item in nominations],
                         "analysis": source.analysis.model_dump(mode="json"),
                     },
                 }
             )
         draft = {
-            "schema_version": 2,
+            "schema_version": 3,
             "kind": "research_triage",
             "research_triage_id": f"research-triage-{compact_as_of}-<slug>",
             "review_set_id": review_set.review_set_id,
@@ -125,7 +119,7 @@ def scaffold_research_triage(
             "expected_prior_research_triage_id": latest_research_triage_id(app_db_path),
             "screening_rules_hash": review_set.screening_rules_hash,
             "candidate_discovery_method": review_set.method.model_dump(mode="json"),
-            "triage_contract_id": "research-triage-v2",
+            "triage_contract_id": "research-triage-v3",
             "entries": draft_entries,
         }
         rendered = yaml.safe_dump(draft, sort_keys=False, allow_unicode=True)

@@ -88,7 +88,6 @@ class ResearchTriageService:
                         "candidate_snapshot": ResearchTriageCandidateSnapshot(
                             name=source.name,
                             sector_33=source.sector_33,
-                            review_position=source.review_position,
                             nominations=source.nominations,
                             analysis=source.analysis,
                         )

@@ -2934,10 +2934,6 @@
           "default": null,
           "title": "Sector 33"
         },
-        "review_position": {
-          "title": "Review Position",
-          "type": "integer"
-        },
         "nominations": {
           "anyOf": [
             {
@@ -2952,17 +2948,6 @@
             }
           ],
           "title": "Nominations"
-        },
-        "support_count": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Support Count"
         },
         "expected_return": {
           "anyOf": [
@@ -2992,9 +2977,7 @@
       "required": [
         "name",
         "sector_33",
-        "review_position",
         "nominations",
-        "support_count",
         "expected_return",
         "data_quality"
       ],
@@ -3105,11 +3088,6 @@
           },
           "title": "Entries",
           "type": "array"
-        },
-        "unreadable_entries": {
-          "default": 0,
-          "title": "Unreadable Entries",
-          "type": "integer"
         }
       },
       "required": [
@@ -3118,8 +3096,7 @@
         "run_revision_id",
         "as_of",
         "published_at",
-        "entries",
-        "unreadable_entries"
+        "entries"
       ],
       "title": "ResearchTriageView",
       "type": "object"
@@ -3468,12 +3445,8 @@
       "type": "object"
     },
     "ReviewSetEntryView": {
-      "description": "One nominated security in deterministic multi-approach review order.",
+      "description": "One member of the exact approach Nomination union.",
       "properties": {
-        "review_position": {
-          "title": "Review Position",
-          "type": "integer"
-        },
         "ticker": {
           "title": "Ticker",
           "type": "string"
@@ -3507,29 +3480,15 @@
           "title": "Nominations",
           "type": "array"
         },
-        "support_count": {
-          "title": "Support Count",
-          "type": "integer"
-        },
-        "rank_vector": {
-          "items": {
-            "type": "integer"
-          },
-          "title": "Rank Vector",
-          "type": "array"
-        },
         "analysis": {
           "$ref": "#/$defs/ReviewSetAnalysisView"
         }
       },
       "required": [
-        "review_position",
         "ticker",
         "name",
         "sector_33",
         "nominations",
-        "support_count",
-        "rank_vector",
         "analysis"
       ],
       "title": "ReviewSetEntryView",

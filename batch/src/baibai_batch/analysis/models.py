@@ -36,7 +36,7 @@ class ModelInput(BaseModel):
     policy: tuple[str, ...]
     as_of: str
     macro_context: MacroProjection
-    candidates: tuple[TriageCandidate, ...] = Field(min_length=1, max_length=20)
+    candidates: tuple[TriageCandidate, ...] = Field(min_length=1, max_length=80)
 
     @field_validator("policy", "candidates", mode="before")
     @classmethod
@@ -48,7 +48,7 @@ class ModelOutput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     schema_version: Literal[1]
-    decisions: tuple[DailyTriageDecision, ...] = Field(min_length=1, max_length=20)
+    decisions: tuple[DailyTriageDecision, ...] = Field(min_length=1, max_length=80)
 
     @field_validator("decisions", mode="before")
     @classmethod
@@ -60,6 +60,11 @@ class ModelOutput(BaseModel):
         tickers = [decision.ticker for decision in self.decisions]
         if len(tickers) != len(set(tickers)):
             raise ValueError("AI decision tickers must be unique")
+        priorities = sorted(
+            decision.priority for decision in self.decisions if decision.priority is not None
+        )
+        if priorities != list(range(1, len(priorities) + 1)):
+            raise ValueError("research priorities must be contiguous from 1")
         return self
 
 

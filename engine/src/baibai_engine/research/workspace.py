@@ -38,6 +38,8 @@ from baibai_engine.foundation.repository_layout import ER_LEVEL_CALIBRATION_CONT
 from baibai_engine.foundation.research_triage import ResearchTriage
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.operation.models import OperationPayload, OperationSession
+from baibai_engine.operation.service import OperationService
 from baibai_engine.position.ledger import (
     PortfolioSnapshot,
     reconcile_portfolio,
@@ -183,7 +185,7 @@ def _load_mapping(path: Path, *, label: str) -> dict[str, object]:
 class PrepareResult:
     workspace: Path
     actionable: bool
-    research_capacity: int
+    researchable_count: int
     review_set_size: int
     research_triage_id: str | None = None
     researchable_tickers: tuple[str, ...] = ()
@@ -196,8 +198,8 @@ class _ResearchTriageBinding:
     ``researchable`` is the Research Triage's ``research`` set in judgment order: the exact
     set a human may admit into the Research Set. The human still chooses
     which of those to research; what they cannot do is widen the set from the
-    workspace, because research capacity and a canonical thesis are spent per
-    ticker and the Gate already decided this cycle's answer for each one.
+    workspace, because a canonical thesis is produced per ticker and the Gate
+    already decided this cycle's answer for each one.
     """
 
     research_triage_id: str
@@ -221,17 +223,16 @@ def _research_triage_decisions(
 
 
 def _triage_candidates(triage: ResearchTriage) -> tuple[dict[str, object], ...]:
-    rows = []
-    for entry in sorted(triage.entries, key=lambda item: item.candidate_snapshot.review_position):
+    rows: list[dict[str, object]] = []
+    for entry in sorted(triage.entries, key=lambda item: item.ticker):
         snapshot = entry.candidate_snapshot
         rows.append(
             {
                 "ticker": entry.ticker,
                 "name": snapshot.name,
                 "sector_33": snapshot.sector_33,
-                "review_position": snapshot.review_position,
                 "nominations": [item.model_dump(mode="json") for item in snapshot.nominations],
-                "support_count": len(snapshot.nominations),
+                "research_priority": entry.priority,
                 "analysis": snapshot.analysis.model_dump(mode="json"),
             }
         )
@@ -243,7 +244,7 @@ def _resolve_research_triage(
     db_path: Path | None,
     expected_research_triage_id: str,
 ) -> _ResearchTriageBinding:
-    """Resolve one current v2 judgment directly from the application DB."""
+    """Resolve one current judgment directly from the application DB."""
 
     try:
         triage = current_research_triage(database_path(db_path), expected_research_triage_id)
@@ -323,14 +324,17 @@ def prepare_workspace(
     research_triage_id: str,
     db_path: Path | None,
     workspace: Path,
+    research_set: Sequence[str] = (),
+    started_at: datetime | None = None,
     force: bool = False,
 ) -> PrepareResult:
     """Build a workspace from one self-contained ResearchTriage and the ledger.
 
     The workspace keeps the whole Review Set as comparison context but may only
     admit the Research Triage's ``research`` tickers into the Research Set.
-    Holdings/reservations stay ledger annotations, never hard exclusions. A triage
-    with no ``research`` entries is normal and still produces a workspace.
+    Holdings/reservations stay ledger annotations, never hard exclusions. The human
+    selection is fixed at this Research start boundary; an empty set is normal and
+    does not create an Operation.
     """
     gate = _resolve_research_triage(
         db_path=db_path,
@@ -338,6 +342,21 @@ def prepare_workspace(
     )
     asof = gate.asof
     review_set_entries = list(gate.candidates)
+    selected = tuple(research_set)
+    if len(selected) != len(set(selected)):
+        raise ResearchWorkspaceDataError("Research Set tickers must be unique")
+    forbidden = [ticker for ticker in selected if ticker not in gate.researchable]
+    if forbidden:
+        raise ResearchWorkspaceDataError(
+            f"Research Set includes {', '.join(forbidden)}, which "
+            f"{gate.research_triage_id} did not mark research"
+        )
+    if selected:
+        _existing_research_operation(
+            gate=gate,
+            research_set=selected,
+            db_path=db_path,
+        )
     snapshot, append_head = _load_snapshot(db_path)
 
     manifest_path = workspace / "manifest.yaml"
@@ -352,14 +371,14 @@ def prepare_workspace(
         _annotate_candidate(row, held=held, reserved=reserved, decisions=gate.decision_by_ticker)
         for row in review_set_entries
     ]
-    research_capacity = len(gate.researchable)
+    researchable_count = len(gate.researchable)
 
     workspace_doc = {
         "as_of": asof.isoformat(),
         "candidates": annotated,
         "researchable_tickers": list(gate.researchable),
-        "research_set": [],
-        "research_capacity": research_capacity,
+        "research_set": list(selected),
+        "researchable_count": researchable_count,
     }
     er_context, er_context_ref = _load_er_distribution_context(
         screening_rules_hash=gate.screening_rules_hash,
@@ -390,18 +409,96 @@ def prepare_workspace(
     manifest = {
         "as_of": asof.isoformat(),
         "inputs": manifest_inputs,
-        "rules": {"research_capacity": research_capacity},
+        "research_set": list(selected),
+        "rules": {"researchable_count": researchable_count},
     }
     _write_workspace_file(manifest_path, manifest)
+    if selected:
+        _start_research_operation(
+            gate=gate,
+            research_set=selected,
+            db_path=db_path,
+            started_at=started_at or datetime.now(JST),
+        )
     _write_status(workspace, db_path=db_path)
     return PrepareResult(
         workspace=workspace,
-        actionable=bool(gate.researchable),
-        research_capacity=research_capacity,
+        actionable=bool(selected),
+        researchable_count=researchable_count,
         review_set_size=len(annotated),
         research_triage_id=gate.research_triage_id,
         researchable_tickers=gate.researchable,
     )
+
+
+def _start_research_operation(
+    *,
+    gate: _ResearchTriageBinding,
+    research_set: tuple[str, ...],
+    db_path: Path | None,
+    started_at: datetime,
+) -> OperationSession:
+    """Start one Operation only after the human Research Set is fixed."""
+
+    service = OperationService(db_path)
+    active = _existing_research_operation(
+        gate=gate,
+        research_set=research_set,
+        db_path=db_path,
+    )
+    if active is not None:
+        return active
+    payload = OperationPayload(
+        checkpoint="Human Research Set confirmed; Fundamental Research started",
+        artifacts=(
+            {
+                "kind": "research_triage",
+                "ref": gate.research_triage_id,
+                "research_set": list(research_set),
+            },
+        ),
+        canonical_refs=(gate.research_triage_id,),
+        human_confirmation={
+            "request": "confirm the Research Set",
+            "result": ",".join(research_set),
+        },
+        next="perform Fundamental Research for the confirmed Research Set",
+    )
+    return service.start(
+        session_kind="capital-allocation",
+        as_of=gate.asof,
+        started_at=started_at,
+        payload=payload,
+    )
+
+
+def _existing_research_operation(
+    *,
+    gate: _ResearchTriageBinding,
+    research_set: tuple[str, ...],
+    db_path: Path | None,
+) -> OperationSession | None:
+    """Return the exact active Research start, or reject a conflicting session."""
+
+    active = OperationService(db_path).active()
+    if active is not None:
+        selected: tuple[str, ...] | None = None
+        for artifact in active.payload.artifacts:
+            values = artifact.get("research_set")
+            if (
+                artifact.get("kind") == "research_triage"
+                and artifact.get("ref") == gate.research_triage_id
+                and isinstance(values, list)
+                and all(isinstance(value, str) for value in values)
+            ):
+                selected = tuple(str(value) for value in values)
+                break
+        if active.session_kind == "capital-allocation" and selected == research_set:
+            return active
+        raise ResearchWorkspaceConflictError(
+            f"active operation already exists: {active.operation_id}"
+        )
+    return None
 
 
 def _holding_subject_problem(snapshot: PortfolioSnapshot, *, ticker: str, asof: date) -> str | None:
@@ -492,7 +589,7 @@ def prepare_holding_workspace(
     return PrepareResult(
         workspace=workspace,
         actionable=True,
-        research_capacity=1,
+        researchable_count=1,
         review_set_size=1,
     )
 
@@ -536,7 +633,7 @@ def _research_comparison(
     candidates = [
         {
             "ticker": str(row.get("ticker") or ""),
-            "review_position": row.get("review_position"),
+            "research_priority": row.get("research_priority"),
             "portfolio_annotation": row.get("portfolio_annotation"),
             "temporary_mispricing_hypothesis": None,
             "permanent_loss_conclusion": None,
@@ -688,16 +785,10 @@ def _draft_status(workspace: Path, manifest: Mapping[str, object]) -> dict[str, 
     selected_ticker = _string_or_none(comparison.get("selected_ticker"))
 
     if not research_set_tickers:
-        if research_workspace.get("research_capacity") == 0:
-            return _status_payload(
-                workspace_status="no_research",
-                selected_ticker=None,
-                next_command=None,
-            )
         return _status_payload(
-            workspace_status="awaiting_research_set_admission",
+            workspace_status="no_research",
             selected_ticker=None,
-            next_command="review the ResearchTriage and fill research-workspace.yaml research_set",
+            next_command=None,
         )
 
     missing_research = [
@@ -972,9 +1063,8 @@ def _validate_editable_drafts(
                 "ticker",
                 "name",
                 "sector_33",
-                "review_position",
                 "nominations",
-                "support_count",
+                "research_priority",
                 "analysis",
             )
         }
@@ -986,9 +1076,9 @@ def _validate_editable_drafts(
             "rebuild the workspace with `research prepare --force`"
         )
     research_set = research_workspace.get("research_set")
-    research_capacity = research_workspace.get("research_capacity")
-    if not isinstance(research_capacity, int) or research_capacity < 0:
-        raise ResearchWorkspaceDataError("workspace research_capacity is invalid")
+    researchable_count = research_workspace.get("researchable_count")
+    if not isinstance(researchable_count, int) or researchable_count < 0:
+        raise ResearchWorkspaceDataError("workspace researchable_count is invalid")
     if not isinstance(research_set, list) or not all(
         isinstance(ticker, str) and ticker for ticker in research_set
     ):
@@ -998,6 +1088,12 @@ def _validate_editable_drafts(
         ticker not in review_set_tickers for ticker in research_set_tickers
     ):
         raise ResearchWorkspaceDataError("workspace research_set is invalid")
+    manifest_research_set = manifest.get("research_set")
+    if manifest_research_set != research_set:
+        raise ResearchWorkspaceConflictError(
+            "workspace Research Set differs from the human-confirmed set; "
+            "rebuild the workspace with `research prepare --force`"
+        )
     # Narrowing guard, not a reachable state: `_verify_external_inputs` reads purpose
     # from this same manifest and returns None only for Position Review, which left
     # above. A missing binding is refused there, with the command that rebuilds it.
@@ -1005,16 +1101,14 @@ def _validate_editable_drafts(
         raise ResearchWorkspaceDataError(
             "Fundamental Research workspace has no ResearchTriage binding"
         )
-    # Named before the slot count: over-filling and reaching past the Gate both show
-    # up as "too many tickers", and only one of them is a capacity question.
     forbidden = [ticker for ticker in research_set_tickers if ticker not in gate.researchable]
     if forbidden:
         raise ResearchWorkspaceDataError(
             f"workspace Research Set includes {', '.join(forbidden)}, which "
             f"{gate.research_triage_id} did not mark research"
         )
-    if len(research_set_tickers) > research_capacity:
-        raise ResearchWorkspaceDataError("workspace Research Set exceeds research_capacity")
+    if len(research_set_tickers) > researchable_count:
+        raise ResearchWorkspaceDataError("workspace Research Set exceeds researchable_count")
 
     candidates = _dict_list(comparison.get("candidates"))
     comparison_tickers = [str(row.get("ticker") or "") for row in candidates]
@@ -1350,19 +1444,6 @@ def _finite_number(value: object, *, label: str) -> float:
     if not isfinite(number):
         raise ResearchWorkspaceDataError(f"{label} must be finite")
     return number
-
-
-def _validate_review_set_estimate_asof(
-    *,
-    review_set: Mapping[str, object],
-    review_set_entries: Sequence[Mapping[str, object]],
-    asof: date,
-) -> None:
-    expected_asof = asof.isoformat()
-    if review_set.get("as_of") != expected_asof:
-        raise ResearchWorkspaceDataError("Review Set as_of does not match prepare as_of")
-    if len(review_set_entries) > 20:
-        raise ResearchWorkspaceDataError("Review Set exceeds capacity 20")
 
 
 def _checklist_skeleton(*, price: PreviousClose) -> dict[str, object]:

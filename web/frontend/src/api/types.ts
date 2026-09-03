@@ -553,9 +553,7 @@ export interface ResearchRevisionView {
 export interface ResearchTriageCandidateSnapshotView {
   name: string | null
   sector_33: string | null
-  review_position: number
   nominations: Record<string, unknown>[] | null
-  support_count: number | null
   expected_return: Record<string, unknown> | null
   data_quality: Record<string, unknown> | null
 }
@@ -577,7 +575,6 @@ export interface ResearchTriageView {
   as_of: string
   published_at: string
   entries: ResearchTriageEntryView[]
-  unreadable_entries: number
 }
 
 export interface ReservationView {
@@ -633,16 +630,13 @@ export interface ReviewSetDataQualityView {
 }
 
 /**
- * One nominated security in deterministic multi-approach review order.
+ * One member of the exact approach Nomination union.
  */
 export interface ReviewSetEntryView {
-  review_position: number
   ticker: string
   name: string | null
   sector_33: string | null
   nominations: ReviewSetNominationView[]
-  support_count: number
-  rank_vector: number[]
   analysis: ReviewSetAnalysisView
 }
 

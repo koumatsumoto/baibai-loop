@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from contextlib import closing
 from datetime import date
 from pathlib import Path
@@ -116,19 +116,16 @@ def screening_review_set_payloads(
     *,
     run_revision_id: str | None = None,
 ) -> list[dict[str, object]]:
-    """Project retained pre-cutover publications for read-only Web history.
+    """Return current-contract Review Set publications for the read-only Web view."""
 
-    Point reads and every writer continue to require the current typed contract. This
-    projection exists only so one retained historical root cannot stop the whole Web
-    export during rollout; it neither invents missing provenance nor makes that root a
-    valid input to Research Triage.
-    """
+    from baibai_engine.screening.discovery.review_set import validate_review_set_shape
 
     if run_revision_id is None:
         query = """
             SELECT s.review_set_id, s.run_revision_id, r.asof_date, s.created_at, s.payload
             FROM review_set AS s
             JOIN screening_run AS r USING (run_revision_id)
+            WHERE json_extract(s.payload, '$.schema_version') = 2
             ORDER BY r.asof_date DESC, s.created_at DESC, s.review_set_id DESC
         """
         parameters: tuple[object, ...] = ()
@@ -138,6 +135,7 @@ def screening_review_set_payloads(
             FROM review_set AS s
             JOIN screening_run AS r USING (run_revision_id)
             WHERE s.run_revision_id = ?
+              AND json_extract(s.payload, '$.schema_version') = 2
             ORDER BY r.asof_date DESC, s.created_at DESC, s.review_set_id DESC
         """
         parameters = (run_revision_id,)
@@ -150,7 +148,7 @@ def screening_review_set_payloads(
     projected: list[dict[str, object]] = []
     for row in rows:
         payload = json.loads(str(row["payload"]))
-        _validate_read_model_review_set(payload)
+        validate_review_set_shape(payload)
         projected.append(
             {
                 "review_set_id": str(row["review_set_id"]),
@@ -161,37 +159,6 @@ def screening_review_set_payloads(
             }
         )
     return projected
-
-
-def _validate_read_model_review_set(payload: object) -> None:
-    from baibai_engine.screening.discovery.review_set import (
-        PublishedReviewSet,
-        ReviewSetContractError,
-        validate_review_set_shape,
-    )
-
-    if not isinstance(payload, dict):
-        raise ReviewSetContractError("published review set payload is not an object")
-    try:
-        validate_review_set_shape(payload)
-        return
-    except ReviewSetContractError as error:
-        contract_error = error
-
-    current_fields = frozenset(PublishedReviewSet.model_fields)
-    extra_fields = set(payload) - current_fields
-    if (
-        "screening_rules_hash" in payload
-        or len(extra_fields) != 1
-        or not isinstance(payload[next(iter(extra_fields))], Mapping)
-    ):
-        raise contract_error
-    typed_projection = {key: payload[key] for key in current_fields if key in payload}
-    typed_projection["screening_rules_hash"] = "historical-provenance-unavailable"
-    try:
-        PublishedReviewSet.model_validate(typed_projection)
-    except ValueError:
-        raise contract_error from None
 
 
 def _absent_as_none[T](path: Path, read: Callable[[], T]) -> T | None:

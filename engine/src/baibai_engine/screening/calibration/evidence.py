@@ -12,18 +12,18 @@ EvidenceStatus = str
 DecisionSubject = str
 ESTIMATOR_POLICY_SUBJECT = "estimator_policy"
 CANDIDATE_DISCOVERY_APPROACH_SUBJECT = "candidate_discovery_approach"
-CANDIDATE_DISCOVERY_COMPOSER_SUBJECT = "candidate_discovery_composer"
+CANDIDATE_DISCOVERY_UNION_SUBJECT = "candidate_discovery_nomination_union"
 DECISION_SUBJECTS = (
     ESTIMATOR_POLICY_SUBJECT,
     CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
-    CANDIDATE_DISCOVERY_COMPOSER_SUBJECT,
+    CANDIDATE_DISCOVERY_UNION_SUBJECT,
 )
-CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC = "candidate_discovery_composer_fidelity"
+CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC = "candidate_discovery_nomination_union_fidelity"
 ESTIMATOR_POLICY_MANDATORY_METRICS = ("er_calibration",)
-COMPOSER_MANDATORY_METRICS = (
+UNION_MANDATORY_METRICS = (
     "review_set_all",
-    "pure_er_top20",
-    CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC,
+    CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
+    *(f"candidate_discovery_approach_{item.replace('-', '_')}_fidelity" for item in APPROACH_IDS),
 )
 
 
@@ -39,9 +39,6 @@ def candidate_discovery_approach_fidelity_metric(approach: str) -> str:
 
 KNOWN_METRICS = frozenset(
     (
-        "review_set_top5",
-        "review_set_top10",
-        "review_set_top20",
         "review_set_all",
         "pure_er_top5",
         "pure_er_top10",
@@ -50,7 +47,7 @@ KNOWN_METRICS = frozenset(
         "er_level_calibration",
         "margin_short_to_adv",
         "normalized_per_3fy",
-        CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC,
+        CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
         *(candidate_discovery_approach_top20_metric(item) for item in APPROACH_IDS),
         *(candidate_discovery_approach_fidelity_metric(item) for item in APPROACH_IDS),
     )
@@ -101,8 +98,8 @@ def subject_mandatory_metrics(scope: EvaluationScope) -> tuple[str, ...]:
     metrics: list[str]
     if scope.decision_subject == ESTIMATOR_POLICY_SUBJECT:
         metrics = list(ESTIMATOR_POLICY_MANDATORY_METRICS)
-    elif scope.decision_subject == CANDIDATE_DISCOVERY_COMPOSER_SUBJECT:
-        metrics = list(COMPOSER_MANDATORY_METRICS)
+    elif scope.decision_subject == CANDIDATE_DISCOVERY_UNION_SUBJECT:
+        metrics = list(UNION_MANDATORY_METRICS)
     else:
         metrics = []
     if (
@@ -114,8 +111,7 @@ def subject_mandatory_metrics(scope: EvaluationScope) -> tuple[str, ...]:
         metrics.extend(
             (
                 "review_set_all",
-                "pure_er_top20",
-                CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC,
+                CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
                 candidate_discovery_approach_top20_metric(approach),
                 candidate_discovery_approach_fidelity_metric(approach),
             )

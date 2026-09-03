@@ -128,7 +128,7 @@ def test_run_and_review_set_round_trip(tmp_path: Path) -> None:
         reader.get_review_set("review-set-a")
 
 
-def test_web_projection_reads_retained_pre_cutover_review_set_without_weakening_point_read(
+def test_web_projection_rejects_malformed_current_review_set_like_point_read(
     tmp_path: Path,
 ) -> None:
     database = tmp_path / "runs.sqlite"
@@ -169,14 +169,5 @@ def test_web_projection_reads_retained_pre_cutover_review_set_without_weakening_
     with pytest.raises(ReviewSetContractError, match="published review set is invalid"):
         ScreeningRunReader(database).get_review_set("review-set-a")
 
-    publications = screening_review_set_payloads(database, run_revision_id="run-a")
-
-    assert [item["review_set_id"] for item in publications] == ["review-set-a"]
-    assert "screening_rules_hash" not in publications[0]["payload"]  # type: ignore[operator]
-
-    with sqlite3.connect(database) as connection:
-        connection.execute(
-            "UPDATE review_set SET payload = json_remove(payload, '$.historical_context')"
-        )
     with pytest.raises(ReviewSetContractError, match="published review set is invalid"):
         screening_review_set_payloads(database, run_revision_id="run-a")

@@ -97,10 +97,8 @@ class CandidateDiscoveryRules(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
     method_id: str = Field(min_length=1)
-    review_capacity: int = Field(gt=0)
     nomination_depth: int = Field(gt=0)
     common_eligibility: CommonEligibilityRules
-    representation_targets: Mapping[str, int]
     approaches: Mapping[str, ValuationApproachRules]
 
     @model_validator(mode="after")
@@ -113,12 +111,6 @@ class CandidateDiscoveryRules(BaseModel):
         }
         if set(self.approaches) != expected:
             raise ValueError("candidate discovery must define the four valuation approaches")
-        if set(self.representation_targets) != expected:
-            raise ValueError("representation targets must cover the four valuation approaches")
-        if any(value <= 0 for value in self.representation_targets.values()):
-            raise ValueError("representation targets must be positive")
-        if sum(self.representation_targets.values()) != self.review_capacity:
-            raise ValueError("review capacity must equal the representation target sum")
         return self
 
 

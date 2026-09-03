@@ -236,7 +236,7 @@ def test_publish_accepts_monotonic_head_progression(
     )
 
 
-def test_first_v2_publish_can_follow_historical_v1_without_rewriting_it(tmp_path: Path) -> None:
+def test_first_current_publish_ignores_retired_history_without_rewriting_it(tmp_path: Path) -> None:
     db_path = tmp_path / "app.sqlite"
     initialize_database(db_path)
     historical_payload = {
@@ -262,8 +262,8 @@ def test_first_v2_publish_can_follow_historical_v1_without_rewriting_it(tmp_path
     triage, review_set = _publication(
         as_of="2026-07-19",
         published_at="2026-07-19T10:00:00+09:00",
-        research_triage_id="triage-first-v2",
-        expected_prior="triage-historical-v1",
+        research_triage_id="triage-first-v3",
+        expected_prior=None,
     )
 
     assert (
