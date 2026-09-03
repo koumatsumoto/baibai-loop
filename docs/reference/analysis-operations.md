@@ -1,13 +1,13 @@
 ---
 title: "Daily analysis run"
-summary: "既存daily jobと1回のbounded AI判断を、canonical validationを保って1 commandで完了する契約。"
+summary: "cloud正本のReview Setを1回のbounded AI判断へ渡し、canonical validationを保って発行する契約。"
 doc_type: reference
 status: active
 ---
 
 # Daily analysis run
 
-`baibai-batch analysis run`は既存daily machine jobからResearch Triage publishまでを1 commandで実行する。`baibai_batch.jobs.daily`を再利用し、screening、Review Set、macro series更新を重複実装しない。full-depth Macro Contextはmanualの`macro-context` skillだけが扱う。
+`baibai-batch analysis run`はpull済みのcanonical runs storeから対象日のReview Setを読み、Research Triage publishまでを1 commandで実行する。Screening RunとReview Setはcloud dailyだけが生成する。local analysisはscreening、Review Set publish、macro series更新、read model export、prune、task reconcileを行わない。full-depth Macro Contextはmanualの`macro-context` skillだけが扱う。
 
 ```bash
 uv run baibai-batch analysis run
@@ -17,8 +17,8 @@ uv run baibai-batch analysis run --asof YYYY-MM-DD  # 手動再実行
 ## 実行境界
 
 1. `flock`でlocal analysisを1本に制限し、JST基準日を決める。
-2. 既存daily jobで営業日判定、screening、Review Set、macro series更新を行う。
-3. AI不要条件をcanonical storeとmachine outputから先に確定する。
+2. `--asof`未指定時だけmarket calendarでJST当日の営業日を判定する。指定時はその日をexactに対象とする。
+3. runs storeから対象`as_of`で`created_at`が最新のcanonical Review Setを1件読み、AI不要条件を確定する。対象日に無ければ前営業日へfallbackしない。
 4. Review Set全体、短い[`TRIAGE_POLICY`](../../batch/src/baibai_batch/analysis/policy.py)、利用可能なMacro Contextの共有projectionを1つのstdin payloadにする。
 5. local `codex exec`を原則1 process・1 requestで実行し、strict JSONだけを受け取る。
 6. ticker集合、重複、欠落、field shape、長さを検証する。
@@ -36,15 +36,15 @@ AIはfilesystem path、command、run / Review Set ID、CAS、digest、publish操
 - exact Review Setのcanonical Research Triageが既にある
 - Review Set、candidate snapshot、application store等の必須machine inputが欠損・破損している
 
-既存Triageがあれば`awaiting_human`を返す。active Operationの有無はdaily Review Set / Triageの生成条件に含めない。別Operationがactiveでもdaily Triageは発行でき、新しいResearch開始だけを`research prepare`が拒否する。
+Review Setなしは`no_review_set`、既存Triageがあれば`awaiting_human`または`already_published`を返す。active Operationの有無はTriageの生成条件に含めない。別Operationがactiveでもdaily Triageは発行でき、新しいResearch開始だけを`research prepare`が拒否する。
 
 ## Failureと再実行
 
-AI result不正、adapter failure、binding / CAS conflictでは新しいResearch Triageを書かない。L2の途中状態は正本にせず、次回は`analysis run`をfreshに実行する。canonical Triageが既に存在する場合だけexact Review Setで照合し、modelとpublishを重複実行しない。active pointer、heartbeat、lease、publish intent、stage resume、candidate cacheは持たない。
+AI result不正、adapter failure、binding / CAS conflictでは新しいResearch Triageを書かない。次回は同じ対象日のcanonical Review Setを使って`analysis run`をfreshに実行する。canonical Triageが既に存在する場合だけexact Review Setで照合し、modelとpublishを重複実行しない。active pointer、heartbeat、lease、publish intent、stage resume、candidate cacheは持たない。
 
 ## 出力とlocal artifact
 
-stdoutはstatus、as-of、model process / request数、input bytes、actual token（取得できる場合）、research / skip数、human action、log pathだけをcompactに出す。`summary.json`にはAI durationとtool / file read数に加え、`daily_exit_code`と`daily_deferred_failure_count`を残す。dailyのdeferred failureがあってもResearch Triageまで正常terminalへ到達した`analysis run`はexit 0とし、required input、AI result、binding、CAS、canonical writeのfailureはnon-zeroを維持する。`daily` command単体のexit 3は変更しない。通常成功時にlogを読む必要はない。
+stdoutはstatus、as-of、model process / request数、input bytes、actual token（取得できる場合）、research / skip数、human action、log pathだけをcompactに出す。`summary.json`にはmachine command 0とAI duration、tool / file read数を残す。非営業日、Review Setなし、空Review Set、exact既存Triageはexit 0とし、calendar、store、AI result、binding、CAS、canonical writeのfailureはnon-zeroを維持する。通常成功時にlogを読む必要はない。
 
 各runは`${XDG_STATE_HOME:-~/.local/state}/baibai-loop/analysis/<timestamp>/`に最大4 artifactを置く。
 

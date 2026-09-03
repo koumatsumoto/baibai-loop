@@ -28,7 +28,21 @@ class _Reader:
         pass
 
     def get_review_set(self, _review_set_id: str) -> SimpleNamespace:
-        return SimpleNamespace(payload=self.payload)
+        return self._publication()
+
+    def latest_review_set(self, *, as_of_date: str) -> SimpleNamespace | None:
+        if self.payload["as_of"] != as_of_date:
+            return None
+        return self._publication()
+
+    def _publication(self) -> SimpleNamespace:
+        return SimpleNamespace(
+            review_set_id=self.payload["review_set_id"],
+            run_revision_id=self.payload["run_revision_id"],
+            as_of_date=self.payload["as_of"],
+            created_at=self.payload["created_at"],
+            payload=self.payload,
+        )
 
 
 def _decisions(*, research: bool = True) -> list[dict[str, object]]:
@@ -228,7 +242,8 @@ def test_batch_api_binds_the_macro_context_loaded_before_a_new_head(
         )
     )
     MacroContextService(app_db).publish(first, expected_head=None)
-    loaded = batch_api.load_daily_analysis_context("review-set-daily", app_db_path=app_db)
+    loaded = batch_api.load_daily_analysis_context(date(2026, 9, 1), app_db_path=app_db)
+    assert loaded is not None
     assert loaded.macro_context is not None
     assert loaded.macro_context.context_id == first.context_id
 

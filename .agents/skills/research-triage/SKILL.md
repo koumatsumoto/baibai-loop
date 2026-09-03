@@ -12,11 +12,13 @@ description: machine runnerが固定したReview Setをresearch / skipへ分類�
 ## 通常実行
 
 ```bash
+batch/scripts/pull.sh
 uv run baibai-batch analysis run
 # 過去日の手動再実行だけ --asof YYYY-MM-DD
+batch/scripts/publish.sh
 ```
 
-この1 commandが営業日判定、daily machine job、AI不要条件、Research Triage入力、strict AI result、engine publisherを所有する。ID転記、workspace探索、`status / check / publish`の選択、成功logの確認は行わない。Triage publishではOperationを開始しない。
+`pull.sh`はcloud machine正本を取得し、`analysis run`は営業日判定、対象`as_of`のlatest canonical Review Set解決、AI不要条件、Research Triage入力、strict AI result、engine publisherだけを所有する。Screening RunやReview Setをlocalで生成せず、対象日にReview Setが無ければ前営業日へfallbackしない。`publish.sh`はapplication DBをuploadしてcloud materializeを起動する。ID転記、workspace探索、`status / check / publish`の選択、成功logの確認は行わない。Triage publishではOperationを開始しない。
 
 次はmodel process 0で終了する。
 

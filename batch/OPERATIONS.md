@@ -710,7 +710,7 @@ step outcome から notifier が `[FAILED]` を出す。
 - 営業日判定は market store の `jquants_market_calendar` が情報源。対象日をカバーして
   いない場合は黙って続行せず明示エラーで停止する
 
-## local daily analysis — machine処理とResearch Triageの1 command実行
+## local daily analysis — canonical Review SetのResearch Triage
 
 localで日次判断まで進める入口は次の1本だけである。
 
@@ -719,7 +719,7 @@ uv run baibai-batch analysis run
 uv run baibai-batch analysis run --asof YYYY-MM-DD  # 手動再実行
 ```
 
-同じdaily job APIを実行し、AI不要条件を先に判定してから、必要な場合だけReview Set全体を1回のlocal AI requestへ渡す。AI resultのstrict検証、Research Triage publish、`research`がある場合のOperation開始までmachineが行う。full-depth Macro Contextはこのcommandへ含めず、manualの`macro-context` skillから実行する。
+先に`batch/scripts/pull.sh`で取得したcloud正本のruns storeから、対象`as_of`でlatest published Review Setを読み、AI不要条件を判定してから必要な場合だけReview Set全体を1回のlocal AI requestへ渡す。対象日のReview Setが無ければ前営業日へfallbackせず`no_review_set`で終了する。AI resultのstrict検証とResearch Triage publishだけを行い、Screening Run、Review Set、macro refresh、read model export、prune、task reconcile、Operationは作らない。full-depth Macro Contextはmanualの`macro-context` skillから実行する。
 
 通常stdoutはstatus、model / token計測、research / skip数、human action、private log pathだけを返す。成功log、CLI help、runbook、local artifactをAIやoperatorが読む必要はない。失敗時は表示された`log_path`だけを確認し、同じcommandをfreshに再実行する。active pointer、resume、candidate cache、`prepare / status / check / publish`の分散操作は使わない。詳細は[`analysis-operations.md`](../docs/reference/analysis-operations.md)を正本とする。
 

@@ -29,7 +29,7 @@ uv run baibai-engine screening research-triage publish DRAFT.yaml \
 uv run baibai-engine screening prune --keep N [--runs-db PATH]
 ```
 
-`run`のexit 2はpublication済みpartial warningである。warningを確認してから同じ`run_revision_id`で後続へ進む。Review Setの再表示に再発行を使わない。`--run-revision-id` + `--run-at`と`--review-set-id` + `--created-at`はcallerがidentityを固定する場合のsame-ID idempotencyを提供する。通常のcloud dailyとlocal `analysis run`はserver-generated identityを使い、AI outputからIDやclockを受け取らない。
+`run`のexit 2はpublication済みpartial warningである。warningを確認してから同じ`run_revision_id`で後続へ進む。Review Setの再表示に再発行を使わない。`--run-revision-id` + `--run-at`と`--review-set-id` + `--created-at`はcallerがidentityを固定する場合のsame-ID idempotencyを提供する。cloud dailyはserver-generated identityを使い、AI outputからIDやclockを受け取らない。
 
 ## Security Analysis
 
@@ -93,7 +93,7 @@ cloud dailyはL1 / L2 machine処理だけを自動実行する。
 screening run -> review-set publish -> web materialize -> publish
 ```
 
-cloudからL3 Research Triageを発行しない。local `baibai-batch analysis run`は同じdaily jobを再利用した後、AI不要条件をmachineで確定し、必要な場合だけReview Set全体を原則1 requestで分類してResearch Triageを発行する。Research Set確定とCapital Allocation Assessmentは人間gateの後に残す。full-depth Macro Context、migration、全期間再取得はどちらの日次経路にも載せない。
+cloudからL3 Research Triageを発行しない。local `baibai-batch analysis run`はpull済みruns storeから対象`as_of`のlatest published Review Setを読み、必要な場合だけReview Set全体を原則1 requestで分類してResearch Triageを発行する。対象日にReview Setが無ければ前営業日へfallbackしない。Research Set確定とCapital Allocation Assessmentは人間gateの後に残す。full-depth Macro Context、migration、全期間再取得はどちらの日次経路にも載せない。
 
 ## Pruneと履歴
 

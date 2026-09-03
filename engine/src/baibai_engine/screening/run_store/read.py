@@ -167,6 +167,24 @@ class ScreeningRunReader:
             ).fetchone()
             return None if row is None else _review_set_from_row(row)
 
+    def latest_review_set(self, *, as_of_date: str) -> ReviewSetPublication | None:
+        """Return the latest published Review Set for exactly one as-of date."""
+
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN")
+            row = connection.execute(
+                """
+                SELECT s.*, r.asof_date
+                FROM review_set AS s
+                JOIN screening_run AS r USING (run_revision_id)
+                WHERE r.asof_date = ?
+                ORDER BY julianday(s.created_at) DESC, s.review_set_id DESC
+                LIMIT 1
+                """,
+                (as_of_date,),
+            ).fetchone()
+            return None if row is None else _review_set_from_row(row)
+
     def list_review_sets(
         self,
         *,

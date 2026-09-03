@@ -48,15 +48,15 @@ CLI を叩くだけなので、失敗した step はローカルで実行でき�
 schema 変更・store 再構築・全期間再取得・較正 store の作り直しは、ローカルで完結させ、
 **その成果をローカルからクラウドへ反映する**。
 
-- 移行を含む merge 後にやること: ローカルで store を完全にし、判断成果物（run / Review Set / serving view /
-  application DB）までローカルで作り、`r2_transfer.sh` の push 系と `batch/scripts/publish.sh` でクラウドへ出す
+- 移行を含む merge 後にやること: ローカルで store を完全にし、必要な判断成果物とapplication DBをローカルで作り、
+  `r2_transfer.sh` の push 系と `batch/scripts/publish.sh` でクラウドへ出す
 - やらないこと: 日次 batch を dispatch して移行を吸収させる、その完走を待つ、クラウドに再取得させる
 - 理由は 3 つある。(a) 完全なデータはローカルに在るので、クラウドの再取得は同じ行をもう一度買うだけになる。
   (b) 日次 batch はその日の増分のために組まれており、移行の入力（深い履歴・再構築済み cache）を持たない。
   (c) 移行がクラウドで途中失敗すると、正本が新旧混在のまま残る
 
-判断（`screening run` / `review-set publish` / research-triage publish）も同じで、**ローカルの store が完全なら、
-クラウドの run を待つ理由は無い**。
+Screening Run / Review Setはcloud dailyだけが生成する。local Research Triageは`pull.sh`で取得したcanonical Review Setを読み、
+application DBへ発行して`publish.sh`で反映する。
 
 ## 運用の入口（trigger → skill）
 

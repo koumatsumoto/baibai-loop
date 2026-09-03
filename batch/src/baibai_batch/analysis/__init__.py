@@ -1,4 +1,4 @@
-"""Produce, stop, measure, and expose the one-command daily analysis run."""
+"""Produce, stop, measure, and expose canonical Review Set triage."""
 
 from .cli import main
 
