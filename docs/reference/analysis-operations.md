@@ -1,13 +1,13 @@
 ---
 title: "Daily analysis run"
-summary: "cloud正本のReview Setを1回のbounded AI判断へ渡し、canonical validationを保って発行する契約。"
+summary: "canonical Review Setを1回のbounded AI判断へ渡し、canonical validationを保って発行する契約。"
 doc_type: reference
 status: active
 ---
 
 # Daily analysis run
 
-`baibai-batch analysis run`はpull済みのcanonical runs storeから対象日のReview Setを読み、Research Triage publishまでを1 commandで実行する。Screening RunとReview Setはcloud dailyだけが生成する。local analysisはscreening、Review Set publish、macro series更新、read model export、prune、task reconcileを行わない。full-depth Macro Contextはmanualの`macro-context` skillだけが扱う。
+`baibai-batch analysis run`はpull済みのcanonical runs storeから対象日のReview Setを読み、Research Triage publishまでを1 commandで実行する。Screening RunとReview Setはcloud dailyまたは明示的なlocal dailyが同じruns storeへ生成し、local dailyのbundleはpull時のgenerationが変わっていない場合だけ反映する。`analysis run`自体はscreening、Review Set publish、macro series更新、read model export、prune、task reconcileを行わない。full-depth Macro Contextはmanualの`macro-context` skillだけが扱う。
 
 ```bash
 uv run baibai-batch analysis run

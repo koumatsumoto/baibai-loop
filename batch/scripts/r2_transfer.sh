@@ -736,10 +736,6 @@ case "${1:-}" in
     seed_keys market.sqlite runs.sqlite macro.sqlite baibai.sqlite
     ;;
   push-machine)
-    if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
-      printf 'refusing machine-store push outside GitHub Actions\n' >&2
-      exit 2
-    fi
     push_pulled_keys "${machine_bundle_keys[@]}"
     ;;
   push-market)

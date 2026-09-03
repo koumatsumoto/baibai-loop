@@ -29,7 +29,7 @@ uv run baibai-engine screening research-triage publish DRAFT.yaml \
 uv run baibai-engine screening prune --keep N [--runs-db PATH]
 ```
 
-`run`のexit 2はpublication済みpartial warningである。warningを確認してから同じ`run_revision_id`で後続へ進む。Review Setの再表示に再発行を使わない。`--run-revision-id` + `--run-at`と`--review-set-id` + `--created-at`はcallerがidentityを固定する場合のsame-ID idempotencyを提供する。cloud dailyはserver-generated identityを使い、AI outputからIDやclockを受け取らない。
+`run`のexit 2はpublication済みpartial warningである。warningを確認してから同じ`run_revision_id`で後続へ進む。Review Setの再表示に再発行を使わない。`--run-revision-id` + `--run-at`と`--review-set-id` + `--created-at`はcallerがidentityを固定する場合のsame-ID idempotencyを提供する。daily runnerは実行場所にかかわらずserver-generated identityを使い、AI outputからIDやclockを受け取らない。
 
 ## Security Analysis
 

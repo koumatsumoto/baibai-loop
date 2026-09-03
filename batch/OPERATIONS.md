@@ -45,7 +45,7 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 | --- | --- | --- |
 | `baibai-stores` | `market.sqlite`（lakeが持たない2 data table + `lake_store_origin` metadata） | `cloud-daily-batch` + ローカル`push-market`（cloud copyのmerge後だけupload） |
 | `baibai-stores` | `lake/`（lake所有17 datasetのcanonical L1） | `cloud-daily-batch`の`publish-lake` + ローカル`r2_transfer.sh publish-lake` |
-| `baibai-stores` | `runs.sqlite` | `cloud-daily-batch` |
+| `baibai-stores` | `runs.sqlite` | `cloud-daily-batch` + 明示的なローカルdailyの`push-machine` |
 | `baibai-stores` | `macro.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-macro`（全履歴。cloud copyのmerge後だけupload） |
 | `baibai-stores` | `baibai.sqlite` | ローカル`publish.sh`（replica） |
 | `baibai-serving` | `views/*.json` | GitHub Actions materialize |
@@ -213,7 +213,7 @@ uv run baibai-engine screening ticker-profile --ticker TICKER
 ### ローカルからクラウドを更新する
 
 **前提**: schemaを上げるcodeをmainへ入れ、ローカルの変更と対象storeを確認する。cloud copyを取り込んで
-包含したものだけをcloudへ更新する。`market.sqlite` / `macro.sqlite`では`push-market` / `push-macro`が
+包含したものだけをcloudへ更新する。deep historyを単独反映する`market.sqlite` / `macro.sqlite`では`push-market` / `push-macro`が
 次の3段を1コマンドで行う。
 
 1. **download** — cloud copyをstagingへ取る
@@ -227,7 +227,20 @@ batch/scripts/r2_transfer.sh push-macro
 gh workflow run cloud-materialize.yml --ref main   # 表示へ反映する場合
 ```
 
-**成功確認**: mergeがcloud側の全行を包含し、CAS uploadが成功したことをcommand outputで確認する。
+ローカルでdaily全体を実行した場合は、実行直前の`pull.sh`が記録した3 storeのETagを使い、
+同じbundleを1 commandで反映する。
+
+```bash
+batch/scripts/r2_transfer.sh publish-lake
+batch/scripts/r2_transfer.sh push-machine
+```
+
+`push-machine`はupload前にmarket / runs / macroのremote ETagをすべてpull時点と照合し、1本でも
+変わっていれば3本とも書かずに停止する。各PUTも同じETagへ`If-Match`を付け、3本成功後だけ
+`machine-manifest.json`を更新する。
+
+**成功確認**: 単独pushはmergeがcloud側の全行を包含したこと、bundle pushはpull時の全generationと
+remoteが一致したことを確認し、いずれもCAS upload成功をcommand outputで確認する。
 表示へ反映する場合は`cloud-materialize`の完了も確認する。
 
 **market storeはlakeへpublishしてからpushする。** lake所有17 tableのcanonicalはR2のL1 releaseに
@@ -248,7 +261,8 @@ hydrate後にfetch/build/publishへ直列に進み、変更後の再hydrateを�
 **pull側にschema検査を置いてはならない。** pullは転送とSQLite整合性確認に限定し、writerとreaderがcurrent schemaだけを受理する。これにより、storeを1行も書かない転送までschema不一致へ過剰に結合しない。
 
 **停止と復旧**: mergeの取り残し、origin不一致、schema不一致、CAS failureではuploadしない。
-最新cloud copyからやり直す。`runs.sqlite`はcloudが唯一のwriterであり、localからpushしない。
+最新cloud copyからやり直す。local dailyの`push-machine`は、そのdaily直前に`pull.sh`で取得した
+3 storeを一組として使い、個別の`pull-runs`や無条件uploadでruns storeだけを差し替えない。
 
 ### application DB を反映する
 
@@ -524,8 +538,8 @@ hydrateして成果を上書きしない。
 **実行と成功確認**: `push-market`または`push-macro`を実行する。mergeとCAS pushの成功後、3 keyのHEADから
 receiptが現在世代へ書き直される。次の`pull-machine`でreceipt一致を確認する。
 
-**停止条件**: どちらの手順でも`push-machine`をローカルから実行しない。`GITHUB_ACTIONS`の外では拒否される。
-`runs.sqlite`はcloudが唯一のwriterで、ローカルcopyのuploadは巻き戻しにしかならない。
+**停止条件**: `push-market` / `push-macro`はruns storeを変更しない。local dailyのruns成果を反映する場合だけ、
+直前のbundle pullからremote generationが変わっていないことを`push-machine`に検査させ、個別uploadは行わない。
 
 ### 日次 workflow を手動実行する
 
@@ -598,7 +612,7 @@ Workerの再deployは不要である。
 ## R2 transferの安全境界
 
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
-- 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括のmachine store pushはGitHub Actionsからだけ許可する（`runs.sqlite`はcloudが唯一のwriterで、無条件uploadが古いローカルcopyで巻き戻すため）。`macro.sqlite` / `market.sqlite`はローカルからも`push-macro` / `push-market`でuploadできるが、いずれもcloud copyのmergeを通した後だけで、mergeがcloud側の行の取り残しを検出したら停止する。
+- 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括の`push-machine`はGitHub Actionsと明示的なlocal dailyで使い、pull時の全ETag一致と各PUTの`If-Match`を必須にする。`macro.sqlite` / `market.sqlite`を単独でローカルから進める場合は`push-macro` / `push-market`でcloud copyをmergeし、cloud側の行の取り残しを検出したら停止する。
 - pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例してGB級のstoreではaws CLI既定のread timeout 60秒に収まらないため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。**`market.sqlite`が運ぶのはlakeが持たない2 data tableと`lake_store_origin` metadataだけである。** runner実測は`market.sqlite` 4,972,544 bytes（snapshot 46秒・backup 114秒・upload 2秒）、`runs.sqlite` 52,838,400 bytes（1秒・7秒・3秒）、`macro.sqlite` 256,184,320 bytes（2秒・17秒・14秒）である。market storeのsnapshotが46秒なのは、空にする前のfull storeを一度copyするためである。この`.bak` 114秒は置き換えられる側が1.88GBだった初回の値で、以降は5MBのcopyになる。`push-machine`はkeyごとに`store push: key=... bytes=... snapshot=...s backup=...s upload=...s`を出すので、storeが伸びたときの内訳はrunのlogで見る。
 - machine store の`.bak`は1世代のみで、次のpushで置き換わる。日次batchが毎営業日pushするため、実質の巻き戻し猶予は約24時間である。`baibai.sqlite`だけは`baibai.sqlite.bak-YYYYMMDD`（JST）で日ごとに1世代を残し、直近14世代を超えた分をpush成功後に削除する。machine storeはsourceから作り直せて毎営業日書き換わるのに対し、application storeのjudgmentとledgerは何も再生成しないためである。prune は`baibai.sqlite.bak-`配下をlistし、`baibai.sqlite.bak-YYYYMMDD`に一致するkeyだけを完全一致で削除する（prefix削除はしない）。registry編集後は日次workflowの`registry-prune-pending` / `registry-prune`行（transaction ID・series ID・observation/provider-run削除件数）を当日中に確認する。pending に対応する committed 行が無い実行や意図しないpruneを検出したら、次のpushが`.bak`を置き換える前に状態を確認・復元する。
 - 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。
@@ -719,7 +733,7 @@ uv run baibai-batch analysis run
 uv run baibai-batch analysis run --asof YYYY-MM-DD  # 手動再実行
 ```
 
-先に`batch/scripts/pull.sh`で取得したcloud正本のruns storeから、対象`as_of`でlatest published Review Setを読み、AI不要条件を判定してから必要な場合だけReview Set全体を1回のlocal AI requestへ渡す。対象日のReview Setが無ければ前営業日へfallbackせず`no_review_set`で終了する。AI resultのstrict検証とResearch Triage publishだけを行い、Screening Run、Review Set、macro refresh、read model export、prune、task reconcile、Operationは作らない。full-depth Macro Contextはmanualの`macro-context` skillから実行する。
+先に`batch/scripts/pull.sh`で取得したR2のcanonical runs storeから、対象`as_of`でlatest published Review Setを読み、AI不要条件を判定してから必要な場合だけReview Set全体を1回のlocal AI requestへ渡す。対象日のReview Setが無ければ前営業日へfallbackせず`no_review_set`で終了する。AI resultのstrict検証とResearch Triage publishだけを行い、Screening Run、Review Set、macro refresh、read model export、prune、task reconcile、Operationは作らない。full-depth Macro Contextはmanualの`macro-context` skillから実行する。
 
 通常stdoutはstatus、model / token計測、research / skip数、human action、private log pathだけを返す。成功log、CLI help、runbook、local artifactをAIやoperatorが読む必要はない。失敗時は表示された`log_path`だけを確認し、同じcommandをfreshに再実行する。active pointer、resume、candidate cache、`prepare / status / check / publish`の分散操作は使わない。詳細は[`analysis-operations.md`](../docs/reference/analysis-operations.md)を正本とする。
 

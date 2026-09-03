@@ -71,7 +71,7 @@ trigger 起点の運用は 6 つで、それぞれ 1 skill が手順・gate 順�
 
 | 運用（skill） | 工程 | 人間 gate |
 | --- | --- | --- |
-| `research-triage` | cloudのReview Setをpull → local AIでResearch Triage publish | Research Triage の `research` → Research Set の admission |
+| `research-triage` | canonical Review Setをpull → local AIでResearch Triage publish | Research Triage の `research` → Research Set の admission |
 | `research` | workspace → thesis / review → Capital Allocation Assessment → ephemeral plan-limit | buy / defer / reject と broker 操作 |
 | `ledger-record` | broker fact → ledger draft → apply | `position apply-draft --confirmed` |
 | `position-review` | 決算・material event → Position Review → action | Position Review の publish |
@@ -166,7 +166,7 @@ package ごとに、所有する store、public CLI、L1 のどの工程にど�
 | `appdb` | application DB | `baibai-engine db` | application DB のpath・current schema・writer connectionを **産む**、**止める**（schema version） | 2 |
 | `read_api` | —（read-only） | engine 内部 | 全工程を **見せる**（query-only view）、materialize の前提を **止める** | 2 |
 | `baibai_web` | —（read-only） | `baibai-web` | 判断面を **見せる**（read model・UI・materialize・Worker）、**止める**（read-only・Bearer） | 2 |
-| `baibai_batch` | R2 `baibai-stores` / `baibai-serving`（transfer）、local noncanonical analysis artifact | repository-internal `baibai-batch` | cloud日次機械工程とlocal Research Triageを **産む**（cloudのfetch → screen → Review Set、localのbounded AI → engine publish、transfer）、**止める**（AI前no-op・exit code・strict AI result・engine binding/CAS）、**測る**（model request / token / input bytes / duration）、**見せる**（compact status・private log・Discord・watchdog） | 1、2、判断writeの既存CAS |
+| `baibai_batch` | R2 `baibai-stores` / `baibai-serving`（transfer）、local noncanonical analysis artifact | repository-internal `baibai-batch` | cloud / 明示的localの日次機械工程とlocal Research Triageを **産む**（fetch → screen → canonical Review Set、localのbounded AI → engine publish、transfer）、**止める**（AI前no-op・exit code・strict AI result・engine binding/CAS）、**測る**（model request / token / input bytes / duration）、**見せる**（compact status・private log・Discord・watchdog） | 1、2、判断writeの既存CAS |
 | `tools` | — | — | 開発 gate で **止める**（`quality/drift`）、一時的studyで **測る**（`experiments`）、deploy診断を **産む**（`diagnostics`） | — |
 
 engine は web / batch / tools に依存しない。Web が engine へ触れる経路は `read_api`、batch は `batch_api` と `read_api` に限定し、その不変条件は import-linter で検査する。read-only Web の実行時契約は `web/backend/src/baibai_web/__init__.py` の module docstring、store 欠損時に reader が止まるか空を返すかは [Failure policy](#failure-policy) を正本とする。
@@ -178,7 +178,7 @@ engine は web / batch / tools に依存しない。Web が engine へ触れる�
 - `baibai-engine <domain> <command>`: query と application service 経由の write
 - `baibai-web`: local read-only UI
 
-`baibai-batch` はGitHub Actionsと運用scriptがproduction jobを呼び、localでは`analysis run`がpull済みcanonical Review SetからResearch Triage publishまでを閉じるrepository-internal entry pointである。Screening RunとReview Setのwriterはcloud dailyだけである。AIへはReview Set全体のsanitized inputを1つ渡し、domain writeは`batch_api`経由のengine serviceへ委譲する。契約は[`reference/analysis-operations.md`](./reference/analysis-operations.md)を正本とする。
+`baibai-batch` はGitHub Actionsと運用scriptがproduction jobを呼び、localでは`analysis run`がpull済みcanonical Review SetからResearch Triage publishまでを閉じるrepository-internal entry pointである。Screening RunとReview Setはcloud dailyまたは明示的なlocal dailyが同じcanonical runs storeへ発行する。local dailyの反映はpull時の3 storeのgenerationが変わっていない場合だけ`push-machine`が受理する。AIへはReview Set全体のsanitized inputを1つ渡し、domain writeは`batch_api`経由のengine serviceへ委譲する。契約は[`reference/analysis-operations.md`](./reference/analysis-operations.md)を正本とする。
 
 主要 domain は `lake / screening / macro / operation / position / research / task / db`。lake CLIはcurrent L1 releaseのpublish・resolve・hydrate・retentionだけを扱う。schema field、option、stdoutのYAML / JSON形式はpublic `--help`とengine modelを正とする。
 
