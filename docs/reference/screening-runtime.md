@@ -87,7 +87,7 @@ E[r] calibration contextは共有read contractがartifact schema、generated/exp
 
 ## Daily batchとlocal analysis
 
-cloud dailyはL1 / L2 machine処理だけを自動実行する。
+daily runnerはcloud scheduleまたは明示的なlocal実行でL1 / L2 machine処理だけを行い、同じcanonical runs storeを進める。
 
 ```text
 screening run -> review-set publish -> web materialize -> publish
@@ -128,9 +128,8 @@ screeningが読むmarket storeのtableとidentityは次のとおり。列の意�
 - rules/method hash一致
 - 同一入力でReview Setがbyte-equivalent
 - E[r]だけを変更してもmembership/order不変
-- target未充足をdiagnosticsへ明示
 - Research Triageの全entry一致、priority、rules/method identity、expected prior ID
-- 非営業日、空Review Set、exact既存Triageでmodel process 0。active Operationはdaily Triageを止めない
+- 対象日のReview Setなし、空Review Set、exact既存Triageでmodel process 0。active Operationはdaily Triageを止めない
 - 通常Review Setは共有Macro projectionを1回だけ含む1 AI request、invalid resultはcanonical write 0
 - Triage publishではOperation 0。人間がnon-empty Research Setを確定してResearchを開始した時だけOperation 1
 - run store schema 5、application DB schema 20

@@ -13,7 +13,6 @@ description: daily batch、local analysis、store同期、配信、障害復旧�
 
 1. compactなstdout / `summary.json`のstatusとreason
 2. `run.log`のboundedなredacted内容
-3. daily machine stageの失敗なら、そのstageのlocal reproductionに必要なstoreとcommand
 
 random retry、別as-ofへの置換、「最新Review Set」の再検索をしない。AI result不正やbinding / CAS conflictではcanonical write 0を確認し、原因を直して同じcommandをfreshに再実行する。旧runのresume、active pointer、force-new、candidate cacheは使わない。
 
@@ -33,7 +32,7 @@ random retry、別as-ofへの置換、「最新Review Set」の再検索をし�
 | store | authority | local operation |
 | --- | --- | --- |
 | market | lake release + cloud / localの補完table | 読む前に`pull-market` / `pull-machine` → `hydrate-market`。反映は`publish-lake` → `push-market`。mergeがno-lossを証明できない場合はuploadしない |
-| runs | cloud only | `pull-machine`で読む。local runをcloudへpushしない |
+| runs | R2 canonical。cloud / 明示的local dailyが同じ履歴を進める | `pull-machine`で読み、local dailyは直前pullの全store CASを通す`push-machine`だけで反映 |
 | macro | cloud rolling window + local full history | `pull-machine`で読み、`push-macro`はmerge後だけ。誤値はdeleteでなくretraction |
 | application | local | pullで置換しない。判断成果物を完成させてからcanonical publish手順で反映する |
 

@@ -1,4 +1,4 @@
-"""Triage one cloud-authored Review Set without reproducing its machine work."""
+"""Triage one canonical Review Set without reproducing its machine work."""
 
 from __future__ import annotations
 
@@ -42,14 +42,12 @@ from baibai_batch.analysis.policy import TRIAGE_POLICY
 from baibai_engine.batch_api import (
     APPLICATION_DB_PATH,
     MACRO_CONTEXT_STALE_DAYS,
-    MARKET_DB_PATH,
     RUNS_DB_PATH,
     DailyAnalysisContext,
     ResearchTriageCandidateSnapshot,
     load_daily_analysis_context,
     publish_daily_research_triage,
 )
-from baibai_engine.read_api import market_calendar_business_day
 
 _JST = ZoneInfo("Asia/Tokyo")
 _MAX_MODEL_INPUT_BYTES = 1_000_000
@@ -354,17 +352,9 @@ def _execute(
     log: RunLog,
     summary: dict[str, object],
     model_runner: ModelRunner,
-    gate_business_day: bool,
 ) -> int:
     app_db_path = root / APPLICATION_DB_PATH
     runs_db_path = root / RUNS_DB_PATH
-    if gate_business_day:
-        business_day = market_calendar_business_day(root / MARKET_DB_PATH, asof)
-        if business_day is None:
-            raise ValueError(f"market calendar does not cover analysis as-of {asof}")
-        if not business_day:
-            summary["status"] = "skipped_non_business_day"
-            return 0
     context = load_daily_analysis_context(
         asof,
         app_db_path=app_db_path,
@@ -473,7 +463,6 @@ def _run(args: argparse.Namespace, *, model_runner: ModelRunner = _run_model) ->
                 log=log,
                 summary=summary,
                 model_runner=model_runner,
-                gate_business_day=args.asof is None,
             )
         except (
             ModelAdapterError,

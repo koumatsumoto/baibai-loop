@@ -222,17 +222,24 @@ def _seed_canonical_review_set(root: Path) -> PublishedReviewSet:
     return PublishedReviewSet.model_validate(payload)
 
 
-def test_non_business_day_launches_no_model_and_writes_four_or_fewer_artifacts(
+def test_default_asof_without_exact_review_set_launches_no_model_or_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(analysis_cli, "market_calendar_business_day", lambda *_args: False)
+    resolved_asofs: list[date] = []
+
+    def load_context(asof: date, **_kwargs: object) -> None:
+        resolved_asofs.append(asof)
+
+    monkeypatch.setattr(analysis_cli, "load_daily_analysis_context", load_context)
     model, calls = _model_runner({})
 
     assert analysis_cli._run(_args(tmp_path, asof=None), model_runner=model) == 0
 
     summary = _summary(tmp_path)
-    assert summary["status"] == "skipped_non_business_day"
+    assert summary["status"] == "no_review_set"
     assert summary["model_process_launches"] == 0
+    assert summary["machine_commands"] == 0
+    assert resolved_asofs == [date.fromisoformat(str(summary["as_of"]))]
     assert calls == []
     run_dir = Path(str(summary["run_dir"]))
     assert {path.name for path in run_dir.iterdir()} == {"run.log", "summary.json"}
@@ -258,25 +265,14 @@ def test_empty_review_set_writes_no_triage(tmp_path: Path, monkeypatch: pytest.M
     assert calls == publish_calls == []
 
 
-def test_missing_review_set_or_oversized_input_launches_no_model(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(analysis_cli, "load_daily_analysis_context", lambda _asof, **_kwargs: None)
+def test_oversized_input_launches_no_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     model, calls = _model_runner({})
-    assert analysis_cli._run(_args(tmp_path), model_runner=model) == 0
-    first_summary = _summary(tmp_path)
-    assert first_summary["status"] == "no_review_set"
-    assert first_summary["model_process_launches"] == 0
-    assert first_summary["machine_commands"] == 0
-    assert calls == []
-
-    second_root = tmp_path / "second"
     monkeypatch.setattr(
         analysis_cli, "load_daily_analysis_context", lambda _asof, **_kwargs: _context()
     )
     monkeypatch.setattr(analysis_cli, "_MAX_MODEL_INPUT_BYTES", 1)
-    assert analysis_cli._run(_args(second_root), model_runner=model) == 1
-    assert _summary(second_root)["model_process_launches"] == 0
+    assert analysis_cli._run(_args(tmp_path), model_runner=model) == 1
+    assert _summary(tmp_path)["model_process_launches"] == 0
     assert calls == []
 
 
