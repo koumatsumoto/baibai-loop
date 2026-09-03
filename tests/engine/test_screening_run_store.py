@@ -128,6 +128,41 @@ def test_run_and_review_set_round_trip(tmp_path: Path) -> None:
         reader.get_review_set("review-set-a")
 
 
+def test_latest_review_set_resolves_exact_asof_by_publication_time(tmp_path: Path) -> None:
+    database = tmp_path / "runs.sqlite"
+    screening_rules = load_screening_rules()
+    rules = screening_rules.candidate_discovery
+    required_jpx_flags = screening_rules.universe.required_jpx_flags
+    store = ScreeningRunStore(database)
+    store.publish_run(_run(), run_revision_id="run-a")
+    base = build_review_set([_analysis()], rules=rules, required_jpx_flags=required_jpx_flags)
+    for review_set_id, created_at in (
+        ("review-set-earlier", "2026-07-08T19:00:00+09:00"),
+        ("review-set-latest", "2026-07-08T11:00:00+00:00"),
+    ):
+        payload = {
+            **base,
+            "review_set_id": review_set_id,
+            "run_revision_id": "run-a",
+            "as_of": "2026-07-08",
+            "created_at": created_at,
+            "screening_rules_hash": "a" * 64,
+        }
+        store.publish_review_set(
+            run_revision_id="run-a",
+            payload=payload,
+            rules=rules,
+            required_jpx_flags=required_jpx_flags,
+            review_set_id=review_set_id,
+        )
+
+    reader = ScreeningRunReader(database)
+    latest = reader.latest_review_set(as_of_date="2026-07-08")
+    assert latest is not None
+    assert latest.review_set_id == "review-set-latest"
+    assert reader.latest_review_set(as_of_date="2026-07-09") is None
+
+
 def test_web_projection_rejects_malformed_current_review_set_like_point_read(
     tmp_path: Path,
 ) -> None:
