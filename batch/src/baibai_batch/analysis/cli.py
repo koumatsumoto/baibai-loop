@@ -1,4 +1,4 @@
-"""Run daily machine work and one bounded Research Triage request end to end."""
+"""Triage one cloud-authored Review Set without reproducing its machine work."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import argparse
 import fcntl
 import json
 import os
+import sqlite3
 import subprocess  # nosec B404
-import tempfile
 import time
 import traceback
 from collections.abc import Callable, Sequence
@@ -39,23 +39,17 @@ from baibai_batch.analysis.models import (
     TriageCandidate,
 )
 from baibai_batch.analysis.policy import TRIAGE_POLICY
-from baibai_batch.jobs.daily import (
-    BatchStepError,
-    CalendarCoverageError,
-    CommandResult,
-    StepResult,
-    _run_subprocess,
-    run_daily_batch_structured,
-)
 from baibai_engine.batch_api import (
     APPLICATION_DB_PATH,
     MACRO_CONTEXT_STALE_DAYS,
+    MARKET_DB_PATH,
     RUNS_DB_PATH,
     DailyAnalysisContext,
     ResearchTriageCandidateSnapshot,
     load_daily_analysis_context,
     publish_daily_research_triage,
 )
+from baibai_engine.read_api import market_calendar_business_day
 
 _JST = ZoneInfo("Asia/Tokyo")
 _MAX_MODEL_INPUT_BYTES = 1_000_000
@@ -110,13 +104,6 @@ class RunLog:
     def append(self, text: str) -> None:
         self._parts.append(redact(text).rstrip())
         write_log(self.path, "\n\n".join(self._parts) + "\n", root=self._state_root)
-
-    def step(self, step: StepResult, command: CommandResult) -> None:
-        argv = " ".join(str(value) for value in redact_argv(list(step.argv)))
-        self.append(
-            f"step={step.name} exit={step.returncode} duration={step.duration_seconds:.6f}s\n"
-            f"argv={argv}\nstdout:\n{command.stdout}\nstderr:\n{command.stderr}"
-        )
 
 
 class ModelAdapterError(RuntimeError):
@@ -324,8 +311,6 @@ def _base_summary(asof: date, run_dir: Path, log: RunLog) -> dict[str, object]:
         "as_of": asof.isoformat(),
         "operator_commands": 1,
         "machine_commands": 0,
-        "daily_exit_code": None,
-        "daily_deferred_failure_count": 0,
         "model_process_launches": 0,
         "model_requests": 0,
         "model_input_bytes": 0,
@@ -369,33 +354,25 @@ def _execute(
     log: RunLog,
     summary: dict[str, object],
     model_runner: ModelRunner,
+    gate_business_day: bool,
 ) -> int:
     app_db_path = root / APPLICATION_DB_PATH
     runs_db_path = root / RUNS_DB_PATH
-    with tempfile.TemporaryDirectory(prefix="analysis-serving-", dir=state_root) as temporary:
-        daily = run_daily_batch_structured(
-            root=root,
-            output_dir=Path(temporary),
-            asof=asof,
-            runner=_run_subprocess,
-            quiet=True,
-            step_sink=log.step,
-            gate_explicit_asof=True,
-        )
-    summary["machine_commands"] = len(daily.steps)
-    summary["daily_exit_code"] = daily.exit_code
-    summary["daily_deferred_failure_count"] = daily.deferred_failure_count
-    if daily.status == "skipped_non_business_day":
-        summary["status"] = "skipped_non_business_day"
-        return 0
-    if daily.review_set_id is None:
-        summary["status"] = "no_review_set"
-        return 1
+    if gate_business_day:
+        business_day = market_calendar_business_day(root / MARKET_DB_PATH, asof)
+        if business_day is None:
+            raise ValueError(f"market calendar does not cover analysis as-of {asof}")
+        if not business_day:
+            summary["status"] = "skipped_non_business_day"
+            return 0
     context = load_daily_analysis_context(
-        daily.review_set_id,
+        asof,
         app_db_path=app_db_path,
         runs_db_path=runs_db_path,
     )
+    if context is None:
+        summary["status"] = "no_review_set"
+        return 0
     summary["candidate_count"] = len(context.review_set.entries)
     if not context.review_set.entries:
         summary["status"] = "empty_review_set"
@@ -496,12 +473,13 @@ def _run(args: argparse.Namespace, *, model_runner: ModelRunner = _run_model) ->
                 log=log,
                 summary=summary,
                 model_runner=model_runner,
+                gate_business_day=args.asof is None,
             )
         except (
-            BatchStepError,
-            CalendarCoverageError,
             ModelAdapterError,
             OSError,
+            RuntimeError,
+            sqlite3.Error,
             ValueError,
         ) as error:
             summary["status"] = "failed"
@@ -516,9 +494,7 @@ def _run(args: argparse.Namespace, *, model_runner: ModelRunner = _run_model) ->
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-batch analysis")
     commands = parser.add_subparsers(dest="analysis_command", required=True)
-    run = commands.add_parser(
-        "run", help="run daily machine work and Research Triage as one non-interactive command"
-    )
+    run = commands.add_parser("run", help="triage the canonical Review Set for one as-of date")
     run.add_argument(
         "--asof",
         type=date.fromisoformat,
