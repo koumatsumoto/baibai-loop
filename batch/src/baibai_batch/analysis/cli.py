@@ -53,7 +53,6 @@ from baibai_engine.batch_api import (
     RUNS_DB_PATH,
     DailyAnalysisContext,
     ResearchTriageCandidateSnapshot,
-    ensure_daily_research_operation,
     load_daily_analysis_context,
     publish_daily_research_triage,
 )
@@ -158,7 +157,6 @@ def _model_input(context: DailyAnalysisContext) -> ModelInput:
             snapshot=ResearchTriageCandidateSnapshot(
                 name=entry.name,
                 sector_33=entry.sector_33,
-                review_position=entry.review_position,
                 nominations=entry.nominations,
                 analysis=entry.analysis,
             ),
@@ -319,22 +317,6 @@ def _codex_usage(stdout: str) -> tuple[int | None, int | None, int | None, int]:
     )
 
 
-def _triage_matches_operation(context: DailyAnalysisContext) -> bool:
-    triage = context.existing_triage
-    operation = context.active_operation
-    if triage is None or operation is None:
-        return False
-    return (
-        operation.session_kind == "capital-allocation"
-        and triage.research_triage_id in operation.payload.canonical_refs
-        and any(
-            artifact.get("kind") == "research_triage"
-            and artifact.get("ref") == triage.research_triage_id
-            for artifact in operation.payload.artifacts
-        )
-    )
-
-
 def _base_summary(asof: date, run_dir: Path, log: RunLog) -> dict[str, object]:
     return {
         "schema_version": 1,
@@ -419,26 +401,7 @@ def _execute(
         summary["status"] = "empty_review_set"
         return 0
     if context.existing_triage is not None:
-        if context.existing_triage.researchable_tickers():
-            if context.active_operation is not None and not _triage_matches_operation(context):
-                _existing_triage_summary(context, summary)
-                summary.update(
-                    status="blocked_by_active_operation",
-                    human_action="進行中Operationを完了",
-                )
-                return 0
-            ensure_daily_research_operation(
-                context.existing_triage,
-                app_db_path=app_db_path,
-                started_at=datetime.now(_JST),
-            )
         _existing_triage_summary(context, summary)
-        return 0
-    if context.active_operation is not None:
-        summary.update(
-            status="blocked_by_active_operation",
-            human_action="進行中Operationを完了",
-        )
         return 0
 
     model_input = _model_input(context)
@@ -476,17 +439,12 @@ def _execute(
         runs_db_path=runs_db_path,
         published_at=datetime.now(_JST),
     )
-    operation = ensure_daily_research_operation(
-        triage,
-        app_db_path=app_db_path,
-        started_at=datetime.now(_JST),
-    )
     research_count = len(triage.researchable_tickers())
     summary.update(
-        status="published_awaiting_human" if operation is not None else "published_all_skip",
+        status="published_awaiting_human" if research_count else "published_all_skip",
         research_count=research_count,
         skip_count=len(triage.entries) - research_count,
-        human_action="Research Setを選択" if operation is not None else None,
+        human_action="Research Setを選択" if research_count else None,
     )
     return 0
 

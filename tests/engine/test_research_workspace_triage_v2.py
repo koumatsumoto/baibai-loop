@@ -14,6 +14,8 @@ from tests.helpers.research_triage import (
     skip_entry,
 )
 
+from baibai_engine.operation.models import OperationPayload
+from baibai_engine.operation.service import OperationService
 from baibai_engine.research import workspace as workspace_module
 from baibai_engine.research.close_source import PreviousClose
 from baibai_engine.research.workspace import (
@@ -30,7 +32,9 @@ from baibai_engine.screening.research_triage import (
 )
 
 
-def _publish_triage(db_path: Path, *, research: bool = True) -> ResearchTriage:
+def _publish_triage(
+    db_path: Path, *, research: bool = True, second_research: bool = False
+) -> ResearchTriage:
     ledger = load_portfolio_ledger(
         Path(__file__).resolve().parents[1] / "fixtures/portfolio-ledger/representative.yaml"
     )
@@ -45,11 +49,12 @@ def _publish_triage(db_path: Path, *, research: bool = True) -> ResearchTriage:
             }
         ),
     )
-    entries = (
-        [research_entry("2331", rank=1), skip_entry("0001")]
-        if research
-        else [skip_entry("2331"), skip_entry("0001")]
-    )
+    if not research:
+        entries = [skip_entry("2331"), skip_entry("0001")]
+    elif second_research:
+        entries = [research_entry("2331", rank=1), research_entry("0001", rank=2)]
+    else:
+        entries = [research_entry("2331", rank=1), skip_entry("0001")]
     triage = ResearchTriage.model_validate(
         research_triage_payload(
             research_triage_id="research-triage-workspace-v2",
@@ -88,6 +93,8 @@ def test_prepare_and_status_need_only_published_triage_id(
                 str(db_path),
                 "--workspace",
                 str(workspace),
+                "--ticker",
+                "2331",
             ]
         )
         == 0
@@ -109,6 +116,10 @@ def test_prepare_and_status_need_only_published_triage_id(
         "research_triage_id": triage.research_triage_id,
         "researchable_tickers": ["2331"],
     }
+    operation = OperationService(db_path).active()
+    assert operation is not None
+    assert operation.payload.canonical_refs == (triage.research_triage_id,)
+    assert operation.payload.artifacts[0]["research_set"] == ["2331"]
 
 
 def test_workspace_rejects_skip_admission_and_payload_hash_drift(tmp_path: Path) -> None:
@@ -119,13 +130,14 @@ def test_workspace_rejects_skip_admission_and_payload_hash_drift(tmp_path: Path)
         research_triage_id=triage.research_triage_id,
         db_path=db_path,
         workspace=workspace,
+        research_set=("2331",),
     )
     workspace_path = workspace / "research-workspace.yaml"
     payload = yaml.safe_load(workspace_path.read_text(encoding="utf-8"))
     payload["research_set"] = ["0001"]
     workspace_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 
-    with pytest.raises(ResearchWorkspaceDataError, match="did not mark research"):
+    with pytest.raises(ResearchWorkspaceConflictError, match="human-confirmed set"):
         compute_status(workspace, db_path=db_path)
 
     manifest_path = workspace / "manifest.yaml"
@@ -148,9 +160,89 @@ def test_zero_research_is_a_normal_prepared_workspace(tmp_path: Path) -> None:
     )
 
     assert not prepared.actionable
-    assert prepared.research_capacity == 0
+    assert prepared.researchable_count == 0
     assert prepared.researchable_tickers == ()
     assert compute_status(workspace, db_path=db_path)["workspace_status"] == "no_research"
+    assert OperationService(db_path).active() is None
+
+
+def test_human_can_confirm_empty_research_set_without_starting_operation(tmp_path: Path) -> None:
+    db_path = tmp_path / "app.sqlite"
+    triage = _publish_triage(db_path)
+
+    prepared = prepare_workspace(
+        research_triage_id=triage.research_triage_id,
+        db_path=db_path,
+        workspace=tmp_path / "workspace",
+    )
+
+    assert not prepared.actionable
+    assert prepared.researchable_tickers == ("2331",)
+    assert OperationService(db_path).active() is None
+
+
+def test_prepare_rejects_skip_ticker_before_starting_operation(tmp_path: Path) -> None:
+    db_path = tmp_path / "app.sqlite"
+    triage = _publish_triage(db_path)
+
+    with pytest.raises(ResearchWorkspaceDataError, match="did not mark research"):
+        prepare_workspace(
+            research_triage_id=triage.research_triage_id,
+            db_path=db_path,
+            workspace=tmp_path / "workspace",
+            research_set=("0001",),
+        )
+
+    assert OperationService(db_path).active() is None
+
+
+def test_active_operation_blocks_only_new_research_start(tmp_path: Path) -> None:
+    db_path = tmp_path / "app.sqlite"
+    triage = _publish_triage(db_path)
+    service = OperationService(db_path)
+    existing = service.start(
+        session_kind="position-review",
+        as_of=date(2026, 8, 31),
+        ticker="2331",
+        started_at=datetime.fromisoformat("2026-08-31T18:00:00+09:00"),
+        payload=OperationPayload(checkpoint="position review", next="continue"),
+    )
+
+    with pytest.raises(ResearchWorkspaceConflictError, match="active operation already exists"):
+        prepare_workspace(
+            research_triage_id=triage.research_triage_id,
+            db_path=db_path,
+            workspace=tmp_path / "workspace",
+            research_set=("2331",),
+        )
+
+    assert service.active() == existing
+
+
+def test_force_cannot_overwrite_workspace_with_a_different_active_research_set(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "app.sqlite"
+    triage = _publish_triage(db_path, second_research=True)
+    workspace = tmp_path / "workspace"
+    prepare_workspace(
+        research_triage_id=triage.research_triage_id,
+        db_path=db_path,
+        workspace=workspace,
+        research_set=("2331",),
+    )
+    manifest_before = (workspace / "manifest.yaml").read_bytes()
+
+    with pytest.raises(ResearchWorkspaceConflictError, match="active operation already exists"):
+        prepare_workspace(
+            research_triage_id=triage.research_triage_id,
+            db_path=db_path,
+            workspace=workspace,
+            research_set=("0001",),
+            force=True,
+        )
+
+    assert (workspace / "manifest.yaml").read_bytes() == manifest_before
 
 
 def test_thesis_scaffold_uses_v3_and_only_general_research_checks() -> None:

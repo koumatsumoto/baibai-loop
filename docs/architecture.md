@@ -71,7 +71,7 @@ trigger 起点の運用は 6 つで、それぞれ 1 skill が手順・gate 順�
 
 | 運用（skill） | 工程 | 人間 gate |
 | --- | --- | --- |
-| `research-triage` | 1 commandでscreening run → Review Set → Research Triage publish → 必要時だけOperation開始 | Research Triage の `research` → Research Set の admission |
+| `research-triage` | 1 commandでscreening run → Review Set → Research Triage publish | Research Triage の `research` → Research Set の admission |
 | `research` | workspace → thesis / review → Capital Allocation Assessment → ephemeral plan-limit | buy / defer / reject と broker 操作 |
 | `ledger-record` | broker fact → ledger draft → apply | `position apply-draft --confirmed` |
 | `position-review` | 決算・material event → Position Review → action | Position Review の publish |
@@ -83,7 +83,7 @@ Candidate Discoveryからhuman-confirmed ledgerまでの責務境界は次のと
 ```text
 Universe → Security Analyses                 screening
 Security Analyses → Nominations              4 Valuation Approaches
-Nominations → Review Set                     overlap-first composition + capacity
+Nominations → Review Set                     4 Approach top20のexact union
 Review Set → Research Triage                 research-worthiness judgment
 Research Triage → Research Set               human admission
 Research Set → Thesis / Independent Review   fundamental research
@@ -92,7 +92,7 @@ Capital Allocation Assessment → plan-limit   ephemeral decision input
 human report → Ledger                        broker fact
 ```
 
-4つのValuation Approachは固有の企業価値座標でNominationを作る。Normalized Earnings Powerは`normalized_per_3fy`をnative eligibility/orderに使うが、FV/E[r] estimatorは入力にしない。Review Set composerは複数approachの支持、方法内順位、6/5/5/4のrepresentation target、最大20件だけを所有し、E[r]をmembership/orderへ使わない。Review SetはSecurity Analysis runとCandidate Discovery methodだけから再構築するL2で、application DBを読まない。Research Triageが`research / skip`を判断し、判断時の20件snapshotを持つL3となる。人間が`research`の部分集合をResearch Setへadmitし、`research prepare --research-triage-id`はapplication DBのcanonical Triageだけから再開する。
+4つのValuation Approachは固有の企業価値座標でNominationを作る。Normalized Earnings Powerは`normalized_per_3fy`をnative eligibility/orderに使うが、FV/E[r] estimatorは入力にしない。Review Setは4 Approachのtop20 Nominationのexact union（最大80件）であり、global scoreや追加の絞り込みを持たない。E[r]はmembership/orderを変えないsecondary return priorである。Review SetはSecurity Analysis runとCandidate Discovery methodだけから再構築するL2で、application DBを読まない。Research Triageが全件の`research / skip`とresearch priorityを判断するL3となる。人間が`research`の部分集合をResearch Setへadmitし、`research prepare --research-triage-id --ticker ...`がcanonical Triageへ束縛したOperationをResearch開始時にだけ作る。
 
 <a id="information-layers"></a>
 

@@ -376,15 +376,12 @@ class ReviewSetAnalysisView(BaseModel):
 
 
 class ReviewSetEntryView(BaseModel):
-    """One nominated security in deterministic multi-approach review order."""
+    """One member of the exact approach Nomination union."""
 
-    review_position: int
     ticker: str
     name: str | None
     sector_33: str | None
     nominations: list[ReviewSetNominationView]
-    support_count: int
-    rank_vector: list[int]
     analysis: ReviewSetAnalysisView
 
 
@@ -400,9 +397,7 @@ class ResearchTriageCandidateSnapshotView(BaseModel):
 
     name: str | None = None
     sector_33: str | None = None
-    review_position: int
     nominations: list[dict[str, object]] | None
-    support_count: int | None
     expected_return: dict[str, object] | None
     data_quality: dict[str, object] | None
 
@@ -426,8 +421,6 @@ class ResearchTriageView(BaseModel):
     as_of: date
     published_at: datetime
     entries: list[ResearchTriageEntryView]
-    # 読めなかった entry の件数。0 でないレビュー面は不完全なので、そう表示する。
-    unreadable_entries: int = 0
 
 
 class ResearchRevisionView(BaseModel):

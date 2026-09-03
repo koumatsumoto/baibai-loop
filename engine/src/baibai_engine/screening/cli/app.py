@@ -273,7 +273,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     review_set_commands = review_set_parser.add_subparsers(dest="review_set_command", required=True)
     review_set_publish = review_set_commands.add_parser(
-        "publish", help="compose and publish a Review Set from one immutable run"
+        "publish", help="publish the exact Nomination union from one immutable run"
     )
     review_set_publish.add_argument(
         "--asof", required=True, help="screening target date (YYYY-MM-DD)"
@@ -281,7 +281,7 @@ def build_parser() -> argparse.ArgumentParser:
     review_set_publish.add_argument(
         "--run-revision-id",
         required=True,
-        help="immutable screening run revision to compose",
+        help="immutable screening run revision whose Nominations form the union",
     )
     review_set_publish.add_argument("--runs-db", help="screening run store path")
     review_set_publish.add_argument(

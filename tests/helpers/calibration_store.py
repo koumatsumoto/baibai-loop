@@ -82,7 +82,6 @@ _PANEL_REQUIRED: Mapping[str, Any] = {
     "valuation_approaches": "",
     "valuation_approach_ranks": "",
     "smg_market_fallback": "",
-    "review_position": None,
 }
 
 _DIAGNOSTICS_REQUIRED: Mapping[str, Any] = {
@@ -135,11 +134,8 @@ def _hints(model: type) -> Mapping[str, Any]:
 def panel_row(asof: str, ticker: str, **overrides: Any) -> PanelRow:
     """One panel row, with the fields a fixture never varies filled in.
 
-    `review_position` and `in_review_set` are left independent because the panel builds
-    them independently: the rank is a replay of the full expected-return ordering over
-    every candidate, while `in_review_set` follows from having an evidence hit. A real
-    panel therefore carries ranked rows that did not pass, and a builder that tied the
-    two would make that shape unwritable.
+    `in_review_set` is independent from any E[r] ordering: membership is the exact
+    valuation-approach nomination union.
     """
 
     hints = _hints(PanelRow)

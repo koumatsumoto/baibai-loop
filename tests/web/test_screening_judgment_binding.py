@@ -36,7 +36,6 @@ def _review_set() -> dict[str, object]:
 
 def _frozen_entry() -> dict[str, object]:
     return {
-        "review_position": 1,
         "ticker": "2331",
         "name": "Frozen name",
         "sector_33": "情報・通信業",
@@ -47,8 +46,6 @@ def _frozen_entry() -> dict[str, object]:
                 "rank": 2,
             }
         ],
-        "support_count": 1,
-        "rank_vector": [2, 99, 99, 99],
         "analysis": {
             "identity_liquidity": {
                 "market_cap_oku": 123.0,

@@ -51,7 +51,7 @@ from baibai_engine.screening.calibration.evaluation import (
 )
 from baibai_engine.screening.calibration.evidence import (
     CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
-    CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC,
+    CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
     ESTIMATOR_POLICY_MANDATORY_METRICS,
     KNOWN_METRICS,
     candidate_discovery_approach_fidelity_metric,
@@ -102,7 +102,6 @@ def _panel_row(ticker: str, *, rank: int | None = None, **overrides: object) -> 
     if rank is not None:
         # This file's cohort is one where every ranked name also passed, which is what
         # its evaluation cases are about; the panel does not require that in general.
-        overrides["review_position"] = rank
         overrides.setdefault("in_review_set", True)
     liquid: dict[str, object] = {
         "market_cap_oku": 500.0,
@@ -427,20 +426,6 @@ class SectorMedianBasisTest(unittest.TestCase):
 
 class EvaluateCohortsTest(unittest.TestCase):
     @staticmethod
-    def _rules_with_alternate_representation_targets() -> ScreeningRules:
-        candidate_discovery = _RULES.candidate_discovery.model_copy(
-            update={
-                "representation_targets": {
-                    "current-earnings-power": 7,
-                    "normalized-earnings-power": 5,
-                    "asset-value": 4,
-                    "reinvestment-value": 4,
-                }
-            }
-        )
-        return _RULES.model_copy(update={"candidate_discovery": candidate_discovery})
-
-    @staticmethod
     def _rules_with_alternate_common_eligibility() -> ScreeningRules:
         eligibility = _RULES.candidate_discovery.common_eligibility.model_copy(
             update={"min_market_cap_oku": 101}
@@ -462,39 +447,6 @@ class EvaluateCohortsTest(unittest.TestCase):
         )
         return _RULES.model_copy(update={"candidate_discovery": candidate_discovery})
 
-    def test_representation_targets_come_from_candidate_discovery_rules(self) -> None:
-        rules = self._rules_with_alternate_representation_targets()
-        panel = [
-            _panel_row(
-                f"1{index:03d}",
-                rank=index + 1,
-                valuation_approach_ranks=(
-                    "current-earnings-power:1|normalized-earnings-power:1|"
-                    "asset-value:1|reinvestment-value:1"
-                ),
-            )
-            for index in range(120)
-        ]
-        forwards = [_forward_row(row.ticker, 0.1) for row in panel]
-
-        result = evaluate_cohorts({_ASOF: panel}, {_ASOF: forwards}, horizons=["6m"], rules=rules)[
-            "6m"
-        ]
-
-        assert isinstance(result, dict)
-        cohort = result["cohorts"][0]
-        assert isinstance(cohort, dict)
-        representation = cohort["candidate_discovery"]["representation"]
-        aggregate = result["aggregate"]
-        assert isinstance(aggregate, dict)
-        aggregate_representation = aggregate["candidate_discovery"]["representation"]
-        self.assertEqual(
-            representation["targets"], rules.candidate_discovery.representation_targets
-        )
-        self.assertEqual(
-            aggregate_representation["targets"], rules.candidate_discovery.representation_targets
-        )
-
     def test_approach_rank_parser_uses_candidate_discovery_nomination_depth(self) -> None:
         candidate_discovery = _RULES.candidate_discovery.model_copy(update={"nomination_depth": 3})
         rules = _RULES.model_copy(update={"candidate_discovery": candidate_discovery})
@@ -515,8 +467,8 @@ class EvaluateCohortsTest(unittest.TestCase):
         assert isinstance(result, dict)
         cohort = result["cohorts"][0]
         assert isinstance(cohort, dict)
-        representation = cohort["candidate_discovery"]["representation"]
-        self.assertEqual(representation["represented_counts"]["current-earnings-power"], 0)
+        current_top20 = cohort["candidate_discovery"]["approach_current_earnings_power_top20"]
+        self.assertEqual(current_top20["n"], 0)
 
     def test_full_candidate_discovery_fidelity_requires_complete_input_and_outcomes(
         self,
@@ -552,10 +504,10 @@ class EvaluateCohortsTest(unittest.TestCase):
         assert isinstance(cohort, dict)
         fidelity = cohort["candidate_discovery_fidelity"]
         assert isinstance(fidelity, dict)
-        self.assertTrue(fidelity["composer_eligible"])
+        self.assertTrue(fidelity["nomination_union_eligible"])
         statuses = cohort["metric_statuses"]
         assert isinstance(statuses, dict)
-        self.assertEqual(statuses[CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC], "eligible")
+        self.assertEqual(statuses[CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC], "eligible")
         for approach in _RULES.candidate_discovery.approaches:
             self.assertEqual(
                 statuses[candidate_discovery_approach_fidelity_metric(approach)],
@@ -571,7 +523,7 @@ class EvaluateCohortsTest(unittest.TestCase):
         missing_statuses = missing_input["metric_statuses"]
         assert isinstance(missing_statuses, dict)
         self.assertEqual(
-            missing_statuses[CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC],
+            missing_statuses[CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC],
             "unresolved",
         )
 
@@ -622,7 +574,6 @@ class EvaluateCohortsTest(unittest.TestCase):
         panel = [_panel_row("1111", per_trailing=10.0)]
         forwards = [_forward_row("1111", 0.1)]
         cases = {
-            "representation targets": self._rules_with_alternate_representation_targets(),
             "common eligibility": self._rules_with_alternate_common_eligibility(),
             "approach method": self._rules_with_alternate_approach_method(),
         }
@@ -922,10 +873,10 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         # candidate_discovery replay: 上位 10 銘柄は安い側なので正の超過。
         candidate_discovery = cohorts[0]["candidate_discovery"]
         assert isinstance(candidate_discovery, dict)
-        top10 = candidate_discovery["review_set_top10"]
-        assert isinstance(top10, dict)
-        self.assertEqual(top10["n"], 10)
-        median_excess = top10["median_excess"]
+        nomination_union = candidate_discovery["review_set_all"]
+        assert isinstance(nomination_union, dict)
+        self.assertEqual(nomination_union["n"], 10)
+        median_excess = nomination_union["median_excess"]
         assert isinstance(median_excess, float)
         self.assertGreater(median_excess, 0.0)
         # aggregate 構造: 1 cohort・IC 勝率 1.0。
@@ -1068,10 +1019,9 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         assert isinstance(pop_top5, dict)
         self.assertEqual(pop_top5["median_excess"], er_top5["median_excess"])
         aggregate = horizon["aggregate"]["candidate_discovery"]
-        self.assertEqual(aggregate["review_set_vs_er_top5"]["cohorts"], 1)
-        self.assertEqual(aggregate["review_set_vs_er_top5"]["mean_overlap_n"], 5.0)
-        self.assertEqual(aggregate["review_set_vs_er_top5"]["mean_overlap_share"], 1.0)
-        self.assertEqual(aggregate["representation"]["cohorts"], 1)
+        self.assertEqual(aggregate["nomination_union_vs_er_top5"]["cohorts"], 1)
+        self.assertEqual(aggregate["nomination_union_vs_er_top5"]["mean_overlap_n"], 5.0)
+        self.assertEqual(aggregate["nomination_union_vs_er_top5"]["mean_overlap_share"], 1.0)
 
     def test_er_calibration_compares_centered_reversion_with_centered_price_return(self) -> None:
         panel: list[PanelRow] = []
@@ -1465,13 +1415,10 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertIn("requires one --candidate-discovery-approach", errors.getvalue())
 
-    def test_top_rank_diagnostics_stay_registered(self) -> None:
-        # `review_set_top*` is emitted by every cohort, so leaving it out of the
+    def test_nomination_union_outcome_stays_registered(self) -> None:
+        # `review_set_all` is emitted by every cohort, so leaving it out of the
         # registry would reject a preregistration that names an output it can see.
-        self.assertLessEqual(
-            {"review_set_top5", "review_set_top10"},
-            KNOWN_METRICS,
-        )
+        self.assertIn("review_set_all", KNOWN_METRICS)
 
     def test_calibration_evaluate_command_marks_short_horizon_as_diagnostic(self) -> None:
         panel: list[PanelRow] = []
@@ -1874,8 +1821,8 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         self.assertEqual(sensitivity["excluded_count"], 2)
         self.assertFalse(sensitivity["direction_stable"])
         imputations = sensitivity["imputations"]
-        self.assertLess(imputations["total_loss"]["review_set_top5"], 0)
-        self.assertGreater(imputations["neutral"]["review_set_top5"], 0)
+        self.assertLess(imputations["total_loss"]["review_set_all"], 0)
+        self.assertGreater(imputations["neutral"]["review_set_all"], 0)
 
     def test_normalized_per_direction_flip_blocks_optional_evidence(self) -> None:
         as_reported = {"normalized_per_3fy": 0.1}
@@ -1917,10 +1864,10 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         sensitivity = self._sensitivity(delisted_ranks=(3, 4, 5))
 
         self.assertEqual(sensitivity["excluded_count"], 3)
-        self.assertGreater(sensitivity["as_reported"]["review_set_top5"], 0)
+        self.assertGreater(sensitivity["as_reported"]["review_set_all"], 0)
         imputations = sensitivity["imputations"]
-        self.assertLess(imputations["total_loss"]["review_set_top5"], 0)
-        self.assertEqual(imputations["neutral"]["review_set_top5"], 0.0)
+        self.assertLess(imputations["total_loss"]["review_set_all"], 0)
+        self.assertEqual(imputations["neutral"]["review_set_all"], 0.0)
         self.assertFalse(sensitivity["direction_stable"])
 
     def test_a_cohort_without_delistings_needs_no_imputation(self) -> None:
@@ -1962,8 +1909,8 @@ class PricedMasterWithoutUniverseSensitivityTests(unittest.TestCase):
         self.assertEqual(sensitivity["excluded_count"], 2)
         self.assertEqual(sensitivity["resolved_target_count"], 2)
         self.assertTrue(sensitivity["resolution_complete"])
-        self.assertEqual(sensitivity["as_reported"]["review_set_top5"], 0.0)
-        self.assertGreater(sensitivity["imputations"]["total_loss"]["review_set_top5"], 0)
+        self.assertEqual(sensitivity["as_reported"]["review_set_all"], 0.0)
+        self.assertGreater(sensitivity["imputations"]["total_loss"]["review_set_all"], 0)
         self.assertFalse(sensitivity["direction_stable"])
 
     def test_an_unresolved_target_direction_split_is_not_stable(self) -> None:
@@ -2008,8 +1955,8 @@ class PricedMasterWithoutUniverseSensitivityTests(unittest.TestCase):
         self.assertEqual(sensitivity["resolved_target_count"], 0)
         self.assertFalse(sensitivity["resolution_complete"])
         self.assertFalse(sensitivity["direction_stable"])
-        self.assertEqual(sensitivity["as_reported"]["review_set_top5"], 0.0)
-        self.assertGreater(sensitivity["imputations"]["total_loss"]["review_set_top5"], 0)
+        self.assertEqual(sensitivity["as_reported"]["review_set_all"], 0.0)
+        self.assertGreater(sensitivity["imputations"]["total_loss"]["review_set_all"], 0)
 
 
 def test_a_stratum_needs_five_names_on_each_side_before_it_is_matched() -> None:

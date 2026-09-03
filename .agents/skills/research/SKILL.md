@@ -13,9 +13,11 @@ Research Triage から人間が選んだ候補を一次情報で検証し、buy 
 
 ## 開始条件
 
-- canonical Research Triageをartifact / canonical refに持つactiveな`capital-allocation` Operationと、人間が確認したResearch Setがある。同じ`as_of`だけの別Operationを採用せず、Research用に別sessionを開始しない。
-- 依頼が subset を指定した場合は、その範囲だけを扱う。
-- 開始時の人間確認を operation checkpoint に記録する。
+- 人間がcanonical Research Triageの`research`候補からResearch Setを選ぶ。依頼がsubsetを指定した場合は、その範囲だけを扱う。
+- `research prepare --ticker`が選択集合とexact Triageを同時に固定し、ここで初めて`capital-allocation` Operationを開始する。別Operationがactiveなら新しいResearchを開始しない。
+- 空Research Setは正常で、workspaceは`no_research`となりOperationを作らない。
+
+prepare後は、そのactiveな`capital-allocation` Operationをresumeする。Operationはcanonical Research Triageをartifact / canonical refに持つ。別sessionを開始しない。同じ`as_of`だけの別Operationを採用せず、workspaceに固定したexact TriageとResearch Setのbindingを使う。
 
 ## 1. Workspace を準備する
 
@@ -23,10 +25,11 @@ Research Triage から人間が選んだ候補を一次情報で検証し、buy 
 uv run baibai-engine research prepare \
   --research-triage-id <RESEARCH_TRIAGE_ID> \
   --db stores/application/baibai.sqlite \
-  --workspace .cache/research/<ASOF>
+  --workspace .cache/research/<ASOF> \
+  --ticker <SELECTED_TICKER>  # 選んだtickerごとに反復
 ```
 
-as-of、20件の比較snapshot、Researchへ進められるtickerはapplication DBのpublished Research Triage v2から導出する。Review Set fileやrun storeはResearch開始後のauthorityではない。生成された`research-workspace.yaml`の`research_set`には、人間が選んだtickerのうちTriageが`research`としたものだけを書く。
+as-of、最大80件の比較snapshot、Researchへ進められるtickerはapplication DBのpublished Research Triage v3から導出する。Review Set fileやrun storeはResearch開始後のauthorityではない。選択集合はprepare時にmanifestへ固定され、生成後の`research-workspace.yaml`へtickerを後書きしてadmitできない。
 
 ## 2. Case ごとの thesis を確定する
 

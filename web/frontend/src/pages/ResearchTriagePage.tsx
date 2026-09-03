@@ -23,10 +23,12 @@ export function ResearchTriagePage() {
   if (!triage) return <PageState message="Research Triage はまだ publish されていません" title="Research Triage" />
   const reviewSet = data.review_sets.find((item) => item.review_set_id === triage.review_set_id)
   const names = new Map(reviewSet?.entries.map((item) => [item.ticker, item.name]) ?? [])
+  const entries = [...triage.entries].sort((left, right) =>
+    (left.priority ?? Number.MAX_SAFE_INTEGER) - (right.priority ?? Number.MAX_SAFE_INTEGER)
+    || left.ticker.localeCompare(right.ticker))
   return (
-    <PageShell lead="Review Set を読んだ人間が Research / Skip と、その理由・調査質問・主要リスクを記録した面です。最終的な buy 判断ではありません。" meta={<div className="flex flex-wrap gap-4 font-mono text-xs text-muted-foreground"><UpdatedAtBadge value={triage.published_at} /><AsOfBadge value={triage.as_of} /><Badge variant="secondary">{triage.research_triage_id}</Badge></div>} title="Research Triage">
-      <Table><TableHeader><TableRow><TableHead>優先度</TableHead><TableHead>銘柄</TableHead><TableHead>判断</TableHead><TableHead>理由</TableHead><TableHead>Research Question</TableHead><TableHead>Key Risk</TableHead></TableRow></TableHeader><TableBody>{triage.entries.map((entry) => <TableRow key={entry.ticker}><TableCell>{entry.priority ?? '—'}</TableCell><TableCell><Link className="font-mono font-semibold hover:underline" to={`/securities/${entry.ticker}`}>{entry.ticker}</Link><span className="ml-2 text-muted-foreground">{names.get(entry.ticker)}</span></TableCell><TableCell><Badge variant={entry.decision === 'research' ? 'default' : 'secondary'}>{entry.decision}</Badge></TableCell><TableCell>{entry.rationale}</TableCell><TableCell>{entry.research_question ?? '—'}</TableCell><TableCell>{entry.key_risk ?? '—'}</TableCell></TableRow>)}</TableBody></Table>
-      {triage.unreadable_entries > 0 && <p className="text-sm text-warning">読めない entry: {triage.unreadable_entries} 件</p>}
+    <PageShell lead="AIが4 Approachをprimary、機械E[r]をsecondary return priorとして全候補を比較し、Research / Skipと調査優先度を記録した面です。最終的なbuy判断ではありません。" meta={<div className="flex flex-wrap gap-4 font-mono text-xs text-muted-foreground"><UpdatedAtBadge value={triage.published_at} /><AsOfBadge value={triage.as_of} /><Badge variant="secondary">{triage.research_triage_id}</Badge></div>} title="Research Triage">
+      <Table><TableHeader><TableRow><TableHead>優先度</TableHead><TableHead>銘柄</TableHead><TableHead>判断</TableHead><TableHead>理由</TableHead><TableHead>Research Question</TableHead><TableHead>Key Risk</TableHead></TableRow></TableHeader><TableBody>{entries.map((entry) => <TableRow key={entry.ticker}><TableCell>{entry.priority ?? '—'}</TableCell><TableCell><Link className="font-mono font-semibold hover:underline" to={`/securities/${entry.ticker}`}>{entry.ticker}</Link><span className="ml-2 text-muted-foreground">{names.get(entry.ticker)}</span></TableCell><TableCell><Badge variant={entry.decision === 'research' ? 'default' : 'secondary'}>{entry.decision}</Badge></TableCell><TableCell>{entry.rationale}</TableCell><TableCell>{entry.research_question ?? '—'}</TableCell><TableCell>{entry.key_risk ?? '—'}</TableCell></TableRow>)}</TableBody></Table>
     </PageShell>
   )
 }

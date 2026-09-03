@@ -9,8 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 
 from .candidate_discovery import Nomination, ReviewSetAnalysis, ReviewSetMethod
 
-RESEARCH_TRIAGE_SCHEMA_VERSION = 2
-RESEARCH_TRIAGE_CONTRACT_ID = "research-triage-v2"
+RESEARCH_TRIAGE_SCHEMA_VERSION = 3
+RESEARCH_TRIAGE_CONTRACT_ID = "research-triage-v3"
 
 
 class ResearchTriageCandidateSnapshot(BaseModel):
@@ -18,7 +18,6 @@ class ResearchTriageCandidateSnapshot(BaseModel):
 
     name: str
     sector_33: str
-    review_position: int = Field(ge=1)
     nominations: tuple[Nomination, ...]
     analysis: ReviewSetAnalysis
 
@@ -65,7 +64,7 @@ class ResearchTriageEntry(BaseModel):
 class ResearchTriage(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     kind: Literal["research_triage"]
     research_triage_id: str = Field(min_length=1)
     review_set_id: str = Field(min_length=1)
@@ -76,7 +75,7 @@ class ResearchTriage(BaseModel):
     expected_prior_research_triage_id: str | None
     screening_rules_hash: str = Field(min_length=1)
     candidate_discovery_method: ReviewSetMethod
-    triage_contract_id: Literal["research-triage-v2"]
+    triage_contract_id: Literal["research-triage-v3"]
     entries: tuple[ResearchTriageEntry, ...] = Field(min_length=1)
 
     @field_validator("as_of", mode="before")

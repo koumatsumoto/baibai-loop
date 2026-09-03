@@ -141,8 +141,8 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 | 状態遷移 | gate 主体 | 判断文書（L3） | 機械成果物（L2） |
 | --- | --- | --- | --- |
 | universe → Security Analyses | 機械（screening） | — | screening run |
-| Security Analyses → Review Set | 4 Valuation Approaches + composer | — | Nominations + Review Set |
-| Review Set → Research Triage | AI | Research Triage（`research / skip`と理由） | — |
+| Security Analyses → Review Set | 4 Valuation Approaches | — | Nominations + exact unionのReview Set |
+| Review Set → Research Triage | AI | Research Triage（`research / skip`、priority、理由） | — |
 | Research Triage → Research Set | 人間（admission） | operationのhuman confirmation | — |
 | Research Set → allocate / no allocation / defer | AI research → 独立レビュー → 人間 | thesis + thesis review + Capital Allocation Assessment | evaluate 派生値 |
 | allocate → position | 人間（broker 執行 → 報告） | ledger events | — |
@@ -159,7 +159,7 @@ Observed Fact ──────────────┐
 Observed Fact + Metric ─────┴─→ Model ─→ Estimate
 Observed Fact + Metric ───────→ Security Analysis
 Security Analysis ────────────→ 4 Valuation Approaches ─→ Nominations
-Nominations ──────────────────→ overlap-first composer ─→ Review Set
+Nominations ──────────────────→ exact union ────────────→ Review Set
 Review Set → Research Triage → human admission → Research Set
 Research Set → Research → Thesis + Independent Review
 reviewed Theses → Capital Allocation Assessment → allocate / no allocation / defer
@@ -170,9 +170,9 @@ authority は次の境界を越えない。
 1. Model は Estimate を計算するが、候補順位を直接決めない。
 2. Derived Metric は数値座標であり、screening rules が参照しない限り順位authorityを持たない。
 3. 各Valuation Approachは自分のNomination eligibilityと方法内順位だけを所有する。
-4. Review Set composerは複数支持、方法内順位、representation target、最大20件だけを所有する。
-5. E[r]、macro、event、portfolio state、過去判断はReview Set membership/orderを変えない。
-6. Research TriageはReview Set全件を`research / skip`へ分類するがFVや買付可否を確定しない。
+4. Review Setは4 Approachのtop20 Nominationのexact unionであり、ticker昇順は非経済的なserialization orderにすぎない。
+5. E[r]、macro、event、portfolio state、過去判断はReview Set membership/orderを変えない。E[r]はTriageで使うsecondary machine return priorである。
+6. Research TriageはReview Set全件を`research / skip`へ分類し、`research`間のpriorityを決めるが、FVや買付可否を確定しない。
 7. Research Setへのadmissionと、最終的なbroker執行は人間が所有する。
 
 ### 語彙表
@@ -193,8 +193,8 @@ authority は次の境界を越えない。
 | 導出指標 | derived metric | derived | L2 | Factから決定論的に計算しforwardな経済主張を持たない座標。`normalized_per_3fy`はDerived Metric |
 | 見積り | estimate | estimate | L2 | assumptions・unit・必要ならcomponentを持つ経済量推定。E[r]はEstimate |
 | モデル | model | method | L2 | Fact / MetricからEstimateまたは明示したpredictionを作るversioned algorithm。`expected-return-v1`はModel |
-| レビュー対象集合 | Review Set | パイプライン状態 | L2 出力 | 複数approachの支持と方法内順位を優先し、最大20件へ構成した集合 |
-| 調査優先度判定 | Research Triage | パイプライン状態 + 判断 | L3 | Review Set全件を`research / skip`へ分類し、理由・調査質問・主要riskを持つcanonical snapshot |
+| レビュー対象集合 | Review Set | パイプライン状態 | L2 出力 | 4 Approachのtop20 Nominationのexact union（最大80件） |
+| 調査優先度判定 | Research Triage | パイプライン状態 + 判断 | L3 | Review Set全件を`research / skip`へ分類し、AI priority・理由・調査質問・主要riskを持つcanonical snapshot |
 | リサーチ対象集合 | Research Set | パイプライン状態 | L3 | Research Triageの`research`から人間がadmitした部分集合。専用tableは持たない |
 | 個別銘柄リサーチ | research | 活動 | L3 | 一次情報、FV、RR、期待利回り、耐性、反証を調べる工程 |
 | 投資仮説 | thesis | 判断文書 | L3 | 3年/5年scenario、永久損失、source、採否を固定するcanonical artifact。保有中は thesis health を問い、thesis break が売却の主因になる |
@@ -254,8 +254,8 @@ L1 / L2の機械store（market / macro series / screening run）のobserved / de
 
 ### Candidate Discovery identity grammar
 
-- `candidate_discovery_method_id`はapproach集合・representation target・composition規則を束ねるversioned IDである。
-- `method_hash`は4つのmethod ID、ordering、common eligibility、nomination depth、targets、composition規則のcanonical SHA-256である。
+- `candidate_discovery_method_id`はapproach集合・common eligibility・Nomination union規則を束ねるversioned IDである。
+- `method_hash`は4つのmethod ID、各ordering、common eligibility、nomination depth、union serialization規則のcanonical SHA-256である。
 - `triage_contract_id`はResearch Triage判断契約のsemantic versionである。
 - behavior-neutralな表現変更ではsemantic versionを維持できる。旧hashをaliasする互換layerは持たない。
 

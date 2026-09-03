@@ -23,7 +23,7 @@ status: active
 
 `calibration-evaluate`の通常実行は全horizonをdiagnosticとして出力し、`evidence_readiness`を持たない。実証的なscreen、ranking、E[r] policy parameterの変更を人間が検討するときは、`--run-purpose empirical_change_evidence`でrequired as-ofとdecision subjectを明示する。3y / 5yのinput、outcome、method、必須metricが揃えば`evidence_complete: true`になるが、効果の符号や採否は表さない。artifactは設定やコードを自動変更しない。
 
-Candidate Discoveryのevidence subjectは`candidate_discovery_approach`または`candidate_discovery_composer`とする。approach subjectは対象approachのtop20 outcome、Review Set all20、pure E[r] top20、approach fidelity、composer fidelityを必須にする。composer subjectはReview Set all20、pure E[r] top20、composer fidelityを必須にする。`review_set_top5` / `review_set_top10`はdiagnosticとして残すが必須ではない。必須metricはsubjectから導出し、`--required-metric`は事前登録固有の追加guardrailだけに使う。既定の`estimator_policy`は`er_calibration`だけを必須にし、Candidate Discovery method fidelityを代替しない。
+Candidate Discoveryのevidence subjectは`candidate_discovery_approach`または`candidate_discovery_nomination_union`とする。approach subjectは対象approachのtop20 outcome、Review Set union全体、対象approach fidelity、union fidelityを必須にする。union subjectはReview Set union全体、union fidelity、全4 Approach fidelityを必須にする。pure E[r] top20はsecondary priorとの比較diagnosticであり、Candidate Discoveryの必須metricにしない。必須metricはsubjectから導出し、`--required-metric`は事前登録固有の追加guardrailだけに使う。既定の`estimator_policy`は`er_calibration`だけを必須にし、Candidate Discovery method fidelityを代替しない。
 
 target は cohort の actual as-of date に calendar month を加算する。元の日が calendar month-end の場合は対象月末を保ち、非取引日は target 以下の最終取引日に解決する。
 
@@ -89,7 +89,7 @@ entry は as-of の 15 日前までの close で解決するので、保有期�
 
 該当 row は必要な入力履歴を欠くため valuation metrics、rank、E[r] を持たず、窓中に価格系列が終われば実現 forward return も持たない。現行 method で選抜対象にならない row へ所属を後付けせず、観測済み return の有無が母集団中央値を通じて production 結論の向きを作っていないかを有界バイアスで判定する。
 
-報告値では観測済み return だけを使い、未解決 return は値なしのまま母集団から除外する。感度計算では resolved / unresolved を問わず該当 row だけを `-1.0` と置換前の resolved 流動性母集団中央値へそれぞれ置換する。`review_set_top5` / `top10` と `er_calibration` の向きは delisting 判定と同じ定義を使い、報告値と両置換の向きがすべて一致するときだけ `direction_stable` とする。`resolved_target_count` と `resolution_complete` は観測できた実現 return の coverage 診断であり、単独ではevidence completenessをblockしない。
+報告値では観測済み return だけを使い、未解決 return は値なしのまま母集団から除外する。感度計算では resolved / unresolved を問わず該当 row だけを `-1.0` と置換前の resolved 流動性母集団中央値へそれぞれ置換する。Nomination union全体と`er_calibration`の向きは delisting 判定と同じ定義を使い、報告値と両置換の向きがすべて一致するときだけ `direction_stable` とする。`resolved_target_count` と `resolution_complete` は観測できた実現 return の coverage 診断であり、単独ではevidence completenessをblockしない。
 
 cache が対象 row を同定できない、diagnostics 件数と row 数が一致しない、または両側代入で向きが割れる場合は fail closed で block する。この判定は欠けた実現 return、metrics、rank を復元せず、未評価銘柄が無かったことにもならない。
 
@@ -104,7 +104,7 @@ cache が対象 row を同定できない、diagnostics 件数と row 数が一�
 | 全損 | `price_return = -1.0` |
 | 中立 | 同 cohort の resolved 銘柄の中央値 |
 
-報告値を比較に含めるのは、それが evidence readiness の読む値そのものだからである。両方の代入で向きが揃っても報告値だけが逆を向くなら、その結論は除外が作ったものになる。向きは `review_set_top5` / `review_set_top10` が group の `median_excess` の符号、`er_calibration` が最上位 quintile の `median_realized_price_excess` − 最下位 quintile の同値の符号で定める。いずれかの場合で値が算出できず他の場合で算出できるときも、除外が「cohort が何か言えるかどうか」を決めているので不安定として扱う。
+報告値を比較に含めるのは、それが evidence readiness の読む値そのものだからである。両方の代入で向きが揃っても報告値だけが逆を向くなら、その結論は除外が作ったものになる。向きは`review_set_all`がNomination union全体の`median_excess`の符号、`er_calibration`が最上位 quintile の`median_realized_price_excess` − 最下位 quintile の同値の符号で定める。いずれかの場合で値が算出できず他の場合で算出できるときも、除外が「cohort が何か言えるかどうか」を決めているので不安定として扱う。
 
 この判定は結論を下へ引く可能性に対しての bracket である。買収による廃止はプレミアム付きで中立代入の上に出るため、上側は挟まない。実値で解決できた行はこの bracket の対象から外れる。
 
@@ -146,7 +146,7 @@ UI と research workspace は、artifact の `screening_rules_hash` と `er_mode
 
 artifact は生成日から45日だけ有効とし、月次の calibration 更新後に同じ production scope の評価から再生成する。欠損、schema / basis / quintile 境界不正、現在 method または operative run との identity 不一致、run identity 不明、未来日、45日を超える期限、期限切れでは read model が文脈全体を非表示にする。YAML を手編集して更新しない。
 
-`calibration-evaluate` の artifact は、operative runと照合する`screening_rules_hash`と、panelのCandidate Discovery replay contractまで含む`calibration_method_hash`を分ける。各 `(asof, horizon)` の `integrity_status`、required metric別 status、blocking reasonを `cohort_integrity` に持つ。Candidate Discovery については、approachごとの nomination / resolved nomination、同日JPX規制入力の状態、Review Set capacity、representation target の充足を `candidate_discovery_fidelity` に持つ。各 horizon は満期済みcohort数だけでなく、entry year別件数と重複しないforward window数を `observation_dependence` に開示する。月次cohort数を独立標本数とは読まない。study はこの評価結果を読み、独自の辞書リテラルで eligibility を作らない。
+`calibration-evaluate` の artifact は、operative runと照合する`screening_rules_hash`と、panelのCandidate Discovery replay contractまで含む`calibration_method_hash`を分ける。各 `(asof, horizon)` の `integrity_status`、required metric別 status、blocking reasonを `cohort_integrity` に持つ。Candidate Discovery については、approachごとの nomination / resolved nomination、同日JPX規制入力の状態、Review Setとexact Nomination unionの一致を `candidate_discovery_fidelity` に持つ。各 horizon は満期済みcohort数だけでなく、entry year別件数と重複しないforward window数を `observation_dependence` に開示する。月次cohort数を独立標本数とは読まない。study はこの評価結果を読み、独自の辞書リテラルで eligibility を作らない。
 
 forward row は price-only の `price_return` / `status` と、`realized_dividend_sum` / `realized_dividend_fy_count` / `total_return` / `total_return_status` / `total_return_basis` を別々に持つ。`total_return_status == resolved` の row だけが level metric に入り、既存 price-only metric の母集団と値は変えない。component 表の realized dividend は annualized(total) − annualized(price) で、予測 carry に含まれる buyback を直接観測しない。
 
@@ -156,7 +156,7 @@ forward row は price-only の `price_return` / `status` と、`realized_dividen
 
 `normalized_per_3fy`がcalibrationのsubject mandatory metricではないことは、Candidate Discoveryで未使用という意味ではない。Normalized Earnings Powerのnative eligibility/orderには使い、FV/E[r] estimator入力には使わない。
 
-cache schema versionは互換性を決める入力から導出する（panel / diagnostics / forwardのfield、gate軸、sector-gap軸）。市場storeの`user_version`と同じく自動で進むので、列の形を変えずに観測の範囲だけ広げた変更でも版が動く。手で宣言する識別子は`VALUATION_CALCULATION_REVISION`だけで、式の意味の変更は内容から導けないためそこだけ人が進める。panelは、productionの730日財務入力を変えずに補助履歴から、3 FYのsplit-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少streakと還元変化composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、PIT-TTMの`operating_profit_to_assets`・`operating_margin`・`asset_turnover`を記録する。収益性levelはcalibration専用で、productionのcandidate、E[r]、FV、rank、gateへ渡さない。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化proxyである。`rules_hash`はrules・variant・入力窓・valuation calculation revision・Candidate Discovery method hashを含む。valuationの式・資本分母・価格基準またはCandidate Discoveryのeligibility・order・composer contractが異なるpanelは、method identityとcache schemaの不一致でfail closedにする。
+cache schema versionは互換性を決める入力から導出する（panel / diagnostics / forwardのfield、gate軸、sector-gap軸）。市場storeの`user_version`と同じく自動で進むので、列の形を変えずに観測の範囲だけ広げた変更でも版が動く。手で宣言する識別子は`VALUATION_CALCULATION_REVISION`だけで、式の意味の変更は内容から導けないためそこだけ人が進める。panelは、productionの730日財務入力を変えずに補助履歴から、3 FYのsplit-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少streakと還元変化composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、PIT-TTMの`operating_profit_to_assets`・`operating_margin`・`asset_turnover`を記録する。収益性levelはcalibration専用で、productionのcandidate、E[r]、FV、rank、gateへ渡さない。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化proxyである。`rules_hash`はrules・variant・入力窓・valuation calculation revision・Candidate Discovery method hashを含む。valuationの式・資本分母・価格基準またはCandidate Discoveryのeligibility・order・Nomination union contractが異なるpanelは、method identityとcache schemaの不一致でfail closedにする。
 
 報告空売り残高の L1 は disclosure date と calculation date を分け、reporter 名tuple、ratio / shares / units、取消、provider row ordinalを保存する。panel の `reported_short_ratio` / `reported_short_breadth` / `reported_short_latest_disclosed_at` は両日が cohort as-of 以下の最新stateだけを集約する。公式 dataset floor から連続coverageを証明できる場合だけ無報告を明示的0とし、plan floor、coverage gap、同率最新stateの競合では該当値をnullにする。0は「0.5%未満または報告不在」であって空売り不存在を意味しない。この軸も calibration annotation 専用である。
 
@@ -164,7 +164,7 @@ cache schema versionは互換性を決める入力から導出する（panel / d
 
 `rules_hash` は `ScreeningRules` の JSON dump 全体から作る。したがって **panel の値を 1 つも変えられない変更（無効な knob の削除・field の並べ替え）でも hash は動き、store 全体が再構築対象になる**。rules model の形を変えるときは、その再構築コストを変更の便益と比べる。
 
-`calibration-build` と `calibration-evaluate` は同じ `--rules-path`（既定は `SCREENING_RULES_PATH` または current rules）を読む。evaluate は snapshot の `panel_variant` を含めて同じ方法で `rules_hash` を計算し、保存値との完全一致を metrics 計算前に要求する。Candidate Discovery の representation target と nomination depth は、その一致を確認した `CandidateDiscoveryRules` だけを正本とし、evaluator に別値を持たない。panel buildはcohort当日のJPX規制snapshotだけを読み、required sourceが全部揃えば`complete`、一部なら`incomplete`、snapshotが無ければ`unavailable`として保存する。規制対象tickerが0件でもrequired sourceが揃っていれば`complete`であり、未観測を空集合へ補完しない。不一致または旧cache contractではruntime migrationせず、`calibration-build --force`でcurrent methodから再構築する。
+`calibration-build` と `calibration-evaluate` は同じ `--rules-path`（既定は `SCREENING_RULES_PATH` または current rules）を読む。evaluate は snapshot の `panel_variant` を含めて同じ方法で `rules_hash` を計算し、保存値との完全一致を metrics 計算前に要求する。Candidate Discovery の nomination depth は、その一致を確認した `CandidateDiscoveryRules` だけを正本とし、evaluator に別値を持たない。panel buildはcohort当日のJPX規制snapshotだけを読み、required sourceが全部揃えば`complete`、一部なら`incomplete`、snapshotが無ければ`unavailable`として保存する。規制対象tickerが0件でもrequired sourceが揃っていれば`complete`であり、未観測を空集合へ補完しない。不一致または旧cache contractではruntime migrationせず、`calibration-build --force`でcurrent methodから再構築する。
 
 <a id="pre-2019-診断-panel"></a>
 
@@ -227,16 +227,16 @@ uv run baibai-engine screening calibration-evaluate \
   --candidate-discovery-approach asset-value \
   --required-asof 2021-06-30
 
-# composer / capacity / representation targetを変更する判断
+# Nomination union contractを変更する判断
 uv run baibai-engine screening calibration-evaluate \
   --run-purpose empirical_change_evidence \
-  --decision-subject candidate_discovery_composer \
+  --decision-subject candidate_discovery_nomination_union \
   --required-asof 2021-06-30
 ```
 
 E[r]水準parameterを判断する事前登録済みrunでは`--required-metric er_level_calibration`を追加する。判断面の月次文脈も更新するrunは、同じcommandに`--context-out reports/published/er-level-calibration-latest.yaml`を加える。evidenceが不完全、required cohortが不足、level metricが未解決の場合はcontextを書かずexit 1にする。
 
-保持する診断は、Review Set top-5/top-10のmedian excessとtrap rate、価格収束E[r]の相対較正、FY配当を含むtotal-return E[r]の水準較正、approach/reversionのregression診断、cohortのcoverage/integrityである。これらはtrack recordも統計的有意性も証明しない。
+保持する診断は、Approach別top20とNomination union全体のoutcome、pure E[r]との重複、価格収束E[r]の相対較正、FY配当を含むtotal-return E[r]の水準較正、approach/reversionのregression診断、cohortのcoverage/integrityである。これらはtrack recordも統計的有意性も証明しない。
 
 ## 改善サイクルの運用契約
 
@@ -247,7 +247,7 @@ E[r]水準parameterを判断する事前登録済みrunでは`--required-metric 
 | レバー | 所在 | 計測経路 |
 | --- | --- | --- |
 | screen の閾値・gate・valuation approach | `method/screening/rules/*.yaml` | 較正リプレイ（rules variant） |
-| Review Set の構成・review cap | 同上 + `engine/src/baibai_engine/screening/discovery/` | 較正リプレイ（Review Set replay） |
+| Nomination union | 同上 + `engine/src/baibai_engine/screening/discovery/` | 較正リプレイ（Approach別Nomination + union） |
 | 機械 E[r]・FV アンカー | `engine/src/baibai_engine/screening/estimates.py` | 較正リプレイ（er 軸 IC / decile / 予測 vs 実現） |
 | valuation 指標の算出 | metrics 系 + [`valuation-metrics.md`](./valuation-metrics.md) | 較正リプレイ（軸別 IC / coverage） |
 | マクロ読みの手順・レンズ | [`macro.md`](./macro.md) + skill `macro-context` | 保有 outcome / 月次の事後検証（N≈1、統計計測はしない） |
@@ -265,7 +265,7 @@ Valuation Approachを追加・変更・削除するときは、screening rules�
 matched 比較の被覆率・membership 数・集中度など、forward outcome を読まずに計算できる sufficiency は、効果条件を凍結する前に実測する。不足する場合は比較設計を修正し、同じ outcome-free 指標を再測定して、あらかじめ定めた sufficiency floor をすべて満たすまで凍結しない。最終設計の実測値と変更点は事前登録 commit に記録する。この修正 loop は forward outcome を一度でも読んだ後には再開せず、凍結後は outcome を見て条件を調整しない。逐次 study は先行 study の効果結果で後続条件を調整せず、match 被覆不足など outcome-free な実行可能性の欠陥は手法上の教訓として後続設計へ適用できる。
 
 - **control cell の判定は「0 許容の全 cell 通過」を既定にしない**（偽陰性へ構造的に偏る）。noise floor（例: trap delta ≤ +2pt）または k-of-n cell 通過と、cell ごとの最小 matched weight を**事前登録で宣言**する。
-- 判定語彙は `negative` / `insufficient` / `adoption_candidate` / `inconclusive` の 4 種。同一仮説の再検定は新 evidence（新規満期 cohort・contract レベルの capacity 変更）がある場合に限る。
+- 判定語彙は `negative` / `insufficient` / `adoption_candidate` / `inconclusive` の 4 種。同一仮説の再検定は新 evidence（新規満期 cohort・contract レベルの nomination contract 変更）がある場合に限る。
 - **語彙は窓ごとに決めてから全体へ畳む。** 窓を跨いで「どれか 1 つでも被覆不足なら全体 `insufficient`」とすると、1 窓の 1 basis の件数不足が、他窓で確定した効果の不成立を語彙の上で覆い隠す。各窓を `insufficient` / `inconclusive` / `negative` / `adoption_candidate` へ落としたうえで統合し、全体を `insufficient` と呼ぶのは、**効果が確定した窓が 1 つも無い**ときに限る。
 - **満期済み窓を根拠に cleanup するときは、残る変動幅を示す。** as-of 範囲が固定で満期済みでも値は不動ではない。forward row は build のたびに再計算され、FY 配当や退場銘柄の exit が backfill されれば `total` basis の pair 数と中央値は動く。したがって次の bullet の `insufficient` 保持規則より削除を優先してよいのは、**その窓の効果が確定しており、かつ窓内の coverage backfill では結論が反転しないことを示した**ときに限る。示せないなら保持規則が優先する。
 - `negative` / `inconclusive` が確定した軸は、判定 PR で panel 列・派生計算・評価枝・専用 test を削除し、dated report と git history を反証証跡の正本とする（残すのは `adoption_candidate` / `insufficient` / control 再利用列 / production annotation 入力列のみ）。
@@ -275,7 +275,7 @@ matched 比較の被覆率・membership 数・集中度など、forward outcome 
 ### 採用後
 
 - 通過した変更だけを本番へ反映し、計測した構成と本番構成を一致させる。rules 改訂後は panel を `--force` 再構築する。
-- 現 asof で `screening run` → `review-set publish` を回し、dated method revisionのcapacityで意図した挙動を実銘柄で確認する（運用テスト）。
+- 現 asof で `screening run` → `review-set publish` を回し、dated method revisionのApproach別Nominationとexact unionを実銘柄で確認する（運用テスト）。
 - `reports/YYYY-MM-DD-<slug>.md` に再現手順・データ窓・coverage / survivorship 開示・判定表・検算・採用後の監視事項を固定する（一次計測記録。別の監査ファイルは作らない）。マージ前 gate は [`python-foundation.md`](./python-foundation.md) §9 が正本。マージ後は report の監視事項を次の replay 計測で追う。
 
 ### 判断コホートの集計

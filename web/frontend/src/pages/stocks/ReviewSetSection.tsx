@@ -83,10 +83,10 @@ function FrozenAnalysis({ analysis }: { analysis: ReviewSetAnalysisView }) {
         ['sales YoY', percent(reinvestment.sales_yoy)], ['operating margin', percent(reinvestment.operating_margin)], ['FCF yield', percent(reinvestment.fcf_yield)],
       ]} title="Reinvestment" />
       <FrozenGroup fields={[
-        ['E[r] annual', percent(expected.er_annual)], ['reversion', percent(expected.er_reversion_annual)], ['carry', percent(expected.er_carry_annual)],
+        ['machine E[r] annual', percent(expected.er_annual)], ['reversion', percent(expected.er_reversion_annual)], ['carry', percent(expected.er_carry_annual)],
         ['FV sector median', `${number(expected.fv_sector_median_yen, 0)} 円`], ['FV self range', `${number(expected.fv_self_range_yen, 0)} 円`],
         ['origin', expected.er_origin ?? EMPTY], ['model', expected.er_model_version ?? EMPTY], ['unit', expected.er_unit ?? EMPTY], ['assumptions', expected.er_assumptions ?? EMPTY],
-      ]} title="Expected return (reference)" />
+      ]} title="Machine return prior (secondary context)" />
       <FrozenGroup fields={[
         ['BS carry fields', quality.bs_carry_forward_fields ?? EMPTY], ['BS carry lag', `${number(quality.bs_carry_forward_lag_days, 0)} 日`],
         ['EDINET failures', quality.edinet_failure_reasons ?? EMPTY], ['stale financials', String(quality.stale_fin_flag ?? EMPTY)],
@@ -103,23 +103,22 @@ function FrozenAnalysis({ analysis }: { analysis: ReviewSetAnalysisView }) {
 export function ReviewSetSection({ reviewSet, runAsOf }: { reviewSet: ReviewSetView | null; runAsOf: string }) {
   return (
     <SectionCard
-      description="4つの価値評価法の支持と方法内順位で構成。表示値は選定時にfreezeされたsnapshot。"
+      description="4つの価値評価法のtop20 Nomination union。配列順は優先度ではなく、表示値は選定時にfreezeされたsnapshot。"
       meta={reviewSet === null ? null : <div className="flex flex-wrap gap-3"><UpdatedAtBadge value={reviewSet.created_at} /><AsOfBadge compact value={runAsOf} /></div>}
       title="Review Set"
     >
       {reviewSet === null ? <p className="px-5 py-6 text-sm text-muted-foreground">Review Set はまだありません。</p> : (
         <Table className="min-w-[1500px]">
           <TableHeader><TableRow>
-            <TableHead>#</TableHead><TableHead>銘柄 / 名称</TableHead><TableHead>sector</TableHead><TableHead>支持</TableHead><TableHead>評価法 / 順位</TableHead>
+            <TableHead>銘柄 / 名称</TableHead><TableHead>sector</TableHead><TableHead>評価法 / Approach内順位</TableHead>
             <TableHead className="text-right">PER (F/T)</TableHead><TableHead className="text-right">Norm PER</TableHead><TableHead className="text-right">PBR</TableHead>
             <TableHead className="text-right">FCF yield</TableHead><TableHead className="text-right">Net cash / MC</TableHead><TableHead className="text-right">sales YoY</TableHead>
-            <TableHead className="text-right">E[r] 参考</TableHead><TableHead>注記</TableHead><TableHead>選定時分析</TableHead>
+            <TableHead className="text-right">機械E[r] (secondary)</TableHead><TableHead>注記</TableHead><TableHead>選定時分析</TableHead>
           </TableRow></TableHeader>
           <TableBody>{reviewSet.entries.map((entry) => (
             <TableRow key={entry.ticker}>
-              <TableCell>{entry.review_position}</TableCell>
               <TableCell><Link className="font-mono font-semibold hover:underline" to={`/securities/${entry.ticker}`}>{entry.ticker}</Link><span className="ml-2 text-muted-foreground">{entry.name}</span></TableCell>
-              <TableCell>{entry.sector_33 ?? EMPTY}</TableCell><TableCell>{entry.support_count}</TableCell>
+              <TableCell>{entry.sector_33 ?? EMPTY}</TableCell>
               <TableCell><div className="flex flex-wrap gap-1">{entry.nominations.map((nomination) => <Badge key={nomination.valuation_approach_id} variant="secondary">{valuationApproachLabel(nomination.valuation_approach_id, nomination.rank)}</Badge>)}</div></TableCell>
               <TableCell className="text-right font-mono">{number(entry.analysis.valuation.per_forward)} / {number(entry.analysis.valuation.per_trailing)}</TableCell>
               <TableCell className="text-right font-mono">{number(entry.analysis.normalized_earnings.normalized_per_3fy)}</TableCell>

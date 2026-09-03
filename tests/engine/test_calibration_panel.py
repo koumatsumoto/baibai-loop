@@ -403,7 +403,6 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertTrue(cheap.in_population)
             self.assertTrue(cheap.in_review_set)
             self.assertEqual(cheap.valuation_approaches, "current-earnings-power|asset-value")
-            self.assertEqual(cheap.review_position, 1)
             assert cheap.per_trailing is not None
             self.assertAlmostEqual(cheap.per_trailing, 10.0)
             assert cheap.pbr is not None
@@ -421,7 +420,6 @@ class CalibrationPanelTest(unittest.TestCase):
             expensive = rows_by_ticker["9002"]
             self.assertTrue(expensive.in_population)
             self.assertTrue(expensive.in_review_set)
-            self.assertEqual(expensive.review_position, 2)
 
             diagnostics = result.diagnostics
             self.assertEqual(diagnostics.universe_size, 2)
@@ -1046,8 +1044,7 @@ class CalibrationPanelTest(unittest.TestCase):
                     run_purpose="empirical_change_evidence",
                     required_asofs=[ASOF.isoformat()],
                     required_metrics=[
-                        "review_set_top5",
-                        "review_set_top10",
+                        "review_set_all",
                         "er_calibration",
                     ],
                 )
@@ -1074,8 +1071,7 @@ class CalibrationPanelTest(unittest.TestCase):
                     run_purpose="empirical_change_evidence",
                     required_asofs=[ASOF.isoformat()],
                     required_metrics=[
-                        "review_set_top5",
-                        "review_set_top10",
+                        "review_set_all",
                         "er_calibration",
                     ],
                 )

@@ -194,7 +194,6 @@ class PanelRow:
     in_review_set: bool
     valuation_approaches: str
     valuation_approach_ranks: str
-    review_position: int | None
     population_coverage_status: PopulationCoverageStatus = "evaluated"
     self_range_degraded: bool = False
     dps_streak_up: bool | None = None
@@ -432,11 +431,7 @@ def build_panel(
     )
     entries = review_set["entries"]
     assert isinstance(entries, list)
-    review_position = {
-        str(entry["ticker"]): int(entry["review_position"])
-        for entry in entries
-        if isinstance(entry, dict)
-    }
+    review_set_tickers = {str(entry["ticker"]) for entry in entries if isinstance(entry, dict)}
 
     latest_close_by_ticker = {
         ticker: financial.market_price_yen
@@ -555,7 +550,7 @@ def build_panel(
                 operating_profit_to_assets=profitability.operating_profit_to_assets,
                 operating_margin=profitability.operating_margin,
                 asset_turnover=profitability.asset_turnover,
-                in_review_set=ticker in review_position,
+                in_review_set=ticker in review_set_tickers,
                 valuation_approaches="|".join(
                     item.valuation_approach_id for item in nomination_ranks.get(ticker, ())
                 ),
@@ -568,7 +563,6 @@ def build_panel(
                     for metric in VALUATION_METRICS
                     if derived.sector_median_basis.get(metric) == SECTOR_MEDIAN_BASIS_MARKET
                 ),
-                review_position=review_position.get(ticker),
                 self_range_degraded=not policy.production_authority,
                 dps_streak_up=return_change.dps_streak_up,
                 dps_yoy_latest=return_change.dps_yoy_latest,
@@ -742,7 +736,6 @@ def _unresolved_master_member_row(
         in_review_set=False,
         valuation_approaches="",
         valuation_approach_ranks="",
-        review_position=None,
         population_coverage_status=(
             "priced_master_without_universe"
             if priced_at_asof

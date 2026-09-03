@@ -214,6 +214,8 @@ class ObservedFact(BaseModel):
 
 
 class ScreeningEstimate(BaseModel):
+    """Secondary machine prior retained to explain the Research estimate delta."""
+
     model_config = _CONFIG
 
     origin: Literal["estimate"]
@@ -367,6 +369,8 @@ class ScenarioEstimate(BaseModel):
 
 
 class ScreeningFVBridge(BaseModel):
+    """Explain the primary difference from machine prior to Research FV."""
+
     model_config = _CONFIG
 
     primary_driver: Literal[

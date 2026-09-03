@@ -23,7 +23,7 @@ def test_valid_artifact_maps_to_web_dto() -> None:
     context = load_er_level_calibration_context(
         _PUBLISHED,
         expected_method_identity=identity,
-        today=date(2026, 9, 1),
+        today=date(2026, 9, 3),
     )
 
     assert context is not None

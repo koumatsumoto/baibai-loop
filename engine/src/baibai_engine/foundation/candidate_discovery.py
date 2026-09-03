@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -21,9 +20,7 @@ class ReviewSetMethod(BaseModel):
 
     method_id: str = Field(min_length=1)
     method_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
-    review_capacity: int = Field(gt=0)
     nomination_depth: int = Field(gt=0)
-    representation_targets: Mapping[str, int]
 
 
 class _StrictAnalysisGroup(BaseModel):
@@ -121,13 +118,10 @@ class ReviewSetAnalysis(_StrictAnalysisGroup):
 class ReviewSetEntry(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    review_position: int = Field(ge=1)
     ticker: str = Field(pattern=r"^[0-9A-Z]{4}$")
     name: str
     sector_33: str
     nominations: tuple[Nomination, ...]
-    support_count: int = Field(ge=1, le=4)
-    rank_vector: tuple[int, int, int, int]
     analysis: ReviewSetAnalysis
 
     @field_validator("nominations", mode="before")
@@ -137,15 +131,10 @@ class ReviewSetEntry(BaseModel):
             raise ValueError("nominations must be an array")
         return tuple(value)
 
-    @field_validator("rank_vector", mode="before")
-    @classmethod
-    def _tuple_rank_vector(cls, value: object) -> object:
-        return tuple(value) if isinstance(value, list) else value
-
     @model_validator(mode="after")
     def _validate_support(self) -> Self:
-        if not self.nominations or len(self.nominations) != self.support_count:
-            raise ValueError("support count must equal the non-empty nominations")
+        if not self.nominations:
+            raise ValueError("review set entry must contain a nomination")
         approaches = [item.valuation_approach_id for item in self.nominations]
         if len(approaches) != len(set(approaches)):
             raise ValueError("a ticker cannot have duplicate approach nominations")

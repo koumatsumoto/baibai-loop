@@ -23,9 +23,9 @@ uv run baibai-batch analysis run --asof YYYY-MM-DD  # 手動再実行
 5. local `codex exec`を原則1 process・1 requestで実行し、strict JSONだけを受け取る。
 6. ticker集合、重複、欠落、field shape、長さを検証する。
 7. AI入力へ載せたMacro Context IDを保持したまま`baibai_engine.batch_api`経由で既存`ResearchTriageService`へ委譲し、binding、candidate snapshot、head CAS、same-ID idempotencyを再検証してpublishする。
-8. `research`が1件以上なら、そのcanonical Triageだけを参照する`capital-allocation` Operationを開始する。全件`skip`なら開始しない。
+8. publish結果を返して終了する。Research Setの確定とOperation開始は`research prepare --ticker`の人間gateが所有する。
 
-AIはfilesystem path、command、run / Review Set ID、CAS、digest、publish操作を受け取らない。repository、skill、runbook、CLI help、raw logを読まず、出力は`ticker / verdict / rationale / research_question / key_risk`に限定する。priorityはReview Set順からmachineが付ける。
+AIはfilesystem path、command、run / Review Set ID、CAS、digest、publish操作を受け取らない。repository、skill、runbook、CLI help、raw logを読まず、出力は`ticker / verdict / priority / rationale / research_question / key_risk`に限定する。AIは1 requestで全候補を比較し、`research`だけへ1..Nのcontiguous priorityを付ける。Review Setのticker serialization順やE[r]順をpriorityとして複写しない。
 
 ## Model process 0
 
@@ -33,15 +33,14 @@ AIはfilesystem path、command、run / Review Set ID、CAS、digest、publish操
 
 - 非営業日
 - Review Setなし、または0件
-- 別のactive Operationがある
 - exact Review Setのcanonical Research Triageが既にある
 - Review Set、candidate snapshot、application store等の必須machine inputが欠損・破損している
 
-既存Triageに`research`があり、exact Triageを参照するOperationがactiveなら`awaiting_human`を返す。別Operationは同じ`as_of`でも採用しない。既存Triageのpublish後にOperationだけ未作成なら、AIとTriage publishを繰り返さず必要なOperationを開始する。
+既存Triageがあれば`awaiting_human`を返す。active Operationの有無はdaily Review Set / Triageの生成条件に含めない。別Operationがactiveでもdaily Triageは発行でき、新しいResearch開始だけを`research prepare`が拒否する。
 
 ## Failureと再実行
 
-AI result不正、adapter failure、binding / CAS conflictでは新しいResearch TriageとOperationを書かない。L2の途中状態は正本にせず、次回は`analysis run`をfreshに実行する。canonical Triageが既に存在する場合だけexact Review Setで照合し、modelとpublishを重複実行しない。active pointer、heartbeat、lease、publish intent、stage resume、candidate cacheは持たない。
+AI result不正、adapter failure、binding / CAS conflictでは新しいResearch Triageを書かない。L2の途中状態は正本にせず、次回は`analysis run`をfreshに実行する。canonical Triageが既に存在する場合だけexact Review Setで照合し、modelとpublishを重複実行しない。active pointer、heartbeat、lease、publish intent、stage resume、candidate cacheは持たない。
 
 ## 出力とlocal artifact
 

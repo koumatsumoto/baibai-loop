@@ -28,7 +28,7 @@ def _write(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 
 
-def _load(path: Path, payload: dict[str, Any], *, as_of: date = date(2026, 9, 1)):
+def _load(path: Path, payload: dict[str, Any], *, as_of: date = date(2026, 9, 3)):
     return load_er_calibration_context(
         path,
         expected_rules_hash=str(payload["screening_rules_hash"]),
@@ -78,8 +78,8 @@ def test_invalid_structural_contract_is_rejected(mutate: Any) -> None:
 
 def test_reader_preserves_future_and_expired_point_in_time_reasons(tmp_path: Path) -> None:
     future = deepcopy(_artifact())
-    future["generated_at"] = "2026-09-02T00:00:00+09:00"
-    future["valid_through"] = "2026-10-17"
+    future["generated_at"] = "2026-09-04T00:00:00+09:00"
+    future["valid_through"] = "2026-10-19"
     path = tmp_path / "future.yaml"
     _write(path, future)
     assert _load(path, future).unavailable_reason == "invalid_artifact"
@@ -100,13 +100,13 @@ def test_reader_preserves_method_identity_reasons(tmp_path: Path) -> None:
         path,
         expected_rules_hash="different",
         expected_er_model_version=str(payload["er_model_version"]),
-        as_of=date(2026, 9, 1),
+        as_of=date(2026, 9, 3),
     )
     model = load_er_calibration_context(
         path,
         expected_rules_hash=str(payload["screening_rules_hash"]),
         expected_er_model_version="different",
-        as_of=date(2026, 9, 1),
+        as_of=date(2026, 9, 3),
     )
 
     assert rules.unavailable_reason == "rules_identity_mismatch"

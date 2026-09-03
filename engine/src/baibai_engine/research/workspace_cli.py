@@ -74,6 +74,12 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--db", type=Path)
     prepare_parser.add_argument("--workspace", required=True, type=Path)
     prepare_parser.add_argument(
+        "--ticker",
+        action="append",
+        default=[],
+        help="human-confirmed Research Set ticker; repeat for the selected subset",
+    )
+    prepare_parser.add_argument(
         "--force", action="store_true", help="rebuild an existing local workspace"
     )
 
@@ -202,6 +208,8 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     research_triage_id=args.research_triage_id,
                     db_path=args.db,
                     workspace=args.workspace,
+                    research_set=args.ticker,
+                    started_at=resolved_now,
                     force=args.force,
                 )
                 _emit(
@@ -209,7 +217,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         "workspace": str(prepared.workspace),
                         "actionable": prepared.actionable,
                         "review_set_size": prepared.review_set_size,
-                        "research_capacity": prepared.research_capacity,
+                        "researchable_count": prepared.researchable_count,
                         "research_triage_id": prepared.research_triage_id,
                         "researchable_tickers": list(prepared.researchable_tickers),
                         "note": None if prepared.actionable else "no_allocation",
@@ -229,7 +237,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         "workspace": str(prepared.workspace),
                         "actionable": prepared.actionable,
                         "review_set_size": prepared.review_set_size,
-                        "research_capacity": prepared.research_capacity,
+                        "researchable_count": prepared.researchable_count,
                     },
                     out,
                 )

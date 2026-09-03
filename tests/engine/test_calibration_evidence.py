@@ -4,8 +4,8 @@ from datetime import date
 
 from baibai_engine.screening.calibration.evidence import (
     CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
-    CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC,
-    CANDIDATE_DISCOVERY_COMPOSER_SUBJECT,
+    CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
+    CANDIDATE_DISCOVERY_UNION_SUBJECT,
     CohortIntegrity,
     EvaluationScope,
     candidate_discovery_approach_fidelity_metric,
@@ -78,19 +78,20 @@ def test_estimator_policy_requires_only_er_calibration_by_subject() -> None:
     assert effective_required_metrics(_scope()) == ("er_calibration",)
 
 
-def test_composer_mandatory_metrics_cannot_be_omitted() -> None:
-    scope = _scope(subject=CANDIDATE_DISCOVERY_COMPOSER_SUBJECT)
-    assert effective_required_metrics(scope) == (
+def test_nomination_union_mandatory_metrics_cannot_be_omitted() -> None:
+    scope = _scope(subject=CANDIDATE_DISCOVERY_UNION_SUBJECT)
+    required = effective_required_metrics(scope)
+    assert required[:2] == (
         "review_set_all",
-        "pure_er_top20",
-        CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC,
+        CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
     )
+    assert len(required) == 6
     incomplete = tuple(
         CohortIntegrity(
             asof=item.asof,
             horizon=item.horizon,
             integrity_status=item.integrity_status,
-            metric_statuses={"review_set_top5": "eligible", "review_set_top10": "eligible"},
+            metric_statuses={"pure_er_top20": "eligible"},
         )
         for item in _cohorts(scope)
     )
@@ -99,21 +100,20 @@ def test_composer_mandatory_metrics_cannot_be_omitted() -> None:
     assert "metric_unresolved:review_set_all" in readiness.blocking_reasons
 
 
-def test_approach_mandatory_metrics_include_direct_and_composed_outcomes() -> None:
+def test_approach_mandatory_metrics_include_direct_and_union_outcomes() -> None:
     approach = "asset-value"
     scope = _scope(subject=CANDIDATE_DISCOVERY_APPROACH_SUBJECT, approach=approach)
     assert effective_required_metrics(scope) == (
         "review_set_all",
-        "pure_er_top20",
-        CANDIDATE_DISCOVERY_COMPOSER_FIDELITY_METRIC,
+        CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
         candidate_discovery_approach_top20_metric(approach),
         candidate_discovery_approach_fidelity_metric(approach),
     )
     assert evaluate_evidence_readiness(scope, _cohorts(scope)).evidence_complete is True
 
 
-def test_top5_top10_are_diagnostic_not_candidate_discovery_requirements() -> None:
-    scope = _scope(subject=CANDIDATE_DISCOVERY_COMPOSER_SUBJECT)
+def test_er_top20_is_diagnostic_not_candidate_discovery_requirement() -> None:
+    scope = _scope(subject=CANDIDATE_DISCOVERY_UNION_SUBJECT)
     cohorts = tuple(
         CohortIntegrity(
             asof=item.asof,
@@ -121,8 +121,7 @@ def test_top5_top10_are_diagnostic_not_candidate_discovery_requirements() -> Non
             integrity_status=item.integrity_status,
             metric_statuses={
                 **item.metric_statuses,
-                "review_set_top5": "unresolved",
-                "review_set_top10": "unresolved",
+                "pure_er_top20": "unresolved",
             },
         )
         for item in _cohorts(scope)

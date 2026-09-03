@@ -4,6 +4,7 @@ from copy import deepcopy
 
 import pytest
 
+from baibai_engine.foundation.candidate_discovery import Nomination
 from baibai_engine.screening.discovery import review_set as review_set_module
 from baibai_engine.screening.discovery.review_set import (
     ReviewSetContractError,
@@ -71,7 +72,7 @@ def _analysis(
     }
 
 
-def test_overlap_is_selected_once_and_covers_every_supported_target() -> None:
+def test_nomination_union_contains_each_ticker_once_with_every_nomination() -> None:
     rows = [_analysis(str(1000 + index), per=5.0 + index) for index in range(20)]
 
     payload = _build_review_set(rows)
@@ -79,15 +80,37 @@ def test_overlap_is_selected_once_and_covers_every_supported_target() -> None:
     entries = payload["entries"]
     assert isinstance(entries, list)
     assert len(entries) == 20
-    assert entries[0]["support_count"] == 4
+    assert len(entries[0]["nominations"]) == 4
     assert len({entry["ticker"] for entry in entries}) == 20
     diagnostics = payload["diagnostics"]
-    assert diagnostics["unfilled_representation_targets"] == {
-        "current-earnings-power": 0,
-        "normalized-earnings-power": 0,
-        "asset-value": 0,
-        "reinvestment-value": 0,
+    assert diagnostics["unique_candidate_count"] == len(entries)
+
+
+def test_nomination_union_can_reach_four_disjoint_top20_sets(monkeypatch) -> None:
+    rows = [_analysis(str(1000 + index)) for index in range(80)]
+    nominations = {
+        str(1000 + approach_index * 20 + rank - 1): (
+            Nomination(
+                valuation_approach_id=approach,
+                valuation_method_id=RULES.approaches[approach].method_id,
+                rank=rank,
+            ),
+        )
+        for approach_index, approach in enumerate(review_set_module.APPROACH_IDS)
+        for rank in range(1, 21)
     }
+    monkeypatch.setattr(
+        review_set_module, "build_nomination_ranks", lambda *args, **kwargs: nominations
+    )
+
+    payload = _build_review_set(rows)
+
+    entries = payload["entries"]
+    assert len(entries) == 80
+    assert {entry["ticker"] for entry in entries} == set(nominations)
+    assert payload["diagnostics"]["nomination_counts"] == dict.fromkeys(
+        review_set_module.APPROACH_IDS, 20
+    )
 
 
 def test_expected_return_and_context_do_not_change_membership_or_order() -> None:
@@ -261,21 +284,14 @@ def test_reinvestment_sector_floor_uses_inclusive_shared_population_boundary() -
 def test_current_rules_name_only_the_two_revised_approaches() -> None:
     method_ids = {key: value.method_id for key, value in RULES.approaches.items()}
 
-    assert RULES.method_id == "multi-valuation-v2"
+    assert RULES.method_id == "multi-valuation-v3"
     assert method_ids == {
         "current-earnings-power": "current-earnings-power-v1",
         "normalized-earnings-power": "normalized-earnings-power-v1",
         "asset-value": "asset-value-v2",
         "reinvestment-value": "reinvestment-value-v2",
     }
-    assert RULES.review_capacity == 20
     assert RULES.nomination_depth == 20
-    assert dict(RULES.representation_targets) == {
-        "current-earnings-power": 6,
-        "normalized-earnings-power": 5,
-        "asset-value": 5,
-        "reinvestment-value": 4,
-    }
 
 
 def test_normalized_gap_uses_the_shared_sector_population_boundary() -> None:
@@ -390,6 +406,33 @@ def test_review_set_analysis_rejects_nested_contract_drift(mutate) -> None:
     )
     entry = payload["entries"][0]
     mutate(entry["analysis"])
+
+    with pytest.raises(ReviewSetContractError, match="published review set is invalid"):
+        validate_review_set_shape(payload)
+
+
+@pytest.mark.parametrize("mutation", ["unknown_approach", "rank_gap", "union_bound"])
+def test_review_set_shape_rejects_invalid_nomination_union(mutation: str) -> None:
+    payload = _build_review_set([_analysis("1111")])
+    payload.update(
+        {
+            "review_set_id": "review-set-test",
+            "run_revision_id": "run-test",
+            "as_of": "2026-07-19",
+            "created_at": "2026-07-19T15:00:00+09:00",
+            "screening_rules_hash": "a" * 64,
+        }
+    )
+    if mutation == "unknown_approach":
+        payload["entries"][0]["nominations"][0]["valuation_approach_id"] = "unknown"
+    elif mutation == "rank_gap":
+        payload["entries"][0]["nominations"][0]["rank"] = 2
+    else:
+        payload["method"]["nomination_depth"] = 1
+        template = payload["entries"][0]
+        payload["entries"] = [
+            {**deepcopy(template), "ticker": str(1111 + offset)} for offset in range(5)
+        ]
 
     with pytest.raises(ReviewSetContractError, match="published review set is invalid"):
         validate_review_set_shape(payload)
