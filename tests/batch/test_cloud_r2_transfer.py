@@ -702,7 +702,7 @@ def test_initial_seed_ignores_a_kept_generation_of_an_absent_store(tmp_path: Pat
     assert len([command for command in commands if "s3 cp" in command]) == 4
 
 
-def test_machine_store_push_is_github_actions_only(tmp_path: Path) -> None:
+def test_machine_store_push_uploads_three_pulled_stores_locally(tmp_path: Path) -> None:
     bin_dir, log = _fake_aws(tmp_path)
 
     completed = subprocess.run(
@@ -714,9 +714,13 @@ def test_machine_store_push_is_github_actions_only(tmp_path: Path) -> None:
         text=True,
     )
 
-    assert completed.returncode == 2
-    assert "outside GitHub Actions" in completed.stderr
-    assert not log.exists()
+    assert completed.returncode == 0
+    commands = _transfer_commands(log)
+    uploads = [command for command in commands if command.startswith("s3api put-object ")]
+    stores = [command for command in uploads if "--key machine-manifest.json" not in command]
+    assert len(stores) == 3
+    assert all('--if-match "etag-stable"' in command for command in stores)
+    assert "--key machine-manifest.json" in uploads[-1]
 
 
 def test_machine_store_push_uploads_three_stores_in_github_actions(tmp_path: Path) -> None:

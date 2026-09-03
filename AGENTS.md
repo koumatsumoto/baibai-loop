@@ -55,7 +55,8 @@ schema 変更・store 再構築・全期間再取得・較正 store の作り直
   (b) 日次 batch はその日の増分のために組まれており、移行の入力（深い履歴・再構築済み cache）を持たない。
   (c) 移行がクラウドで途中失敗すると、正本が新旧混在のまま残る
 
-Screening Run / Review Setはcloud dailyだけが生成する。local Research Triageは`pull.sh`で取得したcanonical Review Setを読み、
+Screening Run / Review Setはcanonical runs storeだけへ生成する。定時経路はcloud daily、明示的なlocal dailyは
+`pull.sh`直後の同じmachine bundleをCAS付き`push-machine`で反映する。local Research Triageは取得済みのcanonical Review Setを読み、
 application DBへ発行して`publish.sh`で反映する。
 
 ## 運用の入口（trigger → skill）
@@ -121,7 +122,7 @@ storeごとに正本の所在が違う。ローカルで進めたstoreをクラ�
 | --- | --- | --- |
 | `stores/market/market.sqlite` | lake所有17 tableはR2のL1 release、残る2 tableはcloud（日次batch）+ ローカルの深い履歴 | `r2_transfer.sh publish-lake` → `push-market`（merge後だけupload） |
 | `stores/macro/macro.sqlite` | cloud（rolling窓）+ ローカルの全履歴 | `r2_transfer.sh push-macro`（merge後だけupload） |
-| `stores/screening/runs.sqlite` | cloudのみ | しない（cloudが唯一のwriter） |
+| `stores/screening/runs.sqlite` | cloud daily + 明示的なlocal daily | `r2_transfer.sh push-machine`（pullした3 storeのETag一致時だけbundle upload） |
 | `stores/application/baibai.sqlite` | ローカル（判断） | `batch/scripts/publish.sh` |
 
 **schemaを上げるcodeはmainへ入れてからpushする。** ローカルがmainより先のversionでstoreを置くと、次の日次batchがそのversionを知らずfail-fastする。手順と失敗時の見え方は [`batch/OPERATIONS.md`](./batch/OPERATIONS.md#ローカルからクラウドを更新する) を正本とする。

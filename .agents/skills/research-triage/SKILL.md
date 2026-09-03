@@ -18,7 +18,7 @@ uv run baibai-batch analysis run
 batch/scripts/publish.sh
 ```
 
-`pull.sh`はcloud machine正本を取得し、`analysis run`は営業日判定、対象`as_of`のlatest canonical Review Set解決、AI不要条件、Research Triage入力、strict AI result、engine publisherだけを所有する。Screening RunやReview Setをlocalで生成せず、対象日にReview Setが無ければ前営業日へfallbackしない。`publish.sh`はapplication DBをuploadしてcloud materializeを起動する。ID転記、workspace探索、`status / check / publish`の選択、成功logの確認は行わない。Triage publishではOperationを開始しない。
+`pull.sh`はR2のcanonical machine storeを取得し、`analysis run`は営業日判定、対象`as_of`のlatest canonical Review Set解決、AI不要条件、Research Triage入力、strict AI result、engine publisherだけを所有する。`analysis run`内ではScreening RunやReview Setを生成せず、対象日にReview Setが無ければ前営業日へfallbackしない。`publish.sh`はapplication DBをuploadしてcloud materializeを起動する。ID転記、workspace探索、`status / check / publish`の選択、成功logの確認は行わない。Triage publishではOperationを開始しない。
 
 次はmodel process 0で終了する。
 
