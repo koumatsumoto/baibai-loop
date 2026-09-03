@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-MIN_AVG_TURNOVER_OKU = 1.0
-
 TIER_SMALL_OKU = 100
 TIER_MICRO_OKU = 200
 TIER_MID_OKU = 500

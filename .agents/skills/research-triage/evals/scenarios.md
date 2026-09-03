@@ -30,12 +30,12 @@
 ## 6. active Operation
 
 - **入力** — 前cycleのactive Operation。
-- **期待** — model process 0、新しいTriage / Operation 0。同じas-ofだけを理由に再利用しない。
+- **期待** — 未判断のcanonical Review Setならmodel process 1、新しいTriage 1、Operationの新規作成・変更0。同じas-ofだけを理由に旧TriageやOperationを再利用しない。
 
 ## 7. exact Triage already published
 
 - **入力** — exact Review Setとrun revisionに対応するcanonical Research Triage。
-- **期待** — model process 0、Triage publish 0。`research`がありOperationだけ無い場合は、そのexact Triageを参照するOperationだけを開始する。
+- **期待** — model process 0、Triage publish 0、Operation 0。`research`があっても人間がResearch Setを確定して`research prepare`を実行するまでOperationを開始しない。
 
 ## 8. invalid AI result
 
