@@ -60,7 +60,7 @@ function FrozenAnalysis({ analysis }: { analysis: ReviewSetAnalysisView }) {
   return (
     <div className="grid gap-5 py-3">
       <FrozenGroup fields={[
-        ['market cap', `${number(identity.market_cap_oku)} 億円`], ['avg turnover', `${number(identity.avg_turnover_oku)} 億円`],
+        ['market cap', `${number(identity.market_cap_oku)} 億円`], ['ADV (context)', `${number(identity.avg_turnover_oku)} 億円`],
         ['listing span', `${number(identity.listing_span_days, 0)} 日`], ['JPX flags', identity.jpx_flags?.join(', ') || EMPTY],
       ]} title="Identity / liquidity" />
       <FrozenGroup fields={[

@@ -3,7 +3,7 @@
 統計の誠実性 (docs/doctrine.md の計測経路):
 - cohort (月次 asof) は forward 窓が重複し独立でないため、有意性検定は行わず
   「効果量 (median/mean excess) と cohort 勝率」で報告する。
-- 超過リターンの一次基準は流動性母集団の中央値 (選定スキルの直接計測) 。
+- 超過リターンの一次基準はcommon eligible母集団の中央値 (選定スキルの直接計測) 。
   benchmark ETF は市況文脈の参考値。
 - 累積リターン・年率・シャープ等の track record 系は出力しない。
 """

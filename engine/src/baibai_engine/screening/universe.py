@@ -4,7 +4,7 @@ The data platform keeps facts for the whole market, so the screen evaluates
 all common stocks in the eligible market segments. Size and liquidity are not
 scope conditions: market cap, average turnover, listing span, and JPX
 regulation flags are recorded as facts on each snapshot and applied as
-analysis-layer parameters by Candidate Discovery. The only structural exclusions are
+analysis-layer context or parameters by Candidate Discovery. The only structural exclusions are
 instrument type, market segment, and a minimal bar-history requirement that the
 metric pipeline needs to compute short-horizon fields.
 
@@ -214,26 +214,24 @@ def build_universe(
     )
 
 
-def liquid_median_population(
+def candidate_comparison_population(
     snapshots: Mapping[str, UniverseSnapshot],
     rules: ScreeningRules,
 ) -> frozenset[str]:
-    """Tickers whose facts satisfy the Candidate Discovery liquidity parameters.
+    """Tickers whose facts satisfy Candidate Discovery common eligibility.
 
     Sector / market medians and sector relative strength compare against this
-    investable population so the screen's relative-valuation judgments stay
-    anchored to liquid comparables while every common stock is evaluated. Uses
-    the base-config liquidity rules directly; programmatic in-process overrides
-    apply only to Candidate Discovery eligibility, not to this population.
+    population while every common stock is evaluated. Average turnover remains
+    context and does not affect membership. Production and calibration callers
+    pass the same rules instance so their populations remain identical.
     """
-    liquidity = rules.candidate_discovery.common_eligibility
+    eligibility = rules.candidate_discovery.common_eligibility
     required_jpx = frozenset(rules.universe.required_jpx_flags)
     return frozenset(
         ticker
         for ticker, snapshot in snapshots.items()
-        if liquidity.matches(
+        if eligibility.matches(
             market_cap_oku=snapshot.market_cap_oku,
-            avg_turnover_oku=snapshot.avg_turnover_oku,
             listing_span_days=snapshot.listing_span_days,
             jpx_flags=snapshot.jpx_flags,
             required_jpx_flags=required_jpx,

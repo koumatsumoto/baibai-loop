@@ -128,6 +128,20 @@ def test_expected_return_and_context_do_not_change_membership_or_order() -> None
     ]
 
 
+@pytest.mark.parametrize("avg_turnover_oku", [0.1, None])
+def test_adv_does_not_change_candidate_membership(avg_turnover_oku: float | None) -> None:
+    row = _analysis("1111")
+    row["avg_turnover_oku"] = avg_turnover_oku
+
+    payload = _build_review_set([row])
+
+    assert [entry["ticker"] for entry in payload["entries"]] == ["1111"]
+    assert (
+        payload["entries"][0]["analysis"]["identity_liquidity"]["avg_turnover_oku"]
+        == avg_turnover_oku
+    )
+
+
 def test_composition_has_no_research_triage_state() -> None:
     rows = [_analysis(str(1000 + index), per=5.0 + index) for index in range(20)]
     baseline = _build_review_set(rows)
@@ -284,7 +298,7 @@ def test_reinvestment_sector_floor_uses_inclusive_shared_population_boundary() -
 def test_current_rules_name_only_the_two_revised_approaches() -> None:
     method_ids = {key: value.method_id for key, value in RULES.approaches.items()}
 
-    assert RULES.method_id == "multi-valuation-v3"
+    assert RULES.method_id == "multi-valuation-v4"
     assert method_ids == {
         "current-earnings-power": "current-earnings-power-v1",
         "normalized-earnings-power": "normalized-earnings-power-v1",
@@ -292,6 +306,7 @@ def test_current_rules_name_only_the_two_revised_approaches() -> None:
         "reinvestment-value": "reinvestment-value-v2",
     }
     assert RULES.nomination_depth == 20
+    assert "min_avg_turnover_oku" not in RULES.common_eligibility.model_dump()
 
 
 def test_normalized_gap_uses_the_shared_sector_population_boundary() -> None:

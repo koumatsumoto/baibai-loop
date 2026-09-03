@@ -216,7 +216,7 @@ thesisで見積りの根拠を検証するときの分析レンズ / return源�
 - **マクロ機械読み値 (macro reading)**：L1 の指標 store だけを入力に、全登録系列の記述統計と観測の齢を決定論で計算する。解釈・因果・行動指示を持たない。
 - **マクロ環境分析 (macro context)**：macro reading と外部記事・指標データを参照し、環境評価（core：レジーム・経路別のfactとjudgment・リスク選好環境の評価・確率と機械照合可能な条件を持つシナリオ・監視ポイント）、統合評価（synthesis：経路横断の支配的な力とその相互作用）、日本株積立ループ接続（connection：research優先度・sector tilt・sizing caution・バーゲン地形・機械見積りの歪み注意）を分析階層（§7）に沿った構造化レポートとして残す。記事本文や取得ログは保存しない。
 - **スクリーニング実行結果 (screening run)**：run storeに保存する再生成可能な機械出力。observed、derived、estimateを由来付きで残し、judgment・因果解釈・相場観を書かない。
-- **調査優先度判定 (Research Triage)**：Review Set全件を`research / skip`へ分類したcanonical snapshot。application DBに置き、run revisionとReview Setへの束縛を保つ。
+- **調査優先度判定 (Research Triage)**：Review Set全件をAIが`research / skip`へ分類し、research priorityを付けたcanonical snapshot。4 Approachをprimary authority、E[r]とADVをsecondary contextとして扱い、application DBでrun revisionとReview Setへの束縛を保つ。
 - **個別銘柄research / thesis**：一次情報、FV、3年/5年scenario、risk/reward、期待return、永久損失、countercaseを検証し、採否をcanonical thesisへ固定する。
 - **資本配分評価 (Capital Allocation Assessment)**：research済みalternativeを横比較し、`allocate / no_allocation / defer`を確定する。`allocate`はthesisと独立reviewへ束縛し、注文数量は判断を変えず`plan-limit`でその都度計算する。
 - **売買執行記録 (position)**：実際に発注・entry した判断の注文・約定・保有・全売り決済と、見積り vs 実現の calibration を記録する。

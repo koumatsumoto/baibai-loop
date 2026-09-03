@@ -89,7 +89,7 @@ entry は as-of の 15 日前までの close で解決するので、保有期�
 
 該当 row は必要な入力履歴を欠くため valuation metrics、rank、E[r] を持たず、窓中に価格系列が終われば実現 forward return も持たない。現行 method で選抜対象にならない row へ所属を後付けせず、観測済み return の有無が母集団中央値を通じて production 結論の向きを作っていないかを有界バイアスで判定する。
 
-報告値では観測済み return だけを使い、未解決 return は値なしのまま母集団から除外する。感度計算では resolved / unresolved を問わず該当 row だけを `-1.0` と置換前の resolved 流動性母集団中央値へそれぞれ置換する。Nomination union全体と`er_calibration`の向きは delisting 判定と同じ定義を使い、報告値と両置換の向きがすべて一致するときだけ `direction_stable` とする。`resolved_target_count` と `resolution_complete` は観測できた実現 return の coverage 診断であり、単独ではevidence completenessをblockしない。
+報告値では観測済み return だけを使い、未解決 return は値なしのまま母集団から除外する。感度計算では resolved / unresolved を問わず該当 row だけを `-1.0` と置換前の resolved common eligible母集団中央値へそれぞれ置換する。Nomination union全体と`er_calibration`の向きは delisting 判定と同じ定義を使い、報告値と両置換の向きがすべて一致するときだけ `direction_stable` とする。`resolved_target_count` と `resolution_complete` は観測できた実現 return の coverage 診断であり、単独ではevidence completenessをblockしない。
 
 cache が対象 row を同定できない、diagnostics 件数と row 数が一致しない、または両側代入で向きが割れる場合は fail closed で block する。この判定は欠けた実現 return、metrics、rank を復元せず、未評価銘柄が無かったことにもならない。
 
@@ -163,6 +163,8 @@ cache schema versionは互換性を決める入力から導出する（panel / d
 信用需給では、公表済みの直近残高（2026-09-18 まで全銘柄週次、以後は全銘柄日次）を source として、貸借銘柄だけの `margin_short_to_adv` と、交絡確認用の60取引日 realized volatilityを保持する。列の語義は cadence で変わらない（[`margin-publication-transition.md`](./margin-publication-transition.md) §6）。`margin_std_long_share` は判断面へ出す文脈 annotation であり、candidates・rank・Review Setを変えない。空売り残/ADVを追加guardrailにする事前登録済みrunだけが`--required-metric margin_short_to_adv`を指定する。missing/mismatch/partial cache は `calibration-build --force` で再構築する。保存形式は[`market-lake.md`](./market-lake.md#較正store)を正本とする。
 
 `rules_hash` は `ScreeningRules` の JSON dump 全体から作る。したがって **panel の値を 1 つも変えられない変更（無効な knob の削除・field の並べ替え）でも hash は動き、store 全体が再構築対象になる**。rules model の形を変えるときは、その再構築コストを変更の便益と比べる。
+
+productionとproduction-authority calibrationは同じADV-freeな`candidate_discovery.common_eligibility`を使う。`avg_turnover_oku`はpanelと判断面のcontextとして保持するが、値・欠損のどちらもeligible population、Approach rank、Nomination membershipを変えない。旧ADV floorとのdual populationや比較用fallbackは持たない。
 
 `calibration-build` と `calibration-evaluate` は同じ `--rules-path`（既定は `SCREENING_RULES_PATH` または current rules）を読む。evaluate は snapshot の `panel_variant` を含めて同じ方法で `rules_hash` を計算し、保存値との完全一致を metrics 計算前に要求する。Candidate Discovery の nomination depth は、その一致を確認した `CandidateDiscoveryRules` だけを正本とし、evaluator に別値を持たない。panel buildはcohort当日のJPX規制snapshotだけを読み、required sourceが全部揃えば`complete`、一部なら`incomplete`、snapshotが無ければ`unavailable`として保存する。規制対象tickerが0件でもrequired sourceが揃っていれば`complete`であり、未観測を空集合へ補完しない。不一致または旧cache contractではruntime migrationせず、`calibration-build --force`でcurrent methodから再構築する。
 

@@ -625,6 +625,6 @@ print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 321, 'outp
     assert usage.input_tokens == 321
     assert usage.output_tokens == 54
     assert usage.tool_calls == 0
-    assert input_bytes > len(json.dumps(model_input.model_dump(mode="json")).encode())
+    assert input_bytes == analysis_cli._model_input_bytes(model_input)
     assert not (run_dir / ".output-schema.json").exists()
     assert {path.name for path in run_dir.iterdir()} == {"run.log", "result.json"}

@@ -41,9 +41,9 @@ run store schema v5は次を保持する。
 
 Security Analysisは`observed / derived / estimate`を混同しない。欠損を0へ補完せず、解釈・因果・売買判断を書かない。
 
-## Candidate Discovery v2
+## Candidate Discovery v4
 
-共通eligibilityは時価総額、売買代金、上場期間、JPX flag、必須factの有無だけを扱う。その後、各approachが独立に上位20件をnominateする。
+共通eligibilityは時価総額100億円以上、上場期間182日以上、JPX flag、これら必須factの有無だけを扱う。ADVは値が低い場合も欠損時も除外に使わず、Security Analysis、Review Set、Research Triage、UIへ執行可能性のcontextとして残す。その後、各approachが独立に上位20件をnominateする。
 
 | valuation approach | 主座標 | target |
 | --- | --- | ---: |
@@ -78,6 +78,8 @@ manual scaffoldはReview Set IDからrun storeのcanonical publicationを解決�
 global headは`as_of DESC, julianday(published_at) DESC, research_triage_id DESC`の実時刻total orderで決める。`expected_prior_research_triage_id`はpublish transaction内でこのheadとCASする。新規publicationは`as_of`を後退させず、awareな`published_at`を現headより進め、未来時刻またはJST換算日が`as_of`より前の時刻を使わない。同じIDと同じcanonical payloadの再送だけは、後続headの有無にかかわらず冪等に成功する。これにより全てのnon-idempotent publicationが新headになり、同じpriorから分岐したdraftを拒否する。
 
 Contextが無ければ`null`は正常、古ければwarningであり、どちらもReview Setのnomination、membership、orderを変えない。eligible Contextがあるのに`null`は拒否する。明示的に古いeligible revisionを選ぶことはできるが、選択理由を既存の判断文へ残す。発行後payloadはimmutableである。`rationale`、および非`null`の`research_question` / `key_risk`は空白だけの値を拒否するが、検証時に前後空白を書き換えない。
+
+ADVは固定floorのgateや自動skip条件ではない。Triageは低値・欠損だけで`skip`やpriorityを決めず、価値仮説を比較した後の実行可能性contextとしてrationaleへ反映できる。最終的な注文可否と数量はCapital Allocation後のhuman executionが所有する。
 
 Research TriageはResearch Setのadmission可能範囲を定める。人間は`research` entryの部分集合だけをResearch Setとして確定できる。`research prepare --research-triage-id ... --ticker ...`はas-ofと比較snapshotをv3 payloadから導出し、選択集合をmanifestへ固定し、そのnon-empty集合のResearch開始Operationを同時に作る。空集合はOperationなしの正常結果である。Review Set fileやrun storeは要求しない。status・scaffold・promoteを含む各gateがapplication DBを再読してpayload hashとresearchable ticker集合を検証し、workspaceへの後書きadmissionを拒否する。
 

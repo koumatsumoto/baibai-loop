@@ -43,15 +43,14 @@ class QualityRules(BaseModel):
 class CommonEligibilityRules(BaseModel):
     """Analysis-layer scope parameters applied when ranking research candidates.
 
-    The screen itself covers every common stock; size, liquidity, seasoning,
-    and trading-restriction exclusions are applied here so they stay visible,
+    The screen itself covers every common stock; size, seasoning, and
+    trading-restriction exclusions are applied here so they stay visible,
     configurable facts instead of silently narrowing the data.
     """
 
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
     min_market_cap_oku: float = Field(default=100, ge=0)
-    min_avg_turnover_oku: float = Field(default=1.0, ge=0)
     min_listing_span_days: int = Field(default=182, ge=0)
     exclude_jpx_flagged: bool = True
 
@@ -59,24 +58,21 @@ class CommonEligibilityRules(BaseModel):
         self,
         *,
         market_cap_oku: float | None,
-        avg_turnover_oku: float | None,
         listing_span_days: float | None,
         jpx_flags: Sequence[str] | None,
         required_jpx_flags: frozenset[str],
         require_facts: bool,
     ) -> bool:
-        """Single predicate for the investable set.
+        """Single predicate for the Candidate Discovery common eligible set.
 
-        ``require_facts=True`` disqualifies rows with missing liquidity facts.
+        ``require_facts=True`` disqualifies rows with missing scope facts.
         Candidate Discovery uses this mode so the eligible population matches the
         calibration population; diagnostics separately count missing facts.
         """
-        facts = (market_cap_oku, avg_turnover_oku, listing_span_days, jpx_flags)
+        facts = (market_cap_oku, listing_span_days, jpx_flags)
         if require_facts and any(value is None for value in facts):
             return False
         if market_cap_oku is not None and market_cap_oku < self.min_market_cap_oku:
-            return False
-        if avg_turnover_oku is not None and avg_turnover_oku < self.min_avg_turnover_oku:
             return False
         if listing_span_days is not None and listing_span_days < self.min_listing_span_days:
             return False
