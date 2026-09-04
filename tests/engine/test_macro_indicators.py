@@ -3798,30 +3798,32 @@ class IndicatorsProviderParserTests(unittest.TestCase):
             [(date(2026, 8, 31), 42.04)],
         )
 
-    def test_parse_multpl_history_rejects_history_ending_before_previous_month(self) -> None:
+    def test_parse_multpl_history_accepts_unpublished_intervening_month(self) -> None:
         series = _series("multpl", "shiller-pe")
         html = """
         <table id="datatable">
           <tr><th>Date</th><th>Value</th></tr>
-          <tr><td>Aug 3, 2026</td><td>37.80</td></tr>
-          <tr><td>Jun 1, 2026</td><td>37.00</td></tr>
-          <tr><td>May 1, 2026</td><td>36.50</td></tr>
+          <tr><td>Sep 3, 2026</td><td>42.38</td></tr>
+          <tr><td>Jul 1, 2026</td><td>40.73</td></tr>
+          <tr><td>Jun 1, 2026</td><td>40.50</td></tr>
         </table>
         """
 
-        with (
-            patch(
-                "baibai_engine.macro.indicators.providers.multpl._today_jst",
-                return_value=date(2026, 8, 3),
-            ),
-            self.assertRaisesRegex(IndicatorsProviderError, "ends before 2026-07-01"),
+        with patch(
+            "baibai_engine.macro.indicators.providers.multpl._today_jst",
+            return_value=date(2026, 9, 4),
         ):
-            parse_multpl_history(
+            observations = parse_multpl_history(
                 series,
                 html,
-                start=date(2026, 7, 20),
-                end=date(2026, 8, 3),
+                start=date(2026, 8, 21),
+                end=date(2026, 9, 4),
             )
+
+        self.assertEqual(
+            [(item.observed_at, item.value) for item in observations],
+            [(date(2026, 9, 3), 42.38)],
+        )
 
     def test_multpl_all_history_accepts_month_start_without_current_month_row(self) -> None:
         series = _series("multpl", "shiller-pe")
@@ -3840,6 +3842,50 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
         self.assertEqual(observations[0].observed_at, date(2026, 7, 1))
         self.assertEqual(observations[-1].observed_at, date(1871, 2, 1))
+
+    def test_multpl_all_history_accepts_unpublished_intervening_month(self) -> None:
+        series = _series("multpl", "shiller-pe")
+        monthly = _multpl_monthly_table(floor=date(1871, 2, 1), latest=date(2026, 7, 1))
+        html = monthly.replace(
+            '<table id="datatable">',
+            '<table id="datatable"><tr><td>Sep 3, 2026</td><td>42.38</td></tr>',
+        )
+
+        with patch(
+            "baibai_engine.macro.indicators.providers.multpl._today_jst",
+            return_value=date(2026, 9, 4),
+        ):
+            observations = parse_multpl_history(
+                series,
+                html,
+                start=date(1871, 1, 1),
+                end=date(2026, 9, 4),
+            )
+
+        self.assertEqual(observations[0].observed_at, date(2026, 9, 3))
+        self.assertEqual(observations[1].observed_at, date(2026, 7, 1))
+
+    def test_multpl_all_history_treats_first_month_start_as_current(self) -> None:
+        series = _series("multpl", "shiller-pe")
+        monthly = _multpl_monthly_table(floor=date(1871, 2, 1), latest=date(2026, 7, 1))
+        html = monthly.replace(
+            '<table id="datatable">',
+            '<table id="datatable"><tr><td>Sep 1, 2026</td><td>42.20</td></tr>',
+        )
+
+        with patch(
+            "baibai_engine.macro.indicators.providers.multpl._today_jst",
+            return_value=date(2026, 9, 1),
+        ):
+            observations = parse_multpl_history(
+                series,
+                html,
+                start=date(1871, 1, 1),
+                end=date(2026, 9, 1),
+            )
+
+        self.assertEqual(observations[0].observed_at, date(2026, 9, 1))
+        self.assertEqual(observations[1].observed_at, date(2026, 7, 1))
 
     def test_multpl_all_history_rejects_gap_before_current_month(self) -> None:
         series = _series("multpl", "shiller-pe")

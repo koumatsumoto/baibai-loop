@@ -600,7 +600,8 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
 - multpl の月次履歴表で「当月 1 日」の行を無条件に必須とし、multpl が先頭の current level を
   実日付、確定済み月次標本を月初日で返すことを区別しなかった。このため、`Aug 31` の current
   row と `Jul 1` までの月次列を持つ正常な表へ `Aug 1` を要求し、`us.sp500_cape` /
-  `us.sp500_earnings_yield` / `us.sp500_pe` の 3 系列が月跨ぎに失敗した (#795, #1170)
+  `us.sp500_earnings_yield` / `us.sp500_pe` の 3 系列が月跨ぎに失敗した。current rowの直前月を
+  必須化しても、公表ラグが1か月を超えた2026-09-04に同じ誤検知が再発した (#795, #1170, #1205)
 - `jp.cpi.*` の staleness 境界を monthly default (`publication_lag_days` + `staleness_margin_days`)
   で解決し、e-Stat の実掲載日 (観測月 + 53〜61 日) を超えたため、次の公表を待っている平常時が
   毎月 `stale: true` になった (#594)
@@ -623,7 +624,7 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
 - [ ] 定期公表 series の必須範囲を「公表済みであることが保証できる期」までに閉じているか。
       当該期は次のどちらかで扱う:
   - [ ] 実在するときだけ検査対象にする (`macro/indicators/providers/multpl.py` の
-        `_required_latest_month`)
+        `_latest_published_month`)
   - [ ] 公表締切日を持ち、締切前は要求期を 1 つ手前へずらす
         (`macro/indicators/providers/tsr_bankruptcies.py` の `_PUBLICATION_DEADLINE_DAY`)
 - [ ] 鮮度の劣化を必須検査でなく staleness 判定側で検出しているか。staleness の境界は generic
@@ -631,13 +632,13 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
       で確認した値になっているか
 - [ ] 検査対象期間の端に、データが存在すると保証できない日 (未公表期・非取引日・休場日) を
       置いていないか
-- [ ] current row と確定済みperiod rowを同じ表から読むproviderで、currentの実日付をperiod開始日へ
-      丸めて必須検査していないか。確定済みperiodの連続性はcurrent rowより前だけを検査するか
+- [ ] current row と確定済みperiod rowを同じ表から読むproviderで、currentの実日付から未公表periodを
+      合成していないか。確定済みperiodの連続性は表に実在する最新periodまでだけを検査するか
 - [ ] 日次 job がその provider を呼ぶ窓 (`--start` / `--end`) を月初・週初・公表前日について
       書き出し、必須範囲がその全ての日で満たせることを確認したか
 - [ ] 新しい完全性検査を足したら、**公表直前の日付を today に固定した negative test** で正しい
       データが拒否されないことを確認したか。判定に使う today は引数で注入し、実装内部から
-      現在時刻を直接読まない (`_required_latest_month(*, end, today, available)` が型見本)
+      現在時刻を直接読まない (`_latest_published_month(*, end, today, ordered_dates, floor)` が型見本)
 
 ## 12. AP-12: 量の基準を確かめずに組み合わせる
 

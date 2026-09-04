@@ -72,7 +72,7 @@ uv run baibai-batch validate-macro-stores \
 | `spglobal_pmi` | 無認証 PDF（requests→browser fallback） | S&P Global PMI（日本/米 製造業・サービス業） | free の data API が無い。`providers/pmi_release_urls.yaml` の月次 release URL から公式 PDF を取得し、headline 値を bounded context から抽出して diffusion index の定義域 0〜100 で検証する。WAF gated の月は headless browser（Playwright）で fetch する。**遮断以外の失敗（サイズ上限・404・5xx・ネットワーク）は fallback しない**（frb_h15 と同じ契約） |
 | `umich_sca` | 無認証 CSV | 米消費者態度指数（ミシガン大） | 公表元 Surveys of Consumers の月次表（`files/tbmics.csv`）を直読する。`provider_series_id` は値の列名（`ICS_ALL`）、`source_url` が表なので同じ公表元の別表は registry entry だけで足りる。行が「月名 + 年」なので読めない行は skip せず失敗させる（表の形が変わったのを黙って短い履歴にしない） |
 | `yahoo` | 無認証 JSON | 金/銀/銅先物・MOVE・Russell2000・SOX 等 | **ブラウザ UA 必須**（default は 429）。`provider_series_id` は Yahoo シンボル |
-| `multpl` | 無認証 HTML | S&P500 バリュエーション（CAPE・GAAP PER・益回り） | current page と public monthly table を機械的に parse する。monthly tableの先頭はcurrent levelを実日付で持ち、後続の確定済み月次標本は月初日を持つため、履歴の連続性はcurrent rowより前の確定済み月まで検査する。取得・鮮度の契約は daily を保ち、reading rules の `sampling_cadence: monthly` で統計標本だけを月次化する。HTML 構造変更で壊れるため `--latest` と `--all-history` を live 確認 |
+| `multpl` | 無認証 HTML | S&P500 バリュエーション（CAPE・GAAP PER・益回り） | current page と public monthly table を機械的に parse する。monthly tableの先頭はcurrent levelを実日付で持ち、後続の確定済み月次標本は月初日を持つため、履歴の連続性は表に実在する最新の確定済み月まで検査する。current rowから未公表月を合成しない。取得・鮮度の契約は daily を保ち、reading rules の `sampling_cadence: monthly` で統計標本だけを月次化する。HTML 構造変更で壊れるため短期windowの`--start`と`--all-history`をlive確認 |
 
 <a id="jquants-options-provider"></a>
 

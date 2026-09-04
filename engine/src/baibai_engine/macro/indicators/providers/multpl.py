@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Collection
 from datetime import UTC, date, datetime
 from html.parser import HTMLParser
 from zoneinfo import ZoneInfo
@@ -135,12 +134,14 @@ def parse_multpl_history(
         raise IndicatorsProviderError(
             f"multpl: unknown historical floor for {series.provider_series_id}"
         )
-    required_latest = _required_latest_month(end=end, today=_today_jst(), available=values)
     if start <= floor:
         if not values or min(values) != floor:
             raise IndicatorsProviderError(
                 f"multpl: history for {series.provider_series_id} must start at {floor}"
             )
+        required_latest = _latest_published_month(
+            end=end, today=_today_jst(), ordered_dates=ordered_dates, floor=floor
+        )
         expected = floor
         while expected <= required_latest:
             if expected not in values:
@@ -148,10 +149,6 @@ def parse_multpl_history(
                     f"multpl: missing monthly value for {series.provider_series_id}: {expected}"
                 )
             expected = _next_month(expected)
-    if required_latest not in values:
-        raise IndicatorsProviderError(
-            f"multpl: history for {series.provider_series_id} ends before {required_latest}"
-        )
 
     return [
         record_observation(series, observed_at=observed_at, value=values[observed_at])
@@ -198,31 +195,28 @@ class _MultplHistoryParser(HTMLParser):
             self._in_table = False
 
 
-def _required_latest_month(*, end: date, today: date, available: Collection[date]) -> date:
-    """Latest month the history table must carry for the range to be complete.
+def _latest_published_month(
+    *, end: date, today: date, ordered_dates: list[date], floor: date
+) -> date:
+    """Latest published monthly row the history table must carry continuously.
 
-    The first row is a current level carrying its actual observation date, while the
-    completed monthly history uses month-start dates. Around a month boundary that
-    current row can therefore be dated in the prior month without an accompanying
-    month-start row. Require continuity only through the month before that current
-    observation; whether the latest observation is fresh enough is decided by the
-    staleness rule.
+    The first row is always the current level, even when its actual observation date
+    happens to be a month start. Later month-start rows are the published monthly
+    history. Validate continuity through the latest row that actually exists instead
+    of inferring a publication deadline from the current row. Freshness remains the
+    staleness rule's responsibility.
     """
     cutoff = min(end, today)
-    eligible = [observed_at for observed_at in available if observed_at <= cutoff]
-    if not eligible:
-        return cutoff.replace(day=1)
-    latest = max(eligible)
-    anchor = latest.replace(day=1)
-    return anchor if latest.day == 1 else _previous_month(anchor)
+    published = [
+        observed_at
+        for observed_at in ordered_dates[1:]
+        if observed_at.day == 1 and observed_at <= cutoff
+    ]
+    return max(published, default=floor)
 
 
 def _next_month(value: date) -> date:
     return date(value.year + 1, 1, 1) if value.month == 12 else date(value.year, value.month + 1, 1)
-
-
-def _previous_month(value: date) -> date:
-    return date(value.year - 1, 12, 1) if value.month == 1 else date(value.year, value.month - 1, 1)
 
 
 def _today_jst() -> date:
