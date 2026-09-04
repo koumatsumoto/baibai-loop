@@ -132,9 +132,9 @@ class CalibrationPanelTest(unittest.TestCase):
         """A cohort with no EDINET source replays a screen production does not run.
 
         `read_edinet_metrics` returns an empty mapping when the store has no rows for the
-        as-of, and the axes it feeds simply come out null. Production carries the same
-        axes for 53-64% of names, so a cohort at zero is measuring a different screen —
-        which nothing states unless the count is reported.
+        as-of, and the axes it feeds simply come out null. A cohort at zero therefore
+        measures a different input surface from production, which remains invisible
+        unless the diagnostic count is reported.
         """
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"

@@ -59,7 +59,7 @@ J-Quants / EDINETから取得したデータは、個人利用・非公開reposi
 | --- | --- | --- |
 | L1 Raw | R2 immutable object | provider bytesを可能な限り原形で保持し、source request・retrieved-at・content hashを付ける |
 | L1 Canonical | R2 Parquet + dataset / release manifest | field・型・日付・source identity・revision semanticsを正規化し、判断・score・rankを入れない |
-| hydrated runtime copy | fixed L1 releaseから満たす`market.sqlite`の17 table | R2 authorityにしない |
+| hydrated runtime copy | fixed L1 releaseから満たす`market.sqlite`のlake所有table | R2 authorityにしない |
 | disposable byproduct | `.cache/` | canonical verification後に削除でき、入力証跡として扱わない |
 
 Canonical manifestのsourceはtyped `SourceRef`で記録する。bytesを保持するprovider Rawは、実在するobject key、SHA-256、source側schema / manifest versionへ束縛する。provider、dataset、request range、metadata sidecarのkeyとSHA-256を固定し、ingest ID、object key、content digest、metadata versionを同時に照合する。
@@ -68,9 +68,9 @@ legacy SQLite snapshotはidentityだけを持ち、object keyを名乗らない�
 
 Raw retentionは、再取得が高価または不可能なPremium CSV、EDINET XBRL、JPX原本を`preserve`、routine API responseを`buffer`とする。`preserve`はGC候補にせず、budgetを設けない。`buffer`のsoft budgetは50 GiBであり、重要ingestを止めるhard capではない。current closureから未到達かつretrieved-atから90日以上の`buffer`だけを通常GCのplanへ載せる。削除直前にmetadata / object pairのidentityを再検証してlocal mirrorから削除し、R2の削除はBucket Lock満了後のDelete専用retention finalizerへ分離する。
 
-screening L1のcanonical authorityはR2 releaseである。`stores/market/market.sqlite`のlake所有17 tableは、固定releaseから再構築するruntime copyであり、R2とdual canonical writeを行わない。取得範囲の帳簿とoperator導出factだけはSQLiteがcanonicalとなる。run storeは`stores/screening/runs.sqlite`を継続する。
+screening L1のcanonical authorityはR2 releaseである。`stores/market/market.sqlite`のlake所有tableは、固定releaseから再構築するruntime copyであり、R2とdual canonical writeを行わない。取得範囲の帳簿とoperator導出factだけはSQLiteがcanonicalとなる。run storeは`stores/screening/runs.sqlite`を継続する。
 
-releaseのrequired dataset、coverage、freshness、canonical objectのretention / GC、manifest version、authorityは[`market-lake.md`](./market-lake.md#market-lake-publication-contract)、SQLite layoutは[`screening-runtime.md`](./screening-runtime.md)を正本とする。provider Rawのretentionは本節が所有する。
+releaseのrequired dataset、coverage、freshness、canonical objectのretention / GC、manifest version、authorityは[`market-lake.md`](./market-lake.md#market-lake-publication-contract)、screeningが読む入力の意味は[`screening-runtime.md`](./screening-runtime.md)を正本とする。table / columnの現行layoutはDB schemaが所有する。provider Rawのretentionは本節が所有する。
 
 保存済み canonical fact は、screening 再生成・保有計測・見積り calibration のための入力証跡として扱う。J-Quants の調整後価格、銘柄マスター、JPX 規制情報などは完全な point-in-time snapshot ではないため、publication / effective / retrieved time と revision / coverage semantics が揃わない期間を完全再現可能とは扱わない。zero、complete snapshotでの無報告、coverage不足、parse failure、source unavailableを混同しない。
 

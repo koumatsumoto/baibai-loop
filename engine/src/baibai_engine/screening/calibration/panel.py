@@ -237,10 +237,10 @@ class PanelDiagnostics:
     population_per_trailing_nonnull: int
     population_pbr_nonnull: int
     population_ocf_yield_nonnull: int
-    # EDINET の書類から作る軸 (ev_ebitda / net_cash / fcf_yield / asset_backed_ratio) を
-    # 持つ母集団の行数。この source は最近の as-of 分しか store に無いので、古い cohort は
-    # ここが 0 になる。0 の cohort は production と同じ入力で screen を再現していない —
-    # production は同じ軸を銘柄の 53〜64% で持つ。判定は読み手が件数から導く。
+    # EDINET 由来の軸 (ev_ebitda / net_cash / fcf_yield / asset_backed_ratio) を
+    # 持つ母集団の行数。古い cohort は source coverageの外で 0 になり得て、
+    # productionと同じ入力面を再現していない。単独のblockerにはせず、
+    # 判定は読み手が件数から導く。
     population_edinet_axis_nonnull: int = 0
     population_per_trailing_exact: int
     # Candidate Discoveryがproductionと同じJPX除外を再現できたか。flagged rowが

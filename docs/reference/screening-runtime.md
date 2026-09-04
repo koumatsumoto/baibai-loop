@@ -1,9 +1,8 @@
 ---
 title: "Screening runtime reference"
-description: "Security Analysis、4つの価値評価法、Review Set、Research Triageの実行契約"
+summary: "Security Analysis、4つの価値評価法、Review Set、Research Triageの安定した意味と実行境界の正本。"
 doc_type: reference
-owners: [screening]
-last_reviewed: 2026-08-31
+status: active
 ---
 
 # Screening runtime
@@ -16,32 +15,23 @@ E[r]、FV、macro context、portfolio stateは参考文脈である。Review Set
 
 ## Public CLI
 
-```bash
-uv run baibai-engine screening run --asof YYYY-MM-DD [--runs-db PATH] \
-  [--run-revision-id ID --run-at TIMESTAMP]
-uv run baibai-engine screening review-set publish --asof YYYY-MM-DD \
-  --run-revision-id ID [--runs-db PATH] [--output-path PATH] [--format yaml|json] \
-  [--review-set-id ID --created-at TIMESTAMP]
-uv run baibai-engine screening review-set show --review-set-id ID \
-  [--runs-db PATH] [--output-path PATH] [--force] [--format yaml|json]
-uv run baibai-engine screening research-triage publish DRAFT.yaml \
-  [--db PATH] [--runs-db PATH]
-uv run baibai-engine screening prune --keep N [--runs-db PATH]
-```
+screening runtimeの公開commandは`baibai-engine screening --help`から辟る。本書で扱う
+`run`、`review-set publish / show`、`research-triage publish`、`prune`のoptionのrequired / default / choiceと出力形式は各commandのpublic
+`--help`を正本とする。日常運用の実行順と停止条件は
+[`research-triage` skill](../../.agents/skills/research-triage/SKILL.md)と
+[`batch/OPERATIONS.md`](../../batch/OPERATIONS.md)が所有する。
 
 `run`のexit 2はpublication済みpartial warningである。warningを確認してから同じ`run_revision_id`で後続へ進む。Review Setの再表示に再発行を使わない。`--run-revision-id` + `--run-at`と`--review-set-id` + `--created-at`はcallerがidentityを固定する場合のsame-ID idempotencyを提供する。daily runnerは実行場所にかかわらずserver-generated identityを使い、AI outputからIDやclockを受け取らない。
 
 ## Security Analysis
 
-run store schema v5は次を保持する。
-
-- `screening_run`: run identity、as-of、rules/model identity、universe size
-- `security_analysis`: runに属する全銘柄の観測値・導出値・参考見積り
-- `review_set`: source runに束縛した再現可能なReview Set
+run storeはrun identityと全銘柄のSecurity Analysis、source runに束縛した
+再現可能なReview Setを保持する。field、table、schema versionはengine modelとDB
+schemaを正本とする。
 
 Security Analysisは`observed / derived / estimate`を混同しない。欠損を0へ補完せず、解釈・因果・売買判断を書かない。
 
-## Candidate Discovery v4
+## Candidate Discovery
 
 共通eligibilityは時価総額100億円以上、上場期間182日以上、JPX flag、これら必須factの有無だけを扱う。ADVは値が低い場合も欠損時も除外に使わず、Security Analysis、Review Set、Research Triage、UIへ執行可能性のcontextとして残す。その後、各approachが独立に上位20件をnominateする。
 
@@ -58,7 +48,7 @@ Reinvestment Valueは正のP/S、sales growth、FCF yield、operating profit、s
 
 primary coordinateがnull、非有限、またはapproachの要件を満たさない銘柄は、そのapproachでnominateしない。金融sector除外、quality threshold、median population / fallback、従キー、tickerまでmethod hashに含め、同じSecurity Analysisとrulesから同じ結果を再構成する。
 
-## Review Set v2
+## Review Set
 
 各Valuation Approachは独立に上位20件をNominateする。Review Setはそのticker unionそのもので、重複tickerは1entryへまとめ、全Nominationを保持する。最大件数は`4 × 20 = 80`である。ticker昇順はbyte-equivalentなserializationのためだけに使い、global rankやresearch priorityを意味しない。
 
@@ -66,9 +56,10 @@ publisherはsource run、as-of、rules hash、method hash、全Security Analysis
 
 Normalized Earnings Powerのnative eligibility/orderは`normalized_per_3fy`と同sector gapを使う。FV/E[r] estimatorは`normalized_per_3fy`を入力にしない。
 
-## Research Triage v3
+## Research Triage
 
-application DBのcurrent `research_triage`はReview Set全entryをexactly onceで保持する。current writerとactive read pathはv3だけを扱い、retired shapeを補完・別名投影しない。
+application DBのcurrent `research_triage`はReview Set全entryをexactly onceで保持する。
+current writerとactive read pathはcurrent schemaだけを扱い、retired shapeを補完・別名投影しない。
 
 - `research`: contiguousな`priority`、`rationale`、`research_question`、`key_risk`が必須
 - `skip`: `rationale`が必須で、`priority`、`research_question`、`key_risk`は禁止
@@ -81,7 +72,7 @@ Contextが無ければ`null`は正常、古ければwarningであり、どちら
 
 ADVは固定floorのgateや自動skip条件ではない。Triageは低値・欠損だけで`skip`やpriorityを決めず、価値仮説を比較した後の実行可能性contextとしてrationaleへ反映できる。最終的な注文可否と数量はCapital Allocation後のhuman executionが所有する。
 
-Research TriageはResearch Setのadmission可能範囲を定める。人間は`research` entryの部分集合だけをResearch Setとして確定できる。`research prepare --research-triage-id ... --ticker ...`はas-ofと比較snapshotをv3 payloadから導出し、選択集合をmanifestへ固定し、そのnon-empty集合のResearch開始Operationを同時に作る。空集合はOperationなしの正常結果である。Review Set fileやrun storeは要求しない。status・scaffold・promoteを含む各gateがapplication DBを再読してpayload hashとresearchable ticker集合を検証し、workspaceへの後書きadmissionを拒否する。
+Research TriageはResearch Setのadmission可能範囲を定める。人間は`research` entryの部分集合だけをResearch Setとして確定できる。`research prepare --research-triage-id ... --ticker ...`はas-ofと比較snapshotをcanonical payloadから導出し、選択集合をmanifestへ固定し、そのnon-empty集合のResearch開始Operationを同時に作る。空集合はOperationなしの正常結果である。Review Set fileやrun storeは要求しない。status・scaffold・promoteを含む各gateがapplication DBを再読してpayload hashとresearchable ticker集合を検証し、workspaceへの後書きadmissionを拒否する。
 
 E[r] calibration contextは共有read contractがartifact schema、generated/expiry、3y/5y、quantile/band、rules hash、E[r] model versionを検証する。ResearchはTriage rootのrules hashとcandidate `analysis.expected_return`のmodel/version・ratio-valued `er_annual`を使い、利用不能理由を明示する。これはhistorical contextで、membership/order、Triage、FV、buy judgmentへ伝播しない。
 
@@ -99,29 +90,12 @@ cloudからL3 Research Triageを発行しない。local `baibai-batch analysis r
 
 `prune --keep N`は新しいrunをN世代残し、子のSecurity AnalysisとReview Setを同一transactionで削除して`VACUUM`する。Research Triage、thesis、Capital Allocation Assessment、Position Reviewはapplication DBのcanonical judgmentなのでrun pruneから独立する。
 
-## Market store schema
+## Market store inputs
 
-screeningが読むmarket storeのtableとidentityは次のとおり。列の意味、PIT、coverage、source authorityは[data-sources.md](./data-sources.md)と[valuation-metrics.md](./valuation-metrics.md)を正本とする。
-
-- `jquants_daily_bars(ticker, traded_at, open, high, low, close, volume, turnover_value, adjustment_*)` — 日次価格と出来高
-- `jquants_fin_summaries(ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, sales, operating_profit, ordinary_profit, profit, forecast_profit, forecast_ordinary_profit, cfo, cash_eq, total_assets, equity, fiscal_period, fiscal_year_end, period_start, period_end, dps_actual_annual, dps_forecast_annual, treasury_shares, equity_to_asset_ratio, dividend_q1, dividend_interim, dividend_q3, dividend_year_end, dividend_total_annual, average_shares)` — 開示時点の財務サマリー
-- `jquants_master_snapshots(snapshot_date, ticker, name, market, sector_33, is_common_stock)` — as-of別の銘柄master
-- `jpx_earnings_calendar(announcement_date, ticker)` — JPX決算予定
-- `jquants_market_calendar(day, is_business_day)` — 営業日calendar
-- `jquants_weekly_margin(week_end, ticker, long_vol, short_vol, long_std_vol, long_neg_vol, short_std_vol, short_neg_vol, issue_type)` — 全銘柄週次信用残
-- `jquants_margin_alerts(publication_date, ticker, long_vol, short_vol, long_std_vol, long_neg_vol, short_std_vol, short_neg_vol, issue_type)` — 公表銘柄等の日次信用残
-- `jquants_all_issues_daily_margin(balance_date, ticker, long_vol, short_vol, long_std_vol, long_neg_vol, short_std_vol, short_neg_vol, issue_type)` — 全銘柄日次信用残
-- `jquants_short_sale_reports(disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name, discretionary_investment_contractor_name, investment_fund_name, short_ratio, short_shares, short_trading_units, previous_reported_at, previous_short_ratio, is_cancellation, notes)` — 0.5%以上の報告空売り残高
-- `jpx_regulation_sources(asof_date, source_name, fetched_at_utc)` — JPX規制source取得事実
-- `edinet_document_lists(doc_date, process_datetime, result_count, fetched_at_utc, is_final)` — EDINET document list取得事実
-- `edinet_documents(doc_date, sequence_number, doc_id, sec_code, doc_type_code, csv_flag, xbrl_flag, legal_status, disclosure_status, withdrawal_status, doc_info_edit_status, parent_doc_id, operation_datetime, submit_datetime, doc_description, period_start, period_end, edinet_code, issuer_edinet_code, subject_edinet_code)` — EDINET提出書類identityとlifecycle
-- `tse_capital_policy_snapshots(snapshot_month_end, ticker, status, status_change, updated_on, contact_requested, first_disclosed_month_end, first_disclosure_left_censored)` — 東証資本コスト開示企業の月次PIT
-- `jpx_delistings(delisted_on, ticker, name, market, reason)` — 上場廃止事実
-- `tender_offer_exit_values(ticker, delisted_on, offer_price_yen, offer_doc_id, result_doc_id, filed_on)` — 成立した現金公開買付けの実現exit値
-- `edinet_metrics(asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, investment_securities, ebitda_ttm, operating_profit_ttm, depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, net_cash, equity, total_assets, consolidation_basis, source_doc_id, document_type, source_submit_datetime, source_period_start, source_period_end)` — EDINETから抽出した財務measurement
-- `jpx_regulation_flags(asof_date, source_name, ticker, flag, fetched_at_utc)` — JPX規制flag
-- `source_coverage(source, coverage_key, coverage_start, coverage_end, fetched_at_utc, record_count, status, error)` — fetch coverageとstatus
-- `lake_store_origin(singleton, release_id, release_manifest_sha256)` — hydrateしたL1 releaseのidentity
+screeningはmarket storeの価格、財務、銘柄master、calendar、信用・空売り、JPX規制、
+EDINET、上場廃止・現金公開買付けのPIT入力とcoverageを読む。table / columnの現行inventoryは
+DB schemaと`baibai-engine lake inventory`、列の意味、PIT、coverage、source authorityは
+[data-sources.md](./data-sources.md)と[valuation-metrics.md](./valuation-metrics.md)を正本とする。
 
 ## 検証
 
@@ -132,5 +106,5 @@ screeningが読むmarket storeのtableとidentityは次のとおり。列の意�
 - 対象日のReview Setなし、空Review Set、exact既存Triageでmodel process 0。active Operationはdaily Triageを止めない
 - 通常Review Setは共有Macro projectionを1回だけ含む1 AI request、invalid resultはcanonical write 0
 - Triage publishではOperation 0。人間がnon-empty Research Setを確定してResearchを開始した時だけOperation 1
-- run store schema 5、application DB schema 20
+- run storeとapplication DBがcurrent schemaに一致
 - Web/APIがReview Set、Research Triage、Capital Allocation Assessmentを同じbindingで表示

@@ -1,6 +1,6 @@
 # batch — production orchestration と cloud store 運用
 
-Cloudflare 配信（issue #467 の設計）の compute と転送の入口。ここにある Python / shell
+Cloudflare 配信の compute と転送の入口。ここにある Python / shell
 script は GitHub Actions とローカル運用から呼ぶ orchestration で、stable CLI ではない
 （安定契約は `baibai-engine` / `baibai-web` 側にある）。read model の生成と日次 batch は
 ローカル単体でも実行でき、転送 script だけが R2 を使う。
@@ -10,19 +10,16 @@ script は GitHub Actions とローカル運用から呼ぶ orchestration で、
 `screening calibration-build` の全期間 rebuild は同期commandとして完了まで待つ。agentやwrapperは
 短い固定間隔でpollせず、process/sessionの終了通知を待って次工程を開始する。外部timeoutは60分を確保する。
 
-2026-08-30の実測は、`2019-11-01..2026-07-31`の81 cohort、305,367 panel row、
-1,527,240 forward rowを、ローカルmarket storeから再構築して約38分だった。通常の作業見積りは45分とし、
-同規模なら途中確認を挟まない。60分を超えた場合だけCPU使用、process状態、stderrを1回確認する。
+通常の作業見積りは45分とし、同規模なら途中確認を挟まない。60分を超えた場合だけ
+CPU使用、process状態、stderrを1回確認する。
 method/rules変更後は旧snapshotやlake partitionを変換せず、
 [`docs/reference/estimate-calibration.md`](../docs/reference/estimate-calibration.md#store-の再構築)どおり
 全cohortを再構築する。
 
 ## cloud-materialize の所要時間
 
-`cloud-materialize`もworkflow runの完了通知まで待ち、固定間隔の手動確認を挟まない。2026-08-31の
-実測は合計10分20秒で、内訳はmachine/app pull 29秒、L1 hydrate 3分35秒、3,738 filesのmaterialize
-1分9秒、serving views 3,736 objectsのupload 4分28秒、tail 2 objectsのpublish 5秒だった
-（`R2_SERVING_UPLOAD_CONCURRENCY=10`）。同規模の通常見積りは12分、外部timeoutは20分とする。
+`cloud-materialize`もworkflow runの完了通知まで待ち、固定間隔の手動確認を挟まない。
+通常見積りは12分、外部timeoutは20分とする。
 20分を超えた場合だけrunのcurrent stepとstderrを1回確認し、未完了なら再びrunの終了通知を待つ。
 
 ## cloud-daily-batch の所要時間
@@ -30,9 +27,7 @@ method/rules変更後は旧snapshotやlake partitionを変換せず、
 `cloud-daily-batch`はdispatch後に対象runを特定し、`gh run watch <run-id> --exit-status --compact --interval 60`
 でworkflowの終了通知まで待つ。固定時刻を決めた再確認や、短い間隔での手動pollは挟まない。
 
-2026-08-31に`asof=2026-08-28`で実行した実測は合計28分30秒だった。内訳はsetupとpreflightが約38秒、
-machine store pullが31秒、L1 hydrateが3分41秒、daily batchが5分25秒、L1 publishが10分15秒、
-machine storeとserving viewのuploadが7分46秒、tail publishが5秒だった。同規模の通常見積りは35分、
+通常見積りは35分、
 外部timeoutは60分とする。60分を超えた場合だけrunのcurrent stepとstderrを1回確認し、workflow自体が
 activeなら再dispatchせず、再び終了通知を待つ。workflowのhard timeoutは90分であり、外部timeout到達だけを
 失敗やcancelの根拠にしない。
@@ -43,8 +38,8 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 
 | bucket | object | owner |
 | --- | --- | --- |
-| `baibai-stores` | `market.sqlite`（lakeが持たない2 data table + `lake_store_origin` metadata） | `cloud-daily-batch` + ローカル`push-market`（cloud copyのmerge後だけupload） |
-| `baibai-stores` | `lake/`（lake所有17 datasetのcanonical L1） | `cloud-daily-batch`の`publish-lake` + ローカル`r2_transfer.sh publish-lake` |
+| `baibai-stores` | `market.sqlite`（store-local data + `lake_store_origin` metadata） | `cloud-daily-batch` + ローカル`push-market`（cloud copyのmerge後だけupload） |
+| `baibai-stores` | `lake/`（lake所有datasetのcanonical L1） | `cloud-daily-batch`の`publish-lake` + ローカル`r2_transfer.sh publish-lake` |
 | `baibai-stores` | `runs.sqlite` | `cloud-daily-batch` + 明示的なローカルdailyの`push-machine` |
 | `baibai-stores` | `macro.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-macro`（全履歴。cloud copyのmerge後だけupload） |
 | `baibai-stores` | `baibai.sqlite` | ローカル`publish.sh`（replica） |
@@ -243,8 +238,8 @@ batch/scripts/r2_transfer.sh push-machine
 remoteが一致したことを確認し、いずれもCAS upload成功をcommand outputで確認する。
 表示へ反映する場合は`cloud-materialize`の完了も確認する。
 
-**market storeはlakeへpublishしてからpushする。** lake所有17 tableのcanonicalはR2のL1 releaseに
-あり、`push-market`が送るのはそれを空にした残り2 data tableとstore自身のrelease origin metadataで
+**market storeはlakeへpublishしてからpushする。** lake所有tableのcanonicalはR2のL1 releaseに
+あり、`push-market`が送るのはstore-local data tableとstore自身のrelease origin metadataで
 ある。`publish-lake`を飛ばすと、
 dehydrateが「releaseが持つ行数と合わない」で停止する。ローカルが cloud より遅れている場合は先に
 `hydrate-market`で現行releaseへ揃える — publishはstoreをhydrateしたreleaseの上にだけ積めるので、
@@ -418,14 +413,14 @@ uploadせず、ローカルで原因を解消する。
 
 **前提**: 日次batchが遡らない過去を補う場合に使う。local providerで必要範囲を取得し、完全なstoreを作ってからcloudへ反映する。
 
-ローカルから載せる手順は、触ったtableがlake所有かどうかで分かれる。`_push_keys`はuploadする複製を`dehydrate_market_snapshot`に通し、**releaseが持たない行をlake所有tableに持つstoreのuploadを拒否する**ので、lake所有17 tableを増やした場合は`push-market`だけでは止まる。
+ローカルから載せる手順は、触ったtableがlake所有かどうかで分かれる。`_push_keys`はuploadする複製を`dehydrate_market_snapshot`に通し、**releaseが持たない行をlake所有tableに持つstoreのuploadを拒否する**ので、lake所有tableを増やした場合は`push-market`だけでは止まる。
 
 ```bash
-# (a) lake所有の17 tableを増やした場合: hydrate済みstoreで変更し、先にreleaseへ載せる
+# (a) lake所有tableを増やした場合: hydrate済みstoreで変更し、先にreleaseへ載せる
 batch/scripts/r2_transfer.sh publish-lake
 batch/scripts/r2_transfer.sh push-market
 
-# (b) lakeが持たない2 table（source_coverageとtse_capital_policy_snapshots）だけを変えた場合
+# (b) store-local table（source_coverageとtse_capital_policy_snapshots）だけを変えた場合
 batch/scripts/r2_transfer.sh push-market
 
 ```
@@ -443,14 +438,14 @@ sqlite3 -header stores/market/market.sqlite \
    ORDER BY source, coverage_start, coverage_end;"
 ```
 
-**停止と復旧**: lake所有17 tableを増やしたのに`publish-lake`していない場合、dehydrateが停止する。local取得がnonzeroならuploadせず、保存済み範囲と未完範囲を`source_coverage`で分け、未完範囲だけを再実行する。
+**停止と復旧**: lake所有tableを増やしたのに`publish-lake`していない場合、dehydrateが停止する。local取得がnonzeroならuploadせず、保存済み範囲と未完範囲を`source_coverage`で分け、未完範囲だけを再実行する。
 
 ### merge が検査するもの
 
 どちらのmergeも、終わった時点でsource側だけに残る行が1行でもあれば停止する。日次batchが取得済みでローカルに無い行を、uploadで失わないための不変条件である。以下はstoreごとに違う部分。
 
-`push-market`のmergeは`merge_market_store.py`である。対象はlakeが持たない2 data tableと
-`lake_store_origin`で、lake所有17 tableのcloud/local突き合わせはreleaseが引き取っている。
+`push-market`のmergeは`merge_market_store.py`である。対象はstore-local data tableと
+`lake_store_origin`で、lake所有tableのcloud/local突き合わせはreleaseが引き取っている。
 `source_coverage`はunionし、operator導出の`tse_capital_policy_snapshots`とstore自身の
 `lake_store_origin`はtargetを保持する。cloud copyのoriginを取り込むと、local rowsを別release由来と
 偽ってしまうためである。`publish-lake`はstoreをhydrateしたreleaseをlakeが既に離れていれば拒否し、
@@ -565,7 +560,7 @@ gh run watch RUN_ID --exit-status --compact --interval 60
 **停止と復旧**: coverage不足やexit 1ではuploadしない。原因をローカルで直す。exit 3はfresh screeningを
 publish済みなので再dispatchせず、Discord `[DEGRADED]`が示す繰延べstepを復旧する。
 
-通常cronは平日07:43 UTC（16:43 JST）。scheduled workflowは実行開始時のJST日付ではなく、直近の07:43 UTC cron日を対象にして営業日gateを適用する。GitHubのqueue遅延がJST日付をまたいでも、未公表の翌日データへ対象を進めない。同日必須なのは対象日の株価日足だけで、[J-Quants APIの公式更新時刻](https://jpx-jquants.com/ja/spec/data-update)は16:30頃のため13分の余裕を置く。JPX規制ページはevent駆動のstatus pageでcoverage gateが7営業日まで許容し、信用残は週次なので、いずれも夕方の更新を待つ必要がない（この実行より後に出た指定は翌営業日の実行が拾う）。分を半端にしているのは意図的で、GitHubがscheduleを:00 / :15 / :30 / :45へ集中させるため、その境界に置くとqueue待ちの後ろに並ぶ。schedule遅延自体は許容する（実測でmedian約2時間）。遅延ではなく**欠測**は`cloud-batch-watchdog`がpushで検知し、UIのas-ofとworkflow履歴は裏取りのpull経路として残る。16:43時点で株価日足が未更新ならcoverage gateがpublish前に停止し、復旧は現行mainから手動dispatchする。
+通常cronは平日07:43 UTC（16:43 JST）。scheduled workflowは実行開始時のJST日付ではなく、直近の07:43 UTC cron日を対象にして営業日gateを適用する。GitHubのqueue遅延がJST日付をまたいでも、未公表の翌日データへ対象を進めない。同日必須なのは対象日の株価日足だけで、[J-Quants APIの公式更新時刻](https://jpx-jquants.com/ja/spec/data-update)は16:30頃のため13分の余裕を置く。JPX規制ページはevent駆動のstatus pageでcoverage gateが7営業日まで許容し、信用残は週次なので、いずれも夕方の更新を待つ必要がない（この実行より後に出た指定は翌営業日の実行が拾う）。分を半端にしているのは意図的で、GitHubがscheduleを:00 / :15 / :30 / :45へ集中させるため、その境界に置くとqueue待ちの後ろに並ぶ。schedule遅延自体は許容する。遅延ではなく**欠測**は`cloud-batch-watchdog`がpushで検知し、UIのas-ofとworkflow履歴は裏取りのpull経路として残る。16:43時点で株価日足が未更新ならcoverage gateがpublish前に停止し、復旧は現行mainから手動dispatchする。
 
 daily batchはcoverageが完全でも`bootstrap-cache`を実行する。財務サマリーの直近7日を再取得するため、同日の先行runより後にJ-Quantsへ反映された開示は後続runで取り込まれる。bootstrap後はcoverageを再検証してからscreeningへ進む。
 
@@ -617,7 +612,7 @@ Workerの再deployは不要である。
 
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
 - 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括の`push-machine`はGitHub Actionsと明示的なlocal dailyで使い、pull時の全ETag一致と各PUTの`If-Match`を必須にする。`macro.sqlite` / `market.sqlite`を単独でローカルから進める場合は`push-macro` / `push-market`でcloud copyをmergeし、cloud側の行の取り残しを検出したら停止する。
-- pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例してGB級のstoreではaws CLI既定のread timeout 60秒に収まらないため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。**`market.sqlite`が運ぶのはlakeが持たない2 data tableと`lake_store_origin` metadataだけである。** runner実測は`market.sqlite` 4,972,544 bytes（snapshot 46秒・backup 114秒・upload 2秒）、`runs.sqlite` 52,838,400 bytes（1秒・7秒・3秒）、`macro.sqlite` 256,184,320 bytes（2秒・17秒・14秒）である。market storeのsnapshotが46秒なのは、空にする前のfull storeを一度copyするためである。この`.bak` 114秒は置き換えられる側が1.88GBだった初回の値で、以降は5MBのcopyになる。`push-machine`はkeyごとに`store push: key=... bytes=... snapshot=...s backup=...s upload=...s`を出すので、storeが伸びたときの内訳はrunのlogで見る。
+- pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例してGB級のstoreではaws CLI既定のread timeout 60秒に収まらないため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。**`market.sqlite`が運ぶのはstore-local data tableと`lake_store_origin` metadataである。** `push-machine`はkeyごとの処理時間を出すので、storeが伸びたときの内訳はrunのlogで見る。
 - machine store の`.bak`は1世代のみで、次のpushで置き換わる。日次batchが毎営業日pushするため、実質の巻き戻し猶予は約24時間である。`baibai.sqlite`だけは`baibai.sqlite.bak-YYYYMMDD`（JST）で日ごとに1世代を残し、直近14世代を超えた分をpush成功後に削除する。machine storeはsourceから作り直せて毎営業日書き換わるのに対し、application storeのjudgmentとledgerは何も再生成しないためである。prune は`baibai.sqlite.bak-`配下をlistし、`baibai.sqlite.bak-YYYYMMDD`に一致するkeyだけを完全一致で削除する（prefix削除はしない）。registry編集後は日次workflowの`registry-prune-pending` / `registry-prune`行（transaction ID・series ID・observation/provider-run削除件数）を当日中に確認する。pending に対応する committed 行が無い実行や意図しないpruneを検出したら、次のpushが`.bak`を置き換える前に状態を確認・復元する。
 - 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。
 - pullは固定4 key以外を受け付けず、全downloadと`quick_check`完了後に置換する。
@@ -792,7 +787,7 @@ run自身の通知は「runが起動したこと」を前提にする。GitHub�
 
 `.github/workflows/cloud-batch-watchdog.yml`が平日12:00 UTC（21:00 JST）に発火し、`cloud-daily-batch`のrun一覧を`gh api`で読み、直近20時間に**conclusion=successのcompleted runが1本も無ければ**同じ`#batch-runs`へ`[MISSING]`を送る。正常な日は何も送らない（2通目の`[OK]`はchannelを読み飛ばす習慣を作る）。したがって`#batch-runs`の沈黙は「当日のbatchが正常だった」を意味する。
 
-- **20時間窓**の両端はGitHubのschedule遅延（median約2時間）で決まる。前日の07:43 UTC runが窓に入らない程度に短く（前日の成功で当日の欠測を隠さない）、watchdog自身が数時間遅れて発火しても当日の07:43 UTC runを取りこぼさない程度に長い。
+- **20時間窓**は、前日の07:43 UTC runが窓に入らない程度に短く（前日の成功で当日の欠測を隠さない）、watchdog自身が数時間遅れて発火しても当日の07:43 UTC runを取りこぼさない程度に長い。
 - **まだ実行中のrunは欠測として数えない**。schedule queueが07:43 UTCのbatchを watchdog の発火時刻より後ろへ押し出すことがあるが、そのrunは完走すれば自分で結果を通知する（job timeoutに当たっても`[CANCELLED]`が出る）ので、watchdogが足せるものは無い。窓の中に`completed`でないrunが1本でもあれば`in_flight`として無送信にする。
 - **営業日カレンダーは持たない**。非営業日は`cloud-daily-batch`自身がgreenのskip runとして完了するので、successとして数えられる。
 - 手動の復旧dispatchもsuccessとして数えるので、当日中に復旧すれば警報は出ない。

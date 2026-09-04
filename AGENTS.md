@@ -41,8 +41,9 @@ CLI を叩くだけなので、失敗した step はローカルで実行でき�
   外部 API もクラウドのデータも要らない
 - 原因が分からないまま dispatch しない。**エラーが何を言っていないかを先に直す**
 
-**日次 batch の cron は定時に走る。** 復旧の確認はそれで足りることが多い。手動 dispatch を足す前に、
-次の定時実行まで待てないかを確かめる。
+**scheduleは日次 batchの通常triggerだが、定刻起動は保証しない。** batch自身のoutcome通知、
+watchdogの`[MISSING]`、workflow historyで状態を確認する。原因調査のためにcloud dispatchを
+繰り返さない。ローカルで修正・再現した後の最終確認が必要な場合だけdispatchする。
 
 **移行も判断もローカルで完結させる。日次 batch は開発の無い日の定常処理であり、移行をそこで走らせない。**
 schema 変更・store 再構築・全期間再取得・較正 store の作り直しは、ローカルで完結させ、
@@ -120,7 +121,7 @@ storeごとに正本の所在が違う。ローカルで進めたstoreをクラ�
 
 | store | 正本 | ローカルからの反映 |
 | --- | --- | --- |
-| `stores/market/market.sqlite` | lake所有17 tableはR2のL1 release、残る2 tableはcloud（日次batch）+ ローカルの深い履歴 | `r2_transfer.sh publish-lake` → `push-market`（merge後だけupload） |
+| `stores/market/market.sqlite` | lake所有tableはR2のL1 release、store-local tableはcloud（日次batch）+ ローカルの深い履歴 | `r2_transfer.sh publish-lake` → `push-market`（merge後だけupload） |
 | `stores/macro/macro.sqlite` | cloud（rolling窓）+ ローカルの全履歴 | `r2_transfer.sh push-macro`（merge後だけupload） |
 | `stores/screening/runs.sqlite` | cloud daily + 明示的なlocal daily | `r2_transfer.sh push-machine`（pullした3 storeのETag一致時だけbundle upload） |
 | `stores/application/baibai.sqlite` | ローカル（判断） | `batch/scripts/publish.sh` |
