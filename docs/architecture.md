@@ -117,7 +117,7 @@ store の所有者はこの表が唯一の正本である。
 | --- | --- | --- | --- |
 | `stores/application/baibai.sqlite` | L3 judgment（canonical application DB） | task、macro context、Research Triage、thesis revision、Capital Allocation Assessment、Position Review、ledger event / price / meta、outcome、operation session | `baibai-engine` application service |
 | R2 `lake/`（L1 release） | L1 fact（market の canonical authority） | lake 所有 dataset の immutable Parquet object・dataset manifest・release manifest・current pointer | `publish-lake`（cloud daily batch とローカル） |
-| `stores/market/market.sqlite` | L1 fact の runtime copy + 2 data table の canonical | lake所有17 data tableはL1 releaseからのruntime copy、残る2 data table（取得範囲の帳簿 `source_coverage` と operator 導出の `tse_capital_policy_snapshots`）はここがcanonical、`lake_store_origin`はstore-local metadata | market / screening provider、`lake hydrate` |
+| `stores/market/market.sqlite` | L1 fact の runtime copy + store-local data | lake所有data tableはL1 releaseからのruntime copy、取得範囲の帳簿 `source_coverage` と operator 導出の `tse_capital_policy_snapshots`はここがcanonical、`lake_store_origin`はstore-local metadata | market / screening provider、`lake hydrate` |
 | `stores/screening/runs.sqlite` | L2 machine（rebuildable run store） | 最新数世代を保持するprunable Security Analysis / Review Set cache | screening service |
 | `stores/screening/calibration/current.sqlite` | L2 machine（rebuildable current snapshot） | typed calibration panel / diagnostics / forward outcome | screening calibration service |
 | `stores/macro/macro.sqlite` | L1 fact（rebuildable） | provider 別 macro indicator series。manual 観測は git seed から同期 | macro indicator service |

@@ -460,11 +460,10 @@ def calibration_evaluate_command(
                     "input_range_clamped": bool(
                         meta.get("bars_window_clamped") or meta.get("fin_window_clamped")
                     ),
-                    # EDINET の書類から作る軸を持つ母集団の行数。この source は最近の
-                    # as-of 分しか store に無いので古い cohort は 0 になり、その cohort は
-                    # production と同じ入力で screen を再現していない (production は同じ
-                    # 軸を銘柄の 53〜64% で持つ)。件数を出し、判定は読み手が導く。
-                    # `null` は計測前に書かれた panel で、0 (観測して 1 件も無い) と違う。
+                    # EDINET 由来の軸を持つ母集団の行数。古い cohort は
+                    # source coverageの外で 0 になり得て、productionと同じ入力面を
+                    # 再現していない。単独のblockerにせず、判定は読み手が導く。
+                    # `null`は未計測、0は計測して該当なしであり、同じではない。
                     "edinet_axis_population_count": _optional_count(
                         meta.get("population_edinet_axis_nonnull")
                     ),
