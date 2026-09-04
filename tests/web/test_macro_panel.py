@@ -16,7 +16,7 @@ from baibai_engine.macro.indicators.db import (
 )
 from baibai_engine.macro.indicators.definitions import IndicatorDefinitions, load_definitions
 from baibai_engine.read_api import MACRO_READING_RULES_PATH
-from baibai_web.readmodel.builders import build_macro, build_macro_series
+from baibai_web.readmodel.macro import build_macro, build_macro_series
 from baibai_web.sources.db_sources import DbMacroSource, load_macro_panel_config
 from baibai_web.sources.types import MacroGroupConfig, MacroSeriesConfig
 
