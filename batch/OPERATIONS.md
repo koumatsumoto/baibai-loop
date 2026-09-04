@@ -274,11 +274,15 @@ hydrate後にfetch/build/publishへ直列に進み、変更後の再hydrateを�
 batch/scripts/publish.sh
 ```
 
+引数なしでだけ実行する。`-h` / `--help`は外部書き込みを行わずusageを表示し、その他の引数はupload前に拒否する。
+引数なしでは最初に`position ledger`を実行し、保有価格の欠損・staleなどでvaluationが成立しなければupload前に停止する。
+その場合は[`portfolio-ledger.md`](../docs/reference/portfolio-ledger.md#market-price-and-tax)に従って全open holdingの同日価格を更新してから再実行する。
+
 このscriptは`baibai.sqlite`のconsistent snapshotだけをstoresへ送り、`cloud-materialize`をdispatchする。servingへの直接writeは行わない。
 
 **成功確認**: `publish.sh`とdispatchされた`cloud-materialize`が成功し、表示のas-ofと対象judgmentを確認する。
 
-**停止と復旧**: exportはstoreのschemaがcodeと一致しない間、viewを1件も書かずexit 1で停止する。
+**停止と復旧**: ledger preflightが失敗した場合はstoreをuploadせず停止する。exportはstoreのschemaがcodeと一致しない間、viewを1件も書かずexit 1で停止する。
 schemaを一致させてから再実行する。未publishのままではscreening結果を含む全viewが更新されない。
 
 application DBはcurrent schemaだけを開き、クラウドはこのstoreをread-onlyで読む。schemaを上げるPRは、
