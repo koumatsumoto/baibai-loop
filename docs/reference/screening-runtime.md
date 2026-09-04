@@ -93,9 +93,30 @@ cloudからL3 Research Triageを発行しない。local `baibai-batch analysis r
 ## Market store inputs
 
 screeningはmarket storeの価格、財務、銘柄master、calendar、信用・空売り、JPX規制、
-EDINET、上場廃止・現金公開買付けのPIT入力とcoverageを読む。table / columnの現行inventoryは
-DB schemaと`baibai-engine lake inventory`、列の意味、PIT、coverage、source authorityは
+EDINET、上場廃止・現金公開買付けのPIT入力とcoverageを読む。以下のtable名は
+inputの読み先を示す。columnと現行layoutはDB schema、lake datasetのinventoryは
+`baibai-engine lake inventory`、値の意味、PIT、coverage、source authorityは
 [data-sources.md](./data-sources.md)と[valuation-metrics.md](./valuation-metrics.md)を正本とする。
+
+- `jquants_daily_bars()`
+- `jquants_fin_summaries()`
+- `jquants_master_snapshots()`
+- `jpx_earnings_calendar()`
+- `jquants_market_calendar()`
+- `jquants_weekly_margin()`
+- `jquants_margin_alerts()`
+- `jquants_all_issues_daily_margin()`
+- `jquants_short_sale_reports()`
+- `jpx_regulation_sources()`
+- `jpx_regulation_flags()`
+- `edinet_document_lists()`
+- `edinet_documents()`
+- `edinet_metrics()`
+- `tse_capital_policy_snapshots()`
+- `jpx_delistings()`
+- `tender_offer_exit_values()`
+- `source_coverage()`
+- `lake_store_origin()`
 
 ## 検証
 
