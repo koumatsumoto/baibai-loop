@@ -4,8 +4,8 @@ from datetime import date, datetime
 
 from tests.helpers.research_triage import research_triage_payload, skip_entry
 
-from baibai_web.readmodel.builders import _candidate_row_view, build_screening
 from baibai_web.readmodel.models import ReviewSetEntryView
+from baibai_web.readmodel.stocks import _candidate_row_view, build_screening
 from baibai_web.sources.db_sources import DbCandidatesSource
 from baibai_web.sources.types import CandidatesRun
 
