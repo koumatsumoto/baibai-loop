@@ -785,12 +785,12 @@ status）で残り、webhook URL・response body は log に出ない。`#batch-
 
 run自身の通知は「runが起動したこと」を前提にする。GitHubは高負荷時にscheduled runを黙って落とし、cron直前に着地したmergeはその日のscheduleを差し替える。どちらの場合も成功通知も失敗通知も出ず、**沈黙**になる。人間は届かないメッセージの検知が最も苦手なので、沈黙のままにしない。
 
-`.github/workflows/cloud-batch-watchdog.yml`が平日12:00 UTC（21:00 JST）に発火し、`cloud-daily-batch`のrun一覧を`gh api`で読み、直近20時間に**conclusion=successのcompleted runが1本も無ければ**同じ`#batch-runs`へ`[MISSING]`を送る。正常な日は何も送らない（2通目の`[OK]`はchannelを読み飛ばす習慣を作る）。したがって`#batch-runs`の沈黙は「当日のbatchが正常だった」を意味する。
+`.github/workflows/cloud-batch-watchdog.yml`が平日12:00 UTC（21:00 JST）に発火し、`cloud-daily-batch`のrun一覧を`gh api`で読む。直近20時間のrunから、batch cronを基準に決めた確認対象日を答えるrunだけを選び、その中に`conclusion=success`のcompleted runがあれば正常、無ければ同日のin-flight runの有無を判定する。別の日を答えるrunは、同じ20時間窓にあってもsuccess / in-flightの根拠にしない。どちらも無ければ同じ`#batch-runs`へ`[MISSING]`を送る。正常な日とin-flight時は何も送らない（2通目の`[OK]`はchannelを読み飛ばす習慣を作る）。したがって`#batch-runs`の沈黙は「確認対象日のbatchが正常、または実行中」を意味する。
 
-- **20時間窓**は、前日の07:43 UTC runが窓に入らない程度に短く（前日の成功で当日の欠測を隠さない）、watchdog自身が数時間遅れて発火しても当日の07:43 UTC runを取りこぼさない程度に長い。
-- **まだ実行中のrunは欠測として数えない**。schedule queueが07:43 UTCのbatchを watchdog の発火時刻より後ろへ押し出すことがあるが、そのrunは完走すれば自分で結果を通知する（job timeoutに当たっても`[CANCELLED]`が出る）ので、watchdogが足せるものは無い。窓の中に`completed`でないrunが1本でもあれば`in_flight`として無送信にする。
+- **20時間窓**は判定候補を取得する範囲であり、窓内のrunを日付に関係なく数える条件ではない。前日の07:43 UTC runが窓に入らない程度に短く、watchdog自身が数時間遅れて発火しても確認対象日の07:43 UTC runを取りこぼさない程度に長い。
+- **確認対象日のまだ実行中のrunは欠測として数えない**。schedule queueが07:43 UTCのbatchを watchdog の発火時刻より後ろへ押し出すことがあるが、そのrunは完走すれば自分で結果を通知する（job timeoutに当たっても`[CANCELLED]`が出る）ので、watchdogが足せるものは無い。窓の中に確認対象日を答える`completed`でないrunが1本でもあれば`in_flight`として無送信にする。別日を答える実行中runは数えない。
 - **営業日カレンダーは持たない**。非営業日は`cloud-daily-batch`自身がgreenのskip runとして完了するので、successとして数えられる。
-- 手動の復旧dispatchもsuccessとして数えるので、当日中に復旧すれば警報は出ない。
+- 手動の復旧dispatchも、run名が確認対象日を答える場合だけsuccess / in-flightとして数える。別日の復旧runは確認対象日の欠測を隠さない。
 - run一覧が期待した形でなければ**警報を出さずにexit 1**する。parseの劣化が「run 0本」に落ちると、APIの形が変わるたびに誤報になるため。
 - 過去日の判定は`gh workflow run cloud-batch-watchdog.yml -f check_date=YYYY-MM-DD`で再現する（その日の21:00 JSTに発火したwatchdogと同じ窓を評価する）。dispatch入力はcredentialを持たないvalidation stepでexact `YYYY-MM-DD`を検査してからstep env経由で渡す。
 - watchdog自身もscheduleなので同時にskipされ得る。独立した2本が同日に両方skipされる確率は単発よりずっと低い。それでも不足が観測されたらCloudflare Worker cronへ格上げする。

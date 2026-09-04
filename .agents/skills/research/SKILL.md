@@ -29,7 +29,7 @@ uv run baibai-engine research prepare \
   --ticker <SELECTED_TICKER>  # 選んだtickerごとに反復
 ```
 
-as-of、最大80件の比較snapshot、Researchへ進められるtickerはapplication DBのpublished Research Triage v3から導出する。Review Set fileやrun storeはResearch開始後のauthorityではない。選択集合はprepare時にmanifestへ固定され、生成後の`research-workspace.yaml`へtickerを後書きしてadmitできない。
+as-of、最大80件の比較snapshot、Researchへ進められるtickerはapplication DBのpublished Research Triageから導出する。Review Set fileやrun storeはResearch開始後のauthorityではない。選択集合はprepare時にmanifestへ固定され、生成後の`research-workspace.yaml`へtickerを後書きしてadmitできない。
 
 ## 2. Case ごとの thesis を確定する
 

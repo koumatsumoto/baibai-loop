@@ -15,7 +15,7 @@ E[r]、FV、macro context、portfolio stateは参考文脈である。Review Set
 
 ## Public CLI
 
-screening runtimeの公開commandは`baibai-engine screening --help`から辟る。本書で扱う
+screening runtimeの公開commandは`baibai-engine screening --help`から辿る。本書で扱う
 `run`、`review-set publish / show`、`research-triage publish`、`prune`のoptionのrequired / default / choiceと出力形式は各commandのpublic
 `--help`を正本とする。日常運用の実行順と停止条件は
 [`research-triage` skill](../../.agents/skills/research-triage/SKILL.md)と
