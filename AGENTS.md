@@ -99,32 +99,13 @@ subsystem、public CLI、schema、persistence、dependency、state、運用手�
 
 ## サブシステム索引
 
-サブシステム名（macro / screening / research / position など）を指定されたら、この表で src / store / CLI / 品質改善計器を引いて着手する。運用手順は上記 skill、依存構造は [`docs/architecture.md#repository-map`](./docs/architecture.md#repository-map) を正本とする。
-
-| subsystem | src | store | CLI | 品質改善計器 |
-| --- | --- | --- | --- | --- |
-| macro | `engine/src/baibai_engine/macro/` | `stores/application/baibai.sqlite`（context）+ `stores/macro/macro.sqlite`（series） | `baibai-engine macro` | 見積り calibration（[`reference/macro.md`](./docs/reference/macro.md)、formal loop にしない） |
-| screening | `engine/src/baibai_engine/screening/` | `stores/screening/runs.sqlite`（machine）+ `stores/application/baibai.sqlite`（research_triage）+ `method/` | `baibai-engine screening` | 見積り calibration（保有 outcome + 長期 horizon の較正リプレイ `calibration-build/evaluate`。短期 backtest はしない） |
-| research | `engine/src/baibai_engine/research/` | `stores/application/baibai.sqlite` + `method/research/playbooks/` | `baibai-engine research` / `baibai-engine research evaluate` | thesis + planning-only limit + position-review composition |
-| position | `engine/src/baibai_engine/position/` | `stores/application/baibai.sqlite` | `baibai-engine position` (`ledger` / draft / `apply-draft` / `outcome`) | human-confirmed portfolio ledger + Position Review + portfolio outcome |
-| operation | `engine/src/baibai_engine/operation/` | `stores/application/baibai.sqlite` | `baibai-engine operation` | current workspace + immutable final result |
-| market | `engine/src/baibai_engine/market/` | （`stores/market/market.sqlite` と lake mirror、git 外） | `baibai-engine lake` | 価格・calendar data 層（screening・保有計測の価格基盤） |
-| foundation | `engine/src/baibai_engine/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
-| task | `engine/src/baibai_engine/tasks/` | `stores/application/baibai.sqlite` | `baibai-engine task` | current task state |
-| app | `web/backend/src/baibai_web/` | application DBほかdomain storeをread-only合成 | `baibai-web` | read model / local API |
+サブシステム名（macro / screening / research / position など）を指定されたら、[`docs/architecture.md#repository-map`](./docs/architecture.md#repository-map) から owner と src を特定する。運用手順は上記の trigger に対応する skill を読む。
 
 品質改善は単一の見積り calibration に集約する: entry 時の見積り（RR・期待利回り・FV）を保有の実現結果と突き合わせ、加えて全銘柄の長期 horizon 較正リプレイで見積り手法そのものを較正して、macro 読み・screening 閾値・FV 推定・耐性判定を離散的に改善する（短期 horizon の screen 成績最適化はしない。doctrine 柱 5）。これは日常の判断triggerとは独立した基盤改善であり、契約と規律は [`docs/reference/estimate-calibration.md`](./docs/reference/estimate-calibration.md) を正本とする。
 
 ## store の正本とクラウド反映
 
-storeごとに正本の所在が違う。ローカルで進めたstoreをクラウドへ出すときは、**cloud copyを取り込んで包含したものでcloudを更新する** — cloud copyをstagingへ取り、現行schemaへ進め、mergeがcloud側の行の取り残しを検出しなかった場合だけuploadする。ローカルからの無条件uploadは日次batchの成果の巻き戻しになる。
-
-| store | 正本 | ローカルからの反映 |
-| --- | --- | --- |
-| `stores/market/market.sqlite` | lake所有tableはR2のL1 release、store-local tableはcloud（日次batch）+ ローカルの深い履歴 | `r2_transfer.sh publish-lake` → `push-market`（merge後だけupload） |
-| `stores/macro/macro.sqlite` | cloud（rolling窓）+ ローカルの全履歴 | `r2_transfer.sh push-macro`（merge後だけupload） |
-| `stores/screening/runs.sqlite` | cloud daily + 明示的なlocal daily | `r2_transfer.sh push-machine`（pullした3 storeのETag一致時だけbundle upload） |
-| `stores/application/baibai.sqlite` | ローカル（判断） | `batch/scripts/publish.sh` |
+storeごとにauthorityが違う。exact ownershipは[`docs/architecture.md#store-authority`](./docs/architecture.md#store-authority)、transfer commandと手順は`ops-maintenance` skillと[`batch/OPERATIONS.md`](./batch/OPERATIONS.md)を正本とする。ローカルからクラウドを更新するときはcloud copyをstagingへ取り込み、現行schemaへ進め、cloud側の行を取り残さずmergeできた場合だけuploadする。cloud copyを含まないblind overwriteは禁止する。
 
 **schemaを上げるcodeはmainへ入れてからpushする。** ローカルがmainより先のversionでstoreを置くと、次の日次batchがそのversionを知らずfail-fastする。手順と失敗時の見え方は [`batch/OPERATIONS.md`](./batch/OPERATIONS.md#ローカルからクラウドを更新する) を正本とする。
 
@@ -132,16 +113,7 @@ storeごとに正本の所在が違う。ローカルで進めたstoreをクラ�
 
 ## Repository-local skills
 
-repository-local skillの正本は`.agents/skills/<name>/SKILL.md`である（一覧と選び方は上記「運用の入口」）。`.claude/skills/<name>`は同じdirectoryへのrelative symlinkであり、別内容として編集しない。skillが参照するreferenceとpublic `--help`を優先し、tests/fixturesやsrcから日常手順を推測しない。
-
-| skill | path |
-| --- | --- |
-| research_triage | [`.agents/skills/research-triage/SKILL.md`](./.agents/skills/research-triage/SKILL.md) |
-| research | [`.agents/skills/research/SKILL.md`](./.agents/skills/research/SKILL.md) |
-| position-review | [`.agents/skills/position-review/SKILL.md`](./.agents/skills/position-review/SKILL.md) |
-| ledger-record | [`.agents/skills/ledger-record/SKILL.md`](./.agents/skills/ledger-record/SKILL.md) |
-| macro-context | [`.agents/skills/macro-context/SKILL.md`](./.agents/skills/macro-context/SKILL.md) |
-| ops-maintenance | [`.agents/skills/ops-maintenance/SKILL.md`](./.agents/skills/ops-maintenance/SKILL.md) |
+repository-local skillの正本は`.agents/skills/<name>/SKILL.md`である（選び方は上記「運用の入口」）。`.claude/skills/<name>`は同じdirectoryへのrelative symlinkであり、別内容として編集しない。skillが参照するreferenceとpublic `--help`を優先し、tests/fixturesやsrcから日常手順を推測しない。
 
 ## 言語運用
 
