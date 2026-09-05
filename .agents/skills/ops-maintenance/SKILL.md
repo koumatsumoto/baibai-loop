@@ -25,7 +25,7 @@ random retry、別as-ofへの置換、「最新Review Set」の再検索をし�
 | 注文の約定・失効 | `tools.experiments.measure_limit_outcomes`で全体を再計測する。少数結果でpolicyを変えない |
 | store読み取り・同期 | 下のauthorityとno-loss規律に従う |
 | app / viewの配信 | application storeの反映とserving materializeをOPERATIONSの順で行う |
-| 定期maintenance | calibration、PMI、lake audit、TSE capital policy / JPX delistingのdated taskだけをdue時に実行する |
+| 定期maintenance | calibration、PMI、TSE capital policy / JPX delistingのdated taskだけをdue時に実行する |
 
 ## Store authority
 
@@ -50,7 +50,7 @@ pullはbatch実行中を避ける。世代が途中で変わった場合はロ�
 
 - calibration panel: 月初に前月完全月末まで、同じ`--rules-path`で`calibration-build` → `calibration-evaluate`。`--force`は保持全cohortを覆う全再構築だけに使う。
 - PMI manifest: 公表翌週にdry-run、本実行、対象月の`macro refresh`、公表値照合、commitの順。
-- lake audit: 前回から7日後にfull-history audit。
+- lakeの全履歴監査は定期実行しない。既存の監査taskも実行・再登録せず、不要になったtaskとして終了する。通常publishと利用時のdigest検証は維持する。
 - valuation catalyst / delisting: 翌月15日以降に`refresh-tse-capital-policy`、`refresh-jpx-delistings`、`build-tender-offer-exits`を行い、hydrate済みstoreから`publish-lake` → `push-market`で反映する。
 
 ## 運用task
