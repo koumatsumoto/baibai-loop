@@ -1,4 +1,4 @@
-"""Produce Review Sets that expose four independent sources of enterprise value."""
+"""Produce Review Sets from the exact Nomination union of configured Valuation Approaches."""
 
 from .review_set import (
     PublishedReviewSet,

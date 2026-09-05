@@ -8,12 +8,14 @@ from datetime import date
 from pathlib import Path
 
 from tests.helpers.db_seed import seed_ledger
-from tests.helpers.screening_run import screening_candidate, screening_run_payload
+from tests.helpers.screening_run import screening_run_payload, security_analysis
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.ledger import PortfolioLedgerDocument
 from baibai_engine.screening.cli import build_parser, ticker_profile_command
+from baibai_engine.screening.discovery import build_review_set
+from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_engine.screening.sqlite_cache import open_connection
 from baibai_engine.screening.ticker_profile import _load_bars, build_ticker_profile
@@ -66,14 +68,14 @@ def _insert_reference_rows(sqlite_path: Path) -> None:
         conn.close()
 
 
-def _write_candidates(runs_db_path: Path) -> None:
+def _write_security_analyses(runs_db_path: Path) -> None:
     ScreeningRunStore(runs_db_path).publish_run(
         screening_run_payload(
             as_of="2026-05-29",
             run_at="2026-05-29T09:00:00+09:00",
             universe_size=1,
-            candidates=[
-                screening_candidate(
+            security_analyses=[
+                security_analysis(
                     "AAAA",
                     name="テスト製作所",
                     metrics={"ocf_yield": 0.11},
@@ -126,7 +128,7 @@ class BuildTickerProfileTests(unittest.TestCase):
             assert isinstance(events, dict)
             self.assertIsNone(events["next_earnings_date"])
 
-    def test_thesis_covers_price_relative_events_and_screening(self) -> None:
+    def test_profile_covers_price_relative_events_and_screening(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             sqlite_path = root / "market.sqlite"
@@ -135,21 +137,21 @@ class BuildTickerProfileTests(unittest.TestCase):
             _insert_bars(sqlite_path, "1321", [200.0] * 30, end=_ASOF)
             _insert_bars(sqlite_path, "BBBB", [300 * 0.99**i for i in range(30)], end=_ASOF)
             _insert_reference_rows(sqlite_path)
-            _write_candidates(root / "runs.sqlite")
+            _write_security_analyses(root / "runs.sqlite")
 
-            thesis = self._build(root, "AAAA")
+            profile = self._build(root, "AAAA")
 
-            master = thesis["master"]
+            master = profile["master"]
             assert isinstance(master, dict)
             self.assertEqual(master["sector_33"], "機械")
-            price = thesis["price"]
+            price = profile["price"]
             assert isinstance(price, dict)
             self.assertEqual(price["resolved_date"], _ASOF.isoformat())
             assert isinstance(price["return_5d"], float)
             self.assertAlmostEqual(price["return_5d"], 1.01**5 - 1, places=9)
             self.assertEqual(price["bar_count"], 30)
             self.assertAlmostEqual(price["avg_turnover_20d_oku"], 2.0, places=9)
-            relative = thesis["relative"]
+            relative = profile["relative"]
             assert isinstance(relative, dict)
             assert isinstance(relative["relative_5d"], float)
             self.assertAlmostEqual(relative["relative_5d"], 1.01**5 - 1, places=9)
@@ -158,18 +160,18 @@ class BuildTickerProfileTests(unittest.TestCase):
             self.assertEqual(sector["peer_count"], 1)
             assert isinstance(sector["peer_median_return_20d"], float)
             self.assertLess(sector["peer_median_return_20d"], 0)
-            events = thesis["events"]
+            events = profile["events"]
             assert isinstance(events, dict)
             self.assertEqual(events["next_earnings_date"], "2026-06-10")
             jpx = events["jpx_regulation"]
             assert isinstance(jpx, dict)
             self.assertEqual(jpx["flags"], ["特別注意銘柄"])
-            screening = thesis["screening"]
+            screening = profile["screening"]
             assert isinstance(screening, dict)
             self.assertTrue(screening["has_security_analysis"])
-            entry = screening["entry"]
-            assert isinstance(entry, dict)
-            self.assertEqual(entry["metrics"], {"ocf_yield": 0.11})
+            security_analysis = screening["security_analysis"]
+            assert isinstance(security_analysis, dict)
+            self.assertEqual(security_analysis["metrics"], {"ocf_yield": 0.11})
 
     def test_price_series_keeps_an_action_event_without_a_close(self) -> None:
         """売買停止日のfactorを落とさず、前後価格を同じ株式基準へ揃える。"""
@@ -218,46 +220,66 @@ class BuildTickerProfileTests(unittest.TestCase):
             self.assertEqual([bar.price for bar in with_event], [100.0, 100.0])
             self.assertEqual([bar.price for bar in without_event], [1.0, 100.0])
 
-    def test_thesis_degrades_explicitly_for_unknown_ticker(self) -> None:
+    def test_profile_degrades_explicitly_for_unknown_ticker(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             _insert_bars(root / "market.sqlite", "1321", [200.0] * 30, end=_ASOF)
 
-            thesis = self._build(root, "ZZZZ")
+            profile = self._build(root, "ZZZZ")
 
-            self.assertIsNone(thesis["master"])
-            self.assertIsNone(thesis["price"])
-            self.assertIsNone(thesis["relative"])
-            screening = thesis["screening"]
+            self.assertIsNone(profile["master"])
+            self.assertIsNone(profile["price"])
+            self.assertIsNone(profile["relative"])
+            screening = profile["screening"]
             assert isinstance(screening, dict)
             self.assertFalse(screening["has_security_analysis"])
 
-    def test_thesis_marks_ticker_missing_from_candidates(self) -> None:
+    def test_profile_marks_ticker_missing_from_security_analyses(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             sqlite_path = root / "market.sqlite"
             _insert_bars(sqlite_path, "BBBB", [300.0] * 30, end=_ASOF)
             _insert_reference_rows(sqlite_path)
-            _write_candidates(root / "runs.sqlite")
+            _write_security_analyses(root / "runs.sqlite")
 
-            thesis = self._build(root, "BBBB")
+            profile = self._build(root, "BBBB")
 
-            screening = thesis["screening"]
+            screening = profile["screening"]
             assert isinstance(screening, dict)
             self.assertFalse(screening["has_security_analysis"])
             self.assertIn("no Security Analysis", str(screening["note"]))
+            self.assertNotIn("security_analysis", screening)
+
+    def test_profile_retains_security_analysis_without_nomination(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_security_analyses(root / "runs.sqlite")
+            profile = self._build(root, "AAAA")
+            screening = profile["screening"]
+            assert isinstance(screening, dict)
+            analysis = screening["security_analysis"]
+            assert isinstance(analysis, dict)
+            rules = load_screening_rules()
+            review_set = build_review_set(
+                [analysis],
+                rules=rules.candidate_discovery,
+                required_jpx_flags=rules.universe.required_jpx_flags,
+            )
+            self.assertEqual(review_set["entries"], [])
+            self.assertTrue(screening["has_security_analysis"])
+            self.assertNotIn("note", screening)
 
     def test_screening_uses_only_latest_stored_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             runs_path = root / "runs.sqlite"
-            _write_candidates(runs_path)
+            _write_security_analyses(runs_path)
             latest = ScreeningRunStore(runs_path).publish_run(
                 screening_run_payload(
                     as_of="2026-05-30",
                     run_at="2026-05-30T09:00:00+09:00",
                     universe_size=1,
-                    candidates=[screening_candidate("BBBB", name="同業ペア", metrics={})],
+                    security_analyses=[security_analysis("BBBB", name="同業ペア", metrics={})],
                     filters={},
                     generated_by="test",
                     data_sources=[],
@@ -266,7 +288,7 @@ class BuildTickerProfileTests(unittest.TestCase):
                 )
             )
 
-            thesis = build_ticker_profile(
+            profile = build_ticker_profile(
                 sqlite_path=root / "market.sqlite",
                 ticker="AAAA",
                 asof_date=date(2026, 5, 30),
@@ -274,7 +296,7 @@ class BuildTickerProfileTests(unittest.TestCase):
                 app_db_path=root / "app.sqlite",
             )
 
-            screening = thesis["screening"]
+            screening = profile["screening"]
             assert isinstance(screening, dict)
             self.assertEqual(screening["screening_run_revision_id"], latest.publication_id)
             self.assertEqual(screening["screening_run_as_of"], "2026-05-30")
@@ -303,17 +325,17 @@ class BuildTickerProfileTests(unittest.TestCase):
             finally:
                 conn.close()
 
-            current_thesis = self._build(root, "AAAA")
-            old_only_thesis = self._build(root, "BBBB")
+            current_profile = self._build(root, "AAAA")
+            old_only_profile = self._build(root, "BBBB")
 
-            relative = current_thesis["relative"]
+            relative = current_profile["relative"]
             assert isinstance(relative, dict)
             sector = relative["sector"]
             assert isinstance(sector, dict)
             self.assertEqual(sector["peer_count"], 1)
             assert isinstance(sector["peer_median_return_20d"], float)
             self.assertGreater(sector["peer_median_return_20d"], 0)
-            self.assertIsNone(old_only_thesis["master"])
+            self.assertIsNone(old_only_profile["master"])
 
 
 class TickerProfileCliTests(unittest.TestCase):
@@ -344,7 +366,7 @@ class TickerProfileCliTests(unittest.TestCase):
         )
         self.assertEqual(exit_code, 1)
 
-    def test_command_emits_yaml_thesis(self) -> None:
+    def test_command_emits_yaml_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             sqlite_path = root / "market.sqlite"
@@ -378,7 +400,7 @@ class PortfolioBlockTests(unittest.TestCase):
             _insert_reference_rows(sqlite_path)
             _write_portfolio_ledger(root, ticker="BBBB", sector="機械", price_yen=500)
 
-            thesis = build_ticker_profile(
+            profile = build_ticker_profile(
                 sqlite_path=sqlite_path,
                 ticker="AAAA",
                 asof_date=_ASOF,
@@ -386,7 +408,7 @@ class PortfolioBlockTests(unittest.TestCase):
                 app_db_path=root / "app.sqlite",
             )
 
-            portfolio = thesis["portfolio"]
+            portfolio = profile["portfolio"]
             assert isinstance(portfolio, dict)
             self.assertEqual(portfolio["open_position_count"], 1)
             self.assertFalse(portfolio["holds_this_ticker"])

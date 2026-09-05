@@ -1160,7 +1160,7 @@ def _research_ticker_dir(workspace: Path, ticker: str) -> Path:
 
 
 def _review_filename(*, asof: date, ticker: str) -> str:
-    """Return the stable independent-review filename for a research ticker.
+    """Return the stable Thesis Review filename for a research ticker.
 
     The thesis payload carries this name in ``independent_review_ref`` and
     ``plan-limit`` resolves the review by that name from the thesis's own

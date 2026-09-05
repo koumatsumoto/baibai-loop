@@ -30,7 +30,7 @@ from baibai_engine.research.thesis import (
     thesis_core_hash,
 )
 
-_REVIEW_REQUIRED = "buy recommendation requires an independent second-pass review"
+_REVIEW_REQUIRED = "buy recommendation requires a Thesis Review"
 
 
 class ResearchConflictError(ValueError):
@@ -49,7 +49,7 @@ class ThesisPublication:
 
 
 @dataclass(frozen=True, slots=True)
-class ReviewPublication:
+class ThesisReviewPublication:
     thesis_id: str
     payload: Mapping[str, object]
 
@@ -59,7 +59,7 @@ class PositionReviewPublication:
     position_review_id: str
     thesis_id: str
     payload: Mapping[str, object]
-    candidate_thesis_id: str | None = None
+    replacement_thesis_id: str | None = None
 
 
 class ResearchStoreService:
@@ -126,32 +126,34 @@ class ResearchStoreService:
                 identity=UnpublishedThesis.DRAFT,
             )
         )
-        review_publication = ReviewPublication(thesis_id, review_payload)
+        thesis_review_publication = ThesisReviewPublication(thesis_id, review_payload)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 _insert_thesis(connection, publication, thesis)
-                _insert_review(connection, review_publication, review, now=operation_now)
+                _insert_thesis_review(
+                    connection, thesis_review_publication, review, now=operation_now
+                )
                 connection.commit()
             except BaseException:
                 connection.rollback()
                 raise
         return thesis, review
 
-    def publish_review(
+    def publish_thesis_review(
         self,
         thesis_id: str,
         payload: Mapping[str, object],
     ) -> ThesisReview:
         operation_now = self._operation_now()
-        publication = ReviewPublication(thesis_id, payload)
+        publication = ThesisReviewPublication(thesis_id, payload)
         review = ThesisReview.model_validate(payload)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
-                _insert_review(connection, publication, review, now=operation_now)
+                _insert_thesis_review(connection, publication, review, now=operation_now)
                 connection.commit()
             except BaseException:
                 connection.rollback()
@@ -164,12 +166,12 @@ class ResearchStoreService:
         thesis_id: str,
         payload: Mapping[str, object],
         *,
-        candidate_thesis_id: str | None = None,
+        replacement_thesis_id: str | None = None,
     ) -> PositionReviewDocument:
         """Recheck canonical DB revision bindings inside the write transaction."""
         operation_now = self._operation_now()
         publication = PositionReviewPublication(
-            position_review_id, thesis_id, payload, candidate_thesis_id
+            position_review_id, thesis_id, payload, replacement_thesis_id
         )
         document = _validate_holding_document(payload)
         initialize_database(self._db_path)
@@ -287,9 +289,9 @@ def _thesis_row(connection: sqlite3.Connection, thesis_id: str) -> sqlite3.Row:
     return cast(sqlite3.Row, row)
 
 
-def _insert_review(
+def _insert_thesis_review(
     connection: sqlite3.Connection,
-    publication: ReviewPublication,
+    publication: ThesisReviewPublication,
     review: ThesisReview,
     *,
     now: datetime,
@@ -333,24 +335,24 @@ def _insert_position_review(
         raise ResearchConflictError("Position Review ticker does not match thesis revision")
     if document.as_of < date.fromisoformat(str(thesis["as_of"])):
         raise ResearchConflictError("Position Review predates thesis revision")
-    candidate_source = document.sources.candidate_thesis
-    if (candidate_source is None) != (publication.candidate_thesis_id is None):
+    replacement_source = document.sources.candidate_thesis
+    if (replacement_source is None) != (publication.replacement_thesis_id is None):
         raise ResearchConflictError(
-            "candidate_thesis_id is required exactly when candidate_thesis source exists"
+            "replacement_thesis_id is required exactly when sources.candidate_thesis exists"
         )
-    if publication.candidate_thesis_id is not None:
-        candidate_thesis = _thesis_row(connection, publication.candidate_thesis_id)
-        candidate = document.replacement_comparison.candidate
-        if candidate is None or candidate.ticker != str(candidate_thesis["ticker"]):
+    if publication.replacement_thesis_id is not None:
+        replacement_thesis = _thesis_row(connection, publication.replacement_thesis_id)
+        replacement = document.replacement_comparison.candidate
+        if replacement is None or replacement.ticker != str(replacement_thesis["ticker"]):
             raise ResearchConflictError(
-                "Position Review candidate ticker does not match replacement Thesis revision"
+                "Position Review replacement ticker does not match replacement Thesis revision"
             )
     payload = canonical_json(publication.payload)
     expected = (
         document.ticker,
         document.as_of.isoformat(),
         publication.thesis_id,
-        publication.candidate_thesis_id,
+        publication.replacement_thesis_id,
         payload,
     )
     existing = connection.execute(
@@ -385,7 +387,7 @@ def _validate_canonical_holding_sources(
 ) -> None:
     ledger_source = document.sources.ledger
     thesis_source = document.sources.holding_thesis
-    candidate_source = document.sources.candidate_thesis
+    replacement_source = document.sources.candidate_thesis
     current_head = int(
         connection.execute("SELECT coalesce(max(append_seq), 0) FROM ledger_event").fetchone()[0]
     )
@@ -393,10 +395,10 @@ def _validate_canonical_holding_sources(
         raise ResearchConflictError("Position Review ledger revision changed")
     if thesis_source.entity_id != publication.thesis_id:
         raise ResearchConflictError("Position Review thesis revision binding differs")
-    if candidate_source is None:
-        if publication.candidate_thesis_id is not None:
+    if replacement_source is None:
+        if publication.replacement_thesis_id is not None:
             raise ResearchConflictError("replacement Thesis revision binding is missing")
-    elif candidate_source.entity_id != publication.candidate_thesis_id:
+    elif replacement_source.entity_id != publication.replacement_thesis_id:
         raise ResearchConflictError("replacement Thesis revision binding differs")
 
 
@@ -405,6 +407,6 @@ __all__ = [
     "ResearchConflictError",
     "ResearchStoreService",
     "ResearchValidationError",
-    "ReviewPublication",
     "ThesisPublication",
+    "ThesisReviewPublication",
 ]

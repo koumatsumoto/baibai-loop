@@ -2,7 +2,7 @@
 review-scaffold / promote / plan-limit / capital-allocation-scaffold / capital-allocation-publish.
 
 This is also the `baibai-engine research` help surface, so the read-only `evaluate`
-command is declared here and forwarded to :mod:`decision_cli`, which keeps its own
+command is declared here and forwarded to :mod:`thesis_evaluation_cli`, which keeps its own
 arguments and its own exit codes.
 
 Machine output is YAML on stdout only; human explanation and errors go to stderr.

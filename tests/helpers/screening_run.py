@@ -21,7 +21,7 @@ RULES_HASH = "rules-fixture"
 MODEL_ID = "expected-return-v1"
 
 
-def screening_candidate(
+def security_analysis(
     ticker: str = "1301",
     *,
     name: str = "極洋",
@@ -65,7 +65,7 @@ def screening_run_payload(
     universe_size: int = 3744,
     rules_hash: str = RULES_HASH,
     model_id: str = MODEL_ID,
-    candidates: Sequence[Mapping[str, Any]] | None = None,
+    security_analyses: Sequence[Mapping[str, Any]] | None = None,
     **extra: Any,
 ) -> dict[str, Any]:
     """A complete run payload for `as_of`, ready to publish."""
@@ -79,7 +79,7 @@ def screening_run_payload(
         "screening_rules_hash": rules_hash,
         "er_model_version": model_id,
         "security_analyses": [
-            dict(candidate) for candidate in (candidates or [screening_candidate()])
+            dict(analysis) for analysis in (security_analyses or [security_analysis()])
         ],
     }
     payload.update(extra)

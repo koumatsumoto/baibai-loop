@@ -1,4 +1,7 @@
-"""Read the previous business-day raw close directly from the L1 SQLite store.
+"""Provide raw/unadjusted closes for Research planning and holding valuation.
+
+The read-only market runtime copy supplies both the previous business-day close
+for a target session and same-date holding-basis closes.
 
 Research authoring lives in ``thesis``, which the import DAG keeps off the
 ``baibai_engine.market`` package. The market SQLite schema is a stable platform
@@ -7,7 +10,7 @@ version-managed, AI may issue read-only SQL directly), so this reader opens the
 store read-only and queries the documented columns, degrading to ``None`` on any
 error instead of importing the market package.
 
-The resolved price is always the raw/unadjusted ``close`` on the full-universe
+For target-session planning, the resolved price is the raw/unadjusted ``close`` on the full-universe
 daily bars' latest market-wide session strictly before the target session. A
 missing ticker row or NULL ``close`` on that exact date returns no price; an older
 ticker row is never used as a substitute. An absent ``adjustment_factor`` or a

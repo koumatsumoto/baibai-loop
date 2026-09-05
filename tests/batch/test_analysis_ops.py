@@ -10,7 +10,7 @@ import pytest
 from pydantic import ValidationError
 from tests.helpers.macro_context import macro_context_payload
 from tests.helpers.research_triage import published_review_set, research_triage_payload
-from tests.helpers.screening_run import screening_candidate, screening_run_payload
+from tests.helpers.screening_run import screening_run_payload, security_analysis
 
 import baibai_batch.analysis.cli as analysis_cli
 from baibai_batch.analysis.cli import PipelineLock, RunLog
@@ -167,7 +167,7 @@ def _seed_canonical_review_set(root: Path) -> PublishedReviewSet:
     rules = screening_rules.candidate_discovery
     required_jpx_flags = screening_rules.universe.required_jpx_flags
     rules_hash = production_rules_contract_hash(screening_rules.model_dump_json())
-    candidate = screening_candidate(
+    analysis = security_analysis(
         ticker="2331",
         name="Company 2331",
         sector_33="情報・通信業",
@@ -200,12 +200,12 @@ def _seed_canonical_review_set(root: Path) -> PublishedReviewSet:
         screening_run_payload(
             as_of=_ASOF.isoformat(),
             rules_hash=rules_hash,
-            candidates=(candidate,),
+            security_analyses=(analysis,),
         ),
         run_revision_id="run-cloud-canonical",
     )
     payload = {
-        **build_review_set([candidate], rules=rules, required_jpx_flags=required_jpx_flags),
+        **build_review_set([analysis], rules=rules, required_jpx_flags=required_jpx_flags),
         "review_set_id": "review-set-cloud-canonical",
         "run_revision_id": "run-cloud-canonical",
         "as_of": _ASOF.isoformat(),

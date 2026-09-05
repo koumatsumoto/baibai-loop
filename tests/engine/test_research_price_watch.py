@@ -203,7 +203,7 @@ def _run(
             review_path = thesis_path.with_name(
                 thesis_path.name.replace("-decision.yaml", "-decision-review.yaml")
             )
-            service.publish_review(
+            service.publish_thesis_review(
                 thesis_id,
                 load_thesis_review(review_path).model_dump(mode="json"),
             )

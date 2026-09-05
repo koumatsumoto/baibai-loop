@@ -196,7 +196,7 @@ def build_security_analysis_metrics(
         "er_model_version": estimate.model_version if estimate else None,
         "er_unit": estimate.unit if estimate else None,
         "er_assumptions": estimate.assumptions if estimate else None,
-        # 資本配分・支配権イベントの typed fact (valuation_catalyst_context.py)。TSE の開示状況は
+        # 資本配分・支配権イベントの typed fact (valuation_catalysts.py)。TSE の開示状況は
         # 月次スナップショットの point-in-time 参照で、"none" は「その月の一覧に居ない」、
         # None は「参照できる月次スナップショットが無い」。イベントは対象会社側から見た
         # 直近 6 か月の提出有無で、None は観測窓が埋まっていない状態、False は窓を観測して
