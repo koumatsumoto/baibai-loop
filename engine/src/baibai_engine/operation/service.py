@@ -43,6 +43,8 @@ class OperationService:
         ticker: str | None = None,
     ) -> OperationSession:
         _require_current_payload(payload)
+        if session_kind == "position-review" and (ticker is None or not ticker.strip()):
+            raise OperationConflictError("position-review start requires ticker")
         if session_kind == "capital-allocation":
             try:
                 research_binding(payload)
@@ -152,6 +154,8 @@ class OperationService:
                     _validate_complete(before.session_kind, payload)
                     if before.session_kind == "capital-allocation":
                         _require_published_assessment(connection, before, payload, completed_at)
+                    elif before.session_kind == "position-review":
+                        _require_published_position_review(connection, before, payload)
                 operation = OperationSession.model_validate(
                     {
                         **before.public(),
@@ -219,6 +223,21 @@ def _require_published_assessment(
             raise ValueError("completion precedes assessment publication")
     except ValueError as error:
         raise OperationCompletionError(str(error)) from error
+
+
+def _require_published_position_review(
+    connection: sqlite3.Connection, operation: OperationSession, payload: OperationPayload
+) -> None:
+    if len(payload.canonical_refs) != 1:
+        raise OperationCompletionError("completion requires one canonical Position Review ID")
+    row = connection.execute(
+        "SELECT ticker, as_of FROM position_review WHERE position_review_id = ?",
+        (payload.canonical_refs[0],),
+    ).fetchone()
+    if row is None:
+        raise OperationCompletionError("canonical Position Review is unavailable")
+    if row["ticker"] != operation.ticker or row["as_of"] != operation.as_of.isoformat():
+        raise OperationCompletionError("Position Review ticker/as_of differs from the Operation")
 
 
 def _validate_complete(session_kind: SessionKind, payload: OperationPayload) -> None:

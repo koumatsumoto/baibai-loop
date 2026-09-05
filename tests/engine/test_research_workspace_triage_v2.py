@@ -36,6 +36,82 @@ from baibai_engine.screening.research_triage import (
 CASE_NOW = datetime.fromisoformat("2026-07-19T12:00:00+09:00")
 
 
+@pytest.mark.parametrize("mutation", ["extend", "shrink", "other-triage", "inactive"])
+def test_research_writes_recheck_operation_binding(
+    tmp_path: Path, mutation: str, subtests: pytest.Subtests
+) -> None:
+    import json
+
+    from baibai_engine.appdb.write import connect_rw
+
+    db, workspace = tmp_path / "app.sqlite", tmp_path / "workspace"
+    triage = _publish_triage(db, second_research=True)
+    prepare_workspace(
+        research_triage_id=triage.research_triage_id,
+        db_path=db,
+        workspace=workspace,
+        research_set=("2331",) if mutation == "extend" else ("2331", "0001"),
+    )
+    _authored_case(workspace, "2331", "reject")
+    if mutation in {"extend", "shrink"}:
+        for name in ("manifest.yaml", "research-workspace.yaml"):
+            path = workspace / name
+            payload = yaml.safe_load(path.read_text())
+            payload["research_set"] = ["2331", "0001"] if mutation == "extend" else ["2331"]
+            path.write_text(yaml.safe_dump(payload))
+    else:
+        with connect_rw(db) as connection:
+            if mutation == "inactive":
+                connection.execute(
+                    "UPDATE operation_session SET status='completed', completed_at=started_at"
+                )
+            else:
+                row = connection.execute("SELECT payload FROM operation_session").fetchone()
+                payload = json.loads(row[0])
+                payload["artifacts"][0]["ref"] = "different-triage"
+                connection.execute("UPDATE operation_session SET payload=?", (json.dumps(payload),))
+    # Historical inspection is separate from permission to write.
+    assert compute_status(workspace, db_path=db, now=CASE_NOW)["cases"]
+    files_before = {path: path.read_bytes() for path in workspace.rglob("*.yaml")}
+    db_before = db.read_bytes()
+    for action, invoke in (
+        (
+            "thesis-scaffold",
+            lambda: workspace_module.scaffold_thesis(
+                workspace=workspace,
+                ticker="2331",
+                sqlite_path=tmp_path / "absent.sqlite",
+                target_session=CASE_NOW.date(),
+                retrieved_at=CASE_NOW,
+                db_path=db,
+                force=True,
+            ),
+        ),
+        (
+            "review-scaffold",
+            lambda: workspace_module.scaffold_review(
+                workspace=workspace, ticker="2331", db_path=db, force=True
+            ),
+        ),
+        (
+            "promote",
+            lambda: workspace_module.promote(
+                workspace=workspace,
+                ticker="2331",
+                db_path=db,
+                thesis_id=None,
+                supersedes_id=None,
+                now=CASE_NOW,
+            ),
+        ),
+    ):
+        with subtests.test(action=action):
+            with pytest.raises(ResearchWorkspaceConflictError, match="Operation"):
+                invoke()
+            assert {path: path.read_bytes() for path in workspace.rglob("*.yaml")} == files_before
+            assert db.read_bytes() == db_before
+
+
 def test_research_resumes_reordered_set_and_keeps_prepare_context(
     tmp_path: Path, monkeypatch
 ) -> None:

@@ -9,7 +9,12 @@ description: 決算、material event、FV 到達、永久損失兆候、優れ�
 
 ## 手順
 
-1. AGENTS.md に従い `earnings-material-event` session を開始または再開する。
+1. AGENTS.md に従い、対象tickerと判断基準日を指定して`position-review` sessionを開始する。active sessionがある場合はkind・ticker・as_ofが一致する同じrowだけを再開し、別対象なら停止する。`as_of`は以下の価格draftで使う最新完全営業日と揃える。
+
+   ```bash
+   uv run baibai-engine operation --db stores/application/baibai.sqlite \
+     start --kind position-review --ticker <TICKER> --as-of <ASOF>
+   ```
 2. 最新完全営業日の market price draft を作り、人間確認後に apply する。
 
    ```bash
@@ -31,7 +36,7 @@ description: 決算、material event、FV 到達、永久損失兆候、優れ�
      --db stores/application/baibai.sqlite --thesis-id <THESIS_ID>
    ```
 
-6. review ID、action、次の trigger を session と task に記録し、session を complete する。`reduce / exit` は、人間から約定報告を受けた後に `ledger-record` skill へ進む。cloud 反映は `ops-maintenance` skill に従う。
+6. 公開済みPosition Review IDを`canonical_refs`へ1件だけ入れ、reviewのartifact、actionを説明する`result`、次のtriggerの`next`、`human_confirmation.request/result`をOperationPayload fileへ記録して同じsessionをcompleteする。serviceはcanonical Position Reviewのticker・as_ofとsessionの一致を同じtransactionで検証する。未公開、別対象、別日付では完了しない。必要な監視はtaskへ記録する。`reduce / exit` は、人間から約定報告を受けた後に `ledger-record` skill へ進む。cloud反映は`ops-maintenance` skillに従う。
 
 ## 停止条件
 

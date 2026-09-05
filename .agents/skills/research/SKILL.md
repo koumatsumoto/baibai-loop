@@ -31,7 +31,7 @@ uv run baibai-engine research prepare \
 
 as-of、最大80件の比較snapshot、Researchへ進められるtickerはapplication DBのpublished Research Triageから導出する。Review Set fileやrun storeはResearch開始後のauthorityではない。E[r]較正contextは`research-workspace.yaml`の`er_realized_distribution_context`に置く。執筆済みworkspaceを切り替える場合は元directoryを保持し、別directoryへprepareして必要なThesis / Review draftと比較メモを引き継ぐ。比較メモはAssessment draftへ置き、as-of / hashの再検証とreviewを省略しない。
 
-選択集合はprepare時にmanifestへ固定され、生成後の`research-workspace.yaml`へtickerを後書きしてadmitできない。
+選択集合のauthorityはprepare時に固定したOperation bindingである。`thesis-scaffold`、`review-scaffold`、`promote`はactive Operationのexact TriageとResearch Set集合を再確認し、manifestとworkspaceの両方を書き換えてもadmitできない。`status`はOperation完了後のworkspaceも読み取れる。
 
 ## 2. Case ごとの thesis を確定する
 
