@@ -387,7 +387,7 @@ class ScreeningCliTests(unittest.TestCase):
             self.assertIn("SQLite cache coverage incomplete", stderr.getvalue())
             self.assertIn("will not fall back to raw JSON or provider APIs", stderr.getvalue())
 
-    def test_run_command_writes_candidates_yaml(self) -> None:
+    def test_run_command_writes_screening_run_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
             try:
@@ -458,7 +458,7 @@ class ScreeningCliTests(unittest.TestCase):
                     edinet=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
                 )
-                output_path = Path("stores/screening/candidates/e2e/candidates.yaml")
+                output_path = Path(".cache/screening/exports/screening-run.yaml")
                 exit_code = run_command(
                     date(2026, 4, 24),
                     config,
@@ -531,7 +531,7 @@ class ScreeningCliTests(unittest.TestCase):
                     edinet=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
                 )
-                output_path = (Path.cwd() / ".cache/simplify/candidates.yaml").resolve()
+                output_path = (Path.cwd() / ".cache/simplify/screening-run.yaml").resolve()
 
                 exit_code = run_command(
                     date(2026, 4, 24),
