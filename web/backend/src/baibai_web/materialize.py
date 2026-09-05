@@ -12,7 +12,9 @@ import argparse
 import re
 import shutil
 import sys
+from dataclasses import replace
 from datetime import datetime
+from functools import cached_property
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -21,6 +23,7 @@ from pydantic import BaseModel
 from baibai_engine.read_api import (
     MACRO_READING_RULES_PATH,
     MaterializationPreconditionError,
+    PortfolioSnapshot,
     StoreLayoutError,
     reject_noncanonical_store_paths,
     repository_root_error,
@@ -45,10 +48,10 @@ from baibai_web.readmodel.stocks import (
     build_screening_history_run,
     build_security_detail,
 )
-from baibai_web.sources.db_sources import DbScreeningSource
+from baibai_web.sources.db_sources import DbLedgerSource, DbResearchSource, DbScreeningSource
 from baibai_web.sources.factory import build_sources
 from baibai_web.sources.protocols import LedgerSource, ResearchSource
-from baibai_web.sources.types import ScreeningRunRecord
+from baibai_web.sources.types import ResearchRevision, ScreeningRunRecord
 
 _JST = ZoneInfo("Asia/Tokyo")
 # Same shape the ledger and run store enforce at write time; re-checked here so a
@@ -83,6 +86,12 @@ def export_read_models(
     validate_macro_reading_rules(root / MACRO_READING_RULES_PATH)
     validate_market_store_schema(stores.market_db_path)
     validate_market_store_hydration(stores.market_db_path)
+    # These sources live only for this export. API requests keep the fresh DB sources.
+    stores = replace(
+        stores,
+        ledger=_CachedLedgerSource(stores.app_db_path),
+        research=_CachedResearchSource(stores.app_db_path),
+    )
     views_dir = output_dir / "views"
     if views_dir.is_dir():
         shutil.rmtree(views_dir)
@@ -220,6 +229,38 @@ def export_read_models(
     )
     written.append(_write_model(views_dir / "meta.json", build_meta(stores.meta, batch=batch)))
     return written
+
+
+class _CachedLedgerSource(DbLedgerSource):
+    @cached_property
+    def _exists(self) -> bool:
+        return super().exists()
+
+    @cached_property
+    def _snapshot(self) -> PortfolioSnapshot:
+        return super().snapshot()
+
+    def exists(self) -> bool:
+        return self._exists
+
+    def snapshot(self) -> PortfolioSnapshot:
+        return self._snapshot
+
+
+class _CachedResearchSource(DbResearchSource):
+    @cached_property
+    def _revisions(self) -> list[ResearchRevision]:
+        return super().revisions()
+
+    def revisions(self) -> list[ResearchRevision]:
+        return self._revisions
+
+    @cached_property
+    def _assessments(self) -> list[dict[str, object]]:
+        return super().assessments()
+
+    def assessments(self) -> list[dict[str, object]]:
+        return self._assessments
 
 
 class _CachedScreeningSource:

@@ -3127,18 +3127,6 @@
           ],
           "title": "Large Holding Filing Within Lookback"
         },
-        "latest_large_holding_filing_date": {
-          "anyOf": [
-            {
-              "format": "date",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Latest Large Holding Filing Date"
-        },
         "tender_offer_filing_within_lookback": {
           "anyOf": [
             {
@@ -3149,18 +3137,6 @@
             }
           ],
           "title": "Tender Offer Filing Within Lookback"
-        },
-        "latest_tender_offer_filing_date": {
-          "anyOf": [
-            {
-              "format": "date",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Latest Tender Offer Filing Date"
         }
       },
       "required": [
@@ -3169,9 +3145,7 @@
         "margin_short_to_adv",
         "tse_capital_policy_status",
         "large_holding_filing_within_lookback",
-        "latest_large_holding_filing_date",
-        "tender_offer_filing_within_lookback",
-        "latest_tender_offer_filing_date"
+        "tender_offer_filing_within_lookback"
       ],
       "title": "ReviewSetContextView",
       "type": "object"

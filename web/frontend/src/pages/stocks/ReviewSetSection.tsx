@@ -94,8 +94,8 @@ function FrozenAnalysis({ analysis }: { analysis: ReviewSetAnalysisView }) {
       <FrozenGroup fields={[
         ['next earnings status', context.next_earnings_status ?? EMPTY], ['next earnings', context.next_earnings_estimated_date ?? EMPTY],
         ['margin short / ADV', number(context.margin_short_to_adv)], ['TSE capital policy', context.tse_capital_policy_status ?? EMPTY],
-        ['large holding filing', String(context.large_holding_filing_within_lookback ?? EMPTY)], ['latest large holding filing', context.latest_large_holding_filing_date ?? EMPTY],
-        ['tender offer filing', String(context.tender_offer_filing_within_lookback ?? EMPTY)], ['latest tender offer filing', context.latest_tender_offer_filing_date ?? EMPTY],
+        ['large holding filing', String(context.large_holding_filing_within_lookback ?? EMPTY)],
+        ['tender offer filing', String(context.tender_offer_filing_within_lookback ?? EMPTY)],
       ]} title="Context" />
     </div>
   )

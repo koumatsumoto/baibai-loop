@@ -577,9 +577,7 @@ export interface ReviewSetContextView {
   margin_short_to_adv: number | null
   tse_capital_policy_status: string | null
   large_holding_filing_within_lookback: boolean | null
-  latest_large_holding_filing_date: string | null
   tender_offer_filing_within_lookback: boolean | null
-  latest_tender_offer_filing_date: string | null
 }
 
 export interface ReviewSetCurrentEarningsView {

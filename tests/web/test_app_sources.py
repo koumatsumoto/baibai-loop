@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+import pytest
 from tests.helpers.screening_run import screening_run_payload, security_analysis
 from tests.helpers.screening_sqlite import seed_daily_bars
 
+from baibai_engine.appdb.write import connect_rw
 from baibai_engine.market.sqlite import open_connection
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
@@ -60,6 +62,27 @@ class TestDbResearchSource:
         assert detail.permanent_loss_risk_count == 7
         assert len(detail.scenarios) == 6
         assert source.position_reviews(ticker="2331") == []
+
+    @pytest.mark.parametrize("reviews", [[], ["newer"], ["tie-a", "tie-z"]])
+    def test_latest_review_matches_detail(
+        self, app_method_root: Path, reviews: list[str], mocker
+    ) -> None:
+        db = app_method_root / "stores/application/baibai.sqlite"
+        with connect_rw(db) as connection:
+            row = connection.execute("SELECT * FROM thesis_review LIMIT 1").fetchone()
+            for review_id in reviews:
+                connection.execute(
+                    "INSERT INTO thesis_review(review_id, thesis_id, reviewed_at, payload) VALUES (?, ?, ?, ?)",
+                    (review_id, row["thesis_id"], "2026-07-20T10:00:00+09:00", row["payload"]),
+                )
+        if not reviews:
+            mocker.patch(
+                "baibai_web.sources.db_sources.list_thesis_review_publications", return_value=[]
+            )
+        source = self.make_source(app_method_root)
+        revision = source.revisions()[0]
+        assert source.thesis_detail(revision.thesis_id).revision.review_id == revision.review_id
+        assert revision.review_id == (max(reviews) if reviews else None)
 
     def test_research_triages_returns_the_latest_judgment_for_each_review_set(
         self,

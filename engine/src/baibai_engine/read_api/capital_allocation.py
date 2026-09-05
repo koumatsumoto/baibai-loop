@@ -22,7 +22,7 @@ def list_capital_allocation_assessment_payloads(path: Path) -> list[dict[str, ob
         "SELECT payload FROM capital_allocation_assessment "
         "ORDER BY as_of DESC, published_at DESC, capital_allocation_assessment_id DESC",
     )
-    return [_payload(path, row[0]) for row in rows]
+    return [_assessment_payload(row[0]) for row in rows]
 
 
 def capital_allocation_assessment_payload(
@@ -37,7 +37,7 @@ def capital_allocation_assessment_payload(
     return _payload(path, rows[0][0]) if rows else None
 
 
-def _payload(path: Path, raw: object) -> dict[str, object]:
+def _assessment_payload(raw: object) -> dict[str, object]:
     payload = json.loads(str(raw))
     if not isinstance(payload, dict):
         raise ValueError("capital allocation assessment payload must be an object")
@@ -47,6 +47,15 @@ def _payload(path: Path, raw: object) -> dict[str, object]:
     alternatives = payload.get("alternatives")
     if not isinstance(alternatives, list):
         raise ValueError("capital allocation alternatives must be a list")
+    if any(not isinstance(item, dict) for item in alternatives):
+        raise ValueError("capital allocation alternative must be an object")
+    return payload
+
+
+def _payload(path: Path, raw: object) -> dict[str, object]:
+    payload = _assessment_payload(raw)
+    alternatives = payload["alternatives"]
+    assert isinstance(alternatives, list)
     projected: list[dict[str, object]] = []
     for raw_alternative in alternatives:
         if not isinstance(raw_alternative, dict):
