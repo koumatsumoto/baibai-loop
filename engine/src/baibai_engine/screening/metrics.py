@@ -150,7 +150,7 @@ class _NormalizedSummaryResult:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class NormalizedProfitSignals:
-    """Split-safe multi-FY earnings facts used only by calibration."""
+    """Split-safe multi-FY earnings inputs for Normalized Earnings Power and calibration."""
 
     normalized_per_3fy: float | None
     normalized_per_5fy: float | None

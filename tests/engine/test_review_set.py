@@ -99,9 +99,7 @@ def test_nomination_union_can_reach_four_disjoint_top20_sets(monkeypatch) -> Non
         for approach_index, approach in enumerate(review_set_module.APPROACH_IDS)
         for rank in range(1, 21)
     }
-    monkeypatch.setattr(
-        review_set_module, "build_nomination_ranks", lambda *args, **kwargs: nominations
-    )
+    monkeypatch.setattr(review_set_module, "_nomination_ranks", lambda *args, **kwargs: nominations)
 
     payload = _build_review_set(rows)
 

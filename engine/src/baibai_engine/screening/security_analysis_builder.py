@@ -154,17 +154,6 @@ def build_security_analysis_metrics(
         "operating_profit": financial.operating_profit,
         "operating_profit_yoy": financial.operating_profit_yoy,
         "operating_profit_loss_narrowing": financial.operating_profit_loss_narrowing,
-        # 悪化ゲートは「観測できた YoY のどれかが閾値以下なら悪化」で判定するので、3 つとも
-        # 欠測の銘柄では判定材料が無いまま通る。止めても実際に落ちるのは screen を通った
-        # 当時のeligible母集団の 0.9% (as-of 2026-07-31 で 4/433。母集団だけなら 7.9%、screen 通過
-        # だけなら 3.2%) なので量は理由にならないが、欠測は悪化の証拠でもないので止めない。
-        # 通ったことが観測できないと安全弁が効いた銘柄と区別が付かないので、判定できなかった
-        # 事実を Security Analysis へ残す。
-        "deterioration_gate_unmeasurable": (
-            financial.eps_yoy is None
-            and financial.sales_yoy is None
-            and financial.operating_profit_yoy is None
-        ),
         "shares_outstanding": financial.shares_outstanding,
         # Accrual and net-share-change signals surface in Security Analysis so the
         # research layer can read them without a second cache fetch.

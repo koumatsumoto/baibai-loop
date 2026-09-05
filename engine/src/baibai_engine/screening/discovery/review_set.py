@@ -8,7 +8,7 @@ from datetime import date, datetime
 from hashlib import sha256
 from math import isfinite
 from statistics import median
-from typing import Literal, Self
+from typing import Literal, NamedTuple, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -37,6 +37,19 @@ _ASSET_VALUE_EXCLUDED_SECTORS = frozenset(
         "証券・商品先物取引業",
     }
 )
+
+
+class _ReinvestmentValues(NamedTuple):
+    p_s_gap: float
+    capital_return: float
+    sales_yoy: float
+    operating_margin: float
+    fcf_yield: float
+
+
+class _QualityFloors(NamedTuple):
+    capital_return: float
+    operating_margin: float
 
 
 class ReviewSetContractError(ValueError):
@@ -179,18 +192,12 @@ def build_review_set(
     rules: CandidateDiscoveryRules,
     required_jpx_flags: Sequence[str],
 ) -> dict[str, object]:
-    eligible = [
-        row
-        for row in security_analyses
-        if _common_eligible(row, rules, required_jpx_flags=required_jpx_flags)
-    ]
+    eligible = _eligible_population(security_analyses, rules, required_jpx_flags)
     normalized_gaps = _normalized_sector_gaps(eligible)
     nominations_by_ticker = {
         ticker: list(nominations)
-        for ticker, nominations in build_nomination_ranks(
-            security_analyses,
-            rules=rules,
-            required_jpx_flags=required_jpx_flags,
+        for ticker, nominations in _nomination_ranks(
+            eligible, rules=rules, normalized_gaps=normalized_gaps
         ).items()
     }
     nomination_counts = {
@@ -250,12 +257,27 @@ def build_nomination_ranks(
 ) -> dict[str, tuple[Nomination, ...]]:
     """Return every approach nomination used by the union and calibration replay."""
 
-    eligible = [
-        row
-        for row in security_analyses
-        if _common_eligible(row, rules, required_jpx_flags=required_jpx_flags)
-    ]
+    eligible = _eligible_population(security_analyses, rules, required_jpx_flags)
     normalized_gaps = _normalized_sector_gaps(eligible)
+    return _nomination_ranks(eligible, rules=rules, normalized_gaps=normalized_gaps)
+
+
+def _eligible_population(
+    rows: Sequence[Mapping[str, object]],
+    rules: CandidateDiscoveryRules,
+    required_jpx_flags: Sequence[str],
+) -> list[Mapping[str, object]]:
+    return [
+        row for row in rows if _common_eligible(row, rules, required_jpx_flags=required_jpx_flags)
+    ]
+
+
+def _nomination_ranks(
+    eligible: Sequence[Mapping[str, object]],
+    *,
+    rules: CandidateDiscoveryRules,
+    normalized_gaps: Mapping[str, float | None],
+) -> dict[str, tuple[Nomination, ...]]:
     reinvestment_floors = _reinvestment_quality_floors(eligible)
     ordered = {
         approach: _ordered_eligible(
@@ -336,7 +358,7 @@ def _ordered_eligible(
     rows: Sequence[Mapping[str, object]],
     *,
     normalized_gaps: Mapping[str, float | None],
-    reinvestment_floors: Mapping[str, tuple[float, float]],
+    reinvestment_floors: Mapping[str, _QualityFloors],
 ) -> list[Mapping[str, object]]:
     eligible: list[tuple[tuple[object, ...], Mapping[str, object]]] = []
     for row in rows:
@@ -415,13 +437,16 @@ def _normalized_sector_gaps(rows: Sequence[Mapping[str, object]]) -> dict[str, f
         if value is not None:
             market.append(value)
             by_sector[string_or_none(row.get("sector_33")) or ""].append(value)
+    market_center = median(market) if market else None
+    centers = {
+        sector: median(values) if len(values) >= MIN_SECTOR_MEDIAN_POPULATION else market_center
+        for sector, values in by_sector.items()
+    }
     output: dict[str, float | None] = {}
     for row in rows:
         ticker = _ticker(row)
         value = _positive(metric_map(row.get("metrics")).get("normalized_per_3fy"))
-        sector_values = by_sector[string_or_none(row.get("sector_33")) or ""]
-        baseline = sector_values if len(sector_values) >= MIN_SECTOR_MEDIAN_POPULATION else market
-        center = median(baseline) if baseline else None
+        center = centers.get(string_or_none(row.get("sector_33")) or "", market_center)
         output[ticker] = (
             value / center - 1 if value is not None and center not in (None, 0) else None
         )
@@ -430,10 +455,10 @@ def _normalized_sector_gaps(rows: Sequence[Mapping[str, object]]) -> dict[str, f
 
 def _reinvestment_quality_floors(
     rows: Sequence[Mapping[str, object]],
-) -> dict[str, tuple[float, float]]:
+) -> dict[str, _QualityFloors]:
     """Return inclusive quality floors from the existing reinvestment cross-section."""
-    observed: list[tuple[Mapping[str, object], tuple[float, float, float, float, float]]] = []
-    by_sector: dict[str, list[tuple[float, float, float, float, float]]] = defaultdict(list)
+    observed: list[tuple[Mapping[str, object], _ReinvestmentValues]] = []
+    by_sector: dict[str, list[_ReinvestmentValues]] = defaultdict(list)
     for row in rows:
         values = _reinvestment_values(row)
         if values is None:
@@ -441,15 +466,26 @@ def _reinvestment_quality_floors(
         observed.append((row, values))
         by_sector[string_or_none(row.get("sector_33")) or ""].append(values)
     market = [values for _, values in observed]
-    output: dict[str, tuple[float, float]] = {}
-    for row, _values in observed:
-        sector_values = by_sector[string_or_none(row.get("sector_33")) or ""]
-        baseline = sector_values if len(sector_values) >= MIN_SECTOR_MEDIAN_POPULATION else market
-        output[_ticker(row)] = (
-            median(value[1] for value in baseline),
-            median(value[3] for value in baseline),
-        )
-    return output
+    if not market:
+        return {}
+    market_floor = _quality_floor(market)
+    floors = {
+        sector: _quality_floor(values)
+        if len(values) >= MIN_SECTOR_MEDIAN_POPULATION
+        else market_floor
+        for sector, values in by_sector.items()
+    }
+    return {
+        _ticker(row): floors[string_or_none(row.get("sector_33")) or ""]
+        for row, _values in observed
+    }
+
+
+def _quality_floor(values: Sequence[_ReinvestmentValues]) -> _QualityFloors:
+    return _QualityFloors(
+        median(value.capital_return for value in values),
+        median(value.operating_margin for value in values),
+    )
 
 
 def _analysis(row: Mapping[str, object], *, normalized_gap: float | None) -> dict[str, object]:
@@ -489,11 +525,11 @@ def _analysis(row: Mapping[str, object], *, normalized_gap: float | None) -> dic
         "reinvestment": None
         if reinvestment is None
         else {
-            "p_s_sector_gap": reinvestment[0],
-            "operating_return_on_capital_proxy": reinvestment[1],
-            "sales_yoy": reinvestment[2],
-            "operating_margin": reinvestment[3],
-            "fcf_yield": reinvestment[4],
+            "p_s_sector_gap": reinvestment.p_s_gap,
+            "operating_return_on_capital_proxy": reinvestment.capital_return,
+            "sales_yoy": reinvestment.sales_yoy,
+            "operating_margin": reinvestment.operating_margin,
+            "fcf_yield": reinvestment.fcf_yield,
         },
         "expected_return": {
             key: metrics.get(key)
@@ -534,7 +570,7 @@ def _analysis(row: Mapping[str, object], *, normalized_gap: float | None) -> dic
 
 def _reinvestment_values(
     row: Mapping[str, object],
-) -> tuple[float, float, float, float, float] | None:
+) -> _ReinvestmentValues | None:
     metrics = metric_map(row.get("metrics"))
     p_s = _positive(row.get("p_s"))
     p_s_gap = _finite(metrics.get("p_s_sector_gap"))
@@ -576,7 +612,7 @@ def _reinvestment_values(
     capital_return = operating_profit / invested_capital
     if operating_margin <= 0 or capital_return <= 0:
         return None
-    return p_s_gap, capital_return, sales_yoy, operating_margin, fcf_yield
+    return _ReinvestmentValues(p_s_gap, capital_return, sales_yoy, operating_margin, fcf_yield)
 
 
 def _ticker(row: Mapping[str, object]) -> str:
