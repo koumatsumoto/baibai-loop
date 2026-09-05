@@ -159,10 +159,6 @@ def _sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _sha256_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def _dump_yaml(payload: object) -> str:
     return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True, default_flow_style=False)
 
@@ -297,11 +293,6 @@ def _verify_research_triage(
         binding.get("payload_sha256"),
         label="manifest.inputs.research_triage.payload_sha256",
     )
-    recorded_tickers = binding.get("admissible_research_tickers")
-    if not isinstance(recorded_tickers, Sequence) or isinstance(recorded_tickers, str | bytes):
-        raise ResearchWorkspaceDataError(
-            "manifest.inputs.research_triage.admissible_research_tickers must be an array"
-        )
     try:
         gate = _resolve_research_triage(
             db_path=db_path,
@@ -313,10 +304,8 @@ def _verify_research_triage(
             f"{recorded_research_triage_id}; rebuild the workspace with "
             f"`research prepare --force` ({error})"
         ) from error
-    if (
-        gate.payload_hash != recorded_payload_hash
-        or gate.asof.isoformat() != str(manifest.get("as_of"))
-        or list(gate.admissible_tickers) != [str(value) for value in recorded_tickers]
+    if gate.payload_hash != recorded_payload_hash or gate.asof.isoformat() != str(
+        manifest.get("as_of")
     ):
         raise ResearchWorkspaceConflictError(
             "workspace ResearchTriage binding does not match the canonical research_triage "
@@ -363,7 +352,7 @@ def prepare_workspace(
             research_set=selected,
             db_path=db_path,
         )
-    snapshot, append_head = _load_snapshot(db_path)
+    snapshot, _ = _load_snapshot(db_path)
 
     manifest_path = workspace / "manifest.yaml"
     if manifest_path.exists() and not force:
@@ -381,14 +370,12 @@ def prepare_workspace(
     ]
     admissible_count = len(gate.admissible_tickers)
 
-    workspace_doc = {
+    workspace_doc: dict[str, object] = {
         "as_of": asof.isoformat(),
         "review_set_entries": annotated,
-        "admissible_research_tickers": list(gate.admissible_tickers),
         "research_set": list(selected),
-        "admissible_count": admissible_count,
     }
-    er_context, er_context_ref = _load_er_distribution_context(
+    er_context = _load_er_distribution_context(
         screening_rules_hash=gate.screening_rules_hash,
         candidates=annotated,
         asof=asof,
@@ -404,20 +391,12 @@ def prepare_workspace(
         "research_triage": {
             "research_triage_id": gate.research_triage_id,
             "payload_sha256": gate.payload_hash,
-            "admissible_research_tickers": list(gate.admissible_tickers),
-        },
-        "ledger": {
-            "entity_id": "portfolio-ledger",
-            "append_head": append_head,
         },
     }
-    if er_context_ref is not None:
-        manifest_inputs["er_distribution_context"] = er_context_ref
     manifest = {
         "as_of": asof.isoformat(),
         "inputs": manifest_inputs,
         "research_set": list(selected),
-        "rules": {"admissible_count": admissible_count},
     }
     _write_workspace_file(manifest_path, manifest)
     if selected:
@@ -623,7 +602,7 @@ def _load_er_distribution_context(
     screening_rules_hash: str,
     candidates: Sequence[Mapping[str, object]],
     asof: date,
-) -> tuple[dict[str, object] | None, dict[str, str] | None]:
+) -> dict[str, object]:
     versions: set[str] = set()
     for candidate in candidates:
         analysis = candidate.get("analysis")
@@ -633,7 +612,7 @@ def _load_er_distribution_context(
         ):
             versions.add(str(expected_return["er_model_version"]))
     if len(versions) != 1:
-        return {"status": "unavailable", "reason": "er_model_identity_mismatch"}, None
+        return {"status": "unavailable", "reason": "er_model_identity_mismatch"}
     er_model_version = next(iter(versions))
     path = ER_LEVEL_CALIBRATION_CONTEXT_PATH
     loaded = load_er_calibration_context(
@@ -644,7 +623,7 @@ def _load_er_distribution_context(
     )
     artifact = loaded.artifact
     if artifact is None:
-        return {"status": "unavailable", "reason": loaded.unavailable_reason}, None
+        return {"status": "unavailable", "reason": loaded.unavailable_reason}
     candidate_context: dict[str, object] = {}
     for candidate in candidates:
         ticker = str(candidate.get("ticker") or "")
@@ -685,7 +664,7 @@ def _load_er_distribution_context(
         "interpretation": "historical distribution; not an individual security forecast",
         "candidates": candidate_context,
     }
-    return context, {"path": path.as_posix(), "sha256": _sha256_file(path)}
+    return context
 
 
 # --------------------------------------------------------------------------- #
@@ -767,7 +746,7 @@ def _case_status(
         pending.append("research checklist missing")
     blocked = [str(item.get("check_id")) for item in checklist if item.get("status") == "blocked"]
     thesis_id = None
-    if not pending and not blocked and not case.thesis_errors and not case.review_errors:
+    if not case.thesis_errors and not case.review_errors:
         assert case.thesis is not None
         assert case.review is not None
         thesis_id = _published_case(case.thesis, case.review, db_path=db_path)
@@ -972,9 +951,6 @@ def _validate_editable_drafts(
             "rebuild the workspace with `research prepare --force`"
         )
     research_set = research_workspace.get("research_set")
-    admissible_count = research_workspace.get("admissible_count")
-    if not isinstance(admissible_count, int) or admissible_count < 0:
-        raise ResearchWorkspaceDataError("workspace admissible_count is invalid")
     if not isinstance(research_set, list) or not all(
         isinstance(ticker, str) and ticker for ticker in research_set
     ):
@@ -1003,8 +979,6 @@ def _validate_editable_drafts(
             f"workspace Research Set includes {', '.join(forbidden)}, which "
             f"{gate.research_triage_id} did not mark research"
         )
-    if len(research_set_tickers) > admissible_count:
-        raise ResearchWorkspaceDataError("workspace Research Set exceeds admissible_count")
 
 
 def _validate_position_review_drafts(

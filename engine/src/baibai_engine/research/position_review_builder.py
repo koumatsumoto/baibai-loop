@@ -25,11 +25,10 @@ from baibai_engine.position.position_review import (
 )
 from baibai_engine.position.store import load_ledger_in_transaction
 from baibai_engine.research.thesis import (
+    ScenarioEvaluation,
     ThesisDocument,
     ThesisReview,
-    UnpublishedThesis,
     _classify_current_thesis_eligibility,
-    evaluate_thesis,
     require_recorded_identity,
 )
 
@@ -88,10 +87,11 @@ def _build_position_review_in_transaction(
     return _compose_position_review(
         ledger=ledger,
         thesis=holding_thesis.document,
+        holding_scenarios=holding_thesis.scenarios,
         holding_current_ready=holding_thesis.current_ready,
         replacement_thesis=(None if replacement_thesis is None else replacement_thesis.document),
+        replacement_scenarios=(() if replacement_thesis is None else replacement_thesis.scenarios),
         position_id=position_id,
-        now=now,
         sources={
             "ledger": {
                 "entity_id": "portfolio-ledger",
@@ -111,10 +111,11 @@ def _compose_position_review(
     *,
     ledger: PortfolioLedgerDocument,
     thesis: ThesisDocument,
+    holding_scenarios: tuple[ScenarioEvaluation, ...],
     holding_current_ready: bool,
     replacement_thesis: ThesisDocument | None,
+    replacement_scenarios: tuple[ScenarioEvaluation, ...],
     position_id: str,
-    now: datetime,
     sources: dict[str, object],
 ) -> PositionReviewDocument:
     snapshot = reconcile_portfolio(ledger)
@@ -134,7 +135,7 @@ def _compose_position_review(
         raise PositionReviewError(
             "holding thesis market price does not match ledger unadjusted close"
         )
-    current_cagr = _base_5y_cagr(thesis, now=now) if holding_current_ready else None
+    current_cagr = _base_5y_cagr(holding_scenarios) if holding_current_ready else None
     replacement: dict[str, object] = {"status": "no_candidate"}
     if replacement_thesis is not None:
         if replacement_thesis.input_snapshot.as_of != as_of:
@@ -161,7 +162,7 @@ def _compose_position_review(
             },
             "candidate": {
                 "ticker": replacement_thesis.input_snapshot.ticker,
-                "forward_5y_cagr_pct": _base_5y_cagr(replacement_thesis, now=now),
+                "forward_5y_cagr_pct": _base_5y_cagr(replacement_scenarios),
             },
             "exit_tax": exit_tax,
         }
@@ -270,6 +271,7 @@ def _validate_position_review_scalars_in_transaction(
 class _LoadedThesis:
     document: ThesisDocument
     current_ready: bool
+    scenarios: tuple[ScenarioEvaluation, ...]
 
 
 def _load_db_thesis(
@@ -284,14 +286,15 @@ def _load_db_thesis(
     ).fetchone()
     if thesis_row is None:
         raise PositionReviewError(f"unknown research thesis: {thesis_id}")
-    review_rows = connection.execute(
-        "SELECT payload FROM thesis_review WHERE thesis_id = ? ORDER BY reviewed_at DESC",
+    review_row = connection.execute(
+        "SELECT payload FROM thesis_review WHERE thesis_id = ? "
+        "ORDER BY reviewed_at DESC, review_id DESC LIMIT 1",
         (thesis_id,),
-    ).fetchall()
-    if len(review_rows) != 1:
-        raise PositionReviewError("Position Review requires exactly one Thesis Review")
+    ).fetchone()
+    if review_row is None:
+        raise PositionReviewError("Position Review requires a Thesis Review")
     thesis = ThesisDocument.model_validate(json.loads(str(thesis_row["payload"])))
-    review = ThesisReview.model_validate(json.loads(str(review_rows[0]["payload"])))
+    review = ThesisReview.model_validate(json.loads(str(review_row["payload"])))
     eligibility = _classify_current_thesis_eligibility(
         thesis,
         review=review,
@@ -299,9 +302,11 @@ def _load_db_thesis(
         identity=require_recorded_identity(thesis_row["core_sha256"], thesis_id),
     )
     if eligibility.status == "current_ready":
-        return _LoadedThesis(thesis, current_ready=True)
+        return _LoadedThesis(thesis, current_ready=True, scenarios=eligibility.evaluation.scenarios)
     if allow_expired_override and eligibility.status == "expired_override_only":
-        return _LoadedThesis(thesis, current_ready=False)
+        return _LoadedThesis(
+            thesis, current_ready=False, scenarios=eligibility.evaluation.scenarios
+        )
     detail = "; ".join(eligibility.evaluation.errors) or eligibility.evaluation.decision_readiness
     raise PositionReviewError(f"thesis is not ready for Position Review: {detail}")
 
@@ -319,11 +324,9 @@ def _thesis_market_price(thesis: ThesisDocument) -> Decimal:
     return Decimal(str(fact.value))
 
 
-def _base_5y_cagr(thesis: ThesisDocument, *, now: datetime) -> float:
-    # Only the scenarios are read here; the identity never leaves this call.
-    evaluation = evaluate_thesis(thesis, now=now, identity=UnpublishedThesis.DRAFT)
+def _base_5y_cagr(scenarios: tuple[ScenarioEvaluation, ...]) -> float:
     scenario = next(
-        (item for item in evaluation.scenarios if item.horizon_years == 5 and item.name == "base"),
+        (item for item in scenarios if item.horizon_years == 5 and item.name == "base"),
         None,
     )
     if scenario is None:

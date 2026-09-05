@@ -15,6 +15,7 @@ from tests.helpers.ledger import load_portfolio_ledger
 
 import baibai_engine.research.position_review_builder as position_review_builder_module
 import baibai_engine.research.store as research_store_module
+import baibai_engine.research.thesis as thesis_module
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.cli import main as position_main
 from baibai_engine.position.drafts import apply_draft, build_event_draft
@@ -145,6 +146,97 @@ def _publish_candidate(
         review,
     )
     return candidate_id
+
+
+@pytest.mark.parametrize("order", ["date", "id"])
+def test_position_review_uses_latest_review_and_does_not_fall_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, order: str
+) -> None:
+    db = _database(tmp_path)
+    thesis, review = _research_payloads()
+    thesis["judgment"]["recommendation"] = "reject"
+    thesis["human_evidence_override"] = None
+    review["reviewed_thesis_sha256"] = thesis_core_hash(ThesisDocument.model_validate(thesis))
+    review["review_id"] = "review-z" if order == "date" else "review-a"
+    service = ResearchStoreService(db, clock=lambda: FIXED_NOW)
+    service.publish_thesis_with_review("re-reviewed", thesis, review)
+    newest = {
+        **review,
+        "review_id": "review-a" if order == "date" else "review-z",
+        "reviewed_at": (
+            (datetime.fromisoformat(review["reviewed_at"]) + timedelta(minutes=1)).isoformat()
+            if order == "date"
+            else review["reviewed_at"]
+        ),
+    }
+    service.publish_thesis_review("re-reviewed", newest)
+    seen = []
+    classify = position_review_builder_module._classify_current_thesis_eligibility
+
+    def observe(*args, **kwargs):
+        seen.append(kwargs["review"].review_id)
+        return classify(*args, **kwargs)
+
+    monkeypatch.setattr(
+        position_review_builder_module, "_classify_current_thesis_eligibility", observe
+    )
+    built = build_position_review_from_db(
+        db_path=db,
+        holding_thesis_id="re-reviewed",
+        position_id="position-2331",
+        now=FIXED_NOW,
+    )
+    assert built.ticker == "2331"
+    assert seen == [newest["review_id"]]
+    # A corrupted latest row must not make the reader silently choose an older valid review.
+    with sqlite3.connect(db) as connection:
+        connection.execute(
+            "UPDATE thesis_review SET payload = json_set(payload, '$.reviewed_thesis_sha256', ?) "
+            "WHERE review_id = ?",
+            ("0" * 64, newest["review_id"]),
+        )
+    with pytest.raises(PositionReviewError, match="hash does not match"):
+        build_position_review_from_db(
+            db_path=db,
+            holding_thesis_id="re-reviewed",
+            position_id="position-2331",
+            now=FIXED_NOW,
+        )
+
+
+def test_position_review_reuses_recorded_identity_evaluation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db = _database(tmp_path)
+    expected = build_position_review_from_db(
+        db_path=db,
+        holding_thesis_id=THESIS_ID,
+        position_id="position-2331",
+        now=FIXED_NOW,
+    )
+
+    def no_draft_hash(*args, **kwargs):
+        pytest.fail("published reader must not rederive draft identity")
+
+    monkeypatch.setattr(thesis_module, "thesis_core_hash", no_draft_hash)
+    spy = []
+    calculate = thesis_module.calculate_scenarios
+
+    def counted(document):
+        spy.append(document.input_snapshot.ticker)
+        return calculate(document)
+
+    monkeypatch.setattr(thesis_module, "calculate_scenarios", counted)
+    assert (
+        build_position_review_from_db(
+            db_path=db,
+            holding_thesis_id=THESIS_ID,
+            position_id="position-2331",
+            now=FIXED_NOW,
+        )
+        == expected
+    )
+    assert spy == ["2331"]
 
 
 def _reprice_holding(

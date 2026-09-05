@@ -17,6 +17,7 @@ from baibai_engine.research.thesis import (
     ThesisReview,
     UnpublishedThesis,
     _round_payload_decimal,
+    calculate_scenarios,
     evaluate_thesis,
     evaluation_to_payload,
     load_thesis,
@@ -34,6 +35,22 @@ def _raw() -> dict[str, object]:
     raw = safe_load(FIXTURE.read_text(encoding="utf-8"))
     assert isinstance(raw, dict)
     return raw
+
+
+def test_calculate_scenarios_preserves_input_order_and_evaluation_values() -> None:
+    document = _document()
+    scenarios = tuple(reversed(document.estimates.scenarios))
+    document = document.model_copy(
+        update={"estimates": document.estimates.model_copy(update={"scenarios": scenarios})}
+    )
+    calculated = calculate_scenarios(document)
+    assert [(item.horizon_years, item.name) for item in calculated] == [
+        (item.horizon_years, item.name) for item in scenarios
+    ]
+    evaluated = evaluate_thesis(document, now=FIXED_NOW, identity=UnpublishedThesis.DRAFT)
+    assert {(item.horizon_years, item.name): item for item in calculated} == {
+        (item.horizon_years, item.name): item for item in evaluated.scenarios
+    }
 
 
 def _document(raw: dict[str, object] | None = None) -> ThesisDocument:

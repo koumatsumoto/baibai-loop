@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,7 @@ import baibai_engine.research.store as research_store_module
 import baibai_engine.research.thesis as thesis_module
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.read_api import (
+    capital_allocation_assessment_payload,
     list_position_review_publications,
     list_thesis_publications,
     list_thesis_review_publications,
@@ -211,6 +213,51 @@ def test_schema_evolution_does_not_move_a_published_thesis_identity(
         THESIS_ID, _payload(REVIEW)
     )
     assert list_thesis_publications(path)[0]["core_sha256"] == recorded
+
+
+def test_allocation_projection_does_not_rederive_published_thesis_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "app.sqlite"
+    _seed(path)
+    recorded = list_thesis_publications(path)[0]["core_sha256"]
+    payload = {
+        "schema_version": 1,
+        "alternatives": [{"thesis_id": THESIS_ID, "thesis_core_sha256": recorded}],
+    }
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "INSERT INTO capital_allocation_assessment VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                "assessment-view",
+                "2026-07-03",
+                FIXED_NOW.isoformat(),
+                "defer",
+                "triage-view",
+                json.dumps(payload),
+            ),
+        )
+    expected = capital_allocation_assessment_payload(
+        path, capital_allocation_assessment_id="assessment-view"
+    )
+    assert expected["alternatives"][0]["thesis_projection"]["five_year_base_cagr_pct"] is not None
+
+    def no_draft_hash(*args, **kwargs):
+        pytest.fail("published projection must not rederive draft identity")
+
+    monkeypatch.setattr(thesis_module, "thesis_core_hash", no_draft_hash)
+    assert (
+        capital_allocation_assessment_payload(
+            path, capital_allocation_assessment_id="assessment-view"
+        )
+        == expected
+    )
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE thesis SET core_sha256 = ?", ("f" * 64,))
+    with pytest.raises(ValueError, match="binding has moved"):
+        capital_allocation_assessment_payload(
+            path, capital_allocation_assessment_id="assessment-view"
+        )
 
 
 def test_a_thesis_without_a_recorded_identity_is_refused_rather_than_recomputed(
