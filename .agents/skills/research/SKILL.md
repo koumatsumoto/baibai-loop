@@ -59,13 +59,15 @@ as-of、最大80件の比較snapshot、Researchへ進められるtickerはapplic
 
 ## 5. Buy case の当日指値を確認する
 
-`research plan-limit` は canonical Capital Allocation Assessment が `allocate` の alternative にだけ使う。出力は当日の助言であり永続化しない。evidence gap が残る場合は、人間の override と `sizing_action: reduced` を両方記録し、1 board lotでも大きすぎる場合は `defer` に戻す。要求利回り未達または永久損失結論が elevated の case はサイズを縮めて買わない。価格が max buy price を超えた通常状態は `defer` とする。
+`research plan-limit --capital-allocation-assessment-id <ASSESSMENT_ID>` は canonical Capital Allocation Assessment が `allocate` の alternative にだけ使う。対象ThesisとReviewはDBから解決し、local draftは入力にしない。出力は当日の助言であり永続化しない。evidence gap が残る場合は、人間の override と `sizing_action: reduced` を両方記録し、1 board lotでも大きすぎる場合は `defer` に戻す。要求利回り未達または永久損失結論が elevated の case はサイズを縮めて買わない。価格が max buy price を超えた通常状態は `defer` とする。
 
 Assessmentが`no_allocation / defer`ならPlanning Limit・broker操作へ進まず、人間の見送り判断をOperationに記録する。`allocate`でも当日価格超過や人間のdeferは正常であり、公開済みAssessmentを書き換えず当日の判断を記録する。発注する場合は人間のapproveとbroker操作を待ち、人間が報告したbroker factだけをledgerへ反映する。
 
 ## 6. Operation を完了する
 
 `baibai-engine operation checkpoint|complete --payload <FILE>` の `<FILE>` は OperationPayload の YAML / JSON ファイルである。`artifacts` は object の配列、`canonical_refs` は string の配列、`human_confirmation` は `request` / `result` の object、`result` は判断結果の string として記録する。cloud 反映が必要なら `ops-maintenance` に従う。
+checkpoint / completeの全置換payloadにも、開始時の`research_triage` artifact（`ref`と`research_set`）を保持する。完了時は`kind: capital_allocation_assessment`と公開済みIDの`ref`を持つartifactを1件含める。serviceは開始時のTriage・Research Setとの一致と公開時刻を検証し、Assessment未公開では完了しない。
+
 YAML では日付・日時に見える scalar が string 以外へ暗黙変換されるため、OperationPayload で JSON string として渡す日付・日時は必ず引用符で囲む。
 
 ## 停止条件

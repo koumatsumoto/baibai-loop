@@ -242,6 +242,10 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 
 #### 判断・operation境界
 
+- [ ] Assessmentのscaffold / check / publishがactive Operationのexact Triage・人間確定Research Set全体と一致し、checkpointでそのbindingを削除・差替えできないか。候補の欠落・混入・別Triage・別Operationをnegative testで拒否したか
+- [ ] Planning Limitはcanonical allocate Assessmentから対象Thesis / recorded core / Reviewを解決し、見送りAssessment・未知ID・local Thesis差替えで注文案を作れないか。broker factだけで検証して人間への注文案生成を素通しにしていないか
+- [ ] capital-allocation完了は開始時のTriage・Research Setに一致する公開済みAssessmentを同じtransactionで検証し、任意artifact・未公開ID・別cycleの判断ではactiveのまま拒否するか
+
 - [ ] 空Research SetではOperationを作らず、通常Operationの完了には人間確認を必須にするか。過去の`no-research` payloadは読み取れ、新規start / checkpoint / completeでは拒否するnegative testがあるか
 - [ ] macro context の確率検証は float 等値比較でなく整数化算術で書き、値がある場合の境界（0.00 / 0.95 / 刻み外 / 部分欠落）を negative test で塞ぐ。散文品質を cardinality や token matching で代理判定する gate を足していないか
 - [ ] ledger eventを導入・変更する場合、reservationとbuy execution、terminal orderとrelease、cash不足、guard超過、expiry後のbuy、保有超過sellをhard errorとして確認したか

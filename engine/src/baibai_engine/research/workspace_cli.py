@@ -147,7 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan_parser = subparsers.add_parser(
         "plan-limit", help="derive a planning-only limit/defer from the previous-day raw close"
     )
-    plan_parser.add_argument("--thesis", required=True, type=Path)
+    plan_parser.add_argument("--capital-allocation-assessment-id", required=True)
     plan_parser.add_argument("--db", type=Path)
     plan_parser.add_argument("--sqlite-path", required=True, type=Path)
     plan_parser.add_argument("--target-session", required=True)
@@ -285,7 +285,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 )
             case "plan-limit":
                 payload = plan_limit(
-                    thesis=args.thesis,
+                    capital_allocation_assessment_id=args.capital_allocation_assessment_id,
                     db_path=args.db,
                     sqlite_path=args.sqlite_path,
                     target_session=_parse_date(args.target_session),

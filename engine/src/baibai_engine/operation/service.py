@@ -11,8 +11,10 @@ from pathlib import Path
 
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.write import connect_rw, initialize_database
+from baibai_engine.research.capital_allocation import CapitalAllocationAssessment
 
 from .models import OperationPayload, OperationSession, OperationStatus, SessionKind
+from .research_binding import require_matching_research_set, research_binding
 
 
 class OperationNotFoundError(ValueError):
@@ -80,8 +82,6 @@ class OperationService:
         completed_at: datetime,
     ) -> OperationSession:
         _require_current_payload(payload)
-        operation = self.get(operation_id)
-        _validate_complete(operation.session_kind, payload)
         return self._replace_active(operation_id, payload=payload, completed_at=completed_at)
 
     def get(self, operation_id: str) -> OperationSession:
@@ -132,6 +132,19 @@ class OperationService:
                     raise OperationConflictError(
                         f"completed operation session is immutable: {operation_id}"
                     )
+                # Checkpoints replace prose, but cannot replace the human admission.
+                if before.session_kind == "capital-allocation" and any(
+                    item.get("kind") == "research_triage" for item in before.payload.artifacts
+                ):
+                    try:
+                        if research_binding(before.payload) != research_binding(payload):
+                            raise ValueError("Research Set binding is immutable")
+                    except ValueError as error:
+                        raise OperationConflictError(str(error)) from error
+                if completed_at is not None:
+                    _validate_complete(before.session_kind, payload)
+                    if before.session_kind == "capital-allocation":
+                        _require_published_assessment(connection, before, payload, completed_at)
                 operation = OperationSession.model_validate(
                     {
                         **before.public(),
@@ -163,6 +176,42 @@ class OperationService:
                 connection.rollback()
                 raise
         return operation
+
+
+def _require_published_assessment(
+    connection: sqlite3.Connection,
+    operation: OperationSession,
+    payload: OperationPayload,
+    completed_at: datetime,
+) -> None:
+    references = [
+        artifact.get("ref")
+        for artifact in payload.artifacts
+        if artifact.get("kind") == "capital_allocation_assessment"
+    ]
+    if len(references) != 1 or not isinstance(references[0], str) or not references[0]:
+        raise OperationCompletionError(
+            "completion requires one capital_allocation_assessment artifact/ref"
+        )
+    row = connection.execute(
+        "SELECT payload FROM capital_allocation_assessment "
+        "WHERE capital_allocation_assessment_id = ?",
+        (references[0],),
+    ).fetchone()
+    if row is None:
+        raise OperationCompletionError("canonical capital_allocation_assessment is unavailable")
+    try:
+        assessment = CapitalAllocationAssessment.model_validate(json.loads(row["payload"]))
+        require_matching_research_set(
+            operation,
+            research_triage_id=assessment.research_triage_id,
+            tickers=(item.ticker for item in assessment.alternatives),
+            published_at=assessment.published_at,
+        )
+        if assessment.published_at > completed_at:
+            raise ValueError("completion precedes assessment publication")
+    except ValueError as error:
+        raise OperationCompletionError(str(error)) from error
 
 
 def _validate_complete(session_kind: SessionKind, payload: OperationPayload) -> None:

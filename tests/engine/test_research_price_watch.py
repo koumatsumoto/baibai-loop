@@ -12,6 +12,7 @@ from tests.helpers.db_seed import seed_ledger
 from tests.helpers.fixed_now import FIXED_NOW
 from tests.helpers.ledger import load_portfolio_ledger
 
+from baibai_engine.appdb.write import connect_rw
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.sqlite import open_connection
 from baibai_engine.operation.models import HumanConfirmation, OperationPayload
@@ -842,17 +843,20 @@ def test_watch_survives_session_completion_and_task_cleanup(
         started_at=FIXED_NOW,
         payload=OperationPayload(checkpoint="case closed as reject"),
     )
-    operations.complete(
-        session.operation_id,
-        OperationPayload(
-            checkpoint="closed",
-            artifacts=({"kind": "research_triage", "ref": "research_triage-test"},),
-            human_confirmation=HumanConfirmation(request="confirm", result="no order"),
-            result="no_allocation",
-            next="await the price watch",
-        ),
-        completed_at=FIXED_NOW,
+    # Historical completed cycles remain readable even without an Assessment artifact.
+    historical = OperationPayload(
+        checkpoint="closed",
+        artifacts=({"kind": "research_triage", "ref": "research_triage-test"},),
+        human_confirmation=HumanConfirmation(request="confirm", result="no order"),
+        result="no_allocation",
+        next="await the price watch",
     )
+    with connect_rw(db_path) as connection:
+        connection.execute(
+            "UPDATE operation_session SET status='completed', completed_at=?, payload=? "
+            "WHERE operation_id=?",
+            (FIXED_NOW.isoformat(), historical.model_dump_json(), session.operation_id),
+        )
     tasks = TaskService(db_path)
     follow_up = tasks.add(
         title="2331 の再評価",

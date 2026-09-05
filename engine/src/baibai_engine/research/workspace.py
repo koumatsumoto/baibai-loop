@@ -58,6 +58,7 @@ from baibai_engine.read_api.research_triage import (
     research_triage_payload_hash,
 )
 
+from .capital_allocation_service import CapitalAllocationAssessmentService
 from .decimal_number import decimal_to_number
 from .entry_price_policy import EntryPricePolicyError, maximum_acceptable_entry_price
 from .market_close_source import (
@@ -1049,9 +1050,8 @@ def _research_ticker_dir(workspace: Path, ticker: str) -> Path:
 def _review_filename(*, asof: date, ticker: str) -> str:
     """Return the stable Thesis Review filename for a research ticker.
 
-    The thesis payload carries this name in ``independent_review_ref`` and
-    ``plan-limit`` resolves the review by that name from the thesis's own
-    directory, so scaffold, status, and promote all address the same path and no
+    The thesis payload carries this name in ``independent_review_ref``, so
+    scaffold, status, and promote all address the same path and no
     copy step stands between the draft and the gate.
     """
 
@@ -1378,7 +1378,7 @@ def scaffold_review(
     lays out the recalculation slots and never produces the review conclusions. The
     bound ``reviewed_thesis_sha256`` is what lets ``promote`` detect a stale review.
     The file lands under the stable name the thesis already references, so promote
-    and plan-limit resolve it without an intervening copy.
+    resolves it without an intervening copy.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     gate = _verify_external_inputs(manifest, db_path=db_path)
@@ -1575,7 +1575,7 @@ def promote(
 
 def plan_limit(
     *,
-    thesis: Path,
+    capital_allocation_assessment_id: str,
     db_path: Path | None,
     sqlite_path: Path,
     target_session: date,
@@ -1592,13 +1592,15 @@ def plan_limit(
     order until human-confirmed broker state is recorded. ``defer`` is a normal
     judgment (exit 0).
     """
-    document = load_thesis(thesis)
-    ticker = document.input_snapshot.ticker
-    review_path = _adjacent_review_path(thesis, document.independent_review_ref)
-    review = load_thesis_review(review_path) if review_path is not None else None
+    alternative, document, review = CapitalAllocationAssessmentService(db_path).allocated_thesis(
+        capital_allocation_assessment_id
+    )
+    ticker = alternative.ticker
     defer_reasons: list[str] = []
 
-    result = evaluate_thesis(document, review=review, now=now, identity=UnpublishedThesis.DRAFT)
+    result = evaluate_thesis(
+        document, review=review, now=now, identity=alternative.thesis_core_sha256
+    )
     if result.decision_readiness != "ready":
         defer_reasons.append("thesis_not_decision_ready")
 
@@ -1627,15 +1629,10 @@ def plan_limit(
 
     base_output: dict[str, object] = {
         "ticker": ticker,
-        "thesis_ref": str(thesis),
-        "thesis_sha256": _sha256_text(thesis.read_text(encoding="utf-8")),
-        "thesis_core_sha256": thesis_core_hash(document),
-        "independent_review_ref": str(review_path) if review_path is not None else None,
-        "independent_review_sha256": (
-            _sha256_text(review_path.read_text(encoding="utf-8"))
-            if review_path is not None
-            else None
-        ),
+        "decision_reference": capital_allocation_assessment_id,
+        "thesis_id": alternative.thesis_id,
+        "thesis_core_sha256": alternative.thesis_core_sha256,
+        "thesis_review_id": alternative.thesis_review_id,
         "price_as_of": price.price_as_of.isoformat() if price is not None else None,
         "price_basis": "last_close_unadjusted",
         "source_ref": f"{sqlite_path.as_posix()}:jquants_daily_bars",

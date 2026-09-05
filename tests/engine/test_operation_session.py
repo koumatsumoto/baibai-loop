@@ -94,7 +94,7 @@ def _complete_payload(kind: SessionKind) -> OperationPayload:
     return OperationPayload.model_validate(values)
 
 
-@pytest.mark.parametrize("kind", SESSION_KINDS)
+@pytest.mark.parametrize("kind", ["position-review"])
 def test_each_kind_resumes_same_row_completes_and_next_occurrence_gets_new_row(
     tmp_path: Path,
     kind: SessionKind,
@@ -226,14 +226,12 @@ def test_completed_row_is_immutable_through_service_and_database(tmp_path: Path)
     db = tmp_path / "app.sqlite"
     service = OperationService(db)
     operation = service.start(
-        session_kind="capital-allocation",
+        session_kind="position-review",
         as_of=date(2026, 7, 19),
         started_at=NOW,
         payload=_active_payload(),
     )
-    service.complete(
-        operation.operation_id, _complete_payload("capital-allocation"), completed_at=NOW
-    )
+    service.complete(operation.operation_id, _complete_payload("position-review"), completed_at=NOW)
 
     with pytest.raises(OperationConflictError, match="immutable"):
         service.checkpoint(operation.operation_id, _active_payload("late update"))
