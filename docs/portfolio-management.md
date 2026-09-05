@@ -54,7 +54,7 @@ AIは候補、risk、price、quantity、warningを提示する。人間はbuy / 
 
 application DBのcanonical ledgerはrepository運用で確認済みのcash、holding、reservation、execution、releaseを表す。broker残高を自動取得・推定・完全照合するものではない。
 
-| human report | ledger action |
+| broker fact | ledger action |
 | --- | --- |
 | `open` | reservation draft。既存同一ならno-op |
 | `filled` | execution draft。reservationなしはapproval/guard/expiryを追加確認 |
@@ -73,9 +73,9 @@ cash、ticker/sector/common-factor concentration、dry powderはwarning。warnin
 
 ## 並行researchと直列の資本予約
 
-人間がprimary-research setを複数選んだ場合、企業別researchと独立reviewはticker別に並行できる。並行調査は候補比較の時間を短縮するためのもので、資本を先回りして複数銘柄へ予約する許可ではない。
+人間がResearch Setへ複数銘柄を選んだ場合、企業別researchとThesis Reviewはticker別に並行できる。並行調査は候補比較の時間を短縮するためのもので、資本を先回りして複数銘柄へ予約する許可ではない。
 
-注文とreservationは投資価値rank順に1件ずつ進める。各`plan-limit`はcurrent DB snapshotから都度計算し、人間の注文結果と必要なledger更新を完了してから次の候補を最新ledgerで再計算する。先行注文のreserved cashとconcentrationを後続のwarningへ反映する。
+注文とreservationは投資価値rank順に1件ずつ進める。各`plan-limit`はcurrent DB snapshotから都度計算し、人間からのbroker fact報告と必要なledger更新を完了してから次の候補を最新ledgerで再計算する。先行注文のreserved cashとconcentrationを後続のwarningへ反映する。
 
 <a id="holding-discipline"></a>
 

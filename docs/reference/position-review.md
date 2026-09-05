@@ -20,7 +20,7 @@ Position Review は、保有 1 件の売買判断を **thesis health** と **税
 
 売却の主因は **thesis break（事業毀損）** で、これは優先売却候補になる。**フェアバリュー到達は review trigger であって自動の全売りではない**。**価格下落そのものは売却理由にしない**。
 
-Position ReviewはDB ledger、holding thesis、候補thesisをimmutable IDで必須参照する。review scalarはsource entityと切り離して信頼しない。
+Position ReviewはDB ledger、holding thesis、replacement Thesisをimmutable IDで必須参照する。review scalarはsource entityと切り離して信頼しない。
 
 `position-review-build`はthesis IDからthesis/review readinessを確認してDB ledgerと結合する。load-bearing scalarはsourceから生成し、運用担当が手入力で変更しない。
 
@@ -34,7 +34,7 @@ Position ReviewはDB ledger、holding thesis、候補thesisをimmutable IDで必
 | `valuation_review` | 現値・FV・`current_price_yen >= fair_value_yen` から再計算した review trigger |
 | `replacement_comparison` | 現保有と候補の 5 年期待総合リターン、確定/推定の exit 税、機会費用 edge |
 | `add_context` | 押し目買増しの現値・最大許容価格・available cash・concentration 判定（任意） |
-| `sources` | ledgerとcurrent/replacement Thesisのimmutable ID。publish serviceはrevision driftをrejectする。persisted key `candidate_thesis`はstorage contractとして維持する |
+| `sources` | ledgerとcurrent/replacement Thesisのimmutable ID。publish serviceはrevision driftをrejectする。persisted key `candidate_thesis`とDB column `candidate_thesis_id`はstorage contractとして維持する |
 
 `thesis_health.permanent_loss_axes` は `funding_liquidity / debt_repayment / cash_flow / dilution / customer_concentration / structural_decline / governance_accounting` の 7 軸を各 1 回ちょうど持つ。1 つでも欠けると review は `incomplete` になる。`permanent_loss_conclusion` は **verified な adverse 軸**があるとき `elevated`、partially verified / unverified な adverse を含むとき `unknown`、それ以外は `acceptable` とする。`elevated` だけが全株 exit の条件であり、未確認の懸念で税負担を伴う全株売却を断定しない。
 
@@ -51,7 +51,7 @@ exit_tax_yen    = tax_yen                          # tax_basis: confirmed
                 = unknown                           # tax_basis: unknown
 redeployable    = hold.market_value_yen - exit_tax_yen
 hold_terminal   = hold.market_value_yen * (1 + hold_forward_5y_cagr/100)^5
-switch_terminal = redeployable          * (1 + candidate_forward_5y_cagr/100)^5
+switch_terminal = redeployable          * (1 + replacement_forward_5y_cagr/100)^5
 replacement_edge = switch_terminal - hold_terminal
 ```
 
@@ -105,6 +105,6 @@ append headはledger eventだけを数え、market priceは別tableへ入れ替�
 
 ### Buildとpublish
 
-独立reviewをscaffoldして完成させ、`promote`が返す`THESIS_ID`をPosition Reviewへ渡す。buildは、thesisまたはreviewの欠落、revision drift、thesisとholding market-price observationの日付不一致、open holdingの欠落、raw/unadjusted price basis不一致で停止する。
+Thesis Reviewをscaffoldして完成させ、`promote`が返す`THESIS_ID`をPosition Reviewへ渡す。buildは、thesisまたはreviewの欠落、revision drift、thesisとholding market-price observationの日付不一致、open holdingの欠落、raw/unadjusted price basis不一致で停止する。
 
 draft生成後、`position-review --db ... --input`はcanonical DBからscalarとsource revisionを再構築して照合する。人間が確認したdraftだけをcanonical `thesis_id`へ束縛してpublishする。完全な手順はskill [`position-review`](../../.agents/skills/position-review/SKILL.md)が所有する。

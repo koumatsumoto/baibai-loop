@@ -32,7 +32,7 @@ DB constraint、`baibai_engine.position`のmodel、application serviceのwrite-t
 | `cost` | 確認済み費用をavailableから引く |
 | `tax_confirmed` | 確認済み税額をavailableから引く |
 
-event ID、reservation ID、order identity、execution IDは再利用しない。新しいbuy resultはcanonical buy assessment IDへ束縛する。buy executionはactive reservation、同じticker、remaining以下、guard以下、expiry以前を必須とする。releaseは明示eventであり自動生成しない。
+event ID、reservation ID、order identity、execution IDは再利用しない。新しいbuyのbroker factはcanonical buy assessment IDへ束縛する。buy executionはactive reservation、同じticker、remaining以下、guard以下、expiry以前を必須とする。releaseは明示eventであり自動生成しない。
 
 event rowはappend-onlyで、late reportも新規rowとして保存する。replay順は`(occurred_at, same_instant_order)`である。同時刻の既存eventの順序とIDを変更しない。
 
@@ -68,15 +68,15 @@ market priceはtickerごとに`observed_at / source_kind / price_basis / source_
 uv run baibai-engine position apply-draft /tmp/ledger-draft.yaml --db stores/application/baibai.sqlite --confirmed
 ```
 
-applyは1 transactionでsource head、assessment / reservation、event payload、price/meta expected row、reconciliationを再検証する。`--confirmed`なし、stale、buyでないassessment、broker reportなし、矛盾payloadはno-writeである。
+applyは1 transactionでsource head、assessment / reservation、event payload、price/meta expected row、reconciliationを再検証する。`--confirmed`なし、stale、buyでないassessment、broker fact reportなし、矛盾payloadはno-writeである。
 
 `broker-fact-draft` の apply は event replay、cash / reservation / lot、未解放 expiry を再検証するが、既存 holding の market price freshness は要求しない。broker の注文結果は valuation の更新ではなく、無関係な価格不足で人間報告の記録を止めないためである。価格を使う ledger view や sell 等の valuation 経路では従来どおり freshness を fail-close する。
 
 <a id="human-result-semantics"></a>
 
-## 人間が報告する注文結果
+## 人間が報告するbroker fact
 
-`broker-fact-draft`は人間の`open / filled / cancelled / expired`報告だけを入力にする。active reservationをIDなしで推定しない。partial fillはremainingがある間だけ後続resultを受理する。full fill / cancel / expire後の完全一致reportはno-change、矛盾reportはhard errorとする。`expired`は人間が未約定を確認し、`occurred_at >= expires_at`の場合だけreleaseを作る。同時刻に複数reservationがterminalになる場合は`--reservation-id`の反復指定を1 transactionで検証・適用する。対象の一部が不正なら全件を拒否する。active reservationの後続resultは同じ`decision_reference`、reservation ID、order IDへ束縛する。
+`broker-fact-draft`は人間の`open / filled / cancelled / expired`報告だけを入力にする。active reservationをIDなしで推定しない。partial fillはremainingがある間だけ後続broker factを受理する。full fill / cancel / expire後の完全一致broker fact reportはno-change、矛盾broker fact reportはhard errorとする。`expired`は人間が未約定を確認し、`occurred_at >= expires_at`の場合だけreleaseを作る。同時刻に複数reservationがterminalになる場合は`--reservation-id`の反復指定を1 transactionで検証・適用する。対象の一部が不正なら全件を拒否する。active reservationの後続broker factは同じ`decision_reference`、reservation ID、order IDへ束縛する。
 
 <a id="historical-outcome"></a>
 

@@ -82,7 +82,7 @@ validation や hash のように監査にも使える手段でも、現在の候
 
 ### 柱 1: 事実と分析の分離
 
-- **(a)** candidates内のobserved / derived / estimateと、人間/AIによるjudgment（macro context・thesis）は責務を分ける。禁止表現と運用ルールは§6[事実と分析の分離](#fact-analysis-separation)を正本とする。
+- **(a)** Security Analysis内のobserved / derived / estimateと、人間/AIによるjudgment（macro context・thesis）は責務を分ける。禁止表現と運用ルールは§6[事実と分析の分離](#fact-analysis-separation)を正本とする。
 - **(b)** 事実と意見が混ざると、AI が過去の解釈を「事実」として再生産してしまう。store・table単位で分けておけば「judgmentを AI に見せない」という選択ができ、後知恵バイアスと責任の所在の混乱を防げる。
 - **(c)** 同一tableに`type`列やflagでjudgmentを混在させる案は、混入したときに見落としやすく機械チェックも利きにくい。store・table単位の物理的な分離が最も安全。
 
@@ -139,7 +139,7 @@ artifact、activity、pipeline state、method、projectionの区別と命名文�
 | 状態遷移 | gate 主体 | 判断文書（L3） | 機械成果物（L2） |
 | --- | --- | --- | --- |
 | universe → Security Analyses | 機械（screening） | — | screening run |
-| Security Analyses → Review Set | 4 Valuation Approaches | — | Nominations + exact unionのReview Set |
+| Security Analyses → Review Set | configured Valuation Approaches | — | Nominations + exact unionのReview Set |
 | Review Set → Research Triage | AI | Research Triage（`research / skip`、priority、理由） | — |
 | Research Triage → Research Set | 人間（admission） | operationのhuman confirmation | — |
 | Research Set → allocate / no allocation / defer | AI research → 独立レビュー → 人間 | thesis + thesis review + Capital Allocation Assessment | evaluate 派生値 |
@@ -156,7 +156,7 @@ Observed Fact ──────────────┐
                             ├─→ Derived Metric
 Observed Fact + Metric ─────┴─→ Model ─→ Estimate
 Observed Fact + Metric ───────→ Security Analysis
-Security Analysis ────────────→ 4 Valuation Approaches ─→ Nominations
+Security Analysis ────────────→ configured Valuation Approaches ─→ Nominations
 Nominations ──────────────────→ exact union ────────────→ Review Set
 Review Set → Research Triage → human admission → Research Set
 Research Set → Research → Thesis + Thesis Review
@@ -168,7 +168,7 @@ authority は次の境界を越えない。
 1. Model は Estimate を計算するが、候補順位を直接決めない。
 2. Derived Metric は数値座標であり、screening rules が参照しない限り順位authorityを持たない。
 3. 各Valuation Approachは自分のNomination eligibilityと方法内順位だけを所有する。
-4. Review Setは4 Approachのtop20 Nominationのexact unionであり、ticker昇順は非経済的なserialization orderにすぎない。
+4. Review Setはconfigured Valuation ApproachesによるNominationのexact unionであり、ticker昇順は非経済的なserialization orderにすぎない。
 5. E[r]、macro、event、portfolio state、過去判断はReview Set membership/orderを変えない。E[r]はTriageで使うsecondary machine return priorである。
 6. Research TriageはReview Set全件を`research / skip`へ分類し、`research`間のpriorityを決めるが、FVや買付可否を確定しない。
 7. Research Setへのadmissionと、最終的なbroker執行は人間が所有する。
@@ -183,9 +183,9 @@ thesisで見積りの根拠を検証するときの分析レンズ / return源�
 - **マクロ機械読み値 (macro reading)**：L1 の指標 store だけを入力に、全登録系列の記述統計と観測の齢を決定論で計算する。解釈・因果・行動指示を持たない。
 - **マクロ環境分析 (macro context)**：macro reading と外部記事・指標データを参照し、環境評価（core：レジーム・経路別のfactとjudgment・リスク選好環境の評価・確率と機械照合可能な条件を持つシナリオ・監視ポイント）、統合評価（synthesis：経路横断の支配的な力とその相互作用）、日本株積立ループ接続（connection：research優先度・sector tilt・sizing caution・バーゲン地形・機械見積りの歪み注意）を分析階層（§7）に沿った構造化レポートとして残す。記事本文や取得ログは保存しない。
 - **スクリーニング実行結果 (screening run)**：run storeに保存する再生成可能な機械出力。observed、derived、estimateを由来付きで残し、judgment・因果解釈・相場観を書かない。
-- **調査優先度判定 (Research Triage)**：Review Set全件をAIが`research / skip`へ分類し、research priorityを付けたcanonical snapshot。4 Approachをprimary authority、E[r]とADVをsecondary contextとして扱い、application DBでrun revisionとReview Setへの束縛を保つ。
+- **調査優先度判定 (Research Triage)**：Review Set全件をAIが`research / skip`へ分類し、research priorityを付けたcanonical snapshot。Valuation Approachesをprimary authority、E[r]とADVをsecondary contextとして扱い、application DBでrun revisionとReview Setへの束縛を保つ。
 - **個別銘柄research / thesis**：一次情報、FV、3年/5年scenario、risk/reward、期待return、永久損失、countercaseを検証し、採否をcanonical thesisへ固定する。
-- **資本配分評価 (Capital Allocation Assessment)**：research済みalternativeを横比較し、`allocate / no_allocation / defer`を確定する。`allocate`はthesisと独立reviewへ束縛し、注文数量は判断を変えず`plan-limit`でその都度計算する。
+- **資本配分評価 (Capital Allocation Assessment)**：research済みalternativeを横比較し、`allocate / no_allocation / defer`を確定する。`allocate`はThesisとThesis Reviewへ束縛し、注文数量は判断を変えず`plan-limit`でその都度計算する。
 - **売買執行記録 (position)**：実際に発注・entry した判断の注文・約定・保有・全売り決済と、見積り vs 実現の calibration を記録する。
 
 <a id="fact-analysis-separation"></a>
@@ -217,14 +217,7 @@ L1 / L2の機械store（market / macro series / screening run）のobserved / de
 - 銘柄全体を対象にした**短期（3 か月未満）horizon** の forward-backtest による screen 成績最適化（長期 horizon の見積り較正リプレイは柱 5 の正式な計測経路であり、非目標ではない）。
 - ETF / 投資信託 / 海外株、口座・税制のモデル化。
 - broker状態の自動推定、broker会計の完全複製、ledger精密化の目的化。
-- 外部向けの汎用データ配信（feature store）・MCP server・書き込み API の公開（`baibai-web` の read-only API と閲覧専用 read model への publish は柱 4 (b) の読み取り側であり、範囲内）。SQLite は market data のローカル正本とし、AI は CLI と SQL で直接読む。
-
-### Candidate Discovery identity grammar
-
-- `candidate_discovery_method_id`はapproach集合・common eligibility・Nomination union規則を束ねるversioned IDである。
-- `method_hash`は4つのmethod ID、各ordering、common eligibility、nomination depth、union serialization規則のcanonical SHA-256である。
-- `triage_contract_id`はResearch Triage判断契約のsemantic versionである。
-- behavior-neutralな表現変更ではsemantic versionを維持できる。旧hashをaliasする互換layerは持たない。
+- 外部向けの汎用データ配信（feature store）・MCP server・書き込み API の公開（`baibai-web` の read-only API と閲覧専用 read model への publish は柱 4 (b) の読み取り側であり、範囲内）。AIはCLIとread-only SQLでデータを読む。store authorityは[`architecture.md#store-authority`](./architecture.md#store-authority)、Candidate Discoveryのidentity grammarは[`domain-language.md`](./domain-language.md#naming-grammar)を正本とする。
 
 ## 9. 参考
 
