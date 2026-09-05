@@ -28,6 +28,8 @@ from typing import cast
 from tools.quality.drift.check_cli_help import DELEGATED_GROUPS, build_parser
 
 _SCAN_DIRECTORIES = (".agents/skills",)
+# Only the inventory examples in this reference are in the additional scope.
+_SCAN_FILES = ("docs/reference/market-lake.md",)
 _FENCE = re.compile(r"^\s*```")
 _INLINE_CODE = re.compile(r"`([^`]+)`")
 _COMMENT = re.compile(r"\s+#\s.*$")
@@ -126,7 +128,7 @@ def _descend(
         if child is None:
             raise _Unresolvable(f"{prog}: unknown subcommand {name}")
         prog = f"{prog} {name}"
-        remaining = remaining[:index] + remaining[index + 1 :]
+        remaining = remaining[index + 1 :]
         if not child._actions:
             module = DELEGATED_GROUPS.get(prog)
             if module is None:
@@ -185,42 +187,63 @@ def _missing_required(parser: argparse.ArgumentParser, tokens: Sequence[str]) ->
     ]
 
 
+def _unknown_options(parser: argparse.ArgumentParser, tokens: Sequence[str]) -> list[str]:
+    tokens = tokens[: tokens.index("--")] if "--" in tokens else tokens
+    known = {option for action in parser._actions for option in action.option_strings}
+    return [
+        argument.split("=", 1)[0]
+        for argument in tokens
+        if argument.startswith("-")
+        and argument != "-"
+        and argument.split("=", 1)[0] not in known
+        and not re.fullmatch(r"-\d+(?:\.\d*)?(?:[eE][+-]?\d+)?|-\.\d+", argument)
+    ]
+
+
 def check(root: Path) -> list[str]:
     errors: list[str] = []
     # Read once, and only when a document actually names the script.
     subcommands: frozenset[str] | None = None
-    for directory in _SCAN_DIRECTORIES:
-        for path in sorted((root / directory).rglob("*.md")):
-            relative = path.relative_to(root)
-            for command in _command_lines(path.read_text(encoding="utf-8")):
+    paths = [path for directory in _SCAN_DIRECTORIES for path in (root / directory).rglob("*.md")]
+    paths.extend(root / name for name in _SCAN_FILES if (root / name).is_file())
+    for path in sorted(paths):
+        relative = path.relative_to(root)
+        for command in _command_lines(path.read_text(encoding="utf-8")):
+            if relative.as_posix() in _SCAN_FILES and not command.startswith(
+                "uv run baibai-engine lake inventory"
+            ):
+                continue
+            try:
+                tokens = shlex.split(command)
+            except ValueError as error:
+                errors.append(f"{relative}: cannot tokenise {command!r} ({error})")
+                continue
+            if command.startswith(_TRANSFER_PREFIX):
                 try:
-                    tokens = shlex.split(command)
-                except ValueError as error:
-                    errors.append(f"{relative}: cannot tokenise {command!r} ({error})")
-                    continue
-                if command.startswith(_TRANSFER_PREFIX):
-                    try:
-                        if subcommands is None:
-                            subcommands = transfer_subcommands(root)
-                    except (OSError, _Unresolvable) as error:
-                        errors.append(f"{relative}: {error}")
-                        continue
-                    if tokens[1] not in subcommands:
-                        errors.append(
-                            f"{relative}: `{command}` names no r2_transfer subcommand ({tokens[1]})"
-                        )
-                    continue
-                try:
-                    parser, prog, rest = _entry_point(tokens)
-                    parser, rest = _descend(parser, prog, rest)
-                except _Unresolvable as error:
+                    if subcommands is None:
+                        subcommands = transfer_subcommands(root)
+                except (OSError, _Unresolvable) as error:
                     errors.append(f"{relative}: {error}")
                     continue
-                missing = _missing_required(parser, rest)
-                if missing:
+                if tokens[1] not in subcommands:
                     errors.append(
-                        f"{relative}: `{command}` omits required {', '.join(sorted(missing))}"
+                        f"{relative}: `{command}` names no r2_transfer subcommand ({tokens[1]})"
                     )
+                continue
+            try:
+                parser, prog, rest = _entry_point(tokens)
+                parser, rest = _descend(parser, prog, rest)
+            except _Unresolvable as error:
+                errors.append(f"{relative}: {error}")
+                continue
+            unknown = _unknown_options(parser, rest)
+            if unknown:
+                errors.append(f"{relative}: `{command}` has unknown options {', '.join(unknown)}")
+            missing = _missing_required(parser, rest)
+            if missing:
+                errors.append(
+                    f"{relative}: `{command}` omits required {', '.join(sorted(missing))}"
+                )
     return errors
 
 
