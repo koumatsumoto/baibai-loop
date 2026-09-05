@@ -12,14 +12,17 @@ Planning boundary:
 - Investment value is decided before budget rounding. The 20-30万円 guide is a
   sizing annotation for a normal position. Reduced sizing is exactly one board lot.
 - ``promote`` is the only command that publishes a canonical thesis/review;
-  every other command writes only to a rebuildable workspace chosen by the caller.
+  ``prepare`` also starts or resumes the exact human-admitted Research Operation.
+  Draft commands write to the caller-selected workspace; status reads canonical publication.
 - ``defer`` and ``no_allocation`` are normal investment judgments and exit 0.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Mapping, Sequence
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal
@@ -32,6 +35,7 @@ from pydantic import BaseModel, ValidationError
 
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.paths import database_path
+from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.repository_layout import ER_LEVEL_CALIBRATION_CONTEXT_PATH
 from baibai_engine.foundation.research_triage import ResearchTriage
@@ -54,6 +58,7 @@ from baibai_engine.read_api.research_triage import (
     research_triage_payload_hash,
 )
 
+from .capital_allocation_service import CapitalAllocationAssessmentService
 from .decimal_number import decimal_to_number
 from .entry_price_policy import EntryPricePolicyError, maximum_acceptable_entry_price
 from .market_close_source import (
@@ -68,6 +73,7 @@ from .portfolio_exposure import (
 from .store import ResearchConflictError, ResearchStoreService, ResearchValidationError
 from .thesis import (
     ScreeningEstimate,
+    ThesisDocument,
     ThesisError,
     ThesisReview,
     UnpublishedThesis,
@@ -386,11 +392,10 @@ def prepare_workspace(
         candidates=annotated,
         asof=asof,
     )
-    comparison_doc = _research_comparison(asof, annotated, er_context=er_context)
+    workspace_doc["er_realized_distribution_context"] = er_context
 
     workspace.mkdir(parents=True, exist_ok=True)
     _write_workspace_file(workspace / "research-workspace.yaml", workspace_doc)
-    _write_workspace_file(workspace / "research-comparison.yaml", comparison_doc)
 
     manifest_inputs: dict[str, object] = {
         # A readable record of the binding, not its authority: every gate re-resolves
@@ -536,9 +541,8 @@ def prepare_holding_workspace(
     """Build a one-ticker research workspace for an actual open holding.
 
     Position Review bypasses Review Set publication because the canonical ledger is
-    the source of its research target. The fixed Review Set entries, Research Triage,
-    and subject ticker keep the thesis/review/promotion gates usable without weakening
-    the normal Research Set boundary.
+    the source of its research target. The holding ticker and ledger observation as-of
+    bind every thesis/review/promotion gate; no Research Triage is fabricated.
     """
     snapshot, append_head = _load_snapshot(db_path)
     problem = _holding_subject_problem(snapshot, ticker=ticker, asof=asof)
@@ -566,13 +570,8 @@ def prepare_holding_workspace(
         "position_review_subject": subject,
         "research_set": [ticker],
     }
-    comparison_doc = _research_comparison(asof, subject)
-    comparison_doc["selected_ticker"] = ticker
-    comparison_doc["ranking_rationale"] = "research target fixed by the canonical open holding"
-
     workspace.mkdir(parents=True, exist_ok=True)
     _write_workspace_file(workspace / "research-workspace.yaml", workspace_doc)
-    _write_workspace_file(workspace / "research-comparison.yaml", comparison_doc)
     manifest = {
         "purpose": "position_review",
         "holding_ticker": ticker,
@@ -620,44 +619,6 @@ def _portfolio_annotation(ticker: str, *, held: set[str], reserved: set[str]) ->
     if is_reserved:
         return "reserved"
     return "unheld"
-
-
-def _research_comparison(
-    asof: date,
-    annotated: Sequence[Mapping[str, object]],
-    *,
-    er_context: Mapping[str, object] | None = None,
-) -> dict[str, object]:
-    context_by_ticker = er_context.get("candidates") if isinstance(er_context, Mapping) else None
-    if not isinstance(context_by_ticker, Mapping):
-        context_by_ticker = {}
-    candidates = [
-        {
-            "ticker": str(row.get("ticker") or ""),
-            "research_priority": row.get("research_priority"),
-            "portfolio_annotation": row.get("portfolio_annotation"),
-            "temporary_mispricing_hypothesis": None,
-            "permanent_loss_conclusion": None,
-            "permanent_loss_unknown_axes": [],
-            "five_year_base_cagr_pct": None,
-            "fair_value_yen": None,
-            "fv_gap_pct": None,
-            "portfolio_marginal_value": None,
-            "strongest_countercase": None,
-            "source_ids": [],
-            "disposition": None,
-            "disposition_reason": None,
-            "er_realized_distribution_context": context_by_ticker.get(str(row.get("ticker") or "")),
-        }
-        for row in annotated
-    ]
-    return {
-        "as_of": asof.isoformat(),
-        "candidates": candidates,
-        "selected_ticker": None,
-        "ranking_rationale": None,
-        "er_realized_distribution_context": er_context,
-    }
 
 
 def _load_er_distribution_context(
@@ -742,7 +703,7 @@ def _write_status(workspace: Path, *, db_path: Path | None) -> dict[str, object]
 
 
 def compute_status(workspace: Path, *, db_path: Path | None = None) -> dict[str, object]:
-    """Read the workspace and report completion, drift, and the next command.
+    """Read per-case publication, remaining work, and prepare-time input drift.
 
     External inputs remain bound to their prepare-time hashes. Operator-authored
     drafts are editable, but their structure and lineage must remain consistent.
@@ -750,7 +711,7 @@ def compute_status(workspace: Path, *, db_path: Path | None = None) -> dict[str,
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     gate = _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest, gate=gate)
-    status = _draft_status(workspace, manifest)
+    status = _draft_status(workspace, manifest, db_path=db_path)
     status["research_triage"] = _research_triage_view(gate)
     return status
 
@@ -771,117 +732,85 @@ def _research_triage_view(gate: ResearchSetAdmissionBinding | None) -> dict[str,
     }
 
 
-def _draft_status(workspace: Path, manifest: Mapping[str, object]) -> dict[str, object]:
-    manifest_asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
-    research_workspace = _load_mapping(
-        workspace / "research-workspace.yaml", label="research workspace"
-    )
-    research_set = research_workspace.get("research_set")
-    if not isinstance(research_set, list) or not all(
-        isinstance(ticker, str) for ticker in research_set
-    ):
+def _draft_status(
+    workspace: Path, manifest: Mapping[str, object], *, db_path: Path | None
+) -> dict[str, object]:
+    asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
+    document = _load_mapping(workspace / "research-workspace.yaml", label="research workspace")
+    research_set = document.get("research_set")
+    if not isinstance(research_set, list):
         raise ResearchWorkspaceDataError("workspace research_set must be an array of tickers")
-    research_set_tickers = [str(ticker) for ticker in research_set]
-    comparison = _load_mapping(workspace / "research-comparison.yaml", label="research comparison")
-    selected_ticker = _string_or_none(comparison.get("selected_ticker"))
+    cases = [_case_status(workspace, str(ticker), asof, db_path=db_path) for ticker in research_set]
+    outstanding = [case for case in cases if case["status"] != "published"]
+    return {
+        "workspace_status": (
+            "no_research" if not cases else "published" if not outstanding else "incomplete"
+        ),
+        "cases": cases,
+        "next_action": outstanding[0]["next_action"] if outstanding else None,
+    }
 
-    if not research_set_tickers:
-        return _status_payload(
-            workspace_status="no_research",
-            selected_ticker=None,
-            next_command=None,
-        )
 
-    missing_research = [
-        ticker
-        for ticker in research_set_tickers
-        if not (_research_ticker_dir(workspace, ticker) / "thesis-draft.yaml").is_file()
-    ]
-    if missing_research:
-        return _status_payload(
-            workspace_status="incomplete",
-            selected_ticker=selected_ticker,
-            next_command=f"baibai-engine research thesis-scaffold --ticker {missing_research[0]}",
-        )
-
-    research_pending: list[str] = []
-    research_blocked: list[str] = []
-    research_thesis_errors: list[str] = []
-    for ticker in research_set_tickers:
-        checklist = _load_checklist(workspace, ticker)
-        research_pending.extend(
-            f"{ticker}:{check_id}"
-            for item in checklist
-            if item.get("status") == "pending"
-            if (check_id := _string_or_none(item.get("check_id"))) is not None
-        )
-        research_blocked.extend(
-            f"{ticker}:{check_id}"
-            for item in checklist
-            if item.get("status") == "blocked"
-            if (check_id := _string_or_none(item.get("check_id"))) is not None
-        )
-        research_thesis_errors.extend(
-            f"{ticker}:{error}"
-            for error in _thesis_validation_errors(workspace, ticker, manifest_asof)
-        )
-    if research_pending or research_thesis_errors:
-        first_ticker = (research_pending or research_thesis_errors)[0].split(":", maxsplit=1)[0]
-        return _status_payload(
-            workspace_status="incomplete",
-            selected_ticker=selected_ticker,
-            pending_checks=research_pending,
-            blocked_checks=research_blocked,
-            thesis_validation_errors=research_thesis_errors,
-            next_command=f"complete Fundamental Research for {first_ticker}",
-        )
-
-    if selected_ticker is None:
-        return _status_payload(
-            workspace_status="ready_for_comparison",
-            selected_ticker=None,
-            blocked_checks=research_blocked,
-            next_command=(
-                "complete research-comparison.yaml and set selected_ticker, or record no_allocation"
-            ),
-        )
-
-    checklist_path = _research_ticker_dir(workspace, selected_ticker) / "research-checklist.yaml"
-    if not checklist_path.exists():
-        return _status_payload(
-            workspace_status="incomplete",
-            selected_ticker=selected_ticker,
-            next_command=f"baibai-engine research thesis-scaffold --ticker {selected_ticker}",
-        )
-
-    checklist = _load_checklist(workspace, selected_ticker)
-    completed = [item for item in checklist if item.get("status") == "complete"]
+def _case_status(
+    workspace: Path, ticker: str, asof: date, *, db_path: Path | None
+) -> dict[str, object]:
+    directory = _research_ticker_dir(workspace, ticker)
+    checklist = (
+        _load_checklist(workspace, ticker)
+        if (directory / "research-checklist.yaml").exists()
+        else []
+    )
     pending = [
-        _string_or_none(item.get("check_id"))
+        str(item.get("check_id") or "<missing check_id>")
         for item in checklist
-        if item.get("status") == "pending"
+        if item.get("status") not in {"complete", "blocked"}
     ]
-    blocked = [
-        _string_or_none(item.get("check_id"))
-        for item in checklist
-        if item.get("status") == "blocked"
-    ]
-    thesis_errors = _thesis_validation_errors(workspace, selected_ticker, manifest_asof)
-    review_errors = _review_validation_errors(workspace, selected_ticker, manifest_asof)
-
-    workspace_status = _resolve_workspace_status(
+    if not checklist:
+        pending.append("research checklist missing")
+    blocked = [str(item.get("check_id")) for item in checklist if item.get("status") == "blocked"]
+    thesis_errors = _thesis_validation_errors(workspace, ticker, asof)
+    review_errors = _review_validation_errors(workspace, ticker, asof)
+    status = _resolve_workspace_status(
         pending=pending, blocked=blocked, thesis_errors=thesis_errors, review_errors=review_errors
     )
-    return _status_payload(
-        workspace_status=workspace_status,
-        selected_ticker=selected_ticker,
-        completed_checks=len(completed),
-        pending_checks=[value for value in pending if value is not None],
-        blocked_checks=[value for value in blocked if value is not None],
-        thesis_validation_errors=thesis_errors,
-        review_validation_errors=review_errors,
-        next_command=_next_command(workspace_status, selected_ticker),
-    )
+    thesis_id = None
+    if status == "ready_for_promotion":
+        thesis = load_thesis(directory / "thesis-draft.yaml")
+        review = load_thesis_review(_review_draft_path(workspace, ticker, asof))
+        thesis_id = _published_case(thesis, review, db_path=db_path)
+        if thesis_id is not None:
+            status = "published"
+    return {
+        "ticker": ticker,
+        "status": status,
+        "thesis_id": thesis_id,
+        "completed_checks": sum(item.get("status") == "complete" for item in checklist),
+        "pending_checks": pending,
+        "blocked_checks": blocked,
+        "thesis_validation_errors": thesis_errors,
+        "review_validation_errors": review_errors,
+        "next_action": None if status == "published" else _next_action(status, ticker),
+    }
+
+
+def _published_case(
+    thesis: ThesisDocument, review: ThesisReview, *, db_path: Path | None
+) -> str | None:
+    """Show Research publication only for this exact thesis core and authored review."""
+    with closing(connect_read_only(database_path(db_path))) as connection:
+        rows = connection.execute(
+            "SELECT t.thesis_id, t.payload AS thesis_payload, r.payload "
+            "FROM thesis t JOIN thesis_review r "
+            "ON r.thesis_id = t.thesis_id WHERE t.core_sha256 = ? AND r.review_id = ?",
+            (thesis_core_hash(thesis), review.review_id),
+        ).fetchall()
+    for row in rows:
+        if (
+            json.loads(str(row["payload"])) == review.model_dump(mode="json")
+            and ThesisDocument.model_validate(json.loads(str(row["thesis_payload"]))) == thesis
+        ):
+            return str(row["thesis_id"])
+    return None
 
 
 def _resolve_workspace_status(
@@ -900,42 +829,19 @@ def _resolve_workspace_status(
     return "ready_for_promotion"
 
 
-def _next_command(workspace_status: str, ticker: str) -> str:
+def _next_action(workspace_status: str, ticker: str) -> str:
     match workspace_status:
         case "deferred":
             return (
-                "resolve the blocked investigation, or record its evidence as unknown and "
-                "mark the completed investigation complete before promotion"
+                f"{ticker}: resolve blocked evidence or record unknown/defer "
+                "and complete the investigation"
             )
         case "incomplete":
-            return f"baibai-engine research thesis-scaffold --ticker {ticker}"
+            return f"{ticker}: complete the thesis and research checklist"
         case "ready_for_review":
-            return f"baibai-engine research review-scaffold --ticker {ticker}"
+            return f"{ticker}: complete an independent Thesis Review for the current thesis"
         case _:
-            return f"baibai-engine research promote --ticker {ticker}"
-
-
-def _status_payload(
-    *,
-    workspace_status: str,
-    selected_ticker: str | None,
-    completed_checks: int = 0,
-    pending_checks: Sequence[str] | None = None,
-    blocked_checks: Sequence[str] | None = None,
-    thesis_validation_errors: Sequence[str] | None = None,
-    review_validation_errors: Sequence[str] | None = None,
-    next_command: str | None,
-) -> dict[str, object]:
-    return {
-        "workspace_status": workspace_status,
-        "selected_ticker": selected_ticker,
-        "completed_checks": completed_checks,
-        "pending_checks": list(pending_checks or []),
-        "blocked_checks": list(blocked_checks or []),
-        "thesis_validation_errors": list(thesis_validation_errors or []),
-        "review_validation_errors": list(review_validation_errors or []),
-        "next_command": next_command,
-    }
+            return f"{ticker}: publish the reviewed thesis with research promote"
 
 
 def _verify_external_inputs(
@@ -1042,14 +948,13 @@ def _validate_editable_drafts(
     research_workspace = _load_mapping(
         workspace / "research-workspace.yaml", label="research workspace"
     )
-    comparison = _load_mapping(workspace / "research-comparison.yaml", label="research comparison")
     manifest_asof = str(manifest.get("as_of") or "")
-    if research_workspace.get("as_of") != manifest_asof or comparison.get("as_of") != manifest_asof:
+    if research_workspace.get("as_of") != manifest_asof:
         raise ResearchWorkspaceDataError("workspace draft as_of does not match manifest")
 
     purpose = str(manifest.get("purpose") or "fundamental_research")
     if purpose == "position_review":
-        _validate_position_review_drafts(research_workspace, comparison, manifest)
+        _validate_position_review_drafts(research_workspace, manifest)
         return
     if purpose != "fundamental_research":
         raise ResearchWorkspaceDataError(f"manifest purpose is invalid: {purpose}")
@@ -1111,18 +1016,9 @@ def _validate_editable_drafts(
     if len(research_set_tickers) > admissible_count:
         raise ResearchWorkspaceDataError("workspace Research Set exceeds admissible_count")
 
-    candidates = _dict_list(comparison.get("candidates"))
-    comparison_tickers = [str(row.get("ticker") or "") for row in candidates]
-    if comparison_tickers != list(review_set_tickers):
-        raise ResearchWorkspaceDataError("research comparison candidates do not match Review Set")
-    selected = _string_or_none(comparison.get("selected_ticker"))
-    if selected is not None and selected not in research_set_tickers:
-        raise ResearchWorkspaceDataError("selected_ticker is not present in Research Set")
-
 
 def _validate_position_review_drafts(
     research_workspace: Mapping[str, object],
-    comparison: Mapping[str, object],
     manifest: Mapping[str, object],
 ) -> None:
     ticker = _string_or_none(manifest.get("holding_ticker"))
@@ -1133,17 +1029,9 @@ def _validate_position_review_drafts(
         for row in _dict_list(research_workspace.get("position_review_subject"))
     ]
     research_set = research_workspace.get("research_set")
-    comparison_tickers = [
-        str(row.get("ticker") or "") for row in _dict_list(comparison.get("candidates"))
-    ]
-    if (
-        subject_tickers != [ticker]
-        or research_set != [ticker]
-        or comparison_tickers != [ticker]
-        or comparison.get("selected_ticker") != ticker
-    ):
+    if subject_tickers != [ticker] or research_set != [ticker]:
         raise ResearchWorkspaceDataError(
-            "position-review workspace must keep its subject and comparison fixed"
+            "position-review workspace must keep its holding subject fixed"
         )
 
 
@@ -1162,9 +1050,8 @@ def _research_ticker_dir(workspace: Path, ticker: str) -> Path:
 def _review_filename(*, asof: date, ticker: str) -> str:
     """Return the stable Thesis Review filename for a research ticker.
 
-    The thesis payload carries this name in ``independent_review_ref`` and
-    ``plan-limit`` resolves the review by that name from the thesis's own
-    directory, so scaffold, status, and promote all address the same path and no
+    The thesis payload carries this name in ``independent_review_ref``, so
+    scaffold, status, and promote all address the same path and no
     copy step stands between the draft and the gate.
     """
 
@@ -1491,7 +1378,7 @@ def scaffold_review(
     lays out the recalculation slots and never produces the review conclusions. The
     bound ``reviewed_thesis_sha256`` is what lets ``promote`` detect a stale review.
     The file lands under the stable name the thesis already references, so promote
-    and plan-limit resolve it without an intervening copy.
+    resolves it without an intervening copy.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     gate = _verify_external_inputs(manifest, db_path=db_path)
@@ -1688,7 +1575,7 @@ def promote(
 
 def plan_limit(
     *,
-    thesis: Path,
+    capital_allocation_assessment_id: str,
     db_path: Path | None,
     sqlite_path: Path,
     target_session: date,
@@ -1705,13 +1592,15 @@ def plan_limit(
     order until human-confirmed broker state is recorded. ``defer`` is a normal
     judgment (exit 0).
     """
-    document = load_thesis(thesis)
-    ticker = document.input_snapshot.ticker
-    review_path = _adjacent_review_path(thesis, document.independent_review_ref)
-    review = load_thesis_review(review_path) if review_path is not None else None
+    alternative, document, review = CapitalAllocationAssessmentService(db_path).allocated_thesis(
+        capital_allocation_assessment_id
+    )
+    ticker = alternative.ticker
     defer_reasons: list[str] = []
 
-    result = evaluate_thesis(document, review=review, now=now, identity=UnpublishedThesis.DRAFT)
+    result = evaluate_thesis(
+        document, review=review, now=now, identity=alternative.thesis_core_sha256
+    )
     if result.decision_readiness != "ready":
         defer_reasons.append("thesis_not_decision_ready")
 
@@ -1740,15 +1629,10 @@ def plan_limit(
 
     base_output: dict[str, object] = {
         "ticker": ticker,
-        "thesis_ref": str(thesis),
-        "thesis_sha256": _sha256_text(thesis.read_text(encoding="utf-8")),
-        "thesis_core_sha256": thesis_core_hash(document),
-        "independent_review_ref": str(review_path) if review_path is not None else None,
-        "independent_review_sha256": (
-            _sha256_text(review_path.read_text(encoding="utf-8"))
-            if review_path is not None
-            else None
-        ),
+        "decision_reference": capital_allocation_assessment_id,
+        "thesis_id": alternative.thesis_id,
+        "thesis_core_sha256": alternative.thesis_core_sha256,
+        "thesis_review_id": alternative.thesis_review_id,
         "price_as_of": price.price_as_of.isoformat() if price is not None else None,
         "price_basis": "last_close_unadjusted",
         "source_ref": f"{sqlite_path.as_posix()}:jquants_daily_bars",
@@ -1864,6 +1748,8 @@ def _thesis_validation_errors(workspace: Path, ticker: str, asof: date) -> list[
         document = load_thesis(thesis_path)
     except ThesisError as error:
         return [str(error).splitlines()[0]]
+    if document.input_snapshot.ticker != ticker:
+        return [f"thesis ticker {document.input_snapshot.ticker} does not match case {ticker}"]
     if document.input_snapshot.as_of != asof:
         return [
             (

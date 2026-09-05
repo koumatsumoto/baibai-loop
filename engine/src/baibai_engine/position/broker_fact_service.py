@@ -54,7 +54,7 @@ def build_broker_fact_draft(
     if len(requested_ids) > 1 and status not in {"cancelled", "expired"}:
         raise ValueError("multiple reservation_ids require a terminal broker fact")
 
-    source = ledger_service.load()
+    source, expected_head = ledger_service.load_with_head()
     reservations = reservation_snapshots(replay_events_through(source.events, source.as_of))
     reservations_by_id = {item.reservation_id: item for item in reservations}
     released_ids = {
@@ -120,7 +120,7 @@ def build_broker_fact_draft(
     return (
         LedgerDraft(
             kind="broker-fact",
-            expected_head=ledger_service.append_head(),
+            expected_head=expected_head,
             source=source,
             replacement=result.document,
             confirmation_required=True,

@@ -174,12 +174,10 @@ class _RemotePublication:
     bytes this run sealed are the bytes the store now holds. An object that was
     already present is proved by its identity metadata, which was bound to its bytes
     by Content-MD5 on the immutable write, and by the reader, which fails closed on
-    the SHA-256 of everything it uses. ``verify_bytes`` turns the full stream back on
-    for an audit that deliberately pays for it.
+    the SHA-256 of everything it uses.
     """
 
     store: ObjectStore
-    verify_bytes: bool = False
     verified: dict[str, tuple[str, int, str]] = field(default_factory=dict)
     manifest_payloads: dict[str, bytes] = field(default_factory=dict)
     uploaded_objects: int = 0
@@ -266,7 +264,7 @@ class _RemotePublication:
             or remote.content_type != content_type
         ):
             raise LakePublishError(f"remote object metadata postcondition failed: {key}")
-        if read_back or self.verify_bytes:
+        if read_back:
             self._require_bytes(
                 key=key, expected_sha256=expected_sha256, expected_size=expected_size
             )
@@ -413,12 +411,11 @@ def publish_l1_release(
     mirror_root: Path,
     release_manifest_path: Path,
     store: ObjectStore,
-    verify_bytes: bool = False,
     pointer_precondition: PointerPrecondition | None = None,
     expected_release_sha256: str | None = None,
 ) -> PublishReport:
     """Upload immutable graph nodes, then atomically switch the one mutable pointer."""
-    publication = _RemotePublication(store=store, verify_bytes=verify_bytes)
+    publication = _RemotePublication(store=store)
     pointer_key = lake_current_l1_pointer_key()
     if pointer_precondition is None:
         initial = publication.head(pointer_key)
@@ -887,14 +884,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mirror", type=Path)
     parser.add_argument("--release-manifest", type=Path, required=True)
     parser.add_argument("--bucket", default="baibai-stores")
-    parser.add_argument(
-        "--verify-bytes",
-        action="store_true",
-        help=(
-            "stream every reachable object back and hash it; this is the tamper audit, "
-            "not the publication path, and it moves the whole closure"
-        ),
-    )
+
     return parser
 
 
@@ -922,7 +912,6 @@ def main(argv: list[str] | None = None) -> int:
             release_manifest_path=args.release_manifest,
             expected_release_sha256=release_sha256,
             store=store,
-            verify_bytes=args.verify_bytes,
             pointer_precondition=serving.precondition,
         )
     except (OSError, ValueError, LakePublishError) as error:

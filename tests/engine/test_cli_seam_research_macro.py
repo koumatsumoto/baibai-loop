@@ -33,6 +33,8 @@ from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
 from baibai_engine.macro.indicators.cli import main as macro_main
+from baibai_engine.operation.models import OperationPayload
+from baibai_engine.operation.service import OperationService
 from baibai_engine.research.capital_allocation import (
     CapitalAllocationAssessment,
     capital_allocation_draft_sha256,
@@ -104,6 +106,17 @@ def _publish_research_triage(db_path: Path) -> str:
     ResearchTriageService(db_path).publish(
         research_triage,
         review_set=PublishedReviewSet.model_validate(review_set),
+    )
+    OperationService(db_path).start(
+        session_kind="capital-allocation",
+        as_of=PUBLISHED_AT.date(),
+        started_at=PUBLISHED_AT,
+        payload=OperationPayload(
+            checkpoint="human selection",
+            artifacts=(
+                {"kind": "research_triage", "ref": RESEARCH_TRIAGE_ID, "research_set": ["2331"]},
+            ),
+        ),
     )
     return RESEARCH_TRIAGE_ID
 

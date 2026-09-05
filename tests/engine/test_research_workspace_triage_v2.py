@@ -106,7 +106,8 @@ def test_prepare_and_status_need_only_published_triage_id(
     assert not (workspace / "review-set.yaml").exists()
     manifest = yaml.safe_load((workspace / "manifest.yaml").read_text())
     assert "tool_version" not in manifest
-    comparison = yaml.safe_load((workspace / "research-comparison.yaml").read_text())
+    assert not (workspace / "research-comparison.yaml").exists()
+    comparison = yaml.safe_load((workspace / "research-workspace.yaml").read_text())
     assert comparison["er_realized_distribution_context"] == {
         "status": "unavailable",
         "reason": "missing_artifact",
@@ -279,3 +280,177 @@ def test_thesis_scaffold_uses_v3_and_only_general_research_checks() -> None:
         "valuation.fair_value_and_required_cagr",
         "judgment.strongest_countercase",
     ]
+
+
+def _authored_case(workspace: Path, ticker: str, recommendation: str) -> None:
+    from baibai_engine.research.thesis import (
+        ThesisDocument,
+        ThesisReview,
+        thesis_core_hash,
+        thesis_review_hash,
+    )
+
+    fixture = Path("tests/fixtures/thesis")
+    raw = yaml.safe_load(
+        (fixture / "2331-decision.yaml")
+        .read_text()
+        .replace("2331", ticker)
+        .replace("2026-07-03", "2026-07-19")
+    )
+    review = yaml.safe_load(
+        (fixture / "2331-decision-review.yaml")
+        .read_text()
+        .replace("2331", ticker)
+        .replace("2026-07-03", "2026-07-19")
+    )
+    review_name = f"2026-07-19-{ticker}-decision-review.yaml"
+    raw["independent_review_ref"] = review_name
+    raw["judgment"]["recommendation"] = recommendation
+    raw["human_evidence_override"] = None
+    core = thesis_core_hash(ThesisDocument.model_validate(raw))
+    review["reviewed_thesis_sha256"] = core
+    if recommendation == "buy":
+        override = yaml.safe_load((fixture / "2331-decision.yaml").read_text())[
+            "human_evidence_override"
+        ]
+        override.update(
+            approved_at="2026-07-19T10:30:00+09:00",
+            thesis_sha256=core,
+            review_id=review["review_id"],
+            review_sha256=thesis_review_hash(ThesisReview.model_validate(review)),
+        )
+        raw["human_evidence_override"] = override
+    directory = workspace / ticker
+    directory.mkdir(exist_ok=True)
+    (directory / "thesis-draft.yaml").write_text(yaml.safe_dump(raw))
+    (directory / review_name).write_text(yaml.safe_dump(review))
+    (directory / "research-checklist.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "checks": [
+                    {"check_id": item, "status": "complete"}
+                    for item in workspace_module.CHECKLIST_IDS
+                ],
+            }
+        )
+    )
+
+
+@pytest.mark.parametrize("recommendations", [("buy", "reject"), ("defer", "reject")])
+def test_all_cases_promote_without_a_winner_and_status_tracks_exact_publication(
+    tmp_path: Path, recommendations: tuple[str, str]
+) -> None:
+    db = tmp_path / "app.sqlite"
+    triage = _publish_triage(db, second_research=True)
+    workspace = tmp_path / "workspace"
+    prepare_workspace(
+        research_triage_id=triage.research_triage_id,
+        db_path=db,
+        workspace=workspace,
+        research_set=("2331", "0001"),
+    )
+    status = compute_status(workspace, db_path=db)
+    assert [case["ticker"] for case in status["cases"]] == ["2331", "0001"]
+    assert all(case["status"] == "incomplete" for case in status["cases"])
+    assert "selected_ticker" not in status
+    assert not (workspace / "research-comparison.yaml").exists()
+    for ticker, recommendation in zip(("2331", "0001"), recommendations, strict=True):
+        _authored_case(workspace, ticker, recommendation)
+    assert all(
+        case["status"] == "ready_for_promotion"
+        for case in compute_status(workspace, db_path=db)["cases"]
+    )
+    now = datetime.fromisoformat("2026-07-19T12:00:00+09:00")
+    workspace_module.promote(
+        workspace=workspace,
+        ticker="0001",
+        db_path=db,
+        thesis_id="thesis-second",
+        supersedes_id=None,
+        now=now,
+    )
+    status = compute_status(workspace, db_path=db)
+    assert [case["status"] for case in status["cases"]] == ["ready_for_promotion", "published"]
+    workspace_module.promote(
+        workspace=workspace,
+        ticker="2331",
+        db_path=db,
+        thesis_id="thesis-first",
+        supersedes_id=None,
+        now=now,
+    )
+    status = compute_status(workspace, db_path=db)
+    assert status["workspace_status"] == "published"
+    assert status["next_action"] is None
+    assert [case["thesis_id"] for case in status["cases"]] == ["thesis-first", "thesis-second"]
+    # Re-prepare keeps authored drafts; status derives publication without a local journal.
+    authored = (workspace / "2331/thesis-draft.yaml").read_bytes()
+    prepare_workspace(
+        research_triage_id=triage.research_triage_id,
+        db_path=db,
+        workspace=workspace,
+        research_set=("2331", "0001"),
+        force=True,
+    )
+    assert (workspace / "2331/thesis-draft.yaml").read_bytes() == authored
+    assert compute_status(workspace, db_path=db)["workspace_status"] == "published"
+    review_path = workspace / "0001/2026-07-19-0001-decision-review.yaml"
+    review = yaml.safe_load(review_path.read_text())
+    review["reviewed_thesis_sha256"] = "0" * 64
+    review_path.write_text(yaml.safe_dump(review))
+    assert compute_status(workspace, db_path=db)["cases"][1]["status"] == "ready_for_review"
+    with pytest.raises(ResearchWorkspaceDataError, match="stale"):
+        workspace_module.promote(
+            workspace=workspace,
+            ticker="0001",
+            db_path=db,
+            thesis_id=None,
+            supersedes_id=None,
+            now=now,
+        )
+
+
+def test_holding_workspace_has_one_ledger_subject_without_comparison(tmp_path: Path) -> None:
+    db = tmp_path / "app.sqlite"
+    _publish_triage(db)
+    workspace = tmp_path / "holding"
+    workspace_module.prepare_holding_workspace(
+        db_path=db, workspace=workspace, ticker="2331", asof=date(2026, 7, 11)
+    )
+    assert not (workspace / "research-comparison.yaml").exists()
+    status = compute_status(workspace, db_path=db)
+    assert [case["ticker"] for case in status["cases"]] == ["2331"]
+    assert status["research_triage"]["research_triage_id"] is None
+    path = workspace / "research-workspace.yaml"
+    document = yaml.safe_load(path.read_text())
+    document["research_set"] = ["0001"]
+    path.write_text(yaml.safe_dump(document))
+    with pytest.raises(ResearchWorkspaceDataError, match="holding subject fixed"):
+        compute_status(workspace, db_path=db)
+
+
+def test_same_core_with_edited_override_is_not_the_published_draft(tmp_path: Path) -> None:
+    db = tmp_path / "app.sqlite"
+    triage = _publish_triage(db)
+    workspace = tmp_path / "workspace"
+    prepare_workspace(
+        research_triage_id=triage.research_triage_id,
+        db_path=db,
+        workspace=workspace,
+        research_set=("2331",),
+    )
+    _authored_case(workspace, "2331", "buy")
+    workspace_module.promote(
+        workspace=workspace,
+        ticker="2331",
+        db_path=db,
+        thesis_id="thesis-original",
+        supersedes_id=None,
+        now=datetime.fromisoformat("2026-07-19T12:00:00+09:00"),
+    )
+    assert compute_status(workspace, db_path=db)["workspace_status"] == "published"
+    path = workspace / "2331/thesis-draft.yaml"
+    draft = yaml.safe_load(path.read_text())
+    draft["human_evidence_override"]["reason"] = "different human acknowledgement"
+    path.write_text(yaml.safe_dump(draft))
+    assert compute_status(workspace, db_path=db)["cases"][0]["status"] == "ready_for_promotion"

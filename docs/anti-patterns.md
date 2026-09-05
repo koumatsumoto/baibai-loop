@@ -11,12 +11,12 @@ status: active
 review checklistである。変更対象に対応する`AP-*`を作業前、commit前、PR前に確認し、全`AP-*`の
 全文読了は要求しない。macro contextまたはresearchを書く場合も、対応する節を先に読む。
 
-各節は次の順で読む。
+関連節は「Commit前に止める条件」を先に確認し、判断に必要な代表例・理由を読む。
 
 1. `AP-*`見出し: 防ぐRisk
-2. 「異なる失敗類型の代表例」: 同じRiskが現れた実例。網羅一覧ではない
-3. 「発生理由」: checklistが必要な理由
-4. 「Commit前に止める条件」: 変更に該当する項目をすべて確認する
+2. 「Commit前に止める条件」: 変更に該当する項目をすべて確認する
+3. 「異なる失敗類型の代表例」: 同じRiskが現れた実例。網羅一覧ではない
+4. 「発生理由」: checklistが必要な理由
 
 個別fieldの厳密な契約は、各節が示すowner、model、testを正本とする。この文書は契約を再定義せず、
 見落としやすい確認観点を所有する。新しいwrite-time validation ruleを追加するときは、同じfailureを
@@ -137,6 +137,16 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 
 ## 4. AP-04: schema / 実装の意味を読まずに推測で解釈する
 
+### Commit前に止める条件
+
+- [ ] screening run / macro context / research の field を新規に解釈・記述する前に、対応する
+      engine modelとpublic CLI contractを読み返したか
+- [ ] 計算系 field (percentile / rank / change / hit) は src 実装 (`engine/src/baibai_engine/screening/`)
+      で計算ロジックを確認したか
+- [ ] DB publication viewとmodelに従い、独自構造を勝手に追加していないか
+- [ ] `extra: forbid` の model に独自 key を追加していないか
+- [ ] Position Review / portfolio outcomeがledger・thesis・benchmark observationのimmutable IDとscalar driftを検証しているか
+
 ### 異なる失敗類型の代表例
 - Screening RunのSecurity Analysisにある `sector_relative_strength_percentile: 1.0` を「同業種内で最も強い銘柄」と
   解釈。実装は `_rank_to_percentiles` で sector level の rank (electronics sector が全 33
@@ -148,16 +158,6 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - field 名から意味を「だろう」で推測する
 - engine model / 実装コードを読み直さない
 - 既存サンプルとの diff を意識しない
-
-### Commit前に止める条件
-
-- [ ] screening run / macro context / research の field を新規に解釈・記述する前に、対応する
-      engine modelとpublic CLI contractを読み返したか
-- [ ] 計算系 field (percentile / rank / change / hit) は src 実装 (`engine/src/baibai_engine/screening/`)
-      で計算ロジックを確認したか
-- [ ] DB publication viewとmodelに従い、独自構造を勝手に追加していないか
-- [ ] `extra: forbid` の model に独自 key を追加していないか
-- [ ] Position Review / portfolio outcomeがledger・thesis・benchmark observationのimmutable IDとscalar driftを検証しているか
 
 ## 5. AP-05: fact 層と分析層の境界を曖昧にする
 
@@ -226,23 +226,6 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 
 ## 8. AP-08: schema validator の抜け道を意識しない
 
-### 異なる失敗類型の代表例
-- `adv_participation_pct: 0.585` (100 倍ズレ) を validator が catch しなかった
-- 当初の整合チェックを `avg_turnover_oku` 不在時には silently skip するように実装、
-  required field 化を忘れた → 抜け道残存
-- schema 管理している nested object が未知 field を許しており、current contract 以外の値を取り込めた
-- `judgment.recommendation: reject` のthesisに買い注文が紐づき、非採用判断と矛盾していた
-- `except TypeError, ValueError:` のような Python 2 風に見える except をめぐって、レビューで
-  「構文エラー」なのか「Python 3.14 の PEP 758 による複数例外捕捉」なのかが混乱した。
-  本 repo では可読性とレビュー容易性を優先し、複数例外捕捉は `except (A, B):` に統一する
-
-### 発生理由
-- validator を「データが揃っている前提」で実装し、欠損時の挙動を「skip」にする
-- corner case (rejected / deferred / 0 値 / null) のテストを書かない
-- unresolved cohort を aggregate から silent drop し、coverage が完全であるかのように扱う
-- ユーザ指摘で初めて抜け道に気付く
-- runtime / formatter target の違いを確認せず、構文レビューと formatter 挙動を推測で判断する
-
 ### Commit前に止める条件
 
 #### 共通validator
@@ -259,7 +242,11 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 
 #### 判断・operation境界
 
-- [ ] 人間確認なしで完了できる operation 分岐は、専用の completion reason と canonical artifact evidence を必須にし、`not applicable` 等を human confirmation field へ書く抜け道、別 session kind での流用、evidence 件数の矛盾を negative test で拒否するか
+- [ ] Assessmentのscaffold / check / publishがactive Operationのexact Triage・人間確定Research Set全体と一致し、checkpointでそのbindingを削除・差替えできないか。候補の欠落・混入・別Triage・別Operationをnegative testで拒否したか
+- [ ] Planning Limitはcanonical allocate Assessmentから対象Thesis / recorded core / Reviewを解決し、見送りAssessment・未知ID・local Thesis差替えで注文案を作れないか。broker factだけで検証して人間への注文案生成を素通しにしていないか
+- [ ] capital-allocation完了は開始時のTriage・Research Setに一致する公開済みAssessmentを同じtransactionで検証し、任意artifact・未公開ID・別cycleの判断ではactiveのまま拒否するか
+
+- [ ] 空Research SetではOperationを作らず、通常Operationの完了には人間確認を必須にするか。過去の`no-research` payloadは読み取れ、新規start / checkpoint / completeでは拒否するnegative testがあるか
 - [ ] macro context の確率検証は float 等値比較でなく整数化算術で書き、値がある場合の境界（0.00 / 0.95 / 刻み外 / 部分欠落）を negative test で塞ぐ。散文品質を cardinality や token matching で代理判定する gate を足していないか
 - [ ] ledger eventを導入・変更する場合、reservationとbuy execution、terminal orderとrelease、cash不足、guard超過、expiry後のbuy、保有超過sellをhard errorとして確認したか
 - [ ] concentrationはholding market value + active reservationをledgerの`total_capital_yen`で割り、warning + 期限付きoverrideとして扱うことを確認したか
@@ -512,23 +499,24 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
   - [ ] label と根拠数値の不整合が catch されるか
   - [ ] `regime` key 欠落のような partial mapping が `required` 違反として catch されるか
 
-## 9. AP-09: 外部AI・broker事実・canonical stateを無検証で取り込む
-
 ### 異なる失敗類型の代表例
-- research 対象銘柄なのに、会社IRを読まず、screening 数値や外部分析だけで採用 / 見送り判断を書く
-- 別AIの分析にある EPS 前提、OpenAI 連携日、AI 関連売上、同業倍率、休場日などを、
-  会社IR・取引所・screening run出力で再確認せず research / trade に取り込む
-- 「分析の方向性は合っている」ことと「thesis に事実として残せる」ことを混同する
-- 直前の `rejected` 判定、最新screening run出力からの不在、universe drop、macro context headwind などの
-  system output を、override log なしに外部分析で上書きする
-- 祝日中の成行注文を約定済み entry として記録し、entry price を推定で埋める
+- `adv_participation_pct: 0.585` (100 倍ズレ) を validator が catch しなかった
+- 当初の整合チェックを `avg_turnover_oku` 不在時には silently skip するように実装、
+  required field 化を忘れた → 抜け道残存
+- schema 管理している nested object が未知 field を許しており、current contract 以外の値を取り込めた
+- `judgment.recommendation: reject` のthesisに買い注文が紐づき、非採用判断と矛盾していた
+- `except TypeError, ValueError:` のような Python 2 風に見える except をめぐって、レビューで
+  「構文エラー」なのか「Python 3.14 の PEP 758 による複数例外捕捉」なのかが混乱した。
+  本 repo では可読性とレビュー容易性を優先し、複数例外捕捉は `except (A, B):` に統一する
 
 ### 発生理由
-- 外部 AI の整った文章を監査済み資料のように扱う
-- research 対象は全銘柄で会社IR確認が必須、という前提が弱い
-- source URL が貼られていても、一次情報か二次情報か、本文中に数値が存在するかを確認しない
-- system output を上書きする行為を一級の decision として記録していない
-- Capital Allocation Assessment、人間報告、ledger eventの境界を曖昧にし、未報告broker状態を推定する
+- validator を「データが揃っている前提」で実装し、欠損時の挙動を「skip」にする
+- corner case (rejected / deferred / 0 値 / null) のテストを書かない
+- unresolved cohort を aggregate から silent drop し、coverage が完全であるかのように扱う
+- ユーザ指摘で初めて抜け道に気付く
+- runtime / formatter target の違いを確認せず、構文レビューと formatter 挙動を推測で判断する
+
+## 9. AP-09: 外部AI・broker事実・canonical stateを無検証で取り込む
 
 ### Commit前に止める条件
 
@@ -558,6 +546,22 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] fallback price observation は `decision_event_id`、`tracking_horizon`、`target_date`、`resolved_trade_date`、`price_basis`、`source_url`、`fetched_at`、`corporate_action_checked`、`same_basis_group_id`、`provisional` を持ち、basis 不一致を確定評価に使っていないか
 - [ ] 外部市場予測 (例: Gartner / IDC / 証券サイトの同業倍率) は、今回の canonical fact として
       採用するなら macro context / research の source として明示し、未確認なら「判断補助・未採用」として分離したか
+
+### 異なる失敗類型の代表例
+- research 対象銘柄なのに、会社IRを読まず、screening 数値や外部分析だけで採用 / 見送り判断を書く
+- 別AIの分析にある EPS 前提、OpenAI 連携日、AI 関連売上、同業倍率、休場日などを、
+  会社IR・取引所・screening run出力で再確認せず research / trade に取り込む
+- 「分析の方向性は合っている」ことと「thesis に事実として残せる」ことを混同する
+- 直前の `rejected` 判定、最新screening run出力からの不在、universe drop、macro context headwind などの
+  system output を、override log なしに外部分析で上書きする
+- 祝日中の成行注文を約定済み entry として記録し、entry price を推定で埋める
+
+### 発生理由
+- 外部 AI の整った文章を監査済み資料のように扱う
+- research 対象は全銘柄で会社IR確認が必須、という前提が弱い
+- source URL が貼られていても、一次情報か二次情報か、本文中に数値が存在するかを確認しない
+- system output を上書きする行為を一級の decision として記録していない
+- Capital Allocation Assessment、人間報告、ledger eventの境界を曖昧にし、未報告broker状態を推定する
 
 ## 10. AP-10: hot path の YAML 読み込みを pure-Python loader で書く
 
@@ -791,6 +795,26 @@ panel 70 列・forward 16 列と、local SQLite 4 store の全 table を 1 回�
 
 ## 14. AP-14: 実装が追い越した記述を、追い越された日に直さない
 
+### Commit前に止める条件
+
+- [ ] 実装の前提・境界・数値を変えたら、その契約を述べている file を**主張の語**で `rg` する。
+      触った file の中も端から端まで見る（同じ file の中に古い値が残るのが最頻）
+- [ ] 「〜まで」「〜時点で」「〜になったら」を書くなら、**その条件が満たされたときに何を直すか**を
+      同じ段落に書く。書けないならその条件は書かない
+- [ ] 計測値を doc へ置くときは失効条件を併記し、条件は機械で判定できる形にする
+      （実装 digest・schema version・行数）。失効した値は消すのではなく**取り直す**
+- [ ] 同じ数値・同じ契約が複数 doc にあるなら 1 つを正本にし、他は参照にする
+- [ ] doc の契約を直したら、同じ契約が**コードの comment / docstring** にも書かれていないか確認する
+      （`margin_*` の source 規則は reference と `calibration/panel.py` の両方にあった）
+- [ ] 手順の正本を書いたら、その障害の**入口から辿れるか**を確認する。runbook を書いても運用 skill
+      から link が無ければ、operator は届かない
+
+### 機械検査を置かない理由
+
+doc の主張を一般に機械照合することはできない。機械化できる下位ケース（実装 digest に結んだ計測値）に
+gate を置くと、`models.py` のような日常的に触る file を変更するたびに数分の再計測を要求することに
+なり、発生頻度に対して釣り合わない。ここは検査でなくチェックリストで持つ。
+
 ### 異なる失敗類型の代表例
 
 - `architecture.md` が lineage の retained kind として `l1_release` を挙げた直後に「L1 release は
@@ -814,26 +838,6 @@ panel 70 列・forward 16 列と、local SQLite 4 store の全 table を 1 回�
   file 名では見つからず、主張の語（「union」「同時」「本」「戻る」）でしか引けない
 - 数値は「いつ信じてはいけないか」を併記しないと、古くなったことが誰にも観測できない
 - 同じ事実が 2 か所以上にあると、片方だけが直る。正本を決めていないと、どちらが古いか判らない
-
-### Commit前に止める条件
-
-- [ ] 実装の前提・境界・数値を変えたら、その契約を述べている file を**主張の語**で `rg` する。
-      触った file の中も端から端まで見る（同じ file の中に古い値が残るのが最頻）
-- [ ] 「〜まで」「〜時点で」「〜になったら」を書くなら、**その条件が満たされたときに何を直すか**を
-      同じ段落に書く。書けないならその条件は書かない
-- [ ] 計測値を doc へ置くときは失効条件を併記し、条件は機械で判定できる形にする
-      （実装 digest・schema version・行数）。失効した値は消すのではなく**取り直す**
-- [ ] 同じ数値・同じ契約が複数 doc にあるなら 1 つを正本にし、他は参照にする
-- [ ] doc の契約を直したら、同じ契約が**コードの comment / docstring** にも書かれていないか確認する
-      （`margin_*` の source 規則は reference と `calibration/panel.py` の両方にあった）
-- [ ] 手順の正本を書いたら、その障害の**入口から辿れるか**を確認する。runbook を書いても運用 skill
-      から link が無ければ、operator は届かない
-
-### 機械検査を置かない理由
-
-doc の主張を一般に機械照合することはできない。機械化できる下位ケース（実装 digest に結んだ計測値）に
-gate を置くと、`models.py` のような日常的に触る file を変更するたびに数分の再計測を要求することに
-なり、発生頻度に対して釣り合わない。ここは検査でなくチェックリストで持つ。
 
 ## 15. 正本・test・reference
 

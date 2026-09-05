@@ -130,7 +130,7 @@ retention rootはL1 current releaseだけである。そこから到達できる
 stagingだけをgrace期間後の候補にする。
 
 ```bash
-uv run baibai-engine lake inventory --mirror stores
+uv run baibai-engine lake inventory --root stores
 uv run baibai-engine lake gc --mirror stores
 uv run baibai-engine lake gc --mirror stores --apply --plan-hash <hash>
 ```

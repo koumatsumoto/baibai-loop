@@ -94,7 +94,7 @@ def _complete_payload(kind: SessionKind) -> OperationPayload:
     return OperationPayload.model_validate(values)
 
 
-@pytest.mark.parametrize("kind", SESSION_KINDS)
+@pytest.mark.parametrize("kind", ["position-review"])
 def test_each_kind_resumes_same_row_completes_and_next_occurrence_gets_new_row(
     tmp_path: Path,
     kind: SessionKind,
@@ -180,296 +180,58 @@ def test_complete_rejects_missing_kind_specific_final_fields(
     assert service.get(operation.operation_id).status == "active"
 
 
-def test_capital_allocation_with_no_research_triage_selection_completes_without_human_confirmation(
-    tmp_path: Path,
-) -> None:
-    service = OperationService(tmp_path / "app.sqlite")
-    operation = service.start(
-        session_kind="capital-allocation",
-        as_of=date(2026, 7, 19),
-        started_at=NOW,
-        payload=_active_payload(),
-    )
-    with connect_rw(tmp_path / "app.sqlite") as connection:
-        connection.execute(
-            """
-            INSERT INTO research_triage (
-                research_triage_id, review_set_id, run_revision_id, as_of, published_at, payload
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                "research_triage-1",
-                "review-set-1",
-                "run-1",
-                "2026-07-19",
-                NOW.isoformat(),
-                json.dumps(
-                    {
-                        "kind": "research_triage",
-                        "research_triage_id": "research_triage-1",
-                        "as_of": "2026-07-19",
-                        "entries": [{"ticker": "2331", "decision": "skip"}],
-                    }
-                ),
-            ),
-        )
-    payload = OperationPayload(
-        checkpoint="research_triage cycle complete",
-        artifacts=({"kind": "research_triage", "ref": "research_triage-1", "research_count": 0},),
-        canonical_refs=("research_triage-1",),
-        completion_reason="no-research",
-        result="no candidate was admitted to the Research Set",
-        next="wait for the next capital-allocation trigger",
-    )
-
-    completed = service.complete(operation.operation_id, payload, completed_at=NOW)
-
-    assert completed.status == "completed"
-    assert completed.payload.human_confirmation is None
-    assert completed.payload.completion_reason == "no-research"
-
-
-@pytest.mark.parametrize(
-    "payload",
-    [
-        OperationPayload(
-            checkpoint="final",
-            artifacts=(
-                {"kind": "research_triage", "ref": "research_triage-1", "research_count": 1},
-            ),
-            canonical_refs=("research_triage-1",),
-            completion_reason="no-research",
-            result="done",
-            next="wait",
-        ),
-        OperationPayload(
-            checkpoint="final",
-            artifacts=(
-                {"kind": "research_triage", "ref": "research_triage-1", "research_count": 0},
-            ),
-            canonical_refs=("research_triage-1",),
-            human_confirmation={"request": "confirm", "result": "not applicable"},
-            completion_reason="no-research",
-            result="done",
-            next="wait",
-        ),
-    ],
-)
-def test_no_research_triage_selection_completion_rejects_false_evidence(
-    tmp_path: Path,
-    payload: OperationPayload,
-) -> None:
-    service = OperationService(tmp_path / "app.sqlite")
-    operation = service.start(
-        session_kind="capital-allocation",
-        as_of=date(2026, 7, 19),
-        started_at=NOW,
-        payload=_active_payload(),
-    )
-
-    with pytest.raises(OperationCompletionError):
-        service.complete(operation.operation_id, payload, completed_at=NOW)
-
-
-def test_no_research_triage_selection_reason_is_capital_allocation_only(tmp_path: Path) -> None:
-    service = OperationService(tmp_path / "app.sqlite")
-    operation = service.start(
-        session_kind="position-review",
-        as_of=date(2026, 7, 19),
-        started_at=NOW,
-        payload=_active_payload(),
-    )
-    payload = OperationPayload(
-        checkpoint="final",
-        artifacts=({"kind": "research_triage", "research_count": 0},),
-        canonical_refs=("research_triage-1",),
-        completion_reason="no-research",
-        result="done",
-        next="wait",
-    )
-
-    with pytest.raises(OperationCompletionError, match="completion_reason"):
-        service.complete(operation.operation_id, payload, completed_at=NOW)
-
-
-@pytest.mark.parametrize(
-    ("research_triage_as_of", "decision", "message"),
-    [
-        (None, None, "canonical ResearchTriage"),
-        ("2026-07-18", "skip", "canonical ResearchTriage"),
-        ("2026-07-19", "research", "zero research entries"),
-    ],
-)
-def test_no_research_triage_selection_completion_checks_the_canonical_publication(
-    tmp_path: Path,
-    research_triage_as_of: str | None,
-    decision: str | None,
-    message: str,
+@pytest.mark.parametrize("kind", SESSION_KINDS)
+def test_no_research_is_readable_history_but_rejected_by_all_writers(
+    tmp_path: Path, kind: SessionKind, subtests: pytest.Subtests
 ) -> None:
     db = tmp_path / "app.sqlite"
     service = OperationService(db)
-    operation = service.start(
-        session_kind="capital-allocation",
-        as_of=date(2026, 7, 19),
-        started_at=NOW,
-        payload=_active_payload(),
-    )
-    if research_triage_as_of is not None and decision is not None:
-        with connect_rw(db) as connection:
-            connection.execute(
-                """
-                INSERT INTO research_triage (
-                    research_triage_id, review_set_id, run_revision_id, as_of, published_at, payload
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    "research_triage-1",
-                    "review-set-1",
-                    "run-1",
-                    research_triage_as_of,
-                    NOW.isoformat(),
-                    json.dumps(
-                        {
-                            "kind": "research_triage",
-                            "research_triage_id": "research_triage-1",
-                            "as_of": research_triage_as_of,
-                            "entries": [{"ticker": "2331", "decision": decision}],
-                        }
-                    ),
-                ),
-            )
-    payload = OperationPayload(
+    historical = OperationPayload(
         checkpoint="final",
-        artifacts=({"kind": "research_triage", "ref": "research_triage-1", "research_count": 0},),
-        canonical_refs=("research_triage-1",),
         completion_reason="no-research",
-        result="none",
-        next="wait",
+        result="all skipped",
+        next="next triage",
+        artifacts=({"kind": "research_triage", "ref": "triage-old", "research_count": 0},),
+        canonical_refs=("triage-old",),
     )
-
-    with pytest.raises(OperationCompletionError, match=message):
-        service.complete(operation.operation_id, payload, completed_at=NOW)
-    assert service.get(operation.operation_id).status == "active"
-
-
-def test_no_research_triage_selection_checks_the_canonical_artifact_reference(
-    tmp_path: Path,
-) -> None:
-    db = tmp_path / "app.sqlite"
-    service = OperationService(db)
+    with pytest.raises(OperationCompletionError, match="read-only history"):
+        service.start(session_kind=kind, as_of=NOW.date(), started_at=NOW, payload=historical)
     operation = service.start(
-        session_kind="capital-allocation",
-        as_of=date(2026, 7, 19),
-        started_at=NOW,
-        payload=_active_payload(),
+        session_kind=kind, as_of=NOW.date(), started_at=NOW, payload=_active_payload()
     )
+    for command, invoke in (
+        ("checkpoint", lambda: service.checkpoint(operation.operation_id, historical)),
+        (
+            "complete",
+            lambda: service.complete(operation.operation_id, historical, completed_at=NOW),
+        ),
+    ):
+        with subtests.test(command=command):
+            with pytest.raises(OperationCompletionError, match="read-only history"):
+                invoke()
+            assert service.get(operation.operation_id) == operation
+    # Seed an already completed row exactly as it was persisted before writer retirement.
     with connect_rw(db) as connection:
         connection.execute(
-            """
-            INSERT INTO research_triage (
-                research_triage_id, review_set_id, run_revision_id, as_of, published_at, payload
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                "research_triage-real",
-                "review-set-1",
-                "run-1",
-                "2026-07-19",
-                NOW.isoformat(),
-                json.dumps(
-                    {
-                        "kind": "research_triage",
-                        "research_triage_id": "research_triage-real",
-                        "as_of": "2026-07-19",
-                        "entries": [{"ticker": "2331", "decision": "skip"}],
-                    }
-                ),
-            ),
+            "UPDATE operation_session SET status='completed', completed_at=?, payload=? "
+            "WHERE operation_id=?",
+            (NOW.isoformat(), historical.model_dump_json(), operation.operation_id),
         )
-    payload = OperationPayload(
-        checkpoint="final",
-        artifacts=(
-            {"kind": "research_triage", "ref": "research_triage-real", "research_count": 0},
-            {"kind": "research_triage", "ref": "research_triage-fake", "research_count": 0},
-        ),
-        canonical_refs=("research_triage-fake",),
-        completion_reason="no-research",
-        result="none",
-        next="wait",
-    )
-
-    with pytest.raises(OperationCompletionError, match="research_triage-fake"):
-        service.complete(operation.operation_id, payload, completed_at=NOW)
-    assert service.get(operation.operation_id).status == "active"
-
-
-def test_no_research_triage_selection_rejects_an_older_zero_selection_revision(
-    tmp_path: Path,
-) -> None:
-    db = tmp_path / "app.sqlite"
-    service = OperationService(db)
-    operation = service.start(
-        session_kind="capital-allocation",
-        as_of=date(2026, 7, 19),
-        started_at=NOW,
-        payload=_active_payload(),
-    )
-    with connect_rw(db) as connection:
-        for research_triage_id, published_at, decision in (
-            ("research_triage-zero", NOW.replace(hour=10), "skip"),
-            ("research_triage-selected", NOW.replace(hour=11), "research"),
-        ):
-            connection.execute(
-                """
-                INSERT INTO research_triage (
-                    research_triage_id, review_set_id, run_revision_id, as_of, published_at, payload
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    research_triage_id,
-                    f"review-set-{research_triage_id}",
-                    f"run-{research_triage_id}",
-                    "2026-07-19",
-                    published_at.isoformat(),
-                    json.dumps(
-                        {
-                            "kind": "research_triage",
-                            "research_triage_id": research_triage_id,
-                            "as_of": "2026-07-19",
-                            "entries": [{"ticker": "2331", "decision": decision}],
-                        }
-                    ),
-                ),
-            )
-    payload = OperationPayload(
-        checkpoint="final",
-        artifacts=(
-            {"kind": "research_triage", "ref": "research_triage-zero", "research_count": 0},
-            {"kind": "research_triage", "ref": "research_triage-selected", "research_count": 1},
-        ),
-        canonical_refs=("research_triage-zero", "research_triage-selected"),
-        completion_reason="no-research",
-        result="none",
-        next="wait",
-    )
-
-    with pytest.raises(OperationCompletionError, match="canonical ResearchTriage"):
-        service.complete(operation.operation_id, payload, completed_at=NOW)
-    assert service.get(operation.operation_id).status == "active"
+    assert service.get(operation.operation_id).payload == historical
+    assert operation_session(db, operation.operation_id) is not None
+    assert len(list_operation_sessions(db)) == 1
 
 
 def test_completed_row_is_immutable_through_service_and_database(tmp_path: Path) -> None:
     db = tmp_path / "app.sqlite"
     service = OperationService(db)
     operation = service.start(
-        session_kind="capital-allocation",
+        session_kind="position-review",
         as_of=date(2026, 7, 19),
         started_at=NOW,
         payload=_active_payload(),
     )
-    service.complete(
-        operation.operation_id, _complete_payload("capital-allocation"), completed_at=NOW
-    )
+    service.complete(operation.operation_id, _complete_payload("position-review"), completed_at=NOW)
 
     with pytest.raises(OperationConflictError, match="immutable"):
         service.checkpoint(operation.operation_id, _active_payload("late update"))

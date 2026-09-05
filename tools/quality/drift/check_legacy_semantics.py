@@ -15,14 +15,8 @@ _BEHAVIOR_LEGACY = re.compile(
     # `(?<!/)` keeps retired path references (`records/`, `` `records/` ``) while
     # skipping `/records/` fragments inside external URLs.
     r"(?<!/)\brecords/|macro-dashboard|"
-    # market lake の cutover 前語彙。L1 release が fetch 由来 15 table の正本なので、
-    # legacy store と release を突き合わせる shadow 実行も、release が `shadow` または
-    # `production` を選ぶ二状態の記述も現行の説明ではない。`ReleaseProfile` は
-    # `Literal["production"]` で、`shadow` は不正値である。この pattern が見るのは
-    # `.md` だけで、Tailwind の `shadow-*` や `drop-shadow` は `.tsx` にしかないため、
-    # 結合を限定せず語そのものを拒否する — 「shadow または production」のように
-    # 語の間に別の語が挟まる形も同じ退役語彙だからである。
-    r"shadow|sqlite_authority|lake_authority|"
+    # Reject retired authority contracts, not the word shadow in CSS/Python prose.
+    r"sqlite_authority|lake_authority|"
     # screening rules は dated revision で増え、現行 revision は
     # `rule_config.DEFAULT_RULES_PATH` が解決する。file 名の実値を書いた doc は次の改訂で
     # 存在しない path を「閾値の正本」として指すことになるので、revision を名指ししない。

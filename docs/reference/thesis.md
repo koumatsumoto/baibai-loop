@@ -117,7 +117,7 @@ maximum_acceptable_entry_price = floor_to_tick(
 )
 ```
 
-日常の寄り前注文案は`baibai-engine research plan-limit`を使う。target session直前の最新完全営業日のJPX raw/unadjusted closeをSQLiteから読み、thesisの最大許容価格とboard lotへ接続する。regular session、realtime quote、板、5分freshnessは要求しない。
+日常の寄り前注文案は`baibai-engine research plan-limit --capital-allocation-assessment-id <ASSESSMENT_ID>`を使う。canonical Assessmentの唯一のallocated alternativeからThesis ID・recorded core hash・Reviewを解決する。`no_allocation / defer`、不明ID、参照不一致は注文案を生成せず拒否する。出力の`decision_reference`は同じAssessment IDであり、local Thesisは入力にしない。target session直前の最新完全営業日のJPX raw/unadjusted closeをSQLiteから読み、thesisの最大許容価格とboard lotへ接続する。regular session、realtime quote、板、5分freshnessは要求しない。
 
 | condition | result |
 | --- | --- |
@@ -125,7 +125,8 @@ maximum_acceptable_entry_price = floor_to_tick(
 | close > max price | `defer` |
 | adjusted-only、non-1 adjustment factor、価格basis不明 | `defer` |
 | 同一tickerのactive reservationあり | `defer`。元注文の再表示と追加注文を区別できないため新規注文を作らない |
-| thesis/review not readyまたはhash mismatch | `defer` |
+| 現時点でthesis/review not ready | `defer` |
+| canonical thesis/review binding mismatch | error |
 
 <a id="core-hash"></a>
 

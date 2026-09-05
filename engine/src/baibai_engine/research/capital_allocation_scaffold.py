@@ -10,6 +10,7 @@ from pathlib import Path
 
 from baibai_engine.appdb.paths import database_path
 from baibai_engine.appdb.read import connect_read_only
+from baibai_engine.operation.research_binding import require_active_research_set
 
 from .capital_allocation import CapitalAllocationConflictError
 from .thesis import require_recorded_identity
@@ -49,6 +50,15 @@ def scaffold_capital_allocation(
         alternatives = [
             _alternative(connection, thesis_id, researchable) for thesis_id in thesis_ids
         ]
+        try:
+            require_active_research_set(
+                connection,
+                research_triage_id=research_triage_id,
+                tickers=(str(item["ticker"]) for item in alternatives),
+                published_at=published_at,
+            )
+        except ValueError as error:
+            raise CapitalAllocationConflictError(str(error)) from error
     macro_context_id = triage.get("macro_context_id")
     return {
         "schema_version": 1,

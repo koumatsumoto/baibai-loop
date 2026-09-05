@@ -29,7 +29,7 @@ export function StocksPage() {
       meta={<div className="flex flex-wrap gap-4"><UpdatedAtBadge value={data.run.generated_at} /><AsOfBadge compact value={data.run.as_of} /><span className="font-mono text-xs text-muted-foreground">分析 {data.run.analyzed_security_count.toLocaleString('ja-JP')} 銘柄</span></div>}
       title="Stocks"
     >
-      <SectionCard description="人間が Research / Skip を判断した発行済み記録" padded title="Research Triage">
+      <SectionCard description="AI が Research / Skip を分類した記録。人間が Research Set を確定する" padded title="Research Triage">
         {data.research_triages.length === 0 ? <p className="text-sm text-muted-foreground">Research Triage はまだ publish されていません。</p> : <div className="flex flex-wrap gap-2">{data.research_triages.map((item) => <Link className="min-w-0 max-w-full" key={item.research_triage_id} to="/research-triage"><Badge className="max-w-full truncate" variant="secondary">{item.research_triage_id}</Badge></Link>)}</div>}
       </SectionCard>
       <SectionCard description="Research Set の thesis を比較した資本配分判断" padded title="Capital Allocation Assessment">

@@ -77,20 +77,16 @@ def test_legacy_semantics_gate_ignores_generated_store_manifests(tmp_path: Path)
     assert check_legacy_semantics.check(tmp_path) == []
 
 
-def test_legacy_semantics_gate_rejects_the_retired_lake_comparison_vocabulary(
+def test_legacy_semantics_gate_rejects_retired_authority_but_allows_technical_prose(
     tmp_path: Path,
 ) -> None:
-    """The L1 release is the authority, so nothing is compared against a legacy side."""
-
     path = tmp_path / "docs" / "reference" / "market-lake.md"
     path.parent.mkdir(parents=True)
-    path.write_text("releaseは`shadow`または`production` profileを宣言し\n", encoding="utf-8")
-
-    # The word is rejected on its own rather than in fixed combinations: the sentence
-    # this gate exists to stop puts `または` between `shadow` and `profile`, so an
-    # adjacency rule would let exactly the drift it was written for back in.
+    path.write_text("CSSのbox-shadowとPythonの変数shadowingを説明する。\n", encoding="utf-8")
+    assert check_legacy_semantics.check(tmp_path) == []
+    path.write_text("`sqlite_authority`を使う。\n", encoding="utf-8")
     assert check_legacy_semantics.check(tmp_path) == [
-        "docs/reference/market-lake.md: obsolete operation instruction 'shadow'"
+        "docs/reference/market-lake.md: obsolete operation instruction 'sqlite_authority'"
     ]
 
 
@@ -555,3 +551,37 @@ def test_duplicate_policy_constant_gate_allows_unrelated_amounts(tmp_path: Path)
     path.parent.mkdir(parents=True)
     path.write_text("10万株、10万件、100001 円、8.5 倍、7.0 年\n", encoding="utf-8")
     assert check_duplicate_constants.check(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    ("options", "valid"),
+    [("--mirror stores", False), ("--root <MIRROR>", True), ("--root=<MIRROR>", True), ("", True)],
+)
+def test_inventory_reference_rejects_unknown_leaf_options(
+    tmp_path: Path, options: str, valid: bool
+) -> None:
+    path = tmp_path / "docs/reference/market-lake.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(f"```bash\nuv run baibai-engine lake inventory {options}\n```\n")
+    errors = check_documented_commands.check(tmp_path)
+    assert (not errors) is valid
+    if not valid:
+        assert "unknown options --mirror" in errors[0]
+
+
+def test_leaf_options_keep_parent_alias_repeatable_negative_and_placeholder_values() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--db")
+    child = parser.add_subparsers().add_parser("run")
+    child.add_argument("--ticker", "-t", action="append", required=True)
+    child.add_argument("--offset")
+    resolved, rest = check_documented_commands._descend(
+        parser,
+        "example",
+        ["--db", "<DB>", "run", "-t", "2331", "--ticker=0001", "--offset", "-1.5"],
+    )
+    assert check_documented_commands._unknown_options(resolved, rest) == []
+    assert check_documented_commands._missing_required(resolved, rest) == []
+    assert check_documented_commands._unknown_options(resolved, ["--typo"]) == ["--typo"]

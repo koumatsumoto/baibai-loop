@@ -47,7 +47,7 @@ def build_event_draft(
     service: LedgerStoreService,
     event: HumanEvent,
 ) -> LedgerDraft:
-    source = service.load()
+    source, expected_head = service.load_with_head()
     raw = source.model_dump(mode="json")
     raw["events"] = sorted(
         [*raw["events"], event.model_dump(mode="json")],
@@ -58,7 +58,7 @@ def build_event_draft(
     reconcile_portfolio(replacement)
     return LedgerDraft(
         kind="event",
-        expected_head=service.append_head(),
+        expected_head=expected_head,
         source=source,
         replacement=replacement,
         confirmation_required=True,
@@ -69,7 +69,7 @@ def build_override_draft(
     service: LedgerStoreService,
     override: HumanOverride,
 ) -> LedgerDraft:
-    source = service.load()
+    source, expected_head = service.load_with_head()
     if any(item.override_id == override.override_id for item in source.overrides):
         raise ValueError(f"duplicate override_id: {override.override_id}")
     replacement = source.model_copy(
@@ -82,7 +82,7 @@ def build_override_draft(
     reconcile_portfolio(replacement)
     return LedgerDraft(
         kind="override",
-        expected_head=service.append_head(),
+        expected_head=expected_head,
         source=source,
         replacement=replacement,
         confirmation_required=True,
@@ -96,7 +96,7 @@ def build_meta_draft(
     estimated_exit_tax_rate_bps: int | None,
     estimated_exit_tax_basis: str | None,
 ) -> LedgerDraft:
-    source = service.load()
+    source, expected_head = service.load_with_head()
     replacement = PortfolioLedgerDocument.model_validate(
         {
             **source.model_dump(mode="json"),
@@ -108,7 +108,7 @@ def build_meta_draft(
     reconcile_portfolio(replacement)
     return LedgerDraft(
         kind="meta",
-        expected_head=service.append_head(),
+        expected_head=expected_head,
         source=source,
         replacement=replacement,
         confirmation_required=True,
@@ -136,7 +136,7 @@ def build_sell_execution_draft(
     binds the sell to the Position Review that judged the reduce / exit.
     """
 
-    source = service.load()
+    source, expected_head = service.load_with_head()
     suffix = _sell_event_suffix(
         occurred_at=occurred_at,
         ticker=ticker,
@@ -190,7 +190,7 @@ def build_sell_execution_draft(
     reconcile_portfolio(replacement)
     return LedgerDraft(
         kind="sell-execution",
-        expected_head=service.append_head(),
+        expected_head=expected_head,
         source=source,
         replacement=replacement,
         confirmation_required=True,

@@ -181,26 +181,6 @@ def test_publication_proves_each_remote_key_once(tmp_path: Path) -> None:
     assert set(graph_heads) == {key for key in store.values if not key.startswith("lake/pointers/")}
 
 
-def test_verify_bytes_streams_the_whole_closure(tmp_path: Path) -> None:
-    mirror, release_path = _release(tmp_path)
-    store = MemoryR2Store()
-    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
-
-    audited = publish_l1_release(
-        mirror_root=mirror,
-        release_manifest_path=release_path,
-        store=store,
-        verify_bytes=True,
-    )
-
-    graph_bytes = sum(
-        len(value.body)
-        for key, value in store.values.items()
-        if not key.startswith("lake/pointers/")
-    )
-    assert audited.transfers.downloaded_bytes > graph_bytes
-
-
 def test_pointer_cas_conflict_leaves_current_unchanged(tmp_path) -> None:
     mirror, release_path = _release(tmp_path)
     store = MemoryR2Store()
@@ -898,30 +878,6 @@ def test_success_response_with_missing_remote_object_stops_before_pointer(
             store=store,
         )
     assert "lake/pointers/l1/current.json" not in store.values
-
-
-def test_verify_bytes_detects_replaced_remote_bytes_and_leaves_the_pointer(
-    tmp_path: Path,
-) -> None:
-    mirror, release_path = _release(tmp_path)
-    store = MemoryR2Store()
-    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
-    pointer = store.values["lake/pointers/l1/current.json"].body
-    key = next(key for key in store.values if key.endswith(".parquet"))
-    value = store.values[key]
-    # Same length and same declared identity: only reading the bytes back can tell.
-    value.body = bytes(len(value.body))
-
-    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
-    with pytest.raises(LakePublishError, match="bytes postcondition"):
-        publish_l1_release(
-            mirror_root=mirror,
-            release_manifest_path=release_path,
-            store=store,
-            verify_bytes=True,
-        )
-
-    assert store.values["lake/pointers/l1/current.json"].body == pointer
 
 
 def test_local_graph_mutation_after_validation_is_rejected(

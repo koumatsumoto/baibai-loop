@@ -24,6 +24,8 @@ from baibai_engine.macro.indicators.db import (
 )
 from baibai_engine.macro.indicators.definitions import load_definitions
 from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH
+from baibai_engine.operation.models import OperationPayload
+from baibai_engine.operation.service import OperationService
 from baibai_engine.research.capital_allocation import (
     CapitalAllocationAssessment,
     capital_allocation_draft_sha256,
@@ -82,6 +84,17 @@ def _insert_research_triage(root: Path, payload: Mapping[str, object]) -> None:
 
 def _publish_assessment(root: Path, *, assessment_id: str, research_triage_id: str) -> None:
     db_path = root / "stores/application/baibai.sqlite"
+    OperationService(db_path).start(
+        session_kind="capital-allocation",
+        as_of=datetime(2026, 7, 9, 12, tzinfo=JST).date(),
+        started_at=datetime(2026, 7, 9, 12, tzinfo=JST),
+        payload=OperationPayload(
+            checkpoint="human selection",
+            artifacts=(
+                {"kind": "research_triage", "ref": research_triage_id, "research_set": ["2331"]},
+            ),
+        ),
+    )
     draft = scaffold_capital_allocation(
         db_path=db_path,
         capital_allocation_assessment_id=assessment_id,
