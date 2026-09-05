@@ -1053,7 +1053,12 @@ def _review_draft_path(workspace: Path, ticker: str, asof: date) -> Path:
 
 
 def _require_primary_research_ticker(
-    workspace: Path, ticker: str, *, action: str, gate: ResearchSetAdmissionBinding | None
+    workspace: Path,
+    ticker: str,
+    *,
+    action: str,
+    gate: ResearchSetAdmissionBinding | None,
+    db_path: Path | None,
 ) -> None:
     research_workspace = _load_mapping(
         workspace / "research-workspace.yaml", label="research workspace"
@@ -1067,6 +1072,18 @@ def _require_primary_research_ticker(
         raise ResearchWorkspaceDataError(
             f"cannot {action} for {ticker}: {gate.research_triage_id} did not mark it research"
         )
+    if gate is not None:
+        active = OperationService(db_path).active()
+        try:
+            if active is None or active.session_kind != "capital-allocation":
+                raise ValueError("active capital-allocation Operation is required")
+            if research_binding(active.payload) != (
+                gate.research_triage_id,
+                frozenset(research_set),
+            ):
+                raise ValueError("workspace Research Set differs from the active Operation binding")
+        except ValueError as error:
+            raise ResearchWorkspaceConflictError(str(error)) from error
 
 
 # --------------------------------------------------------------------------- #
@@ -1093,7 +1110,9 @@ def scaffold_thesis(
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     gate = _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest, gate=gate)
-    _require_primary_research_ticker(workspace, ticker, action="scaffold research", gate=gate)
+    _require_primary_research_ticker(
+        workspace, ticker, action="scaffold research", gate=gate, db_path=db_path
+    )
     asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     purpose = str(manifest.get("purpose") or "fundamental_research")
     screening_estimate: dict[str, object] | None
@@ -1373,7 +1392,9 @@ def scaffold_review(
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     gate = _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest, gate=gate)
-    _require_primary_research_ticker(workspace, ticker, action="scaffold review", gate=gate)
+    _require_primary_research_ticker(
+        workspace, ticker, action="scaffold review", gate=gate, db_path=db_path
+    )
     asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     ticker_dir = _research_ticker_dir(workspace, ticker)
     thesis_path = ticker_dir / "thesis-draft.yaml"
@@ -1473,7 +1494,9 @@ def promote(
     # Every researched ticker earns a canonical thesis, not only the one being bought.
     # A cycle that buys nothing still produced the judgment that says why, and the
     # Capital Allocation Assessment binds each case to a stored immutable thesis.
-    _require_primary_research_ticker(workspace, ticker, action="promote", gate=gate)
+    _require_primary_research_ticker(
+        workspace, ticker, action="promote", gate=gate, db_path=db_path
+    )
 
     manifest_asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     case = _read_case(workspace, ticker, manifest_asof)

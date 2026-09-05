@@ -146,7 +146,17 @@ def test_operation_checkpoint_cli_replaces_the_active_payload(
     db = tmp_path / "app.sqlite"
     assert (
         operation_main(
-            ["--db", str(db), "start", "--kind", "position-review", "--as-of", "2026-07-19"],
+            [
+                "--db",
+                str(db),
+                "start",
+                "--kind",
+                "position-review",
+                "--ticker",
+                "2331",
+                "--as-of",
+                "2026-07-19",
+            ],
             now=OPERATION_NOW,
         )
         == 0

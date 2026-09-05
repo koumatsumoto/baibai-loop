@@ -243,6 +243,8 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 #### 判断・operation境界
 
 - [ ] capital-allocation startが書き込み前に重複のないnon-empty Research Set bindingを要求し、同じ集合の順序変更はresumeできるか
+- [ ] Researchのscaffold/promoteがactive Operationのexact Triage・Research Setをwrite前に再照合し、manifestとworkspace両方の改変でも選択集合を広げられないか。historical statusはactiveなしで読めるか
+- [ ] position-review startはticker必須で、completeは同じtransactionで1件のcanonical Position Reviewのticker/as_ofを照合するか。未公開・未知・複数・別銘柄・別日付の参照はactiveのまま拒否するか
 - [ ] Assessmentのscaffold / check / publishがactive Operationのexact Triage・人間確定Research Set全体と一致し、checkpointでそのbindingを削除・差替えできないか。候補の欠落・混入・別Triage・別Operationをnegative testで拒否したか
 - [ ] Planning Limitはcanonical allocate Assessmentから対象Thesis / recorded core / Reviewを解決し、見送りAssessment・未知ID・local Thesis差替えで注文案を作れないか。broker factだけで検証して人間への注文案生成を素通しにしていないか
 - [ ] capital-allocation完了は開始時のTriage・Research Setに一致する公開済みAssessmentを同じtransactionで検証し、任意artifact・未公開ID・別cycleの判断ではactiveのまま拒否するか
