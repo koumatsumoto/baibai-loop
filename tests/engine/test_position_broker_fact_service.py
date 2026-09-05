@@ -248,3 +248,26 @@ def test_unbound_reservation_is_not_a_runtime_compatibility_path(tmp_path: Path)
             reservation_id="reservation-8929-pending",
             now=expiry + timedelta(days=1),
         )
+
+
+def test_broker_draft_keeps_the_snapshot_head_when_another_write_intervenes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ledger, assessments = _services(tmp_path)
+    intervening, _ = _open_draft(ledger, assessments)
+    assert intervening is not None
+    load_snapshot = ledger.load_with_head
+
+    def load_then_write():
+        snapshot = load_snapshot()
+        apply_draft(ledger, intervening, human_confirmed=True)
+        return snapshot
+
+    monkeypatch.setattr(ledger, "load_with_head", load_then_write)
+    draft, _ = _open_draft(ledger, assessments)
+    monkeypatch.setattr(ledger, "load_with_head", load_snapshot)
+    assert draft is not None
+    assert draft.expected_head == intervening.expected_head
+    assert draft.source == intervening.source
+    with pytest.raises(ValueError, match="stale ledger draft"):
+        apply_draft(ledger, draft, human_confirmed=True)
