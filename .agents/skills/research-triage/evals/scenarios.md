@@ -44,7 +44,7 @@
 
 ## 9. missing machine input
 
-- **入力** — Review Set、candidate snapshot、application storeの欠損または破損。
+- **入力** — Review Set、Review Set Entry snapshot、application storeの欠損または破損。
 - **期待** — model process 0。AIに補完させずcanonical write 0。
 
 ## 10. manual Macro Context trigger
@@ -59,5 +59,5 @@
 
 ## 12. publish conflict
 
-- **入力** — model実行後にReview Set identity、candidate snapshot、またはexpected headが変化。
+- **入力** — model実行後にReview Set identity、Review Set Entry snapshot、またはexpected headが変化。
 - **期待** — canonical write 0。自動補完・random retryを行わず、fresh runを要求する。

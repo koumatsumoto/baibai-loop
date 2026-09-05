@@ -273,10 +273,10 @@ const deltaPoolLabel: Record<DeltaPool, string> = {
 
 // The view names the section a store could not answer; the reader gets it in Japanese.
 const deltaUnavailableLabel: Record<DeltaUnavailable, string> = {
-  candidates: '候補（run なし）',
-  candidates_estimate: '候補の E[r]（pool が見積りを持たない）',
-  candidates_pool: '候補（選定出力なし）',
-  candidates_previous_run: '候補（比較する前 run なし）',
+  screening_run: 'Screening Run（run なし）',
+  previous_screening_run: 'Screening Run（比較する前 run なし）',
+  review_set: 'Review Set（選定出力なし）',
+  review_set_estimate: 'Review Set の E[r]（entry が見積りを持たない）',
   holdings: '保有（ledger なし）',
   holdings_fair_value: '保有の FV（thesis を読めない）',
   market: '市場データ（store なし）',

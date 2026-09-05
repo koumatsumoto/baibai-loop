@@ -6,17 +6,17 @@ from pathlib import Path
 import pytest
 from tests.helpers.fixed_now import FIXED_NOW
 
-from baibai_engine.research.execution_policy import (
-    ExecutionPolicyError,
-    max_acceptable_price,
+from baibai_engine.research.entry_price_policy import (
+    EntryPricePolicyError,
+    maximum_acceptable_entry_price,
 )
 from baibai_engine.research.thesis import (
     ThesisDocument,
-    ThesisResult,
+    ThesisEvaluation,
     UnpublishedThesis,
     evaluate_thesis,
-    load_independent_review,
     load_thesis,
+    load_thesis_review,
 )
 
 ROOT = Path(__file__).parents[2]
@@ -24,11 +24,11 @@ THESIS = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
 REVIEW = ROOT / "tests/fixtures/thesis/2331-decision-review.yaml"
 
 
-def _thesis() -> tuple[ThesisDocument, ThesisResult]:
+def _thesis() -> tuple[ThesisDocument, ThesisEvaluation]:
     document = load_thesis(THESIS)
     result = evaluate_thesis(
         document,
-        review=load_independent_review(REVIEW),
+        review=load_thesis_review(REVIEW),
         now=FIXED_NOW,
         identity=UnpublishedThesis.DRAFT,
     )
@@ -39,7 +39,7 @@ def _thesis() -> tuple[ThesisDocument, ThesisResult]:
 def test_max_price_is_recalculated_from_5y_base_and_required_return() -> None:
     document, _ = _thesis()
 
-    max_price = max_acceptable_price(document, tick_size_yen=Decimal("1"))
+    max_price = maximum_acceptable_entry_price(document, tick_size_yen=Decimal("1"))
 
     assert max_price == 1083
     assert max_price != document.estimates.entry_price_basis_yen
@@ -50,8 +50,8 @@ def test_max_price_floors_to_a_legal_tick_rather_than_rounding_up() -> None:
 
     document, _ = _thesis()
 
-    fine = max_acceptable_price(document, tick_size_yen=Decimal("1"))
-    coarse = max_acceptable_price(document, tick_size_yen=Decimal("100"))
+    fine = maximum_acceptable_entry_price(document, tick_size_yen=Decimal("1"))
+    coarse = maximum_acceptable_entry_price(document, tick_size_yen=Decimal("100"))
 
     assert coarse == 1000
     assert coarse <= fine
@@ -73,12 +73,12 @@ def test_max_price_requires_a_5y_base_scenario() -> None:
         }
     )
 
-    with pytest.raises(ExecutionPolicyError, match="no 5y/base scenario"):
-        max_acceptable_price(without_base, tick_size_yen=Decimal("1"))
+    with pytest.raises(EntryPricePolicyError, match="no 5y/base scenario"):
+        maximum_acceptable_entry_price(without_base, tick_size_yen=Decimal("1"))
 
 
 def test_max_price_rejects_a_tick_size_that_rounds_the_ceiling_away() -> None:
     document, _ = _thesis()
 
-    with pytest.raises(ExecutionPolicyError, match="must remain positive"):
-        max_acceptable_price(document, tick_size_yen=Decimal("100000"))
+    with pytest.raises(EntryPricePolicyError, match="must remain positive"):
+        maximum_acceptable_entry_price(document, tick_size_yen=Decimal("100000"))

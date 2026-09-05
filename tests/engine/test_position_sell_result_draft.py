@@ -77,7 +77,7 @@ def test_sell_draft_apply_reduces_holding_and_realizes_fifo_pnl(
     assert (
         main(
             [
-                "sell-result-draft",
+                "sell-execution-draft",
                 "--root",
                 str(tmp_path),
                 "--db",
@@ -104,7 +104,7 @@ def test_sell_draft_apply_reduces_holding_and_realizes_fifo_pnl(
 
     draft_path = tmp_path / "sell-draft.yaml"
     draft = load_draft(draft_path)
-    assert draft.kind == "sell-result"
+    assert draft.kind == "sell-execution"
     # Draft generation never touches the canonical DB.
     assert draft.expected_head == service.append_head()
     assert _holding(service, "2331").quantity == 200
@@ -185,7 +185,7 @@ def test_cli_rejects_zero_quantity_zero_price_and_negative_fees(tmp_path: Path) 
     db = tmp_path / "app.sqlite"
     _seed(db)
     base = [
-        "sell-result-draft",
+        "sell-execution-draft",
         "--root",
         str(tmp_path),
         "--db",

@@ -33,20 +33,20 @@ _EXPECTED_MARKET_SCHEMA_VERSION = 25
 
 
 @dataclass(frozen=True, slots=True)
-class PreviousClose:
+class UnadjustedCloseObservation:
     close_yen: float
     price_as_of: date
     adjustment_factor: float | None
     corporate_action_unresolved: bool
 
 
-def resolve_previous_business_day_close(
+def read_prior_session_unadjusted_close(
     *,
     sqlite_path: Path,
     ticker: str,
     target_session: date,
     connection: sqlite3.Connection | None = None,
-) -> PreviousClose | None:
+) -> UnadjustedCloseObservation | None:
     """Return the exact previous market-wide session's raw close before target.
 
     ``None`` means no raw close is available (missing store, missing coverage, or an
@@ -100,7 +100,7 @@ def resolve_previous_business_day_close(
         # close would otherwise divide by zero in lot sizing).
         return None
     corporate_action_unresolved = factor is None or not isfinite(factor) or abs(factor - 1.0) > 1e-9
-    return PreviousClose(
+    return UnadjustedCloseObservation(
         close_yen=close_yen,
         price_as_of=price_as_of,
         adjustment_factor=factor,
@@ -108,14 +108,14 @@ def resolve_previous_business_day_close(
     )
 
 
-def resolve_holding_close_on_basis(
+def read_holding_unadjusted_close_on_basis(
     *,
     sqlite_path: Path,
     ticker: str,
     ledger_price_observed_on: date,
     basis_as_of: date,
     connection: sqlite3.Connection | None = None,
-) -> PreviousClose | None:
+) -> UnadjustedCloseObservation | None:
     """Return a holding's raw close only when its ledger-to-basis chain is complete.
 
     Revaluation is safe only when every full-universe market session from the
@@ -182,7 +182,7 @@ def resolve_holding_close_on_basis(
             basis_close = close_yen
     if basis_close is None:
         return None
-    return PreviousClose(
+    return UnadjustedCloseObservation(
         close_yen=basis_close,
         price_as_of=basis_as_of,
         adjustment_factor=1.0,

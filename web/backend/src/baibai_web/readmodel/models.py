@@ -145,9 +145,8 @@ class OperationsView(BaseModel):
 
 class ScreeningRunView(BaseModel):
     run_id: str
-    run_date: date
-    asof_date: date
-    run_at: datetime
+    as_of: date
+    generated_at: datetime
     universe_size: int
     analyzed_security_count: int
     # The revision the review_sets in the same payload bind to; ``run_id`` is the
@@ -359,8 +358,10 @@ class ReviewSetContextView(BaseModel):
     next_earnings_estimated_date: str | None
     margin_short_to_adv: float | None
     tse_capital_policy_status: str | None
-    large_holding_event_recent: bool | None
-    tender_offer_event_recent: bool | None
+    large_holding_filing_within_lookback: bool | None
+    latest_large_holding_filing_date: date | None
+    tender_offer_filing_within_lookback: bool | None
+    latest_tender_offer_filing_date: date | None
 
 
 class ReviewSetAnalysisView(BaseModel):
@@ -392,7 +393,7 @@ class ReviewSetView(BaseModel):
     entries: list[ReviewSetEntryView]
 
 
-class ResearchTriageCandidateSnapshotView(BaseModel):
+class ReviewSetEntrySnapshotView(BaseModel):
     """Machine coordinates frozen into one Research Triage judgment entry."""
 
     name: str | None = None
@@ -411,7 +412,7 @@ class ResearchTriageEntryView(BaseModel):
     key_risk: str | None = None
     # 判断時の機械座標。source run が prune された後もレビュー面が読めるよう、
     # publish 時に judgment へ焼き込まれた値をそのまま返す。
-    candidate_snapshot: ResearchTriageCandidateSnapshotView | None = None
+    review_set_entry_snapshot: ReviewSetEntrySnapshotView | None = None
 
 
 class ResearchTriageView(BaseModel):
@@ -453,7 +454,7 @@ class PositionReviewView(BaseModel):
     position_review_id: str
     as_of: date
     thesis_id: str
-    candidate_thesis_id: str | None
+    replacement_thesis_id: str | None
     action: str
     note: str | None
 
@@ -466,8 +467,8 @@ class SecurityDetailView(BaseModel):
     revisions: list[ResearchRevisionView]
     latest_thesis: ThesisDetailView | None
     position_reviews: list[PositionReviewView]
-    candidate_row: SecurityAnalysisRowView | None
-    candidate_run: ScreeningRunView | None
+    security_analysis: SecurityAnalysisRowView | None
+    screening_run: ScreeningRunView | None
 
 
 class MacroMaterialDeltaView(BaseModel):
@@ -789,7 +790,7 @@ class CapitalAllocationAssessmentSummaryView(BaseModel):
     capital_allocation_assessment_id: str
     as_of: date
     published_at: datetime
-    result: str
+    decision: str
     headline: str
     research_triage_id: str
     alternative_count: int
@@ -800,29 +801,29 @@ class CapitalAllocationAssessmentView(BaseModel):
     capital_allocation_assessment_id: str
     as_of: date
     published_at: datetime
-    result: str
+    decision: str
     headline: str
     research_triage_id: str
     macro_context_id: str | None
     comparison: str
-    forgone: str
+    foregone_alternatives: str
     alternatives: list[AllocationAlternativeView]
-    review: AssessmentReviewView
+    content_review: AssessmentReviewView
 
 
 type DeltaPool = Literal["review_set"]
 type DeltaUnavailable = Literal[
-    "candidates",
-    "candidates_estimate",
-    "candidates_pool",
-    "candidates_previous_run",
+    "screening_run",
+    "previous_screening_run",
+    "review_set",
+    "review_set_estimate",
     "holdings",
     "holdings_fair_value",
     "market",
 ]
 
 
-class CandidateEntryDeltaView(BaseModel):
+class ReviewSetEntryDeltaView(BaseModel):
     """A ticker whose presence in the machine pool changed between two runs.
 
     ``disclosed_since_previous`` is ``null`` when the store that holds disclosure
@@ -835,7 +836,7 @@ class CandidateEntryDeltaView(BaseModel):
     disclosed_since_previous: bool | None
 
 
-class CandidateMoveDeltaView(BaseModel):
+class ReviewSetExpectedReturnDeltaView(BaseModel):
     """A ticker in both pools whose machine E[r] moved most."""
 
     ticker: str
@@ -881,9 +882,9 @@ class DailyDeltaView(BaseModel):
     previous_asof: date | None
     pool: DeltaPool | None
     rules_changed: bool
-    entered: list[CandidateEntryDeltaView]
-    exited: list[CandidateEntryDeltaView]
-    er_moves: list[CandidateMoveDeltaView]
+    entered: list[ReviewSetEntryDeltaView]
+    exited: list[ReviewSetEntryDeltaView]
+    er_moves: list[ReviewSetExpectedReturnDeltaView]
     er_moves_total: int
     holdings: list[HoldingDeltaView]
     holdings_without_fair_value: int

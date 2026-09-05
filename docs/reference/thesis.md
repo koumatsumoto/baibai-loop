@@ -26,7 +26,7 @@ thesisは新規の購入判断と保有見直しの判断根拠を固定する�
 | `estimates` | 判断時に観測した入口価格、要求5年CAGR、model version・仮定を持つ3年/5年bear/base/bull |
 | `judgment` | buy/defer/rejectのAI initial judgment、判断時刻、確信度、永久損失結論、最強反対仮説、sizing |
 
-この4つはdata/judgment namespaceである。`permanent_loss_risks`はjudgmentを構成する軸別評価、`independent_review_ref`は別artifactのsecond-pass review envelopeへの参照、`human_evidence_override`はreview後の人間によるrisk受容としてtop-levelに置く。最終発注判断はbroker操作として人間が所有し、AI judgmentへ混ぜない。
+この4つはdata/judgment namespaceである。`permanent_loss_risks`はjudgmentを構成する軸別評価、persisted `independent_review_ref`は別artifactであるThesis Reviewへの参照、`human_evidence_override`はreview後の人間によるrisk受容としてtop-levelに置く。最終発注判断はbroker操作として人間が所有し、AI judgmentへ混ぜない。
 
 ScreeningのE[r]とFV anchorは決定論的でも事実ではなく、Candidate Discovery後に参照するsecondary machine priorである。candidate出力は`origin: estimate`、model version、unit、assumptionsを併記する。Research後のscenario FVと5年CAGRだけがinvestment judgmentのestimateであり、machine priorを自動採用しない。
 
@@ -112,7 +112,7 @@ break_even_earnings_growth =
 ```text
 terminal_total_value = recalculated_5y_base_terminal_price
                      + cumulative_dividend_per_share_yen
-max_acceptable_price = floor_to_tick(
+maximum_acceptable_entry_price = floor_to_tick(
   terminal_total_value / (1 + required_5y_base_cagr_pct / 100)^5
 )
 ```
@@ -159,7 +159,7 @@ AIはfill probability、当日価格方向、未報告broker状態を推定し�
 
 ## 独立反証
 
-`buy`にはthesisと別ファイルの`independent_review_ref`を必須とする。reviewはcore thesis SHA-256、reviewer identity、review run IDを持ち、別roleが次だけを構造化して返す。
+`buy`にはThesisと別ファイルのThesis Reviewを必須とし、persisted refは`independent_review_ref`として維持する。Thesis Reviewはcore Thesis SHA-256、reviewer identity、review run IDを持ち、別roleが次だけを構造化して返す。
 
 - 6 scenario CAGRの独立再計算
 - 一次source照合状態

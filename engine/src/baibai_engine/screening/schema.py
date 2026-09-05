@@ -46,15 +46,15 @@ def _validate_finite(value: float | None) -> float | None:
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class SecurityMaster:
-    code: Ticker
+    ticker: Ticker
     name: NonEmptyString
     market_segment: NonEmptyString
     sector_33: NonEmptyString
     is_common_stock: bool
 
-    @field_validator("code", mode="before")
+    @field_validator("ticker", mode="before")
     @classmethod
-    def _normalize_code(cls, value: str) -> str:
+    def _normalize_ticker(cls, value: str) -> str:
         return normalize_ticker(value)
 
 
@@ -82,7 +82,7 @@ class UniverseSnapshot:
 class FinancialSnapshot:
     # 本 snapshot が読んだ最新開示の開示日。決算シーズンは「発表済みだが取込前」の窓が
     # 開くので、行の数字がどの開示までを含むかを判断面から読めるようにする。
-    latest_disclosed_at: date | None
+    latest_financial_disclosure_date: date | None
     per_forward: float | None
     per_trailing: float | None
     pbr: float | None
@@ -168,11 +168,11 @@ class FinancialSnapshot:
     ttm_quality_fcf_yield: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_net_cash: TTMQuality = TTMQuality.UNAVAILABLE
     shares_outstanding: float | None = None
-    # D2 accruals = (eps_ttm * shares - cfo_ttm) / average total assets — Sloan
+    # accruals_to_assets = (eps_ttm * shares - cfo_ttm) / average total assets — Sloan
     # 1996. High positive accruals are an earnings-quality flag (reported NI
     # not converting to cash). None if any input is missing.
     accruals_to_assets: float | None = None
-    # D3 net share issuance YoY = (shares_now - shares_prior_year) / shares_prior_year.
+    # net_share_change_yoy = (shares_now - shares_prior_year) / shares_prior_year.
     # Positive = dilution, negative = buyback. None if prior-year share count
     # is missing or zero.
     net_share_change_yoy: float | None = None

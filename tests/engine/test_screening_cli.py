@@ -86,7 +86,7 @@ class FakeJQuantsProvider:
         self.calls.append(("get_eq_master", requested_asof, requested_asof))
         return [
             SecurityMaster(
-                code="130A",
+                ticker="130A",
                 name="Alpha",
                 market_segment="Prime",
                 sector_33="情報・通信業",

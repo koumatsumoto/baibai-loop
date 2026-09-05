@@ -9,11 +9,11 @@ import pytest
 import baibai_engine.macro.indicators.pmi_manifest as tool
 from baibai_engine.macro.indicators.pmi_manifest import (
     STREAM_TITLES,
-    Candidate,
     IndexEntry,
+    ReleaseCandidate,
     _append_verified_entry,
     manifest_with_entry,
-    newest_candidate,
+    newest_release_candidate,
     observed_month_of,
     parse_release_index,
     resolve_stream,
@@ -135,16 +135,18 @@ def test_observed_month_of_is_the_month_before_the_release_is_published() -> Non
     assert observed_month_of(date(2026, 1, 6)) == date(2025, 12, 1)
 
 
-def test_newest_candidate_takes_the_latest_release_the_index_lists_for_the_stream() -> None:
-    candidate = newest_candidate(parse_release_index(_INDEX_HTML), stream="jp_manufacturing")
+def test_newest_release_candidate_takes_the_latest_release_the_index_lists_for_the_stream() -> None:
+    release_candidate = newest_release_candidate(
+        parse_release_index(_INDEX_HTML), stream="jp_manufacturing"
+    )
 
-    assert candidate is not None
-    assert candidate.observed_at == date(2026, 6, 1)
-    assert candidate.url == _JP_MFG_URL
+    assert release_candidate is not None
+    assert release_candidate.observed_at == date(2026, 6, 1)
+    assert release_candidate.url == _JP_MFG_URL
 
 
-def test_newest_candidate_is_none_when_the_index_does_not_list_the_stream() -> None:
-    assert newest_candidate(parse_release_index(_INDEX_HTML), stream="us_services") is None
+def test_newest_release_candidate_is_none_when_the_index_does_not_list_the_stream() -> None:
+    assert newest_release_candidate(parse_release_index(_INDEX_HTML), stream="us_services") is None
 
 
 def test_stream_titles_name_streams_the_manifest_actually_carries() -> None:
@@ -167,7 +169,7 @@ def test_verified_value_refuses_a_release_that_does_not_name_the_month() -> None
         "The S&P Global Japan Manufacturing PMI posted 54.8, up from 54.5, signalling "
         "a further improvement in operating conditions.",
     )
-    candidate = Candidate(
+    release_candidate = ReleaseCandidate(
         stream="jp_manufacturing",
         observed_at=date(2026, 6, 1),
         published_on=date(2026, 7, 1),
@@ -179,7 +181,7 @@ def test_verified_value_refuses_a_release_that_does_not_name_the_month() -> None
         patch.object(tool, "release_text", return_value=text),
         pytest.raises(IndicatorsProviderError, match="no headline value for that month"),
     ):
-        verified_value(candidate, context=context)
+        verified_value(release_candidate, context=context)
 
 
 def test_verified_value_reads_a_release_that_ties_its_headline_to_the_month() -> None:
@@ -188,7 +190,7 @@ def test_verified_value_reads_a_release_that_ties_its_headline_to_the_month() ->
         "The S&P Global Japan Manufacturing PMI posted 54.8 in June, up from 54.5 in May, "
         "signalling a further improvement in operating conditions.",
     )
-    candidate = Candidate(
+    release_candidate = ReleaseCandidate(
         stream="jp_manufacturing",
         observed_at=date(2026, 6, 1),
         published_on=date(2026, 7, 1),
@@ -199,7 +201,7 @@ def test_verified_value_reads_a_release_that_ties_its_headline_to_the_month() ->
         FetchContext(purpose="refresh") as context,
         patch.object(tool, "release_text", return_value=text),
     ):
-        assert verified_value(candidate, context=context) == 54.8
+        assert verified_value(release_candidate, context=context) == 54.8
 
 
 def test_manifest_with_entry_appends_inside_the_stream_it_names() -> None:
@@ -209,14 +211,14 @@ def test_manifest_with_entry_appends_inside_the_stream_it_names() -> None:
     schema cannot catch because both entries are well formed.
     """
 
-    candidate = Candidate(
+    release_candidate = ReleaseCandidate(
         stream="jp_manufacturing",
         observed_at=date(2026, 6, 1),
         published_on=date(2026, 7, 1),
         url=_JP_MFG_URL,
     )
 
-    updated = manifest_with_entry(_MANIFEST, candidate)
+    updated = manifest_with_entry(_MANIFEST, release_candidate)
 
     jp_block, us_block = updated.split("  us_manufacturing:\n")
     assert "2026-06-01" in jp_block
@@ -226,14 +228,14 @@ def test_manifest_with_entry_appends_inside_the_stream_it_names() -> None:
 def test_manifest_with_entry_appends_to_the_last_stream_in_the_file() -> None:
     """The last block ends at the end of the file, not at another stream key."""
 
-    candidate = Candidate(
+    release_candidate = ReleaseCandidate(
         stream="us_manufacturing",
         observed_at=date(2026, 6, 1),
         published_on=date(2026, 7, 1),
         url=_JP_MFG_URL,
     )
 
-    updated = manifest_with_entry(_MANIFEST, candidate)
+    updated = manifest_with_entry(_MANIFEST, release_candidate)
 
     assert updated.endswith(f"    - observed_at: 2026-06-01\n      url: {_JP_MFG_URL}\n")
 
@@ -245,20 +247,20 @@ def test_manifest_with_entry_does_not_join_a_file_whose_last_line_is_unterminate
     destroyed rather than the new one rejected.
     """
 
-    candidate = Candidate(
+    release_candidate = ReleaseCandidate(
         stream="us_manufacturing",
         observed_at=date(2026, 6, 1),
         published_on=date(2026, 7, 1),
         url=_JP_MFG_URL,
     )
 
-    updated = manifest_with_entry(_MANIFEST.rstrip("\n"), candidate)
+    updated = manifest_with_entry(_MANIFEST.rstrip("\n"), release_candidate)
 
     assert "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\n    - observed_at: 2026-06-01" in updated
 
 
 def test_manifest_with_entry_refuses_a_stream_the_manifest_does_not_name() -> None:
-    candidate = Candidate(
+    release_candidate = ReleaseCandidate(
         stream="uk_services",
         observed_at=date(2026, 6, 1),
         published_on=date(2026, 7, 1),
@@ -266,7 +268,7 @@ def test_manifest_with_entry_refuses_a_stream_the_manifest_does_not_name() -> No
     )
 
     with pytest.raises(IndicatorsProviderError, match="no stream named"):
-        manifest_with_entry(_MANIFEST, candidate)
+        manifest_with_entry(_MANIFEST, release_candidate)
 
 
 def test_resolve_stream_does_nothing_when_the_manifest_already_holds_that_month(
@@ -362,7 +364,7 @@ def test_append_verified_entry_leaves_the_manifest_untouched_when_the_entry_is_r
     """
 
     manifest = _manifest_file(tmp_path)
-    candidate = Candidate(
+    release_candidate = ReleaseCandidate(
         stream="jp_manufacturing",
         observed_at=date(2026, 6, 1),
         published_on=date(2026, 7, 1),
@@ -370,7 +372,7 @@ def test_append_verified_entry_leaves_the_manifest_untouched_when_the_entry_is_r
     )
 
     with pytest.raises(IndicatorsProviderError, match=r"unreadable|did not survive"):
-        _append_verified_entry(candidate, manifest_path=manifest)
+        _append_verified_entry(release_candidate, manifest_path=manifest)
 
     assert manifest.read_text(encoding="utf-8") == _MANIFEST
 
@@ -385,7 +387,7 @@ def test_append_verified_entry_leaves_the_manifest_untouched_when_the_edit_break
     """
 
     manifest = _manifest_file(tmp_path)
-    candidate = Candidate(
+    release_candidate = ReleaseCandidate(
         stream="jp_manufacturing",
         observed_at=date(2026, 6, 1),
         published_on=date(2026, 7, 1),
@@ -396,21 +398,21 @@ def test_append_verified_entry_leaves_the_manifest_untouched_when_the_edit_break
         patch.object(tool, "manifest_with_entry", return_value="series: [unclosed\n"),
         pytest.raises(IndicatorsProviderError, match="unreadable"),
     ):
-        _append_verified_entry(candidate, manifest_path=manifest)
+        _append_verified_entry(release_candidate, manifest_path=manifest)
 
     assert manifest.read_text(encoding="utf-8") == _MANIFEST
 
 
 def test_append_verified_entry_leaves_no_temporary_file_behind(tmp_path: Path) -> None:
     manifest = _manifest_file(tmp_path)
-    candidate = Candidate(
+    release_candidate = ReleaseCandidate(
         stream="jp_manufacturing",
         observed_at=date(2026, 6, 1),
         published_on=date(2026, 7, 1),
         url=_JP_MFG_URL,
     )
 
-    _append_verified_entry(candidate, manifest_path=manifest)
+    _append_verified_entry(release_candidate, manifest_path=manifest)
 
     assert not [path for path in tmp_path.iterdir() if path.name.endswith(".tmp")]
     assert "2026-06-01" in manifest.read_text(encoding="utf-8")
@@ -427,7 +429,7 @@ def test_verified_value_refuses_a_release_of_a_different_pmi() -> None:
         "S&P Global Japan Services PMI",
         "The S&P Global Japan Services PMI posted 52.2 in June, signalling growth.",
     )
-    candidate = Candidate(
+    release_candidate = ReleaseCandidate(
         stream="jp_manufacturing",
         observed_at=date(2026, 6, 1),
         published_on=date(2026, 7, 1),
@@ -439,7 +441,7 @@ def test_verified_value_refuses_a_release_of_a_different_pmi() -> None:
         patch.object(tool, "release_text", return_value=text),
         pytest.raises(IndicatorsProviderError, match="does not name"),
     ):
-        verified_value(candidate, context=context)
+        verified_value(release_candidate, context=context)
 
 
 def test_verified_value_refuses_a_release_the_index_dated_in_another_month() -> None:
@@ -454,7 +456,7 @@ def test_verified_value_refuses_a_release_the_index_dated_in_another_month() -> 
         "The S&P Global Japan Manufacturing PMI posted 54.8 in June, up from 54.5 in May.",
         embargoed="1 July 2026",
     )
-    candidate = Candidate(
+    release_candidate = ReleaseCandidate(
         stream="jp_manufacturing",
         observed_at=date(2026, 5, 1),
         published_on=date(2026, 6, 1),
@@ -466,12 +468,12 @@ def test_verified_value_refuses_a_release_the_index_dated_in_another_month() -> 
         patch.object(tool, "release_text", return_value=text),
         pytest.raises(IndicatorsProviderError, match="embargoed until"),
     ):
-        verified_value(candidate, context=context)
+        verified_value(release_candidate, context=context)
 
 
 def test_verified_value_refuses_a_release_that_states_no_embargo_date() -> None:
     text = "S&P Global Japan Manufacturing PMI posted 54.8 in June."
-    candidate = Candidate(
+    release_candidate = ReleaseCandidate(
         stream="jp_manufacturing",
         observed_at=date(2026, 6, 1),
         published_on=date(2026, 7, 1),
@@ -483,7 +485,7 @@ def test_verified_value_refuses_a_release_that_states_no_embargo_date() -> None:
         patch.object(tool, "release_text", return_value=text),
         pytest.raises(IndicatorsProviderError, match="no embargo date"),
     ):
-        verified_value(candidate, context=context)
+        verified_value(release_candidate, context=context)
 
 
 def test_append_verified_entry_keeps_the_permissions_the_manifest_had(tmp_path: Path) -> None:
@@ -491,14 +493,14 @@ def test_append_verified_entry_keeps_the_permissions_the_manifest_had(tmp_path: 
 
     manifest = _manifest_file(tmp_path)
     manifest.chmod(0o644)
-    candidate = Candidate(
+    release_candidate = ReleaseCandidate(
         stream="jp_manufacturing",
         observed_at=date(2026, 6, 1),
         published_on=date(2026, 7, 1),
         url=_JP_MFG_URL,
     )
 
-    _append_verified_entry(candidate, manifest_path=manifest)
+    _append_verified_entry(release_candidate, manifest_path=manifest)
 
     assert manifest.stat().st_mode & 0o777 == 0o644
 
@@ -513,7 +515,7 @@ def test_append_verified_entry_leaves_the_manifest_untouched_when_a_key_repeats(
     """
 
     manifest = _manifest_file(tmp_path)
-    candidate = Candidate(
+    release_candidate = ReleaseCandidate(
         stream="jp_manufacturing",
         observed_at=date(2026, 6, 1),
         published_on=date(2026, 7, 1),
@@ -528,6 +530,6 @@ def test_append_verified_entry_leaves_the_manifest_untouched_when_a_key_repeats(
         ),
         pytest.raises(IndicatorsProviderError, match="unreadable"),
     ):
-        _append_verified_entry(candidate, manifest_path=manifest)
+        _append_verified_entry(release_candidate, manifest_path=manifest)
 
     assert manifest.read_text(encoding="utf-8") == _MANIFEST

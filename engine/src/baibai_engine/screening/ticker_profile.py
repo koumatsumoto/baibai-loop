@@ -1,16 +1,15 @@
-"""Single-ticker fact thesis assembled from the canonical SQLite stores.
+"""Produce a deterministic single-ticker fact profile from canonical stores.
 
-The thesis is the entry point for AI research on one security: price and
+The profile is the entry point for AI research on one security: price and
 liquidity facts for any listed ticker (inside or outside the screening
-universe), benchmark- and sector-relative momentum, the market regime at the
+universe), benchmark- and sector-relative momentum, the market benchmark_trend at the
 evaluation date, event flags relevant to the kill switch (next earnings, JPX
 regulation), the ticker's latest recorded screening entry, and prior research
-decisions. Every field is a deterministic transform of stored data; the thesis
+decisions. Every field is a deterministic transform of stored data; the profile
 contains no interpretation and no composite score.
 
-Valuation metrics are quoted from the screening run publication rather
-than recomputed, so the thesis never disagrees with the screening facts; a
-ticker without a candidates entry reports that absence explicitly.
+Valuation metrics are quoted from the Screening Run rather than recomputed, so
+the profile never disagrees with its Security Analysis. Absence is explicit.
 """
 
 from __future__ import annotations
@@ -30,11 +29,8 @@ from baibai_engine.read_api.position import (
 )
 from baibai_engine.screening.run_store import ScreeningRunReader
 
+from .benchmark_trend import compute_benchmark_trend
 from .metrics import VALUATION_HISTORY_SESSIONS
-
-# The application DB ledger is the only portfolio source. This screened fact
-# thesis reads its reconciled holdings solely to expose concentration facts.
-from .regime import compute_market_regime
 from .sqlite_reader import read_jpx_earnings_calendar_snapshot
 
 _BENCHMARK_TICKER = "1321"
@@ -68,7 +64,7 @@ def build_ticker_profile(
     run_revision_id: str | None = None,
     benchmark_ticker: str = _BENCHMARK_TICKER,
 ) -> dict[str, object]:
-    """Assemble the fact thesis for ``ticker`` as of ``asof_date``."""
+    """Assemble the deterministic fact profile for ``ticker``."""
     bars = _load_bars(
         sqlite_path,
         tickers=(ticker,),
@@ -77,8 +73,10 @@ def build_ticker_profile(
     ).get(ticker, [])
     master = _load_master_row(sqlite_path, ticker)
     sector = master.get("sector_33") if master else None
-    regime = compute_market_regime(sqlite_path, asof_date, benchmark_ticker=benchmark_ticker)
-    candidates_block = _load_candidates_entry(
+    benchmark_trend = compute_benchmark_trend(
+        sqlite_path, asof_date, benchmark_ticker=benchmark_ticker
+    )
+    screening_context = _load_security_analysis_context(
         runs_db_path,
         ticker,
         asof_date,
@@ -97,12 +95,12 @@ def build_ticker_profile(
             asof_date=asof_date,
             benchmark_ticker=benchmark_ticker,
         ),
-        "regime": regime.to_dict() if regime is not None else None,
+        "benchmark_trend": benchmark_trend.to_dict() if benchmark_trend is not None else None,
         "events": {
             "next_earnings_date": _next_earnings_date(sqlite_path, ticker, asof_date),
             "jpx_regulation": _jpx_flags(sqlite_path, ticker, asof_date),
         },
-        "screening": candidates_block,
+        "screening": screening_context,
         "portfolio": _portfolio_block(
             app_db_path=app_db_path,
             ticker=ticker,
@@ -272,7 +270,7 @@ def _empty_portfolio_block() -> dict[str, object]:
     }
 
 
-def _load_candidates_entry(
+def _load_security_analysis_context(
     runs_db_path: Path,
     ticker: str,
     asof_date: date,
@@ -281,8 +279,8 @@ def _load_candidates_entry(
 ) -> dict[str, object]:
     if not runs_db_path.is_file():
         return {
-            "candidates_ref": None,
-            "in_candidates": False,
+            "screening_run_revision_id": None,
+            "has_security_analysis": False,
             "note": "no screening run on or before asof",
         }
     reader = ScreeningRunReader(runs_db_path)
@@ -301,8 +299,8 @@ def _load_candidates_entry(
         if run_revision_id is not None:
             raise ValueError(f"unknown run_revision_id: {run_revision_id}")
         return {
-            "candidates_ref": None,
-            "in_candidates": False,
+            "screening_run_revision_id": None,
+            "has_security_analysis": False,
             "note": "no screening run on or before asof",
         }
     entries = run.security_analyses
@@ -313,15 +311,15 @@ def _load_candidates_entry(
             None,
         )
     block: dict[str, object] = {
-        "candidates_ref": run.run_revision_id,
-        "candidates_asof": run.as_of_date,
-        "in_candidates": entry is not None,
+        "screening_run_revision_id": run.run_revision_id,
+        "screening_run_as_of": run.as_of_date,
+        "has_security_analysis": entry is not None,
     }
     if entry is not None:
         block["entry"] = dict(entry)
     else:
         block["note"] = (
-            "ticker not present in the recorded candidates output "
+            "ticker has no Security Analysis in the recorded Screening Run "
             "(outside the screen scope or no Valuation Approach hit at that date)"
         )
     return block

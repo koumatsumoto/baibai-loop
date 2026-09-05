@@ -22,9 +22,9 @@ from .capital_allocation import (
     capital_allocation_draft_sha256,
 )
 from .thesis import (
-    IndependentReview,
     ThesisDocument,
     ThesisError,
+    ThesisReview,
     evaluate_thesis,
     require_recorded_identity,
 )
@@ -108,7 +108,7 @@ class CapitalAllocationAssessmentService:
                 f"assessment as_of {assessment.as_of} precedes research triage "
                 f"{research_triage_as_of}"
             )
-        research_triage_tickers = _researchable_tickers(
+        research_triage_tickers = _admissible_research_tickers(
             research_triage, assessment.research_triage_id
         )
         for alternative in assessment.alternatives:
@@ -180,7 +180,7 @@ class CapitalAllocationAssessmentService:
                 f"{alternative.thesis_id}"
             )
         try:
-            review = IndependentReview.model_validate(json.loads(str(row[1])))
+            review = ThesisReview.model_validate(json.loads(str(row[1])))
         except (ValueError, TypeError) as error:
             raise CapitalAllocationConflictError(
                 f"review {alternative.thesis_review_id} cannot be read: {error}"
@@ -242,7 +242,9 @@ class CapitalAllocationAssessmentService:
             return row
 
 
-def _researchable_tickers(payload: Mapping[str, object], research_triage_id: str) -> frozenset[str]:
+def _admissible_research_tickers(
+    payload: Mapping[str, object], research_triage_id: str
+) -> frozenset[str]:
     entries = payload.get("entries")
     if not isinstance(entries, list):
         raise CapitalAllocationConflictError(

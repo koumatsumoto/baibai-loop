@@ -15,8 +15,8 @@ from .keys import validate_lake_object_key
 # orders of magnitude above the published graph, and reporting only the larger one lets
 # the published graph grow past its objective without anything saying so.
 SOFT_BUDGET_BYTES = {
-    # The published lake: canonical Parquet, analytical Parquet, manifests, pointers.
-    # This is the class Issue #917 sized at roughly 10 GB.
+    # Published objects and in-flight staging have separate soft budgets so staging
+    # leaks cannot hide growth of the canonical publication graph.
     "published": 10 * 1024**3,
     # In-flight staging, including what a failed build left behind. It is under no
     # manifest, so nothing else in this report grows when it does — and it holds whole

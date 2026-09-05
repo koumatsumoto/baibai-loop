@@ -262,7 +262,7 @@ def read_eq_master_asof(sqlite_path: Path, asof: date) -> MasterSnapshotRead:
     return MasterSnapshotRead(
         tuple(
             SecurityMaster(
-                code=ticker,
+                ticker=ticker,
                 name=str(name or ""),
                 market_segment=str(market or ""),
                 sector_33=str(sector_33 or ""),
@@ -969,7 +969,7 @@ def read_eq_master_exact(sqlite_path: Path, asof: date) -> list[SecurityMaster] 
 def _materialize_masters(rows: list[tuple[Any, ...]]) -> list[SecurityMaster]:
     return [
         SecurityMaster(
-            code=ticker,
+            ticker=ticker,
             name=str(name or ""),
             market_segment=str(market or ""),
             sector_33=str(sector_33 or ""),

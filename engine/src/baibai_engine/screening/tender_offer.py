@@ -28,16 +28,15 @@ from typing import Protocol
 
 from baibai_engine.market.sqlite import connect_current, open_connection
 
-from .capital_control import (
+from .delistings import DelistingRecord, read_jpx_delistings
+from .valuation_catalysts import (
     TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE,
     TENDER_OFFER_REGISTRATION_DOC_TYPE,
     TENDER_OFFER_RESULT_CORRECTION_DOC_TYPE,
     TENDER_OFFER_RESULT_DOC_TYPE,
     TENDER_OFFER_WITHDRAWAL_DOC_TYPE,
-    JPXDelistingRow,
     edinet_code_to_ticker,
     is_usable_filing_status,
-    read_jpx_delistings,
 )
 
 # JPX names the mechanism in the delisting reason. Only a reason that names a tender
@@ -106,7 +105,7 @@ class TenderOfferExitValue:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ControlEventExitSummary:
+class TenderOfferExitSummary:
     delisting_count: int
     tender_offer_delisting_count: int
     resolved_count: int
@@ -228,12 +227,12 @@ def read_tender_offer_filings(
     return tuple(sorted(filings, key=_filing_order))
 
 
-def build_control_event_exit_values(
+def build_tender_offer_exit_values(
     sqlite_path: Path,
     *,
     provider: TenderOfferDocumentSource,
     asof: date,
-) -> tuple[tuple[TenderOfferExitValue, ...], ControlEventExitSummary]:
+) -> tuple[tuple[TenderOfferExitValue, ...], TenderOfferExitSummary]:
     """Resolve every delisting JPX attributes to a tender offer that the index can price."""
     connection = connect_current(sqlite_path)
     if connection is None:
@@ -268,7 +267,7 @@ def build_control_event_exit_values(
             continue
         exits.append(value)
     return tuple(sorted(exits, key=lambda value: (value.ticker, value.delisted_on))), (
-        ControlEventExitSummary(
+        TenderOfferExitSummary(
             delisting_count=len(delistings),
             tender_offer_delisting_count=len(priceable),
             resolved_count=len(exits),
@@ -376,7 +375,7 @@ def _filings_by_target_ticker(
 
 
 def _select_case(
-    filings: Sequence[TenderOfferFiling], *, delisting: JPXDelistingRow
+    filings: Sequence[TenderOfferFiling], *, delisting: DelistingRecord
 ) -> tuple[_Case | None, str]:
     """Pick the one offer that ended this listing, or say why none can be picked."""
     relevant = [filing for filing in filings if filing.doc_date <= delisting.delisted_on]
@@ -423,7 +422,7 @@ def _select_case(
 
 
 def _realize_case(
-    case: _Case, *, delisting: JPXDelistingRow, provider: TenderOfferDocumentSource
+    case: _Case, *, delisting: DelistingRecord, provider: TenderOfferDocumentSource
 ) -> tuple[TenderOfferExitValue | None, int]:
     """Read the final price state and the reported outcome out of the filings."""
     downloads = 0
@@ -513,11 +512,11 @@ def _block(blocks: Mapping[str, str], suffix: str) -> str:
 
 __all__ = (
     "TENDER_OFFER_DELISTING_MARKER",
-    "ControlEventExitSummary",
     "TenderOfferError",
+    "TenderOfferExitSummary",
     "TenderOfferExitValue",
     "TenderOfferFiling",
-    "build_control_event_exit_values",
+    "build_tender_offer_exit_values",
     "parse_ordinary_share_offer_price",
     "pays_in_cash_only",
     "read_document_blocks",

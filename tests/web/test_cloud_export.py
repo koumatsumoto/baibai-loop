@@ -341,7 +341,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     assert sum(len(series.points) for group in macro.groups for series in group.series) == 0
     for name in ("security--0001.json", "security--0002.json", "security--2331.json"):
         detail = SecurityDetailView.model_validate_json((views / name).read_text(encoding="utf-8"))
-        assert detail.candidate_row is not None
+        assert detail.security_analysis is not None
 
     assert not (output_dir / "history/select").exists()
 
@@ -349,7 +349,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     assert [item.name for item in pool_files] == ["2026-07-01.json", "2026-07-08.json"]
     pool = json.loads(pool_files[0].read_text(encoding="utf-8"))
     assert [candidate["ticker"] for candidate in pool["rows"]] == ["2331", "0001", "0002"]
-    assert pool["run"]["asof_date"] == "2026-07-01"
+    assert pool["run"]["as_of"] == "2026-07-01"
     latest_pool = json.loads(pool_files[1].read_text(encoding="utf-8"))
     assert latest_pool["run"]["run_revision_id"] == run.run_revision_id
 

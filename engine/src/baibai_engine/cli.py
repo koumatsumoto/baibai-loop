@@ -67,8 +67,7 @@ DOMAINS: Mapping[str, Domain] = {
     "research": Domain(
         module="baibai_engine.research.workspace_cli",
         summary=(
-            "research workspaces: thesis, independent review, promotion, "
-            "Capital Allocation Assessment"
+            "research workspaces: thesis, Thesis Review, promotion, Capital Allocation Assessment"
         ),
     ),
     "task": Domain(

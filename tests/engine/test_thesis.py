@@ -10,20 +10,20 @@ import yaml
 from tests.helpers.fixed_now import FIXED_NOW
 
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.research.decision_cli import main as decision_main
 from baibai_engine.research.thesis import (
-    IndependentReview,
     ThesisDocument,
     ThesisError,
-    ThesisResult,
+    ThesisEvaluation,
+    ThesisReview,
     UnpublishedThesis,
     _round_payload_decimal,
     evaluate_thesis,
-    load_independent_review,
+    evaluation_to_payload,
     load_thesis,
-    result_to_payload,
+    load_thesis_review,
     thesis_core_hash,
 )
+from baibai_engine.research.thesis_evaluation_cli import main as decision_main
 
 ROOT = Path(__file__).parents[2]
 FIXTURE = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
@@ -48,11 +48,11 @@ def _review_raw() -> dict[str, object]:
 
 def _bind_review(
     raw: dict[str, object], review_raw: dict[str, object] | None = None
-) -> tuple[ThesisDocument, IndependentReview]:
+) -> tuple[ThesisDocument, ThesisReview]:
     document = _document(raw)
     review = review_raw or _review_raw()
     review["reviewed_thesis_sha256"] = thesis_core_hash(document)
-    return document, IndependentReview.model_validate(review)
+    return document, ThesisReview.model_validate(review)
 
 
 def _evaluate(
@@ -60,7 +60,7 @@ def _evaluate(
     review_raw: dict[str, object] | None = None,
     *,
     now: datetime | None = None,
-) -> ThesisResult:
+) -> ThesisEvaluation:
     document, review = _bind_review(raw, review_raw)
     return evaluate_thesis(
         document, review=review, now=now or FIXED_NOW, identity=UnpublishedThesis.DRAFT
@@ -103,7 +103,7 @@ def _screening_fv_bridge() -> dict[str, object]:
 def test_golden_thesis_is_ready_with_explicit_evidence_warning() -> None:
     result = evaluate_thesis(
         load_thesis(FIXTURE),
-        review=load_independent_review(REVIEW_FIXTURE),
+        review=load_thesis_review(REVIEW_FIXTURE),
         now=FIXED_NOW,
         identity=UnpublishedThesis.DRAFT,
     )
@@ -138,7 +138,7 @@ def test_golden_thesis_is_ready_with_explicit_evidence_warning() -> None:
     assert break_even.break_even_annual_earnings_growth_pct == pytest.approx(
         Decimal("3.8402039539315667")
     )
-    assert result_to_payload(result)["five_year_base_break_even"] == {
+    assert evaluation_to_payload(result)["five_year_base_break_even"] == {
         "required_total_value_yen": 1551.7737,
         "required_total_return_cagr_pct": 8.5,
         "base_terminal_valuation_multiple": 1.1,
@@ -345,7 +345,7 @@ def test_screening_fv_revision_uses_raw_decimal_values() -> None:
     result = _evaluate(raw)
 
     assert result.screening_fv_revision_pct == pytest.approx(Decimal("-0.1745503536544291"))
-    assert result_to_payload(result)["screening_fv_revision_pct"] == -0.1746
+    assert evaluation_to_payload(result)["screening_fv_revision_pct"] == -0.1746
 
 
 def test_break_even_values_reproduce_required_return_and_are_monotonic() -> None:
@@ -474,7 +474,7 @@ def test_break_even_payload_rounding_handles_large_finite_values() -> None:
     break_even = result.five_year_base_break_even
     assert break_even is not None
     assert break_even.terminal_multiple_status == "above_model_max"
-    payload = result_to_payload(result)["five_year_base_break_even"]
+    payload = evaluation_to_payload(result)["five_year_base_break_even"]
     assert isinstance(payload, dict)
     payload_multiple = payload["break_even_terminal_valuation_multiple"]
     assert isinstance(payload_multiple, float)
@@ -1234,7 +1234,7 @@ def test_read_only_cli_reports_review_requirement_when_buy_review_file_is_absent
     assert output["errors"] == ["buy recommendation requires an independent second-pass review"]
 
 
-def test_independent_review_hash_changes_with_initial_proposal() -> None:
+def test_thesis_review_hash_changes_with_initial_proposal() -> None:
     raw = copy.deepcopy(_raw())
     original = thesis_core_hash(_document(raw))
     estimates = raw["estimates"]

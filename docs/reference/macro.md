@@ -290,7 +290,7 @@ publish 済み revision は immutable なので、検証は**参照先が動く�
 - **テーマ被覆**: 金利・政策 / インフレ・コスト / 需要・雇用 / 為替・流動性・credit / 日本の政策・金利 / 日本の需要 / energy・地政学・通商 / 市場内部・バリュエーション の8象限すべてにfactを置く。`inputs.articles`は件数を品質の代理にせず、各 load-bearing claim と dominant force に有効な一次情報、支持 evidence、counter-evidence が解決することを独立 review で確認する。自前の `machine_snapshots` / `reading_snapshots` を外部 evidence と数えない。
 - **日本の需要fact最低ライン**: セクション3または7に、実質賃金（毎月勤労統計）または実質消費、鉱工業生産を必ず含める。取得可能ならインバウンド（訪日外客数）・機械受注も置く。米国factだけで需要判断を組み立てない。
 - **円水準の両側リスク**: セクション6に、円安継続と円反転（介入・利上げ）の両経路が輸出企業（為替換算益の剥落）と輸入コスト企業（margin回復）へ与える非対称を1つのjudgmentとして書く。片側の監視条件だけで済ませない。
-- **バーゲン地形**: connection に`screening market-snapshot`のbenchmark 20d/60d・breadth・regimeをfact引用し、「この局面でミスプライスがどこに出やすいか（全面安で広く出る / 回転相場で取り残しに出る / 全面高でプールが縮む）」を`bargain_topography`として書く。機械 gate ではなく独立 review が接地を確認する。オプション IV は「市場が何をどれだけ恐れているか」の観測として併記できるが、買い時や投入判断には使わない。
+- **バーゲン地形**: connection に`screening market-snapshot`のbenchmark 20d/60d・breadth・`benchmark_trend`をfact引用し、「この局面でミスプライスがどこに出やすいか（全面安で広く出る / 回転相場で取り残しに出る / 全面高でプールが縮む）」を`bargain_topography`として書く。機械 gate ではなく独立 review が接地を確認する。オプション IV は「市場が何をどれだけ恐れているか」の観測として併記できるが、買い時や投入判断には使わない。
 - **日本株バリュエーションアンカー**: セクション8に市場全体のPERまたは益回り（日経・JPX公表の一次値、または全universeのin-house中央値）とJGB 10yの対比を置き、個別FVアンカーの妥当性を外側から検算できるようにする。
 - **hintの識別力**: 全候補に等しく当てはまる助言（「net cash重視」等）はhintではない。各 research 優先度ヒントと sector tilt は、どの候補タイプ・sectorに効くかを`applies_to`で判別できる形で書く。
 - **energy・通商・地政学**: セクション4または5に、原油と通商政策（関税）・地政学tailのfactを最低1つずつ置く。
@@ -368,7 +368,7 @@ macro contextはdiscount rate、需要、資金調達、共通tail risk、sizing
 
 マクロの読みは機械スクリーニングの `run` には接続しない（`run` は財務事実だけを扱う決定論的なエンジンのまま）。効かせるのは判断層だけ：
 
-- **select**（[`./screening-runtime.md`](./screening-runtime.md)）：material deltaと`as_of`鮮度warningをcontext-level summaryとして出す。E[r]順位とcandidateの事実層は変えない。
+- **Research Triage**（[`./screening-runtime.md`](./screening-runtime.md)）：material deltaと`as_of`鮮度warningをcontext-level summaryとして出す。E[r]とSecurity Analysisの事実層は変えない。
 - **research**：material deltaが個別5年期待値へ影響する場合だけ、thesisのjudgmentへその因果と根拠を残す。マクロを数値ドライバー、採用gate、投入額ルールにはしない。
 - **connection セクション**：Research Triageがresearch優先度ヒントとsizing cautionを消化する入口になる（skill `research-triage`）。
 
@@ -381,5 +381,5 @@ macro contextはdiscount rate、需要、資金調達、共通tail risk、sizing
 ## 参考
 
 - [`../doctrine.md`](../doctrine.md)：思想・柱 2（macroとAIの責務境界）
-- [`./screening-runtime.md`](./screening-runtime.md)：material deltaとas_of鮮度warningを出すselect
+- [`./screening-runtime.md`](./screening-runtime.md)：material deltaとas_of鮮度warningを読むResearch Triage
 - [`./data-sources.md`](./data-sources.md)：データソース Tier

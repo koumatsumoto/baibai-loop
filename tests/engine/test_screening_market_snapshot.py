@@ -89,7 +89,7 @@ class BuildMarketSnapshotTests(unittest.TestCase):
             last = points[-1]
             assert isinstance(last["benchmark_return_20d"], float)
             self.assertGreater(last["benchmark_return_20d"], 0.03)
-            self.assertEqual(last["regime"], "risk_on_rally")
+            self.assertEqual(last["benchmark_trend"], "uptrend")
             self.assertEqual(last["breadth_sample_size"], 3)
             assert isinstance(last["breadth_pct_above_ma20"], float)
 
@@ -118,7 +118,7 @@ class BuildMarketSnapshotTests(unittest.TestCase):
             points = payload["points"]
             assert isinstance(points, list)
             self.assertIsNone(points[0]["breadth_pct_above_ma20"])
-            self.assertEqual(points[0]["regime"], "neutral_range")
+            self.assertEqual(points[0]["benchmark_trend"], "neutral")
 
     def test_sectors_do_not_restore_tickers_from_older_master_snapshots(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -172,7 +172,7 @@ class MarketSnapshotCliTests(unittest.TestCase):
             )
             self.assertEqual(exit_code, 0)
             payload = safe_load(buffer.getvalue())
-            self.assertEqual(payload["asof"], _ASOF.isoformat())
+            self.assertEqual(payload["as_of"], _ASOF.isoformat())
             self.assertEqual(len(payload["points"]), 2)
 
     def test_command_emits_one_json_value(self) -> None:
@@ -189,7 +189,7 @@ class MarketSnapshotCliTests(unittest.TestCase):
             )
             self.assertEqual(exit_code, 0)
             payload = json.loads(buffer.getvalue())
-            self.assertEqual(payload["asof"], _ASOF.isoformat())
+            self.assertEqual(payload["as_of"], _ASOF.isoformat())
 
     def test_command_rejects_non_positive_weeks(self) -> None:
         exit_code = market_snapshot_command(

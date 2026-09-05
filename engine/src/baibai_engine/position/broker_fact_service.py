@@ -5,16 +5,16 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
+from baibai_engine.position.broker_fact_recording import (
+    BrokerFactStatus,
+    record_broker_fact,
+    record_terminal_broker_facts,
+)
 from baibai_engine.position.drafts import LedgerDraft
 from baibai_engine.position.ledger import (
     ReleaseEvent,
     replay_events_through,
     reservation_snapshots,
-)
-from baibai_engine.position.result_recording import (
-    ResultStatus,
-    record_result,
-    record_terminal_results,
 )
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.capital_allocation_service import (
@@ -22,12 +22,12 @@ from baibai_engine.research.capital_allocation_service import (
 )
 
 
-def build_result_draft(
+def build_broker_fact_draft(
     ledger_service: LedgerStoreService,
     assessment_service: CapitalAllocationAssessmentService,
     *,
     decision_reference: str,
-    status: ResultStatus,
+    status: BrokerFactStatus,
     occurred_at: datetime,
     ticker: str | None = None,
     quantity: int | None = None,
@@ -89,7 +89,7 @@ def build_result_draft(
 
     if len(requested_ids) > 1:
         assert status in {"cancelled", "expired"}
-        result = record_terminal_results(
+        result = record_terminal_broker_facts(
             source,
             decision_reference=decision_reference,
             status=status,
@@ -98,7 +98,7 @@ def build_result_draft(
             now=now,
         )
     else:
-        result = record_result(
+        result = record_broker_fact(
             source,
             decision_reference=decision_reference,
             status=status,
@@ -119,7 +119,7 @@ def build_result_draft(
         return None, ()
     return (
         LedgerDraft(
-            kind="record-result",
+            kind="broker-fact",
             expected_head=ledger_service.append_head(),
             source=source,
             replacement=result.document,
@@ -129,4 +129,4 @@ def build_result_draft(
     )
 
 
-__all__ = ["build_result_draft"]
+__all__ = ["build_broker_fact_draft"]

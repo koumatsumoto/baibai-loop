@@ -8,8 +8,8 @@
 | `market/market.sqlite` | lake所有tableはR2 L1 releaseのruntime copy。`source_coverage`と`tse_capital_policy_snapshots`はSQLiteが正本 | providerとcontrolled merge | lake所有tableはfixed releaseからhydrate。store-local tableはproviderから再取得可能。push時はlake所有tableを空にする |
 | R2 `lake/l1/` | lake所有datasetのL1正本 | lake publisher | immutable content object、manifest、CAS pointerでpublish |
 | `lake/` | disposable local mirror・staging・object cache | lake build | R2 manifestから再取得。authorityにしない |
-| `macro/macro.sqlite` | cloud rolling window + local full history | macro indicator serviceとcontrolled merge | providerから再取得可能。no-loss merge後だけpush |
-| `screening/runs.sqlite` | R2のcanonical machine bundle。cloud / 明示的local dailyが同じ履歴を進める | daily batch screening service | runから再生成可能。local dailyは直前の`pull-machine`と全store CASを通す`push-machine`だけで反映 |
+| `macro/macro.sqlite` | rebuildable L1 fact store。cloud rolling window + local full history | macro indicator serviceとcontrolled merge | providerから再取得可能。no-loss merge後だけpush |
+| `screening/runs.sqlite` | rebuildable L2 machine store。cloudはoperational machine bundleを保持するがL3 business authorityではない | daily batch screening service | runから再生成可能。local dailyは直前の`pull-machine`と全store CASを通す`push-machine`だけで反映 |
 | `screening/calibration/current.sqlite` | typed panel / diagnostics / forwardからなるrebuildable L2 current snapshot | engine calibration command | market/ledger evidenceからtemp buildし、検証後にatomic replace |
 
 ## 入口と安全境界

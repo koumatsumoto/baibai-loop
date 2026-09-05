@@ -44,7 +44,7 @@ from baibai_engine.batch_api import (
     MACRO_CONTEXT_STALE_DAYS,
     RUNS_DB_PATH,
     DailyAnalysisContext,
-    ResearchTriageCandidateSnapshot,
+    ReviewSetEntrySnapshot,
     load_daily_analysis_context,
     publish_daily_research_triage,
 )
@@ -139,7 +139,7 @@ def _model_input(context: DailyAnalysisContext) -> ModelInput:
     candidates = tuple(
         TriageCandidate(
             ticker=entry.ticker,
-            snapshot=ResearchTriageCandidateSnapshot(
+            snapshot=ReviewSetEntrySnapshot(
                 name=entry.name,
                 sector_33=entry.sector_33,
                 nominations=entry.nominations,
@@ -333,7 +333,7 @@ def _existing_triage_summary(
     triage = context.existing_triage
     if triage is None:
         raise AssertionError("existing Triage summary requires a Triage")
-    research_count = len(triage.researchable_tickers())
+    research_count = len(triage.admissible_research_tickers())
     summary.update(
         status="awaiting_human" if research_count else "already_published",
         candidate_count=len(triage.entries),
@@ -406,7 +406,7 @@ def _execute(
         runs_db_path=runs_db_path,
         published_at=datetime.now(_JST),
     )
-    research_count = len(triage.researchable_tickers())
+    research_count = len(triage.admissible_research_tickers())
     summary.update(
         status="published_awaiting_human" if research_count else "published_all_skip",
         research_count=research_count,

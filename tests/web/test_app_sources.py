@@ -11,16 +11,16 @@ from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_web.sources.db_sources import (
-    DbCandidatesSource,
     DbLedgerSource,
     DbMarketPriceSource,
     DbResearchSource,
+    DbScreeningSource,
     DbTaskSource,
 )
 from baibai_web.sources.protocols import (
-    CandidatesSource,
     LedgerSource,
     ResearchSource,
+    ScreeningSource,
     TaskSource,
 )
 
@@ -61,6 +61,39 @@ class TestDbResearchSource:
         assert len(detail.scenarios) == 6
         assert source.position_reviews(ticker="2331") == []
 
+    def test_research_triages_returns_the_latest_judgment_for_each_review_set(
+        self,
+        tmp_path: Path,
+        mocker,
+    ) -> None:
+        read = mocker.patch(
+            "baibai_web.sources.db_sources.research_triage_payloads_for_review_set",
+            side_effect=[
+                [
+                    {
+                        "research_triage_id": "triage-a",
+                        "published_at": "2026-08-28T14:00:00+09:00",
+                    },
+                    {
+                        "research_triage_id": "triage-a-old",
+                        "published_at": "2026-08-28T13:00:00+09:00",
+                    },
+                ],
+                [
+                    {
+                        "research_triage_id": "triage-b",
+                        "published_at": "2026-08-28T15:00:00+09:00",
+                    }
+                ],
+            ],
+        )
+        source = DbResearchSource(tmp_path / "app.sqlite")
+
+        triages = source.research_triages(review_set_ids=["review-set-a", "review-set-b"])
+
+        assert [item["research_triage_id"] for item in triages] == ["triage-b", "triage-a"]
+        assert [call.args[1] for call in read.call_args_list] == ["review-set-a", "review-set-b"]
+
 
 class TestDbTaskSource:
     def make_source(self, root: Path) -> TaskSource:
@@ -82,12 +115,9 @@ class TestDbTaskSource:
         assert tasks[0].event_date is not None
 
 
-class TestDbCandidatesSource:
-    def make_source(self, root: Path) -> CandidatesSource:
-        return DbCandidatesSource(
-            root / "stores/screening/runs.sqlite",
-            root / "stores/application/baibai.sqlite",
-        )
+class TestDbScreeningSource:
+    def make_source(self, root: Path) -> ScreeningSource:
+        return DbScreeningSource(root / "stores/screening/runs.sqlite")
 
     def test_latest_run_is_none_when_absent(self, tmp_path: Path) -> None:
         assert self.make_source(tmp_path).latest_run() is None
@@ -118,44 +148,11 @@ class TestDbCandidatesSource:
             )
         )
 
-        run = DbCandidatesSource(runs_path, tmp_path / "app.sqlite").latest_run()
+        run = DbScreeningSource(runs_path).latest_run()
 
         assert run is not None
         assert run.screening_rules_hash == "rules-hash-v1"
         assert run.er_model_version == "expected-return-v1"
-
-    def test_research_triages_returns_the_latest_judgment_for_each_review_set(
-        self,
-        tmp_path: Path,
-        mocker,
-    ) -> None:
-        read = mocker.patch(
-            "baibai_web.sources.db_sources.research_triage_payloads_for_review_set",
-            side_effect=[
-                [
-                    {
-                        "research_triage_id": "triage-a",
-                        "published_at": "2026-08-28T14:00:00+09:00",
-                    },
-                    {
-                        "research_triage_id": "triage-a-old",
-                        "published_at": "2026-08-28T13:00:00+09:00",
-                    },
-                ],
-                [
-                    {
-                        "research_triage_id": "triage-b",
-                        "published_at": "2026-08-28T15:00:00+09:00",
-                    }
-                ],
-            ],
-        )
-        source = DbCandidatesSource(tmp_path / "runs.sqlite", tmp_path / "app.sqlite")
-
-        triages = source.research_triages(review_set_ids=["review-set-a", "review-set-b"])
-
-        assert [item["research_triage_id"] for item in triages] == ["triage-b", "triage-a"]
-        assert [call.args[1] for call in read.call_args_list] == ["review-set-a", "review-set-b"]
 
 
 class TestDbMarketPriceSource:

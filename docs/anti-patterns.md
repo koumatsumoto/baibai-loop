@@ -248,7 +248,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 #### 共通validator
 
 - [ ] current-only storeのread経路はownerのschema validatorを通し、path不在 / `user_version = 0`かつtableなしのunwritten storeだけを空へdegradeするか。obsolete versionやcurrent schemaのtable / column / index欠落を「データなし」に変換していないか
-- [ ] validator rule を追加・修正する場合、その rule の corner case を negative test で必ず塞ぐ。thesis の `incomplete` 条件、snapshot source の identity / 時刻 / unit 拒否、planning limitの価格 / cash 判定、independent review の hash 束縛、screening E[r] / FV の estimate 扱いといった個別 field の必須・拒否条件は engine model と各 negative test（`test_thesis.py` / `test_position_result_service.py` / `test_portfolio_ledger.py` 等）が正本で、本節へ網羅転記しない。追加時は最低限次の corner case を test する:
+- [ ] validator rule を追加・修正する場合、その rule の corner case を negative test で必ず塞ぐ。Thesis の `incomplete` 条件、snapshot source の identity / 時刻 / unit 拒否、Planning Limitの価格 / cash 判定、Thesis Review の hash 束縛、screening E[r] / FV の estimate 扱いといった個別 field の必須・拒否条件は engine model と各 negative test（`test_thesis.py` / `test_position_broker_fact_service.py` / `test_portfolio_ledger.py` 等）が正本で、本節へ網羅転記しない。追加時は最低限次の corner case を test する:
   - [ ] 関連 field が **不在** の場合 (skip / error どちらが正しいか)
   - [ ] 関連 field が **null** の場合
   - [ ] 関連 field が **0 / 負値** の場合 (decision との整合性)
@@ -264,7 +264,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] ledger eventを導入・変更する場合、reservationとbuy execution、terminal orderとrelease、cash不足、guard超過、expiry後のbuy、保有超過sellをhard errorとして確認したか
 - [ ] concentrationはholding market value + active reservationをledgerの`total_capital_yen`で割り、warning + 期限付きoverrideとして扱うことを確認したか
 - [ ] human result CLIを変更する場合、報告なしでno write、buy assessmentのdecision reference必須、missing fieldの質問、draft時canonical非変更、stale append head拒否をcontract testで確認したか
-- [ ] thesisがapprovedの場合、source snapshot、scenario、independent review、execution inputが同一thesis hashに束縛されるか
+- [ ] Thesisがapprovedの場合、source snapshot、scenario、Thesis Review、execution inputが同一Thesis hashに束縛されるか
 - [ ] current decision の eligibility clock はoperation入口で1回だけ取得したtimezone-aware instantを全validationへ渡し、review等のevent timestampやartifactのas-ofへ差し替えていないか。naive clock、expiry直前・exact expiry・直後をnegative testで固定したか
 - [ ] immutable judgmentのglobal headをderived orderで持つ場合、全readerとwriter CASが同じ実時刻total orderを使い、新規publicationが`as_of`とtimestampの両方でheadを前進させるか。未来時刻、JST日付の逆行、同priorの分岐、空白だけの必須proseをnegative testで拒否し、same-ID idempotencyをprogression検査より先に処理するか
 - [ ] 統合判断はHTMLをreview対象にせず、comparison / thesis / assessmentへ別roleのcontent reviewを行い、全thesis core hashとreviewの変更をstaleとして拒否するか

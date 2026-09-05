@@ -1,8 +1,7 @@
-"""Shared SecurityAnalysis assembly for the screen run and calibration replay.
+"""Build the Security Analysis used by production runs and calibration replay.
 
-candidates YAML (本番 run) と較正リプレイ (calibration) が同一の候補行を組み立てる
-ための単一実装。ここが分岐すると「リプレイで測った select 順」と「本番の select 順」が
-静かにずれるため、候補行の組み立ては本 module に集約する。
+Both paths must assemble the same Security Analysis; otherwise calibration would
+measure a different Candidate Discovery input from the production Screening Run.
 """
 
 from __future__ import annotations
@@ -10,7 +9,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date
 
-from .capital_control import CapitalControlAnnotation
 from .earnings_lag import EarningsLag
 from .estimates import ExpectedReturnEstimate, estimate_expected_return
 from .schema import (
@@ -21,6 +19,7 @@ from .schema import (
     SecurityMaster,
     UniverseSnapshot,
 )
+from .valuation_catalysts import ValuationCatalystContext
 
 
 def build_security_analysis(
@@ -34,7 +33,7 @@ def build_security_analysis(
     next_earnings_date: date | None = None,
     earnings_lag: EarningsLag | None = None,
     normalized_per_3fy: float | None = None,
-    capital_control: CapitalControlAnnotation | None = None,
+    valuation_catalyst_context: ValuationCatalystContext | None = None,
 ) -> SecurityAnalysis:
     return SecurityAnalysis(
         ticker=ticker,
@@ -69,7 +68,7 @@ def build_security_analysis(
         sector_relative_strength_percentile=derived.sector_relative_strength_percentile,
         price_history_sessions_750d=derived.price_history_sessions_750d,
         price_history_coverage_750d=derived.price_history_coverage_750d,
-        metrics=candidate_metrics_map(
+        metrics=build_security_analysis_metrics(
             financial,
             derived=derived,
             freshness_warning_count=len(freshness_warnings),
@@ -78,7 +77,7 @@ def build_security_analysis(
             ),
             normalized_per_3fy=normalized_per_3fy,
             earnings_lag=earnings_lag,
-            capital_control=capital_control,
+            valuation_catalyst_context=valuation_catalyst_context,
         ),
         next_earnings_date=next_earnings_date,
         split_adjustment_flag=derived.split_adjustment_flag,
@@ -86,7 +85,7 @@ def build_security_analysis(
     )
 
 
-def candidate_metrics_map(
+def build_security_analysis_metrics(
     financial: FinancialSnapshot,
     *,
     freshness_warning_count: int,
@@ -94,7 +93,7 @@ def candidate_metrics_map(
     estimate: ExpectedReturnEstimate | None = None,
     normalized_per_3fy: float | None = None,
     earnings_lag: EarningsLag | None = None,
-    capital_control: CapitalControlAnnotation | None = None,
+    valuation_catalyst_context: ValuationCatalystContext | None = None,
 ) -> Mapping[str, float | int | bool | str | None]:
     return {
         # Approach-native relative valuation coordinates. These are L2 derived
@@ -167,7 +166,7 @@ def candidate_metrics_map(
             and financial.operating_profit_yoy is None
         ),
         "shares_outstanding": financial.shares_outstanding,
-        # D2 / D3 academic signals — surface in Security Analysis so the
+        # Accrual and net-share-change signals surface in Security Analysis so the
         # research layer can read them without a second cache fetch.
         "accruals_to_assets": financial.accruals_to_assets,
         "net_share_change_yoy": financial.net_share_change_yoy,
@@ -177,7 +176,7 @@ def candidate_metrics_map(
         # 決算開示と as-of 財務のラグ (earnings_lag.py)。annotation であり ranking・
         # gate・E[r] へ入らない。fin_latest_disclosed_date は本行の財務が含む最後の
         # 開示、stale_fin_flag は「発表済みだが取込前」の窓に居ることを示す。
-        "fin_latest_disclosed_date": _date_iso(financial.latest_disclosed_at),
+        "fin_latest_disclosed_date": _date_iso(financial.latest_financial_disclosure_date),
         "next_earnings_estimated_date": (
             None if earnings_lag is None else _date_iso(earnings_lag.next_earnings_estimated_date)
         ),
@@ -197,34 +196,40 @@ def candidate_metrics_map(
         "er_model_version": estimate.model_version if estimate else None,
         "er_unit": estimate.unit if estimate else None,
         "er_assumptions": estimate.assumptions if estimate else None,
-        # 資本配分・支配権イベントの typed fact (capital_control.py)。TSE の開示状況は
+        # 資本配分・支配権イベントの typed fact (valuation_catalyst_context.py)。TSE の開示状況は
         # 月次スナップショットの point-in-time 参照で、"none" は「その月の一覧に居ない」、
         # None は「参照できる月次スナップショットが無い」。イベントは対象会社側から見た
         # 直近 6 か月の提出有無で、None は観測窓が埋まっていない状態、False は窓を観測して
         # 提出が無かった状態。いずれも annotation であり ranking・gate・E[r] へは入らない。
         "tse_capital_policy_status": (
-            None if capital_control is None else capital_control.tse_capital_policy_status
+            None
+            if valuation_catalyst_context is None
+            else valuation_catalyst_context.tse_capital_policy_status
         ),
         "tse_capital_policy_updated_on": (
             None
-            if capital_control is None
-            else _date_iso(capital_control.tse_capital_policy_updated_on)
+            if valuation_catalyst_context is None
+            else _date_iso(valuation_catalyst_context.tse_capital_policy_updated_on)
         ),
         "large_holding_event_recent": (
-            None if capital_control is None else capital_control.large_holding_event_recent
+            None
+            if valuation_catalyst_context is None
+            else valuation_catalyst_context.large_holding_filing_within_lookback
         ),
         "large_holding_event_latest_on": (
             None
-            if capital_control is None
-            else _date_iso(capital_control.large_holding_event_latest_on)
+            if valuation_catalyst_context is None
+            else _date_iso(valuation_catalyst_context.latest_large_holding_filing_date)
         ),
         "tender_offer_event_recent": (
-            None if capital_control is None else capital_control.tender_offer_event_recent
+            None
+            if valuation_catalyst_context is None
+            else valuation_catalyst_context.tender_offer_filing_within_lookback
         ),
         "tender_offer_event_latest_on": (
             None
-            if capital_control is None
-            else _date_iso(capital_control.tender_offer_event_latest_on)
+            if valuation_catalyst_context is None
+            else _date_iso(valuation_catalyst_context.latest_tender_offer_filing_date)
         ),
     }
 

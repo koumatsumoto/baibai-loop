@@ -33,7 +33,7 @@ def screening_candidate(
     metrics: Mapping[str, Any] | _Omitted | None = OMIT,
     **extra: Any,
 ) -> dict[str, Any]:
-    """One candidate row of a run payload.
+    """One Security Analysis entry of a Screening Run payload.
 
     `metrics` has three states the store distinguishes and so does this: left out it
     carries the default reading, `{}` carries none, and `None` leaves the key off the

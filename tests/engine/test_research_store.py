@@ -21,10 +21,10 @@ from baibai_engine.research.store import (
     ResearchValidationError,
 )
 from baibai_engine.research.thesis import (
-    IndependentReview,
     ThesisDocument,
+    ThesisEvaluation,
     ThesisIdentity,
-    ThesisResult,
+    ThesisReview,
     UnpublishedThesis,
     evaluate_thesis,
 )
@@ -46,7 +46,7 @@ def _payload(path: Path) -> dict[str, object]:
     return raw
 
 
-def test_independent_review_rejects_wrong_thesis_revision_without_write(
+def test_thesis_review_rejects_wrong_thesis_revision_without_write(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "app.sqlite"
@@ -108,10 +108,10 @@ def test_atomic_publish_reads_one_operation_clock_for_every_validation(
     def recording_evaluate(
         document: ThesisDocument,
         *,
-        review: IndependentReview | None = None,
+        review: ThesisReview | None = None,
         now: datetime | None = None,
         identity: ThesisIdentity,
-    ) -> ThesisResult:
+    ) -> ThesisEvaluation:
         validation_instants.append(now)
         return real_evaluate(document, review=review, now=now, identity=identity)
 
@@ -185,7 +185,7 @@ def test_schema_evolution_does_not_move_a_published_thesis_identity(
     published = list_thesis_publications(path)[0]
     recorded = str(published["core_sha256"])
     document = ThesisDocument.model_validate(published["payload"])
-    review = IndependentReview.model_validate(list_thesis_review_publications(path)[0]["payload"])
+    review = ThesisReview.model_validate(list_thesis_review_publications(path)[0]["payload"])
 
     def evolved_schema_hash(_document: ThesisDocument) -> str:
         return "f" * 64
@@ -198,7 +198,7 @@ def test_schema_evolution_does_not_move_a_published_thesis_identity(
     recomputed = evaluate_thesis(
         document, review=review, now=FIXED_NOW, identity=UnpublishedThesis.DRAFT
     )
-    assert "independent review hash does not match thesis" in recomputed.errors
+    assert "Thesis Review hash does not match thesis" in recomputed.errors
 
     resolved = evaluate_thesis(document, review=review, now=FIXED_NOW, identity=recorded)
     assert resolved.errors == ()

@@ -38,8 +38,8 @@ _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=Fal
 _TICKER = r"^[0-9A-Z]{4}$"
 _HORIZON_YEARS = 5
 
-# Canonical permanent-loss axes; identical set to the thesis. A review
-# that does not cover every axis exactly once is incomplete (parent D2).
+# Canonical permanent-loss axes; identical to the Thesis. A Position Review that
+# does not cover every axis exactly once is incomplete.
 _RISK_AXES: tuple[str, ...] = (
     "funding_liquidity",
     "debt_repayment",
@@ -141,7 +141,7 @@ class HoldLeg(BaseModel):
     forward_5y_cagr_pct: Annotated[float, Field(gt=-100, le=1000)]
 
 
-class CandidateLeg(BaseModel):
+class ReplacementLeg(BaseModel):
     model_config = _CONFIG
 
     ticker: Annotated[str, Field(pattern=_TICKER)]
@@ -199,7 +199,7 @@ class ReplacementComparison(BaseModel):
 
     status: Literal["no_candidate", "evaluated"]
     hold: HoldLeg | None = None
-    candidate: CandidateLeg | None = None
+    candidate: ReplacementLeg | None = None
     exit_tax: ExitTax | None = None
 
 
@@ -331,7 +331,7 @@ class PositionReviewDocument(BaseModel):
 
 
 @dataclass(frozen=True, slots=True)
-class PositionReviewResult:
+class PositionReviewEvaluation:
     review_status: Literal["incomplete", "complete"]
     computed_action: Action
     permanent_loss_conclusion: PermanentLossConclusion
@@ -356,7 +356,7 @@ def load_position_review(path: Path) -> PositionReviewDocument:
         raise PositionReviewError(str(error)) from error
 
 
-def evaluate_position_review(document: PositionReviewDocument) -> PositionReviewResult:
+def evaluate_position_review(document: PositionReviewDocument) -> PositionReviewEvaluation:
     """Recompute action and drift flags from thesis health and replacement.
 
     The recorded ``action`` must equal the computed one; a mismatch is an error so
@@ -398,7 +398,7 @@ def evaluate_position_review(document: PositionReviewDocument) -> PositionReview
         errors.append(f"recorded action {document.action!r} disagrees with computed {computed!r}")
 
     review_status: Literal["incomplete", "complete"] = "complete" if axes_complete else "incomplete"
-    return PositionReviewResult(
+    return PositionReviewEvaluation(
         review_status=review_status,
         computed_action=computed,
         permanent_loss_conclusion=conclusion,
@@ -576,7 +576,7 @@ def _validate_evidence_freshness(document: PositionReviewDocument, errors: list[
 
 
 def result_to_payload(
-    document: PositionReviewDocument, result: PositionReviewResult
+    document: PositionReviewDocument, result: PositionReviewEvaluation
 ) -> dict[str, object]:
     return {
         "as_of": document.as_of.isoformat(),

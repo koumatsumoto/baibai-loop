@@ -18,7 +18,7 @@ from baibai_engine.appdb.json import canonical_json
 
 CAPITAL_ALLOCATION_ASSESSMENT_SCHEMA_VERSION = 1
 
-type AllocationResult = Literal["allocate", "no_allocation", "defer"]
+type AllocationDecision = Literal["allocate", "no_allocation", "defer"]
 type AlternativeDisposition = Literal["allocate", "decline", "defer"]
 
 
@@ -43,7 +43,7 @@ class AllocationAlternative(BaseModel):
     rationale: str = Field(min_length=1)
 
 
-class ContentReviewBinding(BaseModel):
+class AssessmentContentReviewBinding(BaseModel):
     """Independent content review bound to the exact assessment draft."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
@@ -82,14 +82,14 @@ class CapitalAllocationAssessment(BaseModel):
     capital_allocation_assessment_id: str = Field(min_length=1)
     as_of: date
     published_at: datetime
-    result: AllocationResult
+    result: AllocationDecision
     headline: str = Field(min_length=1)
     research_triage_id: str = Field(min_length=1)
     macro_context_id: str | None = None
     comparison: str = Field(min_length=1)
     forgone: str = Field(min_length=1)
     alternatives: tuple[AllocationAlternative, ...] = Field(min_length=1)
-    review: ContentReviewBinding
+    review: AssessmentContentReviewBinding
 
     @field_validator("alternatives", mode="before")
     @classmethod
@@ -123,7 +123,7 @@ class CapitalAllocationAssessment(BaseModel):
             if len(allocated) != 1:
                 raise ValueError("allocate requires exactly one allocated alternative")
             if allocated[0].thesis_review_id is None:
-                raise ValueError("allocated alternative requires an independent review")
+                raise ValueError("allocated alternative requires a Thesis Review")
         elif allocated:
             raise ValueError("only allocate may carry an allocated alternative")
         return self
@@ -144,11 +144,11 @@ def capital_allocation_draft_sha256(assessment: CapitalAllocationAssessment) -> 
 __all__ = [
     "CAPITAL_ALLOCATION_ASSESSMENT_SCHEMA_VERSION",
     "AllocationAlternative",
-    "AllocationResult",
+    "AllocationDecision",
     "AlternativeDisposition",
+    "AssessmentContentReviewBinding",
     "CapitalAllocationAssessment",
     "CapitalAllocationConflictError",
     "CapitalAllocationError",
-    "ContentReviewBinding",
     "capital_allocation_draft_sha256",
 ]

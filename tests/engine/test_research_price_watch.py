@@ -18,16 +18,16 @@ from baibai_engine.operation.models import HumanConfirmation, OperationPayload
 from baibai_engine.operation.service import OperationService
 from baibai_engine.research.store import ResearchStoreService
 from baibai_engine.research.thesis import (
-    independent_review_hash,
-    load_independent_review,
     load_thesis,
+    load_thesis_review,
     thesis_core_hash,
+    thesis_review_hash,
 )
 from baibai_engine.research_watch import (
     ResearchPriceWatchError,
     _read_market_observations,
     _select_latest_theses,
-    _ThesisCandidate,
+    _ThesisPublication,
     build_parser,
     main,
 )
@@ -55,7 +55,7 @@ def _thesis_root(
     review_name = f"{thesis_asof.isoformat()}-2331-decision-review.yaml"
 
     document = load_thesis(THESIS)
-    review = load_independent_review(REVIEW)
+    review = load_thesis_review(REVIEW)
     snapshot = document.input_snapshot.model_copy(update={"as_of": thesis_asof})
     judgment = document.judgment.model_copy(update={"recommendation": recommendation})
     document = document.model_copy(
@@ -72,7 +72,7 @@ def _thesis_root(
         override = override.model_copy(
             update={
                 "thesis_sha256": core_hash,
-                "review_sha256": independent_review_hash(review),
+                "review_sha256": thesis_review_hash(review),
             }
         )
         document = document.model_copy(update={"human_evidence_override": override})
@@ -205,10 +205,10 @@ def _run(
             )
             service.publish_review(
                 thesis_id,
-                load_independent_review(review_path).model_dump(mode="json"),
+                load_thesis_review(review_path).model_dump(mode="json"),
             )
         else:
-            review = load_independent_review(thesis_path.with_name(thesis.independent_review_ref))
+            review = load_thesis_review(thesis_path.with_name(thesis.independent_review_ref))
             service.publish_thesis_with_review(
                 thesis_id,
                 thesis.model_dump(mode="json"),
@@ -358,7 +358,7 @@ def test_held_and_reserved_comes_only_from_replayed_state(
     ]
 
 
-# Every candidate the watch reads comes from the store, so it always has one.
+# Every publication the watch reads comes from the store, so it always has one.
 _IDENTITY = "c" * 64
 
 
@@ -375,8 +375,8 @@ def test_latest_thesis_selection_uses_asof_not_path_or_mtime() -> None:
 
     selected = _select_latest_theses(
         [
-            _ThesisCandidate(Path("z-newer-mtime.yaml"), older, "0" * 64),
-            _ThesisCandidate(Path("a-older-mtime.yaml"), newer, "1" * 64),
+            _ThesisPublication(Path("z-newer-mtime.yaml"), older, "0" * 64),
+            _ThesisPublication(Path("a-older-mtime.yaml"), newer, "1" * 64),
         ]
     )
 
@@ -388,8 +388,8 @@ def test_same_ticker_same_asof_selects_latest_publication() -> None:
 
     selected = _select_latest_theses(
         [
-            _ThesisCandidate("thesis-first", document, _IDENTITY),
-            _ThesisCandidate("thesis-second", document, _IDENTITY),
+            _ThesisPublication("thesis-first", document, _IDENTITY),
+            _ThesisPublication("thesis-second", document, _IDENTITY),
         ]
     )
 
@@ -409,8 +409,8 @@ def test_latest_reject_does_not_fall_back_to_an_older_buy() -> None:
 
     selected = _select_latest_theses(
         [
-            _ThesisCandidate(Path("older-buy.yaml"), older_buy, _IDENTITY),
-            _ThesisCandidate(Path("latest-reject.yaml"), latest_reject, _IDENTITY),
+            _ThesisPublication(Path("older-buy.yaml"), older_buy, _IDENTITY),
+            _ThesisPublication(Path("latest-reject.yaml"), latest_reject, _IDENTITY),
         ]
     )
 
@@ -467,7 +467,7 @@ def test_exact_asof_invalidity_never_falls_back_to_an_older_close(
 
     observation = _read_market_observations(
         sqlite_path,
-        theses={"2331": _ThesisCandidate(THESIS, document, _IDENTITY)},
+        theses={"2331": _ThesisPublication(THESIS, document, _IDENTITY)},
         asof=ASOF,
     )["2331"]
 
@@ -489,7 +489,7 @@ def test_missing_exact_asof_bar_never_falls_back_to_an_older_bar(tmp_path: Path)
 
     observation = _read_market_observations(
         sqlite_path,
-        theses={"2331": _ThesisCandidate(THESIS, document, _IDENTITY)},
+        theses={"2331": _ThesisPublication(THESIS, document, _IDENTITY)},
         asof=ASOF,
     )["2331"]
 
@@ -524,7 +524,7 @@ def test_intermediate_factor_invalidates_the_whole_comparison_window(
 
     observation = _read_market_observations(
         sqlite_path,
-        theses={"2331": _ThesisCandidate(THESIS, earlier_thesis, _IDENTITY)},
+        theses={"2331": _ThesisPublication(THESIS, earlier_thesis, _IDENTITY)},
         asof=ASOF,
     )["2331"]
 
@@ -541,7 +541,7 @@ def test_one_ticker_can_be_unresolved_without_suppressing_other_rows(tmp_path: P
     )
     document = load_thesis(THESIS)
     theses = {
-        ticker: _ThesisCandidate(Path(f"{ticker}.yaml"), document, _IDENTITY)
+        ticker: _ThesisPublication(Path(f"{ticker}.yaml"), document, _IDENTITY)
         for ticker in ("2331", "9999")
     }
 
@@ -561,7 +561,7 @@ def test_future_bar_is_ignored(tmp_path: Path) -> None:
 
     observation = _read_market_observations(
         sqlite_path,
-        theses={"2331": _ThesisCandidate(THESIS, document, _IDENTITY)},
+        theses={"2331": _ThesisPublication(THESIS, document, _IDENTITY)},
         asof=ASOF,
     )["2331"]
 
@@ -581,7 +581,7 @@ def test_calendar_internal_day_gap_fails_closed_despite_source_coverage(tmp_path
     with pytest.raises(ResearchPriceWatchError, match="missing row: 2026-07-02"):
         _read_market_observations(
             sqlite_path,
-            theses={"2331": _ThesisCandidate(THESIS, earlier_thesis, _IDENTITY)},
+            theses={"2331": _ThesisPublication(THESIS, earlier_thesis, _IDENTITY)},
             asof=ASOF,
         )
 
@@ -602,7 +602,7 @@ def test_adjustment_factor_one_uses_a_narrow_float_tolerance(
 
     observation = _read_market_observations(
         sqlite_path,
-        theses={"2331": _ThesisCandidate(THESIS, document, _IDENTITY)},
+        theses={"2331": _ThesisPublication(THESIS, document, _IDENTITY)},
         asof=ASOF,
     )["2331"]
 

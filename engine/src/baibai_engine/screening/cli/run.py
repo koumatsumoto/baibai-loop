@@ -1,4 +1,4 @@
-"""The `run` command: full screening pass producing the candidates YAML."""
+"""The `run` command: full screening pass producing a Screening Run YAML export."""
 
 from __future__ import annotations
 
@@ -13,8 +13,6 @@ from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.screening.candidate_build import build_security_analysis
-from baibai_engine.screening.capital_control import read_capital_control_annotations
 from baibai_engine.screening.config import (
     ScreeningConfig,
 )
@@ -47,7 +45,6 @@ from baibai_engine.screening.providers.jpx import JPXEarningsCalendarEntry, JPXP
 from baibai_engine.screening.providers.jquants import (
     JQuantsProviderError,
 )
-from baibai_engine.screening.render import render_screened_yaml
 from baibai_engine.screening.rule_config import ScreeningRules, load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunStore
@@ -57,11 +54,14 @@ from baibai_engine.screening.schema import (
     SecurityAnalysis,
     TTMQuality,
 )
+from baibai_engine.screening.screening_run_serializer import serialize_screening_run_yaml
+from baibai_engine.screening.security_analysis_builder import build_security_analysis
 from baibai_engine.screening.universe import (
     MIN_BAR_HISTORY,
     build_universe,
     candidate_comparison_population,
 )
+from baibai_engine.screening.valuation_catalysts import read_valuation_catalyst_contexts
 
 from ..sqlite_reader import read_margin_supply_demand_inputs
 from .providers import ProviderBundle
@@ -113,7 +113,7 @@ def run_command(
     fin_start_date = asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS)
     normalized_start_date = asof_date - timedelta(days=NORMALIZED_EPS_HISTORY_WINDOW_DAYS)
     try:
-        print(f"screening run start: asof={asof_date.isoformat()}", file=out, flush=True)
+        print(f"screening run start: as_of={asof_date.isoformat()}", file=out, flush=True)
         print("screening run jquants market_calendar: start", file=out, flush=True)
         calendar_days = providers.jquants.get_mkt_calendar(asof_date, asof_date)
         if not any(day.day == asof_date and day.is_business_day for day in calendar_days):
@@ -251,18 +251,18 @@ def run_command(
     # dict 上書きを防ぐ (build_universe は非共通株を弾くが、snapshots に残った共通株の
     # SecurityMaster が優先株で上書きされると render の name/sector が誤る)。
     securities_by_ticker = {
-        security.code: security
+        security.ticker: security
         for security in securities
-        if security.is_common_stock and security.code in universe_result.snapshots
+        if security.is_common_stock and security.ticker in universe_result.snapshots
     }
     median_population = candidate_comparison_population(universe_result.snapshots, rules)
     margin_latest, margin_prior_26w = read_margin_supply_demand_inputs(
         config.sqlite_cache_dir / "market.sqlite", asof_date
     )
     # 価値実現の経路の annotation。ranking・gate・E[r] へは接続しない。
-    capital_control_by_ticker = read_capital_control_annotations(
+    valuation_catalyst_context_by_ticker = read_valuation_catalyst_contexts(
         config.sqlite_cache_dir / "market.sqlite",
-        asof=asof_date,
+        as_of=asof_date,
         tickers=sorted(securities_by_ticker),
     )
     metric_result = build_metrics(
@@ -311,12 +311,12 @@ def run_command(
                 next_earnings_date=next_earnings_by_ticker.get(ticker),
                 earnings_lag=build_earnings_lag(
                     asof=asof_date,
-                    fin_latest_disclosed=financial.latest_disclosed_at,
+                    latest_financial_disclosure_date=financial.latest_financial_disclosure_date,
                     announcement_date=calendar_announcements.get(ticker),
                     summaries=summaries_by_ticker.get(ticker, ()),
                 ),
                 normalized_per_3fy=normalized_profit.normalized_per_3fy,
-                capital_control=capital_control_by_ticker.get(ticker),
+                valuation_catalyst_context=valuation_catalyst_context_by_ticker.get(ticker),
             )
         )
 
@@ -446,7 +446,7 @@ def run_command(
         ttm_quality_counts=metric_result.ttm_quality_counts,
         fallback_lines=tuple(fallback_lines),
     )
-    publication_yaml = render_screened_yaml(document)
+    publication_yaml = serialize_screening_run_yaml(document)
     raw_payload = safe_load(publication_yaml)
     if not isinstance(raw_payload, Mapping):  # pragma: no cover - renderer invariant
         raise AssertionError("screening renderer must produce a mapping")
@@ -457,7 +457,7 @@ def run_command(
     except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
         print(f"screening run publication failed: {exc}", file=sys.stderr)
         return 1
-    yaml_text = render_screened_yaml(document, run_revision_id=publication.publication_id)
+    yaml_text = serialize_screening_run_yaml(document, run_revision_id=publication.publication_id)
     if output_path is not None:
         write_text_atomic(output_path, yaml_text)
     status = "partial warning" if partial_warning else "ok"

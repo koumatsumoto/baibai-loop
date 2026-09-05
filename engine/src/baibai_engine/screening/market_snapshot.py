@@ -1,11 +1,11 @@
-"""Market state snapshot: regime history and sector aggregates from cached bars.
+"""Produce benchmark-trend history and sector aggregates from cached bars.
 
 The snapshot is the entry point for AI research on the market itself: a weekly
-time series of the mechanical regime (benchmark trend, universe breadth) and a
+time series of the mechanical benchmark trend and universe breadth, plus a
 sector map (per-sector return medians and breadth) at the evaluation date. It
 also feeds the macro-context workflow with machine-collected inputs. All
 fields are deterministic transforms of stored daily bars; thresholds and
-window lengths are shared with :mod:`baibai_engine.screening.regime` so the two
+window lengths are shared with :mod:`baibai_engine.screening.benchmark_trend` so the two
 never disagree.
 """
 
@@ -19,13 +19,13 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
-from .regime import (
+from .benchmark_trend import (
     BREADTH_MA_WINDOW_BARS,
     DEFAULT_MIN_BREADTH_SAMPLE,
     LONG_TREND_WINDOW_BARS,
     NIKKEI225_ETF_PROXY,
     TREND_WINDOW_BARS,
-    classify_market_regime,
+    classify_benchmark_trend,
 )
 
 DEFAULT_HISTORY_WEEKS = 12
@@ -59,7 +59,7 @@ def build_market_snapshot(
     """Assemble the market snapshot as of ``asof_date``.
 
     ``points`` walks weekly evaluation dates from oldest to ``asof_date`` so a
-    reader sees how trend, breadth, and the regime label evolved; ``sectors``
+    reader sees how trend and breadth evolved; ``sectors``
     aggregates per-sector returns and breadth at ``asof_date`` only.
     """
     point_dates = [
@@ -79,7 +79,7 @@ def build_market_snapshot(
         for point_date in point_dates
     ]
     return {
-        "asof": asof_date.isoformat(),
+        "as_of": asof_date.isoformat(),
         "benchmark_ticker": benchmark_ticker,
         "history_weeks": history_weeks,
         "points": points,
@@ -100,39 +100,39 @@ def _point(
     min_breadth_sample: int,
 ) -> dict[str, object]:
     benchmark_prices = benchmark.prefix(point_date) if benchmark is not None else ()
-    eval_date = benchmark.last_date_on(point_date) if benchmark is not None else None
+    observation_date = benchmark.last_date_on(point_date) if benchmark is not None else None
     return_20d = _trailing_return(benchmark_prices, TREND_WINDOW_BARS)
     return_60d = _trailing_return(benchmark_prices, LONG_TREND_WINDOW_BARS)
     breadth, sample = _breadth(
         series_by_ticker,
-        eval_date=eval_date,
+        observation_date=observation_date,
         upto=point_date,
         min_sample=min_breadth_sample,
     )
     return {
         "date": point_date.isoformat(),
-        "eval_date": eval_date.isoformat() if eval_date is not None else None,
+        "observation_date": observation_date.isoformat() if observation_date is not None else None,
         "benchmark_return_20d": return_20d,
         "benchmark_return_60d": return_60d,
         "breadth_pct_above_ma20": breadth,
         "breadth_sample_size": sample,
-        "regime": classify_market_regime(return_20d).value,
+        "benchmark_trend": classify_benchmark_trend(return_20d).value,
     }
 
 
 def _breadth(
     series_by_ticker: dict[str, _Series],
     *,
-    eval_date: date | None,
+    observation_date: date | None,
     upto: date,
     min_sample: int,
 ) -> tuple[float | None, int]:
-    if eval_date is None:
+    if observation_date is None:
         return None, 0
     above = 0
     sample = 0
     for series in series_by_ticker.values():
-        if series.last_date_on(upto) != eval_date:
+        if series.last_date_on(upto) != observation_date:
             continue
         prices = series.prefix(upto)
         if len(prices) < BREADTH_MA_WINDOW_BARS:

@@ -27,9 +27,10 @@ status: active
 | --- | --- | --- |
 | orientation | repositoryは何をし、どこから始めるか | root [`README.md`](../README.md) |
 | doctrine / governance | 何を優先し、何をしないか | [`doctrine.md`](./doctrine.md)、[`portfolio-management.md`](./portfolio-management.md) |
+| domain language | artifact・activity・state・methodを何と呼ぶか | [`domain-language.md`](./domain-language.md) |
 | agent rule | 作業開始・停止・提出をどう進めるか | [`AGENTS.md`](../AGENTS.md) |
 | operation | triggerをどの順で進め、どこで停止するか | [`.agents/skills/`](../.agents/skills/) |
-| architecture | layer・責務・依存・store authority・無人経路の停止条件 | [`architecture.md`](./architecture.md)、[`failure policy`](./architecture.md#failure-policy) |
+| architecture | layer・責務・依存・physical authority・無人経路の停止条件 | [`architecture.md`](./architecture.md)、[`failure policy`](./architecture.md#failure-policy) |
 | reference | artifact・式・artifact固有のerror / warningの意味 | [`reference/README.md`](./reference/README.md) |
 | review checklist | 過去のfailure classと変更対象別のcommit前停止条件 | [`anti-patterns.md`](./anti-patterns.md) |
 | machine contract | field・type・enum・optionの厳密な形 | DB constraint、engine model、public `--help` |
@@ -41,6 +42,7 @@ status: active
 
 | 変更 | 同時に確認する正本 |
 | --- | --- |
+| domain-facing term / identifier | `domain-language.md`、対象artifactのreference |
 | macro context / provider | `reference/macro.md`、`reference/data-sources.md`、skill `macro-context` |
 | screening / Candidate Discovery / SQLite | `reference/screening-runtime.md`、skill `research-triage`、architectureのCLI表 |
 | thesis / review / capital allocation | `reference/thesis.md`、`reference/capital-allocation-assessment.md`、skill `research` |

@@ -33,6 +33,8 @@ from baibai_engine.market.sqlite import (
     range_covered,
 )
 from baibai_engine.market.store import read_daily_bars_for_tickers, read_market_calendar
+from baibai_engine.position.broker_fact_recording import BrokerFactRecordingError
+from baibai_engine.position.broker_fact_service import build_broker_fact_draft
 from baibai_engine.position.drafts import (
     HumanEvent,
     apply_draft,
@@ -72,8 +74,6 @@ from baibai_engine.position.position_review import (
     load_position_review,
     result_to_payload,
 )
-from baibai_engine.position.result_recording import ResultRecordingError
-from baibai_engine.position.result_service import build_result_draft
 from baibai_engine.position.store import LedgerConflictError, LedgerStoreService
 from baibai_engine.research.capital_allocation_service import (
     CapitalAllocationAssessmentService,
@@ -167,7 +167,7 @@ def build_parser() -> argparse.ArgumentParser:
     position_review_parser.add_argument("--db", type=Path)
     position_review_parser.add_argument("--position-review-id")
     position_review_parser.add_argument("--thesis-id")
-    position_review_parser.add_argument("--candidate-thesis-id")
+    position_review_parser.add_argument("--replacement-thesis-id")
     holding_build_parser = subparsers.add_parser(
         "position-review-build",
         help="build a Position Review draft from a ready thesis, its review, and the ledger",
@@ -176,7 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
     holding_build_parser.add_argument("--db", type=Path)
     holding_build_parser.add_argument("--thesis-id", required=True)
     holding_build_parser.add_argument("--position-id", required=True)
-    holding_build_parser.add_argument("--candidate-thesis-id")
+    holding_build_parser.add_argument("--replacement-thesis-id")
     holding_build_parser.add_argument("--out", type=Path, required=True)
     market_price_parser = subparsers.add_parser(
         "market-price-draft",
@@ -188,7 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
     market_price_parser.add_argument("--asof", type=_date_argument, required=True)
     market_price_parser.add_argument("--out", type=Path, required=True)
     result_parser = subparsers.add_parser(
-        "record-result",
+        "broker-fact-draft",
         help="turn a human-reported open/filled/cancelled/expired result into a ledger draft",
     )
     result_parser.add_argument("--root", type=Path, default=Path.cwd())
@@ -214,7 +214,7 @@ def build_parser() -> argparse.ArgumentParser:
     result_parser.add_argument("--ordered-at", type=_datetime_argument)
     result_parser.add_argument("--out", type=Path, required=True)
     sell_parser = subparsers.add_parser(
-        "sell-result-draft",
+        "sell-execution-draft",
         help="turn a human-reported sell fill into a FIFO-checked execution ledger draft",
     )
     sell_parser.add_argument("--root", type=Path, default=Path.cwd())
@@ -304,7 +304,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         return _run_position_review_build_db(
             db_path=args.db,
             thesis_id=args.thesis_id,
-            candidate_thesis_id=args.candidate_thesis_id,
+            replacement_thesis_id=args.replacement_thesis_id,
             position_id=args.position_id,
             root=args.root,
             out=args.out,
@@ -318,10 +318,10 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             out=args.out,
             db_path=args.db,
         )
-    if args.command == "record-result":
-        return _run_record_result(args, now=now)
-    if args.command == "sell-result-draft":
-        return _run_sell_result_draft(args)
+    if args.command == "broker-fact-draft":
+        return _run_record_broker_fact(args, now=now)
+    if args.command == "sell-execution-draft":
+        return _run_sell_execution_draft(args)
     if args.command == "apply-draft":
         try:
             result = apply_draft(
@@ -672,7 +672,7 @@ def _run_position_review_publish(
             position_review_id,
             args.thesis_id,
             raw,
-            candidate_thesis_id=args.candidate_thesis_id,
+            candidate_thesis_id=args.replacement_thesis_id,
         )
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -681,7 +681,7 @@ def _run_position_review_publish(
         {
             "position_review_id": position_review_id,
             "thesis_id": args.thesis_id,
-            "candidate_thesis_id": args.candidate_thesis_id,
+            "candidate_thesis_id": args.replacement_thesis_id,
         },
         sys.stdout,
         sort_keys=False,
@@ -694,7 +694,7 @@ def _run_position_review_build_db(
     *,
     db_path: Path | None,
     thesis_id: str,
-    candidate_thesis_id: str | None,
+    replacement_thesis_id: str | None,
     position_id: str,
     root: Path,
     out: Path,
@@ -705,7 +705,7 @@ def _run_position_review_build_db(
         document = build_position_review_from_db(
             db_path=db_path,
             holding_thesis_id=thesis_id,
-            candidate_thesis_id=candidate_thesis_id,
+            replacement_thesis_id=replacement_thesis_id,
             position_id=position_id,
             now=_position_review_instant(now),
         )
@@ -728,9 +728,9 @@ def _position_review_instant(now: datetime | None) -> datetime:
     return resolved
 
 
-def _run_record_result(args: argparse.Namespace, *, now: datetime | None) -> int:
+def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -> int:
     try:
-        draft, event_ids = build_result_draft(
+        draft, event_ids = build_broker_fact_draft(
             LedgerStoreService(args.db),
             CapitalAllocationAssessmentService(args.db),
             decision_reference=args.decision_reference,
@@ -753,7 +753,7 @@ def _run_record_result(args: argparse.Namespace, *, now: datetime | None) -> int
             write_draft(output_path, draft)
         else:
             output_path = None
-    except (OSError, PortfolioLedgerError, ResultRecordingError, ValueError) as error:
+    except (OSError, PortfolioLedgerError, BrokerFactRecordingError, ValueError) as error:
         print(f"error: failed to build broker result draft: {error}", file=sys.stderr)
         return 2
     yaml.safe_dump(
@@ -770,7 +770,7 @@ def _run_record_result(args: argparse.Namespace, *, now: datetime | None) -> int
     return 0
 
 
-def _run_sell_result_draft(args: argparse.Namespace) -> int:
+def _run_sell_execution_draft(args: argparse.Namespace) -> int:
     source_event_ids: set[str] = set()
     try:
         output_path = _draft_output_path(args.root, args.out, label="sell result ledger draft")

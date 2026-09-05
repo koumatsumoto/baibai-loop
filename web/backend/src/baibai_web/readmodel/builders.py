@@ -29,21 +29,19 @@ from baibai_web.sources.db_sources import (
     DbOperationsSource,
 )
 from baibai_web.sources.protocols import (
-    CandidatesSource,
     LedgerSource,
     MarketPriceSource,
     ResearchSource,
+    ScreeningSource,
     TaskSource,
 )
 from baibai_web.sources.types import (
-    CandidatesRun,
     ResearchRevision,
+    ScreeningRunRecord,
     TaskRecord,
 )
 
 from .models import (
-    CandidateEntryDeltaView,
-    CandidateMoveDeltaView,
     DailyDeltaView,
     DashboardView,
     DeltaPool,
@@ -56,6 +54,8 @@ from .models import (
     OperationsView,
     PortfolioOutcomeView,
     ReservationView,
+    ReviewSetEntryDeltaView,
+    ReviewSetExpectedReturnDeltaView,
     TasksView,
     TaskView,
     UpcomingEventView,
@@ -97,7 +97,7 @@ def build_operations_view(source: DbOperationsSource) -> OperationsView:
 def build_dashboard(
     ledger: LedgerSource,
     research: ResearchSource,
-    candidates: CandidatesSource,
+    screening: ScreeningSource,
     market: MarketPriceSource,
 ) -> DashboardView:
     """Build the app's first view without performing storage I/O directly."""
@@ -106,8 +106,8 @@ def build_dashboard(
     today = now.date()
     revisions = research.revisions()
     latest_research = _latest_research_by_ticker(revisions)
-    latest_run = candidates.latest_run()
-    candidate_names = _candidate_names(latest_run)
+    latest_run = screening.latest_run()
+    security_names = _security_names(latest_run)
     research_load_errors = research.load_errors()
 
     if not ledger.exists():
@@ -134,7 +134,7 @@ def build_dashboard(
         _holding_view(
             holding,
             revision=latest_research.get(holding.ticker),
-            candidate_name=candidate_names.get(holding.ticker),
+            security_name=security_names.get(holding.ticker),
             market_close=market_closes.get(holding.ticker),
             next_earnings_date=earnings_dates.get(holding.ticker),
         )
@@ -204,7 +204,7 @@ def build_tasks(
     tasks: TaskSource,
     ledger: LedgerSource,
     research: ResearchSource,
-    candidates: CandidatesSource,
+    screening: ScreeningSource,
     market: MarketPriceSource,
 ) -> TasksView:
     """Build task workflow independently from Dashboard portfolio presentation."""
@@ -235,14 +235,14 @@ def build_tasks(
         )
 
     latest_research = _latest_research_by_ticker(research.revisions())
-    candidate_names = _candidate_names(candidates.latest_run())
+    security_names = _security_names(screening.latest_run())
     holding_tickers = [holding.ticker for holding in snapshot.holdings]
     earnings_dates = market.next_earnings_dates(holding_tickers, asof=today)
     holdings = [
         _holding_view(
             holding,
             revision=latest_research.get(holding.ticker),
-            candidate_name=candidate_names.get(holding.ticker),
+            security_name=security_names.get(holding.ticker),
             market_close=None,
             next_earnings_date=earnings_dates.get(holding.ticker),
         )
@@ -313,7 +313,7 @@ def _latest_research_by_ticker(
     return latest
 
 
-def _candidate_names(run: CandidatesRun | None) -> dict[str, str]:
+def _security_names(run: ScreeningRunRecord | None) -> dict[str, str]:
     if run is None:
         return {}
     result: dict[str, str] = {}
@@ -329,7 +329,7 @@ def _holding_view(
     holding: HoldingSnapshot,
     *,
     revision: ResearchRevision | None,
-    candidate_name: str | None,
+    security_name: str | None,
     market_close: tuple[float, date] | None = None,
     next_earnings_date: date | None = None,
 ) -> HoldingView:
@@ -356,7 +356,7 @@ def _holding_view(
     )
     return HoldingView(
         ticker=holding.ticker,
-        company_name=revision.company_name if revision is not None else candidate_name,
+        company_name=revision.company_name if revision is not None else security_name,
         sector=holding.sector,
         quantity=holding.quantity,
         deployed_cost_yen=holding.deployed_cost_yen,
@@ -485,7 +485,7 @@ _DELTA_HOLDING_MOVE_MIN_PCT = 5.0
 
 
 def build_daily_delta(
-    candidates: CandidatesSource,
+    screening: ScreeningSource,
     ledger: LedgerSource,
     research: ResearchSource,
     market: MarketPriceSource,
@@ -509,18 +509,18 @@ def build_daily_delta(
     market_ready = market.exists()
     if not market_ready:
         unavailable.append("market")
-    latest = candidates.latest_run()
-    previous = candidates.previous_run()
+    latest = screening.latest_run()
+    previous = screening.previous_run()
     if latest is None:
-        unavailable.append("candidates")
+        unavailable.append("screening_run")
     elif previous is None:
-        unavailable.append("candidates_previous_run")
+        unavailable.append("previous_screening_run")
 
     pool: DeltaPool | None = None
     rules_changed = False
-    entered: list[CandidateEntryDeltaView] = []
-    exited: list[CandidateEntryDeltaView] = []
-    er_moves: list[CandidateMoveDeltaView] = []
+    entered: list[ReviewSetEntryDeltaView] = []
+    exited: list[ReviewSetEntryDeltaView] = []
+    er_moves: list[ReviewSetExpectedReturnDeltaView] = []
     er_moves_total = 0
     if latest is not None and previous is not None:
         rules_changed = (
@@ -528,9 +528,9 @@ def build_daily_delta(
             and previous.rules_ref is not None
             and latest.rules_ref != previous.rules_ref
         )
-        pools = _delta_pools(candidates, latest, previous)
+        pools = _delta_pools(screening, latest, previous)
         if pools is None:
-            unavailable.append("candidates_pool")
+            unavailable.append("review_set")
         elif rules_changed:
             # A rules revision replaces the pool wholesale, so the difference is a
             # method change and not a market change. Naming it is the honest answer.
@@ -541,12 +541,12 @@ def build_daily_delta(
                 # A pool whose rows carry no estimate cannot produce a mover, and an
                 # empty mover list would read as "nothing moved". Naming it keeps a
                 # pool shape this reader does not know from silencing the section.
-                unavailable.append("candidates_estimate")
-            entered, exited, er_moves, er_moves_total = _candidate_deltas(
+                unavailable.append("review_set_estimate")
+            entered, exited, er_moves, er_moves_total = _review_set_deltas(
                 current_pool,
                 previous_pool,
                 market=market if market_ready else None,
-                previous_asof=previous.asof_date,
+                previous_asof=previous.as_of,
             )
 
     holdings: list[HoldingDeltaView] = []
@@ -563,13 +563,13 @@ def build_daily_delta(
             research=research,
             market=market,
             asof=today,
-            previous_asof=None if previous is None else previous.asof_date,
+            previous_asof=None if previous is None else previous.as_of,
         )
 
     return DailyDeltaView(
         generated_at=now,
-        asof=None if latest is None else latest.asof_date,
-        previous_asof=None if previous is None else previous.asof_date,
+        asof=None if latest is None else latest.as_of,
+        previous_asof=None if previous is None else previous.as_of,
         pool=pool,
         rules_changed=rules_changed,
         entered=entered,
@@ -605,17 +605,17 @@ def _pool_rows(
 
 
 def _delta_pools(
-    candidates: CandidatesSource, latest: CandidatesRun, previous: CandidatesRun
+    screening: ScreeningSource, latest: ScreeningRunRecord, previous: ScreeningRunRecord
 ) -> tuple[DeltaPool, dict[str, Mapping[str, object]], dict[str, Mapping[str, object]]] | None:
     """Pick the most informative pool both runs published, or None when neither did.
 
-    What counts as a candidate is decided by ``select`` and published in its output;
-    re-deriving it here from the run's candidate array would both duplicate the screen
-    definition and compare the whole universe.
+    Review Set membership is published by Candidate Discovery; re-deriving it from
+    the run's Security Analysis array would duplicate that method and compare the
+    whole universe.
     """
 
-    latest_payloads = candidates.review_sets(run_revision_id=latest.run_revision_id)
-    previous_payloads = candidates.review_sets(run_revision_id=previous.run_revision_id)
+    latest_payloads = screening.review_sets(run_revision_id=latest.run_revision_id)
+    previous_payloads = screening.review_sets(run_revision_id=previous.run_revision_id)
     current = _pool_rows(latest_payloads, "entries")
     earlier = _pool_rows(previous_payloads, "entries")
     if current is None or earlier is None:
@@ -631,10 +631,10 @@ def _pool_er(row: Mapping[str, object]) -> float | None:
     return _number(expected.get("er_annual")) if isinstance(expected, Mapping) else None
 
 
-def _candidate_entry_delta(
+def _review_set_entry_delta(
     row: Mapping[str, object], *, disclosed: bool | None
-) -> CandidateEntryDeltaView:
-    return CandidateEntryDeltaView(
+) -> ReviewSetEntryDeltaView:
+    return ReviewSetEntryDeltaView(
         ticker=str(row.get("ticker", "")),
         company_name=_text(row.get("name")),
         er_annual_pct=_percent(_pool_er(row)),
@@ -642,16 +642,16 @@ def _candidate_entry_delta(
     )
 
 
-def _candidate_deltas(
+def _review_set_deltas(
     current: Mapping[str, Mapping[str, object]],
     earlier: Mapping[str, Mapping[str, object]],
     *,
     market: MarketPriceSource | None,
     previous_asof: date,
 ) -> tuple[
-    list[CandidateEntryDeltaView],
-    list[CandidateEntryDeltaView],
-    list[CandidateMoveDeltaView],
+    list[ReviewSetEntryDeltaView],
+    list[ReviewSetEntryDeltaView],
+    list[ReviewSetExpectedReturnDeltaView],
     int,
 ]:
     def by_er(tickers: set[str], rows: Mapping[str, Mapping[str, object]]) -> list[str]:
@@ -670,18 +670,18 @@ def _candidate_deltas(
             market.disclosures_after(entered_tickers + exited_tickers, after=previous_asof)
         )
     entered = [
-        _candidate_entry_delta(
+        _review_set_entry_delta(
             current[ticker], disclosed=None if disclosed is None else ticker in disclosed
         )
         for ticker in entered_tickers
     ]
     exited = [
-        _candidate_entry_delta(
+        _review_set_entry_delta(
             earlier[ticker], disclosed=None if disclosed is None else ticker in disclosed
         )
         for ticker in exited_tickers
     ]
-    moves: list[CandidateMoveDeltaView] = []
+    moves: list[ReviewSetExpectedReturnDeltaView] = []
     for ticker in sorted(set(current) & set(earlier)):
         current_er = _percent(_pool_er(current[ticker]))
         previous_er = _percent(_pool_er(earlier[ticker]))
@@ -691,7 +691,7 @@ def _candidate_deltas(
         if abs(change) < _DELTA_ER_MOVE_MIN_PP:
             continue
         moves.append(
-            CandidateMoveDeltaView(
+            ReviewSetExpectedReturnDeltaView(
                 ticker=ticker,
                 company_name=_text(current[ticker].get("name")),
                 er_annual_pct=current_er,

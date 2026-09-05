@@ -651,8 +651,8 @@ class JPXProvider:
             raise JPXProviderError(f"JPX regulation source must use https://www.jpx.co.jp/: {url}")
 
     def _resolve_special_attention_xls_url(self, asof_date: date) -> str:
-        # The index publishes only the latest xls; backfill control is enforced
-        # one layer up via the --allow-stale-jpx guard (issue #19).
+        # The index publishes only the latest XLS. The caller's --allow-stale-jpx
+        # guard keeps a historical as-of from silently accepting that current file.
         del asof_date
         if not self._special_caution_index_url:
             raise JPXProviderError("JPX_SPECIAL_CAUTION_INDEX_URL is not configured")

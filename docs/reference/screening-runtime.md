@@ -1,6 +1,6 @@
 ---
 title: "Screening runtime reference"
-summary: "Security Analysis、4つの価値評価法、Review Set、Research Triageの安定した意味と実行境界の正本。"
+summary: "Security Analysis、current Candidate Discovery Method、Review Set、Research Triageの実行境界の正本。"
 doc_type: reference
 status: active
 ---
@@ -9,7 +9,7 @@ status: active
 
 ## 役割
 
-screeningは全対象銘柄のobserved / derived / estimateをSecurity Analysisへ固定し、4つの価値評価法から有限のReview Setを作る。Review Setは各Approachのtop20 Nominationを失わずAIへ渡す機械成果物であり、投資判断ではない。Research Triageだけが各entryへ`research / skip`とresearch priorityを発行する。
+screeningは全対象銘柄のobserved / derived / estimateをSecurity Analysisへ固定し、configured Valuation Approachesが生成したNominationのexact unionをReview Setにする。Review Setは機械成果物であり、投資判断ではない。Research Triageだけが各entryへ`research / skip`とresearch priorityを発行する。current production methodは4 Approachを持ち、各ApproachのNomination depthは20である。
 
 E[r]、FV、macro context、portfolio stateは参考文脈である。Review Setのnomination、membership、orderには使わない。
 
@@ -64,7 +64,7 @@ current writerとactive read pathはcurrent schemaだけを扱い、retired shap
 - `research`: contiguousな`priority`、`rationale`、`research_question`、`key_risk`が必須
 - `skip`: `rationale`が必須で、`priority`、`research_question`、`key_risk`は禁止
 
-manual scaffoldはReview Set IDからrun storeのcanonical publicationを解決し、Review Setのas-of以下で最新のMacro Contextと、application DBのlatest current Triage IDを取得する。通常の`analysis run`はeditable scaffoldを介さず、strictなjudgment fieldから同じdomain objectを組み立てる。publisherは`review_set_id`、`run_revision_id`、`as_of`、`screening_rules_hash`、Candidate Discovery method、全tickerを検証し、`candidate_snapshot`をsource Review Setから上書きする。snapshotはidentity、`nominations`、grouped `analysis`だけを持つ。
+manual scaffoldはReview Set IDからrun storeのcanonical publicationを解決し、Review Setのas-of以下で最新のMacro Contextと、application DBのlatest current Triage IDを取得する。通常の`analysis run`はeditable scaffoldを介さず、strictなjudgment fieldから同じdomain objectを組み立てる。publisherは`review_set_id`、`run_revision_id`、`as_of`、`screening_rules_hash`、Candidate Discovery Method、全tickerを検証し、Review Set Entry snapshotをsource Review Setから上書きする。persisted field `candidate_snapshot`はstorage contractとして維持し、snapshotはidentity、`nominations`、grouped `analysis`だけを持つ。
 
 global headは`as_of DESC, julianday(published_at) DESC, research_triage_id DESC`の実時刻total orderで決める。`expected_prior_research_triage_id`はpublish transaction内でこのheadとCASする。新規publicationは`as_of`を後退させず、awareな`published_at`を現headより進め、未来時刻またはJST換算日が`as_of`より前の時刻を使わない。同じIDと同じcanonical payloadの再送だけは、後続headの有無にかかわらず冪等に成功する。これにより全てのnon-idempotent publicationが新headになり、同じpriorから分岐したdraftを拒否する。
 
@@ -72,7 +72,7 @@ Contextが無ければ`null`は正常、古ければwarningであり、どちら
 
 ADVは固定floorのgateや自動skip条件ではない。Triageは低値・欠損だけで`skip`やpriorityを決めず、価値仮説を比較した後の実行可能性contextとしてrationaleへ反映できる。最終的な注文可否と数量はCapital Allocation後のhuman executionが所有する。
 
-Research TriageはResearch Setのadmission可能範囲を定める。人間は`research` entryの部分集合だけをResearch Setとして確定できる。`research prepare --research-triage-id ... --ticker ...`はas-ofと比較snapshotをcanonical payloadから導出し、選択集合をmanifestへ固定し、そのnon-empty集合のResearch開始Operationを同時に作る。空集合はOperationなしの正常結果である。Review Set fileやrun storeは要求しない。status・scaffold・promoteを含む各gateがapplication DBを再読してpayload hashとresearchable ticker集合を検証し、workspaceへの後書きadmissionを拒否する。
+Research TriageはResearch Setのadmission可能範囲を定める。人間は`research` entryの部分集合だけをResearch Setとして確定できる。`research prepare --research-triage-id ... --ticker ...`はas-ofと比較snapshotをcanonical payloadから導出し、選択集合をmanifestへ固定し、そのnon-empty集合のResearch開始Operationを同時に作る。空集合はOperationなしの正常結果である。Review Set fileやrun storeは要求しない。status・scaffold・promoteを含む各gateがapplication DBを再読してpayload hashとadmissible ticker集合を検証し、workspaceへの後書きadmissionを拒否する。
 
 E[r] calibration contextは共有read contractがartifact schema、generated/expiry、3y/5y、quantile/band、rules hash、E[r] model versionを検証する。ResearchはTriage rootのrules hashとcandidate `analysis.expected_return`のmodel/version・ratio-valued `er_annual`を使い、利用不能理由を明示する。これはhistorical contextで、membership/order、Triage、FV、buy judgmentへ伝播しない。
 

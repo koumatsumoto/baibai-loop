@@ -19,18 +19,18 @@ from baibai_engine.read_api import (
     PortfolioSnapshot,
 )
 from baibai_web.sources.db_sources import (
-    DbCandidatesSource,
+    DbScreeningSource,
 )
 from baibai_web.sources.protocols import (
-    CandidatesSource,
     LedgerSource,
     MarketPriceSource,
     ResearchSource,
+    ScreeningSource,
 )
 from baibai_web.sources.types import (
-    CandidatesRun,
     ErLevelCalibrationContext,
     ResearchRevision,
+    ScreeningRunRecord,
     ThesisDetail,
 )
 
@@ -49,10 +49,10 @@ from .models import (
     PortfolioState,
     PositionReviewView,
     ResearchRevisionView,
-    ResearchTriageCandidateSnapshotView,
     ResearchTriageEntryView,
     ResearchTriageView,
     ReviewSetAnalysisView,
+    ReviewSetEntrySnapshotView,
     ReviewSetEntryView,
     ReviewSetNominationView,
     ReviewSetView,
@@ -111,22 +111,21 @@ _STALE_RUN_AGE = timedelta(days=7)
 
 
 def build_screening(
-    candidates: CandidatesSource,
+    screening: ScreeningSource,
     ledger: LedgerSource,
     research: ResearchSource,
     er_level_calibration: ErLevelCalibrationContext | None = None,
 ) -> ScreeningView:
     """Build the latest candidates table with portfolio/research annotations."""
 
-    run, review_sets = _operative_run(candidates)
+    run, review_sets = _operative_run(screening)
     applicable_calibration = _calibration_for_run(run, er_level_calibration)
     research_triages: list[ResearchTriageView] = []
     assessments: list[CapitalAllocationAssessmentSummaryView] = []
-    if isinstance(candidates, DbCandidatesSource):
-        research_triages, assessments = _current_screening_judgments(
-            candidates,
-            review_sets=review_sets,
-        )
+    research_triages, assessments = _current_screening_judgments(
+        research,
+        review_sets=review_sets,
+    )
     if run is None:
         return ScreeningView(
             run=None,
@@ -143,7 +142,7 @@ def build_screening(
     return ScreeningView(
         run=_screening_run_view(run, today=today),
         security_analyses=[
-            _candidate_row_view(
+            _security_analysis_row_view(
                 row,
                 held=held,
                 reserved=reserved,
@@ -161,7 +160,7 @@ def build_screening(
 
 
 def _current_screening_judgments(
-    candidates: DbCandidatesSource,
+    research: ResearchSource,
     *,
     review_sets: list[ReviewSetView],
 ) -> tuple[list[ResearchTriageView], list[CapitalAllocationAssessmentSummaryView]]:
@@ -172,7 +171,7 @@ def _current_screening_judgments(
     }
     current_triages = [
         item
-        for item in candidates.research_triages(
+        for item in research.research_triages(
             review_set_ids=[review_set.review_set_id for review_set in review_sets]
         )
         if (str(item.get("review_set_id")), str(item.get("run_revision_id"))) in review_set_sources
@@ -182,9 +181,7 @@ def _current_screening_judgments(
     if not triage_ids:
         return triage_views, []
     current_assessments = [
-        item
-        for item in candidates.assessments()
-        if str(item.get("research_triage_id")) in triage_ids
+        item for item in research.assessments() if str(item.get("research_triage_id")) in triage_ids
     ]
     return (
         triage_views,
@@ -193,7 +190,7 @@ def _current_screening_judgments(
 
 
 def _calibration_for_run(
-    run: CandidatesRun | None,
+    run: ScreeningRunRecord | None,
     context: ErLevelCalibrationContext | None,
 ) -> ErLevelCalibrationContext | None:
     """Bind historical E[r] bands to the exact method of the displayed run."""
@@ -209,8 +206,8 @@ def _calibration_for_run(
 
 
 def _operative_run(
-    candidates: CandidatesSource,
-) -> tuple[CandidatesRun | None, list[ReviewSetView]]:
+    screening: ScreeningSource,
+) -> tuple[ScreeningRunRecord | None, list[ReviewSetView]]:
     """Resolve the run every screening surface reads, with its own review_sets.
 
     Judgment publications (review_set / research_triage) bind to a specific run revision.
@@ -223,16 +220,16 @@ def _operative_run(
     security page cannot end up describing the same ticker from different runs.
     """
 
-    run = candidates.latest_run()
+    run = screening.latest_run()
     if run is None:
         return None, []
     # Ask for this run's review_sets first: the whole published history is only needed to
     # find a fallback, which is the uncommon case, and a security page reads this on
     # every request.
-    run_review_sets = candidates.review_sets(run_revision_id=run.run_revision_id)
-    if not run_review_sets and (all_review_sets := candidates.review_sets()):
+    run_review_sets = screening.review_sets(run_revision_id=run.run_revision_id)
+    if not run_review_sets and (all_review_sets := screening.review_sets()):
         newest = max(all_review_sets, key=lambda item: str(item["created_at"]))
-        fallback_run = candidates.run(str(newest["run_revision_id"]))
+        fallback_run = screening.run(str(newest["run_revision_id"]))
         if fallback_run is not None:
             run = fallback_run
             run_review_sets = [
@@ -266,7 +263,7 @@ def _review_entry_fair_value(entry: ReviewSetEntryView | None) -> float | None:
 
 
 def build_screening_history_run(
-    candidates: DbCandidatesSource,
+    screening: DbScreeningSource,
     ledger: LedgerSource,
     research: ResearchSource,
     *,
@@ -274,7 +271,7 @@ def build_screening_history_run(
 ) -> ScreeningHistoryRunView | None:
     """Build one retained run with the same current-state annotations as latest."""
 
-    run = candidates.run_as_of(as_of)
+    run = screening.run_as_of(as_of)
     if run is None:
         return None
     held, reserved = _held_and_reserved_tickers(ledger)
@@ -282,13 +279,13 @@ def build_screening_history_run(
     fair_value = _fair_value_by_ticker(
         [
             _machine_review_set_view(item)
-            for item in candidates.review_sets(run_revision_id=run.run_revision_id)
+            for item in screening.review_sets(run_revision_id=run.run_revision_id)
         ]
     )
     return ScreeningHistoryRunView(
         run=_screening_run_view(run, today=datetime.now(_JST).date()),
         rows=[
-            _candidate_row_view(
+            _security_analysis_row_view(
                 row,
                 held=held,
                 reserved=reserved,
@@ -301,13 +298,13 @@ def build_screening_history_run(
 
 
 def build_assessment_detail(
-    candidates: DbCandidatesSource,
+    research: ResearchSource,
     *,
     capital_allocation_assessment_id: str,
 ) -> CapitalAllocationAssessmentView | None:
     """Build one published capital-allocation assessment for the detail page."""
 
-    raw = candidates.assessment(capital_allocation_assessment_id)
+    raw = research.assessment(capital_allocation_assessment_id)
     if raw is None:
         return None
     return _assessment_view(raw)
@@ -327,7 +324,7 @@ def _assessment_summary_view(raw: Mapping[str, object]) -> CapitalAllocationAsse
         capital_allocation_assessment_id=str(raw["capital_allocation_assessment_id"]),
         as_of=date.fromisoformat(str(raw["as_of"])),
         published_at=datetime.fromisoformat(str(raw["published_at"])),
-        result=str(raw["result"]),
+        decision=str(raw["result"]),
         headline=str(raw["headline"]),
         research_triage_id=str(raw["research_triage_id"]),
         alternative_count=len(alternatives),
@@ -342,17 +339,17 @@ def _assessment_view(
         capital_allocation_assessment_id=str(raw["capital_allocation_assessment_id"]),
         as_of=date.fromisoformat(str(raw["as_of"])),
         published_at=datetime.fromisoformat(str(raw["published_at"])),
-        result=str(raw["result"]),
+        decision=str(raw["result"]),
         headline=str(raw["headline"]),
         research_triage_id=str(raw["research_triage_id"]),
         macro_context_id=_text(raw.get("macro_context_id")),
         comparison=str(raw["comparison"]),
-        forgone=str(raw["forgone"]),
+        foregone_alternatives=str(raw["forgone"]),
         alternatives=[
             _allocation_alternative_view(item)
             for item in _mapping_items_optional(raw.get("alternatives"))
         ],
-        review=AssessmentReviewView.model_validate(raw["review"]),
+        content_review=AssessmentReviewView.model_validate(raw["review"]),
     )
 
 
@@ -392,12 +389,23 @@ def _review_set_entries_entry_view(raw: Mapping[str, object]) -> ReviewSetEntryV
     analysis = raw.get("analysis")
     if not isinstance(analysis, Mapping):
         raise ValueError("Review Set entry analysis must be an object")
+    context = analysis.get("context")
+    if not isinstance(context, Mapping):
+        raise ValueError("Review Set entry context must be an object")
+    normalized_context = {
+        **context,
+        "large_holding_filing_within_lookback": context.get("large_holding_event_recent"),
+        "latest_large_holding_filing_date": context.get("large_holding_event_latest_on"),
+        "tender_offer_filing_within_lookback": context.get("tender_offer_event_recent"),
+        "latest_tender_offer_filing_date": context.get("tender_offer_event_latest_on"),
+    }
+    normalized_analysis = {**analysis, "context": normalized_context}
     return ReviewSetEntryView(
         ticker=str(raw.get("ticker", "")),
         name=_text(raw.get("name")),
         sector_33=_text(raw.get("sector_33")),
         nominations=[ReviewSetNominationView.model_validate(item) for item in nominations],
-        analysis=ReviewSetAnalysisView.model_validate(analysis),
+        analysis=ReviewSetAnalysisView.model_validate(normalized_analysis),
     )
 
 
@@ -433,9 +441,7 @@ def _research_triage_entry_view(raw: Mapping[str, object]) -> ResearchTriageEntr
     snapshot = raw.get("candidate_snapshot")
     if not isinstance(snapshot, Mapping):
         raise ValueError("Research Triage candidate_snapshot must be an object")
-    view = ResearchTriageEntryView.model_validate(
-        {**raw, "machine_snapshot": None, "candidate_snapshot": None}
-    )
+    view = ResearchTriageEntryView.model_validate({**raw, "machine_snapshot": None})
     analysis = snapshot.get("analysis")
     if not isinstance(analysis, Mapping):
         raise ValueError("Research Triage candidate analysis must be an object")
@@ -447,9 +453,7 @@ def _research_triage_entry_view(raw: Mapping[str, object]) -> ResearchTriageEntr
         "data_quality": analysis.get("data_quality"),
     }
     return view.model_copy(
-        update={
-            "candidate_snapshot": ResearchTriageCandidateSnapshotView.model_validate(normalized)
-        }
+        update={"review_set_entry_snapshot": ReviewSetEntrySnapshotView.model_validate(normalized)}
     )
 
 
@@ -473,7 +477,7 @@ def build_security_detail(
     ticker: str,
     ledger: LedgerSource,
     research: ResearchSource,
-    candidates: CandidatesSource,
+    screening: ScreeningSource,
     market: MarketPriceSource,
 ) -> SecurityDetailView | None:
     """Build one security page, returning None only when no source knows the ticker."""
@@ -483,8 +487,8 @@ def build_security_detail(
     today = datetime.now(_JST).date()
     revisions = [item for item in research.revisions() if item.ticker == ticker]
     latest_revision = revisions[0] if revisions else None
-    run, review_sets = _operative_run(candidates)
-    raw_candidate = (
+    run, review_sets = _operative_run(screening)
+    raw_security_analysis = (
         next(
             (row for row in run.rows if str(row.get("ticker", "")) == ticker),
             None,
@@ -498,16 +502,20 @@ def build_security_detail(
         if snapshot is not None
         else None
     )
-    if holding_snapshot is None and latest_revision is None and raw_candidate is None:
+    if holding_snapshot is None and latest_revision is None and raw_security_analysis is None:
         return None
 
-    candidate_name = _text(raw_candidate.get("name")) if raw_candidate is not None else None
-    candidate_sector = _text(raw_candidate.get("sector_33")) if raw_candidate is not None else None
+    security_name = (
+        _text(raw_security_analysis.get("name")) if raw_security_analysis is not None else None
+    )
+    security_sector = (
+        _text(raw_security_analysis.get("sector_33")) if raw_security_analysis is not None else None
+    )
     holding = (
         _holding_view(
             holding_snapshot,
             revision=latest_revision,
-            candidate_name=candidate_name,
+            security_name=security_name,
             market_close=market.latest_closes([ticker]).get(ticker),
             next_earnings_date=market.next_earnings_dates([ticker], asof=today).get(ticker),
         )
@@ -525,26 +533,26 @@ def build_security_detail(
         and any(item.ticker == ticker for item in snapshot.active_reservations)
         else set()
     )
-    candidate_row = (
-        _candidate_row_view(
-            raw_candidate,
+    security_analysis = (
+        _security_analysis_row_view(
+            raw_security_analysis,
             held={ticker} if holding_snapshot is not None else set(),
             reserved=reserved_here,
             researched={ticker} if revisions else set(),
             fair_value=_fair_value_by_ticker(review_sets),
         )
-        if raw_candidate is not None
+        if raw_security_analysis is not None
         else None
     )
     return SecurityDetailView(
         ticker=ticker,
         company_name=(
-            latest_revision.company_name if latest_revision is not None else candidate_name
+            latest_revision.company_name if latest_revision is not None else security_name
         ),
         sector=(
             latest_revision.sector
             if latest_revision is not None
-            else candidate_sector
+            else security_sector
             or (holding_snapshot.sector if holding_snapshot is not None else None)
         ),
         holding=holding,
@@ -555,14 +563,14 @@ def build_security_detail(
                 position_review_id=item.position_review_id,
                 as_of=item.as_of,
                 thesis_id=item.thesis_id,
-                candidate_thesis_id=item.candidate_thesis_id,
+                replacement_thesis_id=item.replacement_thesis_id,
                 action=item.action,
                 note=item.note,
             )
             for item in research.position_reviews(ticker=ticker)
         ],
-        candidate_row=candidate_row,
-        candidate_run=(_screening_run_view(run, today=today) if run is not None else None),
+        security_analysis=security_analysis,
+        screening_run=(_screening_run_view(run, today=today) if run is not None else None),
     )
 
 
@@ -630,20 +638,19 @@ def _data_quality_flags(row: Mapping[str, object], metrics: Mapping[str, object]
     return flags
 
 
-def _screening_run_view(run: CandidatesRun, *, today: date) -> ScreeningRunView:
+def _screening_run_view(run: ScreeningRunRecord, *, today: date) -> ScreeningRunView:
     return ScreeningRunView(
         run_id=run.run_id,
-        run_date=run.run_date,
-        asof_date=run.asof_date,
-        run_at=run.run_at,
+        as_of=run.as_of,
+        generated_at=run.generated_at,
         universe_size=run.universe_size,
         analyzed_security_count=len(run.rows),
         run_revision_id=run.run_revision_id,
-        stale=run.asof_date <= today - _STALE_RUN_AGE,
+        stale=run.as_of <= today - _STALE_RUN_AGE,
     )
 
 
-def _candidate_row_view(
+def _security_analysis_row_view(
     row: Mapping[str, object],
     *,
     held: set[str],

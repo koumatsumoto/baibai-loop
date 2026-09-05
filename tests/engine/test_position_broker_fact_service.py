@@ -12,9 +12,9 @@ from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 
 from baibai_engine.appdb.write import initialize_database
+from baibai_engine.position.broker_fact_service import build_broker_fact_draft
 from baibai_engine.position.cli import main
 from baibai_engine.position.drafts import apply_draft, load_draft
-from baibai_engine.position.result_service import build_result_draft
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.capital_allocation_service import CapitalAllocationAssessmentService
 
@@ -99,7 +99,7 @@ def _services(
 
 
 def _open_draft(ledger: LedgerStoreService, assessments: CapitalAllocationAssessmentService):
-    return build_result_draft(
+    return build_broker_fact_draft(
         ledger,
         assessments,
         decision_reference=ASSESSMENT_ID,
@@ -134,7 +134,7 @@ def test_non_allocation_assessment_and_ticker_mismatch_are_rejected(tmp_path: Pa
 
     ledger, assessments = _services(tmp_path / "other")
     with pytest.raises(ValueError, match="ticker does not match"):
-        build_result_draft(
+        build_broker_fact_draft(
             ledger,
             assessments,
             decision_reference=ASSESSMENT_ID,
@@ -156,7 +156,7 @@ def test_open_fill_cancel_and_idempotency_follow_active_reservation(tmp_path: Pa
     apply_draft(ledger, open_draft, human_confirmed=True)
     reservation = open_draft.replacement.events[-1]
 
-    fill, fill_ids = build_result_draft(
+    fill, fill_ids = build_broker_fact_draft(
         ledger,
         assessments,
         decision_reference=ASSESSMENT_ID,
@@ -170,7 +170,7 @@ def test_open_fill_cancel_and_idempotency_follow_active_reservation(tmp_path: Pa
     )
     assert fill is not None
     apply_draft(ledger, fill, human_confirmed=True)
-    repeated, repeated_ids = build_result_draft(
+    repeated, repeated_ids = build_broker_fact_draft(
         ledger,
         assessments,
         decision_reference=ASSESSMENT_ID,
@@ -186,7 +186,7 @@ def test_open_fill_cancel_and_idempotency_follow_active_reservation(tmp_path: Pa
     assert repeated_ids == ()
     assert fill_ids
 
-    cancelled, _ = build_result_draft(
+    cancelled, _ = build_broker_fact_draft(
         ledger,
         assessments,
         decision_reference=ASSESSMENT_ID,
@@ -198,12 +198,12 @@ def test_open_fill_cancel_and_idempotency_follow_active_reservation(tmp_path: Pa
     assert cancelled is not None
 
 
-def test_record_result_cli_uses_decision_reference_without_writing_before_apply(
+def test_record_broker_fact_cli_uses_decision_reference_without_writing_before_apply(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     ledger, _ = _services(tmp_path)
     args = [
-        "record-result",
+        "broker-fact-draft",
         "--root",
         str(tmp_path),
         "--db",
@@ -239,7 +239,7 @@ def test_unbound_reservation_is_not_a_runtime_compatibility_path(tmp_path: Path)
     expiry = datetime.fromisoformat("2026-07-31T15:30:00+09:00")
 
     with pytest.raises(ValueError, match="no canonical decision binding"):
-        build_result_draft(
+        build_broker_fact_draft(
             ledger,
             assessments,
             decision_reference=ASSESSMENT_ID,

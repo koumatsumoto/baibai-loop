@@ -7,7 +7,7 @@ status: active
 
 # Reference
 
-referenceは「artifact・式・error/warningは何を意味するか」を持つ。運用手順は[`.agents/skills/`](../../.agents/skills/)の各SKILL.md、field/type/enumはDB constraintとengine model、CLI optionはpublic `--help`を正本とする。
+referenceは「artifact・式・error/warningは何を意味するか」を持つ。domain termとterm同士の関係は[`domain-language.md`](../domain-language.md)、運用手順は[`.agents/skills/`](../../.agents/skills/)の各SKILL.md、field/type/enumはDB constraintとengine model、CLI optionはpublic `--help`を正本とする。
 
 | 調べたいこと | reference |
 | --- | --- |

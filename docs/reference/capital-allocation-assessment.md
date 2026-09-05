@@ -7,11 +7,11 @@ status: active
 
 # Capital Allocation Assessment
 
-Capital Allocation Assessment は、1 research cycle で深掘りした候補を比較し、`allocate / no_allocation / defer` の最終結論を固定する canonical judgment である。候補ごとの根拠は promoted thesis と independent review、cycle 全体の比較と見送り理由はこの判断が所有する。
+Capital Allocation Assessment は、1 research cycle で深掘りした候補を比較し、`allocate / no_allocation / defer` の最終結論を固定する canonical judgment である。候補ごとの根拠は promoted Thesis と Thesis Review、cycle 全体の比較と見送り理由はこの判断が所有する。
 
 ## 境界
 
-- `allocate` は selected alternative をちょうど1件持ち、その thesis ID、recorded core hash、independent review IDへ束縛する。
+- `allocate` は selected alternative をちょうど1件持ち、その Thesis ID、recorded core hash、Thesis Review IDへ束縛する。
 - `no_allocation` と `defer` は selected alternativeを持たない。
 - 指値、数量、notional、expiryはassessmentへ保存しない。必要時に `research plan-limit` がcurrent ledgerと前営業日raw closeから計算するephemeral outputである。
 - broker操作は人間だけが行う。human-confirmed order resultはassessment IDを`decision_reference`としてledger draftへ変換する。

@@ -108,7 +108,7 @@ class IndexEntry:
 
 
 @dataclass(frozen=True, slots=True)
-class Candidate:
+class ReleaseCandidate:
     """A release the manifest does not name yet, and the month it should carry."""
 
     stream: str
@@ -200,7 +200,9 @@ def _add_months(value: date, months: int) -> date:
     return date(value.year + total // 12, total % 12 + 1, 1)
 
 
-def newest_candidate(entries: tuple[IndexEntry, ...], *, stream: str) -> Candidate | None:
+def newest_release_candidate(
+    entries: tuple[IndexEntry, ...], *, stream: str
+) -> ReleaseCandidate | None:
     """The newest release the index lists for ``stream``, or None when it lists none."""
 
     title = STREAM_TITLES[stream]
@@ -208,7 +210,7 @@ def newest_candidate(entries: tuple[IndexEntry, ...], *, stream: str) -> Candida
     if not matching:
         return None
     newest = max(matching, key=lambda entry: entry.published_on)
-    return Candidate(
+    return ReleaseCandidate(
         stream=stream,
         observed_at=observed_month_of(newest.published_on),
         published_on=newest.published_on,
@@ -216,8 +218,8 @@ def newest_candidate(entries: tuple[IndexEntry, ...], *, stream: str) -> Candida
     )
 
 
-def verified_value(candidate: Candidate, *, context: FetchContext) -> float:
-    """The headline the candidate's PDF ties to the month the entry would claim.
+def verified_value(release_candidate: ReleaseCandidate, *, context: FetchContext) -> float:
+    """The headline the release_candidate's PDF ties to the month the entry would claim.
 
     This is what makes the append safe to automate, and it only holds if the month is
     proven from the release text. ``extract_pmi_value`` reads a value the statement
@@ -228,27 +230,25 @@ def verified_value(candidate: Candidate, *, context: FetchContext) -> float:
     yields nothing and the append falls back to being done by hand.
     """
 
-    text = release_text(candidate.url, session=context.session, context=context)
-    _require_release_identity(text, candidate=candidate)
+    identity = f"{release_candidate.stream} {release_candidate.observed_at}"
+    text = release_text(release_candidate.url, session=context.session, context=context)
+    _require_release_identity(text, release_candidate=release_candidate)
     try:
         value = extract_pmi_value(
             text,
-            expected_observed_at=candidate.observed_at,
-            release_observed_at=_add_months(candidate.observed_at, 2),
+            expected_observed_at=release_candidate.observed_at,
+            release_observed_at=_add_months(release_candidate.observed_at, 2),
         )
     except PmiExtractionError as exc:
-        raise IndicatorsProviderError(
-            f"{candidate.stream} {candidate.observed_at}: {exc} ({candidate.url})"
-        ) from exc
+        raise IndicatorsProviderError(f"{identity}: {exc} ({release_candidate.url})") from exc
     if value is None:
         raise IndicatorsProviderError(
-            f"{candidate.stream} {candidate.observed_at}: no headline value for that month "
-            f"in {candidate.url}"
+            f"{identity}: no headline value for that month in {release_candidate.url}"
         )
     return value
 
 
-def _require_release_identity(text: str, *, candidate: Candidate) -> None:
+def _require_release_identity(text: str, *, release_candidate: ReleaseCandidate) -> None:
     """Require the PDF to be the release of this PMI on the date the index gave.
 
     Proving the month is not enough on its own. The headline statement of a services
@@ -258,39 +258,42 @@ def _require_release_identity(text: str, *, candidate: Candidate) -> None:
     what the index said before the headline is read at all.
     """
 
-    title = STREAM_TITLES[candidate.stream]
+    identity = f"{release_candidate.stream} {release_candidate.observed_at}"
+    title = STREAM_TITLES[release_candidate.stream]
     if title not in text:
         raise IndicatorsProviderError(
-            f"{candidate.stream} {candidate.observed_at}: the release does not name "
-            f"{title!r} ({candidate.url})"
+            f"{identity}: the release does not name {title!r} ({release_candidate.url})"
         )
     match = _EMBARGO_RE.search(text)
     if match is None:
         raise IndicatorsProviderError(
-            f"{candidate.stream} {candidate.observed_at}: the release states no embargo "
-            f"date to check the index against ({candidate.url})"
+            f"{identity}: the release states no embargo "
+            f"date to check the index against ({release_candidate.url})"
         )
     embargoed_on = _parse_published(f"{match['month']} {match['day']} {match['year']}")
-    if embargoed_on is None or embargoed_on.replace(day=1) != candidate.published_on.replace(day=1):
+    if embargoed_on is None or embargoed_on.replace(
+        day=1
+    ) != release_candidate.published_on.replace(day=1):
         raise IndicatorsProviderError(
-            f"{candidate.stream} {candidate.observed_at}: the index dates the release "
-            f"{candidate.published_on.isoformat()} but the release is embargoed until "
-            f"{match[0]!r} ({candidate.url})"
+            f"{identity}: the index dates the release "
+            f"{release_candidate.published_on.isoformat()} but the release is embargoed until "
+            f"{match[0]!r} ({release_candidate.url})"
         )
 
 
-def manifest_with_entry(text: str, candidate: Candidate) -> str:
-    """The manifest text with ``candidate`` appended to the end of its stream block."""
+def manifest_with_entry(text: str, release_candidate: ReleaseCandidate) -> str:
+    """The manifest text with ``release_candidate`` appended to the end of its stream block."""
 
     lines = text.splitlines(keepends=True)
-    start = _stream_block_start(lines, stream=candidate.stream)
+    start = _stream_block_start(lines, stream=release_candidate.stream)
     end = _stream_block_end(lines, start=start)
     # A file whose last line has no newline would otherwise take the new entry onto
     # that line, which joins it to the value already there.
     if end > 0 and not lines[end - 1].endswith("\n"):
         lines[end - 1] += "\n"
     addition = (
-        f"    - observed_at: {candidate.observed_at.isoformat()}\n      url: {candidate.url}\n"
+        f"    - observed_at: {release_candidate.observed_at.isoformat()}\n"
+        f"      url: {release_candidate.url}\n"
     )
     return "".join(lines[:end]) + addition + "".join(lines[end:])
 
@@ -321,55 +324,55 @@ def resolve_stream(
 ) -> StreamOutcome:
     stored = load_manifest(manifest_path).get(stream)
     newest_stored = max(release.observed_at for release in stored) if stored else None
-    candidate = newest_candidate(entries, stream=stream)
-    if candidate is None:
+    release_candidate = newest_release_candidate(entries, stream=stream)
+    if release_candidate is None:
         return StreamOutcome(
             stream,
             f"the index lists no release titled {STREAM_TITLES[stream]!r}",
             resolved=False,
         )
-    if newest_stored is not None and candidate.observed_at <= newest_stored:
+    if newest_stored is not None and release_candidate.observed_at <= newest_stored:
         return StreamOutcome(
             stream,
             f"already current through {newest_stored.isoformat()}",
             resolved=True,
         )
-    # A month cannot be reported before it has ended, so a candidate at or past the
+    # A month cannot be reported before it has ended, so a release_candidate at or past the
     # current month is a misread date rather than a release. Accepting it would put
     # the manifest ahead of the calendar, which is what the provider's currency guard
     # reads to decide whether a month is missing.
-    if candidate.observed_at >= today.replace(day=1):
+    if release_candidate.observed_at >= today.replace(day=1):
         return StreamOutcome(
             stream,
-            f"the index dates the newest release {candidate.observed_at.isoformat()}, "
+            f"the index dates the newest release {release_candidate.observed_at.isoformat()}, "
             f"which is not a month that can have been reported yet",
             resolved=False,
         )
     # The provider compares only the newest manifest month against the release
     # calendar, so an entry written past a hole would satisfy that guard forever and
     # the skipped months would never be reported again.
-    if newest_stored is not None and _previous_month(candidate.observed_at) > newest_stored:
+    if newest_stored is not None and _previous_month(release_candidate.observed_at) > newest_stored:
         return StreamOutcome(
             stream,
             f"the manifest ends at {newest_stored.isoformat()} and the index only lists "
-            f"{candidate.observed_at.isoformat()}; the months between have to be added "
+            f"{release_candidate.observed_at.isoformat()}; the months between have to be added "
             f"by hand first or the currency guard would stop reporting them",
             resolved=False,
         )
     if context is None:
         raise IndicatorsProviderError(
-            f"{stream} needs a fetch to verify {candidate.observed_at} but no fetch "
+            f"{stream} needs a fetch to verify {release_candidate.observed_at} but no fetch "
             f"context was given"
         )
-    value = verified_value(candidate, context=context)
-    detail = f"{candidate.observed_at.isoformat()} = {value} from {candidate.url}"
+    value = verified_value(release_candidate, context=context)
+    detail = f"{release_candidate.observed_at.isoformat()} = {value} from {release_candidate.url}"
     if not write:
         return StreamOutcome(stream, f"{detail} (not written)", resolved=True)
-    _append_verified_entry(candidate, manifest_path=manifest_path)
+    _append_verified_entry(release_candidate, manifest_path=manifest_path)
     return StreamOutcome(stream, f"{detail} (appended)", resolved=True)
 
 
-def _append_verified_entry(candidate: Candidate, *, manifest_path: Path) -> None:
+def _append_verified_entry(release_candidate: ReleaseCandidate, *, manifest_path: Path) -> None:
     """Add the entry to a copy, prove the copy loads, then move it into place.
 
     The manifest is edited as text so the hand-written file keeps its shape, which
@@ -379,7 +382,7 @@ def _append_verified_entry(candidate: Candidate, *, manifest_path: Path) -> None
     """
 
     original = manifest_path.read_text(encoding="utf-8")
-    candidate_text = manifest_with_entry(original, candidate)
+    candidate_text = manifest_with_entry(original, release_candidate)
     # The copy lives beside the manifest so the move that follows stays within one
     # filesystem, and it is named before it is written so a failed write still has a
     # path to clean up. A temporary file is created private, so the manifest's own
@@ -397,28 +400,28 @@ def _append_verified_entry(candidate: Candidate, *, manifest_path: Path) -> None
         with handle:
             handle.write(candidate_text)
         staged.chmod(manifest_path.stat().st_mode & 0o7777)
-        _require_entry_loads(staged, candidate)
+        _require_entry_loads(staged, release_candidate)
         staged.replace(manifest_path)
     finally:
         staged.unlink(missing_ok=True)
         load_manifest.cache_clear()
 
 
-def _require_entry_loads(staged: Path, candidate: Candidate) -> None:
+def _require_entry_loads(staged: Path, release_candidate: ReleaseCandidate) -> None:
+    identity = f"{release_candidate.stream} {release_candidate.observed_at}"
     load_manifest.cache_clear()
     try:
-        stored = load_manifest(staged).get(candidate.stream, ())
+        stored = load_manifest(staged).get(release_candidate.stream, ())
     except (IndicatorsProviderError, yaml.YAMLError, ValueError) as exc:
         raise IndicatorsProviderError(
-            f"{candidate.stream} {candidate.observed_at} would leave the manifest unreadable: {exc}"
+            f"{identity} would leave the manifest unreadable: {exc}"
         ) from exc
     if not any(
-        release.observed_at == candidate.observed_at and release.url == candidate.url
+        release.observed_at == release_candidate.observed_at
+        and release.url == release_candidate.url
         for release in stored
     ):
-        raise IndicatorsProviderError(
-            f"{candidate.stream} {candidate.observed_at} did not survive a manifest reload"
-        )
+        raise IndicatorsProviderError(f"{identity} did not survive a manifest reload")
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -17,7 +17,7 @@ from tests.helpers.research_triage import (
 from baibai_engine.operation.models import OperationPayload
 from baibai_engine.operation.service import OperationService
 from baibai_engine.research import workspace as workspace_module
-from baibai_engine.research.close_source import PreviousClose
+from baibai_engine.research.market_close_source import UnadjustedCloseObservation
 from baibai_engine.research.workspace import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
@@ -102,7 +102,7 @@ def test_prepare_and_status_need_only_published_triage_id(
     prepared_output = yaml.safe_load(capsys.readouterr().out)
 
     assert prepared_output["actionable"] is True
-    assert prepared_output["researchable_tickers"] == ["2331"]
+    assert prepared_output["admissible_research_tickers"] == ["2331"]
     assert not (workspace / "review-set.yaml").exists()
     manifest = yaml.safe_load((workspace / "manifest.yaml").read_text())
     assert "tool_version" not in manifest
@@ -114,7 +114,7 @@ def test_prepare_and_status_need_only_published_triage_id(
     assert compute_status(workspace, db_path=db_path)["research_triage"] == {
         "purpose": "fundamental_research",
         "research_triage_id": triage.research_triage_id,
-        "researchable_tickers": ["2331"],
+        "admissible_research_tickers": ["2331"],
     }
     operation = OperationService(db_path).active()
     assert operation is not None
@@ -160,8 +160,8 @@ def test_zero_research_is_a_normal_prepared_workspace(tmp_path: Path) -> None:
     )
 
     assert not prepared.actionable
-    assert prepared.researchable_count == 0
-    assert prepared.researchable_tickers == ()
+    assert prepared.admissible_count == 0
+    assert prepared.admissible_research_tickers == ()
     assert compute_status(workspace, db_path=db_path)["workspace_status"] == "no_research"
     assert OperationService(db_path).active() is None
 
@@ -177,7 +177,7 @@ def test_human_can_confirm_empty_research_set_without_starting_operation(tmp_pat
     )
 
     assert not prepared.actionable
-    assert prepared.researchable_tickers == ("2331",)
+    assert prepared.admissible_research_tickers == ("2331",)
     assert OperationService(db_path).active() is None
 
 
@@ -246,7 +246,7 @@ def test_force_cannot_overwrite_workspace_with_a_different_active_research_set(
 
 
 def test_thesis_scaffold_uses_v3_and_only_general_research_checks() -> None:
-    price = PreviousClose(
+    price = UnadjustedCloseObservation(
         close_yen=1000,
         price_as_of=date(2026, 7, 2),
         adjustment_factor=1,

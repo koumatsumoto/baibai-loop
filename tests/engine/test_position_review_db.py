@@ -27,11 +27,11 @@ from baibai_engine.research.position_review_builder import (
 )
 from baibai_engine.research.store import ResearchStoreService
 from baibai_engine.research.thesis import (
-    IndependentReview,
     ThesisDocument,
     ThesisIdentity,
-    independent_review_hash,
+    ThesisReview,
     thesis_core_hash,
+    thesis_review_hash,
 )
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
@@ -84,10 +84,10 @@ def _research_payloads(
     evidence_override["expires_at"] = expires_at
     core_hash = thesis_core_hash(ThesisDocument.model_validate(thesis))
     review["reviewed_thesis_sha256"] = core_hash
-    parsed_review = IndependentReview.model_validate(review)
+    parsed_review = ThesisReview.model_validate(review)
     evidence_override["thesis_sha256"] = core_hash
     evidence_override["review_id"] = parsed_review.review_id
-    evidence_override["review_sha256"] = independent_review_hash(parsed_review)
+    evidence_override["review_sha256"] = thesis_review_hash(parsed_review)
     return thesis, review
 
 
@@ -436,7 +436,7 @@ def test_expired_holding_cannot_enter_replacement_comparison(
         build_position_review_from_db(
             db_path=db,
             holding_thesis_id=THESIS_ID,
-            candidate_thesis_id=active_candidate,
+            replacement_thesis_id=active_candidate,
             position_id="2331",
             now=holding_expiry,
         )
@@ -461,7 +461,7 @@ def test_expired_candidate_cannot_enter_replacement_comparison(
         build_position_review_from_db(
             db_path=db,
             holding_thesis_id=THESIS_ID,
-            candidate_thesis_id=expired_candidate,
+            replacement_thesis_id=expired_candidate,
             position_id="2331",
             now=candidate_expiry,
         )
@@ -490,7 +490,7 @@ def test_holding_build_and_publish_forward_one_operation_instant(
     def recording_classify(
         document: ThesisDocument,
         *,
-        review: IndependentReview,
+        review: ThesisReview,
         now: datetime,
         identity: ThesisIdentity,
     ) -> object:
@@ -523,7 +523,7 @@ def test_a_fractional_fair_value_is_floored_onto_the_whole_yen_grid() -> None:
 
     `scenario_arithmetic --required-cagr-pct` は 4 桁の小数を出し、それが
     `estimates.current_fair_value_yen` の既定の置き方である。購入側は同じ問いを
-    ceiling の floor で解いている — `execution_policy.max_acceptable_price` — ので、
+    ceiling の floor で解いている — `execution_policy.maximum_acceptable_entry_price` — ので、
     保有側もそれに揃える。切り上げは thesis が主張していない upside を作る。
     """
 

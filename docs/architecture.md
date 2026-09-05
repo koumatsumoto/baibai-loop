@@ -41,7 +41,7 @@ baibai-loop/
 ```mermaid
 flowchart TB
   L0["L0 目的<br/>1 人・日本株・割安優良を長期積立<br/>AI が観測/分析/提案、人間が裁定/発注"]
-  L1["L1 ループ（工程と人間 gate）<br/>screening → Review Set → Research Triage ‖ research → thesis/review → Capital Allocation Assessment ‖ ledger → Position Review → outcome → calibration"]
+  L1["L1 ループ（工程と人間 gate）<br/>screening → Review Set → Research Triage ‖ Research → Thesis / Thesis Review → Capital Allocation Assessment ‖ ledger → Position Review → outcome → calibration"]
   L2["L2 情報（3 層 + method）<br/>L1 fact（再取得可）/ L2 machine（再計算可）/ L3 judgment（唯一の正本）/ method（Git）"]
   L3["L3 実行地形<br/>local: 全 judgment write・schema cutover・UI ／ cloud: 日次 batch と serving（一方向）"]
   L4["L4 機構<br/>provider・store・lake・screening・calibration・macro・research・position・web・batch・gate・docs"]
@@ -72,7 +72,7 @@ trigger 起点の運用は 6 つで、それぞれ 1 skill が手順・gate 順�
 | 運用（skill） | 工程 | 人間 gate |
 | --- | --- | --- |
 | `research-triage` | canonical Review Setをpull → local AIでResearch Triage publish | Research Triage の `research` → Research Set の admission |
-| `research` | workspace → thesis / review → Capital Allocation Assessment → ephemeral plan-limit | buy / defer / reject と broker 操作 |
+| `research` | workspace → Thesis / Thesis Review → Capital Allocation Assessment → ephemeral Planning Limit | buy / defer / reject と broker 操作 |
 | `ledger-record` | broker fact → ledger draft → apply | `position apply-draft --confirmed` |
 | `position-review` | 決算・material event → Position Review → action | Position Review の publish |
 | `macro-context` | indicator refresh → reading → context publish | —（非 gating の ambient 入力。判断層にだけ効く） |
@@ -86,13 +86,14 @@ Security Analyses → Nominations              4 Valuation Approaches
 Nominations → Review Set                     4 Approach top20のexact union
 Review Set → Research Triage                 research-worthiness judgment
 Research Triage → Research Set               human admission
-Research Set → Thesis / Independent Review   fundamental research
+Research Set → Thesis / Thesis Review        fundamental research
 Theses → Capital Allocation Assessment       alternativesの統合判断
-Capital Allocation Assessment → plan-limit   ephemeral decision input
-human report → Ledger                        broker fact
+Capital Allocation Assessment → Planning Limit  ephemeral decision input
+human broker action → broker fact               human-confirmed order/fill fact
+broker fact → Portfolio Ledger Event            validated canonical event
 ```
 
-4つのValuation Approachは固有の企業価値座標でNominationを作る。共通eligibilityは時価総額、上場期間、JPX規制状態だけを扱い、ADVの値・欠損はmembershipを変えない。Normalized Earnings Powerは`normalized_per_3fy`をnative eligibility/orderに使うが、FV/E[r] estimatorは入力にしない。Review Setは4 Approachのtop20 Nominationのexact union（最大80件）であり、global scoreや追加の絞り込みを持たない。E[r]はmembership/orderを変えないsecondary return prior、ADVは執行可能性のsecondary contextである。Review SetはSecurity Analysis runとCandidate Discovery methodだけから再構築するL2で、application DBを読まない。Research Triageが全件の`research / skip`とresearch priorityを判断するL3となる。人間が`research`の部分集合をResearch Setへadmitし、`research prepare --research-triage-id --ticker ...`がcanonical Triageへ束縛したOperationをResearch開始時にだけ作る。
+current production methodの4つのValuation Approachは固有の企業価値座標でNominationを作る。共通eligibilityは時価総額、上場期間、JPX規制状態だけを扱い、ADVの値・欠損はmembershipを変えない。Normalized Earnings Powerは`normalized_per_3fy`をnative eligibility/orderに使うが、FV/E[r] estimatorは入力にしない。Review Setのdomain definitionはconfigured Valuation Approachesが作るNominationのexact unionであり、current methodでは4 Approachのtop20（最大80件）になる。global scoreや追加の絞り込みを持たない。E[r]はmembership/orderを変えないsecondary return prior、ADVは執行可能性のsecondary contextである。Review SetはScreening RunとCandidate Discovery Methodだけから再構築するL2で、application DBを読まない。Research Triageが全件の`research / skip`とresearch priorityを判断するL3となる。人間が`research`の部分集合をResearch Setへadmitし、`research prepare --research-triage-id --ticker ...`がcanonical Triageへ束縛したOperationをResearch開始時にだけ作る。
 
 <a id="information-layers"></a>
 
@@ -104,7 +105,7 @@ human report → Ledger                        broker fact
 | --- | --- | --- | --- |
 | L1 fact | R2 の L1 release（market）、`stores/macro/macro.sqlite` | provider から再取得（購読窓の外は不可 — これが lake を持つ唯一の理由） | 日足・財務・calendar・EDINET・JPX flag・macro series |
 | L2 machine | run store・calibration store・macro reading | 再計算 | screening run・Security Analysis・Review Set・E[r]・FV anchor・macro reading・current calibration snapshot |
-| L3 judgment | application DB | **失えない** | macro context・Research Triage・thesis / review・Capital Allocation Assessment・ledger・Position Review・outcome・task・session |
+| L3 judgment | application DB | **失えない** | Macro Context・Research Triage・Thesis / Thesis Review・Capital Allocation Assessment・Portfolio Ledger・Position Review・Portfolio Outcome・task・Operation Session |
 | method | Git | — | rules・reading rules・playbooks |
 
 帰結: L3 以外は全部 cache であり、cache の identity・lineage・世代管理は「再計算すれば戻る」以上の価値を持たない。L1 fact の保持だけは購読窓の外側で失われるため、L1 release の不変性と差分転送は本質に入る。L2 machine は observed / derived / estimate を区別し、judgment と呼ばない。L3 は人間境界を write-time に検証する。fact / estimate / judgment の語彙と禁止事項は [`doctrine.md#fact-analysis-separation`](./doctrine.md#fact-analysis-separation) を正本とする。
@@ -159,7 +160,7 @@ package ごとに、所有する store、public CLI、L1 のどの工程にど�
 | `market` | R2 `lake/`、`stores/market/market.sqlite` | `baibai-engine lake` | L1 保持を **産む**（全 partition 導出の lake export・release manifest・pointer・hydrate）、**止める**（digest 一致・行数一致・pointer CAS・schema version）、**見せる**（`lake resolve`） | 2 |
 | `macro` | `stores/macro/macro.sqlite`、application DB（context） | `baibai-engine macro` | macro を **産む**（indicator refresh・reading・context publish）、**止める**（context の schema 構造・引用解決・確率の合計・head CAS）、**測る**（scorecard 条件の機械照合）、**見せる**（reading・Macro view） | 1（series）、2（context の head） |
 | `screening` | `stores/screening/runs.sqlite`、`stores/screening/calibration/`、application DB（Research Triage）、`market.sqlite` | `baibai-engine screening` | L1取得とscreeningを **産む**（provider取得・run・Security Analysis・Review Set・Research Triage publish）、**止める**（coverage・PIT・rules identity・Review Set / Triage束縛）、**測る**（current calibration panel / forward / evaluate）、**見せる**（Review Set YAML・Security Analysis view） | 1、2 |
-| `research` | application DB | `baibai-engine research` | research を **産む**（workspace・thesis / review・promote・planning-only limit・Capital Allocation Assessment）、**止める**（evaluate・review hash 束縛・buy の human override 必須・`max_acceptable_price`）、**見せる**（assessment view） | 人間 gate（T2） |
+| `research` | application DB | `baibai-engine research` | research を **産む**（workspace・thesis / review・promote・planning-only limit・Capital Allocation Assessment）、**止める**（evaluate・review hash 束縛・buy の human override 必須・`maximum_acceptable_entry_price`）、**見せる**（assessment view） | 人間 gate（T2） |
 | `position` | application DB | `baibai-engine position` | ledger と保有を **産む**（draft / apply・Position Review・outcome）、**止める**（append head CAS・保有超過拒否・人間確認必須）、**測る**（outcome vs TOPIX）、**見せる**（Dashboard） | 人間 gate（T1） |
 | `operation` | application DB | `baibai-engine operation` | trigger ごとの session と checkpoint・human_confirmation を **産む**、**止める**（active 最大 1 件・complete 要件）、**見せる**（Tasks の「いま何が途中か」） | — |
 | `tasks` | application DB | `baibai-engine task` | 日付つき運用 task を **産む**、**見せる**（`task list`・Tasks） | — |

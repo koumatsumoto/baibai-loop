@@ -34,7 +34,7 @@ Position ReviewはDB ledger、holding thesis、候補thesisをimmutable IDで必
 | `valuation_review` | 現値・FV・`current_price_yen >= fair_value_yen` から再計算した review trigger |
 | `replacement_comparison` | 現保有と候補の 5 年期待総合リターン、確定/推定の exit 税、機会費用 edge |
 | `add_context` | 押し目買増しの現値・最大許容価格・available cash・concentration 判定（任意） |
-| `sources` | ledgerとcurrent/candidate thesisのimmutable ID。publish serviceはrevision driftをrejectする |
+| `sources` | ledgerとcurrent/replacement Thesisのimmutable ID。publish serviceはrevision driftをrejectする。persisted key `candidate_thesis`はstorage contractとして維持する |
 
 `thesis_health.permanent_loss_axes` は `funding_liquidity / debt_repayment / cash_flow / dilution / customer_concentration / structural_decline / governance_accounting` の 7 軸を各 1 回ちょうど持つ。1 つでも欠けると review は `incomplete` になる。`permanent_loss_conclusion` は **verified な adverse 軸**があるとき `elevated`、partially verified / unverified な adverse を含むとき `unknown`、それ以外は `acceptable` とする。`elevated` だけが全株 exit の条件であり、未確認の懸念で税負担を伴う全株売却を断定しない。
 

@@ -309,6 +309,22 @@ def test_current_rules_name_only_the_two_revised_approaches() -> None:
     assert "min_avg_turnover_oku" not in RULES.common_eligibility.model_dump()
 
 
+@pytest.mark.parametrize(("market_cap_oku", "expected"), [(99.999, False), (100.0, True)])
+def test_common_eligibility_owns_the_100_oku_market_cap_boundary(
+    market_cap_oku: float, expected: bool
+) -> None:
+    assert (
+        RULES.common_eligibility.matches(
+            market_cap_oku=market_cap_oku,
+            listing_span_days=1000,
+            jpx_flags=[],
+            required_jpx_flags=REQUIRED_JPX_FLAGS,
+            require_facts=True,
+        )
+        is expected
+    )
+
+
 def test_normalized_gap_uses_the_shared_sector_population_boundary() -> None:
     rows = [
         {

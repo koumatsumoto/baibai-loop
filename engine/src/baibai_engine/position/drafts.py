@@ -26,7 +26,7 @@ from baibai_engine.position.ledger import (
 )
 from baibai_engine.position.store import LedgerApplyResult, LedgerStoreService
 
-DraftKind = Literal["event", "record-result", "sell-result", "market-price", "override", "meta"]
+DraftKind = Literal["event", "broker-fact", "sell-execution", "market-price", "override", "meta"]
 HumanEvent = ContributionEvent | WithdrawalEvent | IncomeEvent | CostEvent | ConfirmedTaxEvent
 
 
@@ -189,7 +189,7 @@ def build_sell_execution_draft(
     replacement = PortfolioLedgerDocument.model_validate(raw)
     reconcile_portfolio(replacement)
     return LedgerDraft(
-        kind="sell-result",
+        kind="sell-execution",
         expected_head=service.append_head(),
         source=source,
         replacement=replacement,
@@ -238,8 +238,8 @@ def apply_draft(
         raise ValueError("ledger draft apply requires explicit human confirmation")
     if not draft.confirmation_required:
         raise ValueError("ledger draft is not eligible for explicit apply")
-    if draft.kind == "record-result":
-        # A broker result changes cash / reservations / lots, but does not assert a
+    if draft.kind == "broker-fact":
+        # A broker fact changes cash / reservations / lots, but does not assert a
         # fresh portfolio valuation. Recheck the complete event state and expiry
         # invariants without letting an unrelated stale holding quote block the
         # human-reported result.

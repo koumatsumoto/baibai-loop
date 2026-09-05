@@ -33,7 +33,7 @@ batch/scripts/publish.sh
 判断規則のSSOTは[`TRIAGE_POLICY`](../../../batch/src/baibai_batch/analysis/policy.py)である。manualに意味確認が必要な場合もこの短い定数だけを読み、scheduled runnerへ本skill、runbook、CLI help、raw logを渡さない。
 
 - AI出力は`ticker`、`verdict`、`priority`、`rationale`、`research_question`、`key_risk`だけとする。
-- machine ranking、Review Set membership/order、Nomination、candidate snapshotを変更しない。
+- machine ranking、Review Set membership/order、Nomination、Review Set Entry snapshotを変更しない。
 - 4 Approachの仮説をprimary authorityとし、relative weaknessは低priorityで表す。絶対的なResearch価値が無い場合だけskipにする。
 - Macro ContextとE[r]は参考文脈であり、単独gateにしない。E[r]はsecondary return priorで、高低・負値・欠損だけからverdictやpriorityを決めない。
 - unknownを否定事実へ変換しない。

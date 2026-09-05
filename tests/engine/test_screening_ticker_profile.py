@@ -166,7 +166,7 @@ class BuildTickerProfileTests(unittest.TestCase):
             self.assertEqual(jpx["flags"], ["特別注意銘柄"])
             screening = thesis["screening"]
             assert isinstance(screening, dict)
-            self.assertTrue(screening["in_candidates"])
+            self.assertTrue(screening["has_security_analysis"])
             entry = screening["entry"]
             assert isinstance(entry, dict)
             self.assertEqual(entry["metrics"], {"ocf_yield": 0.11})
@@ -230,7 +230,7 @@ class BuildTickerProfileTests(unittest.TestCase):
             self.assertIsNone(thesis["relative"])
             screening = thesis["screening"]
             assert isinstance(screening, dict)
-            self.assertFalse(screening["in_candidates"])
+            self.assertFalse(screening["has_security_analysis"])
 
     def test_thesis_marks_ticker_missing_from_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -244,8 +244,8 @@ class BuildTickerProfileTests(unittest.TestCase):
 
             screening = thesis["screening"]
             assert isinstance(screening, dict)
-            self.assertFalse(screening["in_candidates"])
-            self.assertIn("not present", str(screening["note"]))
+            self.assertFalse(screening["has_security_analysis"])
+            self.assertIn("no Security Analysis", str(screening["note"]))
 
     def test_screening_uses_only_latest_stored_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -276,9 +276,9 @@ class BuildTickerProfileTests(unittest.TestCase):
 
             screening = thesis["screening"]
             assert isinstance(screening, dict)
-            self.assertEqual(screening["candidates_ref"], latest.publication_id)
-            self.assertEqual(screening["candidates_asof"], "2026-05-30")
-            self.assertFalse(screening["in_candidates"])
+            self.assertEqual(screening["screening_run_revision_id"], latest.publication_id)
+            self.assertEqual(screening["screening_run_as_of"], "2026-05-30")
+            self.assertFalse(screening["has_security_analysis"])
 
     def test_master_and_sector_peers_use_only_latest_global_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

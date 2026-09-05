@@ -24,13 +24,13 @@ from baibai_engine.read_api import (
 from baibai_web.repository_layout import MACRO_PANEL_CONFIG_PATH
 from baibai_web.sources.calibration_context import load_er_level_calibration_context
 from baibai_web.sources.db_sources import (
-    DbCandidatesSource,
     DbLedgerSource,
     DbMacroSource,
     DbMarketPriceSource,
     DbMetaSource,
     DbOperationsSource,
     DbResearchSource,
+    DbScreeningSource,
     DbTaskSource,
     load_macro_panel_config,
 )
@@ -44,7 +44,7 @@ class Sources:
     ledger: DbLedgerSource
     research: DbResearchSource
     tasks: DbTaskSource
-    candidates: DbCandidatesSource
+    screening: DbScreeningSource
     macro: DbMacroSource
     operations: DbOperationsSource
     market: DbMarketPriceSource
@@ -87,7 +87,7 @@ def build_sources(
         ledger=DbLedgerSource(resolved_db),
         research=DbResearchSource(resolved_db),
         tasks=DbTaskSource(resolved_db),
-        candidates=DbCandidatesSource(resolved_runs, resolved_db),
+        screening=DbScreeningSource(resolved_runs),
         macro=DbMacroSource(resolved_db, indicators_db, groups, root / MACRO_READING_RULES_PATH),
         operations=DbOperationsSource(resolved_db),
         market=DbMarketPriceSource(resolved_market),

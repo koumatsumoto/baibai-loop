@@ -9,20 +9,15 @@ from tempfile import TemporaryDirectory
 import openpyxl
 
 from baibai_engine.market.sqlite import connect_current
-from baibai_engine.screening.capital_control import (
-    CapitalControlError,
-    JPXDelistingRow,
-    _download_jpx_delistings,
-    _TableLinkParser,
+from baibai_engine.screening.sqlite_cache import open_connection
+from baibai_engine.screening.valuation_catalysts import (
+    ValuationCatalystError,
     edinet_identity_covered,
     parse_tse_capital_policy_workbook,
-    read_capital_control_annotations,
-    read_control_event_index,
-    read_jpx_delistings,
-    store_jpx_delistings,
+    read_control_filing_index,
+    read_valuation_catalyst_contexts,
     store_tse_capital_policy_rows,
 )
-from baibai_engine.screening.sqlite_cache import open_connection
 
 
 # The two real layouts. The 2025 sheets put the contact application next to the update
@@ -238,7 +233,7 @@ class TSECapitalPolicyWorkbookTest(unittest.TestCase):
             ]
         )
 
-        with self.assertRaises(CapitalControlError):
+        with self.assertRaises(ValuationCatalystError):
             parse_tse_capital_policy_workbook(content)
 
     def test_a_sheet_without_the_typed_header_is_refused(self) -> None:
@@ -253,136 +248,14 @@ class TSECapitalPolicyWorkbookTest(unittest.TestCase):
             ]
         )
 
-        with self.assertRaises(CapitalControlError):
+        with self.assertRaises(ValuationCatalystError):
             parse_tse_capital_policy_workbook(content)
 
     def test_a_workbook_with_no_monthly_sheet_is_refused(self) -> None:
         content = _workbook([("本資料の目的", (None,), (None,), [])])
 
-        with self.assertRaises(CapitalControlError):
+        with self.assertRaises(ValuationCatalystError):
             parse_tse_capital_policy_workbook(content)
-
-
-class JPXDelistingTest(unittest.TestCase):
-    def test_delistings_accumulate_across_refreshes(self) -> None:
-        with TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            open_connection(sqlite_path).close()
-            store_jpx_delistings(
-                sqlite_path,
-                [
-                    JPXDelistingRow(
-                        delisted_on=date(2024, 5, 1),
-                        ticker="1000",
-                        name="旧年の会社",
-                        market="スタンダード",
-                        reason="株式の併合",
-                    )
-                ],
-            )
-
-            # A later refresh reads a page that no longer lists the 2024 archive.
-            store_jpx_delistings(
-                sqlite_path,
-                [
-                    JPXDelistingRow(
-                        delisted_on=date(2026, 5, 1),
-                        ticker="2000",
-                        name="今年の会社",
-                        market="プライム",
-                        reason="ＭＢＯ（公開買付け、株式併合）",
-                    )
-                ],
-            )
-
-            stored = read_jpx_delistings(sqlite_path)
-
-            self.assertEqual([row.ticker for row in stored], ["1000", "2000"])
-
-    def test_storing_zero_rows_is_refused(self) -> None:
-        with TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            open_connection(sqlite_path).close()
-            with self.assertRaises(CapitalControlError):
-                store_jpx_delistings(sqlite_path, [])
-
-    def test_a_header_row_is_not_read_as_a_delisting(self) -> None:
-        parser = _TableLinkParser()
-        parser.feed(
-            "<table><tr><th>上場廃止日</th><th>銘柄名</th><th>コード</th>"
-            "<th>市場区分</th><th>上場廃止理由</th></tr>"
-            "<tr><td>2026/05/01</td><td>（株）テスト</td><td>2000</td>"
-            "<td>プライム</td><td>ＭＢＯ（公開買付け、株式併合）</td></tr></table>"
-        )
-        rows = list(parser.rows)
-
-        self.assertEqual(len(rows), 2)
-        self.assertEqual(rows[1][2], "2000")
-
-    def test_only_jpx_archive_links_are_followed(self) -> None:
-        """The page decides what gets fetched next, so the filter is the whole control."""
-        index_html = (
-            "<table><tr><td>2026/05/01</td><td>（株）テスト</td><td>2000</td>"
-            "<td>プライム</td><td>ＭＢＯ（公開買付け、株式併合）</td></tr></table>"
-            '<a href="archives-01.html">過去分</a>'
-            '<a href="https://evil.example/listing/stocks/delisted/archives-02.html">x</a>'
-            '<a href="https://www.jpx.co.jp.evil.example/listing/stocks/delisted/archives-03.html">x</a>'
-            '<a href="//evil.example/listing/stocks/delisted/archives-04.html">x</a>'
-            '<a href="http://www.jpx.co.jp/listing/stocks/delisted/archives-05.html">x</a>'
-            '<a href="https://www.jpx.co.jp/listing/stocks/delisted/archives-06.html?to=evil">x</a>'
-            '<a href="https://www.jpx.co.jp/markets/statistics-equities/index.html">x</a>'
-            '<option value="https://www.jpx.co.jp/listing/stocks/delisted/archives-07.html">x</option>'
-        )
-        archive_html = (
-            "<table><tr><td>2024/05/01</td><td>（株）旧</td><td>1000</td>"
-            "<td>スタンダード</td><td>株式の併合</td></tr></table>"
-        )
-
-        class _Response:
-            def __init__(self, body: str) -> None:
-                self.status_code = 200
-                self.encoding = "ISO-8859-1"
-                self.content = body.encode()
-
-        class _Session:
-            def __init__(self) -> None:
-                self.requested: list[str] = []
-
-            def get(self, url: str, timeout: int) -> _Response:
-                self.requested.append(url)
-                return _Response(index_html if url.endswith("delisted/") else archive_html)
-
-        session = _Session()
-        rows = _download_jpx_delistings(session)  # type: ignore[arg-type]
-
-        self.assertEqual(
-            sorted(session.requested),
-            [
-                "https://www.jpx.co.jp/listing/stocks/delisted/",
-                "https://www.jpx.co.jp/listing/stocks/delisted/archives-01.html",
-                "https://www.jpx.co.jp/listing/stocks/delisted/archives-07.html",
-            ],
-        )
-        # The followed archive contributed its rows, so the allow side really ran.
-        self.assertEqual(sorted(row.ticker for row in rows), ["1000", "2000"])
-
-    def test_a_latin1_decodable_page_is_still_decoded_as_utf8(self) -> None:
-        class _Response:
-            status_code = 200
-            encoding = "ISO-8859-1"
-            content = (
-                "<table><tr><td>2026/05/01</td><td>（株）テスト</td><td>2000</td>"
-                "<td>プライム</td><td>ＭＢＯ（公開買付け、株式併合）</td></tr></table>"
-            ).encode()
-
-        class _Session:
-            def get(self, url: str, timeout: int) -> _Response:
-                return _Response()
-
-        rows = _download_jpx_delistings(_Session())  # type: ignore[arg-type]
-
-        self.assertEqual(rows[0].name, "（株）テスト")
-        self.assertEqual(rows[0].reason, "ＭＢＯ（公開買付け、株式併合）")
 
 
 def _store_documents(sqlite_path: Path, rows: list[tuple[object, ...]]) -> None:
@@ -404,7 +277,7 @@ def _store_documents(sqlite_path: Path, rows: list[tuple[object, ...]]) -> None:
     connection.close()
 
 
-class ControlEventIndexTest(unittest.TestCase):
+class ControlFilingIndexTest(unittest.TestCase):
     ASOF = date(2026, 8, 10)
 
     def _listed_window(self, sqlite_path: Path, *, rows: list[tuple[object, ...]]) -> None:
@@ -495,7 +368,7 @@ class ControlEventIndexTest(unittest.TestCase):
             connection = connect_current(sqlite_path)
             assert connection is not None
             try:
-                index = read_control_event_index(connection, start=date(2026, 1, 1), end=self.ASOF)
+                index = read_control_filing_index(connection, start=date(2026, 1, 1), end=self.ASOF)
             finally:
                 connection.close()
 
@@ -517,7 +390,7 @@ class ControlEventIndexTest(unittest.TestCase):
             connection = connect_current(sqlite_path)
             assert connection is not None
             try:
-                index = read_control_event_index(connection, start=date(2026, 1, 1), end=self.ASOF)
+                index = read_control_filing_index(connection, start=date(2026, 1, 1), end=self.ASOF)
             finally:
                 connection.close()
 
@@ -532,13 +405,13 @@ class ControlEventIndexTest(unittest.TestCase):
                 [("2026-08-03", 1, "S1", "13010", "120", "1", "0", "0", "E1", None, None)],
             )
 
-            annotations = read_capital_control_annotations(
-                sqlite_path, asof=self.ASOF, tickers=["1301"]
+            annotations = read_valuation_catalyst_contexts(
+                sqlite_path, as_of=self.ASOF, tickers=["1301"]
             )
 
             annotation = annotations["1301"]
-            self.assertIsNone(annotation.large_holding_event_recent)
-            self.assertIsNone(annotation.tender_offer_event_recent)
+            self.assertIsNone(annotation.large_holding_filing_within_lookback)
+            self.assertIsNone(annotation.tender_offer_filing_within_lookback)
             self.assertIsNone(annotation.tse_capital_policy_status)
 
     def test_an_observed_window_without_filings_reports_no_events(self) -> None:
@@ -549,13 +422,13 @@ class ControlEventIndexTest(unittest.TestCase):
                 rows=[("2026-06-01", 1, "S3", "13010", "120", "1", "0", "0", "E1", None, None)],
             )
 
-            annotations = read_capital_control_annotations(
-                sqlite_path, asof=self.ASOF, tickers=["1301"]
+            annotations = read_valuation_catalyst_contexts(
+                sqlite_path, as_of=self.ASOF, tickers=["1301"]
             )
 
             annotation = annotations["1301"]
-            self.assertIs(annotation.large_holding_event_recent, False)
-            self.assertIsNone(annotation.large_holding_event_latest_on)
+            self.assertIs(annotation.large_holding_filing_within_lookback, False)
+            self.assertIsNone(annotation.latest_large_holding_filing_date)
 
     def test_a_ticker_whose_edinet_identity_is_unknown_reports_unknown(self) -> None:
         """Coverage of the index does not prove a company could have been looked up."""
@@ -571,14 +444,14 @@ class ControlEventIndexTest(unittest.TestCase):
                 ],
             )
 
-            annotations = read_capital_control_annotations(
-                sqlite_path, asof=self.ASOF, tickers=["1301", "7777"]
+            annotations = read_valuation_catalyst_contexts(
+                sqlite_path, as_of=self.ASOF, tickers=["1301", "7777"]
             )
 
-            self.assertIs(annotations["1301"].large_holding_event_recent, False)
-            self.assertIsNone(annotations["7777"].large_holding_event_recent)
+            self.assertIs(annotations["1301"].large_holding_filing_within_lookback, False)
+            self.assertIsNone(annotations["7777"].large_holding_filing_within_lookback)
 
-    def test_a_filing_naming_no_target_makes_that_event_type_unknown(self) -> None:
+    def test_a_filing_naming_no_target_makes_that_filing_kind_unknown(self) -> None:
         """An absence is unprovable when a filing could have been about anyone."""
         with TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
@@ -590,13 +463,13 @@ class ControlEventIndexTest(unittest.TestCase):
                 ],
             )
 
-            annotation = read_capital_control_annotations(
-                sqlite_path, asof=self.ASOF, tickers=["1301"]
+            annotation = read_valuation_catalyst_contexts(
+                sqlite_path, as_of=self.ASOF, tickers=["1301"]
             )["1301"]
 
-            self.assertIsNone(annotation.tender_offer_event_recent)
-            # The other event type is still answerable from the same window.
-            self.assertIs(annotation.large_holding_event_recent, False)
+            self.assertIsNone(annotation.tender_offer_filing_within_lookback)
+            # The other filing kind is still answerable from the same window.
+            self.assertIs(annotation.large_holding_filing_within_lookback, False)
 
     def test_policy_status_reads_the_latest_snapshot_at_or_before_the_asof(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -623,11 +496,11 @@ class ControlEventIndexTest(unittest.TestCase):
             )
             store_tse_capital_policy_rows(sqlite_path, parse_tse_capital_policy_workbook(content))
 
-            current = read_capital_control_annotations(
-                sqlite_path, asof=self.ASOF, tickers=["1301", "9999"]
+            current = read_valuation_catalyst_contexts(
+                sqlite_path, as_of=self.ASOF, tickers=["1301", "9999"]
             )
-            historic = read_capital_control_annotations(
-                sqlite_path, asof=date(2025, 12, 31), tickers=["1301"]
+            historic = read_valuation_catalyst_contexts(
+                sqlite_path, as_of=date(2025, 12, 31), tickers=["1301"]
             )
 
             self.assertEqual(current["1301"].tse_capital_policy_status, "considering")

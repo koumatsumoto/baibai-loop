@@ -23,7 +23,7 @@ _DECIMAL_PLACES = {
 }
 
 
-class RenderError(ValueError):
+class ScreeningRunSerializationError(ValueError):
     """Raised when screened YAML cannot be rendered safely."""
 
 
@@ -42,19 +42,19 @@ def _quoted_scalar_representer(dumper: yaml.SafeDumper, data: QuotedString) -> y
 _QuotedDumper.add_representer(QuotedString, _quoted_scalar_representer)
 
 
-def render_screened_yaml(
+def serialize_screening_run_yaml(
     document: ScreeningRunDocument,
     *,
     run_revision_id: str | None = None,
 ) -> str:
     if document.run_date != document.asof_date:
-        raise RenderError("run_date must equal asof_date")
+        raise ScreeningRunSerializationError("run_date must equal asof_date")
     if document.run_at.tzinfo is None:
-        raise RenderError("run_at must be timezone-aware")
+        raise ScreeningRunSerializationError("run_at must be timezone-aware")
     if document.run_at.utcoffset() != JST.utcoffset(None):
-        raise RenderError("run_at must use JST (+09:00)")
+        raise ScreeningRunSerializationError("run_at must use JST (+09:00)")
 
-    front_matter = _build_front_matter(document)
+    front_matter = _screening_run_payload(document)
     if run_revision_id is not None:
         front_matter["run_revision_id"] = QuotedString(run_revision_id)
     yaml_text = yaml.dump(
@@ -67,7 +67,7 @@ def render_screened_yaml(
     return f"{yaml_text}\n"
 
 
-def _build_front_matter(document: ScreeningRunDocument) -> dict[str, object]:
+def _screening_run_payload(document: ScreeningRunDocument) -> dict[str, object]:
     front_matter: dict[str, object] = {}
     front_matter["run_date"] = QuotedString(document.run_date.isoformat())
     front_matter["asof_date"] = QuotedString(document.asof_date.isoformat())
@@ -80,7 +80,7 @@ def _build_front_matter(document: ScreeningRunDocument) -> dict[str, object]:
     front_matter["screening_rules_hash"] = QuotedString(document.screening_rules_hash)
     front_matter["er_model_version"] = QuotedString(document.er_model_version)
     front_matter["security_analyses"] = [
-        security_analysis_entry(analysis) for analysis in document.security_analyses
+        security_analysis_payload(analysis) for analysis in document.security_analyses
     ]
     front_matter["provider_status_lines"] = [
         QuotedString(line) for line in document.provider_status_lines
@@ -93,7 +93,7 @@ def _build_front_matter(document: ScreeningRunDocument) -> dict[str, object]:
     return front_matter
 
 
-def security_analysis_entry(candidate: SecurityAnalysis) -> dict[str, object]:
+def security_analysis_payload(candidate: SecurityAnalysis) -> dict[str, object]:
     """Serialize one analyzed security to its YAML entry shape.
 
     Production and calibration use the same rounded coordinates so a valuation

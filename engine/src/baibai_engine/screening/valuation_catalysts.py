@@ -1,17 +1,7 @@
-"""Typed capital-policy and control-event facts used only as annotations.
+"""Produce point-in-time TSE policy and EDINET filing context for Research Triage.
 
-Three primary sources describe who might close a valuation gap and when: the TSE
-"management conscious of cost of capital" disclosure list, the EDINET filing index for
-large-holding and tender-offer events, and the JPX delisting record. None of them feeds
-ranking, E[r] or any gate — event deltas measured negative over 3y/5y, and the disclosure
-rate alone no longer separates companies. They exist so a human reading a research_triage can
-see the dated catalyst context, and so a completed tender offer can price a delisted name
-in the calibration forward window.
-
-Absence of an event is only reported when the filing index was actually observed over the
-whole window. The identity columns the index reads were added to the store after those
-rows were first written, so a day that predates them reads as unobserved rather than as a
-day on which nothing was filed.
+The context is a fact-layer annotation and never affects ranking, E[r], or a gate.
+Filing absence is reported only when identity coverage proves the whole lookback window.
 """
 
 from __future__ import annotations
@@ -21,11 +11,9 @@ import sqlite3
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urljoin
 
 import openpyxl
 import requests
@@ -34,12 +22,11 @@ from baibai_engine.market.sqlite import connect_current, open_connection
 from baibai_engine.market.ticker import normalize_ticker
 
 TSE_CAPITAL_POLICY_URL = "https://www.jpx.co.jp/equities/follow-up/jr4eth0000004vj2-att/list.xlsx"
-JPX_DELISTING_INDEX_URL = "https://www.jpx.co.jp/listing/stocks/delisted/"
 
 # Six months of filings. A large-holding position or a tender offer older than that is
 # no longer the "recent" context the research_triage reader is asking about, and the window
 # has to be short enough that the identity coverage behind it is provable.
-EVENT_RECENT_DAYS = 183
+FILING_LOOKBACK_DAYS = 183
 
 # EDINET form codes, from the document-type table in
 # docs/reference/screening-runtime.md. Large-holding filings name their target in
@@ -54,13 +41,12 @@ TENDER_OFFER_RESULT_CORRECTION_DOC_TYPE = "280"
 
 _HTTP_TIMEOUT_SECONDS = 30
 _MONTH_SHEET_RE = re.compile(r"(?:【過去分】)?開示企業一覧（(\d{4})年(\d{1,2})月末時点）")
-_JPX_ARCHIVE_RE = re.compile(r"/listing/stocks/delisted/(?:index\.html|archives-\d+\.html)$")
 
 type CapitalPolicyStatus = Literal["disclosed", "considering"]
-type ControlEventType = Literal["large_holding", "tender_offer"]
+type ControlFilingKind = Literal["large_holding", "tender_offer"]
 
 
-class CapitalControlError(RuntimeError):
+class ValuationCatalystError(RuntimeError):
     """A primary-source payload cannot be converted without guessing."""
 
 
@@ -77,16 +63,15 @@ class TSECapitalPolicyRow:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class JPXDelistingRow:
-    delisted_on: date
-    ticker: str
-    name: str
-    market: str | None
-    reason: str
+class TSECapitalPolicyRefreshSummary:
+    sheet_count: int
+    row_count: int
+    disclosed_count: int
+    considering_count: int
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class CapitalControlAnnotation:
+class ValuationCatalystContext:
     """What the sources say about one ticker, with "not observed" kept distinct.
 
     `None` on a field means the source could not answer for this as-of date, which is a
@@ -95,38 +80,29 @@ class CapitalControlAnnotation:
 
     tse_capital_policy_status: Literal["disclosed", "considering", "none"] | None
     tse_capital_policy_updated_on: date | None
-    large_holding_event_recent: bool | None
-    large_holding_event_latest_on: date | None
-    tender_offer_event_recent: bool | None
-    tender_offer_event_latest_on: date | None
+    large_holding_filing_within_lookback: bool | None
+    latest_large_holding_filing_date: date | None
+    tender_offer_filing_within_lookback: bool | None
+    latest_tender_offer_filing_date: date | None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ControlEventIndex:
+class ControlFilingIndex:
     """The filings observed over one window, with the limits of that observation.
 
     Two things stop an absence from being provable. A ticker whose EDINET code the
     filing history never revealed cannot be looked up at all, so no filing could have
     been attributed to it. And a filing that named no target company could have been
-    about anyone, which makes every absence of that event type unprovable for the whole
+    about anyone, which makes every absence of that filing kind unprovable for the whole
     window while leaving the other type answerable.
     """
 
-    latest_by_target: Mapping[tuple[str, ControlEventType], date]
+    latest_by_target: Mapping[tuple[str, ControlFilingKind], date]
     identified_tickers: frozenset[str]
-    anonymous_event_types: frozenset[ControlEventType]
+    anonymous_filing_kinds: frozenset[ControlFilingKind]
 
-    def can_answer(self, ticker: str, event_type: ControlEventType) -> bool:
-        return ticker in self.identified_tickers and event_type not in self.anonymous_event_types
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class CapitalControlRefreshSummary:
-    tse_sheet_count: int
-    tse_row_count: int
-    tse_disclosed_count: int
-    tse_considering_count: int
-    jpx_delisting_count: int
+    def can_answer(self, ticker: str, filing_kind: ControlFilingKind) -> bool:
+        return ticker in self.identified_tickers and filing_kind not in self.anonymous_filing_kinds
 
 
 def parse_tse_capital_policy_workbook(content: bytes) -> tuple[TSECapitalPolicyRow, ...]:
@@ -140,7 +116,7 @@ def parse_tse_capital_policy_workbook(content: bytes) -> tuple[TSECapitalPolicyR
     try:
         workbook = openpyxl.load_workbook(BytesIO(content), read_only=True, data_only=True)
     except Exception as exc:
-        raise CapitalControlError("failed to parse TSE capital-policy workbook") from exc
+        raise ValuationCatalystError("failed to parse TSE capital-policy workbook") from exc
 
     raw_rows: list[tuple[date, str, CapitalPolicyStatus, str | None, date | None, bool]] = []
     sheet_months: list[date] = []
@@ -168,9 +144,9 @@ def parse_tse_capital_policy_workbook(content: bytes) -> tuple[TSECapitalPolicyR
                 )
             )
     if not sheet_months or not raw_rows:
-        raise CapitalControlError("TSE capital-policy workbook has no monthly rows")
+        raise ValuationCatalystError("TSE capital-policy workbook has no monthly rows")
     if len(sheet_months) != len(set(sheet_months)):
-        raise CapitalControlError("TSE capital-policy workbook repeats a snapshot month")
+        raise ValuationCatalystError("TSE capital-policy workbook repeats a snapshot month")
 
     earliest_sheet = min(sheet_months)
     first_disclosed: dict[str, date] = {}
@@ -198,7 +174,7 @@ def parse_tse_capital_policy_workbook(content: bytes) -> tuple[TSECapitalPolicyR
 def store_tse_capital_policy_rows(sqlite_path: Path, rows: Sequence[TSECapitalPolicyRow]) -> int:
     """Replace whole months, because a month's sheet is a complete snapshot of it."""
     if not rows:
-        raise CapitalControlError("refusing to replace TSE capital-policy facts with zero rows")
+        raise ValuationCatalystError("refusing to replace TSE capital-policy facts with zero rows")
     month_ends = sorted({row.snapshot_month_end for row in rows})
     connection = open_connection(sqlite_path)
     try:
@@ -233,82 +209,32 @@ def store_tse_capital_policy_rows(sqlite_path: Path, rows: Sequence[TSECapitalPo
         connection.close()
 
 
-def store_jpx_delistings(sqlite_path: Path, rows: Sequence[JPXDelistingRow]) -> int:
-    """Accumulate delisting facts, because JPX retires archive pages over time.
-
-    A delisting is immutable once it happened, so a page that no longer lists 2024 must
-    not erase 2024. Re-reading a listed year overwrites its rows with the newer reading.
-    """
-    if not rows:
-        raise CapitalControlError("refusing to store zero JPX delistings")
-    connection = open_connection(sqlite_path)
-    try:
-        connection.executemany(
-            "INSERT OR REPLACE INTO jpx_delistings(delisted_on, ticker, name, market, reason) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (
-                (row.delisted_on.isoformat(), row.ticker, row.name, row.market, row.reason)
-                for row in rows
-            ),
-        )
-        connection.commit()
-        return len(rows)
-    finally:
-        connection.close()
-
-
-def refresh_capital_control_facts(
+def refresh_tse_capital_policy(
     sqlite_path: Path, *, session: requests.Session | None = None
-) -> CapitalControlRefreshSummary:
-    """Re-read both JPX sources and replace what they cover. Safe to repeat."""
+) -> TSECapitalPolicyRefreshSummary:
+    """Download and replace every month present in the TSE workbook."""
     client = session or requests.Session()
-    workbook_response = client.get(TSE_CAPITAL_POLICY_URL, timeout=_HTTP_TIMEOUT_SECONDS)
-    if workbook_response.status_code >= 400:
-        raise CapitalControlError(
-            f"failed to download TSE capital-policy workbook: {workbook_response.status_code}"
+    response = client.get(TSE_CAPITAL_POLICY_URL, timeout=_HTTP_TIMEOUT_SECONDS)
+    if response.status_code >= 400:
+        raise ValuationCatalystError(
+            f"failed to download TSE capital-policy workbook: {response.status_code}"
         )
-    tse_rows = parse_tse_capital_policy_workbook(workbook_response.content)
-    delistings = _download_jpx_delistings(client)
-    store_tse_capital_policy_rows(sqlite_path, tse_rows)
-    store_jpx_delistings(sqlite_path, delistings)
-    return CapitalControlRefreshSummary(
-        tse_sheet_count=len({row.snapshot_month_end for row in tse_rows}),
-        tse_row_count=len(tse_rows),
-        tse_disclosed_count=sum(row.status == "disclosed" for row in tse_rows),
-        tse_considering_count=sum(row.status == "considering" for row in tse_rows),
-        jpx_delisting_count=len(delistings),
+    rows = parse_tse_capital_policy_workbook(response.content)
+    store_tse_capital_policy_rows(sqlite_path, rows)
+    return TSECapitalPolicyRefreshSummary(
+        sheet_count=len({row.snapshot_month_end for row in rows}),
+        row_count=len(rows),
+        disclosed_count=sum(row.status == "disclosed" for row in rows),
+        considering_count=sum(row.status == "considering" for row in rows),
     )
 
 
-def read_jpx_delistings(sqlite_path: Path) -> tuple[JPXDelistingRow, ...]:
-    connection = connect_current(sqlite_path)
-    if connection is None:
-        return ()
-    try:
-        rows = connection.execute(
-            "SELECT delisted_on, ticker, name, market, reason FROM jpx_delistings "
-            "ORDER BY delisted_on, ticker"
-        ).fetchall()
-    finally:
-        connection.close()
-    return tuple(
-        JPXDelistingRow(
-            delisted_on=date.fromisoformat(str(delisted_on)),
-            ticker=str(ticker),
-            name=str(name),
-            market=None if market is None else str(market),
-            reason=str(reason),
-        )
-        for delisted_on, ticker, name, market, reason in rows
-    )
-
-
-def read_capital_control_annotations(
-    sqlite_path: Path, *, asof: date, tickers: Iterable[str]
-) -> dict[str, CapitalControlAnnotation]:
+def read_valuation_catalyst_contexts(
+    sqlite_path: Path, *, as_of: date, tickers: Iterable[str]
+) -> dict[str, ValuationCatalystContext]:
     """Read point-in-time policy state and recent target-company filings.
 
-    Never affects rank: the caller copies these into the candidate payload only.
+    Never affects rank: the caller copies these into the Security Analysis payload only.
     """
     requested = sorted({normalize_ticker(ticker) for ticker in tickers})
     if not requested:
@@ -320,44 +246,44 @@ def read_capital_control_annotations(
         policy_month = connection.execute(
             "SELECT MAX(snapshot_month_end) FROM tse_capital_policy_snapshots "
             "WHERE snapshot_month_end <= ?",
-            (asof.isoformat(),),
+            (as_of.isoformat(),),
         ).fetchone()[0]
-        event_floor = asof - timedelta(days=EVENT_RECENT_DAYS)
-        event_index = read_control_event_index(connection, start=event_floor, end=asof)
+        filing_floor = as_of - timedelta(days=FILING_LOOKBACK_DAYS)
+        filing_index = read_control_filing_index(connection, start=filing_floor, end=as_of)
         policy_by_ticker = _policy_by_ticker(connection, policy_month, requested)
     finally:
         connection.close()
-    result: dict[str, CapitalControlAnnotation] = {}
+    result: dict[str, ValuationCatalystContext] = {}
     for ticker in requested:
         policy = policy_by_ticker.get(ticker)
-        large_recent, large_on = _event_answer(event_index, ticker, "large_holding")
-        tender_recent, tender_on = _event_answer(event_index, ticker, "tender_offer")
-        result[ticker] = CapitalControlAnnotation(
+        large_recent, large_on = _filing_answer(filing_index, ticker, "large_holding")
+        tender_recent, tender_on = _filing_answer(filing_index, ticker, "tender_offer")
+        result[ticker] = ValuationCatalystContext(
             tse_capital_policy_status=(
                 None if policy_month is None else (policy[0] if policy is not None else "none")
             ),
             tse_capital_policy_updated_on=None if policy is None else policy[1],
-            large_holding_event_recent=large_recent,
-            large_holding_event_latest_on=large_on,
-            tender_offer_event_recent=tender_recent,
-            tender_offer_event_latest_on=tender_on,
+            large_holding_filing_within_lookback=large_recent,
+            latest_large_holding_filing_date=large_on,
+            tender_offer_filing_within_lookback=tender_recent,
+            latest_tender_offer_filing_date=tender_on,
         )
     return result
 
 
-def _event_answer(
-    index: ControlEventIndex | None, ticker: str, event_type: ControlEventType
+def _filing_answer(
+    index: ControlFilingIndex | None, ticker: str, filing_kind: ControlFilingKind
 ) -> tuple[bool | None, date | None]:
-    """Answer only when an absence would be provable for this ticker and event type."""
-    if index is None or not index.can_answer(ticker, event_type):
+    """Answer only when absence is provable for this ticker and filing kind."""
+    if index is None or not index.can_answer(ticker, filing_kind):
         return None, None
-    latest = index.latest_by_target.get((ticker, event_type))
+    latest = index.latest_by_target.get((ticker, filing_kind))
     return latest is not None, latest
 
 
-def read_control_event_index(
+def read_control_filing_index(
     connection: sqlite3.Connection, *, start: date, end: date
-) -> ControlEventIndex | None:
+) -> ControlFilingIndex | None:
     """Latest large-holding / tender-offer filing per target ticker in the window.
 
     Returns ``None`` when the window is not fully identity-covered, so that the caller
@@ -374,20 +300,20 @@ def read_control_event_index(
         f"({_placeholders(LARGE_HOLDING_DOC_TYPES + TENDER_OFFER_DOC_TYPES)})",  # nosec B608
         (start.isoformat(), end.isoformat(), *LARGE_HOLDING_DOC_TYPES, *TENDER_OFFER_DOC_TYPES),
     ).fetchall()
-    index: dict[tuple[str, ControlEventType], date] = {}
-    anonymous: set[ControlEventType] = set()
+    index: dict[tuple[str, ControlFilingKind], date] = {}
+    anonymous: set[ControlFilingKind] = set()
     for doc_date, doc_type, issuer, subject, legal, disclosure, withdrawal in rows:
         if not is_usable_filing_status(legal, disclosure, withdrawal):
             continue
-        event_type: ControlEventType = (
+        filing_kind: ControlFilingKind = (
             "large_holding" if str(doc_type) in LARGE_HOLDING_DOC_TYPES else "tender_offer"
         )
-        target = issuer if event_type == "large_holding" else subject
+        target = issuer if filing_kind == "large_holding" else subject
         if target in (None, ""):
             # The filing named no target company at all, so it could have been about any
-            # ticker. That makes an absence unprovable for this event type over this
+            # ticker. That makes an absence unprovable for this filing kind over this
             # window, while the other type stays answerable.
-            anonymous.add(event_type)
+            anonymous.add(filing_kind)
             continue
         ticker = ticker_by_edinet_code.get(str(target))
         if ticker is None:
@@ -395,13 +321,13 @@ def read_control_event_index(
             # the company behind that code, which `identified_tickers` already excludes.
             continue
         observed = date.fromisoformat(str(doc_date))
-        key = (ticker, event_type)
+        key = (ticker, filing_kind)
         if observed > index.get(key, date.min):
             index[key] = observed
-    return ControlEventIndex(
+    return ControlFilingIndex(
         latest_by_target=index,
         identified_tickers=frozenset(ticker_by_edinet_code.values()),
-        anonymous_event_types=frozenset(anonymous),
+        anonymous_filing_kinds=frozenset(anonymous),
     )
 
 
@@ -465,7 +391,7 @@ def is_usable_filing_status(legal: object, disclosure: object, withdrawal: objec
     )
 
 
-def edinet_event_counts(sqlite_path: Path, *, through: date) -> dict[str, int]:
+def edinet_filing_counts(sqlite_path: Path, *, through: date) -> dict[str, int]:
     """Form-code histogram of the stored index, for the source-coverage record."""
     connection = connect_current(sqlite_path)
     if connection is None:
@@ -497,117 +423,6 @@ def _policy_by_ticker(
         str(ticker): (_capital_policy_status_from_store(status), _optional_iso_date(updated_on))
         for ticker, status, updated_on in rows
     }
-
-
-class _TableLinkParser(HTMLParser):
-    """Collect table rows and navigation targets from one JPX delisting page."""
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.rows: list[tuple[str, ...]] = []
-        self.links: list[str] = []
-        self._cells: list[str] | None = None
-        self._cell: list[str] | None = None
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attrs_by_name = dict(attrs)
-        if tag == "a" and attrs_by_name.get("href"):
-            self.links.append(str(attrs_by_name["href"]))
-        if tag == "option" and attrs_by_name.get("value"):
-            self.links.append(str(attrs_by_name["value"]))
-        if tag == "tr":
-            self._cells = []
-        elif tag in {"th", "td"} and self._cells is not None:
-            self._cell = []
-
-    def handle_data(self, data: str) -> None:
-        if self._cell is not None:
-            self._cell.append(data)
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag in {"th", "td"} and self._cell is not None and self._cells is not None:
-            self._cells.append(_text("".join(self._cell)))
-            self._cell = None
-        elif tag == "tr" and self._cells is not None:
-            if self._cells:
-                self.rows.append(tuple(self._cells))
-            self._cells = None
-
-
-def _download_jpx_delistings(session: requests.Session) -> tuple[JPXDelistingRow, ...]:
-    index_response = session.get(JPX_DELISTING_INDEX_URL, timeout=_HTTP_TIMEOUT_SECONDS)
-    if index_response.status_code >= 400:
-        raise CapitalControlError(
-            f"failed to download JPX delistings: {index_response.status_code}"
-        )
-    index_html = _decode_jpx_html(index_response)
-    index_parser = _TableLinkParser()
-    index_parser.feed(index_html)
-    urls = {JPX_DELISTING_INDEX_URL}
-    for href in index_parser.links:
-        resolved = urljoin(JPX_DELISTING_INDEX_URL, href)
-        if resolved.startswith(JPX_DELISTING_INDEX_URL) and _JPX_ARCHIVE_RE.search(resolved):
-            urls.add(resolved)
-    rows: dict[tuple[date, str], JPXDelistingRow] = {}
-    for url in sorted(urls):
-        response = (
-            index_response
-            if url == JPX_DELISTING_INDEX_URL
-            else session.get(url, timeout=_HTTP_TIMEOUT_SECONDS)
-        )
-        if response.status_code >= 400:
-            raise CapitalControlError(f"failed to download JPX delistings: {url}")
-        parser = _TableLinkParser()
-        parser.feed(_decode_jpx_html(response))
-        for cells in parser.rows:
-            row = _jpx_delisting_row(cells)
-            if row is None:
-                continue
-            key = (row.delisted_on, row.ticker)
-            previous = rows.get(key)
-            if previous is not None and previous != row:
-                raise CapitalControlError(
-                    f"conflicting JPX delisting row: {row.ticker} {row.delisted_on.isoformat()}"
-                )
-            rows[key] = row
-    if not rows:
-        raise CapitalControlError("JPX delisting history had no typed rows")
-    return tuple(rows[key] for key in sorted(rows))
-
-
-def _jpx_delisting_row(cells: Sequence[str]) -> JPXDelistingRow | None:
-    """Read one table row, skipping headers and any row that is not a delisting."""
-    if len(cells) != 5:
-        return None
-    try:
-        delisted_on = date.fromisoformat(cells[0].replace("/", "-"))
-        ticker = normalize_ticker(cells[2])
-    except ValueError:
-        return None
-    if not cells[1] or not cells[4]:
-        return None
-    return JPXDelistingRow(
-        delisted_on=delisted_on,
-        ticker=ticker,
-        name=cells[1],
-        market=cells[3] or None,
-        reason=cells[4],
-    )
-
-
-def _decode_jpx_html(response: requests.Response) -> str:
-    """Decode by trying strict codecs, never a single-byte one that cannot fail.
-
-    The archive pages arrive without a charset header, and `response.encoding` then
-    falls back to latin-1, which decodes every byte sequence into mojibake instead of
-    raising. Only codecs that reject invalid input can identify the real encoding.
-    """
-    for encoding in ("utf-8-sig", "utf-8", "cp932"):
-        try:
-            return response.content.decode(encoding)
-        except (LookupError, UnicodeDecodeError):
-            continue
-    raise CapitalControlError("failed to decode JPX HTML")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -647,7 +462,7 @@ def _resolve_tse_columns(rows: Sequence[Sequence[object]], *, sheet: str) -> _TS
         None,
     )
     if header_index is None or header_index + 1 >= len(rows):
-        raise CapitalControlError(f"TSE capital-policy sheet has no typed header: {sheet}")
+        raise ValuationCatalystError(f"TSE capital-policy sheet has no typed header: {sheet}")
     group = _forward_filled_labels(rows[header_index])
     detail = [_text(value) for value in rows[header_index + 1]]
     width = max(len(group), len(detail))
@@ -655,7 +470,7 @@ def _resolve_tse_columns(rows: Sequence[Sequence[object]], *, sheet: str) -> _TS
     def find(predicate: Callable[[int], bool], label: str) -> int:
         column = next((index for index in range(width) if predicate(index)), None)
         if column is None:
-            raise CapitalControlError(f"TSE capital-policy sheet has no {label} column: {sheet}")
+            raise ValuationCatalystError(f"TSE capital-policy sheet has no {label} column: {sheet}")
         return column
 
     def at(labels: Sequence[str], index: int) -> str:
@@ -699,7 +514,7 @@ def _capital_policy_status(value: str) -> CapitalPolicyStatus:
         return "disclosed"
     if value == "検討中":
         return "considering"
-    raise CapitalControlError(f"unknown TSE capital-policy status: {value!r}")
+    raise ValuationCatalystError(f"unknown TSE capital-policy status: {value!r}")
 
 
 def _capital_policy_status_from_store(value: object) -> CapitalPolicyStatus:
@@ -708,12 +523,12 @@ def _capital_policy_status_from_store(value: object) -> CapitalPolicyStatus:
         return "disclosed"
     if raw == "considering":
         return "considering"
-    raise CapitalControlError(f"invalid stored TSE capital-policy status: {raw!r}")
+    raise ValuationCatalystError(f"invalid stored TSE capital-policy status: {raw!r}")
 
 
 def _ticker_from_excel(value: object) -> str:
     if isinstance(value, bool):
-        raise CapitalControlError(f"invalid TSE ticker: {value!r}")
+        raise ValuationCatalystError(f"invalid TSE ticker: {value!r}")
     if isinstance(value, int):
         raw = str(value)
     elif isinstance(value, float) and value.is_integer():
@@ -723,7 +538,7 @@ def _ticker_from_excel(value: object) -> str:
     try:
         return normalize_ticker(raw)
     except ValueError as exc:
-        raise CapitalControlError(f"invalid TSE ticker: {value!r}") from exc
+        raise ValuationCatalystError(f"invalid TSE ticker: {value!r}") from exc
 
 
 def _excel_date(value: object) -> date | None:
@@ -739,7 +554,7 @@ def _excel_date(value: object) -> date | None:
             raw.replace("/", "-").replace("年", "-").replace("月", "-").removesuffix("日")
         )
     except ValueError as exc:
-        raise CapitalControlError(f"invalid TSE update date: {raw!r}") from exc
+        raise ValuationCatalystError(f"invalid TSE update date: {raw!r}") from exc
 
 
 def _calendar_month_end(year: int, month: int) -> date:
@@ -772,7 +587,7 @@ def _optional_iso_date(value: object) -> date | None:
 
 
 __all__ = (
-    "EVENT_RECENT_DAYS",
+    "FILING_LOOKBACK_DAYS",
     "LARGE_HOLDING_DOC_TYPES",
     "TENDER_OFFER_DOC_TYPES",
     "TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE",
@@ -780,23 +595,20 @@ __all__ = (
     "TENDER_OFFER_RESULT_CORRECTION_DOC_TYPE",
     "TENDER_OFFER_RESULT_DOC_TYPE",
     "TENDER_OFFER_WITHDRAWAL_DOC_TYPE",
-    "CapitalControlAnnotation",
-    "CapitalControlError",
-    "CapitalControlRefreshSummary",
     "CapitalPolicyStatus",
-    "ControlEventIndex",
-    "ControlEventType",
-    "JPXDelistingRow",
+    "ControlFilingIndex",
+    "ControlFilingKind",
+    "TSECapitalPolicyRefreshSummary",
     "TSECapitalPolicyRow",
+    "ValuationCatalystContext",
+    "ValuationCatalystError",
     "edinet_code_to_ticker",
-    "edinet_event_counts",
+    "edinet_filing_counts",
     "edinet_identity_covered",
     "is_usable_filing_status",
     "parse_tse_capital_policy_workbook",
-    "read_capital_control_annotations",
-    "read_control_event_index",
-    "read_jpx_delistings",
-    "refresh_capital_control_facts",
-    "store_jpx_delistings",
+    "read_control_filing_index",
+    "read_valuation_catalyst_contexts",
+    "refresh_tse_capital_policy",
     "store_tse_capital_policy_rows",
 )

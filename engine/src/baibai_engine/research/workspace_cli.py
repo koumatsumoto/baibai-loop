@@ -119,8 +119,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     review_parser = subparsers.add_parser(
         "review-scaffold",
-        help="bind an independent review draft after the thesis content is stable",
-        description="Bind an independent review draft after the thesis content is stable.",
+        help="bind a Thesis Review draft after the thesis content is stable",
+        description="Bind a Thesis Review draft after the thesis content is stable.",
     )
     review_parser.add_argument("--workspace", required=True, type=Path)
     review_parser.add_argument("--db", type=Path)
@@ -194,7 +194,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     if arguments and arguments[0] == "evaluate":
         # Returned unwrapped: evaluation reports "not decision-ready" as exit 2,
         # which is not this CLI's usage/data/conflict code set.
-        from .decision_cli import main as evaluate_main
+        from .thesis_evaluation_cli import main as evaluate_main
 
         return evaluate_main(arguments[1:], now=now)
     parser = build_parser()
@@ -217,9 +217,9 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         "workspace": str(prepared.workspace),
                         "actionable": prepared.actionable,
                         "review_set_size": prepared.review_set_size,
-                        "researchable_count": prepared.researchable_count,
+                        "admissible_count": prepared.admissible_count,
                         "research_triage_id": prepared.research_triage_id,
-                        "researchable_tickers": list(prepared.researchable_tickers),
+                        "admissible_research_tickers": list(prepared.admissible_research_tickers),
                         "note": None if prepared.actionable else "no_allocation",
                     },
                     out,
@@ -237,7 +237,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         "workspace": str(prepared.workspace),
                         "actionable": prepared.actionable,
                         "review_set_size": prepared.review_set_size,
-                        "researchable_count": prepared.researchable_count,
+                        "admissible_count": prepared.admissible_count,
                     },
                     out,
                 )

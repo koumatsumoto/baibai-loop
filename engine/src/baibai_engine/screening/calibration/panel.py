@@ -1,6 +1,6 @@
 """Point-in-time panel for Security Analysis and Review Set replay.
 
-本番 run と同じ部品 (`build_metrics` / `security_analysis_entry` /
+本番 run と同じ部品 (`build_metrics` / `security_analysis_payload` /
 `build_nomination_ranks` / `build_review_set`) をそのまま呼ぶことで、リプレイと本番のロジック一致を
 実装の単一性で担保する。相違点は入力の中立化だけ:
 
@@ -20,7 +20,6 @@ from typing import Literal
 
 from baibai_engine.market.store import read_adjustment_factor_bars, read_daily_bars
 
-from ..candidate_build import build_security_analysis
 from ..discovery.review_set import (
     build_nomination_ranks,
     build_review_set,
@@ -44,9 +43,10 @@ from ..metrics import (
     group_bars_by_ticker,
     group_summaries_by_ticker,
 )
-from ..render import security_analysis_entry
 from ..rule_config import ScreeningRules
 from ..schema import SECTOR_MEDIAN_BASIS_MARKET, SecurityAnalysis, TTMQuality
+from ..screening_run_serializer import security_analysis_payload
+from ..security_analysis_builder import build_security_analysis
 from ..sqlite_reader import (
     fin_summaries_readable_from,
     read_edinet_metrics,
@@ -375,9 +375,9 @@ def build_panel(
         adjustment_events_by_ticker=normalized_profit_split_bars_by_ticker,
     )
     securities_by_ticker = {
-        security.code: security
+        security.ticker: security
         for security in securities
-        if security.is_common_stock and security.code in universe_result.snapshots
+        if security.is_common_stock and security.ticker in universe_result.snapshots
     }
     median_population = candidate_comparison_population(universe_result.snapshots, rules)
     margin_latest, margin_prior_26w = read_margin_supply_demand_inputs(sqlite_path, asof_date)
@@ -418,7 +418,7 @@ def build_panel(
             )
         )
 
-    analysis_payloads = [security_analysis_entry(candidate) for candidate in candidates]
+    analysis_payloads = [security_analysis_payload(candidate) for candidate in candidates]
     nomination_ranks = build_nomination_ranks(
         analysis_payloads,
         rules=rules.candidate_discovery,
@@ -589,17 +589,17 @@ def build_panel(
     # surfaces without anyone remembering to copy it.
     policy_reasons = frozenset(POLICY_EXCLUSION_REASONS)
     for security in securities:
-        if security.code in universe_result.snapshots:
+        if security.ticker in universe_result.snapshots:
             continue
-        flags = frozenset(universe_result.exclusion_flags.get(security.code, ()))
+        flags = frozenset(universe_result.exclusion_flags.get(security.ticker, ()))
         if flags & policy_reasons:
             continue
         rows.append(
             _unresolved_master_member_row(
                 asof_date,
-                security.code,
+                security.ticker,
                 security.sector_33,
-                priced_at_asof=security.code in asof_priced,
+                priced_at_asof=security.ticker in asof_priced,
                 self_range_degraded=not policy.production_authority,
             )
         )
@@ -611,7 +611,7 @@ def build_panel(
     }
     population_rows = [row for row in rows if row.in_population]
     panel_tickers = {row.ticker for row in rows}
-    master_tickers = {security.code for security in securities}
+    master_tickers = {security.ticker for security in securities}
     population_mismatch = asof_priced - master_tickers
     diagnostics = PanelDiagnostics(
         asof=asof_date.isoformat(),

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "baibai-loop"
 version = "0.1.0"
-description = "Automation utilities for the Baibai Loop Japanese equity trading workflow."
+description = "AI-assisted, human-adjudicated Japanese equity decision foundation."
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
 dependencies = [
@@ -311,7 +311,7 @@ ignore_imports = [
   "baibai_engine.position.cli -> baibai_engine.research.capital_allocation_service",
   "baibai_engine.position.cli -> baibai_engine.research.position_review_builder",
   "baibai_engine.position.cli -> baibai_engine.research.store",
-  "baibai_engine.position.result_service -> baibai_engine.research.capital_allocation_service",
+  "baibai_engine.position.broker_fact_service -> baibai_engine.research.capital_allocation_service",
 ]
 
 [[tool.importlinter.contracts]]
@@ -401,7 +401,7 @@ forbidden_modules = [
   "baibai_engine.cli",
   "baibai_engine.macro.indicators.providers",
   "baibai_engine.position.cli",
-  "baibai_engine.research.decision_cli",
+  "baibai_engine.research.thesis_evaluation_cli",
   "baibai_engine.research.workspace_cli",
   "baibai_engine.screening.cli",
 ]

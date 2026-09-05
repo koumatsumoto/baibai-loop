@@ -9,7 +9,7 @@ import yaml
 from baibai_engine.read_api import list_research_triage_payloads
 from baibai_engine.research.workspace import _screening_estimate_from_triage_snapshot
 from baibai_engine.screening.cli import main as screening_main
-from baibai_engine.screening.research_triage import ResearchTriageCandidateSnapshot
+from baibai_engine.screening.research_triage import ReviewSetEntrySnapshot
 from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
@@ -370,7 +370,7 @@ def test_research_triage_scaffold_carries_machine_coordinates_and_fails_closed(
         draft["entries"][0]["candidate_snapshot"]["nominations"]
         == review_set["entries"][0]["nominations"]
     )
-    parsed_snapshot = ResearchTriageCandidateSnapshot.model_validate(
+    parsed_snapshot = ReviewSetEntrySnapshot.model_validate(
         draft["entries"][0]["candidate_snapshot"]
     )
     assert [item.model_dump(mode="json") for item in parsed_snapshot.nominations] == review_set[
@@ -422,7 +422,8 @@ def test_thesis_scaffold_screening_estimate_names_its_local_source(tmp_path: Pat
     workspace.mkdir()
     (workspace / "research-workspace.yaml").write_text(
         yaml.safe_dump(
-            {"as_of": "2026-07-08", "candidates": review_set["entries"]}, sort_keys=False
+            {"as_of": "2026-07-08", "review_set_entries": review_set["entries"]},
+            sort_keys=False,
         ),
         encoding="utf-8",
     )
