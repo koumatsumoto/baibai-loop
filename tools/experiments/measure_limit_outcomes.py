@@ -5,6 +5,7 @@
 個票を並べないと分からないので、fill 率と、未約定に終わった注文の逸失幅を測る。
 
 read-only。ledger も market store も書き換えず、約定を推定しない。
+asof当日までに発生したledger eventと価格だけで指値規律の結果を測る。
 """
 
 from __future__ import annotations
@@ -76,13 +77,13 @@ def _bars(
 
 
 def _forward_closes(
-    connection: sqlite3.Connection, ticker: str, after: date, sessions: int
+    connection: sqlite3.Connection, ticker: str, after: date, asof: date, sessions: int
 ) -> list[float]:
     rows = connection.execute(
         "SELECT close FROM jquants_daily_bars "
-        "WHERE ticker = ? AND traded_at > ? AND close IS NOT NULL "
+        "WHERE ticker = ? AND traded_at > ? AND traded_at <= ? AND close IS NOT NULL "
         "ORDER BY traded_at LIMIT ?",
-        (ticker, after.isoformat(), sessions),
+        (ticker, after.isoformat(), asof.isoformat(), sessions),
     ).fetchall()
     return [float(row[0]) for row in rows]
 
@@ -103,6 +104,8 @@ def build_limit_outcomes(*, app_db: Path, market_db: Path, asof: date) -> dict[s
     releases: dict[str, ReleaseEvent] = {}
     fills: dict[str, list[ExecutionEvent]] = {}
     for event in ledger.events:
+        if event.occurred_at.date() > asof:
+            continue
         if isinstance(event, ReservationEvent):
             reservations[event.reservation_id] = event
         elif isinstance(event, ReleaseEvent):
@@ -224,7 +227,9 @@ def _order_outcome(
     window_end = min(release.occurred_at.date(), asof)
     bars = _bars(connection, reservation.ticker, placed_on, window_end)
     window_low = min((low for _, low, _ in bars), default=None)
-    forward = _forward_closes(connection, reservation.ticker, window_end, POST_EXPIRY_SESSIONS)
+    forward = _forward_closes(
+        connection, reservation.ticker, window_end, asof, POST_EXPIRY_SESSIONS
+    )
     complete_window = len(forward) == POST_EXPIRY_SESSIONS
     high_close = max(forward, default=None) if complete_window else None
     return OrderOutcome(
@@ -283,7 +288,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--db", type=Path, default=DEFAULT_APP_DB)
     parser.add_argument("--sqlite-path", type=Path, default=DEFAULT_MARKET_DB)
-    parser.add_argument("--asof", type=_parse_date, required=True)
+    parser.add_argument(
+        "--asof",
+        type=_parse_date,
+        required=True,
+        help="inclusive observation cutoff for ledger events and market bars",
+    )
     parser.add_argument("--out", type=Path)
     return parser
 

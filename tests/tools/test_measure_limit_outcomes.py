@@ -121,7 +121,10 @@ def test_an_expired_order_reports_how_far_the_low_stayed_above_the_limit(tmp_pat
         ],
     )
 
-    payload = build_limit_outcomes(app_db=app_db, market_db=market, asof=ASOF)
+    before = build_limit_outcomes(app_db=app_db, market_db=market, asof=ASOF)
+    assert before["orders"][0]["post_expiry_sessions_observed"] == 19
+    assert before["orders"][0]["forgone_pct"] is None
+    payload = build_limit_outcomes(app_db=app_db, market_db=market, asof=date(2026, 8, 1))
 
     order = payload["orders"][0]
     assert order["outcome"] == "expired"
@@ -275,6 +278,64 @@ def test_a_missing_market_store_fails_instead_of_reporting_empty_windows(tmp_pat
 
     with pytest.raises(LimitOutcomeMeasurementError, match="market store"):
         build_limit_outcomes(app_db=app_db, market_db=tmp_path / "absent.sqlite", asof=ASOF)
+
+
+@pytest.mark.parametrize("event_kind", ["reservation", "execution", "release"])
+def test_events_after_cutoff_do_not_change_observed_order_state(
+    tmp_path: Path, event_kind: str
+) -> None:
+    app_db, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
+    reservation = _reservation(
+        reservation_id="res-cutoff",
+        occurred_at="2026-07-31T09:00:00+09:00"
+        if event_kind == "reservation"
+        else "2026-07-01T09:00:00+09:00",
+        limit_yen="1000",
+        decision_reference="issue-cutoff",
+    )
+    events = [reservation]
+    if event_kind == "execution":
+        events.append(
+            {
+                "event_id": "fill-cutoff",
+                "type": "execution",
+                "occurred_at": "2026-07-31T09:00:00+09:00",
+                "execution_id": "exec-cutoff",
+                "reservation_id": "res-cutoff",
+                "ticker": "2331",
+                "side": "buy",
+                "quantity": 100,
+                "price_yen": "1000",
+            }
+        )
+    elif event_kind == "release":
+        events.append(
+            {
+                "event_id": "release-cutoff",
+                "type": "release",
+                "occurred_at": "2026-07-31T15:30:00+09:00",
+                "reservation_id": "res-cutoff",
+                "reason": "expired",
+            }
+        )
+    _ledger(app_db, events)
+    _market(market, [("2026-07-31", 990.0, 1000.0)])
+    original = (app_db.read_bytes(), market.read_bytes())
+    before = build_limit_outcomes(app_db=app_db, market_db=market, asof=date(2026, 7, 30))
+    if event_kind == "reservation":
+        assert before["orders"] == []
+    else:
+        assert before["orders"][0]["outcome"] == "open"
+    after = build_limit_outcomes(app_db=app_db, market_db=market, asof=ASOF)
+    assert (
+        after["orders"][0]["outcome"]
+        == {
+            "reservation": "open",
+            "execution": "filled",
+            "release": "expired",
+        }[event_kind]
+    )
+    assert (app_db.read_bytes(), market.read_bytes()) == original
 
 
 def test_cli_writes_yaml_and_reports_an_unreadable_ledger(tmp_path: Path) -> None:
