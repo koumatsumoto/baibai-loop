@@ -669,6 +669,17 @@ def evidence_exception_axes(document: ThesisDocument) -> tuple[RiskAxis, ...]:
     return tuple(sorted(set(_evidence_gap_axes(document) + _adverse_axes(document))))
 
 
+def calculate_scenarios(document: ThesisDocument) -> tuple[ScenarioEvaluation, ...]:
+    """Recalculate scenario values in document order, without identity or eligibility checks."""
+    try:
+        return tuple(
+            _recalculate_scenario(item, entry_price=document.estimates.entry_price_basis_yen)
+            for item in document.estimates.scenarios
+        )
+    except (ArithmeticError, OverflowError, ValueError) as error:
+        raise ThesisError(f"scenario calculation failed: {error}") from error
+
+
 def evaluate_thesis(
     document: ThesisDocument,
     *,
@@ -727,13 +738,7 @@ def evaluate_thesis(
     for risk in document.permanent_loss_risks:
         required_review_source_ids.update(risk.source_ids)
 
-    try:
-        scenarios = tuple(
-            _recalculate_scenario(item, entry_price=document.estimates.entry_price_basis_yen)
-            for item in document.estimates.scenarios
-        )
-    except (ArithmeticError, OverflowError, ValueError) as error:
-        raise ThesisError(f"scenario calculation failed: {error}") from error
+    scenarios = calculate_scenarios(document)
     _check_derived_metrics(document, errors)
     _check_scenario_fact_inputs(document, errors)
     keys = {(item.horizon_years, item.name) for item in document.estimates.scenarios}

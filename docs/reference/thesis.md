@@ -134,7 +134,10 @@ maximum_acceptable_entry_price = floor_to_tick(
 その後の入出金や較正元fileの更新・消失だけでは調査を停止しない。現在のportfolio状態は
 Planning Limitが都度読み、Position Reviewは保有と価格観測as-ofを再検証する。
 workspace statusとpromoteは同じcase評価から残作業を判定する。公開済みのexact draftは、
-overrideの期限経過後も公開済みとして表示する。
+overrideの期限経過やlocal checklistのpending/blockedへの変更後も公開済みとして表示する。
+公開状態はlocal ThesisとReviewのcanonical publicationとの一致で決まり、本文やReviewを変えたdraftは公開済みとしない。
+fundamental manifestにはas-of、canonical TriageのID/hash、Research Setだけを置く。
+admissible集合・件数はcanonical Triageから導出し、ledger/calibrationのpinは保存しない。
 
 <a id="core-hash"></a>
 

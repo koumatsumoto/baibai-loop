@@ -105,6 +105,6 @@ append headはledger eventだけを数え、market priceは別tableへ入れ替�
 
 ### Buildとpublish
 
-Thesis Reviewをscaffoldして完成させ、`promote`が返す`THESIS_ID`をPosition Reviewへ渡す。buildは、thesisまたはreviewの欠落、revision drift、thesisとholding market-price observationの日付不一致、open holdingの欠落、raw/unadjusted price basis不一致で停止する。
+Thesis Reviewをscaffoldして完成させ、`promote`が返す`THESIS_ID`をPosition Reviewへ渡す。buildは複数Reviewから`reviewed_at DESC, review_id DESC`の最新1件を使用し、不適格でも古いReviewへ戻らない。thesisまたはreviewの欠落、revision drift、thesisとholding market-price observationの日付不一致、open holdingの欠落、raw/unadjusted price basis不一致で停止する。
 
 draft生成後、`position-review --db ... --input`はcanonical DBからscalarとsource revisionを再構築して照合する。人間が確認したdraftだけをcanonical `thesis_id`へ束縛してpublishする。完全な手順はskill [`position-review`](../../.agents/skills/position-review/SKILL.md)が所有する。

@@ -8,8 +8,7 @@ from pathlib import Path
 
 from baibai_engine.research.thesis import (
     ThesisDocument,
-    UnpublishedThesis,
-    evaluate_thesis,
+    calculate_scenarios,
 )
 
 from .sqlite import read_application_rows as read_rows
@@ -77,11 +76,10 @@ def _payload(path: Path, raw: object) -> dict[str, object]:
 
 
 def _thesis_projection(document: ThesisDocument) -> dict[str, object]:
-    result = evaluate_thesis(document, identity=UnpublishedThesis.DRAFT)
     base = next(
         (
             scenario
-            for scenario in result.scenarios
+            for scenario in calculate_scenarios(document)
             if scenario.horizon_years == 5 and scenario.name == "base"
         ),
         None,

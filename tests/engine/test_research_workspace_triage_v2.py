@@ -124,10 +124,7 @@ def test_research_resumes_reordered_set_and_keeps_prepare_context(
     monkeypatch.setattr(
         workspace_module,
         "_load_er_distribution_context",
-        lambda **kwargs: (
-            context,
-            {"path": str(context_file), "sha256": workspace_module._sha256_file(context_file)},
-        ),
+        lambda **kwargs: context,
     )
     prepare_workspace(
         research_triage_id=triage.research_triage_id,
@@ -311,9 +308,13 @@ def test_prepare_and_status_need_only_published_triage_id(
     assert prepared_output["admissible_research_tickers"] == ["2331"]
     assert not (workspace / "review-set.yaml").exists()
     manifest = yaml.safe_load((workspace / "manifest.yaml").read_text())
-    assert "tool_version" not in manifest
+    assert set(manifest) == {"as_of", "inputs", "research_set"}
+    assert set(manifest["inputs"]) == {"research_triage"}
+    assert set(manifest["inputs"]["research_triage"]) == {"research_triage_id", "payload_sha256"}
     assert not (workspace / "research-comparison.yaml").exists()
     comparison = yaml.safe_load((workspace / "research-workspace.yaml").read_text())
+    assert "admissible_count" not in comparison
+    assert "admissible_research_tickers" not in comparison
     assert comparison["er_realized_distribution_context"] == {
         "status": "unavailable",
         "reason": "missing_artifact",
@@ -672,6 +673,53 @@ def test_holding_workspace_has_one_ledger_subject_without_comparison(tmp_path: P
         compute_status(
             workspace, db_path=db, now=datetime.fromisoformat("2026-07-19T12:00:00+09:00")
         )
+
+
+@pytest.mark.parametrize("check_status", ["pending", "blocked"])
+@pytest.mark.parametrize("edit", ["thesis", "review"])
+def test_publication_ignores_checklist_but_requires_exact_documents(
+    tmp_path: Path, check_status: str, edit: str
+) -> None:
+    db = tmp_path / "app.sqlite"
+    triage = _publish_triage(db)
+    workspace = tmp_path / "workspace"
+    prepare_workspace(
+        research_triage_id=triage.research_triage_id,
+        db_path=db,
+        workspace=workspace,
+        research_set=("2331",),
+    )
+    _authored_case(workspace, "2331", "reject")
+    workspace_module.promote(
+        workspace=workspace,
+        ticker="2331",
+        db_path=db,
+        thesis_id="published-case",
+        supersedes_id=None,
+        now=CASE_NOW,
+    )
+    checklist = workspace / "2331/research-checklist.yaml"
+    raw = yaml.safe_load(checklist.read_text())
+    raw["checks"][0]["status"] = check_status
+    checklist.write_text(yaml.safe_dump(raw))
+    before = db.read_bytes()
+    status = compute_status(workspace, db_path=db, now=CASE_NOW)
+    assert status["workspace_status"] == "published"
+    assert status["next_action"] is None
+    assert status["cases"][0]["thesis_id"] == "published-case"
+    if edit == "thesis":
+        path = workspace / "2331/thesis-draft.yaml"
+        raw = yaml.safe_load(path.read_text())
+        raw["judgment"]["strongest_countercase"] += " Changed local thesis."
+    else:
+        path = workspace / "2331/2026-07-19-2331-decision-review.yaml"
+        raw = yaml.safe_load(path.read_text())
+        raw["reviewer_identity"] += "-changed"
+    path.write_text(yaml.safe_dump(raw))
+    status = compute_status(workspace, db_path=db, now=CASE_NOW)
+    assert status["workspace_status"] != "published"
+    assert status["cases"][0]["thesis_id"] is None
+    assert db.read_bytes() == before
 
 
 def test_same_core_with_edited_override_is_not_the_published_draft(tmp_path: Path) -> None:
