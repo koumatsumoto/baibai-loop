@@ -31,6 +31,7 @@ class OperationPayload(BaseModel):
     artifacts: tuple[dict[str, JsonValue], ...] = ()
     canonical_refs: tuple[str, ...] = ()
     human_confirmation: HumanConfirmation | None = None
+    # Persisted completed payloads retain this field; current writers reject it.
     completion_reason: CompletionReason | None = None
     result: str | None = Field(default=None, min_length=1)
     next: str | None = Field(default=None, min_length=1)

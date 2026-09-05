@@ -29,7 +29,9 @@ uv run baibai-engine research prepare \
   --ticker <SELECTED_TICKER>  # 選んだtickerごとに反復
 ```
 
-as-of、最大80件の比較snapshot、Researchへ進められるtickerはapplication DBのpublished Research Triageから導出する。Review Set fileやrun storeはResearch開始後のauthorityではない。選択集合はprepare時にmanifestへ固定され、生成後の`research-workspace.yaml`へtickerを後書きしてadmitできない。
+as-of、最大80件の比較snapshot、Researchへ進められるtickerはapplication DBのpublished Research Triageから導出する。Review Set fileやrun storeはResearch開始後のauthorityではない。E[r]較正contextは`research-workspace.yaml`の`er_realized_distribution_context`に置く。執筆済みworkspaceを切り替える場合は元directoryを保持し、別directoryへprepareして必要なThesis / Review draftと比較メモを引き継ぐ。比較メモはAssessment draftへ置き、as-of / hashの再検証とreviewを省略しない。
+
+選択集合はprepare時にmanifestへ固定され、生成後の`research-workspace.yaml`へtickerを後書きしてadmitできない。
 
 ## 2. Case ごとの thesis を確定する
 
@@ -44,20 +46,22 @@ as-of、最大80件の比較snapshot、Researchへ進められるtickerはapplic
 
 ## 3. 比較して disposition を決める
 
-全 case を `buy` / `defer` / `reject` まで進め、FV、5 年 CAGR、countercase、disposition を横断比較する。review 後に `research promote` で全 case を canonical にし、`research status` が示す `next_command` に従って未完了 case を残さない。
+全 case を `buy` / `defer` / `reject` まで進め、FV、5 年 CAGR、countercase、disposition を横断比較する。review 後に `research promote` で全 case を canonical にし、`research status`の`cases`で各tickerの調査・review・promoteの残作業を確認する。`next_action`は作業説明であり、実行時の引数はpublic `--help`で確認する。`published`は現在のThesis coreとReviewがcanonical publicationに一致することを示し、AssessmentやOperationの完了は意味しない。横断比較と最終dispositionはAssessment draftだけに書く。
 
-## 4. Buy case の当日指値を確認する
+## 4. Assessment とcontent reviewを公開する
 
-`research plan-limit` は canonical Capital Allocation Assessment が `allocate` の alternative にだけ使う。出力は当日の助言であり永続化しない。evidence gap が残る場合は、人間の override と `sizing_action: reduced` を両方記録し、1 board lotでも大きすぎる場合は `defer` に戻す。要求利回り未達または永久損失結論が elevated の case はサイズを縮めて買わない。価格が max buy price を超えた通常状態は `defer` とする。
-
-## 5. Assessment とcontent reviewを公開する
-
-`research capital-allocation-scaffold` で promote 済みの全 case を Capital Allocation Assessment に含め、`disposition_reason` に具体的な判断理由を書く。research question が複数論点を含む場合は分割し、一部未解決のまま全体を `answered` にしない。
+`research capital-allocation-scaffold` で promote 済みの全 case を Capital Allocation Assessment に含め、`rationale` に具体的な判断理由を書く。research question が複数論点を含む場合は分割し、一部未解決のまま全体を `answered` にしない。
 
 1. `research capital-allocation-publish --check` で digest を確認する。review 前の `review_binding=stale` は正常。
 2. Capital Allocation Assessment author と別の役がcontent reviewを作る。
 3. content digest が一致してから assessment と review を publish する。
 4. deferred monitoring を task にする場合は、既存 task と重複しないことを確認して dated task を 1 件だけ作る。
+
+## 5. Buy case の当日指値を確認する
+
+`research plan-limit` は canonical Capital Allocation Assessment が `allocate` の alternative にだけ使う。出力は当日の助言であり永続化しない。evidence gap が残る場合は、人間の override と `sizing_action: reduced` を両方記録し、1 board lotでも大きすぎる場合は `defer` に戻す。要求利回り未達または永久損失結論が elevated の case はサイズを縮めて買わない。価格が max buy price を超えた通常状態は `defer` とする。
+
+Assessmentが`no_allocation / defer`ならPlanning Limit・broker操作へ進まず、人間の見送り判断をOperationに記録する。`allocate`でも当日価格超過や人間のdeferは正常であり、公開済みAssessmentを書き換えず当日の判断を記録する。発注する場合は人間のapproveとbroker操作を待ち、人間が報告したbroker factだけをledgerへ反映する。
 
 ## 6. Operation を完了する
 

@@ -20,7 +20,7 @@
 ## 4. research 0
 
 - **入力** — 全entryを具体的な根拠付き`skip`。
-- **期待** — current Review Setへ1回だけpublishし、Research Setやhuman confirmationを捏造せず`no-research` completion契約へ渡す。
+- **期待** — current Review Setへ1回だけpublishし、Research Setやhuman confirmationを捏造しない。Operationの新規作成・変更は0。
 
 ## 5. awaiting human selection
 

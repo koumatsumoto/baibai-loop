@@ -40,6 +40,7 @@ class OperationService:
         payload: OperationPayload,
         ticker: str | None = None,
     ) -> OperationSession:
+        _require_current_payload(payload)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -78,6 +79,7 @@ class OperationService:
         *,
         completed_at: datetime,
     ) -> OperationSession:
+        _require_current_payload(payload)
         operation = self.get(operation_id)
         _validate_complete(operation.session_kind, payload)
         return self._replace_active(operation_id, payload=payload, completed_at=completed_at)
@@ -115,6 +117,7 @@ class OperationService:
         payload: OperationPayload,
         completed_at: datetime | None,
     ) -> OperationSession:
+        _require_current_payload(payload)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -128,12 +131,6 @@ class OperationService:
                 if before.status != "active":
                     raise OperationConflictError(
                         f"completed operation session is immutable: {operation_id}"
-                    )
-                if completed_at is not None and payload.completion_reason == "no-research":
-                    _validate_zero_research_publication(
-                        connection,
-                        payload,
-                        as_of=before.as_of,
                     )
                 operation = OperationSession.model_validate(
                     {
@@ -175,21 +172,7 @@ def _validate_complete(session_kind: SessionKind, payload: OperationPayload) -> 
     if payload.next is None:
         missing.append("next")
 
-    no_research_selection = (
-        session_kind == "capital-allocation" and payload.completion_reason == "no-research"
-    )
-    if payload.completion_reason is not None and not no_research_selection:
-        missing.append("completion_reason valid for this session kind")
-    if no_research_selection:
-        if payload.human_confirmation is not None:
-            missing.append("human_confirmation omitted for no-research")
-        if not _has_zero_research_triage(payload):
-            missing.append("research_triage artifact with research_count=0")
-        if not payload.canonical_refs:
-            missing.append("canonical_refs")
-
-    requires_confirmation = not no_research_selection
-    if requires_confirmation and (
+    if (
         payload.human_confirmation is None
         or payload.human_confirmation.request is None
         or payload.human_confirmation.result is None
@@ -205,81 +188,10 @@ def _validate_complete(session_kind: SessionKind, payload: OperationPayload) -> 
         raise OperationCompletionError(f"{session_kind} completion requires: {', '.join(missing)}")
 
 
-def _has_zero_research_triage(payload: OperationPayload) -> bool:
-    return _zero_research_reference(payload) is not None
-
-
-def _zero_research_reference(payload: OperationPayload) -> str | None:
-    for artifact in payload.artifacts:
-        research_count = artifact.get("research_count")
-        reference = artifact.get("ref", artifact.get("research_triage_id"))
-        if (
-            artifact.get("kind") == "research_triage"
-            and isinstance(research_count, int)
-            and not isinstance(research_count, bool)
-            and research_count == 0
-            and isinstance(reference, str)
-            and reference in payload.canonical_refs
-        ):
-            return reference
-    return None
-
-
-def _validate_zero_research_publication(
-    connection: sqlite3.Connection,
-    payload: OperationPayload,
-    *,
-    as_of: date,
-) -> None:
-    reference = _zero_research_reference(payload)
-    if reference is None:  # structural validation reports the field-level error
-        return
-    canonical = connection.execute(
-        """
-        SELECT research_triage_id FROM research_triage
-        WHERE as_of = ?
-        ORDER BY published_at DESC, research_triage_id DESC
-        LIMIT 1
-        """,
-        (as_of.isoformat(),),
-    ).fetchone()
-    if canonical is None or str(canonical["research_triage_id"]) != reference:
+def _require_current_payload(payload: OperationPayload) -> None:
+    if payload.completion_reason is not None:
         raise OperationCompletionError(
-            "capital-allocation completion requires the canonical ResearchTriage "
-            f"at {as_of}: {reference}"
-        )
-    row = connection.execute(
-        "SELECT as_of, payload FROM research_triage WHERE research_triage_id = ?",
-        (reference,),
-    ).fetchone()
-    if row is None:
-        raise OperationCompletionError(
-            f"capital-allocation completion requires published ResearchTriage: {reference}"
-        )
-    document = json.loads(str(row["payload"]))
-    entries = document.get("entries") if isinstance(document, dict) else None
-    if (
-        str(row["as_of"]) != as_of.isoformat()
-        or not isinstance(document, dict)
-        or document.get("kind") != "research_triage"
-        or document.get("research_triage_id") != reference
-        or document.get("as_of") != as_of.isoformat()
-    ):
-        raise OperationCompletionError(
-            f"capital-allocation completion requires {reference} at session as-of {as_of}"
-        )
-    if (
-        not isinstance(entries, list)
-        or not entries
-        or any(
-            not isinstance(entry, dict)
-            or entry.get("decision") not in {"research", "skip"}
-            or entry.get("decision") == "research"
-            for entry in entries
-        )
-    ):
-        raise OperationCompletionError(
-            f"capital-allocation completion requires zero research entries in {reference}"
+            "no-research is read-only history; an empty Research Set creates no Operation"
         )
 
 
