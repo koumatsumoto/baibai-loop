@@ -118,9 +118,9 @@ def _publish_assessment(root: Path, *, assessment_id: str, research_triage_id: s
     review["draft_sha256"] = capital_allocation_draft_sha256(
         CapitalAllocationAssessment.model_validate(draft)
     )
-    CapitalAllocationAssessmentService(db_path).publish(
-        CapitalAllocationAssessment.model_validate(draft)
-    )
+    CapitalAllocationAssessmentService(
+        db_path, clock=lambda: datetime(2026, 7, 9, 12, tzinfo=JST)
+    ).publish(CapitalAllocationAssessment.model_validate(draft))
 
 
 def _insert_review_set(root: Path, *, review_set_id: str) -> str:

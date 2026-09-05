@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -40,6 +40,69 @@ TRIAGE = "research-triage-20260714-boundary"
 ASSESSMENT = "capital-allocation-assessment-20260714-boundary"
 THESIS = "thesis-20260714-2331-r1"
 FIXTURES = Path(__file__).parents[1] / "fixtures/thesis"
+
+
+@pytest.mark.parametrize("offset", [-1, 0, 1])
+def test_publication_judges_override_at_operation_time(db: Path, offset: int, mocker) -> None:
+    _start(db)
+    assessment = _assessment(_draft(db), "2331")
+    instant = datetime.fromisoformat("2026-07-31T15:30:00+09:00") + timedelta(seconds=offset)
+    clock = mocker.Mock(return_value=instant)
+    service = CapitalAllocationAssessmentService(db, clock=clock)
+    for invoke in (service.check, service.publish):
+        clock.reset_mock()
+        if offset < 0:
+            result = invoke(assessment)
+            if result is not None:
+                assert result.published_at == instant
+        else:
+            with pytest.raises(CapitalAllocationConflictError, match="not decision-ready"):
+                invoke(assessment)
+        assert clock.call_count == 1
+    with connect_rw(db) as connection:
+        count = connection.execute("SELECT count(*) FROM capital_allocation_assessment").fetchone()[
+            0
+        ]
+    assert count == (1 if offset < 0 else 0)
+
+
+def test_publication_time_retry_and_single_binding_connection(db: Path, mocker) -> None:
+    from baibai_engine.research import capital_allocation_service as module
+
+    operation = _start(db)
+    draft = _assessment(_draft(db), "2331")
+    now = NOW + timedelta(hours=1)
+    service = CapitalAllocationAssessmentService(db, clock=lambda: now)
+    read = mocker.spy(module, "connect_read_only")
+    write = mocker.spy(module, "connect_rw")
+    bindings = mocker.spy(service, "_verify_research_set")
+    service.check(draft)
+    assert read.call_count == 1
+    assert bindings.call_count == 1
+    saved = service.publish(draft)
+    assert saved.published_at == now
+    assert read.call_count == 1
+    assert write.call_count == 1
+    assert bindings.call_count == 2
+    OperationService(db).complete(operation.operation_id, _final(operation), completed_at=now)
+    expired = CapitalAllocationAssessmentService(db, clock=lambda: NOW + timedelta(days=60))
+    assert expired.publish(draft) == saved
+    assert expired.publish(saved) == saved
+    for changed in (
+        draft.model_copy(update={"headline": "changed judgment"}),
+        draft.model_copy(update={"review": draft.review.model_copy(update={"attempt": 2})}),
+    ):
+        with pytest.raises(CapitalAllocationConflictError, match="differs from existing"):
+            expired.publish(changed)
+
+
+def test_assessment_rejects_naive_clock_before_write(db: Path) -> None:
+    _start(db)
+    draft = _assessment(_draft(db))
+    service = CapitalAllocationAssessmentService(db, clock=lambda: NOW.replace(tzinfo=None))
+    for invoke in (service.check, service.publish):
+        with pytest.raises(CapitalAllocationConflictError, match="timezone"):
+            invoke(draft)
 
 
 @pytest.fixture
@@ -180,7 +243,7 @@ def test_scaffold_and_publish_reject_missing_extra_and_duplicate_cases(
             _assessment(draft)
         return
     assessment = _assessment(draft)
-    service = CapitalAllocationAssessmentService(db)
+    service = CapitalAllocationAssessmentService(db, clock=lambda: NOW)
     for invoke in (service.check, service.publish):
         with pytest.raises(CapitalAllocationConflictError, match="exactly match"):
             invoke(assessment)
@@ -213,7 +276,7 @@ def test_assessment_requires_the_active_research_operation(db: Path, mutation: s
                 "UPDATE operation_session SET started_at=?",
                 ((NOW + timedelta(seconds=1)).isoformat(),),
             )
-    service = CapitalAllocationAssessmentService(db)
+    service = CapitalAllocationAssessmentService(db, clock=lambda: NOW)
     for invoke in (service.check, service.publish):
         with pytest.raises(CapitalAllocationConflictError):
             invoke(_assessment(draft))
@@ -224,7 +287,7 @@ def test_assessment_requires_the_active_research_operation(db: Path, mutation: s
 @pytest.mark.parametrize("result", ["allocate", "no_allocation", "defer"])
 def test_full_set_publishes_completes_and_allows_next_cycle(db: Path, result: str) -> None:
     operation = _start(db)
-    service = CapitalAllocationAssessmentService(db)
+    service = CapitalAllocationAssessmentService(db, clock=lambda: NOW)
     assessment = _assessment(
         _draft(db, ("4444", "2331")), "2331" if result == "allocate" else None, result
     )
@@ -283,7 +346,7 @@ def test_completion_rejects_canonical_assessment_from_another_research(
 ) -> None:
     operation = _start(db)
     assessment = _assessment(_draft(db))
-    CapitalAllocationAssessmentService(db).publish(assessment)
+    CapitalAllocationAssessmentService(db, clock=lambda: NOW).publish(assessment)
     # Seed a different active cycle to test completion independently of publish validation.
     payload = operation.payload.model_dump(mode="json")
     if mutation == "triage":
@@ -324,7 +387,9 @@ def test_planning_rejects_non_allocated_or_unknown_assessment_before_market_read
 ) -> None:
     _start(db)
     if result != "missing":
-        CapitalAllocationAssessmentService(db).publish(_assessment(_draft(db), result=result))
+        CapitalAllocationAssessmentService(db, clock=lambda: NOW).publish(
+            _assessment(_draft(db), result=result)
+        )
     with pytest.raises(CapitalAllocationConflictError, match=r"not an allocate|unavailable"):
         _plan(db, tmp_path / "absent-market.sqlite")
 
@@ -334,7 +399,9 @@ def test_planning_uses_only_canonical_allocated_thesis(
     db: Path, tmp_path: Path, allocated: str
 ) -> None:
     _start(db)
-    CapitalAllocationAssessmentService(db).publish(_assessment(_draft(db), allocated))
+    CapitalAllocationAssessmentService(db, clock=lambda: NOW).publish(
+        _assessment(_draft(db), allocated)
+    )
     market = tmp_path / "market.sqlite"
     with open_connection(market) as connection:
         connection.execute(
@@ -374,7 +441,9 @@ def test_planning_cli_resolves_assessment_id_and_defers_missing_price(
     db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _start(db)
-    CapitalAllocationAssessmentService(db).publish(_assessment(_draft(db), "2331"))
+    CapitalAllocationAssessmentService(db, clock=lambda: NOW).publish(
+        _assessment(_draft(db), "2331")
+    )
     assert (
         research_main(
             [
@@ -429,7 +498,9 @@ def test_planning_rejects_broken_canonical_binding(db: Path, tmp_path: Path, bro
 
 def test_planning_defers_when_human_evidence_override_has_expired(db: Path, tmp_path: Path) -> None:
     _start(db)
-    CapitalAllocationAssessmentService(db).publish(_assessment(_draft(db), "2331"))
+    CapitalAllocationAssessmentService(db, clock=lambda: NOW).publish(
+        _assessment(_draft(db), "2331")
+    )
     output = plan_limit(
         capital_allocation_assessment_id=ASSESSMENT,
         db_path=db,

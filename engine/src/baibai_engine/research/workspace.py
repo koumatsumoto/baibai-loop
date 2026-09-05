@@ -1,7 +1,8 @@
 """Fundamental Research authoring: prepare a workspace, scaffold thesis/review drafts, and
 derive a planning-only limit from the previous business day's raw close.
 
-This module is pure logic behind ``baibai-engine research``. It never submits an
+This module produces Research workspaces and canonical publications behind
+``baibai-engine research``. It never submits an
 order, never asserts fill probability, and never reads a realtime quote. The
 canonical price basis for a limit is the JPX store's latest complete business-day
 *raw/unadjusted* close before the target session; adjusted series are for past
@@ -42,6 +43,7 @@ from baibai_engine.foundation.research_triage import ResearchTriage
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.operation.models import OperationPayload, OperationSession
+from baibai_engine.operation.research_binding import research_binding
 from baibai_engine.operation.service import OperationService
 from baibai_engine.position.ledger import (
     PortfolioSnapshot,
@@ -79,7 +81,6 @@ from .thesis import (
     UnpublishedThesis,
     evaluate_thesis,
     load_thesis,
-    load_thesis_review,
     thesis_core_hash,
 )
 
@@ -488,18 +489,14 @@ def _existing_research_operation(
 
     active = OperationService(db_path).active()
     if active is not None:
-        selected: tuple[str, ...] | None = None
-        for artifact in active.payload.artifacts:
-            values = artifact.get("research_set")
-            if (
-                artifact.get("kind") == "research_triage"
-                and artifact.get("ref") == gate.research_triage_id
-                and isinstance(values, list)
-                and all(isinstance(value, str) for value in values)
-            ):
-                selected = tuple(str(value) for value in values)
-                break
-        if active.session_kind == "capital-allocation" and selected == research_set:
+        try:
+            binding = research_binding(active.payload)
+        except ValueError:
+            binding = None
+        if active.session_kind == "capital-allocation" and binding == (
+            gate.research_triage_id,
+            frozenset(research_set),
+        ):
             return active
         raise ResearchWorkspaceConflictError(
             f"active operation already exists: {active.operation_id}"
@@ -702,16 +699,18 @@ def _write_status(workspace: Path, *, db_path: Path | None) -> dict[str, object]
     return status
 
 
-def compute_status(workspace: Path, *, db_path: Path | None = None) -> dict[str, object]:
-    """Read per-case publication, remaining work, and prepare-time input drift.
+def compute_status(
+    workspace: Path, *, db_path: Path | None = None, now: datetime | None = None
+) -> dict[str, object]:
+    """Read per-case publication and current remaining work without canonical writes.
 
-    External inputs remain bound to their prepare-time hashes. Operator-authored
-    drafts are editable, but their structure and lineage must remain consistent.
+    Research Triage binds the subject. Ledger annotations and calibration context
+    describe prepare time; Position Review rechecks its current ledger subject.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     gate = _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest, gate=gate)
-    status = _draft_status(workspace, manifest, db_path=db_path)
+    status = _draft_status(workspace, manifest, db_path=db_path, now=now or datetime.now(JST))
     status["research_triage"] = _research_triage_view(gate)
     return status
 
@@ -733,14 +732,17 @@ def _research_triage_view(gate: ResearchSetAdmissionBinding | None) -> dict[str,
 
 
 def _draft_status(
-    workspace: Path, manifest: Mapping[str, object], *, db_path: Path | None
+    workspace: Path, manifest: Mapping[str, object], *, db_path: Path | None, now: datetime
 ) -> dict[str, object]:
     asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     document = _load_mapping(workspace / "research-workspace.yaml", label="research workspace")
     research_set = document.get("research_set")
     if not isinstance(research_set, list):
         raise ResearchWorkspaceDataError("workspace research_set must be an array of tickers")
-    cases = [_case_status(workspace, str(ticker), asof, db_path=db_path) for ticker in research_set]
+    cases = [
+        _case_status(workspace, str(ticker), asof, db_path=db_path, now=now)
+        for ticker in research_set
+    ]
     outstanding = [case for case in cases if case["status"] != "published"]
     return {
         "workspace_status": (
@@ -752,14 +754,10 @@ def _draft_status(
 
 
 def _case_status(
-    workspace: Path, ticker: str, asof: date, *, db_path: Path | None
+    workspace: Path, ticker: str, asof: date, *, db_path: Path | None, now: datetime
 ) -> dict[str, object]:
-    directory = _research_ticker_dir(workspace, ticker)
-    checklist = (
-        _load_checklist(workspace, ticker)
-        if (directory / "research-checklist.yaml").exists()
-        else []
-    )
+    case = _read_case(workspace, ticker, asof)
+    checklist = case.checklist
     pending = [
         str(item.get("check_id") or "<missing check_id>")
         for item in checklist
@@ -768,18 +766,22 @@ def _case_status(
     if not checklist:
         pending.append("research checklist missing")
     blocked = [str(item.get("check_id")) for item in checklist if item.get("status") == "blocked"]
-    thesis_errors = _thesis_validation_errors(workspace, ticker, asof)
-    review_errors = _review_validation_errors(workspace, ticker, asof)
+    thesis_id = None
+    if not pending and not blocked and not case.thesis_errors and not case.review_errors:
+        assert case.thesis is not None
+        assert case.review is not None
+        thesis_id = _published_case(case.thesis, case.review, db_path=db_path)
+    # Publication is a historical fact; current eligibility only guides unpublished work.
+    thesis_errors, review_errors = (
+        (case.thesis_errors, case.review_errors)
+        if thesis_id is not None
+        else _case_eligibility(case, now=now)
+    )
     status = _resolve_workspace_status(
         pending=pending, blocked=blocked, thesis_errors=thesis_errors, review_errors=review_errors
     )
-    thesis_id = None
-    if status == "ready_for_promotion":
-        thesis = load_thesis(directory / "thesis-draft.yaml")
-        review = load_thesis_review(_review_draft_path(workspace, ticker, asof))
-        thesis_id = _published_case(thesis, review, db_path=db_path)
-        if thesis_id is not None:
-            status = "published"
+    if thesis_id is not None:
+        status = "published"
     return {
         "ticker": ticker,
         "status": status,
@@ -847,7 +849,7 @@ def _next_action(workspace_status: str, ticker: str) -> str:
 def _verify_external_inputs(
     manifest: Mapping[str, object], *, db_path: Path | None = None
 ) -> ResearchSetAdmissionBinding | None:
-    """Re-check every external input, and return the ResearchTriage that bounds this workspace.
+    """Re-check the canonical subject for this workspace's purpose.
 
     Returning the gate rather than reading it later is what keeps the two in step:
     a caller cannot validate drafts without having first proved, against the store,
@@ -865,9 +867,9 @@ def _verify_external_inputs(
     purpose = str(manifest.get("purpose") or "fundamental_research")
     required_inputs: tuple[str, ...]
     if purpose == "fundamental_research":
-        required_inputs = ("ledger",)
-        if "er_distribution_context" in inputs:
-            required_inputs += ("er_distribution_context",)
+        # Ledger annotations and the copied calibration context describe prepare time.
+        # Planning Limit reads the current ledger when an order is considered.
+        required_inputs = ()
     elif purpose == "position_review":
         required_inputs = ("ledger",)
     else:
@@ -892,18 +894,6 @@ def _verify_external_inputs(
                     "canonical ledger changed since workspace prepare (append head drift)"
                 )
             continue
-        path_value = input_ref.get("path")
-        expected = input_ref.get("sha256")
-        if not isinstance(path_value, str) or not isinstance(expected, str):
-            raise ResearchWorkspaceDataError(f"manifest input ref is invalid: {name}")
-        path = Path(path_value)
-        if not path.is_file():
-            raise ResearchWorkspaceConflictError(f"workspace external input is missing: {name}")
-        actual = _sha256_file(path)
-        if actual != expected:
-            raise ResearchWorkspaceConflictError(
-                f"workspace external input changed since prepare (input hash drift): {name}"
-            )
     if purpose == "position_review":
         _require_holding_subject(manifest, db_path=db_path)
         return None
@@ -913,7 +903,7 @@ def _verify_external_inputs(
 def _require_holding_subject(manifest: Mapping[str, object], *, db_path: Path | None) -> None:
     """Re-prove a position-review workspace's subject against the canonical ledger.
 
-    ``holding-prepare`` proves the subject once, but the manifest recording that
+    ``position-prepare`` proves the subject once, but the manifest recording that
     answer is an editable file, so the purpose would otherwise be a way to research
     an arbitrary ticker at an arbitrary as-of.
 
@@ -1486,13 +1476,8 @@ def promote(
     _require_primary_research_ticker(workspace, ticker, action="promote", gate=gate)
 
     manifest_asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
-    ticker_dir = _research_ticker_dir(workspace, ticker)
-    thesis_path = ticker_dir / "thesis-draft.yaml"
-    review_path = _review_draft_path(workspace, ticker, manifest_asof)
-    if not thesis_path.exists() or not review_path.exists():
-        raise ResearchWorkspaceDataError(f"thesis or review draft missing for {ticker}")
-
-    checklist = _load_checklist(workspace, ticker)
+    case = _read_case(workspace, ticker, manifest_asof)
+    checklist = case.checklist
     # Allowlist gate: every check must be explicitly "complete". Any other status
     # (pending / blocked / a missing or typo'd value) counts as unresolved so a
     # hand-edited checklist cannot slip an incomplete item past promotion.
@@ -1508,53 +1493,21 @@ def promote(
             f"cannot promote {ticker}: checklist has unresolved checks: {unresolved}"
         )
 
-    try:
-        document = load_thesis(thesis_path)
-        review = load_thesis_review(review_path)
-    except ThesisError as error:
-        raise ResearchWorkspaceDataError(f"draft is not schema-valid: {error}") from error
-
-    if document.input_snapshot.ticker != ticker:
-        raise ResearchWorkspaceDataError(
-            f"cannot promote {ticker}: thesis ticker is {document.input_snapshot.ticker}"
-        )
-    if document.input_snapshot.as_of != manifest_asof:
-        raise ResearchWorkspaceDataError(
-            f"cannot promote {ticker}: thesis as_of {document.input_snapshot.as_of.isoformat()} "
-            f"does not match workspace manifest as_of {manifest_asof.isoformat()}"
-        )
-
+    thesis_errors, review_errors = _case_eligibility(case, now=now)
+    if thesis_errors or review_errors:
+        raise ResearchWorkspaceDataError("; ".join([*thesis_errors, *review_errors]))
+    document, review = case.thesis, case.review
+    assert document is not None
+    assert review is not None
     core_hash = thesis_core_hash(document)
-    if review.reviewed_thesis_sha256 != core_hash:
-        raise ResearchWorkspaceDataError(
-            "review is stale: reviewed_thesis_sha256 does not match the thesis core hash"
-        )
-    if review.proposal_changed:
-        raise ResearchWorkspaceDataError(
-            "review changed the proposal; regenerate the thesis and re-review before promotion"
-        )
-
-    result = evaluate_thesis(document, review=review, now=now, identity=UnpublishedThesis.DRAFT)
-    if result.decision_readiness not in {"ready", "ready_with_warnings"}:
-        raise ResearchWorkspaceDataError(f"thesis is not decision-ready: {list(result.errors)}")
-
-    stable_review_name = _review_filename(asof=document.input_snapshot.as_of, ticker=ticker)
-    # The ref stays inside the thesis payload and its core hash so a stored thesis
-    # still names the review it was decided against; the canonical binding in the DB
-    # is the thesis_id FK.
-    if document.independent_review_ref != stable_review_name:
-        raise ResearchWorkspaceDataError(
-            "thesis independent_review_ref must equal the stable review filename "
-            f"{stable_review_name!r} before promotion"
-        )
     resolved_thesis_id = thesis_id or (
         f"thesis-{document.input_snapshot.as_of:%Y%m%d}-{ticker}-{review.review_id}"
     )
     try:
         ResearchStoreService(db_path, clock=lambda: now).publish_thesis_with_review(
             resolved_thesis_id,
-            _load_mapping(thesis_path, label="thesis"),
-            _load_mapping(review_path, label="Thesis Review"),
+            case.thesis_payload,
+            case.review_payload,
             supersedes_id=supersedes_id,
         )
     except ResearchConflictError as error:
@@ -1731,61 +1684,88 @@ def _load_checklist(workspace: Path, ticker: str) -> list[dict[str, object]]:
     return _dict_list(payload.get("checks"))
 
 
-def _thesis_validation_errors(workspace: Path, ticker: str, asof: date) -> list[str]:
-    """Report what stops this draft from becoming a canonical thesis.
+@dataclass(frozen=True, slots=True)
+class _CaseDraft:
+    """One read of authored inputs, retaining raw payloads for the canonical writer."""
 
-    The as-of comparison belongs here and not only in ``promote``: rebuilding a
-    workspace at a new as-of leaves the ticker directory untouched, so a draft
-    written for the previous one survives. Without this the workspace would call
-    itself ``ready_for_review`` and send the operator to the most expensive step of
-    all, and only promote would say the draft was never usable.
-    """
-
-    thesis_path = _research_ticker_dir(workspace, ticker) / "thesis-draft.yaml"
-    if not thesis_path.exists():
-        return ["thesis draft missing"]
-    try:
-        document = load_thesis(thesis_path)
-    except ThesisError as error:
-        return [str(error).splitlines()[0]]
-    if document.input_snapshot.ticker != ticker:
-        return [f"thesis ticker {document.input_snapshot.ticker} does not match case {ticker}"]
-    if document.input_snapshot.as_of != asof:
-        return [
-            (
-                f"thesis as_of {document.input_snapshot.as_of.isoformat()} does not match "
-                f"workspace as_of {asof.isoformat()}; regenerate it with "
-                "`research thesis-scaffold --force`"
-            )
-        ]
-    return []
+    checklist: list[dict[str, object]]
+    thesis_payload: dict[str, object]
+    review_payload: dict[str, object]
+    thesis: ThesisDocument | None
+    review: ThesisReview | None
+    thesis_errors: list[str]
+    review_errors: list[str]
 
 
-def _review_validation_errors(workspace: Path, ticker: str, asof: date) -> list[str]:
+def _read_case(workspace: Path, ticker: str, asof: date) -> _CaseDraft:
+    directory = _research_ticker_dir(workspace, ticker)
+    checklist = (
+        _load_checklist(workspace, ticker)
+        if (directory / "research-checklist.yaml").exists()
+        else []
+    )
+    thesis_payload: dict[str, object] = {}
+    review_payload: dict[str, object] = {}
+    thesis, review = None, None
+    thesis_errors: list[str] = []
+    review_errors: list[str] = []
+    thesis_path = directory / "thesis-draft.yaml"
     review_path = _review_draft_path(workspace, ticker, asof)
+    if not thesis_path.exists():
+        thesis_errors.append("thesis draft missing")
+    else:
+        try:
+            thesis_payload = _load_mapping(thesis_path, label="thesis")
+            thesis = ThesisDocument.model_validate(thesis_payload)
+        except (OSError, yaml.YAMLError, ValueError, ResearchWorkspaceDataError) as error:
+            thesis_errors.append(str(error))
     if not review_path.exists():
-        return ["review draft missing"]
-    try:
-        review = load_thesis_review(review_path)
-    except ThesisError as error:
-        return [str(error).splitlines()[0]]
-    thesis_path = _research_ticker_dir(workspace, ticker) / "thesis-draft.yaml"
-    core_hash = _thesis_core_hash_if_valid(thesis_path)
-    if core_hash is not None and review.reviewed_thesis_sha256 != core_hash:
-        return ["review is stale for the current thesis"]
-    return []
+        review_errors.append("review draft missing")
+    else:
+        try:
+            review_payload = _load_mapping(review_path, label="Thesis Review")
+            review = ThesisReview.model_validate(review_payload)
+        except (OSError, yaml.YAMLError, ValueError, ResearchWorkspaceDataError) as error:
+            review_errors.append(str(error))
+    if thesis is not None:
+        if thesis.input_snapshot.ticker != ticker:
+            thesis_errors.append(
+                f"thesis ticker {thesis.input_snapshot.ticker} does not match case {ticker}"
+            )
+        if thesis.input_snapshot.as_of != asof:
+            thesis_errors.append(
+                f"thesis as_of {thesis.input_snapshot.as_of} "
+                f"does not match workspace as_of {asof}; "
+                "regenerate it with `research thesis-scaffold --force`"
+            )
+        if thesis.independent_review_ref != _review_filename(asof=asof, ticker=ticker):
+            thesis_errors.append(
+                "thesis independent_review_ref must equal the stable review filename"
+            )
+        if review is not None and review.reviewed_thesis_sha256 != thesis_core_hash(thesis):
+            review_errors.append("review is stale for the current thesis core hash")
+    if review is not None and review.proposal_changed:
+        review_errors.append(
+            "review changed the proposal; regenerate the thesis and re-review before promotion"
+        )
+    return _CaseDraft(
+        checklist, thesis_payload, review_payload, thesis, review, thesis_errors, review_errors
+    )
 
 
-def _adjacent_review_path(thesis_path: Path, review_ref: str | None) -> Path | None:
-    if review_ref is None:
-        return None
-    root = thesis_path.resolve().parent
-    resolved = (root / review_ref).resolve()
-    if not resolved.is_relative_to(root):
-        raise ResearchWorkspaceDataError("independent_review_ref must stay beside the thesis")
-    if not resolved.exists():
-        raise ResearchWorkspaceDataError(f"Thesis Review not found beside thesis: {resolved}")
-    return resolved
+def _case_eligibility(case: _CaseDraft, *, now: datetime) -> tuple[list[str], list[str]]:
+    thesis_errors = list(case.thesis_errors)
+    if not thesis_errors:
+        assert case.thesis is not None
+        result = evaluate_thesis(
+            case.thesis,
+            review=None if case.review_errors else case.review,
+            now=now,
+            identity=UnpublishedThesis.DRAFT,
+        )
+        if result.decision_readiness != "ready" and result.thesis_status != "review_required":
+            thesis_errors.extend(result.errors)
+    return thesis_errors, case.review_errors
 
 
 def _dict_list(value: object) -> list[dict[str, object]]:

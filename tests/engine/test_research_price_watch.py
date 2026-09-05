@@ -841,7 +841,16 @@ def test_watch_survives_session_completion_and_task_cleanup(
         session_kind="capital-allocation",
         as_of=ASOF,
         started_at=FIXED_NOW,
-        payload=OperationPayload(checkpoint="case closed as reject"),
+        payload=OperationPayload(
+            checkpoint="case closed as reject",
+            artifacts=(
+                {
+                    "kind": "research_triage",
+                    "ref": "research-triage-watch",
+                    "research_set": ["2331"],
+                },
+            ),
+        ),
     )
     # Historical completed cycles remain readable even without an Assessment artifact.
     historical = OperationPayload(

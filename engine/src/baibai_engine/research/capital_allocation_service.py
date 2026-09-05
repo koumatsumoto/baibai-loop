@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.paths import database_path
 from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.appdb.write import connect_rw, initialize_database
+from baibai_engine.foundation.time import JST
 from baibai_engine.operation.research_binding import require_active_research_set
 
 from .capital_allocation import (
@@ -41,8 +42,17 @@ class _StoredThesis:
 class CapitalAllocationAssessmentService:
     """canonical store への publish と immutable source binding の検証。"""
 
-    def __init__(self, db_path: Path | None = None) -> None:
+    def __init__(
+        self, db_path: Path | None = None, *, clock: Callable[[], datetime] | None = None
+    ) -> None:
         self._db_path = db_path
+        self._clock = clock or (lambda: datetime.now(JST))
+
+    def _operation_now(self) -> datetime:
+        now = self._clock()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise CapitalAllocationConflictError("operation clock must include a timezone")
+        return now
 
     def check(self, assessment: CapitalAllocationAssessment) -> None:
         """store へ書かずに、参照束縛と content review binding を検証する。
@@ -50,11 +60,13 @@ class CapitalAllocationAssessmentService:
         content review の hash 束縛だけは求めない。review 前の draft を検証して
         期待 hash を知るための経路であり、束縛は publish が求める。
         """
-        self._verify_bindings(assessment, require_review_binding=False)
+        now = self._operation_now()
+        with closing(connect_read_only(self._existing_path())) as connection:
+            self._verify_bindings(connection, assessment, now=now, require_review_binding=False)
 
     def publish(self, assessment: CapitalAllocationAssessment) -> CapitalAllocationAssessment:
+        now = self._operation_now()
         initialize_database(self._db_path)
-        payload = canonical_json(assessment.payload())
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
@@ -64,15 +76,19 @@ class CapitalAllocationAssessmentService:
                     (assessment.capital_allocation_assessment_id,),
                 ).fetchone()
                 if row is not None:
-                    if str(row[0]) == payload:
+                    stored = CapitalAllocationAssessment.model_validate(json.loads(str(row[0])))
+                    if stored.model_dump(exclude={"published_at"}) == assessment.model_dump(
+                        exclude={"published_at"}
+                    ):
                         connection.rollback()
-                        return assessment
+                        return stored
                     raise CapitalAllocationConflictError(
                         "capital allocation assessment differs from existing publication: "
                         f"{assessment.capital_allocation_assessment_id}"
                     )
-                self._verify_bindings(assessment, require_review_binding=True)
-                self._verify_research_set(connection, assessment)
+                self._verify_bindings(connection, assessment, now=now, require_review_binding=True)
+                assessment = assessment.model_copy(update={"published_at": now})
+                payload = canonical_json(assessment.payload())
                 connection.execute(
                     """
                     INSERT INTO capital_allocation_assessment (
@@ -96,16 +112,25 @@ class CapitalAllocationAssessmentService:
         return assessment
 
     def _verify_bindings(
-        self, assessment: CapitalAllocationAssessment, *, require_review_binding: bool
+        self,
+        connection: sqlite3.Connection,
+        assessment: CapitalAllocationAssessment,
+        *,
+        now: datetime,
+        require_review_binding: bool,
     ) -> None:
         expected_draft = capital_allocation_draft_sha256(assessment)
         if require_review_binding and assessment.review.draft_sha256 != expected_draft:
             raise CapitalAllocationConflictError(
                 f"content review binds a different draft, expected {expected_draft}"
             )
-        research_triage = self._research_triage(assessment.research_triage_id)
-        with closing(connect_read_only(database_path(self._db_path))) as connection:
-            self._verify_research_set(connection, assessment)
+        research_triage = self._research_triage(connection, assessment.research_triage_id)
+        # Validate the authored draft before replacing its timestamp, so a draft
+        # from before this Operation cannot be made current by the writer's clock.
+        self._verify_research_set(
+            connection,
+            assessment.model_copy(update={"published_at": min(assessment.published_at, now)}),
+        )
         research_triage_as_of = str(research_triage.get("as_of", ""))
         if research_triage_as_of and assessment.as_of < date.fromisoformat(research_triage_as_of):
             raise CapitalAllocationConflictError(
@@ -121,7 +146,7 @@ class CapitalAllocationAssessmentService:
                     f"alternative {alternative.ticker} is not researchable in "
                     f"{assessment.research_triage_id}"
                 )
-            stored = self._stored_thesis(alternative.thesis_id)
+            stored = self._stored_thesis(connection, alternative.thesis_id)
             if stored.ticker != alternative.ticker:
                 raise CapitalAllocationConflictError(
                     f"thesis {alternative.thesis_id} belongs to {stored.ticker}, "
@@ -132,7 +157,7 @@ class CapitalAllocationAssessmentService:
                     f"thesis {alternative.thesis_id} has moved since the draft was written"
                 )
             if alternative.disposition == "allocate":
-                self._require_allocated_alternative_ready(assessment, alternative, stored)
+                self._require_allocated_alternative_ready(connection, alternative, stored, now=now)
 
     @staticmethod
     def _verify_research_set(
@@ -152,11 +177,12 @@ class CapitalAllocationAssessmentService:
         self, capital_allocation_assessment_id: str
     ) -> AllocationAlternative:
         """Resolve the sole allocated alternative for a canonical decision."""
-        row = self._row(
-            "SELECT result, payload FROM capital_allocation_assessment "
-            "WHERE capital_allocation_assessment_id = ?",
-            (capital_allocation_assessment_id,),
-        )
+        with closing(connect_read_only(self._existing_path())) as connection:
+            row = connection.execute(
+                "SELECT result, payload FROM capital_allocation_assessment "
+                "WHERE capital_allocation_assessment_id = ?",
+                (capital_allocation_assessment_id,),
+            ).fetchone()
         if row is None:
             raise CapitalAllocationConflictError(
                 f"capital allocation assessment is unavailable: {capital_allocation_assessment_id}"
@@ -182,23 +208,26 @@ class CapitalAllocationAssessmentService:
     ) -> tuple[AllocationAlternative, ThesisDocument, ThesisReview]:
         """Planning input comes only from the immutable allocated thesis and review."""
         alternative = self.require_allocated_alternative(capital_allocation_assessment_id)
-        stored = self._stored_thesis(alternative.thesis_id)
+        with closing(connect_read_only(self._existing_path())) as connection:
+            stored = self._stored_thesis(connection, alternative.thesis_id)
+            review = self._stored_review(connection, alternative)
         if (
             stored.ticker != alternative.ticker
             or stored.core_sha256 != alternative.thesis_core_sha256
         ):
             raise CapitalAllocationConflictError("allocated thesis ticker/core binding differs")
-        review = self._stored_review(alternative)
         if review.reviewed_thesis_sha256 != stored.core_sha256:
             raise CapitalAllocationConflictError("allocated review core binding differs")
         return alternative, stored.document, review
 
-    def _stored_review(self, alternative: AllocationAlternative) -> ThesisReview:
+    def _stored_review(
+        self, connection: sqlite3.Connection, alternative: AllocationAlternative
+    ) -> ThesisReview:
         assert alternative.thesis_review_id is not None
-        row = self._row(
+        row = connection.execute(
             "SELECT thesis_id, payload FROM thesis_review WHERE review_id = ?",
             (alternative.thesis_review_id,),
-        )
+        ).fetchone()
         if row is None or str(row[0]) != alternative.thesis_id:
             raise CapitalAllocationConflictError(
                 f"review {alternative.thesis_review_id} does not bind allocated thesis "
@@ -213,32 +242,36 @@ class CapitalAllocationAssessmentService:
 
     def _require_allocated_alternative_ready(
         self,
-        assessment: CapitalAllocationAssessment,
+        connection: sqlite3.Connection,
         alternative: AllocationAlternative,
         stored: _StoredThesis,
+        *,
+        now: datetime,
     ) -> None:
         if stored.document.judgment.recommendation != "buy":
             raise CapitalAllocationConflictError(
                 f"allocated thesis is not a buy recommendation: {alternative.thesis_id}"
             )
-        review = self._stored_review(alternative)
+        review = self._stored_review(connection, alternative)
         result = evaluate_thesis(
             stored.document,
             review=review,
-            now=assessment.published_at,
+            now=now,
             identity=stored.core_sha256,
         )
-        if result.decision_readiness not in {"ready", "ready_with_warnings"}:
+        if result.decision_readiness != "ready":
             raise CapitalAllocationConflictError(
                 f"allocated thesis is not decision-ready: {alternative.thesis_id}: "
                 + "; ".join(result.errors)
             )
 
-    def _research_triage(self, research_triage_id: str) -> dict[str, object]:
-        row = self._row(
+    def _research_triage(
+        self, connection: sqlite3.Connection, research_triage_id: str
+    ) -> dict[str, object]:
+        row = connection.execute(
             "SELECT payload FROM research_triage WHERE research_triage_id = ?",
             (research_triage_id,),
-        )
+        ).fetchone()
         if row is None:
             raise CapitalAllocationConflictError(
                 f"research triage is unavailable: {research_triage_id}"
@@ -250,11 +283,11 @@ class CapitalAllocationAssessmentService:
             )
         return payload
 
-    def _stored_thesis(self, thesis_id: str) -> _StoredThesis:
-        row = self._row(
+    def _stored_thesis(self, connection: sqlite3.Connection, thesis_id: str) -> _StoredThesis:
+        row = connection.execute(
             "SELECT ticker, core_sha256, payload FROM thesis WHERE thesis_id = ?",
             (thesis_id,),
-        )
+        ).fetchone()
         if row is None:
             raise CapitalAllocationConflictError(f"thesis is unavailable: {thesis_id}")
         payload = json.loads(str(row[2]))
@@ -270,13 +303,11 @@ class CapitalAllocationAssessmentService:
             document=document,
         )
 
-    def _row(self, sql: str, parameters: tuple[str, ...]) -> sqlite3.Row | None:
+    def _existing_path(self) -> Path:
         path = database_path(self._db_path)
         if not path.is_file():
             raise CapitalAllocationConflictError(f"application database is unavailable: {path}")
-        with closing(connect_read_only(path)) as connection:
-            row: sqlite3.Row | None = connection.execute(sql, parameters).fetchone()
-            return row
+        return path
 
 
 def _admissible_research_tickers(

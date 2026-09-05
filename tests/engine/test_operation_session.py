@@ -22,6 +22,24 @@ from baibai_engine.read_api.operations import list_operation_sessions, operation
 NOW = datetime(2026, 7, 19, 12, 0, tzinfo=JST)
 
 
+@pytest.mark.parametrize("tickers", [None, [], ["2331", "2331"]])
+def test_start_refuses_incomplete_research_binding_without_creating_db(
+    tmp_path: Path, tickers
+) -> None:
+    db = tmp_path / "app.sqlite"
+    payload = OperationPayload(
+        checkpoint="start",
+        artifacts=()
+        if tickers is None
+        else ({"kind": "research_triage", "ref": "triage", "research_set": tickers},),
+    )
+    with pytest.raises(OperationConflictError, match="research prepare"):
+        OperationService(db).start(
+            session_kind="capital-allocation", as_of=NOW.date(), started_at=NOW, payload=payload
+        )
+    assert not db.exists()
+
+
 def test_operation_kinds_are_limited_to_multi_step_workflows(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -56,7 +74,7 @@ def test_operation_json_format_emits_one_machine_object(
                 "json",
                 "start",
                 "--kind",
-                "capital-allocation",
+                "position-review",
                 "--as-of",
                 "2026-07-19",
             ],
@@ -66,13 +84,13 @@ def test_operation_json_format_emits_one_machine_object(
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["session_kind"] == "capital-allocation"
+    assert payload["session_kind"] == "position-review"
 
 
 def _active_payload(checkpoint: str = "source review") -> OperationPayload:
     return OperationPayload(
         checkpoint=checkpoint,
-        artifacts=({"kind": "review", "summary": "current reviewed artifact"},),
+        artifacts=({"kind": "research_triage", "ref": "triage-test", "research_set": ["2331"]},),
         human_confirmation={"request": "confirm the reviewed result"},
         next="wait for confirmation",
     )
@@ -174,7 +192,7 @@ def test_complete_rejects_missing_kind_specific_final_fields(
     with pytest.raises(OperationCompletionError):
         service.complete(
             operation.operation_id,
-            OperationPayload(checkpoint="incomplete"),
+            OperationPayload(checkpoint="incomplete", artifacts=operation.payload.artifacts),
             completed_at=NOW,
         )
     assert service.get(operation.operation_id).status == "active"
