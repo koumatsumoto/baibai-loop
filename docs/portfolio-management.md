@@ -61,7 +61,7 @@ application DBのcanonical ledgerはrepository運用で確認済みのcash、hol
 | `cancelled` | remaining reservation release draft |
 | no report | no change |
 
-`record-result`はcanonicalを直接書き換えず、current append headに束縛したlocal draftを作る。差分を確認し、人間確認後の`apply-draft --confirmed`でtransaction内再検証して反映する。精密なbroker会計、二重注文検出、注文監視を投資判断より優先しない。
+`broker-fact-draft`はcanonicalを直接書き換えず、current append headに束縛したlocal draftを作る。差分を確認し、人間確認後の`apply-draft --confirmed`でtransaction内再検証して反映する。精密なbroker会計、二重注文検出、注文監視を投資判断より優先しない。
 
 <a id="reservation-and-warnings"></a>
 

@@ -21,7 +21,7 @@ uv run baibai-batch analysis run --asof YYYY-MM-DD  # 手動再実行
 3. Review Set全体、短い[`TRIAGE_POLICY`](../../batch/src/baibai_batch/analysis/policy.py)、利用可能なMacro Contextの共有projectionを1つのstdin payloadにする。
 4. local `codex exec`を原則1 process・1 requestで実行し、strict JSONだけを受け取る。
 5. ticker集合、重複、欠落、field shape、長さを検証する。
-6. AI入力へ載せたMacro Context IDを保持したまま`baibai_engine.batch_api`経由で既存`ResearchTriageService`へ委譲し、binding、candidate snapshot、head CAS、same-ID idempotencyを再検証してpublishする。
+6. AI入力へ載せたMacro Context IDを保持したまま`baibai_engine.batch_api`経由で既存`ResearchTriageService`へ委譲し、binding、Review Set Entry snapshot、head CAS、same-ID idempotencyを再検証してpublishする。
 7. publish結果を返して終了する。Research Setの確定とOperation開始は`research prepare --ticker`の人間gateが所有する。
 
 AIはfilesystem path、command、run / Review Set ID、CAS、digest、publish操作を受け取らない。repository、skill、runbook、CLI help、raw logを読まず、出力は`ticker / verdict / priority / rationale / research_question / key_risk`に限定する。AIは1 requestで全候補を比較し、`research`だけへ1..Nのcontiguous priorityを付ける。Review Setのticker serialization順やE[r]順をpriorityとして複写しない。
@@ -32,7 +32,7 @@ AIはfilesystem path、command、run / Review Set ID、CAS、digest、publish操
 
 - Review Setなし、または0件
 - exact Review Setのcanonical Research Triageが既にある
-- Review Set、candidate snapshot、application store等の必須machine inputが欠損・破損している
+- Review Set、Review Set Entry snapshot、application store等の必須machine inputが欠損・破損している
 
 Review Setなしは`no_review_set`、既存Triageがあれば`awaiting_human`または`already_published`を返す。active Operationの有無はTriageの生成条件に含めない。別Operationがactiveでもdaily Triageは発行でき、新しいResearch開始だけを`research prepare`が拒否する。
 

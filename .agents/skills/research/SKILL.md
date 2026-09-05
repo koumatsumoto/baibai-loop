@@ -39,8 +39,8 @@ as-of、最大80件の比較snapshot、Researchへ進められるtickerはapplic
 2. 会社 IR、EDINET、決算資料などの一次資料で load-bearing claim を調べる。検索 snippet、二次情報、外部 AI 出力を観測事実にしない。playbook は `applies_to_valuation_approach_ids` の明示 mapping だけを使い、同名 slug から implicitに対応を推測しない。[事業モデル別リサーチ](../../../docs/reference/business-model-research.md)は指定 playbook の補助に限る。
 3. checklist は [Research Playbooks](../../../method/research/playbooks/README.md#work-state) の作業状態として更新する。証拠が得られなくても調査が終わり、unknown / defer を記録した項目は `complete` であり、verified とは書かない。
 4. Research Triage に束縛された Macro Context を開き、scenario arithmetic と FV の前に `connection.estimate_caveats` を確認する。対象企業・評価法に material な caveat は既存 scenario assumption の文章と `source_ids` へ接続する。適用外、stale、または low materiality なら、その理由を `screening_fv_bridge.note` に残す。新しい macro field は足さない。そのうえで seven axes、countercase を埋める。macro と E[r] は context であり単独 gate にしない。AIを含む技術・産業構造変化も、materialな場合だけ通常Researchの既存scenario、FV、risk、countercase、assessmentへ接続し、専用checkを作らない。
-5. `research evaluate` を実行し、`buy` で review が未作成の場合の review 要求を除く error を 0 にする。
-6. thesis が安定してから `research review-scaffold` を作り、独立した反証役が review する。独立 review は、束縛 Context の material な estimate caveat が scenario assumptionへ接続されたか、または適用外 / stale / low materiality の理由が既存 note にあるかを反証する。thesis を変えたら `--force` で review を再生成し、core hash を更新する。
+5. `research evaluate` を実行し、`buy` で Thesis Review が未作成の場合の要求を除く error を 0 にする。
+6. Thesis が安定してから `research review-scaffold` を作り、独立した反証役が Thesis Review を行う。Thesis Review は、束縛 Context の material な estimate caveat が scenario assumptionへ接続されたか、または適用外 / stale / low materiality の理由が既存 note にあるかを反証する。Thesis を変えたら `--force` で Thesis Review を再生成し、core hash を更新する。
 
 ## 3. 比較して disposition を決める
 
@@ -50,12 +50,12 @@ as-of、最大80件の比較snapshot、Researchへ進められるtickerはapplic
 
 `research plan-limit` は canonical Capital Allocation Assessment が `allocate` の alternative にだけ使う。出力は当日の助言であり永続化しない。evidence gap が残る場合は、人間の override と `sizing_action: reduced` を両方記録し、1 board lotでも大きすぎる場合は `defer` に戻す。要求利回り未達または永久損失結論が elevated の case はサイズを縮めて買わない。価格が max buy price を超えた通常状態は `defer` とする。
 
-## 5. Assessment と独立 review を公開する
+## 5. Assessment とcontent reviewを公開する
 
 `research capital-allocation-scaffold` で promote 済みの全 case を Capital Allocation Assessment に含め、`disposition_reason` に具体的な判断理由を書く。research question が複数論点を含む場合は分割し、一部未解決のまま全体を `answered` にしない。
 
 1. `research capital-allocation-publish --check` で digest を確認する。review 前の `review_binding=stale` は正常。
-2. Capital Allocation Assessment author と別の役が独立 review を作る。
+2. Capital Allocation Assessment author と別の役がcontent reviewを作る。
 3. content digest が一致してから assessment と review を publish する。
 4. deferred monitoring を task にする場合は、既存 task と重複しないことを確認して dated task を 1 件だけ作る。
 

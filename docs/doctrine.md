@@ -1,13 +1,13 @@
 ---
 title: "Doctrine"
-summary: "Baibai Loop の投資思想・大戦略・原則・語彙の正本。割安な優良銘柄を長期で積み立て、見積りの精度を運用の中で磨いていく単一ループを定義する。"
+summary: "Baibai Loop の投資思想・大戦略・判断原則の正本。割安な優良銘柄を長期で積み立て、見積りの精度を運用の中で磨いていく単一ループを定義する。"
 doc_type: doctrine
 status: active
 ---
 
 # Doctrine — Baibai Loop の投資思想と大戦略
 
-この文書は、Baibai Loopが何を狙い、どの原則と語彙で判断するかを定める。3層構造、package、CLI、SQLiteの契約は[`architecture.md`](./architecture.md)、資本とpositionの規律は[`portfolio-management.md`](./portfolio-management.md)、操作手順は[各skill](../.agents/skills/)が所有する。
+この文書は、Baibai Loopが何を狙い、どの原則で判断するかを定める。domain termは[`domain-language.md`](./domain-language.md)、3層構造、package、CLI、SQLiteの契約は[`architecture.md`](./architecture.md)、資本とpositionの規律は[`portfolio-management.md`](./portfolio-management.md)、操作手順は[各skill](../.agents/skills/)が所有する。
 
 ## 1. 目的と人間境界
 
@@ -120,19 +120,17 @@ validation や hash のように監査にも使える手段でも、現在の候
 
 <a id="vocabulary"></a>
 
-## 4. 語彙と構成要素
+## 4. 判断原則を適用する構成要素
 
-domain 語彙はこの節を正本とする。新しい domain 語は、まず命名文法に照らしてこの節へ行を追加してから使う（文法にない語を schema・CLI・UI・docs へ直接持ち込まない）。退役語のblacklistは保持せず、変更時にactive surfaceを横断確認する。
+domain termと命名文法は[`domain-language.md`](./domain-language.md)を正本とする。この節は、
+それらを投資判断の責務境界へ適用した結果だけを記す。anchor `#vocabulary` は既存linkとの
+互換のため維持する。
 
-### 命名文法
+### Domain languageへの適用
 
-1. **パイプライン状態**は銘柄集合を表す普通名詞で命名する（candidates, Review Set, research_triage, position, outcome）
-2. **判断文書**は内容・役割で命名し、形式（packet / record / report）で命名しない（macro context, thesis, thesis review, Position Review）
-3. **機械成果物**は工程 + 出力で命名し、judgment と呼ばない（screening run, Security Analysis, Review Set）
-4. **活動・工程名**（screening, research, macro analysis）は workflow doc と CLI domain・package 名に使い、artifact 名には使わない
-5. **表示物（projection）**は canonical ではない（Baibai Loop の画面、cloud serving の view JSON）
-6. **UI タブは分析対象**で命名する（Macro = 市場環境の top-down 分析対象、Stocks = 個別銘柄の bottom-up 分析対象）
-7. **プロダクト名とプログラム識別子を混ぜない**。人間に見せる呼称は `Baibai Loop` の 1 語だけで別名を作らず、package・CLI とその責務を説明する文は識別子（`baibai_engine` / `baibai-engine` / `baibai_web` / `baibai-web`）を主語にする
+artifact、activity、pipeline state、method、projectionの区別と命名文法は
+[`domain-language.md`](./domain-language.md)をそのまま適用する。Doctrineはtermを再定義せず、
+以下で各termが投資判断のどの責務境界に位置するかだけを定める。
 
 ### パイプライン状態機械
 
@@ -161,7 +159,7 @@ Observed Fact + Metric ───────→ Security Analysis
 Security Analysis ────────────→ 4 Valuation Approaches ─→ Nominations
 Nominations ──────────────────→ exact union ────────────→ Review Set
 Review Set → Research Triage → human admission → Research Set
-Research Set → Research → Thesis + Independent Review
+Research Set → Research → Thesis + Thesis Review
 reviewed Theses → Capital Allocation Assessment → allocate / no allocation / defer
 ```
 
@@ -174,37 +172,6 @@ authority は次の境界を越えない。
 5. E[r]、macro、event、portfolio state、過去判断はReview Set membership/orderを変えない。E[r]はTriageで使うsecondary machine return priorである。
 6. Research TriageはReview Set全件を`research / skip`へ分類し、`research`間のpriorityを決めるが、FVや買付可否を確定しない。
 7. Research Setへのadmissionと、最終的なbroker執行は人間が所有する。
-
-### 語彙表
-
-| 日本語概念名 | slug | 種別 | 層 | 役割 |
-| --- | --- | --- | --- | --- |
-| 運用方針 | portfolio management | governance | — | 資本・許容リスク・ポジション管理・kill switch |
-| マクロ機械読み値 | macro reading | 機械成果物 | L2 出力 | 全登録系列の水準・方向・percentile・閾値注記・観測の齢を毎営業日 決定論で出す共通の物差し |
-| マクロ環境分析 | macro context | 判断文書 | L3 | use-case agnosticな環境評価（core）・支配的な力の統合評価（synthesis）・日本株積立ループ接続（connection）を持つ補助context |
-| 市場データ基盤 | market.sqlite | データ store | L1 | 全上場銘柄の実データの正本 |
-| 機械スクリーニング | screening | 機械処理 | L2 | 4つの価値評価法で調査候補を機械抽出 |
-| スクリーニング実行結果 | screening run | 機械成果物 | L2 出力 | run storeに保存する再生成可能なobserved / derived / estimateのsnapshot |
-| 銘柄分析 | security analysis | 機械成果物 | L2 出力 | Universe各tickerへFact・Metric・Estimateを付けた比較row。まだCandidateではない |
-| 価値評価法 | valuation approach | method | L2 | 企業価値の1源泉についてNomination eligibilityと方法内順位を決める |
-| 候補推薦 | nomination | 機械成果物 | L2 出力 | 1つのValuation Approachが1銘柄を調査候補として推薦した事実 |
-| 候補 | candidate | パイプライン状態 | L2 出力 | 1つ以上のNominationを持つsecurity。独立tableは持たない |
-| 観測事実 | observed fact | observation | L1 | source identityとtime semanticsを持つ観測値 |
-| 導出指標 | derived metric | derived | L2 | Factから決定論的に計算しforwardな経済主張を持たない座標。`normalized_per_3fy`はDerived Metric |
-| 見積り | estimate | estimate | L2 | assumptions・unit・必要ならcomponentを持つ経済量推定。E[r]はEstimate |
-| モデル | model | method | L2 | Fact / MetricからEstimateまたは明示したpredictionを作るversioned algorithm。`expected-return-v1`はModel |
-| レビュー対象集合 | Review Set | パイプライン状態 | L2 出力 | 4 Approachのtop20 Nominationのexact union（最大80件） |
-| 調査優先度判定 | Research Triage | パイプライン状態 + 判断 | L3 | Review Set全件を`research / skip`へ分類し、AI priority・理由・調査質問・主要riskを持つcanonical snapshot |
-| リサーチ対象集合 | Research Set | パイプライン状態 | L3 | Research Triageの`research`から人間がadmitした部分集合。専用tableは持たない |
-| 個別銘柄リサーチ | research | 活動 | L3 | 一次情報、FV、RR、期待利回り、耐性、反証を調べる工程 |
-| 投資仮説 | thesis | 判断文書 | L3 | 3年/5年scenario、永久損失、source、採否を固定するcanonical artifact。保有中は thesis health を問い、thesis break が売却の主因になる |
-| 独立反証レビュー | thesis review | 判断文書 | L3 | 別 agent による thesis の second-pass 反証。hash で対象 revision へ束縛する |
-| Research Playbook | research playbook | method | L3 | Valuation Approachに応じて一次情報を調べるhuman checklist |
-| 資本配分評価 | Capital Allocation Assessment | 判断文書 | L3 | reviewed thesis alternativesを横比較し、`allocate / no_allocation / defer`を固定する統合判断 |
-| portfolio状態・保有判断 | position | 執行/保有 | L3 | human-confirmed ledger、Position Review、outcome |
-| 資本配分サイクル | capital-allocation | 運転（operation kind） | — | Review Set → Research Triage → Research Set → thesis → Capital Allocation Assessmentを同じrowで進めるoperation sessionのkind |
-
-`research`は個別銘柄を調べる活動（workflow・CLI domain・package 名）、`thesis`はその canonical 成果物である。`thesis break`と`thesis health`は保有判断の正準な投資概念であり、thesis artifact の状態を指す。Git tree は authoritative business system の `engine/`、read-only presentation の `web/`、non-request orchestration の `batch/`、developer tooling の `tools/` と、production methodology の `method/`、runtime state の `stores/`、historical evidence の `reports/` を責務ごとに読む。
 
 ### Evidence Taxonomy
 

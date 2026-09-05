@@ -4,7 +4,8 @@ Baibai Loop の運用作業を AI エージェントに任せるときの最小�
 
 ## 作業前に必ず読む
 
-- 思想・大戦略・語彙: [`docs/doctrine.md`](./docs/doctrine.md)
+- 思想・大戦略: [`docs/doctrine.md`](./docs/doctrine.md)
+- domain term・命名文法: [`docs/domain-language.md`](./docs/domain-language.md)
 - 構造・repository map・CLI/SQLite 契約: [`docs/architecture.md`](./docs/architecture.md)
 - 資本・ポジション管理: [`docs/portfolio-management.md`](./docs/portfolio-management.md)
 - 静的契約（artifact・式・data source・validation）: [`docs/reference/README.md`](./docs/reference/README.md)

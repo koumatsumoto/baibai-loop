@@ -1,8 +1,8 @@
 # Baibai Loop
 
-Baibai Loopは、一人で日本株を長期運用するための意思決定基盤です。AIが市場観測、候補抽出、一次情報調査、投資・保有判断の提案までを担い、人間が最終判断とbroker操作を行います。自動売買システムではありません。
+Baibai Loopは、一人で日本株を長期運用するためのAI-assisted / human-adjudicatedな意思決定基盤です。AIが市場観測、候補抽出、一次情報調査、投資・保有判断の提案までを担い、人間が最終判断とbroker操作を行います。自動売買システムではありません。
 
-目的・判断原則・AIと人間の責任境界は[`docs/doctrine.md`](./docs/doctrine.md)、repository構造・store・CLIの契約は[`docs/architecture.md`](./docs/architecture.md)を正本とします。
+目的・判断原則・AIと人間の責任境界は[`docs/doctrine.md`](./docs/doctrine.md)、domain termは[`docs/domain-language.md`](./docs/domain-language.md)、repository構造・store・CLIの契約は[`docs/architecture.md`](./docs/architecture.md)を正本とします。
 
 ## 最初の入口
 
