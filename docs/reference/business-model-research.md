@@ -17,7 +17,7 @@ related_docs:
 
 この文書は、「企業がどう稼ぎ、どのKPIと制約が5年価値を決めるか」を確認するための試行用の観点である。「なぜ安く見えるか」を扱う`Valuation Approach`とは役割を分ける。
 
-事業モデルの分類そのものを投資根拠、screening条件、thesis fieldにはしない。質問の抜けを減らすためだけに使い、試行期間はoperation sessionで指定したprimary-research対象だけへ適用する。対象外へ一律には強制しない。
+事業モデルの分類そのものを投資根拠、screening条件、thesis fieldにはしない。質問の抜けを減らすためだけに使い、試行期間はoperation sessionで指定したResearch Set対象だけへ適用する。対象外へ一律には強制しない。
 
 ## 適用手順
 

@@ -656,7 +656,7 @@ uv run python -m baibai_web.materialize --output-dir <dir> [--batch daily|manual
 - `views/capital-allocation-assessment--<capital_allocation_assessment_id>.json`（published Capital Allocation Assessment の本文。Assessment 画面が読む）
 - `views/security--<ticker>.json`（保有 + 最新 run 掲載 + Review Set and Research Triage の ticker）
 - `views/meta.json`（生成時刻・実データ更新時刻・store 別 as-of・batch 種別。UI の鮮度表示と同じ契約）
-- `history/candidate-views/<asof>.json`（run とCandidates全件を型付きUI read modelへ変換した履歴。31 日で削除）
+- `history/candidate-views/<asof>.json`（Screening Run と Security Analysis 全件を型付きUI read modelへ変換した履歴。31 日で削除）
 
 この一覧と Worker の route 表の対応は `tests/web/test_cloud_export.py` が守る。Worker が写像する view を exporter が書かないと、その route は本番で恒久的に 404 になる。
 
@@ -719,7 +719,7 @@ step outcome から notifier が `[FAILED]` を出す。
   extraction 後の coverage と quarantine counters を current state に揃える
 - macro series refresh の失敗は繰延べる: export まで完走して screening 結果は publish し、
   最後に exit 3 で終了する（job は緑のまま Discord に `[DEGRADED]` が出て、鮮度は meta の
-  `macro_asof` に現れる）。繰延べた失敗の詳細は発生時点で stderr にも出す
+  `macro_as_of` に現れる）。繰延べた失敗の詳細は発生時点で stderr にも出す
 - 営業日判定は market store の `jquants_market_calendar` が情報源。対象日をカバーして
   いない場合は黙って続行せず明示エラーで停止する
 

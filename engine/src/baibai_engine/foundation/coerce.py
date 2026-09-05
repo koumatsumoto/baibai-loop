@@ -1,7 +1,7 @@
 """Shared coercion helpers for loosely-typed record payload values.
 
-Record payloads (YAML front matter, candidates files, telemetry artifacts)
-arrive as ``object`` graphs. These helpers normalize them defensively: wrong
+Loosely-typed record payloads arrive as ``object`` graphs.
+These helpers normalize them defensively: wrong
 shapes coerce to a neutral value instead of raising, so callers stay total.
 """
 
