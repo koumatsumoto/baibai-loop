@@ -48,7 +48,7 @@ class PositionReviewSummary:
     ticker: str
     as_of: date
     thesis_id: str
-    candidate_thesis_id: str | None
+    replacement_thesis_id: str | None
     action: str
     note: str | None
 
@@ -70,11 +70,10 @@ class TaskRecord:
 
 
 @dataclass(frozen=True, slots=True)
-class CandidatesRun:
+class ScreeningRunRecord:
     run_id: str
-    run_date: date
-    asof_date: date
-    run_at: datetime
+    as_of: date
+    generated_at: datetime
     universe_size: int
     # The revision the judgment publications (review_set / research_triage) bind to;
     # ``run_id`` is the public identifier shown to a reader.

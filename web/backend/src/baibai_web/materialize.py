@@ -45,10 +45,10 @@ from baibai_web.readmodel.stocks import (
     build_screening_history_run,
     build_security_detail,
 )
-from baibai_web.sources.db_sources import DbCandidatesSource
+from baibai_web.sources.db_sources import DbScreeningSource
 from baibai_web.sources.factory import build_sources
 from baibai_web.sources.protocols import LedgerSource, ResearchSource
-from baibai_web.sources.types import CandidatesRun
+from baibai_web.sources.types import ScreeningRunRecord
 
 _JST = ZoneInfo("Asia/Tokyo")
 # Same shape the ledger and run store enforce at write time; re-checked here so a
@@ -92,7 +92,7 @@ def export_read_models(
     dashboard = build_dashboard(
         stores.ledger,
         stores.research,
-        stores.candidates,
+        stores.screening,
         stores.market,
     )
     written.append(_write_model(views_dir / "dashboard.json", dashboard))
@@ -104,14 +104,14 @@ def export_read_models(
                 stores.tasks,
                 stores.ledger,
                 stores.research,
-                stores.candidates,
+                stores.screening,
                 stores.market,
             ),
         )
     )
 
     screening = build_screening(
-        stores.candidates,
+        stores.screening,
         stores.ledger,
         stores.research,
         stores.er_level_calibration,
@@ -122,7 +122,7 @@ def export_read_models(
         _write_model(
             views_dir / "daily-delta.json",
             build_daily_delta(
-                stores.candidates,
+                stores.screening,
                 stores.ledger,
                 stores.research,
                 stores.market,
@@ -166,7 +166,7 @@ def export_read_models(
     # The screening index is deliberately current-only, but the detail API accepts
     # every immutable assessment ID. Export from the canonical assessment store so a
     # completed cycle stays addressable after a newer screening run becomes current.
-    for raw_assessment in stores.candidates.assessments():
+    for raw_assessment in stores.research.assessments():
         capital_allocation_assessment_id = str(raw_assessment["capital_allocation_assessment_id"])
         if _ASSESSMENT_ID_FORMAT.fullmatch(capital_allocation_assessment_id) is None:
             _warn(
@@ -175,7 +175,7 @@ def export_read_models(
             )
             continue
         assessment = build_assessment_detail(
-            stores.candidates, capital_allocation_assessment_id=capital_allocation_assessment_id
+            stores.research, capital_allocation_assessment_id=capital_allocation_assessment_id
         )
         if assessment is None:  # pragma: no cover - the index comes from the same store
             _warn(
@@ -191,7 +191,7 @@ def export_read_models(
             )
         )
 
-    cached_candidates = _CachedLatestRunCandidates(stores.candidates)
+    cached_screening = _CachedScreeningSource(stores.screening)
     for ticker in _security_tickers(dashboard, screening):
         if _TICKER_FORMAT.fullmatch(ticker) is None:
             _warn(f"ticker has an unexpected format: {ticker!r}; security view skipped")
@@ -200,7 +200,7 @@ def export_read_models(
             ticker,
             stores.ledger,
             stores.research,
-            cached_candidates,
+            cached_screening,
             stores.market,
         )
         if security is None:
@@ -212,7 +212,7 @@ def export_read_models(
         _write_history(
             output_dir,
             screening,
-            candidates=stores.candidates,
+            screening_source=stores.screening,
             ledger=stores.ledger,
             research=stores.research,
             runs_db_path=stores.runs_db_path,
@@ -222,31 +222,31 @@ def export_read_models(
     return written
 
 
-class _CachedLatestRunCandidates:
+class _CachedScreeningSource:
     """Serve one parsed latest run to every security-detail build.
 
     ``build_security_detail`` reads the latest run and its review_sets on every
-    call, and the export loops over all candidates, so an uncached source would
-    re-parse both once per ticker (quadratic in candidate count).
+    call, and the export loops over every displayed security, so an uncached source
+    would re-parse both once per ticker.
     """
 
-    def __init__(self, inner: DbCandidatesSource) -> None:
+    def __init__(self, inner: DbScreeningSource) -> None:
         self._inner = inner
         self._loaded = False
-        self._latest: CandidatesRun | None = None
-        self._runs: dict[str, CandidatesRun | None] = {}
+        self._latest: ScreeningRunRecord | None = None
+        self._runs: dict[str, ScreeningRunRecord | None] = {}
         self._review_sets: dict[str | None, list[dict[str, object]]] = {}
 
-    def latest_run(self) -> CandidatesRun | None:
+    def latest_run(self) -> ScreeningRunRecord | None:
         if not self._loaded:
             self._latest = self._inner.latest_run()
             self._loaded = True
         return self._latest
 
-    def previous_run(self) -> CandidatesRun | None:
+    def previous_run(self) -> ScreeningRunRecord | None:
         return self._inner.previous_run()
 
-    def run(self, run_revision_id: str) -> CandidatesRun | None:
+    def run(self, run_revision_id: str) -> ScreeningRunRecord | None:
         if run_revision_id not in self._runs:
             self._runs[run_revision_id] = self._inner.run(run_revision_id)
         return self._runs[run_revision_id]
@@ -260,7 +260,7 @@ class _CachedLatestRunCandidates:
 
 
 def _security_tickers(dashboard: DashboardView, screening: ScreeningView) -> list[str]:
-    """Enumerate holdings, latest-run candidates, and research_triage tickers."""
+    """Enumerate holdings, latest-run analyses, and Research Triage tickers."""
 
     tickers = {holding.ticker for holding in dashboard.holdings}
     tickers.update(row.ticker for row in screening.security_analyses)
@@ -273,7 +273,7 @@ def _write_history(
     output_dir: Path,
     screening: ScreeningView,
     *,
-    candidates: DbCandidatesSource,
+    screening_source: DbScreeningSource,
     ledger: LedgerSource,
     research: ResearchSource,
     runs_db_path: Path,
@@ -283,18 +283,18 @@ def _write_history(
     if not history_dates:
         _warn("no screening run is published; history/candidate-views skipped")
         return written
-    for candidates_asof in history_dates:
+    for screening_as_of in history_dates:
         history = build_screening_history_run(
-            candidates,
+            screening_source,
             ledger,
             research,
-            as_of=candidates_asof,
+            as_of=screening_as_of,
         )
         if history is None:  # pragma: no cover - date index and exact lookup share one store
             continue
         written.append(
             _write_model(
-                output_dir / "history/candidate-views" / f"{candidates_asof.isoformat()}.json",
+                output_dir / "history/candidate-views" / f"{screening_as_of.isoformat()}.json",
                 history,
             )
         )

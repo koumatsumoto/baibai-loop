@@ -4,18 +4,20 @@ from datetime import date, datetime
 
 from tests.helpers.research_triage import research_triage_payload, skip_entry
 
-from baibai_web.readmodel.models import ReviewSetEntryView
-from baibai_web.readmodel.stocks import _candidate_row_view, build_screening
-from baibai_web.sources.db_sources import DbCandidatesSource
-from baibai_web.sources.types import CandidatesRun
+from baibai_web.readmodel.stocks import (
+    _review_set_entries_entry_view,
+    _security_analysis_row_view,
+    build_screening,
+)
+from baibai_web.sources.db_sources import DbScreeningSource
+from baibai_web.sources.types import ScreeningRunRecord
 
 
-def _run() -> CandidatesRun:
-    return CandidatesRun(
+def _run() -> ScreeningRunRecord:
+    return ScreeningRunRecord(
         run_id="screening-20260828",
-        run_date=date(2026, 8, 28),
-        asof_date=date(2026, 8, 28),
-        run_at=datetime.fromisoformat("2026-08-28T18:00:00+09:00"),
+        as_of=date(2026, 8, 28),
+        generated_at=datetime.fromisoformat("2026-08-28T18:00:00+09:00"),
         universe_size=0,
         run_revision_id="run-current",
         rules_ref=None,
@@ -125,8 +127,8 @@ def _assessment(assessment_id: str, research_triage_id: str) -> dict[str, object
     }
 
 
-def _source(tmp_path, mocker) -> DbCandidatesSource:
-    source = DbCandidatesSource(tmp_path / "runs.sqlite", tmp_path / "app.sqlite")
+def _source(tmp_path, mocker) -> DbScreeningSource:
+    source = DbScreeningSource(tmp_path / "runs.sqlite")
     mocker.patch.object(source, "latest_run", return_value=_run())
     mocker.patch.object(source, "review_sets", return_value=[_review_set()])
     return source
@@ -137,6 +139,8 @@ def _dependencies(mocker):
     ledger.exists.return_value = False
     research = mocker.Mock()
     research.revisions.return_value = []
+    research.research_triages.return_value = []
+    research.assessments.return_value = []
     return ledger, research
 
 
@@ -148,11 +152,9 @@ def test_screening_omits_judgments_from_another_review_set_cycle(tmp_path, mocke
         run_revision_id="run-old",
         entries=[skip_entry("3836")],
     )
-    mocker.patch.object(source, "research_triages", return_value=[old_triage])
-    mocker.patch.object(
-        source, "assessments", return_value=[_assessment("assessment-old", "triage-old")]
-    )
     ledger, research = _dependencies(mocker)
+    research.research_triages.return_value = [old_triage]
+    research.assessments.return_value = [_assessment("assessment-old", "triage-old")]
 
     view = build_screening(source, ledger, research)
 
@@ -171,16 +173,12 @@ def test_screening_projects_only_the_assessment_bound_to_the_current_triage(
         run_revision_id="run-current",
         entries=[skip_entry("6419")],
     )
-    mocker.patch.object(source, "research_triages", return_value=[current_triage])
-    mocker.patch.object(
-        source,
-        "assessments",
-        return_value=[
-            _assessment("assessment-old", "triage-old"),
-            _assessment("assessment-current", "triage-current"),
-        ],
-    )
     ledger, research = _dependencies(mocker)
+    research.research_triages.return_value = [current_triage]
+    research.assessments.return_value = [
+        _assessment("assessment-old", "triage-old"),
+        _assessment("assessment-current", "triage-current"),
+    ]
 
     view = build_screening(source, ledger, research)
 
@@ -197,8 +195,6 @@ def test_review_set_projects_the_frozen_typed_analysis_without_current_row_join(
     frozen = _review_set()
     frozen["payload"] = {"entries": [_frozen_entry()]}
     mocker.patch.object(source, "review_sets", return_value=[frozen])
-    mocker.patch.object(source, "research_triages", return_value=[])
-    mocker.patch.object(source, "assessments", return_value=[])
     ledger, research = _dependencies(mocker)
 
     view = build_screening(source, ledger, research)
@@ -217,7 +213,7 @@ def test_review_set_projects_the_frozen_typed_analysis_without_current_row_join(
 
 
 def test_security_row_projects_frozen_fv_gap_and_quality_statuses() -> None:
-    frozen = ReviewSetEntryView.model_validate(_frozen_entry())
+    frozen = _review_set_entries_entry_view(_frozen_entry())
     row = {
         "ticker": "2331",
         "name": "Current name",
@@ -228,7 +224,7 @@ def test_security_row_projects_frozen_fv_gap_and_quality_statuses() -> None:
         },
     }
 
-    view = _candidate_row_view(
+    view = _security_analysis_row_view(
         row,
         held=set(),
         reserved=set(),
@@ -240,7 +236,7 @@ def test_security_row_projects_frozen_fv_gap_and_quality_statuses() -> None:
     assert view.fair_value_gap_pct == 50.0
     assert view.data_quality_flags == ["stale_fin", "unresolved_split_basis"]
 
-    without_price = _candidate_row_view(
+    without_price = _security_analysis_row_view(
         {"ticker": "2331", "metrics": {"dividend_basis": "forecast_annual"}},
         held=set(),
         reserved=set(),

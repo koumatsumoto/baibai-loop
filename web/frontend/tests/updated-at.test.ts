@@ -23,7 +23,7 @@ describe('UpdatedAtBadge', () => {
   it.each([
     ['MacroPage.tsx', 'data.latest_context?.published_at ?? null'],
     ['MacroReportPage.tsx', 'data.published_at'],
-    ['StocksPage.tsx', 'data.run.run_at'],
+    ['StocksPage.tsx', 'data.run.generated_at'],
     ['ResearchTriagePage.tsx', 'triage.published_at'],
     ['CapitalAllocationAssessmentPage.tsx', 'data.published_at'],
   ])('%s binds its primary update badge to a real publication or run timestamp', (page, value) => {

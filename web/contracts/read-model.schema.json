@@ -143,111 +143,6 @@
       "title": "AssessmentReviewView",
       "type": "object"
     },
-    "CandidateEntryDeltaView": {
-      "description": "A ticker whose presence in the machine pool changed between two runs.\n\n``disclosed_since_previous`` is ``null`` when the store that holds disclosure\ndates could not answer, which must not read as \"no disclosure\".",
-      "properties": {
-        "ticker": {
-          "title": "Ticker",
-          "type": "string"
-        },
-        "company_name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Company Name"
-        },
-        "er_annual_pct": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Er Annual Pct"
-        },
-        "disclosed_since_previous": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Disclosed Since Previous"
-        }
-      },
-      "required": [
-        "ticker",
-        "company_name",
-        "er_annual_pct",
-        "disclosed_since_previous"
-      ],
-      "title": "CandidateEntryDeltaView",
-      "type": "object"
-    },
-    "CandidateMoveDeltaView": {
-      "description": "A ticker in both pools whose machine E[r] moved most.",
-      "properties": {
-        "ticker": {
-          "title": "Ticker",
-          "type": "string"
-        },
-        "company_name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Company Name"
-        },
-        "er_annual_pct": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Er Annual Pct"
-        },
-        "previous_er_annual_pct": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Previous Er Annual Pct"
-        },
-        "change_pp": {
-          "title": "Change Pp",
-          "type": "number"
-        }
-      },
-      "required": [
-        "ticker",
-        "company_name",
-        "er_annual_pct",
-        "previous_er_annual_pct",
-        "change_pp"
-      ],
-      "title": "CandidateMoveDeltaView",
-      "type": "object"
-    },
     "CapitalAllocationAssessmentSummaryView": {
       "properties": {
         "capital_allocation_assessment_id": {
@@ -264,8 +159,8 @@
           "title": "Published At",
           "type": "string"
         },
-        "result": {
-          "title": "Result",
+        "decision": {
+          "title": "Decision",
           "type": "string"
         },
         "headline": {
@@ -296,7 +191,7 @@
         "capital_allocation_assessment_id",
         "as_of",
         "published_at",
-        "result",
+        "decision",
         "headline",
         "research_triage_id",
         "alternative_count",
@@ -321,8 +216,8 @@
           "title": "Published At",
           "type": "string"
         },
-        "result": {
-          "title": "Result",
+        "decision": {
+          "title": "Decision",
           "type": "string"
         },
         "headline": {
@@ -348,8 +243,8 @@
           "title": "Comparison",
           "type": "string"
         },
-        "forgone": {
-          "title": "Forgone",
+        "foregone_alternatives": {
+          "title": "Foregone Alternatives",
           "type": "string"
         },
         "alternatives": {
@@ -359,7 +254,7 @@
           "title": "Alternatives",
           "type": "array"
         },
-        "review": {
+        "content_review": {
           "$ref": "#/$defs/AssessmentReviewView"
         }
       },
@@ -367,14 +262,14 @@
         "capital_allocation_assessment_id",
         "as_of",
         "published_at",
-        "result",
+        "decision",
         "headline",
         "research_triage_id",
         "macro_context_id",
         "comparison",
-        "forgone",
+        "foregone_alternatives",
         "alternatives",
-        "review"
+        "content_review"
       ],
       "title": "CapitalAllocationAssessmentView",
       "type": "object"
@@ -427,21 +322,21 @@
         },
         "entered": {
           "items": {
-            "$ref": "#/$defs/CandidateEntryDeltaView"
+            "$ref": "#/$defs/ReviewSetEntryDeltaView"
           },
           "title": "Entered",
           "type": "array"
         },
         "exited": {
           "items": {
-            "$ref": "#/$defs/CandidateEntryDeltaView"
+            "$ref": "#/$defs/ReviewSetEntryDeltaView"
           },
           "title": "Exited",
           "type": "array"
         },
         "er_moves": {
           "items": {
-            "$ref": "#/$defs/CandidateMoveDeltaView"
+            "$ref": "#/$defs/ReviewSetExpectedReturnDeltaView"
           },
           "title": "Er Moves",
           "type": "array"
@@ -692,10 +587,10 @@
     },
     "DeltaUnavailable": {
       "enum": [
-        "candidates",
-        "candidates_estimate",
-        "candidates_pool",
-        "candidates_previous_run",
+        "screening_run",
+        "previous_screening_run",
+        "review_set",
+        "review_set_estimate",
         "holdings",
         "holdings_fair_value",
         "market"
@@ -2797,7 +2692,7 @@
           "title": "Thesis Id",
           "type": "string"
         },
-        "candidate_thesis_id": {
+        "replacement_thesis_id": {
           "anyOf": [
             {
               "type": "string"
@@ -2806,7 +2701,7 @@
               "type": "null"
             }
           ],
-          "title": "Candidate Thesis Id"
+          "title": "Replacement Thesis Id"
         },
         "action": {
           "title": "Action",
@@ -2828,7 +2723,7 @@
         "position_review_id",
         "as_of",
         "thesis_id",
-        "candidate_thesis_id",
+        "replacement_thesis_id",
         "action",
         "note"
       ],
@@ -2907,83 +2802,6 @@
       "title": "ResearchRevisionView",
       "type": "object"
     },
-    "ResearchTriageCandidateSnapshotView": {
-      "description": "Machine coordinates frozen into one Research Triage judgment entry.",
-      "properties": {
-        "name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Name"
-        },
-        "sector_33": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Sector 33"
-        },
-        "nominations": {
-          "anyOf": [
-            {
-              "items": {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Nominations"
-        },
-        "expected_return": {
-          "anyOf": [
-            {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Expected Return"
-        },
-        "data_quality": {
-          "anyOf": [
-            {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Data Quality"
-        }
-      },
-      "required": [
-        "name",
-        "sector_33",
-        "nominations",
-        "expected_return",
-        "data_quality"
-      ],
-      "title": "ResearchTriageCandidateSnapshotView",
-      "type": "object"
-    },
     "ResearchTriageEntryView": {
       "properties": {
         "ticker": {
@@ -3034,10 +2852,10 @@
           "default": null,
           "title": "Key Risk"
         },
-        "candidate_snapshot": {
+        "review_set_entry_snapshot": {
           "anyOf": [
             {
-              "$ref": "#/$defs/ResearchTriageCandidateSnapshotView"
+              "$ref": "#/$defs/ReviewSetEntrySnapshotView"
             },
             {
               "type": "null"
@@ -3053,7 +2871,7 @@
         "rationale",
         "research_question",
         "key_risk",
-        "candidate_snapshot"
+        "review_set_entry_snapshot"
       ],
       "title": "ResearchTriageEntryView",
       "type": "object"
@@ -3298,7 +3116,7 @@
           ],
           "title": "Tse Capital Policy Status"
         },
-        "large_holding_event_recent": {
+        "large_holding_filing_within_lookback": {
           "anyOf": [
             {
               "type": "boolean"
@@ -3307,9 +3125,21 @@
               "type": "null"
             }
           ],
-          "title": "Large Holding Event Recent"
+          "title": "Large Holding Filing Within Lookback"
         },
-        "tender_offer_event_recent": {
+        "latest_large_holding_filing_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Latest Large Holding Filing Date"
+        },
+        "tender_offer_filing_within_lookback": {
           "anyOf": [
             {
               "type": "boolean"
@@ -3318,7 +3148,19 @@
               "type": "null"
             }
           ],
-          "title": "Tender Offer Event Recent"
+          "title": "Tender Offer Filing Within Lookback"
+        },
+        "latest_tender_offer_filing_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Latest Tender Offer Filing Date"
         }
       },
       "required": [
@@ -3326,8 +3168,10 @@
         "next_earnings_estimated_date",
         "margin_short_to_adv",
         "tse_capital_policy_status",
-        "large_holding_event_recent",
-        "tender_offer_event_recent"
+        "large_holding_filing_within_lookback",
+        "latest_large_holding_filing_date",
+        "tender_offer_filing_within_lookback",
+        "latest_tender_offer_filing_date"
       ],
       "title": "ReviewSetContextView",
       "type": "object"
@@ -3444,6 +3288,133 @@
       "title": "ReviewSetDataQualityView",
       "type": "object"
     },
+    "ReviewSetEntryDeltaView": {
+      "description": "A ticker whose presence in the machine pool changed between two runs.\n\n``disclosed_since_previous`` is ``null`` when the store that holds disclosure\ndates could not answer, which must not read as \"no disclosure\".",
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "company_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Company Name"
+        },
+        "er_annual_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Er Annual Pct"
+        },
+        "disclosed_since_previous": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disclosed Since Previous"
+        }
+      },
+      "required": [
+        "ticker",
+        "company_name",
+        "er_annual_pct",
+        "disclosed_since_previous"
+      ],
+      "title": "ReviewSetEntryDeltaView",
+      "type": "object"
+    },
+    "ReviewSetEntrySnapshotView": {
+      "description": "Machine coordinates frozen into one Research Triage judgment entry.",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "sector_33": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sector 33"
+        },
+        "nominations": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Nominations"
+        },
+        "expected_return": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Return"
+        },
+        "data_quality": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Data Quality"
+        }
+      },
+      "required": [
+        "name",
+        "sector_33",
+        "nominations",
+        "expected_return",
+        "data_quality"
+      ],
+      "title": "ReviewSetEntrySnapshotView",
+      "type": "object"
+    },
     "ReviewSetEntryView": {
       "description": "One member of the exact approach Nomination union.",
       "properties": {
@@ -3492,6 +3463,61 @@
         "analysis"
       ],
       "title": "ReviewSetEntryView",
+      "type": "object"
+    },
+    "ReviewSetExpectedReturnDeltaView": {
+      "description": "A ticker in both pools whose machine E[r] moved most.",
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "company_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Company Name"
+        },
+        "er_annual_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Er Annual Pct"
+        },
+        "previous_er_annual_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Previous Er Annual Pct"
+        },
+        "change_pp": {
+          "title": "Change Pp",
+          "type": "number"
+        }
+      },
+      "required": [
+        "ticker",
+        "company_name",
+        "er_annual_pct",
+        "previous_er_annual_pct",
+        "change_pp"
+      ],
+      "title": "ReviewSetExpectedReturnDeltaView",
       "type": "object"
     },
     "ReviewSetExpectedReturnView": {
@@ -3931,19 +3957,14 @@
           "title": "Run Id",
           "type": "string"
         },
-        "run_date": {
+        "as_of": {
           "format": "date",
-          "title": "Run Date",
+          "title": "As Of",
           "type": "string"
         },
-        "asof_date": {
-          "format": "date",
-          "title": "Asof Date",
-          "type": "string"
-        },
-        "run_at": {
+        "generated_at": {
           "format": "date-time",
-          "title": "Run At",
+          "title": "Generated At",
           "type": "string"
         },
         "universe_size": {
@@ -3965,9 +3986,8 @@
       },
       "required": [
         "run_id",
-        "run_date",
-        "asof_date",
-        "run_at",
+        "as_of",
+        "generated_at",
         "universe_size",
         "analyzed_security_count",
         "run_revision_id",
@@ -4577,7 +4597,7 @@
           "title": "Position Reviews",
           "type": "array"
         },
-        "candidate_row": {
+        "security_analysis": {
           "anyOf": [
             {
               "$ref": "#/$defs/SecurityAnalysisRowView"
@@ -4587,7 +4607,7 @@
             }
           ]
         },
-        "candidate_run": {
+        "screening_run": {
           "anyOf": [
             {
               "$ref": "#/$defs/ScreeningRunView"
@@ -4606,8 +4626,8 @@
         "revisions",
         "latest_thesis",
         "position_reviews",
-        "candidate_row",
-        "candidate_run"
+        "security_analysis",
+        "screening_run"
       ],
       "title": "SecurityDetailView",
       "type": "object"

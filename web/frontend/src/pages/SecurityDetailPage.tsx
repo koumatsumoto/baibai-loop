@@ -217,14 +217,14 @@ export function SecurityDetailPage() {
         )}
       </SectionCard>
 
-      {data.candidate_row && (
+      {data.security_analysis && (
         <SectionCard
           description="latest screening"
-          meta={data.candidate_run && <AsOfBadge value={data.candidate_run.asof_date} />}
+          meta={data.screening_run && <AsOfBadge value={data.screening_run.as_of} />}
           padded
           title="Screening 指標"
         >
-          <ScreeningMetrics row={data.candidate_row} />
+          <ScreeningMetrics row={data.security_analysis} />
         </SectionCard>
       )}
     </PageShell>

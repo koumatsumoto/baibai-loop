@@ -101,7 +101,7 @@ def create_app(
         return build_dashboard(
             sources.ledger,
             sources.research,
-            sources.candidates,
+            sources.screening,
             sources.market,
         )
 
@@ -111,14 +111,14 @@ def create_app(
             sources.tasks,
             sources.ledger,
             sources.research,
-            sources.candidates,
+            sources.screening,
             sources.market,
         )
 
     @app.get("/api/daily-delta", response_model=DailyDeltaView)
     def daily_delta(sources: _SourceDependency) -> DailyDeltaView:
         return build_daily_delta(
-            sources.candidates,
+            sources.screening,
             sources.ledger,
             sources.research,
             sources.market,
@@ -127,7 +127,7 @@ def create_app(
     @app.get("/api/screening/latest", response_model=ScreeningView)
     def screening(sources: _SourceDependency) -> ScreeningView:
         return build_screening(
-            sources.candidates,
+            sources.screening,
             sources.ledger,
             sources.research,
             sources.er_level_calibration,
@@ -143,7 +143,7 @@ def create_app(
         sources: _SourceDependency,
     ) -> ScreeningHistoryRunView:
         view = build_screening_history_run(
-            sources.candidates,
+            sources.screening,
             sources.ledger,
             sources.research,
             as_of=as_of,
@@ -160,7 +160,7 @@ def create_app(
         capital_allocation_assessment_id: str, sources: _SourceDependency
     ) -> CapitalAllocationAssessmentView:
         view = build_assessment_detail(
-            sources.candidates, capital_allocation_assessment_id=capital_allocation_assessment_id
+            sources.research, capital_allocation_assessment_id=capital_allocation_assessment_id
         )
         if view is None:
             raise HTTPException(status_code=404, detail="capital allocation assessment not found")
@@ -225,7 +225,7 @@ def create_app(
             ticker,
             sources.ledger,
             sources.research,
-            sources.candidates,
+            sources.screening,
             sources.market,
         )
         if view is None:

@@ -107,7 +107,7 @@ def test_dynamic_routes_map_to_exact_edge_keys_and_materializer_outputs() -> Non
         "/api/screening/history/{as_of}": (
             "resolveScreeningHistory",
             "`history/candidate-views/${asOf}.json`",
-            'f"{candidates_asof.isoformat()}.json"',
+            'f"{screening_as_of.isoformat()}.json"',
         ),
         "/api/macro/context/{context_id}": (
             "resolveMacroContext",

@@ -22,35 +22,11 @@ export interface AssessmentReviewView {
   open_findings: string[]
 }
 
-/**
- * A ticker whose presence in the machine pool changed between two runs.
- *
- * ``disclosed_since_previous`` is ``null`` when the store that holds disclosure
- * dates could not answer, which must not read as "no disclosure".
- */
-export interface CandidateEntryDeltaView {
-  ticker: string
-  company_name: string | null
-  er_annual_pct: number | null
-  disclosed_since_previous: boolean | null
-}
-
-/**
- * A ticker in both pools whose machine E[r] moved most.
- */
-export interface CandidateMoveDeltaView {
-  ticker: string
-  company_name: string | null
-  er_annual_pct: number | null
-  previous_er_annual_pct: number | null
-  change_pp: number
-}
-
 export interface CapitalAllocationAssessmentSummaryView {
   capital_allocation_assessment_id: string
   as_of: string
   published_at: string
-  result: string
+  decision: string
   headline: string
   research_triage_id: string
   alternative_count: number
@@ -61,14 +37,14 @@ export interface CapitalAllocationAssessmentView {
   capital_allocation_assessment_id: string
   as_of: string
   published_at: string
-  result: string
+  decision: string
   headline: string
   research_triage_id: string
   macro_context_id: string | null
   comparison: string
-  forgone: string
+  foregone_alternatives: string
   alternatives: AllocationAlternativeView[]
-  review: AssessmentReviewView
+  content_review: AssessmentReviewView
 }
 
 /**
@@ -93,9 +69,9 @@ export interface DailyDeltaView {
   previous_asof: string | null
   pool: DeltaPool | null
   rules_changed: boolean
-  entered: CandidateEntryDeltaView[]
-  exited: CandidateEntryDeltaView[]
-  er_moves: CandidateMoveDeltaView[]
+  entered: ReviewSetEntryDeltaView[]
+  exited: ReviewSetEntryDeltaView[]
+  er_moves: ReviewSetExpectedReturnDeltaView[]
   er_moves_total: number
   holdings: HoldingDeltaView[]
   holdings_without_fair_value: number
@@ -127,7 +103,7 @@ export interface DashboardView {
 
 export type DeltaPool = 'review_set'
 
-export type DeltaUnavailable = 'candidates' | 'candidates_estimate' | 'candidates_pool' | 'candidates_previous_run' | 'holdings' | 'holdings_fair_value' | 'market'
+export type DeltaUnavailable = 'screening_run' | 'previous_screening_run' | 'review_set' | 'review_set_estimate' | 'holdings' | 'holdings_fair_value' | 'market'
 
 export interface ErLevelCalibrationBandView {
   band_id: string
@@ -532,7 +508,7 @@ export interface PositionReviewView {
   position_review_id: string
   as_of: string
   thesis_id: string
-  candidate_thesis_id: string | null
+  replacement_thesis_id: string | null
   action: string
   note: string | null
 }
@@ -547,17 +523,6 @@ export interface ResearchRevisionView {
   review_id: string | null
 }
 
-/**
- * Machine coordinates frozen into one Research Triage judgment entry.
- */
-export interface ResearchTriageCandidateSnapshotView {
-  name: string | null
-  sector_33: string | null
-  nominations: Record<string, unknown>[] | null
-  expected_return: Record<string, unknown> | null
-  data_quality: Record<string, unknown> | null
-}
-
 export interface ResearchTriageEntryView {
   ticker: string
   decision: string
@@ -565,7 +530,7 @@ export interface ResearchTriageEntryView {
   rationale: string
   research_question: string | null
   key_risk: string | null
-  candidate_snapshot: ResearchTriageCandidateSnapshotView | null
+  review_set_entry_snapshot: ReviewSetEntrySnapshotView | null
 }
 
 export interface ResearchTriageView {
@@ -611,8 +576,10 @@ export interface ReviewSetContextView {
   next_earnings_estimated_date: string | null
   margin_short_to_adv: number | null
   tse_capital_policy_status: string | null
-  large_holding_event_recent: boolean | null
-  tender_offer_event_recent: boolean | null
+  large_holding_filing_within_lookback: boolean | null
+  latest_large_holding_filing_date: string | null
+  tender_offer_filing_within_lookback: boolean | null
+  latest_tender_offer_filing_date: string | null
 }
 
 export interface ReviewSetCurrentEarningsView {
@@ -630,6 +597,30 @@ export interface ReviewSetDataQualityView {
 }
 
 /**
+ * A ticker whose presence in the machine pool changed between two runs.
+ *
+ * ``disclosed_since_previous`` is ``null`` when the store that holds disclosure
+ * dates could not answer, which must not read as "no disclosure".
+ */
+export interface ReviewSetEntryDeltaView {
+  ticker: string
+  company_name: string | null
+  er_annual_pct: number | null
+  disclosed_since_previous: boolean | null
+}
+
+/**
+ * Machine coordinates frozen into one Research Triage judgment entry.
+ */
+export interface ReviewSetEntrySnapshotView {
+  name: string | null
+  sector_33: string | null
+  nominations: Record<string, unknown>[] | null
+  expected_return: Record<string, unknown> | null
+  data_quality: Record<string, unknown> | null
+}
+
+/**
  * One member of the exact approach Nomination union.
  */
 export interface ReviewSetEntryView {
@@ -638,6 +629,17 @@ export interface ReviewSetEntryView {
   sector_33: string | null
   nominations: ReviewSetNominationView[]
   analysis: ReviewSetAnalysisView
+}
+
+/**
+ * A ticker in both pools whose machine E[r] moved most.
+ */
+export interface ReviewSetExpectedReturnDeltaView {
+  ticker: string
+  company_name: string | null
+  er_annual_pct: number | null
+  previous_er_annual_pct: number | null
+  change_pp: number
 }
 
 export interface ReviewSetExpectedReturnView {
@@ -713,9 +715,8 @@ export interface ScreeningHistoryView {
 
 export interface ScreeningRunView {
   run_id: string
-  run_date: string
-  asof_date: string
-  run_at: string
+  as_of: string
+  generated_at: string
   universe_size: number
   analyzed_security_count: number
   run_revision_id: string
@@ -783,8 +784,8 @@ export interface SecurityDetailView {
   revisions: ResearchRevisionView[]
   latest_thesis: ThesisDetailView | null
   position_reviews: PositionReviewView[]
-  candidate_row: SecurityAnalysisRowView | null
-  candidate_run: ScreeningRunView | null
+  security_analysis: SecurityAnalysisRowView | null
+  screening_run: ScreeningRunView | null
 }
 
 export interface TaskView {

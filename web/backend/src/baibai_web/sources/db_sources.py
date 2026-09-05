@@ -46,12 +46,12 @@ from baibai_engine.read_api import (
     thesis_publication,
 )
 from baibai_web.sources.types import (
-    CandidatesRun,
     MacroGroupConfig,
     MacroSeriesConfig,
     PositionReviewSummary,
     ResearchRevision,
     ScenarioSummary,
+    ScreeningRunRecord,
     TaskRecord,
     ThesisDetail,
 )
@@ -171,7 +171,7 @@ class DbResearchSource:
                     ticker=str(publication["ticker"]),
                     as_of=date.fromisoformat(str(publication["as_of"])),
                     thesis_id=str(publication["thesis_id"]),
-                    candidate_thesis_id=_optional_text(publication.get("candidate_thesis_id")),
+                    replacement_thesis_id=_optional_text(publication.get("candidate_thesis_id")),
                     action=str(payload["action"]),
                     note=_optional_text(payload.get("note")),
                 )
@@ -180,6 +180,33 @@ class DbResearchSource:
 
     def load_errors(self) -> list[str]:
         return list(self._load_errors)
+
+    def research_triages(
+        self,
+        *,
+        review_set_ids: Sequence[str] | None = None,
+    ) -> list[dict[str, object]]:
+        if review_set_ids is None:
+            latest = latest_research_triage_payload(self._path)
+            return [] if latest is None else [latest]
+        latest_by_review_set: list[dict[str, object]] = []
+        for review_set_id in dict.fromkeys(review_set_ids):
+            payloads = research_triage_payloads_for_review_set(self._path, review_set_id)
+            if payloads:
+                latest_by_review_set.append(payloads[0])
+        return sorted(
+            latest_by_review_set,
+            key=lambda item: str(item["published_at"]),
+            reverse=True,
+        )
+
+    def assessments(self) -> list[dict[str, object]]:
+        return list_capital_allocation_assessment_payloads(self._path)
+
+    def assessment(self, capital_allocation_assessment_id: str) -> dict[str, object] | None:
+        return capital_allocation_assessment_payload(
+            self._path, capital_allocation_assessment_id=capital_allocation_assessment_id
+        )
 
     @staticmethod
     def _revision(
@@ -347,10 +374,8 @@ class DbMetaSource:
     def data_updated_at(self) -> datetime | None:
         """Return the newest timestamp recorded by any UI data store."""
 
-        candidates = screening_run_payload(self._runs_db_path)
-        screening_updated_at = (
-            None if candidates is None else datetime.fromisoformat(str(candidates["run_at"]))
-        )
+        screening_run = DbScreeningSource(self._runs_db_path).latest_run()
+        screening_updated_at = None if screening_run is None else screening_run.generated_at
         macro_observed_at = macro_latest_observed_at(self._indicators_db_path)
         macro_updated_at = (
             None
@@ -373,20 +398,19 @@ class DbMetaSource:
         )
 
 
-class DbCandidatesSource:
-    def __init__(self, runs_db_path: Path, app_db_path: Path) -> None:
+class DbScreeningSource:
+    def __init__(self, runs_db_path: Path) -> None:
         self._runs_path = runs_db_path.resolve()
-        self._app_path = app_db_path.resolve()
 
-    def latest_run(self) -> CandidatesRun | None:
+    def latest_run(self) -> ScreeningRunRecord | None:
         raw = screening_run_payload(self._runs_path)
         return None if raw is None else self._parse_run(raw)
 
-    def run(self, run_revision_id: str) -> CandidatesRun | None:
+    def run(self, run_revision_id: str) -> ScreeningRunRecord | None:
         raw = screening_run_payload(self._runs_path, run_revision_id=run_revision_id)
         return None if raw is None else self._parse_run(raw)
 
-    def previous_run(self) -> CandidatesRun | None:
+    def previous_run(self) -> ScreeningRunRecord | None:
         """Return the newest run of the greatest as-of before the latest one.
 
         A delta needs a stated earlier side. Reading it from the retained run dates
@@ -398,7 +422,7 @@ class DbCandidatesSource:
             return None
         return self.run_as_of(dates[1])
 
-    def run_as_of(self, as_of: date) -> CandidatesRun | None:
+    def run_as_of(self, as_of: date) -> ScreeningRunRecord | None:
         raw = screening_run_payload(self._runs_path, as_of_date=as_of)
         return None if raw is None else self._parse_run(raw)
 
@@ -408,46 +432,15 @@ class DbCandidatesSource:
             run_revision_id=run_revision_id,
         )
 
-    def research_triages(
-        self,
-        *,
-        review_set_ids: Sequence[str] | None = None,
-    ) -> list[dict[str, object]]:
-        if review_set_ids is None:
-            latest = latest_research_triage_payload(self._app_path)
-            return [] if latest is None else [latest]
-        latest_by_review_set: list[dict[str, object]] = []
-        for review_set_id in dict.fromkeys(review_set_ids):
-            payloads = research_triage_payloads_for_review_set(
-                self._app_path,
-                review_set_id,
-            )
-            if payloads:
-                latest_by_review_set.append(payloads[0])
-        return sorted(
-            latest_by_review_set,
-            key=lambda item: str(item["published_at"]),
-            reverse=True,
-        )
-
-    def assessments(self) -> list[dict[str, object]]:
-        return list_capital_allocation_assessment_payloads(self._app_path)
-
-    def assessment(self, capital_allocation_assessment_id: str) -> dict[str, object] | None:
-        return capital_allocation_assessment_payload(
-            self._app_path, capital_allocation_assessment_id=capital_allocation_assessment_id
-        )
-
     @staticmethod
-    def _parse_run(raw: dict[str, object]) -> CandidatesRun:
+    def _parse_run(raw: dict[str, object]) -> ScreeningRunRecord:
         analyses = raw["security_analyses"]
         if not isinstance(analyses, list) or not all(isinstance(item, dict) for item in analyses):
             raise ValueError("screening security analyses must be an array of objects")
-        return CandidatesRun(
+        return ScreeningRunRecord(
             run_id=str(raw["public_run_id"]),
-            run_date=date.fromisoformat(str(raw["run_date"])),
-            asof_date=date.fromisoformat(str(raw["as_of_date"])),
-            run_at=datetime.fromisoformat(str(raw["run_at"])),
+            as_of=date.fromisoformat(str(raw["as_of_date"])),
+            generated_at=datetime.fromisoformat(str(raw["run_at"])),
             universe_size=int(str(raw["universe_size"])),
             run_revision_id=str(raw["run_revision_id"]),
             rules_ref=None if raw.get("rules_ref") is None else str(raw["rules_ref"]),

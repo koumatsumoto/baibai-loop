@@ -26,8 +26,8 @@ function entryNotes(entry: ReviewSetEntryView) {
     quality.edinet_failure_reasons,
     context.next_earnings_status,
     context.tse_capital_policy_status,
-    context.large_holding_event_recent === true ? 'large_holding_event' : null,
-    context.tender_offer_event_recent === true ? 'tender_offer_event' : null,
+    context.large_holding_filing_within_lookback === true ? 'large_holding_filing' : null,
+    context.tender_offer_filing_within_lookback === true ? 'tender_offer_filing' : null,
   ].filter((item): item is string => item !== null && item !== '')
   return flags.length === 0 ? <span className="text-muted-foreground">{EMPTY}</span> : (
     <div className="flex max-w-72 flex-wrap gap-1">
@@ -94,7 +94,8 @@ function FrozenAnalysis({ analysis }: { analysis: ReviewSetAnalysisView }) {
       <FrozenGroup fields={[
         ['next earnings status', context.next_earnings_status ?? EMPTY], ['next earnings', context.next_earnings_estimated_date ?? EMPTY],
         ['margin short / ADV', number(context.margin_short_to_adv)], ['TSE capital policy', context.tse_capital_policy_status ?? EMPTY],
-        ['large holding event', String(context.large_holding_event_recent ?? EMPTY)], ['tender offer event', String(context.tender_offer_event_recent ?? EMPTY)],
+        ['large holding filing', String(context.large_holding_filing_within_lookback ?? EMPTY)], ['latest large holding filing', context.latest_large_holding_filing_date ?? EMPTY],
+        ['tender offer filing', String(context.tender_offer_filing_within_lookback ?? EMPTY)], ['latest tender offer filing', context.latest_tender_offer_filing_date ?? EMPTY],
       ]} title="Context" />
     </div>
   )
@@ -103,7 +104,7 @@ function FrozenAnalysis({ analysis }: { analysis: ReviewSetAnalysisView }) {
 export function ReviewSetSection({ reviewSet, runAsOf }: { reviewSet: ReviewSetView | null; runAsOf: string }) {
   return (
     <SectionCard
-      description="4つの価値評価法のtop20 Nomination union。配列順は優先度ではなく、表示値は選定時にfreezeされたsnapshot。"
+      description="configured Valuation Approaches が生成した Nomination の exact union。配列順は優先度ではなく、表示値は選定時にfreezeされたsnapshot。"
       meta={reviewSet === null ? null : <div className="flex flex-wrap gap-3"><UpdatedAtBadge value={reviewSet.created_at} /><AsOfBadge compact value={runAsOf} /></div>}
       title="Review Set"
     >
