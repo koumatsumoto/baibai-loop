@@ -221,7 +221,7 @@ L1 / L2の機械store（market / macro series / screening run）のobserved / de
 
 ## 9. 参考
 
-- [`architecture.md`](./architecture.md)：3 層インフラ・engine/app package・CLI / SQLite 安定契約・repository map
+- [`architecture.md`](./architecture.md)：5層モデルと4役・store authority・package / CLI・repository map
 - [`portfolio-management.md`](./portfolio-management.md)：資本・ポジション管理・cap・積立・余力・kill switch 仕様
 - [`../.agents/skills/`](../.agents/skills/)：単一ループ各運用の手順（research_triage / research / position-review / ledger-record / macro-context / ops-maintenance）
 - [`anti-patterns.md`](./anti-patterns.md)：失敗パターンと commit 前チェックリスト

@@ -159,7 +159,7 @@ def build_security_analysis_metrics(
         # 当時のeligible母集団の 0.9% (as-of 2026-07-31 で 4/433。母集団だけなら 7.9%、screen 通過
         # だけなら 3.2%) なので量は理由にならないが、欠測は悪化の証拠でもないので止めない。
         # 通ったことが観測できないと安全弁が効いた銘柄と区別が付かないので、判定できなかった
-        # 事実を候補へ残す。
+        # 事実を Security Analysis へ残す。
         "deterioration_gate_unmeasurable": (
             financial.eps_yoy is None
             and financial.sales_yoy is None

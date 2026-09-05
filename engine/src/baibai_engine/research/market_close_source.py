@@ -4,11 +4,10 @@ The read-only market runtime copy supplies both the previous business-day close
 for a target session and same-date holding-basis closes.
 
 Research authoring lives in ``thesis``, which the import DAG keeps off the
-``baibai_engine.market`` package. The market SQLite schema is a stable platform
-contract (architecture 安定契約 contract 2: full-universe ``jquants_daily_bars``,
-version-managed, AI may issue read-only SQL directly), so this reader opens the
-store read-only and queries the documented columns, degrading to ``None`` on any
-error instead of importing the market package.
+``baibai_engine.market`` package. This reader declares the expected market SQLite
+schema version and queries full-universe ``jquants_daily_bars`` through read-only
+SQL instead of importing the market package. Schema version mismatches and SQL
+errors degrade to ``None``; a coupling test detects version drift in CI.
 
 For target-session planning, the resolved price is the raw/unadjusted ``close`` on the full-universe
 daily bars' latest market-wide session strictly before the target session. A
@@ -26,7 +25,7 @@ from datetime import date
 from math import isfinite
 from pathlib import Path
 
-# market SQLite の破壊的変更は version bump + rebuild で行われる (architecture 安定契約 2)。
+# market SQLite の破壊的変更は version bump + rebuild で行われる。
 # この reader は列名を境界越しに複製するため、想定 version を宣言し、実 store の
 # PRAGMA user_version と突き合わせて drift を検出する。定数が market 側の
 # SQLITE_SCHEMA_VERSION を追随することは coupling test が CI で保証し、version bump を

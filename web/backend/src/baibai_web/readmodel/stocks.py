@@ -666,7 +666,7 @@ def _security_analysis_row_view(
     values.update({name: _number(metrics.get(name)) for name in _METRIC_FIELDS})
     # 文字列の annotation は `_number` を通すと必ず None になるので別に詰める。
     # `dividend_basis` は「配当利回りが空である理由」を持つ唯一の field で、
-    # unresolved_split_basis を無配と読み違えないために候補表まで届ける必要がある。
+    # unresolved_split_basis を無配と読み違えないために Security Analysis 一覧まで届ける必要がある。
     text_values = {name: _text(metrics.get(name)) for name in _METRIC_TEXT_FIELDS}
     flags = _data_quality_flags(row, metrics)
     review_entry = (fair_value or {}).get(ticker)

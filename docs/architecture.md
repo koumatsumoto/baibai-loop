@@ -139,7 +139,7 @@ judgment を書くのは local だけで、cloud は machine store と serving v
 local baibai.sqlite ──publish──┐
                               v
 GitHub Actions compute <──> R2 baibai-stores
-          │                    market/runs/macro正本 + baibai replica
+          │                    market/runs/macro operational stores + baibai replica
           │ materialize
           v
 R2 baibai-serving ──binding──> Cloudflare Worker ──> browser
