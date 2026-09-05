@@ -13,9 +13,9 @@ from .thesis import (
     ThesisError,
     UnpublishedThesis,
     evaluate_thesis,
-    load_independent_review,
+    evaluation_to_payload,
     load_thesis,
-    result_to_payload,
+    load_thesis_review,
 )
 
 
@@ -29,25 +29,27 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
-    """Evaluate a thesis file and print the domain result.
+    """Evaluate a Thesis and print its domain evaluation.
 
     ``now`` fixes the instant evidence and overrides are judged against, so a
     caller reproducing a dated situation gets the same verdict whenever it runs.
     """
     args = build_parser().parse_args(argv)
     try:
-        document = load_thesis(args.thesis)
-        review_path = _review_path(args.thesis, document.independent_review_ref)
+        thesis = load_thesis(args.thesis)
+        review_path = _review_path(args.thesis, thesis.independent_review_ref)
         # The thesis scaffold reserves a stable review ref before that file exists.
         # Thesis evaluation is useful first; promotion still requires the review.
         review = (
-            load_independent_review(review_path)
+            load_thesis_review(review_path)
             if review_path is not None and review_path.is_file()
             else None
         )
         # A draft file: there is no published record to bind to yet.
-        result = evaluate_thesis(document, review=review, now=now, identity=UnpublishedThesis.DRAFT)
-        payload = result_to_payload(result)
+        evaluation = evaluate_thesis(
+            thesis, review=review, now=now, identity=UnpublishedThesis.DRAFT
+        )
+        payload = evaluation_to_payload(evaluation)
     except ThesisError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -58,7 +60,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         allow_unicode=True,
         default_flow_style=False,
     )
-    return 0 if result.decision_readiness == "ready" else 2
+    return 0 if evaluation.decision_readiness == "ready" else 2
 
 
 def _review_path(thesis_path: Path, review_ref: str | None) -> Path | None:

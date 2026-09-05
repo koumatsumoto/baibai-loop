@@ -71,12 +71,12 @@ class ReadEqMasterAsOfTests(unittest.TestCase):
             prior = read_eq_master_asof(db, date(2025, 2, 15))
             self.assertEqual(prior.status, "prior_snapshot")
             self.assertEqual(prior.snapshot_date, date(2025, 1, 31))
-            self.assertEqual([master.code for master in prior.masters], ["1301"])
+            self.assertEqual([master.ticker for master in prior.masters], ["1301"])
 
             fallback = read_eq_master_asof(db, date(2025, 1, 1))
             self.assertEqual(fallback.status, "future_snapshot")
             self.assertEqual(fallback.snapshot_date, date(2025, 1, 31))
-            self.assertEqual([master.code for master in fallback.masters], ["1301"])
+            self.assertEqual([master.ticker for master in fallback.masters], ["1301"])
 
     def test_asof_reader_is_unavailable_without_any_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

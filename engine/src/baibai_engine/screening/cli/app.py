@@ -45,12 +45,11 @@ from .cache import (
     refresh_edinet_documents_command,
     verify_cache_coverage_command,
 )
-from .capital_control_cli import (
-    backfill_edinet_identity_command,
-    build_control_event_exits_command,
-    refresh_capital_control_command,
-)
 from .common import _parse_iso_date
+from .delisting_cli import (
+    build_tender_offer_exits_command,
+    refresh_jpx_delistings_command,
+)
 from .edinet_extract import extract_edinet_metrics_command
 from .providers import ProviderBundle
 from .prune import prune_command
@@ -61,13 +60,17 @@ from .query import (
     ticker_profile_command,
 )
 from .run import run_command
+from .valuation_catalyst_cli import (
+    backfill_edinet_identity_command,
+    refresh_tse_capital_policy_command,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine screening")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    run_parser = subparsers.add_parser("run", help="run weekly screening")
+    run_parser = subparsers.add_parser("run", help="produce a Screening Run")
     run_parser.add_argument("--asof", required=True, help="screening target date (YYYY-MM-DD)")
     run_parser.add_argument(
         "--allow-stale-jpx",
@@ -91,7 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--force",
         action="store_true",
-        help="overwrite an existing candidates YAML output path",
+        help="overwrite an existing Screening Run YAML output path",
     )
 
     prune_parser = subparsers.add_parser(
@@ -182,16 +185,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="EDINET document-list lookback window in calendar days (default 540)",
     )
 
-    capital_control_parser = subparsers.add_parser(
-        "refresh-capital-control",
-        help="re-read the TSE capital-policy disclosure list and the JPX delisting record",
+    capital_policy_parser = subparsers.add_parser(
+        "refresh-tse-capital-policy",
+        help="re-read the TSE capital-policy disclosure workbook",
     )
-    capital_control_parser.add_argument(
-        "--asof",
-        required=True,
-        help="date the EDINET event histogram is reported through (YYYY-MM-DD)",
-    )
-    capital_control_parser.add_argument(
+    capital_policy_parser.add_argument(
         "--sqlite-path",
         default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
         help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
@@ -204,8 +202,18 @@ def build_parser() -> argparse.ArgumentParser:
     identity_parser.add_argument("--start", required=True, help="first day to re-list (YYYY-MM-DD)")
     identity_parser.add_argument("--end", required=True, help="last day to re-list (YYYY-MM-DD)")
 
+    delistings_parser = subparsers.add_parser(
+        "refresh-jpx-delistings",
+        help="re-read and accumulate the JPX delisting record",
+    )
+    delistings_parser.add_argument(
+        "--sqlite-path",
+        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
+        help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
+    )
+
     exits_parser = subparsers.add_parser(
-        "build-control-event-exits",
+        "build-tender-offer-exits",
         help="derive realized tender-offer exit prices for delisted names",
     )
     exits_parser.add_argument(
@@ -352,7 +360,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     profile_parser = subparsers.add_parser(
         "ticker-profile",
-        help="emit the single-ticker fact profile (price, relative, regime, events, screening)",
+        help=(
+            "emit the single-ticker deterministic fact profile "
+            "(price, relative, benchmark trend, filings, screening)"
+        ),
     )
     profile_parser.add_argument("--ticker", required=True, help="4-character ticker code")
     profile_parser.add_argument(
@@ -492,7 +503,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     snapshot_parser = subparsers.add_parser(
         "market-snapshot",
-        help="emit the market state snapshot (weekly regime history and sector aggregates)",
+        help="emit the market snapshot (weekly benchmark trend and sector aggregates)",
     )
     snapshot_parser.add_argument(
         "--asof",
@@ -724,11 +735,13 @@ def main(argv: list[str] | None = None) -> int:
             providers=providers,
         )
 
-    if args.command == "refresh-capital-control":
-        return refresh_capital_control_command(
+    if args.command == "refresh-tse-capital-policy":
+        return refresh_tse_capital_policy_command(
             sqlite_path=Path(args.sqlite_path),
-            asof_date=_parse_iso_date(args.asof),
         )
+
+    if args.command == "refresh-jpx-delistings":
+        return refresh_jpx_delistings_command(sqlite_path=Path(args.sqlite_path))
 
     if args.command == "backfill-edinet-identity":
         return backfill_edinet_identity_command(
@@ -737,8 +750,8 @@ def main(argv: list[str] | None = None) -> int:
             providers=providers,
         )
 
-    if args.command == "build-control-event-exits":
-        return build_control_event_exits_command(
+    if args.command == "build-tender-offer-exits":
+        return build_tender_offer_exits_command(
             sqlite_path=Path(args.sqlite_path),
             asof_date=_parse_iso_date(args.asof),
             providers=providers,

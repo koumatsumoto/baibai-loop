@@ -6,7 +6,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from baibai_engine.batch_api import DailyTriageDecision, ResearchTriageCandidateSnapshot
+from baibai_engine.batch_api import DailyTriageDecision, ReviewSetEntrySnapshot
 
 
 class MacroProjection(BaseModel):
@@ -24,7 +24,7 @@ class TriageCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     ticker: str = Field(pattern=r"^[0-9A-Z]{4}$")
-    snapshot: ResearchTriageCandidateSnapshot
+    snapshot: ReviewSetEntrySnapshot
 
 
 class ModelInput(BaseModel):

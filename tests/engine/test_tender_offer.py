@@ -8,11 +8,11 @@ from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from baibai_engine.screening.capital_control import JPXDelistingRow, store_jpx_delistings
+from baibai_engine.screening.delistings import DelistingRecord, store_jpx_delistings
 from baibai_engine.screening.sqlite_cache import open_connection
 from baibai_engine.screening.tender_offer import (
     TenderOfferError,
-    build_control_event_exit_values,
+    build_tender_offer_exit_values,
     parse_ordinary_share_offer_price,
     pays_in_cash_only,
     read_document_blocks,
@@ -160,7 +160,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
         store_jpx_delistings(
             sqlite_path,
             [
-                JPXDelistingRow(
+                DelistingRecord(
                     delisted_on=self.DELISTED_ON,
                     ticker="2000",
                     name="テスト",
@@ -191,7 +191,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 }
             )
 
-            values, summary = build_control_event_exit_values(
+            values, summary = build_tender_offer_exit_values(
                 sqlite_path, provider=provider, asof=self.ASOF
             )
 
@@ -208,7 +208,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
             provider = _Provider({})
 
-            values, summary = build_control_event_exit_values(
+            values, summary = build_tender_offer_exit_values(
                 sqlite_path, provider=provider, asof=self.ASOF
             )
 
@@ -228,7 +228,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
             provider = _Provider({})
 
-            values, summary = build_control_event_exit_values(
+            values, summary = build_tender_offer_exit_values(
                 sqlite_path, provider=provider, asof=self.ASOF
             )
 
@@ -249,7 +249,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 }
             )
 
-            values, summary = build_control_event_exit_values(
+            values, summary = build_tender_offer_exit_values(
                 sqlite_path, provider=provider, asof=self.ASOF
             )
 
@@ -271,7 +271,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
             provider = _Provider({})
 
-            values, summary = build_control_event_exit_values(
+            values, summary = build_tender_offer_exit_values(
                 sqlite_path, provider=provider, asof=self.ASOF
             )
 
@@ -301,7 +301,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 }
             )
 
-            values, summary = build_control_event_exit_values(
+            values, summary = build_tender_offer_exit_values(
                 sqlite_path, provider=provider, asof=self.ASOF
             )
 
@@ -334,7 +334,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 }
             )
 
-            values, summary = build_control_event_exit_values(
+            values, summary = build_tender_offer_exit_values(
                 sqlite_path, provider=provider, asof=self.ASOF
             )
 
@@ -364,7 +364,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 }
             )
 
-            values, _ = build_control_event_exit_values(
+            values, _ = build_tender_offer_exit_values(
                 sqlite_path, provider=provider, asof=self.ASOF
             )
 
@@ -394,7 +394,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 }
             )
 
-            values, _ = build_control_event_exit_values(
+            values, _ = build_tender_offer_exit_values(
                 sqlite_path, provider=provider, asof=self.ASOF
             )
 
@@ -422,7 +422,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 }
             )
 
-            values, summary = build_control_event_exit_values(
+            values, summary = build_tender_offer_exit_values(
                 sqlite_path, provider=provider, asof=self.ASOF
             )
 
@@ -441,7 +441,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 }
             )
 
-            values, _ = build_control_event_exit_values(
+            values, _ = build_tender_offer_exit_values(
                 sqlite_path, provider=provider, asof=self.ASOF
             )
 
@@ -463,7 +463,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             store_jpx_delistings(
                 sqlite_path,
                 [
-                    JPXDelistingRow(
+                    DelistingRecord(
                         delisted_on=self.DELISTED_ON,
                         ticker="2000",
                         name="テスト",
@@ -474,7 +474,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
             provider = _Provider({})
 
-            values, summary = build_control_event_exit_values(
+            values, summary = build_tender_offer_exit_values(
                 sqlite_path, provider=provider, asof=self.ASOF
             )
 
@@ -504,7 +504,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                     "RES": _archive({_OUTCOME: _SUCCESS}),
                 }
             )
-            values, _ = build_control_event_exit_values(
+            values, _ = build_tender_offer_exit_values(
                 sqlite_path, provider=provider, asof=self.ASOF
             )
             store_tender_offer_exit_values(sqlite_path, values)

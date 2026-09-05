@@ -7,13 +7,12 @@ canonical price basis for a limit is the JPX store's latest complete business-da
 *raw/unadjusted* close before the target session; adjusted series are for past
 comparison only and are never used for a limit.
 
-Design boundaries (Issue #359 Milestone A):
+Planning boundary:
 
 - Investment value is decided before budget rounding. The 20-30万円 guide is a
   sizing annotation for a normal position. Reduced sizing is exactly one board lot.
 - ``promote`` is the only command that publishes a canonical thesis/review;
   every other command writes only to a rebuildable workspace chosen by the caller.
-  workspace.
 - ``defer`` and ``no_allocation`` are normal investment judgments and exit 0.
 """
 
@@ -55,26 +54,26 @@ from baibai_engine.read_api.research_triage import (
     research_triage_payload_hash,
 )
 
-from .close_source import (
-    PreviousClose,
-    resolve_previous_business_day_close,
-)
 from .decimal_number import decimal_to_number
-from .execution_policy import ExecutionPolicyError, max_acceptable_price
+from .entry_price_policy import EntryPricePolicyError, maximum_acceptable_entry_price
+from .market_close_source import (
+    UnadjustedCloseObservation,
+    read_prior_session_unadjusted_close,
+)
 from .portfolio_exposure import (
+    calculate_prospective_portfolio_exposure,
     planned_order_cash_warnings,
     portfolio_annotations,
-    portfolio_exposure,
 )
 from .store import ResearchConflictError, ResearchStoreService, ResearchValidationError
 from .thesis import (
-    IndependentReview,
     ScreeningEstimate,
     ThesisError,
+    ThesisReview,
     UnpublishedThesis,
     evaluate_thesis,
-    load_independent_review,
     load_thesis,
+    load_thesis_review,
     thesis_core_hash,
 )
 
@@ -122,7 +121,7 @@ _THESIS_DRAFT_HEADER = """\
 """
 
 _REVIEW_DRAFT_HEADER = """\
-# independent review draft — thesis author と別 role が埋める。
+# Thesis Review draft — thesis author と別 role が埋める。
 # - reviewed_at は JST の現在時刻以前。
 # - reviewed_thesis_sha256 は生成時点の thesis core hash に束縛される。thesis を
 #   編集したら review-scaffold --force で作り直す（古い hash のままだと promote が拒否）。
@@ -182,20 +181,20 @@ def _load_mapping(path: Path, *, label: str) -> dict[str, object]:
 
 
 @dataclass(frozen=True, slots=True)
-class PrepareResult:
+class ResearchPreparation:
     workspace: Path
     actionable: bool
-    researchable_count: int
+    admissible_count: int
     review_set_size: int
     research_triage_id: str | None = None
-    researchable_tickers: tuple[str, ...] = ()
+    admissible_research_tickers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class _ResearchTriageBinding:
+class ResearchSetAdmissionBinding:
     """The canonical ResearchTriage judgment a research workspace is bound to.
 
-    ``researchable`` is the Research Triage's ``research`` set in judgment order: the exact
+    ``admissible_tickers`` is the Research Triage's ``research`` set in judgment order: the exact
     set a human may admit into the Research Set. The human still chooses
     which of those to research; what they cannot do is widen the set from the
     workspace, because a canonical thesis is produced per ticker and the Gate
@@ -206,9 +205,9 @@ class _ResearchTriageBinding:
     asof: date
     payload_hash: str
     screening_rules_hash: str
-    researchable: tuple[str, ...]
-    decision_by_ticker: dict[str, str]
-    candidates: tuple[dict[str, object], ...]
+    admissible_tickers: tuple[str, ...]
+    triage_decision_by_ticker: dict[str, str]
+    review_set_entries: tuple[dict[str, object], ...]
 
 
 def _research_triage_decisions(
@@ -219,10 +218,10 @@ def _research_triage_decisions(
     decisions: dict[str, str] = {}
     for entry in triage.entries:
         decisions[entry.ticker] = entry.decision
-    return triage.researchable_tickers(), decisions
+    return triage.admissible_research_tickers(), decisions
 
 
-def _triage_candidates(triage: ResearchTriage) -> tuple[dict[str, object], ...]:
+def _review_set_entries_from_triage(triage: ResearchTriage) -> tuple[dict[str, object], ...]:
     rows: list[dict[str, object]] = []
     for entry in sorted(triage.entries, key=lambda item: item.ticker):
         snapshot = entry.candidate_snapshot
@@ -243,7 +242,7 @@ def _resolve_research_triage(
     *,
     db_path: Path | None,
     expected_research_triage_id: str,
-) -> _ResearchTriageBinding:
+) -> ResearchSetAdmissionBinding:
     """Resolve one current judgment directly from the application DB."""
 
     try:
@@ -254,21 +253,21 @@ def _resolve_research_triage(
             )
     except (RuntimeError, ValueError, ValidationError) as exc:
         raise ResearchWorkspaceDataError(str(exc)) from exc
-    researchable, decisions = _research_triage_decisions(triage)
-    return _ResearchTriageBinding(
+    admissible_tickers, decisions = _research_triage_decisions(triage)
+    return ResearchSetAdmissionBinding(
         research_triage_id=triage.research_triage_id,
         asof=triage.as_of,
         payload_hash=research_triage_payload_hash(triage),
         screening_rules_hash=triage.screening_rules_hash,
-        researchable=researchable,
-        decision_by_ticker=decisions,
-        candidates=_triage_candidates(triage),
+        admissible_tickers=admissible_tickers,
+        triage_decision_by_ticker=decisions,
+        review_set_entries=_review_set_entries_from_triage(triage),
     )
 
 
 def _verify_research_triage(
     manifest: Mapping[str, object], inputs: Mapping[str, object], *, db_path: Path | None
-) -> _ResearchTriageBinding:
+) -> ResearchSetAdmissionBinding:
     """Re-resolve the bound judgment on every workspace gate, from the pinned inputs.
 
     The manifest names the judgment so an operator can read it, but the identity is
@@ -291,10 +290,10 @@ def _verify_research_triage(
         binding.get("payload_sha256"),
         label="manifest.inputs.research_triage.payload_sha256",
     )
-    recorded_tickers = binding.get("researchable_tickers")
+    recorded_tickers = binding.get("admissible_research_tickers")
     if not isinstance(recorded_tickers, Sequence) or isinstance(recorded_tickers, str | bytes):
         raise ResearchWorkspaceDataError(
-            "manifest.inputs.research_triage.researchable_tickers must be an array"
+            "manifest.inputs.research_triage.admissible_research_tickers must be an array"
         )
     try:
         gate = _resolve_research_triage(
@@ -310,7 +309,7 @@ def _verify_research_triage(
     if (
         gate.payload_hash != recorded_payload_hash
         or gate.asof.isoformat() != str(manifest.get("as_of"))
-        or list(gate.researchable) != [str(value) for value in recorded_tickers]
+        or list(gate.admissible_tickers) != [str(value) for value in recorded_tickers]
     ):
         raise ResearchWorkspaceConflictError(
             "workspace ResearchTriage binding does not match the canonical research_triage "
@@ -327,7 +326,7 @@ def prepare_workspace(
     research_set: Sequence[str] = (),
     started_at: datetime | None = None,
     force: bool = False,
-) -> PrepareResult:
+) -> ResearchPreparation:
     """Build a workspace from one self-contained ResearchTriage and the ledger.
 
     The workspace keeps the whole Review Set as comparison context but may only
@@ -341,11 +340,11 @@ def prepare_workspace(
         expected_research_triage_id=research_triage_id,
     )
     asof = gate.asof
-    review_set_entries = list(gate.candidates)
+    review_set_entries = list(gate.review_set_entries)
     selected = tuple(research_set)
     if len(selected) != len(set(selected)):
         raise ResearchWorkspaceDataError("Research Set tickers must be unique")
-    forbidden = [ticker for ticker in selected if ticker not in gate.researchable]
+    forbidden = [ticker for ticker in selected if ticker not in gate.admissible_tickers]
     if forbidden:
         raise ResearchWorkspaceDataError(
             f"Research Set includes {', '.join(forbidden)}, which "
@@ -368,17 +367,19 @@ def prepare_workspace(
     held = {holding.ticker for holding in snapshot.holdings}
     reserved = {reservation.ticker for reservation in snapshot.active_reservations}
     annotated = [
-        _annotate_candidate(row, held=held, reserved=reserved, decisions=gate.decision_by_ticker)
+        _annotate_review_set_entry(
+            row, held=held, reserved=reserved, decisions=gate.triage_decision_by_ticker
+        )
         for row in review_set_entries
     ]
-    researchable_count = len(gate.researchable)
+    admissible_count = len(gate.admissible_tickers)
 
     workspace_doc = {
         "as_of": asof.isoformat(),
-        "candidates": annotated,
-        "researchable_tickers": list(gate.researchable),
+        "review_set_entries": annotated,
+        "admissible_research_tickers": list(gate.admissible_tickers),
         "research_set": list(selected),
-        "researchable_count": researchable_count,
+        "admissible_count": admissible_count,
     }
     er_context, er_context_ref = _load_er_distribution_context(
         screening_rules_hash=gate.screening_rules_hash,
@@ -397,7 +398,7 @@ def prepare_workspace(
         "research_triage": {
             "research_triage_id": gate.research_triage_id,
             "payload_sha256": gate.payload_hash,
-            "researchable_tickers": list(gate.researchable),
+            "admissible_research_tickers": list(gate.admissible_tickers),
         },
         "ledger": {
             "entity_id": "portfolio-ledger",
@@ -410,7 +411,7 @@ def prepare_workspace(
         "as_of": asof.isoformat(),
         "inputs": manifest_inputs,
         "research_set": list(selected),
-        "rules": {"researchable_count": researchable_count},
+        "rules": {"admissible_count": admissible_count},
     }
     _write_workspace_file(manifest_path, manifest)
     if selected:
@@ -421,19 +422,19 @@ def prepare_workspace(
             started_at=started_at or datetime.now(JST),
         )
     _write_status(workspace, db_path=db_path)
-    return PrepareResult(
+    return ResearchPreparation(
         workspace=workspace,
         actionable=bool(selected),
-        researchable_count=researchable_count,
+        admissible_count=admissible_count,
         review_set_size=len(annotated),
         research_triage_id=gate.research_triage_id,
-        researchable_tickers=gate.researchable,
+        admissible_research_tickers=gate.admissible_tickers,
     )
 
 
 def _start_research_operation(
     *,
-    gate: _ResearchTriageBinding,
+    gate: ResearchSetAdmissionBinding,
     research_set: tuple[str, ...],
     db_path: Path | None,
     started_at: datetime,
@@ -474,7 +475,7 @@ def _start_research_operation(
 
 def _existing_research_operation(
     *,
-    gate: _ResearchTriageBinding,
+    gate: ResearchSetAdmissionBinding,
     research_set: tuple[str, ...],
     db_path: Path | None,
 ) -> OperationSession | None:
@@ -531,7 +532,7 @@ def prepare_holding_workspace(
     ticker: str,
     workspace: Path,
     force: bool = False,
-) -> PrepareResult:
+) -> ResearchPreparation:
     """Build a one-ticker research workspace for an actual open holding.
 
     Position Review bypasses Review Set publication because the canonical ledger is
@@ -586,15 +587,15 @@ def prepare_holding_workspace(
     }
     _write_workspace_file(manifest_path, manifest)
     _write_status(workspace, db_path=db_path)
-    return PrepareResult(
+    return ResearchPreparation(
         workspace=workspace,
         actionable=True,
-        researchable_count=1,
+        admissible_count=1,
         review_set_size=1,
     )
 
 
-def _annotate_candidate(
+def _annotate_review_set_entry(
     row: Mapping[str, object],
     *,
     held: set[str],
@@ -754,19 +755,19 @@ def compute_status(workspace: Path, *, db_path: Path | None = None) -> dict[str,
     return status
 
 
-def _research_triage_view(gate: _ResearchTriageBinding | None) -> dict[str, object]:
+def _research_triage_view(gate: ResearchSetAdmissionBinding | None) -> dict[str, object]:
     """Name the judgment bounding this workspace and what it lets a human admit."""
 
     if gate is None:
         return {
             "purpose": "position_review",
             "research_triage_id": None,
-            "researchable_tickers": [],
+            "admissible_research_tickers": [],
         }
     return {
         "purpose": "fundamental_research",
         "research_triage_id": gate.research_triage_id,
-        "researchable_tickers": list(gate.researchable),
+        "admissible_research_tickers": list(gate.admissible_tickers),
     }
 
 
@@ -939,7 +940,7 @@ def _status_payload(
 
 def _verify_external_inputs(
     manifest: Mapping[str, object], *, db_path: Path | None = None
-) -> _ResearchTriageBinding | None:
+) -> ResearchSetAdmissionBinding | None:
     """Re-check every external input, and return the ResearchTriage that bounds this workspace.
 
     Returning the gate rather than reading it later is what keeps the two in step:
@@ -1036,7 +1037,7 @@ def _require_holding_subject(manifest: Mapping[str, object], *, db_path: Path | 
 
 
 def _validate_editable_drafts(
-    workspace: Path, manifest: Mapping[str, object], *, gate: _ResearchTriageBinding | None
+    workspace: Path, manifest: Mapping[str, object], *, gate: ResearchSetAdmissionBinding | None
 ) -> None:
     research_workspace = _load_mapping(
         workspace / "research-workspace.yaml", label="research workspace"
@@ -1053,10 +1054,10 @@ def _validate_editable_drafts(
     if purpose != "fundamental_research":
         raise ResearchWorkspaceDataError(f"manifest purpose is invalid: {purpose}")
 
-    workspace_candidates = _dict_list(research_workspace.get("candidates"))
-    review_set_tickers = tuple(str(row.get("ticker") or "") for row in workspace_candidates)
-    expected_candidates = list(gate.candidates) if gate is not None else []
-    machine_candidates = [
+    workspace_entries = _dict_list(research_workspace.get("review_set_entries"))
+    review_set_tickers = tuple(str(row.get("ticker") or "") for row in workspace_entries)
+    expected_entries = list(gate.review_set_entries) if gate is not None else []
+    machine_entries = [
         {
             key: row.get(key)
             for key in (
@@ -1068,17 +1069,17 @@ def _validate_editable_drafts(
                 "analysis",
             )
         }
-        for row in workspace_candidates
+        for row in workspace_entries
     ]
-    if canonical_json(machine_candidates) != canonical_json(expected_candidates):
+    if canonical_json(machine_entries) != canonical_json(expected_entries):
         raise ResearchWorkspaceConflictError(
-            "workspace candidate snapshot differs from canonical ResearchTriage; "
+            "workspace Review Set Entry snapshot differs from canonical Research Triage; "
             "rebuild the workspace with `research prepare --force`"
         )
     research_set = research_workspace.get("research_set")
-    researchable_count = research_workspace.get("researchable_count")
-    if not isinstance(researchable_count, int) or researchable_count < 0:
-        raise ResearchWorkspaceDataError("workspace researchable_count is invalid")
+    admissible_count = research_workspace.get("admissible_count")
+    if not isinstance(admissible_count, int) or admissible_count < 0:
+        raise ResearchWorkspaceDataError("workspace admissible_count is invalid")
     if not isinstance(research_set, list) or not all(
         isinstance(ticker, str) and ticker for ticker in research_set
     ):
@@ -1101,14 +1102,14 @@ def _validate_editable_drafts(
         raise ResearchWorkspaceDataError(
             "Fundamental Research workspace has no ResearchTriage binding"
         )
-    forbidden = [ticker for ticker in research_set_tickers if ticker not in gate.researchable]
+    forbidden = [ticker for ticker in research_set_tickers if ticker not in gate.admissible_tickers]
     if forbidden:
         raise ResearchWorkspaceDataError(
             f"workspace Research Set includes {', '.join(forbidden)}, which "
             f"{gate.research_triage_id} did not mark research"
         )
-    if len(research_set_tickers) > researchable_count:
-        raise ResearchWorkspaceDataError("workspace Research Set exceeds researchable_count")
+    if len(research_set_tickers) > admissible_count:
+        raise ResearchWorkspaceDataError("workspace Research Set exceeds admissible_count")
 
     candidates = _dict_list(comparison.get("candidates"))
     comparison_tickers = [str(row.get("ticker") or "") for row in candidates]
@@ -1175,7 +1176,7 @@ def _review_draft_path(workspace: Path, ticker: str, asof: date) -> Path:
 
 
 def _require_primary_research_ticker(
-    workspace: Path, ticker: str, *, action: str, gate: _ResearchTriageBinding | None
+    workspace: Path, ticker: str, *, action: str, gate: ResearchSetAdmissionBinding | None
 ) -> None:
     research_workspace = _load_mapping(
         workspace / "research-workspace.yaml", label="research workspace"
@@ -1185,7 +1186,7 @@ def _require_primary_research_ticker(
         raise ResearchWorkspaceDataError(
             f"cannot {action} for {ticker}: ticker is not in the Research Set"
         )
-    if gate is not None and ticker not in gate.researchable:
+    if gate is not None and ticker not in gate.admissible_tickers:
         raise ResearchWorkspaceDataError(
             f"cannot {action} for {ticker}: {gate.research_triage_id} did not mark it research"
         )
@@ -1230,7 +1231,7 @@ def scaffold_thesis(
         )
     ticker_dir = _research_ticker_dir(workspace, ticker)
 
-    price = resolve_previous_business_day_close(
+    price = read_prior_session_unadjusted_close(
         sqlite_path=sqlite_path, ticker=ticker, target_session=target_session
     )
     if price is None:
@@ -1276,7 +1277,7 @@ def _thesis_draft_skeleton(
     *,
     ticker: str,
     asof: date,
-    price: PreviousClose,
+    price: UnadjustedCloseObservation,
     sqlite_path: Path,
     screening_estimate: dict[str, object] | None,
     screening_retrieved_at: datetime,
@@ -1372,12 +1373,17 @@ def _screening_estimate_from_triage_snapshot(
     research_workspace = _load_mapping(
         workspace / "research-workspace.yaml", label="research workspace"
     )
-    rows = {str(row.get("ticker")): row for row in _dict_list(research_workspace.get("candidates"))}
+    rows = {
+        str(row.get("ticker")): row
+        for row in _dict_list(research_workspace.get("review_set_entries"))
+    }
     row = rows.get(ticker)
     if row is None:
         raise ResearchWorkspaceDataError(f"Review Set must contain ticker exactly once: {ticker}")
     if research_workspace.get("as_of") != asof.isoformat():
-        raise ResearchWorkspaceDataError("candidate snapshot as_of does not match manifest as_of")
+        raise ResearchWorkspaceDataError(
+            "Review Set Entry snapshot as_of does not match manifest as_of"
+        )
     analysis = _required_mapping(row.get("analysis"), label="Review Set analysis")
     estimate = analysis.get("expected_return")
     if not isinstance(estimate, Mapping) or estimate.get("er_annual") is None:
@@ -1446,7 +1452,7 @@ def _finite_number(value: object, *, label: str) -> float:
     return number
 
 
-def _checklist_skeleton(*, price: PreviousClose) -> dict[str, object]:
+def _checklist_skeleton(*, price: UnadjustedCloseObservation) -> dict[str, object]:
     checks: list[dict[str, object]] = []
     for check_id in CHECKLIST_IDS:
         if check_id == "source.corporate_action" and price.corporate_action_unresolved:
@@ -1479,7 +1485,7 @@ def _checklist_skeleton(*, price: PreviousClose) -> dict[str, object]:
 def scaffold_review(
     *, workspace: Path, ticker: str, db_path: Path | None = None, force: bool = False
 ) -> dict[str, object]:
-    """Write the independent review draft bound to the current thesis core hash.
+    """Write the Thesis Review draft bound to the current thesis core hash.
 
     The review author is a distinct role from the thesis author; this scaffold only
     lays out the recalculation slots and never produces the review conclusions. The
@@ -1523,7 +1529,7 @@ def scaffold_review(
         "proposal_changed": False,
         "change_rationale": None,
     }
-    header = _REVIEW_DRAFT_HEADER + _enum_field_header(IndependentReview)
+    header = _REVIEW_DRAFT_HEADER + _enum_field_header(ThesisReview)
     write_text_atomic(review_path, header + _dump_yaml(review_draft))
     return {"review_draft": str(review_path), "reviewed_thesis_sha256": core_hash}
 
@@ -1617,7 +1623,7 @@ def promote(
 
     try:
         document = load_thesis(thesis_path)
-        review = load_independent_review(review_path)
+        review = load_thesis_review(review_path)
     except ThesisError as error:
         raise ResearchWorkspaceDataError(f"draft is not schema-valid: {error}") from error
 
@@ -1661,7 +1667,7 @@ def promote(
         ResearchStoreService(db_path, clock=lambda: now).publish_thesis_with_review(
             resolved_thesis_id,
             _load_mapping(thesis_path, label="thesis"),
-            _load_mapping(review_path, label="independent review"),
+            _load_mapping(review_path, label="Thesis Review"),
             supersedes_id=supersedes_id,
         )
     except ResearchConflictError as error:
@@ -1702,14 +1708,14 @@ def plan_limit(
     document = load_thesis(thesis)
     ticker = document.input_snapshot.ticker
     review_path = _adjacent_review_path(thesis, document.independent_review_ref)
-    review = load_independent_review(review_path) if review_path is not None else None
+    review = load_thesis_review(review_path) if review_path is not None else None
     defer_reasons: list[str] = []
 
     result = evaluate_thesis(document, review=review, now=now, identity=UnpublishedThesis.DRAFT)
     if result.decision_readiness != "ready":
         defer_reasons.append("thesis_not_decision_ready")
 
-    price = resolve_previous_business_day_close(
+    price = read_prior_session_unadjusted_close(
         sqlite_path=sqlite_path, ticker=ticker, target_session=target_session
     )
     if price is None:
@@ -1718,8 +1724,8 @@ def plan_limit(
         defer_reasons.append("corporate_action_unresolved")
 
     try:
-        max_price = max_acceptable_price(document, tick_size_yen=PLANNING_TICK_SIZE_YEN)
-    except ExecutionPolicyError as error:
+        max_price = maximum_acceptable_entry_price(document, tick_size_yen=PLANNING_TICK_SIZE_YEN)
+    except EntryPricePolicyError as error:
         raise ResearchWorkspaceDataError(f"cannot derive max acceptable price: {error}") from error
 
     close_decimal = Decimal(str(price.close_yen)) if price is not None else None
@@ -1795,14 +1801,16 @@ def plan_limit(
     if notional < budget_min_yen:
         warnings.append("budget_guide_under")
 
-    exposure, exposure_warnings, exposure_total_capital_yen = portfolio_exposure(
-        snapshot,
-        sqlite_path=sqlite_path,
-        price_as_of=price.price_as_of,
-        ticker=ticker,
-        sector=document.input_snapshot.sector,
-        common_factors=document.input_snapshot.common_factors,
-        order_notional_yen=int(notional),
+    exposure, exposure_warnings, exposure_total_capital_yen = (
+        calculate_prospective_portfolio_exposure(
+            snapshot,
+            sqlite_path=sqlite_path,
+            price_as_of=price.price_as_of,
+            ticker=ticker,
+            sector=document.input_snapshot.sector,
+            common_factors=document.input_snapshot.common_factors,
+            order_notional_yen=int(notional),
+        )
     )
     warnings.extend(
         planned_order_cash_warnings(
@@ -1872,7 +1880,7 @@ def _review_validation_errors(workspace: Path, ticker: str, asof: date) -> list[
     if not review_path.exists():
         return ["review draft missing"]
     try:
-        review = load_independent_review(review_path)
+        review = load_thesis_review(review_path)
     except ThesisError as error:
         return [str(error).splitlines()[0]]
     thesis_path = _research_ticker_dir(workspace, ticker) / "thesis-draft.yaml"
@@ -1890,7 +1898,7 @@ def _adjacent_review_path(thesis_path: Path, review_ref: str | None) -> Path | N
     if not resolved.is_relative_to(root):
         raise ResearchWorkspaceDataError("independent_review_ref must stay beside the thesis")
     if not resolved.exists():
-        raise ResearchWorkspaceDataError(f"independent review not found beside thesis: {resolved}")
+        raise ResearchWorkspaceDataError(f"Thesis Review not found beside thesis: {resolved}")
     return resolved
 
 
@@ -1912,17 +1920,17 @@ def _parse_date(value: str, *, label: str) -> date:
 
 
 __all__ = [
-    "PrepareResult",
-    "PreviousClose",
     "PromoteResult",
+    "ResearchPreparation",
     "ResearchWorkspaceConflictError",
     "ResearchWorkspaceDataError",
     "ResearchWorkspaceError",
+    "UnadjustedCloseObservation",
     "compute_status",
     "plan_limit",
     "prepare_workspace",
     "promote",
-    "resolve_previous_business_day_close",
+    "read_prior_session_unadjusted_close",
     "scaffold_review",
     "scaffold_thesis",
 ]

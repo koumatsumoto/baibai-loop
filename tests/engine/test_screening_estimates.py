@@ -9,7 +9,6 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_engine.screening.candidate_build import _close_from_snapshot
 from baibai_engine.screening.estimates import (
     REALIZATION_RATE_ANNUAL,
     SHARE_COUNT_CLIP,
@@ -21,6 +20,7 @@ from baibai_engine.screening.schema import (
     DerivedMetrics,
     FinancialSnapshot,
 )
+from baibai_engine.screening.security_analysis_builder import _close_from_snapshot
 
 
 def _financial(
@@ -36,7 +36,7 @@ def _financial(
     dividend_basis: str | None = None,
 ) -> FinancialSnapshot:
     return FinancialSnapshot(
-        latest_disclosed_at=None,
+        latest_financial_disclosure_date=None,
         per_forward=per_forward,
         per_trailing=per_trailing,
         pbr=pbr,

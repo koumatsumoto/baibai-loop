@@ -505,7 +505,7 @@ class ReviewedScenario(BaseModel):
     total_return_cagr_pct: Annotated[float, Field(ge=-100, le=1000)]
 
 
-class IndependentReview(BaseModel):
+class ThesisReview(BaseModel):
     model_config = _CONFIG
 
     review_id: Annotated[str, Field(min_length=1)]
@@ -533,7 +533,7 @@ class IndependentReview(BaseModel):
         return _tuple(value)
 
     @model_validator(mode="after")
-    def _change_has_reason(self) -> IndependentReview:
+    def _change_has_reason(self) -> ThesisReview:
         if self.proposal_changed != bool(self.change_rationale and self.change_rationale.strip()):
             raise ValueError("proposal_changed and change_rationale must be specified together")
         return self
@@ -570,7 +570,7 @@ class ScenarioProjection:
 
 
 @dataclass(frozen=True, slots=True)
-class ScenarioResult:
+class ScenarioEvaluation:
     horizon_years: int
     name: str
     terminal_earnings_yen: float
@@ -599,13 +599,13 @@ class FiveYearBaseBreakEvenResult:
 
 
 @dataclass(frozen=True, slots=True)
-class ThesisResult:
+class ThesisEvaluation:
     thesis_status: Literal["incomplete", "review_required", "ready", "ready_with_warnings"]
     decision_readiness: Literal["not_ready", "ready"]
     thesis_sha256: str
     errors: tuple[str, ...]
     warnings: tuple[str, ...]
-    scenarios: tuple[ScenarioResult, ...]
+    scenarios: tuple[ScenarioEvaluation, ...]
     five_year_base_break_even: FiveYearBaseBreakEvenResult | None = None
     screening_fv_revision_pct: Decimal | None = None
 
@@ -613,7 +613,7 @@ class ThesisResult:
 @dataclass(frozen=True, slots=True)
 class _CurrentThesisEligibility:
     status: Literal["current_ready", "expired_override_only", "invalid"]
-    result: ThesisResult
+    evaluation: ThesisEvaluation
 
 
 def load_thesis(path: Path) -> ThesisDocument:
@@ -631,17 +631,17 @@ def load_thesis(path: Path) -> ThesisDocument:
         raise ThesisError(str(error)) from error
 
 
-def load_independent_review(path: Path) -> IndependentReview:
+def load_thesis_review(path: Path) -> ThesisReview:
     """Load a second-pass artifact independently from its reviewed thesis."""
 
     try:
         raw = safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as error:
-        raise ThesisError(f"failed to load independent review: {error}") from error
+        raise ThesisError(f"failed to load Thesis Review: {error}") from error
     if not isinstance(raw, Mapping):
-        raise ThesisError("independent review root must be a mapping")
+        raise ThesisError("Thesis Review root must be a mapping")
     try:
-        return IndependentReview.model_validate(raw)
+        return ThesisReview.model_validate(raw)
     except ValidationError as error:
         raise ThesisError(str(error)) from error
 
@@ -673,9 +673,9 @@ def evaluate_thesis(
     document: ThesisDocument,
     *,
     identity: ThesisIdentity,
-    review: IndependentReview | None = None,
+    review: ThesisReview | None = None,
     now: datetime | None = None,
-) -> ThesisResult:
+) -> ThesisEvaluation:
     """Recalculate scenarios and determine whether the proposal is decision-ready.
 
     `identity` is required and has no default on purpose. A published thesis must be
@@ -843,7 +843,7 @@ def evaluate_thesis(
         ),
         None,
     )
-    return ThesisResult(
+    return ThesisEvaluation(
         thesis_status=status,
         decision_readiness="ready" if status in {"ready", "ready_with_warnings"} else "not_ready",
         thesis_sha256=core_hash,
@@ -867,7 +867,7 @@ def evaluate_thesis(
 def _classify_current_thesis_eligibility(
     document: ThesisDocument,
     *,
-    review: IndependentReview,
+    review: ThesisReview,
     now: datetime,
     identity: ThesisIdentity,
 ) -> _CurrentThesisEligibility:
@@ -940,13 +940,13 @@ def require_recorded_identity(value: object, thesis_id: str) -> str:
     return value
 
 
-def independent_review_hash(review: IndependentReview) -> str:
+def thesis_review_hash(review: ThesisReview) -> str:
     payload = review.model_dump(mode="json")
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def result_to_payload(result: ThesisResult) -> dict[str, object]:
+def evaluation_to_payload(result: ThesisEvaluation) -> dict[str, object]:
     return {
         "thesis_status": result.thesis_status,
         "decision_readiness": result.decision_readiness,
@@ -1259,7 +1259,9 @@ def project_scenario(
     )
 
 
-def _recalculate_scenario(scenario: ScenarioEstimate, *, entry_price: Decimal) -> ScenarioResult:
+def _recalculate_scenario(
+    scenario: ScenarioEstimate, *, entry_price: Decimal
+) -> ScenarioEvaluation:
     horizon = scenario.horizon_years
     projection = project_scenario(
         horizon_years=horizon,
@@ -1281,7 +1283,7 @@ def _recalculate_scenario(scenario: ScenarioEstimate, *, entry_price: Decimal) -
         )
     ):
         raise ThesisError(f"scenario {horizon}y/{scenario.name} calculation must remain finite")
-    return ScenarioResult(
+    return ScenarioEvaluation(
         horizon_years=horizon,
         name=scenario.name,
         terminal_earnings_yen=projection.terminal_earnings_yen,
@@ -1292,7 +1294,7 @@ def _recalculate_scenario(scenario: ScenarioEstimate, *, entry_price: Decimal) -
 
 
 def _compare_claims(
-    supplied: ScenarioEstimate, calculated: ScenarioResult, errors: list[str]
+    supplied: ScenarioEstimate, calculated: ScenarioEvaluation, errors: list[str]
 ) -> None:
     key = f"{supplied.horizon_years}y/{supplied.name}"
     checks = (
@@ -1543,7 +1545,7 @@ def _risk_conclusion(risks: tuple[PermanentLossRisk, ...]) -> str:
 def _has_valid_evidence_override(
     document: ThesisDocument,
     *,
-    review: IndependentReview,
+    review: ThesisReview,
     evaluated_at: datetime,
     core_sha256: str,
 ) -> bool:
@@ -1561,7 +1563,7 @@ def _has_valid_evidence_override(
 def _evidence_override_status(
     document: ThesisDocument,
     *,
-    review: IndependentReview,
+    review: ThesisReview,
     evaluated_at: datetime,
     core_sha256: str,
 ) -> Literal["absent", "invalid", "active", "expired"]:
@@ -1572,7 +1574,7 @@ def _evidence_override_status(
         document.judgment.proposed_at <= review.reviewed_at <= override.approved_at
         and override.thesis_sha256 == core_sha256
         and override.review_id == review.review_id
-        and override.review_sha256 == independent_review_hash(review)
+        and override.review_sha256 == thesis_review_hash(review)
         and document.judgment.sizing_action == "reduced"
     )
     if not bindings_valid or evaluated_at < override.approved_at:
@@ -1583,48 +1585,48 @@ def _evidence_override_status(
 
 
 def _check_review(
-    review: IndependentReview,
+    review: ThesisReview,
     expected_hash: str,
     input_snapshot: InputSnapshot,
     judgment: JudgmentNamespace,
     evaluated_at: datetime,
     source_ids: set[str],
     required_source_ids: set[str],
-    scenarios: tuple[ScenarioResult, ...],
+    scenarios: tuple[ScenarioEvaluation, ...],
     errors: list[str],
     warnings: list[str],
 ) -> None:
     if review.reviewed_thesis_sha256 != expected_hash:
-        errors.append("independent review hash does not match thesis")
+        errors.append("Thesis Review hash does not match thesis")
     if not review.checked_source_ids:
-        errors.append("independent review must check at least one source")
+        errors.append("Thesis Review must check at least one source")
     unknown = sorted(set(review.checked_source_ids) - source_ids)
     if unknown:
-        errors.append(f"independent review references unknown sources: {unknown}")
+        errors.append(f"Thesis Review references unknown sources: {unknown}")
     unchecked = sorted(required_source_ids - set(review.checked_source_ids))
     if unchecked:
-        errors.append(f"independent review did not check load-bearing sources: {unchecked}")
+        errors.append(f"Thesis Review did not check load-bearing sources: {unchecked}")
     source_tiers = {source.source_id: source.source_tier for source in input_snapshot.sources}
     if review.primary_source_check == "verified" and not any(
         source_tiers.get(source_id) == "primary" for source_id in review.checked_source_ids
     ):
         errors.append("verified primary-source review must check a primary source")
     if review.reviewed_at.date() < input_snapshot.as_of:
-        errors.append("independent review cannot predate thesis as_of")
+        errors.append("Thesis Review cannot predate thesis as_of")
     if review.reviewed_at < judgment.proposed_at:
-        errors.append("independent review cannot predate the AI proposal")
+        errors.append("Thesis Review cannot predate the AI proposal")
     if review.reviewed_at > evaluated_at:
-        errors.append("independent review cannot be future-dated")
+        errors.append("Thesis Review cannot be future-dated")
     expected = {(item.horizon_years, item.name): item.total_return_cagr_pct for item in scenarios}
     supplied = {
         (item.horizon_years, item.name): item.total_return_cagr_pct
         for item in review.recalculated_scenarios
     }
     if len(supplied) != len(review.recalculated_scenarios) or supplied != expected:
-        errors.append("independent review scenario recalculation does not match thesis")
+        errors.append("Thesis Review scenario recalculation does not match thesis")
     if review.primary_source_check != "verified":
-        warnings.append("independent review did not fully verify primary sources")
+        warnings.append("Thesis Review did not fully verify primary sources")
     if review.alternative_candidate_check != "compared":
-        warnings.append("independent review did not compare an alternative candidate")
+        warnings.append("Thesis Review did not compare an alternative candidate")
     if review.proposal_changed:
-        errors.append("independent review changed the proposal; regenerate the thesis")
+        errors.append("Thesis Review changed the proposal; regenerate the thesis")

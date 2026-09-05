@@ -64,7 +64,7 @@ def test_publish_canonicalizes_snapshot_and_is_idempotent(tmp_path: Path) -> Non
 
     assert published == repeated
     assert published.entries[0].candidate_snapshot.name == "Company 2331"
-    assert published.researchable_tickers() == ("2331",)
+    assert published.admissible_research_tickers() == ("2331",)
 
 
 def test_same_id_with_different_human_judgment_conflicts(tmp_path: Path) -> None:

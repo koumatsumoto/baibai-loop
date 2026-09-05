@@ -132,7 +132,7 @@ def _summary(
 
 def _security(code: str = "130A") -> SecurityMaster:
     return SecurityMaster(
-        code=code,
+        ticker=code,
         name="Alpha",
         market_segment="Prime",
         sector_33="情報・通信業",
@@ -1819,7 +1819,7 @@ class ScreeningMetricsTests(unittest.TestCase):
 
         without = snapshot([disclosed])
         with_future = snapshot([disclosed, undisclosed])
-        self.assertEqual(with_future.latest_disclosed_at, date(2026, 3, 1))
+        self.assertEqual(with_future.latest_financial_disclosure_date, date(2026, 3, 1))
         self.assertEqual(with_future.eps, without.eps)
         self.assertEqual(with_future.per_trailing, without.per_trailing)
 
@@ -2771,7 +2771,7 @@ class MedianPopulationTests(unittest.TestCase):
 
         securities = {
             code: SecurityMaster(
-                code=code,
+                ticker=code,
                 name=f"name-{code}",
                 market_segment="プライム",
                 sector_33="機械",
@@ -2851,7 +2851,7 @@ class MedianPopulationTests(unittest.TestCase):
         thin = {f"22{index:02d}": "海運業" for index in range(3)}
         securities = {
             code: SecurityMaster(
-                code=code,
+                ticker=code,
                 name=f"name-{code}",
                 market_segment="プライム",
                 sector_33=sector,
@@ -4156,7 +4156,9 @@ class FinancialSummaryPeriodResolutionTests(unittest.TestCase):
             edinet_by_ticker={},
         ).financials["3823"]
 
-        self.assertEqual(snapshot.latest_disclosed_at, completed_short_year.disclosed_at)
+        self.assertEqual(
+            snapshot.latest_financial_disclosure_date, completed_short_year.disclosed_at
+        )
         self.assertEqual(snapshot.sales, completed_short_year.sales)
         self.assertEqual(snapshot.shares_outstanding, completed_short_year.shares_outstanding)
 
@@ -4227,7 +4229,7 @@ class FinancialSummaryPeriodResolutionTests(unittest.TestCase):
             edinet_by_ticker={},
         ).financials["9565"]
 
-        self.assertEqual(snapshot.latest_disclosed_at, valid_q2.disclosed_at)
+        self.assertEqual(snapshot.latest_financial_disclosure_date, valid_q2.disclosed_at)
         self.assertEqual(snapshot.sales, valid_q2.sales)
 
     def test_latest_current_period_blank_withdraws_earnings_forecast(self) -> None:
@@ -4298,7 +4300,7 @@ class FinancialSummaryPeriodResolutionTests(unittest.TestCase):
             edinet_by_ticker={},
         ).financials["3281"]
 
-        self.assertEqual(snapshot.latest_disclosed_at, current.disclosed_at)
+        self.assertEqual(snapshot.latest_financial_disclosure_date, current.disclosed_at)
         self.assertEqual(snapshot.sales, current.sales)
 
 

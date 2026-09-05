@@ -38,9 +38,9 @@ from baibai_engine.read_api import (
     list_thesis_review_publications,
 )
 from baibai_engine.research.thesis import (
-    IndependentReview,
     ThesisDocument,
     ThesisError,
+    ThesisReview,
     evaluate_thesis,
     require_recorded_identity,
 )
@@ -55,14 +55,14 @@ class ResearchPriceWatchError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
-class _ThesisCandidate:
+class _ThesisPublication:
     thesis_id: str | Path
     document: ThesisDocument
     # The identity the thesis was published with. This tool only reads the store, so
-    # every candidate has one and the field carries no draft default.
+    # every publication has one and the field carries no draft default.
     core_sha256: str
     published_at: datetime = _MIN_UTC
-    review: IndependentReview | None = None
+    review: ThesisReview | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,13 +160,13 @@ def build_watch(
     rows = [
         _watch_row(
             ticker=ticker,
-            thesis=candidate.document,
+            thesis=publication.document,
             observation=observations[ticker],
             held=ticker in held_tickers,
             reserved=ticker in reserved_tickers,
             history=reservation_history.get(ticker, []),
         )
-        for ticker, candidate in watched.items()
+        for ticker, publication in watched.items()
     ]
     resolved = sorted(
         (row for row in rows if row["status"] == "resolved"),
@@ -217,16 +217,16 @@ def _load_latest_promoted_theses(
     app_db_path: Path,
     *,
     asof: date,
-) -> dict[str, _ThesisCandidate]:
+) -> dict[str, _ThesisPublication]:
     if not app_db_path.is_file():
         raise ResearchPriceWatchError(f"application database does not exist: {app_db_path}")
     reviews_by_thesis: dict[str, list[dict[str, object]]] = defaultdict(list)
-    for publication in list_thesis_review_publications(app_db_path):
-        reviews_by_thesis[str(publication["thesis_id"])].append(publication)
-    candidates: list[_ThesisCandidate] = []
-    for publication in list_thesis_publications(app_db_path):
-        thesis_id = str(publication["thesis_id"])
-        thesis_payload = publication["payload"]
+    for raw_review in list_thesis_review_publications(app_db_path):
+        reviews_by_thesis[str(raw_review["thesis_id"])].append(raw_review)
+    publications: list[_ThesisPublication] = []
+    for raw_thesis in list_thesis_publications(app_db_path):
+        thesis_id = str(raw_thesis["thesis_id"])
+        thesis_payload = raw_thesis["payload"]
         if not isinstance(thesis_payload, dict):
             raise ResearchPriceWatchError(f"thesis payload is invalid: {thesis_id}")
         document = ThesisDocument.model_validate(thesis_payload)
@@ -237,42 +237,40 @@ def _load_latest_promoted_theses(
             )
         review_publications = reviews_by_thesis.get(thesis_id, [])
         if not review_publications:
-            raise ResearchPriceWatchError(
-                f"promoted thesis requires an independent review: {thesis_id}"
-            )
+            raise ResearchPriceWatchError(f"promoted thesis requires a Thesis Review: {thesis_id}")
         review_payload = review_publications[0]["payload"]
         if not isinstance(review_payload, dict):
             raise ResearchPriceWatchError(f"review payload is invalid: {thesis_id}")
-        candidates.append(
-            _ThesisCandidate(
+        publications.append(
+            _ThesisPublication(
                 thesis_id=thesis_id,
-                published_at=datetime.fromisoformat(str(publication["published_at"])),
+                published_at=datetime.fromisoformat(str(raw_thesis["published_at"])),
                 document=document,
-                review=IndependentReview.model_validate(review_payload),
-                core_sha256=require_recorded_identity(publication["core_sha256"], thesis_id),
+                review=ThesisReview.model_validate(review_payload),
+                core_sha256=require_recorded_identity(raw_thesis["core_sha256"], thesis_id),
             )
         )
-    latest = _select_latest_theses(candidates)
-    for ticker, candidate in latest.items():
-        if candidate.review is None:  # pragma: no cover - loader invariant
+    latest = _select_latest_theses(publications)
+    for ticker, publication in latest.items():
+        if publication.review is None:  # pragma: no cover - loader invariant
             raise ResearchPriceWatchError(
-                f"promoted thesis requires an independent review: {candidate.thesis_id}"
+                f"promoted thesis requires a Thesis Review: {publication.thesis_id}"
             )
-        result = evaluate_thesis(
-            candidate.document,
-            review=candidate.review,
-            now=_historical_integrity_evaluated_at(candidate.document, candidate.review),
-            identity=candidate.core_sha256,
+        evaluation = evaluate_thesis(
+            publication.document,
+            review=publication.review,
+            now=_historical_integrity_evaluated_at(publication.document, publication.review),
+            identity=publication.core_sha256,
         )
-        if result.errors or result.decision_readiness != "ready":
-            details = "; ".join(result.errors) or result.thesis_status
+        if evaluation.errors or evaluation.decision_readiness != "ready":
+            details = "; ".join(evaluation.errors) or evaluation.thesis_status
             raise ResearchPriceWatchError(f"latest thesis for {ticker} is not ready: {details}")
     return latest
 
 
 def _historical_integrity_evaluated_at(
     document: ThesisDocument,
-    review: IndependentReview,
+    review: ThesisReview,
 ) -> datetime:
     """Rebuild artifact integrity without treating an expired override as a current signal."""
     anchors = [document.judgment.proposed_at, review.reviewed_at]
@@ -282,12 +280,12 @@ def _historical_integrity_evaluated_at(
 
 
 def _select_latest_theses(
-    candidates: list[_ThesisCandidate],
-) -> dict[str, _ThesisCandidate]:
-    by_ticker: dict[str, list[_ThesisCandidate]] = defaultdict(list)
-    for candidate in candidates:
-        by_ticker[candidate.document.input_snapshot.ticker].append(candidate)
-    selected: dict[str, _ThesisCandidate] = {}
+    publications: list[_ThesisPublication],
+) -> dict[str, _ThesisPublication]:
+    by_ticker: dict[str, list[_ThesisPublication]] = defaultdict(list)
+    for publication in publications:
+        by_ticker[publication.document.input_snapshot.ticker].append(publication)
+    selected: dict[str, _ThesisPublication] = {}
     for ticker, ticker_candidates in by_ticker.items():
         selected[ticker] = max(
             ticker_candidates,
@@ -324,7 +322,7 @@ def _reservation_history(
 def _read_market_observations(
     sqlite_path: Path,
     *,
-    theses: dict[str, _ThesisCandidate],
+    theses: dict[str, _ThesisPublication],
     asof: date,
 ) -> dict[str, _MarketObservation]:
     if not sqlite_path.is_file():
@@ -335,7 +333,7 @@ def _read_market_observations(
         conn.execute("BEGIN")
         validate_current_schema(conn)
         start = min(
-            (candidate.document.input_snapshot.as_of for candidate in theses.values()),
+            (publication.document.input_snapshot.as_of for publication in theses.values()),
             default=asof,
         )
         if not range_covered(conn, "jquants_market_calendar", start, asof):
@@ -386,12 +384,12 @@ def _read_market_observations(
                 )
         return {
             ticker: _observe_ticker(
-                thesis=candidate.document,
+                thesis=publication.document,
                 asof=asof,
                 calendar=calendar,
                 bars=bars_by_ticker[ticker],
             )
-            for ticker, candidate in theses.items()
+            for ticker, publication in theses.items()
         }
     except (TypeError, ValueError) as error:
         if isinstance(error, ResearchPriceWatchError):

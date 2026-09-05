@@ -8,12 +8,15 @@ from zoneinfo import ZoneInfo
 import pytest
 from tests.helpers.ledger import load_portfolio_ledger
 
+from baibai_engine.position.broker_fact_recording import (
+    BrokerFactRecordingError,
+    record_broker_fact,
+)
 from baibai_engine.position.ledger import (
     reconcile_portfolio,
     replay_events_through,
     reservation_snapshots,
 )
-from baibai_engine.position.result_recording import ResultRecordingError, record_result
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "portfolio-ledger" / "representative.yaml"
 JST = ZoneInfo("Asia/Tokyo")
@@ -25,7 +28,7 @@ def _at(hour: int) -> datetime:
 
 
 def test_open_report_creates_a_source_bound_reservation() -> None:
-    result = record_result(
+    result = record_broker_fact(
         load_portfolio_ledger(FIXTURE),
         decision_reference=PROPOSAL,
         status="open",
@@ -44,7 +47,7 @@ def test_open_report_creates_a_source_bound_reservation() -> None:
 
 
 def test_filled_report_consumes_the_matching_active_reservation() -> None:
-    opened = record_result(
+    opened = record_broker_fact(
         load_portfolio_ledger(FIXTURE),
         decision_reference=PROPOSAL,
         status="open",
@@ -61,7 +64,7 @@ def test_filled_report_consumes_the_matching_active_reservation() -> None:
         for item in reconcile_portfolio(opened.document).active_reservations
         if item.ticker == "2331"
     )
-    result = record_result(
+    result = record_broker_fact(
         opened.document,
         decision_reference=PROPOSAL,
         status="filled",
@@ -78,7 +81,7 @@ def test_filled_report_consumes_the_matching_active_reservation() -> None:
 
 
 def test_cancelled_report_releases_only_the_reported_reservation() -> None:
-    result = record_result(
+    result = record_broker_fact(
         load_portfolio_ledger(FIXTURE),
         decision_reference=PROPOSAL,
         status="cancelled",
@@ -90,7 +93,7 @@ def test_cancelled_report_releases_only_the_reported_reservation() -> None:
         reservation_snapshots(replay_events_through(result.document.events, result.document.as_of))
         == ()
     )
-    repeated = record_result(
+    repeated = record_broker_fact(
         result.document,
         decision_reference=PROPOSAL,
         status="cancelled",
@@ -105,8 +108,8 @@ def test_expired_report_requires_expiry_and_is_idempotent() -> None:
     ledger = load_portfolio_ledger(FIXTURE)
     expiry = datetime(2026, 7, 31, 15, 30, tzinfo=JST)
     now = datetime(2026, 8, 1, 12, 0, tzinfo=JST)
-    with pytest.raises(ResultRecordingError, match="at or after expires_at"):
-        record_result(
+    with pytest.raises(BrokerFactRecordingError, match="at or after expires_at"):
+        record_broker_fact(
             ledger,
             decision_reference=PROPOSAL,
             status="expired",
@@ -115,7 +118,7 @@ def test_expired_report_requires_expiry_and_is_idempotent() -> None:
             now=now,
         )
 
-    result = record_result(
+    result = record_broker_fact(
         ledger,
         decision_reference=PROPOSAL,
         status="expired",
@@ -130,7 +133,7 @@ def test_expired_report_requires_expiry_and_is_idempotent() -> None:
         reservation_snapshots(replay_events_through(result.document.events, result.document.as_of))
         == ()
     )
-    repeated = record_result(
+    repeated = record_broker_fact(
         result.document,
         decision_reference=PROPOSAL,
         status="expired",
@@ -142,8 +145,8 @@ def test_expired_report_requires_expiry_and_is_idempotent() -> None:
 
 
 def test_expired_report_requires_explicit_reservation_id() -> None:
-    with pytest.raises(ResultRecordingError, match="expired requires reservation_id"):
-        record_result(
+    with pytest.raises(BrokerFactRecordingError, match="expired requires reservation_id"):
+        record_broker_fact(
             load_portfolio_ledger(FIXTURE),
             decision_reference=PROPOSAL,
             status="expired",
@@ -155,7 +158,7 @@ def test_expired_report_requires_explicit_reservation_id() -> None:
 def test_expired_report_releases_only_remaining_partial_fill_quantity() -> None:
     expiry = datetime(2026, 7, 20, 15, 30, tzinfo=JST)
     now = datetime(2026, 7, 21, 12, 0, tzinfo=JST)
-    opened = record_result(
+    opened = record_broker_fact(
         load_portfolio_ledger(FIXTURE),
         decision_reference=PROPOSAL,
         status="open",
@@ -172,7 +175,7 @@ def test_expired_report_releases_only_remaining_partial_fill_quantity() -> None:
         for item in reconcile_portfolio(opened.document).active_reservations
         if item.ticker == "1234"
     )
-    partial = record_result(
+    partial = record_broker_fact(
         opened.document,
         decision_reference=PROPOSAL,
         status="filled",
@@ -192,7 +195,7 @@ def test_expired_report_releases_only_remaining_partial_fill_quantity() -> None:
         ).remaining_quantity
         == 100
     )
-    expired = record_result(
+    expired = record_broker_fact(
         partial.document,
         decision_reference=PROPOSAL,
         status="expired",
@@ -208,8 +211,8 @@ def test_expired_report_releases_only_remaining_partial_fill_quantity() -> None:
 
 
 def test_cancelled_report_at_expiry_must_use_expired_status() -> None:
-    with pytest.raises(ResultRecordingError, match="must use expired reason"):
-        record_result(
+    with pytest.raises(BrokerFactRecordingError, match="must use expired reason"):
+        record_broker_fact(
             load_portfolio_ledger(FIXTURE),
             decision_reference=PROPOSAL,
             status="cancelled",
@@ -220,8 +223,8 @@ def test_cancelled_report_at_expiry_must_use_expired_status() -> None:
 
 
 def test_filled_without_reservation_lists_missing_human_facts() -> None:
-    with pytest.raises(ResultRecordingError, match="requires ordered_at"):
-        record_result(
+    with pytest.raises(BrokerFactRecordingError, match="requires ordered_at"):
+        record_broker_fact(
             load_portfolio_ledger(FIXTURE),
             decision_reference=PROPOSAL,
             status="filled",
@@ -234,8 +237,8 @@ def test_filled_without_reservation_lists_missing_human_facts() -> None:
 
 
 def test_result_rejects_an_empty_decision_reference() -> None:
-    with pytest.raises(ResultRecordingError, match="must be non-empty"):
-        record_result(
+    with pytest.raises(BrokerFactRecordingError, match="must be non-empty"):
+        record_broker_fact(
             load_portfolio_ledger(FIXTURE),
             decision_reference="",
             status="cancelled",
@@ -247,8 +250,8 @@ def test_result_rejects_an_empty_decision_reference() -> None:
 
 def test_result_rejects_future_human_times() -> None:
     ledger = load_portfolio_ledger(FIXTURE)
-    with pytest.raises(ResultRecordingError, match="occurred_at must not be in the future"):
-        record_result(
+    with pytest.raises(BrokerFactRecordingError, match="occurred_at must not be in the future"):
+        record_broker_fact(
             ledger,
             decision_reference=PROPOSAL,
             status="cancelled",
@@ -256,8 +259,8 @@ def test_result_rejects_future_human_times() -> None:
             reservation_id="reservation-8929-pending",
             now=_at(12),
         )
-    with pytest.raises(ResultRecordingError, match="ordered_at must not be in the future"):
-        record_result(
+    with pytest.raises(BrokerFactRecordingError, match="ordered_at must not be in the future"):
+        record_broker_fact(
             ledger,
             decision_reference=PROPOSAL,
             status="filled",
@@ -274,7 +277,7 @@ def test_result_rejects_future_human_times() -> None:
 
 
 def test_corrected_fill_is_a_conflict_not_a_silent_noop() -> None:
-    opened = record_result(
+    opened = record_broker_fact(
         load_portfolio_ledger(FIXTURE),
         decision_reference=PROPOSAL,
         status="open",
@@ -291,7 +294,7 @@ def test_corrected_fill_is_a_conflict_not_a_silent_noop() -> None:
         for item in reconcile_portfolio(opened.document).active_reservations
         if item.ticker == "2331"
     )
-    filled = record_result(
+    filled = record_broker_fact(
         opened.document,
         decision_reference=PROPOSAL,
         status="filled",
@@ -302,8 +305,8 @@ def test_corrected_fill_is_a_conflict_not_a_silent_noop() -> None:
         reservation_id=reservation_id,
         now=_at(12),
     )
-    with pytest.raises(ResultRecordingError, match="conflicting human report"):
-        record_result(
+    with pytest.raises(BrokerFactRecordingError, match="conflicting human report"):
+        record_broker_fact(
             filled.document,
             decision_reference=PROPOSAL,
             status="filled",
@@ -317,7 +320,7 @@ def test_corrected_fill_is_a_conflict_not_a_silent_noop() -> None:
 
 
 def test_fill_cannot_replace_the_reservation_decision_referenceerence() -> None:
-    opened = record_result(
+    opened = record_broker_fact(
         load_portfolio_ledger(FIXTURE),
         decision_reference=PROPOSAL,
         status="open",
@@ -334,8 +337,8 @@ def test_fill_cannot_replace_the_reservation_decision_referenceerence() -> None:
         for item in reconcile_portfolio(opened.document).active_reservations
         if item.ticker == "2331"
     )
-    with pytest.raises(ResultRecordingError, match="does not match the active reservation"):
-        record_result(
+    with pytest.raises(BrokerFactRecordingError, match="does not match the active reservation"):
+        record_broker_fact(
             opened.document,
             decision_reference="https://github.com/koumatsumoto/baibai-loop/issues/361",
             status="filled",
@@ -349,7 +352,7 @@ def test_fill_cannot_replace_the_reservation_decision_referenceerence() -> None:
 
 
 def test_direct_fill_inserts_approval_before_newer_existing_events() -> None:
-    result = record_result(
+    result = record_broker_fact(
         load_portfolio_ledger(FIXTURE),
         decision_reference=PROPOSAL,
         status="filled",

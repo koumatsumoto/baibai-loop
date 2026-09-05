@@ -7,13 +7,13 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
-from .candidate_discovery import Nomination, ReviewSetAnalysis, ReviewSetMethod
+from .candidate_discovery import CandidateDiscoveryMethodIdentity, Nomination, ReviewSetAnalysis
 
 RESEARCH_TRIAGE_SCHEMA_VERSION = 3
 RESEARCH_TRIAGE_CONTRACT_ID = "research-triage-v3"
 
 
-class ResearchTriageCandidateSnapshot(BaseModel):
+class ReviewSetEntrySnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     name: str
@@ -36,7 +36,7 @@ class ResearchTriageEntry(BaseModel):
     rationale: str = Field(min_length=1)
     research_question: str | None = None
     key_risk: str | None = None
-    candidate_snapshot: ResearchTriageCandidateSnapshot
+    candidate_snapshot: ReviewSetEntrySnapshot
 
     @field_validator("rationale", "research_question", "key_risk")
     @classmethod
@@ -74,7 +74,7 @@ class ResearchTriage(BaseModel):
     macro_context_id: str | None = None
     expected_prior_research_triage_id: str | None
     screening_rules_hash: str = Field(min_length=1)
-    candidate_discovery_method: ReviewSetMethod
+    candidate_discovery_method: CandidateDiscoveryMethodIdentity
     triage_contract_id: Literal["research-triage-v3"]
     entries: tuple[ResearchTriageEntry, ...] = Field(min_length=1)
 
@@ -105,7 +105,7 @@ class ResearchTriage(BaseModel):
             raise ValueError("research priorities must be contiguous from 1")
         return self
 
-    def researchable_tickers(self) -> tuple[str, ...]:
+    def admissible_research_tickers(self) -> tuple[str, ...]:
         return tuple(
             entry.ticker
             for entry in sorted(self.entries, key=lambda item: item.priority or 10**9)
@@ -117,6 +117,6 @@ __all__ = [
     "RESEARCH_TRIAGE_CONTRACT_ID",
     "RESEARCH_TRIAGE_SCHEMA_VERSION",
     "ResearchTriage",
-    "ResearchTriageCandidateSnapshot",
     "ResearchTriageEntry",
+    "ReviewSetEntrySnapshot",
 ]

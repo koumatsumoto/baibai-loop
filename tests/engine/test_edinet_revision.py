@@ -81,7 +81,7 @@ _UNREFERENCED_ARTIFACTS = (
     "screening/discovery/review_set.py",
     "screening/calibration/evaluation.py",
     "screening/calibration/panel.py",
-    # The candidate row model and the metrics computed from EDINET rows. Both read the
+    # Security Analysis and the metrics computed from EDINET rows. Both read the
     # stored values; neither writes them.
     "screening/schema.py",
     "screening/metrics.py",

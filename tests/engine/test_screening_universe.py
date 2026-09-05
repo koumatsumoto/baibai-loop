@@ -47,7 +47,7 @@ def _bars(
 class ScreeningUniverseTests(unittest.TestCase):
     def test_latest_stale_price_uses_close_null_action_event_basis(self) -> None:
         security = SecurityMaster(
-            code="130A",
+            ticker="130A",
             name="Suspended consolidation",
             market_segment="Prime",
             sector_33="情報・通信業",
@@ -78,7 +78,7 @@ class ScreeningUniverseTests(unittest.TestCase):
 
     def test_build_universe_keeps_eligible_security(self) -> None:
         security = SecurityMaster(
-            code="130A",
+            ticker="130A",
             name="Sample",
             market_segment="Prime",
             sector_33="情報・通信業",
@@ -97,7 +97,7 @@ class ScreeningUniverseTests(unittest.TestCase):
 
     def test_future_bar_cannot_change_asof_market_cap_or_turnover(self) -> None:
         security = SecurityMaster(
-            code="130A",
+            ticker="130A",
             name="Sample",
             market_segment="Prime",
             sector_33="情報・通信業",
@@ -133,7 +133,7 @@ class ScreeningUniverseTests(unittest.TestCase):
 
     def test_build_universe_keeps_200_oku_band_security(self) -> None:
         security = SecurityMaster(
-            code="201A",
+            ticker="201A",
             name="Small Cap",
             market_segment="Standard",
             sector_33="情報・通信業",
@@ -151,7 +151,7 @@ class ScreeningUniverseTests(unittest.TestCase):
 
     def test_build_universe_records_thin_turnover_as_fact(self) -> None:
         security = SecurityMaster(
-            code="202A",
+            ticker="202A",
             name="Thin Trading",
             market_segment="Standard",
             sector_33="情報・通信業",
@@ -172,7 +172,7 @@ class ScreeningUniverseTests(unittest.TestCase):
 
     def test_build_universe_records_jpx_flags_as_fact(self) -> None:
         security = SecurityMaster(
-            code="7203",
+            ticker="7203",
             name="Sample",
             market_segment="Prime",
             sector_33="輸送用機器",
@@ -193,7 +193,7 @@ class ScreeningUniverseTests(unittest.TestCase):
 
     def test_build_universe_records_listing_span_as_fact(self) -> None:
         security = SecurityMaster(
-            code="300A",
+            ticker="300A",
             name="Newly Listed",
             market_segment="Growth",
             sector_33="情報・通信業",
@@ -222,7 +222,7 @@ class ScreeningUniverseTests(unittest.TestCase):
 
     def test_build_universe_excludes_insufficient_bar_history(self) -> None:
         security = SecurityMaster(
-            code="400A",
+            ticker="400A",
             name="Few Bars",
             market_segment="Growth",
             sector_33="情報・通信業",
@@ -264,7 +264,7 @@ class HistoricalMarketSegmentTests(unittest.TestCase):
         ):
             with self.subTest(segment=segment):
                 security = SecurityMaster(
-                    code="130A",
+                    ticker="130A",
                     name="Sample",
                     market_segment=segment,
                     sector_33="情報・通信業",
@@ -283,7 +283,7 @@ class HistoricalMarketSegmentTests(unittest.TestCase):
         # Widening the vocabulary must not widen the scope: TOKYO PRO MARKET is not
         # a market a private investor buys on ordinary terms, in either era.
         security = SecurityMaster(
-            code="130A",
+            ticker="130A",
             name="Sample",
             market_segment="TOKYO PRO MARKET",
             sector_33="情報・通信業",
@@ -311,7 +311,7 @@ class SectorClassificationScopeTests(unittest.TestCase):
 
     def _result(self, sector: str, *, is_common: bool = True) -> object:
         security = SecurityMaster(
-            code="130A",
+            ticker="130A",
             name="Sample",
             market_segment="Prime",
             sector_33=sector,
@@ -354,7 +354,7 @@ class SectorClassificationScopeTests(unittest.TestCase):
         availability on a name the screen never considered.
         """
         security = SecurityMaster(
-            code="130A",
+            ticker="130A",
             name="Sample",
             market_segment="その他",
             sector_33="新しい何か",

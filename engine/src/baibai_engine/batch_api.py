@@ -101,10 +101,10 @@ from baibai_engine.read_api.research_triage import research_triage_payloads_for_
 from baibai_engine.screening.discovery.review_set import PublishedReviewSet
 from baibai_engine.screening.research_triage import (
     ResearchTriage,
-    ResearchTriageCandidateSnapshot,
     ResearchTriageConflictError,
     ResearchTriageEntry,
     ResearchTriageService,
+    ReviewSetEntrySnapshot,
     latest_research_triage_id,
 )
 from baibai_engine.screening.run_store import ReviewSetPublication, ScreeningRunReader
@@ -245,7 +245,7 @@ def publish_daily_research_triage(
                 rationale=decision.rationale,
                 research_question=decision.research_question,
                 key_risk=decision.key_risk,
-                candidate_snapshot=ResearchTriageCandidateSnapshot(
+                candidate_snapshot=ReviewSetEntrySnapshot(
                     name=source.name,
                     sector_33=source.sector_33,
                     nominations=source.nominations,
@@ -354,7 +354,7 @@ __all__ = [
     "LocalMirrorSource",
     "MacroContextDocument",
     "MarketSchemaError",
-    "ResearchTriageCandidateSnapshot",
+    "ReviewSetEntrySnapshot",
     "StoreLayoutError",
     "advance_lake_store_origin",
     "canonical_lake_model_bytes",

@@ -42,7 +42,7 @@ _ANCHOR_TOLERANCE_DAYS = 45
 class EarningsLag:
     """1 ticker 分の決算ラグ annotation。すべて ranking・gate へ入らない。"""
 
-    fin_latest_disclosed_date: date | None
+    latest_financial_disclosure_date: date | None
     next_earnings_estimated_date: date | None
     next_earnings_status: NextEarningsStatus
     # None = 判定材料が無い: 予定日が未来 / カレンダー行が無い / 行に財務が無い。
@@ -157,14 +157,15 @@ def _shift_year(value: date, *, years: int) -> date:
 def build_earnings_lag(
     *,
     asof: date,
-    fin_latest_disclosed: date | None,
+    latest_financial_disclosure_date: date | None,
     announcement_date: date | None,
     summaries: Sequence[JQuantsFinancialSummary],
 ) -> EarningsLag:
     """1 ticker の annotation を組む。
 
-    ``fin_latest_disclosed`` は行の財務が読んだ開示日そのものを受け取る。ここで数え直すと
-    「行が使った日」と「annotation が示す日」が静かにずれうるので、導出元は 1 つに保つ。
+    ``latest_financial_disclosure_date`` は行の財務が読んだ開示日そのものを受け取る。
+    ここで数え直すと「行が使った日」と「annotation が示す日」が静かにずれうるので、
+    導出元は 1 つに保つ。
 
     状態と flag は同じ 2 入力から同時に決める。別々の層で判定すると、一方が「発表済み」
     と読む行を他方が「これから」と呼ぶ食い違いが起きる。
@@ -176,7 +177,7 @@ def build_earnings_lag(
         else estimate_next_announcement(summaries, asof=asof)
     )
     return EarningsLag(
-        fin_latest_disclosed_date=fin_latest_disclosed,
+        latest_financial_disclosure_date=latest_financial_disclosure_date,
         next_earnings_estimated_date=estimated,
         next_earnings_status=_status(
             asof=asof, announcement_date=announcement_date, estimated=estimated
@@ -184,7 +185,7 @@ def build_earnings_lag(
         stale_fin_flag=_stale_fin_flag(
             asof=asof,
             announcement_date=announcement_date,
-            fin_latest_disclosed=fin_latest_disclosed,
+            latest_financial_disclosure_date=latest_financial_disclosure_date,
         ),
     )
 
@@ -198,7 +199,7 @@ def _status(
     retrospective で 89% が誤りだった —— 決算直前の業績予想修正・再開示が同じ形に見え、
     本番の開示は予定どおり来る。誤って ``announced`` にすると読み手は目前の決算を
     event risk から外すので、判定できないほうへ倒す。前倒し開示した銘柄はカレンダーが
-    更新されるまで ``scheduled`` に見えるが、隣の ``fin_latest_disclosed_date`` が
+    更新されるまで ``scheduled`` に見えるが、隣の ``latest_financial_disclosure_date`` が
     予定日の直前を指すので読み手はそこで気づける。
     """
 
@@ -208,7 +209,7 @@ def _status(
 
 
 def _stale_fin_flag(
-    *, asof: date, announcement_date: date | None, fin_latest_disclosed: date | None
+    *, asof: date, announcement_date: date | None, latest_financial_disclosure_date: date | None
 ) -> bool | None:
     """予定日に対応する開示が行に無いか。原因は区別しない。
 
@@ -217,9 +218,13 @@ def _stale_fin_flag(
     同じ = 一次開示で切り分ける、なので、原因を断定しない。判定材料が無ければ ``None``。
     """
 
-    if announcement_date is None or announcement_date > asof or fin_latest_disclosed is None:
+    if (
+        announcement_date is None
+        or announcement_date > asof
+        or latest_financial_disclosure_date is None
+    ):
         return None
-    return (announcement_date - fin_latest_disclosed).days > _SAME_EVENT_TOLERANCE_DAYS
+    return (announcement_date - latest_financial_disclosure_date).days > _SAME_EVENT_TOLERANCE_DAYS
 
 
 def tickers_without_calendar_rows(

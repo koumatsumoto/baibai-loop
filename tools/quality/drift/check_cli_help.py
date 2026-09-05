@@ -26,7 +26,7 @@ from typing import cast
 DELEGATED_GROUPS: Mapping[str, str] = {
     "baibai-engine macro context": "baibai_engine.macro.context.cli",
     "baibai-engine macro reading": "baibai_engine.macro.reading.cli",
-    "baibai-engine research evaluate": "baibai_engine.research.decision_cli",
+    "baibai-engine research evaluate": "baibai_engine.research.thesis_evaluation_cli",
 }
 
 

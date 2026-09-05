@@ -15,7 +15,7 @@ class Nomination(BaseModel):
     rank: int = Field(ge=1)
 
 
-class ReviewSetMethod(BaseModel):
+class CandidateDiscoveryMethodIdentity(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     method_id: str = Field(min_length=1)
@@ -142,8 +142,8 @@ class ReviewSetEntry(BaseModel):
 
 
 __all__ = [
+    "CandidateDiscoveryMethodIdentity",
     "Nomination",
     "ReviewSetAnalysis",
     "ReviewSetEntry",
-    "ReviewSetMethod",
 ]

@@ -25,8 +25,8 @@ from baibai_engine.position.position_review import (
 )
 from baibai_engine.position.store import load_ledger_in_transaction
 from baibai_engine.research.thesis import (
-    IndependentReview,
     ThesisDocument,
+    ThesisReview,
     UnpublishedThesis,
     _classify_current_thesis_eligibility,
     evaluate_thesis,
@@ -39,7 +39,7 @@ def build_position_review_from_db(
     db_path: Path | None,
     holding_thesis_id: str,
     position_id: str,
-    candidate_thesis_id: str | None = None,
+    replacement_thesis_id: str | None = None,
     now: datetime | None = None,
 ) -> PositionReviewDocument:
     """Build a draft from canonical thesis revisions and the current ledger head."""
@@ -50,7 +50,7 @@ def build_position_review_from_db(
         return _build_position_review_in_transaction(
             connection,
             holding_thesis_id=holding_thesis_id,
-            candidate_thesis_id=candidate_thesis_id,
+            replacement_thesis_id=replacement_thesis_id,
             position_id=position_id,
             now=operation_now,
         )
@@ -61,7 +61,7 @@ def _build_position_review_in_transaction(
     *,
     holding_thesis_id: str,
     position_id: str,
-    candidate_thesis_id: str | None,
+    replacement_thesis_id: str | None,
     now: datetime,
 ) -> PositionReviewDocument:
     ledger, ledger_append_head = load_ledger_in_transaction(connection)
@@ -71,25 +71,25 @@ def _build_position_review_in_transaction(
         now=now,
         allow_expired_override=True,
     )
-    candidate_thesis = (
+    replacement_thesis = (
         None
-        if candidate_thesis_id is None
+        if replacement_thesis_id is None
         else _load_db_thesis(
             connection,
-            candidate_thesis_id,
+            replacement_thesis_id,
             now=now,
             allow_expired_override=False,
         )
     )
-    if not holding_thesis.current_ready and candidate_thesis is not None:
+    if not holding_thesis.current_ready and replacement_thesis is not None:
         raise PositionReviewError(
-            "expired holding thesis cannot be compared with a replacement candidate"
+            "expired holding thesis cannot be compared with a replacement Thesis"
         )
     return _compose_position_review(
         ledger=ledger,
         thesis=holding_thesis.document,
         holding_current_ready=holding_thesis.current_ready,
-        candidate=(None if candidate_thesis is None else candidate_thesis.document),
+        replacement_thesis=(None if replacement_thesis is None else replacement_thesis.document),
         position_id=position_id,
         now=now,
         sources={
@@ -100,8 +100,8 @@ def _build_position_review_in_transaction(
             "holding_thesis": {"entity_id": holding_thesis_id, "append_head": None},
             "candidate_thesis": (
                 None
-                if candidate_thesis_id is None
-                else {"entity_id": candidate_thesis_id, "append_head": None}
+                if replacement_thesis_id is None
+                else {"entity_id": replacement_thesis_id, "append_head": None}
             ),
         },
     )
@@ -112,7 +112,7 @@ def _compose_position_review(
     ledger: PortfolioLedgerDocument,
     thesis: ThesisDocument,
     holding_current_ready: bool,
-    candidate: ThesisDocument | None,
+    replacement_thesis: ThesisDocument | None,
     position_id: str,
     now: datetime,
     sources: dict[str, object],
@@ -136,15 +136,13 @@ def _compose_position_review(
         )
     current_cagr = _base_5y_cagr(thesis, now=now) if holding_current_ready else None
     replacement: dict[str, object] = {"status": "no_candidate"}
-    if candidate is not None:
-        if candidate.input_snapshot.as_of != as_of:
+    if replacement_thesis is not None:
+        if replacement_thesis.input_snapshot.as_of != as_of:
             raise PositionReviewError(
-                "candidate thesis as_of must equal the holding market-price observation date"
+                "replacement Thesis as_of must equal the holding market-price observation date"
             )
-        if candidate.input_snapshot.ticker == holding.ticker:
-            raise PositionReviewError(
-                "replacement candidate ticker must differ from holding ticker"
-            )
+        if replacement_thesis.input_snapshot.ticker == holding.ticker:
+            raise PositionReviewError("replacement Thesis ticker must differ from holding ticker")
         exit_tax: dict[str, object]
         if ledger.estimated_exit_tax_rate_bps is None:
             exit_tax = {"tax_basis": "unknown"}
@@ -162,8 +160,8 @@ def _compose_position_review(
                 "forward_5y_cagr_pct": current_cagr,
             },
             "candidate": {
-                "ticker": candidate.input_snapshot.ticker,
-                "forward_5y_cagr_pct": _base_5y_cagr(candidate, now=now),
+                "ticker": replacement_thesis.input_snapshot.ticker,
+                "forward_5y_cagr_pct": _base_5y_cagr(replacement_thesis, now=now),
             },
             "exit_tax": exit_tax,
         }
@@ -240,13 +238,15 @@ def _validate_position_review_scalars_in_transaction(
     operation_now = _operation_instant(now)
     ledger_source = document.sources.ledger
     thesis_source = document.sources.holding_thesis
-    candidate_source = document.sources.candidate_thesis
+    replacement_source = document.sources.candidate_thesis
     if ledger_source.entity_id != "portfolio-ledger" or ledger_source.append_head is None:
         raise PositionReviewError("Position Review ledger binding is incomplete")
     rebuilt = _build_position_review_in_transaction(
         connection,
         holding_thesis_id=thesis_source.entity_id,
-        candidate_thesis_id=(None if candidate_source is None else candidate_source.entity_id),
+        replacement_thesis_id=(
+            None if replacement_source is None else replacement_source.entity_id
+        ),
         position_id=document.position_id,
         now=operation_now,
     )
@@ -289,9 +289,9 @@ def _load_db_thesis(
         (thesis_id,),
     ).fetchall()
     if len(review_rows) != 1:
-        raise PositionReviewError("Position Review requires exactly one independent review")
+        raise PositionReviewError("Position Review requires exactly one Thesis Review")
     thesis = ThesisDocument.model_validate(json.loads(str(thesis_row["payload"])))
-    review = IndependentReview.model_validate(json.loads(str(review_rows[0]["payload"])))
+    review = ThesisReview.model_validate(json.loads(str(review_rows[0]["payload"])))
     eligibility = _classify_current_thesis_eligibility(
         thesis,
         review=review,
@@ -302,7 +302,7 @@ def _load_db_thesis(
         return _LoadedThesis(thesis, current_ready=True)
     if allow_expired_override and eligibility.status == "expired_override_only":
         return _LoadedThesis(thesis, current_ready=False)
-    detail = "; ".join(eligibility.result.errors) or eligibility.result.decision_readiness
+    detail = "; ".join(eligibility.evaluation.errors) or eligibility.evaluation.decision_readiness
     raise PositionReviewError(f"thesis is not ready for Position Review: {detail}")
 
 
@@ -321,9 +321,10 @@ def _thesis_market_price(thesis: ThesisDocument) -> Decimal:
 
 def _base_5y_cagr(thesis: ThesisDocument, *, now: datetime) -> float:
     # Only the scenarios are read here; the identity never leaves this call.
-    result = evaluate_thesis(thesis, now=now, identity=UnpublishedThesis.DRAFT)
+    evaluation = evaluate_thesis(thesis, now=now, identity=UnpublishedThesis.DRAFT)
     scenario = next(
-        (item for item in result.scenarios if item.horizon_years == 5 and item.name == "base"), None
+        (item for item in evaluation.scenarios if item.horizon_years == 5 and item.name == "base"),
+        None,
     )
     if scenario is None:
         raise PositionReviewError("thesis lacks a 5y base scenario")
@@ -337,7 +338,7 @@ def _whole_yen(value: Decimal) -> int:
     base path with `scenario_arithmetic --required-cagr-pct`, which prints four decimals,
     so refusing a fractional value made the documented research path unusable for any
     holding. The purchase path already resolves the same question by flooring the ceiling
-    it derives (`execution_policy.max_acceptable_price`), and this follows it: sub-yen
+    it derives (`entry_price_policy.maximum_acceptable_entry_price`), and this follows it: sub-yen
     precision is spurious against a market that trades in whole yen, and flooring keeps a
     fair value from being rounded up into an upside the thesis did not claim.
     """

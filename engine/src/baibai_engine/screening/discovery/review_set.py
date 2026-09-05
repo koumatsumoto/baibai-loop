@@ -14,10 +14,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.foundation.candidate_discovery import (
+    CandidateDiscoveryMethodIdentity,
     Nomination,
     ReviewSetAnalysis,
     ReviewSetEntry,
-    ReviewSetMethod,
 )
 from baibai_engine.foundation.coerce import metric_map, optional_float, string_or_none
 from baibai_engine.screening.metrics import MIN_SECTOR_MEDIAN_POPULATION
@@ -55,7 +55,7 @@ class PublishedReviewSet(BaseModel):
     as_of: date
     created_at: datetime
     screening_rules_hash: str = Field(min_length=1)
-    method: ReviewSetMethod
+    method: CandidateDiscoveryMethodIdentity
     entries: tuple[ReviewSetEntry, ...]
     diagnostics: Mapping[str, object]
 
@@ -82,7 +82,7 @@ class PublishedReviewSet(BaseModel):
         if tickers != sorted(tickers) or len(tickers) != len(set(tickers)):
             raise ValueError("review set entries must be unique and ordered by ticker")
         if len(self.entries) > len(APPROACH_IDS) * self.method.nomination_depth:
-            raise ValueError("review set exceeds the four-Approach Nomination union bound")
+            raise ValueError("review set exceeds the configured Valuation Approach union bound")
         ranks_by_approach: dict[str, list[int]] = {approach: [] for approach in APPROACH_IDS}
         for entry in self.entries:
             for nomination in entry.nominations:

@@ -21,9 +21,9 @@ from baibai_engine.research.position_review_builder import (
     _validate_position_review_scalars_in_transaction,
 )
 from baibai_engine.research.thesis import (
-    IndependentReview,
     ThesisDocument,
-    ThesisResult,
+    ThesisEvaluation,
+    ThesisReview,
     UnpublishedThesis,
     evaluate_thesis,
     require_recorded_identity,
@@ -102,8 +102,8 @@ class ResearchStoreService:
         review_payload: Mapping[str, object],
         *,
         supersedes_id: str | None = None,
-    ) -> tuple[ThesisDocument, IndependentReview]:
-        """Atomically publish a thesis and its independent review.
+    ) -> tuple[ThesisDocument, ThesisReview]:
+        """Atomically publish a thesis and its Thesis Review.
 
         One operation clock reading judges every evidence and override check in the
         transaction. Tests inject the service clock; production uses the JST wall
@@ -116,7 +116,7 @@ class ResearchStoreService:
             allow_review_required=True,
             now=operation_now,
         )
-        review = IndependentReview.model_validate(review_payload)
+        review = ThesisReview.model_validate(review_payload)
         # Nothing is stored yet: this is the identity the insert below records.
         _require_valid(
             evaluate_thesis(
@@ -143,10 +143,10 @@ class ResearchStoreService:
         self,
         thesis_id: str,
         payload: Mapping[str, object],
-    ) -> IndependentReview:
+    ) -> ThesisReview:
         operation_now = self._operation_now()
         publication = ReviewPublication(thesis_id, payload)
-        review = IndependentReview.model_validate(payload)
+        review = ThesisReview.model_validate(payload)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -201,7 +201,7 @@ def _validate_thesis(
     *,
     allow_review_required: bool = False,
     now: datetime,
-) -> tuple[ThesisDocument, ThesisResult]:
+) -> tuple[ThesisDocument, ThesisEvaluation]:
     if not publication.thesis_id.strip():
         raise ResearchValidationError("thesis_id must not be empty")
     thesis = ThesisDocument.model_validate(publication.payload)
@@ -211,7 +211,7 @@ def _validate_thesis(
     return thesis, result
 
 
-def _require_valid(result: ThesisResult) -> None:
+def _require_valid(result: ThesisEvaluation) -> None:
     if result.errors:
         raise ResearchValidationError("; ".join(result.errors))
 
@@ -290,7 +290,7 @@ def _thesis_row(connection: sqlite3.Connection, thesis_id: str) -> sqlite3.Row:
 def _insert_review(
     connection: sqlite3.Connection,
     publication: ReviewPublication,
-    review: IndependentReview,
+    review: ThesisReview,
     *,
     now: datetime,
 ) -> bool:
@@ -343,7 +343,7 @@ def _insert_position_review(
         candidate = document.replacement_comparison.candidate
         if candidate is None or candidate.ticker != str(candidate_thesis["ticker"]):
             raise ResearchConflictError(
-                "Position Review candidate ticker does not match candidate thesis revision"
+                "Position Review candidate ticker does not match replacement Thesis revision"
             )
     payload = canonical_json(publication.payload)
     expected = (
@@ -395,9 +395,9 @@ def _validate_canonical_holding_sources(
         raise ResearchConflictError("Position Review thesis revision binding differs")
     if candidate_source is None:
         if publication.candidate_thesis_id is not None:
-            raise ResearchConflictError("candidate thesis revision binding is missing")
+            raise ResearchConflictError("replacement Thesis revision binding is missing")
     elif candidate_source.entity_id != publication.candidate_thesis_id:
-        raise ResearchConflictError("candidate thesis revision binding differs")
+        raise ResearchConflictError("replacement Thesis revision binding differs")
 
 
 __all__ = [

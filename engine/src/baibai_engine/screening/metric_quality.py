@@ -1,10 +1,10 @@
 """Quality and provenance labels carried by a derived screening metric.
 
 These values are stored inside EDINET metric rows, so the EDINET extractor's revision
-manifest has to contain whatever defines them. They are also part of the candidate row
-model, which the extraction never reads. Keeping them in a module of their own lets the
-manifest hold the definition without holding the whole candidate model, so a change to
-the candidate row no longer invalidates every stored EDINET metric.
+manifest has to contain whatever defines them. They are also part of Security Analysis,
+which the extraction never reads. Keeping them in a module of their own lets the
+manifest hold the definition without holding the whole analysis model, so an unrelated
+Security Analysis change does not invalidate every stored EDINET metric.
 """
 
 from __future__ import annotations

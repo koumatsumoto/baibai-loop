@@ -169,14 +169,14 @@ def build_universe(
             flags.append("market_out_of_scope")
 
         history = sorted(
-            (bar for bar in bars_by_ticker.get(security.code, ()) if bar.traded_at <= asof_date),
+            (bar for bar in bars_by_ticker.get(security.ticker, ()) if bar.traded_at <= asof_date),
             key=lambda item: item.traded_at,
         )
         if len(history) < MIN_BAR_HISTORY:
             flags.append("insufficient_bar_history")
 
         if flags:
-            exclusion_flags[security.code] = tuple(flags)
+            exclusion_flags[security.ticker] = tuple(flags)
             for flag in set(flags):
                 exclusion_counts[flag] = exclusion_counts.get(flag, 0) + 1
             continue
@@ -191,20 +191,20 @@ def build_universe(
         avg_turnover_oku = (
             mean(turnovers) / 100_000_000 if len(turnovers) == MIN_BAR_HISTORY else None
         )
-        shares = shares_outstanding_by_ticker.get(security.code)
+        shares = shares_outstanding_by_ticker.get(security.ticker)
         adjustment_events = (
-            adjustment_events_by_ticker.get(security.code, ())
+            adjustment_events_by_ticker.get(security.ticker, ())
             if adjustment_events_by_ticker is not None
             else history
         )
         latest_price = asof_basis_closes([latest], adjustment_events, asof_date=asof_date)[0]
         market_cap_oku = (latest_price * shares / 100_000_000) if shares else None
 
-        snapshots[security.code] = UniverseSnapshot(
+        snapshots[security.ticker] = UniverseSnapshot(
             market_cap_oku=round(market_cap_oku) if market_cap_oku is not None else None,
             avg_turnover_oku=round(avg_turnover_oku, 1) if avg_turnover_oku is not None else None,
             listing_span_days=listing_span_days,
-            jpx_flags=tuple(sorted(set(jpx_flags_by_ticker.get(security.code, ())))),
+            jpx_flags=tuple(sorted(set(jpx_flags_by_ticker.get(security.ticker, ())))),
         )
 
     return UniverseBuildResult(

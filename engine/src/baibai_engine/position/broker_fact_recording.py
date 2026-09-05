@@ -18,25 +18,25 @@ from baibai_engine.position.ledger import (
     reservation_snapshots,
 )
 
-type ResultStatus = Literal["open", "filled", "cancelled", "expired"]
+type BrokerFactStatus = Literal["open", "filled", "cancelled", "expired"]
 
 
-class ResultRecordingError(ValueError):
+class BrokerFactRecordingError(ValueError):
     """Raised when a human report lacks facts needed for a ledger event."""
 
 
 @dataclass(frozen=True, slots=True)
-class ResultRecordingResult:
+class BrokerFactRecordingResult:
     document: PortfolioLedgerDocument
     changed: bool
     event_ids: tuple[str, ...]
 
 
-def record_result(
+def record_broker_fact(
     document: PortfolioLedgerDocument,
     *,
     decision_reference: str,
-    status: ResultStatus,
+    status: BrokerFactStatus,
     occurred_at: datetime,
     ticker: str | None = None,
     quantity: int | None = None,
@@ -49,7 +49,7 @@ def record_result(
     expires_at: datetime | None = None,
     ordered_at: datetime | None = None,
     now: datetime | None = None,
-) -> ResultRecordingResult:
+) -> BrokerFactRecordingResult:
     """Append only facts explicitly supplied by the human operator.
 
     The function never reads a broker, guesses an execution, or mutates the
@@ -62,11 +62,11 @@ def record_result(
     effective_now = _validate_report_time(occurred_at, now=now)
     if ordered_at is not None:
         if ordered_at.tzinfo is None:
-            raise ResultRecordingError("ordered_at must include a timezone")
+            raise BrokerFactRecordingError("ordered_at must include a timezone")
         if ordered_at > effective_now:
-            raise ResultRecordingError("ordered_at must not be in the future")
+            raise BrokerFactRecordingError("ordered_at must not be in the future")
     if status == "expired" and reservation_id is None:
-        raise ResultRecordingError("expired requires reservation_id")
+        raise BrokerFactRecordingError("expired requires reservation_id")
 
     existing_by_id = {event.event_id: event for event in document.events}
     if ticker is not None and status in {"open", "filled"}:
@@ -83,8 +83,8 @@ def record_result(
                 price_yen=price_yen,
                 reservation_id=reservation_id,
             ):
-                raise ResultRecordingError("conflicting human report for existing fill event")
-            return ResultRecordingResult(document=document, changed=False, event_ids=())
+                raise BrokerFactRecordingError("conflicting human report for existing fill event")
+            return BrokerFactRecordingResult(document=document, changed=False, event_ids=())
     if status in {"cancelled", "expired"} and reservation_id is not None:
         release_reason: Literal["cancelled", "expired"] = (
             "cancelled" if status == "cancelled" else "expired"
@@ -96,7 +96,7 @@ def record_result(
             decision_reference=decision_reference,
             occurred_at=occurred_at,
         ):
-            return ResultRecordingResult(document=document, changed=False, event_ids=())
+            return BrokerFactRecordingResult(document=document, changed=False, event_ids=())
 
     state = replay_events_through(document.events, document.as_of)
     holding_metadata = state.metadata.get(ticker) if ticker is not None else None
@@ -122,9 +122,9 @@ def record_result(
         _require(ticker=ticker, quantity=quantity, sector=resolved_sector)
         assert ticker is not None
         if price_guard_yen is None or expires_at is None:
-            raise ResultRecordingError("open requires price_guard_yen and expires_at")
+            raise BrokerFactRecordingError("open requires price_guard_yen and expires_at")
         if expires_at <= occurred_at:
-            raise ResultRecordingError("open expires_at must be after occurred_at")
+            raise BrokerFactRecordingError("open expires_at must be after occurred_at")
         suffix = _event_suffix(decision_reference, status, ticker, occurred_at)
         additions.append(
             {
@@ -146,7 +146,7 @@ def record_result(
         _require(ticker=ticker, quantity=quantity)
         assert ticker is not None
         if price_yen is None:
-            raise ResultRecordingError("filled requires price_yen")
+            raise BrokerFactRecordingError("filled requires price_yen")
         if reservation is None:
             if (
                 ordered_at is None
@@ -154,12 +154,14 @@ def record_result(
                 or expires_at is None
                 or resolved_sector is None
             ):
-                raise ResultRecordingError(
+                raise BrokerFactRecordingError(
                     "filled without an active reservation requires ordered_at, "
                     "price_guard_yen, expires_at, and sector"
                 )
             if not ordered_at < occurred_at < expires_at:
-                raise ResultRecordingError("filled requires ordered_at < occurred_at < expires_at")
+                raise BrokerFactRecordingError(
+                    "filled requires ordered_at < occurred_at < expires_at"
+                )
             suffix = _event_suffix(decision_reference, "open", ticker, ordered_at)
             resolved_reservation_id = reservation_id or f"reservation-{suffix}"
             additions.append(
@@ -180,12 +182,12 @@ def record_result(
             )
         else:
             if ticker != reservation.ticker:
-                raise ResultRecordingError("filled ticker does not match reservation")
+                raise BrokerFactRecordingError("filled ticker does not match reservation")
             if (
                 reservation.decision_reference is not None
                 and decision_reference != reservation.decision_reference
             ):
-                raise ResultRecordingError(
+                raise BrokerFactRecordingError(
                     "filled decision_reference does not match the active reservation"
                 )
             resolved_reservation_id = reservation.reservation_id
@@ -219,7 +221,7 @@ def record_result(
     return _patch_document(document, additions=additions, occurred_at=occurred_at)
 
 
-def record_terminal_results(
+def record_terminal_broker_facts(
     document: PortfolioLedgerDocument,
     *,
     decision_reference: str,
@@ -227,15 +229,15 @@ def record_terminal_results(
     occurred_at: datetime,
     reservation_ids: tuple[str, ...],
     now: datetime | None = None,
-) -> ResultRecordingResult:
+) -> BrokerFactRecordingResult:
     """Append simultaneous terminal reports as one reconciled ledger change."""
 
     _validate_decision_reference(decision_reference)
     _validate_report_time(occurred_at, now=now)
     if len(reservation_ids) < 2:
-        raise ResultRecordingError("batch terminal result requires multiple reservation_ids")
+        raise BrokerFactRecordingError("batch terminal result requires multiple reservation_ids")
     if len(set(reservation_ids)) != len(reservation_ids):
-        raise ResultRecordingError("reservation_ids must be unique")
+        raise BrokerFactRecordingError("reservation_ids must be unique")
 
     pending_ids = [
         reservation_id
@@ -249,7 +251,7 @@ def record_terminal_results(
         )
     ]
     if not pending_ids:
-        return ResultRecordingResult(document=document, changed=False, event_ids=())
+        return BrokerFactRecordingResult(document=document, changed=False, event_ids=())
 
     state = replay_events_through(document.events, document.as_of)
     active = {item.reservation_id: item for item in reservation_snapshots(state)}
@@ -257,7 +259,7 @@ def record_terminal_results(
     for reservation_id in pending_ids:
         reservation = active.get(reservation_id)
         if reservation is None:
-            raise ResultRecordingError(f"{status} requires an active reservation")
+            raise BrokerFactRecordingError(f"{status} requires an active reservation")
         additions.append(
             _release_addition(
                 reservation,
@@ -273,12 +275,12 @@ def record_terminal_results(
 
 def _validate_report_time(occurred_at: datetime, *, now: datetime | None) -> datetime:
     if occurred_at.tzinfo is None:
-        raise ResultRecordingError("occurred_at must include a timezone")
+        raise BrokerFactRecordingError("occurred_at must include a timezone")
     effective_now = now or datetime.now().astimezone()
     if effective_now.tzinfo is None:
-        raise ResultRecordingError("now must include a timezone")
+        raise BrokerFactRecordingError("now must include a timezone")
     if occurred_at > effective_now:
-        raise ResultRecordingError("occurred_at must not be in the future")
+        raise BrokerFactRecordingError("occurred_at must not be in the future")
     return effective_now
 
 
@@ -303,7 +305,7 @@ def _release_already_recorded(
         decision_reference=decision_reference,
         occurred_at=occurred_at,
     ):
-        raise ResultRecordingError("conflicting human report for released reservation")
+        raise BrokerFactRecordingError("conflicting human report for released reservation")
     return True
 
 
@@ -319,11 +321,11 @@ def _release_addition(
         reservation.decision_reference is not None
         and decision_reference != reservation.decision_reference
     ):
-        raise ResultRecordingError(
+        raise BrokerFactRecordingError(
             f"{status} decision_reference does not match the active reservation"
         )
     if status == "expired" and occurred_at < reservation.expires_at:
-        raise ResultRecordingError("expired occurred_at must be at or after expires_at")
+        raise BrokerFactRecordingError("expired occurred_at must be at or after expires_at")
     suffix = _event_suffix(decision_reference, status, event_identity, occurred_at)
     prefix = "human-cancel" if status == "cancelled" else "human-expire"
     return {
@@ -341,7 +343,7 @@ def _patch_document(
     *,
     additions: list[dict[str, object]],
     occurred_at: datetime,
-) -> ResultRecordingResult:
+) -> BrokerFactRecordingResult:
     existing_by_id = {event.event_id: event for event in document.events}
     pending: list[dict[str, object]] = []
     for addition in additions:
@@ -351,9 +353,9 @@ def _patch_document(
             pending.append(addition)
             continue
         if existing.model_dump(mode="json") != addition:
-            raise ResultRecordingError(f"conflicting human report for event {event_id}")
+            raise BrokerFactRecordingError(f"conflicting human report for event {event_id}")
     if not pending:
-        return ResultRecordingResult(document=document, changed=False, event_ids=())
+        return BrokerFactRecordingResult(document=document, changed=False, event_ids=())
     raw = document.model_dump(mode="json")
     raw["events"] = sorted(
         [*raw["events"], *pending],
@@ -364,8 +366,8 @@ def _patch_document(
         patched = PortfolioLedgerDocument.model_validate(raw)
         replay_events_through(patched.events, patched.as_of)
     except (PortfolioLedgerError, ValueError) as error:
-        raise ResultRecordingError(f"reported result does not reconcile: {error}") from error
-    return ResultRecordingResult(
+        raise BrokerFactRecordingError(f"reported result does not reconcile: {error}") from error
+    return BrokerFactRecordingResult(
         document=patched,
         changed=True,
         event_ids=tuple(str(item["event_id"]) for item in pending),
@@ -386,10 +388,10 @@ def _select_reservation(
         and (ticker is None or item.ticker == ticker)
     ]
     if len(matches) > 1:
-        raise ResultRecordingError("multiple active reservations match; provide reservation_id")
+        raise BrokerFactRecordingError("multiple active reservations match; provide reservation_id")
     if not matches:
         if required:
-            raise ResultRecordingError("no active reservation matches the human report")
+            raise BrokerFactRecordingError("no active reservation matches the human report")
         return None
     return matches[0]
 
@@ -397,7 +399,9 @@ def _select_reservation(
 def _require(**values: object) -> None:
     missing = [name for name, value in values.items() if value is None]
     if missing:
-        raise ResultRecordingError("missing required human report fields: " + ", ".join(missing))
+        raise BrokerFactRecordingError(
+            "missing required human report fields: " + ", ".join(missing)
+        )
 
 
 def _event_suffix(decision_reference: str, status: str, ticker: str, occurred_at: datetime) -> str:
@@ -407,7 +411,7 @@ def _event_suffix(decision_reference: str, status: str, ticker: str, occurred_at
 
 def _validate_decision_reference(value: str) -> None:
     if not value.strip():
-        raise ResultRecordingError("decision_reference must be non-empty")
+        raise BrokerFactRecordingError("decision_reference must be non-empty")
 
 
 def _same_fill_report(

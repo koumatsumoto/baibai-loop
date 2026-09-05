@@ -9,13 +9,13 @@ from pathlib import Path
 
 from baibai_engine.screening.calibration import store as calibration_store
 from baibai_engine.screening.calibration.store import CalibrationCacheError, read_panel
-from baibai_engine.screening.candidate_build import candidate_metrics_map
 from baibai_engine.screening.margin_metrics import (
     MarginBalance,
     MarginSupplyDemand,
     margin_supply_demand,
 )
 from baibai_engine.screening.schema import DerivedMetrics, FinancialSnapshot
+from baibai_engine.screening.security_analysis_builder import build_security_analysis_metrics
 
 WEEK = date(2026, 7, 24)
 
@@ -122,9 +122,9 @@ class DerivedMetricsCarriesEveryAxisTest(unittest.TestCase):
         self.assertEqual(derived.margin_week_end, WEEK)
 
     def test_candidate_output_carries_short_to_adv_and_observation_week(self) -> None:
-        metrics = candidate_metrics_map(
+        metrics = build_security_analysis_metrics(
             FinancialSnapshot(
-                latest_disclosed_at=None,
+                latest_financial_disclosure_date=None,
                 per_forward=None,
                 per_trailing=None,
                 pbr=None,

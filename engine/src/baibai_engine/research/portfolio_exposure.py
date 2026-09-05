@@ -19,8 +19,8 @@ from pathlib import Path
 from baibai_engine.position.ledger import PortfolioSnapshot
 from baibai_engine.position.policy import PORTFOLIO_POLICY
 
-from .close_source import resolve_holding_close_on_basis
 from .decimal_number import decimal_to_number
+from .market_close_source import read_holding_unadjusted_close_on_basis
 
 
 def portfolio_annotations(snapshot: PortfolioSnapshot, *, ticker: str) -> list[str]:
@@ -49,7 +49,7 @@ def planned_order_cash_warnings(
     return warnings
 
 
-def portfolio_exposure(
+def calculate_prospective_portfolio_exposure(
     snapshot: PortfolioSnapshot,
     *,
     sqlite_path: Path,
@@ -70,7 +70,7 @@ def portfolio_exposure(
     holding_values: dict[str, int] = {}
     fallback_tickers: list[str] = []
     for holding in snapshot.holdings:
-        resolved = resolve_holding_close_on_basis(
+        resolved = read_holding_unadjusted_close_on_basis(
             sqlite_path=sqlite_path,
             ticker=holding.ticker,
             ledger_price_observed_on=holding.market_price_observed_at.date(),
@@ -205,7 +205,7 @@ def portfolio_exposure(
 
 
 __all__ = [
+    "calculate_prospective_portfolio_exposure",
     "planned_order_cash_warnings",
     "portfolio_annotations",
-    "portfolio_exposure",
 ]

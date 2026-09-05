@@ -81,9 +81,8 @@ class SQLiteSnapshotSourceRef(_SourceRefBase):
     What it still proves: two builds that state the same ``source_id`` read identical
     input, and a store generation offered as the input to a rebuild can be checked
     against this digest before it is believed. What it does not promise: that such a
-    generation is still obtainable. Rebuild-from-lineage returns as a guarantee when
-    the tables a cohort needs are published as L1 releases (Issue #917), which is a
-    rebuildable input the lake keeps by key.
+    generation is still obtainable. Rebuild-from-lineage is guaranteed only when the
+    cohort's tables are published as keyed, rebuildable L1 releases.
     """
 
     kind: Literal["sqlite_snapshot"]

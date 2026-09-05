@@ -72,14 +72,14 @@ def test_event_draft_requires_confirmation_and_rejects_stale_apply(tmp_path: Pat
         apply_draft(service, second, human_confirmed=True)
 
 
-def test_record_result_apply_still_rejects_an_unreleased_expired_reservation(
+def test_record_broker_fact_apply_still_rejects_an_unreleased_expired_reservation(
     tmp_path: Path,
 ) -> None:
     db = _seeded_db(tmp_path)
     service = LedgerStoreService(db)
     source = service.load()
     draft = LedgerDraft(
-        kind="record-result",
+        kind="broker-fact",
         expected_head=service.append_head(),
         source=source,
         replacement=source.model_copy(

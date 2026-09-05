@@ -1,14 +1,7 @@
-"""Market regime snapshot derived mechanically from cached daily bars.
+"""Produce a deterministic benchmark trend for market and ticker fact profiles.
 
-Classifies the market state from price facts only (benchmark trend) as a
-fact-layer artifact: `market-snapshot` の週次履歴、`ticker-profile` の事実
-thesis、`select` diagnostics の市場状態 fact として出力し、macro context
-作成の機械入力になる。thresholds are fixed up front and never fitted to past
-data; the label annotates facts and never gates or re-ranks the Review Set
-(期間ではなく valuation と耐性で判断するため、docs/reference/screening-runtime.md)。
-
-The classification is trend-only by design: breadth や他の内部指標は label を
-gate しない (診断は macro context 側の解釈に委ねる)。
+The fixed 20-session thresholds describe only the Nikkei 225 ETF proxy's price
+direction. The resulting fact-layer annotation never gates or re-ranks the Review Set.
 """
 
 from __future__ import annotations
@@ -30,9 +23,7 @@ SELLOFF_RETURN_20D_MAX = -0.03
 TREND_WINDOW_BARS = 20
 LONG_TREND_WINDOW_BARS = 60
 
-# market_snapshot uses these for the weekly history thesis (fact layer only,
-# never gates the label). They live here so market_snapshot stays in sync with
-# the regime classifier window.
+# ``market_snapshot`` shares these windows so its weekly fact history stays aligned.
 BREADTH_MA_WINDOW_BARS = 20
 DEFAULT_MIN_BREADTH_SAMPLE = 100
 
@@ -45,62 +36,58 @@ _WEEK_52_WINDOW_BARS = 252
 _BENCHMARK_LOOKBACK_CALENDAR_DAYS = 400
 
 
-class MarketRegime(StrEnum):
-    RISK_ON_RALLY = "risk_on_rally"
-    RISK_OFF_SELLOFF = "risk_off_selloff"
-    NEUTRAL_RANGE = "neutral_range"
+class BenchmarkTrendState(StrEnum):
+    UPTREND = "uptrend"
+    DOWNTREND = "downtrend"
+    NEUTRAL = "neutral"
     UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True, slots=True)
-class MarketRegimeSnapshot:
-    asof: date
+class BenchmarkTrendSnapshot:
+    as_of: date
     benchmark_ticker: str
-    eval_date: date
+    observation_date: date
     benchmark_return_20d: float | None
     benchmark_return_60d: float | None
-    # Benchmark gap below its high over the regime lookback window (<=0; 0 = at
-    # the high). A fact-layer field, never gates the label. When this is ~0 with
-    # regime=risk_on_rally the index is extended near its highs (最高値圏): risk-
-    # reward judgement must then stress the downside (tail/gap), not read the
-    # trailing target/stop ratio as the real RR.
+    # Benchmark gap below its high over the lookback window (<=0; 0 = at the high).
     benchmark_gap_from_high: float | None
-    regime: MarketRegime
+    trend_state: BenchmarkTrendState
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "asof": self.asof.isoformat(),
+            "as_of": self.as_of.isoformat(),
             "benchmark_ticker": self.benchmark_ticker,
-            "eval_date": self.eval_date.isoformat(),
+            "observation_date": self.observation_date.isoformat(),
             "benchmark_return_20d": self.benchmark_return_20d,
             "benchmark_return_60d": self.benchmark_return_60d,
             "benchmark_gap_from_high": self.benchmark_gap_from_high,
-            "regime": self.regime.value,
+            "trend_state": self.trend_state.value,
         }
 
 
-def classify_market_regime(benchmark_return_20d: float | None) -> MarketRegime:
-    """Classify the regime from the fixed trend threshold; unknown when missing."""
+def classify_benchmark_trend(benchmark_return_20d: float | None) -> BenchmarkTrendState:
+    """Classify the benchmark direction from fixed thresholds."""
     if benchmark_return_20d is None:
-        return MarketRegime.UNKNOWN
+        return BenchmarkTrendState.UNKNOWN
     if benchmark_return_20d >= RALLY_RETURN_20D_MIN:
-        return MarketRegime.RISK_ON_RALLY
+        return BenchmarkTrendState.UPTREND
     if benchmark_return_20d <= SELLOFF_RETURN_20D_MAX:
-        return MarketRegime.RISK_OFF_SELLOFF
-    return MarketRegime.NEUTRAL_RANGE
+        return BenchmarkTrendState.DOWNTREND
+    return BenchmarkTrendState.NEUTRAL
 
 
-def compute_market_regime(
+def compute_benchmark_trend(
     sqlite_path: Path,
     asof_date: date,
     *,
     benchmark_ticker: str = NIKKEI225_ETF_PROXY,
-) -> MarketRegimeSnapshot | None:
-    """Compute the regime snapshot from cached daily bars as of ``asof_date``.
+) -> BenchmarkTrendSnapshot | None:
+    """Compute the benchmark trend snapshot from cached daily bars.
 
     Returns ``None`` when the SQLite cache is absent or holds no bars on or
     before ``asof_date``; insufficient history degrades individual fields to
-    ``None`` and the regime to ``unknown`` instead of failing, so callers can
+    ``None`` and the state to ``unknown`` instead of failing, so callers can
     keep ranking with the diagnostic disabled while recording why.
     """
     if not sqlite_path.exists():
@@ -112,17 +99,17 @@ def compute_market_regime(
     )
     if not benchmark_series:
         return None
-    eval_date = benchmark_series[-1][0]
+    observation_date = benchmark_series[-1][0]
     benchmark_return_20d = _trailing_return(benchmark_series, TREND_WINDOW_BARS)
     benchmark_return_60d = _trailing_return(benchmark_series, LONG_TREND_WINDOW_BARS)
-    return MarketRegimeSnapshot(
-        asof=asof_date,
+    return BenchmarkTrendSnapshot(
+        as_of=asof_date,
         benchmark_ticker=benchmark_ticker,
-        eval_date=eval_date,
+        observation_date=observation_date,
         benchmark_return_20d=benchmark_return_20d,
         benchmark_return_60d=benchmark_return_60d,
         benchmark_gap_from_high=_gap_from_high(benchmark_series),
-        regime=classify_market_regime(benchmark_return_20d),
+        trend_state=classify_benchmark_trend(benchmark_return_20d),
     )
 
 

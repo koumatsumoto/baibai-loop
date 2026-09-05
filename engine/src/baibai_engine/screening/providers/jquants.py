@@ -272,7 +272,7 @@ class JQuantsProvider(JQuantsMarketProvider):
         validated = validate_master_snapshot(records, requested_asof)
         return [
             SecurityMaster(
-                code=ticker,
+                ticker=ticker,
                 name=name,
                 market_segment=market,
                 sector_33=sector,

@@ -14,8 +14,8 @@ from baibai_engine.foundation.research_triage import (
     RESEARCH_TRIAGE_CONTRACT_ID,
     RESEARCH_TRIAGE_SCHEMA_VERSION,
     ResearchTriage,
-    ResearchTriageCandidateSnapshot,
     ResearchTriageEntry,
+    ReviewSetEntrySnapshot,
 )
 from baibai_engine.read_api.macro import latest_macro_context_payload, macro_context_payload
 from baibai_engine.read_api.research_triage import (
@@ -85,7 +85,7 @@ class ResearchTriageService:
             entries.append(
                 entry.model_copy(
                     update={
-                        "candidate_snapshot": ResearchTriageCandidateSnapshot(
+                        "candidate_snapshot": ReviewSetEntrySnapshot(
                             name=source.name,
                             sector_33=source.sector_33,
                             nominations=source.nominations,
@@ -155,10 +155,10 @@ __all__ = [
     "RESEARCH_TRIAGE_CONTRACT_ID",
     "RESEARCH_TRIAGE_SCHEMA_VERSION",
     "ResearchTriage",
-    "ResearchTriageCandidateSnapshot",
     "ResearchTriageConflictError",
     "ResearchTriageEntry",
     "ResearchTriageService",
+    "ReviewSetEntrySnapshot",
     "latest_research_triage_id",
     "research_triage_payload_hash",
 ]
