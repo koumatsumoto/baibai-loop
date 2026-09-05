@@ -116,7 +116,7 @@ def build_screening(
     research: ResearchSource,
     er_level_calibration: ErLevelCalibrationContext | None = None,
 ) -> ScreeningView:
-    """Build the latest candidates table with portfolio/research annotations."""
+    """Build the latest Security Analysis view with portfolio/research annotations."""
 
     run, review_sets = _operative_run(screening)
     applicable_calibration = _calibration_for_run(run, er_level_calibration)
@@ -214,7 +214,7 @@ def _operative_run(
     A newer revision of the same as-of — a determinism re-run, say — carries no
     review_set of its own, so presenting it would blank the machine-review_set view
     and the FV anchors that hang off it. Falling back to the newest review_set's run
-    keeps the candidates table, its review_sets, and the research_triage join on one run.
+    keeps Security Analyses, their review_sets, and the research_triage join on one run.
 
     Every surface that shows a candidate resolves the run here, so the list and the
     security page cannot end up describing the same ticker from different runs.
@@ -444,7 +444,7 @@ def _research_triage_entry_view(raw: Mapping[str, object]) -> ResearchTriageEntr
     view = ResearchTriageEntryView.model_validate({**raw, "machine_snapshot": None})
     analysis = snapshot.get("analysis")
     if not isinstance(analysis, Mapping):
-        raise ValueError("Research Triage candidate analysis must be an object")
+        raise ValueError("Research Triage Review Set Entry analysis must be an object")
     normalized = {
         "name": snapshot.get("name"),
         "sector_33": snapshot.get("sector_33"),
@@ -517,7 +517,7 @@ def build_security_detail(
             revision=latest_revision,
             security_name=security_name,
             market_close=market.latest_closes([ticker]).get(ticker),
-            next_earnings_date=market.next_earnings_dates([ticker], asof=today).get(ticker),
+            next_earnings_date=market.next_earnings_dates([ticker], as_of=today).get(ticker),
         )
         if holding_snapshot is not None
         else None
@@ -741,8 +741,8 @@ def _er_level_calibration_view(
         horizons=[
             ErLevelCalibrationHorizonView(
                 horizon=item.horizon,
-                asof_start=item.asof_start,
-                asof_end=item.asof_end,
+                as_of_start=item.as_of_start,
+                as_of_end=item.as_of_end,
                 cohort_count=item.cohort_count,
                 bands=[
                     ErLevelCalibrationBandView(

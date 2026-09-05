@@ -77,7 +77,7 @@ function fetchRun(series_id: string, status: string): MacroSeriesFetchHealthView
 
 function readingView(overrides: Partial<MacroReadingView> = {}): MacroReadingView {
   return {
-    asof: '2026-07-27',
+    as_of: '2026-07-27',
     rules_revision: 'v6',
     series: [],
     fetch_health: [],

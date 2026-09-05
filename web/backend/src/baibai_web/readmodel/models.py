@@ -15,8 +15,8 @@ class MetaView(BaseModel):
 
     generated_at: datetime
     data_updated_at: datetime | None
-    screening_asof: date | None
-    macro_asof: date | None
+    screening_as_of: date | None
+    macro_as_of: date | None
     app_db_updated_at: datetime | None
     batch: MetaBatch | None
 
@@ -237,8 +237,8 @@ class ErLevelCalibrationBandView(BaseModel):
 
 class ErLevelCalibrationHorizonView(BaseModel):
     horizon: str
-    asof_start: date
-    asof_end: date
+    as_of_start: date
+    as_of_end: date
     cohort_count: int
     bands: list[ErLevelCalibrationBandView]
 
@@ -697,7 +697,7 @@ class MacroReadingView(BaseModel):
     just gone silent — a low-frequency series stays inside its threshold for weeks.
     """
 
-    asof: date
+    as_of: date
     rules_revision: str
     series: list[MacroReadingSeriesView]
     fetch_health: list[MacroSeriesFetchHealthView]
@@ -878,8 +878,8 @@ class DailyDeltaView(BaseModel):
     """
 
     generated_at: datetime
-    asof: date | None
-    previous_asof: date | None
+    as_of: date | None
+    previous_as_of: date | None
     pool: DeltaPool | None
     rules_changed: bool
     entered: list[ReviewSetEntryDeltaView]
