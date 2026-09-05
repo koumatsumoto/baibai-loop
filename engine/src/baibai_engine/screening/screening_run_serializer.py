@@ -24,7 +24,7 @@ _DECIMAL_PLACES = {
 
 
 class ScreeningRunSerializationError(ValueError):
-    """Raised when screened YAML cannot be rendered safely."""
+    """Raised when a Screening Run YAML export cannot be serialized safely."""
 
 
 class QuotedString(str):
@@ -93,58 +93,58 @@ def _screening_run_payload(document: ScreeningRunDocument) -> dict[str, object]:
     return front_matter
 
 
-def security_analysis_payload(candidate: SecurityAnalysis) -> dict[str, object]:
+def security_analysis_payload(analysis: SecurityAnalysis) -> dict[str, object]:
     """Serialize one analyzed security to its YAML entry shape.
 
     Production and calibration use the same rounded coordinates so a valuation
     approach cannot observe a different row in replay.
     """
     entry: dict[str, object] = {}
-    entry["ticker"] = QuotedString(candidate.ticker)
-    entry["name"] = QuotedString(candidate.name)
-    entry["per_forward"] = _round_value("per_forward", candidate.per_forward)
-    entry["per_trailing"] = _round_value("per_trailing", candidate.per_trailing)
-    entry["pbr"] = _round_value("pbr", candidate.pbr)
-    entry["ev_ebitda"] = _round_value("ev_ebitda", candidate.ev_ebitda)
-    entry["p_s"] = _round_value("p_s", candidate.p_s)
-    entry["pcfr"] = _round_value("pcfr", candidate.pcfr)
-    entry["sector_33"] = QuotedString(candidate.sector_33)
-    entry["market_cap_oku"] = candidate.market_cap_oku
+    entry["ticker"] = QuotedString(analysis.ticker)
+    entry["name"] = QuotedString(analysis.name)
+    entry["per_forward"] = _round_value("per_forward", analysis.per_forward)
+    entry["per_trailing"] = _round_value("per_trailing", analysis.per_trailing)
+    entry["pbr"] = _round_value("pbr", analysis.pbr)
+    entry["ev_ebitda"] = _round_value("ev_ebitda", analysis.ev_ebitda)
+    entry["p_s"] = _round_value("p_s", analysis.p_s)
+    entry["pcfr"] = _round_value("pcfr", analysis.pcfr)
+    entry["sector_33"] = QuotedString(analysis.sector_33)
+    entry["market_cap_oku"] = analysis.market_cap_oku
     entry["avg_turnover_oku"] = (
-        round(candidate.avg_turnover_oku, 1) if candidate.avg_turnover_oku is not None else None
+        round(analysis.avg_turnover_oku, 1) if analysis.avg_turnover_oku is not None else None
     )
-    entry["listing_span_days"] = candidate.listing_span_days
-    entry["jpx_flags"] = [QuotedString(flag) for flag in candidate.jpx_flags]
-    entry["price_change_1d"] = _round_ratio(candidate.price_change_1d)
-    entry["price_change_5d"] = _round_ratio(candidate.price_change_5d)
-    entry["price_change_20d"] = _round_ratio(candidate.price_change_20d)
-    entry["price_change_60d"] = _round_ratio(candidate.price_change_60d)
-    entry["gap_from_52w_low"] = _round_ratio(candidate.gap_from_52w_low)
-    entry["turnover_spike_5d"] = _round_ratio(candidate.turnover_spike_5d)
+    entry["listing_span_days"] = analysis.listing_span_days
+    entry["jpx_flags"] = [QuotedString(flag) for flag in analysis.jpx_flags]
+    entry["price_change_1d"] = _round_ratio(analysis.price_change_1d)
+    entry["price_change_5d"] = _round_ratio(analysis.price_change_5d)
+    entry["price_change_20d"] = _round_ratio(analysis.price_change_20d)
+    entry["price_change_60d"] = _round_ratio(analysis.price_change_60d)
+    entry["gap_from_52w_low"] = _round_ratio(analysis.gap_from_52w_low)
+    entry["turnover_spike_5d"] = _round_ratio(analysis.turnover_spike_5d)
     entry["sector_relative_strength_percentile"] = _round_ratio(
-        candidate.sector_relative_strength_percentile
+        analysis.sector_relative_strength_percentile
     )
-    entry["price_history_sessions_750d"] = candidate.price_history_sessions_750d
-    entry["price_history_coverage_750d"] = _round_ratio(candidate.price_history_coverage_750d)
-    entry["metrics"] = _round_metrics(candidate.metrics)
+    entry["price_history_sessions_750d"] = analysis.price_history_sessions_750d
+    entry["price_history_coverage_750d"] = _round_ratio(analysis.price_history_coverage_750d)
+    entry["metrics"] = _round_metrics(analysis.metrics)
     entry["next_earnings_date"] = (
-        QuotedString(candidate.next_earnings_date.isoformat())
-        if candidate.next_earnings_date is not None
+        QuotedString(analysis.next_earnings_date.isoformat())
+        if analysis.next_earnings_date is not None
         else None
     )
-    entry["split_adjustment_flag"] = candidate.split_adjustment_flag
+    entry["split_adjustment_flag"] = analysis.split_adjustment_flag
     entry["freshness_warnings"] = [
-        _build_freshness_warning(warning) for warning in candidate.freshness_warnings
+        _build_freshness_warning(warning) for warning in analysis.freshness_warnings
     ]
     entry["ttm_quality"] = {
-        "ev_ebitda": candidate.ttm_quality.get("ev_ebitda", TTMQuality.UNAVAILABLE).value,
-        "per_trailing": candidate.ttm_quality.get("per_trailing", TTMQuality.UNAVAILABLE).value,
-        "p_s": candidate.ttm_quality.get("p_s", TTMQuality.UNAVAILABLE).value,
-        "pcfr": candidate.ttm_quality.get("pcfr", TTMQuality.UNAVAILABLE).value,
-        "ocf_yield": candidate.ttm_quality.get("ocf_yield", TTMQuality.UNAVAILABLE).value,
-        "sales": candidate.ttm_quality.get("sales", TTMQuality.UNAVAILABLE).value,
-        "fcf_yield": candidate.ttm_quality.get("fcf_yield", TTMQuality.UNAVAILABLE).value,
-        "net_cash": candidate.ttm_quality.get("net_cash", TTMQuality.UNAVAILABLE).value,
+        "ev_ebitda": analysis.ttm_quality.get("ev_ebitda", TTMQuality.UNAVAILABLE).value,
+        "per_trailing": analysis.ttm_quality.get("per_trailing", TTMQuality.UNAVAILABLE).value,
+        "p_s": analysis.ttm_quality.get("p_s", TTMQuality.UNAVAILABLE).value,
+        "pcfr": analysis.ttm_quality.get("pcfr", TTMQuality.UNAVAILABLE).value,
+        "ocf_yield": analysis.ttm_quality.get("ocf_yield", TTMQuality.UNAVAILABLE).value,
+        "sales": analysis.ttm_quality.get("sales", TTMQuality.UNAVAILABLE).value,
+        "fcf_yield": analysis.ttm_quality.get("fcf_yield", TTMQuality.UNAVAILABLE).value,
+        "net_cash": analysis.ttm_quality.get("net_cash", TTMQuality.UNAVAILABLE).value,
     }
     return entry
 
