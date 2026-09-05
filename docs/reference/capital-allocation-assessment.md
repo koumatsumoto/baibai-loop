@@ -28,6 +28,11 @@ persisted field `result / review / forgone`はstorage contractとして維持す
 
 ## Publish gate
 
+checkとpublishは操作入口で取得した現在時刻でThesisの有効性を評価する。新規publicationの
+`published_at`はwriterが確定し、draftの記載時刻でoverride期限を巻き戻さない。
+同じID・内容・content reviewの再送は、Operation完了後でも保存済みpublicationを返す。
+時刻以外の内容が異なる再送は拒否し、既存rowは変更しない。
+
 publishは少なくとも次を拒否する。
 
 1. activeな`capital-allocation` Operationのexact Research Triage・人間確定Research Setと一致しない比較対象（欠落・混入を含む）。scaffoldとcheckも同じ集合を検証し、開始前のAssessmentを別cycleへ流用しない

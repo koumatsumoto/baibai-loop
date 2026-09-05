@@ -128,6 +128,14 @@ maximum_acceptable_entry_price = floor_to_tick(
 | 現時点でthesis/review not ready | `defer` |
 | canonical thesis/review binding mismatch | error |
 
+## Workspaceの参考情報と公開状態
+
+通常Researchのworkspaceにあるledger annotationと較正contextはprepare時点の参考情報であり、
+その後の入出金や較正元fileの更新・消失だけでは調査を停止しない。現在のportfolio状態は
+Planning Limitが都度読み、Position Reviewは保有と価格観測as-ofを再検証する。
+workspace statusとpromoteは同じcase評価から残作業を判定する。公開済みのexact draftは、
+overrideの期限経過後も公開済みとして表示する。
+
 <a id="core-hash"></a>
 
 ## Core hash

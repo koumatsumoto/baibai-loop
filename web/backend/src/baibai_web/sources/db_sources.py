@@ -115,10 +115,7 @@ class DbResearchSource:
         self._load_errors: list[str] = []
 
     def revisions(self) -> list[ResearchRevision]:
-        reviews = {
-            str(item["thesis_id"]): str(item["review_id"])
-            for item in list_thesis_review_publications(self._path)
-        }
+        reviews = _latest_review_ids(list_thesis_review_publications(self._path))
         result: list[ResearchRevision] = []
         errors: list[str] = []
         for publication in list_thesis_publications(self._path):
@@ -137,7 +134,7 @@ class DbResearchSource:
         reviews = list_thesis_review_publications(self._path, thesis_id=thesis_id)
         revision = self._revision(
             publication,
-            review_id=None if not reviews else str(reviews[0]["review_id"]),
+            review_id=_latest_review_ids(reviews).get(thesis_id),
         )
         payload = _mapping(publication["payload"], label="research thesis")
         estimates = _mapping(payload["estimates"], label="thesis estimates")
@@ -230,6 +227,14 @@ class DbResearchSource:
             model_version=_optional_text(estimates.get("model_version")),
             review_id=review_id,
         )
+
+
+def _latest_review_ids(reviews: list[dict[str, object]]) -> dict[str, str]:
+    """The reader supplies reviewed_at DESC, review_id DESC; retain the first row."""
+    latest: dict[str, str] = {}
+    for review in reviews:
+        latest.setdefault(str(review["thesis_id"]), str(review["review_id"]))
+    return latest
 
 
 class DbTaskSource:

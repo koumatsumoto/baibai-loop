@@ -27,10 +27,12 @@ Baibai Loop が回すのは 1 つの長期投資ループである。その中�
 flowchart LR
   policy["運用方針<br/>資本・積立・余力"] --> screen["割安 screening<br/>valuation ranking"]
   macro["マクロ分析<br/>material delta / common risk"] -.補助context.-> research
-  macro -.judgment 入力.-> select
-  screen --> select["候補選定<br/>Review Set"]
-  select --> research["深い個別調査<br/>FV・RR・期待利回りを見積る"]
-  research --> decision["割安機会評価<br/>buy / defer / no actionable"]
+  macro -.judgment 入力.-> triage
+  screen --> select["機械候補集合<br/>Review Set"]
+  select --> triage["Research Triage<br/>research / skip"]
+  triage --> admission["人間のResearch Set選択"]
+  admission --> research["深い個別調査<br/>FV・RR・期待利回りを見積る"]
+  research --> decision["Capital Allocation Assessment<br/>allocate / defer / no_allocation"]
   decision -- approve --> buy["割安を長期で積立て買い"]
   buy --> hold["長期保有 / 押し目で買増し<br/>価格では切らない"]
   hold --> sell["thesis 毀損で全売り / FV 到達は保有見直し trigger"]

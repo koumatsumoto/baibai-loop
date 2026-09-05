@@ -242,7 +242,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     out,
                 )
             case "status":
-                _emit(compute_status(args.workspace, db_path=args.db), out)
+                _emit(compute_status(args.workspace, db_path=args.db, now=resolved_now), out)
             case "thesis-scaffold":
                 _emit(
                     scaffold_thesis(
@@ -326,7 +326,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 assessment = CapitalAllocationAssessment.model_validate(
                     safe_load(args.draft.read_text(encoding="utf-8"))
                 )
-                service = CapitalAllocationAssessmentService(args.db)
+                service = CapitalAllocationAssessmentService(args.db, clock=lambda: resolved_now)
                 if args.check:
                     service.check(assessment)
                     expected = capital_allocation_draft_sha256(assessment)

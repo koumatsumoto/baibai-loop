@@ -8,6 +8,7 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pytest
 from fastapi.testclient import TestClient
 from tests.helpers.macro_context import macro_context_payload
 from tests.helpers.research_triage import research_entry, research_triage_payload, skip_entry
@@ -118,9 +119,9 @@ def _publish_assessment(root: Path, *, assessment_id: str, research_triage_id: s
     review["draft_sha256"] = capital_allocation_draft_sha256(
         CapitalAllocationAssessment.model_validate(draft)
     )
-    CapitalAllocationAssessmentService(db_path).publish(
-        CapitalAllocationAssessment.model_validate(draft)
-    )
+    CapitalAllocationAssessmentService(
+        db_path, clock=lambda: datetime(2026, 7, 9, 12, tzinfo=JST)
+    ).publish(CapitalAllocationAssessment.model_validate(draft))
 
 
 def _insert_review_set(root: Path, *, review_set_id: str) -> str:
@@ -699,3 +700,28 @@ def test_the_batch_operations_doc_lists_every_exported_view() -> None:
     }
 
     assert _exported_views() <= documented, sorted(_exported_views() - documented)
+
+
+@pytest.mark.parametrize("count", [1, 10, 100])
+def test_export_reuses_research_history_and_ledger_per_export(
+    app_method_root: Path, tmp_path: Path, count: int, mocker
+) -> None:
+    from baibai_web.sources import db_sources
+
+    read = mocker.spy(db_sources, "list_thesis_publications")
+    replay = mocker.spy(db_sources, "reconcile_portfolio")
+    mocker.patch.object(
+        export_module,
+        "_security_tickers",
+        return_value=["2331"] + [f"{4000 + index}" for index in range(count - 1)],
+    )
+    export_module.export_read_models(app_method_root, tmp_path / "first")
+    assert read.call_count == 1
+    assert replay.call_count == 1
+    # A second export must read its own inputs; no result escapes the first export.
+    export_module.export_read_models(app_method_root, tmp_path / "second")
+    assert read.call_count == 2
+    assert replay.call_count == 2
+    first = tmp_path / "first/views/security--2331.json"
+    second = tmp_path / "second/views/security--2331.json"
+    assert json.loads(first.read_text()) == json.loads(second.read_text())

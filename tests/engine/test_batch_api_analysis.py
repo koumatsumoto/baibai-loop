@@ -208,7 +208,17 @@ def test_daily_triage_publishes_while_research_operation_is_active(
         session_kind="capital-allocation",
         as_of=date(2026, 8, 31),
         started_at=datetime(2026, 8, 31, 18, 1, tzinfo=_JST),
-        payload=OperationPayload(checkpoint="research in progress", next="continue"),
+        payload=OperationPayload(
+            checkpoint="research in progress",
+            artifacts=(
+                {
+                    "kind": "research_triage",
+                    "ref": "research-triage-previous",
+                    "research_set": ["2331"],
+                },
+            ),
+            next="continue",
+        ),
     )
     triage = batch_api.publish_daily_research_triage(
         "review-set-daily",

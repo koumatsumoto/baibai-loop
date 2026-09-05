@@ -43,6 +43,13 @@ class OperationService:
         ticker: str | None = None,
     ) -> OperationSession:
         _require_current_payload(payload)
+        if session_kind == "capital-allocation":
+            try:
+                research_binding(payload)
+            except ValueError as error:
+                raise OperationConflictError(
+                    f"{error}; start Research with `research prepare`"
+                ) from error
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")

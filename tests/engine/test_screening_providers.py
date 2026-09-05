@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sqlite3
-import sys
 import tempfile
 import unittest
 import zipfile
@@ -27,9 +26,6 @@ from tests.helpers.http_doubles import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from baibai_engine.screening.providers.edinet import (
     EDINETProvider,

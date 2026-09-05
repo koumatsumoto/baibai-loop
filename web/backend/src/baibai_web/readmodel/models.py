@@ -359,9 +359,7 @@ class ReviewSetContextView(BaseModel):
     margin_short_to_adv: float | None
     tse_capital_policy_status: str | None
     large_holding_filing_within_lookback: bool | None
-    latest_large_holding_filing_date: date | None
     tender_offer_filing_within_lookback: bool | None
-    latest_tender_offer_filing_date: date | None
 
 
 class ReviewSetAnalysisView(BaseModel):

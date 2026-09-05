@@ -395,9 +395,7 @@ def _review_set_entries_entry_view(raw: Mapping[str, object]) -> ReviewSetEntryV
     normalized_context = {
         **context,
         "large_holding_filing_within_lookback": context.get("large_holding_event_recent"),
-        "latest_large_holding_filing_date": context.get("large_holding_event_latest_on"),
         "tender_offer_filing_within_lookback": context.get("tender_offer_event_recent"),
-        "latest_tender_offer_filing_date": context.get("tender_offer_event_latest_on"),
     }
     normalized_analysis = {**analysis, "context": normalized_context}
     return ReviewSetEntryView(
@@ -441,7 +439,6 @@ def _research_triage_entry_view(raw: Mapping[str, object]) -> ResearchTriageEntr
     snapshot = raw.get("candidate_snapshot")
     if not isinstance(snapshot, Mapping):
         raise ValueError("Research Triage candidate_snapshot must be an object")
-    view = ResearchTriageEntryView.model_validate({**raw, "machine_snapshot": None})
     analysis = snapshot.get("analysis")
     if not isinstance(analysis, Mapping):
         raise ValueError("Research Triage Review Set Entry analysis must be an object")
@@ -452,8 +449,8 @@ def _research_triage_entry_view(raw: Mapping[str, object]) -> ResearchTriageEntr
         "expected_return": analysis.get("expected_return"),
         "data_quality": analysis.get("data_quality"),
     }
-    return view.model_copy(
-        update={"review_set_entry_snapshot": ReviewSetEntrySnapshotView.model_validate(normalized)}
+    return ResearchTriageEntryView.model_validate(
+        {**raw, "review_set_entry_snapshot": ReviewSetEntrySnapshotView.model_validate(normalized)}
     )
 
 

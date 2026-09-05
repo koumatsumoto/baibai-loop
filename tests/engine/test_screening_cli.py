@@ -5,7 +5,6 @@ import io
 import json
 import os
 import sqlite3
-import sys
 import tempfile
 import unittest
 import zipfile
@@ -19,9 +18,6 @@ from unittest.mock import patch
 from baibai_engine.foundation.yaml_io import safe_load
 
 ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.screening import cli as screening_cli

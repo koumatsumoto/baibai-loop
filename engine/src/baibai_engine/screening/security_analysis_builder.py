@@ -160,7 +160,7 @@ def build_security_analysis_metrics(
         "accruals_to_assets": financial.accruals_to_assets,
         "net_share_change_yoy": financial.net_share_change_yoy,
         # 3 FY平均EPSに対する現在株価の倍率。正常利益や安全性の判定ではなく、
-        # trailing PERと比較して利益cycleを読むためのestimateである。
+        # Normalized Earnings Powerのeligibility/orderと利益cycle比較に使い、FV/E[r]には入れない。
         "normalized_per_3fy": normalized_per_3fy,
         # 決算開示と as-of 財務のラグ (earnings_lag.py)。annotation であり ranking・
         # gate・E[r] へ入らない。fin_latest_disclosed_date は本行の財務が含む最後の
@@ -172,7 +172,7 @@ def build_security_analysis_metrics(
         "next_earnings_status": None if earnings_lag is None else earnings_lag.next_earnings_status,
         "stale_fin_flag": None if earnings_lag is None else earnings_lag.stale_fin_flag,
         "edinet_freshness_warning_count": freshness_warning_count,
-        # 機械 E[r] (成分分解付き見積り。%/年の比率)。詳細は estimates.py。
+        # 機械 E[r] はannual_ratio (0.08 = 8%/年)。成分と前提は estimates.py。
         "er_annual": estimate.er_annual if estimate else None,
         "er_reversion_annual": estimate.reversion_annual if estimate else None,
         "er_carry_annual": estimate.carry_annual if estimate else None,
