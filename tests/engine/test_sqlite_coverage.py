@@ -3,7 +3,6 @@ from __future__ import annotations
 import io
 import shutil
 import sqlite3
-import sys
 import tempfile
 import unittest
 from collections.abc import Iterator
@@ -14,9 +13,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from tests.helpers.screening_sqlite import add_source_coverage as _add_source_coverage
 

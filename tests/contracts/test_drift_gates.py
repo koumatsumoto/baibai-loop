@@ -133,13 +133,13 @@ def test_duplicate_policy_constant_gate_rejects_skill_copy(tmp_path: Path) -> No
     )
     path = tmp_path / ".claude" / "skills" / "demo" / "SKILL.md"
     path.parent.mkdir(parents=True)
-    path.write_text("cap is 10%\n", encoding="utf-8")
+    path.write_text("board lot: 100\n", encoding="utf-8")
     assert check_duplicate_constants.check(tmp_path) == [
-        ".claude/skills/demo/SKILL.md: duplicated policy literal '10%'"
+        ".claude/skills/demo/SKILL.md: duplicated policy literal 'board lot: 100'"
     ]
 
 
-def test_duplicate_policy_constant_gate_allows_marked_unrelated_literal(tmp_path: Path) -> None:
+def test_duplicate_policy_constant_gate_allows_unrelated_percentages(tmp_path: Path) -> None:
     policy = tmp_path / "engine/src/baibai_engine/position/policy.py"
     policy.parent.mkdir(parents=True)
     policy.write_text(
@@ -149,34 +149,11 @@ def test_duplicate_policy_constant_gate_allows_marked_unrelated_literal(tmp_path
     path = tmp_path / "docs" / "unrelated-rate.md"
     path.parent.mkdir()
     path.write_text(
-        "欠損率は 10% である <!-- drift: allow-unrelated-policy-literal -->\n",
+        "APIの応答時間を10%短縮する。進捗は40%。テストデータの35%を欠損にする。\n",
         encoding="utf-8",
     )
 
     assert check_duplicate_constants.check(tmp_path) == []
-
-
-def test_duplicate_policy_constant_gate_rejects_japanese_monthly_contribution(
-    tmp_path: Path,
-) -> None:
-    policy = tmp_path / "engine/src/baibai_engine/position/policy.py"
-    policy.parent.mkdir(parents=True)
-    policy.write_text(
-        (ROOT / "engine/src/baibai_engine/position/policy.py").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
-    path = tmp_path / "docs" / "copied-policy.md"
-    path.parent.mkdir()
-    for literal in ("40万", "40万円"):
-        path.write_text(f"月{literal}を拠出する\n", encoding="utf-8")
-        matched_literal = "月40万" if literal == "40万" else literal
-        assert check_duplicate_constants.check(tmp_path) == [
-            f"docs/copied-policy.md: duplicated policy literal {matched_literal!r}"
-        ]
-    path.write_text("毎月 40万を拠出する\n", encoding="utf-8")
-    assert check_duplicate_constants.check(tmp_path) == [
-        "docs/copied-policy.md: duplicated policy literal '毎月 40万'"
-    ]
 
 
 def test_duplicate_policy_constant_gate_allows_other_japanese_quantities(

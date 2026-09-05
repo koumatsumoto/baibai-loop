@@ -3,7 +3,6 @@ from __future__ import annotations
 import contextlib
 import io
 import sqlite3
-import sys
 import tempfile
 import unittest
 from collections.abc import Callable
@@ -15,9 +14,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from tests.helpers.calibration_store import store_forward, store_panel
 from tests.helpers.screening_sqlite import (

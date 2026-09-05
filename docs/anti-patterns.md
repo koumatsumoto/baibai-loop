@@ -42,7 +42,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 ## 1. AP-01: 一次情報を直接確認せず二次情報・推測で書く
 
 ### 異なる失敗類型の代表例
-- 122 条関税を「13% 上乗せ」と書いた (Federal Register 一次情報は 10% ad valorem)。 <!-- drift: allow-unrelated-policy-literal -->
+- 122 条関税を「13% 上乗せ」と書いた (Federal Register 一次情報は 10% ad valorem)。
   trade-weighted estimate の二次情報を引用元なしに断定した
 - TSMC 「Capex $52-56B レンジ」「先端プロセス 70-80% 配分」「2026 年売上 +30%」を
   Q1 release から確認したと書いた (実際は Q4 transcript / IR archive 由来)
@@ -68,8 +68,8 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] その URL を実際に WebFetch / curl で取得し、本文に記載があることを確認したか
 - [ ] **source の policy / rate / date / scenario が本文主張と一致しているか** (URL を貼っただけで終わらせない)
   - 例: 「Section 122 trade-weighted 13%」と書く場合、貼った Global Trade Alert source の中で
-        13.0% は **15% シナリオ** の数値であり、10% 法定 (Proclamation 11012) 前提と整合しない。 <!-- drift: allow-unrelated-policy-literal -->
-        10% 前提なら 11.4-11.5%、15% シナリオを使うなら法定が 15% の場合の話だと明記する <!-- drift: allow-unrelated-policy-literal -->
+        13.0% は **15% シナリオ** の数値であり、10% 法定 (Proclamation 11012) 前提と整合しない。
+        10% 前提なら 11.4-11.5%、15% シナリオを使うなら法定が 15% の場合の話だと明記する
   - 例: 「BEA 公表」と書く場合、その URL が press release / FRED / BEA Schedule のどれか、
         対象月 (March 2026 vs April 2026) が一致するか、speech だけで release ではないか
 - [ ] 「業界レポート」「アナリスト試算」「外部分析の trade-weighted estimate」などの二次値は、
@@ -242,6 +242,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 
 #### 判断・operation境界
 
+- [ ] capital-allocation startが書き込み前に重複のないnon-empty Research Set bindingを要求し、同じ集合の順序変更はresumeできるか
 - [ ] Assessmentのscaffold / check / publishがactive Operationのexact Triage・人間確定Research Set全体と一致し、checkpointでそのbindingを削除・差替えできないか。候補の欠落・混入・別Triage・別Operationをnegative testで拒否したか
 - [ ] Planning Limitはcanonical allocate Assessmentから対象Thesis / recorded core / Reviewを解決し、見送りAssessment・未知ID・local Thesis差替えで注文案を作れないか。broker factだけで検証して人間への注文案生成を素通しにしていないか
 - [ ] capital-allocation完了は開始時のTriage・Research Setに一致する公開済みAssessmentを同じtransactionで検証し、任意artifact・未公開ID・別cycleの判断ではactiveのまま拒否するか
@@ -257,10 +258,10 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] 統合判断はHTMLをreview対象にせず、comparison / thesis / assessmentへ別roleのcontent reviewを行い、全thesis core hashとreviewの変更をstaleとして拒否するか
 - [ ] `planned_limit / defer / no_allocation`の全経路で、購入方法または注文なしが比較結論と矛盾せず、未知source IDと手書き注文数値を拒否するか
 - [ ] `planned_limit`のportfolio exposureは、共通as-of・分母・current / prospective円額・比率・閾値・fallback銘柄が必須かつ機械整合し、欠損 / null / 0 / 負値 / nested未知field / 閾値warningの過不足 / fallback warningの過不足を拒否するか
-- [ ] machine judgment が下流の作業範囲を決める gate は、その集合を**判断artifactからDBで再解決**して検査し、workspace / manifest / draft の自由編集で広げられないことを negative test で塞いだか。手書き側は読み取り用の記録に留め、authorization source にしない（`research prepare --research_triage-id` は Research Triage `selected` を admission 可能集合とし、各 gate が stored research_triage から再解決する）
-- [ ] 前提を再証明する gate は、**入口が課した前提集合の全体**を見ているか。部分集合しか見ない再証明は、残りの前提を宣言で飛ばす経路として残る（`holding-prepare` は保有と as-of の 2 つを課すので、gate も同じ 2 つを 1 つの共有 helper から見る）
+- [ ] machine judgment が下流の作業範囲を決める gate は、その集合を**判断artifactからDBで再解決**して検査し、workspace / manifest / draft の自由編集で広げられないことを negative test で塞いだか。手書き側は読み取り用の記録に留め、authorization source にしない（`research prepare --research-triage-id` は Research Triage `research` を admission 可能集合とし、各 gate が stored research_triage から再解決する）
+- [ ] 前提を再証明する gate は、**入口が課した前提集合の全体**を見ているか。部分集合しか見ない再証明は、残りの前提を宣言で飛ばす経路として残る（`position-prepare` は保有と as-of の 2 つを課すので、gate も同じ 2 つを 1 つの共有 helper から見る）
 - [ ] 鮮度の pin は、**その purpose が実際に依存する field を覆っているか**。`append_head` は `ledger_event` しか数えず、market price は別 table を丸ごと入れ替えるので、pin が一致したまま価格観測日だけが動く。覆えない残りは「最後の関門だけが見る」と正直に書き、gate が見ていない範囲を over-claim しない
-- [ ] **その修正が案内する復旧手順を実際に最後まで通したか。** 途中までしか復旧しない手順は、operator を最も高コストな工程へ誘導したうえで最後の関門で落とす（`holding-prepare --force` は `<ws>/<ticker>/` を再生成しないので、`thesis-scaffold --force` まで案内し、残った draft を `status` に出す）
+- [ ] **その修正が案内する復旧手順を実際に最後まで通したか。** 途中までしか復旧しない手順は、operator を最も高コストな工程へ誘導したうえで最後の関門で落とす（`position-prepare --force` は `<ws>/<ticker>/` を再生成しないので、`thesis-scaffold --force` まで案内し、残った draft を `status` に出す）
 - [ ] その gate に**分岐（purpose / mode / kind）で無効化される経路**がある場合、分岐先も同じ強さで対象を store に対して証明するか。「この分岐には gate が要らない」は、その分岐を宣言するだけで gate を外せる形で残る（`purpose: position_review` は Research Triage 束縛を持たない代わりに、対象が canonical ledger の保有であることを各 gate で再照合する）
 - [ ] その gate は**下流で最初に不可逆な資源を使う手前**に置いたか。Research Setのadmissionはresearch開始前、Capital Allocation Assessmentの検証はhuman-confirmed ledger draft作成前に置く
 - [ ] generator が入力を読み、出力directoryへ固定名のartifactを書く場合、入力pathが出力directory内へ解決されて自分自身を上書きしないことを、書き込み前のvalidationとnegative testで保証したか
@@ -354,8 +355,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 #### 横断validator
 
 - [ ] task-list validatorを変更する場合、schema違反のstatus・実在しないcalendar date・重複`task_id`をそれぞれnegative fixtureで拒否し、`task_id`一意性以外のcross-field制約や遷移監査を追加していないか
-- [ ] policy literalのdrift gateを追加・変更する場合、正本の値からpatternを導出し、正本doc/codeを
-      除外し、桁prefixと単位違い（円 / 株 / 件）のnegative testを持つか
+- [ ] policy literalのdrift gateを追加・変更する場合、明示的な政策ラベルへ限定し、裸の数値・金額・割合を拒否していないか。正本doc/codeを除外し、無関係な文章がmarkerなしで通るか
 
 #### Calibration・screening・market data
 

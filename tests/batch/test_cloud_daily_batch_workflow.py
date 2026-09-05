@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
 import unittest
 from pathlib import Path
 
@@ -10,9 +9,6 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from baibai_engine.screening.config import ScreeningConfig
 from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
