@@ -138,7 +138,7 @@ method / src / docs の変更を含む commit とPRの前に、作業前に特�
 
 ## 事実と分析の分離
 
-screening run storeはobserved / derived / estimateを区別する機械出力層、application DB のmacro context・research_triage・thesisはjudgment層。candidatesにAI解釈・因果・相場観を書かず、E[r] / FV anchorを事実と呼ばない。詳細は[`docs/doctrine.md#fact-analysis-separation`](./docs/doctrine.md#fact-analysis-separation)。
+screening run storeはobserved / derived / estimateを区別する機械出力層、application DB のmacro context・research_triage・thesisはjudgment層。Security Analysis / Screening Run machine outputにAI解釈・因果・相場観を書かず、E[r] / FV anchorを事実と呼ばない。詳細は[`docs/doctrine.md#fact-analysis-separation`](./docs/doctrine.md#fact-analysis-separation)。
 
 ## shell 経由の gh 操作
 

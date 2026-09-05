@@ -1,4 +1,4 @@
-"""Stop T1 candidate drift by typing the coordinates shared across L2/L3 boundaries."""
+"""Produce typed coordinates shared by Candidate Discovery and Research Triage at L2/L3."""
 
 from __future__ import annotations
 

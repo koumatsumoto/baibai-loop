@@ -282,7 +282,7 @@
           "title": "Generated At",
           "type": "string"
         },
-        "asof": {
+        "as_of": {
           "anyOf": [
             {
               "format": "date",
@@ -292,9 +292,9 @@
               "type": "null"
             }
           ],
-          "title": "Asof"
+          "title": "As Of"
         },
-        "previous_asof": {
+        "previous_as_of": {
           "anyOf": [
             {
               "format": "date",
@@ -304,7 +304,7 @@
               "type": "null"
             }
           ],
-          "title": "Previous Asof"
+          "title": "Previous As Of"
         },
         "pool": {
           "anyOf": [
@@ -370,8 +370,8 @@
       },
       "required": [
         "generated_at",
-        "asof",
-        "previous_asof",
+        "as_of",
+        "previous_as_of",
         "pool",
         "rules_changed",
         "entered",
@@ -754,14 +754,14 @@
           "title": "Horizon",
           "type": "string"
         },
-        "asof_start": {
+        "as_of_start": {
           "format": "date",
-          "title": "Asof Start",
+          "title": "As Of Start",
           "type": "string"
         },
-        "asof_end": {
+        "as_of_end": {
           "format": "date",
-          "title": "Asof End",
+          "title": "As Of End",
           "type": "string"
         },
         "cohort_count": {
@@ -778,8 +778,8 @@
       },
       "required": [
         "horizon",
-        "asof_start",
-        "asof_end",
+        "as_of_start",
+        "as_of_end",
         "cohort_count",
         "bands"
       ],
@@ -1957,9 +1957,9 @@
     "MacroReadingView": {
       "description": "The machine reading of every registered series for one as-of date.\n\nA projection of the L2 reading, recomputed from the indicator store; the panel it\nfeeds is a display of that reading and not a second canonical artifact.\n``fetch_health`` rides along because staleness alone cannot see a provider that has\njust gone silent — a low-frequency series stays inside its threshold for weeks.",
       "properties": {
-        "asof": {
+        "as_of": {
           "format": "date",
-          "title": "Asof",
+          "title": "As Of",
           "type": "string"
         },
         "rules_revision": {
@@ -1982,7 +1982,7 @@
         }
       },
       "required": [
-        "asof",
+        "as_of",
         "rules_revision",
         "series",
         "fetch_health"
@@ -2446,7 +2446,7 @@
           ],
           "title": "Data Updated At"
         },
-        "screening_asof": {
+        "screening_as_of": {
           "anyOf": [
             {
               "format": "date",
@@ -2456,9 +2456,9 @@
               "type": "null"
             }
           ],
-          "title": "Screening Asof"
+          "title": "Screening As Of"
         },
-        "macro_asof": {
+        "macro_as_of": {
           "anyOf": [
             {
               "format": "date",
@@ -2468,7 +2468,7 @@
               "type": "null"
             }
           ],
-          "title": "Macro Asof"
+          "title": "Macro As Of"
         },
         "app_db_updated_at": {
           "anyOf": [
@@ -2496,8 +2496,8 @@
       "required": [
         "generated_at",
         "data_updated_at",
-        "screening_asof",
-        "macro_asof",
+        "screening_as_of",
+        "macro_as_of",
         "app_db_updated_at",
         "batch"
       ],

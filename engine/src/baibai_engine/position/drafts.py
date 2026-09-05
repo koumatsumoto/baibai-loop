@@ -242,7 +242,7 @@ def apply_draft(
         # A broker fact changes cash / reservations / lots, but does not assert a
         # fresh portfolio valuation. Recheck the complete event state and expiry
         # invariants without letting an unrelated stale holding quote block the
-        # human-reported result.
+        # human-reported broker fact.
         state = replay_events_through(draft.replacement.events, draft.replacement.as_of)
         require_resolved_expiries(state)
     else:

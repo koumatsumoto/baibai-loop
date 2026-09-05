@@ -55,7 +55,7 @@ def test_thesis_review_rejects_wrong_thesis_revision_without_write(
     review["review_id"] = "wrong-revision-review"
     review["reviewed_thesis_sha256"] = "0" * 64
     with pytest.raises(Exception, match=r"review|thesis|scenario|source|override"):
-        ResearchStoreService(path, clock=lambda: FIXED_NOW).publish_review(
+        ResearchStoreService(path, clock=lambda: FIXED_NOW).publish_thesis_review(
             THESIS_ID,
             review,
         )
@@ -204,10 +204,12 @@ def test_schema_evolution_does_not_move_a_published_thesis_identity(
     assert resolved.errors == ()
     assert resolved.decision_readiness == "ready"
 
-    # And the store reader must take the second path. `publish_review` validates the
+    # And the store reader must take the second path. `publish_thesis_review` validates the
     # thesis it is binding to, so under the evolved derivation it succeeds only by
     # reading the recorded identity.
-    ResearchStoreService(path, clock=lambda: FIXED_NOW).publish_review(THESIS_ID, _payload(REVIEW))
+    ResearchStoreService(path, clock=lambda: FIXED_NOW).publish_thesis_review(
+        THESIS_ID, _payload(REVIEW)
+    )
     assert list_thesis_publications(path)[0]["core_sha256"] == recorded
 
 
@@ -222,6 +224,6 @@ def test_a_thesis_without_a_recorded_identity_is_refused_rather_than_recomputed(
         connection.execute("UPDATE thesis SET core_sha256 = NULL WHERE thesis_id = ?", (THESIS_ID,))
 
     with pytest.raises(Exception, match="no recorded identity"):
-        ResearchStoreService(path, clock=lambda: FIXED_NOW).publish_review(
+        ResearchStoreService(path, clock=lambda: FIXED_NOW).publish_thesis_review(
             THESIS_ID, _payload(REVIEW)
         )

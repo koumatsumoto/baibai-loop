@@ -235,10 +235,10 @@ def _load_latest_promoted_theses(
                 f"future thesis is not allowed: {thesis_id} "
                 f"({document.input_snapshot.as_of.isoformat()} > {asof.isoformat()})"
             )
-        review_publications = reviews_by_thesis.get(thesis_id, [])
-        if not review_publications:
+        thesis_review_publications = reviews_by_thesis.get(thesis_id, [])
+        if not thesis_review_publications:
             raise ResearchPriceWatchError(f"promoted thesis requires a Thesis Review: {thesis_id}")
-        review_payload = review_publications[0]["payload"]
+        review_payload = thesis_review_publications[0]["payload"]
         if not isinstance(review_payload, dict):
             raise ResearchPriceWatchError(f"review payload is invalid: {thesis_id}")
         publications.append(

@@ -450,9 +450,9 @@ def _replacement_edge(
         return None, None, None, None
 
     hold = replacement.hold
-    candidate = replacement.candidate
+    replacement_leg = replacement.candidate
     exit_tax = replacement.exit_tax
-    if hold is None or candidate is None or exit_tax is None:
+    if hold is None or replacement_leg is None or exit_tax is None:
         errors.append(
             "replacement_comparison.status=evaluated requires hold, candidate, and exit_tax"
         )
@@ -460,7 +460,7 @@ def _replacement_edge(
 
     hold_terminal = hold.market_value_yen * (1 + hold.forward_5y_cagr_pct / 100) ** _HORIZON_YEARS
     switch_zero = (
-        hold.market_value_yen * (1 + candidate.forward_5y_cagr_pct / 100) ** _HORIZON_YEARS
+        hold.market_value_yen * (1 + replacement_leg.forward_5y_cagr_pct / 100) ** _HORIZON_YEARS
     )
     edge_zero = round(switch_zero - hold_terminal)
 
@@ -469,7 +469,7 @@ def _replacement_edge(
         market_value_yen=hold.market_value_yen,
         gain_yen=gain,
         hold_terminal=hold_terminal,
-        candidate_cagr_pct=candidate.forward_5y_cagr_pct,
+        replacement_cagr_pct=replacement_leg.forward_5y_cagr_pct,
     )
 
     exit_tax_yen = _exit_tax_yen(exit_tax, gain_yen=gain, errors=errors)
@@ -483,7 +483,9 @@ def _replacement_edge(
         return None, breakeven, edge_zero, exit_tax.tax_basis
 
     redeployable = hold.market_value_yen - exit_tax_yen
-    switch_terminal = redeployable * (1 + candidate.forward_5y_cagr_pct / 100) ** _HORIZON_YEARS
+    switch_terminal = (
+        redeployable * (1 + replacement_leg.forward_5y_cagr_pct / 100) ** _HORIZON_YEARS
+    )
     edge = round(switch_terminal - hold_terminal)
     return edge, breakeven, edge_zero, exit_tax.tax_basis
 
@@ -511,14 +513,14 @@ def _breakeven_exit_tax_bps(
     market_value_yen: int,
     gain_yen: int,
     hold_terminal: float,
-    candidate_cagr_pct: float,
+    replacement_cagr_pct: float,
 ) -> int | None:
     # Rate at which switch_terminal(rate) == hold_terminal. Only positive rates
-    # are meaningful: if the candidate does not beat holding even at zero tax,
+    # are meaningful: if the replacement does not beat holding even at zero tax,
     # there is no breakeven and switching never wins.
     if gain_yen <= 0:
         return None
-    redeploy_needed = hold_terminal / (1 + candidate_cagr_pct / 100) ** _HORIZON_YEARS
+    redeploy_needed = hold_terminal / (1 + replacement_cagr_pct / 100) ** _HORIZON_YEARS
     rate = (market_value_yen - redeploy_needed) / gain_yen * 10_000
     if rate <= 0:
         return None

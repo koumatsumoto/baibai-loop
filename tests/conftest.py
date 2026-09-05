@@ -19,7 +19,7 @@ from baibai_engine.tasks.models import Task
 from tests.helpers.db_seed import seed_ledger, seed_tasks
 from tests.helpers.fixed_now import FIXED_NOW
 from tests.helpers.ledger import load_portfolio_ledger
-from tests.helpers.screening_run import screening_candidate, screening_run_payload
+from tests.helpers.screening_run import screening_run_payload, security_analysis
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SCREENING_RULES_HASH = production_rules_contract_hash(load_screening_rules().model_dump_json())
@@ -115,7 +115,7 @@ def _seed_app_method_root(root: Path) -> None:
     seed_tasks(db_path, (Task.model_validate(item) for item in tasks))
     run_store = ScreeningRunStore(root / "stores/screening/runs.sqlite")
     for as_of in ("2026-07-01", "2026-07-08"):
-        run_store.publish_run(_seed_candidates(as_of))
+        run_store.publish_run(_seed_screening_run(as_of))
 
 
 def _tree_fingerprint(root: Path) -> str:
@@ -177,7 +177,7 @@ tasks:
 """
 
 
-def _seed_candidates(as_of: str) -> dict[str, object]:
+def _seed_screening_run(as_of: str) -> dict[str, object]:
     """The three-name run the application-store fixture is built from."""
 
     return screening_run_payload(
@@ -185,20 +185,20 @@ def _seed_candidates(as_of: str) -> dict[str, object]:
         run_at=f"{as_of}T12:00:00+09:00",
         universe_size=3,
         rules_hash=SCREENING_RULES_HASH,
-        candidates=[
-            screening_candidate(
+        security_analyses=[
+            security_analysis(
                 "2331",
                 name="ALSOK",
                 sector_33="サービス業",
                 per_trailing=12.0,
                 metrics={"er_annual": 0.12},
             ),
-            screening_candidate(
+            security_analysis(
                 "0001",
                 name="Sample One",
                 sector_33="情報・通信業",
                 metrics={"er_annual": 0.1},
             ),
-            screening_candidate("0002", name="Sample Two", sector_33="小売業", metrics={}),
+            security_analysis("0002", name="Sample Two", sector_33="小売業", metrics={}),
         ],
     )

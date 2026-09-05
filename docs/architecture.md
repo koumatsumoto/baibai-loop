@@ -82,8 +82,8 @@ Candidate Discoveryからhuman-confirmed ledgerまでの責務境界は次のと
 
 ```text
 Universe → Security Analyses                 screening
-Security Analyses → Nominations              4 Valuation Approaches
-Nominations → Review Set                     4 Approach top20のexact union
+Security Analyses → Nominations              configured Valuation Approaches
+Nominations → Review Set                     exact union
 Review Set → Research Triage                 research-worthiness judgment
 Research Triage → Research Set               human admission
 Research Set → Thesis / Thesis Review        fundamental research

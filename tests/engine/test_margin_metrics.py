@@ -121,7 +121,7 @@ class DerivedMetricsCarriesEveryAxisTest(unittest.TestCase):
         self.assertEqual(derived.margin_std_long_share, 0.8)
         self.assertEqual(derived.margin_week_end, WEEK)
 
-    def test_candidate_output_carries_short_to_adv_and_observation_week(self) -> None:
+    def test_security_analysis_output_carries_short_to_adv_and_observation_week(self) -> None:
         metrics = build_security_analysis_metrics(
             FinancialSnapshot(
                 latest_financial_disclosure_date=None,

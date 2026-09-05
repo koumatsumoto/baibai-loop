@@ -308,8 +308,8 @@ function DeltaDisclosedBadge({ disclosed }: { disclosed: boolean | null }) {
 function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null; failed: boolean }) {
   const total = delta === null ? 0 : deltaCount(delta)
   const description =
-    delta !== null && delta.previous_asof !== null && delta.asof !== null
-      ? `${formatJstDateShort(delta.previous_asof)} → ${formatJstDateShort(delta.asof)}${delta.pool === null ? '' : ` / ${deltaPoolLabel[delta.pool]}`}`
+    delta !== null && delta.previous_as_of !== null && delta.as_of !== null
+      ? `${formatJstDateShort(delta.previous_as_of)} → ${formatJstDateShort(delta.as_of)}${delta.pool === null ? '' : ` / ${deltaPoolLabel[delta.pool]}`}`
       : '前営業日との比較'
   return (
     <SectionCard

@@ -97,7 +97,7 @@ def _publish_assessment(root: Path, *, assessment_id: str, research_triage_id: s
     assert isinstance(alternatives, list)
     alternative = alternatives[0]
     assert isinstance(alternative, dict)
-    alternative["rationale"] = "独立review済みthesisの期待値が不足する"
+    alternative["rationale"] = "Thesis Review済みthesisの期待値が不足する"
     review = draft["review"]
     assert isinstance(review, dict)
     review["reviewer_identity"] = "independent-reviewer"
@@ -187,8 +187,8 @@ def test_build_meta_derives_store_asof_from_fixture_stores(app_method_root: Path
 
     view = build_meta(_meta_source(app_method_root), batch="daily")
 
-    assert view.screening_asof == date(2026, 7, 8)
-    assert view.macro_asof == date(2026, 7, 17)
+    assert view.screening_as_of == date(2026, 7, 8)
+    assert view.macro_as_of == date(2026, 7, 17)
     assert view.app_db_updated_at == datetime(2026, 7, 19, 12, 0, tzinfo=JST)
     assert view.data_updated_at == datetime(2026, 7, 19, 12, 0, tzinfo=JST)
     assert view.batch == "daily"
@@ -238,7 +238,7 @@ def test_build_meta_freshness_ignores_retained_unregistered_series(
 
     view = build_meta(_meta_source(app_method_root))
 
-    assert view.macro_asof == date(2026, 7, 17)
+    assert view.macro_as_of == date(2026, 7, 17)
     assert view.data_updated_at == datetime(2026, 7, 18, 0, 0, tzinfo=JST)
 
 
@@ -249,7 +249,7 @@ def test_build_meta_takes_the_latest_judgment_write_across_stores(
     # on 2026-07-18; its date-only column is read at JST midnight.
     view = build_meta(_meta_source(app_method_root))
 
-    assert view.macro_asof is None
+    assert view.macro_as_of is None
     assert view.app_db_updated_at == datetime(2026, 7, 18, 0, 0, tzinfo=JST)
     assert view.batch is None
 
@@ -284,8 +284,8 @@ def test_build_meta_reflects_a_newly_written_operation_session(
 def test_build_meta_returns_none_for_missing_stores(tmp_path: Path) -> None:
     view = build_meta(_meta_source(tmp_path))
 
-    assert view.screening_asof is None
-    assert view.macro_asof is None
+    assert view.screening_as_of is None
+    assert view.macro_as_of is None
     assert view.app_db_updated_at is None
     assert view.data_updated_at is None
 
@@ -335,9 +335,9 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     TasksView.model_validate_json((views / "tasks.json").read_text(encoding="utf-8"))
     meta = MetaView.model_validate_json((views / "meta.json").read_text(encoding="utf-8"))
     assert meta.batch == "daily"
-    assert meta.screening_asof == date(2026, 7, 8)
+    assert meta.screening_as_of == date(2026, 7, 8)
     macro = MacroView.model_validate_json((views / "macro.json").read_text(encoding="utf-8"))
-    assert macro.reading.asof == datetime.now(JST).date()
+    assert macro.reading.as_of == datetime.now(JST).date()
     assert sum(len(series.points) for group in macro.groups for series in group.series) == 0
     for name in ("security--0001.json", "security--0002.json", "security--2331.json"):
         detail = SecurityDetailView.model_validate_json((views / name).read_text(encoding="utf-8"))

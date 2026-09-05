@@ -119,8 +119,8 @@ class ErLevelCalibrationBand:
 @dataclass(frozen=True, slots=True)
 class ErLevelCalibrationHorizon:
     horizon: str
-    asof_start: date
-    asof_end: date
+    as_of_start: date
+    as_of_end: date
     cohort_count: int
     bands: tuple[ErLevelCalibrationBand, ...]
 

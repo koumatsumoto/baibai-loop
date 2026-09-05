@@ -1,6 +1,6 @@
 ---
 title: "Thesis reference"
-summary: "5年総合リターン、永久損失、証拠状態、独立反証を持つ投資判断のcanonical contract。"
+summary: "5年総合リターン、永久損失、証拠状態、Thesis Reviewへの束縛を持つ投資判断のcanonical contract。"
 doc_type: reference
 status: active
 ---
@@ -11,7 +11,7 @@ status: active
 
 ## 目的と適用
 
-thesisは、実購入候補の判断根拠を短い要約と再計算可能な詳細へ固定する。機械契約は`engine/src/baibai_engine/research/thesis.py`、canonical revisionはapplication DBの`thesis_id`で識別する。独立reviewは同じpublish transactionで`review_id`を得て、DBの外部キーで対象thesis revisionへ束縛される。
+thesisは、実購入候補の判断根拠を短い要約と再計算可能な詳細へ固定する。機械契約は`engine/src/baibai_engine/research/thesis.py`、canonical revisionはapplication DBの`thesis_id`で識別する。Thesis Reviewは同じpublish transactionで`review_id`を得て、DBの外部キーで対象thesis revisionへ束縛される。
 
 thesisは新規の購入判断と保有見直しの判断根拠を固定する。既存保有に判断根拠が必要になった場合は、その時点の一次情報と現値からthesisを作成する。
 
@@ -28,7 +28,7 @@ thesisは新規の購入判断と保有見直しの判断根拠を固定する�
 
 この4つはdata/judgment namespaceである。`permanent_loss_risks`はjudgmentを構成する軸別評価、persisted `independent_review_ref`は別artifactであるThesis Reviewへの参照、`human_evidence_override`はreview後の人間によるrisk受容としてtop-levelに置く。最終発注判断はbroker操作として人間が所有し、AI judgmentへ混ぜない。
 
-ScreeningのE[r]とFV anchorは決定論的でも事実ではなく、Candidate Discovery後に参照するsecondary machine priorである。candidate出力は`origin: estimate`、model version、unit、assumptionsを併記する。Research後のscenario FVと5年CAGRだけがinvestment judgmentのestimateであり、machine priorを自動採用しない。
+ScreeningのE[r]とFV anchorは決定論的でも事実ではなく、Candidate Discovery後に参照するsecondary machine priorである。Security Analysisのestimate出力は`origin: estimate`、model version、unit、assumptionsを併記する。Research後のscenario FVと5年CAGRだけがinvestment judgmentのestimateであり、machine priorを自動採用しない。
 
 AIを含む技術・産業構造変化は、企業価値または永久損失にmaterialな場合だけ通常Researchで扱う。正の影響は一次情報と必要な独立裏取りからscenario assumption、FV、Capital Allocation Assessmentの比較理由へ接続し、負の影響は`permanent_loss_risks.structural_decline`、`judgment.strongest_countercase`、必要ならscenarioとFVへ接続する。これらを変えない場合は、専用の記述、source、reviewを要求しない。
 
@@ -36,7 +36,7 @@ AIを含む技術・産業構造変化は、企業価値または永久損失に
 
 ## Input snapshotとlineage
 
-Candidate YAMLはlocalで再生成する探索成果物であり、thesisから参照しない。採用した入力だけを`input_snapshot`へ値として固定する。これによりthesisはgitignoredなcandidate fileやSQLite fileの存在に依存せず、clean checkout単体で判断時点の入力を検証できる。
+Screening RunのSecurity Analysisと、そこから形成するReview Setは再生成可能な機械成果物である。Thesisは採用した入力だけを`input_snapshot`へ値として固定し、判断時点の入力を検証するために元のrun storeやlocal YAMLの存在を必要としない。
 
 `input_snapshot`は`snapshot_version`と`producer_model_version`、ticker、as-of、source、factを持つ。判断時市場価格は`market_price`を正確に1件、valuationは`valuation_metric`を1件以上要求する。factはunit、as-of、`source_ids`を持ち、scenarioの起点となる利益・株数も同じsnapshotに置く。`estimates.market_price_fact_id`は判断時市場価格へjoinする。
 
@@ -137,7 +137,7 @@ core hashはthesisの identity であり、review・Position Review・Capital Al
 
 まだpublishしていないdraftのhashはdocumentから計算する。この経路にはfieldごとの特例が1つも無く、`human_evidence_override`を除いた`model_dump`をそのままhashする。draftとreviewの整合は同一cycle内で同じ関数が両方を作ることで保たれる。
 
-quantityを考える注文額の目安は[`portfolio-management`](../portfolio-management.md#capital-guidance)を正本とする。1単元が上限を超えても1単元と超過warningを出し、より安い次点へ自動変更しない。cash、dry powder、concentration、既存保有、他tickerのreservationは人間向けwarning/annotationであり、投資価値rankingや最大許容価格を変えない。同一tickerのactive reservationだけは注文の重複を防ぐため`defer`にし、human resultによる約定またはreleaseのledger反映後に再実行する。
+quantityを考える注文額の目安は[`portfolio-management`](../portfolio-management.md#capital-guidance)を正本とする。1単元が上限を超えても1単元と超過warningを出し、より安い次点へ自動変更しない。cash、dry powder、concentration、既存保有、他tickerのreservationは人間向けwarning/annotationであり、投資価値rankingや最大許容価格を変えない。同一tickerのactive reservationだけは注文の重複を防ぐため`defer`にし、broker factによる約定またはreleaseのledger反映後に再実行する。
 
 `planned_limit`のportfolio exposureは、`price_as_of`を全保有の共通評価日とし、同日のJPX raw/unadjusted close × 保有数量で一時的に再評価する。分母は、再評価した保有時価とavailable / reserved cashから同じbasisで再計算する。active reservationは市場価格ではなく`reserved_yen`を現在exposureに1回だけ加え、今回注文はprospective exposureの分子に1回だけ加える。注文はcashと保有の資産振替えなので分母に加算しない。
 
@@ -157,7 +157,7 @@ AIはfill probability、当日価格方向、未報告broker状態を推定し�
 
 <a id="independent-second-pass"></a>
 
-## 独立反証
+## Thesis Review
 
 `buy`にはThesisと別ファイルのThesis Reviewを必須とし、persisted refは`independent_review_ref`として維持する。Thesis Reviewはcore Thesis SHA-256、reviewer identity、review run IDを持ち、別roleが次だけを構造化して返す。
 

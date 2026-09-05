@@ -46,13 +46,13 @@ def build_broker_fact_draft(
 
     The assessment proves that the ticker passed research. Order terms are
     human-reported facts, not a persisted plan. Existing reservations keep the same
-    decision reference for every partial or terminal result.
+    decision reference for every partial or terminal broker fact.
     """
     if reservation_id is not None and reservation_ids:
         raise ValueError("provide reservation_id or reservation_ids, not both")
     requested_ids = reservation_ids or (() if reservation_id is None else (reservation_id,))
     if len(requested_ids) > 1 and status not in {"cancelled", "expired"}:
-        raise ValueError("multiple reservation_ids require a terminal result")
+        raise ValueError("multiple reservation_ids require a terminal broker fact")
 
     source = ledger_service.load()
     reservations = reservation_snapshots(replay_events_through(source.events, source.as_of))
@@ -85,7 +85,7 @@ def build_broker_fact_draft(
             raise ValueError(f"{status} requires an active reservation")
         allocated = assessment_service.require_allocated_alternative(decision_reference)
         if ticker != allocated.ticker:
-            raise ValueError("broker result ticker does not match the allocation assessment")
+            raise ValueError("broker fact ticker does not match the allocation assessment")
 
     if len(requested_ids) > 1:
         assert status in {"cancelled", "expired"}

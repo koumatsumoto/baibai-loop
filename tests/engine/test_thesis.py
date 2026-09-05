@@ -23,7 +23,7 @@ from baibai_engine.research.thesis import (
     load_thesis_review,
     thesis_core_hash,
 )
-from baibai_engine.research.thesis_evaluation_cli import main as decision_main
+from baibai_engine.research.thesis_evaluation_cli import main as thesis_evaluation_main
 
 ROOT = Path(__file__).parents[2]
 FIXTURE = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
@@ -1171,17 +1171,17 @@ def test_future_proposal_is_not_decision_ready() -> None:
     assert "proposal cannot be future-dated" in result.errors
 
 
-def test_buy_candidate_requires_independent_second_pass() -> None:
+def test_buy_thesis_requires_thesis_review() -> None:
     raw = _raw()
     raw["independent_review_ref"] = None
 
     result = evaluate_thesis(_document(raw), now=FIXED_NOW, identity=UnpublishedThesis.DRAFT)
 
     assert result.thesis_status == "review_required"
-    assert result.errors == ("buy recommendation requires an independent second-pass review",)
+    assert result.errors == ("buy recommendation requires a Thesis Review",)
 
 
-def test_changed_second_pass_requires_thesis_regeneration() -> None:
+def test_changed_thesis_review_requires_thesis_regeneration() -> None:
     raw = _raw()
     review = _review_raw()
     review["proposal_changed"] = True
@@ -1201,7 +1201,7 @@ def test_read_only_cli_uses_domain_result(
         REVIEW_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8"
     )
 
-    assert decision_main([str(path)], now=FIXED_NOW) == 0
+    assert thesis_evaluation_main([str(path)], now=FIXED_NOW) == 0
     output = yaml.safe_load(capsys.readouterr().out)
     assert output["thesis_status"] == "ready_with_warnings"
     assert output["decision_readiness"] == "ready"
@@ -1217,7 +1217,7 @@ def test_read_only_cli_evaluates_defer_before_review_scaffold(
     path = tmp_path / "2026-07-03-2331-decision.yaml"
     path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
 
-    assert decision_main([str(path)], now=FIXED_NOW) == 0
+    assert thesis_evaluation_main([str(path)], now=FIXED_NOW) == 0
     output = yaml.safe_load(capsys.readouterr().out)
     assert output["decision_readiness"] == "ready"
     assert output["errors"] == []
@@ -1229,9 +1229,9 @@ def test_read_only_cli_reports_review_requirement_when_buy_review_file_is_absent
     path = tmp_path / "2026-07-03-2331-decision.yaml"
     path.write_text(FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
 
-    assert decision_main([str(path)], now=FIXED_NOW) == 2
+    assert thesis_evaluation_main([str(path)], now=FIXED_NOW) == 2
     output = yaml.safe_load(capsys.readouterr().out)
-    assert output["errors"] == ["buy recommendation requires an independent second-pass review"]
+    assert output["errors"] == ["buy recommendation requires a Thesis Review"]
 
 
 def test_thesis_review_hash_changes_with_initial_proposal() -> None:

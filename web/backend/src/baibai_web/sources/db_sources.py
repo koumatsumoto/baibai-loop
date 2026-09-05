@@ -92,8 +92,8 @@ class DbMarketPriceSource:
     def disclosures_after(self, tickers: Sequence[str], *, after: date) -> Mapping[str, date]:
         return latest_disclosure_dates_after(self._path, tickers, after=after)
 
-    def next_earnings_dates(self, tickers: Sequence[str], *, asof: date) -> Mapping[str, date]:
-        return next_earnings_dates(self._path, tickers, asof=asof)
+    def next_earnings_dates(self, tickers: Sequence[str], *, as_of: date) -> Mapping[str, date]:
+        return next_earnings_dates(self._path, tickers, asof=as_of)
 
 
 class DbOperationsSource:
@@ -313,11 +313,14 @@ class DbMacroSource:
         self.groups = groups
 
     def reading(self, *, as_of: date) -> dict[str, object] | None:
-        return macro_reading_snapshot(
+        reading = macro_reading_snapshot(
             self._indicators_db_path,
             asof=as_of,
             rules_path=self._reading_rules_path,
         )
+        if reading is None:
+            return None
+        return {"as_of": reading["asof"], **{k: v for k, v in reading.items() if k != "asof"}}
 
     def fetch_health(self) -> list[dict[str, object]]:
         return macro_series_fetch_health(self._indicators_db_path)
@@ -362,10 +365,10 @@ class DbMetaSource:
         self._runs_db_path = runs_db_path.resolve()
         self._indicators_db_path = indicators_db_path.resolve()
 
-    def screening_asof(self) -> date | None:
+    def screening_as_of(self) -> date | None:
         return screening_latest_asof(self._runs_db_path)
 
-    def macro_asof(self) -> date | None:
+    def macro_as_of(self) -> date | None:
         return macro_latest_observed_at(self._indicators_db_path)
 
     def app_db_updated_at(self) -> datetime | None:

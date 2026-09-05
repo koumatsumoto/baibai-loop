@@ -4,7 +4,7 @@ The profile is the entry point for AI research on one security: price and
 liquidity facts for any listed ticker (inside or outside the screening
 universe), benchmark- and sector-relative momentum, the market benchmark_trend at the
 evaluation date, event flags relevant to the kill switch (next earnings, JPX
-regulation), the ticker's latest recorded screening entry, and prior research
+regulation), the ticker's latest recorded Security Analysis, and prior research
 decisions. Every field is a deterministic transform of stored data; the profile
 contains no interpretation and no composite score.
 
@@ -303,24 +303,24 @@ def _load_security_analysis_context(
             "has_security_analysis": False,
             "note": "no screening run on or before asof",
         }
-    entries = run.security_analyses
-    entry = None
-    if isinstance(entries, Sequence):
-        entry = next(
-            (item for item in entries if item.get("ticker") == ticker),
+    security_analyses = run.security_analyses
+    security_analysis = None
+    if isinstance(security_analyses, Sequence):
+        security_analysis = next(
+            (item for item in security_analyses if item.get("ticker") == ticker),
             None,
         )
     block: dict[str, object] = {
         "screening_run_revision_id": run.run_revision_id,
         "screening_run_as_of": run.as_of_date,
-        "has_security_analysis": entry is not None,
+        "has_security_analysis": security_analysis is not None,
     }
-    if entry is not None:
-        block["entry"] = dict(entry)
+    if security_analysis is not None:
+        block["security_analysis"] = dict(security_analysis)
     else:
         block["note"] = (
             "ticker has no Security Analysis in the recorded Screening Run "
-            "(outside the screen scope or no Valuation Approach hit at that date)"
+            "(outside the recorded run scope or no retained Security Analysis)"
         )
     return block
 

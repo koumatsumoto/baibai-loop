@@ -52,7 +52,7 @@ def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
         assert previous_screening.json()["rows"][0]["portfolio_state"] == "held"
         assert previous_screening.json()["rows"][0]["has_research"] is True
         assert macro.status_code == 200
-        assert macro.json()["reading"]["asof"] == "2026-07-19"
+        assert macro.json()["reading"]["as_of"] == "2026-07-19"
         assert macro.json()["reports"] == []
         assert [group["title"] for group in macro.json()["groups"]] == [
             "金利・金融政策",
@@ -119,8 +119,8 @@ def test_api_meta_reports_store_freshness(app_method_root: Path) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["screening_asof"] == "2026-07-08"
-    assert body["macro_asof"] is None
+    assert body["screening_as_of"] == "2026-07-08"
+    assert body["macro_as_of"] is None
     # Newest judgment write in the fixture is a task created on 2026-07-18 (JST date).
     assert datetime.fromisoformat(body["app_db_updated_at"]) == datetime(
         2026, 7, 18, 0, 0, tzinfo=ZoneInfo("Asia/Tokyo")
@@ -148,7 +148,7 @@ def test_macro_brief_reports_every_registered_series_without_history(app_method_
     assert response.status_code == 200
     brief = response.json()
     body = brief["reading"]
-    assert body["asof"] == "2026-07-19"
+    assert body["as_of"] == "2026-07-19"
     assert body["rules_revision"]
     # The fixture store carries no observations, so every series reads as empty rather
     # than as a plausible number.

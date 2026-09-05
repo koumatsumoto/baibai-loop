@@ -632,7 +632,7 @@ def load_thesis(path: Path) -> ThesisDocument:
 
 
 def load_thesis_review(path: Path) -> ThesisReview:
-    """Load a second-pass artifact independently from its reviewed thesis."""
+    """Load a Thesis Review independently from its reviewed Thesis."""
 
     try:
         raw = safe_load(path.read_text(encoding="utf-8"))
@@ -790,7 +790,7 @@ def evaluate_thesis(
         if document.judgment.sizing_action == "none":
             errors.append("buy recommendation requires normal or reduced sizing")
         if review is None or document.independent_review_ref is None:
-            errors.append("buy recommendation requires an independent second-pass review")
+            errors.append("buy recommendation requires a Thesis Review")
         else:
             _check_review(
                 review,
@@ -830,7 +830,7 @@ def evaluate_thesis(
     if errors:
         status: Literal["incomplete", "review_required", "ready", "ready_with_warnings"] = (
             "review_required"
-            if errors == ["buy recommendation requires an independent second-pass review"]
+            if errors == ["buy recommendation requires a Thesis Review"]
             else "incomplete"
         )
     else:

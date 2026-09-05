@@ -65,8 +65,8 @@ export interface CapitalAllocationAssessmentView {
  */
 export interface DailyDeltaView {
   generated_at: string
-  asof: string | null
-  previous_asof: string | null
+  as_of: string | null
+  previous_as_of: string | null
   pool: DeltaPool | null
   rules_changed: boolean
   entered: ReviewSetEntryDeltaView[]
@@ -136,8 +136,8 @@ export interface ErLevelCalibrationContextView {
 
 export interface ErLevelCalibrationHorizonView {
   horizon: string
-  asof_start: string
-  asof_end: string
+  as_of_start: string
+  as_of_end: string
   cohort_count: number
   bands: ErLevelCalibrationBandView[]
 }
@@ -360,7 +360,7 @@ export interface MacroReadingTrendView {
  * just gone silent — a low-frequency series stays inside its threshold for weeks.
  */
 export interface MacroReadingView {
-  asof: string
+  as_of: string
   rules_revision: string
   series: MacroReadingSeriesView[]
   fetch_health: MacroSeriesFetchHealthView[]
@@ -469,8 +469,8 @@ export type MetaBatch = 'daily' | 'manual'
 export interface MetaView {
   generated_at: string
   data_updated_at: string | null
-  screening_asof: string | null
-  macro_asof: string | null
+  screening_as_of: string | null
+  macro_as_of: string | null
   app_db_updated_at: string | null
   batch: MetaBatch | null
 }

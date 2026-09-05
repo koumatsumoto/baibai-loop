@@ -49,8 +49,8 @@ def load_er_level_calibration_context(
         horizons=tuple(
             ErLevelCalibrationHorizon(
                 horizon=horizon.horizon,
-                asof_start=horizon.asof_start,
-                asof_end=horizon.asof_end,
+                as_of_start=horizon.asof_start,
+                as_of_end=horizon.asof_end,
                 cohort_count=horizon.cohort_count,
                 bands=tuple(
                     ErLevelCalibrationBand(

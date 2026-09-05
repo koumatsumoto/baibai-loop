@@ -1,4 +1,4 @@
-"""Turn a human-reported broker result into a validated ledger draft."""
+"""Turn a human-reported broker fact into a validated ledger draft."""
 
 from __future__ import annotations
 
@@ -230,12 +230,14 @@ def record_terminal_broker_facts(
     reservation_ids: tuple[str, ...],
     now: datetime | None = None,
 ) -> BrokerFactRecordingResult:
-    """Append simultaneous terminal reports as one reconciled ledger change."""
+    """Append simultaneous terminal broker facts as one reconciled ledger change."""
 
     _validate_decision_reference(decision_reference)
     _validate_report_time(occurred_at, now=now)
     if len(reservation_ids) < 2:
-        raise BrokerFactRecordingError("batch terminal result requires multiple reservation_ids")
+        raise BrokerFactRecordingError(
+            "batch terminal broker fact requires multiple reservation_ids"
+        )
     if len(set(reservation_ids)) != len(reservation_ids):
         raise BrokerFactRecordingError("reservation_ids must be unique")
 
@@ -366,7 +368,9 @@ def _patch_document(
         patched = PortfolioLedgerDocument.model_validate(raw)
         replay_events_through(patched.events, patched.as_of)
     except (PortfolioLedgerError, ValueError) as error:
-        raise BrokerFactRecordingError(f"reported result does not reconcile: {error}") from error
+        raise BrokerFactRecordingError(
+            f"reported broker fact does not reconcile: {error}"
+        ) from error
     return BrokerFactRecordingResult(
         document=patched,
         changed=True,

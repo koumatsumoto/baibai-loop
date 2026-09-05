@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from tests.helpers.screening_run import screening_candidate, screening_run_payload
+from tests.helpers.screening_run import screening_run_payload, security_analysis
 from tests.helpers.screening_sqlite import seed_daily_bars
 
 from baibai_engine.market.sqlite import open_connection
@@ -144,7 +144,7 @@ class TestDbScreeningSource:
                 run_at="2026-08-01T18:30:00+09:00",
                 universe_size=1,
                 rules_hash="rules-hash-v1",
-                candidates=[screening_candidate("4432", name="sample")],
+                security_analyses=[security_analysis("4432", name="sample")],
             )
         )
 

@@ -187,32 +187,32 @@ def build_parser() -> argparse.ArgumentParser:
     market_price_parser.add_argument("--sqlite", type=Path, required=True)
     market_price_parser.add_argument("--asof", type=_date_argument, required=True)
     market_price_parser.add_argument("--out", type=Path, required=True)
-    result_parser = subparsers.add_parser(
+    broker_fact_parser = subparsers.add_parser(
         "broker-fact-draft",
-        help="turn a human-reported open/filled/cancelled/expired result into a ledger draft",
+        help="turn a human-reported open/filled/cancelled/expired broker fact into a ledger draft",
     )
-    result_parser.add_argument("--root", type=Path, default=Path.cwd())
-    result_parser.add_argument("--db", type=Path)
-    result_parser.add_argument("--decision-reference", required=True)
-    result_parser.add_argument(
+    broker_fact_parser.add_argument("--root", type=Path, default=Path.cwd())
+    broker_fact_parser.add_argument("--db", type=Path)
+    broker_fact_parser.add_argument("--decision-reference", required=True)
+    broker_fact_parser.add_argument(
         "--status", choices=("open", "filled", "cancelled", "expired"), required=True
     )
-    result_parser.add_argument("--occurred-at", type=_datetime_argument, required=True)
-    result_parser.add_argument("--ticker")
-    result_parser.add_argument("--quantity", type=int)
-    result_parser.add_argument("--price-yen", type=_decimal_argument)
-    result_parser.add_argument(
+    broker_fact_parser.add_argument("--occurred-at", type=_datetime_argument, required=True)
+    broker_fact_parser.add_argument("--ticker")
+    broker_fact_parser.add_argument("--quantity", type=int)
+    broker_fact_parser.add_argument("--price-yen", type=_decimal_argument)
+    broker_fact_parser.add_argument(
         "--reservation-id",
         action="append",
-        help="reservation ID; repeat for simultaneous terminal results",
+        help="reservation ID; repeat for simultaneous terminal broker facts",
     )
-    result_parser.add_argument("--order-id")
-    result_parser.add_argument("--sector")
-    result_parser.add_argument("--common-factor", action="append", default=[])
-    result_parser.add_argument("--price-guard-yen", type=_decimal_argument)
-    result_parser.add_argument("--expires-at", type=_datetime_argument)
-    result_parser.add_argument("--ordered-at", type=_datetime_argument)
-    result_parser.add_argument("--out", type=Path, required=True)
+    broker_fact_parser.add_argument("--order-id")
+    broker_fact_parser.add_argument("--sector")
+    broker_fact_parser.add_argument("--common-factor", action="append", default=[])
+    broker_fact_parser.add_argument("--price-guard-yen", type=_decimal_argument)
+    broker_fact_parser.add_argument("--expires-at", type=_datetime_argument)
+    broker_fact_parser.add_argument("--ordered-at", type=_datetime_argument)
+    broker_fact_parser.add_argument("--out", type=Path, required=True)
     sell_parser = subparsers.add_parser(
         "sell-execution-draft",
         help="turn a human-reported sell fill into a FIFO-checked execution ledger draft",
@@ -473,7 +473,7 @@ def _emit_ledger(document: PortfolioLedgerDocument) -> int:
                 "event_count": migration_event_count,
                 "message": (
                     "migration events initialize canonical state and are not "
-                    "human-reported broker results"
+                    "human-reported broker facts"
                 ),
             }
         ]
@@ -672,7 +672,7 @@ def _run_position_review_publish(
             position_review_id,
             args.thesis_id,
             raw,
-            candidate_thesis_id=args.replacement_thesis_id,
+            replacement_thesis_id=args.replacement_thesis_id,
         )
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -754,7 +754,7 @@ def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -
         else:
             output_path = None
     except (OSError, PortfolioLedgerError, BrokerFactRecordingError, ValueError) as error:
-        print(f"error: failed to build broker result draft: {error}", file=sys.stderr)
+        print(f"error: failed to build broker fact draft: {error}", file=sys.stderr)
         return 2
     yaml.safe_dump(
         {
@@ -773,7 +773,7 @@ def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -
 def _run_sell_execution_draft(args: argparse.Namespace) -> int:
     source_event_ids: set[str] = set()
     try:
-        output_path = _draft_output_path(args.root, args.out, label="sell result ledger draft")
+        output_path = _draft_output_path(args.root, args.out, label="sell execution ledger draft")
         draft = build_sell_execution_draft(
             LedgerStoreService(args.db),
             occurred_at=args.occurred_at,
@@ -787,7 +787,7 @@ def _run_sell_execution_draft(args: argparse.Namespace) -> int:
         source_event_ids = {event.event_id for event in draft.source.events}
         write_draft(output_path, draft)
     except (OSError, LedgerConflictError, PortfolioLedgerError, ValueError) as error:
-        print(f"error: failed to build sell result draft: {error}", file=sys.stderr)
+        print(f"error: failed to build sell execution draft: {error}", file=sys.stderr)
         return 2
     event_ids = [
         event.event_id

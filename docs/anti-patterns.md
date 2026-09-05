@@ -138,7 +138,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 ## 4. AP-04: schema / 実装の意味を読まずに推測で解釈する
 
 ### 異なる失敗類型の代表例
-- screening runのcandidate recordにある `sector_relative_strength_percentile: 1.0` を「同業種内で最も強い銘柄」と
+- Screening RunのSecurity Analysisにある `sector_relative_strength_percentile: 1.0` を「同業種内で最も強い銘柄」と
   解釈。実装は `_rank_to_percentiles` で sector level の rank (electronics sector が全 33
   業種中で強い) を返す。個別銘柄の同業種内相対強度ではない
 - screening run / macro context schema の追加プロパティ可否を確認せず `note` / `previous_change`
@@ -195,7 +195,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] macro contextを使う場合、`as_of`が判断時点より未来ではないか（futureは停止、古さはwarning）
 - [ ] `inputs`のinput_id、各sectionのseries参照、fact / judgment / economic connection / material deltaのsource_ids、statusを照合したか
 - [ ] core / synthesis セクションに日本株ループ固有の指示（sector tilt・research優先度ヒント・sizing caution）を書いていないか。connectionのseries引用がcoreの引用範囲内か、synthesisの各forceのseries引用が名指ししたチャネルセクションの引用範囲内か
-- [ ] macro summaryをcandidateのfact、E[r]順位、機械sizingへ混入していないか
+- [ ] macro summaryをSecurity Analysisのfact、E[r]順位、機械sizingへ混入していないか
 - [ ] material deltaが個別仮説に影響する場合だけ、thesisの判断と反証にsource付きで接続したか
 - [ ] **機械化チェック**: macro context publishのmodel / source / future / as_of鮮度warningのnegative testを実行したか
 

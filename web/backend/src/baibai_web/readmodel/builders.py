@@ -80,8 +80,8 @@ def build_meta(source: DbMetaSource, *, batch: MetaBatch | None = None) -> MetaV
     return MetaView(
         generated_at=datetime.now(_JST),
         data_updated_at=source.data_updated_at(),
-        screening_asof=source.screening_asof(),
-        macro_asof=source.macro_asof(),
+        screening_as_of=source.screening_as_of(),
+        macro_as_of=source.macro_as_of(),
         app_db_updated_at=source.app_db_updated_at(),
         batch=batch,
     )
@@ -129,7 +129,7 @@ def build_dashboard(
 
     holding_tickers = [holding.ticker for holding in snapshot.holdings]
     market_closes = market.latest_closes(holding_tickers)
-    earnings_dates = market.next_earnings_dates(holding_tickers, asof=today)
+    earnings_dates = market.next_earnings_dates(holding_tickers, as_of=today)
     holdings = [
         _holding_view(
             holding,
@@ -237,7 +237,7 @@ def build_tasks(
     latest_research = _latest_research_by_ticker(research.revisions())
     security_names = _security_names(screening.latest_run())
     holding_tickers = [holding.ticker for holding in snapshot.holdings]
-    earnings_dates = market.next_earnings_dates(holding_tickers, asof=today)
+    earnings_dates = market.next_earnings_dates(holding_tickers, as_of=today)
     holdings = [
         _holding_view(
             holding,
@@ -546,7 +546,7 @@ def build_daily_delta(
                 current_pool,
                 previous_pool,
                 market=market if market_ready else None,
-                previous_asof=previous.as_of,
+                previous_as_of=previous.as_of,
             )
 
     holdings: list[HoldingDeltaView] = []
@@ -562,14 +562,14 @@ def build_daily_delta(
             ledger.snapshot(),
             research=research,
             market=market,
-            asof=today,
-            previous_asof=None if previous is None else previous.as_of,
+            as_of=today,
+            previous_as_of=None if previous is None else previous.as_of,
         )
 
     return DailyDeltaView(
         generated_at=now,
-        asof=None if latest is None else latest.as_of,
-        previous_asof=None if previous is None else previous.as_of,
+        as_of=None if latest is None else latest.as_of,
+        previous_as_of=None if previous is None else previous.as_of,
         pool=pool,
         rules_changed=rules_changed,
         entered=entered,
@@ -647,7 +647,7 @@ def _review_set_deltas(
     earlier: Mapping[str, Mapping[str, object]],
     *,
     market: MarketPriceSource | None,
-    previous_asof: date,
+    previous_as_of: date,
 ) -> tuple[
     list[ReviewSetEntryDeltaView],
     list[ReviewSetEntryDeltaView],
@@ -667,7 +667,7 @@ def _review_set_deltas(
     disclosed: set[str] | None = None
     if market is not None:
         disclosed = set(
-            market.disclosures_after(entered_tickers + exited_tickers, after=previous_asof)
+            market.disclosures_after(entered_tickers + exited_tickers, after=previous_as_of)
         )
     entered = [
         _review_set_entry_delta(
@@ -708,8 +708,8 @@ def _holding_deltas(
     *,
     research: ResearchSource,
     market: MarketPriceSource,
-    asof: date,
-    previous_asof: date | None,
+    as_of: date,
+    previous_as_of: date | None,
 ) -> tuple[list[HoldingDeltaView], int, int]:
     tickers = [holding.ticker for holding in snapshot.holdings]
     if not tickers:
@@ -718,9 +718,9 @@ def _holding_deltas(
     # The change is asked of the market layer so both ends land on the same share
     # basis; dividing two stored closes would report a split as a price move.
     changes = (
-        {} if previous_asof is None else market.close_changes_since(tickers, since=previous_asof)
+        {} if previous_as_of is None else market.close_changes_since(tickers, since=previous_as_of)
     )
-    earnings = market.next_earnings_dates(tickers, asof=asof)
+    earnings = market.next_earnings_dates(tickers, as_of=as_of)
     revisions = _latest_research_by_ticker(research.revisions())
     rows: list[HoldingDeltaView] = []
     without_fair_value = 0
@@ -751,7 +751,7 @@ def _holding_deltas(
                 at_or_above_fair_value=at_or_above,
                 change_since_previous_pct=change,
                 days_to_next_earnings=(
-                    None if next_earnings is None else (next_earnings - asof).days
+                    None if next_earnings is None else (next_earnings - as_of).days
                 ),
             )
         )
