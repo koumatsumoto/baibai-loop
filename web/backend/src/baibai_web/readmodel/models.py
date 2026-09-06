@@ -867,8 +867,10 @@ class DailyDeltaView(BaseModel):
 
     ``unavailable`` lists the sections no store could answer, so an empty section is
     never read as "nothing changed". ``pool`` names which machine pool the comparison
-    used, and ``rules_changed`` marks a pair of runs built from different screening
-    rules — the pool difference is then a method change, so no rows are reported.
+    used, and ``rules_changed`` marks different screening or Candidate Discovery
+    method hashes, so no pool rows are reported. Missing method identity makes the
+    pool unavailable. An E[r]-only model change keeps membership deltas but makes
+    ``review_set_estimate`` unavailable and suppresses estimate movers.
     Holdings that cannot be compared are counts rather than rows: repeating the same
     list every day would bury the day's actual changes. ``er_moves_total`` says how
     many names cleared the threshold before the row cap, so a capped list does not

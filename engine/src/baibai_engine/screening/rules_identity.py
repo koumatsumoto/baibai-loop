@@ -11,7 +11,7 @@ from .calibration.identity import rules_contract_hash
 
 
 def production_rules_contract_hash(rules_json: str) -> str:
-    """Return the exact method identity used by production run and select."""
+    """Return the exact screening identity used by production runs and Review Sets."""
 
     from .metrics import (
         BARS_INPUT_WINDOW_DAYS,

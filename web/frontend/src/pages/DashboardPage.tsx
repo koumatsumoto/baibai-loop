@@ -275,8 +275,8 @@ const deltaPoolLabel: Record<DeltaPool, string> = {
 const deltaUnavailableLabel: Record<DeltaUnavailable, string> = {
   screening_run: 'Screening Run（run なし）',
   previous_screening_run: 'Screening Run（比較する前 run なし）',
-  review_set: 'Review Set（選定出力なし）',
-  review_set_estimate: 'Review Set の E[r]（entry が見積りを持たない）',
+  review_set: 'Review Set（選定出力または比較に必要な手法情報なし）',
+  review_set_estimate: 'Review Set の E[r]（見積り欠損またはモデルを比較できない）',
   holdings: '保有（ledger なし）',
   holdings_fair_value: '保有の FV（thesis を読めない）',
   market: '市場データ（store なし）',
@@ -340,8 +340,8 @@ function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null; faile
             </DeltaRow>
           ))}
           {delta.rules_changed && (
-            <DeltaRow label="rules 改定">
-              <span className="text-sm text-muted-foreground">2 run の screening rules が異なるため、候補の差分は市場の変化ではなく手法の変更。</span>
+            <DeltaRow label="手法変更">
+              <span className="text-sm text-muted-foreground">screening または Candidate Discovery の手法が異なるため、候補差分を市場の変化として比較しない。</span>
             </DeltaRow>
           )}
           <DeltaEntries count={delta.entered.length} label="候補入り">
