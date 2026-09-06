@@ -77,8 +77,12 @@ YAML では日付・日時に見える scalar が string 以外へ暗黙変換�
 - Research Set または対象範囲が確定していない
 - 一次資料で load-bearing claim を確認できず、unknown / defer にも確定できない
 - review の独立性または digest binding を満たせない
-- buy 判断または当日指値が mandate、資金、concentration 制約に反する
+- buy 判断または当日指値が mandate または価格上限などの必須条件に反する
 - 人間の approve 前に broker 操作または ledger 更新へ進もうとしている
+
+資金目安、available cash、concentrationのwarningは人間へ提示し、それだけで投資価値rankを変えたり候補を除外したりしない。受容には[portfolio方針](../../../docs/portfolio-management.md#reservation-and-warnings)とledgerのoverride契約に従う人間確認が必要であり、自動許可しない。ledger書き込み時のcash不足などのhard errorはwarningと区別する。
+
+価格超過、買う価値のある候補なし、一次情報不足を判断できた場合の`defer` / 見送りは正常な結論である。
 
 ## 参照
 

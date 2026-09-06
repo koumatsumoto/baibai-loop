@@ -163,3 +163,56 @@ def test_holding_close_uses_exact_basis_after_complete_raw_chain(tmp_path: Path)
     assert resolved is not None
     assert resolved.price_as_of == date(2026, 7, 10)
     assert resolved.close_yen == 1000.0
+
+
+@pytest.mark.parametrize("close", [None, 0, -1, "bad", float("inf"), float("-inf")])
+@pytest.mark.parametrize("factor", [None, 0.5, 1.0, "bad", float("inf")])
+def test_holding_close_rejects_invalid_intermediate_values(tmp_path, close, factor):
+    path = tmp_path / "market.sqlite"
+    seed_daily_bars(path, [("2331", "2026-07-09", 990.0, 1.0), ("2331", "2026-07-10", 1000.0, 1.0)])
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "UPDATE jquants_daily_bars SET close = ?, adjustment_factor = ? WHERE traded_at = ?",
+            (close, factor, "2026-07-09"),
+        )
+    assert (
+        read_holding_unadjusted_close_on_basis(
+            sqlite_path=path,
+            ticker="2331",
+            ledger_price_observed_on=date(2026, 7, 9),
+            basis_as_of=date(2026, 7, 10),
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize("count", [1, 252])
+def test_holding_close_uses_three_queries_and_keeps_connection(tmp_path, count):
+    from datetime import timedelta
+
+    path = tmp_path / "market.sqlite"
+    start = date(2025, 1, 1)
+    end = start + timedelta(days=count - 1)
+    seed_daily_bars(
+        path,
+        [("2331", (start + timedelta(days=i)).isoformat(), 1000.0 + i, 1.0) for i in range(count)],
+    )
+    with sqlite3.connect(path) as conn:
+        queries = []
+        conn.set_trace_callback(queries.append)
+        result = read_holding_unadjusted_close_on_basis(
+            sqlite_path=path,
+            ticker="2331",
+            ledger_price_observed_on=start,
+            basis_as_of=end,
+            connection=conn,
+        )
+        assert result is not None
+        assert result.close_yen == 999.0 + count
+        assert len(queries) == 3
+        assert conn.execute("SELECT 1").fetchone() == (1,)
+        plan = conn.execute(
+            "EXPLAIN QUERY PLAN SELECT traded_at, close, adjustment_factor FROM jquants_daily_bars WHERE ticker = ? AND traded_at BETWEEN ? AND ? ORDER BY traded_at",
+            ("2331", start.isoformat(), end.isoformat()),
+        ).fetchall()
+        assert any("INDEX" in row[3] for row in plan)
