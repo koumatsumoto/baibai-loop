@@ -192,7 +192,8 @@ uv run baibai-engine screening verify-cache-coverage --asof YYYY-MM-DD
 uv run baibai-engine screening ticker-profile --ticker TICKER
 ```
 
-**成功確認**: `pull.sh`がmarket / runs / macroの全downloadとSQLite `quick_check`を終え、続く
+**成功確認**: `pull.sh`がmarket / runs / macroの全downloadとSQLite `quick_check`、
+marketのlake復元を終え、続く
 `verify-cache-coverage`と`ticker-profile`が対象日・対象tickerを返すことを確認する。
 
 **停止と復旧**: `verify-cache-coverage` が `required-field:<name>@<asof>` を返した場合は、同じas-ofで
@@ -202,8 +203,9 @@ uv run baibai-engine screening ticker-profile --ticker TICKER
 なるため、required-field補修には使わない。補修後は同じverify commandで
 `market_cap_required_fields`と`valuation_required_fields`がminimum以上であることを確認する。
 
-`pull.sh`は全検査が成功してから3 storeを置換し、`baibai.sqlite`には触れない。途中失敗では既存storeを
-使い続け、原因を解消して全体を引き直す。
+`pull.sh`は転送の全検査が成功してから3 storeを置換し、続いて`hydrate-market`でlake所有tableを復元する。
+`baibai.sqlite`には触れない。転送中の失敗では既存storeを保持する。復元の失敗では取得済みstoreが残るが、
+marketは分析可能とは限らないため、原因を解消して`hydrate-market`を完了してから分析へ進む。
 
 ### ローカルからクラウドを更新する
 
