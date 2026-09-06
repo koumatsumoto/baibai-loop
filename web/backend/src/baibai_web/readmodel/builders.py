@@ -489,7 +489,7 @@ def build_daily_delta(
     """Compare the latest machine run with the one before it.
 
     The view exists so that a change does not wait for someone to go looking. It
-    reports observations only: which tickers entered or left the machine pool, which
+    reports observations only: which tickers entered or left the Review Set, which
     machine estimates moved, and which holdings stand at or above their recorded fair
     value. Whether any of that is worth a research cycle or a Position Review is the
     reader's call. Macro context and readings belong to the dedicated Macro view.

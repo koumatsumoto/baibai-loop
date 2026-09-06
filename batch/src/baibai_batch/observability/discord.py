@@ -256,12 +256,12 @@ def _render_side(value: object) -> str:
 
 
 def render_delta(notice: Mapping[str, object]) -> list[str]:
-    """Render both sides of the review-set delta, one line each, whenever a pool exists.
+    """Render both sides of the Review Set delta, one line each, whenever a Review Set exists.
 
     Silence would carry three different facts — nothing entered, the delta could not
     be measured, and the notification path is broken — and a reader cannot tell them
     apart. So on every run that reached the export the two lines are present and say
-    which case it is. A non-business day has no pool and no lines.
+    which case it is. A non-business day has no Review Set and no lines.
     """
 
     if not notice or notice.get("skipped") is True:
