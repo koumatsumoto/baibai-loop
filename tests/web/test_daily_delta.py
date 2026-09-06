@@ -74,8 +74,7 @@ def test_daily_delta_compares_method_identity_by_output(change: str) -> None:
     sources = _sources(latest=latest, current_pool=current)
     view = build_daily_delta(*sources)
     changed = change in {"screening", "discovery"}
-    assert view.rules_changed is changed
-    assert view.pool == "review_set"
+    assert view.method_changed is changed
     assert [row.ticker for row in view.entered] == ([] if changed else ["1002", "1003"])
     assert [row.ticker for row in view.exited] == ([] if changed else ["1004"])
     assert [row.ticker for row in view.er_moves] == ([] if changed or change == "er" else ["1001"])
@@ -101,7 +100,7 @@ def test_missing_identity_is_not_treated_as_matching(side: str, identity: str) -
         else:
             previous = replace(previous, **{field: None})
     view = build_daily_delta(*_sources(latest, previous, current, earlier))
-    assert not view.rules_changed
+    assert not view.method_changed
     assert view.er_moves == []
     assert view.er_moves_total == 0
     assert [item.ticker for item in view.entered] == (["1002"] if identity == "er" else [])
@@ -124,12 +123,11 @@ def test_absent_comparison_and_empty_pool_are_distinct(missing: str) -> None:
         "review_set": "review_set",
     }.get(missing)
     assert view.entered == view.exited == view.er_moves == []
-    assert not view.rules_changed
+    assert not view.method_changed
     if expected:
         assert expected in view.unavailable
     else:
         assert view.unavailable == ["holdings"]
-        assert view.pool == "review_set"
 
 
 def test_method_change_does_not_skip_holdings(mocker) -> None:
@@ -140,6 +138,63 @@ def test_method_change_does_not_skip_holdings(mocker) -> None:
         "baibai_web.readmodel.builders._holding_deltas", return_value=([], 2, 3)
     )
     view = build_daily_delta(*sources)
-    assert view.rules_changed
+    assert view.method_changed
     assert (view.holdings_without_fair_value, view.holdings_without_price) == (2, 3)
     holding_delta.assert_called_once()
+
+
+@pytest.mark.parametrize("side", ["current", "previous", "both"])
+@pytest.mark.parametrize("shape", ["null", "absent"])
+@pytest.mark.parametrize("comparable", [False, True])
+def test_partial_estimate_missing_is_visible_without_hiding_comparable_movers(
+    side: str, shape: str, comparable: bool
+) -> None:
+    tickers = ["1001", "1002"] if comparable else ["1001"]
+    current, previous = _pool(tickers, 0.2), _pool(tickers, 0.1)
+    for name, publications in [("current", current), ("previous", previous)]:
+        if side not in {name, "both"}:
+            continue
+        expected = publications[0]["payload"]["entries"][0]["analysis"]["expected_return"]
+        if shape == "null":
+            expected["er_annual"] = None
+        else:
+            del expected["er_annual"]
+    view = build_daily_delta(*_sources(current_pool=current, previous_pool=previous))
+    assert "review_set_estimate" in view.unavailable
+    assert [row.ticker for row in view.er_moves] == (["1002"] if comparable else [])
+    assert view.er_moves_total == int(comparable)
+    assert view.entered == view.exited == []
+
+
+def test_estimate_missing_outside_shared_tickers_does_not_prevent_comparison() -> None:
+    current, previous = _pool(["1001", "1002"], 0.2), _pool(["1001", "1003"], 0.1)
+    for publications in [current, previous]:
+        publications[0]["payload"]["entries"][1]["analysis"]["expected_return"]["er_annual"] = None
+    view = build_daily_delta(*_sources(current_pool=current, previous_pool=previous))
+    assert "review_set_estimate" not in view.unavailable
+    assert [row.ticker for row in view.entered] == ["1002"]
+    assert [row.ticker for row in view.exited] == ["1003"]
+    assert [row.ticker for row in view.er_moves] == ["1001"]
+
+
+def test_disjoint_review_sets_have_no_unmeasured_shared_estimates() -> None:
+    current, previous = _pool(["1001"], 0.2), _pool(["1002"], 0.1)
+    for publications in [current, previous]:
+        publications[0]["payload"]["entries"][0]["analysis"]["expected_return"]["er_annual"] = None
+    view = build_daily_delta(*_sources(current_pool=current, previous_pool=previous))
+    assert "review_set_estimate" not in view.unavailable
+    assert view.er_moves_total == 0
+    assert [row.ticker for row in view.entered] == ["1001"]
+    assert [row.ticker for row in view.exited] == ["1002"]
+
+
+def test_mover_total_retains_rows_beyond_the_display_cap() -> None:
+    tickers = [str(1000 + index) for index in range(20)]
+    view = build_daily_delta(
+        *_sources(
+            current_pool=_pool(tickers, 0.2),
+            previous_pool=_pool(tickers, 0.1),
+        )
+    )
+    assert view.er_moves_total == 20
+    assert len(view.er_moves) == 5

@@ -1045,12 +1045,12 @@ def test_daily_delta_does_not_report_missing_comparison_as_empty(tmp_path, secti
     assert notice.delta_unmeasured_reason == section
 
 
-def test_daily_delta_distinguishes_rules_change(tmp_path):
+def test_daily_delta_distinguishes_method_change(tmp_path):
     view = _delta_view(tmp_path / "delta.json", [])
     payload = json.loads(view.read_text())
-    payload["rules_changed"] = True
+    payload["method_changed"] = True
     view.write_text(json.dumps(payload))
     notice = _Notice()
     _read_daily_delta(view, notice)
     assert not notice.delta_measured
-    assert "rules改定" in notice.delta_unmeasured_reason
+    assert notice.delta_unmeasured_reason == "手法変更"

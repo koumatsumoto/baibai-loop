@@ -313,8 +313,8 @@ def _read_daily_delta(path: Path, notice: _Notice) -> None:
         if section in unavailable:
             notice.delta_unmeasured_reason = section
             return
-    if payload.get("rules_changed") is True:
-        notice.delta_unmeasured_reason = "rules改定（手法の変更）"
+    if payload.get("method_changed") is True:
+        notice.delta_unmeasured_reason = "手法変更"
         return
     notice.delta_measured = True
     notice.delta_unmeasured_reason = ""
