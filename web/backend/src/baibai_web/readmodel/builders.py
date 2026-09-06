@@ -521,20 +521,27 @@ def build_daily_delta(
     er_moves_total = 0
     if latest is not None and previous is not None:
         rules_changed = (
-            latest.rules_ref is not None
-            and previous.rules_ref is not None
-            and latest.rules_ref != previous.rules_ref
+            bool(latest.screening_rules_hash)
+            and bool(previous.screening_rules_hash)
+            and latest.screening_rules_hash != previous.screening_rules_hash
         )
         pools = _delta_pools(screening, latest, previous)
-        if pools is None:
+        if pools is not None:
+            rules_changed = rules_changed or pools[3]
+        if pools is None or not latest.screening_rules_hash or not previous.screening_rules_hash:
             unavailable.append("review_set")
         elif rules_changed:
             # A rules revision replaces the pool wholesale, so the difference is a
             # method change and not a market change. Naming it is the honest answer.
             pool = pools[0]
         else:
-            pool, current_pool, previous_pool = pools
-            if current_pool and not any(_pool_er(row) is not None for row in current_pool.values()):
+            pool, current_pool, previous_pool, _ = pools
+            er_comparable = bool(latest.er_model_version) and (
+                latest.er_model_version == previous.er_model_version
+            )
+            if not er_comparable or (
+                current_pool and not any(_pool_er(row) is not None for row in current_pool.values())
+            ):
                 # A pool whose rows carry no estimate cannot produce a mover, and an
                 # empty mover list would read as "nothing moved". Naming it keeps a
                 # pool shape this reader does not know from silencing the section.
@@ -545,6 +552,10 @@ def build_daily_delta(
                 market=market if market_ready else None,
                 previous_as_of=previous.as_of,
             )
+            if not er_comparable:
+                # E[r] is context, not membership authority. Keep entries/exits but
+                # do not interpret estimates from different models as market moves.
+                er_moves, er_moves_total = [], 0
 
     holdings: list[HoldingDeltaView] = []
     holdings_without_fair_value = 0
@@ -582,7 +593,7 @@ def build_daily_delta(
 
 def _pool_rows(
     payloads: list[dict[str, object]], name: str
-) -> dict[str, Mapping[str, object]] | None:
+) -> tuple[str, dict[str, Mapping[str, object]]] | None:
     """Index one pool of a run's machine review_set by ticker, or None when absent."""
 
     for payload in payloads:
@@ -590,6 +601,10 @@ def _pool_rows(
         rows = body.get(name) if isinstance(body, Mapping) else None
         if not isinstance(rows, list):
             continue
+        method = body.get("method") if isinstance(body, Mapping) else None
+        method_hash = _text(method.get("method_hash")) if isinstance(method, Mapping) else None
+        if not method_hash:
+            return None
         indexed = {
             str(row.get("ticker")): row
             for row in rows
@@ -597,13 +612,15 @@ def _pool_rows(
         }
         if len(indexed) != len(rows):
             return None
-        return indexed
+        return method_hash, indexed
     return None
 
 
 def _delta_pools(
     screening: ScreeningSource, latest: ScreeningRunRecord, previous: ScreeningRunRecord
-) -> tuple[DeltaPool, dict[str, Mapping[str, object]], dict[str, Mapping[str, object]]] | None:
+) -> (
+    tuple[DeltaPool, dict[str, Mapping[str, object]], dict[str, Mapping[str, object]], bool] | None
+):
     """Pick the most informative pool both runs published, or None when neither did.
 
     Review Set membership is published by Candidate Discovery; re-deriving it from
@@ -617,7 +634,7 @@ def _delta_pools(
     earlier = _pool_rows(previous_payloads, "entries")
     if current is None or earlier is None:
         return None
-    return "review_set", current, earlier
+    return "review_set", current[1], earlier[1], current[0] != earlier[0]
 
 
 def _pool_er(row: Mapping[str, object]) -> float | None:

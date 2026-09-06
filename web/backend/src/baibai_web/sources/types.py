@@ -75,11 +75,10 @@ class ScreeningRunRecord:
     as_of: date
     generated_at: datetime
     universe_size: int
-    # The revision the judgment publications (review_set / research_triage) bind to;
+    # The revision the machine Review Set and L3 Research Triage bind to;
     # ``run_id`` is the public identifier shown to a reader.
     run_revision_id: str
-    # The screening rules the run was built from. A pair of runs with different
-    # rules differs by method, not by market, so a delta has to see this.
+    # Human-readable rules reference; the path is not a method identity.
     rules_ref: str | None
     # Immutable method identity from the operative run publication. Calibration
     # context is displayable only when both values match its generated artifact.
