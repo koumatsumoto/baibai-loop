@@ -172,3 +172,41 @@ def test_the_renderer_emits_a_declaration_for_each_supported_definition(
     rendered = render_typescript({"$defs": {"Shape": definition}})
 
     assert "export type Shape" in rendered or "export interface Shape" in rendered
+
+
+@pytest.mark.parametrize("count", [0, 5, 10, 11, 200])
+@pytest.mark.parametrize("er", [None, -0.2, 0.4])
+def test_review_set_delta_retains_every_entry_in_ticker_order(count, er):
+    from datetime import date
+
+    from baibai_batch.jobs.daily import _delta_ticker_labels, _Notice
+    from baibai_batch.observability.discord import render_delta
+    from baibai_web.readmodel.builders import _review_set_deltas
+
+    current = {
+        str(1000 + i): {"ticker": str(1000 + i), "analysis": {"expected_return": {"er_annual": er}}}
+        for i in reversed(range(count))
+    }
+    earlier = {
+        str(4000 + i): {"ticker": str(4000 + i), "analysis": {"expected_return": {"er_annual": er}}}
+        for i in reversed(range(count))
+    }
+    entered, exited, moves, total = _review_set_deltas(
+        current, earlier, market=None, previous_as_of=date(2026, 9, 1)
+    )
+    assert [entry.ticker for entry in entered] == sorted(current)
+    assert [entry.ticker for entry in exited] == sorted(earlier)
+    assert moves == []
+    assert total == 0
+    notice = _Notice(
+        delta_measured=True,
+        entered=_delta_ticker_labels([entry.model_dump() for entry in entered]),
+        exited=_delta_ticker_labels([entry.model_dump() for entry in exited]),
+    )
+    lines = render_delta(notice.to_json())
+    if count > 5:
+        assert all(f"全{count}件" in line and f"他{count - 5}件" in line for line in lines)
+        assert "1004" in lines[0]
+        assert "1005" not in lines[0]
+    elif count == 0:
+        assert all("なし" in line for line in lines)

@@ -5,9 +5,8 @@ Order: business-day gate -> screening cache coverage (bootstrap on demand) ->
 read-model export -> run-store prune. Every heavy step goes
 through the public ``baibai-engine`` CLI (or the Web materializer module) as a subprocess,
 so the stable CLI contract carries the business logic. The only in-process reads
-are the two ``baibai_engine.read_api`` query-only helpers this orchestrator needs
-before it can build a CLI command: the business-day gate and the previous-run
-resolution for ``select``. Each step prints its command line and an
+use the ``baibai_engine.read_api`` query-only business-day gate before
+building CLI commands. Each step prints its command line and an
 ``exit <code> (<seconds>s)`` line to stdout so a scheduled workflow log is
 readable as-is.
 
@@ -62,20 +61,12 @@ _COVERAGE_INCOMPLETE_MARKER = "SQLite cache coverage incomplete"
 # Exit 3 means the screening result was published and exported, but a deferred
 # (macro / prune) step failed afterwards.
 _EXIT_DEFERRED_FAILURE = 3
-# Maximum Review Set size for the daily machine path.
 _EDINET_QUARANTINE_RE = re.compile(
     r"\bquarantined_events=(?P<events>\d+)\s+"
     r"quarantined_tickers=(?P<tickers>\d+)\s+"
     r"quarantine_sample=(?P<sample>[^\s;]+)"
 )
-# How many names the notification carries per delta side. The reader acts on the top
-# of the list on the evening of a drop; the full set stays in the delta view, and
-# ``delta_entered`` / ``delta_exited`` keep carrying the counts so a capped list
-# never hides its own remainder.
-_DELTA_TICKERS_NAMED = 5
-# Bound one rendered entry so a long company name cannot crowd out the rest of the
-# notification. The name is bounded first so the estimate, which is what ranks the
-# entry, survives the truncation.
+# Bound company names while preserving ticker and estimate in each notice entry.
 _DELTA_TICKER_NAME_MAX_CHARS = 24
 _DELTA_TICKER_LABEL_MAX_CHARS = 48
 
@@ -274,24 +265,14 @@ def _finite_number(value: object) -> float | None:
 
 
 def _delta_ticker_labels(rows: object) -> list[str]:
-    """Name the tickers on one side of the pool delta, best estimate first.
+    """Keep the view's ticker order; the final notification renderer limits display.
 
-    A day that moves names into or out of the pool is worth acting on that evening,
-    and a count alone does not say which names to look at. The list is capped
-    because the reader acts on the top of it. The full entry sets remain in the
-    exported daily-delta view; the notice only carries the names worth opening.
-
-    Each field degrades on its own: a row missing a company name or an estimate
-    still names its ticker, since a partly-known entry is still the pointer the
-    reader needs. A row that cannot even be identified by ticker is dropped rather
-    than reported blank. The view is written by a separate process, so nothing about
-    its shape may cost the run its notification — every value is read defensively
-    and rendered through the same one-line sanitizer the notification contract uses.
+    Malformed entries degrade independently, without losing identifiable tickers.
     """
 
     if not isinstance(rows, list):
         return []
-    ranked: list[tuple[int, float, str, str]] = []
+    labels: list[str] = []
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -308,11 +289,8 @@ def _delta_ticker_labels(rows: object) -> list[str]:
         label = sanitize_one_line(" ".join(parts), _DELTA_TICKER_LABEL_MAX_CHARS)
         if not label:
             continue
-        # Estimate descending, rows without an estimate last, ticker as the
-        # tie-break so the same pool always renders the same way.
-        ranked.append((0 if er is not None else 1, -(er or 0.0), ticker, label))
-    ranked.sort()
-    return [label for *_, label in ranked[:_DELTA_TICKERS_NAMED]]
+        labels.append(label)
+    return labels
 
 
 def _read_daily_delta(path: Path, notice: _Notice) -> None:
@@ -334,6 +312,16 @@ def _read_daily_delta(path: Path, notice: _Notice) -> None:
     entered = payload.get("entered")
     exited = payload.get("exited")
     if not isinstance(entered, list) or not isinstance(exited, list):
+        return
+    unavailable = payload.get("unavailable")
+    if not isinstance(unavailable, list):
+        return
+    for section in ("screening_run", "previous_screening_run", "review_set"):
+        if section in unavailable:
+            notice.delta_unmeasured_reason = section
+            return
+    if payload.get("rules_changed") is True:
+        notice.delta_unmeasured_reason = "rules改定（手法の変更）"
         return
     notice.delta_measured = True
     notice.delta_unmeasured_reason = ""
@@ -384,7 +372,7 @@ def _read_run_view(run_yaml: Path) -> _RunView:
     """
 
     if not run_yaml.is_file():
-        # failure policy: 2 — select cannot bind to a run without its publication ID.
+        # failure policy: 2 — review-set publish cannot bind to a run without its publication ID.
         raise BatchStepError(
             "screening run did not write the --output-path YAML view",
             stage="screening-run",
@@ -392,7 +380,7 @@ def _read_run_view(run_yaml: Path) -> _RunView:
     try:
         payload = yaml.safe_load(run_yaml.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
-        # failure policy: 2 — an unreadable run view cannot safely identify select input.
+        # failure policy: 2 — unreadable input cannot identify the Review Set source run.
         raise BatchStepError(
             f"screening run YAML view is unreadable: {exc}",
             stage="screening-run",
@@ -407,7 +395,7 @@ def _read_run_view(run_yaml: Path) -> _RunView:
             )
             analyzed_security_count = len(analyses) if isinstance(analyses, list) else 0
             return _RunView(run_revision_id, universe_size, analyzed_security_count)
-    # failure policy: 2 — select would otherwise point at an unknown run publication.
+    # failure policy: 2 — review-set publish would otherwise point at an unknown run publication.
     raise BatchStepError(
         "screening run YAML view does not contain run_revision_id",
         stage="screening-run",

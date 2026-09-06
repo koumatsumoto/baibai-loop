@@ -722,7 +722,7 @@ def _entry(ticker: str, name: object, er: object) -> dict[str, object]:
     }
 
 
-def test_daily_delta_names_entered_tickers_by_estimate_descending(
+def test_daily_delta_keeps_all_entered_tickers_in_view_order(
     tmp_path: Path,
 ) -> None:
     view = _delta_view(
@@ -741,12 +741,13 @@ def test_daily_delta_names_entered_tickers_by_estimate_descending(
     _read_daily_delta(view, notice)
 
     assert notice.delta_measured is True
-    # Capped at five names; the notifier says how many more there are.
+    # Only the final renderer caps names; no entry is lost before then.
     assert notice.entered == [
-        "1004 Delta E[r]+30.0%",
+        "1001 Alpha E[r]+8.0%",
         "1002 Bravo E[r]+22.5%",
-        "1005 Echo E[r]+15.0%",
         "1003 Charlie E[r]+12.0%",
+        "1004 Delta E[r]+30.0%",
+        "1005 Echo E[r]+15.0%",
         "1006 Foxtrot E[r]+9.0%",
     ]
 
@@ -764,8 +765,7 @@ def test_daily_delta_names_a_ticker_whose_name_or_estimate_is_missing(
     )
 
     # A partly-known row is still the pointer the reader needs, so the known fields
-    # are reported and the unknown ones are left out. Rows without an estimate sort
-    # last because the estimate is what ranks them.
+    # are reported and the unknown ones are left out without changing order.
     notice = _Notice()
     _read_daily_delta(view, notice)
     assert notice.entered == [
@@ -785,9 +785,8 @@ def test_daily_delta_names_exited_tickers_from_the_other_side(tmp_path: Path) ->
     notice = _Notice()
     _read_daily_delta(view, notice)
 
-    # A name leaving the pool is the same kind of fact as one entering it, ranked
-    # the same way, and read from the row shape the two sides share.
-    assert notice.exited == ["9002 Yankee E[r]+11.0%", "9001 Zulu E[r]+6.0%"]
+    # Both sides preserve their incoming order.
+    assert notice.exited == ["9001 Zulu E[r]+6.0%", "9002 Yankee E[r]+11.0%"]
     assert notice.entered == ["1001 Alpha E[r]+8.0%"]
 
 
@@ -826,8 +825,8 @@ def test_daily_delta_drops_unreadable_entered_rows_without_failing(
     assert isinstance(labels, list)
     # A row that cannot be identified by ticker is dropped; a value the renderer
     # cannot use (NaN, bool) costs only that field, not the row.
-    assert labels[:2] == ["3003 Multi line name E[r]+3.0%", "3004 " + "x" * 24 + " E[r]+2.0%"]
-    assert sorted(labels[2:]) == ["3001 Broken", "3002 Boolish"]
+    assert labels[2:] == ["3003 Multi line name E[r]+3.0%", "3004 " + "x" * 24 + " E[r]+2.0%"]
+    assert labels[:2] == ["3001 Broken", "3002 Boolish"]
     assert all("\n" not in label and len(label) <= 48 for label in labels)
 
 
@@ -1032,3 +1031,26 @@ def test_a_reconcile_failure_degrades_the_batch_without_losing_the_publish(
     assert "export" in keys
     assert exit_code == 3
     assert _load_notice(notice_path)["failed_stage"] == "task-reconcile-earnings"
+
+
+@pytest.mark.parametrize("section", ["screening_run", "previous_screening_run", "review_set"])
+def test_daily_delta_does_not_report_missing_comparison_as_empty(tmp_path, section):
+    view = _delta_view(tmp_path / "delta.json", [])
+    payload = json.loads(view.read_text())
+    payload["unavailable"] = [section]
+    view.write_text(json.dumps(payload))
+    notice = _Notice()
+    _read_daily_delta(view, notice)
+    assert not notice.delta_measured
+    assert notice.delta_unmeasured_reason == section
+
+
+def test_daily_delta_distinguishes_rules_change(tmp_path):
+    view = _delta_view(tmp_path / "delta.json", [])
+    payload = json.loads(view.read_text())
+    payload["rules_changed"] = True
+    view.write_text(json.dumps(payload))
+    notice = _Notice()
+    _read_daily_delta(view, notice)
+    assert not notice.delta_measured
+    assert "rules改定" in notice.delta_unmeasured_reason

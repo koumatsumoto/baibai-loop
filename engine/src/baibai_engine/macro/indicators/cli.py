@@ -20,6 +20,8 @@ from .service import (
     QueryResult,
     RefreshFailure,
     RefreshSuccess,
+    list_series,
+    search,
 )
 
 
@@ -90,13 +92,11 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers.add_parser(group, help=description, add_help=False)
 
     list_parser = subparsers.add_parser("list", help="list registered macro indicator series")
-    list_parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     list_parser.add_argument("--category")
     list_parser.add_argument("--format", choices=("table", "json"), default="table")
 
     search_parser = subparsers.add_parser("search", help="search registered series")
     search_parser.add_argument("query")
-    search_parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
 
     get_parser = subparsers.add_parser("get", help="get observations for a series")
     get_parser.add_argument("series_id")
@@ -146,20 +146,21 @@ def main(argv: list[str] | None = None) -> int:
         # groups own their environment and store handling too; only the series
         # commands below need the provider credentials in `.env`.
         return _run_group(arguments[0], arguments[1:])
-    load_project_env()
     args = build_parser().parse_args(arguments)
-    service = IndicatorsService(args.db)
+    if args.command in {"get", "refresh", "retract"}:
+        load_project_env()
+        service = IndicatorsService(args.db)
     try:
         match args.command:
             case "list":
-                series = service.list_series(category=args.category)
+                series = list_series(category=args.category)
                 if args.format == "json":
                     _print_series_json(series)
                 else:
                     _print_series(series)
                 return 0
             case "search":
-                _print_series(service.search(args.query))
+                _print_series(search(args.query))
                 return 0
             case "get":
                 result = _run_get(service, args)
@@ -180,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     except (sqlite3.Error, OSError) as exc:
-        print(f"error: unable to open indicators db: {args.db}: {exc}", file=sys.stderr)
+        print(f"error: macro {args.command}: {exc}", file=sys.stderr)
         return 1
     except (ValueError, IndicatorsProviderError) as exc:
         print(f"error: {exc}", file=sys.stderr)

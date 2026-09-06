@@ -247,7 +247,11 @@ def _render_side(value: object) -> str:
         return _DELTA_EMPTY_TEXT
     rendered = " / ".join(entries[:ENTERED_TICKERS_SHOWN])
     if len(entries) > ENTERED_TICKERS_SHOWN:
-        rendered += f" (+{len(entries) - ENTERED_TICKERS_SHOWN})"
+        rendered = (
+            f"全{len(entries)}件・銘柄コード順で{ENTERED_TICKERS_SHOWN}件表示: "
+            + rendered
+            + f"（他{len(entries) - ENTERED_TICKERS_SHOWN}件）"
+        )
     return rendered
 
 
