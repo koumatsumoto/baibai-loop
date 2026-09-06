@@ -809,7 +809,6 @@ class CapitalAllocationAssessmentView(BaseModel):
     content_review: AssessmentReviewView
 
 
-type DeltaPool = Literal["review_set"]
 type DeltaUnavailable = Literal[
     "screening_run",
     "previous_screening_run",
@@ -835,7 +834,7 @@ class ReviewSetEntryDeltaView(BaseModel):
 
 
 class ReviewSetExpectedReturnDeltaView(BaseModel):
-    """A ticker in both pools whose machine E[r] moved most."""
+    """A ticker in both Review Sets whose machine E[r] moved most."""
 
     ticker: str
     company_name: str | None
@@ -866,11 +865,13 @@ class DailyDeltaView(BaseModel):
     decision to start a research cycle or a Position Review stays human.
 
     ``unavailable`` lists the sections no store could answer, so an empty section is
-    never read as "nothing changed". ``pool`` names which machine pool the comparison
-    used, and ``rules_changed`` marks different screening or Candidate Discovery
-    method hashes, so no pool rows are reported. Missing method identity makes the
-    pool unavailable. An E[r]-only model change keeps membership deltas but makes
+    never read as "nothing changed". ``method_changed`` marks different screening or
+    Candidate Discovery method hashes, so no Review Set deltas are reported. Missing
+    method identity makes Review Set comparison unavailable. An E[r]-only model
+    change keeps membership deltas but makes
     ``review_set_estimate`` unavailable and suppresses estimate movers.
+    Missing E[r] on either side of a shared ticker also marks that section unavailable,
+    while comparable tickers retain their movers.
     Holdings that cannot be compared are counts rather than rows: repeating the same
     list every day would bury the day's actual changes. ``er_moves_total`` says how
     many names cleared the threshold before the row cap, so a capped list does not
@@ -880,8 +881,7 @@ class DailyDeltaView(BaseModel):
     generated_at: datetime
     as_of: date | None
     previous_as_of: date | None
-    pool: DeltaPool | None
-    rules_changed: bool
+    method_changed: bool
     entered: list[ReviewSetEntryDeltaView]
     exited: list[ReviewSetEntryDeltaView]
     er_moves: list[ReviewSetExpectedReturnDeltaView]

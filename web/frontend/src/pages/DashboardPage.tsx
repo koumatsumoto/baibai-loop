@@ -6,7 +6,6 @@ import { Pie, PieChart } from 'recharts'
 import { fetchJson } from '../api/client'
 import type {
   DailyDeltaView,
-  DeltaPool,
   DeltaUnavailable,
   DashboardView,
   HoldingView,
@@ -262,13 +261,9 @@ function deltaCount(delta: DailyDeltaView) {
   return (
     delta.entered.length +
     delta.exited.length +
-    delta.er_moves.length +
+    delta.er_moves_total +
     delta.holdings.length
   )
-}
-
-const deltaPoolLabel: Record<DeltaPool, string> = {
-  review_set: 'Review Set',
 }
 
 // The view names the section a store could not answer; the reader gets it in Japanese.
@@ -315,11 +310,11 @@ function DeltaEntries({ children, count, label }: { children: ReactNode; count: 
   )
 }
 
-function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null; failed: boolean }) {
+export function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null; failed: boolean }) {
   const total = delta === null ? 0 : deltaCount(delta)
   const description =
     delta !== null && delta.previous_as_of !== null && delta.as_of !== null
-      ? `${formatJstDateShort(delta.previous_as_of)} → ${formatJstDateShort(delta.as_of)}${delta.pool === null ? '' : ` / ${deltaPoolLabel[delta.pool]}`}`
+      ? `${formatJstDateShort(delta.previous_as_of)} → ${formatJstDateShort(delta.as_of)}`
       : '前営業日との比較'
   return (
     <SectionCard
@@ -339,7 +334,7 @@ function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null; faile
               <span className="text-sm text-muted-foreground">{deltaUnavailableLabel[item]}</span>
             </DeltaRow>
           ))}
-          {delta.rules_changed && (
+          {delta.method_changed && (
             <DeltaRow label="手法変更">
               <span className="text-sm text-muted-foreground">screening または Candidate Discovery の手法が異なるため、候補差分を市場の変化として比較しない。</span>
             </DeltaRow>
@@ -406,7 +401,7 @@ function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null; faile
           )}
           {total === 0 &&
             delta.unavailable.length === 0 &&
-            !delta.rules_changed &&
+            !delta.method_changed &&
             delta.holdings_without_fair_value === 0 &&
             delta.holdings_without_price === 0 && (
               <p className="py-8 text-center text-sm text-muted-foreground">閾値に触れる変化はありません。</p>

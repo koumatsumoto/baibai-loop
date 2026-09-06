@@ -55,11 +55,13 @@ export interface CapitalAllocationAssessmentView {
  * decision to start a research cycle or a Position Review stays human.
  *
  * ``unavailable`` lists the sections no store could answer, so an empty section is
- * never read as "nothing changed". ``pool`` names which machine pool the comparison
- * used, and ``rules_changed`` marks different screening or Candidate Discovery
- * method hashes, so no pool rows are reported. Missing method identity makes the
- * pool unavailable. An E[r]-only model change keeps membership deltas but makes
+ * never read as "nothing changed". ``method_changed`` marks different screening or
+ * Candidate Discovery method hashes, so no Review Set deltas are reported. Missing
+ * method identity makes Review Set comparison unavailable. An E[r]-only model
+ * change keeps membership deltas but makes
  * ``review_set_estimate`` unavailable and suppresses estimate movers.
+ * Missing E[r] on either side of a shared ticker also marks that section unavailable,
+ * while comparable tickers retain their movers.
  * Holdings that cannot be compared are counts rather than rows: repeating the same
  * list every day would bury the day's actual changes. ``er_moves_total`` says how
  * many names cleared the threshold before the row cap, so a capped list does not
@@ -69,8 +71,7 @@ export interface DailyDeltaView {
   generated_at: string
   as_of: string | null
   previous_as_of: string | null
-  pool: DeltaPool | null
-  rules_changed: boolean
+  method_changed: boolean
   entered: ReviewSetEntryDeltaView[]
   exited: ReviewSetEntryDeltaView[]
   er_moves: ReviewSetExpectedReturnDeltaView[]
@@ -102,8 +103,6 @@ export interface DashboardView {
   warnings: WarningView[]
   research_load_errors: string[]
 }
-
-export type DeltaPool = 'review_set'
 
 export type DeltaUnavailable = 'screening_run' | 'previous_screening_run' | 'review_set' | 'review_set_estimate' | 'holdings' | 'holdings_fair_value' | 'market'
 
@@ -632,7 +631,7 @@ export interface ReviewSetEntryView {
 }
 
 /**
- * A ticker in both pools whose machine E[r] moved most.
+ * A ticker in both Review Sets whose machine E[r] moved most.
  */
 export interface ReviewSetExpectedReturnDeltaView {
   ticker: string

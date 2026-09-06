@@ -275,7 +275,7 @@
       "type": "object"
     },
     "DailyDeltaView": {
-      "description": "What changed between the latest machine run and the one before it.\n\nEvery field is an observation or a comparison of observations. The view names no\ncause and carries no recommendation: it tells the reader where to look, and the\ndecision to start a research cycle or a Position Review stays human.\n\n``unavailable`` lists the sections no store could answer, so an empty section is\nnever read as \"nothing changed\". ``pool`` names which machine pool the comparison\nused, and ``rules_changed`` marks different screening or Candidate Discovery\nmethod hashes, so no pool rows are reported. Missing method identity makes the\npool unavailable. An E[r]-only model change keeps membership deltas but makes\n``review_set_estimate`` unavailable and suppresses estimate movers.\nHoldings that cannot be compared are counts rather than rows: repeating the same\nlist every day would bury the day's actual changes. ``er_moves_total`` says how\nmany names cleared the threshold before the row cap, so a capped list does not\nhide its own remainder.",
+      "description": "What changed between the latest machine run and the one before it.\n\nEvery field is an observation or a comparison of observations. The view names no\ncause and carries no recommendation: it tells the reader where to look, and the\ndecision to start a research cycle or a Position Review stays human.\n\n``unavailable`` lists the sections no store could answer, so an empty section is\nnever read as \"nothing changed\". ``method_changed`` marks different screening or\nCandidate Discovery method hashes, so no Review Set deltas are reported. Missing\nmethod identity makes Review Set comparison unavailable. An E[r]-only model\nchange keeps membership deltas but makes\n``review_set_estimate`` unavailable and suppresses estimate movers.\nMissing E[r] on either side of a shared ticker also marks that section unavailable,\nwhile comparable tickers retain their movers.\nHoldings that cannot be compared are counts rather than rows: repeating the same\nlist every day would bury the day's actual changes. ``er_moves_total`` says how\nmany names cleared the threshold before the row cap, so a capped list does not\nhide its own remainder.",
       "properties": {
         "generated_at": {
           "format": "date-time",
@@ -306,18 +306,8 @@
           ],
           "title": "Previous As Of"
         },
-        "pool": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/DeltaPool"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "rules_changed": {
-          "title": "Rules Changed",
+        "method_changed": {
+          "title": "Method Changed",
           "type": "boolean"
         },
         "entered": {
@@ -372,8 +362,7 @@
         "generated_at",
         "as_of",
         "previous_as_of",
-        "pool",
-        "rules_changed",
+        "method_changed",
         "entered",
         "exited",
         "er_moves",
@@ -580,10 +569,6 @@
       ],
       "title": "DashboardView",
       "type": "object"
-    },
-    "DeltaPool": {
-      "const": "review_set",
-      "type": "string"
     },
     "DeltaUnavailable": {
       "enum": [
@@ -3440,7 +3425,7 @@
       "type": "object"
     },
     "ReviewSetExpectedReturnDeltaView": {
-      "description": "A ticker in both pools whose machine E[r] moved most.",
+      "description": "A ticker in both Review Sets whose machine E[r] moved most.",
       "properties": {
         "ticker": {
           "title": "Ticker",

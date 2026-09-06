@@ -44,7 +44,6 @@ from baibai_web.sources.types import (
 from .models import (
     DailyDeltaView,
     DashboardView,
-    DeltaPool,
     DeltaUnavailable,
     HoldingDeltaView,
     HoldingView,
@@ -513,42 +512,42 @@ def build_daily_delta(
     elif previous is None:
         unavailable.append("previous_screening_run")
 
-    pool: DeltaPool | None = None
-    rules_changed = False
+    method_changed = False
     entered: list[ReviewSetEntryDeltaView] = []
     exited: list[ReviewSetEntryDeltaView] = []
     er_moves: list[ReviewSetExpectedReturnDeltaView] = []
     er_moves_total = 0
     if latest is not None and previous is not None:
-        rules_changed = (
+        method_changed = (
             bool(latest.screening_rules_hash)
             and bool(previous.screening_rules_hash)
             and latest.screening_rules_hash != previous.screening_rules_hash
         )
-        pools = _delta_pools(screening, latest, previous)
-        if pools is not None:
-            rules_changed = rules_changed or pools[3]
-        if pools is None or not latest.screening_rules_hash or not previous.screening_rules_hash:
+        comparison = _review_set_comparison(screening, latest, previous)
+        if comparison is not None:
+            method_changed = method_changed or comparison[2]
+        if (
+            comparison is None
+            or not latest.screening_rules_hash
+            or not previous.screening_rules_hash
+        ):
             unavailable.append("review_set")
-        elif rules_changed:
-            # A rules revision replaces the pool wholesale, so the difference is a
-            # method change and not a market change. Naming it is the honest answer.
-            pool = pools[0]
-        else:
-            pool, current_pool, previous_pool, _ = pools
+        elif not method_changed:
+            current_entries, previous_entries, _ = comparison
             er_comparable = bool(latest.er_model_version) and (
                 latest.er_model_version == previous.er_model_version
             )
-            if not er_comparable or (
-                current_pool and not any(_pool_er(row) is not None for row in current_pool.values())
+            if not er_comparable or any(
+                _review_set_er(current_entries[ticker]) is None
+                or _review_set_er(previous_entries[ticker]) is None
+                for ticker in current_entries.keys() & previous_entries.keys()
             ):
-                # A pool whose rows carry no estimate cannot produce a mover, and an
-                # empty mover list would read as "nothing moved". Naming it keeps a
-                # pool shape this reader does not know from silencing the section.
+                # Missing either side is unmeasured, not an unchanged estimate.
+                # Comparable tickers still contribute their observed movers.
                 unavailable.append("review_set_estimate")
             entered, exited, er_moves, er_moves_total = _review_set_deltas(
-                current_pool,
-                previous_pool,
+                current_entries,
+                previous_entries,
                 market=market if market_ready else None,
                 previous_as_of=previous.as_of,
             )
@@ -578,8 +577,7 @@ def build_daily_delta(
         generated_at=now,
         as_of=None if latest is None else latest.as_of,
         previous_as_of=None if previous is None else previous.as_of,
-        pool=pool,
-        rules_changed=rules_changed,
+        method_changed=method_changed,
         entered=entered,
         exited=exited,
         er_moves=er_moves,
@@ -591,14 +589,14 @@ def build_daily_delta(
     )
 
 
-def _pool_rows(
-    payloads: list[dict[str, object]], name: str
+def _review_set_rows(
+    payloads: list[dict[str, object]],
 ) -> tuple[str, dict[str, Mapping[str, object]]] | None:
-    """Index one pool of a run's machine review_set by ticker, or None when absent."""
+    """Read a published Review Set's method hash and entries indexed by ticker."""
 
     for payload in payloads:
         body = payload.get("payload")
-        rows = body.get(name) if isinstance(body, Mapping) else None
+        rows = body.get("entries") if isinstance(body, Mapping) else None
         if not isinstance(rows, list):
             continue
         method = body.get("method") if isinstance(body, Mapping) else None
@@ -616,12 +614,10 @@ def _pool_rows(
     return None
 
 
-def _delta_pools(
+def _review_set_comparison(
     screening: ScreeningSource, latest: ScreeningRunRecord, previous: ScreeningRunRecord
-) -> (
-    tuple[DeltaPool, dict[str, Mapping[str, object]], dict[str, Mapping[str, object]], bool] | None
-):
-    """Pick the most informative pool both runs published, or None when neither did.
+) -> tuple[dict[str, Mapping[str, object]], dict[str, Mapping[str, object]], bool] | None:
+    """Resolve both published Review Sets and whether their Discovery methods differ.
 
     Review Set membership is published by Candidate Discovery; re-deriving it from
     the run's Security Analysis array would duplicate that method and compare the
@@ -630,14 +626,14 @@ def _delta_pools(
 
     latest_payloads = screening.review_sets(run_revision_id=latest.run_revision_id)
     previous_payloads = screening.review_sets(run_revision_id=previous.run_revision_id)
-    current = _pool_rows(latest_payloads, "entries")
-    earlier = _pool_rows(previous_payloads, "entries")
+    current = _review_set_rows(latest_payloads)
+    earlier = _review_set_rows(previous_payloads)
     if current is None or earlier is None:
         return None
-    return "review_set", current[1], earlier[1], current[0] != earlier[0]
+    return current[1], earlier[1], current[0] != earlier[0]
 
 
-def _pool_er(row: Mapping[str, object]) -> float | None:
+def _review_set_er(row: Mapping[str, object]) -> float | None:
     """Read contextual E[r] from a Review Set entry."""
 
     analysis = row.get("analysis")
@@ -651,7 +647,7 @@ def _review_set_entry_delta(
     return ReviewSetEntryDeltaView(
         ticker=str(row.get("ticker", "")),
         company_name=_text(row.get("name")),
-        er_annual_pct=_percent(_pool_er(row)),
+        er_annual_pct=_percent(_review_set_er(row)),
         disclosed_since_previous=disclosed,
     )
 
@@ -693,8 +689,8 @@ def _review_set_deltas(
     ]
     moves: list[ReviewSetExpectedReturnDeltaView] = []
     for ticker in sorted(set(current) & set(earlier)):
-        current_er = _percent(_pool_er(current[ticker]))
-        previous_er = _percent(_pool_er(earlier[ticker]))
+        current_er = _percent(_review_set_er(current[ticker]))
+        previous_er = _percent(_review_set_er(earlier[ticker]))
         if current_er is None or previous_er is None:
             continue
         change = round(current_er - previous_er, 1)
