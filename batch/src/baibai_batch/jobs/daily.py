@@ -21,7 +21,6 @@ warnings and the chain continues.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import re
@@ -117,8 +116,6 @@ class StepResult:
     argv: tuple[str, ...]
     returncode: int
     duration_seconds: float
-    stdout_sha256: str
-    stderr_sha256: str
 
     def to_json(self) -> dict[str, object]:
         return {
@@ -126,8 +123,6 @@ class StepResult:
             "argv": list(self.argv),
             "returncode": self.returncode,
             "duration_seconds": round(self.duration_seconds, 6),
-            "stdout_sha256": self.stdout_sha256,
-            "stderr_sha256": self.stderr_sha256,
         }
 
 
@@ -226,8 +221,6 @@ def _run_step(
         argv=tuple(argv),
         returncode=result.returncode,
         duration_seconds=elapsed,
-        stdout_sha256=hashlib.sha256(result.stdout.encode()).hexdigest(),
-        stderr_sha256=hashlib.sha256(result.stderr.encode()).hexdigest(),
     )
     if step_sink is not None:
         step_sink(step_result, result)
