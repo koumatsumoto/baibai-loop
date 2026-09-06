@@ -409,6 +409,21 @@ batch/scripts/r2_transfer.sh push-macro
 **停止と復旧**: registryを追加した場合はcodeをmainへ入れるまでpushしない。`reading`またはmergeが停止したら
 uploadせず、ローカルで原因を解消する。
 
+#### Macro観測とregistryの修正
+
+vintage、retraction、generation、no-lossの意味は[Macro reference](../docs/reference/macro.md#①-データindicator-series-を引く)を正本とする。
+
+**観測の撤回**: 誤値をlocalでDELETEしてもcloud mergeが戻すため、`macro retract <series_id> --observed-at <date> --expected-vintage <ts>`で最新vintageを名指して撤回する。実行前に対象日とvintageを確認し、derived入力の場合はコマンドが示す依存系列の同日を先に撤回する。CAS拒否時は再実行せず現在vintageを読み直す。成功後は正しい下位vintageが読まれるか、下位が無ければ当日がreading / chartから外れることを確認する。誤った撤回は対象sourceとvintageを確認して修正し、blind DELETEや同じCASの反復をしない。
+
+**系列の追加・退役・改名**:
+
+1. mainを取り込んだcheckoutで`uv run baibai-batch validate-macro-stores`を実行し、変更前の観測と発行済みcontextを確認する。
+2. series ID集合の変更では`definitions.py`のmembership digestを次のgenerationとして追記し、変更後もvalidatorを通す。退役系列の引用warningは確認し、発行済みcontextを書き換えない。load不能なら停止してcodeの原因を直す。
+3. localで現行系列を指定した`macro refresh`を実行する。登録外系列のpruneはこの明示refreshの開始時だけ行う。全期間更新はbaseを先に、derivedを後に実行する。
+4. cloudへ渡す前に変更codeをmainへ入れる。`registry-prune-pending`と`registry-prune`のtransaction ID・系列・削除件数を照合する。pendingだけではcommit成功と扱わない。validatorとreadingで成功を確認してから`push-macro`でcloud copyをmergeする。codeがmainへ入る前のpush、merge失敗後のblind overwriteは禁止する。
+
+**停止と復旧**: 意図しないpruneや片方だけのlogを見つけたらpushを止める。cloudへ反映済みなら次のpushが1世代の`.bak`を置換する前に[部分pushからの復旧](#部分-push-からの復旧)で状態を確認し、検証したcopyから復元する。再取得できない履歴があるため、cloudの行を失わないmergeとbackupを省略しない。
+
 #### Market履歴
 
 **前提**: 日次batchが遡らない過去を補う場合に使う。local providerで必要範囲を取得し、完全なstoreを作ってからcloudへ反映する。
@@ -746,7 +761,7 @@ code が選ばず repository secret `DISCORD_WEBHOOK_URL` が指す webhook で�
 message は 3 部からなる。
 
 1. 見出し行 — label・as-of・失敗した step 名（あれば）。`[FAILED] as-of 2026-08-26 — failed step: hydrate`
-2. `🆕 新規 Review Set 入り:` / `👋 Review Set 退出:` の 2 行 — それぞれ E[r] 降順・最大5件・`<ticker> <社名> E[r]±X.X%`。急落当日の候補と、pool から落ちた銘柄を通知だけで拾えるようにするための行である。**export に到達した run では常に出す** — 0 件の日は `なし`、delta view が読めない日は `計測なし（<理由>）` と書く。行が無いことは「0 件」「計測不能」「通知経路の異常」の3つを同時に意味してしまい、読み手が区別できない。非営業日の skip には pool が無いので出ない
+2. `🆕 新規 Review Set 入り:` / `👋 Review Set 退出:` の 2 行 — それぞれ銘柄コード順・最大5件（超過時は全件数・表示件数・他の件数を明示）・`<ticker> <社名> E[r]±X.X%`。急落当日の候補と、pool から落ちた銘柄を通知だけで拾えるようにするための行である。**export に到達した run では常に出す** — 0 件の日は `なし`、delta view が読めない日は `計測なし（<理由>）` と書く。行が無いことは「0 件」「計測不能」「通知経路の異常」の3つを同時に意味してしまい、読み手が区別できない。非営業日の skip には pool が無いので出ない
 3. `run:` — GitHub Actions の run URL。所要時間・step ごとの結果・lake release・error の本文はこの run log にある
 
 label は5種。

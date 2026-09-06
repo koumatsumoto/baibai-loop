@@ -305,6 +305,16 @@ function DeltaDisclosedBadge({ disclosed }: { disclosed: boolean | null }) {
   return disclosed ? <Badge variant="outline">決算開示後</Badge> : null
 }
 
+function DeltaEntries({ children, count, label }: { children: ReactNode; count: number; label: string }) {
+  if (count === 0) return null
+  return (
+    <details open={count <= 10}>
+      <summary className="cursor-pointer px-5 py-3 text-sm sm:px-6">{label} 全{count}件（銘柄コード順・展開して全件表示）</summary>
+      <div className="divide-y">{children}</div>
+    </details>
+  )
+}
+
 function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null; failed: boolean }) {
   const total = delta === null ? 0 : deltaCount(delta)
   const description =
@@ -334,6 +344,7 @@ function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null; faile
               <span className="text-sm text-muted-foreground">2 run の screening rules が異なるため、候補の差分は市場の変化ではなく手法の変更。</span>
             </DeltaRow>
           )}
+          <DeltaEntries count={delta.entered.length} label="候補入り">
           {delta.entered.map((item) => (
             <DeltaRow key={`entered-${item.ticker}`} label="候補入り">
               <DeltaSecurity name={item.company_name} ticker={item.ticker} />
@@ -341,6 +352,8 @@ function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null; faile
               <DeltaDisclosedBadge disclosed={item.disclosed_since_previous} />
             </DeltaRow>
           ))}
+          </DeltaEntries>
+          <DeltaEntries count={delta.exited.length} label="候補外れ">
           {delta.exited.map((item) => (
             <DeltaRow key={`exited-${item.ticker}`} label="候補外れ">
               {/* A name that left the pool may have no detail view exported, so it is
@@ -354,6 +367,7 @@ function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null; faile
               <DeltaDisclosedBadge disclosed={item.disclosed_since_previous} />
             </DeltaRow>
           ))}
+          </DeltaEntries>
           {delta.er_moves.map((item) => (
             <DeltaRow key={`move-${item.ticker}`} label="E[r] 変化">
               <DeltaSecurity name={item.company_name} ticker={item.ticker} />

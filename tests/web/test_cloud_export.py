@@ -587,7 +587,7 @@ def test_export_replaces_views_but_keeps_history(app_method_root: Path, tmp_path
     # set does not survive.
     assert not stale_view.exists()
     assert (output_dir / "views/security--2331.json").exists()
-    # history/ only appends, so a prior day's entry is retained.
+    # Dates outside the retained run store are left untouched.
     assert kept_history.exists()
 
 
@@ -706,8 +706,11 @@ def test_the_batch_operations_doc_lists_every_exported_view() -> None:
 def test_export_reuses_research_history_and_ledger_per_export(
     app_method_root: Path, tmp_path: Path, count: int, mocker
 ) -> None:
+    from baibai_web.readmodel import stocks
     from baibai_web.sources import db_sources
 
+    prepare = mocker.spy(export_module, "prepare_security_inputs")
+    convert = mocker.spy(stocks, "_machine_review_set_view")
     read = mocker.spy(db_sources, "list_thesis_publications")
     replay = mocker.spy(db_sources, "reconcile_portfolio")
     mocker.patch.object(
@@ -718,10 +721,15 @@ def test_export_reuses_research_history_and_ledger_per_export(
     export_module.export_read_models(app_method_root, tmp_path / "first")
     assert read.call_count == 1
     assert replay.call_count == 1
+    assert prepare.call_count == 1
+    conversions = convert.call_count
+    assert conversions < 10
     # A second export must read its own inputs; no result escapes the first export.
     export_module.export_read_models(app_method_root, tmp_path / "second")
     assert read.call_count == 2
     assert replay.call_count == 2
+    assert prepare.call_count == 2
+    assert convert.call_count == 2 * conversions
     first = tmp_path / "first/views/security--2331.json"
     second = tmp_path / "second/views/security--2331.json"
     assert json.loads(first.read_text()) == json.loads(second.read_text())

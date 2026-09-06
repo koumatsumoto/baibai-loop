@@ -47,11 +47,12 @@ from baibai_web.readmodel.stocks import (
     build_screening,
     build_screening_history_run,
     build_security_detail,
+    prepare_security_inputs,
 )
 from baibai_web.sources.db_sources import DbLedgerSource, DbResearchSource, DbScreeningSource
 from baibai_web.sources.factory import build_sources
 from baibai_web.sources.protocols import LedgerSource, ResearchSource
-from baibai_web.sources.types import ResearchRevision, ScreeningRunRecord
+from baibai_web.sources.types import ResearchRevision
 
 _JST = ZoneInfo("Asia/Tokyo")
 # Same shape the ledger and run store enforce at write time; re-checked here so a
@@ -77,8 +78,9 @@ def export_read_models(
 
     ``views/`` is recreated from scratch so it always carries the complete image of
     one export and no stale per-ticker view survives a shrinking target set;
-    ``history/`` only appends. ``views/meta.json`` is written last so its freshness
-    claim exists only after every other file has been written successfully.
+    Retained ``history/`` dates are regenerated from past runs with current
+    holding, reservation and Research annotations. ``views/meta.json`` is written last,
+    after every other file has been written successfully.
     """
 
     stores = build_sources(root)
@@ -200,7 +202,7 @@ def export_read_models(
             )
         )
 
-    cached_screening = _CachedScreeningSource(stores.screening)
+    prepared_security = prepare_security_inputs(stores.ledger, stores.research, stores.screening)
     for ticker in _security_tickers(dashboard, screening):
         if _TICKER_FORMAT.fullmatch(ticker) is None:
             _warn(f"ticker has an unexpected format: {ticker!r}; security view skipped")
@@ -209,8 +211,9 @@ def export_read_models(
             ticker,
             stores.ledger,
             stores.research,
-            cached_screening,
+            stores.screening,
             stores.market,
+            prepared=prepared_security,
         )
         if security is None:
             _warn(f"security view is unavailable for ticker {ticker}; skipped")
@@ -220,7 +223,6 @@ def export_read_models(
     written.extend(
         _write_history(
             output_dir,
-            screening,
             screening_source=stores.screening,
             ledger=stores.ledger,
             research=stores.research,
@@ -263,43 +265,6 @@ class _CachedResearchSource(DbResearchSource):
         return self._assessments
 
 
-class _CachedScreeningSource:
-    """Serve one parsed latest run to every security-detail build.
-
-    ``build_security_detail`` reads the latest run and its review_sets on every
-    call, and the export loops over every displayed security, so an uncached source
-    would re-parse both once per ticker.
-    """
-
-    def __init__(self, inner: DbScreeningSource) -> None:
-        self._inner = inner
-        self._loaded = False
-        self._latest: ScreeningRunRecord | None = None
-        self._runs: dict[str, ScreeningRunRecord | None] = {}
-        self._review_sets: dict[str | None, list[dict[str, object]]] = {}
-
-    def latest_run(self) -> ScreeningRunRecord | None:
-        if not self._loaded:
-            self._latest = self._inner.latest_run()
-            self._loaded = True
-        return self._latest
-
-    def previous_run(self) -> ScreeningRunRecord | None:
-        return self._inner.previous_run()
-
-    def run(self, run_revision_id: str) -> ScreeningRunRecord | None:
-        if run_revision_id not in self._runs:
-            self._runs[run_revision_id] = self._inner.run(run_revision_id)
-        return self._runs[run_revision_id]
-
-    def review_sets(self, *, run_revision_id: str | None = None) -> list[dict[str, object]]:
-        if run_revision_id not in self._review_sets:
-            self._review_sets[run_revision_id] = self._inner.review_sets(
-                run_revision_id=run_revision_id
-            )
-        return self._review_sets[run_revision_id]
-
-
 def _security_tickers(dashboard: DashboardView, screening: ScreeningView) -> list[str]:
     """Enumerate holdings, latest-run analyses, and Research Triage tickers."""
 
@@ -312,7 +277,6 @@ def _security_tickers(dashboard: DashboardView, screening: ScreeningView) -> lis
 
 def _write_history(
     output_dir: Path,
-    screening: ScreeningView,
     *,
     screening_source: DbScreeningSource,
     ledger: LedgerSource,

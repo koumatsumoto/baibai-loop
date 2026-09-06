@@ -41,6 +41,26 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 
 ## 1. AP-01: 一次情報を直接確認せず二次情報・推測で書く
 
+### Commit前に止める条件
+
+- [ ] **すべての数値・固有名詞 (社名・組織名・地名・政策名) について、引用元 URL を文書内に明示しているか**
+- [ ] その URL を実際に WebFetch / curl で取得し、本文に記載があることを確認したか
+- [ ] **source の policy / rate / date / scenario が本文主張と一致しているか** (URL を貼っただけで終わらせない)
+  - 例: 「Section 122 trade-weighted 13%」と書く場合、貼った Global Trade Alert source の中で
+        13.0% は **15% シナリオ** の数値であり、10% 法定 (Proclamation 11012) 前提と整合しない。
+        10% 前提なら 11.4-11.5%、15% シナリオを使うなら法定が 15% の場合の話だと明記する
+  - 例: 「BEA 公表」と書く場合、その URL が press release / FRED / BEA Schedule のどれか、
+        対象月 (March 2026 vs April 2026) が一致するか、speech だけで release ではないか
+- [ ] 「業界レポート」「アナリスト試算」「外部分析の trade-weighted estimate」などの二次値は、
+      一次値と明確に区別して `(外部 estimate, source: ...)` の形で書いているか
+- [ ] 銘柄固有の事業構造 (顧客 / 地域 / 親会社取引比率) を断定する場合、有価証券報告書 / 決算
+      説明資料 / 統合報告書のいずれかに直接 URL でリンクしているか。リンクなしの断定は禁止
+- [ ] macro context の発行日付近に大型 statement (FOMC / BOJ / OPEC+ / CPI / PCE) が予定
+      されていれば、発行前に「最新版が出ていないか」を schedule で確認したか
+- [ ] 自分の draft の上流 (evidence / fact 層) で「未確認」「不明」「推定」と書いた事象を、下流の
+      summary / judgment / 結論で確定事実として書いていないか。**一次確認に行って取れなかった
+      ことは、書かない理由であって断定してよい理由ではない**。取れなかった事実自体を本文に残す
+
 ### 異なる失敗類型の代表例
 - 122 条関税を「13% 上乗せ」と書いた (Federal Register 一次情報は 10% ad valorem)。
   trade-weighted estimate の二次情報を引用元なしに断定した
@@ -62,38 +82,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - 上流で正直に置いた「未確認」が、要約・統合の過程で落ちる。**引用元を持たない断定は URL 検査に
   かからない**ので、source を確かめる checklist だけでは検出できない
 
-### Commit前に止める条件
-
-- [ ] **すべての数値・固有名詞 (社名・組織名・地名・政策名) について、引用元 URL を文書内に明示しているか**
-- [ ] その URL を実際に WebFetch / curl で取得し、本文に記載があることを確認したか
-- [ ] **source の policy / rate / date / scenario が本文主張と一致しているか** (URL を貼っただけで終わらせない)
-  - 例: 「Section 122 trade-weighted 13%」と書く場合、貼った Global Trade Alert source の中で
-        13.0% は **15% シナリオ** の数値であり、10% 法定 (Proclamation 11012) 前提と整合しない。
-        10% 前提なら 11.4-11.5%、15% シナリオを使うなら法定が 15% の場合の話だと明記する
-  - 例: 「BEA 公表」と書く場合、その URL が press release / FRED / BEA Schedule のどれか、
-        対象月 (March 2026 vs April 2026) が一致するか、speech だけで release ではないか
-- [ ] 「業界レポート」「アナリスト試算」「外部分析の trade-weighted estimate」などの二次値は、
-      一次値と明確に区別して `(外部 estimate, source: ...)` の形で書いているか
-- [ ] 銘柄固有の事業構造 (顧客 / 地域 / 親会社取引比率) を断定する場合、有価証券報告書 / 決算
-      説明資料 / 統合報告書のいずれかに直接 URL でリンクしているか。リンクなしの断定は禁止
-- [ ] macro context の発行日付近に大型 statement (FOMC / BOJ / OPEC+ / CPI / PCE) が予定
-      されていれば、発行前に「最新版が出ていないか」を schedule で確認したか
-- [ ] 自分の draft の上流 (evidence / fact 層) で「未確認」「不明」「推定」と書いた事象を、下流の
-      summary / judgment / 結論で確定事実として書いていないか。**一次確認に行って取れなかった
-      ことは、書かない理由であって断定してよい理由ではない**。取れなかった事実自体を本文に残す
-
 ## 2. AP-02: 数値計算を機械的に検算しない
-
-### 異なる失敗類型の代表例
-- `adv_participation_pct = 0.005 / 85.4 * 100 = 0.00585%` を **0.585** と記述 (100 倍ズレ)
-- 利確 target を「PER 7.35 → 16 への正常化 = entry 価格 +20-30%」と記述。実際は EPS 一定なら
-  +118%、+20-30% を狙うなら PER target は 8.8-9.6
-- 為替変動率を %、bp を混同するリスク
-
-### 発生理由
-- 数式を頭の中だけで処理して紙 / 電卓 / Python で再計算しない
-- 「だいたい合ってる」感覚で commit する
-- 単位 (%/bp、円/USD、千 / 百万 / 億) の整合性を check しない
 
 ### Commit前に止める条件
 
@@ -106,17 +95,18 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] PER / EV/EBITDA 等の倍率変化は EPS / EBITDA 一定なら株価リターン = (target / current - 1) * 100
 - [ ] 桁数 (0.005 vs 0.05 vs 0.5、1e-3 vs 1e-2 vs 1e-1) を音読で確認したか
 
-## 3. AP-03: データの「異常さ」に対して原因 cross-check を skip する
-
 ### 異なる失敗類型の代表例
-- 6590 芝浦メカトロニクス の `price_change_60d: -0.8129` (-81%) を「過剰売り」と解釈し、
-  株式分割 (2026-03-01 効力 1:5) の split artifact 可能性を確認しなかった
+- `adv_participation_pct = 0.005 / 85.4 * 100 = 0.00585%` を **0.585** と記述 (100 倍ズレ)
+- 利確 target を「PER 7.35 → 16 への正常化 = entry 価格 +20-30%」と記述。実際は EPS 一定なら
+  +118%、+20-30% を狙うなら PER target は 8.8-9.6
+- 為替変動率を %、bp を混同するリスク
 
 ### 発生理由
-- 株価が極端に動いた (>= ±50%) のに「需給」「業績」「セクター回転」のいずれかで説明できる
-  と決めつけ、corporate action (split / 合併 / TOB / 上場区分変更) の可能性を忘れる
-- screening runのprice系列が split 調整しているか、`record_date` ベースか `effective_date`
-  ベースかを確認しない
+- 数式を頭の中だけで処理して紙 / 電卓 / Python で再計算しない
+- 「だいたい合ってる」感覚で commit する
+- 単位 (%/bp、円/USD、千 / 百万 / 億) の整合性を check しない
+
+## 3. AP-03: データの「異常さ」に対して原因 cross-check を skip する
 
 ### Commit前に止める条件
 
@@ -134,6 +124,16 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
       forward return、market view の全consumerが同じfactorを使うことを確認したか
 - [ ] `forward PER` と `trailing PER` の乖離が ±100% を超える場合、決算特殊要因 (税引前
       一過性 gains / losses、減損、グループ再編) の可能性を有報で確認
+
+### 異なる失敗類型の代表例
+- 6590 芝浦メカトロニクス の `price_change_60d: -0.8129` (-81%) を「過剰売り」と解釈し、
+  株式分割 (2026-03-01 効力 1:5) の split artifact 可能性を確認しなかった
+
+### 発生理由
+- 株価が極端に動いた (>= ±50%) のに「需給」「業績」「セクター回転」のいずれかで説明できる
+  と決めつけ、corporate action (split / 合併 / TOB / 上場区分変更) の可能性を忘れる
+- screening runのprice系列が split 調整しているか、`record_date` ベースか `effective_date`
+  ベースかを確認しない
 
 ## 4. AP-04: schema / 実装の意味を読まずに推測で解釈する
 
@@ -476,7 +476,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 #### 横断変更
 
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。
-      commit 前に `rg -n "except [A-Za-z0-9_.]+, [A-Za-z0-9_.]+" src tests` が 0 件であることを確認する
+      commit 前に `rg -n "except [A-Za-z0-9_.]+, [A-Za-z0-9_.]+" engine/src web/backend/src batch/src tools tests` が 0 件であることを確認する
 - [ ] **CLI subcommand / Review Set 機能を削減する場合、以下を同 commit で揃える**:
   - [ ] `engine/src/baibai_engine/screening/cli/app.py` の subparser + `add_argument` 引数 + `main()` の dispatch
   - [ ] `engine/src/baibai_engine/screening/cli/{__init__.py,query.py,cache.py,run.py}` の関数 / import

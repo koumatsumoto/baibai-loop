@@ -259,7 +259,8 @@ def test_render_message_caps_the_named_tickers_and_says_how_many_are_left(tmp_pa
         outcome="ok", asof="2026-08-26", failed_step="", notice=notice, url=RUN_URL
     ).splitlines()[1]
 
-    assert line.endswith(" (+2)")
+    assert "全7件・銘柄コード順で5件表示" in line
+    assert line.endswith("（他2件）")
     assert line.count(" / ") == 4
 
 

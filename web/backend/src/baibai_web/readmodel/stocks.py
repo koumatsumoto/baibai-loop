@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import (
     Mapping,
 )
+from dataclasses import dataclass
 from datetime import (
     date,
     datetime,
@@ -15,6 +16,7 @@ from zoneinfo import (
 )
 
 from baibai_engine.read_api import (
+    HoldingSnapshot,
     PortfolioLedgerError,
     PortfolioSnapshot,
 )
@@ -210,7 +212,8 @@ def _operative_run(
 ) -> tuple[ScreeningRunRecord | None, list[ReviewSetView]]:
     """Resolve the run every screening surface reads, with its own review_sets.
 
-    Judgment publications (review_set / research_triage) bind to a specific run revision.
+    The L2 machine Review Set binds to a specific run revision; the L3 Research
+    Triage refers to that published set.
     A newer revision of the same as-of — a determinism re-run, say — carries no
     review_set of its own, so presenting it would blank the machine-review_set view
     and the FV anchors that hang off it. Falling back to the newest review_set's run
@@ -470,35 +473,67 @@ def _mapping_items_optional(value: object) -> list[Mapping[str, object]]:
     return [] if value is None else _mapping_items(value)
 
 
+@dataclass(frozen=True)
+class PreparedSecurityInputs:
+    """銘柄詳細を見せるための索引を、1回のexportまたはrequest内で共有する。"""
+
+    today: date
+    run: ScreeningRunRecord | None
+    rows: Mapping[str, Mapping[str, object]]
+    revisions: Mapping[str, list[ResearchRevision]]
+    holdings: Mapping[str, HoldingSnapshot]
+    reserved: set[str]
+    fair_value: Mapping[str, ReviewSetEntryView]
+
+
+def prepare_security_inputs(
+    ledger: LedgerSource,
+    research: ResearchSource,
+    screening: ScreeningSource,
+) -> PreparedSecurityInputs:
+    today = datetime.now(_JST).date()
+    revisions: dict[str, list[ResearchRevision]] = {}
+    for revision in research.revisions():
+        revisions.setdefault(revision.ticker, []).append(revision)
+    run, review_sets = _operative_run(screening)
+    rows: dict[str, Mapping[str, object]] = {}
+    if run is not None:
+        for row in run.rows:
+            rows.setdefault(str(row.get("ticker", "")), row)
+    snapshot = _safe_snapshot(ledger)
+    return PreparedSecurityInputs(
+        today=today,
+        run=run,
+        rows=rows,
+        revisions=revisions,
+        holdings={} if snapshot is None else {item.ticker: item for item in snapshot.holdings},
+        reserved=set()
+        if snapshot is None
+        else {item.ticker for item in snapshot.active_reservations},
+        fair_value=_fair_value_by_ticker(review_sets),
+    )
+
+
 def build_security_detail(
     ticker: str,
     ledger: LedgerSource,
     research: ResearchSource,
     screening: ScreeningSource,
     market: MarketPriceSource,
+    *,
+    prepared: PreparedSecurityInputs | None = None,
 ) -> SecurityDetailView | None:
     """Build one security page, returning None only when no source knows the ticker."""
 
-    # One "today" for the whole page: the earnings lookup and the run staleness badge
-    # would otherwise straddle midnight and contradict each other within one response.
-    today = datetime.now(_JST).date()
-    revisions = [item for item in research.revisions() if item.ticker == ticker]
+    inputs = (
+        prepared if prepared is not None else prepare_security_inputs(ledger, research, screening)
+    )
+    today = inputs.today
+    revisions = inputs.revisions.get(ticker, [])
     latest_revision = revisions[0] if revisions else None
-    run, review_sets = _operative_run(screening)
-    raw_security_analysis = (
-        next(
-            (row for row in run.rows if str(row.get("ticker", "")) == ticker),
-            None,
-        )
-        if run is not None
-        else None
-    )
-    snapshot = _safe_snapshot(ledger)
-    holding_snapshot = (
-        next((item for item in snapshot.holdings if item.ticker == ticker), None)
-        if snapshot is not None
-        else None
-    )
+    run = inputs.run
+    raw_security_analysis = inputs.rows.get(ticker)
+    holding_snapshot = inputs.holdings.get(ticker)
     if holding_snapshot is None and latest_revision is None and raw_security_analysis is None:
         return None
 
@@ -524,19 +559,14 @@ def build_security_detail(
         if latest_revision is not None
         else None
     )
-    reserved_here = (
-        {ticker}
-        if snapshot is not None
-        and any(item.ticker == ticker for item in snapshot.active_reservations)
-        else set()
-    )
+    reserved_here = {ticker} if ticker in inputs.reserved else set()
     security_analysis = (
         _security_analysis_row_view(
             raw_security_analysis,
             held={ticker} if holding_snapshot is not None else set(),
             reserved=reserved_here,
             researched={ticker} if revisions else set(),
-            fair_value=_fair_value_by_ticker(review_sets),
+            fair_value=inputs.fair_value,
         )
         if raw_security_analysis is not None
         else None

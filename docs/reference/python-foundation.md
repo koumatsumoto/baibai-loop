@@ -69,7 +69,7 @@ formatter と linter は Ruff に統一する。Black / isort / Flake8 / pyupgra
 - `RUF001` は無効化する。日本語の docstring や出力文字列リテラルでは全角括弧・ギリシャ文字がドメイン表現として自然に出るため、ambiguous unicode を一般ルールとして禁止すると false positive が多い。
 - tests は `ANN` / `PT009` / `PT027` などを緩める。テストは既存の `unittest` 形を維持しつつ、production code の strictness を優先する。
 - Markdown では末尾スペースが hard break として使われるため、pre-commit の trailing whitespace hook は `.md` を除外する。`end-of-file-fixer` は EOF 改行のみ補正し本文の hard break には触らないので、Markdown 全般を対象にしたままで安全。
-- 複数例外捕捉は `except (T1, T2):` と書く。commit 前に `rg -n "except [A-Za-z0-9_.]+, [A-Za-z0-9_.]+" src tests` が 0 件であることを確認する。
+- 複数例外捕捉は `except (T1, T2):` と書く。commit 前に `rg -n "except [A-Za-z0-9_.]+, [A-Za-z0-9_.]+" engine/src web/backend/src batch/src tools tests` が 0 件であることを確認する。
 - pre-push hook は §9 と同じ 14 gate を同じ形で回し、その後に `pytest -q -m "not slow"` を回す。drift gate は pytest の中では走らない — CI の Drift gates step と §9 が正本で、pytest に同じ実行を持たせると同じ入力を 2 度検査することになる。
 
 参考:

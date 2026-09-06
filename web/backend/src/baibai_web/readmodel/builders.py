@@ -472,9 +472,6 @@ def _text(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
 
-_DELTA_ROWS_SHOWN = 10
-
-
 _DELTA_ER_MOVERS_SHOWN = 5
 
 
@@ -654,12 +651,8 @@ def _review_set_deltas(
     list[ReviewSetExpectedReturnDeltaView],
     int,
 ]:
-    def by_er(tickers: set[str], rows: Mapping[str, Mapping[str, object]]) -> list[str]:
-        # Value order, so a capped list keeps the names worth reading first.
-        return sorted(tickers, key=lambda ticker: (-(_pool_er(rows[ticker]) or 0.0), ticker))
-
-    entered_tickers = by_er(set(current) - set(earlier), current)[:_DELTA_ROWS_SHOWN]
-    exited_tickers = by_er(set(earlier) - set(current), earlier)[:_DELTA_ROWS_SHOWN]
+    entered_tickers = sorted(set(current) - set(earlier))
+    exited_tickers = sorted(set(earlier) - set(current))
     # A name that reported between the two runs entered on new numbers, not on a price
     # move alone. The review_set output carries no disclosure date, so it is read from
     # the market store for the tickers that actually changed side. When that store

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock, patch
 
 import openpyxl
+import pytest
 import requests
 from tests.helpers.indicator_store import (
     downgrade_to_previous_schema,
@@ -113,6 +114,8 @@ from baibai_engine.macro.indicators.service import (
     RefreshFailure,
     RefreshSuccess,
 )
+from baibai_engine.macro.indicators.service import list_series as catalog_list_series
+from baibai_engine.macro.indicators.service import search as catalog_search
 from baibai_engine.macro.reading.cli import main as reading_main
 
 if TYPE_CHECKING:
@@ -283,8 +286,8 @@ class IndicatorsDBTests(unittest.TestCase):
             finally:
                 conn.close()
 
-            self.assertNotIn("jp.cpi.stale", {item.series_id for item in service.list_series()})
-            self.assertEqual(service.search("stale"), ())
+            self.assertNotIn("jp.cpi.stale", {item.series_id for item in catalog_list_series()})
+            self.assertEqual(catalog_search("stale"), ())
             self.assertEqual(reading_exit, 0)
             self.assertNotIn("jp.cpi.stale", stdout.getvalue())
             self.assertEqual(remaining, 1)
@@ -6079,7 +6082,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 coverage_end=date(2026, 5, 15),
             )
 
-            self.assertEqual(main(["search", "CPI", "--db", str(db)]), 0)
+            self.assertEqual(main(["search", "CPI"]), 0)
             self.assertEqual(
                 main(
                     [
@@ -6097,7 +6100,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             )
 
     def test_cli_handles_bad_db_path_without_traceback(self) -> None:
-        self.assertEqual(main(["list", "--db", "/tmp"]), 1)
+        self.assertEqual(main(["get", "us.10y", "--latest", "--db", "/tmp"]), 1)
 
     def test_cli_unknown_series_returns_controlled_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -6612,3 +6615,18 @@ class _FakeResponse:
 
     def iter_content(self, *, chunk_size: int) -> list[bytes]:
         return [self.content]
+
+
+def test_catalog_never_opens_a_store(tmp_path, monkeypatch, capsys):
+    def unexpected(*args, **kwargs):
+        raise AssertionError("catalog opened a store")
+
+    monkeypatch.setattr("baibai_engine.macro.indicators.db.open_connection", unexpected)
+    monkeypatch.setattr("baibai_engine.macro.indicators.cli.load_project_env", unexpected)
+    before = set(tmp_path.rglob("*"))
+    monkeypatch.chdir(tmp_path)
+    for command in (["list", "--format", "json"], ["search", "CPI"]):
+        assert main(command) == 0
+    assert set(tmp_path.rglob("*")) == before
+    with pytest.raises(SystemExit):
+        main(["list", "--db", str(tmp_path / "missing.sqlite")])

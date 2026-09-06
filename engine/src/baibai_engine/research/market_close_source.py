@@ -148,16 +148,13 @@ def read_holding_unadjusted_close_on_basis(
         sessions = tuple(str(row[0]) for row in session_rows)
         if not sessions or sessions[-1] != basis_as_of.isoformat():
             return None
-        bar_rows: list[tuple[object, ...]] = []
-        for session in sessions:
-            bar_row = conn.execute(
-                "SELECT traded_at, close, adjustment_factor "
-                "FROM jquants_daily_bars WHERE ticker = ? AND traded_at = ?",
-                (ticker, session),
-            ).fetchone()
-            if bar_row is None:
-                return None
-            bar_rows.append(bar_row)
+        bar_rows = conn.execute(
+            "SELECT traded_at, close, adjustment_factor FROM jquants_daily_bars "
+            "WHERE ticker = ? AND traded_at BETWEEN ? AND ? ORDER BY traded_at",
+            (ticker, ledger_price_observed_on.isoformat(), basis_as_of.isoformat()),
+        ).fetchall()
+        if tuple(str(row[0]) for row in bar_rows) != sessions:
+            return None
     except (sqlite3.Error, TypeError, ValueError):
         return None
     finally:

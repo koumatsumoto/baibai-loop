@@ -61,39 +61,32 @@ class RefreshFailure:
 type RefreshOutcome = RefreshSuccess | RefreshFailure
 
 
+def list_series(*, category: str | None = None) -> tuple[SeriesDefinition, ...]:
+    """登録系列の一覧をstoreへの接続なしで見せる。"""
+    return tuple(
+        sorted(
+            (
+                series
+                for series in load_definitions().series
+                if category is None or series.category == category
+            ),
+            key=lambda series: (series.priority, series.series_id),
+        )
+    )
+
+
+def search(query: str) -> tuple[SeriesDefinition, ...]:
+    """登録系列の検索結果をstoreへの接続なしで見せる。"""
+    return tuple(
+        sorted(
+            load_definitions().search(query), key=lambda series: (series.priority, series.series_id)
+        )
+    )
+
+
 class IndicatorsService:
     def __init__(self, db_path: Path = db.DEFAULT_DB_PATH) -> None:
         self.db_path = db_path
-
-    def list_series(self, *, category: str | None = None) -> tuple[SeriesDefinition, ...]:
-        definitions = load_definitions()
-        conn = db.open_connection(self.db_path, definitions=definitions)
-        try:
-            return tuple(
-                sorted(
-                    (
-                        series
-                        for series in definitions.series
-                        if category is None or series.category == category
-                    ),
-                    key=lambda series: (series.priority, series.series_id),
-                )
-            )
-        finally:
-            conn.close()
-
-    def search(self, query: str) -> tuple[SeriesDefinition, ...]:
-        definitions = load_definitions()
-        conn = db.open_connection(self.db_path, definitions=definitions)
-        try:
-            return tuple(
-                sorted(
-                    definitions.search(query),
-                    key=lambda series: (series.priority, series.series_id),
-                )
-            )
-        finally:
-            conn.close()
 
     def get_range(
         self,
