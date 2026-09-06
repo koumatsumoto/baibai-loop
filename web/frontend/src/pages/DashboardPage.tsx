@@ -351,7 +351,7 @@ export function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null
           <DeltaEntries count={delta.exited.length} label="候補外れ">
           {delta.exited.map((item) => (
             <DeltaRow key={`exited-${item.ticker}`} label="候補外れ">
-              {/* A name that left the pool may have no detail view exported, so it is
+              {/* A name that left the Review Set may have no detail view exported, so it is
                   shown as text rather than a link that would 404. */}
               <span className="min-w-0 truncate font-medium">
                 <span className="font-mono">{item.ticker}</span>

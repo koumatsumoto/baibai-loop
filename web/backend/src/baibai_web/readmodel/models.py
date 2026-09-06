@@ -821,7 +821,7 @@ type DeltaUnavailable = Literal[
 
 
 class ReviewSetEntryDeltaView(BaseModel):
-    """A ticker whose presence in the machine pool changed between two runs.
+    """A ticker whose presence in the Review Set changed between two runs.
 
     ``disclosed_since_previous`` is ``null`` when the store that holds disclosure
     dates could not answer, which must not read as "no disclosure".

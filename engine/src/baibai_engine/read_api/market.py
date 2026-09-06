@@ -299,7 +299,7 @@ def latest_disclosure_dates_after(
 ) -> dict[str, date]:
     """Return each ticker's newest financial disclosure strictly after ``after``.
 
-    A candidate that entered the pool right after reporting is a different thing
+    A candidate that entered the Review Set right after reporting is a different thing
     from one that entered on a price move alone, and the screen's own output does
     not carry the disclosure date. A ticker with no disclosure in the window yields
     no entry.

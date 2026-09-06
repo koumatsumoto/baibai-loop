@@ -25,7 +25,9 @@ def _run(day: int) -> ScreeningRunRecord:
     )
 
 
-def _pool(tickers: list[str], er: float, method_hash: str | None = "discovery-v1") -> list[dict]:
+def _review_set(
+    tickers: list[str], er: float, method_hash: str | None = "discovery-v1"
+) -> list[dict]:
     return [
         {
             "payload": {
@@ -43,13 +45,15 @@ def _pool(tickers: list[str], er: float, method_hash: str | None = "discovery-v1
     ]
 
 
-def _sources(latest=None, previous=None, current_pool=None, previous_pool=None):
+def _sources(latest=None, previous=None, current_review_set=None, previous_review_set=None):
     screening = Mock()
     screening.latest_run.return_value = latest or _run(4)
     screening.previous_run.return_value = previous or _run(3)
     screening.review_sets.side_effect = [
-        _pool(["1003", "1002", "1001"], 0.2) if current_pool is None else current_pool,
-        _pool(["1004", "1001"], 0.1) if previous_pool is None else previous_pool,
+        _review_set(["1003", "1002", "1001"], 0.2)
+        if current_review_set is None
+        else current_review_set,
+        _review_set(["1004", "1001"], 0.1) if previous_review_set is None else previous_review_set,
     ]
     ledger = Mock()
     ledger.exists.return_value = False
@@ -68,10 +72,10 @@ def test_daily_delta_compares_method_identity_by_output(change: str) -> None:
         latest = replace(latest, screening_rules_hash="screening-v2")
     elif change == "er":
         latest = replace(latest, er_model_version="er-v2")
-    current = _pool(
+    current = _review_set(
         ["1003", "1002", "1001"], 0.2, "discovery-v2" if change == "discovery" else "discovery-v1"
     )
-    sources = _sources(latest=latest, current_pool=current)
+    sources = _sources(latest=latest, current_review_set=current)
     view = build_daily_delta(*sources)
     changed = change in {"screening", "discovery"}
     assert view.method_changed is changed
@@ -90,7 +94,7 @@ def test_daily_delta_compares_method_identity_by_output(change: str) -> None:
 @pytest.mark.parametrize("identity", ["screening", "discovery", "er"])
 def test_missing_identity_is_not_treated_as_matching(side: str, identity: str) -> None:
     latest, previous = _run(4), _run(3)
-    current, earlier = _pool(["1002", "1001"], 0.2), _pool(["1001"], 0.1)
+    current, earlier = _review_set(["1002", "1001"], 0.2), _review_set(["1001"], 0.1)
     if identity == "discovery":
         (current if side == "latest" else earlier)[0]["payload"]["method"] = {}
     else:
@@ -108,14 +112,16 @@ def test_missing_identity_is_not_treated_as_matching(side: str, identity: str) -
 
 
 @pytest.mark.parametrize("missing", ["latest", "previous", "review_set", "empty"])
-def test_absent_comparison_and_empty_pool_are_distinct(missing: str) -> None:
-    sources = _sources(current_pool=_pool([], 0.2), previous_pool=_pool([], 0.1))
+def test_absent_comparison_and_empty_review_set_are_distinct(missing: str) -> None:
+    sources = _sources(
+        current_review_set=_review_set([], 0.2), previous_review_set=_review_set([], 0.1)
+    )
     if missing == "latest":
         sources[0].latest_run.return_value = None
     elif missing == "previous":
         sources[0].previous_run.return_value = None
     elif missing == "review_set":
-        sources[0].review_sets.side_effect = [[], _pool([], 0.1)]
+        sources[0].review_sets.side_effect = [[], _review_set([], 0.1)]
     view = build_daily_delta(*sources)
     expected = {
         "latest": "screening_run",
@@ -150,7 +156,7 @@ def test_partial_estimate_missing_is_visible_without_hiding_comparable_movers(
     side: str, shape: str, comparable: bool
 ) -> None:
     tickers = ["1001", "1002"] if comparable else ["1001"]
-    current, previous = _pool(tickers, 0.2), _pool(tickers, 0.1)
+    current, previous = _review_set(tickers, 0.2), _review_set(tickers, 0.1)
     for name, publications in [("current", current), ("previous", previous)]:
         if side not in {name, "both"}:
             continue
@@ -159,7 +165,7 @@ def test_partial_estimate_missing_is_visible_without_hiding_comparable_movers(
             expected["er_annual"] = None
         else:
             del expected["er_annual"]
-    view = build_daily_delta(*_sources(current_pool=current, previous_pool=previous))
+    view = build_daily_delta(*_sources(current_review_set=current, previous_review_set=previous))
     assert "review_set_estimate" in view.unavailable
     assert [row.ticker for row in view.er_moves] == (["1002"] if comparable else [])
     assert view.er_moves_total == int(comparable)
@@ -167,10 +173,10 @@ def test_partial_estimate_missing_is_visible_without_hiding_comparable_movers(
 
 
 def test_estimate_missing_outside_shared_tickers_does_not_prevent_comparison() -> None:
-    current, previous = _pool(["1001", "1002"], 0.2), _pool(["1001", "1003"], 0.1)
+    current, previous = _review_set(["1001", "1002"], 0.2), _review_set(["1001", "1003"], 0.1)
     for publications in [current, previous]:
         publications[0]["payload"]["entries"][1]["analysis"]["expected_return"]["er_annual"] = None
-    view = build_daily_delta(*_sources(current_pool=current, previous_pool=previous))
+    view = build_daily_delta(*_sources(current_review_set=current, previous_review_set=previous))
     assert "review_set_estimate" not in view.unavailable
     assert [row.ticker for row in view.entered] == ["1002"]
     assert [row.ticker for row in view.exited] == ["1003"]
@@ -178,10 +184,10 @@ def test_estimate_missing_outside_shared_tickers_does_not_prevent_comparison() -
 
 
 def test_disjoint_review_sets_have_no_unmeasured_shared_estimates() -> None:
-    current, previous = _pool(["1001"], 0.2), _pool(["1002"], 0.1)
+    current, previous = _review_set(["1001"], 0.2), _review_set(["1002"], 0.1)
     for publications in [current, previous]:
         publications[0]["payload"]["entries"][0]["analysis"]["expected_return"]["er_annual"] = None
-    view = build_daily_delta(*_sources(current_pool=current, previous_pool=previous))
+    view = build_daily_delta(*_sources(current_review_set=current, previous_review_set=previous))
     assert "review_set_estimate" not in view.unavailable
     assert view.er_moves_total == 0
     assert [row.ticker for row in view.entered] == ["1001"]
@@ -192,8 +198,8 @@ def test_mover_total_retains_rows_beyond_the_display_cap() -> None:
     tickers = [str(1000 + index) for index in range(20)]
     view = build_daily_delta(
         *_sources(
-            current_pool=_pool(tickers, 0.2),
-            previous_pool=_pool(tickers, 0.1),
+            current_review_set=_review_set(tickers, 0.2),
+            previous_review_set=_review_set(tickers, 0.1),
         )
     )
     assert view.er_moves_total == 20
