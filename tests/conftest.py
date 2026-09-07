@@ -8,10 +8,11 @@ from pathlib import Path
 import pytest
 import yaml
 
+from baibai_engine.appdb.json import canonical_json
+from baibai_engine.appdb.write import connect_rw
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.macro.indicators.db import initialize_database as initialize_indicators_db
 from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH
-from baibai_engine.research.store import ResearchStoreService
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunStore
@@ -108,9 +109,28 @@ def _seed_app_method_root(root: Path) -> None:
     review = safe_load((FIXTURES / "thesis/2331-decision-review.yaml").read_text(encoding="utf-8"))
     assert isinstance(thesis, dict)
     assert isinstance(review, dict)
-    ResearchStoreService(db_path, clock=lambda: FIXED_NOW).publish_thesis_with_review(
-        "thesis-20260714-2331-r1", thesis, review
-    )
+    with connect_rw(db_path) as connection:
+        connection.execute(
+            "INSERT INTO thesis(thesis_id,ticker,as_of,recommendation,published_at,payload,core_sha256) VALUES (?,?,?,?,?,?,?)",
+            (
+                "thesis-20260714-2331-r1",
+                "2331",
+                "2026-07-03",
+                "buy",
+                FIXED_NOW.isoformat(),
+                canonical_json(thesis),
+                review["reviewed_thesis_sha256"],
+            ),
+        )
+        connection.execute(
+            "INSERT INTO thesis_review(review_id,thesis_id,reviewed_at,payload) VALUES (?,?,?,?)",
+            (
+                review["review_id"],
+                "thesis-20260714-2331-r1",
+                review["reviewed_at"],
+                canonical_json(review),
+            ),
+        )
     tasks = yaml.safe_load(_TASKS)["tasks"]
     seed_tasks(db_path, (Task.model_validate(item) for item in tasks))
     run_store = ScreeningRunStore(root / "stores/screening/runs.sqlite")
