@@ -275,16 +275,6 @@ class ScreeningHistoryRunView(BaseModel):
     rows: list[SecurityAnalysisRowView]
 
 
-class FvConvergenceView(BaseModel):
-    """Read-only warning provenance; it never carries review_set authority."""
-
-    status: Literal["warning", "clear", "not_evaluable"]
-    warning_code: str | None
-    market_price_yen: float | None
-    anchors_yen: dict[str, float]
-    er_reversion_annual: float | None
-
-
 class ReviewSetNominationView(BaseModel):
     valuation_approach_id: str
     valuation_method_id: str
@@ -737,18 +727,6 @@ class MacroView(BaseModel):
     # Group rows carry at most thirteen monthly period-end points for their fixed
     # overview sparkline. Full daily history remains one-series-only and lazy.
     groups: list[MacroGroupView]
-
-
-class SourceCaveatView(BaseModel):
-    source_id: str
-    status: str
-    decision_impact: str
-
-
-class ResearchQuestionView(BaseModel):
-    question: str
-    answer: str
-    status: str
 
 
 class AllocationAlternativeView(BaseModel):

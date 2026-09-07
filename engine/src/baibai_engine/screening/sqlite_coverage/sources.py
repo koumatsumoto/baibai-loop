@@ -205,14 +205,6 @@ def _source_coverage_covers_date(conn: sqlite3.Connection, source: str, on_date:
     return row is not None
 
 
-def _has_source_coverage(conn: sqlite3.Connection, source: str) -> bool:
-    row = conn.execute(
-        "SELECT 1 FROM source_coverage WHERE source = ? LIMIT 1",
-        (source,),
-    ).fetchone()
-    return row is not None
-
-
 def _table_row_count(conn: sqlite3.Connection, table: str) -> int:
     row = conn.execute(_TABLE_COUNT_SQL[table]).fetchone()
     return int(row[0] or 0)

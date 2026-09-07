@@ -999,12 +999,6 @@ def scaffold_thesis(
     }
 
 
-def _required_mapping(value: object, *, label: str) -> Mapping[str, object]:
-    if not isinstance(value, Mapping):
-        raise ResearchWorkspaceDataError(f"{label} must be a mapping")
-    return value
-
-
 def _nonempty_string(value: object, *, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ResearchWorkspaceDataError(f"{label} must be a non-empty string")

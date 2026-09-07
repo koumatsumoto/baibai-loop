@@ -9,7 +9,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Literal
@@ -72,20 +72,6 @@ def _datetime(value: object) -> datetime:
 
 def _tuple(value: object) -> object:
     return tuple(value) if isinstance(value, list) else value
-
-
-def _decimal(value: object) -> Decimal:
-    if isinstance(value, bool) or not isinstance(value, int | float | str | Decimal):
-        raise ValueError("must be a decimal number")
-    if isinstance(value, str) and re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", value) is None:
-        raise ValueError("decimal string must use fixed-point notation")
-    try:
-        parsed = Decimal(str(value))
-    except (InvalidOperation, ValueError) as error:
-        raise ValueError("must be a decimal number") from error
-    if not parsed.is_finite():
-        raise ValueError("must be a finite decimal number")
-    return parsed
 
 
 class Source(BaseModel):

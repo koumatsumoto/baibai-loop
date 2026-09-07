@@ -176,14 +176,6 @@ def publish_current_snapshot(root: Path, built_root: Path) -> None:
     temporary.replace(_path(root))
 
 
-def measurement_policy_of(diagnostics: PanelDiagnostics) -> dict[str, object]:
-    return {
-        "rules_hash": diagnostics.rules_hash,
-        "panel_variant": diagnostics.panel_variant,
-        "production_authority": diagnostics.production_authority,
-    }
-
-
 def write_panel(
     root: Path,
     asof: date,

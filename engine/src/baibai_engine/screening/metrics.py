@@ -164,26 +164,6 @@ class ProfitabilityLevelSignals:
     asset_turnover: float | None
 
 
-def _accounting_period_end(summary: JQuantsFinancialSummary) -> date:
-    """Comparable end of the actual accounting period represented by a row.
-
-    A reported end after the disclosure cannot establish chronology beyond the
-    observation date.  Such rows still carry usable actual facts, so order them by
-    disclosure date rather than discarding them or letting the future date outrank a
-    later valid quarter.  Missing period identity remains least-preferred because a
-    delayed correction cannot then be distinguished from current actuals.
-    """
-
-    reported_end = summary.period_end or summary.fiscal_year_end
-    if reported_end is None:
-        return date.min
-    if reported_end > summary.disclosed_at:
-        return summary.disclosed_at
-    if summary.period_start is not None and summary.period_start > reported_end:
-        return summary.disclosed_at
-    return reported_end
-
-
 _AccountingObservationKey = tuple[date, int, date, date, int, date]
 _FISCAL_PERIOD_ORDER = {"1Q": 1, "2Q": 2, "3Q": 3, "FY": 4}
 
@@ -1165,10 +1145,6 @@ class _DividendForecast:
     target_period_end: date
     source: JQuantsFinancialSummary
     annual_dps: float | None
-
-
-def _forecast_anchor(latest_actual: JQuantsFinancialSummary | None) -> date:
-    return _accounting_period_end(latest_actual) if latest_actual is not None else date.min
 
 
 def _resolve_earnings_forecast(

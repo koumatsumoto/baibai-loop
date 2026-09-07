@@ -10,7 +10,7 @@ Exit codes:
 
 - 0 success (``defer`` and ``no_allocation`` are normal judgments)
 - 2 argparse / CLI usage error
-- 3 missing source / checklist / schema / hash makes the request unprocessable
+- 3 missing source / schema / hash makes the request unprocessable
 - 4 output collision, input hash drift, or path-confinement violation
 """
 
