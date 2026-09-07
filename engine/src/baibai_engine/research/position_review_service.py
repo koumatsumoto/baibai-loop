@@ -15,12 +15,12 @@ from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
-from baibai_engine.position.ledger import ExecutionEvent, replay_events_through
-from baibai_engine.position.store import load_ledger_in_transaction
-from baibai_engine.research.market_close_source import (
-    read_holding_unadjusted_close_on_basis,
-    read_unadjusted_close,
+from baibai_engine.position.ledger import replay_events_through
+from baibai_engine.position.market_source import (
+    quantity_basis_is_confirmed,
 )
+from baibai_engine.position.store import load_ledger_in_transaction
+from baibai_engine.position.valuation import holding_quote
 from baibai_engine.research.position_review import (
     HoldingInput,
     PositionReviewDocument,
@@ -63,31 +63,11 @@ class PositionReviewService:
         quantity = sum(lot.quantity for lot in lots)
         if quantity <= 0:
             raise ResearchConflictError("Position Review requires a current holding")
-        quote = read_unadjusted_close(sqlite_path=self._sqlite_path, ticker=ticker, at=now)
-        # Start with the current holding episode, not a previous closed position.
-        balance = 0
-        acquired_on = now.date()
-        for event in ledger.events:
-            if (
-                isinstance(event, ExecutionEvent)
-                and event.ticker == ticker
-                and event.occurred_at <= now
-            ):
-                if event.side == "buy":
-                    if balance == 0:
-                        acquired_on = event.occurred_at.date()
-                    balance += event.quantity
-                else:
-                    balance -= event.quantity
-        holding_basis_confirmed = (
-            quote is not None
-            and read_holding_unadjusted_close_on_basis(
-                sqlite_path=self._sqlite_path,
-                ticker=ticker,
-                ledger_price_observed_on=min(acquired_on, quote.price_as_of),
-                basis_as_of=quote.price_as_of,
-            )
-            is not None
+        quote, holding_basis_confirmed = holding_quote(
+            ledger,
+            ticker=ticker,
+            sqlite_path=self._sqlite_path,
+            now=now,
         )
         original_price = next(
             (
@@ -101,13 +81,12 @@ class PositionReviewService:
             holding_basis_confirmed
             and original_price is not None
             and quote is not None
-            and read_holding_unadjusted_close_on_basis(
+            and quantity_basis_is_confirmed(
                 sqlite_path=self._sqlite_path,
                 ticker=ticker,
-                ledger_price_observed_on=original_price.as_of,
-                basis_as_of=quote.price_as_of,
+                from_date=original_price.as_of,
+                through_date=quote.price_as_of,
             )
-            is not None
         )
         holding = HoldingInput(
             quantity=quantity,

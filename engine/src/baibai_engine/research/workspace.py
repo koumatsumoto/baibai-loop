@@ -28,6 +28,10 @@ from baibai_engine.operation.service import OperationService
 from baibai_engine.position.ledger import (
     replay_events_through,
 )
+from baibai_engine.position.market_source import (
+    UnadjustedCloseObservation,
+    read_unadjusted_close,
+)
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.read_api.er_calibration_context import (
     candidate_er_band_context,
@@ -38,10 +42,6 @@ from baibai_engine.read_api.research_triage import (
     research_triage_payload_hash,
 )
 
-from .market_close_source import (
-    UnadjustedCloseObservation,
-    read_unadjusted_close,
-)
 from .thesis import (
     ThesisDocument,
     ThesisError,

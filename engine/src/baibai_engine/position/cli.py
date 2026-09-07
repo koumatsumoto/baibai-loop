@@ -70,6 +70,7 @@ from baibai_engine.position.outcome_store import (
     PortfolioOutcomeStore,
 )
 from baibai_engine.position.store import LedgerConflictError, LedgerStoreService
+from baibai_engine.position.valuation import current_portfolio
 from baibai_engine.research.broker_fact_service import build_broker_fact_draft
 from baibai_engine.research.capital_allocation_service import (
     CapitalAllocationAssessmentService,
@@ -277,7 +278,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "ledger":
         try:
-            return _emit_ledger(LedgerStoreService(args.db).load())
+            return _emit_ledger(LedgerStoreService(args.db).load(), now=now or datetime.now(JST))
         except (LedgerConflictError, PortfolioLedgerError) as error:
             print(f"error: {error}", file=sys.stderr)
             return 2
@@ -451,9 +452,9 @@ def _run_meta_draft(args: argparse.Namespace) -> int:
     return 0
 
 
-def _emit_ledger(document: PortfolioLedgerDocument) -> int:
+def _emit_ledger(document: PortfolioLedgerDocument, *, now: datetime) -> int:
     try:
-        snapshot = reconcile_portfolio(document)
+        snapshot = current_portfolio(document, sqlite_path=MARKET_DB_PATH, now=now)
     except PortfolioLedgerError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

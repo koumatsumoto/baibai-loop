@@ -16,6 +16,7 @@ from baibai_engine.position.ledger import (
     PortfolioSnapshot,
     reconcile_portfolio,
 )
+from baibai_engine.position.valuation import current_portfolio
 from baibai_engine.read_api.sqlite import (
     is_unwritten_store,
 )
@@ -26,6 +27,7 @@ from baibai_engine.read_api.sqlite import (
 __all__ = [
     "PortfolioLedgerError",
     "PortfolioSnapshot",
+    "current_portfolio",
     "list_portfolio_outcome_payloads",
     "portfolio_ledger_document",
     "reconcile_portfolio",

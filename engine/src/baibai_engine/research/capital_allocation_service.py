@@ -22,7 +22,7 @@ from .capital_allocation import (
     CapitalAllocationConflictError,
     capital_allocation_draft_sha256,
 )
-from .planning import evaluate_allocation_in_transaction
+from .capital_inputs import evaluate_allocation_in_transaction
 from .thesis_store import load_reviewed_thesis
 
 

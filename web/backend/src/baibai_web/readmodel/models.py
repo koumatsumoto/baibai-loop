@@ -27,11 +27,11 @@ class HoldingView(BaseModel):
     sector: str
     quantity: int
     deployed_cost_yen: int
-    market_price_yen: str
-    market_price_as_of: datetime
-    market_value_yen: int
-    unrealized_pnl_yen: int
-    unrealized_pnl_pct: float
+    market_price_yen: str | None
+    market_price_as_of: datetime | None
+    market_value_yen: int | None
+    unrealized_pnl_yen: int | None
+    unrealized_pnl_pct: float | None
     pmax_raw_yen: float | None
     pmax_gap_pct: float | None
     latest_thesis_id: str | None

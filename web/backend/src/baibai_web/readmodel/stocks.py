@@ -551,7 +551,6 @@ def build_security_detail(
             holding_snapshot,
             revision=latest_revision,
             security_name=security_name,
-            market_close=market.latest_closes([ticker]).get(ticker),
             next_earnings_date=market.next_earnings_dates([ticker], as_of=today).get(ticker),
         )
         if holding_snapshot is not None

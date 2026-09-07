@@ -106,6 +106,7 @@ __all__ = [
     "application_db_updated_at",
     "capital_allocation_assessment_payload",
     "close_change_since",
+    "current_portfolio",
     "current_research_triage",
     "latest_disclosure_dates_after",
     "latest_macro_context_payload",
@@ -154,5 +155,7 @@ __all__ = [
     "validate_market_store_schema",
     "worst_close_drawdown",
 ]
+
+from baibai_engine.read_api.position import current_portfolio
 
 from .research import reviewed_thesis_projection

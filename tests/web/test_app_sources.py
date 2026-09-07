@@ -29,7 +29,9 @@ from baibai_web.sources.protocols import (
 
 class TestDbLedgerSource:
     def make_source(self, root: Path) -> LedgerSource:
-        return DbLedgerSource(root / "stores/application/baibai.sqlite")
+        return DbLedgerSource(
+            root / "stores/application/baibai.sqlite", root / "stores/market/market.sqlite"
+        )
 
     def test_exists_false_when_absent(self, tmp_path: Path) -> None:
         assert self.make_source(tmp_path).exists() is False
@@ -40,7 +42,7 @@ class TestDbLedgerSource:
         snapshot = source.snapshot()
 
         assert source.exists() is True
-        assert snapshot.total_capital_yen == 10_419_500
+        assert snapshot.total_capital_yen is None
         assert len(snapshot.holdings) == 1
         assert snapshot.holdings[0].ticker == "2331"
 

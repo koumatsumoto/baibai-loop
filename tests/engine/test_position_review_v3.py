@@ -1,7 +1,7 @@
 """F12-F19/F23: current holding judgment and reported facts on a legacy ledger."""
 
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -12,7 +12,7 @@ from tests.helpers.research_v4 import pair_payload
 
 from baibai_engine.operation.models import OperationPayload
 from baibai_engine.operation.service import OperationService
-from baibai_engine.position.drafts import apply_draft, build_sell_execution_draft
+from baibai_engine.position.drafts import apply_draft, build_event_draft, build_sell_execution_draft
 from baibai_engine.position.ledger import ContributionEvent, replay_events_through
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.read_api import list_position_review_publications
@@ -31,15 +31,16 @@ def holding_case(tmp_path):
     # Trade/income/cost/tax facts are preserved, with no portfolio price prerequisite.
     ledger = ledger.model_copy(update={"market_prices": ()})
     seed_ledger(db, ledger)
-    with sqlite3.connect(market) as connection:
-        connection.execute("PRAGMA user_version=25")
-        connection.execute(
-            "CREATE TABLE jquants_daily_bars(ticker TEXT,traded_at TEXT,close REAL,adjustment_factor REAL)"
-        )
-        connection.executemany(
-            "INSERT INTO jquants_daily_bars VALUES ('2331',?,1000,1)",
-            [("2026-06-03",), ("2026-07-01",), ("2026-09-04",)],
-        )
+    from tests.helpers.screening_sqlite import seed_daily_bars
+
+    seed_daily_bars(
+        market,
+        [
+            ("2331", (date(2026, 6, 3) + timedelta(days=i)).isoformat(), 1000.0, 1.0)
+            for i in range(94)
+            if (date(2026, 6, 3) + timedelta(days=i)).weekday() < 5
+        ],
+    )
     thesis, review = pair_payload(ticker="2331")
     ThesisStoreService(db, clock=lambda: NOW).publish_reviewed_thesis("current", thesis, review)
     return db, market, ledger
@@ -69,7 +70,6 @@ def test_holding_judgment_preserves_author_and_allows_active_capital_research(
     )
     # An unrelated contribution must not invalidate the author's economic judgment.
     ledger = LedgerStoreService(db)
-    before, head = ledger.load_with_head()
     contribution = ContributionEvent.model_validate(
         {
             "type": "contribution",
@@ -78,13 +78,7 @@ def test_holding_judgment_preserves_author_and_allows_active_capital_research(
             "amount_yen": 10000,
         }
     )
-    ledger.apply_document(
-        expected_head=head,
-        expected_document=before,
-        replacement=before.model_copy(
-            update={"as_of": NOW, "events": (*before.events, contribution)}
-        ),
-    )
+    apply_draft(ledger, build_event_draft(ledger, contribution), human_confirmed=True)
     evaluation = service.check(draft)
     assert evaluation.action == action
     assert service.publish(draft, confirmed=True).remaining_reward.reason == reason
@@ -186,7 +180,9 @@ def test_today_quote_is_separate_from_original_quote_and_does_not_republish_thes
         "today", thesis, review, supersedes_id="current"
     )
     with sqlite3.connect(market) as connection:
-        connection.execute("INSERT INTO jquants_daily_bars VALUES ('2331','2026-09-07',1005,1)")
+        connection.execute(
+            "INSERT INTO jquants_daily_bars(ticker,traded_at,close,adjustment_factor) VALUES ('2331','2026-09-07',1005,1)"
+        )
     service = PositionReviewService(db, sqlite_path=market, clock=lambda: NOW)
     draft = service.build(thesis_id="today", position_id="2331")
     assert draft.quote.observed_at.date() == NOW.date()
@@ -203,3 +199,316 @@ def test_today_quote_is_separate_from_original_quote_and_does_not_republish_thes
     assert service.check(draft).action == "hold"
     with sqlite3.connect(db) as connection:
         assert connection.execute("SELECT count(*) FROM thesis").fetchone()[0] == 2
+
+
+@pytest.mark.parametrize(
+    ("column", "value", "day", "expected"),
+    [
+        ("close", None, "2026-07-01", "exit"),
+        ("close", None, "2026-09-04", None),
+        ("adjustment_factor", None, "2026-07-01", None),
+        ("adjustment_factor", 0.5, "2026-07-01", None),
+    ],
+)
+def test_current_price_and_historical_unit_evidence_are_independent(
+    holding_case, column, value, day, expected
+):
+    db, market, _ = holding_case
+    with sqlite3.connect(market) as connection:
+        # The other ticker provides market-wide sessions even if subject coverage is incomplete.
+        connection.execute(
+            "INSERT INTO jquants_daily_bars(ticker,traded_at,close,adjustment_factor) SELECT '9999',traded_at,500,1 FROM jquants_daily_bars"
+        )
+        connection.execute(
+            f"UPDATE jquants_daily_bars SET {column}=? WHERE ticker='2331' AND traded_at=?",
+            (value, day),
+        )
+    service = PositionReviewService(db, sqlite_path=market, clock=lambda: NOW)
+    draft = service.build(thesis_id="current", position_id="2331")
+    draft = draft.model_copy(
+        update={
+            "remaining_reward": RemainingReward(
+                status="insufficient", reason="将来増分の見返り不足"
+            ),
+            "action": expected,
+        }
+    )
+    assert service.check(draft).action == expected
+    assert service.publish(draft, confirmed=True).action == expected
+
+
+@pytest.mark.parametrize(
+    ("kind", "details", "delta"),
+    [
+        ("contribution", {}, 1000),
+        ("income", {"ticker": "2331", "income_kind": "dividend"}, 1000),
+        ("cost", {"ticker": "2331", "cost_kind": "commission"}, -1000),
+        ("tax_confirmed", {"ticker": "2331", "tax_kind": "dividend"}, -1000),
+        ("withdrawal", {}, -1000),
+    ],
+)
+def test_human_event_draft_apply_needs_no_holding_price(holding_case, kind, details, delta):
+    from pydantic import TypeAdapter
+
+    from baibai_engine.position.drafts import HumanEvent
+    from baibai_engine.position.ledger import PortfolioLedgerError
+
+    db, _, _ = holding_case
+    service = LedgerStoreService(db)
+    before = replay_events_through(service.load().events, NOW)
+    event = TypeAdapter(HumanEvent).validate_python(
+        dict(
+            type=kind,
+            event_id="human-event",
+            occurred_at=NOW,
+            amount_yen=1000,
+            **details,
+        )
+    )
+    draft = build_event_draft(service, event)
+    apply_draft(service, draft, human_confirmed=True)
+    assert service.load().market_prices == ()
+    after = replay_events_through(service.load().events, NOW)
+    assert after.available_cash_yen == before.available_cash_yen + delta
+    if delta < 0:
+        with pytest.raises(PortfolioLedgerError):
+            build_event_draft(
+                service,
+                event.model_copy(
+                    update={"event_id": "overdraw", "amount_yen": after.available_cash_yen + 1}
+                ),
+            )
+    with pytest.raises(PortfolioLedgerError, match="exceeds"):
+        build_sell_execution_draft(
+            service, occurred_at=NOW, ticker="2331", quantity=300, price_yen=Decimal(1000)
+        )
+
+
+def test_legacy_holding_first_review_follows_public_workspace_commands(
+    holding_case, app_method_root, tmp_path, monkeypatch, capsys
+):
+    import yaml
+
+    from baibai_engine.position import cli as position_cli
+    from baibai_engine.research.workspace_cli import main as research_main
+
+    _, market, _ = holding_case
+    db = app_method_root / "stores/application/baibai.sqlite"
+    with sqlite3.connect(db) as connection:
+        original = connection.execute("SELECT thesis_id,payload,core_sha256 FROM thesis").fetchone()
+        original_events = connection.execute(
+            "SELECT payload FROM ledger_event ORDER BY append_seq"
+        ).fetchall()
+        connection.execute("DELETE FROM ledger_market_price")
+    workspace = tmp_path / "holding-workspace"
+    common = ["--db", str(db), "--ticker", "2331", "--workspace", str(workspace)]
+    monkeypatch.setattr(position_cli, "MARKET_DB_PATH", market)
+    assert position_cli.main(["ledger", "--db", str(db)], now=NOW) == 0
+    assert (
+        research_main(["position-prepare", *common, "--asof", NOW.date().isoformat()], now=NOW) == 0
+    )
+    # Legacy is deliberately not passed to the v4 refresh reader.
+    assert (
+        research_main(
+            [
+                "thesis-scaffold",
+                *common,
+                "--sqlite-path",
+                str(market),
+                "--target-session",
+                NOW.date().isoformat(),
+            ],
+            now=NOW,
+        )
+        == 0
+    )
+    thesis_path = workspace / "2331/thesis-draft.yaml"
+    assert yaml.safe_load(thesis_path.read_text())["schema_version"] == 4
+    # Author today's evidence and independent calculation, not a v3 conversion.
+    thesis, review = pair_payload(ticker="2331")
+    thesis_path.write_text(yaml.safe_dump(thesis))
+    assert research_main(["review-scaffold", *common], now=NOW) == 0
+    review_path = workspace / "2331/2026-09-07-2331-decision-review.yaml"
+    assert (
+        yaml.safe_load(review_path.read_text())["reviewed_thesis_sha256"]
+        == review["reviewed_thesis_sha256"]
+    )
+    review_path.write_text(yaml.safe_dump(review))
+    assert (
+        research_main(
+            [
+                "promote",
+                *common,
+                "--thesis-id",
+                "first-v4",
+                "--supersedes-id",
+                original[0],
+            ],
+            now=NOW,
+        )
+        == 0
+    )
+    draft_path = workspace / "position-review.yaml"
+    assert (
+        position_cli.main(
+            [
+                "position-review-build",
+                "--db",
+                str(db),
+                "--thesis-id",
+                "first-v4",
+                "--position-id",
+                "2331",
+                "--sqlite",
+                str(market),
+                "--out",
+                draft_path.name,
+                "--root",
+                str(workspace),
+            ],
+            now=NOW,
+        )
+        == 0
+    )
+    draft = yaml.safe_load(draft_path.read_text())
+    draft.update(
+        remaining_reward={"status": "sufficient", "reason": "現在の証拠から残存見返りを確認"},
+        action="hold",
+    )
+    draft_path.write_text(yaml.safe_dump(draft))
+    assert (
+        position_cli.main(
+            [
+                "position-review",
+                "publish",
+                str(draft_path),
+                "--db",
+                str(db),
+                "--thesis-id",
+                "first-v4",
+                "--sqlite",
+                str(market),
+                "--confirmed",
+                "--root",
+                str(workspace),
+            ],
+            now=NOW,
+        )
+        == 0
+    )
+    with sqlite3.connect(db) as connection:
+        assert (
+            connection.execute(
+                "SELECT thesis_id,payload,core_sha256 FROM thesis WHERE thesis_id=?", (original[0],)
+            ).fetchone()
+            == original
+        )
+        assert (
+            connection.execute("SELECT payload FROM ledger_event ORDER BY append_seq").fetchall()
+            == original_events
+        )
+    assert OperationService(db).active() is None
+
+
+def test_override_constraints_are_price_independent_and_expiry_uses_valuation_instant(holding_case):
+    from baibai_engine.position.drafts import build_override_draft
+    from baibai_engine.position.ledger import HumanOverride, PortfolioLedgerError
+    from baibai_engine.position.valuation import current_portfolio
+
+    db, market, ledger = holding_case
+    service = LedgerStoreService(db)
+    accepted = HumanOverride.model_validate(
+        dict(
+            override_id="accepted",
+            scope="ticker",
+            key="2331",
+            reason="一時的な集中を確認",
+            decision_reference="human-confirmation",
+            approved_at=ledger.as_of,
+            expires_at=ledger.as_of + timedelta(days=1),
+        )
+    )
+    too_long = accepted.model_copy(update={"expires_at": ledger.as_of + timedelta(days=32)})
+    before = service.load()
+    with pytest.raises(PortfolioLedgerError, match="exceeds 31 days"):
+        build_override_draft(service, too_long)
+    valid = build_override_draft(service, accepted)
+    # Hand-editing a draft cannot bypass the same price-independent apply boundary.
+    tampered = valid.model_copy(
+        update={"replacement": valid.replacement.model_copy(update={"overrides": (too_long,)})}
+    )
+    with pytest.raises(PortfolioLedgerError, match="exceeds 31 days"):
+        apply_draft(service, tampered, human_confirmed=True)
+    assert service.load() == before
+    apply_draft(service, valid, human_confirmed=True)
+    with pytest.raises(PortfolioLedgerError, match="multiple active overrides"):
+        build_override_draft(service, accepted.model_copy(update={"override_id": "duplicate"}))
+    with sqlite3.connect(market) as connection:
+        connection.execute("UPDATE jquants_daily_bars SET close=10000 WHERE traded_at='2026-09-04'")
+    snapshot = current_portfolio(service.load(), sqlite_path=market, now=NOW)
+    warning = next(
+        item for item in snapshot.warnings if item.scope == "ticker" and item.key == "2331"
+    )
+    assert warning.actual_pct > 10
+    assert not warning.overridden
+    assert snapshot.as_of == ledger.as_of
+
+
+@pytest.mark.parametrize("factor", [1.0, 0.5, None])
+def test_intraday_fill_must_bridge_quote_and_quantity_dates(tmp_path, factor):
+    from tests.helpers.screening_sqlite import seed_daily_bars
+
+    from baibai_engine.position.ledger import PortfolioLedgerDocument
+    from baibai_engine.position.valuation import current_portfolio, holding_quote
+
+    now = NOW.replace(hour=10)
+    ledger = PortfolioLedgerDocument.model_validate(
+        dict(
+            schema_version=2,
+            portfolio_scope="repository_only",
+            as_of=now.isoformat(),
+            market_prices=[],
+            events=[
+                dict(
+                    type="opening_balance",
+                    event_id="opening",
+                    occurred_at="2026-09-07T08:00:00+09:00",
+                    amount_yen=1000000,
+                ),
+                dict(
+                    type="reservation",
+                    event_id="reserve",
+                    occurred_at="2026-09-07T09:00:00+09:00",
+                    reservation_id="order",
+                    order_id="order",
+                    ticker="2331",
+                    sector="test",
+                    common_factors=[],
+                    quantity=100,
+                    price_guard_yen=500,
+                    expires_at="2026-09-07T15:30:00+09:00",
+                ),
+                dict(
+                    type="execution",
+                    event_id="fill",
+                    occurred_at="2026-09-07T09:01:00+09:00",
+                    execution_id="fill",
+                    reservation_id="order",
+                    ticker="2331",
+                    side="buy",
+                    quantity=100,
+                    price_yen=500,
+                ),
+            ],
+        )
+    )
+    market = tmp_path / "market.sqlite"
+    seed_daily_bars(market, [("2331", "2026-09-04", 1000, 1), ("2331", "2026-09-07", None, factor)])
+    quote, confirmed = holding_quote(ledger, ticker="2331", sqlite_path=market, now=now)
+    assert quote.price_as_of.isoformat() == "2026-09-04"
+    assert confirmed is (factor == 1.0)
+    snapshot = current_portfolio(ledger, sqlite_path=market, now=now)
+    assert snapshot.available_cash_yen == 950000
+    assert snapshot.holdings[0].quantity == 100
+    assert snapshot.holdings[0].deployed_cost_yen == 50000
+    assert snapshot.total_capital_yen == (1050000 if factor == 1.0 else None)

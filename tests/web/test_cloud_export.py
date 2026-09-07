@@ -714,7 +714,7 @@ def test_export_reuses_research_history_and_ledger_per_export(
     prepare = mocker.spy(export_module, "prepare_security_inputs")
     convert = mocker.spy(stocks, "_machine_review_set_view")
     read = mocker.spy(db_sources, "list_thesis_publications")
-    replay = mocker.spy(db_sources, "reconcile_portfolio")
+    replay = mocker.spy(db_sources, "current_portfolio")
     mocker.patch.object(
         export_module,
         "_security_tickers",

@@ -166,11 +166,11 @@ export interface HoldingView {
   sector: string
   quantity: number
   deployed_cost_yen: number
-  market_price_yen: string
-  market_price_as_of: string
-  market_value_yen: number
-  unrealized_pnl_yen: number
-  unrealized_pnl_pct: number
+  market_price_yen: string | null
+  market_price_as_of: string | null
+  market_value_yen: number | null
+  unrealized_pnl_yen: number | null
+  unrealized_pnl_pct: number | null
   pmax_raw_yen: number | null
   pmax_gap_pct: number | null
   latest_thesis_id: string | null

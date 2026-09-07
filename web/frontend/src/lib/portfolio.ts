@@ -1,7 +1,7 @@
 import type { HoldingView } from '../api/types'
 
 export interface UnrealizedPnlTotal {
-  yen: number
+  yen: number | null
   pct: number | null
 }
 
@@ -14,7 +14,8 @@ export function pnlTone(value: number | null): string {
 }
 
 export function totalUnrealizedPnl(holdings: readonly HoldingView[]): UnrealizedPnlTotal {
-  const yen = holdings.reduce((total, holding) => total + holding.unrealized_pnl_yen, 0)
+  if (holdings.some((holding) => holding.unrealized_pnl_yen === null)) return { yen: null, pct: null }
+  const yen = holdings.reduce((total, holding) => total + (holding.unrealized_pnl_yen ?? 0), 0)
   const deployedCostYen = holdings.reduce((total, holding) => total + holding.deployed_cost_yen, 0)
   return {
     yen,

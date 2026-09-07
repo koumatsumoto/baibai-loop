@@ -110,7 +110,7 @@ export function SecurityDetailPage() {
               <Field label="数量"><span className="font-mono tabular-nums">{data.holding.quantity.toLocaleString('ja-JP')} 株</span></Field>
               <Field label="取得 / 現在">
                 <span className="font-mono tabular-nums text-muted-foreground">取得 <YenAmount value={averageCostYen} /></span>
-                <span className="ml-3 font-mono tabular-nums">現在 <YenAmount value={Number(data.holding.market_price_yen)} /></span>
+                <span className="ml-3 font-mono tabular-nums">現在 <YenAmount value={data.holding.market_price_yen === null ? null : Number(data.holding.market_price_yen)} /></span>
               </Field>
               <Field label="評価額"><YenAmount value={data.holding.market_value_yen} /></Field>
               <Field label="含み損益">

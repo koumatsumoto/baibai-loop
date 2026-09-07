@@ -1,4 +1,4 @@
-"""Provide raw/unadjusted closes for Research planning and holding valuation.
+"""資本確認工程で市場quote・権利単位・発注営業日の読み取り入力を産む。
 
 The read-only market runtime copy supplies both the previous business-day close
 for a judgment instant and same-date holding-basis closes.
@@ -20,6 +20,7 @@ rather than quoting an unreconciled price.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from math import isfinite
@@ -116,80 +117,81 @@ def read_unadjusted_close(
     )
 
 
-def read_holding_unadjusted_close_on_basis(
+def quantity_basis_is_confirmed(
     *,
     sqlite_path: Path,
     ticker: str,
-    ledger_price_observed_on: date,
-    basis_as_of: date,
+    from_date: date,
+    through_date: date,
     connection: sqlite3.Connection | None = None,
-) -> UnadjustedCloseObservation | None:
-    """Return a holding's raw close only when its ledger-to-basis chain is complete.
+) -> bool:
+    """Confirm unchanged share units across observed market sessions, independent of closes.
 
-    Revaluation is safe only when every full-universe market session from the
-    ledger observation date through ``basis_as_of`` has an exact ticker bar, a
-    positive raw close, and a confirmed adjustment factor of 1. ``None`` requires
-    the caller to retain the canonical ledger market value and disclose fallback.
+    Missing ticker rows/factors or any rights change remain unresolved. A historical
+    NULL close is irrelevant to quantity identity; current quote is checked separately.
     """
-    if ledger_price_observed_on > basis_as_of:
-        return None
+    if from_date > through_date:
+        return False
     conn = connection
     owns_connection = conn is None
     if conn is None:
         if not sqlite_path.exists():
-            return None
+            return False
         try:
             conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
         except sqlite3.Error:
-            return None
+            return False
     try:
         version_row = conn.execute("PRAGMA user_version").fetchone()
         if version_row is None or int(version_row[0]) != _EXPECTED_MARKET_SCHEMA_VERSION:
-            return None
+            return False
         session_rows = conn.execute(
             "SELECT DISTINCT traded_at FROM jquants_daily_bars "
             "WHERE traded_at BETWEEN ? AND ? ORDER BY traded_at",
-            (ledger_price_observed_on.isoformat(), basis_as_of.isoformat()),
+            (from_date.isoformat(), through_date.isoformat()),
         ).fetchall()
         sessions = tuple(str(row[0]) for row in session_rows)
-        if not sessions or sessions[-1] != basis_as_of.isoformat():
-            return None
+        if not sessions or sessions[-1] != through_date.isoformat():
+            return False
         bar_rows = conn.execute(
-            "SELECT traded_at, close, adjustment_factor FROM jquants_daily_bars "
+            "SELECT traded_at, adjustment_factor FROM jquants_daily_bars "
             "WHERE ticker = ? AND traded_at BETWEEN ? AND ? ORDER BY traded_at",
-            (ticker, ledger_price_observed_on.isoformat(), basis_as_of.isoformat()),
+            (ticker, from_date.isoformat(), through_date.isoformat()),
         ).fetchall()
         if tuple(str(row[0]) for row in bar_rows) != sessions:
-            return None
+            return False
     except (sqlite3.Error, TypeError, ValueError):
-        return None
+        return False
     finally:
         if owns_connection:
             conn.close()
-    basis_close: float | None = None
-    for expected_session, row in zip(sessions, bar_rows, strict=True):
-        traded_at, close, adjustment_factor = row
-        if str(traded_at) != expected_session or close is None or adjustment_factor is None:
-            return None
+    for _, adjustment_factor in bar_rows:
         try:
-            close_yen = float(str(close))
-            factor = float(str(adjustment_factor))
+            factor = float(adjustment_factor)
         except (TypeError, ValueError):
-            return None
-        if (
-            not isfinite(close_yen)
-            or close_yen <= 0
-            or not isfinite(factor)
-            or abs(factor - 1.0) > 1e-9
-        ):
-            return None
-        if expected_session == basis_as_of.isoformat():
-            basis_close = close_yen
-    if basis_close is None:
+            return False
+        if not isfinite(factor) or abs(factor - 1.0) > 1e-9:
+            return False
+    return True
+
+
+def next_order_session(*, sqlite_path: Path, now: datetime) -> date | None:
+    """Resolve the first unexpired session from the existing calendar, including holidays."""
+    local = now.astimezone(JST)
+    start = local.date() + timedelta(days=local.time() >= time(15, 30))
+    try:
+        with closing(sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)) as connection:
+            rows = connection.execute(
+                "SELECT day,is_business_day FROM jquants_market_calendar "
+                "WHERE day>=? ORDER BY day LIMIT 14",
+                (start.isoformat(),),
+            ).fetchall()
+    except sqlite3.Error:
         return None
-    return UnadjustedCloseObservation(
-        close_yen=basis_close,
-        price_as_of=basis_as_of,
-        adjustment_factor=1.0,
-        corporate_action_unresolved=False,
-    )
+    for i, (day, is_business_day) in enumerate(rows):
+        expected = start + timedelta(days=i)
+        if day != expected.isoformat():
+            return None
+        if is_business_day == 1:
+            return expected
+    return None

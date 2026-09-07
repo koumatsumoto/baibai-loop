@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from contextlib import closing
+from dataclasses import replace
 from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
@@ -12,99 +12,16 @@ from pathlib import Path
 from baibai_engine.appdb.paths import database_path
 from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.foundation.time import JST
-from baibai_engine.position.ledger import ExecutionEvent, replay_events_through
+from baibai_engine.position.market_source import next_order_session
 from baibai_engine.position.policy import PORTFOLIO_POLICY
 from baibai_engine.position.store import load_ledger_in_transaction
-from baibai_engine.research.capital_allocation import (
-    AllocationAlternative,
-    CapitalAllocationAssessment,
+from baibai_engine.position.valuation import current_portfolio
+from baibai_engine.research.capital_allocation import CapitalAllocationAssessment
+from baibai_engine.research.capital_inputs import (
+    evaluate_allocation_in_transaction,
 )
 from baibai_engine.research.decimal_number import decimal_to_number
-from baibai_engine.research.entry_policy import EntryResult, evaluate_entry
-from baibai_engine.research.market_close_source import (
-    UnadjustedCloseObservation,
-    read_holding_unadjusted_close_on_basis,
-    read_unadjusted_close,
-)
-from baibai_engine.research.thesis_store import (
-    ReviewedThesis,
-    latest_thesis_id,
-    load_reviewed_thesis,
-)
 from baibai_engine.research.valuation import finite_decimal
-
-
-def evaluate_allocation_in_transaction(
-    connection: sqlite3.Connection,
-    *,
-    alternative: AllocationAlternative,
-    assessment_id: str,
-    as_of: date,
-    now: datetime,
-    sqlite_path: Path,
-    budget_max_yen: int,
-) -> tuple[ReviewedThesis, EntryResult, UnadjustedCloseObservation | None, int]:
-    """Assemble real current inputs for the shared CAA/Planning entry rule."""
-    pair = load_reviewed_thesis(connection, alternative.thesis_id)
-    if (
-        pair.document.input_snapshot.ticker != alternative.ticker
-        or pair.core_sha256 != alternative.thesis_core_sha256
-        or pair.review.review_id != alternative.thesis_review_id
-    ):
-        raise ValueError("allocated Reviewed Thesis binding differs")
-    document, _ = load_ledger_in_transaction(connection)
-    if document.as_of > now or any(event.occurred_at > now for event in document.events):
-        raise ValueError("ledger contains facts after the judgment instant")
-    state = replay_events_through(document.events, now)
-    quote = read_unadjusted_close(sqlite_path=sqlite_path, ticker=alternative.ticker, at=now)
-    original_price = next(
-        (
-            fact
-            for fact in pair.document.input_snapshot.facts
-            if fact.fact_id == pair.document.valuation.market_price_fact_id
-        ),
-        None,
-    )
-    basis_confirmed = (
-        quote is not None
-        and original_price is not None
-        and (
-            read_holding_unadjusted_close_on_basis(
-                sqlite_path=sqlite_path,
-                ticker=alternative.ticker,
-                ledger_price_observed_on=original_price.as_of,
-                basis_as_of=quote.price_as_of,
-            )
-            is not None
-        )
-    )
-    result = evaluate_entry(
-        pair.document,
-        reviewed=True,
-        latest=latest_thesis_id(connection, alternative.ticker) == pair.thesis_id,
-        as_of=as_of,
-        price_yen=None if quote is None else Decimal(str(quote.close_yen)),
-        price_as_of=None if quote is None else quote.price_as_of,
-        basis_confirmed=basis_confirmed,
-        minimum_required_annual_return_pct=Decimal(
-            str(PORTFOLIO_POLICY["valuation"]["minimum_required_annual_return_pct"])
-        ),
-        market_price_max_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
-        held_quantity=sum(lot.quantity for lot in state.lots.get(alternative.ticker, [])),
-        active_reservation=any(
-            item.ticker == alternative.ticker for item in state.active_reservations.values()
-        ),
-        assessment_executed=any(
-            isinstance(event, ExecutionEvent)
-            and event.side == "buy"
-            and event.decision_reference == assessment_id
-            for event in document.events
-        ),
-        available_cash_yen=Decimal(state.available_cash_yen),
-        budget_max_yen=Decimal(budget_max_yen),
-        board_lot=PORTFOLIO_POLICY["order_constraints"]["board_lot"],
-    )
-    return pair, result, quote, state.available_cash_yen
 
 
 def plan_limit(
@@ -117,8 +34,8 @@ def plan_limit(
     budget_max_yen: int,
     now: datetime,
 ) -> dict[str, object]:
-    if target_session != now.date():
-        raise ValueError("formal planning basis must be today")
+    now = now.astimezone(JST)
+    order_session = next_order_session(sqlite_path=sqlite_path, now=now)
     with closing(connect_read_only(database_path(db_path))) as connection:
         connection.execute("BEGIN")
         row = connection.execute(
@@ -138,7 +55,7 @@ def plan_limit(
             connection,
             alternative=alternative,
             assessment_id=capital_allocation_assessment_id,
-            as_of=target_session,
+            as_of=now.date(),
             now=now,
             sqlite_path=sqlite_path,
             budget_max_yen=budget_max_yen,
@@ -166,7 +83,18 @@ def plan_limit(
         except ValueError:
             adv_yen = None
         ledger, _ = load_ledger_in_transaction(connection)
-        state = replay_events_through(ledger.events, now)
+    if order_session is None or target_session != order_session:
+        entry = replace(
+            entry,
+            eligible=False,
+            quantity=0,
+            reasons=(
+                *entry.reasons,
+                "order_session_unknown"
+                if order_session is None
+                else "target_session_not_next_available",
+            ),
+        )
     price = None if quote is None else Decimal(str(quote.close_yen))
     notional = Decimal(0) if price is None else price * entry.quantity
     warnings: list[str] = []
@@ -180,32 +108,19 @@ def plan_limit(
         warnings.append("adv_participation_unassessed")
     elif participation > Decimal(str(PORTFOLIO_POLICY["risk_budget"]["max_adv_participation_pct"])):
         warnings.append("adv_participation_exceeds_warning")
-    # Capital without every holding quote is unknown, not an invented cash-only NAV.
-    nav: Decimal | None = Decimal(state.available_cash_yen + state.reserved_cash_yen)
-    values: dict[str, Decimal] = {}
-    for ticker, lots in state.lots.items():
-        quantity = sum(lot.quantity for lot in lots)
-        if not quantity:
-            continue
-        holding_quote = read_unadjusted_close(sqlite_path=sqlite_path, ticker=ticker, at=now)
-        observed = next((item for item in ledger.market_prices if item.ticker == ticker), None)
-        if (
-            holding_quote is None
-            or observed is None
-            or read_holding_unadjusted_close_on_basis(
-                sqlite_path=sqlite_path,
-                ticker=ticker,
-                ledger_price_observed_on=observed.observed_at.date(),
-                basis_as_of=holding_quote.price_as_of,
-            )
-            is None
-        ):
-            nav = None
-            warnings.append(f"portfolio_valuation_unknown:{ticker}")
-        else:
-            values[ticker] = Decimal(str(holding_quote.close_yen)) * quantity
-    if nav is not None:
-        nav += sum(values.values())
+    portfolio = current_portfolio(ledger, sqlite_path=sqlite_path, now=now)
+    metadata = {item.ticker: (item.sector, item.common_factors) for item in portfolio.holdings}
+    nav = None if portfolio.total_capital_yen is None else Decimal(portfolio.total_capital_yen)
+    values = {
+        item.ticker: Decimal(item.market_value_yen)
+        for item in portfolio.holdings
+        if item.market_value_yen is not None
+    }
+    warnings.extend(
+        f"portfolio_valuation_unknown:{item.ticker}"
+        for item in portfolio.holdings
+        if item.market_value_yen is None
+    )
     exposure: dict[str, object] = {
         "total_capital_yen": None if nav is None else decimal_to_number(nav),
         "ticker": None,
@@ -227,17 +142,13 @@ def plan_limit(
                 )
 
             total = sum(
-                (
-                    value
-                    for ticker, value in values.items()
-                    if matches(ticker, *state.metadata[ticker])
-                ),
+                (value for ticker, value in values.items() if matches(ticker, *metadata[ticker])),
                 Decimal(0),
             )
             total += sum(
                 (
                     Decimal(item.remaining_quantity) * item.price_guard_yen
-                    for item in state.active_reservations.values()
+                    for item in portfolio.active_reservations
                     if matches(item.ticker, item.sector, item.common_factors)
                 ),
                 Decimal(0),
@@ -304,7 +215,12 @@ def plan_limit(
             "adv_yen": None if adv_yen is None else decimal_to_number(adv_yen),
             "participation_pct": None if participation is None else float(participation),
         },
-        "expires_at": datetime.combine(target_session, time(15, 30), tzinfo=JST).isoformat(),
+        "judgment_as_of": now.date().isoformat(),
+        "target_session": target_session.isoformat(),
+        "next_order_session": None if order_session is None else order_session.isoformat(),
+        "expires_at": None
+        if not entry.eligible
+        else datetime.combine(target_session, time(15, 30), tzinfo=JST).isoformat(),
         "warnings": warnings,
         "defer_reasons": list(entry.reasons),
     }

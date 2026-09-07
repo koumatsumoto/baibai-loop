@@ -15,6 +15,7 @@ from baibai_engine.read_api import (
     application_db_updated_at,
     capital_allocation_assessment_payload,
     close_change_since,
+    current_portfolio,
     latest_disclosure_dates_after,
     latest_macro_context_payload,
     latest_research_triage_payload,
@@ -35,7 +36,6 @@ from baibai_engine.read_api import (
     next_earnings_dates,
     portfolio_ledger_document,
     previous_business_day,
-    reconcile_portfolio,
     research_triage_payloads_for_review_set,
     reviewed_thesis_projection,
     safe_load,
@@ -58,8 +58,9 @@ from baibai_web.sources.types import (
 
 
 class DbLedgerSource:
-    def __init__(self, db_path: Path) -> None:
+    def __init__(self, db_path: Path, market_db_path: Path) -> None:
         self._path = db_path.resolve()
+        self._market_path = market_db_path.resolve()
 
     def exists(self) -> bool:
         return portfolio_ledger_document(self._path) is not None
@@ -68,7 +69,9 @@ class DbLedgerSource:
         document = portfolio_ledger_document(self._path)
         if document is None:
             raise ValueError("portfolio ledger has not been initialized")
-        return reconcile_portfolio(document)
+        return current_portfolio(
+            document, sqlite_path=self._market_path, now=datetime.now().astimezone()
+        )
 
 
 class DbMarketPriceSource:

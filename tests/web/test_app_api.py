@@ -38,7 +38,7 @@ def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
         assert health.status_code == 200
         assert health.json() == {"status": "ok", "root": str(app_method_root.resolve())}
         assert dashboard.status_code == 200
-        assert dashboard.json()["total_capital_yen"] == 10_419_500
+        assert dashboard.json()["total_capital_yen"] is None
         assert "open_tasks" not in dashboard.json()
         assert tasks.status_code == 200
         assert len(tasks.json()["open_tasks"]) == 2
@@ -412,7 +412,7 @@ def test_api_reads_the_explicit_application_database(app_method_root: Path) -> N
     with TestClient(
         create_app(app_method_root, db_path=alternate_db), base_url="http://127.0.0.1"
     ) as client:
-        assert client.get("/api/dashboard").json()["total_capital_yen"] == 10_419_500
+        assert client.get("/api/dashboard").json()["total_capital_yen"] is None
 
 
 def test_api_returns_404_for_unknown_security_and_api_route(app_method_root: Path) -> None:

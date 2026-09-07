@@ -878,25 +878,60 @@
           "type": "integer"
         },
         "market_price_yen": {
-          "title": "Market Price Yen",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Market Price Yen"
         },
         "market_price_as_of": {
-          "format": "date-time",
-          "title": "Market Price As Of",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Market Price As Of"
         },
         "market_value_yen": {
-          "title": "Market Value Yen",
-          "type": "integer"
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Market Value Yen"
         },
         "unrealized_pnl_yen": {
-          "title": "Unrealized Pnl Yen",
-          "type": "integer"
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unrealized Pnl Yen"
         },
         "unrealized_pnl_pct": {
-          "title": "Unrealized Pnl Pct",
-          "type": "number"
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unrealized Pnl Pct"
         },
         "pmax_raw_yen": {
           "anyOf": [
