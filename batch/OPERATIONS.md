@@ -272,8 +272,7 @@ batch/scripts/publish.sh
 ```
 
 引数なしでだけ実行する。`-h` / `--help`は外部書き込みを行わずusageを表示し、その他の引数はupload前に拒否する。
-引数なしでは最初に`position ledger`を実行し、保有価格の欠損・staleなどでvaluationが成立しなければupload前に停止する。
-その場合は[`portfolio-ledger.md`](../docs/reference/portfolio-ledger.md#market-price-and-tax)に従って全open holdingの同日価格を更新してから再実行する。
+引数なしでは最初に`position ledger`を実行し、ledgerの整合性を確認する。保有価格の欠損・staleや権利単位の未確認は時価未評価として表示し、uploadを止めない。価格の読み取りは[`portfolio-ledger.md`](../docs/reference/portfolio-ledger.md#market-price-and-tax)を正本とし、配信のための台帳への価格転記は要求しない。
 
 このscriptは`baibai.sqlite`のconsistent snapshotだけをstoresへ送り、`cloud-materialize`をdispatchする。servingへの直接writeは行わない。
 

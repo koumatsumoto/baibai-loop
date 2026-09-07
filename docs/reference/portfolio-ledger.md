@@ -54,7 +54,9 @@ partial fill後は未約定残数だけをreservedに残す。hard errorはcash�
 
 ## Market priceと税
 
-market priceはtickerごとに`observed_at / source_kind / price_basis / source_ref`を持つ。日常更新はJ-Quants raw/unadjusted closeを`market-price-draft`で作り、全open holdingの同日coverageとcalendarを検証する。adjusted closeで補完しない。
+`position ledger`とWebの現在時価はmarket storeのJ-Quants raw/unadjusted closeと、現在保有episodeの権利単位から読み取る。価格の欠損・staleまたは権利単位の未確認では時価とNAVを未評価にし、確認済みcash・数量・原価は表示する。台帳への価格転記は不要であり、adjusted closeや0円で補完しない。
+
+台帳に保存するmarket priceはtickerごとに`observed_at / source_kind / price_basis / source_ref`を持つ。`market-price-draft`で明示的に記録する場合は、全open holdingの同日coverageとcalendarを検証する。
 
 `income`とsell proceedsはgross、feeは`cost`、確認済み税は`tax_confirmed`に分離する。estimated exit taxは`ledger_meta`のrateと`ledger_fifo_gross_unrealized_gain` basisから表示だけを計算し、cashやconfirmed taxに混ぜない。
 
@@ -70,7 +72,7 @@ uv run baibai-engine position apply-draft /tmp/ledger-draft.yaml --db stores/app
 
 applyは1 transactionでsource head、assessment / reservation、event payload、price/meta expected row、reconciliationを再検証する。`--confirmed`なし、stale、buyでないassessment、broker fact reportなし、矛盾payloadはno-writeである。
 
-`broker-fact-draft` の apply は event replay、cash / reservation / lot、未解放 expiry を再検証するが、既存 holding の market price freshness は要求しない。broker の注文結果は valuation の更新ではなく、無関係な価格不足で人間報告の記録を止めないためである。価格を使う ledger view や sell 等の valuation 経路では従来どおり freshness を fail-close する。
+確認済みの売買・入出金・配当・費用・税のapplyはevent replay、cash / reservation / lotなどの取引整合性を再検証し、既存holdingのmarket price freshnessは要求しない。無関係な価格不足で人間報告の記録を止めないためである。現在時価を使う表示は前節の未評価規則に従い、購入条件と保有判断の必要入力はそれぞれresearchの契約に従う。
 
 <a id="human-result-semantics"></a>
 
