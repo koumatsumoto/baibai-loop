@@ -22,27 +22,10 @@ from baibai_engine.read_api.operations import list_operation_sessions, operation
 NOW = datetime(2026, 7, 19, 12, 0, tzinfo=JST)
 
 
-def _published_position_review(tmp_path: Path) -> Path:
-    from tests.engine.test_position_review_db import THESIS_ID, _database
-    from tests.helpers.fixed_now import FIXED_NOW
-
-    from baibai_engine.research.position_review_builder import build_position_review_from_db
-    from baibai_engine.research.store import ResearchStoreService
-
-    db = _database(tmp_path)
-    document = build_position_review_from_db(
-        db_path=db, holding_thesis_id=THESIS_ID, position_id="2331", now=FIXED_NOW
-    )
-    ResearchStoreService(db, clock=lambda: FIXED_NOW).publish_position_review(
-        "position-review-test", THESIS_ID, document.model_dump(mode="json")
-    )
-    return db
-
-
 @pytest.mark.parametrize("ticker", [None, "", " "])
-def test_position_start_requires_ticker_before_write(tmp_path: Path, ticker: str | None) -> None:
+def test_position_operation_is_retired_before_write(tmp_path: Path, ticker: str | None) -> None:
     db = tmp_path / "app.sqlite"
-    with pytest.raises(OperationConflictError, match="requires ticker"):
+    with pytest.raises(OperationConflictError, match="no Operation is needed"):
         OperationService(db).start(
             session_kind="position-review",
             ticker=ticker,
@@ -51,31 +34,6 @@ def test_position_start_requires_ticker_before_write(tmp_path: Path, ticker: str
             payload=OperationPayload(checkpoint="start"),
         )
     assert not db.exists()
-
-
-@pytest.mark.parametrize("mutation", ["unknown", "multiple", "ticker", "asof"])
-def test_position_complete_requires_matching_publication(tmp_path: Path, mutation: str) -> None:
-    db = _published_position_review(tmp_path)
-    service = OperationService(db)
-    operation = service.start(
-        session_kind="position-review",
-        ticker="9999" if mutation == "ticker" else "2331",
-        as_of=NOW.date() if mutation == "asof" else date(2026, 7, 3),
-        started_at=NOW,
-        payload=OperationPayload(checkpoint="review"),
-    )
-    payload = _complete_payload("position-review")
-    if mutation in {"unknown", "multiple"}:
-        payload = payload.model_copy(
-            update={
-                "canonical_refs": ("unknown",)
-                if mutation == "unknown"
-                else ("position-review-test", "position-review-test")
-            }
-        )
-    with pytest.raises(OperationCompletionError):
-        service.complete(operation.operation_id, payload, completed_at=NOW)
-    assert service.get(operation.operation_id) == operation
 
 
 @pytest.mark.parametrize("tickers", [None, [], ["2331", "2331"]])
@@ -120,6 +78,8 @@ def test_operation_json_format_emits_one_machine_object(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     db = tmp_path / "app.sqlite"
+    draft = tmp_path / "start.yaml"
+    draft.write_text(yaml.safe_dump(_active_payload().model_dump(mode="json")))
 
     assert (
         operation_main(
@@ -130,9 +90,9 @@ def test_operation_json_format_emits_one_machine_object(
                 "json",
                 "start",
                 "--kind",
-                "position-review",
-                "--ticker",
-                "2331",
+                "capital-allocation",
+                "--payload",
+                str(draft),
                 "--as-of",
                 "2026-07-19",
             ],
@@ -142,7 +102,7 @@ def test_operation_json_format_emits_one_machine_object(
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["session_kind"] == "position-review"
+    assert payload["session_kind"] == "capital-allocation"
 
 
 def _active_payload(checkpoint: str = "source review") -> OperationPayload:
@@ -170,40 +130,6 @@ def _complete_payload(kind: SessionKind) -> OperationPayload:
     return OperationPayload.model_validate(values)
 
 
-@pytest.mark.parametrize("kind", ["position-review"])
-def test_each_kind_resumes_same_row_completes_and_next_occurrence_gets_new_row(
-    tmp_path: Path,
-    kind: SessionKind,
-) -> None:
-    db = _published_position_review(tmp_path)
-    service = OperationService(db)
-    first = service.start(
-        session_kind=kind,
-        ticker="2331",
-        as_of=date(2026, 7, 3),
-        started_at=NOW,
-        payload=_active_payload(),
-    )
-
-    resumed = service.checkpoint(first.operation_id, _active_payload("review complete"))
-    assert resumed.operation_id == first.operation_id
-    assert resumed.payload.checkpoint == "review complete"
-
-    completed = service.complete(first.operation_id, _complete_payload(kind), completed_at=NOW)
-    assert completed.status == "completed"
-    assert completed.completed_at == NOW
-
-    second = service.start(
-        session_kind=kind,
-        ticker="2331",
-        as_of=date(2026, 7, 3),
-        started_at=NOW,
-        payload=_active_payload(),
-    )
-    assert second.operation_id != first.operation_id
-    assert second.operation_id.endswith("-2")
-
-
 def test_all_kinds_share_one_active_slot_and_no_checkpoint_history(tmp_path: Path) -> None:
     db = tmp_path / "app.sqlite"
     service = OperationService(db)
@@ -216,7 +142,7 @@ def test_all_kinds_share_one_active_slot_and_no_checkpoint_history(tmp_path: Pat
 
     with pytest.raises(OperationConflictError, match="active operation already exists"):
         service.start(
-            session_kind="position-review",
+            session_kind="capital-allocation",
             ticker="2331",
             as_of=date(2026, 7, 19),
             started_at=NOW,
@@ -238,7 +164,7 @@ def test_all_kinds_share_one_active_slot_and_no_checkpoint_history(tmp_path: Pat
         )
 
 
-@pytest.mark.parametrize("kind", SESSION_KINDS)
+@pytest.mark.parametrize("kind", ["capital-allocation"])
 def test_complete_rejects_missing_kind_specific_final_fields(
     tmp_path: Path,
     kind: SessionKind,
@@ -261,7 +187,7 @@ def test_complete_rejects_missing_kind_specific_final_fields(
     assert service.get(operation.operation_id).status == "active"
 
 
-@pytest.mark.parametrize("kind", SESSION_KINDS)
+@pytest.mark.parametrize("kind", ["capital-allocation"])
 def test_no_research_is_readable_history_but_rejected_by_all_writers(
     tmp_path: Path, kind: SessionKind, subtests: pytest.Subtests
 ) -> None:
@@ -309,35 +235,6 @@ def test_no_research_is_readable_history_but_rejected_by_all_writers(
     assert len(list_operation_sessions(db)) == 1
 
 
-def test_completed_row_is_immutable_through_service_and_database(tmp_path: Path) -> None:
-    db = _published_position_review(tmp_path)
-    service = OperationService(db)
-    operation = service.start(
-        session_kind="position-review",
-        ticker="2331",
-        as_of=date(2026, 7, 3),
-        started_at=NOW,
-        payload=_active_payload(),
-    )
-    service.complete(operation.operation_id, _complete_payload("position-review"), completed_at=NOW)
-
-    with pytest.raises(OperationConflictError, match="immutable"):
-        service.checkpoint(operation.operation_id, _active_payload("late update"))
-    connection = connect_rw(db)
-    try:
-        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
-            connection.execute(
-                "UPDATE operation_session SET payload = '{}' WHERE operation_id = ?",
-                (operation.operation_id,),
-            )
-        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
-            connection.execute(
-                "DELETE FROM operation_session WHERE operation_id = ?", (operation.operation_id,)
-            )
-    finally:
-        connection.close()
-
-
 def test_database_constraint_rejects_a_second_active_row(tmp_path: Path) -> None:
     db = tmp_path / "app.sqlite"
     initialize_database(db)
@@ -368,48 +265,32 @@ def test_database_constraint_rejects_a_second_active_row(tmp_path: Path) -> None
         connection.close()
 
 
-def test_cli_and_read_facade_expose_current_and_completed_payloads(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    db = _published_position_review(tmp_path)
-    assert (
-        operation_main(
-            [
-                "--db",
-                str(db),
-                "start",
-                "--kind",
+@pytest.mark.parametrize("status", ["active", "completed"])
+def test_position_operation_history_remains_readable_and_immutable(tmp_path, status):
+    db = tmp_path / "app.sqlite"
+    initialize_database(db)
+    with connect_rw(db) as connection:
+        connection.execute(
+            "INSERT INTO operation_session VALUES (?,?,?,?,?,?,?,?)",
+            (
+                "op-20260719-position-review-1",
                 "position-review",
-                "--ticker",
+                status,
+                NOW.date().isoformat(),
                 "2331",
-                "--as-of",
-                "2026-07-03",
-            ],
-            now=NOW,
+                NOW.isoformat(),
+                NOW.isoformat() if status == "completed" else None,
+                _active_payload().model_dump_json(),
+            ),
         )
-        == 0
-    )
-    started = yaml.safe_load(capsys.readouterr().out)
-    operation_id = started["operation_id"]
-
-    final_path = tmp_path / "final.yaml"
-    final_path.write_text(
-        yaml.safe_dump(_complete_payload("position-review").model_dump(mode="json")),
-        encoding="utf-8",
-    )
-    assert (
-        operation_main(
-            ["--db", str(db), "complete", operation_id, "--payload", str(final_path)],
-            now=NOW,
-        )
-        == 0
-    )
-    completed = yaml.safe_load(capsys.readouterr().out)
-    assert completed["status"] == "completed"
-
-    assert operation_session(db, operation_id) == completed
-    assert list_operation_sessions(db, status="active") == []
-    assert [row["operation_id"] for row in list_operation_sessions(db, status="completed")] == [
-        operation_id
-    ]
+    service = OperationService(db)
+    assert service.get("op-20260719-position-review-1").session_kind == "position-review"
+    assert operation_session(db, "op-20260719-position-review-1")["status"] == status
+    assert len(list_operation_sessions(db)) == 1
+    with pytest.raises(OperationConflictError, match=r"immutable|read-only history"):
+        service.checkpoint("op-20260719-position-review-1", _active_payload("changed"))
+    if status == "completed":
+        with connect_rw(db) as connection, pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            connection.execute(
+                "DELETE FROM operation_session WHERE operation_id='op-20260719-position-review-1'"
+            )

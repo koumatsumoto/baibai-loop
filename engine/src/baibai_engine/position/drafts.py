@@ -128,12 +128,12 @@ def build_sell_execution_draft(
 ) -> LedgerDraft:
     """Record a human-reported sell fill as a source-bound execution draft.
 
-    The sell consumes FIFO cost from current holdings; ``reconcile_portfolio``
+    The sell consumes FIFO cost from current holdings; event replay
     rejects a quantity above the reconciled holding, a non board-lot quantity,
     and any confirmed fee or tax that overdraws available cash. Broker fees and
     the confirmed capital-gain tax are recorded as their own cost / tax events so
     realized proceeds and cost stay separable in replay. ``decision_reference``
-    binds the sell to the Position Review that judged the reduce / exit.
+    binds the sell to the Position Review that judged the exit.
     """
 
     source, expected_head = service.load_with_head()
@@ -187,7 +187,7 @@ def build_sell_execution_draft(
     )
     raw["as_of"] = max(source.as_of, occurred_at).isoformat()
     replacement = PortfolioLedgerDocument.model_validate(raw)
-    reconcile_portfolio(replacement)
+    replay_events_through(replacement.events, replacement.as_of)
     return LedgerDraft(
         kind="sell-execution",
         expected_head=expected_head,
@@ -238,13 +238,14 @@ def apply_draft(
         raise ValueError("ledger draft apply requires explicit human confirmation")
     if not draft.confirmation_required:
         raise ValueError("ledger draft is not eligible for explicit apply")
-    if draft.kind == "broker-fact":
+    if draft.kind in {"broker-fact", "sell-execution"}:
         # A broker fact changes cash / reservations / lots, but does not assert a
         # fresh portfolio valuation. Recheck the complete event state and expiry
         # invariants without letting an unrelated stale holding quote block the
         # human-reported broker fact.
         state = replay_events_through(draft.replacement.events, draft.replacement.as_of)
-        require_resolved_expiries(state)
+        if draft.kind == "broker-fact":
+            require_resolved_expiries(state)
     else:
         reconcile_portfolio(draft.replacement)
     return service.apply_document(
