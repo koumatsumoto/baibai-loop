@@ -1,7 +1,7 @@
 """Provide raw/unadjusted closes for Research planning and holding valuation.
 
 The read-only market runtime copy supplies both the previous business-day close
-for a target session and same-date holding-basis closes.
+for a judgment instant and same-date holding-basis closes.
 
 Research authoring lives in ``thesis``, which the import DAG keeps off the
 ``baibai_engine.market`` package. This reader declares the expected market SQLite
@@ -10,7 +10,7 @@ SQL instead of importing the market package. Schema version mismatches and SQL
 errors degrade to ``None``; a coupling test detects version drift in CI.
 
 For target-session planning, the resolved price is the raw/unadjusted ``close`` on the full-universe
-daily bars' latest market-wide session strictly before the target session. A
+daily bars' latest complete market-wide session (today after 15:30 JST, otherwise prior). A
 missing ticker row or NULL ``close`` on that exact date returns no price; an older
 ticker row is never used as a substitute. An absent ``adjustment_factor`` or a
 value other than 1 marks an unresolved corporate action so the caller defers
@@ -21,9 +21,11 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, time, timedelta
 from math import isfinite
 from pathlib import Path
+
+from baibai_engine.foundation.time import JST
 
 # market SQLite の破壊的変更は version bump + rebuild で行われる。
 # この reader は列名を境界越しに複製するため、想定 version を宣言し、実 store の
@@ -42,18 +44,22 @@ class UnadjustedCloseObservation:
     corporate_action_unresolved: bool
 
 
-def read_prior_session_unadjusted_close(
+def read_unadjusted_close(
     *,
     sqlite_path: Path,
     ticker: str,
-    target_session: date,
+    at: datetime,
     connection: sqlite3.Connection | None = None,
 ) -> UnadjustedCloseObservation | None:
-    """Return the exact previous market-wide session's raw close before target.
+    """Return the latest complete market-wide session available at the given instant.
 
     ``None`` means no raw close is available (missing store, missing coverage, or an
     adjusted-only row); the caller must not substitute an adjusted series.
     """
+    if at.tzinfo is None or at.utcoffset() is None:
+        raise ValueError("quote instant requires a timezone")
+    local_at = at.astimezone(JST)
+    target_session = local_at.date() + timedelta(days=local_at.time() >= time(15, 30))
     conn = connection
     owns_connection = conn is None
     if conn is None:

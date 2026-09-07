@@ -8,16 +8,17 @@ own boundary — a market store, a session, and a close — so it is tested at i
 from __future__ import annotations
 
 import sqlite3
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
 from tests.helpers.screening_sqlite import seed_daily_bars
 
+from baibai_engine.foundation.time import JST
 from baibai_engine.research.market_close_source import (
     _EXPECTED_MARKET_SCHEMA_VERSION,
     read_holding_unadjusted_close_on_basis,
-    read_prior_session_unadjusted_close,
+    read_unadjusted_close,
 )
 
 
@@ -39,8 +40,8 @@ def test_market_close_source_degrades_on_schema_version_mismatch(tmp_path: Path)
         conn.commit()
     finally:
         conn.close()
-    resolved = read_prior_session_unadjusted_close(
-        sqlite_path=sqlite_path, ticker="2331", target_session=date(2026, 7, 13)
+    resolved = read_unadjusted_close(
+        sqlite_path=sqlite_path, ticker="2331", at=datetime(2026, 7, 13, 9, tzinfo=JST)
     )
     assert resolved is None
 
@@ -57,8 +58,8 @@ def test_market_close_source_never_uses_older_ticker_bar_when_market_wide_date_i
         ],
     )
 
-    resolved = read_prior_session_unadjusted_close(
-        sqlite_path=sqlite_path, ticker="2331", target_session=date(2026, 7, 13)
+    resolved = read_unadjusted_close(
+        sqlite_path=sqlite_path, ticker="2331", at=datetime(2026, 7, 13, 9, tzinfo=JST)
     )
 
     assert resolved is None
@@ -68,8 +69,8 @@ def test_market_close_source_treats_missing_adjustment_factor_as_unresolved(tmp_
     sqlite_path = tmp_path / "market.sqlite"
     seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, None)])
 
-    resolved = read_prior_session_unadjusted_close(
-        sqlite_path=sqlite_path, ticker="2331", target_session=date(2026, 7, 13)
+    resolved = read_unadjusted_close(
+        sqlite_path=sqlite_path, ticker="2331", at=datetime(2026, 7, 13, 9, tzinfo=JST)
     )
 
     assert resolved is not None
@@ -85,25 +86,25 @@ def test_market_close_source_reuses_one_stable_market_snapshot(tmp_path: Path) -
     reader = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
         reader.execute("BEGIN")
-        first = read_prior_session_unadjusted_close(
+        first = read_unadjusted_close(
             sqlite_path=sqlite_path,
             ticker="2331",
-            target_session=date(2026, 7, 13),
+            at=datetime(2026, 7, 13, 9, tzinfo=JST),
             connection=reader,
         )
         with sqlite3.connect(sqlite_path) as writer:
             writer.execute("UPDATE jquants_daily_bars SET close = 1200 WHERE ticker = '2331'")
-        second = read_prior_session_unadjusted_close(
+        second = read_unadjusted_close(
             sqlite_path=sqlite_path,
             ticker="2331",
-            target_session=date(2026, 7, 13),
+            at=datetime(2026, 7, 13, 9, tzinfo=JST),
             connection=reader,
         )
     finally:
         reader.close()
 
-    current = read_prior_session_unadjusted_close(
-        sqlite_path=sqlite_path, ticker="2331", target_session=date(2026, 7, 13)
+    current = read_unadjusted_close(
+        sqlite_path=sqlite_path, ticker="2331", at=datetime(2026, 7, 13, 9, tzinfo=JST)
     )
     assert first is not None
     assert second is not None

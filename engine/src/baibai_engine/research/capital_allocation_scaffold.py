@@ -13,7 +13,7 @@ from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.operation.research_binding import require_active_research_set
 
 from .capital_allocation import CapitalAllocationConflictError
-from .thesis import require_recorded_identity
+from .thesis_store import load_reviewed_thesis
 
 UNREVIEWED_DRAFT_SHA256 = "0" * 64
 _TODO = "TODO"
@@ -89,12 +89,8 @@ def _alternative(
     thesis_id: str,
     researchable: set[str],
 ) -> dict[str, object]:
-    row = connection.execute(
-        "SELECT ticker, core_sha256 FROM thesis WHERE thesis_id = ?", (thesis_id,)
-    ).fetchone()
-    if row is None:
-        raise CapitalAllocationConflictError(f"thesis is unavailable: {thesis_id}")
-    ticker = str(row[0])
+    pair = load_reviewed_thesis(connection, thesis_id)
+    ticker = pair.document.input_snapshot.ticker
     if ticker not in researchable:
         raise CapitalAllocationConflictError(
             f"thesis ticker is not researchable in the ResearchTriage: {ticker}"
@@ -102,8 +98,8 @@ def _alternative(
     return {
         "ticker": ticker,
         "thesis_id": thesis_id,
-        "thesis_core_sha256": require_recorded_identity(row[1], thesis_id),
-        "thesis_review_id": None,
+        "thesis_core_sha256": pair.core_sha256,
+        "thesis_review_id": pair.review.review_id,
         "disposition": "decline",
         "rationale": _TODO,
     }
