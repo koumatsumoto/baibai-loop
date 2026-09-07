@@ -512,3 +512,14 @@ def test_intraday_fill_must_bridge_quote_and_quantity_dates(tmp_path, factor):
     assert snapshot.holdings[0].quantity == 100
     assert snapshot.holdings[0].deployed_cost_yen == 50000
     assert snapshot.total_capital_yen == (1050000 if factor == 1.0 else None)
+
+
+def test_current_portfolio_leaves_stale_market_quotes_unvalued(holding_case):
+    from baibai_engine.position.valuation import current_portfolio
+
+    _, market, ledger = holding_case
+    snapshot = current_portfolio(ledger, sqlite_path=market, now=NOW + timedelta(days=30))
+    assert snapshot.available_cash_yen == 10080500
+    assert snapshot.holdings[0].quantity == 200
+    assert snapshot.holdings[0].market_value_yen is None
+    assert snapshot.total_capital_yen is None

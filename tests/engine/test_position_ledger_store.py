@@ -194,3 +194,31 @@ def _store_fixture() -> PortfolioLedgerDocument:
             )
         }
     )
+
+
+def test_ledger_queries_open_only_read_connections(tmp_path, monkeypatch):
+    from baibai_engine.position import store
+
+    path = tmp_path / "app.sqlite"
+    source = _store_fixture()
+    seed_ledger(path, source)
+    before = path.read_bytes()
+    connect = store.connect_read_only
+    observed = []
+
+    def query_only(db_path):
+        connection = connect(db_path)
+        observed.append(connection.execute("PRAGMA query_only").fetchone()[0])
+        return connection
+
+    def no_writer(*args, **kwargs):
+        pytest.fail("ledger query opened a writer or initialized the store")
+
+    monkeypatch.setattr(store, "connect_read_only", query_only)
+    monkeypatch.setattr(store, "connect_rw", no_writer)
+    monkeypatch.setattr(store, "initialize_database", no_writer)
+    service = LedgerStoreService(path)
+    assert service.load() == source
+    assert service.append_head() == len(source.events)
+    assert observed == [1, 1]
+    assert path.read_bytes() == before

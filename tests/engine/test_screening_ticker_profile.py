@@ -4,9 +4,10 @@ import argparse
 import io
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
+import pytest
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.screening_run import screening_run_payload, security_analysis
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
@@ -476,3 +477,32 @@ def _write_portfolio_ledger(root: Path, *, ticker: str, sector: str, price_yen: 
             }
         ),
     )
+
+
+@pytest.mark.parametrize("price_state", ["missing", "stale"])
+def test_portfolio_facts_survive_unavailable_ledger_valuation(tmp_path, price_state):
+    """Cost concentration uses confirmed trades, including after price transcription stops."""
+    from baibai_engine.position.store import LedgerStoreService
+    from baibai_engine.screening.ticker_profile import _portfolio_block
+
+    _write_portfolio_ledger(tmp_path, ticker="BBBB", sector="機械", price_yen=500)
+    service = LedgerStoreService(tmp_path / "app.sqlite")
+    source, head = service.load_with_head()
+    prices = (
+        ()
+        if price_state == "missing"
+        else tuple(
+            price.model_copy(update={"observed_at": source.as_of - timedelta(days=30)})
+            for price in source.market_prices
+        )
+    )
+    service.apply_document(
+        expected_head=head,
+        expected_document=source,
+        replacement=source.model_copy(update={"market_prices": prices}),
+    )
+    portfolio = _portfolio_block(app_db_path=tmp_path / "app.sqlite", ticker="BBBB", sector="機械")
+    assert portfolio["holds_this_ticker"] is True
+    assert portfolio["open_position_count"] == 1
+    assert portfolio["same_sector_entry_notional_share"] == 1.0
+    assert portfolio["open_positions"][0]["entry_notional_yen"] == 50000

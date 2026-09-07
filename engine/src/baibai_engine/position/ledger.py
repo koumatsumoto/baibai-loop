@@ -617,9 +617,8 @@ def require_resolved_expiries(state: ReplayedPortfolioState) -> None:
     This is a claim about the ledger being current, not about the events being
     well-formed: a reservation whose ``expires_at`` has passed with no release is
     exactly what the ledger looks like between the lapse and the evening the human
-    reports it. A snapshot that says "this is the capital right now" must not be
-    built from that gap, so ``reconcile_portfolio`` calls this. A historical
-    valuation replaying a prefix legitimately passes through the gap and does not.
+    reports it. Broker-fact completion and outcome publication require that report.
+    Readers retain the confirmed reservation; historical replay also preserves it.
     """
 
     expired = sorted(
@@ -684,44 +683,6 @@ def _reservation_snapshots(
         )
         for item in sorted(active.values(), key=lambda item: item.reservation_id)
     )
-
-
-def reconcile_portfolio(
-    document: PortfolioLedgerDocument,
-    *,
-    policy: PolicyConfig = PORTFOLIO_POLICY,
-) -> PortfolioSnapshot:
-    """Replay the ledger once and derive cash, holdings, valuation, and warnings.
-
-    The event state machine and its invariants live in ``replay_events_through``.
-    The document validator already rejects events after ``as_of``, so replaying
-    the whole event tuple through ``as_of`` reaches the same terminal state.
-    """
-
-    # The replay skips anything after as_of, so a document carrying such an event would
-    # be reconciled from a silently truncated history. The document validator rejects
-    # that shape, and stating it here keeps the delegation from depending on a guarantee
-    # made somewhere else.
-    if document.events and document.events[-1].occurred_at > document.as_of:
-        raise PortfolioLedgerError("events cannot occur after as_of")
-    state = replay_events_through(document.events, document.as_of, policy=policy)
-    require_resolved_expiries(state)
-    valuation_policy = _policy_mapping(policy, "valuation")
-    max_price_age_days = _policy_positive_int(valuation_policy, "market_price_max_age_days")
-    for price in document.market_prices:
-        age_days = (document.as_of - price.observed_at).total_seconds() / 86_400
-        if age_days > max_price_age_days:
-            raise PortfolioLedgerError(
-                f"market price for {price.ticker} is stale: {age_days:.2f} days old"
-            )
-    prices = {price.ticker: price for price in document.market_prices}
-    snapshot = summarize_portfolio(document, state, prices, policy=policy)
-    for holding in snapshot.holdings:
-        if holding.market_value_yen is None:
-            raise PortfolioLedgerError(f"market price is required for holding {holding.ticker}")
-    if snapshot.total_capital_yen is None or snapshot.total_capital_yen <= 0:
-        raise PortfolioLedgerError("total capital must remain positive")
-    return snapshot
 
 
 def summarize_portfolio(

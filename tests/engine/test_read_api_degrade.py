@@ -47,7 +47,8 @@ _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
         "macro_registered_series",  # reads the bundled definitions, not a store
         "macro_series_names",  # reads the bundled definitions, not a store
         "read_rows",  # takes the SQL to run, which this file would have to invent
-        "reconcile_portfolio",  # takes a document, not a path
+        "replay_events_through",  # pure event replay; owned by ledger tests
+        "summarize_portfolio",  # pure capital projection; owned by ledger tests
         "current_portfolio",  # composes an explicit ledger with market input; covered by current-capital tests
         "reject_noncanonical_store_paths",  # startup layout guard, not a query
         "repository_root_error",  # inspects a directory layout, not a store

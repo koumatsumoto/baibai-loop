@@ -12,8 +12,12 @@ from pathlib import Path
 
 from baibai_engine.position.ledger import (
     PortfolioLedgerDocument,
+    PortfolioSnapshot,
     load_portfolio_ledger_with_sha256,
+    replay_events_through,
+    summarize_portfolio,
 )
+from baibai_engine.position.policy import PORTFOLIO_POLICY, PolicyConfig
 
 
 def load_portfolio_ledger(path: Path) -> PortfolioLedgerDocument:
@@ -21,3 +25,15 @@ def load_portfolio_ledger(path: Path) -> PortfolioLedgerDocument:
 
     document, _source_sha256 = load_portfolio_ledger_with_sha256(path)
     return document
+
+
+def portfolio_snapshot(
+    document: PortfolioLedgerDocument, *, policy: PolicyConfig = PORTFOLIO_POLICY
+) -> PortfolioSnapshot:
+    """Compose the replay/summary owners with the fixture's explicit quote input."""
+    return summarize_portfolio(
+        document,
+        replay_events_through(document.events, document.as_of, policy=policy),
+        {price.ticker: price for price in document.market_prices},
+        policy=policy,
+    )

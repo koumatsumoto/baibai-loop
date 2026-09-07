@@ -6,14 +6,13 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
-from tests.helpers.ledger import load_portfolio_ledger
+from tests.helpers.ledger import load_portfolio_ledger, portfolio_snapshot
 
 from baibai_engine.position.broker_fact_recording import (
     BrokerFactRecordingError,
     record_broker_fact,
 )
 from baibai_engine.position.ledger import (
-    reconcile_portfolio,
     replay_events_through,
     reservation_snapshots,
 )
@@ -41,7 +40,7 @@ def test_open_report_creates_a_source_bound_reservation() -> None:
         now=_at(12),
     )
     assert result.changed is True
-    reservation = reconcile_portfolio(result.document).active_reservations[-1]
+    reservation = portfolio_snapshot(result.document).active_reservations[-1]
     assert reservation.ticker == "1234"
     assert result.document.events[-1].decision_reference == PROPOSAL
 
@@ -61,7 +60,7 @@ def test_filled_report_consumes_the_matching_active_reservation() -> None:
     )
     reservation_id = next(
         item.reservation_id
-        for item in reconcile_portfolio(opened.document).active_reservations
+        for item in portfolio_snapshot(opened.document).active_reservations
         if item.ticker == "2331"
     )
     result = record_broker_fact(
@@ -75,7 +74,7 @@ def test_filled_report_consumes_the_matching_active_reservation() -> None:
         reservation_id=reservation_id,
         now=_at(12),
     )
-    snapshot = reconcile_portfolio(result.document)
+    snapshot = portfolio_snapshot(result.document)
     assert all(item.reservation_id != reservation_id for item in snapshot.active_reservations)
     assert any(item.ticker == "2331" and item.quantity == 300 for item in snapshot.holdings)
 
@@ -172,7 +171,7 @@ def test_expired_report_releases_only_remaining_partial_fill_quantity() -> None:
     )
     reservation = next(
         item
-        for item in reconcile_portfolio(opened.document).active_reservations
+        for item in portfolio_snapshot(opened.document).active_reservations
         if item.ticker == "1234"
     )
     partial = record_broker_fact(
@@ -291,7 +290,7 @@ def test_corrected_fill_is_a_conflict_not_a_silent_noop() -> None:
     )
     reservation_id = next(
         item.reservation_id
-        for item in reconcile_portfolio(opened.document).active_reservations
+        for item in portfolio_snapshot(opened.document).active_reservations
         if item.ticker == "2331"
     )
     filled = record_broker_fact(
@@ -334,7 +333,7 @@ def test_fill_cannot_replace_the_reservation_decision_referenceerence() -> None:
     )
     reservation_id = next(
         item.reservation_id
-        for item in reconcile_portfolio(opened.document).active_reservations
+        for item in portfolio_snapshot(opened.document).active_reservations
         if item.ticker == "2331"
     )
     with pytest.raises(BrokerFactRecordingError, match="does not match the active reservation"):
@@ -368,6 +367,6 @@ def test_direct_fill_inserts_approval_before_newer_existing_events() -> None:
     times = [event.occurred_at for event in result.document.events]
     assert times == sorted(times)
     holding = next(
-        item for item in reconcile_portfolio(result.document).holdings if item.ticker == "2331"
+        item for item in portfolio_snapshot(result.document).holdings if item.ticker == "2331"
     )
     assert holding.quantity == 300

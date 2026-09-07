@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 import yaml
 from tests.helpers.db_seed import seed_ledger
-from tests.helpers.ledger import load_portfolio_ledger
+from tests.helpers.ledger import load_portfolio_ledger, portfolio_snapshot
 
 from baibai_engine.position.cli import main
 from baibai_engine.position.drafts import (
@@ -18,7 +18,6 @@ from baibai_engine.position.drafts import (
 )
 from baibai_engine.position.ledger import (
     PortfolioLedgerError,
-    reconcile_portfolio,
 )
 from baibai_engine.position.store import LedgerStoreService
 
@@ -47,7 +46,7 @@ def _seed(db: Path) -> LedgerStoreService:
 
 def _holding(service: LedgerStoreService, ticker: str) -> object:
     return next(
-        item for item in reconcile_portfolio(service.load()).holdings if item.ticker == ticker
+        item for item in portfolio_snapshot(service.load()).holdings if item.ticker == ticker
     )
 
 
@@ -68,7 +67,7 @@ def test_sell_draft_apply_reduces_holding_and_realizes_fifo_pnl(
 ) -> None:
     db = tmp_path / "app.sqlite"
     service = _seed(db)
-    before = reconcile_portfolio(service.load())
+    before = portfolio_snapshot(service.load())
     before_cash = before.available_cash_yen
     before_holding = _holding(service, "2331")
     assert before_holding.quantity == 200
@@ -112,7 +111,7 @@ def test_sell_draft_apply_reduces_holding_and_realizes_fifo_pnl(
     assert main(["apply-draft", str(draft_path), "--db", str(db), "--confirmed"]) == 0
 
     after_document = service.load()
-    after = reconcile_portfolio(after_document)
+    after = portfolio_snapshot(after_document)
     after_holding = _holding(service, "2331")
 
     proceeds = 100 * 1100
@@ -220,7 +219,7 @@ def test_cli_rejects_zero_quantity_zero_price_and_negative_fees(tmp_path: Path) 
 def test_sell_draft_records_fees_and_tax_as_cost_and_tax_events(tmp_path: Path) -> None:
     db = tmp_path / "app.sqlite"
     service = _seed(db)
-    before = reconcile_portfolio(service.load())
+    before = portfolio_snapshot(service.load())
 
     draft = build_sell_execution_draft(
         service,
@@ -235,7 +234,7 @@ def test_sell_draft_records_fees_and_tax_as_cost_and_tax_events(tmp_path: Path) 
     apply_draft(service, draft, human_confirmed=True)
 
     after_document = service.load()
-    after = reconcile_portfolio(after_document)
+    after = portfolio_snapshot(after_document)
 
     assert after.confirmed_cost_yen == before.confirmed_cost_yen + 500
     assert after.confirmed_tax_yen == before.confirmed_tax_yen + 900

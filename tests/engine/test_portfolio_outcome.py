@@ -240,13 +240,6 @@ def _unreleased_ledger() -> PortfolioLedgerDocument:
     return PortfolioLedgerDocument.model_validate(raw)
 
 
-def test_ledger_snapshot_still_requires_the_release_of_a_lapsed_reservation() -> None:
-    from baibai_engine.position.ledger import reconcile_portfolio
-
-    with pytest.raises(PortfolioLedgerError, match="expired reservations require"):
-        reconcile_portfolio(_unreleased_ledger())
-
-
 def test_an_outcome_is_not_published_from_a_ledger_awaiting_a_human_report() -> None:
     """The tolerance that lets a prefix replay through a lapse must not reach publish:
     an outcome row cannot be corrected once written."""

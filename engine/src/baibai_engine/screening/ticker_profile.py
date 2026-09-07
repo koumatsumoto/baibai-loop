@@ -3,7 +3,7 @@
 The profile is the entry point for AI research on one security: price and
 liquidity facts for any listed ticker (inside or outside the screening
 universe), benchmark- and sector-relative momentum, the market benchmark_trend at the
-evaluation date, event flags relevant to the kill switch (next earnings, JPX
+evaluation date, event facts (next earnings, JPX
 regulation), the ticker's latest recorded Security Analysis, and prior research
 decisions. Every field is a deterministic transform of stored data; the profile
 contains no interpretation and no composite score.
@@ -23,9 +23,9 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from baibai_engine.read_api.position import (
-    PortfolioLedgerError,
     portfolio_ledger_document,
-    reconcile_portfolio,
+    replay_events_through,
+    summarize_portfolio,
 )
 from baibai_engine.screening.run_store import ScreeningRunReader
 
@@ -220,14 +220,12 @@ def _portfolio_block(
     ticker: str,
     sector: str | None,
 ) -> dict[str, object]:
-    """Concentration facts from the reconciled canonical portfolio ledger."""
+    """Show confirmed holdings and cost concentration without requiring valuation."""
     document = portfolio_ledger_document(app_db_path)
     if document is None:
         return _empty_portfolio_block()
-    try:
-        snapshot = reconcile_portfolio(document)
-    except PortfolioLedgerError:
-        return _empty_portfolio_block()
+    state = replay_events_through(document.events, document.as_of)
+    snapshot = summarize_portfolio(document, state, {})
     positions = []
     total_notional = 0
     same_sector_notional = 0
