@@ -4,7 +4,7 @@ Valuation ApproachからFundamental Researchへ渡す、人間向けresearch che
 
 | 項目 | 内容 |
 | --- | --- |
-| 所有 | 問うべきclaim、確認するsource、調査進捗 |
+| 所有 | 問うべきclaim、確認するsource |
 | 所有しない | screening閾値、候補選定順、runtime loader、Thesisの最終判断 |
 | 入口 | `method/research/playbooks/<directory-slug>/YYYY-MM-DDTHHMMSS+0900.md` |
 | 依存境界 | 各revisionは`research_playbook_id`とnon-emptyな`applies_to_valuation_approach_ids`を持つ。slugによるimplicit mappingは禁止 |
@@ -19,7 +19,7 @@ Valuation ApproachからFundamental Researchへ渡す、人間向けresearch che
 - `blocked`: 判断に必要な調査が未完了
 - `complete`: 調査が完了
 
-期待した証拠が得られなくても、未確認であることとdispositionへの影響を`note`またはThesisへ残せば`complete`です。未確認情報をverifiedとして扱ってはいけません。`promote`は全項目が`complete`の場合だけ許可します。
+期待した証拠が得られなくても、未確認であることとdispositionへの影響を`note`またはThesisへ残せば`complete`です。未確認情報をverifiedとして扱ってはいけません。公開はThesisと独立Reviewの内容で検証します。別checklistの全行completeを公開条件にしません。
 
 ## Active revisions
 

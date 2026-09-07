@@ -139,6 +139,7 @@ __all__ = [
     "research_triage_payload",
     "research_triage_payload_hash",
     "research_triage_payloads_for_review_set",
+    "reviewed_thesis_projection",
     "safe_load",
     "screening_calibration_method_identity",
     "screening_latest_asof",
@@ -153,3 +154,5 @@ __all__ = [
     "validate_market_store_schema",
     "worst_close_drawdown",
 ]
+
+from .research import reviewed_thesis_projection

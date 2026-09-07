@@ -1,53 +1,26 @@
 ---
 name: position-review
-description: 決算、material event、FV 到達、永久損失兆候、優れた代替を trigger として保有銘柄を再評価し、hold / add / reduce / exit を発行する。約定の記録は ledger-record skill。
+description: 決算、material event、経済的投資理由の不成立、残存見返りの変化を受けて保有を再評価し、hold / exit / nullを発行する。実約定の記録はledger-record skill。
 ---
 
 # Position Review
 
-対象 ticker だけを再評価する。含み損だけでは売らず、FV 到達を自動 exit にしない。action と税引後代替の算術は [`position-review.md`](../../../docs/reference/position-review.md) を正本とする。
+対象tickerの企業評価と現在からの残存見返りを確認する。型・actionの正本は[Position Review reference](../../../docs/reference/position-review.md)。価格下落、経過期間、新規買いfloor未達、Target到達、集中warningや他候補単独で売らない。
 
 ## 手順
 
-1. AGENTS.md に従い、対象tickerと判断基準日を指定して`position-review` sessionを開始する。active sessionがある場合はkind・ticker・as_ofが一致する同じrowだけを再開し、別対象なら停止する。`as_of`は以下の価格draftで使う最新完全営業日と揃える。
+1. `git status --short --branch`と`position ledger`を確認し、対象holdingと人間の依頼範囲を確定する。新しいOperationを開始せず、activeな資本調査があっても対象保有を扱う。全holding価格の事前applyは不要。
+2. `research position-prepare`で対象holdingのworkspaceを作る。既存Thesisがある場合は`thesis-scaffold --from-thesis-id`を使い、元資料の日付・予測を保持した差分を作る。正式評価日は当日、quoteは前営業日でよい。
+3. 直近Thesisから変わった決算・guidance・資本政策と重大な不成立条件を一次資料で確認する。据置guidanceを十分な進捗と決めつけず、当該四半期と過去同四半期の通期進捗を比較する。source・権利単位・Base/Downsideと独立Reviewは[research skill](../research/SKILL.md)に従い、一組でpromoteする。旧Thesisを現行modelへ変換して実行しない。
+4. `position position-review-build`で対象holdingと最新Reviewed Thesisを組み立てる。作者が`remaining_reward`のsufficient/insufficient/uncertainと経済的理由を記入する。受取済み・権利確定済み未入金の分配を将来増分へ二重計上せず、旧horizon短縮で年率を水増ししない。
+5. `position position-review --input <draft>`でcheckする。提出したremainingを機械値で上書きしない。対象数量・cost・重要なbasis・quote・最新Thesisの変更は再確認する。無関係なledger更新だけで企業調査をやり直さない。
+6. 人間の確認後だけ`position position-review publish <draft> --thesis-id <THESIS_ID> --confirmed`で公開する。理由付きnullも保存できる。重要なbreakを確認した場合はquote/remaining不明でもexit候補とし、数量basis不明なら数量付き売却案は示さない。
+7. 必要な監視だけをdated taskにし、実売却・部分売却・追加購入の報告後はledger-recordで事実を記録する。公開actionを約定とみなさない。cloud反映はops-maintenanceに従う。
 
-   ```bash
-   uv run baibai-engine operation --db stores/application/baibai.sqlite \
-     start --kind position-review --ticker <TICKER> --as-of <ASOF>
-   ```
-2. 最新完全営業日の market price draft を作り、人間確認後に apply する。
+引数は各public `--help`で確認する。source不整合・人間未確認ではpublishしない。企業価値や価格を評価できないことは理由付きnullの正常な結論であり、暗黙のholdに変換しない。
 
-   ```bash
-   uv run baibai-engine position market-price-draft --db stores/application/baibai.sqlite \
-     --sqlite stores/market/market.sqlite --asof <ASOF> --out .cache/ledger/market-price-draft-<ASOF>.yaml
-   uv run baibai-engine position apply-draft .cache/ledger/market-price-draft-<ASOF>.yaml \
-     --db stores/application/baibai.sqlite --confirmed
-   ```
+## 参照
 
-3. `research position-prepare` で対象 ticker の workspace を作る。`thesis-scaffold` を作り、`research evaluate` で Thesis Review 要求以外の error を解消してから `review-scaffold` を実行する。
-4. 直近 Thesis から変わった決算実数、guidance、資本政策だけを一次情報で更新する。Thesis の算術、source、Thesis Review、promote は `research` skill と [`thesis.md`](../../../docs/reference/thesis.md) に従う。guidance の据え置きは観測事実としない。当該四半期の経常利益 ÷ 通期 guidance を、過去3期の同四半期経常利益 ÷ 各期通期実績と比較して検証する。
-5. Position Review draft を build し、load-bearing scalar、Thesis revision、ledger state、税引後代替価値を確認する。replacement Thesisと比較する場合は`--replacement-thesis-id`を指定する。人間が確認した後だけ publish する。
-
-   ```bash
-   uv run baibai-engine position position-review-build --db stores/application/baibai.sqlite \
-     --thesis-id <THESIS_ID> --position-id <POSITION_ID> --out <draft>
-   uv run baibai-engine position position-review --db stores/application/baibai.sqlite --input <draft>
-   uv run baibai-engine position position-review publish <draft> \
-     --db stores/application/baibai.sqlite --thesis-id <THESIS_ID>
-   ```
-
-6. 公開済みPosition Review IDを`canonical_refs`へ1件だけ入れ、reviewのartifact、actionを説明する`result`、次のtriggerの`next`、`human_confirmation.request/result`をOperationPayload fileへ記録して同じsessionをcompleteする。serviceはcanonical Position Reviewのticker・as_ofとsessionの一致を同じtransactionで検証する。未公開、別対象、別日付では完了しない。必要な監視はtaskへ記録する。`reduce / exit` は、人間から約定報告を受けた後に `ledger-record` skill へ進む。cloud反映は`ops-maintenance` skillに従う。
-
-## 停止条件
-
-次の場合は停止する。
-
-- raw close、calendar coverage、corporate-action basis が unresolved である
-- thesis revision と holding scalar が一致しない
-- 人間が確認していない publish または売却記録を行おうとしている
-
-## 正本
-
-- action と算術: [`position-review.md`](../../../docs/reference/position-review.md)
-- thesis: [`thesis.md`](../../../docs/reference/thesis.md)
-- 資本規律: [`portfolio-management.md`](../../../docs/portfolio-management.md)
+- [Thesis](../../../docs/reference/thesis.md)
+- [資本規律](../../../docs/portfolio-management.md)
+- [Position Review](../../../docs/reference/position-review.md)

@@ -12,96 +12,39 @@ related_docs:
 
 # Portfolio management
 
-この文書は、資本とpositionの運用方針を定める。個別銘柄のFV、entry、limit、exitは、thesis、assessment、Position Reviewが所有する。versioned config、engine model、DB constraintが機械契約を所有するため、数値fieldはここへ網羅転記しない。
-
-## 目的と人間境界
-
-最優先は予算消化ではなく、永久的資本毀損を抑え、一時的にFVとの乖離が大きい候補を拾うこと。候補比較は永久損失、5年期待総合return/FV乖離、portfolioへの追加価値、購入可能性の順。
-
-AIは候補、risk、price、quantity、warningを提示する。人間はbuy / defer / rejectとbroker操作を決める。AIは、人間から報告されていない注文状態を推定しない。
+資本判断はresearch、確認済みcash・数量・注文・約定はpositionが所有する。企業評価は[Reviewed Thesis](./reference/thesis.md)、候補比較は[CAA](./reference/capital-allocation-assessment.md)、保有継続・回収は[Position Review](./reference/position-review.md)を参照する。
 
 <a id="capital-guidance"></a>
-
 ## 資金目安
 
-月40万円は通常の追加資金、1回20〜30万円は指値数量を考えるplanning baselineである。hard capではない。
+約500万円は運用イメージであり、予定の月40万円をcashへ加えない。人間が確認した入金だけをledgerへ反映する。銘柄数10〜20、投資率、予算消化はノルマではない。
 
-- 最良候補の1単元が30万円を超えても次点へ自動降格しない。
-- quantity、notional、目安超過額、available cash、concentration warningを人間へ示す。
-- 目安未満でも数量を無理に増やさない。
-- 買う価値がない場合はcashに残す。
-- 月次入金triggerだけでscreeningや購入を強制しない。
+通常5〜8%程度は目安で、NAVによる自動sizingはしない。現在の1回20〜30万円guideは500万円の4〜6%に相当する。数量はguide上限と確認済みavailable cashの両方から100株単位で算出する。1単元がguideを超えてもcash内ならwarning付き候補となる。cashで1単元を買えなければ0/defer。下限を満たすためだけに増やさない。
 
-機械は1回あたりの上限を数量計算の充填目標として使う。通常数量は`floor(1回あたり上限 / 1単元notional)`単元である。1単元が上限を超える場合は`budget_guide_exceeded`、notionalが下限を割る場合は`budget_guide_under`を出すが、どちらも発注を止めない。この上限を増やしても候補数は増えず、1銘柄あたりの金額が増えるため、[予約とwarning](#reservation-and-warnings)のticker集中線へ先に達する。
-
-要求利回りはサイズを縮めても緩めない。full floorを満たし、永久損失がelevatedでなく、人間がevidence gapを明示受容したcaseだけ`reduced`を使える。`reduced`は1 board lotであり、1 board lotでも大きすぎる場合はdeferする。
-
-## 投資価値と購入可能性
-
-投資価値rankを決めてから購入可能性を確認する。holdingsとactive reservationsは`held / reserved / held_and_reserved / unheld`としてannotationする。
-
-| input | role |
-| --- | --- |
-| 永久損失、5年CAGR、FV | rankingの主要判断 |
-| portfolio marginal value | 同等候補の追加価値 |
-| held/reserved | 買増しとactive reservationのrelation |
-| cash/dry powder/concentration | 人間へ示すwarning |
-| 20〜30万円 | board lot quantityの目安 |
-
-保有済み、予約中、予算外だけでscreening/research前に候補をhard除外しない。
-
-## 人間が確認したportfolio state
-
-application DBのcanonical ledgerはrepository運用で確認済みのcash、holding、reservation、execution、releaseを表す。broker残高を自動取得・推定・完全照合するものではない。
-
-| broker fact | ledger action |
-| --- | --- |
-| `open` | reservation draft。既存同一ならno-op |
-| `filled` | execution draft。reservationなしはapproval/guard/expiryを追加確認 |
-| `cancelled` | remaining reservation release draft |
-| no report | no change |
-
-`broker-fact-draft`はcanonicalを直接書き換えず、current append headに束縛したlocal draftを作る。差分を確認し、人間確認後の`apply-draft --confirmed`でtransaction内再検証して反映する。精密なbroker会計、二重注文検出、注文監視を投資判断より優先しない。
+通常経路で既保有tickerやactive買い予約のあるtickerへの追加購入を提案しない。同CAAの約定後は全売却済みでも再利用せず、新しいResearch/CAAで判断する。企業評価を別IDにすることでこの条件を迂回しない。
 
 <a id="reservation-and-warnings"></a>
-
 ## 予約とwarning
 
-reservationは`quantity * price_guard`をcashから引き当て、partial fill後はremaining quantityだけを残す。cancel/expireはrelease eventで明示する。これはrepository snapshotを再計算するための最小状態で、自動broker lifecycleではない。
+reservationは数量×price guardをcashから拘束し、partial fill後は残数量だけを残す。cancel/expireは人間の報告によるreleaseで示す。未報告の注文状態は推定しない。
 
-cash、ticker/sector/common-factor concentration、dry powderはwarning。warningは人間判断を禁止せず、投資価値rankを変更しない。受け入れる場合のoverride contractはledger model/referenceを正本とする。
+ticker10%、sector40%、common-factor35%、ADV5%などの集中・執行warningは人間へ示す。全保有のquoteを確認できなければNAVと比率は未評価とし、架空の分母を作らない。cash20%はwarningであり投資率ノルマや自動数量縮小の理由ではない。warning受容にはledgerの既存人間overrideを使い、企業根拠の不足を小口購入のoverrideで通さない。
 
-## 並行researchと直列の資本予約
-
-人間がResearch Setへ複数銘柄を選んだ場合、企業別researchとThesis Reviewはticker別に並行できる。並行調査は候補比較の時間を短縮するためのもので、資本を先回りして複数銘柄へ予約する許可ではない。
-
-注文とreservationは投資価値rank順に1件ずつ進める。各`plan-limit`はcurrent DB snapshotから都度計算し、人間からのbroker fact報告と必要なledger更新を完了してから次の候補を最新ledgerで再計算する。先行注文のreserved cashとconcentrationを後続のwarningへ反映する。
+同じResearch SetからCAAを一件ずつ公開できる。先行注文の人間報告をledgerへ反映してから、後続候補を最新cash・予約で再計算する。一括予約や予定入金を仮定しない。
 
 <a id="holding-discipline"></a>
-
 ## 保有規律
 
-株価下落だけでは売らない。購入前に資金繰り、負債返済、cash flow、希薄化、顧客集中、構造衰退、governance/accountingを確認し、長期保有に耐える候補だけを選ぶ。
+保有提案は`hold / exit`。重大な経済的投資理由の不成立なら価格やvaluationが不明でもexit候補となる。成立していて残存見返りが十分ならhold、不十分ならexit、不確実ならnullで必要な確認を示す。
 
-保有後は決算・material eventで対象tickerだけをreviewする。
+残存見返りにはこれから持ち続けることで得る分配だけを含める。受取済み配当と、権利確定済みで今売っても受け取れる未入金配当を再算入しない。旧horizonを残日数で割り直して年率を水増ししない。売却税・費用・遅延・下振れで結論が変わり得るならuncertainとする。
 
-- `exit`: thesis brokenまたはverifiedな永久損失が優先。
-- `reduce`: thesis at risk、集中超過、税引後で明確に優れる代替。
-- `add`: thesis intact、永久損失acceptable、現値が上限内、追加価値あり。
-- `hold`: 税引後で勝る代替がなく、thesisが維持される。
+Target到達・価格下落・経過期間・新規買いfloor未達・集中warningだけでは売らない。現金回収に次の候補は不要。数量basis不明なら数量付き売却案は作らず、人間にbroker実状態の確認を求める。
 
-FV到達はreview triggerで、自動売却ではない。含み損は単独のexit理由ではない。
+## 人間が確認した取引事実
 
-## 年次評価
+brokerの事実を現在の投資条件で再審査しない。旧注文のpartial/late/release、未記録予約の遅延報告、部分売却・方針外追加購入も、既存identity、人間確認、cash/数量の整合確認により記録する。他tickerのquote欠損を事実記録の停止理由にしない。proposalのexitを実際の全売却と推定しない。
 
-年次にcanonical ledgerの確認済みcash flowと同期間の配当込みTOPIXを同じbasisで比較する。税・費用込みportfolio総合returnを使い、source/期間/corporate action不足は`unresolved`とする。
+## 成果と学習
 
-短期成績、単一銘柄、少数回の注文結果だけでpolicyを変えない。entry estimate、holding/outcome、long-horizon calibrationを突き合わせ、方法変更は[較正の運用契約](./reference/estimate-calibration.md)で事前登録して評価する。
-
-## 正本
-
-- 思想と優先順位: [`doctrine.md`](./doctrine.md)
-- e2e運用: [`AGENTS.md`](../AGENTS.md) の trigger → skill 表
-- ledger式とerror/warning: [`reference/portfolio-ledger.md`](./reference/portfolio-ledger.md)
-- holding action: [`reference/position-review.md`](./reference/position-review.md)
-- 機械的なcap/lot/warning値: `engine/src/baibai_engine/position/policy.py`とwrite-time validation
+既存Portfolio Outcome/TWR/TOPIX比較を使い、cash、未売却損益、配当、実費、確認税を含むportfolio全体で測る。売却済み銘柄や勝率だけで評価せず、未解決データを母数から消さない。指数とportfolioの税・費用basis差を示す。entry予測と後続評価は既存reports/studiesで照合し、新戦略の収益優位は別に検証する。

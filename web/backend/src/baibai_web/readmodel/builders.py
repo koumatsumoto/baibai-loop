@@ -347,7 +347,7 @@ def _holding_view(
             market_value = round(close_price * holding.quantity)
             price_as_of = datetime.combine(close_date, _MARKET_CLOSE_TIME, tzinfo=_JST)
     pnl = market_value - holding.deployed_cost_yen
-    fair_value = revision.current_fair_value_yen if revision is not None else None
+    fair_value = revision.pmax_raw_yen if revision is not None else None
     fv_gap = (
         round((fair_value - price_value) / price_value * 100, 1)
         if fair_value is not None and price_value != 0
@@ -364,10 +364,10 @@ def _holding_view(
         market_value_yen=market_value,
         unrealized_pnl_yen=pnl,
         unrealized_pnl_pct=_percentage(pnl, holding.deployed_cost_yen, digits=2),
-        fair_value_yen=fair_value,
-        fv_gap_pct=fv_gap,
+        pmax_raw_yen=fair_value,
+        pmax_gap_pct=fv_gap,
         latest_thesis_id=revision.thesis_id if revision is not None else None,
-        recommendation=revision.recommendation if revision is not None else None,
+        disposition=revision.disposition if revision is not None else None,
         next_earnings_date=(
             next_earnings_date.isoformat() if next_earnings_date is not None else None
         ),
@@ -557,15 +557,11 @@ def build_daily_delta(
                 er_moves, er_moves_total = [], 0
 
     holdings: list[HoldingDeltaView] = []
-    holdings_without_fair_value = 0
     holdings_without_price = 0
     if not ledger.exists():
         unavailable.append("holdings")
     elif market_ready:
-        if research.load_errors():
-            # A thesis the store cannot read is not a holding without a fair value.
-            unavailable.append("holdings_fair_value")
-        holdings, holdings_without_fair_value, holdings_without_price = _holding_deltas(
+        holdings, holdings_without_price = _holding_deltas(
             ledger.snapshot(),
             research=research,
             market=market,
@@ -583,7 +579,6 @@ def build_daily_delta(
         er_moves=er_moves,
         er_moves_total=er_moves_total,
         holdings=holdings,
-        holdings_without_fair_value=holdings_without_fair_value,
         holdings_without_price=holdings_without_price,
         unavailable=sorted(dict.fromkeys(unavailable)),
     )
@@ -716,10 +711,10 @@ def _holding_deltas(
     market: MarketPriceSource,
     as_of: date,
     previous_as_of: date | None,
-) -> tuple[list[HoldingDeltaView], int, int]:
+) -> tuple[list[HoldingDeltaView], int]:
     tickers = [holding.ticker for holding in snapshot.holdings]
     if not tickers:
-        return [], 0, 0
+        return [], 0
     latest_by_ticker = market.latest_closes(tickers)
     # The change is asked of the market layer so both ends land on the same share
     # basis; dividing two stored closes would report a split as a price move.
@@ -729,39 +724,28 @@ def _holding_deltas(
     earnings = market.next_earnings_dates(tickers, as_of=as_of)
     revisions = _latest_research_by_ticker(research.revisions())
     rows: list[HoldingDeltaView] = []
-    without_fair_value = 0
     without_price = 0
     for holding in snapshot.holdings:
         revision = revisions.get(holding.ticker)
-        fair_value = None if revision is None else revision.current_fair_value_yen
         close = latest_by_ticker.get(holding.ticker)
-        close_value = None if close is None else close[0]
-        if fair_value is None:
-            without_fair_value += 1
-        elif close_value is None:
-            # A holding with a fair value the store cannot price is neither compared
-            # nor absent: counting it keeps the silence from reading as "not reached".
+        if close is None:
             without_price += 1
         change = changes.get(holding.ticker)
-        at_or_above = (
-            None if fair_value is None or close_value is None else bool(close_value >= fair_value)
-        )
         moved = change is not None and abs(change) >= _DELTA_HOLDING_MOVE_MIN_PCT
-        if at_or_above is not True and not moved:
+        if not moved:
             continue
         next_earnings = earnings.get(holding.ticker)
         rows.append(
             HoldingDeltaView(
                 ticker=holding.ticker,
                 company_name=None if revision is None else revision.company_name,
-                at_or_above_fair_value=at_or_above,
                 change_since_previous_pct=change,
                 days_to_next_earnings=(
                     None if next_earnings is None else (next_earnings - as_of).days
                 ),
             )
         )
-    return rows, without_fair_value, without_price
+    return rows, without_price
 
 
 def _percent(value: float | None) -> float | None:

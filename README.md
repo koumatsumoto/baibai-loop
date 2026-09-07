@@ -65,3 +65,5 @@ uv run pytest
 public CLIは`baibai-engine`、`baibai-web`、repository内部の`baibai-batch`です。domain・subcommand・optionは各`--help`を正本とします。
 
 開発作業は[GitHub Issues](https://github.com/koumatsumoto/baibai-loop/issues)、運用taskはapplication DBの`baibai-engine task`で管理します。
+
+企業評価・資本配分・保有判断はresearch領域、確認済み資本・取引事実・成果計算はposition領域が所有する。Reviewed Thesisは企業評価と独立検算の一組であり、candidateは購入指示ではない。新規配分とhold / exitはそれぞれ現在入力で判断し、broker操作と事実報告は人間が行う。

@@ -72,7 +72,7 @@ def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
         assert macro_series["jp.pmi_manufacturing"]["tradingview_symbol"] is None
         assert detail.status_code == 200
         assert detail.json()["ticker"] == "2331"
-        assert detail.json()["latest_thesis"]["permanent_loss_risk_count"] == 7
+        assert len(detail.json()["latest_thesis"]["projection"]["raw"]["permanent_loss_risks"]) == 7
         fallback = client.get("/securities/2331")
         assert fallback.status_code == 200
         assert "web/frontend/ を build" in fallback.text

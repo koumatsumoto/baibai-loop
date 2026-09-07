@@ -19,7 +19,6 @@ from baibai_engine.operation.service import OperationService
 from baibai_engine.position.ledger import ContributionEvent
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research import workspace as workspace_module
-from baibai_engine.research.market_close_source import UnadjustedCloseObservation
 from baibai_engine.research.workspace import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
@@ -205,7 +204,7 @@ def test_status_and_promote_share_case_eligibility(tmp_path: Path, mutation: str
         from baibai_engine.research.thesis import ThesisDocument, thesis_core_hash
 
         raw = yaml.safe_load(thesis_path.read_text())
-        raw["estimates"]["scenarios"][0]["claimed_total_return_cagr_pct"] = 999
+        raw["valuation"]["base"]["terminal_value_per_share_yen"] = 999
         thesis_path.write_text(yaml.safe_dump(raw))
         review["reviewed_thesis_sha256"] = thesis_core_hash(ThesisDocument.model_validate(raw))
         if mutation == "arithmetic-stale":
@@ -219,9 +218,6 @@ def test_status_and_promote_share_case_eligibility(tmp_path: Path, mutation: str
     assert case["status"] != "ready_for_promotion"
     errors = case["thesis_validation_errors"] + case["review_validation_errors"]
     assert errors
-    if mutation.startswith("arithmetic"):
-        assert case["status"] == "incomplete"
-        assert any("CAGR mismatch" in error for error in case["thesis_validation_errors"])
     assert sum(call.args[0] == thesis_path for call in read.call_args_list) == 1
     with pytest.raises(ResearchWorkspaceDataError) as error:
         workspace_module.promote(
@@ -420,11 +416,14 @@ def test_active_operation_blocks_only_new_research_start(tmp_path: Path) -> None
     triage = _publish_triage(db_path)
     service = OperationService(db_path)
     existing = service.start(
-        session_kind="position-review",
+        session_kind="capital-allocation",
         as_of=date(2026, 8, 31),
         ticker="2331",
         started_at=datetime.fromisoformat("2026-08-31T18:00:00+09:00"),
-        payload=OperationPayload(checkpoint="position review", next="continue"),
+        payload=OperationPayload(
+            checkpoint="research",
+            artifacts=({"kind": "research_triage", "ref": "other", "research_set": ["0001"]},),
+        ),
     )
 
     with pytest.raises(ResearchWorkspaceConflictError, match="active operation already exists"):
@@ -464,97 +463,54 @@ def test_force_cannot_overwrite_workspace_with_a_different_active_research_set(
     assert (workspace / "manifest.yaml").read_bytes() == manifest_before
 
 
-def test_thesis_scaffold_uses_v3_and_only_general_research_checks() -> None:
-    price = UnadjustedCloseObservation(
-        close_yen=1000,
-        price_as_of=date(2026, 7, 2),
-        adjustment_factor=1,
-        corporate_action_unresolved=False,
+def test_thesis_scaffold_without_quote_is_unresolved_v4(tmp_path):
+    db = tmp_path / "app.sqlite"
+    triage = _publish_triage(db)
+    workspace = tmp_path / "research"
+    prepare_workspace(
+        research_triage_id=triage.research_triage_id,
+        db_path=db,
+        workspace=workspace,
+        research_set=("2331",),
     )
-
-    draft = workspace_module._thesis_draft_skeleton(
+    workspace_module.scaffold_thesis(
+        workspace=workspace,
         ticker="2331",
-        asof=date(2026, 7, 3),
-        price=price,
-        sqlite_path=Path("unused.sqlite"),
-        screening_estimate=None,
-        screening_retrieved_at=datetime.fromisoformat("2026-07-03T08:00:00+09:00"),
+        db_path=db,
+        sqlite_path=tmp_path / "absent.sqlite",
+        target_session=date(2026, 7, 19),
+        retrieved_at=CASE_NOW,
     )
-    checklist = workspace_module._checklist_skeleton(price=price)
-
-    assert draft["schema_version"] == 3
-    assert [item["check_id"] for item in checklist["checks"]] == [
-        "source.latest_results",
-        "source.financial_position",
-        "source.cash_flow",
-        "source.share_count_and_dilution",
-        "source.customer_concentration",
-        "source.structural_decline",
-        "source.management_accounting_warning",
-        "source.corporate_action",
-        "scenario.bear_3y_5y",
-        "scenario.base_3y_5y",
-        "scenario.bull_3y_5y",
-        "valuation.fair_value_and_required_cagr",
-        "judgment.strongest_countercase",
-    ]
+    raw = yaml.safe_load((workspace / "2331/thesis-draft.yaml").read_text())
+    assert raw["schema_version"] == 4
+    assert raw["valuation"]["status"] == "unresolved"
+    assert raw["valuation"]["market_price_fact_id"] is None
+    assert not (workspace / "2331/research-checklist.yaml").exists()
 
 
 def _authored_case(workspace: Path, ticker: str, recommendation: str) -> None:
-    from baibai_engine.research.thesis import (
-        ThesisDocument,
-        ThesisReview,
-        thesis_core_hash,
-        thesis_review_hash,
-    )
+    from tests.helpers.research_v4 import pair_payload
 
-    fixture = Path("tests/fixtures/thesis")
-    raw = yaml.safe_load(
-        (fixture / "2331-decision.yaml")
-        .read_text()
-        .replace("2331", ticker)
-        .replace("2026-07-03", "2026-07-19")
-    )
-    review = yaml.safe_load(
-        (fixture / "2331-decision-review.yaml")
-        .read_text()
-        .replace("2331", ticker)
-        .replace("2026-07-03", "2026-07-19")
-    )
-    review_name = f"2026-07-19-{ticker}-decision-review.yaml"
-    raw["independent_review_ref"] = review_name
-    raw["judgment"]["recommendation"] = recommendation
-    raw["human_evidence_override"] = None
-    core = thesis_core_hash(ThesisDocument.model_validate(raw))
-    review["reviewed_thesis_sha256"] = core
-    if recommendation == "buy":
-        override = yaml.safe_load((fixture / "2331-decision.yaml").read_text())[
-            "human_evidence_override"
-        ]
-        override.update(
-            approved_at="2026-07-19T10:30:00+09:00",
-            thesis_sha256=core,
-            review_id=review["review_id"],
-            review_sha256=thesis_review_hash(ThesisReview.model_validate(review)),
-        )
-        raw["human_evidence_override"] = override
+    from baibai_engine.research.thesis import ThesisDocument, thesis_core_hash
+
+    raw, review = pair_payload(ticker=ticker, as_of="2026-07-19", quote_as_of="2026-07-17")
+    raw["input_snapshot"]["sources"][0]["retrieved_at"] = "2026-07-19T09:00:00+09:00"
+    raw["judgment"]["proposed_at"] = "2026-07-19T10:00:00+09:00"
+    raw["judgment"]["disposition"] = recommendation
+    review["review_id"] = "review-" + ticker
+    review["reviewed_at"] = "2026-07-19T11:00:00+09:00"
+    review["reviewed_thesis_sha256"] = thesis_core_hash(ThesisDocument.model_validate(raw))
     directory = workspace / ticker
     directory.mkdir(exist_ok=True)
     (directory / "thesis-draft.yaml").write_text(yaml.safe_dump(raw))
-    (directory / review_name).write_text(yaml.safe_dump(review))
+    (directory / f"2026-07-19-{ticker}-decision-review.yaml").write_text(yaml.safe_dump(review))
+    # Stray old local files have no authority over publish.
     (directory / "research-checklist.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "checks": [
-                    {"check_id": item, "status": "complete"}
-                    for item in workspace_module.CHECKLIST_IDS
-                ],
-            }
-        )
+        yaml.safe_dump({"checks": [{"status": "complete"}]})
     )
 
 
-@pytest.mark.parametrize("recommendations", [("buy", "reject"), ("defer", "reject")])
+@pytest.mark.parametrize("recommendations", [("candidate", "reject"), ("defer", "reject")])
 def test_all_cases_promote_without_a_winner_and_status_tracks_exact_publication(
     tmp_path: Path, recommendations: tuple[str, str]
 ) -> None:
@@ -722,7 +678,7 @@ def test_publication_ignores_checklist_but_requires_exact_documents(
     assert db.read_bytes() == before
 
 
-def test_same_core_with_edited_override_is_not_the_published_draft(tmp_path: Path) -> None:
+def test_obsolete_override_cannot_bypass_exact_publication(tmp_path: Path) -> None:
     db = tmp_path / "app.sqlite"
     triage = _publish_triage(db)
     workspace = tmp_path / "workspace"
@@ -732,7 +688,7 @@ def test_same_core_with_edited_override_is_not_the_published_draft(tmp_path: Pat
         workspace=workspace,
         research_set=("2331",),
     )
-    _authored_case(workspace, "2331", "buy")
+    _authored_case(workspace, "2331", "candidate")
     workspace_module.promote(
         workspace=workspace,
         ticker="2331",
@@ -749,11 +705,118 @@ def test_same_core_with_edited_override_is_not_the_published_draft(tmp_path: Pat
     )
     path = workspace / "2331/thesis-draft.yaml"
     draft = yaml.safe_load(path.read_text())
-    draft["human_evidence_override"]["reason"] = "different human acknowledgement"
+    draft["human_evidence_override"] = {"reason": "different human acknowledgement"}
     path.write_text(yaml.safe_dump(draft))
     assert (
         compute_status(
             workspace, db_path=db, now=datetime.fromisoformat("2026-07-19T12:00:00+09:00")
         )["cases"][0]["status"]
-        == "ready_for_promotion"
+        == "incomplete"
+    )
+
+
+def test_risk_only_case_completes_review_promotion_and_no_allocation(tmp_path):
+    from baibai_engine.research.capital_allocation import (
+        CapitalAllocationAssessment,
+        capital_allocation_draft_sha256,
+    )
+    from baibai_engine.research.capital_allocation_scaffold import scaffold_capital_allocation
+    from baibai_engine.research.capital_allocation_service import CapitalAllocationAssessmentService
+    from baibai_engine.research.thesis import ThesisDocument, thesis_core_hash
+
+    db = tmp_path / "app.sqlite"
+    triage = _publish_triage(db)
+    workspace = tmp_path / "research"
+    prepare_workspace(
+        research_triage_id=triage.research_triage_id,
+        db_path=db,
+        workspace=workspace,
+        research_set=("2331",),
+        started_at=CASE_NOW,
+    )
+    workspace_module.scaffold_thesis(
+        workspace=workspace,
+        ticker="2331",
+        db_path=db,
+        sqlite_path=tmp_path / "no-price.sqlite",
+        target_session=CASE_NOW.date(),
+        retrieved_at=CASE_NOW,
+    )
+    _authored_case(workspace, "2331", "defer")
+    path = workspace / "2331/thesis-draft.yaml"
+    thesis = yaml.safe_load(path.read_text())
+    thesis["input_snapshot"]["facts"] = []
+    thesis["valuation"] = dict(
+        status="unresolved",
+        market_price_fact_id=None,
+        horizon_months=None,
+        required_annual_return_pct=None,
+        base=None,
+        downside=None,
+        unresolved_reason="企業の資金繰りは確認したが回収価値と価格は未確定",
+    )
+    path.write_text(yaml.safe_dump(thesis))
+    review_path = workspace / "2331/2026-07-19-2331-decision-review.yaml"
+    review = yaml.safe_load(review_path.read_text())
+    review["recalculated_projections"] = []
+    review["reviewed_thesis_sha256"] = thesis_core_hash(ThesisDocument.model_validate(thesis))
+    review_path.write_text(yaml.safe_dump(review))
+    workspace_module.promote(
+        workspace=workspace,
+        ticker="2331",
+        db_path=db,
+        thesis_id="risk-only",
+        supersedes_id=None,
+        now=CASE_NOW,
+    )
+    raw = scaffold_capital_allocation(
+        db_path=db,
+        capital_allocation_assessment_id="capital-allocation-assessment-20260719-risk-only",
+        as_of=CASE_NOW.date(),
+        research_triage_id=triage.research_triage_id,
+        thesis_ids=["risk-only"],
+        published_at=CASE_NOW,
+    )
+    raw.update(
+        headline="評価未解決のため現金維持",
+        comparison="不確かな価値より現金",
+        forgone="資料入手後に再評価",
+    )
+    raw["alternatives"][0]["rationale"] = "企業評価未解決"
+    assessment = CapitalAllocationAssessment.model_validate(raw)
+    assessment = assessment.model_copy(
+        update={
+            "review": assessment.review.model_copy(
+                update={"draft_sha256": capital_allocation_draft_sha256(assessment)}
+            )
+        }
+    )
+    assert (
+        CapitalAllocationAssessmentService(db, clock=lambda: CASE_NOW).publish(assessment).result
+        == "no_allocation"
+    )
+    # Refresh preserves original sources and forecasts; a new independent review is required.
+    refresh_at = datetime.fromisoformat("2026-07-20T12:00:00+09:00")
+    workspace_module.scaffold_thesis(
+        workspace=workspace,
+        ticker="2331",
+        db_path=db,
+        sqlite_path=tmp_path / "no-price.sqlite",
+        target_session=refresh_at.date(),
+        retrieved_at=refresh_at,
+        from_thesis_id="risk-only",
+        force=True,
+    )
+    refreshed = yaml.safe_load(path.read_text())
+    assert refreshed["input_snapshot"]["as_of"] == "2026-07-20"
+    assert (
+        refreshed["input_snapshot"]["sources"]
+        == ThesisDocument.model_validate(thesis).model_dump(mode="json")["input_snapshot"][
+            "sources"
+        ]
+    )
+    assert refreshed["valuation"] == thesis["valuation"]
+    assert (
+        compute_status(workspace, db_path=db, now=refresh_at)["cases"][0]["status"]
+        == "ready_for_review"
     )

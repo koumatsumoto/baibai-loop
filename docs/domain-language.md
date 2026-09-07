@@ -36,7 +36,7 @@ status: active
 | Reservation | ledger state / event | 買付余力を拘束する状態またはevent |
 | Execution | business fact | 約定事実 |
 | Holding | derived state | Ledger replayから得る保有状態 |
-| Position Review | artifact / judgment | Holdingの`hold / add / reduce / exit`再評価 |
+| Position Review | artifact / judgment | Holdingの`hold / exit / null`再評価 |
 | Portfolio Outcome | artifact | portfolio-wide TWR / benchmark comparison publication |
 | Macro Reading | rebuildable artifact | provider factからのdeterministic machine reading |
 | Macro Context | artifact / judgment | 現在のmacro judgment |

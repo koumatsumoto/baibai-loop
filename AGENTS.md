@@ -77,7 +77,7 @@ application DBへ発行して`publish.sh`で反映する。
 
 ### Operation session の共通規約
 
-投資判断の multi-step trigger は `baibai-engine operation` の session で進める。active session は全 kind を通じて最大 1 件。Research Triageはactive Operationの有無にかかわらず判断・publishし、Operationを作らない。人間がnon-empty Research Setを確定して`research prepare --ticker`でResearchを開始する時だけ、そのcanonical Triageと選択集合を参照する`capital-allocation` Operationを開始する。空Research SetではOperationを作らない。active Operationがある場合は新しいResearch開始だけを止め、daily Triageは止めない。`research`はこのexact Operationをresumeし、同じ`as_of`だけの別Operationを採用しない。他のtriggerは既存activeがあれば同じrowをresumeし、無ければ1件だけstartする。checkpointはpayload全置換で、completed rowはimmutable。kind別のcomplete要件は各skillの完了節が持つ。開始時は`git status --short --branch`と`position ledger`を確認し、dirty worktreeの所有不明・public `--help`不明・入力矛盾では停止して人間へ質問する。
+投資判断の multi-step trigger は `baibai-engine operation` の session で進める。active session は全 kind を通じて最大 1 件。Research Triageはactive Operationの有無にかかわらず判断・publishし、Operationを作らない。人間がnon-empty Research Setを確定して`research prepare --ticker`でResearchを開始する時だけ、そのcanonical Triageと選択集合を参照する`capital-allocation` Operationを開始する。空Research SetではOperationを作らない。active Operationがある場合は新しいResearch開始だけを止め、daily Triageは止めない。`research`はこのexact Operationをresumeし、同じ`as_of`だけの別Operationを採用しない。Position ReviewはOperationを作らず、activeな資本調査があっても対象holdingだけを扱う。旧position-review kindは履歴専用とする。checkpointはpayload全置換で、completed rowはimmutable。kind別のcomplete要件は各skillの完了節が持つ。開始時は`git status --short --branch`と`position ledger`を確認し、dirty worktreeの所有不明・public `--help`不明・入力矛盾では停止して人間へ質問する。
 
 ### 委譲と外部文書の扱い
 

@@ -45,7 +45,7 @@ from baibai_web.readmodel.models import (
 
 SCHEMA_PATH = Path("web/contracts/read-model.schema.json")
 TYPES_PATH = Path("web/frontend/src/api/types.ts")
-CONTRACT_SCHEMA_VERSION = 1
+CONTRACT_SCHEMA_VERSION = 2
 
 # Every artifact the UI reads through `/api`, and the model that writes it. The keys are
 # the serving paths `web/contracts/routes.json` maps those routes to, and a test pins

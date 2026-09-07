@@ -19,7 +19,6 @@ from typing import Any
 
 import pytest
 import yaml
-from tests.helpers.fixed_now import FIXED_NOW
 from tests.helpers.macro_context import macro_context_payload
 from tests.helpers.research_triage import (
     published_review_set,
@@ -27,6 +26,7 @@ from tests.helpers.research_triage import (
     research_triage_payload,
     skip_entry,
 )
+from tests.helpers.research_v4 import pair_payload
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
@@ -39,6 +39,7 @@ from baibai_engine.research.capital_allocation import (
     CapitalAllocationAssessment,
     capital_allocation_draft_sha256,
 )
+from baibai_engine.research.thesis_store import ThesisStoreService
 from baibai_engine.research.workspace_cli import main as research_main
 from baibai_engine.screening.discovery.review_set import PublishedReviewSet
 from baibai_engine.screening.research_triage import ResearchTriage, ResearchTriageService
@@ -67,6 +68,10 @@ def _app_db(app_method_root: Path) -> Path:
 
 def _publish_research_triage(db_path: Path) -> str:
     """Seed the selected case an assessment round is scaffolded and published against."""
+    thesis, review = pair_payload(ticker="2331", as_of="2026-07-21", quote_as_of="2026-07-21")
+    ThesisStoreService(db_path, clock=lambda: PUBLISHED_AT).publish_reviewed_thesis(
+        "thesis-20260721-2331-r2", thesis, review, supersedes_id="thesis-20260714-2331-r1"
+    )
     context_id = "macro-context-2026-07-21-cli-seam"
     MacroContextService(db_path).publish(
         MacroContextDocument.model_validate(
@@ -134,7 +139,7 @@ def _scaffold_capital_allocation_draft(db_path: Path, out: Path, research_triage
             "--research-triage-id",
             research_triage_id,
             "--thesis-id",
-            SEEDED_THESIS_ID,
+            "thesis-20260721-2331-r2",
             "--out",
             str(out),
         ],
@@ -179,17 +184,17 @@ def test_research_evaluate_routes_argv_to_the_decision_gate(
     A hand-off that went through the domain parser instead would reject the
     positional thesis path as an unknown argument.
     """
-    thesis = tmp_path / "2026-07-03-2331-decision.yaml"
-    thesis.write_text(THESIS_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
-    (tmp_path / "2331-decision-review.yaml").write_text(
-        REVIEW_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8"
+    thesis, review = pair_payload(ticker="2331", as_of="2026-07-21", quote_as_of="2026-07-21")
+    thesis_path = _write_yaml(tmp_path / "thesis.yaml", thesis)
+    review_path = _write_yaml(tmp_path / "review.yaml", review)
+    assert (
+        research_main(
+            ["evaluate", str(thesis_path), "--review", str(review_path)], now=PUBLISHED_AT
+        )
+        == 0
     )
-
-    assert research_main(["evaluate", str(thesis)], now=FIXED_NOW) == 0
-
     payload = yaml.safe_load(capsys.readouterr().out)
     assert payload["decision_readiness"] == "ready"
-    assert payload["thesis_status"] == "ready_with_warnings"
 
 
 # --------------------------------------------------------------------------- #
@@ -244,7 +249,12 @@ def test_assessment_publish_stores_the_round_from_argv(
     capsys.readouterr()
     _write_yaml(draft_path, _fill_judgment(safe_load(draft_path.read_text(encoding="utf-8"))))
 
-    assert research_main(["capital-allocation-publish", str(draft_path), "--db", str(db_path)]) == 0
+    assert (
+        research_main(
+            ["capital-allocation-publish", str(draft_path), "--db", str(db_path)], now=PUBLISHED_AT
+        )
+        == 0
+    )
 
     assert (
         yaml.safe_load(capsys.readouterr().out)["capital_allocation_assessment_id"] == ASSESSMENT_ID

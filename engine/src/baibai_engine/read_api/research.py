@@ -161,3 +161,82 @@ __all__ = [
     "list_thesis_review_publications",
     "thesis_publication",
 ]
+
+
+def reviewed_thesis_projection(path: Path, *, thesis_id: str) -> dict[str, object]:
+    """Expose the exact pair and conditional values, or a historical-only raw record."""
+    from contextlib import closing
+    from decimal import Decimal
+
+    from baibai_engine.appdb.read import connect_read_only
+    from baibai_engine.research.thesis_store import ResearchValidationError, load_reviewed_thesis
+    from baibai_engine.research.valuation import maximum_entry_price, project_return
+
+    publication = thesis_publication(path, thesis_id=thesis_id)
+    if publication is None:
+        return {}
+    try:
+        with closing(connect_read_only(path)) as connection:
+            pair = load_reviewed_thesis(connection, thesis_id)
+    except ResearchValidationError:
+        return {
+            "status": "requires_reassessment",
+            "thesis_id": thesis_id,
+            "as_of": publication["as_of"],
+            "raw": publication["payload"],
+        }
+    thesis = pair.document
+    valuation = thesis.valuation
+    price_fact = next(
+        (
+            fact
+            for fact in thesis.input_snapshot.facts
+            if fact.fact_id == valuation.market_price_fact_id
+        ),
+        None,
+    )
+    projected: dict[str, object] = {}
+    maximum: float | None = None
+    if valuation.horizon_months is not None and price_fact is not None:
+        price = Decimal(str(price_fact.value))
+        for name, scenario in (("base", valuation.base), ("downside", valuation.downside)):
+            if scenario is not None:
+                result = project_return(
+                    scenario, price_yen=price, horizon_months=valuation.horizon_months
+                )
+                projected[name] = {
+                    **scenario.model_dump(mode="json"),
+                    "total_return_pct": round(float(result.total_return_pct), 4),
+                    "annualized_return_pct": round(float(result.annualized_return_pct), 4),
+                }
+        if valuation.base is not None and valuation.required_annual_return_pct is not None:
+            maximum = float(
+                maximum_entry_price(
+                    valuation.base,
+                    horizon_months=valuation.horizon_months,
+                    required_annual_return_pct=valuation.required_annual_return_pct,
+                )
+            )
+    return {
+        "status": valuation.status,
+        "thesis_id": thesis_id,
+        "review_id": pair.review.review_id,
+        "as_of": thesis.input_snapshot.as_of.isoformat(),
+        "disposition": thesis.judgment.disposition,
+        "investment_case": thesis.investment_case.model_dump(mode="json"),
+        "horizon_months": valuation.horizon_months,
+        "unresolved_reason": valuation.unresolved_reason,
+        "strongest_countercase": thesis.judgment.strongest_countercase,
+        "original_price_basis": None if price_fact is None else price_fact.price_basis,
+        "required_annual_return_pct": None
+        if valuation.required_annual_return_pct is None
+        else float(valuation.required_annual_return_pct),
+        "pmax_raw_yen": maximum,
+        "projections": projected,
+        "original_price_yen": None if price_fact is None else price_fact.value,
+        "original_quote_at": None
+        if price_fact is None or price_fact.observed_at is None
+        else price_fact.observed_at.isoformat(),
+        "return_basis": "条件付き・原評価起点・税費用控除前・分配再投資なし",
+        "raw": thesis.model_dump(mode="json"),
+    }

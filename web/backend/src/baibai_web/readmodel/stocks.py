@@ -58,7 +58,6 @@ from .models import (
     ReviewSetEntryView,
     ReviewSetNominationView,
     ReviewSetView,
-    ScenarioView,
     ScreeningHistoryRunView,
     ScreeningRunView,
     ScreeningView,
@@ -365,10 +364,14 @@ def _allocation_alternative_view(raw: Mapping[str, object]) -> AllocationAlterna
         rationale=str(raw["rationale"]),
         thesis_id=str(raw["thesis_id"]),
         thesis_review_id=_text(raw.get("thesis_review_id")),
-        permanent_loss_conclusion=_text(machine_values.get("permanent_loss_conclusion")),
-        five_year_base_cagr_pct=_number(machine_values.get("five_year_base_cagr_pct")),
-        fair_value_yen=_number(machine_values.get("fair_value_yen")),
-        fv_gap_pct=_number(machine_values.get("fv_gap_pct")),
+        case_status=_text(_mapping_optional(machine_values.get("investment_case")).get("status")),
+        base_annualized_return_pct=_number(
+            _mapping_optional(_mapping_optional(machine_values.get("projections")).get("base")).get(
+                "annualized_return_pct"
+            )
+        ),
+        pmax_raw_yen=_number(machine_values.get("pmax_raw_yen")),
+        valuation_as_of=_text(machine_values.get("as_of")),
     )
 
 
@@ -590,7 +593,6 @@ def build_security_detail(
                 position_review_id=item.position_review_id,
                 as_of=item.as_of,
                 thesis_id=item.thesis_id,
-                replacement_thesis_id=item.replacement_thesis_id,
                 action=item.action,
                 note=item.note,
             )
@@ -813,27 +815,16 @@ def _research_revision_view(revision: ResearchRevision) -> ResearchRevisionView:
     return ResearchRevisionView(
         as_of=revision.as_of,
         thesis_id=revision.thesis_id,
-        recommendation=revision.recommendation,
-        confidence=revision.confidence,
-        current_fair_value_yen=revision.current_fair_value_yen,
-        model_version=revision.model_version,
+        disposition=revision.disposition,
+        pmax_raw_yen=revision.pmax_raw_yen,
         review_id=revision.review_id,
+        status=revision.status,
     )
 
 
 def _thesis_detail_view(detail: ThesisDetail) -> ThesisDetailView:
     return ThesisDetailView(
-        revision=_research_revision_view(detail.revision),
-        entry_price_basis_yen=detail.entry_price_basis_yen,
-        required_5y_base_cagr_pct=detail.required_5y_base_cagr_pct,
-        permanent_loss_risk_count=detail.permanent_loss_risk_count,
-        scenarios=[
-            ScenarioView(name=item.name, horizon_years=item.horizon_years)
-            for item in detail.scenarios
-        ],
-        permanent_loss_conclusion=detail.permanent_loss_conclusion,
-        strongest_countercase=detail.strongest_countercase,
-        sizing_action=detail.sizing_action,
+        revision=_research_revision_view(detail.revision), projection=detail.projection
     )
 
 
@@ -845,3 +836,7 @@ def _string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, str)]
+
+
+def _mapping_optional(value: object) -> Mapping[str, object]:
+    return value if isinstance(value, Mapping) else {}

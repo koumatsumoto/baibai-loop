@@ -1,6 +1,6 @@
 ---
 title: "Doctrine"
-summary: "Baibai Loop の投資思想・大戦略・判断原則の正本。割安な優良銘柄を長期で積み立て、見積りの精度を運用の中で磨いていく単一ループを定義する。"
+summary: "Baibai Loop の投資思想・大戦略・判断原則の正本。企業価値の変化を保守的に評価し、見積りの精度を運用の中で磨いていく単一ループを定義する。"
 doc_type: doctrine
 status: active
 ---
@@ -11,17 +11,19 @@ status: active
 
 ## 1. 目的と人間境界
 
-Baibai Loopは、永久的な資本毀損を抑えながら、一時的に売られすぎた優良銘柄を見つけ、長期で積み立てるための基盤である。予算消化や注文数ではなく、その時点で最も割安な候補を人間が納得して判断できることを最上位成果とする。候補は、永久損失、5年期待総合return/FV乖離、portfolioへの追加価値、購入可能性の順で比較する。資金目安、既存保有、予約は判断材料だが、価値順位を先に変えない。
+Baibai Loopは、保守的な価値評価、検証可能な企業の変化、支払価格を組み合わせ、日本個別株の現物で資本を運用する。株価が下落した銘柄だけでなく、上昇中でも価値に対して安い銘柄を対象にする。予算消化・銘柄数・投資率をノルマにしない。
 
-お買い得を見つける手段は、マクロ経済分析、機械screening、深い個別researchである。各候補のrisk/rewardと期待利回りを見積もり、「本当に割安か」という中核技能を長期の実現結果で磨く。配当は加点材料であり、必須条件ではない。
+AIは調査と提案、人間は最終裁定とbroker操作を担う。自動発注、信用、借入、空売りは行わない。通常経路では既保有銘柄への追加購入を提案せず、別Thesis IDによる迂回もしない。人間が実際に行った追加購入・部分売却は取引事実として記録する。
 
-購入時は、想定どおりに上がらなくても長期保有できる耐性を必須の関門とする。合格条件は、ネットキャッシュ、または健全な財務に加えて、営業cash flowの黒字、低い有利子負債、借換に耐える体力を持つことである。売却の主因は事業のファンダメンタルズ毀損（thesis break）であり、株価下落だけでは売らない。FV到達は自動売却ではなく保有見直しのtriggerである。具体的な`hold / add / reduce / exit`の規律は[`portfolio-management.md`](./portfolio-management.md#holding-discipline)が所有する。
+3〜12か月を主戦場とするが期限売却はしない。持続可能な有配を選好し、強い価値機会なら無配も許容する。回復可能な赤字、下方修正、循環悪化を一律に排除せず、資金繰り・負債返済・希薄化・恒久的価値毀損を評価する。金額loss budget、年間損失停止、drawdown kill switchは置かない。
 
-運用は **AI主導・人間裁定** とする。AIは観測・分析・提案を担い、人間は`approve / defer / reject`とbroker操作を担う。リポジトリが保持するbroker factは、人間が確認して報告したものに限る。AIは未報告の注文状態を補間せず、broker会計を完全再現しない。候補なし、購入見送り、価格超過による`defer`はいずれも正常な判断である。Baibai Loopは投資助言サービスではない。
+保有判断は重大な経済的投資理由の不成立、または残存見返り不足により`exit`を検討し、見返りが十分なら`hold`とする。不確実なら未確定とする。価格下落、経過期間、単なる回復遅延、Target到達、新規購入条件未達、他候補、集中warningの単独理由では売らない。次の候補がなくても現金を回収できる。
+
+企業評価の`candidate / defer / reject`、現在の購入条件、CAAの`allocate / no_allocation / defer`、確認済み約定を区別する。根拠付きの見送り・unknownは正常な成果である。長期資産形成のlongfolioは別目的であり、連携や銘柄重複チェックは持たない。Baibai Loopは投資助言サービスではない。
 
 ## 2. 運用モデル — 単一ループと見積りの改善
 
-Baibai Loop が回すのは 1 つの長期投資ループである。その中核技能（見積り）を実現結果と突き合わせて磨くフィードバックを、ループ自体に組み込む。
+Baibai Loop が回すのは 1 つの投資判断ループである。その中核技能（見積り）を実現結果と突き合わせて磨くフィードバックを、ループ自体に組み込む。
 
 ```mermaid
 flowchart LR
@@ -33,9 +35,9 @@ flowchart LR
   triage --> admission["人間のResearch Set選択"]
   admission --> research["深い個別調査<br/>FV・RR・期待利回りを見積る"]
   research --> decision["Capital Allocation Assessment<br/>allocate / defer / no_allocation"]
-  decision -- approve --> buy["割安を長期で積立て買い"]
-  buy --> hold["長期保有 / 押し目で買増し<br/>価格では切らない"]
-  hold --> sell["thesis 毀損で全売り / FV 到達は保有見直し trigger"]
+  decision -- approve --> buy["価値に対して安く購入"]
+  buy --> hold["残存見返りで保有継続<br/>価格では切らない"]
+  hold --> sell["重大な投資理由の不成立 / 残存見返り不足で現金回収"]
   sell --> calib["見積り vs 実現の calibration"]
   hold -.保有 outcome.-> calib
   calib -.見積り手法を改善.-> macro
@@ -95,7 +97,7 @@ validation や hash のように監査にも使える手段でも、現在の候
   - **macro context（L3）**：人間が判断するときだけ書く。環境評価（core）、経路横断の支配的な力と相互作用（synthesis）、日本株積立ループへの接続（connection）を分け、coreとsynthesisはuse-case agnosticにする。synthesisとconnectionが引用できるseriesは、依拠するcore sectionが引用済みのものに限り、そのsectionを`core_section_ids`で名指しする。この参照方向は機械契約で強制し、coreを単独で自己完結させる。coreは攻め／守りのどちらの環境かを反証条件付きで判断し、sector tilt、research優先度、sizing cautionはconnectionだけに置く。field単位の契約は[`reference/macro.md`](./reference/macro.md#3-層構成core環境評価synthesis統合評価connection積立ループ接続)が所有する。
 
   どちらも機械screening、ranking、sizingへ混入させず、売買タイミング、現金比率、配分を指示しない。macro contextはresearchの着手順を決めるjudgment入力として使う。contextがない、または古くても候補抽出は続け、未来情報だけをhard errorにする。鮮度は書き手が賞味期限を宣言せず、読み手が`as_of`と自分の閾値で判断する。
-- **(b)** AIを含む技術・産業構造変化は、その仮説を外すと3年/5年scenario、FVとrequired return、永久損失、最強反対仮説、またはCapital Allocation Assessmentが変わる場合だけmaterialとする。正の影響は一次情報と必要な独立裏取りからscenario assumption、FV、比較理由へ、負の影響は`structural_decline`、最強反対仮説、必要ならscenarioとFVへ接続する。「AIを使っている」「市場が成長する」という事実だけでbase scenarioや倍率を上げない。
+- **(b)** AIを含む技術・産業構造変化は、その仮説を外すとBase/Downside projection、FVとrequired return、永久損失、最強反対仮説、またはCapital Allocation Assessmentが変わる場合だけmaterialとする。正の影響は一次情報と必要な独立裏取りからscenario assumption、FV、比較理由へ、負の影響は`structural_decline`、最強反対仮説、必要ならscenarioとFVへ接続する。「AIを使っている」「市場が成長する」という事実だけでbase scenarioや倍率を上げない。
 - **(c)** materialでない構造変化には言及・専用source・専用reviewを要求しない。AI theme、role、専用scoreでscreening、順位、sizingを変えず、企業ごとのE[r]と永久損失リスクを同じ土俵で比較する。
 
 ### 柱 3: 見積りを磨くフィードバック先行
@@ -146,7 +148,7 @@ artifact、activity、pipeline state、method、projectionの区別と命名文�
 | Research Triage → Research Set | 人間（admission） | operationのhuman confirmation | — |
 | Research Set → allocate / no allocation / defer | AI research → 独立レビュー → 人間 | thesis + thesis review + Capital Allocation Assessment | evaluate 派生値 |
 | allocate → position | 人間（broker 執行 → 報告） | ledger events | — |
-| position → hold / add / reduce / exit | AI draft + 人間確認 | Position Review（thesis health 判定） | — |
+| position → hold / exit | AI draft + 人間確認 | Position Review（thesis health 判定） | — |
 | position → outcome | 機械計測 + 年次評価 | outcome | calibration replay |
 
 `macro reading` と `macro context` はどの遷移にも属さない ambient 入力であり、reading は macro context 執筆の必須入力、macro context は Research Triage と thesis 執筆の判断材料になる（screening は macro-blind のまま）。Research Triage・ledger は「状態」と「その canonical record」が同一物であり、thesis・Position Review は状態ではなく遷移の理由書である。
@@ -186,7 +188,7 @@ thesisで見積りの根拠を検証するときの分析レンズ / return源�
 - **マクロ環境分析 (macro context)**：macro reading と外部記事・指標データを参照し、環境評価（core：レジーム・経路別のfactとjudgment・リスク選好環境の評価・確率と機械照合可能な条件を持つシナリオ・監視ポイント）、統合評価（synthesis：経路横断の支配的な力とその相互作用）、日本株積立ループ接続（connection：research優先度・sector tilt・sizing caution・バーゲン地形・機械見積りの歪み注意）を分析階層（§7）に沿った構造化レポートとして残す。記事本文や取得ログは保存しない。
 - **スクリーニング実行結果 (screening run)**：run storeに保存する再生成可能な機械出力。observed、derived、estimateを由来付きで残し、judgment・因果解釈・相場観を書かない。
 - **調査優先度判定 (Research Triage)**：Review Set全件をAIが`research / skip`へ分類し、research priorityを付けたcanonical snapshot。Valuation Approachesをprimary authority、E[r]とADVをsecondary contextとして扱い、application DBでrun revisionとReview Setへの束縛を保つ。
-- **個別銘柄research / thesis**：一次情報、FV、3年/5年scenario、risk/reward、期待return、永久損失、countercaseを検証し、採否をcanonical thesisへ固定する。
+- **個別銘柄research / thesis**：一次情報、FV、Base/Downside projection、risk/reward、期待return、永久損失、countercaseを検証し、採否をcanonical thesisへ固定する。
 - **資本配分評価 (Capital Allocation Assessment)**：research済みalternativeを横比較し、`allocate / no_allocation / defer`を確定する。`allocate`はThesisとThesis Reviewへ束縛し、注文数量は判断を変えず`plan-limit`でその都度計算する。
 - **売買執行記録 (position)**：実際に発注・entry した判断の注文・約定・保有・全売り決済と、見積り vs 実現の calibration を記録する。
 
@@ -211,7 +213,7 @@ L1 / L2の機械store（market / macro series / screening run）のobserved / de
 
 ## 8. 非目標
 
-非目標は思想的なタブーではなく、**現在の戦略（長期積立・1 人運用）が計測経路を持てない、または必要としない機能の線引き**である。戦略の前提が変わったら、柱 5 の計測経路を用意した上で見直してよい。
+非目標は思想的なタブーではなく、**現在の戦略（企業価値の変化・1 人運用）が計測経路を持てない、または必要としない機能の線引き**である。戦略の前提が変わったら、柱 5 の計測経路を用意した上で見直してよい。
 
 - 過去データに対する閾値の網羅探索（grid search）やパラメータ最適化、戦略の累積リターン（年率・最大ドローダウン・シャープレシオ）を実績として掲げること（誠実性の規律。柱 5）。
 - 機械学習によるスコアリング・予測。スコアは軸別の座標として出し、合成点に畳まない（成分と前提を持つ機械見積り E[r] / FV アンカーは柱 5 (b) の条件下で範囲内）。
@@ -224,6 +226,6 @@ L1 / L2の機械store（market / macro series / screening run）のobserved / de
 ## 9. 参考
 
 - [`architecture.md`](./architecture.md)：5層モデルと4役・store authority・package / CLI・repository map
-- [`portfolio-management.md`](./portfolio-management.md)：資本・ポジション管理・cap・積立・余力・kill switch 仕様
+- [`portfolio-management.md`](./portfolio-management.md)：資本・保有判断・余力・確認済み取引事実
 - [`../.agents/skills/`](../.agents/skills/)：単一ループ各運用の手順（research_triage / research / position-review / ledger-record / macro-context / ops-maintenance）
 - [`anti-patterns.md`](./anti-patterns.md)：失敗パターンと commit 前チェックリスト

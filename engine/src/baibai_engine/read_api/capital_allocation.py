@@ -3,14 +3,9 @@
 from __future__ import annotations
 
 import json
-from decimal import Decimal
 from pathlib import Path
 
-from baibai_engine.research.thesis import (
-    ThesisDocument,
-    calculate_scenarios,
-)
-
+from .research import reviewed_thesis_projection
 from .sqlite import read_application_rows as read_rows
 
 
@@ -70,40 +65,13 @@ def _payload(path: Path, raw: object) -> dict[str, object]:
             raise ValueError(f"allocation thesis is unavailable: {thesis_id}")
         if str(rows[0]["core_sha256"]) != thesis_hash:
             raise ValueError(f"allocation thesis binding has moved: {thesis_id}")
-        document = ThesisDocument.model_validate(json.loads(str(rows[0]["payload"])))
-        projected.append({**raw_alternative, "thesis_projection": _thesis_projection(document)})
+        projected.append(
+            {
+                **raw_alternative,
+                "thesis_projection": reviewed_thesis_projection(path, thesis_id=str(thesis_id)),
+            }
+        )
     return {**payload, "alternatives": projected}
-
-
-def _thesis_projection(document: ThesisDocument) -> dict[str, object]:
-    base = next(
-        (
-            scenario
-            for scenario in calculate_scenarios(document)
-            if scenario.horizon_years == 5 and scenario.name == "base"
-        ),
-        None,
-    )
-    fair_value = _number(document.estimates.current_fair_value_yen)
-    entry_price = _number(document.estimates.entry_price_basis_yen)
-    return {
-        "five_year_base_cagr_pct": None if base is None else round(base.total_return_cagr_pct, 4),
-        "fair_value_yen": fair_value,
-        "fv_gap_pct": (
-            None
-            if fair_value is None or entry_price in (None, 0)
-            else round((fair_value / entry_price - 1) * 100, 4)
-        ),
-        "permanent_loss_conclusion": document.judgment.permanent_loss_conclusion,
-    }
-
-
-def _number(value: object) -> float | None:
-    if isinstance(value, Decimal):
-        return float(value)
-    if isinstance(value, int | float) and not isinstance(value, bool):
-        return float(value)
-    return None
 
 
 __all__ = ["capital_allocation_assessment_payload", "list_capital_allocation_assessment_payloads"]
