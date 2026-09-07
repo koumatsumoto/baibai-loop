@@ -1,4 +1,4 @@
-"""Canonical long-horizon investment thesis and deterministic checks."""
+"""企業評価を産み、公開前に source・単位・独立検算の不整合を止める。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import ROUND_HALF_UP, Decimal, DecimalException, InvalidOperation, localcontext
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Literal
@@ -19,7 +19,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.position.policy import PORTFOLIO_POLICY
+from baibai_engine.research.valuation import Projection, finite_decimal
 
 _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=False)
 _TICKER = r"^[0-9A-Z]{4}$"
@@ -34,19 +34,6 @@ _RISK_AXES = frozenset(
         "governance_accounting",
     }
 )
-_SCENARIO_KEYS = frozenset(
-    (horizon, name) for horizon in (3, 5) for name in ("bear", "base", "bull")
-)
-_SCENARIO_ORDER = {"bear": 0, "base": 1, "bull": 2}
-_INCOMPLETE_EVIDENCE_OVERRIDE_REQUIRED = (
-    "buy with incomplete or adverse evidence requires a human override and reduced sizing"
-)
-_PRIMARY_REVIEW_OVERRIDE_REQUIRED = (
-    "buy without fully verified primary review requires an active override and reduced sizing"
-)
-_EXPIRY_ONLY_ERRORS = frozenset(
-    {_INCOMPLETE_EVIDENCE_OVERRIDE_REQUIRED, _PRIMARY_REVIEW_OVERRIDE_REQUIRED}
-)
 RiskAxis = Literal[
     "funding_liquidity",
     "debt_repayment",
@@ -55,27 +42,6 @@ RiskAxis = Literal[
     "customer_concentration",
     "structural_decline",
     "governance_accounting",
-]
-TerminalMultipleStatus = Literal[
-    "within_model_bounds",
-    "below_model_min",
-    "above_model_max",
-    "dividends_alone_sufficient",
-    "calculation_unresolved",
-]
-EarningsGrowthStatus = Literal[
-    "within_model_bounds",
-    "below_model_min",
-    "above_model_max",
-    "dividends_alone_sufficient",
-    "calculation_unresolved",
-]
-ObservedTrailingMultipleStatus = Literal[
-    "resolved",
-    "missing",
-    "ambiguous",
-    "invalid",
-    "not_applicable",
 ]
 
 
@@ -213,43 +179,6 @@ class ObservedFact(BaseModel):
         return self
 
 
-class ScreeningEstimate(BaseModel):
-    """Secondary machine prior retained to explain the Research estimate delta."""
-
-    model_config = _CONFIG
-
-    origin: Literal["estimate"]
-    model_version: Annotated[str, Field(min_length=1)]
-    as_of: date
-    expected_return_annual_ratio: Annotated[float, Field(ge=-1, le=10)]
-    expected_return_unit: Literal["annual_ratio"]
-    fair_value_anchor_yen: (
-        Annotated[
-            Decimal,
-            Field(gt=Decimal("0.0001"), le=Decimal("1000000000"), decimal_places=4),
-        ]
-        | None
-    )
-    fair_value_unit: Literal["JPY_per_share"]
-    assumptions: Annotated[str, Field(min_length=1)]
-    source_ids: Annotated[tuple[Annotated[str, Field(min_length=1)], ...], Field(min_length=1)]
-
-    @field_validator("as_of", mode="before")
-    @classmethod
-    def _parse_date(cls, value: object) -> date:
-        return _date(value)
-
-    @field_validator("fair_value_anchor_yen", mode="before")
-    @classmethod
-    def _parse_fair_value(cls, value: object) -> Decimal | None:
-        return None if value is None else _decimal(value)
-
-    @field_validator("source_ids", mode="before")
-    @classmethod
-    def _parse_sources(cls, value: object) -> object:
-        return _tuple(value)
-
-
 class InputSnapshot(BaseModel):
     model_config = _CONFIG
 
@@ -262,7 +191,6 @@ class InputSnapshot(BaseModel):
     as_of: date
     sources: tuple[Source, ...]
     facts: tuple[ObservedFact, ...]
-    screening_estimate: ScreeningEstimate | None = None
 
     @field_validator("as_of", mode="before")
     @classmethod
@@ -318,115 +246,6 @@ class DerivedNamespace(BaseModel):
         return _tuple(value)
 
 
-class ScenarioEstimate(BaseModel):
-    model_config = _CONFIG
-
-    horizon_years: Literal[3, 5]
-    name: Literal["bear", "base", "bull"]
-    earnings_basis: Literal["net_income_attributable_to_owners", "fcfe"]
-    starting_earnings_fact_id: Annotated[str, Field(min_length=1)]
-    starting_earnings_yen: Annotated[Decimal, Field(gt=0, le=Decimal("10000000000000000"))]
-    annual_earnings_growth_pct: Annotated[float, Field(ge=-50, le=50)]
-    starting_share_count_fact_id: Annotated[str, Field(min_length=1)]
-    starting_share_count: Annotated[Decimal, Field(gt=0, le=Decimal("10000000000000"))]
-    annual_share_count_change_pct: Annotated[float, Field(ge=-20, le=20)]
-    terminal_valuation_multiple: Annotated[Decimal, Field(gt=0, le=100)]
-    cumulative_dividend_per_share_yen: Annotated[Decimal, Field(ge=0, le=1000000000)]
-    terminal_price_includes_dividends: Literal[False]
-    claimed_terminal_earnings_yen: Annotated[Decimal, Field(gt=0, le=Decimal("1e18"))]
-    claimed_terminal_share_count: Annotated[Decimal, Field(gt=0, le=Decimal("1e15"))]
-    claimed_terminal_price_yen: Annotated[Decimal, Field(gt=0, le=Decimal("1e12"))]
-    claimed_total_return_cagr_pct: Annotated[float, Field(ge=-100, le=1000)]
-    as_of: date
-    unit: Literal["JPY_per_share_total_return"]
-    model_version: Annotated[str, Field(min_length=1)]
-    assumption: Annotated[str, Field(min_length=1)]
-    source_ids: tuple[Annotated[str, Field(min_length=1)], ...]
-
-    @field_validator("as_of", mode="before")
-    @classmethod
-    def _parse_date(cls, value: object) -> date:
-        return _date(value)
-
-    @field_validator("source_ids", mode="before")
-    @classmethod
-    def _parse_sources(cls, value: object) -> object:
-        return _tuple(value)
-
-    @field_validator(
-        "starting_earnings_yen",
-        "starting_share_count",
-        "terminal_valuation_multiple",
-        "cumulative_dividend_per_share_yen",
-        "claimed_terminal_earnings_yen",
-        "claimed_terminal_share_count",
-        "claimed_terminal_price_yen",
-        mode="before",
-    )
-    @classmethod
-    def _parse_decimals(cls, value: object) -> Decimal:
-        return _decimal(value)
-
-
-class ScreeningFVBridge(BaseModel):
-    """Explain the primary difference from machine prior to Research FV."""
-
-    model_config = _CONFIG
-
-    primary_driver: Literal[
-        "earnings_normalization",
-        "growth",
-        "shares",
-        "multiple",
-        "dividend",
-        "required_return",
-        "other",
-    ]
-    note: Annotated[
-        str,
-        Field(
-            min_length=1,
-            pattern=(
-                r"^(?:[^\r\n]*\S[^\r\n]*(?:\r?\n[^\r\n]*)?|"
-                r"[^\r\n]*\r?\n[^\r\n]*\S[^\r\n]*)$"
-            ),
-        ),
-    ]
-
-
-class EstimatesNamespace(BaseModel):
-    model_config = _CONFIG
-
-    model_version: Annotated[str, Field(min_length=1)]
-    market_price_fact_id: Annotated[str, Field(min_length=1)]
-    entry_price_basis_yen: Annotated[
-        Decimal, Field(ge=Decimal("0.0001"), le=Decimal("1000000000"), decimal_places=4)
-    ]
-    entry_price_basis: Literal["observed_market_price"]
-    entry_price_source_ids: tuple[Annotated[str, Field(min_length=1)], ...]
-    entry_price_assumption: Annotated[str, Field(min_length=1)]
-    required_5y_base_cagr_pct: Annotated[float, Field(gt=0, le=100)]
-    current_fair_value_yen: Annotated[
-        Decimal, Field(gt=Decimal("0.0001"), le=Decimal("1000000000"), decimal_places=4)
-    ]
-    valuation_model_version: Annotated[str, Field(min_length=1)]
-    fair_value_source_ids: Annotated[
-        tuple[Annotated[str, Field(min_length=1)], ...], Field(min_length=1)
-    ]
-    scenarios: tuple[ScenarioEstimate, ...]
-    screening_fv_bridge: ScreeningFVBridge | None = None
-
-    @field_validator("scenarios", "entry_price_source_ids", "fair_value_source_ids", mode="before")
-    @classmethod
-    def _parse_scenarios(cls, value: object) -> object:
-        return _tuple(value)
-
-    @field_validator("entry_price_basis_yen", "current_fair_value_yen", mode="before")
-    @classmethod
-    def _parse_entry_price(cls, value: object) -> Decimal:
-        return _decimal(value)
-
-
 class PermanentLossRisk(BaseModel):
     model_config = _CONFIG
 
@@ -448,154 +267,123 @@ class PermanentLossRisk(BaseModel):
         return _tuple(value)
 
 
-class EvidenceOverride(BaseModel):
+class InvestmentCase(BaseModel):
     model_config = _CONFIG
+    explanation: Annotated[str, Field(min_length=1, pattern=r"\S")]
+    invalidation_conditions: Annotated[tuple[str, ...], Field(min_length=1)]
+    status: Literal["intact", "broken", "uncertain"]
+    status_reason: Annotated[str, Field(min_length=1, pattern=r"\S")]
+    source_ids: Annotated[tuple[str, ...], Field(min_length=1)]
 
-    override_id: Annotated[str, Field(min_length=1)]
-    reason: Annotated[str, Field(min_length=1)]
-    decision_reference: Annotated[str, Field(min_length=1)]
-    thesis_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-    review_id: Annotated[str, Field(min_length=1)]
-    review_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-    approved_by: Literal["human"]
-    acknowledged_risk_axes: tuple[Annotated[str, Field(min_length=1)], ...]
-    approved_at: datetime
-    expires_at: datetime
-
-    @field_validator("approved_at", "expires_at", mode="before")
+    @field_validator("invalidation_conditions", "source_ids", mode="before")
     @classmethod
-    def _parse_time(cls, value: object) -> datetime:
-        return _datetime(value)
-
-    @field_validator("acknowledged_risk_axes", mode="before")
-    @classmethod
-    def _parse_axes(cls, value: object) -> object:
+    def _sequences(cls, value: object) -> object:
         return _tuple(value)
 
+
+class Valuation(BaseModel):
+    model_config = _CONFIG
+    status: Literal["resolved", "unresolved"]
+    market_price_fact_id: str | None
+    horizon_months: Annotated[int, Field(gt=0)] | None
+    required_annual_return_pct: Annotated[Decimal, Field(gt=0)] | None
+    base: Projection | None
+    downside: Projection | None
+    unresolved_reason: str | None
+
+    @field_validator("required_annual_return_pct", mode="before")
+    @classmethod
+    def _rate(cls, value: object) -> Decimal | None:
+        return None if value is None else finite_decimal(value)
+
     @model_validator(mode="after")
-    def _valid_window(self) -> EvidenceOverride:
-        if self.expires_at <= self.approved_at:
-            raise ValueError("evidence override expires_at must follow approved_at")
-        if (self.expires_at - self.approved_at).total_seconds() > 31 * 86_400:
-            raise ValueError("evidence override cannot exceed 31 days")
+    def _resolution(self) -> Valuation:
+        values = (self.horizon_months, self.required_annual_return_pct, self.base, self.downside)
+        if self.status == "resolved":
+            if any(value is None for value in values) or not self.market_price_fact_id:
+                raise ValueError("resolved valuation requires price, horizon, rate and projections")
+            if self.unresolved_reason is not None:
+                raise ValueError("resolved valuation forbids unresolved_reason")
+        elif (
+            any(value is not None for value in values) or not (self.unresolved_reason or "").strip()
+        ):
+            raise ValueError(
+                "unresolved valuation requires a reason and null projections/horizon/rate"
+            )
         return self
 
 
 class JudgmentNamespace(BaseModel):
     model_config = _CONFIG
-
-    recommendation: Literal["buy", "defer", "reject"]
+    disposition: Literal["candidate", "defer", "reject"]
     proposed_at: datetime
-    confidence: Literal["low", "medium", "high"]
-    permanent_loss_conclusion: Literal["acceptable", "elevated", "unknown"]
-    strongest_countercase: Annotated[str, Field(min_length=1)]
-    sizing_action: Literal["normal", "reduced", "none"]
+    strongest_countercase: Annotated[str, Field(min_length=1, pattern=r"\S")]
 
     @field_validator("proposed_at", mode="before")
     @classmethod
-    def _parse_time(cls, value: object) -> datetime:
+    def _time(cls, value: object) -> datetime:
         return _datetime(value)
 
 
-class ReviewedScenario(BaseModel):
+class ReviewedProjection(BaseModel):
     model_config = _CONFIG
+    name: Literal["base", "downside"]
+    terminal_value_per_share_yen: Annotated[Decimal, Field(ge=0)]
+    cash_distribution_per_share_yen: Annotated[Decimal, Field(ge=0)]
 
-    horizon_years: Literal[3, 5]
-    name: Literal["bear", "base", "bull"]
-    total_return_cagr_pct: Annotated[float, Field(ge=-100, le=1000)]
+    @field_validator(
+        "terminal_value_per_share_yen", "cash_distribution_per_share_yen", mode="before"
+    )
+    @classmethod
+    def _number(cls, value: object) -> Decimal:
+        return finite_decimal(value)
 
 
 class ThesisReview(BaseModel):
     model_config = _CONFIG
-
     review_id: Annotated[str, Field(min_length=1)]
     reviewer_role: Literal["independent_second_pass"]
-    reviewer_identity: Annotated[str, Field(min_length=1)]
-    reviewer_run_id: Annotated[str, Field(min_length=1)]
+    reviewer_identity: Annotated[str, Field(min_length=1, pattern=r"\S")]
     reviewed_at: datetime
     reviewed_thesis_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
     primary_source_check: Literal["verified", "partially_verified", "unverified"]
-    checked_source_ids: tuple[Annotated[str, Field(min_length=1)], ...]
-    recalculated_scenarios: tuple[ReviewedScenario, ...]
-    strongest_countercase: Annotated[str, Field(min_length=1)]
-    alternative_candidate_check: Literal["compared", "unavailable"]
-    proposal_changed: bool
-    change_rationale: str | None = None
+    checked_source_ids: Annotated[tuple[str, ...], Field(min_length=1)]
+    recalculated_projections: tuple[ReviewedProjection, ...]
+    strongest_countercase: Annotated[str, Field(min_length=1, pattern=r"\S")]
+    nonmaterial_unknown_reason: str | None = None
 
     @field_validator("reviewed_at", mode="before")
     @classmethod
-    def _parse_time(cls, value: object) -> datetime:
+    def _time(cls, value: object) -> datetime:
         return _datetime(value)
 
-    @field_validator("checked_source_ids", "recalculated_scenarios", mode="before")
+    @field_validator("checked_source_ids", "recalculated_projections", mode="before")
     @classmethod
-    def _parse_sequences(cls, value: object) -> object:
+    def _sequences(cls, value: object) -> object:
         return _tuple(value)
-
-    @model_validator(mode="after")
-    def _change_has_reason(self) -> ThesisReview:
-        if self.proposal_changed != bool(self.change_rationale and self.change_rationale.strip()):
-            raise ValueError("proposal_changed and change_rationale must be specified together")
-        return self
 
 
 class ThesisDocument(BaseModel):
-    """Strict persisted contract with no legacy thesis compatibility fields."""
-
     model_config = _CONFIG
-
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     input_snapshot: InputSnapshot
     derived: DerivedNamespace
-    estimates: EstimatesNamespace
+    valuation: Valuation
+    investment_case: InvestmentCase
     permanent_loss_risks: tuple[PermanentLossRisk, ...]
     judgment: JudgmentNamespace
-    independent_review_ref: Annotated[str, Field(min_length=1)] | None = None
-    human_evidence_override: EvidenceOverride | None = None
 
     @field_validator("permanent_loss_risks", mode="before")
     @classmethod
-    def _parse_risks(cls, value: object) -> object:
+    def _risks(cls, value: object) -> object:
         return _tuple(value)
 
 
-@dataclass(frozen=True, slots=True)
-class ScenarioProjection:
-    """One scenario's terminal values at the rounding the claim comparison uses."""
-
-    terminal_earnings_yen: float
-    terminal_share_count: float
-    terminal_price_yen: float
-    total_return_cagr_pct: float
+class UnpublishedThesis(Enum):
+    DRAFT = "draft"
 
 
-@dataclass(frozen=True, slots=True)
-class ScenarioEvaluation:
-    horizon_years: int
-    name: str
-    terminal_earnings_yen: float
-    terminal_share_count: float
-    terminal_price_yen: float
-    total_return_cagr_pct: float
-
-
-@dataclass(frozen=True, slots=True)
-class FiveYearBaseBreakEvenResult:
-    required_total_value_yen: Decimal | None
-    required_total_return_cagr_pct: Decimal
-    base_terminal_valuation_multiple: Decimal
-    break_even_terminal_valuation_multiple: Decimal | None
-    terminal_multiple_downside_buffer: Decimal | None
-    terminal_multiple_status: TerminalMultipleStatus
-    base_annual_earnings_growth_pct: Decimal
-    break_even_annual_earnings_growth_pct: Decimal | None
-    earnings_growth_downside_buffer_pct_points: Decimal | None
-    earnings_growth_status: EarningsGrowthStatus
-    observed_trailing_multiple_status: ObservedTrailingMultipleStatus
-    observed_trailing_multiple_fact_id: str | None
-    observed_trailing_multiple: Decimal | None
-    base_terminal_multiple_minus_observed: Decimal | None
-    base_terminal_multiple_premium_pct: Decimal | None
+type ThesisIdentity = str | UnpublishedThesis
 
 
 @dataclass(frozen=True, slots=True)
@@ -605,15 +393,29 @@ class ThesisEvaluation:
     thesis_sha256: str
     errors: tuple[str, ...]
     warnings: tuple[str, ...]
-    scenarios: tuple[ScenarioEvaluation, ...]
-    five_year_base_break_even: FiveYearBaseBreakEvenResult | None = None
-    screening_fv_revision_pct: Decimal | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class _CurrentThesisEligibility:
-    status: Literal["current_ready", "expired_override_only", "invalid"]
-    evaluation: ThesisEvaluation
+def thesis_core_hash(document: ThesisDocument) -> str:
+    encoded = json.dumps(
+        document.model_dump(mode="json"), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def require_recorded_identity(value: object, thesis_id: str) -> str:
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+        raise ThesisError(f"thesis revision has no recorded identity: {thesis_id}")
+    return value
+
+
+def evaluation_to_payload(result: ThesisEvaluation) -> dict[str, object]:
+    return {
+        "thesis_status": result.thesis_status,
+        "decision_readiness": result.decision_readiness,
+        "thesis_sha256": result.thesis_sha256,
+        "errors": list(result.errors),
+        "warnings": list(result.warnings),
+    }
 
 
 def load_thesis(path: Path) -> ThesisDocument:
@@ -646,40 +448,6 @@ def load_thesis_review(path: Path) -> ThesisReview:
         raise ThesisError(str(error)) from error
 
 
-def _evidence_gap_axes(document: ThesisDocument) -> list[RiskAxis]:
-    source_tiers = {
-        source.source_id: source.source_tier for source in document.input_snapshot.sources
-    }
-    return [
-        risk.axis
-        for risk in document.permanent_loss_risks
-        if risk.evidence_status != "verified"
-        or risk.assessment == "unknown"
-        or not any(source_tiers.get(source_id) == "primary" for source_id in risk.source_ids)
-    ]
-
-
-def _adverse_axes(document: ThesisDocument) -> list[RiskAxis]:
-    return [risk.axis for risk in document.permanent_loss_risks if risk.assessment == "adverse"]
-
-
-def evidence_exception_axes(document: ThesisDocument) -> tuple[RiskAxis, ...]:
-    """Return every risk axis that requires explicit human acceptance before a buy."""
-
-    return tuple(sorted(set(_evidence_gap_axes(document) + _adverse_axes(document))))
-
-
-def calculate_scenarios(document: ThesisDocument) -> tuple[ScenarioEvaluation, ...]:
-    """Recalculate scenario values in document order, without identity or eligibility checks."""
-    try:
-        return tuple(
-            _recalculate_scenario(item, entry_price=document.estimates.entry_price_basis_yen)
-            for item in document.estimates.scenarios
-        )
-    except (ArithmeticError, OverflowError, ValueError) as error:
-        raise ThesisError(f"scenario calculation failed: {error}") from error
-
-
 def evaluate_thesis(
     document: ThesisDocument,
     *,
@@ -687,650 +455,153 @@ def evaluate_thesis(
     review: ThesisReview | None = None,
     now: datetime | None = None,
 ) -> ThesisEvaluation:
-    """Recalculate scenarios and determine whether the proposal is decision-ready.
+    """Check publication content; never evaluate current price, cash or buy policy.
 
-    `identity` is required and has no default on purpose. A published thesis must be
-    judged against the identity it was recorded with, and a draft has none to judge
-    against — but a forgotten optional argument would silently take the draft branch and
-    recompute, which is exactly how a published binding breaks. Making the caller say
-    which one it holds turns that mistake into a type error.
+    Source/number checks do not prove financial plausibility or truthful authoring.
+    Independent Review owns that assessment, including materiality of unknowns.
     """
-
+    instant = now or datetime.now(ZoneInfo("Asia/Tokyo"))
+    if instant.tzinfo is None or instant.utcoffset() is None:
+        raise ThesisError("evaluation instant must include a timezone")
     errors: list[str] = []
     warnings: list[str] = []
-    evaluated_at = _evaluation_instant(now)
-    if document.input_snapshot.as_of > evaluated_at.date():
-        errors.append("thesis as_of cannot be in the future")
-    if document.judgment.proposed_at.date() < document.input_snapshot.as_of:
-        errors.append("proposal cannot predate thesis as_of")
-    if document.judgment.proposed_at > evaluated_at:
-        errors.append("proposal cannot be future-dated")
-    source_ids = {source.source_id for source in document.input_snapshot.sources}
-    source_tiers = {
-        source.source_id: source.source_tier for source in document.input_snapshot.sources
-    }
-    if len(source_ids) != len(document.input_snapshot.sources):
-        errors.append("source_id must be unique")
-    if not source_ids:
-        errors.append("input_snapshot.sources must not be empty")
-    for source in document.input_snapshot.sources:
-        if source.ticker != document.input_snapshot.ticker:
-            errors.append(f"source {source.source_id} ticker does not match input_snapshot")
-        if source.as_of > document.input_snapshot.as_of:
-            errors.append(f"source {source.source_id} is after thesis as_of")
-        if source.retrieved_at.date() < source.as_of:
-            errors.append(f"source {source.source_id} was retrieved before its as_of")
-        if source.retrieved_at > evaluated_at:
-            errors.append(f"source {source.source_id} retrieval is future-dated")
-        if source.retrieved_at > document.judgment.proposed_at:
-            errors.append(f"source {source.source_id} was retrieved after the AI proposal")
-    _check_lineage(document, source_ids, errors)
-    _check_snapshot_contract(document, errors)
-    _check_screening_fv_bridge(document, source_tiers, errors, warnings)
-    required_review_source_ids = set(document.estimates.entry_price_source_ids)
-    required_review_source_ids.update(document.estimates.fair_value_source_ids)
-    for fact in document.input_snapshot.facts:
-        required_review_source_ids.update(fact.source_ids)
-    for metric in document.derived.metrics:
-        required_review_source_ids.update(metric.source_ids)
-    for scenario in document.estimates.scenarios:
-        required_review_source_ids.update(scenario.source_ids)
-    for risk in document.permanent_loss_risks:
-        required_review_source_ids.update(risk.source_ids)
-
-    scenarios = calculate_scenarios(document)
-    _check_derived_metrics(document, errors)
-    _check_scenario_fact_inputs(document, errors)
-    keys = {(item.horizon_years, item.name) for item in document.estimates.scenarios}
-    if keys != _SCENARIO_KEYS or len(keys) != len(document.estimates.scenarios):
-        errors.append("scenarios must contain each bear/base/bull 3y/5y pair exactly once")
-    by_horizon: dict[int, dict[str, float]] = {3: {}, 5: {}}
-    for supplied, calculated in zip(document.estimates.scenarios, scenarios, strict=True):
-        by_horizon[supplied.horizon_years][supplied.name] = calculated.total_return_cagr_pct
-        _compare_claims(supplied, calculated, errors)
-        if supplied.model_version != document.estimates.model_version:
-            errors.append(
-                f"scenario {supplied.horizon_years}y/{supplied.name} model version mismatch"
-            )
-        if supplied.as_of != document.input_snapshot.as_of:
-            errors.append(f"scenario {supplied.horizon_years}y/{supplied.name} as_of mismatch")
-    for horizon, values in by_horizon.items():
-        if set(values) == {"bear", "base", "bull"} and not (
-            values["bear"] <= values["base"] <= values["bull"]
+    snapshot = document.input_snapshot
+    proposed = document.judgment.proposed_at
+    if snapshot.as_of > instant.date() or proposed > instant or proposed.date() < snapshot.as_of:
+        errors.append("invalid proposal/as_of time")
+    sources = {source.source_id: source for source in snapshot.sources}
+    if not sources or len(sources) != len(snapshot.sources):
+        errors.append("input_snapshot requires unique sources")
+    for source in snapshot.sources:
+        if source.ticker != snapshot.ticker:
+            errors.append(f"source {source.source_id} ticker mismatch")
+        if (
+            source.as_of > snapshot.as_of
+            or source.retrieved_at > proposed
+            or source.retrieved_at.date() < source.as_of
         ):
-            errors.append(f"scenario total returns are not ordered for {horizon}y")
-
-    risk_by_axis = {risk.axis: risk for risk in document.permanent_loss_risks}
-    if len(risk_by_axis) != len(document.permanent_loss_risks):
-        errors.append("permanent-loss risk axes must be unique")
-    for axis in sorted(_RISK_AXES - set(risk_by_axis)):
-        errors.append(f"missing permanent-loss risk axis: {axis}")
-    expected_conclusion = _risk_conclusion(document.permanent_loss_risks)
-    if document.judgment.permanent_loss_conclusion != expected_conclusion:
-        errors.append("judgment.permanent_loss_conclusion contradicts permanent-loss risk axes")
-    evidence_gaps = _evidence_gap_axes(document)
-    if evidence_gaps:
-        warnings.append(f"permanent-loss evidence incomplete: {sorted(evidence_gaps)}")
-    if evidence_gaps and document.judgment.confidence == "high":
-        errors.append("high confidence is not allowed with incomplete primary evidence")
-
-    adverse_axes = _adverse_axes(document)
-    if adverse_axes:
-        warnings.append(f"permanent-loss risk is adverse: {sorted(adverse_axes)}")
-    exception_axes = sorted(set(evidence_gaps + adverse_axes))
-    override = document.human_evidence_override
-    if override is not None and not set(exception_axes).issubset(override.acknowledged_risk_axes):
-        errors.append("evidence override must acknowledge every incomplete or adverse risk axis")
-
+            errors.append(f"source {source.source_id} has invalid time")
+    facts = {fact.fact_id: fact for fact in snapshot.facts}
+    if len(facts) != len(snapshot.facts):
+        errors.append("fact_id must be unique")
+    required_sources: set[str] = set()
+    items: tuple[ObservedFact | DerivedMetric | PermanentLossRisk | InvestmentCase, ...] = (
+        *snapshot.facts,
+        *document.derived.metrics,
+        *document.permanent_loss_risks,
+        document.investment_case,
+    )
+    for item in items:
+        refs = set(item.source_ids)
+        required_sources.update(refs)
+        if not refs or not refs.issubset(sources):
+            errors.append("unknown or missing source reference")
+        if hasattr(item, "as_of") and item.as_of > snapshot.as_of:
+            errors.append("fact/metric/risk is after thesis as_of")
+    for fact in snapshot.facts:
+        if any(sources[ref].as_of < fact.as_of for ref in fact.source_ids if ref in sources):
+            errors.append(f"fact {fact.fact_id} postdates its source")
+        if fact.fact_kind == "market_price":
+            if fact.unit != "JPY_per_share" or fact.price_basis not in {
+                "realtime",
+                "last_close_unadjusted",
+            }:
+                errors.append("market_price requires unadjusted JPY_per_share basis")
+            if isinstance(fact.value, (bool, str)) or finite_decimal(fact.value) <= 0:
+                errors.append("market_price must be a positive number")
+            if (
+                fact.observed_at is None
+                or fact.observed_at.date() != fact.as_of
+                or fact.observed_at > proposed
+            ):
+                errors.append("market_price observation time mismatch")
+        if fact.fact_kind == "valuation_metric" and (
+            fact.unit not in {"ratio", "percent", "JPY_per_share"}
+            or isinstance(fact.value, (bool, str))
+        ):
+            errors.append("valuation_metric numeric/unit mismatch")
+    valuation = document.valuation
+    if valuation.market_price_fact_id is not None:
+        price_fact = facts.get(valuation.market_price_fact_id)
+        if price_fact is None or price_fact.fact_kind != "market_price":
+            errors.append("valuation price fact does not resolve")
+    for projection in (valuation.base, valuation.downside):
+        if projection is not None:
+            required_sources.update(projection.source_ids)
+            if not set(projection.source_ids).issubset(sources):
+                errors.append("projection references unknown source")
+    axes = [risk.axis for risk in document.permanent_loss_risks]
+    if len(axes) != len(_RISK_AXES) or set(axes) != _RISK_AXES:
+        errors.append("all seven permanent-loss risk axes are required exactly once")
+    gaps = [
+        risk.axis
+        for risk in document.permanent_loss_risks
+        if risk.assessment == "unknown" or risk.evidence_status != "verified"
+    ]
+    if gaps:
+        warnings.append(f"permanent-loss evidence incomplete: {gaps}")
+    case = document.investment_case
+    disposition = document.judgment.disposition
+    if case.status == "broken" and disposition != "reject":
+        errors.append("broken investment case requires reject")
+    if case.status == "uncertain" and disposition == "candidate":
+        errors.append("uncertain investment case cannot be candidate")
+    if disposition == "candidate" and valuation.status != "resolved":
+        errors.append("candidate requires resolved valuation")
+    _check_derived_metrics(document, errors)
     core_hash = thesis_core_hash(document) if identity is UnpublishedThesis.DRAFT else identity
-    if document.judgment.recommendation == "buy":
-        minimum_return = PORTFOLIO_POLICY["valuation"]["minimum_required_5y_base_cagr_pct"]
-        if document.estimates.required_5y_base_cagr_pct < minimum_return:
-            errors.append(
-                "buy recommendation requires a 5y base CAGR requirement of at least "
-                f"{minimum_return}"
-            )
-        if document.judgment.permanent_loss_conclusion == "elevated":
-            errors.append("buy recommendation cannot carry elevated permanent loss")
-        if document.judgment.sizing_action == "none":
-            errors.append("buy recommendation requires normal or reduced sizing")
-        if review is None or document.independent_review_ref is None:
-            errors.append("buy recommendation requires a Thesis Review")
-        else:
-            _check_review(
-                review,
-                core_hash,
-                document.input_snapshot,
-                document.judgment,
-                evaluated_at,
-                source_ids,
-                required_review_source_ids,
-                scenarios,
-                errors,
-                warnings,
-            )
-            valid_evidence_override = _has_valid_evidence_override(
-                document, review=review, evaluated_at=evaluated_at, core_sha256=core_hash
-            )
-            if exception_axes and not valid_evidence_override:
-                errors.append(_INCOMPLETE_EVIDENCE_OVERRIDE_REQUIRED)
-            if review.primary_source_check != "verified" and not valid_evidence_override:
-                errors.append(_PRIMARY_REVIEW_OVERRIDE_REQUIRED)
-            if not exception_axes and document.judgment.sizing_action == "reduced":
-                errors.append("reduced sizing is reserved for a human-accepted evidence gap")
-    elif review is not None:
-        _check_review(
-            review,
-            core_hash,
-            document.input_snapshot,
-            document.judgment,
-            evaluated_at,
-            source_ids,
-            required_review_source_ids,
-            scenarios,
-            errors,
-            warnings,
+    if review is None:
+        errors.append("Reviewed Thesis requires a Thesis Review")
+    else:
+        if review.reviewed_thesis_sha256 != core_hash:
+            errors.append("Thesis Review hash does not match thesis")
+        if not proposed <= review.reviewed_at <= instant:
+            errors.append("Thesis Review time must follow proposal and not be future-dated")
+        if not set(review.checked_source_ids).issubset(sources) or not required_sources.issubset(
+            review.checked_source_ids
+        ):
+            errors.append("Thesis Review source coverage mismatch")
+        primary_checked = any(
+            sources[ref].source_tier == "primary"
+            for ref in review.checked_source_ids
+            if ref in sources
         )
-
+        if review.primary_source_check == "verified" and not primary_checked:
+            errors.append("verified review must check a primary source")
+        if disposition == "candidate" and review.primary_source_check != "verified":
+            errors.append("candidate requires verified material primary evidence")
+        if (
+            disposition == "candidate"
+            and gaps
+            and not (review.nonmaterial_unknown_reason or "").strip()
+        ):
+            errors.append("candidate with unknowns requires Review's nonmaterial explanation")
+        checked: dict[str, ReviewedProjection] = {
+            item.name: item for item in review.recalculated_projections
+        }
+        expected = {"base", "downside"} if valuation.status == "resolved" else set()
+        if set(checked) != expected or len(checked) != len(review.recalculated_projections):
+            errors.append("Review requires exactly Base/Downside for resolved valuation")
+        for name, original in (("base", valuation.base), ("downside", valuation.downside)):
+            recalculated = checked.get(name)
+            if original is not None and recalculated is not None:
+                for field in ("terminal_value_per_share_yen", "cash_distribution_per_share_yen"):
+                    if abs(getattr(original, field) - getattr(recalculated, field)) > Decimal(
+                        "0.0001"
+                    ):
+                        errors.append(f"Review {name} {field} mismatch")
+    status: Literal["incomplete", "review_required", "ready", "ready_with_warnings"] = (
+        "ready_with_warnings" if warnings else "ready"
+    )
     if errors:
-        status: Literal["incomplete", "review_required", "ready", "ready_with_warnings"] = (
+        status = (
             "review_required"
-            if errors == ["buy recommendation requires a Thesis Review"]
+            if errors == ["Reviewed Thesis requires a Thesis Review"]
             else "incomplete"
         )
-    else:
-        status = "ready_with_warnings" if warnings else "ready"
-    five_year_base = next(
-        (
-            item
-            for item in document.estimates.scenarios
-            if item.horizon_years == 5 and item.name == "base"
-        ),
-        None,
-    )
     return ThesisEvaluation(
-        thesis_status=status,
-        decision_readiness="ready" if status in {"ready", "ready_with_warnings"} else "not_ready",
-        thesis_sha256=core_hash,
-        errors=tuple(errors),
-        warnings=tuple(warnings),
-        scenarios=tuple(
-            sorted(
-                scenarios,
-                key=lambda item: (item.horizon_years, _SCENARIO_ORDER[item.name]),
-            )
-        ),
-        five_year_base_break_even=(
-            _calculate_five_year_base_break_even(document, five_year_base)
-            if five_year_base is not None
-            else None
-        ),
-        screening_fv_revision_pct=_calculate_screening_fv_revision_pct(document),
+        status, "not_ready" if errors else "ready", core_hash, tuple(errors), tuple(warnings)
     )
-
-
-def _classify_current_thesis_eligibility(
-    document: ThesisDocument,
-    *,
-    review: ThesisReview,
-    now: datetime,
-    identity: ThesisIdentity,
-) -> _CurrentThesisEligibility:
-    """Classify current readiness without exposing override policy to consumers."""
-    evaluated_at = _evaluation_instant(now)
-    result = evaluate_thesis(document, review=review, now=evaluated_at, identity=identity)
-    if not result.errors and result.decision_readiness == "ready":
-        return _CurrentThesisEligibility("current_ready", result)
-    override_status = _evidence_override_status(
-        document,
-        review=review,
-        evaluated_at=evaluated_at,
-        core_sha256=result.thesis_sha256,
-    )
-    if (
-        override_status == "expired"
-        and result.errors
-        and set(result.errors).issubset(_EXPIRY_ONLY_ERRORS)
-    ):
-        return _CurrentThesisEligibility("expired_override_only", result)
-    return _CurrentThesisEligibility("invalid", result)
-
-
-def _evaluation_instant(now: datetime | None) -> datetime:
-    evaluated_at = now or datetime.now(tz=ZoneInfo("Asia/Tokyo"))
-    if evaluated_at.tzinfo is None or evaluated_at.utcoffset() is None:
-        raise ThesisError("evaluation instant must include a timezone")
-    return evaluated_at.astimezone(ZoneInfo("Asia/Tokyo"))
-
-
-class UnpublishedThesis(Enum):
-    """A thesis that has no recorded identity because it is not published yet."""
-
-    DRAFT = "draft"
-
-
-# Either the identity a published thesis was recorded with, or the marker that says the
-# caller holds a draft and the hash must be computed from the document.
-type ThesisIdentity = str | UnpublishedThesis
-
-
-def thesis_core_hash(document: ThesisDocument) -> str:
-    """The identity a review binds to, for a thesis that is not published yet.
-
-    A published thesis does not use this: `promote` records the hash it computed here
-    and every later reader passes that recorded value to `evaluate_thesis`. Deriving it
-    again would make the identity a property of the current model — adding or dropping a
-    field would move the hash of theses published years earlier, and the review,
-    Position Review, Capital Allocation Assessment and price watch bound to them would all
-    stop reading at once. Keeping the derivation for drafts only is what lets this stay a
-    plain hash with no per-field special cases.
-    """
-    payload = document.model_dump(mode="json", exclude={"human_evidence_override"})
-    try:
-        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    except (OverflowError, ValueError) as error:
-        raise ThesisError(f"thesis cannot be hashed: {error}") from error
-    return hashlib.sha256(encoded.encode()).hexdigest()
-
-
-def require_recorded_identity(value: object, thesis_id: str) -> str:
-    """The identity a published thesis was recorded with, or a refusal.
-
-    Only a row written outside the application service can be missing it. Falling back
-    to recomputing would answer with the current model's hash — the drift the recorded
-    column exists to stop — so the readers refuse instead.
-    """
-    if not isinstance(value, str) or len(value) != 64:
-        raise ThesisError(f"thesis revision has no recorded identity: {thesis_id}")
-    return value
-
-
-def thesis_review_hash(review: ThesisReview) -> str:
-    payload = review.model_dump(mode="json")
-    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(encoded.encode()).hexdigest()
-
-
-def evaluation_to_payload(result: ThesisEvaluation) -> dict[str, object]:
-    return {
-        "thesis_status": result.thesis_status,
-        "decision_readiness": result.decision_readiness,
-        "thesis_sha256": result.thesis_sha256,
-        "errors": list(result.errors),
-        "warnings": list(result.warnings),
-        "scenarios": [
-            {
-                "horizon_years": item.horizon_years,
-                "name": item.name,
-                "terminal_earnings_yen": item.terminal_earnings_yen,
-                "terminal_share_count": item.terminal_share_count,
-                "terminal_price_yen": item.terminal_price_yen,
-                "total_return_cagr_pct": item.total_return_cagr_pct,
-            }
-            for item in result.scenarios
-        ],
-        "five_year_base_break_even": _five_year_base_break_even_to_payload(
-            result.five_year_base_break_even
-        ),
-        "screening_fv_revision_pct": _round_payload_decimal(result.screening_fv_revision_pct),
-    }
-
-
-def _calculate_screening_fv_revision_pct(
-    document: ThesisDocument,
-) -> Decimal | None:
-    screening_estimate = document.input_snapshot.screening_estimate
-    if screening_estimate is None or screening_estimate.fair_value_anchor_yen is None:
-        return None
-    try:
-        with localcontext() as context:
-            context.prec = 50
-            revision_pct = (
-                document.estimates.current_fair_value_yen / screening_estimate.fair_value_anchor_yen
-                - Decimal(1)
-            ) * Decimal(100)
-    except (DecimalException, ArithmeticError, OverflowError, ValueError):
-        return None
-    return revision_pct if revision_pct.is_finite() else None
-
-
-def _calculate_five_year_base_break_even(
-    document: ThesisDocument,
-    scenario: ScenarioEstimate,
-) -> FiveYearBaseBreakEvenResult:
-    required_return = Decimal(str(document.estimates.required_5y_base_cagr_pct))
-    base_multiple = scenario.terminal_valuation_multiple
-    base_growth = Decimal(str(scenario.annual_earnings_growth_pct))
-    (
-        observed_status,
-        observed_fact_id,
-        observed_multiple,
-        base_minus_observed,
-        base_premium_pct,
-    ) = _observed_trailing_multiple(document, scenario)
-
-    required_total_value: Decimal | None = None
-    break_even_multiple: Decimal | None = None
-    multiple_buffer: Decimal | None = None
-    multiple_status: TerminalMultipleStatus = "calculation_unresolved"
-    break_even_growth: Decimal | None = None
-    growth_buffer: Decimal | None = None
-    growth_status: EarningsGrowthStatus = "calculation_unresolved"
-    try:
-        with localcontext() as context:
-            context.prec = 50
-            one = Decimal(1)
-            hundred = Decimal(100)
-            horizon = Decimal(scenario.horizon_years)
-            required_total_value = (
-                document.estimates.entry_price_basis_yen
-                * (one + required_return / hundred) ** scenario.horizon_years
-            )
-            if not required_total_value.is_finite():
-                raise ArithmeticError("required total value must be finite")
-
-            dividends = scenario.cumulative_dividend_per_share_yen
-            if dividends >= required_total_value:
-                multiple_status = "dividends_alone_sufficient"
-                growth_status = "dividends_alone_sufficient"
-            else:
-                terminal_shares = (
-                    scenario.starting_share_count
-                    * (one + Decimal(str(scenario.annual_share_count_change_pct)) / hundred)
-                    ** scenario.horizon_years
-                )
-                terminal_earnings = (
-                    scenario.starting_earnings_yen
-                    * (one + base_growth / hundred) ** scenario.horizon_years
-                )
-                break_even_multiple = (
-                    (required_total_value - dividends) * terminal_shares / terminal_earnings
-                )
-                if not break_even_multiple.is_finite():
-                    raise ArithmeticError("break-even terminal multiple must be finite")
-                multiple_buffer = base_multiple - break_even_multiple
-                multiple_status = _terminal_multiple_status(break_even_multiple)
-
-                earnings_growth_ratio = (
-                    (required_total_value - dividends)
-                    * terminal_shares
-                    / (scenario.starting_earnings_yen * base_multiple)
-                )
-                if not earnings_growth_ratio.is_finite() or earnings_growth_ratio <= 0:
-                    raise ArithmeticError("break-even earnings growth ratio must be positive")
-                break_even_growth = ((earnings_growth_ratio.ln() / horizon).exp() - one) * hundred
-                if not break_even_growth.is_finite():
-                    raise ArithmeticError("break-even earnings growth must be finite")
-                growth_buffer = base_growth - break_even_growth
-                growth_status = _earnings_growth_status(break_even_growth)
-    except (DecimalException, ArithmeticError, OverflowError, ValueError):
-        required_total_value = None
-        break_even_multiple = None
-        multiple_buffer = None
-        multiple_status = "calculation_unresolved"
-        break_even_growth = None
-        growth_buffer = None
-        growth_status = "calculation_unresolved"
-
-    return FiveYearBaseBreakEvenResult(
-        required_total_value_yen=required_total_value,
-        required_total_return_cagr_pct=required_return,
-        base_terminal_valuation_multiple=base_multiple,
-        break_even_terminal_valuation_multiple=break_even_multiple,
-        terminal_multiple_downside_buffer=multiple_buffer,
-        terminal_multiple_status=multiple_status,
-        base_annual_earnings_growth_pct=base_growth,
-        break_even_annual_earnings_growth_pct=break_even_growth,
-        earnings_growth_downside_buffer_pct_points=growth_buffer,
-        earnings_growth_status=growth_status,
-        observed_trailing_multiple_status=observed_status,
-        observed_trailing_multiple_fact_id=observed_fact_id,
-        observed_trailing_multiple=observed_multiple,
-        base_terminal_multiple_minus_observed=base_minus_observed,
-        base_terminal_multiple_premium_pct=base_premium_pct,
-    )
-
-
-def _terminal_multiple_status(value: Decimal) -> TerminalMultipleStatus:
-    if value <= 0:
-        return "below_model_min"
-    if value > 100:
-        return "above_model_max"
-    return "within_model_bounds"
-
-
-def _earnings_growth_status(value: Decimal) -> EarningsGrowthStatus:
-    if value < -50:
-        return "below_model_min"
-    if value > 50:
-        return "above_model_max"
-    return "within_model_bounds"
-
-
-def _observed_trailing_multiple(
-    document: ThesisDocument,
-    scenario: ScenarioEstimate,
-) -> tuple[
-    ObservedTrailingMultipleStatus,
-    str | None,
-    Decimal | None,
-    Decimal | None,
-    Decimal | None,
-]:
-    if scenario.earnings_basis != "net_income_attributable_to_owners":
-        return "not_applicable", None, None, None, None
-
-    candidates = [
-        fact
-        for fact in document.input_snapshot.facts
-        if fact.fact_id == "trailing-per" or fact.fact_id.startswith("trailing-per-")
-    ]
-    if not candidates:
-        return "missing", None, None, None, None
-    if len(candidates) > 1:
-        return "ambiguous", None, None, None, None
-
-    fact = candidates[0]
-    try:
-        value = _observed_fact_decimal(fact.value)
-    except (InvalidOperation, TypeError, ValueError):
-        value = None
-    resolved_sources: list[Source] = []
-    for source_id in fact.source_ids:
-        matches = [
-            source for source in document.input_snapshot.sources if source.source_id == source_id
-        ]
-        if len(matches) != 1:
-            return "invalid", fact.fact_id, None, None, None
-        resolved_sources.append(matches[0])
-    if (
-        fact.fact_kind != "valuation_metric"
-        or fact.unit != "ratio"
-        or fact.as_of != document.input_snapshot.as_of
-        or value is None
-        or value <= 0
-        or not any(source.source_tier == "local_data" for source in resolved_sources)
-    ):
-        return "invalid", fact.fact_id, None, None, None
-
-    base_multiple = scenario.terminal_valuation_multiple
-    return (
-        "resolved",
-        fact.fact_id,
-        value,
-        base_multiple - value,
-        (base_multiple / value - Decimal(1)) * Decimal(100),
-    )
-
-
-def _observed_fact_decimal(value: object) -> Decimal:
-    if isinstance(value, bool) or not isinstance(value, int | float | Decimal):
-        raise TypeError("observed multiple must be numeric")
-    parsed = Decimal(str(value))
-    if not parsed.is_finite():
-        raise ValueError("observed multiple must be finite")
-    return parsed
-
-
-def _five_year_base_break_even_to_payload(
-    result: FiveYearBaseBreakEvenResult | None,
-) -> dict[str, object] | None:
-    if result is None:
-        return None
-    return {
-        "required_total_value_yen": _round_payload_decimal(result.required_total_value_yen),
-        "required_total_return_cagr_pct": _round_payload_decimal(
-            result.required_total_return_cagr_pct
-        ),
-        "base_terminal_valuation_multiple": _round_payload_decimal(
-            result.base_terminal_valuation_multiple
-        ),
-        "break_even_terminal_valuation_multiple": _round_payload_decimal(
-            result.break_even_terminal_valuation_multiple
-        ),
-        "terminal_multiple_downside_buffer": _round_payload_decimal(
-            result.terminal_multiple_downside_buffer
-        ),
-        "terminal_multiple_status": result.terminal_multiple_status,
-        "base_annual_earnings_growth_pct": _round_payload_decimal(
-            result.base_annual_earnings_growth_pct
-        ),
-        "break_even_annual_earnings_growth_pct": _round_payload_decimal(
-            result.break_even_annual_earnings_growth_pct
-        ),
-        "earnings_growth_downside_buffer_pct_points": _round_payload_decimal(
-            result.earnings_growth_downside_buffer_pct_points
-        ),
-        "earnings_growth_status": result.earnings_growth_status,
-        "observed_trailing_multiple_status": result.observed_trailing_multiple_status,
-        "observed_trailing_multiple_fact_id": result.observed_trailing_multiple_fact_id,
-        "observed_trailing_multiple": _round_payload_decimal(result.observed_trailing_multiple),
-        "base_terminal_multiple_minus_observed": _round_payload_decimal(
-            result.base_terminal_multiple_minus_observed
-        ),
-        "base_terminal_multiple_premium_pct": _round_payload_decimal(
-            result.base_terminal_multiple_premium_pct
-        ),
-    }
-
-
-def _round_payload_decimal(value: Decimal | None) -> float | None:
-    if value is None:
-        return None
-    try:
-        with localcontext() as context:
-            integer_digits = max(value.adjusted() + 1, 1)
-            context.prec = max(50, integer_digits + 5)
-            rounded = value.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
-            payload_value = float(rounded)
-    except (DecimalException, OverflowError, ValueError):
-        return None
-    return payload_value if math.isfinite(payload_value) else None
-
-
-def project_scenario(
-    *,
-    horizon_years: int,
-    starting_earnings_yen: float,
-    annual_earnings_growth_pct: float,
-    starting_share_count: float,
-    annual_share_count_change_pct: float,
-    terminal_valuation_multiple: float,
-    cumulative_dividend_per_share_yen: float,
-    entry_price_yen: float,
-) -> ScenarioProjection:
-    """Project one scenario's terminal values from its parameters.
-
-    This is the arithmetic `_compare_claims` measures a thesis against, exposed so a
-    thesis author derives the claimed values from the same code that later checks
-    them. Values come back at the rounding the comparison uses; a second
-    implementation of the formula would drift from it silently.
-    """
-
-    terminal_earnings = starting_earnings_yen * (1 + annual_earnings_growth_pct / 100) ** (
-        horizon_years
-    )
-    terminal_shares = starting_share_count * (1 + annual_share_count_change_pct / 100) ** (
-        horizon_years
-    )
-    terminal_price = terminal_earnings / terminal_shares * terminal_valuation_multiple
-    total_value = terminal_price + cumulative_dividend_per_share_yen
-    cagr = ((total_value / entry_price_yen) ** (1 / horizon_years) - 1) * 100
-    return ScenarioProjection(
-        terminal_earnings_yen=round(terminal_earnings, 2),
-        terminal_share_count=round(terminal_shares, 4),
-        terminal_price_yen=round(terminal_price, 4),
-        total_return_cagr_pct=round(cagr, 2),
-    )
-
-
-def _recalculate_scenario(
-    scenario: ScenarioEstimate, *, entry_price: Decimal
-) -> ScenarioEvaluation:
-    horizon = scenario.horizon_years
-    projection = project_scenario(
-        horizon_years=horizon,
-        starting_earnings_yen=float(scenario.starting_earnings_yen),
-        annual_earnings_growth_pct=scenario.annual_earnings_growth_pct,
-        starting_share_count=float(scenario.starting_share_count),
-        annual_share_count_change_pct=scenario.annual_share_count_change_pct,
-        terminal_valuation_multiple=float(scenario.terminal_valuation_multiple),
-        cumulative_dividend_per_share_yen=float(scenario.cumulative_dividend_per_share_yen),
-        entry_price_yen=float(entry_price),
-    )
-    if not all(
-        math.isfinite(value)
-        for value in (
-            projection.terminal_earnings_yen,
-            projection.terminal_share_count,
-            projection.terminal_price_yen,
-            projection.total_return_cagr_pct,
-        )
-    ):
-        raise ThesisError(f"scenario {horizon}y/{scenario.name} calculation must remain finite")
-    return ScenarioEvaluation(
-        horizon_years=horizon,
-        name=scenario.name,
-        terminal_earnings_yen=projection.terminal_earnings_yen,
-        terminal_share_count=projection.terminal_share_count,
-        terminal_price_yen=projection.terminal_price_yen,
-        total_return_cagr_pct=projection.total_return_cagr_pct,
-    )
-
-
-def _compare_claims(
-    supplied: ScenarioEstimate, calculated: ScenarioEvaluation, errors: list[str]
-) -> None:
-    key = f"{supplied.horizon_years}y/{supplied.name}"
-    checks = (
-        (
-            "terminal earnings",
-            float(supplied.claimed_terminal_earnings_yen),
-            calculated.terminal_earnings_yen,
-            0.01,
-        ),
-        (
-            "terminal share count",
-            float(supplied.claimed_terminal_share_count),
-            calculated.terminal_share_count,
-            0.0001,
-        ),
-        (
-            "terminal price",
-            float(supplied.claimed_terminal_price_yen),
-            calculated.terminal_price_yen,
-            0.0001,
-        ),
-        (
-            "total-return CAGR",
-            supplied.claimed_total_return_cagr_pct,
-            calculated.total_return_cagr_pct,
-            0.01,
-        ),
-    )
-    for label, claimed, expected, tolerance in checks:
-        if not math.isclose(claimed, expected, abs_tol=tolerance):
-            errors.append(f"scenario {key} {label} mismatch: expected {expected}, got {claimed}")
 
 
 def _check_derived_metrics(document: ThesisDocument, errors: list[str]) -> None:
@@ -1378,260 +649,3 @@ def _check_derived_metrics(document: ThesisDocument, errors: list[str]) -> None:
             errors.append(
                 f"metric {metric.metric_id} value mismatch: expected {expected}, got {metric.value}"
             )
-
-
-def _check_snapshot_contract(document: ThesisDocument, errors: list[str]) -> None:
-    """Enforce the minimum self-contained decision-time input snapshot."""
-
-    facts = document.input_snapshot.facts
-    market_prices = [fact for fact in facts if fact.fact_kind == "market_price"]
-    valuations = [fact for fact in facts if fact.fact_kind == "valuation_metric"]
-    if len(market_prices) != 1:
-        errors.append("input_snapshot requires exactly one market_price fact")
-    if not valuations:
-        errors.append("input_snapshot requires at least one valuation_metric fact")
-    for fact in market_prices:
-        if fact.fact_id != document.estimates.market_price_fact_id:
-            errors.append("estimates.market_price_fact_id does not match snapshot market price")
-        if fact.unit != "JPY_per_share":
-            errors.append("market_price fact unit must be JPY_per_share")
-        if fact.as_of != document.input_snapshot.as_of:
-            errors.append("market_price fact as_of must equal input_snapshot as_of")
-        if fact.observed_at is not None:
-            if fact.observed_at.date() != fact.as_of:
-                errors.append("market_price observed_at date must equal its as_of")
-            if fact.observed_at > document.judgment.proposed_at:
-                errors.append("market_price was observed after the AI proposal")
-        if isinstance(fact.value, bool | str) or fact.value <= 0:
-            errors.append("market_price fact must be a positive number")
-        elif Decimal(str(fact.value)) != document.estimates.entry_price_basis_yen:
-            errors.append("observed_market_price entry basis must equal snapshot market price")
-    allowed_valuation_units = {"ratio", "percent", "JPY_per_share"}
-    for fact in valuations:
-        if fact.unit not in allowed_valuation_units:
-            errors.append(f"valuation fact {fact.fact_id} has unsupported unit {fact.unit}")
-        if isinstance(fact.value, bool | str):
-            errors.append(f"valuation fact {fact.fact_id} must be numeric")
-
-
-def _check_screening_fv_bridge(
-    document: ThesisDocument,
-    source_tiers: Mapping[str, str],
-    errors: list[str],
-    warnings: list[str],
-) -> None:
-    screening_estimate = document.input_snapshot.screening_estimate
-    bridge = document.estimates.screening_fv_bridge
-    if screening_estimate is not None:
-        if screening_estimate.as_of != document.input_snapshot.as_of:
-            errors.append("input_snapshot.screening_estimate.as_of must equal thesis as_of")
-        if not any(
-            source_tiers.get(source_id) == "local_data"
-            for source_id in screening_estimate.source_ids
-        ):
-            errors.append("input_snapshot.screening_estimate requires a local_data source")
-    anchor = None if screening_estimate is None else screening_estimate.fair_value_anchor_yen
-    if bridge is not None and anchor is None:
-        errors.append(
-            "estimates.screening_fv_bridge requires "
-            "input_snapshot.screening_estimate.fair_value_anchor_yen"
-        )
-    elif anchor is not None and bridge is None:
-        warnings.append("screening fair-value anchor has no screening_fv_bridge")
-
-
-def _check_scenario_fact_inputs(document: ThesisDocument, errors: list[str]) -> None:
-    facts = {fact.fact_id: fact for fact in document.input_snapshot.facts}
-    if len(facts) != len(document.input_snapshot.facts):
-        errors.append("input_snapshot fact_id must be unique")
-    for scenario in document.estimates.scenarios:
-        key = f"{scenario.horizon_years}y/{scenario.name}"
-        pairs = (
-            (
-                "starting earnings",
-                scenario.starting_earnings_fact_id,
-                scenario.starting_earnings_yen,
-                "JPY",
-                scenario.earnings_basis,
-            ),
-            (
-                "starting share count",
-                scenario.starting_share_count_fact_id,
-                scenario.starting_share_count,
-                "shares",
-                "shares_outstanding",
-            ),
-        )
-        for label, fact_id, supplied, expected_unit, expected_kind in pairs:
-            fact = facts.get(fact_id)
-            if fact is None:
-                errors.append(f"scenario {key} {label} references unknown fact {fact_id}")
-                continue
-            if fact.unit != expected_unit:
-                errors.append(
-                    f"scenario {key} {label} fact unit must be {expected_unit}, got {fact.unit}"
-                )
-            if fact.fact_kind != expected_kind:
-                errors.append(
-                    f"scenario {key} {label} fact kind must be {expected_kind}, "
-                    f"got {fact.fact_kind}"
-                )
-            if isinstance(fact.value, bool | str):
-                errors.append(f"scenario {key} {label} fact must be numeric")
-                continue
-            if Decimal(str(fact.value)) != supplied:
-                errors.append(f"scenario {key} {label} does not match observed fact {fact_id}")
-
-
-def _check_lineage(document: ThesisDocument, source_ids: set[str], errors: list[str]) -> None:
-    rows: list[tuple[str, date, tuple[str, ...]]] = []
-    rows.extend(
-        (f"fact {item.fact_id}", item.as_of, item.source_ids)
-        for item in document.input_snapshot.facts
-    )
-    rows.extend(
-        (f"metric {item.metric_id}", item.as_of, item.source_ids)
-        for item in document.derived.metrics
-    )
-    rows.extend(
-        (f"scenario {item.horizon_years}y/{item.name}", item.as_of, item.source_ids)
-        for item in document.estimates.scenarios
-    )
-    rows.append(
-        (
-            "estimate entry price basis",
-            document.input_snapshot.as_of,
-            document.estimates.entry_price_source_ids,
-        )
-    )
-    rows.append(
-        (
-            "estimate current fair value",
-            document.input_snapshot.as_of,
-            document.estimates.fair_value_source_ids,
-        )
-    )
-    if document.input_snapshot.screening_estimate is not None:
-        rows.append(
-            (
-                "screening estimate",
-                document.input_snapshot.screening_estimate.as_of,
-                document.input_snapshot.screening_estimate.source_ids,
-            )
-        )
-    rows.extend(
-        (f"risk {item.axis}", item.as_of, item.source_ids) for item in document.permanent_loss_risks
-    )
-    sources = {source.source_id: source for source in document.input_snapshot.sources}
-    for label, as_of, references in rows:
-        if not references:
-            errors.append(f"{label} requires source_ids")
-        unknown = sorted(set(references) - source_ids)
-        if unknown:
-            errors.append(f"{label} references unknown sources: {unknown}")
-        if as_of > document.input_snapshot.as_of:
-            errors.append(f"{label} as_of is after thesis as_of")
-        if (document.input_snapshot.as_of - as_of).days > 400:
-            errors.append(f"{label} is more than 400 days older than thesis as_of")
-        for source_id in references:
-            source = sources.get(source_id)
-            if source is not None and (as_of - source.as_of).days > 400:
-                errors.append(f"{label} source {source_id} is more than 400 days old")
-
-
-def _risk_conclusion(risks: tuple[PermanentLossRisk, ...]) -> str:
-    if any(risk.assessment == "adverse" for risk in risks):
-        return "elevated"
-    if any(risk.assessment == "unknown" for risk in risks):
-        return "unknown"
-    return "acceptable"
-
-
-def _has_valid_evidence_override(
-    document: ThesisDocument,
-    *,
-    review: ThesisReview,
-    evaluated_at: datetime,
-    core_sha256: str,
-) -> bool:
-    return (
-        _evidence_override_status(
-            document,
-            review=review,
-            evaluated_at=evaluated_at,
-            core_sha256=core_sha256,
-        )
-        == "active"
-    )
-
-
-def _evidence_override_status(
-    document: ThesisDocument,
-    *,
-    review: ThesisReview,
-    evaluated_at: datetime,
-    core_sha256: str,
-) -> Literal["absent", "invalid", "active", "expired"]:
-    override = document.human_evidence_override
-    if override is None:
-        return "absent"
-    bindings_valid = (
-        document.judgment.proposed_at <= review.reviewed_at <= override.approved_at
-        and override.thesis_sha256 == core_sha256
-        and override.review_id == review.review_id
-        and override.review_sha256 == thesis_review_hash(review)
-        and document.judgment.sizing_action == "reduced"
-    )
-    if not bindings_valid or evaluated_at < override.approved_at:
-        return "invalid"
-    if evaluated_at >= override.expires_at:
-        return "expired"
-    return "active"
-
-
-def _check_review(
-    review: ThesisReview,
-    expected_hash: str,
-    input_snapshot: InputSnapshot,
-    judgment: JudgmentNamespace,
-    evaluated_at: datetime,
-    source_ids: set[str],
-    required_source_ids: set[str],
-    scenarios: tuple[ScenarioEvaluation, ...],
-    errors: list[str],
-    warnings: list[str],
-) -> None:
-    if review.reviewed_thesis_sha256 != expected_hash:
-        errors.append("Thesis Review hash does not match thesis")
-    if not review.checked_source_ids:
-        errors.append("Thesis Review must check at least one source")
-    unknown = sorted(set(review.checked_source_ids) - source_ids)
-    if unknown:
-        errors.append(f"Thesis Review references unknown sources: {unknown}")
-    unchecked = sorted(required_source_ids - set(review.checked_source_ids))
-    if unchecked:
-        errors.append(f"Thesis Review did not check load-bearing sources: {unchecked}")
-    source_tiers = {source.source_id: source.source_tier for source in input_snapshot.sources}
-    if review.primary_source_check == "verified" and not any(
-        source_tiers.get(source_id) == "primary" for source_id in review.checked_source_ids
-    ):
-        errors.append("verified primary-source review must check a primary source")
-    if review.reviewed_at.date() < input_snapshot.as_of:
-        errors.append("Thesis Review cannot predate thesis as_of")
-    if review.reviewed_at < judgment.proposed_at:
-        errors.append("Thesis Review cannot predate the AI proposal")
-    if review.reviewed_at > evaluated_at:
-        errors.append("Thesis Review cannot be future-dated")
-    expected = {(item.horizon_years, item.name): item.total_return_cagr_pct for item in scenarios}
-    supplied = {
-        (item.horizon_years, item.name): item.total_return_cagr_pct
-        for item in review.recalculated_scenarios
-    }
-    if len(supplied) != len(review.recalculated_scenarios) or supplied != expected:
-        errors.append("Thesis Review scenario recalculation does not match thesis")
-    if review.primary_source_check != "verified":
-        warnings.append("Thesis Review did not fully verify primary sources")
-    if review.alternative_candidate_check != "compared":
-        warnings.append("Thesis Review did not compare an alternative candidate")
-    if review.proposal_changed:
-        errors.append("Thesis Review changed the proposal; regenerate the thesis")

@@ -309,9 +309,9 @@ ignore_imports = [
   # Position Review from research and position artifacts. Position domain modules
   # remain independent of research.
   "baibai_engine.position.cli -> baibai_engine.research.capital_allocation_service",
-  "baibai_engine.position.cli -> baibai_engine.research.position_review_builder",
-  "baibai_engine.position.cli -> baibai_engine.research.store",
-  "baibai_engine.position.broker_fact_service -> baibai_engine.research.capital_allocation_service",
+  "baibai_engine.position.cli -> baibai_engine.research.position_review_service",
+  "baibai_engine.position.cli -> baibai_engine.research.position_review",
+  "baibai_engine.position.cli -> baibai_engine.research.broker_fact_service",
 ]
 
 [[tool.importlinter.contracts]]
@@ -395,6 +395,8 @@ allow_indirect_imports = true
 [[tool.importlinter.contracts]]
 name = "read_api cannot reach writer or CLI modules"
 type = "forbidden"
+# thesis_store owns the canonical pair reader; this call receives a query-only connection.
+ignore_imports = ["baibai_engine.read_api.research -> baibai_engine.research.thesis_store"]
 source_modules = ["baibai_engine.read_api"]
 forbidden_modules = [
   "baibai_engine.appdb.write",
@@ -405,3 +407,15 @@ forbidden_modules = [
   "baibai_engine.research.workspace_cli",
   "baibai_engine.screening.cli",
 ]
+
+[[tool.importlinter.contracts]]
+name = "enterprise valuation is pure"
+type = "forbidden"
+source_modules = ["baibai_engine.research.valuation", "baibai_engine.research.thesis", "baibai_engine.research.entry_policy", "baibai_engine.research.position_review"]
+forbidden_modules = ["baibai_engine.appdb", "baibai_engine.position", "baibai_engine.market", "baibai_engine.research.workspace", "baibai_engine.research.planning", "baibai_engine.research.thesis_store"]
+
+[[tool.importlinter.contracts]]
+name = "Reviewed Thesis storage does not depend on judgment composition"
+type = "forbidden"
+source_modules = ["baibai_engine.research.thesis_store"]
+forbidden_modules = ["baibai_engine.research.capital_allocation_service", "baibai_engine.research.position_review_service", "baibai_engine.research.workspace", "baibai_engine.operation"]
