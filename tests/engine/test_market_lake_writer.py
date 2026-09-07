@@ -20,7 +20,7 @@ from baibai_engine.market.lake.keys import current_l1_pointer_key
 from baibai_engine.market.lake.models import canonical_lake_model_bytes
 from baibai_engine.market.lake.objects import sha256_bytes as _sha256_bytes
 from baibai_engine.market.lake.release import L1ReleasePointer, create_l1_release
-from baibai_engine.market.lake.retention import apply_gc, plan_gc
+from baibai_engine.market.lake.retention import LakeRetentionError, apply_gc, plan_gc
 from baibai_engine.market.lake.writer import (
     LakeBuildError,
     LakeBuildReport,
@@ -633,8 +633,9 @@ def test_a_seal_a_killed_operation_left_behind_is_collected(tmp_path: Path) -> N
     assert not abandoned.exists()
 
 
-def test_a_release_stays_resolvable_with_no_sealed_store_to_reach(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("fault", [None, "object_missing", "object_changed", "dataset_changed"])
+def test_gc_tracks_current_release_content_without_sealed_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str | None
 ) -> None:
     narrow_release_policy(monkeypatch)
     """The sealed generation is named, not kept, so nothing reports it as a lost root."""
@@ -666,7 +667,24 @@ def test_a_release_stays_resolvable_with_no_sealed_store_to_reach(
         )
     )
 
+    damaged = None
+    if fault is not None:
+        damaged = next(iter(report.datasets.values())).manifest_path
+        if fault.startswith("object_"):
+            damaged = next((mirror / "lake/l1/canonical").rglob("*.parquet"))
+        if fault == "object_missing":
+            damaged.unlink()
+        elif fault == "object_changed":
+            data = damaged.read_bytes()
+            damaged.write_bytes(data[:-1] + bytes([data[-1] ^ 1]))
+        else:
+            damaged.write_bytes(damaged.read_bytes() + b" ")
     plan = plan_gc(mirror, now=datetime(2027, 2, 4, tzinfo=UTC))
 
-    assert plan.unresolved_roots == ()
-    assert plan.candidates == ()
+    if damaged is None:
+        assert plan.unresolved_roots == ()
+        assert plan.candidates == ()
+    else:
+        assert damaged.relative_to(mirror).as_posix() in plan.unresolved_roots
+        with pytest.raises(LakeRetentionError, match="unresolved"):
+            apply_gc(mirror, plan, plan_hash=plan.plan_hash)

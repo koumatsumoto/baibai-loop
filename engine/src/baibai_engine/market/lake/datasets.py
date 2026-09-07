@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
 from typing import Literal
 
 import pyarrow as pa  # type: ignore[import-untyped]
@@ -114,21 +113,6 @@ def period_values(dataset: LakeDataset, period: Period) -> dict[str, int]:
 
 def period_label(period: Period) -> str:
     return "-".join((f"{period[0]:04d}", *(f"{part:02d}" for part in period[1:])))
-
-
-def period_bounds(period: Period) -> tuple[date, date]:
-    """The half-open calendar range one partition covers.
-
-    Callers compare source ranges against this, so the end is the first day the next
-    partition owns rather than the last day this one does. Expressing it that way keeps
-    the two grains one expression instead of two off-by-one cases.
-    """
-
-    if len(period) == 1:
-        return date(period[0], 1, 1), date(period[0] + 1, 1, 1)
-    year, month = period[0], period[1]
-    start = date(year, month, 1)
-    return start, date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
 
 
 _TEXT = pa.string()
