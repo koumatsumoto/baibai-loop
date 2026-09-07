@@ -17,8 +17,8 @@ application DB が portfolio ledger の正本である。人間の報告だけ�
 
 ## 記録対象
 
-- **open / filled / cancelled / expired**: `broker-fact-draft` を使う。新規 buy は canonical `result=allocate` のCapital Allocation Assessment ID と、人間が報告した時刻、数量、価格などが必須である。open は reservation、fill は execution と remaining、terminal broker fact は remaining release を作る。partial fill は remaining がある間だけ継続し、矛盾する broker fact は拒否する。
-- **sell**: Position Review 後に `sell-execution-draft` を使い、`decision-reference` を review ID に束縛する。market price が stale なら先に price draft を適用する。保有超過 sell は拒否する。
+- **open / filled / cancelled / expired**: `broker-fact-draft` を使う。注文identityの解決には過去の条件だけを使い、現在のPmax・保有・schemaで再審査しない。予約未記録の遅延報告では canonical `result=allocate` のCapital Allocation Assessment ID と、人間が報告した時刻、数量、価格などが必須である。open は reservation、fill は execution と remaining、terminal broker fact は remaining release を作る。partial fill は remaining がある間だけ継続し、矛盾する broker fact は拒否する。
+- **sell**: Position Review 後に `sell-execution-draft` を使い、`decision-reference` を review ID に束縛する。他tickerのquote欠損やstaleを事実保存の前提にしない。部分売却は報告された数量だけを記録し、exit提案から全売却を推定しない。保有超過 sell は拒否する。
 - **資金・income・cost・税**: `position event-draft` で確認した事実ごとに1 event を作る。risk override は `override-draft`、tax estimate は `meta-draft`。入金だけで screening や購入を起動しない。
 - **年次 outcome**: ledger を JPX 営業日 close まで再生し、同期間・同 basis の配当込み TOPIX と比較する。`unresolved` は保存せず、不足を解消して再実行する。
 

@@ -11,7 +11,6 @@ type PolicyConfig = Mapping[str, Any]
 # warning line と注文制約だけを置く。
 PORTFOLIO_POLICY: dict[str, Any] = {
     "cash_management": {
-        "monthly_contribution_yen": 400_000,
         "dry_powder_warning_pct": 20.0,
         "override_max_days": 31,
     },
@@ -25,12 +24,11 @@ PORTFOLIO_POLICY: dict[str, Any] = {
     "valuation": {
         "market_price_max_age_days": 7,
         # Position size does not repair an insufficient expected return.
-        "minimum_required_5y_base_cagr_pct": 8.5,
+        "minimum_required_annual_return_pct": 8.5,
     },
 }
 
 _REQUIRED_NUMERIC_PATHS: tuple[tuple[str, ...], ...] = (
-    ("cash_management", "monthly_contribution_yen"),
     ("cash_management", "dry_powder_warning_pct"),
     ("cash_management", "override_max_days"),
     ("risk_budget", "max_ticker_concentration_pct"),
@@ -39,7 +37,7 @@ _REQUIRED_NUMERIC_PATHS: tuple[tuple[str, ...], ...] = (
     ("risk_budget", "max_adv_participation_pct"),
     ("order_constraints", "board_lot"),
     ("valuation", "market_price_max_age_days"),
-    ("valuation", "minimum_required_5y_base_cagr_pct"),
+    ("valuation", "minimum_required_annual_return_pct"),
 )
 
 
@@ -52,7 +50,6 @@ def validate_policy(policy: PolicyConfig = PORTFOLIO_POLICY) -> None:
             dotted = ".".join(path)
             raise RuntimeError(f"PORTFOLIO_POLICY.{dotted} must be numeric")
     positive_integer_paths = (
-        ("cash_management", "monthly_contribution_yen"),
         ("cash_management", "override_max_days"),
         ("order_constraints", "board_lot"),
         ("valuation", "market_price_max_age_days"),
@@ -67,7 +64,7 @@ def validate_policy(policy: PolicyConfig = PORTFOLIO_POLICY) -> None:
         ("risk_budget", "max_sector_concentration_pct"),
         ("risk_budget", "max_common_factor_concentration_pct"),
         ("risk_budget", "max_adv_participation_pct"),
-        ("valuation", "minimum_required_5y_base_cagr_pct"),
+        ("valuation", "minimum_required_annual_return_pct"),
     )
     for path in percentage_paths:
         value = _value_at(policy, path)

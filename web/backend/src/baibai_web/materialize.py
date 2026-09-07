@@ -91,7 +91,7 @@ def export_read_models(
     # These sources live only for this export. API requests keep the fresh DB sources.
     stores = replace(
         stores,
-        ledger=_CachedLedgerSource(stores.app_db_path),
+        ledger=_CachedLedgerSource(stores.app_db_path, stores.market_db_path),
         research=_CachedResearchSource(stores.app_db_path),
     )
     views_dir = output_dir / "views"

@@ -1,4 +1,4 @@
-"""Read-only re-entry watch for tickers with promoted research theses."""
+"""Read-only original-valuation price watch for tickers with promoted research theses."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import math
 import sqlite3
 import sys
 from collections import defaultdict
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, DecimalException
@@ -15,6 +16,7 @@ from typing import cast
 
 import yaml
 
+from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.foundation.repository_layout import (
     APPLICATION_DB_PATH,
     StoreLayoutError,
@@ -32,17 +34,18 @@ from baibai_engine.position.ledger import (
     replay_events_through,
     reservation_snapshots,
 )
-from baibai_engine.position.store import LedgerConflictError, LedgerSchemaError, LedgerStoreService
+from baibai_engine.position.store import (
+    LedgerConflictError,
+    LedgerSchemaError,
+    load_ledger_in_transaction,
+)
 from baibai_engine.read_api import (
     list_thesis_publications,
-    list_thesis_review_publications,
 )
 from baibai_engine.research.thesis import (
     ThesisDocument,
     ThesisError,
     ThesisReview,
-    evaluate_thesis,
-    require_recorded_identity,
 )
 
 _GAP_QUANTUM = Decimal("0.000001")
@@ -91,7 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python -m baibai_engine.research_watch",
         description=(
             "Emit a read-only YAML watch for the latest promoted research thesis of every "
-            "ticker, whichever assessment result it ended in — buy, defer, or reject. "
+            "ticker, with candidate, defer, or reject disposition. "
             "This command never "
             "proposes an order or updates canonical records."
         ),
@@ -139,12 +142,11 @@ def build_watch(
     asof: date,
 ) -> dict[str, object]:
     latest = _load_latest_promoted_theses(app_db_path, asof=asof)
-    # reject も watch する。深掘りの結論は「この価格では買わない」であって「二度と見ない」
-    # ではなく、Capital Allocation Assessment は研究 FV を再評価条件として名指ししている。除外すると
-    # 一次情報まで降りて出した FV が、価格が降りてきたときに誰も読まない値になる。
     watched = dict(latest)
 
-    ledger = LedgerStoreService(app_db_path).load()
+    with closing(connect_read_only(app_db_path)) as connection:
+        connection.execute("BEGIN")
+        ledger, _ = load_ledger_in_transaction(connection)
     state = replay_events_through(ledger.events, ledger.as_of)
     held_tickers = {
         ticker for ticker, lots in state.lots.items() if any(lot.quantity > 0 for lot in lots)
@@ -176,7 +178,22 @@ def build_watch(
         (row for row in rows if row["status"] == "unresolved"),
         key=lambda row: str(row["ticker"]),
     )
-    all_thesis_tickers = set(latest)
+    raw_latest: dict[str, dict[str, object]] = {}
+    for publication in list_thesis_publications(app_db_path):
+        raw_latest.setdefault(str(publication["ticker"]), publication)
+    for ticker, publication in raw_latest.items():
+        if ticker not in latest:
+            unresolved.append(
+                {
+                    "ticker": ticker,
+                    "status": "unresolved",
+                    "unresolved_reason": "requires_reassessment",
+                    "thesis_id": publication["thesis_id"],
+                    "thesis_as_of": publication["as_of"],
+                    "current_decision_status": "not_evaluated",
+                }
+            )
+    all_thesis_tickers = set(raw_latest)
     reservation_tickers = set(reservation_history)
     return {
         "market_asof": asof.isoformat(),
@@ -190,20 +207,6 @@ def build_watch(
             "resolved_count": len(resolved),
             "unresolved_count": len(unresolved),
         },
-        # 買い直しの合図は未保有 case だけに出す。保有中の「FV 未満」は value 保有の
-        # 定常状態で毎日出続けるので、混ぜると本命の 1 行が恒常ノイズに埋もれる。
-        # 保有側の FV 到達は Position Review が close >= FV で判定する別 trigger である。
-        "triggered": [
-            {
-                "ticker": row["ticker"],
-                "current_close_yen": row["current_close_yen"],
-                "thesis_fair_value_yen": row["thesis_fair_value_yen"],
-                "thesis_recommendation_at_as_of": row["thesis_recommendation_at_as_of"],
-                "trigger_basis": "unheld_close_at_or_below_research_fv",
-            }
-            for row in resolved
-            if row["close_at_or_below_research_fv"] and row["current_portfolio_status"] == "unheld"
-        ],
         "diagnostics": {
             "re_research_required_for_all_rows": True,
             "decision_status": "not_evaluated",
@@ -213,89 +216,32 @@ def build_watch(
     }
 
 
-def _load_latest_promoted_theses(
-    app_db_path: Path,
-    *,
-    asof: date,
-) -> dict[str, _ThesisPublication]:
-    if not app_db_path.is_file():
-        raise ResearchPriceWatchError(f"application database does not exist: {app_db_path}")
-    reviews_by_thesis: dict[str, list[dict[str, object]]] = defaultdict(list)
-    for raw_review in list_thesis_review_publications(app_db_path):
-        reviews_by_thesis[str(raw_review["thesis_id"])].append(raw_review)
-    publications: list[_ThesisPublication] = []
-    for raw_thesis in list_thesis_publications(app_db_path):
-        thesis_id = str(raw_thesis["thesis_id"])
-        thesis_payload = raw_thesis["payload"]
-        if not isinstance(thesis_payload, dict):
-            raise ResearchPriceWatchError(f"thesis payload is invalid: {thesis_id}")
-        document = ThesisDocument.model_validate(thesis_payload)
-        if document.input_snapshot.as_of > asof:
-            raise ResearchPriceWatchError(
-                f"future thesis is not allowed: {thesis_id} "
-                f"({document.input_snapshot.as_of.isoformat()} > {asof.isoformat()})"
+def _load_latest_promoted_theses(app_db_path: Path, *, asof: date) -> dict[str, _ThesisPublication]:
+    from contextlib import closing
+
+    from baibai_engine.appdb.read import connect_read_only
+    from baibai_engine.research.thesis_store import (
+        ResearchValidationError,
+        load_latest_reviewed_thesis,
+    )
+
+    latest: dict[str, _ThesisPublication] = {}
+    with closing(connect_read_only(app_db_path)) as connection:
+        for row in connection.execute("SELECT DISTINCT ticker FROM thesis").fetchall():
+            ticker = str(row[0])
+            try:
+                pair = load_latest_reviewed_thesis(connection, ticker)
+            except ResearchValidationError:
+                continue
+            if pair.document.input_snapshot.as_of > asof:
+                raise ResearchPriceWatchError("future thesis cannot be used in watch")
+            latest[ticker] = _ThesisPublication(
+                thesis_id=pair.thesis_id,
+                document=pair.document,
+                review=pair.review,
+                core_sha256=pair.core_sha256,
             )
-        thesis_review_publications = reviews_by_thesis.get(thesis_id, [])
-        if not thesis_review_publications:
-            raise ResearchPriceWatchError(f"promoted thesis requires a Thesis Review: {thesis_id}")
-        review_payload = thesis_review_publications[0]["payload"]
-        if not isinstance(review_payload, dict):
-            raise ResearchPriceWatchError(f"review payload is invalid: {thesis_id}")
-        publications.append(
-            _ThesisPublication(
-                thesis_id=thesis_id,
-                published_at=datetime.fromisoformat(str(raw_thesis["published_at"])),
-                document=document,
-                review=ThesisReview.model_validate(review_payload),
-                core_sha256=require_recorded_identity(raw_thesis["core_sha256"], thesis_id),
-            )
-        )
-    latest = _select_latest_theses(publications)
-    for ticker, publication in latest.items():
-        if publication.review is None:  # pragma: no cover - loader invariant
-            raise ResearchPriceWatchError(
-                f"promoted thesis requires a Thesis Review: {publication.thesis_id}"
-            )
-        evaluation = evaluate_thesis(
-            publication.document,
-            review=publication.review,
-            now=_historical_integrity_evaluated_at(publication.document, publication.review),
-            identity=publication.core_sha256,
-        )
-        if evaluation.errors or evaluation.decision_readiness != "ready":
-            details = "; ".join(evaluation.errors) or evaluation.thesis_status
-            raise ResearchPriceWatchError(f"latest thesis for {ticker} is not ready: {details}")
     return latest
-
-
-def _historical_integrity_evaluated_at(
-    document: ThesisDocument,
-    review: ThesisReview,
-) -> datetime:
-    """Rebuild artifact integrity without treating an expired override as a current signal."""
-    anchors = [document.judgment.proposed_at, review.reviewed_at]
-    if document.human_evidence_override is not None:
-        anchors.append(document.human_evidence_override.approved_at)
-    return max(anchors)
-
-
-def _select_latest_theses(
-    publications: list[_ThesisPublication],
-) -> dict[str, _ThesisPublication]:
-    by_ticker: dict[str, list[_ThesisPublication]] = defaultdict(list)
-    for publication in publications:
-        by_ticker[publication.document.input_snapshot.ticker].append(publication)
-    selected: dict[str, _ThesisPublication] = {}
-    for ticker, ticker_candidates in by_ticker.items():
-        selected[ticker] = max(
-            ticker_candidates,
-            key=lambda item: (
-                item.document.input_snapshot.as_of,
-                item.published_at,
-                item.thesis_id,
-            ),
-        )
-    return selected
 
 
 def _reservation_history(
@@ -333,7 +279,7 @@ def _read_market_observations(
         conn.execute("BEGIN")
         validate_current_schema(conn)
         start = min(
-            (publication.document.input_snapshot.as_of for publication in theses.values()),
+            (_price_basis_date(publication.document) for publication in theses.values()),
             default=asof,
         )
         if not range_covered(conn, "jquants_market_calendar", start, asof):
@@ -400,6 +346,17 @@ def _read_market_observations(
         conn.close()
 
 
+def _price_basis_date(thesis: ThesisDocument) -> date:
+    return next(
+        (
+            fact.as_of
+            for fact in thesis.input_snapshot.facts
+            if fact.fact_id == thesis.valuation.market_price_fact_id
+        ),
+        thesis.input_snapshot.as_of,
+    )
+
+
 def _observe_ticker(
     *,
     thesis: ThesisDocument,
@@ -410,7 +367,7 @@ def _observe_ticker(
     expected_sessions = [
         day
         for day, is_business_day in calendar.items()
-        if is_business_day and thesis.input_snapshot.as_of <= day <= asof
+        if is_business_day and _price_basis_date(thesis) <= day <= asof
     ]
     current_bar = bars.get(asof)
     current_close = _valid_close(current_bar.close) if current_bar is not None else None
@@ -459,31 +416,42 @@ def _watch_row(
     reserved: bool,
     history: list[dict[str, object]],
 ) -> dict[str, object]:
-    unresolved = observation.unresolved_reason
-    fair_value = thesis.estimates.current_fair_value_yen
-    gap: float | None = None
-    if unresolved is None and observation.current_close_yen is not None:
-        gap = _calculate_gap(fair_value, observation.current_close_yen)
-        if gap is None:
-            unresolved = "fv_gap_calculation_unresolved"
+    from baibai_engine.research.valuation import maximum_entry_price
+
+    valuation = thesis.valuation
+    maximum = None
+    if (
+        valuation.base is not None
+        and valuation.horizon_months is not None
+        and valuation.required_annual_return_pct is not None
+    ):
+        maximum = maximum_entry_price(
+            valuation.base,
+            horizon_months=valuation.horizon_months,
+            required_annual_return_pct=valuation.required_annual_return_pct,
+        )
+    unresolved = observation.unresolved_reason or (
+        "valuation_unresolved" if maximum is None else None
+    )
+    gap = (
+        None
+        if maximum is None or observation.current_close_yen is None
+        else _calculate_gap(maximum, observation.current_close_yen)
+    )
     return {
         "ticker": ticker,
-        "status": "unresolved" if unresolved is not None else "resolved",
-        "current_close_yen": _float_number(observation.current_close_yen),
-        "close_as_of": observation.close_as_of.isoformat() if observation.close_as_of else None,
-        "thesis_fair_value_yen": _decimal_number(fair_value),
-        "thesis_fv_gap_pct": gap,
-        # 終値が研究 FV 以下か。未保有 case では買い直しを考える合図になるが、保有中は
-        # FV 未満が value 保有の定常状態なので、これ単独では事象にならない。保有側の
-        # 「FV 到達」は Position Review の定義 close >= FV であって逆向きである。
-        "close_at_or_below_research_fv": (
-            None if unresolved is not None or gap is None else gap >= 0
-        ),
-        "thesis_entry_price_basis_yen": _decimal_number(thesis.estimates.entry_price_basis_yen),
-        "thesis_recommendation_at_as_of": thesis.judgment.recommendation,
+        "status": "unresolved" if unresolved else "resolved",
+        "current_close_yen": observation.current_close_yen,
+        "close_as_of": None
+        if observation.close_as_of is None
+        else observation.close_as_of.isoformat(),
+        "pmax_raw_yen": None if maximum is None else _decimal_number(maximum),
+        "pmax_gap_pct": gap,
+        "thesis_disposition": thesis.judgment.disposition,
         "thesis_as_of": thesis.input_snapshot.as_of.isoformat(),
-        "valuation_model_version": thesis.estimates.valuation_model_version,
-        "re_research_required": True,
+        "horizon_months": valuation.horizon_months,
+        "original_quote_as_of": _price_basis_date(thesis).isoformat(),
+        "reference_basis": "原評価の累積分配・期間。現在の残存年率ではない",
         "current_decision_status": "not_evaluated",
         "current_portfolio_status": _portfolio_status(held=held, reserved=reserved),
         "reservation_history": history,
@@ -511,7 +479,7 @@ def _portfolio_status(*, held: bool, reserved: bool) -> str:
 
 
 def _resolved_sort_key(row: dict[str, object]) -> tuple[float, str]:
-    return (-cast(float, row["thesis_fv_gap_pct"]), str(row["ticker"]))
+    return (-cast(float, row["pmax_gap_pct"]), str(row["ticker"]))
 
 
 def _decimal_number(value: Decimal) -> int | float:

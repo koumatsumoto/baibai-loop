@@ -1,4 +1,4 @@
-"""Build ledger drafts from human-reported broker facts and canonical decisions."""
+"""取引事実の記録工程で過去判断のidentityを解決し、人間報告のledger draftを産む。"""
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ def build_broker_fact_draft(
 ) -> tuple[LedgerDraft | None, tuple[str, ...]]:
     """Build a draft from a canonical buy assessment or its active reservation.
 
-    The assessment proves that the ticker passed research. Order terms are
+    The historical assessment identifies the selected ticker. Order terms are
     human-reported facts, not a persisted plan. Existing reservations keep the same
     decision reference for every partial or terminal broker fact.
     """
@@ -83,8 +83,8 @@ def build_broker_fact_draft(
     else:
         if status in {"cancelled", "expired"}:
             raise ValueError(f"{status} requires an active reservation")
-        allocated = assessment_service.require_allocated_alternative(decision_reference)
-        if ticker != allocated.ticker:
+        allocated_ticker = assessment_service.historical_allocated_ticker(decision_reference)
+        if ticker != allocated_ticker:
             raise ValueError("broker fact ticker does not match the allocation assessment")
 
     if len(requested_ids) > 1:

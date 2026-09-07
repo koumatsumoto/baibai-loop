@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import json
-from datetime import date
 from pathlib import Path
 
 import yaml
 
 from baibai_engine.read_api import list_research_triage_payloads
-from baibai_engine.research.workspace import _screening_estimate_from_triage_snapshot
 from baibai_engine.screening.cli import main as screening_main
 from baibai_engine.screening.research_triage import ReviewSetEntrySnapshot
 from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
@@ -390,49 +388,3 @@ def test_research_triage_scaffold_carries_machine_coordinates_and_fails_closed(
         )
         == 1
     )
-
-
-def test_thesis_scaffold_screening_estimate_names_its_local_source(tmp_path: Path) -> None:
-    runs_db = tmp_path / "runs.sqlite"
-    review_set_path = tmp_path / "review-set.yaml"
-    _publish_run(runs_db)
-    assert (
-        screening_main(
-            [
-                "review-set",
-                "publish",
-                "--asof",
-                "2026-07-08",
-                "--run-revision-id",
-                "run-revision-cli-seam",
-                "--runs-db",
-                str(runs_db),
-                "--rules-path",
-                str(RULES_PATH),
-                "--output-path",
-                str(review_set_path),
-            ]
-        )
-        == 0
-    )
-    review_set = yaml.safe_load(review_set_path.read_text(encoding="utf-8"))
-    ticker = review_set["entries"][0]["ticker"]
-
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    (workspace / "research-workspace.yaml").write_text(
-        yaml.safe_dump(
-            {"as_of": "2026-07-08", "review_set_entries": review_set["entries"]},
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-    estimate, reason = _screening_estimate_from_triage_snapshot(
-        workspace=workspace,
-        ticker=ticker,
-        asof=date(2026, 7, 8),
-    )
-
-    assert reason is None
-    assert estimate is not None
-    assert estimate["source_ids"] == ["screening_analysis"]

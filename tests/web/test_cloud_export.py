@@ -25,16 +25,6 @@ from baibai_engine.macro.indicators.db import (
 )
 from baibai_engine.macro.indicators.definitions import load_definitions
 from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH
-from baibai_engine.operation.models import OperationPayload
-from baibai_engine.operation.service import OperationService
-from baibai_engine.research.capital_allocation import (
-    CapitalAllocationAssessment,
-    capital_allocation_draft_sha256,
-)
-from baibai_engine.research.capital_allocation_scaffold import scaffold_capital_allocation
-from baibai_engine.research.capital_allocation_service import (
-    CapitalAllocationAssessmentService,
-)
 from baibai_engine.screening.run_store import ScreeningRunReader
 from baibai_web import materialize as export_module
 from baibai_web.api.server import create_app
@@ -84,44 +74,56 @@ def _insert_research_triage(root: Path, payload: Mapping[str, object]) -> None:
 
 
 def _publish_assessment(root: Path, *, assessment_id: str, research_triage_id: str) -> None:
-    db_path = root / "stores/application/baibai.sqlite"
-    OperationService(db_path).start(
-        session_kind="capital-allocation",
-        as_of=datetime(2026, 7, 9, 12, tzinfo=JST).date(),
-        started_at=datetime(2026, 7, 9, 12, tzinfo=JST),
-        payload=OperationPayload(
-            checkpoint="human selection",
-            artifacts=(
-                {"kind": "research_triage", "ref": research_triage_id, "research_set": ["2331"]},
+    """Seed historical CAA bytes; current services do not execute old Thesis models."""
+    with sqlite3.connect(root / "stores/application/baibai.sqlite") as connection:
+        thesis_id, core = connection.execute(
+            "SELECT thesis_id, core_sha256 FROM thesis LIMIT 1"
+        ).fetchone()
+        review_id = connection.execute(
+            "SELECT review_id FROM thesis_review WHERE thesis_id=?", (thesis_id,)
+        ).fetchone()[0]
+        payload = {
+            "schema_version": 1,
+            "kind": "capital_allocation_assessment",
+            "capital_allocation_assessment_id": assessment_id,
+            "as_of": "2026-07-09",
+            "published_at": "2026-07-09T12:00:00+09:00",
+            "result": "no_allocation",
+            "headline": "現金維持",
+            "research_triage_id": research_triage_id,
+            "macro_context_id": None,
+            "comparison": "当時の比較",
+            "forgone": "見送り",
+            "alternatives": [
+                {
+                    "ticker": "2331",
+                    "thesis_id": thesis_id,
+                    "thesis_core_sha256": core,
+                    "thesis_review_id": review_id,
+                    "disposition": "decline",
+                    "rationale": "当時の判断",
+                }
+            ],
+            "review": {
+                "attempt": 1,
+                "reviewer_identity": "historical",
+                "reviewed_at": "2026-07-09T12:00:00+09:00",
+                "conclusion": "pass",
+                "draft_sha256": "1" * 64,
+                "open_findings": [],
+            },
+        }
+        connection.execute(
+            "INSERT INTO capital_allocation_assessment VALUES (?,?,?,?,?,?)",
+            (
+                assessment_id,
+                payload["as_of"],
+                payload["published_at"],
+                payload["result"],
+                research_triage_id,
+                canonical_json(payload),
             ),
-        ),
-    )
-    draft = scaffold_capital_allocation(
-        db_path=db_path,
-        capital_allocation_assessment_id=assessment_id,
-        as_of=date(2026, 7, 9),
-        research_triage_id=research_triage_id,
-        thesis_ids=["thesis-20260714-2331-r1"],
-        published_at=datetime(2026, 7, 9, 12, tzinfo=JST),
-    )
-    draft["headline"] = "要求利回り未達のため配分しない"
-    draft["comparison"] = "調査済み候補は要求利回りを満たさない"
-    draft["forgone"] = "現金を維持する"
-    alternatives = draft["alternatives"]
-    assert isinstance(alternatives, list)
-    alternative = alternatives[0]
-    assert isinstance(alternative, dict)
-    alternative["rationale"] = "Thesis Review済みthesisの期待値が不足する"
-    review = draft["review"]
-    assert isinstance(review, dict)
-    review["reviewer_identity"] = "independent-reviewer"
-    review["reviewed_at"] = "2026-07-09T11:00:00+09:00"
-    review["draft_sha256"] = capital_allocation_draft_sha256(
-        CapitalAllocationAssessment.model_validate(draft)
-    )
-    CapitalAllocationAssessmentService(
-        db_path, clock=lambda: datetime(2026, 7, 9, 12, tzinfo=JST)
-    ).publish(CapitalAllocationAssessment.model_validate(draft))
+        )
 
 
 def _insert_review_set(root: Path, *, review_set_id: str) -> str:
@@ -712,7 +714,7 @@ def test_export_reuses_research_history_and_ledger_per_export(
     prepare = mocker.spy(export_module, "prepare_security_inputs")
     convert = mocker.spy(stocks, "_machine_review_set_view")
     read = mocker.spy(db_sources, "list_thesis_publications")
-    replay = mocker.spy(db_sources, "reconcile_portfolio")
+    replay = mocker.spy(db_sources, "current_portfolio")
     mocker.patch.object(
         export_module,
         "_security_tickers",

@@ -43,8 +43,11 @@ class OperationService:
         ticker: str | None = None,
     ) -> OperationSession:
         _require_current_payload(payload)
-        if session_kind == "position-review" and (ticker is None or not ticker.strip()):
-            raise OperationConflictError("position-review start requires ticker")
+        if session_kind == "position-review":
+            raise OperationConflictError(
+                "use research position-prepare and position position-review publish --confirmed; "
+                "no Operation is needed"
+            )
         if session_kind == "capital-allocation":
             try:
                 research_binding(payload)
@@ -141,10 +144,10 @@ class OperationService:
                     raise OperationConflictError(
                         f"completed operation session is immutable: {operation_id}"
                     )
+                if before.session_kind == "position-review":
+                    raise OperationConflictError("position-review Operation is read-only history")
                 # Checkpoints replace prose, but cannot replace the human admission.
-                if before.session_kind == "capital-allocation" and any(
-                    item.get("kind") == "research_triage" for item in before.payload.artifacts
-                ):
+                if any(item.get("kind") == "research_triage" for item in before.payload.artifacts):
                     try:
                         if research_binding(before.payload) != research_binding(payload):
                             raise ValueError("Research Set binding is immutable")
@@ -154,8 +157,6 @@ class OperationService:
                     _validate_complete(before.session_kind, payload)
                     if before.session_kind == "capital-allocation":
                         _require_published_assessment(connection, before, payload, completed_at)
-                    elif before.session_kind == "position-review":
-                        _require_published_position_review(connection, before, payload)
                 operation = OperationSession.model_validate(
                     {
                         **before.public(),
@@ -225,21 +226,6 @@ def _require_published_assessment(
         raise OperationCompletionError(str(error)) from error
 
 
-def _require_published_position_review(
-    connection: sqlite3.Connection, operation: OperationSession, payload: OperationPayload
-) -> None:
-    if len(payload.canonical_refs) != 1:
-        raise OperationCompletionError("completion requires one canonical Position Review ID")
-    row = connection.execute(
-        "SELECT ticker, as_of FROM position_review WHERE position_review_id = ?",
-        (payload.canonical_refs[0],),
-    ).fetchone()
-    if row is None:
-        raise OperationCompletionError("canonical Position Review is unavailable")
-    if row["ticker"] != operation.ticker or row["as_of"] != operation.as_of.isoformat():
-        raise OperationCompletionError("Position Review ticker/as_of differs from the Operation")
-
-
 def _validate_complete(session_kind: SessionKind, payload: OperationPayload) -> None:
     missing: list[str] = []
     if payload.result is None:
@@ -257,8 +243,6 @@ def _validate_complete(session_kind: SessionKind, payload: OperationPayload) -> 
         not payload.artifacts or any(not artifact for artifact in payload.artifacts)
     ):
         missing.append("artifacts")
-    if session_kind == "position-review" and not payload.canonical_refs:
-        missing.append("canonical_refs")
     if missing:
         raise OperationCompletionError(f"{session_kind} completion requires: {', '.join(missing)}")
 

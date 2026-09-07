@@ -35,11 +35,11 @@ from .capital_allocation import (
 )
 from .capital_allocation_scaffold import scaffold_capital_allocation
 from .capital_allocation_service import CapitalAllocationAssessmentService
+from .planning import plan_limit
 from .thesis import ThesisError
 from .workspace import (
     ResearchWorkspaceError,
     compute_status,
-    plan_limit,
     prepare_holding_workspace,
     prepare_workspace,
     promote,
@@ -112,10 +112,10 @@ def build_parser() -> argparse.ArgumentParser:
     thesis_parser.add_argument(
         "--target-session",
         required=True,
-        help="the session the limit is planned for (YYYY-MM-DD); the close is the "
-        "latest complete business day strictly before it",
+        help="formal enterprise valuation date (YYYY-MM-DD); preserve source and quote dates",
     )
     thesis_parser.add_argument("--force", action="store_true")
+    thesis_parser.add_argument("--from-thesis-id")
 
     review_parser = subparsers.add_parser(
         "review-scaffold",
@@ -145,12 +145,17 @@ def build_parser() -> argparse.ArgumentParser:
     promote_parser.add_argument("--supersedes-id")
 
     plan_parser = subparsers.add_parser(
-        "plan-limit", help="derive a planning-only limit/defer from the previous-day raw close"
+        "plan-limit",
+        help="derive a planning-only limit/defer from current capital and raw close",
     )
     plan_parser.add_argument("--capital-allocation-assessment-id", required=True)
     plan_parser.add_argument("--db", type=Path)
     plan_parser.add_argument("--sqlite-path", required=True, type=Path)
-    plan_parser.add_argument("--target-session", required=True)
+    plan_parser.add_argument(
+        "--target-session",
+        required=True,
+        help="next unexpired trading session in the market calendar (YYYY-MM-DD)",
+    )
     plan_parser.add_argument("--budget-min-yen", type=int, default=200000)
     plan_parser.add_argument("--budget-max-yen", type=int, default=300000)
     plan_parser.add_argument("--output", type=Path)
@@ -253,6 +258,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         retrieved_at=resolved_now,
                         db_path=args.db,
                         force=args.force,
+                        from_thesis_id=args.from_thesis_id,
                     ),
                     out,
                 )

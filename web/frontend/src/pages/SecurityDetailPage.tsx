@@ -12,7 +12,6 @@ import { PctBadge } from '../components/PctBadge'
 import { TradingViewButton } from '../components/TradingViewButton'
 import { YenAmount } from '../components/YenAmount'
 import { Badge } from '../components/ui/badge'
-import { Separator } from '../components/ui/separator'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { LABEL } from '../lib/labels'
 import { cn } from '../lib/utils'
@@ -111,7 +110,7 @@ export function SecurityDetailPage() {
               <Field label="数量"><span className="font-mono tabular-nums">{data.holding.quantity.toLocaleString('ja-JP')} 株</span></Field>
               <Field label="取得 / 現在">
                 <span className="font-mono tabular-nums text-muted-foreground">取得 <YenAmount value={averageCostYen} /></span>
-                <span className="ml-3 font-mono tabular-nums">現在 <YenAmount value={Number(data.holding.market_price_yen)} /></span>
+                <span className="ml-3 font-mono tabular-nums">現在 <YenAmount value={data.holding.market_price_yen === null ? null : Number(data.holding.market_price_yen)} /></span>
               </Field>
               <Field label="評価額"><YenAmount value={data.holding.market_value_yen} /></Field>
               <Field label="含み損益">
@@ -119,9 +118,9 @@ export function SecurityDetailPage() {
                   <YenAmount sign tone="pnl" value={data.holding.unrealized_pnl_yen} /> <PctBadge tone="pnl" value={data.holding.unrealized_pnl_pct} />
                 </span>
               </Field>
-              <Field label="FV"><YenAmount value={data.holding.fair_value_yen} /></Field>
-              <Field label="FV乖離"><PctBadge value={data.holding.fv_gap_pct} /></Field>
-              <Field label="判断"><Badge className="font-mono uppercase" variant="outline">{data.holding.recommendation ?? '—'}</Badge></Field>
+              <Field label="原評価のPmax（新規買付上限）"><YenAmount value={data.holding.pmax_raw_yen} /></Field>
+              <Field label="Pmaxとの差"><PctBadge value={data.holding.pmax_gap_pct} /></Field>
+              <Field label="判断"><Badge className="font-mono uppercase" variant="outline">{data.holding.disposition ?? '—'}</Badge></Field>
               <Field label="次決算"><span className="font-mono tabular-nums">{data.holding.next_earnings_date ?? LABEL.earningsTbd}</span></Field>
             </dl>
           </>
@@ -132,44 +131,20 @@ export function SecurityDetailPage() {
         description="latest research"
         meta={thesis && <AsOfBadge value={thesis.revision.as_of} />}
         padded
-        title="最新の 5 年評価"
+        title="最新の企業評価"
       >
         <>
           {!thesis ? (
             <div className="py-8 text-center text-sm text-muted-foreground">research 記録なし</div>
           ) : (
             <div className="grid gap-6">
-              <div className="grid overflow-hidden rounded-lg border sm:grid-cols-3 sm:divide-x">
-                {[
-                  ['RECOMMENDATION', thesis.revision.recommendation],
-                  ['CONFIDENCE', thesis.revision.confidence ?? '—'],
-                  ['FAIR VALUE', <YenAmount key="fv" value={thesis.revision.current_fair_value_yen} />],
-                ].map(([label, value]) => (
-                  <div className="border-b p-4 last:border-b-0 sm:border-b-0" key={String(label)}>
-                    <p className="text-[10px] font-semibold tracking-wider text-muted-foreground">{label}</p>
-                    <strong className="mt-2 block font-mono text-lg">{value}</strong>
-                  </div>
-                ))}
-              </div>
-
-              <dl className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                <Field label="entry price basis"><YenAmount value={thesis.entry_price_basis_yen} /></Field>
-                <Field label="required 5y base CAGR"><PctBadge value={thesis.required_5y_base_cagr_pct} /></Field>
-                <Field label="permanent loss risks"><span className="font-mono tabular-nums">{thesis.permanent_loss_risk_count} axes</span></Field>
-                <Field label="model"><span>{thesis.revision.model_version ?? '—'}</span></Field>
+              <dl className="grid gap-4 sm:grid-cols-3">
+                <Field label="企業評価"><span>{thesis.revision.disposition}</span></Field>
+                <Field label="評価状態"><span>{thesis.revision.status}</span></Field>
+                <Field label="Pmax（原評価・丸め前）"><YenAmount value={thesis.revision.pmax_raw_yen} /></Field>
               </dl>
-
-              <div className="flex flex-wrap gap-2">
-                {thesis.scenarios.map((scenario) => <Badge key={`${scenario.name}-${scenario.horizon_years}`} variant="secondary">{scenario.name} · {scenario.horizon_years}Y</Badge>)}
-              </div>
-
-              <Separator />
-
-              <dl className="grid gap-6 lg:grid-cols-3">
-                <Field label="Permanent loss conclusion"><p className="font-normal leading-relaxed">{thesis.permanent_loss_conclusion ?? '—'}</p></Field>
-                <Field label="Strongest countercase"><p className="font-normal leading-relaxed">{thesis.strongest_countercase ?? '—'}</p></Field>
-                <Field label="Sizing action"><p className="font-normal leading-relaxed">{thesis.sizing_action ?? '—'}</p></Field>
-              </dl>
+              <p className="text-sm text-muted-foreground">candidate は配分検討に使える企業評価です。現在価格の条件、allocate の判断、実約定は別に確認します。</p>
+              <ReviewedThesisContent projection={thesis.projection} />
               <code className="truncate rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground" title={thesis.revision.thesis_id}>{thesis.revision.thesis_id}</code>
             </div>
           )}
@@ -181,14 +156,14 @@ export function SecurityDetailPage() {
           <p className="py-8 text-center text-sm text-muted-foreground">research 記録なし</p>
         ) : (
           <Table>
-            <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>{LABEL.asOf}</TableHead><TableHead>判断</TableHead><TableHead className="text-right">FV</TableHead><TableHead>model</TableHead><TableHead>review</TableHead></TableRow></TableHeader>
+            <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>{LABEL.asOf}</TableHead><TableHead>判断</TableHead><TableHead className="text-right">Pmax（原評価）</TableHead><TableHead>状態</TableHead><TableHead>review</TableHead></TableRow></TableHeader>
             <TableBody>
               {data.revisions.map((revision) => (
                 <TableRow key={revision.thesis_id}>
                   <TableCell className="font-mono tabular-nums">{revision.as_of}</TableCell>
-                  <TableCell><Badge className="font-mono uppercase" variant="outline">{revision.recommendation}</Badge></TableCell>
-                  <TableCell className="text-right"><YenAmount value={revision.current_fair_value_yen} /></TableCell>
-                  <TableCell>{revision.model_version ?? '—'}</TableCell>
+                  <TableCell><Badge className="font-mono uppercase" variant="outline">{revision.disposition}</Badge></TableCell>
+                  <TableCell className="text-right"><YenAmount value={revision.pmax_raw_yen} /></TableCell>
+                  <TableCell>{revision.status}</TableCell>
                   <TableCell>{revision.review_id ? <Badge variant="secondary">有</Badge> : <span className="text-muted-foreground">—</span>}</TableCell>
                 </TableRow>
               ))}
@@ -207,7 +182,7 @@ export function SecurityDetailPage() {
               {data.position_reviews.map((review) => (
                 <TableRow key={review.position_review_id}>
                   <TableCell className="font-mono tabular-nums">{review.as_of}</TableCell>
-                  <TableCell><Badge className="font-mono uppercase" variant="outline">{review.action}</Badge></TableCell>
+                  <TableCell><Badge className="font-mono uppercase" variant="outline">{review.action ?? "未確定"}</Badge></TableCell>
                   <TableCell><code className="text-xs">{review.thesis_id}</code></TableCell>
                   <TableCell className="max-w-md text-sm text-muted-foreground">{review.note ?? '—'}</TableCell>
                 </TableRow>
@@ -229,4 +204,29 @@ export function SecurityDetailPage() {
       )}
     </PageShell>
   )
+}
+
+function ReviewedThesisContent({ projection }: { projection: Record<string, unknown> }) {
+  const object = (value: unknown): Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+  const text = (value: unknown) => value == null ? '未確認' : String(value)
+  if (projection.status === 'requires_reassessment') return <div><p>旧形式の記録です。現在の判断には再評価が必要です。</p><pre className="overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(projection.raw, null, 2)}</pre></div>
+  const investment = object(projection.investment_case)
+  const projections = object(projection.projections)
+  return <div className="grid gap-4">
+    <Field label="企業価値の変化と実現経路"><p>{text(investment.explanation)}</p></Field>
+    <Field label="投資理由の成立性"><p>{text(investment.status)} — {text(investment.status_reason)}</p></Field>
+    <Field label="重大な不成立条件"><p>{Array.isArray(investment.invalidation_conditions) ? investment.invalidation_conditions.join(' / ') : '未確認'}</p></Field>
+    <Field label="最も強い反対仮説"><p>{text(projection.strongest_countercase)}</p></Field>
+    {projection.status === 'unresolved' && <Field label="評価未解決の理由"><p>{text(projection.unresolved_reason)}</p></Field>}
+    <p>評価起点 {text(projection.as_of)} / 観測価格 {text(projection.original_price_yen)} 円 / 日時 {text(projection.original_quote_at)} / basis {text(projection.original_price_basis)}</p>
+    <p>期間 {text(projection.horizon_months)} か月 / 要求年率 {text(projection.required_annual_return_pct)}%</p>
+    <div className="grid gap-4 sm:grid-cols-2">{['base', 'downside'].map(name => {
+      const item = object(projections[name])
+      return <div className="rounded border p-4" key={name}><strong>{name === 'base' ? 'Base' : 'Downside'}</strong>
+        <p>分配後の価値 {text(item.terminal_value_per_share_yen)} 円 / 期間内分配 {text(item.cash_distribution_per_share_yen)} 円</p>
+        <p>条件付き総 return {text(item.total_return_pct)}% / 年率換算 {text(item.annualized_return_pct)}%</p>
+        <p className="mt-2 text-sm">{text(item.calculation)}</p></div>
+    })}</div>
+    <p className="text-sm text-muted-foreground">{text(projection.return_basis)}</p>
+  </div>
 }

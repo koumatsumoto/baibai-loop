@@ -29,7 +29,9 @@ from baibai_web.sources.protocols import (
 
 class TestDbLedgerSource:
     def make_source(self, root: Path) -> LedgerSource:
-        return DbLedgerSource(root / "stores/application/baibai.sqlite")
+        return DbLedgerSource(
+            root / "stores/application/baibai.sqlite", root / "stores/market/market.sqlite"
+        )
 
     def test_exists_false_when_absent(self, tmp_path: Path) -> None:
         assert self.make_source(tmp_path).exists() is False
@@ -40,7 +42,7 @@ class TestDbLedgerSource:
         snapshot = source.snapshot()
 
         assert source.exists() is True
-        assert snapshot.total_capital_yen == 10_419_500
+        assert snapshot.total_capital_yen is None
         assert len(snapshot.holdings) == 1
         assert snapshot.holdings[0].ticker == "2331"
 
@@ -59,8 +61,9 @@ class TestDbResearchSource:
         assert revisions[0].ticker == "2331"
         assert revisions[0].review_id is not None
         assert detail.revision == revisions[0]
-        assert detail.permanent_loss_risk_count == 7
-        assert len(detail.scenarios) == 6
+        assert detail.projection["status"] == "requires_reassessment"
+        assert len(detail.projection["raw"]["permanent_loss_risks"]) == 7
+        assert detail.projection["raw"]["schema_version"] == 3
         assert source.position_reviews(ticker="2331") == []
 
     @pytest.mark.parametrize("reviews", [[], ["newer"], ["tie-a", "tie-z"]])
@@ -217,3 +220,40 @@ class TestDbMarketPriceSource:
         assert previous is not None
         assert source.close_changes_since(["2331"], since=previous) == {"2331": 10.0}
         assert source.latest_closes(["2331"]) == {"2331": (110.0, date(2026, 7, 29))}
+
+
+def test_current_enterprise_projection_and_unresolved_holding_reason(app_method_root):
+    from datetime import datetime
+
+    from tests.helpers.research_v4 import pair_payload
+
+    from baibai_engine.research.thesis_store import ThesisStoreService
+
+    db = app_method_root / "stores/application/baibai.sqlite"
+    thesis, review = pair_payload(ticker="2331")
+    now = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
+    ThesisStoreService(db, clock=lambda: now).publish_reviewed_thesis(
+        "current", thesis, review, supersedes_id="thesis-20260714-2331-r1"
+    )
+    source = DbResearchSource(db)
+    detail = source.thesis_detail("current")
+    assert detail.revision.disposition == "candidate"
+    assert detail.projection["original_quote_at"] == "2026-09-04T15:30:00+09:00"
+    assert detail.projection["original_price_basis"] == "last_close_unadjusted"
+    assert detail.projection["projections"]["base"]["annualized_return_pct"] == 23.4
+    assert detail.projection["horizon_months"] == 12
+    with connect_rw(db) as connection:
+        import json
+
+        payload = {
+            "schema_version": 3,
+            "action": None,
+            "remaining_reward": {"status": "uncertain", "reason": "顧客契約の残存価値を確認中"},
+        }
+        connection.execute(
+            "INSERT INTO position_review(position_review_id,ticker,as_of,thesis_id,payload) VALUES ('unresolved','2331','2026-09-07','current',?)",
+            (json.dumps(payload),),
+        )
+    view = source.position_reviews(ticker="2331")[0]
+    assert view.action is None
+    assert view.note == "顧客契約の残存価値を確認中"

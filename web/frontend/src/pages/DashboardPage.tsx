@@ -213,7 +213,7 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
             <TableHead className="text-right">数量</TableHead>
             <TableHead className="text-right">取得 / 現在</TableHead>
             <TableHead className="text-right">評価額 / 損益</TableHead>
-            <TableHead className="text-right">FV / 乖離</TableHead>
+            <TableHead className="text-right">原評価のPmax / 差</TableHead>
             <TableHead>判断</TableHead>
             <TableHead className="w-12 pr-5 text-right sm:pr-6"><span className="sr-only">チャート</span></TableHead>
           </TableRow>
@@ -231,7 +231,7 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
                 <TableCell className="text-right font-mono tabular-nums">{holding.quantity.toLocaleString('ja-JP')}</TableCell>
                 <TableCell className="text-right">
                   <span className="flex items-baseline justify-end gap-2 font-mono text-sm tabular-nums text-muted-foreground"><span className="text-[10px] font-medium">取得</span>{averageCostYen === null ? EMPTY : formatYen(averageCostYen)}</span>
-                  <span className="mt-1 flex items-baseline justify-end gap-2 font-mono text-sm font-medium tabular-nums"><span className="text-[10px] font-medium text-muted-foreground">現在</span>{formatYen(Number(holding.market_price_yen))}</span>
+                  <span className="mt-1 flex items-baseline justify-end gap-2 font-mono text-sm font-medium tabular-nums"><span className="text-[10px] font-medium text-muted-foreground">現在</span>{holding.market_price_yen === null ? '未評価' : formatYen(Number(holding.market_price_yen))}</span>
                   {marketPriceAsOf === null && <AsOfBadge className="mt-1 justify-end" compact value={holding.market_price_as_of} />}
                 </TableCell>
                 <TableCell className="text-right">
@@ -242,10 +242,10 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
                   </span>
                 </TableCell>
                 <TableCell className="text-right">
-                  <YenAmount value={holding.fair_value_yen} />
-                  <PctBadge className="mt-1 block text-xs" value={holding.fv_gap_pct} />
+                  <YenAmount value={holding.pmax_raw_yen} />
+                  <PctBadge className="mt-1 block text-xs" value={holding.pmax_gap_pct} />
                 </TableCell>
-                <TableCell><Badge className="font-mono text-[10px] uppercase" variant="outline">{holding.recommendation ?? '—'}</Badge></TableCell>
+                <TableCell><Badge className="font-mono text-[10px] uppercase" variant="outline">{holding.disposition ?? '—'}</Badge></TableCell>
                 <TableCell className="pr-5 text-right sm:pr-6"><TradingViewButton ticker={holding.ticker} /></TableCell>
               </TableRow>
             )
@@ -273,7 +273,6 @@ const deltaUnavailableLabel: Record<DeltaUnavailable, string> = {
   review_set: 'Review Set（選定出力または比較に必要な手法情報なし）',
   review_set_estimate: 'Review Set の E[r]（見積り欠損またはモデルを比較できない）',
   holdings: '保有（ledger なし）',
-  holdings_fair_value: '保有の FV（thesis を読めない）',
   market: '市場データ（store なし）',
 }
 
@@ -384,25 +383,18 @@ export function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null
           {delta.holdings.map((item) => (
             <DeltaRow key={`holding-${item.ticker}`} label="保有">
               <DeltaSecurity name={item.company_name} ticker={item.ticker} />
-              {item.at_or_above_fair_value === true && <Badge variant="outline">FV 到達</Badge>}
               {item.change_since_previous_pct !== null && <PctBadge tone="pnl" value={item.change_since_previous_pct} />}
               {item.days_to_next_earnings !== null && <span className="text-sm text-muted-foreground">決算まで {item.days_to_next_earnings} 日</span>}
             </DeltaRow>
           ))}
-          {delta.holdings_without_fair_value > 0 && (
-            <DeltaRow label="FV 未記録">
-              <span className="text-sm text-muted-foreground">保有 {delta.holdings_without_fair_value} 件は thesis の FV が無く、到達判定ができない。</span>
-            </DeltaRow>
-          )}
           {delta.holdings_without_price > 0 && (
             <DeltaRow label="価格なし">
-              <span className="text-sm text-muted-foreground">保有 {delta.holdings_without_price} 件は FV があるのに現値が無く、比較できない。</span>
+              <span className="text-sm text-muted-foreground">保有 {delta.holdings_without_price} 件は現値が無く、価格変化を確認できない。</span>
             </DeltaRow>
           )}
           {total === 0 &&
             delta.unavailable.length === 0 &&
             !delta.method_changed &&
-            delta.holdings_without_fair_value === 0 &&
             delta.holdings_without_price === 0 && (
               <p className="py-8 text-center text-sm text-muted-foreground">閾値に触れる変化はありません。</p>
             )}

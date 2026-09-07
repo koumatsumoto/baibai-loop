@@ -25,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Evaluate a thesis draft against the decision gate without writing anything.",
     )
     parser.add_argument("thesis", type=Path)
+    parser.add_argument("--review", type=Path)
     return parser
 
 
@@ -37,7 +38,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         thesis = load_thesis(args.thesis)
-        review_path = _review_path(args.thesis, thesis.independent_review_ref)
+        review_path = args.review
         # The thesis scaffold reserves a stable review ref before that file exists.
         # Thesis evaluation is useful first; promotion still requires the review.
         review = (
@@ -61,16 +62,6 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         default_flow_style=False,
     )
     return 0 if evaluation.decision_readiness == "ready" else 2
-
-
-def _review_path(thesis_path: Path, review_ref: str | None) -> Path | None:
-    if review_ref is None:
-        return None
-    root = thesis_path.resolve().parent
-    resolved = (root / review_ref).resolve()
-    if not resolved.is_relative_to(root):
-        raise ThesisError("independent_review_ref must stay beside the thesis")
-    return resolved
 
 
 if __name__ == "__main__":

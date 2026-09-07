@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Baibai Loop read model",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "roots": {
     "/api/screening/history": "#/$defs/ScreeningHistoryView",
     "history/candidate-views/{as_of}.json": "#/$defs/ScreeningHistoryRunView",
@@ -47,7 +47,7 @@
           ],
           "title": "Thesis Review Id"
         },
-        "permanent_loss_conclusion": {
+        "case_status": {
           "anyOf": [
             {
               "type": "string"
@@ -56,9 +56,9 @@
               "type": "null"
             }
           ],
-          "title": "Permanent Loss Conclusion"
+          "title": "Case Status"
         },
-        "five_year_base_cagr_pct": {
+        "base_annualized_return_pct": {
           "anyOf": [
             {
               "type": "number"
@@ -67,9 +67,9 @@
               "type": "null"
             }
           ],
-          "title": "Five Year Base Cagr Pct"
+          "title": "Base Annualized Return Pct"
         },
-        "fair_value_yen": {
+        "pmax_raw_yen": {
           "anyOf": [
             {
               "type": "number"
@@ -78,18 +78,18 @@
               "type": "null"
             }
           ],
-          "title": "Fair Value Yen"
+          "title": "Pmax Raw Yen"
         },
-        "fv_gap_pct": {
+        "valuation_as_of": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "string"
             },
             {
               "type": "null"
             }
           ],
-          "title": "Fv Gap Pct"
+          "title": "Valuation As Of"
         }
       },
       "required": [
@@ -98,10 +98,10 @@
         "rationale",
         "thesis_id",
         "thesis_review_id",
-        "permanent_loss_conclusion",
-        "five_year_base_cagr_pct",
-        "fair_value_yen",
-        "fv_gap_pct"
+        "case_status",
+        "base_annualized_return_pct",
+        "pmax_raw_yen",
+        "valuation_as_of"
       ],
       "title": "AllocationAlternativeView",
       "type": "object"
@@ -342,10 +342,6 @@
           "title": "Holdings",
           "type": "array"
         },
-        "holdings_without_fair_value": {
-          "title": "Holdings Without Fair Value",
-          "type": "integer"
-        },
         "holdings_without_price": {
           "title": "Holdings Without Price",
           "type": "integer"
@@ -368,7 +364,6 @@
         "er_moves",
         "er_moves_total",
         "holdings",
-        "holdings_without_fair_value",
         "holdings_without_price",
         "unavailable"
       ],
@@ -577,7 +572,6 @@
         "review_set",
         "review_set_estimate",
         "holdings",
-        "holdings_fair_value",
         "market"
       ],
       "type": "string"
@@ -805,7 +799,7 @@
       "type": "object"
     },
     "HoldingDeltaView": {
-      "description": "One open holding whose observation crossed a threshold worth reading.\n\n``at_or_above_fair_value`` is the comparison of two numbers, not a decision:\nreaching fair value is a review trigger the human owns.",
+      "description": "Observed holding price movement; holding decisions belong to Position Review.",
       "properties": {
         "ticker": {
           "title": "Ticker",
@@ -821,17 +815,6 @@
             }
           ],
           "title": "Company Name"
-        },
-        "at_or_above_fair_value": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "At Or Above Fair Value"
         },
         "change_since_previous_pct": {
           "anyOf": [
@@ -859,7 +842,6 @@
       "required": [
         "ticker",
         "company_name",
-        "at_or_above_fair_value",
         "change_since_previous_pct",
         "days_to_next_earnings"
       ],
@@ -896,27 +878,51 @@
           "type": "integer"
         },
         "market_price_yen": {
-          "title": "Market Price Yen",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Market Price Yen"
         },
         "market_price_as_of": {
-          "format": "date-time",
-          "title": "Market Price As Of",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Market Price As Of"
         },
         "market_value_yen": {
-          "title": "Market Value Yen",
-          "type": "integer"
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Market Value Yen"
         },
         "unrealized_pnl_yen": {
-          "title": "Unrealized Pnl Yen",
-          "type": "integer"
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unrealized Pnl Yen"
         },
         "unrealized_pnl_pct": {
-          "title": "Unrealized Pnl Pct",
-          "type": "number"
-        },
-        "fair_value_yen": {
           "anyOf": [
             {
               "type": "number"
@@ -925,9 +931,9 @@
               "type": "null"
             }
           ],
-          "title": "Fair Value Yen"
+          "title": "Unrealized Pnl Pct"
         },
-        "fv_gap_pct": {
+        "pmax_raw_yen": {
           "anyOf": [
             {
               "type": "number"
@@ -936,7 +942,18 @@
               "type": "null"
             }
           ],
-          "title": "Fv Gap Pct"
+          "title": "Pmax Raw Yen"
+        },
+        "pmax_gap_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pmax Gap Pct"
         },
         "latest_thesis_id": {
           "anyOf": [
@@ -949,7 +966,7 @@
           ],
           "title": "Latest Thesis Id"
         },
-        "recommendation": {
+        "disposition": {
           "anyOf": [
             {
               "type": "string"
@@ -958,7 +975,7 @@
               "type": "null"
             }
           ],
-          "title": "Recommendation"
+          "title": "Disposition"
         },
         "next_earnings_date": {
           "anyOf": [
@@ -984,10 +1001,10 @@
         "market_value_yen",
         "unrealized_pnl_yen",
         "unrealized_pnl_pct",
-        "fair_value_yen",
-        "fv_gap_pct",
+        "pmax_raw_yen",
+        "pmax_gap_pct",
         "latest_thesis_id",
-        "recommendation",
+        "disposition",
         "next_earnings_date"
       ],
       "title": "HoldingView",
@@ -2677,7 +2694,7 @@
           "title": "Thesis Id",
           "type": "string"
         },
-        "replacement_thesis_id": {
+        "action": {
           "anyOf": [
             {
               "type": "string"
@@ -2686,11 +2703,7 @@
               "type": "null"
             }
           ],
-          "title": "Replacement Thesis Id"
-        },
-        "action": {
-          "title": "Action",
-          "type": "string"
+          "title": "Action"
         },
         "note": {
           "anyOf": [
@@ -2708,7 +2721,6 @@
         "position_review_id",
         "as_of",
         "thesis_id",
-        "replacement_thesis_id",
         "action",
         "note"
       ],
@@ -2726,22 +2738,11 @@
           "title": "Thesis Id",
           "type": "string"
         },
-        "recommendation": {
-          "title": "Recommendation",
+        "disposition": {
+          "title": "Disposition",
           "type": "string"
         },
-        "confidence": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Confidence"
-        },
-        "current_fair_value_yen": {
+        "pmax_raw_yen": {
           "anyOf": [
             {
               "type": "number"
@@ -2750,18 +2751,7 @@
               "type": "null"
             }
           ],
-          "title": "Current Fair Value Yen"
-        },
-        "model_version": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Model Version"
+          "title": "Pmax Raw Yen"
         },
         "review_id": {
           "anyOf": [
@@ -2773,16 +2763,19 @@
             }
           ],
           "title": "Review Id"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
         }
       },
       "required": [
         "as_of",
         "thesis_id",
-        "recommendation",
-        "confidence",
-        "current_fair_value_yen",
-        "model_version",
-        "review_id"
+        "disposition",
+        "pmax_raw_yen",
+        "review_id",
+        "status"
       ],
       "title": "ResearchRevisionView",
       "type": "object"
@@ -3854,24 +3847,6 @@
       "title": "ReviewSetView",
       "type": "object"
     },
-    "ScenarioView": {
-      "properties": {
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
-        "horizon_years": {
-          "title": "Horizon Years",
-          "type": "integer"
-        }
-      },
-      "required": [
-        "name",
-        "horizon_years"
-      ],
-      "title": "ScenarioView",
-      "type": "object"
-    },
     "ScreeningHistoryRunView": {
       "description": "Stable UI projection of one retained screening run.",
       "properties": {
@@ -4731,82 +4706,15 @@
         "revision": {
           "$ref": "#/$defs/ResearchRevisionView"
         },
-        "entry_price_basis_yen": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Entry Price Basis Yen"
-        },
-        "required_5y_base_cagr_pct": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Required 5Y Base Cagr Pct"
-        },
-        "permanent_loss_risk_count": {
-          "title": "Permanent Loss Risk Count",
-          "type": "integer"
-        },
-        "scenarios": {
-          "items": {
-            "$ref": "#/$defs/ScenarioView"
-          },
-          "title": "Scenarios",
-          "type": "array"
-        },
-        "permanent_loss_conclusion": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Permanent Loss Conclusion"
-        },
-        "strongest_countercase": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Strongest Countercase"
-        },
-        "sizing_action": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Sizing Action"
+        "projection": {
+          "additionalProperties": true,
+          "title": "Projection",
+          "type": "object"
         }
       },
       "required": [
         "revision",
-        "entry_price_basis_yen",
-        "required_5y_base_cagr_pct",
-        "permanent_loss_risk_count",
-        "scenarios",
-        "permanent_loss_conclusion",
-        "strongest_countercase",
-        "sizing_action"
+        "projection"
       ],
       "title": "ThesisDetailView",
       "type": "object"

@@ -12,11 +12,11 @@ referenceは「artifact・式・error/warningは何を意味するか」を持�
 | 調べたいこと | reference |
 | --- | --- |
 | 判断文書に共通する日本語表現と意味保全 | [`judgment-writing.md`](./judgment-writing.md) |
-| thesis、3年/5年算術、review hash、planning limit | [`thesis.md`](./thesis.md) |
+| Thesis v4、Base/Downside算術、独立Review、Planning | [`thesis.md`](./thesis.md) |
 | 候補横比較、購入方法、content review束縛、統合判断の正本 | [`capital-allocation-assessment.md`](./capital-allocation-assessment.md) |
 | 事業モデル別の問いと主張の裏取り | [`business-model-research.md`](./business-model-research.md) |
 | cash、reservation、execution、release、snapshot | [`portfolio-ledger.md`](./portfolio-ledger.md) |
-| hold/add/reduce/exitと税引後代替 | [`position-review.md`](./position-review.md) |
+| hold/exit/nullと残存見返り | [`position-review.md`](./position-review.md) |
 | portfolio returnとTOPIX観測 | [`portfolio-ledger.md#historical-outcome`](./portfolio-ledger.md#historical-outcome) |
 | long-horizon estimate calibration | [`estimate-calibration.md`](./estimate-calibration.md) |
 | valuation指標 | [`valuation-metrics.md`](./valuation-metrics.md) |

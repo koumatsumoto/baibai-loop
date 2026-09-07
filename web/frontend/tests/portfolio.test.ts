@@ -15,10 +15,10 @@ function holding(overrides: Partial<HoldingView>): HoldingView {
     market_value_yen: 110_000,
     unrealized_pnl_yen: 10_000,
     unrealized_pnl_pct: 10,
-    fair_value_yen: null,
-    fv_gap_pct: null,
+    pmax_raw_yen: null,
+    pmax_gap_pct: null,
     latest_thesis_id: null,
-    recommendation: null,
+    disposition: null,
     next_earnings_date: null,
     ...overrides,
   }
@@ -30,6 +30,13 @@ describe('totalUnrealizedPnl', () => {
       holding({ deployed_cost_yen: 100_000, unrealized_pnl_yen: 10_000 }),
       holding({ deployed_cost_yen: 300_000, unrealized_pnl_yen: -15_000 }),
     ])).toEqual({ yen: -5_000, pct: -1.25 })
+  })
+
+  it('keeps the total unknown when a held position cannot be valued', () => {
+    expect(totalUnrealizedPnl([
+      holding({ unrealized_pnl_yen: 10_000 }),
+      holding({ market_price_yen: null, market_price_as_of: null, market_value_yen: null, unrealized_pnl_yen: null, unrealized_pnl_pct: null }),
+    ])).toEqual({ yen: null, pct: null })
   })
 
   it('does not divide by an empty cost basis', () => {

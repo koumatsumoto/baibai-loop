@@ -141,11 +141,11 @@ def test_method_change_does_not_skip_holdings(mocker) -> None:
     sources[1].exists.return_value = True
     sources[2].load_errors.return_value = []
     holding_delta = mocker.patch(
-        "baibai_web.readmodel.builders._holding_deltas", return_value=([], 2, 3)
+        "baibai_web.readmodel.builders._holding_deltas", return_value=([], 3)
     )
     view = build_daily_delta(*sources)
     assert view.method_changed
-    assert (view.holdings_without_fair_value, view.holdings_without_price) == (2, 3)
+    assert view.holdings_without_price == 3
     holding_delta.assert_called_once()
 
 

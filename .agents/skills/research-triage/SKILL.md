@@ -36,7 +36,7 @@ batch/scripts/publish.sh
 - machine ranking、Review Set membership/order、Nomination、Review Set Entry snapshotを変更しない。
 - 4 Approachの仮説をprimary authorityとし、relative weaknessは低priorityで表す。絶対的なResearch価値が無い場合だけskipにする。
 - Macro ContextとE[r]は参考文脈であり、単独gateにしない。E[r]はsecondary return priorで、高低・負値・欠損だけからverdictやpriorityを決めない。
-- unknownを否定事実へ変換しない。
+- unknownを否定事実へ変換しない。問いは「何を調べれば判断が変わるか」。購入時の完全な証拠を入口で要求せず、株価上昇、無配、回復可能な赤字だけで除外しない。
 
 ## 失敗時
 

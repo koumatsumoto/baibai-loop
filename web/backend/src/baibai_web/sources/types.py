@@ -15,29 +15,16 @@ class ResearchRevision:
     sector: str
     as_of: date
     thesis_id: str
-    recommendation: str
-    confidence: str | None
-    current_fair_value_yen: float | None
-    model_version: str | None
+    disposition: str
+    pmax_raw_yen: float | None
     review_id: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class ScenarioSummary:
-    name: str
-    horizon_years: int
+    status: str
 
 
 @dataclass(frozen=True, slots=True)
 class ThesisDetail:
     revision: ResearchRevision
-    entry_price_basis_yen: float | None
-    required_5y_base_cagr_pct: float | None
-    permanent_loss_risk_count: int
-    scenarios: tuple[ScenarioSummary, ...]
-    permanent_loss_conclusion: str | None
-    strongest_countercase: str | None
-    sizing_action: str | None
+    projection: dict[str, object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,8 +35,7 @@ class PositionReviewSummary:
     ticker: str
     as_of: date
     thesis_id: str
-    replacement_thesis_id: str | None
-    action: str
+    action: str | None
     note: str | None
 
 

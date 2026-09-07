@@ -86,9 +86,10 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 
 ### Commit前に止める条件
 
+- [ ] Planningの期限をbroker報告へそのまま渡し、引け後・休日でも`planned_limit`に過去の期限がないことを確認したか
 - [ ] **各数値計算について、Python / 電卓で 1 回検算した結果を文書内のコメントまたは
       `(計算: A / B * 100 = C)` の形で残しているか**
-- [ ] execution policyの最大許容価格を、5年base terminal price + 累積配当と明示した要求CAGRから再計算し、合法tickへ切り下げたか。終値からの任意率やclaimed max priceを転記していないか
+- [ ] execution policyの最大許容価格を、Base terminal + 当該期間の累積分配と記録済み要求年率・horizonからDecimalで再計算し、丸め前のPmaxで比較したか。終値からの任意率やclaimed max priceを転記していないか
 - [ ] 単位を明示しているか (% / bp / pt / 倍 / 円 / USD)
 - [ ] portfolio outcomeでは、contribution / withdrawalだけをexternal flowとしてTWR分母へ入れ、buy/sell・reservation・配当・費用・確定税を二重にflow扱いしていないか
 - [ ] 価格 → リターン換算は (新値 - 旧値) / 旧値 * 100 で計算しているか
@@ -183,7 +184,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - future の macro context を判断時点の情報として使った
 - stale / missing macro context を理由に、決定論的なscreeningまたは候補比較を停止した
 - macroのmaterial deltaを銘柄別の事実や機械rankingへ混入した
-- material deltaが個別5年期待値へ影響するのに、thesisの根拠・反証へ接続しなかった
+- material deltaが個別企業のProjectionへ影響するのに、thesisの根拠・反証へ接続しなかった
 
 ### 発生理由
 - macro contextを候補選別用のsector/ranking入力だと誤解する
@@ -231,12 +232,12 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 #### 共通validator
 
 - [ ] current-only storeのread経路はownerのschema validatorを通し、path不在 / `user_version = 0`かつtableなしのunwritten storeだけを空へdegradeするか。obsolete versionやcurrent schemaのtable / column / index欠落を「データなし」に変換していないか
-- [ ] validator rule を追加・修正する場合、その rule の corner case を negative test で必ず塞ぐ。Thesis の `incomplete` 条件、snapshot source の identity / 時刻 / unit 拒否、Planning Limitの価格 / cash 判定、Thesis Review の hash 束縛、screening E[r] / FV の estimate 扱いといった個別 field の必須・拒否条件は engine model と各 negative test（`test_thesis.py` / `test_position_broker_fact_service.py` / `test_portfolio_ledger.py` 等）が正本で、本節へ網羅転記しない。追加時は最低限次の corner case を test する:
+- [ ] validator rule を追加・修正する場合、その rule の corner case を negative test で必ず塞ぐ。Thesis の `incomplete` 条件、snapshot source の identity / 時刻 / unit 拒否、Planning Limitの価格 / cash 判定、Thesis Review の hash 束縛、screening E[r] / FV の estimate 扱いといった個別 field の必須・拒否条件は engine model と各 negative test（`test_reviewed_thesis_v4.py` / `test_position_broker_fact_service.py` / `test_portfolio_ledger.py` 等）が正本で、本節へ網羅転記しない。追加時は最低限次の corner case を test する:
   - [ ] 関連 field が **不在** の場合 (skip / error どちらが正しいか)
   - [ ] 関連 field が **null** の場合
   - [ ] 関連 field が **0 / 負値** の場合 (decision との整合性)
   - [ ] model 管理している **nested object** が未知 field を許していないか
-  - [ ] **既存 thesis** が新 rule で breakage しないか、する場合は同 commit で fix する
+  - [ ] 既存の公開payload・ID・hashを保持し、旧版は履歴表示・要再評価とし、新ruleで過去の判断本文を書き換えないか
   - [ ] decisionに応じて必須・禁止が切り替わる分類fieldは、必須時の欠落・未定義値・禁止時の混入をすべて拒否するか
   - [ ] 判断draftのscaffoldが`TODO`や未定義decisionを出す場合、publisherはplaceholderを必ず拒否し、scaffoldは判断元のmachine座標を同じentryへ転記して自由記述との照合を1回で行えるか
 
@@ -244,7 +245,11 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 
 - [ ] capital-allocation startが書き込み前に重複のないnon-empty Research Set bindingを要求し、同じ集合の順序変更はresumeできるか
 - [ ] Researchのscaffold/promoteがactive Operationのexact Triage・Research Setをwrite前に再照合し、manifestとworkspace両方の改変でも選択集合を広げられないか。historical statusはactiveなしで読めるか
-- [ ] position-review startはticker必須で、completeは同じtransactionで1件のcanonical Position Reviewのticker/as_ofを照合するか。未公開・未知・複数・別銘柄・別日付の参照はactiveのまま拒否するか
+- [ ] Position ReviewはOperationを作らず、対象holding・latest Reviewed Thesis・必要quoteだけでcheck/publishできるか。人間確認なしはno-write、理由付きnullをholdに変換せず、数量basis不明で数量付きexitを出さないか
+- [ ] v4 Thesisとexact Reviewを同一transactionで公開し、片方失敗時に両方rollbackするか。同ID retryは両payload一致を先に調べ、最新revisionは先に選択してから検証し、旧版や不利な評価を飛ばさないか
+- [ ] unresolvedの価格欠損を0へ変換せず、candidateの重要な根拠不足をoverrideで通さないか。独立検算は作者のterminal/cashの機械コピーになっていないか
+- [ ] entryは既保有・同ticker予約・同CAA買約定履歴でno-addを守り、全売却後の旧CAA再利用を拒否するか。取引事実に現在の買付適格性を適用していないか
+- [ ] 保有publishは提出remainingを上書きせず、必要入力の変化だけ再確認するか。旧horizonの短縮、受取済み・権利確定済み分配の二重計上、Pmaxを保有売却基準へ流用していないか
 - [ ] Assessmentのscaffold / check / publishがactive Operationのexact Triage・人間確定Research Set全体と一致し、checkpointでそのbindingを削除・差替えできないか。候補の欠落・混入・別Triage・別Operationをnegative testで拒否したか
 - [ ] Planning Limitはcanonical allocate Assessmentから対象Thesis / recorded core / Reviewを解決し、見送りAssessment・未知ID・local Thesis差替えで注文案を作れないか。broker factだけで検証して人間への注文案生成を素通しにしていないか
 - [ ] capital-allocation完了は開始時のTriage・Research Setに一致する公開済みAssessmentを同じtransactionで検証し、任意artifact・未公開ID・別cycleの判断ではactiveのまま拒否するか
@@ -522,10 +527,12 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 
 ### Commit前に止める条件
 
+- [ ] 入出金・配当・費用・税も実draft→applyで検証し、未転記・古い時価で正当な事実を止めていないか。価格不明でもcash・数量を表示し、初回約定後の次候補Planningを通したか
+
 - [ ] research 対象銘柄について、業種を問わず会社IRを確認したか。最低限、直近決算短信 /
       決算説明資料 / Q&A / 有価証券報告書または統合報告書 / 中期経営計画 / 株主還元関連開示を
       確認し、未確認項目を本文に残したか
-- [ ] 会社IR未確認のまま `judgment.recommendation: buy` にしていないか。未確認なら`defer`または
+- [ ] 会社IR未確認のまま `judgment.disposition: candidate` にしていないか。未確認なら`defer`または
       `reject`にして、追加確認条件を明示したか
 - [ ] 外部 AI / 二次分析の結論を採用する前に、主要数値を会社IR・決算短信・決算説明資料・Q&A・
       取引所 calendar・screening run出力のいずれかで再確認したか
@@ -541,7 +548,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] buy assessmentのdecision referenceへ辿れないresultをledgerへ入れていないか
 - [ ] holdings/reservationsをcanonical ledgerから読み、削除済みMarkdown globを使っていないか
 - [ ] 予算、保有、予約だけを理由に、より割安な候補をscreening/research前にhard除外していないか
-- [ ] ledger精密化、二重記録、realtime取得を、お買い得候補の一次情報・5年評価より優先していないか
+- [ ] ledger精密化、二重記録、realtime取得を、お買い得候補の一次情報・企業評価より優先していないか
 - [ ] concentration warningを受け入れる場合、ledger overrideに理由と期限を記録したか
 - [ ] 注文日が休場日または立会時間外の場合、broker-confirmed executionがない限り約定価格を推定で埋めていないか
 - [ ] not-filled outcomeのlimit touchをbroker fillとして記録していないか。期限後return / missed upsideはsame-basisの観測値が揃う場合だけ補助観測として扱ったか

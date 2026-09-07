@@ -1,32 +1,12 @@
-"""Fundamental Research authoring: prepare a workspace, scaffold thesis/review drafts, and
-derive a planning-only limit from the previous business day's raw close.
-
-This module produces Research workspaces and canonical publications behind
-``baibai-engine research``. It never submits an
-order, never asserts fill probability, and never reads a realtime quote. The
-canonical price basis for a limit is the JPX store's latest complete business-day
-*raw/unadjusted* close before the target session; adjusted series are for past
-comparison only and are never used for a limit.
-
-Planning boundary:
-
-- Investment value is decided before budget rounding. The 20-30万円 guide is a
-  sizing annotation for a normal position. Reduced sizing is exactly one board lot.
-- ``promote`` is the only command that publishes a canonical thesis/review;
-  ``prepare`` also starts or resumes the exact human-admitted Research Operation.
-  Draft commands write to the caller-selected workspace; status reads canonical publication.
-- ``defer`` and ``no_allocation`` are normal investment judgments and exit 0.
-"""
+"""調査工程の admission、local draft と Reviewed Thesis 公開を産む。"""
 
 from __future__ import annotations
 
 import hashlib
-import json
 from collections.abc import Mapping, Sequence
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime, time
-from decimal import Decimal
 from math import isfinite
 from pathlib import Path
 from typing import get_args
@@ -46,10 +26,12 @@ from baibai_engine.operation.models import OperationPayload, OperationSession
 from baibai_engine.operation.research_binding import research_binding
 from baibai_engine.operation.service import OperationService
 from baibai_engine.position.ledger import (
-    PortfolioSnapshot,
-    reconcile_portfolio,
+    replay_events_through,
 )
-from baibai_engine.position.policy import PORTFOLIO_POLICY
+from baibai_engine.position.market_source import (
+    UnadjustedCloseObservation,
+    read_unadjusted_close,
+)
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.read_api.er_calibration_context import (
     candidate_er_band_context,
@@ -60,21 +42,7 @@ from baibai_engine.read_api.research_triage import (
     research_triage_payload_hash,
 )
 
-from .capital_allocation_service import CapitalAllocationAssessmentService
-from .decimal_number import decimal_to_number
-from .entry_price_policy import EntryPricePolicyError, maximum_acceptable_entry_price
-from .market_close_source import (
-    UnadjustedCloseObservation,
-    read_prior_session_unadjusted_close,
-)
-from .portfolio_exposure import (
-    calculate_prospective_portfolio_exposure,
-    planned_order_cash_warnings,
-    portfolio_annotations,
-)
-from .store import ResearchConflictError, ResearchStoreService, ResearchValidationError
 from .thesis import (
-    ScreeningEstimate,
     ThesisDocument,
     ThesisError,
     ThesisReview,
@@ -83,58 +51,16 @@ from .thesis import (
     load_thesis,
     thesis_core_hash,
 )
-
-BOARD_LOT: int = PORTFOLIO_POLICY["order_constraints"]["board_lot"]
-# 対象 sizing 帯 (20-30万円 / 100株 = ¥2000-3000/株) はちょうど JPX 現物の ¥1 tick 帯。
-# max acceptable price の ceiling floor 丸めはこの帯で正確な ¥1 を使う。
-PLANNING_TICK_SIZE_YEN = Decimal("1")
-
-# 一次情報の research checklist。scaffold が pending で出し、AI が一次情報を
-# 確認して埋める。source.corporate_action は adjustment_factor 未解決なら blocked。
-CHECKLIST_IDS: tuple[str, ...] = (
-    "source.latest_results",
-    "source.financial_position",
-    "source.cash_flow",
-    "source.share_count_and_dilution",
-    "source.customer_concentration",
-    "source.structural_decline",
-    "source.management_accounting_warning",
-    "source.corporate_action",
-    "scenario.bear_3y_5y",
-    "scenario.base_3y_5y",
-    "scenario.bull_3y_5y",
-    "valuation.fair_value_and_required_cagr",
-    "judgment.strongest_countercase",
+from .thesis_store import (
+    ResearchConflictError,
+    ResearchValidationError,
+    ThesisStoreService,
+    latest_thesis_id,
+    load_reviewed_thesis,
 )
 
-# 観測 trailing multiple の fact ID。thesis の 5y base break-even check は、この ID
-# または `trailing-per-` 前置の valuation_metric / ratio fact だけを読む。
-TRAILING_MULTIPLE_FACT_ID = "trailing-per"
-# scaffold が観測できない値の sentinel。数値でないので evaluate が必ず拒否し、
-# 未記入のまま promote へ抜けない。
-TODO_PLACEHOLDER = "TODO"
-
-# draft はそのまま人間 / AI が編集するので、gate の非自明な要求は本文の隣に置く。
-# YAML comment なので load 結果にも core hash にも影響しない。
-_THESIS_DRAFT_HEADER = """\
-# thesis draft — null と TODO を一次情報で埋める。scaffold が置いた構造は変えない。
-# - retrieved_at / proposed_at は JST の現在時刻以前。同日でも先の時刻は future-dated
-#   として拒否される。source 取得より前の proposed_at も拒否される。
-# - facts[trailing-per] は 5y base break-even check が読む観測 trailing multiple。
-#   TODO を比率へ置き換え、利益側の一次 source を source_ids へ追加する。
-# - independent_review_ref は review-scaffold が書き出す隣接ファイル名。変更しない。
-# - 引用符なしの散文（assumption / summary / countercase 等）に「: 」を書かない。
-#   YAML が mapping と解釈して load が落ちる。区切りには「 — 」を使う。
-"""
-
-_REVIEW_DRAFT_HEADER = """\
-# Thesis Review draft — thesis author と別 role が埋める。
-# - reviewed_at は JST の現在時刻以前。
-# - reviewed_thesis_sha256 は生成時点の thesis core hash に束縛される。thesis を
-#   編集したら review-scaffold --force で作り直す（古い hash のままだと promote が拒否）。
-# - 引用符なしの散文（strongest_countercase 等）に「: 」を書かない。YAML が mapping と
-#   解釈して load が落ちる。区切りには「 — 」を使う。
-"""
+_THESIS_DRAFT_HEADER = "# 企業評価 draft。未確認は理由付き unresolved とし、一次資料で補う。\n"
+_REVIEW_DRAFT_HEADER = "# 独立検算の値を入力する。作者の値をコピーしない。\n"
 
 
 class ResearchWorkspaceError(Exception):
@@ -144,7 +70,7 @@ class ResearchWorkspaceError(Exception):
 
 
 class ResearchWorkspaceDataError(ResearchWorkspaceError):
-    """Missing source / checklist / schema / hash makes the request unprocessable."""
+    """Missing source / schema / hash makes the request unprocessable."""
 
     exit_code = 3
 
@@ -352,7 +278,8 @@ def prepare_workspace(
             research_set=selected,
             db_path=db_path,
         )
-    snapshot, _ = _load_snapshot(db_path)
+    ledger, _ = LedgerStoreService(db_path).load_with_head()
+    snapshot = replay_events_through(ledger.events, ledger.as_of)
 
     manifest_path = workspace / "manifest.yaml"
     if manifest_path.exists() and not force:
@@ -360,8 +287,10 @@ def prepare_workspace(
             f"workspace already prepared (use --force to rebuild): {workspace}"
         )
 
-    held = {holding.ticker for holding in snapshot.holdings}
-    reserved = {reservation.ticker for reservation in snapshot.active_reservations}
+    held = {
+        ticker for ticker, lots in snapshot.lots.items() if any(lot.quantity > 0 for lot in lots)
+    }
+    reserved = {reservation.ticker for reservation in snapshot.active_reservations.values()}
     annotated = [
         _annotate_review_set_entry(
             row, held=held, reserved=reserved, decisions=gate.triage_decision_by_ticker
@@ -483,29 +412,6 @@ def _existing_research_operation(
     return None
 
 
-def _holding_subject_problem(snapshot: PortfolioSnapshot, *, ticker: str, asof: date) -> str | None:
-    """Say why ``ticker`` cannot be a position-review subject at ``asof``, or ``None``.
-
-    Position Review has no Research Triage because the ledger is its source, so this is
-    the whole of what makes a subject legitimate — and it has to be one statement,
-    because ``position-prepare`` and every later gate must not be able to disagree
-    about it. The as-of half is not decoration: the canonical Position Review is
-    built against the ledger's own price observation, so a review that runs at any
-    other as-of cannot become one.
-    """
-
-    holding = next((item for item in snapshot.holdings if item.ticker == ticker), None)
-    if holding is None:
-        return f"{ticker} is not an open holding in the canonical ledger"
-    observed_on = holding.market_price_observed_at.date()
-    if observed_on != asof:
-        return (
-            f"the canonical ledger observed {ticker}'s market price on "
-            f"{observed_on.isoformat()}, not {asof.isoformat()}"
-        )
-    return None
-
-
 def prepare_holding_workspace(
     *,
     asof: date,
@@ -517,14 +423,15 @@ def prepare_holding_workspace(
     """Build a one-ticker research workspace for an actual open holding.
 
     Position Review bypasses Review Set publication because the canonical ledger is
-    the source of its research target. The holding ticker and ledger observation as-of
-    bind every thesis/review/promotion gate; no Research Triage is fabricated.
+    the source of its research target. Each authoring gate confirms that the ticker
+    remains held; no Research Triage or portfolio-wide price prerequisite is fabricated.
     """
-    snapshot, append_head = _load_snapshot(db_path)
-    problem = _holding_subject_problem(snapshot, ticker=ticker, asof=asof)
-    if problem is not None:
-        raise ResearchWorkspaceDataError(f"cannot prepare Position Review: {problem}")
-    holding = next(item for item in snapshot.holdings if item.ticker == ticker)
+    ledger, _ = LedgerStoreService(db_path).load_with_head()
+    snapshot = replay_events_through(ledger.events, ledger.as_of)
+    quantity = sum(lot.quantity for lot in snapshot.lots.get(ticker, []))
+    if quantity <= 0:
+        raise ResearchWorkspaceDataError("position-prepare requires a current holding")
+    sector = snapshot.metadata[ticker][0]
 
     manifest_path = workspace / "manifest.yaml"
     if manifest_path.exists() and not force:
@@ -535,9 +442,9 @@ def prepare_holding_workspace(
     subject = [
         {
             "rank": 1,
-            "ticker": holding.ticker,
-            "sector": holding.sector,
-            "quantity": holding.quantity,
+            "ticker": ticker,
+            "sector": sector,
+            "quantity": quantity,
             "portfolio_annotation": "held",
         }
     ]
@@ -552,13 +459,6 @@ def prepare_holding_workspace(
         "purpose": "position_review",
         "holding_ticker": ticker,
         "as_of": asof.isoformat(),
-        "inputs": {
-            "ledger": {
-                "entity_id": "portfolio-ledger",
-                "append_head": append_head,
-            }
-        },
-        "rules": {},
     }
     _write_workspace_file(manifest_path, manifest)
     _write_status(workspace, db_path=db_path)
@@ -736,15 +636,6 @@ def _case_status(
     workspace: Path, ticker: str, asof: date, *, db_path: Path | None, now: datetime
 ) -> dict[str, object]:
     case = _read_case(workspace, ticker, asof)
-    checklist = case.checklist
-    pending = [
-        str(item.get("check_id") or "<missing check_id>")
-        for item in checklist
-        if item.get("status") not in {"complete", "blocked"}
-    ]
-    if not checklist:
-        pending.append("research checklist missing")
-    blocked = [str(item.get("check_id")) for item in checklist if item.get("status") == "blocked"]
     thesis_id = None
     if not case.thesis_errors and not case.review_errors:
         assert case.thesis is not None
@@ -756,8 +647,12 @@ def _case_status(
         if thesis_id is not None
         else _case_eligibility(case, now=now)
     )
-    status = _resolve_workspace_status(
-        pending=pending, blocked=blocked, thesis_errors=thesis_errors, review_errors=review_errors
+    status = (
+        "incomplete"
+        if thesis_errors
+        else "ready_for_review"
+        if review_errors
+        else "ready_for_promotion"
     )
     if thesis_id is not None:
         status = "published"
@@ -765,9 +660,6 @@ def _case_status(
         "ticker": ticker,
         "status": status,
         "thesis_id": thesis_id,
-        "completed_checks": sum(item.get("status") == "complete" for item in checklist),
-        "pending_checks": pending,
-        "blocked_checks": blocked,
         "thesis_validation_errors": thesis_errors,
         "review_validation_errors": review_errors,
         "next_action": None if status == "published" else _next_action(status, ticker),
@@ -779,46 +671,23 @@ def _published_case(
 ) -> str | None:
     """Show Research publication only for this exact thesis core and authored review."""
     with closing(connect_read_only(database_path(db_path))) as connection:
+        connection.execute("BEGIN")
         rows = connection.execute(
-            "SELECT t.thesis_id, t.payload AS thesis_payload, r.payload "
-            "FROM thesis t JOIN thesis_review r "
-            "ON r.thesis_id = t.thesis_id WHERE t.core_sha256 = ? AND r.review_id = ?",
+            "SELECT t.thesis_id FROM thesis t JOIN thesis_review r ON r.thesis_id=t.thesis_id "
+            "WHERE t.core_sha256=? AND r.review_id=?",
             (thesis_core_hash(thesis), review.review_id),
         ).fetchall()
-    for row in rows:
-        if (
-            json.loads(str(row["payload"])) == review.model_dump(mode="json")
-            and ThesisDocument.model_validate(json.loads(str(row["thesis_payload"]))) == thesis
-        ):
-            return str(row["thesis_id"])
+        for row in rows:
+            pair = load_reviewed_thesis(connection, str(row["thesis_id"]))
+            if pair.document == thesis and pair.review == review:
+                return pair.thesis_id
     return None
-
-
-def _resolve_workspace_status(
-    *,
-    pending: Sequence[object],
-    blocked: Sequence[object],
-    thesis_errors: Sequence[str],
-    review_errors: Sequence[str],
-) -> str:
-    if blocked:
-        return "deferred"
-    if pending or thesis_errors:
-        return "incomplete"
-    if review_errors:
-        return "ready_for_review"
-    return "ready_for_promotion"
 
 
 def _next_action(workspace_status: str, ticker: str) -> str:
     match workspace_status:
-        case "deferred":
-            return (
-                f"{ticker}: resolve blocked evidence or record unknown/defer "
-                "and complete the investigation"
-            )
         case "incomplete":
-            return f"{ticker}: complete the thesis and research checklist"
+            return f"{ticker}: complete the thesis"
         case "ready_for_review":
             return f"{ticker}: complete an independent Thesis Review for the current thesis"
         case _:
@@ -835,80 +704,33 @@ def _verify_external_inputs(
     which tickers the Gate admits.
 
     Position Review has no Research Triage — the ledger is its source — so it gets ``None``, and
-    its subject and as-of are re-proved against that ledger here. Both purposes
+    its holding subject is re-proved against that ledger here. Both purposes
     therefore prove their subject against a store: without that, declaring
     ``position_review`` in the manifest would be a way to opt out of the Gate.
     """
 
-    inputs = manifest.get("inputs")
-    if not isinstance(inputs, Mapping):
-        raise ResearchWorkspaceDataError("manifest is missing external input hashes")
     purpose = str(manifest.get("purpose") or "fundamental_research")
-    required_inputs: tuple[str, ...]
-    if purpose == "fundamental_research":
-        # Ledger annotations and the copied calibration context describe prepare time.
-        # Planning Limit reads the current ledger when an order is considered.
-        required_inputs = ()
-    elif purpose == "position_review":
-        required_inputs = ("ledger",)
-    else:
-        raise ResearchWorkspaceDataError(f"manifest purpose is invalid: {purpose}")
-    for name in required_inputs:
-        input_ref = inputs.get(name)
-        if not isinstance(input_ref, Mapping):
-            raise ResearchWorkspaceDataError(f"manifest is missing input hash: {name}")
-        if name == "ledger":
-            entity_id = input_ref.get("entity_id")
-            expected_head = input_ref.get("append_head")
-            if entity_id != "portfolio-ledger" or not isinstance(expected_head, int):
-                raise ResearchWorkspaceDataError("manifest ledger revision is invalid")
-            try:
-                current_head = LedgerStoreService(db_path).append_head()
-            except (OSError, RuntimeError, ValueError) as error:
-                raise ResearchWorkspaceDataError(
-                    f"cannot read canonical ledger revision: {error}"
-                ) from error
-            if current_head != expected_head:
-                raise ResearchWorkspaceConflictError(
-                    "canonical ledger changed since workspace prepare (append head drift)"
-                )
-            continue
+    if purpose not in {"fundamental_research", "position_review"}:
+        raise ResearchWorkspaceDataError("invalid workspace purpose")
     if purpose == "position_review":
         _require_holding_subject(manifest, db_path=db_path)
         return None
+    inputs = manifest.get("inputs")
+    if not isinstance(inputs, Mapping):
+        raise ResearchWorkspaceDataError("manifest is missing external input hashes")
     return _verify_research_triage(manifest, inputs, db_path=db_path)
 
 
 def _require_holding_subject(manifest: Mapping[str, object], *, db_path: Path | None) -> None:
-    """Re-prove a position-review workspace's subject against the canonical ledger.
-
-    ``position-prepare`` proves the subject once, but the manifest recording that
-    answer is an editable file, so the purpose would otherwise be a way to research
-    an arbitrary ticker at an arbitrary as-of.
-
-    The pinned ``append_head`` does not cover this: it counts ``ledger_event`` rows,
-    while market prices live in their own table and are replaced wholesale, so a
-    re-applied price draft moves the observation date under an unchanged head. That
-    is exactly the drift worth catching — the canonical Position Review is built
-    against the ledger's own observation, so a workspace whose price date has moved
-    can no longer produce one. Failing here says so before the research is written
-    rather than after.
-    """
+    """Confirm that the editable workspace still names an actual holding."""
 
     ticker = _string_or_none(manifest.get("holding_ticker"))
     if ticker is None:
         raise ResearchWorkspaceDataError("position-review manifest is missing holding_ticker")
-    asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
-    snapshot, _append_head = _load_snapshot(db_path)
-    problem = _holding_subject_problem(snapshot, ticker=ticker, asof=asof)
-    if problem is not None:
-        raise ResearchWorkspaceConflictError(
-            f"position-review workspace subject is invalid: {problem}; a Position Review "
-            "runs at the as-of its ledger market price was observed, so rebuild at that "
-            "date with `research position-prepare --asof <observed> --force` and "
-            "regenerate the ticker drafts with `research thesis-scaffold --force` "
-            "(market prices only move forward, so the old as-of cannot be restored)"
-        )
+    ledger, _ = LedgerStoreService(db_path).load_with_head()
+    state = replay_events_through(ledger.events, ledger.as_of)
+    if sum(lot.quantity for lot in state.lots.get(ticker, [])) <= 0:
+        raise ResearchWorkspaceConflictError("position workspace requires a current holding")
 
 
 def _validate_editable_drafts(
@@ -1014,7 +836,7 @@ def _research_ticker_dir(workspace: Path, ticker: str) -> Path:
 def _review_filename(*, asof: date, ticker: str) -> str:
     """Return the stable Thesis Review filename for a research ticker.
 
-    The thesis payload carries this name in ``independent_review_ref``, so
+    The local draft uses a stable review filename, so
     scaffold, status, and promote all address the same path and no
     copy step stands between the draft and the gate.
     """
@@ -1074,228 +896,107 @@ def scaffold_thesis(
     retrieved_at: datetime,
     db_path: Path | None = None,
     force: bool = False,
+    from_thesis_id: str | None = None,
 ) -> dict[str, object]:
-    """Write a thesis-draft with observed price facts and a pending checklist.
-
-    AI judgment fields are placeholders; only observed/derived known values are
-    filled. A missing raw close is a hard exit_code 3 (no guess from an adjusted
-    series). An unresolved corporate action blocks the corporate-action check.
-    """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     gate = _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest, gate=gate)
     _require_primary_research_ticker(
         workspace, ticker, action="scaffold research", gate=gate, db_path=db_path
     )
-    asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
-    purpose = str(manifest.get("purpose") or "fundamental_research")
-    screening_estimate: dict[str, object] | None
-    transfer_reason: str | None
-    if purpose == "position_review":
-        screening_estimate, transfer_reason = None, "not_applicable_position_review"
+    path = _research_ticker_dir(workspace, ticker) / "thesis-draft.yaml"
+    if path.exists() and not force:
+        raise ResearchWorkspaceConflictError("thesis draft exists; use --force")
+    quote = read_unadjusted_close(sqlite_path=sqlite_path, ticker=ticker, at=retrieved_at)
+    if from_thesis_id is not None:
+        with closing(connect_read_only(database_path(db_path))) as connection:
+            pair = load_reviewed_thesis(connection, from_thesis_id)
+            if (
+                pair.document.input_snapshot.ticker != ticker
+                or latest_thesis_id(connection, ticker) != from_thesis_id
+            ):
+                raise ResearchWorkspaceConflictError(
+                    "refresh must use latest revision of this ticker"
+                )
+        payload = pair.document.model_dump(mode="json")
+        payload["input_snapshot"]["as_of"] = target_session.isoformat()
+        payload["judgment"]["proposed_at"] = retrieved_at.isoformat()
+        # Keep original sources, facts and projections; a fresh independent hash review is required.
     else:
-        screening_estimate, transfer_reason = _screening_estimate_from_triage_snapshot(
-            workspace=workspace,
-            ticker=ticker,
-            asof=asof,
-        )
-    ticker_dir = _research_ticker_dir(workspace, ticker)
-
-    price = read_prior_session_unadjusted_close(
-        sqlite_path=sqlite_path, ticker=ticker, target_session=target_session
-    )
-    if price is None:
-        raise ResearchWorkspaceDataError(
-            f"no raw/unadjusted close available for {ticker} before {target_session.isoformat()}; "
-            "an adjusted-only series is not substituted"
-        )
-    if purpose == "position_review" and price.price_as_of != asof:
-        raise ResearchWorkspaceDataError(
-            f"raw close date {price.price_as_of.isoformat()} does not match workspace manifest "
-            f"as_of {asof.isoformat()}; --target-session must be the next trading session"
-        )
-
-    thesis_path = ticker_dir / "thesis-draft.yaml"
-    if thesis_path.exists() and not force:
-        raise ResearchWorkspaceConflictError(
-            f"thesis draft already exists (use --force to regenerate): {thesis_path}"
-        )
-    ticker_dir.mkdir(parents=True, exist_ok=True)
-
-    thesis_draft = _thesis_draft_skeleton(
-        ticker=ticker,
-        asof=asof,
-        price=price,
-        sqlite_path=sqlite_path,
-        screening_estimate=screening_estimate,
-        screening_retrieved_at=retrieved_at,
-    )
-    write_text_atomic(thesis_path, _THESIS_DRAFT_HEADER + _dump_yaml(thesis_draft))
-    checklist = _checklist_skeleton(price=price)
-    write_text_atomic(ticker_dir / "research-checklist.yaml", _dump_yaml(checklist))
-    return {
-        "thesis_draft": str(thesis_path),
-        "price_as_of": price.price_as_of.isoformat(),
-        "close_yen": price.close_yen,
-        "corporate_action_unresolved": price.corporate_action_unresolved,
-        "screening_estimate_transferred": screening_estimate is not None,
-        "screening_estimate_transfer_reason": transfer_reason,
-    }
-
-
-def _thesis_draft_skeleton(
-    *,
-    ticker: str,
-    asof: date,
-    price: UnadjustedCloseObservation,
-    sqlite_path: Path,
-    screening_estimate: dict[str, object] | None,
-    screening_retrieved_at: datetime,
-) -> dict[str, object]:
-    # The observed close is the previous business day's raw/unadjusted close, emitted
-    # as the thesis's single market_price fact so the draft is schema-valid on load.
-    # AI judgment fields are left null so the operator fills them from primary sources;
-    # no value is guessed. An adjustment_factor anomaly is surfaced to the corporate
-    # action checklist (not the fact), which blocks that check.
-    #
-    # Every structural slot the evaluation gate requires is laid out here — the
-    # market price unit, the trailing-multiple valuation fact, and the review
-    # reference — so filling the placeholders is the only work left. Values the
-    # scaffold cannot observe stay as the TODO sentinel, which the gate rejects as
-    # non-numeric rather than letting an unfilled draft reach promotion.
-    del sqlite_path
-    observed_at = datetime.combine(price.price_as_of, time(15, 30), tzinfo=JST)
-    sources = [
-        {
-            "source_id": "market_close",
-            "ticker": ticker,
-            "source_tier": "local_data",
-            "provider": "jquants",
-            "dataset": "jquants_daily_bars",
-            "retrieved_at": observed_at.isoformat(),
-            "as_of": price.price_as_of.isoformat(),
-            "used_for": "market_price",
-        }
-    ]
-    if screening_estimate is not None:
-        sources.append(
-            {
-                "source_id": "screening_analysis",
+        sources: list[dict[str, object]] = []
+        facts: list[dict[str, object]] = []
+        if quote is not None:
+            sources.append(
+                {
+                    "source_id": "market_close",
+                    "ticker": ticker,
+                    "source_tier": "local_data",
+                    "provider": "jquants",
+                    "dataset": "jquants_daily_bars",
+                    "retrieved_at": retrieved_at.isoformat(),
+                    "as_of": quote.price_as_of.isoformat(),
+                    "used_for": "market_price",
+                }
+            )
+            facts.append(
+                {
+                    "fact_id": "market_price_close",
+                    "fact_kind": "market_price",
+                    "value": quote.close_yen,
+                    "unit": "JPY_per_share",
+                    "as_of": quote.price_as_of.isoformat(),
+                    "source_ids": ["market_close"],
+                    "observed_at": datetime.combine(
+                        quote.price_as_of, time(15, 30), tzinfo=JST
+                    ).isoformat(),
+                    "price_basis": "last_close_unadjusted",
+                }
+            )
+        payload = {
+            "schema_version": 4,
+            "input_snapshot": {
+                "snapshot_version": 1,
+                "producer_model_version": "research-v4",
                 "ticker": ticker,
-                "source_tier": "local_data",
-                "provider": "baibai-loop",
-                "dataset": "security-analysis",
-                "retrieved_at": screening_retrieved_at.isoformat(),
-                "as_of": asof.isoformat(),
-                "used_for": "screening expected return and fair value anchor",
-            }
-        )
-    input_snapshot = {
-        "snapshot_version": 1,
-        "producer_model_version": "security-analysis-v1",
-        "ticker": ticker,
-        "company_name": None,
-        "sector": None,
-        "common_factors": [],
-        "as_of": asof.isoformat(),
-        "sources": sources,
-        "facts": [
-            {
-                "fact_id": "market_price_close",
-                "fact_kind": "market_price",
-                "value": price.close_yen,
-                "unit": "JPY_per_share",
-                "as_of": price.price_as_of.isoformat(),
-                "source_ids": ["market_close"],
-                "observed_at": observed_at.isoformat(),
-                "price_basis": "last_close_unadjusted",
+                "company_name": None,
+                "sector": None,
+                "common_factors": [],
+                "as_of": target_session.isoformat(),
+                "sources": sources,
+                "facts": facts,
             },
-            {
-                # The observed trailing multiple the 5y base break-even check reads.
-                # Only the price half is local; the earnings half comes from the
-                # operator's primary disclosure, so the value stays a sentinel and
-                # its source list is extended when the ratio is filled in.
-                "fact_id": TRAILING_MULTIPLE_FACT_ID,
-                "fact_kind": "valuation_metric",
-                "value": TODO_PLACEHOLDER,
-                "unit": "ratio",
-                "as_of": asof.isoformat(),
-                "source_ids": ["market_close"],
+            "derived": {"metrics": []},
+            "valuation": {
+                "status": "unresolved",
+                "market_price_fact_id": "market_price_close" if quote else None,
+                "horizon_months": None,
+                "required_annual_return_pct": None,
+                "base": None,
+                "downside": None,
+                "unresolved_reason": "企業価値未評価" if quote else "quote未取得・企業価値未評価",
             },
-        ],
-    }
-    if screening_estimate is not None:
-        input_snapshot["screening_estimate"] = screening_estimate
+            "investment_case": {
+                "explanation": None,
+                "invalidation_conditions": [],
+                "status": "uncertain",
+                "status_reason": None,
+                "source_ids": [],
+            },
+            "permanent_loss_risks": [],
+            "judgment": {
+                "disposition": "defer",
+                "proposed_at": retrieved_at.isoformat(),
+                "strongest_countercase": None,
+            },
+        }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_text_atomic(path, _THESIS_DRAFT_HEADER + _dump_yaml(payload))
     return {
-        "schema_version": 3,
-        "input_snapshot": input_snapshot,
-        "derived": {"metrics": []},
-        "estimates": None,
-        "permanent_loss_risks": [],
-        "judgment": None,
-        "independent_review_ref": _review_filename(asof=asof, ticker=ticker),
+        "thesis_draft": str(path),
+        "price_as_of": None if quote is None else quote.price_as_of.isoformat(),
+        "close_yen": None if quote is None else quote.close_yen,
+        "from_thesis_id": from_thesis_id,
     }
-
-
-def _screening_estimate_from_triage_snapshot(
-    *, workspace: Path, ticker: str, asof: date
-) -> tuple[dict[str, object] | None, str | None]:
-    research_workspace = _load_mapping(
-        workspace / "research-workspace.yaml", label="research workspace"
-    )
-    rows = {
-        str(row.get("ticker")): row
-        for row in _dict_list(research_workspace.get("review_set_entries"))
-    }
-    row = rows.get(ticker)
-    if row is None:
-        raise ResearchWorkspaceDataError(f"Review Set must contain ticker exactly once: {ticker}")
-    if research_workspace.get("as_of") != asof.isoformat():
-        raise ResearchWorkspaceDataError(
-            "Review Set Entry snapshot as_of does not match manifest as_of"
-        )
-    analysis = _required_mapping(row.get("analysis"), label="Review Set analysis")
-    estimate = analysis.get("expected_return")
-    if not isinstance(estimate, Mapping) or estimate.get("er_annual") is None:
-        return None, "screening_estimate_missing"
-    annual = _finite_number(estimate.get("er_annual"), label="expected_return.er_annual")
-    model_version = _nonempty_string(
-        estimate.get("er_model_version"), label="expected_return.er_model_version"
-    )
-    assumptions = _nonempty_string(
-        estimate.get("er_assumptions"), label="expected_return.er_assumptions"
-    )
-    anchors = [
-        _finite_number(value, label=f"expected_return.{key}")
-        for key in ("fv_sector_median_yen", "fv_self_range_yen")
-        if (value := estimate.get(key)) is not None
-    ]
-    if any(value <= 0 for value in anchors):
-        raise ResearchWorkspaceDataError("Review Set fair-value anchors must be positive")
-    fair_value_anchor_yen = min(anchors) if anchors else None
-    screening_estimate = {
-        "origin": "estimate",
-        "model_version": model_version,
-        "as_of": asof.isoformat(),
-        "expected_return_annual_ratio": annual,
-        "expected_return_unit": "annual_ratio",
-        "fair_value_anchor_yen": fair_value_anchor_yen,
-        "fair_value_unit": "JPY_per_share",
-        "assumptions": assumptions,
-        # The manifest hash binds the workspace to the immutable Review Set.  The
-        # thesis contract, however, requires every source_id to resolve inside
-        # input_snapshot.sources and requires this estimate to name a local-data
-        # source.  `screening_analysis` is the source emitted by the scaffold for
-        # exactly that purpose.
-        "source_ids": ["screening_analysis"],
-    }
-    try:
-        ScreeningEstimate.model_validate(screening_estimate)
-    except (ValidationError, ValueError) as error:
-        raise ResearchWorkspaceDataError(
-            f"screening estimate violates thesis contract: {error}"
-        ) from error
-    return screening_estimate, None
 
 
 def _required_mapping(value: object, *, label: str) -> Mapping[str, object]:
@@ -1320,36 +1021,6 @@ def _finite_number(value: object, *, label: str) -> float:
     if not isfinite(number):
         raise ResearchWorkspaceDataError(f"{label} must be finite")
     return number
-
-
-def _checklist_skeleton(*, price: UnadjustedCloseObservation) -> dict[str, object]:
-    checks: list[dict[str, object]] = []
-    for check_id in CHECKLIST_IDS:
-        if check_id == "source.corporate_action" and price.corporate_action_unresolved:
-            status = "blocked"
-            note = (
-                "adjustment_factor != 1 on the resolved close; confirm effective date, "
-                "share count, and price basis from company/exchange primary disclosure"
-            )
-        else:
-            status = "pending"
-            note = None
-        checks.append(
-            {
-                "check_id": check_id,
-                "status": status,
-                "source_ids": [],
-                "as_of": None,
-                "note": note,
-                "decision_impact": None,
-            }
-        )
-    return {"checks": checks}
-
-
-# --------------------------------------------------------------------------- #
-# review-scaffold
-# --------------------------------------------------------------------------- #
 
 
 def scaffold_review(
@@ -1386,20 +1057,22 @@ def scaffold_review(
         "review_id": None,
         "reviewer_role": "independent_second_pass",
         "reviewer_identity": None,
-        "reviewer_run_id": None,
         "reviewed_at": None,
         "reviewed_thesis_sha256": core_hash,
         "primary_source_check": None,
         "checked_source_ids": [],
-        "recalculated_scenarios": [
-            {"horizon_years": horizon, "name": name, "total_return_cagr_pct": None}
-            for horizon in (3, 5)
-            for name in ("bear", "base", "bull")
-        ],
+        "recalculated_projections": [
+            {
+                "name": name,
+                "terminal_value_per_share_yen": None,
+                "cash_distribution_per_share_yen": None,
+            }
+            for name in ("base", "downside")
+        ]
+        if load_thesis(thesis_path).valuation.status == "resolved"
+        else [],
         "strongest_countercase": None,
-        "alternative_candidate_check": None,
-        "proposal_changed": False,
-        "change_rationale": None,
+        "nonmaterial_unknown_reason": None,
     }
     header = _REVIEW_DRAFT_HEADER + _enum_field_header(ThesisReview)
     write_text_atomic(review_path, header + _dump_yaml(review_draft))
@@ -1458,7 +1131,7 @@ def promote(
 ) -> PromoteResult:
     """Publish the canonical thesis/review only when everything is ready.
 
-    Gates: no pending/blocked checklist item, thesis evaluates ready against the
+    Gates: thesis evaluates ready against the
     adjacent review, review hash matches the thesis core hash, schema validity, and
     path confinement. Reusing an immutable ID with different content is rejected.
     """
@@ -1474,22 +1147,6 @@ def promote(
 
     manifest_asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     case = _read_case(workspace, ticker, manifest_asof)
-    checklist = case.checklist
-    # Allowlist gate: every check must be explicitly "complete". Any other status
-    # (pending / blocked / a missing or typo'd value) counts as unresolved so a
-    # hand-edited checklist cannot slip an incomplete item past promotion.
-    unresolved = sorted(
-        _string_or_none(item.get("check_id")) or "<missing check_id>"
-        for item in checklist
-        if item.get("status") != "complete"
-    )
-    if not checklist:
-        raise ResearchWorkspaceDataError(f"cannot promote {ticker}: checklist is empty")
-    if unresolved:
-        raise ResearchWorkspaceDataError(
-            f"cannot promote {ticker}: checklist has unresolved checks: {unresolved}"
-        )
-
     thesis_errors, review_errors = _case_eligibility(case, now=now)
     if thesis_errors or review_errors:
         raise ResearchWorkspaceDataError("; ".join([*thesis_errors, *review_errors]))
@@ -1501,7 +1158,7 @@ def promote(
         f"thesis-{document.input_snapshot.as_of:%Y%m%d}-{ticker}-{review.review_id}"
     )
     try:
-        ResearchStoreService(db_path, clock=lambda: now).publish_thesis_with_review(
+        ThesisStoreService(db_path, clock=lambda: now).publish_reviewed_thesis(
             resolved_thesis_id,
             case.thesis_payload,
             case.review_payload,
@@ -1523,169 +1180,10 @@ def promote(
 # --------------------------------------------------------------------------- #
 
 
-def plan_limit(
-    *,
-    capital_allocation_assessment_id: str,
-    db_path: Path | None,
-    sqlite_path: Path,
-    target_session: date,
-    budget_min_yen: int,
-    budget_max_yen: int,
-    now: datetime,
-) -> dict[str, object]:
-    """Derive a planning-only ``limit``/``defer`` from the previous business-day close.
-
-    The primary limit is the legal market close itself; no future price or fill
-    probability is asserted. Budget, cash, dry powder, concentration, and reservations
-    in other tickers are warnings/annotations only — they never change the investment
-    ranking or limit price. An active reservation in the selected ticker defers a new
-    order until human-confirmed broker state is recorded. ``defer`` is a normal
-    judgment (exit 0).
-    """
-    alternative, document, review = CapitalAllocationAssessmentService(db_path).allocated_thesis(
-        capital_allocation_assessment_id
-    )
-    ticker = alternative.ticker
-    defer_reasons: list[str] = []
-
-    result = evaluate_thesis(
-        document, review=review, now=now, identity=alternative.thesis_core_sha256
-    )
-    if result.decision_readiness != "ready":
-        defer_reasons.append("thesis_not_decision_ready")
-
-    price = read_prior_session_unadjusted_close(
-        sqlite_path=sqlite_path, ticker=ticker, target_session=target_session
-    )
-    if price is None:
-        defer_reasons.append("latest_business_day_close_missing")
-    elif price.corporate_action_unresolved:
-        defer_reasons.append("corporate_action_unresolved")
-
-    try:
-        max_price = maximum_acceptable_entry_price(document, tick_size_yen=PLANNING_TICK_SIZE_YEN)
-    except EntryPricePolicyError as error:
-        raise ResearchWorkspaceDataError(f"cannot derive max acceptable price: {error}") from error
-
-    close_decimal = Decimal(str(price.close_yen)) if price is not None else None
-    if close_decimal is not None and close_decimal > max_price:
-        defer_reasons.append("close_above_max_acceptable_price")
-
-    snapshot, source_append_head = _load_snapshot(db_path)
-    annotations = portfolio_annotations(snapshot, ticker=ticker)
-    if any(reservation.ticker == ticker for reservation in snapshot.active_reservations):
-        defer_reasons.append("active_reservation_exists")
-    expires_at = datetime.combine(target_session, time(15, 30), tzinfo=JST)
-
-    base_output: dict[str, object] = {
-        "ticker": ticker,
-        "decision_reference": capital_allocation_assessment_id,
-        "thesis_id": alternative.thesis_id,
-        "thesis_core_sha256": alternative.thesis_core_sha256,
-        "thesis_review_id": alternative.thesis_review_id,
-        "price_as_of": price.price_as_of.isoformat() if price is not None else None,
-        "price_basis": "last_close_unadjusted",
-        "source_ref": f"{sqlite_path.as_posix()}:jquants_daily_bars",
-        "close_yen": price.close_yen if price is not None else None,
-        "max_acceptable_price_yen": decimal_to_number(max_price),
-        "board_lot": BOARD_LOT,
-        "budget_min_yen": budget_min_yen,
-        "budget_max_yen": budget_max_yen,
-        "portfolio_annotations": annotations,
-        "source_ledger_entity": "portfolio-ledger",
-        "source_ledger_append_head": source_append_head,
-        "expires_at": expires_at.isoformat(),
-    }
-
-    if defer_reasons or close_decimal is None:
-        return {
-            "status": "defer",
-            **base_output,
-            "limit_price_yen": None,
-            "quantity": 0,
-            "notional_yen": 0,
-            "warnings": [],
-            "defer_reasons": defer_reasons,
-        }
-
-    assert price is not None  # close_decimal is derived only from a resolved price
-    warnings: list[str] = []
-    lot_notional = close_decimal * BOARD_LOT
-    if document.judgment.sizing_action == "reduced" and lot_notional > budget_max_yen:
-        return {
-            "status": "defer",
-            **base_output,
-            "limit_price_yen": None,
-            "quantity": 0,
-            "notional_yen": 0,
-            "warnings": [],
-            "defer_reasons": ["reduced_lot_exceeds_budget"],
-        }
-    if document.judgment.sizing_action == "reduced":
-        quantity = BOARD_LOT
-    elif lot_notional <= budget_max_yen:
-        # floor(budget_max / lot_notional) on the exact Decimal notional; truncating
-        # the notional to int first could select one lot too many and overshoot.
-        lots = int(budget_max_yen // lot_notional)
-        quantity = max(lots, 1) * BOARD_LOT
-    else:
-        quantity = BOARD_LOT
-        warnings.append("budget_guide_exceeded")
-    notional = close_decimal * quantity
-    if notional < budget_min_yen:
-        warnings.append("budget_guide_under")
-
-    exposure, exposure_warnings, exposure_total_capital_yen = (
-        calculate_prospective_portfolio_exposure(
-            snapshot,
-            sqlite_path=sqlite_path,
-            price_as_of=price.price_as_of,
-            ticker=ticker,
-            sector=document.input_snapshot.sector,
-            common_factors=document.input_snapshot.common_factors,
-            order_notional_yen=int(notional),
-        )
-    )
-    warnings.extend(
-        planned_order_cash_warnings(
-            snapshot,
-            notional_yen=notional,
-            total_capital_yen=exposure_total_capital_yen,
-        )
-    )
-    warnings.extend(exposure_warnings)
-    return {
-        "status": "planned_limit",
-        **base_output,
-        "limit_price_yen": decimal_to_number(close_decimal),
-        "quantity": quantity,
-        "notional_yen": int(notional),
-        "portfolio_exposure": exposure,
-        "warnings": warnings,
-        "defer_reasons": [],
-    }
-
-
-def _load_snapshot(db_path: Path | None) -> tuple[PortfolioSnapshot, int]:
-    try:
-        service = LedgerStoreService(db_path)
-        document, append_head = service.load_with_head()
-        return reconcile_portfolio(document), append_head
-    except (OSError, ValueError) as error:
-        raise ResearchWorkspaceDataError(f"cannot reconcile ledger: {error}") from error
-
-
-def _load_checklist(workspace: Path, ticker: str) -> list[dict[str, object]]:
-    checklist_path = _research_ticker_dir(workspace, ticker) / "research-checklist.yaml"
-    payload = _load_mapping(checklist_path, label="research checklist")
-    return _dict_list(payload.get("checks"))
-
-
 @dataclass(frozen=True, slots=True)
 class _CaseDraft:
     """One read of authored inputs, retaining raw payloads for the canonical writer."""
 
-    checklist: list[dict[str, object]]
     thesis_payload: dict[str, object]
     review_payload: dict[str, object]
     thesis: ThesisDocument | None
@@ -1696,11 +1194,6 @@ class _CaseDraft:
 
 def _read_case(workspace: Path, ticker: str, asof: date) -> _CaseDraft:
     directory = _research_ticker_dir(workspace, ticker)
-    checklist = (
-        _load_checklist(workspace, ticker)
-        if (directory / "research-checklist.yaml").exists()
-        else []
-    )
     thesis_payload: dict[str, object] = {}
     review_payload: dict[str, object] = {}
     thesis, review = None, None
@@ -1729,25 +1222,11 @@ def _read_case(workspace: Path, ticker: str, asof: date) -> _CaseDraft:
             thesis_errors.append(
                 f"thesis ticker {thesis.input_snapshot.ticker} does not match case {ticker}"
             )
-        if thesis.input_snapshot.as_of != asof:
-            thesis_errors.append(
-                f"thesis as_of {thesis.input_snapshot.as_of} "
-                f"does not match workspace as_of {asof}; "
-                "regenerate it with `research thesis-scaffold --force`"
-            )
-        if thesis.independent_review_ref != _review_filename(asof=asof, ticker=ticker):
-            thesis_errors.append(
-                "thesis independent_review_ref must equal the stable review filename"
-            )
+        if thesis.input_snapshot.as_of < asof:
+            thesis_errors.append("thesis predates admitted Research Set")
         if review is not None and review.reviewed_thesis_sha256 != thesis_core_hash(thesis):
             review_errors.append("review is stale for the current thesis core hash")
-    if review is not None and review.proposal_changed:
-        review_errors.append(
-            "review changed the proposal; regenerate the thesis and re-review before promotion"
-        )
-    return _CaseDraft(
-        checklist, thesis_payload, review_payload, thesis, review, thesis_errors, review_errors
-    )
+    return _CaseDraft(thesis_payload, review_payload, thesis, review, thesis_errors, review_errors)
 
 
 def _case_eligibility(case: _CaseDraft, *, now: datetime) -> tuple[list[str], list[str]]:
@@ -1790,10 +1269,9 @@ __all__ = [
     "ResearchWorkspaceError",
     "UnadjustedCloseObservation",
     "compute_status",
-    "plan_limit",
     "prepare_workspace",
     "promote",
-    "read_prior_session_unadjusted_close",
+    "read_unadjusted_close",
     "scaffold_review",
     "scaffold_thesis",
 ]

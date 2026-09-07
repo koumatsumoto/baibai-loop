@@ -1,6 +1,6 @@
 ---
 name: research
-description: 人間が選んだ候補を一次情報で深掘りし、thesis、独立反証、buy または見送りの統合判断まで確定する。候補の提示までは research-triage skill。
+description: 人間が選んだ候補を一次情報で深掘りし、thesis、独立反証、candidate評価と資本配分または見送りの統合判断まで確定する。候補の提示までは research-triage skill。
 ---
 
 # Research
@@ -39,14 +39,15 @@ as-of、最大80件の比較snapshot、Researchへ進められるtickerはapplic
 
 1. `research thesis-scaffold` で thesis を作る。
 2. 会社 IR、EDINET、決算資料などの一次資料で load-bearing claim を調べる。検索 snippet、二次情報、外部 AI 出力を観測事実にしない。playbook は `applies_to_valuation_approach_ids` の明示 mapping だけを使い、同名 slug から implicitに対応を推測しない。[事業モデル別リサーチ](../../../docs/reference/business-model-research.md)は指定 playbook の補助に限る。
-3. checklist は [Research Playbooks](../../../method/research/playbooks/README.md#work-state) の作業状態として更新する。証拠が得られなくても調査が終わり、unknown / defer を記録した項目は `complete` であり、verified とは書かない。
-4. Research Triage に束縛された Macro Context を開き、scenario arithmetic と FV の前に `connection.estimate_caveats` を確認する。対象企業・評価法に material な caveat は既存 scenario assumption の文章と `source_ids` へ接続する。適用外、stale、または low materiality なら、その理由を `screening_fv_bridge.note` に残す。新しい macro field は足さない。そのうえで seven axes、countercase を埋める。macro と E[r] は context であり単独 gate にしない。AIを含む技術・産業構造変化も、materialな場合だけ通常Researchの既存scenario、FV、risk、countercase、assessmentへ接続し、専用checkを作らない。
-5. `research evaluate` を実行し、`buy` で Thesis Review が未作成の場合の要求を除く error を 0 にする。
-6. Thesis が安定してから `research review-scaffold` を作り、独立した反証役が Thesis Review を行う。Thesis Review は、束縛 Context の material な estimate caveat が scenario assumptionへ接続されたか、または適用外 / stale / low materiality の理由が既存 note にあるかを反証する。Thesis を変えたら `--force` で Thesis Review を再生成し、core hash を更新する。
+3. 未織込み、価値変化、実現経路、失敗・遅延、配当持続性、7軸を一次根拠で確認する。Playbookは問いとして使い、checklist完了印を公開gateにしない。非開示はunknownとし、重要性とdispositionへの影響を説明する。
+4. Triageに束縛されたMacro Contextの`connection.estimate_caveats`を確認し、materialな含意だけをcalculation、investment case、反対仮説へ接続する。macroとE[r]はcontextで、単独gateにしない。技術・産業構造変化も同じ契約で扱う。
+5. Base/Downsideを一つのhorizonで組み立て、terminalと当該期間の分配を区別する。赤字回復を正の起点利益へ捏造せず、NI×PER/EV、負債、分割・自己株・希薄化の単位と二重算入を検算する。
+6. `review-scaffold`の独立検算欄は作者値をコピーせず、別の作業者がsourceと計算を再確認する。`evaluate <thesis> --review <review>`でsource・単位・hash・terminal/cash不一致を解消する。企業別Reviewに候補比較を重複させない。
+7. 価格や評価額が不明でも、根拠付きunresolvedとdefer/rejectを完成させる。重要な証拠不足を小口購入やoverrideで通さない。非重要なunknownをcandidateに残す場合はReviewで理由を説明する。
 
 ## 3. 比較して disposition を決める
 
-全 case を `buy` / `defer` / `reject` まで進め、FV、5 年 CAGR、countercase、disposition を横断比較する。review 後に `research promote` で全 case を canonical にし、`research status`の`cases`で各tickerの調査・review・promoteの残作業を確認する。`next_action`は作業説明であり、実行時の引数はpublic `--help`で確認する。`published`は現在のThesis coreとReviewがcanonical publicationに一致することを示し、AssessmentやOperationの完了は意味しない。横断比較と最終dispositionはAssessment draftだけに書く。
+全 case を `candidate` / `defer` / `reject` まで進め、原評価日・horizon・Base/Downside・要求利回り・countercase・disposition を横断比較する。review 後に `research promote` で全 case を canonical にし、`research status`の`cases`で各tickerの調査・review・promoteの残作業を確認する。`next_action`は作業説明であり、実行時の引数はpublic `--help`で確認する。`published`は現在のThesis coreとReviewがcanonical publicationに一致することを示し、AssessmentやOperationの完了は意味しない。横断比較と最終dispositionはAssessment draftだけに書く。
 
 ## 4. Assessment とcontent reviewを公開する
 
@@ -59,7 +60,9 @@ as-of、最大80件の比較snapshot、Researchへ進められるtickerはapplic
 
 ## 5. Buy case の当日指値を確認する
 
-`research plan-limit --capital-allocation-assessment-id <ASSESSMENT_ID>` は canonical Capital Allocation Assessment が `allocate` の alternative にだけ使う。対象ThesisとReviewはDBから解決し、local draftは入力にしない。出力は当日の助言であり永続化しない。evidence gap が残る場合は、人間の override と `sizing_action: reduced` を両方記録し、1 board lotでも大きすぎる場合は `defer` に戻す。要求利回り未達または永久損失結論が elevated の case はサイズを縮めて買わない。価格が max buy price を超えた通常状態は `defer` とする。
+`research plan-limit --capital-allocation-assessment-id <ASSESSMENT_ID>` は canonical Capital Allocation Assessment が `allocate` の alternative にだけ使う。対象ThesisとReviewはDBから解決し、local draftは入力にしない。出力は当日時点の助言であり永続化しない。`--target-session`は既存calendarで確認できる次の有効営業日を指定する。引け前は当日、引け後・休日は次の営業日となり、正式判断日と発注日を混同しない。`planned_limit`の期限をそのままbroker報告へ渡し、失効済み・calendar不明の案はdeferする。正式評価日を当日に揃え、利用可能な最新確定quote（寄り前は前営業日）と権利単位を確認する。更新時は`thesis-scaffold --from-thesis-id`で元資料・予測を保持した差分を再Reviewする。価格超過はPlanningのdeferであり企業評価をrejectへ変更しない。既保有、同ticker予約、同CAA買約定済みは追加購入を提案しない。cash不足とguide超過warningを区別する。
+
+同じResearch Setから順次配分できる。CAA-1の人間報告をledgerへ反映した後、同じ調査を参照してCAA-2を公開し、最新の予約控除後cashでPlanningする。1 CAAは1 allocateとし、Operationの完了参照は最後のCAAにする。
 
 Assessmentが`no_allocation / defer`ならPlanning Limit・broker操作へ進まず、人間の見送り判断をOperationに記録する。`allocate`でも当日価格超過や人間のdeferは正常であり、公開済みAssessmentを書き換えず当日の判断を記録する。発注する場合は人間のapproveとbroker操作を待ち、人間が報告したbroker factだけをledgerへ反映する。
 

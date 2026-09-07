@@ -8,10 +8,10 @@ export interface AllocationAlternativeView {
   rationale: string
   thesis_id: string
   thesis_review_id: string | null
-  permanent_loss_conclusion: string | null
-  five_year_base_cagr_pct: number | null
-  fair_value_yen: number | null
-  fv_gap_pct: number | null
+  case_status: string | null
+  base_annualized_return_pct: number | null
+  pmax_raw_yen: number | null
+  valuation_as_of: string | null
 }
 
 export interface AssessmentReviewView {
@@ -77,7 +77,6 @@ export interface DailyDeltaView {
   er_moves: ReviewSetExpectedReturnDeltaView[]
   er_moves_total: number
   holdings: HoldingDeltaView[]
-  holdings_without_fair_value: number
   holdings_without_price: number
   unavailable: DeltaUnavailable[]
 }
@@ -104,7 +103,7 @@ export interface DashboardView {
   research_load_errors: string[]
 }
 
-export type DeltaUnavailable = 'screening_run' | 'previous_screening_run' | 'review_set' | 'review_set_estimate' | 'holdings' | 'holdings_fair_value' | 'market'
+export type DeltaUnavailable = 'screening_run' | 'previous_screening_run' | 'review_set' | 'review_set_estimate' | 'holdings' | 'market'
 
 export interface ErLevelCalibrationBandView {
   band_id: string
@@ -152,15 +151,11 @@ export interface ErLevelCalibrationStatsView {
 }
 
 /**
- * One open holding whose observation crossed a threshold worth reading.
- *
- * ``at_or_above_fair_value`` is the comparison of two numbers, not a decision:
- * reaching fair value is a review trigger the human owns.
+ * Observed holding price movement; holding decisions belong to Position Review.
  */
 export interface HoldingDeltaView {
   ticker: string
   company_name: string | null
-  at_or_above_fair_value: boolean | null
   change_since_previous_pct: number | null
   days_to_next_earnings: number | null
 }
@@ -171,15 +166,15 @@ export interface HoldingView {
   sector: string
   quantity: number
   deployed_cost_yen: number
-  market_price_yen: string
-  market_price_as_of: string
-  market_value_yen: number
-  unrealized_pnl_yen: number
-  unrealized_pnl_pct: number
-  fair_value_yen: number | null
-  fv_gap_pct: number | null
+  market_price_yen: string | null
+  market_price_as_of: string | null
+  market_value_yen: number | null
+  unrealized_pnl_yen: number | null
+  unrealized_pnl_pct: number | null
+  pmax_raw_yen: number | null
+  pmax_gap_pct: number | null
   latest_thesis_id: string | null
-  recommendation: string | null
+  disposition: string | null
   next_earnings_date: string | null
 }
 
@@ -509,19 +504,17 @@ export interface PositionReviewView {
   position_review_id: string
   as_of: string
   thesis_id: string
-  replacement_thesis_id: string | null
-  action: string
+  action: string | null
   note: string | null
 }
 
 export interface ResearchRevisionView {
   as_of: string
   thesis_id: string
-  recommendation: string
-  confidence: string | null
-  current_fair_value_yen: number | null
-  model_version: string | null
+  disposition: string
+  pmax_raw_yen: number | null
   review_id: string | null
+  status: string
 }
 
 export interface ResearchTriageEntryView {
@@ -695,11 +688,6 @@ export interface ReviewSetView {
   entries: ReviewSetEntryView[]
 }
 
-export interface ScenarioView {
-  name: string
-  horizon_years: number
-}
-
 /**
  * Stable UI projection of one retained screening run.
  */
@@ -813,13 +801,7 @@ export interface TasksView {
 
 export interface ThesisDetailView {
   revision: ResearchRevisionView
-  entry_price_basis_yen: number | null
-  required_5y_base_cagr_pct: number | null
-  permanent_loss_risk_count: number
-  scenarios: ScenarioView[]
-  permanent_loss_conclusion: string | null
-  strongest_countercase: string | null
-  sizing_action: string | null
+  projection: Record<string, unknown>
 }
 
 export interface UpcomingEventView {

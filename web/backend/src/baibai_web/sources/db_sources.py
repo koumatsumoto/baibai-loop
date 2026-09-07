@@ -15,6 +15,7 @@ from baibai_engine.read_api import (
     application_db_updated_at,
     capital_allocation_assessment_payload,
     close_change_since,
+    current_portfolio,
     latest_disclosure_dates_after,
     latest_macro_context_payload,
     latest_research_triage_payload,
@@ -35,8 +36,8 @@ from baibai_engine.read_api import (
     next_earnings_dates,
     portfolio_ledger_document,
     previous_business_day,
-    reconcile_portfolio,
     research_triage_payloads_for_review_set,
+    reviewed_thesis_projection,
     safe_load,
     screening_latest_asof,
     screening_review_set_payloads,
@@ -50,7 +51,6 @@ from baibai_web.sources.types import (
     MacroSeriesConfig,
     PositionReviewSummary,
     ResearchRevision,
-    ScenarioSummary,
     ScreeningRunRecord,
     TaskRecord,
     ThesisDetail,
@@ -58,8 +58,9 @@ from baibai_web.sources.types import (
 
 
 class DbLedgerSource:
-    def __init__(self, db_path: Path) -> None:
+    def __init__(self, db_path: Path, market_db_path: Path) -> None:
         self._path = db_path.resolve()
+        self._market_path = market_db_path.resolve()
 
     def exists(self) -> bool:
         return portfolio_ledger_document(self._path) is not None
@@ -68,7 +69,9 @@ class DbLedgerSource:
         document = portfolio_ledger_document(self._path)
         if document is None:
             raise ValueError("portfolio ledger has not been initialized")
-        return reconcile_portfolio(document)
+        return current_portfolio(
+            document, sqlite_path=self._market_path, now=datetime.now().astimezone()
+        )
 
 
 class DbMarketPriceSource:
@@ -136,41 +139,27 @@ class DbResearchSource:
             publication,
             review_id=_latest_review_ids(reviews).get(thesis_id),
         )
-        payload = _mapping(publication["payload"], label="research thesis")
-        estimates = _mapping(payload["estimates"], label="thesis estimates")
-        judgment = _mapping(payload["judgment"], label="thesis judgment")
-        risks = _mapping_list(payload["permanent_loss_risks"], label="permanent loss risks")
-        scenarios = _mapping_list(estimates["scenarios"], label="research scenarios")
         return ThesisDetail(
             revision=revision,
-            entry_price_basis_yen=_optional_float(estimates.get("entry_price_basis_yen")),
-            required_5y_base_cagr_pct=_optional_float(estimates.get("required_5y_base_cagr_pct")),
-            permanent_loss_risk_count=len(risks),
-            scenarios=tuple(
-                ScenarioSummary(
-                    name=str(item["name"]),
-                    horizon_years=int(str(item["horizon_years"])),
-                )
-                for item in scenarios
-            ),
-            permanent_loss_conclusion=_optional_text(judgment.get("permanent_loss_conclusion")),
-            strongest_countercase=_optional_text(judgment.get("strongest_countercase")),
-            sizing_action=_optional_text(judgment.get("sizing_action")),
+            projection=reviewed_thesis_projection(self._path, thesis_id=thesis_id),
         )
 
     def position_reviews(self, *, ticker: str | None = None) -> list[PositionReviewSummary]:
         result: list[PositionReviewSummary] = []
         for publication in list_position_review_publications(self._path, ticker=ticker):
             payload = _mapping(publication["payload"], label="Position Review")
+            reward = payload.get("remaining_reward")
+            reward_reason = reward.get("reason") if isinstance(reward, Mapping) else None
             result.append(
                 PositionReviewSummary(
                     position_review_id=str(publication["position_review_id"]),
                     ticker=str(publication["ticker"]),
                     as_of=date.fromisoformat(str(publication["as_of"])),
                     thesis_id=str(publication["thesis_id"]),
-                    replacement_thesis_id=_optional_text(publication.get("candidate_thesis_id")),
-                    action=str(payload["action"]),
-                    note=_optional_text(payload.get("note")),
+                    action=_optional_text(payload.get("action")),
+                    note=_optional_text(
+                        reward_reason or payload.get("unresolved_reason") or payload.get("note")
+                    ),
                 )
             )
         return result
@@ -205,27 +194,25 @@ class DbResearchSource:
             self._path, capital_allocation_assessment_id=capital_allocation_assessment_id
         )
 
-    @staticmethod
     def _revision(
+        self,
         publication: dict[str, object],
         *,
         review_id: str | None,
     ) -> ResearchRevision:
         payload = _mapping(publication["payload"], label="research thesis")
         snapshot = _mapping(payload["input_snapshot"], label="thesis input snapshot")
-        estimates = _mapping(payload["estimates"], label="thesis estimates")
-        judgment = _mapping(payload["judgment"], label="thesis judgment")
+        projection = reviewed_thesis_projection(self._path, thesis_id=str(publication["thesis_id"]))
         return ResearchRevision(
             ticker=str(publication["ticker"]),
             company_name=str(snapshot["company_name"]),
             sector=str(snapshot["sector"]),
             as_of=date.fromisoformat(str(publication["as_of"])),
             thesis_id=str(publication["thesis_id"]),
-            recommendation=str(publication["recommendation"]),
-            confidence=_optional_text(judgment.get("confidence")),
-            current_fair_value_yen=_optional_float(estimates.get("current_fair_value_yen")),
-            model_version=_optional_text(estimates.get("model_version")),
+            disposition=str(projection.get("disposition", "requires_reassessment")),
+            pmax_raw_yen=_optional_float(projection.get("pmax_raw_yen")),
             review_id=review_id,
+            status=str(projection["status"]),
         )
 
 

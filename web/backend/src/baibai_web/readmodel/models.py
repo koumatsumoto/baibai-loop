@@ -27,15 +27,15 @@ class HoldingView(BaseModel):
     sector: str
     quantity: int
     deployed_cost_yen: int
-    market_price_yen: str
-    market_price_as_of: datetime
-    market_value_yen: int
-    unrealized_pnl_yen: int
-    unrealized_pnl_pct: float
-    fair_value_yen: float | None
-    fv_gap_pct: float | None
+    market_price_yen: str | None
+    market_price_as_of: datetime | None
+    market_value_yen: int | None
+    unrealized_pnl_yen: int | None
+    unrealized_pnl_pct: float | None
+    pmax_raw_yen: float | None
+    pmax_gap_pct: float | None
     latest_thesis_id: str | None
-    recommendation: str | None
+    disposition: str | None
     next_earnings_date: str | None = None
 
 
@@ -425,35 +425,22 @@ class ResearchTriageView(BaseModel):
 class ResearchRevisionView(BaseModel):
     as_of: date
     thesis_id: str
-    recommendation: str
-    confidence: str | None
-    current_fair_value_yen: float | None
-    model_version: str | None
+    disposition: str
+    pmax_raw_yen: float | None
     review_id: str | None
-
-
-class ScenarioView(BaseModel):
-    name: str
-    horizon_years: int
+    status: str
 
 
 class ThesisDetailView(BaseModel):
     revision: ResearchRevisionView
-    entry_price_basis_yen: float | None
-    required_5y_base_cagr_pct: float | None
-    permanent_loss_risk_count: int
-    scenarios: list[ScenarioView]
-    permanent_loss_conclusion: str | None
-    strongest_countercase: str | None
-    sizing_action: str | None
+    projection: dict[str, object]
 
 
 class PositionReviewView(BaseModel):
     position_review_id: str
     as_of: date
     thesis_id: str
-    replacement_thesis_id: str | None
-    action: str
+    action: str | None
     note: str | None
 
 
@@ -770,10 +757,10 @@ class AllocationAlternativeView(BaseModel):
     rationale: str
     thesis_id: str
     thesis_review_id: str | None
-    permanent_loss_conclusion: str | None
-    five_year_base_cagr_pct: float | None
-    fair_value_yen: float | None
-    fv_gap_pct: float | None
+    case_status: str | None
+    base_annualized_return_pct: float | None
+    pmax_raw_yen: float | None
+    valuation_as_of: str | None
 
 
 class AssessmentReviewView(BaseModel):
@@ -815,7 +802,6 @@ type DeltaUnavailable = Literal[
     "review_set",
     "review_set_estimate",
     "holdings",
-    "holdings_fair_value",
     "market",
 ]
 
@@ -844,15 +830,10 @@ class ReviewSetExpectedReturnDeltaView(BaseModel):
 
 
 class HoldingDeltaView(BaseModel):
-    """One open holding whose observation crossed a threshold worth reading.
-
-    ``at_or_above_fair_value`` is the comparison of two numbers, not a decision:
-    reaching fair value is a review trigger the human owns.
-    """
+    """Observed holding price movement; holding decisions belong to Position Review."""
 
     ticker: str
     company_name: str | None
-    at_or_above_fair_value: bool | None
     change_since_previous_pct: float | None
     days_to_next_earnings: int | None
 
@@ -887,6 +868,5 @@ class DailyDeltaView(BaseModel):
     er_moves: list[ReviewSetExpectedReturnDeltaView]
     er_moves_total: int
     holdings: list[HoldingDeltaView]
-    holdings_without_fair_value: int
     holdings_without_price: int
     unavailable: list[DeltaUnavailable]

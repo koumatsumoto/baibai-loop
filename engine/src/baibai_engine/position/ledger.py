@@ -304,12 +304,12 @@ class HoldingSnapshot:
     common_factors: tuple[str, ...]
     quantity: int
     deployed_cost_yen: int
-    market_price_yen: Decimal
-    market_price_observed_at: datetime
-    market_price_source_kind: str
-    market_price_basis: str
-    market_price_source_ref: str
-    market_value_yen: int
+    market_price_yen: Decimal | None
+    market_price_observed_at: datetime | None
+    market_price_source_kind: str | None
+    market_price_basis: str | None
+    market_price_source_ref: str | None
+    market_value_yen: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -346,13 +346,13 @@ class PortfolioSnapshot:
     available_cash_yen: int
     reserved_cash_yen: int
     deployed_cost_yen: int
-    holdings_market_value_yen: int
+    holdings_market_value_yen: int | None
     confirmed_income_yen: int
     confirmed_cost_yen: int
     confirmed_tax_yen: int
     confirmed_cost_tax_yen: int
     book_capital_yen: int
-    total_capital_yen: int
+    total_capital_yen: int | None
     estimated_exit_tax_rate_bps: int | None
     estimated_exit_tax_basis: str | None
     estimated_exit_tax_yen: int | None
@@ -639,7 +639,12 @@ def value_replayed_state(
 
     holdings = _holding_snapshots(state.lots, state.metadata, prices_at_close)
     deployed_cost = sum(holding.deployed_cost_yen for holding in holdings)
-    holdings_market_value = sum(holding.market_value_yen for holding in holdings)
+    for holding in holdings:
+        if holding.market_value_yen is None:
+            raise PortfolioLedgerError(f"market price is required for holding {holding.ticker}")
+    holdings_market_value = sum(
+        holding.market_value_yen for holding in holdings if holding.market_value_yen is not None
+    )
     total_capital = state.available_cash_yen + state.reserved_cash_yen + holdings_market_value
     return ReplayedPortfolioValue(
         available_cash_yen=state.available_cash_yen,
@@ -710,35 +715,60 @@ def reconcile_portfolio(
                 f"market price for {price.ticker} is stale: {age_days:.2f} days old"
             )
     prices = {price.ticker: price for price in document.market_prices}
-    value = value_replayed_state(state, prices)
-    holdings = value.holdings
+    snapshot = summarize_portfolio(document, state, prices, policy=policy)
+    for holding in snapshot.holdings:
+        if holding.market_value_yen is None:
+            raise PortfolioLedgerError(f"market price is required for holding {holding.ticker}")
+    if snapshot.total_capital_yen is None or snapshot.total_capital_yen <= 0:
+        raise PortfolioLedgerError("total capital must remain positive")
+    return snapshot
+
+
+def summarize_portfolio(
+    document: PortfolioLedgerDocument,
+    state: ReplayedPortfolioState,
+    prices: Mapping[str, MarketPrice],
+    *,
+    policy: PolicyConfig = PORTFOLIO_POLICY,
+) -> PortfolioSnapshot:
+    """Show confirmed capital even when some holdings cannot be valued."""
+    holdings = _holding_snapshots(state.lots, state.metadata, prices)
+    deployed_cost = sum(item.deployed_cost_yen for item in holdings)
+    market_value = (
+        None
+        if any(item.market_value_yen is None for item in holdings)
+        else sum(item.market_value_yen for item in holdings if item.market_value_yen is not None)
+    )
     reservations = reservation_snapshots(state)
     available_cash = state.available_cash_yen
     reserved_cash = state.reserved_cash_yen
-    book_capital = available_cash + reserved_cash + value.deployed_cost_yen
-    total_capital = value.total_capital_yen
-    if total_capital <= 0:
-        raise PortfolioLedgerError("total capital must remain positive")
+    book_capital = available_cash + reserved_cash + deployed_cost
+    total_capital = None if market_value is None else available_cash + reserved_cash + market_value
     estimated_tax = estimated_exit_tax_yen(
         holdings,
         rate_bps=document.estimated_exit_tax_rate_bps,
         basis=document.estimated_exit_tax_basis,
     )
-    warnings = _portfolio_warnings(
-        document,
-        holdings=holdings,
-        reservations=reservations,
-        available_cash=available_cash,
-        total_capital=total_capital,
-        policy=policy,
+    warnings = (
+        _portfolio_warnings(
+            document,
+            as_of=state.as_of,
+            holdings=holdings,
+            reservations=reservations,
+            available_cash=available_cash,
+            total_capital=total_capital,
+            policy=policy,
+        )
+        if total_capital is not None and total_capital > 0
+        else ()
     )
     return PortfolioSnapshot(
         as_of=document.as_of,
         portfolio_scope=document.portfolio_scope,
         available_cash_yen=available_cash,
         reserved_cash_yen=reserved_cash,
-        deployed_cost_yen=value.deployed_cost_yen,
-        holdings_market_value_yen=value.holdings_market_value_yen,
+        deployed_cost_yen=deployed_cost,
+        holdings_market_value_yen=market_value,
         confirmed_income_yen=state.confirmed_income_yen,
         confirmed_cost_yen=state.confirmed_cost_yen,
         confirmed_tax_yen=state.confirmed_tax_yen,
@@ -780,8 +810,12 @@ def snapshot_to_payload(snapshot: PortfolioSnapshot) -> dict[str, object]:
                 "common_factors": list(holding.common_factors),
                 "quantity": holding.quantity,
                 "deployed_cost_yen": holding.deployed_cost_yen,
-                "market_price_yen": _price_payload(holding.market_price_yen),
-                "market_price_observed_at": holding.market_price_observed_at.isoformat(),
+                "market_price_yen": None
+                if holding.market_price_yen is None
+                else _price_payload(holding.market_price_yen),
+                "market_price_observed_at": None
+                if holding.market_price_observed_at is None
+                else holding.market_price_observed_at.isoformat(),
                 "market_price_source_kind": holding.market_price_source_kind,
                 "market_price_basis": holding.market_price_basis,
                 "market_price_source_ref": holding.market_price_source_ref,
@@ -882,14 +916,12 @@ def _holding_snapshots(
         quantity = sum(lot.quantity for lot in ticker_lots)
         if quantity == 0:
             continue
-        if ticker not in prices:
-            raise PortfolioLedgerError(f"market price is required for holding {ticker}")
         sector, factors = metadata[ticker]
         deployed = sum(
             _yen_notional(lot.quantity, lot.price_yen, field="holding deployed cost")
             for lot in ticker_lots
         )
-        market_price = prices[ticker]
+        market_price = prices.get(ticker)
         holdings.append(
             HoldingSnapshot(
                 ticker=ticker,
@@ -897,14 +929,14 @@ def _holding_snapshots(
                 common_factors=factors,
                 quantity=quantity,
                 deployed_cost_yen=deployed,
-                market_price_yen=market_price.price_yen,
-                market_price_observed_at=market_price.observed_at,
-                market_price_source_kind=market_price.source_kind,
-                market_price_basis=market_price.price_basis,
-                market_price_source_ref=market_price.source_ref,
-                market_value_yen=_yen_notional(
-                    quantity, market_price.price_yen, field="holding market value"
-                ),
+                market_price_yen=None if market_price is None else market_price.price_yen,
+                market_price_observed_at=None if market_price is None else market_price.observed_at,
+                market_price_source_kind=None if market_price is None else market_price.source_kind,
+                market_price_basis=None if market_price is None else market_price.price_basis,
+                market_price_source_ref=None if market_price is None else market_price.source_ref,
+                market_value_yen=None
+                if market_price is None
+                else _yen_notional(quantity, market_price.price_yen, field="holding market value"),
             )
         )
     return tuple(holdings)
@@ -923,8 +955,12 @@ def estimated_exit_tax_yen(
         return None
     if basis != "ledger_fifo_gross_unrealized_gain":
         raise ValueError(f"unsupported estimated exit tax basis: {basis}")
+    if any(holding.market_value_yen is None for holding in holdings):
+        return None
     unrealized_gain = sum(
-        max(0, holding.market_value_yen - holding.deployed_cost_yen) for holding in holdings
+        max(0, holding.market_value_yen - holding.deployed_cost_yen)
+        for holding in holdings
+        if holding.market_value_yen is not None
     )
     return estimated_exit_tax_for_gain_yen(
         gross_unrealized_gain_yen=unrealized_gain,
@@ -949,9 +985,35 @@ def estimated_exit_tax_for_gain_yen(
     return gross_unrealized_gain_yen * rate_bps // 10_000
 
 
+def active_human_overrides(
+    overrides: tuple[HumanOverride, ...],
+    *,
+    as_of: datetime,
+    policy: PolicyConfig = PORTFOLIO_POLICY,
+) -> dict[tuple[str, str], HumanOverride]:
+    """Validate price-independent override constraints and resolve them at one instant."""
+    cash_policy = _policy_mapping(policy, "cash_management")
+    max_override_days = _policy_number(cash_policy, "override_max_days")
+    active_overrides: dict[tuple[str, str], HumanOverride] = {}
+    for override in overrides:
+        duration_days = (override.expires_at - override.approved_at).total_seconds() / 86_400
+        if duration_days > max_override_days:
+            raise PortfolioLedgerError(
+                f"override {override.override_id} exceeds {max_override_days:g} days"
+            )
+        if override.approved_at <= as_of < override.expires_at:
+            key = (override.scope, override.key)
+            if key in active_overrides:
+                raise PortfolioLedgerError(f"multiple active overrides for {key}")
+            active_overrides[key] = override
+
+    return active_overrides
+
+
 def _portfolio_warnings(
     document: PortfolioLedgerDocument,
     *,
+    as_of: datetime,
     holdings: tuple[HoldingSnapshot, ...],
     reservations: tuple[ReservationSnapshot, ...],
     available_cash: int,
@@ -960,24 +1022,13 @@ def _portfolio_warnings(
 ) -> tuple[PortfolioWarning, ...]:
     cash_policy = _policy_mapping(policy, "cash_management")
     risk_policy = _policy_mapping(policy, "risk_budget")
-    max_override_days = _policy_number(cash_policy, "override_max_days")
-    active_overrides: dict[tuple[str, str], HumanOverride] = {}
-    for override in document.overrides:
-        duration_days = (override.expires_at - override.approved_at).total_seconds() / 86_400
-        if duration_days > max_override_days:
-            raise PortfolioLedgerError(
-                f"override {override.override_id} exceeds {max_override_days:g} days"
-            )
-        if override.approved_at <= document.as_of < override.expires_at:
-            key = (override.scope, override.key)
-            if key in active_overrides:
-                raise PortfolioLedgerError(f"multiple active overrides for {key}")
-            active_overrides[key] = override
+    active_overrides = active_human_overrides(document.overrides, as_of=as_of, policy=policy)
 
     ticker_exposure: dict[str, int] = defaultdict(int)
     sector_exposure: dict[str, int] = defaultdict(int)
     factor_exposure: dict[str, int] = defaultdict(int)
     for holding in holdings:
+        assert holding.market_value_yen is not None
         ticker_exposure[holding.ticker] += holding.market_value_yen
         sector_exposure[holding.sector] += holding.market_value_yen
         for factor in holding.common_factors:

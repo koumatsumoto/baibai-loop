@@ -84,7 +84,7 @@ def build_sources(
     validate_application_store_schema(resolved_db)
     validate_market_store_schema(resolved_market)
     return Sources(
-        ledger=DbLedgerSource(resolved_db),
+        ledger=DbLedgerSource(resolved_db, resolved_market),
         research=DbResearchSource(resolved_db),
         tasks=DbTaskSource(resolved_db),
         screening=DbScreeningSource(resolved_runs),
