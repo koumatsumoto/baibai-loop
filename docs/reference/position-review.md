@@ -51,7 +51,7 @@ buildは対象holding、最新Reviewed Thesis、対象quoteを読む。作者が
 
 ## 操作
 
-[Position Review skill](../../.agents/skills/position-review/SKILL.md)が手順を所有する。企業評価の更新には`thesis-scaffold --from-thesis-id`を使い、元資料・予測からの差分を再Reviewする。現在の`--help`で引数を確認する。
+[Position Review skill](../../.agents/skills/position-review/SKILL.md)が手順を所有する。利用可能な最新v4の更新には`thesis-scaffold --from-thesis-id`を使い、元資料・予測からの差分を再Reviewする。旧版しかない保有は同引数なしで新規v4を作り、現在の証拠と独立Reviewを揃えて旧IDをsupersedeする。現在の`--help`で引数を確認する。
 
 ```bash
 uv run baibai-engine research position-prepare --help
@@ -60,3 +60,5 @@ uv run baibai-engine position position-review --help
 ```
 
 既存schema20のposition_reviewへv3を追加する。旧payloadとOperation kindは履歴として読み、新規判断へ実行しない。実売却は人間の報告後にledger-recordで記録する。
+
+数量basisは現在の保有episodeからの権利変化情報で確認する。過去終値だけの欠損は数量不明の理由にせず、対象row・調整係数の欠損や権利変化は未確認のままにする。現在quoteの有無は別に確認する。

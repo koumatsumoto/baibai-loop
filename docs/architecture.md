@@ -163,7 +163,7 @@ package ごとに、所有する store、public CLI、L1 のどの工程にど�
 | `market` | R2 `lake/`、`stores/market/market.sqlite` | `baibai-engine lake` | L1 保持を **産む**（全 partition 導出の lake export・release manifest・pointer・hydrate）、**止める**（digest 一致・行数一致・pointer CAS・schema version）、**見せる**（`lake resolve`） | 2 |
 | `macro` | `stores/macro/macro.sqlite`、application DB（context） | `baibai-engine macro` | macro を **産む**（indicator refresh・reading・context publish）、**止める**（context の schema 構造・引用解決・確率の合計・head CAS）、**測る**（scorecard 条件の機械照合）、**見せる**（reading・Macro view） | 1（series）、2（context の head） |
 | `screening` | `stores/screening/runs.sqlite`、`stores/screening/calibration/`、application DB（Research Triage）、`market.sqlite` | `baibai-engine screening` | L1取得とscreeningを **産む**（provider取得・run・Security Analysis・Review Set・Research Triage publish）、**止める**（coverage・PIT・rules identity・Review Set / Triage束縛）、**測る**（current calibration panel / forward / evaluate）、**見せる**（Review Set YAML・Security Analysis view） | 1、2 |
-| `research` | application DB | `baibai-engine research` | research を **産む**（workspace・thesis / review・promote・planning-only limit・Capital Allocation Assessment）、**止める**（evaluate・review hash 束縛・buy の human override 必須・`maximum_acceptable_entry_price`）、**見せる**（assessment view） | 人間 gate（T2） |
+| `research` | application DB | `baibai-engine research` | research を **産む**（workspace・thesis / review・promote・planning-only limit・Capital Allocation Assessment）、**止める**（Reviewed Thesisのexact binding・現在の新規条件・保有publishの人間確認）、**見せる**（assessment view） | 人間 gate（T2） |
 | `position` | application DB | `baibai-engine position` | 確認済み資本・取引事実を **産む**（draft / apply・outcome）、**止める**（append head CAS・保有超過拒否・人間確認必須）、**測る**（outcome vs TOPIX）、**見せる**（Dashboard） | 人間 gate（T1） |
 | `operation` | application DB | `baibai-engine operation` | trigger ごとの session と checkpoint・human_confirmation を **産む**、**止める**（active 最大 1 件・complete 要件）、**見せる**（Tasks の「いま何が途中か」） | — |
 | `tasks` | application DB | `baibai-engine task` | 日付つき運用 task を **産む**、**見せる**（`task list`・Tasks） | — |
@@ -188,7 +188,9 @@ engine は web / batch / tools に依存しない。Web が engine へ触れる�
 
 ### 投資判断と取引事実の依存
 
-researchは企業評価・資本配分・保有判断を所有する。valuationは純粋算術、thesisは企業評価と独立Review、thesis_storeは一組の公開・共通読込を所有する。entry_policyは新規適格性、planningは現在のquote/cashの組立、position_reviewとposition_review_serviceは保有判断を所有する。broker_fact_serviceは過去判断のidentityを解決しpositionの事実記録へ渡す。core positionからresearchへ依存せず、read_api/Webは共通読込を使い判断式を複製しない。
+researchは企業評価・資本配分・保有判断を所有する。valuationは純粋算術、thesisは企業評価と独立Review、thesis_storeは一組の公開・共通読込を所有する。entry_policyは新規適格性、planningは発注session・価格・数量の参考案、position_reviewとposition_review_serviceは保有判断を所有する。broker_fact_serviceは過去判断のidentityを解決しpositionの事実記録へ渡す。core positionからresearchへ依存せず、read_api/Webは共通読込を使い判断式を複製しない。
+
+`position/valuation.py`は資本確認工程でreplayと市場quote・権利単位を組み合わせ、現在の資本と未評価を見せる。Planning・Position Review・read_apiが共用し、`position/market_source.py`がquoteと権利basisを別々に読む。Researchの`capital_inputs.py`はこの事実入力とReviewed Thesisを新規配分条件へ渡し、CAAとPlanningが共用する。core positionは企業評価・資本判断をimportしない。
 
 ### L3 judgment の write 規則
 

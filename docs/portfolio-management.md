@@ -28,7 +28,7 @@ related_docs:
 
 reservationは数量×price guardをcashから拘束し、partial fill後は残数量だけを残す。cancel/expireは人間の報告によるreleaseで示す。未報告の注文状態は推定しない。
 
-ticker10%、sector40%、common-factor35%、ADV5%などの集中・執行warningは人間へ示す。全保有のquoteを確認できなければNAVと比率は未評価とし、架空の分母を作らない。cash20%はwarningであり投資率ノルマや自動数量縮小の理由ではない。warning受容にはledgerの既存人間overrideを使い、企業根拠の不足を小口購入のoverrideで通さない。
+ticker10%、sector40%、common-factor35%、ADV5%などの集中・執行warningは人間へ示す。数量・資金はevent replay、時価はmarket quoteと現在保有episodeの権利basisから読む。台帳への価格転記は不要である。全保有のquote・権利basisを確認できなければNAVと比率は未評価とし、架空の分母を作らない。cash20%はwarningであり投資率ノルマや自動数量縮小の理由ではない。warning受容にはledgerの既存人間overrideを使い、企業根拠の不足を小口購入のoverrideで通さない。
 
 同じResearch SetからCAAを一件ずつ公開できる。先行注文の人間報告をledgerへ反映してから、後続候補を最新cash・予約で再計算する。一括予約や予定入金を仮定しない。
 
@@ -48,3 +48,5 @@ brokerの事実を現在の投資条件で再審査しない。旧注文のparti
 ## 成果と学習
 
 既存Portfolio Outcome/TWR/TOPIX比較を使い、cash、未売却損益、配当、実費、確認税を含むportfolio全体で測る。売却済み銘柄や勝率だけで評価せず、未解決データを母数から消さない。指数とportfolioの税・費用basis差を示す。entry予測と後続評価は既存reports/studiesで照合し、新戦略の収益優位は別に検証する。
+
+確認済み入出金・配当・費用・税・売買のdraft/applyは価格不要のreplayで検証する。`position ledger`とWebは時価未評価でもcash・予約・数量・原価を表示し、未評価を0円や空保有へ変換しない。

@@ -13,7 +13,7 @@ Capital Allocation Assessment は、人間のexact Research Setで深掘りし�
 
 - `allocate` は selected alternative をちょうど1件持ち、その Thesis ID、recorded core hash、Thesis Review IDへ束縛する。
 - `no_allocation` と `defer` は selected alternativeを持たない。
-- 指値、数量、notional、expiryはassessmentへ保存しない。`research plan-limit --capital-allocation-assessment-id <ASSESSMENT_ID>`が、公開済み`allocate`判断に束縛されたThesis / Review、current ledger、前営業日raw closeから都度計算する。
+- 指値、数量、notional、expiryはassessmentへ保存しない。`research plan-limit --capital-allocation-assessment-id <ASSESSMENT_ID>`が、公開済み`allocate`判断に束縛されたThesis / Review、確認済み資本、利用可能な最新確定raw closeから都度計算する。正式判断日は当日であり、発注sessionとは別である。`--target-session`は既存calendarの次の有効営業日（引け前は当日）を指定し、`planned_limit`だけが将来の15:30 JST期限を返す。calendar不明・失効sessionはdeferし、期限を偽装しない。
 - broker操作は人間だけが行う。broker factはassessment IDを`decision_reference`としてledger draftへ変換する。
 
 判断の散文はCapital Allocation Assessmentが正本だが、原評価のBase/Downside、要求リターン、Pmax、企業評価の成立性は正本ではない。read surfaceはbound immutable thesisから再導出し、payloadへ複写しない。

@@ -60,7 +60,7 @@ as-of、最大80件の比較snapshot、Researchへ進められるtickerはapplic
 
 ## 5. Buy case の当日指値を確認する
 
-`research plan-limit --capital-allocation-assessment-id <ASSESSMENT_ID>` は canonical Capital Allocation Assessment が `allocate` の alternative にだけ使う。対象ThesisとReviewはDBから解決し、local draftは入力にしない。出力は当日の助言であり永続化しない。正式評価日を当日に揃え、利用可能な最新確定quote（寄り前は前営業日）と権利単位を確認する。更新時は`thesis-scaffold --from-thesis-id`で元資料・予測を保持した差分を再Reviewする。価格超過はPlanningのdeferであり企業評価をrejectへ変更しない。既保有、同ticker予約、同CAA買約定済みは追加購入を提案しない。cash不足とguide超過warningを区別する。
+`research plan-limit --capital-allocation-assessment-id <ASSESSMENT_ID>` は canonical Capital Allocation Assessment が `allocate` の alternative にだけ使う。対象ThesisとReviewはDBから解決し、local draftは入力にしない。出力は当日時点の助言であり永続化しない。`--target-session`は既存calendarで確認できる次の有効営業日を指定する。引け前は当日、引け後・休日は次の営業日となり、正式判断日と発注日を混同しない。`planned_limit`の期限をそのままbroker報告へ渡し、失効済み・calendar不明の案はdeferする。正式評価日を当日に揃え、利用可能な最新確定quote（寄り前は前営業日）と権利単位を確認する。更新時は`thesis-scaffold --from-thesis-id`で元資料・予測を保持した差分を再Reviewする。価格超過はPlanningのdeferであり企業評価をrejectへ変更しない。既保有、同ticker予約、同CAA買約定済みは追加購入を提案しない。cash不足とguide超過warningを区別する。
 
 同じResearch Setから順次配分できる。CAA-1の人間報告をledgerへ反映した後、同じ調査を参照してCAA-2を公開し、最新の予約控除後cashでPlanningする。1 CAAは1 allocateとし、Operationの完了参照は最後のCAAにする。
 
