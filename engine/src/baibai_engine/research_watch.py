@@ -34,7 +34,7 @@ from baibai_engine.position.ledger import (
     replay_events_through,
     reservation_snapshots,
 )
-from baibai_engine.position.store import (
+from baibai_engine.position.ledger_read import (
     LedgerConflictError,
     LedgerSchemaError,
     load_ledger_in_transaction,

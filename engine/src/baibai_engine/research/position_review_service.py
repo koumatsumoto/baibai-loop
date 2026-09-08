@@ -16,10 +16,10 @@ from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
 from baibai_engine.position.ledger import replay_events_through
+from baibai_engine.position.ledger_read import load_ledger_in_transaction
 from baibai_engine.position.market_source import (
     quantity_basis_is_confirmed,
 )
-from baibai_engine.position.store import load_ledger_in_transaction
 from baibai_engine.position.valuation import holding_quote
 from baibai_engine.research.position_review import (
     HoldingInput,

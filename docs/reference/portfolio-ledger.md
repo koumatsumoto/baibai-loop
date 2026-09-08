@@ -13,7 +13,7 @@ status: active
 
 ledgerは`portfolio_scope: repository_only`だけを扱う。application DBの`ledger_event / ledger_meta`が確認済み資本・取引事実を持ち、保存済みの`ledger_market_price`は既存記録として保持する。`baibai-engine position ledger --db stores/application/baibai.sqlite`はeventをreplayし、market storeのquoteと権利単位を組み合わせてsnapshotを返す。broker残高を自動取得・推定・完全照合する契約ではない。
 
-DB constraint、`baibai_engine.position`のmodel、application serviceのwrite-time validationが機械契約を担う。円総額は整数、単価は許可精度内、数量との積は1円単位に一致しなければ拒否する。
+DB constraint、`baibai_engine.position`のmodel、application serviceのwrite-time validationが機械契約を担う。台帳の再構築と保存値の検査は`position/ledger_read.py`が所有し、read APIとwriterが同じ実装を使う。connectionとtransactionはcallerが所有する。未作成・未書込・初期化済み未importだけを未登録として読み、table/column欠損・metadataなし取引・不正payloadを空保有へ変換しない。円総額は整数、単価は許可精度内、数量との積は1円単位に一致しなければ拒否する。
 
 <a id="events"></a>
 

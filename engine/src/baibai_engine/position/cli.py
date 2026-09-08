@@ -56,12 +56,13 @@ from baibai_engine.position.ledger import (
     require_resolved_expiries,
     snapshot_to_payload,
 )
+from baibai_engine.position.ledger_read import LedgerConflictError
 from baibai_engine.position.outcome import compute_portfolio_outcome, outcome_to_payload
 from baibai_engine.position.outcome_store import (
     PortfolioOutcomePublication,
     PortfolioOutcomeStore,
 )
-from baibai_engine.position.store import LedgerConflictError, LedgerStoreService
+from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.position.valuation import current_portfolio
 from baibai_engine.research.broker_fact_service import build_broker_fact_draft
 from baibai_engine.research.capital_allocation_service import (

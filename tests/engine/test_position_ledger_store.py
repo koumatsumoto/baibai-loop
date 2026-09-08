@@ -14,7 +14,8 @@ from baibai_engine.position.ledger import (
     PortfolioLedgerDocument,
     ReservationEvent,
 )
-from baibai_engine.position.store import LedgerConflictError, LedgerStoreService
+from baibai_engine.position.ledger_read import LedgerConflictError
+from baibai_engine.position.store import LedgerStoreService
 
 FIXTURE = Path("tests/fixtures/portfolio-ledger/representative.yaml")
 
@@ -222,3 +223,108 @@ def test_ledger_queries_open_only_read_connections(tmp_path, monkeypatch):
     assert service.append_head() == len(source.events)
     assert observed == [1, 1]
     assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("unwritten", [True, False], ids=["unwritten", "initialized-unimported"])
+def test_optional_reader_distinguishes_unimported_from_required_ledger(tmp_path, unwritten):
+    from contextlib import closing
+
+    from baibai_engine.appdb.read import connect_read_only
+    from baibai_engine.position.ledger_read import load_ledger_document, load_ledger_in_transaction
+
+    path = tmp_path / "app.sqlite"
+    if unwritten:
+        sqlite3.connect(path).close()
+    else:
+        initialize_database(path)
+    with closing(connect_read_only(path)) as connection:
+        assert load_ledger_document(connection) is None
+        with pytest.raises(LedgerConflictError, match="not been imported"):
+            load_ledger_in_transaction(connection)
+
+
+@pytest.mark.parametrize(
+    ("damage", "error"),
+    [
+        ("DROP TABLE ledger_meta", RuntimeError),
+        ("DROP TABLE ledger_event", RuntimeError),
+        ("DROP TABLE ledger_market_price", RuntimeError),
+        ("ALTER TABLE ledger_meta RENAME COLUMN payload TO lost_payload", sqlite3.OperationalError),
+        ("DELETE FROM ledger_meta", LedgerConflictError),
+        ("UPDATE ledger_meta SET payload='[]'", ValueError),
+        ("UPDATE ledger_event SET payload=json_set(payload,'$.type','invalid')", ValueError),
+        (
+            "UPDATE ledger_market_price SET payload=json_set(payload,'$.source_kind','test_fixture')",
+            LedgerConflictError,
+        ),
+    ],
+    ids=[
+        "missing-meta-table",
+        "missing-event-table",
+        "missing-price-table",
+        "missing-column",
+        "orphaned-rows",
+        "invalid-meta",
+        "invalid-event",
+        "fixture-price",
+    ],
+)
+def test_shared_reader_rejects_damaged_canonical_state(tmp_path, damage, error):
+    from contextlib import closing
+
+    from baibai_engine.appdb.read import connect_read_only
+    from baibai_engine.position.ledger_read import load_ledger_document
+
+    path = tmp_path / "app.sqlite"
+    seed_ledger(path, _store_fixture())
+    with sqlite3.connect(path) as writer:
+        writer.execute(damage)
+    with closing(connect_read_only(path)) as connection, pytest.raises(error):
+        load_ledger_document(connection)
+
+
+def test_public_view_uses_shared_reader_validation(tmp_path):
+    from baibai_engine.read_api.position import portfolio_ledger_document
+
+    path = tmp_path / "app.sqlite"
+    document = _store_fixture()
+    seed_ledger(path, document)
+    assert portfolio_ledger_document(path) == document
+    with sqlite3.connect(path) as writer:
+        writer.execute("DELETE FROM ledger_meta")
+    with pytest.raises(LedgerConflictError, match="without metadata"):
+        portfolio_ledger_document(path)
+
+
+def test_reader_preserves_callers_snapshot_while_another_connection_appends(tmp_path):
+    from contextlib import closing
+
+    from baibai_engine.appdb.read import connect_read_only
+    from baibai_engine.position.ledger_read import load_ledger_in_transaction
+    from baibai_engine.read_api.position import portfolio_ledger_document
+
+    path = tmp_path / "app.sqlite"
+    source = _store_fixture()
+    seed_ledger(path, source)
+    with sqlite3.connect(path) as setup:
+        setup.execute("PRAGMA journal_mode=WAL")
+    event = ContributionEvent(
+        type="contribution",
+        event_id="concurrent-contribution",
+        occurred_at=source.as_of.isoformat(),
+        amount_yen=100,
+    )
+    replacement = source.model_copy(update={"events": (*source.events, event)})
+    with closing(connect_read_only(path)) as reader:
+        reader.execute("BEGIN")
+        before, head = load_ledger_in_transaction(reader)
+        LedgerStoreService(path).apply_document(
+            expected_head=head,
+            expected_document=source,
+            replacement=replacement,
+        )
+        assert load_ledger_in_transaction(reader) == (before, head)
+        assert reader.in_transaction
+        assert reader.execute("PRAGMA query_only").fetchone()[0] == 1
+    assert LedgerStoreService(path).load_with_head() == (replacement, head + 1)
+    assert portfolio_ledger_document(path) == replacement

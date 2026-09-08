@@ -12,9 +12,9 @@ from pathlib import Path
 from baibai_engine.appdb.paths import database_path
 from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.foundation.time import JST
+from baibai_engine.position.ledger_read import load_ledger_in_transaction
 from baibai_engine.position.market_source import next_order_session
 from baibai_engine.position.policy import PORTFOLIO_POLICY
-from baibai_engine.position.store import load_ledger_in_transaction
 from baibai_engine.position.valuation import current_portfolio
 from baibai_engine.research.capital_allocation import CapitalAllocationAssessment
 from baibai_engine.research.capital_inputs import (
