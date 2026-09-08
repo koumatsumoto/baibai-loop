@@ -53,3 +53,20 @@ S2はS1終了後に最新canonical Triageを再読し、research priority昇順�
 非公開原文・source・独立計算・draft・task payloadは元作業環境の`.cache/studies/new-strategy-validation/`。#1249の最小断面は`.cache/studies/opportunity-coverage/`。別環境ではこの非公開directoryの明示的引渡しが必要で、自動同期を仮定しない。欠落時はunverifiableとし原予測を再生成しない。Gitには集計・公開source・必要ID・結論だけを残す。
 
 正式publish、ledger、Operation complete、R2 push、cloud dispatch、本番選定/売買条件の変更は禁止。AP-01/02/03/04/05/06/07/09/12を作業前・commit前・PR前に確認。full local gatesはpython-foundation §9、反証レビューはkm-reviewの実装者と独立product観点で行う。将来の勝率・収益優位や#1262単独の因果効果は認定しない。
+
+## S1後のrubric確認・S2対象固定
+
+固定時刻`2026-09-08T20:21:28.235889+09:00`。独立担当の原結論を隠した初回→原4社との照合を完了し、主が一次資料・株数・算術を突合した。原判断への新規confirmed_errorは0、6199の12倍などはjudgment_disagreement。Research Y/N/Uの定義は維持し、企業defer・購入価格外・将来利益の幅だけでN/Uへ落とさない。詳細はreportへ残す。この確認前には#1249の主標本判定を実施していない。
+
+S2開始時に最新canonical Triageと全Thesis v4、報告済み資本eventの不変をread-onlyで再確認した。latestは上記exact Triageのまま。research priority先頭から既保有/予約とv4既存4社を除いた対象は次の4社で、補充・入替えはしない。
+
+| ticker | priority | 2026-09-07 15:30 JST未調整終値 円 |
+| --- | ---: | ---: |
+| 6419 | 1 | 3,190 |
+| 4231 | 2 | 1,051 |
+| 2415 | 3 | 1,686 |
+| 2221 | 4 | 3,065 |
+
+4社ともThesis v3はあるがv4は無く、Issueの除外条件に該当しない。新戦略の新規caseであり、企業の初回調査とは呼ばない。原v3結論を新draftへ転記せず、同じ一次資料範囲から再構成する。情報cutoffは#1249との比較も揃えるため`2026-09-07T23:59:59.999999+09:00`、資料深度は最新短信・説明資料・年次財務/必要資本開示。これら4社のsource収集は判定無しで並行したが、主のS2結果調査は対象固定後に開始する。
+
+private `s2-selection.json` SHA-256=`2aca7918f93a66a616a886c9cbd95af4e092d16958d540a7a79aac19a23fb785`。評価・decisionはこれから固定し、将来診断entryはdecisionより後の最初のJPX営業日close。現時点の原価格を将来entryへ代入しない。
