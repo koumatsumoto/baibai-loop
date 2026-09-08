@@ -1,13 +1,13 @@
 ---
 title: "Reference — macro analysis"
-summary: "マクロ環境分析：L1 指標を毎営業日 L2 reading で機械読み値にし、人間が判断するときだけ L3 macro context report（core 環境評価 10 + synthesis 統合評価 + connection 積立ループ接続）を書く。"
+summary: "マクロ環境分析：L1 指標を毎営業日 L2 reading で機械読み値にし、人間が判断するときだけ L3 macro context report（core 環境評価 10 + synthesis 統合評価 + connection 日本株ループ接続）を書く。"
 doc_type: reference
 status: active
 ---
 
 # Reference — マクロ環境分析
 
-マクロ環境分析は **独立した機能のまとまり**（データ取得層 + 機械読み値 + リサーチの実践）であり、形式化した独自ループにはしない。狙いは、個別銘柄の5年期待値を変え得る外部経路と共通riskを判断層へ供給すること。sector順位、相場方向、買い時、投入額を決めない。
+マクロ環境分析は **独立した機能のまとまり**（データ取得層 + 機械読み値 + リサーチの実践）であり、形式化した独自ループにはしない。狙いは、個別銘柄のinvestment caseと評価期間内の見返りを変え得る外部経路と共通riskを判断層へ供給すること。sector順位、相場方向、買い時、投入額を決めない。
 
 扱うものは性質の異なる 4 種：**① データ（L1 の事実）／ ② 機械読み値（L2 macro reading）／ ③ 環境認識（L3 macro context report）／ ④ 知見（調べ方のメタ知識）**。①②は毎営業日 CI が機械で回し、③は人間が判断するときだけ書く。マクロは標本数がほぼ 1 の判断であり、優位性の数値・統計的有意性・自動の投入額倍率は出さない（§誠実性）。
 
@@ -216,9 +216,11 @@ uv run baibai-engine macro context show --latest --asof 2026-07-19
 
 **作成のきっかけは人間の判断だけ**である。定例義務・monitoring 発火時の更新義務・賞味期限の宣言は持たない。推奨リズムは (a) 米雇用統計の翌週、(b) スポットの資産運用判断の前、(c) Research Triage前にheadが古いとき、の3つで、書かない月があっても壊れるものは無い。鮮度の判断は読む側が持つ（後述の consumer 側鮮度規則）。
 
-### 3 層構成：core（環境評価）・synthesis（統合評価）・connection（積立ループ接続）
+<a id="3-層構成core環境評価synthesis統合評価connection積立ループ接続"></a>
 
-レポートは **core 10 セクション + synthesis + connection 1 セクション** で構成する。core は use-case agnostic な環境評価（チャネル別の evidence 層）であり、日本株積立ループ固有の語彙（sector tilt・research 優先度・sizing caution）を持たない。synthesis は core の上に載る統合層で、やはり use-case agnostic である。connection はループ固有の語彙を 1 か所へ隔離する。読み手の順は summary → synthesis → core → connection であり、executive な統合が evidence より先に来る。
+### 3 層構成：core（環境評価）・synthesis（統合評価）・connection（日本株ループ接続）
+
+レポートは **core 10 セクション + synthesis + connection 1 セクション** で構成する。core は use-case agnostic な環境評価（チャネル別の evidence 層）であり、日本株ループ固有の語彙（sector tilt・research 優先度・sizing caution）を持たない。synthesis は core の上に載る統合層で、やはり use-case agnostic である。connection はループ固有の語彙を 1 か所へ隔離する。読み手の順は summary → synthesis → core → connection であり、executive な統合が evidence より先に来る。
 
 この分離は書き手の注意ではなく **参照方向の機械契約** で守る：connection が引用できる series は core が引用済みのものだけで、connection は依拠する core セクション（その series を実際に引用しているセクション）を `core_section_ids` で明示する。core 側へ sector tilt / research 優先度ヒント / sizing caution を書いた draft は schema が拒否する。series 以外の input（`screening market-snapshot` の市場内部やループ固有の記事）は connection が自分の入力として持ってよい——バーゲン地形は connection の担当であり、core を日本株ループの語彙で汚さないためである。ただし **prose は機械では縛れない**（core の judgment に行動指示を書き込むことは schema では止まらない）ので、そこは skill の敵対的 self-check と、publish 前に author と別 role が縦読みする独立レビューが受け持つ。core が単体で完結していることの構造的な証明になり、リポジトリ外のスポット資産運用判断の材料としてもそのまま読める。
 
@@ -247,7 +249,7 @@ force の候補は §② reading の flags・|z| 極値・percentile 端・ト�
 | core | 8 | バリュエーション（`valuation`） | 米 ERP / CAPE、日本 ERP（市場全体PERまたは益回り − JGB 10y）、金、BTC | 各資産の相対的な位置を示す |
 | core | 9 | リスク選好環境の評価とシナリオ（`risk_environment`） | セクション2〜8を支持・反証する系列 | 攻め／守りどちらの環境かを `stance`・確度・**反証条件**付きで評価し、base / bear / bull を **確率**と scorecard 条件付きで置く |
 | core | 10 | 監視ポイント（`monitoring`） | 次の公表・会合と観測条件 | 何が出たらどの見方を変えるかを prose で明記する |
-| connection | 11 | 日本株積立ループ接続（`japan_equity_loop`） | core が引用済みの series のみ | research 優先度ヒント（効く候補タイプを `applies_to` で判別可能に）、sector tilt、sizing caution、**バーゲン地形（`bargain_topography`）**、**機械見積りの歪み補正（`estimate_caveats`）** |
+| connection | 11 | 日本株ループ接続（`japan_equity_loop`） | core が引用済みの series のみ | research 優先度ヒント（効く候補タイプを `applies_to` で判別可能に）、sector tilt、sizing caution、**バーゲン地形（`bargain_topography`）**、**機械見積りの歪み補正（`estimate_caveats`）** |
 
 共通 field：
 
@@ -371,7 +373,7 @@ macro contextはdiscount rate、需要、資金調達、共通tail risk、sizing
 マクロの読みは機械スクリーニングの `run` には接続しない（`run` は財務事実だけを扱う決定論的なエンジンのまま）。効かせるのは判断層だけ：
 
 - **Research Triage**（[`./screening-runtime.md`](./screening-runtime.md)）：material deltaと`as_of`鮮度warningをcontext-level summaryとして出す。E[r]とSecurity Analysisの事実層は変えない。
-- **research**：material deltaが個別5年期待値へ影響する場合だけ、thesisのjudgmentへその因果と根拠を残す。マクロを数値ドライバー、採用gate、投入額ルールにはしない。
+- **research**：material deltaが個別企業のinvestment case、Base/Downsideまたは反証条件へ影響する場合だけ、Thesisのjudgmentへ因果とsourceを残す。判断期間と算術は[Thesis](./thesis.md#scenario-arithmetic)に従い、通常12か月と理由付き別期間のどちらでも、その期間に効く材料を扱う。マクロを数値ドライバー、採用gate、投入額ルールにはしない。
 - **connection セクション**：Research Triageがresearch優先度ヒントとsizing cautionを消化する入口になる（skill `research-triage`）。
 
 行動指示（売買タイミング・現金比率・配分指示）はcore にもconnection にも書かない。sector tiltとresearch優先度ヒントは着手順位を判断するjudgment入力であり、機械ranking・hard gate・自動sizingへは接続しない。
