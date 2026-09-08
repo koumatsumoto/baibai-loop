@@ -19,7 +19,7 @@ description: 人間の判断に必要な full-depth の macro context を新規�
 
 3. **データの健全性と一次情報を揃える**
 
-   第1段階で固定したmachine readingとmarket snapshotだけを判断の機械入力に使う。stale、取得失敗、validation不足はAIが補完せず、入力を直すか停止する。8レンズからforce仮説を立て、各仮説を支持する一次sourceと反証する一次sourceの両方を確認する。source tier、取得失敗時の代替、単位、公表日、取得日は[`data-sources.md`](../../../docs/reference/data-sources.md)に従う。
+   第1段階で固定したmachine readingとmarket snapshotだけを判断の機械入力に使う。stale、取得失敗、validation不足はAIが補完せず、入力を直すか停止する。8レンズからforce仮説を立て、各仮説を支持する一次sourceと反証する一次sourceの両方を確認する。source tier、取得失敗時の代替、単位、公表日、取得日は[`data-sources.md`](../../../docs/reference/data-sources.md)に従う。機械値の取得成功を公表本文の確認済みとみなさず、本文の説明を判断に使う場合は初回semantic reviewまでに直接確認する。通常HTTPで取得できない場合は既存providerの取得経路も確認し、成功した経路または取得本文をreviewerへ渡す。
 
 4. **判断内容を確定する**
 
@@ -39,9 +39,11 @@ description: 人間の判断に必要な full-depth の macro context を新規�
 
    publish check の前に [`anti-patterns.md`](../../../docs/anti-patterns.md) の macro 該当項目と [`macro.md`](../../../docs/reference/macro.md) の深度契約を通す。特に、限定表現の下流保持、real / nominal などの量基準、latest source、scenario の算術、monitoring の反証可能性、fact / judgment の分離を照合する。
 
-   author とは別 session の role が、draft と引用 sourceだけを inputs → facts → judgments → synthesis / summary → connectionの順で読む。見出しと本文の強さ、時間軸、主張の対象範囲と観測量、数値の単位・期間・表示尺度、transmissionの経路、`counter_evidence`（反証材料）が弱める範囲、monitoring条件ごとの更新方向を反証する。編集前のclaim ledgerと照合し、source、判断の強さ、限定、支持・反証関係、構造化値が不変であることを確認する。
+   author とは別 session の role が、固定したdraftと引用sourceだけを inputs → facts → judgments → synthesis / summary → connectionの順で読む。見出しと本文の強さ、時間軸、主張の対象範囲と観測量、数値の単位・期間・表示尺度、transmissionの経路、`counter_evidence`（反証材料）が弱める範囲、monitoring条件ごとの更新方向を反証する。編集前のclaim ledgerを保持して照合し、source、判断の強さ、限定、支持・反証関係、構造化値が不変であることを確認する。最終稿からledgerを作り直した一致だけでは意味保存の確認にならない。
 
-   構造 validation を semantic review の代わりにしない。修正後はsource・量基準・文章の同じ観点で影響箇所を再 review する。2巡目も block なら、既知の指摘を直して `publish --check` まで行ったうえで publish せず人間へ上げる。再開には、人間による draft 承認、または追加の独立 review を行う明示指示が必要である。
+   構造validationをsemantic reviewの代わりにしない。review中のdraftは変更せず、判定後に修正する。新しいsourceや反証が必要になった場合は第4段階へ戻り、影響する判断と下流を再確定してから次のreviewへ渡す。修正後は既知の指摘だけでなく、変更したsource・量基準・文章とその下流を再reviewする。
+
+   独立semantic reviewは初回を含む最大3巡とし、PASSした時点で発行へ進む。source追加やdraftの作り直しで巡数をリセットしない。3巡目もBLOCKEDなら、既知の指摘を直して `publish --check` まで行ったうえでpublishせず人間へ上げる。再開には、人間によるdraft承認、または追加の独立reviewを行う明示指示が必要である。既に受けた追加指示の範囲では再確認せず進める。
 
 8. **発行する**
 
