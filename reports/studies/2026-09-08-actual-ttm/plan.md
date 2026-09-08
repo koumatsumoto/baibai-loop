@@ -22,3 +22,8 @@ panelを2019年11月〜2026年8月の全cohortで再構築し、同じrulesで3y
 完了条件は実績TTMの不変性、真正欠損/部分訂正の保留、予想・配当契約の維持、
 Security Analysisへの伝達とnative order/union影響の説明、full local gates、独立反証Review。
 根拠と残る限界、次の1作業は同じPRへまとめる。
+
+較正の実行scopeは全cohortのdiagnosticで既存ownerが示すintegrity・必須metricのeligible条件だけから機械的に決める。
+required as-ofは3y/5yの両方がeligibleとなる全月の共通集合とし、収益率・順位・符号で月を選ばない。
+context本体のhorizon別利用可能月は既存context ownerに従う。共通集合が空なら生成不能を報告し、
+要件を緩めたり旧値のhashを差し替えたりしない。
