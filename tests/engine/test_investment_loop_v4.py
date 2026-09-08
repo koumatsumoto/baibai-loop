@@ -32,7 +32,10 @@ from baibai_engine.research.thesis_store import ThesisStoreService
 @pytest.mark.parametrize(
     ("NOW", "fill_first"), [(EVENING, False), (EVENING.replace(hour=10), True)]
 )
-def test_sequential_allocation_uses_updated_cash_and_one_research_set(tmp_path, NOW, fill_first):
+@pytest.mark.parametrize("candidate_factors", [[], ["cycle"]])
+def test_sequential_allocation_uses_updated_cash_and_one_research_set(
+    tmp_path, NOW, fill_first, candidate_factors
+):
     target = (NOW + timedelta(days=1)).date() if NOW.hour >= 15 else NOW.date()
     db, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
     initial = PortfolioLedgerDocument.model_validate(
@@ -73,6 +76,7 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(tmp_path, 
     for ticker in ("1234", "5678"):
         thesis, review = pair_payload()
         thesis["input_snapshot"]["ticker"] = ticker
+        thesis["input_snapshot"]["common_factors"] = candidate_factors
         thesis["input_snapshot"]["sources"][0]["ticker"] = ticker
         thesis["input_snapshot"]["sources"][0]["retrieved_at"] = (
             NOW - timedelta(hours=3)
@@ -169,6 +173,19 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(tmp_path, 
         assert "adv_participation_exceeds_warning" in plan["warnings"]
         assert plan["liquidity_context"]["adv_yen"] == 1000000
         assert plan["status"] == "planned_limit"
+        assert plan["current_price_projection"]["base"]["total_return_pct"] == 23.4
+        assert plan["current_price_projection"]["downside"]["annualized_return_pct"] == -40
+        unclassified = ([] if ticker == "1234" else ["1234"]) + (
+            [] if candidate_factors else [ticker]
+        )
+        assert plan["portfolio_exposure"]["common_factor_unclassified_tickers"] == unclassified
+        assert ("portfolio_exposure_common_factor_coverage_incomplete" in plan["warnings"]) == bool(
+            unclassified
+        )
+        if candidate_factors:
+            assert plan["portfolio_exposure"]["common_factors"][0]["key"] == "cycle"
+        else:
+            assert plan["portfolio_exposure"]["common_factors"] == []
         assert datetime.fromisoformat(plan["expires_at"]) > NOW
         assert plan["judgment_as_of"] == "2026-09-07"
         assert plan["target_session"] == target.isoformat()
@@ -179,6 +196,29 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(tmp_path, 
             assert "prospective_ticker_concentration_exceeds_warning:5678" in plan["warnings"]
             assert "concentration_and_dry_powder_unassessed" not in plan["warnings"]
             assert LedgerStoreService(db).load().market_prices == ()
+        with sqlite3.connect(market) as connection:
+            connection.execute(
+                "UPDATE jquants_daily_bars SET close=1250 WHERE ticker=? AND traded_at='2026-09-04'",
+                (ticker,),
+            )
+        higher_quote = plan_limit(
+            capital_allocation_assessment_id=assessment_id,
+            db_path=db,
+            sqlite_path=market,
+            target_session=target,
+            budget_min_yen=200000,
+            budget_max_yen=300000,
+            now=NOW,
+        )
+        assert higher_quote["status"] == "defer"
+        assert "price_above_pmax" in higher_quote["defer_reasons"]
+        assert higher_quote["current_price_projection"]["base"]["annualized_return_pct"] == -1.28
+        assert higher_quote["current_price_projection"]["downside"]["total_return_pct"] == -52
+        with sqlite3.connect(market) as connection:
+            connection.execute(
+                "UPDATE jquants_daily_bars SET close=1000 WHERE ticker=? AND traded_at='2026-09-04'",
+                (ticker,),
+            )
         draft, _ = build_broker_fact_draft(
             LedgerStoreService(db),
             service,

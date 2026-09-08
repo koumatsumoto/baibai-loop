@@ -111,7 +111,7 @@ class PositionReviewService:
         with closing(connect_read_only(database_path(self._db_path))) as connection:
             connection.execute("BEGIN")
             pair, holding, quote = self._inputs(connection, thesis_id, now)
-        document = PositionReviewDocument(
+        return PositionReviewDocument(
             schema_version=3,
             position_review_id=f"position-review-{now:%Y%m%d}-{pair.document.input_snapshot.ticker}-{position_id}",
             thesis_id=thesis_id,
@@ -124,10 +124,6 @@ class PositionReviewService:
             action=None,
             unresolved_reason="残存見返りの経済的な評価を記入してください",
         )
-        evaluation = evaluate_position_review(
-            document, pair.document, primary_verified=pair.review.primary_source_check == "verified"
-        )
-        return document.model_copy(update={"action": evaluation.action})
 
     def _check(
         self, connection: sqlite3.Connection, document: PositionReviewDocument, now: datetime
@@ -148,8 +144,6 @@ class PositionReviewService:
         result = evaluate_position_review(
             document, pair.document, primary_verified=pair.review.primary_source_check == "verified"
         )
-        if result.action != document.action:
-            raise ValueError("submitted action differs from economic judgment")
         if (
             result.action is None
             and not (
@@ -171,7 +165,6 @@ class PositionReviewService:
         if not confirmed:
             raise ValueError("Position Review publication requires human confirmation")
         initialize_database(self._db_path)
-        payload = canonical_json(document.model_dump(mode="json"))
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
@@ -180,11 +173,15 @@ class PositionReviewService:
                     (document.position_review_id,),
                 ).fetchone()
                 if row is not None:
-                    if str(row[0]) != payload:
+                    stored = PositionReviewDocument.model_validate_json(str(row[0]))
+                    submitted = document.model_copy(update={"action": stored.action})
+                    if canonical_json(submitted.model_dump(mode="json")) != str(row[0]):
                         raise ResearchConflictError("immutable Position Review differs")
                     connection.rollback()
-                    return document
-                self._check(connection, document, self._clock())
+                    return stored
+                result = self._check(connection, document, self._clock())
+                document = document.model_copy(update={"action": result.action})
+                payload = canonical_json(document.model_dump(mode="json"))
                 connection.execute(
                     "INSERT INTO position_review(position_review_id,ticker,as_of,thesis_id,"
                     "candidate_thesis_id,payload) VALUES (?,?,?,?,NULL,?)",

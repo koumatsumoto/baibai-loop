@@ -66,7 +66,7 @@ def test_holding_judgment_preserves_author_and_allows_active_capital_research(
     draft = service.build(thesis_id="current", position_id="2331")
     reason = "受取済配当3300円と権利確定分は将来増分に含めず、原評価の期間から経済的見返りを確認"
     draft = draft.model_copy(
-        update={"remaining_reward": RemainingReward(status=reward, reason=reason), "action": action}
+        update={"remaining_reward": RemainingReward(status=reward, reason=reason)}
     )
     # An unrelated contribution must not invalidate the author's economic judgment.
     ledger = LedgerStoreService(db)
@@ -81,8 +81,20 @@ def test_holding_judgment_preserves_author_and_allows_active_capital_research(
     apply_draft(ledger, build_event_draft(ledger, contribution), human_confirmed=True)
     evaluation = service.check(draft)
     assert evaluation.action == action
-    assert service.publish(draft, confirmed=True).remaining_reward.reason == reason
-    assert service.publish(draft, confirmed=True) == draft
+    published = service.publish(draft, confirmed=True)
+    assert published.remaining_reward.reason == reason
+    assert published.action == action
+    assert service.publish(draft, confirmed=True) == published
+    wrong_action = draft.model_copy(update={"action": "exit" if action == "hold" else "hold"})
+    assert service.check(wrong_action).action == action
+    assert service.publish(wrong_action, confirmed=True) == published
+    later = PositionReviewService(db, sqlite_path=market, clock=lambda: NOW + timedelta(days=1))
+    assert later.publish(draft, confirmed=True) == published
+    changed = draft.model_copy(
+        update={"remaining_reward": RemainingReward(status=reward, reason="別の判断")}
+    )
+    with pytest.raises(ResearchConflictError, match="immutable"):
+        service.publish(changed, confirmed=True)
     assert list_position_review_publications(db)[0]["payload"]["action"] == action
     assert OperationService(db).active() == operation
     assert ledger.load().events[: len(original.events)] == original.events
@@ -108,7 +120,6 @@ def test_relevant_quote_change_requires_reconfirmation_without_overwriting_remai
     draft = draft.model_copy(
         update={
             "remaining_reward": RemainingReward(status="sufficient", reason="独立した経済判断"),
-            "action": "hold",
         }
     )
     with sqlite3.connect(market) as connection:
@@ -149,9 +160,9 @@ def test_verified_break_without_price_has_no_invented_sell_quantity(holding_case
     draft = service.build(thesis_id="current-break", position_id="2331")
     assert draft.quote is None
     assert draft.remaining_reward is None
-    assert draft.action == "exit"
+    assert draft.action is None
     assert service.check(draft).sell_quantity is None
-    assert service.publish(draft, confirmed=True) == draft
+    assert service.publish(draft, confirmed=True).action == "exit"
 
 
 def test_split_or_missing_target_bar_cannot_produce_quantity_bearing_exit(holding_case):
@@ -181,22 +192,30 @@ def test_today_quote_is_separate_from_original_quote_and_does_not_republish_thes
     )
     with sqlite3.connect(market) as connection:
         connection.execute(
-            "INSERT INTO jquants_daily_bars(ticker,traded_at,close,adjustment_factor) VALUES ('2331','2026-09-07',1005,1)"
+            "INSERT INTO jquants_daily_bars(ticker,traded_at,close,adjustment_factor) VALUES ('2331','2026-09-07',1250,1)"
         )
     service = PositionReviewService(db, sqlite_path=market, clock=lambda: NOW)
     draft = service.build(thesis_id="today", position_id="2331")
     assert draft.quote.observed_at.date() == NOW.date()
-    assert draft.quote.price_yen == 1005
+    assert draft.quote.price_yen == 1250
     assert draft.quote.basis_confirmed
     draft = draft.model_copy(
         update={
             "remaining_reward": RemainingReward(
-                status="sufficient", reason="現在価格1005円で見返りを確認"
+                status="sufficient", reason="現在価格1250円で経済的な見返りを確認"
             ),
-            "action": "hold",
         }
     )
-    assert service.check(draft).action == "hold"
+    evaluation = service.check(draft)
+    assert evaluation.action == "hold"
+    projection = evaluation.current_price_projection
+    assert projection["price_yen"] == 1250
+    assert projection["horizon_months"] == 12
+    assert projection["base"]["cash_distribution_per_share_yen"] == 30
+    assert projection["base"]["total_return_pct"] == -1.28
+    assert projection["base"]["annualized_return_pct"] == -1.28
+    assert projection["downside"]["total_return_pct"] == -52
+    assert projection["downside"]["annualized_return_pct"] == -52
     with sqlite3.connect(db) as connection:
         assert connection.execute("SELECT count(*) FROM thesis").fetchone()[0] == 2
 
@@ -230,9 +249,9 @@ def test_current_price_and_historical_unit_evidence_are_independent(
             "remaining_reward": RemainingReward(
                 status="insufficient", reason="将来増分の見返り不足"
             ),
-            "action": expected,
         }
     )
+    assert (service.check(draft).current_price_projection is not None) == (expected == "exit")
     assert service.check(draft).action == expected
     assert service.publish(draft, confirmed=True).action == expected
 
@@ -284,8 +303,11 @@ def test_human_event_draft_apply_needs_no_holding_price(holding_case, kind, deta
         )
 
 
+@pytest.mark.parametrize(
+    ("reward", "action"), [("sufficient", "hold"), ("insufficient", "exit"), ("uncertain", None)]
+)
 def test_legacy_holding_first_review_follows_public_workspace_commands(
-    holding_case, app_method_root, tmp_path, monkeypatch, capsys
+    holding_case, app_method_root, tmp_path, monkeypatch, capsys, reward, action
 ):
     import yaml
 
@@ -371,11 +393,29 @@ def test_legacy_holding_first_review_follows_public_workspace_commands(
         == 0
     )
     draft = yaml.safe_load(draft_path.read_text())
-    draft.update(
-        remaining_reward={"status": "sufficient", "reason": "現在の証拠から残存見返りを確認"},
-        action="hold",
-    )
+    assert draft["action"] is None
+    assert "current_price_projection" not in draft
+    assert "current_price_projection:" in capsys.readouterr().out
+    draft["remaining_reward"] = {"status": reward, "reason": "現在の証拠から残存見返りを確認"}
     draft_path.write_text(yaml.safe_dump(draft))
+    assert (
+        position_cli.main(
+            [
+                "position-review",
+                "--input",
+                str(draft_path),
+                "--db",
+                str(db),
+                "--sqlite",
+                str(market),
+            ],
+            now=NOW,
+        )
+        == 0
+    )
+    checked = yaml.safe_load(capsys.readouterr().out)
+    assert checked["action"] == action
+    assert checked["current_price_projection"]["base"]["total_return_pct"] == 23.4
     assert (
         position_cli.main(
             [
@@ -396,6 +436,10 @@ def test_legacy_holding_first_review_follows_public_workspace_commands(
         )
         == 0
     )
+    assert yaml.safe_load(capsys.readouterr().out)["action"] == action
+    published = list_position_review_publications(db)[0]["payload"]
+    assert published["action"] == action
+    assert "current_price_projection" not in published
     with sqlite3.connect(db) as connection:
         assert (
             connection.execute(

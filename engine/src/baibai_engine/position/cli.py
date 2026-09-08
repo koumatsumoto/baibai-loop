@@ -608,7 +608,7 @@ def _run_position_review_publish(args: argparse.Namespace, *, now: datetime | No
             args.position_review_id and document.position_review_id != args.position_review_id
         ):
             raise ValueError("CLI identity differs from submitted draft")
-        PositionReviewService(
+        document = PositionReviewService(
             args.db, sqlite_path=args.sqlite, clock=lambda: now or datetime.now(JST)
         ).publish(document, confirmed=args.confirmed)
         yaml.safe_dump(
@@ -633,12 +633,18 @@ def _run_position_review_build_db(
 ) -> int:
     try:
         path = _draft_output_path(root, out, label="Position Review")
-        document = PositionReviewService(
+        service = PositionReviewService(
             db_path, sqlite_path=sqlite_path, clock=lambda: now or datetime.now(JST)
-        ).build(thesis_id=thesis_id, position_id=position_id)
+        )
+        document = service.build(thesis_id=thesis_id, position_id=position_id)
+        evaluation = service.check(document)
         payload = document.model_dump(mode="json")
         _write_yaml_exclusive(path, payload)
-        yaml.safe_dump(payload, sys.stdout, allow_unicode=True)
+        yaml.safe_dump(
+            {**payload, "current_price_projection": evaluation.current_price_projection},
+            sys.stdout,
+            allow_unicode=True,
+        )
         return 0
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)

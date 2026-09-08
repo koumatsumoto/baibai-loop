@@ -245,6 +245,8 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 
 - [ ] capital-allocation startが書き込み前に重複のないnon-empty Research Set bindingを要求し、同じ集合の順序変更はresumeできるか
 - [ ] Researchのscaffold/promoteがactive Operationのexact Triage・Research Setをwrite前に再照合し、manifestとworkspace両方の改変でも選択集合を広げられないか。historical statusはactiveなしで読めるか
+- [ ] Position Reviewのpublic build→remainingのみ記入→check→confirmed publishがhold/exit/nullで通り、actionはtransaction内の派生値を保存するか。現在quoteのBase/Downsideは共通算術で表示し、同日評価・quote・権利単位が欠けたときはnullで、期間短縮や原評価の上書きをしていないか
+- [ ] Planningは保有・予約・配分候補のcommon factor未分類を明示し、既知factor比率を完全coverageとして見せず、warningだけを出すか
 - [ ] Position ReviewはOperationを作らず、対象holding・latest Reviewed Thesis・必要quoteだけでcheck/publishできるか。人間確認なしはno-write、理由付きnullをholdに変換せず、数量basis不明で数量付きexitを出さないか
 - [ ] v4 Thesisとexact Reviewを同一transactionで公開し、片方失敗時に両方rollbackするか。同ID retryは両payload一致を先に調べ、最新revisionは先に選択してから検証し、旧版や不利な評価を飛ばさないか
 - [ ] unresolvedの価格欠損を0へ変換せず、candidateの重要な根拠不足をoverrideで通さないか。独立検算は作者のterminal/cashの機械コピーになっていないか
@@ -329,11 +331,6 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
       summary fieldは、alternate writerが任意の値を名乗れて誰も誤りと言えないので削除する
 - [ ] 可用性・充足性の観測値は「非該当」「充足」「不足」を区別するか。検証対象が無い場合を「充足」と
       書くと、最も素性の弱い対象が最も確かに見える。検証I/Oはその実行が扱う対象へ限定したか
-- [ ] 壊れたrootのrecovery操作を追加・変更する場合、対象root以外（previous・健全なmanifest）のidentityと
-      closureが操作前後で完全一致することをtestで固定したか。復旧のためにdirectory単位でmanifestを退避すると、
-      無関係なpinがunresolvedになりGCが恒久停止する。**rootを退避したstoreが「未公開のstore」と同じ姿に
-      なっていないか** — 両者が同じ答えを返すなら、次の通常実行はそれを空のstoreと読んで書き潰す。
-      publish済みの痕跡（manifest等）が残る限りfail closeし、退避が失敗しても壊れたままへ収束するか
 - [ ] wireのschema契約をdrift gateで固定する場合、readerが実際に比較する要素（Arrow metadataのdataset /
       contract version / row type stamp等）を署名へ入れたか。列を変えずrow型名だけを変えるmutationでgateが赤くなるか。
       失敗メッセージが実測値をそのまま出して「記録値を上書きすれば緑になる」と読める形になっていないか
@@ -545,7 +542,6 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] concentration warningを受け入れる場合、ledger overrideに理由と期限を記録したか
 - [ ] 注文日が休場日または立会時間外の場合、broker-confirmed executionがない限り約定価格を推定で埋めていないか
 - [ ] not-filled outcomeのlimit touchをbroker fillとして記録していないか。期限後return / missed upsideはsame-basisの観測値が揃う場合だけ補助観測として扱ったか
-- [ ] fallback price observation は `decision_event_id`、`tracking_horizon`、`target_date`、`resolved_trade_date`、`price_basis`、`source_url`、`fetched_at`、`corporate_action_checked`、`same_basis_group_id`、`provisional` を持ち、basis 不一致を確定評価に使っていないか
 - [ ] 外部市場予測 (例: Gartner / IDC / 証券サイトの同業倍率) は、今回の canonical fact として
       採用するなら macro context / research の source として明示し、未確認なら「判断補助・未採用」として分離したか
 

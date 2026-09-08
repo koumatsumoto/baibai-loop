@@ -107,3 +107,5 @@ uv run baibai-engine research evaluate /tmp/thesis-draft.yaml --review /tmp/thes
 uv run baibai-engine research status --workspace .cache/research/YYYY-MM-DD
 uv run baibai-engine research plan-limit --help
 ```
+
+PlanningとPosition Reviewは`current_price_projection`を共用し、現在の未調整価格でBase/Downsideの総return・年率、期間、累積分配、price basisを表示する。原評価の価格と予測は書き換えず、同日評価・利用可能なquote・同じ権利単位が揃わなければnullにする。この一時出力はThesisやPosition Reviewへ保存せず、売却閾値や確率加重期待値として使わない。

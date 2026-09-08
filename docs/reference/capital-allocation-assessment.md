@@ -61,3 +61,5 @@ uv run baibai-engine research capital-allocation-publish \
 `--thesis-id`は調査したcaseごとに反復する。`--check`で示されるdigestへcontent reviewを束縛し、修正後はcontent reviewをやり直す。non-promoted research artifactはoperation sessionに必要最小限をsnapshotし、canonical thesis/review/assessment payloadを複製しない。
 
 同じResearch SetからCAA-1→人間報告→CAA-2を順次公開できる。企業調査を繰り返さず最新cashを用い、Operationは最後のCAAを参照して完了する。Thesis Reviewは企業別検算、CAA content reviewは比較・配分だけを所有する。
+
+Planningの`portfolio_exposure.common_factor_unclassified_tickers`は、保有・予約と今回の配分候補の未分類tickerを示す。非空なら`portfolio_exposure_common_factor_coverage_incomplete`を表示し、既知factorの比率は下限として読む。自動分類や停止条件にはせず、既知factorの集中warningも維持する。

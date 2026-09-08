@@ -9,7 +9,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from baibai_engine.research.thesis import ThesisDocument
+from baibai_engine.research.thesis import ThesisDocument, current_price_projection
 from baibai_engine.research.valuation import finite_decimal
 
 _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=False)
@@ -66,7 +66,7 @@ class PositionReviewDocument(BaseModel):
     holding: HoldingInput
     quote: QuoteInput | None
     remaining_reward: RemainingReward | None
-    action: Literal["hold", "exit"] | None
+    action: Literal["hold", "exit"] | None = None
     unresolved_reason: str | None = None
 
     @field_validator("as_of", mode="before")
@@ -80,6 +80,7 @@ class PositionReviewEvaluation:
     action: Literal["hold", "exit"] | None
     reason: str
     sell_quantity: int | None
+    current_price_projection: dict[str, object] | None = None
 
 
 def evaluate_position_review(
@@ -110,16 +111,28 @@ def evaluate_position_review(
         and document.holding.quantity_basis_confirmed
         and 0 <= (document.as_of - quote.observed_at.date()).days <= max_quote_age_days
     )
+    projection = current_price_projection(
+        thesis,
+        price_yen=None if quote is None else quote.price_yen,
+        price_as_of=None if quote is None else quote.observed_at.date(),
+        as_of=document.as_of,
+        basis_confirmed=available,
+        max_quote_age_days=max_quote_age_days,
+        price_basis="last_close_unadjusted" if quote is None else quote.price_basis,
+    )
     if (
         not available
         or document.remaining_reward is None
         or document.remaining_reward.status == "uncertain"
     ):
         return PositionReviewEvaluation(
-            None, document.unresolved_reason or "remaining_reward_requires_confirmation", None
+            None,
+            document.unresolved_reason or "remaining_reward_requires_confirmation",
+            None,
+            projection,
         )
     if document.remaining_reward.status == "sufficient":
-        return PositionReviewEvaluation("hold", "sufficient_remaining_reward", None)
+        return PositionReviewEvaluation("hold", "sufficient_remaining_reward", None, projection)
     return PositionReviewEvaluation(
-        "exit", "insufficient_remaining_reward", document.holding.quantity
+        "exit", "insufficient_remaining_reward", document.holding.quantity, projection
     )

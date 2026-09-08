@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from baibai_engine.research.thesis import ThesisDocument
+from baibai_engine.research.thesis import ThesisDocument, current_price_projection
 from baibai_engine.research.valuation import finite_decimal, maximum_entry_price
 
 
@@ -16,6 +16,7 @@ class EntryResult:
     reasons: tuple[str, ...]
     maximum_price_yen: Decimal | None
     quantity: int
+    current_price_projection: dict[str, object] | None = None
 
 
 def evaluate_entry(
@@ -95,4 +96,16 @@ def evaluate_entry(
         quantity = min(cash_lots, guide_lots) * board_lot
     if quantity == 0:
         reasons.append("available_cash_below_board_lot")
-    return EntryResult(not reasons, tuple(reasons), maximum, 0 if reasons else quantity)
+    projection = (
+        current_price_projection(
+            thesis,
+            price_yen=price,
+            price_as_of=price_as_of,
+            as_of=as_of,
+            basis_confirmed=reviewed and latest and basis_confirmed,
+            max_quote_age_days=market_price_max_age_days,
+        )
+        if price is not None and price > 0
+        else None
+    )
+    return EntryResult(not reasons, tuple(reasons), maximum, 0 if reasons else quantity, projection)
