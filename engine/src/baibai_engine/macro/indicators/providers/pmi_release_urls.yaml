@@ -87,6 +87,8 @@ series:
       url: https://www.pmi.spglobal.com/Public/Home/PressRelease/cf9e4165606042458c4a0b17af83606a
     - observed_at: 2026-07-01
       url: https://www.pmi.spglobal.com/Public/Home/PressRelease/9b2cb53ee47d4014a447e4774f5e7952
+    - observed_at: 2026-08-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/a6bac56fe01e4e07b2fdb451bbe1b56e
   us_manufacturing:
     - observed_at: 2022-12-01
       url: https://www.pmi.spglobal.com/Public/Home/PressRelease/fd49c3c51d79418b9622ad78993a762b
@@ -168,6 +170,8 @@ series:
       url: https://www.pmi.spglobal.com/Public/Home/PressRelease/d52074988b4f4367a787ba833e23b5c6
     - observed_at: 2026-07-01
       url: https://www.pmi.spglobal.com/Public/Home/PressRelease/c1430bf93dfa42d3bb8927edf49494db
+    - observed_at: 2026-08-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/bfb270a44c2b4490a0f1adb76b8e8f9f
   us_services:
     - observed_at: 2023-05-01
       url: https://www.pmi.spglobal.com/Public/Home/PressRelease/3183406116e0481b881fc34e03a788af
@@ -252,6 +256,8 @@ series:
       url: https://www.pmi.spglobal.com/Public/Home/PressRelease/2f07c99d25784a998b257a0f8ee75707
     - observed_at: 2026-07-01
       url: https://www.pmi.spglobal.com/Public/Home/PressRelease/b7c4bbe33baf452bb7aeb58021ccfa14
+    - observed_at: 2026-08-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/851836381ace416982e3230c80ebfc64
   jp_services:
     - observed_at: 2023-07-01
       url: https://www.pmi.spglobal.com/Public/Home/PressRelease/e5cd58966d53401680d3cfa09f1a006b
@@ -326,3 +332,5 @@ series:
       url: https://www.pmi.spglobal.com/Public/Home/PressRelease/bf946c3d5a264d65bceede3d57fbab4f
     - observed_at: 2026-07-01
       url: https://www.pmi.spglobal.com/Public/Home/PressRelease/96de5677ac0a49a5bd7f08c8d4637165
+    - observed_at: 2026-08-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/55b418e617f34269b3e1b0f056317a30
