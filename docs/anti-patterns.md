@@ -221,6 +221,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
       あれば、最新 release / statement / minutes が出ているかを必ず確認
 - [ ] macro context の `inputs.articles[]` / `inputs.indicator_series[]` に、判断へ使った外部記事・指標 series と
       `used_for` を残したか
+- [ ] 公表日と観測期間を分け、複数sourceを要約した後も各sourceの時点・母集団が保持されているか。新しいsourceの追加で、同時期の反証を「古い資料」として消していないか
 - [ ] 次に更新すべき大型eventはsection 8の`monitoring_points`に具体日付・条件・見方の変更を残したか
 - [ ] 「随時」「○月下旬」「前後」のような曖昧表現を避け、確認できた具体日付を書く
 - [ ] historical calibration panel が cohort as-of 以下の master snapshot を読み、latest snapshot へ fallback していないか
