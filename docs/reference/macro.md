@@ -199,14 +199,14 @@ Baibai Loop の Macro タブは、上から **現在のマクロ局面 → マ�
 
 ## ③ 環境認識：macro context report を publish する
 
-市場局面についての、日付と出所の明確な環境認識は application DB の immutable revision として残す。機械契約は `baibai_engine.macro.context.models.MacroContextDocument`、唯一の書き込み経路は `baibai-engine macro context publish` である。既存 head を読んで draft を作り、2件目以降は `--expected-head` にその ID を渡す。head が変わっていれば publish 全体が無変更で失敗する。
+市場局面についての、日付と出所の明確な環境認識は application DB の immutable revision として残す。機械契約は `baibai_engine.macro.context.models.MacroContextDocument`、唯一の書き込み経路は `baibai-engine macro context publish` である。現在の一次情報と機械入力から draft を作る。前回本文と scorecard を参照できる時点は [Macro Context skill](../../.agents/skills/macro-context/SKILL.md) に従う。発行時は `macro context head` が返す ID だけを `--expected-head` に渡す。head が変わっていれば publish 全体が無変更で失敗する。
 
 draft の反復中は `publish --check` で store に触れずに文書契約と publish gate を検証する（compare-and-swap は store が要るため実 publish のみ）。`inputs.indicator_series` は手書きせず、セクション → series の対応を書いた spec から `baibai_engine.macro.context.scaffold_inputs` で生成する — provider・最新観測日・vintage・実効窓を L1 store と reading 計算から導出するので、引用の provenance が常に store と一致する。
 
 ```bash
-uv run baibai-engine macro context head
 uv run python -m baibai_engine.macro.context.scaffold_inputs /tmp/spec.yaml --output /tmp/inputs.yaml
 uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml --check
+uv run baibai-engine macro context head
 uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml \
   --expected-head macro-context-2026-07-01-example
 uv run baibai-engine macro context show --latest --asof 2026-07-19
