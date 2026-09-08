@@ -26,7 +26,7 @@ from baibai_engine.position.ledger import (
 )
 from baibai_engine.position.store import LedgerApplyResult, LedgerStoreService
 
-DraftKind = Literal["event", "broker-fact", "sell-execution", "market-price", "override", "meta"]
+DraftKind = Literal["event", "broker-fact", "sell-execution", "override", "meta"]
 HumanEvent = ContributionEvent | WithdrawalEvent | IncomeEvent | CostEvent | ConfirmedTaxEvent
 
 

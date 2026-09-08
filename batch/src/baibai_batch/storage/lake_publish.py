@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, Never, Protocol
 import boto3
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError, ConnectTimeoutError, ReadTimeoutError
-from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
@@ -598,64 +597,6 @@ def _reconcile_pointer_switch(
     if actual == expected:
         return remote
     raise LakeCASConflict("L1 current pointer moved to a different release") from cause
-
-
-def _require_remote_l1_closure(
-    publication: _RemotePublication,
-    *,
-    release_id: str,
-    manifest_key: str,
-    manifest_sha256: str,
-) -> None:
-    """Prove one L1 release still resolves to a complete, digest-valid object graph."""
-
-    if manifest_key != lake_release_manifest_key(release_id=release_id):
-        raise LakePublishError("remote L1 release key does not match its identity")
-    release = _remote_json_model(
-        publication,
-        key=manifest_key,
-        expected_sha256=manifest_sha256,
-        model=LakeReleaseManifest,
-    )
-    if release.release_id != release_id:
-        raise LakePublishError("remote L1 release identity differs")
-    for dataset_name, release_dataset in release.datasets.items():
-        manifest = _remote_json_model(
-            publication,
-            key=lake_dataset_manifest_key(dataset=dataset_name, build_id=release_dataset.build_id),
-            expected_sha256=release_dataset.manifest_sha256,
-            model=LakeDatasetManifest,
-        )
-        if (
-            manifest.dataset != dataset_name
-            or manifest.build_id != release_dataset.build_id
-            or manifest.contract_version != release_dataset.contract_version
-            or manifest.totals != release_dataset.totals
-        ):
-            raise LakePublishError(f"remote L1 dataset identity differs: {dataset_name}")
-        for partition in manifest.partitions:
-            for item in partition.objects:
-                publication.require_identity(
-                    key=item.key,
-                    expected_sha256=item.sha256,
-                    expected_size=item.bytes,
-                    content_type="application/vnd.apache.parquet",
-                )
-
-
-def _remote_json_model[ModelT: BaseModel](
-    publication: _RemotePublication,
-    *,
-    key: str,
-    expected_sha256: str,
-    model: type[ModelT],
-) -> ModelT:
-    payload = publication.require_small_object(
-        key=key,
-        expected_sha256=expected_sha256,
-        content_type="application/json",
-    )
-    return load_lake_model_json(payload, model)
 
 
 def _ensure_immutable(

@@ -25,14 +25,13 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
 from .keys import (
-    L1_RELEASE_PREFIX,
     current_l1_pointer_key,
     dataset_manifest_key,
     release_manifest_key,
@@ -41,14 +40,11 @@ from .keys import (
 from .models import (
     DatasetManifest,
     ReleaseManifest,
-    RetainedSourceRef,
-    SourceRef,
     load_lake_model_json,
-    retained_sources,
 )
 from .objects import mirror_path, sha256_bytes
 from .release import L1ReleasePointer
-from .sources import resolve_source_ref, sha256_file, verified_source_scope
+from .sources import sha256_file
 
 _GRACE_DAYS = 30
 _STAGING_GRACE_DAYS = 7
@@ -56,7 +52,7 @@ _CANDIDATE_GRACE_DAYS = {"abandoned_staging": _STAGING_GRACE_DAYS}
 
 
 class LakeRetentionError(RuntimeError):
-    """A pointer, pin, or deletion plan does not describe a consistent store."""
+    """A pointer or deletion plan does not describe a consistent store."""
 
 
 @contextmanager
@@ -79,16 +75,11 @@ def exclusive_lock(lock_path: Path, *, subject: str) -> Iterator[None]:
 def lake_writer_lock(mirror_root: Path) -> Iterator[None]:
     """Serialize local publication and retention finalization.
 
-    Holding the lock is also what bounds the source verification scope: no other writer
-    can change an immutable source while it is held, so one verification of a given
-    identity stands for the whole operation instead of once per reference to it.
+    GC apply and publication must inspect and change the same locked mirror state.
     """
 
     mirror_root.mkdir(parents=True, exist_ok=True)
-    with (
-        exclusive_lock(mirror_root / ".lake-writer.lock", subject="lake publication"),
-        verified_source_scope(),
-    ):
+    with exclusive_lock(mirror_root / ".lake-writer.lock", subject="lake publication"):
         yield
 
 
@@ -143,25 +134,11 @@ def plan_gc(
     *,
     now: datetime | None = None,
 ) -> GcPlan:
-    """Compute what is reachable from every root, then what is not.
+    """Walk the current L1 release; unresolved content prevents GC apply.
 
-    A root that cannot be resolved is reported rather than skipped. Treating an
-    unreadable pointer as "no root" would make everything it protects look
-    unreferenced, which is the one way a reachability GC can delete live data. The
-    Planning opens its own source verification scope. Reachability walks the same
-    archive once per cohort that names it — 81 cohorts over three datasets against one
-    500 MB archive is over 100 GB of hashing — and a dry run is the form of this command
-    an operator is expected to run often. The scope makes the cost proportional to the
-    distinct sources in the closure. It is opened here rather than left to the caller
-    because the read-only plan is reached without the writer lock, which is where every
-    other scope in the lake comes from; nesting inside that lock is harmless.
+    Partition sources identify temporary SQLite inputs, not retained objects.
+    Only the current pointer, its manifests and their Parquet objects are roots.
     """
-
-    with verified_source_scope():
-        return _plan_gc(mirror_root, now=now)
-
-
-def _plan_gc(mirror_root: Path, *, now: datetime | None) -> GcPlan:
     moment = (now or datetime.now(UTC)).astimezone(UTC)
     roots: list[str] = []
     reachable: set[str] = set()
@@ -274,7 +251,6 @@ def _reach_dataset(
             f"dataset manifest is invalid: {dataset}/{build_id}: {exc}"
         ) from exc
     for partition in manifest.partitions:
-        _reach_sources(mirror_root, partition.sources, reachable, unresolved)
         for item in partition.objects:
             object_path = mirror_path(mirror_root, item.key)
             if (
@@ -285,38 +261,6 @@ def _reach_dataset(
                 unresolved.append(item.key)
             else:
                 reachable.add(item.key)
-    _reach_sources(mirror_root, manifest.sources, reachable, unresolved)
-
-
-def _reach_sources(
-    mirror_root: Path,
-    sources: Sequence[SourceRef | RetainedSourceRef],
-    reachable: set[str],
-    unresolved: list[str],
-) -> None:
-    """Mark what this mirror keeps for these sources, and only what it keeps.
-
-    A retained source is reachable only when this mirror publishes its namespace.
-    """
-
-    for source in retained_sources(sources):
-        if source.key.startswith(L1_RELEASE_PREFIX) and not _publishes(
-            mirror_root, L1_RELEASE_PREFIX
-        ):
-            continue
-        try:
-            resolve_source_ref(mirror_root, source)
-        except (OSError, ValueError):
-            unresolved.append(source.key)
-            continue
-        reachable.add(source.key)
-
-
-def _publishes(mirror_root: Path, prefix: str) -> bool:
-    """Whether this mirror holds anything under a namespace, so it can speak for it."""
-
-    directory = mirror_root / prefix
-    return directory.is_dir() and any(directory.iterdir())
 
 
 def _unreachable(

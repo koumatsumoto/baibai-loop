@@ -9,7 +9,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Literal
@@ -19,7 +19,8 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.research.valuation import Projection, finite_decimal
+from baibai_engine.research.decimal_number import decimal_to_number
+from baibai_engine.research.valuation import Projection, finite_decimal, project_return
 
 _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=False)
 _TICKER = r"^[0-9A-Z]{4}$"
@@ -72,20 +73,6 @@ def _datetime(value: object) -> datetime:
 
 def _tuple(value: object) -> object:
     return tuple(value) if isinstance(value, list) else value
-
-
-def _decimal(value: object) -> Decimal:
-    if isinstance(value, bool) or not isinstance(value, int | float | str | Decimal):
-        raise ValueError("must be a decimal number")
-    if isinstance(value, str) and re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", value) is None:
-        raise ValueError("decimal string must use fixed-point notation")
-    try:
-        parsed = Decimal(str(value))
-    except (InvalidOperation, ValueError) as error:
-        raise ValueError("must be a decimal number") from error
-    if not parsed.is_finite():
-        raise ValueError("must be a finite decimal number")
-    return parsed
 
 
 class Source(BaseModel):
@@ -377,6 +364,56 @@ class ThesisDocument(BaseModel):
     @classmethod
     def _risks(cls, value: object) -> object:
         return _tuple(value)
+
+
+def current_price_projection(
+    document: ThesisDocument,
+    *,
+    price_yen: Decimal | None,
+    price_as_of: date | None,
+    as_of: date,
+    basis_confirmed: bool,
+    max_quote_age_days: int,
+    price_basis: str = "last_close_unadjusted",
+) -> dict[str, object] | None:
+    """現在価格の見返りを見せる。原評価・期間・将来分配を変更せず、売買判定にしない。"""
+    valuation = document.valuation
+    if (
+        not basis_confirmed
+        or document.input_snapshot.as_of != as_of
+        or valuation.status != "resolved"
+        or valuation.horizon_months is None
+        or valuation.base is None
+        or valuation.downside is None
+        or price_yen is None
+        or price_as_of is None
+        or not 0 <= (as_of - price_as_of).days <= max_quote_age_days
+    ):
+        return None
+    result: dict[str, object] = {
+        "valuation_as_of": document.input_snapshot.as_of.isoformat(),
+        "price_as_of": price_as_of.isoformat(),
+        "price_basis": price_basis,
+        "price_yen": decimal_to_number(price_yen),
+        "horizon_months": valuation.horizon_months,
+        "return_basis": "conditional_pretax_without_reinvestment",
+    }
+    for name, projection in (("base", valuation.base), ("downside", valuation.downside)):
+        returns = project_return(
+            projection, price_yen=price_yen, horizon_months=valuation.horizon_months
+        )
+        result[name] = {
+            "terminal_value_per_share_yen": decimal_to_number(
+                projection.terminal_value_per_share_yen
+            ),
+            "cash_distribution_per_share_yen": decimal_to_number(
+                projection.cash_distribution_per_share_yen
+            ),
+            "total_value_yen": decimal_to_number(returns.total_value_yen),
+            "total_return_pct": float(round(returns.total_return_pct, 4)),
+            "annualized_return_pct": float(round(returns.annualized_return_pct, 4)),
+        }
+    return result
 
 
 class UnpublishedThesis(Enum):

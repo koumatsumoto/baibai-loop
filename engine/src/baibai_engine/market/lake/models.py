@@ -1,4 +1,4 @@
-"""Strict immutable manifest models for L1 and L2 market datasets."""
+"""L1 market dataset・releaseの不整合を止めるimmutable manifest model。"""
 
 from __future__ import annotations
 
@@ -56,33 +56,11 @@ class _SourceRefBase(BaseModel):
         return validate_sha256(value)
 
 
-class _RetainedSourceRefBase(_SourceRefBase):
-    """A source the lake keeps: it resolves to a stored object and roots retention.
-
-    ``key`` is the whole difference between the two families. A reference that names
-    a key is a promise that those bytes are reachable, protected from collection, and
-    carried by any publication that carries the build — so only sources whose size the
-    lake is willing to hold for the life of the generation may name one.
-    """
-
-    key: str
-
-
 class SQLiteSnapshotSourceRef(_SourceRefBase):
-    """Which sealed generation of the legacy store a build read, without keeping it.
+    """L1 exportが読んだ一時SQLite snapshotのschema・digest・取得時刻を示す。
 
-    The snapshot exists to give one build a single consistent read of a store that
-    changes under it. That job ends when the build ends, and the bytes are the whole
-    legacy store — roughly 2 GB — so keeping one per build would make the lake grow
-    with the number of runs rather than with what it publishes. This reference is
-    therefore identity only: it names the schema version, the content digest, and the
-    capture time, and it names no key, because nothing keeps those bytes.
-
-    What it still proves: two builds that state the same ``source_id`` read identical
-    input, and a store generation offered as the input to a rebuild can be checked
-    against this digest before it is believed. What it does not promise: that such a
-    generation is still obtainable. Rebuild-from-lineage is guaranteed only when the
-    cohort's tables are published as keyed, rebuildable L1 releases.
+    snapshotは一回のbuild中の読取世代を固定する。sourceは保持objectのkeyを持たず、
+    build完了後のsnapshot bytes取得や、全入力の再構築を保証しない。
     """
 
     kind: Literal["sqlite_snapshot"]
@@ -103,19 +81,10 @@ class SQLiteSnapshotSourceRef(_SourceRefBase):
         return self
 
 
-class L1ReleaseSourceRef(_RetainedSourceRefBase):
-    """A digest-pinned reference to one L1 release, used to read a fixed generation.
+class L1ReleaseSourceRef(_SourceRefBase):
+    """固定releaseのquery / hydrateへID・manifest key・digestを渡す読取参照。"""
 
-    Admissible as a cohort source because the closure behind it is now walked rather
-    than assumed: ``resolve_source_ref`` enumerates the release's dataset manifests and
-    every Parquet object they name, and verifies each against the digest the manifest
-    published. A reference that resolves therefore states a lineage the mirror actually
-    holds whole, which is the condition this kind was kept out of the union for.
-
-    It stays outside ``SourceRef``. That union is what a *build* records about the
-    generation it read, and a build reads a sealed store rather than a release.
-    """
-
+    key: str
     kind: Literal["l1_release"]
     manifest_version: int = Field(ge=1)
 
@@ -134,41 +103,14 @@ class L1ReleaseSourceRef(_RetainedSourceRefBase):
         return self
 
 
-# One kind. A lineage source names a generation that can be read again, and the only
-# such generation a build states today is the sealed store snapshot it read.
+# Build sources identify temporary sealed SQLite inputs; their bytes are not retained.
 type SourceRef = Annotated[SQLiteSnapshotSourceRef, Field(discriminator="kind")]
 
-# The sources whose bytes the lake stores. `L1ReleaseSourceRef` is the only kind that
-# names a key, and resolving one walks the whole closure it roots.
-type RetainedSourceRef = L1ReleaseSourceRef
 
-
-def _source_identity(source: SourceRef | RetainedSourceRef) -> tuple[str, str, str]:
-    """What makes two lineage references the same generation.
-
-    The key is not part of it. A key is derived from the identity where one exists, so
-    including it would let a reference without one look like a different shape of value
-    rather than the same question answered with fewer fields.
-    """
+def _source_identity(source: SourceRef) -> tuple[str, str, str]:
+    """入力snapshotが同じ世代かを識別する。"""
 
     return (source.kind, source.source_id, source.sha256)
-
-
-def retained_sources(
-    sources: Iterable[SourceRef | RetainedSourceRef],
-) -> tuple[RetainedSourceRef, ...]:
-    """The subset whose bytes the lake stores, in the order they were declared.
-
-    Resolution, reachability, and publication all act on exactly this subset, and each
-    of them derives it here rather than by testing kinds locally, so a new source kind
-    joins or stays out of all three at once.
-
-    The parameter admits both families because ``SourceRef`` currently holds no retained
-    kind: typed to it alone the filter would be statically empty, and the question would
-    stop being asked at the moment the answer became interesting.
-    """
-
-    return tuple(source for source in sources if isinstance(source, L1ReleaseSourceRef))
 
 
 class LakeObject(BaseModel):

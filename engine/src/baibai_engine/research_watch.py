@@ -488,13 +488,5 @@ def _decimal_number(value: Decimal) -> int | float:
     return float(value)
 
 
-def _float_number(value: float | None) -> int | float | None:
-    if value is None:
-        return None
-    if value.is_integer():
-        return int(value)
-    return value
-
-
 if __name__ == "__main__":
     raise SystemExit(main())

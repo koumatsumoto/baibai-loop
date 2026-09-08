@@ -1335,18 +1335,6 @@ def has_jpx_regulation_data(sqlite_path: Path, asof_date: date) -> bool:
         conn.close()
 
 
-def _has_any_import(conn: sqlite3.Connection, source: str) -> bool:
-    try:
-        cur = conn.execute(
-            "SELECT 1 FROM source_coverage WHERE source = ? "
-            "AND status = 'ok' AND record_count > 0 LIMIT 1",
-            (source,),
-        )
-    except sqlite3.OperationalError:
-        return False
-    return cur.fetchone() is not None
-
-
 def _date_imported(conn: sqlite3.Connection, source: str, on_date: date) -> bool:
     """True when `source_coverage` records `source` for `on_date`."""
     iso = on_date.isoformat()

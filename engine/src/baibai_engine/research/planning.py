@@ -121,11 +121,23 @@ def plan_limit(
         for item in portfolio.holdings
         if item.market_value_yen is None
     )
+    unclassified = sorted(
+        {item.ticker for item in portfolio.holdings if not item.common_factors}
+        | {item.ticker for item in portfolio.active_reservations if not item.common_factors}
+        | (
+            {alternative.ticker}
+            if entry.eligible and not pair.document.input_snapshot.common_factors
+            else set()
+        )
+    )
+    if unclassified:
+        warnings.append("portfolio_exposure_common_factor_coverage_incomplete")
     exposure: dict[str, object] = {
         "total_capital_yen": None if nav is None else decimal_to_number(nav),
         "ticker": None,
         "sector": None,
         "common_factors": [],
+        "common_factor_unclassified_tickers": unclassified,
     }
     if nav is None or nav <= 0:
         warnings.append("concentration_and_dry_powder_unassessed")
@@ -196,6 +208,7 @@ def plan_limit(
         "price_basis": "last_close_unadjusted",
         "source_ref": "jquants_daily_bars",
         "close_yen": None if price is None else decimal_to_number(price),
+        "current_price_projection": entry.current_price_projection,
         "max_acceptable_price_yen": None
         if entry.maximum_price_yen is None
         else decimal_to_number(entry.maximum_price_yen),

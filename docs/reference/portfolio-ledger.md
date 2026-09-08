@@ -11,7 +11,7 @@ status: active
 
 ## 対象範囲と正本
 
-ledgerは`portfolio_scope: repository_only`だけを扱う。application DBの`ledger_event / ledger_market_price / ledger_meta`がcanonical stateであり、`baibai-engine position ledger --db stores/application/baibai.sqlite`はこれらから既存domain modelを再構築してsnapshotを返す。broker残高を自動取得・推定・完全照合する契約ではない。
+ledgerは`portfolio_scope: repository_only`だけを扱う。application DBの`ledger_event / ledger_meta`が確認済み資本・取引事実を持ち、保存済みの`ledger_market_price`は既存記録として保持する。`baibai-engine position ledger --db stores/application/baibai.sqlite`はeventをreplayし、market storeのquoteと権利単位を組み合わせてsnapshotを返す。broker残高を自動取得・推定・完全照合する契約ではない。
 
 DB constraint、`baibai_engine.position`のmodel、application serviceのwrite-time validationが機械契約を担う。円総額は整数、単価は許可精度内、数量との積は1円単位に一致しなければ拒否する。
 
@@ -54,9 +54,7 @@ partial fill後は未約定残数だけをreservedに残す。hard errorはcash�
 
 ## Market priceと税
 
-`position ledger`とWebの現在時価はmarket storeのJ-Quants raw/unadjusted closeと、現在保有episodeの権利単位から読み取る。価格の欠損・staleまたは権利単位の未確認では時価とNAVを未評価にし、確認済みcash・数量・原価は表示する。台帳への価格転記は不要であり、adjusted closeや0円で補完しない。
-
-台帳に保存するmarket priceはtickerごとに`observed_at / source_kind / price_basis / source_ref`を持つ。`market-price-draft`で明示的に記録する場合は、全open holdingの同日coverageとcalendarを検証する。
+現在の時価は`position/valuation.py`がJ-Quants raw/unadjusted closeと現在の保有episodeの権利basisを読み、台帳への価格転記なしで評価する。quoteの欠損・古さや権利basis不明は対象holdingの時価を未評価にし、cash・予約・数量・原価を保持する。全保有を評価できなければNAVと集中比率も未評価とする。adjusted closeや保存済みの台帳価格で補完しない。
 
 `income`とsell proceedsはgross、feeは`cost`、確認済み税は`tax_confirmed`に分離する。estimated exit taxは`ledger_meta`のrateと`ledger_fifo_gross_unrealized_gain` basisから表示だけを計算し、cashやconfirmed taxに混ぜない。
 
@@ -64,7 +62,7 @@ partial fill後は未約定残数だけをreservedに残す。hard errorはcash�
 
 ## Draftとapplyの契約
 
-`broker-fact-draft`、`event-draft`、`override-draft`、`meta-draft`、`market-price-draft`はcanonical DBを変更しない。draftはsource append headと置換対象rowを持つ。人間が内容を確認した後だけ次を実行する。
+`broker-fact-draft`、`sell-execution-draft`、`event-draft`、`override-draft`、`meta-draft`はcanonical DBを変更しない。draftはsource append headと置換対象rowを持つ。人間が内容を確認した後だけ次を実行する。
 
 ```bash
 uv run baibai-engine position apply-draft /tmp/ledger-draft.yaml --db stores/application/baibai.sqlite --confirmed
@@ -72,7 +70,7 @@ uv run baibai-engine position apply-draft /tmp/ledger-draft.yaml --db stores/app
 
 applyは1 transactionでsource head、assessment / reservation、event payload、price/meta expected row、reconciliationを再検証する。`--confirmed`なし、stale、buyでないassessment、broker fact reportなし、矛盾payloadはno-writeである。
 
-確認済みの売買・入出金・配当・費用・税のapplyはevent replay、cash / reservation / lotなどの取引整合性を再検証し、既存holdingのmarket price freshnessは要求しない。無関係な価格不足で人間報告の記録を止めないためである。現在時価を使う表示は前節の未評価規則に従い、購入条件と保有判断の必要入力はそれぞれresearchの契約に従う。
+すべての取引事実draftは価格不要のevent replayでcash・reservation・lotを検証する。`broker-fact-draft`のapplyは未解放expiryも再検証する。実売却、入出金、income、cost、税の記録に市場価格の更新を要求しない。readerは未報告の予約を保持し、時刻だけからreleaseを推定しない。
 
 <a id="human-result-semantics"></a>
 

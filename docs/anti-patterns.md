@@ -245,6 +245,8 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 
 - [ ] capital-allocation startが書き込み前に重複のないnon-empty Research Set bindingを要求し、同じ集合の順序変更はresumeできるか
 - [ ] Researchのscaffold/promoteがactive Operationのexact Triage・Research Setをwrite前に再照合し、manifestとworkspace両方の改変でも選択集合を広げられないか。historical statusはactiveなしで読めるか
+- [ ] Position Reviewのpublic build→remainingのみ記入→check→confirmed publishがhold/exit/nullで通り、actionはtransaction内の派生値を保存するか。現在quoteのBase/Downsideは共通算術で表示し、同日評価・quote・権利単位が欠けたときはnullで、期間短縮や原評価の上書きをしていないか
+- [ ] Planningは保有・予約・配分候補のcommon factor未分類を明示し、既知factor比率を完全coverageとして見せず、warningだけを出すか
 - [ ] Position ReviewはOperationを作らず、対象holding・latest Reviewed Thesis・必要quoteだけでcheck/publishできるか。人間確認なしはno-write、理由付きnullをholdに変換せず、数量basis不明で数量付きexitを出さないか
 - [ ] v4 Thesisとexact Reviewを同一transactionで公開し、片方失敗時に両方rollbackするか。同ID retryは両payload一致を先に調べ、最新revisionは先に選択してから検証し、旧版や不利な評価を飛ばさないか
 - [ ] unresolvedの価格欠損を0へ変換せず、candidateの重要な根拠不足をoverrideで通さないか。独立検算は作者のterminal/cashの機械コピーになっていないか
@@ -259,15 +261,14 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] ledger eventを導入・変更する場合、reservationとbuy execution、terminal orderとrelease、cash不足、guard超過、expiry後のbuy、保有超過sellをhard errorとして確認したか
 - [ ] concentrationはholding market value + active reservationをledgerの`total_capital_yen`で割り、warning + 期限付きoverrideとして扱うことを確認したか
 - [ ] human result CLIを変更する場合、報告なしでno write、buy assessmentのdecision reference必須、missing fieldの質問、draft時canonical非変更、stale append head拒否をcontract testで確認したか
-- [ ] Thesisがapprovedの場合、source snapshot、scenario、Thesis Review、execution inputが同一Thesis hashに束縛されるか
 - [ ] current decision の eligibility clock はoperation入口で1回だけ取得したtimezone-aware instantを全validationへ渡し、review等のevent timestampやartifactのas-ofへ差し替えていないか。naive clock、expiry直前・exact expiry・直後をnegative testで固定したか
 - [ ] immutable judgmentのglobal headをderived orderで持つ場合、全readerとwriter CASが同じ実時刻total orderを使い、新規publicationが`as_of`とtimestampの両方でheadを前進させるか。未来時刻、JST日付の逆行、同priorの分岐、空白だけの必須proseをnegative testで拒否し、same-ID idempotencyをprogression検査より先に処理するか
 - [ ] 統合判断はHTMLをreview対象にせず、comparison / thesis / assessmentへ別roleのcontent reviewを行い、全thesis core hashとreviewの変更をstaleとして拒否するか
-- [ ] `planned_limit / defer / no_allocation`の全経路で、購入方法または注文なしが比較結論と矛盾せず、未知source IDと手書き注文数値を拒否するか
-- [ ] `planned_limit`のportfolio exposureは、共通as-of・分母・current / prospective円額・比率・閾値・fallback銘柄が必須かつ機械整合し、欠損 / null / 0 / 負値 / nested未知field / 閾値warningの過不足 / fallback warningの過不足を拒否するか
+- [ ] CAAの`allocate / defer / no_allocation`とPlanningの`planned_limit / defer`を区別し、注文数量・価格・期限をCAAへ保存せず、最新cash・予約・quoteから計算するか
+- [ ] Planningのexposureは現在の保有時価とactive reservationから計算し、NAV不明なら集中比率を未評価にするか。quote欠損を0円・空保有に変換せず、価格不要の取引事実記録・銘柄profileの原価集計を止めないか
 - [ ] machine judgment が下流の作業範囲を決める gate は、その集合を**判断artifactからDBで再解決**して検査し、workspace / manifest / draft の自由編集で広げられないことを negative test で塞いだか。手書き側は読み取り用の記録に留め、authorization source にしない（`research prepare --research-triage-id` は Research Triage `research` を admission 可能集合とし、各 gate が stored research_triage から再解決する）
 - [ ] 前提を再証明する gate は、**入口が課した前提集合の全体**を見ているか。部分集合しか見ない再証明は、残りの前提を宣言で飛ばす経路として残る（`position-prepare` は保有と as-of の 2 つを課すので、gate も同じ 2 つを 1 つの共有 helper から見る）
-- [ ] 鮮度の pin は、**その purpose が実際に依存する field を覆っているか**。`append_head` は `ledger_event` しか数えず、market price は別 table を丸ごと入れ替えるので、pin が一致したまま価格観測日だけが動く。覆えない残りは「最後の関門だけが見る」と正直に書き、gate が見ていない範囲を over-claim しない
+- [ ] Position Reviewの再確認は対象holding・Reviewed Thesis・使用するquoteの変化を検出し、無関係なledger更新では止まらないか。ledger draftのappend headだけでmarket storeのquote変化も検出できると主張していないか
 - [ ] **その修正が案内する復旧手順を実際に最後まで通したか。** 途中までしか復旧しない手順は、operator を最も高コストな工程へ誘導したうえで最後の関門で落とす（`position-prepare --force` は `<ws>/<ticker>/` を再生成しないので、`thesis-scaffold --force` まで案内し、残った draft を `status` に出す）
 - [ ] その gate に**分岐（purpose / mode / kind）で無効化される経路**がある場合、分岐先も同じ強さで対象を store に対して証明するか。「この分岐には gate が要らない」は、その分岐を宣言するだけで gate を外せる形で残る（`purpose: position_review` は Research Triage 束縛を持たない代わりに、対象が canonical ledger の保有であることを各 gate で再照合する）
 - [ ] その gate は**下流で最初に不可逆な資源を使う手前**に置いたか。Research Setのadmissionはresearch開始前、Capital Allocation Assessmentの検証はhuman-confirmed ledger draft作成前に置く
@@ -279,7 +280,6 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 
 #### Lake・release・generation
 
-- [ ] lake Raw lineageはcontent digestだけでなくprovider・dataset・request rangeをmetadataと照合し、対象partitionと交差しないrangeを拒否するか
 - [ ] immutable dataset / release manifestを変更する場合、rootとnested objectの未知field、
       required fieldの欠落・null・0/負値、layer別source IDの必須/禁止、重複partition/object key、
       contract versionごとのordered partition layoutと各partitionのexact key集合、object keyの
@@ -314,12 +314,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
       population・coverage floorなど「持たない dataset がある」項目は、欠測をskipせずfail closeするか。
       cadenceや先取り公表の差をprofile単位の単一閾値で潰していないか。行を持たないdatasetを
       build失敗と区別するか。既存datasetのobject key / digestが不変であることを実exportで確認したか
-- [ ] 入力保証を根拠にproduction変更を許可するgateを追加・変更する場合、保証水準の名前が「何を再実行できるか」を
-      一意に指すか（前のproducerの出力archiveを上流入力と同じ語で呼ばない）。結論を構成する全role（panel /
-      diagnostics / forward）の最弱から導くか。manifestの記述だけでなくsource closureの現存とdigestを同一実行内で
-      確認するか。開示値は全run purposeで実測し、未計測を「欠けなし」に見える既定値で埋めないか。purpose限定の
-      blockerが他のpurposeへ漏れていないか。retained panel + trace-only forward、archiveのみ、archive削除・改変、
-      diagnosticでの非block、空sourceをそれぞれnegative testで固定したか
+- [ ] calibrationの実証的変更条件は[`estimate-calibration.md#data-integrity`](./reference/estimate-calibration.md#data-integrity)に従い、現在snapshotのintegrity・3y/5y coverage・必須metric・measurement policyで判定するか。過去snapshotのbytes保持やsource graphの再取得を追加の停止条件にしていないか
 - [ ] 固定したL1 releaseを渡して読ませるAPIを追加・変更する場合、渡されたreleaseだけで
       答えを閉じるか。rowだけでなく、rowの検証に使う policy / contract / identity も渡された世代から取るか。
       current pointerを別世代へ動かした後、および pointer を削除した後に同じ結果が読めることをtestで固定したか。
@@ -336,11 +331,6 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
       summary fieldは、alternate writerが任意の値を名乗れて誰も誤りと言えないので削除する
 - [ ] 可用性・充足性の観測値は「非該当」「充足」「不足」を区別するか。検証対象が無い場合を「充足」と
       書くと、最も素性の弱い対象が最も確かに見える。検証I/Oはその実行が扱う対象へ限定したか
-- [ ] 壊れたrootのrecovery操作を追加・変更する場合、対象root以外（previous・健全なmanifest）のidentityと
-      closureが操作前後で完全一致することをtestで固定したか。復旧のためにdirectory単位でmanifestを退避すると、
-      無関係なpinがunresolvedになりGCが恒久停止する。**rootを退避したstoreが「未公開のstore」と同じ姿に
-      なっていないか** — 両者が同じ答えを返すなら、次の通常実行はそれを空のstoreと読んで書き潰す。
-      publish済みの痕跡（manifest等）が残る限りfail closeし、退避が失敗しても壊れたままへ収束するか
 - [ ] wireのschema契約をdrift gateで固定する場合、readerが実際に比較する要素（Arrow metadataのdataset /
       contract version / row type stamp等）を署名へ入れたか。列を変えずrow型名だけを変えるmutationでgateが赤くなるか。
       失敗メッセージが実測値をそのまま出して「記録値を上書きすれば緑になる」と読める形になっていないか
@@ -430,8 +420,8 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] lakeのmanifest / pointer JSONは共通strict parserだけを通し、rootとnestedのduplicate
       keyを拒否し、parse前のwire size上限を持ち、validation errorへpayload値を展開していないか。
       logical manifestからR2 ETagを
-      分離し、nested mappingをparse後に変更できないか。lineageはtyped `SourceRef`でsource kind・
-      key・digest・versionを検証し、magic prefixや架空releaseを使っていないか。production releaseは
+      分離し、nested mappingをparse後に変更できないか。入力snapshotのidentityと保持するL1 releaseの
+      key・digest・versionを区別し、一時snapshotの再取得を保証していないか。production releaseは
       profileごとのrequired dataset・contract・coverage・trusted clock基準のfreshness/skew・manifest
       budgetを満たすか
 - [ ] observation を読みから外すときは delete ではなく retraction vintage を積んだか。merge の
@@ -552,7 +542,6 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 - [ ] concentration warningを受け入れる場合、ledger overrideに理由と期限を記録したか
 - [ ] 注文日が休場日または立会時間外の場合、broker-confirmed executionがない限り約定価格を推定で埋めていないか
 - [ ] not-filled outcomeのlimit touchをbroker fillとして記録していないか。期限後return / missed upsideはsame-basisの観測値が揃う場合だけ補助観測として扱ったか
-- [ ] fallback price observation は `decision_event_id`、`tracking_horizon`、`target_date`、`resolved_trade_date`、`price_basis`、`source_url`、`fetched_at`、`corporate_action_checked`、`same_basis_group_id`、`provisional` を持ち、basis 不一致を確定評価に使っていないか
 - [ ] 外部市場予測 (例: Gartner / IDC / 証券サイトの同業倍率) は、今回の canonical fact として
       採用するなら macro context / research の source として明示し、未確認なら「判断補助・未採用」として分離したか
 

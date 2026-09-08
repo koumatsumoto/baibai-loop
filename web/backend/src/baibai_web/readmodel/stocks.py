@@ -47,7 +47,6 @@ from .models import (
     ErLevelCalibrationContextView,
     ErLevelCalibrationHorizonView,
     ErLevelCalibrationStatsView,
-    FvConvergenceView,
     PortfolioState,
     PositionReviewView,
     ResearchRevisionView,
@@ -410,25 +409,6 @@ def _review_set_entries_entry_view(raw: Mapping[str, object]) -> ReviewSetEntryV
         sector_33=_text(raw.get("sector_33")),
         nominations=[ReviewSetNominationView.model_validate(item) for item in nominations],
         analysis=ReviewSetAnalysisView.model_validate(normalized_analysis),
-    )
-
-
-def _fv_convergence_view(raw: object) -> FvConvergenceView:
-    payload = raw if isinstance(raw, Mapping) else {}
-    status = payload.get("status")
-    if status not in {"warning", "clear", "not_evaluable"}:
-        status = "not_evaluable"
-    anchors = payload.get("anchors_yen")
-    return FvConvergenceView(
-        status=status,
-        warning_code=_text(payload.get("warning_code")),
-        market_price_yen=_number(payload.get("market_price_yen")),
-        anchors_yen={
-            str(key): number
-            for key, value in (anchors.items() if isinstance(anchors, Mapping) else ())
-            if (number := _number(value)) is not None and number > 0
-        },
-        er_reversion_annual=_number(payload.get("er_reversion_annual")),
     )
 
 
@@ -825,16 +805,6 @@ def _thesis_detail_view(detail: ThesisDetail) -> ThesisDetailView:
     return ThesisDetailView(
         revision=_research_revision_view(detail.revision), projection=detail.projection
     )
-
-
-def _integer(value: object) -> int | None:
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
-
-
-def _string_list(value: object) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, str)]
 
 
 def _mapping_optional(value: object) -> Mapping[str, object]:

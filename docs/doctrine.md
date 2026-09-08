@@ -27,7 +27,7 @@ Baibai Loop が回すのは 1 つの投資判断ループである。その中�
 
 ```mermaid
 flowchart LR
-  policy["運用方針<br/>資本・積立・余力"] --> screen["割安 screening<br/>valuation ranking"]
+  policy["運用方針<br/>資本・配分・余力"] --> screen["割安 screening<br/>valuation ranking"]
   macro["マクロ分析<br/>material delta / common risk"] -.補助context.-> research
   macro -.judgment 入力.-> triage
   screen --> select["機械候補集合<br/>Review Set"]
@@ -94,7 +94,7 @@ validation や hash のように監査にも使える手段でも、現在の候
 
 - **(a)** マクロは次の2層に分ける。
   - **macro reading（L2）**：登録全系列の水準、方向、percentile、閾値注記、観測の齢を毎営業日に機械計算する。regime分類、合成score、売買signalは出さない。
-  - **macro context（L3）**：人間が判断するときだけ書く。環境評価（core）、経路横断の支配的な力と相互作用（synthesis）、日本株積立ループへの接続（connection）を分け、coreとsynthesisはuse-case agnosticにする。synthesisとconnectionが引用できるseriesは、依拠するcore sectionが引用済みのものに限り、そのsectionを`core_section_ids`で名指しする。この参照方向は機械契約で強制し、coreを単独で自己完結させる。coreは攻め／守りのどちらの環境かを反証条件付きで判断し、sector tilt、research優先度、sizing cautionはconnectionだけに置く。field単位の契約は[`reference/macro.md`](./reference/macro.md#3-層構成core環境評価synthesis統合評価connection積立ループ接続)が所有する。
+  - **macro context（L3）**：人間が判断するときだけ書く。環境評価（core）、経路横断の支配的な力と相互作用（synthesis）、日本株の調査・資本配分への接続（connection）を分け、coreとsynthesisはuse-case agnosticにする。synthesisとconnectionが引用できるseriesは、依拠するcore sectionが引用済みのものに限り、そのsectionを`core_section_ids`で名指しする。この参照方向は機械契約で強制し、coreを単独で自己完結させる。coreは攻め／守りのどちらの環境かを反証条件付きで判断し、sector tilt、research優先度、sizing cautionはconnectionだけに置く。field単位の契約は[`reference/macro.md`](./reference/macro.md#3-層構成core環境評価synthesis統合評価connection積立ループ接続)が所有する。
 
   どちらも機械screening、ranking、sizingへ混入させず、売買タイミング、現金比率、配分を指示しない。macro contextはresearchの着手順を決めるjudgment入力として使う。contextがない、または古くても候補抽出は続け、未来情報だけをhard errorにする。鮮度は書き手が賞味期限を宣言せず、読み手が`as_of`と自分の閾値で判断する。
 - **(b)** AIを含む技術・産業構造変化は、その仮説を外すとBase/Downside projection、FVとrequired return、永久損失、最強反対仮説、またはCapital Allocation Assessmentが変わる場合だけmaterialとする。正の影響は一次情報と必要な独立裏取りからscenario assumption、FV、比較理由へ、負の影響は`structural_decline`、最強反対仮説、必要ならscenarioとFVへ接続する。「AIを使っている」「市場が成長する」という事実だけでbase scenarioや倍率を上げない。
@@ -104,7 +104,7 @@ validation や hash のように監査にも使える手段でも、現在の候
 
 - **(a)** 完成した設計を待たず、不完全でもまずループを 1 周してから改善する。改善の対象は **リスクリワードと期待利回りの見積り精度**であり、entry 時の見積りを実現結果と突き合わせ続け、見積り手法を一つずつ改める。
 - **(b)** 実際にループを回してはじめて、見積りのどこが系統的に外れているのか（マクロの読みか、フェアバリュー推定か、耐性判定か）が見えてくる。材料がなければ改善の方向は定まらない。
-- **(c)** 設計を固めきってから運用を始めると、運用開始時点で陳腐化している。短期 screen の成績を大量の銘柄で backtest して最適化する重い改善ループは、長期保有では前提そのものが不要（柱 5）。
+- **(c)** 設計を固めきってから運用を始めると、運用開始時点で陳腐化している。短期 screen の成績を大量の銘柄で backtest して最適化する重い改善ループは、企業価値と見返りを評価する戦略の改善には直結しない（柱 5）。
 
 ### 柱 4: application DB 正本、Git は method / config
 
@@ -116,7 +116,7 @@ validation や hash のように監査にも使える手段でも、現在の候
 
 - **(a)** 全上場銘柄の実データを持つデータ層（L1）と、決定論的なscreen・導出指標・モデル見積りを作る分析層（L2）を主軸にする。application DBの判断層（L3）はその消費者である。3層の詳細は[`architecture.md`](./architecture.md)が所有する。L2は`observed / derived / estimate`を区別し、決定論で生成してもE[r]やFV anchorを事実と呼ばない。人間とAIの解釈は`judgment`としてthesisへ置く。
 
-  機械的機能には計測手段を持たせ、計測対象は見積り精度、実現利回り、valuationの収束など長期戦略が依存するものに限る。正式な計測経路は、3か月以上の長期horizonで行うestimate calibrationである。過去`as_of`のpoint-in-time状態を再構成し、見積りと実現returnを突き合わせる。3か月未満のforward-backtestによるscreen成績の最適化は行わない。
+  機械的機能には計測手段を持たせ、計測対象は見積り精度、実現利回り、valuationの収束など企業価値に基づく戦略が依存するものに限る。正式な計測経路は、3か月以上の長期horizonで行うestimate calibrationである。過去`as_of`のpoint-in-time状態を再構成し、見積りと実現returnを突き合わせる。3か月未満のforward-backtestによるscreen成績の最適化は行わない。
 
   較正リプレイでは、有意性や統計的優位を主張せず、効果量とcohort勝率で判断する。cohortの窓が重複し、独立ではないためである。仮説と採否基準は検証前に登録し、時間分割したdesignとconfirmの両方で整合する変更だけを採用する。grid searchは行わない。survivorshipとcoverageの欠けは計数で開示し、累積return、年率、シャープなどをtrack recordとして掲げない。
 - **(b)** スコアは軸ごとの座標（業種相対・自己レンジ相対の percentile）であり、単一の合成点や売買指示には決して畳まない。**単位（%/年）・成分分解（reversion / carry）・前提（anchor・実現率・cap）を持つ機械見積り（E[r]・FV アンカー）は「単一の合成点」とはみなさない** — ただし (i) 出力に成分と前提を必ず併記する、(ii) 較正リプレイで予測と実現を突き合わせ続ける、(iii) 採否と投入額の判断は人間に残る、を必須条件とする。正直な軸別の事実 + 人間の判断という役割分担が、AI の強み（機械可読な事実の整理・統合）を活かしつつ、弱み（判断の責任を負えないこと）を遮断する。
@@ -148,7 +148,7 @@ artifact、activity、pipeline state、method、projectionの区別と命名文�
 | Research Triage → Research Set | 人間（admission） | operationのhuman confirmation | — |
 | Research Set → allocate / no allocation / defer | AI research → 独立レビュー → 人間 | thesis + thesis review + Capital Allocation Assessment | evaluate 派生値 |
 | allocate → position | 人間（broker 執行 → 報告） | ledger events | — |
-| position → hold / exit | AI draft + 人間確認 | Position Review（thesis health 判定） | — |
+| position → hold / exit | AI draft + 人間確認 | Position Review（投資理由の成立性と残存見返り） | — |
 | position → outcome | 機械計測 + 年次評価 | outcome | calibration replay |
 
 `macro reading` と `macro context` はどの遷移にも属さない ambient 入力であり、reading は macro context 執筆の必須入力、macro context は Research Triage と thesis 執筆の判断材料になる（screening は macro-blind のまま）。Research Triage・ledger は「状態」と「その canonical record」が同一物であり、thesis・Position Review は状態ではなく遷移の理由書である。
@@ -183,9 +183,9 @@ thesisで見積りの根拠を検証するときの分析レンズ / return源�
 
 ## 5. 責務境界
 
-- **運用方針 (portfolio management)**：目的・制約・資本・許容risk・position管理・投資対象・thesis healthと税引後代替で保有を見直す規律を扱う。個別銘柄のthesisやentry/exit設計は扱わない。
+- **運用方針 (portfolio management)**：目的・制約・資本・許容risk・position管理・投資対象・経済的な投資理由の不成立と残存見返りで保有を見直す規律を扱う。個別銘柄のthesisやentry/exit設計は扱わない。
 - **マクロ機械読み値 (macro reading)**：L1 の指標 store だけを入力に、全登録系列の記述統計と観測の齢を決定論で計算する。解釈・因果・行動指示を持たない。
-- **マクロ環境分析 (macro context)**：macro reading と外部記事・指標データを参照し、環境評価（core：レジーム・経路別のfactとjudgment・リスク選好環境の評価・確率と機械照合可能な条件を持つシナリオ・監視ポイント）、統合評価（synthesis：経路横断の支配的な力とその相互作用）、日本株積立ループ接続（connection：research優先度・sector tilt・sizing caution・バーゲン地形・機械見積りの歪み注意）を分析階層（§7）に沿った構造化レポートとして残す。記事本文や取得ログは保存しない。
+- **マクロ環境分析 (macro context)**：macro reading と外部記事・指標データを参照し、環境評価（core：レジーム・経路別のfactとjudgment・リスク選好環境の評価・確率と機械照合可能な条件を持つシナリオ・監視ポイント）、統合評価（synthesis：経路横断の支配的な力とその相互作用）、日本株の調査・資本配分への接続（connection：research優先度・sector tilt・sizing caution・バーゲン地形・機械見積りの歪み注意）を分析階層（§7）に沿った構造化レポートとして残す。記事本文や取得ログは保存しない。
 - **スクリーニング実行結果 (screening run)**：run storeに保存する再生成可能な機械出力。observed、derived、estimateを由来付きで残し、judgment・因果解釈・相場観を書かない。
 - **調査優先度判定 (Research Triage)**：Review Set全件をAIが`research / skip`へ分類し、research priorityを付けたcanonical snapshot。Valuation Approachesをprimary authority、E[r]とADVをsecondary contextとして扱い、application DBでrun revisionとReview Setへの束縛を保つ。
 - **個別銘柄research / thesis**：一次情報、FV、Base/Downside projection、risk/reward、期待return、永久損失、countercaseを検証し、採否をcanonical thesisへ固定する。

@@ -43,7 +43,9 @@ related_docs:
 
 新しいPosition Review Operationは作らない。activeな資本調査と並行して対象holdingを扱える。`position-prepare`は保有実在を確認し、全holding quoteの事前ledger applyやappend head一致を要求しない。
 
-buildは対象holding、最新Reviewed Thesis、対象quoteを読む。作者がremainingを埋め、check/publishは提出したremainingを保持したまま必要入力だけを再確認する。数量・cost・重要なbasis・quote・latest Thesisが変われば再確認を求める。無関係な入出金や他ticker更新だけでResearch全体をやり直さない。
+buildは対象holding、最新Reviewed Thesis、対象quoteを読む。作者は`remaining_reward`だけを記入する。`action`はcheckで導出し、confirmed publishのtransaction内で再計算して保存する。入力したactionは判断元にせず、同内容retryは保存済みactionを返す。check/publishは提出したremainingを保持したまま必要入力だけを再確認する。数量・cost・重要なbasis・quote・latest Thesisが変われば再確認を求める。無関係な入出金や他ticker更新だけでResearch全体をやり直さない。
+
+buildの標準出力とcheckは、現在quoteを共通算術へ渡した`current_price_projection`を見せる。Base/Downsideの総return・年率、期間、累積分配、価格basisを原評価から分け、draftとcanonical payloadへ複写しない。quote・権利単位・同日評価が未確認ならnullとする。この値を固定exit閾値にはしない。
 
 権利単位を確認できないholdingに数量付き売却案は付けない。nullはhold推奨でも実売却でもなく、exit候補もbroker約定ではない。publishには明示的な`--confirmed`が必要で、確認なしでは書き込まない。
 

@@ -39,7 +39,7 @@ Baibai Loopは、数値と経済事実を中央銀行、政府、国際機関な
 
 ## 保有見直しの価格 fallback
 
-Position Review・見積り calibration の価格 source は J-Quants(`stores/market/market.sqlite`)を primary とする。J-Quants が subscription / availability 問題で使えない場合だけ、公開 quote の daily close を手動 fallback として使い、ledgerまたはthesisのsource refへURL・取得日時・評価日・price basis・benchmark と同一 basis かを残す。basis が揃わない場合や corporate action の調整が確認できない場合は、確定評価ではなく provisional / inconclusive として扱う。
+Position Reviewの機械quoteはJ-Quants（`stores/market/market.sqlite`）から読む。欠損は未評価として扱い、公開quoteをledgerへ転記して機械入力を補完しない。公開quoteをThesisの補助証拠に使う場合は、sourceへURL・取得日時・評価日・price basisを記録し、権利単位を確認する。Position Reviewとcalibrationの欠測・未解決の扱いは、それぞれ[`position-review.md`](./position-review.md)と[`estimate-calibration.md`](./estimate-calibration.md)を正本とする。
 
 ## Portfolio outcome benchmark
 
@@ -49,28 +49,17 @@ portfolio全体の年次・3年・5年outcomeは、JPXが公表する**TOPIX gro
 
 ## 取得データの保存方針
 
-J-Quants / EDINETから取得したデータは、個人利用・非公開repositoryでのBaibai Loop運用に限り、local cacheまたは永続storeへ保存できる。外部公開・第三者再配布は禁止する。secret、token、認証headerはRaw metadata、manifest、logへ保存しない。
+J-Quants / EDINETから取得したデータは、個人利用・非公開repositoryでのBaibai Loop運用に限り、local cacheまたは永続storeへ保存できる。外部公開・第三者再配布は禁止する。secret、token、認証headerはmetadata、manifest、logへ保存しない。
 
 `method/`はscreening rules、macro reading rules、research playbookを所有する。`web/config/`はpresentation configurationを所有する。
 
-大規模な market fact は4つの責務へ分ける。
+market factは正規化済みのR2 Parquetとdataset / release manifestへ保持する。field・型・日付・source identity・revision semanticsを正規化し、判断・score・rankを入れない。`market.sqlite`のlake所有tableは固定releaseから復元するruntime copyである。providerの応答bytesを別のcanonical Raw storeへ二重保存する運用は持たない。
 
-| class | canonical form | rule |
-| --- | --- | --- |
-| L1 Raw | R2 immutable object | provider bytesを可能な限り原形で保持し、source request・retrieved-at・content hashを付ける |
-| L1 Canonical | R2 Parquet + dataset / release manifest | field・型・日付・source identity・revision semanticsを正規化し、判断・score・rankを入れない |
-| hydrated runtime copy | fixed L1 releaseから満たす`market.sqlite`のlake所有table | R2 authorityにしない |
-| disposable byproduct | `.cache/` | canonical verification後に削除でき、入力証跡として扱わない |
-
-Canonical manifestのsourceはtyped `SourceRef`で記録する。bytesを保持するprovider Rawは、実在するobject key、SHA-256、source側schema / manifest versionへ束縛する。provider、dataset、request range、metadata sidecarのkeyとSHA-256を固定し、ingest ID、object key、content digest、metadata versionを同時に照合する。
-
-legacy SQLite snapshotはidentityだけを持ち、object keyを名乗らない。sealed copyはbuild中のstore変化を防ぐために作り、operation終了時に回収する。schema version、content digest、capture時刻によって、buildへ渡したstore世代を照合できる。logical manifestへR2 ETagを保存しない。
-
-Raw retentionは、再取得が高価または不可能なPremium CSV、EDINET XBRL、JPX原本を`preserve`、routine API responseを`buffer`とする。`preserve`はGC候補にせず、budgetを設けない。`buffer`のsoft budgetは50 GiBであり、重要ingestを止めるhard capではない。current closureから未到達かつretrieved-atから90日以上の`buffer`だけを通常GCのplanへ載せる。削除直前にmetadata / object pairのidentityを再検証してlocal mirrorから削除し、R2の削除はBucket Lock満了後のDelete専用retention finalizerへ分離する。
+exportは一つのsealed SQLite snapshotを入力にする。manifestの`sqlite_snapshot` sourceはschema version・digest・capture時刻による入力identityであり、元snapshot bytesの保持や復元を保証しない。snapshotはexport終了時に回収し、logical manifestへR2 ETagを保存しない。
 
 screening L1のcanonical authorityはR2 releaseである。`stores/market/market.sqlite`のlake所有tableは、固定releaseから再構築するruntime copyであり、R2とdual canonical writeを行わない。取得範囲の帳簿とoperator導出factだけはSQLiteがcanonicalとなる。run storeは`stores/screening/runs.sqlite`を継続する。
 
-releaseのrequired dataset、coverage、freshness、canonical objectのretention / GC、manifest version、authorityは[`market-lake.md`](./market-lake.md#market-lake-publication-contract)、screeningが読む入力の意味は[`screening-runtime.md`](./screening-runtime.md)を正本とする。table / columnの現行layoutはDB schemaが所有する。provider Rawのretentionは本節が所有する。
+releaseのrequired dataset、coverage、freshness、canonical objectのretention / GC、manifest version、authorityは[`market-lake.md`](./market-lake.md#market-lake-publication-contract)、screeningが読む入力の意味は[`screening-runtime.md`](./screening-runtime.md)を正本とする。table / columnの現行layoutはDB schemaが所有する。
 
 保存済み canonical fact は、screening 再生成・保有計測・見積り calibration のための入力証跡として扱う。J-Quants の調整後価格、銘柄マスター、JPX 規制情報などは完全な point-in-time snapshot ではないため、publication / effective / retrieved time と revision / coverage semantics が揃わない期間を完全再現可能とは扱わない。zero、complete snapshotでの無報告、coverage不足、parse failure、source unavailableを混同しない。
 

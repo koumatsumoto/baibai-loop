@@ -287,25 +287,6 @@ def partition_objects(partitions: Sequence[PartitionManifest]) -> tuple[LakeObje
     return tuple(item for partition in partitions for item in partition.objects)
 
 
-def schema_matches(actual: object, expected: object) -> bool:
-    """Whether a stored schema is the declared contract, columns and identity both.
-
-    For a dataset with only flat columns, Arrow's own comparison is exact and is what
-    the L1 reader uses. This looser form exists for datasets carrying a nested column:
-    a Parquet round trip renames the child fields of a map, so an object that is in
-    fact byte-for-byte the contract would fail an exact comparison. Column names and
-    types are still compared, and the ``baibai.*`` identity the writer stamped is
-    compared explicitly, so the guarantee that matters — this object is that dataset
-    at that contract version — is unchanged.
-    """
-
-    if not actual.equals(expected, check_metadata=False):  # type: ignore[attr-defined]
-        return False
-    stamped = expected.metadata or {}  # type: ignore[attr-defined]
-    stored = actual.metadata or {}  # type: ignore[attr-defined]
-    return all(stored.get(key) == value for key, value in stamped.items())
-
-
 def verify_object(path: Path, dataset: LakeDataset, lake_object: LakeObject) -> None:
     """Check a materialized object against the contract before any row is read.
 

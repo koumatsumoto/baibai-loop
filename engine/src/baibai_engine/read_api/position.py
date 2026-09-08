@@ -14,7 +14,8 @@ from baibai_engine.position.ledger import (
     PortfolioLedgerDocument,
     PortfolioLedgerError,
     PortfolioSnapshot,
-    reconcile_portfolio,
+    replay_events_through,
+    summarize_portfolio,
 )
 from baibai_engine.position.valuation import current_portfolio
 from baibai_engine.read_api.sqlite import (
@@ -30,7 +31,8 @@ __all__ = [
     "current_portfolio",
     "list_portfolio_outcome_payloads",
     "portfolio_ledger_document",
-    "reconcile_portfolio",
+    "replay_events_through",
+    "summarize_portfolio",
 ]
 
 
@@ -50,6 +52,7 @@ def portfolio_ledger_document(db_path: Path) -> PortfolioLedgerDocument | None:
         return None
     try:
         with closing(connect_read_only(db_path)) as connection:
+            connection.execute("BEGIN")
             meta = connection.execute(
                 "SELECT payload FROM ledger_meta WHERE singleton = 1"
             ).fetchone()

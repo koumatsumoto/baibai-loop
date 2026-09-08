@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import cast
 
 from baibai_engine.appdb.json import canonical_json
+from baibai_engine.appdb.paths import database_path
+from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.position.ledger import (
     LedgerEvent,
@@ -46,15 +48,15 @@ class LedgerStoreService:
 
     def load_with_head(self) -> tuple[PortfolioLedgerDocument, int]:
         """Read one replay document and its physical append head consistently."""
-        initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
+        if not database_path(self._db_path).is_file():
+            raise LedgerConflictError("ledger has not been imported")
+        with closing(connect_read_only(self._db_path)) as connection:
             _require_schema(connection)
             connection.execute("BEGIN")
             return _load_document(connection), _append_head(connection)
 
     def append_head(self) -> int:
-        initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
+        with closing(connect_read_only(self._db_path)) as connection:
             _require_schema(connection)
             return _append_head(connection)
 

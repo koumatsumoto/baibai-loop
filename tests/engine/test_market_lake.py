@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 import yaml
 from pydantic import ValidationError
-from tests.helpers.l1_release import stored_release_source
 from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.cli import DOMAINS
@@ -32,7 +31,6 @@ from baibai_engine.market.lake.models import (
     load_manifest_json,
     validate_release_policy,
 )
-from baibai_engine.market.lake.sources import resolve_source_ref
 
 
 def _snapshot_source_payload(digest: str = "9" * 64, schema_version: int = 22) -> dict[str, object]:
@@ -486,57 +484,6 @@ def test_pilot_policy_rejects_a_fresh_one_day_population(monkeypatch: pytest.Mon
             manifests,
             published_coverage_start={"jquants.daily_bars": date(2016, 8, 1)},
         )
-
-
-def test_a_retained_reference_resolves_only_to_its_own_immutable_bytes(tmp_path: Path) -> None:
-    """`L1ReleaseSourceRef` is the only kind that names a key, so it is the only kind
-    this resolution has to answer for — and it answers by the digest, not by the name."""
-
-    path, reference = stored_release_source(tmp_path)
-
-    assert resolve_source_ref(tmp_path, reference) == path
-
-    with pytest.raises(ValueError, match="digest does not match"):
-        resolve_source_ref(tmp_path, reference.model_copy(update={"sha256": "0" * 64}))
-    path.unlink()
-    with pytest.raises(ValueError, match="does not resolve inside the lake mirror"):
-        resolve_source_ref(tmp_path, reference)
-
-
-def test_a_release_whose_closure_is_incomplete_does_not_resolve(tmp_path: Path) -> None:
-    """The manifest is the root of a graph, not the graph. A reference that resolved on
-    the root alone would claim a readable fixed release while its rows are absent."""
-
-    _, reference = stored_release_source(tmp_path)
-    objects = sorted((tmp_path / "lake/l1/canonical").rglob("*.parquet"))
-    assert objects, "the fixture must publish at least one object to remove"
-    objects[0].unlink()
-
-    with pytest.raises(ValueError, match="does not resolve inside the lake mirror"):
-        resolve_source_ref(tmp_path, reference)
-
-
-def test_a_release_whose_object_bytes_changed_does_not_resolve(tmp_path: Path) -> None:
-    """Presence is not the claim; the digest the manifest published is."""
-
-    _, reference = stored_release_source(tmp_path)
-    objects = sorted((tmp_path / "lake/l1/canonical").rglob("*.parquet"))
-    objects[0].write_bytes(b"different-bytes-same-name")
-
-    with pytest.raises(ValueError, match="digest does not match"):
-        resolve_source_ref(tmp_path, reference)
-
-
-def test_a_release_whose_dataset_manifest_was_replaced_does_not_resolve(tmp_path: Path) -> None:
-    """The release pins each dataset manifest by digest, so republishing that key under
-    the same build id is what the digest is there to refuse."""
-
-    _, reference = stored_release_source(tmp_path)
-    manifests = sorted((tmp_path / "lake/manifests/datasets").rglob("*.json"))
-    manifests[0].write_text('{"manifest_version": 1}', encoding="utf-8")
-
-    with pytest.raises(ValueError, match="digest does not match"):
-        resolve_source_ref(tmp_path, reference)
 
 
 def test_a_release_reference_is_not_admissible_as_partition_lineage() -> None:

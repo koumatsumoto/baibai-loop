@@ -22,7 +22,6 @@ from baibai_engine.position.ledger import (
     HoldingSnapshot,
     PortfolioLedgerError,
     PortfolioSnapshot,
-    reconcile_portfolio,
 )
 
 from .capital_allocation import (
@@ -134,7 +133,6 @@ __all__ = [
     "portfolio_ledger_document",
     "previous_business_day",
     "previous_run_revision_id",
-    "reconcile_portfolio",
     "reject_noncanonical_store_paths",
     "repository_root_error",
     "research_triage_payload",

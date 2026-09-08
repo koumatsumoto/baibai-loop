@@ -467,9 +467,3 @@ def _mapping(value: object, *, label: str) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{label} must be an object")
     return value
-
-
-def _mapping_list(value: object, *, label: str) -> list[Mapping[str, object]]:
-    if not isinstance(value, list) or not all(isinstance(item, Mapping) for item in value):
-        raise ValueError(f"{label} must be an array of objects")
-    return list(value)
