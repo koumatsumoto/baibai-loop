@@ -192,6 +192,8 @@ researchは企業評価・資本配分・保有判断を所有する。valuation
 
 `position/valuation.py`は資本確認工程でreplayと市場quote・権利単位を組み合わせ、現在の資本と未評価を見せる。Planning・Position Review・read_apiが共用し、`position/market_source.py`がquoteと権利basisを別々に読む。Researchの`capital_inputs.py`はこの事実入力とReviewed Thesisを新規配分条件へ渡し、CAAとPlanningが共用する。core positionは企業評価・資本判断をimportしない。
 
+台帳の読取は`position/ledger_read.py`が所有し、`read_api`・researchの読取use case・`position/store.py`が同じconnection単位の再構築を使う。読取ownerはwriterやtransaction開始へ依存せず、新しいconsumerもSQL・保存値検証を複製しない。
+
 ### L3 judgment の write 規則
 
 - canonical entity の作成・更新は DB transaction 内で current source と domain invariant を検証する。

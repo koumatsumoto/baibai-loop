@@ -1,8 +1,7 @@
-"""Application-DB storage for the append-only portfolio ledger."""
+"""確認済み取引事実のappendとCASを所有し、ledger更新を産む。"""
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from collections.abc import Sequence
 from contextlib import closing
@@ -20,14 +19,12 @@ from baibai_engine.position.ledger import (
     MarketPrice,
     PortfolioLedgerDocument,
 )
-
-
-class LedgerConflictError(ValueError):
-    """The requested write does not match the current append head or rows."""
-
-
-class LedgerSchemaError(RuntimeError):
-    """The application DB has not received the ledger migration."""
+from baibai_engine.position.ledger_read import (
+    LedgerConflictError,
+    ledger_append_head,
+    load_ledger_in_transaction,
+    require_canonical_prices,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,14 +48,12 @@ class LedgerStoreService:
         if not database_path(self._db_path).is_file():
             raise LedgerConflictError("ledger has not been imported")
         with closing(connect_read_only(self._db_path)) as connection:
-            _require_schema(connection)
             connection.execute("BEGIN")
-            return _load_document(connection), _append_head(connection)
+            return load_ledger_in_transaction(connection)
 
     def append_head(self) -> int:
         with closing(connect_read_only(self._db_path)) as connection:
-            _require_schema(connection)
-            return _append_head(connection)
+            return ledger_append_head(connection)
 
     def apply_document(
         self,
@@ -72,15 +67,13 @@ class LedgerStoreService:
         Existing events are immutable. A past-time event is physically appended and
         receives the last ordinal at that instant; only the replay view is reordered.
         """
-        _require_canonical_prices(expected_document)
-        _require_canonical_prices(replacement)
+        require_canonical_prices(expected_document)
+        require_canonical_prices(replacement)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
-            _require_schema(connection)
             connection.execute("BEGIN IMMEDIATE")
             try:
-                current_head = _append_head(connection)
-                current = _load_document(connection)
+                current, current_head = load_ledger_in_transaction(connection)
                 if current_head != expected_head or current != expected_document:
                     raise LedgerConflictError("stale ledger draft")
                 current_by_id = {event.event_id: event for event in current.events}
@@ -97,7 +90,7 @@ class LedgerStoreService:
                 _append_events(connection, additions)
                 _replace_prices(connection, replacement.market_prices)
                 _replace_meta(connection, replacement)
-                stored = _load_document(connection)
+                stored, _ = load_ledger_in_transaction(connection)
                 if stored != replacement:
                     raise LedgerConflictError(
                         "replacement order does not match append-only replay ordering"
@@ -110,24 +103,6 @@ class LedgerStoreService:
             append_head=current_head + len(additions),
             event_ids=tuple(event.event_id for event in additions),
         )
-
-
-def load_ledger_in_transaction(
-    connection: sqlite3.Connection,
-) -> tuple[PortfolioLedgerDocument, int]:
-    """Read the canonical ledger through an existing application-DB transaction."""
-    _require_schema(connection)
-    return _load_document(connection), _append_head(connection)
-
-
-def _require_schema(connection: sqlite3.Connection) -> None:
-    found = {
-        str(row[0])
-        for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-    }
-    required = {"ledger_event", "ledger_market_price", "ledger_meta"}
-    if not required <= found:
-        raise LedgerSchemaError("application DB ledger migration is not installed")
 
 
 def _utc_text(value: datetime) -> str:
@@ -204,14 +179,8 @@ def _meta_values(document: PortfolioLedgerDocument) -> tuple[object, ...]:
     )
 
 
-def _append_head(connection: sqlite3.Connection) -> int:
-    return int(
-        connection.execute("SELECT coalesce(max(append_seq), 0) FROM ledger_event").fetchone()[0]
-    )
-
-
 def _append_events(connection: sqlite3.Connection, events: Sequence[LedgerEvent]) -> None:
-    append_seq = _append_head(connection)
+    append_seq = ledger_append_head(connection)
     next_orders: dict[str, int] = {}
     for event in events:
         occurred_at = _utc_text(event.occurred_at)
@@ -265,37 +234,7 @@ def _replace_meta(connection: sqlite3.Connection, document: PortfolioLedgerDocum
     )
 
 
-def _load_document(connection: sqlite3.Connection) -> PortfolioLedgerDocument:
-    meta = connection.execute("SELECT payload FROM ledger_meta WHERE singleton = 1").fetchone()
-    if meta is None:
-        raise LedgerConflictError("ledger has not been imported")
-    raw = cast(dict[str, object], json.loads(str(meta[0])))
-    raw["events"] = [
-        json.loads(str(row[0]))
-        for row in connection.execute(
-            """
-            SELECT payload FROM ledger_event
-            ORDER BY occurred_at ASC, same_instant_order ASC, append_seq ASC
-            """
-        )
-    ]
-    raw["market_prices"] = [
-        json.loads(str(row[0]))
-        for row in connection.execute("SELECT payload FROM ledger_market_price ORDER BY ticker ASC")
-    ]
-    document = PortfolioLedgerDocument.model_validate(raw)
-    _require_canonical_prices(document)
-    return document
-
-
-def _require_canonical_prices(document: PortfolioLedgerDocument) -> None:
-    if any(price.source_kind == "test_fixture" for price in document.market_prices):
-        raise LedgerConflictError("canonical application DB cannot use test_fixture prices")
-
-
 __all__ = [
     "LedgerApplyResult",
-    "LedgerConflictError",
-    "LedgerSchemaError",
     "LedgerStoreService",
 ]

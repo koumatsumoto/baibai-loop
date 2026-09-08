@@ -231,6 +231,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
 
 #### 共通validator
 
+- [ ] ledger readerを変更する場合、共通ownerから未登録と破損を区別し、metadata欠損で取引rowが残る状態を空保有へ変換しないか。callerのtransactionを維持し、WALの別writerが進んでもdocumentとappend headが同じsnapshotで読めるか
 - [ ] current-only storeのread経路はownerのschema validatorを通し、path不在 / `user_version = 0`かつtableなしのunwritten storeだけを空へdegradeするか。obsolete versionやcurrent schemaのtable / column / index欠落を「データなし」に変換していないか
 - [ ] validator rule を追加・修正する場合、その rule の corner case を negative test で必ず塞ぐ。Thesis の `incomplete` 条件、snapshot source の identity / 時刻 / unit 拒否、Planning Limitの価格 / cash 判定、Thesis Review の hash 束縛、screening E[r] / FV の estimate 扱いといった個別 field の必須・拒否条件は engine model と各 negative test（`test_reviewed_thesis_v4.py` / `test_position_broker_fact_service.py` / `test_portfolio_ledger.py` 等）が正本で、本節へ網羅転記しない。追加時は最低限次の corner case を test する:
   - [ ] 関連 field が **不在** の場合 (skip / error どちらが正しいか)

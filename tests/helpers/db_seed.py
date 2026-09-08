@@ -9,8 +9,8 @@ from pathlib import Path
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.position.ledger import PortfolioLedgerDocument
+from baibai_engine.position.ledger_read import LedgerConflictError
 from baibai_engine.position.store import (
-    LedgerConflictError,
     LedgerStoreService,
     _event_values,
 )
