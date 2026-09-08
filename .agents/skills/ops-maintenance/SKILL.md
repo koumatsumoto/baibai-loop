@@ -22,10 +22,12 @@ random retry、別as-ofへの置換、「最新Review Set」の再検索をし�
 | --- | --- |
 | daily batch / analysisの失敗・欠測 | stdout / summaryから失敗stageを特定し、同じCLIをローカルで再現する。原因を直してlocal gateを通す。再実行は成功する見込みがある最終確認だけに使う |
 | research FVへの価格到達 | `baibai_engine.research_watch`を実行し、triggered caseを`research` skillへ渡す。価格だけで注文しない |
-| 注文の約定・失効 | `tools.experiments.measure_limit_outcomes`で全体を再計測する。少数結果でpolicyを変えない |
+| 注文の約定・取消・失効 | `tools.experiments.measure_limit_outcomes`で全体を再計測する。少数結果でpolicyを変えない |
 | store読み取り・同期 | 下のauthorityとno-loss規律に従う |
 | app / viewの配信 | application storeの反映とserving materializeをOPERATIONSの順で行う |
 | 定期maintenance | calibration、PMI、TSE capital policy / JPX delistingのdated taskだけをdue時に実行する |
+
+計測の`full_fill_rate_pct`は全数量約定件数 /（全数量約定＋報告済み失効）で、0件ならnull。`decided_orders`と8件のpolicy判断用件数も同じ母数を使い、policy側は判断参照付き注文に限る。取消・broker_rejected・decision_changedと継続中（部分約定を含む）は母数から除く。`still_open`は未約定と部分約定の継続注文の合計、`partially_filled_open`はその内数である。個票の約定数量・割合と終了理由を併読する。部分約定後の失効の`forgone_pct`は未約定残についての価格差であり、金額損失ではない。期限経過だけで失効を推定せず、20立会日の観測窓が満ちるまで逸失幅は未評価とする。
 
 ## Store authority
 

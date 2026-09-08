@@ -2,7 +2,7 @@
 
 指値は前営業日 raw close 固定で、gap を追わない。この規律は安く買えた日を守る一方、
 上昇局面では「人間が approve した買い」を 0 株にする。どちらが効いたかは注文ごとの
-個票を並べないと分からないので、fill 率と、未約定に終わった注文の逸失幅を測る。
+個票を並べないと分からないので、全数量約定率と、失効した注文の未約定残に対する価格の逸失幅を測る。
 
 read-only。ledger も market store も書き換えず、約定を推定しない。
 asof当日までに発生したledger eventと価格だけで指値規律の結果を測る。
@@ -52,6 +52,9 @@ class OrderOutcome:
     limit_yen: Decimal
     quantity: int
     outcome: str
+    filled_quantity: int
+    remaining_quantity: int
+    release_reason: str | None
     decision_reference: str | None
     window_end: date | None
     window_low_yen: float | None
@@ -149,6 +152,7 @@ def build_limit_outcomes(*, app_db: Path, market_db: Path, asof: date) -> dict[s
             "decided_orders": _decided_count(decision_bound),
             "ready": _decided_count(decision_bound) >= CHASE_POLICY_DECISION_MIN_ORDERS,
             "note": (
+                "判断参照付きの全数量約定＋報告済み失効だけを数える。取消等と継続中は除く。"
                 "gap を追う指値へ変えるかは、この件数に達してから別 issue で事前登録して"
                 "判断する。少数の失効だけを見て規律を外さない。"
             ),
@@ -172,8 +176,13 @@ def _summarize(outcomes: Sequence[OrderOutcome]) -> dict[str, object]:
         "orders": len(outcomes),
         "filled": len(filled),
         "expired": len(unfilled),
-        "still_open": len(outcomes) - decided,
-        "fill_rate_pct": None if not decided else round(len(filled) / decided * 100, 1),
+        "cancelled": sum(item.outcome == "cancelled" for item in outcomes),
+        "broker_rejected": sum(item.outcome == "broker_rejected" for item in outcomes),
+        "decision_changed": sum(item.outcome == "decision_changed" for item in outcomes),
+        "still_open": sum(item.outcome in {"open", "partially_filled"} for item in outcomes),
+        "partially_filled_open": sum(item.outcome == "partially_filled" for item in outcomes),
+        "decided_orders": decided,
+        "full_fill_rate_pct": None if not decided else round(len(filled) / decided * 100, 1),
         "median_low_above_limit_pct": None if not distances else round(median(distances), 2),
         # 中央値の母数は窓が満ちた失効注文だけ。まだ窓の途中にある注文をここへ入れると、
         # 直近の失効ほど「逃した幅が小さい」側へ寄る。
@@ -192,38 +201,45 @@ def _order_outcome(
     asof: date,
 ) -> OrderOutcome:
     placed_on = reservation.occurred_at.date()
-    if fills:
+    filled_quantity = sum(fill.quantity for fill in fills)
+    unfilled_quantity = reservation.quantity - filled_quantity
+    outcome = (
+        release.reason
+        if release is not None
+        else "filled"
+        if unfilled_quantity == 0
+        else "partially_filled"
+        if filled_quantity
+        else "open"
+    )
+    remaining_quantity = unfilled_quantity if release is None else 0
+    if outcome != "expired":
+        window_end = (
+            release.occurred_at.date()
+            if release is not None
+            else max(fill.occurred_at.date() for fill in fills)
+            if outcome == "filled"
+            else None
+        )
         return OrderOutcome(
             reservation_id=reservation.reservation_id,
             ticker=reservation.ticker,
             placed_on=placed_on,
             limit_yen=reservation.price_guard_yen,
             quantity=reservation.quantity,
-            outcome="filled",
+            outcome=outcome,
+            filled_quantity=filled_quantity,
+            remaining_quantity=remaining_quantity,
+            release_reason=release.reason if release is not None else None,
             decision_reference=reservation.decision_reference,
-            window_end=min(fill.occurred_at.date() for fill in fills),
+            window_end=window_end,
             window_low_yen=None,
             distance_to_limit_pct=None,
             post_expiry_sessions_observed=0,
             post_window_high_close_yen=None,
             forgone_pct=None,
         )
-    if release is None:
-        return OrderOutcome(
-            reservation_id=reservation.reservation_id,
-            ticker=reservation.ticker,
-            placed_on=placed_on,
-            limit_yen=reservation.price_guard_yen,
-            quantity=reservation.quantity,
-            outcome="open",
-            decision_reference=reservation.decision_reference,
-            window_end=None,
-            window_low_yen=None,
-            distance_to_limit_pct=None,
-            post_expiry_sessions_observed=0,
-            post_window_high_close_yen=None,
-            forgone_pct=None,
-        )
+    assert release is not None
     window_end = min(release.occurred_at.date(), asof)
     bars = _bars(connection, reservation.ticker, placed_on, window_end)
     window_low = min((low for _, low, _ in bars), default=None)
@@ -239,6 +255,9 @@ def _order_outcome(
         limit_yen=reservation.price_guard_yen,
         quantity=reservation.quantity,
         outcome="expired",
+        filled_quantity=filled_quantity,
+        remaining_quantity=0,
+        release_reason=release.reason,
         decision_reference=reservation.decision_reference,
         window_end=window_end,
         window_low_yen=window_low,
@@ -261,6 +280,11 @@ def _order_payload(item: OrderOutcome) -> dict[str, object]:
         "limit_yen": float(item.limit_yen),
         "quantity": item.quantity,
         "outcome": item.outcome,
+        "filled_quantity": item.filled_quantity,
+        "unfilled_quantity": item.quantity - item.filled_quantity,
+        "remaining_quantity": item.remaining_quantity,
+        "filled_quantity_pct": round(item.filled_quantity / item.quantity * 100, 1),
+        "release_reason": item.release_reason,
         "decision_reference": item.decision_reference,
         "window_end": None if item.window_end is None else item.window_end.isoformat(),
         "window_low_yen": item.window_low_yen,
@@ -282,7 +306,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m tools.measure_limit_outcomes",
         description=(
-            "Aggregate fill rate and forgone upside across human-approved limit orders. "
+            "Aggregate full-quantity fill rate and forgone upside across "
+            "human-approved limit orders. "
             "Read-only: never infers a fill and never writes canonical records."
         ),
     )
