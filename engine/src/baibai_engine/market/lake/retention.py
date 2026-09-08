@@ -52,7 +52,7 @@ _CANDIDATE_GRACE_DAYS = {"abandoned_staging": _STAGING_GRACE_DAYS}
 
 
 class LakeRetentionError(RuntimeError):
-    """A pointer, pin, or deletion plan does not describe a consistent store."""
+    """A pointer or deletion plan does not describe a consistent store."""
 
 
 @contextmanager

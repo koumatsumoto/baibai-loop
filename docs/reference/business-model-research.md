@@ -15,26 +15,27 @@ related_docs:
 
 ## 目的と非目標
 
-この文書は、「企業がどう稼ぎ、どのKPIと制約が5年価値を決めるか」を確認するための試行用の観点である。「なぜ安く見えるか」を扱う`Valuation Approach`とは役割を分ける。
+この文書は、「企業がどう稼ぎ、どのKPIと制約が評価期間の企業価値を決めるか」を確認するための試行用の観点である。「なぜ安く見えるか」を扱う`Valuation Approach`とは役割を分ける。
 
 事業モデルの分類そのものを投資根拠、screening条件、thesis fieldにはしない。質問の抜けを減らすためだけに使い、試行期間はoperation sessionで指定したResearch Set対象だけへ適用する。対象外へ一律には強制しない。
 
 ## 適用手順
 
-1. research開始時に、5年base FVを最も左右する価値獲得経路から主要観点を一つ選び、理由を1〜2行で記録する。
-2. 複合事業で別segmentも5年評価を左右する場合だけ、補助観点を一つ選ぶ。その節から重要な問いを追加し、売上区分だけで機械分類しない。
+1. research開始時に、Baseの残余価値と累積分配を最も左右する価値獲得経路から主要観点を一つ選び、理由を1〜2行で記録する。
+2. 複合事業で別segmentも評価期間の価値を左右する場合だけ、補助観点を一つ選ぶ。その節から重要な問いを追加し、売上区分だけで機械分類しない。
 3. 主要観点の必須の確認事項をすべて確認する。補助観点では、選んだ重要な確認事項をすべて確認する。各問は`answered / unknown / not_applicable`のいずれかにする。
 4. 回答にはsource IDとclaim classを接続し、後述するsourceの独立性とclaim class別の要求に従う。開示されないKPIを同業平均や推測で埋めない。
 5. どの試行観点にも適合しない企業を無理に分類せず、skill `research`の共通確認へ戻る。試行中に観点を追加しない。自然に発生した2〜3件のrun後に、維持・修正・撤回・拡張を別Issueで判断する。
 
 ## 調査結果の記録
 
-- `answered`: 既存の`domain_findings`へ置く。question IDは`heading`、回答と観点の適合理由は`conclusion`、根拠は`evidence.statement / kind / source_ids`へ置く。
-- `not_applicable`: 事業モデルの根拠sourceを持つ`domain_findings`として、理由を`conclusion`に明記する。
-- 部分回答: 確認できた部分だけを`domain_findings`へ置き、未確認部分を`unknowns`へ分ける。
-- `unknown`: 試したsourceと、scenarioおよびpermanent-loss判断への影響を残す。sourceを取得できない場合も偽のevidenceを作らず、`unknowns`へ`<question_id>: unknown — attempted source / decision impact`として置く。
+確認結果は[Thesis v4](./thesis.md)の既存の入力先へ置く。
 
-`answered / unknown / not_applicable`、source role、claim class、`load-bearing`、triangulation statusは、この文書で使うreview語彙である。新しいYAML field、enum、schema、artifactにはしない。必要な区分は、既存の`conclusion`、`evidence.statement`、`unknowns`、thesis sourceの`used_for`へ文章で残す。
+- `answered`: 公表された観測値は`input_snapshot.facts`、計算値は`derived.metrics`、因果・価値獲得経路は`investment_case.explanation`、数値仮定はBase/Downsideの`calculation`へ接続する。根拠は各`source_ids`から参照する。
+- `not_applicable`: 採用しない観点と事業モデル上の理由を、該当するinvestment caseまたはriskの文章に残す。
+- 部分回答・`unknown`: 確認済み部分と未確認部分を分け、試したsourceと判断への影響を該当riskの`summary / evidence_status`、caseの`status_reason`、valuationの`unresolved_reason`に応じて残す。未確認内容を観測factへ置かない。
+
+question ID、`answered / unknown / not_applicable`、source role、claim class、`load-bearing`、triangulation statusは調査用語であり、追加のYAML fieldやartifactにはしない。sourceの用途は`used_for`、最強反対仮説は`judgment.strongest_countercase`に置き、評価と独立Reviewを一組で公開する。
 
 <a id="claim-triangulation"></a>
 <a id="一次性と独立性"></a>
@@ -53,7 +54,7 @@ issuerが作成し、EDINET / TDnet / JPX経由で配布した文書は`issuer-p
 
 ## 主張区分ごとの証拠要件
 
-各claimは`load-bearing / supporting`を区別する。claimが変わることで、permanent-loss結論、base scenario / FV、selected ticker、`buy / defer / reject`、sizing、human overrideの要否のいずれかが変わる場合は`load-bearing`である。
+各claimは`load-bearing / supporting`を区別する。claimが変わることで、permanent-loss結論、Base/Downsideの価値、投資理由の成立性、企業評価の`candidate / defer / reject`、CAAの配分結論のいずれかが変わる場合は`load-bearing`である。
 
 独立した裏取りは、外部状態、需要、競争優位、因果、pipeline成功についての`load-bearing`なclaimに要求する。すべての記述へ機械的に二つのsourceを要求するものではない。
 
@@ -65,10 +66,10 @@ issuerが作成し、EDINET / TDnet / JPX経由で配布した文書は`issuer-p
 | 市場規模・規制・業界成長 | issuer資料だけでは確定しない | 規制当局、政府・業界統計、方法開示済み独立資料が必要 | 独立sourceなしなら`unknown`または幅を持つestimate |
 | 顧客需要・採用・継続・導入効果 | issuerの受注・顧客数など自社KPIの公表範囲まで | 顧客自身の公表、調達記録、独立usage/industry dataのいずれかが必要 | issuer-curated事例だけなら`management_claim`のまま |
 | 競争優位・market share・差別化・pricing power | 自社価格・解約・margin等の公表値まで | 顧客、競合比較、業界統計、規制資料のいずれかが必要 | 裏取り後も優位性の持続は`estimate`。観測factへ昇格しない |
-| pipeline成功・製品hit・承認・稼働効果 | 発売/申請/契約/稼働の公表stageまで | platform、規制当局、partner/customer、独立需要dataのいずれかが必要 | stageと成功確率を分離し、findingsでは`estimate`、数値仮定はthesis `estimates.scenarios`へ置く |
+| pipeline成功・製品hit・承認・稼働効果 | 発売/申請/契約/稼働の公表stageまで | platform、規制当局、partner/customer、独立需要dataのいずれかが必要 | stageと成功確率を分離し、解釈はinvestment case、数値仮定は`valuation.base / downside`の`calculation`へ置く |
 | 否定・不存在 | 明示された開示scope内で「該当なし」と報告したことまで | registry、規制当局、counterparty、対象範囲を覆う複数経路が必要 | 非開示・検索不発から「競合/集中/riskなし」をobservedにせず`unknown` |
 
-独立sourceがclaimを支持しても、`management_claim`やestimateをobserved factへ変換しない。findingsの有効な`evidence.kind`は`observed / derived / estimate / management_claim`だけで、thesisのjudgment namespaceを`kind: judgment`として使わない。複数sourceが同じissuer発表を転載しているだけならtriangulationにならない。
+独立sourceがclaimを支持しても、経営陣の主張や推定を観測factへ変換しない。公表の事実と、その内容の実現可能性を分ける。claim classは文章上の区分であり、`ObservedFact.fact_kind`へ追加しない。複数sourceが同じissuer発表を転載しているだけならtriangulationにならない。
 
 同じissuerの決算短信、説明資料、統合報告書、製品newsはdocument数にかかわらず1 source familyとして扱う。同じ通信社記事の転載や同じ調査datasetを引用する複数記事も1 familyである。source familyはtriangulationの独立性を数える概念だけに使い、対象期・公表日・`used_for`が異なるthesisのsource recordとsource IDは個別に維持する。
 
@@ -76,12 +77,11 @@ issuerが作成し、EDINET / TDnet / JPX経由で配布した文書は`issuer-p
 
 ## `unknown` / `blocked` / `defer`の扱い
 
-- issuer発表を確認できた内容は`management_claim`として残す。独立裏取りを必要とするload-bearing claimに適切な独立sourceが無い場合、claimを削除したり`kind: unknown`を作らず、独立裏取り未了とdecision impactを`conclusion`または`unknowns`へ残す。issuer発表自体も確認できない内容だけをunknownとする。issuer-primaryで確定できる過去の公表値は、その値と因果解釈を分離できていればunknownへ戻さない。
-- 必須の確認事項に回答できないcheckは`blocked`としてよい。`blocked`は個別checkの状態で、caseのdispositionではない。check未完のcaseは`research`に留め、自動的に`reject`へ変えない。
-- 独立裏取りが必要なload-bearing claimをissuer familyだけで支える場合、claimは`management_claim`またはestimateのまま、canonical thesisの`judgment.confidence`は最大`medium`とし、そのpositive claimを無条件にbase/FVへ入れない。sourceが矛盾し未解決なら同confidenceを`low`とする。findingsのconfidenceはthesisを上回らず、HTML前content reviewの`primary source traceability`と`countercase and unknowns`で両者を照合する。
-- unresolved claimが、割安と構造的毀損の区別、永久損失軸、またはrequired 5y returnを満たすscenarioの成立にload-bearingで、保守的な範囲も置けない場合だけ購入判断を`defer`する。
-- unknownをbear caseへ保守的に置いても十分な余裕があり、他の一次sourceでpermanent lossを評価できる場合は、confidenceとmonitoring triggerを明示して比較を続けてよい。
-- `reject`は欠損そのものではなく、確認できた事実と保守的scenarioが恒久毀損または必要利回り不足を示す場合に使う。
+- issuerの公表を確認できても、その将来主張は確定値ではない。独立裏取りが必要な重要claimは、試したsourceと未了の影響を該当するcase・risk・valuationに残す。issuer-primaryで確定できる過去の公表値は、因果解釈から分離して保持する。
+- `blocked`は個別の確認事項を終えられない状態で、Thesisのdispositionではない。根拠不足だけで自動rejectにせず、重要な不明が解消できなければ企業評価をdeferとする。
+- 重要なclaimをissuer familyだけで支える場合やsourceの矛盾が未解決なら、肯定的な価値を無条件にBaseへ入れない。独立Reviewは根拠の検証状態を`primary_source_check`へ反映し、重要な根拠不足のcandidateを通さない。小口配分やoverrideで代替しない。
+- 割安と構造的毀損の区別、永久損失、Base/Downsideの成立性を保守的にも評価できなければ、理由付きunresolved valuationを使う。評価が可能でも重要な不明が残る場合はcase・risk・dispositionで明示する。
+- 非重要なunknownはReviewの`nonmaterial_unknown_reason`へ根拠を示し、比較を続けてよい。rejectは確認した重大な不成立や不適切な企業評価の結論である。現在価格がPmaxを超えたという理由だけで企業評価をrejectにしない。現在の購入条件と候補間配分はPlanningとCAAが所有する。
 
 ## 試行1 — 継続契約software / data
 
@@ -111,7 +111,7 @@ recurring売上・粗利比率、ARR/MRR、NRR/GRR、logo/売上churn、ARPU/sea
 
 ### `blocked` / `defer`の条件
 
-retentionまたはrecurring境界がunknownなのに継続率がFVの主要根拠、serviceとsoftwareのmarginを分けられずoperating leverageを評価不能、大口解約・platform依存がpermanent-loss判断を左右する場合は該当checkをblockedとする。購入判断は、そのunknownがload-bearingで、ゼロ成長・margin低下などの保守的な範囲も置けない場合だけdeferする。
+retentionまたはrecurring境界がunknownなのに継続率がFVの主要根拠、serviceとsoftwareのmarginを分けられずoperating leverageを評価不能、大口解約・platform依存がpermanent-loss判断を左右する場合は該当checkをblockedとする。企業評価は、そのunknownがload-bearingで、ゼロ成長・margin低下などの保守的な範囲も置けない場合だけdeferする。
 
 ## 試行2 — 人員依存project / outsourcing
 
@@ -141,7 +141,7 @@ retentionまたはrecurring境界がunknownなのに継続率がFVの主要根�
 
 ### `blocked` / `defer`の条件
 
-受注/backlogと売上のreconciliationが不明、headcount・単価・稼働率・labor costのうちgrowth/marginを説明する材料が無い、契約資産や不採算projectが急増しcash回収と損失上限を評価できない場合は該当checkをblockedとし、5年scenarioを保守的にも置けなければ購入判断をdeferする。
+受注/backlogと売上のreconciliationが不明、headcount・単価・稼働率・labor costのうちgrowth/marginを説明する材料が無い、契約資産や不採算projectが急増しcash回収と損失上限を評価できない場合は該当checkをblockedとし、評価期間のBase/Downsideを保守的にも置けなければ企業評価をdeferする。
 
 ## 試行3 — IP / live-service / hit portfolio
 
@@ -171,8 +171,8 @@ title/IP別売上、MAU/DAU、payer数・payer率、ARPU/ARPPU、retention、boo
 
 ### `blocked` / `defer`の条件
 
-既存titleだけのflow収益と固定費耐性を評価できない、未発売pipeline成功を除くとrequired returnを満たさないのにstage・cost・独立需要evidenceがunknown、または上位IP/license/platform契約の終了条件がunknownなら該当checkをblockedとする。購入判断は、そのunknownがload-bearingで、pipeline価値ゼロ・既存title減衰・margin低下などの保守的な範囲も置けない場合だけdeferする。未発売titleを除いた既存flowで事業継続と十分な価値を支えられるなら、pipelineをbull/optionに限定して比較を続けてよい。
+既存titleだけのflow収益と固定費耐性を評価できない、未発売pipeline成功を除くとrequired returnを満たさないのにstage・cost・独立需要evidenceがunknown、または上位IP/license/platform契約の終了条件がunknownなら該当checkをblockedとする。企業評価は、そのunknownがload-bearingで、pipeline価値ゼロ・既存title減衰・margin低下などの保守的な範囲も置けない場合だけdeferする。未発売titleを除いた既存flowで事業継続と十分な価値を支えられるなら、pipelineの上振れを補助的な可能性として文章に留め、比較を続けてよい。
 
 ## 試行の見直し
 
-次回以降の自然発生researchから2〜3件で、共通checklistと比べて新たに立った問い、残ったunknown、scenario/FVまたはdispositionへの影響、追加負担をoperation sessionへ残す。確認のために候補選定、research、売買を強制せず、`buy / reject / defer / no_allocation`をすべて正常結果とする。1件だけで投資精度の改善を断定せず、試行観点が問いを増やすだけで判断を変えない場合は、項目追加より削減・統合・撤回を優先する。
+次回以降の自然発生researchから2〜3件で、共通checklistと比べて新たに立った問い、残ったunknown、scenario/FVまたはdispositionへの影響、追加負担をoperation sessionへ残す。確認のために候補選定、research、売買を強制せず、企業評価の`candidate / reject / defer`と、別の資本配分判断である`allocate / no_allocation / defer`を区別し、根拠のある各結論を正常結果とする。1件だけで投資精度の改善を断定せず、試行観点が問いを増やすだけで判断を変えない場合は、項目追加より削減・統合・撤回を優先する。

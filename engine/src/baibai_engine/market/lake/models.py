@@ -1,4 +1,4 @@
-"""Strict immutable manifest models for L1 and L2 market datasets."""
+"""L1 market dataset・releaseの不整合を止めるimmutable manifest model。"""
 
 from __future__ import annotations
 
@@ -57,20 +57,10 @@ class _SourceRefBase(BaseModel):
 
 
 class SQLiteSnapshotSourceRef(_SourceRefBase):
-    """Which sealed generation of the legacy store a build read, without keeping it.
+    """L1 exportが読んだ一時SQLite snapshotのschema・digest・取得時刻を示す。
 
-    The snapshot exists to give one build a single consistent read of a store that
-    changes under it. That job ends when the build ends, and the bytes are the whole
-    legacy store — roughly 2 GB — so keeping one per build would make the lake grow
-    with the number of runs rather than with what it publishes. This reference is
-    therefore identity only: it names the schema version, the content digest, and the
-    capture time, and it names no key, because nothing keeps those bytes.
-
-    What it still proves: two builds that state the same ``source_id`` read identical
-    input, and a store generation offered as the input to a rebuild can be checked
-    against this digest before it is believed. What it does not promise: that such a
-    generation is still obtainable. Rebuild-from-lineage is guaranteed only when the
-    cohort's tables are published as keyed, rebuildable L1 releases.
+    snapshotは一回のbuild中の読取世代を固定する。sourceは保持objectのkeyを持たず、
+    build完了後のsnapshot bytes取得や、全入力の再構築を保証しない。
     """
 
     kind: Literal["sqlite_snapshot"]

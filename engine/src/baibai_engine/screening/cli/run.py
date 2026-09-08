@@ -497,9 +497,7 @@ def _required_ttm_non_exact_count(
 def _index_next_earnings(
     entries: Sequence[JPXEarningsCalendarEntry], asof_date: date
 ) -> dict[str, date]:
-    # Pick the soonest forthcoming earnings announcement (>= asof_date) per
-    # ticker so research theses can populate next_earnings_date for the
-    # decision-period kill switch.
+    # Show the soonest forthcoming earnings announcement (>= asof_date) per ticker.
     by_ticker: dict[str, date] = {}
     for entry in entries:
         if entry.announcement_date < asof_date:
