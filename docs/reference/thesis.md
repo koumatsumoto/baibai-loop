@@ -56,7 +56,42 @@ Decimalで計算・比較し、Pmaxを呼値や整数円に丸めない。価格
 
 terminalは分配後に残る価値、cashは当該期間の累積分配である。配当・資産売却・買戻しを二重算入しない。起点の未調整1株に権利単位を揃え、分割、自己株控除、希薄化を説明する。NI×PERへ負債を再度控除せず、EVと株主価値を混同しない。回復可能な赤字を正の起点利益へ捏造しない。Downsideは経済的に不利な状態から組み立てる。
 
-倍率上昇には一次資料で確認した利益品質・事業構造等の根拠を記す。機械anchorや相対的割安さだけを根拠にせず、倍率が回復しない反対仮説も検算する。株数は会社EPSとの整合を確認し、自己株式込みのグロス株数を無条件に使わない。金融的妥当性は作者と独立Reviewの責務であり、productionで任意formulaを実行しない。
+倍率上昇には一次資料で確認した利益品質・事業構造等の根拠を記す。機械anchorや相対的割安さだけを根拠にせず、倍率が回復しない反対仮説も検算する。利益と倍率、業績と借換えが連動して悪化する場合は、一変数だけ動かして反証を済ませない。株数は会社EPSとの整合を確認し、自己株式込みのグロス株数を無条件に使わない。金融的妥当性は作者と独立Reviewの責務であり、productionで任意formulaを実行しない。
+
+<a id="valuation-context"></a>
+
+### 原価格の成立条件と時間感度
+
+`research evaluate`の`valuation_context`は、参照価格factの未調整1株価格P、原評価の期間hと記録済み要求年率rを使う読み取り専用の計算資料である。`price_context=thesis_snapshot`と評価日・価格日・basisを併記し、現在quoteやpolicyで置換しない。古いThesisも原価格・原期間で読み、当日の購入可否や保有の残存見返りには使わない。
+
+```text
+H = required_total_value_at_P
+required_terminal_s = max(0, H - cumulative_cash_s)
+total_value_surplus_s = terminal_s + cumulative_cash_s - H
+fixed_value_delay: terminal_sと累積cash_sを固定し、h+12か月で年率を再計算
+```
+
+Base/Downsideの必要terminalは、その累積分配で要求年率以上に届く最低の非負価値である。分配だけでHを超える場合は0という下限であり、等号成立点ではない。総価値差額は符号付き差額で、安全余裕・損失許容額・買い可否ではない。Downsideの不足を追加の不合格条件にしない。Hは既存Pmaxの代数的な読み替えで、FV、市場の期待値、独立した割安signalではない。
+
+固定価値の遅延は追加配当・利息・再投資を仮定せず、総価値と総returnを変えない。全損なら年率も-100%。損失caseで年率損失の絶対値が縮んでも総損失は減らない。実際の遅延では利益・分配・返済・資金調達・希薄化が変わり得るため、materialなら経済条件を一貫して組み直し、既存calculationとcountercaseへ記す。h+12の表示だけで遅延を検証済みとせず、必要年率未達だけを保有exitへ接続しない。
+
+内容検証済みのresolvedな`ready / ready_with_warnings`と、唯一の未完了がReview未添付の`review_required`で表示する。後者は計算資料が読めても`not_ready`・exit 2のままで、公開前に独立Reviewが必要である。未作成の`--review`指定先も未添付として扱う。その他のincompleteとunresolvedはnullとなり、欠損を0や過去candidateで埋めない。既存5項目・終了コードは診断の有無で変わらず、診断の数値計算・変換だけが失敗した場合も全contextをnull、理由をstderrへ出す。parseや既存入力エラーは従来どおりerrorとなる。総return・年率は小数4桁、通貨は既存Decimal変換で表示し、表示丸めを判定に使わない。
+
+### 判断理由への接続例
+
+以下は架空の算術例であり、実銘柄や収益効果の検証ではない。事業の見積りを一次根拠から独立に構成した後、必要価値と比較する。必要額に合わせて利益・倍率を引き上げてはいけない。採用モデルに応じ、判断を左右する少数の仮定を確認する。一般に1〜2点で足りるが、件数をgateや調査打切り条件にしない。
+
+| 例 | 算術と既存文章欄で扱う判断 |
+| --- | --- |
+| P=1000円、h=12、r=8.5%、D=30円 | H=1085円、必要terminal=1055円。EPS×PERモデルでPER10を固定するなら必要EPS=105.5円。数量・利益率・税・株数から独立に見積もったEPSの範囲と比較し、`valuation.base.calculation`へ前提と代入を書く。市場のEPS予想とは呼ばず、資産・EV評価へPER式を強制しない |
+| 同じP/h/r、D=0円。AはEPS100×PER13、BはEPS130×PER10でBase1300円 | 両方の総returnは30%だが、PER10のままならAは0%、Bは30%。AがPER10でH=1085円に届くにはEPS108.5円が必要。Aは利益品質・事業構造による倍率上昇の根拠、Bは受注・利益率等によるEPS回復の根拠を吟味する。どちらの根拠が弱いかをCAAの`comparison / forgone / alternatives[].rationale`で説明し、倍率上昇なしだけでBを自動採用しない |
+| Base V=1270円/D=30円、Downside V=680円/D=20円 | 総価値1300円/700円、12か月年率30%/-30%。固定価値で24か月なら14.0175%/-16.3340%となるが、総returnは30%/-30%のまま。返済期限が追加資金を要求するなら、その条件を再構成してcountercaseに記す |
+| 返済条件不明と、将来EPSの幅 | materialな返済条件を確認できなければdefer等を維持し、`nonmaterial_unknown_reason`で通さない。一方、一次根拠から将来EPSを幅で置くこと自体は自動排除の理由にしない。根拠のない回復予測や合理的に評価できないcaseはdefer等とする |
+| 企業はcandidateだが当日価格がPmax超過 | CAAで配分を見送り、または既存allocateに対するPlanningをdeferとする。価格だけを理由に企業rejectや保有exitへ変換しない |
+
+必要な業績・倍率・分配・感度は既存Base/Downsideの`calculation`、実現経路と成立条件は`investment_case.explanation / status_reason / invalidation_conditions`、作者と独立Reviewの反証はそれぞれの`strongest_countercase`に書く。数値の引用は原価格・期間・仮定に対応させ、全出力や新しい派生fieldをThesis/CAAへ複写しない。
+
+作者はdraftをevaluateして重要仮定を仕上げ、独立Reviewでsourceと金融的妥当性を再確認してからpromoteし、CAAの比較理由へ接続する。contextのコピーは独立検算ではない。Review後にcoreを変えたらReviewを取り直す。Review前のexit 2は`thesis_status / errors`を確認して計算資料として読み、他のerrorを`|| true`等で握りつぶさない。
 
 <a id="permanent-loss-axes"></a>
 

@@ -111,3 +111,40 @@ def required_total_value(
         horizon = _horizon(horizon_months)
         rate = _positive(required_annual_return_pct, "required_annual_return_pct") / 100
         return price * (1 + rate) ** horizon
+
+
+@dataclass(frozen=True, slots=True)
+class ValuationConditions:
+    required_total_value_yen: Decimal
+    required_terminal_value_per_share_yen: Decimal
+    total_value_surplus_yen: Decimal
+    returns: ReturnProjection
+    delayed_returns: ReturnProjection
+
+
+def valuation_conditions(
+    projection: Projection,
+    *,
+    price_yen: Decimal,
+    horizon_months: int,
+    required_annual_return_pct: Decimal,
+) -> ValuationConditions:
+    """Recorded price requirements and h+12 sensitivity with terminal/cash held fixed."""
+    with localcontext() as context:
+        context.prec = 50
+        required = required_total_value(
+            price_yen=price_yen,
+            horizon_months=horizon_months,
+            required_annual_return_pct=required_annual_return_pct,
+        )
+        returns = project_return(projection, price_yen=price_yen, horizon_months=horizon_months)
+        delayed = project_return(
+            projection, price_yen=price_yen, horizon_months=horizon_months + 12
+        )
+        return ValuationConditions(
+            required,
+            max(Decimal(0), required - projection.cash_distribution_per_share_yen),
+            returns.total_value_yen - required,
+            returns,
+            delayed,
+        )

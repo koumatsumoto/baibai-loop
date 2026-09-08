@@ -20,6 +20,7 @@ from baibai_engine.research.valuation import (
     maximum_entry_price,
     project_return,
     required_total_value,
+    valuation_conditions,
 )
 
 NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
@@ -207,3 +208,58 @@ def test_independently_checked_financial_golden_cases(tmp_path, terminal, cash, 
     # A hash match cannot replace independently checked financial arithmetic.
     with pytest.raises(ResearchValidationError, match="terminal"):
         service.publish_reviewed_thesis("wrong", thesis, review, supersedes_id="correct")
+
+
+@pytest.mark.parametrize(
+    ("rate", "months", "terminal", "cash", "required", "minimum", "surplus", "annual", "delayed"),
+    [
+        ("8.5", 12, 1270, 30, 1085, 1055, 215, "30", "14.0175"),
+        ("8.5", 12, 680, 20, 1085, 1065, -385, "-30", "-16.3340"),
+        ("8.5", 12, 0, 0, 1085, 1085, -1085, "-100", "-100"),
+        ("8.5", 12, 0, 1100, 1085, 0, 15, "10", "4.8809"),
+        ("21", 6, 1200, 10, 1100, 1090, 110, "46.41", "13.5508"),
+        ("10", 24, 1170, 40, 1210, 1170, 0, "10", "6.5602"),
+    ],
+)
+def test_price_conditions_and_fixed_value_delay(
+    rate, months, terminal, cash, required, minimum, surplus, annual, delayed
+):
+    scenario = projection(terminal, cash)
+    before = scenario.model_dump()
+    result = valuation_conditions(
+        scenario,
+        price_yen=Decimal(1000),
+        horizon_months=months,
+        required_annual_return_pct=Decimal(rate),
+    )
+    assert abs(result.required_total_value_yen - required) < Decimal("1e-40")
+    assert abs(result.required_terminal_value_per_share_yen - minimum) < Decimal("1e-40")
+    assert abs(result.total_value_surplus_yen - surplus) < Decimal("1e-40")
+    assert abs(result.returns.annualized_return_pct - Decimal(annual)) < Decimal("1e-40")
+    assert round(result.delayed_returns.annualized_return_pct, 4) == Decimal(delayed)
+    assert (
+        result.returns.total_value_yen == result.delayed_returns.total_value_yen == terminal + cash
+    )
+    assert result.returns.total_return_pct == result.delayed_returns.total_return_pct
+    assert scenario.model_dump() == before
+
+
+@pytest.mark.parametrize("field", ["price_yen", "required_annual_return_pct", "horizon_months"])
+@pytest.mark.parametrize("bad", [True, False, 0, -1, float("nan"), float("inf"), Decimal("NaN")])
+def test_conditions_keep_existing_input_rejection(field, bad):
+    inputs = dict(
+        price_yen=Decimal(1000), required_annual_return_pct=Decimal(12), horizon_months=12
+    )
+    inputs[field] = bad
+    with pytest.raises(ValueError, match=r"finite|positive|integer"):
+        valuation_conditions(projection(), **inputs)
+
+
+def test_conditions_keep_valuation_precision_for_small_surplus():
+    result = valuation_conditions(
+        projection("1085.00000000000000000000000000000000000001", 0),
+        price_yen=Decimal(1000),
+        horizon_months=12,
+        required_annual_return_pct=Decimal("8.5"),
+    )
+    assert result.total_value_surplus_yen == Decimal("1e-38")

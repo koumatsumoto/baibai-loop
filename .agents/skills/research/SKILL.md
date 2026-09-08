@@ -41,9 +41,9 @@ as-of、最大80件の比較snapshot、Researchへ進められるtickerはapplic
 2. 会社 IR、EDINET、決算資料などの一次資料で load-bearing claim を調べる。検索 snippet、二次情報、外部 AI 出力を観測事実にしない。playbook は `applies_to_valuation_approach_ids` の明示 mapping だけを使い、同名 slug から implicitに対応を推測しない。[事業モデル別リサーチ](../../../docs/reference/business-model-research.md)は指定 playbook の補助に限る。
 3. 未織込み、価値変化、実現経路、失敗・遅延、配当持続性、7軸を一次根拠で確認する。Playbookは問いとして使い、checklist完了印を公開gateにしない。非開示はunknownとし、重要性とdispositionへの影響を説明する。
 4. Triageに束縛されたMacro Contextの`connection.estimate_caveats`を確認し、materialな含意だけをcalculation、investment case、反対仮説へ接続する。macroとE[r]はcontextで、単独gateにしない。技術・産業構造変化も同じ契約で扱う。
-5. Base/Downsideを一つのhorizonで組み立て、terminalと当該期間の分配を区別する。赤字回復を正の起点利益へ捏造せず、NI×PER/EV、負債、分割・自己株・希薄化の単位と二重算入を検算する。
-6. `review-scaffold`の独立検算欄は作者値をコピーせず、別の作業者がsourceと計算を再確認する。`evaluate <thesis> --review <review>`でsource・単位・hash・terminal/cash不一致を解消する。企業別Reviewに候補比較を重複させない。
-7. 価格や評価額が不明でも、根拠付きunresolvedとdefer/rejectを完成させる。重要な証拠不足を小口購入やoverrideで通さない。非重要なunknownをcandidateに残す場合はReviewで理由を説明する。
+5. 一次根拠からBase/Downsideを一つのhorizonで組み立て、terminalと当該期間の累積分配を区別する。赤字回復を正の起点利益へ捏造せず、NI×PER/EV、負債、分割・自己株・希薄化の単位と二重算入を検算する。`evaluate <thesis>`の原価格の`valuation_context`を読み、必要terminalと独立に見積もった妥当範囲を比較する。必要額に合わせて予測を引き上げず、判断を左右する少数の仮定を既存calculation・investment case・countercaseへ書く。倍率回復なしを検算し、遅延がmaterialなら利益・分配・借換え・株数の連動を含む経済条件を組み直す。[計算の限界と記入例](../../../docs/reference/thesis.md#valuation-context)に従い、固定価値のh+12を実際の遅延検証としない。Review未添付だけの`review_required`は計算資料が出てもexit 2のままで、errorsを確認し他の失敗を握りつぶさない。
+6. `review-scaffold`の独立検算欄は作者値をコピーせず、別の作業者がsourceと計算を再確認する。`evaluate <thesis> --review <review>`でsource・単位・hash・terminal/cash不一致を解消する。contextのコピーを独立検算とせず、経済的反証をReviewの`strongest_countercase`へ書く。core修正後はReviewを取り直し、企業別Reviewに候補比較を重複させない。
+7. 価格や評価額が不明でも、根拠付きunresolvedとdefer/rejectを完成させる。重要な証拠不足を小口購入やoverrideで通さない。返済条件などmaterialな事実不明と、根拠を伴う将来見積りの幅を区別し、未来が未確定という理由だけでcandidateを排除しない。根拠不足はdefer等を維持し、本当に非重要なunknownだけReviewで理由を説明する。
 
 ## 3. 比較して disposition を決める
 
@@ -51,7 +51,7 @@ as-of、最大80件の比較snapshot、Researchへ進められるtickerはapplic
 
 ## 4. Assessment とcontent reviewを公開する
 
-`research capital-allocation-scaffold` で promote 済みの全 case を Capital Allocation Assessment に含め、`rationale` に具体的な判断理由を書く。research question が複数論点を含む場合は分割し、一部未解決のまま全体を `answered` にしない。
+`research capital-allocation-scaffold` で promote 済みの全 case を Capital Allocation Assessment に含め、既存`comparison / forgone / alternatives[].rationale`に、重要仮定とその根拠、不利な条件での見返りから採用／見送りを説明する。Base年率やPmax内だけで選ばず、倍率上昇と業績回復への依存を区別し、一律順位にしない。診断数値を機械fieldとして複写せず、人間には結論・少数の成立仮定・提案が変わる反対条件を伝える。全出力の読み合わせや確認段階を増やさない。research question が複数論点を含む場合は分割し、一部未解決のまま全体を `answered` にしない。
 
 1. `research capital-allocation-publish --check` で digest を確認する。review 前の `review_binding=stale` は正常。
 2. Capital Allocation Assessment author と別の役がcontent reviewを作る。

@@ -20,7 +20,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.research.decimal_number import decimal_to_number
-from baibai_engine.research.valuation import Projection, finite_decimal, project_return
+from baibai_engine.research.valuation import (
+    Projection,
+    finite_decimal,
+    project_return,
+    valuation_conditions,
+)
 
 _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=False)
 _TICKER = r"^[0-9A-Z]{4}$"
@@ -453,6 +458,90 @@ def evaluation_to_payload(result: ThesisEvaluation) -> dict[str, object]:
         "errors": list(result.errors),
         "warnings": list(result.warnings),
     }
+
+
+def thesis_valuation_context(
+    document: ThesisDocument, evaluation: ThesisEvaluation
+) -> dict[str, object] | None:
+    """検証済み原Thesisの成立条件を見せる。現在quote・売買判定・保存には使わない。"""
+    valuation = document.valuation
+    if evaluation.thesis_status not in {"ready", "ready_with_warnings", "review_required"} or (
+        valuation.status != "resolved"
+    ):
+        return None
+    assert valuation.horizon_months is not None
+    assert valuation.required_annual_return_pct is not None
+    assert valuation.base is not None
+    assert valuation.downside is not None
+    price_fact = next(
+        fact
+        for fact in document.input_snapshot.facts
+        if fact.fact_id == valuation.market_price_fact_id
+    )
+    price = finite_decimal(price_fact.value)
+    result: dict[str, object] = {
+        "price_context": "thesis_snapshot",
+        "valuation_as_of": document.input_snapshot.as_of.isoformat(),
+        "price_as_of": price_fact.as_of.isoformat(),
+        "price_basis": price_fact.price_basis,
+        "price_yen": _valuation_context_number(price),
+        "horizon_months": valuation.horizon_months,
+        "required_annual_return_pct": _valuation_context_number(
+            valuation.required_annual_return_pct
+        ),
+        "return_basis": "conditional_pretax_without_reinvestment",
+    }
+    delay: dict[str, object] = {
+        "additional_months": 12,
+        "horizon_months": valuation.horizon_months + 12,
+        "assumption": "terminal_and_cumulative_cash_unchanged",
+    }
+    for name, projection in (("base", valuation.base), ("downside", valuation.downside)):
+        conditions = valuation_conditions(
+            projection,
+            price_yen=price,
+            horizon_months=valuation.horizon_months,
+            required_annual_return_pct=valuation.required_annual_return_pct,
+        )
+        result["required_total_value_yen"] = _valuation_context_number(
+            conditions.required_total_value_yen
+        )
+        result[name] = {
+            "terminal_value_per_share_yen": _valuation_context_number(
+                projection.terminal_value_per_share_yen
+            ),
+            "cash_distribution_per_share_yen": _valuation_context_number(
+                projection.cash_distribution_per_share_yen
+            ),
+            "total_value_yen": _valuation_context_number(conditions.returns.total_value_yen),
+            "total_return_pct": _valuation_context_number(
+                round(conditions.returns.total_return_pct, 4)
+            ),
+            "annualized_return_pct": _valuation_context_number(
+                round(conditions.returns.annualized_return_pct, 4)
+            ),
+            "required_terminal_value_per_share_yen": _valuation_context_number(
+                conditions.required_terminal_value_per_share_yen
+            ),
+            "total_value_surplus_yen": _valuation_context_number(
+                conditions.total_value_surplus_yen
+            ),
+        }
+        delay[f"{name}_annualized_return_pct"] = _valuation_context_number(
+            round(conditions.delayed_returns.annualized_return_pct, 4)
+        )
+    result["fixed_value_delay"] = delay
+    return result
+
+
+def _valuation_context_number(value: Decimal) -> int | float:
+    number = decimal_to_number(finite_decimal(value))
+    if isinstance(number, int):
+        # YAML renders integers as text; keep its numeric conversion limit inside diagnostics.
+        str(number)
+    if isinstance(number, float) and not math.isfinite(number):
+        raise ValueError("valuation context number is not finite after output conversion")
+    return number
 
 
 def load_thesis(path: Path) -> ThesisDocument:

@@ -1,10 +1,11 @@
-"""Read-only CLI for deterministic thesis evaluation."""
+"""Researchの公開内容評価と原価格の成立条件を読み取り専用で見せるCLI。"""
 
 from __future__ import annotations
 
 import argparse
 import sys
 from datetime import datetime
+from decimal import DecimalException
 from pathlib import Path
 
 import yaml
@@ -16,6 +17,7 @@ from .thesis import (
     evaluation_to_payload,
     load_thesis,
     load_thesis_review,
+    thesis_valuation_context,
 )
 
 
@@ -54,6 +56,12 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     except ThesisError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
+    # Diagnostics cannot change publication readiness, including review_required.
+    try:
+        payload["valuation_context"] = thesis_valuation_context(thesis, evaluation)
+    except (DecimalException, OverflowError, ValueError) as error:
+        payload["valuation_context"] = None
+        print(f"valuation_context unavailable: {error}", file=sys.stderr)
     yaml.safe_dump(
         payload,
         sys.stdout,
