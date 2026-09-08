@@ -18,6 +18,10 @@ Capital Allocation Assessment は、人間のexact Research Setで深掘りし�
 
 判断の散文はCapital Allocation Assessmentが正本だが、原評価のBase/Downside、要求リターン、Pmax、企業評価の成立性は正本ではない。read surfaceはbound immutable thesisから再導出し、payloadへ複写しない。
 
+比較理由は`comparison / forgone / alternatives[].rationale`へ書く。[原価格の成立条件と時間感度](./thesis.md#valuation-context)を参考に、割安さを支える重要仮定、根拠の強弱、不利な経済条件での見返りから、配分する理由／どれにも配分しない理由を説明する。同じBase年率でも倍率上昇と業績回復への依存を区別し、倍率上昇なしを一律優先しない。Base年率やPmax内だけで選ばず、価格だけが高いcandidateは企業rejectへ変えない。
+
+原Thesisの診断は当日価格での適格性を代用しない。必要な数値を説明に引用するときは対応する原価格・期間・仮定を明示し、全診断の転記や新しいmachine fieldを作らない。人間へは結論、重要な成立仮定、提案が変わる反対条件を伝える。
+
 ## Schema v1
 
 top-levelは`schema_version / kind / capital_allocation_assessment_id / as_of / published_at / result / headline / research_triage_id / macro_context_id / comparison / forgone / alternatives / review`を持つ。alternativeはticker、disposition、具体的理由、thesis/review bindingだけを持つ。Thesis由来のmachine scalarは複写しない。
