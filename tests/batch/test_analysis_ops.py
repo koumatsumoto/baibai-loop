@@ -589,3 +589,110 @@ print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 321, 'outp
     assert input_bytes == analysis_cli._model_input_bytes(model_input)
     assert not (run_dir / ".output-schema.json").exists()
     assert {path.name for path in run_dir.iterdir()} == {"run.log", "result.json"}
+
+
+@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize("output_format", ["text", "json"])
+def test_success_hands_every_canonical_candidate_to_the_human(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    existing: bool,
+    output_format: str,
+) -> None:
+    review_set = _review_set(tickers=("2331", "0001", "0002"))
+    triage = _triage(review_set, research=("2331", "0001"))
+    # Serialized ticker order deliberately differs from judgment priority.
+    triage = triage.model_copy(update={"entries": tuple(reversed(triage.entries))})
+    monkeypatch.setattr(
+        analysis_cli,
+        "load_daily_analysis_context",
+        lambda _asof, **_kwargs: DailyAnalysisContext(
+            review_set, triage if existing else None, None
+        ),
+    )
+    published = []
+
+    def publish(*_args, **_kwargs):
+        published.append(triage)
+        return triage
+
+    monkeypatch.setattr(analysis_cli, "publish_daily_research_triage", publish)
+    model, calls = _model_runner({"2331": "research", "0001": "research", "0002": "skip"})
+    args = _args(tmp_path)
+    args.format = output_format
+    assert analysis_cli._run(args, model_runner=model) == 0
+    stdout = capsys.readouterr().out
+    summary = _summary(tmp_path)
+    assert summary["research_triage_id"] == triage.research_triage_id
+    assert summary["as_of"] == "2026-09-01"
+    expected = [
+        {
+            "ticker": entry.ticker,
+            "priority": entry.priority,
+            "rationale": entry.rationale,
+            "research_question": entry.research_question,
+            "key_risk": entry.key_risk,
+        }
+        for entry in sorted(triage.entries, key=lambda entry: entry.priority or 0)
+        if entry.decision == "research"
+    ]
+    assert summary["research_candidates"] == expected
+    assert [entry["priority"] for entry in expected] == [1, 2]
+    assert len(calls) == len(published) == (0 if existing else 1)
+    if output_format == "json":
+        assert json.loads(stdout)["research_candidates"] == expected
+    else:
+        assert f"research_triage_id={triage.research_triage_id}" in stdout
+        assert stdout.index("priority=1 ticker=") < stdout.index("priority=2 ticker=")
+        for entry in expected:
+            for field in ("ticker", "rationale", "research_question", "key_risk"):
+                assert entry[field] in stdout
+
+
+def test_published_stdout_id_prepares_the_exact_research_set(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from tests.helpers.db_seed import seed_ledger
+    from tests.helpers.ledger import load_portfolio_ledger
+
+    from baibai_engine.operation.service import OperationService
+    from baibai_engine.research.workspace_cli import main as research_main
+
+    _seed_canonical_review_set(tmp_path)
+    app_db = tmp_path / "stores/application/baibai.sqlite"
+    seed_ledger(
+        app_db,
+        load_portfolio_ledger(
+            Path(__file__).resolve().parents[1] / "fixtures/portfolio-ledger/representative.yaml"
+        ).model_copy(update={"market_prices": ()}),
+    )
+    model, calls = _model_runner({"2331": "research"})
+    assert analysis_cli._run(_args(tmp_path), model_runner=model) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert analysis_cli._run(_args(tmp_path), model_runner=model) == 0
+    second = json.loads(capsys.readouterr().out)
+    assert first["research_triage_id"] == second["research_triage_id"]
+    assert first["research_candidates"] == second["research_candidates"]
+    assert len(calls) == 1
+    assert (
+        research_main(
+            [
+                "prepare",
+                "--research-triage-id",
+                second["research_triage_id"],
+                "--ticker",
+                "2331",
+                "--db",
+                str(app_db),
+                "--workspace",
+                str(tmp_path / "workspace"),
+            ]
+        )
+        == 0
+    )
+    operation = OperationService(app_db).active()
+    assert operation is not None
+    assert operation.payload.canonical_refs == (first["research_triage_id"],)
+    assert operation.payload.artifacts[0]["research_set"] == ["2331"]

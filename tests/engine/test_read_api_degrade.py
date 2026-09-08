@@ -43,7 +43,7 @@ _WRITE_GATES = frozenset({"market_calendar_business_day", "previous_run_revision
 _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
     {
         *_NOT_STORE_READERS,
-        "is_unwritten_store",  # classifies an exception, not a store
+        "is_unwritten_store",  # requires a query exception as well as a store
         "macro_registered_series",  # reads the bundled definitions, not a store
         "macro_series_names",  # reads the bundled definitions, not a store
         "read_rows",  # takes the SQL to run, which this file would have to invent
@@ -577,3 +577,59 @@ def test_assessment_reader_rejects_an_unknown_version(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="unsupported capital allocation schema_version"):
         read_api.list_capital_allocation_assessment_payloads(store)
+
+
+@pytest.mark.parametrize("mutation", ["missing-table", "missing-column"])
+def test_macro_partial_store_is_not_unpublished(tmp_path: Path, mutation: str) -> None:
+    from baibai_engine.macro.indicators.db import seed_definitions
+    from baibai_engine.macro.indicators.definitions import load_definitions
+
+    path = tmp_path / "macro.sqlite"
+    with closing(initialize_macro_database(path)) as connection:
+        seed_definitions(connection, load_definitions())
+        connection.commit()
+    readers = [
+        lambda: read_api.macro_reading_snapshot(path, asof=date(2026, 7, 29)),
+        lambda: read_api.macro_indicator_series(path, series_id="jp.cpi.headline"),
+    ]
+    assert all(isinstance(reader(), dict) for reader in readers)
+    assert read_api.macro_indicator_series(path, series_id="unknown") is None
+    with sqlite3.connect(path) as connection:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        connection.execute("DROP TABLE observations")
+        if mutation == "missing-column":
+            connection.execute("CREATE TABLE observations (series_id TEXT)")
+    original = path.read_bytes()
+    for reader in readers:
+        with pytest.raises(
+            sqlite3.OperationalError,
+            match="no such table: observations"
+            if mutation == "missing-table"
+            else "no such column",
+        ):
+            reader()
+    assert path.read_bytes() == original
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == version
+
+
+def test_run_payload_partial_store_is_not_an_absent_id(tmp_path: Path) -> None:
+    from tests.helpers.screening_run import screening_run_payload, security_analysis
+
+    from baibai_engine.screening.run_store import ScreeningRunStore
+
+    path = tmp_path / "runs.sqlite"
+    ScreeningRunStore(path).publish_run(
+        screening_run_payload(security_analyses=(security_analysis(),)), run_revision_id="run-test"
+    )
+    assert isinstance(read_api.screening_run_payload(path, run_revision_id="run-test"), dict)
+    assert read_api.screening_run_payload(path, run_revision_id="absent") is None
+    with sqlite3.connect(path) as connection:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        connection.execute("DROP TABLE security_analysis")
+    original = path.read_bytes()
+    with pytest.raises(sqlite3.OperationalError, match="no such table: security_analysis"):
+        read_api.screening_run_payload(path, run_revision_id="run-test")
+    assert path.read_bytes() == original
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == version

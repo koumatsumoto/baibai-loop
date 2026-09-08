@@ -42,7 +42,13 @@ AI result不正、adapter failure、binding / CAS conflictでは新しいResearc
 
 ## 出力とlocal artifact
 
-stdoutはstatus、as-of、model process / request数、input bytes、actual token（取得できる場合）、research / skip数、human action、log pathだけをcompactに出す。`summary.json`にはmachine command 0とAI duration、tool / file read数を残す。Review Setなし、空Review Set、exact既存Triageはexit 0とし、store、AI result、binding、CAS、canonical writeのfailureはnon-zeroを維持する。通常成功時にlogを読む必要はない。
+stdoutはstatus、as-of、model process / request数、input bytes、actual token（取得できる場合）、research / skip数、human action、log pathを出す。
+
+新規・既存の成功時はcanonical `research_triage_id`と`as_of`、全`research_candidates`をpriority順に返す。各候補は`ticker / priority / rationale / research_question / key_risk`をcanonical判断から省略せず投影し、textでは候補ごとの複数行、JSONでは同名の配列として出す。
+
+人間の選択後はこのexact IDと選択tickerだけを`research prepare`へ渡し、過去日の結果をlatest Triageへ置き換えない。全skip・Review Setなしでは選択を要求しない。
+
+`summary.json`にはmachine command 0とAI duration、tool / file read数を残す。Review Setなし、空Review Set、exact既存Triageはexit 0とし、store、AI result、binding、CAS、canonical writeのfailureはnon-zeroを維持する。通常成功時にlogを読む必要はない。
 
 各runは`${XDG_STATE_HOME:-~/.local/state}/baibai-loop/analysis/<timestamp>/`に最大4 artifactを置く。
 

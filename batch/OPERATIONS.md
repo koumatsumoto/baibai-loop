@@ -750,7 +750,7 @@ uv run baibai-batch analysis run --asof YYYY-MM-DD  # 手動再実行
 
 先に`batch/scripts/pull.sh`で取得したR2のcanonical runs storeから、対象`as_of`でlatest published Review Setを読み、AI不要条件を判定してから必要な場合だけReview Set全体を1回のlocal AI requestへ渡す。対象日のReview Setが無ければ前営業日へfallbackせず`no_review_set`で終了する。AI resultのstrict検証とResearch Triage publishだけを行い、Screening Run、Review Set、macro refresh、read model export、prune、task reconcile、Operationは作らない。full-depth Macro Contextはmanualの`macro-context` skillから実行する。
 
-通常stdoutはstatus、model / token計測、research / skip数、human action、private log pathだけを返す。成功log、CLI help、runbook、local artifactをAIやoperatorが読む必要はない。失敗時は表示された`log_path`だけを確認し、同じcommandをfreshに再実行する。active pointer、resume、candidate cache、`prepare / status / check / publish`の分散操作は使わない。詳細は[`analysis-operations.md`](../docs/reference/analysis-operations.md)を正本とする。
+通常stdoutはstatus、model / token計測、research / skip数、canonical Triage IDとas-of、priority順の全research候補と理由・調査質問・主要リスク、human action、private log pathを返す。人間の選択後は表示されたexact Triage IDと選択tickerだけを`research prepare`へ渡す。成功log、CLI help、runbook、local artifactをAIやoperatorが読む必要はない。失敗時は表示された`log_path`だけを確認し、同じcommandをfreshに再実行する。active pointer、resume、candidate cache、`prepare / status / check / publish`の分散操作は使わない。詳細は[`analysis-operations.md`](../docs/reference/analysis-operations.md)を正本とする。
 
 ## notify_discord.py — 日次 batch 結果の Discord 通知
 

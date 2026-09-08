@@ -265,9 +265,9 @@ def test_imported_orders_are_summarised_apart_from_decision_bound_orders(tmp_pat
     payload = build_limit_outcomes(app_db=app_db, market_db=market, asof=ASOF)
 
     summary = payload["summary"]
-    assert summary["all_ledger_orders"]["fill_rate_pct"] == pytest.approx(50.0)
+    assert summary["all_ledger_orders"]["full_fill_rate_pct"] == pytest.approx(50.0)
     assert summary["decision_bound_orders"]["orders"] == 1
-    assert summary["decision_bound_orders"]["fill_rate_pct"] == pytest.approx(0.0)
+    assert summary["decision_bound_orders"]["full_fill_rate_pct"] == pytest.approx(0.0)
     # 判断経路を通った注文が 1 件では chase policy を動かさない。
     assert payload["chase_policy_decision"]["ready"] is False
 
@@ -376,3 +376,93 @@ def test_cli_writes_yaml_and_reports_an_unreadable_ledger(tmp_path: Path) -> Non
         )
         == 1
     )
+
+
+def test_broker_states_and_denominators_match_ledger_replay(tmp_path: Path) -> None:
+    from datetime import datetime
+
+    from baibai_engine.position.ledger import replay_events_through
+    from baibai_engine.position.store import LedgerStoreService
+
+    app_db, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
+    cases = [
+        ("full", 200, None, "filled"),
+        ("partial", 100, None, "partially_filled"),
+        ("partial-cancel", 100, "cancelled", "cancelled"),
+        ("partial-expire", 100, "expired", "expired"),
+        ("cancel", 0, "cancelled", "cancelled"),
+        ("expire", 0, "expired", "expired"),
+        ("open", 0, None, "open"),
+        ("reject", 0, "broker_rejected", "broker_rejected"),
+        ("changed", 0, "decision_changed", "decision_changed"),
+    ]
+    events = []
+    for name, filled, reason, _outcome in cases:
+        reservation = _reservation(
+            reservation_id=name,
+            occurred_at="2026-07-01T09:00:00+09:00",
+            limit_yen="1000",
+            decision_reference="assessment",
+        )
+        reservation.update(quantity=200, expires_at="2026-07-10T15:30:00+09:00")
+        events.append(reservation)
+        # Multiple fills verify summation and the completion date.
+        for i in range(filled // 100):
+            events.append(
+                dict(
+                    event_id=f"fill-{name}-{i}",
+                    type="execution",
+                    occurred_at=f"2026-07-0{2 + i}T09:00:00+09:00",
+                    execution_id=f"exec-{name}-{i}",
+                    reservation_id=name,
+                    ticker="2331",
+                    side="buy",
+                    quantity=100,
+                    price_yen="1000",
+                )
+            )
+        if reason is not None:
+            events.append(
+                dict(
+                    event_id=f"release-{name}",
+                    type="release",
+                    occurred_at="2026-07-10T15:30:00+09:00"
+                    if reason == "expired"
+                    else "2026-07-09T15:30:00+09:00",
+                    reservation_id=name,
+                    reason=reason,
+                )
+            )
+    events.sort(key=lambda event: event["occurred_at"])
+    _ledger(app_db, events)
+    _market(market, [("2026-07-02", 990.0, 1000.0), *_post_expiry_sessions(high_close=1250.0)])
+    original = app_db.read_bytes(), market.read_bytes()
+    payload = build_limit_outcomes(app_db=app_db, market_db=market, asof=date(2026, 8, 1))
+    state = replay_events_through(
+        LedgerStoreService(app_db).load().events,
+        datetime.fromisoformat("2026-08-01T23:59:59+09:00"),
+    )
+    by_id = {item["reservation_id"]: item for item in payload["orders"]}
+    for name, filled, reason, outcome in cases:
+        item = by_id[name]
+        assert item["outcome"] == outcome
+        assert item["release_reason"] == reason
+        assert item["filled_quantity"] == filled
+        assert item["filled_quantity_pct"] == filled / 2
+        active = state.active_reservations.get(name)
+        assert item["remaining_quantity"] == (active.remaining_quantity if active else 0)
+        assert item["unfilled_quantity"] == 200 - filled
+        assert (item["forgone_pct"] is not None) == (reason == "expired")
+    assert by_id["full"]["window_end"] == "2026-07-03"
+    summary = payload["summary"]["decision_bound_orders"]
+    assert summary["orders"] == 9
+    assert summary["filled"] == 1
+    assert summary["expired"] == summary["cancelled"] == 2
+    assert summary["broker_rejected"] == summary["decision_changed"] == 1
+    assert summary["still_open"] == 2
+    assert summary["partially_filled_open"] == 1
+    assert summary["decided_orders"] == payload["chase_policy_decision"]["decided_orders"] == 3
+    assert summary["full_fill_rate_pct"] == 33.3
+    assert summary["forgone_measured_orders"] == 2
+    assert payload["chase_policy_decision"]["ready"] is False
+    assert (app_db.read_bytes(), market.read_bytes()) == original

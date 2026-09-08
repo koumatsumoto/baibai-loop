@@ -1,4 +1,4 @@
-"""Triage one canonical Review Set without reproducing its machine work."""
+"""Research Triageを産み、候補選択へcanonical判断とidentityを見せる。"""
 
 from __future__ import annotations
 
@@ -44,6 +44,7 @@ from baibai_engine.batch_api import (
     MACRO_CONTEXT_STALE_DAYS,
     RUNS_DB_PATH,
     DailyAnalysisContext,
+    ResearchTriage,
     ReviewSetEntrySnapshot,
     load_daily_analysis_context,
     publish_daily_research_triage,
@@ -321,25 +322,43 @@ def _base_summary(asof: date, run_dir: Path, log: RunLog) -> dict[str, object]:
         "research_count": 0,
         "skip_count": 0,
         "human_action": None,
+        "research_triage_id": None,
+        "research_candidates": [],
         "run_dir": str(run_dir),
         "log_path": str(log.path),
     }
 
 
-def _existing_triage_summary(
-    context: DailyAnalysisContext,
-    summary: dict[str, object],
-) -> None:
-    triage = context.existing_triage
-    if triage is None:
-        raise AssertionError("existing Triage summary requires a Triage")
-    research_count = len(triage.admissible_research_tickers())
+def _triage_summary(triage: ResearchTriage, summary: dict[str, object], *, published: bool) -> None:
+    candidates = [
+        {
+            "ticker": entry.ticker,
+            "priority": entry.priority,
+            "rationale": entry.rationale,
+            "research_question": entry.research_question,
+            "key_risk": entry.key_risk,
+        }
+        for entry in sorted(triage.entries, key=lambda entry: entry.priority or 0)
+        if entry.decision == "research"
+    ]
+    research_count = len(candidates)
+    status = "awaiting_human" if research_count else "already_published"
+    if published:
+        status = "published_awaiting_human" if research_count else "published_all_skip"
     summary.update(
-        status="awaiting_human" if research_count else "already_published",
+        status=status,
+        as_of=triage.as_of.isoformat(),
+        research_triage_id=triage.research_triage_id,
+        research_candidates=candidates,
         candidate_count=len(triage.entries),
         research_count=research_count,
         skip_count=len(triage.entries) - research_count,
-        human_action="Research Setを選択" if research_count else None,
+        human_action=(
+            "Research Setを選択し、表示のresearch_triage_idと選んだtickerだけを"
+            "research prepare --research-triage-id <ID> --ticker <SELECTED_TICKER>へ渡す"
+            if research_count
+            else None
+        ),
     )
 
 
@@ -368,7 +387,7 @@ def _execute(
         summary["status"] = "empty_review_set"
         return 0
     if context.existing_triage is not None:
-        _existing_triage_summary(context, summary)
+        _triage_summary(context.existing_triage, summary, published=False)
         return 0
 
     model_input = _model_input(context)
@@ -406,13 +425,7 @@ def _execute(
         runs_db_path=runs_db_path,
         published_at=datetime.now(_JST),
     )
-    research_count = len(triage.admissible_research_tickers())
-    summary.update(
-        status="published_awaiting_human" if research_count else "published_all_skip",
-        research_count=research_count,
-        skip_count=len(triage.entries) - research_count,
-        human_action="Research Setを選択" if research_count else None,
-    )
+    _triage_summary(triage, summary, published=True)
     return 0
 
 
@@ -423,6 +436,7 @@ def _emit(summary: dict[str, object], output_format: str) -> None:
     for key in (
         "status",
         "as_of",
+        "research_triage_id",
         "model_process_launches",
         "model_requests",
         "model_input_bytes",
@@ -434,6 +448,12 @@ def _emit(summary: dict[str, object], output_format: str) -> None:
         "log_path",
     ):
         print(f"{key}={summary.get(key)}")
+    candidates = summary.get("research_candidates", [])
+    if isinstance(candidates, list):
+        for candidate in candidates:
+            print(f"\npriority={candidate['priority']} ticker={candidate['ticker']}")
+            for key in ("rationale", "research_question", "key_risk"):
+                print(f"  {key}: {candidate[key]}")
 
 
 def _run(args: argparse.Namespace, *, model_runner: ModelRunner = _run_model) -> int:

@@ -12,7 +12,7 @@ from baibai_engine.macro.reading.rules import ReadingRulesError, load_reading_ru
 from baibai_engine.market.sqlite.read import connect_read_only as connect_market_read_only
 from baibai_engine.market.sqlite.schema import SQLiteSchemaError
 
-from .sqlite import is_unwritten_store
+from .sqlite import is_missing_table_error
 
 
 class MaterializationPreconditionError(RuntimeError):
@@ -85,7 +85,7 @@ def validate_market_store_hydration(path: Path) -> None:
             # check can compare. Views over an unwritten store render empty. Anything else — a
             # renamed column, a malformed query — keeps raising rather than reading as
             # "nothing claimed", which is the shape a hole in this check would take.
-            if not is_unwritten_store(error):
+            if not is_missing_table_error(error):
                 raise
             return
         for name, dataset in sorted(LAKE_DATASETS.items()):
@@ -99,7 +99,7 @@ def validate_market_store_hydration(path: Path) -> None:
                     ).fetchone()[0]
                 )
             except sqlite3.OperationalError as error:
-                if not is_unwritten_store(error):
+                if not is_missing_table_error(error):
                     raise
                 unfilled.append(f"{name} claims {claimed} row(s) and carries no table")
                 continue

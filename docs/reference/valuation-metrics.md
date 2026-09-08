@@ -9,7 +9,11 @@ status: active
 
 Baibai Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。screening run storeとapplication DBのresearch thesisで参照される指標の前提を確定する。
 
-Candidate Discoveryのprimary authorityは4 Valuation Approachesのnative eligibility / orderである。機械E[r]はvaluation reversionとcarryをまとめたsecondary return priorで、Review Set membership、global rank、AI research priorityを所有しない。Research後のscenario FVと5年CAGRがinvestment judgmentのestimateであり、screening時点のE[r] / FV anchorは差分説明のbaselineとしてだけThesisへ渡す。
+Candidate Discoveryのprimary authorityは4 Valuation Approachesのnative eligibility / orderである。機械E[r]はvaluation reversionとcarryをまとめたsecondary return priorで、Review Set membership、global rank、AI research priorityを所有しない。
+
+Researchの判断見積りは[ThesisのBase/Downsideと共通算術](./thesis.md#scenario-arithmetic)に従う。通常12か月または理由付きの別期間について、sourceに基づく価値・累積分配・returnを計算し、[独立Review](./thesis.md#independent-second-pass)で反証する。
+
+screening時点のE[r] / FV anchorは候補比較の文脈として表示・参照し、[Thesis payloadへ重複転記しない](./thesis.md#input-snapshot-and-lineage)。機械E[r]の5年priorと3y/5y calibrationは個別判断の期間を固定しない。
 
 ## 1. 使用指標
 

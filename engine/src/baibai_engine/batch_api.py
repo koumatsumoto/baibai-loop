@@ -354,6 +354,7 @@ __all__ = [
     "LocalMirrorSource",
     "MacroContextDocument",
     "MarketSchemaError",
+    "ResearchTriage",
     "ReviewSetEntrySnapshot",
     "StoreLayoutError",
     "advance_lake_store_origin",

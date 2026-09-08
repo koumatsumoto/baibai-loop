@@ -21,11 +21,15 @@ random retry、別as-ofへの置換、「最新Review Set」の再検索をし�
 | trigger | action |
 | --- | --- |
 | daily batch / analysisの失敗・欠測 | stdout / summaryから失敗stageを特定し、同じCLIをローカルで再現する。原因を直してlocal gateを通す。再実行は成功する見込みがある最終確認だけに使う |
-| research FVへの価格到達 | `baibai_engine.research_watch`を実行し、triggered caseを`research` skillへ渡す。価格だけで注文しない |
-| 注文の約定・失効 | `tools.experiments.measure_limit_outcomes`で全体を再計測する。少数結果でpolicyを変えない |
+| 原評価と現在価格の比較・保有見直し | `baibai_engine.research_watch`は原評価のPmaxとの参考比較として読む。保有の再評価依頼は[Position Review](../position-review/SKILL.md)へ渡し、active Operationがあっても新規Research Setや別Operationを作らない。未保有の新規Researchは[Research Triage](../research-triage/SKILL.md)の人間選択を通す |
+| 注文の約定・取消・失効 | `tools.experiments.measure_limit_outcomes`で全体を再計測する。少数結果でpolicyを変えない |
 | store読み取り・同期 | 下のauthorityとno-loss規律に従う |
 | app / viewの配信 | application storeの反映とserving materializeをOPERATIONSの順で行う |
 | 定期maintenance | calibration、PMI、TSE capital policy / JPX delistingのdated taskだけをdue時に実行する |
+
+Pmaxは新規買付の原評価上限であり、FV到達や売却閾値ではない。watchは自動triggerを返さず、`not_evaluated`やunresolvedをhold/exitへ変換しない。不足項目を確認し、保有判断が必要なら対象holdingのPosition Reviewで現在の残存見返りを評価する。
+
+計測の`full_fill_rate_pct`は全数量約定件数 /（全数量約定＋報告済み失効）で、0件ならnull。`decided_orders`と8件のpolicy判断用件数も同じ母数を使い、policy側は判断参照付き注文に限る。取消・broker_rejected・decision_changedと継続中（部分約定を含む）は母数から除く。`still_open`は未約定と部分約定の継続注文の合計、`partially_filled_open`はその内数である。個票の約定数量・割合と終了理由を併読する。部分約定後の失効の`forgone_pct`は未約定残についての価格差であり、金額損失ではない。期限経過だけで失効を推定せず、20立会日の観測窓が満ちるまで逸失幅は未評価とする。
 
 ## Store authority
 

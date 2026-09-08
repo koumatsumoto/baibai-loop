@@ -165,8 +165,8 @@ def _absent_as_none[T](path: Path, read: Callable[[], T]) -> T | None:
     """Read the run store, treating a store the writer has not created as no rows.
 
     Same rule as ``read_rows``, applied where the read goes through the run-store
-    reader rather than one statement: an absent file and an absent table both mean
-    nothing has been published here, and everything else still raises.
+    reader rather than one statement: only an absent file or a version-zero database
+    with no tables means nothing has been published here. A partially missing schema still raises.
     """
 
     if not path.is_file():
@@ -174,7 +174,7 @@ def _absent_as_none[T](path: Path, read: Callable[[], T]) -> T | None:
     try:
         return read()
     except sqlite3.OperationalError as error:
-        if not is_unwritten_store(error):
+        if not is_unwritten_store(error, path):
             raise
         return None
 

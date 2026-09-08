@@ -66,7 +66,7 @@ def macro_reading_snapshot(
             asof=asof,
         )
     except sqlite3.OperationalError as error:
-        if not is_unwritten_store(error):
+        if not is_unwritten_store(error, path):
             raise
         return None
     finally:
@@ -231,7 +231,7 @@ def macro_indicator_series(
             end or date.max,
         )
     except sqlite3.OperationalError as error:
-        if not is_unwritten_store(error):
+        if not is_unwritten_store(error, path):
             raise
         return None
     finally:

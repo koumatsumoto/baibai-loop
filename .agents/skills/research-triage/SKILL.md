@@ -18,7 +18,7 @@ uv run baibai-batch analysis run
 batch/scripts/publish.sh
 ```
 
-`pull.sh`はR2のcanonical machine storeを取得し、`analysis run`は対象`as_of`のlatest canonical Review Set解決、AI不要条件、Research Triage入力、strict AI result、engine publisherだけを所有する。`analysis run`内ではScreening RunやReview Setを生成せず、対象日にReview Setが無ければ前営業日へfallbackしない。`publish.sh`はapplication DBをuploadしてcloud materializeを起動する。ID転記、workspace探索、`status / check / publish`の選択、成功logの確認は行わない。Triage publishではOperationを開始しない。
+`pull.sh`はR2のcanonical machine storeを取得し、`analysis run`は対象`as_of`のlatest canonical Review Set解決、AI不要条件、Research Triage入力、strict AI result、engine publisherだけを所有する。`analysis run`内ではScreening RunやReview Setを生成せず、対象日にReview Setが無ければ前営業日へfallbackしない。`publish.sh`はapplication DBをuploadしてcloud materializeを起動する。成功artifactからのID探索、workspace探索、`status / check / publish`の選択、成功logの確認は行わない。Triage publishではOperationを開始しない。
 
 次はmodel process 0で終了する。
 
@@ -26,7 +26,11 @@ batch/scripts/publish.sh
 - exact Review Setのcanonical Research Triageが既に存在する
 - 必須machine inputの欠損・破損
 
-`awaiting_human`または`published_awaiting_human`なら、表示された`research`候補から人間がResearch Setを確定するまで`research` skillへ進まない。active Operationはdaily Triageを止めず、新しいResearch開始だけを止める。Triage結果にかかわらず、このskillはOperationを作らない。
+`awaiting_human`または`published_awaiting_human`なら、stdoutのcanonical `research_triage_id / as_of`とpriority順の全候補・理由・調査質問・主要リスクを示し、その`research`候補から人間がResearch Setを確定するまで`research` skillへ進まない。
+
+選択後は出力されたexact IDを`research prepare --research-triage-id`へ、選んだtickerだけを`--ticker`へ渡す。過去日実行をlatest別日のTriageへ置き換えない。
+
+active Operationはdaily Triageを止めず、新しいResearch開始だけを止める。Triage結果にかかわらず、このskillはOperationを作らない。
 
 ## 判断契約
 
