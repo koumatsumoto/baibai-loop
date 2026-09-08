@@ -19,11 +19,13 @@ _PUBLISHED = _ROOT / "reports/published/er-level-calibration-latest.yaml"
 def test_valid_artifact_maps_to_web_dto() -> None:
     identity = screening_calibration_method_identity(_ROOT)
     assert identity is not None
+    raw = safe_load(_PUBLISHED.read_text(encoding="utf-8"))
+    assert isinstance(raw, dict)
 
     context = load_er_level_calibration_context(
         _PUBLISHED,
         expected_method_identity=identity,
-        today=date(2026, 9, 3),
+        today=date.fromisoformat(str(raw["generated_at"])[:10]),
     )
 
     assert context is not None
@@ -45,7 +47,7 @@ def test_invalid_artifact_maps_to_null(tmp_path: Path) -> None:
             str(raw["screening_rules_hash"]),
             str(raw["er_model_version"]),
         ),
-        today=date(2026, 9, 1),
+        today=date.fromisoformat(str(raw["generated_at"])[:10]),
     )
 
     assert context is None

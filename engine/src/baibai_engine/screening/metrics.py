@@ -70,7 +70,8 @@ MIN_SECTOR_MEDIAN_POPULATION = 10
 # 割る。純資産は普通株主に帰属する側を採り、円経路と 1 株当たり経路が食い違う会社では
 # 後者を使う。株式基準は行ごとに決め、期末と開示日の間に権利落ちがある行は申告基準を
 # 判定してから換算し、判定できない行は株数と per-share を答えない。
-VALUATION_CALCULATION_REVISION = "capital-equity-action-basis-v20"
+# TTMは非実績行を除外し、選択した各実績期間の欠損を古いrevisionで埋めない。
+VALUATION_CALCULATION_REVISION = "actual-ttm-period-basis-v21"
 
 # 自己レンジ / sigma gap が前提にする約 3 年の価格履歴窓(暦日)。listing 起点の
 # short_history_flag では検出できない「上場は古いが bar 履歴に長期ギャップがある」
@@ -2033,7 +2034,9 @@ def _ttm_value(
     """
     if field in _PER_SHARE_FIELDS:
         raise ValueError(f"{field} is per share; compose the yen line and convert once at the end")
-    latest = _latest_summary(summaries)
+    # 非実績開示は過去の実績を取り消さない。必要fieldの欠損は選択後に判定する。
+    actuals = _actual_rows(summaries)
+    latest = _latest_summary(actuals)
     if (
         latest is None
         or getattr(latest, field) is None
@@ -2054,12 +2057,11 @@ def _ttm_value(
     prior_fy_end = _shift_year(latest.fiscal_year_end, -1)
     if prior_fy_end is None:
         return None, TTMQuality.UNAVAILABLE
-    prior_fy = _latest_full_year_summary(summaries, prior_fy_end, field, ttm_rules)
+    prior_fy = _latest_full_year_summary(actuals, prior_fy_end, ttm_rules)
     prior_same = _matched_prior_period_summary(
-        summaries,
+        actuals,
         latest,
         ttm_rules,
-        field_name=field,
     )
     if prior_fy is None or prior_same is None:
         return None, TTMQuality.UNAVAILABLE
@@ -2073,14 +2075,12 @@ def _ttm_value(
 def _latest_full_year_summary(
     summaries: Sequence[JQuantsFinancialSummary],
     fiscal_year_end: date,
-    field: str,
     ttm_rules: TTMRules,
 ) -> JQuantsFinancialSummary | None:
     candidates = [
         summary
         for summary in summaries
         if summary.fiscal_year_end == fiscal_year_end
-        and getattr(summary, field) is not None
         and (days := _period_days(summary)) is not None
         and ttm_rules.full_year_min_days <= days <= ttm_rules.full_year_max_days
     ]

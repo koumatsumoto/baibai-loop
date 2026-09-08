@@ -28,12 +28,12 @@ def _write(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 
 
-def _load(path: Path, payload: dict[str, Any], *, as_of: date = date(2026, 9, 3)):
+def _load(path: Path, payload: dict[str, Any], *, as_of: date | None = None):
     return load_er_calibration_context(
         path,
         expected_rules_hash=str(payload["screening_rules_hash"]),
         expected_er_model_version=str(payload["er_model_version"]),
-        as_of=as_of,
+        as_of=as_of or date.fromisoformat(str(payload["generated_at"])[:10]),
     )
 
 
@@ -82,13 +82,13 @@ def test_reader_preserves_future_and_expired_point_in_time_reasons(tmp_path: Pat
     future["valid_through"] = "2026-10-19"
     path = tmp_path / "future.yaml"
     _write(path, future)
-    assert _load(path, future).unavailable_reason == "invalid_artifact"
+    assert _load(path, future, as_of=date(2026, 9, 3)).unavailable_reason == "invalid_artifact"
 
     expired = deepcopy(_artifact())
     expired["generated_at"] = "2026-07-01T00:00:00+09:00"
     expired["valid_through"] = "2026-08-15"
     _write(path, expired)
-    assert _load(path, expired).unavailable_reason == "expired"
+    assert _load(path, expired, as_of=date(2026, 9, 3)).unavailable_reason == "expired"
 
 
 def test_reader_preserves_method_identity_reasons(tmp_path: Path) -> None:
@@ -100,13 +100,13 @@ def test_reader_preserves_method_identity_reasons(tmp_path: Path) -> None:
         path,
         expected_rules_hash="different",
         expected_er_model_version=str(payload["er_model_version"]),
-        as_of=date(2026, 9, 3),
+        as_of=date.fromisoformat(str(payload["generated_at"])[:10]),
     )
     model = load_er_calibration_context(
         path,
         expected_rules_hash=str(payload["screening_rules_hash"]),
         expected_er_model_version="different",
-        as_of=date(2026, 9, 3),
+        as_of=date.fromisoformat(str(payload["generated_at"])[:10]),
     )
 
     assert rules.unavailable_reason == "rules_identity_mismatch"

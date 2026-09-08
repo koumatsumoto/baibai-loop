@@ -1819,6 +1819,106 @@ class ScreeningMetricsTests(unittest.TestCase):
         self.assertEqual(with_future.eps, without.eps)
         self.assertEqual(with_future.per_trailing, without.per_trailing)
 
+    @staticmethod
+    def _ttm_actual_periods() -> list[JQuantsFinancialSummary]:
+        return [
+            JQuantsFinancialSummary(
+                ticker="4812",
+                disclosed_at=disclosure,
+                fiscal_period=period,
+                fiscal_year_end=date(year, 12, 31),
+                period_start=date(year, 1, 1),
+                period_end=end,
+                sales=sales * 1_000_000.0,
+                profit=profit * 1_000_000.0,
+                operating_profit=profit * 1_000_000.0,
+                cfo=profit * 2_000_000.0,
+                shares_outstanding=200_000_000.0,
+                treasury_shares=0.0,
+                forecast_eps=92.22,
+                dps_forecast_annual=45.0,
+            )
+            for disclosure, year, period, end, sales, profit in [
+                (date(2025, 7, 29), 2025, "2Q", date(2025, 6, 30), 80_239, 7_684),
+                (date(2026, 2, 12), 2025, "FY", date(2025, 12, 31), 164_865, 16_365),
+                (date(2026, 7, 29), 2026, "2Q", date(2026, 6, 30), 88_649, 8_888),
+            ]
+        ]
+
+    def test_nonactual_notices_preserve_ttm_but_not_withdrawn_forecast(self) -> None:
+        asof = date(2026, 9, 7)
+        rows = self._ttm_actual_periods()
+        rules = load_screening_rules()
+        for forecast in (None, 100.0):
+            notice = JQuantsFinancialSummary(
+                ticker="4812",
+                disclosed_at=date(2026, 8, 28),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 12, 31),
+                period_start=date(2026, 1, 1),
+                period_end=date(2026, 12, 31),
+                dps_forecast_annual=22.5,
+                forecast_eps=forecast,
+            )
+            with self.subTest(forecast=forecast):
+                for field, expected in (
+                    ("sales", 173_275_000_000.0),
+                    ("profit", 17_569_000_000.0),
+                    ("operating_profit", 17_569_000_000.0),
+                    ("cfo", 35_138_000_000.0),
+                ):
+                    self.assertEqual(
+                        _ttm_value([*rows, notice], field, rules.ttm), (expected, TTMQuality.EXACT)
+                    )
+                snapshot = build_metrics(
+                    asof_date=asof,
+                    securities_by_ticker={"4812": _security("4812")},
+                    bars_by_ticker={"4812": _daily_bars("4812", asof, 40)},
+                    summaries_by_ticker={"4812": [*rows, notice]},
+                    edinet_by_ticker={},
+                ).financials["4812"]
+                self.assertAlmostEqual(
+                    snapshot.per_trailing, 139.0 * 200_000_000.0 / 17_569_000_000.0
+                )
+                self.assertAlmostEqual(snapshot.p_s, 139.0 * 200_000_000.0 / 173_275_000_000.0)
+                self.assertEqual(snapshot.latest_financial_disclosure_date, notice.disclosed_at)
+                if forecast is None:
+                    self.assertIsNone(snapshot.per_forward)
+                else:
+                    self.assertAlmostEqual(snapshot.per_forward, 139.0 / forecast)
+                self.assertAlmostEqual(snapshot.dividend_yield, 22.5 / 139.0)
+
+    def test_ttm_does_not_fill_missing_actual_operand_from_older_revision(self) -> None:
+        rules = load_screening_rules()
+        for missing_operand in range(3):
+            for field in ("sales", "profit", "cfo", "operating_profit"):
+                with self.subTest(operand=missing_operand, field=field):
+                    rows = self._ttm_actual_periods()
+                    correction = replace(
+                        rows[missing_operand],
+                        disclosed_at=rows[missing_operand].disclosed_at + timedelta(days=1),
+                        **{field: None},
+                    )
+                    rows.insert(missing_operand + 1, correction)
+                    self.assertEqual(
+                        _ttm_value(rows, field, rules.ttm), (None, TTMQuality.UNAVAILABLE)
+                    )
+
+    def test_ttm_new_actual_period_missing_field_stays_unavailable(self) -> None:
+        rules = load_screening_rules()
+        rows = self._ttm_actual_periods()
+        rows.append(
+            replace(
+                rows[-1],
+                disclosed_at=date(2026, 10, 29),
+                fiscal_period="3Q",
+                period_end=date(2026, 9, 30),
+                profit=None,
+            )
+        )
+        self.assertEqual(_ttm_value(rows, "profit", rules.ttm), (None, TTMQuality.UNAVAILABLE))
+        self.assertEqual(_ttm_value([], "profit", rules.ttm), (None, TTMQuality.UNAVAILABLE))
+
     def test_ttm_composition_refuses_per_share_fields(self) -> None:
         """`直近累計 + 前期通期 - 前年同期間累計` は円の総額でしか成立しない。
 
