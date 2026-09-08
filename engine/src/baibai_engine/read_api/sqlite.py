@@ -28,12 +28,8 @@ def connect_read_only(path: Path) -> sqlite3.Connection:
     return connection
 
 
-def is_unwritten_store(error: sqlite3.OperationalError) -> bool:
-    """Tell a missing-table error from another SQLite query failure.
-
-    The caller separately proves that the whole database is unwritten. A missing table
-    in a populated database is an incomplete current schema and must keep raising.
-    """
+def is_missing_table_error(error: sqlite3.OperationalError) -> bool:
+    """Classify a query error without claiming anything about the store state."""
 
     return "no such table" in str(error)
 
@@ -45,6 +41,11 @@ def _database_is_unwritten(path: Path) -> bool:
             "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
         ).fetchone()
     return version == 0 and table is None
+
+
+def is_unwritten_store(error: sqlite3.OperationalError, path: Path) -> bool:
+    """Only a missing table in a version-zero, table-free store means unpublished."""
+    return is_missing_table_error(error) and _database_is_unwritten(path)
 
 
 def read_rows(
@@ -62,7 +63,7 @@ def read_rows(
         with closing(connector(path)) as connection:
             return connection.execute(sql, tuple(parameters)).fetchall()
     except sqlite3.OperationalError as error:
-        if not is_unwritten_store(error) or not _database_is_unwritten(path):
+        if not is_unwritten_store(error, path):
             raise
         return []
 
