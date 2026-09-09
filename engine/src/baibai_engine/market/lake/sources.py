@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 
@@ -17,7 +18,7 @@ def sha256_file(path: Path) -> str:
 
 def validate_sqlite_snapshot(path: Path, *, expected_schema_version: int) -> None:
     uri = f"{path.resolve().as_uri()}?mode=ro&immutable=1"
-    with sqlite3.connect(uri, uri=True) as connection:
+    with closing(sqlite3.connect(uri, uri=True)) as connection:
         row = connection.execute("PRAGMA quick_check").fetchone()
         if row is None or row[0] != "ok":
             raise ValueError("SQLite source snapshot failed quick_check")

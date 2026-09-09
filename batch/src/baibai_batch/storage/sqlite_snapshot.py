@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import sqlite3
+import tempfile
+from contextlib import closing
 from pathlib import Path
 
 from baibai_engine.batch_api import create_market_snapshot
@@ -15,7 +17,7 @@ def validate_database(path: Path) -> None:
     if not path.is_file():
         raise FileNotFoundError(f"SQLite file does not exist: {path}")
     uri = f"file:{path.resolve().as_posix()}?mode=ro"
-    with sqlite3.connect(uri, uri=True) as connection:
+    with closing(sqlite3.connect(uri, uri=True)) as connection:
         result = connection.execute("PRAGMA quick_check").fetchone()
         if result is None or result[0] != "ok":
             raise sqlite3.DatabaseError(f"SQLite quick_check failed for {path}: {result}")
@@ -26,7 +28,7 @@ def database_schema_version(path: Path) -> int:
     if not path.is_file():
         raise FileNotFoundError(f"SQLite file does not exist: {path}")
     uri = f"file:{path.resolve().as_posix()}?mode=ro"
-    with sqlite3.connect(uri, uri=True) as connection:
+    with closing(sqlite3.connect(uri, uri=True)) as connection:
         row = connection.execute("PRAGMA user_version").fetchone()
     if row is None:
         raise sqlite3.DatabaseError(f"SQLite user_version is unavailable: {path}")
@@ -35,9 +37,15 @@ def database_schema_version(path: Path) -> int:
 
 def create_snapshot(source: Path, output: Path) -> None:
     """Copy ``source`` through SQLite's backup API, including uncheckpointed WAL rows."""
-    if output.exists():
-        output.unlink()
-    create_market_snapshot(source, output)
+    if source.resolve() == output.resolve() or (
+        source.exists() and output.exists() and source.samefile(output)
+    ):
+        raise ValueError("SQLite source and output must not be the same file")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".snapshot-", dir=output.parent) as directory:
+        temporary = Path(directory) / "snapshot.sqlite"
+        create_market_snapshot(source, temporary)
+        temporary.replace(output)
 
 
 def build_parser() -> argparse.ArgumentParser:

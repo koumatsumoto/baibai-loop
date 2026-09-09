@@ -7,7 +7,7 @@ import shutil
 import sqlite3
 import uuid
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -588,10 +588,13 @@ def _iso_date(value: object, *, dataset: LakeDataset) -> date:
         raise LakeBuildError(f"{dataset.name} date column must contain ISO text") from None
 
 
-def _open_immutable(path: Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
-    connection.execute("PRAGMA case_sensitive_like=ON")
-    return connection
+@contextmanager
+def _open_immutable(path: Path) -> Iterator[sqlite3.Connection]:
+    with closing(
+        sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
+    ) as connection:
+        connection.execute("PRAGMA case_sensitive_like=ON")
+        yield connection
 
 
 def _pk_indexes(dataset: LakeDataset) -> tuple[int, ...]:
