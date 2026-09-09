@@ -71,7 +71,7 @@ MIN_SECTOR_MEDIAN_POPULATION = 10
 # 後者を使う。株式基準は行ごとに決め、期末と開示日の間に権利落ちがある行は申告基準を
 # 判定してから換算し、判定できない行は株数と per-share を答えない。
 # TTMは非実績行を除外し、選択した各実績期間の欠損を古いrevisionで埋めない。
-VALUATION_CALCULATION_REVISION = "actual-ttm-period-basis-v21"
+VALUATION_CALCULATION_REVISION = "actual-ttm-latest-accounting-period-v22"
 
 # 自己レンジ / sigma gap が前提にする約 3 年の価格履歴窓(暦日)。listing 起点の
 # short_history_flag では検出できない「上場は古いが bar 履歴に長期ギャップがある」
@@ -2036,7 +2036,7 @@ def _ttm_value(
         raise ValueError(f"{field} is per share; compose the yen line and convert once at the end")
     # 非実績開示は過去の実績を取り消さない。必要fieldの欠損は選択後に判定する。
     actuals = _actual_rows(summaries)
-    latest = _latest_summary(actuals)
+    latest = _latest_actual_row(actuals)
     if (
         latest is None
         or getattr(latest, field) is None

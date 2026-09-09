@@ -1904,6 +1904,71 @@ class ScreeningMetricsTests(unittest.TestCase):
                         _ttm_value(rows, field, rules.ttm), (None, TTMQuality.UNAVAILABLE)
                     )
 
+    def test_ttm_late_historical_corrections_keep_latest_accounting_period(self) -> None:
+        rules = load_screening_rules()
+        for operand in (0, 1, 2):
+            for field in ("sales", "profit", "cfo", "operating_profit"):
+                for missing in (False, True):
+                    for reverse in (False, True):
+                        with self.subTest(
+                            operand=operand, field=field, missing=missing, reverse=reverse
+                        ):
+                            rows = self._ttm_actual_periods()
+                            original = (
+                                rows[operand]
+                                if operand < 2
+                                else replace(
+                                    rows[1],
+                                    fiscal_year_end=date(2024, 12, 31),
+                                    period_start=date(2024, 1, 1),
+                                    period_end=date(2024, 12, 31),
+                                )
+                            )
+                            correction = replace(
+                                original,
+                                disclosed_at=date(2026, 8, 28),
+                                **{
+                                    field: None if missing else getattr(original, field) + 1_000_000
+                                },
+                            )
+                            expected = (
+                                getattr(rows[2], field)
+                                + getattr(rows[1], field)
+                                - getattr(rows[0], field)
+                            )
+                            if operand < 2:
+                                expected = (
+                                    None
+                                    if missing
+                                    else expected + (-1_000_000 if operand == 0 else 1_000_000)
+                                )
+                            inputs = [*rows, correction]
+                            if reverse:
+                                inputs.reverse()
+                            self.assertEqual(
+                                _ttm_value(inputs, field, rules.ttm),
+                                (
+                                    expected,
+                                    TTMQuality.UNAVAILABLE
+                                    if expected is None
+                                    else TTMQuality.EXACT,
+                                ),
+                            )
+
+    def test_ttm_missing_latest_field_does_not_fall_back_to_late_historical_correction(
+        self,
+    ) -> None:
+        rules = load_screening_rules()
+        for field in ("sales", "profit", "cfo", "operating_profit"):
+            with self.subTest(field=field):
+                rows = self._ttm_actual_periods()
+                latest_revision = replace(rows[-1], disclosed_at=date(2026, 8, 1), **{field: None})
+                old_fy_correction = replace(rows[1], disclosed_at=date(2026, 8, 28))
+                self.assertEqual(
+                    _ttm_value([*rows, latest_revision, old_fy_correction], field, rules.ttm),
+                    (None, TTMQuality.UNAVAILABLE),
+                )
+
     def test_ttm_new_actual_period_missing_field_stays_unavailable(self) -> None:
         rules = load_screening_rules()
         rows = self._ttm_actual_periods()
