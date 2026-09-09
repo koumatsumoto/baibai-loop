@@ -1,3 +1,6 @@
+/** Research工程で既存viewとmarket L1を認証済みの利用者へ見せる。 */
+import { lakeResponse } from './lake'
+
 const API_HEADERS = {
   'Cache-Control': 'no-store',
   'Content-Type': 'application/json; charset=utf-8',
@@ -22,14 +25,9 @@ type RouteResult =
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
   try {
     return await routeRequest(request, env)
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        message: 'request failed',
-        path: new URL(request.url).pathname,
-        error: error instanceof Error ? error.message : String(error),
-      }),
-    )
+  } catch {
+    // Exception messages can contain credential-bearing URLs.
+    console.error('request failed')
     return jsonResponse({ detail: 'internal server error' }, 500)
   }
 }
@@ -50,6 +48,11 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     const asset = await env.ASSETS.fetch(request)
     const headers = new Headers(asset.headers)
     headers.set('Strict-Transport-Security', HSTS_HEADER)
+    if (url.searchParams.has('share')) {
+      headers.set('Cache-Control', 'no-store')
+      headers.set('Referrer-Policy', 'no-referrer')
+      headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
+    }
     return new Response(asset.body, {
       status: asset.status,
       statusText: asset.statusText,
@@ -57,13 +60,20 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     })
   }
 
-  if (!(await isAuthorized(request.headers.get('Authorization'), env.VIEW_PASSWORD))) {
+  if (url.searchParams.getAll('share').length > 1) {
+    return jsonResponse({ detail: 'duplicate share parameter' }, 400)
+  }
+  if (!(await isAuthorized(request, url, env))) {
     return jsonResponse({ detail: 'unauthorized' }, 401, {
       'WWW-Authenticate': 'Bearer',
     })
   }
   if (request.method !== 'GET') {
     return jsonResponse({ detail: 'method not allowed' }, 405, { Allow: 'GET' })
+  }
+
+  if (url.pathname === '/api/lake/current' || url.pathname === '/api/lake/object') {
+    return lakeResponse(url, env, API_HEADERS)
   }
 
   const route = resolveRoute(url)
@@ -195,20 +205,26 @@ function view(filename: string): RouteResult {
   return { kind: 'view', key: `views/${filename}` }
 }
 
-async function isAuthorized(authorization: string | null, expected: string): Promise<boolean> {
-  const bearerPrefix = 'Bearer '
-  const schemeIsValid = authorization?.startsWith(bearerPrefix) === true
-  const supplied = schemeIsValid ? authorization.slice(bearerPrefix.length) : ''
+async function isAuthorized(request: Request, url: URL, env: Env): Promise<boolean> {
+  const authorization = request.headers.get('Authorization')
+  if (authorization !== null) {
+    if (!authorization.startsWith('Bearer ')) return false
+    const supplied = authorization.slice('Bearer '.length)
+    const [owner, shared] = await Promise.all([
+      matchesToken(supplied, env.VIEW_PASSWORD),
+      matchesToken(supplied, env.READ_ACCESS_TOKEN),
+    ])
+    return owner || shared
+  }
+  return matchesToken(url.searchParams.get('share') ?? '', env.READ_ACCESS_TOKEN)
+}
+
+async function matchesToken(supplied: string, expected: string | undefined): Promise<boolean> {
   const [suppliedHash, expectedHash] = await Promise.all([
     sha256(supplied),
-    sha256(expected),
+    sha256(expected ?? ''),
   ])
-
-  return (
-    schemeIsValid &&
-    expected.length > 0 &&
-    crypto.subtle.timingSafeEqual(suppliedHash, expectedHash)
-  )
+  return Boolean(expected) && crypto.subtle.timingSafeEqual(suppliedHash, expectedHash)
 }
 
 async function sha256(value: string): Promise<Uint8Array> {
