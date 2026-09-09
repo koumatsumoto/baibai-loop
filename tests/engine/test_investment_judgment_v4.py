@@ -117,7 +117,7 @@ def test_holding_economic_rule(status, remaining, resolved, expected):
         else RemainingReward(status=remaining, reason="将来分配のみ・税費用・遅延を確認"),
         action=expected,
     )
-    result = evaluate_position_review(document, thesis, primary_verified=True)
+    result = evaluate_position_review(document, thesis, primary_verified=True, max_quote_age_days=7)
     assert result.action == expected
     if status == "broken" and not resolved:
         assert result.sell_quantity is None

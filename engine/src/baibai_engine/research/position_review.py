@@ -88,7 +88,7 @@ def evaluate_position_review(
     thesis: ThesisDocument,
     *,
     primary_verified: bool,
-    max_quote_age_days: int = 7,
+    max_quote_age_days: int,
 ) -> PositionReviewEvaluation:
     """Economic invalidation precedes valuation; buy floors never select an exit."""
     if thesis.input_snapshot.ticker != document.ticker:

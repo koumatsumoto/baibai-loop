@@ -20,6 +20,7 @@ from baibai_engine.position.ledger_read import load_ledger_in_transaction
 from baibai_engine.position.market_source import (
     quantity_basis_is_confirmed,
 )
+from baibai_engine.position.policy import PORTFOLIO_POLICY
 from baibai_engine.position.valuation import holding_quote
 from baibai_engine.research.position_review import (
     HoldingInput,
@@ -142,7 +143,10 @@ class PositionReviewService:
         if not broken and document.quote != quote:
             raise ResearchConflictError("quote changed; refresh and reconfirm")
         result = evaluate_position_review(
-            document, pair.document, primary_verified=pair.review.primary_source_check == "verified"
+            document,
+            pair.document,
+            primary_verified=pair.review.primary_source_check == "verified",
+            max_quote_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
         )
         if (
             result.action is None
