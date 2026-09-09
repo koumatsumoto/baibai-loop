@@ -4,7 +4,6 @@ import sqlite3
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest import mock
 
 import pytest
 from tests.helpers.l1_release import market_store
@@ -99,20 +98,13 @@ def test_every_run_derives_every_partition_and_only_moved_bytes_make_new_objects
         connection.execute(
             "UPDATE jquants_daily_bars SET close = 111.0 WHERE traded_at = '2026-02-02'"
         )
-    read: list[str] = []
-    real = writer_module.pq.read_table
-    with mock.patch.object(
-        writer_module.pq,
-        "read_table",
-        side_effect=lambda path, *a, **k: (read.append(Path(path).name), real(path, *a, **k))[1],
-    ):
-        second = _export(
-            dataset_name="jquants.daily_bars",
-            sqlite_path=sqlite_path,
-            mirror_root=mirror,
-            producer_git_commit=_COMMIT,
-            build_id="corrected-build",
-        )
+    second = _export(
+        dataset_name="jquants.daily_bars",
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit=_COMMIT,
+        build_id="corrected-build",
+    )
 
     before = {
         (int(item.values["year"]), int(item.values["month"])): item.objects[0].key
@@ -126,8 +118,6 @@ def test_every_run_derives_every_partition_and_only_moved_bytes_make_new_objects
     assert before[(2026, 2)] != after[(2026, 2)]
     assert second.partitions == 2
     assert second.new_objects == 1
-    # Both months were written and read back for parity, not only the corrected one.
-    assert len(read) >= 2 * 2
     validate_legacy_parity(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
@@ -688,3 +678,82 @@ def test_gc_tracks_current_release_content_without_sealed_inputs(
         assert damaged.relative_to(mirror).as_posix() in plan.unresolved_roots
         with pytest.raises(LakeRetentionError, match="unresolved"):
             apply_gc(mirror, plan, plan_hash=plan.plan_hash)
+
+
+@pytest.mark.parametrize("failure", ["corrupt", "schema"])
+def test_sealed_snapshot_rejects_invalid_store(tmp_path, failure):
+    source = market_store(tmp_path / "market.sqlite")
+    if failure == "corrupt":
+        source.write_bytes(b"not SQLite")
+    else:
+        with sqlite3.connect(source) as connection:
+            connection.execute("PRAGMA user_version=1")
+    with (
+        pytest.raises(LakeBuildError),
+        sealed_sqlite_snapshot(sqlite_path=source, mirror_root=tmp_path / "mirror"),
+    ):
+        pytest.fail("invalid snapshot admitted")
+
+
+@pytest.mark.parametrize("failure", ["parquet", "inventory"])
+def test_final_parity_failure_keeps_previous_release(tmp_path, monkeypatch, failure):
+    from baibai_engine.market.lake.keys import dataset_manifest_key
+
+    narrow_release_policy(monkeypatch, datasets=("jquants.daily_bars",))
+    source = market_store(tmp_path / "market.sqlite")
+    mirror = tmp_path / "mirror"
+    baseline = _export(
+        dataset_name="jquants.daily_bars",
+        sqlite_path=source,
+        mirror_root=mirror,
+        producer_git_commit=_COMMIT,
+        build_id="baseline",
+    )
+    release_path, release = create_l1_release(
+        dataset_manifest_paths=[baseline.manifest_path],
+        mirror_root=mirror,
+        release_id="previous",
+        created_at=datetime.now(UTC),
+    )
+    previous = release_path.read_bytes()
+    objects = {
+        mirror / obj.key: (mirror / obj.key).read_bytes()
+        for part in baseline.manifest.partitions
+        for obj in part.objects
+    }
+    with sqlite3.connect(source) as connection:
+        connection.execute("UPDATE jquants_daily_bars SET close=close+1")
+    promote = writer_module._promote_partitions
+
+    def damage_final(root, built):
+        result = promote(root, built)
+        if failure == "parquet":
+            (root / built[0].manifest.objects[0].key).write_bytes(b"broken final parquet")
+        return result
+
+    monkeypatch.setattr(writer_module, "_promote_partitions", damage_final)
+    if failure == "inventory":
+        parity = writer_module.validate_legacy_parity
+
+        def incomplete_inventory(*, manifest, **kwargs):
+            parity(
+                manifest=manifest.model_copy(update={"partitions": manifest.partitions[:-1]}),
+                **kwargs,
+            )
+
+        monkeypatch.setattr(writer_module, "validate_legacy_parity", incomplete_inventory)
+    with pytest.raises(LakeBuildError, match=r"checksum|inventories"):
+        _export(
+            dataset_name="jquants.daily_bars",
+            sqlite_path=source,
+            mirror_root=mirror,
+            producer_git_commit=_COMMIT,
+            build_id="failed",
+        )
+    assert not (
+        mirror / dataset_manifest_key(dataset="jquants.daily_bars", build_id="failed")
+    ).exists()
+    assert release_path.read_bytes() == previous
+    assert release.datasets["jquants.daily_bars"].build_id == "baseline"
+    for path, payload in objects.items():
+        assert path.read_bytes() == payload

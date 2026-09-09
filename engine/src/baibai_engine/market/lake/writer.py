@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import shutil
 import sqlite3
 import uuid
@@ -22,7 +21,7 @@ from baibai_engine.market.sqlite.lake_origin import (
     read_lake_store_origin_from_connection,
 )
 from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
-from baibai_engine.market.sqlite.snapshot import create_snapshot, validate_snapshot
+from baibai_engine.market.sqlite.snapshot import create_snapshot
 
 from ..sqlite.coverage import daily_bars_covered_by_data, range_covered
 from .datasets import (
@@ -46,7 +45,7 @@ from .models import (
     canonical_lake_model_bytes,
     load_lake_model_json,
 )
-from .sources import sha256_file, validate_sqlite_snapshot
+from .sources import sha256_file
 
 _ROW_GROUP_SIZE = 65_536
 _PARQUET_VERSION = "2.6"
@@ -122,14 +121,12 @@ def sealed_sqlite_snapshot(
         required = max(sqlite_path.stat().st_size * 2, 64 * 1024 * 1024)
         if shutil.disk_usage(workspace).free < required:
             raise LakeBuildError("insufficient disk space for a sealed SQLite snapshot")
-        create_snapshot(sqlite_path, sealed)
-        schema_version = validate_snapshot(sealed)
+        schema_version = create_snapshot(sqlite_path, sealed)
         if schema_version != SQLITE_SCHEMA_VERSION:
             raise LakeBuildError(
                 f"legacy SQLite schema is {schema_version}; expected {SQLITE_SCHEMA_VERSION}"
             )
         digest = sha256_file(sealed)
-        validate_sqlite_snapshot(sealed, expected_schema_version=schema_version)
         ref = SQLiteSnapshotSourceRef(
             kind="sqlite_snapshot",
             source_id=f"market-v{schema_version}-{digest[:24]}",
@@ -361,7 +358,7 @@ def _build_period(
         version=_PARQUET_VERSION,
         write_statistics=True,
     )
-    content_sha256 = _sha256(provisional)
+    content_sha256 = sha256_file(provisional)
     object_key = canonical_object_key(
         layer="l1_canonical",
         dataset=dataset.name,
@@ -381,13 +378,6 @@ def _build_period(
         rows=len(rows),
         min_key=min(primary_keys),
         max_key=max(primary_keys),
-    )
-    _validate_parquet(
-        staged,
-        dataset=dataset,
-        period=period,
-        expected_rows=rows,
-        expected_object=lake_object,
     )
     return _BuiltPartition(
         period=period,
@@ -455,7 +445,7 @@ def _validate_parquet(
 ) -> None:
     if not path.is_file() or path.stat().st_size <= 0:
         raise LakeBuildError(f"Parquet object missing or empty: {path}")
-    if _sha256(path) != expected_object.sha256 or path.stat().st_size != expected_object.bytes:
+    if sha256_file(path) != expected_object.sha256 or path.stat().st_size != expected_object.bytes:
         raise LakeBuildError(f"Parquet checksum or size mismatch: {path}")
     table = pq.read_table(path)
     if not table.schema.equals(dataset.arrow_schema, check_metadata=True):
@@ -600,14 +590,6 @@ def _open_immutable(path: Path) -> Iterator[sqlite3.Connection]:
 def _pk_indexes(dataset: LakeDataset) -> tuple[int, ...]:
     names = tuple(column.name for column in dataset.columns)
     return tuple(names.index(name) for name in dataset.primary_key)
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _write_immutable(path: Path, payload: bytes) -> None:

@@ -7,7 +7,7 @@ from contextlib import closing
 from pathlib import Path
 
 
-def create_snapshot(source: Path, output: Path) -> None:
+def create_snapshot(source: Path, output: Path) -> int:
     """Use SQLite backup so committed WAL pages belong to the captured generation."""
     if not source.is_file():
         raise FileNotFoundError(f"SQLite source does not exist: {source}")
@@ -22,7 +22,7 @@ def create_snapshot(source: Path, output: Path) -> None:
             target_db,
         ):
             source_db.backup(target_db, pages=1024, sleep=0.05)
-        validate_snapshot(output)
+        return validate_snapshot(output)
     except Exception:
         output.unlink(missing_ok=True)
         raise
