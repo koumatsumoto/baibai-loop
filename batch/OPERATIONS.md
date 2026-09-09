@@ -51,8 +51,9 @@ R2 lifecycle ruleは`history/candidate-views/`だけに設定する。bucket全�
 serving と Worker の境界:
 
 - 両bucketはpublic accessを持たない。WorkerのR2 bindingは`baibai-serving`だけに限定する。
-- `/api/*`は固定Bearer passwordをSHA-256後に定数時間比較し、有限のrouteから`views/`または日付形式を検証した
-  `history/candidate-views/`へ写像する。storesや任意のhistory keyには到達しない。
+- 既存view APIは[共有read認証](../web/README.md#共有read)をSHA-256後に定数時間比較し、有限のrouteから`views/`または日付形式を検証した
+  `history/candidate-views/`へ写像する。L1だけは[raw gateway](../docs/reference/market-lake.md#shared-raw-read)が
+  bucket-scoped Object Read only S3 credentialで取得し、store snapshotや任意のhistory keyには到達しない。
   応答は`Cache-Control: no-store`で、CORSを有効化しない。
 - Workers Assetsは`web/frontend/dist`を無認証で配信する。bundleは業務データを含まず、実データは認証済みAPIだけから取得する。HTTP navigationはWorkerが認証処理前にHTTPSへredirectし、HTTPS応答はHSTSを持つ。
 - `cloud-materialize`はapplication data、`cloud-daily-batch`は平日夕方の機械工程をpublishする。2 workflowは`cloud-publish`の`queue: max`を共有し、pending writerをFIFOで保持して
@@ -68,7 +69,8 @@ serving と Worker の境界:
 | GitHub Actions（Worker deploy） | variable `R2_ACCOUNT_ID`、secret `CLOUDFLARE_API_TOKEN` | 対象accountの`Workers Scripts Write`、`web`のdeploy stepのみ |
 | ローカル`.env` | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | stores read-write |
 | Wrangler OAuth | `wrangler login` | bucket初期設定、Worker secretの手動設定 |
-| Worker secret | `VIEW_PASSWORD` | Worker runtimeだけ |
+| Worker secret（閲覧認証） | `VIEW_PASSWORD` / `READ_ACCESS_TOKEN` | Worker runtimeだけ、ownerと共有を分離 |
+| Worker secret（L1接続） | `L1_R2_BASE_URL` / `L1_R2_ACCESS_KEY_ID` / `L1_R2_SECRET_ACCESS_KEY` | `baibai-stores`だけのObject Read only、publisher credentialと分離 |
 
 R2 S3 endpointは`https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`からscriptが組み立てる。credential、password、endpointの実値をGit、issue、logへ書かない。
 
@@ -157,20 +159,83 @@ gh workflow run cloud-materialize.yml --ref main
 gh run list --workflow cloud-materialize.yml --limit 3
 ```
 
-materialize完了後、passwordを画面表示・shell引数化せず、全API routeを未認証・誤認証・正認証で検査する。`VERIFY_TICKER`はservingに存在する4文字tickerへ必要に応じて変更する。keyを取るroute（screening history / macro context / ticker）はservingに無いkeyでも検査し、正認証が200ではなく404へ解決することを確かめる。どのkeyがservingに存在するかへ依存せず、Workerが答える全routeのauth境界を検査するためである。passwordはprompt入力のみを受けるので、TTYの無い経路（agent やpipe経由の実行）ではrequestを1本も送らずexit 2で止まる。
+materialize完了後、passwordを画面表示・shell引数化せず、既存view API routeを未認証・誤認証・正認証で検査する。`VERIFY_TICKER`はservingに存在する4文字tickerへ必要に応じて変更する。keyを取るroute（screening history / macro context / ticker）はservingに無いkeyでも検査し、正認証が200ではなく404へ解決することを確かめる。どのkeyがservingに存在するかへ依存せず、既存view routeのauth境界を検査するためである。passwordはprompt入力のみを受けるので、TTYの無い経路（agent やpipe経由の実行）ではrequestを1本も送らずexit 2で止まる。
 
 ```bash
 web/edge/scripts/verify-deployment.sh
 ```
 
-**成功確認**: web workflowとmaterializeが成功した後、`verify-deployment.sh`で全API routeの未認証・誤認証・
+**成功確認**: web workflowとmaterializeが成功した後、`verify-deployment.sh`で既存view API routeの未認証・誤認証・
 正認証を確認する。正認証の不存在keyは404になることを確認する。
 
-**停止と復旧**: `VIEW_PASSWORD`未設定では全APIが401になる。passwordは引数やshell historyへ書かずpromptへ
+**停止と復旧**: owner Bearerは`VIEW_PASSWORD`未設定で401になり、共有認証も未設定なら全APIが401になる。passwordは引数やshell historyへ書かずpromptへ
 入力する。TTYのない経路では検査scriptがrequestを送らずexit 2で止まる。失敗時はdeployやR2操作を重ねず、
 workflow logまたは検査結果の原因を直す。
 
 `*.workers.dev`のHTTP requestはWorkerが認証判定より前に308でHTTPSへredirectし、HTTPS responseはHSTSを返す。UI navigationは必ずこの経路を通り、hashed static assetだけをWorker invocationなしで配信する。
+
+<a id="shared-read-setup"></a>
+
+### 共有readとL1接続の設定
+
+**前提**: mainのweb deployが共有read実装を含むことを確認します。CloudflareのR2 API token管理で、
+production `baibai-stores`だけにscopeした **Object Read only** credentialを新規作成します。
+publisherのread-write credentialは流用せず、canonical bucketのWorker bindingは追加しません。
+Object Read onlyはbucket全体を読めます。L1以外を外部へ返さない境界はWorkerのnamespace allowlistであり、
+prefix単位IAMではありません（[Cloudflare公式](https://developers.cloudflare.com/r2/api/tokens/)）。
+
+`READ_ACCESS_TOKEN`はowner passwordとは別に、32 random bytes以上をCSPRNGで生成しbase64url等にします。
+実値と共有URLはpassword manager等の非公開経路だけで扱い、Git、Issue、PR、CI log、artifact、shell引数へ
+残しません。`wrangler.jsonc`はobservabilityとLogpushを明示的に無効化し、既存productionの無効状態を維持します。
+固定版Wrangler 4.114.0のschemaは`redact_query_string`を受け付けません。Cloudflareの
+[Script Settings API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/settings/methods/get/)
+にはlogs/tracesのURL queryを除く同名設定がありますが、未対応fieldをWranglerへ追加して有効と見なしません。
+logs/tracesを有効化する変更では、採用Wranglerのschemaとdeploy metadataがこの設定を正式に扱うことを確認し、
+`redact_query_string=true`をdeployment設定へ固定して、非秘密のqueryでredactionを受入確認します。
+実際の共有tokenで試験しません。real-time logの`wrangler tail`、dashboard Live Logs、Tail Worker等は、
+共有tokenを使うrequest中に起動・接続しません。
+
+**実行**: 以下は`web/edge`でpromptへ値を入力します。`L1_R2_BASE_URL`は実bucketのjurisdictionに合う
+`https://<account-endpoint>/<bucket>`を指定し、末尾にobject key、query、credentialを入れません。
+endpointの実値もGitへ残さないためWorker secretとして設定します。
+
+```bash
+cd web/edge
+npx wrangler secret put READ_ACCESS_TOKEN
+npx wrangler secret put L1_R2_BASE_URL
+npx wrangler secret put L1_R2_ACCESS_KEY_ID
+npx wrangler secret put L1_R2_SECRET_ACCESS_KEY
+```
+
+**成功確認**: productionのScript Settingsでobservabilityが未設定またはlogs/tracesとも無効、Logpush無効、
+tail consumerなしを確認します。認証値・bindingsは出力せず、設定項目だけを確認します。無効状態が異なる場合は
+共有URLの利用を始めず、deployment設定と実設定を一致させます。
+owner Bearerと共有Bearer/queryで既存JSONの具体値・更新時点を読み、未認証と旧/誤tokenが
+401、重複shareが400になることを確認します。`/?share=...`は通常UIを開き、最初のAPI request前にURLから
+shareが消え、owner保存値が維持されることを確認します。共有URLを第三者へ一般公開しません。
+
+L1は[固定release手順](../docs/reference/market-lake.md#shared-raw-read)でcurrent → release manifest →
+dataset manifest → 小さい実Parquetへ進みます。対象ChatGPTの分析workspaceへ自動共有readで実ファイルが入り、
+decodeして件数・null・具体値を計算できたことを確認します。その同じreleaseから次をlocal baselineと照合します。
+
+- 3539または6675等の個別銘柄の日足・財務の期間、row、null、保存値
+- 1営業日分の全銘柄daily barsのrow数と簡単な集計
+- 2銘柄×約3年等の複数partition履歴の欠落・重複・release混在の有無
+
+実bucketはこの利用側受入だけに使い、unit test、data rebuild、daily batch dispatchには使いません。
+HTTP 200や手動uploadだけでは分析成功にしません。download不可、fileは入るがdecode不可、size制限、
+parser不足等を実測して記録し、未達ならIssueを閉じません。変換機構をその場で追加せず、観測結果から次案を決めます。
+
+**停止と復旧**: shared secret未設定・空は共有accessだけを無効化し、L1接続値の不足はlakeだけ503にします。
+上流403/5xx等は安全な502となるので、read-only scopeとendpoint設定を確認します。秘密値や上流error bodyを
+logへ出しません。設定失敗時はowner credential、store、daily batchを変更せず設定をやり直します。
+
+**rotationと撤回**: 共有tokenは同じ`secret put READ_ACCESS_TOKEN`で置換し、旧値401・新値成功を確認します。
+次の401でfrontendは共有sessionだけを消します。共有撤回は`npx wrangler secret delete READ_ACCESS_TOKEN`です。
+L1 credentialは新しいbucket-scoped Object Read only tokenを作り、2つのS3 secretを更新してGETを確認した後に
+旧R2 tokenを失効させます。更新途中のlake 502は全設定が揃ってから再確認します。L1公開自体の撤回は
+`npx wrangler secret delete L1_R2_ACCESS_KEY_ID`でgatewayを503にし、Cloudflare側でもその専用tokenを失効させます。
+既存owner viewとcanonical dataは維持され、secret変更で再deployは不要です。
 
 ## 日常運用
 
@@ -680,7 +745,7 @@ uv run python -m baibai_web.materialize --output-dir <dir> [--batch daily|manual
 
 `views/` は毎回 export の完全な像に置換される（実行のたびに一度削除して作り直すので、対象から外れた古い view は残らない）。`history/` は追記のみで、この script は削除を行わない。上記の31日削除は serving store（R2 lifecycle）側の保持契約であり、script の挙動ではない。
 
-Workerは認証後の`/api/screening/history`でCandidates履歴の日付一覧を返し、`/api/screening/history/YYYY-MM-DD`だけを`history/candidate-views/`へ写像する。任意key、旧形式の`history/candidates/`、store bucketは公開しない。
+Workerは認証後の`/api/screening/history`でCandidates履歴の日付一覧を返し、`/api/screening/history/YYYY-MM-DD`だけを`history/candidate-views/`へ写像する。任意history key、旧形式の`history/candidates/`、store snapshotは公開しない。L1 raw readは[共有gateway](#shared-read-setup)の境界に従う。
 
 views の JSON は `baibai-web` の対応 API response と同形（pydantic `model_dump_json`）。`meta.json` は全 view / history の書き込み成功後に最後に書くので、途中失敗した出力 dir が新鮮さを主張する事態を避ける。
 

@@ -16,6 +16,10 @@ function environment(
     BAIBAI_SERVING: { get, list } as unknown as R2Bucket,
     ASSETS: { fetch: vi.fn().mockResolvedValue(new Response(null, { status: 204 })) } as unknown as Fetcher,
     VIEW_PASSWORD: PASSWORD,
+    READ_ACCESS_TOKEN: '',
+    L1_R2_BASE_URL: '',
+    L1_R2_ACCESS_KEY_ID: '',
+    L1_R2_SECRET_ACCESS_KEY: '',
   }
 }
 
@@ -248,5 +252,184 @@ describe('view routing', () => {
     expect(response.headers.get('Strict-Transport-Security')).toContain('max-age=31536000')
     expect(env.ASSETS.fetch).toHaveBeenCalledOnce()
     expect(get).not.toHaveBeenCalled()
+  })
+})
+
+describe('shared read authentication', () => {
+  it.each([
+    [null, 'shared-secret', 200],
+    ['shared-secret', null, 200],
+    [PASSWORD, 'wrong', 200],
+    ['wrong', 'shared-secret', 401],
+    [null, PASSWORD, 401],
+    [null, '', 401],
+    [null, 'wrong', 401],
+  ])('authenticates header %s and share %s', async (bearer, share, status) => {
+    const env = { ...environment(vi.fn().mockResolvedValue(objectBody())), READ_ACCESS_TOKEN: 'shared-secret' }
+    const query = share === null ? '' : `?share=${share}`
+    expect((await handleRequest(request(`/api/dashboard${query}`, bearer), env)).status).toBe(status)
+  })
+
+  it('rejects duplicate share even with valid owner authentication', async () => {
+    expect((await handleRequest(request('/api/health?share=a&share=b'), environment(vi.fn()))).status).toBe(400)
+  })
+
+  it.each(['', undefined])('disables only shared access when token is %s', async (value) => {
+    const env = environment(vi.fn())
+    if (value === undefined) Reflect.deleteProperty(env, 'READ_ACCESS_TOKEN')
+    else env.READ_ACCESS_TOKEN = value
+    expect((await handleRequest(request('/api/health?share=shared-secret', null), env)).status).toBe(401)
+    expect((await handleRequest(request('/api/health'), env)).status).toBe(200)
+  })
+
+  it('does not rescue an empty or malformed Authorization header with share', async () => {
+    const env = { ...environment(vi.fn()), READ_ACCESS_TOKEN: 'shared-secret' }
+    for (const authorization of ['', 'Basic shared-secret']) {
+      const req = new Request('https://example.test/api/health?share=shared-secret', { headers: { Authorization: authorization } })
+      expect((await handleRequest(req, env)).status).toBe(401)
+    }
+  })
+
+  it('protects shared bootstrap responses without changing ordinary static caching', async () => {
+    const env = environment(vi.fn())
+    const shared = await handleRequest(request('/?share=secret', null), env)
+    expect(shared.headers.get('Cache-Control')).toBe('no-store')
+    expect(shared.headers.get('Referrer-Policy')).toBe('no-referrer')
+    expect(shared.headers.get('X-Robots-Tag')).toBe('noindex, nofollow, noarchive')
+    const ordinary = await handleRequest(request('/', null), env)
+    expect(ordinary.headers.get('Cache-Control')).toBeNull()
+    expect(ordinary.headers.get('Referrer-Policy')).toBeNull()
+  })
+})
+
+describe('raw L1 gateway', () => {
+  function lakeEnv() {
+    return {
+      ...environment(vi.fn()),
+      READ_ACCESS_TOKEN: 'shared-secret',
+      L1_R2_BASE_URL: 'https://account.r2.cloudflarestorage.com/test-stores',
+      L1_R2_ACCESS_KEY_ID: 'reader-id',
+      L1_R2_SECRET_ACCESS_KEY: 'reader-secret',
+    }
+  }
+
+  it.each([
+    ['/api/lake/current', 'lake/pointers/l1/current.json'],
+    ['/api/lake/object?key=lake/manifests/releases/l1/r.json', 'lake/manifests/releases/l1/r.json'],
+    ['/api/lake/object?key=lake/manifests/datasets/new/grain/d.json', 'lake/manifests/datasets/new/grain/d.json'],
+    ['/api/lake/object?key=lake/l1/canonical/new/grain/p.parquet', 'lake/l1/canonical/new/grain/p.parquet'],
+    ['/api/lake/object?key=lake%2Fl1%2Fcanonical%2Fd%2Fp%252Fname.parquet', 'lake/l1/canonical/d/p%252Fname.parquet'],
+  ])('streams %s via a fresh signed GET', async (path, key) => {
+    const upstream = new Response('raw bytes')
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(upstream)
+    try {
+      const url = path + (path.includes('?') ? '&' : '?') + 'share=shared-secret'
+      const req = request(url, 'shared-secret')
+      req.headers.set('Range', 'bytes=0-1')
+      const response = await handleRequest(req, lakeEnv())
+      expect(response.status).toBe(200)
+      expect(response.body).toBe(upstream.body)
+      expect(response.headers.get('Cache-Control')).toBe('no-store')
+      const sent = fetchMock.mock.calls[0][0] as Request
+      expect(sent.method).toBe('GET')
+      expect(sent.url).toBe(`https://account.r2.cloudflarestorage.com/test-stores/${key}`)
+      expect(sent.redirect).toBe('manual')
+      expect(sent.headers.get('Authorization')).toContain('AWS4-HMAC-SHA256 Credential=reader-id/')
+      expect(sent.headers.get('Authorization')).not.toContain('shared-secret')
+      expect(sent.headers.get('Range')).toBeNull()
+      if (key.endsWith('.parquet')) {
+        expect(response.headers.get('Content-Type')).toBe('application/vnd.apache.parquet')
+        expect(response.headers.get('Content-Disposition')).toBe(
+          key.includes('p%252Fname') ? 'attachment; filename="p_2Fname.parquet"' : 'attachment; filename="p.parquet"',
+        )
+      } else {
+        expect(response.headers.get('Content-Type')).toBe('application/json; charset=utf-8')
+      }
+      expect(await response.text()).toBe('raw bytes')
+    } finally { fetchMock.mockRestore() }
+  })
+
+  it.each([
+    '', '/lake/l1/canonical/p.parquet', 'market.sqlite', 'application/baibai.sqlite',
+    'lake/staging/p.parquet', 'lake/pointers/l1/current.json', 'lake/l1/canonical/p.json',
+    'https://other.test/lake/l1/canonical/p.parquet', 'lake/manifests/releases/other/r.json',
+    'lake/l1/canonical/../../../application/x.parquet', 'lake/l1/canonical/./p.parquet',
+    'lake/l1/canonical/a\\b.parquet', 'lake/l1/canonical/a\u0000.parquet',
+    'lake/l1/canonical/a\u007f.parquet', 'lake/l1/canonical//p.parquet',
+  ])('rejects key %s before fetching', async (key) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    try {
+      const response = await handleRequest(request(`/api/lake/object?key=${encodeURIComponent(key)}`), lakeEnv())
+      expect(response.status).toBe(400)
+      expect(fetchMock).not.toHaveBeenCalled()
+    } finally { fetchMock.mockRestore() }
+  })
+
+  it.each(['/api/lake/object', '/api/lake/object?key=a&key=b'])('rejects missing or duplicate key: %s', async (path) => {
+    expect((await handleRequest(request(path), lakeEnv())).status).toBe(400)
+  })
+
+  it.each(['POST', 'PUT', 'DELETE', 'HEAD', 'OPTIONS', 'PATCH'])('rejects %s without upstream access', async (method) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    try {
+      expect((await handleRequest(request('/api/lake/current?share=shared-secret', null, method), lakeEnv())).status).toBe(405)
+      expect(fetchMock).not.toHaveBeenCalled()
+    } finally { fetchMock.mockRestore() }
+  })
+
+  it.each(['L1_R2_BASE_URL', 'L1_R2_ACCESS_KEY_ID', 'L1_R2_SECRET_ACCESS_KEY'] as const)('isolates missing %s to lake', async (key) => {
+    const env = lakeEnv()
+    env[key] = ''
+    expect((await handleRequest(request('/api/lake/current'), env)).status).toBe(503)
+    expect((await handleRequest(request('/api/health'), env)).status).toBe(200)
+  })
+
+  it.each([301, 302, 403, 404, 500, 503])('safely maps upstream %s and discards its body', async (status) => {
+    const upstream = new Response('private upstream details', { status, headers: { Location: 'https://private.test/signed' } })
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(upstream)
+    try {
+      const response = await handleRequest(request('/api/lake/current'), lakeEnv())
+      expect(response.status).toBe(status === 404 ? 404 : 502)
+      expect(response.headers.get('Location')).toBeNull()
+      expect(await response.text()).not.toContain('private')
+      expect(upstream.bodyUsed).toBe(true)
+    } finally { fetchMock.mockRestore() }
+  })
+
+  it('does not expose signed URLs from upstream exceptions', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('https://private.test/?signature=secret'))
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const response = await handleRequest(request('/api/lake/current'), lakeEnv())
+      expect(response.status).toBe(502)
+      expect(await response.text()).not.toContain('secret')
+      expect(log).not.toHaveBeenCalled()
+    } finally { fetchMock.mockRestore(); log.mockRestore() }
+  })
+})
+
+
+describe('Parquet download identity', () => {
+  it('preserves different content-addressed basenames across partition downloads', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(new Uint8Array([80, 65, 82, 49])))
+    try {
+      const env = {
+        ...environment(vi.fn()),
+        L1_R2_BASE_URL: 'https://account.r2.cloudflarestorage.com/test-stores',
+        L1_R2_ACCESS_KEY_ID: 'reader-id',
+        L1_R2_SECRET_ACCESS_KEY: 'reader-secret',
+      }
+      for (const digest of ['a'.repeat(64), 'b'.repeat(64)]) {
+        const filename = `part-${digest}.parquet`
+        const key = `lake/l1/canonical/daily-bars/2026-09/${filename}`
+        const response = await handleRequest(request(`/api/lake/object?key=${encodeURIComponent(key)}`), env)
+        expect(response.headers.get('Content-Disposition')).toBe(`attachment; filename="${filename}"`)
+        expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([80, 65, 82, 49]))
+      }
+      const key = 'lake/l1/canonical/d/悪い";name.parquet'
+      const response = await handleRequest(request(`/api/lake/object?key=${encodeURIComponent(key)}`), env)
+      expect(response.status).toBe(200)
+      expect(response.headers.get('Content-Disposition')).toBe('attachment; filename="____name.parquet"')
+    } finally { fetchMock.mockRestore() }
   })
 })

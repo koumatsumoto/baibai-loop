@@ -1,8 +1,4 @@
-// View-password storage and the auth-required signal, kept in one place so the fetch
-// client and the password gate share a single source. The password authorises
-// `/api/` reads behind a fixed Bearer scheme; locally no password is stored, so the
-// header is never sent and the signal never fires.
-
+// Research工程の閲覧資格情報をowner永続保存とshared sessionに分けて保持する。
 const VIEW_PASSWORD_KEY = 'baibai-view-password'
 
 export function getViewPassword(): string | null {
@@ -37,4 +33,25 @@ export function subscribeAuthRequired(listener: AuthRequiredListener): () => voi
 /** Fire the auth-required signal so the password gate takes over. */
 export function notifyAuthRequired(reason: AuthRequiredReason): void {
   for (const listener of authRequiredListeners) listener(reason)
+}
+
+const SHARED_TOKEN_KEY = 'baibai-shared-read-token'
+
+export function getSharedToken(): string | null {
+  return sessionStorage.getItem(SHARED_TOKEN_KEY)
+}
+
+export function clearSharedToken(): void {
+  sessionStorage.removeItem(SHARED_TOKEN_KEY)
+}
+
+/** Consume sharing credentials before rendering can trigger API requests. */
+export function bootstrapSharedAccess(): void {
+  const url = new URL(window.location.href)
+  const tokens = url.searchParams.getAll('share')
+  if (tokens.length === 0) return
+  url.searchParams.delete('share')
+  window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
+  clearSharedToken()
+  if (tokens.length === 1 && tokens[0]) sessionStorage.setItem(SHARED_TOKEN_KEY, tokens[0])
 }
