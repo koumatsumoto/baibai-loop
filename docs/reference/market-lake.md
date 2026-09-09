@@ -110,6 +110,34 @@ named releaseはIDだけでは受理せずmanifest SHA-256を必須とする。�
 readerはmanifestが列挙したobject keyだけをbounded batchで読む。remote readに必要なDuckDB extensionは
 provisioning stepで事前にinstallし、runtime downloadへfallbackしない。
 
+<a id="shared-raw-read"></a>
+
+## 共有gatewayからの固定release読み
+
+Webの共有認証から、次の順序で既存manifestとParquetをraw GETします。認証の意味は
+[Web](../../web/README.md#共有read)、credential設定と受入手順は
+[運用手順](../../batch/OPERATIONS.md#shared-read-setup)を参照してください。
+
+1. `GET /api/lake/current`でexact `lake/pointers/l1/current.json`を一度だけ取得する。
+2. pointerが指すrelease manifest keyを`GET /api/lake/object?key=<key>`へ渡す。
+3. そのreleaseが列挙したdataset manifestを同じobject routeで取得する。
+4. そのdataset manifestが列挙したpartitionだけを取得する。
+
+object routeは`lake/manifests/releases/l1/`と`lake/manifests/datasets/`の`.json`、
+`lake/l1/canonical/`の`.parquet`だけを許可します。pointerはcurrent routeだけで公開し、store snapshot、
+application DB、staging、GCには到達できません。keyはquery parserで一度decodeした文字列として判定し、
+callerがbucketやupstream hostを指定することはできません。
+
+同一分析中にcurrentが更新されても乗り換えません。取得後のbyte数・SHA-256・row数・Arrow schemaを
+manifestと照合する責務は利用側にあり、gatewayは再検証・変換・全体bufferingを行いません。
+fixed releaseのobjectがGC等で404になった場合はその分析を止め、別releaseのpartitionで穴埋めしません。
+再試行するなら新しい分析としてcurrentから取り直します。
+
+HEAD、Range、listing、filter、SQL、provider fetch、JSON/CSV変換は提供しません。上流404は404、
+上流redirect・認証エラー・5xx・通信失敗は内容を開示せず502、接続設定不足は503です。
+JSONは`application/json; charset=utf-8`、Parquetは`application/vnd.apache.parquet`と安全なdownload名で
+返し、すべてno-storeです。HTTP 200はdecode・分析成功の証明ではありません。
+
 <a id="store-hydration"></a>
 
 ## Storeの復元
