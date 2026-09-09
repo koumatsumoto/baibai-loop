@@ -50,7 +50,8 @@ export async function lakeResponse(
     const responseHeaders = new Headers(headers)
     if (key.endsWith('.parquet')) {
       responseHeaders.set('Content-Type', 'application/vnd.apache.parquet')
-      responseHeaders.set('Content-Disposition', 'attachment; filename="partition.parquet"')
+      const filename = key.slice(key.lastIndexOf('/') + 1).replace(/[^A-Za-z0-9._-]/g, '_')
+      responseHeaders.set('Content-Disposition', `attachment; filename="${filename}"`)
     }
     return new Response(upstream.body, { headers: responseHeaders })
   } catch {

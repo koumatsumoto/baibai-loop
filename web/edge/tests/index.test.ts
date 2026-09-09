@@ -339,7 +339,9 @@ describe('raw L1 gateway', () => {
       expect(sent.headers.get('Range')).toBeNull()
       if (key.endsWith('.parquet')) {
         expect(response.headers.get('Content-Type')).toBe('application/vnd.apache.parquet')
-        expect(response.headers.get('Content-Disposition')).toBe('attachment; filename="partition.parquet"')
+        expect(response.headers.get('Content-Disposition')).toBe(
+          key.includes('p%252Fname') ? 'attachment; filename="p_2Fname.parquet"' : 'attachment; filename="p.parquet"',
+        )
       } else {
         expect(response.headers.get('Content-Type')).toBe('application/json; charset=utf-8')
       }
@@ -403,5 +405,31 @@ describe('raw L1 gateway', () => {
       expect(await response.text()).not.toContain('secret')
       expect(log).not.toHaveBeenCalled()
     } finally { fetchMock.mockRestore(); log.mockRestore() }
+  })
+})
+
+
+describe('Parquet download identity', () => {
+  it('preserves different content-addressed basenames across partition downloads', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(new Uint8Array([80, 65, 82, 49])))
+    try {
+      const env = {
+        ...environment(vi.fn()),
+        L1_R2_BASE_URL: 'https://account.r2.cloudflarestorage.com/test-stores',
+        L1_R2_ACCESS_KEY_ID: 'reader-id',
+        L1_R2_SECRET_ACCESS_KEY: 'reader-secret',
+      }
+      for (const digest of ['a'.repeat(64), 'b'.repeat(64)]) {
+        const filename = `part-${digest}.parquet`
+        const key = `lake/l1/canonical/daily-bars/2026-09/${filename}`
+        const response = await handleRequest(request(`/api/lake/object?key=${encodeURIComponent(key)}`), env)
+        expect(response.headers.get('Content-Disposition')).toBe(`attachment; filename="${filename}"`)
+        expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([80, 65, 82, 49]))
+      }
+      const key = 'lake/l1/canonical/d/悪い";name.parquet'
+      const response = await handleRequest(request(`/api/lake/object?key=${encodeURIComponent(key)}`), env)
+      expect(response.status).toBe(200)
+      expect(response.headers.get('Content-Disposition')).toBe('attachment; filename="____name.parquet"')
+    } finally { fetchMock.mockRestore() }
   })
 })

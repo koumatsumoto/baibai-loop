@@ -135,8 +135,8 @@ fixed releaseのobjectがGC等で404になった場合はその分析を止め�
 
 HEAD、Range、listing、filter、SQL、provider fetch、JSON/CSV変換は提供しません。上流404は404、
 上流redirect・認証エラー・5xx・通信失敗は内容を開示せず502、接続設定不足は503です。
-JSONは`application/json; charset=utf-8`、Parquetは`application/vnd.apache.parquet`と安全なdownload名で
-返し、すべてno-storeです。HTTP 200はdecode・分析成功の証明ではありません。
+JSONは`application/json; charset=utf-8`、Parquetは`application/vnd.apache.parquet`とcanonical objectのbasenameをdownload名として
+返します（headerに安全でない文字だけ`_`へ置換）。すべてno-storeです。HTTP 200はdecode・分析成功の証明ではありません。
 
 <a id="store-hydration"></a>
 

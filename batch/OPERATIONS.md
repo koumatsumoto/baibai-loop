@@ -186,7 +186,14 @@ prefix単位IAMではありません（[Cloudflare公式](https://developers.clo
 
 `READ_ACCESS_TOKEN`はowner passwordとは別に、32 random bytes以上をCSPRNGで生成しbase64url等にします。
 実値と共有URLはpassword manager等の非公開経路だけで扱い、Git、Issue、PR、CI log、artifact、shell引数へ
-残しません。request URLを記録するWorkers Logs、Logpush、tail等を共有requestに対して有効にしません。
+残しません。`wrangler.jsonc`はobservabilityとLogpushを明示的に無効化し、既存productionの無効状態を維持します。
+固定版Wrangler 4.114.0のschemaは`redact_query_string`を受け付けません。Cloudflareの
+[Script Settings API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/settings/methods/get/)
+にはlogs/tracesのURL queryを除く同名設定がありますが、未対応fieldをWranglerへ追加して有効と見なしません。
+logs/tracesを有効化する変更では、採用Wranglerのschemaとdeploy metadataがこの設定を正式に扱うことを確認し、
+`redact_query_string=true`をdeployment設定へ固定して、非秘密のqueryでredactionを受入確認します。
+実際の共有tokenで試験しません。real-time logの`wrangler tail`、dashboard Live Logs、Tail Worker等は、
+共有tokenを使うrequest中に起動・接続しません。
 
 **実行**: 以下は`web/edge`でpromptへ値を入力します。`L1_R2_BASE_URL`は実bucketのjurisdictionに合う
 `https://<account-endpoint>/<bucket>`を指定し、末尾にobject key、query、credentialを入れません。
@@ -200,7 +207,10 @@ npx wrangler secret put L1_R2_ACCESS_KEY_ID
 npx wrangler secret put L1_R2_SECRET_ACCESS_KEY
 ```
 
-**成功確認**: owner Bearerと共有Bearer/queryで既存JSONの具体値・更新時点を読み、未認証と旧/誤tokenが
+**成功確認**: productionのScript Settingsでobservabilityが未設定またはlogs/tracesとも無効、Logpush無効、
+tail consumerなしを確認します。認証値・bindingsは出力せず、設定項目だけを確認します。無効状態が異なる場合は
+共有URLの利用を始めず、deployment設定と実設定を一致させます。
+owner Bearerと共有Bearer/queryで既存JSONの具体値・更新時点を読み、未認証と旧/誤tokenが
 401、重複shareが400になることを確認します。`/?share=...`は通常UIを開き、最初のAPI request前にURLから
 shareが消え、owner保存値が維持されることを確認します。共有URLを第三者へ一般公開しません。
 
