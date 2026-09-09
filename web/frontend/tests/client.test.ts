@@ -179,3 +179,41 @@ describe('shared read session', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
+
+describe('obsolete 401 responses', () => {
+  it.each(['owner', 'none', 'shared'] as const)('does not relock a new owner after a %s request', async (source) => {
+    if (source === 'owner') setViewPassword('old-secret')
+    if (source === 'shared') sessionStorage.setItem('baibai-shared-read-token', 'new-secret')
+    let respond!: (response: Response) => void
+    fetchMock.mockReturnValue(new Promise<Response>((resolve) => { respond = resolve }))
+    const listener = vi.fn()
+    const unsubscribe = subscribeAuthRequired(listener)
+    try {
+      const pending = fetchJson('/api/dashboard')
+      sessionStorage.clear()
+      setViewPassword('new-secret')
+      respond(jsonResponse({}, 401))
+      await expect(pending).rejects.toMatchObject({ status: 401 })
+      expect(listener).not.toHaveBeenCalled()
+      expect(getViewPassword()).toBe('new-secret')
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it('notifies when the current shared credential is rejected', async () => {
+    sessionStorage.setItem('baibai-shared-read-token', 'shared-secret')
+    setViewPassword('owner-secret')
+    const listener = vi.fn()
+    const unsubscribe = subscribeAuthRequired(listener)
+    fetchMock.mockResolvedValue(jsonResponse({}, 401))
+    try {
+      await expect(fetchJson('/api/dashboard')).rejects.toMatchObject({ status: 401 })
+      expect(listener).toHaveBeenCalledExactlyOnceWith('rejected')
+      expect(getSharedToken()).toBeNull()
+      expect(getViewPassword()).toBe('owner-secret')
+    } finally {
+      unsubscribe()
+    }
+  })
+})

@@ -150,6 +150,13 @@ class CapitalAllocationAssessmentService:
                 raise CapitalAllocationConflictError(
                     f"thesis {alternative.thesis_id} has moved since the draft was written"
                 )
+            if (
+                alternative.thesis_review_id is not None
+                and alternative.thesis_review_id != stored.review.review_id
+            ):
+                raise CapitalAllocationConflictError(
+                    f"thesis {alternative.thesis_id} review ID differs from the stored review"
+                )
             if alternative.disposition == "allocate":
                 _, entry, _, _ = evaluate_allocation_in_transaction(
                     connection,

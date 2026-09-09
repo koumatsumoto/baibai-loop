@@ -160,6 +160,41 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(
             CapitalAllocationAssessmentService(
                 db, sqlite_path=market, clock=lambda: NOW + timedelta(days=1)
             ).publish(assessment)
+        if ticker == "1234":
+            for review_id in ("wrong-review", None):
+                for disposition in ("decline", "allocate"):
+                    alternative = assessment.alternatives[0].model_copy(
+                        update={"disposition": disposition, "thesis_review_id": review_id}
+                    )
+                    probe = assessment.model_copy(
+                        update={
+                            "capital_allocation_assessment_id": first_id
+                            + f"-binding-{disposition}-{review_id}",
+                            "result": "no_allocation" if disposition == "decline" else "allocate",
+                            "alternatives": (alternative, assessment.alternatives[1]),
+                        }
+                    )
+                    probe = probe.model_copy(
+                        update={
+                            "review": probe.review.model_copy(
+                                update={"draft_sha256": capital_allocation_draft_sha256(probe)}
+                            )
+                        }
+                    )
+                    if disposition == "decline" and review_id is None:
+                        assert service.publish(probe).alternatives[0].thesis_review_id is None
+                    else:
+                        with pytest.raises(ValueError, match=r"[Rr]eview"):
+                            service.publish(probe)
+                        with connect_rw(db) as connection:
+                            assert (
+                                connection.execute(
+                                    "SELECT 1 FROM capital_allocation_assessment WHERE "
+                                    "capital_allocation_assessment_id = ?",
+                                    (probe.capital_allocation_assessment_id,),
+                                ).fetchone()
+                                is None
+                            )
         service.publish(assessment)
         plan = plan_limit(
             capital_allocation_assessment_id=assessment_id,

@@ -583,8 +583,8 @@ def test_origin_is_checked_from_the_same_sealed_snapshot_that_is_exported(
         )
     real_create_snapshot = lake_writer_module.create_snapshot
 
-    def replace_between_origin_check_and_seal(_source: Path, output: Path) -> None:
-        real_create_snapshot(stale_store, output)
+    def replace_between_origin_check_and_seal(_source: Path, output: Path) -> int:
+        return real_create_snapshot(stale_store, output)
 
     monkeypatch.setattr(
         lake_writer_module, "create_snapshot", replace_between_origin_check_and_seal

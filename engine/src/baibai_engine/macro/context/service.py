@@ -13,6 +13,8 @@ from datetime import date
 from pathlib import Path
 
 from baibai_engine.appdb.json import canonical_json
+from baibai_engine.appdb.paths import database_path
+from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as READING_RULES_PATH
 
@@ -108,13 +110,21 @@ class MacroContextService:
         return document
 
     def head_id(self) -> str | None:
-        initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
+        path = database_path(self._db_path)
+        if not path.exists():
+            return None
+        with closing(connect_read_only(path)) as connection:
+            if _is_unwritten(connection):
+                return None
             return _current_head_id(connection)
 
     def get(self, context_id: str) -> MacroContextDocument:
-        initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
+        path = database_path(self._db_path)
+        if not path.exists():
+            raise MacroContextNotFoundError(f"unknown context_id: {context_id}")
+        with closing(connect_read_only(path)) as connection:
+            if _is_unwritten(connection):
+                raise MacroContextNotFoundError(f"unknown context_id: {context_id}")
             row = connection.execute(
                 "SELECT payload FROM macro_context WHERE context_id = ? AND schema_version = ?",
                 (context_id, MACRO_CONTEXT_SCHEMA_VERSION),
@@ -124,8 +134,12 @@ class MacroContextService:
         return MacroContextDocument.model_validate_json(str(row[0]))
 
     def latest_for(self, as_of: date) -> MacroContextDocument | None:
-        initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
+        path = database_path(self._db_path)
+        if not path.exists():
+            return None
+        with closing(connect_read_only(path)) as connection:
+            if _is_unwritten(connection):
+                return None
             row = connection.execute(
                 """
                 SELECT payload FROM macro_context
@@ -144,6 +158,15 @@ class MacroContextService:
                 f"future macro context is not eligible: {context_id} as_of={document.as_of}"
             )
         return document
+
+
+def _is_unwritten(connection: sqlite3.Connection) -> bool:
+    return int(connection.execute("PRAGMA user_version").fetchone()[0]) == 0 and (
+        connection.execute(
+            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
+        ).fetchone()
+        is None
+    )
 
 
 def _require_known_reading_revisions(document: MacroContextDocument) -> None:

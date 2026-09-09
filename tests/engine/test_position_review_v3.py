@@ -567,3 +567,28 @@ def test_current_portfolio_leaves_stale_market_quotes_unvalued(holding_case):
     assert snapshot.holdings[0].quantity == 200
     assert snapshot.holdings[0].market_value_yen is None
     assert snapshot.total_capital_yen is None
+
+
+def test_position_review_uses_policy_quote_age(holding_case, monkeypatch):
+    from baibai_engine.position.policy import PORTFOLIO_POLICY
+
+    db, market, _ = holding_case
+    with sqlite3.connect(market) as connection:
+        connection.execute("DELETE FROM jquants_daily_bars WHERE traded_at > '2026-09-03'")
+    thesis, review = pair_payload(ticker="2331", quote_as_of="2026-09-03")
+    review["review_id"] = "older-quote-review"
+    ThesisStoreService(db, clock=lambda: NOW).publish_reviewed_thesis(
+        "older-quote", thesis, review, supersedes_id="current"
+    )
+    service = PositionReviewService(db, sqlite_path=market, clock=lambda: NOW)
+    for days, expected in ((3, None), (7, "hold")):
+        monkeypatch.setitem(PORTFOLIO_POLICY["valuation"], "market_price_max_age_days", days)
+        draft = service.build(thesis_id="older-quote", position_id="2331")
+        draft = draft.model_copy(
+            update={
+                "remaining_reward": RemainingReward(
+                    status="sufficient", reason="将来分配と残存価値を確認"
+                )
+            }
+        )
+        assert service.check(draft).action == expected

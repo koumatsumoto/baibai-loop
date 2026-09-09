@@ -20,7 +20,7 @@ PORTFOLIO_POLICY: dict[str, Any] = {
         "max_common_factor_concentration_pct": 35.0,
         "max_adv_participation_pct": 5.0,
     },
-    "order_constraints": {"board_lot": 100, "price_guard_required": True},
+    "order_constraints": {"board_lot": 100},
     "valuation": {
         "market_price_max_age_days": 7,
         # Position size does not repair an insufficient expected return.
@@ -70,11 +70,6 @@ def validate_policy(policy: PolicyConfig = PORTFOLIO_POLICY) -> None:
         value = _value_at(policy, path)
         if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 100:
             raise RuntimeError(f"PORTFOLIO_POLICY.{'.'.join(path)} must be within 0..100")
-    price_guard_required = _value_at(policy, ("order_constraints", "price_guard_required"))
-    if not isinstance(price_guard_required, bool):
-        raise RuntimeError(
-            "PORTFOLIO_POLICY.order_constraints.price_guard_required must be boolean"
-        )
 
 
 def _value_at(policy: PolicyConfig, path: tuple[str, ...]) -> object:

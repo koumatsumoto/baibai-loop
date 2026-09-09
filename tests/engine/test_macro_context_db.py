@@ -586,3 +586,56 @@ def test_document_rejects_failed_series_hidden_by_successful_source(
 
     with pytest.raises(ValidationError):
         MacroContextDocument.model_validate(payload)
+
+
+@pytest.mark.parametrize("state", ["missing", "unwritten", "obsolete", "partial", "corrupt"])
+def test_macro_reads_preserve_store_state(tmp_path, state):
+    from baibai_engine.appdb.schema import APPLICATION_SCHEMA_VERSION
+    from baibai_engine.macro.context.service import MacroContextNotFoundError
+
+    path = tmp_path / "read-only" / "app.sqlite"
+    if state != "missing":
+        path.parent.mkdir()
+        with sqlite3.connect(path) as connection:
+            if state == "obsolete":
+                connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION - 1}")
+            elif state == "partial":
+                connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
+        if state == "corrupt":
+            path.write_bytes(b"not SQLite")
+    before = path.read_bytes() if path.exists() else None
+    service = MacroContextService(path)
+    if state in ("missing", "unwritten"):
+        assert service.head_id() is None
+        assert service.latest_for(date(2026, 7, 19)) is None
+        with pytest.raises(MacroContextNotFoundError):
+            service.get("absent")
+    else:
+        for read in (
+            service.head_id,
+            lambda: service.latest_for(date(2026, 7, 19)),
+            lambda: service.get("absent"),
+        ):
+            with pytest.raises((RuntimeError, sqlite3.DatabaseError)):
+                read()
+    assert (path.read_bytes() if path.exists() else None) == before
+    if state == "missing":
+        assert not path.parent.exists()
+
+
+def test_macro_documents_are_read_without_write_access(tmp_path, monkeypatch):
+    path = tmp_path / "app.sqlite"
+    service = MacroContextService(path)
+    document = _document()
+    service.publish(document, expected_head=None)
+    connect = sqlite3.connect
+
+    def read_only_connect(database, *args, **kwargs):
+        assert kwargs.get("uri") is True
+        assert "mode=ro" in str(database)
+        return connect(database, *args, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", read_only_connect)
+    assert service.head_id() == document.context_id
+    assert service.get(document.context_id) == document
+    assert service.latest_for(document.as_of) == document

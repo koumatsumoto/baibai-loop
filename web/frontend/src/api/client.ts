@@ -19,6 +19,7 @@ export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T>
 
   const sharedToken = path.startsWith(API_PREFIX) ? getSharedToken() : null
   const password = path.startsWith(API_PREFIX) ? sharedToken ?? getViewPassword() : null
+  const credentialSource = sharedToken !== null ? 'shared' : password !== null ? 'owner' : 'none'
   const clearRejectedCredential = () => {
     if (sharedToken !== null) {
       if (getSharedToken() === sharedToken) clearSharedToken()
@@ -46,9 +47,13 @@ export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T>
   // A 401 clears only the credential used by this request and hands control to
   // the password gate. Local FastAPI never returns 401, so this path stays dormant.
   if (response.status === 401 && path.startsWith(API_PREFIX)) {
-    const hadPassword = password !== null
-    clearRejectedCredential()
-    notifyAuthRequired(hadPassword ? 'rejected' : 'required')
+    const currentSharedToken = getSharedToken()
+    const currentPassword = currentSharedToken ?? getViewPassword()
+    const currentSource = currentSharedToken !== null ? 'shared' : currentPassword !== null ? 'owner' : 'none'
+    if (credentialSource === currentSource && password === currentPassword) {
+      clearRejectedCredential()
+      notifyAuthRequired(password !== null ? 'rejected' : 'required')
+    }
     throw new ApiError(response.status, response.statusText)
   }
   if (!response.ok) {
