@@ -341,7 +341,12 @@ batch/scripts/publish.sh
 
 このscriptは`baibai.sqlite`のconsistent snapshotだけをstoresへ送り、`cloud-materialize`をdispatchする。servingへの直接writeは行わない。
 
-**成功確認**: `publish.sh`とdispatchされた`cloud-materialize`が成功し、表示のas-ofと対象judgmentを確認する。
+**成功確認**: `publish.sh`とdispatchされた`cloud-materialize`が成功し、表示のas-ofと対象judgmentのIDを確認する。
+Screeningの最新表示は、表示中の`review_set_id / run_revision_id`に束縛されたResearch TriageとCAAだけを載せる。
+同日でも後発のScreening Runが公開されると、先行runの判断は最新一覧の対象から外れる。
+公開済みCAAの反映は、そのimmutable IDのAssessment詳細と参照先Thesisで確認する。
+最新一覧への非掲載だけを理由に、既存ResearchのTriage bindingを付け替えない。
+後発Review SetのTriageを進める場合は、完了済みmachine bundleを取得して`research-triage`の通常手順で扱う。
 
 **停止と復旧**: ledger preflightが失敗した場合はstoreをuploadせず停止する。exportはstoreのschemaがcodeと一致しない間、viewを1件も書かずexit 1で停止する。
 schemaを一致させてから再実行する。未publishのままではscreening結果を含む全viewが更新されない。
