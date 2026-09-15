@@ -229,4 +229,6 @@ degrade の報告経路は batch の exit 3（Discord `[DEGRADED]`）の 1 本�
 
 高影響のDB変更では正常系だけでなく、conflicting ID、invalid enum、missing reference、revision drift、stale draft、人間確認なし、read-only appからのwrite不能をtestする。ledgerはevent順序、snapshot全field、market price / override / metaをfixtureと比較する。schema fileやlive YAML treeを横断するvalidator CLIは置かず、保持すべきruleは各write pathのnegative testで反証する。
 
+所有者用の[`tools/l1_mcp`](../tools/l1_mcp/README.md)は、Researchに固定L1の観測値をread-only MCPで見せる。既存lake readerを利用し、production package・定期batch・store書込は所有しない。
+
 通常のgateは `ruff format --check`、`ruff check`、`mypy`、`pytest`、import-linter、frontend build。Python gate の完全形と再現手順は [`reference/python-foundation.md`](./reference/python-foundation.md) §9、UI・Cloudflare Worker・security（Bandit / pip-audit / npm audit）を含む全 CI job は `.github/workflows/`（`ci.yml` / `web.yml` / `security.yml`）を正本とする。設定fileはloader testで検証する。
