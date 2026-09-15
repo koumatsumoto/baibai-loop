@@ -576,7 +576,8 @@ print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 321, 'outp
     monkeypatch.setattr(
         analysis_cli, "resolve_executable", lambda name: str(fake) if name == "codex" else name
     )
-    model_input = analysis_cli._model_input(_context())
+    context = _context()
+    model_input = analysis_cli.build_model_input(context.review_set, context.macro_context)
     log = RunLog(run_dir / "run.log", state_root=state)
 
     output, usage, input_bytes = analysis_cli._run_model(model_input, run_dir, state, log)

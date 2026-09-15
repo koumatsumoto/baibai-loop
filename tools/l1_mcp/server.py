@@ -210,6 +210,11 @@ def create_server(adapter: Adapter) -> MCPServer[Any]:
             "行数超過は失敗です。SQL で集約し、coverage と鮮度を説明してください。"
         ),
     )
+    register_tools(server, adapter)
+    return server
+
+
+def register_tools(server: MCPServer[Any], adapter: Adapter) -> None:
     annotations = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
 
     @server.tool(annotations=annotations)
@@ -247,5 +252,3 @@ def create_server(adapter: Adapter) -> MCPServer[Any]:
                 )
             )
         )
-
-    return server

@@ -60,10 +60,12 @@ def test_manual_and_scheduled_research_triage_share_the_short_policy() -> None:
     skill = RESEARCH_TRIAGE_SKILL.read_text(encoding="utf-8")
     cli = ANALYSIS_CLI.read_text(encoding="utf-8")
     policy = TRIAGE_POLICY.read_text(encoding="utf-8")
+    builder = ANALYSIS_CLI.with_name("model_input.py").read_text(encoding="utf-8")
 
     assert "batch/src/baibai_batch/analysis/policy.py" in skill
-    assert "from baibai_batch.analysis.policy import TRIAGE_POLICY" in cli
-    assert "policy=TRIAGE_POLICY" in cli
+    assert "from baibai_batch.analysis.model_input import build_model_input" in cli
+    assert "from baibai_batch.analysis.policy import TRIAGE_POLICY" in builder
+    assert "policy=TRIAGE_POLICY" in builder
     assert "具体的な未解決問い" in policy
     assert "machine factsがApproach仮説を明確に崩す" in policy
     assert "secondary machine return prior" in policy

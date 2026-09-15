@@ -1,11 +1,13 @@
-"""Research 用の read-only L1 tools を stdio で見せる。stdout は MCP 専用。"""
+"""Research 用の read-only owner tools を stdio で見せる。stdout は MCP 専用。"""
 
 from __future__ import annotations
 
 import os
 import sys
 
-from .server import Adapter, create_server
+from tools.l1_mcp.server import Adapter
+
+from .server import create_server
 
 
 def main() -> None:
