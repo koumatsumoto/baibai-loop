@@ -31,7 +31,7 @@ source_paths:
 
 依存管理は `uv` に寄せる。`pyproject.toml` と `uv.lock` を単一の真実源にし、`requirements.txt` は常設しない。
 
-依存の置き場所は以下に分ける。`pyproject.toml` では `[dependency-groups]` テーブル直下に `test` / `typing` / `quality` / `security` / `dev` をリストとして並べる。
+依存の置き場所は以下に分ける。`pyproject.toml` では `[dependency-groups]` テーブル直下に `test` / `typing` / `quality` / `security` / `dev` / `mcp` をリストとして並べる。
 
 - `[project.dependencies]`: 実行時に必要な依存だけ。
 - `[dependency-groups]` の `test`: pytest / coverage / Hypothesis などテスト用。
@@ -39,6 +39,7 @@ source_paths:
 - `[dependency-groups]` の `quality`: Ruff / import-linter / pre-commit。
 - `[dependency-groups]` の `security`: Bandit / pip-audit。
 - `[dependency-groups]` の `dev`: 上記 group の include だけ。
+- `[dependency-groups]` の `mcp`: 所有者用の[local L1 MCP adapter](../../tools/l1_mcp/README.md)を起動する公式MCP SDK。production runtimeには含めない。
 
 経験的に、dev tooling を optional dependencies に入れると「配布 extras」と「ローカル開発環境」が混ざる。uv は standardized dependency groups を扱えるため、この repo では optional dependencies を開発用途に使わない。
 
