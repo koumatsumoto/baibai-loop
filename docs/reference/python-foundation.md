@@ -39,7 +39,7 @@ source_paths:
 - `[dependency-groups]` の `quality`: Ruff / import-linter / pre-commit。
 - `[dependency-groups]` の `security`: Bandit / pip-audit。
 - `[dependency-groups]` の `dev`: 上記 group の include だけ。
-- `[dependency-groups]` の `mcp`: 所有者用の[local L1 MCP adapter](../../tools/l1_mcp/README.md)を起動する公式MCP SDK。production runtimeには含めない。
+- `[dependency-groups]` の `mcp`: 所有者用の[Owner MCP adapter](../../tools/owner_mcp/README.md)を起動する公式MCP SDK。production runtimeには含めない。
 
 経験的に、dev tooling を optional dependencies に入れると「配布 extras」と「ローカル開発環境」が混ざる。uv は standardized dependency groups を扱えるため、この repo では optional dependencies を開発用途に使わない。
 

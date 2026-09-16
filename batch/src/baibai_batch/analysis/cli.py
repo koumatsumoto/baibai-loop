@@ -31,21 +31,16 @@ from baibai_batch.analysis.io import (
     write_json_atomic,
     write_log,
 )
+from baibai_batch.analysis.model_input import build_model_input
 from baibai_batch.analysis.models import (
-    MacroProjection,
     ModelInput,
     ModelOutput,
     ModelUsage,
-    TriageCandidate,
 )
-from baibai_batch.analysis.policy import TRIAGE_POLICY
 from baibai_engine.batch_api import (
     APPLICATION_DB_PATH,
-    MACRO_CONTEXT_STALE_DAYS,
     RUNS_DB_PATH,
-    DailyAnalysisContext,
     ResearchTriage,
-    ReviewSetEntrySnapshot,
     load_daily_analysis_context,
     publish_daily_research_triage,
 )
@@ -116,50 +111,6 @@ def _create_run(state_root: Path) -> Path:
     stamp = datetime.now(_JST).strftime("%Y%m%dT%H%M%S%z")
     return ensure_private_dir(
         state_root / "analysis" / f"{stamp}-{uuid4().hex[:8]}", root=state_root
-    )
-
-
-def _macro_projection(context: DailyAnalysisContext) -> MacroProjection:
-    document = context.macro_context
-    if document is None:
-        return MacroProjection(status="missing")
-    age_days = (context.review_set.as_of - document.as_of).days
-    return MacroProjection(
-        status="stale" if age_days > MACRO_CONTEXT_STALE_DAYS else "current",
-        as_of=document.as_of.isoformat(),
-        age_days=age_days,
-        summary=document.summary,
-        synthesis=(
-            None if document.synthesis is None else document.synthesis.model_dump(mode="json")
-        ),
-        connection=document.connection.model_dump(mode="json"),
-    )
-
-
-def _model_input(context: DailyAnalysisContext) -> ModelInput:
-    candidates = tuple(
-        TriageCandidate(
-            ticker=entry.ticker,
-            snapshot=ReviewSetEntrySnapshot(
-                name=entry.name,
-                sector_33=entry.sector_33,
-                nominations=entry.nominations,
-                analysis=entry.analysis,
-            ),
-        )
-        for entry in context.review_set.entries
-    )
-    return ModelInput(
-        schema_version=1,
-        task="research-triage",
-        instruction=(
-            "Use only this JSON. Do not call tools or read files. Compare every candidate and "
-            "return exactly one strict decision for each ticker."
-        ),
-        policy=TRIAGE_POLICY,
-        as_of=context.review_set.as_of.isoformat(),
-        macro_context=_macro_projection(context),
-        candidates=candidates,
     )
 
 
@@ -390,7 +341,7 @@ def _execute(
         _triage_summary(context.existing_triage, summary, published=False)
         return 0
 
-    model_input = _model_input(context)
+    model_input = build_model_input(context.review_set, context.macro_context)
     write_json_atomic(run_dir / "input.json", model_input.model_dump(mode="json"), root=state_root)
     preflight_bytes = _model_input_bytes(model_input)
     summary["model_input_bytes"] = preflight_bytes

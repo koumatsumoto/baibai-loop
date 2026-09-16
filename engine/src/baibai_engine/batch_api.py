@@ -147,7 +147,7 @@ class DailyAnalysisContext:
     macro_context: MacroContextDocument | None
 
 
-def _validated_review_set(publication: ReviewSetPublication) -> PublishedReviewSet:
+def validated_review_set(publication: ReviewSetPublication) -> PublishedReviewSet:
     review_set = PublishedReviewSet.model_validate(publication.payload)
     if review_set.review_set_id != publication.review_set_id:
         raise ValueError("Review Set reader returned a different identity")
@@ -171,7 +171,7 @@ def load_daily_analysis_context(
     publication = ScreeningRunReader(runs_db_path).latest_review_set(as_of_date=as_of.isoformat())
     if publication is None:
         return None
-    review_set = _validated_review_set(publication)
+    review_set = validated_review_set(publication)
     app_path = database_path(app_db_path)
     exact_triages = research_triage_payloads_for_review_set(app_path, review_set.review_set_id)
     existing_triage: ResearchTriage | None = None
@@ -204,7 +204,7 @@ def publish_daily_research_triage(
     publication = ScreeningRunReader(runs_db_path).get_review_set(review_set_id)
     if publication is None:
         raise ValueError(f"source Review Set is unavailable: {review_set_id}")
-    review_set = _validated_review_set(publication)
+    review_set = validated_review_set(publication)
     if review_set.review_set_id != review_set_id:
         raise ValueError("Review Set reader returned a different identity")
     validated = tuple(
@@ -354,6 +354,7 @@ __all__ = [
     "LocalMirrorSource",
     "MacroContextDocument",
     "MarketSchemaError",
+    "PublishedReviewSet",
     "ResearchTriage",
     "ReviewSetEntrySnapshot",
     "StoreLayoutError",
@@ -385,4 +386,5 @@ __all__ = [
     "validate_lake_release_policy",
     "validate_macro_schema",
     "validate_market_schema",
+    "validated_review_set",
 ]
