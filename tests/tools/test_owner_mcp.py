@@ -304,3 +304,29 @@ def test_public_surface_sanitized_errors_and_result_limit(reader):
         call(lambda: reader.exclusions("2026-07-19T10:00:00")).structured_content["error"]["code"]
         == "INVALID_ARGUMENT"
     )
+
+
+def test_old_quality_absence_and_explicit_null_keep_distinct_payload_hashes(reader):
+    from copy import deepcopy
+
+    from baibai_batch.analysis.models import ModelInput
+
+    triage, review = seed(reader)
+    reference = ref(reader, research_triage_id=triage.research_triage_id)
+    old = reader.get_input(reference)["model_input"]
+    assert "ttm_quality_fcf" not in old["candidates"][0]["snapshot"]["analysis"]["data_quality"]
+    assert ModelInput.model_validate(old).model_dump(mode="json") == old
+    new = deepcopy(old)
+    quality = new["candidates"][0]["snapshot"]["analysis"]["data_quality"]
+    quality.update(ttm_quality_ev_ebitda="approximated", ttm_quality_fcf=None)
+    assert ModelInput.model_validate(new).model_dump(mode="json") == new
+    assert digest(new) != reference.model_input_sha256
+    assert reader.get_input(reference)["model_input"] == old
+    publication = review.model_dump(mode="json")
+    publication["entries"][0]["analysis"]["data_quality"].update(quality)
+    projected = build_model_input(PublishedReviewSet.model_validate(publication), None).model_dump(
+        mode="json"
+    )
+    assert projected["schema_version"] == 2
+    assert projected["candidates"][0]["snapshot"]["analysis"]["data_quality"] == quality
+    assert old["schema_version"] == 1

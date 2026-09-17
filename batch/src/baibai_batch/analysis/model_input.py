@@ -46,7 +46,15 @@ def build_model_input(
         for entry in review_set.entries
     )
     return ModelInput(
-        schema_version=1,
+        schema_version=(
+            2
+            if any(
+                "ttm_quality_ev_ebitda" in entry.analysis.data_quality.model_fields_set
+                or "ttm_quality_fcf" in entry.analysis.data_quality.model_fields_set
+                for entry in review_set.entries
+            )
+            else 1
+        ),
         task="research-triage",
         instruction=(
             "Use only this JSON. Do not call tools or read files. Compare every candidate and "

@@ -54,7 +54,7 @@ def parse_csv_zip_metric_record(
     total_assets = _single_metric(rows, _TAGS["total_assets"], basis=basis)
     debt = _debt_metric(rows, basis=basis)
     depreciation = _sum_metric(rows, _TAGS["depreciation"], basis=basis)
-    capex = _sum_metric(rows, _TAGS["capex"], basis=basis)
+    capex = _capex_metric(rows, basis=basis)
     capex_abs = abs(capex) if capex is not None else None
     ebitda = (
         operating_profit + depreciation
@@ -143,12 +143,15 @@ _TAGS: dict[str, tuple[str, ...]] = {
         "amortizationofgoodwill",
         "amortizationofgoodwillopecf",
     ),
-    "capex": (
+    "capex_total": ("purchaseofpropertyplantandequipmentandintangibleassetsinvcf",),
+    "capex_tangible": (
         "purchaseofpropertyplantandequipment",
         "purchaseofpropertyplantandequipmentinvcf",
+        "paymentsforpurchaseofpropertyplantandequipment",
+    ),
+    "capex_intangible": (
         "purchaseofintangibleassets",
         "purchaseofintangibleassetsinvcf",
-        "paymentsforpurchaseofpropertyplantandequipment",
         "paymentsforpurchaseofintangibleassets",
     ),
 }
@@ -204,6 +207,28 @@ def _sum_metric(
 ) -> float | None:
     values = _best_metric_values_by_element(rows, tags, basis=basis)
     return sum(values) if values else None
+
+
+def _capex_metric(rows: Sequence[Mapping[str, str]], *, basis: str) -> float | None:
+    # CFOと同じ期間・範囲を使う。合算の欠如を前期の合算で補わず、
+    # 個別内訳も同じcontextの有形・無形が揃う場合だけ足す。
+    periods = _ranked_metric_values(rows, _TAGS["ocf"], basis=basis)
+    if not periods:
+        periods = _ranked_metric_values(
+            rows,
+            (*_TAGS["capex_total"], *_TAGS["capex_tangible"], *_TAGS["capex_intangible"]),
+            basis=basis,
+        )
+    if not periods:
+        return None
+    context = max(periods, key=lambda item: item[0])[0][2]
+    current = [row for row in rows if _row_context(row) == context]
+    total = _single_metric(current, _TAGS["capex_total"], basis=basis)
+    if total is not None:
+        return total
+    tangible = _single_metric(current, _TAGS["capex_tangible"], basis=basis)
+    intangible = _single_metric(current, _TAGS["capex_intangible"], basis=basis)
+    return tangible + intangible if tangible is not None and intangible is not None else None
 
 
 def _debt_metric(rows: Sequence[Mapping[str, str]], *, basis: str) -> float | None:

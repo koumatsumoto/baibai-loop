@@ -465,3 +465,34 @@ def test_review_set_shape_rejects_invalid_nomination_union(mutation: str) -> Non
 
     with pytest.raises(ReviewSetContractError, match="published review set is invalid"):
         validate_review_set_shape(payload)
+
+
+def test_review_set_projects_same_snapshot_quality_without_changing_nominations(subtests):
+    from baibai_engine.foundation.candidate_discovery import ReviewSetAnalysis
+
+    cases = [
+        ("5946", "approximated", "unavailable", 47.1, None),
+        ("8127", "approximated", "approximated", 5.0, 0.0713),
+        ("7122", "exact", "exact", 5.0, 0.1),
+        ("9999", None, None, 5.0, 0.08),
+    ]
+    for ticker, ebitda_quality, fcf_quality, multiple, fcf_yield in cases:
+        with subtests.test(ticker=ticker):
+            row = _analysis(ticker)
+            row["ev_ebitda"] = multiple
+            row["metrics"]["fcf_yield"] = fcf_yield
+            before = _build_review_set([row])
+            row["ttm_quality"] = {"ev_ebitda": ebitda_quality, "fcf_yield": fcf_quality}
+            after = _build_review_set([row])
+            entry = after["entries"][0]
+            quality = entry["analysis"]["data_quality"]
+            assert quality["ttm_quality_ev_ebitda"] == ebitda_quality
+            assert quality["ttm_quality_fcf"] == fcf_quality
+            assert entry["analysis"]["valuation"]["ev_ebitda"] == multiple
+            assert entry["analysis"]["current_earnings"]["fcf_yield"] == fcf_yield
+            assert entry["nominations"] == before["entries"][0]["nominations"]
+            assert after["diagnostics"] == before["diagnostics"]
+            assert (
+                ReviewSetAnalysis.model_validate(entry["analysis"]).model_dump(mode="json")
+                == entry["analysis"]
+            )

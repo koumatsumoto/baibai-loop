@@ -137,13 +137,17 @@ def security_analysis_payload(analysis: SecurityAnalysis) -> dict[str, object]:
         _build_freshness_warning(warning) for warning in analysis.freshness_warnings
     ]
     entry["ttm_quality"] = {
-        "ev_ebitda": analysis.ttm_quality.get("ev_ebitda", TTMQuality.UNAVAILABLE).value,
+        "ev_ebitda": analysis.ttm_quality["ev_ebitda"].value
+        if "ev_ebitda" in analysis.ttm_quality
+        else None,
         "per_trailing": analysis.ttm_quality.get("per_trailing", TTMQuality.UNAVAILABLE).value,
         "p_s": analysis.ttm_quality.get("p_s", TTMQuality.UNAVAILABLE).value,
         "pcfr": analysis.ttm_quality.get("pcfr", TTMQuality.UNAVAILABLE).value,
         "ocf_yield": analysis.ttm_quality.get("ocf_yield", TTMQuality.UNAVAILABLE).value,
         "sales": analysis.ttm_quality.get("sales", TTMQuality.UNAVAILABLE).value,
-        "fcf_yield": analysis.ttm_quality.get("fcf_yield", TTMQuality.UNAVAILABLE).value,
+        "fcf_yield": analysis.ttm_quality["fcf_yield"].value
+        if "fcf_yield" in analysis.ttm_quality
+        else None,
         "net_cash": analysis.ttm_quality.get("net_cash", TTMQuality.UNAVAILABLE).value,
     }
     return entry

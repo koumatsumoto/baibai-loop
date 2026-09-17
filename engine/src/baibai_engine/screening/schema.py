@@ -159,13 +159,13 @@ class FinancialSnapshot:
     operating_profit_loss_narrowing: bool | None = None
     # ttm_quality_* は「TTM 値の合成の質」であって値の有無ではない。分母が負・ゼロで
     # 比率 (per_trailing / pcfr 等) が None でも、合成に成功していれば exact のまま。
-    ttm_quality_ev_ebitda: TTMQuality = TTMQuality.UNAVAILABLE
+    ttm_quality_ev_ebitda: TTMQuality | None = None
     ttm_quality_per_trailing: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_p_s: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_pcfr: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_ocf_yield: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_sales: TTMQuality = TTMQuality.UNAVAILABLE
-    ttm_quality_fcf_yield: TTMQuality = TTMQuality.UNAVAILABLE
+    ttm_quality_fcf_yield: TTMQuality | None = None
     ttm_quality_net_cash: TTMQuality = TTMQuality.UNAVAILABLE
     shares_outstanding: float | None = None
     # accruals_to_assets = (eps_ttm * shares - cfo_ttm) / average total assets — Sloan

@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Self
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 
 class Nomination(BaseModel):
@@ -92,6 +100,18 @@ class DataQualityAnalysis(_StrictAnalysisGroup):
     bs_carry_forward_lag_days: float | int | None
     edinet_failure_reasons: str | None
     stale_fin_flag: bool | None
+    ttm_quality_ev_ebitda: Literal["exact", "approximated", "unavailable"] | None = None
+    ttm_quality_fcf: Literal["exact", "approximated", "unavailable"] | None = None
+
+    @model_serializer(mode="wrap")
+    def _preserve_absent_quality(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # 保存済みsnapshotの欠如をnullへ変えるとcanonical/input hashが変わる。
+        # 新しいsnapshotが明示するnullは品質未取得としてそのまま出す。
+        result: dict[str, Any] = handler(self)
+        for key in ("ttm_quality_ev_ebitda", "ttm_quality_fcf"):
+            if key not in self.model_fields_set:
+                result.pop(key, None)
+        return result
 
 
 class ContextAnalysis(_StrictAnalysisGroup):
