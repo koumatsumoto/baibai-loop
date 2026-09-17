@@ -170,18 +170,57 @@ class ScreeningRunReader:
     def latest_review_set(self, *, as_of_date: str) -> ReviewSetPublication | None:
         """Return the latest published Review Set for exactly one as-of date."""
 
+        return self.resolve_review_set(as_of_date=as_of_date)
+
+    def resolve_review_set(
+        self,
+        *,
+        review_set_id: str | None = None,
+        public_run_id: str | None = None,
+        as_of_date: str | None = None,
+        not_before: str | None = None,
+    ) -> ReviewSetPublication | None:
+        """Read exact identity or the daily canonical publication, without fallback.
+
+        Date selection uses the latest publication on that day, as daily analysis
+        does. not_before chooses the first eligible day; no selector chooses the last.
+        A public run ID shared by revisions needs an exact Review Set ID.
+        """
+        if sum(x is not None for x in (review_set_id, public_run_id, as_of_date, not_before)) > 1:
+            raise ValueError("at most one Review Set selector is allowed")
+        if review_set_id is not None:
+            return self.get_review_set(review_set_id)
         with closing(self._connect()) as connection:
             connection.execute("BEGIN")
+            if public_run_id is not None:
+                runs = connection.execute(
+                    "SELECT run_revision_id FROM screening_run WHERE public_run_id = ?",
+                    (public_run_id,),
+                ).fetchall()
+                if len(runs) > 1:
+                    raise RunStoreAmbiguousError("public run ID has multiple revisions")
+                if not runs:
+                    return None
+                clause, parameters = "r.run_revision_id = ?", (runs[0][0],)
+            elif as_of_date is not None:
+                clause, parameters = "r.asof_date = ?", (as_of_date,)
+            else:
+                aggregate = "min" if not_before is not None else "max"
+                day = connection.execute(
+                    f"SELECT {aggregate}(r.asof_date) FROM review_set s "  # nosec B608
+                    "JOIN screening_run r USING (run_revision_id) "
+                    "WHERE (? IS NULL OR r.asof_date >= ?)",
+                    (not_before, not_before),
+                ).fetchone()[0]
+                if day is None:
+                    return None
+                clause, parameters = "r.asof_date = ?", (day,)
             row = connection.execute(
-                """
-                SELECT s.*, r.asof_date
-                FROM review_set AS s
-                JOIN screening_run AS r USING (run_revision_id)
-                WHERE r.asof_date = ?
-                ORDER BY julianday(s.created_at) DESC, s.review_set_id DESC
-                LIMIT 1
-                """,
-                (as_of_date,),
+                "SELECT s.*, r.asof_date FROM review_set s "
+                "JOIN screening_run r USING (run_revision_id) WHERE "  # nosec B608
+                + clause
+                + " ORDER BY julianday(s.created_at) DESC, s.review_set_id DESC LIMIT 1",
+                parameters,
             ).fetchone()
             return None if row is None else _review_set_from_row(row)
 

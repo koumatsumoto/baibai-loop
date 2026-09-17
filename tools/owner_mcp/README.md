@@ -36,7 +36,7 @@ Tunnel clientは[公式配布](https://github.com/openai/tunnel-client)のchecks
 Tunnel clientにはTunnel Runtime keyだけを渡す環境に分けます。通常shell全体の環境をコピーしません。
 Tunnel ID・organization・workspace・API keyは個人のlocal設定に保持します。
 
-ChatGPT側でTunnelのcustom appを接続します。公開するtoolは下記の7つだけです。
+ChatGPT側でTunnelのcustom appを接続します。公開するtoolは下記の8つだけです。
 すべて`readOnlyHint=true`、`destructiveHint=false`、`openWorldHint=false`です。
 PCとTunnel clientが動作している間だけ利用できます。
 
@@ -51,13 +51,13 @@ tool名・schema・説明を変更したら、稼働中serverの変更に加え�
 
 1. Tunnel clientとMCP本体を起動した状態で、ChatGPTの対象接続を開く。
 2. 接続詳細の **Refresh** を実行する。ブラウザのページ再読込とは別の操作である。
-3. tool一覧が下記の7 toolsになったことを確認する。
+3. tool一覧が下記の8 toolsになったことを確認する。
 4. 新しい通常Chatで更新済みの接続を選び、受入テストを実行する。
 
 旧fixtureの`g0_echo`だけが見えて実行時に`Unknown tool: g0_echo`となる場合は、
 本体切替後も古いtool定義を参照している可能性があります。上の一覧が変わるまでSQLの受入へ進みません。
 Refreshを利用できないdeveloper接続では、同じTunnelを選んだ新しいdeveloper接続を作成し、
-そのtool scanで7 toolsを確認します。TunnelやAPI key自体を作り直す必要はありません。
+そのtool scanで8 toolsを確認します。TunnelやAPI key自体を作り直す必要はありません。
 公開済みpluginはmetadata snapshotを使うため、公式手順に従って再scan・新versionの提出・公開が必要です。
 
 ## L1の読み方
@@ -147,7 +147,7 @@ warm時にimmutable objectのGETが増えないことを確認します。
 
 ## Canonical Triageと時点除外
 
-server名は`baibai-loop-owner`です。公開toolは次の7つです。
+server名は`baibai-loop-owner`です。公開toolは次の8つです。
 
 - `l1_resolve_current`
 - `l1_describe_dataset`
@@ -156,12 +156,29 @@ server名は`baibai-loop-owner`です。公開toolは次の7つです。
 - `triage_get_input`
 - `triage_get_judgment`
 - `portfolio_get_exclusions`
+- `screening_get_review_set`
 
 L1実装は内部subsystemの`tools/l1_mcp`を再利用します。Triageはrepository rootの
 `stores/application/baibai.sqlite`、sourceは`stores/screening/runs.sqlite`を既存owner経由で
 read-onlyに読みます。application DBはlocal canonicalです。cloud copyやserving JSONで代用しません。
 store同期は[ops-maintenance](../../.agents/skills/ops-maintenance/SKILL.md)の別操作です。
 MCPからのauto-pull、provider fetch、書込、任意SQL、filesystem読取はありません。
+
+### Triage前のReview Set
+
+`screening_get_review_set`は保存済みcanonical Review Setを1回で固定して返します。
+`review_set_id` / `public_run_id` / `as_of` / `not_before`は最大1つです。
+IDはexact、`as_of`はその日の最新publication（dailyと同じ）、`not_before`は指定日以降の
+最初の対象日の最新publication、無指定は最新対象日の最新publicationです。
+同じpublic run IDに複数revisionがあれば`AMBIGUOUS_SELECTION`となり、Review Set IDが必要です。
+不在は`SOURCE_UNAVAILABLE`で、別runへ補完しません。
+
+`review_set_ref`、`as_of`、`run_at`、`created_at`、rules / method identityとともに
+`input_basis=frozen_review_set`、`candidate_count`、全`candidates`を返します。
+候補はproduction ModelInputと同じprojection・順序で、保存済みanalysisとnominationsだけを読みます。
+current L1やSecurity Analysisから再計算せず、Triageの有無や判断に依存しません。
+返却された`review_set_id`で再取得し、新旧候補の比較は呼出し側で行います。
+`triage_resolve`はcomplete Triageだけを返す契約を維持します。
 
 ### 固定して別Chatへ渡す
 
@@ -203,13 +220,13 @@ inputにはcanonical判断のdecision、priority、rationale、research_question
 
 ### Owner toolsの上限とエラー
 
-新規4 toolsもMCP result全体256 KiBを上限とし、超過はtruncateせず`RESULT_TOO_LARGE`です。
+Ownerの5 toolsもMCP result全体256 KiBを上限とし、超過はtruncateせず`RESULT_TOO_LARGE`です。
 
 | code | 意味 |
 | --- | --- |
 | `INVALID_ARGUMENT` | selector・reference・日付・時刻が不正 |
 | `SOURCE_UNAVAILABLE` | canonical Triage、source run / Review Set、bound Macro Contextが利用不能 |
-| `AMBIGUOUS_SELECTION` | exact日に複数の完全なTriageが存在 |
+| `AMBIGUOUS_SELECTION` | exact日に複数の完全なTriage、またはpublic run IDに複数revisionが存在 |
 | `REFERENCE_MISMATCH` | 固定referenceと再読payloadのhashが不一致 |
 | `CONTRACT_MISMATCH` | schema・domain・source bindingが不整合、またはledgerが破損 |
 | `PORTFOLIO_UNAVAILABLE` | canonical ledgerが未登録 |

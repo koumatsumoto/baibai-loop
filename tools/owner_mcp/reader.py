@@ -1,4 +1,4 @@
-"""候補比較へexact Triage入力・判断とledger時点除外をread-onlyで見せる。"""
+"""候補比較へ凍結Review Set・exact Triage入力・判断とledger時点除外をread-onlyで見せる。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import Field, field_validator
 
 from baibai_batch.analysis.io import canonical_json
-from baibai_batch.analysis.model_input import build_model_input
+from baibai_batch.analysis.model_input import build_model_input, review_set_candidates
 from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.batch_api import validated_review_set
 from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH, RUNS_DB_PATH
@@ -25,7 +25,7 @@ from baibai_engine.read_api.research_triage import (
     list_research_triage_payloads,
     research_triage_payload_hash,
 )
-from baibai_engine.screening.run_store import ScreeningRunReader
+from baibai_engine.screening.run_store import RunStoreAmbiguousError, ScreeningRunReader
 from tools.l1_mcp.contract import InputModel
 
 
@@ -54,6 +54,18 @@ class Selector(InputModel):
         return value
 
 
+class ReviewSetSelector(InputModel):
+    review_set_id: str | None = Field(default=None, min_length=1)
+    public_run_id: str | None = Field(default=None, min_length=1)
+    as_of: str | None = None
+    not_before: str | None = None
+
+    @field_validator("as_of", "not_before")
+    @classmethod
+    def iso_date(cls, value: str | None) -> str | None:
+        return Selector.iso_date(value)
+
+
 def digest(payload: object) -> str:
     return sha256(canonical_json(payload)).hexdigest()
 
@@ -64,6 +76,49 @@ class Reader:
     ) -> None:
         self.app_path = app_path
         self.runs_path = runs_path
+
+    def get_review_set(self, selector: ReviewSetSelector) -> dict[str, Any]:
+        if sum(value is not None for value in selector.model_dump().values()) > 1:
+            raise OwnerError("INVALID_ARGUMENT")
+        if not self.runs_path.is_file():
+            raise OwnerError("SOURCE_UNAVAILABLE")
+        reader = ScreeningRunReader(self.runs_path)
+        try:
+            publication = reader.resolve_review_set(
+                review_set_id=selector.review_set_id,
+                public_run_id=selector.public_run_id,
+                as_of_date=selector.as_of,
+                not_before=selector.not_before,
+            )
+        except RunStoreAmbiguousError as exc:
+            raise OwnerError("AMBIGUOUS_SELECTION") from exc
+        if publication is None:
+            raise OwnerError("SOURCE_UNAVAILABLE")
+        review_set = validated_review_set(publication)
+        run = reader.get_run(review_set.run_revision_id)
+        if run is None:
+            raise OwnerError("SOURCE_UNAVAILABLE")
+        if (
+            run.as_of_date != review_set.as_of.isoformat()
+            or run.payload.get("screening_rules_hash") != review_set.screening_rules_hash
+        ):
+            raise OwnerError("CONTRACT_MISMATCH")
+        candidates = [item.model_dump(mode="json") for item in review_set_candidates(review_set)]
+        return {
+            "review_set_ref": {
+                "review_set_id": review_set.review_set_id,
+                "run_revision_id": review_set.run_revision_id,
+                "public_run_id": run.public_run_id,
+            },
+            "as_of": review_set.as_of.isoformat(),
+            "run_at": run.run_at,
+            "created_at": publication.created_at,
+            "screening_rules_hash": review_set.screening_rules_hash,
+            "candidate_discovery_method": review_set.method.model_dump(mode="json"),
+            "input_basis": "frozen_review_set",
+            "candidate_count": len(candidates),
+            "candidates": candidates,
+        }
 
     def judgment(self, identifier: str) -> ResearchTriage:
         triage = current_research_triage(self.app_path, identifier)

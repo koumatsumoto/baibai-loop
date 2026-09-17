@@ -14,7 +14,14 @@ from tests.helpers.macro_context import macro_context_payload
 from tests.helpers.research_triage import published_review_set, research_triage_payload
 from tools.l1_mcp.contract import LIMITS
 from tools.l1_mcp.server import Adapter
-from tools.owner_mcp.reader import OwnerError, Reader, Selector, TriageRef, digest
+from tools.owner_mcp.reader import (
+    OwnerError,
+    Reader,
+    ReviewSetSelector,
+    Selector,
+    TriageRef,
+    digest,
+)
 from tools.owner_mcp.server import call, create_server
 
 from baibai_batch.analysis.model_input import build_model_input
@@ -27,7 +34,9 @@ from baibai_engine.screening.research_triage import ResearchTriageService, lates
 from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION, SCHEMA_SQL
 
 
-def seed(reader, *, identifier="triage-a", day="2026-07-19", published_at=None, macro=None):
+def seed(
+    reader, *, identifier="triage-a", day="2026-07-19", published_at=None, macro=None, triaged=True
+):
     review = PublishedReviewSet.model_validate(
         published_review_set(
             as_of=day, review_set_id=f"review-{identifier}", run_revision_id=f"run-{identifier}"
@@ -57,6 +66,8 @@ def seed(reader, *, identifier="triage-a", day="2026-07-19", published_at=None, 
                 review.model_dump_json(),
             ),
         )
+    if not triaged:
+        return None, review
     triage = ResearchTriage.model_validate(
         research_triage_payload(
             research_triage_id=identifier,
@@ -267,6 +278,7 @@ def test_public_surface_sanitized_errors_and_result_limit(reader):
                 "triage_get_input",
                 "triage_get_judgment",
                 "portfolio_get_exclusions",
+                "screening_get_review_set",
             }
             for tool in tools.tools:
                 assert tool.annotations.read_only_hint is True
@@ -330,3 +342,141 @@ def test_old_quality_absence_and_explicit_null_keep_distinct_payload_hashes(read
     assert projected["schema_version"] == 2
     assert projected["candidates"][0]["snapshot"]["analysis"]["data_quality"] == quality
     assert old["schema_version"] == 1
+
+
+def test_review_set_selectors_parity_and_untriaged(reader):
+    _, old = seed(reader)
+    reference = ref(reader)
+    _, new = seed(reader, identifier="new", day="2026-07-20", triaged=False)
+    before = [p.read_bytes() for p in (reader.app_path, reader.runs_path)]
+    old_result = reader.get_review_set(ReviewSetSelector(review_set_id=old.review_set_id))
+    assert old_result["candidates"] == reader.get_input(reference)["model_input"]["candidates"]
+    for selector in (
+        {},
+        {"public_run_id": "new"},
+        {"as_of": "2026-07-20"},
+        {"not_before": "2026-07-20"},
+    ):
+        result = reader.get_review_set(ReviewSetSelector(**selector))
+        assert result["review_set_ref"] == {
+            "review_set_id": new.review_set_id,
+            "run_revision_id": new.run_revision_id,
+            "public_run_id": "new",
+        }
+        assert result["candidate_count"] == len(new.entries)
+        assert result["input_basis"] == "frozen_review_set"
+        assert reader.get_review_set(ReviewSetSelector(review_set_id=new.review_set_id)) == result
+    assert reader.get_review_set(ReviewSetSelector(not_before="2026-07-18")) == old_result
+    with pytest.raises(OwnerError, match="SOURCE_UNAVAILABLE"):
+        reader.resolve(Selector(not_before="2026-07-20"))
+    assert before == [p.read_bytes() for p in (reader.app_path, reader.runs_path)]
+
+
+def test_review_set_frozen_despite_changed_run_analysis_and_missing_app(reader):
+    _, review = seed(reader)
+    selector = ReviewSetSelector(review_set_id=review.review_set_id)
+    original = reader.get_review_set(selector)
+    with sqlite3.connect(reader.runs_path) as con:
+        # Current Security Analysis is deliberately unusable as a candidate projection.
+        con.execute(
+            "INSERT INTO security_analysis (run_revision_id,ticker,ordinal,sector_33,payload) VALUES (?,?,?,?,?)",
+            (
+                review.run_revision_id,
+                "2331",
+                0,
+                "Company",
+                '{"fcf_ttm":999999}',
+            ),
+        )
+    reader.app_path.unlink()
+    assert reader.get_review_set(selector) == original
+    assert (
+        "ttm_quality_fcf" not in original["candidates"][0]["snapshot"]["analysis"]["data_quality"]
+    )
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        {"review_set_id": "missing"},
+        {"public_run_id": "missing"},
+        {"as_of": "2026-07-18"},
+        {"not_before": "2026-07-21"},
+    ],
+)
+def test_review_set_not_found_never_falls_back(reader, selector):
+    seed(reader)
+    with pytest.raises(OwnerError, match="SOURCE_UNAVAILABLE"):
+        reader.get_review_set(ReviewSetSelector(**selector))
+
+
+def test_review_set_daily_latest_and_ambiguous_public_run(reader):
+    from baibai_engine.screening.run_store import ScreeningRunReader
+
+    _, first = seed(reader)
+    _, second = seed(reader, identifier="triage-b", triaged=False)
+    # UTC serialization sorts lexically before +09:00 but is a later instant.
+    payload = second.model_dump(mode="json")
+    payload["created_at"] = "2026-07-19T05:00:00+00:00"
+    with sqlite3.connect(reader.runs_path) as con:
+        con.execute(
+            "UPDATE review_set SET created_at=?, payload=? WHERE review_set_id=?",
+            (
+                payload["created_at"],
+                json.dumps(payload),
+                second.review_set_id,
+            ),
+        )
+        con.execute(
+            "UPDATE screening_run SET public_run_id='triage-a', run_at=? WHERE run_revision_id=?",
+            (
+                payload["created_at"],
+                second.run_revision_id,
+            ),
+        )
+    for selector in ({}, {"as_of": "2026-07-19"}, {"not_before": "2026-07-19"}):
+        assert (
+            reader.get_review_set(ReviewSetSelector(**selector))["review_set_ref"]["review_set_id"]
+            == second.review_set_id
+        )
+    assert (
+        ScreeningRunReader(reader.runs_path)
+        .latest_review_set(as_of_date="2026-07-19")
+        .review_set_id
+        == second.review_set_id
+    )
+    with pytest.raises(OwnerError, match="AMBIGUOUS_SELECTION"):
+        reader.get_review_set(ReviewSetSelector(public_run_id="triage-a"))
+    assert reader.get_review_set(ReviewSetSelector(review_set_id=first.review_set_id))
+
+
+def test_review_set_mcp_validation_and_parity(reader):
+    seed(reader)
+    adapter = Adapter()
+
+    async def check():
+        async with Client(create_server(adapter, reader)) as client:
+            for args in (
+                {"review_set_id": "review-triage-a", "not_before": "2026-07-19"},
+                {"as_of": "2026-02-30"},
+                {"not_before": "20260719"},
+                {"review_set_id": ""},
+            ):
+                result = await client.call_tool("screening_get_review_set", args)
+                assert result.is_error
+                assert result.structured_content["error"]["code"] == "INVALID_ARGUMENT"
+            result = await client.call_tool("screening_get_review_set", {})
+            assert not result.is_error
+            triage = await client.call_tool("triage_resolve", {})
+            model = await client.call_tool(
+                "triage_get_input", {"triage_ref": triage.structured_content["triage_ref"]}
+            )
+            assert (
+                result.structured_content["candidates"]
+                == model.structured_content["model_input"]["candidates"]
+            )
+
+    try:
+        asyncio.run(check())
+    finally:
+        adapter.close()

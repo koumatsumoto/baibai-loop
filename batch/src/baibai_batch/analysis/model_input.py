@@ -30,10 +30,9 @@ def macro_projection(
     )
 
 
-def build_model_input(
-    review_set: PublishedReviewSet, macro_context: MacroContextDocument | None
-) -> ModelInput:
-    candidates = tuple(
+def review_set_candidates(review_set: PublishedReviewSet) -> tuple[TriageCandidate, ...]:
+    """Project frozen entries in canonical order without current machine or judgment inputs."""
+    return tuple(
         TriageCandidate(
             ticker=entry.ticker,
             snapshot=ReviewSetEntrySnapshot(
@@ -45,6 +44,11 @@ def build_model_input(
         )
         for entry in review_set.entries
     )
+
+
+def build_model_input(
+    review_set: PublishedReviewSet, macro_context: MacroContextDocument | None
+) -> ModelInput:
     return ModelInput(
         schema_version=(
             2
@@ -63,5 +67,5 @@ def build_model_input(
         policy=TRIAGE_POLICY,
         as_of=review_set.as_of.isoformat(),
         macro_context=macro_projection(review_set, macro_context),
-        candidates=candidates,
+        candidates=review_set_candidates(review_set),
     )
