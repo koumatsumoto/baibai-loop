@@ -30,7 +30,7 @@ class TriageCandidate(BaseModel):
 class ModelInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: Literal[1]
+    schema_version: Literal[1, 2]
     task: Literal["research-triage"]
     instruction: str
     policy: tuple[str, ...]

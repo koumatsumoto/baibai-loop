@@ -356,7 +356,9 @@ def _metric_record_payload(
         "investment_securities": record.investment_securities,
         "ebitda_ttm": record.ebitda_ttm,
         "consolidation_basis": record.consolidation_basis,
-        "ttm_quality_ev_ebitda": record.ttm_quality_ev_ebitda.value,
+        "ttm_quality_ev_ebitda": record.ttm_quality_ev_ebitda.value
+        if record.ttm_quality_ev_ebitda is not None
+        else None,
         "ttm_quality_p_s": record.ttm_quality_p_s.value,
         "ttm_quality_pcfr": record.ttm_quality_pcfr.value,
         "operating_profit_ttm": record.operating_profit_ttm,
@@ -366,7 +368,9 @@ def _metric_record_payload(
         "net_cash": record.net_cash,
         "equity": record.equity,
         "total_assets": record.total_assets,
-        "ttm_quality_fcf": record.ttm_quality_fcf.value,
+        "ttm_quality_fcf": record.ttm_quality_fcf.value
+        if record.ttm_quality_fcf is not None
+        else None,
         "ttm_quality_net_cash": record.ttm_quality_net_cash.value,
         "source_doc_id": record.source_doc_id,
         "document_type": record.document_type,

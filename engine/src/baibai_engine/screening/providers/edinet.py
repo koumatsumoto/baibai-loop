@@ -59,7 +59,7 @@ class EdinetMetricRecord:
     investment_securities: float | None = None
     ebitda_ttm: float | None = None
     consolidation_basis: str | None = None
-    ttm_quality_ev_ebitda: TTMQuality = TTMQuality.UNAVAILABLE
+    ttm_quality_ev_ebitda: TTMQuality | None = None
     ttm_quality_p_s: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_pcfr: TTMQuality = TTMQuality.UNAVAILABLE
     operating_profit_ttm: float | None = None
@@ -69,7 +69,7 @@ class EdinetMetricRecord:
     net_cash: float | None = None
     equity: float | None = None
     total_assets: float | None = None
-    ttm_quality_fcf: TTMQuality = TTMQuality.UNAVAILABLE
+    ttm_quality_fcf: TTMQuality | None = None
     ttm_quality_net_cash: TTMQuality = TTMQuality.UNAVAILABLE
     source_doc_id: str | None = None
     document_type: str | None = None
@@ -426,7 +426,7 @@ def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
         ),
         ebitda_ttm=_to_float(_coalesce(record, "ebitda_ttm", "EBITDATTM")),
         consolidation_basis=_coalesce(record, "consolidation_basis", "ConsolidationBasis"),
-        ttm_quality_ev_ebitda=_parse_ttm_quality(
+        ttm_quality_ev_ebitda=_parse_optional_ttm_quality(
             _coalesce(record, "ttm_quality_ev_ebitda", "TTMQualityEvEbitda")
         ),
         ttm_quality_p_s=_parse_ttm_quality(_coalesce(record, "ttm_quality_p_s", "TTMQualityPS")),
@@ -442,7 +442,7 @@ def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
         net_cash=_to_float(_coalesce(record, "net_cash")),
         equity=_to_float(_coalesce(record, "equity")),
         total_assets=_to_float(_coalesce(record, "total_assets")),
-        ttm_quality_fcf=_parse_ttm_quality(_coalesce(record, "ttm_quality_fcf")),
+        ttm_quality_fcf=_parse_optional_ttm_quality(_coalesce(record, "ttm_quality_fcf")),
         ttm_quality_net_cash=_parse_ttm_quality(_coalesce(record, "ttm_quality_net_cash")),
         source_doc_id=_to_str_or_none(_coalesce(record, "source_doc_id")),
         document_type=_to_str_or_none(_coalesce(record, "document_type")),
@@ -888,6 +888,13 @@ def _safe_error_value(value: object, *, max_length: int = 80) -> str:
     if len(sanitized) > max_length:
         sanitized = sanitized[:max_length] + "..."
     return repr(sanitized)
+
+
+def _parse_optional_ttm_quality(value: Any) -> TTMQuality | None:
+    try:
+        return TTMQuality(value)
+    except (ValueError, TypeError):
+        return None
 
 
 def _parse_ttm_quality(value: Any) -> TTMQuality:

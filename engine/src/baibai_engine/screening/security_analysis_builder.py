@@ -46,14 +46,18 @@ def build_security_analysis(
         pcfr=financial.pcfr,
         sector_33=security.sector_33,
         ttm_quality={
-            "ev_ebitda": financial.ttm_quality_ev_ebitda,
-            "per_trailing": financial.ttm_quality_per_trailing,
-            "p_s": financial.ttm_quality_p_s,
-            "pcfr": financial.ttm_quality_pcfr,
-            "ocf_yield": financial.ttm_quality_ocf_yield,
-            "sales": financial.ttm_quality_sales,
-            "fcf_yield": financial.ttm_quality_fcf_yield,
-            "net_cash": financial.ttm_quality_net_cash,
+            key: quality
+            for key, quality in {
+                "ev_ebitda": financial.ttm_quality_ev_ebitda,
+                "per_trailing": financial.ttm_quality_per_trailing,
+                "p_s": financial.ttm_quality_p_s,
+                "pcfr": financial.ttm_quality_pcfr,
+                "ocf_yield": financial.ttm_quality_ocf_yield,
+                "sales": financial.ttm_quality_sales,
+                "fcf_yield": financial.ttm_quality_fcf_yield,
+                "net_cash": financial.ttm_quality_net_cash,
+            }.items()
+            if quality is not None
         },
         market_cap_oku=universe_snapshot.market_cap_oku,
         avg_turnover_oku=universe_snapshot.avg_turnover_oku,

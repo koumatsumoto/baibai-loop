@@ -2052,7 +2052,7 @@ class ScreeningMetricsTests(unittest.TestCase):
         self.assertIsNone(financial.debt)
         self.assertIsNone(financial.cash)
         self.assertIsNone(financial.ev_ebitda)
-        self.assertEqual(financial.ttm_quality_ev_ebitda, TTMQuality.UNAVAILABLE)
+        self.assertIsNone(financial.ttm_quality_ev_ebitda)
         assert financial.edinet_failure_reasons is not None
         self.assertIn("entity_scale_mismatch", financial.edinet_failure_reasons)
         # 実体を判断するための出所は残す。落としたのは値であって記録ではない。

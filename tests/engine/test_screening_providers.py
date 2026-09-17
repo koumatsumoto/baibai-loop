@@ -1086,6 +1086,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 "CurrentYearConsolidatedDuration",
                 "-40",
             ),
+            ("jpcrp_cor:PurchaseOfIntangibleAssets", "CurrentYearConsolidatedDuration", "0"),
             ("jpcrp_cor:CashAndDeposits", "CurrentYearConsolidatedInstant", "300"),
             ("jppfs_cor:InvestmentSecurities", "CurrentYearConsolidatedInstant", "250"),
             ("jpcrp_cor:ShortTermBorrowings", "CurrentYearConsolidatedInstant", "20"),
@@ -2531,3 +2532,88 @@ class ScreeningProviderTests(unittest.TestCase):
                     )
                     with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
                         provider.get_regulation_snapshot(date(2026, 4, 24))
+
+
+def test_capex_original_edinet_rows():
+    # EDINET API v2 documents/{doc_id}?type=5、2026-09-17取得の原本CSV行を抜粋。
+    # S100YU8C InterimDurationは2026-01-01..06-30 (会社半期報告書id=500)。
+    cases = [
+        ("5946", "S100YU8C", "160", 4_857_000_000, 1_136_000_000, 3_721_000_000, "approximated"),
+        ("7122", "S100YI50", "120", 15_630_000_000, 1_831_000_000, 13_799_000_000, "exact"),
+        ("8127", "S100XXXU", "160", 871_844_000, 100_902_000, 770_942_000, "approximated"),
+    ]
+    for ticker, doc, kind, ocf, capex, fcf, quality in cases:
+        content = BytesIO()
+        with zipfile.ZipFile(content, "w") as archive:
+            archive.writestr(
+                "XBRL_TO_CSV/statement.csv",
+                (ROOT / "tests/fixtures/edinet" / f"{doc}.tsv").read_text().encode("utf-16"),
+            )
+        record = parse_csv_zip_metric_record(
+            ticker=ticker,
+            doc_id=doc,
+            doc_type_code=kind,
+            content=content.getvalue(),
+            period_end=date(2026, 12, 31) if ticker == "5946" else None,
+        )
+        assert (record.ocf_ttm, record.capex_ttm, record.fcf_ttm) == (ocf, capex, fcf)
+        assert record.ttm_quality_fcf == quality
+        assert record.capex_source == "purchase_of_fixed_assets"
+        assert "tag_not_found:capex" not in record.failure_reasons
+
+
+def test_capex_total_components_and_period_are_not_mixed(subtests):
+    total = "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCF"
+    tangible = "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF"
+    intangible = "jppfs_cor:PurchaseOfIntangibleAssetsInvCF"
+    current = "CurrentYearConsolidatedDuration"
+    prior = "Prior1YearConsolidatedDuration"
+    rows = [("jppfs_cor:NetCashProvidedByUsedInOperatingActivities", current, "4857")]
+    cases = [
+        ("total", [(total, current, "-1136")], 1136),
+        ("components", [(tangible, current, "-1000"), (intangible, current, "-136")], 1136),
+        (
+            "total-and-components",
+            [
+                (total, current, "-1136"),
+                (tangible, current, "-1000"),
+                (intangible, current, "-136"),
+            ],
+            1136,
+        ),
+        ("missing-intangible", [(tangible, current, "-1000")], None),
+        ("missing-tangible", [(intangible, current, "-136")], None),
+        ("prior-component", [(tangible, current, "-1000"), (intangible, prior, "-136")], None),
+        (
+            "prior-total",
+            [(total, prior, "-769"), (tangible, current, "-1000"), (intangible, current, "-136")],
+            1136,
+        ),
+        ("nonconsolidated-total", [(total, "CurrentYearNonConsolidatedDuration", "-999")], None),
+        ("missing", [], None),
+        ("explicit-zero", [(total, current, "0")], 0),
+    ]
+    for name, extra, expected in cases:
+        with subtests.test(name=name):
+            record = parse_csv_zip_metric_record(
+                ticker="9999",
+                doc_id="S100TEST",
+                doc_type_code="160",
+                content=_edinet_csv_zip(
+                    rows
+                    + extra
+                    + [("jppfs_cor:PurchaseOfInvestmentSecuritiesInvCF", current, "-9999")]
+                ),
+            )
+            assert record.capex_ttm == expected
+            assert record.fcf_ttm == (None if expected is None else 4857 - expected)
+            assert ("tag_not_found:capex" in record.failure_reasons) == (expected is None)
+            assert "tag_not_found:cash" in record.failure_reasons
+
+
+def test_missing_edinet_quality_is_unknown():
+    record = normalize_metric_record(
+        {"ticker": "5946", "ebitda_ttm": 1328000000, "fcf_ttm": 3721000000}
+    )
+    assert record.ttm_quality_ev_ebitda is None
+    assert record.ttm_quality_fcf is None

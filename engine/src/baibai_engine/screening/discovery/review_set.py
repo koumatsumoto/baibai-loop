@@ -491,6 +491,7 @@ def _quality_floor(values: Sequence[_ReinvestmentValues]) -> _QualityFloors:
 def _analysis(row: Mapping[str, object], *, normalized_gap: float | None) -> dict[str, object]:
     metrics = dict(metric_map(row.get("metrics")))
     reinvestment = _reinvestment_values(row)
+    quality = dict(metric_map(row.get("ttm_quality")))
     return {
         "identity_liquidity": {
             key: row.get(key)
@@ -546,13 +547,17 @@ def _analysis(row: Mapping[str, object], *, normalized_gap: float | None) -> dic
             )
         },
         "data_quality": {
-            key: metrics.get(key)
-            for key in (
-                "bs_carry_forward_fields",
-                "bs_carry_forward_lag_days",
-                "edinet_failure_reasons",
-                "stale_fin_flag",
-            )
+            **{
+                key: metrics.get(key)
+                for key in (
+                    "bs_carry_forward_fields",
+                    "bs_carry_forward_lag_days",
+                    "edinet_failure_reasons",
+                    "stale_fin_flag",
+                )
+            },
+            "ttm_quality_ev_ebitda": quality.get("ev_ebitda"),
+            "ttm_quality_fcf": quality.get("fcf_yield"),
         },
         "context": {
             key: metrics.get(key)

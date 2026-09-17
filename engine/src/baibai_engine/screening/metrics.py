@@ -1929,17 +1929,13 @@ def _build_financial_snapshot(
             operating_profit,
             operating_profit_prior_year,
         ),
-        ttm_quality_ev_ebitda=(
-            edinet_metrics.ttm_quality_ev_ebitda if edinet_metrics else TTMQuality.UNAVAILABLE
-        ),
+        ttm_quality_ev_ebitda=(edinet_metrics.ttm_quality_ev_ebitda if edinet_metrics else None),
         ttm_quality_per_trailing=profit_quality,
         ttm_quality_p_s=sales_quality,
         ttm_quality_pcfr=ocf_quality,
         ttm_quality_ocf_yield=ocf_quality,
         ttm_quality_sales=sales_quality,
-        ttm_quality_fcf_yield=(
-            edinet_metrics.ttm_quality_fcf if edinet_metrics else TTMQuality.UNAVAILABLE
-        ),
+        ttm_quality_fcf_yield=(edinet_metrics.ttm_quality_fcf if edinet_metrics else None),
         ttm_quality_net_cash=(
             edinet_metrics.ttm_quality_net_cash if edinet_metrics else TTMQuality.UNAVAILABLE
         ),
@@ -2631,8 +2627,9 @@ def _count_ttm_qualities(snapshots: Sequence[FinancialSnapshot]) -> dict[str, in
     counts = {quality.value: 0 for quality in TTMQuality}
     for snapshot in snapshots:
         for field_name in _TTM_QUALITY_FIELDS:
-            quality: TTMQuality = getattr(snapshot, field_name)
-            counts[quality.value] += 1
+            quality: TTMQuality | None = getattr(snapshot, field_name)
+            if quality is not None:
+                counts[quality.value] += 1
     return counts
 
 

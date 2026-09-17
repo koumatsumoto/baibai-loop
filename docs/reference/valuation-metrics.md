@@ -149,7 +149,7 @@ EDINET `type=5` CSV-derived metrics から以下を抽出する。
 - `debt`: 短期借入金、1 年内返済予定長期借入金、社債、長期借入金、リース債務等の合算
 - `investment_securities`: BS の `InvestmentSecurities` exact local name だけを連結優先・単体 fallback で抽出する帳簿価額。関係会社株式、営業投資有価証券、包括的な `Securities`、売却損益・CF、text block は合算しない。表示値が `－` 等の明示的な zero-like の場合だけ 0 とする
 - `edinet_ocf_ttm`: EDINET CSV から抽出した営業活動によるキャッシュ・フロー
-- `capex_ttm`: 有形固定資産・無形固定資産の取得支出。符号は絶対値に正規化する
+- `capex_ttm`: 有形固定資産・無形固定資産の取得支出。CFOと同じcontext・連結/単体の合算科目を優先し、合算がない場合は有形・無形の両科目が揃うときだけ足す。合算と内訳は二重計上せず、欠測をゼロにしない。符号は取得支出額の絶対値へ一度だけ正規化する
 - `net_cash = cash - debt`
 - `asset_backed_ratio = (net_cash + investment_securities) / market_cap`
 - `fcf_ttm = edinet_ocf_ttm - capex_ttm`
@@ -291,6 +291,10 @@ return ではない)。これ以外のコーポレートアクション (合併�
 
 - 2024 年以降、EDINET 単体では旧来の四半期報告書に依存した TTM 再構成ができない期間がある
 - TTM 品質を `exact` / `approximated` / `unavailable` で明示する
+- EDINET CSV抽出では年次報告（書類種別120/130）の取得値を`exact`、それ以外の取得値を`approximated`、算出不能を`unavailable`とする。半期のCFO・CapExを取得しても完全TTMへ合成・年率化しない。書類の`source_period_end`はフローのcontext終点とは限らない。
+- 品質は供給元の計算・期間の区別であり、継続利益、資金の経済的持続性、株主回収可能性、倍率全体の正しさの認定ではない。`approximated`を一律に半期と解釈しない。
+- Research Triageの`analysis.data_quality.ttm_quality_ev_ebitda` / `ttm_quality_fcf`は、採用したSecurity Analysisの`ttm_quality.ev_ebitda` / `fcf_yield`をそのまま投影する。採用元の品質がなければ`null`で、別世代・別sourceから補わず、この注記だけでNominationを変えない。
+- 新規snapshotは2項目を明示し、Triage ModelInputはschema version 2となる。2項目のない保存済みsnapshotはキー欠如を保ち、従来どおりversion 1として再構築する。明示的`null`とキー欠如をserializerで区別し、旧canonicalとhashを変更しない。
 - `EV/EBITDA` は `ttm_quality_ev_ebitda = exact` かつ EV / EBITDA がどちらも正のときのみ valuation-reversion 判定に使用する
 - `P/S` / `PCFR` / `OCF yield` / `FCF yield` / `Net cash` は、それぞれ valuation approach が要求する品質条件を満たすときのみ mechanical 判定に使う。`Asset-backed ratio` は mechanical 判定に使わない
 

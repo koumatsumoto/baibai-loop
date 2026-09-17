@@ -242,6 +242,7 @@ def test_metric_values_stay_pinned_to_the_narrowed_manifest() -> None:
                     "CurrentYearConsolidatedDuration",
                     "-40",
                 ),
+                ("jpcrp_cor:PurchaseOfIntangibleAssets", "CurrentYearConsolidatedDuration", "0"),
                 ("jpcrp_cor:CashAndDeposits", "CurrentYearConsolidatedInstant", "300"),
                 ("jppfs_cor:InvestmentSecurities", "CurrentYearConsolidatedInstant", "250"),
                 ("jpcrp_cor:ShortTermBorrowings", "CurrentYearConsolidatedInstant", "20"),

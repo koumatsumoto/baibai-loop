@@ -2073,6 +2073,7 @@ def _edinet_csv_zip(*, include_debt: bool = True) -> bytes:
             "CurrentYearDuration_ConsolidatedMember",
             "-200",
         ),
+        ("jpcrp_cor:PurchaseOfIntangibleAssets", "CurrentYearDuration_ConsolidatedMember", "0"),
         ("jpcrp_cor:Equity", "CurrentYearInstant_ConsolidatedMember", "1200"),
         ("jpcrp_cor:TotalAssets", "CurrentYearInstant_ConsolidatedMember", "2000"),
         ("jpcrp_cor:DepreciationAndAmortization", "CurrentYearDuration_ConsolidatedMember", "50"),
