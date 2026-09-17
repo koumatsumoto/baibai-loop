@@ -56,6 +56,8 @@ publisherはsource run、as-of、rules hash、method hash、全Security Analysis
 
 Normalized Earnings Powerのnative eligibility/orderは`normalized_per_3fy`と同sector gapを使う。FV/E[r] estimatorは`normalized_per_3fy`を入力にしない。
 
+MCPは保存済みcanonical Review Setをread-onlyで参照できる。これはscreening結果の検証用read boundaryであり、Review Set membership、Nomination、Research Triage、Research Setを変更するauthorityを持たない。tool契約は[Owner MCP](../../tools/owner_mcp/README.md#triage前のreview-set)を参照する。
+
 ## Research Triage
 
 application DBのcurrent `research_triage`はReview Set全entryをexactly onceで保持する。

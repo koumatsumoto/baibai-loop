@@ -1,4 +1,4 @@
-"""候補調査へL1・canonical Triage・時点除外を7つのread-only toolsで見せる。"""
+"""候補調査へL1・canonical Triage・時点除外を8つのread-only toolsで見せる。"""
 
 from __future__ import annotations
 
@@ -12,14 +12,14 @@ from pydantic import ValidationError
 from tools.l1_mcp.contract import LIMITS, wire
 from tools.l1_mcp.server import Adapter, register_tools
 
-from .reader import OwnerError, Reader, Selector, TriageRef
+from .reader import OwnerError, Reader, ReviewSetSelector, Selector, TriageRef
 
 MESSAGES = {
     "INVALID_ARGUMENT": "selector・固定reference・timezone付き時刻を確認してください。",
     "SOURCE_UNAVAILABLE": "指定sourceまたはbound judgmentを利用できません。補完はしません。",
     "REFERENCE_MISMATCH": "固定referenceと現在のpayloadが一致しません。比較を停止してください。",
     "CONTRACT_MISMATCH": "canonical sourceのdomain契約が整合しません。",
-    "AMBIGUOUS_SELECTION": "同日に複数の完全なTriageがあります。exact IDを指定してください。",
+    "AMBIGUOUS_SELECTION": "指定条件に複数のsourceがあります。exact IDを指定してください。",
     "PORTFOLIO_UNAVAILABLE": "canonical ledgerが未登録のため除外集合を返せません。",
     "PORTFOLIO_COVERAGE_INSUFFICIENT": "ledgerのbroker factは指定時刻までcoverageしていません。",
     "PORTFOLIO_UNRESOLVED": "指定時刻に期限切れ予約の報告が未解決です。",
@@ -100,5 +100,28 @@ def create_server(adapter: Adapter, reader: Reader | None = None) -> MCPServer[A
     def portfolio_get_exclusions(at: str) -> CallToolResult:
         """timezone付き時刻までledgerをreplayし、保有・active予約tickerだけを返す。coverage不足は失敗。"""
         return call(lambda: reader.exclusions(at))
+
+    @server.tool(annotations=annotations)
+    def screening_get_review_set(
+        review_set_id: str | None = None,
+        public_run_id: str | None = None,
+        as_of: str | None = None,
+        not_before: str | None = None,
+    ) -> CallToolResult:
+        """Triage不要の凍結Review Set。最大1 selector、無指定latest、not_beforeは最初の対象日。"""
+
+        def get() -> dict[str, Any]:
+            try:
+                selector = ReviewSetSelector(
+                    review_set_id=review_set_id,
+                    public_run_id=public_run_id,
+                    as_of=as_of,
+                    not_before=not_before,
+                )
+            except ValidationError as exc:
+                raise OwnerError("INVALID_ARGUMENT") from exc
+            return reader.get_review_set(selector)
+
+        return call(get)
 
     return server
