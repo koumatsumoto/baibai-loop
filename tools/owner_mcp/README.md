@@ -40,6 +40,9 @@ ChatGPT側でTunnelのcustom appを接続します。公開するtoolは下記�
 すべて`readOnlyHint=true`、`destructiveHint=false`、`openWorldHint=false`です。
 PCとTunnel clientが動作している間だけ利用できます。
 
+常駐化、Windowsログイン後の自動起動、切断時の復旧は
+[Tunnelの常駐・WSL自動起動](./OPERATIONS.md)を参照してください。
+
 ### Tool定義の更新
 
 tool名・schema・説明を変更したら、稼働中serverの変更に加えてChatGPT側のmetadataを更新します。
