@@ -1,0 +1,429 @@
+# 合成fixture。実データ・検証済み投資判断ではない。
+schema_version: 1
+kind: macro-context-handoff
+analysis_id: macro-handoff-2026-09-18-example
+as_of: '2026-09-18'
+generated_at: '2026-09-18T23:00:00+09:00'
+summary: 形式確認専用の合成例。実際の市場分析・投資判断には利用しない。
+bindings:
+  reading: null
+  market: null
+  limitations:
+  - 合成fixtureのためMCPを呼んでおらず、実在するrevision/hashを付与しない。
+external_sources:
+- source_id: source-example
+  publisher: Example publisher
+  title: Synthetic source only
+  url: https://example.com/macro-fixture
+  published_on: '2026-09-17'
+  accessed_at: '2026-09-18T22:00:00+09:00'
+  status: ok
+evidence:
+- evidence_id: ev-rates
+  summary: 合成例の長期金利。
+  kind: series
+  series_id: us.10y
+  unit: percent
+  source_url: https://example.com/synthetic-rates
+  accessed_at: '2026-09-18T22:00:00+09:00'
+  observations:
+  - observed_at: '2026-06-17'
+    value: 4.0
+  - observed_at: '2026-09-17'
+    value: 4.2
+- evidence_id: ev-fx
+  summary: 合成例の為替。
+  kind: series
+  series_id: usd_jpy
+  unit: jpy-per-usd
+  source_url: https://example.com/synthetic-fx
+  accessed_at: '2026-09-18T22:00:00+09:00'
+  observations:
+  - observed_at: '2026-09-17'
+    value: 150.0
+- evidence_id: ev-market
+  summary: 合成例の市場内部。
+  kind: market
+  observation_as_of: '2026-09-17'
+  accessed_at: '2026-09-18T22:00:00+09:00'
+  method: 合成fixtureの架空結果。CLI/SQLを実行した記録ではない。
+  results:
+  - label: 20日リターン中央値
+    value: 1.2
+    unit: percent
+- evidence_id: ev-article
+  summary: 合成一次資料の要約。
+  kind: article
+  external_source_id: source-example
+- evidence_id: ev-rate-change
+  summary: 合成例の金利差。
+  kind: calculation
+  input_evidence_ids:
+  - ev-rates
+  observation_as_of: '2026-09-17'
+  method: (4.2 - 4.0) * 100。percentからbpへ換算する。
+  results:
+  - label: 長期金利変化
+    value: 20.0
+    unit: bp
+core:
+- section_id: regime_summary
+  series_ids:
+  - us.10y
+  - usd_jpy
+  fact_summary:
+  - summary: 合成例：金利と為替の観測値を比較した。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  judgment:
+    direction: mixed
+    confidence: low
+    summary: 合成例：複数の経路が相殺する。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  economic_connection:
+    summary: 合成例：資金調達費用と輸出採算に異なる影響が及ぶ。
+    source_ids:
+    - ev-rates
+    - ev-fx
+- section_id: rates_policy
+  series_ids:
+  - us.10y
+  - usd_jpy
+  fact_summary:
+  - summary: 合成例：金利と為替の観測値を比較した。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  judgment:
+    direction: mixed
+    confidence: low
+    summary: 合成例：複数の経路が相殺する。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  economic_connection:
+    summary: 合成例：資金調達費用と輸出採算に異なる影響が及ぶ。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  material_deltas:
+  - channel: discount_rate
+    direction: adverse
+    materiality: low
+    used_for: 合成例：必要利回りの確認
+    summary: 合成例：金利上昇が割引率へ及ぶ。
+    source_ids:
+    - ev-rate-change
+- section_id: growth_demand
+  series_ids:
+  - us.10y
+  - usd_jpy
+  fact_summary:
+  - summary: 合成例：金利と為替の観測値を比較した。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  judgment:
+    direction: mixed
+    confidence: low
+    summary: 合成例：複数の経路が相殺する。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  economic_connection:
+    summary: 合成例：資金調達費用と輸出採算に異なる影響が及ぶ。
+    source_ids:
+    - ev-rates
+    - ev-fx
+- section_id: inflation_costs
+  series_ids:
+  - us.10y
+  - usd_jpy
+  fact_summary:
+  - summary: 合成例：金利と為替の観測値を比較した。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  judgment:
+    direction: mixed
+    confidence: low
+    summary: 合成例：複数の経路が相殺する。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  economic_connection:
+    summary: 合成例：資金調達費用と輸出採算に異なる影響が及ぶ。
+    source_ids:
+    - ev-rates
+    - ev-fx
+- section_id: liquidity_credit
+  series_ids:
+  - us.10y
+  - usd_jpy
+  fact_summary:
+  - summary: 合成例：金利と為替の観測値を比較した。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  judgment:
+    direction: mixed
+    confidence: low
+    summary: 合成例：複数の経路が相殺する。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  economic_connection:
+    summary: 合成例：資金調達費用と輸出採算に異なる影響が及ぶ。
+    source_ids:
+    - ev-rates
+    - ev-fx
+- section_id: fx
+  series_ids:
+  - us.10y
+  - usd_jpy
+  fact_summary:
+  - summary: 合成例：金利と為替の観測値を比較した。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  judgment:
+    direction: mixed
+    confidence: low
+    summary: 合成例：複数の経路が相殺する。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  economic_connection:
+    summary: 合成例：資金調達費用と輸出採算に異なる影響が及ぶ。
+    source_ids:
+    - ev-rates
+    - ev-fx
+- section_id: japan
+  series_ids:
+  - us.10y
+  - usd_jpy
+  fact_summary:
+  - summary: 合成例：金利と為替の観測値を比較した。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  judgment:
+    direction: mixed
+    confidence: low
+    summary: 合成例：複数の経路が相殺する。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  economic_connection:
+    summary: 合成例：資金調達費用と輸出採算に異なる影響が及ぶ。
+    source_ids:
+    - ev-rates
+    - ev-fx
+- section_id: valuation
+  series_ids:
+  - us.10y
+  - usd_jpy
+  fact_summary:
+  - summary: 合成例：金利と為替の観測値を比較した。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  judgment:
+    direction: mixed
+    confidence: low
+    summary: 合成例：複数の経路が相殺する。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  economic_connection:
+    summary: 合成例：資金調達費用と輸出採算に異なる影響が及ぶ。
+    source_ids:
+    - ev-rates
+    - ev-fx
+- section_id: risk_environment
+  series_ids:
+  - us.10y
+  - usd_jpy
+  fact_summary:
+  - summary: 合成例：金利と為替の観測値を比較した。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  judgment:
+    direction: mixed
+    confidence: low
+    summary: 合成例：複数の経路が相殺する。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  economic_connection:
+    summary: 合成例：資金調達費用と輸出採算に異なる影響が及ぶ。
+    source_ids:
+    - ev-rates
+    - ev-fx
+- section_id: monitoring
+  series_ids:
+  - us.10y
+  - usd_jpy
+  fact_summary:
+  - summary: 合成例：金利と為替の観測値を比較した。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  judgment:
+    direction: mixed
+    confidence: low
+    summary: 合成例：複数の経路が相殺する。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  economic_connection:
+    summary: 合成例：資金調達費用と輸出採算に異なる影響が及ぶ。
+    source_ids:
+    - ev-rates
+    - ev-fx
+synthesis:
+  dominant_forces:
+  - force_id: rates-fx
+    title: 合成例：金利と為替の経路
+    transmission: 合成例：金利が資金調達費用、為替が輸出採算へ伝わる。
+    core_section_ids:
+    - rates_policy
+    - fx
+    series_ids:
+    - us.10y
+    - usd_jpy
+    counter_evidence: 合成例：雇用・消費が維持され、信用縮小の説明を弱める。
+    direction: mixed
+    confidence: low
+    summary: 合成例：共通環境が異なる経路で影響する。
+    source_ids:
+    - ev-rates
+    - ev-fx
+    - ev-article
+  interactions: []
+risk_environment:
+  stance: neutral
+  confidence: low
+  falsifiers:
+  - 合成例：信用悪化が広範化する。
+  summary: 合成例：リスク対価は一様ではない。
+  source_ids:
+  - ev-rates
+  - ev-fx
+scenarios:
+- case: base
+  direction: mixed
+  probability: 0.5
+  summary: 合成例：現状の併存。
+  source_ids:
+  - ev-rates
+  - ev-fx
+  conditions:
+  - 合成例：現状の併存が継続する。
+  economic_implications:
+  - 合成例：企業利益と必要利回りの前提を再確認する。
+  scorecard_intents:
+  - series_id: us.10y
+    expectation: 合成例：現状の併存に整合する金利経路を確認する。
+    rationale: 具体的閾値・期限は現実の入力で定義し、追加判断としてレビューする。
+  - series_id: usd_jpy
+    expectation: 合成例：現状の併存に整合する為替経路を確認する。
+    rationale: 金利とは異なる採算経路を確認する。
+- case: bear
+  direction: adverse
+  probability: 0.3
+  summary: 合成例：信用と需要の悪化。
+  source_ids:
+  - ev-rates
+  - ev-fx
+  conditions:
+  - 合成例：信用と需要の悪化が継続する。
+  economic_implications:
+  - 合成例：企業利益と必要利回りの前提を再確認する。
+  scorecard_intents:
+  - series_id: us.10y
+    expectation: 合成例：信用と需要の悪化に整合する金利経路を確認する。
+    rationale: 具体的閾値・期限は現実の入力で定義し、追加判断としてレビューする。
+  - series_id: usd_jpy
+    expectation: 合成例：信用と需要の悪化に整合する為替経路を確認する。
+    rationale: 金利とは異なる採算経路を確認する。
+- case: bull
+  direction: supportive
+  probability: 0.2
+  summary: 合成例：コスト圧力の緩和。
+  source_ids:
+  - ev-rates
+  - ev-fx
+  conditions:
+  - 合成例：コスト圧力の緩和が継続する。
+  economic_implications:
+  - 合成例：企業利益と必要利回りの前提を再確認する。
+  scorecard_intents:
+  - series_id: us.10y
+    expectation: 合成例：コスト圧力の緩和に整合する金利経路を確認する。
+    rationale: 具体的閾値・期限は現実の入力で定義し、追加判断としてレビューする。
+  - series_id: usd_jpy
+    expectation: 合成例：コスト圧力の緩和に整合する為替経路を確認する。
+    rationale: 金利とは異なる採算経路を確認する。
+monitoring:
+- event: 合成例：金利と為替の公表
+  condition: 合成例：金利の上昇と為替の変化が継続する。
+  view_change: 合成例：資金調達費用への逆風を強める。
+  summary: 合成例：両方の経路を再確認する。
+  source_ids:
+  - ev-rates
+  - ev-fx
+connection:
+  section_id: japan_equity_loop
+  series_ids:
+  - us.10y
+  - usd_jpy
+  core_section_ids:
+  - rates_policy
+  - fx
+  - japan
+  fact_summary:
+  - summary: 合成例：市場中央値は一様な下落を示さない。
+    source_ids:
+    - ev-market
+  judgment:
+    direction: mixed
+    confidence: low
+    summary: 合成例：企業ごとに資金調達と為替感応度を確認する。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  research_priority_hints:
+  - applies_to: 合成例：短期借換えが多い企業
+    summary: 合成例：満期と資金耐久力を確認する。
+    source_ids:
+    - ev-rates
+    - ev-fx
+  bargain_topography:
+    summary: 合成例：指数だけで全面割安と判断しない。
+    source_ids:
+    - ev-market
+  estimate_caveats:
+  - applies_to: 合成例：有利子負債が多い企業
+    affected_component: fv_anchor
+    materiality: low
+    summary: 合成例：割引率の前提を確認する。
+    source_ids:
+    - ev-rates
+    - ev-fx
+data_issues:
+- issue_id: synthetic-only
+  severity: warning
+  reason: 合成fixtureであり市場観測の証拠ではない。
+  evidence_ids:
+  - ev-rates
+  - ev-fx
+  - ev-market
+  - ev-article
+  - ev-rate-change
+limitations:
+- このsampleは構造検証に合格してもpublishできない。実データ、入力束縛、一次資料、scorecard条件を別途確認する。
