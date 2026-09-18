@@ -14,20 +14,27 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic_core import PydanticCustomError
 
 from tools.l1_mcp.contract import InputModel
 
 
 def iso_day(value: str) -> str:
-    if date.fromisoformat(value).isoformat() != value:
-        raise ValueError("ISO date required")
+    try:
+        if date.fromisoformat(value).isoformat() != value:
+            raise ValueError("noncanonical date")
+    except ValueError as exc:
+        raise PydanticCustomError("iso_day", "ISO日付が必要") from exc
     return value
 
 
 def iso_instant(value: str) -> str:
-    parsed = datetime.fromisoformat(value)
-    if parsed.utcoffset() is None:
-        raise ValueError("offset required")
+    try:
+        parsed = datetime.fromisoformat(value)
+        if parsed.utcoffset() is None:
+            raise ValueError("offset required")
+    except ValueError as exc:
+        raise PydanticCustomError("iso_instant", "timezone付きISO時刻が必要") from exc
     return value
 
 

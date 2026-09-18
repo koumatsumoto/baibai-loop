@@ -467,12 +467,10 @@ def test_reading_list_carries_rules_revision_on_every_page(data):
     assert whole["meta"]["rules_revision"] == snapshot["rules_revision"]
     page = data.list("macro.reading", filters, limit=1)
     assert page["next_cursor"]
-    while True:
-        assert page["meta"]["rules_revision"] == snapshot["rules_revision"]
-        assert "rules_revision" not in page["items"][0]["selector"]
-        if not page["next_cursor"]:
-            break
-        page = data.list("macro.reading", cursor=page["next_cursor"], limit=1)
+    second = data.list("macro.reading", cursor=page["next_cursor"], limit=1)
+    for result in (page, second):
+        assert result["meta"]["rules_revision"] == snapshot["rules_revision"]
+        assert "rules_revision" not in result["items"][0]["selector"]
 
 
 @pytest.mark.parametrize("selector", [{"latest": True}, {"review_set_id": "missing"}])
@@ -487,3 +485,26 @@ def test_review_set_unwritten_store_is_unavailable_but_partial_schema_is_corrupt
         con.execute(f"PRAGMA user_version={RUN_STORE_SCHEMA_VERSION}")
         con.execute("CREATE TABLE screening_run(run_revision_id TEXT, asof_date TEXT)")
     error(lambda: data.get("screening.review_set", selector), "CONTRACT_MISMATCH")
+
+
+@pytest.mark.parametrize(
+    ("changes", "removed", "expected"),
+    [
+        ({}, "from", "from: 必須"),
+        ({"secret-key": "secret-value"}, None, "未知field"),
+        ({"from": "secret-value"}, None, "from: ISO日付が必要"),
+        ({"series_id": {"secret-key": "secret-value"}}, None, "series_id: 文字列が必要"),
+    ],
+)
+def test_public_argument_errors_identify_reason_without_exposing_input(
+    data, changes, removed, expected
+):
+    filters = {"series_id": "us.10y", "from": "2026-01-01", "to": "2026-01-05", **changes}
+    if removed:
+        filters.pop(removed)
+    result = error(lambda: data.list("macro.observation", filters), "INVALID_ARGUMENT")
+    assert expected in result.content[0].text
+    assert expected in result.structured_content["error"]["message"]
+    serialized = result.model_dump_json()
+    assert "secret-key" not in serialized
+    assert "secret-value" not in serialized

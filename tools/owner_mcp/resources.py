@@ -46,7 +46,24 @@ def public(value: Any) -> Any:
 def parsed(model: type[BaseModel], value: dict[str, Any]) -> dict[str, Any]:
     try:
         return model.model_validate(value).model_dump(mode="json", by_alias=True, exclude_none=True)
-    except (ValidationError, ValueError) as exc:
+    except ValidationError as exc:
+        fields = {field.alias or name for name, field in model.model_fields.items()}
+        details = []
+        for error in exc.errors(include_input=False, include_context=False, include_url=False)[:5]:
+            # Only schema-owned names are public; unknown keys can themselves contain secrets.
+            location = error["loc"]
+            field = location[0] if location and location[0] in fields else "入力"
+            reason = {
+                "missing": "必須",
+                "extra_forbidden": "未知field（catalogの入力fieldを確認）",
+                "iso_day": "ISO日付が必要（YYYY-MM-DD）",
+                "iso_instant": "timezone付きISO時刻が必要",
+                "string_type": "文字列が必要",
+                "literal_error": "catalogの許可値が必要",
+            }.get(error["type"], "型・形式・組合せをcatalogで確認")
+            details.append(f"{field}: {reason}")
+        raise OwnerError("INVALID_ARGUMENT", "; ".join(details)) from exc
+    except ValueError as exc:
         raise OwnerError("INVALID_ARGUMENT") from exc
 
 

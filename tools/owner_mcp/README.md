@@ -111,6 +111,7 @@ calibrationでは最初の`meta.snapshot_token`を後続のfilters/selectorへ�
 `macro.reading`は各pageの`meta.rules_revision`に、そのcallで再計算したrulesの版を返します。
 一般mutable collectionはcall単位の整合であり、複数page全体のhistorical snapshotではありません。
 
+入力modelの不備は`INVALID_ARGUMENT`にfieldと短い理由を添えます。入力値・未知field名は返しません。
 不在・未初期化・exact IDなしは`SOURCE_UNAVAILABLE`、正常storeの空一覧は成功です。
 `research.thesis_review`の`thesis_id` filterは親Thesisの存在だけを確認し、親不在は`SOURCE_UNAVAILABLE`、
 親が存在してReviewがない場合は空一覧を返します。
