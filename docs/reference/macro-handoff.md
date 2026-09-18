@@ -86,7 +86,8 @@ uv run baibai-engine macro context handoff validate /tmp/handoff.yaml --format j
 Chatはrepositoryのモデル・この文書・[合成sample](../../tests/fixtures/macro_context_handoff_v1.yaml)
 も参照できるが、読んだだけでCLI実行済みとは報告しない。
 
-`validate`は成功0、データ/読込失敗1、usage不正2を返す。`--db`は受理しない。
+`validate`は成功0、データ/読込失敗1、引数の構文不正2を返す。
+context共通optionの`--db`をhandoffに指定した場合は、意味上の検証エラーとして1を返す。
 store、registry、provider、ネットワーク、前回contextにはアクセスしない。
 成功出力は`validation_scope: structure_only / publish_ready: false`である。
 

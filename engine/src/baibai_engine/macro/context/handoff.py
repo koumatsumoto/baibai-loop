@@ -336,6 +336,8 @@ class MacroContextHandoff(_Strict):
                 accessed(evidence.accessed_at)
                 for point in evidence.observations:
                     observation(point.observed_at)
+                    if point.observed_at > evidence.accessed_at.astimezone(JST).date():
+                        raise ValueError("series observation date exceeds access date")
                     if point.vintage_at is not None:
                         accessed(point.vintage_at)
                         if point.vintage_at > evidence.accessed_at:
@@ -344,6 +346,8 @@ class MacroContextHandoff(_Strict):
                 observation(evidence.observation_as_of)
                 if isinstance(evidence, MarketEvidence):
                     accessed(evidence.accessed_at)
+                    if evidence.observation_as_of > evidence.accessed_at.astimezone(JST).date():
+                        raise ValueError("market observation date exceeds access date")
                     binding = self.bindings.market
                     if (
                         binding is not None

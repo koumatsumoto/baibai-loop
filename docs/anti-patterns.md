@@ -243,7 +243,7 @@ AI agentの作業で繰り返し観測される失敗には、次の発生理由
   - [ ] decisionに応じて必須・禁止が切り替わる分類fieldは、必須時の欠落・未定義値・禁止時の混入をすべて拒否するか
   - [ ] 判断draftのscaffoldが`TODO`や未定義decisionを出す場合、publisherはplaceholderを必ず拒否し、scaffoldは判断元のmachine座標を同じentryへ転記して自由記述との照合を1回で行えるか
 
-- [ ] 外部Macro Context handoffは構造検証と発行可能性を分け、未知field・重複キー・数値coercion・時点矛盾・参照循環・計算経由の除外根拠再引用をnegative testで拒否するか。schema / validateがstore・registryを開かず、正式publicationとして受理されないか
+- [ ] 外部Macro Context handoffは構造検証と発行可能性を分け、未知field・重複キー・数値coercion・時点矛盾（series / marketの観測日がJSTの取得日を超える場合を含む）・参照循環・計算経由の除外根拠再引用をnegative testで拒否するか。schema / validateがstore・registryを開かず、正式publicationとして受理されないか
 
 #### 判断・operation境界
 

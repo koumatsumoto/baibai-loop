@@ -150,6 +150,18 @@ def test_unbacked_force_and_connection_are_rejected(payload):
         MacroContextHandoff.model_validate(payload)
 
 
+@pytest.mark.parametrize("evidence_index", [0, 2], ids=["series", "market"])
+def test_observation_date_cannot_exceed_access_date(payload, evidence_index):
+    evidence = payload["evidence"][evidence_index]
+    # Both fixtures observe September 17; vintage is deliberately absent.
+    evidence["accessed_at"] = "2026-09-16T14:59:59Z"
+    with pytest.raises(ValidationError, match="observation date exceeds access date"):
+        MacroContextHandoff.model_validate(payload)
+    # The same UTC date is September 17 in JST: same-day access is valid.
+    evidence["accessed_at"] = "2026-09-16T15:00:00Z"
+    MacroContextHandoff.model_validate(payload)
+
+
 def test_binding_and_source_time_consistency(payload):
     payload["bindings"]["reading"] = {"as_of": "2026-09-19", "rules_revision": "synthetic-example"}
     with pytest.raises(ValidationError, match="reading window"):
