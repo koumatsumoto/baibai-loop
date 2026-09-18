@@ -186,43 +186,15 @@ class ScreeningRunReader:
         does. not_before chooses the first eligible day; no selector chooses the last.
         A public run ID shared by revisions needs an exact Review Set ID.
         """
-        if sum(x is not None for x in (review_set_id, public_run_id, as_of_date, not_before)) > 1:
-            raise ValueError("at most one Review Set selector is allowed")
-        if review_set_id is not None:
-            return self.get_review_set(review_set_id)
         with closing(self._connect()) as connection:
             connection.execute("BEGIN")
-            if public_run_id is not None:
-                runs = connection.execute(
-                    "SELECT run_revision_id FROM screening_run WHERE public_run_id = ?",
-                    (public_run_id,),
-                ).fetchall()
-                if len(runs) > 1:
-                    raise RunStoreAmbiguousError("public run ID has multiple revisions")
-                if not runs:
-                    return None
-                clause, parameters = "r.run_revision_id = ?", (runs[0][0],)
-            elif as_of_date is not None:
-                clause, parameters = "r.asof_date = ?", (as_of_date,)
-            else:
-                aggregate = "min" if not_before is not None else "max"
-                day = connection.execute(
-                    f"SELECT {aggregate}(r.asof_date) FROM review_set s "  # nosec B608
-                    "JOIN screening_run r USING (run_revision_id) "
-                    "WHERE (? IS NULL OR r.asof_date >= ?)",
-                    (not_before, not_before),
-                ).fetchone()[0]
-                if day is None:
-                    return None
-                clause, parameters = "r.asof_date = ?", (day,)
-            row = connection.execute(
-                "SELECT s.*, r.asof_date FROM review_set s "
-                "JOIN screening_run r USING (run_revision_id) WHERE "  # nosec B608
-                + clause
-                + " ORDER BY julianday(s.created_at) DESC, s.review_set_id DESC LIMIT 1",
-                parameters,
-            ).fetchone()
-            return None if row is None else _review_set_from_row(row)
+            return resolve_review_set_on_connection(
+                connection,
+                review_set_id=review_set_id,
+                public_run_id=public_run_id,
+                as_of_date=as_of_date,
+                not_before=not_before,
+            )
 
     def list_review_sets(
         self,
@@ -298,3 +270,142 @@ __all__ = [
     "RunPublication",
     "ScreeningRunReader",
 ]
+
+
+def stored_run_page(
+    connection: sqlite3.Connection,
+    *,
+    kind: str,
+    filters: dict[str, object],
+    after: list[str | int | float] | None,
+    limit: int,
+    full: bool = False,
+) -> list[dict[str, Any]]:
+    """Bounded headers/analyses/publications without loading every child analysis."""
+    from baibai_engine.foundation.sqlite_pages import select_page
+
+    if kind == "security_analysis":
+        parent = filters["run_revision_id"]
+        if (
+            connection.execute(
+                "SELECT 1 FROM screening_run WHERE run_revision_id = ?", (parent,)
+            ).fetchone()
+            is None
+        ):
+            raise FileNotFoundError("run unavailable")
+        rows = select_page(
+            connection, table=kind, order=("ordinal",), equal=filters, after=after, limit=limit
+        )
+    elif kind == "screening_run":
+        equal = {key: filters[key] for key in ("run_revision_id",) if key in filters}
+        if "as_of_date" in filters:
+            equal["asof_date"] = filters["as_of_date"]
+        ranges = [
+            ("asof_date", op, filters[key])
+            for key, op in (("from", ">="), ("to", "<="))
+            if key in filters
+        ]
+        rows = select_page(
+            connection,
+            table=kind,
+            columns="*"
+            if full
+            else "run_revision_id, public_run_id, run_date, asof_date, "
+            "run_at, universe_size, rules_ref, created_at",
+            order=("asof_date", "run_at", "run_revision_id"),
+            equal=equal,
+            ranges=ranges,
+            after=after,
+            limit=limit,
+        )
+    elif kind == "review_set":
+        equal = {
+            f"s.{key}": filters[key]
+            for key in ("run_revision_id", "review_set_id")
+            if key in filters
+        }
+        if (
+            "run_revision_id" in filters
+            and connection.execute(
+                "SELECT 1 FROM screening_run WHERE run_revision_id = ?",
+                (filters["run_revision_id"],),
+            ).fetchone()
+            is None
+        ):
+            raise FileNotFoundError("run unavailable")
+        rows = select_page(
+            connection,
+            table="review_set s JOIN screening_run r USING (run_revision_id)",
+            columns=(
+                "s.*, r.asof_date, julianday(s.created_at) AS page_time"
+                if full
+                else "s.review_set_id, s.run_revision_id, s.created_at, r.asof_date, "
+                "julianday(s.created_at) AS page_time"
+            ),
+            order=("r.asof_date", "julianday(s.created_at)", "s.review_set_id"),
+            equal=equal,
+            ranges=[
+                ("r.asof_date", op, filters[key])
+                for key, op in (("from", ">="), ("to", "<="))
+                if key in filters
+            ],
+            after=after,
+            limit=limit,
+        )
+    else:
+        raise ValueError("unknown run row kind")
+    for row in rows:
+        if "payload" in row:
+            row["payload"] = dict(decode_payload(row["payload"]))
+    return rows
+
+
+def resolve_review_set_on_connection(
+    connection: sqlite3.Connection,
+    *,
+    review_set_id: str | None = None,
+    public_run_id: str | None = None,
+    as_of_date: str | None = None,
+    not_before: str | None = None,
+) -> ReviewSetPublication | None:
+    """Resolve the canonical publication within the caller's read transaction."""
+    if sum(x is not None for x in (review_set_id, public_run_id, as_of_date, not_before)) > 1:
+        raise ValueError("at most one Review Set selector is allowed")
+    if review_set_id is not None:
+        row = connection.execute(
+            "SELECT s.*, r.asof_date FROM review_set s "
+            "JOIN screening_run r USING (run_revision_id) WHERE s.review_set_id = ?",
+            (review_set_id,),
+        ).fetchone()
+        return None if row is None else _review_set_from_row(row)
+    if public_run_id is not None:
+        runs = connection.execute(
+            "SELECT run_revision_id FROM screening_run WHERE public_run_id = ?",
+            (public_run_id,),
+        ).fetchall()
+        if len(runs) > 1:
+            raise RunStoreAmbiguousError("public run ID has multiple revisions")
+        if not runs:
+            return None
+        clause, parameters = "r.run_revision_id = ?", (runs[0][0],)
+    elif as_of_date is not None:
+        clause, parameters = "r.asof_date = ?", (as_of_date,)
+    else:
+        aggregate = "min" if not_before is not None else "max"
+        day = connection.execute(
+            f"SELECT {aggregate}(r.asof_date) FROM review_set s "  # nosec B608
+            "JOIN screening_run r USING (run_revision_id) "
+            "WHERE (? IS NULL OR r.asof_date >= ?)",
+            (not_before, not_before),
+        ).fetchone()[0]
+        if day is None:
+            return None
+        clause, parameters = "r.asof_date = ?", (day,)
+    row = connection.execute(
+        "SELECT s.*, r.asof_date FROM review_set s "
+        "JOIN screening_run r USING (run_revision_id) WHERE "  # nosec B608
+        + clause
+        + " ORDER BY julianday(s.created_at) DESC, s.review_set_id DESC LIMIT 1",
+        parameters,
+    ).fetchone()
+    return None if row is None else _review_set_from_row(row)

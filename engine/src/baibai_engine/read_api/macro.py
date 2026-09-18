@@ -7,7 +7,7 @@ import sqlite3
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from baibai_engine.foundation.redaction import redact_credentials
 from baibai_engine.macro.context.models import (
@@ -51,27 +51,17 @@ def macro_reading_snapshot(
 
     if not path.is_file():
         return None
-    rules = load_reading_rules(rules_path)
     connection = connect_read_only(path)
     try:
-        definitions = load_definitions()
-        snapshot = compute_reading(
-            series=definitions.series,
-            reader=build_store_observation_reader(
-                connection,
-                series=definitions.series,
-            ),
-            rules=rules,
-            rules_revision=rules_revision(rules_path),
-            asof=asof,
-        )
+        connection.execute("BEGIN")
+        snapshot = _reading_on_connection(connection, asof=asof, rules_path=rules_path)
     except sqlite3.OperationalError as error:
         if not is_unwritten_store(error, path):
             raise
         return None
     finally:
         connection.close()
-    return snapshot_payload(snapshot)
+    return snapshot
 
 
 def macro_series_fetch_health(path: Path) -> list[dict[str, object]]:
@@ -137,17 +127,33 @@ def macro_registered_series(series_id: str) -> dict[str, str | None] | None:
 
 
 def latest_macro_context_payload(path: Path, *, as_of: date) -> dict[str, object] | None:
-    rows = read_application_rows(
-        path,
-        """
-        SELECT payload FROM macro_context
-        WHERE as_of <= ? AND schema_version = ?
-        ORDER BY published_at DESC, as_of DESC, context_id DESC
-        LIMIT 1
-        """,
-        (as_of.isoformat(), MACRO_CONTEXT_SCHEMA_VERSION),
+    if not path.is_file():
+        return None
+    try:
+        from baibai_engine.appdb.read import connect_read_only as connect_application_read_only
+
+        with_connection = connect_application_read_only(path)
+        try:
+            row = latest_macro_context_row(with_connection, as_of=as_of)
+            return None if row is None else _context_payload(row["payload"])
+        finally:
+            with_connection.close()
+    except sqlite3.OperationalError as error:
+        if not is_unwritten_store(error, path):
+            raise
+        return None
+
+
+def latest_macro_context_row(connection: sqlite3.Connection, *, as_of: date) -> sqlite3.Row | None:
+    """Share the canonical as-of selector within a caller's read transaction."""
+    return cast(
+        sqlite3.Row | None,
+        connection.execute(
+            "SELECT * FROM macro_context WHERE as_of <= ? AND schema_version = ? "
+            "ORDER BY published_at DESC, as_of DESC, context_id DESC LIMIT 1",
+            (as_of.isoformat(), MACRO_CONTEXT_SCHEMA_VERSION),
+        ).fetchone(),
     )
-    return _context_payload(rows[0][0]) if rows else None
 
 
 def list_macro_context_payloads(path: Path) -> list[dict[str, object]]:
@@ -311,3 +317,119 @@ __all__ = [
     "macro_series_fetch_health",
     "macro_series_names",
 ]
+
+
+def stored_macro_rows(
+    path: Path,
+    *,
+    kind: str,
+    filters: dict[str, object],
+    after: list[str | int | float] | None,
+    limit: int,
+    exact: bool = False,
+) -> list[dict[str, object]]:
+    """Read raw acquisition rows or the owner's effective observation selection."""
+    from dataclasses import asdict
+
+    from baibai_engine.foundation.sqlite_pages import select_page
+    from baibai_engine.macro.indicators.db import (
+        observations_in_range,
+        open_read_only_connection,
+        validate_current_schema,
+    )
+    from baibai_engine.macro.indicators.read_contracts import point_in_time_providers
+
+    from .stored import required_read
+
+    with required_read(path, open_read_only_connection) as connection:
+        validate_current_schema(connection)
+        if kind == "observations":
+            series_id = str(filters["series_id"])
+            if (
+                not connection.execute(
+                    "SELECT 1 FROM observations WHERE series_id = ? LIMIT 1", (series_id,)
+                ).fetchone()
+                and series_id not in load_definitions().by_id()
+            ):
+                raise FileNotFoundError("series unavailable")
+            if not exact and filters.get("mode", "effective") == "effective":
+                definition = load_definitions().by_id().get(series_id)
+                if definition is None:
+                    raise FileNotFoundError("effective series unavailable")
+                values = observations_in_range(
+                    connection,
+                    series_id,
+                    date.fromisoformat(str(filters["from"])),
+                    date.fromisoformat(str(filters["to"])),
+                    point_in_time=definition.provider in point_in_time_providers(),
+                    vintage_on_or_before=date.fromisoformat(
+                        str(filters.get("as_of") or filters["to"])
+                    ),
+                    after=None if after is None else (str(after[0]), str(after[1])),
+                    limit=limit,
+                )
+                return [
+                    {
+                        key: value.isoformat() if isinstance(value, date) else value
+                        for key, value in asdict(row).items()
+                    }
+                    for row in values
+                ]
+            equal: dict[str, object] = {
+                key: filters[key]
+                for key in ("series_id", "observed_at", "vintage_at")
+                if key in filters
+            }
+            ranges = [
+                ("observed_at", op, filters[key])
+                for key, op in (("from", ">="), ("to", "<="))
+                if key in filters
+            ]
+            return select_page(
+                connection,
+                table="observations",
+                order=("observed_at", "vintage_at"),
+                equal=equal,
+                ranges=ranges,
+                after=after,
+                limit=limit,
+            )
+        if kind != "provider_runs":
+            raise ValueError("unknown macro row kind")
+        from baibai_engine.foundation.sqlite_pages import jst_day_ranges
+
+        return select_page(
+            connection,
+            table="provider_runs",
+            columns="*, julianday(finished_at) AS page_time",
+            order=("julianday(finished_at)", "run_id"),
+            equal={key: filters[key] for key in ("series_id", "run_id") if key in filters},
+            ranges=jst_day_ranges("finished_at", filters),
+            after=after,
+            limit=limit,
+        )
+
+
+def _reading_on_connection(
+    connection: sqlite3.Connection, *, asof: date, rules_path: Path
+) -> dict[str, object]:
+    definitions = load_definitions()
+    return snapshot_payload(
+        compute_reading(
+            series=definitions.series,
+            reader=build_store_observation_reader(connection, series=definitions.series),
+            rules=load_reading_rules(rules_path),
+            rules_revision=rules_revision(rules_path),
+            asof=asof,
+        )
+    )
+
+
+def stored_macro_reading(path: Path, *, asof: date) -> dict[str, object]:
+    from baibai_engine.macro.indicators.db import open_read_only_connection, validate_current_schema
+
+    from .stored import required_read
+
+    with required_read(path, open_read_only_connection) as connection:
+        validate_current_schema(connection)
+        return _reading_on_connection(connection, asof=asof, rules_path=MACRO_READING_RULES_PATH)

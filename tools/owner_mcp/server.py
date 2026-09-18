@@ -1,4 +1,4 @@
-"""候補調査へL1・canonical Triage・時点除外を8つのread-only toolsで見せる。"""
+"""調査工程へL1/L2/L3保存dataを11のread-only toolsで見せる。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any
 
 from mcp.server import MCPServer
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
-from pydantic import ValidationError
+from pydantic import JsonValue, StrictInt, ValidationError
 
 from tools.l1_mcp.contract import LIMITS, wire
 from tools.l1_mcp.server import Adapter, register_tools
@@ -44,6 +44,8 @@ def call(action: Callable[[], dict[str, Any]]) -> CallToolResult:
     except Exception as exc:
         code = exc.code if isinstance(exc, OwnerError) else "CONTRACT_MISMATCH"
         message = MESSAGES[code]
+        if isinstance(exc, OwnerError) and exc.detail:
+            message += " " + exc.detail
         return CallToolResult(
             is_error=True,
             content=[TextContent(type="text", text=f"{code}: {message}")],
@@ -123,5 +125,36 @@ def create_server(adapter: Adapter, reader: Reader | None = None) -> MCPServer[A
             return reader.get_review_set(selector)
 
         return call(get)
+
+    from .resource_types import Paths
+    from .resources import Resources
+
+    data = Resources(Paths(application=reader.app_path, runs=reader.runs_path))
+
+    @server.tool(annotations=annotations)
+    def data_catalog(
+        resource_id: str | None = None, layer: str | None = None, domain: str | None = None
+    ) -> CallToolResult:
+        """保存dataの入口・schemaを列挙。market lakeは既存l1_*を使う。store接続なし。"""
+        return call(lambda: data.catalog(resource_id, layer, domain))
+
+    @server.tool(annotations=annotations)
+    def data_list(
+        resource_id: str,
+        filters: dict[str, JsonValue] | None = None,
+        limit: StrictInt = 200,
+        cursor: str | None = None,
+    ) -> CallToolResult:
+        """固定sortのkeyset page。続きはresource_idとcursorだけで取得可能。"""
+        return call(lambda: data.list(resource_id, filters, limit, cursor))
+
+    @server.tool(annotations=annotations)
+    def data_get(
+        resource_id: str,
+        selector: dict[str, JsonValue] | None = None,
+        resource_ref: dict[str, JsonValue] | None = None,
+    ) -> CallToolResult:
+        """exact selectorまたは返却resource_refで完全な公開payloadを読む。両者は排他。"""
+        return call(lambda: data.get(resource_id, selector, resource_ref))
 
     return server

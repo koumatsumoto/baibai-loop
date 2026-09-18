@@ -241,8 +241,8 @@ class HumanOverride(BaseModel):
         return self
 
 
-class PortfolioLedgerDocument(BaseModel):
-    """Versioned persistence contract for repository-only portfolio capital."""
+class LedgerMetadata(BaseModel):
+    """Shared stored header contract, independent of event replay and market quotes."""
 
     model_config = _MODEL_CONFIG
 
@@ -251,8 +251,6 @@ class PortfolioLedgerDocument(BaseModel):
     as_of: datetime
     estimated_exit_tax_rate_bps: Annotated[int, Field(ge=0, le=10_000)] | None = None
     estimated_exit_tax_basis: Literal["ledger_fifo_gross_unrealized_gain"] | None = None
-    events: tuple[LedgerEvent, ...]
-    market_prices: tuple[MarketPrice, ...]
     overrides: tuple[HumanOverride, ...] = ()
 
     @field_validator("as_of", mode="before")
@@ -260,9 +258,32 @@ class PortfolioLedgerDocument(BaseModel):
     def _parse_as_of(cls, value: object) -> datetime:
         return _datetime(value)
 
-    @field_validator("events", "market_prices", "overrides", mode="before")
+    @field_validator("overrides", mode="before")
     @classmethod
     def _parse_sequences(cls, value: object) -> object:
+        return _tuple(value)
+
+    @model_validator(mode="after")
+    def _validate_metadata(self) -> LedgerMetadata:
+        override_ids = [override.override_id for override in self.overrides]
+        if len(set(override_ids)) != len(override_ids):
+            raise ValueError("override_id must be unique")
+        if any(override.approved_at > self.as_of for override in self.overrides):
+            raise ValueError("override approval cannot occur after as_of")
+        if (self.estimated_exit_tax_rate_bps is None) != (self.estimated_exit_tax_basis is None):
+            raise ValueError("exit tax rate and basis must be specified together")
+        return self
+
+
+class PortfolioLedgerDocument(LedgerMetadata):
+    """Versioned persistence contract for repository-only portfolio capital."""
+
+    events: tuple[LedgerEvent, ...]
+    market_prices: tuple[MarketPrice, ...]
+
+    @field_validator("events", "market_prices", mode="before")
+    @classmethod
+    def _parse_rows(cls, value: object) -> object:
         return _tuple(value)
 
     @model_validator(mode="after")
@@ -287,13 +308,6 @@ class PortfolioLedgerDocument(BaseModel):
             raise ValueError("market_prices ticker must be unique")
         if any(price.observed_at > self.as_of for price in self.market_prices):
             raise ValueError("market price cannot be observed after as_of")
-        override_ids = [override.override_id for override in self.overrides]
-        if len(set(override_ids)) != len(override_ids):
-            raise ValueError("override_id must be unique")
-        if any(override.approved_at > self.as_of for override in self.overrides):
-            raise ValueError("override approval cannot occur after as_of")
-        if (self.estimated_exit_tax_rate_bps is None) != (self.estimated_exit_tax_basis is None):
-            raise ValueError("exit tax rate and basis must be specified together")
         return self
 
 

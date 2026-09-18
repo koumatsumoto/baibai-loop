@@ -30,8 +30,9 @@ from tools.l1_mcp.contract import InputModel
 
 
 class OwnerError(Exception):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, detail: str | None = None) -> None:
         self.code = code
+        self.detail = detail
         super().__init__(code)
 
 

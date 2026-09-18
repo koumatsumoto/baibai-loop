@@ -605,6 +605,8 @@ def observations_in_range(
     *,
     point_in_time: bool = False,
     vintage_on_or_before: date | None = None,
+    after: tuple[str, str] | None = None,
+    limit: int | None = None,
 ) -> tuple[ObservationRecord, ...]:
     # ``point_in_time`` clamps to observations published by the explicit vintage
     # cutoff, or by ``end`` when the caller uses one date for both dimensions.
@@ -629,7 +631,8 @@ def observations_in_range(
         "AND inner_o.observed_at = o.observed_at "
         "AND inner_o.fetch_status IN ('ok', 'retracted') "
         "AND (NOT ? OR substr(inner_o.vintage_at, 1, 10) <= ?)"
-        ") ORDER BY o.observed_at",
+        ") AND (? IS NULL OR (o.observed_at, o.vintage_at) > (?, ?)) "
+        "ORDER BY o.observed_at, o.vintage_at LIMIT ?",
         (
             series_id,
             start.isoformat(),
@@ -638,6 +641,10 @@ def observations_in_range(
             vintage_text,
             pit,
             vintage_text,
+            None if after is None else after[0],
+            None if after is None else after[0],
+            None if after is None else after[1],
+            -1 if limit is None else limit,
         ),
     ).fetchall()
     return tuple(_observation_from_row(row) for row in rows)

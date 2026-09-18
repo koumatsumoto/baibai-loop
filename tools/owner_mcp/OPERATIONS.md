@@ -170,3 +170,15 @@ Unregister-ScheduledTask -TaskName $name -Confirm:$false
 taskを止めてもWSL内の既存processがすべて終了するとは限りません。WSLも止める場合は、他の作業がないことを確認して
 `wsl --terminate Ubuntu`を実行します。lingerは他のuser serviceも使うため、不要であることを確認した場合だけ
 `loginctl disable-linger "$USER"`で解除します。認証設定やstoreは削除しません。
+
+
+## data tools更新後の受入
+
+稼働checkoutへ変更を取り込んだ後、既存Tunnelのmetadataを[READMEのRefresh手順](./README.md#tool定義の更新)で更新し、新しいChatで11 toolsを確認します。
+PRのfixture/local store検証だけでは、この受入を完了したと扱いません。Refresh待ちは未完了として記録します。
+
+catalog → macro.reading → 複数系列の履歴 → provider_run → exact Macro ContextをTriageなしで辿り、
+reading refの再取得を確認します。L1 resolve/describe/queryは従来のfixed releaseで確認します。
+保存runの全Security Analysisはcursorで最後まで取得し、ordinal・件数を照合します。
+calibrationは同じsnapshot_tokenでcohort/panel/forwardを確認し、不在なら生成せず不在と記録します。
+L3は実在するrecordだけを読み、未登録のpublicationを受入のために作りません。

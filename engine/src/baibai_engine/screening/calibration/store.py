@@ -300,6 +300,11 @@ def read_panel_meta(root: Path, asof: date) -> dict[str, object]:
     if row is None:
         raise CalibrationCacheError("calibration diagnostics cohort is missing")
     payload = json.loads(row[0])
+    return validate_panel_meta(payload)
+
+
+def validate_panel_meta(payload: object) -> dict[str, object]:
+    """Shared diagnostics structure for the writer's consumers and query-only readers."""
     if not isinstance(payload, dict) or not isinstance(payload.get("rules_hash"), str):
         raise CalibrationCacheError("calibration diagnostics are invalid")
     if (

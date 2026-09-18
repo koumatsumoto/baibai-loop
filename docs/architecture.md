@@ -229,6 +229,6 @@ degrade の報告経路は batch の exit 3（Discord `[DEGRADED]`）の 1 本�
 
 高影響のDB変更では正常系だけでなく、conflicting ID、invalid enum、missing reference、revision drift、stale draft、人間確認なし、read-only appからのwrite不能をtestする。ledgerはevent順序、snapshot全field、market price / override / metaをfixtureと比較する。schema fileやlive YAML treeを横断するvalidator CLIは置かず、保持すべきruleは各write pathのnegative testで反証する。
 
-所有者用の[`tools/owner_mcp`](../tools/owner_mcp/README.md)は、候補調査に固定L1・canonical Triage・時点保有/予約除外をread-only MCPで見せる。既存lake / run / application readerとbatchのpure ModelInput builderを再利用し、production package・定期batch・store書込は所有しない。
+所有者用の[`tools/owner_mcp`](../tools/owner_mcp/README.md)は、調査・資本確認へL1/L2/L3の保存dataをread-only MCPで見せる。既存用途別8 toolsとcatalog/list/getの3 toolsを持ち、既存lakeとread_api/domain readerを使う。generic読取はstore不在と正常な空を区別し、保存原本の閲覧を現在の購入適格性へ依存させない。batchのpure ModelInput builderは既存Triage入力toolだけで再利用し、production package・定期batch・store書込は所有しない。
 
 通常のgateは `ruff format --check`、`ruff check`、`mypy`、`pytest`、import-linter、frontend build。Python gate の完全形と再現手順は [`reference/python-foundation.md`](./reference/python-foundation.md) §9、UI・Cloudflare Worker・security（Bandit / pip-audit / npm audit）を含む全 CI job は `.github/workflows/`（`ci.yml` / `web.yml` / `security.yml`）を正本とする。設定fileはloader testで検証する。

@@ -8,9 +8,11 @@ from collections.abc import Callable
 from contextlib import closing
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 from baibai_engine.screening.run_store import ScreeningRunReader
 from baibai_engine.screening.run_store import connect_read_only as connect_run_store_read_only
+from baibai_engine.screening.run_store.read import ReviewSetPublication
 
 from .sqlite import is_unwritten_store, read_rows
 
@@ -208,3 +210,56 @@ __all__ = [
     "screening_run_asof_dates",
     "screening_run_payload",
 ]
+
+
+def stored_screening_rows(
+    path: Path,
+    *,
+    kind: str,
+    filters: dict[str, object],
+    after: list[str | int | float] | None = None,
+    limit: int = 1,
+    full: bool = False,
+) -> list[dict[str, Any]]:
+    from baibai_engine.screening.run_store.read import connect_read_only, stored_run_page
+
+    from .stored import required_read
+
+    with required_read(path, connect_read_only) as connection:
+        return stored_run_page(
+            connection, kind=kind, filters=filters, after=after, limit=limit, full=full
+        )
+
+
+def stored_screening_run(path: Path, selector: dict[str, object]) -> dict[str, Any]:
+    from baibai_engine.screening.run_store.read import connect_read_only, stored_run_page
+    from baibai_engine.screening.run_store.store import RunStoreAmbiguousError
+
+    from .stored import required_read
+
+    with required_read(path, connect_read_only) as connection:
+        if selector.get("latest"):
+            row = connection.execute(
+                "SELECT run_revision_id FROM screening_run "
+                "ORDER BY asof_date DESC, run_at DESC, run_revision_id DESC LIMIT 1"
+            ).fetchone()
+            if row is None:
+                raise FileNotFoundError("run unavailable")
+            selector = {"run_revision_id": row[0]}
+        rows = stored_run_page(
+            connection, kind="screening_run", filters=selector, after=None, limit=2, full=True
+        )
+        if len(rows) > 1:
+            raise RunStoreAmbiguousError("multiple revisions on date")
+        if not rows:
+            raise FileNotFoundError("run unavailable")
+        return rows[0]
+
+
+def stored_review_set(path: Path, **selectors: str) -> ReviewSetPublication | None:
+    from baibai_engine.screening.run_store.read import resolve_review_set_on_connection
+
+    from .stored import required_read
+
+    with required_read(path, connect_run_store_read_only) as connection:
+        return resolve_review_set_on_connection(connection, **selectors)

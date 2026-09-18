@@ -279,6 +279,9 @@ def test_public_surface_sanitized_errors_and_result_limit(reader):
                 "triage_get_judgment",
                 "portfolio_get_exclusions",
                 "screening_get_review_set",
+                "data_catalog",
+                "data_list",
+                "data_get",
             }
             for tool in tools.tools:
                 assert tool.annotations.read_only_hint is True

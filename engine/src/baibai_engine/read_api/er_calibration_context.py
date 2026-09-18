@@ -46,21 +46,35 @@ def load_er_calibration_context(
     if not path.is_file():
         return ErCalibrationContextLoad(None, "missing_artifact")
     try:
-        artifact = ErCalibrationContextArtifact.model_validate(
-            safe_load(path.read_text(encoding="utf-8"))
-        )
+        _, artifact = parse_er_calibration_context(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, yaml.YAMLError, ValidationError):
         return ErCalibrationContextLoad(None, "invalid_artifact")
+    reason = er_calibration_unavailable_reason(
+        artifact,
+        expected_rules_hash=expected_rules_hash,
+        expected_er_model_version=expected_er_model_version,
+        as_of=as_of,
+    )
+    return ErCalibrationContextLoad(artifact if reason is None else None, reason)
+
+
+def er_calibration_unavailable_reason(
+    artifact: ErCalibrationContextArtifact,
+    *,
+    expected_rules_hash: str,
+    expected_er_model_version: str,
+    as_of: date,
+) -> ErCalibrationUnavailableReason | None:
     generated_on = artifact.generated_at.astimezone(ZoneInfo("Asia/Tokyo")).date()
     if generated_on > as_of:
-        return ErCalibrationContextLoad(None, "invalid_artifact")
+        return "invalid_artifact"
     if artifact.valid_through < as_of:
-        return ErCalibrationContextLoad(None, "expired")
+        return "expired"
     if artifact.screening_rules_hash != expected_rules_hash:
-        return ErCalibrationContextLoad(None, "rules_identity_mismatch")
+        return "rules_identity_mismatch"
     if artifact.er_model_version != expected_er_model_version:
-        return ErCalibrationContextLoad(None, "er_model_identity_mismatch")
-    return ErCalibrationContextLoad(artifact, None)
+        return "er_model_identity_mismatch"
+    return None
 
 
 def candidate_er_band_context(
@@ -99,3 +113,30 @@ def _band_summary(band: ErCalibrationBand) -> dict[str, object]:
         "median_n": band.median_n,
         "realized_total_return_ticker_equal": primary.model_dump(mode="json"),
     }
+
+
+def parse_er_calibration_context(
+    text: str,
+) -> tuple[dict[str, object], ErCalibrationContextArtifact]:
+    raw = safe_load(text)
+    artifact = ErCalibrationContextArtifact.model_validate(raw)
+    if not isinstance(raw, dict):
+        raise ValueError("artifact must be an object")
+    return raw, artifact
+
+
+def stored_er_calibration_context(
+    path: Path,
+    *,
+    expected_rules_hash: str,
+    expected_er_model_version: str,
+    as_of: date,
+) -> tuple[dict[str, object], ErCalibrationUnavailableReason | None]:
+    raw, artifact = parse_er_calibration_context(path.read_text(encoding="utf-8"))
+    reason = er_calibration_unavailable_reason(
+        artifact,
+        expected_rules_hash=expected_rules_hash,
+        expected_er_model_version=expected_er_model_version,
+        as_of=as_of,
+    )
+    return raw, reason
