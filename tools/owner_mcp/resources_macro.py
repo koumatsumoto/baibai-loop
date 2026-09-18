@@ -96,6 +96,7 @@ def reading_get(paths: Paths, selector: dict[str, Any]) -> Page:
     return Page(
         [Record(payload, identity)],
         {
+            "rules_revision": snapshot["rules_revision"],
             "basis": "recomputed",
             "as_of": selector["as_of"],
             "payload_scope": "reading",

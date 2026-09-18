@@ -456,3 +456,34 @@ def test_cursor_rejects_invalid_day_key_before_store_read(data):
     )
     error(lambda: data.list("macro.observation", cursor=cursor), "INVALID_ARGUMENT")
     assert not data.paths.macro.exists()
+
+
+def test_reading_list_carries_rules_revision_on_every_page(data):
+    with macro_init(data.paths.macro):
+        pass
+    filters = {"as_of": "2026-01-05"}
+    snapshot = macro_reading_snapshot(data.paths.macro, asof=date(2026, 1, 5))
+    whole = data.list("macro.reading", filters)
+    assert whole["meta"]["rules_revision"] == snapshot["rules_revision"]
+    page = data.list("macro.reading", filters, limit=1)
+    assert page["next_cursor"]
+    while True:
+        assert page["meta"]["rules_revision"] == snapshot["rules_revision"]
+        assert "rules_revision" not in page["items"][0]["selector"]
+        if not page["next_cursor"]:
+            break
+        page = data.list("macro.reading", cursor=page["next_cursor"], limit=1)
+
+
+@pytest.mark.parametrize("selector", [{"latest": True}, {"review_set_id": "missing"}])
+def test_review_set_unwritten_store_is_unavailable_but_partial_schema_is_corrupt(data, selector):
+    data.paths.runs.unlink()
+    with sqlite3.connect(data.paths.runs):
+        pass
+    error(lambda: data.get("screening.review_set", selector), "SOURCE_UNAVAILABLE")
+    from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
+
+    with sqlite3.connect(data.paths.runs) as con:
+        con.execute(f"PRAGMA user_version={RUN_STORE_SCHEMA_VERSION}")
+        con.execute("CREATE TABLE screening_run(run_revision_id TEXT, asof_date TEXT)")
+    error(lambda: data.get("screening.review_set", selector), "CONTRACT_MISMATCH")

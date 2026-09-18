@@ -86,8 +86,18 @@ def validate_publication(table: str, row: dict[str, Any]) -> str:
     payload = row["payload"]
     identifier = TABLES[table][0]
     identity_payload = payload.get("input_snapshot", {}) if table == "thesis" else payload
-    if identifier in identity_payload and identity_payload[identifier] != row[identifier]:
+    if identifier in payload and payload[identifier] != row[identifier]:
         raise ValueError("publication identity differs")
+    if table == "thesis":
+        # Historical publications may carry identity at the document root.
+        for source in (payload, identity_payload):
+            for field in ("ticker", "as_of"):
+                if field in source and source[field] != row[field]:
+                    raise ValueError("thesis identity differs")
+    if table == "macro_context":
+        for field in ("schema_version", "as_of"):
+            if field in payload and payload[field] != row[field]:
+                raise ValueError("context identity differs")
     model = models[table]
     version = model.model_fields.get("schema_version")
     if version is not None:
@@ -134,6 +144,12 @@ def publication_rows(
             if chosen is None:
                 return [], {}
             filters = {"context_id": chosen["context_id"]}
+        if table == "thesis_review" and "thesis_id" in filters:
+            parent = connection.execute(
+                "SELECT 1 FROM thesis WHERE thesis_id=?", (filters["thesis_id"],)
+            ).fetchone()
+            if parent is None:
+                raise FileNotFoundError("parent thesis unavailable")
         rows = select_page(
             connection,
             table=table,

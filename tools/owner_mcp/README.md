@@ -108,10 +108,14 @@ publication一覧はmetadata、数値row一覧は値を含みます。runとledg
 macro observationのeffectiveは`as_of >= to`、省略時は`to`をcutoffとします。
 publication-quality vintageだけをcutoffへclampします。vintagesは退役系列を含むraw保存行で、`as_of`は不可です。
 calibrationでは最初の`meta.snapshot_token`を後続のfilters/selectorへ渡すとcohort→panel→forwardを固定できます。
+`macro.reading`は各pageの`meta.rules_revision`に、そのcallで再計算したrulesの版を返します。
 一般mutable collectionはcall単位の整合であり、複数page全体のhistorical snapshotではありません。
 
 不在・未初期化・exact IDなしは`SOURCE_UNAVAILABLE`、正常storeの空一覧は成功です。
+`research.thesis_review`の`thesis_id` filterは親Thesisの存在だけを確認し、親不在は`SOURCE_UNAVAILABLE`、
+親が存在してReviewがない場合は空一覧を返します。
 旧publicationは識別可能な旧schemaだけ`validation=stored_only`とし、現行schemaの破損は`CONTRACT_MISMATCH`です。
+選択したpublicationの保存列と本文の識別情報が矛盾する場合も`CONTRACT_MISMATCH`です。
 現在のThesis/CAA適格性やledgerの時価評価は原本閲覧時には実行しません。
 新resourceはdomain read owner → read_api → adapter/request model → catalog登録 → fixture testの順で追加します。
 新series・tickerにtool追加は不要です。MCPから取得更新・publish・任意file/SQL読取・broker操作はできません。

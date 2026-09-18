@@ -12,6 +12,7 @@ from typing import Any
 
 from baibai_engine.screening.run_store import ScreeningRunReader
 from baibai_engine.screening.run_store import connect_read_only as connect_run_store_read_only
+from baibai_engine.screening.run_store.read import ReviewSetPublication
 
 from .sqlite import is_unwritten_store, read_rows
 
@@ -253,3 +254,12 @@ def stored_screening_run(path: Path, selector: dict[str, object]) -> dict[str, A
         if not rows:
             raise FileNotFoundError("run unavailable")
         return rows[0]
+
+
+def stored_review_set(path: Path, **selectors: str) -> ReviewSetPublication | None:
+    from baibai_engine.screening.run_store.read import resolve_review_set_on_connection
+
+    from .stored import required_read
+
+    with required_read(path, connect_run_store_read_only) as connection:
+        return resolve_review_set_on_connection(connection, **selectors)

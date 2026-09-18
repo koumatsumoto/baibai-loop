@@ -11,10 +11,10 @@ from baibai_engine.read_api.calibration import read_rows
 from baibai_engine.read_api.er_calibration_context import stored_er_calibration_context
 from baibai_engine.read_api.screening import (
     screening_calibration_method_identity,
+    stored_review_set,
     stored_screening_rows,
     stored_screening_run,
 )
-from baibai_engine.screening.run_store.read import ScreeningRunReader
 
 from .resource_types import Page, Paths, Record, record
 
@@ -57,14 +57,12 @@ def analysis_get(paths: Paths, selector: dict[str, Any]) -> Page:
 
 
 def review_get(paths: Paths, selector: dict[str, Any]) -> Page:
-    if not paths.runs.is_file():
-        raise FileNotFoundError("runs unavailable")
     args = {
         ("as_of_date" if key == "as_of" else key): value
         for key, value in selector.items()
         if key != "latest"
     }
-    publication = ScreeningRunReader(paths.runs).resolve_review_set(**args)
+    publication = stored_review_set(paths.runs, **args)
     if publication is None:
         raise FileNotFoundError("review set unavailable")
     return Page(

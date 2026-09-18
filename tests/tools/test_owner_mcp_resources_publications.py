@@ -7,6 +7,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
 import yaml
 from tests.engine.test_capital_allocation import _payload as assessment_payload
 from tests.engine.test_position_outcome_store import _publication as outcome_publication
@@ -195,3 +196,76 @@ def test_wire_values_hash_and_oversized_get(data):
     payload.clear()
     payload["bad"] = float("nan")
     error(lambda: data.get(spec.resource_id, {}), "CONTRACT_MISMATCH")
+
+
+@pytest.mark.parametrize(("field", "value"), [("ticker", "9999"), ("as_of", "2026-09-08")])
+@pytest.mark.parametrize("version", [3, 4])
+def test_thesis_selected_row_identity_must_match_payload(data, field, value, version):
+    thesis, _ = pair_payload()
+    thesis["schema_version"] = version
+    with sqlite3.connect(data.paths.application) as con:
+        con.execute(
+            "INSERT INTO thesis VALUES(?,?,?,?,?,?,?,?)",
+            (
+                "thesis-a",
+                "1234",
+                "2026-09-07",
+                "candidate",
+                "2026-09-07T18:00:00Z",
+                None,
+                json.dumps(thesis),
+                "a" * 64,
+            ),
+        )
+    result = data.get("research.thesis", {"thesis_id": "thesis-a"})
+    assert result["payload"]["payload"] == thesis
+    assert result["meta"]["validation"] == ("current" if version == 4 else "stored_only")
+    with sqlite3.connect(data.paths.application) as con:
+        con.execute(f"UPDATE thesis SET {field}=?", (value,))
+    error(lambda: data.get("research.thesis", {"thesis_id": "thesis-a"}), "CONTRACT_MISMATCH")
+
+
+def test_context_schema_column_cannot_disguise_payload_as_historical(data):
+    old = {"schema_version": 1, "context_id": "old", "as_of": "2026-01-01", "old_field": "raw"}
+    with sqlite3.connect(data.paths.application) as con:
+        con.execute(
+            "INSERT INTO macro_context VALUES(?,?,?,?,?,?)",
+            ("old", 1, "2026-01-01", "2026-01-01T00:00:00Z", None, json.dumps(old)),
+        )
+    result = data.get("macro.context", {"context_id": "old"})
+    assert result["payload"]["payload"] == old
+    assert result["meta"]["validation"] == "stored_only"
+    with sqlite3.connect(data.paths.application) as con:
+        con.execute("UPDATE macro_context SET schema_version=?", (MACRO_CONTEXT_SCHEMA_VERSION,))
+    error(lambda: data.get("macro.context", {"context_id": "old"}), "CONTRACT_MISMATCH")
+
+
+def test_review_list_distinguishes_missing_parent_from_empty_and_preserves_old(data):
+    filters = {"thesis_id": "old-thesis"}
+    error(lambda: data.list("research.thesis_review", filters), "SOURCE_UNAVAILABLE")
+    old = {"schema_version": 3, "saved_extension": "not re-evaluated"}
+    review = {"review_id": "old-review", "old_field": "raw"}
+    with sqlite3.connect(data.paths.application) as con:
+        con.execute(
+            "INSERT INTO thesis VALUES(?,?,?,?,?,?,?,?)",
+            (
+                "old-thesis",
+                "1234",
+                "2026-01-01",
+                "candidate",
+                "2026-01-01T00:00:00Z",
+                None,
+                json.dumps(old),
+                "a" * 64,
+            ),
+        )
+    assert data.list("research.thesis_review", filters)["items"] == []
+    with sqlite3.connect(data.paths.application) as con:
+        con.execute(
+            "INSERT INTO thesis_review VALUES(?,?,?,?)",
+            ("old-review", "old-thesis", "2026-01-01T00:00:00Z", json.dumps(review)),
+        )
+    listed = data.list("research.thesis_review", filters)
+    result = data.get("research.thesis_review", listed["items"][0]["selector"])
+    assert result["payload"]["payload"] == review
+    assert result["meta"]["validation"] == "stored_only"
