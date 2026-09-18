@@ -365,3 +365,20 @@ __all__ = [
     "previous_business_day",
     "worst_close_drawdown",
 ]
+
+
+def stored_market_rows(
+    path: Path,
+    *,
+    kind: str,
+    filters: dict[str, object],
+    after: list[str | int | float] | None = None,
+    limit: int = 1,
+) -> list[dict[str, object]]:
+    from baibai_engine.market.sqlite.stored import local_rows
+
+    from .sqlite import connect_read_only
+    from .stored import required_read
+
+    with required_read(path, connect_read_only) as connection:
+        return local_rows(connection, kind=kind, filters=filters, after=after, limit=limit)

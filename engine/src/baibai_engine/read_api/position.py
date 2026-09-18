@@ -56,3 +56,20 @@ def _publication(outcome_id: str, encoded: str) -> dict[str, object]:
     if not isinstance(payload, Mapping):
         raise ValueError("portfolio outcome payload must be an object")
     return {"outcome_id": outcome_id, **payload}
+
+
+def ledger_rows(
+    path: Path,
+    *,
+    kind: str,
+    filters: dict[str, object],
+    after: list[str | int | float] | None = None,
+    limit: int = 1,
+) -> list[dict[str, object]]:
+    from baibai_engine.appdb.read import connect_read_only
+    from baibai_engine.position.ledger_read import stored_ledger_rows
+
+    from .stored import required_read
+
+    with required_read(path, connect_read_only) as connection:
+        return stored_ledger_rows(connection, kind=kind, filters=filters, after=after, limit=limit)

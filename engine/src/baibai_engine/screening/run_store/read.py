@@ -298,3 +298,91 @@ __all__ = [
     "RunPublication",
     "ScreeningRunReader",
 ]
+
+
+def stored_run_page(
+    connection: sqlite3.Connection,
+    *,
+    kind: str,
+    filters: dict[str, object],
+    after: list[str | int | float] | None,
+    limit: int,
+    full: bool = False,
+) -> list[dict[str, Any]]:
+    """Bounded headers/analyses/publications without loading every child analysis."""
+    from baibai_engine.foundation.sqlite_pages import select_page
+
+    if kind == "security_analysis":
+        parent = filters["run_revision_id"]
+        if (
+            connection.execute(
+                "SELECT 1 FROM screening_run WHERE run_revision_id = ?", (parent,)
+            ).fetchone()
+            is None
+        ):
+            raise FileNotFoundError("run unavailable")
+        rows = select_page(
+            connection, table=kind, order=("ordinal",), equal=filters, after=after, limit=limit
+        )
+    elif kind == "screening_run":
+        equal = {key: filters[key] for key in ("run_revision_id",) if key in filters}
+        if "as_of_date" in filters:
+            equal["asof_date"] = filters["as_of_date"]
+        ranges = [
+            ("asof_date", op, filters[key])
+            for key, op in (("from", ">="), ("to", "<="))
+            if key in filters
+        ]
+        rows = select_page(
+            connection,
+            table=kind,
+            columns="*"
+            if full
+            else "run_revision_id, public_run_id, run_date, asof_date, "
+            "run_at, universe_size, rules_ref, created_at",
+            order=("asof_date", "run_at", "run_revision_id"),
+            equal=equal,
+            ranges=ranges,
+            after=after,
+            limit=limit,
+        )
+    elif kind == "review_set":
+        equal = {
+            f"s.{key}": filters[key]
+            for key in ("run_revision_id", "review_set_id")
+            if key in filters
+        }
+        if (
+            "run_revision_id" in filters
+            and connection.execute(
+                "SELECT 1 FROM screening_run WHERE run_revision_id = ?",
+                (filters["run_revision_id"],),
+            ).fetchone()
+            is None
+        ):
+            raise FileNotFoundError("run unavailable")
+        rows = select_page(
+            connection,
+            table="review_set s JOIN screening_run r USING (run_revision_id)",
+            columns=(
+                "s.*, r.asof_date, julianday(s.created_at) AS page_time"
+                if full
+                else "s.review_set_id, s.run_revision_id, s.created_at, r.asof_date, "
+                "julianday(s.created_at) AS page_time"
+            ),
+            order=("r.asof_date", "julianday(s.created_at)", "s.review_set_id"),
+            equal=equal,
+            ranges=[
+                ("r.asof_date", op, filters[key])
+                for key, op in (("from", ">="), ("to", "<="))
+                if key in filters
+            ],
+            after=after,
+            limit=limit,
+        )
+    else:
+        raise ValueError("unknown run row kind")
+    for row in rows:
+        if "payload" in row:
+            row["payload"] = dict(decode_payload(row["payload"]))
+    return rows

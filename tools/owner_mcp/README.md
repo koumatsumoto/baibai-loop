@@ -1,6 +1,7 @@
 # Owner MCP
 
-候補調査に固定L1・canonical Triage・時点保有/予約除外を見せる所有者用stdio adapterです。
+調査・資本確認にL1/L2/L3の保存dataを見せる所有者用stdio adapterです。
+既存の用途別11 toolsに、`data_catalog` / `data_list` / `data_get`を加えています。
 ChatGPT Webの通常ChatからSecure MCP Tunnelを経由して呼びます。Work / Agent mode /
 Desktopのlocalhost bridgeには依存しません。production packageや定期batchからは起動しません。
 
@@ -19,7 +20,7 @@ repository rootで依存を用意します。
 uv sync --frozen --group mcp
 ```
 
-MCP親processに必要なsecretは既存gatewayの`READ_ACCESS_TOKEN`だけです。
+L1 gatewayを利用する場合に必要なsecretは既存の`READ_ACCESS_TOKEN`だけです。
 所有者のローカルsecret管理から環境変数として渡してください。このmoduleは`.env`を自動読込しません。
 値を引数、URL、ログへ埋め込まず、secretを含む設定をGitへ追加しません。
 repository rootを作業directoryにし、次のmoduleをstdio commandとして起動します。
@@ -28,7 +29,8 @@ repository rootを作業directoryにし、次のmoduleをstdio commandとして�
 .venv/bin/python -m tools.owner_mcp
 ```
 
-`stdout`はMCP専用です。missing tokenは`stderr`に変数名だけを表示して終了します。
+`stdout`はMCP専用です。tokenなしでも起動し、catalogとlocal storeを読めます。
+L1 gatewayの認証不足・不通はL1 toolを呼んだときにだけエラーになります。
 Tunnel clientは[公式配布](https://github.com/openai/tunnel-client)のchecksumを確認して導入します。
 実測対象versionは`0.0.14`です。clientの`run --help`と
 [公式手順](https://github.com/openai/tunnel-client/blob/master/docs/end-user-guide.md)を参照し、
@@ -36,7 +38,7 @@ Tunnel clientは[公式配布](https://github.com/openai/tunnel-client)のchecks
 Tunnel clientにはTunnel Runtime keyだけを渡す環境に分けます。通常shell全体の環境をコピーしません。
 Tunnel ID・organization・workspace・API keyは個人のlocal設定に保持します。
 
-ChatGPT側でTunnelのcustom appを接続します。公開するtoolは下記の8つだけです。
+ChatGPT側でTunnelのcustom appを接続します。公開するtoolは下記の11個だけです。
 すべて`readOnlyHint=true`、`destructiveHint=false`、`openWorldHint=false`です。
 PCとTunnel clientが動作している間だけ利用できます。
 
@@ -51,14 +53,68 @@ tool名・schema・説明を変更したら、稼働中serverの変更に加え�
 
 1. Tunnel clientとMCP本体を起動した状態で、ChatGPTの対象接続を開く。
 2. 接続詳細の **Refresh** を実行する。ブラウザのページ再読込とは別の操作である。
-3. tool一覧が下記の8 toolsになったことを確認する。
+3. tool一覧が下記の11 toolsになったことを確認する。
 4. 新しい通常Chatで更新済みの接続を選び、受入テストを実行する。
 
 旧fixtureの`g0_echo`だけが見えて実行時に`Unknown tool: g0_echo`となる場合は、
 本体切替後も古いtool定義を参照している可能性があります。上の一覧が変わるまでSQLの受入へ進みません。
 Refreshを利用できないdeveloper接続では、同じTunnelを選んだ新しいdeveloper接続を作成し、
-そのtool scanで8 toolsを確認します。TunnelやAPI key自体を作り直す必要はありません。
+そのtool scanで11 toolsを確認します。TunnelやAPI key自体を作り直す必要はありません。
 公開済みpluginはmetadata snapshotを使うため、公式手順に従って再scan・新versionの提出・公開が必要です。
+
+## 保存dataの読み方
+
+1. `data_catalog()`で全resourceを確認する。`layer`（L1/L2/L3）と`domain`はAND条件。
+2. `data_catalog(resource_id="macro.observation")`などで実request schema、sort、time basisを確認する。
+3. `data_list(resource_id, filters, limit)`で列挙し、itemの`selector`を`data_get`へ渡す。
+4. getの`resource_ref`を保存する。同じresourceへの再getでpayloadが変われば`REFERENCE_MISMATCH`になる。
+
+`selector`と`resource_ref`は排他です。latest対応resourceは`{"latest":true}`を明示します。
+ledger/ER artifactだけはsingletonなので空selectorを使います。refは過去状態の復元機能ではありません。
+返却する公開payloadのhashを比較し、変動するmetaや取得時刻はhashへ含めません。
+credentialを含むsource URL・provider errorは既存のredactionを通してからhash化します。
+
+```json
+{"resource_id":"macro.reading","selector":{"as_of":"2026-09-18"}}
+```
+
+```json
+{"resource_id":"macro.observation","filters":{"series_id":"jp.10y","from":"2025-09-01","to":"2026-09-18","mode":"effective"},"limit":200}
+```
+
+例の日付は実際の評価日に置き換えてください。readingは現在のstore履歴と既存rulesから再計算したL2です。
+過去L3を自動で混ぜません。保存Macro Contextは`macro.context`から別に取得します。
+
+| resource群 | 内容・authority |
+| --- | --- |
+| `market.<LAKE_DATASETSのname>` | R2 fixed release。catalogが既存l1_*へ案内。generic list/getは不可 |
+| `market.source_coverage` / `market.capital_policy_snapshot` | market store-localの保存fact |
+| `macro.series` / `macro.observation` / `macro.provider_run` | Git registry、全保存履歴、取得状態 |
+| `macro.reading` / `macro.context` | read-time L2と保存L3を別々に取得 |
+| `screening.run` / `screening.security_analysis` / `screening.review_set` | run header、候補外を含む全分析、full Review Set |
+| `screening.calibration.cohort` / `.panel_row` / `.forward_row` | atomic currentの保存結果。共通snapshot_tokenで置換を検出 |
+| `screening.er_calibration_context` | 保存artifactと利用不可理由。期限切れ値を有効化しない |
+| `research.triage` / `.thesis` / `.thesis_review` / `.capital_allocation_assessment` | 保存原本。L2 pruneや現在の購入適格性から独立 |
+| `position.review` / `portfolio.outcome` | 保存済み保有判断・成果 |
+| `portfolio.ledger` / `.ledger_event` / `.market_price` | 台帳metaとappend順の全取引、保存価格。時価quoteとは別 |
+| `task` / `operation.session` | 保存状態。mutable recordは同じkeyでもrefが変わり得る |
+
+一覧は既定200件・最大2000件のkeyset pageです。`next_cursor`があれば同じresourceとcursorだけで継続できます。
+filtersを再指定する場合は元と一致させます。256KiBのwire上限に入る完全itemまでを返し、
+1 itemまたはget全体が入らない場合は`RESULT_TOO_LARGE`です。成功時に要約・丸め・省略はしません。
+publication一覧はmetadata、数値row一覧は値を含みます。runとledgerはheaderと子一覧から読めます。
+
+日付範囲は両端inclusiveです。timestampの期間条件はJST日、date列はその日付です。
+macro observationのeffectiveは`as_of >= to`、省略時は`to`をcutoffとします。
+publication-quality vintageだけをcutoffへclampします。vintagesは退役系列を含むraw保存行で、`as_of`は不可です。
+calibrationでは最初の`meta.snapshot_token`を後続のfilters/selectorへ渡すとcohort→panel→forwardを固定できます。
+一般mutable collectionはcall単位の整合であり、複数page全体のhistorical snapshotではありません。
+
+不在・未初期化・exact IDなしは`SOURCE_UNAVAILABLE`、正常storeの空一覧は成功です。
+旧publicationは識別可能な旧schemaだけ`validation=stored_only`とし、現行schemaの破損は`CONTRACT_MISMATCH`です。
+現在のThesis/CAA適格性やledgerの時価評価は原本閲覧時には実行しません。
+新resourceはdomain read owner → read_api → adapter/request model → catalog登録 → fixture testの順で追加します。
+新series・tickerにtool追加は不要です。MCPから取得更新・publish・任意file/SQL読取・broker操作はできません。
 
 ## L1の読み方
 
@@ -147,7 +203,7 @@ warm時にimmutable objectのGETが増えないことを確認します。
 
 ## Canonical Triageと時点除外
 
-server名は`baibai-loop-owner`です。公開toolは次の8つです。
+server名は`baibai-loop-owner`です。公開toolは次の11個です。
 
 - `l1_resolve_current`
 - `l1_describe_dataset`
@@ -157,6 +213,9 @@ server名は`baibai-loop-owner`です。公開toolは次の8つです。
 - `triage_get_judgment`
 - `portfolio_get_exclusions`
 - `screening_get_review_set`
+- `data_catalog`
+- `data_list`
+- `data_get`
 
 L1実装は内部subsystemの`tools/l1_mcp`を再利用します。Triageはrepository rootの
 `stores/application/baibai.sqlite`、sourceは`stores/screening/runs.sqlite`を既存owner経由で
@@ -220,7 +279,7 @@ inputにはcanonical判断のdecision、priority、rationale、research_question
 
 ### Owner toolsの上限とエラー
 
-Ownerの5 toolsもMCP result全体256 KiBを上限とし、超過はtruncateせず`RESULT_TOO_LARGE`です。
+Ownerの用途別5 toolsとdata_*もMCP result全体256 KiBを上限とし、超過はtruncateせず`RESULT_TOO_LARGE`です。
 
 | code | 意味 |
 | --- | --- |
