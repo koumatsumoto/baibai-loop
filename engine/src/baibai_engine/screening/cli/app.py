@@ -28,6 +28,7 @@ from baibai_engine.screening.config import (
     ScreeningConfig,
 )
 from baibai_engine.screening.providers import EDINETProvider, JPXProvider, JQuantsProvider
+from baibai_engine.screening.providers.edinet_facts import EDINETFactsProvider
 from baibai_engine.screening.rule_config import (
     DEFAULT_RULES_PATH,
     load_screening_rules,
@@ -51,6 +52,7 @@ from .delisting_cli import (
     refresh_jpx_delistings_command,
 )
 from .edinet_extract import extract_edinet_metrics_command
+from .edinet_facts import extract_edinet_facts_command
 from .providers import ProviderBundle
 from .prune import prune_command
 from .query import (
@@ -184,6 +186,24 @@ def build_parser() -> argparse.ArgumentParser:
         default=540,
         help="EDINET document-list lookback window in calendar days (default 540)",
     )
+
+    facts_parser = subparsers.add_parser(
+        "extract-edinet-facts", help="collect optional annual Research facts from original XBRL"
+    )
+    facts_parser.add_argument("--asof", required=True)
+    facts_parser.add_argument(
+        "--initialize",
+        action="store_true",
+        help="explicit initial collection of the latest annual families",
+    )
+    facts_parser.add_argument(
+        "--ticker",
+        action="append",
+        default=[],
+        help="restrict local evaluation; does not initialize the global baseline",
+    )
+    facts_parser.add_argument("--sqlite-path", help="staged market store for local initialization")
+    facts_parser.add_argument("--cache-only", action="store_true")
 
     capital_policy_parser = subparsers.add_parser(
         "refresh-tse-capital-policy",
@@ -661,6 +681,16 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     sqlite_path = config.sqlite_cache_dir / "market.sqlite"
+    if args.command == "extract-edinet-facts":
+        return extract_edinet_facts_command(
+            asof=_parse_iso_date(args.asof),
+            sqlite_path=Path(args.sqlite_path) if args.sqlite_path else sqlite_path,
+            provider=EDINETFactsProvider(
+                config.edinet_api_key, config.cache_dir, cache_only=args.cache_only
+            ),
+            initialize=args.initialize,
+            tickers=tuple(args.ticker),
+        )
     run_asof_date = _parse_iso_date(args.asof) if args.command == "run" else None
     run_rules = load_screening_rules(config.rules_path) if args.command == "run" else None
     if args.command == "run":

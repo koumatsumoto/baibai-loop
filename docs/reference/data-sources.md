@@ -109,3 +109,19 @@ portfolioの年次・3年・5年outcomeのprimary benchmarkはJPXのTOPIX gross 
 取得データはsourceの契約・利用条件の範囲内で、個人利用・非公開運用に用いる。外部公開・第三者再配布は行わない。この文書は利用許諾を拡張しない。
 
 保存場所と正本は[architecture](../architecture.md#store-authority)、L1の保持・公開・hydrateは[market lake](./market-lake.md)が所有する。正規化済みfactを保持していても、訂正前情報や当時の公開範囲を持たない期間まで完全なPITと扱わない。
+
+<a id="edinet-research-facts"></a>
+
+## EDINETのResearch補助fact
+
+`edinet.segment_facts`と`edinet.debt_schedule`は、有価証券報告書・訂正有価証券報告書のtype=1 XBRL ZIPから保存する任意のL1入力である。Triageの判断やscreening/calibrationの採否条件は変えない。初回収録は既存document inventoryの各issuerの直近年次とその訂正、そこに含まれる比較年度に限定する。その後は収録した書類を保持し、新規年次・訂正を追加する。取得開始前の全提出履歴は保証しない。
+
+セグメントは標準数値elementだけを対象とし、外部売上と内部売上込みの売上、営業・経常・税引前・純利益・issuer定義利益のbasis、連結・非連結、当期・比較期を分ける。資産はinstant、売上・利益はdurationである。事業、その他、調整、合計を分け、QNameと原典の日本語member labelを残す。企業独自elementは名称の類似で標準指標へ割り当てない。事業区分の変更をまたいだ増減比較は原典を確認する。
+
+負債はJP GAAPの借入金等明細表・社債明細表の明示された元本だけを対象とする。短期借入金、1年内返済予定長期借入金、長期借入金の年別返済、社債の年別償還を区分し、原典の円・千円・百万円をJPYへ換算する。社債残高表の括弧内額は年別償還表へ加算しない。リース、金利、担保、covenant、5年超の残差推計、IFRSの金融負債注記は対象外であり、全債務の完全な満期表ではない。未知の見出しや結合セルのある表は未対応として扱う。
+
+値の0と欠測を区別する。表の「－」・nilはnullとし、未開示・未対応・未取得を0で補わない。抽出の成否と理由は既存`market.source_coverage`の`source=edinet_research_facts`、`coverage_key=docID`に保存する。`status=ok`の`error`欄は抽出revision・dataset別missing reasonsのJSON、`failed`は取得・抽出失敗理由である。okでも行数0になり得る。書類別の保存はatomicで、取得失敗時は以前のfactを消さない。
+
+`disclosed_on`は提出日時のJST日付であり、比較年度の期末日に遡って利用可能にはならない。source提出日時はtimezone付きで保持し、source locatorはZIP内のfile・QName・context、負債では0始まりのtable/row/cell位置まで指す。訂正書類は別docIDとして保持する。同じ書類の情報修正や公開状態の履歴が確定できない場合は未確認とし、現在取得したbytesを過去時点の完全な再現とは扱わない。
+
+固定releaseからの選択と欠測時の扱いは[Research query](./market-lake.md#edinet-research-query)、初期化・運用は[batch運用](../../batch/OPERATIONS.md#edinet-research-facts)に従う。

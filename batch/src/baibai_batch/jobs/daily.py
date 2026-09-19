@@ -771,6 +771,18 @@ def _execute_daily_batch(
             notice.failed_stage = exc.stage or "batch"
         deferred_failures.append(str(exc))
 
+    try:
+        _run_step(
+            runner,
+            name="edinet-research-facts",
+            argv=(_ENGINE, "screening", "extract-edinet-facts", "--asof", asof_arg),
+            cwd=root,
+            quiet=quiet,
+            step_sink=step_sink,
+        )
+    except BatchStepError as exc:
+        _record_deferred(exc)
+
     refresh_groups: list[tuple[int, list[str]]] = []
     try:
         macro_list = _run_step(

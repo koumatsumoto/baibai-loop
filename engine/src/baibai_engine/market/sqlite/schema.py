@@ -16,7 +16,7 @@ import sqlite3
 from collections.abc import Mapping
 from pathlib import Path
 
-SQLITE_SCHEMA_VERSION = 25
+SQLITE_SCHEMA_VERSION = 26
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET serves a filing's descriptive columns only while its public-inspection period
@@ -76,6 +76,8 @@ _REQUIRED_TABLES = (
     "jquants_short_sale_reports",
     "edinet_documents",
     "edinet_document_lists",
+    "edinet_segment_facts",
+    "edinet_debt_schedule",
     "edinet_metrics",
     "tse_capital_policy_snapshots",
     "jpx_delistings",
@@ -234,6 +236,44 @@ _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
         "result_count",
         "fetched_at_utc",
         "is_final",
+    ),
+    "edinet_segment_facts": (
+        "ticker",
+        "source_doc_id",
+        "source_submit_datetime",
+        "disclosed_on",
+        "source_element",
+        "source_context",
+        "issuer_id",
+        "period_start",
+        "period_end",
+        "consolidation_basis",
+        "segment_axis",
+        "segment_key",
+        "segment_name",
+        "segment_kind",
+        "metric",
+        "profit_basis",
+        "value",
+        "currency",
+        "source_locator",
+    ),
+    "edinet_debt_schedule": (
+        "ticker",
+        "source_doc_id",
+        "source_submit_datetime",
+        "disclosed_on",
+        "source_element",
+        "source_context",
+        "issuer_id",
+        "balance_sheet_date",
+        "consolidation_basis",
+        "debt_category",
+        "due_from_months",
+        "due_to_months",
+        "principal",
+        "currency",
+        "source_locator",
     ),
     "edinet_metrics": (
         "asof_date",
@@ -536,6 +576,49 @@ CREATE TABLE IF NOT EXISTS edinet_document_lists(
   result_count INTEGER NOT NULL,
   fetched_at_utc TEXT NOT NULL,
   is_final INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS edinet_segment_facts(
+  ticker TEXT NOT NULL,
+  source_doc_id TEXT NOT NULL,
+  source_submit_datetime TEXT NOT NULL,
+  disclosed_on TEXT NOT NULL,
+  source_element TEXT NOT NULL,
+  source_context TEXT NOT NULL,
+  issuer_id TEXT NOT NULL,
+  period_start TEXT,
+  period_end TEXT NOT NULL,
+  consolidation_basis TEXT NOT NULL,
+  segment_axis TEXT NOT NULL,
+  segment_key TEXT NOT NULL,
+  segment_name TEXT,
+  segment_kind TEXT NOT NULL,
+  metric TEXT NOT NULL,
+  profit_basis TEXT,
+  value REAL,
+  currency TEXT NOT NULL,
+  source_locator TEXT NOT NULL,
+  PRIMARY KEY (source_doc_id, source_context, source_element)
+);
+
+CREATE TABLE IF NOT EXISTS edinet_debt_schedule(
+  ticker TEXT NOT NULL,
+  source_doc_id TEXT NOT NULL,
+  source_submit_datetime TEXT NOT NULL,
+  disclosed_on TEXT NOT NULL,
+  source_element TEXT NOT NULL,
+  source_context TEXT NOT NULL,
+  issuer_id TEXT NOT NULL,
+  balance_sheet_date TEXT NOT NULL,
+  consolidation_basis TEXT NOT NULL,
+  debt_category TEXT NOT NULL,
+  due_from_months INTEGER NOT NULL,
+  due_to_months INTEGER NOT NULL,
+  principal REAL,
+  currency TEXT NOT NULL,
+  source_locator TEXT NOT NULL,
+  PRIMARY KEY (source_doc_id, balance_sheet_date, consolidation_basis,
+               debt_category, due_from_months, due_to_months)
 );
 
 CREATE TABLE IF NOT EXISTS edinet_metrics(

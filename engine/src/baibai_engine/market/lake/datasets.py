@@ -454,7 +454,61 @@ TENDER_OFFER_EXIT_VALUES = LakeDataset(
     ),
 )
 
+EDINET_SEGMENT_FACTS = LakeDataset(
+    name="edinet.segment_facts",
+    sqlite_table="edinet_segment_facts",
+    date_column="disclosed_on",
+    coverage_authority="unproven",
+    columns=(
+        LakeColumn("ticker", "TEXT", _TEXT, False),
+        LakeColumn("source_doc_id", "TEXT", _TEXT, False, 1),
+        LakeColumn("source_submit_datetime", "TEXT", _TEXT, False),
+        LakeColumn("disclosed_on", "TEXT", _TEXT, False),
+        LakeColumn("source_element", "TEXT", _TEXT, False, 3),
+        LakeColumn("source_context", "TEXT", _TEXT, False, 2),
+        LakeColumn("issuer_id", "TEXT", _TEXT, False),
+        LakeColumn("period_start", "TEXT", _TEXT, True),
+        LakeColumn("period_end", "TEXT", _TEXT, False),
+        LakeColumn("consolidation_basis", "TEXT", _TEXT, False),
+        LakeColumn("segment_axis", "TEXT", _TEXT, False),
+        LakeColumn("segment_key", "TEXT", _TEXT, False),
+        LakeColumn("segment_name", "TEXT", _TEXT, True),
+        LakeColumn("segment_kind", "TEXT", _TEXT, False),
+        LakeColumn("metric", "TEXT", _TEXT, False),
+        LakeColumn("profit_basis", "TEXT", _TEXT, True),
+        LakeColumn("value", "REAL", _REAL, True),
+        LakeColumn("currency", "TEXT", _TEXT, False),
+        LakeColumn("source_locator", "TEXT", _TEXT, False),
+    ),
+)
+
+EDINET_DEBT_SCHEDULE = LakeDataset(
+    name="edinet.debt_schedule",
+    sqlite_table="edinet_debt_schedule",
+    date_column="disclosed_on",
+    coverage_authority="unproven",
+    columns=(
+        LakeColumn("ticker", "TEXT", _TEXT, False),
+        LakeColumn("source_doc_id", "TEXT", _TEXT, False, 1),
+        LakeColumn("source_submit_datetime", "TEXT", _TEXT, False),
+        LakeColumn("disclosed_on", "TEXT", _TEXT, False),
+        LakeColumn("source_element", "TEXT", _TEXT, False),
+        LakeColumn("source_context", "TEXT", _TEXT, False),
+        LakeColumn("issuer_id", "TEXT", _TEXT, False),
+        LakeColumn("balance_sheet_date", "TEXT", _TEXT, False, 2),
+        LakeColumn("consolidation_basis", "TEXT", _TEXT, False, 3),
+        LakeColumn("debt_category", "TEXT", _TEXT, False, 4),
+        LakeColumn("due_from_months", "INTEGER", _INTEGER, False, 5),
+        LakeColumn("due_to_months", "INTEGER", _INTEGER, False, 6),
+        LakeColumn("principal", "REAL", _REAL, True),
+        LakeColumn("currency", "TEXT", _TEXT, False),
+        LakeColumn("source_locator", "TEXT", _TEXT, False),
+    ),
+)
+
 LAKE_DATASETS = {
+    EDINET_DEBT_SCHEDULE.name: EDINET_DEBT_SCHEDULE,
+    EDINET_SEGMENT_FACTS.name: EDINET_SEGMENT_FACTS,
     JQUANTS_DAILY_BARS.name: JQUANTS_DAILY_BARS,
     JQUANTS_SHORT_SALE_REPORTS.name: JQUANTS_SHORT_SALE_REPORTS,
     JQUANTS_WEEKLY_MARGIN.name: JQUANTS_WEEKLY_MARGIN,
