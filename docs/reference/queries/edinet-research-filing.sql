@@ -19,9 +19,11 @@ WITH RECURSIVE origins AS (
   WHERE c.version = 1 AND c.doc_type_code = '130'
 ), unresolved_annual_events AS (
   SELECT coalesce(e.sec_code, linked.sec_code) AS sec_code,
+    f.root_id AS linked_root_id, e.doc_type_code AS document_type,
     greatest(coalesce(e.doc_date, ''), coalesce(substr(e.submit_datetime, 1, 10), '')) AS known_on
   FROM docs e LEFT JOIN origins linked
     ON linked.version = 1 AND (e.doc_id = linked.doc_id OR e.parent_doc_id = linked.doc_id)
+  LEFT JOIN families f ON f.doc_id = linked.doc_id
   WHERE e.doc_date <= $cutoff
     AND (e.doc_info_edit_status = '1' OR e.withdrawal_status = '1'
       OR e.disclosure_status IN ('1', '3'))
@@ -44,7 +46,8 @@ WITH RECURSIVE origins AS (
       AND r.annual_period_end IS NOT NULL
       AND NOT EXISTS (
         SELECT 1 FROM unresolved_annual_events e
-        WHERE substr(e.sec_code, 1, 4) = $ticker
+        WHERE e.linked_root_id IS NULL AND e.document_type IN ('120', '130')
+          AND substr(e.sec_code, 1, 4) = $ticker
           AND (e.known_on = '' OR r.root_submitted IS NULL
             OR e.known_on >= substr(r.root_submitted, 1, 10))
       )

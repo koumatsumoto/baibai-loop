@@ -175,3 +175,9 @@ JOIN d ON m.ticker=d.ticker AND m.source_doc_id=d.source_doc_id
 | 0〜1年の対応返済元本 | 4,900,000,000 |
 
 返済元本は3 bucket、null bucketは0。事業segment限定の売上合計は全社売上と一致を要求せず、0〜1年・対応種類限定の元本も総負債と一致を要求しない。後者はリース等を含む全債務の完全性を表さない。period_end条件に`m.source_period_end='2025-04-30'`を追加した負例は0行となり、tickerだけで異年度を混ぜないことを確認した。
+
+### annual family境界の再確認
+
+後発イベントが古いannual familyを参照する場合は、そのfamilyだけを止める。family不明の年次イベントだけにticker・日付による保守判定を適用する。OLD / NEW / OLD参照eventの1ケースを追加し、OLDのみならunknown・収集対象外、NEWがあればNEWはusable・収集対象に残り、retained指定のOLDは除外されることをSQLとPythonで確認した。既存5ケースも維持した。
+
+修正前後の同じ77候補について選択結果を比較し、収集対象78書類（追加・除外0）、SQLの選択書類・validityの差分0を確認した。上記のcoverageと価値評価は変更しない。原典再取得・価値評価の全面再実施は行っていない。

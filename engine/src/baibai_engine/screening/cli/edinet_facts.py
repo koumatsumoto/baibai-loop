@@ -45,6 +45,13 @@ def annual_documents(
     annual_ids = {
         key for key, doc in by_id.items() if str(doc.get("docTypeCode")) in {"120", "130"}
     }
+    roots: dict[str, dict[str, Any]] = {}
+    for key in annual_ids:
+        ancestor = by_id[key]
+        while str(ancestor.get("docTypeCode")) == "130" and ancestor.get("parentDocID") in by_id:
+            ancestor = by_id[ancestor["parentDocID"]]
+        if str(ancestor.get("docTypeCode")) == "120":
+            roots[key] = ancestor
     event_days: dict[str, str] = {}
     event_parents: dict[str, str] = {}
     for doc in documents:
@@ -56,6 +63,7 @@ def annual_documents(
             str(doc.get("doc_date") or ""),
             str(doc.get("submitDateTime") or "")[:10],
         )
+    unresolved_roots: set[str] = set()
     unresolved: dict[str, list[str]] = {}
     for event in quarantined:
         linked = [
@@ -63,7 +71,13 @@ def annual_documents(
             for key in (event.doc_id, event.target_doc_id, event_parents.get(event.doc_id))
             if key in annual_ids
         ]
-        if event.document_type not in {"120", "130"} and not linked:
+        linked_roots = {
+            str(roots[str(doc["docID"])]["docID"]) for doc in linked if str(doc["docID"]) in roots
+        }
+        if linked_roots:
+            unresolved_roots.update(linked_roots)
+            continue
+        if event.document_type not in {"120", "130"}:
             continue
         ticker = event.ticker or next(
             (parse_sec_code(doc["secCode"]) for doc in linked if doc.get("secCode")), None
@@ -78,16 +92,14 @@ def annual_documents(
     for doc in origins:
         if str(doc.get("docTypeCode")) not in {"120", "130"}:
             continue
-        root = doc
-        while str(root.get("docTypeCode")) == "130" and root.get("parentDocID") in by_id:
-            root = by_id[root["parentDocID"]]
-        if str(root.get("docTypeCode")) != "120":
+        root = roots.get(str(doc["docID"]))
+        if root is None:
             continue  # Missing ancestry is unknown, not a free-standing annual report.
         if not root.get("secCode"):
             continue
         ticker = parse_sec_code(root["secCode"])
         root_submitted = str(root.get("submitDateTime") or "")[:10]
-        if any(
+        if str(root["docID"]) in unresolved_roots or any(
             not day or not root_submitted or day >= root_submitted
             for day in unresolved.get(ticker, ())
         ):

@@ -379,3 +379,26 @@ def test_unresolved_event_only_blocks_a_relevant_newer_annual(
     insert_documents(path, [old, event])
     assert selected_filing(path, "2027-06-26")[-1] == ("validity_unknown" if blocked else "usable")
     assert [d["docID"] for d in annual_documents([old, event])] == ([] if blocked else ["S100TEST"])
+
+
+def test_event_linked_to_old_family_keeps_new_annual_usable(tmp_path):
+    path = tmp_path / "market.sqlite"
+    old = document()
+    new = document("S100NEW1", "2027-06-24 10:00")
+    new.update(periodEnd="2027-03-31")
+    event = document("S100EVNT", "2027-07-01 10:00")
+    event.update(
+        docTypeCode="350",
+        docInfoEditStatus="1",
+        parentDocID="S100TEST",
+        periodEnd=None,
+    )
+    insert_documents(path, [old, event])
+    assert selected_filing(path, "2027-07-02")[-1] == "validity_unknown"
+    assert annual_documents([old, event], retained={"S100TEST"}) == []
+    insert_documents(path, [new])
+    selected = selected_filing(path, "2027-07-02")
+    assert (selected[0], selected[-1]) == ("S100NEW1", "usable")
+    assert [d["docID"] for d in annual_documents([old, new, event], retained={"S100TEST"})] == [
+        "S100NEW1"
+    ]
