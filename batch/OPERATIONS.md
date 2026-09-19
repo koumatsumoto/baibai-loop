@@ -243,13 +243,30 @@ gh run list --workflow cloud-daily-batch.yml --limit 1
 
 ```bash
 batch/scripts/pull.sh
-uv run baibai-engine screening verify-cache-coverage --asof YYYY-MM-DD
-uv run baibai-engine screening ticker-profile --ticker TICKER
 ```
 
 **成功確認**: `pull.sh`がmarket / runs / macroの全downloadとSQLite `quick_check`、
-marketのlake復元を終え、続く
-`verify-cache-coverage`と`ticker-profile`が対象日・対象tickerを返すことを確認する。
+marketのlake復元を終えたことを確認する。
+
+`pull.sh`は転送の全検査が成功してから3 storeを置換し、続いて`hydrate-market`でlake所有tableを復元する。
+`baibai.sqlite`には触れない。転送中の失敗では既存storeを保持する。復元の失敗では取得済みstoreが残るが、
+marketは分析可能とは限らないため、原因を解消して`hydrate-market`を完了してから分析へ進む。
+
+### Screening入力を検証・補修する
+
+**前提**: screening入力を実際に検証・補修する場合だけ実行する。Macro Contextの作成や、
+既存Review Setを読むResearch Triageの前提にはしない。対象日を指定し、個別銘柄の確認が必要なら対象tickerを指定する。
+
+**実行**:
+
+```bash
+uv run baibai-engine screening verify-cache-coverage --asof YYYY-MM-DD
+# 個別銘柄の入力を確認する場合
+uv run baibai-engine screening ticker-profile --ticker TICKER
+```
+
+**成功確認**: `verify-cache-coverage`が対象日の必要入力を満たし、個別確認では
+`ticker-profile`が対象tickerを返すことを確認する。
 
 **停止と復旧**: `verify-cache-coverage` が `required-field:<name>@<asof>` を返した場合は、同じas-ofで
 `screening bootstrap-cache` を再実行する。bootstrapは表示された`resume_from`と
@@ -257,10 +274,6 @@ marketのlake復元を終え、続く
 `jquants_fin_summaries` coverageを`invalidate-coverage`で外すと正常な履歴まで再取得対象に
 なるため、required-field補修には使わない。補修後は同じverify commandで
 `market_cap_required_fields`と`valuation_required_fields`がminimum以上であることを確認する。
-
-`pull.sh`は転送の全検査が成功してから3 storeを置換し、続いて`hydrate-market`でlake所有tableを復元する。
-`baibai.sqlite`には触れない。転送中の失敗では既存storeを保持する。復元の失敗では取得済みstoreが残るが、
-marketは分析可能とは限らないため、原因を解消して`hydrate-market`を完了してから分析へ進む。
 
 ### ローカルからクラウドを更新する
 
