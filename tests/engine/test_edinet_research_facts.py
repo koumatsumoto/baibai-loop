@@ -357,3 +357,25 @@ def test_correction_inherits_parent_identity_and_period(tmp_path):
     selected = annual_documents([old, correction])
     assert selected[-1]["secCode"] == "18730"
     assert selected[-1]["_research_period_known"]
+
+
+@pytest.mark.parametrize(
+    ("doc_type", "event_date", "parent", "blocked"),
+    [
+        ("120", "2027-06-25", None, True),
+        ("130", "2027-06-25", None, True),
+        ("350", "2027-06-25", None, False),
+        ("350", "2027-06-25", "S100TEST", True),
+        ("120", "2025-06-25", None, False),
+    ],
+)
+def test_unresolved_event_only_blocks_a_relevant_newer_annual(
+    tmp_path, doc_type, event_date, parent, blocked
+):
+    path = tmp_path / "market.sqlite"
+    old = document()
+    event = document("S100NEXT", event_date + " 10:00")
+    event.update(docTypeCode=doc_type, docInfoEditStatus="1", periodEnd=None, parentDocID=parent)
+    insert_documents(path, [old, event])
+    assert selected_filing(path, "2027-06-26")[-1] == ("validity_unknown" if blocked else "usable")
+    assert [d["docID"] for d in annual_documents([old, event])] == ([] if blocked else ["S100TEST"])

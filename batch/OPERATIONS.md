@@ -907,6 +907,8 @@ runner 未割当、job の強制終了）は通知経路の外側にある。`#b
 
 **前提**: schema 26の検証済みmarket storeと既存EDINET document inventoryを使う。schema 25からのcutoverはschema変更PRのone-shot手順で別fileへ行い、runtimeや日次batchに移行させない。API認証は既存`EDINET_API_KEY`、原典ZIP cacheは`.cache/screening/edinet/xbrl_zips/`である。
 
+**production切替条件**: market storeの全writerとreaderを停止して旧storeをbackupし、schema変更PRのtemporary one-shot手順で25→26の別fileを作る。旧tableのschema・行数が不変、新tableのschemaが定義どおり、user_versionが26、integrity_checkがok、foreign_key_checkが0行であることを検証する。整合するcodeとstoreを同じ停止期間内に反映し、下記の初期抽出、固定releaseの発行、L1 queryとstore readerのsmoke確認が成功してから通常運用を再開する。cloud反映完了前にIssueをcloseしない。再開前の失敗ではcode/storeを揃えて戻し、再開後に新しい書込みがある場合は古いstoreで上書きせず、既存の復旧手順で新しい行を保持する。
+
 初回はローカルのstaging storeへ明示して実行する。
 
 ```bash

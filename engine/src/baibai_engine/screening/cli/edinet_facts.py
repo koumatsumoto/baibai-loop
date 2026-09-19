@@ -41,8 +41,36 @@ def annual_documents(
     unsupported latest filing must not make an older annual report look current.
     """
     origins, quarantined = _canonicalize_document_events(documents, origin_start=None)
-    blocked = {event.ticker for event in quarantined if event.ticker}
     by_id = {str(doc["docID"]): doc for doc in origins}
+    annual_ids = {
+        key for key, doc in by_id.items() if str(doc.get("docTypeCode")) in {"120", "130"}
+    }
+    event_days: dict[str, str] = {}
+    event_parents: dict[str, str] = {}
+    for doc in documents:
+        key = str(doc.get("docID") or "")
+        if doc.get("parentDocID"):
+            event_parents[key] = str(doc["parentDocID"])
+        event_days[key] = max(
+            event_days.get(key, ""),
+            str(doc.get("doc_date") or ""),
+            str(doc.get("submitDateTime") or "")[:10],
+        )
+    unresolved: dict[str, list[str]] = {}
+    for event in quarantined:
+        linked = [
+            by_id[key]
+            for key in (event.doc_id, event.target_doc_id, event_parents.get(event.doc_id))
+            if key in annual_ids
+        ]
+        if event.document_type not in {"120", "130"} and not linked:
+            continue
+        ticker = event.ticker or next(
+            (parse_sec_code(doc["secCode"]) for doc in linked if doc.get("secCode")), None
+        )
+        if ticker is None:
+            continue
+        unresolved.setdefault(ticker, []).append(event_days.get(event.doc_id, ""))
     families: dict[str, list[dict[str, Any]]] = {}
     latest: dict[str, tuple[date, str, str]] = {}
     included: set[str] = set()
@@ -58,7 +86,11 @@ def annual_documents(
         if not root.get("secCode"):
             continue
         ticker = parse_sec_code(root["secCode"])
-        if ticker in blocked:
+        root_submitted = str(root.get("submitDateTime") or "")[:10]
+        if any(
+            not day or not root_submitted or day >= root_submitted
+            for day in unresolved.get(ticker, ())
+        ):
             continue
         doc = {**doc, "secCode": root["secCode"]}
         _, end = _document_period(root)

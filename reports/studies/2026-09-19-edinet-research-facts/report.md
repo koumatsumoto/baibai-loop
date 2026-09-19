@@ -6,7 +6,7 @@ Issue #1308の実装時評価。目的は事業別採算・負債満期の反復
 
 固定対象は `research-triage-20260918-a6adc489665a6da6`、`review-set-20260918-27b3c3ccf095`、`run-revision-7d0b334b58d7455d979b2e00bcc8d908` の77候補。原典type=1を78書類取得し、3,066 segment行と430 debt行を保存した。78書類すべて取得・抽出は成功したが、数値なし・形式未対応を含む。77社中、segment数値なし10社、負債対応factなし9社。取得済みを有用と同一視しない。
 
-API実取得・抽出は148.0秒、同じ原典cacheからの再抽出は6.6秒。追加basis検証2書類を含む80 ZIPで約65 MiB。既存全inventoryの初期対象は4,249書類であり、全件初期構築・クラウド反映は未実施。77社からの線形外挿を運用SLAにはしない。初回は明示的なlocal作業、日次は書類ごとの再利用と差分取得に分ける。
+API実取得・抽出は148.0秒、同じ原典cacheからの再抽出は6.6秒。追加basis検証2書類を含む80 ZIPで約65 MiB。既存全inventoryの初期対象は4,252書類であり、全件初期構築・クラウド反映は未実施。77社からの線形外挿を運用SLAにはしない。初回は明示的なlocal作業、日次は書類ごとの再利用と差分取得に分ける。
 
 ## Coverageと価値の区別
 
@@ -123,3 +123,55 @@ coverage列は最新書類の当期値。負債の数字は期末後の年bucket
 | 9658 | 過去3年利益から非反復要因を除き、現在の連結範囲のCFと現金・負債を補完すると、正常利益と継続還元余力はいくらか。 | 売上,利益,資産 | — | 対象questionの反復転記を直接減らすと確認せず。 |
 | 9823 | 既存店と新店の成長を分離し、人件費・物流費上昇後の店舗回収期間と維持投資後FCFを検証すると、成長は価値を生むか。 | 売上,利益,資産 | 0〜1 | 対象questionの反復転記を直接減らすと確認せず。 |
 | 9856 | 販売数量、粗利、在庫回転を現在の需要・調達費用で検証しても、過去3年に近い利益とFCFを維持できるか。 | 売上,利益,資産 | 0〜1,1〜2,2〜3,3〜4,4〜5 | 対象questionの反復転記を直接減らすと確認せず。 |
+
+## PRレビュー後の再検証
+
+未解決の新しい年次イベントでは旧書類をusableにせず、年次familyに関連しない非年次イベントでは収集を止めない。新しい120/130・無関係な350・年次parentを持つ350・古い120の5ケースをSQLと収集側の最小回帰テストで確認した。
+
+同じ固定77候補を修正前後で再集計した。収集対象は両方78書類（追加・除外0）、保存済み78書類を再利用し、選択書類・validityの変更は0件。外部売上64、利益64、資産59、返済元本64、0〜1年63、1〜2年と2〜3年の両bucket47、状態未確認3はすべて不変。questionの部分的転記削減20件という判定も変更しない。全inventoryの初期対象は4,249から4,252書類へ増えたが、追加3書類は固定77候補の範囲外。全件初期取得は引き続き未実施。
+
+### 既存metricsとのfixed-release JOIN
+
+localの同一snapshotからdocuments・metrics・segment・debtの4 datasetをexportし、既存L1 MCP Adapterで書類選択とJOINを実行した。検証用releaseはこの4 datasetに限定しており、production releaseの発行確認ではない。
+
+release_id: `20260919T085512Z-ea10ba3f-f2c38287db58`、manifest_sha256: `2c8d20e2197893b5112aee2f09e68912d01f6dcc38b530c4b485f2030351c047`。
+
+書類選択は1873 / cutoff=2026-09-18でS100YR5P、usable。JOINのparametersは`asof=2026-09-18`、`doc=S100YR5P`。sourcesはmetricsが2026-09-18当日、segments/debtが2026-07-22〜2026-09-18。実行SQL:
+
+```sql
+WITH m AS (
+ SELECT * FROM metrics WHERE asof_date=$asof AND source_doc_id=$doc AND document_type='120'
+), s AS (
+ SELECT ticker,source_doc_id,period_start,period_end,consolidation_basis,currency,disclosed_on,
+ SUM(value) AS external_sales
+ FROM segments WHERE metric='external_sales' AND segment_kind='segment' AND currency='JPY'
+ GROUP BY ticker,source_doc_id,period_start,period_end,consolidation_basis,currency,disclosed_on
+), d AS (
+ SELECT ticker,source_doc_id,balance_sheet_date,consolidation_basis,currency,disclosed_on,
+ SUM(principal) AS current_principal,COUNT(*) AS current_buckets,
+ COUNT(*)-COUNT(principal) AS missing_buckets
+ FROM debt WHERE due_from_months=0 AND currency='JPY'
+ GROUP BY ticker,source_doc_id,balance_sheet_date,consolidation_basis,currency,disclosed_on
+)
+SELECT m.ticker,m.asof_date,m.source_doc_id,m.source_period_start,m.source_period_end,
+ m.consolidation_basis,s.disclosed_on,s.currency,d.currency,m.sales_ttm,s.external_sales,
+ m.debt,d.current_principal,d.current_buckets,d.missing_buckets
+FROM m JOIN s ON m.ticker=s.ticker AND m.source_doc_id=s.source_doc_id
+ AND m.source_period_start=s.period_start AND m.source_period_end=s.period_end
+ AND m.consolidation_basis=s.consolidation_basis
+ AND s.disclosed_on<=m.asof_date AND substr(m.source_submit_datetime,1,10)=s.disclosed_on
+JOIN d ON m.ticker=d.ticker AND m.source_doc_id=d.source_doc_id
+ AND m.source_period_end=d.balance_sheet_date AND m.consolidation_basis=d.consolidation_basis
+ AND d.disclosed_on<=m.asof_date AND d.disclosed_on=s.disclosed_on
+```
+
+実結果は1行。銘柄1873、asof 2026-09-18、原典S100YR5P、期間2025-05-01〜2026-04-30、basis consolidated、開示日2026-07-22、segment/debtともJPYを確認した。metricsは円建て契約でcurrency列を持たないため、新factのJPY条件で単位を揃えた。年次表の期末をasof当日の残高と解釈しない。
+
+| 値 | 結果（円） |
+| --- | ---: |
+| metrics.sales_ttm | 29,618,000,000 |
+| 事業セグメントの外部売上合計 | 29,460,000,000 |
+| metrics.debt | 11,615,000,000 |
+| 0〜1年の対応返済元本 | 4,900,000,000 |
+
+返済元本は3 bucket、null bucketは0。事業segment限定の売上合計は全社売上と一致を要求せず、0〜1年・対応種類限定の元本も総負債と一致を要求しない。後者はリース等を含む全債務の完全性を表さない。period_end条件に`m.source_period_end='2025-04-30'`を追加した負例は0行となり、tickerだけで異年度を混ぜないことを確認した。

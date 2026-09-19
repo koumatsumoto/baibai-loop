@@ -17,6 +17,20 @@ WITH RECURSIVE origins AS (
   SELECT c.doc_id, p.root_id, p.annual_period_end
   FROM origins c JOIN families p ON c.parent_doc_id = p.doc_id
   WHERE c.version = 1 AND c.doc_type_code = '130'
+), unresolved_annual_events AS (
+  SELECT coalesce(e.sec_code, linked.sec_code) AS sec_code,
+    greatest(coalesce(e.doc_date, ''), coalesce(substr(e.submit_datetime, 1, 10), '')) AS known_on
+  FROM docs e LEFT JOIN origins linked
+    ON linked.version = 1 AND (e.doc_id = linked.doc_id OR e.parent_doc_id = linked.doc_id)
+  WHERE e.doc_date <= $cutoff
+    AND (e.doc_info_edit_status = '1' OR e.withdrawal_status = '1'
+      OR e.disclosure_status IN ('1', '3'))
+    AND (e.doc_type_code IN ('120', '130') OR linked.doc_id IS NOT NULL)
+    AND NOT EXISTS (
+      SELECT 1 FROM origins resolved WHERE resolved.version = 1
+        AND resolved.doc_id = CASE WHEN e.withdrawal_status = '1'
+          THEN e.parent_doc_id ELSE e.doc_id END
+    )
 ), ranked AS (
   SELECT o.*, f.root_id, f.annual_period_end, root.submit_datetime AS root_submitted,
     row_number() OVER (ORDER BY f.annual_period_end DESC, o.submit_datetime DESC, o.doc_id DESC) AS rank
@@ -28,6 +42,12 @@ WITH RECURSIVE origins AS (
     CASE WHEN r.legal_status IN ('1', '2') AND r.disclosure_status = '0'
       AND r.withdrawal_status = '0' AND r.doc_info_edit_status = '0' AND r.xbrl_flag = '1'
       AND r.annual_period_end IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM unresolved_annual_events e
+        WHERE substr(e.sec_code, 1, 4) = $ticker
+          AND (e.known_on = '' OR r.root_submitted IS NULL
+            OR e.known_on >= substr(r.root_submitted, 1, 10))
+      )
       AND NOT EXISTS (
         SELECT 1 FROM origins newer
         WHERE newer.version = 1 AND newer.doc_type_code = '120'
