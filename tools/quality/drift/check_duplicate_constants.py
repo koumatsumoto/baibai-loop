@@ -18,7 +18,6 @@ def check(root: Path) -> list[str]:
     candidates = [root / "README.md", root / "AGENTS.md"]
     candidates.extend((root / "docs").rglob("*.md"))
     candidates.extend((root / ".agents" / "skills").rglob("*.md"))
-    candidates.extend((root / ".claude" / "skills").rglob("*.md"))
     errors: list[str] = []
     for path in candidates:
         if not path.is_file() or path.relative_to(root) in _EXCLUDED:

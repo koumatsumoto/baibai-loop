@@ -1,4 +1,4 @@
-"""Verify the canonical repository skill inventory and Claude compatibility links."""
+"""Verify the canonical repository skill inventory."""
 
 from __future__ import annotations
 
@@ -33,16 +33,10 @@ OLD = frozenset(
 def check(root: Path) -> list[str]:
     errors: list[str] = []
     canonical_root = root / ".agents" / "skills"
-    claude_root = root / ".claude" / "skills"
-    canonical = _entry_names(canonical_root, directories_only=True)
-    claude = _entry_names(claude_root, directories_only=False)
+    canonical = _directory_names(canonical_root)
     if canonical != EXPECTED:
         errors.append(
             f".agents/skills: expected exact inventory {sorted(EXPECTED)}, got {sorted(canonical)}"
-        )
-    if claude != EXPECTED:
-        errors.append(
-            f".claude/skills: expected exact inventory {sorted(EXPECTED)}, got {sorted(claude)}"
         )
     if canonical_root.is_dir():
         for path in canonical_root.rglob("*"):
@@ -58,7 +52,6 @@ def check(root: Path) -> list[str]:
                 errors.append(f"{relative}: canonical skill path escapes .agents/skills")
     for name in sorted(EXPECTED):
         canonical_path = canonical_root / name
-        claude_path = claude_root / name
         for relative in (Path("SKILL.md"), Path("agents/openai.yaml")):
             if not canonical_path.joinpath(relative).is_file():
                 errors.append(f".agents/skills/{name}/{relative}: missing canonical skill file")
@@ -96,19 +89,8 @@ def check(root: Path) -> list[str]:
                         f".agents/skills/{name}/agents/openai.yaml: "
                         f"default_prompt must mention ${name}"
                     )
-        if not claude_path.is_symlink():
-            errors.append(f".claude/skills/{name}: must be a relative symlink")
-            continue
-        target = str(claude_path.readlink())
-        expected_target = f"../../.agents/skills/{name}"
-        if target != expected_target:
-            errors.append(
-                f".claude/skills/{name}: expected symlink {expected_target}, got {target}"
-            )
-        if claude_path.resolve() != canonical_path.resolve():
-            errors.append(f".claude/skills/{name}: symlink does not resolve to canonical skill")
     for name in sorted(OLD):
-        if canonical_root.joinpath(name).exists() or claude_root.joinpath(name).exists():
+        if canonical_root.joinpath(name).exists():
             errors.append(f"obsolete standalone skill remains: {name}")
     return errors
 
@@ -133,13 +115,11 @@ def _check_frontmatter(path: Path, *, root: Path, expected_name: str) -> list[st
     return errors
 
 
-def _entry_names(path: Path, *, directories_only: bool) -> frozenset[str]:
+def _directory_names(path: Path) -> frozenset[str]:
     if not path.is_dir():
         return frozenset()
     return frozenset(
-        item.name
-        for item in path.iterdir()
-        if ((item.is_dir() and not item.is_symlink()) if directories_only else True)
+        item.name for item in path.iterdir() if item.is_dir() and not item.is_symlink()
     )
 
 

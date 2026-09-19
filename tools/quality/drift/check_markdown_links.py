@@ -13,7 +13,7 @@ _LINK = re.compile(r"\]\((?P<target>\.{0,2}/[^)#\s]+|/docs/[^)#\s]+)?(?P<anchor>
 _HEADING = re.compile(r"^#{1,6}\s+(?P<text>.+?)\s*$", re.MULTILINE)
 _HEADING_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
 _EXPLICIT_ANCHOR = re.compile(r'<a\s+id="(?P<id>[^"]+)"')
-_ROOT_FILES = ("README.md", "AGENTS.md", "CLAUDE.md")
+_ROOT_FILES = ("README.md", "AGENTS.md")
 # Responsibility roots carry their own ownership and operations documents; reports also
 # carry reproducible historical evidence. A broken link in either loses part of the
 # repository contract even when the runtime code still imports.
@@ -27,7 +27,6 @@ _SCAN_DIRECTORIES = (
     "stores",
     "reports",
     ".agents/skills",
-    ".claude/skills",
 )
 _IGNORED_DIRECTORY_NAMES = frozenset({"node_modules", "dist", ".venv", "__pycache__"})
 
