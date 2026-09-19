@@ -22,6 +22,8 @@ from baibai_engine.macro.indicators.db import (
 )
 from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH
 
+from .handoff_cli import configure_parser as configure_handoff_parser
+from .handoff_cli import run as run_handoff
 from .models import (
     MACRO_CONTEXT_STALE_DAYS,
     MacroContextDocument,
@@ -44,6 +46,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine macro context")
     parser.add_argument("--db", type=Path)
     commands = parser.add_subparsers(dest="command", required=True)
+    configure_handoff_parser(
+        commands.add_parser("handoff", help="validate or describe a noncanonical macro handoff")
+    )
     publish = commands.add_parser(
         "publish",
         help="publish a macro context report as the new immutable head",
@@ -95,6 +100,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "handoff":
+        return run_handoff(args)
     service = MacroContextService(args.db)
     try:
         if args.command == "publish":

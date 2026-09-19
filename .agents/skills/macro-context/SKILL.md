@@ -7,6 +7,10 @@ description: 人間の判断に必要な full-depth の macro context を新規�
 
 レポートは、人間の判断に必要なmanual triggerでだけ作る。daily analysisはmachine series / readingの更新までとし、Macro Contextの意味判断を起動しない。作る場合は常に [`macro.md`](../../../docs/reference/macro.md) のfull depthを満たす。
 
+## 外部Chatとの引継ぎ
+
+外部Chatで分析結果を出力する場合、または人間が明示したMacro Context handoff Issueをローカルで受け入れる場合は、[Macro handoff](../../../docs/reference/macro-handoff.md)に従う。`MacroContextHandoff` v1は未発行の入力であり、正式publicationではない。構造検証、canonical入力との照合、v4への対応付けを行った後、以下の独立性・レビュー・発行契約へ合流する。handoffの作成や構造検証の成功だけでpublishしてはならない。
+
 ## 手順
 
 1. **入力を固定する**
@@ -59,5 +63,6 @@ description: 人間の判断に必要な full-depth の macro context を新規�
 ## 正本
 
 - report schema、深度、分析レンズ、review: [`macro.md`](../../../docs/reference/macro.md)
+- 外部Chatとの型付きdraft受渡し: [`macro-handoff.md`](../../../docs/reference/macro-handoff.md)
 - source tier と取得失敗: [`data-sources.md`](../../../docs/reference/data-sources.md)
 - fact / analysis 境界: [`doctrine.md`](../../../docs/doctrine.md)

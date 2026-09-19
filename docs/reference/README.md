@@ -23,6 +23,7 @@ referenceは「artifact・式・error/warningは何を意味するか」を持�
 | screening CLI、SQLite、provider、Review Set / Research Triageの判断境界 | [`screening-runtime.md`](./screening-runtime.md) |
 | local daily analysisの1 command、AI前no-op、strict result、private log | [`analysis-operations.md`](./analysis-operations.md) |
 | macro layer（L1/L2/L3・深度契約・8レンズ・scorecard） | [`macro.md`](./macro.md) |
+| 外部ChatのMacro Context draft受渡し・構造検証 | [`macro-handoff.md`](./macro-handoff.md) |
 | source tierと取得失敗 | [`data-sources.md`](./data-sources.md) |
 | 信用残高の公表制度変更（2026-09-28）前後の語義と取込契約 | [`margin-publication-transition.md`](./margin-publication-transition.md) |
 | lakeのbuild/publish/固定release読み/store hydration/retention | [`market-lake.md`](./market-lake.md) |
