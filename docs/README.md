@@ -38,8 +38,6 @@ status: active
 | [anti-patterns](./anti-patterns.md) | 過去に取り違えた論点から正本へ辿る索引 |
 | [method](../method/README.md)・[reports](../reports/README.md) | 採用methodと、当時の測定・判断の記録 |
 
-repository-local skillの本文は`.agents/skills/<name>/SKILL.md`を正本とする。
-
 <a id="document-writing-contract"></a>
 
 ## 文書の共通規約
