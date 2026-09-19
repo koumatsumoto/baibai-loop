@@ -13,7 +13,9 @@ description: 保存済みReview SetをTriage判断し、人間のResearch Set選
    batch/scripts/pull.sh
    ```
 
-2. runnerを実行する。過去日の指定には`--asof YYYY-MM-DD`を使う。
+2. 対象日を確定してrunnerを実行する。既定は当日JSTであり、非営業日でも前営業日へ自動で戻らない。「最新」の依頼では同期した[保存済みReview Set](../../../tools/owner_mcp/README.md#triage前のreview-set)の`as_of / run_at`と、market calendar・日次batchの完了状況を照合する。最新の完了営業日を使う場合は、その日を`--asof YYYY-MM-DD`へ明示する。取得失敗や対象日のReview Set未作成を「候補なし」と扱わない。
+
+   Screening Run・Review Setの生成が必要なら、先に[日次machine処理](../../../batch/OPERATIONS.md#日次機械工程--baibai-batch-daily)を完了する。このrunner自体は新しい市場データを取得せず、Review Setも生成しない。
 
    ```bash
    uv run baibai-batch analysis run
