@@ -185,3 +185,34 @@ uv run baibai-engine screening calibration-build \
 operator-local CLIは復旧に必要なlocal pathを表示してよい。R2 tokenはreader、publisher、retention
 finalizerで権限を分け、production bucketを試験用途に使わない。remote実装のprotocol確認はdeterministic
 unit testとlocal fakeで行い、専用acceptance workflowやexact workflow auditを運用条件にしない。
+
+<a id="edinet-research-query"></a>
+
+## Researchのセグメント・負債満期照会
+
+最初に`l1.current`でreleaseを固定する。2 datasetはoptionalであり、`l1.describe`で存在を確かめる。導入前のreleaseも他datasetを読み続けられるが、存在しないdatasetへのqueryは行わず原典へ戻る。両datasetのpartitionは提出月、日付filterは`disclosed_on`である。企業別・期間別の行の存在は、questionの解決や全債務のcoverageを意味しない。
+
+1. `l1.query`のsource alias `docs`に`edinet.documents`を指定し、[書類選択SQL](./queries/edinet-research-filing.sql)へ`ticker`と`cutoff`（JST日付、当日末まで）を渡す。sourceのfrom/toは保持したdocumentの全範囲を含める。狭い範囲にすると訂正のparentや取下げイベントを落とす。最新年次family内の提出版を先に選び、抽出済みかどうかで古い版へ戻らない。
+2. `validity=usable`の書類だけについて、同じreleaseで下記のfact queryを行う。選択0件・`validity_unknown`・抽出行なしは原典確認へ戻り、訂正前の値で補わない。現行inventoryが履歴を確定できない情報修正・不開示・取下げもunknownに倒す。日中時点のPIT再現にはこの日次例を使わない。
+3. 年次表の期末と現在日を併記する。`edinet.metrics`と合わせる際はtickerだけでJOINせず、metricsのasof・原典期間・連結basis・通貨を揃える。新しいBSとの時点差、事業再編、直近の借入れ・返済は別途確認する。
+
+セグメントsourceを`segments`として、選ばれた`doc`をparameterに渡す。sourceの日付範囲は選択書類の提出日を含める。
+
+```sql
+SELECT period_start, period_end, consolidation_basis, segment_key, segment_name,
+       metric, profit_basis, value, currency, source_locator
+FROM segments
+WHERE source_doc_id = $doc AND segment_kind = 'segment'
+ORDER BY period_end, segment_key, metric
+```
+
+負債sourceを`debt`として読む。nullを合計で黙って無視せず、categoryごとの欠測bucketも確認する。categoryがない場合は債務0としない。
+
+```sql
+SELECT balance_sheet_date, consolidation_basis, debt_category,
+       due_from_months, due_to_months, principal, currency, source_locator
+FROM debt WHERE source_doc_id = $doc
+ORDER BY balance_sheet_date, consolidation_basis, debt_category, due_from_months
+```
+
+原典に戻る範囲とsource意味は[data sources](./data-sources.md#edinet-research-facts)が所有する。ここから資金余命を評価する際の将来FCF・維持投資・借換えはResearchの見積りであり、L1 factへ保存しない。

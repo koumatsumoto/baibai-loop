@@ -25,6 +25,8 @@ uv run baibai-engine research prepare \
 
 ## 2. Caseごとの企業評価を確定する
 
+保存済み年次のセグメント・負債満期は[固定releaseのResearch query](../../../docs/reference/market-lake.md#edinet-research-query)から参照できる。欠測・書類状態未確認の場合は原典確認へ戻る。
+
 この節は企業の調査・算術・独立Reviewを扱う。Position Reviewから利用する場合は、新規Researchのprepare・Operation・CAA・Planningへ進まず、保有用workspaceを使う。
 
 1. `research thesis-scaffold`でdraftを作り、明示mappingされたplaybookの問いを一次資料で検討する。[事業モデル別調査](../../../docs/reference/business-model-research.md)は指定された試行の補助として使い、全社共通の追加gateにしない。

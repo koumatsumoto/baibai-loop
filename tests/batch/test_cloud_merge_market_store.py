@@ -840,3 +840,45 @@ class TestCommand:
         assert "merged 1 rows" in out
         for table in ALL_TABLES:
             assert table in out
+
+
+def test_edinet_document_coverage_partial_retry_and_revision_merge(tmp_path):
+    import json
+
+    from tests.engine.test_edinet_research_facts import facts
+
+    from baibai_engine.market.edinet_facts.store import (
+        extraction_status,
+        record_failure,
+        record_initialized,
+        store_facts,
+    )
+
+    source, target = _store(tmp_path / "source.sqlite"), _store(tmp_path / "target.sqlite")
+    # Two documents submitted the same day are independent claims.
+    store_facts(target, doc_id="S100YR5P", disclosed_on="2026-07-22", facts=facts())
+    record_failure(target, doc_id="S100FAIL", disclosed_on="2026-07-22", reason="unavailable")
+    # Target successfully retried the source's failure.
+    record_failure(source, doc_id="S100YR5P", disclosed_on="2026-07-22", reason="old failure")
+    # A remote-only success is not proof of the target's extracted fact generation.
+    store_facts(source, doc_id="S100YJ24", disclosed_on="2026-07-22", facts=facts("S100YJ24"))
+    record_initialized(source, date(2026, 9, 18))
+    merge_stores(source, target)
+    statuses = extraction_status(target)
+    assert statuses["S100YR5P"][0] == "ok"
+    assert statuses["S100FAIL"][0] == "failed"
+    assert statuses["S100YJ24"] == ("failed", "imported_document_requires_recheck")
+    assert json.loads(statuses["initialized"][1]) == {"since": "2026-09-18"}
+    # Different extractor revisions retain the target claim attached to its facts.
+    store_facts(source, doc_id="S100YR5P", disclosed_on="2026-07-22", facts=facts())
+    with sqlite3.connect(target) as conn:
+        conn.execute(
+            "UPDATE source_coverage SET error=? WHERE source='edinet_research_facts' AND coverage_key='S100YR5P'",
+            (json.dumps({"revision": "target-next-revision"}),),
+        )
+    merge_stores(source, target)
+    assert (
+        json.loads(extraction_status(target)["S100YR5P"][1])["revision"] == "target-next-revision"
+    )
+    with sqlite3.connect(target) as conn:
+        assert conn.execute("select count(*) from edinet_segment_facts").fetchone()[0] == 40

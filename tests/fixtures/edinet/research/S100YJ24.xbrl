@@ -1,0 +1,447 @@
+<xbrli:xbrl xmlns:iso4217="http://www.xbrl.org/2003/iso4217" xmlns:jpcrp030000-asr_E00069-000="http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00069-000/2026-03-31/01/2026-06-24" xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" xmlns:jpdei_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpdei/2013-08-31/jpdei_cor" xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" xmlns:link="http://www.xbrl.org/2003/linkbase" xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.w3.org/1999/xhtml"><xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearInstant_jpcrp030000-asr_E00069-000RealEstateBusinessReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00069-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2026-03-31</xbrli:instant>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00069-000:RealEstateBusinessReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearDuration">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00069-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2025-04-01</xbrli:startDate>
+<xbrli:endDate>2026-03-31</xbrli:endDate>
+</xbrli:period>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearDuration_TotalOfReportableSegmentsAndOthersMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00069-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2025-04-01</xbrli:startDate>
+<xbrli:endDate>2026-03-31</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:TotalOfReportableSegmentsAndOthersMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearInstant_jpcrp030000-asr_E00069-000ConstructionBusinessReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00069-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2026-03-31</xbrli:instant>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00069-000:ConstructionBusinessReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearDuration_ReconcilingItemsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00069-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2025-04-01</xbrli:startDate>
+<xbrli:endDate>2026-03-31</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:ReconcilingItemsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearInstant_ReconcilingItemsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00069-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2026-03-31</xbrli:instant>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:ReconcilingItemsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearInstant_TotalOfReportableSegmentsAndOthersMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00069-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2026-03-31</xbrli:instant>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:TotalOfReportableSegmentsAndOthersMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearDuration_jpcrp030000-asr_E00069-000RealEstateBusinessReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00069-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2025-04-01</xbrli:startDate>
+<xbrli:endDate>2026-03-31</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00069-000:RealEstateBusinessReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearDuration_jpcrp030000-asr_E00069-000ConstructionBusinessReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00069-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2025-04-01</xbrli:startDate>
+<xbrli:endDate>2026-03-31</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00069-000:ConstructionBusinessReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearInstant_TotalOfReportableSegmentsAndOthersMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00069-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2025-03-31</xbrli:instant>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:TotalOfReportableSegmentsAndOthersMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearDuration_TotalOfReportableSegmentsAndOthersMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00069-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2024-04-01</xbrli:startDate>
+<xbrli:endDate>2025-03-31</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:TotalOfReportableSegmentsAndOthersMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearDuration_ReconcilingItemsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00069-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2024-04-01</xbrli:startDate>
+<xbrli:endDate>2025-03-31</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:ReconcilingItemsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearDuration_jpcrp030000-asr_E00069-000ConstructionBusinessReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00069-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2024-04-01</xbrli:startDate>
+<xbrli:endDate>2025-03-31</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00069-000:ConstructionBusinessReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearDuration_jpcrp030000-asr_E00069-000RealEstateBusinessReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00069-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2024-04-01</xbrli:startDate>
+<xbrli:endDate>2025-03-31</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00069-000:RealEstateBusinessReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearInstant_ReconcilingItemsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00069-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2025-03-31</xbrli:instant>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:ReconcilingItemsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearInstant_jpcrp030000-asr_E00069-000ConstructionBusinessReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00069-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2025-03-31</xbrli:instant>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00069-000:ConstructionBusinessReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearInstant_jpcrp030000-asr_E00069-000RealEstateBusinessReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00069-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2025-03-31</xbrli:instant>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00069-000:RealEstateBusinessReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:unit xmlns:xbrli="http://www.xbrl.org/2003/instance" id="JPYPerShares">
+<xbrli:divide>
+<xbrli:unitNumerator>
+<xbrli:measure>iso4217:JPY</xbrli:measure>
+</xbrli:unitNumerator>
+<xbrli:unitDenominator>
+<xbrli:measure>xbrli:shares</xbrli:measure>
+</xbrli:unitDenominator>
+</xbrli:divide>
+</xbrli:unit>
+  <xbrli:unit xmlns:xbrli="http://www.xbrl.org/2003/instance" id="JPY">
+<xbrli:measure>iso4217:JPY</xbrli:measure>
+</xbrli:unit>
+  <xbrli:unit xmlns:xbrli="http://www.xbrl.org/2003/instance" id="shares">
+<xbrli:measure>xbrli:shares</xbrli:measure>
+</xbrli:unit>
+  <xbrli:unit xmlns:xbrli="http://www.xbrl.org/2003/instance" id="pure">
+<xbrli:measure>xbrli:pure</xbrli:measure>
+</xbrli:unit>
+  <jpcrp_cor:RevenuesFromExternalCustomers xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" contextRef="Prior1YearDuration_jpcrp030000-asr_E00069-000ConstructionBusinessReportableSegmentsMember" decimals="-6" unitRef="JPY">118204000000</jpcrp_cor:RevenuesFromExternalCustomers>
+  <jpcrp_cor:RevenuesFromExternalCustomers xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" contextRef="Prior1YearDuration_jpcrp030000-asr_E00069-000RealEstateBusinessReportableSegmentsMember" decimals="-6" unitRef="JPY">2455000000</jpcrp_cor:RevenuesFromExternalCustomers>
+  <jpcrp_cor:RevenuesFromExternalCustomers xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" contextRef="Prior1YearDuration_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">120660000000</jpcrp_cor:RevenuesFromExternalCustomers>
+  <jpcrp_cor:RevenuesFromExternalCustomers xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" contextRef="Prior1YearDuration_ReconcilingItemsMember" unitRef="JPY" xsi:nil="true" />
+  <jppfs_cor:NetSales xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearDuration_jpcrp030000-asr_E00069-000ConstructionBusinessReportableSegmentsMember" decimals="-6" unitRef="JPY">118204000000</jppfs_cor:NetSales>
+  <jppfs_cor:NetSales xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearDuration_jpcrp030000-asr_E00069-000RealEstateBusinessReportableSegmentsMember" decimals="-6" unitRef="JPY">2455000000</jppfs_cor:NetSales>
+  <jppfs_cor:NetSales xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearDuration_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">120660000000</jppfs_cor:NetSales>
+  <jppfs_cor:NetSales xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" contextRef="Prior1YearDuration_ReconcilingItemsMember" unitRef="JPY" xsi:nil="true" />
+  <jppfs_cor:OperatingIncome xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearDuration_jpcrp030000-asr_E00069-000ConstructionBusinessReportableSegmentsMember" decimals="-6" unitRef="JPY">3343000000</jppfs_cor:OperatingIncome>
+  <jppfs_cor:OperatingIncome xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearDuration_jpcrp030000-asr_E00069-000RealEstateBusinessReportableSegmentsMember" decimals="-6" unitRef="JPY">1274000000</jppfs_cor:OperatingIncome>
+  <jppfs_cor:OperatingIncome xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearDuration_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">4618000000</jppfs_cor:OperatingIncome>
+  <jppfs_cor:OperatingIncome xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearDuration_ReconcilingItemsMember" decimals="-6" unitRef="JPY">-906000000</jppfs_cor:OperatingIncome>
+  <jppfs_cor:Assets xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearInstant_jpcrp030000-asr_E00069-000ConstructionBusinessReportableSegmentsMember" decimals="-6" unitRef="JPY">107131000000</jppfs_cor:Assets>
+  <jppfs_cor:Assets xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearInstant_jpcrp030000-asr_E00069-000RealEstateBusinessReportableSegmentsMember" decimals="-6" unitRef="JPY">21202000000</jppfs_cor:Assets>
+  <jppfs_cor:Assets xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearInstant_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">128333000000</jppfs_cor:Assets>
+  <jppfs_cor:Assets xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearInstant_ReconcilingItemsMember" decimals="-6" unitRef="JPY">78427000000</jppfs_cor:Assets>
+  <jpcrp_cor:RevenuesFromExternalCustomers xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" contextRef="CurrentYearDuration_jpcrp030000-asr_E00069-000ConstructionBusinessReportableSegmentsMember" decimals="-6" unitRef="JPY">122803000000</jpcrp_cor:RevenuesFromExternalCustomers>
+  <jpcrp_cor:RevenuesFromExternalCustomers xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" contextRef="CurrentYearDuration_jpcrp030000-asr_E00069-000RealEstateBusinessReportableSegmentsMember" decimals="-6" unitRef="JPY">2694000000</jpcrp_cor:RevenuesFromExternalCustomers>
+  <jpcrp_cor:RevenuesFromExternalCustomers xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" contextRef="CurrentYearDuration_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">125497000000</jpcrp_cor:RevenuesFromExternalCustomers>
+  <jpcrp_cor:RevenuesFromExternalCustomers xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" contextRef="CurrentYearDuration_ReconcilingItemsMember" unitRef="JPY" xsi:nil="true" />
+  <jppfs_cor:NetSales xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearDuration_jpcrp030000-asr_E00069-000ConstructionBusinessReportableSegmentsMember" decimals="-6" unitRef="JPY">122803000000</jppfs_cor:NetSales>
+  <jppfs_cor:NetSales xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearDuration_jpcrp030000-asr_E00069-000RealEstateBusinessReportableSegmentsMember" decimals="-6" unitRef="JPY">2694000000</jppfs_cor:NetSales>
+  <jppfs_cor:NetSales xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearDuration_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">125497000000</jppfs_cor:NetSales>
+  <jppfs_cor:NetSales xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" contextRef="CurrentYearDuration_ReconcilingItemsMember" unitRef="JPY" xsi:nil="true" />
+  <jppfs_cor:OperatingIncome xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearDuration_jpcrp030000-asr_E00069-000ConstructionBusinessReportableSegmentsMember" decimals="-6" unitRef="JPY">4199000000</jppfs_cor:OperatingIncome>
+  <jppfs_cor:OperatingIncome xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearDuration_jpcrp030000-asr_E00069-000RealEstateBusinessReportableSegmentsMember" decimals="-6" unitRef="JPY">1532000000</jppfs_cor:OperatingIncome>
+  <jppfs_cor:OperatingIncome xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearDuration_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">5732000000</jppfs_cor:OperatingIncome>
+  <jppfs_cor:OperatingIncome xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearDuration_ReconcilingItemsMember" decimals="-6" unitRef="JPY">-1024000000</jppfs_cor:OperatingIncome>
+  <jppfs_cor:Assets xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearInstant_jpcrp030000-asr_E00069-000ConstructionBusinessReportableSegmentsMember" decimals="-6" unitRef="JPY">82922000000</jppfs_cor:Assets>
+  <jppfs_cor:Assets xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearInstant_jpcrp030000-asr_E00069-000RealEstateBusinessReportableSegmentsMember" decimals="-6" unitRef="JPY">21581000000</jppfs_cor:Assets>
+  <jppfs_cor:Assets xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearInstant_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">104503000000</jppfs_cor:Assets>
+  <jppfs_cor:Assets xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearInstant_ReconcilingItemsMember" decimals="-6" unitRef="JPY">112955000000</jppfs_cor:Assets>
+  <jpcrp_cor:AnnexedConsolidatedDetailedScheduleOfCorporateBondsTextBlock xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" contextRef="CurrentYearDuration">
+&lt;h6&gt;【社債明細表】&lt;/h6&gt;
+&lt;p style="margin-left: 60px; line-height: 16px; text-align: left"&gt;該当事項はありません。&lt;/p&gt;
+</jpcrp_cor:AnnexedConsolidatedDetailedScheduleOfCorporateBondsTextBlock>
+  <jpcrp_cor:AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" contextRef="CurrentYearDuration">
+&lt;h6&gt;【借入金等明細表】&lt;/h6&gt;
+&lt;div&gt;
+&lt;table cellpadding="0" cellspacing="0" style="table-layout: fixed; width: 624px; margin-left: auto"&gt;
+&lt;colgroup&gt;
+&lt;col style="width: 290.66666666666666666666666667px"/&gt;
+&lt;col style="width: 85.33333333333333333333333333px"/&gt;
+&lt;col style="width: 85.33333333333333333333333333px"/&gt;
+&lt;col style="width: 66.666666666666666666666666667px"/&gt;
+&lt;col style="width: 96px"/&gt;
+&lt;/colgroup&gt;
+&lt;thead&gt;
+&lt;tr style="height: 40px"&gt;
+&lt;td style="vertical-align: middle; width: 290.66666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 13.333333333333333333333333333px; text-align: center"&gt;区分&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 85.33333333333333333333333333px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 13.333333333333333333333333333px; text-align: center"&gt;当期首残高&lt;/p&gt;
+&lt;p style="line-height: 13.333333333333333333333333333px; text-align: center"&gt;（百万円）&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 85.33333333333333333333333333px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 13.333333333333333333333333333px; text-align: center"&gt;当期末残高&lt;/p&gt;
+&lt;p style="line-height: 13.333333333333333333333333333px; text-align: center"&gt;（百万円）&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 66.666666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 13.333333333333333333333333333px; text-align: center"&gt;平均利率&lt;/p&gt;
+&lt;p style="line-height: 13.333333333333333333333333333px; text-align: center"&gt;（％）&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 96px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 13.333333333333333333333333333px; text-align: center"&gt;返済期限&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+&lt;tbody&gt;
+&lt;tr style="height: 27px"&gt;
+&lt;td style="vertical-align: middle; width: 290.66666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="margin-left: 6px; line-height: 16px; margin-right: 6px; text-align: left"&gt;短期借入金&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 85.33333333333333333333333333px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 6px; text-align: right"&gt;22,050&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 85.33333333333333333333333333px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 6px; text-align: right"&gt;18,550&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 66.666666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 6px; text-align: right"&gt;1.46&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 96px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; text-align: center"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height: 27px"&gt;
+&lt;td style="vertical-align: middle; width: 290.66666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="margin-left: 6px; line-height: 16px; margin-right: 6px; text-align: left"&gt;１年以内に返済予定の長期借入金&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 85.33333333333333333333333333px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 6px; text-align: right"&gt;100&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 85.33333333333333333333333333px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 6px; text-align: right"&gt;14,700&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 66.666666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 6px; text-align: right"&gt;0.95&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 96px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; text-align: center"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height: 27px"&gt;
+&lt;td style="vertical-align: middle; width: 290.66666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="margin-left: 6px; line-height: 16px; margin-right: 6px; text-align: left"&gt;１年以内に返済予定のリース債務&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 85.33333333333333333333333333px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 6px; text-align: right"&gt;21&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 85.33333333333333333333333333px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 6px; text-align: right"&gt;21&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 66.666666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 6px; text-align: right"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 96px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; text-align: center"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height: 27px"&gt;
+&lt;td style="vertical-align: middle; width: 290.66666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="margin-left: 6px; line-height: 16px; margin-right: 6px; text-align: left"&gt;長期借入金（１年以内に返済予定のものを除く。）&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 85.33333333333333333333333333px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 6px; text-align: right"&gt;14,700&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 85.33333333333333333333333333px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 6px; text-align: right"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 66.666666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 6px; text-align: right"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 96px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; text-align: center"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height: 27px"&gt;
+&lt;td style="vertical-align: middle; width: 290.66666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="margin-left: 6px; line-height: 16px; margin-right: 6px; text-align: left"&gt;リース債務（１年以内に返済予定のものを除く。）&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 85.33333333333333333333333333px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 6px; text-align: right"&gt;30&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 85.33333333333333333333333333px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 6px; text-align: right"&gt;39&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 66.666666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 6px; text-align: right"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 96px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; text-align: center"&gt;2027年～2031年&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height: 27px"&gt;
+&lt;td style="vertical-align: middle; width: 290.66666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; text-align: center"&gt;合計&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 85.33333333333333333333333333px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 6px; text-align: right"&gt;36,901&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 85.33333333333333333333333333px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 6px; text-align: right"&gt;33,310&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 66.666666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 6px; text-align: right"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 96px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; text-align: center"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;/div&gt;
+&lt;p style="margin-left: 96px; line-height: 19.333333333333333333333333333px; text-align: left; text-indent: -72px"&gt;（注）１．平均利率については、期末借入金残高に対する加重平均利率を記載しております。&lt;/p&gt;
+&lt;p style="margin-left: 84px; line-height: 19.333333333333333333333333333px; text-align: left; text-indent: -24px"&gt;２．リース債務の平均利率については、リース料総額に含まれる利息相当額を控除する前の金額でリース債務を連結貸借対照表に計上しているため、記載しておりません。&lt;/p&gt;
+&lt;p style="margin-left: 84px; line-height: 19.333333333333333333333333333px; text-align: justify; text-justify: inter-ideograph; text-indent: -24px"&gt;３．リース債務（１年以内に返済予定のものを除く。）の連結決算日後５年間の返済予定額は以下のとおりであります。&lt;/p&gt;
+&lt;div&gt;
+&lt;table cellpadding="0" cellspacing="0" style="table-layout: fixed; width: 560.00000000000000000000000001px; margin-left: auto"&gt;
+&lt;colgroup&gt;
+&lt;col style="width: 133.33333333333333333333333333px"/&gt;
+&lt;col style="width: 106.66666666666666666666666667px"/&gt;
+&lt;col style="width: 106.66666666666666666666666667px"/&gt;
+&lt;col style="width: 106.66666666666666666666666667px"/&gt;
+&lt;col style="width: 106.66666666666666666666666667px"/&gt;
+&lt;/colgroup&gt;
+&lt;thead&gt;
+&lt;tr style="height: 40px"&gt;
+&lt;td style="vertical-align: middle; width: 133.33333333333333333333333333px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="text-align: left"&gt;
+&lt;span style="font-size: 12px"&gt; &lt;/span&gt;
+&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 106.66666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 13.333333333333333333333333333px; text-align: center"&gt;１年超２年以内&lt;/p&gt;
+&lt;p style="line-height: 13.333333333333333333333333333px; text-align: center"&gt;（百万円）&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 106.66666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 13.333333333333333333333333333px; text-align: center"&gt;２年超３年以内&lt;/p&gt;
+&lt;p style="line-height: 13.333333333333333333333333333px; text-align: center"&gt;（百万円）&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 106.66666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 13.333333333333333333333333333px; text-align: center"&gt;３年超４年以内&lt;/p&gt;
+&lt;p style="line-height: 13.333333333333333333333333333px; text-align: center"&gt;（百万円）&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 106.66666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 13.333333333333333333333333333px; text-align: center"&gt;４年超５年以内&lt;/p&gt;
+&lt;p style="line-height: 13.333333333333333333333333333px; text-align: center"&gt;（百万円）&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+&lt;tbody&gt;
+&lt;tr style="height: 27px"&gt;
+&lt;td style="vertical-align: middle; width: 133.33333333333333333333333333px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="margin-left: 6px; line-height: 16px; margin-right: 6px; text-align: left"&gt;リース債務&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 106.66666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 24px; text-align: right"&gt;19&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 106.66666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 24px; text-align: right"&gt;11&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 106.66666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 24px; text-align: right"&gt;6&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align: middle; width: 106.66666666666666666666666667px; padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; border-left: 1px solid #000000; border-top: 1px solid #000000; border-right: 1px solid #000000; border-bottom: 1px solid #000000"&gt;
+&lt;p style="line-height: 16px; margin-right: 24px; text-align: right"&gt;2&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;/div&gt;
+</jpcrp_cor:AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock>
+  </xbrli:xbrl>

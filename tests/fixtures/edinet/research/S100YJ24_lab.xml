@@ -1,0 +1,66 @@
+<link:linkbase xmlns:link="http://www.xbrl.org/2003/linkbase" xmlns:xlink="http://www.w3.org/1999/xlink"><link:labelLink xlink:type="extended" xlink:role="http://www.xbrl.org/2003/role/link"><link:loc xlink:type="locator" xlink:href="S100YJ24.xsd#jpcrp030000-asr_E00069-000_ZenitakaYoshioMember" xlink:label="ZenitakaYoshioMember" />
+    <link:loc xlink:type="locator" xlink:href="S100YJ24.xsd#jpcrp030000-asr_E00069-000_ZenitakaHisayoshiMember" xlink:label="ZenitakaHisayoshiMember" />
+    <link:loc xlink:type="locator" xlink:href="S100YJ24.xsd#jpcrp030000-asr_E00069-000_ZenitakaTakeyoshiMember" xlink:label="ZenitakaTakeyoshiMember" />
+    <link:loc xlink:type="locator" xlink:href="S100YJ24.xsd#jpcrp030000-asr_E00069-000_TajiriKunioMember" xlink:label="TajiriKunioMember" />
+    <link:loc xlink:type="locator" xlink:href="S100YJ24.xsd#jpcrp030000-asr_E00069-000_YamasakiYuichiMember" xlink:label="YamasakiYuichiMember" />
+    <link:loc xlink:type="locator" xlink:href="S100YJ24.xsd#jpcrp030000-asr_E00069-000_IkedaMasanoriMember" xlink:label="IkedaMasanoriMember" />
+    <link:loc xlink:type="locator" xlink:href="S100YJ24.xsd#jpcrp030000-asr_E00069-000_TominagaTetsuoMember" xlink:label="TominagaTetsuoMember" />
+    <link:loc xlink:type="locator" xlink:href="S100YJ24.xsd#jpcrp030000-asr_E00069-000_SakaguchiYuukouMember" xlink:label="SakaguchiYuukouMember" />
+    <link:loc xlink:type="locator" xlink:href="S100YJ24.xsd#jpcrp030000-asr_E00069-000_KondoOsamuMember" xlink:label="KondoOsamuMember" />
+    <link:loc xlink:type="locator" xlink:href="S100YJ24.xsd#jpcrp030000-asr_E00069-000_TanakaYoshihideMember" xlink:label="TanakaYoshihideMember" />
+    <link:loc xlink:type="locator" xlink:href="S100YJ24.xsd#jpcrp030000-asr_E00069-000_MakioTakasumiMember" xlink:label="MakioTakasumiMember" />
+    <link:loc xlink:type="locator" xlink:href="S100YJ24.xsd#jpcrp030000-asr_E00069-000_ConstructionBusinessReportableSegmentsMember" xlink:label="ConstructionBusinessReportableSegmentsMember" />
+    <link:loc xlink:type="locator" xlink:href="S100YJ24.xsd#jpcrp030000-asr_E00069-000_RealEstateBusinessReportableSegmentsMember" xlink:label="RealEstateBusinessReportableSegmentsMember" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="ConstructionBusinessReportableSegmentsMember" xlink:to="label_ConstructionBusinessReportableSegmentsMember" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="ConstructionBusinessReportableSegmentsMember" xlink:to="label_ConstructionBusinessReportableSegmentsMember_2" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="RealEstateBusinessReportableSegmentsMember" xlink:to="label_RealEstateBusinessReportableSegmentsMember" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="RealEstateBusinessReportableSegmentsMember" xlink:to="label_RealEstateBusinessReportableSegmentsMember_2" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="ZenitakaYoshioMember" xlink:to="label_ZenitakaYoshioMember" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="ZenitakaYoshioMember" xlink:to="label_ZenitakaYoshioMember_2" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="ZenitakaHisayoshiMember" xlink:to="label_ZenitakaHisayoshiMember" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="ZenitakaHisayoshiMember" xlink:to="label_ZenitakaHisayoshiMember_2" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="ZenitakaTakeyoshiMember" xlink:to="label_ZenitakaTakeyoshiMember" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="ZenitakaTakeyoshiMember" xlink:to="label_ZenitakaTakeyoshiMember_2" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="KondoOsamuMember" xlink:to="label_KondoOsamuMember_2" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="KondoOsamuMember" xlink:to="label_KondoOsamuMember" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="TajiriKunioMember" xlink:to="label_TajiriKunioMember" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="TajiriKunioMember" xlink:to="label_TajiriKunioMember_2" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="IkedaMasanoriMember" xlink:to="label_IkedaMasanoriMember" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="IkedaMasanoriMember" xlink:to="label_IkedaMasanoriMember_2" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="YamasakiYuichiMember" xlink:to="label_YamasakiYuichiMember" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="YamasakiYuichiMember" xlink:to="label_YamasakiYuichiMember_2" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="MakioTakasumiMember" xlink:to="label_MakioTakasumiMember_2" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="MakioTakasumiMember" xlink:to="label_MakioTakasumiMember" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="TominagaTetsuoMember" xlink:to="label_TominagaTetsuoMember_2" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="TominagaTetsuoMember" xlink:to="label_TominagaTetsuoMember" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="SakaguchiYuukouMember" xlink:to="label_SakaguchiYuukouMember" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="SakaguchiYuukouMember" xlink:to="label_SakaguchiYuukouMember_2" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="TanakaYoshihideMember" xlink:to="label_TanakaYoshihideMember_2" />
+    <link:labelArc xlink:type="arc" xlink:arcrole="http://www.xbrl.org/2003/arcrole/concept-label" xlink:from="TanakaYoshihideMember" xlink:to="label_TanakaYoshihideMember" />
+  <link:label xlink:type="resource" xlink:label="label_ConstructionBusinessReportableSegmentsMember" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/label" id="label_ConstructionBusinessReportableSegmentsMember">建設事業</link:label>
+    <link:label xlink:type="resource" xlink:label="label_ConstructionBusinessReportableSegmentsMember_2" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/verboseLabel" id="label_ConstructionBusinessReportableSegmentsMember_2">建設事業、報告セグメント [メンバー]</link:label>
+    <link:label xlink:type="resource" xlink:label="label_RealEstateBusinessReportableSegmentsMember" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/label" id="label_RealEstateBusinessReportableSegmentsMember">不動産事業</link:label>
+    <link:label xlink:type="resource" xlink:label="label_RealEstateBusinessReportableSegmentsMember_2" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/verboseLabel" id="label_RealEstateBusinessReportableSegmentsMember_2">不動産事業、報告セグメント [メンバー]</link:label>
+    <link:label xlink:type="resource" xlink:label="label_ZenitakaYoshioMember" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/verboseLabel" id="label_ZenitakaYoshioMember">銭高　善雄 [メンバー]</link:label>
+    <link:label xlink:type="resource" xlink:label="label_ZenitakaYoshioMember_2" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/label" id="label_ZenitakaYoshioMember_2">銭高　善雄</link:label>
+    <link:label xlink:type="resource" xlink:label="label_ZenitakaHisayoshiMember" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/verboseLabel" id="label_ZenitakaHisayoshiMember">銭高　久善 [メンバー]</link:label>
+    <link:label xlink:type="resource" xlink:label="label_ZenitakaHisayoshiMember_2" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/label" id="label_ZenitakaHisayoshiMember_2">銭高　久善</link:label>
+    <link:label xlink:type="resource" xlink:label="label_ZenitakaTakeyoshiMember" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/verboseLabel" id="label_ZenitakaTakeyoshiMember">銭高　丈善 [メンバー]</link:label>
+    <link:label xlink:type="resource" xlink:label="label_ZenitakaTakeyoshiMember_2" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/label" id="label_ZenitakaTakeyoshiMember_2">銭高　丈善</link:label>
+    <link:label xlink:type="resource" xlink:label="label_KondoOsamuMember_2" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/label" id="label_KondoOsamuMember_2">近藤　修</link:label>
+    <link:label xlink:type="resource" xlink:label="label_KondoOsamuMember" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/verboseLabel" id="label_KondoOsamuMember">近藤　修 [メンバー]</link:label>
+    <link:label xlink:type="resource" xlink:label="label_TajiriKunioMember" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/verboseLabel" id="label_TajiriKunioMember">田尻　邦夫 [メンバー]</link:label>
+    <link:label xlink:type="resource" xlink:label="label_TajiriKunioMember_2" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/label" id="label_TajiriKunioMember_2">田尻　邦夫</link:label>
+    <link:label xlink:type="resource" xlink:label="label_IkedaMasanoriMember" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/verboseLabel" id="label_IkedaMasanoriMember">池田　全德 [メンバー]</link:label>
+    <link:label xlink:type="resource" xlink:label="label_IkedaMasanoriMember_2" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/label" id="label_IkedaMasanoriMember_2">池田　全德</link:label>
+    <link:label xlink:type="resource" xlink:label="label_YamasakiYuichiMember" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/verboseLabel" id="label_YamasakiYuichiMember">山崎　裕一 [メンバー]</link:label>
+    <link:label xlink:type="resource" xlink:label="label_YamasakiYuichiMember_2" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/label" id="label_YamasakiYuichiMember_2">山崎　裕一</link:label>
+    <link:label xlink:type="resource" xlink:label="label_MakioTakasumiMember_2" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/label" id="label_MakioTakasumiMember_2">巻尾　高澄</link:label>
+    <link:label xlink:type="resource" xlink:label="label_MakioTakasumiMember" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/verboseLabel" id="label_MakioTakasumiMember">巻尾　高澄 [メンバー]</link:label>
+    <link:label xlink:type="resource" xlink:label="label_TominagaTetsuoMember_2" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/label" id="label_TominagaTetsuoMember_2">冨永　哲夫</link:label>
+    <link:label xlink:type="resource" xlink:label="label_TominagaTetsuoMember" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/verboseLabel" id="label_TominagaTetsuoMember">冨永　哲夫 [メンバー]</link:label>
+    <link:label xlink:type="resource" xlink:label="label_SakaguchiYuukouMember" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/verboseLabel" id="label_SakaguchiYuukouMember">阪口　祐康 [メンバー]</link:label>
+    <link:label xlink:type="resource" xlink:label="label_SakaguchiYuukouMember_2" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/label" id="label_SakaguchiYuukouMember_2">阪口　祐康</link:label>
+    <link:label xlink:type="resource" xlink:label="label_TanakaYoshihideMember_2" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/label" id="label_TanakaYoshihideMember_2">田中　好秀</link:label>
+    <link:label xlink:type="resource" xlink:label="label_TanakaYoshihideMember" xml:lang="ja" xlink:role="http://www.xbrl.org/2003/role/verboseLabel" id="label_TanakaYoshihideMember">田中　好秀 [メンバー]</link:label>
+    </link:labelLink></link:linkbase>

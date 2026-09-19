@@ -144,6 +144,7 @@ def _success_script() -> dict[str, list[CommandResult]]:
         "screening run": [RUN_OK],
         "task reconcile-earnings": [OK],
         "screening review-set": [REVIEW_SET_OK],
+        "screening extract-edinet-facts": [OK],
         "macro list": [MACRO_LIST_OK],
         "macro refresh": [OK, OK, OK],
         "export": [OK],
@@ -202,6 +203,7 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "screening verify-cache-coverage",
         "screening run",
         "screening review-set",
+        "screening extract-edinet-facts",
         "macro list",
         "macro refresh",
         "macro refresh",
@@ -272,6 +274,7 @@ def test_structured_and_human_daily_paths_have_normalized_equivalent_results(
         "verify-cache-coverage(recheck)",
         "screening-run",
         "screening-review-set",
+        "edinet-research-facts",
         "macro-list",
         "macro-refresh-14d",
         "macro-refresh-60d",
@@ -1054,3 +1057,16 @@ def test_daily_delta_distinguishes_method_change(tmp_path):
     _read_daily_delta(view, notice)
     assert not notice.delta_measured
     assert notice.delta_unmeasured_reason == "手法変更"
+
+
+def test_research_fact_failure_is_deferred_until_after_publication(tmp_path):
+    script = _success_script()
+    script["screening extract-edinet-facts"] = [CommandResult(1, "", "XBRL unavailable")]
+    runner = _runner(script)
+    assert (
+        run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
+        == 3
+    )
+    assert "screening review-set" in runner.call_keys()
+    assert "export" in runner.call_keys()
+    assert "--initialize" not in _call(runner, "screening extract-edinet-facts")

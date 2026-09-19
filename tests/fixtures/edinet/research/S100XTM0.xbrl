@@ -1,0 +1,173 @@
+<xbrli:xbrl xmlns:iso4217="http://www.xbrl.org/2003/iso4217" xmlns:jpcrp030000-asr_E00393-000="http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00393-000/2025-12-31/01/2026-03-25" xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2024-11-01/jpcrp_cor" xmlns:jpdei_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpdei/2013-08-31/jpdei_cor" xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2024-11-01/jppfs_cor" xmlns:link="http://www.xbrl.org/2003/linkbase" xmlns:utr="http://www.xbrl.org/2009/utr" xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.w3.org/1999/xhtml"><xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearDuration_jpcrp030000-asr_E00393-000FoodAndSoftDrinksReportableSegmentMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00393-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2024-01-01</xbrli:startDate>
+<xbrli:endDate>2024-12-31</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00393-000:FoodAndSoftDrinksReportableSegmentMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearDuration_jpcrp030000-asr_E00393-000AlcoholicBeveragesReportableSegmentMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00393-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2024-01-01</xbrli:startDate>
+<xbrli:endDate>2024-12-31</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00393-000:AlcoholicBeveragesReportableSegmentMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearDuration_TotalOfReportableSegmentsAndOthersMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00393-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2024-01-01</xbrli:startDate>
+<xbrli:endDate>2024-12-31</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:TotalOfReportableSegmentsAndOthersMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearDuration_OperatingSegmentsNotIncludedInReportableSegmentsAndOtherRevenueGeneratingBusinessActivitiesMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00393-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2024-01-01</xbrli:startDate>
+<xbrli:endDate>2024-12-31</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:OperatingSegmentsNotIncludedInReportableSegmentsAndOtherRevenueGeneratingBusinessActivitiesMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearDuration_jpcrp030000-asr_E00393-000FoodAndSoftDrinksReportableSegmentMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00393-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2025-01-01</xbrli:startDate>
+<xbrli:endDate>2025-12-31</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00393-000:FoodAndSoftDrinksReportableSegmentMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearDuration_jpcrp030000-asr_E00393-000AlcoholicBeveragesReportableSegmentMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00393-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2025-01-01</xbrli:startDate>
+<xbrli:endDate>2025-12-31</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00393-000:AlcoholicBeveragesReportableSegmentMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearDuration_ReconcilingItemsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00393-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2025-01-01</xbrli:startDate>
+<xbrli:endDate>2025-12-31</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:ReconcilingItemsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearDuration_TotalOfReportableSegmentsAndOthersMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00393-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2025-01-01</xbrli:startDate>
+<xbrli:endDate>2025-12-31</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:TotalOfReportableSegmentsAndOthersMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearDuration_OperatingSegmentsNotIncludedInReportableSegmentsAndOtherRevenueGeneratingBusinessActivitiesMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00393-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2025-01-01</xbrli:startDate>
+<xbrli:endDate>2025-12-31</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:OperatingSegmentsNotIncludedInReportableSegmentsAndOtherRevenueGeneratingBusinessActivitiesMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearDuration_ReconcilingItemsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00393-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2024-01-01</xbrli:startDate>
+<xbrli:endDate>2024-12-31</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:ReconcilingItemsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:unit xmlns:xbrli="http://www.xbrl.org/2003/instance" id="JPY">
+<xbrli:measure>iso4217:JPY</xbrli:measure>
+</xbrli:unit>
+  <xbrli:unit xmlns:xbrli="http://www.xbrl.org/2003/instance" id="shares">
+<xbrli:measure>xbrli:shares</xbrli:measure>
+</xbrli:unit>
+  <xbrli:unit xmlns:xbrli="http://www.xbrl.org/2003/instance" id="pure">
+<xbrli:measure>xbrli:pure</xbrli:measure>
+</xbrli:unit>
+  <xbrli:unit xmlns:xbrli="http://www.xbrl.org/2003/instance" id="tCO2e">
+<xbrli:measure>utr:tCO2e</xbrli:measure>
+</xbrli:unit>
+  <xbrli:unit xmlns:xbrli="http://www.xbrl.org/2003/instance" id="JPYPerShares">
+<xbrli:divide>
+<xbrli:unitNumerator>
+<xbrli:measure>iso4217:JPY</xbrli:measure>
+</xbrli:unitNumerator>
+<xbrli:unitDenominator>
+<xbrli:measure>xbrli:shares</xbrli:measure>
+</xbrli:unitDenominator>
+</xbrli:divide>
+</xbrli:unit>
+  <jpigp_cor:RevenueFromExternalCustomersIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="Prior1YearDuration_jpcrp030000-asr_E00393-000AlcoholicBeveragesReportableSegmentMember" decimals="-6" unitRef="JPY">394353000000</jpigp_cor:RevenueFromExternalCustomersIFRS>
+  <jpigp_cor:RevenueFromExternalCustomersIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="Prior1YearDuration_jpcrp030000-asr_E00393-000FoodAndSoftDrinksReportableSegmentMember" decimals="-6" unitRef="JPY">117950000000</jpigp_cor:RevenueFromExternalCustomersIFRS>
+  <jpigp_cor:RevenueFromExternalCustomersIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="Prior1YearDuration_OperatingSegmentsNotIncludedInReportableSegmentsAndOtherRevenueGeneratingBusinessActivitiesMember" decimals="-6" unitRef="JPY">69000000</jpigp_cor:RevenueFromExternalCustomersIFRS>
+  <jpigp_cor:RevenueFromExternalCustomersIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="Prior1YearDuration_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">512373000000</jpigp_cor:RevenueFromExternalCustomersIFRS>
+  <jpigp_cor:RevenueFromExternalCustomersIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="Prior1YearDuration_ReconcilingItemsMember" decimals="-6" unitRef="JPY">61000000</jpigp_cor:RevenueFromExternalCustomersIFRS>
+  <jpigp_cor:RevenueIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="Prior1YearDuration_jpcrp030000-asr_E00393-000AlcoholicBeveragesReportableSegmentMember" decimals="-6" unitRef="JPY">406380000000</jpigp_cor:RevenueIFRS>
+  <jpigp_cor:RevenueIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="Prior1YearDuration_jpcrp030000-asr_E00393-000FoodAndSoftDrinksReportableSegmentMember" decimals="-6" unitRef="JPY">118845000000</jpigp_cor:RevenueIFRS>
+  <jpigp_cor:RevenueIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="Prior1YearDuration_OperatingSegmentsNotIncludedInReportableSegmentsAndOtherRevenueGeneratingBusinessActivitiesMember" decimals="-6" unitRef="JPY">69000000</jpigp_cor:RevenueIFRS>
+  <jpigp_cor:RevenueIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="Prior1YearDuration_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">525294000000</jpigp_cor:RevenueIFRS>
+  <jpigp_cor:RevenueIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="Prior1YearDuration_ReconcilingItemsMember" decimals="-6" unitRef="JPY">-12859000000</jpigp_cor:RevenueIFRS>
+  <jpigp_cor:OperatingProfitLossIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="Prior1YearDuration_jpcrp030000-asr_E00393-000AlcoholicBeveragesReportableSegmentMember" decimals="-6" unitRef="JPY">7298000000</jpigp_cor:OperatingProfitLossIFRS>
+  <jpigp_cor:OperatingProfitLossIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="Prior1YearDuration_jpcrp030000-asr_E00393-000FoodAndSoftDrinksReportableSegmentMember" decimals="-6" unitRef="JPY">5210000000</jpigp_cor:OperatingProfitLossIFRS>
+  <jpigp_cor:OperatingProfitLossIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="Prior1YearDuration_OperatingSegmentsNotIncludedInReportableSegmentsAndOtherRevenueGeneratingBusinessActivitiesMember" decimals="-6" unitRef="JPY">1107000000</jpigp_cor:OperatingProfitLossIFRS>
+  <jpigp_cor:OperatingProfitLossIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="Prior1YearDuration_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">13614000000</jpigp_cor:OperatingProfitLossIFRS>
+  <jpigp_cor:OperatingProfitLossIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="Prior1YearDuration_ReconcilingItemsMember" decimals="-6" unitRef="JPY">-7969000000</jpigp_cor:OperatingProfitLossIFRS>
+  <jpigp_cor:RevenueFromExternalCustomersIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="CurrentYearDuration_jpcrp030000-asr_E00393-000AlcoholicBeveragesReportableSegmentMember" decimals="-6" unitRef="JPY">400244000000</jpigp_cor:RevenueFromExternalCustomersIFRS>
+  <jpigp_cor:RevenueFromExternalCustomersIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="CurrentYearDuration_jpcrp030000-asr_E00393-000FoodAndSoftDrinksReportableSegmentMember" decimals="-6" unitRef="JPY">106609000000</jpigp_cor:RevenueFromExternalCustomersIFRS>
+  <jpigp_cor:RevenueFromExternalCustomersIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" contextRef="CurrentYearDuration_OperatingSegmentsNotIncludedInReportableSegmentsAndOtherRevenueGeneratingBusinessActivitiesMember" unitRef="JPY" xsi:nil="true" />
+  <jpigp_cor:RevenueFromExternalCustomersIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="CurrentYearDuration_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">506853000000</jpigp_cor:RevenueFromExternalCustomersIFRS>
+  <jpigp_cor:RevenueFromExternalCustomersIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="CurrentYearDuration_ReconcilingItemsMember" decimals="-6" unitRef="JPY">9000000</jpigp_cor:RevenueFromExternalCustomersIFRS>
+  <jpigp_cor:RevenueIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="CurrentYearDuration_jpcrp030000-asr_E00393-000AlcoholicBeveragesReportableSegmentMember" decimals="-6" unitRef="JPY">409064000000</jpigp_cor:RevenueIFRS>
+  <jpigp_cor:RevenueIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="CurrentYearDuration_jpcrp030000-asr_E00393-000FoodAndSoftDrinksReportableSegmentMember" decimals="-6" unitRef="JPY">106849000000</jpigp_cor:RevenueIFRS>
+  <jpigp_cor:RevenueIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" contextRef="CurrentYearDuration_OperatingSegmentsNotIncludedInReportableSegmentsAndOtherRevenueGeneratingBusinessActivitiesMember" unitRef="JPY" xsi:nil="true" />
+  <jpigp_cor:RevenueIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="CurrentYearDuration_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">515913000000</jpigp_cor:RevenueIFRS>
+  <jpigp_cor:RevenueIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="CurrentYearDuration_ReconcilingItemsMember" decimals="-6" unitRef="JPY">-9051000000</jpigp_cor:RevenueIFRS>
+  <jpigp_cor:OperatingProfitLossIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="CurrentYearDuration_jpcrp030000-asr_E00393-000AlcoholicBeveragesReportableSegmentMember" decimals="-6" unitRef="JPY">30318000000</jpigp_cor:OperatingProfitLossIFRS>
+  <jpigp_cor:OperatingProfitLossIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="CurrentYearDuration_jpcrp030000-asr_E00393-000FoodAndSoftDrinksReportableSegmentMember" decimals="-6" unitRef="JPY">1886000000</jpigp_cor:OperatingProfitLossIFRS>
+  <jpigp_cor:OperatingProfitLossIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" contextRef="CurrentYearDuration_OperatingSegmentsNotIncludedInReportableSegmentsAndOtherRevenueGeneratingBusinessActivitiesMember" unitRef="JPY" xsi:nil="true" />
+  <jpigp_cor:OperatingProfitLossIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="CurrentYearDuration_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">32204000000</jpigp_cor:OperatingProfitLossIFRS>
+  <jpigp_cor:OperatingProfitLossIFRS xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" contextRef="CurrentYearDuration_ReconcilingItemsMember" decimals="-6" unitRef="JPY">-7766000000</jpigp_cor:OperatingProfitLossIFRS>
+  </xbrli:xbrl>

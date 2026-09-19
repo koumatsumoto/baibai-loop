@@ -900,3 +900,26 @@ CLI 引数・log には出ない）。secret の実値を Git・issue・log へ�
 **無通知は「配送失敗」だけを意味しない。** notify step 自体が動かない障害（checkout 失敗、
 runner 未割当、job の強制終了）は通知経路の外側にある。`#batch-runs` が静かなときは、まず
 `gh run list --workflow cloud-daily-batch.yml` で run 自体の有無と結論を見る。
+
+<a id="edinet-research-facts"></a>
+
+## EDINET Research factの初期化・日次差分
+
+**前提**: schema 26の検証済みmarket storeと既存EDINET document inventoryを使う。schema 25からのcutoverはschema変更PRのone-shot手順で別fileへ行い、runtimeや日次batchに移行させない。API認証は既存`EDINET_API_KEY`、原典ZIP cacheは`.cache/screening/edinet/xbrl_zips/`である。
+
+初回はローカルのstaging storeへ明示して実行する。
+
+```bash
+uv run baibai-engine screening extract-edinet-facts \
+  --asof YYYY-MM-DD --initialize --sqlite-path <STAGED_MARKET_SQLITE>
+```
+
+成功時は`source_coverage`の`edinet_research_facts / initialized`を記録する。失敗時は同じcommandで再開し、okの書類は再取得・再抽出しない。`--ticker`を繰り返した限定評価は全体のinitialized markerを作らない。有限parserの未対応は理由付きok、取得・ファイル破損はfailedに分ける。未知の形式を成功率だけのために補完しない。
+
+**成功確認**: summaryのselected/reused/extracted/failedとmissing reasons、代表書類の原典照合、固定releaseのexport/query/hydrateを確認する。現行codeのmain反映、整合するL1発行、store-local coverageのクラウド反映を一組で行う。codeだけを先に日次運用へ入れない。
+
+日次batchはReview Set発行後に`extract-edinet-facts --asof`を実行する。初期化前は明示的skip、初期化後は収録済みfamilyと新規年次・訂正を処理する。取得失敗は既存screening発行を止めず、他の後段処理を終えた後のexit codeへ反映する。raw cacheを残してretryできる。抽出契約が変わった場合はResearch fact専用revisionを更新し、既存EDINET metricsのbaselineを無効化しない。
+
+storeのmergeでは同日でも別docIDの成否を混同しない。共有docIDはtargetのfactに対応する抽出claimを保持する。source側にしかないdocIDはtargetの抽出revisionを証明できないため、未確認のretry対象として取り込む。initialized markerは引き継げる。
+
+**失敗時**: failedのdocIDを原典と照合し、認証・rate limit・破損cacheを原因別に解消して再実行する。factが残っていても、最新訂正の失敗を旧版で埋めない。利用側は[書類選択と欠測時の手順](../docs/reference/market-lake.md#edinet-research-query)に従う。

@@ -56,7 +56,7 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(
     )
     seed_ledger(db, initial)
     with sqlite3.connect(market) as connection:
-        connection.execute("PRAGMA user_version=25")
+        connection.execute("PRAGMA user_version=26")
         connection.execute(
             "CREATE TABLE jquants_daily_bars(ticker TEXT,traded_at TEXT,close REAL,adjustment_factor REAL)"
         )

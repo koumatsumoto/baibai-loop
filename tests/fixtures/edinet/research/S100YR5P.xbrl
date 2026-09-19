@@ -1,0 +1,596 @@
+<xbrli:xbrl xmlns:iso4217="http://www.xbrl.org/2003/iso4217" xmlns:jpcrp030000-asr_E00197-000="http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00197-000/2026-04-30/01/2026-07-22" xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" xmlns:jpdei_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpdei/2013-08-31/jpdei_cor" xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" xmlns:link="http://www.xbrl.org/2003/linkbase" xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><xbrli:context xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearDuration">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2025-05-01</xbrli:startDate>
+<xbrli:endDate>2026-04-30</xbrli:endDate>
+</xbrli:period>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2025-05-01</xbrli:startDate>
+<xbrli:endDate>2026-04-30</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00197-000:HotelReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2025-05-01</xbrli:startDate>
+<xbrli:endDate>2026-04-30</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00197-000:HousingReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearDuration_OtherReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2025-05-01</xbrli:startDate>
+<xbrli:endDate>2026-04-30</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:OtherReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearDuration_ReconcilingItemsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2025-05-01</xbrli:startDate>
+<xbrli:endDate>2026-04-30</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:ReconcilingItemsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearDuration_TotalOfReportableSegmentsAndOthersMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2025-05-01</xbrli:startDate>
+<xbrli:endDate>2026-04-30</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:TotalOfReportableSegmentsAndOthersMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearInstant_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2026-04-30</xbrli:instant>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00197-000:HotelReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearInstant_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2026-04-30</xbrli:instant>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00197-000:HousingReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearInstant_OtherReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2026-04-30</xbrli:instant>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:OtherReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearInstant_ReconcilingItemsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2026-04-30</xbrli:instant>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:ReconcilingItemsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="CurrentYearInstant_TotalOfReportableSegmentsAndOthersMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2026-04-30</xbrli:instant>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:TotalOfReportableSegmentsAndOthersMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2024-05-01</xbrli:startDate>
+<xbrli:endDate>2025-04-30</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00197-000:HotelReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2024-05-01</xbrli:startDate>
+<xbrli:endDate>2025-04-30</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00197-000:HousingReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearDuration_OtherReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2024-05-01</xbrli:startDate>
+<xbrli:endDate>2025-04-30</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:OtherReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearDuration_ReconcilingItemsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2024-05-01</xbrli:startDate>
+<xbrli:endDate>2025-04-30</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:ReconcilingItemsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearDuration_TotalOfReportableSegmentsAndOthersMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2024-05-01</xbrli:startDate>
+<xbrli:endDate>2025-04-30</xbrli:endDate>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:TotalOfReportableSegmentsAndOthersMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearInstant_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2025-04-30</xbrli:instant>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00197-000:HotelReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearInstant_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2025-04-30</xbrli:instant>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp030000-asr_E00197-000:HousingReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearInstant_OtherReportableSegmentsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2025-04-30</xbrli:instant>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:OtherReportableSegmentsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearInstant_ReconcilingItemsMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2025-04-30</xbrli:instant>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:ReconcilingItemsMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:context xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" id="Prior1YearInstant_TotalOfReportableSegmentsAndOthersMember">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00197-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2025-04-30</xbrli:instant>
+</xbrli:period>
+<xbrli:scenario>
+<xbrldi:explicitMember dimension="jpcrp_cor:OperatingSegmentsAxis">jpcrp_cor:TotalOfReportableSegmentsAndOthersMember</xbrldi:explicitMember>
+</xbrli:scenario>
+</xbrli:context>
+  <xbrli:unit xmlns:xbrli="http://www.xbrl.org/2003/instance" id="JPY">
+<xbrli:measure>iso4217:JPY</xbrli:measure>
+</xbrli:unit>
+  <xbrli:unit xmlns:xbrli="http://www.xbrl.org/2003/instance" id="JPYPerShares">
+<xbrli:divide>
+<xbrli:unitNumerator>
+<xbrli:measure>iso4217:JPY</xbrli:measure>
+</xbrli:unitNumerator>
+<xbrli:unitDenominator>
+<xbrli:measure>xbrli:shares</xbrli:measure>
+</xbrli:unitDenominator>
+</xbrli:divide>
+</xbrli:unit>
+  <xbrli:unit xmlns:xbrli="http://www.xbrl.org/2003/instance" id="pure">
+<xbrli:measure>xbrli:pure</xbrli:measure>
+</xbrli:unit>
+  <xbrli:unit xmlns:xbrli="http://www.xbrl.org/2003/instance" id="shares">
+<xbrli:measure>xbrli:shares</xbrli:measure>
+</xbrli:unit>
+  <jpcrp_cor:RevenuesFromExternalCustomers xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" contextRef="Prior1YearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember" decimals="-6" unitRef="JPY">30891000000</jpcrp_cor:RevenuesFromExternalCustomers>
+  <jpcrp_cor:RevenuesFromExternalCustomers xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" contextRef="Prior1YearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember" decimals="-6" unitRef="JPY">3935000000</jpcrp_cor:RevenuesFromExternalCustomers>
+  <jpcrp_cor:RevenuesFromExternalCustomers xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" contextRef="Prior1YearDuration_OtherReportableSegmentsMember" decimals="-6" unitRef="JPY">153000000</jpcrp_cor:RevenuesFromExternalCustomers>
+  <jpcrp_cor:RevenuesFromExternalCustomers xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" contextRef="Prior1YearDuration_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">34980000000</jpcrp_cor:RevenuesFromExternalCustomers>
+  <jpcrp_cor:RevenuesFromExternalCustomers xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" contextRef="Prior1YearDuration_ReconcilingItemsMember" unitRef="JPY" xsi:nil="true" />
+  <jppfs_cor:NetSales xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember" decimals="-6" unitRef="JPY">30891000000</jppfs_cor:NetSales>
+  <jppfs_cor:NetSales xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember" decimals="-6" unitRef="JPY">3972000000</jppfs_cor:NetSales>
+  <jppfs_cor:NetSales xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearDuration_OtherReportableSegmentsMember" decimals="-6" unitRef="JPY">153000000</jppfs_cor:NetSales>
+  <jppfs_cor:NetSales xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearDuration_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">35017000000</jppfs_cor:NetSales>
+  <jppfs_cor:NetSales xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearDuration_ReconcilingItemsMember" decimals="-6" unitRef="JPY">-36000000</jppfs_cor:NetSales>
+  <jppfs_cor:OperatingIncome xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember" decimals="-6" unitRef="JPY">3510000000</jppfs_cor:OperatingIncome>
+  <jppfs_cor:OperatingIncome xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember" decimals="-6" unitRef="JPY">-540000000</jppfs_cor:OperatingIncome>
+  <jppfs_cor:OperatingIncome xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearDuration_OtherReportableSegmentsMember" decimals="-6" unitRef="JPY">118000000</jppfs_cor:OperatingIncome>
+  <jppfs_cor:OperatingIncome xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearDuration_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">3089000000</jppfs_cor:OperatingIncome>
+  <jppfs_cor:OperatingIncome xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearDuration_ReconcilingItemsMember" decimals="-6" unitRef="JPY">-753000000</jppfs_cor:OperatingIncome>
+  <jppfs_cor:Assets xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearInstant_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember" decimals="-6" unitRef="JPY">17901000000</jppfs_cor:Assets>
+  <jppfs_cor:Assets xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearInstant_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember" decimals="-6" unitRef="JPY">17993000000</jppfs_cor:Assets>
+  <jppfs_cor:Assets xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearInstant_OtherReportableSegmentsMember" decimals="-6" unitRef="JPY">797000000</jppfs_cor:Assets>
+  <jppfs_cor:Assets xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearInstant_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">36691000000</jppfs_cor:Assets>
+  <jppfs_cor:Assets xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="Prior1YearInstant_ReconcilingItemsMember" decimals="-6" unitRef="JPY">5704000000</jppfs_cor:Assets>
+  <jpcrp_cor:RevenuesFromExternalCustomers xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" contextRef="CurrentYearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember" decimals="-6" unitRef="JPY">25316000000</jpcrp_cor:RevenuesFromExternalCustomers>
+  <jpcrp_cor:RevenuesFromExternalCustomers xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" contextRef="CurrentYearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember" decimals="-6" unitRef="JPY">4144000000</jpcrp_cor:RevenuesFromExternalCustomers>
+  <jpcrp_cor:RevenuesFromExternalCustomers xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" contextRef="CurrentYearDuration_OtherReportableSegmentsMember" decimals="-6" unitRef="JPY">158000000</jpcrp_cor:RevenuesFromExternalCustomers>
+  <jpcrp_cor:RevenuesFromExternalCustomers xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" contextRef="CurrentYearDuration_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">29618000000</jpcrp_cor:RevenuesFromExternalCustomers>
+  <jpcrp_cor:RevenuesFromExternalCustomers xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" contextRef="CurrentYearDuration_ReconcilingItemsMember" unitRef="JPY" xsi:nil="true" />
+  <jppfs_cor:NetSales xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember" decimals="-6" unitRef="JPY">25316000000</jppfs_cor:NetSales>
+  <jppfs_cor:NetSales xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember" decimals="-6" unitRef="JPY">4191000000</jppfs_cor:NetSales>
+  <jppfs_cor:NetSales xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearDuration_OtherReportableSegmentsMember" decimals="-6" unitRef="JPY">158000000</jppfs_cor:NetSales>
+  <jppfs_cor:NetSales xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearDuration_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">29666000000</jppfs_cor:NetSales>
+  <jppfs_cor:NetSales xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearDuration_ReconcilingItemsMember" decimals="-6" unitRef="JPY">-47000000</jppfs_cor:NetSales>
+  <jppfs_cor:OperatingIncome xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember" decimals="-6" unitRef="JPY">3331000000</jppfs_cor:OperatingIncome>
+  <jppfs_cor:OperatingIncome xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember" decimals="-6" unitRef="JPY">-373000000</jppfs_cor:OperatingIncome>
+  <jppfs_cor:OperatingIncome xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearDuration_OtherReportableSegmentsMember" decimals="-6" unitRef="JPY">122000000</jppfs_cor:OperatingIncome>
+  <jppfs_cor:OperatingIncome xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearDuration_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">3080000000</jppfs_cor:OperatingIncome>
+  <jppfs_cor:OperatingIncome xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearDuration_ReconcilingItemsMember" decimals="-6" unitRef="JPY">-700000000</jppfs_cor:OperatingIncome>
+  <jppfs_cor:Assets xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearInstant_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember" decimals="-6" unitRef="JPY">19734000000</jppfs_cor:Assets>
+  <jppfs_cor:Assets xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearInstant_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember" decimals="-6" unitRef="JPY">17309000000</jppfs_cor:Assets>
+  <jppfs_cor:Assets xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearInstant_OtherReportableSegmentsMember" decimals="-6" unitRef="JPY">737000000</jppfs_cor:Assets>
+  <jppfs_cor:Assets xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearInstant_TotalOfReportableSegmentsAndOthersMember" decimals="-6" unitRef="JPY">37781000000</jppfs_cor:Assets>
+  <jppfs_cor:Assets xmlns:jppfs_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor" contextRef="CurrentYearInstant_ReconcilingItemsMember" decimals="-6" unitRef="JPY">6573000000</jppfs_cor:Assets>
+  <jpcrp_cor:AnnexedConsolidatedDetailedScheduleOfCorporateBondsTextBlock xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" contextRef="CurrentYearDuration">
+&lt;h6 class="smt_head5" style="padding-left:36pt;"&gt;【社債明細表】&lt;/h6&gt;&lt;p class="smt_unitR" style="orphans:0;widows:0;"&gt; &lt;/p&gt;
+&lt;div class="tbld" style="text-align:left;"&gt;
+&lt;table cellpadding="0" cellspacing="0" class="align_left" style="border-collapse:collapse;border:solid 0pt #000000;width:467.4pt;table-layout:fixed;"&gt;
+&lt;colgroup&gt;
+&lt;col style="width:84.8pt;min-width:84.8pt;"/&gt;
+&lt;col style="width:84.8pt;min-width:84.8pt;"/&gt;
+&lt;col style="width:48pt;min-width:48pt;"/&gt;
+&lt;col style="width:57pt;min-width:57pt;"/&gt;
+&lt;col style="width:57pt;min-width:57pt;"/&gt;
+&lt;col style="width:36.8pt;min-width:36.8pt;"/&gt;
+&lt;col style="width:51pt;min-width:51pt;"/&gt;
+&lt;col style="width:48pt;min-width:48pt;"/&gt;
+&lt;/colgroup&gt;
+&lt;tr style="height:22.5pt;min-height:22.5pt;"&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;会社名&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;銘柄&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;発行年月日&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;当期首残高&lt;br/&gt;(百万円)&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;当期末残高&lt;br/&gt;(百万円)&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;利率&lt;br/&gt;（％）&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;担保&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;償還期限&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height:22.5pt;min-height:22.5pt;"&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblL" style="orphans:0;widows:0;"&gt;当社&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblL" style="orphans:0;widows:0;"&gt;2020年&lt;br/&gt;第１回無担保社債&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;2020年&lt;br/&gt;12月18日&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;"&gt;820&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:center;padding-right:0pt;"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:center;padding-right:0pt;"&gt;年&lt;br/&gt;1.080&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;無担保&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;2025年&lt;br/&gt;11月28日&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height:22.5pt;min-height:22.5pt;"&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblL" style="orphans:0;widows:0;"&gt;当社&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblL" style="orphans:0;widows:0;"&gt;2021年&lt;br/&gt;第２回無担保社債&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;2021年&lt;br/&gt;１月25日&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;"&gt;820&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:center;padding-left:0pt;padding-right:0pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;font-size:9pt;"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:center;padding-right:0pt;"&gt;年&lt;br/&gt;1.080&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;無担保&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;2025年&lt;br/&gt;11月28日&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height:22.5pt;min-height:22.5pt;"&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblL" style="orphans:0;widows:0;"&gt;当社&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblL" style="orphans:0;widows:0;"&gt;2026年&lt;br/&gt;第３回無担保社債&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;2025年&lt;br/&gt;12月12日&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;"&gt;1,300&lt;/p&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:0pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;font-size:9pt;"&gt;(130)&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:center;padding-right:0pt;"&gt;年&lt;br/&gt;2.210&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;無担保&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;2030年&lt;br/&gt; 11月29日&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height:22.5pt;min-height:22.5pt;"&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;合計&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblL" style="orphans:0;widows:0;text-align:center;"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;"&gt;1,640&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;"&gt;1,300&lt;/p&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:0pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;font-size:9pt;"&gt;(130)&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:center;padding-right:0pt;"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/table&gt;&lt;p style="clear:both; line-height:0.75pt; width:100%; font-size:0.75pt;"&gt; &lt;/p&gt;
+&lt;/div&gt;&lt;p class="smt_annoNum1" style="orphans:0;widows:0;"&gt;(注) １　当期末残高の（　）書は１年以内に償還を予定される金額であります。&lt;/p&gt;&lt;p class="smt_annoNum2" style="orphans:0;widows:0;"&gt;２　連結決算日後５年内における１年ごとの償還予定額は次のとおりであります。&lt;/p&gt;
+&lt;div class="tbld" style="text-align:left;margin-left:50pt;"&gt;
+&lt;table cellpadding="0" cellspacing="0" class="align_left" style="border-collapse:collapse;border:solid 0pt #000000;width:420pt;table-layout:fixed;"&gt;
+&lt;colgroup&gt;
+&lt;col style="width:84pt;min-width:84pt;"/&gt;
+&lt;col style="width:84pt;min-width:84pt;"/&gt;
+&lt;col style="width:84pt;min-width:84pt;"/&gt;
+&lt;col style="width:84pt;min-width:84pt;"/&gt;
+&lt;col style="width:84pt;min-width:84pt;"/&gt;
+&lt;/colgroup&gt;
+&lt;tr style="height:22.5pt;min-height:22.5pt;"&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;１年以内&lt;br/&gt;(百万円)&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;１年超２年以内&lt;br/&gt;(百万円)&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;２年超３年以内&lt;br/&gt;(百万円)&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;３年超４年以内&lt;br/&gt;(百万円)&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;４年超５年以内&lt;br/&gt;(百万円)&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height:22.5pt;min-height:22.5pt;"&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;"&gt;130&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;"&gt;130&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;"&gt;130&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;"&gt;130&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;"&gt;780&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/table&gt;&lt;p style="clear:both; line-height:0.75pt; width:100%; font-size:0.75pt;"&gt; &lt;/p&gt;
+&lt;/div&gt;&lt;p class="smt_text6" style="orphans:0;widows:0;"&gt; &lt;/p&gt;</jpcrp_cor:AnnexedConsolidatedDetailedScheduleOfCorporateBondsTextBlock>
+  <jpcrp_cor:AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor" contextRef="CurrentYearDuration">
+&lt;h6 class="smt_head5" style="padding-left:36pt;"&gt;【借入金等明細表】&lt;/h6&gt;&lt;p class="smt_unitR" style="orphans:0;widows:0;"&gt; &lt;/p&gt;
+&lt;div class="tbld" style="text-align:left;"&gt;
+&lt;table cellpadding="0" cellspacing="0" class="align_left" style="border-collapse:collapse;border:solid 0pt #000000;width:468.1pt;table-layout:fixed;"&gt;
+&lt;colgroup&gt;
+&lt;col style="width:146.3pt;min-width:146.3pt;"/&gt;
+&lt;col style="width:76.5pt;min-width:76.5pt;"/&gt;
+&lt;col style="width:76.5pt;min-width:76.5pt;"/&gt;
+&lt;col style="width:76.5pt;min-width:76.5pt;"/&gt;
+&lt;col style="width:92.3pt;min-width:92.3pt;"/&gt;
+&lt;/colgroup&gt;
+&lt;tr style="height:22.5pt;min-height:22.5pt;"&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;区分&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;当期首残高&lt;br/&gt;(百万円)&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;当期末残高&lt;br/&gt;(百万円)&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;平均利率&lt;br/&gt;(％)&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;返済期限&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height:22.5pt;min-height:22.5pt;"&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblL" style="orphans:0;widows:0;"&gt;短期借入金&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;2,472&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;4,338&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;1.475&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height:22.5pt;min-height:22.5pt;"&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblL" style="orphans:0;widows:0;"&gt;１年以内に返済予定の長期借入金&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;356&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;432&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;2.233&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height:22.5pt;min-height:22.5pt;"&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblL" style="orphans:0;widows:0;"&gt;１年以内に返済予定のリース債務&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;369&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;331&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;2.783&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height:22.5pt;min-height:22.5pt;"&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblL" style="orphans:0;widows:0;"&gt;長期借入金(１年以内に返済予定のものを除く。)&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;4,795&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;4,876&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;2.343&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt; 　　  2027年５月&lt;/p&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;text-align:center;padding-left:0pt;padding-right:0pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;font-size:9pt;"&gt;～　　 2042年４月&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height:22.5pt;min-height:22.5pt;"&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblL" style="orphans:0;widows:0;"&gt;リース債務(１年以内に返済予定のものを除く。)&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;705&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;338&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;3.174&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;　 　　2027年５月&lt;br/&gt;～ 　　2029年９月&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height:22.5pt;min-height:22.5pt;"&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblL" style="orphans:0;widows:0;"&gt;その他有利子負債&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;text-align:center;padding-left:0pt;padding-right:0pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;text-align:center;padding-left:0pt;padding-right:0pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;text-align:center;padding-left:0pt;padding-right:0pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height:22.5pt;min-height:22.5pt;"&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;合計&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;8,699&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;10,317&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;text-align:center;padding-left:0pt;padding-right:0pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/table&gt;&lt;p style="clear:both; line-height:0.75pt; width:100%; font-size:0.75pt;"&gt; &lt;/p&gt;
+&lt;/div&gt;&lt;p class="smt_annoNum1" style="orphans:0;widows:0;"&gt;(注) １　平均利率の算定方法は、借入金等の期末残高に対する加重平均利率を記載しております。&lt;/p&gt;&lt;p class="smt_annoNum2" style="orphans:0;widows:0;"&gt;２　長期借入金及びリース債務(１年以内に返済予定のものを除く。)の連結決算日後５年内における返済予定額は以下のとおりであります。&lt;/p&gt;&lt;p class="smt_unitR" style="orphans:0;widows:0;"&gt; &lt;/p&gt;
+&lt;div class="tbld" style="text-align:left;margin-left:50pt;"&gt;
+&lt;table cellpadding="0" cellspacing="0" class="align_left" style="border-collapse:collapse;border:solid 0pt #000000;width:419.3pt;table-layout:fixed;"&gt;
+&lt;colgroup&gt;
+&lt;col style="width:83.3pt;min-width:83.3pt;"/&gt;
+&lt;col style="width:84pt;min-width:84pt;"/&gt;
+&lt;col style="width:84pt;min-width:84pt;"/&gt;
+&lt;col style="width:84pt;min-width:84pt;"/&gt;
+&lt;col style="width:84pt;min-width:84pt;"/&gt;
+&lt;/colgroup&gt;
+&lt;tr style="height:22.5pt;min-height:22.5pt;"&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt; &lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;１年超２年以内&lt;br/&gt;(百万円)&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;２年超３年以内&lt;br/&gt;(百万円)&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;３年超４年以内&lt;br/&gt;(百万円)&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblC" style="orphans:0;widows:0;"&gt;４年超５年以内&lt;br/&gt;(百万円)&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height:22.5pt;min-height:22.5pt;"&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblL" style="orphans:0;widows:0;"&gt;長期借入金&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;font-size:9pt;"&gt;1,282&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;398&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;392&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;341&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr style="height:22.5pt;min-height:22.5pt;"&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblL" style="orphans:0;widows:0;"&gt;リース債務&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;275&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;52&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;8&lt;/p&gt;
+&lt;/td&gt;
+&lt;td style="vertical-align:middle;border-top-style:solid;border-top-width:0.75pt;border-bottom-style:solid;border-bottom-width:0.75pt;border-left-style:solid;border-left-width:0.75pt;border-right-style:solid;border-right-width:0.75pt;overflow:hidden;" valign="middle"&gt;&lt;p class="smt_tblR" style="orphans:0;widows:0;text-align:right;padding-left:0pt;padding-right:4.5pt;margin-top:0pt;margin-bottom:0pt;text-justify:inter-ideograph;text-indent:0pt;font-family:&amp;apos;ＭＳ 明朝&amp;apos;;letter-spacing:0pt;line-height:10pt;"&gt;－&lt;/p&gt;
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/table&gt;&lt;p style="clear:both; line-height:0.75pt; width:100%; font-size:0.75pt;"&gt; &lt;/p&gt;
+&lt;/div&gt;&lt;p class="smt_text6" style="orphans:0;widows:0;"&gt; &lt;/p&gt;</jpcrp_cor:AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock>
+  </xbrli:xbrl>

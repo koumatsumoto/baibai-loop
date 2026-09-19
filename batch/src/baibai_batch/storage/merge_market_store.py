@@ -2,7 +2,7 @@
 
 The market store has two writers. The daily batch extends it forward in the cloud, and
 an operator extends it backward locally. Most of what they write is no longer decided
-here: the seventeen fetch-derived tables are published to the L1 lake, and the object this
+here: the fetch-derived tables are published to the L1 lake, and the object this
 merge runs against is the copy that carries only what the lake does not own. Their
 reconciliation is the release's, not this file's — ``publish_market_lake`` refuses to
 build on a release the lake has moved past, and ``lake dehydrate`` refuses to empty a
@@ -37,8 +37,8 @@ answer and the target is kept whole. The publication marker also stays with the 
 generation and is never merged from the source.
 
 Both stores must carry the current schema. An older cloud copy is not migrated here —
-the cloud raises its own schema by opening the store, and doing it from this side would
-publish a shape the cloud has never written.
+code and a locally validated current-schema store must be cut over together; opening
+a store never runs a migration.
 """
 
 from __future__ import annotations
@@ -127,9 +127,9 @@ _MERGE_EXEMPTIONS: Mapping[str, tuple[str, ...]] = {
 }
 
 _SHORT_SALE_REPORT_SOURCE = "jquants_short_sale_reports"
-_NON_SHORT_COVERAGE = RowFilter(
-    unaliased="source <> 'jquants_short_sale_reports'",
-    aliased="s.source <> 'jquants_short_sale_reports'",
+_UNION_COVERAGE = RowFilter(
+    unaliased="source NOT IN ('jquants_short_sale_reports', 'edinet_research_facts')",
+    aliased="s.source NOT IN ('jquants_short_sale_reports', 'edinet_research_facts')",
 )
 
 
@@ -160,17 +160,17 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("BEGIN IMMEDIATE")
             try:
-                # The table is merged in two passes — short-sale claims are chosen per
-                # disclosure date, everything else is unioned by key — so the report row
-                # is built from counts taken around both rather than from either half.
+                # Short-sale snapshots and document extraction claims have separate
+                # reconciliation rules. Count around all passes for the combined report.
                 source_rows = count(connection, "SELECT count(*) FROM source.source_coverage")
                 before = count(connection, "SELECT count(*) FROM main.source_coverage")
                 _require_no_overclaimed_coverage(connection)
                 _merge_short_sale_coverage(connection)
+                _merge_edinet_fact_coverage(connection)
                 merge_fact_tables(
                     connection,
                     {"source_coverage": FACT_KEYS["source_coverage"]},
-                    eligible=_NON_SHORT_COVERAGE,
+                    eligible=_UNION_COVERAGE,
                     uncompared=_MERGE_EXEMPTIONS,
                 )
                 _raise_fin_summary_coverage_counts(connection)
@@ -262,6 +262,7 @@ def _require_no_reinstated_coverage(connection: sqlite3.Connection) -> None:
         "FROM main.source_coverage ok "
         "JOIN main.source_coverage bad ON bad.source = ok.source "
         "WHERE ok.status = 'ok' AND bad.status IN ('failed', 'partial') "
+        "AND ok.source <> 'edinet_research_facts' "
         "AND ok.coverage_start IS NOT NULL AND ok.coverage_end IS NOT NULL "
         "AND bad.coverage_start IS NOT NULL AND bad.coverage_end IS NOT NULL "
         "AND ok.coverage_start <= bad.coverage_end "
@@ -274,6 +275,28 @@ def _require_no_reinstated_coverage(connection: sqlite3.Connection) -> None:
             f"{source} coverage {clean_key!r} would cover the range {failed_key!r} "
             f"recorded as {status}; the merge would reinstate a window a fetch retracted"
         )
+
+
+def _merge_edinet_fact_coverage(connection: sqlite3.Connection) -> None:
+    """Keep target claims with their facts; imported-only documents require recheck.
+
+    These are per-document extraction results, not date ranges. A different document
+    can fail on the same day. The source may be dehydrated, so its success/revision
+    cannot prove which facts the target holds. Preserve target claims (including
+    failures and newer extractor revisions); import missing IDs as retry work instead
+    of borrowing a success claim. The global initialization marker is transferable.
+    """
+    connection.execute(
+        "INSERT OR IGNORE INTO main.source_coverage "
+        "(source, coverage_key, coverage_start, coverage_end, fetched_at_utc, "
+        "record_count, status, error) "
+        "SELECT source, coverage_key, coverage_start, coverage_end, fetched_at_utc, "
+        "CASE WHEN coverage_key = 'initialized' THEN record_count ELSE 0 END, "
+        "CASE WHEN coverage_key = 'initialized' THEN status ELSE 'failed' END, "
+        "CASE WHEN coverage_key = 'initialized' THEN error "
+        "ELSE 'imported_document_requires_recheck' END "
+        "FROM source.source_coverage WHERE source = 'edinet_research_facts'"
+    )
 
 
 def _merge_short_sale_coverage(connection: sqlite3.Connection) -> None:

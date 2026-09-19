@@ -552,6 +552,22 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             require_complete_coverage=True,
         ),
         ReleaseDatasetPolicy(
+            dataset="edinet.segment_facts",
+            required=False,
+            accepted_contract_versions=(1,),
+            carries_history=True,
+            minimum_rows=1,
+            require_complete_coverage=False,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="edinet.debt_schedule",
+            required=False,
+            accepted_contract_versions=(1,),
+            carries_history=True,
+            minimum_rows=1,
+            require_complete_coverage=False,
+        ),
+        ReleaseDatasetPolicy(
             dataset="edinet.metrics",
             required=True,
             accepted_contract_versions=(1,),
