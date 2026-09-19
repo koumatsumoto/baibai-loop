@@ -172,26 +172,19 @@ class FinancialSnapshot:
     # 1996. High positive accruals are an earnings-quality flag (reported NI
     # not converting to cash). None if any input is missing.
     accruals_to_assets: float | None = None
-    # net_share_change_yoy = (shares_now - shares_prior_year) / shares_prior_year.
-    # Positive = dilution, negative = buyback. None if prior-year share count
-    # is missing or zero.
+    # グロス発行済株式数の前年比。正は増加、負は減少。
+    # 自己株買いの実行額や将来の買戻しを直接表すものではない。
+    # 前年の株式数が欠損または0ならNone。
     net_share_change_yoy: float | None = None
     # 同じ前年比を自己株式控除後の株数で測ったもの。日本の自社株買いは取得株を自己株式へ
     # 入れるだけで発行済株式総数を減らさないので、上の量と別の年に動く。carry へは入れず、
     # 事前登録した比較の入力として持つだけである。自己株式数が観測できない行は答えない。
     tradable_share_change_yoy: float | None = None
-    # Point-in-time F-score-style components. Missing inputs remain None so a
-    # component cannot silently count as either support or failure. The count is
-    # exposed only when at least six of the eight components are observable.
-    # 会社予想で純利益>経常となる行の data-quality flag。税負担が通常正である以上、
-    # 純利益>経常は特別益の存在をほぼ確定する。forward PER / 予想配当 / E[r] carry が
-    # 一時益で嵩上げされた value trap を判断前に表面化させる warning (rank・E[r] は変えない)。
+    # 同じ予想期の純利益が経常利益を上回ることの注記。
+    # 原因・持続性を確定せず、rankやE[r]を変更しない。
     forecast_special_gain_flag: bool = False
-    # 会社自身が通期の経常利益または当期純利益を赤字で予想している行の annotation。
-    # 赤字予想は forecast EPS を負にするので forward PER が引けず、FV アンカーは自己履歴
-    # PBR へ落ちる。その PBR レンジは黒字だった時代に市場が許容した倍率なので、収益基盤が
-    # 構造的に縮んだ銘柄では帳簿だけが残って implied upside が膨らむ。事実を機械行へ出して
-    # 読み手に渡す warning であり、rank・E[r] は変えない。
+    # 予想経常利益または予想純利益の赤字を注記する。
+    # 予想EPSとFV anchorへの影響は実際の入力に依存する。
     forecast_full_year_loss_flag: bool = False
 
     @field_validator(

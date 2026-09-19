@@ -11,7 +11,7 @@ status: active
 
 ## 目的と適用
 
-Researchは企業評価、新規資本配分、保有判断を所有する。Reviewed Thesisは企業評価と独立したThesis Reviewの一組であり、現在価格での購入やbroker操作を意味しない。型・内容検証は`research/thesis.py`、純粋算術は`research/valuation.py`、公開・読込は`research/thesis_store.py`が所有する。
+本書はThesisと独立したThesis Reviewの内容・算術・参照契約を定める。一組の企業評価は、資本配分、保有売却、broker操作そのものではない。新規配分は[CAA](./capital-allocation-assessment.md)、保有判断は[Position Review](./position-review.md)、取引事実は[Portfolio Ledger](./portfolio-ledger.md)が所有する。
 
 ## Thesis v4
 
@@ -91,7 +91,7 @@ Base/Downsideの必要terminalは、その累積分配で要求年率以上に�
 
 必要な業績・倍率・分配・感度は既存Base/Downsideの`calculation`、実現経路と成立条件は`investment_case.explanation / status_reason / invalidation_conditions`、作者と独立Reviewの反証はそれぞれの`strongest_countercase`に書く。数値の引用は原価格・期間・仮定に対応させ、全出力や新しい派生fieldをThesis/CAAへ複写しない。
 
-作者はdraftをevaluateして重要仮定を仕上げ、独立Reviewでsourceと金融的妥当性を再確認してからpromoteし、CAAの比較理由へ接続する。contextのコピーは独立検算ではない。Review後にcoreを変えたらReviewを取り直す。Review前のexit 2は`thesis_status / errors`を確認して計算資料として読み、他のerrorを`|| true`等で握りつぶさない。
+作成・evaluate・独立Review・promote・CAAへの接続順序は[Research skill](../../.agents/skills/research/SKILL.md#company-research)が所有する。
 
 <a id="permanent-loss-axes"></a>
 
@@ -113,7 +113,7 @@ primary_source_check=verifiedは重要な判断根拠を確認した意味で、
 
 ## 公開・読込
 
-schema20の既存thesis/thesis_reviewへ同一connection・短いtransactionで原子的に公開する。v4単独公開やReview後付けを持たない。`published_at`はwriterの公開時刻で、`judgment.proposed_at`とは別。DBのrecommendation列にはdispositionをそのまま保存する。
+現行application schemaのthesis/thesis_reviewへ同一connection・短いtransactionで原子的に公開する。v4単独公開やReview後付けを持たない。`published_at`はwriterの公開時刻で、`judgment.proposed_at`とは別。DBのrecommendation列にはdispositionをそのまま保存する。
 
 同IDはThesisとReview両方の同内容ならno-op、異内容は拒否。後続更新や現在価格で過去公開を再審査しない。新revisionは同tickerの直前revisionをsupersedeし、as_ofを遡らない。最新は`as_of DESC, published_at DESC, thesis_id DESC`で先に選び、その後に検証する。旧版・不利・未解決から過去candidateへfallbackしない。旧payload・ID・hash・ledgerは変更せず、履歴表示と取引事実のidentity参照に使う。
 

@@ -1,6 +1,6 @@
 interface:
   display_name: "Baibai Research Triage"
-  short_description: "候補抽出から research-triage publish・人間の選択待ちまで"
+  short_description: "保存済みReview SetのTriageと人間の選択待ち"
   default_prompt: "Use $research-triage to run this Baibai Loop operation."
 policy:
   allow_implicit_invocation: true

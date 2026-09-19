@@ -1,9 +1,25 @@
 # Owner MCP
 
-調査・資本確認にL1/L2/L3の保存dataを見せる所有者用stdio adapterです。
-既存の用途別11 toolsに、`data_catalog` / `data_list` / `data_get`を加えています。
+保存済みのL1/L2/L3とapplication記録を読み取り専用で提供する所有者用stdio adapterです。用途別toolと`data_catalog / data_list / data_get`による共通入口を持ちます。
+
 ChatGPT Webの通常ChatからSecure MCP Tunnelを経由して呼びます。Work / Agent mode /
 Desktopのlocalhost bridgeには依存しません。production packageや定期batchからは起動しません。
+
+## 公開tool
+
+server名は`baibai-loop-owner`です。公開toolは次のとおりです。
+
+- `l1_resolve_current`
+- `l1_describe_dataset`
+- `l1_query`
+- `triage_resolve`
+- `triage_get_input`
+- `triage_get_judgment`
+- `portfolio_get_exclusions`
+- `screening_get_review_set`
+- `data_catalog`
+- `data_list`
+- `data_get`
 
 ## 準備と起動
 
@@ -38,7 +54,7 @@ Tunnel clientは[公式配布](https://github.com/openai/tunnel-client)のchecks
 Tunnel clientにはTunnel Runtime keyだけを渡す環境に分けます。通常shell全体の環境をコピーしません。
 Tunnel ID・organization・workspace・API keyは個人のlocal設定に保持します。
 
-ChatGPT側でTunnelのcustom appを接続します。公開するtoolは下記の11個だけです。
+ChatGPT側でTunnelのcustom appを接続します。公開toolは[一覧](#公開tool)を参照してください。
 すべて`readOnlyHint=true`、`destructiveHint=false`、`openWorldHint=false`です。
 PCとTunnel clientが動作している間だけ利用できます。
 
@@ -53,13 +69,13 @@ tool名・schema・説明を変更したら、稼働中serverの変更に加え�
 
 1. Tunnel clientとMCP本体を起動した状態で、ChatGPTの対象接続を開く。
 2. 接続詳細の **Refresh** を実行する。ブラウザのページ再読込とは別の操作である。
-3. tool一覧が下記の11 toolsになったことを確認する。
+3. 接続が返すtool名・schemaが更新したserver登録と一致することを確認する。
 4. 新しい通常Chatで更新済みの接続を選び、受入テストを実行する。
 
-旧fixtureの`g0_echo`だけが見えて実行時に`Unknown tool: g0_echo`となる場合は、
-本体切替後も古いtool定義を参照している可能性があります。上の一覧が変わるまでSQLの受入へ進みません。
+古いtool名や`Unknown tool`が出る場合は、稼働serverと接続metadataを照合する。ブラウザの再読込だけをmetadata更新とみなさず、tool名・schemaを確認してから受入へ進む。
+
 Refreshを利用できないdeveloper接続では、同じTunnelを選んだ新しいdeveloper接続を作成し、
-そのtool scanで11 toolsを確認します。TunnelやAPI key自体を作り直す必要はありません。
+そのtool scanで更新したtool名・schemaを確認します。TunnelやAPI key自体を作り直す必要はありません。
 公開済みpluginはmetadata snapshotを使うため、公式手順に従って再scan・新versionの提出・公開が必要です。
 
 ## 保存dataの読み方
@@ -85,24 +101,9 @@ credentialを含むsource URL・provider errorは既存のredactionを通して�
 例の日付は実際の評価日に置き換えてください。readingは現在のstore履歴と既存rulesから再計算したL2です。
 過去L3を自動で混ぜません。保存Macro Contextは`macro.context`から別に取得します。
 
-| resource群 | 内容・authority |
-| --- | --- |
-| `market.<LAKE_DATASETSのname>` | R2 fixed release。catalogが既存l1_*へ案内。generic list/getは不可 |
-| `market.source_coverage` / `market.capital_policy_snapshot` | market store-localの保存fact |
-| `macro.series` / `macro.observation` / `macro.provider_run` | Git registry、全保存履歴、取得状態 |
-| `macro.reading` / `macro.context` | read-time L2と保存L3を別々に取得 |
-| `screening.run` / `screening.security_analysis` / `screening.review_set` | run header、候補外を含む全分析、full Review Set |
-| `screening.calibration.cohort` / `.panel_row` / `.forward_row` | atomic currentの保存結果。共通snapshot_tokenで置換を検出 |
-| `screening.er_calibration_context` | 保存artifactと利用不可理由。期限切れ値を有効化しない |
-| `research.triage` / `.thesis` / `.thesis_review` / `.capital_allocation_assessment` | 保存原本。L2 pruneや現在の購入適格性から独立 |
-| `position.review` / `portfolio.outcome` | 保存済み保有判断・成果 |
-| `portfolio.ledger` / `.ledger_event` / `.market_price` | 台帳metaとappend順の全取引、保存価格。時価quoteとは別 |
-| `task` / `operation.session` | 保存状態。mutable recordは同じkeyでもrefが変わり得る |
+利用可能なresource・selector・filter・sort・time basisは`data_catalog`の実応答を参照する。macro Readingの再計算と保存Contextの取得、ledgerの保存価格と現在quoteは別のresourceである。
 
-一覧は既定200件・最大2000件のkeyset pageです。`next_cursor`があれば同じresourceとcursorだけで継続できます。
-filtersを再指定する場合は元と一致させます。256KiBのwire上限に入る完全itemまでを返し、
-1 itemまたはget全体が入らない場合は`RESULT_TOO_LARGE`です。成功時に要約・丸め・省略はしません。
-publication一覧はmetadata、数値row一覧は値を含みます。runとledgerはheaderと子一覧から読めます。
+一覧はkeyset pageで返す。`next_cursor`の継続条件は元の呼出しと一致させる。itemを途中で切らず、完全なitemまたはget結果を上限内で返せない場合は`RESULT_TOO_LARGE`になる。limitの範囲は入力schema、wire上限は実装contractを参照する。
 
 日付範囲は両端inclusiveです。timestampの期間条件はJST日、date列はその日付です。
 macro observationのeffectiveは`as_of >= to`、省略時は`to`をcutoffとします。
@@ -118,7 +119,6 @@ calibrationでは最初の`meta.snapshot_token`を後続のfilters/selectorへ�
 旧publicationは識別可能な旧schemaだけ`validation=stored_only`とし、現行schemaの破損は`CONTRACT_MISMATCH`です。
 選択したpublicationの保存列と本文の識別情報が矛盾する場合も`CONTRACT_MISMATCH`です。
 現在のThesis/CAA適格性やledgerの時価評価は原本閲覧時には実行しません。
-新resourceはdomain read owner → read_api → adapter/request model → catalog登録 → fixture testの順で追加します。
 新series・tickerにtool追加は不要です。MCPから取得更新・publish・任意file/SQL読取・broker操作はできません。
 
 ## L1の読み方
@@ -150,33 +150,17 @@ query例（`release_ref`はresolveの返り値をそのまま使います）:
 }
 ```
 
-sourceは1〜6個、aliasは小文字英字で始まる英小文字・数字・underscoreの32文字以内で重複不可です。
-`from` / `to`は必須のISO日付で両端を含みます。存在するpartitionのうち期間と交差するものだけを読み、
-SQL実行前に行の期間・列を限定します。列省略時はdatasetの全列を使います。
-空期間は空tableとして扱い、結果ゼロ件やaggregateの結果を返します。
+sourceで宣言したdataset・期間・columnだけをSQLへ渡す。日付範囲は両端を含み、空期間は空tableとして集計できる。alias・個数・文字数などの形式は公開toolの入力schemaを参照する。
 
 SQLは単一SELECT / WITHです。CTE、JOIN、集約、windowを利用できます。
 `parameters`はnamed scalar（文字列・整数・有限小数・真偽値・null）のobjectで、SQLへ文字列展開しません。
 DDL/DML、複文、設定変更、拡張導入、ファイルやURLの読取は拒否します。
-SQLごとにsecretを渡さない新しい子processを起動し、trusted loaderがtableを作った後に
-DuckDBのexternal accessを無効化して設定をlockします。timeout時はterminate / kill後に回収します。
+SQLからの外部I/Oは認めず、指定した保存dataだけを分析する。実行資源は既存の上限で制限する。
 
 ## L1の上限と結果
 
-数値の正本は[L1 contract.py](../l1_mcp/contract.py)の`LIMITS`です。
-同時実行は1件で、競合は`BUSY`です。
+数値上限は[L1 contract](../l1_mcp/contract.py)の`LIMITS`が所有する。同時実行の競合は`BUSY`、行数・wire容量を超える結果は`RESULT_TOO_LARGE`であり、部分結果を正常な完了として返さない。
 
-| 対象 | 上限 |
-| --- | --- |
-| queryで選択する圧縮Parquetの重複なし合計 | 256 MiB（cache hitも含む） |
-| MCP process累計gateway GET / download | 1,000回 / 2 GiB |
-| SQL / parametersのUTF-8 JSON | 各16 KiB |
-| 子processの起動・load・SQL・結果化 | 30秒 |
-| DuckDB memory / 子process仮想memory | 512 MiB / 2 GiB |
-| max_rows | 既定1,000、最大2,000 |
-| MCP result全体 | 256 KiB |
-
-行数・bytes超過では部分結果を返さず`RESULT_TOO_LARGE`になります。SQLで集約するか期間を縮めます。
 結果はstructured contentの`schema`、`rows`、`row_count`、固定reference、source情報、
 `transfer`、`execution`に入ります。NULLはJSON null、整数は整数、decimalは文字列、
 date/timeはISO文字列、binaryはbase64です。NaN/Infinityやnested型等は拒否するのでSQLで変換します。
@@ -207,20 +191,6 @@ warm時にimmutable objectのGETが増えないことを確認します。
 
 
 ## Canonical Triageと時点除外
-
-server名は`baibai-loop-owner`です。公開toolは次の11個です。
-
-- `l1_resolve_current`
-- `l1_describe_dataset`
-- `l1_query`
-- `triage_resolve`
-- `triage_get_input`
-- `triage_get_judgment`
-- `portfolio_get_exclusions`
-- `screening_get_review_set`
-- `data_catalog`
-- `data_list`
-- `data_get`
 
 L1実装は内部subsystemの`tools/l1_mcp`を再利用します。Triageはrepository rootの
 `stores/application/baibai.sqlite`、sourceは`stores/screening/runs.sqlite`を既存owner経由で
@@ -284,7 +254,7 @@ inputにはcanonical判断のdecision、priority、rationale、research_question
 
 ### Owner toolsの上限とエラー
 
-Ownerの用途別5 toolsとdata_*もMCP result全体256 KiBを上限とし、超過はtruncateせず`RESULT_TOO_LARGE`です。
+Owner toolsも完全な結果を返し、wire上限を超える場合は`RESULT_TOO_LARGE`とする。途中でtruncateしない。
 
 | code | 意味 |
 | --- | --- |

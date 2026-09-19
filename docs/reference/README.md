@@ -1,33 +1,29 @@
 ---
 title: "Reference index"
-summary: "artifact、式、data source、runtime、validationの安定contractを調べる入口。"
+summary: "artifact、指標、データ、実行契約の意味を調べる入口。"
 doc_type: reference-index
 status: active
 ---
 
 # Reference
 
-referenceは「artifact・式・error/warningは何を意味するか」を持つ。domain termとterm同士の関係は[`domain-language.md`](../domain-language.md)、運用手順は[`.agents/skills/`](../../.agents/skills/)の各SKILL.md、field/type/enumはDB constraintとengine model、CLI optionはpublic `--help`を正本とする。
-
-| 調べたいこと | reference |
+| 調べたいこと | 正本 |
 | --- | --- |
-| 判断文書に共通する日本語表現と意味保全 | [`judgment-writing.md`](./judgment-writing.md) |
-| Thesis v4、Base/Downside算術、独立Review、Planning | [`thesis.md`](./thesis.md) |
-| 候補横比較、購入方法、content review束縛、統合判断の正本 | [`capital-allocation-assessment.md`](./capital-allocation-assessment.md) |
-| 事業モデル別の問いと主張の裏取り | [`business-model-research.md`](./business-model-research.md) |
-| cash、reservation、execution、release、snapshot | [`portfolio-ledger.md`](./portfolio-ledger.md) |
-| hold/exit/nullと残存見返り | [`position-review.md`](./position-review.md) |
-| portfolio returnとTOPIX観測 | [`portfolio-ledger.md#historical-outcome`](./portfolio-ledger.md#historical-outcome) |
-| long-horizon estimate calibration | [`estimate-calibration.md`](./estimate-calibration.md) |
-| valuation指標 | [`valuation-metrics.md`](./valuation-metrics.md) |
-| screening CLI、SQLite、provider、Review Set / Research Triageの判断境界 | [`screening-runtime.md`](./screening-runtime.md) |
-| local daily analysisの1 command、AI前no-op、strict result、private log | [`analysis-operations.md`](./analysis-operations.md) |
-| macro layer（L1/L2/L3・深度契約・8レンズ・scorecard） | [`macro.md`](./macro.md) |
-| 外部ChatのMacro Context draft受渡し・構造検証 | [`macro-handoff.md`](./macro-handoff.md) |
-| source tierと取得失敗 | [`data-sources.md`](./data-sources.md) |
-| 信用残高の公表制度変更（2026-09-28）前後の語義と取込契約 | [`margin-publication-transition.md`](./margin-publication-transition.md) |
-| lakeのbuild/publish/固定release読み/store hydration/retention | [`market-lake.md`](./market-lake.md) |
-| write-time validation 層 | [`../architecture.md`](../architecture.md) Development gates |
-| Python、dependency、quality gate、CI | [`python-foundation.md`](./python-foundation.md) |
+| 判断文書の編集と意味保全 | [judgment-writing](./judgment-writing.md) |
+| Thesis、Base/Downside、独立Review、Planning | [thesis](./thesis.md) |
+| 候補の比較と資本配分 | [capital-allocation-assessment](./capital-allocation-assessment.md) |
+| 事業モデル別の調査 | [business-model-research](./business-model-research.md) |
+| cash、取引事実、replay、portfolio outcome | [portfolio-ledger](./portfolio-ledger.md) |
+| hold・exit・未確定と残存見返り | [position-review](./position-review.md) |
+| 見積りの較正とmethodの採否 | [estimate-calibration](./estimate-calibration.md) |
+| valuation指標と入力basis | [valuation-metrics](./valuation-metrics.md) |
+| Candidate Discovery・Review Set・Triage | [screening-runtime](./screening-runtime.md) |
+| Triage runnerの入力・終了状態・保存 | [analysis-operations](./analysis-operations.md) |
+| Macro観測・Reading・Context・分析レンズ | [macro](./macro.md) |
+| 外部ChatのMacro draft受渡し | [macro-handoff](./macro-handoff.md) |
+| 情報源の選択と取得失敗 | [data-sources](./data-sources.md) |
+| 信用残高の公表制度変更と移行 | [margin-publication-transition](./margin-publication-transition.md) |
+| lakeの公開・固定release・hydrate・保持 | [market-lake](./market-lake.md) |
+| 開発環境と品質gate | [python-foundation](./python-foundation.md) |
 
-referenceは運用sessionの進捗やIssue固有の作業履歴を持たない。
+用語と関係図は[domain-language](../domain-language.md)、操作の入口は[docs portal](../README.md#目的別の入口)を参照する。

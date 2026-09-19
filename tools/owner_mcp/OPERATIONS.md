@@ -174,7 +174,7 @@ taskを止めてもWSL内の既存processがすべて終了するとは限りま
 
 ## data tools更新後の受入
 
-稼働checkoutへ変更を取り込んだ後、既存Tunnelのmetadataを[READMEのRefresh手順](./README.md#tool定義の更新)で更新し、新しいChatで11 toolsを確認します。
+稼働checkoutへ変更を取り込んだ後、既存Tunnelのmetadataを[READMEのRefresh手順](./README.md#tool定義の更新)で更新し、新しいChatで更新したtool名とschemaを確認します。
 PRのfixture/local store検証だけでは、この受入を完了したと扱いません。Refresh待ちは未完了として記録します。
 
 catalog → macro.reading → 複数系列の履歴 → provider_run → exact Macro ContextをTriageなしで辿り、

@@ -1,7 +1,5 @@
-# stores/macro
+# Macro store
 
-provider factから再構築できるL1 macro fact storeを置くディレクトリです。
+`stores/macro/macro.sqlite`に観測・vintage・取得情報を保持します。Macro Contextはapplication DBへ保存します。
 
-- 既定パス: `stores/macro/macro.sqlite`
-- `baibai-engine macro` が必要な公式 API / CSV から取得した数値時系列を保存します
-- SQLite 本体はrebuildableでありgit管理しません。judgmentであるMacro Contextはapplication DBが所有します
+観測と改定の意味は[macro reference](../../docs/reference/macro.md)、正本と保持の境界は[architecture](../../docs/architecture.md#store-authority)、転送・復旧は[batch運用](../../batch/OPERATIONS.md)に従います。

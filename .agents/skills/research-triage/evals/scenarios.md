@@ -2,10 +2,10 @@
 
 各scenarioは最終説明だけでなく、model process / request数、input bytes、canonical write、Operationを記録し、「行わない」契約もassertする。
 
-## 1. no-ai normal day
+## 1. no Review Set
 
-- **入力** — 非営業日。
-- **期待** — model process 0、input / result artifact 0、canonical write 0で正常終了する。
+- **入力** — 正常なstoreに対象as-ofのReview Setがない。営業日か非営業日かは条件にしない。
+- **期待** — `no_review_set`、exit 0、model process 0、input/result artifact 0、canonical write 0。別日のReview Setで補完しない。
 
 ## 2. empty Review Set
 
@@ -24,8 +24,8 @@
 
 ## 5. awaiting human selection
 
-- **入力** — 2件が`research`、残りが`skip`。
-- **期待** — publish後は`awaiting_human`。Fundamental Research、broker操作、Research Setの推定を行わない。
+- **入力** — 未判断のReview Setで2件が`research`、残りが`skip`。
+- **期待** — 発行成功後は`published_awaiting_human`。exact IDと全候補を提示し、人間の選択までResearchへ進まない。既存Triageの再表示では`awaiting_human`になる。
 
 ## 6. active Operation
 
@@ -42,10 +42,10 @@
 - **入力** — unknown field、missing / duplicate ticker、または長さ違反。
 - **期待** — Research Triage / Operation write 0。旧runをresumeせず、次回はfresh runにする。
 
-## 9. missing machine input
+## 9. invalid required input
 
-- **入力** — Review Set、Review Set Entry snapshot、application storeの欠損または破損。
-- **期待** — model process 0。AIに補完させずcanonical write 0。
+- **入力** — 対象publicationはあるが、保存payload・entry snapshot・必須storeの内容が不正でAI入力を構築できない。
+- **期待** — non-zero、model process 0、canonical write 0。正常な`no_review_set`や空候補とは区別する。
 
 ## 10. manual Macro Context trigger
 

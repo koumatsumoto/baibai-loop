@@ -41,12 +41,20 @@ event rowはappend-onlyで、late reportも新規rowとして保存する。repl
 ## Snapshotの式
 
 ```text
-available_cash = cash inflows - active reservations - executions - confirmed costs/tax
+cash_before_reservations =
+    opening_balance
+    + contributions - withdrawals
+    + sell_proceeds - buy_payments
+    + confirmed_income - confirmed_costs - confirmed_tax
+
 reserved_cash = sum(active remaining_quantity * price_guard_yen)
+available_cash = cash_before_reservations - reserved_cash
 deployed_cost = sum(open FIFO lot quantity * execution price)
 book_capital = available_cash + reserved_cash + deployed_cost
 total_capital = available_cash + reserved_cash + holdings_market_value
 ```
+
+各項は対象時点までの確認済み額で、売買代金はgross、費用・税は別eventである。予約と解放を入出金へ二重計上しない。時価未評価の場合、total capitalをcash-onlyの値で代用しない。
 
 partial fill後は未約定残数だけをreservedに残す。hard errorはcash超過、重複ID、未知reservation、overfill / oversell、guard超過、expiry後buy、future row、metadata不整合。concentrationとdry powderはwarningであり、判断を禁止しない。
 

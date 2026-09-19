@@ -116,7 +116,7 @@ cache が対象 row を同定できない、diagnostics 件数と row 数が一�
 
 ### Cohort比較のbasis
 
-cohort 比較（`tools.experiments.measure_signal_cohorts`）は `--basis price|total` の両方を取る。母集団は panel に保存された `PanelRow.in_population` を正本とし、measurement tool は market cap・turnover・listing span の閾値を再実装しない。carry は配当と自己株買いでできているので、その効果量を price basis で測ると払われた現金の分だけ小さく出る。ただし total は窓内の FY 配当観測を要し、母数は horizon で変わる（price 側に対し 1y で 95%、3y で 93%、5y で 88%、3m / 6m は半分未満）。出力の `basis_coverage` が horizon ごとの両母数と `bases_comparable` を出し、被覆が足りない horizon で 2 つの中央値を並べて読むことを禁じる。既定は price のままで、これは全 horizon で解決するのが price 側だけであるため。
+cohort比較は`--basis price|total`を取り、母集団は保存された`PanelRow.in_population`に従う。totalはFY配当観測を要するため、priceと評価可能な母数が一致するとは限らない。`basis_coverage`と`bases_comparable`を確認し、被覆不足の二つの中央値を直接比較しない。既定はpriceで、具体的な被覆率は対象scopeを伴う結果へ記録する。
 
 ### 自己株式取得枠
 
@@ -124,15 +124,15 @@ cohort 比較（`tools.experiments.measure_signal_cohorts`）は `--basis price|
 
 ### Deterioration gate
 
-`gates` 座標は deterioration gate を割安 decile 内で通過群と非通過群に分けて測り、cohort 横断で同じ形の集計を持つ。
+`gates`は業績変化の条件で群を分ける診断座標であり、現行Candidate Discovery全体の除外gateではない。診断条件はcalibration evaluator、実際の選定は各Approachが所有する。
 
 ### 業種中央値basis
 
 `sector_median_basis` 座標は `smg_*` 軸を、業種中央値から作られた行と市場中央値へ落ちた行に分けて測る。素性は `PanelRow.smg_market_fallback` が持つ。落ちる業種は構造的に低倍率へ寄る側に集中するため、分けないと業種の割安と業種構成が同じ数字に混ざる。
 
-**群の水準と軸の効きは別の量として出す。** 落ちるかどうかは業種単位で決まるので市場側の群は業種の集合そのものであり、その中央値超過（`group_median_excess`）はその業種構成である。実データで各行の自業種中央値を引くと、市場側の水準は全軸・全 cohort で 0 になる。軸の効きは群の中を軸値で 2 分割した差（`axis_effect.median_excess_delta`）で測る。両側が同じ業種集合から引かれるので、構成が作れる差はごく小さい（業種内 shuffle null で +1.1〜+2.9pp、観測は +7.0〜+11.7pp、p=0.000）。市場側は 1 cohort あたり 50〜80 行で decile を組めないため `decile_spread_median` は出ないが、2 分割は分位あたり 15 行以上を保てるので両側で成立する。**`mean_axis_effect` は `stdev_axis_effect` と併せて読む。** 月末 as-of の 1y 窓は大きく重なるため独立な窓は年数程度しかなく、cohort 数だけ独立観測があるようには読めない。2 つの basis は名前の集合そのものが違うので、basis 間で `mean_axis_effect` を直接比べると軸の効きと 9 業種の振る舞いが混ざる。
+`group_median_excess`は群の構成も反映し、`axis_effect.median_excess_delta`は群の中を軸値で分割した差を測る。構成の違う二群の平均値だけで軸の優劣を決めない。
 
-2 つの側は母数が違う。母数下限を割る業種は 9 つしかないので、cohort あたり自業種が数千行に対し市場側は 50 行前後になる。50 行の decile は 1 分位 5 件なので decile spread は標本が足りる cohort でのみ併記し、cohort 横断集計は spread を出した cohort 数 (`spread_cohorts`) を cohort 数と別に持つ。spread が出せなかったことと効果が無かったことを混同させないためである。群統計 (n / median / mean / trap rate) はその群が何だったかを記述するが、比較はしない。比較は上記の `axis_effect` が担う。
+`mean_axis_effect`は`stdev_axis_effect`と併せて読む。月次cohortの窓は重複し、cohort数は独立標本数ではない。母数不足でspreadを出せない場合と、測定した効果がない場合を区別する。具体的な母数・効果量・shuffle結果はhistorical reportへ残す。
 
 ### E[r]絶対水準
 
@@ -188,27 +188,14 @@ uv run baibai-engine screening calibration-evaluate \
 
 ## store の再構築
 
-旧 CSV / L2 lake store からの移行機構は持たない。**旧 store を捨てて全 cohort を再構築する。**
-rules が動けば cohort は作り直しになるので、移行を作っても運べるのは「現行 code が読める契約で
-書かれた履歴」だけであり、実測ではそれが 0 件だった。
+対象はcalibrationのmachine snapshotであり、market L1やapplication DBではない。全再構築では保持する全cohortを覆うstart/endを指定する。先に現行snapshotを削除せず、builderのtemporary build・検証・atomic replaceを使う。
 
 ```bash
 uv run baibai-engine screening calibration-build \
-  --start 2019-11-01 --end <latest-month-end>
+  --start <YYYY-MM-DD> --end <YYYY-MM-DD> --force
 ```
 
-再構築は temporary directory の `current.sqlite` に全 cohort を書き、schema・integrity・
-measurement method の一致を検証してから正本を atomic replace する。評価中も開始時の
-snapshot を固定し、途中 publish で cohort が新旧混在しない。
-
-```bash
-uv run baibai-engine screening calibration-build \
-  --start <YYYY-MM-DD> --end <YYYY-MM-DD>
-```
-
-logicやrulesを変更した場合は、その時点の完全なmarket storeから全cohortを再構築し、現在の
-measurement snapshotとして評価する。過去入力の完全保存は、現在のproduction method改善に必要な
-品質ゲートではなく、2GB storeや別ledger objectを履歴ごとに保持する複雑性にも見合わない。
+`--force`では指定範囲だけから新snapshotを作る。入力coverage不足は再構築だけでは解消しない。説明文・commentだけの変更では、method revisionを進めず再生成しない。
 
 <a id="commands"></a>
 
@@ -242,20 +229,20 @@ E[r]水準parameterを判断する事前登録済みrunでは`--required-metric 
 
 ## 改善サイクルの運用契約
 
-基盤（マクロ読み・screening 選定・E[r]/FV/RR 見積り）の改善は独立した運用 loop を持たず、**self-contained issue → 通常の PR delivery** で回す。1 改善 = 1 issue = 1 PR。issue には観察（レポート参照つき）→ 仮説 → 検証方法 → 着手条件と、冒頭に `価値tier: Tn — <因果経路>`（[doctrine](../doctrine.md#improvement-value-hierarchy)）を書く。
+改善はself-containedなIssueからPRで進める。価値・採否の方針は[doctrine](../doctrine.md#improvement-value-hierarchy)、作業・提出は[AGENTS](../../AGENTS.md)が所有する。本書は実証的なmethod変更の事前登録・評価・採否を定める。
 
 ### 改善対象マップ（レバーの所在）
 
 | レバー | 所在 | 計測経路 |
 | --- | --- | --- |
-| screen の閾値・gate・valuation approach | `method/screening/rules/*.yaml` | 較正リプレイ（rules variant） |
+| Candidate Discoveryのeligibility・order・depth | `method/screening/rules/`、`screening/rule_config.py`、`screening/discovery/` | Approachとunionの較正リプレイ |
 | Nomination union | 同上 + `engine/src/baibai_engine/screening/discovery/` | 較正リプレイ（Approach別Nomination + union） |
 | 機械 E[r]・FV アンカー | `engine/src/baibai_engine/screening/estimates.py` | 較正リプレイ（er 軸 IC / decile / 予測 vs 実現） |
 | valuation 指標の算出 | metrics 系 + [`valuation-metrics.md`](./valuation-metrics.md) | 較正リプレイ（軸別 IC / coverage） |
-| マクロ読みの手順・レンズ | [`macro.md`](./macro.md) + skill `macro-context` | 保有 outcome / 月次の事後検証（N≈1、統計計測はしない） |
+| マクロ判断の手順・レンズ | [macro](./macro.md)・skill `macro-context` | 保存した判断と後続の観測の照合 |
 | research の見積り手順 | [`thesis.md`](./thesis.md) + skill `research` | portfolio outcome と長期 horizon calibration |
 | 資本・cap・sizing | [`portfolio-management.md`](../portfolio-management.md) + `position/policy.py` | 保有 outcome |
-| research triageの選定判断 | skill `research-triage`の深度契約 | Review SetからResearch Setまでの実運用の個票検証 |
+| research triageの判断 | `batch/src/baibai_batch/analysis/policy.py` | Review SetからResearch Setまでの実運用の検証 |
 
 Valuation Approachを追加・変更・削除するときは、screening rules・対応Research Playbook checklist・Review Setの構成・testを同じ変更で整合させ、根拠を較正結果に置く。
 
@@ -276,9 +263,11 @@ matched 比較の被覆率・membership 数・集中度など、forward outcome 
 
 ### 採用後
 
+以下は実証的な機械method変更を採用した場合の手順である。文書だけの変更でrun、Review Set、Triage、較正artifactを再発行しない。
+
 - 通過した変更だけを本番へ反映し、計測した構成と本番構成を一致させる。rules 改訂後は panel を `--force` 再構築する。
 - 現 asof で `screening run` → `review-set publish` を回し、dated method revisionのApproach別Nominationとexact unionを実銘柄で確認する（運用テスト）。
-- `reports/YYYY-MM-DD-<slug>.md` に再現手順・データ窓・coverage / survivorship 開示・判定表・検算・採用後の監視事項を固定する（一次計測記録。別の監査ファイルは作らない）。マージ前 gate は [`python-foundation.md`](./python-foundation.md) §9 が正本。マージ後は report の監視事項を次の replay 計測で追う。
+- `reports/studies/YYYY-MM-DD-<slug>/report.md` に再現手順・データ窓・coverage / survivorship 開示・判定表・検算・採用後の監視事項を固定する（一次計測記録。別の監査ファイルは作らない）。マージ前 gate は [`python-foundation.md`](./python-foundation.md) §9 が正本。マージ後は report の監視事項を次の replay 計測で追う。
 
 ### 判断コホートの集計
 
@@ -298,8 +287,4 @@ Research Set の ticker の research FV と screening FV の bridge は、有効
 
 ### 誠実性の規律
 
-1. 有意性・統計的優位を主張しない。効果量と cohort 勝率で判断し、そう書く。
-2. 仮説と採否基準は検証前に事前登録し、後から動かさない。
-3. survivorship・coverage の欠け・レジーム文脈を計数で開示する。
-4. 累積リターン・年率・シャープ等を track record として掲げない。
-5. post-hoc の判断はそう明記する。
+計測の主張と非目標は[doctrineの計測方針](../doctrine.md)に従う。
