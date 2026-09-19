@@ -45,8 +45,8 @@ Target到達・価格下落・経過期間・新規買いfloor未達・集中war
 
 brokerの事実を現在の投資条件で再審査しない。旧注文のpartial/late/release、未記録予約の遅延報告、部分売却・方針外追加購入も、既存identity、人間確認、cash/数量の整合確認により記録する。他tickerのquote欠損を事実記録の停止理由にしない。proposalのexitを実際の全売却と推定しない。
 
+記録手順は[Ledger Record](../.agents/skills/ledger-record/SKILL.md)、event・replay・未評価の意味は[Portfolio Ledger](./reference/portfolio-ledger.md)が所有する。
+
 ## 成果と学習
 
 既存Portfolio Outcome/TWR/TOPIX比較を使い、cash、未売却損益、配当、実費、確認税を含むportfolio全体で測る。売却済み銘柄や勝率だけで評価せず、未解決データを母数から消さない。指数とportfolioの税・費用basis差を示す。entry予測と後続評価は既存reports/studiesで照合し、新戦略の収益優位は別に検証する。
-
-確認済み入出金・配当・費用・税・売買のdraft/applyは価格不要のreplayで検証する。`position ledger`とWebは時価未評価でもcash・予約・数量・原価を表示し、未評価を0円や空保有へ変換しない。

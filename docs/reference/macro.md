@@ -9,7 +9,7 @@ status: active
 
 マクロ環境分析は **独立した機能のまとまり**（データ取得層 + 機械読み値 + リサーチの実践）であり、形式化した独自ループにはしない。狙いは、個別銘柄のinvestment caseと評価期間内の見返りを変え得る外部経路と共通riskを判断層へ供給すること。sector順位、相場方向、買い時、投入額を決めない。
 
-扱うものは性質の異なる 4 種：**① データ（L1 の事実）／ ② 機械読み値（L2 macro reading）／ ③ 環境認識（L3 macro context report）／ ④ 知見（調べ方のメタ知識）**。①②は毎営業日 CI が機械で回し、③は人間が判断するときだけ書く。マクロは標本数がほぼ 1 の判断であり、優位性の数値・統計的有意性・自動の投入額倍率は出さない（§誠実性）。
+扱うものは性質の異なる 4 種：**① データ（L1 の事実）／ ② 機械読み値（L2 macro reading）／ ③ 環境認識（L3 macro context report）／ ④ 知見（調べ方のメタ知識）**。①②は毎営業日 CI が機械で回し、③は人間が判断するときだけ書く。本工程の統計的な位置付けは末尾の「誠実性」に従う。
 
 ## ① データ：indicator series を引く
 
@@ -26,11 +26,11 @@ uv run baibai-engine macro refresh us.10y --start 2026-06-20 --end 2026-07-02   
 uv run baibai-engine macro refresh us.10y --all-history --end 2026-07-20        # provider が提供する全履歴を同期
 ```
 
-`get` は取得済み範囲のキャッシュを確認し、不足があるときだけ provider を呼ぶ。同じ入力には同じ出力を返す（決定論）。`get --latest` はJSTの運用日を `asof` とし、§② の reading rules が観測日から求める次回公表目安 + 猶予までは cache を返し、境界を超えた場合は provider を再取得するため、公表ラグと鮮度判定の知識は reading rules が一元的に持つ。再取得する期間幅は鮮度閾値とは別の契約であり、service の `LATEST_FETCH_LOOKBACK_DAYS`（daily 14 日・weekly 60 日・monthly 以下 370 日）を `get --latest` と日次batchが共用する。
+`get`は取得済み範囲を確認し、不足があればproviderを呼ぶ。同じcommand引数でもstore状態・source改定・実行日によって結果は変わる。計算の決定性は、保存入力・採用vintage・規則・as-ofが固定されている場合の性質である。`get --latest` はJSTの運用日を `asof` とし、§② の reading rules が観測日から求める次回公表目安 + 猶予までは cache を返し、境界を超えた場合は provider を再取得するため、公表ラグと鮮度判定の知識は reading rules が一元的に持つ。再取得する期間幅は鮮度閾値とは別の契約であり、service の `LATEST_FETCH_LOOKBACK_DAYS`（daily 14 日・weekly 60 日・monthly 以下 370 日）を `get --latest` と日次batchが共用する。
 
 `refresh --all-history` は provider ごとの取得可能な先頭日から強制再取得する。派生系列（`derived` provider）は外部ソースを持たず入力系列の重なりが履歴なので、どの base 系列よりも古い床から入力を読み直して全期間を再計算する（base 系列を先に同期してから回す）。月次整列は月内の各入力の最終観測を使う。market data を月末まで使う数式は選択入力の最終観測日を出力日とし、月初への backdate を防ぐ。数式変更で observation grid を置換する系列は provider spec で個別に宣言し、既存 period を欠く候補なら削除前に失敗して履歴を保持する。FRED 系列は現在の `fredgraph.csv` が返す先頭日を再現可能な境界とし、その日より前の観測を残さない。各系列の observation は registry の `source_url` と一致する cache だけを保持し、同内容の連続 vintage は provider run に取得記録を残して observation から除く。値・単位・期間・取得状態・source が変わる revision と、値が変化して同じ水準へ戻る revision は保持する。JP provider の契約期間や公表 archive が先頭日を制限する場合は、実際の取得範囲と制約を運用記録へ残す。
 
-observation は `(series_id, observed_at, vintage_at)` を主キーに upsert する。多くの provider は取得時刻を vintage として刻むが、挿入前に vintage を除いた内容（値・単位・期間・取得状態・source）を既存最新 vintage と比較し、変化が無ければその再取得行を捨てる。したがって **同じ refresh を何度実行しても、ソースが改定した series の観測だけが新 vintage として増え、それ以外はテーブルが不変**になる（べき等）。日次バッチは asof を終端とする frequency 別の窓（daily 14 日・weekly 60 日・monthly 以下 370 暦日）を毎回丸ごと再取得するため、窓内で起きた一時的な取得失敗は次の成功実行が同じ窓を引き直して自動でバックフィルする。窓を超える長期の取得断や旧 vintage の全面リベースが必要なときだけ `refresh --all-history` を運用レバーとして使う。
+observation は `(series_id, observed_at, vintage_at)` を主キーに upsert する。多くの provider は取得時刻を vintage として刻むが、挿入前に vintage を除いた内容（値・単位・期間・取得状態・source）を既存最新 vintage と比較し、変化が無ければその再取得行を捨てる。同内容の再取得ではobservationの重複vintageを増やさない。provider runには実際の取得記録が残るため、再実行してDB全体が不変になるという意味ではない。日次バッチは asof を終端とする frequency 別の窓（daily 14 日・weekly 60 日・monthly 以下 370 暦日）を毎回丸ごと再取得するため、窓内で起きた一時的な取得失敗は次の成功実行が同じ窓を引き直して自動でバックフィルする。窓を超える長期の取得断や旧 vintage の全面リベースが必要なときだけ `refresh --all-history` を運用レバーとして使う。
 
 誤って入った observation は削除では消えない。cloud との merge は双方の fact を必ず戻す no-loss 契約なので、ローカルで消しても次の push で復活する。この契約は本物の履歴を守るためのものなので緩めず、代わりに **今わかっていることを新しい vintage として上に積む**: `baibai-engine macro retract <series_id> --observed-at <date> --expected-vintage <ts>` が対象 observation 日の**最新 vintage を撤回**し、その 1 つ下にあった状態を現在時刻の vintage で書き直す。撤回する vintage を名指すのは publish の `--expected-head` と同じ compare-and-swap で、これが無いと同じコマンドの 2 回目が「復元した行の下にある誤値」を読んで書き戻してしまう。名指してあれば 2 回目は拒否になる。**撤回対象が derived 系列の入力なら、その derived 系列の同じ日も先に撤回する必要があり、コマンドが書き込み前に拒否して対象を印字する**（derived は自分の観測を持つので、入力を撤回しても計算済みの値は消えず、再計算でも直らない）。
 
@@ -142,9 +142,9 @@ uv run baibai-engine macro get jp.pmi_manufacturing --start 2023-01-01 --end 202
 
 初期 response は full chart history を持たず、一覧用に各系列の約1年・月次 period-end を最大13 pointだけ返す。これは方向を走査する固定windowで、期間・粒度selectorの対象ではない。行を開いた時だけ `/api/macro/series/<series_id>` がその 1 系列の daily 全履歴を返し、詳細chartの期間 `1y | 5y | 10y | max` と粒度 `daily | weekly | monthly | yearly` は browser 内で絞る。`series.yaml` に `tradingview_symbol` がある系列だけ TradingView の該当 symbol を新規 tab で開く。
 
-### 運用テスト（series / provider を変更したら必ず回す）
+### 変更時の検証
 
-データ層の品質は **運用テスト** で担保する。すべて失敗 0 件で通す：(1) 全 series スイープ（`list | get --latest`）で error / stale を 0、(2) 桁・単位の妥当性、(3) provider ストレス（rate-limit 系を 1 プロセスで refresh し 429 が出ないか）、(4) 派生計算の単位整合（net liquidity = FRB総資産 − RRP − TGA、単位換算を明示）、(5) alias 解決、(6) 決定論、(7) `uv run pytest` とmacro model / config loaderのnegative test。
+変更したprovider・計算・registryの契約を既存testで確認し、[Python foundation](./python-foundation.md#9-ci-and-local-parity)のmacro store検証を行う。外部の取得挙動を変えた場合は、その取得経路を確認する。任意の変更ごとに全系列のstaleをゼロにすることや、全providerのstress実行は要求しない。
 
 <a id="macro-reading"></a>
 
@@ -157,45 +157,23 @@ uv run baibai-engine macro reading --asof 2026-07-24                 # 表形式
 uv run baibai-engine macro reading --asof 2026-07-24 --format json   # 機械読み
 ```
 
-各系列について次を出す。
+### 解釈上の注意
 
-| 読み値 | 意味 |
-| --- | --- |
-| `latest_value` / `observed_at` | asof 以前で最も新しい観測とその観測日 |
-| `staleness_days` / `stale` | asof − `observed_at`。次回公表目安 + 猶予を超えたら `stale` |
-| `next_print_estimate` / `print_due_in_days` | `observed_at + 1 publication_cadence + publication_lag_days` で求める次回公表目安と asof からの日数。負値は公表済みのはずで取得待ち |
-| `window_years` / `window_observations` | percentile / z-score を計算した実効窓と、その窓に入った観測数 |
-| `insufficient_history` | 実効窓を履歴が満たさない。`percentile` / `z_score` は null になる（判定は下記） |
-| `statistic` / `statistic_unit` / `statistic_value` | percentile / z-score が位置を測る対象（`level` = 水準そのもの、`yoy` = 前年比 %）と、その単位・最新値 |
-| `percentile` | 実効窓の統計標本のうち `statistic_value` 以下の割合（0〜1） |
-| `z_score` | (`statistic_value` − 標本平均) / 標本標準偏差。標本が定数なら null |
-| `short_trend` / `long_trend` | 規則の月数だけ前の基準日以前で最新の観測に対する変化。`anchor_observed_at` を併記する |
-| `flags` | 教科書的な閾値に触れていることの注記（PMI<50、curve 逆転、ERP≤0、VIX≥30 等） |
+- percentileとz-scoreは`statistic`が示すlevelまたはyoyの分布内位置である。latest valueとtrendまでyoyへ変わるわけではない。
+- `insufficient_history`では位置統計を使わない。観測された最新値そのものまで無効にする意味ではなく、期間・鮮度を示して読む。
+- `next_print_estimate`はcadenceとlagからの推定で、公式event calendarではない。`stale`は観測の古さであり、値の誤りの確定ではない。
+- flagsと極端なz-scoreは確認の入口であり、売買signalや誤値判定ではない。
+- 異なる実効窓とsampling cadenceを同じ物差しとして比較しない。`window_years`、`window_observations`と規則revisionを確認する。
 
-読み方の規律：
-
-- **`insufficient_history` の系列は水準比較に使わない**。窓を満たさない履歴で percentile を出すと、その系列自身の短い生涯の中の順位を「歴史的な位置」と読み違える。reading は計算を拒否して null を返す。判定は 3 条件で、**先頭観測が窓の先頭 1/10 までに始まっている**（provider の rolling 窓のずれと、月次・四半期の観測日粒度を吸収する猶予）・**窓内の観測が 8 件以上**・**frequency が示す期数の 6 割以上が埋まっている**（週次・月次・四半期のみ。日次は「1 年に何営業日あるか」が frequency の性質ではないので件数を課さない）のいずれかを欠けば立つ。密度を見るのは、欠落が均等に散らないためである: 人手で埋めるソースは直近の月から埋まるので、穴の空いた 10 年窓は「直近の分布に 10 年のラベルを貼ったもの」になる。実際の件数と期待件数は `window_observations` / `expected_observations` に出る
-- **`next_print_estimate` は公表予定日の目安であり、イベントカレンダーではない**。`publication_cadence` の次期と `publication_lag_days` だけから決定論で導出する。daily の既定は `business_daily` で推定日が土日なら翌平日へ送り、土日も観測を持つ系列は `calendar_daily` を明示する。cadence の既定は registry frequency だが、統計標本は月次でも当月値を営業日更新する `us.erp`、日次観測を週次バッチで公表する H.10 / EIA のような系列は override する。祝日や当局の個別日程は手維持しない。`print_due_in_days` が小さい正値なら公表が近く、負値なら公表済みのはずで取得待ちである。精密な会合・イベント日は L3 monitoring で一次情報を確認する（推定は上端であり entry timing には使えない。後述の「意図的な境界」）
-- **`stale` は provider の無音の停止を疑う合図**であって、値の否定ではない。観測の齢は公表ラグと週末を含むため、境界日は **`next_print_estimate + staleness_margin_days`** から同じ calendar arithmetic で導出する。`staleness_warn_days` はその観測日から境界日までの日数を表示する。次の公表を待っている平常時には出ず、1 回の公表落ちで出る水準である。lag / cadence が frequency default と構造的に違う source（H.4.1 の翌日公表、EIA の日次価格を週次でまとめる FRED、M+2 公表の JOLTS、OECD の中継、日次更新する月次派生値）は系列別に override する。**閾値が緩すぎると 2 公表分の欠落を通す**ので、公表が速い source ほど閾値も短くする
-- **`flags` は signal ではなく注記**である。閾値に触れたことを見落とさないための機械的な指差しで、水準の解釈と行動は L3 の判断に属する
-- **`z_score` の極端値は誤値と真の市場極値の両方で出る**。どちらかは reading では決めず、L3 が一次情報と突き合わせて判断する。政策正常化のような構造変化では正しい極値が何か月も端に居座るので、続いて見えることを慣れの理由にしない——居座り自体が「現行水準がまだ履歴に無い」という読みである
-- **percentile は `statistic` と一緒に読む**。水準の尺度が自らの履歴でしか決まらない系列（物価・数量の指数、名目の集計値、累積の雇用者数、株価指数）は水準の percentile が時間の経過を映すだけになるため、`statistic: yoy` として前年比 %の分布内の位置を出す。金利・スプレッド・比率・DI・ボラティリティ・為替・商品価格は水準自体に解釈があるので `level` を保つ。`yoy` の系列でも `latest_value`・`flags`・`short_trend` / `long_trend` は水準のままで、trend は系列自身の単位の絶対変化、percentile は %変化の位置を示す
-- **統計標本の1点は reading rule の `sampling_cadence` に合わせる**。既定は registry frequency から解決し、monthly / quarterly 系列は同じ暦月・暦四半期の最終観測1点へ折ってから level / yoy を計算する。取得 cadence と統計 cadence が異なる source は系列 override で分離する。latest value・trend・flags は折る前の観測を読む
-- **`statistic_value` が null なら位置は出ない**。前年比は 1 年前の観測を相手に取るので、その月が欠けている系列（相手が 380 日より前しかない）や相手が 0 以下の系列は該当点を標本から落とし、最新点が落ちれば percentile / z も null にする
-
-計算規則は `method/macro/reading/<ISO8601>.yaml` の dated revision に置き、reading 出力は使った `rules_revision` を併記する。規則は **frequency 別の defaults + 系列別 override** で解決する。系列を registry へ追加しても規則の編集を要求しない（defaults が解決する）ことが設計要件であり、override は「default が事実に反する系列」だけに書く：provider の配信範囲が構造的に短い系列（J-Quants Light の 5 年 rolling、`spglobal_pmi` の manifest が持つ月だけ、ICE BofA OAS の 3 年）は percentile の実効窓を、水準に位置が無い系列は `statistic` を、公表 cadence / lag が frequency default と違う source（日次更新する月次派生値、H.4.1 の翌日公表、M+2 公表の月次、OECD 中継）は `publication_cadence` / `publication_lag_days` / `staleness_margin_days` を、教科書的な閾値を持つ系列は flags を override する。**全登録系列で規則解決が成立すること**は test が保証し、解決できない系列があれば fail する。1 つの系列は複数の理由で override されるため、**同じ series を 2 度書いた revision は load 時に失敗する**（YAML は後の entry だけを残すので、上の設定が黙って落ちて「適用済み」と読める）。
-
-`schema_version: 1` の既発行 revision は引き続き load・再計算できる。その revision では当時存在しなかった `next_print_estimate` / `print_due_in_days` を null とし、既存の明示 `staleness_warn_days` をそのまま使う。`schema_version: 2` は publication lag / margin を契約とし、`staleness_warn_days` の明示を拒否する。系列固有の鮮度差は lag / cadence / margin を override して表す。両 shape の混在を load 時に拒否するため、過去 revision の意味を現在の lag 推定で書き換えない。
-
-`statistic` の既定は `level` なので、水準に位置が無い系列を registry へ追加したら override を書く（書き忘れは percentile が 100% 近傍に張り付く形で reading 自身に現れる）。`yoy` の系列では窓の先頭より 13 か月前まで raw を読み、標本は窓の中だけを使う。履歴が窓の先頭で始まる系列（provider が rolling 窓を配信する場合）は先頭 1 年に相手が居ないため標本がその分薄くなるが、`insufficient_history` の判定は raw 履歴が窓を張るかで行うので percentile は出る。
-
-percentile の実効窓を短縮した系列は、provider の履歴が伸びて default に届いたら override を外す（`window_years` が default と一致しているかを規則改版時に確認する）。
+規則は`method/macro/reading/`のdated revisionに置き、出力の`rules_revision`で識別する。frequencyの既定と系列固有のoverrideを使い、既定がsourceの性質に合わない箇所だけを上書きする。厳密なfield・閾値・旧revisionの読込条件はrule modelとloaderを参照する。過去revisionの意味を現在の規則で書き換えない。
 
 reading は L1 store を読むだけの純関数で、provider を呼ばず DB へ書かない。したがって過去日の asof でも同じ入力から同じ snapshot を再計算できる。CLI・read API・indicator chart は共通の store reader を使い、`ProviderSpec.point_in_time_vintage` を宣言する source だけを `vintage_at <= asof` へ clamp する。宣言のない bulk history の `vintage_at` は取得日時であって当時の公表日時ではないため、一律 clamp して取得前の過去 snapshot から既知だった履歴を消さない。専用 store は持たず、日次バッチが `baibai-web` 向けの現在読み値（`/api/macro`・`views/macro.json`）へ投影し、L3 レポートは引用した snapshot を `inputs.reading_snapshots` に記録する。Web projectionは指定asofのreadingを1回組み立て、canonical snapshotを増やさない。
 
+過去as-ofの再計算は、全sourceの改定前情報を当時のまま再現する保証ではない。取得時刻と公表vintageを区別する。
+
 Baibai Loop の Macro タブは、上から **現在のマクロ局面 → マクロ経済指標 → 過去の経済分析レポート**の順に表示する。現在読み値は `web/config/macro-panel.yaml` の 7 group 順に `series_id` で join し、最新値・観測日・短期/長期トレンド・`statistic`・percentile・`z_score`・実効窓・注記を並べる。行を開いた後だけ拡大チャートを取得する。**チャートの期間・粒度と percentile の実効窓は別物**なので、列見出しの ⓘ で明示する。
 
-行に出る状態は 4 つで、**取得失敗・`stale`・`insufficient_history` の 3 つは取得側の問題**（percentile の解釈可能性を壊す）、**`|z_score|` ≥ 3 の分布の端は読み値そのもの**である。極端な z を health に混ぜない：端にいることは reading が測った位置そのもので、panel の結論に最も近い情報である（誤値でないことの確認は L3 が一次情報と突き合わせて行う）。現在読み値は 4 分類の件数を持ち、同じ分類が一覧の絞り込みでもある。indicator store が無いときも現在局面と report index は表示し、読み値だけを unavailable にする。
+取得失敗、stale、insufficient_history、分布の端は別の状態である。系列の開始時点や配信範囲による履歴不足は、再取得すれば必ず解消する障害ではない。現在読み値ではこれらを件数と絞り込みに使い、indicator storeがない場合は読み値をunavailableとして、保存済みContextとreport indexを表示する。
 
 ## ③ 環境認識：macro context report を publish する
 
@@ -246,42 +224,33 @@ force の候補は §② reading の flags・|z| 極値・percentile 端・ト�
 | core | 5 | 流動性・信用・リスク選好（`liquidity_credit`） | net liquidity、credit OAS、VIX/MOVE、NFCI | funding条件と共通tail riskを示す |
 | core | 6 | 為替（`fx`） | USD/JPY、金利差、実質実効為替 | 円水準の両側リスクを非対称ごと示す |
 | core | 7 | 日本（`japan`） | BOJ政策、国内賃金物価、鉱工業生産、海外投資家フロー、日本の需要fact | 日本経済の需要・費用・為替感応度への接続を示す |
-| core | 8 | バリュエーション（`valuation`） | 米 ERP / CAPE、日本 ERP（市場全体PERまたは益回り − JGB 10y）、金、BTC | 各資産の相対的な位置を示す |
+| core | 8 | バリュエーション（`valuation`） | 米ERP / CAPE、日本の市場PER・益回りとJGB10y、金、BTC。益回りと金利の差は同じ尺度で比較する | 各資産の相対的な位置を示す |
 | core | 9 | リスク選好環境の評価とシナリオ（`risk_environment`） | セクション2〜8を支持・反証する系列 | 攻め／守りどちらの環境かを `stance`・確度・**反証条件**付きで評価し、base / bear / bull を **確率**と scorecard 条件付きで置く |
 | core | 10 | 監視ポイント（`monitoring`） | 次の公表・会合と観測条件 | 何が出たらどの見方を変えるかを prose で明記する |
 | connection | 11 | 日本株ループ接続（`japan_equity_loop`） | core が引用済みの series のみ | research 優先度ヒント（効く候補タイプを `applies_to` で判別可能に）、sector tilt、sizing caution、**バーゲン地形（`bargain_topography`）**、**機械見積りの歪み補正（`estimate_caveats`）** |
 
-共通 field：
+### 入力と判断の束縛
 
-- `context_id` / `as_of` / `published_at`。`as_of`は**市場データの最終完全営業日**にする（著述日ではない）。screening review-set publishはpoint-in-time整合のため`as_of ≤ Review Set ASOF`のcontextだけをbindするので、週末・祝日に書くcontextの`as_of`を著述日にすると直近Review Setへ恒常的にbindされない
-- `inputs.articles`：外部記事の一意な`input_id`、source / title / url / published_at / accessed_at / status / used_for（記事本文や監査ログは保存しない）。statement の `source_ids` は既知の正常取得 input へ解決する。引用が主張を十分に裏づけるかは独立 review で確認する
-- `inputs.indicator_series`：一意な`input_id`、`baibai-engine macro`で確認したprovider / series / window / observation_as_of / status / used_for
-- `inputs.machine_snapshots`：引用した自前コマンドの決定論出力（`screening market-snapshot` 等）。一意な `input_id`、`command` / `snapshot_asof` / `observation_as_of` / `accessed_at` / `status` / `used_for`。**自前出力は記事ではない**ので `inputs.articles` へ入れない：発行者も URL も無く、コマンドと訊ねた日付が identity である（記事枠へ入れると定義 doc の URL が数値の出所として読まれる）。`snapshot_asof` は as_of より未来にできず、`observation_as_of`（実際に使った最終市場日）はその as_of を超えられない。scorecard は専用 snapshot 契約で context / rules revision / 両 store / result digest も固定し、観測を 1 件も使わない pending-only 結果だけ `observation_as_of: null` を許す
-- `inputs.reading_snapshots`：引用した macro reading の `rules_revision` と `reading_asof`。**reading input を持たない draft は publish されない**。レジーム要約は reading input を引用する必要があり、共通座標を機械読み値から始めることを強制する。`reading_asof` は as_of より未来でも 7 日より古くてもならず（reading は任意の as_of で再計算できるので、レポートは自分の as_of の reading を引く）、`rules_revision` は `method/macro/reading/` に実在する revision でなければ publish されない
-- core の各セクションは`series_ids`、source付き`fact_summary`、方向・確度・source付き`judgment`、source付き`economic_connection`を持つ。connection セクションは`economic_connection`を持たず、代わりに`core_section_ids`とループ固有の項目を持つ
-- `material_deltas`：core セクション2〜8の判断として置く。channel / direction / materiality / used_forを持ち、レポート全体で最低1つ必要
-- `synthesis`：dominant force を 1 件以上置き、§synthesis の参照方向契約に従う。`interactions` は必要な場合に置く。**publish の要件**
-- `probability`：セクション9の base / bear / bull に 1 つずつ置く主観ウェイト。0.05 刻み・各 [0.05, 0.90]・3 件合計 1.00（検証は整数化算術で決定論）。**publish の要件**。確率は「見立ての強さの明示」であり、優位性の数値・統計的有意性・sizing 入力のいずれでもない（§誠実性）。次回以降のレポートが settled scorecard と突き合わせることで、読みの較正データが蓄積される
-- `sizing_cautions` / `sector_tilts` / `research_priority_hints`：connection セクションだけに置く。research 優先度ヒントは 1 件以上必須（着手順位を渡すことがこのセクションの存在理由）、sector tilt と sizing caution は該当が無ければ空でよい（core が支持しない tilt を埋めるために書かせない）
-- `bargain_topography`：connection で「この局面でミスプライスがどこに・なぜ出やすいか」を書く。market snapshot への接地は独立 review で確認する
-- `estimate_caveats`：今の環境が機械見積りをどの向きに歪めるかを、`affected_component`（`fv_anchor` / `reversion` / `carry` / `resilience`）と `applies_to` 付きで書く。research はこの caveat を機械値の消化時に参照する
+| 入力 | 証拠として示すもの |
+| --- | --- |
+| articles | 実際に確認した外部資料とその公表・取得時点 |
+| indicator_series | 採用した観測source・系列・観測範囲 |
+| machine_snapshots | 自前commandの出力と対象as-of。外部記事ではない |
+| reading_snapshots | 採用したReadingのas-ofとrules revision |
 
-各`series_id`はaliasではなくseries定義のcanonical IDを使って`inputs.indicator_series`にも置き、各要約・判断・接続の`source_ids`をinputへ結ぶ。series定義にないID、inputにないseries参照、正常取得した同系列inputを引用しないセクション、failed inputを引用する判断はpublishされない。変化がmaterialでないセクションも省略せず、確認したfactと「見方を維持する条件」を記す。
+Contextの`as_of`は市場データの最終完全営業日を基準にし、著述日や`published_at`と分ける。Research Triageが判断as-of以下のeligible Contextを束縛するのであって、Review SetがMacroを入力にするわけではない。
 
-publish 済み revision は immutable なので、検証は**参照先が動くかどうか**で 2 層に分かれる。文書が自分自身について述べること（セクション構成・引用の連結・failed input・期限窓・context_id と as_of の一致）は読むたびに検証する。**registry membership と系列の公表頻度は publish 時だけ検証する**：系列の退役・改名・再分類は正常な運用であり、読み取りでも照合すると過去のレポートを遡って invalid にする。退役系列を引用するレポートは読み続けられるが、その系列を条件に持つ scorecard は採点できず、validator が warning を出す。
+summaryは全体の結論、coreは各経路の根拠と判断、synthesisは経路を横断する力、connectionは日本株の調査への含意を所有する。connectionのseriesはcoreの根拠に結び、対象の異なるresearch hintは`applies_to`で区別する。bargain topographyは市場snapshot、estimate caveatは影響する見積り成分に接続する。
+
+型・件数・ID・確率の刻み・引用参照の検証はmodelとpublish checkを正本とする。文書はschemaを写す代わりに、根拠が主張を支えるかを独立reviewで確認する。
+
+published revisionの文書内部の整合は読取時にも検証する。変動するregistryへの所属と公表頻度は発行時に検証し、系列の退役で過去レポートを読めなくしない。退役系列を使うscorecardの採点可否は、保存レポートの閲覧とは別に扱う。
 
 <a id="japanese-writing"></a>
 
 ### 日本語表現
 
-共通規則は[`judgment-writing.md`](./judgment-writing.md)に従う。Macro Contextでは、さらに次を守る。
-
-- `summary`は現況評価、支配的な力、前回からの重要な変化、最大の不確実性、リスク選好評価、scenario確率を、本文を読まなくても追える順で要約する。新しい根拠や判断を初出させない。
-- 現況、中心見通し、条件付きの将来、判断更新の観測を混ぜない。現況は観測時点を基準にし、中心見通しを置く場合は対象期間、scenarioは成立条件、monitoringは将来観測と更新方向を明示する。
-- `transmission`と`economic_connection`は、確認した起点、経路、伝達先、方向、限定の順に書く。同時発生だけから因果を確定せず、`counter_evidence`は反対仮説ではなく、名指した力または経路をどこまで弱めるかを示す反証材料として書く。
-- title、summary、synthesis、connectionのclaim scopeは、引用sourceが支持する対象、母集団、観測量、期間から広げない。titleを本文より強くしない。
-- `monitoring`は観測eventと条件を、その条件で変更する判断および変更方向へ一対一で対応させる。複数方向の条件を一つに置く場合も、条件ごとの更新方向を明記する。
-- 同じ文章をsummary、synthesis、economic connection、core sectionへ反復しない。summaryは全体の結論、synthesisは経路横断の力、economic connectionは各sectionの伝達、coreは根拠とsection判断という役割を保つ。
+判断内容を確定した後の文章編集は[judgment-writing](./judgment-writing.md)に従う。fieldごとの役割は前掲のContext構成に従う。
 
 <a id="depth-contract"></a>
 
@@ -290,7 +259,7 @@ publish 済み revision は immutable なので、検証は**参照先が動く�
 レポートは銘柄選定とスポット判断のリスクリワード判断の土台になるため、次の深度契約を常に満たす。
 
 - **統合が最上位の契約**: 支配的な力（synthesis）は、reading の極値・flags・トレンド反転を束ねて名指しし、伝達チャネルへの波及を説明する。力ごとに支持する一次情報と**反証する一次情報の両方**を読んでから書く。相互作用が判断を変える場合は joint risk を書く。この文章品質は独立 review が担い、件数で代理しない。
-- **焦点 fact 規律**: 各セクションの fact_summary は「判断を駆動する焦点 fact」（1 fact = 1 つの経済的観察）を先頭に置き、セクション全 series の座標（値・percentile・Δ）の網羅転記は**末尾の座標 fact 1 件に隔離**する。焦点が数値の壁に埋もれたレポートは統合の失敗であり、網羅性は reading snapshot の引用と UI の一覧が担う。
+- **焦点fact**：各経路の判断を動かす観測を示し、Readingの全数値を本文へ転記しない。全系列の座標はsnapshotとUIで参照できるため、数値一覧で統合判断を代用しない。
 - **テーマ被覆**: 金利・政策 / インフレ・コスト / 需要・雇用 / 為替・流動性・credit / 日本の政策・金利 / 日本の需要 / energy・地政学・通商 / 市場内部・バリュエーション の8象限すべてにfactを置く。`inputs.articles`は件数を品質の代理にせず、各 load-bearing claim と dominant force に有効な一次情報、支持 evidence、counter-evidence が解決することを独立 review で確認する。自前の `machine_snapshots` / `reading_snapshots` を外部 evidence と数えない。
 - **日本の需要fact最低ライン**: セクション3または7に、実質賃金（毎月勤労統計）または実質消費、鉱工業生産を必ず含める。取得可能ならインバウンド（訪日外客数）・機械受注も置く。米国factだけで需要判断を組み立てない。
 - **円水準の両側リスク**: セクション6に、円安継続と円反転（介入・利上げ）の両経路が輸出企業（為替換算益の剥落）と輸入コスト企業（margin回復）へ与える非対称を1つのjudgmentとして書く。片側の監視条件だけで済ませない。
@@ -298,15 +267,14 @@ publish 済み revision は immutable なので、検証は**参照先が動く�
 - **日本株バリュエーションアンカー**: セクション8に市場全体のPERまたは益回り（日経・JPX公表の一次値、または全universeのin-house中央値）とJGB 10yの対比を置き、個別FVアンカーの妥当性を外側から検算できるようにする。
 - **hintの識別力**: 全候補に等しく当てはまる助言（「net cash重視」等）はhintではない。各 research 優先度ヒントと sector tilt は、どの候補タイプ・sectorに効くかを`applies_to`で判別できる形で書く。
 - **energy・通商・地政学**: セクション4または5に、原油と通商政策（関税）・地政学tailのfactを最低1つずつ置く。
-- **reading 先読**: core を書く前に §② の reading を全系列読み、`stale` / `insufficient_history` / `flags` / 極端な `z_score` を確認する。機械読み値と自分の結論が矛盾する場合、どちらも盲信せず矛盾自体をjudgmentとして書く。
 
 ### scenario scorecard：見立てを後から採点できる形で書く
 
-セクション9の base / bear / bull は、主観確率（`probability`）と、自由文の成立条件とは別の **機械照合可能な観測条件（scorecard）** を各シナリオ 2 つ以上持つ。確率と scorecard は組で意味を持つ：確率は見立ての強さを反証可能な数値にし、scorecard はその見立てが当たったかを後から機械で確認する。次のレポートは `previous_scorecard_review` で「どの条件が成立し、置いた確率とどう噛み合ったか」を書き、当たり外れの**度合い**を記録する。条件は `series_id` + 比較演算（`below` / `at_or_below` / `above` / `at_or_above`）+ 閾値 + 期限日で書き、series はそのセクションが引用済みのものに限る。期限日は as_of より後かつ 18 か月以内で、系列の公表頻度に対して次の観測を待てる幅を持たせる。同じ条件の重複は拒否する。
+base・bear・bullの主観ウェイトと、機械照合可能な観測条件を組にして記録する。次の評価では条件の成立結果を振り返るが、成立数を予測精度の保証としない。条件の保存形式・件数・期限の検証はmodelが所有する。
 
 狙いは予測精度の測定ではなく、**機械照合できる条件でしか書けなくすることでシナリオの記述品質を事前に縛る**ことである。「金融環境が引き締まれば」のような採点不能な条件は書けなくなる。定例が無くても、次のレポートがいつになっても L1 履歴から遡って採点できる。
 
-採点は次のレポート作成時に `baibai-engine macro context scorecard --context-id <前回id> --asof <今回asof> --format json` で L1 履歴と機械照合し、結果を `previous_scorecard_review` として接続できる。ただし **前回の採点は今回の解釈の前提にしない**：今回の評価をゼロベースで確定したあとに fact として接続する。出力を machine snapshot として引用する場合は context / rules revision / store path / result digest を含む identity をそのまま使う。
+scorecardの実行と今回評価への接続は[Macro Context skill](../../.agents/skills/macro-context/SKILL.md)に従う。参照するsnapshotは返されたidentityを用いる。
 
 scorecard はレポート `as_of` の翌日から各条件の期限日までを評価する。期限内の最初の成立を `met`、期限日まで不成立なら `not_met`、期限前なら `pending` とする。読み取りは通常の L1 reader と同じ latest eligible vintage を使い、観測日の上限は条件期限、vintage の上限は採点 `asof` として分離する。provider run の再取得証明や settlement watermark は持たない。JSON は実際に読んだ store path、rules revision、採用観測の unit / vintage / source、結果 digest を含む。
 
@@ -324,35 +292,20 @@ scorecard はレポート `as_of` の翌日から各条件の期限日までを�
 
 ### 分析の独立性
 
-環境認識の前提にしてよいのは過去の客観的事実（価格・指標・イベント）だけで、過去の macro context revision にある分析・結論・tilt は前提にしない。保有中の建玉も分析に持ち込まない。一次情報と指標から、解釈を毎回ゼロベースで組み立てる。比較可能な時点からの変化と前回 scorecard の採点は、結論を確定させた後にレジーム要約のfactとして接続する。
-
-**revision は分析レイヤーであり、手順（作業の指示）を書かない**。「次回からこう調べる」といった手順の話は skill（`macro-context`）に置く。revision には、screening / research / スポット判断の前提として使う環境認識と出所のメタデータだけを残す。
-
-### 入門者向けの指標の読み方
-
-指標は単独で結論にせず、方向・水準・市場予想との差・改定を分け、同じ経路の反証指標と組にして読む。系列の一次sourceと取得上の制約は[`./data-sources.md`](./data-sources.md)を参照する。
-
-| 指標群 | 基本の読み方 | 必ず組み合わせる確認 |
-| --- | --- | --- |
-| 政策金利・国債金利 | 政策の現在地と市場が織り込む将来経路を分ける。長期金利上昇は割引率の上昇要因になりやすい | 実質金利、期待インフレ、イールドカーブ |
-| PMI・生産・雇用・消費 | 50などの基準、水準の方向、雇用の遅行性を区別する。PMI の percentile は 3 年窓（post-COVID 局面のみ）なので 10 年窓の同じ数字より含意が弱い | 新規受注、失業保険申請、生産、実質消費 |
-| CPI・賃金・輸入物価 | 総合と基調、前年比と前月比を分ける。賃金上昇は需要とcostの両経路を持つ | service CPI、実質賃金、為替、原油・銅 |
-| 為替・金利差 | 為替だけで因果を確定せず、金融政策差とrisk-offを分ける | 日米金利、VIX、trade-weighted dollar |
-| 流動性・credit・volatility | net liquidityは構成系列を同じ単位にそろえる。OASやVIX/MOVEの上昇は資金調達・risk appetiteの悪化を示し得る | NFCI、HY/CCC OAS、株式breadth |
-| 日本固有系列 | BOJ、賃金物価、海外需要、投資家フローを順に接続する | USD/JPY、実質実効為替、鉱工業生産 |
+前回の判断から隔離して今回の評価を作り、確定後にscorecardへ接続する。順序と発行条件は[Macro Context skill](../../.agents/skills/macro-context/SKILL.md)が所有する。Contextには環境認識を保存し、次回の作業指示を書かない。
 
 ## ④ ナレッジ：8 分析レンズ
 
-個別の指標は単体で読まず、以下のレンズに束ねて環境認識に使う（1枚のパネルとして横断的に読む）。操作routingはskill[`macro-context`](../../.agents/skills/macro-context/SKILL.md)、分析詳細とsource規律は本docを正本とする。
+以下は複数系列から仮説と反証を考える観点であり、固定の因果モデルや売買signalではない。
 
-1. **グローバル流動性**：net liquidity ≈ `us.fed_assets` − `us.reverse_repo` − `us.tga`（単位換算注意）。`us.m2` 前年比はリスク資産に約 10 週先行。
+1. **グローバル流動性**：net liquidity ≈ `us.fed_assets` − `us.reverse_repo` − `us.tga`（単位換算注意）。`us.m2`とrisk assetの関係は対象期間・市場・政策局面ごとに検討し、固定の先行週数を仮定しない。
 2. **実質金利・store-of-value**：`us.real_10y` + `us.breakeven_10y` + `usd_index.broad` + `gold`。名目 = 実質 + 期待インフレに分解。日本側は `jp.real_10y_proxy`（月末10Y JGB − コアCPI前年比）で、名目金利の上昇が実質でも締まっているのか、インフレに食われて実質マイナスのままかを読む。
 3. **金融環境の合成**：`us.nfci` を `vix`・`us.move`・クレジット OAS と突き合わせ、slow-burn（広範化前の局所ストレス）を読む。
-4. **リスク選好の温度計**：`btc_usd` + `vix` + `credit.us_hy_oas`/`credit.us_ccc_oas` + `us.nfci`。BTC は先行温度計になりやすい（単独 driver にはしない）。日本株の判断には `jp.n225_iv_30d` を併読する——`vix` は米国市場の恐怖で、判断対象が日本株なら代理変数になる。`jp.n225_iv_skew`（0.95 put − ATM put を 30 日満期へ補間したもの、大きいほど下落を恐れている）と `jp.n225_iv_term`（第 2 限月 − 手前限月、僅かな逆転は平常で、大きな負が目先のパニックが先の見通しより強い状態）を合わせて読む。水準の高低は他の系列と同じく **reading の `percentile` を正とする**——[option IV quantiles study](../../reports/studies/2026-07-31-option-iv-quantiles/report.md) は分位を凍結した第二の物差しではなく、この 3 系列が「いつ出ないか」「何に依存するか」を測った記録であり、store が 10 年窓を満たすまでの間だけ水準の当たりを付けるために読む。`iv_30d` と `iv_skew` は手前 2 限月が 30 日を挟む日にしか出ない（実測 83%）ので、SQ 直後に数日まとめて欠けるのは異常でなく、チェーンが 30 日を値付けしていないという事実である。同一行使価格のプットとコールの IV が大きく食い違う日は差を取る 2 つ（skew / term）を出さず `iv_30d` だけが残る——これも欠測でなく、その日は差を取れないという事実である。
-5. **景気サイクル・breadth**：`us.initial_claims` + `us.industrial_production` + `copper` + `us.russell2000` + `us.10y_3m_spread`。`us.sox` は AI/半導体サイクルと日本半導体株の先行ゲージ。
-6. **バリュエーション・ERP**：`us.sp500_earnings_yield` − `us.10y` ＝ 米ERP。益回り < 名目金利（ERP≤0）は警戒域。`us.sp500_cape` で長期割高度。**日本側は市場全体PER/益回り（日経・JPX公表値またはin-house universe中央値）− JGB 10y** を同じ構図で読み、個別FVアンカーの外側検算に使う。
+4. **リスク選好の温度計**：`btc_usd` + `vix` + `credit.us_hy_oas`/`credit.us_ccc_oas` + `us.nfci`。BTCは他のrisk指標と併読し、普遍的な先行指標とはしない。日本株の判断には `jp.n225_iv_30d` を併読する——`vix` は米国市場の恐怖で、判断対象が日本株なら代理変数になる。`jp.n225_iv_skew`（0.95 put − ATM put を 30 日満期へ補間したもの、大きいほど下落を恐れている）と `jp.n225_iv_term`（第 2 限月 − 手前限月、僅かな逆転は平常で、大きな負が目先のパニックが先の見通しより強い状態）を合わせて読む。水準の高低は他の系列と同じく **reading の `percentile` を正とする**——[option IV quantiles study](../../reports/studies/2026-07-31-option-iv-quantiles/report.md) は分位を凍結した第二の物差しではなく、この 3 系列が「いつ出ないか」「何に依存するか」を測った記録であり、store が 10 年窓を満たすまでの間だけ水準の当たりを付けるために読む。`iv_30d` と `iv_skew` は手前 2 限月が 30 日を挟む日にしか出ない（実測 83%）ので、SQ 直後に数日まとめて欠けるのは異常でなく、チェーンが 30 日を値付けしていないという事実である。同一行使価格のプットとコールの IV が大きく食い違う日は差を取る 2 つ（skew / term）を出さず `iv_30d` だけが残る——これも欠測でなく、その日は差を取れないという事実である。
+5. **景気サイクル・breadth**：`us.initial_claims` + `us.industrial_production` + `copper` + `us.russell2000` + `us.10y_3m_spread`。`us.sox`は半導体関連の市場価格を読む補助であり、その上昇だけで日本企業の需要改善を確定しない。
+6. **バリュエーション・ERP**：株式益回りと国債利回りを同じ尺度で比較する。米国は`us.sp500_earnings_yield`と`us.10y`、日本は市場の益回りとJGB10yを対比する。PERを使う場合は正のPERの逆数へ換算し、倍率のまま金利を引かない。実績/予想、指数集計/個別中央値のbasisを示し、この差を完全なrisk premium推計や売買signalとは扱わない。`us.sp500_cape`も長期valuationの文脈で読む。
 7. **グローバル中銀の同期**：`us.fed_funds.upper` + `jp.policy_rate` + `ecb.policy_rate`。1 国でなく同期を読む。
-8. **エネルギー・地政学**：`wti`/`brent` + `gold`。日本はエネルギー輸入依存が高く（中東 ~95%・ホルムズ ~74%）原油 spike が通貨・スタグフレーションに直結するため `usd_jpy` と併読。
+8. **エネルギー・地政学**：原油、金、為替、物流、通商政策が調達費用・売価転嫁・需要へどう伝わるかを確認する。輸入依存率や航路比率は対象品目、数量/金額、分母、時点と一次sourceを示す。原油上昇だけで為替方向やスタグフレーションを確定しない。
 
 ## 意図的な境界（不足ではなく設計）
 
@@ -362,7 +315,7 @@ scorecard はレポート `as_of` の翌日から各条件の期限日までを�
 
 **`next_print_estimate` は上端であり、entry timing には使えない。** これは「これ以降なら公表済みのはず」の線で、平常の公表待ちで負値や `stale` を出さないよう遅い側へ寄せてある。一方で「保有ウィンドウ内に CPI が落ちるか」のような事前確認には、**早い側に外れるイベントを見逃す**ので使えない。その用途には下端推定が要り、現状は L3 の monitoring と人手の暦確認が担う。
 
-**3 年窓の percentile は 10 年窓と同じ意味を持たない。** PMI 4 系列（manifest 起点 2022-12）・credit OAS 4 系列（ICE BofA の配信範囲）・`jp.foreign_flows` は 3 年窓で読む。とくに PMI の 3 年は post-COVID の引き締め〜緩和局面しか含まないので、「PMI 48 = 25th percentile」は 10 年窓の同じ数字より弱い含意しか持たない。reading は `window_years` と `window_observations` を出しているので機械側は誠実であり、L3 執筆時は窓の長さを見てから percentile を読む。
+percentileの比較は[Readingの解釈上の注意](#macro-reading)に従う。
 
 ## Material deltaとAIの境界
 
@@ -380,7 +333,7 @@ macro contextはdiscount rate、需要、資金調達、共通tail risk、sizing
 
 ## 誠実性（honesty firewall）
 
-マクロは標本数がほぼ 1 であり、screening のように多数の銘柄を横断する統計検証ができない。この工程は優位性の数値・統計的有意性・自動売買スコアを出さない。ここで得られるのは再現性と、判断を事実に根付かせる基盤であって、統計的な厳密さではない。§② の reading も記述統計であり、regime の機械分類・合成 score・統計的 signal は作らない。シナリオ確率もこの枠内にある：0.05 刻みの主観ウェイトは「見立ての強さの明示と後からの採点可能性」のためであり、edge の主張・有意性・自動 sizing の入力にはしない。
+この工程のContextと主観scenarioから、統計的な売買edgeや予測精度の保証は主張しない。Readingは記述統計であり、scenarioのウェイトとscorecardは見立てと条件成立を振り返るために使う。自動sizingの入力にはしない。これは本工程の根拠の範囲を限定する規則であり、macro全般の統計分析が不可能という主張ではない。
 
 ## 参考
 

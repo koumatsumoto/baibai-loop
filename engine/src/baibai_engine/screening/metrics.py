@@ -1,31 +1,8 @@
-"""銘柄ごとの財務・派生指標。
+"""Security Analysisの財務・派生指標を産む。
 
-Security Analysisの比較座標を産む。比や差を計算するときは、組み合わせる量の
-次の4つの基準を一致させる。型と有限性だけでは基準の違いを検出できない。
-
-1. **資本基準** — 発行済 (`shares_outstanding`) / 自己株控除後 (`_shares_excluding_treasury`)
-   / 期中平均 (`average_shares`)。市場が値付けする量はすべて自己株控除後で組む
-2. **株式基準** — 開示時点 / asof / 支払の基準日ごと。`_normalize_summaries_to_asof_basis`
-   が per-share 値と株数を asof へ寄せるが、配当は支払ごとに基準が分かれる
-3. **実体** — 連結 / 単体。EDINET の書類はどちらかの基準で読まれる
-   (`_edinet_describes_same_entity`)
-4. **期間** — 時点 / 期中累計 / TTM / 会社予想
-
-基準の一致は推測でなく store 自身の冗長性で確かめられる。同じ量を別経路で出す値が
-あり、実データの通期行で次が成り立つ (四半期行の `eps_ttm` は期中累計なので期間基準が
-違い、全期間の行へ広げると 4 つの基準を混ぜた数になる)。
-
-- 開示された自己資本比率 == `bps` x 自己株控除後株数 / `total_assets`
-- 報告 `profit` == `eps_ttm` x `average_shares`
-- EDINET の `total_assets` == 短信の `total_assets` (同じ連結基準)
-
-派生する 2 つの規則:
-
-- **per-share 値の和・差を作らない。** 各項が自分の期の株数で割られているので、株数が
-  動いた会社では成立しない。合成は円で行い、1 株当たりへの換算は最後に 1 回だけ行う。
-  per-share 同士の**比** (YoY) は分母の違いが希薄化を映すので正しい
-- **per-share 値と株数を掛けて総額を作らない。** 掛ける株数はたいてい別の概念で、
-  分子と分母が別の量になる。総額が欲しいなら報告された総額の行を読む
+期間・連結範囲・株式basisを合わせた報告総額から計算する。
+EPSの期中平均株式数とBPSの期末普通株basisを混同しない。
+BPSからの換算と公表値の照合は、普通株自己資本の条件に従う。
 """
 
 from __future__ import annotations
@@ -1669,10 +1646,9 @@ def _build_financial_snapshot(
         and forecast_ordinary_profit is not None
         and forecast_profit > forecast_ordinary_profit
     )
-    # 会社予想の通期赤字。片方しか開示されない期があるので and でなく or で見る。予想が
-    # 1 つも無い行は「黒字予想」ではないので False のまま置く (欠損と黒字を畳まない)。
-    # 赤字予想は forecast EPS を負にして forward PER を落とし、FV アンカーを自己履歴 PBR
-    # だけにする。その倍率は黒字だった時代のものなので、判断前に事実として出す。
+    # 予想経常利益または予想純利益の赤字を注記する。
+    # flagだけでは予想EPSの符号や採用FV anchorは確定しない。
+    # 未開示と赤字の確認を区別する。
     forecast_full_year_loss_flag = (forecast_profit is not None and forecast_profit < 0) or (
         forecast_ordinary_profit is not None and forecast_ordinary_profit < 0
     )

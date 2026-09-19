@@ -11,8 +11,20 @@
 | 変更先 | API/read model/materializerは`backend`、画面は`frontend`、Bearer/HSTS/R2 mappingは`edge`、表示設定は`config`、route contractは`contracts` |
 | 正本・test | [architecture](../docs/architecture.md)、[Python foundation](../docs/reference/python-foundation.md)、[tests/web](../tests/web)、[tests/contracts](../tests/contracts)、frontend / edge各directoryの`tests` |
 
-materialized JSONとfrontend assetは生成しますが、application DBやdomain storeは書きません。store authorityは[stores](../stores/README.md)を参照してください。
+materialized JSONとfrontend assetは生成しますが、application DBやdomain storeは書きません。store authorityは[architecture](../docs/architecture.md#store-authority)を参照してください。
 表示分類は`config/macro-panel.yaml`、consumer契約を持つevidenceは`reports/published/`から読みます。serving R2 keyは`contracts/routes.json`が示す既存topologyを維持します。
+
+## ローカルUI
+
+Python・Node.jsの環境を準備し、repository rootから実行する。環境の前提は[Python foundation](../docs/reference/python-foundation.md)を参照する。
+
+```bash
+uv sync --frozen --all-groups
+(cd web/frontend && npm ci && npm run build)
+uv run baibai-web serve
+```
+
+各commandの成功後に次へ進み、`http://127.0.0.1:8712`を開く。local UIはstoreを更新しない。cloudへの反映は[batch運用](../batch/OPERATIONS.md)に従う。
 
 ## 共有read
 

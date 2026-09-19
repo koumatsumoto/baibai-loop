@@ -59,35 +59,21 @@ Research Setはpipeline stateである。storeごとのauthorityは
 ## Decision flow
 
 ```text
-Universe
-  -> Screening Run
-       -> Security Analysis[]
-       -> Candidate Discovery
-            -> Valuation Approach[]
-            -> Nomination[]
-            -> Review Set
-  -> Research Triage                         [canonical L3 judgment]
-  -> human Research Set admission            [human-selected pipeline state]
-  -> Research
-  -> Thesis                                  [canonical L3]
-  -> Thesis Review                           [canonical L3 second pass]
-  -> Capital Allocation Assessment           [canonical L3]
-  -> Planning Limit                          [ephemeral decision input]
-  -> human broker action
-  -> human-reported broker fact
-  -> Portfolio Ledger Event[]                [canonical L3]
-  -> Holding                                 [ledger replay projection]
-  -> Position Review                         [canonical L3]
-  -> Portfolio Outcome                       [canonical L3 publication]
+Screening Run -> Security Analysis[]
+             -> Valuation Approach[] -> Nomination[] -> Review Set
+Review Set -> Research Triage
+           -> 人間のResearch Set選択 -> Research -> Thesis + Thesis Review
+           -> Capital Allocation Assessment -> Planning Limit
+           -> 人間のbroker操作・報告 -> Portfolio Ledger -> Holding
+Holding -> Position Review
+Portfolio Ledger -> Portfolio Outcome
+実現結果 -> Calibration -> 次のmethod改善
+
+provider facts -> Macro Reading -> Macro Context
+Macro Context -> Triage・Research・資本判断の補助入力
 ```
 
-```text
-provider facts -> Macro Reading [rebuildable]
-              -> Macro Context [canonical L3 judgment]
-              -> Research / Thesis / allocation judgment context
-```
-
-Calibrationはpipelineの後段ではなく、実現結果を次のmethod改善へ戻すfeedback loopである。
+これは成果物の関係であり、毎回すべてを実行する手順ではない。操作ごとの開始条件と人間確認は[各skill](../.agents/skills/)を参照する。
 
 ## Naming grammar
 
@@ -103,7 +89,6 @@ Calibrationはpipelineの後段ではなく、実現結果を次のmethod改善�
 - E[r]と`er_*`は定義済みの金融略語として維持する。
 - provider-nativeな`Code`等はadapter boundaryに残し、in-memory domain objectでは
   `ticker`等を使う。technical scopeが明確な`GcCandidate`等は投資用語のCandidateではない。
-- commentとdocstringはwhy、invariant、authority、side effect、failure behaviorを記す。
 
 ## Time vocabulary
 

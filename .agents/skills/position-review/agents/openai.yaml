@@ -1,6 +1,6 @@
 interface:
   display_name: "Baibai Position Review"
-  short_description: "決算・event 後の保有見直しと hold/add/reduce/exit 判定"
+  short_description: "保有の再評価とhold・exit・未確定の判断"
   default_prompt: "Use $position-review to run this Baibai Loop operation."
 policy:
   allow_implicit_invocation: true

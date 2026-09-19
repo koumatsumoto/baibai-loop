@@ -35,38 +35,32 @@ screening時点のE[r] / FV anchorは候補比較の文脈として表示・参�
 ### 2.1 採用ソース
 
 - **会社予想 EPS ベース**（会社が期初/修正後に開示した公式予想）
-- 取得: J-Quants Light（財務サマリー / 業績予想） + EDINET（補完）
+- 取得: J-Quantsの会社予想EPS。採用値は現行providerの取得契約に従う。
 
 ### 2.2 却下したソース
 
-- **アナリストコンセンサス forward EPS**: J-Quants Light / EDINET のスコープ外。Bloomberg / IBES 等は有料で本計画の非スコープ。
+- **アナリストコンセンサスEPS**: 現行の取得経路では使用しない。
 - **期初予想のみ使用**: 期中の修正予想を無視すると精度低下、最新の修正予想を使う
 
 ### 2.3 会社予想未公表 or 予想レンジ提示銘柄の扱い
 
-- **forward PER なし** として扱い、`per_forward: null`
-- **trailing PER のみで判定**（screen の閾値判定は trailing で代用）
-- research thesis の `primary_metric` には trailing を含める
+有効な会社予想EPSを得られなければ`per_forward`はnullとする。Current Earnings Powerは正のforward PERを優先し、なければ正のtrailing PERを使う。選んだPERと対応gapを得られない場合は、そのApproachではnominateしない。他Approachの条件やThesisの評価方法へ、このfallbackを横展開しない。
 
 ### 2.4 会社予想の一時益 data-quality flag
 
-**判定:** 会社予想で**予想当期純利益 > 予想経常利益**（両方存在時）なら、`forecast_special_gain` flagを立てる。税負担が通常正である以上、純利益 > 経常利益は特別益（事業売却益など）の存在をほぼ確定する1行checkである。純利益と経常利益は、`forecast_eps`と同じ予想期の組で比較する。
+**判定:** 同じ予想期の予想当期純利益と予想経常利益が両方あり、前者が後者を上回る場合に`forecast_special_gain`を立てる。大小関係だけでは差の原因や持続性は確定しない。特別損益・税等の影響は一次開示で確認する。
 
-**用途:** 一時益で嵩上げされたforward PER、予想配当利回り、機械E[r] carryによるvalue trapを判断前に表面化するwarning annotationである。Security Analysisの`forecast_special_gain_flag`、Review Setのdata quality、UIの`一時益予想` badgeに出す。
+**用途:** 予想利益の質を調査するための注記である。flagや画面の「一時益予想」という名称を、原因が確定したことの証拠にはしない。
 
 **非目標:** ranking、E[r]、既存指標の計算は変えない。これはdoctrineのwarning / annotation境界に従う。
-
-**変更する場合:** forecast純利益を経常ベースへ丸めるなど、持続ベースへ補正する場合は方法変更となる。[`estimate-calibration.md`](./estimate-calibration.md)の運用契約で事前登録して評価する。
 
 ### 2.5 会社予想の通期赤字 annotation
 
 **判定:** 会社予想の**予想経常利益または予想当期純利益が負**なら、`forecast_full_year_loss` flagを立てる。片方しか開示されない期があるためORで判定する。予想が一つもない行はFalseに置き、欠損を黒字予想へ畳まない。
 
-**用途:** Security Analysisの`forecast_full_year_loss_flag`とReview Setのdata qualityに出す。赤字予想は`forecast_eps`を負にするためforward PERが引けず、FV anchorが**自己履歴PBRだけ**に落ちる。そのPBR rangeは黒字だった時代に市場が許容した倍率なので、収益基盤が構造的に縮んだ銘柄では帳簿だけが残り、implied upsideが膨らむ。
+**用途:** 予想経常利益または予想純利益の赤字を示す注記であり、flagだけから予想EPSの符号や採用FV anchorを断定しない。実際のanchorは利用可能な入力とestimatorの条件で決まる。過去の価格レンジを現在の収益力の証明にしない。
 
 **非目標:** 除外にも減衰にも使わず、annotationにする。一過性の赤字（引当・減損）と構造的な縮小を機械では区別できないため、一次開示を読むresearchが判定する。
-
-**変更する場合:** reversionを機械的に減衰する場合はE[r]を動かす方法変更となる。[`estimate-calibration.md`](./estimate-calibration.md)の運用契約で事前登録し、赤字予想cohortのforward成績を較正panelで測ってから判断する。現行panelはforecast系列を持たないため、再構築が必要である。
 
 ## 3. Trailing PER の算出
 
@@ -76,7 +70,7 @@ screening時点のE[r] / FV anchorは候補比較の文脈として表示・参�
 - 決算期またぎの場合、確報前期と確報後期の混在を避ける（確報確定後のみ更新）
 - 赤字期（純利益マイナス）は `null` を採用（割安検出に意味を持たない）
 
-**合成は円で行い、1 株当たりへの換算は最後に 1 回だけ行う。** 1 株当たりの各項は自分の期の株式数で割られているため、株式数が動いた会社では和・差が成立しない。買収の新株発行で株式数が 783M → 1,556M と動いた会社では、1 株当たりで合成すると `21.32 + 113.50 - 161.76 = -26.94` となり、黒字の会社が赤字に見えて収益 anchor を失う。**1 株当たり同士の比（YoY）は分母の違いが希薄化を映すので正しく、和・差だけが誤りである。**
+**合成は円で行い、1 株当たりへの換算は最後に 1 回だけ行う。** 1 株当たりの各項は自分の期の株式数で割られているため、株式数が動いた会社では和・差が成立しない。買収の新株発行で株式数が 783M → 1,556M と動いた会社では、1 株当たりで合成すると `21.32 + 113.50 - 161.76 = -26.94` となり、黒字の会社が赤字に見えて収益 anchor を失う。**EPSの前年比も、比較期間と分割・株式basisを確認して読む。** 比であることだけで基準の一致は保証されない。
 
 `FinancialSnapshot.eps` は `純利益 TTM / 自己株控除後株式数`で、提出者が開示する 1 株当たり当期純利益（分母は期中平均株式数）ではない。時価総額と同じ資本分母で組み直すことで `株価 / eps == per_trailing` が厳密に成立し、同じ語が 2 つの値を指さない。
 
@@ -88,8 +82,7 @@ screening時点のE[r] / FV anchorは候補比較の文脈として表示・参�
 
 ## 4. PBR の算出
 
-- 1 株純資産（BPS） = 自己資本 / 自己株式を除いた期末株式数。J-Quants が開示値を返すので導出しない
-- 直近公表の決算から取得。BPS は本決算開示にしか載らないので直近の非 null 行から carry-forward する
+PBRの普通株自己資本と株式basisは[資本の分母](#51-資本の分母)に従う。自己資本と非支配株主持分を含む純資産を代用しない。
 
 ## 5. EV/EBITDA の算出
 
@@ -107,17 +100,17 @@ screening時点のE[r] / FV anchorは候補比較の文脈として表示・参�
 | --- | --- | --- |
 | 時価総額の株式数 | 同じ資本状態の `ShOutFY` − `TrShFY`（発行済 − 期末自己株式） | `ShOutFY` 単独、または `AvgSh` − `TrShFY` |
 | 自己資本比率 | `EqAR`（開示値） | `Eq / TA`（`Eq` は非支配株主持分を含む純資産） |
-| PBR | 条件を満たす同一状態の `TA × EqAR`、または `BPS × 自己株控除後株式数`を普通株自己資本として、時価総額で割る | 別開示日の `TA × EqAR`、非支配株主持分を含む純資産 |
+| PBR | 時価総額を、同一状態の条件を満たす`TA × EqAR`または`BPS × 自己株控除後株式数`による普通株自己資本で割る | 別開示日の`TA × EqAR`、非支配株主持分を含む純資産 |
 | trailing 収益 | 報告純利益の TTM 合成（円）。倍率は時価総額 ÷ それ | `EPS` × 株式数の再構成 |
 | accruals の純利益 | 報告純利益の TTM 合成（円） | `EPS` × `ShOutFY` |
 
-**per-share の値と株式数を掛けて総額を作らない。** `EPS` の分母は期中平均株式数、`BPS` の分母は期末の自己株控除後株式数で、`ShOutFY` は自己株式を含む。掛け合わせると分子と分母が別の概念になる。store の恒等式で確かめられる — 開示された自己資本比率と `BPS × 株数 ÷ 総資産` の一致は自己株控除後で 97.2%（発行済では 40.4%、n=40,477）、報告純利益と `EPS × 株数` の一致は期中平均で 95.2%（発行済では 30.8%、n=39,567）。いずれも**通期行だけで測る**。四半期行の `eps_ttm` は期中累計であり期間基準が違うので、同じ式を全期間の行へ広げると 4 つの基準を混ぜた数（91.0%）になり、どの基準の一致率でもなくなる。
+報告利益等の総額が必要なら報告された円総額を優先する。EPSに期末の発行済株式数を掛けて利益を復元しない。EPSの期中平均株式数とBPSの期末普通株basisは別の概念であり、本節の条件を満たすBPS経路まで禁止するものではない。
 
 自己株式は議決権も配当請求権も持たないので、時価総額に含めると過大になり、現金比率・利回りが薄く、倍率が割高に出る。**歪みが最大になるのは自己株式を積み上げた企業、つまり buyback を実行した企業**で、機械 E[r] の carry が上位へ押し上げる群と重なる。
 
-**PBRはoutputを1つだけ持つ。** 普通株basisとの照合に通り、かつ最新`BPS`以上に新しい同一行の`TA × EqAR`があれば、その鮮度を使う。照合できない場合は`BPS × 自己株控除後株式数`へfallbackする。`EqAR`の小数第3位・`BPS`の小数第2位という公表精度は丸め区間として比較し、near-zero比率を相対誤差だけで拒否しない。`cash-rich-asset-discount` Valuation Approachのgate（`pbr_max`）もこの単一outputを使う。
+**PBRはoutputを1つだけ持つ。** 普通株basisとの照合に通り、かつ最新`BPS`以上に新しい同一行の`TA × EqAR`があれば、その鮮度を使う。照合できない場合は`BPS × 自己株控除後株式数`へfallbackする。`EqAR`の小数第3位・`BPS`の小数第2位という公表精度は丸め区間として比較し、near-zero比率を相対誤差だけで拒否しない。Asset ValueはこのPBRを比較文脈と並び順の従キーに使う。eligibility/orderは[screening runtime](./screening-runtime.md#candidate-discovery)に従う。
 
-**欠損を代用で埋めない。** 観測済みの資本状態から現在の自己株式数を安全に解決できない場合は**時価総額を出さない** — 発行済だけで代用すると、どれだけ過大か分からない値が現金比率・利回り・時価総額gateへ入る。発行済を超える自己株式数のような破損値も同じく答えない。自己資本比率が観測できない行は `equity_ratio` を `null` にし、純資産比率で代用しない（代用は少数株主持分の大きい銘柄で比率を数 pt 過大にし、`equity_ratio_min` の gate を通しやすくする向きに効く）。時価総額が欠ける銘柄はcommon eligible母集団から外れるが、ADV欠損は外す理由にしない。
+**欠損を代用で埋めない。** 観測済みの資本状態から現在の自己株式数を安全に解決できない場合は**時価総額を出さない** — 発行済だけで代用すると、どれだけ過大か分からない値が現金比率・利回り・時価総額gateへ入る。発行済を超える自己株式数のような破損値も同じく答えない。自己資本比率が観測できない行は `equity_ratio` を `null` にし、純資産比率で代用しない（純資産は非支配株主持分を含み得るため、普通株自己資本と同じ量ではない）。時価総額が欠ける銘柄はcommon eligible母集団から外れるが、ADV欠損は外す理由にしない。
 
 `TA × EqAR` で普通株自己資本の円経路を組むときは、両方を同時に観測した最新の開示行を使う。個々の最新値は staleness fact と表示には carry できるが、別開示日の `TA` と `EqAR` を掛けると、その間の資産変動を自己資本へ混入させる。両方を持つ行が無い場合、またはその同一行が最新`BPS`より古い場合は円経路を答えず、普通株基準の`BPS`経路を使う。同一状態へ揃えるために、より新しい資本状態を古い値へ巻き戻さない。
 
@@ -162,9 +155,9 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 総資産を持たず照合できない行は、連結基準ならそのまま使い、単体基準・基準不明なら使わない。連結基準は照合できた全行が一致する一方、単体基準は 17.6% が桁でずれており、どれがずれているかを他の field では言えない。
 
-落とすのは値だけで、`consolidation_basis` と書類の出所は残す。短信由来の指標（PBR・PER・`cash_to_market_cap`・自己資本比率）も残るので、**銘柄は universe に留まり screening され続ける**。`edinet_net_cash_to_market_cap_min_if_available` は名前のとおり任意の矛盾検査なので、値が無ければ発火しない。
+落とすのは値だけで、`consolidation_basis` と書類の出所は残す。短信由来の指標（PBR・PER・`cash_to_market_cap`・自己資本比率）も残るので、**銘柄は universe に留まり screening され続ける**。必要なEDINET指標を欠くApproachではnominateしないが、他の指標・Approachまで一律に無効にしない。現行Asset Valueの`net_cash_to_market_cap`はanalysis contextであり、eligibility/orderには使わない。
 
-対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。document selection の期間比較と訂正書の tie-break は [`./screening-runtime.md`](./screening-runtime.md) §5 を正本とする。
+対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。書類選択は[EDINET provider](../../engine/src/baibai_engine/screening/providers/edinet.py)と[保存・選択処理](../../engine/src/baibai_engine/screening/edinet_store.py)を参照する。書類metadataの期間と、抽出したCF・BSの測定期間を同一視しない。
 
 `edinet_source_period_start` / `edinet_source_period_end` は EDINET documents metadata 上の書類対象期間であり、必ずしも抽出 metric の測定期間そのものではない。特に半期報告書 / 訂正半期報告書では fiscal year 全体の period end が入ることがある。screening では source traceability と document selection に使い、research では対象書類の CF 計算書 / BS 表示期間を一次確認する。
 
@@ -193,7 +186,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 この突き合わせが効く規模は store で測れる。配当総額と `年間 DPS × 自己株控除後株式数` は 79.2% が 1% 以内で一致し（発行済株式数では 30.7%、n=31,826）、残差の 514 行（1.6%）が 0.2〜0.55 倍の帯に固まる。帯の位置は分割比の逆数に並び、分割を跨いだ年度を per-share から合成すると 2〜5 倍ずれることを示す。**総額は円で書かれていて株式基準を持たないので、この帯を作らない。**
 
 `dividend_split_factor` は会計期間に起きた累積 factor で、期間内に何も無ければ `null`。
-- この利回りは将来 carry の機械 E[r] anchor に使う。較正リプレイの実現値は price-only であり、entry 時点の利回りを保有年数で按分する疑似配当 accrual は加えない。
+- この配当利回りは機械E[r]の将来carry入力である。較正はprice-onlyの価格収束と、実績FY配当を含むtotal returnを分ける。entry時点の利回りを年数按分した値を実現配当としない。詳細は[見積り較正](./estimate-calibration.md)に従う。
 
 ## 7.3 過去の株数変化
 
@@ -225,13 +218,12 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 fallback した値も `sector_median_gap` / `sector_median_value` に入るため、同じ field が「業種との差」と「市場との差」の 2 つの量を指す。**どちらから作られたかは `DerivedMetrics.sector_median_basis` が軸ごとに `sector` / `market` で持つ。**
 
-素性を残す理由は、2 つの母集団が体系的に違う水準にあることにある。母数が 10 に届かない業種は水産・農林業、海運業、空運業、鉱業、石油・石炭製品、倉庫・運輸関連業、パルプ・紙、保険業、ゴム製品に集中し、いずれも構造的に低倍率である。fallback が起きた組では自業種 P/S 中央値は市場中央値より 91% の組で低く、中央値で −44.0% 低い。したがって fallback した銘柄は業種構成だけで負の gap を受け取る。この幅は `ps_sector_gap_max`（−0.4）より大きいので、素性が無いと gate を越えた根拠を業種の割安と業種構成に分けられない。
+自業種中央値と市場中央値へのfallbackでは比較基準が異なる。後者には業種構成の違いも含まれるため、gapだけで「同業より割安」と解釈しない。fallbackの発生状況は入力断面と欠損に依存する。
 
 素性の出口:
 
 - `PanelRow.smg_market_fallback` — market から作られた軸を `|` で並べる。対応する `smg_*` が非 null の行でだけ意味を持つ
 - 較正の `sector_median_basis` 座標 — `smg_*` 軸ごとに own_sector / market_fallback の効果量、cohort 勝率、screen 通過数を分けて出す
-- Security Analysis の `condition_a_sector_median_basis` / `ps_sector_median_basis`
 
 ## 9. 過去自己比較（過去 3 年レンジ）
 
@@ -244,14 +236,14 @@ Historical P/S と EV/EBITDA は、各日の raw close を `adjustment_factor` �
 
 ### 9.0 価格履歴の連続性 fact（`price_history_sessions_750d` / `price_history_coverage_750d`）
 
-**自己レンジは倍率の履歴ではなく価格の履歴である。** fundamentals を最新値で固定して価格だけを動かすため、価格比例の軸（PER / PBR / P/S）では `自己レンジ中央値 ÷ 現在倍率` が軸によらず `median(750 営業日終値) ÷ 現値` に一致する（実データ 3,424 銘柄で 100% 一致）。percentile として「価格が自分のレンジのどこにいるか」を読むのが本来の用途で、機械 E[r] の anchor 水準として自己レンジ側が binding した銘柄では、reversion 成分は倍率でなく価格の平均回帰を測る。as-of 2026-03-31 の実測では E[r] を持つ 3,773 銘柄のうち 1,684（44.6%）が全軸で自己レンジ側 binding だった。真の倍率履歴との比較は #910 で事前登録する。
+自己レンジは、現在のfundamentalsを固定して価格だけを変化させた比較であり、各日の当時のfundamentalsから復元した倍率履歴ではない。価格比例の軸では自己レンジ中央値と現在倍率の比は価格中央値と現在価格の比に一致する。E[r]でこのanchorが採用される場合も、その意味を「過去の利益倍率の再現」としない。
 
 自己レンジ / sigma gap は直近 750 本の bar（営業日ベース ≒ 3 年、§9）を代表的標本として前提にするが、上場が古くても bar 履歴に長期ギャップがある銘柄(上場区分変更・データ供給断など)では、レンジが実質それより短い期間で計算される。これを検出するため、Screening RunのSecurity Analysisには直近 **750 暦日窓**の bar 密度を以下の事実として記録する（窓が暦日なのは、取引カレンダーを fetch せず population 内の最大 bar 数を分母にして密度を出すため）。
 
 - `price_history_sessions_750d`: 直近 750 暦日のうち bar が存在する営業日数
 - `price_history_coverage_750d`: 上記 / 当日 scope 内の最大値(最も密な銘柄が取引カレンダーの近似)
 
-`short_history_flag`(上場 750 暦日未満)は新規上場を扱い、本 fact は「上場は古いが履歴が疎」な銘柄を扱う。`select` では `listing_span_days >= 750` かつ coverage `< 0.8` の候補に risk tag `price_history_gap` を付ける(annotation のみ。事前固定閾値で、ranking / gate には使わない)。
+`short_history_flag`(上場 750 暦日未満)は新規上場を扱い、本 fact は「上場は古いが履歴が疎」な銘柄を扱う。
 
 ### 9.1 `adjustment_close` の中身（dividend / 配当の扱い）
 
@@ -265,27 +257,21 @@ return ではない)。これ以外のコーポレートアクション (合併�
 - 割安判定の主信号は price に対する valuation（PBR / PER 等の percentile）であり、配当落ちを含めた pure な price 系列で percentile を出すのが一貫する
 - 配当落ち分を加算した擬似 total return を percentile に使うと、高配当銘柄 (鉄鋼 / 銀行 / 商社等) の相対割安度が本来より small に見えるバイアスがかかる
 
-**長期保有では配当を含む総リターンが重要**なため、配当は screen の price percentile ではなく、research の期待利回り見積り（[`./thesis.md`](./thesis.md)）と position の realized yield / calibration（[`./portfolio-ledger.md`](./portfolio-ledger.md)）で織り込む。銘柄の総リターン評価が要る場合は J-Quants Premium の配当 API 取得を検討する。
+**長期保有では配当を含む総リターンが重要**なため、配当は screen の price percentile ではなく、research の期待利回り見積り（[`./thesis.md`](./thesis.md)）と position の realized yield / calibration（[`./portfolio-ledger.md`](./portfolio-ledger.md)）で織り込む。
 
 ## 10. データソース
 
 ### 10.1 Core
 
-- **J-Quants Light / ClientV2**: 使用 method（`get_eq_master` / `get_eq_bars_daily_range` / `get_fin_summary_range` / `get_mkt_calendar`）の用途と検証は [`./screening-runtime.md`](./screening-runtime.md) §4 を正本とする
+- **J-Quants / ClientV2**: 取得の実装は[provider](../../engine/src/baibai_engine/screening/providers/jquants.py)、保存入力は[screening runtime](./screening-runtime.md#market-store-inputs)に従う。取得可能範囲は契約と実際のcoverageで確認する。
 - **EDINET API v2**:
   - documents list (`type=2`): CSV 取得可能な提出書類の選定
   - document download (`type=5`): CSV ZIP から EV/EBITDA / Net cash / Asset-backed / FCF 関連項目を抽出
-  - raw XBRL (`type=1`) の直接 parser は将来拡張。CSV-derived metrics の coverage / precision が不十分な場合に検討する
+  - raw XBRL（type=1）の直接parserは現行の取得経路に含めない。
 - **JPX**:
   - 決算発表予定: 公式 financial-announcement index に掲載された全 cohort Excel の既知日程（file 間で日付が食い違う銘柄は、より current な view を持つ file を採る）
   - 上場会社情報（業種分類、市場区分の補助確認）
   - 特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定
-
-### 10.2 Optional（将来拡張）
-
-- J-Quants Premium（財務諸表詳細、売買内訳、配当、指数系データ）
-- TDnet API（5 年分の適時開示 / XBRL）
-- JPX Corporate Action Data
 
 ## 11. 半期移行と TTM 品質
 
@@ -296,19 +282,19 @@ return ではない)。これ以外のコーポレートアクション (合併�
 - Research Triageの`analysis.data_quality.ttm_quality_ev_ebitda` / `ttm_quality_fcf`は、採用したSecurity Analysisの`ttm_quality.ev_ebitda` / `fcf_yield`をそのまま投影する。採用元の品質がなければ`null`で、別世代・別sourceから補わず、この注記だけでNominationを変えない。
 - 新規snapshotは2項目を明示し、Triage ModelInputはschema version 2となる。2項目のない保存済みsnapshotはキー欠如を保ち、従来どおりversion 1として再構築する。明示的`null`とキー欠如をserializerで区別し、旧canonicalとhashを変更しない。
 - `EV/EBITDA` は `ttm_quality_ev_ebitda = exact` かつ EV / EBITDA がどちらも正のときのみ valuation-reversion 判定に使用する
-- `P/S` / `PCFR` / `OCF yield` / `FCF yield` / `Net cash` は、それぞれ valuation approach が要求する品質条件を満たすときのみ mechanical 判定に使う。`Asset-backed ratio` は mechanical 判定に使わない
+- 指標をeligibility/orderへ使う条件は各Approachに従う。`asset_backed_ratio`は非金融企業のAsset Valueで使い、E[r]・FV・全銘柄の単一順位やwarningには使わない。TTM品質の注記と、Approachが要求する入力条件を区別する。
 
 ## 12. 営業利益相当の fallback
 
-- 業績悪化フィルタに使う利益代表は以下の順で採用する
+- 営業利益相当の指標は、選択した会計期間内で次の優先順を使う。
   - `OperatingProfit`
   - `OrdinaryProfit`
   - `Profit`
-- すべて欠損のときは EPS / 売上の 2 項目だけで業績悪化フィルタを評価する
+- すべて欠損の場合は未評価とする。現行Candidate Discoveryに全銘柄共通の業績悪化gateがあるとは扱わない。
 
 ## 13. 前年同期の決定ロジック
 
-J-Quants の財務サマリーは四半期 disclosure の時系列として扱うため、直前 disclosure は YoY ではなく QoQ になる。 `eps_yoy` / `sales_yoy` / `operating_profit_yoy` の比較対象を、最新 summary と同じ `TypeOfCurrentPeriod` かつ `CurrentFiscalYearEndDate` が 1 年前の summary とする。該当する前年同期が無い場合、または period field が欠損している場合は `null` にする。`null` は業績悪化フィルタでは悪化なしとして扱い、季節性による QoQ 減少や不規則 disclosure の index shift を過剰棄却に使わない。
+J-Quants の財務サマリーは四半期 disclosure の時系列として扱うため、直前 disclosure は YoY ではなく QoQ になる。 `eps_yoy` / `sales_yoy` / `operating_profit_yoy` の比較対象を、最新 summary と同じ `TypeOfCurrentPeriod` かつ `CurrentFiscalYearEndDate` が 1 年前の summary とする。該当する前年同期が無い場合、または period field が欠損している場合は `null` にする。nullは比較不能であり、改善や悪化なしを確認した値ではない。季節性によるQoQ変化をYoYへ読み替えない。
 
 営業利益、経常利益、純利益の fallback は、選択対象になった会計期間の中でより具体的な
 non-null field を選ぶ。部分訂正に営業利益が無いという理由で、同じ期間に観測済みの営業利益を
@@ -319,7 +305,7 @@ non-null field を選ぶ。部分訂正に営業利益が無いという理由�
 
 - 取得不能・算出不能は **明示的に `null`**（省略しない）
 - 決算期またぎの一時的欠損: 確報確定まで `null` 運用
-- 会計方針変更・特損計上等で一時的歪み: research 側で「反対仮説」に記録、screening runの指標値は素直に採用（事実層のため）
+- 会計方針変更・特別損益等の経済的な解釈はResearchで行う。Screeningの観測・導出・見積りは既存の品質と欠損契約で出力し、AI解釈で上書きしない。
 
 ## 15. 参考
 

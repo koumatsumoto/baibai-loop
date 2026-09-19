@@ -11,4 +11,8 @@ productionで採用するGit管理のnormative methodologyを置きます。
 | 変更先 | 機械読み規則は`macro/reading`、screening閾値は`screening/rules`、research手順は`research/playbooks` |
 | 正本・test | [doctrine](../docs/doctrine.md)、[domain reference](../docs/reference/README.md)、[tests/engine](../tests/engine)、[tests/contracts](../tests/contracts) |
 
-methodはevidenceを確認した明示PRだけで変更し、reportから自動更新しません。dated revisionは作成後に上書きせず、変更時は新しいtimestampのfileを追加して`screening/rules/revisions.sha256`へ登録します。実行時状態は[stores](../stores/README.md)、表示設定は[web/config](../web/config)、採否の証拠は[reports](../reports/README.md)が所有します。
+methodは明示PRで採用し、reportから自動更新しません。dated revisionは上書きせず、対象loaderの契約に従って新しいrevisionを追加します。
+
+`screening/rules/revisions.sha256`はscreening rules専用です。macro readingとresearch playbookをこの台帳へ登録しません。playbookのIDとApproach mappingは[playbooks README](./research/playbooks/README.md)を参照してください。
+
+実行時状態は[stores](../stores/README.md)、表示設定は[web/config](../web/config)、採否の証拠は[reports](../reports/README.md)が所有します。

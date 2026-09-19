@@ -43,16 +43,15 @@ def test_active_research_playbooks_map_explicitly_to_valuation_approaches() -> N
 
 def test_research_skill_consumes_only_explicit_approach_applicability() -> None:
     text = RESEARCH_SKILL.read_text(encoding="utf-8")
-    assert "applies_to_valuation_approach_ids" in text
-    assert "implicitに" in text
+    assert "明示mappingされたplaybook" in text
 
 
 def test_research_skill_continues_the_capital_allocation_session() -> None:
     text = RESEARCH_SKILL.read_text(encoding="utf-8")
-    assert "activeな`capital-allocation` Operation" in text
-    assert "canonical Research Triageをartifact / canonical refに持つ" in text
-    assert "同じ`as_of`だけの別Operationを採用せず" in text
-    assert "別sessionを開始しない" in text
+    assert "exact Triageと選択集合に束縛したcapital-allocation Operation" in text
+    assert "その同じOperationを継続する" in text
+    assert "別Operationがactiveなら新しいResearchは開始しない" in text
+    assert "開始時のresearch_triage artifact・exact ref・Research Setを保ったpayload" in text
     assert "active な `research` operation session" not in text
 
 

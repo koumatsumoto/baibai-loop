@@ -7,10 +7,7 @@ status: active
 
 # Market lake operations
 
-この文書はmarket factのL1 publicationと固定release読みを定める。storeの所有者は
-[`architecture.md`](../architecture.md#information-layers)、providerごとの意味とcoverageは
-[`data-sources.md`](./data-sources.md)を正本とする。較正結果はlakeへ載せず、
-`stores/screening/calibration/current.sqlite`のローカルsnapshotとして扱う。
+この文書はmarket factのL1公開、固定releaseの読み取り、hydrateと保持を定める。storeの正本は[architecture](../architecture.md#store-authority)、sourceの選択は[data sources](./data-sources.md)、指標の意味は[valuation metrics](./valuation-metrics.md)が所有する。calibration結果はlakeへ載せず、`stores/screening/calibration/current.sqlite`に置く。
 
 <a id="market-lake-publication-contract"></a>
 <a id="publication-contract"></a>

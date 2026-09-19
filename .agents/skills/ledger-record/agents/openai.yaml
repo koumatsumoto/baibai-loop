@@ -1,6 +1,6 @@
 interface:
   display_name: "Baibai Ledger Record"
-  short_description: "人間報告の ledger 記録（注文結果・資金・売却・年次）"
+  short_description: "人間報告の取引事実とportfolio outcome"
   default_prompt: "Use $ledger-record to run this Baibai Loop operation."
 policy:
   allow_implicit_invocation: true

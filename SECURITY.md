@@ -1,5 +1,5 @@
 # Security Policy
 
-このリポジトリは個人運用の trading workflow であり、外部公開の脆弱性報告窓口を持ちません。security 関連の指摘がある場合はリポジトリの issue で連絡してください。
+個人運用のrepositoryです。問題は秘密値と個人情報を除き、対象・影響・再現条件をIssueへ記録してください。漏洩が疑われる場合はtoken等の値を再掲せず、対応する手順で失効・rotationと影響を確認します。
 
-依存ライブラリの脆弱性監査は CI で `pip-audit` を、source コードの静的解析は `bandit` を実行しています。詳細は [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §8 を参照。
+開発時の検査は[Python foundation](./docs/reference/python-foundation.md)、Web/R2の設定・rotationは[batch運用](./batch/OPERATIONS.md)、MCP接続・復旧は[Owner MCP運用](./tools/owner_mcp/OPERATIONS.md)を参照してください。

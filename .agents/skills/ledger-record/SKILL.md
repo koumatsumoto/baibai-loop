@@ -1,48 +1,46 @@
 ---
 name: ledger-record
-description: 人間が報告した注文結果、資金、income、cost、税、売却約定、年次 outcome を canonical ledger に記録する。推定した broker state は扱わない。
+description: 人間が確認した取引・資金の事実を記録し、portfolio outcomeを評価・発行する。
 ---
 
 # Ledger Record
 
-application DB が portfolio ledger の正本である。人間の報告だけを broker fact とし、期日の経過や reservation の不在から状態を推定しない。event の意味は [`portfolio-ledger.md`](../../../docs/reference/portfolio-ledger.md) を正本とする。
+人間が報告した事実を扱う。期限経過や予約の不在からbroker状態を推定しない。event・replay・warningの意味は[Portfolio Ledger](../../../docs/reference/portfolio-ledger.md)が所有する。
 
-## 共通手順
+## 記録する操作を選ぶ
 
-1. 対応する typed draft command で、current DB に束縛した draft をリポジトリルート配下へ、既存ファイルを上書きせず作成する。
-2. 人間が event payload、binding、cash / reservation / holding 差分を確認する。
-3. `position apply-draft <draft> --db stores/application/baibai.sqlite --confirmed` で append head と invariant を再検証して適用する。stale の場合は書き込まず、draft を作り直す。
+| 対象 | 入口 |
+| --- | --- |
+| open・fill・cancel・expireの報告 | `position broker-fact-draft`。保存済み買付Assessmentを参照する |
+| 売却・部分売却の報告 | `position sell-execution-draft`。対応するPosition Reviewを参照する |
+| 入出金・income・費用・確定税 | `position event-draft` |
+| 人間のrisk override | `position override-draft` |
+| 税の見積り設定 | `position meta-draft` |
 
-注文結果、資金、年次 outcome は Operation Session を介さず、対応する typed draft command と confirmed apply / publication を直接の human boundary とする。注文結果を無関係な market / macro 不足で止めない。
-
-## 記録対象
-
-- **open / filled / cancelled / expired**: `broker-fact-draft` を使う。注文identityの解決には過去の条件だけを使い、現在のPmax・保有・schemaで再審査しない。予約未記録の遅延報告では canonical `result=allocate` のCapital Allocation Assessment ID と、人間が報告した時刻、数量、価格などが必須である。open は reservation、fill は execution と remaining、terminal broker fact は remaining release を作る。partial fill は remaining がある間だけ継続し、矛盾する broker fact は拒否する。
-- **sell**: Position Review 後に `sell-execution-draft` を使い、`decision-reference` を review ID に束縛する。他tickerのquote欠損やstaleを事実保存の前提にしない。部分売却は報告された数量だけを記録し、exit提案から全売却を推定しない。保有超過 sell は拒否する。
-- **資金・income・cost・税**: `position event-draft` で確認した事実ごとに1 event を作る。risk override は `override-draft`、tax estimate は `meta-draft`。入金だけで screening や購入を起動しない。
-- **年次 outcome**: ledger を JPX 営業日 close まで再生し、同期間・同 basis の配当込み TOPIX と比較する。`unresolved` は保存せず、不足を解消して再実行する。
-
-CLI option と required field は public `--help`、状態遷移、replay、warning は reference で確認する。例示 command の値を実際の broker fact の代わりに使わない。
+例:
 
 ```bash
 uv run baibai-engine position broker-fact-draft --db stores/application/baibai.sqlite \
   --decision-reference <ASSESSMENT_ID> --status <STATUS> \
-  --occurred-at <ISO8601> --ordered-at <ISO8601> --out <draft>
-uv run baibai-engine position sell-execution-draft --db stores/application/baibai.sqlite \
-  --ticker XXXX --quantity <QTY> --price-yen <PRICE> --occurred-at <ISO8601> \
-  --decision-reference <POSITION_REVIEW_ID> --out <draft>
+  --occurred-at <ISO8601> --ordered-at <ISO8601> --out <DRAFT>
 ```
 
-## 停止条件
+```bash
+uv run baibai-engine position sell-execution-draft --db stores/application/baibai.sqlite \
+  --ticker XXXX --quantity <QTY> --price-yen <PRICE> --occurred-at <ISO8601> \
+  --decision-reference <POSITION_REVIEW_ID> --out <DRAFT>
+```
 
-次の場合は停止する。
+status等に応じた必須項目は対象commandのpublic `--help`に従う。過去の取引記録を現在の購入適格性で再審査しないが、報告・参照・数量・cashの整合は検証する。入金やincomeにbuy assessmentを要求しない。
 
-- 人間報告、buy assessment、required field、decision reference がない
-- draft 作成後に append head、assessment、reservation、price / meta row が変わった
-- event が future-dated、reservation と矛盾する、または broker 状態が推定である
+## draftとapply
 
-## 正本
+1. 確認した事実からtyped draftを作る。
+2. 人間がpayloadとcash・予約・holdingの差分を確認する。
+3. `position apply-draft <DRAFT> --db stores/application/baibai.sqlite --confirmed`で適用する。入力状態が変わりstaleになった場合は、draftを作り直して再確認する。
 
-- ledger event と replay: [`portfolio-ledger.md`](../../../docs/reference/portfolio-ledger.md)
-- 人間境界と資本規律: [`portfolio-management.md`](../../../docs/portfolio-management.md)
-- holding action: [`position-review.md`](../../../docs/reference/position-review.md)
+新しいOperationは開始しない。取引事実の保存を無関係なmarket/macro不足で止めず、公開actionから売買数量を推定しない。反映が必要なら[Ops Maintenance](../ops-maintenance/SKILL.md)へ進む。
+
+## Portfolio outcome
+
+outcomeはledger eventではなく、専用commandで評価・発行する。[Historical outcome](../../../docs/reference/portfolio-ledger.md#historical-outcome)に従い、同期間のbenchmarkと税・費用basisを確認する。unresolvedなら正常な結果として発行せず、不足を解消して再評価する。評価可能にするためにledgerの事実を消さない。

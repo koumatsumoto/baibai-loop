@@ -1,36 +1,26 @@
 # batch — production orchestration と cloud store 運用
 
-Cloudflare 配信の compute と転送の入口。ここにある Python / shell
-script は GitHub Actions とローカル運用から呼ぶ orchestration で、stable CLI ではない
-（安定契約は `baibai-engine` / `baibai-web` 側にある）。read model の生成と日次 batch は
-ローカル単体でも実行でき、転送 script だけが R2 を使う。
+本書はmachine処理、store転送、servingへの反映と復旧の手順を定める。domain処理はengine、read modelはweb、順序と転送はbatchが所有する。CLIの引数は該当`--help`、operator shellの呼出しと結果別の操作は本書を参照する。
 
-## Calibration 全期間 rebuild の所要時間
+<a id="calibration-全期間-rebuild-の所要時間"></a>
+<a id="cloud-materialize-の所要時間"></a>
+<a id="cloud-daily-batch-の所要時間"></a>
 
-`screening calibration-build` の全期間 rebuild は同期commandとして完了まで待つ。agentやwrapperは
-短い固定間隔でpollせず、process/sessionの終了通知を待って次工程を開始する。外部timeoutは60分を確保する。
+## 長時間処理の監視
 
-通常の作業見積りは45分とし、同規模なら途中確認を挟まない。60分を超えた場合だけ
-CPU使用、process状態、stderrを1回確認する。
-method/rules変更後は旧snapshotやlake partitionを変換せず、
-[`docs/reference/estimate-calibration.md`](../docs/reference/estimate-calibration.md#store-の再構築)どおり
-全cohortを再構築する。
+| 処理 | 既存規模での所要目安 | 外部監視の時間予算 |
+| --- | ---: | ---: |
+| calibration全期間rebuild | 45分 | 60分 |
+| cloud-materialize | 12分 | 20分 |
+| cloud-daily-batch | 35分 | 60分 |
 
-## cloud-materialize の所要時間
+これは計画用の目安で、完了保証ではない。workflowのhard timeoutは実行定義を参照する。
 
-`cloud-materialize`もworkflow runの完了通知まで待ち、固定間隔の手動確認を挟まない。
-通常見積りは12分、外部timeoutは20分とする。
-20分を超えた場合だけrunのcurrent stepとstderrを1回確認し、未完了なら再びrunの終了通知を待つ。
+```bash
+gh run watch <RUN_ID> --exit-status --compact --interval 60
+```
 
-## cloud-daily-batch の所要時間
-
-`cloud-daily-batch`はdispatch後に対象runを特定し、`gh run watch <run-id> --exit-status --compact --interval 60`
-でworkflowの終了通知まで待つ。固定時刻を決めた再確認や、短い間隔での手動pollは挟まない。
-
-通常見積りは35分、
-外部timeoutは60分とする。60分を超えた場合だけrunのcurrent stepとstderrを1回確認し、workflow自体が
-activeなら再dispatchせず、再び終了通知を待つ。workflowのhard timeoutは90分であり、外部timeout到達だけを
-失敗やcancelの根拠にしない。
+監視するrunを固定する。外部監視がtimeoutでも処理が終了したとは限らないため、対象の状態と現在stepを確認し、activeな処理を重複起動しない。calibrationの再構築範囲は[見積り較正](../docs/reference/estimate-calibration.md#store-の再構築)に従う。
 
 ## Cloudflare / GitHub Actions 構成
 
@@ -328,7 +318,7 @@ hydrate後にfetch/build/publishへ直列に進み、変更後の再hydrateを�
 
 ### application DB を反映する
 
-**前提**: application DBのjudgment更新を完了し、schema cutoverを含むcodeはmainへ入れる。
+**前提**: application DBの判断・確認済み事実・運用状態の更新を完了し、schema cutoverを含むcodeはmainへ入れる。
 
 **実行**:
 
@@ -349,7 +339,7 @@ Screeningの最新表示は、表示中の`review_set_id / run_revision_id`に�
 後発Review SetのTriageを進める場合は、完了済みmachine bundleを取得して`research-triage`の通常手順で扱う。
 
 **停止と復旧**: ledger preflightが失敗した場合はstoreをuploadせず停止する。exportはstoreのschemaがcodeと一致しない間、viewを1件も書かずexit 1で停止する。
-schemaを一致させてから再実行する。未publishのままではscreening結果を含む全viewが更新されない。
+schemaを一致させてから再実行する。application更新の表示には、そのsnapshot uploadとmaterializeの成功が必要である。cloud dailyによる独立した機械view更新とは区別する。
 
 application DBはcurrent schemaだけを開き、クラウドはこのstoreをread-onlyで読む。schemaを上げるPRは、
 source versionを限定したtemporary one-shot toolとexact commandを用意し、main merge後のattended cutover・検証・
@@ -559,8 +549,7 @@ machine storeの全writerはdownload時のR2 ETagを保持し、backupは同じs
 ### 手動で lake を publish する
 
 **前提**: schema cutoverなど、定時batchを待たずにローカルstoreからpublishする必要があること、worktreeが
-cleanであること、storeの`lake_store_origin`が開始時current pointerと一致することを確認する。本番storeの
-exportには7分強かかる。
+cleanであること、storeの`lake_store_origin`が開始時current pointerと一致することを確認する。
 
 **実行**:
 
@@ -643,19 +632,17 @@ gh run watch RUN_ID --exit-status --compact --interval 60
 **成功確認**: 対象runの終了通知を受けてconclusionを確認し、Discord通知、store push、serving freshnessを照合する。
 所要時間の見積りと待機契約は[cloud-daily-batch の所要時間](#cloud-daily-batch-の所要時間)に従う。
 
-**停止と復旧**: coverage不足やexit 1ではuploadしない。原因をローカルで直す。exit 3はfresh screeningを
-publish済みなので再dispatchせず、Discord `[DEGRADED]`が示す繰延べstepを復旧する。
+**停止と復旧**: exit 1やcoverage不足ではuploadせず原因を直す。exit 3は後続の公開結果を確認し、公開成功なら繰延べた対象だけを復旧する。upload失敗・部分pushは対応する復旧節に従い、全工程をblindに再dispatchしない。
 
 通常cronは平日07:43 UTC（16:43 JST）。scheduled workflowは実行開始時のJST日付ではなく、直近の07:43 UTC cron日を対象にして営業日gateを適用する。GitHubのqueue遅延がJST日付をまたいでも、未公表の翌日データへ対象を進めない。同日必須なのは対象日の株価日足だけで、[J-Quants APIの公式更新時刻](https://jpx-jquants.com/ja/spec/data-update)は16:30頃のため13分の余裕を置く。JPX規制ページはevent駆動のstatus pageでcoverage gateが7営業日まで許容し、信用残は週次なので、いずれも夕方の更新を待つ必要がない（この実行より後に出た指定は翌営業日の実行が拾う）。分を半端にしているのは意図的で、GitHubがscheduleを:00 / :15 / :30 / :45へ集中させるため、その境界に置くとqueue待ちの後ろに並ぶ。schedule遅延自体は許容する。遅延ではなく**欠測**は`cloud-batch-watchdog`がpushで検知し、UIのas-ofとworkflow履歴は裏取りのpull経路として残る。16:43時点で株価日足が未更新ならcoverage gateがpublish前に停止し、復旧は現行mainから手動dispatchする。
 
 daily batchはcoverageが完全でも`bootstrap-cache`を実行する。財務サマリーの直近7日を再取得するため、同日の先行runより後にJ-Quantsへ反映された開示は後続runで取り込まれる。bootstrap後はcoverageを再検証してからscreeningへ進む。
 
-`daily_batch.py`のexit 3はfresh screening exportを持つため、workflowはstores/serving uploadまで完了させる。job は赤にしない — degrade は Discord `[DEGRADED]` が運ぶ。exit 1は新しいpublish可能runがないためuploadしない。非営業日skipはexportがないため既存servingを変更しない。
+日次commandのexit 3でも後続のstore/serving公開は進められる。公開成功後の通知を`[DEGRADED]`とし、local結果と公開結果を分ける。非営業日skipは既存servingを変更しない。
 
 ## Actions 使用量の月次確認
 
-**前提**: calibration panel / PMI manifestの月次維持と同じタイミングで確認する。GitHub Actionsの無料枠は
-月2,000分で、job単位に分を切り上げる。
+以下の集計は取得したrunのwall timeを調べる診断であり、billable minutesや請求額ではない。実際の契約・利用量・請求はBillingで確認する。
 
 **実行**:
 
@@ -668,13 +655,9 @@ gh run list --created ">=$(date -d '14 days ago' +%F)" --limit 1000 \
         | sort_by(-.min)'
 ```
 
-**成功確認と判断**: 出力はworkflowごとの14日間のrun数とwall分である。先頭の`select`は実行中runの
-欠損・ゼロ時刻を除くため、外さない。次で判断する。
+**成功確認と判断**: 取得範囲とrun数を確認し、定時実行、PR、障害復旧dispatchを分けて負荷を見る。runごとの固定加算で請求へ換算せず、無料枠や予算を文書の概算から決めない。spending limitの変更は所有者が判断する。
 
-- 合計 ≤ 1,000 分/14 日（≒ 月 2,000 分ペース）なら枠内。billable は job 単位の分切り上げなので wall 合計に加えて **run 1 件あたり平均 +0.5 分** 程度上に出る（全 workflow が単一 job 構成である間はこの近似でよい。run 数が多い週ほど乖離が増える）
-- 超えているときは上位 workflow の内訳（schedule 分・PR 分・障害復旧 dispatch 分）を分け、非定常 run を除いた定常ペースで判断する
-- 月 2,500 分超が 2 か月続いたら self-hosted runner の再評価を issue にする（採否判断の経緯は #1016）
-- 請求実額は GitHub billing UI（Settings → Billing）で月 1 回照合する。spending limit は「月次想定 + バッファ」に置き、上限到達で Actions が無言停止する状態を避ける
+#1016の「月2,500分超が2か月続いたらself-hosted runnerを再評価する」は運用上の検討目安であり、契約上の無料枠ではない。
 
 ## Password rotation
 
@@ -699,7 +682,7 @@ Workerの再deployは不要である。
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
 - 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括の`push-machine`はGitHub Actionsと明示的なlocal dailyで使い、pull時の全ETag一致と各PUTの`If-Match`を必須にする。`macro.sqlite` / `market.sqlite`を単独でローカルから進める場合は`push-macro` / `push-market`でcloud copyをmergeし、cloud側の行の取り残しを検出したら停止する。
 - pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例してGB級のstoreではaws CLI既定のread timeout 60秒に収まらないため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。**`market.sqlite`が運ぶのはstore-local data tableと`lake_store_origin` metadataである。** `push-machine`はkeyごとの処理時間を出すので、storeが伸びたときの内訳はrunのlogで見る。
-- machine store の`.bak`は1世代のみで、次のpushで置き換わる。日次batchが毎営業日pushするため、実質の巻き戻し猶予は約24時間である。`baibai.sqlite`だけは`baibai.sqlite.bak-YYYYMMDD`（JST）で日ごとに1世代を残し、直近14世代を超えた分をpush成功後に削除する。machine storeはsourceから作り直せて毎営業日書き換わるのに対し、application storeのjudgmentとledgerは何も再生成しないためである。prune は`baibai.sqlite.bak-`配下をlistし、`baibai.sqlite.bak-YYYYMMDD`に一致するkeyだけを完全一致で削除する（prefix削除はしない）。registry編集後は日次workflowの`registry-prune-pending` / `registry-prune`行（transaction ID・series ID・observation/provider-run削除件数）を当日中に確認する。pending に対応する committed 行が無い実行や意図しないpruneを検出したら、次のpushが`.bak`を置き換える前に状態を確認・復元する。
+- machine store の`.bak`は1世代のみで、次のpushで置き換わる。前世代は次のpushで置き換わるため、24時間保持される保証ではない。`baibai.sqlite`だけは`baibai.sqlite.bak-YYYYMMDD`（JST）で日ごとに1世代を残し、直近14世代を超えた分をpush成功後に削除する。machine storeにも再取得できない観測があるため前世代を残し、判断と確認済み事実を持つapplication storeは日別世代を残す。prune は`baibai.sqlite.bak-`配下をlistし、`baibai.sqlite.bak-YYYYMMDD`に一致するkeyだけを完全一致で削除する（prefix削除はしない）。registry編集後は日次workflowの`registry-prune-pending` / `registry-prune`行（transaction ID・series ID・observation/provider-run削除件数）を当日中に確認する。pending に対応する committed 行が無い実行や意図しないpruneを検出したら、次のpushが`.bak`を置き換える前に状態を確認・復元する。
 - 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。
 - pullは固定4 key以外を受け付けず、全downloadと`quick_check`完了後に置換する。
 - application store (`baibai.sqlite`) のpullは`pull-app`だけが行い、bulk pullは触らない。この storeの正本はローカルで、判断はローカルでpublishしてから`push-app`でcloudへ出すため、publish済みで未pushの窓ではローカルがcloudより進んでいる。cloud copyでの置換は再生成できないjudgmentを消すので、`pull-app`はローカルにfileがあれば止める。CIはcheckout直後で`stores/application/`が空なので素通りする。ローカルで意図して置き換えるときは、既存fileを自分で退避してから実行する。
@@ -720,7 +703,7 @@ macro storeだけは実在する直前schemaからの一段migrationをstaging c
 **成功確認と復旧**: sourceと出力のintegrity・foreign key・必須table・保持対象row/headを照合してからmainへ入れ、
 同じ作業でstoreを反映する。直前のpush自体が壊れた場合だけ、上の「R2 transferの安全境界」に従って`<key>.bak`の1世代を使う。
 
-## export_read_models.py — read model の材料化
+## Read modelの生成 — baibai_web.materialize
 
 `baibai_web.readmodel` builders を共用して、UI が読む全 view を serving 配置どおりの
 JSON に書き出す。Worker には業務ロジックを置かない設計の実体。
@@ -754,7 +737,7 @@ Workerは認証後の`/api/screening/history`でCandidates履歴の日付一覧�
 
 views の JSON は `baibai-web` の対応 API response と同形（pydantic `model_dump_json`）。`meta.json` は全 view / history の書き込み成功後に最後に書くので、途中失敗した出力 dir が新鮮さを主張する事態を避ける。
 
-## daily_batch.py — 日次機械工程の 1 コマンド実行
+## 日次機械工程 — baibai-batch daily
 
 営業日判定 → screening cache coverageの事前検証 → bootstrap（財務サマリーの直近7日を再取得）→ EDINET incremental extraction →
 coverage再検証 → run → review-set →
@@ -788,11 +771,13 @@ step outcome から notifier が `[FAILED]` を出す。
 
 終了コード:
 
-| exit | 意味 |
+| exit | ローカル処理の結果 |
 | --- | --- |
-| 0 | 完走。または非営業日（当日 gate で `skip` を出して即終了） |
-| 1 | 致命的失敗で停止（screening chain・営業日判定・calendar 不備。publish に至らない） |
-| 3 | export まで publish 済みだが、繰延べステップ（macro refresh / prune）が失敗 |
+| 0 | 正常完了、または非営業日skip。skipは新しいexportを作らない |
+| 1 | 致命的失敗。今回の結果を正常な公開へ進めない |
+| 3 | fresh screeningとlocal exportは作成済みだが、macro refreshやprune等の繰延べ工程が失敗 |
+
+クラウド公開はこの後にL1 release、machine store、serving views、history/freshnessの順で進む。local exportの有無を示す既存output名`published`を、R2公開成功と読み替えない。workflowが失敗しても一部反映が済んでいる場合がある。
 
 失敗ポリシー:
 
@@ -803,29 +788,18 @@ step outcome から notifier が `[FAILED]` を出す。
 - EDINET document state は日中にも変わり得るため、初回 coverage が complete でも
   `extract-edinet-metrics` を毎回実行する。変更のない metric row は baseline から再利用し、
   extraction 後の coverage と quarantine counters を current state に揃える
-- macro series refresh の失敗は繰延べる: export まで完走して screening 結果は publish し、
-  最後に exit 3 で終了する（job は緑のまま Discord に `[DEGRADED]` が出て、鮮度は meta の
-  `macro_as_of` に現れる）。繰延べた失敗の詳細は発生時点で stderr にも出す
+- macro refreshの失敗は繰り延べ、screeningのlocal exportまで進めてexit 3を返す。後続の公開と通知は前掲の終了状態に従う。
+
 - 営業日判定は market store の `jquants_market_calendar` が情報源。対象日をカバーして
   いない場合は黙って続行せず明示エラーで停止する
 
 ## local daily analysis — canonical Review SetのResearch Triage
 
-localで日次判断まで進める入口は次の1本だけである。
+local analysisの操作は[Research Triage skill](../.agents/skills/research-triage/SKILL.md)、statusの意味と入力境界は[runner reference](../docs/reference/analysis-operations.md)が所有する。ここでは同じcommand列と再実行手順を再掲しない。
 
-```bash
-uv run baibai-batch analysis run
-uv run baibai-batch analysis run --asof YYYY-MM-DD  # 手動再実行
-```
+## 日次結果のDiscord通知
 
-先に`batch/scripts/pull.sh`で取得したR2のcanonical runs storeから、対象`as_of`でlatest published Review Setを読み、AI不要条件を判定してから必要な場合だけReview Set全体を1回のlocal AI requestへ渡す。対象日のReview Setが無ければ前営業日へfallbackせず`no_review_set`で終了する。AI resultのstrict検証とResearch Triage publishだけを行い、Screening Run、Review Set、macro refresh、read model export、prune、task reconcile、Operationは作らない。full-depth Macro Contextはmanualの`macro-context` skillから実行する。
-
-通常stdoutはstatus、model / token計測、research / skip数、canonical Triage IDとas-of、priority順の全research候補と理由・調査質問・主要リスク、human action、private log pathを返す。人間の選択後は表示されたexact Triage IDと選択tickerだけを`research prepare`へ渡す。成功log、CLI help、runbook、local artifactをAIやoperatorが読む必要はない。失敗時は表示された`log_path`だけを確認し、同じcommandをfreshに再実行する。active pointer、resume、candidate cache、`prepare / status / check / publish`の分散操作は使わない。詳細は[`analysis-operations.md`](../docs/reference/analysis-operations.md)を正本とする。
-
-## notify_discord.py — 日次 batch 結果の Discord 通知
-
-`cloud-daily-batch` は run ごとに終端結果を Discord チャンネル `#batch-runs` へ1件通知する。これが
-無人経路の唯一の観測面で、時系列は Discord と GitHub Actions の run 一覧が保持する。チャンネルは
+`cloud-daily-batch` は run ごとに終端結果を Discord チャンネル `#batch-runs` へ1件通知する。run単位の通知は、watchdog、workflow履歴、serving freshnessと併せて読む。チャンネルは
 code が選ばず repository secret `DISCORD_WEBHOOK_URL` が指す webhook で固定する。workflow 末尾の
 単一 step（`if: always()`）が、cancel を含むあらゆる終端状態で1回だけ行う。
 
@@ -852,7 +826,7 @@ GitHub は `timeout-minutes` 超過を **cancel として扱う**。hang は日�
 
 失敗 step の名指しは「batch 以外の step で success / skipped 以外の outcome を最初に持つもの」。
 notify が outcome を受け取らない step（checkout / setup-uv / Playwright）の失敗は `pre-batch` と
-書く。batch 自身が fatal / deferred failure に至った run は、`daily_batch.py` が `--notice-output` に
+書く。batch 自身が fatal / deferred failure に至った run は、`baibai_batch.jobs.daily` が `--notice-output` に
 書いた JSON の最初の `failed_stage` を名指す。その JSON（as-of・skip の有無・失敗 stage・Review Setの出入り）は batch が
 終端 path ごとに 1 回書く素の dict で、schema・validation・語彙表を持たない。読めなければ見出し行と
 run URL だけになる。
@@ -861,8 +835,7 @@ notifier は repository dependency と Python 3.14 固有構文を使わず、ch
 で import / CLI 実行できる（setup-python 前の smoke step が実 import で検査する）。message は
 stdout にも出るので、run log でそのまま読める。
 
-**通知の配送失敗は job を赤にしない**（`continue-on-error: true`）。GHA の赤は「その日の成果物が
-出なかった」だけを意味する（[Failure policy](../docs/architecture.md#failure-policy)）。配送失敗は
+**通知の配送失敗は job を赤にしない**（`continue-on-error: true`）。workflowの失敗は公開の完全完了を示さず、途中までの反映がある場合は各stepの結果を確認する。配送失敗は
 notify step の stderr に sanitized な理由（未設定・HTTPS 以外・Discord 以外の host・timeout・HTTP
 status）で残り、webhook URL・response body は log に出ない。`#batch-runs` が静かな日は
 `gh run list --workflow cloud-daily-batch.yml` で run 自体の有無と結論を見る。
@@ -871,7 +844,7 @@ status）で残り、webhook URL・response body は log に出ない。`#batch-
 
 run自身の通知は「runが起動したこと」を前提にする。GitHubは高負荷時にscheduled runを黙って落とし、cron直前に着地したmergeはその日のscheduleを差し替える。どちらの場合も成功通知も失敗通知も出ず、**沈黙**になる。人間は届かないメッセージの検知が最も苦手なので、沈黙のままにしない。
 
-`.github/workflows/cloud-batch-watchdog.yml`が平日12:00 UTC（21:00 JST）に発火し、`cloud-daily-batch`のrun一覧を`gh api`で読む。直近20時間のrunから、batch cronを基準に決めた確認対象日を答えるrunだけを選び、その中に`conclusion=success`のcompleted runがあれば正常、無ければ同日のin-flight runの有無を判定する。別の日を答えるrunは、同じ20時間窓にあってもsuccess / in-flightの根拠にしない。どちらも無ければ同じ`#batch-runs`へ`[MISSING]`を送る。正常な日とin-flight時は何も送らない（2通目の`[OK]`はchannelを読み飛ばす習慣を作る）。したがって`#batch-runs`の沈黙は「確認対象日のbatchが正常、または実行中」を意味する。
+`.github/workflows/cloud-batch-watchdog.yml`が平日12:00 UTC（21:00 JST）に発火し、`cloud-daily-batch`のrun一覧を`gh api`で読む。直近20時間のrunから、batch cronを基準に決めた確認対象日を答えるrunだけを選び、その中に`conclusion=success`のcompleted runがあれば正常、無ければ同日のin-flight runの有無を判定する。別の日を答えるrunは、同じ20時間窓にあってもsuccess / in-flightの根拠にしない。どちらも無ければ同じ`#batch-runs`へ`[MISSING]`を送る。正常な日とin-flight時は何も送らない（2通目の`[OK]`はchannelを読み飛ばす習慣を作る）。正常に判定できたwatchdogは成功またはin-flightで警報を出さないが、無通知だけではwatchdog未実行・API失敗・配送失敗と区別できない。
 
 - **20時間窓**は判定候補を取得する範囲であり、窓内のrunを日付に関係なく数える条件ではない。前日の07:43 UTC runが窓に入らない程度に短く、watchdog自身が数時間遅れて発火しても確認対象日の07:43 UTC runを取りこぼさない程度に長い。
 - **確認対象日のまだ実行中のrunは欠測として数えない**。schedule queueが07:43 UTCのbatchを watchdog の発火時刻より後ろへ押し出すことがあるが、そのrunは完走すれば自分で結果を通知する（job timeoutに当たっても`[CANCELLED]`が出る）ので、watchdogが足せるものは無い。窓の中に確認対象日を答える`completed`でないrunが1本でもあれば`in_flight`として無送信にする。別日を答える実行中runは数えない。
@@ -879,7 +852,7 @@ run自身の通知は「runが起動したこと」を前提にする。GitHub�
 - 手動の復旧dispatchも、run名が確認対象日を答える場合だけsuccess / in-flightとして数える。別日の復旧runは確認対象日の欠測を隠さない。
 - run一覧が期待した形でなければ**警報を出さずにexit 1**する。parseの劣化が「run 0本」に落ちると、APIの形が変わるたびに誤報になるため。
 - 過去日の判定は`gh workflow run cloud-batch-watchdog.yml -f check_date=YYYY-MM-DD`で再現する（その日の21:00 JSTに発火したwatchdogと同じ窓を評価する）。dispatch入力はcredentialを持たないvalidation stepでexact `YYYY-MM-DD`を検査してからstep env経由で渡す。
-- watchdog自身もscheduleなので同時にskipされ得る。独立した2本が同日に両方skipされる確率は単発よりずっと低い。それでも不足が観測されたらCloudflare Worker cronへ格上げする。
+- watchdog自身もscheduleなので同時にskipされ得る。両workflowは同じ基盤に依存する。別基盤の監視は、実際の未検知と運用価値から必要性を判断する。
 
 watchdog jobは何もinstallしない（checkoutとsystem `python3`だけ）。警報が必要なまさにその瞬間にtoolchainの都合で止まらないようにするためで、`tests/batch/test_cloud_batch_watchdog.py`がstep一覧で固定する。
 
@@ -897,13 +870,13 @@ CLI 引数・log には出ない）。secret の実値を Git・issue・log へ�
 
 1. Discord で `#batch-runs` の webhook を作り直す（または既存 webhook の token を再生成する）。
 2. `gh secret set DISCORD_WEBHOOK_URL --repo <owner>/<repo>` で新しい URL を登録する。
-3. 過去営業日の `asof` で手動 run を発火し、`#batch-runs` に1件届くことを確認する。
+3. 次の通常runで通知を確認する。即時確認が明示的に必要な場合だけ通知経路の受入を行い、rotationだけで過去日のscreeningを再生成しない。
 
 旧 webhook は Discord 側で削除するまで有効。
 
 ### 実配送の確認
 
-`#batch-runs` への実配送は次で確認する。
+以下は通知経路を変更した際の受入ケースであり、文書修正や毎回のrotationですべて実行する手順ではない。
 
 - 不正な `asof`（例: `2026-13-99`）の手動 run → validation step で止まり `[FAILED] … failed step: pre-batch` が1件届く。
 - 有効な `asof` または次の通常 run → `[OK]` と 🆕 / 👋 の 2 行が1件届く。

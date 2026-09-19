@@ -25,24 +25,7 @@ AIは調査と提案、人間は最終裁定とbroker操作を担う。自動発
 
 Baibai Loop が回すのは 1 つの投資判断ループである。その中核技能（見積り）を実現結果と突き合わせて磨くフィードバックを、ループ自体に組み込む。
 
-```mermaid
-flowchart LR
-  policy["運用方針<br/>資本・配分・余力"] --> screen["割安 screening<br/>valuation ranking"]
-  macro["マクロ分析<br/>material delta / common risk"] -.補助context.-> research
-  macro -.judgment 入力.-> triage
-  screen --> select["機械候補集合<br/>Review Set"]
-  select --> triage["Research Triage<br/>research / skip"]
-  triage --> admission["人間のResearch Set選択"]
-  admission --> research["深い個別調査<br/>FV・RR・期待利回りを見積る"]
-  research --> decision["Capital Allocation Assessment<br/>allocate / defer / no_allocation"]
-  decision -- approve --> buy["価値に対して安く購入"]
-  buy --> hold["残存見返りで保有継続<br/>価格では切らない"]
-  hold --> sell["重大な投資理由の不成立 / 残存見返り不足で現金回収"]
-  sell --> calib["見積り vs 実現の calibration"]
-  hold -.保有 outcome.-> calib
-  calib -.見積り手法を改善.-> macro
-  calib -.閾値・FV 推定を改善.-> screen
-```
+成果物の関係は[Decision flow](./domain-language.md#decision-flow)に集約する。以下は、運用の実現結果をmethod改善へ戻す方針である。
 
 - **改善は重厚な別機構ではなく、運用に内蔵した calibration（見積りと実現の突き合わせ）で行う**。entry 時の見積り（リスクリワード・期待利回り・フェアバリュー）を実現結果（実際のリターン・利回り・valuation の収束・thesis の的中）と突き合わせ、外れた箇所（マクロの読みか、screening の閾値か、フェアバリュー推定か、耐性判定か）を一つずつ特定して見積り手法を改める。
 - 突き合わせの母数は 2 系統ある。**(a) 自分の保有の実現結果**（件数は少ないが、一つひとつを長期に深く観測する。最終的な判断品質の正）と、**(b) 全銘柄の長期 horizon リプレイ計測**（過去の各時点で機械見積り・ランキングを再構成し、実現リターンと突き合わせる。見積り「手法」の較正用で、件数を桁で補う）。(b) の 3m/6m は regression alert、1y は leading evidence、production の実証的変更候補には 3y/5y の完全な evidence を必要とする（柱 5）。
@@ -120,96 +103,33 @@ validation や hash のように監査にも使える手段でも、現在の候
 
   較正リプレイでは、有意性や統計的優位を主張せず、効果量とcohort勝率で判断する。cohortの窓が重複し、独立ではないためである。仮説と採否基準は検証前に登録し、時間分割したdesignとconfirmの両方で整合する変更だけを採用する。grid searchは行わない。survivorshipとcoverageの欠けは計数で開示し、累積return、年率、シャープなどをtrack recordとして掲げない。
 - **(b)** スコアは軸ごとの座標（業種相対・自己レンジ相対の percentile）であり、単一の合成点や売買指示には決して畳まない。**単位（%/年）・成分分解（reversion / carry）・前提（anchor・実現率・cap）を持つ機械見積り（E[r]・FV アンカー）は「単一の合成点」とはみなさない** — ただし (i) 出力に成分と前提を必ず併記する、(ii) 較正リプレイで予測と実現を突き合わせ続ける、(iii) 採否と投入額の判断は人間に残る、を必須条件とする。正直な軸別の事実 + 人間の判断という役割分担が、AI の強み（機械可読な事実の整理・統合）を活かしつつ、弱み（判断の責任を負えないこと）を遮断する。
-- **(c)** 機械学習によるスコアリングは、サンプルが 3 桁に満たない 1 人運用では過剰適合が必然で、判断の帰責も壊れる。固定閾値と見積り calibration で改善は十分に回る。外部向けの汎用データ配信（feature store）・MCP server・書き込み API の公開も、1 人・ローカル完結の運用では不要（YAGNI）。
+- **(c)** 小標本の一人運用では機械学習スコアリングの評価不確実性が大きいため、現行戦略は固定methodと見積りcalibrationで改善する。機械学習スコアリングと外部向け汎用データ配信は採用しない。所有者専用のread-only MCPは、外部向けサービスとは区別する。
 
 <a id="vocabulary"></a>
 
-## 4. 判断原則を適用する構成要素
+## 4. 判断原則の適用先
 
-domain termと命名文法は[`domain-language.md`](./domain-language.md)を正本とする。この節は、
-それらを投資判断の責務境界へ適用した結果だけを記す。anchor `#vocabulary` は既存linkとの
-互換のため維持する。
-
-### Domain languageへの適用
-
-artifact、activity、pipeline state、method、projectionの区別と命名文法は
-[`domain-language.md`](./domain-language.md)をそのまま適用する。Doctrineはtermを再定義せず、
-以下で各termが投資判断のどの責務境界に位置するかだけを定める。
-
-### パイプライン状態機械
-
-資本は銘柄集合の状態遷移として一直線に流れる。gate の主体は資本（不可逆性）に近づくほど機械 → AI+人間 → 人間へ移る。機械は広さを処理し、人間が不可逆を所有する。
-
-| 状態遷移 | gate 主体 | 判断文書（L3） | 機械成果物（L2） |
-| --- | --- | --- | --- |
-| universe → Security Analyses | 機械（screening） | — | screening run |
-| Security Analyses → Review Set | configured Valuation Approaches | — | Nominations + exact unionのReview Set |
-| Review Set → Research Triage | AI | Research Triage（`research / skip`、priority、理由） | — |
-| Research Triage → Research Set | 人間（admission） | operationのhuman confirmation | — |
-| Research Set → allocate / no allocation / defer | AI research → 独立レビュー → 人間 | thesis + thesis review + Capital Allocation Assessment | evaluate 派生値 |
-| allocate → position | 人間（broker 執行 → 報告） | ledger events | — |
-| position → hold / exit | AI draft + 人間確認 | Position Review（投資理由の成立性と残存見返り） | — |
-| position → outcome | 機械計測 + 年次評価 | outcome | calibration replay |
-
-`macro reading` と `macro context` はどの遷移にも属さない ambient 入力であり、reading は macro context 執筆の必須入力、macro context は Research Triage と thesis 執筆の判断材料になる（screening は macro-blind のまま）。Research Triage・ledger は「状態」と「その canonical record」が同一物であり、thesis・Position Review は状態ではなく遷移の理由書である。
-
-### Candidate Discovery の概念と authority
-
-```text
-Observed Fact ──────────────┐
-                            ├─→ Derived Metric
-Observed Fact + Metric ─────┴─→ Model ─→ Estimate
-Observed Fact + Metric ───────→ Security Analysis
-Security Analysis ────────────→ configured Valuation Approaches ─→ Nominations
-Nominations ──────────────────→ exact union ────────────→ Review Set
-Review Set → Research Triage → human admission → Research Set
-Research Set → Research → Thesis + Thesis Review
-reviewed Theses → Capital Allocation Assessment → allocate / no allocation / defer
-```
-
-authority は次の境界を越えない。
-
-1. Model は Estimate を計算するが、候補順位を直接決めない。
-2. Derived Metric は数値座標であり、screening rules が参照しない限り順位authorityを持たない。
-3. 各Valuation Approachは自分のNomination eligibilityと方法内順位だけを所有する。
-4. Review Setはconfigured Valuation ApproachesによるNominationのexact unionであり、ticker昇順は非経済的なserialization orderにすぎない。
-5. E[r]、macro、event、portfolio state、過去判断はReview Set membership/orderを変えない。E[r]はTriageで使うsecondary machine return priorである。
-6. Research TriageはReview Set全件を`research / skip`へ分類し、`research`間のpriorityを決めるが、FVや買付可否を確定しない。
-7. Research Setへのadmissionと、最終的なbroker執行は人間が所有する。
+正準用語、命名と成果物の関係は[domain-language](./domain-language.md)、責務・依存・storeの正本は[architecture](./architecture.md)が所有する。
 
 ### Evidence Taxonomy
 
-thesisで見積りの根拠を検証するときの分析レンズ / return源泉の分類（統計的なrisk factor体系ではない）。screening run出力とthesisのevidence hitでは`fundamental`・`valuation`・`market-derived`・`positioning/liquidity`・`catalyst`に限定する。`macroeconomic`・`policy/geopolitical`はmacro context側で扱う。schema enumには`market_derived / positioning_liquidity`のようなASCII安全な値を使う。`technical`は正準分類ではない。
+企業評価のevidenceは、事業・valuation・市場から導出した観測・positioning/liquidity・catalystを区別する。これは見積り根拠を検証する観点であり、統計的なrisk factor体系ではない。macro・policy/geopoliticalはMacro Contextの領域として扱う。厳密な保存enumはmodelを参照する。
 
 ## 5. 責務境界
 
-- **運用方針 (portfolio management)**：目的・制約・資本・許容risk・position管理・投資対象・経済的な投資理由の不成立と残存見返りで保有を見直す規律を扱う。個別銘柄のthesisやentry/exit設計は扱わない。
-- **マクロ機械読み値 (macro reading)**：L1 の指標 store だけを入力に、全登録系列の記述統計と観測の齢を決定論で計算する。解釈・因果・行動指示を持たない。
-- **マクロ環境分析 (macro context)**：macro reading と外部記事・指標データを参照し、環境評価（core：レジーム・経路別のfactとjudgment・リスク選好環境の評価・確率と機械照合可能な条件を持つシナリオ・監視ポイント）、統合評価（synthesis：経路横断の支配的な力とその相互作用）、日本株の調査・資本配分への接続（connection：research優先度・sector tilt・sizing caution・バーゲン地形・機械見積りの歪み注意）を分析階層（§7）に沿った構造化レポートとして残す。記事本文や取得ログは保存しない。
-- **スクリーニング実行結果 (screening run)**：run storeに保存する再生成可能な機械出力。observed、derived、estimateを由来付きで残し、judgment・因果解釈・相場観を書かない。
-- **調査優先度判定 (Research Triage)**：Review Set全件をAIが`research / skip`へ分類し、research priorityを付けたcanonical snapshot。Valuation Approachesをprimary authority、E[r]とADVをsecondary contextとして扱い、application DBでrun revisionとReview Setへの束縛を保つ。
-- **個別銘柄research / thesis**：一次情報、FV、Base/Downside projection、risk/reward、期待return、永久損失、countercaseを検証し、採否をcanonical thesisへ固定する。
-- **資本配分評価 (Capital Allocation Assessment)**：research済みalternativeを横比較し、`allocate / no_allocation / defer`を確定する。`allocate`はThesisとThesis Reviewへ束縛し、注文数量は判断を変えず`plan-limit`でその都度計算する。
-- **売買執行記録 (position)**：実際に発注・entry した判断の注文・約定・保有・全売り決済と、見積り vs 実現の calibration を記録する。
+操作の順序と人間確認は[各skill](../.agents/skills/)、artifact固有の意味は[reference](./reference/README.md)が所有する。
 
 <a id="fact-analysis-separation"></a>
 
-## 6. 事実と分析の分離（禁止表現）
+## 6. 事実と分析の分離
 
-L1 / L2の機械store（market / macro series / screening run）のobserved / derived / estimateと、macro context・research_triage・thesisのjudgmentは物理的・構造的に分ける。機械storeにAI judgment・因果解釈・相場観を書かず、estimateをobserved factと呼ばない。**この節はAP-05が根拠として引く正本**であり、アンカー`#fact-analysis-separation`を変更しない。
+sourceの観測、規則による導出、機械見積り、AIの判断を区別する。機械storeに因果解釈・主観的な重要度・投資判断を書き込まず、見積りを観測済み事実として扱わない。解釈・因果・予測はMacro ContextやThesisの判断として根拠とともに示す。
 
-事実層で禁止する表現：
-
-- 因果の推論・理由付け：「〜を示唆する」「〜を受けて」「〜を背景に」「〜が顕在化」「観測される」
-- 予測：「次の FOMC では〜が予想される」
-- 意味付け：「この動きは〜を意味する」「正当化材料」「early evidence hit」「構造要因」
-- 重要度の評価：「注目すべき」「重要な」「焦点となる」（Major / Notable は変化量の統計的な大きさを表すラベルであり、重要度の評価ではない）
-
-事実層で使う用語は、解釈を招かない中立的な語を選ぶ（「連続トレンド」「転換点」ではなく「方向履歴」「方向反転」）。新語が解釈や予測を含意しないか確認する。解釈・因果・予測はmacro context / thesisの分析層に置く。
+言葉の有無だけで分類しない。値の由来と主張の意味を基準にし、既知の事実を記述する中立的な語まで禁止語として増やさない。
 
 ## 7. 分析階層：世界情勢 → 地域経済 → 個別資産
 
-マクロ分析は上流から順に読む：**世界情勢**（グローバルマクロ・主要中央銀行・コモディティ・地政学）→ **地域経済**（日本の一次統計・金融政策・為替）→ **個別資産**（マーケット指標・セクター動向・個別イベント）。因果が「グローバル → 地域 → 個別」の順に伝播することに忠実な構成にする（例: FOMC → ドル円 → 輸出関連株）。上位層で扱った指標（米 10 年金利・為替など）を下位層で繰り返さない。
+Macro Contextは世界情勢、日本経済、個別資産への含意の順で整理する。これは分析の構成であり、因果が常に一方向へ流れるという仮定ではない。伝達経路と反証は[macro reference](./reference/macro.md)に従って検討する。
 
 ## 8. 非目標
 
@@ -221,11 +141,8 @@ L1 / L2の機械store（market / macro series / screening run）のobserved / de
 - 銘柄全体を対象にした**短期（3 か月未満）horizon** の forward-backtest による screen 成績最適化（長期 horizon の見積り較正リプレイは柱 5 の正式な計測経路であり、非目標ではない）。
 - ETF / 投資信託 / 海外株、口座・税制のモデル化。
 - broker状態の自動推定、broker会計の完全複製、ledger精密化の目的化。
-- 外部向けの汎用データ配信（feature store）・MCP server・書き込み API の公開（`baibai-web` の read-only API と閲覧専用 read model への publish は柱 4 (b) の読み取り側であり、範囲内）。AIはCLIとread-only SQLでデータを読む。store authorityは[`architecture.md#store-authority`](./architecture.md#store-authority)、Candidate Discoveryのidentity grammarは[`domain-language.md`](./domain-language.md#naming-grammar)を正本とする。
+- 外部向けの汎用データ配信、公開MCP、書き込みAPIの提供。所有者用のread-only Web・MCPは範囲内であり、正本へのwrite権限を持たない。
 
 ## 9. 参考
 
-- [`architecture.md`](./architecture.md)：5層モデルと4役・store authority・package / CLI・repository map
-- [`portfolio-management.md`](./portfolio-management.md)：資本・保有判断・余力・確認済み取引事実
-- [`../.agents/skills/`](../.agents/skills/)：単一ループ各運用の手順（research_triage / research / position-review / ledger-record / macro-context / ops-maintenance）
-- [`anti-patterns.md`](./anti-patterns.md)：失敗パターンと commit 前チェックリスト
+構成は[architecture](./architecture.md)、資本方針は[portfolio-management](./portfolio-management.md)、操作の入口は[docs portal](./README.md#目的別の入口)を参照する。

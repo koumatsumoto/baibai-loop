@@ -13,4 +13,4 @@ Baibai Loopのdomain処理と正本への書き込みを所有します。
 
 methodと各storeを読み、application DBとdomain-owned machine storeへwrite-time validationを通して書きます。Webからの書き込みは受け付けません。
 repository pathの定義は`foundation.repository_layout`が所有します。
-production ruleは[method](../method/README.md)、store authorityは[stores](../stores/README.md)、historical evidenceは[reports](../reports/README.md)が所有します。
+採用methodは[method](../method/README.md)、store authorityは[architecture](../docs/architecture.md#store-authority)、historical evidenceは[reports](../reports/README.md)を参照してください。

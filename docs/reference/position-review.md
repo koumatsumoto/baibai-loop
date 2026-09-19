@@ -20,9 +20,9 @@ related_docs:
 
 <a id="inputs"></a>
 
-## Schema v3
+## 入力
 
-`position_review_id / thesis_id / position_id / ticker / as_of`、必要なholdingのquantity/cost/basis、quoteのprice/observed_at/basis/source、`remaining_reward`、`action`、`unresolved_reason`を持つ。remaining_rewardはsufficient/insufficient/uncertainと経済的なreason、未評価ならnull。企業評価全文、代替候補、追加購入context、元本に対する損失率は持たない。
+対象holding、quote、Reviewed Thesisと、作者が評価した残存見返りを使う。残存見返りはsufficient・insufficient・uncertainと経済的理由で示し、未評価ならnullとする。企業評価全文、他候補、追加購入contextを複写しない。厳密なfieldとversionはmodelを参照する。
 
 <a id="decision-table"></a>
 
@@ -53,14 +53,6 @@ buildの標準出力とcheckは、現在quoteを共通算術へ渡した`current
 
 ## 操作
 
-[Position Review skill](../../.agents/skills/position-review/SKILL.md)が手順を所有する。利用可能な最新v4の更新には`thesis-scaffold --from-thesis-id`を使い、元資料・予測からの差分を再Reviewする。旧版しかない保有は同引数なしで新規v4を作り、現在の証拠と独立Reviewを揃えて旧IDをsupersedeする。現在の`--help`で引数を確認する。
-
-```bash
-uv run baibai-engine research position-prepare --help
-uv run baibai-engine position position-review-build --help
-uv run baibai-engine position position-review --help
-```
-
-既存schema20のposition_reviewへv3を追加する。旧payloadとOperation kindは履歴として読み、新規判断へ実行しない。実売却は人間の報告後にledger-recordで記録する。
+作成・check・人間確認・publishと旧Thesisからの更新は[Position Review skill](../../.agents/skills/position-review/SKILL.md)が所有する。現行Position Reviewはapplication DBへ保存し、旧payloadとOperation kindは履歴として読む。旧版を新しい判断として実行しない。
 
 数量basisは現在の保有episodeからの権利変化情報で確認する。過去終値だけの欠損は数量不明の理由にせず、対象row・調整係数の欠損や権利変化は未確認のままにする。現在quoteの有無は別に確認する。
