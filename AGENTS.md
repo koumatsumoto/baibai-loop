@@ -8,7 +8,7 @@
 
 ## 実行と反映
 
-調査・修正・検証はローカルで行い、CIやcloud dispatchを試行錯誤の場にしない。クラウドでしか確認できない事項だけを、原因を絞った最終確認として実行する。
+調査・修正・検証はローカルで行い、ローカルコマンドはsandbox外で実行する。CIやcloud dispatchを試行錯誤の場にしない。クラウドでしか確認できない事項だけを、原因を絞った最終確認として実行する。
 
 store移行を含むdeliveryは、対応codeのmain反映と、整合するstoreのクラウド反映までを一組として扱う。日次batchに移行・全期間再取得・較正の再構築を代行させない。正本と依存は[architecture](./docs/architecture.md#store-authority)、転送・復旧は[batch運用](./batch/OPERATIONS.md)に従う。
 

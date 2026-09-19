@@ -131,11 +131,11 @@ def test_duplicate_policy_constant_gate_rejects_skill_copy(tmp_path: Path) -> No
         (ROOT / "engine/src/baibai_engine/position/policy.py").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    path = tmp_path / ".claude" / "skills" / "demo" / "SKILL.md"
+    path = tmp_path / ".agents" / "skills" / "demo" / "SKILL.md"
     path.parent.mkdir(parents=True)
     path.write_text("board lot: 100\n", encoding="utf-8")
     assert check_duplicate_constants.check(tmp_path) == [
-        ".claude/skills/demo/SKILL.md: duplicated policy literal 'board lot: 100'"
+        ".agents/skills/demo/SKILL.md: duplicated policy literal 'board lot: 100'"
     ]
 
 
@@ -177,16 +177,13 @@ def test_duplicate_policy_constant_gate_allows_other_japanese_quantities(
     assert check_duplicate_constants.check(tmp_path) == []
 
 
-def test_skill_inventory_gate_rejects_copies_and_missing_skills(tmp_path: Path) -> None:
+def test_skill_inventory_gate_rejects_obsolete_and_missing_skills(tmp_path: Path) -> None:
     canonical = tmp_path / ".agents" / "skills"
-    claude = tmp_path / ".claude" / "skills"
     canonical.mkdir(parents=True)
-    claude.mkdir(parents=True)
     (canonical / "decision-cycle").mkdir()
-    (claude / "decision-cycle").mkdir()
     errors = check_skill_inventory.check(tmp_path)
     assert any("expected exact inventory" in error for error in errors)
-    assert any("must be a relative symlink" in error for error in errors)
+    assert "obsolete standalone skill remains: decision-cycle" in errors
 
 
 def test_skill_inventory_gate_rejects_canonical_symlink(tmp_path: Path) -> None:

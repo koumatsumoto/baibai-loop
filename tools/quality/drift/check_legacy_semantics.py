@@ -54,7 +54,7 @@ _SCAN_DIRECTORIES = (
     "stores",
     ".github",
 )
-_ROOT_FILES = ("README.md", "AGENTS.md", "CLAUDE.md")
+_ROOT_FILES = ("README.md", "AGENTS.md")
 _PATH_ROOT_FILES = (
     *_ROOT_FILES,
     "pyproject.toml",
