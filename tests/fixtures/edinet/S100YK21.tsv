@@ -1,0 +1,9 @@
+要素ID	項目名	コンテキストID	相対年度	連結・個別	期間・時点	ユニットID	単位	値
+jppfs_cor:DecreaseIncreaseInNotesAndAccountsReceivableTradeOpeCF	売上債権の増減額	CurrentYearDuration	当期	連結	期間	JPY	円	1239000000
+jppfs_cor:DecreaseIncreaseInCostsOnUncompletedConstructionContractsOpeCFCNS	未成工事支出金の増減額	CurrentYearDuration	当期	連結	期間	JPY	円	298000000
+jppfs_cor:IncreaseDecreaseInNotesAndAccountsPayableTradeOpeCF	仕入債務の増減額	CurrentYearDuration	当期	連結	期間	JPY	円	4078000000
+jppfs_cor:IncreaseDecreaseInAccountsPayableOtherOpeCF	未払金の増減額	CurrentYearDuration	当期	連結	期間	JPY	円	1021000000
+jppfs_cor:IncreaseDecreaseInAdvancesReceivedOnUncompletedConstructionContractsOpeCFCNS	未成工事受入金の増減額	CurrentYearDuration	当期	連結	期間	JPY	円	-2624000000
+jppfs_cor:NetCashProvidedByUsedInOperatingActivities	営業活動によるキャッシュ・フロー	CurrentYearDuration	当期	連結	期間	JPY	円	9299000000
+jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF	有形固定資産の取得による支出	CurrentYearDuration	当期	連結	期間	JPY	円	-157000000
+jppfs_cor:PurchaseOfIntangibleAssetsInvCF	無形固定資産の取得による支出	CurrentYearDuration	当期	連結	期間	JPY	円	-95000000

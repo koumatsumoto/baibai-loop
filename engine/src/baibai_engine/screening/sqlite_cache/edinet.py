@@ -130,11 +130,12 @@ def store_edinet_metrics(
                 "capex_ttm, fcf_ttm, net_cash, equity, total_assets, ttm_quality_fcf, "
                 "ttm_quality_net_cash, source_doc_id, document_type, source_submit_datetime, "
                 "source_period_start, source_period_end, capex_source, failure_reasons, "
-                "extractor_revision, source_document_revision, investment_securities"
-                ") VALUES ("
-                "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-                "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
-                ")",
+                "extractor_revision, source_document_revision, investment_securities, "
+                "ocf_receivables_cash_effect, ocf_inventories_cash_effect, "
+                "ocf_payables_cash_effect, ocf_contract_liabilities_cash_effect, "
+                "ocf_advances_received_cash_effect, ocf_other_payables_cash_effect, "
+                "capex_ppe_reported, capex_intangible_reported"
+                ") VALUES (" + ", ".join("?" for _ in range(38)) + ")",
                 rows,
             )
         persisted_count = date_range_row_count(
@@ -330,6 +331,14 @@ def _edinet_metric_rows(
                 extractor_revision,
                 to_str_or_none(first(record, "source_document_revision")),
                 investment_securities,
+                to_float(first(record, "ocf_receivables_cash_effect")),
+                to_float(first(record, "ocf_inventories_cash_effect")),
+                to_float(first(record, "ocf_payables_cash_effect")),
+                to_float(first(record, "ocf_contract_liabilities_cash_effect")),
+                to_float(first(record, "ocf_advances_received_cash_effect")),
+                to_float(first(record, "ocf_other_payables_cash_effect")),
+                to_float(first(record, "capex_ppe_reported")),
+                to_float(first(record, "capex_intangible_reported")),
             )
         )
     return rows

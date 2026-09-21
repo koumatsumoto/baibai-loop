@@ -1,4 +1,8 @@
 要素ID	項目名	コンテキストID	相対年度	連結・個別	期間・時点	ユニットID	単位	値
+jppfs_cor:DecreaseIncreaseInNotesAndAccountsReceivableTradeOpeCF	売上債権の増減額	CurrentYearDuration	当期	連結	期間	JPY	円	223000000
+jppfs_cor:DecreaseIncreaseInInventoriesOpeCF	棚卸資産の増減額	CurrentYearDuration	当期	連結	期間	JPY	円	-4537000000
+jppfs_cor:IncreaseDecreaseInNotesAndAccountsPayableTradeOpeCF	仕入債務の増減額	CurrentYearDuration	当期	連結	期間	JPY	円	1802000000
+jppfs_cor:IncreaseDecreaseInContractLiabilitiesOpeCF	契約負債の増減額	CurrentYearDuration	当期	連結	期間	JPY	円	14489000000
 jppfs_cor:CashAndDeposits	現金及び預金	Prior1YearInstant	前期末	連結	時点	JPY	円	6350000000
 jppfs_cor:CashAndDeposits	現金及び預金	CurrentYearInstant	当期末	連結	時点	JPY	円	16904000000
 jppfs_cor:InvestmentSecurities	投資有価証券	Prior1YearInstant	前期末	連結	時点	JPY	円	6329000000

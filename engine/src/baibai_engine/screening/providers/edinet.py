@@ -65,6 +65,14 @@ class EdinetMetricRecord:
     operating_profit_ttm: float | None = None
     depreciation_and_amortization_ttm: float | None = None
     capex_ttm: float | None = None
+    ocf_receivables_cash_effect: float | None = None
+    ocf_inventories_cash_effect: float | None = None
+    ocf_payables_cash_effect: float | None = None
+    ocf_contract_liabilities_cash_effect: float | None = None
+    ocf_advances_received_cash_effect: float | None = None
+    ocf_other_payables_cash_effect: float | None = None
+    capex_ppe_reported: float | None = None
+    capex_intangible_reported: float | None = None
     fcf_ttm: float | None = None
     net_cash: float | None = None
     equity: float | None = None
@@ -93,6 +101,14 @@ class EdinetMetricRecord:
         "operating_profit_ttm",
         "depreciation_and_amortization_ttm",
         "capex_ttm",
+        "ocf_receivables_cash_effect",
+        "ocf_inventories_cash_effect",
+        "ocf_payables_cash_effect",
+        "ocf_contract_liabilities_cash_effect",
+        "ocf_advances_received_cash_effect",
+        "ocf_other_payables_cash_effect",
+        "capex_ppe_reported",
+        "capex_intangible_reported",
         "fcf_ttm",
         "net_cash",
         "equity",
@@ -438,6 +454,20 @@ def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
             _coalesce(record, "depreciation_and_amortization_ttm")
         ),
         capex_ttm=_to_float(_coalesce(record, "capex_ttm")),
+        ocf_receivables_cash_effect=_to_float(_coalesce(record, "ocf_receivables_cash_effect")),
+        ocf_inventories_cash_effect=_to_float(_coalesce(record, "ocf_inventories_cash_effect")),
+        ocf_payables_cash_effect=_to_float(_coalesce(record, "ocf_payables_cash_effect")),
+        ocf_contract_liabilities_cash_effect=_to_float(
+            _coalesce(record, "ocf_contract_liabilities_cash_effect")
+        ),
+        ocf_advances_received_cash_effect=_to_float(
+            _coalesce(record, "ocf_advances_received_cash_effect")
+        ),
+        ocf_other_payables_cash_effect=_to_float(
+            _coalesce(record, "ocf_other_payables_cash_effect")
+        ),
+        capex_ppe_reported=_to_float(_coalesce(record, "capex_ppe_reported")),
+        capex_intangible_reported=_to_float(_coalesce(record, "capex_intangible_reported")),
         fcf_ttm=_to_float(_coalesce(record, "fcf_ttm")),
         net_cash=_to_float(_coalesce(record, "net_cash")),
         equity=_to_float(_coalesce(record, "equity")),

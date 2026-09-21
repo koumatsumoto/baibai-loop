@@ -772,6 +772,9 @@ class SQLiteCacheTest(unittest.TestCase):
                         "ticker": "7203",
                         "sales_ttm": 100,
                         "investment_securities": 250,
+                        "ocf_receivables_cash_effect": -10,
+                        "ocf_inventories_cash_effect": 20,
+                        "capex_ppe_reported": 30,
                         "extractor_revision": revision,
                         "source_document_revision": source_revision,
                     }
@@ -788,7 +791,9 @@ class SQLiteCacheTest(unittest.TestCase):
             conn = sqlite3.connect(db)
             try:
                 row = conn.execute(
-                    "SELECT sales_ttm, investment_securities, extractor_revision, "
+                    "SELECT sales_ttm, investment_securities, ocf_receivables_cash_effect, "
+                    "ocf_inventories_cash_effect, capex_ppe_reported, "
+                    "ocf_contract_liabilities_cash_effect, extractor_revision, "
                     "source_document_revision "
                     "FROM edinet_metrics "
                     "WHERE asof_date = ? AND ticker = '7203'",
@@ -796,7 +801,10 @@ class SQLiteCacheTest(unittest.TestCase):
                 ).fetchone()
             finally:
                 conn.close()
-            self.assertEqual(row, (100.0, 250.0, revision, source_revision))
+            self.assertEqual(
+                row,
+                (100.0, 250.0, -10.0, 20.0, 30.0, None, revision, source_revision),
+            )
 
             for invalid in (-1, float("inf"), float("nan")):
                 with (

@@ -76,6 +76,14 @@ def _normalize_edinet_metric_sql_row(row: Sequence[Any]) -> EdinetMetricRecord:
         "capex_source": row[24],
         "failure_reasons": json.loads(row[25]) if row[25] else [],
         "investment_securities": row[26],
+        "ocf_receivables_cash_effect": row[27],
+        "ocf_inventories_cash_effect": row[28],
+        "ocf_payables_cash_effect": row[29],
+        "ocf_contract_liabilities_cash_effect": row[30],
+        "ocf_advances_received_cash_effect": row[31],
+        "ocf_other_payables_cash_effect": row[32],
+        "capex_ppe_reported": row[33],
+        "capex_intangible_reported": row[34],
     }
     return normalize_metric_record(payload)
 
@@ -137,7 +145,11 @@ def read_edinet_metric_baseline(
                 "equity, total_assets, ttm_quality_fcf, ttm_quality_net_cash, "
                 "source_doc_id, document_type, source_submit_datetime, "
                 "source_period_start, source_period_end, capex_source, failure_reasons, "
-                "investment_securities, extractor_revision, source_document_revision "
+                "investment_securities, ocf_receivables_cash_effect, "
+                "ocf_inventories_cash_effect, ocf_payables_cash_effect, "
+                "ocf_contract_liabilities_cash_effect, ocf_advances_received_cash_effect, "
+                "ocf_other_payables_cash_effect, capex_ppe_reported, "
+                "capex_intangible_reported, extractor_revision, source_document_revision "
                 "FROM edinet_metrics WHERE asof_date = ? ORDER BY ticker",
                 (key,),
             ).fetchall()
@@ -157,8 +169,8 @@ def read_edinet_metric_baseline(
                         )
                     baseline_rows[record.ticker] = EDINETMetricBaselineRow(
                         record=record,
-                        extractor_revision=str(row[27]) if row[27] is not None else None,
-                        source_document_revision=(str(row[28]) if row[28] is not None else None),
+                        extractor_revision=str(row[35]) if row[35] is not None else None,
+                        source_document_revision=(str(row[36]) if row[36] is not None else None),
                     )
             except (TypeError, ValueError, json.JSONDecodeError) as exc:
                 raise EDINETMetricBaselineError(
@@ -287,7 +299,11 @@ def read_edinet_metrics(
             "operating_profit_ttm, depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, "
             "net_cash, equity, total_assets, ttm_quality_fcf, ttm_quality_net_cash, "
             "source_doc_id, document_type, source_submit_datetime, source_period_start, "
-            "source_period_end, capex_source, failure_reasons, investment_securities "
+            "source_period_end, capex_source, failure_reasons, investment_securities, "
+            "ocf_receivables_cash_effect, ocf_inventories_cash_effect, "
+            "ocf_payables_cash_effect, ocf_contract_liabilities_cash_effect, "
+            "ocf_advances_received_cash_effect, ocf_other_payables_cash_effect, "
+            "capex_ppe_reported, capex_intangible_reported "
             "FROM edinet_metrics WHERE asof_date = ?",
             (asof_date.isoformat(),),
         ).fetchall()

@@ -2562,6 +2562,106 @@ def test_capex_original_edinet_rows():
         assert "tag_not_found:capex" not in record.failure_reasons
 
 
+def test_annual_cash_flow_details_from_original_edinet_rows():
+    cases = (
+        (
+            "2415",
+            "S100YIDK",
+            "120",
+            (-54_148_000, 31_636_000, -12_897_000, 21_080_000, None, 241_674_000),
+            (741_370_000, 263_164_000),
+            (3_282_582_000, 1_004_534_000, 2_278_048_000),
+        ),
+        (
+            "4231",
+            "S100YK4M",
+            "120",
+            (-654_271_000, -459_700_000, -409_250_000, None, None, None),
+            (None, None),
+            (2_416_413_000, 3_577_928_000, -1_161_515_000),
+        ),
+        (
+            "1814",
+            "S100YK21",
+            "120",
+            (1_239_000_000, None, 4_078_000_000, None, None, 1_021_000_000),
+            (157_000_000, 95_000_000),
+            (9_299_000_000, 252_000_000, 9_047_000_000),
+        ),
+        (
+            "7991",
+            "S100YPE4",
+            "130",
+            (975_027_000, 119_225_000, -1_351_721_000, None, None, None),
+            (3_415_260_000, 43_566_000),
+            (-715_467_000, 3_458_826_000, -4_174_293_000),
+        ),
+        (
+            "7122",
+            "S100YI50",
+            "120",
+            (223_000_000, -4_537_000_000, 1_802_000_000, 14_489_000_000, None, None),
+            (1_679_000_000, 152_000_000),
+            (15_630_000_000, 1_831_000_000, 13_799_000_000),
+        ),
+    )
+    for ticker, doc, kind, effects, capex_parts, totals in cases:
+        content = BytesIO()
+        with zipfile.ZipFile(content, "w") as archive:
+            archive.writestr(
+                "XBRL_TO_CSV/statement.csv",
+                (ROOT / "tests" / "fixtures" / "edinet" / f"{doc}.tsv")
+                .read_text()
+                .encode("utf-16"),
+            )
+        record = parse_csv_zip_metric_record(
+            ticker=ticker,
+            doc_id=doc,
+            doc_type_code=kind,
+            content=content.getvalue(),
+        )
+        assert (
+            record.ocf_receivables_cash_effect,
+            record.ocf_inventories_cash_effect,
+            record.ocf_payables_cash_effect,
+            record.ocf_contract_liabilities_cash_effect,
+            record.ocf_advances_received_cash_effect,
+            record.ocf_other_payables_cash_effect,
+        ) == effects
+        assert (record.capex_ppe_reported, record.capex_intangible_reported) == capex_parts
+        assert (record.ocf_ttm, record.capex_ttm, record.fcf_ttm) == totals
+
+
+def test_cash_flow_details_require_annual_jpy_unique_current_context():
+    csv_text = "\n".join(
+        (
+            "要素ID\tコンテキストID\t連結・個別\tユニットID\t値",
+            "jppfs_cor:NetCashProvidedByUsedInOperatingActivities\tCurrentYearDuration\t連結\tJPY\t100",
+            "jppfs_cor:DecreaseIncreaseInNotesAndAccountsReceivableTradeOpeCF\tCurrentYearDuration\t連結\tJPY\t-",
+            "jppfs_cor:DecreaseIncreaseInInventoriesOpeCF\tCurrentYearDuration\t連結\tJPY\t10",
+            "jppfs_cor:DecreaseIncreaseInInventoriesOpeCF\tCurrentYearDuration\t連結\tJPY\t11",
+            "jppfs_cor:IncreaseDecreaseInNotesAndAccountsPayableTradeOpeCF\tCurrentYearDuration\t連結\tUSD\t12",
+            "jppfs_cor:IncreaseDecreaseInContractLiabilitiesOpeCF\tPrior1YearDuration\t連結\tJPY\t13",
+        )
+    )
+    content = BytesIO()
+    with zipfile.ZipFile(content, "w") as archive:
+        archive.writestr("XBRL_TO_CSV/statement.csv", csv_text.encode("utf-16"))
+    annual = parse_csv_zip_metric_record(
+        ticker="9999", doc_id="S100TEST", doc_type_code="120", content=content.getvalue()
+    )
+    assert annual.ocf_receivables_cash_effect == 0
+    assert annual.ocf_inventories_cash_effect is None
+    assert annual.ocf_payables_cash_effect is None
+    assert annual.ocf_contract_liabilities_cash_effect is None
+
+    interim = parse_csv_zip_metric_record(
+        ticker="9999", doc_id="S100TEST", doc_type_code="160", content=content.getvalue()
+    )
+    assert interim.ocf_receivables_cash_effect is None
+    assert interim.capex_ppe_reported is None
+
+
 def test_capex_total_components_and_period_are_not_mixed(subtests):
     total = "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCF"
     tangible = "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF"

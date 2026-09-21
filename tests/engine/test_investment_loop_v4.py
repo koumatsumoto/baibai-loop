@@ -11,6 +11,7 @@ from tests.helpers.db_seed import seed_ledger
 from tests.helpers.research_v4 import pair_payload
 
 from baibai_engine.appdb.write import connect_rw
+from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 from baibai_engine.operation.models import OperationPayload
 from baibai_engine.operation.service import OperationService
 from baibai_engine.position.drafts import apply_draft, build_sell_execution_draft
@@ -56,7 +57,7 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(
     )
     seed_ledger(db, initial)
     with sqlite3.connect(market) as connection:
-        connection.execute("PRAGMA user_version=26")
+        connection.execute(f"PRAGMA user_version={SQLITE_SCHEMA_VERSION}")
         connection.execute(
             "CREATE TABLE jquants_daily_bars(ticker TEXT,traded_at TEXT,close REAL,adjustment_factor REAL)"
         )

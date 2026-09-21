@@ -56,6 +56,7 @@ def parse_csv_zip_metric_record(
     depreciation = _sum_metric(rows, _TAGS["depreciation"], basis=basis)
     capex = _capex_metric(rows, basis=basis)
     capex_abs = abs(capex) if capex is not None else None
+    details = _cash_flow_details(rows, basis=basis) if doc_type_code in {"120", "130"} else {}
     ebitda = (
         operating_profit + depreciation
         if operating_profit is not None and depreciation is not None
@@ -94,6 +95,14 @@ def parse_csv_zip_metric_record(
         operating_profit_ttm=operating_profit,
         depreciation_and_amortization_ttm=depreciation,
         capex_ttm=capex_abs,
+        ocf_receivables_cash_effect=details.get("ocf_receivables_cash_effect"),
+        ocf_inventories_cash_effect=details.get("ocf_inventories_cash_effect"),
+        ocf_payables_cash_effect=details.get("ocf_payables_cash_effect"),
+        ocf_contract_liabilities_cash_effect=details.get("ocf_contract_liabilities_cash_effect"),
+        ocf_advances_received_cash_effect=details.get("ocf_advances_received_cash_effect"),
+        ocf_other_payables_cash_effect=details.get("ocf_other_payables_cash_effect"),
+        capex_ppe_reported=details.get("capex_ppe_reported"),
+        capex_intangible_reported=details.get("capex_intangible_reported"),
         fcf_ttm=fcf,
         net_cash=net_cash,
         equity=equity,
@@ -154,6 +163,12 @@ _TAGS: dict[str, tuple[str, ...]] = {
         "purchaseofintangibleassetsinvcf",
         "paymentsforpurchaseofintangibleassets",
     ),
+    "ocf_receivables_cash_effect": ("decreaseincreaseinnotesandaccountsreceivabletradeopecf",),
+    "ocf_inventories_cash_effect": ("decreaseincreaseininventoriesopecf",),
+    "ocf_payables_cash_effect": ("increasedecreaseinnotesandaccountspayabletradeopecf",),
+    "ocf_contract_liabilities_cash_effect": ("increasedecreaseincontractliabilitiesopecf",),
+    "ocf_advances_received_cash_effect": ("increasedecreaseinadvancesreceivedopecf",),
+    "ocf_other_payables_cash_effect": ("increasedecreaseinaccountspayableotheropecf",),
 }
 
 
@@ -229,6 +244,54 @@ def _capex_metric(rows: Sequence[Mapping[str, str]], *, basis: str) -> float | N
     tangible = _single_metric(current, _TAGS["capex_tangible"], basis=basis)
     intangible = _single_metric(current, _TAGS["capex_intangible"], basis=basis)
     return tangible + intangible if tangible is not None and intangible is not None else None
+
+
+def _cash_flow_details(rows: Sequence[Mapping[str, str]], *, basis: str) -> dict[str, float | None]:
+    periods = _ranked_metric_values(rows, _TAGS["ocf"], basis=basis)
+    if not periods:
+        return {}
+    context = max(periods, key=lambda item: item[0])[0][2]
+    fields = (
+        "ocf_receivables_cash_effect",
+        "ocf_inventories_cash_effect",
+        "ocf_payables_cash_effect",
+        "ocf_contract_liabilities_cash_effect",
+        "ocf_advances_received_cash_effect",
+        "ocf_other_payables_cash_effect",
+    )
+    details = {
+        field: _unique_jpy_metric(rows, _TAGS[field], basis=basis, context=context)
+        for field in fields
+    }
+    ppe = _unique_jpy_metric(rows, _TAGS["capex_tangible"], basis=basis, context=context)
+    intangible = _unique_jpy_metric(rows, _TAGS["capex_intangible"], basis=basis, context=context)
+    details["capex_ppe_reported"] = abs(ppe) if ppe is not None else None
+    details["capex_intangible_reported"] = abs(intangible) if intangible is not None else None
+    return details
+
+
+def _unique_jpy_metric(
+    rows: Sequence[Mapping[str, str]],
+    tags: tuple[str, ...],
+    *,
+    basis: str,
+    context: str,
+) -> float | None:
+    values: set[float] = set()
+    for row in rows:
+        if _row_context(row) != context or not _element_matches(_row_element(row), tags):
+            continue
+        if basis == "consolidated" and not _is_consolidated_row(row):
+            continue
+        if basis == "non_consolidated" and _is_consolidated_row(row):
+            continue
+        if _row_unit(row).upper() != "JPY":
+            continue
+        raw_value = _row_value(row)
+        value = 0.0 if _is_zero_like(raw_value) else _to_float(raw_value)
+        if value is not None:
+            values.add(value)
+    return next(iter(values)) if len(values) == 1 else None
 
 
 def _debt_metric(rows: Sequence[Mapping[str, str]], *, basis: str) -> float | None:
@@ -345,6 +408,10 @@ def _row_basis(row: Mapping[str, str]) -> str:
 def _row_value(row: Mapping[str, str]) -> str | None:
     value = _coalesce(row, "値", "value", "Value", "金額")
     return str(value) if value is not None else None
+
+
+def _row_unit(row: Mapping[str, str]) -> str:
+    return str(_coalesce(row, "ユニットID", "unit_id", "UnitID", "unitId") or "")
 
 
 def _normalize_element(value: str) -> str:
