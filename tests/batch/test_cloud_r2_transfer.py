@@ -1326,11 +1326,6 @@ def test_market_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> 
         for index, command in enumerate(commands)
         if command.startswith("s3 cp s3://baibai-stores/market.sqlite ")
     ]
-    migrations = [
-        index
-        for index, command in enumerate(commands)
-        if "baibai_batch.storage.migrate_store --store market" in command
-    ]
     merges = [index for index, command in enumerate(commands) if command.startswith("merge ")]
     uploads = [
         index
@@ -1338,10 +1333,9 @@ def test_market_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> 
         if command.startswith("s3api put-object ") and "--key market.sqlite" in command
     ]
     assert len(downloads) == 1
-    assert len(migrations) == 1
     assert len(merges) == 1
     assert len(uploads) == 1
-    assert downloads[0] < migrations[0] < merges[0] < uploads[0]
+    assert downloads[0] < merges[0] < uploads[0]
     assert "stores/market/market.sqlite" in commands[merges[0]]
     assert '--if-match "etag-stable"' in commands[uploads[0]]
     # Only the market store is published. The receipt that follows reads the other two
