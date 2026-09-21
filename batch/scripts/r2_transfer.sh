@@ -749,7 +749,6 @@ case "${1:-}" in
     market_version="$(remote_version market.sqlite)"
     aws_s3 cp "s3://${stores_bucket}/market.sqlite" "${transfer_staging}/market.sqlite"
     check_sqlite "${transfer_staging}/market.sqlite"
-    migrate_downloaded_store market "${transfer_staging}/market.sqlite"
     merge_market_store "${transfer_staging}/market.sqlite" "$(store_path market.sqlite)"
     cleanup_staging
     transfer_staging=""
