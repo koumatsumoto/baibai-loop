@@ -196,7 +196,7 @@ unit testとlocal fakeで行い、専用acceptance workflowやexact workflow aud
 2. `validity=usable`の書類だけについて、同じreleaseで下記のfact queryを行う。選択0件・`validity_unknown`・抽出行なしは原典確認へ戻り、訂正前の値で補わない。現行inventoryが履歴を確定できない情報修正・不開示・取下げも、選択familyに紐づく場合、またはfamily不明の年次イベントがそれ以降の年次に影響し得る場合はunknownに倒す。既知の別familyだけに紐づくイベントでは選択familyを止めない。年次familyに関連しない非年次イベントだけでは止めない。日中時点のPIT再現にはこの日次例を使わない。
 3. 年次表の期末と現在日を併記する。`edinet.metrics`と合わせる際はtickerだけでJOINせず、metricsのasof・原典期間・連結basis・通貨を揃える。新しいBSとの時点差、事業再編、直近の借入れ・返済は別途確認する。
 
-`edinet.metrics`の年次書類120/130には、売上債権・棚卸資産・仕入債務・契約負債・前受金・未払金のOCF寄与と、報告された有形・無形CapEx内訳をnullableで持つ。OCF内訳は報告符号、CapEx内訳はpositive expenditure magnitudeである。内訳を0と仮定した値は原因分解の感応度に過ぎず、「正常FCF」や維持投資の機械判定として扱わない。nullはゼロではなく、原典factの不存在または同一contextで一意に決められない状態を表す。
+`edinet.metrics`の年次書類120/130には、売上債権・棚卸資産・仕入債務・契約負債・前受金・未払金のOCF寄与と、報告された有形・無形CapEx内訳をnullableで持つ。OCF内訳は報告符号、CapEx内訳はpositive expenditure magnitudeである。内訳を0と仮定した値は原因分解の感応度に過ぎず、「正常FCF」や維持投資の機械判定として扱わない。nullはゼロではなく、対象標準conceptの不存在、context・unitの不一致や曖昧さ、またはv1対象外conceptを含み得る。必要な場合は原典を確認する。
 
 セグメントsourceを`segments`として、選ばれた`doc`をparameterに渡す。sourceの日付範囲は選択書類の提出日を含める。
 
