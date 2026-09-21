@@ -344,6 +344,7 @@ EDINET_METRICS = LakeDataset(
     sqlite_table="edinet_metrics",
     date_column="asof_date",
     coverage_authority="unproven",
+    contract_version=2,
     columns=(
         LakeColumn("asof_date", "TEXT", _TEXT, False, 1),
         LakeColumn("ticker", "TEXT", _TEXT, False, 2),
@@ -375,6 +376,14 @@ EDINET_METRICS = LakeDataset(
         LakeColumn("extractor_revision", "TEXT", _TEXT, True),
         LakeColumn("source_document_revision", "TEXT", _TEXT, True),
         LakeColumn("investment_securities", "REAL", _REAL, True),
+        LakeColumn("ocf_receivables_cash_effect", "REAL", _REAL, True),
+        LakeColumn("ocf_inventories_cash_effect", "REAL", _REAL, True),
+        LakeColumn("ocf_payables_cash_effect", "REAL", _REAL, True),
+        LakeColumn("ocf_contract_liabilities_cash_effect", "REAL", _REAL, True),
+        LakeColumn("ocf_advances_received_cash_effect", "REAL", _REAL, True),
+        LakeColumn("ocf_other_payables_cash_effect", "REAL", _REAL, True),
+        LakeColumn("capex_ppe_reported", "REAL", _REAL, True),
+        LakeColumn("capex_intangible_reported", "REAL", _REAL, True),
     ),
 )
 

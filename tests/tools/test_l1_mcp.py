@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import sqlite3
 import subprocess
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
@@ -18,8 +19,12 @@ from tools.l1_mcp.query import run_child
 from tools.l1_mcp.server import Adapter, create_server
 
 from baibai_engine.market.lake import models
+from baibai_engine.market.lake.duck import lake_session
+from baibai_engine.market.lake.hydrate import hydrate_market_store
 from baibai_engine.market.lake.keys import current_l1_pointer_key
 from baibai_engine.market.lake.models import canonical_lake_model_bytes
+from baibai_engine.market.lake.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.market.lake.reader import resolve_release
 from baibai_engine.market.lake.release import L1ReleasePointer, create_l1_release
 from baibai_engine.market.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
 from baibai_engine.market.sqlite import open_connection
@@ -162,6 +167,124 @@ def test_current_describe_query_and_warm_fixed_release(adapter, lake):
     assert reads.count(current_l1_pointer_key()) == 1
     assert all("/month=2/" not in key for key in reads if key.endswith(".parquet"))
     assert second.structured_content["transfer"]["gateway_gets"] == 0
+
+
+def test_edinet_metrics_v2_round_trips_export_mcp_and_hydrate(tmp_path, monkeypatch):
+    narrow_release_policy(monkeypatch, datasets=("edinet.metrics",))
+    source_store = tmp_path / "source.sqlite"
+    connection = open_connection(source_store)
+    connection.execute(
+        "INSERT INTO edinet_metrics("
+        "asof_date, ticker, source_doc_id, document_type, ocf_ttm, capex_ttm, fcf_ttm, "
+        "ocf_receivables_cash_effect, ocf_inventories_cash_effect, "
+        "ocf_payables_cash_effect, ocf_contract_liabilities_cash_effect, "
+        "ocf_advances_received_cash_effect, ocf_other_payables_cash_effect, "
+        "capex_ppe_reported, capex_intangible_reported"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "2026-09-21",
+            "2415",
+            "S100YIDK",
+            "120",
+            3_282_582_000,
+            1_004_534_000,
+            2_278_048_000,
+            -54_148_000,
+            31_636_000,
+            -12_897_000,
+            21_080_000,
+            None,
+            241_674_000,
+            741_370_000,
+            263_164_000,
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    mirror = tmp_path / "mirror"
+    built = datetime(2026, 9, 21, tzinfo=UTC)
+    with sealed_sqlite_snapshot(
+        sqlite_path=source_store, mirror_root=mirror, snapshot_id="edinet-metrics-v2"
+    ) as snapshot:
+        exported = export_legacy_sqlite(
+            dataset_name="edinet.metrics",
+            mirror_root=mirror,
+            producer_git_commit="a" * 40,
+            source_snapshot=snapshot,
+            build_id="build-edinet-metrics-v2",
+            created_at=built,
+        )
+    assert exported.manifest.contract_version == 2
+    release_path, release = create_l1_release(
+        dataset_manifest_paths=[exported.manifest_path],
+        mirror_root=mirror,
+        release_id="edinet-metrics-v2",
+        created_at=built,
+    )
+    reference = ReleaseRef(
+        release_id=release.release_id,
+        manifest_sha256=hashlib.sha256(release_path.read_bytes()).hexdigest(),
+    )
+    source = LocalMirrorSource(mirror)
+    app = Adapter(source=source)
+    try:
+        description = app.describe(reference, "edinet.metrics")
+        assert {column["name"] for column in description["columns"]}.issuperset(
+            {
+                "ocf_receivables_cash_effect",
+                "ocf_advances_received_cash_effect",
+                "capex_ppe_reported",
+                "capex_intangible_reported",
+            }
+        )
+        result = app.call(
+            lambda: app.query(
+                Query.model_validate(
+                    {
+                        "release_ref": reference,
+                        "sources": [
+                            {
+                                "dataset": "edinet.metrics",
+                                "alias": "m",
+                                "from": "2026-09-21",
+                                "to": "2026-09-21",
+                            }
+                        ],
+                        "sql": "SELECT ocf_receivables_cash_effect, "
+                        "ocf_inventories_cash_effect, ocf_advances_received_cash_effect, "
+                        "capex_ppe_reported FROM m",
+                    }
+                )
+            )
+        )
+        assert not result.is_error
+        assert result.structured_content["rows"] == [
+            [-54_148_000.0, 31_636_000.0, None, 741_370_000.0]
+        ]
+    finally:
+        app.close()
+
+    hydrated = tmp_path / "hydrated.sqlite"
+    open_connection(hydrated).close()
+    cache = LakeObjectCache(tmp_path / "hydrate-cache", source)
+    fixed = resolve_release(source, reference.release_id, manifest_sha256=reference.manifest_sha256)
+    with lake_session() as session:
+        report = hydrate_market_store(
+            session,
+            release=fixed,
+            cache=cache,
+            store=hydrated,
+            dataset_names=("edinet.metrics",),
+        )
+    assert report.rows == {"edinet.metrics": 1}
+    with sqlite3.connect(hydrated) as connection:
+        row = connection.execute(
+            "SELECT ocf_receivables_cash_effect, ocf_inventories_cash_effect, "
+            "ocf_advances_received_cash_effect, capex_ppe_reported, "
+            "capex_intangible_reported FROM edinet_metrics"
+        ).fetchone()
+    assert row == (-54_148_000.0, 31_636_000.0, None, 741_370_000.0, 263_164_000.0)
 
 
 def test_join_window_year_partition_and_partial_coverage(adapter):

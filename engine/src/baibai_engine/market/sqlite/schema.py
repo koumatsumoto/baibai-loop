@@ -16,7 +16,7 @@ import sqlite3
 from collections.abc import Mapping
 from pathlib import Path
 
-SQLITE_SCHEMA_VERSION = 26
+SQLITE_SCHEMA_VERSION = 27
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET serves a filing's descriptive columns only while its public-inspection period
@@ -306,6 +306,14 @@ _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
         "extractor_revision",
         "source_document_revision",
         "investment_securities",
+        "ocf_receivables_cash_effect",
+        "ocf_inventories_cash_effect",
+        "ocf_payables_cash_effect",
+        "ocf_contract_liabilities_cash_effect",
+        "ocf_advances_received_cash_effect",
+        "ocf_other_payables_cash_effect",
+        "capex_ppe_reported",
+        "capex_intangible_reported",
     ),
     "jpx_regulation_flags": (
         "asof_date",
@@ -652,6 +660,14 @@ CREATE TABLE IF NOT EXISTS edinet_metrics(
   extractor_revision TEXT,
   source_document_revision TEXT,
   investment_securities REAL,
+  ocf_receivables_cash_effect REAL,
+  ocf_inventories_cash_effect REAL,
+  ocf_payables_cash_effect REAL,
+  ocf_contract_liabilities_cash_effect REAL,
+  ocf_advances_received_cash_effect REAL,
+  ocf_other_payables_cash_effect REAL,
+  capex_ppe_reported REAL,
+  capex_intangible_reported REAL,
   PRIMARY KEY (asof_date, ticker)
 );
 

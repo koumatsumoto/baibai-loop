@@ -570,7 +570,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="edinet.metrics",
             required=True,
-            accepted_contract_versions=(1,),
+            accepted_contract_versions=(2,),
             carries_history=True,
             minimum_rows=131_909,
             minimum_population_count=3_788,
