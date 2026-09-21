@@ -5,12 +5,19 @@ from pathlib import Path
 
 import pytest
 
-from baibai_batch.storage.migrate_store import main, migrate_indicator_store
+from baibai_batch.storage.migrate_store import (
+    MARKET_SOURCE_SCHEMA_VERSION,
+    MARKET_V27_COLUMNS,
+    main,
+    migrate_indicator_store,
+    migrate_market_store,
+)
 from baibai_engine.macro.indicators.db import (
     SQLITE_SCHEMA_VERSION,
     IndicatorsSchemaError,
     open_connection,
 )
+from baibai_engine.market.sqlite import SQLITE_SCHEMA_VERSION as MARKET_SCHEMA_VERSION
 
 
 def _store(path: Path) -> Path:
@@ -62,3 +69,34 @@ def test_a_path_that_is_not_a_store_is_named_rather_than_creating_one(tmp_path: 
         main(["--store", "macro", "--path", str(absent)])
 
     assert not absent.exists()
+
+
+def test_market_copy_moves_only_schema_26_to_current(tmp_path: Path) -> None:
+    from baibai_engine.market.sqlite import open_connection as open_market_connection
+
+    store = tmp_path / "market.sqlite"
+    open_market_connection(store).close()
+    connection = sqlite3.connect(store)
+    try:
+        for column in MARKET_V27_COLUMNS:
+            connection.execute(f"ALTER TABLE edinet_metrics DROP COLUMN {column}")
+        connection.execute(f"PRAGMA user_version = {MARKET_SOURCE_SCHEMA_VERSION}")
+        connection.commit()
+    finally:
+        connection.close()
+
+    assert migrate_market_store(store) == MARKET_SCHEMA_VERSION
+    assert _version(store) == MARKET_SCHEMA_VERSION
+    with sqlite3.connect(store) as connection:
+        actual = {row[1] for row in connection.execute("PRAGMA table_info(edinet_metrics)")}
+    assert set(MARKET_V27_COLUMNS) <= actual
+
+
+def test_current_market_copy_is_validated_and_left_alone(tmp_path: Path) -> None:
+    from baibai_engine.market.sqlite import open_connection as open_market_connection
+
+    store = tmp_path / "market.sqlite"
+    open_market_connection(store).close()
+
+    assert migrate_market_store(store) == MARKET_SCHEMA_VERSION
+    assert _version(store) == MARKET_SCHEMA_VERSION
