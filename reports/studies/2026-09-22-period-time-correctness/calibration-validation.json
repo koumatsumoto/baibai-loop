@@ -1,0 +1,107 @@
+{
+  "panel_count": 309073,
+  "forward_count": 1545775,
+  "resolved_forward_count": 1078765,
+  "cohort_count": 82,
+  "cohort_start": "2019-11-29",
+  "cohort_end": "2026-08-31",
+  "integrity_check": "ok",
+  "foreign_key_violations": 0,
+  "nomination_union_inconsistency": 0,
+  "calibration_method_hash": "8f4cb3531b5e9694",
+  "production_method_hash": "fa6d6ff5dd5c183f",
+  "context_scope": {
+    "run_purpose": "empirical_change_evidence",
+    "requested_horizons": [
+      "3m",
+      "6m",
+      "1y",
+      "3y",
+      "5y"
+    ],
+    "cohort_window": {
+      "start": null,
+      "end": null
+    },
+    "required_asofs": [
+      "2020-01-31",
+      "2020-02-28",
+      "2020-03-31",
+      "2020-04-30",
+      "2020-05-29",
+      "2020-07-31",
+      "2020-08-31",
+      "2020-09-30",
+      "2020-10-30",
+      "2020-11-30",
+      "2020-12-30",
+      "2021-01-29",
+      "2021-02-26",
+      "2021-03-31",
+      "2021-05-31",
+      "2021-06-30",
+      "2021-07-30"
+    ],
+    "required_metrics": [
+      "er_level_calibration"
+    ],
+    "mandatory_metrics": [
+      "er_calibration"
+    ],
+    "decision_subject": "estimator_policy",
+    "candidate_discovery_approaches": []
+  },
+  "context_readiness": {
+    "evidence_status": "eligible",
+    "evidence_complete": true,
+    "blocking_reasons": [],
+    "missing_cohorts": []
+  },
+  "discovery_fidelity": {
+    "3m": {
+      "cohorts": 82,
+      "jpx_input_status": {
+        "unavailable": 78,
+        "complete": 4
+      },
+      "union_fidelity_eligible": 1,
+      "reinvestment_fidelity_eligible": 1
+    },
+    "6m": {
+      "cohorts": 82,
+      "jpx_input_status": {
+        "unavailable": 78,
+        "complete": 4
+      },
+      "union_fidelity_eligible": 0,
+      "reinvestment_fidelity_eligible": 0
+    },
+    "1y": {
+      "cohorts": 82,
+      "jpx_input_status": {
+        "unavailable": 78,
+        "complete": 4
+      },
+      "union_fidelity_eligible": 0,
+      "reinvestment_fidelity_eligible": 0
+    },
+    "3y": {
+      "cohorts": 82,
+      "jpx_input_status": {
+        "unavailable": 78,
+        "complete": 4
+      },
+      "union_fidelity_eligible": 0,
+      "reinvestment_fidelity_eligible": 0
+    },
+    "5y": {
+      "cohorts": 82,
+      "jpx_input_status": {
+        "unavailable": 78,
+        "complete": 4
+      },
+      "union_fidelity_eligible": 0,
+      "reinvestment_fidelity_eligible": 0
+    }
+  }
+}

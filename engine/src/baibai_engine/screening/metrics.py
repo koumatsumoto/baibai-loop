@@ -48,7 +48,7 @@ MIN_SECTOR_MEDIAN_POPULATION = 10
 # 後者を使う。株式基準は行ごとに決め、期末と開示日の間に権利落ちがある行は申告基準を
 # 判定してから換算し、判定できない行は株数と per-share を答えない。
 # TTMは非実績行を除外し、選択した各実績期間の欠損を古いrevisionで埋めない。
-VALUATION_CALCULATION_REVISION = "actual-ttm-latest-accounting-period-v22"
+VALUATION_CALCULATION_REVISION = "reinvestment-operating-profit-ttm-v23"
 
 # 自己レンジ / sigma gap が前提にする約 3 年の価格履歴窓(暦日)。listing 起点の
 # short_history_flag では検出できない「上場は古いが bar 履歴に長期ギャップがある」
@@ -1726,6 +1726,7 @@ def _build_financial_snapshot(
     # 上位へ押し上げる群と重なる。自己株式数が観測できない行は時価総額を出さない — 発行済で
     # 代用すると、どれだけ過大かが分からない値が現金比率・利回り・流動性 gate へ入る。
     shares_ex_treasury = capital_basis.shares_ex_treasury
+    operating_profit_ttm, _ = _ttm_value(summaries, "operating_profit", rules.ttm)
     sales_ttm, sales_quality = _ttm_value(summaries, "sales", rules.ttm)
     ocf_ttm, ocf_quality = _ttm_value(summaries, "cfo", rules.ttm)
     # EDINET の値は 1 つの書類を連結・単体のどちらかの基準で読んだもので、時価総額と
@@ -1890,6 +1891,7 @@ def _build_financial_snapshot(
         edinet_capex_source=edinet.capex_source if edinet else None,
         edinet_failure_reasons=edinet_failure_reasons or None,
         operating_profit=operating_profit,
+        operating_profit_ttm=operating_profit_ttm,
         operating_profit_source=operating_profit_source,
         eps_yoy=_yoy_ratio(eps_cumulative, eps_prior.eps_ttm if eps_prior else None),
         sales_yoy=_yoy_ratio(

@@ -161,6 +161,13 @@ def test_latest_review_set_resolves_exact_asof_by_publication_time(tmp_path: Pat
     assert latest is not None
     assert latest.review_set_id == "review-set-latest"
     assert reader.latest_review_set(as_of_date="2026-07-09") is None
+    expected = ["review-set-latest", "review-set-earlier"]
+    assert [row.review_set_id for row in reader.list_review_sets()] == expected
+    assert [row["review_set_id"] for row in screening_review_set_payloads(database)] == expected
+    assert [
+        row["review_set_id"]
+        for row in screening_review_set_payloads(database, run_revision_id="run-a")
+    ] == expected
 
 
 def test_web_projection_rejects_malformed_current_review_set_like_point_read(
@@ -206,3 +213,33 @@ def test_web_projection_rejects_malformed_current_review_set_like_point_read(
 
     with pytest.raises(ReviewSetContractError, match="published review set is invalid"):
         screening_review_set_payloads(database, run_revision_id="run-a")
+
+
+@pytest.mark.parametrize("equal_instant", [False, True])
+def test_run_order_prune_and_read_api_use_real_instant(tmp_path, equal_instant):
+    from datetime import date
+
+    from baibai_engine.read_api.screening import (
+        previous_run_revision_id,
+        screening_run_payload,
+        stored_screening_rows,
+    )
+
+    database = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(database)
+    store.publish_run(_run(), run_revision_id="run-a")
+    new = {**_run(), "run_at": f"2026-07-08T{9 if equal_instant else 10:02}:00:00+00:00"}
+    store.publish_run(new, run_revision_id="run-z")
+    reader = ScreeningRunReader(database)
+    assert reader.latest_run().run_revision_id == "run-z"
+    assert [r.run_revision_id for r in reader.list_runs()] == ["run-z", "run-a"]
+    assert previous_run_revision_id(database, date(2026, 7, 9)) == "run-z"
+    assert screening_run_payload(database, as_of_date=date(2026, 7, 8))["run_at"] == new["run_at"]
+    # MCP uses ascending keyset pagination; compare and cursor use the same instant.
+    first = stored_screening_rows(database, kind="screening_run", filters={}, after=None, limit=1)
+    assert first[0]["run_revision_id"] == "run-a"
+    after = [first[0]["asof_date"], first[0]["page_time"], first[0]["run_revision_id"]]
+    second = stored_screening_rows(database, kind="screening_run", filters={}, after=after, limit=1)
+    assert second[0]["run_revision_id"] == "run-z"
+    store.prune(keep=1)
+    assert [r.run_revision_id for r in reader.list_runs()] == ["run-z"]

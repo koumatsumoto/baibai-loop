@@ -156,6 +156,7 @@ def build_security_analysis_metrics(
         "sales_yoy": financial.sales_yoy,
         "cfo_yoy": financial.cfo_yoy,
         "operating_profit": financial.operating_profit,
+        "operating_profit_ttm": financial.operating_profit_ttm,
         "operating_profit_yoy": financial.operating_profit_yoy,
         "operating_profit_loss_narrowing": financial.operating_profit_loss_narrowing,
         "shares_outstanding": financial.shares_outstanding,

@@ -62,7 +62,7 @@ def _analysis(
             "equity_ratio": 0.6,
             "p_s_sector_gap": -0.4,
             "sales_yoy": 0.05,
-            "operating_profit": 12.0,
+            "operating_profit_ttm": 12.0,
             "sales_ttm": 100.0,
             "total_assets": 200.0,
             "debt": 20.0,
@@ -263,7 +263,7 @@ def test_reinvestment_sector_floor_uses_inclusive_shared_population_boundary() -
     for index in range(10):
         row = _analysis(str(2000 + index))
         row["sector_33"] = "high-sector"
-        row["metrics"]["operating_profit"] = 100.0  # type: ignore[index]
+        row["metrics"]["operating_profit_ttm"] = 100.0  # type: ignore[index]
         high_sector.append(row)
 
     at_boundary = build_nomination_ranks(
@@ -301,7 +301,7 @@ def test_current_rules_name_only_the_two_revised_approaches() -> None:
         "current-earnings-power": "current-earnings-power-v1",
         "normalized-earnings-power": "normalized-earnings-power-v1",
         "asset-value": "asset-value-v2",
-        "reinvestment-value": "reinvestment-value-v2",
+        "reinvestment-value": "reinvestment-value-v3",
     }
     assert RULES.nomination_depth == 20
     assert "min_avg_turnover_oku" not in RULES.common_eligibility.model_dump()

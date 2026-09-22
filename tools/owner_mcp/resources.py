@@ -222,6 +222,7 @@ class Resources:
                     "started_at",
                     "finished_at",
                     "created_at",
+                    "run_at",
                 }:
                     if type(value) not in (int, float):
                         raise OwnerError("INVALID_ARGUMENT")
@@ -235,10 +236,9 @@ class Resources:
                     "period_end_date",
                     "snapshot_month_end",
                     "vintage_at",
-                    "run_at",
                 }:
                     try:
-                        (iso_instant if name in {"vintage_at", "run_at"} else iso_day)(value)
+                        (iso_instant if name == "vintage_at" else iso_day)(value)
                     except ValueError as exc:
                         raise OwnerError("INVALID_ARGUMENT") from exc
         query = dict(normalized)

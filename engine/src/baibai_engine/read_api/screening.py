@@ -56,7 +56,7 @@ def previous_run_revision_id(path: Path, asof: date) -> str | None:
     with closing(connect_run_store_read_only(path)) as connection:
         row = connection.execute(
             "SELECT run_revision_id FROM screening_run WHERE asof_date < ? "
-            "ORDER BY asof_date DESC, run_at DESC, run_revision_id DESC LIMIT 1",
+            "ORDER BY asof_date DESC, julianday(run_at) DESC, run_revision_id DESC LIMIT 1",
             (asof.isoformat(),),
         ).fetchone()
     return None if row is None else str(row[0])
@@ -82,7 +82,7 @@ def screening_run_payload(
             SELECT run_revision_id
             FROM screening_run
             WHERE asof_date = ?
-            ORDER BY run_at DESC, run_revision_id DESC
+            ORDER BY julianday(run_at) DESC, run_revision_id DESC
             LIMIT 1
             """,
             (as_of_date.isoformat(),),
@@ -128,7 +128,7 @@ def screening_review_set_payloads(
             FROM review_set AS s
             JOIN screening_run AS r USING (run_revision_id)
             WHERE json_extract(s.payload, '$.schema_version') = 2
-            ORDER BY r.asof_date DESC, s.created_at DESC, s.review_set_id DESC
+            ORDER BY r.asof_date DESC, julianday(s.created_at) DESC, s.review_set_id DESC
         """
         parameters: tuple[object, ...] = ()
     else:
@@ -138,7 +138,7 @@ def screening_review_set_payloads(
             JOIN screening_run AS r USING (run_revision_id)
             WHERE s.run_revision_id = ?
               AND json_extract(s.payload, '$.schema_version') = 2
-            ORDER BY r.asof_date DESC, s.created_at DESC, s.review_set_id DESC
+            ORDER BY r.asof_date DESC, julianday(s.created_at) DESC, s.review_set_id DESC
         """
         parameters = (run_revision_id,)
     rows = read_rows(
@@ -241,7 +241,7 @@ def stored_screening_run(path: Path, selector: dict[str, object]) -> dict[str, A
         if selector.get("latest"):
             row = connection.execute(
                 "SELECT run_revision_id FROM screening_run "
-                "ORDER BY asof_date DESC, run_at DESC, run_revision_id DESC LIMIT 1"
+                "ORDER BY asof_date DESC, julianday(run_at) DESC, run_revision_id DESC LIMIT 1"
             ).fetchone()
             if row is None:
                 raise FileNotFoundError("run unavailable")

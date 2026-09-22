@@ -224,7 +224,7 @@ function DetailField({ label, children }: { label: string; children: ReactNode }
   )
 }
 
-function IndicatorDialog({ row, history, historyLoading, period, granularity, onClose }: { row: MacroIndicatorRow | null; history: MacroSeriesView | null; historyLoading: boolean; period: MacroPeriod; granularity: MacroGranularity; onClose: () => void }) {
+function IndicatorDialog({ row, history, historyLoading, historyError, period, granularity, onClose }: { row: MacroIndicatorRow | null; history: MacroSeriesView | null; historyLoading: boolean; historyError: boolean; period: MacroPeriod; granularity: MacroGranularity; onClose: () => void }) {
   if (row === null) return null
   const { reading, failedFetch } = row
   const series = history === null ? row.series : transformSeriesHistory(history, period, granularity)
@@ -248,11 +248,11 @@ function IndicatorDialog({ row, history, historyLoading, period, granularity, on
           </Alert>
         )}
         <div className="grid gap-1">
-          {historyLoading ? <div className="grid h-56 place-items-center"><LoadingIndicator label="系列履歴を読み込んでいます" /></div> : <FullChart series={series} />}
-          <p className="text-xs text-muted-foreground">
+          {historyError ? <Alert variant="destructive"><CircleAlert /><AlertTitle>系列履歴を取得できませんでした</AlertTitle><AlertDescription>系列を開き直して再度お試しください。</AlertDescription></Alert> : historyLoading || history === null ? <div className="grid h-56 place-items-center"><LoadingIndicator label="系列履歴を読み込んでいます" /></div> : <FullChart series={series} />}
+          {history !== null && !historyLoading && !historyError && <p className="text-xs text-muted-foreground">
             チャートは {PERIOD_LABEL[period]} / {GRANULARITY_LABEL[granularity]}
             {reading !== null && `。percentile と z の実効窓は ${reading.window_years}y で、この期間とは別`}。
-          </p>
+          </p>}
         </div>
         {series.tradingview_symbol !== null && <div><TradingViewButton labeled name={series.label} symbol={series.tradingview_symbol} /></div>}
         <dl className="grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-3">
@@ -315,6 +315,7 @@ export function MacroPage() {
   const [openSeriesId, setOpenSeriesId] = useState<string | null>(null)
   const [history, setHistory] = useState<MacroSeriesView | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -333,6 +334,7 @@ export function MacroPage() {
   }, [])
 
   useEffect(() => {
+    setHistoryError(false)
     const historyUrl = macroSeriesHistoryUrl(openSeriesId)
     if (historyUrl === null) {
       setHistory(null)
@@ -343,8 +345,11 @@ export function MacroPage() {
     setHistory(null)
     setHistoryLoading(true)
     fetchJson<MacroSeriesView>(historyUrl, { signal: controller.signal })
-      .then(setHistory)
-      .catch(() => setHistory(null))
+      .then((value) => { if (!controller.signal.aborted) setHistory(value) })
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted || (reason instanceof DOMException && reason.name === 'AbortError')) return
+        setHistoryError(true)
+      })
       .finally(() => { if (!controller.signal.aborted) setHistoryLoading(false) })
     return () => controller.abort()
   }, [openSeriesId])
@@ -456,7 +461,7 @@ export function MacroPage() {
           ))}</div>}
       </details>
 
-      <IndicatorDialog granularity={granularity} history={history} historyLoading={historyLoading} onClose={() => setOpenSeriesId(null)} period={period} row={openRow} />
+      <IndicatorDialog granularity={granularity} history={history} historyError={historyError} historyLoading={historyLoading} onClose={() => setOpenSeriesId(null)} period={period} row={openRow} />
     </PageShell>
   )
 }

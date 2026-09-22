@@ -151,6 +151,7 @@ class FinancialSnapshot:
     edinet_capex_source: str | None = None
     edinet_failure_reasons: str | None = None
     operating_profit: float | None = None
+    operating_profit_ttm: float | None = None
     operating_profit_source: OperatingProfitSource = OperatingProfitSource.NULL
     eps_yoy: float | None = None
     sales_yoy: float | None = None
@@ -224,6 +225,7 @@ class FinancialSnapshot:
         "cash",
         "ebitda_ttm",
         "operating_profit",
+        "operating_profit_ttm",
         "eps_yoy",
         "sales_yoy",
         "operating_profit_yoy",

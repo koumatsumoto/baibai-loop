@@ -29,7 +29,7 @@ def run_page(
 ) -> Page:
     rows = stored_screening_rows(paths.runs, kind=kind, filters=filters, after=after, limit=limit)
     identity, sort = {
-        "screening_run": (("run_revision_id",), ("asof_date", "run_at", "run_revision_id")),
+        "screening_run": (("run_revision_id",), ("asof_date", "page_time", "run_revision_id")),
         "security_analysis": (("run_revision_id", "ticker"), ("ordinal",)),
         "review_set": (("review_set_id",), ("asof_date", "page_time", "review_set_id")),
     }[kind]

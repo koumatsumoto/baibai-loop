@@ -153,9 +153,22 @@ def _sector_table(
     asof_date: date,
     benchmark_ticker: str,
 ) -> list[dict[str, object]]:
+    benchmark = series_by_ticker.get(benchmark_ticker)
+    observation_date = benchmark.last_date_on(asof_date) if benchmark is not None else None
+    if observation_date is None:
+        observation_date = max(
+            (
+                day
+                for series in series_by_ticker.values()
+                if (day := series.last_date_on(asof_date)) is not None
+            ),
+            default=None,
+        )
+    if observation_date is None:
+        return []
     grouped: dict[str, list[_Series]] = {}
     for ticker, series in series_by_ticker.items():
-        if ticker == benchmark_ticker:
+        if ticker == benchmark_ticker or series.last_date_on(asof_date) != observation_date:
             continue
         sector = sector_by_ticker.get(ticker)
         if sector:
