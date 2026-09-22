@@ -956,7 +956,19 @@ gh workflow run ci.yml --ref main -f tradingview_oauth_smoke=true
 
 ### 保存開始と受入
 
-market schemaは28。既存storeのruntime自動移行は行わない。codeと整合するstoreを既存の再構築・転送手順で切り替えてから日次運用を開始する。初回snapshotがない間も既存の必須datasetの公開条件を維持し、TradingViewは任意datasetとして扱う。
+market schemaは28。既存storeのruntime自動移行は行わない。
+
+初回切替に限り、writer停止中に取得したschema 27のcopyへ次を実行する。sourceは変更せず、新規outputだけを作る。既存tableを維持し、新table・indexの追加、schema shape、integrity、FKを検証する。一時toolは切替後に削除する。
+
+```bash
+uv run python -m tools.cutover_market_28 \
+  --source stores/market/market-schema27-before-1317.sqlite \
+  --output stores/market/market-schema28-ready.sqlite
+```
+
+検証済みcopyをmarket storeへ配置してhydrateする。cloudへの反映は、直前の`pull-machine`が記録した3 storeの世代を保持したまま、`publish-lake`→`push-machine`で行う。旧schemaを拒否する通常の`push-market`に移行を代行させない。codeのmain反映とstoreの反映を同じ停止期間内に完了する。
+
+codeと整合するstoreを既存の再構築・転送手順で切り替えてから日次運用を開始する。初回snapshotがない間も既存の必須datasetの公開条件を維持し、TradingViewは任意datasetとして扱う。
 
 collectorは当日の取引日・15:30 JST以降・当日masterを要求する。50 symbolsずつ、concurrency 1、既定15秒間隔で取得する。同日保存済みなら上書きせず終了する。429や全件missingはretry loopに入らず失敗し、次回はrun全体を再取得する。成功した日の`unresolved`は、その取得時点の事実として残す。
 
