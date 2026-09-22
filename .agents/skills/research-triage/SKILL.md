@@ -29,7 +29,7 @@ description: 保存済みReview SetをTriage判断し、人間のResearch Set選
 
    正常なno-opだけで新たなpublishを実行しない。ただし前回のクラウド反映が未完了なら、Triageを再生成せず[application反映手順](../../../batch/OPERATIONS.md#application-db-を反映する)で完了させる。
 
-4. research候補がある場合は、返されたexact Triage ID・as-ofとpriority順の全候補、理由、調査質問、主要リスクを人間へ示す。人間の選択前にResearchを始めず、全skip・対象なしでは選択を求めない。
+4. research候補がある場合は、返されたexact Triage ID・as-ofを示す。選定を明示的に委任された場合は指定範囲の候補と選定理由を示して進む。それ以外はpriority順の全候補、理由、調査質問、主要リスクを示し、人間の選択を待つ。全skip・対象なしでは選択を求めない。
 
 5. 選択したtickerとexact Triage IDを[Research](../research/SKILL.md)へ渡す。Triage発行ではOperationを開始しない。
 
