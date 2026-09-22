@@ -251,10 +251,10 @@ series:
     plausible_min: 2
     plausible_max: 2000
     provider: estat
-    provider_series_id: "0003427113?cdCat01=0001&cdArea=00000&cdTab=1"
+    provider_series_id: "0004052037?cdCat01=0001&cdArea=00000&cdTab=1"
     source_id: estat-cpi
     source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
-    notes: e-Stat CPI表 0003427113 を cdCat01=0001(総合)・cdArea=00000(全国) で総合・全国に絞る。FRED日本CPI系列が廃止のためe-Statを使用。live確認済
+    notes: e-Stat 2025年基準CPI表 0004052037 を cdCat01=0001(総合)・cdArea=00000(全国) で総合・全国に絞る。FRED日本CPI系列が廃止のためe-Statを使用。live確認済
     aliases: [日本CPI, JP CPI, CPI総合, 全国CPI]
   - series_id: jp.cpi.core
     name: 日本CPIコア(生鮮食品を除く総合)
@@ -265,10 +265,10 @@ series:
     plausible_min: 2
     plausible_max: 2000
     provider: estat
-    provider_series_id: "0003427113?cdCat01=0161&cdArea=00000&cdTab=1"
+    provider_series_id: "0004052037?cdCat01=0161&cdArea=00000&cdTab=1"
     source_id: estat-cpi-core
     source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
-    notes: e-Stat CPI表 0003427113 を cdCat01=0161(生鮮食品を除く総合)・cdArea=00000(全国)・cdTab=1(指数)に絞る。日銀の物価目標の本体コアCPI。headlineとservicesの間を埋める
+    notes: e-Stat 2025年基準CPI表 0004052037 を cdCat01=0161(生鮮食品を除く総合)・cdArea=00000(全国)・cdTab=1(指数)に絞る。日銀の物価目標の本体コアCPI。headlineとservicesの間を埋める
     aliases: [コアCPI, 生鮮除くCPI, JP core CPI, 全国コアCPI, 日銀コア]
   - series_id: jp.cpi.core_yoy
     name: 日本コアCPI前年比
@@ -279,10 +279,10 @@ series:
     plausible_min: -20
     plausible_max: 30
     provider: estat
-    provider_series_id: "0003427113?cdCat01=0161&cdArea=00000&cdTab=3"
+    provider_series_id: "0004052037?cdCat01=0161&cdArea=00000&cdTab=3"
     source_id: estat-cpi-core-yoy
     source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
-    notes: e-Stat CPI表 0003427113 の生鮮食品を除く総合を cdTab=3(前年同月比)で取得。市場が「コアCPI ○%」と呼ぶ日銀コアインフレ率そのもの。指数(jp.cpi.core)と対で持つ
+    notes: e-Stat 2025年基準CPI表 0004052037 の生鮮食品を除く総合を cdTab=3(前年同月比)で取得。公式公表の変化率を使用し、接続指数から過去の前年比を再計算しない。指数(jp.cpi.core)と対で持つ
     aliases: [コアCPI前年比, コアインフレ率, JP core CPI YoY, 日本インフレ率]
   - series_id: jp.cpi.services
     name: 日本CPIサービス
@@ -293,10 +293,10 @@ series:
     plausible_min: 2
     plausible_max: 2000
     provider: estat
-    provider_series_id: "0003427113?cdCat01=0220&cdArea=00000&cdTab=1"
+    provider_series_id: "0004052037?cdCat01=0220&cdArea=00000&cdTab=1"
     source_id: estat-cpi-services
     source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
-    notes: e-Stat CPI表 0003427113 を cdCat01=0220(サービス)・cdArea=00000(全国)・cdTab=1(指数)に絞る。国内サービス価格の粘着性を読む。
+    notes: e-Stat 2025年基準CPI表 0004052037 を cdCat01=0220(サービス)・cdArea=00000(全国)・cdTab=1(指数)に絞る。国内サービス価格の粘着性を読む。
     aliases: [日本サービスCPI, サービス物価, JP services CPI, 全国サービスCPI]
   - series_id: jp.foreign_flows
     name: 海外投資家ネット買い越し額(週次)

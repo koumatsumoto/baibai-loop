@@ -3250,6 +3250,65 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         self.assertEqual(observations[0].observed_at, date(2026, 5, 1))
         self.assertEqual(observations[0].value, 102.0)
 
+    def test_japanese_cpi_uses_2025_base_and_official_change_rates(self) -> None:
+        by_id = {item.series_id: item for item in load_definitions().series}
+        # Nationwide cells verified against e-Stat table 0004052037 on 2026-09-22.
+        # The 2025 YoY retains the published old-base rate. Read the official
+        # change-rate cells directly instead of recalculating from connected indices.
+        for suffix, category, tab, unit, values in (
+            ("headline", "0001", "1", "index", (97.5, 100.3, 102.2)),
+            ("core", "0161", "1", "index", (97.7, 100.3, 102.0)),
+            ("core_yoy", "0161", "3", "percent", (2.8, 2.7, 1.7)),
+            ("services", "0220", "1", "index", (99.1, 100.6, 101.7)),
+        ):
+            with self.subTest(series=suffix):
+                series = by_id[f"jp.cpi.{suffix}"]
+                self.assertEqual(series.provider, "estat")
+                self.assertEqual(series.frequency, "monthly")
+                self.assertEqual(series.unit, unit)
+                self.assertEqual(
+                    series.provider_series_id,
+                    f"0004052037?cdCat01={category}&cdArea=00000&cdTab={tab}",
+                )
+                cells = [
+                    {
+                        "@tab": tab,
+                        "@cat01": category,
+                        "@area": "00000",
+                        "@time": f"{year}000808",
+                        "$": str(value),
+                    }
+                    for year, value in zip((2024, 2025, 2026), values, strict=True)
+                ]
+                observations = parse_estat_json(
+                    series,
+                    _estat_payload(cells),
+                    start=date(2024, 1, 1),
+                    end=date(2026, 8, 31),
+                )
+                self.assertEqual([item.value for item in observations], list(values))
+                self.assertEqual(
+                    [item.observed_at for item in observations],
+                    [date(year, 8, 1) for year in (2024, 2025, 2026)],
+                )
+                for attribute, wrong in (
+                    ("@tab", "2"),
+                    ("@cat01", "0162"),
+                    ("@area", "13100"),
+                ):
+                    with (
+                        self.subTest(attribute=attribute),
+                        self.assertRaisesRegex(
+                            IndicatorsProviderError, "outside the requested narrowing"
+                        ),
+                    ):
+                        parse_estat_json(
+                            series,
+                            _estat_payload([*cells, {**cells[-1], attribute: wrong}]),
+                            start=date(2024, 1, 1),
+                            end=date(2026, 8, 31),
+                        )
+
     def test_parse_estat_json_refuses_every_answer_it_cannot_read_one_series_from(
         self,
     ) -> None:
@@ -4456,7 +4515,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
         )
         self.assertEqual(
             by_id["jp.cpi.services"].provider_series_id,
-            "0003427113?cdCat01=0220&cdArea=00000&cdTab=1",
+            "0004052037?cdCat01=0220&cdArea=00000&cdTab=1",
         )
         # The narrowing codes are the series identity for an e-Stat table that
         # carries dozens of series, so an edit to them changes what is stored
