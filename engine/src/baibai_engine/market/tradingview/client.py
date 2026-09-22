@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -12,9 +13,10 @@ from mcp import ClientSession
 from mcp.client.auth import OAuthClientProvider
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import AuthorizationCodeResult, OAuthClientMetadata, OAuthMetadata
+from mcp.types import CallToolResult
 
 from .auth import AuthenticationError, CredentialStorage
-from .observations import FetchError
+from .observations import FetchError, ProviderHTTPError, ProviderPayloadError
 
 SERVER_URL = "https://mcp.tradingview.com/mcp"
 METADATA_URL = "https://www.tradingview.com/.well-known/oauth-authorization-server"
@@ -71,6 +73,18 @@ async def connect(storage: CredentialStorage) -> AsyncIterator[ClientSession]:
         yield session
 
 
+def _tool_error_http_status(result: CallToolResult) -> int | None:
+    statuses = {
+        int(match)
+        for item in result.content
+        if item.type == "text"
+        for match in re.findall(
+            r"\b(?:HTTP|status(?: code)?)\s+([1-5][0-9]{2})\b", item.text, re.IGNORECASE
+        )
+    }
+    return next(iter(statuses)) if len(statuses) == 1 else None
+
+
 async def fetch_batch(
     session: ClientSession, symbols: list[str], columns: list[str]
 ) -> dict[str, Any]:
@@ -78,13 +92,19 @@ async def fetch_batch(
         raise ValueError("TradingView batch requires 1..50 unique symbols")
     result = await session.call_tool(BATCH_TOOL, {"symbols": symbols, "columns": columns})
     if result.is_error:
+        status = _tool_error_http_status(result)
+        if status is not None:
+            raise ProviderHTTPError(status)
         raise FetchError("TradingView MCP tool failed")
     payload = result.structured_content
     if payload is None:
         texts = [item.text for item in result.content if item.type == "text"]
         if len(texts) != 1:
-            raise FetchError("Malformed TradingView MCP response")
-        payload = json.loads(texts[0])
+            raise ProviderPayloadError("malformed_envelope")
+        try:
+            payload = json.loads(texts[0])
+        except json.JSONDecodeError:
+            raise ProviderPayloadError("malformed_envelope") from None
     if not isinstance(payload, dict) or payload.get("success") is not True:
-        raise FetchError("TradingView batch failed")
+        raise ProviderPayloadError("malformed_envelope")
     return payload

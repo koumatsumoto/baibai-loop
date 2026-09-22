@@ -73,6 +73,7 @@ class CredentialStorage:
     def __init__(self, state: OAuthState, persist: Callable[[OAuthState], None]) -> None:
         self.state = state
         self.persist = persist
+        self.rotation_count = 0
 
     async def get_tokens(self) -> OAuthToken:
         return self.state.tokens
@@ -86,6 +87,7 @@ class CredentialStorage:
         )
         self.persist(updated)
         self.state = updated
+        self.rotation_count += 1
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
         raise AuthenticationError("Unattended client registration is disabled; reauthorize locally")

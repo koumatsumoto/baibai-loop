@@ -203,3 +203,146 @@ def test_universe_uses_canonical_sectors_without_common_stock_flag(tmp_path, com
         conn.execute("UPDATE jquants_master_snapshots SET is_common_stock=?", (common,))
     assert universe(conn, DAY) == ["TSE:1000"]
     conn.close()
+
+
+class Timer:
+    value = 0.0
+
+    def __call__(self):
+        return self.value
+
+
+@pytest.mark.parametrize(
+    "failure", [None, "429", "all_missing", "malformed", "store", "time_guard"]
+)
+def test_progress_and_durations_without_partial_writes(tmp_path, failure):
+    from dataclasses import asdict
+
+    from baibai_engine.market.tradingview.cli import failure_category
+    from baibai_engine.market.tradingview.collector import CollectionFailure
+    from baibai_engine.market.tradingview.observations import (
+        ProviderHTTPError,
+        ProviderPayloadError,
+    )
+
+    path = store(tmp_path / "market.sqlite")
+    if failure == "store":
+        with sqlite3.connect(path) as conn:
+            conn.execute(
+                "CREATE TRIGGER fail_insert BEFORE INSERT ON tradingview_forecast_snapshots "
+                "WHEN NEW.ticker='1050' BEGIN SELECT RAISE(ABORT, 'private-token'); END"
+            )
+    timer = Timer()
+    events = []
+    calls = 0
+    pauses = []
+
+    async def fetch(symbols):
+        nonlocal calls
+        calls += 1
+        timer.value += calls * 1.23456
+        if calls == 2:
+            if failure == "429":
+                raise ProviderHTTPError(429)
+            if failure == "all_missing":
+                return payload(symbols, missing=symbols)
+            if failure == "malformed":
+                return {"success": True}
+        return payload(symbols)
+
+    async def sleep(interval):
+        pauses.append(interval)
+        timer.value += interval
+
+    def clock():
+        return NOW + timedelta(
+            days=1 if failure == "time_guard" and calls == 2 else 0, seconds=timer.value
+        )
+
+    async def run():
+        return await collect(
+            path, DAY, fetch, clock=clock, timer=timer, sleep=sleep, progress=events.append
+        )
+
+    if failure:
+        with pytest.raises(CollectionFailure) as caught:
+            asyncio.run(run())
+        error = caught.value
+        expected_category = {
+            "429": "provider_rate_limit",
+            "all_missing": "provider_all_missing",
+            "malformed": "provider_response",
+            "store": "storage",
+            "time_guard": "time_guard",
+        }
+        assert failure_category(error) == expected_category[failure]
+        assert error.progress == events[-1]
+        assert events[-1].phase == (
+            "store" if failure == "store" else "fetch" if failure == "429" else "normalize"
+        )
+        assert events[-1].chunks_completed == (2 if failure == "store" else 1)
+        if failure != "store":
+            assert events[-1].chunk_index == 2
+            assert events[-1].chunk_size == 1
+        if failure == "malformed":
+            assert isinstance(error.cause, ProviderPayloadError)
+            assert error.cause.reason == "malformed_envelope"
+        assert not stored(path)
+    else:
+        result = asyncio.run(run())
+        assert result["rows"] == 51
+        assert result["unresolved"] == 0
+        assert result["chunks_total"] == result["chunks_completed"] == 2
+        assert result["columns_count"] == len(COLUMNS)
+        assert result["interval_seconds"] == 15
+        assert result["first_fetched_at_utc"] == (NOW + timedelta(seconds=1.23456)).isoformat()
+        assert result["last_fetched_at_utc"] == (NOW + timedelta(seconds=18.70368)).isoformat()
+        assert [e.phase for e in events] == [
+            "prepare",
+            "fetch",
+            "normalize",
+            "between_chunks",
+            "fetch",
+            "normalize",
+            "between_chunks",
+            "store",
+            "complete",
+        ]
+    assert calls == 2
+    assert pauses == [15]
+    assert events[-1].provider_elapsed_seconds == 3.704
+    assert events[-1].max_chunk_elapsed_seconds == 2.469
+    assert events[-1].elapsed_seconds == 18.704
+    assert events[-1].response_bytes > 0
+    assert events[-1].expected_universe == 51
+    assert events[-1].chunks_total == 2
+    assert "TSE:" not in repr([asdict(e) for e in events])
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "reason"),
+    [
+        ("quote_close", float("nan"), "invalid_numeric"),
+        ("recommendation_total", -1, "invalid_analyst_count"),
+        ("quote_currency", 42, "invalid_text_type"),
+    ],
+)
+def test_payload_diagnostics_use_canonical_field(field, value, reason):
+    from baibai_engine.market.tradingview.observations import FIELDS, ProviderPayloadError
+
+    data = payload(["TSE:1000"])
+    data["data"]["TSE:1000"][FIELDS[field]] = value
+    with pytest.raises(ProviderPayloadError) as caught:
+        normalize_batch(data, ["TSE:1000"], NOW)
+    assert (caught.value.reason, caught.value.field) == (reason, field)
+
+
+def test_missing_fields_uses_first_requested_canonical_field():
+    from baibai_engine.market.tradingview.observations import ProviderPayloadError
+
+    data = payload(["TSE:1000"])
+    del data["data"]["TSE:1000"]["earnings_per_share_forecast_next_fy"]
+    del data["data"]["TSE:1000"]["close"]
+    with pytest.raises(ProviderPayloadError) as caught:
+        normalize_batch(data, ["TSE:1000"], NOW)
+    assert caught.value.field == "eps_forecast_next_fy"

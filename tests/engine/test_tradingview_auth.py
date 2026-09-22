@@ -38,7 +38,9 @@ def test_rotation_persists_before_returning(tmp_path: Path) -> None:
     updated = OAuthToken(
         access_token="new-access", refresh_token="new-refresh", token_type="Bearer", expires_in=900
     )
+    assert storage.rotation_count == 0
     asyncio.run(storage.set_tokens(updated))
+    assert storage.rotation_count == 1
     saved = OAuthState.model_validate_json(path.read_text())
     assert saved.tokens.refresh_token == "new-refresh"
     assert saved.expires_at > 1
@@ -54,6 +56,7 @@ def test_failed_durable_write_aborts_rotation() -> None:
     with pytest.raises(AuthenticationError, match="write failed"):
         asyncio.run(storage.set_tokens(OAuthToken(access_token="new", token_type="Bearer")))
     assert storage.state.tokens.access_token == "old-access"
+    assert storage.rotation_count == 0
 
 
 def test_secret_writer_sends_state_only_on_stdin() -> None:
