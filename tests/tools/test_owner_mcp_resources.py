@@ -508,3 +508,27 @@ def test_public_argument_errors_identify_reason_without_exposing_input(
     serialized = result.model_dump_json()
     assert "secret-key" not in serialized
     assert "secret-value" not in serialized
+
+
+def test_run_pagination_uses_chronological_cursor_for_mixed_offsets(data):
+    from tests.helpers.screening_run import screening_run_payload
+
+    from baibai_engine.screening.run_store import ScreeningRunStore
+
+    store = ScreeningRunStore(data.paths.runs)
+    for identity, instant in (
+        ("offset-old", "2026-07-08T18:00:00+09:00"),
+        ("offset-new", "2026-07-08T10:00:00+00:00"),
+        ("offset-tie-z", "2026-07-08T19:00:00+09:00"),
+    ):
+        store.publish_run(
+            screening_run_payload(as_of="2026-07-08", run_at=instant),
+            run_revision_id=identity,
+        )
+    result = pages(data, "screening.run", {"from": "2026-07-08", "to": "2026-07-08"}, limit=1)
+    assert [item["payload"]["run_revision_id"] for item in result] == [
+        "offset-old",
+        "offset-new",
+        "offset-tie-z",
+    ]
+    assert all("page_time" not in item["payload"] for item in result)

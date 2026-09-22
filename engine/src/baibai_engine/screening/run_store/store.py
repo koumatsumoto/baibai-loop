@@ -137,7 +137,7 @@ class ScreeningRunStore:
                 ordered = connection.execute(
                     """
                     SELECT run_revision_id FROM screening_run
-                    ORDER BY asof_date DESC, run_at DESC, run_revision_id DESC
+                    ORDER BY asof_date DESC, julianday(run_at) DESC, run_revision_id DESC
                     """
                 ).fetchall()
                 deleted_ids = [str(row[0]) for row in ordered[keep:]]

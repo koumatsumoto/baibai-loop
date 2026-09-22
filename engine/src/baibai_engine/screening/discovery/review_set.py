@@ -135,7 +135,7 @@ def candidate_discovery_method_hash(
                     "p_s",
                     "sales_yoy",
                     "fcf_yield",
-                    "operating_profit",
+                    "operating_profit_ttm",
                     "sales_ttm",
                     "total_assets",
                     "equity_ratio",
@@ -581,7 +581,7 @@ def _reinvestment_values(
     p_s_gap = _finite(metrics.get("p_s_sector_gap"))
     sales_yoy = _positive(metrics.get("sales_yoy"))
     fcf_yield = _positive(metrics.get("fcf_yield"))
-    operating_profit = _positive(metrics.get("operating_profit"))
+    operating_profit_ttm = _positive(metrics.get("operating_profit_ttm"))
     sales_ttm = _positive(metrics.get("sales_ttm"))
     total_assets = _positive(metrics.get("total_assets"))
     equity_ratio = _positive(metrics.get("equity_ratio"))
@@ -592,7 +592,7 @@ def _reinvestment_values(
         p_s_gap,
         sales_yoy,
         fcf_yield,
-        operating_profit,
+        operating_profit_ttm,
         sales_ttm,
         total_assets,
         equity_ratio,
@@ -604,17 +604,17 @@ def _reinvestment_values(
     assert p_s_gap is not None
     assert sales_yoy is not None
     assert fcf_yield is not None
-    assert operating_profit is not None
+    assert operating_profit_ttm is not None
     assert sales_ttm is not None
     assert total_assets is not None
     assert equity_ratio is not None
     assert debt is not None
     assert cash is not None
-    operating_margin = operating_profit / sales_ttm
+    operating_margin = operating_profit_ttm / sales_ttm
     invested_capital = total_assets * equity_ratio + debt - cash
     if invested_capital <= 0:
         return None
-    capital_return = operating_profit / invested_capital
+    capital_return = operating_profit_ttm / invested_capital
     if operating_margin <= 0 or capital_return <= 0:
         return None
     return _ReinvestmentValues(p_s_gap, capital_return, sales_yoy, operating_margin, fcf_yield)

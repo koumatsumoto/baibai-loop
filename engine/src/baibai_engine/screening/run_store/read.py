@@ -86,7 +86,7 @@ class ScreeningRunReader:
             rows = connection.execute(
                 """
                 SELECT * FROM screening_run
-                ORDER BY asof_date DESC, run_at DESC, run_revision_id DESC
+                ORDER BY asof_date DESC, julianday(run_at) DESC, run_revision_id DESC
                 """
             ).fetchall()
             return [_run_from_row(connection, row) for row in rows]
@@ -97,7 +97,7 @@ class ScreeningRunReader:
             row = connection.execute(
                 """
                 SELECT * FROM screening_run
-                ORDER BY asof_date DESC, run_at DESC, run_revision_id DESC
+                ORDER BY asof_date DESC, julianday(run_at) DESC, run_revision_id DESC
                 LIMIT 1
                 """
             ).fetchone()
@@ -124,7 +124,8 @@ class ScreeningRunReader:
         with closing(self._connect()) as connection:
             connection.execute("BEGIN")
             rows = connection.execute(
-                "SELECT * FROM screening_run WHERE asof_date = ? ORDER BY run_at, run_revision_id",
+                "SELECT * FROM screening_run WHERE asof_date = ? "
+                "ORDER BY julianday(run_at), run_revision_id",
                 (as_of_date,),
             ).fetchall()
             if len(rows) > 1:
@@ -143,7 +144,8 @@ class ScreeningRunReader:
             if latest is None:
                 return None
             rows = connection.execute(
-                "SELECT * FROM screening_run WHERE asof_date = ? ORDER BY run_at, run_revision_id",
+                "SELECT * FROM screening_run WHERE asof_date = ? "
+                "ORDER BY julianday(run_at), run_revision_id",
                 (latest,),
             ).fetchall()
             if len(rows) > 1:
@@ -221,7 +223,7 @@ class ScreeningRunReader:
                 JOIN screening_run AS r USING (run_revision_id)
                 """  # nosec B608
                 + where
-                + " ORDER BY r.asof_date DESC, s.created_at DESC, s.review_set_id DESC",
+                + " ORDER BY r.asof_date DESC, julianday(s.created_at) DESC, s.review_set_id DESC",
                 parameters,
             ).fetchall()
             return [_review_set_from_row(row) for row in rows]
@@ -308,11 +310,11 @@ def stored_run_page(
         rows = select_page(
             connection,
             table=kind,
-            columns="*"
+            columns="*, julianday(run_at) AS page_time"
             if full
             else "run_revision_id, public_run_id, run_date, asof_date, "
-            "run_at, universe_size, rules_ref, created_at",
-            order=("asof_date", "run_at", "run_revision_id"),
+            "run_at, universe_size, rules_ref, created_at, julianday(run_at) AS page_time",
+            order=("asof_date", "julianday(run_at)", "run_revision_id"),
             equal=equal,
             ranges=ranges,
             after=after,

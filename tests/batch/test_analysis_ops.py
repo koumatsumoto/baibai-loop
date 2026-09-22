@@ -169,6 +169,7 @@ def _seed_canonical_review_set(
     suffix: str = "canonical",
     created_time: str = "18:30:00",
     run_suffix: str | None = None,
+    run_at: str | None = None,
 ) -> PublishedReviewSet:
     run_suffix = run_suffix or suffix
     app_db = root / "stores/application/baibai.sqlite"
@@ -210,6 +211,7 @@ def _seed_canonical_review_set(
     ScreeningRunStore(runs_db).publish_run(
         screening_run_payload(
             as_of=asof.isoformat(),
+            run_at=run_at,
             rules_hash=rules_hash,
             security_analyses=(analysis,),
         ),
@@ -769,7 +771,9 @@ def test_weekend_latest_publishes_and_reuses_exact_canonical_triage(
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize("failure", ["empty", "new_day", "new_revision", "binding", "payload"])
+@pytest.mark.parametrize(
+    "failure", ["empty", "new_day", "new_revision", "mixed_offset", "binding", "payload"]
+)
 def test_latest_failure_launches_no_model_and_writes_no_triage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -778,11 +782,13 @@ def test_latest_failure_launches_no_model_and_writes_no_triage(
 ) -> None:
     review_set = _seed_canonical_review_set(tmp_path)
     runs_db = tmp_path / "stores/screening/runs.sqlite"
-    if failure in {"new_day", "new_revision"}:
+    if failure in {"new_day", "new_revision", "mixed_offset"}:
         ScreeningRunStore(runs_db).publish_run(
             screening_run_payload(
                 as_of="2026-09-02" if failure == "new_day" else _ASOF.isoformat(),
-                run_at="2026-09-02T18:00:00+09:00",
+                run_at=f"{_ASOF.isoformat()}T10:00:00+00:00"
+                if failure == "mixed_offset"
+                else "2026-09-02T18:00:00+09:00",
             ),
             run_revision_id="run-newer-incomplete",
         )
@@ -818,3 +824,26 @@ def test_latest_failure_launches_no_model_and_writes_no_triage(
         )
         == []
     )
+
+
+def test_latest_matches_run_and_review_set_by_instant_with_mixed_offsets(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _seed_canonical_review_set(tmp_path, suffix="old-offset", created_time="18:15:00")
+    selected = _seed_canonical_review_set(
+        tmp_path,
+        suffix="new-offset",
+        run_at=f"{_ASOF.isoformat()}T10:00:00+00:00",
+        created_time="19:30:00",
+    )
+    model, calls = _model_runner({"2331": "research"})
+    args = _args(tmp_path, asof=None)
+    args.latest = True
+    assert analysis_cli._run(args, model_runner=model) == 0
+    result = json.loads(capsys.readouterr().out)
+    payloads = research_triage_payloads_for_review_set(
+        tmp_path / "stores/application/baibai.sqlite", selected.review_set_id
+    )
+    assert len(payloads) == len(calls) == 1
+    assert payloads[0]["research_triage_id"] == result["research_triage_id"]
+    assert payloads[0]["run_revision_id"] == selected.run_revision_id

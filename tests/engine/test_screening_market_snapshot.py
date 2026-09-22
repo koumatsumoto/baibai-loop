@@ -203,3 +203,49 @@ class MarketSnapshotCliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SectorObservationDateTests(unittest.TestCase):
+    def test_only_current_members_enter_returns_and_breadth_with_or_without_benchmark(self):
+        for benchmark in (True, False):
+            for asof in (date(2026, 9, 18), date(2026, 9, 20)):
+                with (
+                    self.subTest(benchmark=benchmark, asof=asof),
+                    tempfile.TemporaryDirectory() as tmpdir,
+                ):
+                    path = Path(tmpdir) / "market.sqlite"
+                    _insert_bars(path, "LIVE", [100.0] * 70, end=date(2026, 9, 18))
+                    _insert_bars(path, "OLD1", [100.0] * 69 + [300.0], end=date(2026, 9, 10))
+                    for ticker in ("LIVE", "OLD1"):
+                        _insert_sector(path, ticker, "建設業")
+                    if benchmark:
+                        _insert_bars(path, "1321", [100.0] * 70, end=date(2026, 9, 18))
+                    payload = build_market_snapshot(
+                        sqlite_path=path, asof_date=asof, history_weeks=1
+                    )
+                    self.assertEqual(
+                        payload["sectors"],
+                        [
+                            {
+                                "sector_33": "建設業",
+                                "ticker_count": 1,
+                                "median_return_20d": 0.0,
+                                "median_return_60d": 0.0,
+                                "pct_above_ma20": 0.0,
+                            }
+                        ],
+                    )
+
+    def test_benchmark_observation_date_is_authoritative(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "market.sqlite"
+            _insert_bars(path, "1321", [100.0] * 70, end=date(2026, 9, 17))
+            _insert_bars(path, "LIVE", [100.0] * 70, end=date(2026, 9, 17))
+            _insert_bars(path, "LATE", [100.0] * 69 + [300.0], end=date(2026, 9, 18))
+            for ticker in ("LIVE", "LATE"):
+                _insert_sector(path, ticker, "建設業")
+            payload = build_market_snapshot(
+                sqlite_path=path, asof_date=date(2026, 9, 18), history_weeks=1
+            )
+            self.assertEqual(payload["sectors"][0]["ticker_count"], 1)
+            self.assertEqual(payload["sectors"][0]["median_return_20d"], 0.0)

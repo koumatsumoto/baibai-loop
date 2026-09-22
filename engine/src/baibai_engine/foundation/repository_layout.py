@@ -8,7 +8,7 @@ RUNS_DB_PATH = Path("stores/screening/runs.sqlite")
 MACRO_DB_PATH = Path("stores/macro/macro.sqlite")
 CALIBRATION_DIR = Path("stores/screening/calibration")
 ER_LEVEL_CALIBRATION_CONTEXT_PATH = Path("reports/published/er-level-calibration-latest.yaml")
-SCREENING_RULES_PATH = Path("method/screening/rules/2026-09-03T161939+0900.yaml")
+SCREENING_RULES_PATH = Path("method/screening/rules/2026-09-22T214500+0900.yaml")
 MACRO_READING_RULES_PATH = Path("method/macro/reading/2026-08-01T100000+0900.yaml")
 
 
