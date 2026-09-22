@@ -34,11 +34,12 @@ from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
 from baibai_engine.macro.indicators.cli import main as macro_main
 from baibai_engine.operation.models import OperationPayload
-from baibai_engine.operation.service import OperationService
+from baibai_engine.operation.service import OperationCompletionError, OperationService
 from baibai_engine.research.capital_allocation import (
     CapitalAllocationAssessment,
     capital_allocation_draft_sha256,
 )
+from baibai_engine.research.capital_allocation_service import CapitalAllocationAssessmentService
 from baibai_engine.research.thesis_store import ThesisStoreService
 from baibai_engine.research.workspace_cli import main as research_main
 from baibai_engine.screening.discovery.review_set import PublishedReviewSet
@@ -269,6 +270,70 @@ def test_assessment_publish_stores_the_round_from_argv(
 # --------------------------------------------------------------------------- #
 # macro context (routed to the context CLI)
 # --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("result", ["no_allocation", "allocate", "defer"])
+def test_operation_confirmation_depends_on_published_assessment(
+    app_method_root: Path, result: str
+) -> None:
+    db = _app_db(app_method_root)
+    triage_id = _publish_research_triage(db)
+    draft_path = app_method_root / "assessment.yaml"
+    assert _scaffold_capital_allocation_draft(db, draft_path, triage_id) == 0
+    raw = _fill_judgment(safe_load(draft_path.read_text()))
+    raw["result"] = result
+    raw["alternatives"][0]["disposition"] = "allocate" if result == "allocate" else "decline"
+    raw["review"]["draft_sha256"] = capital_allocation_draft_sha256(
+        CapitalAllocationAssessment.model_validate(raw)
+    )
+    assessment = CapitalAllocationAssessment.model_validate(raw)
+    service = OperationService(db)
+    operation = service.active()
+    assert operation is not None
+    payload = OperationPayload(
+        checkpoint="review and publication complete",
+        artifacts=(
+            *operation.payload.artifacts,
+            {"kind": "capital_allocation_assessment", "ref": ASSESSMENT_ID},
+        ),
+        result="no_allocation claimed by operator",
+        next="wait for the next research trigger",
+    )
+    # The operator's prose cannot substitute for an actual published assessment.
+    with pytest.raises(OperationCompletionError, match="unavailable"):
+        service.complete(operation.operation_id, payload, completed_at=PUBLISHED_AT)
+    if result == "allocate":
+        # Seed a historical publication: current purchase eligibility is unrelated
+        # to whether completing its Operation still requires human confirmation.
+        with sqlite3.connect(db) as connection:
+            connection.execute(
+                "INSERT INTO capital_allocation_assessment VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    ASSESSMENT_ID,
+                    assessment.as_of.isoformat(),
+                    PUBLISHED_AT.isoformat(),
+                    result,
+                    triage_id,
+                    assessment.model_dump_json(),
+                ),
+            )
+    else:
+        CapitalAllocationAssessmentService(db, clock=lambda: PUBLISHED_AT).publish(assessment)
+    if result == "no_allocation":
+        with pytest.raises(OperationCompletionError, match="precedes assessment publication"):
+            service.complete(
+                operation.operation_id,
+                payload,
+                completed_at=PUBLISHED_AT.replace(hour=14),
+            )
+        completed = service.complete(operation.operation_id, payload, completed_at=PUBLISHED_AT)
+        assert completed.status == "completed"
+        assert completed.payload.human_confirmation is None
+        assert service.active() is None
+    else:
+        with pytest.raises(OperationCompletionError, match="human_confirmation"):
+            service.complete(operation.operation_id, payload, completed_at=PUBLISHED_AT)
+        assert service.active() is not None
 
 
 def test_macro_context_publish_routes_argv_and_stores_the_revision(

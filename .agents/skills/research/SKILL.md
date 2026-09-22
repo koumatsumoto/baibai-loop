@@ -9,7 +9,7 @@ description: 人間が選んだ企業を一次情報で調査し、企業評価�
 
 canonical Triageのresearch候補から、人間が選んだResearch Setを扱う。選定を明示的に委任された場合は、その範囲で選び、理由を示す。選択集合の外のtickerを追加しない。空のResearch Setは正常な見送りであり、Operationを作らない。
 
-`prepare`はexact Triageと選択集合に束縛したcapital-allocation Operationを開始する。同じTriage・同じ集合のOperationがactiveなら再利用し、その同じOperationを継続する。異なるbindingの別Operationがactiveなら新しいResearchは開始しない。この場合は既存Operationの人間裁定を確認して完了する。
+`prepare`はexact Triageと選択集合に束縛したcapital-allocation Operationを開始する。同じTriage・同じ集合のOperationがactiveなら再利用し、その同じOperationを継続する。異なるbindingの別Operationがactiveなら新しいResearchは開始しない。この場合は既存Operationを第5節の条件に従って完了する。
 
 ## 1. Workspaceを準備する
 
@@ -76,6 +76,8 @@ no_allocation/deferでは発注へ進まない。allocateでも人間のapprove�
 
 ## 5. Operationを完了する
 
-`operation checkpoint`または`operation complete --payload <FILE>`へ、開始時のresearch_triage artifact・exact ref・Research Setを保ったpayloadを渡す。完了時は最後に公開したCAAを`capital_allocation_assessment` artifactとして参照し、人間の裁定を記録する。Thesisだけのpublished状態をOperation完了としない。
+`operation checkpoint`または`operation complete --payload <FILE>`へ、開始時のresearch_triage artifact・exact ref・Research Setを保ったpayloadを渡す。完了時は最後に公開したCAAを`capital_allocation_assessment` artifactとして参照する。Thesisだけのpublished状態をOperation完了としない。
+
+公開済みCAAが`no_allocation`なら、追加の確認を求めず、配分なしの結果と次のtriggerを記録してOperationを完了する。`human_confirmation`は不要。将来の追跡taskが残っていても今回の完了を妨げない。`allocate / defer`では人間の裁定を記録して完了する。
 
 必要なmonitoringは既存taskを確認して登録する。cloud反映は[Ops Maintenance](../ops-maintenance/SKILL.md)に従う。対象未確定、重要な入力矛盾、独立Review未完了、binding競合は解消するまで先へ進まない。

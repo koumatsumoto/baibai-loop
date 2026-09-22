@@ -19,7 +19,7 @@ allocateは一つのalternativeを選び、そのThesisとReviewへ束縛する�
 
 Assessmentは比較理由と判断bindingを保存する。Thesis由来の機械値、当日の指値・数量・期限は複写しない。`review`はAssessmentの内容digestに対するreviewであり、個別企業のThesis Reviewとは別である。厳密なfield・version・拒否条件はmodelとpublic scaffoldが所有する。
 
-同じID・内容・Reviewの再送は既存publicationを返し、異なる内容で同じIDを上書きしない。開始したOperationの対象集合と無関係なAssessmentで完了させない。作成・check・content review・公開・逐次配分の順序は[Research skill](../../.agents/skills/research/SKILL.md)に従う。
+同じID・内容・Reviewの再送は既存publicationを返し、異なる内容で同じIDを上書きしない。開始したOperationの対象集合と無関係なAssessmentで完了させない。公開済みの`no_allocation`は追加の人間確認なしでOperationを完了できる。作成・check・content review・公開・完了の順序は[Research skill](../../.agents/skills/research/SKILL.md)に従う。
 
 ## Planningと資本情報
 

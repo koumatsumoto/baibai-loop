@@ -154,9 +154,15 @@ class OperationService:
                     except ValueError as error:
                         raise OperationConflictError(str(error)) from error
                 if completed_at is not None:
-                    _validate_complete(before.session_kind, payload)
+                    requires_confirmation = True
                     if before.session_kind == "capital-allocation":
-                        _require_published_assessment(connection, before, payload, completed_at)
+                        assessment = _require_published_assessment(
+                            connection, before, payload, completed_at
+                        )
+                        requires_confirmation = assessment.result != "no_allocation"
+                    _validate_complete(
+                        before.session_kind, payload, requires_confirmation=requires_confirmation
+                    )
                 operation = OperationSession.model_validate(
                     {
                         **before.public(),
@@ -195,7 +201,7 @@ def _require_published_assessment(
     operation: OperationSession,
     payload: OperationPayload,
     completed_at: datetime,
-) -> None:
+) -> CapitalAllocationAssessment:
     references = [
         artifact.get("ref")
         for artifact in payload.artifacts
@@ -224,16 +230,19 @@ def _require_published_assessment(
             raise ValueError("completion precedes assessment publication")
     except ValueError as error:
         raise OperationCompletionError(str(error)) from error
+    return assessment
 
 
-def _validate_complete(session_kind: SessionKind, payload: OperationPayload) -> None:
+def _validate_complete(
+    session_kind: SessionKind, payload: OperationPayload, *, requires_confirmation: bool
+) -> None:
     missing: list[str] = []
     if payload.result is None:
         missing.append("result")
     if payload.next is None:
         missing.append("next")
 
-    if (
+    if requires_confirmation and (
         payload.human_confirmation is None
         or payload.human_confirmation.request is None
         or payload.human_confirmation.result is None
