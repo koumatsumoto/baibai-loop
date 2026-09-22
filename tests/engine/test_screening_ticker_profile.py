@@ -506,3 +506,105 @@ def test_portfolio_facts_survive_unavailable_ledger_valuation(tmp_path, price_st
     assert portfolio["open_position_count"] == 1
     assert portfolio["same_sector_entry_notional_share"] == 1.0
     assert portfolio["open_positions"][0]["entry_notional_yen"] == 50000
+
+
+def _insert_dated_bars(sqlite_path, ticker, prices):
+    conn = open_connection(sqlite_path)
+    try:
+        conn.executemany(
+            "INSERT INTO jquants_daily_bars(ticker, traded_at, close, adjustment_factor) "
+            "VALUES (?, ?, ?, 1)",
+            [(ticker, day.isoformat(), price) for day, price in prices],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _dated_profile(root, asof):
+    return build_ticker_profile(
+        sqlite_path=root / "market.sqlite",
+        ticker="AAAA",
+        asof_date=asof,
+        runs_db_path=root / "runs.sqlite",
+        app_db_path=root / "app.sqlite",
+    )
+
+
+@pytest.mark.parametrize("missing", [None, "start", "end"])
+def test_relative_uses_exact_target_endpoints(tmp_path, missing):
+    start, middle, end = (date(2026, 9, day) for day in (15, 16, 17))
+    sqlite_path = tmp_path / "market.sqlite"
+    _insert_dated_bars(sqlite_path, "AAAA", [(start, 100), (end, 121)])
+    benchmark = [(start, 200), (middle, 220), (end, 242)]
+    missing_date = {"start": start, "end": end}.get(missing)
+    _insert_dated_bars(
+        sqlite_path, "1321", [(day, price) for day, price in benchmark if day != missing_date]
+    )
+    profile = _dated_profile(tmp_path, end)
+    assert profile["price"]["return_1d"] == pytest.approx(0.21)
+    relative = profile["relative"]
+    if missing is None:
+        assert relative["relative_1d"] == pytest.approx(0)
+    else:
+        assert relative["relative_1d"] is None
+    for window in (5, 20, 60):
+        assert relative[f"relative_{window}d"] is None
+
+
+@pytest.mark.parametrize("window", [1, 5, 20, 60])
+def test_relative_loads_suspended_target_interval_and_ignores_later_bars(tmp_path, window):
+    end = date(2026, 9, 17)
+    start = end - timedelta(days=180)
+    target = [(start, 100)] + [
+        (end - timedelta(days=window - i - 1), 110 + i) for i in range(window)
+    ]
+    sqlite_path = tmp_path / "market.sqlite"
+    _insert_dated_bars(sqlite_path, "AAAA", target)
+    # Only endpoints are required, even when the benchmark has fewer bars than target.
+    _insert_dated_bars(
+        sqlite_path, "1321", [(start, 200), (end, 220), (end + timedelta(days=1), 500)]
+    )
+    profile = _dated_profile(tmp_path, end + timedelta(days=1))
+    own_return = target[-1][1] / 100 - 1
+    assert profile["price"][f"return_{window}d"] == pytest.approx(own_return)
+    assert profile["relative"][f"relative_{window}d"] == pytest.approx(own_return - 0.1)
+
+
+@pytest.mark.parametrize("target_count", [20, 21])
+@pytest.mark.parametrize("usable_peers", [False, True])
+def test_sector_uses_only_peers_with_exact_target_interval(tmp_path, target_count, usable_peers):
+    sqlite_path = tmp_path / "market.sqlite"
+    end = _ASOF
+    start = end - timedelta(days=180)
+    target = [(start, 100)] + [(end - timedelta(days=19 - i), 110) for i in range(20)]
+    _insert_dated_bars(sqlite_path, "AAAA", target[-target_count:])
+    _insert_reference_rows(sqlite_path)
+    peers = {
+        "BBBB": [(start, 100), (end, 120)],
+        "CCCC": [(start, 100), (end, 140)],
+        "DDDD": [(start + timedelta(days=1), 100), (end, 900)],
+        "EEEE": [(start, 100), (end - timedelta(days=1), 900)],
+    }
+    if not usable_peers:
+        peers.pop("BBBB")
+        peers.pop("CCCC")
+    for ticker, prices in peers.items():
+        _insert_dated_bars(sqlite_path, ticker, prices)
+    conn = open_connection(sqlite_path)
+    try:
+        conn.executemany(
+            "INSERT OR REPLACE INTO jquants_master_snapshots"
+            "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
+            " VALUES ('2026-05-28', ?, 'peer', 'プライム', '機械', 1)",
+            [(ticker,) for ticker in peers],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    sector = _dated_profile(tmp_path, end)["relative"]["sector"]
+    if target_count == 20 or not usable_peers:
+        assert sector is None
+    else:
+        assert sector["peer_count"] == 2
+        assert sector["peer_median_return_20d"] == pytest.approx(0.3)

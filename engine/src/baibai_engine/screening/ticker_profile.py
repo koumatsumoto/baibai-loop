@@ -43,8 +43,6 @@ _RETURN_WINDOWS_BARS: tuple[int, ...] = (1, 5, 20, 60)
 _PEER_RETURN_WINDOW_BARS = 20
 
 _TICKER_LOOKBACK_CALENDAR_DAYS = 1130
-_BENCHMARK_LOOKBACK_CALENDAR_DAYS = 100
-_PEER_LOOKBACK_CALENDAR_DAYS = 45
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,21 +162,23 @@ def _relative_block(
     benchmark_bars = _load_bars(
         sqlite_path,
         tickers=(benchmark_ticker,),
-        start=asof_date - timedelta(days=_BENCHMARK_LOOKBACK_CALENDAR_DAYS),
+        start=bars[-min(len(bars), max(_RETURN_WINDOWS_BARS) + 1)].traded_at,
         end=asof_date,
     ).get(benchmark_ticker, [])
-    benchmark_prices = [bar.price for bar in benchmark_bars]
+    benchmark_prices = {bar.traded_at: bar.price for bar in benchmark_bars}
     versus_benchmark = {}
     for window in _RETURN_WINDOWS_BARS:
         own = _trailing_return(prices, window)
-        bench = _trailing_return(benchmark_prices, window)
+        bench = _endpoint_return(benchmark_prices, _window_endpoints(bars, window))
         versus_benchmark[f"relative_{window}d"] = (
             own - bench if own is not None and bench is not None else None
         )
     return {
         "benchmark_ticker": benchmark_ticker,
         **versus_benchmark,
-        "sector": _sector_block(sqlite_path, ticker=ticker, sector=sector, asof_date=asof_date)
+        "sector": _sector_block(
+            sqlite_path, ticker=ticker, bars=bars, sector=sector, asof_date=asof_date
+        )
         if sector
         else None,
     }
@@ -188,21 +188,25 @@ def _sector_block(
     sqlite_path: Path,
     *,
     ticker: str,
+    bars: Sequence[_Bar],
     sector: str,
     asof_date: date,
 ) -> dict[str, object] | None:
+    endpoints = _window_endpoints(bars, _PEER_RETURN_WINDOW_BARS)
+    if endpoints is None:
+        return None
     peers = _sector_peers(sqlite_path, sector=sector, exclude=ticker)
     if not peers:
         return None
     bars_by_ticker = _load_bars(
         sqlite_path,
         tickers=tuple(peers),
-        start=asof_date - timedelta(days=_PEER_LOOKBACK_CALENDAR_DAYS),
+        start=endpoints[0],
         end=asof_date,
     )
     returns = []
     for peer_bars in bars_by_ticker.values():
-        peer_return = _trailing_return([bar.price for bar in peer_bars], _PEER_RETURN_WINDOW_BARS)
+        peer_return = _endpoint_return({bar.traded_at: bar.price for bar in peer_bars}, endpoints)
         if peer_return is not None:
             returns.append(peer_return)
     if not returns:
@@ -386,6 +390,24 @@ def _sector_peers(sqlite_path: Path, *, sector: str, exclude: str) -> list[str]:
         (sector, exclude),
     )
     return [str(row[0]) for row in rows]
+
+
+def _window_endpoints(bars: Sequence[_Bar], window_bars: int) -> tuple[date, date] | None:
+    if len(bars) < window_bars + 1:
+        return None
+    return bars[-(window_bars + 1)].traded_at, bars[-1].traded_at
+
+
+def _endpoint_return(
+    prices: dict[date, float], endpoints: tuple[date, date] | None
+) -> float | None:
+    """Compare exact target dates; missing endpoints must not be filled."""
+    if endpoints is None:
+        return None
+    start, end = (prices.get(endpoint) for endpoint in endpoints)
+    if start is None or start == 0 or end is None:
+        return None
+    return end / start - 1
 
 
 def _trailing_return(prices: Sequence[float], window_bars: int) -> float | None:
