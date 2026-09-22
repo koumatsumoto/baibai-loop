@@ -958,15 +958,7 @@ gh workflow run ci.yml --ref main -f tradingview_oauth_smoke=true
 
 market schemaは28。既存storeのruntime自動移行は行わない。
 
-初回切替に限り、writer停止中に取得したschema 27のcopyへ次を実行する。sourceは変更せず、新規outputだけを作る。既存tableを維持し、新table・indexの追加、schema shape、integrity、FKを検証する。一時toolは切替後に削除する。
-
-```bash
-uv run python -m tools.cutover_market_28 \
-  --source stores/market/market-schema27-before-1317.sqlite \
-  --output stores/market/market-schema28-ready.sqlite
-```
-
-検証済みcopyをmarket storeへ配置してhydrateする。cloudへの反映は、直前の`pull-machine`が記録した3 storeの世代を保持したまま、`publish-lake`→`push-machine`で行う。旧schemaを拒否する通常の`push-market`に移行を代行させない。codeのmain反映とstoreの反映を同じ停止期間内に完了する。
+schema 27→28の本番切替は完了し、一時toolは削除済み。
 
 codeと整合するstoreを既存の再構築・転送手順で切り替えてから日次運用を開始する。初回snapshotがない間も既存の必須datasetの公開条件を維持し、TradingViewは任意datasetとして扱う。
 
