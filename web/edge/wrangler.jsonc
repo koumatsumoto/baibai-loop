@@ -5,9 +5,11 @@
   "compatibility_date": "2026-07-21",
   "workers_dev": true,
   "preview_urls": false,
-  // Query credentials must not enter persisted telemetry. This Wrangler version
-  // cannot express redact_query_string; keep production observability disabled.
-  "observability": { "enabled": false },
+  // Query credentials must not enter persisted telemetry.
+  "observability": {
+    "enabled": false,
+    "redact_query_string": true
+  },
   "logpush": false,
   "r2_buckets": [
     {

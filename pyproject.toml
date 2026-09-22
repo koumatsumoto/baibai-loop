@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 [project]
@@ -60,7 +60,6 @@ typing = [
   "mypy>=2.3.0",
   "pandas-stubs>=3.0.5.260730",
   "types-pyyaml>=6.0.12.20260724",
-  "types-requests>=2.33.0.20260712",
 ]
 quality = [
   "import-linter>=2.13",
@@ -94,7 +93,7 @@ packages = [
 "batch/src/baibai_batch/py.typed" = "baibai_batch/py.typed"
 
 [tool.uv]
-required-version = "==0.12.1"
+required-version = "==0.12.17"
 
 # Constrain the sdist to the buildable source packages (plus the metadata
 # hatchling always adds: pyproject.toml, README.md, PKG-INFO). Without this the

@@ -18,7 +18,7 @@ _KNOWN_ACTIONS = {
     "actions/checkout": ("3d3c42e5aac5ba805825da76410c181273ba90b1", "v7.0.1"),
     "actions/setup-node": ("820762786026740c76f36085b0efc47a31fe5020", "v7.0.0"),
     "actions/setup-python": ("5fda3b95a4ea91299a34e894583c3862153e4b97", "v7.0.0"),
-    "astral-sh/setup-uv": ("20cfd1bf945f4377ade1205e4dbc17946fc9a30d", "v10.0.1"),
+    "astral-sh/setup-uv": ("c18668ad3cf93ea998bef934396af7bb5c839dc7", "v10.2.0"),
 }
 _INPUT = re.compile(r"\$\{\{[^}]*\binputs\b[^}]*\}\}")
 _CREDENTIAL = re.compile(r"\$\{\{[^}]*(?:\bsecrets\b|\bvars\.R2_ACCOUNT_ID\b)[^}]*\}\}")

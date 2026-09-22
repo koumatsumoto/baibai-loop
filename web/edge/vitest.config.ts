@@ -1,11 +1,13 @@
-import { cloudflarePool } from '@cloudflare/vitest-pool-workers'
+import { cloudflareTest } from '@cloudflare/vitest-plugin'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
-  test: {
-    include: ['tests/**/*.test.ts'],
-    pool: cloudflarePool({
+  plugins: [
+    cloudflareTest({
       wrangler: { configPath: './wrangler.jsonc' },
     }),
+  ],
+  test: {
+    include: ['tests/**/*.test.ts'],
   },
 })
