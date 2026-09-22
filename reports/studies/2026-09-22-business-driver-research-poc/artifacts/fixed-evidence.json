@@ -1,0 +1,3526 @@
+{
+  "release_ref": {
+    "release_id": "20260922T103754Z-ae92d11f-bf6b53fea226",
+    "manifest_sha256": "f6ab45e143aad0445d66424e9164a14166d70059f77d2684fbe1bbbf86b808a8"
+  },
+  "triage_ref": {
+    "research_triage_id": "research-triage-20260918-a6adc489665a6da6",
+    "research_triage_sha256": "bd2bc81baee80d7ce1f4dc15e6cec9aa1eea32977616aac430f9dcfc6b961453",
+    "model_input_sha256": "8168a3179eaff3977b7b1d43cdb240545f00d0ff26408af09b26a974b262fe9a"
+  },
+  "triage_input": {
+    "triage_ref": {
+      "research_triage_id": "research-triage-20260918-a6adc489665a6da6",
+      "research_triage_sha256": "bd2bc81baee80d7ce1f4dc15e6cec9aa1eea32977616aac430f9dcfc6b961453",
+      "model_input_sha256": "8168a3179eaff3977b7b1d43cdb240545f00d0ff26408af09b26a974b262fe9a"
+    },
+    "input_basis": "reconstructed_from_production_contract",
+    "model_input": {
+      "schema_version": 2,
+      "task": "research-triage",
+      "instruction": "Use only this JSON. Do not call tools or read files. Compare every candidate and return exactly one strict decision for each ticker.",
+      "policy": [
+        "4 ApproachのNominationをprimary authorityとし、Review Setのmembership、Nomination、machine snapshotを変更しない",
+        "researchは追加のFundamental Researchで確認すべき具体的な未解決問いがあり、その答えが候補の価値、収益持続性、主要riskの理解をmaterially改善しうる場合に選ぶ",
+        "skipはmachine factsがApproach仮説を明確に崩すか、追加調査が採否をmaterialに変えない場合だけ選ぶ",
+        "他候補より相対的に弱いだけならskipにせず、researchの低いpriorityで表す",
+        "researchは全候補比較による1..Nのpriorityを持つ。Nはresearch件数で、research entryだけを重複・欠番なく再採番する。具体的なrationale、research_question、key_riskを返す。skipは具体的なrationaleだけを返し、priority、research_question、key_riskを必ずJSON nullにする",
+        "出力直前にresearch priority集合がexactly 1..Nで重複・欠番なしと再計算してから返す",
+        "unknownを否定事実へ変換せず、unknownだけでskipを強制しない",
+        "E[r]はvaluation reversionとcarryのsecondary machine return priorであり、高低、負値、欠損だけでresearch、skip、priorityを決めない",
+        "Approach仮説とE[r]の一致は補強材料、不一致はResearchで解く問いとして扱える",
+        "ADVは実行可能性のsecondary contextであり、固定値未満または欠損だけでskipやpriorityを決めない",
+        "Macro Contextは参考文脈であり、単独gateにしない",
+        "買付判断とbroker操作を行わない"
+      ],
+      "as_of": "2026-09-18",
+      "macro_context": {
+        "status": "current",
+        "as_of": "2026-09-18",
+        "age_days": 0,
+        "summary": "成長は残るが、実質金利上昇、エネルギー供給制約、低信用企業の調達悪化が企業間の差を広げている。今後3～6か月は成長継続と選別を中心に置き、供給障害が家計実需と広範な信用へ波及するかを最大の不確実性とする。リスクへの耐性を重く見る環境で、主観ウェイトはbase50%・bear30%・bull20%。日本株は指数下落だけで全面割安とは扱えず、現在の割引率と費用でも残る正常利益を個別に検証する。 前回から原油と実質金利が上がり、中立からリスク回避寄りへ変更したが、広範な信用危機は未確認。前回scorecardは2条件成立・4条件未判定で、シナリオ全体の的中は未確定。",
+        "synthesis": {
+          "dominant_forces": [
+            {
+              "summary": "米長期名目金利上昇の大部分は実質部分で、日本金利も上昇した。",
+              "source_ids": [
+                "series-us-real-10y",
+                "series-jp-10y",
+                "series-credit-us-ccc-oas",
+                "bea",
+                "bls-cpi",
+                "fed-implementation",
+                "boj"
+              ],
+              "force_id": "real-rate",
+              "title": "実質金利上昇が価値と調達費用を圧迫する",
+              "transmission": "実質国債利回りの上昇→要求収益率・借換え費用の上昇→長期CFの現在価値と利払い後利益への逆風。個別企業の負債条件によって伝達速度は異なる。",
+              "core_section_ids": [
+                "rates_policy",
+                "valuation",
+                "liquidity_credit"
+              ],
+              "series_ids": [
+                "us.real_10y",
+                "jp.10y",
+                "credit.us_ccc_oas"
+              ],
+              "counter_evidence": "BEA/BLSのコア物価の3か月鈍化、Fedの準備維持、日銀の良好な社債発行環境は、継続利上げと一律資金不足の両方を当然視する見方を弱める。実質利回りの低下が続けば価値への圧力自体も弱まる。",
+              "direction": "adverse",
+              "confidence": "medium"
+            },
+            {
+              "summary": "原油高と輸送制約は日本の輸入費用上昇に整合する。価格差だけでは因果を確定しない。",
+              "source_ids": [
+                "series-brent",
+                "series-usd-jpy",
+                "series-jp-import-price-index",
+                "eia",
+                "bls-cpi"
+              ],
+              "force_id": "energy-cost",
+              "title": "エネルギー供給制約が輸入費用と購買力へ波及する",
+              "transmission": "中東の供給・輸送制約→ドル原油価格上昇→円換算輸入費用増→価格転嫁または利益率・実質購買力の低下。為替と契約・ヘッジが伝達を変える。",
+              "core_section_ids": [
+                "inflation_costs",
+                "fx",
+                "japan"
+              ],
+              "series_ids": [
+                "brent",
+                "usd_jpy",
+                "jp.import_price_index"
+              ],
+              "counter_evidence": "6月以降の円高とコアCPIの3か月鈍化は、輸入費用の全額・即時転嫁という解釈を弱める。EIAが記述する迂回輸送の増加は制約の永続性への反証だが、将来の完全回復は未実現。",
+              "direction": "adverse",
+              "confidence": "medium"
+            },
+            {
+              "summary": "設備向け需要は残る一方、家計実需の加速は弱く、低信用企業のリスクプレミアムが上がる。",
+              "source_ids": [
+                "series-us-core-capex-orders",
+                "series-credit-us-ccc-oas",
+                "series-jp-real-consumption",
+                "bls-employment",
+                "bea",
+                "g17",
+                "boj"
+              ],
+              "force_id": "growth-credit",
+              "title": "実需と信用の強弱が用途・借り手ごとに分かれる",
+              "transmission": "家計の費用負担と高い借換え金利→消費数量と低信用企業の投資余力への圧力。一方、設備受注・生産の下支えは特定用途へ残る。需要差と信用差の同時観測であり、CCC拡大を全て家計消費で説明しない。",
+              "core_section_ids": [
+                "growth_demand",
+                "liquidity_credit",
+                "japan"
+              ],
+              "series_ids": [
+                "us.core_capex_orders",
+                "credit.us_ccc_oas",
+                "jp.real_consumption"
+              ],
+              "counter_evidence": "BLSの8月雇用増、低い新規申請、日銀の底堅い消費という評価は家計の全面的縮小を弱める。9月18日G.17の製造業前月比減少は設備側の一方向の強さも弱める。HY/IGまで拡大すれば局所という限定を撤回する。",
+              "direction": "mixed",
+              "confidence": "medium"
+            }
+          ],
+          "interactions": [
+            {
+              "summary": "原油費用上昇と高い実質割引率が同時に続けば、利益減少と現在価値低下が重なる。借換え依存の高い企業では信用選別がこれを増幅する。一方、供給回復による費用低下は需要を維持したまま両経路を和らげ得る。",
+              "source_ids": [
+                "series-brent",
+                "series-us-real-10y",
+                "series-credit-us-ccc-oas",
+                "eia",
+                "bea"
+              ],
+              "force_ids": [
+                "real-rate",
+                "energy-cost",
+                "growth-credit"
+              ]
+            }
+          ]
+        },
+        "connection": {
+          "section_id": "japan_equity_loop",
+          "series_ids": [
+            "us.real_10y",
+            "jp.10y",
+            "brent",
+            "usd_jpy",
+            "credit.us_ccc_oas",
+            "jp.real_consumption",
+            "jp.nikkei_per"
+          ],
+          "core_section_ids": [
+            "rates_policy",
+            "inflation_costs",
+            "fx",
+            "liquidity_credit",
+            "japan",
+            "valuation",
+            "growth_demand"
+          ],
+          "fact_summary": [
+            {
+              "summary": "9月18日canonical snapshot（観測日も9月18日）：1321の20営業日−1.38%、60営業日−7.00%、benchmark_trend=neutral。20日線超えは4180銘柄中49.21%。8月28日71.69%→9月11日25.73%→9月18日49.21%と部分回復した。",
+              "source_ids": [
+                "market"
+              ]
+            },
+            {
+              "summary": "同snapshotの業種60営業日中央値は海運+35.54%、銀行+23.57%、電気・ガス+12.53%、情報・通信+10.59%、小売+4.96%、非鉄+0.09%、電気機器−1.66%。元分析の主要3市場中央値+6.69%は9月17日の別計算であり、このsnapshotに同じ集計値はないため9月18日の値として転記しない。",
+              "source_ids": [
+                "market"
+              ]
+            },
+            {
+              "summary": "固定readingの補助座標（percentileは各系列固有の実効窓・statisticであり、系列横断の順位ではない）：us.real_10y=2.68 percent（2026-09-16、level percentile 100.0%、窓10年）；jp.10y=2.993 percent（2026-09-17、level percentile 99.9%、窓10年）；brent=130.8 usd-per-barrel（2026-09-15、level percentile 99.9%、窓10年）；usd_jpy=155.69 jpy-per-usd（2026-09-17、level percentile 90.1%、窓10年）；credit.us_ccc_oas=10.76 percent（2026-09-16、level percentile 99.1%、窓3年）；jp.real_consumption=106.73 index（2026-07-01、yoy percentile 78.0%、窓10年）；jp.nikkei_per=17.19 ratio（2026-09-18、level percentile 78.9%、窓10年）。",
+              "source_ids": [
+                "series-us-real-10y",
+                "series-jp-10y",
+                "series-brent",
+                "series-usd-jpy",
+                "series-credit-us-ccc-oas",
+                "series-jp-real-consumption",
+                "series-jp-nikkei-per"
+              ]
+            }
+          ],
+          "judgment": {
+            "summary": "指数下落と業種内中央値の差は、全面的な割安という解釈を支持しない。正常利益・資金耐久力と現在の割引率に対して企業ごとの価格を吟味する。",
+            "source_ids": [
+              "series-us-real-10y",
+              "series-jp-10y",
+              "series-brent",
+              "series-usd-jpy",
+              "series-credit-us-ccc-oas",
+              "series-jp-real-consumption",
+              "series-jp-nikkei-per",
+              "market"
+            ],
+            "direction": "mixed",
+            "confidence": "medium"
+          },
+          "research_priority_hints": [
+            {
+              "summary": "負債満期別の借換え利率と利払い後CF、流動性余力を優先確認する。",
+              "source_ids": [
+                "series-us-real-10y",
+                "series-credit-us-ccc-oas"
+              ],
+              "applies_to": "近い満期、大きい有利子負債、高い変動金利比率、薄いinterest coverageを持つ企業"
+            },
+            {
+              "summary": "価格転嫁条項、転嫁ラグ、在庫原価、ヘッジ、顧客契約を確認する。",
+              "source_ids": [
+                "series-brent",
+                "series-usd-jpy"
+              ],
+              "applies_to": "燃料・石化原料・輸送費の比重が高く転嫁に遅れがある企業"
+            },
+            {
+              "summary": "地域名だけで判断せず最終用途別の数量・受注・現地価格を分ける。",
+              "source_ids": [
+                "series-us-core-capex-orders",
+                "china",
+                "g17"
+              ],
+              "applies_to": "海外売上が大きく中国・米国の設備、電子機器、住宅向けが混在する企業"
+            },
+            {
+              "summary": "正常利益への回復経路、回復までのcash burnと資金余命、現在の要求収益率を確認する。",
+              "source_ids": [
+                "series-us-real-10y",
+                "series-credit-us-ccc-oas"
+              ],
+              "applies_to": "業績回復を待つ間にcash burnが続き、遠い将来CFに価値が偏る企業"
+            }
+          ],
+          "sector_tilts": [],
+          "sizing_cautions": [
+            {
+              "summary": "原油、借換え金利、家計需要という共通riskが複数企業へ重なる。個別の負債満期と転嫁契約に照らして共通感応度を明示する。具体額・現金比率・売買時期はこの文脈から導かない。",
+              "source_ids": [
+                "series-brent",
+                "series-us-real-10y",
+                "series-credit-us-ccc-oas"
+              ],
+              "severity": "high"
+            }
+          ],
+          "bargain_topography": {
+            "summary": "全面安のプール拡大より、費用転嫁と財務条件の差に価格が追いつかない企業を調べる余地がある。指数の60日下落に対し銀行・海運等の中央値は上昇しており、環境受益だけで安いとは扱えない。短期breadthは部分回復だが約半数にとどまり、現在の金利と費用でも残る正常利益に対して安いかを個別に検証する。",
+            "source_ids": [
+              "series-us-real-10y",
+              "series-brent",
+              "series-jp-nikkei-per",
+              "market"
+            ]
+          },
+          "estimate_caveats": [
+            {
+              "summary": "過去の低い割引率と調達費用を据え置くとFVを過大評価し得る。現在の契約条件へつないで検算する。",
+              "source_ids": [
+                "series-us-real-10y",
+                "series-credit-us-ccc-oas"
+              ],
+              "applies_to": "高負債・近い借換え満期の企業",
+              "affected_component": "fv_anchor",
+              "materiality": "high"
+            },
+            {
+              "summary": "過去利益率への回帰を機械的に置くと、費用転嫁の遅れと高コスト継続を過小評価し得る。",
+              "source_ids": [
+                "series-brent"
+              ],
+              "applies_to": "原油・資源・エネルギー費用の大きい企業",
+              "affected_component": "reversion",
+              "materiality": "high"
+            },
+            {
+              "summary": "円安による換算益を恒久利益と混同するとFVを過大評価し得る。輸入費用と現地費用を差し引いた純通貨感応度を確認する。",
+              "source_ids": [
+                "series-usd-jpy"
+              ],
+              "applies_to": "為替換算益の比重が高い輸出・海外事業企業",
+              "affected_component": "fv_anchor",
+              "materiality": "high"
+            },
+            {
+              "summary": "過去決算の現金残高だけでは回復までの資金耐久力を過大評価し得る。金利・費用と回復遅延を同時に確認する。",
+              "source_ids": [
+                "series-credit-us-ccc-oas",
+                "series-brent"
+              ],
+              "applies_to": "赤字・低収益からの回復待ちで資金流出が続く企業",
+              "affected_component": "resilience",
+              "materiality": "high"
+            }
+          ]
+        }
+      },
+      "candidates": [
+        {
+          "ticker": "1814",
+          "snapshot": {
+            "name": "大末建設",
+            "sector_33": "建設業",
+            "nominations": [
+              {
+                "valuation_approach_id": "reinvestment-value",
+                "valuation_method_id": "reinvestment-value-v2",
+                "rank": 16
+              }
+            ],
+            "analysis": {
+              "identity_liquidity": {
+                "market_cap_oku": 374,
+                "avg_turnover_oku": 2.2,
+                "listing_span_days": 1200,
+                "jpx_flags": []
+              },
+              "valuation": {
+                "per_forward": 9.79,
+                "per_trailing": 7.91,
+                "pbr": 1.46,
+                "ev_ebitda": 4.1,
+                "p_s": 0.33,
+                "pcfr": null
+              },
+              "current_earnings": {
+                "fcf_yield": 0.2417,
+                "ocf_yield": null,
+                "forecast_special_gain_flag": false,
+                "forecast_full_year_loss_flag": false
+              },
+              "normalized_earnings": {
+                "normalized_per_3fy": 15.9832,
+                "normalized_per_3fy_sector_gap": 0.0330470078012397
+              },
+              "asset_value": {
+                "asset_backed_ratio": 0.2577,
+                "net_cash_to_market_cap": 0.2143,
+                "investment_securities": 1623000000,
+                "equity_ratio": 0.428
+              },
+              "reinvestment": {
+                "p_s_sector_gap": -0.5108,
+                "operating_return_on_capital_proxy": 0.11988896367387193,
+                "sales_yoy": 0.2946,
+                "operating_margin": 0.01880636770739294,
+                "fcf_yield": 0.2417
+              },
+              "expected_return": {
+                "er_annual": 0.0012,
+                "er_reversion_annual": -0.05,
+                "er_carry_annual": 0.0512,
+                "fv_sector_median_yen": 3966.324,
+                "fv_self_range_yen": 1798.5,
+                "er_origin": "estimate",
+                "er_model_version": "expected-return-v1",
+                "er_unit": "annual_ratio",
+                "er_assumptions": "reversion=0.10*clip(implied_upside,+/-0.50); carry=dividend_yield(forecast_preferred_unless_gt_2x_actual,split_safe)+clip(share_count_yield,+/-0.05)"
+              },
+              "data_quality": {
+                "bs_carry_forward_fields": "bps,cash_eq",
+                "bs_carry_forward_lag_days": 85,
+                "edinet_failure_reasons": null,
+                "stale_fin_flag": null,
+                "ttm_quality_ev_ebitda": "exact",
+                "ttm_quality_fcf": "exact"
+              },
+              "context": {
+                "next_earnings_status": "estimated",
+                "next_earnings_estimated_date": "2026-11-06",
+                "margin_short_to_adv": 0.0483,
+                "tse_capital_policy_status": "disclosed",
+                "large_holding_event_recent": false,
+                "tender_offer_event_recent": false
+              }
+            }
+          }
+        },
+        {
+          "ticker": "1873",
+          "snapshot": {
+            "name": "日本ハウスホールディングス",
+            "sector_33": "建設業",
+            "nominations": [
+              {
+                "valuation_approach_id": "current-earnings-power",
+                "valuation_method_id": "current-earnings-power-v1",
+                "rank": 13
+              }
+            ],
+            "analysis": {
+              "identity_liquidity": {
+                "market_cap_oku": 125,
+                "avg_turnover_oku": 0.3,
+                "listing_span_days": 1200,
+                "jpx_flags": []
+              },
+              "valuation": {
+                "per_forward": 3.46,
+                "per_trailing": 8.33,
+                "pbr": 0.56,
+                "ev_ebitda": 4.4,
+                "p_s": 0.41,
+                "pcfr": null
+              },
+              "current_earnings": {
+                "fcf_yield": 0.0598,
+                "ocf_yield": null,
+                "forecast_special_gain_flag": true,
+                "forecast_full_year_loss_flag": false
+              },
+              "normalized_earnings": {
+                "normalized_per_3fy": 30.4094,
+                "normalized_per_3fy_sector_gap": 0.9654599629004843
+              },
+              "asset_value": {
+                "asset_backed_ratio": -0.3444,
+                "net_cash_to_market_cap": -0.3671,
+                "investment_securities": 283000000,
+                "equity_ratio": 0.537
+              },
+              "reinvestment": null,
+              "expected_return": {
+                "er_annual": 0.0412,
+                "er_reversion_annual": 0.0027,
+                "er_carry_annual": 0.0385,
+                "fv_sector_median_yen": 938.814,
+                "fv_self_range_yen": 320.5,
+                "er_origin": "estimate",
+                "er_model_version": "expected-return-v1",
+                "er_unit": "annual_ratio",
+                "er_assumptions": "reversion=0.10*clip(implied_upside,+/-0.50); carry=dividend_yield(forecast_preferred_unless_gt_2x_actual,split_safe)+clip(share_count_yield,+/-0.05)"
+              },
+              "data_quality": {
+                "bs_carry_forward_fields": "bps,cash_eq",
+                "bs_carry_forward_lag_days": 84,
+                "edinet_failure_reasons": null,
+                "stale_fin_flag": false,
+                "ttm_quality_ev_ebitda": "exact",
+                "ttm_quality_fcf": "exact"
+              },
+              "context": {
+                "next_earnings_status": "announced",
+                "next_earnings_estimated_date": "2026-12-05",
+                "margin_short_to_adv": null,
+                "tse_capital_policy_status": "disclosed",
+                "large_holding_event_recent": false,
+                "tender_offer_event_recent": false
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "triage_judgment": {
+    "schema_version": 3,
+    "kind": "research_triage",
+    "research_triage_id": "research-triage-20260918-a6adc489665a6da6",
+    "review_set_id": "review-set-20260918-27b3c3ccf095",
+    "run_revision_id": "run-revision-7d0b334b58d7455d979b2e00bcc8d908",
+    "as_of": "2026-09-18",
+    "published_at": "2026-09-19T14:35:33.044344+09:00",
+    "macro_context_id": "macro-context-2026-09-18-growth-cost-credit-divergence",
+    "expected_prior_research_triage_id": "research-triage-20260914-f879960d23b016b0",
+    "screening_rules_hash": "819055f83303c2a6",
+    "candidate_discovery_method": {
+      "method_id": "multi-valuation-v4",
+      "method_hash": "3e4865e072f6559c5873072e65f5b418722b5d096988bbb7caa7611c10b67145",
+      "nomination_depth": 20
+    },
+    "triage_contract_id": "research-triage-v3",
+    "entries": [
+      {
+        "ticker": "1814",
+        "decision": "research",
+        "priority": 8,
+        "rationale": "売上成長29.5%、予想PER9.79倍、ネットキャッシュ21.4%が再投資仮説を支える。ただし営業利益率1.88%と薄く、FCF24.2%の持続性確認が必要。",
+        "research_question": "受注案件の価格改定条項と原価見通しを確認し、運転資金変動を除いた利益・FCFでも成長投資が価値を生むか。",
+        "key_risk": "工事採算の悪化と運転資金回収による一時的なFCF増加。",
+        "candidate_snapshot": {
+          "name": "大末建設",
+          "sector_33": "建設業",
+          "nominations": [
+            {
+              "valuation_approach_id": "reinvestment-value",
+              "valuation_method_id": "reinvestment-value-v2",
+              "rank": 16
+            }
+          ],
+          "analysis": {
+            "identity_liquidity": {
+              "market_cap_oku": 374,
+              "avg_turnover_oku": 2.2,
+              "listing_span_days": 1200,
+              "jpx_flags": []
+            },
+            "valuation": {
+              "per_forward": 9.79,
+              "per_trailing": 7.91,
+              "pbr": 1.46,
+              "ev_ebitda": 4.1,
+              "p_s": 0.33,
+              "pcfr": null
+            },
+            "current_earnings": {
+              "fcf_yield": 0.2417,
+              "ocf_yield": null,
+              "forecast_special_gain_flag": false,
+              "forecast_full_year_loss_flag": false
+            },
+            "normalized_earnings": {
+              "normalized_per_3fy": 15.9832,
+              "normalized_per_3fy_sector_gap": 0.0330470078012397
+            },
+            "asset_value": {
+              "asset_backed_ratio": 0.2577,
+              "net_cash_to_market_cap": 0.2143,
+              "investment_securities": 1623000000,
+              "equity_ratio": 0.428
+            },
+            "reinvestment": {
+              "p_s_sector_gap": -0.5108,
+              "operating_return_on_capital_proxy": 0.11988896367387193,
+              "sales_yoy": 0.2946,
+              "operating_margin": 0.01880636770739294,
+              "fcf_yield": 0.2417
+            },
+            "expected_return": {
+              "er_annual": 0.0012,
+              "er_reversion_annual": -0.05,
+              "er_carry_annual": 0.0512,
+              "fv_sector_median_yen": 3966.324,
+              "fv_self_range_yen": 1798.5,
+              "er_origin": "estimate",
+              "er_model_version": "expected-return-v1",
+              "er_unit": "annual_ratio",
+              "er_assumptions": "reversion=0.10*clip(implied_upside,+/-0.50); carry=dividend_yield(forecast_preferred_unless_gt_2x_actual,split_safe)+clip(share_count_yield,+/-0.05)"
+            },
+            "data_quality": {
+              "bs_carry_forward_fields": "bps,cash_eq",
+              "bs_carry_forward_lag_days": 85,
+              "edinet_failure_reasons": null,
+              "stale_fin_flag": null,
+              "ttm_quality_ev_ebitda": "exact",
+              "ttm_quality_fcf": "exact"
+            },
+            "context": {
+              "next_earnings_status": "estimated",
+              "next_earnings_estimated_date": "2026-11-06",
+              "margin_short_to_adv": 0.0483,
+              "tse_capital_policy_status": "disclosed",
+              "large_holding_event_recent": false,
+              "tender_offer_event_recent": false
+            }
+          }
+        }
+      },
+      {
+        "ticker": "1873",
+        "decision": "research",
+        "priority": 58,
+        "rationale": "予想PER3.46倍には特別利益フラグがあり、正常化PER30.41倍とは乖離する。ただしPBR0.56倍、FCF黒字もあり、利益分解で判断が変わり得る。",
+        "research_question": "特別利益を除いた住宅事業の利益と受注採算、原価転嫁、維持投資後CFで評価しても低評価が残るか。",
+        "key_risk": "特別利益で低PERが生じ、本業の収益性が低いこと。",
+        "candidate_snapshot": {
+          "name": "日本ハウスホールディングス",
+          "sector_33": "建設業",
+          "nominations": [
+            {
+              "valuation_approach_id": "current-earnings-power",
+              "valuation_method_id": "current-earnings-power-v1",
+              "rank": 13
+            }
+          ],
+          "analysis": {
+            "identity_liquidity": {
+              "market_cap_oku": 125,
+              "avg_turnover_oku": 0.3,
+              "listing_span_days": 1200,
+              "jpx_flags": []
+            },
+            "valuation": {
+              "per_forward": 3.46,
+              "per_trailing": 8.33,
+              "pbr": 0.56,
+              "ev_ebitda": 4.4,
+              "p_s": 0.41,
+              "pcfr": null
+            },
+            "current_earnings": {
+              "fcf_yield": 0.0598,
+              "ocf_yield": null,
+              "forecast_special_gain_flag": true,
+              "forecast_full_year_loss_flag": false
+            },
+            "normalized_earnings": {
+              "normalized_per_3fy": 30.4094,
+              "normalized_per_3fy_sector_gap": 0.9654599629004843
+            },
+            "asset_value": {
+              "asset_backed_ratio": -0.3444,
+              "net_cash_to_market_cap": -0.3671,
+              "investment_securities": 283000000,
+              "equity_ratio": 0.537
+            },
+            "reinvestment": null,
+            "expected_return": {
+              "er_annual": 0.0412,
+              "er_reversion_annual": 0.0027,
+              "er_carry_annual": 0.0385,
+              "fv_sector_median_yen": 938.814,
+              "fv_self_range_yen": 320.5,
+              "er_origin": "estimate",
+              "er_model_version": "expected-return-v1",
+              "er_unit": "annual_ratio",
+              "er_assumptions": "reversion=0.10*clip(implied_upside,+/-0.50); carry=dividend_yield(forecast_preferred_unless_gt_2x_actual,split_safe)+clip(share_count_yield,+/-0.05)"
+            },
+            "data_quality": {
+              "bs_carry_forward_fields": "bps,cash_eq",
+              "bs_carry_forward_lag_days": 84,
+              "edinet_failure_reasons": null,
+              "stale_fin_flag": false,
+              "ttm_quality_ev_ebitda": "exact",
+              "ttm_quality_fcf": "exact"
+            },
+            "context": {
+              "next_earnings_status": "announced",
+              "next_earnings_estimated_date": "2026-12-05",
+              "margin_short_to_adv": null,
+              "tse_capital_policy_status": "disclosed",
+              "large_holding_event_recent": false,
+              "tender_offer_event_recent": false
+            }
+          }
+        }
+      }
+    ]
+  },
+  "selection_note": "Successful full canonical responses were read; only the two issue-selected candidates are retained. Hashes identify full upstream payloads, not this excerpt.",
+  "filings": [
+    {
+      "request": {
+        "release_ref": {
+          "release_id": "20260922T103754Z-ae92d11f-bf6b53fea226",
+          "manifest_sha256": "f6ab45e143aad0445d66424e9164a14166d70059f77d2684fbe1bbbf86b808a8"
+        },
+        "sources": [
+          {
+            "dataset": "edinet.documents",
+            "alias": "docs",
+            "from": "2024-07-31",
+            "to": "2026-09-18",
+            "columns": [
+              "doc_date",
+              "sequence_number",
+              "doc_id",
+              "sec_code",
+              "doc_type_code",
+              "csv_flag",
+              "xbrl_flag",
+              "legal_status",
+              "disclosure_status",
+              "withdrawal_status",
+              "doc_info_edit_status",
+              "parent_doc_id",
+              "operation_datetime",
+              "submit_datetime",
+              "doc_description",
+              "period_start",
+              "period_end",
+              "edinet_code",
+              "issuer_edinet_code",
+              "subject_edinet_code"
+            ]
+          }
+        ],
+        "sql": "-- l1.query source alias: docs = edinet.documents (entire retained document range).\n-- Parameters: ticker (four-character code), cutoff (JST date, inclusive).\n-- Choose the filing BEFORE querying its facts. Never fall back after this selection.\nWITH RECURSIVE origins AS (\n  SELECT *, row_number() OVER (PARTITION BY doc_id ORDER BY doc_date DESC, sequence_number DESC) AS version\n  FROM docs\n  WHERE doc_type_code IN ('120', '130')\n    AND substr(submit_datetime, 1, 10) <= $cutoff\n    AND doc_date <= $cutoff\n    AND coalesce(doc_info_edit_status, '') != '1'\n    AND coalesce(withdrawal_status, '') != '1'\n    AND coalesce(disclosure_status, '') NOT IN ('1', '3')\n), families AS (\n  SELECT doc_id, doc_id AS root_id, period_end AS annual_period_end\n  FROM origins WHERE version = 1 AND doc_type_code = '120'\n  UNION\n  SELECT c.doc_id, p.root_id, p.annual_period_end\n  FROM origins c JOIN families p ON c.parent_doc_id = p.doc_id\n  WHERE c.version = 1 AND c.doc_type_code = '130'\n), unresolved_annual_events AS (\n  SELECT coalesce(e.sec_code, linked.sec_code) AS sec_code,\n    f.root_id AS linked_root_id, e.doc_type_code AS document_type,\n    greatest(coalesce(e.doc_date, ''), coalesce(substr(e.submit_datetime, 1, 10), '')) AS known_on\n  FROM docs e LEFT JOIN origins linked\n    ON linked.version = 1 AND (e.doc_id = linked.doc_id OR e.parent_doc_id = linked.doc_id)\n  LEFT JOIN families f ON f.doc_id = linked.doc_id\n  WHERE e.doc_date <= $cutoff\n    AND (e.doc_info_edit_status = '1' OR e.withdrawal_status = '1'\n      OR e.disclosure_status IN ('1', '3'))\n    AND (e.doc_type_code IN ('120', '130') OR linked.doc_id IS NOT NULL)\n    AND NOT EXISTS (\n      SELECT 1 FROM origins resolved WHERE resolved.version = 1\n        AND resolved.doc_id = CASE WHEN e.withdrawal_status = '1'\n          THEN e.parent_doc_id ELSE e.doc_id END\n    )\n), ranked AS (\n  SELECT o.*, f.root_id, f.annual_period_end, root.submit_datetime AS root_submitted,\n    row_number() OVER (ORDER BY f.annual_period_end DESC, o.submit_datetime DESC, o.doc_id DESC) AS rank\n  FROM origins o JOIN families f ON o.doc_id = f.doc_id\n  JOIN origins root ON root.doc_id = f.root_id AND root.version = 1\n  WHERE o.version = 1 AND substr(root.sec_code, 1, 4) = $ticker\n), selected AS (\n  SELECT r.*,\n    CASE WHEN r.legal_status IN ('1', '2') AND r.disclosure_status = '0'\n      AND r.withdrawal_status = '0' AND r.doc_info_edit_status = '0' AND r.xbrl_flag = '1'\n      AND r.annual_period_end IS NOT NULL\n      AND NOT EXISTS (\n        SELECT 1 FROM unresolved_annual_events e\n        WHERE e.linked_root_id IS NULL AND e.document_type IN ('120', '130')\n          AND substr(e.sec_code, 1, 4) = $ticker\n          AND (e.known_on = '' OR r.root_submitted IS NULL\n            OR e.known_on >= substr(r.root_submitted, 1, 10))\n      )\n      AND NOT EXISTS (\n        SELECT 1 FROM origins newer\n        WHERE newer.version = 1 AND newer.doc_type_code = '120'\n          AND substr(newer.sec_code, 1, 4) = $ticker\n          AND newer.period_end IS NULL AND newer.submit_datetime >= r.root_submitted\n      )\n      AND NOT EXISTS (\n        SELECT 1 FROM origins o JOIN families f ON o.doc_id = f.doc_id\n        WHERE o.version = 1 AND f.root_id = r.root_id\n          AND (o.withdrawal_status = '2' OR o.disclosure_status = '2'\n            OR o.doc_info_edit_status = '2')\n      )\n      AND NOT EXISTS (\n        SELECT 1 FROM docs e JOIN families f\n          ON (e.doc_id = f.doc_id OR e.parent_doc_id = f.doc_id)\n        WHERE f.root_id = r.root_id AND e.doc_date <= $cutoff\n          AND (e.doc_info_edit_status = '1' OR e.withdrawal_status = '1'\n            OR e.disclosure_status IN ('1', '3'))\n      )\n      AND NOT EXISTS (\n        SELECT 1 FROM origins o LEFT JOIN families f ON o.doc_id = f.doc_id\n        WHERE o.version = 1 AND substr(o.sec_code, 1, 4) = $ticker\n          AND o.doc_type_code = '130' AND f.doc_id IS NULL\n      )\n      THEN 'usable' ELSE 'validity_unknown' END AS validity\n  FROM ranked r WHERE r.rank = 1\n)\nSELECT doc_id AS source_doc_id, submit_datetime, annual_period_end, validity\nFROM selected\n",
+        "parameters": {
+          "ticker": "1814",
+          "cutoff": "2026-09-18"
+        },
+        "max_rows": 10
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "成功。固定 release と coverage を確認してください。"
+          }
+        ],
+        "structuredContent": {
+          "release_ref": {
+            "release_id": "20260922T103754Z-ae92d11f-bf6b53fea226",
+            "manifest_sha256": "f6ab45e143aad0445d66424e9164a14166d70059f77d2684fbe1bbbf86b808a8"
+          },
+          "sources": [
+            {
+              "dataset": "edinet.documents",
+              "alias": "docs",
+              "from": "2024-07-31",
+              "to": "2026-09-18",
+              "columns": [
+                "doc_date",
+                "sequence_number",
+                "doc_id",
+                "sec_code",
+                "doc_type_code",
+                "csv_flag",
+                "xbrl_flag",
+                "legal_status",
+                "disclosure_status",
+                "withdrawal_status",
+                "doc_info_edit_status",
+                "parent_doc_id",
+                "operation_datetime",
+                "submit_datetime",
+                "doc_description",
+                "period_start",
+                "period_end",
+                "edinet_code",
+                "issuer_edinet_code",
+                "subject_edinet_code"
+              ],
+              "coverage_start": "2024-07-31",
+              "data_as_of": "2026-09-18",
+              "coverage_status": "complete",
+              "selected_partition_count": 27,
+              "selected_bytes": 2223246,
+              "manifest_rows": 176346
+            }
+          ],
+          "schema": [
+            {
+              "name": "source_doc_id",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "submit_datetime",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "annual_period_end",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "validity",
+              "type": "VARCHAR"
+            }
+          ],
+          "rows": [
+            [
+              "S100YK21",
+              "2026-06-25 15:00",
+              "2026-03-31",
+              "usable"
+            ]
+          ],
+          "row_count": 1,
+          "execution": {
+            "seconds": 0.525176,
+            "peak_memory_bytes": 331649024
+          },
+          "notes": [
+            "固定 release の観測値。世代整合性は point-in-time の投資可能情報を保証しません。",
+            "coverage_status は保有データの網羅性です。空の期間や集約結果の完全性とは別です。",
+            "鮮度は source ごとの data_as_of と requested date range を照合してください。"
+          ],
+          "transfer": {
+            "gateway_gets": 27,
+            "download_bytes": 2223246,
+            "process_gateway_gets": 119,
+            "process_download_bytes": 7584280
+          },
+          "elapsed_seconds": 5.00255
+        },
+        "isError": false
+      }
+    },
+    {
+      "request": {
+        "release_ref": {
+          "release_id": "20260922T103754Z-ae92d11f-bf6b53fea226",
+          "manifest_sha256": "f6ab45e143aad0445d66424e9164a14166d70059f77d2684fbe1bbbf86b808a8"
+        },
+        "sources": [
+          {
+            "dataset": "edinet.documents",
+            "alias": "docs",
+            "from": "2024-07-31",
+            "to": "2026-09-18",
+            "columns": [
+              "doc_date",
+              "sequence_number",
+              "doc_id",
+              "sec_code",
+              "doc_type_code",
+              "csv_flag",
+              "xbrl_flag",
+              "legal_status",
+              "disclosure_status",
+              "withdrawal_status",
+              "doc_info_edit_status",
+              "parent_doc_id",
+              "operation_datetime",
+              "submit_datetime",
+              "doc_description",
+              "period_start",
+              "period_end",
+              "edinet_code",
+              "issuer_edinet_code",
+              "subject_edinet_code"
+            ]
+          }
+        ],
+        "sql": "-- l1.query source alias: docs = edinet.documents (entire retained document range).\n-- Parameters: ticker (four-character code), cutoff (JST date, inclusive).\n-- Choose the filing BEFORE querying its facts. Never fall back after this selection.\nWITH RECURSIVE origins AS (\n  SELECT *, row_number() OVER (PARTITION BY doc_id ORDER BY doc_date DESC, sequence_number DESC) AS version\n  FROM docs\n  WHERE doc_type_code IN ('120', '130')\n    AND substr(submit_datetime, 1, 10) <= $cutoff\n    AND doc_date <= $cutoff\n    AND coalesce(doc_info_edit_status, '') != '1'\n    AND coalesce(withdrawal_status, '') != '1'\n    AND coalesce(disclosure_status, '') NOT IN ('1', '3')\n), families AS (\n  SELECT doc_id, doc_id AS root_id, period_end AS annual_period_end\n  FROM origins WHERE version = 1 AND doc_type_code = '120'\n  UNION\n  SELECT c.doc_id, p.root_id, p.annual_period_end\n  FROM origins c JOIN families p ON c.parent_doc_id = p.doc_id\n  WHERE c.version = 1 AND c.doc_type_code = '130'\n), unresolved_annual_events AS (\n  SELECT coalesce(e.sec_code, linked.sec_code) AS sec_code,\n    f.root_id AS linked_root_id, e.doc_type_code AS document_type,\n    greatest(coalesce(e.doc_date, ''), coalesce(substr(e.submit_datetime, 1, 10), '')) AS known_on\n  FROM docs e LEFT JOIN origins linked\n    ON linked.version = 1 AND (e.doc_id = linked.doc_id OR e.parent_doc_id = linked.doc_id)\n  LEFT JOIN families f ON f.doc_id = linked.doc_id\n  WHERE e.doc_date <= $cutoff\n    AND (e.doc_info_edit_status = '1' OR e.withdrawal_status = '1'\n      OR e.disclosure_status IN ('1', '3'))\n    AND (e.doc_type_code IN ('120', '130') OR linked.doc_id IS NOT NULL)\n    AND NOT EXISTS (\n      SELECT 1 FROM origins resolved WHERE resolved.version = 1\n        AND resolved.doc_id = CASE WHEN e.withdrawal_status = '1'\n          THEN e.parent_doc_id ELSE e.doc_id END\n    )\n), ranked AS (\n  SELECT o.*, f.root_id, f.annual_period_end, root.submit_datetime AS root_submitted,\n    row_number() OVER (ORDER BY f.annual_period_end DESC, o.submit_datetime DESC, o.doc_id DESC) AS rank\n  FROM origins o JOIN families f ON o.doc_id = f.doc_id\n  JOIN origins root ON root.doc_id = f.root_id AND root.version = 1\n  WHERE o.version = 1 AND substr(root.sec_code, 1, 4) = $ticker\n), selected AS (\n  SELECT r.*,\n    CASE WHEN r.legal_status IN ('1', '2') AND r.disclosure_status = '0'\n      AND r.withdrawal_status = '0' AND r.doc_info_edit_status = '0' AND r.xbrl_flag = '1'\n      AND r.annual_period_end IS NOT NULL\n      AND NOT EXISTS (\n        SELECT 1 FROM unresolved_annual_events e\n        WHERE e.linked_root_id IS NULL AND e.document_type IN ('120', '130')\n          AND substr(e.sec_code, 1, 4) = $ticker\n          AND (e.known_on = '' OR r.root_submitted IS NULL\n            OR e.known_on >= substr(r.root_submitted, 1, 10))\n      )\n      AND NOT EXISTS (\n        SELECT 1 FROM origins newer\n        WHERE newer.version = 1 AND newer.doc_type_code = '120'\n          AND substr(newer.sec_code, 1, 4) = $ticker\n          AND newer.period_end IS NULL AND newer.submit_datetime >= r.root_submitted\n      )\n      AND NOT EXISTS (\n        SELECT 1 FROM origins o JOIN families f ON o.doc_id = f.doc_id\n        WHERE o.version = 1 AND f.root_id = r.root_id\n          AND (o.withdrawal_status = '2' OR o.disclosure_status = '2'\n            OR o.doc_info_edit_status = '2')\n      )\n      AND NOT EXISTS (\n        SELECT 1 FROM docs e JOIN families f\n          ON (e.doc_id = f.doc_id OR e.parent_doc_id = f.doc_id)\n        WHERE f.root_id = r.root_id AND e.doc_date <= $cutoff\n          AND (e.doc_info_edit_status = '1' OR e.withdrawal_status = '1'\n            OR e.disclosure_status IN ('1', '3'))\n      )\n      AND NOT EXISTS (\n        SELECT 1 FROM origins o LEFT JOIN families f ON o.doc_id = f.doc_id\n        WHERE o.version = 1 AND substr(o.sec_code, 1, 4) = $ticker\n          AND o.doc_type_code = '130' AND f.doc_id IS NULL\n      )\n      THEN 'usable' ELSE 'validity_unknown' END AS validity\n  FROM ranked r WHERE r.rank = 1\n)\nSELECT doc_id AS source_doc_id, submit_datetime, annual_period_end, validity\nFROM selected\n",
+        "parameters": {
+          "ticker": "1873",
+          "cutoff": "2026-09-18"
+        },
+        "max_rows": 10
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "成功。固定 release と coverage を確認してください。"
+          }
+        ],
+        "structuredContent": {
+          "release_ref": {
+            "release_id": "20260922T103754Z-ae92d11f-bf6b53fea226",
+            "manifest_sha256": "f6ab45e143aad0445d66424e9164a14166d70059f77d2684fbe1bbbf86b808a8"
+          },
+          "sources": [
+            {
+              "dataset": "edinet.documents",
+              "alias": "docs",
+              "from": "2024-07-31",
+              "to": "2026-09-18",
+              "columns": [
+                "doc_date",
+                "sequence_number",
+                "doc_id",
+                "sec_code",
+                "doc_type_code",
+                "csv_flag",
+                "xbrl_flag",
+                "legal_status",
+                "disclosure_status",
+                "withdrawal_status",
+                "doc_info_edit_status",
+                "parent_doc_id",
+                "operation_datetime",
+                "submit_datetime",
+                "doc_description",
+                "period_start",
+                "period_end",
+                "edinet_code",
+                "issuer_edinet_code",
+                "subject_edinet_code"
+              ],
+              "coverage_start": "2024-07-31",
+              "data_as_of": "2026-09-18",
+              "coverage_status": "complete",
+              "selected_partition_count": 27,
+              "selected_bytes": 2223246,
+              "manifest_rows": 176346
+            }
+          ],
+          "schema": [
+            {
+              "name": "source_doc_id",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "submit_datetime",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "annual_period_end",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "validity",
+              "type": "VARCHAR"
+            }
+          ],
+          "rows": [
+            [
+              "S100YR5P",
+              "2026-07-22 10:00",
+              "2026-04-30",
+              "usable"
+            ]
+          ],
+          "row_count": 1,
+          "execution": {
+            "seconds": 0.436497,
+            "peak_memory_bytes": 331649024
+          },
+          "notes": [
+            "固定 release の観測値。世代整合性は point-in-time の投資可能情報を保証しません。",
+            "coverage_status は保有データの網羅性です。空の期間や集約結果の完全性とは別です。",
+            "鮮度は source ごとの data_as_of と requested date range を照合してください。"
+          ],
+          "transfer": {
+            "gateway_gets": 0,
+            "download_bytes": 0,
+            "process_gateway_gets": 119,
+            "process_download_bytes": 7584280
+          },
+          "elapsed_seconds": 0.801683
+        },
+        "isError": false
+      }
+    }
+  ],
+  "datasets": [
+    {
+      "describe": {
+        "release_ref": {
+          "release_id": "20260922T103754Z-ae92d11f-bf6b53fea226",
+          "manifest_sha256": "f6ab45e143aad0445d66424e9164a14166d70059f77d2684fbe1bbbf86b808a8"
+        },
+        "dataset": "edinet.metrics",
+        "columns": [
+          {
+            "name": "asof_date",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "ticker",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "sales_ttm",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "ocf_ttm",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "debt",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "cash",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "ebitda_ttm",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "consolidation_basis",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "ttm_quality_ev_ebitda",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "ttm_quality_p_s",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "ttm_quality_pcfr",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "operating_profit_ttm",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "depreciation_and_amortization_ttm",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "capex_ttm",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "fcf_ttm",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "net_cash",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "equity",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "total_assets",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "ttm_quality_fcf",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "ttm_quality_net_cash",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "source_doc_id",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "document_type",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "source_submit_datetime",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "source_period_start",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "source_period_end",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "capex_source",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "failure_reasons",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "extractor_revision",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "source_document_revision",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "investment_securities",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "ocf_receivables_cash_effect",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "ocf_inventories_cash_effect",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "ocf_payables_cash_effect",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "ocf_contract_liabilities_cash_effect",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "ocf_advances_received_cash_effect",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "ocf_other_payables_cash_effect",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "capex_ppe_reported",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "capex_intangible_reported",
+            "type": "double",
+            "nullable": true
+          }
+        ],
+        "primary_key": [
+          "asof_date",
+          "ticker"
+        ],
+        "date_column": "asof_date",
+        "partition_grain": "month",
+        "coverage_start": "2026-05-08",
+        "data_as_of": "2026-09-18",
+        "coverage_status": "partial",
+        "partitions": [
+          {
+            "month": 5,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 553003,
+            "rows": 11892
+          },
+          {
+            "month": 6,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 1195408,
+            "rows": 27735
+          },
+          {
+            "month": 7,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 2328037,
+            "rows": 67473
+          },
+          {
+            "month": 8,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 2622709,
+            "rows": 71449
+          },
+          {
+            "month": 9,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 1700228,
+            "rows": 55595
+          }
+        ],
+        "transfer": {
+          "gateway_gets": 0,
+          "download_bytes": 0,
+          "process_gateway_gets": 119,
+          "process_download_bytes": 7584280
+        },
+        "elapsed_seconds": 0.01196
+      },
+      "request": {
+        "release_ref": {
+          "release_id": "20260922T103754Z-ae92d11f-bf6b53fea226",
+          "manifest_sha256": "f6ab45e143aad0445d66424e9164a14166d70059f77d2684fbe1bbbf86b808a8"
+        },
+        "sources": [
+          {
+            "dataset": "edinet.metrics",
+            "alias": "metrics",
+            "from": "2026-09-18",
+            "to": "2026-09-18",
+            "columns": [
+              "asof_date",
+              "ticker",
+              "sales_ttm",
+              "ocf_ttm",
+              "debt",
+              "cash",
+              "ebitda_ttm",
+              "consolidation_basis",
+              "ttm_quality_ev_ebitda",
+              "ttm_quality_p_s",
+              "ttm_quality_pcfr",
+              "operating_profit_ttm",
+              "depreciation_and_amortization_ttm",
+              "capex_ttm",
+              "fcf_ttm",
+              "net_cash",
+              "equity",
+              "total_assets",
+              "ttm_quality_fcf",
+              "ttm_quality_net_cash",
+              "source_doc_id",
+              "document_type",
+              "source_submit_datetime",
+              "source_period_start",
+              "source_period_end",
+              "capex_source",
+              "failure_reasons",
+              "extractor_revision",
+              "source_document_revision",
+              "investment_securities",
+              "ocf_receivables_cash_effect",
+              "ocf_inventories_cash_effect",
+              "ocf_payables_cash_effect",
+              "ocf_contract_liabilities_cash_effect",
+              "ocf_advances_received_cash_effect",
+              "ocf_other_payables_cash_effect",
+              "capex_ppe_reported",
+              "capex_intangible_reported"
+            ]
+          }
+        ],
+        "sql": "SELECT * FROM metrics WHERE ticker IN ('1814','1873')",
+        "parameters": {},
+        "max_rows": 200
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "成功。固定 release と coverage を確認してください。"
+          }
+        ],
+        "structuredContent": {
+          "release_ref": {
+            "release_id": "20260922T103754Z-ae92d11f-bf6b53fea226",
+            "manifest_sha256": "f6ab45e143aad0445d66424e9164a14166d70059f77d2684fbe1bbbf86b808a8"
+          },
+          "sources": [
+            {
+              "dataset": "edinet.metrics",
+              "alias": "metrics",
+              "from": "2026-09-18",
+              "to": "2026-09-18",
+              "columns": [
+                "asof_date",
+                "ticker",
+                "sales_ttm",
+                "ocf_ttm",
+                "debt",
+                "cash",
+                "ebitda_ttm",
+                "consolidation_basis",
+                "ttm_quality_ev_ebitda",
+                "ttm_quality_p_s",
+                "ttm_quality_pcfr",
+                "operating_profit_ttm",
+                "depreciation_and_amortization_ttm",
+                "capex_ttm",
+                "fcf_ttm",
+                "net_cash",
+                "equity",
+                "total_assets",
+                "ttm_quality_fcf",
+                "ttm_quality_net_cash",
+                "source_doc_id",
+                "document_type",
+                "source_submit_datetime",
+                "source_period_start",
+                "source_period_end",
+                "capex_source",
+                "failure_reasons",
+                "extractor_revision",
+                "source_document_revision",
+                "investment_securities",
+                "ocf_receivables_cash_effect",
+                "ocf_inventories_cash_effect",
+                "ocf_payables_cash_effect",
+                "ocf_contract_liabilities_cash_effect",
+                "ocf_advances_received_cash_effect",
+                "ocf_other_payables_cash_effect",
+                "capex_ppe_reported",
+                "capex_intangible_reported"
+              ],
+              "coverage_start": "2026-05-08",
+              "data_as_of": "2026-09-18",
+              "coverage_status": "partial",
+              "selected_partition_count": 1,
+              "selected_bytes": 1700228,
+              "manifest_rows": 55595
+            }
+          ],
+          "schema": [
+            {
+              "name": "asof_date",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "ticker",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "sales_ttm",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "ocf_ttm",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "debt",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "cash",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "ebitda_ttm",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "consolidation_basis",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "ttm_quality_ev_ebitda",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "ttm_quality_p_s",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "ttm_quality_pcfr",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "operating_profit_ttm",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "depreciation_and_amortization_ttm",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "capex_ttm",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "fcf_ttm",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "net_cash",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "equity",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "total_assets",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "ttm_quality_fcf",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "ttm_quality_net_cash",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "source_doc_id",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "document_type",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "source_submit_datetime",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "source_period_start",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "source_period_end",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "capex_source",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "failure_reasons",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "extractor_revision",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "source_document_revision",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "investment_securities",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "ocf_receivables_cash_effect",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "ocf_inventories_cash_effect",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "ocf_payables_cash_effect",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "ocf_contract_liabilities_cash_effect",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "ocf_advances_received_cash_effect",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "ocf_other_payables_cash_effect",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "capex_ppe_reported",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "capex_intangible_reported",
+              "type": "DOUBLE"
+            }
+          ],
+          "rows": [
+            [
+              "2026-09-18",
+              "1814",
+              105554000000,
+              9299000000,
+              2753000000,
+              10776000000,
+              7179000000,
+              "consolidated",
+              "exact",
+              "exact",
+              "exact",
+              6579000000,
+              600000000,
+              252000000,
+              9047000000,
+              8023000000,
+              25211000000,
+              59649000000,
+              "exact",
+              "exact",
+              "S100YK21",
+              "120",
+              "2026-06-25 15:00",
+              "2025-04-01",
+              "2026-03-31",
+              "purchase_of_fixed_assets",
+              "[]",
+              "8c9ed3bc4bdc2e20d79dd005592144b26704565f405965ce1064b4762a83d47b",
+              "bc4f0c05527be83b75cc0c568f54912756eff5806c263832987c52cef67e097f",
+              1623000000,
+              1239000000,
+              null,
+              4078000000,
+              null,
+              null,
+              1021000000,
+              157000000,
+              95000000
+            ],
+            [
+              "2026-09-18",
+              "1873",
+              29618000000,
+              1252000000,
+              11615000000,
+              7034000000,
+              3895000000,
+              "consolidated",
+              "exact",
+              "exact",
+              "exact",
+              2380000000,
+              1515000000,
+              506000000,
+              746000000,
+              -4581000000,
+              22966000000,
+              44354000000,
+              "exact",
+              "exact",
+              "S100YR5P",
+              "120",
+              "2026-07-22 10:00",
+              "2025-05-01",
+              "2026-04-30",
+              "purchase_of_fixed_assets",
+              "[]",
+              "8c9ed3bc4bdc2e20d79dd005592144b26704565f405965ce1064b4762a83d47b",
+              "ed79c44288a16b6057d7730b856a1716bab181a22efee699fe24966ad4b94fa3",
+              283000000,
+              -278000000,
+              null,
+              200000000,
+              null,
+              null,
+              null,
+              null,
+              null
+            ]
+          ],
+          "row_count": 2,
+          "execution": {
+            "seconds": 0.151458,
+            "peak_memory_bytes": 331649024
+          },
+          "notes": [
+            "固定 release の観測値。世代整合性は point-in-time の投資可能情報を保証しません。",
+            "coverage_status は保有データの網羅性です。空の期間や集約結果の完全性とは別です。",
+            "鮮度は source ごとの data_as_of と requested date range を照合してください。"
+          ],
+          "transfer": {
+            "gateway_gets": 0,
+            "download_bytes": 0,
+            "process_gateway_gets": 119,
+            "process_download_bytes": 7584280
+          },
+          "elapsed_seconds": 0.42299
+        },
+        "isError": false
+      }
+    },
+    {
+      "describe": {
+        "release_ref": {
+          "release_id": "20260922T103754Z-ae92d11f-bf6b53fea226",
+          "manifest_sha256": "f6ab45e143aad0445d66424e9164a14166d70059f77d2684fbe1bbbf86b808a8"
+        },
+        "dataset": "edinet.segment_facts",
+        "columns": [
+          {
+            "name": "ticker",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "source_doc_id",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "source_submit_datetime",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "disclosed_on",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "source_element",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "source_context",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "issuer_id",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "period_start",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "period_end",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "consolidation_basis",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "segment_axis",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "segment_key",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "segment_name",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "segment_kind",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "metric",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "profit_basis",
+            "type": "string",
+            "nullable": true
+          },
+          {
+            "name": "value",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "currency",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "source_locator",
+            "type": "string",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "source_doc_id",
+          "source_context",
+          "source_element"
+        ],
+        "date_column": "disclosed_on",
+        "partition_grain": "month",
+        "coverage_start": "2024-08-28",
+        "data_as_of": "2026-09-18",
+        "coverage_status": "partial",
+        "partitions": [
+          {
+            "month": 8,
+            "year": 2024,
+            "object_count": 1,
+            "bytes": 11306,
+            "rows": 96
+          },
+          {
+            "month": 9,
+            "year": 2024,
+            "object_count": 1,
+            "bytes": 11622,
+            "rows": 152
+          },
+          {
+            "month": 10,
+            "year": 2024,
+            "object_count": 1,
+            "bytes": 12646,
+            "rows": 142
+          },
+          {
+            "month": 11,
+            "year": 2024,
+            "object_count": 1,
+            "bytes": 9456,
+            "rows": 30
+          },
+          {
+            "month": 12,
+            "year": 2024,
+            "object_count": 1,
+            "bytes": 14736,
+            "rows": 256
+          },
+          {
+            "month": 3,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 16506,
+            "rows": 368
+          },
+          {
+            "month": 4,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 10513,
+            "rows": 60
+          },
+          {
+            "month": 5,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 14632,
+            "rows": 254
+          },
+          {
+            "month": 6,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 65976,
+            "rows": 3072
+          },
+          {
+            "month": 7,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 15338,
+            "rows": 280
+          },
+          {
+            "month": 8,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 14909,
+            "rows": 272
+          },
+          {
+            "month": 9,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 79785,
+            "rows": 3824
+          },
+          {
+            "month": 10,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 34912,
+            "rows": 1335
+          },
+          {
+            "month": 11,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 53896,
+            "rows": 2439
+          },
+          {
+            "month": 12,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 93762,
+            "rows": 4653
+          },
+          {
+            "month": 1,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 43884,
+            "rows": 1860
+          },
+          {
+            "month": 2,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 42290,
+            "rows": 1717
+          },
+          {
+            "month": 3,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 261894,
+            "rows": 13858
+          },
+          {
+            "month": 4,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 47713,
+            "rows": 2006
+          },
+          {
+            "month": 5,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 111738,
+            "rows": 5628
+          },
+          {
+            "month": 6,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 1385989,
+            "rows": 73984
+          },
+          {
+            "month": 7,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 78739,
+            "rows": 3600
+          },
+          {
+            "month": 8,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 80495,
+            "rows": 3870
+          },
+          {
+            "month": 9,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 28110,
+            "rows": 969
+          }
+        ],
+        "transfer": {
+          "gateway_gets": 0,
+          "download_bytes": 0,
+          "process_gateway_gets": 119,
+          "process_download_bytes": 7584280
+        },
+        "elapsed_seconds": 0.012209
+      },
+      "request": {
+        "release_ref": {
+          "release_id": "20260922T103754Z-ae92d11f-bf6b53fea226",
+          "manifest_sha256": "f6ab45e143aad0445d66424e9164a14166d70059f77d2684fbe1bbbf86b808a8"
+        },
+        "sources": [
+          {
+            "dataset": "edinet.segment_facts",
+            "alias": "segments",
+            "from": "2026-06-25",
+            "to": "2026-07-22",
+            "columns": [
+              "ticker",
+              "source_doc_id",
+              "source_submit_datetime",
+              "disclosed_on",
+              "source_element",
+              "source_context",
+              "issuer_id",
+              "period_start",
+              "period_end",
+              "consolidation_basis",
+              "segment_axis",
+              "segment_key",
+              "segment_name",
+              "segment_kind",
+              "metric",
+              "profit_basis",
+              "value",
+              "currency",
+              "source_locator"
+            ]
+          }
+        ],
+        "sql": "SELECT * FROM segments WHERE source_doc_id IN ('S100YK21','S100YR5P')",
+        "parameters": {},
+        "max_rows": 200
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "成功。固定 release と coverage を確認してください。"
+          }
+        ],
+        "structuredContent": {
+          "release_ref": {
+            "release_id": "20260922T103754Z-ae92d11f-bf6b53fea226",
+            "manifest_sha256": "f6ab45e143aad0445d66424e9164a14166d70059f77d2684fbe1bbbf86b808a8"
+          },
+          "sources": [
+            {
+              "dataset": "edinet.segment_facts",
+              "alias": "segments",
+              "from": "2026-06-25",
+              "to": "2026-07-22",
+              "columns": [
+                "ticker",
+                "source_doc_id",
+                "source_submit_datetime",
+                "disclosed_on",
+                "source_element",
+                "source_context",
+                "issuer_id",
+                "period_start",
+                "period_end",
+                "consolidation_basis",
+                "segment_axis",
+                "segment_key",
+                "segment_name",
+                "segment_kind",
+                "metric",
+                "profit_basis",
+                "value",
+                "currency",
+                "source_locator"
+              ],
+              "coverage_start": "2024-08-28",
+              "data_as_of": "2026-09-18",
+              "coverage_status": "partial",
+              "selected_partition_count": 2,
+              "selected_bytes": 1464728,
+              "manifest_rows": 77584
+            }
+          ],
+          "schema": [
+            {
+              "name": "ticker",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "source_doc_id",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "source_submit_datetime",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "disclosed_on",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "source_element",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "source_context",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "issuer_id",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "period_start",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "period_end",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "consolidation_basis",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "segment_axis",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "segment_key",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "segment_name",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "segment_kind",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "metric",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "profit_basis",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "value",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "currency",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "source_locator",
+              "type": "VARCHAR"
+            }
+          ],
+          "rows": [
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers",
+              "CurrentYearDuration_OtherReportableSegmentsMember",
+              "E00197-000",
+              "2025-05-01",
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OtherReportableSegmentsMember",
+              "その他",
+              "other",
+              "external_sales",
+              null,
+              158000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers[contextRef=CurrentYearDuration_OtherReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales",
+              "CurrentYearDuration_OtherReportableSegmentsMember",
+              "E00197-000",
+              "2025-05-01",
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OtherReportableSegmentsMember",
+              "その他",
+              "other",
+              "total_sales",
+              null,
+              158000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales[contextRef=CurrentYearDuration_OtherReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome",
+              "CurrentYearDuration_OtherReportableSegmentsMember",
+              "E00197-000",
+              "2025-05-01",
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OtherReportableSegmentsMember",
+              "その他",
+              "other",
+              "segment_profit",
+              "operating",
+              122000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome[contextRef=CurrentYearDuration_OtherReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers",
+              "CurrentYearDuration_ReconcilingItemsMember",
+              "E00197-000",
+              "2025-05-01",
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}ReconcilingItemsMember",
+              "調整額",
+              "reconciliation",
+              "external_sales",
+              null,
+              null,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers[contextRef=CurrentYearDuration_ReconcilingItemsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales",
+              "CurrentYearDuration_ReconcilingItemsMember",
+              "E00197-000",
+              "2025-05-01",
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}ReconcilingItemsMember",
+              "調整額",
+              "reconciliation",
+              "total_sales",
+              null,
+              -47000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales[contextRef=CurrentYearDuration_ReconcilingItemsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome",
+              "CurrentYearDuration_ReconcilingItemsMember",
+              "E00197-000",
+              "2025-05-01",
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}ReconcilingItemsMember",
+              "調整額",
+              "reconciliation",
+              "segment_profit",
+              "operating",
+              -700000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome[contextRef=CurrentYearDuration_ReconcilingItemsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers",
+              "CurrentYearDuration_TotalOfReportableSegmentsAndOthersMember",
+              "E00197-000",
+              "2025-05-01",
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}TotalOfReportableSegmentsAndOthersMember",
+              "報告セグメント及びその他合計",
+              "total",
+              "external_sales",
+              null,
+              29618000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers[contextRef=CurrentYearDuration_TotalOfReportableSegmentsAndOthersMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales",
+              "CurrentYearDuration_TotalOfReportableSegmentsAndOthersMember",
+              "E00197-000",
+              "2025-05-01",
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}TotalOfReportableSegmentsAndOthersMember",
+              "報告セグメント及びその他合計",
+              "total",
+              "total_sales",
+              null,
+              29666000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales[contextRef=CurrentYearDuration_TotalOfReportableSegmentsAndOthersMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome",
+              "CurrentYearDuration_TotalOfReportableSegmentsAndOthersMember",
+              "E00197-000",
+              "2025-05-01",
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}TotalOfReportableSegmentsAndOthersMember",
+              "報告セグメント及びその他合計",
+              "total",
+              "segment_profit",
+              "operating",
+              3080000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome[contextRef=CurrentYearDuration_TotalOfReportableSegmentsAndOthersMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers",
+              "CurrentYearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember",
+              "E00197-000",
+              "2025-05-01",
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00197-000/2026-04-30/01/2026-07-22}HotelReportableSegmentsMember",
+              "ホテル事業",
+              "segment",
+              "external_sales",
+              null,
+              4144000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers[contextRef=CurrentYearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales",
+              "CurrentYearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember",
+              "E00197-000",
+              "2025-05-01",
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00197-000/2026-04-30/01/2026-07-22}HotelReportableSegmentsMember",
+              "ホテル事業",
+              "segment",
+              "total_sales",
+              null,
+              4191000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales[contextRef=CurrentYearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome",
+              "CurrentYearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember",
+              "E00197-000",
+              "2025-05-01",
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00197-000/2026-04-30/01/2026-07-22}HotelReportableSegmentsMember",
+              "ホテル事業",
+              "segment",
+              "segment_profit",
+              "operating",
+              -373000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome[contextRef=CurrentYearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers",
+              "CurrentYearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember",
+              "E00197-000",
+              "2025-05-01",
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00197-000/2026-04-30/01/2026-07-22}HousingReportableSegmentsMember",
+              "住宅事業",
+              "segment",
+              "external_sales",
+              null,
+              25316000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers[contextRef=CurrentYearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales",
+              "CurrentYearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember",
+              "E00197-000",
+              "2025-05-01",
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00197-000/2026-04-30/01/2026-07-22}HousingReportableSegmentsMember",
+              "住宅事業",
+              "segment",
+              "total_sales",
+              null,
+              25316000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales[contextRef=CurrentYearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome",
+              "CurrentYearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember",
+              "E00197-000",
+              "2025-05-01",
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00197-000/2026-04-30/01/2026-07-22}HousingReportableSegmentsMember",
+              "住宅事業",
+              "segment",
+              "segment_profit",
+              "operating",
+              3331000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome[contextRef=CurrentYearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets",
+              "CurrentYearInstant_OtherReportableSegmentsMember",
+              "E00197-000",
+              null,
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OtherReportableSegmentsMember",
+              "その他",
+              "other",
+              "assets",
+              null,
+              737000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets[contextRef=CurrentYearInstant_OtherReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets",
+              "CurrentYearInstant_ReconcilingItemsMember",
+              "E00197-000",
+              null,
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}ReconcilingItemsMember",
+              "調整額",
+              "reconciliation",
+              "assets",
+              null,
+              6573000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets[contextRef=CurrentYearInstant_ReconcilingItemsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets",
+              "CurrentYearInstant_TotalOfReportableSegmentsAndOthersMember",
+              "E00197-000",
+              null,
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}TotalOfReportableSegmentsAndOthersMember",
+              "報告セグメント及びその他合計",
+              "total",
+              "assets",
+              null,
+              37781000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets[contextRef=CurrentYearInstant_TotalOfReportableSegmentsAndOthersMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets",
+              "CurrentYearInstant_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember",
+              "E00197-000",
+              null,
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00197-000/2026-04-30/01/2026-07-22}HotelReportableSegmentsMember",
+              "ホテル事業",
+              "segment",
+              "assets",
+              null,
+              17309000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets[contextRef=CurrentYearInstant_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets",
+              "CurrentYearInstant_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember",
+              "E00197-000",
+              null,
+              "2026-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00197-000/2026-04-30/01/2026-07-22}HousingReportableSegmentsMember",
+              "住宅事業",
+              "segment",
+              "assets",
+              null,
+              19734000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets[contextRef=CurrentYearInstant_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers",
+              "Prior1YearDuration_OtherReportableSegmentsMember",
+              "E00197-000",
+              "2024-05-01",
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OtherReportableSegmentsMember",
+              "その他",
+              "other",
+              "external_sales",
+              null,
+              153000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers[contextRef=Prior1YearDuration_OtherReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales",
+              "Prior1YearDuration_OtherReportableSegmentsMember",
+              "E00197-000",
+              "2024-05-01",
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OtherReportableSegmentsMember",
+              "その他",
+              "other",
+              "total_sales",
+              null,
+              153000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales[contextRef=Prior1YearDuration_OtherReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome",
+              "Prior1YearDuration_OtherReportableSegmentsMember",
+              "E00197-000",
+              "2024-05-01",
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OtherReportableSegmentsMember",
+              "その他",
+              "other",
+              "segment_profit",
+              "operating",
+              118000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome[contextRef=Prior1YearDuration_OtherReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers",
+              "Prior1YearDuration_ReconcilingItemsMember",
+              "E00197-000",
+              "2024-05-01",
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}ReconcilingItemsMember",
+              "調整額",
+              "reconciliation",
+              "external_sales",
+              null,
+              null,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers[contextRef=Prior1YearDuration_ReconcilingItemsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales",
+              "Prior1YearDuration_ReconcilingItemsMember",
+              "E00197-000",
+              "2024-05-01",
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}ReconcilingItemsMember",
+              "調整額",
+              "reconciliation",
+              "total_sales",
+              null,
+              -36000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales[contextRef=Prior1YearDuration_ReconcilingItemsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome",
+              "Prior1YearDuration_ReconcilingItemsMember",
+              "E00197-000",
+              "2024-05-01",
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}ReconcilingItemsMember",
+              "調整額",
+              "reconciliation",
+              "segment_profit",
+              "operating",
+              -753000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome[contextRef=Prior1YearDuration_ReconcilingItemsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers",
+              "Prior1YearDuration_TotalOfReportableSegmentsAndOthersMember",
+              "E00197-000",
+              "2024-05-01",
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}TotalOfReportableSegmentsAndOthersMember",
+              "報告セグメント及びその他合計",
+              "total",
+              "external_sales",
+              null,
+              34980000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers[contextRef=Prior1YearDuration_TotalOfReportableSegmentsAndOthersMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales",
+              "Prior1YearDuration_TotalOfReportableSegmentsAndOthersMember",
+              "E00197-000",
+              "2024-05-01",
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}TotalOfReportableSegmentsAndOthersMember",
+              "報告セグメント及びその他合計",
+              "total",
+              "total_sales",
+              null,
+              35017000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales[contextRef=Prior1YearDuration_TotalOfReportableSegmentsAndOthersMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome",
+              "Prior1YearDuration_TotalOfReportableSegmentsAndOthersMember",
+              "E00197-000",
+              "2024-05-01",
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}TotalOfReportableSegmentsAndOthersMember",
+              "報告セグメント及びその他合計",
+              "total",
+              "segment_profit",
+              "operating",
+              3089000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome[contextRef=Prior1YearDuration_TotalOfReportableSegmentsAndOthersMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers",
+              "Prior1YearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember",
+              "E00197-000",
+              "2024-05-01",
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00197-000/2026-04-30/01/2026-07-22}HotelReportableSegmentsMember",
+              "ホテル事業",
+              "segment",
+              "external_sales",
+              null,
+              3935000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers[contextRef=Prior1YearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales",
+              "Prior1YearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember",
+              "E00197-000",
+              "2024-05-01",
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00197-000/2026-04-30/01/2026-07-22}HotelReportableSegmentsMember",
+              "ホテル事業",
+              "segment",
+              "total_sales",
+              null,
+              3972000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales[contextRef=Prior1YearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome",
+              "Prior1YearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember",
+              "E00197-000",
+              "2024-05-01",
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00197-000/2026-04-30/01/2026-07-22}HotelReportableSegmentsMember",
+              "ホテル事業",
+              "segment",
+              "segment_profit",
+              "operating",
+              -540000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome[contextRef=Prior1YearDuration_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers",
+              "Prior1YearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember",
+              "E00197-000",
+              "2024-05-01",
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00197-000/2026-04-30/01/2026-07-22}HousingReportableSegmentsMember",
+              "住宅事業",
+              "segment",
+              "external_sales",
+              null,
+              30891000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}RevenuesFromExternalCustomers[contextRef=Prior1YearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales",
+              "Prior1YearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember",
+              "E00197-000",
+              "2024-05-01",
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00197-000/2026-04-30/01/2026-07-22}HousingReportableSegmentsMember",
+              "住宅事業",
+              "segment",
+              "total_sales",
+              null,
+              30891000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}NetSales[contextRef=Prior1YearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome",
+              "Prior1YearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember",
+              "E00197-000",
+              "2024-05-01",
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00197-000/2026-04-30/01/2026-07-22}HousingReportableSegmentsMember",
+              "住宅事業",
+              "segment",
+              "segment_profit",
+              "operating",
+              3510000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}OperatingIncome[contextRef=Prior1YearDuration_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets",
+              "Prior1YearInstant_OtherReportableSegmentsMember",
+              "E00197-000",
+              null,
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OtherReportableSegmentsMember",
+              "その他",
+              "other",
+              "assets",
+              null,
+              797000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets[contextRef=Prior1YearInstant_OtherReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets",
+              "Prior1YearInstant_ReconcilingItemsMember",
+              "E00197-000",
+              null,
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}ReconcilingItemsMember",
+              "調整額",
+              "reconciliation",
+              "assets",
+              null,
+              5704000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets[contextRef=Prior1YearInstant_ReconcilingItemsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets",
+              "Prior1YearInstant_TotalOfReportableSegmentsAndOthersMember",
+              "E00197-000",
+              null,
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}TotalOfReportableSegmentsAndOthersMember",
+              "報告セグメント及びその他合計",
+              "total",
+              "assets",
+              null,
+              36691000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets[contextRef=Prior1YearInstant_TotalOfReportableSegmentsAndOthersMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets",
+              "Prior1YearInstant_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember",
+              "E00197-000",
+              null,
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00197-000/2026-04-30/01/2026-07-22}HotelReportableSegmentsMember",
+              "ホテル事業",
+              "segment",
+              "assets",
+              null,
+              17993000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets[contextRef=Prior1YearInstant_jpcrp030000-asr_E00197-000HotelReportableSegmentsMember]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets",
+              "Prior1YearInstant_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember",
+              "E00197-000",
+              null,
+              "2025-04-30",
+              "consolidated",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}OperatingSegmentsAxis",
+              "{http://disclosure.edinet-fsa.go.jp/jpcrp030000/asr/001/E00197-000/2026-04-30/01/2026-07-22}HousingReportableSegmentsMember",
+              "住宅事業",
+              "segment",
+              "assets",
+              null,
+              17901000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}Assets[contextRef=Prior1YearInstant_jpcrp030000-asr_E00197-000HousingReportableSegmentsMember]"
+            ]
+          ],
+          "row_count": 40,
+          "execution": {
+            "seconds": 0.172584,
+            "peak_memory_bytes": 331649024
+          },
+          "notes": [
+            "固定 release の観測値。世代整合性は point-in-time の投資可能情報を保証しません。",
+            "coverage_status は保有データの網羅性です。空の期間や集約結果の完全性とは別です。",
+            "鮮度は source ごとの data_as_of と requested date range を照合してください。"
+          ],
+          "transfer": {
+            "gateway_gets": 0,
+            "download_bytes": 0,
+            "process_gateway_gets": 119,
+            "process_download_bytes": 7584280
+          },
+          "elapsed_seconds": 0.437295
+        },
+        "isError": false
+      }
+    },
+    {
+      "describe": {
+        "release_ref": {
+          "release_id": "20260922T103754Z-ae92d11f-bf6b53fea226",
+          "manifest_sha256": "f6ab45e143aad0445d66424e9164a14166d70059f77d2684fbe1bbbf86b808a8"
+        },
+        "dataset": "edinet.debt_schedule",
+        "columns": [
+          {
+            "name": "ticker",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "source_doc_id",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "source_submit_datetime",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "disclosed_on",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "source_element",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "source_context",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "issuer_id",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "balance_sheet_date",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "consolidation_basis",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "debt_category",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "due_from_months",
+            "type": "int64",
+            "nullable": false
+          },
+          {
+            "name": "due_to_months",
+            "type": "int64",
+            "nullable": false
+          },
+          {
+            "name": "principal",
+            "type": "double",
+            "nullable": true
+          },
+          {
+            "name": "currency",
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "name": "source_locator",
+            "type": "string",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "source_doc_id",
+          "balance_sheet_date",
+          "consolidation_basis",
+          "debt_category",
+          "due_from_months",
+          "due_to_months"
+        ],
+        "date_column": "disclosed_on",
+        "partition_grain": "month",
+        "coverage_start": "2024-08-28",
+        "data_as_of": "2026-09-18",
+        "coverage_status": "partial",
+        "partitions": [
+          {
+            "month": 8,
+            "year": 2024,
+            "object_count": 1,
+            "bytes": 6933,
+            "rows": 6
+          },
+          {
+            "month": 9,
+            "year": 2024,
+            "object_count": 1,
+            "bytes": 6965,
+            "rows": 10
+          },
+          {
+            "month": 10,
+            "year": 2024,
+            "object_count": 1,
+            "bytes": 6844,
+            "rows": 2
+          },
+          {
+            "month": 11,
+            "year": 2024,
+            "object_count": 1,
+            "bytes": 6888,
+            "rows": 5
+          },
+          {
+            "month": 12,
+            "year": 2024,
+            "object_count": 1,
+            "bytes": 7252,
+            "rows": 26
+          },
+          {
+            "month": 2,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 6913,
+            "rows": 6
+          },
+          {
+            "month": 3,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 7808,
+            "rows": 66
+          },
+          {
+            "month": 4,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 7117,
+            "rows": 14
+          },
+          {
+            "month": 5,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 7673,
+            "rows": 59
+          },
+          {
+            "month": 6,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 11334,
+            "rows": 429
+          },
+          {
+            "month": 7,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 7364,
+            "rows": 28
+          },
+          {
+            "month": 8,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 7647,
+            "rows": 55
+          },
+          {
+            "month": 9,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 13121,
+            "rows": 635
+          },
+          {
+            "month": 10,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 9884,
+            "rows": 267
+          },
+          {
+            "month": 11,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 11314,
+            "rows": 444
+          },
+          {
+            "month": 12,
+            "year": 2025,
+            "object_count": 1,
+            "bytes": 14462,
+            "rows": 741
+          },
+          {
+            "month": 1,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 9837,
+            "rows": 255
+          },
+          {
+            "month": 2,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 10330,
+            "rows": 314
+          },
+          {
+            "month": 3,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 26300,
+            "rows": 2032
+          },
+          {
+            "month": 4,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 10485,
+            "rows": 324
+          },
+          {
+            "month": 5,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 16098,
+            "rows": 908
+          },
+          {
+            "month": 6,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 99241,
+            "rows": 9426
+          },
+          {
+            "month": 7,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 11829,
+            "rows": 435
+          },
+          {
+            "month": 8,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 12842,
+            "rows": 577
+          },
+          {
+            "month": 9,
+            "year": 2026,
+            "object_count": 1,
+            "bytes": 8976,
+            "rows": 168
+          }
+        ],
+        "transfer": {
+          "gateway_gets": 0,
+          "download_bytes": 0,
+          "process_gateway_gets": 119,
+          "process_download_bytes": 7584280
+        },
+        "elapsed_seconds": 0.013663
+      },
+      "request": {
+        "release_ref": {
+          "release_id": "20260922T103754Z-ae92d11f-bf6b53fea226",
+          "manifest_sha256": "f6ab45e143aad0445d66424e9164a14166d70059f77d2684fbe1bbbf86b808a8"
+        },
+        "sources": [
+          {
+            "dataset": "edinet.debt_schedule",
+            "alias": "debt",
+            "from": "2026-06-25",
+            "to": "2026-07-22",
+            "columns": [
+              "ticker",
+              "source_doc_id",
+              "source_submit_datetime",
+              "disclosed_on",
+              "source_element",
+              "source_context",
+              "issuer_id",
+              "balance_sheet_date",
+              "consolidation_basis",
+              "debt_category",
+              "due_from_months",
+              "due_to_months",
+              "principal",
+              "currency",
+              "source_locator"
+            ]
+          }
+        ],
+        "sql": "SELECT * FROM debt WHERE source_doc_id IN ('S100YK21','S100YR5P')",
+        "parameters": {},
+        "max_rows": 200
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "成功。固定 release と coverage を確認してください。"
+          }
+        ],
+        "structuredContent": {
+          "release_ref": {
+            "release_id": "20260922T103754Z-ae92d11f-bf6b53fea226",
+            "manifest_sha256": "f6ab45e143aad0445d66424e9164a14166d70059f77d2684fbe1bbbf86b808a8"
+          },
+          "sources": [
+            {
+              "dataset": "edinet.debt_schedule",
+              "alias": "debt",
+              "from": "2026-06-25",
+              "to": "2026-07-22",
+              "columns": [
+                "ticker",
+                "source_doc_id",
+                "source_submit_datetime",
+                "disclosed_on",
+                "source_element",
+                "source_context",
+                "issuer_id",
+                "balance_sheet_date",
+                "consolidation_basis",
+                "debt_category",
+                "due_from_months",
+                "due_to_months",
+                "principal",
+                "currency",
+                "source_locator"
+              ],
+              "coverage_start": "2024-08-28",
+              "data_as_of": "2026-09-18",
+              "coverage_status": "partial",
+              "selected_partition_count": 2,
+              "selected_bytes": 111070,
+              "manifest_rows": 9861
+            }
+          ],
+          "schema": [
+            {
+              "name": "ticker",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "source_doc_id",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "source_submit_datetime",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "disclosed_on",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "source_element",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "source_context",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "issuer_id",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "balance_sheet_date",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "consolidation_basis",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "debt_category",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "due_from_months",
+              "type": "BIGINT"
+            },
+            {
+              "name": "due_to_months",
+              "type": "BIGINT"
+            },
+            {
+              "name": "principal",
+              "type": "DOUBLE"
+            },
+            {
+              "name": "currency",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "source_locator",
+              "type": "VARCHAR"
+            }
+          ],
+          "rows": [
+            [
+              "1814",
+              "S100YK21",
+              "2026-06-25T15:00:00+09:00",
+              "2026-06-25",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock",
+              "CurrentYearDuration",
+              "E00093-000",
+              "2026-03-31",
+              "consolidated",
+              "short_term_borrowings",
+              0,
+              12,
+              100000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00093-000_2026-03-31_01_2026-06-25.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock[contextRef=CurrentYearDuration]/table[0]/row[1]/cell[2]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfCorporateBondsTextBlock",
+              "CurrentYearDuration",
+              "E00197-000",
+              "2026-04-30",
+              "consolidated",
+              "bonds",
+              0,
+              12,
+              130000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfCorporateBondsTextBlock[contextRef=CurrentYearDuration]/table[1]/row[1]/cell[0]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfCorporateBondsTextBlock",
+              "CurrentYearDuration",
+              "E00197-000",
+              "2026-04-30",
+              "consolidated",
+              "bonds",
+              12,
+              24,
+              130000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfCorporateBondsTextBlock[contextRef=CurrentYearDuration]/table[1]/row[1]/cell[1]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfCorporateBondsTextBlock",
+              "CurrentYearDuration",
+              "E00197-000",
+              "2026-04-30",
+              "consolidated",
+              "bonds",
+              24,
+              36,
+              130000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfCorporateBondsTextBlock[contextRef=CurrentYearDuration]/table[1]/row[1]/cell[2]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfCorporateBondsTextBlock",
+              "CurrentYearDuration",
+              "E00197-000",
+              "2026-04-30",
+              "consolidated",
+              "bonds",
+              36,
+              48,
+              130000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfCorporateBondsTextBlock[contextRef=CurrentYearDuration]/table[1]/row[1]/cell[3]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfCorporateBondsTextBlock",
+              "CurrentYearDuration",
+              "E00197-000",
+              "2026-04-30",
+              "consolidated",
+              "bonds",
+              48,
+              60,
+              780000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfCorporateBondsTextBlock[contextRef=CurrentYearDuration]/table[1]/row[1]/cell[4]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock",
+              "CurrentYearDuration",
+              "E00197-000",
+              "2026-04-30",
+              "consolidated",
+              "long_term_borrowings",
+              0,
+              12,
+              432000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock[contextRef=CurrentYearDuration]/table[0]/row[2]/cell[2]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock",
+              "CurrentYearDuration",
+              "E00197-000",
+              "2026-04-30",
+              "consolidated",
+              "long_term_borrowings",
+              12,
+              24,
+              1282000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock[contextRef=CurrentYearDuration]/table[1]/row[1]/cell[1]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock",
+              "CurrentYearDuration",
+              "E00197-000",
+              "2026-04-30",
+              "consolidated",
+              "long_term_borrowings",
+              24,
+              36,
+              398000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock[contextRef=CurrentYearDuration]/table[1]/row[1]/cell[2]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock",
+              "CurrentYearDuration",
+              "E00197-000",
+              "2026-04-30",
+              "consolidated",
+              "long_term_borrowings",
+              36,
+              48,
+              392000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock[contextRef=CurrentYearDuration]/table[1]/row[1]/cell[3]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock",
+              "CurrentYearDuration",
+              "E00197-000",
+              "2026-04-30",
+              "consolidated",
+              "long_term_borrowings",
+              48,
+              60,
+              341000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock[contextRef=CurrentYearDuration]/table[1]/row[1]/cell[4]"
+            ],
+            [
+              "1873",
+              "S100YR5P",
+              "2026-07-22T10:00:00+09:00",
+              "2026-07-22",
+              "{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock",
+              "CurrentYearDuration",
+              "E00197-000",
+              "2026-04-30",
+              "consolidated",
+              "short_term_borrowings",
+              0,
+              12,
+              4338000000,
+              "JPY",
+              "XBRL/PublicDoc/jpcrp030000-asr-001_E00197-000_2026-04-30_01_2026-07-22.xbrl#{http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor}AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock[contextRef=CurrentYearDuration]/table[0]/row[1]/cell[2]"
+            ]
+          ],
+          "row_count": 12,
+          "execution": {
+            "seconds": 0.132056,
+            "peak_memory_bytes": 331649024
+          },
+          "notes": [
+            "固定 release の観測値。世代整合性は point-in-time の投資可能情報を保証しません。",
+            "coverage_status は保有データの網羅性です。空の期間や集約結果の完全性とは別です。",
+            "鮮度は source ごとの data_as_of と requested date range を照合してください。"
+          ],
+          "transfer": {
+            "gateway_gets": 0,
+            "download_bytes": 0,
+            "process_gateway_gets": 119,
+            "process_download_bytes": 7584280
+          },
+          "elapsed_seconds": 0.452949
+        },
+        "isError": false
+      }
+    }
+  ]
+}
