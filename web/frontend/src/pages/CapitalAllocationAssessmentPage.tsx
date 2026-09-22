@@ -18,7 +18,18 @@ export function CapitalAllocationAssessmentPage() {
   const [data, setData] = useState<CapitalAllocationAssessmentView | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
-    fetchJson<CapitalAllocationAssessmentView>(`/api/capital-allocation-assessments/${encodeURIComponent(capitalAllocationAssessmentId)}`).then(setData).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Capital Allocation Assessment を読み込めませんでした'))
+    const controller = new AbortController()
+    setData(null)
+    setError(null)
+    fetchJson<CapitalAllocationAssessmentView>(`/api/capital-allocation-assessments/${encodeURIComponent(capitalAllocationAssessmentId)}`, { signal: controller.signal })
+      .then((result) => {
+        if (!controller.signal.aborted) setData(result)
+      })
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted || (reason instanceof Error && reason.name === 'AbortError')) return
+        setError(reason instanceof Error ? reason.message : 'Capital Allocation Assessment を読み込めませんでした')
+      })
+    return () => controller.abort()
   }, [capitalAllocationAssessmentId])
   if (error) return <PageState message={error} title="Capital Allocation Assessment" />
   if (!data) return <LoadingPage label="Capital Allocation Assessment を読み込んでいます" />
