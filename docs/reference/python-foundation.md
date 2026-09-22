@@ -50,7 +50,7 @@ coverageはpytest-covで計測する。worker数と閾値は設定・workflowを
 
 ## 8. Security checks
 
-sourceの静的検査はBandit、依存監査はlock由来のpip-auditとnpm auditを使う。実行環境にたまたま入ったpackageをproject依存として監査しない。advisoryはcodeが変わらなくても更新されるため、依存監査には週次実行も持つ。
+sourceの静的検査はBandit、依存監査はruntime/devについてlock由来のpip-audit、build-systemについて`[build-system].requires`由来のpip-audit、およびnpm auditを使う。実行環境にたまたま入ったpackageをproject依存として監査しない。advisoryはcodeが変わらなくても更新されるため、依存監査には週次実行も持つ。
 
 CodeQLは現行構成では採用しない。scanner追加は既存検査との差分と運用価値で判断する。workflowの権限・Action固定・dispatch入力は既存trust gateが検証する。
 

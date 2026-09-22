@@ -177,11 +177,9 @@ prefix単位IAMではありません（[Cloudflare公式](https://developers.clo
 `READ_ACCESS_TOKEN`はowner passwordとは別に、32 random bytes以上をCSPRNGで生成しbase64url等にします。
 実値と共有URLはpassword manager等の非公開経路だけで扱い、Git、Issue、PR、CI log、artifact、shell引数へ
 残しません。`wrangler.jsonc`はobservabilityとLogpushを明示的に無効化し、既存productionの無効状態を維持します。
-固定版Wrangler 4.114.0のschemaは`redact_query_string`を受け付けません。Cloudflareの
-[Script Settings API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/settings/methods/get/)
-にはlogs/tracesのURL queryを除く同名設定がありますが、未対応fieldをWranglerへ追加して有効と見なしません。
-logs/tracesを有効化する変更では、採用Wranglerのschemaとdeploy metadataがこの設定を正式に扱うことを確認し、
-`redact_query_string=true`をdeployment設定へ固定して、非秘密のqueryでredactionを受入確認します。
+Wrangler 4.136.1では`redact_query_string`が正式に扱えるため、deployment設定へ
+`redact_query_string=true`を固定します。observabilityとLogpushは無効のまま維持します。
+logs/tracesを将来有効化する変更は別の作業とし、その際は非秘密のqueryでredactionを受入確認します。
 実際の共有tokenで試験しません。real-time logの`wrangler tail`、dashboard Live Logs、Tail Worker等は、
 共有tokenを使うrequest中に起動・接続しません。
 
