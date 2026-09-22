@@ -19,13 +19,18 @@ export function MacroReportPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    setError(null)
+    const controller = new AbortController()
     setData(null)
-    fetchJson<MacroContextView>(`/api/macro/context/${encodeURIComponent(contextId)}`)
-      .then(setData)
+    setError(null)
+    fetchJson<MacroContextView>(`/api/macro/context/${encodeURIComponent(contextId)}`, { signal: controller.signal })
+      .then((result) => {
+        if (!controller.signal.aborted) setData(result)
+      })
       .catch((reason: unknown) => {
+        if (controller.signal.aborted || (reason instanceof Error && reason.name === 'AbortError')) return
         setError(reason instanceof Error ? reason.message : 'レポートを読み込めませんでした')
       })
+    return () => controller.abort()
   }, [contextId])
 
   if (error) return <PageState message={error} title="Macro report" />

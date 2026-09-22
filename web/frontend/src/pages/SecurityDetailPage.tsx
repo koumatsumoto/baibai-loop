@@ -63,13 +63,20 @@ export function SecurityDetailPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    const controller = new AbortController()
     setData(null)
     setNotFound(false)
     setError(null)
-    fetchJson<SecurityDetailView>(`/api/securities/${encodeURIComponent(ticker)}`).then(setData).catch((reason: unknown) => {
-      if (reason instanceof ApiError && reason.status === 404) setNotFound(true)
-      else setError(reason instanceof Error ? reason.message : '銘柄情報を読み込めませんでした')
-    })
+    fetchJson<SecurityDetailView>(`/api/securities/${encodeURIComponent(ticker)}`, { signal: controller.signal })
+      .then((result) => {
+        if (!controller.signal.aborted) setData(result)
+      })
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted || (reason instanceof Error && reason.name === 'AbortError')) return
+        if (reason instanceof ApiError && reason.status === 404) setNotFound(true)
+        else setError(reason instanceof Error ? reason.message : '銘柄情報を読み込めませんでした')
+      })
+    return () => controller.abort()
   }, [ticker])
 
   if (notFound) return <PageState back message="この銘柄の記録はありません" mono title={`404 / ${ticker}`} />
