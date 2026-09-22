@@ -84,6 +84,8 @@ applyは1 transactionでsource head、assessment / reservation、event payload�
 
 ## 人間が報告するbroker fact
 
+明示報告がない場合の扱いと確認する範囲は[Ledger Recordの売買報告の扱い](../../.agents/skills/ledger-record/SKILL.md#売買報告の扱い)に従う。
+
 `broker-fact-draft`は人間の`open / filled / cancelled / expired`報告だけを入力にする。active reservationをIDなしで推定しない。partial fillはremainingがある間だけ後続broker factを受理する。full fill / cancel / expire後の完全一致broker fact reportはno-change、矛盾broker fact reportはhard errorとする。`expired`は人間が未約定を確認し、`occurred_at >= expires_at`の場合だけreleaseを作る。同時刻に複数reservationがterminalになる場合は`--reservation-id`の反復指定を1 transactionで検証・適用する。対象の一部が不正なら全件を拒否する。active reservationの後続broker factは同じ`decision_reference`、reservation ID、order IDへ束縛する。
 
 <a id="historical-outcome"></a>
