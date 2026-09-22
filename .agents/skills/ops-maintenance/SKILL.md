@@ -9,7 +9,10 @@ description: batch・store・servingの操作を選び、既存runbookに従っ�
 
 | 依頼・状態 | 操作の正本 |
 | --- | --- |
-| storeの取得・反映・復旧、app/view公開、credential rotation | [batch OPERATIONS](../../../batch/OPERATIONS.md)の対象節 |
+| machine storeの取得 | [クラウド正本の取得](../../../batch/OPERATIONS.md#クラウド正本をローカルへ取得する) |
+| machine storeの反映 | [ローカルからクラウドを更新する](../../../batch/OPERATIONS.md#ローカルからクラウドを更新する) |
+| application DB・viewの公開 / application DBの復元 | [application反映](../../../batch/OPERATIONS.md#application-db-を反映する) / [復元](../../../batch/OPERATIONS.md#application-db-を復元する) |
+| credential rotation | [Password rotation](../../../batch/OPERATIONS.md#password-rotation) |
 | local Triageの失敗・再実行 | [Research Triage](../research-triage/SKILL.md) |
 | batchの失敗・欠測 | [batch OPERATIONS](../../../batch/OPERATIONS.md)の結果確認・復旧・watchdog |
 | 保有の再評価 | [Position Review](../position-review/SKILL.md) |

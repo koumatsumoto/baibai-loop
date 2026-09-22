@@ -7,7 +7,9 @@ description: 人間が選んだ企業を一次情報で調査し、企業評価�
 
 ## 開始条件
 
-人間がcanonical Triageのresearch候補から選んだResearch Setを扱う。選択していないtickerを追加しない。prepareがexact Triageと選択集合に束縛したcapital-allocation Operationを開始し、その同じOperationを継続する。別Operationがactiveなら新しいResearchは開始しない。空のResearch Setは正常な見送りであり、Operationを作らない。
+canonical Triageのresearch候補から、人間が選んだResearch Setを扱う。選定を明示的に委任された場合は、その範囲で選び、理由を示す。選択集合の外のtickerを追加しない。空のResearch Setは正常な見送りであり、Operationを作らない。
+
+`prepare`はexact Triageと選択集合に束縛したcapital-allocation Operationを開始する。同じTriage・同じ集合のOperationがactiveなら再利用し、その同じOperationを継続する。異なるbindingの別Operationがactiveなら新しいResearchは開始しない。この場合は既存Operationの人間裁定を確認して完了する。
 
 ## 1. Workspaceを準備する
 
