@@ -42,6 +42,7 @@ from baibai_engine.batch_api import (
     RUNS_DB_PATH,
     ResearchTriage,
     load_daily_analysis_context,
+    load_latest_analysis_context,
     publish_daily_research_triage,
 )
 
@@ -316,6 +317,7 @@ def _triage_summary(triage: ResearchTriage, summary: dict[str, object], *, publi
 def _execute(
     *,
     asof: date,
+    latest: bool,
     root: Path,
     state_root: Path,
     run_dir: Path,
@@ -325,14 +327,15 @@ def _execute(
 ) -> int:
     app_db_path = root / APPLICATION_DB_PATH
     runs_db_path = root / RUNS_DB_PATH
-    context = load_daily_analysis_context(
-        asof,
-        app_db_path=app_db_path,
-        runs_db_path=runs_db_path,
+    context = (
+        load_latest_analysis_context(app_db_path=app_db_path, runs_db_path=runs_db_path)
+        if latest
+        else load_daily_analysis_context(asof, app_db_path=app_db_path, runs_db_path=runs_db_path)
     )
     if context is None:
         summary["status"] = "no_review_set"
         return 0
+    summary["as_of"] = context.review_set.as_of.isoformat()
     summary["candidate_count"] = len(context.review_set.entries)
     if not context.review_set.entries:
         summary["status"] = "empty_review_set"
@@ -399,6 +402,8 @@ def _emit(summary: dict[str, object], output_format: str) -> None:
         "log_path",
     ):
         print(f"{key}={summary.get(key)}")
+    if "failure" in summary:
+        print(f"failure={summary['failure']}")
     candidates = summary.get("research_candidates", [])
     if isinstance(candidates, list):
         for candidate in candidates:
@@ -428,6 +433,7 @@ def _run(args: argparse.Namespace, *, model_runner: ModelRunner = _run_model) ->
         try:
             exit_code = _execute(
                 asof=asof,
+                latest=args.latest,
                 root=args.repo_root,
                 state_root=state_root,
                 run_dir=run_dir,
@@ -455,10 +461,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-batch analysis")
     commands = parser.add_subparsers(dest="analysis_command", required=True)
     run = commands.add_parser("run", help="triage the canonical Review Set for one as-of date")
-    run.add_argument(
+    selector = run.add_mutually_exclusive_group()
+    selector.add_argument(
         "--asof",
         type=date.fromisoformat,
         help="JST date for a manual rerun; the default is today's JST date",
+    )
+    selector.add_argument(
+        "--latest",
+        action="store_true",
+        help="use the latest canonical Review Set only if it matches the latest Screening Run",
     )
     run.add_argument("--state-dir", type=Path, default=default_state_dir())
     run.add_argument("--repo-root", type=Path, default=Path.cwd())

@@ -559,3 +559,20 @@ def test_leaf_options_keep_parent_alias_repeatable_negative_and_placeholder_valu
     assert check_documented_commands._unknown_options(resolved, rest) == []
     assert check_documented_commands._missing_required(resolved, rest) == []
     assert check_documented_commands._unknown_options(resolved, ["--typo"]) == ["--typo"]
+
+
+@pytest.mark.parametrize(
+    ("command", "valid"),
+    [
+        ("analysis run --latest", True),
+        ("analysis run --asof <ASOF>", True),
+        ("analysis run --typo", False),
+        ("analysis missing", False),
+        ("missing", False),
+    ],
+)
+def test_documented_batch_commands_use_the_delegated_parser(
+    tmp_path: Path, command: str, valid: bool
+) -> None:
+    _skill(tmp_path, f"```bash\nuv run baibai-batch {command}\n```\n")
+    assert (not check_documented_commands.check(tmp_path)) is valid

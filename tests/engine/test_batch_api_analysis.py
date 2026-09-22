@@ -27,6 +27,12 @@ class _Reader:
     def __init__(self, _path=None) -> None:
         pass
 
+    def resolve_review_set(self):
+        return self._publication()
+
+    def latest_run(self):
+        return SimpleNamespace(run_revision_id=self.payload["run_revision_id"])
+
     def get_review_set(self, _review_set_id: str) -> SimpleNamespace:
         return self._publication()
 
@@ -256,6 +262,7 @@ def test_batch_api_binds_the_macro_context_loaded_before_a_new_head(
     assert loaded is not None
     assert loaded.macro_context is not None
     assert loaded.macro_context.context_id == first.context_id
+    assert batch_api.load_latest_analysis_context(app_db_path=app_db) == loaded
 
     second = MacroContextDocument.model_validate(
         macro_context_payload(
@@ -300,3 +307,48 @@ def test_batch_api_rejects_an_invalid_explicit_macro_context(
         )
 
     assert research_triage_payloads_for_review_set(app_db, "review-set-daily") == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("review_set_id", "wrong", "different identity"),
+        ("run_revision_id", "wrong", "different run binding"),
+        ("as_of_date", "2026-09-02", "different as-of binding"),
+        ("created_at", "2026-09-01T14:00:00+09:00", "different publication time"),
+    ],
+)
+def test_latest_context_validates_every_publication_binding(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, field, value, message
+) -> None:
+    _Reader.payload = published_review_set(as_of="2026-09-01")
+    publication = _Reader()._publication()
+    setattr(publication, field, value)
+
+    class Reader(_Reader):
+        def resolve_review_set(self):
+            return publication
+
+        def latest_run(self):
+            return SimpleNamespace(run_revision_id=publication.run_revision_id)
+
+    monkeypatch.setattr(batch_api, "ScreeningRunReader", Reader)
+    with pytest.raises(ValueError, match=message):
+        batch_api.load_latest_analysis_context(app_db_path=tmp_path / "unused.sqlite")
+    assert not (tmp_path / "unused.sqlite").exists()
+
+
+def test_latest_context_requires_a_run(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _Reader.payload = published_review_set()
+
+    class Reader(_Reader):
+        def resolve_review_set(self):
+            return self._publication()
+
+        def latest_run(self):
+            return None
+
+    monkeypatch.setattr(batch_api, "ScreeningRunReader", Reader)
+    with pytest.raises(ValueError, match="latest Screening Run is unavailable"):
+        batch_api.load_latest_analysis_context(app_db_path=tmp_path / "unused.sqlite")
+    assert not (tmp_path / "unused.sqlite").exists()

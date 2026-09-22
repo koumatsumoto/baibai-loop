@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+import sqlite3
+from contextlib import closing
+from datetime import date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -96,6 +98,7 @@ def _context(
 def _args(tmp_path: Path, *, asof: date | None = _ASOF) -> SimpleNamespace:
     return SimpleNamespace(
         asof=asof,
+        latest=False,
         state_dir=tmp_path / "state",
         repo_root=tmp_path,
         format="json",
@@ -159,7 +162,15 @@ def _summary(tmp_path: Path) -> dict[str, object]:
     return value
 
 
-def _seed_canonical_review_set(root: Path) -> PublishedReviewSet:
+def _seed_canonical_review_set(
+    root: Path,
+    *,
+    asof: date = _ASOF,
+    suffix: str = "canonical",
+    created_time: str = "18:30:00",
+    run_suffix: str | None = None,
+) -> PublishedReviewSet:
+    run_suffix = run_suffix or suffix
     app_db = root / "stores/application/baibai.sqlite"
     runs_db = root / "stores/screening/runs.sqlite"
     initialize_database(app_db)
@@ -198,26 +209,26 @@ def _seed_canonical_review_set(root: Path) -> PublishedReviewSet:
     )
     ScreeningRunStore(runs_db).publish_run(
         screening_run_payload(
-            as_of=_ASOF.isoformat(),
+            as_of=asof.isoformat(),
             rules_hash=rules_hash,
             security_analyses=(analysis,),
         ),
-        run_revision_id="run-cloud-canonical",
+        run_revision_id=f"run-cloud-{run_suffix}",
     )
     payload = {
         **build_review_set([analysis], rules=rules, required_jpx_flags=required_jpx_flags),
-        "review_set_id": "review-set-cloud-canonical",
-        "run_revision_id": "run-cloud-canonical",
-        "as_of": _ASOF.isoformat(),
-        "created_at": "2026-09-01T18:30:00+09:00",
+        "review_set_id": f"review-set-cloud-{suffix}",
+        "run_revision_id": f"run-cloud-{run_suffix}",
+        "as_of": asof.isoformat(),
+        "created_at": f"{asof.isoformat()}T{created_time}+09:00",
         "screening_rules_hash": rules_hash,
     }
     ScreeningRunStore(runs_db).publish_review_set(
-        run_revision_id="run-cloud-canonical",
+        run_revision_id=f"run-cloud-{run_suffix}",
         payload=payload,
         rules=rules,
         required_jpx_flags=required_jpx_flags,
-        review_set_id="review-set-cloud-canonical",
+        review_set_id=f"review-set-cloud-{suffix}",
     )
     return PublishedReviewSet.model_validate(payload)
 
@@ -697,3 +708,113 @@ def test_published_stdout_id_prepares_the_exact_research_set(
     assert operation is not None
     assert operation.payload.canonical_refs == (first["research_triage_id"],)
     assert operation.payload.artifacts[0]["research_set"] == ["2331"]
+
+
+def test_analysis_selector_parser() -> None:
+    parser = analysis_cli.build_parser()
+    assert parser.parse_args(["run", "--latest"]).latest is True
+    default = parser.parse_args(["run"])
+    assert default.latest is False
+    assert default.asof is None
+    with pytest.raises(SystemExit) as error:
+        parser.parse_args(["run", "--latest", "--asof", "2026-09-18"])
+    assert error.value.code == 2
+
+
+def test_weekend_latest_publishes_and_reuses_exact_canonical_triage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class Sunday(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 9, 20, 12, tzinfo=tz)
+
+    monkeypatch.setattr(analysis_cli, "datetime", Sunday)
+    _seed_canonical_review_set(tmp_path, asof=date(2026, 9, 17), suffix="older")
+    _seed_canonical_review_set(tmp_path, asof=date(2026, 9, 18))
+    _seed_canonical_review_set(
+        tmp_path,
+        asof=date(2026, 9, 18),
+        suffix="zz",
+        run_suffix="canonical",
+        created_time="18:15:00",
+    )
+    # Same timestamp exercises the resolver's review_set_id tie-break.
+    selected = _seed_canonical_review_set(
+        tmp_path, asof=date(2026, 9, 18), suffix="z", run_suffix="canonical"
+    )
+    model, calls = _model_runner({"2331": "research"})
+    args = _args(tmp_path, asof=None)
+    assert analysis_cli._run(args, model_runner=model) == 0
+    default = json.loads(capsys.readouterr().out)
+    assert default["status"] == "no_review_set"
+    assert default["as_of"] == "2026-09-20"
+    assert calls == []
+    args.latest = True
+    assert analysis_cli._run(args, model_runner=model) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert first["as_of"] == "2026-09-18"
+    assert first["status"] == "published_awaiting_human"
+    payloads = research_triage_payloads_for_review_set(
+        tmp_path / "stores/application/baibai.sqlite", selected.review_set_id
+    )
+    assert len(payloads) == 1
+    assert payloads[0]["research_triage_id"] == first["research_triage_id"]
+    assert payloads[0]["run_revision_id"] == selected.run_revision_id
+    assert analysis_cli._run(args, model_runner=model) == 0
+    repeated = json.loads(capsys.readouterr().out)
+    assert repeated["research_triage_id"] == first["research_triage_id"]
+    assert repeated["status"] == "awaiting_human"
+    assert repeated["model_process_launches"] == 0
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("failure", ["empty", "new_day", "new_revision", "binding", "payload"])
+def test_latest_failure_launches_no_model_and_writes_no_triage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    review_set = _seed_canonical_review_set(tmp_path)
+    runs_db = tmp_path / "stores/screening/runs.sqlite"
+    if failure in {"new_day", "new_revision"}:
+        ScreeningRunStore(runs_db).publish_run(
+            screening_run_payload(
+                as_of="2026-09-02" if failure == "new_day" else _ASOF.isoformat(),
+                run_at="2026-09-02T18:00:00+09:00",
+            ),
+            run_revision_id="run-newer-incomplete",
+        )
+    else:
+        with closing(sqlite3.connect(runs_db)) as connection, connection:
+            if failure == "empty":
+                connection.execute("DELETE FROM review_set")
+            else:
+                payload = review_set.model_dump(mode="json")
+                if failure == "binding":
+                    payload["review_set_id"] = "wrong-identity"
+                else:
+                    payload["entries"] = "invalid"
+                connection.execute("UPDATE review_set SET payload = ?", (json.dumps(payload),))
+    writes = []
+    monkeypatch.setattr(
+        analysis_cli, "publish_daily_research_triage", lambda *a, **kw: writes.append(a)
+    )
+    model, calls = _model_runner({})
+    args = _args(tmp_path, asof=None)
+    args.latest = True
+    args.format = "text"
+    assert analysis_cli._run(args, model_runner=model) == 1
+    summary = _summary(tmp_path)
+    assert summary["status"] == "failed"
+    assert summary["failure"]
+    assert f"failure={summary['failure']}" in capsys.readouterr().out
+    assert summary["model_process_launches"] == 0
+    assert calls == writes == []
+    assert (
+        research_triage_payloads_for_review_set(
+            tmp_path / "stores/application/baibai.sqlite", review_set.review_set_id
+        )
+        == []
+    )
