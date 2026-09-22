@@ -9,7 +9,7 @@ description: 対象holdingを再評価してhold・exit・未確定を発行す�
 
 ## 手順
 
-1. 人間の依頼範囲と対象holdingを確認する。全銘柄の価格更新や、無関係な入出金の再確認を前提にしない。
+1. 人間の依頼範囲と対象holdingを確認する。売買報告の扱いは[Ledger Record](../ledger-record/SKILL.md#売買報告の扱い)に従い、既存台帳から対象を読む。全銘柄の価格更新や、無関係な入出金の再確認を前提にしない。
 2. `research position-prepare`でworkspaceを作る。現行のReviewed Thesisがあれば`thesis-scaffold --from-thesis-id`で元資料と予測を引き継ぐ。旧版しかない場合は新しいdraftを作り、現在の証拠と独立Reviewを揃えて`--supersedes-id`で旧IDを参照する。自動変換で旧評価を実行しない。
 3. 決算・guidance・資本政策・投資理由の変化を一次資料で確認し、[Researchの企業別調査](../research/SKILL.md#company-research)に従ってThesisとReviewをpromoteする。ここから新規Research Set・CAA・購入Planningへ進まない。
 4. `position position-review-build`で対象holdingと最新Reviewed Thesisを組み立て、`remaining_reward`と経済的な理由を記入する。現在からの増分、分配、期間の扱いはreferenceに従う。
