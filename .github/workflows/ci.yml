@@ -10,6 +10,11 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      tradingview_oauth_smoke:
+        description: "TradingView OAuth rotation and Secret persistence smoke"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -24,6 +29,9 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    concurrency:
+      group: ${{ inputs.tradingview_oauth_smoke && 'cloud-publish' || format('ci-{0}', github.run_id) }}
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -117,3 +125,10 @@ jobs:
             --output-file /tmp/baibai-loop-requirements.txt
           uv run pip-audit \
             -r /tmp/baibai-loop-requirements.txt
+
+      - name: TradingView OAuth smoke
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.tradingview_oauth_smoke && github.ref == 'refs/heads/main' }}
+        env:
+          TRADINGVIEW_OAUTH_STATE: ${{ secrets.TRADINGVIEW_OAUTH_STATE }}
+          TRADINGVIEW_SECRET_WRITER_TOKEN: ${{ secrets.TRADINGVIEW_SECRET_WRITER_TOKEN }}
+        run: uv run baibai-engine tradingview smoke

@@ -218,3 +218,22 @@ ORDER BY balance_sheet_date, consolidation_basis, debt_category, due_from_months
 ```
 
 原典に戻る範囲とsource意味は[data sources](./data-sources.md#edinet-research-facts)が所有する。ここから資金余命を評価する際の将来FCF・維持投資・借換えはResearchの見積りであり、L1 factへ保存しない。
+
+<a id="tradingview-query"></a>
+
+## TradingView snapshotの照会
+
+`tradingview.forecast_snapshots`はmonth partitionの任意datasetであり、未収録のreleaseには存在しない。Owner MCPでcurrentを一度解決し、同じ`release_ref`のcatalogとbounded queryを使う。過去snapshotには期間filter、特定企業にはticker parameterを指定する。
+
+例えば、対象期間を絞ったsourceのaliasを`tv`として、次のSQLで取得状態と実取得時刻を確認できる。
+
+```sql
+SELECT snapshot_date, ticker, fetched_at_utc, fetch_status,
+       eps_forecast_next_fy, quote_currency, estimate_currency
+FROM tv
+WHERE ticker = $ticker
+ORDER BY snapshot_date DESC
+LIMIT 30
+```
+
+最新行も`snapshot_date`と`fetched_at_utc`を併記する。対象日に行がないこと、`unresolved`の行、正常rowの個別指標nullを別々に読む。取得前の履歴、provider公表時刻、翌日取得による前日補完はこのdatasetから復元できない。値の意味は[data sources](./data-sources.md#tradingviewの市場期待)に従う。

@@ -180,6 +180,30 @@ jobs:
             exit "$code"
           fi
 
+      # Optional source: failure leaves no partial snapshot and does not stop screening.
+      # Run after daily so the exact-date J-Quants master (including IPOs) is available.
+      - name: Refresh TradingView expectations
+        id: tradingview
+        if: steps.batch.outputs.published == 'true'
+        continue-on-error: true
+        env:
+          TRADINGVIEW_OAUTH_STATE: ${{ secrets.TRADINGVIEW_OAUTH_STATE }}
+          TRADINGVIEW_SECRET_WRITER_TOKEN: ${{ secrets.TRADINGVIEW_SECRET_WRITER_TOKEN }}
+          MANUAL_ASOF: ${{ steps.validate-input.outputs.asof }}
+        run: |
+          args=()
+          if [[ -n "$MANUAL_ASOF" ]]; then
+            args+=(--asof "$MANUAL_ASOF")
+          fi
+          set +e
+          timeout --kill-after=30s 30m uv run baibai-engine tradingview refresh "${args[@]}"
+          status=$?
+          set -e
+          if [[ "$status" == 124 || "$status" == 137 ]]; then
+            echo 'TradingView acquisition failed; category=timeout' >&2
+          fi
+          exit "$status"
+
       # Publish before the store push, never after. A store push whose publication then
       # failed would leave the cloud holding a store that claims today's coverage while
       # the rows behind it exist only locally — and coverage saying "already fetched" is
@@ -322,6 +346,7 @@ jobs:
           python3 -m baibai_batch.observability.discord \
             --notice-path "$RUNNER_TEMP/batch-notice.json" \
             --batch-exit-code "${{ steps.batch.outputs.exit_code }}" \
+            --tradingview-outcome "${{ steps.tradingview.outcome }}" \
             --smoke-outcome "${{ steps.smoke.outcome }}" \
             --setup-outcome "${{ steps.setup.outcome }}" \
             --sync-outcome "${{ steps.sync.outcome }}" \

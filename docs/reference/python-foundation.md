@@ -20,7 +20,7 @@ source_paths:
 
 ## 2. Dependency policy
 
-依存は`pyproject.toml`と`uv.lock`で管理する。開発環境は`uv sync --frozen --all-groups`で揃える。Owner MCPの依存は専用groupに置き、production runtimeへ混ぜない。
+依存は`pyproject.toml`と`uv.lock`で管理する。開発環境は`uv sync --frozen --all-groups`で揃える。MCP SDKはOwner MCPとTradingView collectorで共用するruntime依存とする。
 
 ## 3. Formatting and linting
 

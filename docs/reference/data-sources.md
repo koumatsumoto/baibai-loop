@@ -125,3 +125,15 @@ portfolioの年次・3年・5年outcomeのprimary benchmarkはJPXのTOPIX gross 
 `disclosed_on`は提出日時のJST日付であり、比較年度の期末日に遡って利用可能にはならない。source提出日時はtimezone付きで保持し、source locatorはZIP内のfile・QName・context、負債では0始まりのtable/row/cell位置まで指す。訂正書類は別docIDとして保持する。同じ書類の情報修正や公開状態の履歴が確定できない場合は未確認とし、現在取得したbytesを過去時点の完全な再現とは扱わない。
 
 固定releaseからの選択と欠測時の扱いは[Research query](./market-lake.md#edinet-research-query)、初期化・運用は[batch運用](../../batch/OPERATIONS.md#edinet-research-facts)に従う。
+
+## TradingViewの市場期待
+
+`tradingview.forecast_snapshots`はOfficial MCPの`get_symbol_data_batch`から実際に取得した市場期待を、日付・銘柄ごとに保持する任意のL1入力である。対象は既存J-Quants masterの東証普通株で、Screeningの最小株価履歴を要求しない。`get_forecasts`の日本株通貨補正や、ScreenerによるUniverse生成は行わない。
+
+PITが保証するのは`fetched_at_utc`時点の取得値であり、providerの最初の公表時刻ではない。東証close後に取得し、利用可能になる最速時点は次の取引機会とする。日付だけで過去の売買時点へ遡及させず、翌日値による欠測の埋め直しもしない。
+
+正常rowのnullと、symbolを取得できなかった`unresolved`を区別する。全件missingのchunk、429、通信・形式エラーはrun失敗であり、その日の部分snapshotを保存しない。過去のsnapshotが最新releaseに残っていても、今日の取得成功とは扱わない。
+
+quoteの通貨は同じresponseの`currency`を保持する。estimateの通貨・unit、quote/provider更新時刻、絶対対象期は未確認のためnullとし、JPYや特定の決算期を推測して入れない。`*_estimate_fy`と`*_forecast_next_fy`の対象期が同じとは限らず、`recommendation_total`はEPS・売上・目標株価それぞれの寄与者数ではない。参考closeは市場期待の取得時点を読む補助で、株価の第二正本にはしない。
+
+取得・認証復旧は[batch運用](../../batch/OPERATIONS.md#tradingview-expectations)、固定releaseの照会は[market lake](./market-lake.md#tradingview-query)を参照する。Screeningの順位、FV、Research判断への自動混入は行わない。

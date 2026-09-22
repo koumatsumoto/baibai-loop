@@ -44,6 +44,10 @@ class Domain:
 # 各 domain が「何を読んで何を書くか」。`--help` は AGENTS.md の停止条件なので、
 # domain の役割はここから 1 行で読める必要がある。
 DOMAINS: Mapping[str, Domain] = {
+    "tradingview": Domain(
+        module="baibai_engine.market.tradingview.cli",
+        summary="TradingView OAuth and analyst expectation snapshot acquisition",
+    ),
     "lake": Domain(
         module="baibai_engine.market.lake.cli",
         summary="immutable market-data manifests, object keys, and read-only inventory",

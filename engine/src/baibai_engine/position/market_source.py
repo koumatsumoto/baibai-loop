@@ -34,7 +34,7 @@ from baibai_engine.foundation.time import JST
 # SQLITE_SCHEMA_VERSION を追随することは coupling test が CI で保証し、version bump を
 # 「silent degradation」ではなく赤い CI にする。実行時に不一致な store は no-coverage
 # (None) へ degrade し、古い schema literal で誤読しない。
-_EXPECTED_MARKET_SCHEMA_VERSION = 27
+_EXPECTED_MARKET_SCHEMA_VERSION = 28
 
 
 @dataclass(frozen=True, slots=True)

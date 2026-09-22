@@ -842,3 +842,39 @@ def test_a_forward_only_calendar_uses_its_policy_floor_not_the_previous_snapshot
             manifests,
             published_coverage_start={"jpx.earnings_calendar": date(2026, 6, 19)},
         )
+
+
+@pytest.mark.parametrize("carries_history", [True, False])
+def test_optional_published_history_cannot_disappear(monkeypatch, carries_history):
+    dataset = "tradingview.forecast_snapshots"
+    narrow_release_policy(
+        monkeypatch, datasets=("jquants.daily_bars", dataset), carries_history=carries_history
+    )
+    policy = lake_models.PRODUCTION_RELEASE_POLICY
+    assert not next(item for item in policy.datasets if item.dataset == dataset).required
+    bars = _load_dataset(_dataset_payload())
+    tv = _load_dataset(_dataset_payload(dataset=dataset))
+    payload = _release_payload()
+    payload["datasets"]["jquants.daily_bars"]["manifest_sha256"] = hashlib.sha256(
+        canonical_lake_model_bytes(bars)
+    ).hexdigest()
+    without_tv = load_lake_model_json(json.dumps(payload), ReleaseManifest)
+    validate_release_policy(without_tv, {bars.dataset: bars})
+    previous = {dataset: date(2026, 8, 1)}
+    if carries_history:
+        with pytest.raises(
+            ValueError, match="historical dataset served previously cannot disappear"
+        ):
+            validate_release_policy(
+                without_tv, {bars.dataset: bars}, published_coverage_start=previous
+            )
+    else:
+        validate_release_policy(without_tv, {bars.dataset: bars}, published_coverage_start=previous)
+    payload["datasets"][dataset] = {
+        **payload["datasets"][bars.dataset],
+        "manifest_sha256": hashlib.sha256(canonical_lake_model_bytes(tv)).hexdigest(),
+    }
+    with_tv = load_lake_model_json(json.dumps(payload), ReleaseManifest)
+    validate_release_policy(
+        with_tv, {bars.dataset: bars, dataset: tv}, published_coverage_start=previous
+    )

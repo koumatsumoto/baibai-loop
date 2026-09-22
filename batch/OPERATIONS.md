@@ -925,3 +925,55 @@ uv run baibai-engine screening extract-edinet-facts \
 storeのmergeでは同日でも別docIDの成否を混同しない。共有docIDはtargetのfactに対応する抽出claimを保持する。source側にしかないdocIDはtargetの抽出revisionを証明できないため、未確認のretry対象として取り込む。initialized markerは引き継げる。
 
 **失敗時**: failedのdocIDを原典と照合し、認証・rate limit・破損cacheを原因別に解消して再実行する。factが残っていても、最新訂正の失敗を旧版で埋めない。利用側は[書類選択と欠測時の手順](../docs/reference/market-lake.md#edinet-research-query)に従う。
+
+<a id="tradingview-expectations"></a>
+
+## TradingView Analyst Expectations
+
+日次batchは当日J-Quants masterの取得後、Lake公開前に`baibai-engine tradingview refresh`を呼ぶ。既存の`cloud-publish`内で直列実行し、失敗は非必須stepとして通知に残す。取得コマンドには暫定30分の上限を設け、終了しなければ30秒後に強制終了する。失敗後も既存Lakeの公開を続ける。上限は全Universeのライブ受入で所要時間を確認して再評価する。workflow全体のwall timeも計測し、取得が上限までかかった場合にも90分以内にLake公開まで終わる余裕があるか確認する。過去日付の手動batchでは、認証情報の読込前に`skipped_historical_asof`として正常終了し、現在値を過去日付へ保存しない。未来日付と引け前の取得は拒否する。
+
+### 初期設定と認証の復旧
+
+公式MCP SDKで対話認証する。秘密値をGit、L1、workflow artifact、チャットへ出さず、state fileはリポジトリ外に置く。認証URLを開く間はcommandを動かしたままにする。戻り先は`127.0.0.1:8765`であり、接続拒否の場合は待受終了・Windows/WSL間の接続を確認して再実行する。
+
+```bash
+uv run baibai-engine tradingview authorize \
+  --state-file "$HOME/.cache/baibai-loop/tradingview/oauth.json"
+gh secret set TRADINGVIEW_OAUTH_STATE \
+  --repo koumatsumoto/baibai-loop \
+  < "$HOME/.cache/baibai-loop/tradingview/oauth.json"
+```
+
+`TRADINGVIEW_SECRET_WRITER_TOKEN`には、このrepositoryだけのSecrets write権限を持つfine-grained PATを設定する。通常の`GITHUB_TOKEN`ではSecret更新を代行しない。更新されたOAuth stateは、データ取得より先に`TRADINGVIEW_OAUTH_STATE`へ保存する。書戻し失敗時は取得を止め、対話認証から復旧する。PATの期限切れもこの失敗として扱う。
+
+runnerでのOAuth smokeはmain refだけに限定する。確認するときは手動CIの`tradingview_oauth_smoke`を指定する。認証更新・Secret保存・2銘柄取得を行い、snapshotは書かない。前run終了後に新しいrunを開始して、更新stateの再利用を確認する。
+
+```bash
+gh workflow run ci.yml --ref main -f tradingview_oauth_smoke=true
+```
+
+ローカルの認証fileは初期投入用で、runnerが更新した後の最新版ではない。同じstateを複数processで更新したり、古いfileを再投入しない。対話認証による置換も、`cloud-publish`の実行がない時間に行う。
+
+### 保存開始と受入
+
+market schemaは28。既存storeのruntime自動移行は行わない。
+
+初回切替に限り、writer停止中に取得したschema 27のcopyへ次を実行する。sourceは変更せず、新規outputだけを作る。既存tableを維持し、新table・indexの追加、schema shape、integrity、FKを検証する。一時toolは切替後に削除する。
+
+```bash
+uv run python -m tools.cutover_market_28 \
+  --source stores/market/market-schema27-before-1317.sqlite \
+  --output stores/market/market-schema28-ready.sqlite
+```
+
+検証済みcopyをmarket storeへ配置してhydrateする。cloudへの反映は、直前の`pull-machine`が記録した3 storeの世代を保持したまま、`publish-lake`→`push-machine`で行う。旧schemaを拒否する通常の`push-market`に移行を代行させない。codeのmain反映とstoreの反映を同じ停止期間内に完了する。
+
+codeと整合するstoreを既存の再構築・転送手順で切り替えてから日次運用を開始する。初回snapshotがない間も既存の必須datasetの公開条件を維持し、TradingViewは任意datasetとして扱う。
+
+collectorは当日の取引日・15:30 JST以降・当日masterを要求する。50 symbolsずつ、concurrency 1、既定15秒間隔で取得する。同日保存済みなら上書きせず終了する。429や全件missingはretry loopに入らず失敗し、次回はrun全体を再取得する。成功した日の`unresolved`は、その取得時点の事実として残す。
+
+`response_bytes`はbatch応答payloadをUTF-8 JSONで表したbyte数で、HTTP圧縮後の通信量ではない。
+
+初回の全市場1巡ではCLIのexpected universe、rows、unresolved、normal null数、response bytes、所要時間と、SQLite増分、既存Lake publishのobject/upload bytes、GC前後を分けて計測する。SQLite/L1 row parity、fixed releaseの過去・当日照会、cloud readbackまで確認し、Issue #1317へ記録する。少数銘柄のsmokeを全市場受入や容量実測の代わりにしない。
+
+TradingViewの失敗ログは認証情報や応答本文を出さず、固定の`category`で示す。`auth`は再認証、`secret_persistence`はSecret書込権限、`provider_all_missing`・`provider_response`は提供元応答、`provider_rate_limit`・`provider_transport`・`timeout`は取得制限や通信、`time_guard`は当日引け後の条件、`storage`はschema・master・calendar、`internal`は未分類の実装エラーを確認する。再取得は当日の条件を満たす間だけ行い、過去日の穴を現在値で埋めない。

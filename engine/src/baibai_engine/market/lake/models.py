@@ -453,6 +453,14 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
     profile="production",
     datasets=(
         ReleaseDatasetPolicy(
+            dataset="tradingview.forecast_snapshots",
+            required=False,
+            accepted_contract_versions=(1,),
+            carries_history=True,
+            minimum_rows=1,
+            require_complete_coverage=False,
+        ),
+        ReleaseDatasetPolicy(
             dataset="jquants.daily_bars",
             required=True,
             accepted_contract_versions=(1,),
@@ -748,8 +756,8 @@ def validate_release_policy(
     after it.
 
     ``published_coverage_start`` is what the serving release covers, per dataset. It is
-    the floor an archival dataset must still reach. Absent — a first publication, or a
-    dataset this release introduces — leaves the history check with nothing to compare
+    the floor an archival dataset must still reach; the dataset itself must remain present.
+    Absent — a first publication, or a dataset this release introduces — leaves nothing to compare
     and the remaining checks unchanged.
     """
     policy = release_policy_for_profile(release.profile)
@@ -762,6 +770,14 @@ def validate_release_policy(
         raise ValueError("release is missing a required dataset")
     if set(manifests) != set(release.datasets):
         raise ValueError("release validation requires every referenced dataset manifest")
+    for dataset in published_coverage_start or {}:
+        dataset_policy = policy_by_dataset.get(dataset)
+        if (
+            dataset_policy is not None
+            and dataset_policy.carries_history
+            and dataset not in release.datasets
+        ):
+            raise ValueError(f"{dataset}: historical dataset served previously cannot disappear")
     # Whether these datasets are one picture of the store at all comes before what the
     # picture says.
     if policy.require_shared_snapshot_generation:
