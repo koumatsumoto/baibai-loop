@@ -29,7 +29,7 @@ from .auth import (
     save_github_secret,
 )
 from .client import connect, fetch_batch
-from .collector import JST, SourceDataError, TimeGuardError, collect
+from .collector import JST, SourceDataError, TimeGuardError, collect, validate_time
 from .observations import COLUMNS, AllMissingError, FetchError
 
 
@@ -133,6 +133,17 @@ def main(argv: list[str] | None = None, /) -> int:
 
             asyncio.run(authorize(args.state_file))
             return 0
+        if args.command == "refresh":
+            now = datetime.now(JST)
+            day = args.asof or now.date()
+            if day < now.date():
+                print(
+                    json.dumps(
+                        {"status": "skipped_historical_asof", "snapshot_date": day.isoformat()}
+                    )
+                )
+                return 0
+            validate_time(day, now)
         try:
             state = OAuthState.model_validate_json(os.environ.get("TRADINGVIEW_OAUTH_STATE", ""))
         except ValidationError:
@@ -144,7 +155,6 @@ def main(argv: list[str] | None = None, /) -> int:
         if args.command == "smoke":
             result = asyncio.run(smoke(state, repository, writer_token))
         else:
-            day = args.asof or datetime.now(JST).date()
             result = asyncio.run(
                 snapshot(state, repository, writer_token, args.sqlite, day, args.interval)
             )

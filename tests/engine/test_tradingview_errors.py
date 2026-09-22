@@ -51,3 +51,23 @@ def test_cli_never_prints_exception_payload(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == "TradingView acquisition failed; category=secret_persistence\n"
+
+
+def test_historical_refresh_skips_before_credentials_or_connection(monkeypatch, capsys):
+    from datetime import datetime
+
+    class Clock:
+        @staticmethod
+        def now(tz):
+            return datetime(2026, 9, 22, 16, tzinfo=tz)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("historical refresh must not load credentials or connect")
+
+    monkeypatch.setattr(cli, "datetime", Clock)
+    monkeypatch.setattr(cli.OAuthState, "model_validate_json", forbidden)
+    monkeypatch.setattr(cli, "connect", forbidden)
+    assert cli.main(["refresh", "--asof", "2026-09-21"]) == 0
+    assert "skipped_historical_asof" in capsys.readouterr().out
+    assert cli.main(["refresh", "--asof", "2026-09-23"]) == 1
+    assert "category=time_guard" in capsys.readouterr().err

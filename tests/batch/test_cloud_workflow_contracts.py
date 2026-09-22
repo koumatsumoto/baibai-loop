@@ -420,5 +420,5 @@ def test_tradingview_secrets_are_scoped_to_only_the_acquisition_step(filename, a
         )
         assert (
             smoke["if"]
-            == "${{ github.event_name == 'workflow_dispatch' && inputs.tradingview_oauth_smoke }}"
+            == "${{ github.event_name == 'workflow_dispatch' && inputs.tradingview_oauth_smoke && github.ref == 'refs/heads/main' }}"
         )

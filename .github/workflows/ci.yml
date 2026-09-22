@@ -127,7 +127,7 @@ jobs:
             -r /tmp/baibai-loop-requirements.txt
 
       - name: TradingView OAuth smoke
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.tradingview_oauth_smoke }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.tradingview_oauth_smoke && github.ref == 'refs/heads/main' }}
         env:
           TRADINGVIEW_OAUTH_STATE: ${{ secrets.TRADINGVIEW_OAUTH_STATE }}
           TRADINGVIEW_SECRET_WRITER_TOKEN: ${{ secrets.TRADINGVIEW_SECRET_WRITER_TOKEN }}

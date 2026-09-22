@@ -930,7 +930,7 @@ storeのmergeでは同日でも別docIDの成否を混同しない。共有docID
 
 ## TradingView Analyst Expectations
 
-日次batchは当日J-Quants masterの取得後、Lake公開前に`baibai-engine tradingview refresh`を呼ぶ。既存の`cloud-publish`内で直列実行し、失敗は非必須stepとして通知に残す。取得コマンドには暫定30分の上限を設け、終了しなければ30秒後に強制終了する。失敗後も既存Lakeの公開を続ける。上限は全Universeのライブ受入で所要時間を確認して再評価する。過去日付の手動batchを実行しても、TradingViewの現在値をその日付へ保存しない。
+日次batchは当日J-Quants masterの取得後、Lake公開前に`baibai-engine tradingview refresh`を呼ぶ。既存の`cloud-publish`内で直列実行し、失敗は非必須stepとして通知に残す。取得コマンドには暫定30分の上限を設け、終了しなければ30秒後に強制終了する。失敗後も既存Lakeの公開を続ける。上限は全Universeのライブ受入で所要時間を確認して再評価する。workflow全体のwall timeも計測し、取得が上限までかかった場合にも90分以内にLake公開まで終わる余裕があるか確認する。過去日付の手動batchでは、認証情報の読込前に`skipped_historical_asof`として正常終了し、現在値を過去日付へ保存しない。未来日付と引け前の取得は拒否する。
 
 ### 初期設定と認証の復旧
 
@@ -946,7 +946,7 @@ gh secret set TRADINGVIEW_OAUTH_STATE \
 
 `TRADINGVIEW_SECRET_WRITER_TOKEN`には、このrepositoryだけのSecrets write権限を持つfine-grained PATを設定する。通常の`GITHUB_TOKEN`ではSecret更新を代行しない。更新されたOAuth stateは、データ取得より先に`TRADINGVIEW_OAUTH_STATE`へ保存する。書戻し失敗時は取得を止め、対話認証から復旧する。PATの期限切れもこの失敗として扱う。
 
-runnerで確認するときは手動CIの`tradingview_oauth_smoke`を指定する。認証更新・Secret保存・2銘柄取得を行い、snapshotは書かない。前run終了後に新しいrunを開始して、更新stateの再利用を確認する。
+runnerでのOAuth smokeはmain refだけに限定する。確認するときは手動CIの`tradingview_oauth_smoke`を指定する。認証更新・Secret保存・2銘柄取得を行い、snapshotは書かない。前run終了後に新しいrunを開始して、更新stateの再利用を確認する。
 
 ```bash
 gh workflow run ci.yml --ref main -f tradingview_oauth_smoke=true
