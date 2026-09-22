@@ -158,6 +158,8 @@ def failure_line(exc: BaseException) -> str:
             f"; {key}={value}" for key, value in safe_progress(asdict(detail.progress)).items()
         )
         detail = _diagnostic_error(detail.cause, category)
+    if isinstance(detail, ProviderHTTPError):
+        line += f"; provider_http_status={detail.status_code}"
     if isinstance(detail, ProviderPayloadError):
         line += f"; validation_reason={detail.reason}; validation_field={detail.field or '-'}"
     return line

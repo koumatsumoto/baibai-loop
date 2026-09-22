@@ -82,13 +82,17 @@ def test_provider_http_category_through_collection_and_groups(status, category):
     from baibai_engine.market.tradingview.observations import ProviderHTTPError
 
     error = ProviderHTTPError(status)
+    error.__cause__ = RuntimeError("private-token private-body")
     assert cli.failure_category(error) == category
+    assert f"provider_http_status={status}" in cli.failure_line(error)
     error = CollectionFailure(error, CollectionProgress("2026-09-24", "fetch", 51, 2, 1, 2, 1))
     assert cli.failure_category(error) == category
     wrapped = ExceptionGroup("private-token", [ExceptionGroup("private-body", [error])])
     assert cli.failure_category(wrapped) == category
     assert "chunks_completed=1" in cli.failure_line(wrapped)
     assert "private" not in cli.failure_line(wrapped)
+    assert f"provider_http_status={status}" in cli.failure_line(error)
+    assert f"provider_http_status={status}" in cli.failure_line(wrapped)
 
 
 def test_cli_collection_error_prints_only_safe_diagnostics(monkeypatch, capsys):

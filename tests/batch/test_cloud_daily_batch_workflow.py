@@ -487,3 +487,50 @@ def test_tradingview_progress_survives_exit_status(tmp_path, steps_by_id, status
         assert result.stdout == "TradingView progress: unavailable\n"
     else:
         assert not result.stdout
+
+
+def test_tradingview_killed_child_progress_is_read_by_workflow(tmp_path, steps_by_id):
+    import json
+    import sys
+
+    uv = tmp_path / "uv"
+    uv.write_text(
+        "#!/bin/sh\n"
+        'while [ "$#" -gt 0 ]; do\n'
+        '  if [ "$1" = "--progress-output" ]; then\n'
+        "    shift\n"
+        '    printf \'%s\\n\' \'{"phase":"fetch","chunk_index":12,"chunks_completed":11,'
+        '"token":"private-token","ticker":"TSE:7203"}\' > "$1"\n'
+        "    exec sleep 30\n"
+        "  fi\n"
+        "  shift\n"
+        "done\n"
+        "exit 2\n"
+    )
+    uv.chmod(0o755)
+    script = (
+        steps_by_id["tradingview"]["run"]
+        .replace("--kill-after=30s 30m", "--kill-after=1s 0.1s")
+        .replace('python - "$progress"', f'"{sys.executable}" - "$progress"')
+    )
+    result = subprocess.run(
+        ["bash", "-e", "-c", script],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:" + os.environ["PATH"],
+            "RUNNER_TEMP": str(tmp_path),
+            "MANUAL_ASOF": "",
+        },
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert result.returncode == 124
+    assert "category=timeout" in result.stderr
+    assert json.loads(result.stdout.removeprefix("TradingView progress: ")) == {
+        "phase": "fetch",
+        "chunk_index": 12,
+        "chunks_completed": 11,
+    }
+    assert "private-token" not in result.stdout + result.stderr
+    assert "TSE:7203" not in result.stdout + result.stderr

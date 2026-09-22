@@ -346,3 +346,18 @@ def test_missing_fields_uses_first_requested_canonical_field():
     with pytest.raises(ProviderPayloadError) as caught:
         normalize_batch(data, ["TSE:1000"], NOW)
     assert caught.value.field == "eps_forecast_next_fy"
+
+
+@pytest.mark.parametrize("raw", [None, [], "private-body", 42])
+def test_non_dict_row_does_not_blame_a_field(raw):
+    from baibai_engine.market.tradingview.cli import failure_line
+    from baibai_engine.market.tradingview.observations import ProviderPayloadError
+
+    data = payload(["TSE:1000"])
+    data["data"]["TSE:1000"] = raw
+    with pytest.raises(ProviderPayloadError) as caught:
+        normalize_batch(data, ["TSE:1000"], NOW)
+    assert caught.value.reason == "row_missing_requested_fields"
+    assert caught.value.field is None
+    assert "validation_field=-" in failure_line(caught.value)
+    assert "private-body" not in failure_line(caught.value)

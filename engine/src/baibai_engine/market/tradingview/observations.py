@@ -100,18 +100,12 @@ def normalize_batch(
             "fetch_status": "unresolved" if symbol in missing else "ok",
         }
         raw = data.get(symbol)
-        if symbol not in missing and (not isinstance(raw, dict) or set(COLUMNS) - set(raw)):
-            raise ProviderPayloadError(
-                "row_missing_requested_fields",
-                next(
-                    (
-                        name
-                        for name, field in FIELDS.items()
-                        if not isinstance(raw, dict) or field not in raw
-                    ),
-                    None,
-                ),
-            )
+        if symbol not in missing:
+            if not isinstance(raw, dict):
+                raise ProviderPayloadError("row_missing_requested_fields")
+            missing_field = next((name for name, field in FIELDS.items() if field not in raw), None)
+            if missing_field is not None:
+                raise ProviderPayloadError("row_missing_requested_fields", missing_field)
         for column, field in FIELDS.items():
             value = None if raw is None else raw[field]
             if value is not None:

@@ -972,7 +972,7 @@ TradingViewの失敗ログは認証情報や応答本文を出さず、固定の
 
 TradingView stepのsafe failure line、`TradingView progress:` summaryの順に読む。`chunks_completed / chunks_total`と`chunk_index`で失敗位置を、`provider_elapsed_seconds / elapsed_seconds`と`max_chunk_elapsed_seconds`でprovider待ちとintervalの影響を確認し、`oauth_rotations`で認証更新回数を見る。payload検証失敗では固定の`validation_reason`とcanonicalな`validation_field`を確認する。成功時は最終JSONの`rows / unresolved / normal_nulls`とfirst / last fetched_atも確認する。
 
-progressはrunner temp内だけに置く。書込み失敗は1回だけ警告し、取得・保存は継続する。外部timeout時のsummaryは最後の更新時点の値であり、実行中callの経過時間や未完了のOAuth更新を含まない。`unavailable`なら進捗は確認不能と扱う。正常no-opでprogressがない場合はCLIのsuccess JSONを確認する。
+progressはrunner temp内だけに置く。書込み失敗は1回だけ警告し、取得・保存は継続する。外部timeout時のsummaryは最後の更新時点の値であり、実行中callの経過時間を含まない。実行中call内で完了したOAuth rotationでも、次のprogress emit前に外部killされた場合はprogress fileへ反映されない。`unavailable`なら進捗は確認不能と扱う。正常no-opでprogressがない場合はCLIのsuccess JSONを確認する。
 
 - `provider_rate_limit`（429）: 同runを即時rerunせず、manual scanner callも重ねない。当日分のpartial snapshotが保存されていないことを確認し、次のscheduled runまたはprovider quota確認へ進む。
 - `provider_all_missing`: coverage不存在と断定せず、provider全体のdegradationの可能性を確認する。
