@@ -171,6 +171,31 @@ def load_daily_analysis_context(
     publication = ScreeningRunReader(runs_db_path).latest_review_set(as_of_date=as_of.isoformat())
     if publication is None:
         return None
+    return _analysis_context(publication, app_db_path=app_db_path)
+
+
+def load_latest_analysis_context(
+    *,
+    app_db_path: Path | None = None,
+    runs_db_path: Path | None = None,
+) -> DailyAnalysisContext:
+    """Resolve the canonical latest publication only when the latest run is complete."""
+
+    reader = ScreeningRunReader(runs_db_path)
+    publication = reader.resolve_review_set()
+    if publication is None:
+        raise ValueError("latest Review Set is unavailable")
+    latest_run = reader.latest_run()
+    if latest_run is None:
+        raise ValueError("latest Screening Run is unavailable")
+    if publication.run_revision_id != latest_run.run_revision_id:
+        raise ValueError("latest Review Set does not match the latest Screening Run revision")
+    return _analysis_context(publication, app_db_path=app_db_path)
+
+
+def _analysis_context(
+    publication: ReviewSetPublication, *, app_db_path: Path | None
+) -> DailyAnalysisContext:
     review_set = validated_review_set(publication)
     app_path = database_path(app_db_path)
     exact_triages = research_triage_payloads_for_review_set(app_path, review_set.review_set_id)
@@ -374,6 +399,7 @@ __all__ = [
     "load_daily_analysis_context",
     "load_definitions",
     "load_lake_model_json",
+    "load_latest_analysis_context",
     "open_macro_store",
     "open_market_store",
     "parse_refresh_failure_count",

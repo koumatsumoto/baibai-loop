@@ -160,9 +160,11 @@ def _entry_point(tokens: Sequence[str]) -> tuple[argparse.ArgumentParser, str, l
             raise _Unresolvable(f"baibai-engine: unknown domain {' '.join(rest[1:2])}")
         return build_parser(DOMAINS[rest[1]].module), f"baibai-engine {rest[1]}", rest[2:]
     if rest[:1] == ["baibai-batch"]:
-        from baibai_batch.cli import build_parser as build_batch_parser
+        from baibai_batch.cli import _COMMANDS
 
-        return build_batch_parser(), "baibai-batch", rest[1:]
+        if len(rest) < 2 or rest[1] not in _COMMANDS:
+            raise _Unresolvable(f"baibai-batch: unknown command {' '.join(rest[1:2])}")
+        return _tool_parser(_COMMANDS[rest[1]].__module__, f"baibai-batch {rest[1]}", rest[2:])
     if rest[:1] != ["python"] or len(rest) < 2:
         raise _Unresolvable(f"unrecognised entry point: {' '.join(rest[:3])}")
     module_prefixes = ("baibai_batch.", "baibai_engine.", "baibai_web.", "tools.")
