@@ -16,7 +16,11 @@ import sqlite3
 from collections.abc import Mapping
 from pathlib import Path
 
-SQLITE_SCHEMA_VERSION = 27
+from baibai_engine.market.tradingview.contract import COLUMNS as TV_COLUMNS
+from baibai_engine.market.tradingview.contract import DDL as TV_DDL
+from baibai_engine.market.tradingview.contract import TABLE as TV_TABLE
+
+SQLITE_SCHEMA_VERSION = 28
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET serves a filing's descriptive columns only while its public-inspection period
@@ -65,6 +69,7 @@ EDINET_DOCUMENT_LIFECYCLE_COLUMNS: tuple[str, ...] = (
 )
 
 _REQUIRED_TABLES = (
+    TV_TABLE,
     "jquants_daily_bars",
     "jquants_fin_summaries",
     "jquants_master_snapshots",
@@ -88,6 +93,7 @@ _REQUIRED_TABLES = (
     "lake_store_origin",
 )
 _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
+    TV_TABLE: tuple(column[0] for column in TV_COLUMNS),
     "jquants_daily_bars": (
         "ticker",
         "traded_at",
@@ -743,6 +749,9 @@ CREATE TABLE IF NOT EXISTS tender_offer_exit_values(
   PRIMARY KEY (ticker, delisted_on)
 );
 """
+
+
+_SCHEMA_SQL += TV_DDL
 
 
 class SQLiteSchemaError(RuntimeError):

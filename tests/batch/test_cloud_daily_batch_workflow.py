@@ -409,3 +409,18 @@ def test_notify_step_does_not_interpolate_dispatch_input_into_the_run_block(
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_tradingview_refresh_is_optional_and_runs_inside_existing_writer() -> None:
+    import yaml
+
+    workflow = yaml.load(WORKFLOW_PATH.read_text(), Loader=yaml.BaseLoader)
+    assert workflow["concurrency"]["group"] == "cloud-publish"
+    steps = workflow["jobs"]["daily"]["steps"]
+    indices = {step["id"]: i for i, step in enumerate(steps) if "id" in step}
+    assert indices["batch"] < indices["tradingview"] < indices["publish-lake"]
+    refresh = steps[indices["tradingview"]]
+    assert refresh["continue-on-error"] == "true"
+    assert refresh["if"] == "steps.batch.outputs.published == 'true'"
+    assert "baibai-engine tradingview refresh" in refresh["run"]
+    assert "--tradingview-outcome" in steps[indices["notify"]]["run"]

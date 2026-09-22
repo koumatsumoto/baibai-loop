@@ -16,6 +16,8 @@ from pathlib import Path
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from pydantic import BaseModel, ConfigDict
 
+from baibai_engine.foundation.filesystem import write_text_atomic
+
 SECRET_NAME = "TRADINGVIEW_OAUTH_STATE"  # nosec B105 - GitHub Secret identifier
 
 
@@ -34,16 +36,7 @@ class OAuthState(BaseModel):
 def write_local_state(path: Path, state: OAuthState) -> None:
     """Replace private credential state without putting it in repository data."""
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    temporary = path.with_name(path.name + ".tmp")
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        with os.fdopen(fd, "w") as stream:
-            stream.write(state.model_dump_json())
-            stream.flush()
-            os.fsync(stream.fileno())
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
+    write_text_atomic(path, state.model_dump_json())
 
 
 def save_github_secret(state: OAuthState, *, repository: str, writer_token: str) -> None:

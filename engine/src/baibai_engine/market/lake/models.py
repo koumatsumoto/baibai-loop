@@ -453,6 +453,14 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
     profile="production",
     datasets=(
         ReleaseDatasetPolicy(
+            dataset="tradingview.forecast_snapshots",
+            required=False,
+            accepted_contract_versions=(1,),
+            carries_history=True,
+            minimum_rows=1,
+            require_complete_coverage=False,
+        ),
+        ReleaseDatasetPolicy(
             dataset="jquants.daily_bars",
             required=True,
             accepted_contract_versions=(1,),

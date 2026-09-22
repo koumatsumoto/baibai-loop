@@ -7,6 +7,9 @@ from typing import Literal
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
+from baibai_engine.market.tradingview.contract import COLUMNS as TV_COLUMNS
+from baibai_engine.market.tradingview.contract import TABLE as TV_TABLE
+
 PartitionGrain = Literal["year", "month"]
 """How much of one dataset's history a single partition covers.
 
@@ -515,7 +518,21 @@ EDINET_DEBT_SCHEDULE = LakeDataset(
     ),
 )
 
+TRADINGVIEW_FORECAST_SNAPSHOTS = LakeDataset(
+    name="tradingview.forecast_snapshots",
+    sqlite_table=TV_TABLE,
+    date_column="snapshot_date",
+    coverage_authority="unproven",
+    columns=tuple(
+        LakeColumn(
+            name, kind, {"TEXT": _TEXT, "REAL": _REAL, "INTEGER": _INTEGER}[kind], nullable, pk
+        )
+        for name, kind, nullable, pk in TV_COLUMNS
+    ),
+)
+
 LAKE_DATASETS = {
+    TRADINGVIEW_FORECAST_SNAPSHOTS.name: TRADINGVIEW_FORECAST_SNAPSHOTS,
     EDINET_DEBT_SCHEDULE.name: EDINET_DEBT_SCHEDULE,
     EDINET_SEGMENT_FACTS.name: EDINET_SEGMENT_FACTS,
     JQUANTS_DAILY_BARS.name: JQUANTS_DAILY_BARS,
