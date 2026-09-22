@@ -30,7 +30,7 @@ date: 2026-08-13
 
 ## 2. 入力と再現identity
 
-機械可読の全件、分布、tail、artifact SHA-256、実行command、gate結果は[`result.json`](./result.json)を正本とする。本節は人間が判断するための要約である。
+判断に必要な実測値・採否・限界は本書を記録とする。実行時のmachine artifactは完了済みstudyのraw出力であり、HEADには保持しない。
 
 | 入力 | identity / coverage |
 | --- | --- |
