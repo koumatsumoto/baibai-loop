@@ -424,3 +424,20 @@ def test_tradingview_refresh_is_optional_and_runs_inside_existing_writer() -> No
     assert refresh["if"] == "steps.batch.outputs.published == 'true'"
     assert "baibai-engine tradingview refresh" in refresh["run"]
     assert "--tradingview-outcome" in steps[indices["notify"]]["run"]
+
+
+def test_tradingview_timeout_exits_with_safe_failure(tmp_path, steps_by_id):
+    script = steps_by_id["tradingview"]["run"]
+    assert "timeout --kill-after=30s 30m uv run" in script
+    uv = tmp_path / "uv"
+    uv.write_text("#!/bin/sh\nexec sleep 30\n")
+    uv.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-e", "-c", script.replace("--kill-after=30s 30m", "--kill-after=1s 0.1s")],
+        env={**os.environ, "PATH": f"{tmp_path}:" + os.environ["PATH"], "MANUAL_ASOF": ""},
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert result.returncode == 124
+    assert "category=timeout" in result.stderr

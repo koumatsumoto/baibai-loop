@@ -29,27 +29,35 @@ JST = ZoneInfo("Asia/Tokyo")
 BatchFetch = Callable[[list[str]], Awaitable[dict[str, Any]]]
 
 
+class TimeGuardError(FetchError):
+    """Observation is outside the allowed date or close time."""
+
+
+class SourceDataError(FetchError):
+    """Required local source data is unavailable or invalid."""
+
+
 def universe(conn: sqlite3.Connection, day: date) -> list[str]:
     rows = conn.execute(
-        "SELECT ticker,market,sector_33,is_common_stock FROM jquants_master_snapshots "
+        "SELECT ticker,market,sector_33 FROM jquants_master_snapshots "
         "WHERE snapshot_date=? ORDER BY ticker",
         (day.isoformat(),),
     ).fetchall()
     if not rows:
-        raise FetchError("Exact-date J-Quants master is unavailable")
+        raise SourceDataError("Exact-date J-Quants master is unavailable")
     result = []
-    for ticker, market, sector, common in rows:
+    for ticker, market, sector in rows:
         if str(market).upper() not in ELIGIBLE_MARKETS:
             continue
         if sector not in TSE_33_SECTORS | NON_COMMON_STOCK_SECTORS:
             raise UniverseSourceDriftError("Unknown J-Quants sector classification")
-        if sector not in TSE_33_SECTORS or not common:
+        if sector not in TSE_33_SECTORS:
             continue
         if not re.fullmatch(r"[0-9][0-9A-Z]{3}", ticker):
-            raise FetchError("Invalid J-Quants ticker")
+            raise SourceDataError("Invalid J-Quants ticker")
         result.append("TSE:" + ticker)
     if not result:
-        raise FetchError("Empty TradingView universe")
+        raise SourceDataError("Empty TradingView universe")
     return result
 
 
@@ -58,7 +66,9 @@ def validate_time(day: date, now: datetime) -> None:
         raise ValueError("Timezone-aware observation clock required")
     local = now.astimezone(JST)
     if local.date() != day or local.time() < daytime(15, 30):
-        raise FetchError("Snapshots require today's post-close observation; backfill is forbidden")
+        raise TimeGuardError(
+            "Snapshots require today's post-close observation; backfill is forbidden"
+        )
 
 
 async def collect(
@@ -86,7 +96,7 @@ async def collect(
             "SELECT is_business_day FROM jquants_market_calendar WHERE day=?", (day.isoformat(),)
         ).fetchone()
         if calendar is None:
-            raise FetchError("Exact-date trading calendar is unavailable")
+            raise SourceDataError("Exact-date trading calendar is unavailable")
         if not calendar[0]:
             return {"status": "non_trading_day", "snapshot_date": day.isoformat()}
         symbols = universe(conn, day)

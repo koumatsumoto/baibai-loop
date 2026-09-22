@@ -76,3 +76,17 @@ def test_secret_writer_does_not_disclose_failure_response() -> None:
     ):
         save_github_secret(state(), repository="owner/repo", writer_token="writer-secret")
     assert "private-token" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "failure", [OSError("private-token"), subprocess.TimeoutExpired("private-token", 60)]
+)
+def test_secret_writer_process_failure_is_classified_without_payload(failure):
+    from baibai_engine.market.tradingview.auth import SecretPersistenceError
+
+    with (
+        patch("subprocess.run", side_effect=failure),
+        pytest.raises(SecretPersistenceError, match="could not complete") as error,
+    ):
+        save_github_secret(state(), repository="owner/repo", writer_token="writer-secret")
+    assert "private-token" not in str(error.value)

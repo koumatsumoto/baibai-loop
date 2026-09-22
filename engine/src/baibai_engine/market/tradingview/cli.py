@@ -7,19 +7,73 @@ import asyncio
 import json
 import logging
 import os
+import sqlite3
 import sys
 from datetime import date, datetime
 from functools import partial
 from pathlib import Path
 
+import httpx2
+from mcp.client.auth.exceptions import OAuthFlowError
 from pydantic import ValidationError
 
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
+from baibai_engine.market.sqlite.schema import SQLiteSchemaError
+from baibai_engine.market.universe import UniverseSourceDriftError
 
-from .auth import AuthenticationError, CredentialStorage, OAuthState, save_github_secret
+from .auth import (
+    AuthenticationError,
+    CredentialStorage,
+    OAuthState,
+    SecretPersistenceError,
+    save_github_secret,
+)
 from .client import connect, fetch_batch
-from .collector import JST, collect
-from .observations import COLUMNS
+from .collector import JST, SourceDataError, TimeGuardError, collect
+from .observations import COLUMNS, AllMissingError, FetchError
+
+
+def failure_category(exc: BaseException) -> str:
+    """Return fixed labels only, including errors wrapped by SDK task groups."""
+    if isinstance(exc, BaseExceptionGroup):
+        categories = [failure_category(child) for child in exc.exceptions]
+        # Prefer actionable root failures over accompanying transport cleanup errors.
+        for category in (
+            "secret_persistence",
+            "auth",
+            "time_guard",
+            "storage",
+            "provider_all_missing",
+            "provider_rate_limit",
+            "provider_response",
+            "provider_transport",
+        ):
+            if category in categories:
+                return category
+        return "internal"
+    if isinstance(exc, SecretPersistenceError):
+        return "secret_persistence"
+    if isinstance(exc, (AuthenticationError, OAuthFlowError)):
+        return "auth"
+    if isinstance(exc, TimeGuardError):
+        return "time_guard"
+    if isinstance(
+        exc, (SourceDataError, SQLiteSchemaError, UniverseSourceDriftError, sqlite3.Error)
+    ):
+        return "storage"
+    if isinstance(exc, AllMissingError):
+        return "provider_all_missing"
+    if isinstance(exc, httpx2.HTTPStatusError):
+        if exc.response.status_code in (401, 403):
+            return "auth"
+        if exc.response.status_code == 429:
+            return "provider_rate_limit"
+        return "provider_response"
+    if isinstance(exc, (httpx2.TransportError, TimeoutError)):
+        return "provider_transport"
+    if isinstance(exc, (FetchError, json.JSONDecodeError)):
+        return "provider_response"
+    return "internal"
 
 
 async def smoke(state: OAuthState, repository: str, writer_token: str) -> dict[str, object]:
@@ -38,7 +92,7 @@ async def smoke(state: OAuthState, repository: str, writer_token: str) -> dict[s
         json.dumps({"returned_rows": result.get("count"), "missing": result.get("missing_count")})
     )
     if result.get("count") != 2 or result.get("missing_count") != 0:
-        raise RuntimeError("TradingView smoke did not return both requested symbols")
+        raise FetchError("TradingView smoke did not return both requested symbols")
     return {"status": "ok", "rows": 2, "rotation_persisted": True}
 
 
@@ -86,7 +140,7 @@ def main(argv: list[str] | None = None, /) -> int:
         repository = os.environ.get("GITHUB_REPOSITORY", "")
         writer_token = os.environ.get("TRADINGVIEW_SECRET_WRITER_TOKEN", "")
         if not repository or not writer_token:
-            raise AuthenticationError("GitHub Secret writer credentials are missing")
+            raise SecretPersistenceError("GitHub Secret writer credentials are missing")
         if args.command == "smoke":
             result = asyncio.run(smoke(state, repository, writer_token))
         else:
@@ -94,12 +148,11 @@ def main(argv: list[str] | None = None, /) -> int:
             result = asyncio.run(
                 snapshot(state, repository, writer_token, args.sqlite, day, args.interval)
             )
-    except Exception:
+    except Exception as exc:
         # OAuth / HTTP exceptions may embed credential-bearing responses. Never
         # print their body, exception chain, environment, or serialized state.
         print(
-            "TradingView acquisition failed; no snapshot committed; "
-            "check provider and authentication",
+            f"TradingView acquisition failed; category={failure_category(exc)}",
             file=sys.stderr,
         )
         return 1

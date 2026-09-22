@@ -195,7 +195,14 @@ jobs:
           if [[ -n "$MANUAL_ASOF" ]]; then
             args+=(--asof "$MANUAL_ASOF")
           fi
-          uv run baibai-engine tradingview refresh "${args[@]}"
+          set +e
+          timeout --kill-after=30s 30m uv run baibai-engine tradingview refresh "${args[@]}"
+          status=$?
+          set -e
+          if [[ "$status" == 124 || "$status" == 137 ]]; then
+            echo 'TradingView acquisition failed; category=timeout' >&2
+          fi
+          exit "$status"
 
       # Publish before the store push, never after. A store push whose publication then
       # failed would leave the cloud holding a store that claims today's coverage while

@@ -193,3 +193,13 @@ def test_response_accounting_refuses_invalid_payload(case: str) -> None:
         p["data"][symbols[0]]["close"] = float("nan")
     with pytest.raises(FetchError):
         normalize_batch(p, symbols, NOW)
+
+
+@pytest.mark.parametrize("common", [0, None])
+def test_universe_uses_canonical_sectors_without_common_stock_flag(tmp_path, common):
+    path = store(tmp_path / "market.sqlite", 1)
+    conn = open_connection(path)
+    with conn:
+        conn.execute("UPDATE jquants_master_snapshots SET is_common_stock=?", (common,))
+    assert universe(conn, DAY) == ["TSE:1000"]
+    conn.close()

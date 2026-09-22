@@ -25,6 +25,10 @@ class AuthenticationError(RuntimeError):
     """Authentication or durable rotation failed; messages contain no credentials."""
 
 
+class SecretPersistenceError(AuthenticationError):
+    """Rotated credentials could not be durably saved."""
+
+
 class OAuthState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -42,22 +46,25 @@ def write_local_state(path: Path, state: OAuthState) -> None:
 def save_github_secret(state: OAuthState, *, repository: str, writer_token: str) -> None:
     """Use gh's encrypted Secret API; neither credentials nor stderr enter logs."""
     if not repository or not writer_token:
-        raise AuthenticationError("GitHub Secret writer credentials are missing")
+        raise SecretPersistenceError("GitHub Secret writer credentials are missing")
     executable = shutil.which("gh")
     if executable is None:
-        raise AuthenticationError("GitHub CLI is unavailable")
+        raise SecretPersistenceError("GitHub CLI is unavailable")
     # Fixed command, no shell; credentials travel through stdin and env.
-    result = subprocess.run(  # nosec B603
-        [executable, "secret", "set", SECRET_NAME, "--repo", repository],
-        input=state.model_dump_json(),
-        text=True,
-        capture_output=True,
-        env={**os.environ, "GH_TOKEN": writer_token},
-        timeout=60,
-        check=False,
-    )
+    try:
+        result = subprocess.run(  # nosec B603
+            [executable, "secret", "set", SECRET_NAME, "--repo", repository],
+            input=state.model_dump_json(),
+            text=True,
+            capture_output=True,
+            env={**os.environ, "GH_TOKEN": writer_token},
+            timeout=60,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        raise SecretPersistenceError("GitHub Secret write could not complete") from None
     if result.returncode:
-        raise AuthenticationError("GitHub Secret rotation failed; reauthorize before retrying")
+        raise SecretPersistenceError("GitHub Secret rotation failed; reauthorize before retrying")
 
 
 class CredentialStorage:

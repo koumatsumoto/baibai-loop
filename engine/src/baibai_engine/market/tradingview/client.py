@@ -14,6 +14,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import AuthorizationCodeResult, OAuthClientMetadata, OAuthMetadata
 
 from .auth import AuthenticationError, CredentialStorage
+from .observations import FetchError
 
 SERVER_URL = "https://mcp.tradingview.com/mcp"
 METADATA_URL = "https://www.tradingview.com/.well-known/oauth-authorization-server"
@@ -77,13 +78,13 @@ async def fetch_batch(
         raise ValueError("TradingView batch requires 1..50 unique symbols")
     result = await session.call_tool(BATCH_TOOL, {"symbols": symbols, "columns": columns})
     if result.is_error:
-        raise RuntimeError("TradingView MCP tool failed")
+        raise FetchError("TradingView MCP tool failed")
     payload = result.structured_content
     if payload is None:
         texts = [item.text for item in result.content if item.type == "text"]
         if len(texts) != 1:
-            raise RuntimeError("Malformed TradingView MCP response")
+            raise FetchError("Malformed TradingView MCP response")
         payload = json.loads(texts[0])
     if not isinstance(payload, dict) or payload.get("success") is not True:
-        raise RuntimeError("TradingView batch failed")
+        raise FetchError("TradingView batch failed")
     return payload

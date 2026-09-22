@@ -930,7 +930,7 @@ storeのmergeでは同日でも別docIDの成否を混同しない。共有docID
 
 ## TradingView Analyst Expectations
 
-日次batchは当日J-Quants masterの取得後、Lake公開前に`baibai-engine tradingview refresh`を呼ぶ。既存の`cloud-publish`内で直列実行し、失敗は非必須stepとして通知に残す。過去日付の手動batchを実行しても、TradingViewの現在値をその日付へ保存しない。
+日次batchは当日J-Quants masterの取得後、Lake公開前に`baibai-engine tradingview refresh`を呼ぶ。既存の`cloud-publish`内で直列実行し、失敗は非必須stepとして通知に残す。取得コマンドには暫定30分の上限を設け、終了しなければ30秒後に強制終了する。失敗後も既存Lakeの公開を続ける。上限は全Universeのライブ受入で所要時間を確認して再評価する。過去日付の手動batchを実行しても、TradingViewの現在値をその日付へ保存しない。
 
 ### 初期設定と認証の復旧
 
@@ -963,3 +963,5 @@ collectorは当日の取引日・15:30 JST以降・当日masterを要求する�
 `response_bytes`はbatch応答payloadをUTF-8 JSONで表したbyte数で、HTTP圧縮後の通信量ではない。
 
 初回の全市場1巡ではCLIのexpected universe、rows、unresolved、normal null数、response bytes、所要時間と、SQLite増分、既存Lake publishのobject/upload bytes、GC前後を分けて計測する。SQLite/L1 row parity、fixed releaseの過去・当日照会、cloud readbackまで確認し、Issue #1317へ記録する。少数銘柄のsmokeを全市場受入や容量実測の代わりにしない。
+
+TradingViewの失敗ログは認証情報や応答本文を出さず、固定の`category`で示す。`auth`は再認証、`secret_persistence`はSecret書込権限、`provider_all_missing`・`provider_response`は提供元応答、`provider_rate_limit`・`provider_transport`・`timeout`は取得制限や通信、`time_guard`は当日引け後の条件、`storage`はschema・master・calendar、`internal`は未分類の実装エラーを確認する。再取得は当日の条件を満たす間だけ行い、過去日の穴を現在値で埋めない。

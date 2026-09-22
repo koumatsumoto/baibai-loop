@@ -34,6 +34,10 @@ class FetchError(RuntimeError):
     """A provider or accounting failure; never a canonical missing observation."""
 
 
+class AllMissingError(FetchError):
+    """Provider returned no usable symbols for a whole chunk."""
+
+
 def normalize_batch(
     payload: dict[str, Any], symbols: list[str], fetched_at: datetime
 ) -> list[dict[str, Any]]:
@@ -58,7 +62,7 @@ def normalize_batch(
     if payload.get("count") != len(data) or payload.get("missing_count") != len(missing):
         raise FetchError("TradingView response counts disagree")
     if not data:
-        raise FetchError("TradingView returned an all-missing chunk; refusing false coverage")
+        raise AllMissingError("TradingView returned an all-missing chunk; refusing false coverage")
     rows = []
     for symbol in symbols:
         row: dict[str, Any] = {

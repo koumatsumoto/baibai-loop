@@ -388,3 +388,37 @@ def test_every_setup_uv_step_resolves_one_exact_root_version() -> None:
     assert required == "==0.12.1"
     assert len(setup_steps) == 4
     assert all("version" not in step.get("with", {}) for step in setup_steps)
+
+
+@pytest.mark.parametrize(
+    ("filename", "allowed_step"),
+    [
+        ("cloud-daily-batch.yml", "Refresh TradingView expectations"),
+        ("ci.yml", "TradingView OAuth smoke"),
+    ],
+)
+def test_tradingview_secrets_are_scoped_to_only_the_acquisition_step(filename, allowed_step):
+    workflow = _workflow(filename)
+    secrets = ("TRADINGVIEW_OAUTH_STATE", "TRADINGVIEW_SECRET_WRITER_TOKEN")
+    for secret in secrets:
+        expression = "${{ secrets." + secret + " }}"
+        assert expression not in str(workflow.get("env", {}))
+        usages = []
+        for job in workflow["jobs"].values():
+            assert expression not in str(job.get("env", {}))
+            for step in job["steps"]:
+                if secret in str(step):
+                    usages.append(step["name"])
+                    assert step["env"][secret] == expression
+        assert usages == [allowed_step]
+    if filename == "ci.yml":
+        smoke = next(
+            step
+            for job in workflow["jobs"].values()
+            for step in job["steps"]
+            if step.get("name") == allowed_step
+        )
+        assert (
+            smoke["if"]
+            == "${{ github.event_name == 'workflow_dispatch' && inputs.tradingview_oauth_smoke }}"
+        )
