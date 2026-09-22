@@ -195,6 +195,8 @@ jobs:
           if [[ -n "$MANUAL_ASOF" ]]; then
             args+=(--asof "$MANUAL_ASOF")
           fi
+          progress="$RUNNER_TEMP/tradingview-progress.json"
+          args+=(--progress-output "$progress")
           set +e
           timeout --kill-after=30s 30m uv run baibai-engine tradingview refresh "${args[@]}"
           status=$?
@@ -202,6 +204,28 @@ jobs:
           if [[ "$status" == 124 || "$status" == 137 ]]; then
             echo 'TradingView acquisition failed; category=timeout' >&2
           fi
+          python - "$progress" "$status" <<'PYPROGRESS'
+          import json
+          import sys
+          from pathlib import Path
+          fields = (
+              "snapshot_date", "phase", "expected_universe", "chunks_total", "chunks_completed",
+              "chunk_index", "chunk_size", "columns_count", "interval_seconds", "response_bytes",
+              "provider_elapsed_seconds", "max_chunk_elapsed_seconds", "elapsed_seconds",
+              "first_fetched_at_utc", "last_fetched_at_utc", "oauth_rotations",
+          )
+
+          try:
+              payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+              if not isinstance(payload, dict):
+                  raise ValueError("invalid progress")
+              safe = {key: payload[key] for key in fields if key in payload
+                      and (payload[key] is None or type(payload[key]) in (str, int, float, bool))}
+              print("TradingView progress: " + json.dumps(safe, sort_keys=True, allow_nan=False))
+          except (OSError, ValueError):
+              if sys.argv[2] != "0":
+                  print("TradingView progress: unavailable")
+          PYPROGRESS
           exit "$status"
 
       # Publish before the store push, never after. A store push whose publication then

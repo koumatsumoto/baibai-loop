@@ -967,3 +967,16 @@ collectorは当日の取引日・15:30 JST以降・当日masterを要求する�
 初回の全市場1巡ではCLIのexpected universe、rows、unresolved、normal null数、response bytes、所要時間と、SQLite増分、既存Lake publishのobject/upload bytes、GC前後を分けて計測する。SQLite/L1 row parity、fixed releaseの過去・当日照会、cloud readbackまで確認し、Issue #1317へ記録する。少数銘柄のsmokeを全市場受入や容量実測の代わりにしない。
 
 TradingViewの失敗ログは認証情報や応答本文を出さず、固定の`category`で示す。`auth`は再認証、`secret_persistence`はSecret書込権限、`provider_all_missing`・`provider_response`は提供元応答、`provider_rate_limit`・`provider_transport`・`timeout`は取得制限や通信、`time_guard`は当日引け後の条件、`storage`はschema・master・calendar、`internal`は未分類の実装エラーを確認する。再取得は当日の条件を満たす間だけ行い、過去日の穴を現在値で埋めない。
+
+### TradingView Expectationsの障害診断
+
+TradingView stepのsafe failure line、`TradingView progress:` summaryの順に読む。`chunks_completed / chunks_total`と`chunk_index`で失敗位置を、`provider_elapsed_seconds / elapsed_seconds`と`max_chunk_elapsed_seconds`でprovider待ちとintervalの影響を確認し、`oauth_rotations`で認証更新回数を見る。payload検証失敗では固定の`validation_reason`とcanonicalな`validation_field`を確認する。成功時は最終JSONの`rows / unresolved / normal_nulls`とfirst / last fetched_atも確認する。
+
+progressはrunner temp内だけに置く。書込み失敗は1回だけ警告し、取得・保存は継続する。外部timeout時のsummaryは最後の更新時点の値であり、実行中callの経過時間を含まない。実行中call内で完了したOAuth rotationでも、次のprogress emit前に外部killされた場合はprogress fileへ反映されない。`unavailable`なら進捗は確認不能と扱う。正常no-opでprogressがない場合はCLIのsuccess JSONを確認する。
+
+- `provider_rate_limit`（429）: 同runを即時rerunせず、manual scanner callも重ねない。当日分のpartial snapshotが保存されていないことを確認し、次のscheduled runまたはprovider quota確認へ進む。
+- `provider_all_missing`: coverage不存在と断定せず、provider全体のdegradationの可能性を確認する。
+- `provider_response`: 固定validation reasonを起点に応答契約を調べる。Secret・raw body・symbol一覧をIssueやlogへ転載しない。
+- `timeout`: 最後のphase / chunkとprovider時間を確認する。初回実測なしに30分上限を延長しない。
+
+初回本番受入は[Issue #1325](https://github.com/koumatsumoto/baibai-loop/issues/1325)の一回限りのquiet windowとscheduled full runで行う。成否にかかわらずrun URLと診断結果を#1317・#1323へ記録し、成功時はSQLite増分・Lake row parity・cloud readback、失敗時はpartial canonical rowsがなく既存Lake公開が継続することを確認する。

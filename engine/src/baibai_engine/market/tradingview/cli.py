@@ -9,6 +9,9 @@ import logging
 import os
 import sqlite3
 import sys
+import tempfile
+from contextlib import suppress
+from dataclasses import asdict
 from datetime import date, datetime
 from functools import partial
 from pathlib import Path
@@ -29,12 +32,28 @@ from .auth import (
     save_github_secret,
 )
 from .client import connect, fetch_batch
-from .collector import JST, SourceDataError, TimeGuardError, collect, validate_time
-from .observations import COLUMNS, AllMissingError, FetchError
+from .collector import (
+    JST,
+    CollectionFailure,
+    CollectionProgress,
+    SourceDataError,
+    TimeGuardError,
+    collect,
+    validate_time,
+)
+from .observations import (
+    COLUMNS,
+    AllMissingError,
+    FetchError,
+    ProviderHTTPError,
+    ProviderPayloadError,
+)
 
 
 def failure_category(exc: BaseException) -> str:
     """Return fixed labels only, including errors wrapped by SDK task groups."""
+    if isinstance(exc, CollectionFailure):
+        return failure_category(exc.cause)
     if isinstance(exc, BaseExceptionGroup):
         categories = [failure_category(child) for child in exc.exceptions]
         # Prefer actionable root failures over accompanying transport cleanup errors.
@@ -63,10 +82,11 @@ def failure_category(exc: BaseException) -> str:
         return "storage"
     if isinstance(exc, AllMissingError):
         return "provider_all_missing"
-    if isinstance(exc, httpx2.HTTPStatusError):
-        if exc.response.status_code in (401, 403):
+    if isinstance(exc, (httpx2.HTTPStatusError, ProviderHTTPError)):
+        status = exc.status_code if isinstance(exc, ProviderHTTPError) else exc.response.status_code
+        if status in (401, 403):
             return "auth"
-        if exc.response.status_code == 429:
+        if status == 429:
             return "provider_rate_limit"
         return "provider_response"
     if isinstance(exc, (httpx2.TransportError, TimeoutError)):
@@ -74,6 +94,75 @@ def failure_category(exc: BaseException) -> str:
     if isinstance(exc, (FetchError, json.JSONDecodeError)):
         return "provider_response"
     return "internal"
+
+
+# This explicit boundary is shared by the writer and the workflow log reader.
+PROGRESS_FIELDS = (
+    "snapshot_date",
+    "phase",
+    "expected_universe",
+    "chunks_total",
+    "chunks_completed",
+    "chunk_index",
+    "chunk_size",
+    "columns_count",
+    "interval_seconds",
+    "response_bytes",
+    "provider_elapsed_seconds",
+    "max_chunk_elapsed_seconds",
+    "elapsed_seconds",
+    "first_fetched_at_utc",
+    "last_fetched_at_utc",
+    "oauth_rotations",
+)
+
+
+def safe_progress(payload: dict[str, object]) -> dict[str, object]:
+    return {
+        key: payload[key]
+        for key in PROGRESS_FIELDS
+        if key in payload
+        and (payload[key] is None or type(payload[key]) in (str, int, float, bool))
+    }
+
+
+def _write_progress_file(path: Path, payload: dict[str, object]) -> None:
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent, delete=False
+        ) as stream:
+            temporary = Path(stream.name)
+            json.dump(safe_progress(payload), stream, allow_nan=False)
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            with suppress(OSError):
+                temporary.unlink(missing_ok=True)
+
+
+def _diagnostic_error(exc: BaseException, category: str) -> BaseException:
+    if isinstance(exc, BaseExceptionGroup):
+        for child in exc.exceptions:
+            if failure_category(child) == category:
+                return _diagnostic_error(child, category)
+    return exc
+
+
+def failure_line(exc: BaseException) -> str:
+    category = failure_category(exc)
+    line = f"TradingView acquisition failed; category={category}"
+    detail = _diagnostic_error(exc, category)
+    if isinstance(detail, CollectionFailure):
+        line += "".join(
+            f"; {key}={value}" for key, value in safe_progress(asdict(detail.progress)).items()
+        )
+        detail = _diagnostic_error(detail.cause, category)
+    if isinstance(detail, ProviderHTTPError):
+        line += f"; provider_http_status={detail.status_code}"
+    if isinstance(detail, ProviderPayloadError):
+        line += f"; validation_reason={detail.reason}; validation_field={detail.field or '-'}"
+    return line
 
 
 async def smoke(state: OAuthState, repository: str, writer_token: str) -> dict[str, object]:
@@ -97,17 +186,40 @@ async def smoke(state: OAuthState, repository: str, writer_token: str) -> dict[s
 
 
 async def snapshot(
-    state: OAuthState, repository: str, writer_token: str, path: Path, day: date, interval: float
+    state: OAuthState,
+    repository: str,
+    writer_token: str,
+    path: Path,
+    day: date,
+    interval: float,
+    progress_output: Path | None = None,
 ) -> dict[str, object]:
     storage = CredentialStorage(
         state, partial(save_github_secret, repository=repository, writer_token=writer_token)
     )
+    output_enabled = progress_output is not None
+
+    def progress(value: CollectionProgress) -> None:
+        nonlocal output_enabled
+        if not output_enabled or progress_output is None:
+            return
+        try:
+            _write_progress_file(
+                progress_output, {**asdict(value), "oauth_rotations": storage.rotation_count}
+            )
+        except Exception as exc:
+            output_enabled = False
+            print(
+                f"TradingView progress output disabled; type={type(exc).__name__}", file=sys.stderr
+            )
+
     async with connect(storage) as session:
 
         async def fetch(symbols: list[str]) -> dict[str, object]:
             return await fetch_batch(session, symbols, COLUMNS)
 
-        return await collect(path, day, fetch, interval=interval)
+        result = await collect(path, day, fetch, interval=interval, progress=progress)
+    return {**result, "oauth_rotations": storage.rotation_count}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -119,6 +231,7 @@ def build_parser() -> argparse.ArgumentParser:
     refresh = sub.add_parser("refresh", help="append today's full-universe post-close snapshot")
     refresh.add_argument("--sqlite", type=Path, default=MARKET_DB_PATH)
     refresh.add_argument("--asof", type=date.fromisoformat, default=None)
+    refresh.add_argument("--progress-output", type=Path)
     refresh.add_argument("--interval", type=float, default=15.0)
     return parser
 
@@ -156,13 +269,21 @@ def main(argv: list[str] | None = None, /) -> int:
             result = asyncio.run(smoke(state, repository, writer_token))
         else:
             result = asyncio.run(
-                snapshot(state, repository, writer_token, args.sqlite, day, args.interval)
+                snapshot(
+                    state,
+                    repository,
+                    writer_token,
+                    args.sqlite,
+                    day,
+                    args.interval,
+                    args.progress_output,
+                )
             )
     except Exception as exc:
         # OAuth / HTTP exceptions may embed credential-bearing responses. Never
         # print their body, exception chain, environment, or serialized state.
         print(
-            f"TradingView acquisition failed; category={failure_category(exc)}",
+            failure_line(exc),
             file=sys.stderr,
         )
         return 1
