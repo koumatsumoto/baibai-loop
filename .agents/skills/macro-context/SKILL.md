@@ -44,15 +44,13 @@ description: 人間の明示的な依頼でfull-depthのMacro Contextを評価�
    uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml --check
    ```
 
-3. **初回check後に前回を比較する。** 実際の前回Contextを確認し、比較対象IDと今回のasofを指定してscorecardを取得する。同じas-ofの別publicationやheadを無条件に前回としない。
+3. **初回check後に前回を比較する。** 実際の前回Contextを確認し、比較対象IDと今回のasofを指定してscorecardを取得する。同じas-ofの別publicationやheadを無条件に前回としない。以下の非秘密ID・日付は直前に確認した実値へ置換し、各commandと同じshell呼出し内で設定する。別の呼出しへ変数が残る前提にしない。
 
    ```bash
-   (
-     set -e
-     read -r -p '確認した前回Context ID: ' previous_context_id
-     read -r -p '今回の対象日 YYYY-MM-DD: ' asof
-     uv run baibai-engine macro context scorecard --context-id "$previous_context_id" --asof "$asof" --format json
-   )
+   previous_context_id='確認済みの前回Context IDに置換'
+   asof='YYYY-MM-DD'
+   uv run baibai-engine macro context scorecard \
+     --context-id "$previous_context_id" --asof "$asof" --format json
    ```
 
    応答の`machine_snapshot`全体を`inputs.machine_snapshots`へ組み込み、その`input_id`をregime_summaryの`previous_scorecard_snapshot_id`へ設定する。仮記載は実際の比較結果へ置換して再checkする。未取得を「前回なし」と書かず、採点不能・観測不足も事実どおり記す。今回の結論を前回に合わせない。
@@ -69,8 +67,9 @@ description: 人間の明示的な依頼でfull-depthのMacro Contextを評価�
    checkとhead取得の成功後、返ったYAMLの`context_id`値だけを`expected_head`へ設定する。既存headがある場合:
 
    ```bash
-   read -r -p '確認したheadのcontext_id: ' expected_head &&
-     uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml --expected-head "$expected_head"
+   expected_head='確認済みのhead context_idに置換'
+   uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml \
+     --expected-head "$expected_head"
    ```
 
    headがnullの場合だけ引数を省略する。
@@ -82,12 +81,9 @@ description: 人間の明示的な依頼でfull-depthのMacro Contextを評価�
    CAS競合は理由を確認し、expected-headだけ更新して無条件再試行しない。発行結果のIDを`context_id`、対象日を`asof`に設定し、そのexact revisionを確認する。
 
    ```bash
-   (
-     set -e
-     read -r -p '今回発行したContext ID: ' context_id
-     read -r -p '対象日 YYYY-MM-DD: ' asof
-     uv run baibai-engine macro context show --context-id "$context_id" --asof "$asof"
-   )
+   context_id='今回発行したContext IDに置換'
+   asof='YYYY-MM-DD'
+   uv run baibai-engine macro context show --context-id "$context_id" --asof "$asof"
    ```
 
    cloud反映は[Ops Maintenance](../ops-maintenance/SKILL.md)へ進む。Contextはapplication DBなので、macro観測storeの`push-macro`だけで反映完了にはならない。

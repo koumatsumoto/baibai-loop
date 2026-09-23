@@ -46,7 +46,7 @@ AIは調査と提案、人間は最終裁定とbroker操作を担う。自動発
 
 ### 柱 1: 事実と分析の分離
 
-- **(a)** Security Analysis内のobserved / derived / estimateと、人間/AIによるjudgment（macro context・thesis）は責務を分ける。禁止表現と運用ルールは§6[事実と分析の分離](#fact-analysis-separation)を正本とする。
+- **(a)** Security Analysis内のobserved / derived / estimateと、人間/AIによるjudgment（macro context・thesis）は責務を分ける。禁止表現と運用ルールは§5[事実と分析の分離](#fact-analysis-separation)を正本とする。
 - **(b)** 事実と意見が混ざると、AI が過去の解釈を「事実」として再生産してしまう。store・table単位で分けておけば「judgmentを AI に見せない」という選択ができ、後知恵バイアスと責任の所在の混乱を防げる。
 - **(c)** 同一tableに`type`列やflagでjudgmentを混在させる案は、混入したときに見落としやすく機械チェックも利きにくい。store・table単位の物理的な分離が最も安全。
 
@@ -82,29 +82,23 @@ AIは調査と提案、人間は最終裁定とbroker操作を担う。自動発
 
 ## 4. 判断原則の適用先
 
-正準用語、命名と成果物の関係は[domain-language](./domain-language.md)、責務・依存・storeの正本は[architecture](./architecture.md)が所有する。
-
 ### Evidence Taxonomy
 
 企業評価のevidenceは、事業・valuation・市場から導出した観測・positioning/liquidity・catalystを区別する。これは見積り根拠を検証する観点であり、統計的なrisk factor体系ではない。macro・policy/geopoliticalはMacro Contextの領域として扱う。厳密な保存enumはmodelを参照する。
 
-## 5. 責務境界
-
-操作の順序と人間確認は[各skill](../.agents/skills/)、artifact固有の意味は[reference](./reference/README.md)が所有する。
-
 <a id="fact-analysis-separation"></a>
 
-## 6. 事実と分析の分離
+## 5. 事実と分析の分離
 
 sourceの観測、規則による導出、機械見積り、AIの判断を区別する。機械storeに因果解釈・主観的な重要度・投資判断を書き込まず、見積りを観測済み事実として扱わない。解釈・因果・予測はMacro ContextやThesisの判断として根拠とともに示す。
 
 言葉の有無だけで分類しない。値の由来と主張の意味を基準にし、既知の事実を記述する中立的な語まで禁止語として増やさない。
 
-## 7. 分析階層：世界情勢 → 地域経済 → 個別資産
+## 6. 分析階層：世界情勢 → 地域経済 → 個別資産
 
 Macro Contextは世界情勢、日本経済、個別資産への含意の順で整理する。これは分析の構成であり、因果が常に一方向へ流れるという仮定ではない。伝達経路と反証は[macro reference](./reference/macro.md)に従って検討する。
 
-## 8. 非目標
+## 7. 非目標
 
 非目標は現在の戦略で必要としない機能の境界である。前提が変わった場合は[開発原則](#development-investment-policy)に従って見直し、経済仮説の有効性と計算・運用の正しさを区別して検証する。
 
@@ -115,7 +109,3 @@ Macro Contextは世界情勢、日本経済、個別資産への含意の順で�
 - ETF / 投資信託 / 海外株、口座・税制のモデル化。
 - broker状態の自動推定、broker会計の完全複製、ledger精密化の目的化。
 - 外部向けの汎用データ配信、公開MCP、書き込みAPIの提供。所有者用のread-only Web・MCPは範囲内であり、正本へのwrite権限を持たない。
-
-## 9. 参考
-
-構成は[architecture](./architecture.md)、資本方針は[portfolio-management](./portfolio-management.md)、操作の入口は[docs portal](./README.md#目的別の入口)を参照する。

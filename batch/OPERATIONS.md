@@ -1,6 +1,6 @@
 # batch — production orchestration と cloud store 運用
 
-本書はmachine処理、store転送、公開と復旧の手順を所有する。domain処理はengine、read modelはwebが担う。以下のcommandはrepository rootのBashから実行し、非zeroなら後続段階へ進まない。CLIの全引数は該当`--help`を参照する。
+本書はmachine処理、store転送、公開と復旧の手順を所有する。domain処理はengine、read modelはwebが担う。以下のcommandはrepository rootのBashから実行し、終了状態と次の操作は各節に従う。CLIの全引数は該当`--help`を参照する。
 
 <a id="calibration-全期間-rebuild-の所要時間"></a>
 <a id="cloud-materialize-の所要時間"></a>
@@ -197,17 +197,7 @@ owner Bearerと共有Bearer/queryで既存JSONの具体値・更新時点を読�
 401、重複shareが400になることを確認します。`/?share=...`は通常UIを開き、最初のAPI request前にURLから
 shareが消え、owner保存値が維持されることを確認します。共有URLを第三者へ一般公開しません。
 
-L1は[固定release手順](../docs/reference/market-lake.md#shared-raw-read)でcurrent → release manifest →
-dataset manifest → 小さい実Parquetへ進みます。対象ChatGPTの分析workspaceへ自動共有readで実ファイルが入り、
-decodeして件数・null・具体値を計算できたことを確認します。その同じreleaseから次をlocal baselineと照合します。
-
-- 3539または6675等の個別銘柄の日足・財務の期間、row、null、保存値
-- 1営業日分の全銘柄daily barsのrow数と簡単な集計
-- 2銘柄×約3年等の複数partition履歴の欠落・重複・release混在の有無
-
-実bucketはこの利用側受入だけに使い、unit test、data rebuild、daily batch dispatchには使いません。
-HTTP 200や手動uploadだけでは分析成功にしません。download不可、fileは入るがdecode不可、size制限、
-parser不足等を実測して記録し、未達ならIssueを閉じません。変換機構をその場で追加せず、観測結果から次案を決めます。
+L1は[固定release手順](../docs/reference/market-lake.md#shared-raw-read)でcurrent → release manifest → dataset manifest → 実Parquetへ進む。対象の分析workspaceで取得・decodeし、同じreleaseの対象値をlocal baselineと照合する。HTTP 200や手動uploadだけでは成功としない。取得・decode・照合が失敗した場合は原因を確認して利用を止める。
 
 **停止と復旧**: shared secret未設定・空は共有accessだけを無効化し、L1接続値の不足はlakeだけ503にします。
 上流403/5xx等は安全な502となるので、read-only scopeとendpoint設定を確認します。秘密値や上流error bodyを
@@ -413,9 +403,9 @@ target="$(mktemp /tmp/baibai-restore.XXXXXX.sqlite)" || exit 1
 )
 ```
 
-ledgerを復元対象の時点と照合し、[application DB反映](#application-db-を反映する)まで成功してから判断業務を再開する。失敗なら次の復旧へ進む。ledgerを`head`へpipeしない。
+ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。照合成功後は[application DB反映](#application-db-を反映する)へ進み、反映確認後に判断業務を再開する。公開途中の失敗では検証済みlocalを戻さず、upload・dispatch・materializeの到達点を確認して反映側を復旧する。ledgerを`head`へpipeしない。
 
-**5. 復元失敗時。** 復元前backupがある場合だけ、次で戻す。backupがない場合は判断を再開せず、別候補の取得・検査へ戻る。
+**5. ローカル復元の検証失敗時。** 復元前backupがある場合だけ、次で戻す。backupがない場合は判断を再開せず、別候補の取得・検査へ戻る。
 
 ```bash
 (
@@ -468,7 +458,7 @@ vintage・retraction・generation・no-lossの意味は[Macro reference](../docs
 
 **公開済みoptionsの集計式を変える場合**: `jp.n225_iv_30d`・`jp.n225_iv_skew`・`jp.n225_iv_term`は2段に分ける。まず3系列を退役し、generationを進めて上の手順でcloudへ反映する。そのpush成功後に新式と3系列を戻し、元digestの既存generation値を退役段階よりさらに大きい値へ更新する。再びcodeをmainへ反映してから必要範囲の全履歴を取得し、新式で値が出ない日に旧式の観測が残らないことを確認してpushする。長い取得窓はproviderの契約に従って分割する。日次batch待ち・localだけの削除・2段の一括化はしない。
 
-**停止と復旧**: DB拒否・意図しない退役・provider取得失敗・merge/CAS失敗では後続公開へ進まない。provider失敗が、既にcommit済みのpruneを巻き戻すとは扱わない。cloud反映後の異常は、次のpushが`.bak`を置換する前に[部分pushからの復旧](#部分-push-からの復旧)で確認する。no-lossと既存backupは維持する。
+**停止と復旧**: DB拒否・意図しない退役・provider取得失敗・merge/CAS失敗では後続公開へ進まない。provider失敗がcommit済みpruneを巻き戻すとは扱わない。誤った内容をcloudへ反映した場合は次のpushを止め、[R2 transferの安全境界](#r2-transferの安全境界)の前世代復元へ進む。部分pushによるreceipt不一致だけは[部分pushからの復旧](#部分-push-からの復旧)で扱う。
 
 #### Market履歴
 

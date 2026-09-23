@@ -22,8 +22,6 @@ uv run baibai-engine macro list --category rates       # 登録 series を見る
 uv run baibai-engine macro search 失業率              # 名前/alias/category で検索
 uv run baibai-engine macro get jp.nikkei225 --start 2026-05-20 --end 2026-06-22
 uv run baibai-engine macro get jp.policy_rate --latest
-uv run baibai-engine macro refresh us.10y --start 2026-06-20 --end 2026-07-02   # provider を強制再取得
-uv run baibai-engine macro refresh us.10y --all-history --end 2026-07-20        # provider が提供する全履歴を同期
 ```
 
 `get`は取得済み範囲を確認し、不足があればproviderを呼ぶ。同じcommand引数でもstore状態・source改定・実行日によって結果は変わる。計算の決定性は、保存入力・採用vintage・規則・as-ofが固定されている場合の性質である。`get --latest` はJSTの運用日を `asof` とし、§② の reading rules が観測日から求める次回公表目安 + 猶予までは cache を返し、境界を超えた場合は provider を再取得するため、公表ラグと鮮度判定の知識は reading rules が一元的に持つ。再取得する期間幅は鮮度閾値とは別の契約であり、service の `LATEST_FETCH_LOOKBACK_DAYS`（daily 14 日・weekly 60 日・monthly 以下 370 日）を `get --latest` と日次batchが共用する。
@@ -32,7 +30,7 @@ uv run baibai-engine macro refresh us.10y --all-history --end 2026-07-20        
 
 observation は `(series_id, observed_at, vintage_at)` を主キーに upsert する。多くの provider は取得時刻を vintage として刻むが、挿入前に vintage を除いた内容（値・単位・期間・取得状態・source）を既存最新 vintage と比較し、変化が無ければその再取得行を捨てる。同内容の再取得ではobservationの重複vintageを増やさない。provider runには実際の取得記録が残るため、再実行してDB全体が不変になるという意味ではない。日次バッチは asof を終端とする frequency 別の窓（daily 14 日・weekly 60 日・monthly 以下 370 暦日）を毎回丸ごと再取得するため、窓内で起きた一時的な取得失敗は次の成功実行が同じ窓を引き直して自動でバックフィルする。窓を超える長期の取得断や旧 vintage の全面リベースが必要なときだけ `refresh --all-history` を運用レバーとして使う。
 
-誤って入った observation は削除では消えない。cloud との merge は双方の fact を必ず戻す no-loss 契約なので、ローカルで消しても次の push で復活する。この契約は本物の履歴を守るためのものなので緩めず、代わりに **今わかっていることを新しい vintage として上に積む**: `baibai-engine macro retract <series_id> --observed-at <date> --expected-vintage <ts>` が対象 observation 日の**最新 vintage を撤回**し、その 1 つ下にあった状態を現在時刻の vintage で書き直す。撤回する vintage を名指すのは publish の `--expected-head` と同じ compare-and-swap で、これが無いと同じコマンドの 2 回目が「復元した行の下にある誤値」を読んで書き戻してしまう。名指してあれば 2 回目は拒否になる。**撤回対象が derived 系列の入力なら、その derived 系列の同じ日も先に撤回する必要があり、コマンドが書き込み前に拒否して対象を印字する**（derived は自分の観測を持つので、入力を撤回しても計算済みの値は消えず、再計算でも直らない）。
+誤って入った observation は削除では消えない。cloudとのmergeは双方のfactを戻すno-loss契約なので、localで消しても次のpushで復活する。撤回は対象日の最新vintageをCASで名指しし、その下の状態を新しいvintageとして記録する。同じ撤回を繰り返すと意図しない旧値を戻し得るため、期待vintageが変われば拒否する。derived系列の保存観測は入力の撤回だけでは消えない。操作順と失敗時の行き先は[運用手順](../../batch/OPERATIONS.md#macro観測とregistryの修正)に従う。
 
 - 下に正しい観測があれば **その観測が再び読まれる**（誤った writer が正しい値の上に別の値を刻んだ場合。撤回のたびに 1 つずつ vintage を遡る）
 - 下に何も無い、または下も撤回済みなら `fetch_status='retracted'` を書き、その日は reading / chart / scorecard / freshness のすべてから外れる
