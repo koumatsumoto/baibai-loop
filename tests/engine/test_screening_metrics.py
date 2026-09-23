@@ -556,8 +556,7 @@ class ScreeningMetricsTests(unittest.TestCase):
 
     def test_the_forecast_flags_read_the_pair_of_company_forecasts(self) -> None:
         # 会社予想の (純利益, 経常) の組ごとに、2 つの flag がどうなるかを 1 行で置く。
-        # special gain: 純利益>経常 なら特別益をほぼ確定する (税負担が通常正)。片方でも
-        # 欠損なら比較不能なので立てない。
+        # special gain: 純利益>経常利益の注記。原因は断定せず、片方でも欠損なら立てない。
         # full-year loss: どちらか一方が負なら立てる。予想が 1 つも無い行は「黒字予想」で
         # はないので、欠損を黒字へ畳まない。
         cases: tuple[tuple[str, float | None, float | None, bool, bool], ...] = (

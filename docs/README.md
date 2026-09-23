@@ -27,7 +27,7 @@ status: active
 
 | 正本 | 所有する情報 |
 | --- | --- |
-| [doctrine](./doctrine.md) | 投資目的、判断原則、改善の価値基準、非目標 |
+| [doctrine](./doctrine.md) | 投資目的、判断原則、開発・設計・レビューの原則、非目標 |
 | [portfolio-management](./portfolio-management.md) | 資本・配分・保有の方針 |
 | [domain-language](./domain-language.md) | 正準用語、成果物の関係、命名 |
 | [architecture](./architecture.md) | packageの責務・依存、store authority、無人経路の停止方針 |
@@ -42,8 +42,8 @@ status: active
 
 ## 文書の共通規約
 
-規則・操作・定義の本文は一か所に置き、他の文書は案内に留める。入口から操作の所有者へ直接辿れるようにする。手順の正本には実行例、必要な前提、成功確認、失敗時の行き先を残す。
+規則・操作・定義は正本1か所に集約し、他の文書は直接参照する。追記の前に不要な説明を削除し、必要な情報は既存記述へ統合・置換する。手順には実行例、必要な前提、成功確認、失敗時の行き先を残す。
 
-コードから分かる全field・validator・CLI optionの列挙、一般的な実装や文章の心得、採用していない将来案を常設文書へ追加しない。判断内容の編集は[judgment-writing](./reference/judgment-writing.md)に従う。
+コードが所有するfield・validator・CLI optionの網羅表、一般論、未採用の将来案は複写しない。判断文書の編集は[judgment-writing](./reference/judgment-writing.md)に従う。
 
-active文書は現在の契約を記す。dated method、実取引記録、historical evidenceは文体整理で書き換えない。`docs/`のfrontmatterとreference indexは本文の所有範囲に合わせる。
+active文書は現在の契約を記す。dated method・実取引・historical evidenceは書き換えず、frontmatterと索引は変更した所有範囲に合わせる。

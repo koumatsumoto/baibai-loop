@@ -2,7 +2,7 @@
 
 ## 作業の入口
 
-[doctrine](./docs/doctrine.md)の目的・採否基準に従い、[docs portal](./docs/README.md)から対象領域の正本を読む。運用は対応するSKILL.mdの順序で行い、通常手順をfixtureや過去logから組み立て直さない。
+[開発・設計・レビューの原則](./docs/doctrine.md#development-investment-policy)に従い、[docs portal](./docs/README.md)から対象領域の正本を読む。運用は対応するSKILL.mdの順序で行い、通常手順をfixtureや過去logから組み立て直さない。
 
 既存の変更は保持する。作業対象と競合する変更だけを切り分け、無関係なdirty fileを理由に作業全体を止めない。
 

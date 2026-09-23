@@ -56,53 +56,61 @@ CodeQLは現行構成では採用しない。scanner追加は既存検査との�
 
 ## 9. CI and local parity
 
-以下の各code blockはrepository rootから独立して実行する。各commandの成功後に次へ進む。実際のtriggerとstepは`.github/workflows/`、人間向けの完全local gateは本節に集約する。
+各blockはrepository rootから独立して実行し、非zeroなら原因を直してから次へ進む。実際のtrigger/stepは`.github/workflows/`を参照する。
 
 ```bash
-uv sync --frozen --all-groups
-uv run ruff format --check .
-uv run ruff check .
-uv run mypy
-uv run lint-imports
-for gate in tools/quality/drift/check_*.py; do uv run python -m "tools.quality.drift.$(basename "$gate" .py)"; done
-TMPDIR=/dev/shm uv run pytest -n 4 --cov --cov-report=term-missing
-uv run bandit -c pyproject.toml -q -r engine/src/baibai_engine web/backend/src/baibai_web batch/src/baibai_batch tools
-uv export --format requirements.txt --locked --all-groups --no-emit-project --no-hashes --output-file /tmp/baibai-loop-requirements.txt
-uv run pip-audit -r /tmp/baibai-loop-requirements.txt
+(
+  set -e
+  uv sync --frozen --all-groups
+  uv run ruff format --check .
+  uv run ruff check .
+  uv run mypy
+  uv run lint-imports
+  for gate in tools/quality/drift/check_*.py; do
+    uv run python -m "tools.quality.drift.$(basename "$gate" .py)"
+  done
+  TMPDIR=/dev/shm uv run pytest -n 4 --cov --cov-report=term-missing
+  uv run bandit -c pyproject.toml -q -r engine/src/baibai_engine web/backend/src/baibai_web batch/src/baibai_batch tools
+  uv export --format requirements.txt --locked --all-groups --no-emit-project --no-hashes --output-file /tmp/baibai-loop-requirements.txt
+  uv run pip-audit -r /tmp/baibai-loop-requirements.txt
+  uv run python - <<'PY' > /tmp/baibai-loop-build-requirements.txt
+import tomllib
+from pathlib import Path
+
+for requirement in tomllib.loads(Path("pyproject.toml").read_text())["build-system"]["requires"]:
+    print(requirement)
+PY
+  uv run pip-audit -r /tmp/baibai-loop-build-requirements.txt
+)
 ```
 
-Node依存の監査:
+Node依存監査:
 
 ```bash
-cd web/frontend
-npm audit --package-lock-only --audit-level=high
-cd ../edge
-npm audit --package-lock-only --audit-level=high
+(
+  set -e
+  (cd web/frontend && npm audit --package-lock-only --audit-level=high)
+  (cd web/edge && npm audit --package-lock-only --audit-level=high)
+)
 ```
 
-UIとWorkerの検証:
+Web UI と Worker:
 
 ```bash
-cd web/frontend
-npm ci
-npm run lint
-npm run build
-npm test
-cd ../edge
-npm ci
-npm run types:check
-npm run typecheck
-npm test
-npx wrangler deploy --dry-run --outdir /tmp/baibai-worker-bundle
+(
+  set -e
+  (cd web/frontend && npm ci && npm run lint && npm run build && npm test)
+  (cd web/edge && npm ci && npm run types:check && npm run typecheck && npm test && npx wrangler deploy --dry-run --outdir /tmp/baibai-worker-bundle)
+)
 ```
 
-macroの計算・取得・registry・reading methodを変更した場合は、localの対象storeに対して次も実行する。CIにはapplication storeがないため、通常gateでは代用できない。
+macroの計算・取得・registry・reading methodを変更した場合は、localの対象storeも検証する。
 
 ```bash
 uv run baibai-batch validate-macro-stores
 ```
 
-文書だけの変更にlive取得や本番再発行は要らない。storeがなく検査できない場合は未実行と報告する。
+storeがなければ未実行と報告する。CIにはapplication storeがなく、通常gateは代用にならない。文書だけの変更でlive取得・本番再発行を行わない。
 
 ## 10. Review rule
 
