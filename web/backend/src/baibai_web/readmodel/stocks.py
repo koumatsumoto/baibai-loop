@@ -229,7 +229,7 @@ def _operative_run(
     # every request.
     run_review_sets = screening.review_sets(run_revision_id=run.run_revision_id)
     if not run_review_sets and (all_review_sets := screening.review_sets()):
-        newest = max(all_review_sets, key=lambda item: str(item["created_at"]))
+        newest = all_review_sets[0]
         fallback_run = screening.run(str(newest["run_revision_id"]))
         if fallback_run is not None:
             run = fallback_run
@@ -251,7 +251,7 @@ def _fair_value_by_ticker(
     """
     if not review_sets:
         return {}
-    newest = max(review_sets, key=lambda item: item.created_at)
+    newest = review_sets[0]
     return {entry.ticker: entry for entry in newest.entries}
 
 

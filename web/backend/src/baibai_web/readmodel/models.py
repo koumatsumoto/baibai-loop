@@ -341,6 +341,8 @@ class ReviewSetDataQualityView(BaseModel):
     bs_carry_forward_lag_days: float | None
     edinet_failure_reasons: str | None
     stale_fin_flag: bool | None
+    ttm_quality_ev_ebitda: Literal["exact", "approximated", "unavailable"] | None = None
+    ttm_quality_fcf: Literal["exact", "approximated", "unavailable"] | None = None
 
 
 class ReviewSetContextView(BaseModel):

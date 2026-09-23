@@ -137,8 +137,7 @@ def candidate_discovery_method_hash(
                     "fcf_yield",
                     "operating_profit_ttm",
                     "sales_ttm",
-                    "total_assets",
-                    "equity_ratio",
+                    "same_state_equity_yen",
                 ],
                 "finite_inputs": ["p_s_sector_gap", "debt", "cash"],
                 "p_s_sector_gap": "negative_required",
@@ -583,8 +582,7 @@ def _reinvestment_values(
     fcf_yield = _positive(metrics.get("fcf_yield"))
     operating_profit_ttm = _positive(metrics.get("operating_profit_ttm"))
     sales_ttm = _positive(metrics.get("sales_ttm"))
-    total_assets = _positive(metrics.get("total_assets"))
-    equity_ratio = _positive(metrics.get("equity_ratio"))
+    same_state_equity_yen = _positive(metrics.get("same_state_equity_yen"))
     debt = _finite(metrics.get("debt"))
     cash = _finite(metrics.get("cash"))
     values = (
@@ -594,8 +592,7 @@ def _reinvestment_values(
         fcf_yield,
         operating_profit_ttm,
         sales_ttm,
-        total_assets,
-        equity_ratio,
+        same_state_equity_yen,
         debt,
         cash,
     )
@@ -606,12 +603,11 @@ def _reinvestment_values(
     assert fcf_yield is not None
     assert operating_profit_ttm is not None
     assert sales_ttm is not None
-    assert total_assets is not None
-    assert equity_ratio is not None
+    assert same_state_equity_yen is not None
     assert debt is not None
     assert cash is not None
     operating_margin = operating_profit_ttm / sales_ttm
-    invested_capital = total_assets * equity_ratio + debt - cash
+    invested_capital = same_state_equity_yen + debt - cash
     if invested_capital <= 0:
         return None
     capital_return = operating_profit_ttm / invested_capital

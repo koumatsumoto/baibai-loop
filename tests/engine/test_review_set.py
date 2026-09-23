@@ -65,6 +65,7 @@ def _analysis(
             "operating_profit_ttm": 12.0,
             "sales_ttm": 100.0,
             "total_assets": 200.0,
+            "same_state_equity_yen": 120.0,
             "debt": 20.0,
             "cash": 30.0,
             "er_annual": 0.1,
@@ -236,7 +237,7 @@ def test_reinvestment_requires_cheap_ps_and_both_sector_quality_floors() -> None
     low_margin = _analysis("2002")
     low_margin["metrics"]["sales_ttm"] = 1000.0  # type: ignore[index]
     low_capital_return = _analysis("2003")
-    low_capital_return["metrics"]["total_assets"] = 2000.0  # type: ignore[index]
+    low_capital_return["metrics"]["same_state_equity_yen"] = 1200.0  # type: ignore[index]
     rows.extend((expensive, low_margin, low_capital_return))
 
     nominations = build_nomination_ranks(
@@ -301,7 +302,7 @@ def test_current_rules_name_only_the_two_revised_approaches() -> None:
         "current-earnings-power": "current-earnings-power-v1",
         "normalized-earnings-power": "normalized-earnings-power-v1",
         "asset-value": "asset-value-v2",
-        "reinvestment-value": "reinvestment-value-v3",
+        "reinvestment-value": "reinvestment-value-v4",
     }
     assert RULES.nomination_depth == 20
     assert "min_avg_turnover_oku" not in RULES.common_eligibility.model_dump()

@@ -115,6 +115,7 @@ def build_security_analysis_metrics(
         "edinet_ocf_ttm": financial.edinet_ocf_ttm,
         "cash_eq": financial.cash_eq,
         "total_assets": financial.total_assets,
+        "same_state_equity_yen": financial.same_state_equity_yen,
         "market_price_yen": financial.market_price_yen,
         "capital_basis_failure_reason": financial.capital_basis_failure_reason,
         "cash_to_market_cap": financial.cash_to_market_cap,
