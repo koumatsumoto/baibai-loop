@@ -1,9 +1,9 @@
 kind: er-level-calibration-context
 schema_version: 2
-generated_at: '2026-09-22T22:42:20+09:00'
-valid_through: '2026-11-06'
+generated_at: '2026-09-23T11:34:23+09:00'
+valid_through: '2026-11-07'
 reference_horizon: 3y
-screening_rules_hash: fa6d6ff5dd5c183f
+screening_rules_hash: e9f780565b5f4d11
 er_model_version: expected-return-v1
 primary_realized_basis: fy_actual_dividend_total_return
 secondary_realized_basis: price_return_only

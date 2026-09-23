@@ -3229,13 +3229,49 @@
             }
           ],
           "title": "Stale Fin Flag"
+        },
+        "ttm_quality_ev_ebitda": {
+          "anyOf": [
+            {
+              "enum": [
+                "exact",
+                "approximated",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ttm Quality Ev Ebitda"
+        },
+        "ttm_quality_fcf": {
+          "anyOf": [
+            {
+              "enum": [
+                "exact",
+                "approximated",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ttm Quality Fcf"
         }
       },
       "required": [
         "bs_carry_forward_fields",
         "bs_carry_forward_lag_days",
         "edinet_failure_reasons",
-        "stale_fin_flag"
+        "stale_fin_flag",
+        "ttm_quality_ev_ebitda",
+        "ttm_quality_fcf"
       ],
       "title": "ReviewSetDataQualityView",
       "type": "object"

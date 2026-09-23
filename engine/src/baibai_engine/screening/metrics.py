@@ -1776,6 +1776,13 @@ def _build_financial_snapshot(
     # 開示から採ると、資産変動率をそのまま自己資本へ混入させるため、両方を観測した最新行
     # から円経路を組む。個別の carry 値は表示・staleness fact として引き続き保持する。
     common_equity_row = _latest_complete_row(summaries, ("total_assets", "equity_to_asset_ratio"))
+    same_state_equity_yen = None
+    if common_equity_row is not None:
+        assert common_equity_row.total_assets is not None
+        assert common_equity_row.equity_to_asset_ratio is not None
+        same_state_equity_yen = (
+            common_equity_row.total_assets * common_equity_row.equity_to_asset_ratio
+        )
     bps_row = _latest_non_null_row(summaries, "bps")
     # 同一状態の円経路へ直しても、その組がより新しい BPS より古ければstaleな資本を
     # 復活させる。2経路のうち新しい観測を先に選び、同日または円経路が新しい場合だけ
@@ -1851,6 +1858,7 @@ def _build_financial_snapshot(
         cfo=cfo_row.cfo if cfo_row else None,
         cash_eq=cash_eq,
         total_assets=total_assets,
+        same_state_equity_yen=same_state_equity_yen,
         market_price_yen=latest_price,
         shares_ex_treasury=shares_ex_treasury,
         capital_basis_failure_reason=capital_basis.failure_reason,

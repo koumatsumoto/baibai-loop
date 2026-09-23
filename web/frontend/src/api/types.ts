@@ -586,6 +586,8 @@ export interface ReviewSetDataQualityView {
   bs_carry_forward_lag_days: number | null
   edinet_failure_reasons: string | null
   stale_fin_flag: boolean | null
+  ttm_quality_ev_ebitda: 'exact' | 'approximated' | 'unavailable' | null
+  ttm_quality_fcf: 'exact' | 'approximated' | 'unavailable' | null
 }
 
 /**

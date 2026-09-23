@@ -117,6 +117,8 @@ class FinancialSnapshot:
     cfo: float | None = None
     cash_eq: float | None = None
     total_assets: float | None = None
+    # Reinvestment用。最新のcomplete actual rowのTAとEqARの積であり、PBRのBPS fallbackは使わない。
+    same_state_equity_yen: float | None = None
     # 最後の raw close を as-of の株式基準へ換算した screening 参考価格。時価総額・E[r]・
     # Review Set表示は同じ基準の株数と組み合わせる。約定価格ではなく、plan-limit は SQLite
     # の raw/unadjusted close を再取得する。

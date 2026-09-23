@@ -47,7 +47,7 @@ def _periods(quarter):
     return [prior, fy, current]
 
 
-def _analysis_from_source(rows):
+def _analysis_from_source(rows, *, preserve_source_equity=False):
     asof = date(2027, 1, 15)
     financial = build_metrics(
         asof_date=asof,
@@ -60,8 +60,11 @@ def _analysis_from_source(rows):
     # from the source -> financial -> Security Analysis production owners.
     financial = replace(
         financial,
-        total_assets=200_000.0,
-        equity_ratio=0.6,
+        total_assets=financial.total_assets if preserve_source_equity else 200_000.0,
+        equity_ratio=financial.equity_ratio if preserve_source_equity else 0.6,
+        same_state_equity_yen=(
+            financial.same_state_equity_yen if preserve_source_equity else 120_000.0
+        ),
         debt=20_000.0,
         cash=30_000.0,
         fcf_yield=0.08,
@@ -171,3 +174,59 @@ def test_new_calculation_has_distinct_production_and_calibration_identity(monkey
     )
     assert production_rules_contract_hash(rules.model_dump_json()) != current
     assert rules_content_hash(rules) != calibration
+
+
+def test_reinvestment_uses_latest_complete_equity_row_not_independent_carries():
+    rows = _periods(1)
+    rows[0] = replace(rows[0], total_assets=200_000.0, equity_to_asset_ratio=0.5)
+    rows[1] = replace(rows[1], total_assets=None, equity_to_asset_ratio=0.8)
+    rows[2] = replace(rows[2], total_assets=300_000.0, equity_to_asset_ratio=None)
+    financial, row = _analysis_from_source(rows, preserve_source_equity=True)
+
+    assert financial.total_assets == 300_000.0
+    assert financial.equity_ratio == 0.8
+    assert financial.same_state_equity_yen == 100_000.0
+    assert row["metrics"]["same_state_equity_yen"] == 100_000.0
+    values = discovery._reinvestment_values(row)
+    assert values is not None
+    assert values.capital_return == pytest.approx(financial.operating_profit_ttm / 90_000.0)
+    assert values.capital_return != pytest.approx(financial.operating_profit_ttm / 230_000.0)
+
+
+@pytest.mark.parametrize("equity", [None, 0.0, -1.0])
+def test_reinvestment_requires_positive_same_state_equity(equity):
+    row = _analysis("130A")
+    row["metrics"]["same_state_equity_yen"] = equity
+    assert discovery._reinvestment_values(row) is None
+
+
+def test_reinvestment_requires_finite_debt_and_cash():
+    row = _analysis("130A")
+    for key in ("debt", "cash"):
+        changed = dict(row)
+        changed["metrics"] = dict(row["metrics"])
+        changed["metrics"][key] = float("nan")
+        assert discovery._reinvestment_values(changed) is None
+    assert discovery._reinvestment_values(row) is not None
+
+
+def test_source_without_complete_equity_row_does_not_recombine_carries():
+    rows = _periods(1)
+    rows[0] = replace(rows[0], total_assets=None, equity_to_asset_ratio=0.5)
+    rows[1] = replace(rows[1], total_assets=None, equity_to_asset_ratio=None)
+    rows[2] = replace(rows[2], total_assets=300_000.0, equity_to_asset_ratio=None)
+    financial, row = _analysis_from_source(rows, preserve_source_equity=True)
+
+    assert financial.total_assets == 300_000.0
+    assert financial.equity_ratio == 0.5
+    assert financial.same_state_equity_yen is None
+    assert discovery._reinvestment_values(row) is None
+
+
+def test_reinvestment_accepts_zero_debt_and_cash_but_not_nonpositive_capital():
+    row = _analysis("130A")
+    row["metrics"]["debt"] = 0.0
+    row["metrics"]["cash"] = 0.0
+    assert discovery._reinvestment_values(row) is not None
+    row["metrics"]["cash"] = 120.0
+    assert discovery._reinvestment_values(row) is None

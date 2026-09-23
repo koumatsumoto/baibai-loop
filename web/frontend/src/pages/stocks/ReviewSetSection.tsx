@@ -90,6 +90,8 @@ function FrozenAnalysis({ analysis }: { analysis: ReviewSetAnalysisView }) {
       <FrozenGroup fields={[
         ['BS carry fields', quality.bs_carry_forward_fields ?? EMPTY], ['BS carry lag', `${number(quality.bs_carry_forward_lag_days, 0)} 日`],
         ['EDINET failures', quality.edinet_failure_reasons ?? EMPTY], ['stale financials', String(quality.stale_fin_flag ?? EMPTY)],
+        ...(quality.ttm_quality_ev_ebitda && quality.ttm_quality_ev_ebitda !== 'exact' ? [['EV/EBITDA TTM', quality.ttm_quality_ev_ebitda] as const] : []),
+        ...(quality.ttm_quality_fcf && quality.ttm_quality_fcf !== 'exact' ? [['FCF TTM', quality.ttm_quality_fcf] as const] : []),
       ]} title="Data quality" />
       <FrozenGroup fields={[
         ['next earnings status', context.next_earnings_status ?? EMPTY], ['next earnings', context.next_earnings_estimated_date ?? EMPTY],
