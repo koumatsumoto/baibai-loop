@@ -193,6 +193,13 @@ def test_reinvestment_uses_latest_complete_equity_row_not_independent_carries():
     assert values.capital_return != pytest.approx(financial.operating_profit_ttm / 230_000.0)
 
 
+@pytest.mark.parametrize("equity", [float("nan"), float("inf"), -float("inf")])
+def test_financial_snapshot_rejects_nonfinite_same_state_equity(equity):
+    financial, _ = _analysis_from_source(_periods(1))
+    with pytest.raises(ValueError, match="numeric values must be finite"):
+        replace(financial, same_state_equity_yen=equity)
+
+
 @pytest.mark.parametrize("equity", [None, 0.0, -1.0])
 def test_reinvestment_requires_positive_same_state_equity(equity):
     row = _analysis("130A")

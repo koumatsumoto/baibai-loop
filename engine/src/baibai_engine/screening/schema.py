@@ -209,6 +209,7 @@ class FinancialSnapshot:
         "cfo",
         "cash_eq",
         "total_assets",
+        "same_state_equity_yen",
         "market_price_yen",
         "shares_ex_treasury",
         "market_cap",
