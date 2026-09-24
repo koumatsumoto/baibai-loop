@@ -1,9 +1,9 @@
 kind: er-level-calibration-context
 schema_version: 2
-generated_at: '2026-09-23T11:34:23+09:00'
-valid_through: '2026-11-07'
+generated_at: '2026-09-24T12:21:59+09:00'
+valid_through: '2026-11-08'
 reference_horizon: 3y
-screening_rules_hash: e9f780565b5f4d11
+screening_rules_hash: 12b51e359c3ee949
 er_model_version: expected-return-v1
 primary_realized_basis: fy_actual_dividend_total_return
 secondary_realized_basis: price_return_only
@@ -14,426 +14,426 @@ weighting:
 common_window:
   asof_start: '2020-01-31'
   asof_end: '2021-07-30'
-  cohort_count: 17
+  cohort_count: 18
   horizons:
   - horizon: 3y
     asof_start: '2020-01-31'
     asof_end: '2021-07-30'
-    cohort_count: 17
+    cohort_count: 18
     bands:
     - band_id: q1
       quintile: 1
       lower_er_annual: null
-      upper_er_annual: -0.03389
-      median_predicted_er_annual: -0.046151
-      cohort_count: 17
+      upper_er_annual: -0.035542
+      median_predicted_er_annual: -0.046413
+      cohort_count: 18
       median_n: 382
       bases:
       - basis: fy_actual_dividend_total_return
         ticker_equal:
-          median: -0.047778
-          q25: -0.175461
-          q10: -0.292182
-          trap_rate: 0.632574
-          n: 6453
+          median: -0.04931
+          q25: -0.17755
+          q10: -0.294563
+          trap_rate: 0.635898
+          n: 6836
         cohort_equal:
           median: -0.078117
-          q25: -0.206213
-          q10: -0.304742
+          q25: -0.20665
+          q10: -0.305591
           trap_rate: 0.675462
           n: 382
       - basis: price_return_only
         ticker_equal:
-          median: -0.05729
-          q25: -0.185437
-          q10: -0.296237
-          trap_rate: 0.589958
-          n: 6453
+          median: -0.058766
+          q25: -0.186851
+          q10: -0.299019
+          trap_rate: 0.594207
+          n: 6836
         cohort_equal:
-          median: -0.087924
-          q25: -0.215449
-          q10: -0.308195
+          median: -0.090096
+          q25: -0.216294
+          q10: -0.31075
           trap_rate: 0.642487
           n: 382
     - band_id: q2
       quintile: 2
-      lower_er_annual: -0.03389
-      upper_er_annual: -0.0053
-      median_predicted_er_annual: -0.016031
-      cohort_count: 17
+      lower_er_annual: -0.035542
+      upper_er_annual: -0.006391
+      median_predicted_er_annual: -0.016625
+      cohort_count: 18
       median_n: 382
       bases:
       - basis: fy_actual_dividend_total_return
         ticker_equal:
-          median: 0.034417
-          q25: -0.040313
-          q10: -0.110298
-          trap_rate: 0.427753
-          n: 6457
+          median: 0.033685
+          q25: -0.04136
+          q10: -0.114211
+          trap_rate: 0.430848
+          n: 6840
         cohort_equal:
-          median: 0.033715
-          q25: -0.048234
-          q10: -0.120358
-          trap_rate: 0.44
+          median: 0.029236
+          q25: -0.052412
+          q10: -0.121477
+          trap_rate: 0.438961
           n: 382
       - basis: price_return_only
         ticker_equal:
-          median: 0.015409
-          q25: -0.06101
-          q10: -0.130181
-          trap_rate: 0.406226
-          n: 6457
+          median: 0.014568
+          q25: -0.062101
+          q10: -0.132796
+          trap_rate: 0.408333
+          n: 6840
         cohort_equal:
-          median: 0.016617
-          q25: -0.071034
-          q10: -0.136771
-          trap_rate: 0.425974
+          median: 0.009653
+          q25: -0.071845
+          q10: -0.142435
+          trap_rate: 0.42487
           n: 382
     - band_id: q3
       quintile: 3
-      lower_er_annual: -0.0053
-      upper_er_annual: 0.017675
-      median_predicted_er_annual: 0.008539
-      cohort_count: 17
+      lower_er_annual: -0.006391
+      upper_er_annual: 0.015765
+      median_predicted_er_annual: 0.008059
+      cohort_count: 18
       median_n: 382
       bases:
       - basis: fy_actual_dividend_total_return
         ticker_equal:
-          median: 0.074101
-          q25: 0.005769
-          q10: -0.052414
-          trap_rate: 0.272615
-          n: 6456
+          median: 0.074161
+          q25: 0.005659
+          q10: -0.052429
+          trap_rate: 0.273724
+          n: 6839
         cohort_equal:
-          median: 0.076639
-          q25: 0.007287
-          q10: -0.049271
-          trap_rate: 0.264935
+          median: 0.076593
+          q25: 0.003722
+          q10: -0.051312
+          trap_rate: 0.266839
           n: 382
       - basis: price_return_only
         ticker_equal:
-          median: 0.049903
-          q25: -0.017968
-          q10: -0.075095
-          trap_rate: 0.263166
-          n: 6456
+          median: 0.050028
+          q25: -0.018124
+          q10: -0.075
+          trap_rate: 0.263781
+          n: 6839
         cohort_equal:
-          median: 0.05096
-          q25: -0.017594
-          q10: -0.075108
+          median: 0.050853
+          q25: -0.018088
+          q10: -0.075
           trap_rate: 0.259162
           n: 382
     - band_id: q4
       quintile: 4
-      lower_er_annual: 0.017675
-      upper_er_annual: 0.040037
-      median_predicted_er_annual: 0.028354
-      cohort_count: 17
+      lower_er_annual: 0.015765
+      upper_er_annual: 0.036675
+      median_predicted_er_annual: 0.027478
+      cohort_count: 18
       median_n: 382
       bases:
       - basis: fy_actual_dividend_total_return
         ticker_equal:
-          median: 0.107492
-          q25: 0.036494
-          q10: -0.021728
-          trap_rate: 0.175778
-          n: 6457
+          median: 0.108345
+          q25: 0.036865
+          q10: -0.021985
+          trap_rate: 0.176608
+          n: 6840
         cohort_equal:
-          median: 0.111763
-          q25: 0.043228
-          q10: -0.017132
-          trap_rate: 0.173127
+          median: 0.111883
+          q25: 0.042206
+          q10: -0.019217
+          trap_rate: 0.17801
           n: 382
       - basis: price_return_only
         ticker_equal:
-          median: 0.080602
-          q25: 0.010001
-          q10: -0.049474
-          trap_rate: 0.176088
-          n: 6457
+          median: 0.081324
+          q25: 0.010158
+          q10: -0.049842
+          trap_rate: 0.177924
+          n: 6840
         cohort_equal:
-          median: 0.083269
-          q25: 0.014412
+          median: 0.084274
+          q25: 0.016777
           q10: -0.047287
           trap_rate: 0.175393
           n: 382
     - band_id: q5
       quintile: 5
-      lower_er_annual: 0.040037
+      lower_er_annual: 0.036675
       upper_er_annual: null
-      median_predicted_er_annual: 0.059567
-      cohort_count: 17
+      median_predicted_er_annual: 0.057555
+      cohort_count: 18
       median_n: 383
       bases:
       - basis: fy_actual_dividend_total_return
         ticker_equal:
-          median: 0.165925
-          q25: 0.075491
-          q10: 0.00414
-          trap_rate: 0.108275
-          n: 6465
+          median: 0.165947
+          q25: 0.076326
+          q10: 0.0048
+          trap_rate: 0.108483
+          n: 6849
         cohort_equal:
-          median: 0.170557
-          q25: 0.08484
-          q10: 0.019032
-          trap_rate: 0.097113
+          median: 0.168345
+          q25: 0.085594
+          q10: 0.019535
+          trap_rate: 0.095855
           n: 383
       - basis: price_return_only
         ticker_equal:
-          median: 0.133918
-          q25: 0.045245
-          q10: -0.025997
-          trap_rate: 0.116164
-          n: 6465
+          median: 0.133966
+          q25: 0.045408
+          q10: -0.026062
+          trap_rate: 0.115783
+          n: 6849
         cohort_equal:
-          median: 0.141484
-          q25: 0.057092
-          q10: -0.012454
-          trap_rate: 0.112861
+          median: 0.136324
+          q25: 0.054941
+          q10: -0.013177
+          trap_rate: 0.112245
           n: 383
     - band_id: er_gte_8_5pct
       quintile: null
       lower_er_annual: 0.085
       upper_er_annual: null
-      median_predicted_er_annual: 0.09908
-      cohort_count: 17
-      median_n: 55
+      median_predicted_er_annual: 0.098313
+      cohort_count: 18
+      median_n: 44
       bases:
       - basis: fy_actual_dividend_total_return
         ticker_equal:
-          median: 0.19777
-          q25: 0.104083
-          q10: 0.020781
-          trap_rate: 0.093629
-          n: 1036
+          median: 0.197347
+          q25: 0.103695
+          q10: 0.028918
+          trap_rate: 0.086382
+          n: 984
         cohort_equal:
-          median: 0.211778
-          q25: 0.095213
-          q10: 0.024649
-          trap_rate: 0.090909
-          n: 55
+          median: 0.2084
+          q25: 0.121356
+          q10: 0.038473
+          trap_rate: 0.068966
+          n: 44
       - basis: price_return_only
         ticker_equal:
-          median: 0.161586
-          q25: 0.072472
-          q10: -0.00612
-          trap_rate: 0.098456
-          n: 1036
+          median: 0.161382
+          q25: 0.071384
+          q10: -0.001656
+          trap_rate: 0.094512
+          n: 984
         cohort_equal:
-          median: 0.172931
-          q25: 0.063974
-          q10: 0.004353
-          trap_rate: 0.090909
-          n: 55
+          median: 0.168706
+          q25: 0.079083
+          q10: 0.01087
+          trap_rate: 0.075862
+          n: 44
   - horizon: 5y
     asof_start: '2020-01-31'
     asof_end: '2021-07-30'
-    cohort_count: 17
+    cohort_count: 18
     bands:
     - band_id: q1
       quintile: 1
       lower_er_annual: null
-      upper_er_annual: -0.03601
-      median_predicted_er_annual: -0.047403
-      cohort_count: 17
+      upper_er_annual: -0.036311
+      median_predicted_er_annual: -0.047659
+      cohort_count: 18
       median_n: 324
       bases:
       - basis: fy_actual_dividend_total_return
         ticker_equal:
-          median: -0.040357
-          q25: -0.136725
-          q10: -0.239969
-          trap_rate: 0.753549
-          n: 5494
+          median: -0.041484
+          q25: -0.138746
+          q10: -0.24091
+          trap_rate: 0.75305
+          n: 5819
         cohort_equal:
-          median: -0.04594
-          q25: -0.146886
-          q10: -0.249897
-          trap_rate: 0.77709
+          median: -0.047919
+          q25: -0.147961
+          q10: -0.250623
+          trap_rate: 0.768997
           n: 324
       - basis: price_return_only
         ticker_equal:
-          median: -0.050479
-          q25: -0.147528
-          q10: -0.247529
-          trap_rate: 0.726065
-          n: 5494
+          median: -0.051109
+          q25: -0.148959
+          q10: -0.249145
+          trap_rate: 0.725211
+          n: 5819
         cohort_equal:
-          median: -0.057652
-          q25: -0.157437
-          q10: -0.256515
+          median: -0.059768
+          q25: -0.158804
+          q10: -0.257172
           trap_rate: 0.743119
           n: 324
     - band_id: q2
       quintile: 2
-      lower_er_annual: -0.03601
-      upper_er_annual: -0.00595
-      median_predicted_er_annual: -0.016868
-      cohort_count: 17
+      lower_er_annual: -0.036311
+      upper_er_annual: -0.006581
+      median_predicted_er_annual: -0.017617
+      cohort_count: 18
       median_n: 325
       bases:
       - basis: fy_actual_dividend_total_return
         ticker_equal:
-          median: 0.054657
-          q25: -0.007955
-          q10: -0.07161
-          trap_rate: 0.500727
-          n: 5500
+          median: 0.054233
+          q25: -0.009183
+          q10: -0.072211
+          trap_rate: 0.501288
+          n: 5825
         cohort_equal:
-          median: 0.054056
-          q25: -0.008998
-          q10: -0.071793
-          trap_rate: 0.509317
+          median: 0.054058
+          q25: -0.009183
+          q10: -0.073174
+          trap_rate: 0.504615
           n: 325
       - basis: price_return_only
         ticker_equal:
-          median: 0.035196
-          q25: -0.029142
-          q10: -0.091644
-          trap_rate: 0.476364
-          n: 5500
+          median: 0.034264
+          q25: -0.030298
+          q10: -0.091737
+          trap_rate: 0.477253
+          n: 5825
         cohort_equal:
-          median: 0.036766
-          q25: -0.030207
-          q10: -0.088239
-          trap_rate: 0.480122
+          median: 0.035848
+          q25: -0.030071
+          q10: -0.090917
+          trap_rate: 0.480243
           n: 325
     - band_id: q3
       quintile: 3
-      lower_er_annual: -0.00595
-      upper_er_annual: 0.017319
-      median_predicted_er_annual: 0.008295
-      cohort_count: 17
+      lower_er_annual: -0.006581
+      upper_er_annual: 0.01547
+      median_predicted_er_annual: 0.007719
+      cohort_count: 18
       median_n: 324
       bases:
       - basis: fy_actual_dividend_total_return
         ticker_equal:
-          median: 0.095003
-          q25: 0.033361
-          q10: -0.015544
-          trap_rate: 0.336182
-          n: 5500
+          median: 0.093595
+          q25: 0.03257
+          q10: -0.016352
+          trap_rate: 0.336481
+          n: 5825
         cohort_equal:
-          median: 0.096457
-          q25: 0.034277
-          q10: -0.015055
-          trap_rate: 0.333333
+          median: 0.095447
+          q25: 0.033067
+          q10: -0.019756
+          trap_rate: 0.324921
           n: 324
       - basis: price_return_only
         ticker_equal:
-          median: 0.071292
-          q25: 0.01007
-          q10: -0.039339
-          trap_rate: 0.330182
-          n: 5500
+          median: 0.07026
+          q25: 0.009413
+          q10: -0.040091
+          trap_rate: 0.331159
+          n: 5825
         cohort_equal:
-          median: 0.073206
-          q25: 0.011697
-          q10: -0.037539
-          trap_rate: 0.329268
+          median: 0.072558
+          q25: 0.009866
+          q10: -0.039657
+          trap_rate: 0.324074
           n: 324
     - band_id: q4
       quintile: 4
-      lower_er_annual: 0.017319
-      upper_er_annual: 0.040223
-      median_predicted_er_annual: 0.028354
-      cohort_count: 17
+      lower_er_annual: 0.01547
+      upper_er_annual: 0.037582
+      median_predicted_er_annual: 0.027454
+      cohort_count: 18
       median_n: 325
       bases:
       - basis: fy_actual_dividend_total_return
         ticker_equal:
-          median: 0.120399
-          q25: 0.057268
-          q10: 0.004366
-          trap_rate: 0.237818
-          n: 5500
+          median: 0.120101
+          q25: 0.056591
+          q10: 0.003682
+          trap_rate: 0.238283
+          n: 5825
         cohort_equal:
-          median: 0.12336
-          q25: 0.059463
+          median: 0.119937
+          q25: 0.057337
           q10: 0.006218
           trap_rate: 0.240122
           n: 325
       - basis: price_return_only
         ticker_equal:
-          median: 0.093931
-          q25: 0.031962
-          q10: -0.024026
-          trap_rate: 0.239455
-          n: 5500
+          median: 0.093889
+          q25: 0.031752
+          q10: -0.024942
+          trap_rate: 0.239485
+          n: 5825
         cohort_equal:
-          median: 0.097208
-          q25: 0.032898
-          q10: -0.021082
-          trap_rate: 0.241071
+          median: 0.09493
+          q25: 0.032202
+          q10: -0.023109
+          trap_rate: 0.240122
           n: 325
     - band_id: q5
       quintile: 5
-      lower_er_annual: 0.040223
+      lower_er_annual: 0.037582
       upper_er_annual: null
-      median_predicted_er_annual: 0.06021
-      cohort_count: 17
+      median_predicted_er_annual: 0.05814
+      cohort_count: 18
       median_n: 325
       bases:
       - basis: fy_actual_dividend_total_return
         ticker_equal:
-          median: 0.159368
-          q25: 0.088344
-          q10: 0.025485
-          trap_rate: 0.154139
-          n: 5508
+          median: 0.160065
+          q25: 0.089434
+          q10: 0.026832
+          trap_rate: 0.150668
+          n: 5834
         cohort_equal:
-          median: 0.160585
-          q25: 0.092615
+          median: 0.156003
+          q25: 0.090517
           q10: 0.031766
-          trap_rate: 0.148036
+          trap_rate: 0.137195
           n: 325
       - basis: price_return_only
         ticker_equal:
-          median: 0.131789
-          q25: 0.056682
-          q10: -0.007033
-          trap_rate: 0.169572
-          n: 5508
+          median: 0.131798
+          q25: 0.05753
+          q10: -0.004515
+          trap_rate: 0.166952
+          n: 5834
         cohort_equal:
-          median: 0.13464
-          q25: 0.058337
-          q10: -0.002617
+          median: 0.12712
+          q25: 0.054956
+          q10: -0.001472
           trap_rate: 0.166134
           n: 325
     - band_id: er_gte_8_5pct
       quintile: null
       lower_er_annual: 0.085
       upper_er_annual: null
-      median_predicted_er_annual: 0.099261
-      cohort_count: 17
-      median_n: 48
+      median_predicted_er_annual: 0.09878
+      cohort_count: 18
+      median_n: 38
       bases:
       - basis: fy_actual_dividend_total_return
         ticker_equal:
-          median: 0.180403
-          q25: 0.103386
-          q10: 0.034738
-          trap_rate: 0.131579
-          n: 912
+          median: 0.181913
+          q25: 0.10244
+          q10: 0.042473
+          trap_rate: 0.126874
+          n: 867
         cohort_equal:
-          median: 0.185388
-          q25: 0.120737
+          median: 0.191929
+          q25: 0.118671
           q10: 0.052771
-          trap_rate: 0.111111
-          n: 48
+          trap_rate: 0.104
+          n: 38
       - basis: price_return_only
         ticker_equal:
-          median: 0.149558
-          q25: 0.069718
-          q10: 0.007327
-          trap_rate: 0.145833
-          n: 912
+          median: 0.149897
+          q25: 0.069196
+          q10: 0.008066
+          trap_rate: 0.144175
+          n: 867
         cohort_equal:
           median: 0.167168
-          q25: 0.096002
+          q25: 0.095761
           q10: 0.025051
           trap_rate: 0.111111
-          n: 48
+          n: 38
 horizons:
 - horizon: 3y
   asof_start: '2020-01-31'
@@ -443,170 +443,170 @@ horizons:
   - band_id: q1
     quintile: 1
     lower_er_annual: null
-    upper_er_annual: -0.031192
-    median_predicted_er_annual: -0.046653
+    upper_er_annual: -0.031209
+    median_predicted_er_annual: -0.046818
     cohort_count: 40
     median_n: 367
     bases:
     - basis: fy_actual_dividend_total_return
       ticker_equal:
-        median: -0.048528
+        median: -0.048237
         q25: -0.17634
-        q10: -0.289909
-        trap_rate: 0.678646
+        q10: -0.289903
+        trap_rate: 0.677906
         n: 14859
       cohort_equal:
         median: -0.039714
         q25: -0.173012
         q10: -0.282217
-        trap_rate: 0.698895
+        trap_rate: 0.701657
         n: 367
     - basis: price_return_only
       ticker_equal:
-        median: -0.05791
+        median: -0.057685
         q25: -0.185892
-        q10: -0.295332
-        trap_rate: 0.640218
+        q10: -0.295324
+        trap_rate: 0.639612
         n: 14859
       cohort_equal:
         median: -0.052196
         q25: -0.183224
         q10: -0.29082
-        trap_rate: 0.662983
+        trap_rate: 0.663391
         n: 367
   - band_id: q2
     quintile: 2
-    lower_er_annual: -0.031192
+    lower_er_annual: -0.031209
     upper_er_annual: -0.001815
-    median_predicted_er_annual: -0.015569
+    median_predicted_er_annual: -0.015711
     cohort_count: 40
     median_n: 368
     bases:
     - basis: fy_actual_dividend_total_return
       ticker_equal:
-        median: 0.05114
-        q25: -0.031845
-        q10: -0.109084
-        trap_rate: 0.438437
+        median: 0.050788
+        q25: -0.032092
+        q10: -0.109498
+        trap_rate: 0.439379
         n: 14871
       cohort_equal:
-        median: 0.0556
-        q25: -0.029463
-        q10: -0.104827
-        trap_rate: 0.447592
+        median: 0.056985
+        q25: -0.028942
+        q10: -0.103669
+        trap_rate: 0.443005
         n: 368
     - basis: price_return_only
       ticker_equal:
-        median: 0.030176
-        q25: -0.053634
-        q10: -0.129677
-        trap_rate: 0.416045
+        median: 0.029986
+        q25: -0.054178
+        q10: -0.13005
+        trap_rate: 0.416717
         n: 14871
       cohort_equal:
-        median: 0.032241
-        q25: -0.046897
-        q10: -0.128747
-        trap_rate: 0.425587
+        median: 0.033528
+        q25: -0.048525
+        q10: -0.126255
+        trap_rate: 0.42487
         n: 368
   - band_id: q3
     quintile: 3
     lower_er_annual: -0.001815
-    upper_er_annual: 0.017675
-    median_predicted_er_annual: 0.00848
+    upper_er_annual: 0.017527
+    median_predicted_er_annual: 0.008372
     cohort_count: 40
     median_n: 367
     bases:
     - basis: fy_actual_dividend_total_return
       ticker_equal:
-        median: 0.096802
-        q25: 0.017992
-        q10: -0.046525
-        trap_rate: 0.281191
-        n: 14876
+        median: 0.096744
+        q25: 0.017916
+        q10: -0.046366
+        trap_rate: 0.281441
+        n: 14877
       cohort_equal:
         median: 0.09289
-        q25: 0.021143
+        q25: 0.021454
         q10: -0.044642
-        trap_rate: 0.288089
+        trap_rate: 0.285319
         n: 367
     - basis: price_return_only
       ticker_equal:
-        median: 0.071013
-        q25: -0.007162
-        q10: -0.070952
-        trap_rate: 0.27299
-        n: 14876
+        median: 0.070881
+        q25: -0.007085
+        q10: -0.070611
+        trap_rate: 0.273039
+        n: 14877
       cohort_equal:
         median: 0.066893
-        q25: -0.007859
-        q10: -0.070899
-        trap_rate: 0.278237
+        q25: -0.009022
+        q10: -0.071713
+        trap_rate: 0.277143
         n: 367
   - band_id: q4
     quintile: 4
-    lower_er_annual: 0.017675
+    lower_er_annual: 0.017527
     upper_er_annual: 0.035273
-    median_predicted_er_annual: 0.026475
+    median_predicted_er_annual: 0.026299
     cohort_count: 40
     median_n: 368
     bases:
     - basis: fy_actual_dividend_total_return
       ticker_equal:
-        median: 0.135105
-        q25: 0.054117
-        q10: -0.012637
-        trap_rate: 0.182032
+        median: 0.134736
+        q25: 0.053837
+        q10: -0.012879
+        trap_rate: 0.182705
         n: 14871
       cohort_equal:
         median: 0.126389
         q25: 0.05136
-        q10: -0.007874
-        trap_rate: 0.179558
+        q10: -0.007757
+        trap_rate: 0.18232
         n: 368
     - basis: price_return_only
       ticker_equal:
-        median: 0.106477
-        q25: 0.024244
-        q10: -0.040409
-        trap_rate: 0.184453
+        median: 0.106175
+        q25: 0.024226
+        q10: -0.040586
+        trap_rate: 0.185327
         n: 14871
       cohort_equal:
-        median: 0.098893
+        median: 0.100195
         q25: 0.021322
-        q10: -0.039422
-        trap_rate: 0.186047
+        q10: -0.039213
+        trap_rate: 0.190476
         n: 368
   - band_id: q5
     quintile: 5
     lower_er_annual: 0.035273
     upper_er_annual: null
-    median_predicted_er_annual: 0.051253
+    median_predicted_er_annual: 0.050714
     cohort_count: 40
     median_n: 368
     bases:
     - basis: fy_actual_dividend_total_return
       ticker_equal:
-        median: 0.172039
-        q25: 0.081117
-        q10: 0.011013
-        trap_rate: 0.13597
+        median: 0.172359
+        q25: 0.081564
+        q10: 0.011525
+        trap_rate: 0.134896
         n: 14893
       cohort_equal:
         median: 0.170557
-        q25: 0.084429
-        q10: 0.016642
-        trap_rate: 0.132597
+        q25: 0.085594
+        q10: 0.017797
+        trap_rate: 0.135135
         n: 368
     - basis: price_return_only
       ticker_equal:
-        median: 0.139552
-        q25: 0.048607
-        q10: -0.021062
-        trap_rate: 0.146982
+        median: 0.139866
+        q25: 0.048856
+        q10: -0.020819
+        trap_rate: 0.146109
         n: 14893
       cohort_equal:
         median: 0.13865
-        q25: 0.054111
+        q25: 0.054941
         q10: -0.016909
         trap_rate: 0.139665
         n: 368
@@ -614,242 +614,242 @@ horizons:
     quintile: null
     lower_er_annual: 0.085
     upper_er_annual: null
-    median_predicted_er_annual: 0.096768
+    median_predicted_er_annual: 0.096325
     cohort_count: 40
-    median_n: 20
+    median_n: 18
     bases:
     - basis: fy_actual_dividend_total_return
       ticker_equal:
-        median: 0.19944
-        q25: 0.109548
-        q10: 0.024649
-        trap_rate: 0.102098
-        n: 1430
+        median: 0.199914
+        q25: 0.113745
+        q10: 0.034501
+        trap_rate: 0.091791
+        n: 1340
       cohort_equal:
-        median: 0.198681
-        q25: 0.124567
-        q10: 0.035965
-        trap_rate: 0.1
-        n: 20
+        median: 0.20431
+        q25: 0.127803
+        q10: 0.038473
+        trap_rate: 0.090909
+        n: 18
     - basis: price_return_only
       ticker_equal:
-        median: 0.160718
-        q25: 0.07666
-        q10: -0.003193
-        trap_rate: 0.107692
-        n: 1430
+        median: 0.161743
+        q25: 0.07695
+        q10: 0.002138
+        trap_rate: 0.100746
+        n: 1340
       cohort_equal:
-        median: 0.151512
-        q25: 0.087599
-        q10: 0.00548
-        trap_rate: 0.101695
-        n: 20
+        median: 0.154067
+        q25: 0.092226
+        q10: 0.01087
+        trap_rate: 0.098592
+        n: 18
 - horizon: 5y
   asof_start: '2019-12-30'
   asof_end: '2021-07-30'
-  cohort_count: 18
+  cohort_count: 19
   bands:
   - band_id: q1
     quintile: 1
     lower_er_annual: null
-    upper_er_annual: -0.03601
-    median_predicted_er_annual: -0.047201
-    cohort_count: 18
-    median_n: 324
-    bases:
-    - basis: fy_actual_dividend_total_return
-      ticker_equal:
-        median: -0.04031
-        q25: -0.136101
-        q10: -0.237508
-        trap_rate: 0.747176
-        n: 5842
-      cohort_equal:
-        median: -0.04594
-        q25: -0.146886
-        q10: -0.249897
-        trap_rate: 0.765957
-        n: 324
-    - basis: price_return_only
-      ticker_equal:
-        median: -0.050472
-        q25: -0.146448
-        q10: -0.245007
-        trap_rate: 0.719274
-        n: 5842
-      cohort_equal:
-        median: -0.057652
-        q25: -0.157437
-        q10: -0.256515
-        trap_rate: 0.741641
-        n: 324
-  - band_id: q2
-    quintile: 2
-    lower_er_annual: -0.03601
-    upper_er_annual: -0.00595
-    median_predicted_er_annual: -0.016718
-    cohort_count: 18
+    upper_er_annual: -0.03609
+    median_predicted_er_annual: -0.047525
+    cohort_count: 19
     median_n: 325
     bases:
     - basis: fy_actual_dividend_total_return
       ticker_equal:
-        median: 0.053484
-        q25: -0.00938
-        q10: -0.072825
-        trap_rate: 0.496067
-        n: 5848
+        median: -0.041221
+        q25: -0.137627
+        q10: -0.239566
+        trap_rate: 0.746879
+        n: 6167
       cohort_equal:
-        median: 0.053666
-        q25: -0.009183
-        q10: -0.074022
-        trap_rate: 0.502976
+        median: -0.04657
+        q25: -0.146886
+        q10: -0.249897
+        trap_rate: 0.768997
         n: 325
     - basis: price_return_only
       ticker_equal:
-        median: 0.033709
-        q25: -0.030297
-        q10: -0.092515
-        trap_rate: 0.471785
-        n: 5848
+        median: -0.051107
+        q25: -0.147864
+        q10: -0.246512
+        trap_rate: 0.718826
+        n: 6167
       cohort_equal:
-        median: 0.033975
-        q25: -0.030308
-        q10: -0.09201
-        trap_rate: 0.478261
+        median: -0.057652
+        q25: -0.157437
+        q10: -0.256515
+        trap_rate: 0.743119
         n: 325
-  - band_id: q3
-    quintile: 3
-    lower_er_annual: -0.00595
-    upper_er_annual: 0.015669
-    median_predicted_er_annual: 0.008008
-    cohort_count: 18
-    median_n: 324
+  - band_id: q2
+    quintile: 2
+    lower_er_annual: -0.03609
+    upper_er_annual: -0.006437
+    median_predicted_er_annual: -0.01741
+    cohort_count: 19
+    median_n: 325
     bases:
     - basis: fy_actual_dividend_total_return
       ticker_equal:
-        median: 0.0915
-        q25: 0.03099
-        q10: -0.018
-        trap_rate: 0.335499
-        n: 5848
+        median: 0.053147
+        q25: -0.010513
+        q10: -0.073598
+        trap_rate: 0.497003
+        n: 6173
       cohort_equal:
-        median: 0.096296
-        q25: 0.034011
-        q10: -0.016852
-        trap_rate: 0.324921
-        n: 324
+        median: 0.054058
+        q25: -0.009183
+        q10: -0.073174
+        trap_rate: 0.504615
+        n: 325
     - basis: price_return_only
       ticker_equal:
-        median: 0.069361
-        q25: 0.008089
-        q10: -0.042552
-        trap_rate: 0.329001
-        n: 5848
+        median: 0.033182
+        q25: -0.031165
+        q10: -0.093324
+        trap_rate: 0.472866
+        n: 6173
       cohort_equal:
-        median: 0.072969
-        q25: 0.009097
-        q10: -0.038188
+        median: 0.035848
+        q25: -0.030071
+        q10: -0.090917
+        trap_rate: 0.480243
+        n: 325
+  - band_id: q3
+    quintile: 3
+    lower_er_annual: -0.006437
+    upper_er_annual: 0.01547
+    median_predicted_er_annual: 0.00759
+    cohort_count: 19
+    median_n: 325
+    bases:
+    - basis: fy_actual_dividend_total_return
+      ticker_equal:
+        median: 0.090804
+        q25: 0.030466
+        q10: -0.019059
+        trap_rate: 0.335817
+        n: 6173
+      cohort_equal:
+        median: 0.095447
+        q25: 0.033067
+        q10: -0.019756
+        trap_rate: 0.324921
+        n: 325
+    - basis: price_return_only
+      ticker_equal:
+        median: 0.068344
+        q25: 0.007205
+        q10: -0.0432
+        trap_rate: 0.329985
+        n: 6173
+      cohort_equal:
+        median: 0.072558
+        q25: 0.009866
+        q10: -0.039657
         trap_rate: 0.324074
-        n: 324
+        n: 325
   - band_id: q4
     quintile: 4
-    lower_er_annual: 0.015669
-    upper_er_annual: 0.037619
-    median_predicted_er_annual: 0.027833
-    cohort_count: 18
+    lower_er_annual: 0.01547
+    upper_er_annual: 0.037582
+    median_predicted_er_annual: 0.027032
+    cohort_count: 19
     median_n: 325
     bases:
     - basis: fy_actual_dividend_total_return
       ticker_equal:
         median: 0.11729
-        q25: 0.054261
-        q10: 0.002237
-        trap_rate: 0.237004
-        n: 5848
+        q25: 0.05418
+        q10: 0.00203
+        trap_rate: 0.237324
+        n: 6173
       cohort_equal:
-        median: 0.121716
-        q25: 0.056933
-        q10: 0.004365
+        median: 0.119937
+        q25: 0.057337
+        q10: 0.006218
         trap_rate: 0.240122
         n: 325
     - basis: price_return_only
       ticker_equal:
         median: 0.090937
-        q25: 0.029496
-        q10: -0.026695
-        trap_rate: 0.238885
-        n: 5848
+        q25: 0.02927
+        q10: -0.027011
+        trap_rate: 0.238782
+        n: 6173
       cohort_equal:
-        median: 0.091501
-        q25: 0.032126
+        median: 0.09493
+        q25: 0.032202
         q10: -0.023109
-        trap_rate: 0.240741
+        trap_rate: 0.240122
         n: 325
   - band_id: q5
     quintile: 5
-    lower_er_annual: 0.037619
+    lower_er_annual: 0.037582
     upper_er_annual: null
-    median_predicted_er_annual: 0.059143
-    cohort_count: 18
-    median_n: 325
+    median_predicted_er_annual: 0.057333
+    cohort_count: 19
+    median_n: 326
     bases:
     - basis: fy_actual_dividend_total_return
       ticker_equal:
-        median: 0.154868
-        q25: 0.082375
-        q10: 0.020282
-        trap_rate: 0.157104
-        n: 5856
+        median: 0.155189
+        q25: 0.083297
+        q10: 0.022268
+        trap_rate: 0.153834
+        n: 6182
       cohort_equal:
-        median: 0.155623
+        median: 0.156003
         q25: 0.090517
-        q10: 0.030323
-        trap_rate: 0.148036
-        n: 325
+        q10: 0.031766
+        trap_rate: 0.15016
+        n: 326
     - basis: price_return_only
       ticker_equal:
-        median: 0.127009
-        q25: 0.051856
-        q10: -0.01082
-        trap_rate: 0.172302
-        n: 5856
+        median: 0.127182
+        q25: 0.052379
+        q10: -0.009475
+        trap_rate: 0.169848
+        n: 6182
       cohort_equal:
         median: 0.12712
         q25: 0.054956
-        q10: -0.003129
-        trap_rate: 0.166134
-        n: 325
+        q10: -0.001472
+        trap_rate: 0.167683
+        n: 326
   - band_id: er_gte_8_5pct
     quintile: null
     lower_er_annual: 0.085
     upper_er_annual: null
-    median_predicted_er_annual: 0.099257
-    cohort_count: 18
-    median_n: 44
+    median_predicted_er_annual: 0.098759
+    cohort_count: 19
+    median_n: 38
     bases:
     - basis: fy_actual_dividend_total_return
       ticker_equal:
-        median: 0.178383
-        q25: 0.100665
-        q10: 0.029441
-        trap_rate: 0.135922
-        n: 927
+        median: 0.180635
+        q25: 0.100313
+        q10: 0.038681
+        trap_rate: 0.131519
+        n: 882
       cohort_equal:
-        median: 0.185155
+        median: 0.191929
         q25: 0.118671
-        q10: 0.028596
+        q10: 0.052771
         trap_rate: 0.111111
-        n: 44
+        n: 38
     - basis: price_return_only
       ticker_equal:
-        median: 0.147071
-        q25: 0.06806
-        q10: 0.001471
-        trap_rate: 0.149946
-        n: 927
-      cohort_equal:
-        median: 0.143145
-        q25: 0.095761
+        median: 0.147148
+        q25: 0.067933
         q10: 0.007327
-        trap_rate: 0.111111
-        n: 44
+        trap_rate: 0.148526
+        n: 882
+      cohort_equal:
+        median: 0.167168
+        q25: 0.095761
+        q10: 0.025051
+        trap_rate: 0.112
+        n: 38
