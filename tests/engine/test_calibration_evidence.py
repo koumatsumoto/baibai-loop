@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import date
 
-from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.screening.calibration.evidence import (
     CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
     CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
@@ -14,6 +13,7 @@ from baibai_engine.screening.calibration.evidence import (
     effective_required_metrics,
     evaluate_evidence_readiness,
 )
+from baibai_engine.screening.calibration.horizons import require_horizon
 
 
 def _scope(
@@ -160,6 +160,5 @@ def test_unknown_subject_and_approach_fail_closed() -> None:
     )
 
 
-def test_calendar_month_end_and_leap_day_are_clamped() -> None:
-    assert add_months_clamped(date(2024, 1, 31), 1).isoformat() == "2024-02-29"
-    assert add_months_clamped(date(2024, 2, 29), 12).isoformat() == "2025-02-28"
+def test_horizon_target_date_clamps_leap_day() -> None:
+    assert require_horizon("1y").target_date(date(2024, 2, 29)) == date(2025, 2, 28)

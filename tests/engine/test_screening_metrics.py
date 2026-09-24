@@ -186,6 +186,7 @@ class ScreeningMetricsTests(unittest.TestCase):
                 date(2023, 2, 28),
                 date(2024, 2, 29),
                 date(2022, 3, 1),
+                date(2022, 3, 1),
                 date(2023, 3, 1),
                 date(2022, 5, 31),
                 date(2023, 5, 31),
@@ -193,6 +194,7 @@ class ScreeningMetricsTests(unittest.TestCase):
             (
                 date(2024, 2, 29),
                 date(2025, 2, 28),
+                date(2023, 3, 1),
                 date(2023, 3, 1),
                 date(2024, 3, 1),
                 date(2023, 5, 31),
@@ -202,15 +204,26 @@ class ScreeningMetricsTests(unittest.TestCase):
                 date(2023, 8, 31),
                 date(2024, 8, 31),
                 date(2022, 9, 1),
+                date(2022, 9, 1),
                 date(2023, 9, 1),
                 date(2023, 2, 28),
                 date(2024, 2, 29),
+            ),
+            (
+                date(2024, 1, 31),
+                date(2025, 1, 31),
+                date(2023, 2, 28),
+                date(2023, 2, 1),
+                date(2024, 2, 29),
+                date(2023, 7, 31),
+                date(2024, 7, 31),
             ),
         )
         for (
             prior_end,
             latest_end,
             prior_start,
+            prior_fy_start,
             latest_start,
             prior_partial_end,
             latest_partial_end,
@@ -233,7 +246,7 @@ class ScreeningMetricsTests(unittest.TestCase):
                         prior_end + timedelta(days=40),
                         fiscal_period="FY",
                         fiscal_year_end=prior_end,
-                        period_start=prior_start,
+                        period_start=prior_fy_start,
                         period_end=prior_end,
                         sales=100.0,
                         cfo=100.0,
@@ -3858,11 +3871,11 @@ class DividendBasisRouteEquivalenceTests(unittest.TestCase):
     def test_month_end_interim_guard_has_both_boundaries_on_both_routes(self) -> None:
         # 2026-03-31 の interim は 2025-09-30。旧 9/28 丸めでは
         # 10/4, 10/5 を見逃し、9/24 を誤って拒否していた。
-        for split_on, blocked in (
-            (date(2025, 10, 4), True),
-            (date(2025, 10, 5), True),
-            (date(2025, 10, 6), False),
-            (date(2025, 9, 24), False),
+        for split_on, expected in (
+            (date(2025, 10, 4), None),
+            (date(2025, 10, 5), None),
+            (date(2025, 10, 6), 50.0),
+            (date(2025, 9, 24), 60.0),
         ):
             with self.subTest(split_on=split_on):
                 metrics_value, forward_value = self._both_routes(
@@ -3873,12 +3886,8 @@ class DividendBasisRouteEquivalenceTests(unittest.TestCase):
                     split_factor=0.5,
                     asof=date(2026, 8, 10),
                 )
-                if blocked:
-                    self.assertIsNone(metrics_value)
-                    self.assertIsNone(forward_value)
-                else:
-                    self.assertIsNotNone(metrics_value)
-                    self.assertEqual(metrics_value, forward_value)
+                self.assertEqual(metrics_value, expected)
+                self.assertEqual(forward_value, expected)
 
     def test_incomplete_details_are_refused_on_both_routes(self) -> None:
         metrics_value, forward_value = self._both_routes(
@@ -4308,6 +4317,7 @@ class InterimSplitShareBasisTests(unittest.TestCase):
                 period_end=date(2026, 3, 31),
                 shares_outstanding=1_500_000.0,
                 dps_actual_annual=0.0,
+                dps_forecast_annual=0.0,
             ),
             sales=None,
             cfo=None,
@@ -4324,8 +4334,15 @@ class InterimSplitShareBasisTests(unittest.TestCase):
         )
         normalized = _normalize_summaries_with_status([prior, latest], bars, date(2026, 5, 29))
         self.assertEqual(normalized.summaries[1].dps_actual_annual, 0.0)
+        self.assertEqual(normalized.summaries[1].dps_forecast_annual, 0.0)
         self.assertIsNone(normalized.summaries[1].shares_outstanding)
         self.assertIsNone(normalized.summaries[1].treasury_shares)
+        positive_forecast = replace(latest, dps_forecast_annual=10.0)
+        positive_normalized = _normalize_summaries_with_status(
+            [prior, positive_forecast], bars, date(2026, 5, 29)
+        )
+        self.assertEqual(positive_normalized.summaries[1].dps_actual_annual, 0.0)
+        self.assertIsNone(positive_normalized.summaries[1].dps_forecast_annual)
         self.assertIs(_actual_rows(normalized.summaries)[-1], normalized.summaries[1])
         self.assertEqual(
             _ttm_value(normalized.summaries, "profit", load_screening_rules().ttm),
