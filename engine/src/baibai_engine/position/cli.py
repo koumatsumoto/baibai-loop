@@ -202,7 +202,9 @@ def build_parser() -> argparse.ArgumentParser:
     sell_parser.add_argument("--ticker", required=True)
     sell_parser.add_argument("--quantity", type=int, required=True)
     sell_parser.add_argument("--price-yen", type=_decimal_argument, required=True)
-    sell_parser.add_argument("--occurred-at", type=_datetime_argument, required=True)
+    sell_occurrence = sell_parser.add_mutually_exclusive_group(required=True)
+    sell_occurrence.add_argument("--occurred-at", type=_datetime_argument)
+    sell_occurrence.add_argument("--occurred-on", type=_date_argument)
     sell_parser.add_argument("--fees-yen", type=int)
     sell_parser.add_argument("--tax-yen", type=int)
     sell_parser.add_argument("--decision-reference")
@@ -701,6 +703,7 @@ def _run_sell_execution_draft(args: argparse.Namespace) -> int:
         draft = build_sell_execution_draft(
             LedgerStoreService(args.db),
             occurred_at=args.occurred_at,
+            occurred_on=args.occurred_on,
             ticker=args.ticker,
             quantity=args.quantity,
             price_yen=args.price_yen,

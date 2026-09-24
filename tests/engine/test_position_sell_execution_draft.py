@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -145,6 +145,53 @@ def test_sell_quantity_not_multiple_of_board_lot_is_rejected(tmp_path: Path) -> 
             quantity=150,
             price_yen=Decimal("1100"),
         )
+
+
+def test_date_only_sell_keeps_reported_date_without_claiming_fill_time(tmp_path: Path) -> None:
+    db = tmp_path / "app.sqlite"
+    service = _seed(db)
+    before = portfolio_snapshot(service.load())
+    assert (
+        main(
+            [
+                "sell-execution-draft",
+                "--root",
+                str(tmp_path),
+                "--db",
+                str(db),
+                "--ticker",
+                "2331",
+                "--quantity",
+                "100",
+                "--price-yen",
+                "1100",
+                "--occurred-on",
+                "2026-07-12",
+                "--decision-reference",
+                DECISION_REF,
+                "--out",
+                "date-only-sell.yaml",
+            ]
+        )
+        == 0
+    )
+    draft = load_draft(tmp_path / "date-only-sell.yaml")
+    addition = next(
+        event
+        for event in draft.replacement.events
+        if event.event_id not in {item.event_id for item in draft.source.events}
+    )
+    assert addition.occurred_on == date(2026, 7, 12)
+    assert addition.occurred_at.isoformat() == "2026-07-12T00:00:00+09:00"
+    assert (
+        main(["apply-draft", str(tmp_path / "date-only-sell.yaml"), "--db", str(db), "--confirmed"])
+        == 0
+    )
+    saved = next(event for event in service.load().events if event.event_id == addition.event_id)
+    assert saved.occurred_on == date(2026, 7, 12)
+    assert (
+        portfolio_snapshot(service.load()).available_cash_yen == before.available_cash_yen + 110_000
+    )
 
 
 def test_sell_fees_and_tax_over_proceeds_and_cash_are_rejected(tmp_path: Path) -> None:

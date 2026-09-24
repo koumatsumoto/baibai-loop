@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal
@@ -11,6 +11,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.ledger import (
     ConfirmedTaxEvent,
@@ -119,7 +120,8 @@ def build_meta_draft(
 def build_sell_execution_draft(
     service: LedgerStoreService,
     *,
-    occurred_at: datetime,
+    occurred_at: datetime | None = None,
+    occurred_on: date | None = None,
     ticker: str,
     quantity: int,
     price_yen: Decimal,
@@ -137,6 +139,13 @@ def build_sell_execution_draft(
     binds the sell to the Position Review that judged the exit.
     """
 
+    if (occurred_at is None) == (occurred_on is None):
+        raise ValueError("specify exactly one of occurred_at and occurred_on")
+    if occurred_on is not None:
+        # This is only a replay key. occurred_on is the reported broker fact;
+        # the midnight key does not assert that a fill happened at midnight.
+        occurred_at = datetime.combine(occurred_on, time.min, tzinfo=JST)
+    assert occurred_at is not None
     source, expected_head = service.load_with_head()
     suffix = _sell_event_suffix(
         occurred_at=occurred_at,
@@ -144,6 +153,7 @@ def build_sell_execution_draft(
         quantity=quantity,
         price_yen=price_yen,
         decision_reference=decision_reference,
+        occurred_on=occurred_on,
     )
     occurred_at_text = occurred_at.isoformat()
     additions: list[dict[str, object]] = [
@@ -157,6 +167,7 @@ def build_sell_execution_draft(
             "quantity": quantity,
             "price_yen": str(price_yen),
             "decision_reference": decision_reference,
+            **({"occurred_on": occurred_on.isoformat()} if occurred_on is not None else {}),
         }
     ]
     if fees_yen is not None:
@@ -205,6 +216,7 @@ def _sell_event_suffix(
     quantity: int,
     price_yen: Decimal,
     decision_reference: str | None,
+    occurred_on: date | None = None,
 ) -> str:
     raw = "|".join(
         (
@@ -212,7 +224,11 @@ def _sell_event_suffix(
             ticker,
             str(quantity),
             str(price_yen),
-            occurred_at.isoformat(),
+            (
+                f"date:{occurred_on.isoformat()}"
+                if occurred_on is not None
+                else occurred_at.isoformat()
+            ),
         )
     )
     return hashlib.sha256(raw.encode()).hexdigest()[:16]

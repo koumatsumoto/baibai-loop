@@ -7,7 +7,7 @@ import re
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Annotated, Literal, cast
@@ -22,6 +22,7 @@ from pydantic import (
     model_validator,
 )
 
+from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.policy import PORTFOLIO_POLICY, PolicyConfig
 
@@ -153,11 +154,33 @@ class ExecutionEvent(_EventBase):
     quantity: Annotated[int, Field(gt=0)]
     price_yen: Annotated[Decimal, Field(gt=0, decimal_places=4)]
     decision_reference: Annotated[str, Field(min_length=1)] | None = None
+    occurred_on: date | None = None
 
     @field_validator("price_yen", mode="before")
     @classmethod
     def _parse_price(cls, value: object) -> Decimal:
         return _price(value)
+
+    @field_validator("occurred_on", mode="before")
+    @classmethod
+    def _parse_occurred_on(cls, value: object) -> date | None:
+        if value is None or (isinstance(value, date) and not isinstance(value, datetime)):
+            return value
+        if isinstance(value, str):
+            try:
+                return date.fromisoformat(value)
+            except ValueError as error:
+                raise ValueError("occurred_on must be an ISO date") from error
+        raise ValueError("occurred_on must be an ISO date")
+
+    @model_validator(mode="after")
+    def _validate_date_only_sell(self) -> ExecutionEvent:
+        if self.occurred_on is not None and (
+            self.side != "sell"
+            or self.occurred_at != datetime.combine(self.occurred_on, time.min, tzinfo=JST)
+        ):
+            raise ValueError("occurred_on requires the date-only sell replay key")
+        return self
 
 
 class IncomeEvent(_EventBase):
