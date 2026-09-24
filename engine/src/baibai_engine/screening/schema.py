@@ -99,7 +99,7 @@ class FinancialSnapshot:
     # 直近実績の年間 DPS (asof の株式基準)・進行期の予想年間 DPS・carry 用配当利回り。
     # dividend_yield は将来 carry なので明示 0 を含む非負の予想 DPS を優先する
     # (forecast_annual)。ただし正の実績 DPS の 2 倍を超える予想は実績へ倒す。
-    # 予想を使えなければ実績を使い、分割の無い期間の報告値と明示 0 は追加の
+    # 予想不使用時は、配当計算窓の累積 factor が 1 の正規化済み年間実績と明示 0 を追加の
     # 支払別再計算なしで採用する (actual_reported)。正の実績を期間内の分割に沿って
     # 換算した場合は actual_record_date_resolved とする。
     # 掛け直せない年度は利回りを出さず (unresolved_split_basis)、E[r] も付けない。
