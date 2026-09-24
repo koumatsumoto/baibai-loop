@@ -49,7 +49,7 @@ MIN_SECTOR_MEDIAN_POPULATION = 10
 # 後者を使う。株式基準は行ごとに決め、期末と開示日の間に権利落ちがある行は申告基準を
 # 判定してから換算し、判定できない行は株数と per-share を答えない。
 # TTMは非実績行を除外し、選択した各実績期間の欠損を古いrevisionで埋めない。
-VALUATION_CALCULATION_REVISION = "dividend-calendar-fiscal-period-v24"
+VALUATION_CALCULATION_REVISION = "same-profit-basis-yoy-v25"
 
 # 自己レンジ / sigma gap が前提にする約 3 年の価格履歴窓(暦日)。listing 起点の
 # short_history_flag では検出できない「上場は古いが bar 履歴に長期ギャップがある」
@@ -1713,7 +1713,11 @@ def _build_financial_snapshot(
         if operating_field is not None
         else None
     )
-    operating_profit_prior_year, _ = _select_operating_profit(operating_prior_row)
+    operating_profit_prior_year = (
+        getattr(operating_prior_row, operating_field)
+        if operating_prior_row is not None and operating_field is not None
+        else None
+    )
     capital_basis = _resolve_capital_basis(
         summaries,
         capital_basis_barrier=capital_basis_barrier,
