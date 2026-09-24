@@ -15,6 +15,7 @@ from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.ledger import (
     PortfolioLedgerDocument,
     PortfolioLedgerError,
+    replay_events_through,
     snapshot_to_payload,
 )
 from baibai_engine.position.policy import PORTFOLIO_POLICY
@@ -45,6 +46,7 @@ def test_representative_ledger_reconciles_every_required_event_to_one_yen() -> N
     assert snapshot.confirmed_cost_yen == 500
     assert snapshot.confirmed_tax_yen == 300
     assert snapshot.confirmed_cost_tax_yen == 800
+    assert snapshot.realized_gross_pnl_yen == 0
     assert snapshot.book_capital_yen == 10_402_500
     assert snapshot.total_capital_yen == 10_419_500
     assert snapshot.estimated_exit_tax_rate_bps is None
@@ -222,6 +224,112 @@ def test_sell_cannot_exceed_repository_holding() -> None:
 
     with pytest.raises(PortfolioLedgerError, match="sell quantity exceeds repository holding"):
         portfolio_snapshot(_document(raw))
+
+
+def test_realized_gross_pnl_accumulates_fifo_across_full_exit_and_repurchase() -> None:
+    raw = _raw()
+    events = raw["events"]
+    assert isinstance(events, list)
+    events.extend(
+        [
+            {
+                "event_id": "sell-first",
+                "type": "execution",
+                "occurred_at": "2026-07-12T10:00:00+09:00",
+                "execution_id": "sell-first",
+                "ticker": "2331",
+                "side": "sell",
+                "quantity": 100,
+                "price_yen": 1100,
+            },
+            {
+                "event_id": "sell-second",
+                "type": "execution",
+                "occurred_at": "2026-07-13T10:00:00+09:00",
+                "execution_id": "sell-second",
+                "ticker": "2331",
+                "side": "sell",
+                "quantity": 100,
+                "price_yen": 900,
+            },
+            {
+                "event_id": "reserve-rebuy",
+                "type": "reservation",
+                "occurred_at": "2027-01-04T09:00:00+09:00",
+                "reservation_id": "reserve-rebuy",
+                "order_id": "order-rebuy",
+                "ticker": "2331",
+                "sector": "サービス業",
+                "common_factors": ["labor-automation"],
+                "quantity": 100,
+                "price_guard_yen": 950,
+                "expires_at": "2027-01-05T15:30:00+09:00",
+            },
+            {
+                "event_id": "buy-rebuy",
+                "type": "execution",
+                "occurred_at": "2027-01-04T10:00:00+09:00",
+                "execution_id": "buy-rebuy",
+                "reservation_id": "reserve-rebuy",
+                "ticker": "2331",
+                "side": "buy",
+                "quantity": 100,
+                "price_yen": 950,
+            },
+            {
+                "event_id": "sell-rebuy",
+                "type": "execution",
+                "occurred_at": "2027-01-05T10:00:00+09:00",
+                "execution_id": "sell-rebuy",
+                "ticker": "2331",
+                "side": "sell",
+                "quantity": 100,
+                "price_yen": 1000,
+            },
+        ]
+    )
+    raw["as_of"] = "2027-01-05T10:00:00+09:00"
+    document = _document(raw)
+    for cutoff, expected in [
+        ("2026-07-11T10:00:00+09:00", 0),
+        ("2026-07-12T10:00:00+09:00", 6_000),
+        ("2026-07-13T10:00:00+09:00", -3_000),
+        ("2027-01-05T10:00:00+09:00", 2_000),
+    ]:
+        state = replay_events_through(document.events, datetime.fromisoformat(cutoff))
+        assert state.realized_gross_pnl_yen == expected
+        assert (
+            replay_events_through(
+                document.events, datetime.fromisoformat(cutoff)
+            ).realized_gross_pnl_yen
+            == expected
+        )
+    snapshot = portfolio_snapshot(document)
+    assert snapshot.realized_gross_pnl_yen == 2_000
+    assert snapshot_to_payload(snapshot)["realized_gross_pnl_yen"] == 2_000
+    assert snapshot.holdings == ()
+
+
+def test_realized_gross_pnl_uses_both_fifo_lots_for_one_sell() -> None:
+    raw = _raw()
+    events = raw["events"]
+    assert isinstance(events, list)
+    events.append(
+        {
+            "event_id": "sell-all",
+            "type": "execution",
+            "occurred_at": "2026-07-12T10:00:00+09:00",
+            "execution_id": "sell-all",
+            "ticker": "2331",
+            "side": "sell",
+            "quantity": 200,
+            "price_yen": 1100,
+        }
+    )
+    raw["as_of"] = "2026-07-12T10:00:00+09:00"
+    snapshot = portfolio_snapshot(_document(raw))
+    assert snapshot.realized_gross_pnl_yen == 17_000
+    assert snapshot.deployed_cost_yen == 0
 
 
 def test_future_exit_tax_is_separate_and_configurable() -> None:

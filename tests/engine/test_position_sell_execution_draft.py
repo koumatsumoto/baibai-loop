@@ -123,6 +123,7 @@ def test_sell_draft_apply_reduces_holding_and_realizes_fifo_pnl(
     assert after_holding.deployed_cost_yen == 99_000
     assert consumed_cost == 104_000
     assert realized_gross_pnl == 6_000
+    assert after.realized_gross_pnl_yen == 6_000
     assert after.available_cash_yen == before_cash + proceeds
 
     sell = next(
@@ -192,6 +193,7 @@ def test_date_only_sell_keeps_reported_date_without_claiming_fill_time(tmp_path:
     assert (
         portfolio_snapshot(service.load()).available_cash_yen == before.available_cash_yen + 110_000
     )
+    assert portfolio_snapshot(service.load()).realized_gross_pnl_yen == 6_000
 
 
 def test_sell_fees_and_tax_over_proceeds_and_cash_are_rejected(tmp_path: Path) -> None:
@@ -286,6 +288,7 @@ def test_sell_draft_records_fees_and_tax_as_cost_and_tax_events(tmp_path: Path) 
     assert after.confirmed_cost_yen == before.confirmed_cost_yen + 500
     assert after.confirmed_tax_yen == before.confirmed_tax_yen + 900
     assert after.available_cash_yen == before.available_cash_yen + 100 * 1100 - 500 - 900
+    assert after.realized_gross_pnl_yen == 6_000
 
     fee = next(
         event for event in after_document.events if event.event_id.startswith("human-sell-fee-")

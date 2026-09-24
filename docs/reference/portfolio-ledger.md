@@ -51,11 +51,12 @@ cash_before_reservations =
 reserved_cash = sum(active remaining_quantity * price_guard_yen)
 available_cash = cash_before_reservations - reserved_cash
 deployed_cost = sum(open FIFO lot quantity * execution price)
+realized_gross_pnl = sum(sell proceeds - consumed FIFO cost)
 book_capital = available_cash + reserved_cash + deployed_cost
 total_capital = available_cash + reserved_cash + holdings_market_value
 ```
 
-各項は対象時点までの確認済み額で、売買代金はgross、費用・税は別eventである。予約と解放を入出金へ二重計上しない。時価未評価の場合、total capitalをcash-onlyの値で代用しない。
+各項は対象時点までの確認済み額で、売買代金はgross、費用・税は別eventである。`realized_gross_pnl`は保存台帳開始以来、対象時点までの全売却の損益を符号付きで通算した税・手数料控除前の額で、全株売却や買い直しでもリセットしない。株価から独立しており、売却代金は既にcashに含まれるため、総資産や購入余力へ再加算しない。予約と解放を入出金へ二重計上しない。時価未評価の場合、total capitalをcash-onlyの値で代用しない。
 
 partial fill後は未約定残数だけをreservedに残す。hard errorはcash超過、重複ID、未知reservation、overfill / oversell、guard超過、expiry後buy、future row、metadata不整合。concentrationとdry powderはwarningであり、判断を禁止しない。
 
