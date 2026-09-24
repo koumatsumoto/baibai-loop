@@ -15,6 +15,7 @@ from itertools import pairwise
 from math import exp, isclose, isfinite, log, sqrt
 from statistics import fmean, mean, median
 
+from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, asof_basis_closes
 
 from .margin_metrics import MarginBalance, margin_supply_demand
@@ -48,7 +49,7 @@ MIN_SECTOR_MEDIAN_POPULATION = 10
 # 後者を使う。株式基準は行ごとに決め、期末と開示日の間に権利落ちがある行は申告基準を
 # 判定してから換算し、判定できない行は株数と per-share を答えない。
 # TTMは非実績行を除外し、選択した各実績期間の欠損を古いrevisionで埋めない。
-VALUATION_CALCULATION_REVISION = "reinvestment-operating-profit-ttm-v23"
+VALUATION_CALCULATION_REVISION = "dividend-calendar-fiscal-period-v24"
 
 # 自己レンジ / sigma gap が前提にする約 3 年の価格履歴窓(暦日)。listing 起点の
 # short_history_flag では検出できない「上場は古いが bar 履歴に長期ギャップがある」
@@ -788,8 +789,8 @@ def _without_share_basis(summary: JQuantsFinancialSummary) -> JQuantsFinancialSu
         eps_ttm=None,
         forecast_eps=None,
         bps=None,
-        dps_actual_annual=None,
-        dps_forecast_annual=None,
+        dps_actual_annual=(0.0 if summary.dps_actual_annual == 0 else None),
+        dps_forecast_annual=(0.0 if summary.dps_forecast_annual == 0 else None),
         shares_outstanding=None,
         average_shares=None,
         treasury_shares=None,
@@ -858,14 +859,14 @@ def _normalize_summaries_with_status(
                 summary,
                 eps_ttm=summary.eps_ttm * factor if summary.eps_ttm is not None else None,
                 forecast_eps=None,
-                # 実績 DPS は per-share 実績と同じ換算。予想 DPS は forecast_eps と
-                # 同じ基準判別不能問題を持つため分割跨ぎ行では None に落とす。
+                # 実績 DPS は per-share 実績と同じ換算。予想 DPS は基準不明の
+                # 正値だけ落とし、どの株式基準でも同じ明示 0 は残す。
                 dps_actual_annual=(
                     summary.dps_actual_annual * factor
                     if summary.dps_actual_annual is not None
                     else None
                 ),
-                dps_forecast_annual=None,
+                dps_forecast_annual=(0.0 if summary.dps_forecast_annual == 0 else None),
                 bps=summary.bps * factor if summary.bps is not None else None,
                 shares_outstanding=(
                     summary.shares_outstanding / factor
@@ -1152,11 +1153,9 @@ def _resolve_earnings_forecast(
 
 def _resolve_dividend_forecast(
     summaries: Sequence[JQuantsFinancialSummary],
-    latest_actual: JQuantsFinancialSummary | None,
 ) -> _DividendForecast | None:
     """Resolve annual DPS without carrying a forecast behind the latest actual DPS."""
 
-    del latest_actual
     actual_dates = [row.disclosed_at for row in summaries if row.dps_actual_annual is not None]
     threshold = max(actual_dates, default=None)
     for source in sorted(summaries, key=lambda item: item.disclosed_at, reverse=True):
@@ -1227,7 +1226,7 @@ def _dividend_accrual_start(row: JQuantsFinancialSummary) -> date:
     if row.period_start is not None:
         return row.period_start
     if row.fiscal_year_end is not None:
-        return _shift_months(row.fiscal_year_end, -12)
+        return add_months_clamped(row.fiscal_year_end, -12)
     return row.disclosed_at - timedelta(days=DIVIDEND_ACCRUAL_LOOKBACK_DAYS)
 
 
@@ -1252,9 +1251,9 @@ def _dividend_record_dates(row: JQuantsFinancialSummary) -> tuple[tuple[float | 
     if fiscal_year_end is None:
         return ()
     return (
-        (row.dividend_q1, _shift_months(fiscal_year_end, -9)),
-        (row.dividend_interim, _shift_months(fiscal_year_end, -6)),
-        (row.dividend_q3, _shift_months(fiscal_year_end, -3)),
+        (row.dividend_q1, add_months_clamped(fiscal_year_end, -9)),
+        (row.dividend_interim, add_months_clamped(fiscal_year_end, -6)),
+        (row.dividend_q3, add_months_clamped(fiscal_year_end, -3)),
         (row.dividend_year_end, fiscal_year_end),
     )
 
@@ -1356,18 +1355,16 @@ def _resolve_dividend_carry(
     分割・併合で、報告された年間値は支払ごとに基準が分かれるためそのままでは株価と
     比べられない。その年度は支払ごとに換算し直し (`_asof_basis_dividend`)、換算できな
     ければ実績側の利回りを出さない。carry の配当側は予想 DPS または基準を解決できた実績
-    DPS だけで組む。予想 DPS は分割を跨ぐ行で正規化が None へ落としているので、同じ規律が
-    既に効いている。
+    DPS だけで組む。分割を跨ぐ行の正の予想 DPS は基準不明として落とし、明示 0 は残す。
 
-    予想は実績より優先するが、優先できるのは実績より新しく、かつ正の実績 DPS の 2 倍
+    予想は実績より優先するが、優先できるのは最新の実績観測と同日以降で、かつ正の実績 DPS の 2 倍
     以下のときだけである。2 倍を超える跳ねは特別配当か未実現の還元転換かを機械入力から
     区別できないので、5 年反復する carry には実績を使う。会社が予想を取り下げた後も過去の
     予想を引き当て続けると、無配化した会社に当時の配当額の利回りが付き、E[r] の reversion
     上限 (5%/年) を単独で超える carry を作る。
     """
     actual_rows = _actual_dps_rows(summaries)
-    latest_actual = _latest_summary(summaries)
-    forecast_state = _resolve_dividend_forecast(summaries, latest_actual)
+    forecast_state = _resolve_dividend_forecast(summaries)
     forecast = forecast_state.annual_dps if forecast_state is not None else None
     basis_factor = 1.0
     actual_annual: float | None = None
@@ -1388,7 +1385,7 @@ def _resolve_dividend_carry(
 
     forecast_is_usable_for_carry = (
         forecast is not None
-        and forecast > 0
+        and forecast >= 0
         and (
             actual_annual is None
             or actual_annual <= 0
@@ -1406,18 +1403,20 @@ def _resolve_dividend_carry(
             basis="forecast_annual",
             split_factor=recorded_factor,
         )
-    elif actual_annual is not None and actual_annual > 0:
+    elif actual_annual is not None and actual_annual >= 0:
         return _DividendCarry(
             dividend_yield=actual_annual / latest_price,
             dps_actual_annual=actual_annual,
             dps_forecast_annual=forecast,
-            basis="actual_reported" if recorded_factor is None else "actual_record_date_resolved",
+            basis=(
+                "actual_reported"
+                if actual_annual == 0 or recorded_factor is None
+                else "actual_record_date_resolved"
+            ),
             split_factor=recorded_factor,
         )
     elif recorded_factor is not None and actual_annual is None:
-        # 解決できなかった年度だけを拒否にする。解決できて 0 だった年度 (無配) は、
-        # 出す利回りが無いという点で観測できない年度と同じ扱いでよく、拒否にすると
-        # 分割を出す無配銘柄が E[r] ごと判断面から消える。
+        # 正の実績が解決できなかった年度は無配と区別する。
         basis = UNRESOLVED_DIVIDEND_BASIS
     else:
         basis = "unavailable"
@@ -1474,7 +1473,7 @@ def build_shareholder_return_change_signals(
         latest_actual = dps_values[latest_actual_row.fiscal_year_end]
     else:
         latest_actual = None
-    forecast_state = _resolve_dividend_forecast(normalized, _latest_summary(normalized))
+    forecast_state = _resolve_dividend_forecast(normalized)
     forecast = forecast_state.annual_dps if forecast_state is not None else None
     dps_guidance_up = (
         forecast > latest_actual if forecast is not None and latest_actual is not None else None
@@ -1586,7 +1585,7 @@ def _latest_consecutive_values(
     for prior, current in pairwise(selected):
         if current.fiscal_year_end is None or prior.fiscal_year_end is None:
             return None
-        if _shift_year(current.fiscal_year_end, -1) != prior.fiscal_year_end:
+        if add_months_clamped(current.fiscal_year_end, -12) != prior.fiscal_year_end:
             return None
     resolved: list[float] = []
     for row in selected:
@@ -1990,9 +1989,7 @@ def _prior_year_summary(
             return matched
     if latest.fiscal_period is None or latest.fiscal_year_end is None:
         return None
-    target_fiscal_year_end = _shift_year(latest.fiscal_year_end, -1)
-    if target_fiscal_year_end is None:
-        return None
+    target_fiscal_year_end = add_months_clamped(latest.fiscal_year_end, -12)
     candidates = [
         summary
         for summary in _actual_rows(summaries)
@@ -2036,9 +2033,7 @@ def _ttm_value(
         return latest_value, TTMQuality.EXACT
     if latest.fiscal_year_end is None:
         return None, TTMQuality.UNAVAILABLE
-    prior_fy_end = _shift_year(latest.fiscal_year_end, -1)
-    if prior_fy_end is None:
-        return None, TTMQuality.UNAVAILABLE
+    prior_fy_end = add_months_clamped(latest.fiscal_year_end, -12)
     prior_fy = _latest_full_year_summary(actuals, prior_fy_end, ttm_rules)
     prior_same = _matched_prior_period_summary(
         actuals,
@@ -2079,9 +2074,9 @@ def _matched_prior_period_summary(
     if latest.period_start is None or latest.period_end is None:
         return None
     latest_days = _period_days(latest)
-    prior_start = _shift_year(latest.period_start, -1)
-    prior_end = _shift_year(latest.period_end, -1)
-    if latest_days is None or prior_start is None or prior_end is None:
+    prior_start = add_months_clamped(latest.period_start, -12)
+    prior_end = add_months_clamped(latest.period_end, -12)
+    if latest_days is None:
         return None
     max_length_delta = max(1, round(latest_days * ttm_rules.period_length_tolerance_ratio))
     candidates: list[JQuantsFinancialSummary] = []
@@ -2106,26 +2101,6 @@ def _period_days(summary: JQuantsFinancialSummary) -> int | None:
         return None
     days = (summary.period_end - summary.period_start).days + 1
     return days if days > 0 else None
-
-
-def _shift_months(value: date, months: int) -> date:
-    """`months` か月前後の同じ日。月末をまたぐ日付は月内に丸める。
-
-    配当の基準日を四半期末に置くために使う。期末が 3/31 の会社の中間基準日は 9/30 で、
-    暦の日数ではなく月数で数えないと四半期の境界からずれる。
-    """
-    total = value.year * 12 + (value.month - 1) + months
-    year, month = divmod(total, 12)
-    return date(year, month + 1, min(value.day, 28))
-
-
-def _shift_year(value: date, years: int) -> date | None:
-    try:
-        return value.replace(year=value.year + years)
-    except ValueError:
-        # Feb 29 has no same-month/day counterpart in non-leap years; avoid
-        # inventing a fiscal year-end match.
-        return None
 
 
 def _latest_bar_on_or_before(

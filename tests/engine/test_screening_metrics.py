@@ -16,12 +16,15 @@ from baibai_engine.screening.calibration.forward import (
 )
 from baibai_engine.screening.metrics import (
     MetricBuildResult,
+    _actual_rows,
     _asof_basis_dividend,
     _avg_daily_volume,
     _closer_share_basis,
     _common_equity_yen,
     _edinet_describes_same_entity,
     _normalize_summaries_to_asof_basis,
+    _normalize_summaries_with_status,
+    _prior_year_summary,
     _resolve_capital_basis,
     _resolve_dividend_carry,
     _ShareBasis,
@@ -176,6 +179,155 @@ def _edinet_metric_record(
 
 
 class ScreeningMetricsTests(unittest.TestCase):
+    def test_ttm_matches_leap_year_fiscal_and_half_year_periods(self) -> None:
+        rules = load_screening_rules()
+        cases = (
+            (
+                date(2023, 2, 28),
+                date(2024, 2, 29),
+                date(2022, 3, 1),
+                date(2022, 3, 1),
+                date(2023, 3, 1),
+                date(2022, 5, 31),
+                date(2023, 5, 31),
+            ),
+            (
+                date(2024, 2, 29),
+                date(2025, 2, 28),
+                date(2023, 3, 1),
+                date(2023, 3, 1),
+                date(2024, 3, 1),
+                date(2023, 5, 31),
+                date(2024, 5, 31),
+            ),
+            (
+                date(2023, 8, 31),
+                date(2024, 8, 31),
+                date(2022, 9, 1),
+                date(2022, 9, 1),
+                date(2023, 9, 1),
+                date(2023, 2, 28),
+                date(2024, 2, 29),
+            ),
+            (
+                date(2024, 1, 31),
+                date(2025, 1, 31),
+                date(2023, 2, 28),
+                date(2023, 2, 1),
+                date(2024, 2, 29),
+                date(2023, 7, 31),
+                date(2024, 7, 31),
+            ),
+        )
+        for (
+            prior_end,
+            latest_end,
+            prior_start,
+            prior_fy_start,
+            latest_start,
+            prior_partial_end,
+            latest_partial_end,
+        ) in cases:
+            with self.subTest(fiscal_year_end=latest_end):
+                rows = [
+                    _summary(
+                        "130A",
+                        prior_partial_end + timedelta(days=30),
+                        fiscal_year_end=prior_end,
+                        period_start=prior_start,
+                        period_end=prior_partial_end,
+                        sales=20.0,
+                        cfo=20.0,
+                        operating_profit=20.0,
+                        profit=20.0,
+                    ),
+                    _summary(
+                        "130A",
+                        prior_end + timedelta(days=40),
+                        fiscal_period="FY",
+                        fiscal_year_end=prior_end,
+                        period_start=prior_fy_start,
+                        period_end=prior_end,
+                        sales=100.0,
+                        cfo=100.0,
+                        operating_profit=100.0,
+                        profit=100.0,
+                    ),
+                    _summary(
+                        "130A",
+                        latest_partial_end + timedelta(days=30),
+                        fiscal_year_end=latest_end,
+                        period_start=latest_start,
+                        period_end=latest_partial_end,
+                        sales=30.0,
+                        cfo=30.0,
+                        operating_profit=30.0,
+                        profit=30.0,
+                    ),
+                ]
+                for field in ("sales", "cfo", "operating_profit", "profit"):
+                    self.assertEqual(_ttm_value(rows, field, rules.ttm), (110.0, TTMQuality.EXACT))
+
+    def test_prior_year_fallback_matches_february_month_end(self) -> None:
+        rows = [
+            _summary(
+                "130A", date(2024, 4, 1), fiscal_period="FY", fiscal_year_end=date(2024, 2, 29)
+            ),
+            _summary(
+                "130A", date(2025, 4, 1), fiscal_period="FY", fiscal_year_end=date(2025, 2, 28)
+            ),
+        ]
+        self.assertIs(_prior_year_summary(rows, load_screening_rules().ttm), rows[0])
+
+    def test_february_fy_fallback_restores_yoy_and_share_count(self) -> None:
+        asof = date(2025, 4, 30)
+        rows = [
+            _summary(
+                "130A",
+                date(2024, 4, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 2, 29),
+                eps_ttm=20.0,
+                shares_outstanding=100_000_000.0,
+                sales=100.0,
+            ),
+            _summary(
+                "130A",
+                date(2025, 4, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 2, 28),
+                eps_ttm=30.0,
+                shares_outstanding=98_000_000.0,
+                sales=120.0,
+            ),
+        ]
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": _daily_bars("130A", asof, 40)},
+            summaries_by_ticker={"130A": rows},
+            edinet_by_ticker={},
+        ).financials["130A"]
+        self.assertEqual(snapshot.eps_yoy, 0.5)
+        self.assertAlmostEqual(snapshot.sales_yoy, 0.2)
+        self.assertAlmostEqual(snapshot.net_share_change_yoy, -0.02)
+        self.assertAlmostEqual(snapshot.tradable_share_change_yoy, -0.02)
+
+    def test_normalized_profit_preserves_february_fiscal_year_ends(self) -> None:
+        summaries = [
+            _summary(
+                "130A",
+                date(year, 4, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(year, 2, 29 if year == 2024 else 28),
+                eps_ttm=float((year - 2020) * 10),
+            )
+            for year in range(2021, 2026)
+        ]
+        result = build_normalized_profit_signals(summaries, (), date(2025, 5, 1), close=1200)
+        self.assertEqual(result.normalized_per_3fy, 30.0)
+        self.assertEqual(result.normalized_per_5fy, 40.0)
+
     def test_normalized_profit_does_not_fallback_from_null_revision(self) -> None:
         asof = date(2026, 6, 30)
         summaries = [
@@ -290,6 +442,25 @@ class ScreeningMetricsTests(unittest.TestCase):
         self.assertFalse(result.dividend_initiation)
         self.assertEqual(result.share_count_reduction_streak, 2)
         self.assertTrue(result.shareholder_return_change)
+
+    def test_zero_dividend_series_is_observed_across_february_fiscal_years(self) -> None:
+        rows = [
+            _summary(
+                "130A",
+                date(year, 4, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(year, 2, 29 if year == 2024 else 28),
+                dps_actual_annual=0.0,
+                dps_forecast_annual=0.0,
+                shares_outstanding=100.0,
+            )
+            for year in (2023, 2024, 2025)
+        ]
+        result = build_shareholder_return_change_signals(rows, (), date(2025, 5, 1))
+        self.assertIs(result.dps_streak_up, True)
+        self.assertEqual(result.dps_yoy_latest, 0.0)
+        self.assertIs(result.dps_guidance_up, False)
+        self.assertIs(result.dividend_initiation, False)
 
     def test_shareholder_return_change_handles_initiation_and_missing_history(self) -> None:
         asof = date(2026, 6, 30)
@@ -3075,6 +3246,38 @@ def _split_bar(code: str, traded_at: date, factor: float) -> JQuantsDailyBar:
 class DividendCarryResolverTests(unittest.TestCase):
     """carry 用配当利回りの基準解決 (予想の跳ね・株式基準) を検証する。"""
 
+    def test_zero_forecast_outranks_positive_actual(self) -> None:
+        summaries = [
+            _summary("130A", date(2025, 5, 10), dps_actual_annual=50.0),
+            _summary("130A", date(2025, 8, 10), dps_forecast_annual=0.0),
+        ]
+        carry = _resolve_dividend_carry(summaries, [], 1000.0, date(2025, 9, 1))
+        self.assertEqual(carry.dividend_yield, 0.0)
+        self.assertEqual(carry.basis, "forecast_annual")
+        self.assertEqual(carry.dps_actual_annual, 50.0)
+        self.assertEqual(carry.dps_forecast_annual, 0.0)
+
+    def test_zero_forecast_survives_post_disclosure_split(self) -> None:
+        summary = _summary(
+            "130A", date(2025, 5, 10), dps_actual_annual=50.0, dps_forecast_annual=0.0
+        )
+        split = [_split_bar("130A", date(2025, 7, 1), 0.5)]
+        normalized = _normalize_summaries_with_status([summary], split, date(2025, 8, 1))
+        self.assertEqual(normalized.summaries[0].dps_forecast_annual, 0.0)
+        self.assertEqual(normalized.summaries[0].dps_actual_annual, 25.0)
+        carry = _resolve_dividend_carry(normalized.summaries, split, 1000.0, date(2025, 8, 1))
+        self.assertEqual(carry.dividend_yield, 0.0)
+        self.assertEqual(carry.basis, "forecast_annual")
+
+    def test_zero_actual_allows_new_positive_forecast(self) -> None:
+        summaries = [
+            _summary("130A", date(2025, 5, 10), dps_actual_annual=0.0),
+            _summary("130A", date(2025, 8, 10), dps_forecast_annual=10.0),
+        ]
+        carry = _resolve_dividend_carry(summaries, [], 1000.0, date(2025, 9, 1))
+        self.assertEqual(carry.dividend_yield, 0.01)
+        self.assertEqual(carry.basis, "forecast_annual")
+
     def test_prefers_forecast_over_actual(self) -> None:
         # 上限内の予想 DPS は実績より優先し、分割後基準の予想で利回りを出す。
         summaries = [
@@ -3137,9 +3340,9 @@ class DividendCarryResolverTests(unittest.TestCase):
         carry = _resolve_dividend_carry(
             summaries, [], latest_price=130.0, asof_date=date(2026, 8, 11)
         )
-        self.assertIsNone(carry.dividend_yield)
+        self.assertEqual(carry.dividend_yield, 0.0)
         self.assertIsNone(carry.dps_forecast_annual)
-        self.assertEqual(carry.basis, "unavailable")
+        self.assertEqual(carry.basis, "actual_reported")
 
     def test_a_forecast_newer_than_the_actual_still_answers(self) -> None:
         # 鮮度境界は予想を弱めない。実績より後に出た予想はそのまま carry になる。
@@ -3464,7 +3667,9 @@ class DividendCarryResolverTests(unittest.TestCase):
             latest_price=1000.0,
             asof_date=date(2026, 8, 10),
         )
-        self.assertNotEqual(carry.basis, "unresolved_split_basis")
+        self.assertEqual(carry.dividend_yield, 0.0)
+        self.assertEqual(carry.basis, "actual_reported")
+        self.assertEqual(carry.split_factor, 0.5)
 
     def test_refuses_when_the_payment_detail_does_not_add_up_to_the_reported_year(self) -> None:
         # feed は明細を一部だけ返すことがある。調整前の合計が報告年間値と合わない行は真値の
@@ -3662,6 +3867,27 @@ class DividendBasisRouteEquivalenceTests(unittest.TestCase):
         )
         self.assertIsNone(metrics_value)
         self.assertIsNone(forward_value)
+
+    def test_month_end_interim_guard_has_both_boundaries_on_both_routes(self) -> None:
+        # 2026-03-31 の interim は 2025-09-30。旧 9/28 丸めでは
+        # 10/4, 10/5 を見逃し、9/24 を誤って拒否していた。
+        for split_on, expected in (
+            (date(2025, 10, 4), None),
+            (date(2025, 10, 5), None),
+            (date(2025, 10, 6), 50.0),
+            (date(2025, 9, 24), 60.0),
+        ):
+            with self.subTest(split_on=split_on):
+                metrics_value, forward_value = self._both_routes(
+                    interim=20.0,
+                    year_end=40.0,
+                    reported=60.0,
+                    split_on=split_on,
+                    split_factor=0.5,
+                    asof=date(2026, 8, 10),
+                )
+                self.assertEqual(metrics_value, expected)
+                self.assertEqual(forward_value, expected)
 
     def test_incomplete_details_are_refused_on_both_routes(self) -> None:
         metrics_value, forward_value = self._both_routes(
@@ -4069,6 +4295,59 @@ class InterimSplitShareBasisTests(unittest.TestCase):
         self.assertIsNone(row.bps)
         self.assertEqual(row.total_assets, 5e8)
         self.assertEqual(row.equity_to_asset_ratio, 0.5)
+
+    def test_zero_dividend_remains_the_latest_actual_anchor_when_basis_is_unknown(self) -> None:
+        bars = [self._bar(date(2026, 4, 20), 0.5), self._bar(date(2026, 5, 15))]
+        prior = _summary(
+            "1111",
+            date(2025, 5, 15),
+            fiscal_period="FY",
+            fiscal_year_end=date(2025, 3, 31),
+            period_start=date(2024, 4, 1),
+            period_end=date(2025, 3, 31),
+            shares_outstanding=1_000_000.0,
+        )
+        latest = replace(
+            _summary(
+                "1111",
+                date(2026, 5, 15),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                period_end=date(2026, 3, 31),
+                shares_outstanding=1_500_000.0,
+                dps_actual_annual=0.0,
+                dps_forecast_annual=0.0,
+            ),
+            sales=None,
+            cfo=None,
+            cash_eq=None,
+            total_assets=None,
+            equity=None,
+            operating_profit=None,
+            ordinary_profit=None,
+            profit=None,
+            eps_ttm=None,
+            bps=None,
+            equity_to_asset_ratio=None,
+            average_shares=None,
+        )
+        normalized = _normalize_summaries_with_status([prior, latest], bars, date(2026, 5, 29))
+        self.assertEqual(normalized.summaries[1].dps_actual_annual, 0.0)
+        self.assertEqual(normalized.summaries[1].dps_forecast_annual, 0.0)
+        self.assertIsNone(normalized.summaries[1].shares_outstanding)
+        self.assertIsNone(normalized.summaries[1].treasury_shares)
+        positive_forecast = replace(latest, dps_forecast_annual=10.0)
+        positive_normalized = _normalize_summaries_with_status(
+            [prior, positive_forecast], bars, date(2026, 5, 29)
+        )
+        self.assertEqual(positive_normalized.summaries[1].dps_actual_annual, 0.0)
+        self.assertIsNone(positive_normalized.summaries[1].dps_forecast_annual)
+        self.assertIs(_actual_rows(normalized.summaries)[-1], normalized.summaries[1])
+        self.assertEqual(
+            _ttm_value(normalized.summaries, "profit", load_screening_rules().ttm),
+            (None, TTMQuality.UNAVAILABLE),
+        )
 
     def test_refused_capital_row_does_not_revive_older_share_basis(self) -> None:
         """判定不能な新capital stateより前の株数はmarket capへcarryしない。"""

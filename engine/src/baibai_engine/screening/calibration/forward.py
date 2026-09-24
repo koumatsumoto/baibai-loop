@@ -9,6 +9,7 @@ from datetime import date, timedelta
 from math import isfinite
 from pathlib import Path
 
+from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, asof_basis_closes
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
@@ -79,14 +80,6 @@ from ..metrics import (  # noqa: E402
     DIVIDEND_ROUTE_TOLERANCE,
     SHARE_COUNT_ANCHOR_TOLERANCE,
 )
-
-
-def _shift_months(value: date, months: int) -> date:
-    """`months` か月前後の同じ日。配当の基準日を四半期末に置くために使う。"""
-    total = value.year * 12 + (value.month - 1) + months
-    year, month = divmod(total, 12)
-    return date(year, month + 1, min(value.day, 28))
-
 
 BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY,)
 
@@ -293,7 +286,7 @@ def compute_forward_returns(
             # selected after entry can belong to a fiscal year that began almost a
             # year earlier, so its factor events need a separate, earlier boundary.
             dividend_period_starts = [
-                observation.period_start or _shift_months(observation.fiscal_year_end, -12)
+                observation.period_start or add_months_clamped(observation.fiscal_year_end, -12)
                 for observation in fy_dividends
                 if min_asof < observation.fiscal_year_end <= latest_target
             ]
@@ -775,7 +768,7 @@ def _asof_basis_dividend(
     # 較正の標本から落ちる。
     if reported == 0:
         return 0.0
-    window_start = observation.period_start or _shift_months(observation.fiscal_year_end, -12)
+    window_start = observation.period_start or add_months_clamped(observation.fiscal_year_end, -12)
     if (
         _cumulative_adjustment_factor_after(
             bars, after=window_start, asof_date=observation.disclosed_at
@@ -790,9 +783,9 @@ def _asof_basis_dividend(
         zip(
             observation.payments,
             (
-                _shift_months(observation.fiscal_year_end, -9),
-                _shift_months(observation.fiscal_year_end, -6),
-                _shift_months(observation.fiscal_year_end, -3),
+                add_months_clamped(observation.fiscal_year_end, -9),
+                add_months_clamped(observation.fiscal_year_end, -6),
+                add_months_clamped(observation.fiscal_year_end, -3),
                 observation.fiscal_year_end,
             ),
             strict=True,

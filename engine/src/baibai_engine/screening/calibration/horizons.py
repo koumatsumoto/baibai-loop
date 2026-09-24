@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from calendar import monthrange
 from dataclasses import dataclass
 from datetime import date
 from types import MappingProxyType
 from typing import Literal
+
+from baibai_engine.foundation.date_utils import add_months_clamped
 
 HorizonEvidenceRole = Literal["regression_alert", "leading_evidence", "empirical_change_evidence"]
 
@@ -27,17 +28,6 @@ class HorizonSpec:
 
     def target_date(self, asof: date) -> date:
         return add_months_clamped(asof, self.months)
-
-
-def add_months_clamped(value: date, months: int) -> date:
-    """Add calendar months while retaining month-end semantics."""
-    zero_based_month = value.month - 1 + months
-    year = value.year + zero_based_month // 12
-    month = zero_based_month % 12 + 1
-    source_last = monthrange(value.year, value.month)[1]
-    target_last = monthrange(year, month)[1]
-    day = target_last if value.day == source_last else min(value.day, target_last)
-    return date(year, month, day)
 
 
 HORIZONS = MappingProxyType(

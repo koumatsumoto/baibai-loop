@@ -16,6 +16,7 @@ from datetime import date
 from math import isfinite, sqrt
 from statistics import fmean, median, stdev
 
+from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
 from ..discovery.review_set import APPROACH_IDS
@@ -30,7 +31,7 @@ from .forward import (
     TOTAL_RETURN_BASIS,
     ForwardReturnRow,
 )
-from .horizons import add_months_clamped, require_horizon
+from .horizons import require_horizon
 from .panel import PanelRow
 
 # 割安 decile / top-N の「バリュートラップ」判定: 母集団中央値に 20pt 以上劣後。

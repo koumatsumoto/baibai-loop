@@ -80,6 +80,34 @@ class MonthEndDatesTest(unittest.TestCase):
 
 
 class ForwardReturnTest(unittest.TestCase):
+    def test_dividend_guard_keeps_price_return_resolved(self) -> None:
+        row = _ticker_forward_rows(
+            "1000",
+            [
+                _bar(date(2025, 1, 31), 1000.0, 1.0),
+                _bar(date(2026, 1, 31), 1000.0, 1.0),
+            ],
+            adjustment_events=[JQuantsAdjustmentFactorEvent("1000", date(2024, 10, 4), 0.5)],
+            fy_dividends=[
+                _FYDividendObservation(
+                    fiscal_year_end=date(2025, 3, 31),
+                    disclosed_at=date(2025, 5, 15),
+                    dps_actual_annual=60.0,
+                    period_start=date(2024, 4, 1),
+                    payments=(None, 20.0, None, 40.0),
+                )
+            ],
+            asofs=[date(2025, 1, 31)],
+            horizons=(HORIZONS["1y"],),
+            eval_cap=date(2026, 2, 1),
+        )[0]
+        self.assertTrue(row.resolved)
+        self.assertEqual(row.status, "resolved")
+        self.assertEqual(row.price_return, 0.0)
+        self.assertEqual(row.total_return_status, "unresolved_dividend_split_basis")
+        self.assertIsNone(row.total_return)
+        self.assertIsNone(row.realized_dividend_sum)
+
     def test_forward_return_plain_price_move(self) -> None:
         bars = [
             _bar(date(2025, 1, 31), 100.0),
@@ -290,6 +318,51 @@ class ForwardReturnTest(unittest.TestCase):
             self.assertEqual(fixed.total_return, 0.5)
             self.assertEqual(mutation.realized_dividend_sum, 75.0)
             self.assertEqual(mutation.total_return, 0.75)
+
+    def test_forward_reader_uses_february_month_end_for_missing_period_start(self) -> None:
+        # 2025-02-28 FY のfallback開始日は閏年の2024-02-29。
+        # 開始日当日のeventは期間外なので、明細を要求せず実績年間DPSを採れる。
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            try:
+                conn.executemany(
+                    "INSERT INTO jquants_daily_bars("
+                    "ticker, traded_at, close, adjustment_factor"
+                    ") VALUES (?, ?, ?, ?)",
+                    [
+                        ("1000", "2024-02-29", None, 0.5),
+                        ("1000", "2025-01-31", 1000.0, 1.0),
+                        ("1000", "2026-01-30", 1000.0, 1.0),
+                        ("1000", "2026-02-02", 1000.0, 1.0),
+                    ],
+                )
+                conn.execute(
+                    "INSERT INTO jquants_fin_summaries("
+                    "ticker, disclosed_at, fiscal_period, fiscal_year_end, dps_actual_annual"
+                    ") VALUES (?, ?, ?, ?, ?)",
+                    ("1000", "2025-05-15", "FY", "2025-02-28", 60.0),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            row = next(
+                row
+                for row in compute_forward_returns(
+                    sqlite_path,
+                    asofs=[date(2025, 1, 31)],
+                    tickers=["1000"],
+                    horizons=["1y"],
+                    control_event_exits={},
+                    failure_exits={},
+                )
+                if row.ticker == "1000"
+            )
+            self.assertEqual(row.status, "resolved")
+            self.assertEqual(row.price_return, 0.0)
+            self.assertEqual(row.total_return_status, "resolved")
+            self.assertEqual(row.realized_dividend_sum, 60.0)
+            self.assertEqual(row.total_return, 0.06)
 
     def test_forward_return_unresolved_beyond_eval_cap(self) -> None:
         bars = [_bar(date(2025, 1, 31), 100.0), _bar(date(2025, 3, 31), 110.0)]
