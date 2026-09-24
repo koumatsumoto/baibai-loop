@@ -22,8 +22,6 @@ uv run baibai-engine macro list --category rates       # 登録 series を見る
 uv run baibai-engine macro search 失業率              # 名前/alias/category で検索
 uv run baibai-engine macro get jp.nikkei225 --start 2026-05-20 --end 2026-06-22
 uv run baibai-engine macro get jp.policy_rate --latest
-uv run baibai-engine macro refresh us.10y --start 2026-06-20 --end 2026-07-02   # provider を強制再取得
-uv run baibai-engine macro refresh us.10y --all-history --end 2026-07-20        # provider が提供する全履歴を同期
 ```
 
 `get`は取得済み範囲を確認し、不足があればproviderを呼ぶ。同じcommand引数でもstore状態・source改定・実行日によって結果は変わる。計算の決定性は、保存入力・採用vintage・規則・as-ofが固定されている場合の性質である。`get --latest` はJSTの運用日を `asof` とし、§② の reading rules が観測日から求める次回公表目安 + 猶予までは cache を返し、境界を超えた場合は provider を再取得するため、公表ラグと鮮度判定の知識は reading rules が一元的に持つ。再取得する期間幅は鮮度閾値とは別の契約であり、service の `LATEST_FETCH_LOOKBACK_DAYS`（daily 14 日・weekly 60 日・monthly 以下 370 日）を `get --latest` と日次batchが共用する。
@@ -32,7 +30,7 @@ uv run baibai-engine macro refresh us.10y --all-history --end 2026-07-20        
 
 observation は `(series_id, observed_at, vintage_at)` を主キーに upsert する。多くの provider は取得時刻を vintage として刻むが、挿入前に vintage を除いた内容（値・単位・期間・取得状態・source）を既存最新 vintage と比較し、変化が無ければその再取得行を捨てる。同内容の再取得ではobservationの重複vintageを増やさない。provider runには実際の取得記録が残るため、再実行してDB全体が不変になるという意味ではない。日次バッチは asof を終端とする frequency 別の窓（daily 14 日・weekly 60 日・monthly 以下 370 暦日）を毎回丸ごと再取得するため、窓内で起きた一時的な取得失敗は次の成功実行が同じ窓を引き直して自動でバックフィルする。窓を超える長期の取得断や旧 vintage の全面リベースが必要なときだけ `refresh --all-history` を運用レバーとして使う。
 
-誤って入った observation は削除では消えない。cloud との merge は双方の fact を必ず戻す no-loss 契約なので、ローカルで消しても次の push で復活する。この契約は本物の履歴を守るためのものなので緩めず、代わりに **今わかっていることを新しい vintage として上に積む**: `baibai-engine macro retract <series_id> --observed-at <date> --expected-vintage <ts>` が対象 observation 日の**最新 vintage を撤回**し、その 1 つ下にあった状態を現在時刻の vintage で書き直す。撤回する vintage を名指すのは publish の `--expected-head` と同じ compare-and-swap で、これが無いと同じコマンドの 2 回目が「復元した行の下にある誤値」を読んで書き戻してしまう。名指してあれば 2 回目は拒否になる。**撤回対象が derived 系列の入力なら、その derived 系列の同じ日も先に撤回する必要があり、コマンドが書き込み前に拒否して対象を印字する**（derived は自分の観測を持つので、入力を撤回しても計算済みの値は消えず、再計算でも直らない）。
+誤って入った observation は削除では消えない。cloudとのmergeは双方のfactを戻すno-loss契約なので、localで消しても次のpushで復活する。撤回は対象日の最新vintageをCASで名指しし、その下の状態を新しいvintageとして記録する。同じ撤回を繰り返すと意図しない旧値を戻し得るため、期待vintageが変われば拒否する。derived系列の保存観測は入力の撤回だけでは消えない。操作順と失敗時の行き先は[運用手順](../../batch/OPERATIONS.md#macro観測とregistryの修正)に従う。
 
 - 下に正しい観測があれば **その観測が再び読まれる**（誤った writer が正しい値の上に別の値を刻んだ場合。撤回のたびに 1 つずつ vintage を遡る）
 - 下に何も無い、または下も撤回済みなら `fetch_status='retracted'` を書き、その日は reading / chart / scorecard / freshness のすべてから外れる
@@ -41,9 +39,9 @@ observation は `(series_id, observed_at, vintage_at)` を主キーに upsert �
 
 point-in-time provider（`jquants_flows`）では撤回の vintage が公表時刻ではなく操作時刻になるため、**撤回は撤回時刻以降の as-of にしか効かない**（それ以前の as-of での replay は撤回前の値を読み続ける。当時そう信じていたことの誠実な表現である）。同じ理由で、撤回時刻より前の公表 vintage を持つ改定は撤回の下に埋もれる。実際に撤回した観測は source が publish しない幽霊日なので改定の余地が無いが、real な観測日を撤回するときはこの境界を意識する。
 
-registry は系列定義の正本だが、DB を開く read 操作は登録外系列の facts・metadata・aliases を削除しない。open 時は現行 registry が知る系列の metadata / aliases だけを upsert し、`series` / `observations` / `provider_runs` の prune は、現行 registry の系列を 1 件以上指定した明示的な `macro refresh` の開始時だけ実行する。registry の series ID 集合には単調増加する generation を対応付け、store の generation が client より新しければ stale branch として refresh を拒否する。membership digestとgenerationの更新手順は[運用手順](../../batch/OPERATIONS.md#macro観測とregistryの修正)を正本とする。prune は `BEGIN IMMEDIATE` 内で件数集計から commit までを行い、commit 前の `registry-prune-pending` と commit 後の `registry-prune` を同じ transaction ID で出力する。pending を出力できなければ全削除を rollback し、pending だけが残った実行は未確定として扱う。production の prune 入口はこの service 経路 1 本であり、SQLite への直接 DELETE を別の authorization 機構では包まない。
+registryは系列定義の正本である。通常のopenは現行metadata/aliasesを更新するが、登録外のfacts・metadata・aliasesを削除しない。現行系列を1件以上指定した明示的な`macro refresh`だけが、`BEGIN IMMEDIATE`内で登録外系列の件数集計・prune・generation更新をcommitする。storeが新世代、または同世代でmembershipが異なる場合は拒否する。件数表示はcommit後の補助であり、表示失敗でDB更新を取り消さない。変更・反映・復旧の順序は[運用手順](../../batch/OPERATIONS.md#macro観測とregistryの修正)を参照する。
 
-generationはrefresh時にstoreへ保存される。mainより新しいgenerationをcloudへ置くと、日次batchのrefreshがstale clientとして拒否される。反映順序は[運用手順](../../batch/OPERATIONS.md#macro観測とregistryの修正)に従う。
+
 
 全 provider の observation は insert 前に requested `series_id`・registry の unit・finite・series 固有の `plausible_min` / `plausible_max` を照合する。SQLite の INSERT / UPDATE 境界も unit と band を強制し、`foreign_keys=OFF` の直接writerでもunknown seriesを拒否する。複数行 insert は savepoint 単位で全件成功または全件 rollback するため、cloud merge を含む service 外の writer も部分取り込みや検証迂回を起こせない。store を開くたびに、`schema.sql` が定義する persistent trigger と singleton の registry state を実 store へ完全一致させる。version 番号だけ合う欠落・改変・予期しない追加 trigger や state drift は拒否する。**store は空、直前 schema からの一段移行、現行 schema のいずれかだけを受け付ける**。過去へ戻る通路や複数世代の migration は持たず、schema を進めるときは実在 store に必要な 1 段だけを書く。`jp.foreign_flows` は JPX/J-Quants の raw 値を千円単位のまま保持するので unit は `jpy-thousand` である。band は直近 10 年の実績へ十分な桁余裕を持たせ、長期履歴も全件通るまで拡張した明白な列・桁・単位ずれの検出境界であり、景気急変を異常扱いする前回値ジャンプ判定ではない。band 内に残る scale 変更は source identity / header / metadata の provider 固有検証で守る。BOJ xlsx は値列番号・英語 header・metadata列番号・基準年または単位metadataを組にして検証し、隣列に同じ旧metadataが残っても代用しない。対象期間の date row があるのに選択列の数値が 0 件なら失敗する。1 点でも契約違反なら部分取り込みせず、その series の provider run を failed として残す。
 
@@ -90,17 +88,9 @@ HTTP 429はclient内部の再試行が尽きた後、statusを持たない`Retry
 
 #### 集計式の変更
 
-集計式は最初のcloud push前に確定する。新しい式が値を出さない日には古い式の観測が残り、`--all-history`でも上書きされないため、同じ系列へ2つの定義が混ざり得る。
+新式が値を出さない日に旧式の観測が残り、`--all-history`でも定義が混在し得る。公開済み系列のlocal削除はno-loss mergeで戻るため、[registry修正手順](../../batch/OPERATIONS.md#macro観測とregistryの修正)の退役→cloud反映→新式再導入で切り替える。日次batch待ちや大量の日別retractで代行しない。
 
-cloudへ渡す前なら、localの対象行を削除して全期間を入れ直せる。cloudへ渡した後は、mergeのno-loss契約がlocalで削除した行を戻すため、この方法を使えない。式を変える場合は次の順序を守る。
-
-1. registryから3系列を外し、generationを上げる。
-2. 日次batchがcloud側の旧系列をpruneするまで待つ。
-3. 新しい定義で3系列をregistryへ戻し、入れ直す。
-
-日単位の`retract`は数百日の操作になるため、この移行には使わない。`iv_30d`と`iv_skew`はSQ直後に構造的に数日欠けるので、reading rulesにstaleness overrideを持つ。
-
-欠測率、最長空白、緊急取引証拠金日の2部返しを測定した履歴は[option IV quantiles study](../../reports/studies/2026-07-31-option-iv-quantiles/report.md)に残す。active contractの閾値はstudyで固定せず、reading rulesを正本とする。
+`iv_30d`と`iv_skew`はSQ直後に構造的に数日欠ける。鮮度判定はreading rulesを正本とし、過去studyの実測値を現行閾値として固定しない。
 
 #### 購読窓と緊急取引証拠金日
 
@@ -177,18 +167,7 @@ Baibai Loop の Macro タブは、上から **現在のマクロ局面 → マ�
 
 ## ③ 環境認識：macro context report を publish する
 
-市場局面についての、日付と出所の明確な環境認識は application DB の immutable revision として残す。機械契約は `baibai_engine.macro.context.models.MacroContextDocument`、唯一の書き込み経路は `baibai-engine macro context publish` である。現在の一次情報と機械入力から draft を作る。前回本文と scorecard を参照できる時点は [Macro Context skill](../../.agents/skills/macro-context/SKILL.md) に従う。発行時は `macro context head` が返す ID だけを `--expected-head` に渡す。head が変わっていれば publish 全体が無変更で失敗する。
-
-draft の反復中は `publish --check` で store に触れずに文書契約と publish gate を検証する（compare-and-swap は store が要るため実 publish のみ）。`inputs.indicator_series` は手書きせず、セクション → series の対応を書いた spec から `baibai_engine.macro.context.scaffold_inputs` で生成する — provider・最新観測日・vintage・実効窓を L1 store と reading 計算から導出するので、引用の provenance が常に store と一致する。
-
-```bash
-uv run python -m baibai_engine.macro.context.scaffold_inputs /tmp/spec.yaml --output /tmp/inputs.yaml
-uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml --check
-uv run baibai-engine macro context head
-uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml \
-  --expected-head macro-context-2026-07-01-example
-uv run baibai-engine macro context show --latest --asof 2026-07-19
-```
+環境認識はapplication DBのimmutable revisionとして保存する。機械契約は`MacroContextDocument`、writerは`macro context publish`である。入力生成、前回比較、check、独立review、CAS発行と読戻しは[Macro Context skill](../../.agents/skills/macro-context/SKILL.md#手順)に集約する。
 
 レポートは **1 種類だけ**で、常に下記の深度契約を満たす full 深度で書く。軽い事実確認のための軽量版は持たない（その用途は §② が毎営業日 機械で果たす）。レポートの中心的な価値は **統合**にある: チャネル別の評価を並べるだけでは投資戦略の土台にならないため、複数チャネルを横断する支配的な力（synthesis）・確率付きシナリオ・機械見積りの歪み補正（estimate caveats）・バーゲン地形を、後述の機械契約と publish gate で必須にしている。
 
@@ -234,7 +213,7 @@ force の候補は §② reading の flags・|z| 極値・percentile 端・ト�
 | 入力 | 証拠として示すもの |
 | --- | --- |
 | articles | 実際に確認した外部資料とその公表・取得時点 |
-| indicator_series | 採用した観測source・系列・観測範囲 |
+| indicator_series | Readingが採用した観測source・系列・観測範囲・vintage。PIT系列の公表版と、bulk系列の取得版を区別する |
 | machine_snapshots | 自前commandの出力と対象as-of。外部記事ではない |
 | reading_snapshots | 採用したReadingのas-ofとrules revision |
 
@@ -270,13 +249,11 @@ published revisionの文書内部の整合は読取時にも検証する。変�
 
 ### scenario scorecard：見立てを後から採点できる形で書く
 
-base・bear・bullの主観ウェイトと、機械照合可能な観測条件を組にして記録する。次の評価では条件の成立結果を振り返るが、成立数を予測精度の保証としない。条件の保存形式・件数・期限の検証はmodelが所有する。
+base/bear/bullの主観ウェイトと機械照合可能な観測条件を組にする。条件の保存形式・件数・期限はmodel、実行とsnapshot identityの接続は[Macro Context skill](../../.agents/skills/macro-context/SKILL.md#手順)が所有する。成立数を予測精度の保証にしない。
 
-狙いは予測精度の測定ではなく、**機械照合できる条件でしか書けなくすることでシナリオの記述品質を事前に縛る**ことである。「金融環境が引き締まれば」のような採点不能な条件は書けなくなる。定例が無くても、次のレポートがいつになっても L1 履歴から遡って採点できる。
+観測日はContext as_of翌日からmin(条件期限, 採点asof)まで。最初の成立を`met`、未成立で期限前なら`pending`、期限後なら`not_met`とする。観測0件でも現実装は`not_met / observation=null`となるため、完全な履歴や現実の不成立を証明したとは読まず、採用観測と入力不足を併読する。
 
-scorecardの実行と今回評価への接続は[Macro Context skill](../../.agents/skills/macro-context/SKILL.md)に従う。参照するsnapshotは返されたidentityを用いる。
-
-scorecard はレポート `as_of` の翌日から各条件の期限日までを評価する。期限内の最初の成立を `met`、期限日まで不成立なら `not_met`、期限前なら `pending` とする。読み取りは通常の L1 reader と同じ latest eligible vintage を使い、観測日の上限は条件期限、vintage の上限は採点 `asof` として分離する。provider run の再取得証明や settlement watermark は持たない。JSON は実際に読んだ store path、rules revision、採用観測の unit / vintage / source、結果 digest を含む。
+PITを宣言するproviderだけ採点asofでvintageを制限する。bulkの取得時刻を当時の公表時刻と同一視しない。current registryにない退役系列は採点できない場合があり、保存済みContextの閲覧とは別の制約である。任意の過去時点の完全な遡及再現は保証しない。
 
 ### 監視ポイント
 

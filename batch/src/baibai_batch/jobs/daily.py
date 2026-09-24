@@ -815,7 +815,7 @@ def _execute_daily_batch(
                 ),
                 cwd=root,
                 echo_stdout=False,
-                echo_stdout_prefixes=("registry-prune-pending\t", "registry-prune\t"),
+                echo_stdout_prefixes=("registry-prune\t",),
                 quiet=quiet,
                 step_sink=step_sink,
             )

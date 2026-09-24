@@ -3,8 +3,8 @@ from __future__ import annotations
 import math
 import sqlite3
 import time
-import uuid
 from collections.abc import Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -517,9 +517,7 @@ def _prune_registry_for_refresh(
     conn: sqlite3.Connection,
     definitions: IndicatorDefinitions,
 ) -> None:
-    """Commit explicit registry pruning and report every destructive change."""
-
-    transaction_id = uuid.uuid4().hex
+    """Commit registry pruning before reporting deleted row counts."""
     try:
         conn.execute("BEGIN IMMEDIATE")
         stored_generation = db.registry_generation(conn)
@@ -531,42 +529,29 @@ def _prune_registry_for_refresh(
             )
         unregistered = db.unregistered_series_ids(conn, definitions)
         if unregistered and stored_generation == definitions.generation:
-            # One generation is one membership: changing the canonical series set
-            # requires a new digest and a higher generation. Series the registry
-            # does not name while the generations match therefore means another
-            # working tree wrote its own membership at this generation, and its
-            # facts are not this client's to delete.
+            # A membership change requires a higher generation. Facts written
+            # by another membership at this generation are not ours to delete.
             raise ValueError(
                 "indicator store holds series this registry does not name at the same "
                 f"generation (generation={stored_generation}, "
                 f"unregistered={', '.join(unregistered)}); refusing refresh"
             )
         pruned = db.prune_definitions(conn, definitions)
-        if pruned:
-            pending = "\n".join(
-                f"registry-prune-pending\t{result.series_id}\t"
-                f"observations={result.observation_rows}\t"
-                f"provider_runs={result.provider_run_rows}\t"
-                f"transaction={transaction_id}"
-                for result in pruned
-            )
-            # A durable stdout stream is the prerequisite for commit. Pending
-            # records make a later commit/output failure distinguishable from a
-            # completed prune without adding an audit-history subsystem.
-            print(pending, flush=True)
         conn.commit()
     except BaseException:
         conn.rollback()
         raise
+
     if pruned:
-        committed = "\n".join(
+        message = "\n".join(
             f"registry-prune\t{result.series_id}\t"
             f"observations={result.observation_rows}\t"
-            f"provider_runs={result.provider_run_rows}\t"
-            f"transaction={transaction_id}"
+            f"provider_runs={result.provider_run_rows}"
             for result in pruned
         )
-        print(committed, flush=True)
+        # A reporting failure cannot undo the completed transaction.
+        with suppress(OSError):
+            print(message, flush=True)
 
 
 def _latest_cache_is_fresh(

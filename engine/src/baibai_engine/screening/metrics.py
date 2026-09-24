@@ -1636,7 +1636,7 @@ def _build_financial_snapshot(
     latest = _latest_summary(summaries)
     forecast = _resolve_earnings_forecast(summaries, latest)
     forecast_eps = forecast.eps if forecast is not None else None
-    # 会社予想で純利益>経常なら特別益をほぼ確定する 1 行チェック (税負担が通常正)。
+    # 同じ予想期の純利益>経常利益はdata-quality注記。原因・持続性は一次開示で確認する。
     # 純利益/経常は forecast_eps と同一予想期のペアで ingest 済み・分割不変の絶対額なので、
     # 両方揃うときだけ比較する。flag は warning で per_forward / E[r] / rank を変えない。
     forecast_profit = forecast.profit if forecast is not None else None

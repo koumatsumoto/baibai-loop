@@ -113,6 +113,7 @@ from baibai_engine.macro.indicators.service import (
     IndicatorsService,
     RefreshFailure,
     RefreshSuccess,
+    _prune_registry_for_refresh,
 )
 from baibai_engine.macro.indicators.service import list_series as catalog_list_series
 from baibai_engine.macro.indicators.service import search as catalog_search
@@ -122,6 +123,14 @@ if TYPE_CHECKING:
     # Only the annotation is needed; importing it for real would pull Playwright
     # onto the import path of the whole suite, which the lazy launch avoids.
     from baibai_engine.macro.indicators.providers.browser import BrowserFetcher
+
+
+def _prune_store_rows(database: Path) -> dict[str, tuple[tuple[object, ...], ...]]:
+    with sqlite3.connect(database) as connection:
+        return {
+            table: tuple(sorted(connection.execute(f"SELECT * FROM {table}").fetchall(), key=repr))
+            for table in ("series", "aliases", "observations", "provider_runs", "registry_state")
+        }
 
 
 class IndicatorsDBTests(unittest.TestCase):
@@ -398,7 +407,8 @@ class IndicatorsDBTests(unittest.TestCase):
                 "registry-prune\tjp.cpi.stale\tobservations=1\tprovider_runs=1",
                 stdout.getvalue(),
             )
-            self.assertIn("registry-prune-pending\tjp.cpi.stale", stdout.getvalue())
+            self.assertNotIn("registry-prune-pending", stdout.getvalue())
+            self.assertNotIn("transaction=", stdout.getvalue())
             self.assertEqual(remaining, 0)
 
     def test_refresh_refuses_to_prune_a_membership_written_at_the_same_generation(self) -> None:
@@ -429,6 +439,8 @@ class IndicatorsDBTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "macro.sqlite"
             _write_retired_series(database)
+            open_connection(database).close()
+            before = _prune_store_rows(database)
             conn = sqlite3.connect(database)
             try:
                 conn.execute(
@@ -455,6 +467,7 @@ class IndicatorsDBTests(unittest.TestCase):
                 )
 
             self.assertEqual(_retired_counts(database), (1, 1, 1))
+            self.assertEqual(_prune_store_rows(database), before)
 
     def test_newer_store_registry_generation_rejects_stale_client_refresh(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -485,83 +498,130 @@ class IndicatorsDBTests(unittest.TestCase):
                 ).fetchone()[0]
             self.assertEqual(generation, newer)
 
-    def test_refresh_prune_log_failure_rolls_back_every_retired_row(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
-            _write_retired_series(database)
+    def test_refresh_prune_reporting_failure_keeps_committed_rows(self) -> None:
+        for error_type in (BrokenPipeError, OSError):
+            with self.subTest(error=error_type), tempfile.TemporaryDirectory() as tmp:
+                database = Path(tmp) / "macro.sqlite"
+                _write_retired_series(database)
+                committed: list[bool] = []
 
-            with (
-                patch("builtins.print", side_effect=BrokenPipeError("closed")),
-                self.assertRaisesRegex(BrokenPipeError, "closed"),
-            ):
-                IndicatorsService(database).refresh_series(
-                    ["us.10y"],
-                    start=date(2026, 5, 1),
-                    end=date(2026, 5, 1),
-                )
+                def closed_output(
+                    value: object,
+                    *,
+                    database: Path = database,
+                    committed: list[bool] = committed,
+                    error_type: type[OSError] = error_type,
+                    **kwargs: object,
+                ) -> None:
+                    if not str(value).startswith("registry-prune\t"):
+                        return
+                    self.assertTrue(kwargs["flush"])
+                    self.assertEqual(_retired_counts(database), (0, 0, 0))
+                    with sqlite3.connect(database) as check:
+                        generation = indicators_db.registry_generation(check)
+                    self.assertEqual(generation, load_definitions().generation)
+                    committed.append(True)
+                    raise error_type("closed")
 
-            self.assertEqual(_retired_counts(database), (1, 1, 1))
-
-    def test_refresh_post_commit_log_failure_leaves_pending_audit(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
-            _write_retired_series(database)
-            emitted: list[str] = []
-
-            def _audit_print(value: object, **_: object) -> None:
-                line = str(value)
-                emitted.append(line)
-                if line.startswith("registry-prune\t"):
-                    raise BrokenPipeError("closed after commit")
-
-            with (
-                patch("builtins.print", side_effect=_audit_print),
-                self.assertRaisesRegex(BrokenPipeError, "closed after commit"),
-            ):
-                IndicatorsService(database).refresh_series(
-                    ["us.10y"],
-                    start=date(2026, 5, 1),
-                    end=date(2026, 5, 1),
-                )
-
-            self.assertEqual(_retired_counts(database), (0, 0, 0))
-            self.assertTrue(emitted[0].startswith("registry-prune-pending\t"))
-            self.assertTrue(emitted[1].startswith("registry-prune\t"))
+                with (
+                    patch(
+                        "baibai_engine.macro.indicators.service.print",
+                        side_effect=closed_output,
+                        create=True,
+                    ),
+                    patch(
+                        "baibai_engine.macro.indicators.service.fetch_observations",
+                        return_value=[observation("us.10y", date(2026, 5, 1), 4.39)],
+                    ),
+                ):
+                    IndicatorsService(database).refresh_series(
+                        ["us.10y"], start=date(2026, 5, 1), end=date(2026, 5, 1)
+                    )
+                self.assertEqual(committed, [True])
+                self.assertEqual(_retired_counts(database), (0, 0, 0))
 
     def test_refresh_prune_counts_and_deletes_under_one_writer_lock(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "macro.sqlite"
             _write_retired_series(database)
+            original_prune = indicators_db.prune_definitions
             blocked: list[bool] = []
 
-            def _try_concurrent_write(value: object, **_: object) -> None:
-                if not str(value).startswith("registry-prune-pending\t"):
-                    return
+            def probe() -> None:
                 connection = sqlite3.connect(database, timeout=0)
                 try:
                     with self.assertRaisesRegex(sqlite3.OperationalError, "locked"):
                         connection.execute(
-                            "UPDATE observations SET value = 101 WHERE series_id = 'jp.cpi.stale'"
+                            "UPDATE registry_state SET generation = generation WHERE singleton = 1"
                         )
                     blocked.append(True)
                 finally:
                     connection.close()
 
+            def checked_prune(connection, definitions):
+                probe()
+                result = original_prune(connection, definitions)
+                probe()
+                return result
+
             with (
-                patch("builtins.print", side_effect=_try_concurrent_write),
+                patch(
+                    "baibai_engine.macro.indicators.service.db.prune_definitions",
+                    side_effect=checked_prune,
+                ),
                 patch(
                     "baibai_engine.macro.indicators.service.fetch_observations",
                     return_value=[observation("us.10y", date(2026, 5, 1), 4.39)],
                 ),
             ):
                 IndicatorsService(database).refresh_series(
-                    ["us.10y"],
-                    start=date(2026, 5, 1),
-                    end=date(2026, 5, 1),
+                    ["us.10y"], start=date(2026, 5, 1), end=date(2026, 5, 1)
+                )
+            self.assertEqual(blocked, [True, True])
+            self.assertEqual(_retired_counts(database), (0, 0, 0))
+            with sqlite3.connect(database, timeout=0) as check:
+                check.execute(
+                    "UPDATE registry_state SET generation = generation WHERE singleton = 1"
                 )
 
-            self.assertEqual(blocked, [True])
-            self.assertEqual(_retired_counts(database), (0, 0, 0))
+    def test_refresh_prune_commit_failure_rolls_back_database(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            _write_retired_series(database)
+            connection = open_connection(database)
+            before = _prune_store_rows(database)
+            failing_connection = MagicMock(wraps=connection)
+            failing_connection.commit.side_effect = sqlite3.OperationalError("commit failed")
+            try:
+                with (
+                    patch("baibai_engine.macro.indicators.service.print", create=True) as report,
+                    self.assertRaisesRegex(sqlite3.OperationalError, "commit failed"),
+                ):
+                    _prune_registry_for_refresh(failing_connection, load_definitions())
+                report.assert_not_called()
+            finally:
+                connection.close()
+            self.assertEqual(_prune_store_rows(database), before)
+
+    def test_refresh_without_retired_rows_updates_generation_without_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            definitions = load_definitions()
+            connection = initialize_database(
+                database,
+                definitions=IndicatorDefinitions(
+                    series=definitions.series,
+                    generation=definitions.generation - 1,
+                ),
+            )
+            try:
+                with patch("baibai_engine.macro.indicators.service.print", create=True) as report:
+                    _prune_registry_for_refresh(connection, definitions)
+                report.assert_not_called()
+            finally:
+                connection.close()
+            with sqlite3.connect(database) as check:
+                self.assertEqual(indicators_db.registry_generation(check), definitions.generation)
 
     def test_observations_in_range_returns_latest_vintage_per_observed_date(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

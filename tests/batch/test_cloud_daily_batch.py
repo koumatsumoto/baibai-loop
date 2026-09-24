@@ -476,8 +476,6 @@ def test_daily_batch_always_echoes_registry_prune_audit_lines(
         CommandResult(
             returncode,
             "us.10y\t2026-07-21\t4.2\n"
-            "registry-prune-pending\tretired.series\t"
-            "observations=42\tprovider_runs=3\ttransaction=abc\n"
             "registry-prune\tretired.series\tobservations=42\tprovider_runs=3\n",
             "provider down\n" if returncode else "",
         ),
@@ -491,7 +489,8 @@ def test_daily_batch_always_echoes_registry_prune_audit_lines(
     )
 
     output = capsys.readouterr().out
-    assert "registry-prune-pending\tretired.series" in output
+    assert "registry-prune-pending" not in output
+    assert "transaction=" not in output
     assert "registry-prune\tretired.series\tobservations=42\tprovider_runs=3" in output
     assert "us.10y\t2026-07-21\t4.2" not in output
     assert exit_code == (3 if returncode else 0)

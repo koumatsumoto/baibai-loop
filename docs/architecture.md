@@ -17,7 +17,7 @@ engineはweb・batch・toolsへ依存しない。Webからengineへの入口は`
 
 <a id="four-roles"></a>
 
-機構の役割は、業務の成果を「産む」、誤った出力を「止める」、結果を「測る」、判断材料を「見せる」で説明する。採否は[doctrineの価値基準](./doctrine.md#improvement-value-hierarchy)に従う。この分類を全moduleに定型文として記載する義務は設けない。
+機構の役割は、業務の成果を「産む」、誤った出力を「止める」、結果を「測る」、判断材料を「見せる」で説明する。採否は[開発原則](./doctrine.md#development-investment-policy)に従う。この分類を全moduleに定型文として記載する義務は設けない。
 
 ## 2. 業務と人間gate
 

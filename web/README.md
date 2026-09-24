@@ -19,9 +19,12 @@ materialized JSONとfrontend assetは生成しますが、application DBやdomai
 Python・Node.jsの環境を準備し、repository rootから実行する。環境の前提は[Python foundation](../docs/reference/python-foundation.md)を参照する。
 
 ```bash
-uv sync --frozen --all-groups
-(cd web/frontend && npm ci && npm run build)
-uv run baibai-web serve
+(
+  set -e
+  uv sync --frozen --all-groups
+  (cd web/frontend && npm ci && npm run build)
+  uv run baibai-web serve
+)
 ```
 
 各commandの成功後に次へ進み、`http://127.0.0.1:8712`を開く。local UIはstoreを更新しない。cloudへの反映は[batch運用](../batch/OPERATIONS.md)に従う。

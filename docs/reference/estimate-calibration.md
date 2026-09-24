@@ -156,7 +156,7 @@ forward row は price-only の `price_return` / `status` と、`realized_dividen
 
 `normalized_per_3fy`がcalibrationのsubject mandatory metricではないことは、Candidate Discoveryで未使用という意味ではない。Normalized Earnings Powerのnative eligibility/orderには使い、FV/E[r] estimator入力には使わない。
 
-cache schema versionは互換性を決める入力から導出する（panel / diagnostics / forwardのfield、gate軸、sector-gap軸）。市場storeの`user_version`と同じく自動で進むので、列の形を変えずに観測の範囲だけ広げた変更でも版が動く。手で宣言する識別子は`VALUATION_CALCULATION_REVISION`だけで、式の意味の変更は内容から導けないためそこだけ人が進める。panelは、productionの730日財務入力を変えずに補助履歴から、3 FYのsplit-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少streakと還元変化composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、PIT-TTMの`operating_profit_to_assets`・`operating_margin`・`asset_turnover`を記録する。収益性levelはcalibration専用で、productionのcandidate、E[r]、FV、rank、gateへ渡さない。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化proxyである。`rules_hash`はrules・variant・入力窓・valuation calculation revision・Candidate Discovery method hashを含む。valuationの式・資本分母・価格基準またはCandidate Discoveryのeligibility・order・Nomination union contractが異なるpanelは、method identityとcache schemaの不一致でfail closedにする。
+cache schema versionは互換性を決める入力から導出する（panel / diagnostics / forwardのfield、gate軸、sector-gap軸）。市場storeの`user_version`と同じく自動で進むので、列の形を変えずに観測の範囲だけ広げた変更でも版が動く。手で宣言する識別子は`VALUATION_CALCULATION_REVISION`だけで、式の意味の変更は内容から導けないためそこだけ人が進める。panelは、productionの730日財務入力を変えずに補助履歴から、3 FYのsplit-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少streakと還元変化composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、PIT-TTMの`operating_profit_to_assets`・`operating_margin`・`asset_turnover`を記録する。これらのpanel列と`ProfitabilityLevelSignals`はcalibration専用で、productionへ渡さない。production ReinvestmentはSecurity Analysisから別途収益性を計算し、[native eligibility/order](./screening-runtime.md#candidate-discovery)に使う。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化proxyである。`rules_hash`はrules・variant・入力窓・valuation calculation revision・Candidate Discovery method hashを含む。valuationの式・資本分母・価格基準またはCandidate Discoveryのeligibility・order・Nomination union contractが異なるpanelは、method identityとcache schemaの不一致でfail closedにする。
 
 報告空売り残高の L1 は disclosure date と calculation date を分け、reporter 名tuple、ratio / shares / units、取消、provider row ordinalを保存する。panel の `reported_short_ratio` / `reported_short_breadth` / `reported_short_latest_disclosed_at` は両日が cohort as-of 以下の最新stateだけを集約する。公式 dataset floor から連続coverageを証明できる場合だけ無報告を明示的0とし、plan floor、coverage gap、同率最新stateの競合では該当値をnullにする。0は「0.5%未満または報告不在」であって空売り不存在を意味しない。この軸も calibration annotation 専用である。
 
@@ -177,13 +177,16 @@ productionとproduction-authority calibrationは同じADV-freeな`candidate_disc
 この variant でも各rowの`self_range_observed_sessions`が、その contract の上限へ実際に届いたかを示す。短い履歴をfull-windowとして扱わないための列であり、production self-rangeは750 sessionsのままである。
 
 ```bash
-uv run baibai-engine screening calibration-build \
-  --start 2018-03-01 --end 2019-10-31 \
-  --calibration-dir stores/screening/calibration/variants/pre2019 \
-  --panel-variant pre2019_self_range_375 --force
-uv run baibai-engine screening calibration-evaluate \
-  --calibration-dir stores/screening/calibration/variants/pre2019 \
-  --horizon 1y --horizon 3y --out /tmp/calibration-pre2019.yaml
+(
+  set -e
+  uv run baibai-engine screening calibration-build \
+    --start 2018-03-01 --end 2019-10-31 \
+    --calibration-dir stores/screening/calibration/variants/pre2019 \
+    --panel-variant pre2019_self_range_375 --force
+  uv run baibai-engine screening calibration-evaluate \
+    --calibration-dir stores/screening/calibration/variants/pre2019 \
+    --horizon 1y --horizon 3y --out /tmp/calibration-pre2019.yaml
+)
 ```
 
 ## store の再構築
@@ -201,35 +204,51 @@ uv run baibai-engine screening calibration-build \
 
 ## コマンド
 
-```bash
-uv run baibai-engine screening backfill-master --month-end-from 2022-09-01 --month-end-to 2026-06-30
-uv run baibai-engine screening calibration-build --start 2019-11-01 --end 2026-07-31 --force
-uv run baibai-engine screening calibration-evaluate --out .cache/calibration-eval.yaml
-uv run baibai-engine screening calibration-evaluate \
-  --run-purpose empirical_change_evidence \
-  --required-asof 2021-06-30
+履歴入力が不足する場合だけ、必要な期間でbackfill/buildする。日付は対象scopeへ置き換える。
 
-# 単一approachのeligibility / orderを変更する判断
+```bash
+(
+  set -e
+  uv run baibai-engine screening backfill-master --month-end-from 2022-09-01 --month-end-to 2026-06-30
+  uv run baibai-engine screening calibration-build --start 2019-11-01 --end 2026-07-31 --force
+)
+```
+
+評価は目的に合う1つだけを選ぶ。通常diagnostic:
+
+```bash
+uv run baibai-engine screening calibration-evaluate --out .cache/calibration-eval.yaml
+```
+
+estimator policyの実証:
+
+```bash
+uv run baibai-engine screening calibration-evaluate \
+  --run-purpose empirical_change_evidence --required-asof 2021-06-30
+```
+
+単一Approachのeligibility/orderの実証:
+
+```bash
 uv run baibai-engine screening calibration-evaluate \
   --run-purpose empirical_change_evidence \
   --decision-subject candidate_discovery_approach \
-  --candidate-discovery-approach asset-value \
-  --required-asof 2021-06-30
-
-# Nomination union contractを変更する判断
-uv run baibai-engine screening calibration-evaluate \
-  --run-purpose empirical_change_evidence \
-  --decision-subject candidate_discovery_nomination_union \
-  --required-asof 2021-06-30
+  --candidate-discovery-approach asset-value --required-asof 2021-06-30
 ```
 
-E[r]水準parameterを判断する事前登録済みrunでは`--required-metric er_level_calibration`を追加する。判断面の月次文脈も更新するrunは、同じcommandに`--context-out reports/published/er-level-calibration-latest.yaml`を加える。evidenceが不完全、required cohortが不足、level metricが未解決の場合はcontextを書かずexit 1にする。
+Nomination unionの実証:
 
-保持する診断は、Approach別top20とNomination union全体のoutcome、pure E[r]との重複、価格収束E[r]の相対較正、FY配当を含むtotal-return E[r]の水準較正、approach/reversionのregression診断、cohortのcoverage/integrityである。これらはtrack recordも統計的有意性も証明しない。
+```bash
+uv run baibai-engine screening calibration-evaluate \
+  --run-purpose empirical_change_evidence \
+  --decision-subject candidate_discovery_nomination_union --required-asof 2021-06-30
+```
+
+E[r]水準parameterを判断する事前登録済みrunだけ`--required-metric er_level_calibration`を加える。判断面の月次文脈も更新する場合は、同じ評価へ`--context-out reports/published/er-level-calibration-latest.yaml`を加える。required scope・evidence・level metricが不完全ならcontextを書かずexit 1となる。
 
 ## 改善サイクルの運用契約
 
-改善はself-containedなIssueからPRで進める。価値・採否の方針は[doctrine](../doctrine.md#improvement-value-hierarchy)、作業・提出は[AGENTS](../../AGENTS.md)が所有する。本書は実証的なmethod変更の事前登録・評価・採否を定める。
+改善の採否は[開発原則](../doctrine.md#development-investment-policy)、作業・提出は[AGENTS](../../AGENTS.md)に従う。本節の事前登録・長期比較は経済仮説の優劣を主張する変更に適用する。計算不具合は算術・期間・単位・株式basisの回帰、運用不具合は成功・失敗経路で検証し、文書整理にStudyや本番再生成を要求しない。
 
 ### 改善対象マップ（レバーの所在）
 
@@ -238,7 +257,7 @@ E[r]水準parameterを判断する事前登録済みrunでは`--required-metric 
 | Candidate Discoveryのeligibility・order・depth | `method/screening/rules/`、`screening/rule_config.py`、`screening/discovery/` | Approachとunionの較正リプレイ |
 | Nomination union | 同上 + `engine/src/baibai_engine/screening/discovery/` | 較正リプレイ（Approach別Nomination + union） |
 | 機械 E[r]・FV アンカー | `engine/src/baibai_engine/screening/estimates.py` | 較正リプレイ（er 軸 IC / decile / 予測 vs 実現） |
-| valuation 指標の算出 | metrics 系 + [`valuation-metrics.md`](./valuation-metrics.md) | 較正リプレイ（軸別 IC / coverage） |
+| valuation 指標の算出 | metrics 系 + [`valuation-metrics.md`](./valuation-metrics.md) | 算術・期間・単位・株式basisの回帰。methodの優劣を主張する変更は較正リプレイ |
 | マクロ判断の手順・レンズ | [macro](./macro.md)・skill `macro-context` | 保存した判断と後続の観測の照合 |
 | research の見積り手順 | [`thesis.md`](./thesis.md) + skill `research` | portfolio outcome と長期 horizon calibration |
 | 資本・cap・sizing | [`portfolio-management.md`](../portfolio-management.md) + `position/policy.py` | 保有 outcome |
@@ -248,10 +267,10 @@ Valuation Approachを追加・変更・削除するときは、screening rules�
 
 ### 事前登録と design/confirm
 
-- 採用 judge になる数値基準は**計測を実行する前に** issue または report 冒頭へ書いて commit する（git history が事前登録の正本）。既知の結果がある場合は盲検性の限定を正直に書く。
+- 仮説と採否基準は計測前にIssueまたはreportへ記す。reportはpathとcommit、IssueはURLと比較開始前に記した条件で識別する。既知の結果へ接触済みなら盲検性の限界を明記する。
 - cohort を時間で design / confirm に 2 分割し、**両方で同方向・基準充足のときだけ採用**。片側のみは不確定、両側逆は棄却。grid search（基準を後から動かす網羅探索）をしない。
 
-matched 比較の被覆率・membership 数・集中度など、forward outcome を読まずに計算できる sufficiency は、効果条件を凍結する前に実測する。不足する場合は比較設計を修正し、同じ outcome-free 指標を再測定して、あらかじめ定めた sufficiency floor をすべて満たすまで凍結しない。最終設計の実測値と変更点は事前登録 commit に記録する。この修正 loop は forward outcome を一度でも読んだ後には再開せず、凍結後は outcome を見て条件を調整しない。逐次 study は先行 study の効果結果で後続条件を調整せず、match 被覆不足など outcome-free な実行可能性の欠陥は手法上の教訓として後続設計へ適用できる。
+matched 比較の被覆率・membership 数・集中度など、forward outcome を読まずに計算できる sufficiency は、効果条件を凍結する前に実測する。不足する場合は比較設計を修正し、同じ outcome-free 指標を再測定して、あらかじめ定めた sufficiency floor をすべて満たすまで凍結しない。最終設計の実測値と変更点は同じ事前登録先へ記録する。この修正 loop は forward outcome を一度でも読んだ後には再開せず、凍結後は outcome を見て条件を調整しない。逐次 study は先行 study の効果結果で後続条件を調整せず、match 被覆不足など outcome-free な実行可能性の欠陥は手法上の教訓として後続設計へ適用できる。
 
 - **control cell の判定は「0 許容の全 cell 通過」を既定にしない**（偽陰性へ構造的に偏る）。noise floor（例: trap delta ≤ +2pt）または k-of-n cell 通過と、cell ごとの最小 matched weight を**事前登録で宣言**する。
 - 判定語彙は `negative` / `insufficient` / `adoption_candidate` / `inconclusive` の 4 種。同一仮説の再検定は新 evidence（新規満期 cohort・contract レベルの nomination contract 変更）がある場合に限る。
@@ -287,4 +306,6 @@ Research Set の ticker の research FV と screening FV の bridge は、有効
 
 ### 誠実性の規律
 
-計測の主張と非目標は[doctrineの計測方針](../doctrine.md)に従う。
+較正は3か月以上のhorizonを対象にし、3m/6mはregression alert、1yはleading evidence、3y/5yは実証的method変更のevidenceに使う。詳細な必須条件は本書「Horizonごとのevidence role」に従う。
+
+重複するcohortを独立標本とせず、有意性・統計的優位ではなく効果量とcohort勝率を読む。仮説と採否基準は前記の事前登録・design/confirmで扱い、grid searchをしない。coverage・survivorshipの欠けを開示し、較正結果を累積return・年率・シャープ等の運用実績として掲げない。

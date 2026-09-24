@@ -100,6 +100,4 @@ Macro Context -> Triage・Research・資本判断の補助入力
 | `published_at` | canonical publication timestamp |
 | `occurred_at` | business event timestamp |
 
-provider-native fieldとmigrationしないpersisted legacy keyはstorage contractとして維持できる。
-adapterとread modelはcurrent domain nameへ変換し、legacy nameを新しいdomain-facing surfaceへ
-伝播させない。
+内部の旧名・alias・adapterは原則残さず、caller・model・serializer・CLI・test・active docsを同じ変更で揃える。provider-native fieldと、保存済みjudgmentのidentity・引用・実取引事実は内部互換性と区別し、命名整理で書き換えない。

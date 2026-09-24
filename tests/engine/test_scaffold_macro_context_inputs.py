@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+import pytest
 import yaml
 
 from baibai_engine.macro.context.scaffold_inputs import main as scaffold_main
@@ -167,3 +168,90 @@ def test_scaffold_writes_the_list_to_the_requested_output(tmp_path: Path) -> Non
 
     entries = yaml.safe_load(output.read_text(encoding="utf-8"))
     assert [entry["series_id"] for entry in entries] == ["usd_jpy"]
+
+
+@pytest.mark.parametrize(
+    ("series_id", "expected_vintage"),
+    [
+        ("jp.foreign_flows", "2026-08-29T09:00:00+00:00"),
+        ("us.10y", "2026-09-10T09:00:00+00:00"),
+    ],
+)
+def test_scaffold_cites_the_readers_selected_vintage(
+    tmp_path: Path, capsys, series_id: str, expected_vintage: str
+) -> None:
+    definition = _definition(series_id)
+    database = tmp_path / "macro.sqlite"
+    connection = initialize_database(database)
+    try:
+        insert_observations(
+            connection,
+            [
+                ObservationRecord(
+                    series_id=series_id,
+                    observed_at=date(2026, 8, 23),
+                    value=value,
+                    unit=definition.unit,
+                    source_url=definition.source_url,
+                    vintage_at=vintage,
+                )
+                for value, vintage in (
+                    (4.0, datetime(2026, 8, 29, 9, tzinfo=UTC)),
+                    (4.1, datetime(2026, 9, 10, 9, tzinfo=UTC)),
+                )
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    spec = _write_spec(
+        tmp_path / "spec.yaml",
+        f"asof: 2026-08-31\nsections:\n  確認:\n    - {series_id}\n",
+    )
+    assert scaffold_main([str(spec), "--db", str(database)]) == 0
+    (entry,) = yaml.safe_load(capsys.readouterr().out)
+    assert entry["observation_as_of"] == "2026-08-23"
+    assert entry["published_at"] == expected_vintage
+
+
+@pytest.mark.parametrize("retracted", [False, True])
+def test_scaffold_does_not_cite_ineligible_pit_observations(
+    tmp_path: Path, capsys, retracted: bool
+) -> None:
+    definition = _definition("jp.foreign_flows")
+    database = tmp_path / "macro.sqlite"
+    connection = initialize_database(database)
+    records = [
+        ObservationRecord(
+            series_id=definition.series_id,
+            observed_at=date(2026, 8, 23),
+            value=4.1,
+            unit=definition.unit,
+            source_url=definition.source_url,
+            vintage_at=datetime(2026, 9, 10, 9, tzinfo=UTC),
+        )
+    ]
+    if retracted:
+        records.extend(
+            ObservationRecord(
+                series_id=definition.series_id,
+                observed_at=date(2026, 8, 23),
+                value=4.0,
+                unit=definition.unit,
+                source_url=definition.source_url,
+                vintage_at=datetime(2026, 8, day, 9, tzinfo=UTC),
+                fetch_status=status,
+            )
+            for day, status in ((28, "ok"), (29, "retracted"))
+        )
+    try:
+        insert_observations(connection, records)
+        connection.commit()
+    finally:
+        connection.close()
+    spec = _write_spec(
+        tmp_path / "spec.yaml",
+        "asof: 2026-08-31\nsections:\n  確認:\n    - jp.foreign_flows\n",
+    )
+    assert scaffold_main([str(spec), "--db", str(database)]) == 1
+    assert "no observation at or before asof: jp.foreign_flows" in capsys.readouterr().err

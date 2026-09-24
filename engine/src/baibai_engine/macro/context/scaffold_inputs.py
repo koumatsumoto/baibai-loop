@@ -26,7 +26,6 @@ writes anywhere but the requested output.
 from __future__ import annotations
 
 import argparse
-import sqlite3
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -94,20 +93,6 @@ def _input_id(series_id: str) -> str:
     return "series-" + series_id.replace(".", "-").replace("_", "-")
 
 
-def _latest_ok_vintage(connection: sqlite3.Connection, *, series_id: str, observed_at: date) -> str:
-    row = connection.execute(
-        """
-        SELECT max(vintage_at) FROM observations
-        WHERE series_id = ? AND observed_at = ? AND fetch_status = 'ok'
-        """,
-        (series_id, observed_at.isoformat()),
-    ).fetchone()
-    vintage = row[0]
-    if vintage is None:  # pragma: no cover - the reading already proved an ok observation
-        raise ValueError(f"no ok vintage in the store: {series_id} @ {observed_at}")
-    return str(vintage)
-
-
 def build_indicator_inputs(
     spec: _Spec,
     *,
@@ -131,10 +116,16 @@ def build_indicator_inputs(
     rules = load_reading_rules(rules_path)
     connection = open_read_only_connection(db_path)
     try:
+        connection.execute("BEGIN")
         requested = tuple(by_id[series_id] for series_id in sorted(used_for))
+        reader = build_store_observation_reader(
+            connection,
+            series=requested,
+            vintage_cutoff=spec.asof,
+        )
         snapshot = compute_reading(
             series=requested,
-            reader=build_store_observation_reader(connection, series=requested),
+            reader=reader,
             rules=rules,
             rules_revision=rules_revision(rules_path),
             asof=spec.asof,
@@ -144,6 +135,12 @@ def build_indicator_inputs(
             if reading.observed_at is None:
                 raise ValueError(
                     f"no observation at or before asof: {reading.series_id} @ {spec.asof}"
+                )
+            selected = reader(reading.series_id, reading.observed_at, reading.observed_at)
+            vintage = selected[0].vintage_at if selected else None
+            if vintage is None:
+                raise ValueError(
+                    f"no eligible vintage in the store: {reading.series_id} @ {reading.observed_at}"
                 )
             entries.append(
                 {
@@ -155,11 +152,7 @@ def build_indicator_inputs(
                         f"（観測 {reading.window_observations} 件）/ asof {spec.asof.isoformat()}"
                     ),
                     "observation_as_of": reading.observed_at.isoformat(),
-                    "published_at": _latest_ok_vintage(
-                        connection,
-                        series_id=reading.series_id,
-                        observed_at=reading.observed_at,
-                    ),
+                    "published_at": vintage.isoformat(),
                     "accessed_at": spec.accessed_at.isoformat(),
                     "status": "ok",
                     "used_for": "・".join(used_for[reading.series_id]) + " の fact 根拠",

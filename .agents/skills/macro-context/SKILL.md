@@ -13,17 +13,80 @@ description: 人間の明示的な依頼でfull-depthのMacro Contextを評価�
 
 ## 手順
 
-1. **今回の機械入力を固定する。** 対象as-ofのseries/Readingとmarket snapshotを用意する。追加取得には公開CLIを使い、同期はOps Maintenanceに従う。application DBをpullしない。Reading全体の鮮度・不足・極値を確認し、任意の一系列の不足を全工程の停止理由にしない。必要な機械入力が不正な場合は先に解消する。
+1. **今回の入力を固定する。** 対象as-ofのseries/Reading・market snapshotを用意し、同期はOps Maintenanceに従う。application DBをpullしない。Readingの鮮度・不足・極値を確認し、任意の一系列の不足だけで全工程を止めない。indicator inputは次のspec形式から生成する。
 
-2. **今回の評価を作る。** 前回Contextの本文・確率・scorecard条件や同内容のreportを読まず、今回の一次情報からcore、synthesis、scenario、connectionを作る。判断を支えるsourceと反証を確認し、未確認を補完しない。前回分析に事前接触した場合は、汚染のないsessionへ執筆を引き渡す。
+   ```yaml
+   asof: 2026-07-27
+   sections:
+     金利・金融政策:
+       - us.10y
+     為替:
+       - usd_jpy
+   ```
 
-3. **今回評価の後で過去を照合する。** draftの`macro context publish --check`が通った後だけ、前回Contextと`macro context scorecard`を開く。返されたsnapshot identityを使い、成立結果を`previous_scorecard_review`へ接続する。今回の結論を前回に合わせない。
+   asofと系列は今回の対象に置換する。asofは引用符なしのISO日付。accessed_at省略時は実行時刻になる。specを`/tmp/spec.yaml`へ保存して実行する。
 
-4. **文章を編集して独立reviewを受ける。** [判断文書の編集](../../../docs/reference/judgment-writing.md)に従う。authorと別sessionのreviewerへ固定draftと引用sourceを渡し、入力から判断・要約・connectionまでを確認する。review中はdraftを変えず、結果を受けて修正する。編集前後の意味は原稿差分とsourceで確認し、別のclaim ledger作成を必須にしない。新しいsource・因果・評価を採用した場合は、影響する判断と下流を再確定してreviewする。
+   ```bash
+   uv run python -m baibai_engine.macro.context.scaffold_inputs /tmp/spec.yaml --output /tmp/inputs.yaml
+   ```
 
-5. **review結果を処理する。** 独立reviewは初回を含め最大3巡とし、PASSしたら発行へ進む。原稿やsourceの変更で巡数をリセットしない。3巡目もBLOCKEDなら指摘を修正してpublish checkまで行い、発行せず人間へ上げる。再開は人間のdraft承認または追加reviewの明示指示に従う。
+   出力はdraft全体ではなく`inputs.indicator_series`へ組み込む配列である。他のinputsを消さず、採用観測・版・実効窓を確認する。
 
-6. **発行する。** indicator inputは`baibai_engine.macro.context.scaffold_inputs`で作る。検証は`macro context publish <draft> --check`、発行時は確認した`macro context head`の`context_id`値だけを`--expected-head`へ渡す。cloud反映は[Ops Maintenance](../ops-maintenance/SKILL.md)へ進む。
+2. **前回を読まず今回の評価を作る。** 今回の一次情報からcore/synthesis/scenario/connectionを作る。前回Context本文・確率・scorecard条件・同内容reportには接触しない。事前接触した場合は汚染のないsessionへ執筆を引き渡す。regime_summaryの必須比較fieldは初回checkまで次を使う。
+
+   ```yaml
+   change_since_previous: 今回の独立評価を固定中。前回比較は初回check後に実施する。
+   previous_scorecard_review: 前回scorecardは初回check後に確認する。
+   previous_scorecard_snapshot_id: null
+   ```
+
+   ```bash
+   uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml --check
+   ```
+
+3. **初回check後に前回を比較する。** 実際の前回Contextを確認し、比較対象IDと今回のasofを指定してscorecardを取得する。同じas-ofの別publicationやheadを無条件に前回としない。以下の非秘密ID・日付は直前に確認した実値へ置換し、各commandと同じshell呼出し内で設定する。別の呼出しへ変数が残る前提にしない。
+
+   ```bash
+   previous_context_id='確認済みの前回Context IDに置換'
+   asof='YYYY-MM-DD'
+   uv run baibai-engine macro context scorecard \
+     --context-id "$previous_context_id" --asof "$asof" --format json
+   ```
+
+   応答の`machine_snapshot`全体を`inputs.machine_snapshots`へ組み込み、その`input_id`をregime_summaryの`previous_scorecard_snapshot_id`へ設定する。仮記載は実際の比較結果へ置換して再checkする。未取得を「前回なし」と書かず、採点不能・観測不足も事実どおり記す。今回の結論を前回に合わせない。
+
+4. **文章編集と独立reviewを行う。** [判断文書の編集](../../../docs/reference/judgment-writing.md)に従い、authorと別sessionのreviewerへ固定draftとsourceを渡す。review中はdraftを変えず、指摘後に修正する。新しいsource・因果・評価を採用したら、影響する判断と下流を再確定する。独立reviewは初回を含め最大3巡、原稿変更で巡数をリセットしない。3巡目もBLOCKEDなら修正・checkまで行い、発行せず人間へ上げる。再開は人間のdraft承認または追加review指示に従う。
+
+5. **最終check・発行・読戻しを行う。** 仮記載を残さず、review PASSまたは前項の人間承認後に最終checkする。checkは文書・registry契約の検査で、store/CASとknown reading revisionの検査は実publishで行う。
+
+   ```bash
+   uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml --check && \
+     uv run baibai-engine macro context head
+   ```
+
+   checkとhead取得の成功後、返ったYAMLの`context_id`値だけを`expected_head`へ設定する。既存headがある場合:
+
+   ```bash
+   expected_head='確認済みのhead context_idに置換'
+   uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml \
+     --expected-head "$expected_head"
+   ```
+
+   headがnullの場合だけ引数を省略する。
+
+   ```bash
+   uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml
+   ```
+
+   CAS競合は理由を確認し、expected-headだけ更新して無条件再試行しない。発行結果のIDを`context_id`、対象日を`asof`に設定し、そのexact revisionを確認する。
+
+   ```bash
+   context_id='今回発行したContext IDに置換'
+   asof='YYYY-MM-DD'
+   uv run baibai-engine macro context show --context-id "$context_id" --asof "$asof"
+   ```
+
+   cloud反映は[Ops Maintenance](../ops-maintenance/SKILL.md)へ進む。Contextはapplication DBなので、macro観測storeの`push-macro`だけで反映完了にはならない。
 
 ## 判断の境界
 

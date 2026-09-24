@@ -120,7 +120,6 @@ PBRの普通株自己資本と株式basisは[資本の分母](#51-資本の分�
 
 分割を跨ぐ行では自己株式数も発行済と同じ factor で換算する。片方だけ換算すると差である自己株控除後株式数が壊れる。
 
-EDINET `type=5` CSV から抽出する。raw XBRL 直接 parse は現時点の非スコープとし、EDINET API が返す CSV ZIP を deterministic な中間データとして使う。J-Quants Light の財務サマリーで取れる項目は優先使用し、不足分を EDINET CSV-derived metrics で補完する。
 
 EV がゼロ以下、または EBITDA がゼロ以下の場合、EV/EBITDA は `null` として valuation-reversion から除外する。負の EV は net cash / cash-rich valuation approach で扱うべき balance sheet evidence であり、負の EBITDA は倍率が「低い」ほど割安という解釈が成立しないため。
 
@@ -153,7 +152,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 **EDINET の値は、同じ実体の貸借対照表だと確かめられた行だけ使う。** 抽出器は 1 つの書類を連結・単体のどちらかの基準で読み、screening はその値を短信由来の時価総額・TTM 系列と組み合わせて比率にする。連結財務諸表を持つ会社の書類を単体基準で読むと、比率の分子と分母が別の会社を指す。両側が総資産を持つので照合できる — EDINET の総資産が短信の総資産から 2 倍を超えて外れる行は、EDINET 由来の値（`cash` / `debt` / `net_cash` / `ebitda_ttm` / `fcf_ttm` / `capex_ttm` / `investment_securities` / `edinet_ocf_ttm`）を出さず、`edinet_failure_reasons` に `entity_scale_mismatch` を載せる。
 
-総資産を持たず照合できない行は、連結基準ならそのまま使い、単体基準・基準不明なら使わない。連結基準は照合できた全行が一致する一方、単体基準は 17.6% が桁でずれており、どれがずれているかを他の field では言えない。
+総資産を持たず照合できない行は、連結基準ならそのまま使い、単体基準・基準不明なら使わない。
 
 落とすのは値だけで、`consolidation_basis` と書類の出所は残す。短信由来の指標（PBR・PER・`cash_to_market_cap`・自己資本比率）も残るので、**銘柄は universe に留まり screening され続ける**。必要なEDINET指標を欠くApproachではnominateしないが、他の指標・Approachまで一律に無効にしない。現行Asset Valueの`net_cash_to_market_cap`はanalysis contextであり、eligibility/orderには使わない。
 
@@ -182,8 +181,6 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 `unresolved_split_basis` は無配（`dividend_yield = 0`）とも観測不能（`unavailable`）とも別の状態で、**判断面で読み替えない**。carry 支配型の銘柄でこの値が出たら、短信の配当表へ戻って基準を確認する。
 
 支払ごとの換算は、配当の基準日と corporate action の権利落ち日が 5 日以内に並ぶ年度では行わない。日本の分割は権利落ちが基準日の前営業日、効力発生が基準日の翌日という形が定型で、store は権利落ち日しか持たないため、その配当が調整の前の株数で払われたのか後なのかを言えない。換算した値は、株式基準を持たない配当総額を自己株控除後株式数で割った値と突き合わせ、5% を超えて食い違えば答えない。その株数は提出者自身が EPS を出すのに使った期中平均株式数から 2 倍以上外れていれば per-share の分母に使わない（自己株式数の欄に株数そのものが入る開示があり、時価総額が桁で小さくなる）。
-
-この突き合わせが効く規模は store で測れる。配当総額と `年間 DPS × 自己株控除後株式数` は 79.2% が 1% 以内で一致し（発行済株式数では 30.7%、n=31,826）、残差の 514 行（1.6%）が 0.2〜0.55 倍の帯に固まる。帯の位置は分割比の逆数に並び、分割を跨いだ年度を per-share から合成すると 2〜5 倍ずれることを示す。**総額は円で書かれていて株式基準を持たないので、この帯を作らない。**
 
 `dividend_split_factor` は会計期間に起きた累積 factor で、期間内に何も無ければ `null`。
 - この配当利回りは機械E[r]の将来carry入力である。較正はprice-onlyの価格収束と、実績FY配当を含むtotal returnを分ける。entry時点の利回りを年数按分した値を実現配当としない。詳細は[見積り較正](./estimate-calibration.md)に従う。
@@ -264,10 +261,7 @@ return ではない)。これ以外のコーポレートアクション (合併�
 ### 10.1 Core
 
 - **J-Quants / ClientV2**: 取得の実装は[provider](../../engine/src/baibai_engine/screening/providers/jquants.py)、保存入力は[screening runtime](./screening-runtime.md#market-store-inputs)に従う。取得可能範囲は契約と実際のcoverageで確認する。
-- **EDINET API v2**:
-  - documents list (`type=2`): CSV 取得可能な提出書類の選定
-  - document download (`type=5`): CSV ZIP から EV/EBITDA / Net cash / Asset-backed / FCF 関連項目を抽出
-  - raw XBRL（type=1）の直接parserは現行の取得経路に含めない。
+- **EDINET API v2**: documents listで書類を選び、`type=5` CSV ZIPから本書のEV/EBITDA・Net cash・Asset-backed・FCF項目を抽出する。このvaluation経路にはraw XBRLをfallbackしない。`type=1` raw XBRLを使う[Research facts](../../batch/OPERATIONS.md#edinet-research-facts)は別の抽出経路である。
 - **JPX**:
   - 決算発表予定: 公式 financial-announcement index に掲載された全 cohort Excel の既知日程（file 間で日付が食い違う銘柄は、より current な view を持つ file を採る）
   - 上場会社情報（業種分類、市場区分の補助確認）
@@ -284,13 +278,11 @@ return ではない)。これ以外のコーポレートアクション (合併�
 - `EV/EBITDA` は `ttm_quality_ev_ebitda = exact` かつ EV / EBITDA がどちらも正のときのみ valuation-reversion 判定に使用する
 - 指標をeligibility/orderへ使う条件は各Approachに従う。`asset_backed_ratio`は非金融企業のAsset Valueで使い、E[r]・FV・全銘柄の単一順位やwarningには使わない。TTM品質の注記と、Approachが要求する入力条件を区別する。
 
-## 12. 営業利益相当の fallback
+## 12. 選択利益とTTM営業利益
 
-- 営業利益相当の指標は、選択した会計期間内で次の優先順を使う。
-  - `OperatingProfit`
-  - `OrdinaryProfit`
-  - `Profit`
-- すべて欠損の場合は未評価とする。現行Candidate Discoveryに全銘柄共通の業績悪化gateがあるとは扱わない。
+`FinancialSnapshot.operating_profit`は選択した最新の該当会計期間内で`OperatingProfit`→`OrdinaryProfit`→`Profit`を選ぶ。表示と既存の`operating_profit_yoy`・`operating_profit_loss_narrowing`に使い、全欠損なら未評価とする。sourceと単期・累計の期間を伴う値であり、常に厳密な営業利益とは限らない。
+
+Reinvestmentの`operating_profit_ttm`は営業利益そのもののTTMで、経常・純利益fallbackや単一四半期の単純年率換算で埋めない。営業利益率とoperating return on capital proxyの式・eligibility/orderは[Candidate Discovery](./screening-runtime.md#candidate-discovery)を正本とする。後者を税引後NOPAT・平均投下資本による厳密ROICと呼ばない。calibration専用列とproduction値の区別は[見積り較正](./estimate-calibration.md#methodとcacheの互換性)に従う。
 
 ## 13. 前年同期の決定ロジック
 
