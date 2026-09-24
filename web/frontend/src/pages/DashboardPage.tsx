@@ -47,13 +47,22 @@ const allocationConfig = {
   reserved: { label: '予約', color: 'var(--chart-3)' },
 } satisfies ChartConfig
 
-function PortfolioAllocationCard({ data }: { data: DashboardView }) {
-  const allocation = [
-    { key: 'holdings', name: '保有株式', value: Math.max(data.holdings_market_value_yen ?? 0, 0), fill: 'var(--color-holdings)' },
-    { key: 'available', name: '購入余力', value: Math.max(data.available_cash_yen ?? 0, 0), fill: 'var(--color-available)' },
-    { key: 'reserved', name: '予約', value: Math.max(data.reserved_cash_yen ?? 0, 0), fill: 'var(--color-reserved)' },
-  ]
+export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
+  const {
+    total_capital_yen: total,
+    holdings_market_value_yen: holdingsValue,
+    available_cash_yen: available,
+    reserved_cash_yen: reserved,
+  } = data
+  const allocation = total !== null && holdingsValue !== null && available !== null && reserved !== null
+    ? [
+        { key: 'holdings', name: '保有株式', value: holdingsValue, fill: 'var(--color-holdings)' },
+        { key: 'available', name: '購入余力', value: available, fill: 'var(--color-available)' },
+        { key: 'reserved', name: '予約', value: reserved, fill: 'var(--color-reserved)' },
+      ]
+    : []
   const hasAllocation = allocation.some((item) => item.value > 0)
+  const unvaluedHoldings = data.holdings.filter((holding) => holding.market_value_yen === null)
   // What the capital is split into, and what it has earned so far: the card answers both,
   // because a total says nothing about whether holding it has been worth anything.
   const pnl = totalUnrealizedPnl(data.holdings)
@@ -67,6 +76,14 @@ function PortfolioAllocationCard({ data }: { data: DashboardView }) {
             <CardTitle aria-level={2} className="text-base" role="heading">資産と損益</CardTitle>
             <InfoHint label="資産と損益">{HINT.allocation}</InfoHint>
           </CardHeader>
+          {data.valuation_as_of !== null && (
+            <p className="text-xs text-muted-foreground">株価基準 {data.valuation_as_of.slice(0, 10)}</p>
+          )}
+          {unvaluedHoldings.length > 0 && (
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground" role="status">
+              一部の保有株式が未評価のため、総資産・評価損益・資産配分を表示できません。未評価: {unvaluedHoldings.map((holding) => holding.ticker).join('、')}
+            </p>
+          )}
           <div className="relative mx-auto min-h-[230px] w-full max-w-[360px] flex-1">
             {hasAllocation ? (
               <ChartContainer className="h-full w-full" config={allocationConfig}>
@@ -116,7 +133,9 @@ function PortfolioAllocationCard({ data }: { data: DashboardView }) {
                   <p className="mt-0.5 text-xs text-muted-foreground">{metric.detail}</p>
                 </div>
               </div>
-              <YenAmount className="shrink-0 text-sm font-semibold tracking-tight sm:text-base" sign={metric.sign} tone={metric.tone} value={metric.value} />
+              {metric.value === null && unvaluedHoldings.length > 0 && ['総資産', '保有株式', '評価損益'].includes(metric.label)
+                ? <span className="shrink-0 text-sm font-semibold text-muted-foreground">未評価</span>
+                : <YenAmount className="shrink-0 text-sm font-semibold tracking-tight sm:text-base" sign={metric.sign} tone={metric.tone} value={metric.value} />}
             </div>
           ))}
         </div>
@@ -183,7 +202,7 @@ function PortfolioWarnings({ warnings }: { warnings: WarningView[] }) {
   )
 }
 
-function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnings: WarningView[] }) {
+export function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnings: WarningView[] }) {
   const marketPriceAsOf = useMemo(() => {
     const values = Array.from(new Set(holdings.map((holding) => holding.market_price_as_of)))
     return values.length === 1 ? values[0] : null
@@ -191,15 +210,16 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
   const unrealizedPnl = useMemo(() => totalUnrealizedPnl(holdings), [holdings])
 
   return (
-    // The page header already states the valuation basis. It is repeated here only when
-    // the holdings disagree on it, and then per row rather than as one date.
+    // The asset card states the shared valuation basis. Per-row dates show a mixed basis.
     <SectionCard
       hint={HINT.holdings}
       meta={(
         <div className="flex flex-wrap items-baseline justify-end gap-x-2 text-xs">
           <Badge variant="secondary">{holdings.length} 銘柄</Badge>
           <span className="text-muted-foreground">評価損益 合計</span>
-          <YenAmount className="font-semibold" sign tone="pnl" value={unrealizedPnl.yen} />
+          {unrealizedPnl.yen === null && holdings.some((holding) => holding.market_value_yen === null)
+            ? <span className="font-semibold text-muted-foreground">未評価</span>
+            : <YenAmount className="font-semibold" sign tone="pnl" value={unrealizedPnl.yen} />}
           <PctBadge className="text-xs" tone="pnl" value={unrealizedPnl.pct} />
         </div>
       )}
@@ -232,10 +252,14 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
                 <TableCell className="text-right">
                   <span className="flex items-baseline justify-end gap-2 font-mono text-sm tabular-nums text-muted-foreground"><span className="text-[10px] font-medium">取得</span>{averageCostYen === null ? EMPTY : formatYen(averageCostYen)}</span>
                   <span className="mt-1 flex items-baseline justify-end gap-2 font-mono text-sm font-medium tabular-nums"><span className="text-[10px] font-medium text-muted-foreground">現在</span>{holding.market_price_yen === null ? '未評価' : formatYen(Number(holding.market_price_yen))}</span>
-                  {marketPriceAsOf === null && <AsOfBadge className="mt-1 justify-end" compact value={holding.market_price_as_of} />}
+                  {marketPriceAsOf === null && holding.market_price_as_of !== null && (
+                    <span className="mt-1 flex items-center justify-end gap-1 text-xs text-muted-foreground">株価基準 <time dateTime={holding.market_price_as_of}>{holding.market_price_as_of.slice(0, 10)}</time></span>
+                  )}
                 </TableCell>
                 <TableCell className="text-right">
-                  <YenAmount className="text-sm font-medium" value={holding.market_value_yen} />
+                  {holding.market_value_yen === null
+                    ? <span className="text-sm font-medium text-muted-foreground">未評価</span>
+                    : <YenAmount className="text-sm font-medium" value={holding.market_value_yen} />}
                   <span className="mt-1 flex items-center justify-end gap-2 text-xs">
                     <YenAmount sign tone="pnl" value={holding.unrealized_pnl_yen} />
                     <PctBadge className="text-xs" tone="pnl" value={holding.unrealized_pnl_pct} />

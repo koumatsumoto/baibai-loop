@@ -17,13 +17,13 @@ function Field({ label, value }: { label: string; value: string }) {
   )
 }
 
-// The shell distinguishes the deployed UI build from the newest store-backed data.
-// Store-specific as-of values stay on the pages that consume those stores.
+// The shell distinguishes the deployed UI build from when the serving data was generated.
+// Store-specific as-of values, including market price dates, stay on their pages.
 export function FreshnessMeta({ meta, deployedAt, className }: FreshnessMetaProps) {
   return (
     <div className={cn('flex items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground', className)}>
       <Field label="デプロイ" value={formatJstStamp(deployedAt)} />
-      <Field label="データ更新" value={meta.data_updated_at === null ? '—' : formatJstStamp(meta.data_updated_at)} />
+      <Field label="画面データ生成" value={formatJstStamp(meta.generated_at)} />
     </div>
   )
 }
