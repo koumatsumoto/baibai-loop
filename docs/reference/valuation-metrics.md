@@ -224,10 +224,9 @@ fallback した値も `sector_median_gap` / `sector_median_value` に入るた�
 
 ## 9. 過去自己比較（過去 3 年レンジ）
 
-- **対象**: PER / PBR / P/S / EV-EBITDA
-- **期間**: 直近 750 営業日（≒ 3 年）
-- **パーセンタイル**: 下位 20% / 下位 50% / 上位 50% / 上位 80%
-- **上場 3 年未満**: 上場来レンジで代替（[`./screening-runtime.md`](./screening-runtime.md) 参照）
+対象は`per_forward`・`per_trailing`・`pbr`・`p_s`・`ev_ebitda`。as-of以前の直近750本の価格barを使い、足りなければ利用可能な履歴で計算する。
+
+`self_range_percentile`は保存field名であり、意味は自己レンジ内の位置である。式は`(current - min(history)) / (max(history) - min(history))`。履歴なし／現在値欠測は`null`、履歴の最大値と最小値が同じなら`0.0`とし、0〜1へのclipはしない。観測順位に基づく統計的percentileではない。採用・除外条件は[Candidate Discovery](./screening-runtime.md#candidate-discovery)に従う。
 
 Historical P/S と EV/EBITDA は、各日の raw close を `adjustment_factor` から as-of の株式分割基準へ揃え、最新の自己株式控除後株式数（`latest_shares_ex_treasury`）で時価総額だけを変化させる。P/S は `(historical_asof_basis_close * latest_shares_ex_treasury) / latest_sales_ttm`、EV/EBITDA は `(historical_asof_basis_close * latest_shares_ex_treasury + latest_debt - latest_cash) / latest_ebitda_ttm` とする。現在倍率と history の資本分母を揃えることで、自己株比率ではなく価格変化だけを自己レンジへ反映する。自己株式を含む発行済株式数・自己株式数のいずれかが欠損または破損していれば history は `null` とする。EV がゼロ以下、または EBITDA がゼロ以下の場合も `null` とし、`ttm_quality_ev_ebitda = exact` かつ正の EV/EBITDA だけ mechanical 判定に使う。PBR / PER の history も同じ as-of 株式分割基準の price を使うため、株式分割があっても history は連続になる。
 
@@ -244,17 +243,9 @@ Historical P/S と EV/EBITDA は、各日の raw close を `adjustment_factor` �
 
 ### 9.1 `adjustment_close` の中身（dividend / 配当の扱い）
 
-J-Quants の `AdjustmentClose` は **株式分割・株式併合 (reverse split を含む)** を遡及
-調整した price-only series であり、現金配当の支払いは price には反映しない (total
-return ではない)。これ以外のコーポレートアクション (合併、株式交換、その他の無償交付
-等) はサポート対象外として **公式 docs に明示** されている (J-Quants daily_quotes API
-リファレンス: <https://jpx.gitbook.io/j-quants-ja/api-reference/daily_quotes>)。本システム
-でも screening の割安 percentile 判定は total return に変換せず、`adjustment_close`（price-only）で行う。理由:
+Screeningの自己レンジと騰落率は、[`asof_basis_closes()`](../../engine/src/baibai_engine/market/bars.py)でraw `close`と`adjustment_factor`からas-of基準へ揃えた価格系列を使う。保存済み`adjustment_close`をこの計算経路には使わない。factorは価格日より後・as-of以前のものを適用し、権利落ち日当日のfactorを当日価格へ重ねて掛けない。
 
-- 割安判定の主信号は price に対する valuation（PBR / PER 等の percentile）であり、配当落ちを含めた pure な price 系列で percentile を出すのが一貫する
-- 配当落ち分を加算した擬似 total return を percentile に使うと、高配当銘柄 (鉄鋼 / 銀行 / 商社等) の相対割安度が本来より small に見えるバイアスがかかる
-
-**長期保有では配当を含む総リターンが重要**なため、配当は screen の price percentile ではなく、research の期待利回り見積り（[`./thesis.md`](./thesis.md)）と position の realized yield / calibration（[`./portfolio-ledger.md`](./portfolio-ledger.md)）で織り込む。
+この系列は現金配当を加算しないprice-onlyであり、配当込みのtotal returnとは別である。配当を含む評価との区別は[見積り較正](./estimate-calibration.md)に従う。
 
 ## 10. データソース
 
