@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
+from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.screening.calibration.evidence import (
     CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
     CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
@@ -13,7 +14,6 @@ from baibai_engine.screening.calibration.evidence import (
     effective_required_metrics,
     evaluate_evidence_readiness,
 )
-from baibai_engine.screening.calibration.horizons import add_months_clamped
 
 
 def _scope(
