@@ -26,6 +26,7 @@ function dashboard(overrides: Partial<DashboardView> = {}): DashboardView {
     valuation_as_of: '2026-09-24', valuation_stale: false,
     total_capital_yen: 210_000, holdings_market_value_yen: 110_000,
     available_cash_yen: 100_000, reserved_cash_yen: 0,
+    realized_gross_pnl_yen: 136_100,
     deployed_cost_yen: 100_000, cash_pct: 47.62, reserved_pct: 0,
     deployed_pct: 52.38, holdings: [holding('8255')],
     reservations: [], warnings: [], research_load_errors: [],
@@ -44,6 +45,8 @@ describe('Dashboard valuation display', () => {
     expect(html).toContain('￥210,000')
     expect(html).toContain('￥110,000')
     expect(html).toContain('+￥10,000')
+    expect(html).toMatch(/評価損益[\s\S]*累積確定損益[\s\S]*\+￥136,100/)
+    expect(html).toContain('台帳開始以来の売却損益・税／手数料控除前')
     expect(html).not.toContain('配分データなし')
     expect(html).not.toContain('未評価')
   })
@@ -64,6 +67,7 @@ describe('Dashboard valuation display', () => {
     expect(html).toContain('総資産・評価損益・資産配分を表示できません')
     expect(html).toContain('配分データなし')
     expect(html).toContain('￥3,507,000')
+    expect(html).toContain('+￥136,100')
     expect(html).toContain('￥0')
     expect(html).not.toContain('￥880,000')
     expect(html).not.toContain('株価基準 2026-09-24')
@@ -90,8 +94,17 @@ describe('Dashboard valuation display', () => {
       deployed_pct: 0, cash_pct: 100,
     }))
     expect(html).toContain('￥100,000')
+    expect(html).toContain('+￥136,100')
     expect(html).not.toContain('配分データなし')
     expect(html).not.toContain('未評価')
+  })
+
+  it('shows negative, zero, null, and temporarily absent realized amounts', () => {
+    for (const [value, expected] of [[-3_000, '-￥3,000'], [0, '￥0'], [null, '—'], [undefined, '—']] as const) {
+      const html = render(dashboard({ realized_gross_pnl_yen: value } as DashboardView))
+      expect(html).toContain('累積確定損益')
+      expect(html).toContain(expected)
+    }
   })
 
   it('keeps each holding and its own price date when valuation bases differ', () => {

@@ -5,6 +5,7 @@ import re
 import sqlite3
 from collections.abc import Mapping
 from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -25,6 +26,8 @@ from baibai_engine.macro.indicators.db import (
 )
 from baibai_engine.macro.indicators.definitions import load_definitions
 from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH
+from baibai_engine.position.drafts import apply_draft, build_sell_execution_draft
+from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.screening.run_store import ScreeningRunReader
 from baibai_web import materialize as export_module
 from baibai_web.api.server import create_app
@@ -498,6 +501,16 @@ def test_export_fails_before_writing_when_the_market_store_was_never_hydrated(
 
 def test_exported_views_match_api_responses(app_method_root: Path, tmp_path: Path) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    service = LedgerStoreService(app_method_root / "stores/application/baibai.sqlite")
+    draft = build_sell_execution_draft(
+        service,
+        occurred_at=datetime(2026, 7, 12, 10, tzinfo=JST),
+        ticker="2331",
+        quantity=100,
+        price_yen=Decimal("1100"),
+        decision_reference="position-review-20260711-2331-position-2331",
+    )
+    apply_draft(service, draft, human_confirmed=True)
     output_dir = tmp_path / "export"
 
     assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
@@ -515,6 +528,11 @@ def test_exported_views_match_api_responses(app_method_root: Path, tmp_path: Pat
     assert exported_macro == api_macro
     exported_dashboard = json.loads(
         (output_dir / "views/dashboard.json").read_text(encoding="utf-8")
+    )
+    assert (
+        exported_dashboard["realized_gross_pnl_yen"]
+        == api_dashboard["realized_gross_pnl_yen"]
+        == 6_000
     )
     del exported_dashboard["generated_at"], api_dashboard["generated_at"]
     assert exported_dashboard == api_dashboard

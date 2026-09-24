@@ -479,6 +479,17 @@
           ],
           "title": "Deployed Cost Yen"
         },
+        "realized_gross_pnl_yen": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Realized Gross Pnl Yen"
+        },
         "cash_pct": {
           "anyOf": [
             {
@@ -554,6 +565,7 @@
         "reserved_cash_yen",
         "holdings_market_value_yen",
         "deployed_cost_yen",
+        "realized_gross_pnl_yen",
         "cash_pct",
         "reserved_pct",
         "deployed_pct",

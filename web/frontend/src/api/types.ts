@@ -94,6 +94,7 @@ export interface DashboardView {
   reserved_cash_yen: number | null
   holdings_market_value_yen: number | null
   deployed_cost_yen: number | null
+  realized_gross_pnl_yen: number | null
   cash_pct: number | null
   reserved_pct: number | null
   deployed_pct: number | null

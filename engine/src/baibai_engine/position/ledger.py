@@ -388,6 +388,7 @@ class PortfolioSnapshot:
     confirmed_cost_yen: int
     confirmed_tax_yen: int
     confirmed_cost_tax_yen: int
+    realized_gross_pnl_yen: int
     book_capital_yen: int
     total_capital_yen: int | None
     estimated_exit_tax_rate_bps: int | None
@@ -432,6 +433,7 @@ class ReplayedPortfolioState:
     confirmed_income_yen: int
     confirmed_cost_yen: int
     confirmed_tax_yen: int
+    realized_gross_pnl_yen: int
     active_reservations: dict[str, _Reservation]
     lots: dict[str, list[_Lot]]
     metadata: dict[str, tuple[str, tuple[str, ...]]]
@@ -486,6 +488,7 @@ def replay_events_through(
     """
 
     available_cash = reserved_cash = confirmed_income = confirmed_cost = confirmed_tax = 0
+    realized_gross_pnl = 0
     active: dict[str, _Reservation] = {}
     seen_reservations: set[str] = set()
     seen_order_ids: set[str] = set()
@@ -611,11 +614,13 @@ def replay_events_through(
                     raise PortfolioLedgerError(
                         f"execution quantity must be a multiple of board_lot {board_lot}"
                     )
-                _consume_fifo(lots[event.ticker], event.quantity, event.ticker)
+                consumed_cost = _consume_fifo(lots[event.ticker], event.quantity, event.ticker)
                 seen_executions.add(event.execution_id)
-                available_cash += _yen_notional(
+                proceeds = _yen_notional(
                     event.quantity, event.price_yen, field="sell execution notional"
                 )
+                available_cash += proceeds
+                realized_gross_pnl += proceeds - consumed_cost
             case IncomeEvent():
                 available_cash += event.amount_yen
                 confirmed_income += event.amount_yen
@@ -642,6 +647,7 @@ def replay_events_through(
         confirmed_income_yen=confirmed_income,
         confirmed_cost_yen=confirmed_cost,
         confirmed_tax_yen=confirmed_tax,
+        realized_gross_pnl_yen=realized_gross_pnl,
         active_reservations=active,
         lots=lots,
         metadata=metadata,
@@ -771,6 +777,7 @@ def summarize_portfolio(
         confirmed_cost_yen=state.confirmed_cost_yen,
         confirmed_tax_yen=state.confirmed_tax_yen,
         confirmed_cost_tax_yen=state.confirmed_cost_yen + state.confirmed_tax_yen,
+        realized_gross_pnl_yen=state.realized_gross_pnl_yen,
         book_capital_yen=book_capital,
         total_capital_yen=total_capital,
         estimated_exit_tax_rate_bps=document.estimated_exit_tax_rate_bps,
@@ -796,6 +803,7 @@ def snapshot_to_payload(snapshot: PortfolioSnapshot) -> dict[str, object]:
         "confirmed_cost_yen": snapshot.confirmed_cost_yen,
         "confirmed_tax_yen": snapshot.confirmed_tax_yen,
         "confirmed_cost_tax_yen": snapshot.confirmed_cost_tax_yen,
+        "realized_gross_pnl_yen": snapshot.realized_gross_pnl_yen,
         "book_capital_yen": snapshot.book_capital_yen,
         "total_capital_yen": snapshot.total_capital_yen,
         "estimated_exit_tax_rate_bps": snapshot.estimated_exit_tax_rate_bps,
@@ -888,20 +896,23 @@ def _check_metadata(
         raise PortfolioLedgerError(f"inconsistent sector/common_factors for ticker {ticker}")
 
 
-def _consume_fifo(lots: list[_Lot], quantity: int, ticker: str) -> None:
+def _consume_fifo(lots: list[_Lot], quantity: int, ticker: str) -> int:
     available = sum(lot.quantity for lot in lots)
     if quantity > available:
         raise PortfolioLedgerError(
             f"sell quantity exceeds repository holding for {ticker}: {quantity} > {available}"
         )
     remaining = quantity
+    consumed_cost = Decimal(0)
     while remaining:
         lot = lots[0]
         consumed = min(lot.quantity, remaining)
+        consumed_cost += lot.price_yen * consumed
         lot.quantity -= consumed
         remaining -= consumed
         if lot.quantity == 0:
             lots.pop(0)
+    return _yen_notional(1, consumed_cost, field="sell FIFO cost")
 
 
 def _holding_snapshots(
