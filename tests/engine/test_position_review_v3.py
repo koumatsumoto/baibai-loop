@@ -558,6 +558,45 @@ def test_intraday_fill_must_bridge_quote_and_quantity_dates(tmp_path, factor):
     assert snapshot.total_capital_yen == (1050000 if factor == 1.0 else None)
 
 
+def test_partial_sale_waits_for_session_then_restores_valuation(holding_case):
+    from tests.helpers.screening_sqlite import seed_daily_bars
+
+    from baibai_engine.position.valuation import current_portfolio, holding_quote
+
+    db, market, _ = holding_case
+    service = LedgerStoreService(db)
+    sell = build_sell_execution_draft(
+        service,
+        occurred_at=NOW,
+        ticker="2331",
+        quantity=100,
+        price_yen=Decimal(1000),
+        decision_reference="position-review-test",
+    )
+    apply_draft(service, sell, human_confirmed=True)
+    ledger = service.load()
+    old_quote, confirmed = holding_quote(ledger, ticker="2331", sqlite_path=market, now=NOW)
+    assert old_quote is not None
+    assert old_quote.price_as_of == date(2026, 9, 4)
+    assert not confirmed
+    before = current_portfolio(ledger, sqlite_path=market, now=NOW)
+    assert before.holdings[0].quantity == 100
+    assert before.holdings[0].market_value_yen is None
+    assert before.total_capital_yen is None
+
+    seed_daily_bars(market, [("2331", "2026-09-07", 1000.0, 1.0)])
+    current_quote, confirmed = holding_quote(ledger, ticker="2331", sqlite_path=market, now=NOW)
+    assert current_quote is not None
+    assert current_quote.price_as_of == date(2026, 9, 7)
+    assert confirmed
+    after = current_portfolio(ledger, sqlite_path=market, now=NOW)
+    assert after.holdings[0].quantity == 100
+    assert after.holdings[0].market_value_yen == 100000
+    assert after.total_capital_yen == (
+        after.available_cash_yen + after.reserved_cash_yen + after.holdings_market_value_yen
+    )
+
+
 def test_current_portfolio_leaves_stale_market_quotes_unvalued(holding_case):
     from baibai_engine.position.valuation import current_portfolio
 
