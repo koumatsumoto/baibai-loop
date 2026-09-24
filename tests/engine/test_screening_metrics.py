@@ -45,6 +45,7 @@ from baibai_engine.screening.schema import (
     SecurityMaster,
     TTMQuality,
 )
+from baibai_engine.screening.security_analysis_builder import build_security_analysis_metrics
 
 
 def _daily_bars(code: str, end: date, total_days: int) -> list[JQuantsDailyBar]:
@@ -179,6 +180,116 @@ def _edinet_metric_record(
 
 
 class ScreeningMetricsTests(unittest.TestCase):
+    def test_profit_yoy_uses_same_field_through_analysis(self) -> None:
+        cases = (
+            (
+                "operating",
+                (120, 100, 60),
+                (100, 90, 40),
+                OperatingProfitSource.OPERATING_PROFIT,
+                0.2,
+                False,
+            ),
+            (
+                "ordinary_with_prior_operating",
+                (None, 100, 60),
+                (80, 120, 70),
+                OperatingProfitSource.ORDINARY_PROFIT,
+                -1 / 6,
+                False,
+            ),
+            (
+                "profit_with_prior_operating",
+                (None, None, 60),
+                (100, 90, 40),
+                OperatingProfitSource.PROFIT,
+                0.5,
+                False,
+            ),
+            (
+                "profit_with_prior_ordinary",
+                (None, None, 60),
+                (None, 100, 40),
+                OperatingProfitSource.PROFIT,
+                0.5,
+                False,
+            ),
+            (
+                "ordinary_loss_narrowing",
+                (None, -20, -25),
+                (-10, -30, -35),
+                OperatingProfitSource.ORDINARY_PROFIT,
+                -1 / 3,
+                True,
+            ),
+            (
+                "prior_same_field_zero",
+                (None, 100, 60),
+                (80, 0, 70),
+                OperatingProfitSource.ORDINARY_PROFIT,
+                None,
+                False,
+            ),
+            (
+                "prior_same_field_missing",
+                (None, 100, 60),
+                (80, None, 70),
+                OperatingProfitSource.ORDINARY_PROFIT,
+                None,
+                None,
+            ),
+        )
+        asof = date(2026, 8, 31)
+        for name, current_values, prior_values, source, yoy, narrowing in cases:
+            with self.subTest(name=name):
+                prior = _summary(
+                    "130A",
+                    date(2025, 8, 1),
+                    eps_ttm=None,
+                    fiscal_year_end=date(2026, 3, 31),
+                    period_start=date(2025, 4, 1),
+                    period_end=date(2025, 6, 30),
+                    operating_profit=prior_values[0],
+                    ordinary_profit=prior_values[1],
+                    profit=prior_values[2],
+                )
+                current = _summary(
+                    "130A",
+                    date(2026, 8, 1),
+                    eps_ttm=None,
+                    fiscal_year_end=date(2027, 3, 31),
+                    period_start=date(2026, 4, 1),
+                    period_end=date(2026, 6, 30),
+                    operating_profit=current_values[0],
+                    ordinary_profit=current_values[1],
+                    profit=current_values[2],
+                )
+                result = build_metrics(
+                    asof_date=asof,
+                    securities_by_ticker={"130A": _security()},
+                    bars_by_ticker={"130A": _daily_bars("130A", asof, 60)},
+                    summaries_by_ticker={"130A": [prior, current]},
+                    edinet_by_ticker={},
+                )
+                financial = result.financials["130A"]
+                payload = build_security_analysis_metrics(
+                    financial,
+                    freshness_warning_count=0,
+                    derived=result.derived["130A"],
+                )
+                self.assertIs(financial.operating_profit_source, source)
+                self.assertEqual(
+                    financial.operating_profit,
+                    next(value for value in current_values if value is not None),
+                )
+                for actual in (financial.operating_profit_yoy, payload["operating_profit_yoy"]):
+                    if yoy is None:
+                        self.assertIsNone(actual)
+                    else:
+                        self.assertAlmostEqual(actual, yoy)
+                self.assertIs(financial.operating_profit_loss_narrowing, narrowing)
+                self.assertIs(payload["operating_profit_loss_narrowing"], narrowing)
+
     def test_ttm_matches_leap_year_fiscal_and_half_year_periods(self) -> None:
         rules = load_screening_rules()
         cases = (

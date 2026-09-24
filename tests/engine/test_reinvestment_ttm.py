@@ -167,10 +167,10 @@ def test_new_calculation_has_distinct_production_and_calibration_identity(monkey
     current = production_rules_contract_hash(rules.model_dump_json())
     calibration = rules_content_hash(rules)
     monkeypatch.setattr(
-        metrics, "VALUATION_CALCULATION_REVISION", "actual-ttm-latest-accounting-period-v22"
+        metrics, "VALUATION_CALCULATION_REVISION", "dividend-calendar-fiscal-period-v24"
     )
     monkeypatch.setattr(
-        panel, "VALUATION_CALCULATION_REVISION", "actual-ttm-latest-accounting-period-v22"
+        panel, "VALUATION_CALCULATION_REVISION", "dividend-calendar-fiscal-period-v24"
     )
     assert production_rules_contract_hash(rules.model_dump_json()) != current
     assert rules_content_hash(rules) != calibration
