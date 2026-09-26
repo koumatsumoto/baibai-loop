@@ -44,7 +44,7 @@ R2 lifecycle ruleは`history/candidate-views/`だけに設定する。bucket全�
 
 R2 S3 endpointは`https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`からscriptが組み立てる。credential、password、endpointの実値をGit、issue、logへ書かない。
 
-servingはstore push成功後だけ発行する。失敗した日の表示更新は停止し、`views/meta.json`を最後に発行する。
+servingは各workflowのsource store取得・materializeが成功した後だけ発行する。dailyではstore pushの成功も必要である。前提工程が失敗した場合は表示更新を止め、`views/meta.json`を最後に発行する。
 
 provider secretは`JQUANTS_API_KEY` / `ESTAT_APP_ID` / `EDINET_API_KEY`。`bootstrap-cache`はさらに
 `universe.required_jpx_flags`の4 source（特別注意銘柄 / 整理銘柄 / 取引停止 / 上場廃止警告）の公開URLを要求する。
@@ -113,7 +113,7 @@ with_publication_lease() (
 )
 ```
 
-失敗時もreleaseを試みるため、上の関数内では`set -e`を使わない。release失敗時はhandleを残して原因を確認する。busyならowner・purpose・expiryと該当run/processの生存を確認し、blind retryしない。expired leaseのみ次のacquireが条件付きで引き継ぐ。L1とmachine storeのCAS / receiptは最終整合性境界として残り、Phase 1のservingはGitHub-only writerと`cloud-publish` queue、applicationはlocal正本のownerを維持する。ローカルrunnerも同じCLIを使う。
+失敗時もreleaseを試みるため、上の関数内では`set -e`を使わない。release失敗時はhandleを残して原因を確認する。busyならowner・purpose・expiryと該当run/processの生存を確認し、blind retryしない。expired leaseのみ次のacquireが条件付きで引き継ぐ。L1とmachine storeのCAS / receiptも整合性を検査し、servingはGitHub Actionsだけが書き、applicationはlocalを正本とする。
 
 変更した対象に合う経路だけを実行する。lake所有tableの変更:
 
@@ -633,7 +633,7 @@ storeのmergeでは同日でも別docIDの成否を混同しない。共有docID
 
 ## TradingView Analyst Expectations
 
-`cloud-tradingview-snapshot.yml`が平日15:57 / 18:07 / 20:17 JSTに独立して起動する。GitHub queueによって実開始は遅れ、slot間隔が縮む場合もある。targetは予定時刻ではなくrun開始時のJST当日であり、exact-date masterとTradingViewの両方に同じtarget_dateを渡す。15:30より前の実行はR2やproviderへ接続せず終了する。当日のmasterだけはcalendarを確認して早期取得できる。取得中に日付を跨いだ場合は既存の`skipped_historical_asof`でno-opにする。
+`cloud-tradingview-snapshot.yml`が平日15:57 / 18:07 / 20:17 JSTに独立して起動する。GitHub queueによって実開始は遅れ、slot間隔が縮む場合もある。targetは予定時刻ではなくrun開始時のJST当日であり、exact-date masterとTradingViewの両方に同じtarget_dateを渡す。15:30より前の実行はsetup・lease・pull・hydrate・preflight・master取得・provider接続へ進まない。取得中に日付を跨いだ場合は既存の`skipped_historical_asof`でno-opにする。
 
 最初にfull-universe取得とL1 publishを完了したsnapshotが同日の正本となる。後続slotはL1からhydrateした行数をUniverseと照合し、保存済みならMCP接続前に終了する。失敗時は次slotが最初から取得し直す。TV workflowはremote `market.sqlite`や`machine-manifest.json`を更新せず、L1 releaseだけを永続化する。dailyは独立して実行する。
 
@@ -676,7 +676,10 @@ TradingView stepのsafe failure line、`TradingView progress:` summaryの順に�
 - `secret_persistence`: `tradingview-runtime`のEnvironment secretとwriter tokenの権限・期限を確認する。
 - `provider_all_missing`: coverage不存在と断定せず、provider全体のdegradationの可能性を確認する。
 - `provider_response`: 固定validation reasonを起点に応答契約を調べる。Secret・raw body・symbol一覧をIssueやlogへ転載しない。
-- `timeout`: 最後のphase / chunkとprovider時間を確認する。初回実測なしに30分上限を延長しない。
+- `provider_transport`: 接続・通信の失敗を確認し、provider側の状態と次slotを見て再取得を判断する。
+- `time_guard`: target日がJST当日で15:30以降か確認する。条件を満たさなければ取得せず、過去日を現在値で補完しない。
+- `internal`: safe failure lineと失敗stepを確認し、実装エラーとして原因を調べる。
+- `timeout`: 最後のphase / chunkとprovider時間を確認し、原因確認なしにtimeoutを延長しない。
 - `storage`: calendar / master / schemaとlocal storeの整合を確認し、修復までpublishしない。
 
 
@@ -763,11 +766,7 @@ prefix単位IAMではありません（[Cloudflare公式](https://developers.clo
 
 `READ_ACCESS_TOKEN`はowner passwordとは別に、32 random bytes以上をCSPRNGで生成しbase64url等にします。
 実値と共有URLはpassword manager等の非公開経路だけで扱い、Git、Issue、PR、CI log、artifact、shell引数へ
-残しません。`wrangler.jsonc`はobservabilityとLogpushを明示的に無効化し、既存productionの無効状態を維持します。
-Wrangler 4.136.1では`redact_query_string`が正式に扱えるため、deployment設定へ
-`redact_query_string=true`を固定します。observabilityとLogpushは無効のまま維持します。
-logs/tracesを将来有効化する変更は別の作業とし、その際は非秘密のqueryでredactionを受入確認します。
-実際の共有tokenで試験しません。real-time logの`wrangler tail`、dashboard Live Logs、Tail Worker等は、
+残しません。`wrangler.jsonc`ではobservabilityとLogpushを無効にし、`redact_query_string=true`を設定します。real-time logの`wrangler tail`、dashboard Live Logs、Tail Worker等は、
 共有tokenを使うrequest中に起動・接続しません。
 
 **実行**: 以下はrepository rootから実行し、promptへ値を入力します。`L1_R2_BASE_URL`は実bucketのjurisdictionに合う
