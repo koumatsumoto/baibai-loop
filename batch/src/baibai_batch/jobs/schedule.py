@@ -18,3 +18,27 @@ def batch_target_date(instant: datetime) -> date:
     if fired > instant:
         fired -= timedelta(days=1)
     return fired.astimezone(_JST).date()
+
+
+def resolve_tradingview_target(
+    now: datetime, *, event_name: str, schedule: str
+) -> tuple[date, str, bool, str]:
+    """Resolve the actual JST run day and its scheduled acquisition slot."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("timezone-aware observation clock required")
+    slots = {
+        "57 6 * * 1-5": "slot-1557",
+        "7 9 * * 1-5": "slot-1807",
+        "17 11 * * 1-5": "slot-2017",
+    }
+    if event_name == "schedule":
+        if schedule not in slots:
+            raise ValueError("unknown TradingView schedule")
+        slot = slots[schedule]
+    elif event_name == "workflow_dispatch":
+        slot = "manual"
+    else:
+        raise ValueError("unknown TradingView event")
+    local = now.astimezone(_JST)
+    eligible = local.time() >= time(15, 30)
+    return local.date(), slot, eligible, "" if eligible else "before_close"

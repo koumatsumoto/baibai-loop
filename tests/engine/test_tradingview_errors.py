@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import datetime
 
 import httpx2
 import pytest
@@ -71,6 +72,71 @@ def test_historical_refresh_skips_before_credentials_or_connection(monkeypatch, 
     assert "skipped_historical_asof" in capsys.readouterr().out
     assert cli.main(["refresh", "--asof", "2026-09-23"]) == 1
     assert "category=time_guard" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("state", ["already_saved", "non_trading_day"])
+def test_refresh_noop_preflight_avoids_oauth_and_connection(monkeypatch, capsys, state):
+    class Clock:
+        @staticmethod
+        def now(tz):
+            return datetime(2026, 9, 22, 16, tzinfo=tz)
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("no-op must not read OAuth state or connect")
+
+    monkeypatch.setattr(cli, "datetime", Clock)
+    monkeypatch.setattr(
+        cli, "preflight_snapshot", lambda *_: {"status": state, "snapshot_date": "2026-09-22"}
+    )
+    monkeypatch.setattr(cli.OAuthState, "model_validate_json", forbidden)
+    monkeypatch.setattr(cli, "connect", forbidden)
+    assert cli.main(["refresh", "--asof", "2026-09-22"]) == 0
+    assert state in capsys.readouterr().out
+
+
+def test_refresh_storage_failure_avoids_oauth(monkeypatch, capsys):
+    class Clock:
+        @staticmethod
+        def now(tz):
+            return datetime(2026, 9, 22, 16, tzinfo=tz)
+
+    def broken(*_args):
+        raise SourceDataError("private store content")
+
+    monkeypatch.setattr(cli, "datetime", Clock)
+    monkeypatch.setattr(cli, "preflight_snapshot", broken)
+    monkeypatch.setattr(
+        cli.OAuthState, "model_validate_json", lambda *_: pytest.fail("OAuth must not load")
+    )
+    assert cli.main(["refresh", "--asof", "2026-09-22"]) == 1
+    assert capsys.readouterr().err == "TradingView acquisition failed; category=storage\n"
+
+
+def test_unsaved_business_day_reaches_oauth_and_snapshot(monkeypatch, capsys):
+    class Clock:
+        @staticmethod
+        def now(tz):
+            return datetime(2026, 9, 22, 16, tzinfo=tz)
+
+    calls = []
+    monkeypatch.setattr(cli, "datetime", Clock)
+    monkeypatch.setattr(cli, "preflight_snapshot", lambda *_: None)
+    monkeypatch.setattr(
+        cli.OAuthState,
+        "model_validate_json",
+        lambda _raw: calls.append("oauth") or object(),
+    )
+
+    async def saved(*_args):
+        calls.append("snapshot")
+        return {"status": "saved"}
+
+    monkeypatch.setattr(cli, "snapshot", saved)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example/repo")
+    monkeypatch.setenv("TRADINGVIEW_SECRET_WRITER_TOKEN", "secret")
+    assert cli.main(["refresh", "--asof", "2026-09-22"]) == 0
+    assert calls == ["oauth", "snapshot"]
+    assert '"status": "saved"' in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(

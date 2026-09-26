@@ -29,7 +29,7 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 | bucket | object | owner |
 | --- | --- | --- |
 | `baibai-stores` | `market.sqlite`（store-local data + `lake_store_origin` metadata） | `cloud-daily-batch` + ローカル`push-market`（cloud copyのmerge後だけupload） |
-| `baibai-stores` | `lake/`（lake所有datasetのcanonical L1） | `cloud-daily-batch`の`publish-lake` + ローカル`r2_transfer.sh publish-lake` |
+| `baibai-stores` | `lake/`（lake所有datasetのcanonical L1） | `cloud-daily-batch`と`cloud-tradingview-snapshot`の`publish-lake` + ローカル`r2_transfer.sh publish-lake` |
 | `baibai-stores` | `runs.sqlite` | `cloud-daily-batch` + 明示的なローカルdailyの`push-machine` |
 | `baibai-stores` | `macro.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-macro`（全履歴。cloud copyのmerge後だけupload） |
 | `baibai-stores` | `baibai.sqlite` | ローカル`publish.sh`（replica） |
@@ -46,7 +46,7 @@ serving と Worker の境界:
   bucket-scoped Object Read only S3 credentialで取得し、store snapshotや任意のhistory keyには到達しない。
   応答は`Cache-Control: no-store`で、CORSを有効化しない。
 - Workers Assetsは`web/frontend/dist`を無認証で配信する。bundleは業務データを含まず、実データは認証済みAPIだけから取得する。HTTP navigationはWorkerが認証処理前にHTTPSへredirectし、HTTPS応答はHSTSを持つ。
-- `cloud-materialize`はapplication data、`cloud-daily-batch`は平日夕方の機械工程をpublishする。2 workflowは`cloud-publish`の`queue: max`を共有し、pending writerをFIFOで保持して
+- `cloud-materialize`はapplication data、`cloud-daily-batch`は平日夕方の機械工程、`cloud-tradingview-snapshot`はTradingView L1をpublishする。3 workflowは`cloud-publish`の`queue: max`を共有し、pending writerをFIFOで保持して
   running/uploadを1件に限定する。
 - ローカル`pull`はmachine storeだけを置換し、canonical application DBを上書きしない。ローカル`publish`はSQLite snapshotをstoresへ置き、materializeをdispatchする。
 
@@ -895,7 +895,9 @@ storeのmergeでは同日でも別docIDの成否を混同しない。共有docID
 
 ## TradingView Analyst Expectations
 
-日次batchは当日J-Quants masterの取得後、Lake公開前に`baibai-engine tradingview refresh`を呼ぶ。既存の`cloud-publish`内で直列実行し、失敗は非必須stepとして通知に残す。取得コマンドには暫定30分の上限を設け、終了しなければ30秒後に強制終了する。失敗後も既存Lakeの公開を続ける。上限は全Universeのライブ受入で所要時間を確認して再評価する。workflow全体のwall timeも計測し、取得が上限までかかった場合にも90分以内にLake公開まで終わる余裕があるか確認する。過去日付の手動batchでは、認証情報の読込前に`skipped_historical_asof`として正常終了し、現在値を過去日付へ保存しない。未来日付と引け前の取得は拒否する。
+`cloud-tradingview-snapshot.yml`が平日15:57 / 18:07 / 20:17 JSTに独立して起動する。GitHub queueによって実開始は遅れ、slot間隔が縮む場合もある。targetは予定時刻ではなくrun開始時のJST当日であり、exact-date masterとTradingViewの両方に同じtarget_dateを渡す。15:30より前の実行はR2やproviderへ接続せず終了する。当日のmasterだけはcalendarを確認して早期取得できる。取得中に日付を跨いだ場合は既存の`skipped_historical_asof`でno-opにする。
+
+最初にfull-universe取得とL1 publishを完了したsnapshotが同日の正本となる。後続slotはL1からhydrateした行数をUniverseと照合し、保存済みならMCP接続前に終了する。失敗時は次slotが最初から取得し直す。TV workflowはremote `market.sqlite`や`machine-manifest.json`を更新せず、L1 releaseだけを永続化する。16:43 JSTのdailyは独立して実行する。full-market受入とscanner障害調査の正本は[#1317](https://github.com/koumatsumoto/baibai-loop/issues/1317)とする。
 
 ### 初期設定と認証の復旧
 
@@ -906,18 +908,34 @@ storeのmergeでは同日でも別docIDの成否を混同しない。共有docID
   set -e
   uv run baibai-engine tradingview authorize \
     --state-file "$HOME/.cache/baibai-loop/tradingview/oauth.json"
-  gh secret set TRADINGVIEW_OAUTH_STATE --repo koumatsumoto/baibai-loop \
+  gh secret set TRADINGVIEW_OAUTH_STATE \
+    --repo koumatsumoto/baibai-loop \
+    --env tradingview-runtime \
     < "$HOME/.cache/baibai-loop/tradingview/oauth.json"
 )
 ```
 
-`TRADINGVIEW_SECRET_WRITER_TOKEN`には、このrepositoryだけのSecrets write権限を持つfine-grained PATを設定する。通常の`GITHUB_TOKEN`ではSecret更新を代行しない。更新されたOAuth stateは、データ取得より先に`TRADINGVIEW_OAUTH_STATE`へ保存する。書戻し失敗時は取得を止め、対話認証から復旧する。PATの期限切れもこの失敗として扱う。
+`TRADINGVIEW_OAUTH_STATE`の正本は`tradingview-runtime` environment secretとする。`TRADINGVIEW_SECRET_WRITER_TOKEN`には、このrepositoryの`Environments: Read and write`権限を持つfine-grained PATをrepository secretとして設定する。通常の`GITHUB_TOKEN`ではSecret更新を代行しない。更新されたOAuth stateは、データ取得より先にenvironment secretへ保存する。書戻し失敗時は取得を止め、対話認証から復旧する。PATの期限切れもこの失敗として扱う。`tradingview-runtime`にはrequired reviewers、wait timer、deployment approvalを設定しない。このenvironmentはrotating stateをjob開始時に読み込むために使う。
 
 runnerでのOAuth smokeはmain refだけに限定する。確認するときは手動CIの`tradingview_oauth_smoke`を指定する。認証更新・Secret保存・2銘柄取得を行い、snapshotは書かない。前run終了後に新しいrunを開始して、更新stateの再利用を確認する。
 
 ```bash
 gh workflow run ci.yml --ref main -f tradingview_oauth_smoke=true
 ```
+
+repository secretからの切替時は、マージ前に`tradingview-runtime` environmentを作り、protection ruleを付けずにwriter PATを上記権限へ更新する。マージ直後はrepository-level `TRADINGVIEW_OAUTH_STATE`を残したまま上のsmokeを1回実行する。smokeは旧repository secretを読み、期限切れを強制してrefreshし、新stateをenvironment secretへ保存する。成功後に次でenvironment secretの存在を確認する。
+
+```bash
+gh secret list --repo koumatsumoto/baibai-loop --env tradingview-runtime
+```
+
+`TRADINGVIEW_OAUTH_STATE`が存在することを確認した後だけ、旧repository secretを削除する。
+
+```bash
+gh secret delete TRADINGVIEW_OAUTH_STATE --repo koumatsumoto/baibai-loop
+```
+
+この移行にローカルのOAuth fileをseedとして使わない。runner側のstateが既にrotationされている場合がある。
 
 ローカルの認証fileは初期投入用で、runnerが更新した後の最新版ではない。同じstateを複数processで更新したり、古いfileを再投入しない。対話認証による置換も、`cloud-publish`の実行がない時間に行う。
 

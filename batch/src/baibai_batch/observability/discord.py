@@ -340,7 +340,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--notice-path", type=Path, default=None)
     parser.add_argument("--batch-exit-code", type=str, default="")
-    parser.add_argument("--tradingview-outcome", type=str, default="skipped")
     for step in STEP_ORDER:
         parser.add_argument(f"--{step}-outcome", type=str, default="skipped")
     parser.add_argument("--cancelled", type=str, default="false")
@@ -371,9 +370,6 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
     )
     if outcome == OUTCOME_DEGRADED and not failed_step:
         failed_step = sanitize_one_line(notice.get("failed_stage") or "")
-    if outcome == OUTCOME_OK and args.tradingview_outcome == "failure":
-        outcome = OUTCOME_DEGRADED
-        failed_step = "tradingview"
     message = render_message(
         outcome=outcome,
         asof=sanitize_one_line(notice.get("asof") or ""),
@@ -381,8 +377,6 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
         notice=notice,
         url=run_url(env),
     )
-    if args.tradingview_outcome == "failure" and failed_step != "tradingview":
-        message += "\nTradingView: snapshot取得失敗（既存screeningとは独立）"
     print(message, flush=True)
     failure = deliver(
         env.get(WEBHOOK_ENV_VAR, ""), message, timeout=args.timeout, transport=transport

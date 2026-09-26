@@ -419,25 +419,3 @@ def test_main_exits_0_without_a_webhook_and_never_calls_the_transport(
     assert exit_code == 0
     assert transport.calls == []
     assert "not configured" in capsys.readouterr().err
-
-
-def test_tradingview_failure_degrades_notice_without_failing_screening(
-    tmp_path, monkeypatch
-) -> None:
-    exit_code, transport = _run_main(
-        tmp_path, monkeypatch, "--batch-exit-code", "0", "--tradingview-outcome", "failure"
-    )
-    assert exit_code == 0
-    message = json.loads(transport.calls[0][1])["content"]
-    assert "[DEGRADED]" in message
-    assert "tradingview" in message
-
-
-def test_tradingview_failure_remains_visible_with_other_failure(tmp_path, monkeypatch) -> None:
-    exit_code, transport = _run_main(
-        tmp_path, monkeypatch, "--batch-exit-code", "1", "--tradingview-outcome", "failure"
-    )
-    assert exit_code == 0
-    message = json.loads(transport.calls[0][1])["content"]
-    assert "[FAILED]" in message
-    assert "TradingView:" in message

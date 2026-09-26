@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from baibai_engine.market.sqlite import open_connection
+from baibai_engine.market.sqlite import SQLiteSchemaError, open_connection, validate_current_schema
 from baibai_engine.market.universe import (
     ELIGIBLE_MARKETS,
     NON_COMMON_STOCK_SECTORS,
@@ -102,6 +102,51 @@ def validate_time(day: date, now: datetime) -> None:
         )
 
 
+def _snapshot_state(
+    conn: sqlite3.Connection, day: date, *, allow_unmastered_empty: bool = False
+) -> tuple[list[str] | None, dict[str, object] | None]:
+    calendar = conn.execute(
+        "SELECT is_business_day FROM jquants_market_calendar WHERE day=?", (day.isoformat(),)
+    ).fetchone()
+    if calendar is None:
+        raise SourceDataError("Exact-date trading calendar is unavailable")
+    if not calendar[0]:
+        return None, {"status": "non_trading_day", "snapshot_date": day.isoformat()}
+    existing = conn.execute(
+        "SELECT COUNT(*) FROM tradingview_forecast_snapshots WHERE snapshot_date=?",
+        (day.isoformat(),),
+    ).fetchone()[0]
+    # The first early slot can precede the exact-date master fetch. Zero TV rows
+    # cannot be an already-saved snapshot, so the workflow may fetch master next.
+    if existing == 0 and allow_unmastered_empty:
+        return None, None
+    symbols = universe(conn, day)
+    if existing == len(symbols):
+        return symbols, {
+            "status": "already_saved",
+            "snapshot_date": day.isoformat(),
+            "rows": existing,
+        }
+    if existing:
+        raise SourceDataError("Partial TradingView snapshot")
+    return symbols, None
+
+
+def preflight_snapshot(path: Path, day: date) -> dict[str, object] | None:
+    """Check exact-date completeness without creating or changing the market store."""
+    try:
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            conn.execute("PRAGMA query_only = ON")
+            validate_current_schema(conn)
+            _, result = _snapshot_state(conn, day, allow_unmastered_empty=True)
+            return result
+        finally:
+            conn.close()
+    except (sqlite3.Error, SQLiteSchemaError) as exc:
+        raise SourceDataError("Market SQLite is unavailable") from exc
+
+
 async def collect(
     path: Path,
     day: date,
@@ -136,20 +181,10 @@ async def collect(
         return current
 
     try:
-        existing = conn.execute(
-            "SELECT COUNT(*) FROM tradingview_forecast_snapshots WHERE snapshot_date=?",
-            (day.isoformat(),),
-        ).fetchone()[0]
-        if existing:
-            return {"status": "already_saved", "snapshot_date": day.isoformat(), "rows": existing}
-        calendar = conn.execute(
-            "SELECT is_business_day FROM jquants_market_calendar WHERE day=?", (day.isoformat(),)
-        ).fetchone()
-        if calendar is None:
-            raise SourceDataError("Exact-date trading calendar is unavailable")
-        if not calendar[0]:
-            return {"status": "non_trading_day", "snapshot_date": day.isoformat()}
-        symbols = universe(conn, day)
+        symbols, prior = _snapshot_state(conn, day)
+        if prior is not None:
+            return prior
+        assert symbols is not None
         rows: list[dict[str, Any]] = []
         current = CollectionProgress(
             day.isoformat(),
@@ -204,9 +239,11 @@ async def collect(
             "SELECT COUNT(*) FROM tradingview_forecast_snapshots WHERE snapshot_date=?",
             (day.isoformat(),),
         ).fetchone()[0]
-        if existing:
+        if existing == len(symbols):
             conn.rollback()
             return {"status": "already_saved", "snapshot_date": day.isoformat(), "rows": existing}
+        if existing:
+            raise SourceDataError("Partial TradingView snapshot")
         names = [column[0] for column in COLUMNS]
         sql = f"INSERT INTO {TABLE} ({','.join(names)}) VALUES ({','.join('?' for _ in names)})"  # nosec B608
         conn.executemany(

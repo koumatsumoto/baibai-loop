@@ -39,6 +39,7 @@ from .collector import (
     SourceDataError,
     TimeGuardError,
     collect,
+    preflight_snapshot,
     validate_time,
 )
 from .observations import (
@@ -257,6 +258,10 @@ def main(argv: list[str] | None = None, /) -> int:
                 )
                 return 0
             validate_time(day, now)
+            preflight = preflight_snapshot(args.sqlite, day)
+            if preflight is not None:
+                print(json.dumps({**preflight, "oauth_rotations": 0}))
+                return 0
         try:
             state = OAuthState.model_validate_json(os.environ.get("TRADINGVIEW_OAUTH_STATE", ""))
         except ValidationError:

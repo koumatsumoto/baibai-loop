@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +13,7 @@ from typing import cast
 from baibai_engine.foundation.env import load_project_env
 from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH, RUNS_DB_PATH
 from baibai_engine.foundation.time import JST
+from baibai_engine.read_api.market import market_calendar_business_day
 from baibai_engine.screening.calibration.cli import (
     calibration_build_command,
     calibration_evaluate_command,
@@ -844,8 +846,9 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
-        traded = days_with_bars(sqlite_path, unique_dates)
-        non_business = [day for day in unique_dates if day not in traded]
+        historical = [day for day in unique_dates if day < today]
+        traded = days_with_bars(sqlite_path, historical)
+        non_business = [day for day in historical if day not in traded]
         if non_business:
             print(
                 "backfill-master rejects dates the bar store does not show as trading "
@@ -853,6 +856,20 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
+        if today in unique_dates:
+            try:
+                business = market_calendar_business_day(sqlite_path, today)
+            except sqlite3.Error:
+                print("backfill-master: market calendar unavailable", file=sys.stderr)
+                return 1
+            if business is None:
+                print("backfill-master: market calendar coverage unavailable", file=sys.stderr)
+                return 1
+            if not business:
+                print(f"backfill-master {today}: non-business skip")
+                unique_dates.remove(today)
+        if not unique_dates:
+            return 0
         return backfill_master_command(
             asof_dates=unique_dates, providers=providers, sqlite_path=sqlite_path
         )

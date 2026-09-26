@@ -9,7 +9,12 @@ from pathlib import Path
 import pytest
 
 from baibai_engine.market.sqlite import open_connection
-from baibai_engine.market.tradingview.collector import collect, universe
+from baibai_engine.market.tradingview.collector import (
+    SourceDataError,
+    collect,
+    preflight_snapshot,
+    universe,
+)
 from baibai_engine.market.tradingview.observations import COLUMNS, FetchError, normalize_batch
 from baibai_engine.market.universe import UniverseSourceDriftError
 
@@ -71,6 +76,11 @@ def test_full_universe_batches_and_same_day_immutability(tmp_path: Path) -> None
     assert result["status"] == "already_saved"
     assert len(calls) == 2
     assert stored(path) == original
+    assert preflight_snapshot(path, DAY) == {
+        "status": "already_saved",
+        "snapshot_date": DAY.isoformat(),
+        "rows": 51,
+    }
     with sqlite3.connect(path) as conn:
         assert conn.execute(
             "SELECT fetch_status, eps_forecast_next_fy, fetched_at_utc, estimate_currency "
@@ -80,6 +90,40 @@ def test_full_universe_batches_and_same_day_immutability(tmp_path: Path) -> None
             "SELECT fetch_status, recommendation_total FROM tradingview_forecast_snapshots "
             "WHERE ticker='1001'"
         ).fetchone() == ("unresolved", None)
+
+
+def test_preflight_is_read_only_and_rejects_partial_rows(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.sqlite"
+    with pytest.raises(SourceDataError):
+        preflight_snapshot(missing, DAY)
+    assert not missing.exists()
+    path = store(tmp_path / "market.sqlite", 2)
+    assert preflight_snapshot(path, DAY) is None
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "DELETE FROM jquants_master_snapshots WHERE snapshot_date=?", (DAY.isoformat(),)
+        )
+    assert preflight_snapshot(path, DAY) is None  # Early slot fetches master next.
+    with sqlite3.connect(path) as conn:
+        conn.executemany(
+            "INSERT INTO jquants_master_snapshots VALUES (?,?,?,'プライム','機械',1)",
+            [(DAY.isoformat(), str(1000 + i), "IPO") for i in range(2)],
+        )
+
+    async def healthy(symbols):
+        return payload(symbols)
+
+    asyncio.run(collect(path, DAY, healthy, interval=0, clock=lambda: NOW))
+    with sqlite3.connect(path) as conn:
+        conn.execute("DELETE FROM tradingview_forecast_snapshots WHERE ticker='1001'")
+    with pytest.raises(SourceDataError, match="Partial"):
+        preflight_snapshot(path, DAY)
+
+    async def forbidden(_symbols):
+        pytest.fail("partial snapshot must not reach provider")
+
+    with pytest.raises(SourceDataError, match="Partial"):
+        asyncio.run(collect(path, DAY, forbidden, clock=lambda: NOW))
 
 
 @pytest.mark.parametrize("failure", ["429", "all_missing", "malformed", "crash"])

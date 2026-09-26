@@ -1,0 +1,314 @@
+name: cloud-tradingview-snapshot
+run-name: "tradingview ${{ github.event.schedule || 'manual' }}"
+
+on:
+  schedule:
+    - cron: "57 6 * * 1-5"
+    - cron: "7 9 * * 1-5"
+    - cron: "17 11 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-publish
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: tradingview-runtime
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Smoke-check system Python imports
+        id: smoke
+        env:
+          PYTHONPATH: batch/src
+        run: python3 -c "import baibai_batch.jobs.schedule; import baibai_batch.observability.tradingview_discord"
+
+      - name: Resolve actual JST target
+        id: target
+        env:
+          PYTHONPATH: batch/src
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          python3 - <<'PYTARGET'
+          import os
+          from datetime import UTC, datetime, timedelta, timezone
+          from baibai_batch.jobs.schedule import resolve_tradingview_target
+
+          now = datetime.now(UTC)
+          day, slot, eligible, reason = resolve_tradingview_target(
+              now, event_name=os.environ["EVENT_NAME"], schedule=os.environ.get("EVENT_SCHEDULE", "")
+          )
+          jst = now.astimezone(timezone(timedelta(hours=9)))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              for key, value in {
+                  "target_date": day.isoformat(), "slot": slot,
+                  "eligible": str(eligible).lower(), "reason": reason,
+                  "actual_start_utc": now.isoformat(), "actual_start_jst": jst.isoformat(),
+              }.items():
+                  print(f"{key}={value}", file=output)
+          PYTARGET
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        id: setup
+        if: steps.target.outputs.eligible == 'true'
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        id: setup-uv
+        if: steps.target.outputs.eligible == 'true'
+        with:
+          enable-cache: true
+      - name: Sync Python environment
+        id: sync
+        if: steps.target.outputs.eligible == 'true'
+        run: uv sync --locked
+      - name: Provision DuckDB httpfs extension
+        id: duckdb-httpfs
+        if: steps.target.outputs.eligible == 'true'
+        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
+      - name: Pull market store
+        id: pull
+        if: steps.target.outputs.eligible == 'true'
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: batch/scripts/r2_transfer.sh pull-market
+      - name: Hydrate market store
+        id: hydrate
+        if: steps.target.outputs.eligible == 'true'
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: batch/scripts/r2_transfer.sh hydrate-market
+      - name: Check exact-date snapshot
+        id: preflight
+        if: steps.target.outputs.eligible == 'true'
+        env:
+          TARGET_DATE: ${{ steps.target.outputs.target_date }}
+        run: |
+          uv run python - <<'PYPREFLIGHT'
+          import os
+          import sys
+          from datetime import date
+          from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
+          from baibai_engine.market.tradingview.cli import failure_line
+          from baibai_engine.market.tradingview.collector import preflight_snapshot
+
+          try:
+              result = preflight_snapshot(MARKET_DB_PATH, date.fromisoformat(os.environ["TARGET_DATE"]))
+          except Exception as exc:
+              print(failure_line(exc), file=sys.stderr)
+              raise SystemExit(1) from None
+          status = "needs_fetch" if result is None else str(result["status"])
+          rows = 0 if result is None else int(result.get("rows", 0))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"status={status}\nrows={rows}", file=output)
+          PYPREFLIGHT
+      - name: Fetch exact-date J-Quants master
+        id: master
+        if: steps.preflight.outputs.status == 'needs_fetch'
+        env:
+          JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
+          TARGET_DATE: ${{ steps.target.outputs.target_date }}
+        run: uv run baibai-engine screening backfill-master --asof "$TARGET_DATE"
+      - name: Refresh TradingView expectations
+        id: tradingview
+        if: steps.preflight.outputs.status == 'needs_fetch' && steps.master.outcome == 'success'
+        env:
+          TRADINGVIEW_OAUTH_STATE: ${{ secrets.TRADINGVIEW_OAUTH_STATE }}
+          TRADINGVIEW_SECRET_WRITER_TOKEN: ${{ secrets.TRADINGVIEW_SECRET_WRITER_TOKEN }}
+          TARGET_DATE: ${{ steps.target.outputs.target_date }}
+        run: |
+          set -o pipefail
+          progress="$RUNNER_TEMP/tradingview-progress.json"
+          result="$RUNNER_TEMP/tradingview-result.json"
+          stderr="$RUNNER_TEMP/tradingview-stderr.log"
+          set +e
+          timeout --kill-after=30s 30m uv run baibai-engine tradingview refresh \
+            --asof "$TARGET_DATE" --progress-output "$progress" > "$result" 2> >(tee "$stderr" >&2)
+          status=$?
+          set -e
+          if [[ "$status" == 124 || "$status" == 137 ]]; then
+            echo 'TradingView acquisition failed; category=timeout' | tee -a "$stderr" >&2
+          fi
+          set +e
+          python - "$progress" "$result" "$stderr" "$status" <<'PYRESULT'
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          progress, result, stderr = map(Path, sys.argv[1:4])
+          status = int(sys.argv[4])
+          fields = (
+              "snapshot_date", "phase", "expected_universe", "chunks_total", "chunks_completed",
+              "chunk_index", "chunk_size", "columns_count", "interval_seconds", "response_bytes",
+              "provider_elapsed_seconds", "max_chunk_elapsed_seconds", "elapsed_seconds",
+              "first_fetched_at_utc", "last_fetched_at_utc", "oauth_rotations",
+          )
+          try:
+              payload = json.loads(progress.read_text(encoding="utf-8"))
+              if not isinstance(payload, dict):
+                  raise ValueError("invalid progress")
+              safe = {key: payload[key] for key in fields if key in payload
+                      and (payload[key] is None or type(payload[key]) in (str, int, float, bool))}
+              print("TradingView progress: " + json.dumps(safe, sort_keys=True, allow_nan=False))
+          except (OSError, ValueError, UnicodeError):
+              if status != 0:
+                  print("TradingView progress: unavailable")
+          outputs = []
+          if status == 0:
+              try:
+                  lines = [line for line in result.read_text(encoding="utf-8").splitlines() if line.strip()]
+                  report = json.loads(lines[-1])
+                  value = report.get("status") if isinstance(report, dict) else None
+                  if type(value) is not str or value not in {
+                      "saved", "already_saved", "non_trading_day", "skipped_historical_asof"
+                  }:
+                      raise ValueError("invalid TradingView status")
+                  outputs.append("status=" + value)
+              except (OSError, ValueError, UnicodeError, IndexError):
+                  print("TradingView acquisition failed; category=internal", file=sys.stderr)
+                  status = 1
+          if status != 0:
+              try:
+                  safe_stderr = stderr.read_text(encoding="utf-8")
+              except (OSError, UnicodeError):
+                  safe_stderr = ""
+              match = re.search(r"TradingView acquisition failed; category=([a-z_]+)", safe_stderr)
+              categories = {
+                  "secret_persistence", "auth", "time_guard", "storage", "provider_all_missing",
+                  "provider_rate_limit", "provider_response", "provider_transport", "internal", "timeout",
+              }
+              category = (
+                  "timeout" if status in (124, 137) else
+                  match.group(1) if match and match.group(1) in categories else "internal"
+              )
+              outputs.extend(("status=failure", "failure_category=" + category))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print("\n".join(outputs), file=output)
+          if int(sys.argv[4]) == 0 and status != 0:
+              raise SystemExit(1)
+          PYRESULT
+          parser_status=$?
+          set -e
+          if [[ "$status" == 0 ]]; then
+            status=$parser_status
+          fi
+          exit "$status"
+      - name: Publish the L1 release
+        id: publish-lake
+        if: steps.tradingview.outputs.status == 'saved'
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -o pipefail
+          batch/scripts/r2_transfer.sh publish-lake | tee "$RUNNER_TEMP/tradingview-lake-publish.log"
+      - name: Record cancellation
+        id: cancellation
+        if: ${{ cancelled() }}
+        run: echo "cancelled=true" >> "$GITHUB_OUTPUT"
+      - name: Summarize snapshot
+        id: summary
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          TARGET_DATE: ${{ steps.target.outputs.target_date }}
+          SLOT: ${{ steps.target.outputs.slot }}
+          ACTUAL_START_JST: ${{ steps.target.outputs.actual_start_jst }}
+          ACTUAL_START_UTC: ${{ steps.target.outputs.actual_start_utc }}
+          ELIGIBLE: ${{ steps.target.outputs.eligible }}
+          REASON: ${{ steps.target.outputs.reason }}
+          PREFLIGHT: ${{ steps.preflight.outputs.status }}
+          MASTER: ${{ steps.master.outcome }}
+          TRADINGVIEW: ${{ steps.tradingview.outputs.status }}
+          FAILURE_CATEGORY: ${{ steps.tradingview.outputs.failure_category }}
+          PUBLISH_LAKE: ${{ steps.publish-lake.outcome }}
+        run: |
+          python3 - <<'PYSUMMARY'
+          import json
+          import os
+          from pathlib import Path
+
+          temp = Path(os.environ["RUNNER_TEMP"])
+          def report(name):
+              try:
+                  lines = (temp / name).read_text(encoding="utf-8").splitlines()
+              except (OSError, UnicodeError):
+                  return {}
+              for line in reversed(lines):
+                  try:
+                      value = json.loads(line)
+                  except ValueError:
+                      continue
+                  if isinstance(value, dict):
+                      return value
+              return {}
+
+          progress = report("tradingview-progress.json")
+          release = report("tradingview-lake-publish.log")
+          values = {
+              "target_date": os.environ.get("TARGET_DATE"), "slot": os.environ.get("SLOT"),
+              "actual_start_jst": os.environ.get("ACTUAL_START_JST"),
+              "actual_start_utc": os.environ.get("ACTUAL_START_UTC"),
+              "eligible": os.environ.get("ELIGIBLE"), "reason": os.environ.get("REASON"),
+              "preflight_status": os.environ.get("PREFLIGHT"), "master_outcome": os.environ.get("MASTER"),
+              "tradingview_status": os.environ.get("TRADINGVIEW"),
+              "failure_category": os.environ.get("FAILURE_CATEGORY"),
+              "chunks_completed": progress.get("chunks_completed"), "chunks_total": progress.get("chunks_total"),
+              "failed_chunk": progress.get("chunk_index"), "response_bytes": progress.get("response_bytes"),
+              "provider_elapsed_seconds": progress.get("provider_elapsed_seconds"),
+              "max_chunk_elapsed_seconds": progress.get("max_chunk_elapsed_seconds"),
+              "oauth_rotations": progress.get("oauth_rotations"),
+              "publish_lake_outcome": os.environ.get("PUBLISH_LAKE"),
+              "release_id": release.get("release_id"),
+              "release_manifest_sha256": release.get("release_manifest_sha256"),
+              "uploaded_objects": release.get("uploaded_objects"),
+              "uploaded_bytes": release.get("uploaded_bytes"),
+              "changed_partitions": release.get("changed_partitions"),
+          }
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
+              print("| Field | Value |\n| --- | --- |", file=output)
+              for key, value in values.items():
+                  safe = str("unavailable" if value is None or value == "" else value)
+                  safe = safe.replace("|", "").replace("\n", " ")
+                  print(f"| {key} | {safe} |", file=output)
+          PYSUMMARY
+      - name: Notify Discord
+        id: notify
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          PYTHONPATH: batch/src
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python3 -m baibai_batch.observability.tradingview_discord \
+            --asof "${{ steps.target.outputs.target_date }}" \
+            --eligible "${{ steps.target.outputs.eligible || 'false' }}" \
+            --snapshot-status "${{ steps.tradingview.outputs.status || 'unknown' }}" \
+            --preflight-status "${{ steps.preflight.outputs.status || 'unknown' }}" \
+            --smoke-outcome "${{ steps.smoke.outcome }}" \
+            --target-outcome "${{ steps.target.outcome }}" \
+            --setup-outcome "${{ steps.setup.outcome }}" \
+            --setup-uv-outcome "${{ steps.setup-uv.outcome }}" \
+            --sync-outcome "${{ steps.sync.outcome }}" \
+            --duckdb-httpfs-outcome "${{ steps.duckdb-httpfs.outcome }}" \
+            --pull-outcome "${{ steps.pull.outcome }}" \
+            --hydrate-outcome "${{ steps.hydrate.outcome }}" \
+            --preflight-outcome "${{ steps.preflight.outcome }}" \
+            --master-outcome "${{ steps.master.outcome }}" \
+            --tradingview-outcome "${{ steps.tradingview.outcome }}" \
+            --publish-lake-outcome "${{ steps.publish-lake.outcome }}" \
+            --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"
