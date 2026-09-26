@@ -67,7 +67,7 @@ def test_every_python_gate_shares_the_one_billed_runner() -> None:
     assert isinstance(jobs, dict)
     names = set(_by_name("ci.yml", "quality"))
 
-    assert set(jobs) == {"quality"}
+    assert set(jobs) == {"quality", "tradingview_oauth_smoke"}
     assert {
         "Ruff format",
         "Ruff lint",
@@ -78,6 +78,7 @@ def test_every_python_gate_shares_the_one_billed_runner() -> None:
         "Bandit",
         "Dependency audit",
     } <= names
+    assert not names.intersection(_by_name("ci.yml", "tradingview_oauth_smoke"))
 
 
 def test_ci_pins_the_worker_count_its_runner_measured_fastest() -> None:

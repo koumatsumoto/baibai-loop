@@ -12,6 +12,8 @@ import pytest
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 from baibai_engine.market.tradingview.auth import (
+    RUNTIME_ENVIRONMENT,
+    SECRET_NAME,
     AuthenticationError,
     CredentialStorage,
     OAuthState,
@@ -63,13 +65,26 @@ def test_secret_writer_sends_state_only_on_stdin() -> None:
     with patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0)) as run:
         save_github_secret(state(), repository="owner/repo", writer_token="writer-secret")
     args, kwargs = run.call_args
+    command = args[0]
+    assert Path(command[0]).name == "gh"
+    assert command[1:] == [
+        "secret",
+        "set",
+        SECRET_NAME,
+        "--repo",
+        "owner/repo",
+        "--env",
+        RUNTIME_ENVIRONMENT,
+    ]
     assert "old-access" not in repr(args)
+    assert "old-refresh" not in repr(args)
     assert "writer-secret" not in repr(args)
     assert json.loads(kwargs["input"])["tokens"]["refresh_token"] == "old-refresh"
     assert kwargs["env"]["GH_TOKEN"] == "writer-secret"
+    assert kwargs["capture_output"] is True
 
 
-def test_secret_writer_does_not_disclose_failure_response() -> None:
+def test_secret_writer_does_not_disclose_failure_response(capsys) -> None:
     with (
         patch(
             "subprocess.run",
@@ -79,6 +94,8 @@ def test_secret_writer_does_not_disclose_failure_response() -> None:
     ):
         save_github_secret(state(), repository="owner/repo", writer_token="writer-secret")
     assert "private-token" not in str(error.value)
+    output = capsys.readouterr()
+    assert "private-token" not in output.out + output.err
 
 
 @pytest.mark.parametrize(

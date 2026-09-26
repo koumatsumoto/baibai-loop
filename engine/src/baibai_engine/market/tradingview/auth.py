@@ -1,6 +1,6 @@
 """Official SDK authentication with durable refresh-token rotation.
 
-The whole OAuth state is one GitHub Actions Secret. Persisting a rotation is
+The whole OAuth state is one GitHub Environment Secret. Persisting a rotation is
 part of authentication, before any market observation can be accepted.
 """
 
@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict
 from baibai_engine.foundation.filesystem import write_text_atomic
 
 SECRET_NAME = "TRADINGVIEW_OAUTH_STATE"  # nosec B105 - GitHub Secret identifier
+RUNTIME_ENVIRONMENT = "tradingview-runtime"
 
 
 class AuthenticationError(RuntimeError):
@@ -53,7 +54,16 @@ def save_github_secret(state: OAuthState, *, repository: str, writer_token: str)
     # Fixed command, no shell; credentials travel through stdin and env.
     try:
         result = subprocess.run(  # nosec B603
-            [executable, "secret", "set", SECRET_NAME, "--repo", repository],
+            [
+                executable,
+                "secret",
+                "set",
+                SECRET_NAME,
+                "--repo",
+                repository,
+                "--env",
+                RUNTIME_ENVIRONMENT,
+            ],
             input=state.model_dump_json(),
             text=True,
             capture_output=True,

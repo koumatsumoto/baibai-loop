@@ -64,6 +64,26 @@ def test_noop_has_no_transport(monkeypatch, args):
     assert invoke(monkeypatch, *args) == []
 
 
+@pytest.mark.parametrize(
+    "snapshot_status", ["already_saved", "non_trading_day", "skipped_historical_asof"]
+)
+def test_successful_acquisition_noop_status_does_not_notify(monkeypatch, snapshot_status):
+    assert (
+        invoke(
+            monkeypatch,
+            "--eligible",
+            "true",
+            "--preflight-status",
+            "needs_fetch",
+            "--tradingview-outcome",
+            "success",
+            "--snapshot-status",
+            snapshot_status,
+        )
+        == []
+    )
+
+
 def test_delivery_failure_keeps_exit_zero(monkeypatch):
     monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/id/token")
     assert (

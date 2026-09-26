@@ -85,7 +85,7 @@ def main(
     elif (
         (args.eligible == "false" and outcomes["target"] == "success")
         or args.preflight_status in {"already_saved", "non_trading_day"}
-        or args.snapshot_status == "skipped_historical_asof"
+        or args.snapshot_status in {"already_saved", "non_trading_day", "skipped_historical_asof"}
     ):
         return 0
     else:

@@ -908,18 +908,34 @@ storeのmergeでは同日でも別docIDの成否を混同しない。共有docID
   set -e
   uv run baibai-engine tradingview authorize \
     --state-file "$HOME/.cache/baibai-loop/tradingview/oauth.json"
-  gh secret set TRADINGVIEW_OAUTH_STATE --repo koumatsumoto/baibai-loop \
+  gh secret set TRADINGVIEW_OAUTH_STATE \
+    --repo koumatsumoto/baibai-loop \
+    --env tradingview-runtime \
     < "$HOME/.cache/baibai-loop/tradingview/oauth.json"
 )
 ```
 
-`TRADINGVIEW_SECRET_WRITER_TOKEN`には、このrepositoryだけのSecrets write権限を持つfine-grained PATを設定する。通常の`GITHUB_TOKEN`ではSecret更新を代行しない。更新されたOAuth stateは、データ取得より先に`TRADINGVIEW_OAUTH_STATE`へ保存する。書戻し失敗時は取得を止め、対話認証から復旧する。PATの期限切れもこの失敗として扱う。
+`TRADINGVIEW_OAUTH_STATE`の正本は`tradingview-runtime` environment secretとする。`TRADINGVIEW_SECRET_WRITER_TOKEN`には、このrepositoryの`Environments: Read and write`権限を持つfine-grained PATをrepository secretとして設定する。通常の`GITHUB_TOKEN`ではSecret更新を代行しない。更新されたOAuth stateは、データ取得より先にenvironment secretへ保存する。書戻し失敗時は取得を止め、対話認証から復旧する。PATの期限切れもこの失敗として扱う。`tradingview-runtime`にはrequired reviewers、wait timer、deployment approvalを設定しない。このenvironmentはrotating stateをjob開始時に読み込むために使う。
 
 runnerでのOAuth smokeはmain refだけに限定する。確認するときは手動CIの`tradingview_oauth_smoke`を指定する。認証更新・Secret保存・2銘柄取得を行い、snapshotは書かない。前run終了後に新しいrunを開始して、更新stateの再利用を確認する。
 
 ```bash
 gh workflow run ci.yml --ref main -f tradingview_oauth_smoke=true
 ```
+
+repository secretからの切替時は、マージ前に`tradingview-runtime` environmentを作り、protection ruleを付けずにwriter PATを上記権限へ更新する。マージ直後はrepository-level `TRADINGVIEW_OAUTH_STATE`を残したまま上のsmokeを1回実行する。smokeは旧repository secretを読み、期限切れを強制してrefreshし、新stateをenvironment secretへ保存する。成功後に次でenvironment secretの存在を確認する。
+
+```bash
+gh secret list --repo koumatsumoto/baibai-loop --env tradingview-runtime
+```
+
+`TRADINGVIEW_OAUTH_STATE`が存在することを確認した後だけ、旧repository secretを削除する。
+
+```bash
+gh secret delete TRADINGVIEW_OAUTH_STATE --repo koumatsumoto/baibai-loop
+```
+
+この移行にローカルのOAuth fileをseedとして使わない。runner側のstateが既にrotationされている場合がある。
 
 ローカルの認証fileは初期投入用で、runnerが更新した後の最新版ではない。同じstateを複数processで更新したり、古いfileを再投入しない。対話認証による置換も、`cloud-publish`の実行がない時間に行う。
 
