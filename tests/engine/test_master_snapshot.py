@@ -5,7 +5,7 @@ import io
 import sqlite3
 import tempfile
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -13,8 +13,9 @@ from unittest.mock import patch
 
 from tests.helpers.screening_sqlite import make_master_records
 
+from baibai_engine.foundation.time import JST
 from baibai_engine.market.jquants import JQuantsProviderError
-from baibai_engine.screening.cli import bootstrap_cache_command
+from baibai_engine.screening.cli import backfill_master_command, bootstrap_cache_command
 from baibai_engine.screening.cli.providers import ProviderBundle
 from baibai_engine.screening.master_snapshot import validate_master_snapshot
 from baibai_engine.screening.providers.jquants import JQuantsProvider
@@ -508,6 +509,24 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             self.assertEqual(len(provider.get_eq_master(second)), 2500)
             self.assertEqual(fetch_client.calls, [second.isoformat()])
             self.assertEqual(_snapshot_dates(db), [first.isoformat(), second.isoformat()])
+
+    def test_today_exact_master_is_cache_first_for_backfill_command(self) -> None:
+        today = datetime.now(JST).date()
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_master(db, make_master_records(today), requested_asof=today)
+            client = _MasterClient()
+            provider = JQuantsProvider("token", Path(tmp) / "raw", client=client, sqlite_path=db)
+            output = io.StringIO()
+            result = backfill_master_command(
+                asof_dates=[today],
+                providers=ProviderBundle(jquants=provider, edinet=None, jpx=None),
+                sqlite_path=db,
+                stdout=output,
+            )
+            self.assertEqual(result, 0)
+            self.assertEqual(client.calls, [])
+            self.assertIn(f"{today.isoformat()}: cached", output.getvalue())
 
     def test_provider_future_only_is_miss(self) -> None:
         requested = date(2026, 5, 29)

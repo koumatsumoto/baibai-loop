@@ -29,6 +29,7 @@ from baibai_engine.screening.cli import (
     extract_edinet_metrics_command,
     run_command,
 )
+from baibai_engine.screening.cli import app as screening_app
 from baibai_engine.screening.cli.run import _index_next_earnings
 from baibai_engine.screening.config import ScreeningConfig
 from baibai_engine.screening.edinet_revision import compute_extractor_revision
@@ -1224,6 +1225,67 @@ class ScreeningCliTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertIn("rejects future dates", stderr)
         self.assertIn(future, stderr)
+
+    def test_main_backfill_master_allows_today_before_bars_when_calendar_is_open(self) -> None:
+        today = datetime.now(JST).date()
+        called = []
+        with (
+            patch.object(screening_app, "market_calendar_business_day", return_value=True),
+            patch.object(screening_app, "days_with_bars", return_value=set()),
+            patch.object(
+                screening_app,
+                "backfill_master_command",
+                side_effect=lambda **kwargs: called.append(kwargs["asof_dates"]) or 0,
+            ),
+        ):
+            exit_code, _ = self._backfill_master_main(["--asof", today.isoformat()])
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(called, [[today]])
+
+    def test_main_backfill_master_skips_today_on_closed_market(self) -> None:
+        today = datetime.now(JST).date()
+        with (
+            patch.object(screening_app, "market_calendar_business_day", return_value=False),
+            patch.object(
+                screening_app, "backfill_master_command", side_effect=AssertionError("no provider")
+            ),
+        ):
+            exit_code, _ = self._backfill_master_main(["--asof", today.isoformat()])
+        self.assertEqual(exit_code, 0)
+
+    def test_main_backfill_master_fails_closed_on_missing_or_broken_calendar(self) -> None:
+        today = datetime.now(JST).date()
+        for value in (None, sqlite3.OperationalError("broken")):
+            effect = {"return_value": value} if value is None else {"side_effect": value}
+            with (
+                patch.object(screening_app, "market_calendar_business_day", **effect),
+                patch.object(
+                    screening_app,
+                    "backfill_master_command",
+                    side_effect=AssertionError("no provider"),
+                ),
+            ):
+                exit_code, _ = self._backfill_master_main(["--asof", today.isoformat()])
+            self.assertEqual(exit_code, 1)
+
+    def test_main_backfill_master_mixed_dates_skip_only_closed_today(self) -> None:
+        today = datetime.now(JST).date()
+        historical = date(2026, 9, 18)
+        called = []
+        with (
+            patch.object(screening_app, "market_calendar_business_day", return_value=False),
+            patch.object(screening_app, "days_with_bars", return_value={historical}),
+            patch.object(
+                screening_app,
+                "backfill_master_command",
+                side_effect=lambda **kwargs: called.append(kwargs["asof_dates"]) or 0,
+            ),
+        ):
+            exit_code, _ = self._backfill_master_main(
+                ["--asof", historical.isoformat(), "--asof", today.isoformat()]
+            )
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(called, [[historical]])
 
     def test_main_backfill_master_rejects_a_date_the_bar_store_never_priced(self) -> None:
         # 非営業日の断面も存在しない。bar store が市場の実績を持つ唯一の証拠。
