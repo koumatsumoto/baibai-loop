@@ -262,28 +262,43 @@ uv run baibai-engine screening ticker-profile --ticker TICKER
 
 変更codeをmainへ反映し、対象storeと変更内容を確認する。marketはlake所有tableを編集する前に現行releaseへhydrateする。変更後の再hydrateはlocal変更を上書きするため行わない。
 
+GitHubの`cloud-publish` queueはGitHub内の順序だけを守る。GitHubとローカルの共通発行にはR2の`coordination/publication-lease.json`を使う。TTLは固定120分。`publish-lake` / `push-machine` / `push-market` / `push-macro`をローカルから行う際は、長い取得・準備を済ませてから、production read / merge / publishを次の同一lease内で実行する。`r2_transfer.sh`の低レベルcommandはleaseを暗黙取得しない。`push-app`、`publish.sh`、初回`seed-all`は対象外。
+
+```bash
+with_publication_lease() (
+  handle="$(mktemp "${TMPDIR:-/tmp}/baibai-publication-lease.XXXXXX.json")"
+  rm -f "$handle"
+  uv run python -m baibai_batch.storage.publication_lease acquire --purpose operator --handle "$handle" || return $?
+  if "$@"; then result=0; else result=$?; fi
+  uv run python -m baibai_batch.storage.publication_lease release --handle "$handle" || return $?
+  return "$result"
+)
+```
+
+失敗時もreleaseを試みるため、上の関数内では`set -e`を使わない。release失敗時はhandleを残して原因を確認する。busyならowner・purpose・expiryと該当run/processの生存を確認し、blind retryしない。expired leaseのみ次のacquireが条件付きで引き継ぐ。L1とmachine storeのCAS / receiptは最終整合性境界として残り、Phase 1のservingはGitHub-only writerと`cloud-publish` queue、applicationはlocal正本のownerを維持する。ローカルrunnerも同じCLIを使う。
+
 変更した対象に合う経路だけを実行する。lake所有tableの変更:
 
 ```bash
-batch/scripts/r2_transfer.sh publish-lake && batch/scripts/r2_transfer.sh push-market
+with_publication_lease bash -c 'batch/scripts/r2_transfer.sh publish-lake && batch/scripts/r2_transfer.sh push-market'
 ```
 
 marketのstore-local tableだけの変更:
 
 ```bash
-batch/scripts/r2_transfer.sh push-market
+with_publication_lease batch/scripts/r2_transfer.sh push-market
 ```
 
 macroだけの変更:
 
 ```bash
-batch/scripts/r2_transfer.sh push-macro
+with_publication_lease batch/scripts/r2_transfer.sh push-macro
 ```
 
 直前に`pull.sh`した3 storeでlocal daily全体を実行した場合は、上の単独pushではなく同じbundleを反映する。
 
 ```bash
-batch/scripts/r2_transfer.sh publish-lake && batch/scripts/r2_transfer.sh push-machine
+with_publication_lease bash -c 'batch/scripts/r2_transfer.sh publish-lake && batch/scripts/r2_transfer.sh push-machine'
 ```
 
 単独pushはcloudの全行を包含したmerge、bundle pushはpull時点の全ETag一致とCAS uploadの成功を確認する。選んだpushが成功し、表示更新も必要な場合だけ実行する。
@@ -293,6 +308,8 @@ gh workflow run cloud-materialize.yml --ref main
 ```
 
 対象runの完了を[監視手順](#長時間処理の監視)で確認する。merge・origin・schema・CASの失敗では公開へ進まず、[R2安全境界](#r2-transferの安全境界)に従って原因とcloud copyを確認する。local dailyの3 storeを個別pullや無条件uploadで組み替えない。
+
+leaseがmalformedなら自動修復しない。GitHubの`cloud-publish` writerにrunning/pendingがなく、ローカル発行processも動いていないことを確認し、固定key`coordination/publication-lease.json`だけをローカルへ取得して原因を調べる。人間がactive writerなしと確認した場合に限り、そのexact key 1個だけをR2から削除する。次のacquireが`If-None-Match: *`で再作成する。通常運用でprefix削除や手書きJSON上書きはしない。
 
 ### application DB を反映する
 
@@ -518,11 +535,12 @@ cleanであること、storeの`lake_store_origin`が開始時current pointerと
 **実行**:
 
 経路は日次と同じ1つで、毎回全partitionを導出し、serving releaseからorigin束縛と履歴の床だけを読む。
+[ローカル発行手順](#ローカルからクラウドを更新する)の`with_publication_lease`を同じshellで定義してから実行する。
 
 ```bash
 (
   set -e
-  batch/scripts/r2_transfer.sh publish-lake
+  with_publication_lease batch/scripts/r2_transfer.sh publish-lake
   uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores --format json
 )
 ```
@@ -783,20 +801,21 @@ local analysisの操作は[Research Triage skill](../.agents/skills/research-tri
 code が選ばず repository secret `DISCORD_WEBHOOK_URL` が指す webhook で固定する。workflow 末尾の
 単一 step（`if: always()`）が、cancel を含むあらゆる終端状態で1回だけ行う。
 
-message は 3 部からなる。
+message は 4 要素からなる。
 
 1. 見出し行 — label・as-of・失敗した step 名（あれば）。`[FAILED] as-of 2026-08-26 — failed step: hydrate`
-2. `🆕 新規 Review Set 入り:` / `👋 Review Set 退出:` の 2 行 — それぞれ銘柄コード順・最大5件（超過時は全件数・表示件数・他の件数を明示）・`<ticker> <社名> E[r]±X.X%`。急落当日の候補と、Review Set から落ちた銘柄を通知だけで拾えるようにするための行である。**export に到達した run では常に出す** — 0 件の日は `なし`、delta view が読めない日は `計測なし（<理由>）` と書く。行が無いことは「0 件」「計測不能」「通知経路の異常」の3つを同時に意味してしまい、読み手が区別できない。非営業日の skip には Review Set が無いので出ない
-3. `run:` — GitHub Actions の run URL。所要時間・step ごとの結果・lake release・error の本文はこの run log にある
+2. `executor: GitHub Actions|Local` — 実行環境から判定した固定2値。見出しの直後に必ず1行表示する
+3. `🆕 新規 Review Set 入り:` / `👋 Review Set 退出:` の 2 行 — それぞれ銘柄コード順・最大5件（超過時は全件数・表示件数・他の件数を明示）・`<ticker> <社名> E[r]±X.X%`。急落当日の候補と、Review Set から落ちた銘柄を通知だけで拾えるようにするための行である。**export に到達した run では常に出す** — 0 件の日は `なし`、delta view が読めない日は `計測なし（<理由>）` と書く。行が無いことは「0 件」「計測不能」「通知経路の異常」の3つを同時に意味してしまい、読み手が区別できない。非営業日の skip には Review Set が無いので出ない
+4. `run:` — GitHub Actions の run URL。所要時間・step ごとの結果・lake release・error の本文はこの run log にある
 
 label は5種。
 
 | label | 意味 |
 | --- | --- |
-| `[OK]` | batch exit 0、upload まで成功 |
+| `[OK]` | batch exit 0、upload および lease release まで成功 |
 | `[SKIPPED]` | 非営業日 gate で skip（export なし） |
 | `[DEGRADED]` | batch exit 3。screening は publish 済みで、見出しに最初の繰延べ失敗 step（macro / prune / task-reconcile）を表示 |
-| `[FAILED]` | batch の致命的失敗（見出しに batch 内の stage 名）、または batch 以外の step の失敗（見出しに step 名） |
+| `[FAILED]` | batch の致命的失敗（見出しに batch 内の stage 名）、または lease 解放を含む batch 以外の step の失敗（見出しに step 名） |
 | `[CANCELLED]` | job が中断された（`timeout-minutes` 超過・手動 cancel） |
 
 GitHub は `timeout-minutes` 超過を **cancel として扱う**。hang は日次 batch が最も踏みやすい
@@ -808,8 +827,8 @@ GitHub は `timeout-minutes` 超過を **cancel として扱う**。hang は日�
 notify が outcome を受け取らない step（checkout / setup-uv / Playwright）の失敗は `pre-batch` と
 書く。batch 自身が fatal / deferred failure に至った run は、`baibai_batch.jobs.daily` が `--notice-output` に
 書いた JSON の最初の `failed_stage` を名指す。その JSON（as-of・skip の有無・失敗 stage・Review Setの出入り）は batch が
-終端 path ごとに 1 回書く素の dict で、schema・validation・語彙表を持たない。読めなければ見出し行と
-run URL だけになる。
+終端 path ごとに 1 回書く素の dict で、schema・validation・語彙表を持たない。読めなければ見出し行・
+executor行・run URL だけになる。
 
 notifier は repository dependency と Python 3.14 固有構文を使わず、checkout 直後の system `python3`
 で import / CLI 実行できる（setup-python 前の smoke step が実 import で検査する）。message は

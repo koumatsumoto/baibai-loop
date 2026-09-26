@@ -35,6 +35,27 @@ def test_saved_is_ok_and_contains_run_url(monkeypatch):
     assert "Review Set" not in message
 
 
+@pytest.mark.parametrize(
+    ("github_actions", "expected"), [("true", "GitHub Actions"), (None, "Local")]
+)
+def test_executor_line_uses_runner_context(monkeypatch, github_actions, expected):
+    if github_actions is None:
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    else:
+        monkeypatch.setenv("GITHUB_ACTIONS", github_actions)
+    message = invoke(
+        monkeypatch,
+        "--eligible",
+        "true",
+        "--snapshot-status",
+        "saved",
+        "--publish-lake-outcome",
+        "success",
+    )[0][1]["content"]
+    assert message.splitlines()[1] == f"executor: {expected}"
+    assert message.count("executor:") == 1
+
+
 @pytest.mark.parametrize("step", notify.FAILED_STEPS)
 def test_non_acquisition_failures_are_failed(monkeypatch, step):
     calls = invoke(monkeypatch, "--eligible", "true", f"--{step}-outcome", "failure")

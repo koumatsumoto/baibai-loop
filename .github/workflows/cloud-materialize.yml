@@ -38,6 +38,14 @@ jobs:
       - name: Provision DuckDB httpfs extension
         run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
 
+      - name: Acquire publication lease
+        id: lease-acquire
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.storage.publication_lease acquire --purpose materialize --handle "$RUNNER_TEMP/publication-lease-handle.json"
+
       - name: Pull stores
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
@@ -76,3 +84,12 @@ jobs:
         run: |
           batch/scripts/r2_transfer.sh upload-serving-views "$RUNNER_TEMP/serving"
           batch/scripts/r2_transfer.sh publish-serving-tail "$RUNNER_TEMP/serving"
+
+      - name: Release publication lease
+        id: lease-release
+        if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.storage.publication_lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"

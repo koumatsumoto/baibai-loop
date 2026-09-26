@@ -92,6 +92,44 @@ def test_cloud_writers_share_one_non_cancelling_fifo_queue(workflow_name: str) -
     }
 
 
+@pytest.mark.parametrize(
+    ("workflow_name", "job", "first_read", "last_write", "purpose"),
+    [
+        ("cloud-daily-batch.yml", "daily", "pull", "publish-serving", "daily"),
+        (
+            "cloud-materialize.yml",
+            "materialize",
+            "Pull stores",
+            "Upload serving objects",
+            "materialize",
+        ),
+        ("cloud-tradingview-snapshot.yml", "snapshot", "pull", "publish-lake", "tradingview"),
+    ],
+)
+def test_publication_lease_surrounds_every_cloud_writer(
+    workflow_name: str, job: str, first_read: str, last_write: str, purpose: str
+) -> None:
+    workflow = _workflow(workflow_name)
+    selected = workflow["jobs"][job]
+    assert int(selected["timeout-minutes"]) < 120
+    steps = _steps(workflow, job)
+    names = [step.get("id", step.get("name")) for step in steps]
+    assert names.index("lease-acquire") < names.index(first_read)
+    assert names.index(last_write) < names.index("lease-release")
+    acquire = steps[names.index("lease-acquire")]
+    release = steps[names.index("lease-release")]
+    assert f"--purpose {purpose}" in acquire["run"]
+    assert '--handle "$RUNNER_TEMP/publication-lease-handle.json"' in acquire["run"]
+    assert "acquired == 'true'" in release["if"]
+    assert "always()" in release["if"]
+    assert "continue-on-error" not in release
+    for step in (acquire, release):
+        assert {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"} <= set(step["env"])
+    if purpose == "tradingview":
+        assert acquire["if"] == "steps.target.outputs.eligible == 'true'"
+        assert names.index("target") < names.index("lease-acquire")
+
+
 def test_the_daily_batch_pushes_stores_before_it_mirrors_the_views() -> None:
     """The two used to run together, trading the direction of the partial state for
     wall clock. A machine push that failed beside a mirror that succeeded published

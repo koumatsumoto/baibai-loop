@@ -22,6 +22,11 @@ WEBHOOK = "https://discord.com/api/webhooks/123/abc"
 RUN_URL = "https://github.com/example/baibai-loop/actions/runs/1/attempts/1"
 
 
+@pytest.fixture(autouse=True)
+def local_executor_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
+
 class FakeTransport:
     def __init__(self, status: int = 204, error: Exception | None = None) -> None:
         self.status = status
@@ -206,6 +211,7 @@ def test_render_message_is_one_headline_the_delta_and_the_run(tmp_path: Path) ->
 
     assert message.splitlines() == [
         "[OK] as-of 2026-08-26",
+        "executor: Local",
         "🆕 新規 Review Set 入り: 1001 Alpha E[r]+8.0%",
         "👋 Review Set 退出: 9001 Zulu E[r]+6.0%",
         f"run: {RUN_URL}",
@@ -217,7 +223,26 @@ def test_render_message_names_the_failed_step_in_the_headline() -> None:
         outcome="failed", asof="", failed_step="hydrate", notice={}, url=RUN_URL
     )
 
-    assert message.splitlines() == ["[FAILED] as-of - — failed step: hydrate", f"run: {RUN_URL}"]
+    assert message.splitlines() == [
+        "[FAILED] as-of - — failed step: hydrate",
+        "executor: Local",
+        f"run: {RUN_URL}",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("github_actions", "expected"), [("true", "GitHub Actions"), (None, "Local")]
+)
+def test_render_message_executor_comes_from_runner(monkeypatch, github_actions, expected) -> None:
+    if github_actions is None:
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    else:
+        monkeypatch.setenv("GITHUB_ACTIONS", github_actions)
+    message = render_message(
+        outcome="ok", asof="2026-09-26", failed_step="", notice={}, url=RUN_URL
+    )
+    assert message.splitlines()[1] == f"executor: {expected}"
+    assert message.count("executor:") == 1
 
 
 def test_render_message_separates_an_unmeasured_delta_from_an_empty_one(tmp_path: Path) -> None:
@@ -257,7 +282,7 @@ def test_render_message_caps_the_named_tickers_and_says_how_many_are_left(tmp_pa
 
     line = render_message(
         outcome="ok", asof="2026-08-26", failed_step="", notice=notice, url=RUN_URL
-    ).splitlines()[1]
+    ).splitlines()[2]
 
     assert "全7件・銘柄コード順で5件表示" in line
     assert line.endswith("（他2件）")
@@ -273,7 +298,7 @@ def test_render_message_keeps_a_multiline_entry_from_splitting_the_message(
         outcome="ok", asof="2026-08-26", failed_step="", notice=notice, url=RUN_URL
     )
 
-    assert len(message.splitlines()) == 4
+    assert len(message.splitlines()) == 5
     assert "1001 Evil name x" in message
 
 
@@ -345,7 +370,9 @@ def test_main_delivers_the_ok_message_with_the_delta(
 
     assert exit_code == 0
     message = _sent(transport)
-    assert message.startswith("[OK] as-of 2026-08-26\n🆕 新規 Review Set 入り: 1001 Alpha")
+    assert message.startswith(
+        "[OK] as-of 2026-08-26\nexecutor: Local\n🆕 新規 Review Set 入り: 1001 Alpha"
+    )
     assert message.endswith(f"run: {RUN_URL}")
     # The message is also printed so the run log carries it.
     assert message in capsys.readouterr().out

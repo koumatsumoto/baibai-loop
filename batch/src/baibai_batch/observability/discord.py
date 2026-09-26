@@ -65,11 +65,13 @@ STEP_ORDER = (
     "smoke",
     "setup",
     "sync",
+    "lease-acquire",
     "pull",
     "hydrate",
     "publish-lake",
     "upload-stores",
     "publish-serving",
+    "lease-release",
 )
 
 _ENTERED_PREFIX = "🆕 新規 Review Set 入り: "
@@ -185,6 +187,10 @@ def prepare_webhook_url(raw_url: str) -> str:
     return urllib.parse.urlunparse(parsed._replace(query=query))
 
 
+def executor_label(env: Mapping[str, str]) -> str:
+    return "GitHub Actions" if env.get("GITHUB_ACTIONS") == "true" else "Local"
+
+
 def run_url(env: Mapping[str, str]) -> str:
     server = env.get("GITHUB_SERVER_URL", "https://github.com")
     repository = env.get("GITHUB_REPOSITORY", "local/local")
@@ -292,7 +298,12 @@ def render_message(
     headline = f"{OUTCOME_LABELS[outcome]} as-of {asof or '-'}"
     if failed_step:
         headline += f" — failed step: {failed_step}"
-    lines = [headline, *render_delta(notice), f"run: {url}"]
+    lines = [
+        headline,
+        f"executor: {executor_label(os.environ)}",
+        *render_delta(notice),
+        f"run: {url}",
+    ]
     message = "\n".join(lines)
     if len(message) > MESSAGE_MAX_CHARS:
         message = message[: MESSAGE_MAX_CHARS - 1].rstrip() + "…"

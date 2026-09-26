@@ -42,12 +42,14 @@ def test_metadata_order_and_exclusive_writer():
         "setup-uv",
         "sync",
         "duckdb-httpfs",
+        "lease-acquire",
         "pull",
         "hydrate",
         "preflight",
         "master",
         "tradingview",
         "publish-lake",
+        "lease-release",
         "cancellation",
         "summary",
         "notify",
@@ -73,7 +75,16 @@ def test_metadata_order_and_exclusive_writer():
 def test_gates_secret_scopes_and_durability():
     data = workflow()
     steps = {step["id"]: step for step in data["jobs"]["snapshot"]["steps"] if "id" in step}
-    for name in ("setup", "setup-uv", "sync", "duckdb-httpfs", "pull", "hydrate", "preflight"):
+    for name in (
+        "setup",
+        "setup-uv",
+        "sync",
+        "duckdb-httpfs",
+        "lease-acquire",
+        "pull",
+        "hydrate",
+        "preflight",
+    ):
         assert steps[name]["if"] == "steps.target.outputs.eligible == 'true'"
     assert steps["master"]["if"] == "steps.preflight.outputs.status == 'needs_fetch'"
     assert (
@@ -103,7 +114,7 @@ def test_gates_secret_scopes_and_durability():
     assert "DISCORD_WEBHOOK_URL" in str(steps["notify"].get("env"))
     assert "JQUANTS_API_KEY" in str(steps["master"].get("env"))
     assert "TRADINGVIEW_OAUTH_STATE" in str(steps["tradingview"].get("env"))
-    for name in ("pull", "hydrate", "publish-lake"):
+    for name in ("lease-acquire", "pull", "hydrate", "publish-lake", "lease-release"):
         assert "R2_ACCESS_KEY_ID" in str(steps[name].get("env"))
     for name, step in steps.items():
         if name != "notify":
@@ -112,7 +123,7 @@ def test_gates_secret_scopes_and_durability():
             assert "JQUANTS_API_KEY" not in str(step)
         if name != "tradingview":
             assert "TRADINGVIEW_OAUTH_STATE" not in str(step)
-        if name not in ("pull", "hydrate", "publish-lake"):
+        if name not in ("lease-acquire", "pull", "hydrate", "publish-lake", "lease-release"):
             assert "R2_ACCESS_KEY_ID" not in str(step)
 
 
