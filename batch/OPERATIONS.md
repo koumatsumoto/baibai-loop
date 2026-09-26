@@ -2,29 +2,19 @@
 
 本書はmachine処理、store転送、公開と復旧の手順を所有する。domain処理はengine、read modelはwebが担う。以下のcommandはrepository rootのBashから実行し、終了状態と次の操作は各節に従う。CLIの全引数は該当`--help`を参照する。
 
-<a id="calibration-全期間-rebuild-の所要時間"></a>
-<a id="cloud-materialize-の所要時間"></a>
-<a id="cloud-daily-batch-の所要時間"></a>
-
 ## 長時間処理の監視
 
-| 処理 | 既存規模での所要目安 | 外部監視の時間予算 |
-| --- | ---: | ---: |
-| calibration全期間rebuild | 45分 | 60分 |
-| cloud-materialize | 12分 | 20分 |
-| cloud-daily-batch | 35分 | 60分 |
-
-これは計画用の目安で、完了保証ではない。workflowのhard timeoutは実行定義を参照する。
+対象run IDを固定して監視する。hard timeoutはworkflow定義を正本とする。
 
 ```bash
 gh run watch <RUN_ID> --exit-status --compact --interval 60
 ```
 
-監視するrunを固定する。外部監視がtimeoutでも処理が終了したとは限らないため、対象の状態と現在stepを確認し、activeな処理を重複起動しない。calibrationの再構築範囲は[見積り較正](../docs/reference/estimate-calibration.md#store-の再構築)に従う。
+外部監視がtimeoutでも処理が終了したとは限らないため、対象の状態と現在stepを確認し、activeな処理を重複起動しない。
 
 ## Cloudflare / GitHub Actions 構成
 
-R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPublic Development URLとcustom domainを無効にする。
+`baibai-stores`はL1・machine store・application DB replica、`baibai-serving`は表示用read modelを保持する。両bucketのPublic Development URLとcustom domainを無効にする。
 
 | bucket | object | owner |
 | --- | --- | --- |
@@ -38,17 +28,7 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 
 R2 lifecycle ruleは`history/candidate-views/`だけに設定する。bucket全体へ設定すると`views/meta.json`まで期限で消え、欠落を検知できない。Review Set membershipの長期履歴は保持しない。
 
-serving と Worker の境界:
-
-- 両bucketはpublic accessを持たない。WorkerのR2 bindingは`baibai-serving`だけに限定する。
-- 既存view APIは[共有read認証](../web/README.md#共有read)をSHA-256後に定数時間比較し、有限のrouteから`views/`または日付形式を検証した
-  `history/candidate-views/`へ写像する。L1だけは[raw gateway](../docs/reference/market-lake.md#shared-raw-read)が
-  bucket-scoped Object Read only S3 credentialで取得し、store snapshotや任意のhistory keyには到達しない。
-  応答は`Cache-Control: no-store`で、CORSを有効化しない。
-- Workers Assetsは`web/frontend/dist`を無認証で配信する。bundleは業務データを含まず、実データは認証済みAPIだけから取得する。HTTP navigationはWorkerが認証処理前にHTTPSへredirectし、HTTPS応答はHSTSを持つ。
-- `cloud-materialize`はapplication data、`cloud-daily-batch`は平日夕方の機械工程、`cloud-tradingview-snapshot`はTradingView L1をpublishする。3 workflowは`cloud-publish`の`queue: max`を共有し、pending writerをFIFOで保持して
-  running/uploadを1件に限定する。
-- ローカル`pull`はmachine storeだけを置換し、canonical application DBを上書きしない。ローカル`publish`はSQLite snapshotをstoresへ置き、materializeをdispatchする。
+`cloud-materialize`・`cloud-daily-batch`・`cloud-tradingview-snapshot`はGitHubの`cloud-publish`を共有する。GitHubとローカルのpublication競合は[ローカル発行手順](#ローカルからクラウドを更新する)のleaseで止める。servingへのwriteはGitHub Actionsだけが行う。application DBはlocal canonicalで、cloud copyはreplicaである。
 
 資格情報はprincipalごとに分ける。
 
@@ -64,15 +44,7 @@ serving と Worker の境界:
 
 R2 S3 endpointは`https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`からscriptが組み立てる。credential、password、endpointの実値をGit、issue、logへ書かない。
 
-R2 API tokenはbucketごとにread/writeを分けられない。このため`r2_transfer.sh`は`upload-serving-views`と`publish-serving-tail`を
-`GITHUB_ACTIONS=true`以外で拒否する。前者は`views/`を`--delete`付きで同期するため、部分的なexportで実行すると
-本番viewを削除する。
-
-serving publishは`upload-serving-views`による`views/`差し替えと、`publish-serving-tail`による`history/`・
-`views/meta.json`発行の2段である。`views/`の大半は数千件規模の`security--<ticker>.json`で、毎営業日書き換わる。
-両段はstore push成功後だけ実行する。先に実行すると、remote storeにないrunを次の成功まで表示するためである。
-machine側が失敗した日のviews uploadは`skipped`と報告する。`history/`は追記のみ、`meta.json`はfreshnessの表明なので、
-いずれもstore永続化の成功後だけ発行する。
+servingはstore push成功後だけ発行する。失敗した日の表示更新は停止し、`views/meta.json`を最後に発行する。
 
 provider secretは`JQUANTS_API_KEY` / `ESTAT_APP_ID` / `EDINET_API_KEY`。`bootstrap-cache`はさらに
 `universe.required_jpx_flags`の4 source（特別注意銘柄 / 整理銘柄 / 取引停止 / 上場廃止警告）の公開URLを要求する。
@@ -80,147 +52,18 @@ provider secretは`JQUANTS_API_KEY` / `ESTAT_APP_ID` / `EDINET_API_KEY`。`boots
 `JPX_DELISTING_WARNING_URL`を`cloud-daily-batch.yml`の`Run daily batch` step envへliteralで置く（雛形は
 `.env.sample`）。未配線ならJPX stepがfail-fastし、machine stores / serving uploadはskippedになる。
 
-workflow dispatchの日付はfull SHA checkout後、credentialを持たないstepでexact `YYYY-MM-DD`と順序を検証する。
-`run:`へ`inputs.*`を展開せず、step envからshell変数として渡す。credentialは使うcommandのstep envだけへ渡し、
-checkout・setup・dependency install・validationへ渡さない。外部Actionのfull SHA pinを含む境界は
-`tools/quality/drift/check_workflow_trust.py`が検査する。
-
-## 初回seedとWorker deploy
-
-### Storeをseedする
-
-**前提**: 初回だけ、ローカル4 storeのconsistent SQLite snapshotをstores bucketへ送る。4 keyの
-いずれかが既に存在する場合は、古いローカルcopyによる正本の巻き戻しを防ぐため何も
-uploadせず停止する。
-
-**実行**:
-
-```bash
-batch/scripts/seed.sh
-```
-
-**成功確認**: commandが4 keyをuploadし、0で終了したことを確認する。4 keyすべてが存在するならseed済みなので、
-再seedせず通常運用へ移る。
-
-**停止と復旧**: 1〜3 keyだけが存在する場合は部分seedであり、通常のpull / merge / pushでは復旧できない。
-まだ供用前で、他のwriterがなく、対象bucketと次のexact keyだけを人間が確認できた場合に限り、部分seedのkeyを
-削除して`seed.sh`をやり直す。供用開始後または状態を確認できない場合は削除せず停止する。prefix削除は禁止する。
-
-```bash
-(
-  set -e
-  set -a; source .env; set +a
-  export AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}" AWS_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY}" AWS_DEFAULT_REGION=auto
-  endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-  aws s3api delete-object --bucket baibai-stores --key market.sqlite --endpoint-url "$endpoint"
-  aws s3api delete-object --bucket baibai-stores --key runs.sqlite --endpoint-url "$endpoint"
-  aws s3api delete-object --bucket baibai-stores --key macro.sqlite --endpoint-url "$endpoint"
-  aws s3api delete-object --bucket baibai-stores --key baibai.sqlite --endpoint-url "$endpoint"
-  batch/scripts/seed.sh
-)
-```
-
-### Workerをdeployする
-
-Actions variable `R2_ACCOUNT_ID`と、対象accountの`Workers Scripts Write`に絞ったsecret `CLOUDFLARE_API_TOKEN`を設定する。production deployは`web.yml`が所有する。
-
-```bash
-(
-  set -e
-  gh workflow run web.yml --ref main
-  gh run list --workflow web.yml --limit 3
-)
-```
-
-対象runを特定し、[監視手順](#長時間処理の監視)で成功を確認する。初回はsecret未設定のAPIが401となる。password managerで生成した32文字のCSPRNG値を、次のpromptへ入力する。
-
-```bash
-(cd web/edge && npx wrangler secret put VIEW_PASSWORD)
-```
-
-secret設定の成功後、表示を初回生成する。
-
-```bash
-(
-  set -e
-  gh workflow run cloud-materialize.yml --ref main
-  gh run list --workflow cloud-materialize.yml --limit 3
-)
-```
-
-対象materializeの成功後だけ実行する。
-
-```bash
-web/edge/scripts/verify-deployment.sh
-```
-
-未認証・誤認証が401、正認証で既存keyが成功し不存在keyが404となることを確認する。passwordはpromptだけで扱い、引数・Git・logへ出さない。TTYなしのexit 2は未検証であり、迂回しない。失敗時はworkflow/検査結果の原因を直し、deployやR2操作を重ねない。
-
-<a id="shared-read-setup"></a>
-
-### 共有readとL1接続の設定
-
-**前提**: mainのweb deployが共有read実装を含むことを確認します。CloudflareのR2 API token管理で、
-production `baibai-stores`だけにscopeした **Object Read only** credentialを新規作成します。
-publisherのread-write credentialは流用せず、canonical bucketのWorker bindingは追加しません。
-Object Read onlyはbucket全体を読めます。L1以外を外部へ返さない境界はWorkerのnamespace allowlistであり、
-prefix単位IAMではありません（[Cloudflare公式](https://developers.cloudflare.com/r2/api/tokens/)）。
-
-`READ_ACCESS_TOKEN`はowner passwordとは別に、32 random bytes以上をCSPRNGで生成しbase64url等にします。
-実値と共有URLはpassword manager等の非公開経路だけで扱い、Git、Issue、PR、CI log、artifact、shell引数へ
-残しません。`wrangler.jsonc`はobservabilityとLogpushを明示的に無効化し、既存productionの無効状態を維持します。
-Wrangler 4.136.1では`redact_query_string`が正式に扱えるため、deployment設定へ
-`redact_query_string=true`を固定します。observabilityとLogpushは無効のまま維持します。
-logs/tracesを将来有効化する変更は別の作業とし、その際は非秘密のqueryでredactionを受入確認します。
-実際の共有tokenで試験しません。real-time logの`wrangler tail`、dashboard Live Logs、Tail Worker等は、
-共有tokenを使うrequest中に起動・接続しません。
-
-**実行**: 以下はrepository rootから実行し、promptへ値を入力します。`L1_R2_BASE_URL`は実bucketのjurisdictionに合う
-`https://<account-endpoint>/<bucket>`を指定し、末尾にobject key、query、credentialを入れません。
-endpointの実値もGitへ残さないためWorker secretとして設定します。
-
-```bash
-(
-  set -e
-  cd web/edge
-  npx wrangler secret put READ_ACCESS_TOKEN
-  npx wrangler secret put L1_R2_BASE_URL
-  npx wrangler secret put L1_R2_ACCESS_KEY_ID
-  npx wrangler secret put L1_R2_SECRET_ACCESS_KEY
-)
-```
-
-**成功確認**: productionのScript Settingsでobservabilityが未設定またはlogs/tracesとも無効、Logpush無効、
-tail consumerなしを確認します。認証値・bindingsは出力せず、設定項目だけを確認します。無効状態が異なる場合は
-共有URLの利用を始めず、deployment設定と実設定を一致させます。
-owner Bearerと共有Bearer/queryで既存JSONの具体値・更新時点を読み、未認証と旧/誤tokenが
-401、重複shareが400になることを確認します。`/?share=...`は通常UIを開き、最初のAPI request前にURLから
-shareが消え、owner保存値が維持されることを確認します。共有URLを第三者へ一般公開しません。
-
-L1は[固定release手順](../docs/reference/market-lake.md#shared-raw-read)でcurrent → release manifest → dataset manifest → 実Parquetへ進む。対象の分析workspaceで取得・decodeし、同じreleaseの対象値をlocal baselineと照合する。HTTP 200や手動uploadだけでは成功としない。取得・decode・照合が失敗した場合は原因を確認して利用を止める。
-
-**停止と復旧**: shared secret未設定・空は共有accessだけを無効化し、L1接続値の不足はlakeだけ503にします。
-上流403/5xx等は安全な502となるので、read-only scopeとendpoint設定を確認します。秘密値や上流error bodyを
-logへ出しません。設定失敗時はowner credential、store、daily batchを変更せず設定をやり直します。
-
-**rotationと撤回**: 共有tokenは同じ`(cd web/edge && npx wrangler secret put READ_ACCESS_TOKEN)`で置換し、旧値401・新値成功を確認します。
-次の401でfrontendは共有sessionだけを消します。共有撤回は`(cd web/edge && npx wrangler secret delete READ_ACCESS_TOKEN)`です。
-L1 credentialは新しいbucket-scoped Object Read only tokenを作り、2つのS3 secretを更新してGETを確認した後に
-旧R2 tokenを失効させます。更新途中のlake 502は全設定が揃ってから再確認します。L1公開自体の撤回は
-`(cd web/edge && npx wrangler secret delete L1_R2_ACCESS_KEY_ID)`でgatewayを503にし、Cloudflare側でもその専用tokenを失効させます。
-既存owner viewとcanonical dataは維持され、secret変更で再deployは不要です。
 
 ## 日常運用
 
 ### クラウド正本をローカルへ取得する
 
-**前提**: research-triage / research / macro-context の運用を始める前に実行する。平日16:43〜22:00 JSTは避ける。
-この窓ではbatch前後のstoreが混ざり、実在しない断面を作り得る。窓内なら、次で当日のrunが`completed`か
-確認してから進む。
+**前提**: research-triage / research / macro-contextの分析前に、`cloud-daily-batch`の実run状態を確認する。queued / in_progressなら通常の分析用pullを開始せず、完了後に実行する。固定時刻で安全性を判断しない。
 
 ```bash
-gh run list --workflow cloud-daily-batch.yml --limit 1
+gh run list --workflow cloud-daily-batch.yml --limit 5
 ```
+
+TradingViewはL1だけを独立更新するため、完了済みreleaseをcurrent machine bundleへhydrateしてよい。`cloud-materialize`はmachine store / L1を書き換えないので待機条件にしない。ローカルの`publish-lake` / `push-machine` / `push-market` / `push-macro`とも意図的に重ねず、発行終了後にfreshにpullする。
 
 **実行**:
 
@@ -228,12 +71,7 @@ gh run list --workflow cloud-daily-batch.yml --limit 1
 batch/scripts/pull.sh
 ```
 
-**成功確認**: `pull.sh`がmarket / runs / macroの全downloadとSQLite `quick_check`、
-marketのlake復元を終えたことを確認する。
-
-`pull.sh`は転送の全検査が成功してから3 storeを置換し、続いて`hydrate-market`でlake所有tableを復元する。
-`baibai.sqlite`には触れない。転送中の失敗では既存storeを保持する。復元の失敗では取得済みstoreが残るが、
-marketは分析可能とは限らないため、原因を解消して`hydrate-market`を完了してから分析へ進む。
+**成功確認**: `pull-machine`はreceipt / ETagでmarket / runs / macroを同じ確認済みbundleとして取得し、`hydrate-market`は開始時のcurrent L1 releaseを固定する。途中でpointerが動けばvisible storeを置換せず停止する。ただしmachine bundleとL1 pointerを同一transactionでは固定しない。receipt / generation / pointerの競合や検査失敗後のlocal stateは分析に使わず、原因を確認してfreshにpullし直す。`baibai.sqlite`はbulk pullしない。
 
 ### Screening入力を検証・補修する
 
@@ -499,33 +337,7 @@ vintage・retraction・generation・no-lossの意味は[Macro reference](../docs
 
 ### merge が検査するもの
 
-どちらのmergeも、終わった時点でsource側だけに残る行が1行でもあれば停止する。日次batchが取得済みでローカルに無い行を、uploadで失わないための不変条件である。以下はstoreごとに違う部分。
-
-`push-market`のmergeは`merge_market_store.py`である。対象はstore-local data tableと
-`lake_store_origin`で、lake所有tableのcloud/local突き合わせはreleaseが引き取っている。
-`source_coverage`はunionし、operator導出の`tse_capital_policy_snapshots`とstore自身の
-`lake_store_origin`はtargetを保持する。cloud copyのoriginを取り込むと、local rowsを別release由来と
-偽ってしまうためである。`publish-lake`はstoreをhydrateしたreleaseをlakeが既に離れていれば拒否し、
-dehydrateはreleaseが持たない行を持つstoreのuploadを拒否する。
-
-`source_coverage`は取得範囲の帳簿で、両側が書くので主キー`(source, coverage_key)`で`INSERT OR IGNORE`し、同じ主キーを両側が持つ場合はpayloadの一致を検証する。**比較しないのは、出所が何を言ったかではなくstoreがいつ読んだかを記録する`fetched_at_utc`だけ**——2つのstoreが同じ範囲を別の時刻に読めばそこは必ず食い違うので、比較すれば全てのmergeを拒否する。
-
-`record_count`は行が在る場所でしか証明できない。R2が運ぶdehydrate済みのsourceでは証明せずclaimとして受け取り、targetのclaimは**実rowへ引き上げるだけで、決して引き下げない**。引き下げは、このstoreが満たされていないreleaseを記述しているclaimを、より小さい数値で置き換える操作である。次のhydrateが行を戻してもledgerは小さいままで、`verify-cache-coverage`が以後の全screening runを止める一方、再取得は永久に計画されない——`covered_intervals`が窓を落とすのはcountが0のときだけだからである。引き上げられないclaimはmerge後の検査で停止し、「lakeがserveしているreleaseからhydrateし直せ」と出る。**空のtargetもここで止まる**——「取得済み」と言うclaimを黙って0へ書き換える代わりに拒否する。
-
-**ledgerは追記専用ではない。** 取得に失敗すると、その範囲は重なる`ok`窓から切り出され、残余が新しいkeyで書き直される（穴が失敗した場所に見えるようにするため）。keyによるunionは、後の取得が撤回した広い窓を古いcopyから復活させ得るので、mergeはそれを修復せず拒否する——同じsourceで`ok`窓が`failed` / `partial`窓に重なるledgerは、どのfetcherも書かない形である。
-
-訂正可能な`jquants_short_sale_reports`のcoverageはdisclosure dateごとに1つのclaimを選ぶ。`ok`が`partial`/`failed`に勝ち、同種なら`fetched_at_utc`が新しい方が勝つ。`record_count`はreleaseが満たしたtargetの実rowから読み直す。行が1つも claimされないdateがあれば停止するが、**その検査はclaim選択の後**に置く——行はhydrateで、claimはmergeで届くので、cloudが取得して publishした日はtargetのtableに1段先に現れる。
-
-`tse_capital_policy_snapshots`はoperatorが導出したもので、targetを丸ごと残しsourceから1行も
-取り込まない。key mergeすると、後の導出が撤回した行が古いcopyから復活し、訂正した値は
-「2つのstoreが食い違う」と読まれてpublish全体を止める。`jpx_delistings`と
-`tender_offer_exit_values`はlake datasetであり、merge対象ではない。
-
-mergeの対象tableは`merge_market_store.py`の`FACT_KEYS` / `DERIVED_KEYS`に列挙し、**それとlake datasetの合併がstoreのtable一覧と一致すること**をtestが確かめる。新しいtableはlakeかmergeのどちらかに分類しないと落ちる。
-
-machine storeの全writerはdownload時のR2 ETagを保持し、backupは同じsource ETag、最終`PutObject`は同じdestination ETagを条件にする。日次batchは`pull-machine`が3 storeのgenerationを記録し、`push-machine`が全keyを事前照合してから各keyを条件付きで発行する。merge中またはupload直前に別writerがobjectを更新した場合はprecondition failureで停止し、最新cloud copyからやり直す。これにより、GitHub Actions外の手動pushと日次batchのどちらが後着しても、先に発行された更新を巻き戻さない。途中のkeyでnetwork / precondition failureになった場合はserving tailを発行しない。3 keyのPUTが全て終わってから書かれる`machine-manifest.json`（bundle receipt）も書かれないので、次回の`pull-machine`は旧receiptとの突合で停止する——次回runが自力で再構成することはない。復旧は下の「部分 push からの復旧」に従う。
-
-`push-macro`のmergeは`merge_indicator_store.py`である。対象は事実を積み上げるtable（`observations` / `provider_runs`）だけで、主キーで`INSERT OR IGNORE`する。同じ主キーを両側が持つ場合は全payloadの一致をmerge前後に検証し、値・単位・source等が異なれば片方を正本と推測せずtransaction全体を停止する。source / target はschema version・列構成に加えて`schema.sql`由来の全persistent triggerとregistry state contractをcanonical定義へ完全一致させる。targetが保持する全series metadataは両端が有限なplausible rangeを持つことを前提とし、source / target observationをtransaction先頭でtargetのunitとrangeに照合する。いずれかの契約違反があればtargetを変更せず停止する。`series` / `aliases`はsourceから取り込まない。通常のopenは登録外seriesのfacts・metadata・aliasesを保持し、明示的な`macro refresh`だけが現行registryに無いseriesをpruneするため、古いbranchのread後もtargetに残る新系列へcloud factsをmergeできる。source の registry generation が target より新しい場合と、同世代なのに `source.series` membership がtargetから欠ける場合は、facts未取得のseriesでもmergeを拒否する。target が source より新しい世代でmetadataが無いseriesのrowだけを意図した退役としてskip件数に含める。`market.sqlite` / `runs.sqlite`は`push-macro`が触らない。
+`push-market` / `push-macro`はcloud-only dataや新しいgenerationを失う可能性があれば停止する。cloudとlocalのどちらかを推測で正本にして上書きしない。CAS / generation conflictでは同じ世代をblind retryせず、最新cloud stateからやり直す。local変更後にhydrateして成果を上書きしない。machine bundle途中pushは[部分 push からの復旧](#部分-push-からの復旧)へ進む。内部契約は`baibai_batch.storage.merge_market_store` / `baibai_batch.storage.merge_indicator_store`と対応testsを正本とする。
 
 ### 手動で lake を publish する
 
@@ -624,34 +436,13 @@ gh run list --workflow cloud-daily-batch.yml --limit 10
 ```
 
 **成功確認**: 対象runの終了通知を受けてconclusionを確認し、Discord通知、store push、serving freshnessを照合する。
-所要時間の見積りと待機契約は[cloud-daily-batch の所要時間](#cloud-daily-batch-の所要時間)に従う。
+対象run IDを固定して[監視手順](#長時間処理の監視)に従う。
 
 **停止と復旧**: exit 1やcoverage不足ではuploadせず原因を直す。exit 3は後続の公開結果を確認し、公開成功なら繰延べた対象だけを復旧する。upload失敗・部分pushは対応する復旧節に従い、全工程をblindに再dispatchしない。
 
-通常cronは平日07:43 UTC（16:43 JST）。scheduled workflowは実行開始時のJST日付ではなく、直近の07:43 UTC cron日を対象にして営業日gateを適用する。GitHubのqueue遅延がJST日付をまたいでも、未公表の翌日データへ対象を進めない。同日必須なのは対象日の株価日足だけで、[J-Quants APIの公式更新時刻](https://jpx-jquants.com/ja/spec/data-update)は16:30頃のため13分の余裕を置く。JPX規制ページはevent駆動のstatus pageでcoverage gateが7営業日まで許容し、信用残は週次なので、いずれも夕方の更新を待つ必要がない（この実行より後に出た指定は翌営業日の実行が拾う）。分を半端にしているのは意図的で、GitHubがscheduleを:00 / :15 / :30 / :45へ集中させるため、その境界に置くとqueue待ちの後ろに並ぶ。schedule遅延自体は許容する。遅延ではなく**欠測**は`cloud-batch-watchdog`がpushで検知し、UIのas-ofとworkflow履歴は裏取りのpull経路として残る。16:43時点で株価日足が未更新ならcoverage gateがpublish前に停止し、復旧は現行mainから手動dispatchする。
+scheduled runはcron日を対象に営業日gateを適用する。queue遅延でJST日付が変わっても対象を翌日へ進めない。coverage不足はpublish前に停止する。欠測はwatchdogで確認し、修正後の手動dispatchは現行mainから行う。
 
-daily batchはcoverageが完全でも`bootstrap-cache`を実行する。財務サマリーの直近7日を再取得するため、同日の先行runより後にJ-Quantsへ反映された開示は後続runで取り込まれる。bootstrap後はcoverageを再検証してからscreeningへ進む。
-
-日次commandのexit 3でも後続のstore/serving公開は進められる。公開成功後の通知を`[DEGRADED]`とし、local結果と公開結果を分ける。非営業日skipは既存servingを変更しない。
-
-## Actions 使用量の月次確認
-
-以下の集計は取得したrunのwall timeを調べる診断であり、billable minutesや請求額ではない。実際の契約・利用量・請求はBillingで確認する。
-
-**実行**:
-
-```bash
-gh run list --created ">=$(date -d '14 days ago' +%F)" --limit 1000 \
-  --json workflowName,startedAt,updatedAt \
-  --jq 'map(select(.startedAt >= "2020" and .updatedAt >= "2020"))
-        | group_by(.workflowName)
-        | map({wf: .[0].workflowName, runs: length, min: (map(((.updatedAt|fromdate)-(.startedAt|fromdate))/60) | add | floor)})
-        | sort_by(-.min)'
-```
-
-**成功確認と判断**: 取得範囲とrun数を確認し、定時実行、PR、障害復旧dispatchを分けて負荷を見る。runごとの固定加算で請求へ換算せず、無料枠や予算を文書の概算から決めない。spending limitの変更は所有者が判断する。
-
-#1016の「月2,500分超が2か月続いたらself-hosted runnerを再評価する」は運用上の検討目安であり、契約上の無料枠ではない。
+非営業日は既存servingを変更せずskipする。exit 3では後続公開の成否を別に確認する。
 
 ## Password rotation
 
@@ -674,7 +465,7 @@ Workerの再deployは不要である。
 
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
 - 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括の`push-machine`はGitHub Actionsと明示的なlocal dailyで使い、pull時の全ETag一致と各PUTの`If-Match`を必須にする。`macro.sqlite` / `market.sqlite`を単独でローカルから進める場合は`push-macro` / `push-market`でcloud copyをmergeし、cloud側の行の取り残しを検出したら停止する。
-- pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例してGB級のstoreではaws CLI既定のread timeout 60秒に収まらないため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。**`market.sqlite`が運ぶのはstore-local data tableと`lake_store_origin` metadataである。** `push-machine`はkeyごとの処理時間を出すので、storeが伸びたときの内訳はrunのlogで見る。
+- machine storeのpushは対象の前世代を`<key>.bak`に1世代保存する。復元時はwriterを停止し、対象bucketとexact `<key>.bak`・`<key>`を人間が確認したうえで、`aws s3api copy-object --cli-read-timeout 300`を使う。`aws s3 cp`へ置換しない。
 - machine store の`.bak`は1世代のみで、次のpushで置き換わる。前世代は次のpushで置き換わるため、24時間保持される保証ではない。`baibai.sqlite`だけは`baibai.sqlite.bak-YYYYMMDD`（JST）で日ごとに1世代を残し、直近14世代を超えた分をpush成功後に削除する。machine storeにも再取得できない観測があるため前世代を残し、判断と確認済み事実を持つapplication storeは日別世代を残す。prune は`baibai.sqlite.bak-`配下をlistし、`baibai.sqlite.bak-YYYYMMDD`に一致するkeyだけを完全一致で削除する（prefix削除はしない）。
 - 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。
 - pullは固定4 key以外を受け付けず、全downloadと`quick_check`完了後に置換する。
@@ -682,6 +473,23 @@ Workerの再deployは不要である。
 - servingの`views/`は`aws s3 sync --delete`で完全像に合わせる。historyは追記だけで削除しない。
 - `views/meta.json`は他のviewとhistoryが全て成功した後に最後にuploadする。
 - bucket名は`R2_STORES_BUCKET` / `R2_SERVING_BUCKET`で明示的にoverrideできるが、通常は固定defaultを使う。
+
+machine `.bak`を手動復元する場合は、対応する発行を停止して対象keyを確認してから実行する。
+
+```bash
+(
+  set -e
+  set -a; source .env; set +a
+  export AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}" AWS_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY}" AWS_DEFAULT_REGION=auto
+  read -r -p '復元するexact machine key: ' store_key
+  case "$store_key" in market.sqlite|runs.sqlite|macro.sqlite) ;; *) exit 1 ;; esac
+  aws s3api copy-object --bucket baibai-stores --key "$store_key" \
+    --copy-source "baibai-stores/${store_key}.bak" --cli-read-timeout 300 \
+    --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+)
+```
+
+復元後はfreshにpullし、receipt / generationの整合と`quick_check`を確認する。不一致なら分析と公開を止め、[部分 push からの復旧](#部分-push-からの復旧)へ進む。
 
 ### schema cutoverを修正するとき
 
@@ -698,45 +506,19 @@ macro storeだけは実在する直前schemaからの一段migrationをstaging c
 
 ## Read modelの生成 — baibai_web.materialize
 
-`baibai_web.readmodel` builders を共用して、UI が読む全 view を serving 配置どおりの
-JSON に書き出す。Worker には業務ロジックを置かない設計の実体。
+materializeはapplication / machine storeをread-onlyで読み、servingの完全像を作る。schema / storeがcodeと整合しなければpublishせず停止する。`views/`はcurrent image、`history/candidate-views/`は保持期限付き履歴、`views/meta.json`はfreshnessで最後に発行する。routeとJSON名の対応は[Web](../web/README.md)と`web/contracts/routes.json`、Web testsを正本とする。
+
+手動生成:
 
 ```bash
 uv run python -m baibai_web.materialize --output-dir <dir> [--batch daily|manual] [--repo-root <path>]
 ```
 
-出力（`<dir>` 配下）:
-
-- `views/dashboard.json` / `views/tasks.json` / `views/screening_latest.json` / `views/operations.json`
-- `views/screening_latest.json` は、有効な `reports/published/er-level-calibration-latest.yaml` と表示対象 operative run の method identity が一致する場合だけ、E[r] historical quintile と独立した8.5%以上帯の実現分布文脈を含む。run identity 不明、欠損・不正・期限切れでは field を `null` にして既存 screening 表を維持する
-- `views/daily-delta.json`（前営業日の機械実行との差分。Dashboard の差分区画が読む）
-- `views/macro.json`（最新 L3 Context 抜粋、指定基準日の L2 reading、全登録系列の現在読み値と
-  一覧用の約1年・月次・最大13 point。daily 全履歴は含めない）
-- `views/macro-series--<series_id>.json`（Macro タブで系列 dialog を開いた時だけ読む、1 系列の
-  daily 全履歴。期間・粒度は browser 内で絞る）
-- `views/macro-context--<context_id>.json`（published macro context の本文。Macro report 画面が読む）
-- `views/capital-allocation-assessment--<capital_allocation_assessment_id>.json`（published Capital Allocation Assessment の本文。Assessment 画面が読む）
-- `views/security--<ticker>.json`（保有 + 最新 run 掲載 + Review Set and Research Triage の ticker）
-- `views/meta.json`（生成時刻・実データ更新時刻・store 別 as-of・batch 種別。UI の鮮度表示と同じ契約）
-- `history/candidate-views/<asof>.json`（Screening Run と Security Analysis 全件を型付きUI read modelへ変換した履歴。31 日で削除）
-
-この一覧と Worker の route 表の対応は `tests/web/test_cloud_export.py` が守る。Worker が写像する view を exporter が書かないと、その route は本番で恒久的に 404 になる。
-
-書き出しの前に application store の `user_version` とmarket storeの完全なschema shapeがcodeのcurrent schemaと一致することを確認し、不一致ならviewを1件も作らずexit 1で停止する。その後、market storeがhydrate済みかを判定する。読み取り経路はread-onlyで初期化もcutoverもしない。storeが無いrootまたはtableを一つも持たないunwritten storeは空の正常状態としてexportする。
-
-`views/` は毎回 export の完全な像に置換される（実行のたびに一度削除して作り直すので、対象から外れた古い view は残らない）。`history/` は追記のみで、この script は削除を行わない。上記の31日削除は serving store（R2 lifecycle）側の保持契約であり、script の挙動ではない。
-
-Workerは認証後の`/api/screening/history`でCandidates履歴の日付一覧を返し、`/api/screening/history/YYYY-MM-DD`だけを`history/candidate-views/`へ写像する。任意history key、旧形式の`history/candidates/`、store snapshotは公開しない。L1 raw readは[共有gateway](#shared-read-setup)の境界に従う。
-
-views の JSON は `baibai-web` の対応 API response と同形（pydantic `model_dump_json`）。`meta.json` は全 view / history の書き込み成功後に最後に書くので、途中失敗した出力 dir が新鮮さを主張する事態を避ける。
+失敗時はstore schemaとhydrate状態を確認し、生成物を公開しない。
 
 ## 日次機械工程 — baibai-batch daily
 
-営業日判定 → screening cache coverageの事前検証 → bootstrap（財務サマリーの直近7日を再取得）→ EDINET incremental extraction →
-coverage再検証 → run → review-set →
-macro series refresh → export → run store prune を順に実行する。
-全 step は public CLI の subprocess で、step ごとにコマンドライン・exit code・所要秒を
-stdout へ出す（scheduled workflow のログをそのまま読む前提）。
+calendar / coverage → ingest / bootstrap → screening / Review Set → deferred machine work → local export → pruneの順に進む。coverage / screening失敗はfatalで公開しない。一部後段処理はdeferredとなる。
 
 以下は用途別の選択肢であり、続けて全件を実行しない。`.cache/daily-serving`はlocalの生成先である。
 
@@ -761,12 +543,6 @@ read -r -p '対象日 YYYY-MM-DD: ' asof &&
     --format json --quiet --manifest-out .cache/daily-manifest.json
 ```
 
-`--notice-output` を指定すると、batch が到達した終端 path で、Discord 通知に必要な
-`asof`・`skipped`・最初の fatal / deferred `failed_stage`・Review Setの出入りだけを持つ JSON を atomic write する。
-schema version や validation round-trip は持たず、各 step の所要時間・metrics・error 本文は
-workflow log を読む。不正な `--asof` など batch 開始前の失敗では notice は無く、workflow の
-step outcome から notifier が `[FAILED]` を出す。
-
 終了コード:
 
 | exit | ローカル処理の結果 |
@@ -777,19 +553,7 @@ step outcome から notifier が `[FAILED]` を出す。
 
 クラウド公開はこの後にL1 release、machine store、serving views、history/freshnessの順で進む。local exportの有無を示す既存output名`published`を、R2公開成功と読み替えない。workflowが失敗しても一部反映が済んでいる場合がある。
 
-失敗ポリシー:
-
-- screening 系（coverage / run / review-set）の失敗は致命的で即停止する（publish できる新しい
-  run が無いため exit 1）。ただし `screening run` の exit 2 は品質警告つきの published run で
-  あり、警告理由を表示して続行する。`verify-cache-coverage` の exit 1 は cache 不足マーカーが
-  ある場合だけ bootstrap へ進み、マーカー無しの exit 1（rules 破損等の crash）は即停止する
-- EDINET document state は日中にも変わり得るため、初回 coverage が complete でも
-  `extract-edinet-metrics` を毎回実行する。変更のない metric row は baseline から再利用し、
-  extraction 後の coverage と quarantine counters を current state に揃える
-- macro refreshの失敗は繰り延べ、screeningのlocal exportまで進めてexit 3を返す。後続の公開と通知は前掲の終了状態に従う。
-
-- 営業日判定は market store の `jquants_market_calendar` が情報源。対象日をカバーして
-  いない場合は黙って続行せず明示エラーで停止する
+coverage / screening / Review Setの失敗はfatal、macro refreshなど一部後段の失敗はdeferred。対象日が非営業日ならskipする。詳細なstepとoptionはpublic `--help`と実run logを確認する。
 
 ## local daily analysis — canonical Review SetのResearch Triage
 
@@ -818,22 +582,6 @@ label は5種。
 | `[FAILED]` | batch の致命的失敗（見出しに batch 内の stage 名）、または lease 解放を含む batch 以外の step の失敗（見出しに step 名） |
 | `[CANCELLED]` | job が中断された（`timeout-minutes` 超過・手動 cancel） |
 
-GitHub は `timeout-minutes` 超過を **cancel として扱う**。hang は日次 batch が最も踏みやすい
-静かな失敗なので、notify step は `!cancelled()` ではなく `always()` で走らせ、`cancelled()` の値を
-`--cancelled` で受けて `[CANCELLED]` を出し分ける。手動 cancel で 1 件多く届く代わりに、timeout を
-取りこぼさない。
-
-失敗 step の名指しは「batch 以外の step で success / skipped 以外の outcome を最初に持つもの」。
-notify が outcome を受け取らない step（checkout / setup-uv / Playwright）の失敗は `pre-batch` と
-書く。batch 自身が fatal / deferred failure に至った run は、`baibai_batch.jobs.daily` が `--notice-output` に
-書いた JSON の最初の `failed_stage` を名指す。その JSON（as-of・skip の有無・失敗 stage・Review Setの出入り）は batch が
-終端 path ごとに 1 回書く素の dict で、schema・validation・語彙表を持たない。読めなければ見出し行・
-executor行・run URL だけになる。
-
-notifier は repository dependency と Python 3.14 固有構文を使わず、checkout 直後の system `python3`
-で import / CLI 実行できる（setup-python 前の smoke step が実 import で検査する）。message は
-stdout にも出るので、run log でそのまま読める。
-
 **通知の配送失敗は job を赤にしない**（`continue-on-error: true`）。workflowの失敗は公開の完全完了を示さず、途中までの反映がある場合は各stepの結果を確認する。配送失敗は
 notify step の stderr に sanitized な理由（未設定・HTTPS 以外・Discord 以外の host・timeout・HTTP
 status）で残り、webhook URL・response body は log に出ない。`#batch-runs` が静かな日は
@@ -841,25 +589,10 @@ status）で残り、webhook URL・response body は log に出ない。`#batch-
 
 ### 欠測の検知（`cloud-batch-watchdog`）
 
-run自身の通知は「runが起動したこと」を前提にする。GitHubは高負荷時にscheduled runを黙って落とし、cron直前に着地したmergeはその日のscheduleを差し替える。どちらの場合も成功通知も失敗通知も出ず、**沈黙**になる。人間は届かないメッセージの検知が最も苦手なので、沈黙のままにしない。
-
-`.github/workflows/cloud-batch-watchdog.yml`が平日12:00 UTC（21:00 JST）に発火し、`cloud-daily-batch`のrun一覧を`gh api`で読む。直近20時間のrunから、batch cronを基準に決めた確認対象日を答えるrunだけを選び、その中に`conclusion=success`のcompleted runがあれば正常、無ければ同日のin-flight runの有無を判定する。別の日を答えるrunは、同じ20時間窓にあってもsuccess / in-flightの根拠にしない。どちらも無ければ同じ`#batch-runs`へ`[MISSING]`を送る。正常な日とin-flight時は何も送らない（2通目の`[OK]`はchannelを読み飛ばす習慣を作る）。正常に判定できたwatchdogは成功またはin-flightで警報を出さないが、無通知だけではwatchdog未実行・API失敗・配送失敗と区別できない。
-
-- **20時間窓**は判定候補を取得する範囲であり、窓内のrunを日付に関係なく数える条件ではない。前日の07:43 UTC runが窓に入らない程度に短く、watchdog自身が数時間遅れて発火しても確認対象日の07:43 UTC runを取りこぼさない程度に長い。
-- **確認対象日のまだ実行中のrunは欠測として数えない**。schedule queueが07:43 UTCのbatchを watchdog の発火時刻より後ろへ押し出すことがあるが、そのrunは完走すれば自分で結果を通知する（job timeoutに当たっても`[CANCELLED]`が出る）ので、watchdogが足せるものは無い。窓の中に確認対象日を答える`completed`でないrunが1本でもあれば`in_flight`として無送信にする。別日を答える実行中runは数えない。
-- **営業日カレンダーは持たない**。非営業日は`cloud-daily-batch`自身がgreenのskip runとして完了するので、successとして数えられる。
-- 手動の復旧dispatchも、run名が確認対象日を答える場合だけsuccess / in-flightとして数える。別日の復旧runは確認対象日の欠測を隠さない。
-- run一覧が期待した形でなければ**警報を出さずにexit 1**する。parseの劣化が「run 0本」に落ちると、APIの形が変わるたびに誤報になるため。
-- 過去日の判定は`gh workflow run cloud-batch-watchdog.yml -f check_date=YYYY-MM-DD`で再現する（その日の21:00 JSTに発火したwatchdogと同じ窓を評価する）。dispatch入力はcredentialを持たないvalidation stepでexact `YYYY-MM-DD`を検査してからstep env経由で渡す。
-- watchdog自身もscheduleなので同時にskipされ得る。両workflowは同じ基盤に依存する。別基盤の監視は、実際の未検知と運用価値から必要性を判断する。
-
-watchdog jobは何もinstallしない（checkoutとsystem `python3`だけ）。警報が必要なまさにその瞬間にtoolchainの都合で止まらないようにするためで、`tests/batch/test_cloud_batch_watchdog.py`がstep一覧で固定する。
-
-定時runの完走率が要るときは、同じrun一覧をschedule eventだけで数える:
+daily scheduled runが欠測したときだけ`[MISSING]`を通知する。正常または対象runがin-flightなら通知しない。watchdog自身の失敗をdaily欠測と混同せず、両workflowの実run状態を確認する。過去日を確認する場合:
 
 ```bash
-gh run list --workflow cloud-daily-batch --created ">=YYYY-MM-DD" --limit 200 --json event,conclusion \
-  --jq '[.[] | select(.event=="schedule")] | "\([.[] | select(.conclusion=="success")] | length)/\(length) scheduled runs succeeded"'
+gh workflow run cloud-batch-watchdog.yml -f check_date=YYYY-MM-DD
 ```
 
 ### webhook rotation
@@ -872,20 +605,6 @@ CLI 引数・log には出ない）。secret の実値を Git・issue・log へ�
 3. 次の通常runで通知を確認する。即時確認が明示的に必要な場合だけ通知経路の受入を行い、rotationだけで過去日のscreeningを再生成しない。
 
 旧 webhook は Discord 側で削除するまで有効。
-
-### 実配送の確認
-
-以下は通知経路を変更した際の受入ケースであり、文書修正や毎回のrotationですべて実行する手順ではない。
-
-- 不正な `asof`（例: `2026-13-99`）の手動 run → validation step で止まり `[FAILED] … failed step: pre-batch` が1件届く。
-- 有効な `asof` または次の通常 run → `[OK]` と 🆕 / 👋 の 2 行が1件届く。
-- 非営業日が先に来た場合 → `[SKIPPED]` が届く。
-
-各 message の as-of / 失敗 step 名 / run URL が正しいことを照合する。
-
-**無通知は「配送失敗」だけを意味しない。** notify step 自体が動かない障害（checkout 失敗、
-runner 未割当、job の強制終了）は通知経路の外側にある。`#batch-runs` が静かなときは、まず
-`gh run list --workflow cloud-daily-batch.yml` で run 自体の有無と結論を見る。
 
 <a id="edinet-research-facts"></a>
 
@@ -916,7 +635,7 @@ storeのmergeでは同日でも別docIDの成否を混同しない。共有docID
 
 `cloud-tradingview-snapshot.yml`が平日15:57 / 18:07 / 20:17 JSTに独立して起動する。GitHub queueによって実開始は遅れ、slot間隔が縮む場合もある。targetは予定時刻ではなくrun開始時のJST当日であり、exact-date masterとTradingViewの両方に同じtarget_dateを渡す。15:30より前の実行はR2やproviderへ接続せず終了する。当日のmasterだけはcalendarを確認して早期取得できる。取得中に日付を跨いだ場合は既存の`skipped_historical_asof`でno-opにする。
 
-最初にfull-universe取得とL1 publishを完了したsnapshotが同日の正本となる。後続slotはL1からhydrateした行数をUniverseと照合し、保存済みならMCP接続前に終了する。失敗時は次slotが最初から取得し直す。TV workflowはremote `market.sqlite`や`machine-manifest.json`を更新せず、L1 releaseだけを永続化する。16:43 JSTのdailyは独立して実行する。full-market受入とscanner障害調査の正本は[#1317](https://github.com/koumatsumoto/baibai-loop/issues/1317)とする。
+最初にfull-universe取得とL1 publishを完了したsnapshotが同日の正本となる。後続slotはL1からhydrateした行数をUniverseと照合し、保存済みならMCP接続前に終了する。失敗時は次slotが最初から取得し直す。TV workflowはremote `market.sqlite`や`machine-manifest.json`を更新せず、L1 releaseだけを永続化する。dailyは独立して実行する。
 
 ### 初期設定と認証の復旧
 
@@ -942,47 +661,146 @@ runnerでのOAuth smokeはmain refだけに限定する。確認するときは�
 gh workflow run ci.yml --ref main -f tradingview_oauth_smoke=true
 ```
 
-repository secretからの切替時は、マージ前に`tradingview-runtime` environmentを作り、protection ruleを付けずにwriter PATを上記権限へ更新する。マージ直後はrepository-level `TRADINGVIEW_OAUTH_STATE`を残したまま上のsmokeを1回実行する。smokeは旧repository secretを読み、期限切れを強制してrefreshし、新stateをenvironment secretへ保存する。成功後に次でenvironment secretの存在を確認する。
-
-```bash
-gh secret list --repo koumatsumoto/baibai-loop --env tradingview-runtime
-```
-
-`TRADINGVIEW_OAUTH_STATE`が存在することを確認した後だけ、旧repository secretを削除する。
-
-```bash
-gh secret delete TRADINGVIEW_OAUTH_STATE --repo koumatsumoto/baibai-loop
-```
-
-この移行にローカルのOAuth fileをseedとして使わない。runner側のstateが既にrotationされている場合がある。
-
 ローカルの認証fileは初期投入用で、runnerが更新した後の最新版ではない。同じstateを複数processで更新したり、古いfileを再投入しない。対話認証による置換も、`cloud-publish`の実行がない時間に行う。
 
-### 保存開始と受入
+### 保存と再試行
 
-market schemaは28。既存storeのruntime自動移行は行わない。
-
-schema 27→28の本番切替は完了し、一時toolは削除済み。
-
-codeと整合するstoreを既存の再構築・転送手順で切り替えてから日次運用を開始する。初回snapshotがない間も既存の必須datasetの公開条件を維持し、TradingViewは任意datasetとして扱う。
-
-collectorは当日の取引日・15:30 JST以降・当日masterを要求する。50 symbolsずつ、concurrency 1、既定15秒間隔で取得する。同日保存済みなら上書きせず終了する。429や全件missingはretry loopに入らず失敗し、次回はrun全体を再取得する。成功した日の`unresolved`は、その取得時点の事実として残す。
-
-`response_bytes`はbatch応答payloadをUTF-8 JSONで表したbyte数で、HTTP圧縮後の通信量ではない。
-
-初回の全市場1巡ではCLIのexpected universe、rows、unresolved、normal null数、response bytes、所要時間と、SQLite増分、既存Lake publishのobject/upload bytes、GC前後を分けて計測する。SQLite/L1 row parity、fixed releaseの過去・当日照会、cloud readbackまで確認し、Issue #1317へ記録する。少数銘柄のsmokeを全市場受入や容量実測の代わりにしない。
-
-TradingViewの失敗ログは認証情報や応答本文を出さず、固定の`category`で示す。`auth`は再認証、`secret_persistence`はSecret書込権限、`provider_all_missing`・`provider_response`は提供元応答、`provider_rate_limit`・`provider_transport`・`timeout`は取得制限や通信、`time_guard`は当日引け後の条件、`storage`はschema・master・calendar、`internal`は未分類の実装エラーを確認する。再取得は当日の条件を満たす間だけ行い、過去日の穴を現在値で埋めない。
+当日の最初のfull-market取得とL1 publish成功がsnapshotとなる。保存済みなら後続slotはprovider接続前にno-op、失敗時は次slotが最初から取得する。過去日の穴を現在値で埋めない。
 
 ### TradingView Expectationsの障害診断
 
 TradingView stepのsafe failure line、`TradingView progress:` summaryの順に読む。`chunks_completed / chunks_total`と`chunk_index`で失敗位置を、`provider_elapsed_seconds / elapsed_seconds`と`max_chunk_elapsed_seconds`でprovider待ちとintervalの影響を確認し、`oauth_rotations`で認証更新回数を見る。payload検証失敗では固定の`validation_reason`とcanonicalな`validation_field`を確認する。成功時は最終JSONの`rows / unresolved / normal_nulls`とfirst / last fetched_atも確認する。
 
-progressはrunner temp内だけに置く。書込み失敗は1回だけ警告し、取得・保存は継続する。外部timeout時のsummaryは最後の更新時点の値であり、実行中callの経過時間を含まない。実行中call内で完了したOAuth rotationでも、次のprogress emit前に外部killされた場合はprogress fileへ反映されない。`unavailable`なら進捗は確認不能と扱う。正常no-opでprogressがない場合はCLIのsuccess JSONを確認する。
-
 - `provider_rate_limit`（429）: 同runを即時rerunせず、manual scanner callも重ねない。当日分のpartial snapshotが保存されていないことを確認し、次のscheduled runまたはprovider quota確認へ進む。
+- `auth`: [対話認証](#初期設定と認証の復旧)をやり直す。
+- `secret_persistence`: `tradingview-runtime`のEnvironment secretとwriter tokenの権限・期限を確認する。
 - `provider_all_missing`: coverage不存在と断定せず、provider全体のdegradationの可能性を確認する。
 - `provider_response`: 固定validation reasonを起点に応答契約を調べる。Secret・raw body・symbol一覧をIssueやlogへ転載しない。
 - `timeout`: 最後のphase / chunkとprovider時間を確認する。初回実測なしに30分上限を延長しない。
+- `storage`: calendar / master / schemaとlocal storeの整合を確認し、修復までpublishしない。
 
-本番受入と障害調査の正本は[Issue #1317](https://github.com/koumatsumoto/baibai-loop/issues/1317)とする。scanner障害の切り分け後、#1317に記録した受入条件に従ってscheduled full runを確認する。成否にかかわらずrun URLと診断結果を#1317・#1323へ記録し、成功時はSQLite増分・Lake row parity・cloud readback、失敗時はpartial canonical rowsがなく既存Lake公開が継続することを確認する。
+
+## 初回seedとWorker deploy
+
+### Storeをseedする
+
+**前提**: 初回だけ、ローカル4 storeのconsistent SQLite snapshotをstores bucketへ送る。4 keyの
+いずれかが既に存在する場合は、古いローカルcopyによる正本の巻き戻しを防ぐため何も
+uploadせず停止する。
+
+**実行**:
+
+```bash
+batch/scripts/seed.sh
+```
+
+**成功確認**: commandが4 keyをuploadし、0で終了したことを確認する。4 keyすべてが存在するならseed済みなので、
+再seedせず通常運用へ移る。
+
+**停止と復旧**: 1〜3 keyだけが存在する場合は部分seedであり、通常のpull / merge / pushでは復旧できない。
+まだ供用前で、他のwriterがなく、対象bucketと次のexact keyだけを人間が確認できた場合に限り、部分seedのkeyを
+削除して`seed.sh`をやり直す。供用開始後または状態を確認できない場合は削除せず停止する。prefix削除は禁止する。
+
+```bash
+(
+  set -e
+  set -a; source .env; set +a
+  export AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}" AWS_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY}" AWS_DEFAULT_REGION=auto
+  endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+  aws s3api delete-object --bucket baibai-stores --key market.sqlite --endpoint-url "$endpoint"
+  aws s3api delete-object --bucket baibai-stores --key runs.sqlite --endpoint-url "$endpoint"
+  aws s3api delete-object --bucket baibai-stores --key macro.sqlite --endpoint-url "$endpoint"
+  aws s3api delete-object --bucket baibai-stores --key baibai.sqlite --endpoint-url "$endpoint"
+  batch/scripts/seed.sh
+)
+```
+
+### Workerをdeployする
+
+Actions variable `R2_ACCOUNT_ID`と、対象accountの`Workers Scripts Write`に絞ったsecret `CLOUDFLARE_API_TOKEN`を設定する。production deployは`web.yml`が所有する。
+
+```bash
+(
+  set -e
+  gh workflow run web.yml --ref main
+  gh run list --workflow web.yml --limit 3
+)
+```
+
+対象runを特定し、[監視手順](#長時間処理の監視)で成功を確認する。初回はsecret未設定のAPIが401となる。password managerで生成した32文字のCSPRNG値を、次のpromptへ入力する。
+
+```bash
+(cd web/edge && npx wrangler secret put VIEW_PASSWORD)
+```
+
+secret設定の成功後、表示を初回生成する。
+
+```bash
+(
+  set -e
+  gh workflow run cloud-materialize.yml --ref main
+  gh run list --workflow cloud-materialize.yml --limit 3
+)
+```
+
+対象materializeの成功後だけ実行する。
+
+```bash
+web/edge/scripts/verify-deployment.sh
+```
+
+未認証・誤認証が401、正認証で既存keyが成功し不存在keyが404となることを確認する。passwordはpromptだけで扱い、引数・Git・logへ出さない。TTYなしのexit 2は未検証であり、迂回しない。失敗時はworkflow/検査結果の原因を直し、deployやR2操作を重ねない。
+
+<a id="shared-read-setup"></a>
+
+### 共有readとL1接続の設定
+
+**前提**: mainのweb deployが共有read実装を含むことを確認します。CloudflareのR2 API token管理で、
+production `baibai-stores`だけにscopeした **Object Read only** credentialを新規作成します。
+publisherのread-write credentialは流用せず、canonical bucketのWorker bindingは追加しません。
+Object Read onlyはbucket全体を読めます。L1以外を外部へ返さない境界はWorkerのnamespace allowlistであり、
+prefix単位IAMではありません（[Cloudflare公式](https://developers.cloudflare.com/r2/api/tokens/)）。
+
+`READ_ACCESS_TOKEN`はowner passwordとは別に、32 random bytes以上をCSPRNGで生成しbase64url等にします。
+実値と共有URLはpassword manager等の非公開経路だけで扱い、Git、Issue、PR、CI log、artifact、shell引数へ
+残しません。`wrangler.jsonc`はobservabilityとLogpushを明示的に無効化し、既存productionの無効状態を維持します。
+Wrangler 4.136.1では`redact_query_string`が正式に扱えるため、deployment設定へ
+`redact_query_string=true`を固定します。observabilityとLogpushは無効のまま維持します。
+logs/tracesを将来有効化する変更は別の作業とし、その際は非秘密のqueryでredactionを受入確認します。
+実際の共有tokenで試験しません。real-time logの`wrangler tail`、dashboard Live Logs、Tail Worker等は、
+共有tokenを使うrequest中に起動・接続しません。
+
+**実行**: 以下はrepository rootから実行し、promptへ値を入力します。`L1_R2_BASE_URL`は実bucketのjurisdictionに合う
+`https://<account-endpoint>/<bucket>`を指定し、末尾にobject key、query、credentialを入れません。
+endpointの実値もGitへ残さないためWorker secretとして設定します。
+
+```bash
+(
+  set -e
+  cd web/edge
+  npx wrangler secret put READ_ACCESS_TOKEN
+  npx wrangler secret put L1_R2_BASE_URL
+  npx wrangler secret put L1_R2_ACCESS_KEY_ID
+  npx wrangler secret put L1_R2_SECRET_ACCESS_KEY
+)
+```
+
+**成功確認**: productionのScript Settingsでobservabilityが未設定またはlogs/tracesとも無効、Logpush無効、
+tail consumerなしを確認します。認証値・bindingsは出力せず、設定項目だけを確認します。無効状態が異なる場合は
+共有URLの利用を始めず、deployment設定と実設定を一致させます。
+owner Bearerと共有Bearer/queryで既存JSONの具体値・更新時点を読み、未認証と旧/誤tokenが
+401、重複shareが400になることを確認します。`/?share=...`は通常UIを開き、最初のAPI request前にURLから
+shareが消え、owner保存値が維持されることを確認します。共有URLを第三者へ一般公開しません。
+
+L1は[固定release手順](../docs/reference/market-lake.md#shared-raw-read)でcurrent → release manifest → dataset manifest → 実Parquetへ進む。対象の分析workspaceで取得・decodeし、同じreleaseの対象値をlocal baselineと照合する。HTTP 200や手動uploadだけでは成功としない。取得・decode・照合が失敗した場合は原因を確認して利用を止める。
+
+**停止と復旧**: shared secret未設定・空は共有accessだけを無効化し、L1接続値の不足はlakeだけ503にします。
+上流403/5xx等は安全な502となるので、read-only scopeとendpoint設定を確認します。秘密値や上流error bodyを
+logへ出しません。設定失敗時はowner credential、store、daily batchを変更せず設定をやり直します。
+
+**rotationと撤回**: 共有tokenは同じ`(cd web/edge && npx wrangler secret put READ_ACCESS_TOKEN)`で置換し、旧値401・新値成功を確認します。
+次の401でfrontendは共有sessionだけを消します。共有撤回は`(cd web/edge && npx wrangler secret delete READ_ACCESS_TOKEN)`です。
+L1 credentialは新しいbucket-scoped Object Read only tokenを作り、2つのS3 secretを更新してGETを確認した後に
+旧R2 tokenを失効させます。更新途中のlake 502は全設定が揃ってから再確認します。L1公開自体の撤回は
+`(cd web/edge && npx wrangler secret delete L1_R2_ACCESS_KEY_ID)`でgatewayを503にし、Cloudflare側でもその専用tokenを失効させます。
+既存owner viewとcanonical dataは維持され、secret変更で再deployは不要です。

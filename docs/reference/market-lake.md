@@ -57,15 +57,7 @@ publishはimmutable object、dataset manifest、release manifestの順に転送�
 conditional PUTで切り替える。開始時pointerが動いていればconflictとして停止し、別writerのsuccessorへ
 乗り換えない。pointer切替前にlocal closureをdigest・schema・row数まで検証する。
 
-```bash
-batch/scripts/r2_transfer.sh publish-lake
-```
-
-必要な環境変数は`R2_ACCOUNT_ID`、`R2_ACCESS_KEY_ID`、
-`R2_SECRET_ACCESS_KEY`である。remote publishはローカルbuildと検証が成功した後だけ行う。
-このcommandがcurrent pointerの解決、現行market storeのseal/export、CAS publish、local
-`lake_store_origin`の更新を一続きで行う。個別release manifestを転送するlow-level moduleは、pointerが
-未作成のbootstrapまたはcurrentと同一releaseのretryに限る内部primitiveであり、forward publicationには使わない。
+実行command、credential、成功確認と停止・復旧は[ローカル発行手順](../../batch/OPERATIONS.md#ローカルからクラウドを更新する)を正本とする。
 
 rollback pointerや全履歴bytes監査は持たない。問題のあるreleaseを直すときは、正しいstoreから新しいreleaseを
 前向きにpublishする。immutable prefixはBucket Lockで上書きと削除を防ぎ、mutable pointerとstagingは
@@ -75,17 +67,7 @@ lock対象外にする。
 
 ## 日次切替
 
-日次batchは次の順序でmarket storeを扱う。
-
-| 段 | 処理 |
-| --- | --- |
-| `r2_transfer.sh pull-machine` | lake外のstore-local tableとoriginを取得 |
-| `r2_transfer.sh hydrate-market` | current releaseからlake所有tableを復元 |
-| `baibai-batch daily` | ingestとscreeningを実行 |
-| `r2_transfer.sh publish-lake` | 新しいL1 releaseをpublish |
-| `r2_transfer.sh push-machine` | lake所有tableを除いたstore-local copyを反映 |
-
-publishはpushより先に行う。逆順ではcoverageだけが進み、factがpublishされない状態を作り得る。
+実行順は[batch運用](../../batch/OPERATIONS.md#日次機械工程--baibai-batch-daily)を正本とする。L1 publishはmachine store pushより先に行う。逆順ではcoverageだけが進み、factがcurrent releaseに無い状態を作り得る。readerは開始時にreleaseを固定する。
 
 <a id="fixed-release-read"></a>
 
