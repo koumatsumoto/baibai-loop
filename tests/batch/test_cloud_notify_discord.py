@@ -22,6 +22,11 @@ WEBHOOK = "https://discord.com/api/webhooks/123/abc"
 RUN_URL = "https://github.com/example/baibai-loop/actions/runs/1/attempts/1"
 
 
+@pytest.fixture(autouse=True)
+def local_executor_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
+
 class FakeTransport:
     def __init__(self, status: int = 204, error: Exception | None = None) -> None:
         self.status = status
