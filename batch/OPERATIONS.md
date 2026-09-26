@@ -948,4 +948,4 @@ progressはrunner temp内だけに置く。書込み失敗は1回だけ警告し
 - `provider_response`: 固定validation reasonを起点に応答契約を調べる。Secret・raw body・symbol一覧をIssueやlogへ転載しない。
 - `timeout`: 最後のphase / chunkとprovider時間を確認する。初回実測なしに30分上限を延長しない。
 
-初回本番受入は[Issue #1325](https://github.com/koumatsumoto/baibai-loop/issues/1325)の一回限りのquiet windowとscheduled full runで行う。成否にかかわらずrun URLと診断結果を#1317・#1323へ記録し、成功時はSQLite増分・Lake row parity・cloud readback、失敗時はpartial canonical rowsがなく既存Lake公開が継続することを確認する。
+本番受入と障害調査の正本は[Issue #1317](https://github.com/koumatsumoto/baibai-loop/issues/1317)とする。scanner障害の切り分け後、#1317に記録した受入条件に従ってscheduled full runを確認する。成否にかかわらずrun URLと診断結果を#1317・#1323へ記録し、成功時はSQLite増分・Lake row parity・cloud readback、失敗時はpartial canonical rowsがなく既存Lake公開が継続することを確認する。
