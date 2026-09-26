@@ -801,11 +801,12 @@ local analysisの操作は[Research Triage skill](../.agents/skills/research-tri
 code が選ばず repository secret `DISCORD_WEBHOOK_URL` が指す webhook で固定する。workflow 末尾の
 単一 step（`if: always()`）が、cancel を含むあらゆる終端状態で1回だけ行う。
 
-message は 3 部からなる。
+message は 4 要素からなる。
 
 1. 見出し行 — label・as-of・失敗した step 名（あれば）。`[FAILED] as-of 2026-08-26 — failed step: hydrate`
-2. `🆕 新規 Review Set 入り:` / `👋 Review Set 退出:` の 2 行 — それぞれ銘柄コード順・最大5件（超過時は全件数・表示件数・他の件数を明示）・`<ticker> <社名> E[r]±X.X%`。急落当日の候補と、Review Set から落ちた銘柄を通知だけで拾えるようにするための行である。**export に到達した run では常に出す** — 0 件の日は `なし`、delta view が読めない日は `計測なし（<理由>）` と書く。行が無いことは「0 件」「計測不能」「通知経路の異常」の3つを同時に意味してしまい、読み手が区別できない。非営業日の skip には Review Set が無いので出ない
-3. `run:` — GitHub Actions の run URL。所要時間・step ごとの結果・lake release・error の本文はこの run log にある
+2. `executor: GitHub Actions|Local` — 実行環境から判定した固定2値。見出しの直後に必ず1行表示する
+3. `🆕 新規 Review Set 入り:` / `👋 Review Set 退出:` の 2 行 — それぞれ銘柄コード順・最大5件（超過時は全件数・表示件数・他の件数を明示）・`<ticker> <社名> E[r]±X.X%`。急落当日の候補と、Review Set から落ちた銘柄を通知だけで拾えるようにするための行である。**export に到達した run では常に出す** — 0 件の日は `なし`、delta view が読めない日は `計測なし（<理由>）` と書く。行が無いことは「0 件」「計測不能」「通知経路の異常」の3つを同時に意味してしまい、読み手が区別できない。非営業日の skip には Review Set が無いので出ない
+4. `run:` — GitHub Actions の run URL。所要時間・step ごとの結果・lake release・error の本文はこの run log にある
 
 label は5種。
 
@@ -814,7 +815,7 @@ label は5種。
 | `[OK]` | batch exit 0、upload まで成功 |
 | `[SKIPPED]` | 非営業日 gate で skip（export なし） |
 | `[DEGRADED]` | batch exit 3。screening は publish 済みで、見出しに最初の繰延べ失敗 step（macro / prune / task-reconcile）を表示 |
-| `[FAILED]` | batch の致命的失敗（見出しに batch 内の stage 名）、または batch 以外の step の失敗（見出しに step 名） |
+| `[FAILED]` | batch の致命的失敗（見出しに batch 内の stage 名）、または lease 解放を含む batch 以外の step の失敗（見出しに step 名） |
 | `[CANCELLED]` | job が中断された（`timeout-minutes` 超過・手動 cancel） |
 
 GitHub は `timeout-minutes` 超過を **cancel として扱う**。hang は日次 batch が最も踏みやすい
@@ -826,8 +827,8 @@ GitHub は `timeout-minutes` 超過を **cancel として扱う**。hang は日�
 notify が outcome を受け取らない step（checkout / setup-uv / Playwright）の失敗は `pre-batch` と
 書く。batch 自身が fatal / deferred failure に至った run は、`baibai_batch.jobs.daily` が `--notice-output` に
 書いた JSON の最初の `failed_stage` を名指す。その JSON（as-of・skip の有無・失敗 stage・Review Setの出入り）は batch が
-終端 path ごとに 1 回書く素の dict で、schema・validation・語彙表を持たない。読めなければ見出し行と
-run URL だけになる。
+終端 path ごとに 1 回書く素の dict で、schema・validation・語彙表を持たない。読めなければ見出し行・
+executor行・run URL だけになる。
 
 notifier は repository dependency と Python 3.14 固有構文を使わず、checkout 直後の system `python3`
 で import / CLI 実行できる（setup-python 前の smoke step が実 import で検査する）。message は

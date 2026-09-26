@@ -17,7 +17,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-from baibai_engine.foundation.env import load_project_env
+from dotenv import load_dotenv
 
 from .lake_publish import Boto3R2Store, LakeCASConflict, LakePublishError, ObjectStore
 
@@ -119,11 +119,11 @@ def _generation(store: ObjectStore) -> tuple[PublicationLease, bytes, str] | Non
     before = store.head(PUBLICATION_LEASE_KEY)
     if before is None:
         return None
-    if before.size > 4096 or not before.etag:
+    if not before.etag:
         raise LeaseError("invalid publication lease object")
     payload = store.get_bytes(PUBLICATION_LEASE_KEY)
     after = store.head(PUBLICATION_LEASE_KEY)
-    if after is None or after.etag != before.etag or after.size != len(payload):
+    if after is None or after.etag != before.etag:
         raise LeaseError("publication lease changed during read")
     return _decode(payload), payload, after.etag
 
@@ -281,6 +281,12 @@ def _load_handle(path: Path) -> PublicationLeaseHandle:
         raise LeaseError("invalid publication lease handle") from exc
 
 
+def _load_project_env(module_path: Path) -> None:
+    # This module lives at batch/src/baibai_batch/storage. Keep the optional
+    # local credential file tied to the checkout, never the caller's cwd.
+    load_dotenv(module_path.resolve().parents[4] / ".env", override=False)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="publication_lease")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -295,7 +301,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     try:
         handle = _load_handle(args.handle) if args.command == "release" else None
-        load_project_env(Path(__file__))
+        _load_project_env(Path(__file__))
         store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or DEFAULT_STORES_BUCKET)
         if args.command == "acquire":
             acquired, expired = acquire(store, args.purpose)

@@ -32,7 +32,11 @@ class MemoryStore:
     def get_bytes(self, key: str) -> bytes:
         assert key == lease.PUBLICATION_LEASE_KEY
         assert self.body is not None
-        return self.body
+        body = self.body
+        if self.fault == "read_change":
+            self.fault = None
+            self._set(body)
+        return body
 
     def put_file(
         self,
@@ -112,6 +116,18 @@ def test_expired_takeover_and_race() -> None:
     with pytest.raises(lease.LeaseError):
         lease.release(store, old)
     assert lease._decode(store.body or b"").owner == new.owner
+
+
+def test_generation_change_during_get_refuses_acquire_without_put() -> None:
+    store = MemoryStore()
+    previous = lease.PublicationLease(
+        "released", "local:" + "a" * 32, "operator", NOW, NOW + lease.LEASE_TTL
+    )
+    store._set(lease._encode(previous))
+    store.fault = "read_change"
+    with pytest.raises(lease.LeaseError, match="changed during read"):
+        lease.acquire(store, "daily", now=NOW)
+    assert store.writes == []
 
 
 @pytest.mark.parametrize("fault", ["after", "before"])
@@ -247,12 +263,26 @@ def test_cli_uses_module_path_and_existing_bucket_env(
         seen["bucket"] = bucket
         return store
 
-    monkeypatch.setattr(lease, "load_project_env", load)
+    monkeypatch.setattr(lease, "_load_project_env", load)
     monkeypatch.setattr(lease, "Boto3R2Store", make_store)
     monkeypatch.setenv("R2_STORES_BUCKET", "test-stores")
     path = tmp_path / "handle.json"
     assert lease.main(["acquire", "--purpose", "operator", "--handle", str(path)]) == 0
     assert seen == {"env_path": Path(lease.__file__), "bucket": "test-stores"}
+
+
+def test_local_env_loads_from_module_location_without_overriding_process_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = tmp_path / "batch/src/baibai_batch/storage/publication_lease.py"
+    module.parent.mkdir(parents=True)
+    (tmp_path / ".env").write_text("R2_STORES_BUCKET=from-file\nR2_ACCOUNT_ID=from-file\n")
+    monkeypatch.setenv("R2_ACCOUNT_ID", "from-process")
+    monkeypatch.delenv("R2_STORES_BUCKET", raising=False)
+    monkeypatch.chdir(module.parent)
+    lease._load_project_env(module)
+    assert lease.os.environ["R2_ACCOUNT_ID"] == "from-process"
+    assert lease.os.environ["R2_STORES_BUCKET"] == "from-file"
 
 
 def test_owner_contract(monkeypatch: pytest.MonkeyPatch) -> None:
