@@ -127,10 +127,15 @@ def test_ambiguous_acquire_is_reconciled_once(fault: str) -> None:
     assert len(store.writes) == 1
 
 
-def test_competing_generation_is_busy_without_retry() -> None:
+@pytest.mark.parametrize("state", ["held", "released", "expired"])
+def test_competing_generation_is_busy_without_retry(state: str) -> None:
     store = MemoryStore()
     other = lease.PublicationLease(
-        "released", "local:" + "a" * 32, "operator", NOW, NOW + lease.LEASE_TTL
+        "released" if state == "released" else "held",
+        "local:" + "a" * 32,
+        "operator",
+        NOW - lease.LEASE_TTL if state == "expired" else NOW,
+        NOW if state == "expired" else NOW + lease.LEASE_TTL,
     )
     store.other = lease._encode(other)
     store.fault = "other"
@@ -204,11 +209,59 @@ def test_missing_etag_rejects_release(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert path.exists()
 
 
+def test_failed_release_keeps_handle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    store = MemoryStore()
+    monkeypatch.setattr(lease, "Boto3R2Store", lambda **_: store)
+    path = tmp_path / "handle.json"
+    assert lease.main(["acquire", "--purpose", "daily", "--handle", str(path)]) == 0
+    store.fault = "before"
+    assert lease.main(["release", "--handle", str(path)]) == 1
+    assert path.exists()
+    assert lease._decode(store.body or b"").state == "held"
+
+
+def test_handle_save_failure_releases_remote(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    store = MemoryStore()
+    monkeypatch.setattr(lease, "Boto3R2Store", lambda **_: store)
+
+    def fail_save(_path: Path, _handle: lease.PublicationLeaseHandle) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(lease, "_save_handle", fail_save)
+    assert lease.main(["acquire", "--purpose", "daily", "--handle", str(tmp_path / "x")]) == 1
+    assert lease._decode(store.body or b"").state == "released"
+
+
+def test_cli_uses_module_path_and_existing_bucket_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    store = MemoryStore()
+    seen: dict[str, object] = {}
+
+    def load(path: Path) -> None:
+        seen["env_path"] = path
+
+    def make_store(*, bucket: str) -> MemoryStore:
+        seen["bucket"] = bucket
+        return store
+
+    monkeypatch.setattr(lease, "load_project_env", load)
+    monkeypatch.setattr(lease, "Boto3R2Store", make_store)
+    monkeypatch.setenv("R2_STORES_BUCKET", "test-stores")
+    path = tmp_path / "handle.json"
+    assert lease.main(["acquire", "--purpose", "operator", "--handle", str(path)]) == 0
+    assert seen == {"env_path": Path(lease.__file__), "bucket": "test-stores"}
+
+
 def test_owner_contract(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.delenv("GITHUB_RUN_ID", raising=False)
+    store = MemoryStore()
     with pytest.raises(lease.LeaseError):
-        lease.acquire(MemoryStore(), "daily", now=NOW)
+        lease.acquire(store, "daily", now=NOW)
+    assert store.body is None
     monkeypatch.setenv("GITHUB_RUN_ID", "123")
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
     handle, _ = lease.acquire(MemoryStore(), "daily", now=NOW)

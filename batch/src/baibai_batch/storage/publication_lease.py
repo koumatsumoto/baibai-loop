@@ -166,6 +166,7 @@ def acquire(
 ) -> tuple[PublicationLeaseHandle, bool]:
     if purpose not in _PURPOSES:
         raise LeaseError("invalid publication lease purpose")
+    owner = _owner()
     current = _generation(store)
     moment = (now or datetime.now(UTC)).astimezone(UTC)
     expired_previous = False
@@ -176,7 +177,7 @@ def acquire(
         expired_previous = previous.state == "held"
     else:
         etag = None
-    lease = _validate(PublicationLease("held", _owner(), purpose, moment, moment + LEASE_TTL))
+    lease = _validate(PublicationLease("held", owner, purpose, moment, moment + LEASE_TTL))
     payload = _encode(lease)
     try:
         acquired_etag = _put(store, payload, etag=etag)
