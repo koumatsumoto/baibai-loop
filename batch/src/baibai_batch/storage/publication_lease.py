@@ -190,6 +190,8 @@ def acquire(
             raise LeaseError("publication lease acquire outcome unknown") from None
         other, remote_payload, acquired_etag = observed
         if remote_payload != payload:
+            if acquired_etag == etag:
+                raise LeaseError("publication lease acquire write did not complete") from None
             raise LeaseBusy(other) from None
     if not acquired_etag:
         raise LeaseError("publication lease acquired without ETag")

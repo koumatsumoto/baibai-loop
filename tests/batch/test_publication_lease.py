@@ -143,6 +143,20 @@ def test_ambiguous_acquire_is_reconciled_once(fault: str) -> None:
     assert len(store.writes) == 1
 
 
+def test_existing_released_lease_write_failure_is_not_busy() -> None:
+    store = MemoryStore()
+    previous = lease.PublicationLease(
+        "released", "local:" + "a" * 32, "operator", NOW, NOW + lease.LEASE_TTL
+    )
+    store._set(lease._encode(previous))
+    original_etag = store.etag
+    store.fault = "before"
+    with pytest.raises(lease.LeaseError, match="write did not complete"):
+        lease.acquire(store, "daily", now=NOW)
+    assert store.etag == original_etag
+    assert store.writes == [(original_etag, False)]
+
+
 @pytest.mark.parametrize("state", ["held", "released", "expired"])
 def test_competing_generation_is_busy_without_retry(state: str) -> None:
     store = MemoryStore()

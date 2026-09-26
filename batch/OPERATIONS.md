@@ -812,7 +812,7 @@ label は5種。
 
 | label | 意味 |
 | --- | --- |
-| `[OK]` | batch exit 0、upload まで成功 |
+| `[OK]` | batch exit 0、upload および lease release まで成功 |
 | `[SKIPPED]` | 非営業日 gate で skip（export なし） |
 | `[DEGRADED]` | batch exit 3。screening は publish 済みで、見出しに最初の繰延べ失敗 step（macro / prune / task-reconcile）を表示 |
 | `[FAILED]` | batch の致命的失敗（見出しに batch 内の stage 名）、または lease 解放を含む batch 以外の step の失敗（見出しに step 名） |
