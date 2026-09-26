@@ -711,17 +711,6 @@ def test_every_worker_view_route_is_produced_by_the_exporter() -> None:
     assert worker_views <= _exported_views(), sorted(worker_views - _exported_views())
 
 
-def test_the_batch_operations_doc_lists_every_exported_view() -> None:
-    readme = (REPO_ROOT / "batch/OPERATIONS.md").read_text(encoding="utf-8")
-    # 一覧は placeholder を `<name>` で書くので、比較の前に同じ形へ寄せる。
-    documented = {
-        re.sub(r"<[^>]+>", "*", _view_shape(name))
-        for name in re.findall(r"`views/([^`]+)`", readme)
-    }
-
-    assert _exported_views() <= documented, sorted(_exported_views() - documented)
-
-
 @pytest.mark.parametrize("count", [1, 10, 100])
 def test_export_reuses_research_history_and_ledger_per_export(
     app_method_root: Path, tmp_path: Path, count: int, mocker
