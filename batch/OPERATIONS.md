@@ -262,28 +262,43 @@ uv run baibai-engine screening ticker-profile --ticker TICKER
 
 変更codeをmainへ反映し、対象storeと変更内容を確認する。marketはlake所有tableを編集する前に現行releaseへhydrateする。変更後の再hydrateはlocal変更を上書きするため行わない。
 
+GitHubの`cloud-publish` queueはGitHub内の順序だけを守る。GitHubとローカルの共通発行にはR2の`coordination/publication-lease.json`を使う。TTLは固定120分。`publish-lake` / `push-machine` / `push-market` / `push-macro`をローカルから行う際は、長い取得・準備を済ませてから、production read / merge / publishを次の同一lease内で実行する。`r2_transfer.sh`の低レベルcommandはleaseを暗黙取得しない。`push-app`、`publish.sh`、初回`seed-all`は対象外。
+
+```bash
+with_publication_lease() (
+  handle="$(mktemp "${TMPDIR:-/tmp}/baibai-publication-lease.XXXXXX.json")"
+  rm -f "$handle"
+  uv run python -m baibai_batch.storage.publication_lease acquire --purpose operator --handle "$handle" || return $?
+  if "$@"; then result=0; else result=$?; fi
+  uv run python -m baibai_batch.storage.publication_lease release --handle "$handle" || return $?
+  return "$result"
+)
+```
+
+失敗時もreleaseを試みるため、上の関数内では`set -e`を使わない。release失敗時はhandleを残して原因を確認する。busyならowner・purpose・expiryと該当run/processの生存を確認し、blind retryしない。expired leaseのみ次のacquireが条件付きで引き継ぐ。L1とmachine storeのCAS / receiptは最終整合性境界として残り、Phase 1のservingはGitHub-only writerと`cloud-publish` queue、applicationはlocal正本のownerを維持する。ローカルrunnerも同じCLIを使う。
+
 変更した対象に合う経路だけを実行する。lake所有tableの変更:
 
 ```bash
-batch/scripts/r2_transfer.sh publish-lake && batch/scripts/r2_transfer.sh push-market
+with_publication_lease bash -c 'batch/scripts/r2_transfer.sh publish-lake && batch/scripts/r2_transfer.sh push-market'
 ```
 
 marketのstore-local tableだけの変更:
 
 ```bash
-batch/scripts/r2_transfer.sh push-market
+with_publication_lease batch/scripts/r2_transfer.sh push-market
 ```
 
 macroだけの変更:
 
 ```bash
-batch/scripts/r2_transfer.sh push-macro
+with_publication_lease batch/scripts/r2_transfer.sh push-macro
 ```
 
 直前に`pull.sh`した3 storeでlocal daily全体を実行した場合は、上の単独pushではなく同じbundleを反映する。
 
 ```bash
-batch/scripts/r2_transfer.sh publish-lake && batch/scripts/r2_transfer.sh push-machine
+with_publication_lease bash -c 'batch/scripts/r2_transfer.sh publish-lake && batch/scripts/r2_transfer.sh push-machine'
 ```
 
 単独pushはcloudの全行を包含したmerge、bundle pushはpull時点の全ETag一致とCAS uploadの成功を確認する。選んだpushが成功し、表示更新も必要な場合だけ実行する。
@@ -293,6 +308,8 @@ gh workflow run cloud-materialize.yml --ref main
 ```
 
 対象runの完了を[監視手順](#長時間処理の監視)で確認する。merge・origin・schema・CASの失敗では公開へ進まず、[R2安全境界](#r2-transferの安全境界)に従って原因とcloud copyを確認する。local dailyの3 storeを個別pullや無条件uploadで組み替えない。
+
+leaseがmalformedなら自動修復しない。GitHubの`cloud-publish` writerにrunning/pendingがなく、ローカル発行processも動いていないことを確認し、固定key`coordination/publication-lease.json`だけをローカルへ取得して原因を調べる。人間がactive writerなしと確認した場合に限り、そのexact key 1個だけをR2から削除する。次のacquireが`If-None-Match: *`で再作成する。通常運用でprefix削除や手書きJSON上書きはしない。
 
 ### application DB を反映する
 
@@ -518,11 +535,12 @@ cleanであること、storeの`lake_store_origin`が開始時current pointerと
 **実行**:
 
 経路は日次と同じ1つで、毎回全partitionを導出し、serving releaseからorigin束縛と履歴の床だけを読む。
+[ローカル発行手順](#ローカルからクラウドを更新する)の`with_publication_lease`を同じshellで定義してから実行する。
 
 ```bash
 (
   set -e
-  batch/scripts/r2_transfer.sh publish-lake
+  with_publication_lease batch/scripts/r2_transfer.sh publish-lake
   uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores --format json
 )
 ```

@@ -117,6 +117,14 @@ jobs:
         id: duckdb-httpfs
         run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
 
+      - name: Acquire publication lease
+        id: lease-acquire
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.storage.publication_lease acquire --purpose daily --handle "$RUNNER_TEMP/publication-lease-handle.json"
+
       # failure policy: 1 — the batch cannot compute without the canonical stores.
       - name: Pull stores
         id: pull
@@ -294,6 +302,15 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: batch/scripts/r2_transfer.sh publish-serving-tail "$RUNNER_TEMP/serving"
 
+      - name: Release publication lease
+        id: lease-release
+        if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.storage.publication_lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
+
       # `cancelled()` is a status-check function: it is only evaluated in an `if`
       # conditional, and interpolating it into a `run:` block makes the whole
       # workflow file invalid. Capture the state as a step output instead.
@@ -325,9 +342,11 @@ jobs:
             --smoke-outcome "${{ steps.smoke.outcome }}" \
             --setup-outcome "${{ steps.setup.outcome }}" \
             --sync-outcome "${{ steps.sync.outcome }}" \
+            --lease-acquire-outcome "${{ steps.lease-acquire.outcome }}" \
             --pull-outcome "${{ steps.pull.outcome }}" \
             --hydrate-outcome "${{ steps.hydrate.outcome }}" \
             --publish-lake-outcome "${{ steps.publish-lake.outcome }}" \
             --upload-stores-outcome "${{ steps.upload-stores.outcome }}" \
             --publish-serving-outcome "${{ steps.publish-serving.outcome }}" \
+            --lease-release-outcome "${{ steps.lease-release.outcome }}" \
             --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"

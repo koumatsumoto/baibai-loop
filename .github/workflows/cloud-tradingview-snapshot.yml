@@ -73,6 +73,14 @@ jobs:
         id: duckdb-httpfs
         if: steps.target.outputs.eligible == 'true'
         run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
+      - name: Acquire publication lease
+        id: lease-acquire
+        if: steps.target.outputs.eligible == 'true'
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.storage.publication_lease acquire --purpose tradingview --handle "$RUNNER_TEMP/publication-lease-handle.json"
       - name: Pull market store
         id: pull
         if: steps.target.outputs.eligible == 'true'
@@ -216,6 +224,14 @@ jobs:
         run: |
           set -o pipefail
           batch/scripts/r2_transfer.sh publish-lake | tee "$RUNNER_TEMP/tradingview-lake-publish.log"
+      - name: Release publication lease
+        id: lease-release
+        if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.storage.publication_lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
       - name: Record cancellation
         id: cancellation
         if: ${{ cancelled() }}
@@ -305,10 +321,12 @@ jobs:
             --setup-uv-outcome "${{ steps.setup-uv.outcome }}" \
             --sync-outcome "${{ steps.sync.outcome }}" \
             --duckdb-httpfs-outcome "${{ steps.duckdb-httpfs.outcome }}" \
+            --lease-acquire-outcome "${{ steps.lease-acquire.outcome }}" \
             --pull-outcome "${{ steps.pull.outcome }}" \
             --hydrate-outcome "${{ steps.hydrate.outcome }}" \
             --preflight-outcome "${{ steps.preflight.outcome }}" \
             --master-outcome "${{ steps.master.outcome }}" \
             --tradingview-outcome "${{ steps.tradingview.outcome }}" \
             --publish-lake-outcome "${{ steps.publish-lake.outcome }}" \
+            --lease-release-outcome "${{ steps.lease-release.outcome }}" \
             --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"

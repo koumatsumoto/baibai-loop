@@ -381,6 +381,8 @@ forbidden_modules = ["baibai_batch", "tools"]
 name = "batch uses only explicit engine orchestration boundaries"
 type = "forbidden"
 source_modules = ["baibai_batch"]
+# Publication lease uses the existing repository .env loader at its CLI boundary.
+ignore_imports = ["baibai_batch.storage.publication_lease -> baibai_engine.foundation.env"]
 forbidden_modules = [
   "baibai_engine.appdb",
   "baibai_engine.foundation",

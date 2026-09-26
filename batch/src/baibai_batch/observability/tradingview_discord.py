@@ -17,6 +17,7 @@ from .discord import (
     WEBHOOK_ENV_VAR,
     _urllib_transport,
     deliver,
+    executor_label,
     run_url,
     sanitize_one_line,
 )
@@ -28,12 +29,14 @@ STEPS = (
     "setup-uv",
     "sync",
     "duckdb-httpfs",
+    "lease-acquire",
     "pull",
     "hydrate",
     "preflight",
     "master",
     "tradingview",
     "publish-lake",
+    "lease-release",
 )
 FAILED_STEPS = tuple(step for step in STEPS if step != "tradingview")
 
@@ -92,6 +95,7 @@ def main(
         label, detail = OUTCOME_FAILED, " — failed step: workflow"
     message = (
         f"{OUTCOME_LABELS[label]} as-of {sanitize_one_line(args.asof)}{detail}"
+        f"\nexecutor: {executor_label(os.environ)}"
         f"\nrun: {run_url(os.environ)}"
     )
     print(message, flush=True)
