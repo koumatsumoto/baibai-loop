@@ -161,9 +161,7 @@ SQLからの外部I/Oは認めず、指定した保存dataだけを分析する�
 
 数値上限は[L1 contract](../l1_mcp/contract.py)の`LIMITS`が所有する。同時実行の競合は`BUSY`、行数・wire容量を超える結果は`RESULT_TOO_LARGE`であり、部分結果を正常な完了として返さない。
 
-結果はstructured contentの`schema`、`rows`、`row_count`、固定reference、source情報、
-`transfer`、`execution`に入ります。NULLはJSON null、整数は整数、decimalは文字列、
-date/timeはISO文字列、binaryはbase64です。NaN/Infinityやnested型等は拒否するのでSQLで変換します。
+結果のfieldと型変換は[L1 contract](../l1_mcp/contract.py)を参照する。NULLを0とみなさず、decimalの文字列は精度を保って扱う。NaN/Infinityやnested型等の未対応結果は、SQL側で扱える型へ変換する。
 
 `transfer`にはcall単位とprocess累計のGET数・download bytes、`execution`には子process実行秒数・
 peak resident memory bytesが入ります。`elapsed_seconds`は取得を含むcall全体です。

@@ -2,6 +2,19 @@
 
 本書はmachine処理、store転送、公開と復旧の手順を所有する。domain処理はengine、read modelはwebが担う。以下のcommandはrepository rootのBashから実行し、終了状態と次の操作は各節に従う。CLIの全引数は該当`--help`を参照する。
 
+## 目的から探す
+
+| 作業 | 手順 |
+| --- | --- |
+| 分析前に保存情報を揃える | [クラウド正本の取得](#クラウド正本をローカルへ取得する) |
+| localで更新したmachine情報を反映する | [クラウド更新](#ローカルからクラウドを更新する) |
+| 判断・確認済み事実を表示へ反映する | [application反映](#application-db-を反映する) |
+| Macro観測・registryを直す | [撤回と退役](#macro観測とregistryの修正) |
+| EDINET metricsのsourceを移動・変更する | [revision更新](#edinet-metrics-revision) |
+| EDINET原典のResearch factsを揃える | [EDINET Research facts](#edinet-research-facts) |
+| 初回の構成を確認する | [Cloudflare / GitHub Actions構成](#cloudflare--github-actions-構成) |
+
+
 ## 長時間処理の監視
 
 対象run IDを固定して監視する。hard timeoutはworkflow定義を正本とする。
@@ -605,6 +618,25 @@ CLI 引数・log には出ない）。secret の実値を Git・issue・log へ�
 3. 次の通常runで通知を確認する。即時確認が明示的に必要な場合だけ通知経路の受入を行い、rotationだけで過去日のscreeningを再生成しない。
 
 旧 webhook は Discord 側で削除するまで有効。
+
+<a id="edinet-metrics-revision"></a>
+
+## EDINET metricsのextractor revision更新
+
+**対象**: `market/edinet_metrics`のmanifestに含まれるsourceのpathまたはbytesが変わり、次回writerが旧revisionのbaselineを再利用できない場合。Research factsの手動revisionとは別であり、過去snapshot全体を書き換えない。
+
+1. 日次writerの実行状態を確認し、対象codeのmain反映とstore反映を同じ運用枠で行う。先に現行Lake releaseをhydrateしてから、`edinet_metrics`の最新`asof_date`とrevisionを読み、次回writer用に更新するbaselineを特定する。
+2. SQLite backupで検証用copyを作り、`market.edinet_metrics.service.extract_edinet_metrics_command`へcopyの`sqlite_path`を渡して再抽出する。document inventoryと`.cache/screening/edinet/csv_zips/`を再利用し、不足ZIPだけを取得する。公開CLIは通常storeへ書くため、copyの検証に使わない。
+3. exit 0、hard failureなし、新revisionの行数、隔離・quality理由、SQLite integrityを確認する。意味を変えない移動ではrevision以外の列を元baselineと比較する。hard failureによる`output=not-written`では旧行が保護されるので、行が同じことだけを成功としない。
+4. 検証後、対象日を明示して通常storeへ再抽出する。長い準備を終えてから[共通lease下のLake/store反映](#ローカルからクラウドを更新する)へ進む。競合時は最新cloudからやり直し、再抽出後にhydrateして成果を上書きしない。
+
+```bash
+uv run baibai-engine screening extract-edinet-metrics --asof YYYY-MM-DD
+```
+
+**成功確認**: `publish-lake`と`push-market`のno-loss/CAS検査後、公開した固定releaseを別storeへhydrateし、対象as-ofの行数・新revision・抽出値を照合する。cloud copyのstore-local coverageも確認する。code反映、L1発行、store反映、readbackが揃うまで完了としない。日次batchにrevision移行の再構築を代行させない。
+
+**停止・復旧**: 認証・rate limit・不足ZIP・破損は対象を限定して直し、同じas-ofで再実行する。値の予期しない変化、generation競合、旧snapshotの消失があれば公開を止める。revisionを旧hashへ固定して再利用可能に見せない。
 
 <a id="edinet-research-facts"></a>
 

@@ -158,7 +158,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 落とすのは値だけで、`consolidation_basis` と書類の出所は残す。短信由来の指標（PBR・PER・`cash_to_market_cap`・自己資本比率）も残るので、**銘柄は universe に留まり screening され続ける**。必要なEDINET指標を欠くApproachではnominateしないが、他の指標・Approachまで一律に無効にしない。現行Asset Valueの`net_cash_to_market_cap`はanalysis contextであり、eligibility/orderには使わない。
 
-対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。書類選択は[EDINET provider](../../engine/src/baibai_engine/screening/providers/edinet.py)と[保存・選択処理](../../engine/src/baibai_engine/screening/edinet_store.py)を参照する。書類metadataの期間と、抽出したCF・BSの測定期間を同一視しない。
+対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。書類選択は[EDINET provider](../../engine/src/baibai_engine/market/providers/edinet.py)と[保存・選択処理](../../engine/src/baibai_engine/market/edinet_metrics/store.py)を参照する。書類metadataの期間と、抽出したCF・BSの測定期間を同一視しない。
 
 `edinet_source_period_start` / `edinet_source_period_end` は EDINET documents metadata 上の書類対象期間であり、必ずしも抽出 metric の測定期間そのものではない。特に半期報告書 / 訂正半期報告書では fiscal year 全体の period end が入ることがある。screening では source traceability と document selection に使い、research では対象書類の CF 計算書 / BS 表示期間を一次確認する。
 
@@ -253,7 +253,7 @@ Screeningの自己レンジと騰落率は、[`asof_basis_closes()`](../../engin
 
 ### 10.1 Core
 
-- **J-Quants / ClientV2**: 取得の実装は[provider](../../engine/src/baibai_engine/screening/providers/jquants.py)、保存入力は[screening runtime](./screening-runtime.md#market-store-inputs)に従う。取得可能範囲は契約と実際のcoverageで確認する。
+- **J-Quants / ClientV2**: 取得の実装は[provider](../../engine/src/baibai_engine/market/providers/jquants.py)、保存入力は[screening runtime](./screening-runtime.md#market-store-inputs)に従う。取得可能範囲は契約と実際のcoverageで確認する。
 - **EDINET API v2**: documents listで書類を選び、`type=5` CSV ZIPから本書のEV/EBITDA・Net cash・Asset-backed・FCF項目を抽出する。このvaluation経路にはraw XBRLをfallbackしない。`type=1` raw XBRLを使う[Research facts](../../batch/OPERATIONS.md#edinet-research-facts)は別の抽出経路である。
 - **JPX**:
   - 決算発表予定: 公式 financial-announcement index に掲載された全 cohort Excel の既知日程（file 間で日付が食い違う銘柄は、より current な view を持つ file を採る）

@@ -202,17 +202,17 @@ master backfill後にbars 1,200暦日、financial summaries 730暦日の入力�
 ## 4. Root cause: master snapshot が履歴として残らない
 
 DB schema は`PRIMARY KEY (snapshot_date, ticker)`を持ち、複数snapshotを表現できる。
-[`sqlite_reader.read_eq_master_asof`](../../../engine/src/baibai_engine/screening/sqlite_reader.py) も as-of 以下の最新
+[`sqlite_reader.read_eq_master_asof`](https://github.com/koumatsumoto/baibai-loop/blob/e171c7d23b27934a6416d94a6c1c9c7143578b09/engine/src/baibai_engine/screening/sqlite_reader.py) も as-of 以下の最新
 snapshotを読み、日付一致を`exact_date`、不一致を`prior_snapshot`として区別する。
 
-一方、[`store_jquants_master`](../../../engine/src/baibai_engine/screening/sqlite_cache/jquants.py) は保存前に次を実行する。
+一方、[`store_jquants_master`](https://github.com/koumatsumoto/baibai-loop/blob/e171c7d23b27934a6416d94a6c1c9c7143578b09/engine/src/baibai_engine/screening/sqlite_cache/jquants.py) は保存前に次を実行する。
 
 ```sql
 DELETE FROM jquants_master_snapshots;
 ```
 
 同時に既存source coverageを削除し、`coverage_key: latest`だけを記録する。
-[`JQuantsProvider.get_eq_master`](../../../engine/src/baibai_engine/screening/providers/jquants.py) も基準日を受け取らず、
+[`JQuantsProvider.get_eq_master`](https://github.com/koumatsumoto/baibai-loop/blob/e171c7d23b27934a6416d94a6c1c9c7143578b09/engine/src/baibai_engine/screening/providers/jquants.py) も基準日を受け取らず、
 latest masterを取得する。
 
 したがって、現行の`bootstrap-cache --asof`を反復してもsnapshot historyは増えない。

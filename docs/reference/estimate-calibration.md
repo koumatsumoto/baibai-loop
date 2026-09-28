@@ -52,16 +52,7 @@ forward row は解決済み status（市場終値による `resolved`、成立�
 
 3y/5y の blocker は 1 観測につき 1 つだけ立てる。ある判定から導ける別の判定を並べると、同じ欠けを二重に数えて理由の内訳が読めなくなるためである。
 
-| 観測 | 測るもの | blocker が立たない条件 |
-| --- | --- | --- |
-| `master_snapshot_status` | population が cohort 日の断面から来ているか | `exact_date` |
-| `survivorship_coverage_status` | panel の population が as-of の投資可能 universe を再現しているか | `asof_population_mismatch_count == 0` |
-| `priced_master_without_universe.direction_stable` | as-of に価格が付き master にも在るが panel が評価できなかった銘柄が結論を作っていないか | diagnostics 件数と row 同定数が一致し、`true` |
-| `adjustment_factor_coverage` | 価格系列に分割調整 factor が揃っているか | `complete` |
-| `delisting_exclusion.direction_stable` | 窓中に価格が途切れた銘柄の除外が結論を作っていないか | `true` |
-| `entry_price_gap_count` / `future_horizon_count` / `unclassified_unresolved_count` | 未解決 row の分類（下記） | `0` |
-| `input_range_clamped` / `candidate_partition_complete` | 入力窓が要求長を満たし、panel と forward の銘柄集合が一致するか | clamp なし / 一致 |
-| `edinet_axis_population_count` | EDINET の書類から作る軸（`ev_ebitda` / `net_cash_to_market_cap` / `fcf_yield` / `asset_backed_ratio`）を持つ母集団の行数 | 件数として読む（blocker は立てない） |
+評価では、as-ofの母集団、価格調整factor、入力窓とpanel/forwardの集合、未解決returnの分類、除外が結論に与える影響を別々に確認する。masterが当日断面でない、必要入力がclampされる、集合が一致しない等の不備は、単なる件数不足にまとめない。厳密な判定と出力fieldは[evidence](../../engine/src/baibai_engine/screening/calibration/evidence.py)と[evaluation](../../engine/src/baibai_engine/screening/calibration/evaluation/)が所有する。以下では結果の解釈に必要な限界を扱う。
 
 survivorship は population の性質なので panel が件数を測り、verdict は読み手が件数から導く（凍結すると complete の定義を変えたときに既存 cohort へ届かない）。bar store は市場から消えた銘柄の価格も保持するため、**as-of 当日に価格が付いた集合**を master snapshot と独立に観測できる。master が as-of より後なら当時上場していて現在は廃止された銘柄を欠き、前なら以降に上場した銘柄を欠く。どちらも断面が as-of の投資可能 universe ではないので incomplete とする。当日を基準にするのは、as-of 前に最終売買を終えた銘柄を master が持たないのは正しいからで、entry の staleness 許容（15 日）をここへ流用するとどの master でも mismatch を 0 にできなくなる。計測前に書かれた panel は件数を null として報告する（未計測を「欠けなし」と読めないようにする）。
 
@@ -302,7 +293,7 @@ Research Set の ticker の research FV と screening FV の bridge は、有効
 
 上場維持基準への不適合・破産・民事再生・会社更生・債務超過・内部管理体制・開示義務違反による上場廃止は、市場が最後に付けた終値で解決する（`resolved_failure_exit`）。資金が消えた退出には再投資の問いが立たないので、買収型と違い対価の規約を決めずに実値化できる。
 
-分類は JPX が `jpx_delistings.reason` に自由記述で書く語で行い、**fail-closed** とする。買収を示す語（完全子会社化・買収・公開買付・株式等売渡請求・合併・ＭＢＯ・株式移転・株式交換）を含む reason は破綻型としない。買収を破綻型と読むと買収プレミアムを全損として記録するのに対し、破綻型を分類し損ねても既存の欠落が残るだけである。`株式の併合` 単独はスクイーズアウトの第 2 段階なので破綻型ではない。
+破綻型の分類はJPXの廃止理由に基づき、買収と区別できない場合は未解決に残す。買収を破綻型と誤読するとプレミアムを失う一方、分類不能を未解決に残せば既存の欠落として開示できるためである。語句と除外条件の完全な定義は[forward](../../engine/src/baibai_engine/screening/calibration/forward.py)を参照する。`株式の併合`だけでは破綻と判定しない。
 
 価格は entry と同じ調整系列の終値どうしなので、買付価格と違い基準の突合を要さない。調整 factor の被覆は `resolved` と同じく行に記録し gate はしない。退出日が上場廃止日より後の銘柄（廃止後に再び取引された系列）と、1 窓に破綻型の廃止が 2 件入る銘柄は実値化せず unresolved に残す。廃止のかなり前に売買停止された銘柄は停止前の終値で評価されるため損失を過小に測るが、これは行ごと落とす現状と同じ向きで、より小さい。
 
